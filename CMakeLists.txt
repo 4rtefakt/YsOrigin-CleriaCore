@@ -44,6 +44,10 @@ target_link_libraries(cleria-xso PRIVATE cleria)
 add_executable(cleria-aiatest apps/cleria-aiatest/main.cpp)
 target_link_libraries(cleria-aiatest PRIVATE cleria)
 
+# cleria-animtest — reproduce the stored clip AABBs from our own animation+skinning.
+add_executable(cleria-animtest apps/cleria-animtest/main.cpp)
+target_link_libraries(cleria-animtest PRIVATE cleria)
+
 # cleria-audiotest — dump the EFFECTDEF table, to diff against effectdef_parse.py.
 add_executable(cleria-audiotest apps/cleria-audiotest/main.cpp)
 

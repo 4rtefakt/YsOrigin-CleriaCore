@@ -1,5 +1,7 @@
 #include "cleria/ymo.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 #include <unordered_map>
@@ -41,6 +43,8 @@ struct Reader {
 constexpr std::size_t kHeader = 0xA3 * 4;     // 652
 constexpr std::size_t kMaterial = 0xBB * 4;   // 748
 constexpr std::size_t kNode = 0x2A0;          // 672
+constexpr std::size_t kClipHeader = 0xA0;     // 160 (0x28 dwords)
+constexpr std::size_t kTrackHeader = 0x70;    // name[0x60] + 3 counts + type
 constexpr std::size_t kMeshHeader = 0xB4;     // 180
 constexpr std::size_t kVbDesc = 0x14;         // 20
 constexpr std::size_t kIbDesc = 0x14;         // 20
@@ -254,14 +258,204 @@ Model Model::parse(std::span<const std::uint8_t> bytes) {
         mo.meshes.push_back(std::move(me));
     }
 
-    // Animation clips (section 4) are not needed for geometry; ignore the tail.
+    // 4. Animation clips. Header is 0xA0 = 160 bytes:
+    //   0x00 name[0x60] · 0x60 aabb_min · 0x6C aabb_max · 0x78 center · 0x84 radius
+    //   0x88 u32 frame_start · 0x8C u32 frame_end · 0x90 u32 · 0x94 f32 · 0x98 f32
+    //   0x9C u32 track_count
+    // The AABB is this clip's swept volume — the ground truth we validate against.
+    mo.clips.reserve(n_clip);
+    for (std::uint32_t c = 0; c < n_clip; ++c) {
+        AnimClip cl;
+        cl.name = r.cstr(o + 0x00, 0x60);
+        cl.aabb_min = r.vec3(o + 0x60);
+        cl.aabb_max = r.vec3(o + 0x6C);
+        cl.center = r.vec3(o + 0x78);
+        cl.radius = r.f32(o + 0x84);
+        cl.frame_start = r.u32(o + 0x88);
+        cl.frame_end = r.u32(o + 0x8C);
+        const std::uint32_t n_track = r.u32(o + 0x9C);
+        o += kClipHeader;
+
+        cl.tracks.reserve(n_track);
+        for (std::uint32_t t = 0; t < n_track; ++t) {
+            AnimTrack tr;
+            tr.node = r.cstr(o + 0x00, 0x60);
+            const std::uint32_t nA = r.u32(o + 0x60);   // scale
+            const std::uint32_t nB = r.u32(o + 0x64);   // rotation
+            const std::uint32_t nC = r.u32(o + 0x68);   // translation
+            tr.type = r.u32(o + 0x6C);
+            o += kTrackHeader;
+
+            if (tr.type == 0) {
+                tr.scale.reserve(nA);
+                for (std::uint32_t k = 0; k < nA; ++k, o += 0x10)
+                    tr.scale.push_back({r.vec3(o), r.u32(o + 0x0C)});
+                tr.rotation.reserve(nB);
+                for (std::uint32_t k = 0; k < nB; ++k, o += 0x14) {
+                    KeyQuat q;
+                    for (int j = 0; j < 4; ++j) q.q[j] = r.f32(o + j * 4);
+                    q.frame = r.u32(o + 0x10);
+                    tr.rotation.push_back(q);
+                }
+                tr.translation.reserve(nC);
+                for (std::uint32_t k = 0; k < nC; ++k, o += 0x10)
+                    tr.translation.push_back({r.vec3(o), r.u32(o + 0x0C)});
+            } else {
+                // type != 0: type * 0x50 bytes, 16-byte aligned. Never observed —
+                // type is 0 for all 28,161 tracks in the corpus. Skip defensively.
+                o += std::size_t(tr.type) * 0x50;
+                o = (o + 15) & ~std::size_t(15);
+            }
+            cl.tracks.push_back(std::move(tr));
+        }
+        mo.clips.push_back(std::move(cl));
+    }
     return mo;
+}
+
+namespace {
+
+// Compose a node local: S, then R, then T (D3DX RegisterAnimationSRTKeys order),
+// row-vector convention to match Mat4's operator*.
+Mat4 compose_srt(const Vec3& s, const float q[4], const Vec3& t) {
+    const float x = q[0], y = q[1], z = q[2], w = q[3];
+    Mat4 m = Mat4::identity();
+    const float r00 = 1 - 2 * (y * y + z * z), r01 = 2 * (x * y + z * w), r02 = 2 * (x * z - y * w);
+    const float r10 = 2 * (x * y - z * w), r11 = 1 - 2 * (x * x + z * z), r12 = 2 * (y * z + x * w);
+    const float r20 = 2 * (x * z + y * w), r21 = 2 * (y * z - x * w), r22 = 1 - 2 * (x * x + y * y);
+    m.m[0] = s.x * r00; m.m[1] = s.x * r01; m.m[2] = s.x * r02; m.m[3] = 0;
+    m.m[4] = s.y * r10; m.m[5] = s.y * r11; m.m[6] = s.y * r12; m.m[7] = 0;
+    m.m[8] = s.z * r20; m.m[9] = s.z * r21; m.m[10] = s.z * r22; m.m[11] = 0;
+    m.m[12] = t.x; m.m[13] = t.y; m.m[14] = t.z; m.m[15] = 1;
+    return m;
+}
+
+// Sample a key array at `frame`. Keys are sorted by frame; hold before the first
+// and after the last. 96.6% of arrays carry one key per frame, so interpolation is
+// rarely exercised — but the gappy 3.4% need it.
+template <class K, class Lerp>
+bool sample(const std::vector<K>& keys, float frame, Lerp lerp, decltype(K::v)& out) {
+    if (keys.empty()) return false;
+    if (frame <= float(keys.front().frame)) { out = keys.front().v; return true; }
+    if (frame >= float(keys.back().frame)) { out = keys.back().v; return true; }
+    std::size_t i = 0;
+    while (i + 1 < keys.size() && float(keys[i + 1].frame) < frame) ++i;
+    const K& a = keys[i];
+    const K& b = keys[std::min(i + 1, keys.size() - 1)];
+    const float span = float(b.frame) - float(a.frame);
+    const float t = span > 0 ? (frame - float(a.frame)) / span : 0.0f;
+    out = lerp(a.v, b.v, t);
+    return true;
+}
+
+Vec3 lerp3(const Vec3& a, const Vec3& b, float t) {
+    return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
+}
+
+}  // namespace
+
+void Model::rest_pose() {
+    for (Node& n : nodes) n.local = compose_srt(n.scale, n.quat, n.translation);
+    resolve_hierarchy();
+}
+
+void Model::pose(const AnimClip& clip, float frame) {
+    for (const AnimTrack& tr : clip.tracks) {
+        if (tr.node_index < 0 || tr.node_index >= int(nodes.size())) continue;
+        Node& n = nodes[std::size_t(tr.node_index)];
+        Vec3 s = n.scale, t = n.translation;
+        float q[4] = {n.quat[0], n.quat[1], n.quat[2], n.quat[3]};
+        sample(tr.scale, frame, lerp3, s);
+        sample(tr.translation, frame, lerp3, t);
+        // Rotation: nlerp with a hemisphere fix. slerp and nlerp both reproduce the
+        // stored AABBs; nlerp is cheaper and the arrays are dense.
+        if (!tr.rotation.empty()) {
+            const auto& ks = tr.rotation;
+            std::size_t i = 0;
+            if (frame <= float(ks.front().frame)) {
+                for (int j = 0; j < 4; ++j) q[j] = ks.front().q[j];
+            } else if (frame >= float(ks.back().frame)) {
+                for (int j = 0; j < 4; ++j) q[j] = ks.back().q[j];
+            } else {
+                while (i + 1 < ks.size() && float(ks[i + 1].frame) < frame) ++i;
+                const KeyQuat& a = ks[i];
+                const KeyQuat& b = ks[std::min(i + 1, ks.size() - 1)];
+                const float span = float(b.frame) - float(a.frame);
+                const float u = span > 0 ? (frame - float(a.frame)) / span : 0.0f;
+                float dot = 0;
+                for (int j = 0; j < 4; ++j) dot += a.q[j] * b.q[j];
+                const float sgn = dot < 0 ? -1.0f : 1.0f;  // shortest arc
+                float len = 0;
+                for (int j = 0; j < 4; ++j) {
+                    q[j] = a.q[j] * (1 - u) + b.q[j] * sgn * u;
+                    len += q[j] * q[j];
+                }
+                len = std::sqrt(len);
+                if (len > 1e-8f) for (int j = 0; j < 4; ++j) q[j] /= len;
+            }
+        }
+        n.local = compose_srt(s, q, t);
+    }
+    resolve_hierarchy();
+}
+
+bool Model::skin_point(const Mesh& mesh, int submesh, std::uint32_t k, const Vec3& v,
+                       bool is_dir, Vec3& out) const {
+    if (!mesh.skinned() || submesh < 0 || submesh >= int(mesh.submeshes.size())) return false;
+    const Submesh& sm = mesh.submeshes[std::size_t(submesh)];
+    const VertexBuffer& avb = mesh.vbs[0];
+    const std::uint32_t nb = mesh.influences;
+    float w[4] = {0, 0, 0, 0};
+    float sum = 0;
+    for (std::uint32_t i = 0; i + 1 < nb; ++i) {
+        w[i] = avb.raw_f32(k, int(i) * 4);
+        sum += w[i];
+    }
+    w[nb - 1] = 1.0f - sum;  // the last weight is implied
+
+    const std::uint32_t idx = avb.raw_u32(k, int(avb.stride) - 16);
+    Vec3 acc{0, 0, 0};
+    float wsum = 0;
+    for (std::uint32_t i = 0; i < nb; ++i) {
+        if (w[i] == 0.0f) continue;
+        // The shader's `.zyxw` un-swizzles D3DCOLOR back to byte order, so slot i
+        // is simply byte i of the dword. It is a PALETTE SLOT, not a bone id.
+        const std::uint32_t slot = (idx >> (8 * i)) & 0xFF;
+        if (slot >= sm.bone_ids.size()) continue;
+        const std::uint32_t bid = sm.bone_ids[slot];
+        if (bid == 0xFFFFFFFFu || bid >= mesh.bone_nodes.size()) continue;
+        const int ni = mesh.bone_nodes[bid];
+        if (ni < 0 || ni >= int(nodes.size())) continue;
+        const Mat4 m = nodes[std::size_t(ni)].offset * nodes[std::size_t(ni)].world;
+        Vec3 t;
+        if (is_dir) {
+            t = {v.x * m.m[0] + v.y * m.m[4] + v.z * m.m[8],
+                 v.x * m.m[1] + v.y * m.m[5] + v.z * m.m[9],
+                 v.x * m.m[2] + v.y * m.m[6] + v.z * m.m[10]};
+        } else {
+            t = m.transform_point(v);
+        }
+        acc.x += t.x * w[i];
+        acc.y += t.y * w[i];
+        acc.z += t.z * w[i];
+        wsum += w[i];
+    }
+    if (wsum <= 1e-6f) return false;
+    out = acc;
+    return true;
 }
 
 void Model::resolve_hierarchy() {
     std::unordered_map<std::string, int> node_by_name, mesh_by_name;
     for (int i = 0; i < int(nodes.size()); ++i) node_by_name[nodes[i].name] = i;
     for (int i = 0; i < int(meshes.size()); ++i) mesh_by_name[meshes[i].name] = i;
+
+    // Animation tracks: node name -> index.
+    for (AnimClip& cl : clips)
+        for (AnimTrack& tr : cl.tracks) {
+            auto it = node_by_name.find(tr.node);
+            tr.node_index = (it != node_by_name.end()) ? it->second : -1;
+        }
 
     // Skinning bone lists: name -> node index. Left at -1 if a name doesn't resolve,
     // so a bad list degrades to the bind pose rather than indexing out of bounds.

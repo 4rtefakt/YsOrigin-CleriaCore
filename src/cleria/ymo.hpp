@@ -142,18 +142,69 @@ struct Node {
     int mesh_index = -1;
 };
 
+// Animation keys. Value first, FRAME last — the one place Falcom deviates from
+// D3DX, whose D3DXKEY_* put Time first. The trailing field is a u32 FRAME NUMBER,
+// not a float time: read as a float, frame 220 decodes to the denormal 3.08e-43.
+// At 60 ticks/sec, frame n is n/60 s of scaled time.
+struct KeyV3 {
+    Vec3 v;
+    std::uint32_t frame = 0;
+};
+struct KeyQuat {
+    float q[4] = {0, 0, 0, 1};  // x,y,z,w — 100.00% unit across 865,462 keys
+    std::uint32_t frame = 0;
+};
+
+// One node's animation within a clip. Arrays are S, R, T — D3DX's
+// RegisterAnimationSRTKeys order.
+struct AnimTrack {
+    std::string node;
+    std::uint32_t type = 0;
+    std::vector<KeyV3> scale;
+    std::vector<KeyQuat> rotation;
+    std::vector<KeyV3> translation;
+    int node_index = -1;  // resolved by resolve_hierarchy()
+};
+
+struct AnimClip {
+    std::string name;
+    Vec3 aabb_min, aabb_max;   // ground truth: the volume this clip sweeps
+    Vec3 center;
+    float radius = 0;
+    std::uint32_t frame_start = 0, frame_end = 0;
+    std::vector<AnimTrack> tracks;
+};
+
 struct Model {
     std::uint32_t flags = 0, flags2 = 0;
-    Vec3 aabb_min, aabb_max;
+    Vec3 aabb_min, aabb_max;   // the union of the clip AABBs
     std::vector<Material> materials;
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
+    std::vector<AnimClip> clips;
 
     // Parse a whole YMO. Throws std::runtime_error on any inconsistency.
     static Model parse(std::span<const std::uint8_t> bytes);
 
     // Resolve name references into indices and compute each node's world matrix.
     void resolve_hierarchy();
+
+    // Pose the hierarchy at `frame` of `clip`: replace each tracked node's local
+    // matrix with compose(S, R, T) sampled from its keys, then recompute worlds.
+    // Untracked nodes keep their rest local. Call resolve_hierarchy() first.
+    void pose(const AnimClip& clip, float frame);
+
+    // Restore every node's local matrix to its rest pose (compose of the node's own
+    // S/R/T at 0x260/0x278/0x26C) and recompute worlds.
+    void rest_pose();
+
+    // Skin one vertex of `mesh` into MODEL space through the indexed palette, using
+    // the current node world matrices. `submesh` selects the BoneId palette — a
+    // vertex's BLENDINDICES byte is a slot into THAT, not a bone id. `is_dir` skips
+    // translation (for normals). Returns false if nothing resolved, leaving the
+    // caller on the bind pose.
+    bool skin_point(const Mesh& mesh, int submesh, std::uint32_t k, const Vec3& v,
+                    bool is_dir, Vec3& out) const;
 };
 
 }  // namespace cleria
