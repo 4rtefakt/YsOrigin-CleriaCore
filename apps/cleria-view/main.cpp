@@ -101,7 +101,7 @@ struct Player {
     int level = 1;
     int hp = 400, max_hp = 400;
     int sp = 59;   // placeholder until the stat model lands
-    float exp_pct = 0.0f;
+    float exp_pct = 42.0f;  // placeholder until the stat model lands
     float mp_pct = 100.0f;
     int character = 1;  // portrait: 1 Yunica / 2 Hugo / 3 Toal
 };
@@ -1217,25 +1217,24 @@ static Rc digit_cell(int d) { return {float(d) * 12.0f, 24.0f, 12.0f, 12.0f}; }
 // 0/1=Yunica, 2=Hugo, 3=Toal (Adol @250,257 is unused in Origin).
 static const Rc kPortrait[4] = {
     {364,257,116,100}, {364,257,116,100}, {250,362,116,100}, {364,362,116,100}};
-// The bar cluster, as the real game draws it (user-confirmed against a screenshot):
-//   - the ornate GREY SEGMENTED housing is the MP / skill-usage bar, and it reads
-//     EMPTY until a skill charges it. Its fill colour depends on the equipped skill
-//     (green / yellow / orange-red) -- those are the atlas's six 7px bands from y37,
-//     split left(x1..250)/right(x252..502), cycling green/yellow/red in a BRIGHT set
-//     (y37/45/53 = fill) and a DARK set (y61/69/77 = track). WHAT SELECTS THE BAND IS
-//     [UNKNOWN], so we do not draw a skill fill at all yet.
-//   - HP is the BLUE POINTED bar inside it -- rgb(103,119,209), tapered ends, an
-//     exact match for the screenshot. It also drives the `60/ 60` cur/max digits.
-//   - EXP for the current level is the thin RED/ORANGE bar above. Not drawn: its max
-//     width is one of the recovered `?`s (quad 6, 142,718,?,722).
-// Measured off the atlas alpha, not taken from the spec: the art's opaque extent is
-// y469..510 and its widest row is 271px -- which matches the plate rect's 271 width
-// EXACTLY, confirming the 1:1 mapping. hud_atlas_spec.json records {0,472,270,37},
-// i.e. 3px too low at the top and clipped at the bottom, which shifts every interior
-// channel and is why the HP bar would not line up with the borders.
-static const Rc kBarHousing = {0, 469, 271, 42};  // ornate housing (the MP track)
-static const Rc kBluePointed = {2, 1, 248, 7};    // HP fill      rgb(103,119,209)
-static const Rc kRedPointed  = {2, 9, 248, 7};    // rgb(214,47,42) -- EXP? [UNKNOWN]
+// The bar cluster — every rect below is the ENGINE's own, read from the builders'
+// UV immediates, not measured off the art.
+//
+// THE RULE THAT MATTERS: the engine's source rects are FULL CELLS WITH TRANSPARENT
+// MARGINS. Measuring opaque-alpha extents under-reports them every time — it bit us
+// on the digit cells (12px cells, ink inset), on the pointed bars (252x8 cells whose
+// ink is only {2,1,248,7}), and on the housing. Use the cell, not the ink, or things
+// shift by a couple of px and the tips lose their margin.
+//
+// The channel stack inside the housing (1024x768):
+//   EXP orange  {142, 718, +ratio*230, 722}   <- the ONLY non-1:1 quad (see below)
+//   HP blue     {120, 726, +(hp/max)*252, 734}
+//   HP trail    {120+(hp/max)*252 .. +(lag/max)*252, 726, 734}
+//   MP / skill  {120, 737, +(mp/mpmax)*252, 745}
+static const Rc kBarHousing  = {0, 468, 271, 44};  // confirmed from quad 2's UVs
+static const Rc kHpBlue      = {0,   0, 252, 8};   // HP fill      (ink is {2,1,248,7})
+static const Rc kHpTrail     = {0,   8, 252, 8};   // HP damage trail
+static const Rc kExpOrange   = {0,  16, 240, 8};   // EXP fill — 240 art -> 230 screen
 static const Rc kSlotFrame   = {472, 472, 40, 40}; // the 40x40 equipment slot frame
 
 // ---- the game's real HUD layout (from build/source_map/HUD_COORDS.md) --------
@@ -1268,16 +1267,8 @@ struct HudMap {
 struct Ar { float x0, y0, x1, y1; };
 static const Ar kAPortrait = {0, 670, 116, 766};    // character portrait, 116x96
 static const Ar kABarPlate = {115, 714, 386, 758};  // the housing / plate
-// The MP / skill fill, proven by builder B: {120, 737, (cur/max)*252, 8}, sampling
-// the RIGHT-half colour band (u=252/512) at v=(36+n*8)/512 — n from DAT_0076a630
-// (0x75->1, 0x76->2, else 0), i.e. atlas bands y=36/44/52 = green/yellow/red. We do
-// NOT draw it: what selects the band needs the skill model, and the real HUD shows
-// this channel empty until a skill charges it.
-static const Ar kAMpTrack = {120, 735, 372, 747};  // the segmented MP channel
-static const Ar kAMpFill  = {120, 737, 372, 745};  // MP fill; max width 252
-// Quad 6 — the thin bar in the UPPER channel of the housing, max fill 230. This is
-// where the blue HP bar sits in the real HUD; the MP channel below it stays empty.
-static const Ar kAHpFill  = {142, 718, 372, 722};  // max fill width = 230
+static const Ar kAHpFill  = {120, 726, 372, 734};  // blue HP; max fill 252
+static const Ar kAExpFill = {142, 718, 372, 722};  // orange EXP; max fill 230
 static const Ar kAThinBar  = {142, 718, 372, 722};  // thin bar (EX/MP — name unconfirmed)
 static const Ar kASlot[4] = {{0, 620, 40, 632}, {0, 632, 40, 644},
                              {0, 644, 40, 656}, {0, 656, 40, 668}};  // equipment slots
@@ -1508,10 +1499,29 @@ struct Hud {
         // segmented MP channel below stays empty — that is what the real HUD shows,
         // and drawing HP into it (as we briefly did) misaligns it with the borders.
         sprite_a(m, kABarPlate, kBarHousing, sw, sh);
-        const float frac = p.max_hp > 0 ? std::max(0.f, std::min(1.f, float(p.hp) / p.max_hp)) : 0.f;
-        Ar fill = kAHpFill;
-        fill.x1 = fill.x0 + 230.0f * frac;   // 230 = quad 6's authored max fill width
-        sprite_a(m, fill, kBluePointed, sw, sh);
+
+        // HP — the blue bar, quad 0x0043c788. Its ratio comes from the SAME globals
+        // (0x006d5f20 / 0x006d5f28) that builder D prints as `%3d/%3d`, so the bar
+        // and the `60/ 60` readout are provably one value.
+        const float hp_frac = p.max_hp > 0
+                                  ? std::max(0.f, std::min(1.f, float(p.hp) / p.max_hp)) : 0.f;
+        Ar hp = kAHpFill;
+        hp.x1 = hp.x0 + 252.0f * hp_frac;
+        sprite_a(m, hp, kHpBlue, sw, sh);
+        // (Not drawn: the red HP damage trail, quad 0x0043c5b2 — the segment between
+        // cur and a lagging catch-up value at 0x006d5f24, i.e. the HP struct is
+        // {cur, lag, max}. It only exists while catching up, and we have no lag model.)
+
+        // EXP for the current level — quad 6, the orange band. This is the ONLY HUD
+        // quad that is NOT 1:1: 240px of art into 230px of screen, and 8px of art
+        // squashed into 4px (2:1). That squash is why it reads thin next to the blue
+        // bar — deliberate, not a mis-measurement.
+        // [H-medium] identity: it is the last thin orange bar standing and EXP has
+        // nowhere else to live, but its ratio (1 - (X - DAT_0076a748)/Y) is NOT driven
+        // by the [EX] readout's global, which builder A never reads.
+        Ar ex = kAExpFill;
+        ex.x1 = ex.x0 + 230.0f * std::max(0.f, std::min(1.f, p.exp_pct / 100.0f));
+        sprite_a(m, ex, kExpOrange, sw, sh);
 
         // Character portrait (drawn over the plate's left end, as the game does).
         const int ci = (p.character >= 0 && p.character < 4) ? p.character : 1;
