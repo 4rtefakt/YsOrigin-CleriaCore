@@ -41,6 +41,21 @@
 #include "cleria/sen.hpp"
 #include "cleria/sfo.hpp"
 #include "cleria/xso.hpp"
+// CLERIA_CULL=off|cw|ccw — probe. The exe sets D3DCULL_CCW, but D3D9's left-handed
+// winding inverts on the way to WebGPU, so its semantics don't transplant directly:
+// measured in S_1000, "ccw" changes no visible pixel and "cw" culls the whole room,
+// i.e. every visible triangle here is wound the same way. Default stays None until
+// the per-material no-cull flag (0x400, 543/6642 materials) is wired.
+static WGPUFrontFace g_front = WGPUFrontFace_CW;
+static WGPUCullMode  g_cull  = WGPUCullMode_None;
+static void init_cull_env() {
+    const char* c = std::getenv("CLERIA_CULL");
+    if (!c) return;
+    std::string v(c);
+    if (v == "off")      { g_cull = WGPUCullMode_None; }
+    else if (v == "cw")  { g_front = WGPUFrontFace_CCW; g_cull = WGPUCullMode_Back; }
+    else if (v == "ccw") { g_front = WGPUFrontFace_CW;  g_cull = WGPUCullMode_Back; }
+}
 
 using namespace cleria;
 namespace fs = std::filesystem;
@@ -473,7 +488,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     pd.vertex.module = sm; pd.vertex.entryPoint = sv("vs");
     pd.vertex.bufferCount = 1; pd.vertex.buffers = &vbl;
     pd.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-    pd.primitive.frontFace = WGPUFrontFace_CW; pd.primitive.cullMode = WGPUCullMode_None;
+    pd.primitive.frontFace = g_front; pd.primitive.cullMode = g_cull;
     pd.depthStencil = &ds; pd.multisample.count = 1; pd.multisample.mask = 0xFFFFFFFF;
     pd.fragment = &fs;
     g.pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
@@ -508,7 +523,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
         apd.vertex.module = fm; apd.vertex.entryPoint = sv("vs");
         apd.vertex.bufferCount = 1; apd.vertex.buffers = &vbl;
         apd.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-        apd.primitive.frontFace = WGPUFrontFace_CW; apd.primitive.cullMode = WGPUCullMode_None;
+        apd.primitive.frontFace = g_front; apd.primitive.cullMode = g_cull;
         apd.depthStencil = &ads; apd.multisample.count = 1; apd.multisample.mask = 0xFFFFFFFF;
         apd.fragment = &afs;
         g.fx_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &apd);
@@ -2037,6 +2052,7 @@ static fs::path default_assets(const char* argv0) {
 }
 
 int main(int argc, char** argv) {
+    init_cull_env();
     // No args -> free-fly the tower base (S_1000) with default assets.
     const fs::path asset_root = (argc >= 2) ? fs::path(argv[1]) : default_assets(argv[0]);
     const bool shot = argc >= 4 && std::strcmp(argv[3], "--shot") == 0;

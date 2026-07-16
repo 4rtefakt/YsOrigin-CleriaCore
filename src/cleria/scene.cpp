@@ -147,14 +147,15 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             model.resolve_hierarchy();
         } catch (const std::exception&) { ++out.missing; continue; }
         const Mat4 place = o.world();
-        // Debug: CLERIA_MAT=1 lists materials that use texture slots beyond slot 0
-        // (we only ever bind slot 0 with uv0 — multi-stage materials render wrong).
+        // Debug: CLERIA_MAT=1 dumps the fields the engine's render struct actually
+        // reads (flags/blend/diffuse/scroll), plus all three texture slots.
         if (std::getenv("CLERIA_MAT"))
             for (const Material& m : model.materials)
-                if (!m.texture[1].empty() || !m.texture[2].empty())
-                    std::printf("  [mat] %-18s tex0=%-16s tex1=%-16s tex2=%s\n",
-                                m.name.c_str(), m.texture[0].c_str(),
-                                m.texture[1].c_str(), m.texture[2].c_str());
+                std::printf("  [mat] %-18s fl=%08X bl=%u dif=%.2f,%.2f,%.2f,%.2f "
+                            "uv=%+.4f,%+.4f t0=%-16s t1=%-14s t2=%s\n",
+                            m.name.c_str(), m.flags, m.blend, m.diffuse[0], m.diffuse[1],
+                            m.diffuse[2], m.diffuse[3], m.scroll_u, m.scroll_v,
+                            m.texture[0].c_str(), m.texture[1].c_str(), m.texture[2].c_str());
 
         for (const Node& node : model.nodes) {
             if (node.mesh_index < 0) continue;

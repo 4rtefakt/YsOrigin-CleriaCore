@@ -11,9 +11,16 @@
 
 namespace cleria {
 
+// The material record's first 0x4C bytes (disk dwords 0..0x12) are copied verbatim
+// into the engine's 100-byte render struct — every draw-time consumer reads that,
+// so those fields are the ones that matter. `name` at 0x4C is only a label.
 struct Material {
+    std::uint32_t flags = 0;     // +0x00  bit 0x4 = UV scroll, 0x8 = ZENABLE, 0x400 = no cull
+    std::uint32_t blend = 0;     // +0x0C  0..3, indexes the engine's blend-mode jump table
+    float diffuse[4]{1, 1, 1, 1};  // +0x10  RGBA; alpha is what the alpha test reads
+    float scroll_u = 0, scroll_v = 0;  // +0x44/+0x48  UV scroll velocity -> c1.xy
     std::string name;
-    std::string texture[3];  // three slots; ".DDS", may be empty
+    std::string texture[3];  // three slots, stride 0xC0; ".DDS", may be empty
 };
 
 struct VertexBuffer {

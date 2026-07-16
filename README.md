@@ -53,11 +53,12 @@ lists**, and per-node scale/rotation/translation animation keys. See
 
 > **Rooms and props use legacy FVFs (`0x1D2`/`0x2D2`) with rigid node binding, and
 > that path is validated bit-exact. But that is not the whole format.** The bosses
-> under `ENEMY/` use `fvf = 0` — a D3D9 **vertex declaration** — which our parser
-> does not decode, so they currently render as garbage. The shader set we recently
-> extracted includes `_1w`…`_4w` variants (bone-weight counts), so **the "no
-> skinning" claim this README used to make is almost certainly wrong.** Under
-> investigation; see the ledger below.
+> under `ENEMY/` use `fvf = 0` — a D3D9 **vertex declaration**, and the declarations
+> are not in the file: they are eight static `D3DVERTEXELEMENT9` arrays inside the
+> exe, chosen by a shader table. **Ys Origin does skin**, via D3DX indexed-palette
+> blending (`_1w`…`_4w` = influence counts, `decl = 3 + N`), so the "no skinning"
+> claim this README used to make was simply wrong. We don't draw bosses yet, but the
+> format is no longer a mystery — see [docs/formats/YMO.md](docs/formats/YMO.md).
 
 ## Layout
 
@@ -128,7 +129,8 @@ overlay overwrites 525 scripts and the English text.
 | `CLERIA_SPAWN="x,y,z"` | drop the character somewhere specific |
 | `CLERIA_SKIP=<substr>` | omit SOB objects whose path/name matches — bisect artifacts |
 | `CLERIA_VB=1` | print each mesh's vertex format; flags buffers with no UV0 |
-| `CLERIA_MAT=1` | list materials using texture slots beyond slot 0 |
+| `CLERIA_MAT=1` | dump every material: flags, blend mode, diffuse, UV-scroll velocity, all 3 texture slots |
+| `CLERIA_CULL=off\|cw\|ccw` | probe face culling (D3D9's `D3DCULL_CCW` does not map directly to WebGPU winding) |
 | `python tools/xso_audit.py` | count script branches our VM would get wrong at runtime |
 | `python tools/sct_enemies.py <ROOM>` | list a room's enemies + positions + sprites |
 | `python tools/aia_gif.py <f.aia> <o.gif>` | animation contact sheet, for identifying anims |
@@ -171,9 +173,9 @@ for facts:
 | animation frame rate | **known now, not yet implemented**: `anime_Wait(n)` = n/60 s. Our flat 0.09 s/frame was accidentally near walk (0.100) and wrong everywhere else — idle is 0.167, run 0.067, attacks 0.017–0.067 |
 | **fixed-step vs our variable dt** | **architectural gap.** The game runs logic at a **fixed 60 Hz with catch-up, decoupled from rendering** (`RefreshRate` only governs Present). We scale everything by `dt`. Faithful timing means emulating the step, not tuning constants |
 | HUD `Lv` / `SP` / `EXP` | placed by eye — the digit emitter isn't decoded |
-| black slabs over S_1000's stairs | **unexplained**; several theories tested and refuted |
-| water animation | **not found.** Not UV scroll (the plain shader has the same instruction); it's reflection/caustics — mechanism unproven |
-| bosses | **can't render them** — they use a vertex *declaration* (`fvf=0`, stride 28) our YMO parser doesn't handle, and are probably skinned |
+| black slabs over S_1000's stairs | **still unexplained.** Now also refuted: they are *not* the `_.YMO` collision twin (the SOB never references it, and they survive with only `s_1000.ymo` drawn), *not* a black material diffuse (every material in the room is `1,1,1,1`), and *not* backfaces (no cull mode separates them from the floor). Next suspect: the baked vertex colours themselves |
+| water animation | **found — it's the material, not the shader.** Each material carries a UV-scroll velocity at `+0x44/+0x48` (`20zwater3` = +0.0006,-0.0018) gated by flag bit `0x4`; the shader can't animate itself (its phase input has no time term). We parse it now; the per-frame integrator that advances the phase is still unlocated |
+| bosses | **understood, not yet drawn.** The declarations aren't in the YMO at all — they're 8 static `D3DVERTEXELEMENT9` arrays in the exe. BOSS01 is **two-stream**: our parser read stream0's first 12 bytes as POSITION when they're BLENDWEIGHT (hence the tiny blob). Skinning is D3DX indexed-palette; 64/64 files reproduce all 303 stored clip AABBs to ≤3e-5 |
 | AIA second layer | decoded (body flags **bit 0**, palette+1) but not yet drawn — matters for c_112/c_113 and Boost forms |
 | 300 XSO branch sites | run `tools/xso_audit.py` — unimplemented sub-ops leave `acc` stale, so those branches are wrong at runtime |
 

@@ -106,9 +106,16 @@ Model Model::parse(std::span<const std::uint8_t> bytes) {
     mo.materials.reserve(n_mat);
     for (std::uint32_t i = 0; i < n_mat; ++i) {
         Material m;
+        m.flags = r.u32(o + 0x00);
+        m.blend = r.u32(o + 0x0C);
+        for (int k = 0; k < 4; ++k) m.diffuse[k] = r.f32(o + 0x10 + k * 4);
+        m.scroll_u = r.f32(o + 0x44);
+        m.scroll_v = r.f32(o + 0x48);
         m.name = r.cstr(o + 0x4C, 0x60);
+        // Texture slots are 0xC0 apart, not 0x30: 0xAC + 3*0xC0 == 0x2EC == the
+        // record size. Reading at 0x30 lands inside slot 0's buffer and returns "".
         for (int t = 0; t < 3; ++t)
-            m.texture[t] = r.cstr(o + 0xAC + std::size_t(t) * 0x30, 0x30);
+            m.texture[t] = r.cstr(o + 0xAC + std::size_t(t) * 0xC0, 0xC0);
         mo.materials.push_back(std::move(m));
         o += kMaterial;
     }
