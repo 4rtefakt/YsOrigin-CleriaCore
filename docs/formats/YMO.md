@@ -98,10 +98,37 @@ Units are metres — `AEF00_02.YMO` spans min `(-4.38,-0.40,-4.38)` → max
 
 ### 1. Materials — `0x2EC` = 748 bytes (`0xBB` dwords), runtime stride `0x2b0`
 
-- `+0x00` u32 flags — bit `0x200000` sets header flags bit `0x200`
-- `+0x4C` NUL-terminated **material name**
-- `+0xAC` **3 × texture name**, stride `0x30` (48 B) — plain `.DDS`, no RE needed
-- runtime `+0x3C` initialised to `1.0f` (alpha)
+The loader allocates two arrays; the one that matters is a 100-byte (`0x64`) render
+struct holding **disk bytes `0x00..0x4B` verbatim** — every draw-time consumer reads
+*that*, not the `0x2b0` material. That the copied region ends exactly where `name`
+begins (`0x4C`) is what fixes its extent.
+
+| Offset | Type | Field |
+|---|---|---|
+| `+0x00` | u32 | flags — bit `0x4` = UV scroll, `0x8` = ZENABLE, `0x400` = no cull; `0x200000` sets header flags bit `0x200` |
+| `+0x0C` | u32 | blend mode `0..3` (indexes the engine's jump table) |
+| `+0x10` | float[4] | **diffuse RGBA** — the alpha every alpha test reads |
+| `+0x2C`/`+0x30` | float | specular power (16.0) / level |
+| `+0x3C`/`+0x40` | float | UV-scroll **phase** — always `0.0` on disk in **6642/6642**; runtime accumulator only |
+| `+0x44`/`+0x48` | float | UV-scroll **velocity** → `c1.xy` |
+| `+0x4C` | char[0x60] | **material name** |
+| `+0xAC` | char[0xC0] × 3 | **texture slots**, stride **`0xC0`** |
+
+> **The texture stride is `0xC0`, not `0x30`.** Earlier revisions said `0x30`, and
+> the arithmetic settles it: `0xAC + 3*0xC0 = 0x2EC`, exactly the record size.
+> Reading at `0x30` lands *inside slot 0's own buffer* and returns `""` — which is
+> why a corpus check once concluded "no material uses texture slot 1 or 2." It does:
+> **63 materials use slot 1** (`env_*.dds`) and **658 use slot 2**.
+>
+> **A slot is a PATH RELATIVE TO THE YMO'S OWN DIRECTORY, not a basename**, with the
+> mip-set dir inserted before the filename: `<ymo_dir>/<ref_dir>/{H|L}/<file>` —
+> resolves **4856/4856**. 71% of refs carry a relative path (`..\common\00back00.dds`);
+> the ones that look bare are simply co-located. Resolving by basename against a
+> game-wide index is wrong: **532 of 3988 basenames exist in more than one directory
+> and 530 of those are byte-distinct.**
+
+The flag/velocity pairing is exact: `flags & 0x4` ⇔ nonzero velocity in **6642/6642**.
+Runtime `+0x3C` is initialised to `1.0f` (alpha).
 
 ### 2. Nodes — `0x2A0` = 672 bytes, runtime stride `0x250` (+ `0x170` pose), 16-B aligned
 
