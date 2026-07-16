@@ -1582,9 +1582,9 @@ static int render_play(Gpu& g, const Room& room, const fs::path& out,
         EnemyFx efx;
         efx.init(g, asset_root, room.cast);
         std::vector<EnemyInst> list;
-        for (const CastPlacement& c : room.cast.casts) {
-            const std::string stem = c.sprite_stem();
-            if (!stem.empty()) list.push_back({stem, stem, c.position, 20, 20, true});
+        for (const CastPlacement& cp : room.cast.casts) {
+            const std::string stem = cp.sprite_stem();
+            if (!stem.empty()) list.push_back({stem, stem, cp.position, 20, 20, true});
         }
         draw_enemies(g, cview, dview, efx, list, cam.forward());
     }
