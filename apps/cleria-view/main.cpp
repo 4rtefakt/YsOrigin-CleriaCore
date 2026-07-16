@@ -1516,9 +1516,12 @@ struct Hud {
         // quad that is NOT 1:1: 240px of art into 230px of screen, and 8px of art
         // squashed into 4px (2:1). That squash is why it reads thin next to the blue
         // bar — deliberate, not a mis-measurement.
-        // [H-medium] identity: it is the last thin orange bar standing and EXP has
-        // nowhere else to live, but its ratio (1 - (X - DAT_0076a748)/Y) is NOT driven
-        // by the [EX] readout's global, which builder A never reads.
+        //
+        // Its ratio is NOT driven by DAT_0076c1b4, and that is EXPECTED rather than
+        // suspicious: **[EX] is not experience**. [EX] is the EX/BOOST GAUGE (max
+        // 30000, Boost unlocks at 100%) — the same global builder C sweeps into the
+        // arc around the portrait and pulses when full. EXPERIENCE-into-level is a
+        // separate quantity, and this is its bar.
         Ar ex = kAExpFill;
         ex.x1 = ex.x0 + 230.0f * std::max(0.f, std::min(1.f, p.exp_pct / 100.0f));
         sprite_a(m, ex, kExpOrange, sw, sh);
