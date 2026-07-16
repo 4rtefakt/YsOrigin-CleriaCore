@@ -120,8 +120,8 @@ int main(int argc, char** argv) {
         // the four variants each one cycles through.
         for (int i = 0; i < cleria::kSurfaceCount; ++i) {
             const cleria::SurfaceType& s = cleria::kSurfaceTable[i];
-            std::printf("%2d %-10s base=%-3u mask=%u ", i, s.name, s.base_sound_id,
-                        s.variant_mask);
+            std::printf("%2d %-10s base=%-3u walk=%-3u run=%-3u jit=%u mask=%u ", i, s.name,
+                        s.base_sound_id, s.walk_ticks, s.run_ticks, s.jitter, s.variant_mask);
             if (s.base_sound_id == 0) {
                 std::printf("(silent)\n");
                 continue;

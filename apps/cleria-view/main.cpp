@@ -254,18 +254,25 @@ struct Room {
 // an unmatched lookup to 1 (see surface.hpp). That covers "default", the second most
 // common collision material. Silence is driven by base_sound_id == 0 (`none`,
 // `stopper`, `reserve20`) instead. CLERIA_STEPS=1 traces each step.
-static void play_footstep(Audio& audio, const RoomMesh& m, int tri, unsigned step_n) {
+// Returns the TICKS to wait before the next step, or 0 to re-check next tick. A
+// silent surface returns BEFORE the reload in the exe, so its timer stays 0 and the
+// check re-runs every tick — don't "reload anyway".
+static int play_footstep(Audio& audio, const RoomMesh& m, int tri, unsigned step_n,
+                         bool running, std::uint32_t jitter_roll) {
     const std::string_view surf = surface_of(m, tri);
-    if (surf.empty()) return;
+    if (surf.empty()) return 0;
     const int idx = surface_index_or_default(surf);
     const int id = footstep_sound(idx, step_n);
     if (std::getenv("CLERIA_STEPS")) {
         const EffectDef* d = id >= 0 ? audio.defs().find(id) : nullptr;
-        std::printf("  step %-10.*s surface=%-3d%s id=%-4d %s\n", int(surf.size()), surf.data(),
-                    idx, surface_index(surf) < 0 ? " (defaulted)" : "", id,
-                    d ? d->name.c_str() : "(silent)");
+        std::printf("  step %-10.*s surface=%-3d%s id=%-4d %-16s %s\n",
+                    int(surf.size()), surf.data(), idx,
+                    surface_index(surf) < 0 ? " (defaulted)" : "", id,
+                    d ? d->name.c_str() : "(silent)", running ? "[run]" : "[walk]");
     }
-    if (id >= 0) audio.play(id, 0.55f);
+    if (id < 0) return 0;  // silent surface: no reload
+    audio.play(id, 0.55f);
+    return footstep_interval(idx, running, jitter_roll);
 }
 
 // What physics collides against. The game collides against the `_.YMO` hulls, not
@@ -1855,9 +1862,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // INVENTED: the game paces footsteps from ASO animation events, which we do not
     // run yet. One step per this much ground travel is a stand-in for that; the
     // surface lookup and variant cycling it feeds are the game's own.
-    const float kStepDist = 1.6f;     // world units between footsteps
-    float step_accum = 0;
-    unsigned step_n = 0;              // the actor's step counter (variant = n & mask)
+    // Footstep cadence is the game's: a countdown in ticks reloaded from the surface
+    // record (walk 20, run 13 — see surface.hpp). No invented distance any more.
+    int step_timer = 0;               // actor+0x4bf
+    unsigned step_n = 0;              // actor+0x4c0, the step counter (variant = n & mask)
     // Base player sprites: C_102/103/104 = Yunica / Hugo / Toal. (C_110-115 are the
     // late-game / weapon-state variants — wrong look for normal play.)
     auto char_aia = [](int c) -> const char* {
@@ -2176,7 +2184,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ks[SDL_SCANCODE_A]) { wish.x -= rt.x; wish.z -= rt.z; }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
             const bool moving = wl > 1e-4f;
-            const Vec3 was = feet;
             if (moving) { feet.x += wish.x / wl * walk * dt; feet.z += wish.z / wl * walk * dt; }
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
@@ -2184,29 +2191,41 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             vy -= gravity * dt; feet.y += vy * dt;
             int floor_tri = -1;
             const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + stepUp, &floor_tri);
-            const bool was_grounded = grounded;
             if (fl > kNoFloor && vy <= 0.0f && fl >= feet.y - stepUp) {
                 feet.y = fl; vy = 0; grounded = true;
             } else grounded = false;
 
-            // Footsteps. The surface comes from the collision hull's material name
-            // (the game looks surfaces up BY NAME, FUN_00439700), and the variant
-            // cycles with a per-actor step counter (FUN_0045d600). The CADENCE,
-            // though, is ours: the game drives it from ASO animation events, which
-            // we do not run yet, so we step every kStepDist of ground travel and on
-            // landing. That distance is invented; the sound choice is not.
-            if (grounded) {
-                const float moved = std::sqrt((feet.x - was.x) * (feet.x - was.x) +
-                                              (feet.z - was.z) * (feet.z - was.z));
-                step_accum += moved;
-                const bool landed = !was_grounded;
-                if (landed || step_accum >= kStepDist) {
-                    if (!landed) step_accum -= kStepDist;
-                    else step_accum = 0;
-                    play_footstep(audio, phys_mesh(room), floor_tri, step_n++);
-                }
-            } else {
-                step_accum = kStepDist;  // first step lands as soon as we touch down
+            // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS
+            // reloaded from the surface record, gated on the motion state:
+            //
+            //   FUN_0045c490, once per tick:
+            //     if (!enable) skip
+            //     if (timer != 0) { timer--; skip }        // 0045cee2
+            //     if (!moving_state) { step_counter = 0; skip }
+            //     if (motion_state in {0,1}) TryFootstep()  // 0045cf26
+            //   FUN_0045d600 (TryFootstep):
+            //     if (!IsLand) return
+            //     rec = SURFACE[latched_surface]
+            //     if (rec.se_id == 0) return               // silent: NO reload
+            //     play(rec.se_id + (step_counter++ & rec.mask))
+            //     timer = (state == 1) ? rec.run_ticks : rec.walk_ticks
+            //     if (rec.jitter) timer += rng % rec.jitter
+            //
+            // `motion_state` is actor+0x994 — 0 = walk, 1 = run — which is the ASO
+            // SECTION ID, so our VM supplies it directly. Note the cadence is
+            // deliberately NOT animation-synced: 20 ticks/step against C_010's
+            // 48-tick walk cycle, so steps drift against footplants by design.
+            if (step_timer > 0) {
+                --step_timer;
+            } else if (grounded && (avm.section() == 0 || avm.section() == 1)) {
+                const bool is_running = avm.section() == 1;
+                // The exe's jitter uses xorshift128 (FUN_00439120) — the same
+                // generator XsoVm implements, though the exe keeps it in a separate
+                // state block (DAT_0074622c) from the script RNG.
+                step_timer = play_footstep(audio, phys_mesh(room), floor_tri, step_n++,
+                                           is_running, game.rng_next());
+            } else if (!moving) {
+                step_n = 0;   // the exe resets the counter when not in a step state
             }
             if (grounded && ks[SDL_SCANCODE_SPACE]) { vy = std::sqrt(2 * gravity * kJumpH); grounded = false; }
             if (feet.y < room.mesh.bmin.y - D) spawn_player();
