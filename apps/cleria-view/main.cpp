@@ -1215,9 +1215,15 @@ static const Rc kDigitGold[12] = {
 // 0/1=Yunica, 2=Hugo, 3=Toal (Adol @250,257 is unused in Origin).
 static const Rc kPortrait[4] = {
     {364,257,116,100}, {364,257,116,100}, {250,362,116,100}, {364,362,116,100}};
-static const Rc kHpFrame   = {0, 472, 270, 37};   // ornate HP-bar housing
-static const Rc kGreenBand  = {1, 45, 248, 7};     // bright green gauge fill
-static const Rc kGreenTrack = {1, 69, 248, 7};     // dark green track
+// The long segmented bar is the MANA / SKILL gauge -- NOT the HP bar. HP is the
+// `60/ 60` cur/max digit pair at the top right (user-confirmed against the real
+// game). The gauge's fill colour is chosen by the equipped skill: the atlas holds
+// six 7px bands from y37, each split left(x1..250)/right(x252..502), cycling
+// green/yellow/red in a BRIGHT set (y37/45/53 = the fill) and a DARK set
+// (y61/69/77 = the empty track). We happen to sample the green pair.
+static const Rc kSkillHousing = {0, 472, 270, 37};  // ornate segmented housing
+static const Rc kSkillFill    = {1, 45, 248, 7};    // bright green  (skill = green)
+static const Rc kSkillTrack   = {1, 69, 248, 7};    // dark green    (its empty track)
 
 // ---- the game's real HUD layout (from build/source_map/HUD_COORDS.md) --------
 // Recovered from the status-HUD renderer FUN_004295d0 / builder FUN_0043c230.
@@ -1248,9 +1254,10 @@ struct HudMap {
 // Authored rects in the 1024x768 frame, {x0, y0, x1, y1}.
 struct Ar { float x0, y0, x1, y1; };
 static const Ar kAPortrait = {0, 670, 116, 766};    // character portrait, 116x96
-static const Ar kAHpPlate  = {115, 714, 386, 758};  // HP bar frame / plate
-static const Ar kAHpTrack  = {120, 735, 372, 747};  // HP track; max fill width = 252
-static const Ar kAHpFill   = {120, 737, 372, 745};  // HP fill (x1 is dynamic)
+// Recovered as "HP bar" by the source map; it is the MP/skill gauge (see above).
+static const Ar kASkillPlate = {115, 714, 386, 758};  // gauge frame / plate
+static const Ar kASkillTrack = {120, 735, 372, 747};  // track; max fill width = 252
+static const Ar kASkillFill  = {120, 737, 372, 745};  // fill (x1 is dynamic)
 static const Ar kAThinBar  = {142, 718, 372, 722};  // thin bar (EX/MP — name unconfirmed)
 static const Ar kASlot[4] = {{0, 620, 40, 632}, {0, 632, 40, 644},
                              {0, 644, 40, 656}, {0, 656, 40, 668}};  // equipment slots
@@ -1466,13 +1473,14 @@ struct Hud {
         // row beside the portrait. Drawing skill diamonds there was visibly wrong, so we
         // draw nothing until we know what they are.
 
-        // HP plate, then the track and the fill inside its channel.
-        sprite_a(m, kAHpPlate, kHpFrame, sw, sh);
-        sprite_a(m, kAHpTrack, kGreenTrack, sw, sh);
-        const float frac = p.max_hp > 0 ? std::max(0.f, std::min(1.f, float(p.hp) / p.max_hp)) : 0.f;
-        Ar fill = kAHpFill;
+        // The MP/skill gauge: housing, then the empty track, then the fill.
+        // Driven by MP -- it is not the HP bar, however the source map labelled it.
+        sprite_a(m, kASkillPlate, kSkillHousing, sw, sh);
+        sprite_a(m, kASkillTrack, kSkillTrack, sw, sh);
+        const float frac = std::max(0.f, std::min(1.f, p.mp_pct / 100.0f));
+        Ar fill = kASkillFill;
         fill.x1 = fill.x0 + 252.0f * frac;   // 252 = the authored max fill width
-        sprite_a(m, fill, kGreenBand, sw, sh);
+        sprite_a(m, fill, kSkillFill, sw, sh);
 
         // Character portrait (drawn over the plate's left end, as the game does).
         const int ci = (p.character >= 0 && p.character < 4) ? p.character : 1;
