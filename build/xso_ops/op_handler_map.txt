@@ -1,0 +1,1005 @@
+==== EVENT VM sub-op table @ 0x56e0b0, index=sub, 0..0x18f, default 0x56deb4 ====
+sub 000 -> 0056646a
+sub 001 -> 0056deb4   [DEFAULT/unimpl]
+sub 002 -> 0056deb4   [DEFAULT/unimpl]
+sub 003 -> 0056deb4   [DEFAULT/unimpl]
+sub 004 -> 0056deb4   [DEFAULT/unimpl]
+sub 005 -> 0056deb4   [DEFAULT/unimpl]
+sub 006 -> 0056deb4   [DEFAULT/unimpl]
+sub 007 -> 0056deb4   [DEFAULT/unimpl]
+sub 008 -> 0056deb4   [DEFAULT/unimpl]
+sub 009 -> 0056deb4   [DEFAULT/unimpl]
+sub 00a -> 0056deb4   [DEFAULT/unimpl]
+sub 00b -> 0056deb4   [DEFAULT/unimpl]
+sub 00c -> 0056deb4   [DEFAULT/unimpl]
+sub 00d -> 0056deb4   [DEFAULT/unimpl]
+sub 00e -> 0056deb4   [DEFAULT/unimpl]
+sub 00f -> 0056deb4   [DEFAULT/unimpl]
+sub 010 -> 0056deb4   [DEFAULT/unimpl]
+sub 011 -> 0056deb4   [DEFAULT/unimpl]
+sub 012 -> 0056deb4   [DEFAULT/unimpl]
+sub 013 -> 0056deb4   [DEFAULT/unimpl]
+sub 014 -> 0056deb4   [DEFAULT/unimpl]
+sub 015 -> 0056deb4   [DEFAULT/unimpl]
+sub 016 -> 0056deb4   [DEFAULT/unimpl]
+sub 017 -> 0056deb4   [DEFAULT/unimpl]
+sub 018 -> 0056deb4   [DEFAULT/unimpl]
+sub 019 -> 0056deb4   [DEFAULT/unimpl]
+sub 01a -> 0056deb4   [DEFAULT/unimpl]
+sub 01b -> 0056deb4   [DEFAULT/unimpl]
+sub 01c -> 0056deb4   [DEFAULT/unimpl]
+sub 01d -> 0056deb4   [DEFAULT/unimpl]
+sub 01e -> 0056deb4   [DEFAULT/unimpl]
+sub 01f -> 0056deb4   [DEFAULT/unimpl]
+sub 020 -> 0056deb4   [DEFAULT/unimpl]
+sub 021 -> 0056deb4   [DEFAULT/unimpl]
+sub 022 -> 0056deb4   [DEFAULT/unimpl]
+sub 023 -> 0056deb4   [DEFAULT/unimpl]
+sub 024 -> 0056deb4   [DEFAULT/unimpl]
+sub 025 -> 0056deb4   [DEFAULT/unimpl]
+sub 026 -> 0056deb4   [DEFAULT/unimpl]
+sub 027 -> 0056deb4   [DEFAULT/unimpl]
+sub 028 -> 0056deb4   [DEFAULT/unimpl]
+sub 029 -> 0056deb4   [DEFAULT/unimpl]
+sub 02a -> 0056deb4   [DEFAULT/unimpl]
+sub 02b -> 0056deb4   [DEFAULT/unimpl]
+sub 02c -> 0056deb4   [DEFAULT/unimpl]
+sub 02d -> 0056deb4   [DEFAULT/unimpl]
+sub 02e -> 0056deb4   [DEFAULT/unimpl]
+sub 02f -> 0056deb4   [DEFAULT/unimpl]
+sub 030 -> 0056deb4   [DEFAULT/unimpl]
+sub 031 -> 0056deb4   [DEFAULT/unimpl]
+sub 032 -> 0056deb4   [DEFAULT/unimpl]
+sub 033 -> 0056deb4   [DEFAULT/unimpl]
+sub 034 -> 0056deb4   [DEFAULT/unimpl]
+sub 035 -> 0056deb4   [DEFAULT/unimpl]
+sub 036 -> 0056deb4   [DEFAULT/unimpl]
+sub 037 -> 0056deb4   [DEFAULT/unimpl]
+sub 038 -> 0056deb4   [DEFAULT/unimpl]
+sub 039 -> 0056deb4   [DEFAULT/unimpl]
+sub 03a -> 0056deb4   [DEFAULT/unimpl]
+sub 03b -> 0056deb4   [DEFAULT/unimpl]
+sub 03c -> 00567434
+sub 03d -> 0056745a
+sub 03e -> 00567478
+sub 03f -> 005674bf
+sub 040 -> 005674f0
+sub 041 -> 0056750b
+sub 042 -> 00567534
+sub 043 -> 0056754f
+sub 044 -> 00567578
+sub 045 -> 00567593
+sub 046 -> 005675bc
+sub 047 -> 005675de
+sub 048 -> 0056760e
+sub 049 -> 0056764e
+sub 04a -> 0056769f
+sub 04b -> 005676df
+sub 04c -> 00567730
+sub 04d -> 0056774b
+sub 04e -> 00567774
+sub 04f -> 0056778f
+sub 050 -> 005677b8
+sub 051 -> 005677d3
+sub 052 -> 005677fc
+sub 053 -> 00567849
+sub 054 -> 00567896
+sub 055 -> 005678e3
+sub 056 -> 005678f2
+sub 057 -> 005678fd
+sub 058 -> 00567910
+sub 059 -> 00567924
+sub 05a -> 0056794a
+sub 05b -> 005679a0
+sub 05c -> 005679f6
+sub 05d -> 00567aa3
+sub 05e -> 0056deb4   [DEFAULT/unimpl]
+sub 05f -> 00567b50
+sub 060 -> 00567b9d
+sub 061 -> 00567bf8
+sub 062 -> 00567c68
+sub 063 -> 00567cae
+sub 064 -> 00567cdc
+sub 065 -> 00567d1e
+sub 066 -> 00567d4f
+sub 067 -> 00567d78
+sub 068 -> 00567dba
+sub 069 -> 00567e0a
+sub 06a -> 00567e4c
+sub 06b -> 00567e9c
+sub 06c -> 00567ee1
+sub 06d -> 00567f34
+sub 06e -> 00567f97
+sub 06f -> 00567fef
+sub 070 -> 00568052
+sub 071 -> 005680aa
+sub 072 -> 005680ec
+sub 073 -> 0056813c
+sub 074 -> 0056817e
+sub 075 -> 005681ce
+sub 076 -> 00568210
+sub 077 -> 00568260
+sub 078 -> 005682d4
+sub 079 -> 00568348
+sub 07a -> 005683bc
+sub 07b -> 005683e3
+sub 07c -> 00568406
+sub 07d -> 0056842d
+sub 07e -> 00568455
+sub 07f -> 00568582
+sub 080 -> 0056867e
+sub 081 -> 0056849e
+sub 082 -> 005684cf
+sub 083 -> 005686a8
+sub 084 -> 0056876d
+sub 085 -> 005687c1
+sub 086 -> 0056880a
+sub 087 -> 00568819
+sub 088 -> 00568843
+sub 089 -> 005688f1
+sub 08a -> 00568932
+sub 08b -> 0056894f
+sub 08c -> 005689d7
+sub 08d -> 005689fd
+sub 08e -> 0056deb4   [DEFAULT/unimpl]
+sub 08f -> 00568a35
+sub 090 -> 00568a66
+sub 091 -> 00568aba
+sub 092 -> 00568ad0
+sub 093 -> 00568af4
+sub 094 -> 00568bcb
+sub 095 -> 00568c69
+sub 096 -> 00568c8b
+sub 097 -> 00568c95
+sub 098 -> 00568cca
+sub 099 -> 00568cf9
+sub 09a -> 00568fb0
+sub 09b -> 0056934a
+sub 09c -> 00569367
+sub 09d -> 00569384
+sub 09e -> 005693a1
+sub 09f -> 005693be
+sub 0a0 -> 005693f7
+sub 0a1 -> 00569414
+sub 0a2 -> 00569431
+sub 0a3 -> 00569473
+sub 0a4 -> 005694b3
+sub 0a5 -> 005694d0
+sub 0a6 -> 0056952c
+sub 0a7 -> 00569546
+sub 0a8 -> 00569565
+sub 0a9 -> 00569587
+sub 0aa -> 005695c9
+sub 0ab -> 00569608
+sub 0ac -> 0056966a
+sub 0ad -> 00569687
+sub 0ae -> 005696a4
+sub 0af -> 00568d4a
+sub 0b0 -> 005691fd
+sub 0b1 -> 005692af
+sub 0b2 -> 005687a4
+sub 0b3 -> 005696c2
+sub 0b4 -> 00569716
+sub 0b5 -> 0056989c
+sub 0b6 -> 005698bf
+sub 0b7 -> 005698de
+sub 0b8 -> 00569847
+sub 0b9 -> 005698ea
+sub 0ba -> 0056990c
+sub 0bb -> 00569929
+sub 0bc -> 00569968
+sub 0bd -> 00569a27
+sub 0be -> 00569a97
+sub 0bf -> 00569ae7
+sub 0c0 -> 00569b26
+sub 0c1 -> 00568f62
+sub 0c2 -> 00568f88
+sub 0c3 -> 00569b88
+sub 0c4 -> 00569be7
+sub 0c5 -> 00569c27
+sub 0c6 -> 00569c67
+sub 0c7 -> 0056deb4   [DEFAULT/unimpl]
+sub 0c8 -> 00569d71
+sub 0c9 -> 00569da9
+sub 0ca -> 00569de1
+sub 0cb -> 00569e24
+sub 0cc -> 00569e4f
+sub 0cd -> 00569e95
+sub 0ce -> 00569f43
+sub 0cf -> 00569f86
+sub 0d0 -> 00569fcc
+sub 0d1 -> 0056deb4   [DEFAULT/unimpl]
+sub 0d2 -> 00569fe9
+sub 0d3 -> 00569ff5
+sub 0d4 -> 0056a076
+sub 0d5 -> 0056a08d
+sub 0d6 -> 0056a0ec
+sub 0d7 -> 0056a109
+sub 0d8 -> 0056a115
+sub 0d9 -> 0056a202
+sub 0da -> 0056a220
+sub 0db -> 0056a23e
+sub 0dc -> 0056a24a
+sub 0dd -> 0056a149
+sub 0de -> 0056a267
+sub 0df -> 0056a286
+sub 0e0 -> 0056a292
+sub 0e1 -> 0056deb4   [DEFAULT/unimpl]
+sub 0e2 -> 0056a2b0
+sub 0e3 -> 0056a2ce
+sub 0e4 -> 0056a302
+sub 0e5 -> 0056a320
+sub 0e6 -> 0056a3b7
+sub 0e7 -> 0056a42b
+sub 0e8 -> 0056a460
+sub 0e9 -> 0056deb4   [DEFAULT/unimpl]
+sub 0ea -> 0056deb4   [DEFAULT/unimpl]
+sub 0eb -> 00569c86
+sub 0ec -> 00569ca5
+sub 0ed -> 0056deb4   [DEFAULT/unimpl]
+sub 0ee -> 0056deb4   [DEFAULT/unimpl]
+sub 0ef -> 0056deb4   [DEFAULT/unimpl]
+sub 0f0 -> 0056df91
+sub 0f1 -> 0056a4a2
+sub 0f2 -> 0056de74
+sub 0f3 -> 0056a4d0
+sub 0f4 -> 0056a4d9
+sub 0f5 -> 0056a543
+sub 0f6 -> 0056a54f
+sub 0f7 -> 0056a55b
+sub 0f8 -> 0056a59b
+sub 0f9 -> 0056a5e9
+sub 0fa -> 0056deb4   [DEFAULT/unimpl]
+sub 0fb -> 0056deb4   [DEFAULT/unimpl]
+sub 0fc -> 0056deb4   [DEFAULT/unimpl]
+sub 0fd -> 0056a608
+sub 0fe -> 0056a66b
+sub 0ff -> 0056a6f7
+sub 100 -> 0056a756
+sub 101 -> 0056a77d
+sub 102 -> 0056deb4   [DEFAULT/unimpl]
+sub 103 -> 0056deb4   [DEFAULT/unimpl]
+sub 104 -> 0056a7c5
+sub 105 -> 0056a7e3
+sub 106 -> 0056a818
+sub 107 -> 0056deb4   [DEFAULT/unimpl]
+sub 108 -> 0056deb4   [DEFAULT/unimpl]
+sub 109 -> 0056deb4   [DEFAULT/unimpl]
+sub 10a -> 0056a85a
+sub 10b -> 0056a877
+sub 10c -> 0056a894
+sub 10d -> 0056a8b4
+sub 10e -> 0056a977
+sub 10f -> 0056a9c2
+sub 110 -> 0056a9cc
+sub 111 -> 0056aaa5
+sub 112 -> 0056ad63
+sub 113 -> 0056ae28
+sub 114 -> 0056ae5b
+sub 115 -> 0056af0d
+sub 116 -> 0056b006
+sub 117 -> 0056b067
+sub 118 -> 0056b112
+sub 119 -> 0056b230
+sub 11a -> 0056b2fb
+sub 11b -> 0056b3cf
+sub 11c -> 0056b24e
+sub 11d -> 0056b411
+sub 11e -> 005664cc
+sub 11f -> 0056b2b9
+sub 120 -> 0056b430
+sub 121 -> 0056b4d5
+sub 122 -> 0056b59c
+sub 123 -> 0056b668
+sub 124 -> 0056b6cc
+sub 125 -> 0056b771
+sub 126 -> 0056b812
+sub 127 -> 0056b832
+sub 128 -> 0056b84f
+sub 129 -> 0056b86c
+sub 12a -> 0056b8b3
+sub 12b -> 0056deb4   [DEFAULT/unimpl]
+sub 12c -> 0056b8f3
+sub 12d -> 0056b99a
+sub 12e -> 0056b9b9
+sub 12f -> 0056b9f9
+sub 130 -> 0056ba39
+sub 131 -> 0056be6b
+sub 132 -> 0056ba79
+sub 133 -> 0056babb
+sub 134 -> 0056bafd
+sub 135 -> 0056bb3d
+sub 136 -> 0056bb7f
+sub 137 -> 0056bbbf
+sub 138 -> 0056bbff
+sub 139 -> 0056bc41
+sub 13a -> 0056bcad
+sub 13b -> 0056bd42
+sub 13c -> 0056bdaa
+sub 13d -> 0056bdd2
+sub 13e -> 0056be1b
+sub 13f -> 0056be43
+sub 140 -> 0056be93
+sub 141 -> 0056bed3
+sub 142 -> 0056bf15
+sub 143 -> 0056bf7e
+sub 144 -> 0056c00a
+sub 145 -> 0056c096
+sub 146 -> 0056c0d6
+sub 147 -> 0056c116
+sub 148 -> 0056c19e
+sub 149 -> 0056c201
+sub 14a -> 0056c262
+sub 14b -> 0056c2a2
+sub 14c -> 0056c2e2
+sub 14d -> 0056c322
+sub 14e -> 0056c362
+sub 14f -> 0056c3a2
+sub 150 -> 0056c3e2
+sub 151 -> 0056c401
+sub 152 -> 0056c441
+sub 153 -> 0056c4a2
+sub 154 -> 0056c4e2
+sub 155 -> 0056c57a
+sub 156 -> 0056c621
+sub 157 -> 0056c6bc
+sub 158 -> 0056c6fe
+sub 159 -> 0056c73e
+sub 15a -> 0056c77e
+sub 15b -> 0056c825
+sub 15c -> 0056c8b3
+sub 15d -> 0056c949
+sub 15e -> 0056c991
+sub 15f -> 0056ca06
+sub 160 -> 0056cae2
+sub 161 -> 0056cc8f
+sub 162 -> 0056ccd1
+sub 163 -> 0056cd86
+sub 164 -> 0056cdc6
+sub 165 -> 0056ce06
+sub 166 -> 0056ce46
+sub 167 -> 0056ce86
+sub 168 -> 0056deb4   [DEFAULT/unimpl]
+sub 169 -> 0056cec6
+sub 16a -> 0056cee4
+sub 16b -> 0056cf19
+sub 16c -> 0056cf4e
+sub 16d -> 0056cf83
+sub 16e -> 0056cfb8
+sub 16f -> 0056d023
+sub 170 -> 0056d065
+sub 171 -> 0056d0ef
+sub 172 -> 0056d179
+sub 173 -> 0056d1c4
+sub 174 -> 0056d1f8
+sub 175 -> 0056d22c
+sub 176 -> 0056d2a1
+sub 177 -> 0056d2d6
+sub 178 -> 0056d30a
+sub 179 -> 0056d328
+sub 17a -> 0056d346
+sub 17b -> 0056d384
+sub 17c -> 0056d3c6
+sub 17d -> 0056d411
+sub 17e -> 0056d453
+sub 17f -> 0056d4b2
+sub 180 -> 0056d5d0
+sub 181 -> 0056d622
+sub 182 -> 0056d656
+sub 183 -> 0056d6ed
+sub 184 -> 0056d74e
+sub 185 -> 0056d7c8
+sub 186 -> 0056d85e
+sub 187 -> 0056d91d
+sub 188 -> 0056d99a
+sub 189 -> 0056da24
+sub 18a -> 0056dabb
+sub 18b -> 0056deb4   [DEFAULT/unimpl]
+sub 18c -> 0056deb4   [DEFAULT/unimpl]
+sub 18d -> 0056deb4   [DEFAULT/unimpl]
+sub 18e -> 0056a915
+sub 18f -> 0056a8d1
+
+---- event VM: unique handlers ----
+0056646a  n=1    subs: 0 
+005664cc  n=1    subs: 11e 
+00567434  n=1    subs: 3c 
+0056745a  n=1    subs: 3d 
+00567478  n=1    subs: 3e 
+005674bf  n=1    subs: 3f 
+005674f0  n=1    subs: 40 
+0056750b  n=1    subs: 41 
+00567534  n=1    subs: 42 
+0056754f  n=1    subs: 43 
+00567578  n=1    subs: 44 
+00567593  n=1    subs: 45 
+005675bc  n=1    subs: 46 
+005675de  n=1    subs: 47 
+0056760e  n=1    subs: 48 
+0056764e  n=1    subs: 49 
+0056769f  n=1    subs: 4a 
+005676df  n=1    subs: 4b 
+00567730  n=1    subs: 4c 
+0056774b  n=1    subs: 4d 
+00567774  n=1    subs: 4e 
+0056778f  n=1    subs: 4f 
+005677b8  n=1    subs: 50 
+005677d3  n=1    subs: 51 
+005677fc  n=1    subs: 52 
+00567849  n=1    subs: 53 
+00567896  n=1    subs: 54 
+005678e3  n=1    subs: 55 
+005678f2  n=1    subs: 56 
+005678fd  n=1    subs: 57 
+00567910  n=1    subs: 58 
+00567924  n=1    subs: 59 
+0056794a  n=1    subs: 5a 
+005679a0  n=1    subs: 5b 
+005679f6  n=1    subs: 5c 
+00567aa3  n=1    subs: 5d 
+00567b50  n=1    subs: 5f 
+00567b9d  n=1    subs: 60 
+00567bf8  n=1    subs: 61 
+00567c68  n=1    subs: 62 
+00567cae  n=1    subs: 63 
+00567cdc  n=1    subs: 64 
+00567d1e  n=1    subs: 65 
+00567d4f  n=1    subs: 66 
+00567d78  n=1    subs: 67 
+00567dba  n=1    subs: 68 
+00567e0a  n=1    subs: 69 
+00567e4c  n=1    subs: 6a 
+00567e9c  n=1    subs: 6b 
+00567ee1  n=1    subs: 6c 
+00567f34  n=1    subs: 6d 
+00567f97  n=1    subs: 6e 
+00567fef  n=1    subs: 6f 
+00568052  n=1    subs: 70 
+005680aa  n=1    subs: 71 
+005680ec  n=1    subs: 72 
+0056813c  n=1    subs: 73 
+0056817e  n=1    subs: 74 
+005681ce  n=1    subs: 75 
+00568210  n=1    subs: 76 
+00568260  n=1    subs: 77 
+005682d4  n=1    subs: 78 
+00568348  n=1    subs: 79 
+005683bc  n=1    subs: 7a 
+005683e3  n=1    subs: 7b 
+00568406  n=1    subs: 7c 
+0056842d  n=1    subs: 7d 
+00568455  n=1    subs: 7e 
+0056849e  n=1    subs: 81 
+005684cf  n=1    subs: 82 
+00568582  n=1    subs: 7f 
+0056867e  n=1    subs: 80 
+005686a8  n=1    subs: 83 
+0056876d  n=1    subs: 84 
+005687a4  n=1    subs: b2 
+005687c1  n=1    subs: 85 
+0056880a  n=1    subs: 86 
+00568819  n=1    subs: 87 
+00568843  n=1    subs: 88 
+005688f1  n=1    subs: 89 
+00568932  n=1    subs: 8a 
+0056894f  n=1    subs: 8b 
+005689d7  n=1    subs: 8c 
+005689fd  n=1    subs: 8d 
+00568a35  n=1    subs: 8f 
+00568a66  n=1    subs: 90 
+00568aba  n=1    subs: 91 
+00568ad0  n=1    subs: 92 
+00568af4  n=1    subs: 93 
+00568bcb  n=1    subs: 94 
+00568c69  n=1    subs: 95 
+00568c8b  n=1    subs: 96 
+00568c95  n=1    subs: 97 
+00568cca  n=1    subs: 98 
+00568cf9  n=1    subs: 99 
+00568d4a  n=1    subs: af 
+00568f62  n=1    subs: c1 
+00568f88  n=1    subs: c2 
+00568fb0  n=1    subs: 9a 
+005691fd  n=1    subs: b0 
+005692af  n=1    subs: b1 
+0056934a  n=1    subs: 9b 
+00569367  n=1    subs: 9c 
+00569384  n=1    subs: 9d 
+005693a1  n=1    subs: 9e 
+005693be  n=1    subs: 9f 
+005693f7  n=1    subs: a0 
+00569414  n=1    subs: a1 
+00569431  n=1    subs: a2 
+00569473  n=1    subs: a3 
+005694b3  n=1    subs: a4 
+005694d0  n=1    subs: a5 
+0056952c  n=1    subs: a6 
+00569546  n=1    subs: a7 
+00569565  n=1    subs: a8 
+00569587  n=1    subs: a9 
+005695c9  n=1    subs: aa 
+00569608  n=1    subs: ab 
+0056966a  n=1    subs: ac 
+00569687  n=1    subs: ad 
+005696a4  n=1    subs: ae 
+005696c2  n=1    subs: b3 
+00569716  n=1    subs: b4 
+00569847  n=1    subs: b8 
+0056989c  n=1    subs: b5 
+005698bf  n=1    subs: b6 
+005698de  n=1    subs: b7 
+005698ea  n=1    subs: b9 
+0056990c  n=1    subs: ba 
+00569929  n=1    subs: bb 
+00569968  n=1    subs: bc 
+00569a27  n=1    subs: bd 
+00569a97  n=1    subs: be 
+00569ae7  n=1    subs: bf 
+00569b26  n=1    subs: c0 
+00569b88  n=1    subs: c3 
+00569be7  n=1    subs: c4 
+00569c27  n=1    subs: c5 
+00569c67  n=1    subs: c6 
+00569c86  n=1    subs: eb 
+00569ca5  n=1    subs: ec 
+00569d71  n=1    subs: c8 
+00569da9  n=1    subs: c9 
+00569de1  n=1    subs: ca 
+00569e24  n=1    subs: cb 
+00569e4f  n=1    subs: cc 
+00569e95  n=1    subs: cd 
+00569f43  n=1    subs: ce 
+00569f86  n=1    subs: cf 
+00569fcc  n=1    subs: d0 
+00569fe9  n=1    subs: d2 
+00569ff5  n=1    subs: d3 
+0056a076  n=1    subs: d4 
+0056a08d  n=1    subs: d5 
+0056a0ec  n=1    subs: d6 
+0056a109  n=1    subs: d7 
+0056a115  n=1    subs: d8 
+0056a149  n=1    subs: dd 
+0056a202  n=1    subs: d9 
+0056a220  n=1    subs: da 
+0056a23e  n=1    subs: db 
+0056a24a  n=1    subs: dc 
+0056a267  n=1    subs: de 
+0056a286  n=1    subs: df 
+0056a292  n=1    subs: e0 
+0056a2b0  n=1    subs: e2 
+0056a2ce  n=1    subs: e3 
+0056a302  n=1    subs: e4 
+0056a320  n=1    subs: e5 
+0056a3b7  n=1    subs: e6 
+0056a42b  n=1    subs: e7 
+0056a460  n=1    subs: e8 
+0056a4a2  n=1    subs: f1 
+0056a4d0  n=1    subs: f3 
+0056a4d9  n=1    subs: f4 
+0056a543  n=1    subs: f5 
+0056a54f  n=1    subs: f6 
+0056a55b  n=1    subs: f7 
+0056a59b  n=1    subs: f8 
+0056a5e9  n=1    subs: f9 
+0056a608  n=1    subs: fd 
+0056a66b  n=1    subs: fe 
+0056a6f7  n=1    subs: ff 
+0056a756  n=1    subs: 100 
+0056a77d  n=1    subs: 101 
+0056a7c5  n=1    subs: 104 
+0056a7e3  n=1    subs: 105 
+0056a818  n=1    subs: 106 
+0056a85a  n=1    subs: 10a 
+0056a877  n=1    subs: 10b 
+0056a894  n=1    subs: 10c 
+0056a8b4  n=1    subs: 10d 
+0056a8d1  n=1    subs: 18f 
+0056a915  n=1    subs: 18e 
+0056a977  n=1    subs: 10e 
+0056a9c2  n=1    subs: 10f 
+0056a9cc  n=1    subs: 110 
+0056aaa5  n=1    subs: 111 
+0056ad63  n=1    subs: 112 
+0056ae28  n=1    subs: 113 
+0056ae5b  n=1    subs: 114 
+0056af0d  n=1    subs: 115 
+0056b006  n=1    subs: 116 
+0056b067  n=1    subs: 117 
+0056b112  n=1    subs: 118 
+0056b230  n=1    subs: 119 
+0056b24e  n=1    subs: 11c 
+0056b2b9  n=1    subs: 11f 
+0056b2fb  n=1    subs: 11a 
+0056b3cf  n=1    subs: 11b 
+0056b411  n=1    subs: 11d 
+0056b430  n=1    subs: 120 
+0056b4d5  n=1    subs: 121 
+0056b59c  n=1    subs: 122 
+0056b668  n=1    subs: 123 
+0056b6cc  n=1    subs: 124 
+0056b771  n=1    subs: 125 
+0056b812  n=1    subs: 126 
+0056b832  n=1    subs: 127 
+0056b84f  n=1    subs: 128 
+0056b86c  n=1    subs: 129 
+0056b8b3  n=1    subs: 12a 
+0056b8f3  n=1    subs: 12c 
+0056b99a  n=1    subs: 12d 
+0056b9b9  n=1    subs: 12e 
+0056b9f9  n=1    subs: 12f 
+0056ba39  n=1    subs: 130 
+0056ba79  n=1    subs: 132 
+0056babb  n=1    subs: 133 
+0056bafd  n=1    subs: 134 
+0056bb3d  n=1    subs: 135 
+0056bb7f  n=1    subs: 136 
+0056bbbf  n=1    subs: 137 
+0056bbff  n=1    subs: 138 
+0056bc41  n=1    subs: 139 
+0056bcad  n=1    subs: 13a 
+0056bd42  n=1    subs: 13b 
+0056bdaa  n=1    subs: 13c 
+0056bdd2  n=1    subs: 13d 
+0056be1b  n=1    subs: 13e 
+0056be43  n=1    subs: 13f 
+0056be6b  n=1    subs: 131 
+0056be93  n=1    subs: 140 
+0056bed3  n=1    subs: 141 
+0056bf15  n=1    subs: 142 
+0056bf7e  n=1    subs: 143 
+0056c00a  n=1    subs: 144 
+0056c096  n=1    subs: 145 
+0056c0d6  n=1    subs: 146 
+0056c116  n=1    subs: 147 
+0056c19e  n=1    subs: 148 
+0056c201  n=1    subs: 149 
+0056c262  n=1    subs: 14a 
+0056c2a2  n=1    subs: 14b 
+0056c2e2  n=1    subs: 14c 
+0056c322  n=1    subs: 14d 
+0056c362  n=1    subs: 14e 
+0056c3a2  n=1    subs: 14f 
+0056c3e2  n=1    subs: 150 
+0056c401  n=1    subs: 151 
+0056c441  n=1    subs: 152 
+0056c4a2  n=1    subs: 153 
+0056c4e2  n=1    subs: 154 
+0056c57a  n=1    subs: 155 
+0056c621  n=1    subs: 156 
+0056c6bc  n=1    subs: 157 
+0056c6fe  n=1    subs: 158 
+0056c73e  n=1    subs: 159 
+0056c77e  n=1    subs: 15a 
+0056c825  n=1    subs: 15b 
+0056c8b3  n=1    subs: 15c 
+0056c949  n=1    subs: 15d 
+0056c991  n=1    subs: 15e 
+0056ca06  n=1    subs: 15f 
+0056cae2  n=1    subs: 160 
+0056cc8f  n=1    subs: 161 
+0056ccd1  n=1    subs: 162 
+0056cd86  n=1    subs: 163 
+0056cdc6  n=1    subs: 164 
+0056ce06  n=1    subs: 165 
+0056ce46  n=1    subs: 166 
+0056ce86  n=1    subs: 167 
+0056cec6  n=1    subs: 169 
+0056cee4  n=1    subs: 16a 
+0056cf19  n=1    subs: 16b 
+0056cf4e  n=1    subs: 16c 
+0056cf83  n=1    subs: 16d 
+0056cfb8  n=1    subs: 16e 
+0056d023  n=1    subs: 16f 
+0056d065  n=1    subs: 170 
+0056d0ef  n=1    subs: 171 
+0056d179  n=1    subs: 172 
+0056d1c4  n=1    subs: 173 
+0056d1f8  n=1    subs: 174 
+0056d22c  n=1    subs: 175 
+0056d2a1  n=1    subs: 176 
+0056d2d6  n=1    subs: 177 
+0056d30a  n=1    subs: 178 
+0056d328  n=1    subs: 179 
+0056d346  n=1    subs: 17a 
+0056d384  n=1    subs: 17b 
+0056d3c6  n=1    subs: 17c 
+0056d411  n=1    subs: 17d 
+0056d453  n=1    subs: 17e 
+0056d4b2  n=1    subs: 17f 
+0056d5d0  n=1    subs: 180 
+0056d622  n=1    subs: 181 
+0056d656  n=1    subs: 182 
+0056d6ed  n=1    subs: 183 
+0056d74e  n=1    subs: 184 
+0056d7c8  n=1    subs: 185 
+0056d85e  n=1    subs: 186 
+0056d91d  n=1    subs: 187 
+0056d99a  n=1    subs: 188 
+0056da24  n=1    subs: 189 
+0056dabb  n=1    subs: 18a 
+0056de74  n=1    subs: f2 
+0056deb4  n=82   subs: 1 2 3 4 5 6 7 8 9 a b c d e f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f 20 21 22 23 24 25 26 27 28 29 2a 2b 2c 2d 2e 2f 30 31 32 33 34 35 36 37 38 39 3a 3b 5e 8e c7 d1 e1 e9 ea ed ee ef fa fb fc 102 103 107 108 109 12b 168 18b 18c 18d 
+0056df91  n=1    subs: f0 
+
+
+==== EFFECT VM sub-op table @ 0x449194, index=sub-1, 0..0x8d, default 0x4473e6 ====
+sub 001 -> 00449073
+sub 002 -> 00447517
+sub 003 -> 00447528
+sub 004 -> 00447541
+sub 005 -> 0044755d
+sub 006 -> 004475a4
+sub 007 -> 004475ae
+sub 008 -> 004475bf
+sub 009 -> 00447e20
+sub 00a -> 004475d1
+sub 00b -> 004475e9
+sub 00c -> 00447605
+sub 00d -> 0044761d
+sub 00e -> 00447520
+sub 00f -> 00447635
+sub 010 -> 00447645
+sub 011 -> 00447655
+sub 012 -> 00447665
+sub 013 -> 004476dc
+sub 014 -> 004476fb
+sub 015 -> 0044770f
+sub 016 -> 00447723
+sub 017 -> 0044773d
+sub 018 -> 00447751
+sub 019 -> 00447765
+sub 01a -> 00447779
+sub 01b -> 00447789
+sub 01c -> 0044779d
+sub 01d -> 004477b1
+sub 01e -> 00447816
+sub 01f -> 00447887
+sub 020 -> 0044783b
+sub 021 -> 0044790c
+sub 022 -> 004478ec
+sub 023 -> 00447954
+sub 024 -> 00447962
+sub 025 -> 00447972
+sub 026 -> 00447980
+sub 027 -> 00447a3e
+sub 028 -> 00447a78
+sub 029 -> 00447b91
+sub 02a -> 00447d72
+sub 02b -> 00447de2
+sub 02c -> 00447df1
+sub 02d -> 00447520
+sub 02e -> 00447520
+sub 02f -> 00447520
+sub 030 -> 00447520
+sub 031 -> 00447520
+sub 032 -> 00447520
+sub 033 -> 00447520
+sub 034 -> 00447520
+sub 035 -> 00447520
+sub 036 -> 00447520
+sub 037 -> 00447520
+sub 038 -> 00447520
+sub 039 -> 00447520
+sub 03a -> 00447520
+sub 03b -> 00447520
+sub 03c -> 00447e2f
+sub 03d -> 00447e47
+sub 03e -> 00447e7a
+sub 03f -> 00447e98
+sub 040 -> 00447ebf
+sub 041 -> 00447ecf
+sub 042 -> 00447f07
+sub 043 -> 00447f17
+sub 044 -> 00447f4f
+sub 045 -> 00447f5f
+sub 046 -> 00447f97
+sub 047 -> 00447fae
+sub 048 -> 00447fe0
+sub 049 -> 00448002
+sub 04a -> 0044803d
+sub 04b -> 0044805f
+sub 04c -> 0044809a
+sub 04d -> 004480aa
+sub 04e -> 004480e2
+sub 04f -> 004480f2
+sub 050 -> 0044812a
+sub 051 -> 0044813a
+sub 052 -> 00448172
+sub 053 -> 004481b1
+sub 054 -> 004481f0
+sub 055 -> 0044822f
+sub 056 -> 00448241
+sub 057 -> 0044824f
+sub 058 -> 00448265
+sub 059 -> 0044827c
+sub 05a -> 004482a4
+sub 05b -> 004482fe
+sub 05c -> 00448358
+sub 05d -> 004483b0
+sub 05e -> 00448408
+sub 05f -> 00448468
+sub 060 -> 004484ab
+sub 061 -> 00448508
+sub 062 -> 0044853e
+sub 063 -> 0044857b
+sub 064 -> 004485a4
+sub 065 -> 004485d7
+sub 066 -> 00448624
+sub 067 -> 0044865d
+sub 068 -> 00448691
+sub 069 -> 004486dd
+sub 06a -> 00448711
+sub 06b -> 0044875d
+sub 06c -> 00448797
+sub 06d -> 004487eb
+sub 06e -> 00448831
+sub 06f -> 00448893
+sub 070 -> 004488d9
+sub 071 -> 0044893b
+sub 072 -> 0044896f
+sub 073 -> 004489bb
+sub 074 -> 004489ef
+sub 075 -> 00448a3b
+sub 076 -> 00448a6f
+sub 077 -> 00448abb
+sub 078 -> 00448b0e
+sub 079 -> 00448b61
+sub 07a -> 00448bb4
+sub 07b -> 00448be8
+sub 07c -> 00448c1b
+sub 07d -> 00448c51
+sub 07e -> 00448c89
+sub 07f -> 00447520
+sub 080 -> 00447520
+sub 081 -> 00447520
+sub 082 -> 00447520
+sub 083 -> 00447520
+sub 084 -> 00447520
+sub 085 -> 00447520
+sub 086 -> 00447520
+sub 087 -> 00447520
+sub 088 -> 00447520
+sub 089 -> 00447520
+sub 08a -> 00447520
+sub 08b -> 00447520
+sub 08c -> 00448cc1
+sub 08d -> 00448cd6
+sub 08e -> 00448d12
+
+---- effect VM: unique handlers ----
+00447517  n=1    subs: 2 
+00447520  n=29   subs: e 2d 2e 2f 30 31 32 33 34 35 36 37 38 39 3a 3b 7f 80 81 82 83 84 85 86 87 88 89 8a 8b 
+00447528  n=1    subs: 3 
+00447541  n=1    subs: 4 
+0044755d  n=1    subs: 5 
+004475a4  n=1    subs: 6 
+004475ae  n=1    subs: 7 
+004475bf  n=1    subs: 8 
+004475d1  n=1    subs: a 
+004475e9  n=1    subs: b 
+00447605  n=1    subs: c 
+0044761d  n=1    subs: d 
+00447635  n=1    subs: f 
+00447645  n=1    subs: 10 
+00447655  n=1    subs: 11 
+00447665  n=1    subs: 12 
+004476dc  n=1    subs: 13 
+004476fb  n=1    subs: 14 
+0044770f  n=1    subs: 15 
+00447723  n=1    subs: 16 
+0044773d  n=1    subs: 17 
+00447751  n=1    subs: 18 
+00447765  n=1    subs: 19 
+00447779  n=1    subs: 1a 
+00447789  n=1    subs: 1b 
+0044779d  n=1    subs: 1c 
+004477b1  n=1    subs: 1d 
+00447816  n=1    subs: 1e 
+0044783b  n=1    subs: 20 
+00447887  n=1    subs: 1f 
+004478ec  n=1    subs: 22 
+0044790c  n=1    subs: 21 
+00447954  n=1    subs: 23 
+00447962  n=1    subs: 24 
+00447972  n=1    subs: 25 
+00447980  n=1    subs: 26 
+00447a3e  n=1    subs: 27 
+00447a78  n=1    subs: 28 
+00447b91  n=1    subs: 29 
+00447d72  n=1    subs: 2a 
+00447de2  n=1    subs: 2b 
+00447df1  n=1    subs: 2c 
+00447e20  n=1    subs: 9 
+00447e2f  n=1    subs: 3c 
+00447e47  n=1    subs: 3d 
+00447e7a  n=1    subs: 3e 
+00447e98  n=1    subs: 3f 
+00447ebf  n=1    subs: 40 
+00447ecf  n=1    subs: 41 
+00447f07  n=1    subs: 42 
+00447f17  n=1    subs: 43 
+00447f4f  n=1    subs: 44 
+00447f5f  n=1    subs: 45 
+00447f97  n=1    subs: 46 
+00447fae  n=1    subs: 47 
+00447fe0  n=1    subs: 48 
+00448002  n=1    subs: 49 
+0044803d  n=1    subs: 4a 
+0044805f  n=1    subs: 4b 
+0044809a  n=1    subs: 4c 
+004480aa  n=1    subs: 4d 
+004480e2  n=1    subs: 4e 
+004480f2  n=1    subs: 4f 
+0044812a  n=1    subs: 50 
+0044813a  n=1    subs: 51 
+00448172  n=1    subs: 52 
+004481b1  n=1    subs: 53 
+004481f0  n=1    subs: 54 
+0044822f  n=1    subs: 55 
+00448241  n=1    subs: 56 
+0044824f  n=1    subs: 57 
+00448265  n=1    subs: 58 
+0044827c  n=1    subs: 59 
+004482a4  n=1    subs: 5a 
+004482fe  n=1    subs: 5b 
+00448358  n=1    subs: 5c 
+004483b0  n=1    subs: 5d 
+00448408  n=1    subs: 5e 
+00448468  n=1    subs: 5f 
+004484ab  n=1    subs: 60 
+00448508  n=1    subs: 61 
+0044853e  n=1    subs: 62 
+0044857b  n=1    subs: 63 
+004485a4  n=1    subs: 64 
+004485d7  n=1    subs: 65 
+00448624  n=1    subs: 66 
+0044865d  n=1    subs: 67 
+00448691  n=1    subs: 68 
+004486dd  n=1    subs: 69 
+00448711  n=1    subs: 6a 
+0044875d  n=1    subs: 6b 
+00448797  n=1    subs: 6c 
+004487eb  n=1    subs: 6d 
+00448831  n=1    subs: 6e 
+00448893  n=1    subs: 6f 
+004488d9  n=1    subs: 70 
+0044893b  n=1    subs: 71 
+0044896f  n=1    subs: 72 
+004489bb  n=1    subs: 73 
+004489ef  n=1    subs: 74 
+00448a3b  n=1    subs: 75 
+00448a6f  n=1    subs: 76 
+00448abb  n=1    subs: 77 
+00448b0e  n=1    subs: 78 
+00448b61  n=1    subs: 79 
+00448bb4  n=1    subs: 7a 
+00448be8  n=1    subs: 7b 
+00448c1b  n=1    subs: 7c 
+00448c51  n=1    subs: 7d 
+00448c89  n=1    subs: 7e 
+00448cc1  n=1    subs: 8c 
+00448cd6  n=1    subs: 8d 
+00448d12  n=1    subs: 8e 
+00449073  n=1    subs: 1 
+
+==== EFFECT VM class table @ 0x449144 (0..0x13) ====
+  class 00 -> 004473e3
+  class 01 -> 004473b7
+  class 02 -> 004474df
+  class 03 -> 00448d24
+  class 04 -> 00448ee0
+  class 05 -> 00448d35
+  class 06 -> 00448d62
+  class 07 -> 00448d8f
+  class 08 -> 00448dbc
+  class 09 -> 00448de9
+  class 0a -> 00448e16
+  class 0b -> 00448d24
+  class 0c -> 00448e43
+  class 0d -> 00448e43
+  class 0e -> 00448e52
+  class 0f -> 00448e6c
+  class 10 -> 00448e86
+  class 11 -> 00448ea0
+  class 12 -> 00448eba
+  class 13 -> 00448ed4

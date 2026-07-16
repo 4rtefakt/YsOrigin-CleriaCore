@@ -1,0 +1,182 @@
+# CleriaCore
+
+A clean-room reimplementation of the **Ys Origin** engine — a purpose-built
+native PC engine that reads the original Falcom data files, in the spirit of
+devilutionX and OpenRCT2.
+
+> **Why not "a port like Project Dusklight"?** Dusklight is the Twilight Princess
+> decompilation compiled natively against a GameCube SDK compatibility layer — it
+> exists to cross a PowerPC→x86 boundary and replace console hardware. Ys Origin
+> is *already* a native 32-bit x86 Direct3D 9 game, so neither problem exists, and
+> there is no Ys Origin decompilation to build on. CleriaCore chases Dusklight's
+> **outcomes** — ultrawide, decoupled framerate, no modern-OS friction, a real mod
+> API — via the only path that fits: reading the data files and rewriting the
+> engine.
+
+## Status
+
+The entire **static-room asset pipeline is reverse-engineered and validated**,
+and a C++20 asset core renders real rooms.
+
+| Layer | Status |
+|---|---|
+| NNI/NA archive (cipher, TOC) | ✅ (from the sibling Archipelago project) |
+| **YMO** models + skeleton + animation | ✅ **1006/1006 byte-exact** |
+| **SOB** object placement | ✅ 1129/1129 records |
+| **SEN** room graph | ✅ 348 edges, 86.8% reciprocal |
+| DDS textures / WAV audio | ✅ standard formats, free |
+| C++20 asset core + OBJ exporter | ✅ builds `/W4` clean |
+| Differential harness (C++ vs Python) | ✅ **exact match, 197 rooms** |
+| **Real-time renderer (SDL3 + wgpu-native)** | ✅ **rooms render on GPU; orbit window + headless `--shot`** |
+| **Textured materials (DDS: BC1/BC2/RGB565/…)** | ✅ **per-submesh material textures + alpha-test cutouts** |
+| **Free-fly walkthrough + SEN room transitions** | ✅ **fly through doorways to warp between connected rooms** |
+| **Baked vertex lighting** | ✅ **per-vertex DIFFUSE (lava glow, ambient) — the Falcom "lightmap"** |
+| **Grounded player controller** | ✅ **walk/jump/gravity + wall & floor collision vs render mesh; F toggles fly** |
+| **AIA** character/monster sprites | ✅ **codec cracked, pixel-exact; 8-way facing + idle/walk/jump** |
+| **The game's own camera (SCM)** | ✅ **659 authored camera regions, follow + orbit + blend — no hand-tuning** |
+| **Scene fog (SFO)** | ✅ **per-region colour/near/far, cross-faded as the game does** |
+| **The real HUD (STATUS_512)** | ✅ **authored 1024×768 coords, Hor+ scaling** — Lv/SP/EXP still placed by eye |
+| **Enemies (SCT placement)** | ✅ **1106 placements / 85 rooms render as sprites; no AI yet** |
+| **Torch flames (SEF + EF2)** | ✅ **placements + the 16-frame flipbook, additive** |
+| **The full archive** | ✅ **15,945/15,945 extracted — incl. 77 shaders + 820 WAVs nothing had touched** |
+
+The differential test is the headline: two independent implementations of the
+whole pipeline agree to the vertex — **5,659,727 vertices / 2,183,191 triangles**
+across every room in the game.
+
+### What YMO turned out to be
+
+A serialized DirectX `.X` mesh hierarchy: `D3DXFRAME` nodes, `D3DXMESHCONTAINER`
+meshes stored as **raw D3D9 FVF vertex buffers + `D3DFMT_INDEX16` triangle
+lists**, and per-node scale/rotation/translation animation keys. See
+[docs/formats/YMO.md](docs/formats/YMO.md).
+
+> **Rooms and props use legacy FVFs (`0x1D2`/`0x2D2`) with rigid node binding, and
+> that path is validated bit-exact. But that is not the whole format.** The bosses
+> under `ENEMY/` use `fvf = 0` — a D3D9 **vertex declaration** — which our parser
+> does not decode, so they currently render as garbage. The shader set we recently
+> extracted includes `_1w`…`_4w` variants (bone-weight counts), so **the "no
+> skinning" claim this README used to make is almost certainly wrong.** Under
+> investigation; see the ledger below.
+
+## Layout
+
+```
+src/cleria/        asset core — ymo, sob, sen, scm (cameras), sfo (fog), sct
+                   (actors), sef (effects), aia (sprites), xso (script VM), physics
+apps/cleria-view/  the engine: real-time renderer + play mode
+apps/cleria-dump/  load a room's SOB, export it to .obj
+apps/cleria-xso/   disassemble / run scripts; `--grants` scans the corpus
+docs/formats/      the reverse-engineering specs (YMO, AIA, XSO, SIDECARS)
+tools/             Python validators, probes and Ghidra scripts
+build/*_re/        raw RE notes per subsystem (source_map, ef2_re, xso_ops, …)
+```
+
+## Build
+
+Requires CMake ≥ 3.24 and a C++20 compiler (MSVC 2022 tested).
+
+```sh
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+```
+
+## Run
+
+`cleria-dump` needs a directory of extracted assets (the `MAP/`, `ENEMY/` … tree
+produced by the Archipelago project's `ni_unpack.py`).
+
+```sh
+build/Release/cleria-dump.exe <asset_root> <asset_root>/MAP/S_00/S_0000/S_0000.SOB out.obj
+python tools/render_png.py out.obj out.png    # quick-look raster (Pillow)
+```
+
+## Render
+
+`cleria-view` draws a room in real time via **SDL3 + wgpu-native** (WebGPU →
+D3D12/Vulkan/Metal). Native library, no browser.
+
+It plays the game's way: the camera, fog, enemy placement and spawn point all come
+from the room's own sidecars, not from constants we picked.
+
+```sh
+build/Release/cleria-view.exe                                         # no args -> S_1000
+build/Release/cleria-view.exe <asset_root> <room.SOB>                 # a specific room
+build/Release/cleria-view.exe <asset_root> <room.SOB> --shot out.ppm 1280 860
+build/Release/cleria-view.exe <asset_root> <room.SOB> --walk 6 tour   # headless tour
+```
+
+With no arguments it finds the asset tree (`$CLERIA_ASSETS`, then next to the exe)
+and starts in the tower base (S_1000) — just run the exe.
+
+In the window: **WASD** moves the character (8-way, camera-relative), **LMB** attacks,
+**Space** jumps, **E** opens chests, **Tab** switches character, **1–9** take exit N,
+**F** drops to a free-fly debug camera, **ESC** quits. Fly into a doorway (a SEN trigger volume) to warp
+to the connected room. `--shot` renders one frame offscreen to a PPM (verifiable
+headless); `--walk N` auto-traverses N connected rooms, shooting each. Prebuilt
+deps live under `third_party/` (gitignored) — SDL3 3.4.12 + wgpu-native v29.0.1.1.
+
+`<asset_root>` is a tree of extracted assets (`tools/extract_assets.py <data.ni> assets`).
+Extract **both** archives — `data.ni` then `data_us.ni`, in that order: the US
+overlay overwrites 525 scripts and the English text.
+
+### Debug switches
+
+| switch | does |
+|---|---|
+| `--model <file.ymo> out.ppm` | orbit-shot any standalone model (bosses, props) |
+| `CLERIA_SPAWN="x,y,z"` | drop the character somewhere specific |
+| `CLERIA_SKIP=<substr>` | omit SOB objects whose path/name matches — bisect artifacts |
+| `CLERIA_VB=1` | print each mesh's vertex format; flags buffers with no UV0 |
+| `CLERIA_MAT=1` | list materials using texture slots beyond slot 0 |
+| `python tools/xso_audit.py` | count script branches our VM would get wrong at runtime |
+| `python tools/sct_enemies.py <ROOM>` | list a room's enemies + positions + sprites |
+| `python tools/aia_gif.py <f.aia> <o.gif>` | animation contact sheet, for identifying anims |
+
+## Roadmap
+
+- **M0 — asset pipeline** ✅
+- **M1 — render + walk** ✅: real-time renderer, textures + alpha, baked lighting,
+  SEN room transitions, and a grounded player controller (walk/jump/collide).
+  Ultrawide falls out for free (aspect-correct resizable window).
+- **M2 — scripts** ✅: the XSO event VM — parser, decoder, control flow, flag /
+  test / give-item / acquire-box ops, the comparison family, and object show/hide
+  (static grant scan: **7,505** — an earlier 7,496 was measured before the archives
+  were fully extracted, when `assets/` was a JP/US mix; `data_us.ni` overwrites 525
+  scripts and the US build grants 9 more flags). Integrated into play: **open chests** (E) for named loot, an
+  **on-screen HUD**, **character selection** (Tab: Yunica/Hugo/Toal), and
+  **per-character chest gating** — the scene-main script hides the wrong
+  character's chests (model + interactable). Presentation-heavy ops (cutscene
+  camera, entity animation, dialog) drive systems that belong to M3. See
+  [docs/formats/XSO.md](docs/formats/XSO.md).
+- **M3 — combat & entities** *(in progress)*: the game's **authored camera** (SCM),
+  **scene fog** (SFO), the **real HUD** at its authored coordinates, **character
+  sprites** (AIA) with 8-way facing and idle/walk/jump, **enemies** placed from SCT
+  (1106 across 85 rooms), and **torch flames** from SEF + the EF2 flipbook. All of it
+  driven by the game's own data — the camera constants we hand-tuned for a day were
+  thrown away the moment SCM was decoded.
+  **Blocked on the entity system:** enemies have no AI (the game's is ~90 bespoke C++
+  routines, not a table), and **barrier fights** need a live "is that enemy alive?"
+  answer — `KEKKAIZAKO_01.XSO` polls op `0x131` in a loop, so no constant can fake it.
+- **M4 — the mod API**: the Archipelago mod becomes the first CleriaCore mod.
+
+### Honesty ledger
+
+Things we know are still invented or unknown, kept here so they don't get mistaken
+for facts:
+
+| thing | status |
+|---|---|
+| enemy HP / damage / reach | **our numbers** — the game has no per-enemy HP column; stats come from a GAMEINFO level curve we haven't wired |
+| animation frame rate | **invented (0.09 s/frame)** — the real model is ASO's `anime_Wait(n)` in VM ticks; the tick's wall-clock rate is still being traced |
+| HUD `Lv` / `SP` / `EXP` | placed by eye — the digit emitter isn't decoded |
+| black slabs over S_1000's stairs | **unexplained**; several theories tested and refuted |
+| water animation | **not found.** Not UV scroll (the plain shader has the same instruction); it's reflection/caustics — mechanism unproven |
+| bosses | **can't render them** — they use a vertex *declaration* (`fvf=0`, stride 28) our YMO parser doesn't handle, and are probably skinned |
+| AIA second layer | decoded (body flags **bit 0**, palette+1) but not yet drawn — matters for c_112/c_113 and Boost forms |
+| 300 XSO branch sites | run `tools/xso_audit.py` — unimplemented sub-ops leave `acc` stale, so those branches are wrong at runtime |
+
+## Credit
+
+Built on the reverse-engineering foundation of the sibling **Ys Origin
+Archipelago** project (NNI cipher, XSO event-VM, item/scene maps, Ghidra work).

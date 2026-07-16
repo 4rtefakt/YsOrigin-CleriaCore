@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# Game data — NEVER commit. This is Falcom's copyrighted content; CleriaCore is a
+# clean-room engine that READS it. Extract it from your own copy of the game:
+#   python tools/extract_assets.py <install>/release/data.ni    assets
+#   python tools/extract_assets.py <install>/release/data_us.ni assets   # US overlay, 2nd
+/assets/
+*.ni
+*.na
+*.nu
+*.nya
+
+# Prebuilt dependencies (SDL3 + wgpu-native) — fetched, not authored.
+/third_party/
+
+# ---------------------------------------------------------------------------
+# Build tree: ignore it wholesale, then re-admit the reverse-engineering notes.
+# The agents write findings under build/<subsystem>_re/, and those notes are the
+# most valuable artefact here — they are why we don't have to guess the same thing
+# twice. Keep the prose and the probes; keep out the game data they extract.
+/build/*
+!/build/aso_re/
+!/build/audio_re/
+!/build/ef2_re/
+!/build/enemy_re/
+!/build/entity_re/
+!/build/hud_re/
+!/build/render_re/
+!/build/sidecar_re/
+!/build/source_map/
+!/build/xso_ops/
+!/build/ymo_re/
+
+# ...but never the extracted assets or renders those dirs accumulate.
+/build/**/*.ppm
+/build/**/*.png
+/build/**/*.gif
+/build/**/*.dds
+/build/**/*.DDS
+/build/**/*.EF2
+/build/**/*.dat
+/build/**/*.DAT
+/build/**/*.z
+/build/**/*.Z
+/build/**/eft/
+/build/**/__pycache__/
+
+# ---------------------------------------------------------------------------
+__pycache__/
+*.pyc
+*.obj
+*.exe
+*.pdb
+*.ilk
+.vs/

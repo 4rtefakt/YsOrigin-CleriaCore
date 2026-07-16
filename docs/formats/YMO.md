@@ -1,0 +1,353 @@
+# YMO — Ys Origin model format
+
+**Status: fully reverse-engineered.** A complete parser consumes all **1,006**
+files byte-exactly — every byte accounted for, nothing left over, nothing
+overrun. See [Validation](#validation).
+
+Falcom model container. 1,006 files in `data.na`, 61 MB packed / 354 MB raw.
+Totals across the corpus: **6,119,287 vertices, 2,280,027 triangles**.
+
+Reversed 2026-07-16 from two independent sources that agree everywhere:
+
+- **The loader** — `FUN_005f31d0` in `yso_win.exe` v1.1.1.0, found by scanning
+  610,640 instructions for `CMP dword ptr [EDI],0x4f4d59` @ `0x005f322e`.
+  Ghidra project `D:\ghidra-work\YsOproj`.
+- **Corpus statistics** over all 1,006 files. Every ✅ below was tested against
+  the whole corpus, not a sample.
+
+Origin is **version 17** of the format Ys VI / Oath in Felghana use (Noesis
+treats them as one versioned handler). Expect a shared parser across the 3D
+trilogy.
+
+## What YMO actually is
+
+**YMO is a serialized DirectX `.X` mesh hierarchy.** Everything in it maps 1:1
+onto the D3DX data model, which is fully documented by Microsoft:
+
+| YMO section | D3DX equivalent |
+|---|---|
+| node | **`D3DXFRAME`** — `Name`, `TransformationMatrix`, `pFrameFirstChild`, `pFrameSibling` |
+| mesh | **`D3DXMESHCONTAINER`** — FVF vertex buffer + `D3DFMT_INDEX16` index buffer |
+| animation clip | **`ID3DXKeyframedAnimationSet`** — per-node scale/rotation/translation key arrays |
+
+The node names give it away: `Frame_SCENE_ROOT`, `Frame1_hit_efe01_Layer1`,
+`Mesh_hit_efe01`, `AnimationSet_hito_efe` — verbatim
+`D3DXLoadMeshHierarchyFromX` conventions, out of a 3ds Max exporter.
+
+Falcom built models as `.X` files and serialized the loaded D3DX hierarchy to
+disk. The pointer graph became name references (resolved on load by `strcmp`),
+and the D3DX structs became fixed-stride records — with **one deviation**: their
+keyframes put the *value first and time last*, where `D3DXKEY_VECTOR3` /
+`D3DXKEY_QUATERNION` put `Time` first. Everything else is D3DX.
+
+### The three consequences that matter
+
+1. **There is no custom vertex format.** Raw D3D9 vertex buffers + a standard
+   **FVF** code; index buffers as `D3DFMT_INDEX16`. The loader hands both to D3D9
+   untransformed. The layout is Microsoft's FVF documentation — nothing to reverse.
+2. **The FVF path is rigid; the vertex-declaration path is GPU-skinned.** No FVF
+   in the corpus carries `XYZB*` blend weights — `0x1d2`/`0x2d2`/`0x1c2` all mask
+   to `D3DFVF_XYZ` — and no YMO record carries per-vertex weights, so FVF geometry
+   binds **rigidly** to nodes: walk the hierarchy, compute world matrices, draw.
+   But that is a statement about the FVF path only. The 40 `S_*` shaders in
+   `assets/VS_DX9/` are **skinning** shaders, and CleriaCore needs a skinning path
+   for whatever feeds them — see [Skinning](#skinning) below.
+3. **The remaining unclassified fields are almost certainly D3DX struct members.**
+   When in doubt, check the D3DX headers before reaching for Ghidra.
+
+## On-disk layout
+
+Sections appear in the order the loader consumes them, which is **not** header
+field order:
+
+| # | Section | Count field | Record size |
+|---|---|---|---|
+| 0 | header | — | `0x28C` (652 B) |
+| 1 | materials | `+0x10` | `0x2EC` (748 B) |
+| 2 | nodes | `+0x1C` | `0x2A0` (672 B) |
+| 3 | meshes | `+0x18` | variable |
+| 4 | animation clips | `+0x14` | variable |
+
+### Header — 652 bytes (`0xA3` dwords)
+
+The loader copies `0xA3` dwords wholesale before parsing, which fixes the size
+exactly: `for (i = 0xa3; i != 0; i--) *dst++ = *src++;`
+
+| Offset | Type | Field | Evidence |
+|---|---|---|---|
+| `0x00` | char[4] | magic `"YMO\0"` | loader `== 0x4f4d59` ✅ 1006/1006 |
+| `0x04` | u32 | **version = `0x11`** | loader `== 0x11` ✅ 1006/1006 |
+| `0x08` | u32 | flags | 17 distinct, `0..2049` |
+| `0x0C` | u32 | flags2 | only `0`, `1`, `16` |
+| `0x10` | u32 | **material_count** | `1..260` |
+| `0x14` | u32 | **anim_clip_count** | `0..39` — zero in 666/1006 (static geometry) |
+| `0x18` | u32 | **mesh_count** | `1..121` |
+| `0x1C` | u32 | **node_count** | `2..305` |
+| `0x20` | u32 | zero | ✅ 1006/1006 |
+| `0x24` | float[3] | `aabb_min` | ✅ 1006/1006 |
+| `0x30` | float[3] | `aabb_max` | ✅ 1006/1006 |
+| `0x3C` | float[3] | `center` == `(min+max)/2` | ✅ **derived**, 1006/1006 |
+| `0x48` | float | `radius` == `\|max-center\|` | ✅ **derived**, 1006/1006 |
+
+`center`/`radius` are derived quantities, so 1006/1006 is proof, not curve-fit.
+The loader independently copies dwords `[9]..[0x12]` (= `0x24`..`0x48`, exactly
+these 10 floats) to runtime `[0xb2]..[0xbb]`.
+
+Units are metres — `AEF00_02.YMO` spans min `(-4.38,-0.40,-4.38)` → max
+`(4.38,0.20,4.38)`: a floor panel ~8.8 m across, 0.6 m thick.
+
+### 1. Materials — `0x2EC` = 748 bytes (`0xBB` dwords), runtime stride `0x2b0`
+
+- `+0x00` u32 flags — bit `0x200000` sets header flags bit `0x200`
+- `+0x4C` NUL-terminated **material name**
+- `+0xAC` **3 × texture name**, stride `0x30` (48 B) — plain `.DDS`, no RE needed
+- runtime `+0x3C` initialised to `1.0f` (alpha)
+
+### 2. Nodes — `0x2A0` = 672 bytes, runtime stride `0x250` (+ `0x170` pose), 16-B aligned
+
+Sub-parser **`FUN_005f3c70`**. This is the **scene graph**, serialized by name.
+
+This is `D3DXFRAME`, with the pointer graph serialized as names.
+
+| Offset | Type | Field | Confirmed |
+|---|---|---|---|
+| `0x000` | char[0x60] | `name[0]` — **own identity** | — |
+| `0x060` | char[0x60] | `name[1]` — **first child** → node* @ rt `+0x54` | ✅ 3663/3663 |
+| `0x0C0` | char[0x60] | `name[2]` — **next sibling** → node* @ rt `+0x58` | ✅ 2347/2347 |
+| `0x120` | char[0x60] | `name[3]` — **parent** → node* @ rt `+0x5c` | ✅ 5670/5670 |
+| `0x180` | char[0x60] | `name[4]` — **mesh name** → mesh* @ rt `+0x60` | — |
+| `0x1E0` | float[16] | matrix A (→ pose `[0x10..0x1f]` **and** `[0x30..0x3f]`) |
+| `0x220` | float[16] | matrix B (→ node `[0..0xf]`) |
+| `0x260` | float[3] | translation |
+| `0x26C` | float[3] | scale |
+| `0x278` | float[4] | rotation quaternion |
+| `0x288` | u32 | *(unclassified)* |
+| `0x28C` | u32 | *(unclassified)* |
+| `0x290` | u32 | *(unclassified)* |
+| `0x294` | — | 12 bytes unread (padding) |
+
+The TRS triple at `0x260` is copied **twice** into the pose struct — rest pose +
+current pose. Runtime defaults: identity 4×4 at pose `[0..0xf]` and `[0x20..0x2f]`
+(`1.0f` on the diagonals), and **`parent_index = 0xFFFFFFFF`** at `[0x42]`.
+
+**Name resolution** happens in a post-pass via **`FUN_005f4e10(this, name)`**,
+which is a **node-lookup-by-name**, not a texture resolver:
+
+```c
+// count at this+0x1c (= header node_count), array at this+0x290, stride 0x250
+if (strcmp(name, node_array[i] + 0x64) == 0)      // node.name[0]
+    return i * 0x250 + node_array;
+```
+
+`name[4]` is instead `strcmp`'d against **mesh** names (`mesh+0x68`, stride
+`0xcc`); on match the loader writes `node+0x60 = mesh*` **and** `mesh+0x2c =
+node_index` — a back-pointer proving each mesh has exactly **one** node. That is
+rigid binding, confirmed structurally.
+
+### 3. Meshes — header `0xB4` = 180 bytes, runtime stride `0xCC`
+
+Sub-parser **`FUN_005f4420`**. Allocated via `_eh_vector_constructor_iterator_`
+(ctor `FUN_005f2490`) — a real C++ class with a dword count prefix.
+
+| Offset | Field |
+|---|---|
+| `0x00` | NUL-terminated **mesh name** (runtime `+0x68`) |
+| `0x60`..`0x84` | 10 floats (bounds, same shape as the model header) |
+| `0x88` | submesh count |
+| `0x8C` | **vertex_buffer_count** |
+| `0x90` | **index_buffer_count** |
+| `0x94` | per-submesh index-list length (dwords) |
+| `0x98` | *(unclassified)* |
+| `0x9C` | **node-binding count** — `0x60`-byte name records, each → node* via `FUN_005f4e10` |
+| `0xA0` | copied into the parallel `0x18`-stride array |
+
+Consumed in order: header → `n9C × 0x60` node-binding names → `n88 ×
+(0x20 + n94*4)` submesh descs + index lists → VB descs + payloads → IB descs +
+payloads.
+
+#### Vertex buffers — `0x14` = 20-byte descriptors, payload follows the array
+
+```c
+count = desc[0x08]; stride = desc[0x0C]; fvf = desc[0x10];
+device->CreateVertexBuffer(stride*count, usage, fvf, pool, &desc[0x00], 0); // vtbl +0x68
+vb->Lock(0, size, &p, 0); memcpy(p, payload, size); vb->Unlock();           // vtbl +0x2c/+0x30
+```
+
+| FVF | Stride | Layout | Descs | Verts |
+|---|---|---|---|---|
+| `0x1D2` | 40 | `POSITION@0 NORMAL@12 DIFFUSE@24 SPECULAR@28 TEX0@32` | 1595 | props |
+| `0x2D2` | 48 | …plus `TEX1@40` (2nd UV, **unused — all zero**) | 265 | map geometry |
+| `0x0` | 16/20/28 | **vertex declaration** (shader path — see [Skinning](#skinning)) | 132 | — |
+
+`0x1C2` (stride 28, no normal) is handled by the loader but appears **zero**
+times in Origin — a Felghana/Ys VI leftover. Support defensively.
+
+> **Baked lighting lives in the DIFFUSE vertex colour (`@24`), not a lightmap.**
+> The `0x2D2` second UV set is entirely zero across the corpus — there is no
+> lightmap texture. Lighting is per-vertex D3DCOLOR (`0xAARRGGBB`), applied
+> fixed-function MODULATE (`final = texture × diffuse`). Verified: S_3004's
+> lava-adjacent verts carry `f5b547` (orange), S_1000's carry cool greys. This
+> is what makes rooms read as *lit*; a flat-shaded render looks wrong.
+
+#### Skinning
+
+The `FVF == 0` row above is **not** a rigid path. Shader-bytecode analysis (see
+`build/render_re/`) shows Ys Origin has a real GPU skinning path, on a
+**`c24` bone-matrix palette**, distinct from the fixed-function FVF path:
+
+- **40 `S_*` shaders declare skinning inputs.** All 40 `dcl_blendindices v1` and
+  all 40 index the palette with `m4x3 r4.xyz, v4, c24[a0.x]`. 30 of the 40 also
+  `dcl_blendweight v0` — exactly the 2W/3W/4W variants; the 10 `*_1W` shaders omit
+  it, since a single bone needs no weight. [C-DIS] 40/40, 30/40 over
+  `build/render_re/listings/`
+- **Bone index → palette address:** `mul r1, v1.zyxw, c2.w` / `mov a0.x, r1.x`.
+  The `.zyxw` un-swizzles a `D3DCOLOR`-declared BGRA index; `c2.w` is the
+  stride scale. [C-DIS] · exact `c2.w` value is [UNKNOWN] from the assets — it
+  depends on the `BLENDINDICES` element type, which lives in the exe.
+- **3 registers per bone** (`m4x3`), so the palette is `c24 + 3*bone`. On the
+  unskinned `B_*` shaders the same `c24` block is instead the plain `WORLD*VIEW`
+  matrix. [H-high] — see `build/render_re/constant_map.txt` for the full register
+  map, incl. why `c24` is `WORLD*VIEW` and not `WORLD`.
+- **Weights:** 2W/3W/4W each add one weighted bone (`mad r4, r0.xyzz, <weight>,
+  r4.xyzz`), with the **last weight implied as `1 - sum(previous)`** — the shader
+  computes it as `dp3 r1.w, v0.xyzz, c0.zxxx` then `add r1.w, -r1.w, c0.z`.
+  Normals are skinned in parallel via `m3x3` and renormalised. [C-DIS]
+- **Bone count is the vertex-declaration id.** The exe's shader-name table
+  (`0x746250`..`0x7465D3`, dumped to `build/render_re/shader_name_table.txt`)
+  tags each shader with a `kind`; for the `s_*` entries **`kind == 3 + bone
+  count`** (1W→4 … 4W→7), and the `b_*` entries take kinds 0..3. [C-DIS]
+
+**Which buffers feed which path is not yet confirmed.** The 132 `FVF == 0`
+descriptors are the only ones that *can* feed a vertex declaration, and the `S_*`
+shaders are the only consumers that need blend inputs — but nothing dumped so far
+ties a specific buffer to a specific shader, and the 37 `B_*` shaders are
+unskinned yet also take declarations. [H-medium] that the `FVF == 0` buffers are
+the skinned set. The strides (16/20/28) are each too small to hold everything the
+`S_*` shaders declare (position, normal, colour, texcoord, blendindices,
+blendweight, 3 tangents), so these are **multi-stream** declarations; the stream
+layout is [UNKNOWN] and lives in the exe, not the YMO.
+
+Note the tag vocabulary here (`[C-DIS]` disassembled, `[C-COR]` corpus-validated,
+`[H-*]` hypothesis, `[UNKNOWN]`) is `constant_map.txt`'s; the ✅ *n*/*n* marks
+elsewhere in this doc are the corpus-statistics equivalent.
+
+#### Index buffers — `0x14` = 20-byte descriptors
+
+```c
+device->CreateIndexBuffer(stride*count, usage, 0x65, pool, &desc[0x00], 0);  // vtbl +0x6c
+```
+
+`0x65` = 101 = **`D3DFMT_INDEX16`**, hardcoded. ✅ **All 1,926 index buffers in
+the corpus have stride 2.** Topology is **triangle list** — the centroid pass
+walks `index_count/3` triangles reading indices as `ushort*` in steps of 3 and
+looks up position at vertex offset 0, independently confirming 16-bit indices,
+triangle lists, and `POSITION@0`.
+
+### 4. Animation clips — `+0x14`, variable
+
+Clip header is `0x28` dwords = **160 bytes**, with `track_count` at dword `0x27`
+(byte `0x9C`) and a name + ~14 floats. Each track (sub-parser **`FUN_005f4110`**,
+runtime stride `0x84`):
+
+| Offset | Field |
+|---|---|
+| `0x00` | char[0x60] **node name** → node* via `FUN_005f4e10` |
+| `0x60` | `countA` |
+| `0x64` | `countB` |
+| `0x68` | `countC` |
+| `0x6C` | `type` |
+| `0x70` | end of track header |
+
+Then, **if `type == 0`**, three keyframe arrays follow, in this on-disk order:
+
+| Array | Count | Record | Layout | Confirmed |
+|---|---|---|---|---|
+| **A** | `+0x60` | `0x10` (4 floats) | `{ float3 translation; float time; }` | ✅ first key == rest translation in **93.7%** (vs 0.2% for scale) |
+| **B** | `+0x64` | `0x14` (5 floats) | `{ float4 quaternion; float time; }` | ✅ **100.00% unit length** — 865,462/865,462 |
+| **C** | `+0x68` | `0x10` (4 floats) | `{ float3 scale; float time; }` | ✅ first key == rest scale in **79.5%** (vs 0% for translation) |
+
+**Value first, time last** — this is the one place Falcom deviates from D3DX
+(`D3DXKEY_VECTOR3`/`D3DXKEY_QUATERNION` put `Time` first). The `time` field is
+monotonically non-decreasing in **28157/28157** and **28158/28158** tracks
+respectively; assuming time-first only reaches 95.3% / 91.6%, and the quaternion
+only 44.67% unit. Do not port the D3DX field order.
+
+Sub-100% match rates on A and C are expected and not a problem: the first
+keyframe need not equal the bind pose. The quaternion's 100.00% unit-length
+across 865k keys is the load-bearing proof for B.
+
+**If `type != 0`**: `type × 0x50` bytes, 16-byte aligned (80 B = a 4×4 matrix +
+4 floats — presumably baked matrix keys). **`type` is 0 for all 28,161 tracks in
+the corpus**, so this branch is unreachable in Ys Origin. Ignore it unless
+Felghana/Ys VI need it.
+
+Each track targets a node by name — clips animate the scene graph, and meshes
+ride their node rigidly. `anim_clip_count == 0` for **666 of 1,006** models,
+exactly the static map geometry. Characters and enemies carry clips.
+Corpus totals: **28,161 tracks**, 1,075,970 translation / 1,078,939 rotation /
+1,078,643 scale keys.
+
+## Notes for the CleriaCore renderer
+
+- **Do not port the specular halving.** When `DAT_0076519a >= 2 &&
+  DAT_00764c2f`, the loader rewrites specular in-place as `(c >> 1) & 0x7f7f7f`
+  at offset `0x10` (FVF `0x1c2`) or `0x1c` (`0x1d2`/`0x2d2`). It compensates for
+  fixed-function hardware you will not have.
+- **Per-triangle centroids** are precomputed as `(v0+v1+v2)/3` when device flags
+  `0x2fc & 0xe == 0xe`, for transparency depth-sorting. We can do better.
+- **Draw order** is already solved: submeshes are `qsort`ed by comparator
+  `FUN_005f4390` into 4 buckets keyed on material flags `0x4000`, `0x8040`,
+  `0x10` and alpha `< 1.0` — i.e. opaque → alpha-test → alpha-blend.
+- Node links are `D3DXFRAME`'s: `name[1]` first child, `name[2]` next sibling,
+  `name[3]` parent — all ✅ 100% across the corpus. Traverse child/sibling from a
+  root; `name[3]` is redundant but load-bearing for the loader's own resolution.
+
+## Validation
+
+`tools/ymo_parse.py` implements every stride above and parses the corpus:
+
+```
+corpus            : 1006 files
+parsed byte-exact : 1006/1006  (100.00%)
+failures          : 0
+totals            : 6,119,287 vertices, 2,280,027 triangles
+FVF               : {0x1d2: 1595, 0x2d2: 265, 0x0: 132}
+index strides     : {2: 1926}
+```
+
+666 of those have `anim_clip_count == 0` and land precisely on EOF after
+header + materials + nodes + meshes — the strongest single check, since nothing
+downstream can absorb drift.
+
+Independently: an FVF decode done from the D3D9 spec alone reproduces the
+loader's three hardcoded specular offsets (`0x10`, `0x1c`, `0x1c`) exactly —
+see `tools/ymo_fvf.py`.
+
+## Remaining unknowns (all minor, none blocking)
+
+1. Node `+0x288` / `+0x28C` / `+0x290`; mesh `+0x98`; header `flags` / `flags2`
+   value enumeration. Check the D3DX headers first — these are likely
+   `D3DXFRAME`/`D3DXMESHCONTAINER` members.
+2. Vertex declarations for the 132 `FVF == 0` buffers (needs the `VS_DX9`
+   shaders — 77 of them, all D3D9 bytecode, disassemblable with `D3DDisassemble`).
+3. Which of the three node links the loader actually walks at runtime (all three
+   are present and consistent; child+sibling alone is sufficient to rebuild).
+
+## Tools
+
+| Tool | Does |
+|---|---|
+| `tools/ymo_parse.py` | full parser + the 1006/1006 byte-exact validation |
+| `tools/ymo_fvf.py` | independent FVF decode; reproduces the loader's specular offsets |
+| `tools/ymo_anim.py` | keyframe layout hypothesis tests (unit-quaternion, monotonic time) |
+| `tools/ymo_links.py` | node link semantics + keyframe identity vs rest TRS |
+| `tools/FindYmoLoader.java` | Ghidra: locate loaders by Falcom magic |
+| `tools/DumpYmoMesh.java` | Ghidra: decompile mesh/node sub-parsers |
+| `tools/DumpYmoS5.java` | Ghidra: decompile animation + name-resolver |
+
+Ghidra 12 dropped Jython — headless scripts must be **Java**, not Python:
+
+```sh
+analyzeHeadless D:/ghidra-work YsOproj -process yso_win.exe -noanalysis \
+  -scriptPath D:/ghidra-work/scripts2 -postScript FindYmoLoader.java
+```
