@@ -33,6 +33,7 @@ and a C++20 asset core renders real rooms.
 | **Baked vertex lighting** | ✅ **per-vertex DIFFUSE (lava glow, ambient) — the Falcom "lightmap"** |
 | **Grounded player controller** | ✅ **walk/jump/gravity + wall & floor collision; F toggles fly** |
 | **The game's own collision hulls (`_.YMO`)** | ✅ **396 tris vs 14,295 render in S_1000 — matches the authored SCT spawn in 7 more rooms than render geometry, 0 regressions** |
+| **Footsteps (surface types + EFFECTDEF + SDL3 audio)** | ✅ **the hull's material name *is* the surface: `stone`→`f_stone0..3`. EFFECTDEF parser matches the Python port on all **901** ids** |
 | **AIA** character/monster sprites | ✅ **codec cracked, pixel-exact; 8-way facing + idle/walk/jump** |
 | **The game's own camera (SCM)** | ✅ **659 authored camera regions, follow + orbit + blend — no hand-tuning** |
 | **Scene fog (SFO)** | ✅ **per-region colour/near/far, cross-faded as the game does** |
@@ -131,6 +132,8 @@ overlay overwrites 525 scripts and the English text.
 | `CLERIA_SKIP=<substr>` | omit SOB objects whose path/name matches — bisect artifacts |
 | `CLERIA_COLL=render` | collide against render geometry again (pre-`_.YMO` behaviour) |
 | `CLERIA_COLLCHECK=1` | grid-compare the collision hulls against the render mesh |
+| `CLERIA_SURF=1` | per-surface triangle counts, split by floor-like vs wall |
+| `CLERIA_STEPS=1` | trace each footstep: surface → table id → WAV |
 | `CLERIA_VB=1` | print each mesh's vertex format; flags buffers with no UV0 |
 | `CLERIA_MAT=1` | dump every material: flags, blend mode, diffuse, UV-scroll velocity, all 3 texture slots |
 | `CLERIA_CULL=off\|cw\|ccw` | probe face culling (D3D9's `D3DCULL_CCW` does not map directly to WebGPU winding) |
@@ -177,6 +180,8 @@ for facts:
 | animation frame rate | **known now, not yet implemented**: `anime_Wait(n)` = n/60 s. Our flat 0.09 s/frame was accidentally near walk (0.100) and wrong everywhere else — idle is 0.167, run 0.067, attacks 0.017–0.067 |
 | **fixed-step vs our variable dt** | **architectural gap.** The game runs logic at a **fixed 60 Hz with catch-up, decoupled from rendering** (`RefreshRate` only governs Present). We scale everything by `dt`. Faithful timing means emulating the step, not tuning constants |
 | HUD `Lv` / `SP` / `EXP` | placed by eye — the digit emitter isn't decoded |
+| footstep cadence | **ours.** The game paces steps from ASO animation events we don't run yet; `kStepDist` (1.6 units) is a stand-in. The *sound selection* is the game's own |
+| collision surfaces not in the table | **`default` is the 2nd most common** (3168 tris), and `door`/`10switch`/`dafault` (Falcom's typo) join it. `surface_index` returns -1 — which is exactly what the exe's own lookup returns. What the exe *does* with -1 isn't established, so we stay silent rather than guess a fallback |
 | black slabs over S_1000's stairs | **still unexplained.** Now also refuted: they are *not* the `_.YMO` collision twin (the SOB never references it, and they survive with only `s_1000.ymo` drawn), *not* a black material diffuse (every material in the room is `1,1,1,1`), and *not* backfaces (no cull mode separates them from the floor). Next suspect: the baked vertex colours themselves |
 | water animation | **found — it's the material, not the shader.** Each material carries a UV-scroll velocity at `+0x44/+0x48` (`20zwater3` = +0.0006,-0.0018) gated by flag bit `0x4`; the shader can't animate itself (its phase input has no time term). We parse it now; the per-frame integrator that advances the phase is still unlocated |
 | bosses | **understood, not yet drawn.** The declarations aren't in the YMO at all — they're 8 static `D3DVERTEXELEMENT9` arrays in the exe. BOSS01 is **two-stream**: our parser read stream0's first 12 bytes as POSITION when they're BLENDWEIGHT (hence the tiny blob). Skinning is D3DX indexed-palette; 64/64 files reproduce all 303 stored clip AABBs to ≤3e-5 |
