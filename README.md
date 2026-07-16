@@ -136,6 +136,7 @@ overlay overwrites 525 scripts and the English text.
 | `CLERIA_CLIP=<name>` `CLERIA_FRAME=<n>` | pose a skinned model at an animation frame (`--model`); list clips with `cleria-animtest <f.ymo> --clips` |
 | `CLERIA_SKIP=<substr>` | omit SOB objects whose path/name matches — bisect artifacts |
 | `CLERIA_COLL=render` | collide against render geometry again (pre-`_.YMO` behaviour) |
+| `CLERIA_NOSCROLL=1` | disable the water UV-scroll integrator |
 | `CLERIA_COLLCHECK=1` | grid-compare the collision hulls against the render mesh |
 | `CLERIA_SURF=1` | per-surface triangle counts, split by floor-like vs wall |
 | `CLERIA_STEPS=1` | trace each footstep: surface → table id → WAV |
@@ -146,6 +147,12 @@ overlay overwrites 525 scripts and the English text.
 | `python tools/xso_audit.py` | count script branches our VM would get wrong at runtime |
 | `python tools/sct_enemies.py <ROOM>` | list a room's enemies + positions + sprites |
 | `python tools/aia_gif.py <f.aia> <o.gif>` | animation contact sheet, for identifying anims |
+
+> **If the interactive window segfaults with no output, check that a display is attached.**
+> SDL cannot create a window/swapchain with no active display, so `cleria-view` dies at
+> startup. `--shot` / `--play` / `--model` render offscreen and are unaffected — use them
+> for headless verification. (Diagnosed the slow way once: an old commit crashed identically
+> despite having run fine an hour earlier. Same binary, different result = environment.)
 
 ## Roadmap
 
