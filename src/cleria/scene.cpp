@@ -350,7 +350,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
 
             const IndexBuffer& ib = mesh.ibs[0];
             auto emit = [&](std::uint32_t first_idx, std::uint32_t idx_count, int tex,
-                            int surf) {
+                            int surf, const Material* mat, std::uint32_t fv,
+                            std::uint32_t vc) {
                 if (idx_count == 0) return;
                 const std::uint32_t out_first = std::uint32_t(out.indices.size());
                 for (std::uint32_t j = 0; j < idx_count; ++j) {
@@ -361,7 +362,11 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 // One surface id per triangle actually emitted — the loop above can
                 // drop indices whose source is out of range, so count what landed.
                 out.tri_surface.resize(out.indices.size() / 3, surf);
-                out.batches.push_back({out_first, idx_count, tex});
+                DrawBatch b{out_first, idx_count, tex};
+                if (mat) { b.scroll_u = mat->scroll_u; b.scroll_v = mat->scroll_v; }
+                b.first_vert = base + fv;
+                b.vert_count = vc ? vc : nvert;
+                out.batches.push_back(b);
             };
 
             if (!mesh.submeshes.empty()) {
@@ -372,7 +377,10 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                                                      model.materials[sm.material].texture[0]).string());
                         surf = intern_surf(model.materials[sm.material].name);
                     }
-                    emit(sm.first_tri * 3, sm.tri_count * 3, tex, surf);
+                    const Material* mp = sm.material < model.materials.size()
+                                             ? &model.materials[sm.material] : nullptr;
+                    emit(sm.first_tri * 3, sm.tri_count * 3, tex, surf, mp,
+                         sm.first_vert, sm.vert_count);
                 }
             } else {
                 int tex = -1, surf = -1;
@@ -381,7 +389,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                                                  model.materials[0].texture[0]).string());
                     surf = intern_surf(model.materials[0].name);
                 }
-                emit(0, std::uint32_t(ib.idx.size()), tex, surf);
+                emit(0, std::uint32_t(ib.idx.size()), tex, surf,
+                     model.materials.empty() ? nullptr : &model.materials[0], 0, nvert);
             }
         }
     }

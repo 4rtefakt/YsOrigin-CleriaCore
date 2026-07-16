@@ -231,8 +231,18 @@ struct Gpu {
 };
 
 // Per-room GPU objects (rebuilt on every transition).
+// One scrolling material's live state: which vertices it owns, their authored UVs,
+// and the accumulated phase. The engine keeps the phase on the material's render
+// struct; we keep it per batch, which is the same thing for our batching.
+struct ScrollBatch {
+    std::uint32_t first_vert = 0, vert_count = 0;
+    float vel_u = 0, vel_v = 0;
+    float phase_u = 0, phase_v = 0;
+};
+
 struct Room {
     RoomMesh mesh;
+    std::vector<ScrollBatch> scrolls;  // materials with flag 0x4 / nonzero velocity
     RoomMesh coll;           // the `_.YMO` collision hulls — what physics collides against
     Sen sen;
     Sfo fog;                 // per-region scene fog (SFO sidecar)
@@ -400,8 +410,22 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                         hidden.empty() ? nullptr : &hidden);
     r.coll = build_collision(asset_root, sob, gates_box ? &box_whitelist : nullptr,
                              hidden.empty() ? nullptr : &hidden);
+    // Materials that scroll their UVs. Only 397 of 6642 corpus-wide do, and the disk
+    // phase is 0.0 in every one — it is pure runtime state, so we start at zero too.
+    for (const DrawBatch& b : r.mesh.batches)
+        if ((b.scroll_u != 0 || b.scroll_v != 0) && b.vert_count)
+            r.scrolls.push_back({b.first_vert, b.vert_count, b.scroll_u, b.scroll_v, 0, 0});
+    if (!r.scrolls.empty()) {
+        std::printf("    uv scroll: %zu batches", r.scrolls.size());
+        for (const ScrollBatch& sb : r.scrolls)
+            std::printf("  [%u verts %+.4f,%+.4f/tick]", sb.vert_count, sb.vel_u, sb.vel_v);
+        std::printf("\n");
+    }
+    // CopyDst: the UV-scroll integrator rewrites scrolling materials' vertices in
+    // place each frame via wgpuQueueWriteBuffer, which requires it.
     r.vbuf = make_buffer(g.device, g.queue, r.mesh.vertices.data(),
-                         r.mesh.vertices.size() * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
+                         r.mesh.vertices.size() * sizeof(RoomVertex),
+                         WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst);
     r.ibuf = make_buffer(g.device, g.queue, r.mesh.indices.data(),
                          r.mesh.indices.size() * sizeof(std::uint32_t), WGPUBufferUsage_Index);
 
@@ -537,8 +561,11 @@ static Room load_model(Gpu& g, const fs::path& asset_root, const fs::path& ymo) 
     const char* clip = std::getenv("CLERIA_CLIP");
     const char* fr = std::getenv("CLERIA_FRAME");
     r.mesh = build_model(asset_root, ymo, clip, fr ? float(std::atof(fr)) : 0.0f);
+    // CopyDst: the UV-scroll integrator rewrites scrolling materials' vertices in
+    // place each frame via wgpuQueueWriteBuffer, which requires it.
     r.vbuf = make_buffer(g.device, g.queue, r.mesh.vertices.data(),
-                         r.mesh.vertices.size() * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
+                         r.mesh.vertices.size() * sizeof(RoomVertex),
+                         WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst);
     r.ibuf = make_buffer(g.device, g.queue, r.mesh.indices.data(),
                          r.mesh.indices.size() * sizeof(std::uint32_t), WGPUBufferUsage_Index);
     int loaded = 0;
@@ -693,6 +720,31 @@ static void write_mvp(Gpu& g, const Mat4& mvp) {
     u[20] = g_fog.r; u[21] = g_fog.g; u[22] = g_fog.b; u[23] = 1.0f;
     u[24] = g_fog.near_; u[25] = g_fog.far_; u[26] = g_fog.on ? 1.0f : 0.0f; u[27] = 0.0f;
     wgpuQueueWriteBuffer(g.queue, g.ubuf, 0, u, sizeof(u));
+}
+
+// Advance every scrolling material by `ticks` and rewrite its vertices' UVs.
+//
+// The engine keeps a phase per material and uploads it as c1.xy at draw time; we do
+// not have a per-draw uniform, so we fold the phase into the vertex UVs and re-upload
+// just the affected ranges. Only 397 of 6642 materials scroll, and a room has a
+// handful of such batches, so this is a few hundred bytes a frame.
+static void advance_scroll(Gpu& g, Room& room, int ticks) {
+    for (ScrollBatch& sb : room.scrolls) {
+        sb.phase_u += sb.vel_u * float(ticks);
+        sb.phase_v += sb.vel_v * float(ticks);
+        // Keep the phase bounded; UVs wrap, so whole turns are free to discard. The
+        // engine lets it grow, but float precision decays over a long session.
+        sb.phase_u -= std::floor(sb.phase_u);
+        sb.phase_v -= std::floor(sb.phase_v);
+        if (std::size_t(sb.first_vert) + sb.vert_count > room.mesh.vertices.size()) continue;
+        static std::vector<RoomVertex> tmp;
+        tmp.assign(room.mesh.vertices.begin() + sb.first_vert,
+                   room.mesh.vertices.begin() + sb.first_vert + sb.vert_count);
+        for (RoomVertex& v : tmp) { v.u += sb.phase_u; v.v += sb.phase_v; }
+        wgpuQueueWriteBuffer(g.queue, room.vbuf,
+                             std::size_t(sb.first_vert) * sizeof(RoomVertex),
+                             tmp.data(), tmp.size() * sizeof(RoomVertex));
+    }
 }
 
 static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureView depth) {
@@ -2343,6 +2395,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (t.contains(probe) || t.contains(cam.pos)) { transition(t.dest_scene); break; }
         }
         }  // ---- end fixed-step logic ----------------------------------------
+        // UV scroll — the water. `phase += velocity` ONCE PER TICK, unscaled: the
+        // disassembly is unambiguous (FUN_0044cda0 @0x44e165 — the neighbouring
+        // fields ARE MULSS-scaled by a delta, the scroll block has no MULSS at all).
+        // Applying `ticks * velocity` once here is exactly equivalent, since the
+        // accumulation is linear. The engine uploads c1.xy = baseTexcoordOffset +
+        // phase; we bake the phase into the batch's UVs, which needs no per-draw
+        // uniform and keeps the batching intact.
+        if (ticks && !room.scrolls.empty() && !std::getenv("CLERIA_NOSCROLL"))
+            advance_scroll(g, room, ticks);
         // Presentation advances by the time we actually SIMULATED this frame, not by
         // wall time — so fog blends, flame flipbooks and HUD bars stay locked to the
         // tick and slow down with timeScale, instead of drifting off it.

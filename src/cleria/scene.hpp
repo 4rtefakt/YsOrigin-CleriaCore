@@ -27,6 +27,15 @@ struct DrawBatch {
     std::uint32_t first_index = 0;
     std::uint32_t index_count = 0;
     int texture = -1;
+    // UV scroll: the material's velocity, added to a runtime PHASE once per 60Hz
+    // tick — unscaled, no dt (FUN_0044cda0 @0x44e165: the neighbouring fields ARE
+    // MULSS-scaled by a delta; the scroll block has no MULSS at all). The disk phase
+    // is 0.0 in 6642/6642 materials, so it is pure runtime state. Nonzero exactly
+    // when the material's flag bit 0x4 is set (397/6642).
+    float scroll_u = 0, scroll_v = 0;
+    // The vertex range this batch owns, so a scrolling batch's UVs can be rewritten
+    // in place rather than needing a per-draw uniform.
+    std::uint32_t first_vert = 0, vert_count = 0;
 };
 
 // A scripted object the player can interact with (currently: treasure chests).
