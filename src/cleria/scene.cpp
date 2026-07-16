@@ -225,18 +225,37 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             const VertexBuffer& vb = mesh.vbs[0];
             // Debug: CLERIA_VB=1 reports each mesh's vertex format. Buffers whose FVF
             // isn't a decoded one get uv=(0,0) for every vertex (flat single-texel look).
-            if (std::getenv("CLERIA_VB"))
-                std::printf("  [vb] %-28s node=%-20s fvf=%#06x stride=%2u count=%5u%s\n",
-                            o.ymo_path.c_str(), node.name.c_str(), vb.fvf, vb.stride,
-                            vb.count, vb.uv0_offset() < 0 ? "   <-- NO UV0 (uv=0,0!)" : "");
+            if (std::getenv("CLERIA_VB")) {
+                std::printf("  [vb] %-26s node=%-22s vbs=%zu ibs=%zu subs=%zu\n",
+                            o.ymo_path.c_str(), node.name.c_str(), mesh.vbs.size(),
+                            mesh.ibs.size(), mesh.submeshes.size());
+                for (std::size_t s = 0; s < mesh.vbs.size(); ++s) {
+                    const VertexBuffer& b = mesh.vbs[s];
+                    std::printf("        stream%zu fvf=%#06x stride=%2u count=%5u%s\n", s,
+                                b.fvf, b.stride, b.count,
+                                b.uv0_offset() < 0 ? "   <-- no decodable UV0" : "");
+                }
+            }
+            // Two-stream (the bosses): POSITION/NORMAL live in stream 1, and COLOR0/
+            // TEXCOORD0 in stream 0 at stride-12 / stride-8. Reading stream 0 as
+            // position gives the blend weights — the sub-unit blob. This draws the
+            // BIND POSE only; the skinning palette isn't applied yet.
+            const bool ts = mesh.two_stream();
+            const VertexBuffer& pvb = ts ? mesh.vbs[1] : vb;   // POSITION@0, NORMAL@12
+            const VertexBuffer& avb = vb;                      // COLOR0/UV0 carrier
+            const int ts_col = ts ? int(avb.stride) - 12 : -1;
+            const int ts_uv = ts ? int(avb.stride) - 8 : -1;
+            const std::uint32_t nvert = ts ? std::min(pvb.count, avb.count) : vb.count;
+
             const std::uint32_t base = std::uint32_t(out.vertices.size());
-            for (std::uint32_t k = 0; k < vb.count; ++k) {
-                const Vec3 p = xf.transform_point(vb.position(k));
-                Vec3 n = xform_dir(xf, vb.normal(k));
+            for (std::uint32_t k = 0; k < nvert; ++k) {
+                const Vec3 p = xf.transform_point(pvb.position(k));
+                Vec3 n = xform_dir(xf, ts ? pvb.raw_vec3(k, 12) : pvb.normal(k));
                 const float len = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
                 if (len > 1e-6f) { n.x /= len; n.y /= len; n.z /= len; }
-                float u, v; vb.uv0(k, u, v);
-                const std::uint32_t d = vb.diffuse(k);  // 0xAARRGGBB
+                float u = 0, v = 0;
+                if (ts) avb.raw_uv(k, ts_uv, u, v); else vb.uv0(k, u, v);
+                const std::uint32_t d = ts ? avb.raw_u32(k, ts_col) : vb.diffuse(k);
                 out.vertices.push_back({p.x, p.y, p.z, n.x, n.y, n.z, u, v,
                                         std::uint8_t((d >> 16) & 0xFF),
                                         std::uint8_t((d >> 8) & 0xFF),

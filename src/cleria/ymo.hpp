@@ -1,6 +1,11 @@
 // YMO model parser. Format fully specified in docs/formats/YMO.md — a serialized
-// DirectX .X hierarchy: D3DXFRAME nodes + D3DXMESHCONTAINER meshes (raw D3D9 FVF
-// vertex buffers + D3DFMT_INDEX16 triangle lists). No skinning; rigid node bind.
+// DirectX .X hierarchy: D3DXFRAME nodes + D3DXMESHCONTAINER meshes (raw D3D9
+// vertex buffers + D3DFMT_INDEX16 triangle lists).
+//
+// Two vertex paths: rooms and props use legacy FVFs (0x1D2/0x2D2) bound rigidly to
+// nodes; the bosses use one of 8 static vertex DECLARATIONS held in the exe, and
+// those are two-stream and skinned (D3DX indexed palette). We decode both, but only
+// draw the declaration path in its BIND POSE — the palette isn't applied yet.
 #pragma once
 #include <cstdint>
 #include <span>
@@ -41,6 +46,14 @@ struct VertexBuffer {
     // DIFFUSE vertex colour (baked lighting) at offset 24; D3DCOLOR 0xAARRGGBB.
     bool has_diffuse() const { return fvf == 0x1D2 || fvf == 0x2D2; }
     std::uint32_t diffuse(std::uint32_t i) const;
+
+    // Declaration-path accessors: read an element at an arbitrary byte offset, for
+    // the two-stream layouts whose offsets come from the exe's declarations rather
+    // than an FVF. Out-of-range reads return zero rather than throwing.
+    bool in_range(std::uint32_t i, int off, std::size_t n) const;
+    Vec3 raw_vec3(std::uint32_t i, int off) const;
+    std::uint32_t raw_u32(std::uint32_t i, int off) const;
+    void raw_uv(std::uint32_t i, int off, float& u, float& v) const;
 };
 
 struct IndexBuffer {
@@ -61,6 +74,23 @@ struct Mesh {
     std::vector<VertexBuffer> vbs;
     std::vector<IndexBuffer> ibs;
     std::vector<Submesh> submeshes;
+
+    // The bosses don't use an FVF — they use one of the exe's 8 static vertex
+    // DECLARATIONS, and the skinned ones (`decl[4..7]`, i.e. the `_1w`..`_4w`
+    // shaders) are TWO-STREAM: `VB[i]` binds to stream `i`.
+    //
+    //   stream 0 (stride 16/20/24/28, = 12 + 4*influences):
+    //     BLENDWEIGHT float[n-1] @0 · BLENDINDICES D3DCOLOR @stride-16
+    //     COLOR0 D3DCOLOR @stride-12 · TEXCOORD0 float2 @stride-8
+    //   stream 1 (stride 60):
+    //     POSITION float3 @0 · NORMAL float3 @12 · TANGENT0/1/2 @24/36/48
+    //
+    // **Stream 0 has no position.** Reading its first 12 bytes as POSITION yields
+    // the blend weights, which look exactly like a tiny model at the origin — that
+    // is why BOSS01 rendered as a sub-unit blob. Its real bounds are ±15 in X.
+    // Note `fvf == 0 && stride == 28` does NOT imply skinned: `decl[1]` is also
+    // stride 28 and unskinned. Two VBs with stream 1 at stride 60 is the tell.
+    bool two_stream() const { return vbs.size() >= 2 && vbs[1].stride == 60; }
 };
 
 struct Node {

@@ -73,6 +73,36 @@ std::uint32_t VertexBuffer::diffuse(std::uint32_t i) const {
     return c;
 }
 
+// --- declaration-path raw reads ---------------------------------------------
+// Bounds-checked so a wrong offset yields zeros instead of reading off the end.
+bool VertexBuffer::in_range(std::uint32_t i, int off, std::size_t n) const {
+    if (off < 0 || i >= count) return false;
+    return std::size_t(i) * stride + std::size_t(off) + n <= data.size();
+}
+
+Vec3 VertexBuffer::raw_vec3(std::uint32_t i, int off) const {
+    if (!in_range(i, off, 12)) return {0, 0, 0};
+    float f[3];
+    std::memcpy(f, data.data() + std::size_t(i) * stride + off, 12);
+    return {f[0], f[1], f[2]};
+}
+
+std::uint32_t VertexBuffer::raw_u32(std::uint32_t i, int off) const {
+    if (!in_range(i, off, 4)) return 0xFFFFFFFF;
+    std::uint32_t c;
+    std::memcpy(&c, data.data() + std::size_t(i) * stride + off, 4);
+    return c;
+}
+
+void VertexBuffer::raw_uv(std::uint32_t i, int off, float& u, float& v) const {
+    u = v = 0;
+    if (!in_range(i, off, 8)) return;
+    float f[2];
+    std::memcpy(f, data.data() + std::size_t(i) * stride + off, 8);
+    u = f[0];
+    v = f[1];
+}
+
 void VertexBuffer::uv0(std::uint32_t i, float& u, float& v) const {
     const int off = uv0_offset();
     if (off < 0) { u = 0; v = 0; return; }
