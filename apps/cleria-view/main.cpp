@@ -1263,8 +1263,16 @@ struct HudMap {
 struct Ar { float x0, y0, x1, y1; };
 static const Ar kAPortrait = {0, 670, 116, 766};    // character portrait, 116x96
 static const Ar kABarPlate = {115, 714, 386, 758};  // the housing / plate
-static const Ar kABarTrack = {120, 735, 372, 747};  // inner channel; max fill width = 252
-static const Ar kABarFill  = {120, 737, 372, 745};  // the fill (x1 is dynamic)
+// The MP / skill fill, proven by builder B: {120, 737, (cur/max)*252, 8}, sampling
+// the RIGHT-half colour band (u=252/512) at v=(36+n*8)/512 — n from DAT_0076a630
+// (0x75->1, 0x76->2, else 0), i.e. atlas bands y=36/44/52 = green/yellow/red. We do
+// NOT draw it: what selects the band needs the skill model, and the real HUD shows
+// this channel empty until a skill charges it.
+static const Ar kAMpTrack = {120, 735, 372, 747};  // the segmented MP channel
+static const Ar kAMpFill  = {120, 737, 372, 745};  // MP fill; max width 252
+// Quad 6 — the thin bar in the UPPER channel of the housing, max fill 230. This is
+// where the blue HP bar sits in the real HUD; the MP channel below it stays empty.
+static const Ar kAHpFill  = {142, 718, 372, 722};  // max fill width = 230
 static const Ar kAThinBar  = {142, 718, 372, 722};  // thin bar (EX/MP — name unconfirmed)
 static const Ar kASlot[4] = {{0, 620, 40, 632}, {0, 632, 40, 644},
                              {0, 644, 40, 656}, {0, 656, 40, 668}};  // equipment slots
@@ -1491,13 +1499,13 @@ struct Hud {
         // row beside the portrait. Drawing skill diamonds there was visibly wrong, so we
         // draw nothing until we know what they are.
 
-        // The housing (which doubles as the empty MP/skill track), then HP as the
-        // blue pointed bar inside it. No skill fill: what selects its colour band is
-        // still unknown, and the real HUD shows it empty anyway.
+        // The housing, then HP as the blue pointed bar in the UPPER channel. The
+        // segmented MP channel below stays empty — that is what the real HUD shows,
+        // and drawing HP into it (as we briefly did) misaligns it with the borders.
         sprite_a(m, kABarPlate, kBarHousing, sw, sh);
         const float frac = p.max_hp > 0 ? std::max(0.f, std::min(1.f, float(p.hp) / p.max_hp)) : 0.f;
-        Ar fill = kABarFill;
-        fill.x1 = fill.x0 + 252.0f * frac;   // 252 = the authored max fill width
+        Ar fill = kAHpFill;
+        fill.x1 = fill.x0 + 230.0f * frac;   // 230 = quad 6's authored max fill width
         sprite_a(m, fill, kBluePointed, sw, sh);
 
         // Character portrait (drawn over the plate's left end, as the game does).
