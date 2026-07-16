@@ -47,11 +47,11 @@ keyframes put the *value first and time last*, where `D3DXKEY_VECTOR3` /
    untransformed. The layout is Microsoft's FVF documentation — nothing to reverse.
 2. **The FVF path is rigid; the vertex-declaration path is GPU-skinned.** No FVF
    in the corpus carries `XYZB*` blend weights — `0x1d2`/`0x2d2`/`0x1c2` all mask
-   to `D3DFVF_XYZ` — and no YMO record carries per-vertex weights, so FVF geometry
-   binds **rigidly** to nodes: walk the hierarchy, compute world matrices, draw.
-   But that is a statement about the FVF path only. The 40 `S_*` shaders in
-   `assets/VS_DX9/` are **skinning** shaders, and CleriaCore needs a skinning path
-   for whatever feeds them — see [Skinning](#skinning) below.
+   to `D3DFVF_XYZ` — so FVF geometry binds **rigidly** to nodes: walk the
+   hierarchy, compute world matrices, draw. But that is a statement about the FVF
+   path only. **Ys Origin does skin**, via D3DX indexed-palette blending, and the
+   weights *are* in the YMO — they sit in a second vertex buffer that the FVF path
+   never uses. See [Skinning](#skinning) below.
 3. **The remaining unclassified fields are almost certainly D3DX struct members.**
    When in doubt, check the D3DX headers before reaching for Ghidra.
 
@@ -116,10 +116,10 @@ This is `D3DXFRAME`, with the pointer graph serialized as names.
 | `0x0C0` | char[0x60] | `name[2]` — **next sibling** → node* @ rt `+0x58` | ✅ 2347/2347 |
 | `0x120` | char[0x60] | `name[3]` — **parent** → node* @ rt `+0x5c` | ✅ 5670/5670 |
 | `0x180` | char[0x60] | `name[4]` — **mesh name** → mesh* @ rt `+0x60` | — |
-| `0x1E0` | float[16] | matrix A (→ pose `[0x10..0x1f]` **and** `[0x30..0x3f]`) |
-| `0x220` | float[16] | matrix B (→ node `[0..0xf]`) |
-| `0x260` | float[3] | translation |
-| `0x26C` | float[3] | scale |
+| `0x1E0` | float[16] | matrix A (→ pose `[0x10..0x1f]` **and** `[0x30..0x3f]`) — the **rest pose**: `== compose(S,R,T)` below in **5832/7016** nodes |
+| `0x220` | float[16] | matrix B (→ node `[0..0xf]`) — `D3DXFRAME::TransformationMatrix`, i.e. the **local transform**. This is the one to walk the hierarchy with |
+| `0x260` | float[3] | **scale** |
+| `0x26C` | float[3] | **translation** |
 | `0x278` | float[4] | rotation quaternion |
 | `0x288` | u32 | *(unclassified)* |
 | `0x28C` | u32 | *(unclassified)* |
@@ -129,6 +129,28 @@ This is `D3DXFRAME`, with the pointer graph serialized as names.
 The TRS triple at `0x260` is copied **twice** into the pose struct — rest pose +
 current pose. Runtime defaults: identity 4×4 at pose `[0..0xf]` and `[0x20..0x2f]`
 (`1.0f` on the diagonals), and **`parent_index = 0xFFFFFFFF`** at `[0x42]`.
+
+> **The scale/translation labels above were swapped in earlier revisions of this
+> doc, and the fix is not cosmetic — it silently swaps a node's offset with its
+> size.** The discriminating test is to compose the triple and compare it against
+> the node's own **matrix A** (`0x1E0`) and compare. Over all 1006 files / 7016
+> unit-quaternion nodes:
+>
+> | labelling | reproduces matrix A (`0x1E0`) | matrix B (`0x220`) |
+> |---|---|---|
+> | `0x260 = translation, 0x26C = scale` (old doc) | **0** (0.00%) | **0** (0.00%) |
+> | `0x260 = scale, 0x26C = translation` | **5832** (83.12%) | 2490 (35.49%) |
+>
+> Zero versus 5832 settles the labels, and it identifies **matrix A as the
+> TRS-composed rest pose**. Two independent passes agree (the other scored
+> 5834/7016; the two-node gap is quaternion edge cases). The order is D3DX's own
+> `RegisterAnimationSRTKeys` — **S, R, T**.
+>
+> **A and B are different matrices, and B is not derived from A**: across the same
+> 7016 nodes, `A == B` in 2451 (34.9%) and `B == inv(A)` in just 27 (0.4%). Within
+> `MAP/` they coincide more often (1912/2804 = 68.2%), which is why the renderer —
+> which walks `0x220` — looks right on rooms. Prefer `0x220` for the hierarchy: it
+> is `D3DXFRAME::TransformationMatrix` by position in the runtime struct.
 
 **Name resolution** happens in a post-pass via **`FUN_005f4e10(this, name)`**,
 which is a **node-lookup-by-name**, not a texture resolver:
@@ -217,15 +239,58 @@ The `FVF == 0` row above is **not** a rigid path. Shader-bytecode analysis (see
   tags each shader with a `kind`; for the `s_*` entries **`kind == 3 + bone
   count`** (1W→4 … 4W→7), and the `b_*` entries take kinds 0..3. [C-DIS]
 
-**Which buffers feed which path is not yet confirmed.** The 132 `FVF == 0`
-descriptors are the only ones that *can* feed a vertex declaration, and the `S_*`
-shaders are the only consumers that need blend inputs — but nothing dumped so far
-ties a specific buffer to a specific shader, and the 37 `B_*` shaders are
-unskinned yet also take declarations. [H-medium] that the `FVF == 0` buffers are
-the skinned set. The strides (16/20/28) are each too small to hold everything the
-`S_*` shaders declare (position, normal, colour, texcoord, blendindices,
-blendweight, 3 tangents), so these are **multi-stream** declarations; the stream
-layout is [UNKNOWN] and lives in the exe, not the YMO.
+**Resolved — and the multi-stream deduction above was right.** [C-DIS] The
+declarations are **not in the YMO**: they are **8 static `D3DVERTEXELEMENT9`
+arrays in the exe**, created by the loop at `0x5ee1d0` (`CreateVertexDeclaration`,
+`esi < 0x20` step 4 ⇒ exactly 8) and selected through a 12-byte, 76-slot table at
+`0x746240` — `{ IDirect3DVertexShader9*; char* name; u32 decl_index }`. All 36
+`s_*_Nw` entries obey **`decl = 3 + N`**; `decl[0..3]` mirror the legacy FVFs
+(strides 16 / 28 / 40 = `0x1D2` / 48 = `0x2D2`). Dumps in `build/ymo_re/`.
+
+`decl[7]` — the one BOSS01 uses — is **two-stream**, and `VB[i]` binds to stream
+*i*:
+
+| Stream | Offset | Type | Usage |
+|---|---|---|---|
+| **0** (stride 28) | 0 | FLOAT3 | BLENDWEIGHT0 |
+| 0 | 12 | D3DCOLOR | BLENDINDICES0 |
+| 0 | 16 | D3DCOLOR | COLOR0 |
+| 0 | 20 | FLOAT2 | TEXCOORD0 |
+| **1** (stride 60) | 0 | FLOAT3 | POSITION0 |
+| 1 | 12 | FLOAT3 | NORMAL0 |
+| 1 | 24/36/48 | FLOAT3 | TANGENT0/1/2 |
+
+> **Two traps.** (1) **Stream 0 has no position.** Reading its first 12 bytes as
+> POSITION yields the blend *weights* — they span `(0.311,0,0)..(1.0,0.5,0.282)`,
+> which looks exactly like a tiny model at the origin and is why BOSS01 rendered
+> as a sub-unit blob. Its real bounds are ±15.1 in X; nothing needs rescaling.
+> UV and COLOR0 live in stream 0, which is why UVs fell back to `(0,0)`.
+> (2) **`FVF == 0` + `stride 28` does not imply skinned** — `decl[1]` is also
+> stride 28 and unskinned. The discriminator is **two VBs with stream 1 at stride
+> 60**, or equivalently `mesh + 0x98` (influence count) being nonzero.
+
+Skinning is textbook D3DX **indexed palette** blending: the 32-byte submesh record
+is a serialized `D3DXBONECOMBINATION` `{ AttribId, FaceStart, FaceCount,
+VertexStart, VertexCount, DWORD* BoneId, 0, 0 }` (field 5 is a leftover heap
+pointer — nonzero 43/43 on BOSS01, NULL 0/23 on room `S_1000`). `mesh + 0x94` is
+the palette size (max **24**, exactly vs_1_1's constant budget); `mesh + 0x98` the
+influence count 1..4, which maps 1:1 to stream 0's stride {16,20,24,28} in **66/66**
+skinned meshes and is 0 in all 1860 unskinned ones; `mesh + 0x9C` the bone-name
+list. **BLENDINDICES are palette slots, not bone ids** — resolve via `BoneId[slot]`.
+Ignore TANGENT0/1/2 — **0 of 40 skinning shaders read them**.
+
+> **Open question — which matrix is the bone offset.** The skinning pass that
+> validated the AABBs below reports the inverse-bind matrix as node **matrix B**
+> (`0x220`), stored rather than derived (`inv(world_A)` reproduces only 5/245).
+> That conflicts with `0x220` being `D3DXFRAME::TransformationMatrix` (the local
+> transform) by its position in the runtime struct — the same matrix cannot be
+> both. Both readings are backed by evidence and neither has been reconciled here,
+> so **treat the offset-matrix identity as unconfirmed** and re-derive it when the
+> skinning path is actually implemented. The AABB result stands on its own; it just
+> does not by itself pin *which* field played the offset role.
+
+Corpus proof: **64/64 skinned files reproduce all 303 stored clip AABBs to ≤3e-5**
+using `v' = Σ wᵢ · (v · B[bᵢ] · World[bᵢ])` with `w₃ = 1 − w₀ − w₁ − w₂`.
 
 Note the tag vocabulary here (`[C-DIS]` disassembled, `[C-COR]` corpus-validated,
 `[H-*]` hypothesis, `[UNKNOWN]`) is `constant_map.txt`'s; the ✅ *n*/*n* marks
@@ -262,15 +327,30 @@ Then, **if `type == 0`**, three keyframe arrays follow, in this on-disk order:
 
 | Array | Count | Record | Layout | Confirmed |
 |---|---|---|---|---|
-| **A** | `+0x60` | `0x10` (4 floats) | `{ float3 translation; float time; }` | ✅ first key == rest translation in **93.7%** (vs 0.2% for scale) |
-| **B** | `+0x64` | `0x14` (5 floats) | `{ float4 quaternion; float time; }` | ✅ **100.00% unit length** — 865,462/865,462 |
-| **C** | `+0x68` | `0x10` (4 floats) | `{ float3 scale; float time; }` | ✅ first key == rest scale in **79.5%** (vs 0% for translation) |
+| **A** | `+0x60` | `0x10` | `{ float3 scale; u32 frame; }` | ✅ first key == node `0x260` in **93.7%** (vs 0.2% for the other field) |
+| **B** | `+0x64` | `0x14` | `{ float4 quaternion; u32 frame; }` | ✅ **100.00% unit length** — 865,462/865,462 |
+| **C** | `+0x68` | `0x10` | `{ float3 translation; u32 frame; }` | ✅ first key == node `0x26C` in **79.5%** (vs 0% for the other field) |
 
-**Value first, time last** — this is the one place Falcom deviates from D3DX
-(`D3DXKEY_VECTOR3`/`D3DXKEY_QUATERNION` put `Time` first). The `time` field is
+This is **S, R, T** — the same order as D3DX's `RegisterAnimationSRTKeys`.
+
+> **Two corrections from earlier revisions.** (1) A and C were labelled
+> *translation* and *scale* respectively. The percentages above were always right;
+> only the names were wrong, because they were stated against the node fields at
+> `0x260`/`0x26C`, which were themselves swapped (see the node table above). A's
+> first key matches `0x260`, and `0x260` is **scale**.
+> (2) **The trailing field is a `u32` frame number, not a `float` time.** Read as a
+> float it comes out as a denormal — frame 220 decodes to `3.08e-43` — which is why
+> the "monotonically non-decreasing" test below passed anyway: denormal ordering
+> happens to agree with integer ordering, so the test could not tell the two apart.
+> Clip headers bound it: `frame_start` @`0x88` and `frame_end` @`0x8C` are `u32`
+> (BOSS01's `WAIT` is frames 220–339). At 60 ticks/sec, frame *n* is *n*/60 s of
+> scaled time.
+
+**Value first, frame last** — this is the one place Falcom deviates from D3DX
+(`D3DXKEY_VECTOR3`/`D3DXKEY_QUATERNION` put `Time` first). The field is
 monotonically non-decreasing in **28157/28157** and **28158/28158** tracks
-respectively; assuming time-first only reaches 95.3% / 91.6%, and the quaternion
-only 44.67% unit. Do not port the D3DX field order.
+respectively; assuming it comes first only reaches 95.3% / 91.6%, and leaves the
+quaternion only 44.67% unit. Do not port the D3DX field order.
 
 Sub-100% match rates on A and C are expected and not a problem: the first
 keyframe need not equal the bind pose. The quaternion's 100.00% unit-length

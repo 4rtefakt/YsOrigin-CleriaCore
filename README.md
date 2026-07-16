@@ -21,7 +21,7 @@ and a C++20 asset core renders real rooms.
 | Layer | Status |
 |---|---|
 | NNI/NA archive (cipher, TOC) | ✅ (from the sibling Archipelago project) |
-| **YMO** models + skeleton + animation | ✅ **1006/1006 byte-exact** |
+| **YMO** models + skeleton + animation | ✅ **1006/1006 byte-exact** (rigid FVF path; skinning specced, not drawn) |
 | **SOB** object placement | ✅ 1129/1129 records |
 | **SEN** room graph | ✅ 348 edges, 86.8% reciprocal |
 | DDS textures / WAV audio | ✅ standard formats, free |
@@ -173,6 +173,7 @@ for facts:
 | thing | status |
 |---|---|
 | enemy HP / damage / reach | **our numbers** — the game has no per-enemy HP column; stats come from a GAMEINFO level curve we haven't wired |
+| YMO animation keys | **doc was wrong until now**: the scale/translation labels were swapped (the correct composition reproduces the rest pose in 5832/7016 nodes; the old labelling in **0**), and the key's trailing field is a `u32` frame number, not a float — the old "monotonic time" test passed only because denormal ordering matches integer ordering |
 | animation frame rate | **known now, not yet implemented**: `anime_Wait(n)` = n/60 s. Our flat 0.09 s/frame was accidentally near walk (0.100) and wrong everywhere else — idle is 0.167, run 0.067, attacks 0.017–0.067 |
 | **fixed-step vs our variable dt** | **architectural gap.** The game runs logic at a **fixed 60 Hz with catch-up, decoupled from rendering** (`RefreshRate` only governs Present). We scale everything by `dt`. Faithful timing means emulating the step, not tuning constants |
 | HUD `Lv` / `SP` / `EXP` | placed by eye — the digit emitter isn't decoded |
