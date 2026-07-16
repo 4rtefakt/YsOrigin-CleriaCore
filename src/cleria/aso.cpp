@@ -1,0 +1,232 @@
+#include "cleria/aso.hpp"
+
+#include <cstring>
+#include <fstream>
+
+namespace cleria {
+namespace fs = std::filesystem;
+
+namespace {
+
+std::uint32_t rd32(const std::uint8_t* p) {
+    std::uint32_t v;
+    std::memcpy(&v, p, 4);
+    return v;
+}
+
+// Funcids we act on. The dispatch implements 1..0x8e; everything we don't model is
+// deliberately a no-op — the VM must keep running, since an unknown call in the
+// middle of a section still has to advance the pc correctly (argCount does that).
+enum : std::uint32_t {
+    kWait = 1,       // anime_Wait=i          — the tick/yield
+    kFile = 2,       // anime_File=i          — selects the AIA
+    kPattern = 3,    // anime_Pattern=ii      — (animTag, frame)
+    kMarker = 4,     // anime_Marker=i        — blocks while obj[0x34] == a0
+    kRaise = 5,      // anime_Raise=i         — rebind section
+    kLocalSet = 6,   // anime_LocalSetInt=ii
+    kLocalAdd = 7,   // anime_LocalAddInt=ii
+    kLocalMul = 8,   // anime_LocalMulInt=ii
+    kIsEqPrevAction = 10,  // anime_IsEqualPreviousAction=i
+    kIsEqLocal = 11,       // anime_IsEqualLocalInt=ii
+    kIsLand = 12,          // anime_IsLand=
+    kIsStunNow = 13,       // anime_IsStunNow=
+    kDirOffset = 16,       // anime_DirOffset=i
+    kFootSmoke = 19,       // anime_FootSmoke=
+    kFlagIsEqualInt = 95,  // Flag_IsEqualInt=ii   — R = (g_flags[a0] == a1)
+};
+
+}  // namespace
+
+Aso Aso::parse(const std::vector<std::uint8_t>& b) {
+    Aso a;
+    if (b.size() < 0x10 || std::memcmp(b.data(), "XSR\0", 4) != 0) return a;
+    const std::uint32_t n_sec = rd32(&b[0x08]);
+    const std::size_t code_base = 0x10 + std::size_t(n_sec) * 0x14;
+    if (code_base > b.size()) return a;
+
+    a.sections_.reserve(n_sec);
+    for (std::uint32_t i = 0; i < n_sec; ++i) {
+        const std::uint8_t* r = &b[0x10 + std::size_t(i) * 0x14];
+        Section s;
+        s.id = std::int32_t(rd32(r + 0x00));
+        s.type = std::int32_t(rd32(r + 0x04));
+        s.code_off = std::int32_t(rd32(r + 0x08));   // BYTES from code_base
+        s.code_len = std::int32_t(rd32(r + 0x0C));   // DWORDS
+        a.sections_.push_back(s);
+    }
+    const std::size_t blob = b.size() - code_base;
+    a.code_.resize(blob / 4);
+    if (!a.code_.empty()) std::memcpy(a.code_.data(), b.data() + code_base, a.code_.size() * 4);
+    return a;
+}
+
+Aso Aso::load(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return {};
+    std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
+                                std::istreambuf_iterator<char>()};
+    return parse(b);
+}
+
+const Aso::Section* Aso::find(std::int32_t id) const {
+    for (const Section& s : sections_)
+        if (s.id == id) return &s;
+    return nullptr;
+}
+
+void AsoVm::bind(const Aso* aso) {
+    aso_ = aso;
+    // The interpreter initialises its current section to 2 (FUN_00445bd0 sets
+    // obj[0x29]=[0x2a]=[0x2b]=2) — for the players that is idle.
+    set_section(2);
+}
+
+bool AsoVm::set_section(std::int32_t id) {
+    if (!aso_ || !aso_->ok()) return false;
+    const Aso::Section* s = aso_->find(id);
+    if (!s) return false;
+    prev_section_ = section_;
+    section_ = id;
+    cur_ = s;
+    pc_ = std::size_t(s->code_off) / 4;
+    wait_ = 0;
+    return true;
+}
+
+// Decode and execute one instruction. Encoding (52,280 instructions, 0 errors):
+//   opcode = w>>24 · funcid = (w>>12)&0xfff · argOffset = (w>>8)&0xf · argCount = w&0xff
+// For opcode 2 the args begin at pc+1+argOffset and the next pc is argsStart+argCount.
+// The argOffset words in between are a TYPE DESCRIPTOR (4 bits/arg, 8 args/word;
+// 0 = int32, 1 = float32) — which is why operands cannot be typed without it.
+bool AsoVm::step(std::size_t& pc) {
+    const std::vector<std::uint32_t>& c = aso_->code();
+    if (pc >= c.size()) return false;
+    const std::uint32_t w = c[pc];
+    const std::uint32_t op = w >> 24;
+
+    // Jump targets are a DWORD INDEX RELATIVE TO THE SECTION START, not an absolute
+    // index and not a byte offset. Derived from C_010 section 2 (starts at dword
+    // 466): `jmp 24` -> 490 = the first anime_Pattern after anime_File, i.e. the
+    // idle loop-back; `jz 84` -> 550 = the next Flag_ variant block; `jmp 220` ->
+    // 686 = the section's last dword (466+221). Every target lands on an
+    // instruction boundary; read as absolute they land outside the section.
+    const std::size_t base = cur_ ? std::size_t(cur_->code_off) / 4 : 0;
+    auto target = [&]() -> std::size_t { return base + std::size_t(c[pc + 1]); };
+
+    switch (op) {
+        case 0x01:  // end
+            return false;
+        case 0x03:  // jmp
+            pc = target();
+            return true;
+        case 0x06:  // jz
+            pc = (r_ == 0) ? target() : pc + 2;
+            return true;
+        case 0x09:  // jnz
+            pc = (r_ != 0) ? target() : pc + 2;
+            return true;
+        case 0x02: break;  // call — below
+        default:
+            // The interpreter implements 0x04/0x05/0x07/0x08/0x0a-0x13 too, but no
+            // shipped .ASO uses them. Stop rather than guess.
+            return false;
+    }
+
+    const std::uint32_t funcid = (w >> 12) & 0xFFF;
+    const std::uint32_t arg_off = (w >> 8) & 0xF;
+    const std::uint32_t argc = w & 0xFF;
+    const std::size_t args = pc + 1 + arg_off;
+    const std::size_t next = args + argc;
+    if (next > c.size()) return false;
+
+    auto ai = [&](std::uint32_t i) -> std::int32_t {
+        return i < argc ? std::int32_t(c[args + i]) : 0;
+    };
+
+    switch (funcid) {
+        case kWait:
+            wait_ = ai(0);
+            pc = next;
+            return false;  // yield: the tick is spent
+        case kFile:
+            file_id_ = ai(0);
+            break;
+        case kPattern:
+            anim_tag_ = ai(0);
+            frame_ = ai(1);
+            break;
+        case kMarker:
+            // Blocks while obj[0x34] == a0. obj[0x34] is only ever written to -1
+            // inside ani_script.cpp, so with no external writer this never blocks;
+            // the writer lives outside that file and was not found. [UNKNOWN]
+            marker_ = ai(0);
+            if (marker_wait_ == marker_) { pc = pc; return false; }
+            break;
+        case kRaise:
+            pc = next;
+            set_section(ai(0));
+            return false;
+        case kLocalSet:
+            if (ai(0) >= 0 && ai(0) < 32) locals_[ai(0)] = ai(1);
+            break;
+        case kLocalAdd:
+            if (ai(0) >= 0 && ai(0) < 32) locals_[ai(0)] += ai(1);
+            break;
+        case kLocalMul:
+            if (ai(0) >= 0 && ai(0) < 32) locals_[ai(0)] *= ai(1);
+            break;
+        case kIsEqPrevAction:
+            r_ = (ai(0) == prev_section_) ? 1 : 0;
+            break;
+        case kIsEqLocal:
+            r_ = (ai(0) >= 0 && ai(0) < 32 && locals_[ai(0)] == ai(1)) ? 1 : 0;
+            break;
+        case kIsLand:
+            r_ = is_land_ ? 1 : 0;
+            break;
+        case kIsStunNow:
+            r_ = is_stun_ ? 1 : 0;
+            break;
+        case kDirOffset:
+            dir_offset_ = ai(0);
+            break;
+        case kFootSmoke:
+            // The handler gates on IsLand (actor+0x388), same input as funcid 12.
+            if (is_land_) foot_smoke_ = true;
+            break;
+        case kFlagIsEqualInt: {
+            // The variant selector. 541 uses — an animation section is a chain of
+            // these, each guarding one File+Pattern block.
+            const std::int32_t i = ai(0);
+            const std::int32_t v =
+                (flags_ && i >= 0 && std::size_t(i) < flag_count_) ? flags_[i] : 0;
+            r_ = (v == ai(1)) ? 1 : 0;
+            break;
+        }
+        default:
+            break;  // unmodelled call: argCount still advances the pc correctly
+    }
+    pc = next;
+    return true;
+}
+
+void AsoVm::tick() {
+    foot_smoke_ = false;
+    if (!ok()) return;
+    if (wait_ > 0) { --wait_; return; }
+
+    // Run until something yields. The bound is a runaway guard: a section with no
+    // Wait on its path would otherwise spin forever.
+    for (int guard = 0; guard < 4096; ++guard) {
+        const std::size_t before = pc_;
+        if (!step(pc_)) {
+            if (wait_ > 0) { --wait_; return; }  // consumed by anime_Wait
+            if (pc_ == before) return;           // blocked (marker)
+            // Section ended: the players' sections loop, so restart this one.
+            pc_ = cur_ ? std::size_t(cur_->code_off) / 4 : 0;
+            return;
+        }
+    }
+}
+
+}  // namespace cleria

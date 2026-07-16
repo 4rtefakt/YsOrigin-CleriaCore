@@ -29,6 +29,7 @@ add_library(cleria STATIC
   src/cleria/scm.cpp
   src/cleria/sef.cpp
   src/cleria/sct.cpp
+  src/cleria/aso.cpp
   src/cleria/effectdef.cpp
   src/cleria/surface.cpp)
 target_include_directories(cleria PUBLIC src)
@@ -43,6 +44,10 @@ target_link_libraries(cleria-xso PRIVATE cleria)
 # cleria-aiatest — decode an AIA sprite region to a PPM (verify vs aia_decode.py).
 add_executable(cleria-aiatest apps/cleria-aiatest/main.cpp)
 target_link_libraries(cleria-aiatest PRIVATE cleria)
+
+# cleria-asotest — validate the ASO container + run the animation-script VM.
+add_executable(cleria-asotest apps/cleria-asotest/main.cpp)
+target_link_libraries(cleria-asotest PRIVATE cleria)
 
 # cleria-animtest — reproduce the stored clip AABBs from our own animation+skinning.
 add_executable(cleria-animtest apps/cleria-animtest/main.cpp)
