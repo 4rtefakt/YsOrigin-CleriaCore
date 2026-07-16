@@ -129,9 +129,16 @@ Model Model::parse(std::span<const std::uint8_t> bytes) {
         nd.next_sibling = r.cstr(o + 0x0C0, 0x60);
         nd.parent = r.cstr(o + 0x120, 0x60);
         nd.mesh = r.cstr(o + 0x180, 0x60);
-        for (int k = 0; k < 16; ++k) nd.local.m[k] = r.f32(o + 0x220 + k * 4);
-        nd.translation = r.vec3(o + 0x260);
-        nd.scale = r.vec3(o + 0x26C);
+        // A @0x1E0 = local transform; B @0x220 = bone offset (inverse-bind).
+        // Reading B as the local matrix is invisible on rooms (B is identity there)
+        // but wrong for every skinned model. See docs/formats/YMO.md#skinning.
+        for (int k = 0; k < 16; ++k) nd.local.m[k] = r.f32(o + 0x1E0 + k * 4);
+        for (int k = 0; k < 16; ++k) nd.offset.m[k] = r.f32(o + 0x220 + k * 4);
+        // S, R, T — D3DX's RegisterAnimationSRTKeys order. 0x260 is SCALE and 0x26C
+        // is TRANSLATION, not the reverse: composing them the other way reproduces
+        // `local` for 0 of 7016 nodes, this way for 5832.
+        nd.scale = r.vec3(o + 0x260);
+        nd.translation = r.vec3(o + 0x26C);
         for (int k = 0; k < 4; ++k) nd.quat[k] = r.f32(o + 0x278 + k * 4);
         mo.nodes.push_back(std::move(nd));
         o += kNode;

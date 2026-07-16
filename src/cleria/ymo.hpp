@@ -69,7 +69,16 @@ struct Node {
     std::string next_sibling; // name[2]
     std::string parent;       // name[3]
     std::string mesh;         // name[4], bound mesh (may be empty)
-    Mat4 local;               // matrix B @ 0x220 (D3DXFRAME.TransformationMatrix)
+    // matrix A @ 0x1E0 — the LOCAL transform (rest pose). Walk the hierarchy with
+    // this. It equals compose(scale, quat, translation) below in 5832/7016 nodes;
+    // animation replaces it per node per frame.
+    Mat4 local;
+    // matrix B @ 0x220 — the bone OFFSET (inverse-bind) matrix, used only by the
+    // skinning palette as `B_i * world_i`. Identity in ~98.5% of room nodes, which
+    // is exactly why reading it as `local` looked fine on rooms for so long: it
+    // meant applying identity, and room vertices are already baked to world space.
+    // See docs/formats/YMO.md#skinning.
+    Mat4 offset;
     Vec3 translation, scale;
     float quat[4] = {0, 0, 0, 1};
 
