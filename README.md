@@ -29,7 +29,7 @@ and a C++20 asset core renders real rooms.
 | Differential harness (C++ vs Python) | ✅ **exact match, 197 rooms** |
 | **Real-time renderer (SDL3 + wgpu-native)** | ✅ **rooms render on GPU; orbit window + headless `--shot`** |
 | **Textured materials (DDS: BC1/BC2/RGB565/…)** | ✅ **per-submesh material textures + alpha-test cutouts** |
-| **Boss models (vertex declarations, 2-stream)** | ✅ **all 8 render textured at correct scale — bind pose; skinning palette not applied** |
+| **Boss models + GPU skinning (D3DX indexed palette)** | ✅ **all 8 render textured, skinned and posed — BOSS01 coils, BOSS04/08 assemble; rest pose fits inside every stored AABB** |
 | **Free-fly walkthrough + SEN room transitions** | ✅ **fly through doorways to warp between connected rooms** |
 | **Baked vertex lighting** | ✅ **per-vertex DIFFUSE (lava glow, ambient) — the Falcom "lightmap"** |
 | **Grounded player controller** | ✅ **walk/jump/gravity + wall & floor collision; F toggles fly** |
@@ -185,7 +185,7 @@ for facts:
 | footstep cadence | **ours.** The game paces steps from ASO animation events we don't run yet; `kStepDist` (1.6 units) is a stand-in. The *sound selection* is the game's own |
 | collision surfaces not in the table | **resolved.** `default`/`door`/`10switch`/`dafault` aren't in the 21-entry table, and the exe clamps an unmatched lookup to **1 = `stone`** (`FUN_005610e0`: both the not-found jump and the `idx<0` test land on `MOV ESI,1`). We do the same now |
 | water animation | **found — it's the material, not the shader.** Each material carries a UV-scroll velocity at `+0x44/+0x48` (`20zwater3` = +0.0006,-0.0018) gated by flag bit `0x4`; the shader can't animate itself (its phase input has no time term). We parse it now; the per-frame integrator that advances the phase is still unlocated |
-| bosses | **drawn, in bind pose.** All 8 load textured at correct scale. Not yet skinned — the palette isn't applied, so parts sit at their authored bind positions. Their model paths come from the map's XSO (`S_1099.XSO` names `data\enemyoss01oss01.ymo`), not the exe |
+| bosses | **rendered and skinned, but static.** All 8 draw posed at their rest pose; the animation clips aren't played yet, so they don't move. Model paths come from the map's XSO, not the exe |
 | AIA second layer | decoded exactly, **deliberately not drawn.** What it *is* isn't established: for C_115 the layer has the same bbox as the body and near-identical coverage (3408 vs 3406 px) — it's the whole silhouette in flat purple, not an aura, so compositing it erases the body. Likely a state variant (Boost/hit flash). See [AIA.md](docs/formats/AIA.md) |
 | 300 XSO branch sites | run `tools/xso_audit.py` — unimplemented sub-ops leave `acc` stale, so those branches are wrong at runtime |
 
