@@ -28,7 +28,9 @@ add_library(cleria STATIC
   src/cleria/sfo.cpp
   src/cleria/scm.cpp
   src/cleria/sef.cpp
-  src/cleria/sct.cpp)
+  src/cleria/sct.cpp
+  src/cleria/effectdef.cpp
+  src/cleria/surface.cpp)
 target_include_directories(cleria PUBLIC src)
 
 # cleria-dump — load a room and export it to .obj (no GPU).
@@ -41,6 +43,9 @@ target_link_libraries(cleria-xso PRIVATE cleria)
 # cleria-aiatest — decode an AIA sprite region to a PPM (verify vs aia_decode.py).
 add_executable(cleria-aiatest apps/cleria-aiatest/main.cpp)
 target_link_libraries(cleria-aiatest PRIVATE cleria)
+
+# cleria-audiotest — dump the EFFECTDEF table, to diff against effectdef_parse.py.
+add_executable(cleria-audiotest apps/cleria-audiotest/main.cpp)
 
 # ---- third-party prebuilt: wgpu-native + SDL3 -------------------------------
 add_library(wgpu_native SHARED IMPORTED)
@@ -55,9 +60,16 @@ set_target_properties(sdl3 PROPERTIES
   IMPORTED_IMPLIB   "${TP}/sdl3/lib/x64/SDL3.lib"
   INTERFACE_INCLUDE_DIRECTORIES "${TP}/sdl3/include")
 
+# Audio is split out because it is the one part of the core that needs SDL3;
+# keeping it separate lets cleria-dump / cleria-xso stay dependency-free.
+add_library(cleria-audio STATIC src/cleria/audio.cpp)
+target_link_libraries(cleria-audio PUBLIC cleria sdl3)
+
+target_link_libraries(cleria-audiotest PRIVATE cleria cleria-audio)
+
 # cleria-view — real-time WebGPU renderer.
 add_executable(cleria-view apps/cleria-view/main.cpp)
-target_link_libraries(cleria-view PRIVATE cleria wgpu_native sdl3)
+target_link_libraries(cleria-view PRIVATE cleria cleria-audio wgpu_native sdl3)
 
 # Copy the runtime DLLs next to the viewer so it runs from the build dir.
 add_custom_command(TARGET cleria-view POST_BUILD

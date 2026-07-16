@@ -44,8 +44,16 @@ Vec3 closest_on_tri(const Vec3& p, const Vec3& a, const Vec3& b, const Vec3& c) 
 
 }  // namespace
 
-float floor_at(const RoomMesh& m, float x, float z, float ceiling) {
+std::string_view surface_of(const RoomMesh& m, int tri) {
+    if (tri < 0 || std::size_t(tri) >= m.tri_surface.size()) return {};
+    const int s = m.tri_surface[std::size_t(tri)];
+    if (s < 0 || std::size_t(s) >= m.surfaces.size()) return {};
+    return m.surfaces[std::size_t(s)];
+}
+
+float floor_at(const RoomMesh& m, float x, float z, float ceiling, int* out_tri) {
     float best = kNoFloor;
+    if (out_tri) *out_tri = -1;
     const auto& idx = m.indices;
     const auto& vp = m.vertices;
     for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
@@ -66,7 +74,7 @@ float floor_at(const RoomMesh& m, float x, float z, float ceiling) {
         const float wc = 1.0f - wa - wb;
         if (wa < -1e-3f || wb < -1e-3f || wc < -1e-3f) continue;
         const float y = wa * a.y + wb * b.y + wc * c.y;
-        if (y <= ceiling && y > best) best = y;
+        if (y <= ceiling && y > best) { best = y; if (out_tri) *out_tri = int(i / 3); }
     }
     return best;
 }

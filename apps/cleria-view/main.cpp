@@ -33,6 +33,8 @@
 #include "cleria/dds.hpp"
 #include "cleria/mathx.hpp"
 #include "cleria/physics.hpp"
+#include "cleria/surface.hpp"
+#include "cleria/audio.hpp"
 #include "cleria/items.hpp"
 #include "cleria/scene.hpp"
 #include "cleria/scm.hpp"
@@ -229,6 +231,24 @@ struct Room {
     std::vector<WGPUTextureView> views;
     std::vector<WGPUBindGroup> binds;  // parallel to mesh.textures
 };
+
+// Play the footstep for the surface of `tri` on the collision mesh. Faithful part:
+// material name -> surface (by name) -> EFFECTDEF id, variant = step_n & mask.
+// Unknown material names (e.g. "default", which is common) resolve to -1, and the
+// exe's own lookup returns -1 too — what it does with that is not established, so
+// we stay silent rather than invent a fallback. CLERIA_STEPS=1 traces them.
+static void play_footstep(Audio& audio, const RoomMesh& m, int tri, unsigned step_n) {
+    const std::string_view surf = surface_of(m, tri);
+    if (surf.empty()) return;
+    const int idx = surface_index(surf);
+    const int id = footstep_sound(idx, step_n);
+    if (std::getenv("CLERIA_STEPS")) {
+        const EffectDef* d = id >= 0 ? audio.defs().find(id) : nullptr;
+        std::printf("  step %-10.*s surface=%-3d id=%-4d %s\n", int(surf.size()), surf.data(),
+                    idx, id, d ? d->name.c_str() : (idx < 0 ? "(name not in table)" : "(silent)"));
+    }
+    if (id >= 0) audio.play(id, 0.55f);
+}
 
 // What physics collides against. The game collides against the `_.YMO` hulls, not
 // the render mesh; fall back to the render mesh only if a room ships no twins.
@@ -440,6 +460,30 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                     100.0 * double(r.coll.indices.size()) / double(std::max<std::size_t>(r.mesh.indices.size(), 1)));
         for (const std::string& s : r.coll.surfaces) std::printf(" %s", s.c_str());
         std::printf("\n");
+        // CLERIA_SURF=1: per-surface triangle counts, split by whether the triangle
+        // is floor-like (|n.y| > 0.5) — i.e. whether floor_at could ever pick it.
+        if (std::getenv("CLERIA_SURF")) {
+            std::vector<int> tot(r.coll.surfaces.size(), 0), flat(r.coll.surfaces.size(), 0);
+            int unknown = 0;
+            for (std::size_t i = 0; i + 2 < r.coll.indices.size(); i += 3) {
+                const int s = r.coll.tri_surface[i / 3];
+                if (s < 0) { ++unknown; continue; }
+                const RoomVertex& a = r.coll.vertices[r.coll.indices[i]];
+                const RoomVertex& b = r.coll.vertices[r.coll.indices[i + 1]];
+                const RoomVertex& c = r.coll.vertices[r.coll.indices[i + 2]];
+                const Vec3 e1{b.px - a.px, b.py - a.py, b.pz - a.pz};
+                const Vec3 e2{c.px - a.px, c.py - a.py, c.pz - a.pz};
+                Vec3 n = cross(e1, e2);
+                const float len = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+                ++tot[std::size_t(s)];
+                if (len > 1e-9f && std::fabs(n.y / len) > 0.5f) ++flat[std::size_t(s)];
+            }
+            for (std::size_t s = 0; s < r.coll.surfaces.size(); ++s)
+                std::printf("      SURF %-10s tris=%4d floor-like=%4d  id=%d\n",
+                            r.coll.surfaces[s].c_str(), tot[s], flat[s],
+                            surface_index(r.coll.surfaces[s]));
+            if (unknown) std::printf("      SURF (unknown material) tris=%d\n", unknown);
+        }
     }
     if (!r.fog.regions.empty()) {
         const FogRegion& f = r.fog.regions[0];
@@ -1742,6 +1786,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     const float kWalkSpeed = 10.0f;   // units/s
     const float kStepUp = 0.6f;       // max step-up
     const float kJumpH = 2.3f;        // jump apex (~1.1x her height)
+    // INVENTED: the game paces footsteps from ASO animation events, which we do not
+    // run yet. One step per this much ground travel is a stand-in for that; the
+    // surface lookup and variant cycling it feeds are the game's own.
+    const float kStepDist = 1.6f;     // world units between footsteps
+    float step_accum = 0;
+    unsigned step_n = 0;              // the actor's step counter (variant = n & mask)
     // Base player sprites: C_102/103/104 = Yunica / Hugo / Toal. (C_110-115 are the
     // late-game / weapon-state variants — wrong look for normal play.)
     auto char_aia = [](int c) -> const char* {
@@ -1909,6 +1959,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
     };
 
+    Audio audio;
+    audio.init(asset_root);  // silent (and harmless) if the device or EFFECTDEF is missing
+
     std::printf("\nPLAY: WASD move Yunica (8-way, fixed camera), Space jump, E interact, Tab character | F free-fly debug | wheel speed | R respawn | 1-9 exit | ESC quit\n");
     bool running = true, looking = false;
     Uint64 last = SDL_GetTicks();
@@ -1998,15 +2051,38 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ks[SDL_SCANCODE_A]) { wish.x -= rt.x; wish.z -= rt.z; }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
             const bool moving = wl > 1e-4f;
+            const Vec3 was = feet;
             if (moving) { feet.x += wish.x / wl * walk * dt; feet.z += wish.z / wl * walk * dt; }
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
               feet.x = body.x; feet.z = body.z; }
             vy -= gravity * dt; feet.y += vy * dt;
-            const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + stepUp);
+            int floor_tri = -1;
+            const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + stepUp, &floor_tri);
+            const bool was_grounded = grounded;
             if (fl > kNoFloor && vy <= 0.0f && fl >= feet.y - stepUp) {
                 feet.y = fl; vy = 0; grounded = true;
             } else grounded = false;
+
+            // Footsteps. The surface comes from the collision hull's material name
+            // (the game looks surfaces up BY NAME, FUN_00439700), and the variant
+            // cycles with a per-actor step counter (FUN_0045d600). The CADENCE,
+            // though, is ours: the game drives it from ASO animation events, which
+            // we do not run yet, so we step every kStepDist of ground travel and on
+            // landing. That distance is invented; the sound choice is not.
+            if (grounded) {
+                const float moved = std::sqrt((feet.x - was.x) * (feet.x - was.x) +
+                                              (feet.z - was.z) * (feet.z - was.z));
+                step_accum += moved;
+                const bool landed = !was_grounded;
+                if (landed || step_accum >= kStepDist) {
+                    if (!landed) step_accum -= kStepDist;
+                    else step_accum = 0;
+                    play_footstep(audio, phys_mesh(room), floor_tri, step_n++);
+                }
+            } else {
+                step_accum = kStepDist;  // first step lands as soon as we touch down
+            }
             if (grounded && ks[SDL_SCANCODE_SPACE]) { vy = std::sqrt(2 * gravity * kJumpH); grounded = false; }
             if (feet.y < room.mesh.bmin.y - D) spawn_player();
 
