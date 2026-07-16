@@ -235,6 +235,11 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                                 b.fvf, b.stride, b.count,
                                 b.uv0_offset() < 0 ? "   <-- no decodable UV0" : "");
                 }
+                std::size_t nres = 0;
+                for (int bn : mesh.bone_nodes) if (bn >= 0) ++nres;
+                std::printf("        skinned=%d palette=%u influences=%u bones=%zu resolved=%zu\n",
+                            int(mesh.skinned()), mesh.palette_size, mesh.influences,
+                            mesh.bones.size(), nres);
             }
             // Two-stream (the bosses): POSITION/NORMAL live in stream 1, and COLOR0/
             // TEXCOORD0 in stream 0 at stride-12 / stride-8. Reading stream 0 as
@@ -247,10 +252,80 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             const int ts_uv = ts ? int(avb.stride) - 8 : -1;
             const std::uint32_t nvert = ts ? std::min(pvb.count, avb.count) : vb.count;
 
+            // ---- skinning (D3DX indexed palette) -----------------------------
+            // v' = SUM_i w_i * (v * offset[b_i] * world[b_i]), with the last weight
+            // implied: w_last = 1 - sum(previous). A vertex's BLENDINDICES byte is a
+            // PALETTE SLOT, not a bone id, and the palette is PER SUBMESH — so map
+            // each vertex to its submesh first.
+            const bool skin = mesh.skinned() && !model.nodes.empty();
+            std::vector<int> vert_sub;
+            std::vector<Mat4> bone_xf;  // parallel to mesh.bone_nodes: offset * world
+            if (skin) {
+                vert_sub.assign(nvert, -1);
+                for (std::size_t s = 0; s < mesh.submeshes.size(); ++s) {
+                    const Submesh& sm = mesh.submeshes[s];
+                    for (std::uint32_t k = sm.first_vert;
+                         k < sm.first_vert + sm.vert_count && k < nvert; ++k)
+                        vert_sub[k] = int(s);
+                }
+                bone_xf.resize(mesh.bone_nodes.size(), Mat4::identity());
+                for (std::size_t b = 0; b < mesh.bone_nodes.size(); ++b) {
+                    const int ni = mesh.bone_nodes[b];
+                    if (ni >= 0 && ni < int(model.nodes.size()))
+                        bone_xf[b] = model.nodes[ni].offset * model.nodes[ni].world;
+                }
+            }
+            const int bi_off = ts ? int(avb.stride) - 16 : -1;
+            // Blend a point (or a direction, which ignores translation) through the
+            // palette. Falls through to the bind pose if anything fails to resolve.
+            auto blend = [&](std::uint32_t k, const Vec3& v, bool is_dir, Vec3& outv) -> bool {
+                const int si = vert_sub.empty() ? -1 : vert_sub[k];
+                if (si < 0) return false;
+                const Submesh& sm = mesh.submeshes[std::size_t(si)];
+                const std::uint32_t nb = mesh.influences;
+                float w[4] = {0, 0, 0, 0};
+                float sum = 0;
+                for (std::uint32_t i = 0; i + 1 < nb; ++i) {
+                    w[i] = avb.raw_f32(k, int(i) * 4);
+                    sum += w[i];
+                }
+                w[nb - 1] = 1.0f - sum;
+                const std::uint32_t idx = avb.raw_u32(k, bi_off);
+                Vec3 acc{0, 0, 0};
+                float wsum = 0;
+                for (std::uint32_t i = 0; i < nb; ++i) {
+                    if (w[i] == 0.0f) continue;
+                    // The shader's `.zyxw` un-swizzles D3DCOLOR back to byte order,
+                    // so slot i is simply byte i of the dword.
+                    const std::uint32_t slot = (idx >> (8 * i)) & 0xFF;
+                    if (slot >= sm.bone_ids.size()) continue;
+                    const std::uint32_t bid = sm.bone_ids[slot];
+                    if (bid == 0xFFFFFFFFu || bid >= bone_xf.size()) continue;
+                    const Mat4& m = bone_xf[bid];
+                    const Vec3 t = is_dir ? xform_dir(m, v) : m.transform_point(v);
+                    acc.x += t.x * w[i]; acc.y += t.y * w[i]; acc.z += t.z * w[i];
+                    wsum += w[i];
+                }
+                if (wsum <= 1e-6f) return false;
+                outv = acc;
+                return true;
+            };
+
             const std::uint32_t base = std::uint32_t(out.vertices.size());
             for (std::uint32_t k = 0; k < nvert; ++k) {
-                const Vec3 p = xf.transform_point(pvb.position(k));
-                Vec3 n = xform_dir(xf, ts ? pvb.raw_vec3(k, 12) : pvb.normal(k));
+                Vec3 lp = pvb.position(k);
+                Vec3 ln = ts ? pvb.raw_vec3(k, 12) : pvb.normal(k);
+                if (skin) {
+                    Vec3 sp, sn;
+                    if (blend(k, lp, false, sp)) lp = sp;
+                    if (blend(k, ln, true, sn)) ln = sn;
+                }
+                // A skinned vertex is already in MODEL space (the palette applied
+                // offset*world for us), so only the SOB placement remains — applying
+                // the node's world again would transform it twice.
+                const Mat4& vxf = skin ? place : xf;
+                const Vec3 p = vxf.transform_point(lp);
+                Vec3 n = xform_dir(vxf, ln);
                 const float len = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
                 if (len > 1e-6f) { n.x /= len; n.y /= len; n.z /= len; }
                 float u = 0, v = 0;

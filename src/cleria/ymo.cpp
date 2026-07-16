@@ -80,6 +80,13 @@ bool VertexBuffer::in_range(std::uint32_t i, int off, std::size_t n) const {
     return std::size_t(i) * stride + std::size_t(off) + n <= data.size();
 }
 
+float VertexBuffer::raw_f32(std::uint32_t i, int off) const {
+    if (!in_range(i, off, 4)) return 0.0f;
+    float f;
+    std::memcpy(&f, data.data() + std::size_t(i) * stride + off, 4);
+    return f;
+}
+
 Vec3 VertexBuffer::raw_vec3(std::uint32_t i, int off) const {
     if (!in_range(i, off, 12)) return {0, 0, 0};
     float f[3];
@@ -182,10 +189,19 @@ Model Model::parse(std::span<const std::uint8_t> bytes) {
         const std::uint32_t n_submesh = r.u32(o + 0x88);
         const std::uint32_t n_vb = r.u32(o + 0x8C);
         const std::uint32_t n_ib = r.u32(o + 0x90);
+        // +0x94 is the skinning PALETTE SIZE (max 24 = vs_1_1's constant budget),
+        // and it is also why the submesh stride is 0x20 + palette*4: the trailing
+        // dwords are the D3DXBONECOMBINATION's BoneId[] array.
         const std::uint32_t n_idxlen = r.u32(o + 0x94);
+        me.palette_size = n_idxlen;
+        me.influences = r.u32(o + 0x98);   // 1..4, or 0 when unskinned
         const std::uint32_t n_nodebind = r.u32(o + 0x9C);
         o += kMeshHeader;
-        o += std::size_t(n_nodebind) * 0x60;                    // node-binding names
+        // The bone list: `n_nodebind` names of 0x60 bytes each.
+        me.bones.reserve(n_nodebind);
+        for (std::uint32_t b = 0; b < n_nodebind; ++b)
+            me.bones.push_back(r.cstr(o + std::size_t(b) * 0x60, 0x60));
+        o += std::size_t(n_nodebind) * 0x60;
 
         // Submeshes: [material, first_tri, tri_count, first_vert, vert_count, ...]
         const std::size_t sub_stride = 0x20 + std::size_t(n_idxlen) * 4;
@@ -198,7 +214,11 @@ Model Model::parse(std::span<const std::uint8_t> bytes) {
             sm.tri_count = r.u32(sr + 0x08);
             sm.first_vert = r.u32(sr + 0x0C);
             sm.vert_count = r.u32(sr + 0x10);
-            me.submeshes.push_back(sm);
+            // BoneId[]: the palette. Follows the 0x20-byte record.
+            sm.bone_ids.reserve(n_idxlen);
+            for (std::uint32_t b = 0; b < n_idxlen; ++b)
+                sm.bone_ids.push_back(r.u32(sr + 0x20 + std::size_t(b) * 4));
+            me.submeshes.push_back(std::move(sm));
         }
         o += std::size_t(n_submesh) * sub_stride;
 
@@ -242,6 +262,16 @@ void Model::resolve_hierarchy() {
     std::unordered_map<std::string, int> node_by_name, mesh_by_name;
     for (int i = 0; i < int(nodes.size()); ++i) node_by_name[nodes[i].name] = i;
     for (int i = 0; i < int(meshes.size()); ++i) mesh_by_name[meshes[i].name] = i;
+
+    // Skinning bone lists: name -> node index. Left at -1 if a name doesn't resolve,
+    // so a bad list degrades to the bind pose rather than indexing out of bounds.
+    for (Mesh& me : meshes) {
+        me.bone_nodes.assign(me.bones.size(), -1);
+        for (std::size_t b = 0; b < me.bones.size(); ++b) {
+            auto it = node_by_name.find(me.bones[b]);
+            if (it != node_by_name.end()) me.bone_nodes[b] = it->second;
+        }
+    }
 
     for (Node& n : nodes) {
         auto pi = node_by_name.find(n.parent);

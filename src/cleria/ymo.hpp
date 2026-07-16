@@ -51,6 +51,7 @@ struct VertexBuffer {
     // the two-stream layouts whose offsets come from the exe's declarations rather
     // than an FVF. Out-of-range reads return zero rather than throwing.
     bool in_range(std::uint32_t i, int off, std::size_t n) const;
+    float raw_f32(std::uint32_t i, int off) const;
     Vec3 raw_vec3(std::uint32_t i, int off) const;
     std::uint32_t raw_u32(std::uint32_t i, int off) const;
     void raw_uv(std::uint32_t i, int off, float& u, float& v) const;
@@ -63,10 +64,20 @@ struct IndexBuffer {
 
 // A run of triangles in the shared IB using one material. Indices are absolute
 // into the mesh's vertex buffer. See docs/formats/YMO.md (submesh record).
+//
+// The 32-byte record is a serialized `D3DXBONECOMBINATION`:
+//   { AttribId, FaceStart, FaceCount, VertexStart, VertexCount, DWORD* BoneId, 0, 0 }
+// Field 5 is a leftover heap pointer from the save (nonzero on skinned models, NULL
+// on static ones). The BoneId array follows the record: `palette_size` dwords, which
+// is why the on-disk stride is `0x20 + palette_size*4`.
 struct Submesh {
     std::uint32_t material = 0;
     std::uint32_t first_tri = 0, tri_count = 0;
     std::uint32_t first_vert = 0, vert_count = 0;
+    // BoneId[]: palette slot -> index into Mesh::bones. 0xFFFFFFFF = unused slot.
+    // A vertex's BLENDINDICES byte is a PALETTE SLOT, not a bone id — it must be
+    // resolved through this per-submesh table.
+    std::vector<std::uint32_t> bone_ids;
 };
 
 struct Mesh {
@@ -91,6 +102,20 @@ struct Mesh {
     // Note `fvf == 0 && stride == 28` does NOT imply skinned: `decl[1]` is also
     // stride 28 and unskinned. Two VBs with stream 1 at stride 60 is the tell.
     bool two_stream() const { return vbs.size() >= 2 && vbs[1].stride == 60; }
+
+    // Skinning (D3DX indexed palette). `palette_size` (mesh +0x94) is the max bone
+    // matrices addressable per submesh — 24, exactly vs_1_1's constant budget.
+    // `influences` (mesh +0x98) is 1..4 and maps 1:1 to stream 0's stride
+    // {16,20,24,28} in 66/66 skinned meshes; it is 0 in all 1860 unskinned ones,
+    // which makes it the cleanest "is this skinned" test.
+    std::uint32_t palette_size = 0;
+    std::uint32_t influences = 0;
+    // The bone list (mesh +0x9C): names resolved to node indices by
+    // resolve_hierarchy(). Submesh::bone_ids index into this.
+    std::vector<std::string> bones;
+    std::vector<int> bone_nodes;  // parallel to `bones`; -1 if unresolved
+
+    bool skinned() const { return influences > 0 && two_stream(); }
 };
 
 struct Node {
