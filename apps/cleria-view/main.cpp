@@ -100,7 +100,7 @@ static const char* kCharNames[] = {"Default", "Yunica", "Hugo", "Toal"};
 struct Player {
     int level = 1;
     int hp = 400, max_hp = 400;
-    int sp = 0;
+    int sp = 59;   // placeholder until the stat model lands
     float exp_pct = 0.0f;
     float mp_pct = 100.0f;
     int character = 1;  // portrait: 1 Yunica / 2 Hugo / 3 Toal
@@ -1198,32 +1198,40 @@ struct HudVertex { float x, y, u, v; std::uint8_t r, g, b, a; };
 
 // STATUS_512.DDS source rects (measured; build/hud_re/hud_atlas_spec.json).
 struct Rc { float x, y, w, h; };
-// Gold digit font, glyphs 0..9 then ':' then '/'. Proportional width; band y=24 h=12.
+// The gold digit font is MONOSPACE: fixed 12x12 cells at (digit*12, 24).
 //
-// The x/w came from build/hud_re/hud_atlas_spec.json and are right; its y=15 h=22 was
-// NOT. Scanning the '6' column (x=73..84) row by row, the atlas there is: solid
-// 12-wide bars at y1..7 (blue), y9..15 (red), y17..22 (orange) and y37..43 (pink),
-// with exactly one glyph-shaped band — varying opacity, 8..11 of 12 columns — at
-// **y24..35**. Sampling y15..37 therefore drags in the red bar's last two rows and
-// the whole orange bar, which is exactly what we were drawing: a red line and an
-// orange block stacked above every digit.
-static const Rc kDigitGold[12] = {
-    {0,24,11,12}, {15,24,6,12}, {24,24,11,12}, {37,24,10,12}, {51,24,8,12},
-    {62,24,9,12}, {73,24,11,12}, {87,24,7,12}, {96,24,11,12}, {110,24,9,12},
-    {123,24,6,12}, {135,24,5,12}};
+// From the emitter itself (inside builder A, 0x0043e550..0x0043e7b1):
+//   MULSS XMM0, [0x006bd948]   ; f = 12.0   -> u = digit * 12
+//   MULSS XMM0, [0x006bd008]   ; f = 1/512
+//   v = 24/512, du = dv = 12/512
+// so the cell is 12px and the band is y=24 h=12 — which also independently confirms
+// the band correction we measured off the atlas pixels (an earlier spec said y15 h22
+// and dragged an orange bar into every digit).
+//
+// hud_atlas_spec.json's per-glyph x/w (0:x0 w11, 1:x15 w6, 2:x24 w11, ...) are the
+// INK EXTENTS inside those cells, not sampling rects. Sampling by ink would shift
+// every glyph. `digit % 10` only ever reaches cells 0..9, so the ':' and '/' cells
+// (10, 11) and the whole white/blue set at x>=144 are unreachable from this loop.
+static Rc digit_cell(int d) { return {float(d) * 12.0f, 24.0f, 12.0f, 12.0f}; }
 // Character portrait units (round face + ring + item tab), by g_flags[150].
 // 0/1=Yunica, 2=Hugo, 3=Toal (Adol @250,257 is unused in Origin).
 static const Rc kPortrait[4] = {
     {364,257,116,100}, {364,257,116,100}, {250,362,116,100}, {364,362,116,100}};
-// The long segmented bar is the MANA / SKILL gauge -- NOT the HP bar. HP is the
-// `60/ 60` cur/max digit pair at the top right (user-confirmed against the real
-// game). The gauge's fill colour is chosen by the equipped skill: the atlas holds
-// six 7px bands from y37, each split left(x1..250)/right(x252..502), cycling
-// green/yellow/red in a BRIGHT set (y37/45/53 = the fill) and a DARK set
-// (y61/69/77 = the empty track). We happen to sample the green pair.
-static const Rc kSkillHousing = {0, 472, 270, 37};  // ornate segmented housing
-static const Rc kSkillFill    = {1, 45, 248, 7};    // bright green  (skill = green)
-static const Rc kSkillTrack   = {1, 69, 248, 7};    // dark green    (its empty track)
+// The bar cluster, as the real game draws it (user-confirmed against a screenshot):
+//   - the ornate GREY SEGMENTED housing is the MP / skill-usage bar, and it reads
+//     EMPTY until a skill charges it. Its fill colour depends on the equipped skill
+//     (green / yellow / orange-red) -- those are the atlas's six 7px bands from y37,
+//     split left(x1..250)/right(x252..502), cycling green/yellow/red in a BRIGHT set
+//     (y37/45/53 = fill) and a DARK set (y61/69/77 = track). WHAT SELECTS THE BAND IS
+//     [UNKNOWN], so we do not draw a skill fill at all yet.
+//   - HP is the BLUE POINTED bar inside it -- rgb(103,119,209), tapered ends, an
+//     exact match for the screenshot. It also drives the `60/ 60` cur/max digits.
+//   - EXP for the current level is the thin RED/ORANGE bar above. Not drawn: its max
+//     width is one of the recovered `?`s (quad 6, 142,718,?,722).
+static const Rc kBarHousing = {0, 472, 270, 37};  // ornate segmented housing (MP track)
+static const Rc kBluePointed = {2, 1, 248, 7};    // HP fill      rgb(103,119,209)
+static const Rc kRedPointed  = {2, 9, 248, 7};    // rgb(214,47,42) -- EXP? [UNKNOWN]
+static const Rc kSlotFrame   = {472, 472, 40, 40}; // the 40x40 equipment slot frame
 
 // ---- the game's real HUD layout (from build/source_map/HUD_COORDS.md) --------
 // Recovered from the status-HUD renderer FUN_004295d0 / builder FUN_0043c230.
@@ -1254,10 +1262,9 @@ struct HudMap {
 // Authored rects in the 1024x768 frame, {x0, y0, x1, y1}.
 struct Ar { float x0, y0, x1, y1; };
 static const Ar kAPortrait = {0, 670, 116, 766};    // character portrait, 116x96
-// Recovered as "HP bar" by the source map; it is the MP/skill gauge (see above).
-static const Ar kASkillPlate = {115, 714, 386, 758};  // gauge frame / plate
-static const Ar kASkillTrack = {120, 735, 372, 747};  // track; max fill width = 252
-static const Ar kASkillFill  = {120, 737, 372, 745};  // fill (x1 is dynamic)
+static const Ar kABarPlate = {115, 714, 386, 758};  // the housing / plate
+static const Ar kABarTrack = {120, 735, 372, 747};  // inner channel; max fill width = 252
+static const Ar kABarFill  = {120, 737, 372, 745};  // the fill (x1 is dynamic)
 static const Ar kAThinBar  = {142, 718, 372, 722};  // thin bar (EX/MP — name unconfirmed)
 static const Ar kASlot[4] = {{0, 620, 40, 632}, {0, 632, 40, 644},
                              {0, 644, 40, 656}, {0, 656, 40, 668}};  // equipment slots
@@ -1438,18 +1445,29 @@ struct Hud {
         verts.push_back(q0); verts.push_back(q2); verts.push_back(q3);
     }
 
-    // Draw an integer using the atlas gold digit font. Returns pixels advanced.
-    float draw_number(int value, float x, float y, float scale, float sw, float sh) {
-        char buf[16];
-        std::snprintf(buf, sizeof buf, "%d", value);
-        float cx = x;
-        for (const char* c = buf; *c; ++c) {
-            if (*c < '0' || *c > '9') continue;
-            const Rc& r = kDigitGold[*c - '0'];
-            sprite(cx, y, r.w * scale, r.h * scale, r.x, r.y, r.w, r.h, sw, sh);
-            cx += (r.w + 1) * scale;
+    // The game's own digit emitter (builder A, 0x0043e550..0x0043e7b1).
+    //
+    //   cursor = right_x (337.5 for SP);  v = clamp(value, 0, 999999)
+    //   do { digit = v % 10; emit {cursor-12, y, cursor, y+12} from cell (digit*12, 24)
+    //        cursor -= 12; v /= 10; } while (v != 0 && ++n < 6)
+    //
+    // So it walks LEFTWARD from a fixed right edge, ones digit first — i.e. the number
+    // is RIGHT-ALIGNED with NO leading zeros, and capped at 6 digits because the value
+    // is clamped to 0xF423F (999999) at FUN_004fa290.
+    //
+    // `right_x`/`y` are authored 1024x768 coords; the caller maps them.
+    void draw_number_right(const HudMap& m, int value, float right_x, float y,
+                           float sw, float sh) {
+        int v = value < 0 ? 0 : (value > 999999 ? 999999 : value);
+        float cx = right_x;
+        for (int n = 0; n < 6; ++n) {
+            const Rc c = digit_cell(v % 10);
+            const float x0 = m.x(cx - 12.0f), y0 = m.y(y);
+            sprite(x0, y0, m.x(cx) - x0, m.y(y + 12.0f) - y0, c.x, c.y, c.w, c.h, sw, sh);
+            cx -= 12.0f;
+            v /= 10;
+            if (v == 0) break;
         }
-        return cx - x;
     }
 
     // Draw an authored 1024x768 rect of the STATUS atlas at its real screen place.
@@ -1473,18 +1491,30 @@ struct Hud {
         // row beside the portrait. Drawing skill diamonds there was visibly wrong, so we
         // draw nothing until we know what they are.
 
-        // The MP/skill gauge: housing, then the empty track, then the fill.
-        // Driven by MP -- it is not the HP bar, however the source map labelled it.
-        sprite_a(m, kASkillPlate, kSkillHousing, sw, sh);
-        sprite_a(m, kASkillTrack, kSkillTrack, sw, sh);
-        const float frac = std::max(0.f, std::min(1.f, p.mp_pct / 100.0f));
-        Ar fill = kASkillFill;
+        // The housing (which doubles as the empty MP/skill track), then HP as the
+        // blue pointed bar inside it. No skill fill: what selects its colour band is
+        // still unknown, and the real HUD shows it empty anyway.
+        sprite_a(m, kABarPlate, kBarHousing, sw, sh);
+        const float frac = p.max_hp > 0 ? std::max(0.f, std::min(1.f, float(p.hp) / p.max_hp)) : 0.f;
+        Ar fill = kABarFill;
         fill.x1 = fill.x0 + 252.0f * frac;   // 252 = the authored max fill width
-        sprite_a(m, fill, kSkillFill, sw, sh);
+        sprite_a(m, fill, kBluePointed, sw, sh);
 
         // Character portrait (drawn over the plate's left end, as the game does).
         const int ci = (p.character >= 0 && p.character < 4) ? p.character : 1;
         sprite_a(m, kAPortrait, kPortraitReal[ci], sw, sh);
+
+        // The four 40x40 equipment slot frames — quad 12, recovered as a LOOP:
+        //   x = 126 + 40*i  (126/166/206/246), y = 676..716
+        //   UV (0.921875,0.921875)..(1,1) = atlas px (472,472)..(512,512)
+        // Builder D blits each equipped item's icon on top at (132+40i, 682) — a 6px
+        // inset — from a per-item texture handle array (DAT_0074a958[itemId]), NOT
+        // from the atlas. Unequipped slots are drawn greyed (tint & 0xff303030). We
+        // draw the empty frames; the icons need the item/equipment model.
+        for (int i = 0; i < 4; ++i) {
+            const Ar d{126.0f + 40.0f * i, 676.0f, 166.0f + 40.0f * i, 716.0f};
+            sprite_a(m, d, kSlotFrame, sw, sh);
+        }
 
         // The level, in the atlas's own gold glyph font (y15..36, proportional widths,
         // measured from STATUS_512.DDS — see build/hud_re/hud_atlas_spec.json).
@@ -1498,8 +1528,9 @@ struct Hud {
         // The POSITION below is still ours: the digit emitter is builder B (FUN_0043e800)
         // or D (FUN_0043fe00), neither of which contains a single MapCoord call, and
         // neither is decoded. The glyphs are real; where they belong is not.
-        const float s = std::max(1.f, sh / 768.f);
-        draw_number(p.level, m.x(414), m.y(716), s * 1.1f, sw, sh);
+        // SP, at the game's real place: right edge 349.5, y 752..764, right-aligned.
+        // (The emitter's cursor starts at 337.5 = the LEFT edge of the ones digit.)
+        draw_number_right(m, p.sp, 349.5f, 752.0f, sw, sh);
     }
 
     // Draw a quad of the HP2 (boss) atlas: dst screen rect (px), src atlas rect (px).
