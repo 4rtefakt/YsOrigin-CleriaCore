@@ -403,15 +403,34 @@ Independently: an FVF decode done from the D3D9 spec alone reproduces the
 loader's three hardcoded specular offsets (`0x10`, `0x1c`, `0x1c`) exactly —
 see `tools/ymo_fvf.py`.
 
-## Remaining unknowns (all minor, none blocking)
+## Remaining unknowns
 
-1. Node `+0x288` / `+0x28C` / `+0x290`; mesh `+0x98`; header `flags` / `flags2`
-   value enumeration. Check the D3DX headers first — these are likely
-   `D3DXFRAME`/`D3DXMESHCONTAINER` members.
-2. Vertex declarations for the 132 `FVF == 0` buffers (needs the `VS_DX9`
-   shaders — 77 of them, all D3D9 bytecode, disassemblable with `D3DDisassemble`).
-3. Which of the three node links the loader actually walks at runtime (all three
+1. Node `+0x288` (int, always 6) / `+0x28C` (**float**, ~0.2–0.6) / `+0x290`; mesh
+   `+0xA0`. Check the D3DX headers first — these are likely `D3DXFRAME` /
+   `D3DXMESHCONTAINER` members. *(`mesh +0x94` and `+0x98` are no longer unknown:
+   they are the palette size and the influence count — see [Skinning](#skinning).)*
+2. Which of the three node links the loader actually walks at runtime (all three
    are present and consistent; child+sibling alone is sufficient to rebuild).
+3. **Which matrix is the bone offset.** See the note under [Skinning](#skinning):
+   `0x220` cannot be both `D3DXFRAME::TransformationMatrix` and the inverse-bind
+   matrix, and the two claims are each independently evidenced. Unresolved.
+4. `S_SHDW_1W`..`S_SHDW_4W` exist as `.VSO` files but are **absent from the exe's
+   76-entry shader table**, so they are never assigned a declaration id there.
+   Something else registers them; that mechanism is unfound. (This is also why the
+   shader counts differ legitimately: **40** `S_*.VSO` files on disk vs **36** `s_*`
+   entries in the name table — the four `SHDW` variants are the difference.)
+5. Which shader *family* (`base` / `cvr` / `cube` / `sphr` / `mmbrn` / `aniso` /
+   `dahmex`) a given material selects.
+6. `c2.w` = 765 (`255*3`, the D3DCOLOR expansion) is **[H-high] by derivation** — no
+   such literal exists in the exe; it is computed.
+
+> **Resolved since this list was first written**, kept here because the old entries
+> were cited elsewhere: the vertex declarations for the `FVF == 0` buffers are **not
+> in the YMO** — they are 8 static `D3DVERTEXELEMENT9` arrays in the exe, selected by
+> a 76-entry table, with `decl = 3 + N` for the `_Nw` shaders. The per-stream layout
+> is in [Skinning](#skinning). The old framing ("needs the VS_DX9 shaders") was right
+> that the shaders were necessary, but the answer turned out to live in `.data`, not
+> in the bytecode.
 
 ## Tools
 
