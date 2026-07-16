@@ -31,7 +31,8 @@ and a C++20 asset core renders real rooms.
 | **Textured materials (DDS: BC1/BC2/RGB565/…)** | ✅ **per-submesh material textures + alpha-test cutouts** |
 | **Free-fly walkthrough + SEN room transitions** | ✅ **fly through doorways to warp between connected rooms** |
 | **Baked vertex lighting** | ✅ **per-vertex DIFFUSE (lava glow, ambient) — the Falcom "lightmap"** |
-| **Grounded player controller** | ✅ **walk/jump/gravity + wall & floor collision vs render mesh; F toggles fly** |
+| **Grounded player controller** | ✅ **walk/jump/gravity + wall & floor collision; F toggles fly** |
+| **The game's own collision hulls (`_.YMO`)** | ✅ **396 tris vs 14,295 render in S_1000 — matches the authored SCT spawn in 7 more rooms than render geometry, 0 regressions** |
 | **AIA** character/monster sprites | ✅ **codec cracked, pixel-exact; 8-way facing + idle/walk/jump** |
 | **The game's own camera (SCM)** | ✅ **659 authored camera regions, follow + orbit + blend — no hand-tuning** |
 | **Scene fog (SFO)** | ✅ **per-region colour/near/far, cross-faded as the game does** |
@@ -128,6 +129,8 @@ overlay overwrites 525 scripts and the English text.
 | `--model <file.ymo> out.ppm` | orbit-shot any standalone model (bosses, props) |
 | `CLERIA_SPAWN="x,y,z"` | drop the character somewhere specific |
 | `CLERIA_SKIP=<substr>` | omit SOB objects whose path/name matches — bisect artifacts |
+| `CLERIA_COLL=render` | collide against render geometry again (pre-`_.YMO` behaviour) |
+| `CLERIA_COLLCHECK=1` | grid-compare the collision hulls against the render mesh |
 | `CLERIA_VB=1` | print each mesh's vertex format; flags buffers with no UV0 |
 | `CLERIA_MAT=1` | dump every material: flags, blend mode, diffuse, UV-scroll velocity, all 3 texture slots |
 | `CLERIA_CULL=off\|cw\|ccw` | probe face culling (D3D9's `D3DCULL_CCW` does not map directly to WebGPU winding) |
