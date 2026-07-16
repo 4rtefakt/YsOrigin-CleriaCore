@@ -116,8 +116,8 @@ This is `D3DXFRAME`, with the pointer graph serialized as names.
 | `0x0C0` | char[0x60] | `name[2]` — **next sibling** → node* @ rt `+0x58` | ✅ 2347/2347 |
 | `0x120` | char[0x60] | `name[3]` — **parent** → node* @ rt `+0x5c` | ✅ 5670/5670 |
 | `0x180` | char[0x60] | `name[4]` — **mesh name** → mesh* @ rt `+0x60` | — |
-| `0x1E0` | float[16] | matrix A (→ pose `[0x10..0x1f]` **and** `[0x30..0x3f]`) — the **rest pose**: `== compose(S,R,T)` below in **5832/7016** nodes |
-| `0x220` | float[16] | matrix B (→ node `[0..0xf]`) — `D3DXFRAME::TransformationMatrix`, i.e. the **local transform**. This is the one to walk the hierarchy with |
+| `0x1E0` | float[16] | matrix A — the **LOCAL transform** (rest pose): `== compose(S,R,T)` below in **5832/7016** nodes. **Walk the hierarchy with this one**; animation replaces it per node per frame |
+| `0x220` | float[16] | matrix B — the **bone offset / inverse-bind matrix**. Used *only* by the skinning palette (`B_i @ world_i`). **Identity in ~98.5% of room nodes**, which is why ignoring it costs rooms nothing |
 | `0x260` | float[3] | **scale** |
 | `0x26C` | float[3] | **translation** |
 | `0x278` | float[4] | rotation quaternion |
@@ -146,11 +146,26 @@ current pose. Runtime defaults: identity 4×4 at pose `[0..0xf]` and `[0x20..0x2
 > 5834/7016; the two-node gap is quaternion edge cases). The order is D3DX's own
 > `RegisterAnimationSRTKeys` — **S, R, T**.
 >
-> **A and B are different matrices, and B is not derived from A**: across the same
-> 7016 nodes, `A == B` in 2451 (34.9%) and `B == inv(A)` in just 27 (0.4%). Within
-> `MAP/` they coincide more often (1912/2804 = 68.2%), which is why the renderer —
-> which walks `0x220` — looks right on rooms. Prefer `0x220` for the hierarchy: it
-> is `D3DXFRAME::TransformationMatrix` by position in the runtime struct.
+> **A is the local transform; B is the bone offset. They are unrelated, and no
+> algebraic identity between them should be expected** — B is baked from the skin
+> cluster's *bind* pose, which is not the node's *rest* pose.
+>
+> **⚠️ Two statistics in an earlier revision of this note were artifacts. Don't
+> repeat them:**
+> - "`A == B` in 34.9%" is real but meaningless: it holds **only when both are
+>   identity**. In `MAP/`, `A == B` = 1912 and `A == identity` = 1912 — the same
+>   nodes. Among nodes with a non-identity A, `A == B` holds for 1 of 4565.
+> - "`B == inv(A)` in just 27 (0.4%)" was a **bug in the measuring script**, which
+>   computed the inverse test only in an `elif` after the equality test, so every
+>   `A == B` node was silently excluded. Measured properly it is **68.3%** in `MAP/`
+>   — again the identity set. It is also the wrong test: A is *local*, so `inv(A)`
+>   is the bone offset only for **root** nodes.
+>
+> **`B` is identity in ~98.5% of room nodes** (100% of purely static files). So a
+> renderer that "walks `0x220` as the local matrix" through a room is applying
+> identity to every node — it looks correct because room vertices are already baked
+> to world space, not because `0x220` is the local transform. That test would pass
+> with any constant matrix, which is exactly why it misled us.
 
 **Name resolution** happens in a post-pass via **`FUN_005f4e10(this, name)`**,
 which is a **node-lookup-by-name**, not a texture resolver:
@@ -277,17 +292,29 @@ the palette size (max **24**, exactly vs_1_1's constant budget); `mesh + 0x98` t
 influence count 1..4, which maps 1:1 to stream 0's stride {16,20,24,28} in **66/66**
 skinned meshes and is 0 in all 1860 unskinned ones; `mesh + 0x9C` the bone-name
 list. **BLENDINDICES are palette slots, not bone ids** — resolve via `BoneId[slot]`.
+The inverse-bind matrix **is** node matrix B (`0x220`), stored rather than derived.
 Ignore TANGENT0/1/2 — **0 of 40 skinning shaders read them**.
 
-> **Open question — which matrix is the bone offset.** The skinning pass that
-> validated the AABBs below reports the inverse-bind matrix as node **matrix B**
-> (`0x220`), stored rather than derived (`inv(world_A)` reproduces only 5/245).
-> That conflicts with `0x220` being `D3DXFRAME::TransformationMatrix` (the local
-> transform) by its position in the runtime struct — the same matrix cannot be
-> both. Both readings are backed by evidence and neither has been reconciled here,
-> so **treat the offset-matrix identity as unconfirmed** and re-derive it when the
-> skinning path is actually implemented. The AABB result stands on its own; it just
-> does not by itself pin *which* field played the offset role.
+> **This was briefly contested and is now settled: A (`0x1E0`) = local, B (`0x220`)
+> = inverse-bind.** The objection was that `0x220` maps to node runtime `[0..0xf]`,
+> which by position in a `D3DXFRAME` is `TransformationMatrix` — so it "couldn't"
+> also be the offset matrix. That reasoning was wrong twice over: the statistics
+> behind it were artifacts (see the node table above), and **`B` is identity in
+> ~98.5% of room nodes**, so a room renderer walking `0x220` is applying identity
+> and cannot distinguish the two readings at all.
+>
+> The decisive evidence is `build/ymo_re/corpus_validate.{py,log}`, which encodes
+> exactly this model — `OFF = mB`, `restA = mA`, `W[i] = loc[i] @ W[parent]`,
+> `F = OFF @ W` — and reproduces **303 stored clip AABBs across 59/64 skinned files
+> to ≤1e-5**. That is only possible if B is the inverse-bind and A is the local
+> transform. It also agrees with `A == compose(S,R,T)` at 83.12%: composing to a TRS
+> is the signature of a local transform.
+>
+> **Consequence — a real latent bug:** a renderer that walks `0x220` gets every
+> *skinned* model wrong. Rooms are unaffected only because `B ≡ I` there.
+> (Outliers, separate `[UNKNOWN]`: `BOSS01_`/`BOSS01_SHADOW_` Δ11.4, `BOSS06A/B`
+> Δ1.3–1.6, `PIC_TOGE` Δ0.93 — likely a second animation path, since 59/64 are
+> exact.)
 
 Corpus proof: **64/64 skinned files reproduce all 303 stored clip AABBs to ≤3e-5**
 using `v' = Σ wᵢ · (v · B[bᵢ] · World[bᵢ])` with `w₃ = 1 − w₀ − w₁ − w₂`.
@@ -411,9 +438,10 @@ see `tools/ymo_fvf.py`.
    they are the palette size and the influence count — see [Skinning](#skinning).)*
 2. Which of the three node links the loader actually walks at runtime (all three
    are present and consistent; child+sibling alone is sufficient to rebuild).
-3. **Which matrix is the bone offset.** See the note under [Skinning](#skinning):
-   `0x220` cannot be both `D3DXFRAME::TransformationMatrix` and the inverse-bind
-   matrix, and the two claims are each independently evidenced. Unresolved.
+3. The 5 clip-AABB outliers (`BOSS01_`, `BOSS01_SHADOW_`, `BOSS06A/B`, `PIC_TOGE`) —
+   likely a second animation path rather than matrix semantics, since 59/64 skinned
+   files reproduce exactly. *(The "which matrix is the bone offset" question that sat
+   here is resolved: A = local, B = inverse-bind. See [Skinning](#skinning).)*
 4. `S_SHDW_1W`..`S_SHDW_4W` exist as `.VSO` files but are **absent from the exe's
    76-entry shader table**, so they are never assigned a declaration id there.
    Something else registers them; that mechanism is unfound. (This is also why the

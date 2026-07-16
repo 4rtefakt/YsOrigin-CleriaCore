@@ -246,20 +246,23 @@ struct Room {
     std::vector<WGPUBindGroup> binds;  // parallel to mesh.textures
 };
 
-// Play the footstep for the surface of `tri` on the collision mesh. Faithful part:
-// material name -> surface (by name) -> EFFECTDEF id, variant = step_n & mask.
-// Unknown material names (e.g. "default", which is common) resolve to -1, and the
-// exe's own lookup returns -1 too — what it does with that is not established, so
-// we stay silent rather than invent a fallback. CLERIA_STEPS=1 traces them.
+// Play the footstep for the surface of `tri` on the collision mesh: material name
+// -> surface (by name) -> EFFECTDEF id, variant = step_n & mask.
+//
+// A name that matches nothing resolves to `stone`, not to silence — the exe clamps
+// an unmatched lookup to 1 (see surface.hpp). That covers "default", the second most
+// common collision material. Silence is driven by base_sound_id == 0 (`none`,
+// `stopper`, `reserve20`) instead. CLERIA_STEPS=1 traces each step.
 static void play_footstep(Audio& audio, const RoomMesh& m, int tri, unsigned step_n) {
     const std::string_view surf = surface_of(m, tri);
     if (surf.empty()) return;
-    const int idx = surface_index(surf);
+    const int idx = surface_index_or_default(surf);
     const int id = footstep_sound(idx, step_n);
     if (std::getenv("CLERIA_STEPS")) {
         const EffectDef* d = id >= 0 ? audio.defs().find(id) : nullptr;
-        std::printf("  step %-10.*s surface=%-3d id=%-4d %s\n", int(surf.size()), surf.data(),
-                    idx, id, d ? d->name.c_str() : (idx < 0 ? "(name not in table)" : "(silent)"));
+        std::printf("  step %-10.*s surface=%-3d%s id=%-4d %s\n", int(surf.size()), surf.data(),
+                    idx, surface_index(surf) < 0 ? " (defaulted)" : "", id,
+                    d ? d->name.c_str() : "(silent)");
     }
     if (id >= 0) audio.play(id, 0.55f);
 }
@@ -396,14 +399,16 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
 
     int loaded = 0;
     r.binds.reserve(r.mesh.textures.size());
-    for (const std::string& name : r.mesh.textures) {
-        std::string base = name;
-        const auto slash = base.find_last_of("/\\");
-        if (slash != std::string::npos) base = base.substr(slash + 1);
-        auto it = g.dds_index.find(base);
-        Dds dds = (it != g.dds_index.end()) ? load_dds(it->second) : Dds{};
+    // mesh.textures are already RESOLVED absolute paths — scene.cpp resolves each
+    // ref against its own YMO's directory. Do not reduce to a basename and look it
+    // up game-wide: 532 basenames are ambiguous and 530 of those differ in content.
+    for (const std::string& path : r.mesh.textures) {
+        Dds dds = load_dds(path);
         if (dds.ok()) { r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds))); ++loaded; }
-        else r.binds.push_back(g.white_bind);
+        else {
+            std::printf("    [tex] FAILED to load: %s\n", path.c_str());
+            r.binds.push_back(g.white_bind);
+        }
     }
 
     // SEN sidecar sits beside the SOB (same stem).
@@ -524,14 +529,16 @@ static Room load_model(Gpu& g, const fs::path& asset_root, const fs::path& ymo) 
     r.ibuf = make_buffer(g.device, g.queue, r.mesh.indices.data(),
                          r.mesh.indices.size() * sizeof(std::uint32_t), WGPUBufferUsage_Index);
     int loaded = 0;
-    for (const std::string& name : r.mesh.textures) {
-        std::string base = name;
-        const auto slash = base.find_last_of("/\\");
-        if (slash != std::string::npos) base = base.substr(slash + 1);
-        auto it = g.dds_index.find(base);
-        Dds dds = (it != g.dds_index.end()) ? load_dds(it->second) : Dds{};
+    // mesh.textures are already RESOLVED absolute paths — scene.cpp resolves each
+    // ref against its own YMO's directory. Do not reduce to a basename and look it
+    // up game-wide: 532 basenames are ambiguous and 530 of those differ in content.
+    for (const std::string& path : r.mesh.textures) {
+        Dds dds = load_dds(path);
         if (dds.ok()) { r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds))); ++loaded; }
-        else r.binds.push_back(g.white_bind);
+        else {
+            std::printf("    [tex] FAILED to load: %s\n", path.c_str());
+            r.binds.push_back(g.white_bind);
+        }
     }
     std::printf("[%s] %zu tris, %d/%zu tex, bounds(%.1f,%.1f,%.1f)..(%.1f,%.1f,%.1f)\n",
                 r.name.c_str(), r.mesh.indices.size() / 3, loaded, r.mesh.textures.size(),

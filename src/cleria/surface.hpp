@@ -46,9 +46,35 @@ inline constexpr SurfaceType kSurfaceTable[] = {
 };
 inline constexpr int kSurfaceCount = int(sizeof(kSurfaceTable) / sizeof(kSurfaceTable[0]));
 
-// Surface id for a material name, or -1 if it names no surface. Case-insensitive,
-// matching the exe's __stricmp.
+// Surface id for a material name. Case-insensitive, matching the exe's __stricmp.
+//
+// **An unknown name resolves to 1 (`stone`), not to -1 and not to silence.** The
+// standalone lookup FUN_00439700 does return -1, but it is DEAD CODE (zero xrefs).
+// The live lookup is that routine inlined into FUN_005610e0, the collision-mesh
+// builder, where the compiler folded the `return -1` into a jump straight onto the
+// clamp:
+//
+//   0056137b  JC  0x00561362          ; loop, 21 entries
+//   0056137d  JMP 0x00561383          ; not found ->
+//   0056137f  TEST ESI,ESI            ; found: idx >= 0?
+//   00561381  JNS 0x00561388
+//   00561383  MOV ESI,0x1             ; <-- both paths land here: default = stone
+//
+// So `default` (the 2nd most common collision material), `dafault` (Falcom's typo),
+// `door`, `10switch`, `10yuka04` and `10_wall_01` all play stone. Silence comes from
+// `base_sound_id == 0` (`none` / `stopper` / `reserve20`) — never from a bad index.
 int surface_index(std::string_view name);
+
+// The default the exe clamps to when a name matches nothing.
+inline constexpr int kSurfaceDefault = 1;  // "stone"
+
+// What the engine actually stores: resolved once at mesh-build time and cached as a
+// u16 per triangle (FUN_005610e0 @0x5613f4 writes `param_1[+0x14][tri] = idx`), not
+// re-resolved per footstep.
+inline int surface_index_or_default(std::string_view name) {
+    const int i = surface_index(name);
+    return i < 0 ? kSurfaceDefault : i;
+}
 
 // True for surfaces that exist only to block movement and are never floors or
 // sound sources. `stopper` is the invisible wall.

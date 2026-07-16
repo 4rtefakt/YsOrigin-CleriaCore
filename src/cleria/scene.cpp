@@ -97,10 +97,43 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
     out.bmin = {1e30f, 1e30f, 1e30f};
     out.bmax = {-1e30f, -1e30f, -1e30f};
 
+    // A material's texture slot is a path RELATIVE TO ITS OWN YMO'S DIRECTORY, with
+    // the mip-set dir inserted before the filename: <ymo_dir>/<ref_dir>/{H|L}/<file>.
+    // H is the high-res set, L the low. 71% of refs corpus-wide carry a relative
+    // path (e.g. "..\common\00back00.dds"); S_1000's 23 are bare only because they
+    // all live in its own H/.
+    //
+    // Resolving by bare filename against one game-wide index is a real bug: 532 of
+    // 3988 basenames exist in more than one directory and 530 of those are
+    // byte-distinct, so whichever the walk saw last wins. That is what made S_1000
+    // draw S_61/COMMON's 00yuka32.dds — an atlas with a solid black 48x48 cell that
+    // S_1000's own copy fills with stonework — and paint black slabs over its stairs.
+    auto resolve_tex = [](const fs::path& ymo_dir, std::string ref) -> fs::path {
+        if (ref.empty()) return {};
+        for (char& c : ref) {
+            if (c == '\\') c = '/';
+            c = char(std::toupper((unsigned char)c));  // the extractor writes UPPERCASE
+        }
+        const fs::path rp(ref);
+        const fs::path dir = (ymo_dir / rp.parent_path()).lexically_normal();
+        const fs::path file = rp.filename();
+        // Guard the untextured case: with an empty filename every candidate below
+        // collapses to the directory itself, which exists — and we would intern a
+        // path that names no file.
+        if (file.empty()) return {};
+        for (const char* mip : {"H", "L"}) {
+            const fs::path p = dir / mip / file;
+            if (fs::exists(p)) return p;
+        }
+        const fs::path p = dir / file;  // some refs already name the mip dir
+        return fs::exists(p) ? p : fs::path{};
+    };
+
+    // Interned by RESOLVED PATH, not basename: two YMOs in one room may legitimately
+    // use the same bare name for different files.
     std::unordered_map<std::string, int> tex_index;
     auto intern_tex = [&](std::string name) -> int {
         if (name.empty()) return -1;
-        for (char& c : name) c = char(std::tolower((unsigned char)c));
         auto it = tex_index.find(name);
         if (it != tex_index.end()) return it->second;
         const int id = int(out.textures.size());
@@ -235,7 +268,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 for (const Submesh& sm : mesh.submeshes) {
                     int tex = -1, surf = -1;
                     if (sm.material < model.materials.size()) {
-                        tex = intern_tex(model.materials[sm.material].texture[0]);
+                        tex = intern_tex(resolve_tex(ymo_file.parent_path(),
+                                                     model.materials[sm.material].texture[0]).string());
                         surf = intern_surf(model.materials[sm.material].name);
                     }
                     emit(sm.first_tri * 3, sm.tri_count * 3, tex, surf);
@@ -243,7 +277,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             } else {
                 int tex = -1, surf = -1;
                 if (!model.materials.empty()) {
-                    tex = intern_tex(model.materials[0].texture[0]);
+                    tex = intern_tex(resolve_tex(ymo_file.parent_path(),
+                                                 model.materials[0].texture[0]).string());
                     surf = intern_surf(model.materials[0].name);
                 }
                 emit(0, std::uint32_t(ib.idx.size()), tex, surf);

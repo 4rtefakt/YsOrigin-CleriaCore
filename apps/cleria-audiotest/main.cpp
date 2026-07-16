@@ -70,11 +70,12 @@ static int walk_room(const fs::path& root, const fs::path& sob, const EffectDefs
             const float y = floor_at(coll, x, z, feet.y + 2.0f, &tri);
             if (y == kNoFloor) continue;
             const std::string_view surf = surface_of(coll, tri);
-            const int idx = surface_index(surf);
+            const int idx = surface_index_or_default(surf);
             const int id = footstep_sound(idx, step_n++);
             const EffectDef* def = id >= 0 ? defs.find(id) : nullptr;
-            const std::string key = std::string(surf) + " -> " +
-                                    (def ? def->name : (idx < 0 ? "(NOT IN TABLE)" : "(silent)"));
+            const std::string key = std::string(surf) +
+                                    (surface_index(surf) < 0 ? " (->stone) -> " : " -> ") +
+                                    (def ? def->name : "(silent)");
             ++heard[key];
         }
     }

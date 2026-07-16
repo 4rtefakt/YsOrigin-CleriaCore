@@ -46,7 +46,12 @@ Dds load_dds(const std::filesystem::path& path) {
             out.data.assign(b.begin() + data_off, b.begin() + data_off + n);
         } else if (std::memcmp(fourcc, "DXT3", 4) == 0 ||
                    std::memcmp(fourcc, "DXT5", 4) == 0) {
-            out.format = Dds::BC2;  // DXT3->BC2; DXT5 close enough for a first pass
+            // DXT3 -> BC2 is exact. DXT5 (BC3) is NOT BC2: they share the colour
+            // block but not the alpha block, so this would give it garbage alpha —
+            // which feeds straight into the alpha test. It is dead code in practice:
+            // the shipped corpus has ZERO DXT5 (3819 DXT1, 296 DXT3, 3966 RGB16,
+            // 847 RGB32, 50 RGB24). Decode BC3 properly before relying on it.
+            out.format = Dds::BC2;
             const std::size_t n = block_bytes(16);
             if (data_off + n > b.size()) return {};
             out.data.assign(b.begin() + data_off, b.begin() + data_off + n);
@@ -58,7 +63,10 @@ Dds load_dds(const std::filesystem::path& path) {
     // expand to RGBA8. Covers RGB565, A1R5G5B5, A4R4G4B4, X8R8G8B8, A8R8G8B8.
     if (pf_flags & 0x40 /*DDPF_RGB*/) {
         const std::uint32_t bits = rd32(&b[88]);
-        if (bits != 16 && bits != 32) return out;
+        // 24-bit matters: 50 files use it, including every SKYBOX/B_*/H/BACK*.DDS.
+        // Rejecting it silently left five rooms (S_1100/1101/1102, S_2100/2101)
+        // drawing their sky as untextured white.
+        if (bits != 16 && bits != 24 && bits != 32) return out;
         const std::uint32_t rmask = rd32(&b[92]);
         const std::uint32_t gmask = rd32(&b[96]);
         const std::uint32_t bmask = rd32(&b[100]);
@@ -84,7 +92,8 @@ Dds load_dds(const std::filesystem::path& path) {
         for (std::size_t i = 0; i < px; ++i) {
             const std::uint8_t* s = &b[data_off + i * bpp];
             std::uint32_t v = s[0] | (std::uint32_t(s[1]) << 8);
-            if (bpp == 4) v |= (std::uint32_t(s[2]) << 16) | (std::uint32_t(s[3]) << 24);
+            if (bpp >= 3) v |= std::uint32_t(s[2]) << 16;
+            if (bpp == 4) v |= std::uint32_t(s[3]) << 24;
             std::uint8_t* d = &out.data[i * 4];
             d[0] = chan(v, rmask);
             d[1] = chan(v, gmask);

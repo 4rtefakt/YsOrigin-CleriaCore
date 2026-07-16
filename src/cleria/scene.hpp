@@ -41,7 +41,7 @@ struct RoomMesh {
     std::vector<RoomVertex> vertices;
     std::vector<std::uint32_t> indices;
     std::vector<DrawBatch> batches;
-    std::vector<std::string> textures;  // unique DDS basenames, lower-cased
+    std::vector<std::string> textures;  // resolved absolute DDS paths (see scene.cpp)
     std::vector<Interactable> interactables;
     // Collision meshes only (build_collision): the material name per triangle is
     // the physical SURFACE TYPE — "stone", "wood", "water", "ice", plus the control
