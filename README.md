@@ -137,6 +137,7 @@ overlay overwrites 525 scripts and the English text.
 | `CLERIA_SKIP=<substr>` | omit SOB objects whose path/name matches — bisect artifacts |
 | `CLERIA_COLL=render` | collide against render geometry again (pre-`_.YMO` behaviour) |
 | `CLERIA_NOSCROLL=1` | disable the water UV-scroll integrator |
+| `CLERIA_SCROLL_TICKS=<n>` | pre-advance the UV-scroll phase by n ticks before a `--play` shot (that path renders one frame and never ticks, so the water is otherwise frozen at phase 0) |
 | `CLERIA_COLLCHECK=1` | grid-compare the collision hulls against the render mesh |
 | `CLERIA_SURF=1` | per-surface triangle counts, split by floor-like vs wall |
 | `CLERIA_STEPS=1` | trace each footstep: surface → table id → WAV |

@@ -1776,7 +1776,7 @@ static int render_fps(Gpu& g, const Room& room, const fs::path& out,
 // billboard centred on screen, over the room, with the HUD. For iterating the
 // camera angle/zoom and sprite scale via PNGs before wiring the interactive loop.
 // dist / worldH are ABSOLUTE world units (see the play-mode constants).
-static int render_play(Gpu& g, const Room& room, const fs::path& out,
+static int render_play(Gpu& g, Room& room, const fs::path& out,
                        std::uint32_t W, std::uint32_t H, const fs::path& asset_root,
                        float yaw, float pitch, float dist, float worldH,
                        std::uint32_t dir) {
@@ -1839,6 +1839,11 @@ static int render_play(Gpu& g, const Room& room, const fs::path& out,
         std::printf("  floor under spawn: render=%.3f  collision=%.3f  (spawn y=%.3f)\n",
                     fr, fc, feet.y);
     }
+    // CLERIA_SCROLL_TICKS=<n>: pre-advance the UV-scroll phase by n ticks before the
+    // shot. --play renders a single frame and never ticks, so without this the water
+    // is always frozen at phase 0 — this is how to see it move headlessly.
+    if (const char* st = std::getenv("CLERIA_SCROLL_TICKS"))
+        if (!room.scrolls.empty()) advance_scroll(g, room, std::atoi(st));
     draw(g, room, cview, dview);
     // Let the game's own animation script pick the sprite, as the live path does:
     // C_010 is Yunica's script, and with flag 161 clear it selects the GAMEPLAY set
