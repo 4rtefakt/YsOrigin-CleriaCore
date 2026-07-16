@@ -523,7 +523,12 @@ static Room load_model(Gpu& g, const fs::path& asset_root, const fs::path& ymo) 
     Room r;
     r.name = ymo.stem().string();
     r.dir = ymo.parent_path();
-    r.mesh = build_model(asset_root, ymo);
+    // CLERIA_CLIP=<name> [+ CLERIA_FRAME=<n>] poses a skinned model at an animation
+    // frame instead of its rest pose. Frames are absolute (a clip's range is printed
+    // by cleria-animtest --clips); n/60 s of scaled time.
+    const char* clip = std::getenv("CLERIA_CLIP");
+    const char* fr = std::getenv("CLERIA_FRAME");
+    r.mesh = build_model(asset_root, ymo, clip, fr ? float(std::atof(fr)) : 0.0f);
     r.vbuf = make_buffer(g.device, g.queue, r.mesh.vertices.data(),
                          r.mesh.vertices.size() * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
     r.ibuf = make_buffer(g.device, g.queue, r.mesh.indices.data(),

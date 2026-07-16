@@ -66,8 +66,12 @@ RoomMesh build_room(const std::filesystem::path& asset_root,
 
 // Build a mesh from a single YMO at the origin — for models no SOB places, such
 // as the bosses under ENEMY/ (their paths are hardcoded in the exe).
+// `clip_name`/`frame` pose the hierarchy before the geometry is appended, so a
+// skinned model can be sampled at any animation frame (see Model::pose). Null =
+// the model's own rest pose.
 RoomMesh build_model(const std::filesystem::path& asset_root,
-                     const std::filesystem::path& ymo_path);
+                     const std::filesystem::path& ymo_path,
+                     const char* clip_name = nullptr, float frame = 0);
 
 // The room's COLLISION geometry: the same SOB placements, but each object's `X_.YMO`
 // twin instead of `X.YMO`. Those twins are the game's real collision hulls — coarse
@@ -87,6 +91,7 @@ RoomMesh build_room_objects(const std::filesystem::path& asset_root, const Sob& 
                             const std::filesystem::path& script_dir,
                             const std::unordered_set<std::string>* box_whitelist = nullptr,
                             const std::unordered_set<std::string>* hidden = nullptr,
-                            bool collision = false);
+                            bool collision = false,
+                            const char* clip_name = nullptr, float frame = 0);
 
 }  // namespace cleria

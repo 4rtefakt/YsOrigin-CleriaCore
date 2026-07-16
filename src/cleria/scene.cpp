@@ -61,7 +61,8 @@ Vec3 xform_dir(const Mat4& m, const Vec3& d) {
 // Build a mesh from a single YMO placed at the origin — for viewing a model that
 // isn't part of a room, e.g. the bosses under ENEMY/, which no SOB ever places
 // (boss rooms' SCT holds only CAST_ADOL; their model paths are hardcoded in the exe).
-RoomMesh build_model(const fs::path& asset_root, const fs::path& ymo_path) {
+RoomMesh build_model(const fs::path& asset_root, const fs::path& ymo_path,
+                     const char* clip_name, float frame) {
     // A one-object SOB, synthesised: same code path as a room, identity transform.
     Sob sob;
     SobObject o;
@@ -71,7 +72,8 @@ RoomMesh build_model(const fs::path& asset_root, const fs::path& ymo_path) {
     o.rotation = {0, 0, 0};
     o.scale = {1, 1, 1};
     sob.objects.push_back(std::move(o));
-    return build_room_objects(asset_root, sob, ymo_path.parent_path(), nullptr, nullptr);
+    return build_room_objects(asset_root, sob, ymo_path.parent_path(), nullptr, nullptr,
+                              false, clip_name, frame);
 }
 
 RoomMesh build_room(const fs::path& asset_root, const fs::path& sob_path,
@@ -92,7 +94,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                             const fs::path& script_dir,
                             const std::unordered_set<std::string>* box_whitelist,
                             const std::unordered_set<std::string>* hidden,
-                            bool collision) {
+                            bool collision, const char* clip_name, float frame) {
     RoomMesh out;
     out.bmin = {1e30f, 1e30f, 1e30f};
     out.bmax = {-1e30f, -1e30f, -1e30f};
@@ -203,6 +205,10 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         try {
             model = Model::parse(read_file(ymo_file));
             model.resolve_hierarchy();
+            // Pose before appending: skin_point() reads the node world matrices.
+            if (clip_name)
+                for (const AnimClip& c : model.clips)
+                    if (c.name == clip_name) { model.pose(c, frame); break; }
         } catch (const std::exception&) { ++out.missing; continue; }
         const Mat4 place = o.world();
         // Debug: CLERIA_MAT=1 dumps the fields the engine's render struct actually

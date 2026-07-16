@@ -30,7 +30,7 @@ and a C++20 asset core renders real rooms.
 | **Real-time renderer (SDL3 + wgpu-native)** | ✅ **rooms render on GPU; orbit window + headless `--shot`** |
 | **Textured materials (DDS: BC1/BC2/RGB565/…)** | ✅ **per-submesh material textures + alpha-test cutouts** |
 | **Boss models + skinning (D3DX indexed palette)** | ✅ **all 8 render textured, skinned and posed — BOSS01 coils, BOSS04/08 assemble** |
-| **Animation clips (parse + pose)** | ✅ **270/303 stored clip AABBs reproduced to ≤1e-3; the 33 misses are the 5 known-outlier files, matching an independent Python pass to 5 s.f.** |
+| **Animation clips (parse + pose + play)** | ✅ **270/303 stored clip AABBs reproduced to ≤1e-3 — the 33 misses are the 5 known-outlier files, matching an independent Python pass to 5 s.f. `CLERIA_CLIP`/`CLERIA_FRAME` pose any skinned model** |
 | **Free-fly walkthrough + SEN room transitions** | ✅ **fly through doorways to warp between connected rooms** |
 | **Baked vertex lighting** | ✅ **per-vertex DIFFUSE (lava glow, ambient) — the Falcom "lightmap"** |
 | **Grounded player controller** | ✅ **walk/jump/gravity + wall & floor collision; F toggles fly** |
@@ -132,6 +132,7 @@ overlay overwrites 525 scripts and the English text.
 |---|---|
 | `--model <file.ymo> out.ppm` | orbit-shot any standalone model (bosses, props) |
 | `CLERIA_SPAWN="x,y,z"` | drop the character somewhere specific |
+| `CLERIA_CLIP=<name>` `CLERIA_FRAME=<n>` | pose a skinned model at an animation frame (`--model`); list clips with `cleria-animtest <f.ymo> --clips` |
 | `CLERIA_SKIP=<substr>` | omit SOB objects whose path/name matches — bisect artifacts |
 | `CLERIA_COLL=render` | collide against render geometry again (pre-`_.YMO` behaviour) |
 | `CLERIA_COLLCHECK=1` | grid-compare the collision hulls against the render mesh |
