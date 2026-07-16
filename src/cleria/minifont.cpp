@@ -48,21 +48,39 @@ bool MiniFont::load(const fs::path& p, const std::int8_t* widths, std::size_t n)
     return true;
 }
 
+int MiniFont::index(char c) {
+    const unsigned char u = static_cast<unsigned char>(c);
+    if (u < 0x20) return 0;
+    // NOT simply c - 0x20: the drawer splits at 0x7F. Byte-verified from the exe.
+    // The two ranges overlap (0x79..0x7F and 0x80..0x86 both land on 0x59..0x5F) --
+    // reported as disassembled, unexplained; do not trust high chars without a
+    // runtime check.
+    return (u <= 0x7F) ? int(u) - 0x20 : int(u) - 0x27;
+}
+
 MiniGlyph MiniFont::glyph(char c) const {
-    int idx = int(static_cast<unsigned char>(c)) - kFirst;
-    if (idx < 0) idx = 0;  // control chars -> space
+    const int idx = index(c);
     MiniGlyph g;
     g.cell_x = (idx % kPerRow) * kCellW;
     g.cell_y = (idx / kPerRow) * kCellH;
-    g.advance = (have_widths_ && std::size_t(idx) < widths_.size()) ? widths_[std::size_t(idx)] : 0;
+    if (c == ' ' || c == '\t') {
+        // Hardcoded in the drawer, not table-driven -- and 9, not width+1.
+        g.advance = kSpaceAdvance;
+    } else if (have_widths_ && std::size_t(idx) < widths_.size()) {
+        g.advance = widths_[std::size_t(idx)] + 1;  // the unconditional INC EAX
+    }
     return g;
 }
 
 int MiniFont::measure(std::string_view s) const {
     if (!have_widths_) return -1;
-    int x = 0;
-    for (char c : s) x += glyph(c).advance;
-    return x;
+    int x = 0, best = 0;
+    for (char c : s) {
+        if (c == '\n') { best = std::max(best, x); x = 0; continue; }
+        if (c == '\r') continue;
+        x += glyph(c).advance;
+    }
+    return std::max(best, x);
 }
 
 }  // namespace cleria

@@ -13,8 +13,23 @@
 //   - the sheet holds ASCII 0x20..0x7E in six rows, then symbols and a full
 //     accented-Latin set (the European localisation font)
 //
-// The font is PROPORTIONAL: the advance comes from an int8 table in the exe at
-// `.data 0x0068ace0`, indexed the same way.
+// The font is PROPORTIONAL — barely. The advance comes from an int8 table in the exe
+// at `.data 0x0068ace0` (224 entries, ending 0x0068adc0), and the ADVANCE IS
+// `width[idx] + 1` (an unconditional `INC EAX` at 0x00452ace); the quad is drawn
+// `width+1` wide too, so glyphs stay 1:1. Default 9 => 10px inside the 12px cell.
+//
+// In practice it is effectively MONOSPACE: only 10 of 224 entries differ from 9 —
+// '('=8 '.'=5 ':'=8 ';'=8 'T'=8 '['=5 '_'=6 'o'=8 'p'=8 '~'=6. Note ']' is 9 while
+// '[' is 5, so the set is ad-hoc; use the table verbatim rather than inferring a rule.
+//
+// INDEXING IS NOT SIMPLY `c - 0x20`: `c <= 0x7F -> c - 0x20`, but `c > 0x7F ->
+// c - 0x27` (byte-verified), which is why the table runs to 224 (max idx 216). It is
+// a char*, not wide. The two ranges OVERLAP (c=0x79..0x7F and c=0x80..0x86 both land
+// on idx 0x59..0x5F) — reported as disassembled, unexplained, and it needs a runtime
+// check before trusting high characters.
+//
+// Space AND tab do NOT come from the table: both hardcode `pen_x += 9.0` (9, not 10).
+// Newline does `pen_y += 14.0` and resets pen_x to the STRING'S ORIGIN X, not to 0.
 //
 // **Do not substitute measured ink extents for the advances.** This codebase has been
 // bitten three separate times by exactly that: the engine's source rects are full
@@ -34,9 +49,31 @@ struct MiniGlyph {
     int advance = 0;             // pen advance from the exe's width table
 };
 
+// The exe's table at .data 0x0068ace0, verbatim. Entries past the dumped 160 are the
+// high/accented range and default to 9, the table's overwhelming norm (150 of 160).
+inline constexpr std::int8_t kMiniWidths[224] = {
+     9,  9,  9,  9,  9,  9,  9,  9,  8,  9,  9,  9,  9,  9,  5,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  8,  8,  9,  9,  9,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+     9,  9,  9,  9,  8,  9,  9,  9,  9,  9,  9,  5,  9,  9,  9,  6,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  8,
+     8,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  6,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+     9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+};
+
 class MiniFont {
   public:
     static constexpr int kCellW = 12, kCellH = 14, kPerRow = 16, kFirst = 0x20;
+    // Hardcoded in the drawer, not read from the table — and 9, not width+1.
+    static constexpr int kSpaceAdvance = 9;
+    static constexpr float kLineHeight = 14.0f;
 
     // `widths` is the exe's int8 table at 0x0068ace0, first entry = ' ' (0x20).
     // Pass an empty span to leave advances at 0 — callers must then not lay out text.
@@ -49,7 +86,9 @@ class MiniFont {
     int height() const { return h_; }
     const std::vector<std::uint8_t>& rgba() const { return rgba_; }  // RGBA8, w*h*4
 
-    // The cell for a character. Out-of-range characters map to ' '.
+    // The exe's index mapping (see the note above -- it is not just c - 0x20).
+    static int index(char c);
+    // The cell + advance for a character.
     MiniGlyph glyph(char c) const;
     // Total advance of a string, or -1 if the width table isn't loaded.
     int measure(std::string_view s) const;
