@@ -1228,7 +1228,12 @@ static const Rc kPortrait[4] = {
 //     exact match for the screenshot. It also drives the `60/ 60` cur/max digits.
 //   - EXP for the current level is the thin RED/ORANGE bar above. Not drawn: its max
 //     width is one of the recovered `?`s (quad 6, 142,718,?,722).
-static const Rc kBarHousing = {0, 472, 270, 37};  // ornate segmented housing (MP track)
+// Measured off the atlas alpha, not taken from the spec: the art's opaque extent is
+// y469..510 and its widest row is 271px -- which matches the plate rect's 271 width
+// EXACTLY, confirming the 1:1 mapping. hud_atlas_spec.json records {0,472,270,37},
+// i.e. 3px too low at the top and clipped at the bottom, which shifts every interior
+// channel and is why the HP bar would not line up with the borders.
+static const Rc kBarHousing = {0, 469, 271, 42};  // ornate housing (the MP track)
 static const Rc kBluePointed = {2, 1, 248, 7};    // HP fill      rgb(103,119,209)
 static const Rc kRedPointed  = {2, 9, 248, 7};    // rgb(214,47,42) -- EXP? [UNKNOWN]
 static const Rc kSlotFrame   = {472, 472, 40, 40}; // the 40x40 equipment slot frame
