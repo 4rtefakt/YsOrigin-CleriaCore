@@ -48,6 +48,20 @@
 // measured in S_1000, "ccw" changes no visible pixel and "cw" culls the whole room,
 // i.e. every visible triangle here is wound the same way. Default stays None until
 // the per-material no-cull flag (0x400, 543/6642 materials) is wired.
+// ---- the logic tick ---------------------------------------------------------
+// The game is FIXED-STEP: 60 ticks per second of SCALED time, decoupled from
+// rendering (RefreshRate only governs Present). Everything the ASO animation VM
+// measures is in ticks — `anime_Wait(n)` is n ticks, i.e. n/60 s at timeScale 1.
+constexpr int kTickHz = 60;
+constexpr float kTickDt = 1.0f / float(kTickHz);
+// The exe writes timeScale at 4 sites: 1.0 (0x431b62, 0x521fcc), 0.875 (0x5216a8)
+// and 0.8 (0x53a95c) — real slow-mo, i.e. 52.5 / 48 ticks per REAL second. We only
+// ever run 1.0 so far; the accumulator is already shaped to honour the others.
+static float g_time_scale = 1.0f;
+// Set after a load so the next frame runs one tick instead of catching up on the
+// stall — the exe does this via DAT_0075aed5.
+static bool g_tick_reset = false;
+
 static WGPUFrontFace g_front = WGPUFrontFace_CW;
 static WGPUCullMode  g_cull  = WGPUCullMode_None;
 static void init_cull_env() {
@@ -1806,7 +1820,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     chr.load(g, asset_root / "ANI" / char_aia(character), 0);
     int facing = 2;              // dir2 = back to camera (facing north, into the room)
     std::uint32_t curAnim = std::uint32_t(std::max(0, chr.find_tag(kTagIdle)));
-    int animFrame = 0, shownFrame = -1; float animT = 0;
+    int animFrame = 0, shownFrame = -1;
+    int animT = 0;  // ticks the current frame has been held (see the ASO rates below)
     chr.set_anim(g, curAnim, 0);
     (void)kTagRun;
 
@@ -1857,6 +1872,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (fly) spawn_in(cam, room); else spawn_player();
         spawn_enemies();
         cooldown = 1.5f;
+        g_tick_reset = true;  // don't catch up on the load stall (the exe's DAT_0075aed5)
     };
     // Reload the current room (re-gates chests for the new character / state).
     auto reload_room = [&] {
@@ -1965,12 +1981,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     std::printf("\nPLAY: WASD move Yunica (8-way, fixed camera), Space jump, E interact, Tab character | F free-fly debug | wheel speed | R respawn | 1-9 exit | ESC quit\n");
     bool running = true, looking = false;
     Uint64 last = SDL_GetTicks();
+    // Fixed-step logic. The game runs its logic at a FIXED 60 Hz with catch-up,
+    // decoupled from rendering: it accumulates REAL elapsed milliseconds scaled by
+    // a timeScale, then runs 0..N ticks per Present. On a 144 Hz display the ASO VM
+    // still ticks 60x/sec. `anime_Wait(n)` is therefore n/60 s of SCALED time — so
+    // the accumulator is the thing to reproduce, not a per-frame dt scale.
+    float accum = 0;
     while (running) {
         const Uint64 now = SDL_GetTicks();
-        float dt = float(now - last) / 1000.0f; last = now;
-        if (dt > 0.1f) dt = 0.1f;
-        if (cooldown > 0) cooldown -= dt;
-        if (atk_cd > 0) atk_cd -= dt;
+        const float real_dt = float(now - last) / 1000.0f; last = now;
+        accum += real_dt * g_time_scale;
+        // The exe's own hitch protection (DAT_0075aed5): after a load it forces a
+        // single tick with a zero delta rather than catching up on the stall. Room
+        // transitions set this; without it a slow load bursts hundreds of ticks.
+        if (g_tick_reset) { accum = kTickDt; g_tick_reset = false; }
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -2023,6 +2047,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
         const bool* ks = SDL_GetKeyboardState(nullptr);
         const float D = room_diag(room);
+        // ---- fixed 60 Hz logic, 0..N ticks per rendered frame --------------
+        // The catch-up loop in the exe has NO cap; a long stall really does emit a
+        // burst of ticks. We reproduce that, relying on the load-time reset above
+        // rather than on clamping, so timing stays exact under normal play.
+        int ticks = 0;
+        while (accum >= kTickDt) {
+        accum -= kTickDt;
+        ++ticks;
+        const float dt = kTickDt;
+        if (cooldown > 0) cooldown -= dt;
+        if (atk_cd > 0) atk_cd -= dt;
+
         if (fly) {
             const Vec3 f = cam.forward();
             const Vec3 right = normalize(cross({0, 1, 0}, f));
@@ -2099,17 +2135,27 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             // Animation state: airborne -> jump (plays once, holds its last frame),
             // else walk while moving, else idle. Only re-decode when the frame changes.
-            std::uint32_t wantTag; float rate; bool loop = true;
-            if (!grounded)   { wantTag = kTagJump; rate = 0.07f; loop = false; }
-            else if (moving) { wantTag = kTagWalk; rate = 0.09f; }
-            else             { wantTag = kTagIdle; rate = 0.14f; }  // idle breathes slower
+            //
+            // Rates are in TICKS PER FRAME, straight from the ASO scripts (all three
+            // players share identical base locomotion timing, corpus-verified):
+            //   walk 8 frames @ 6 ticks (100.0 ms) · run 8 @ 4 (66.7) · idle 8 @ 10 (166.7)
+            // The old flat 0.09 s/frame was a single invented constant that happened
+            // to sit near walk and was wrong everywhere else.
+            //
+            // This is still not the real model: the game holds each anime_Pattern for
+            // its own following anime_Wait(n), and attacks run 1-4 ticks/frame — a 10x
+            // spread no constant can reproduce. Locomotion is uniform per section, so
+            // these three are exact; jump is not in the table and stays a guess.
+            std::uint32_t wantTag; int wantTicks; bool loop = true;
+            if (!grounded)   { wantTag = kTagJump; wantTicks = 4; loop = false; }  // INVENTED
+            else if (moving) { wantTag = kTagWalk; wantTicks = 6; }                // ASO
+            else             { wantTag = kTagIdle; wantTicks = 10; }               // ASO
             const int wantImg = chr.find_tag(wantTag);
             if (wantImg >= 0 && std::uint32_t(wantImg) != curAnim) {
                 curAnim = std::uint32_t(wantImg); animFrame = 0; animT = 0; shownFrame = -1;
             }
             const int nf = int(std::max(1u, chr.frames_of(curAnim)));
-            animT += dt;
-            if (animT >= rate) {
+            if (++animT >= wantTicks) {
                 animT = 0;
                 if (loop) animFrame = (animFrame + 1) % nf;
                 else if (animFrame < nf - 1) ++animFrame;  // hold the last jump frame
@@ -2126,6 +2172,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kCharH * 0.5f, feet.z};
             for (const SenTrigger& t : room.sen.triggers)
                 if (t.contains(probe) || t.contains(cam.pos)) { transition(t.dest_scene); break; }
+        }
+        }  // ---- end fixed-step logic ----------------------------------------
+        // Presentation advances by the time we actually SIMULATED this frame, not by
+        // wall time — so fog blends, flame flipbooks and HUD bars stay locked to the
+        // tick and slow down with timeScale, instead of drifting off it.
+        const float dt = float(ticks) * kTickDt;
+        // The exe keeps separate FPS and TPS counters (0x767c34 / 0x767c3c, both
+        // refreshed every 1000 ms) — proof that ticks are not frames. CLERIA_TPS=1
+        // prints ours, which is how we check the decoupling actually holds.
+        if (std::getenv("CLERIA_TPS")) {
+            static int tps = 0, fps = 0; static Uint64 t0 = SDL_GetTicks();
+            tps += ticks; ++fps;
+            if (now - t0 >= 1000) {
+                std::printf("  %d fps / %d tps  (timeScale %.3f)\n", fps, tps, g_time_scale);
+                tps = fps = 0; t0 = now;
+            }
         }
 
         WGPUSurfaceTexture st = {};
