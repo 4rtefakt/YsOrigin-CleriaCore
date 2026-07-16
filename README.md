@@ -29,7 +29,8 @@ and a C++20 asset core renders real rooms.
 | Differential harness (C++ vs Python) | ✅ **exact match, 197 rooms** |
 | **Real-time renderer (SDL3 + wgpu-native)** | ✅ **rooms render on GPU; orbit window + headless `--shot`** |
 | **Textured materials (DDS: BC1/BC2/RGB565/…)** | ✅ **per-submesh material textures + alpha-test cutouts** |
-| **Boss models + GPU skinning (D3DX indexed palette)** | ✅ **all 8 render textured, skinned and posed — BOSS01 coils, BOSS04/08 assemble; rest pose fits inside every stored AABB** |
+| **Boss models + skinning (D3DX indexed palette)** | ✅ **all 8 render textured, skinned and posed — BOSS01 coils, BOSS04/08 assemble** |
+| **Animation clips (parse + pose)** | ✅ **270/303 stored clip AABBs reproduced to ≤1e-3; the 33 misses are the 5 known-outlier files, matching an independent Python pass to 5 s.f.** |
 | **Free-fly walkthrough + SEN room transitions** | ✅ **fly through doorways to warp between connected rooms** |
 | **Baked vertex lighting** | ✅ **per-vertex DIFFUSE (lava glow, ambient) — the Falcom "lightmap"** |
 | **Grounded player controller** | ✅ **walk/jump/gravity + wall & floor collision; F toggles fly** |
@@ -139,6 +140,7 @@ overlay overwrites 525 scripts and the English text.
 | `CLERIA_VB=1` | print each mesh's vertex format; flags buffers with no UV0 |
 | `CLERIA_MAT=1` | dump every material: flags, blend mode, diffuse, UV-scroll velocity, all 3 texture slots |
 | `CLERIA_CULL=off\|cw\|ccw` | probe face culling (D3D9's `D3DCULL_CCW` does not map directly to WebGPU winding) |
+| `build/Release/cleria-animtest.exe assets` | reproduce every stored clip AABB from our own animation + skinning |
 | `python tools/xso_audit.py` | count script branches our VM would get wrong at runtime |
 | `python tools/sct_enemies.py <ROOM>` | list a room's enemies + positions + sprites |
 | `python tools/aia_gif.py <f.aia> <o.gif>` | animation contact sheet, for identifying anims |
@@ -185,7 +187,8 @@ for facts:
 | footstep cadence | **ours.** The game paces steps from ASO animation events we don't run yet; `kStepDist` (1.6 units) is a stand-in. The *sound selection* is the game's own |
 | collision surfaces not in the table | **resolved.** `default`/`door`/`10switch`/`dafault` aren't in the 21-entry table, and the exe clamps an unmatched lookup to **1 = `stone`** (`FUN_005610e0`: both the not-found jump and the `idx<0` test land on `MOV ESI,1`). We do the same now |
 | water animation | **found — it's the material, not the shader.** Each material carries a UV-scroll velocity at `+0x44/+0x48` (`20zwater3` = +0.0006,-0.0018) gated by flag bit `0x4`; the shader can't animate itself (its phase input has no time term). We parse it now; the per-frame integrator that advances the phase is still unlocated |
-| bosses | **rendered and skinned, but static.** All 8 draw posed at their rest pose; the animation clips aren't played yet, so they don't move. Model paths come from the map's XSO, not the exe |
+| bosses | **rendered, skinned, clips parsed and validated — but not yet played in the viewer.** `Model::pose()` works and is verified against 303 stored AABBs; nothing drives it per-tick yet |
+| `BOSS06A/B`, `PIC_TOGE`, `BOSS01_` clip AABBs | **don't reproduce** (Δ1.3–11.4) while the other 59 files are exact. Suspected second animation path (`type != 0`), which is [UNKNOWN] — never observed, since `type` is 0 for all 28,161 tracks |
 | AIA second layer | decoded exactly, **deliberately not drawn.** What it *is* isn't established: for C_115 the layer has the same bbox as the body and near-identical coverage (3408 vs 3406 px) — it's the whole silhouette in flat purple, not an aura, so compositing it erases the body. Likely a state variant (Boost/hit flash). See [AIA.md](docs/formats/AIA.md) |
 | 300 XSO branch sites | run `tools/xso_audit.py` — unimplemented sub-ops leave `acc` stale, so those branches are wrong at runtime |
 

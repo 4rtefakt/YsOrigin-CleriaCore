@@ -316,8 +316,20 @@ Ignore TANGENT0/1/2 — **0 of 40 skinning shaders read them**.
 > Δ1.3–1.6, `PIC_TOGE` Δ0.93 — likely a second animation path, since 59/64 are
 > exact.)
 
-Corpus proof: **64/64 skinned files reproduce all 303 stored clip AABBs to ≤3e-5**
-using `v' = Σ wᵢ · (v · B[bᵢ] · World[bᵢ])` with `w₃ = 1 − w₀ − w₁ − w₂`.
+Corpus proof: `v' = Σ wᵢ · (v · B[bᵢ] · World[bᵢ])` with `w₃ = 1 − w₀ − w₁ − w₂`
+reproduces the stored clip AABBs. Two independent implementations agree — a Python
+pass (`build/ymo_re/corpus_validate.py`) and CleriaCore's own
+(`cleria-animtest assets`, which poses and skins through `Model::pose` /
+`Model::skin_point`):
+
+    skinned files: 64   clips checked: 303   reproduced (≤1e-3): 270
+
+The 33 misses are confined to **5 files**, the same 5 in both implementations and at
+the same magnitudes: `BOSS06A`/`BOSS06B` (15 clips each, Δ1.32–1.58), `BOSS01_` and
+`BOSS01_SHADOW_` (Δ11.4084 — Python: 11.408385147045454), `PIC_TOGE` (Δ0.93). Agreeing
+to five significant figures on the *outliers* is what makes them a property of those
+files rather than of either implementation. They likely use the `type != 0` track
+path, which is [UNKNOWN].
 
 Note the tag vocabulary here (`[C-DIS]` disassembled, `[C-COR]` corpus-validated,
 `[H-*]` hypothesis, `[UNKNOWN]`) is `constant_map.txt`'s; the ✅ *n*/*n* marks
