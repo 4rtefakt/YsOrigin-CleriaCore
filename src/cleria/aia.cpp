@@ -1,6 +1,7 @@
 #include "cleria/aia.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 
@@ -153,6 +154,58 @@ bool Aia::decode_frame_layer(std::uint32_t image, std::uint32_t dir,
                              std::uint32_t frame, AiaFrame& out) const {
     const std::uint32_t region = frame_region(image, dir, frame);
     return region != kNoRegion && decode_layer(region, out);
+}
+
+bool Aia::decode_frame_composited(std::uint32_t image, std::uint32_t dir,
+                                  std::uint32_t frame, AiaFrame& out) const {
+    if (!decode_frame(image, dir, frame, out)) return false;
+    if (std::getenv("CLERIA_NOLAYER")) return true;  // A/B the composite
+    AiaFrame layer;
+    if (decode_frame_layer(image, dir, frame, layer)) composite_over(out, layer);
+    return true;
+}
+
+void composite_over(AiaFrame& body, const AiaFrame& layer) {
+    if (layer.w == 0 || layer.h == 0) return;
+    if (body.w == 0 || body.h == 0) { body = layer; return; }
+
+    // Union of the two canvas-space rects.
+    const std::uint32_t x0 = std::min<std::uint32_t>(body.x0, layer.x0);
+    const std::uint32_t y0 = std::min<std::uint32_t>(body.y0, layer.y0);
+    const std::uint32_t x1 = std::max<std::uint32_t>(body.x0 + body.w, layer.x0 + layer.w);
+    const std::uint32_t y1 = std::max<std::uint32_t>(body.y0 + body.h, layer.y0 + layer.h);
+    const std::uint32_t w = x1 - x0, h = y1 - y0;
+
+    std::vector<std::uint8_t> out(std::size_t(w) * h * 4, 0);
+    auto blit = [&](const AiaFrame& src, bool over) {
+        for (std::uint32_t y = 0; y < src.h; ++y) {
+            const std::size_t dy = std::size_t(src.y0 - y0 + y);
+            for (std::uint32_t x = 0; x < src.w; ++x) {
+                const std::size_t si = (std::size_t(y) * src.w + x) * 4;
+                const std::size_t di = (dy * w + (src.x0 - x0 + x)) * 4;
+                const std::uint32_t sa = src.rgba[si + 3];
+                if (sa == 0) continue;
+                if (!over || sa == 255) {
+                    std::memcpy(&out[di], &src.rgba[si], 4);
+                    continue;
+                }
+                // Straight-alpha "src over dst".
+                const std::uint32_t da = out[di + 3];
+                const std::uint32_t oa = sa + da * (255 - sa) / 255;
+                for (int k = 0; k < 3; ++k) {
+                    const std::uint32_t sc = src.rgba[si + k], dc = out[di + k];
+                    out[di + k] = std::uint8_t(oa ? (sc * sa + dc * da * (255 - sa) / 255) / oa : 0);
+                }
+                out[di + 3] = std::uint8_t(oa);
+            }
+        }
+    };
+    blit(body, false);
+    blit(layer, true);
+
+    body.rgba.swap(out);
+    body.w = w; body.h = h;
+    body.x0 = std::uint16_t(x0); body.y0 = std::uint16_t(y0);
 }
 
 }  // namespace cleria

@@ -26,6 +26,11 @@ struct AiaImage {  // one animation
     std::uint32_t tag = 0, first = 0, nDir = 0, nFrame = 0;
 };
 
+// Composite `layer` over `body` in CANVAS space, growing body's bbox to the union
+// of the two. Both frames carry their own canvas origin (x0,y0) — that is what
+// aligns them; their tight bboxes generally differ. Straight alpha, layer on top.
+void composite_over(AiaFrame& body, const AiaFrame& layer);
+
 // A loaded AIA file. Keeps the raw bytes and decodes frames on demand.
 struct Aia {
     std::uint16_t version = 0;
@@ -46,9 +51,26 @@ struct Aia {
     // Frames are region PAIRS: an even body and an odd second-layer slot. The layer
     // is real only when BIT 0 OF THE BODY'S FLAGS is set — despite appearances it is
     // not bit 7; that 0x80 belongs to the empty placeholder (a 0x0 bbox at the canvas
-    // corner). The layer is the same artwork in the NEXT palette (an overlay: e.g.
-    // C_115 draws Toal's demon body in palette 0 and its aura in palette 1), and it
-    // carries its own bbox, so position it from its own record.
+    // corner). The layer is the same artwork in the NEXT palette.
+    //
+    // *** HOW THE ENGINE USES THE LAYER IS [UNKNOWN]. DO NOT ASSUME IT IS AN OVERLAY. ***
+    // An earlier revision of this comment called it "an aura — C_115 draws Toal's
+    // demon body in palette 0 and its aura in palette 1". That is REFUTED: dump
+    // C_115 region 0 and 1 and look. Both have the IDENTICAL bbox (73x99 @102,13)
+    // and near-identical coverage (3408 vs 3406 non-transparent pixels) — the layer
+    // is not a sparse aura, it is the WHOLE SILHOUETTE flat-shaded in purple.
+    // Compositing it over the body with straight alpha therefore erases the body
+    // completely, which is obviously not what the game shows.
+    //
+    // The likelier reading — untested — is a STATE variant rather than an overlay:
+    // a Boost/hit flash the engine swaps in. C_115 (Toal's Boost form) and the
+    // enemies M_340/M_370/M_540 are 100% layered, while C_104's layers sit only on
+    // two special animations (tags 408, 419) and none of his locomotion. Settle it
+    // before drawing anything.
+    //
+    // `composite_over` and `decode_frame_composited` below implement the straight-
+    // alpha overlay reading. They are kept because they make the refutation
+    // reproducible, but the renderer deliberately does NOT use them.
     //
     // 5906 of 60844 slots are real, across 28 files. C_115 and M_340/M_370 use one on
     // every frame; C_102 uses none — so a renderer that ignores layers looks correct
@@ -57,6 +79,12 @@ struct Aia {
     // Decode the second layer of `body_region` (i.e. body_region + 1).
     bool decode_layer(std::uint32_t body_region, AiaFrame& out) const;
     // The layer of image i's (dir,frame), if it has one.
+    // Decode (dir,frame) and, when the body flags a second layer, composite it over
+    // the body — the one call a renderer wants. Equivalent to decode_frame() for the
+    // ~90% of frames with no layer.
+    bool decode_frame_composited(std::uint32_t image, std::uint32_t dir,
+                                 std::uint32_t frame, AiaFrame& out) const;
+
     bool decode_frame_layer(std::uint32_t image, std::uint32_t dir,
                             std::uint32_t frame, AiaFrame& out) const;
 

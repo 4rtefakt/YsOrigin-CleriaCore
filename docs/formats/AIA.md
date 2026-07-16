@@ -67,9 +67,30 @@ it is a property of the placeholder, not the test to use. Read **bit 0 of the bo
 
 **The layer's palette is always the body's palette + 1** — verified across every
 file that uses layers (18→19, 28→29, 24→25, 8→9, …, no exceptions). Same artwork,
-next palette: it is a **palette-swapped overlay**, not a weapon or a separate prop.
-C_115 (Toal's Boost/demon form) draws its body in `palIdx 0` and its layer — a dark
-purple silhouette of the same pose — in `palIdx 1`.
+next palette — a **palette swap**, not a weapon or a separate prop. C_115 (Toal's
+Boost/demon form) draws its body in `palIdx 0` and its layer — a dark purple
+silhouette of the same pose — in `palIdx 1`.
+
+> **⚠️ What the engine DOES with the layer is [UNKNOWN] — do not assume "overlay".**
+> An earlier revision of this section called it a palette-swapped *overlay*. The
+> description above is right; that word is not established, and the obvious reading
+> is refuted. Reproduce it:
+>
+> ```
+> build/Release/cleria-aiatest.exe assets/.../C_115.AIA 0 c115.ppm --composite
+> ```
+> Region 0 (body) and region 1 (layer) have the **identical bbox** — `73x99 @(102,13)`
+> — and near-identical coverage: **3408 vs 3406** non-transparent pixels. The layer is
+> not a sparse glow sitting *on* the body; it is the **whole silhouette**, flat purple.
+> Drawing it over the body with straight alpha therefore erases the body entirely,
+> which is plainly not what the game renders.
+>
+> The likelier reading, untested: the layer is a **state variant the engine swaps in**
+> (a Boost or hit flash), not something drawn *with* the body. The distribution fits —
+> C_115 and M_340/M_370/M_540 are 100% layered, while C_104's layers appear on only
+> two special animations (tags 408 and 419) and on **none** of his locomotion, so a
+> walking Toal would never show one. Settle this before drawing anything: the renderer
+> currently draws the body only, on purpose.
 
 The layer carries its **own bbox**, which may or may not match the body's (C_115:
 1599/1728 identical; C_112 and M_340: never identical), so it must be positioned

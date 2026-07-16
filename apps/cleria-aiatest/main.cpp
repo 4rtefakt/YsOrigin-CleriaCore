@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <string>
 
 int main(int argc, char** argv) {
     if (argc < 2) { std::fprintf(stderr, "usage: cleria-aiatest <file.aia> [region] [out.ppm]\n"); return 2; }
@@ -18,6 +19,9 @@ int main(int argc, char** argv) {
 
     cleria::AiaFrame fr;
     if (!a.decode_region(region, fr)) { std::fprintf(stderr, "decode failed\n"); return 1; }
+    // --composite: also write out.ppm.composite.ppm with the second layer blended
+    // over the body, so the two can be eyeballed side by side.
+    const bool want_composite = argc > 4 && std::strcmp(argv[4], "--composite") == 0;
     std::size_t nz = 0;
     for (std::uint32_t i = 0; i < fr.w * fr.h; ++i)
         if (fr.rgba[i * 4 + 3] > 0) ++nz;
@@ -36,15 +40,23 @@ int main(int argc, char** argv) {
         std::printf("  layer: none (body flags bit0 clear)\n");
     }
 
-    if (out) {  // PPM: composite over black so it's directly viewable/diffable.
-        std::ofstream f(out, std::ios::binary);
-        f << "P6\n" << fr.w << " " << fr.h << "\n255\n";
-        for (std::uint32_t i = 0; i < fr.w * fr.h; ++i) {
-            const std::uint8_t* p = &fr.rgba[i * 4];
+    auto write_ppm = [](const std::string& path, const cleria::AiaFrame& f0) {
+        std::ofstream f(path, std::ios::binary);
+        f << "P6\n" << f0.w << " " << f0.h << "\n255\n";
+        for (std::uint32_t i = 0; i < f0.w * f0.h; ++i) {
+            const std::uint8_t* p = &f0.rgba[i * 4];
             const int a8 = p[3];
             for (int c = 0; c < 3; ++c) f.put(char((p[c] * a8) / 255));
         }
-        std::printf("wrote %s\n", out);
+        std::printf("wrote %s (%ux%u)\n", path.c_str(), f0.w, f0.h);
+    };
+    if (out) {  // PPM: composite over black so it's directly viewable/diffable.
+        write_ppm(out, fr);
+        if (want_composite && a.has_layer(region) && lay.w) {
+            cleria::AiaFrame comp = fr;
+            cleria::composite_over(comp, lay);
+            write_ppm(std::string(out) + ".composite.ppm", comp);
+        }
     }
     return 0;
 }

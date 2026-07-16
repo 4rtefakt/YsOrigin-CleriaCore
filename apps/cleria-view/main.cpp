@@ -889,6 +889,8 @@ struct CharSprite {
     void set_frame(Gpu& g, std::uint32_t frame) {
         for (std::uint32_t d = 0; d < 8 && d < ndir; ++d) {
             AiaFrame fr;
+            // Body only. The second layer is decoded correctly but we do NOT draw it:
+            // its role is unproven, and the obvious reading is refuted (see aia.hpp).
             if (!aia.decode_frame(image, d, frame % std::max(1u, nframe), fr)) continue;
             if (dirs[d].tex) { wgpuBindGroupRelease(dirs[d].bind); wgpuTextureViewRelease(dirs[d].view); wgpuTextureRelease(dirs[d].tex); }
             dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
@@ -1780,7 +1782,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     float atk_cd = 0;                    // attack cooldown
     WGPUTextureView depth = make_depth(g.device, cw, ch);
 
+    // CLERIA_CHAR=1|2|3 picks the starting character (Tab still cycles). Toal (3,
+    // C_104) is the only shipping player sprite with AIA second layers, so he is
+    // the one that exercises the composite path.
     int character = 1;                 // g_flags[150]: 1 Yunica / 2 Hugo / 3 Toal
+    if (const char* cs = std::getenv("CLERIA_CHAR")) {
+        const int c = std::atoi(cs);
+        if (c >= 1 && c <= 3) character = c;
+    }
     XsoVm game;                        // persistent game state (survives rooms)
     game.g_flags[150] = character;
     Player player;                     // stat block (HP/SP/level/EXP)
