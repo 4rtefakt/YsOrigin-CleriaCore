@@ -38,6 +38,7 @@ and a C++20 asset core renders real rooms.
 | **The game's own camera (SCM)** | ✅ **659 authored camera regions, follow + orbit + blend — no hand-tuning** |
 | **Scene fog (SFO)** | ✅ **per-region colour/near/far, cross-faded as the game does** |
 | **The real HUD (STATUS_512)** | ✅ **authored 1024×768 coords, Hor+ scaling** — Lv/SP/EXP still placed by eye |
+| **Fixed-step 60 Hz logic** | ✅ **decoupled from rendering — measured 165 fps / 60 tps**; timeScale-aware, uncapped catch-up like the exe |
 | **Enemies (SCT placement)** | ✅ **1106 placements / 85 rooms render as sprites; no AI yet** |
 | **Torch flames (SEF + EF2)** | ✅ **placements + the 16-frame flipbook, additive** |
 | **The full archive** | ✅ **15,945/15,945 extracted — incl. 77 shaders + 820 WAVs nothing had touched** |
@@ -177,15 +178,15 @@ for facts:
 |---|---|
 | enemy HP / damage / reach | **our numbers** — the game has no per-enemy HP column; stats come from a GAMEINFO level curve we haven't wired |
 | YMO animation keys | **doc was wrong until now**: the scale/translation labels were swapped (the correct composition reproduces the rest pose in 5832/7016 nodes; the old labelling in **0**), and the key's trailing field is a `u32` frame number, not a float — the old "monotonic time" test passed only because denormal ordering matches integer ordering |
-| animation frame rate | **known now, not yet implemented**: `anime_Wait(n)` = n/60 s. Our flat 0.09 s/frame was accidentally near walk (0.100) and wrong everywhere else — idle is 0.167, run 0.067, attacks 0.017–0.067 |
-| **fixed-step vs our variable dt** | **architectural gap.** The game runs logic at a **fixed 60 Hz with catch-up, decoupled from rendering** (`RefreshRate` only governs Present). We scale everything by `dt`. Faithful timing means emulating the step, not tuning constants |
+| animation frame rate | **partly fixed.** Locomotion now uses the ASO tick counts (walk 6 / run 4 / idle 10 ticks per frame, exact). But the real model holds each `anime_Pattern` for its own `anime_Wait(n)`, and attacks run 1–4 ticks/frame — a 10× spread no constant reproduces. Needs the ASO VM |
+| jump animation rate | **invented** (4 ticks/frame) — jump is the one locomotion section with no entry in the ASO table |
 | HUD `Lv` / `SP` / `EXP` | placed by eye — the digit emitter isn't decoded |
 | footstep cadence | **ours.** The game paces steps from ASO animation events we don't run yet; `kStepDist` (1.6 units) is a stand-in. The *sound selection* is the game's own |
 | collision surfaces not in the table | **`default` is the 2nd most common** (3168 tris), and `door`/`10switch`/`dafault` (Falcom's typo) join it. `surface_index` returns -1 — which is exactly what the exe's own lookup returns. What the exe *does* with -1 isn't established, so we stay silent rather than guess a fallback |
 | black slabs over S_1000's stairs | **still unexplained.** Now also refuted: they are *not* the `_.YMO` collision twin (the SOB never references it, and they survive with only `s_1000.ymo` drawn), *not* a black material diffuse (every material in the room is `1,1,1,1`), and *not* backfaces (no cull mode separates them from the floor). Next suspect: the baked vertex colours themselves |
 | water animation | **found — it's the material, not the shader.** Each material carries a UV-scroll velocity at `+0x44/+0x48` (`20zwater3` = +0.0006,-0.0018) gated by flag bit `0x4`; the shader can't animate itself (its phase input has no time term). We parse it now; the per-frame integrator that advances the phase is still unlocated |
 | bosses | **understood, not yet drawn.** The declarations aren't in the YMO at all — they're 8 static `D3DVERTEXELEMENT9` arrays in the exe. BOSS01 is **two-stream**: our parser read stream0's first 12 bytes as POSITION when they're BLENDWEIGHT (hence the tiny blob). Skinning is D3DX indexed-palette; 64/64 files reproduce all 303 stored clip AABBs to ≤3e-5 |
-| AIA second layer | decoded (body flags **bit 0**, palette+1) but not yet drawn — matters for c_112/c_113 and Boost forms |
+| AIA second layer | decoded exactly, **deliberately not drawn.** What it *is* isn't established: for C_115 the layer has the same bbox as the body and near-identical coverage (3408 vs 3406 px) — it's the whole silhouette in flat purple, not an aura, so compositing it erases the body. Likely a state variant (Boost/hit flash). See [AIA.md](docs/formats/AIA.md) |
 | 300 XSO branch sites | run `tools/xso_audit.py` — unimplemented sub-ops leave `acc` stale, so those branches are wrong at runtime |
 
 ## Credit
