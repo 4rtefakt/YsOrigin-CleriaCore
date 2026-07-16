@@ -81,10 +81,18 @@ RoomMesh build_room(const fs::path& asset_root, const fs::path& sob_path,
                               sob_path.parent_path(), box_whitelist, hidden);
 }
 
+RoomMesh build_collision(const fs::path& asset_root, const fs::path& sob_path,
+                         const std::unordered_set<std::string>* box_whitelist,
+                         const std::unordered_set<std::string>* hidden) {
+    return build_room_objects(asset_root, Sob::parse(read_file(sob_path)),
+                              sob_path.parent_path(), box_whitelist, hidden, true);
+}
+
 RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                             const fs::path& script_dir,
                             const std::unordered_set<std::string>* box_whitelist,
-                            const std::unordered_set<std::string>* hidden) {
+                            const std::unordered_set<std::string>* hidden,
+                            bool collision) {
     RoomMesh out;
     out.bmin = {1e30f, 1e30f, 1e30f};
     out.bmax = {-1e30f, -1e30f, -1e30f};
@@ -98,6 +106,18 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         const int id = int(out.textures.size());
         out.textures.push_back(name);
         tex_index.emplace(std::move(name), id);
+        return id;
+    };
+
+    std::unordered_map<std::string, int> surf_index;
+    auto intern_surf = [&](std::string name) -> int {
+        if (name.empty()) return -1;
+        for (char& c : name) c = char(std::tolower((unsigned char)c));
+        auto it = surf_index.find(name);
+        if (it != surf_index.end()) return it->second;
+        const int id = int(out.surfaces.size());
+        out.surfaces.push_back(name);
+        surf_index.emplace(std::move(name), id);
         return id;
     };
 
@@ -121,7 +141,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         // Character gating: a whitelisted set hides non-listed chests entirely
         // (both interactable and rendered model).
         const bool box_hidden = is_box && box_whitelist && !box_whitelist->count(lname);
-        if (is_box && !box_hidden) {
+        if (is_box && !box_hidden && !collision) {
             Interactable it;
             it.name = o.name;
             it.position = o.position;
@@ -139,7 +159,12 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         }
         if (box_hidden) continue;  // skip this chest's geometry too
 
-        const fs::path ymo_file = resolve_ymo(asset_root, o.ymo_path);
+        fs::path ymo_file = resolve_ymo(asset_root, o.ymo_path);
+        if (collision) {
+            // The collision twin sits beside the render model: X.YMO -> X_.YMO.
+            ymo_file = ymo_file.parent_path() /
+                       (ymo_file.stem().string() + "_" + ymo_file.extension().string());
+        }
         if (!fs::exists(ymo_file)) { ++out.missing; continue; }
         Model model;
         try {
@@ -191,7 +216,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             }
 
             const IndexBuffer& ib = mesh.ibs[0];
-            auto emit = [&](std::uint32_t first_idx, std::uint32_t idx_count, int tex) {
+            auto emit = [&](std::uint32_t first_idx, std::uint32_t idx_count, int tex,
+                            int surf) {
                 if (idx_count == 0) return;
                 const std::uint32_t out_first = std::uint32_t(out.indices.size());
                 for (std::uint32_t j = 0; j < idx_count; ++j) {
@@ -199,20 +225,28 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                     if (src < ib.idx.size())
                         out.indices.push_back(base + ib.idx[src]);
                 }
+                // One surface id per triangle actually emitted — the loop above can
+                // drop indices whose source is out of range, so count what landed.
+                out.tri_surface.resize(out.indices.size() / 3, surf);
                 out.batches.push_back({out_first, idx_count, tex});
             };
 
             if (!mesh.submeshes.empty()) {
                 for (const Submesh& sm : mesh.submeshes) {
-                    int tex = -1;
-                    if (sm.material < model.materials.size())
+                    int tex = -1, surf = -1;
+                    if (sm.material < model.materials.size()) {
                         tex = intern_tex(model.materials[sm.material].texture[0]);
-                    emit(sm.first_tri * 3, sm.tri_count * 3, tex);
+                        surf = intern_surf(model.materials[sm.material].name);
+                    }
+                    emit(sm.first_tri * 3, sm.tri_count * 3, tex, surf);
                 }
             } else {
-                int tex = model.materials.empty()
-                              ? -1 : intern_tex(model.materials[0].texture[0]);
-                emit(0, std::uint32_t(ib.idx.size()), tex);
+                int tex = -1, surf = -1;
+                if (!model.materials.empty()) {
+                    tex = intern_tex(model.materials[0].texture[0]);
+                    surf = intern_surf(model.materials[0].name);
+                }
+                emit(0, std::uint32_t(ib.idx.size()), tex, surf);
             }
         }
     }

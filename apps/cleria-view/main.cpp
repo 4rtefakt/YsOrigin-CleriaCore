@@ -216,6 +216,7 @@ struct Gpu {
 // Per-room GPU objects (rebuilt on every transition).
 struct Room {
     RoomMesh mesh;
+    RoomMesh coll;           // the `_.YMO` collision hulls — what physics collides against
     Sen sen;
     Sfo fog;                 // per-region scene fog (SFO sidecar)
     Scm cam;                 // per-region cameras (SCM sidecar)
@@ -228,6 +229,17 @@ struct Room {
     std::vector<WGPUTextureView> views;
     std::vector<WGPUBindGroup> binds;  // parallel to mesh.textures
 };
+
+// What physics collides against. The game collides against the `_.YMO` hulls, not
+// the render mesh; fall back to the render mesh only if a room ships no twins.
+// CLERIA_COLL=render forces the old behaviour, for A/B.
+static const RoomMesh& phys_mesh(const Room& r) {
+    static const bool force_render = [] {
+        const char* e = std::getenv("CLERIA_COLL");
+        return e && std::string(e) == "render";
+    }();
+    return (!force_render && !r.coll.indices.empty()) ? r.coll : r.mesh;
+}
 
 static WGPUBuffer make_buffer(WGPUDevice dev, WGPUQueue q, const void* data,
                               std::size_t size, WGPUBufferUsage usage) {
@@ -341,6 +353,8 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     }
     r.mesh = build_room(asset_root, sob, gates_box ? &box_whitelist : nullptr,
                         hidden.empty() ? nullptr : &hidden);
+    r.coll = build_collision(asset_root, sob, gates_box ? &box_whitelist : nullptr,
+                             hidden.empty() ? nullptr : &hidden);
     r.vbuf = make_buffer(g.device, g.queue, r.mesh.vertices.data(),
                          r.mesh.vertices.size() * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
     r.ibuf = make_buffer(g.device, g.queue, r.mesh.indices.data(),
@@ -389,6 +403,43 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
         if (!r.fx.effects.empty())
             std::printf("    %zu effects (%d torch flames), %zu cameras\n",
                         r.fx.effects.size(), nf, r.cam.regions.size());
+    }
+    // CLERIA_COLLCHECK=1: sample a grid of floor heights and compare the collision
+    // hulls against the render mesh, so gaps in coverage are visible as a number
+    // rather than discovered by falling through a floor in play.
+    if (std::getenv("CLERIA_COLLCHECK") && !r.coll.indices.empty()) {
+        const int N = 48;
+        const float ceil = r.mesh.bmax.y + 1e4f;
+        int both = 0, only_render = 0, only_coll = 0, neither = 0;
+        double sum_abs = 0.0, worst = 0.0;
+        for (int i = 0; i < N; ++i)
+            for (int j = 0; j < N; ++j) {
+                const float x = r.mesh.bmin.x + (r.mesh.bmax.x - r.mesh.bmin.x) * (i + 0.5f) / N;
+                const float z = r.mesh.bmin.z + (r.mesh.bmax.z - r.mesh.bmin.z) * (j + 0.5f) / N;
+                const float fr = floor_at(r.mesh, x, z, ceil);
+                const float fc = floor_at(r.coll, x, z, ceil);
+                const bool hr = fr != kNoFloor, hc = fc != kNoFloor;
+                if (hr && hc) {
+                    ++both;
+                    const double d = std::fabs(double(fr) - double(fc));
+                    sum_abs += d; worst = std::max(worst, d);
+                } else if (hr) ++only_render;
+                else if (hc) ++only_coll;
+                else ++neither;
+            }
+        std::printf("    COLLCHECK %-8s both=%4d only_render=%4d only_coll=%4d none=%4d "
+                    "mean|dy|=%.3f worst=%.3f\n",
+                    r.name.c_str(), both, only_render, only_coll, neither,
+                    both ? sum_abs / both : 0.0, worst);
+    }
+    if (r.coll.indices.empty()) {
+        std::printf("    collision: NO _.YMO twins -> falling back to render geometry\n");
+    } else {
+        std::printf("    collision: %zu tris (%.1f%% of render), surfaces:",
+                    r.coll.indices.size() / 3,
+                    100.0 * double(r.coll.indices.size()) / double(std::max<std::size_t>(r.mesh.indices.size(), 1)));
+        for (const std::string& s : r.coll.surfaces) std::printf(" %s", s.c_str());
+        std::printf("\n");
     }
     if (!r.fog.regions.empty()) {
         const FogRegion& f = r.fog.regions[0];
@@ -1457,7 +1508,7 @@ static int render_fps(Gpu& g, const Room& room, const fs::path& out,
     const Vec3 c = {(room.mesh.bmin.x + room.mesh.bmax.x) * 0.5f, 0,
                     (room.mesh.bmin.z + room.mesh.bmax.z) * 0.5f};
     const float D = room_diag(room), eye = D * 0.02f;
-    const float fl = floor_at(room.mesh, c.x, c.z, room.mesh.bmax.y + D);
+    const float fl = floor_at(phys_mesh(room), c.x, c.z, room.mesh.bmax.y + D);
     const float fy = (fl > kNoFloor) ? fl : (room.mesh.bmin.y + room.mesh.bmax.y) * 0.5f;
     Camera cam;
     cam.pos = {c.x, fy + eye, c.z};
@@ -1521,7 +1572,7 @@ static int render_play(Gpu& g, const Room& room, const fs::path& out,
     const Vec3 c = {(room.mesh.bmin.x + room.mesh.bmax.x) * 0.5f, 0,
                     (room.mesh.bmin.z + room.mesh.bmax.z) * 0.5f};
     const float D = room_diag(room);
-    const float fl = floor_at(room.mesh, c.x, c.z, room.mesh.bmax.y + D);
+    const float fl = floor_at(phys_mesh(room), c.x, c.z, room.mesh.bmax.y + D);
     Vec3 feet = {c.x, (fl > kNoFloor) ? fl : (room.mesh.bmin.y + room.mesh.bmax.y) * 0.5f, c.z};
     // Debug: CLERIA_SPAWN="x,y,z" drops the character somewhere specific, for framing
     // a particular bit of the room headlessly.
@@ -1567,6 +1618,16 @@ static int render_play(Gpu& g, const Room& room, const fs::path& out,
     std::printf("  spawn feet (%.1f, %.1f, %.1f)  bmin(%.1f,%.1f,%.1f) bmax(%.1f,%.1f,%.1f)\n",
                 feet.x, feet.y, feet.z, room.mesh.bmin.x, room.mesh.bmin.y, room.mesh.bmin.z,
                 room.mesh.bmax.x, room.mesh.bmax.y, room.mesh.bmax.z);
+    {   // The floor actually BENEATH the spawn: cap the search just above the feet,
+        // otherwise floor_at returns the highest surface in the room (a balcony 17
+        // units up), which tells us nothing about where the player lands.
+        const float ceil = feet.y + 0.5f;
+        const float fr = floor_at(room.mesh, feet.x, feet.z, ceil);
+        const float fc = room.coll.indices.empty()
+                             ? kNoFloor : floor_at(room.coll, feet.x, feet.z, ceil);
+        std::printf("  floor under spawn: render=%.3f  collision=%.3f  (spawn y=%.3f)\n",
+                    fr, fc, feet.y);
+    }
     draw(g, room, cview, dview);
     CharSprite ch;
     bool have = ch.load(g, asset_root / "ANI" / "C_102.AIA", 0);  // Yunica (base sprite)
@@ -1710,7 +1771,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // only a fallback for rooms that don't place the player.
         const CastPlacement* sp = room.cast.player_spawn();
         const Vec3 c = sp ? sp->position : center(room);
-        const float fl = floor_at(room.mesh, c.x, c.z, room.mesh.bmax.y + room_diag(room));
+        const float fl = floor_at(phys_mesh(room), c.x, c.z, room.mesh.bmax.y + room_diag(room));
         feet = {c.x, (fl > kNoFloor ? fl : c.y), c.z};
         vy = 0; grounded = false;
         std::printf("spawn: %s(%.1f,%.1f,%.1f) floor=%s\n",
@@ -1868,7 +1929,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     fly = !fly;
                     if (!fly) {  // dropping into walk: keep XZ, snap to floor
                         feet = {cam.pos.x, cam.pos.y, cam.pos.z};
-                        const float fl = floor_at(room.mesh, feet.x, feet.z, feet.y + room_diag(room));
+                        const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
                         if (fl > kNoFloor) feet.y = fl;
                         vy = 0;
                     }
@@ -1939,10 +2000,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const bool moving = wl > 1e-4f;
             if (moving) { feet.x += wish.x / wl * walk * dt; feet.z += wish.z / wl * walk * dt; }
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
-              body = resolve_walls(room.mesh, body, radius, std::max(eye - stepUp, 0.5f));
+              body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
               feet.x = body.x; feet.z = body.z; }
             vy -= gravity * dt; feet.y += vy * dt;
-            const float fl = floor_at(room.mesh, feet.x, feet.z, feet.y + stepUp);
+            const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + stepUp);
             if (fl > kNoFloor && vy <= 0.0f && fl >= feet.y - stepUp) {
                 feet.y = fl; vy = 0; grounded = true;
             } else grounded = false;

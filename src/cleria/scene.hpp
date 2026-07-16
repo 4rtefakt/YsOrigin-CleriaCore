@@ -43,6 +43,12 @@ struct RoomMesh {
     std::vector<DrawBatch> batches;
     std::vector<std::string> textures;  // unique DDS basenames, lower-cased
     std::vector<Interactable> interactables;
+    // Collision meshes only (build_collision): the material name per triangle is
+    // the physical SURFACE TYPE — "stone", "wood", "water", "ice", plus the control
+    // names "stopper" (invisible wall) and "door". `tri_surface` has one entry per
+    // triangle (indices.size()/3), indexing `surfaces`; -1 when unknown.
+    std::vector<std::string> surfaces;
+    std::vector<int> tri_surface;
     Vec3 bmin, bmax;                     // world-space bounds
     int objects = 0, missing = 0;
 };
@@ -63,11 +69,24 @@ RoomMesh build_room(const std::filesystem::path& asset_root,
 RoomMesh build_model(const std::filesystem::path& asset_root,
                      const std::filesystem::path& ymo_path);
 
-// Shared by both: assemble already-parsed placements. `script_dir` is where a
-// chest's S_BOXNN.XSO is looked up.
+// The room's COLLISION geometry: the same SOB placements, but each object's `X_.YMO`
+// twin instead of `X.YMO`. Those twins are the game's real collision hulls — coarse
+// (S_1000: 358 tris vs the render mesh's 13,013), untextured, and their material
+// names are surface types. They also carry geometry the render mesh has no reason
+// to contain, such as invisible walls. Identified bit-exactly by `flags2 == 0x10`
+// (400/400 twins vs 0/606 plain models). Objects with no twin are skipped.
+RoomMesh build_collision(const std::filesystem::path& asset_root,
+                         const std::filesystem::path& sob_path,
+                         const std::unordered_set<std::string>* box_whitelist = nullptr,
+                         const std::unordered_set<std::string>* hidden = nullptr);
+
+// Shared by all three: assemble already-parsed placements. `script_dir` is where a
+// chest's S_BOXNN.XSO is looked up. `collision` swaps each object's YMO for its `_`
+// twin, fills `surfaces`/`tri_surface`, and skips the chest-script scan.
 RoomMesh build_room_objects(const std::filesystem::path& asset_root, const Sob& sob,
                             const std::filesystem::path& script_dir,
                             const std::unordered_set<std::string>* box_whitelist = nullptr,
-                            const std::unordered_set<std::string>* hidden = nullptr);
+                            const std::unordered_set<std::string>* hidden = nullptr,
+                            bool collision = false);
 
 }  // namespace cleria
