@@ -1191,11 +1191,19 @@ struct HudVertex { float x, y, u, v; std::uint8_t r, g, b, a; };
 
 // STATUS_512.DDS source rects (measured; build/hud_re/hud_atlas_spec.json).
 struct Rc { float x, y, w, h; };
-// Gold digit font, glyphs 0..9 then ':' then '/'. y=15 h=22, proportional width.
+// Gold digit font, glyphs 0..9 then ':' then '/'. Proportional width; band y=24 h=12.
+//
+// The x/w came from build/hud_re/hud_atlas_spec.json and are right; its y=15 h=22 was
+// NOT. Scanning the '6' column (x=73..84) row by row, the atlas there is: solid
+// 12-wide bars at y1..7 (blue), y9..15 (red), y17..22 (orange) and y37..43 (pink),
+// with exactly one glyph-shaped band — varying opacity, 8..11 of 12 columns — at
+// **y24..35**. Sampling y15..37 therefore drags in the red bar's last two rows and
+// the whole orange bar, which is exactly what we were drawing: a red line and an
+// orange block stacked above every digit.
 static const Rc kDigitGold[12] = {
-    {0,15,11,22}, {15,15,6,22}, {24,15,11,22}, {37,15,10,22}, {51,15,8,22},
-    {62,15,9,22}, {73,15,11,22}, {87,15,7,22}, {96,15,11,22}, {110,15,9,22},
-    {123,15,6,22}, {135,15,5,22}};
+    {0,24,11,12}, {15,24,6,12}, {24,24,11,12}, {37,24,10,12}, {51,24,8,12},
+    {62,24,9,12}, {73,24,11,12}, {87,24,7,12}, {96,24,11,12}, {110,24,9,12},
+    {123,24,6,12}, {135,24,5,12}};
 // Character portrait units (round face + ring + item tab), by g_flags[150].
 // 0/1=Yunica, 2=Hugo, 3=Toal (Adol @250,257 is unused in Origin).
 static const Rc kPortrait[4] = {
@@ -1463,14 +1471,20 @@ struct Hud {
         const int ci = (p.character >= 0 && p.character < 4) ? p.character : 1;
         sprite_a(m, kAPortrait, kPortraitReal[ci], sw, sh);
 
-        // Level digits + the SP/EXP readout. NOTE: the digit emitter (builder B or D)
-        // was not decoded, so these two remain placed by eye — everything above is real.
+        // The level, in the atlas's own gold glyph font (y15..36, proportional widths,
+        // measured from STATUS_512.DDS — see build/hud_re/hud_atlas_spec.json).
+        //
+        // The game's HUD is quads from STATUS_512.DDS and NOTHING ELSE — it contains no
+        // text at all, which the RE confirms twice over: builder A emits 12 quads and
+        // none is a label, and there are no HUD strings in the exe to pivot from. So the
+        // "Lv" / "SP nnn" / "EXP n.n%" captions we used to draw here in our own bitmap
+        // font were pure invention, and they are gone.
+        //
+        // The POSITION below is still ours: the digit emitter is builder B (FUN_0043e800)
+        // or D (FUN_0043fe00), neither of which contains a single MapCoord call, and
+        // neither is decoded. The glyphs are real; where they belong is not.
         const float s = std::max(1.f, sh / 768.f);
-        text("Lv", m.x(392), m.y(724), s * 0.6f, sw, sh, 225, 215, 165, 255);
         draw_number(p.level, m.x(414), m.y(716), s * 1.1f, sw, sh);
-        char lbl[48];
-        std::snprintf(lbl, sizeof lbl, "SP %d    EXP %.1f%%", p.sp, p.exp_pct);
-        text(lbl, m.x(120), m.y(700), s * 0.5f, sw, sh, 175, 195, 225, 235);
     }
 
     // Draw a quad of the HP2 (boss) atlas: dst screen rect (px), src atlas rect (px).
