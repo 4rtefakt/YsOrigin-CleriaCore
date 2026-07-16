@@ -30,6 +30,7 @@
 #include <webgpu/wgpu.h>
 
 #include "cleria/aia.hpp"
+#include "cleria/aso.hpp"
 #include "cleria/dds.hpp"
 #include "cleria/mathx.hpp"
 #include "cleria/physics.hpp"
@@ -1701,14 +1702,30 @@ static int render_play(Gpu& g, const Room& room, const fs::path& out,
                     fr, fc, feet.y);
     }
     draw(g, room, cview, dview);
+    // Let the game's own animation script pick the sprite, as the live path does:
+    // C_010 is Yunica's script, and with flag 161 clear it selects the GAMEPLAY set
+    // (anime_File(15) = C_111), not the cutscene set we used to hardcode here.
     CharSprite ch;
-    bool have = ch.load(g, asset_root / "ANI" / "C_102.AIA", 0);  // Yunica (base sprite)
+    Aso shot_aso = Aso::load(asset_root / "ANI" / "C_010.ASO");
+    AsoVm shot_vm;
+    shot_vm.bind(&shot_aso);
+    std::int32_t shot_flags[0x200] = {0};
+    shot_vm.set_flags(shot_flags, 0x200);
+    shot_vm.tick();
+    const char* shot_want = aso_aia_name(shot_vm.file_id());
+    const std::string shot_stem = (shot_want && *shot_want) ? std::string(shot_want)
+                                                            : std::string("C_102");
+    bool have = ch.load(g, asset_root / "ANI" / (shot_stem + ".AIA"), 0);
     if (have) {
+        const int img = ch.find_tag(std::uint32_t(shot_vm.anim_tag()));
+        if (img >= 0) ch.set_anim(g, std::uint32_t(img), std::uint32_t(shot_vm.frame()));
         const std::uint32_t d = dir < ch.ndir ? dir : 0;
         draw_character(g, cview, dview, feet, worldH, ch.dirs[d], cam.forward());
-        std::printf("play: sprite %ux%u dir %u/%u, worldH %.2f, cam dist %.2f\n",
+        std::printf("play: [aso] file(%d)=%s tag=%d frame=%d | sprite %ux%u dir %u/%u, "
+                    "worldH %.2f, cam dist %.2f\n",
+                    shot_vm.file_id(), shot_stem.c_str(), shot_vm.anim_tag(), shot_vm.frame(),
                     ch.dirs[d].w, ch.dirs[d].h, d, ch.ndir, worldH, dist);
-    } else std::printf("play: character AIA load FAILED\n");
+    } else std::printf("play: character AIA load FAILED (%s)\n", shot_stem.c_str());
 
     // Enemies (SCT placements + their AIA sprites).
     {
@@ -1837,14 +1854,45 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // never by image index: the indices shift from character to character.
     // Tag 1 (run) is the dash, which the game gates behind an item — not wired yet.
     const std::uint32_t kTagWalk = 0x0, kTagRun = 0x1, kTagIdle = 0x2, kTagJump = 0x3;
+    (void)kTagWalk; (void)kTagRun; (void)kTagIdle; (void)kTagJump;
+
+    // The character is driven by the game's OWN animation script (ASO), not by a
+    // state machine of ours. The players' scripts are C_010/C_020/C_030 — the only
+    // three ASOs with no same-named AIA, because they *choose* their sprite:
+    // anime_File(id) indexes the exe's AIA name table, and Flag_IsEqualInt(161,1)
+    // picks the cutscene set (c_102) over the gameplay set (c_111).
+    //
+    // Section ids double as the action: 0 walk, 1 run/dash, 2 idle (the VM's initial
+    // state), 3 jump. The script supplies (file, tag, frame); `dir` is NOT in it —
+    // that comes from the actor's facing, which is what closes the AIA formula.
+    auto char_aso = [](int c) -> const char* {
+        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : "C_010.ASO";
+    };
+    Aso aso = Aso::load(asset_root / "ANI" / char_aso(character));
+    AsoVm avm;
+    avm.bind(&aso);
+    avm.set_flags(game.g_flags, 0x200);
+
     CharSprite chr;
-    chr.load(g, asset_root / "ANI" / char_aia(character), 0);
+    std::string cur_aia;
+    // Load whatever sprite the script asks for. Falls back to our old hardcoded
+    // choice only if the script gives nothing (e.g. a missing ASO).
+    auto sync_aia = [&]() {
+        const char* want = aso_aia_name(avm.file_id());
+        const std::string stem = (want && *want) ? std::string(want)
+                                                 : std::string(char_aia(character)).substr(0, 5);
+        if (stem == cur_aia) return;
+        if (chr.load(g, asset_root / "ANI" / (stem + ".AIA"), 0)) {
+            cur_aia = stem;
+            std::printf("  [aso] anime_File(%d) -> %s.AIA\n", avm.file_id(), stem.c_str());
+        }
+    };
+    avm.tick();          // run to the first Pattern so file/tag/frame are populated
+    sync_aia();
     int facing = 2;              // dir2 = back to camera (facing north, into the room)
-    std::uint32_t curAnim = std::uint32_t(std::max(0, chr.find_tag(kTagIdle)));
+    std::uint32_t curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
     int animFrame = 0, shownFrame = -1;
-    int animT = 0;  // ticks the current frame has been held (see the ASO rates below)
     chr.set_anim(g, curAnim, 0);
-    (void)kTagRun;
 
     auto center = [](const Room& r) -> Vec3 {
         return {(r.mesh.bmin.x + r.mesh.bmax.x) * 0.5f,
@@ -2038,9 +2086,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     character = character % 3 + 1;
                     game.g_flags[150] = character;
                     hud.message(std::string("Character: ") + kCharNames[character]);
-                    chr.load(g, asset_root / "ANI" / char_aia(character), 0);  // swap sprite
-                    curAnim = std::uint32_t(std::max(0, chr.find_tag(kTagIdle)));
-                    animFrame = 0; shownFrame = -1; animT = 0;
+                    // Swap the SCRIPT, not the sprite: the script picks the sprite.
+                    aso = Aso::load(asset_root / "ANI" / char_aso(character));
+                    avm = AsoVm{};
+                    avm.bind(&aso);
+                    avm.set_flags(game.g_flags, 0x200);
+                    avm.tick();
+                    sync_aia();
+                    curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
+                    animFrame = 0; shownFrame = -1;
                     reload_room();  // re-gate this room's chests for the new character
                 }
                 else if (k == SDLK_E && !fly) try_interact();
@@ -2154,33 +2208,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // up->dir2(back), right->dir0, down->dir6(front), left->dir4.
                 facing = int(std::lround((deg + 360.0f) / 45.0f)) & 7;
             }
-            // Animation state: airborne -> jump (plays once, holds its last frame),
-            // else walk while moving, else idle. Only re-decode when the frame changes.
+            // Animation comes from the game's OWN script now. We only choose the
+            // ACTION (a section id) and feed the VM what it polls; the script decides
+            // the sprite file, the tag, the frame and how long to hold it. That last
+            // part is why this matters: the game holds each anime_Pattern for its own
+            // anime_Wait(n), and attacks run 1-4 ticks/frame against idle's 10 — a 10x
+            // spread that no single rate constant can reproduce.
             //
-            // Rates are in TICKS PER FRAME, straight from the ASO scripts (all three
-            // players share identical base locomotion timing, corpus-verified):
-            //   walk 8 frames @ 6 ticks (100.0 ms) · run 8 @ 4 (66.7) · idle 8 @ 10 (166.7)
-            // The old flat 0.09 s/frame was a single invented constant that happened
-            // to sit near walk and was wrong everywhere else.
-            //
-            // This is still not the real model: the game holds each anime_Pattern for
-            // its own following anime_Wait(n), and attacks run 1-4 ticks/frame — a 10x
-            // spread no constant can reproduce. Locomotion is uniform per section, so
-            // these three are exact; jump is not in the table and stays a guess.
-            std::uint32_t wantTag; int wantTicks; bool loop = true;
-            if (!grounded)   { wantTag = kTagJump; wantTicks = 4; loop = false; }  // INVENTED
-            else if (moving) { wantTag = kTagWalk; wantTicks = 6; }                // ASO
-            else             { wantTag = kTagIdle; wantTicks = 10; }               // ASO
-            const int wantImg = chr.find_tag(wantTag);
+            // Section ids: 0 walk, 1 run/dash, 2 idle, 3 jump. (Jump is the id!=tag
+            // case — Yunica's section 3 loops on animTag 10, which is exactly why
+            // resolving by tag rather than index matters.)
+            const std::int32_t want_sec = !grounded ? 3 : (moving ? 0 : 2);
+            if (avm.section() != want_sec) avm.set_section(want_sec);
+            avm.set_is_land(grounded);
+            avm.tick();
+            sync_aia();  // the script may switch sprite files mid-action
+
+            const int wantImg = chr.find_tag(std::uint32_t(avm.anim_tag()));
             if (wantImg >= 0 && std::uint32_t(wantImg) != curAnim) {
-                curAnim = std::uint32_t(wantImg); animFrame = 0; animT = 0; shownFrame = -1;
+                curAnim = std::uint32_t(wantImg);
+                shownFrame = -1;
             }
             const int nf = int(std::max(1u, chr.frames_of(curAnim)));
-            if (++animT >= wantTicks) {
-                animT = 0;
-                if (loop) animFrame = (animFrame + 1) % nf;
-                else if (animFrame < nf - 1) ++animFrame;  // hold the last jump frame
-            }
+            animFrame = nf ? (avm.frame() % nf) : 0;
             if (animFrame != shownFrame) { chr.set_anim(g, curAnim, animFrame); shownFrame = animFrame; }
 
             // The room's authored camera (SCM): region-selected, follow + orbit, blended.

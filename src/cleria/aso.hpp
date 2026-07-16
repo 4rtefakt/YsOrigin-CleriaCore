@@ -19,6 +19,21 @@
 
 namespace cleria {
 
+// `anime_File(id)` indexes the exe's AIA name table at `.data 0x68a800` (269
+// entries) — `FUN_0040a460(buf, "data\\ani\\%s.aia", table[id])`. Engine data, so
+// it lives in code, not assets.
+//
+// Only the entries the player scripts use are reproduced here; the full 269 are not
+// dumped, and every M_*.ASO calls anime_File ZERO times (enemies just use their
+// same-named .aia sidecar), so these nine are the ones that matter. Returns "" for
+// anything else.
+//
+// This is what picks the sprite: in C_010 (Yunica), `Flag_IsEqualInt(161,1)` guards
+// `anime_File(6)` = c_102 and falls through to `anime_File(15)` = c_111. So flag 161
+// set => the cutscene set, clear => the gameplay set. The game chooses; we used to
+// hardcode it.
+const char* aso_aia_name(std::int32_t file_id);
+
 class Aso {
   public:
     struct Section {

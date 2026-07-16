@@ -54,6 +54,9 @@ int main(int argc, char** argv) {
                 ++held;
             }
             if (vm.foot_smoke()) std::printf("  [FootSmoke] at tick %d\n", t);
+            if (t == 0)
+                std::printf("  -> anime_File(%d) = %s   (the script picks the sprite)\n",
+                            vm.file_id(), aso_aia_name(vm.file_id()));
         }
         if (held) std::printf("  tag=%-4d frame=%-3d held %d ticks\n", last_tag, last_frame, held);
         return 0;

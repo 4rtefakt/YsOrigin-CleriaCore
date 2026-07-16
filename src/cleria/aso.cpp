@@ -37,6 +37,21 @@ enum : std::uint32_t {
 
 }  // namespace
 
+const char* aso_aia_name(std::int32_t id) {
+    switch (id) {
+        case 6:  return "C_102";   // Yunica  — cutscene set (flag 161 == 1)
+        case 7:  return "C_103";   // Hugo    — cutscene set
+        case 8:  return "C_104";   // Toal    — cutscene set
+        case 11: return "C_114";   // Yunica  — variant
+        case 12: return "C_115";   // Toal    — Boost / demon form
+        case 13: return "C_101";
+        case 15: return "C_111";   // Yunica  — GAMEPLAY set
+        case 16: return "C_112";   // Hugo    — GAMEPLAY set
+        case 17: return "C_113";   // Toal    — GAMEPLAY set
+        default: return "";
+    }
+}
+
 Aso Aso::parse(const std::vector<std::uint8_t>& b) {
     Aso a;
     if (b.size() < 0x10 || std::memcmp(b.data(), "XSR\0", 4) != 0) return a;
