@@ -168,7 +168,8 @@ for facts:
 | thing | status |
 |---|---|
 | enemy HP / damage / reach | **our numbers** — the game has no per-enemy HP column; stats come from a GAMEINFO level curve we haven't wired |
-| animation frame rate | **invented (0.09 s/frame)** — the real model is ASO's `anime_Wait(n)` in VM ticks; the tick's wall-clock rate is still being traced |
+| animation frame rate | **known now, not yet implemented**: `anime_Wait(n)` = n/60 s. Our flat 0.09 s/frame was accidentally near walk (0.100) and wrong everywhere else — idle is 0.167, run 0.067, attacks 0.017–0.067 |
+| **fixed-step vs our variable dt** | **architectural gap.** The game runs logic at a **fixed 60 Hz with catch-up, decoupled from rendering** (`RefreshRate` only governs Present). We scale everything by `dt`. Faithful timing means emulating the step, not tuning constants |
 | HUD `Lv` / `SP` / `EXP` | placed by eye — the digit emitter isn't decoded |
 | black slabs over S_1000's stairs | **unexplained**; several theories tested and refuted |
 | water animation | **not found.** Not UV scroll (the plain shader has the same instruction); it's reflection/caustics — mechanism unproven |
