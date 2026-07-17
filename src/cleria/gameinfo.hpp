@@ -44,14 +44,29 @@
 // is large because it is a different UNIT, not a bigger quantity of the same one.
 // Player maxHP is pair 6, reaching 400 at level 60.
 //
-// ## Not modelled here
+// ## The 4x11 block is the WEAPON ATK TABLE [char][tier] [C-DIS]
 //
-// The 4x11 f32 block at file +0xa0 (4 rows, stride 0x30) is PER-CHARACTER, not per
-// difficulty: DAT_0076bb74 is bounds-checked 0..3 guarding the assert "g_flags
-// initialized for non-existent player character", and difficulty is a separate global
-// at 0x76bb5c. Its meaning is [UNKNOWN] and it is deliberately absent. (It is also
-// never log2-decoded anywhere traced, which is evidence against an earlier guess that
-// it was K = 2^((v-50)/20) encoded.)
+// At file +0xa0: 4 rows (the player character index, bounds-checked 0..3 against the
+// assert "g_flags initialized for non-existent player character") x 11 columns (the
+// weapon tier, clamped to 0xa in code). Row stride 0x30, computed in code.
+//
+//   char0: 23 31 38 45 53 60 67 74 82 89 94
+//   char1: 21 28 35 42 50 57 64 71 79 86 91
+//   char2: 22 29 36 43 51 58 65 72 80 87 92
+//   char3: 20 27 34 41 49 56 63 70 78 85 90
+//
+// This is the value that closed the negative-damage puzzle. The curve above is the
+// BASE ATK, not the final one: FUN_004208f0 adds the weapon on top, into the same
+// field, before it is mirrored to actor+0xa4. A level-1 char0 has ATK = 25 + 23 = 48,
+// not 25 — and 25 alone makes the damage formula go negative against a level-1 enemy.
+//
+// It survived two wrong readings worth recording. It was guessed to be 4 DIFFICULTY
+// tiers (the game ships four, which is exactly the kind of plausible-number inference
+// that keeps burning this project — difficulty is a separate global at 0x76bb5c). And
+// it was guessed to be log2-encoded like ENEMYINFO's stat block, because
+// K = 2^((v-50)/20) turns these into tidy 0.39..4.59 multipliers. Both were wrong.
+// The tell for the second was that nothing anywhere ever log2-decodes this block — a
+// decode that produces pretty numbers is not evidence that the engine performs it.
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -92,11 +107,24 @@ enum : int {
     kCurveCount = 11,
 };
 
+// The weapon ATK table, file +0xa0: [character 0..3][tier 0..10].
+inline constexpr int kChars = 4, kTiers = 11;
+
 struct GameInfo {
     std::vector<StatCurve> curves;  // 11, payload +0x20
+    float weapon_atk[kChars][kTiers] = {};  // file +0xa0, row stride 0x30
 
     static GameInfo load(const std::filesystem::path& path);  // MISC/GAMEINFO.DAT
     bool ok() const { return curves.size() == kCurveCount; }
+
+    // The player's ATK before per-attack power: the level curve PLUS the weapon.
+    // The curve alone is not the actor's ATK -- see the note on the 4x11 block.
+    float player_atk(int character, int tier, int level) const {
+        if (!ok() || character < 0 || character >= kChars) return 0;
+        if (tier < 0) tier = 0;
+        if (tier >= kTiers) tier = kTiers - 1;  // the engine clamps to 0xa
+        return curves[kPlayerAtk].at(level) + weapon_atk[character][tier];
+    }
 
     // Total EXP required to REACH `level` from level 1: the running sum of pair 10
     // over the levels below it. (Sum over i in [0, level-1) of lerp(150, 18150,

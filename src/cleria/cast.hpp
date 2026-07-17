@@ -22,17 +22,45 @@
 // briefly believed a corpus-validated claim was wrong. The claim was right and my
 // test was.)
 //
+// ## Record 13, CAST_ADOL, IS THE PLAYER [C-COR]
+//
+// This is the same 13 as the damage path's `cast != 13` player test (actor+0x124), and
+// it is why that magic number is 13: CAST_ADOL is simply record 13 of this table.
+//
+// It carries the player's own movement tuning, and it is the ONLY record that does —
+// it is unique among all 186 on three movement fields simultaneously:
+//
+//   +0x48 base speed  0.056   (168 other casts share 0.035)
+//   +0x50 jump v0     0.285   (169 other casts share 0.22)
+//   +0x4c             2.2     (86 share 1.5, 86 share 1.6)
+//
+// Only the player gets bespoke tuning. That is independent corroboration of the
+// identification, arrived at from the movement code rather than from the name.
+//
 // ## The 9 that don't resolve are explained, not missing [C-COR]
 //
-//   CAST_ADOL  — placed 182 times across 181 of 192 rooms. It is the PLAYER SPAWN
-//                MARKER, not a character; a marker needs no sprite. (Adol is not in
-//                Ys Origin at all — it is a prequel set 700 years before him.) Note
-//                it is category 2 while the others below are 4/16.
+//   CAST_ADOL  — placed 182 times across 181 of 192 rooms: it doubles as the SPAWN
+//                POINT. It has no AIA because the player's sprite is per-character
+//                (C_111/C_112/C_113 — Yunica/Hugo/Toal) and cannot be one fixed stem.
+//                A record with no sprite is not a record with no purpose. (The name is
+//                vestigial: Adol is not in Ys Origin at all — it is a prequel set 700
+//                years before him.) Note it is category 2, not the 4/16 below.
 //   the other 8 — CAST_C000, CAST_M000..M050, CAST_M790: **never placed in any of
 //                the 192 SCT files.** Dead table entries.
 //
-// So every cast the game actually places either resolves to an AIA or is a marker
-// that should not have one. There is no gap here to chase.
+// So every cast the game actually places either resolves to an AIA or has a reason not
+// to. There is no gap here to chase.
+//
+// ## Movement fields [C-DIS] — see cleria/physics_player.hpp for the model
+//
+//   +0x34  f32  collision radius base — the engine uses radius = +0x34 * 0.9
+//   +0x38  f32  height base           — the engine uses height = +0x38 + 0.075
+//   +0x48  f32  base speed scalar
+//   +0x50  f32  jump v0 -> actor+0x408
+//
+// These are the "derived per-actor from the player struct" that cleria-view's own
+// comment admitted to not modelling. Read them per-cast rather than hardcoding: they
+// are why a Chryolos and Yunica move differently.
 #pragma once
 #include <cstdint>
 #include <filesystem>

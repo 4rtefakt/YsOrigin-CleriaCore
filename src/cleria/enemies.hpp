@@ -57,12 +57,14 @@
 // was scanned for a wide non-log2 range; none exists), so those are computed from the
 // GAMEINFO curve rather than stored. See cleria/gameinfo.hpp for the curve itself.
 //
-// These are not exposed yet for a specific reason, not caution in general: a level-1
-// player (ATK 25) against a DEF-neutral level-1 enemy (DEF 40) computes NEGATIVE raw
-// damage through the disassembled formula, and +0xd0's 39..55 range keeps it negative.
-// Something in the chain is not understood — most likely the equipment contribution,
-// whose path (FUN_004208f0 -> struct@0x76a5e4 -> ??? -> 0x76b908) is not closed. Enemy
-// DEF does not ship until that resolves.
+// The negative-damage worry that used to block this is RESOLVED, and it was ours: the
+// GAMEINFO ATK curve is the BASE, and FUN_004208f0 adds equipment into the same field
+// before the actor sees it. A real level-1 player is ATK 48 (25 curve + 23 weapon), not
+// 25, and the formula comes out at +10.56. Nothing was wrong with the enemy data.
+//
+// These stay unexposed for a narrower reason: whether ENEMYINFO carries per-enemy
+// ATK/DEF multipliers is still open, and if it does, the flat "level-1 enemy DEF = 40"
+// read off the curve would shift per enemy.
 #pragma once
 #include <cstdint>
 #include <filesystem>

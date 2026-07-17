@@ -22,14 +22,37 @@ namespace cleria {
 // reads: +0xa4 is loaded from the ATTACKER, +0xa8 from the TARGET and subtracted.
 // (+0xac and +0xb0 are NOT read by this path and stay unnamed — see ENTITY.md.)
 struct AttackStats {
-    float atk = 0;      // actor +0xa4
-    float bonus = 0;    // actor +0xfc  — additive, inside the linear term
+    // actor +0xa4. ** This is the level curve PLUS equipment, not the curve alone. **
+    // FUN_004208f0 adds the weapon (GAMEINFO's 4x11 [char][tier] table) and armour
+    // (INVINFO +0x24) into the stat record before it is mirrored here. A level-1 char0
+    // is 25 + 23 = 48, not 25 — and feeding the bare curve makes the formula go
+    // NEGATIVE against a level-1 enemy, which is a puzzle this project chased for a
+    // while before noticing the curve was only the base.
+    float atk = 0;
+    // actor +0xfc — additive, inside the linear term. ** This is PER-ATTACK-MOVE power,
+    // NOT an equipment bonus. ** FUN_00477f00 (the attack-descriptor setup) writes it
+    // from XMM3, a caller-supplied float, and all 66 writers live in actor TUs
+    // (go_actor_player.cpp, go_mesh_boss01..07.cpp) — not one in main/game/ where the
+    // equipment code lives. Values are per-move constants (4.0, 14.0, 20.0, ...). The
+    // per-move table itself is [UNKNOWN].
+    float bonus = 0;
     float min_dmg = 0;  // actor +0x100 — a FLOOR, applied after the clamp to 0
 };
 
 // `raw = ATK^0.66 * (ATK - 0.98*DEF + 10 + bonus) / 22.92`, then floored at min_dmg.
 // Note the clamp order: max(min_dmg, max(0, raw)) — a min_dmg above 0 wins even when
 // the linear term has gone negative, so a heavily-outclassed attacker still chips.
+//
+// Sanity, with the REAL level-1 numbers (base curve + starting gear): ATK 48 vs a
+// level-1 enemy's DEF 40 gives 10.56, i.e. 5.7 hits to kill a 60 HP enemy. At level 60
+// the same check gives 8.3 — a monotone curve at both ends, which is decent
+// independent corroboration that nothing upstream is misread.
+//
+// ** The player-as-target branch (FUN_004fa740, cast 13) differs: ** DEF comes from
+// the stat record's DEF field (DAT_0076a740 == 0x76a72c + 0x14, settled), and the
+// floor is a hardcoded 0.5 rather than min_dmg. It also applies a two-stage soft
+// FLOOR at 3% / 1.5% of the ATTACKER's ATK — a floor, not the cap it was first
+// described as.
 inline float damage_real(const AttackStats& a, float def) {
     const float raw =
         std::pow(a.atk, 0.66f) * (a.atk - 0.98f * def + 10.0f + a.bonus) / 22.92f;

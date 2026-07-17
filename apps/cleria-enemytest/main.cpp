@@ -3,6 +3,7 @@
 // agreeing is weak evidence — they can share one wrong idea, as the clip-AABB
 // outliers proved — so this asserts the INVARIANTS, not "the same numbers as before".
 #include "cleria/cast.hpp"
+#include "cleria/combat.hpp"
 #include "cleria/gameinfo.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/items.hpp"
@@ -200,6 +201,38 @@ int main(int argc, char** argv) {
         std::printf("    EXP to reach lv2=%.0f lv10=%.0f lv30=%.0f lv60=%.0f\n",
                     gi.exp_to_level(2), gi.exp_to_level(10), gi.exp_to_level(30),
                     gi.exp_to_level(60));
+
+        // The weapon ATK table, and the check that would have caught the mistake that
+        // produced the "negative damage" puzzle: the ATK curve is the BASE, and a
+        // player without their weapon added computes NEGATIVE damage at level 1.
+        int mono = 0;
+        for (int c = 0; c < kChars; ++c) {
+            bool up = true;
+            for (int t = 0; t + 1 < kTiers; ++t)
+                up = up && gi.weapon_atk[c][t] < gi.weapon_atk[c][t + 1];
+            mono += up;
+        }
+        check(mono == kChars, "weapon ATK rises with tier, all 4 chars",
+              std::to_string(mono) + "/4");
+
+        AttackStats a;
+        a.atk = gi.player_atk(0, 0, 1);  // char 0, starting weapon, level 1
+        const float edef = gi.curves[kEnemyDef].at(1);
+        const float dmg = damage_real(a, edef);
+        check(a.atk == 48.0f, "L1 char0 ATK == curve 25 + weapon 23",
+              std::to_string(a.atk));
+        check(dmg > 0.0f, "L1 player does POSITIVE damage to an L1 enemy",
+              std::to_string(dmg) + " vs DEF " + std::to_string(edef));
+        // With the bare curve (the bug), this is negative -- assert that too, so the
+        // regression is pinned rather than just fixed.
+        AttackStats bare;
+        bare.atk = gi.curves[kPlayerAtk].at(1);  // 25 -- no weapon
+        check(damage_real(bare, edef) == 0.0f,
+              "bare curve (no weapon) clamps to 0 -- the old bug",
+              "raw would be " + std::to_string(std::pow(bare.atk, 0.66f) *
+                                               (bare.atk - 0.98f * edef + 10.0f) / 22.92f));
+        std::printf("    L1 char0: ATK %.0f vs enemy DEF %.0f -> %.2f dmg, %.1f hits to kill\n",
+                    a.atk, edef, dmg, gi.curves[kEnemyMaxHp].at(1) / dmg);
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);

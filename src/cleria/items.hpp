@@ -20,7 +20,25 @@
 // unavailable, so it never needs a greyed icon: a reason, not a gap. That also
 // confirms ICON2/*V is the "unavailable" variant.
 //
-// ## +0x24 is a MAGNITUDE, and its unit depends on the category [C-COR]
+// ## +0x24 is the DEF COLUMN for armour and shields [C-DIS + C-COR]
+//
+// The engine reads it as an i32 via CVTDQ2PS, from the INVINFO base at 0x76f1c0
+// (proven three ways: the g_scn_data.cpp loader does PUSH 0x76f1c0; +0x34 -> icon stem
+// and +0x4c -> description land on known fields from that base; and the arithmetic).
+// Note an earlier pass put the base at 0x76f1e4 — which is exactly 0x76f1c0 + 0x24,
+// i.e. it had mistaken THIS COLUMN's address for the table's.
+//
+// ** There is NO weapon ATK column. ** `IMUL ..., 0xb8` — the record-stride multiply
+// that indexes this table — occurs ONLY in the armour and shield branches. Weapon ATK
+// comes from GAMEINFO's 4x11 [char][tier] table instead (see gameinfo.hpp), which is
+// why swords here are a flat 20/999: **that sword data is dead.**
+//
+// That flatness is worth dwelling on. It was written up as the reason to DISTRUST the
+// armour/shield DEF reading — "a generic stat column would have swords ramping too" —
+// and treated as an anomaly weakening the case. It was the opposite: the clue. Swords
+// are flat *because* nothing reads them. The paradox was pointing at the answer.
+//
+// ## The other categories [C-COR]
 //
 //   go (gold, 120..127)     1, 5, 10, 50, 100, 500, 1000, 5000
 //   tl (tools, 66..115)     0, 10, 25, 50, 100, 200, 999
@@ -31,13 +49,12 @@
 //
 // The gold row is airtight: **+0x24 equals the number in the item's own NAME, 8/8**
 // ("1G" -> 1 ... "5000G" -> 5000). Tools read as heal amounts (Recovery Drop 1..4 =
-// 10/25/50/100). Armor and shields ramp, which makes them a DEF candidate.
+// 10/25/50/100). So the column is a magnitude whose UNIT depends on the category, and
+// `magnitude` is what it is called here for that reason.
 //
-// ** But swords are all 20 or 999, so this is NOT a generic "stat value". ** If it
-// were, swords would ramp like armor and they do not. So the armor/shield DEF reading
-// is [H-high] at best and is NOT exposed here. The 999 sentinel lands on exactly three
-// items: 4 (sw_04), 5 (sw_05), 71 (tl_05 "Recovery Drop 6") — plainly a full-heal on
-// the tool, and something else on two swords.
+// The armour value is load-bearing: a level-1 player's DEF is the GAMEINFO curve (30)
+// plus the starting Leather Armor's +0x24 (**8**) = 38. Equipment adds into the same
+// field before it reaches actor+0xa8.
 //
 // ## +0x3C / +0x40 are NOT the inventory grid — the old claim is refuted
 //

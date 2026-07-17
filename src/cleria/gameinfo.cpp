@@ -22,6 +22,16 @@ GameInfo GameInfo::load(const fs::path& path) {
         std::memcpy(&g.curves[i].at_level_1, b.data() + base + i * 8, 4);
         std::memcpy(&g.curves[i].at_level_60, b.data() + base + i * 8 + 4, 4);
     }
+
+    // The weapon ATK table at FILE +0xa0 (note: file, not payload -- this offset is
+    // quoted from the raw file in the disassembly). Row stride 0x30 = 11 floats plus
+    // one pad; 0xa0 + 4*0x30 == 352 accounts for the file exactly.
+    const std::size_t wbase = 0xA0;
+    if (b.size() >= wbase + kChars * 0x30) {
+        for (int c = 0; c < kChars; ++c)
+            for (int t = 0; t < kTiers; ++t)
+                std::memcpy(&g.weapon_atk[c][t], b.data() + wbase + c * 0x30 + t * 4, 4);
+    }
     return g;
 }
 
