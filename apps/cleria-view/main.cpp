@@ -2580,9 +2580,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const int dmg = damage_int(a, en.def,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    const std::string nm = casts.get(en.cast_id) && !casts.get(en.cast_id)->display.empty()
+                                           ? casts.get(en.cast_id)->display : ("cast " + std::to_string(en.cast_id));
+                    hud.message(r.died ? (nm + " defeated!")
+                                       : (nm + "  -" + std::to_string(dmg) + " (" +
+                                          std::to_string(int(en.hp)) + "/" +
+                                          std::to_string(int(en.max_hp)) + ")"));
                     if (std::getenv("CLERIA_DMG"))
-                        std::printf("  hit cast %d (lv%d DEF %.0f): %d dmg, %.0f/%.0f left\n",
-                                    en.cast_id, en.level, en.def, r.damage, en.hp, en.max_hp);
+                        std::printf("  hit %s (lv%d DEF %.0f): %d dmg, %.0f/%.0f left\n",
+                                    nm.c_str(), en.level, en.def, r.damage, en.hp, en.max_hp);
                     if (r.died) ++killed;
                 }
                 if (killed) {
@@ -2683,7 +2689,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // Section ids: 0 walk, 1 run/dash, 2 idle, 3 jump. (Jump is the id!=tag
             // case — Yunica's section 3 loops on animTag 10, which is exactly why
             // resolving by tag rather than index matters.)
-            const std::int32_t want_sec = !grounded ? 3 : (moving ? 0 : 2);
+            // While a swing is active, play the attack section (0x100 = the basic
+            // attack, present in C_010/020/030) so the sprite actually swings instead of
+            // sliding in the walk pose. Otherwise: jump / walk / idle.
+            const std::int32_t want_sec = (atk_window > 0) ? 0x100
+                                        : !grounded ? 3 : (moving ? 0 : 2);
             if (avm.section() != want_sec) avm.set_section(want_sec);
             avm.set_is_land(grounded);
             avm.tick();
