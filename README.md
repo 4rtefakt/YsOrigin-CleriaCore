@@ -44,6 +44,8 @@ and a C++20 asset core renders real rooms.
 | **Fixed-step 60 Hz logic** | ✅ **decoupled from rendering — measured 165 fps / 60 tps**; timeScale-aware, uncapped catch-up like the exe |
 | **Enemy/player stat curves** | ✅ **CLOSED. `stat = lerp(value_at_lv1, value_at_lv60, (level−1)/59)` from GAMEINFO — enemies read pairs 0/1/2/4 (`FUN_004202e0`), the player 6/7/8 + 10 (`FUN_00420c40`)** |
 | **Enemy level** | ✅ **ENEMYINFO +0xe8, i32 1..60 — it read as denormal floats, which is why it hid** |
+| **Player physics (vertical)** | ✅ **there is no gravity constant — the engine keeps a signed TIME at actor+0x330 and computes `dy = 0.5*9.81*t*abs(t)` in closed form.** Jump v0 0.285, terminal fall 0.65/tick, char radius 0.675 and height 1.075 — all per-cast from CASTINFO |
+| **Equipment → stats** | ✅ **INVINFO +0x24 is the DEF column; weapon ATK is GAMEINFO's 4×11 [char][tier] table. There is no weapon ATK column in INVINFO at all** |
 | **Damage formula** | ✅ **`ATK^0.66 * (ATK - 0.98*DEF + 10 + bonus) / 22.92`, disassembled — with probabilistic rounding and a deferred death flag** |
 | **Enemy drop tables (ENEMYINFO)** | ✅ **8 slots/enemy: item id + percent chance, corpus-proven — enemies drop only tools and gold, never equipment** |
 | **Enemies (SCT placement)** | ✅ **1106 placements / 85 rooms render as sprites; no AI yet** |
@@ -238,6 +240,7 @@ for facts:
 | thing | status |
 |---|---|
 | enemy reach | **our numbers still** — the one combat quantity not yet traced to data |
+| walk / run speed | **our numbers still.** `speed = actor+0x30c * scale * X`; the base scalar is real (CASTINFO +0x48 — 0.056 for the player vs 0.035 for 168 other casts) but `X` resolves to `+0xdc` on an unidentified object. Deliberately **not** back-derived from the 20/13 footstep cadence: that would look right, match the audio, and be unfalsifiable |
 | YMO animation keys | **doc was wrong until now**: the scale/translation labels were swapped (the correct composition reproduces the rest pose in 5832/7016 nodes; the old labelling in **0**), and the key's trailing field is a `u32` frame number, not a float — the old "monotonic time" test passed only because denormal ordering matches integer ordering |
 | animation frame rate | **fixed — the game's own scripts drive it now.** The ASO VM holds each `anime_Pattern` for its own `anime_Wait(n)`. No constants left |
 | player sprite choice | **now the script's, not ours.** `C_010.ASO` gates `anime_File(6)`=C_102 behind `Flag_IsEqualInt(161,1)` and falls through to `anime_File(15)`=**C_111**. With flag 161 clear (normal play) the game uses **C_111/C_112/C_113** — the gameplay sets. We had hardcoded C_102/103/104, which are the **cutscene** sets |
