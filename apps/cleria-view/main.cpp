@@ -2587,12 +2587,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
             // Tick the enemies. The engine's enemies chase the player ACTOR; we sync it
             // to the view's player each tick, step the world (each enemy turns toward it
-            // and advances at its ENEMYINFO speed -- world.hpp update_actor), then
-            // floor-snap them, since the world has no geometry and the view owns it.
+            // and advances at its ENEMYINFO speed -- world.hpp update_actor), then apply
+            // COLLISION here, since the world is geometry-free and the view owns the mesh.
+            // The engine integrates enemy motion with a wall-slide sweep inside
+            // FUN_0045a510; we reuse the player's resolve_walls (push-out) against the
+            // same collision mesh so enemies stop at walls/fences instead of clipping
+            // through, then floor-snap. Enemy radius uses the player's for now -- a
+            // per-cast collision radius (CASTINFO+0x34) is available but not yet wired.
             if (Actor* wp = world.player()) wp->pos = feet;
             world.step();
             for (Actor& a : world.actors()) {
                 if (a.is_player() || !a.alive()) continue;
+                Vec3 body = {a.pos.x, a.pos.y + stepUp, a.pos.z};
+                body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
+                a.pos.x = body.x; a.pos.z = body.z;
                 const float efl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + kCharH);
                 if (efl > kNoFloor) a.pos.y = efl;
             }
