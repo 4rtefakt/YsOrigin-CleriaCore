@@ -49,8 +49,15 @@ EnemyTable EnemyTable::load(const fs::path& path) {
 }
 
 const Enemy* EnemyTable::get(int cast_id) const {
-    if (cast_id < 0 || std::size_t(cast_id) >= enemies.size()) return nullptr;
-    return &enemies[std::size_t(cast_id)];
+    // ** The index is the FOLD, not cast_id. ** This used `enemies[cast_id]` directly —
+    // the exact bug enemies.hpp/sct.hpp document as solved, which had never actually been
+    // applied here. It silently gave every spawned enemy the WRONG record's stats and
+    // speed (CAST_M100/cast 14 got record 14 = a lv19 enemy instead of record 0 = lv1),
+    // so a lv1 room enemy hit the player for ~105 instead of ~8. enemy_index_for_cast
+    // maps the two cast ranges onto the 90-record table.
+    const int idx = enemy_index_for_cast(cast_id);
+    if (idx < 0 || std::size_t(idx) >= enemies.size()) return nullptr;
+    return &enemies[std::size_t(idx)];
 }
 
 }  // namespace cleria

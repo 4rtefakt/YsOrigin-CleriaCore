@@ -514,6 +514,37 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- a real room enemy now hits the player for a SANE amount ------------------
+    // Regression for the enemy_index bug: EnemyTable::get used cast_id as a direct index
+    // instead of the fold, so CAST_M100 (cast 14) got record 14 (lv19, ATK 121) and hit
+    // a lv1 player for ~105. Fixed -> it is record 0 (lv1, ATK 38) and hits for ~8.
+    {
+        static Sct s2;
+        const std::vector<std::uint8_t> sb = read(root / "MAP" / "S_10" / "S_1001" / "S_1001.SCT");
+        if (!sb.empty()) {
+            s2 = Sct::parse(sb);
+            ActorWorld w(tables);
+            w.set_placements(&s2);
+            w.spawn_placements();
+            std::mt19937 drng(3);
+            std::uniform_real_distribution<float> dp(0.0f, 100.0f);
+            const float pdef = gi.curves[kPlayerDef].at(1);
+            const Actor* m100 = nullptr;
+            for (const Actor& a : w.actors())
+                if (a.cast_id == 14) { m100 = &a; break; }  // CAST_M100 Riffligan
+            check(m100 && m100->level <= 3 && m100->atk < 60,
+                  "S_1001's CAST_M100 spawns at its real low level, not lv19",
+                  m100 ? ("lv" + std::to_string(m100->level) + " ATK " +
+                          std::to_string(int(m100->atk))) : "not found");
+            if (m100) {
+                const int d = player_incoming_damage(AttackStats{m100->atk, 0, 0}, pdef,
+                    [&](float p) { return dp(drng) < p; });
+                check(d < 20, "and it hits the lv1 player for a sane amount, not ~105",
+                      std::to_string(d) + " HP");
+            }
+        }
+    }
+
     // --- player-incoming damage (FUN_004fa740, now implemented) -------------------
     // The player-target branch: same raw shape, two soft floors, 0.5 min, max(1,...).
     {
