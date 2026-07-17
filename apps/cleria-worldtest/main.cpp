@@ -16,11 +16,17 @@
 #include "cleria/gameinfo.hpp"
 #include "cleria/world.hpp"
 
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <exception>
+#include <map>
 #include <random>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 using namespace cleria;
@@ -135,8 +141,14 @@ int main(int argc, char** argv) {
         check(p && w.player() == p, "spawning cast 13 sets the player");
         // The engine returns at step 7: no stat setup for the player on this path.
         check(p && p->is_player(), "cast 13 is the player");
+        // The spawn op returns at step 7 for the player, so the ENEMY chain never
+        // runs. Its real HP comes from the player-init path (FUN_00420c40, the
+        // GAMEINFO player curve) which the spawn op does NOT call -- so max_hp stays
+        // at our default here. (The engine's factory writes a PLACEHOLDER from
+        // CASTINFO+0x74, documented as not-real-HP; we don't model that placeholder,
+        // and 0 is "not set by this path", not a claim that the player has 0 HP.)
         check(p && p->max_hp == 0,
-              "the player gets NO enemy stats (the op returns at step 7)");
+              "the spawn op sets no HP for the player (enemy chain skipped)");
         check(w.find(kIdPlayerAlias) == p,
               "id 999 resolves to the PLAYER, not to 'not the player'");
         check(w.find(kIdPlayer) == p, "id 13 fast-paths to the player");
@@ -198,6 +210,68 @@ int main(int argc, char** argv) {
                                 [&](float p) { return pct(rng) < p; });
         check(total == 0, "level-1 vs the highest-level enemy deals 0 (min_dmg floor)",
               "lv" + std::to_string(high_level) + " DEF " + std::to_string(int(a->def)));
+    }
+
+    // --- END TO END: a REAL room script spawns REAL actors ------------------------
+    // The whole point of the milestone. EVNT_3002_THOR.XSO is the file ENTITY.md
+    // cites as spawning five instances of cast 35 (ids 167..171). We run it through
+    // the VM with the world as host and see whether the decoder + host wiring turn
+    // its bytes into live actors with real stats. A dynamic run may branch past some
+    // spawns (flags are all 0 here), so we assert what a from-cold run robustly
+    // produces, and PRINT the roster so a human can compare to the static count.
+    {
+        const fs::path xso = root / "MAP" / "S_30" / "S_3002" / "EVNT_3002_THOR.XSO";
+        std::vector<std::uint8_t> bytes;
+        if (std::ifstream f{xso, std::ios::binary}) {
+            bytes.assign(std::istreambuf_iterator<char>(f), {});
+        }
+        check(!bytes.empty(), "loaded EVNT_3002_THOR.XSO");
+
+        if (!bytes.empty()) {
+            ActorWorld w(tables);
+            XsoVm vm;
+            vm.host = &w;  // <-- the connection: a running script drives the world
+            try {
+                const Xso script = Xso::parse(bytes);
+                vm.run(script);
+            } catch (const std::exception& ex) {
+                check(false, "parsed and ran the script", ex.what());
+            }
+
+            std::printf("    [script spawned %zu actor(s)]\n", w.size());
+            std::map<int, int> by_cast;
+            std::set<int> ids;
+            for (const Actor& a : w.actors()) { by_cast[a.cast_id]++; ids.insert(a.instance_id); }
+            for (auto& [cast, count] : by_cast) {
+                const Cast* c = ct.get(cast);
+                std::printf("      cast %d x%d  %s\n", cast, count,
+                            c ? c->display.c_str() : "?");
+            }
+            std::string idlist;
+            for (int id : ids) idlist += std::to_string(id) + " ";
+            std::printf("      instance ids: %s\n", idlist.c_str());
+
+            check(w.size() > 0, "the VM decoded op 0x12c and the host spawned actors");
+            // Independent corroboration: ENTITY.md's STATIC scan (xso_spawns.py) found
+            // this file spawns five instances of cast 35 as ids 167..171. A DYNAMIC VM
+            // run reaching the same roster is two methods agreeing, not one repeated.
+            check(by_cast.size() == 1 && by_cast.count(35) && by_cast[35] == 5,
+                  "5 instances of cast 35 -- matches ENTITY.md's static scan");
+            check(ids == std::set<int>({167, 168, 169, 170, 171}),
+                  "instance ids are exactly 167..171 -- the explicit ids in the script");
+            // Every spawned enemy carries stats from the chain -- the end-to-end
+            // proof that spawn wiring and the validated stat pipeline meet.
+            bool all_enemies_statted = true;
+            for (const Actor& a : w.actors())
+                if (a.is_enemy() && a.max_hp <= 0) all_enemies_statted = false;
+            check(all_enemies_statted, "every spawned enemy got real stats");
+            // is_alive through the host, on a real spawned actor.
+            if (w.size() > 0) {
+                const int id0 = w.actors().front().instance_id;
+                check(w.is_alive(id0) == w.actors().front().alive(),
+                      "host is_alive() agrees with the actor's own test");
+            }
+        }
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);

@@ -210,6 +210,26 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
                         // save_03, eft_heal]: it shows exactly one save statue and
                         // hides the other two (all three are placed at one spot).
                         obj_visible[script.string(op(0))] = (op(1) != 0);
+                    } else if (sub == 0x12c && host && nargs >= 7) {
+                        // The SPAWN op. Operand layout [C-DIS][C-COR] over 1198 sites:
+                        //   (entity_id, cast_type, x, y, z, yaw_deg, group)
+                        // x/y/z/yaw are float BIT PATTERNS in the operand words —
+                        // reinterpret, do not convert (op5's 0x43340000 is 180.0f,
+                        // not the integer 1127481344).
+                        auto f = [&](std::uint32_t i) {
+                            float v;
+                            const std::uint32_t raw = std::uint32_t(op(i));
+                            std::memcpy(&v, &raw, 4);
+                            return v;
+                        };
+                        host->spawn(op(0), op(1), f(2), f(3), f(4), f(5), op(6));
+                    } else if (sub == 0x13f && nargs >= 1) {
+                        // "Is entity op0 alive?" CONDITION is [C-DIS]; the result
+                        // DESTINATION is [H-high] — ENTITY.md pins the test but not the
+                        // write target. Every other query op in this VM writes acc
+                        // (0x5F/0x60/0x81/0x90), so acc is the inference, not a read.
+                        // A null host answers "not alive", which keeps scripts running.
+                        acc = (host && host->is_alive(op(0))) ? 1 : 0;
                     }
                     // all other sub-ops: no-op (skipped by length)
                 }

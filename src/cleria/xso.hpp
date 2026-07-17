@@ -53,10 +53,34 @@ class Xso {
     std::vector<std::string> strings_;
 };
 
+// The world a script spawns actors into and queries. ** Kept to primitive types on
+// purpose: ** it lets XsoVm drive live actors without xso.cpp taking a dependency on
+// actor.hpp / world.hpp / the stat tables, which is what keeps the VM headlessly
+// testable — the same isolation that let every other module here be validated alone.
+// ActorWorld (or a thin adapter) implements it. A null host makes the actor ops
+// no-ops, which is exactly how every existing XSO test already runs.
+struct XsoHost {
+    virtual ~XsoHost() = default;
+
+    // op 0x12c, the spawn op. Operand layout is [C-DIS] and corpus-validated over
+    // 1198 sites (build/entity_re/ENTITY.md): (entity_id, cast_type, x, y, z,
+    // yaw_deg, group). id 0 => auto-assign; group 0 => untagged, only 1..4 honoured.
+    // x/y/z/yaw arrive as floats — the VM bit-casts the raw operand words.
+    virtual void spawn(int entity_id, int cast_type, float x, float y, float z,
+                       float yaw_deg, int group) = 0;
+
+    // op 0x13f: is the entity with this id alive? The CONDITION is [C-DIS] —
+    // `find(op0) != null && hp >= 1.0`. Absent id => false.
+    virtual bool is_alive(int entity_id) const = 0;
+};
+
 // Dynamic executor: runs control flow (jumps, accumulator conditionals) and the
 // flag-store / give-item sub-ops. Unimplemented sub-ops are skipped by length
 // (safe — the length is encoded), so a script always runs to its end op.
 struct XsoVm {
+    // Optional: set to drive live actors. Null => the actor ops (0x12c/0x13f) are
+    // inert and the VM behaves exactly as it did before actors existed.
+    XsoHost* host = nullptr;
     std::int32_t g_flags[0x200] = {0};
     std::unordered_map<int, std::int32_t> locals;  // indices >= 0x200
     std::int32_t acc = 0;

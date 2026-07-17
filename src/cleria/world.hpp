@@ -26,6 +26,7 @@
 
 #include "cleria/actor.hpp"
 #include "cleria/mathx.hpp"
+#include "cleria/xso.hpp"
 
 namespace cleria {
 
@@ -60,7 +61,10 @@ struct WorldTables {
     bool ok() const { return casts && enemies && game; }
 };
 
-class ActorWorld {
+// ActorWorld IS the XSO host: it implements the primitive spawn/is_alive interface
+// the VM calls, so a running script drives real actors. The interface stays free of
+// world types (see xso.hpp); this is where the two meet.
+class ActorWorld : public XsoHost {
   public:
     explicit ActorWorld(WorldTables t) : tables_(t) {}
 
@@ -69,6 +73,21 @@ class ActorWorld {
     // ** An existing actor with this id is REUSED, not duplicated ** — step 1 of the
     // engine's own sequence looks the id up first and only allocates on a miss.
     Actor* spawn(const SpawnRequest& r);
+
+    // --- XsoHost: the primitive interface the VM calls -------------------------
+    void spawn(int entity_id, int cast_type, float x, float y, float z,
+               float yaw_deg, int group) override {
+        spawn(SpawnRequest{entity_id, cast_type, {x, y, z}, yaw_deg, group});
+    }
+    bool is_alive(int entity_id) const override {
+        // find() is non-const (it may resolve the player fast path), so this mirrors
+        // its logic read-only rather than casting away const.
+        if ((entity_id == kIdPlayer || entity_id == kIdPlayerAlias) && player_)
+            return player_->alive();
+        for (const Actor& a : actors_)
+            if (a.instance_id == entity_id) return a.alive();
+        return false;
+    }
 
     // FUN_00434d50 — the lookup behind every query op. A linear scan by instance id.
     // Returns null when absent (the engine returns 0), and resolves the player fast
