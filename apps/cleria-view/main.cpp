@@ -168,6 +168,23 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
   }
   return vec4<f32>(c, 1.0);
 }
+
+// Character/enemy sprites: ALPHA-BLEND, not the room's hard 0.5 alpha-test. The AIA
+// sprites carry genuine partial alpha (anti-aliased edges, translucent detail); cutting
+// it at 0.5 punched holes in the player and read as "half transparent". Discard only
+// the fully-transparent texels and hand the real alpha to the blender.
+@fragment
+fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
+  let tc = textureSample(tex, smp, in.uv);
+  if (tc.a < 0.004) { discard; }
+  var c = tc.rgb * in.color.rgb;
+  if (u.fogParams.z > 0.5) {
+    let f = clamp((u.fogParams.y - in.depth) / max(u.fogParams.y - u.fogParams.x, 0.001),
+                  0.0, 1.0);
+    c = mix(u.fogColor.rgb, c, f);
+  }
+  return vec4<f32>(c, tc.a);
+}
 )WGSL";
 
 // Effects (SEF/EF2): additive, camera-facing billboards. No fog and no alpha test —
@@ -230,6 +247,7 @@ struct Gpu {
     WGPUQueue queue{};
     WGPURenderPipeline pipeline{};
     WGPURenderPipeline fx_pipeline{};   // additive effect billboards (SEF/EF2)
+    WGPURenderPipeline char_pipeline{}; // alpha-blended character/enemy sprites
     WGPUBuffer ubuf{};
     WGPUBindGroup ubind{};
     WGPUSampler sampler{};
@@ -667,6 +685,19 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     pd.fragment = &fs;
     g.pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
 
+    // Character/enemy pipeline: same layout, but ALPHA-BLEND with the fs_char shader
+    // (real sprite alpha) instead of the room's hard alpha-test. Depth stays
+    // test-less/write so sprites occlude against the room; overlapping sprites are few.
+    WGPUBlendState cblend = {};
+    cblend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha,
+                    WGPUBlendFactor_OneMinusSrcAlpha};
+    cblend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One,
+                    WGPUBlendFactor_OneMinusSrcAlpha};
+    WGPUColorTargetState ctarget = target; ctarget.blend = &cblend;
+    WGPUFragmentState cfs = fs; cfs.entryPoint = sv("fs_char"); cfs.targets = &ctarget;
+    WGPURenderPipelineDescriptor cpd = pd; cpd.fragment = &cfs;
+    g.char_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &cpd);
+
     WGPUBufferDescriptor ud = {};
     ud.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst; ud.size = 112;
     g.ubuf = wgpuDeviceCreateBuffer(g.device, &ud);
@@ -1048,7 +1079,7 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     WGPURenderPassDescriptor rp = {};
     rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, g.pipeline);
+    wgpuRenderPassEncoderSetPipeline(pass, g.char_pipeline);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
     wgpuRenderPassEncoderSetBindGroup(pass, 1, spr.bind, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
@@ -2117,6 +2148,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     }
     XsoVm game;                        // persistent game state (survives rooms)
     game.g_flags[150] = character;
+    // ** Yunica's weapon: flag 149 = 1 is her AXE (her normal walking-around look); the
+    // uninitialised 0 is the Crimson Lotusblade (red sword), shown only with her fire
+    // skill (aso.hpp). ** Her attack animations sit behind Flag_IsEqualInt(149,1), so
+    // without this the swing renders the red sword. A global's initial value is not its
+    // normal value -- set the normal one.
+    game.g_flags[149] = 1;
     Player player;                     // stat block (HP/SP/level/EXP)
     // A fresh level-1 player: HP from the GAMEINFO player curve (60 at lv1), so getting
     // hit is meaningful. player.level stays 1 (no save model).
