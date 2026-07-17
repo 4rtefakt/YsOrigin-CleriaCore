@@ -2,12 +2,15 @@
 // established in Python (build/misc_re/verify_drops.py). Two implementations
 // agreeing is weak evidence — they can share one wrong idea, as the clip-AABB
 // outliers proved — so this asserts the INVARIANTS, not "the same numbers as before".
+#include "cleria/cast.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/items.hpp"
 
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <map>
+#include <string>
 #include <set>
 
 namespace fs = std::filesystem;
@@ -84,6 +87,71 @@ int main(int argc, char** argv) {
 
     std::printf("\n  %zu distinct dropped items:", distinct.size());
     for (int id : distinct) std::printf(" %s", it.name(id).c_str());
-    std::printf("\n\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
+
+    // ---- the SCT -> CASTINFO -> ENEMYINFO chain ------------------------------
+    const CastTable ct = CastTable::load(root / "MISC" / "CASTINFO.DAT");
+    std::printf("\n\nCASTINFO: %zu casts\n", ct.casts.size());
+
+    // Collect every cast name any room actually places, once.
+    std::set<std::string> placed;
+    std::map<std::string, int> rooms_with;
+    int sct_files = 0;
+    for (const auto& e : fs::recursive_directory_iterator(root)) {
+        if (!e.is_regular_file()) continue;
+        std::string ext = e.path().extension().string();
+        for (char& ch : ext) ch = char(std::toupper((unsigned char)ch));
+        if (ext != ".SCT") continue;
+        ++sct_files;
+        std::ifstream f(e.path(), std::ios::binary);
+        const std::string blob{std::istreambuf_iterator<char>(f),
+                               std::istreambuf_iterator<char>()};
+        for (const Cast& c : ct.casts)
+            if (!c.name.empty() && blob.find(c.name + '\0') != std::string::npos) {
+                placed.insert(c.name);
+                ++rooms_with[c.name];
+            }
+    }
+
+    int idx_ok = 0, stem_hit = 0;
+    std::vector<std::string> misses;
+    for (std::size_t i = 0; i < ct.casts.size(); ++i) {
+        if (ct.casts[i].cast_id == int(i)) ++idx_ok;
+        if (ct.casts[i].stem.empty()) continue;
+        if (fs::exists(ct.aia_path(root, int(i))))
+            ++stem_hit;
+        else
+            misses.push_back(ct.casts[i].name);
+    }
+    check(idx_ok == int(ct.casts.size()), "cast_id == record index",
+          std::to_string(idx_ok) + "/" + std::to_string(ct.casts.size()));
+    check(stem_hit == 86, "stem -> ANI/*.AIA (c000 -> C_000.AIA)",
+          std::to_string(stem_hit) + " resolve, " + std::to_string(misses.size()) + " miss");
+
+    // Each sprite-less cast must have a REASON: it is either the spawn marker, or a
+    // dead entry no room places. A cast that IS placed but has no sprite would be a
+    // real bug, and this is what would catch it.
+    int marker = 0, dead = 0, unexplained = 0;
+    for (const std::string& n : misses) {
+        const Cast* c = ct.find(n);
+        if (c && c->is_spawn_marker()) {
+            ++marker;
+        } else if (placed.count(n)) {
+            ++unexplained;
+            std::printf("    UNEXPLAINED: %s is placed but has no sprite\n", n.c_str());
+        } else {
+            ++dead;
+        }
+    }
+    check(unexplained == 0, "every sprite-less cast has a reason",
+          std::to_string(marker) + " spawn marker + " + std::to_string(dead) + " never placed");
+    // The spawn marker should be in essentially every room — that is what makes
+    // "it is a marker, not a character" a reason rather than an excuse.
+    check(rooms_with["CAST_ADOL"] > sct_files * 9 / 10,
+          "CAST_ADOL (spawn marker) is in ~every room",
+          std::to_string(rooms_with["CAST_ADOL"]) + "/" + std::to_string(sct_files) + " rooms");
+    std::printf("  (%zu of %zu casts are placed by some room)\n", placed.size(),
+                ct.casts.size());
+
+    std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
     return fails ? 1 : 0;
 }
