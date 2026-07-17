@@ -50,10 +50,17 @@
 // assert "g_flags initialized for non-existent player character") x 11 columns (the
 // weapon tier, clamped to 0xa in code). Row stride 0x30, computed in code.
 //
-//   char0: 23 31 38 45 53 60 67 74 82 89 94
-//   char1: 21 28 35 42 50 57 64 71 79 86 91
-//   char2: 22 29 36 43 51 58 65 72 80 87 92
-//   char3: 20 27 34 41 49 56 63 70 78 85 90
+//   char0: 23 31 38 45 53 60 67 74 82 89 94   <- ADOL   (arcade mode only)
+//   char1: 21 28 35 42 50 57 64 71 79 86 91   <- Yunica
+//   char2: 22 29 36 43 51 58 65 72 80 87 92   <- Hugo
+//   char3: 20 27 34 41 49 56 63 70 78 85 90   <- Toal
+//
+// ** Why a three-character story has a four-row table: char 0 is ADOL, who is playable
+// in ARCADE MODE. ** His sprite set is C_110 (red hair, sword and shield) and the
+// player-AIA table at 0x0069bd40 lists him first. The row order matches that table
+// (see build/source_map/PLAYER_ANIM.md), so the mapping here is not guesswork about
+// which row is whom — though note cleria-view's `character - 1` conversion from
+// g_flags[150] IS still an assumption about the 1-based/0-based relation.
 //
 // This is the value that closed the negative-damage puzzle. The curve above is the
 // BASE ATK, not the final one: FUN_004208f0 adds the weapon on top, into the same

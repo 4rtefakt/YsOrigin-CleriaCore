@@ -70,11 +70,19 @@
 // ## The 9 that don't resolve are explained, not missing [C-COR]
 //
 //   CAST_ADOL  — placed 182 times across 181 of 192 rooms: it doubles as the SPAWN
-//                POINT. It has no AIA because the player's sprite is per-character
-//                (C_111/C_112/C_113 — Yunica/Hugo/Toal) and cannot be one fixed stem.
-//                A record with no sprite is not a record with no purpose. (The name is
-//                vestigial: Adol is not in Ys Origin at all — it is a prequel set 700
-//                years before him.) Note it is category 2, not the 4/16 below.
+//                POINT. It has no AIA because the player's sprite is per-character and
+//                cannot be one fixed stem — the AIA is chosen at runtime by
+//                FUN_00464fc0 from the character index. A record with no sprite is not
+//                a record with no purpose. Note it is category 2, not the 4/16 below.
+//
+//                ** The name is NOT vestigial. ** This file used to claim "Adol is not
+//                in Ys Origin at all — it is a prequel set 700 years before him". That
+//                is wrong: **Adol is playable in ARCADE MODE**, just not in the story.
+//                His sprite set is C_110 (red hair, sword and shield) and he is
+//                character 0 of the four — which is exactly why the player table, and
+//                GAMEINFO's weapon-ATK table, have FOUR rows for a three-character
+//                story. I inferred "vestigial" from knowing the setting rather than
+//                from the game; the data was right and the lore reasoning was wrong.
 //   the other 8 — CAST_C000, CAST_M000..M050, CAST_M790: **never placed in any of
 //                the 192 SCT files.** Dead table entries.
 //

@@ -103,18 +103,21 @@ class AsoVm {
     // 0x10b<->0x13b/0x13c. Sections 0x10c..0x111 carry no flag-149 test — those moves
     // are weapon-independent.
     //
-    // ** What flag 149 MEANS is [UNKNOWN]. ** What it DOES is [C-DIS]: it is
-    // DAT_0076bb70, toggled 0/1 by FUN_0046af60, which also forces +0x994 = 2 (idle),
-    // restarting the animation. Rendering both sets: the flag-149 alternates show an
-    // AXE, the default set (flag == 0) shows a long red glowing blade.
+    // ** flag 149 == 1 IS NORMAL GAMEPLAY. ** Identified by showing both renders to
+    // someone who has played the game: the flag-149 ALTERNATES (0x12c..) are "Yunica as
+    // she looks walking around in the game", and the DEFAULT set (0x0.., a long red
+    // blade) is a real but unplaced state — confirmed Yunica, confirmed not her Boost
+    // form, usage unrecalled.
     //
-    // Yunica fights with an axe, so the alternates are normal play and the default is
-    // something else. The obvious guess was Boost — **the project owner checked in-game
-    // and the red sword is NOT her Boost form**, so that reading is dead and no
-    // replacement is offered here. An animation switch that restarts the state is the
-    // shape of a transformation, a weapon change or a story mode; the data cannot tell
-    // us which, and inventing a name for it would be exactly the kind of plausible
-    // label this file has already had to retract twice.
+    // So the polarity is settled and the sense is inverted from what a cold read
+    // suggests: DAT_0076bb70's *initial* value is 0, which selects the RED set, so
+    // gameplay must write 1. **A global's initial value is not its normal value**, and
+    // reading "default 0" as "the default state" is what made this look backwards.
+    //
+    // [UNKNOWN] what the red-blade state IS. An animation switch that restarts the
+    // state (FUN_0046af60 forces +0x994 = 2, idle) is the shape of a transformation, a
+    // weapon change or a story beat — the data cannot say which, and this file has
+    // already retracted two plausible labels. It stays unnamed.
     //
     // ## Two of MY claims died here, and the second lesson is the useful one
     //
