@@ -4,10 +4,10 @@
 // inspection and corpus-checked — no disassembly needed, the fields are in the data:
 //
 //   +0x00  char[0x20]  NAME, NUL-terminated ASCII (English comes from data_us)
-//   +0x24  u32         [UNKNOWN] small ints (0,1,5..20) and a 999 sentinel
+//   +0x24  u32         MAGNITUDE — the unit depends on the category (see below)
 //   +0x34  char[0x10]  ICON STEM -> MENU/ICON/<STEM>.DDS  (and ICON2/<STEM>V.DDS)
-//   +0x3C  f32         [H-medium] grid X — steps by exactly 38 (160,198,236,274,...)
-//   +0x40  f32         [H-medium] grid Y — steps by exactly 42 (54,96,138,180,...)
+//   +0x3C  f32         [UNKNOWN] — NOT the inventory grid; see below
+//   +0x40  f32         [UNKNOWN] — uniform 42 pitch, but no known reader
 //   +0x4C  char[0x6C]  DESCRIPTION, with CR/LF line breaks
 //
 // The icon stem RESOLVES FOR ALL 128 RECORDS (128 hit / 0 miss against the 132 files
@@ -20,8 +20,44 @@
 // unavailable, so it never needs a greyed icon: a reason, not a gap. That also
 // confirms ICON2/*V is the "unavailable" variant.
 //
-// The two floats' regular 38/42 pitch reads as a fixed slot grid in the inventory
-// screen, but nothing has been traced to confirm it — hence [H-medium].
+// ## +0x24 is a MAGNITUDE, and its unit depends on the category [C-COR]
+//
+//   go (gold, 120..127)     1, 5, 10, 50, 100, 500, 1000, 5000
+//   tl (tools, 66..115)     0, 10, 25, 50, 100, 200, 999
+//   ar (armor, 6..29)       7, 8, 13, 16, 20, 24, 26, 32, 33, 39, 40, 48, ...
+//   sh (shields, 30..53)    6, 7, 12, 13, 18, 20, 24, 26, 30, 33, 36, 39, ...
+//   sw (swords, 0..5)       20 and 999 ONLY
+//   ac / sk                 all 0
+//
+// The gold row is airtight: **+0x24 equals the number in the item's own NAME, 8/8**
+// ("1G" -> 1 ... "5000G" -> 5000). Tools read as heal amounts (Recovery Drop 1..4 =
+// 10/25/50/100). Armor and shields ramp, which makes them a DEF candidate.
+//
+// ** But swords are all 20 or 999, so this is NOT a generic "stat value". ** If it
+// were, swords would ramp like armor and they do not. So the armor/shield DEF reading
+// is [H-high] at best and is NOT exposed here. The 999 sentinel lands on exactly three
+// items: 4 (sw_04), 5 (sw_05), 71 (tl_05 "Recovery Drop 6") — plainly a full-heal on
+// the tool, and something else on two swords.
+//
+// ## +0x3C / +0x40 are NOT the inventory grid — the old claim is refuted
+//
+// This file used to call them "grid X — steps by exactly 38" and "grid Y — steps by
+// exactly 42", [H-medium]. The X claim is simply false, and it is a clean example of
+// generalising from the head of a list: the first four values ARE 160, 198, 236, 274,
+// a perfect 38 pitch. The full set is not:
+//
+//   +0x3C: 160 198 236 260 274 298 312 336 350 374 412 418 456 472 494 510 532 548 570
+//   steps:   38  38  24  14  24  14  24  14  24  38   6  38  16  22  16  22  16  22
+//
+// And the menu's REAL inventory cursor lattice, read out of the code, is
+// `(441 + col*75, 72 + row*64)` — pitch 75/64, not 38/42. Zero of the 19 X values fit
+// it; one of nine Y values does, which is chance. The menus also hardcode every rect
+// as a float immediate, with no table of rects to read — so a layout grid in INVINFO
+// would have nothing to feed.
+//
+// +0x40's 42 pitch IS uniform, and both are zero for all 8 gold items (which are
+// never shown in a grid). That is suggestive of a position for *something*, but no
+// reader has been found, so both are [UNKNOWN] rather than named.
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -34,8 +70,12 @@ struct Item {
     std::string name;
     std::string icon;         // stem, lower-case as stored (e.g. "sw_00")
     std::string description;  // may contain CR/LF
-    std::uint32_t unk24 = 0;
-    float grid_x = 0, grid_y = 0;
+    // +0x24. Named for what it IS (a magnitude) rather than what it means, because
+    // what it means depends on the category and only the gold case is proven.
+    std::uint32_t magnitude = 0;
+    // +0x3C / +0x40. Deliberately NOT called grid_x/grid_y — that reading is refuted
+    // (see the header). Named for their offsets so nothing reads meaning into them.
+    float f3c = 0, f40 = 0;
 };
 
 struct ItemTable {

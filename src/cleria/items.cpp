@@ -40,9 +40,9 @@ ItemTable ItemTable::load(const fs::path& path) {
         it.name = cstr(b, o + 0x00, 0x20);
         it.icon = cstr(b, o + 0x34, 0x10);
         it.description = cstr(b, o + 0x4C, 0x6C);
-        std::memcpy(&it.unk24, b.data() + o + 0x24, 4);
-        std::memcpy(&it.grid_x, b.data() + o + 0x3C, 4);
-        std::memcpy(&it.grid_y, b.data() + o + 0x40, 4);
+        std::memcpy(&it.magnitude, b.data() + o + 0x24, 4);
+        std::memcpy(&it.f3c, b.data() + o + 0x3C, 4);
+        std::memcpy(&it.f40, b.data() + o + 0x40, 4);
     }
     return t;
 }

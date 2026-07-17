@@ -89,6 +89,21 @@ int main(int argc, char** argv) {
     std::printf("\n  %zu distinct dropped items:", distinct.size());
     for (int id : distinct) std::printf(" %s", it.name(id).c_str());
 
+    // INVINFO +0x24 is a magnitude. The gold case proves itself: the column must
+    // equal the number in the item's OWN NAME. This is the strongest self-check in
+    // the table -- the data states its own answer -- so it is worth asserting.
+    int gold_ok = 0, gold_n = 0;
+    for (int id = 120; id < 128; ++id) {
+        const Item* g = it.get(id);
+        if (!g) continue;
+        const std::size_t gpos = g->name.find('G');
+        if (gpos == std::string::npos || gpos == 0) continue;
+        ++gold_n;
+        if (std::stoul(g->name.substr(0, gpos)) == g->magnitude) ++gold_ok;
+    }
+    check(gold_ok == gold_n && gold_n == 8, "INVINFO +0x24 == the gold in the name",
+          std::to_string(gold_ok) + "/" + std::to_string(gold_n));
+
     // ---- the SCT -> CASTINFO -> ENEMYINFO chain ------------------------------
     const CastTable ct = CastTable::load(root / "MISC" / "CASTINFO.DAT");
     std::printf("\n\nCASTINFO: %zu casts\n", ct.casts.size());
