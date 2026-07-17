@@ -5,6 +5,7 @@
 #include "cleria/cast.hpp"
 #include "cleria/combat.hpp"
 #include "cleria/gameinfo.hpp"
+#include "cleria/eex.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/items.hpp"
 
@@ -384,6 +385,38 @@ int main(int argc, char** argv) {
                   std::to_string(exact) + "/" + std::to_string(rows.size()) +
                       (misses.empty() ? "" : "  (known: " + misses[0] + ")"));
         }
+    }
+
+    // ---- EEX: the boss table -------------------------------------------------
+    // Bosses carry RAW stats, not multipliers -- which is why fold(cast_id-14) never
+    // reached them. Identified by the levels: 8/16/24/32/40/45/49/50 are exactly the
+    // game's published boss levels for Velagunder..Darm, and +0x04 matches their
+    // published STR 6/8. How a boss REACHES a record is [UNKNOWN], so this asserts the
+    // table's shape only.
+    {
+        const EexTable ex = EexTable::load(root / "MISC" / "EEX.DAT");
+        std::printf("\nEEX: %zu records\n", ex.bosses.size());
+        int real = 0, inert = 0;
+        std::vector<int> lv;
+        bool ramps = true;
+        float prev_atk = -1;
+        for (const BossStats& s : ex.bosses) {
+            if (s.is_inert()) { ++inert; continue; }
+            ++real;
+            lv.push_back(s.level);
+            if (s.atk < prev_atk) ramps = false;
+            prev_atk = s.atk;
+        }
+        const std::vector<int> kBossLevels = {8, 16, 24, 32, 40, 45, 49, 50};
+        check(real == 8 && inert == 10, "EEX is 8 real + 10 inert",
+              std::to_string(real) + " + " + std::to_string(inert));
+        check(lv == kBossLevels, "EEX levels == the published boss levels",
+              "8/16/24/32/40/45/49/50");
+        check(ramps, "boss STR ramps with level", "");
+        for (const BossStats& s : ex.bosses)
+            if (!s.is_inert())
+                std::printf("    lv%-3d HP %5.0f  STR %4.0f  DEF %4.0f\n", s.level, s.hp,
+                            s.atk, s.def);
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);

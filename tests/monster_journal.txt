@@ -89,3 +89,36 @@
 66 Levenueba 611 46 249 234 437
 67 Drefflum 633 46 253 237 445
 68 Glaregrave 591 47 255 263 483
+#
+# BOSS rows (69..92), from the same journal. Columns: No Name LV STR SP
+# HP/DEF/EXP are blank in the published table for bosses.
+#
+# The journal fills each boss column from a DIFFERENT difficulty: HP from Easy, LV any,
+# STR from Normal, DEF from Hard, EXP from Very Easy, SP from Nightmare. So LV and STR
+# are the only two directly comparable to a baseline run -- STR because Normal IS the
+# baseline (difficulty scales damage and HP, not STR).
+#
+# B  69 Vagullion   5  56    526
+# B  70 Epona       5  58    744
+# B  71 Velagunder  8  70   1936
+# B  72 Epona      12  89   1694
+# B  73 Vagullion  12  91   1198
+# B  74 Nygtilger  16 100   3762
+# B  75 Kishgal    19 121   5766
+# B  76 ToalFact   19 119   2223
+# B  77 Gelaldy    24 150   5587
+# B  78 Jenocres   29 158   2829
+# B  79 Khonsclard 32 176   7413
+# B  80 Pictimos   40 220   9238
+# B  81 Epona      43 229   5900
+# B  82 Kishgal    43 228  12869
+# B  83 Zava       45 232  10379
+# B  84 Kishgal    48 251  14348
+# B  85 ToalFact   48 247  21848
+# B  86 Dalles     49 255  22585
+# B  87 Galleon     5  58    744
+# B  88 HugoFact   12  82   1424
+# B  89 Shion      19 121   2223
+# B  90 Kishgal    43 231  12869
+# B  91 HugoFact   48 249  22128
+# B  92 Darm       50 258      0

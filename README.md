@@ -42,7 +42,8 @@ and a C++20 asset core renders real rooms.
 | **Scene fog (SFO)** | ✅ **per-region colour/near/far, cross-faded as the game does** |
 | **The real HUD (STATUS_512)** | ✅ **authored 1024×768 coords, Hor+ scaling, the game's own digit emitter (builder A), real bar cluster, 4 equipment slots** |
 | **Fixed-step 60 Hz logic** | ✅ **decoupled from rendering — measured 165 fps / 60 tps**; timeScale-aware, uncapped catch-up like the exe |
-| **Enemy stats** | ✅ **CLOSED. `stat = K(ENEMYINFO column) × curve(that enemy's level)`, `K(v) = 2^((v−50)/20)` — no raw HP/ATK/DEF/EXP is stored anywhere; every one is a multiplier.** Real DEF spans 27..295, so the curve's "40" describes no enemy that exists |
+| **Enemy stats** | ✅ **CLOSED and externally validated: 67/68 enemies match the game's own monster journal exactly** on HP/level/STR/DEF, and 67/68 on EXP. `stat = FLOOR(K(ENEMYINFO col) × curve(level))`, `K(v) = 2^((v−50)/20)` — nothing is stored raw. (The 68th is a typo in the published table; our data locates it.) |
+| **Boss stats (EEX)** | ⚠️ **table cracked, lookup open.** Bosses carry RAW stats, not multipliers — which is why the enemy index never reached them. `EEX.DAT` = 8 real + 10 inert; its levels are exactly the published 8/16/24/32/40/45/49/50 (Velagunder→Darm) and its STR matches 6/8. **How a boss reaches a record is `[UNKNOWN]`** |
 | **Enemy/player stat curves** | ✅ **CLOSED. `stat = lerp(value_at_lv1, value_at_lv60, (level−1)/59)` from GAMEINFO — enemies read pairs 0/1/2/4 (`FUN_004202e0`), the player 6/7/8 + 10 (`FUN_00420c40`)** |
 | **Enemy level** | ✅ **ENEMYINFO +0xe8, i32 1..60 — it read as denormal floats, which is why it hid** |
 | **Player physics (vertical)** | ✅ **there is no gravity constant — the engine keeps a signed TIME at actor+0x330 and computes `dy = 0.5*9.81*t*abs(t)` in closed form.** Jump v0 0.285, terminal fall 0.65/tick, char radius 0.675 and height 1.075 — all per-cast from CASTINFO |
