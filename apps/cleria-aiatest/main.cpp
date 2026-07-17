@@ -53,9 +53,16 @@ int main(int argc, char** argv) {
     if (out) {  // PPM: composite over black so it's directly viewable/diffable.
         write_ppm(out, fr);
         if (want_composite && a.has_layer(region) && lay.w) {
-            cleria::AiaFrame comp = fr;
-            cleria::composite_over(comp, lay);
-            write_ppm(std::string(out) + ".composite.ppm", comp);
+            // Write BOTH blends. They are the argument: on C_115 `over` erases the
+            // body (which is what made us wrongly abandon the overlay reading) while
+            // `add` glows. [H-high] says `add` is the engine's; the exe has the
+            // final word.
+            cleria::AiaFrame over = fr;
+            cleria::composite_over(over, lay);
+            write_ppm(std::string(out) + ".over.ppm", over);
+            cleria::AiaFrame add = fr;
+            cleria::composite_add(add, lay);
+            write_ppm(std::string(out) + ".add.ppm", add);
         }
     }
     return 0;

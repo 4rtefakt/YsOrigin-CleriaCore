@@ -26,10 +26,15 @@ struct AiaImage {  // one animation
     std::uint32_t tag = 0, first = 0, nDir = 0, nFrame = 0;
 };
 
-// Composite `layer` over `body` in CANVAS space, growing body's bbox to the union
+// Composite `layer` onto `body` in CANVAS space, growing body's bbox to the union
 // of the two. Both frames carry their own canvas origin (x0,y0) — that is what
-// aligns them; their tight bboxes generally differ. Straight alpha, layer on top.
+// aligns them; their tight bboxes generally differ (only 34% coincide).
+//
+// `_over` is straight alpha, layer on top. `_add` is ADDITIVE — [H-high] the one the
+// engine uses; see the note on `has_layer` below. They differ enormously in practice:
+// on C_115, `_over` erases Toal and `_add` gives him a purple glow.
 void composite_over(AiaFrame& body, const AiaFrame& layer);
+void composite_add(AiaFrame& body, const AiaFrame& layer);
 
 // A loaded AIA file. Keeps the raw bytes and decodes frames on demand.
 struct Aia {
@@ -58,19 +63,35 @@ struct Aia {
     // demon body in palette 0 and its aura in palette 1". That is REFUTED: dump
     // C_115 region 0 and 1 and look. Both have the IDENTICAL bbox (73x99 @102,13)
     // and near-identical coverage (3408 vs 3406 non-transparent pixels) — the layer
-    // is not a sparse aura, it is the WHOLE SILHOUETTE flat-shaded in purple.
-    // Compositing it over the body with straight alpha therefore erases the body
-    // completely, which is obviously not what the game shows.
+    // is the WHOLE SILHOUETTE flat-shaded in purple, so compositing it OVER the body
+    // with straight alpha erases the body completely.
     //
-    // The likelier reading — untested — is a STATE variant rather than an overlay:
-    // a Boost/hit flash the engine swaps in. C_115 (Toal's Boost form) and the
-    // enemies M_340/M_370/M_540 are 100% layered, while C_104's layers sit only on
-    // two special animations (tags 408, 419) and none of his locomotion. Settle it
-    // before drawing anything.
+    // That observation is real. The conclusion drawn from it — "so the layer is not
+    // an overlay; it is a STATE variant the engine swaps in" — was WRONG, twice over,
+    // and both errors are worth remembering:
     //
-    // `composite_over` and `decode_frame_composited` below implement the straight-
-    // alpha overlay reading. They are kept because they make the refutation
-    // reproducible, but the renderer deliberately does NOT use them.
+    //  1. The erasure was evidence about the BLEND MODE, not about whether to draw
+    //     the layer. A composite that looks wrong indicts the compositor first.
+    //  2. C_115 is the corpus's most ATYPICAL file — 100% layered, full-silhouette
+    //     aura, and the only file whose layers contain zero ALPHA opcodes. Only
+    //     1983/5906 (34%) of layers share their body's bbox at all.
+    //
+    // The layer IS an overlay [C-COR]: a second sprite element with its own position,
+    // own art (`sameBlob = 0/5906` — it is NEVER the body's blob) and own palette
+    // (`layerPal == bodyPal + 1`, 5906/5906). The decisive proof is that the layer's
+    // bbox MOVES INDEPENDENTLY of the body's, which a state variant cannot do: M_460
+    // tag 300 is a spark falling while the body stands still; M_910 tag 7 is orbs
+    // flying out and returning; C_114 tag 268 is a flaming sword sweeping the canvas.
+    //
+    // [H-high] THE BLEND IS ADDITIVE. Layers carry ~7x the opaque-black pixels bodies
+    // do (C_112: 22.6% vs 0.6%). Under alpha-OVER an opaque black pixel punches a
+    // hole; under additive it is the identity — free. Nobody authors 22.6% of an
+    // overlay as pure black against OVER. [UNKNOWN] the exact D3D state (SRCALPHA/ONE
+    // vs ONE/ONE) still needs disassembly — it lives in the exe's sprite draw call.
+    //
+    // `composite_add` is therefore the one to use; `composite_over` is kept because
+    // it makes the old refutation reproducible and because the two side by side are
+    // the argument.
     //
     // 5906 of 60844 slots are real, across 28 files. C_115 and M_340/M_370 use one on
     // every frame; C_102 uses none — so a renderer that ignores layers looks correct

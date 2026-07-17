@@ -161,8 +161,74 @@ bool Aia::decode_frame_composited(std::uint32_t image, std::uint32_t dir,
     if (!decode_frame(image, dir, frame, out)) return false;
     if (std::getenv("CLERIA_NOLAYER")) return true;  // A/B the composite
     AiaFrame layer;
-    if (decode_frame_layer(image, dir, frame, layer)) composite_over(out, layer);
+    // Additive: [H-high] the engine's blend. See aia.hpp's note on `has_layer`.
+    if (decode_frame_layer(image, dir, frame, layer)) composite_add(out, layer);
     return true;
+}
+
+namespace {
+// Shared canvas-space setup for the two composites. Returns the union rect and the
+// body blitted into it; the caller supplies how the layer combines.
+struct Canvas {
+    std::vector<std::uint8_t> px;
+    std::uint32_t x0 = 0, y0 = 0, w = 0, h = 0;
+};
+
+Canvas union_canvas(const AiaFrame& body, const AiaFrame& layer) {
+    Canvas c;
+    c.x0 = std::min<std::uint32_t>(body.x0, layer.x0);
+    c.y0 = std::min<std::uint32_t>(body.y0, layer.y0);
+    const std::uint32_t x1 = std::max<std::uint32_t>(body.x0 + body.w, layer.x0 + layer.w);
+    const std::uint32_t y1 = std::max<std::uint32_t>(body.y0 + body.h, layer.y0 + layer.h);
+    c.w = x1 - c.x0;
+    c.h = y1 - c.y0;
+    c.px.assign(std::size_t(c.w) * c.h * 4, 0);
+    // The body goes down as a straight copy — it is the bottom of the stack.
+    for (std::uint32_t y = 0; y < body.h; ++y) {
+        for (std::uint32_t x = 0; x < body.w; ++x) {
+            const std::size_t si = (std::size_t(y) * body.w + x) * 4;
+            if (body.rgba[si + 3] == 0) continue;
+            const std::size_t di =
+                ((std::size_t(body.y0 - c.y0 + y)) * c.w + (body.x0 - c.x0 + x)) * 4;
+            std::memcpy(&c.px[di], &body.rgba[si], 4);
+        }
+    }
+    return c;
+}
+
+void finish(AiaFrame& body, Canvas& c) {
+    body.rgba.swap(c.px);
+    body.w = c.w;
+    body.h = c.h;
+    body.x0 = std::uint16_t(c.x0);
+    body.y0 = std::uint16_t(c.y0);
+}
+}  // namespace
+
+// [H-high] the engine's blend. Saturating add of the layer's colour, alpha maxed.
+// Pure black is the identity here, which is why ~22% of a layer's opaque pixels can
+// be black without punching holes — the fact the additive reading rests on.
+void composite_add(AiaFrame& body, const AiaFrame& layer) {
+    if (layer.w == 0 || layer.h == 0) return;
+    if (body.w == 0 || body.h == 0) { body = layer; return; }
+    Canvas c = union_canvas(body, layer);
+    for (std::uint32_t y = 0; y < layer.h; ++y) {
+        for (std::uint32_t x = 0; x < layer.w; ++x) {
+            const std::size_t si = (std::size_t(y) * layer.w + x) * 4;
+            const std::uint32_t sa = layer.rgba[si + 3];
+            if (sa == 0) continue;
+            const std::size_t di =
+                ((std::size_t(layer.y0 - c.y0 + y)) * c.w + (layer.x0 - c.x0 + x)) * 4;
+            for (int k = 0; k < 3; ++k) {
+                // SRCALPHA/ONE — the layer is modulated by its own alpha, then added.
+                // If the true state turns out to be ONE/ONE, drop the `* sa / 255`.
+                const std::uint32_t add = layer.rgba[si + k] * sa / 255;
+                c.px[di + k] = std::uint8_t(std::min<std::uint32_t>(255, c.px[di + k] + add));
+            }
+            c.px[di + 3] = std::uint8_t(std::max<std::uint32_t>(c.px[di + 3], sa));
+        }
+    }
+    finish(body, c);
 }
 
 void composite_over(AiaFrame& body, const AiaFrame& layer) {
