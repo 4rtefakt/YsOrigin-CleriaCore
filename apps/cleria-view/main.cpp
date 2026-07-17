@@ -13,6 +13,7 @@
 #include <random>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -2095,7 +2096,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // shape matters, and an explicit seed buys us the determinism it lacked.
     std::mt19937 rng(20260717u);
     std::uniform_real_distribution<float> rng_pct(0.0f, 100.0f);
-    float atk_cd = 0;                    // attack cooldown
+    float atk_cd = 0;                    // attack cooldown (seconds)
+    // The player's melee swing, from the ASO GenerateCollision hitbox (build/attack_re).
+    // A swing arms a sphere for `atk_window` ticks; each tick it hits enemies inside it,
+    // once per swing (the engine's hit-dedup). Yunica's basic swing (verified in
+    // cleria-asotest): radius 0.6, 30-tick window, power 8.0, box 0.6 ahead of the actor.
+    int atk_window = 0;                  // ticks left in the active hitbox
+    Vec3 atk_dir{0, 0, 1};               // the swing's facing (captured at swing start)
+    std::set<int> atk_hit;               // instance ids already hit this swing (dedup)
+    Vec3 face_dir{0, 0, 1};              // world dir the player faces (from movement)
     WGPUTextureView depth = make_depth(g.device, cw, ch);
 
     // CLERIA_CHAR=1|2|3 picks the starting character (Tab still cycles). Toal (3,
@@ -2319,87 +2328,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Melee swing. Damage and reach are OUR numbers: the game has no per-enemy HP
     // column (stats come from a level curve we have not wired), and the player's
     // attack animation tags in c_111 are not identified yet.
+    // Start a swing. The hit-volume is armed for `atk_window` ticks and processed in the
+    // fixed-step loop (see the swing block there). This is the engine's shape now, from
+    // build/attack_re/ATTACK.md, not the old instant reach-2.6 circle: a SPHERE of radius
+    // 0.6 sitting 0.6 units AHEAD of the player in the facing direction (arg[2] is both
+    // the radius and the forward reach; the "+0x10c angle" is a placement offset, 0 for a
+    // straight swing, NOT a sector arc), live for a 30-tick window, dealing `power` 8.0 as
+    // the damage bonus, and hitting each enemy ONCE per swing (the engine's hit-dedup).
+    // The numbers are Yunica's basic swing, verified in cleria-asotest against C_010.
     auto try_attack = [&] {
-        if (atk_cd > 0) return;
-        atk_cd = 0.35f;
-        // ** INVENTED, and now known to be wrong in BOTH magnitude and shape. **
-        //
-        // The engine's melee hitbox is a SECTOR, not a circle. anime_GenerateCollision
-        // (ASO funcid 0x23) -> FUN_004494e0(actor, args[]):
-        //
-        //   args[2] -> actor+0x110 = RADIUS       (engine default 0.75; every melee
-        //                                          swing in C_010 passes 0.6)
-        //   args[3] -> actor+0x10c = args[3] * DAT_006bd0dc, and that constant read
-        //              RAW is 0x3c8efa35 = 0.017453292 = pi/180  ==> args[3] is an
-        //              ANGLE IN DEGREES, so the shape is an arc in front of her.
-        //
-        // ** The active-window [UNKNOWN] is now CLOSED (build/attack_re/ATTACK.md). **
-        // The window IS the lifetime GenerateCollision writes to actor+0x118: arg[6],
-        // counted down once per attacker tick. For Yunica's basic swing (C_010 section
-        // 0x100) it arms at frame 0 for 30 frames -- essentially the whole swing -- with
-        // radius 0.6 (arg[2]) and power 8.0 (arg[11]). The AsoVm now surfaces all three
-        // via armed_hitbox()/hitbox(), verified in cleria-asotest.
-        //
-        // So the faithful melee is fully sourced and BUILDABLE: run the attack section
-        // through the player's AsoVm, and on the armed tick scan enemies in the
-        // radius-0.6 sector for `lifetime` frames, dealing damage with `power` as the
-        // bonus. It is NOT swapped in here yet only because it is an ASO-driven combat
-        // rework (this loop is an instant cooldown+circle), and --play can't run headless
-        // to watch it. Until then the reach stays the INVENTED 2.6 -- kept over the real
-        // 0.6 because 0.6 with this instant loop (no window) lands on frame 0 of the
-        // wind-up, a different wrongness. Wire the sector, the window, and `power`
-        // together, from the VM's hitbox.
-        const float reach = 2.6f;
-        int killed = 0, hit = 0;
-        for (Actor& e : world.actors()) {
-            // The world now holds the player too (CAST_ADOL via op 0xa0); it is not a
-            // melee target. (It also has hp 0, so alive() already excludes it — this is
-            // the explicit guard.)
-            if (e.is_player() || !e.alive()) continue;
-            const float dx = e.pos.x - feet.x, dz = e.pos.z - feet.z;
-            const float dy = e.pos.y - feet.y;
-            if (dx * dx + dz * dz > reach * reach || std::fabs(dy) > 3.0f) continue;
-
-            // The game's formula. ATK is the level curve PLUS the weapon — the curve
-            // alone goes negative at level 1. `bonus` is per-attack-move power, which
-            // we don't have a table for, so it stays 0 rather than being invented.
-            AttackStats a;
-            // The row mapping is IDENTITY, and `character - 1` was wrong. g_flags[150]
-            // is 1=Yunica/2=Hugo/3=Toal and GAMEINFO's weapon rows are 0=Adol,
-            // 1=Yunica, 2=Hugo, 3=Toal — settled by matching each row against the
-            // published per-level STR values, which land in exactly one row each at the
-            // identical indices [1,2,4,6,8,10] while row 0 matches none of the three.
-            //
-            // I had marked this an assumption and shipped it anyway. It shifts ATK by
-            // ~1-2 points between adjacent rows — invisible in play, wrong in every
-            // frame. That is precisely why it needed an external check rather than a
-            // plausibility check.
-            //
-            // Level and tier stay 1 and 0: we have no save-file model, so this is a
-            // fresh-game player rather than a claim about the player's state.
-            a.atk = ginfo.player_atk(character, /*weapon tier*/ 0, /*level*/ 1);
-            const int dmg = damage_int(a, e.def, [&](float pct) {
-                // The engine's roll: P(round up) == pct/100, from an inlined xorshift.
-                // Its own seed is timeGetTime(), so there is no canonical stream to
-                // match — we use our own generator and get determinism it never had.
-                return float(rng_pct(rng)) < pct;
-            });
-            // NOT apply_difficulty(): the factor is [C-DIS] {1.0,1.5,2.0} but which
-            // sides it applies to is [H-medium] pending an in-game check.
-            const HitResult r = apply_damage(e.hp, e.flags, dmg);
-            ++hit;
-            if (std::getenv("CLERIA_DMG"))
-                std::printf("  hit cast %d (lv%d DEF %.0f): %d dmg, %.0f/%.0f HP left\n",
-                            e.cast_id, e.level, e.def, r.damage, e.hp, e.max_hp);
-            if (r.died) ++killed;   // apply_damage set the died marker; no separate flag
-        }
-        if (!hit) return;
-        if (killed) {
-            int left = 0;
-            for (const Actor& e : world.actors()) if (!e.is_player() && e.alive()) ++left;
-            std::printf("  defeated %d (%d left)\n", killed, left);
-            if (left == 0) clear_barrier();
-        }
+        if (atk_cd > 0 || atk_window > 0) return;
+        atk_cd = 0.5f;              // one swing at a time (~ the 30-tick window)
+        atk_window = 30;            // ASO GenerateCollision lifetime (arg[6])
+        atk_dir = face_dir;         // the swing points where you're facing
+        atk_hit.clear();
     };
 
     const ItemTable items_tbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
@@ -2566,7 +2508,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ks[SDL_SCANCODE_A]) { wish.x -= rt.x; wish.z -= rt.z; }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
             const bool moving = wl > 1e-4f;
-            if (moving) { feet.x += wish.x / wl * walk * dt; feet.z += wish.z / wl * walk * dt; }
+            if (moving) {
+                feet.x += wish.x / wl * walk * dt; feet.z += wish.z / wl * walk * dt;
+                face_dir = {wish.x / wl, 0, wish.z / wl};   // the swing faces where you walk
+            }
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
               feet.x = body.x; feet.z = body.z; }
@@ -2603,6 +2548,45 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 a.pos.x = body.x; a.pos.z = body.z;
                 const float efl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + kCharH);
                 if (efl > kNoFloor) a.pos.y = efl;
+            }
+
+            // The player's melee swing (build/attack_re). While the hit-volume is live,
+            // hit every enemy inside the sphere once. The box sphere sits 0.6 ahead in
+            // atk_dir with radius 0.6; an enemy is hit if its centre is within
+            // (0.6 + enemy radius). Damage uses the game's formula with the ASO's power
+            // as the +0xfc bonus (8.0), and marks each enemy hit so a 30-tick window
+            // deals one hit per swing, not 30.
+            if (atk_window > 0) {
+                --atk_window;
+                constexpr float kHitReach = 0.6f, kHitRadius = 0.6f, kHitPower = 8.0f;
+                const Vec3 c = {feet.x + atk_dir.x * kHitReach, feet.y + kCharH * 0.5f,
+                                feet.z + atk_dir.z * kHitReach};
+                const float rr = kHitRadius + kCharRadius;  // box radius + enemy radius
+                int killed = 0;
+                for (Actor& en : world.actors()) {
+                    if (en.is_player() || !en.alive() || atk_hit.count(en.instance_id)) continue;
+                    const float dx = en.pos.x - c.x, dz = en.pos.z - c.z;
+                    const float ddy = (en.pos.y + kCharH * 0.5f) - c.y;
+                    if (dx * dx + ddy * ddy + dz * dz > rr * rr) continue;
+                    atk_hit.insert(en.instance_id);   // the engine's per-attack hit-dedup
+                    AttackStats a;
+                    a.atk = ginfo.player_atk(character, /*tier*/ 0, /*level*/ 1);
+                    a.bonus = kHitPower;             // per-attack power, sourced from the ASO
+                    const int dmg = damage_int(a, en.def,
+                        [&](float pct) { return float(rng_pct(rng)) < pct; });
+                    const HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    if (std::getenv("CLERIA_DMG"))
+                        std::printf("  hit cast %d (lv%d DEF %.0f): %d dmg, %.0f/%.0f left\n",
+                                    en.cast_id, en.level, en.def, r.damage, en.hp, en.max_hp);
+                    if (r.died) ++killed;
+                }
+                if (killed) {
+                    int left = 0;
+                    for (const Actor& en : world.actors())
+                        if (!en.is_player() && en.alive()) ++left;
+                    std::printf("  defeated %d (%d left)\n", killed, left);
+                    if (left == 0) clear_barrier();
+                }
             }
 
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS
