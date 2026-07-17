@@ -9,6 +9,7 @@
 // contiguously with no gaps, and the last must end exactly at EOF.
 #include <algorithm>
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -54,6 +55,12 @@ int main(int argc, char** argv) {
                 ++held;
             }
             if (vm.foot_smoke()) std::printf("  [FootSmoke] at tick %d\n", t);
+            if (vm.armed_hitbox()) {
+                const AsoVm::Hitbox& h = vm.hitbox();
+                std::printf("  [GenerateCollision] tick %d: radius=%.3f half_angle=%.1fdeg "
+                            "lifetime=%d power=%.1f\n", t, h.radius,
+                            h.half_angle * 180.0f / 3.14159265f, h.lifetime, h.power);
+            }
             if (t == 0)
                 std::printf("  -> anime_File(%d) = %s   (the script picks the sprite)\n",
                             vm.file_id(), aso_aia_name(vm.file_id()));
@@ -138,5 +145,23 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < byn.size() && i < 6; ++i)
         std::printf("  func%d=%ld", byn[i].second, byn[i].first);
     std::printf("\n");
-    return (ok == files && bad_tile == 0 && decode_err == 0) ? 0 : 1;
+
+    // GenerateCollision (funcid 0x23): the melee hit-volume the AsoVm now surfaces.
+    // Lock the verified swing: C_010 (Yunica) section 0x100 arms at frame 0, radius 0.6,
+    // 30-frame window, power 8.0 (build/attack_re/ATTACK.md).
+    int gencol_fail = 0;
+    {
+        Aso a = Aso::load(fs::path(argv[1]) / "ANI" / "C_010.ASO");
+        if (a.ok()) {
+            AsoVm vm; vm.bind(&a); vm.set_section(0x100);
+            bool armed = false; AsoVm::Hitbox h;
+            for (int t = 0; t < 4 && !armed; ++t) { vm.tick(); if (vm.armed_hitbox()) { armed = true; h = vm.hitbox(); } }
+            const bool okhit = armed && std::fabs(h.radius - 0.6f) < 0.01f &&
+                               h.lifetime == 30 && std::fabs(h.power - 8.0f) < 0.01f;
+            std::printf("GenerateCollision C_010 sec0x100: %s (r=%.2f life=%d pow=%.1f)\n",
+                        okhit ? "OK" : "MISMATCH", h.radius, h.lifetime, h.power);
+            if (!okhit) gencol_fail = 1;
+        }
+    }
+    return (ok == files && bad_tile == 0 && decode_err == 0 && !gencol_fail) ? 0 : 1;
 }

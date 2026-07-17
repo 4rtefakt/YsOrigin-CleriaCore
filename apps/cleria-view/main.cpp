@@ -2333,13 +2333,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         //              RAW is 0x3c8efa35 = 0.017453292 = pi/180  ==> args[3] is an
         //              ANGLE IN DEGREES, so the shape is an arc in front of her.
         //
-        // So the real reach is ~0.6, not 2.6 — over 4x too far — and a full circle
-        // instead of a facing arc. It is NOT swapped in yet for one honest reason:
-        // [UNKNOWN] WHEN the hitbox goes active. GenerateCollision fires once at the
-        // section top, BEFORE the first anime_Pattern, and carries no active window;
-        // the leads are actor+0x11c bit2 and +0xd0/+0xd4. Shipping 0.6 with no active
-        // window would make attacks land on frame 0 of the wind-up, which is a
-        // different wrongness, not less of it. Wire the sector and the window together.
+        // ** The active-window [UNKNOWN] is now CLOSED (build/attack_re/ATTACK.md). **
+        // The window IS the lifetime GenerateCollision writes to actor+0x118: arg[6],
+        // counted down once per attacker tick. For Yunica's basic swing (C_010 section
+        // 0x100) it arms at frame 0 for 30 frames -- essentially the whole swing -- with
+        // radius 0.6 (arg[2]) and power 8.0 (arg[11]). The AsoVm now surfaces all three
+        // via armed_hitbox()/hitbox(), verified in cleria-asotest.
+        //
+        // So the faithful melee is fully sourced and BUILDABLE: run the attack section
+        // through the player's AsoVm, and on the armed tick scan enemies in the
+        // radius-0.6 sector for `lifetime` frames, dealing damage with `power` as the
+        // bonus. It is NOT swapped in here yet only because it is an ASO-driven combat
+        // rework (this loop is an instant cooldown+circle), and --play can't run headless
+        // to watch it. Until then the reach stays the INVENTED 2.6 -- kept over the real
+        // 0.6 because 0.6 with this instant loop (no window) lands on frame 0 of the
+        // wind-up, a different wrongness. Wire the sector, the window, and `power`
+        // together, from the VM's hitbox.
         const float reach = 2.6f;
         int killed = 0, hit = 0;
         for (Actor& e : world.actors()) {

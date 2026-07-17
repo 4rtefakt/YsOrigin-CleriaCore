@@ -175,6 +175,21 @@ class AsoVm {
     // paced by ASO events — a claim this project made and then refuted.
     bool foot_smoke() const { return foot_smoke_; }
 
+    // anime_GenerateCollision (funcid 0x23) armed a melee hit-volume THIS tick
+    // (build/attack_re/ATTACK.md). It is the sole melee attack trigger: the ASO section
+    // issues it at whatever frame the swing connects, and it arms the whole box in one
+    // op. `armed_hitbox()` is true only on the tick it fires; the consumer counts down
+    // `lifetime` frames itself (the engine decrements actor+0x118 once per attacker tick
+    // in the hit scan). Both the player and 49 monster scripts use this.
+    struct Hitbox {
+        float radius = 0;     // arg[2]  -> actor+0x110 (0.6 for Yunica's swing)
+        float half_angle = 0; // arg[3]  -> actor+0x10c, radians (arg is DEGREES)
+        int lifetime = 0;     // arg[6]  -> actor+0x118, frames the box is live
+        float power = 0;      // arg[11] -> actor+0xfc, the per-attack damage bonus
+    };
+    bool armed_hitbox() const { return hitbox_armed_; }
+    const Hitbox& hitbox() const { return hitbox_; }
+
     // Inputs the script polls.
     void set_is_land(bool v) { is_land_ = v; }
     void set_is_stun(bool v) { is_stun_ = v; }
@@ -223,6 +238,8 @@ class AsoVm {
     std::size_t flag_count_ = 0;
     bool is_land_ = true, is_stun_ = false;
     bool foot_smoke_ = false;
+    bool hitbox_armed_ = false;
+    Hitbox hitbox_;
 };
 
 }  // namespace cleria

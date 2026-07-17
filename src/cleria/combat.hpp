@@ -49,10 +49,15 @@ struct AttackStats {
     float atk = 0;
     // actor +0xfc — additive, inside the linear term. ** This is PER-ATTACK-MOVE power,
     // NOT an equipment bonus. ** FUN_00477f00 (the attack-descriptor setup) writes it
-    // from XMM3, a caller-supplied float, and all 66 writers live in actor TUs
-    // (go_actor_player.cpp, go_mesh_boss01..07.cpp) — not one in main/game/ where the
-    // equipment code lives. Values are per-move constants (4.0, 14.0, 20.0, ...). The
-    // per-move table itself is [UNKNOWN].
+    // from XMM3, a caller-supplied float.
+    //
+    // ** The "[UNKNOWN] per-move table" is CLOSED (build/attack_re/ATTACK.md): the power
+    // is arg[11] of the ASO anime_GenerateCollision op ** that arms each attack — the
+    // same op that sets the reach and the active window. It is per-attack DATA in the ASO
+    // section, not a code table. AsoVm::hitbox().power surfaces it; verified against
+    // C_010 (Yunica's basic swing = 8.0). So the melee is fully sourced: reach 0.6
+    // (arg[2]), a 30-frame active window (arg[6]), power 8.0 (arg[11]) -- all from the
+    // animation script, which is why no code table exists.
     float bonus = 0;
     float min_dmg = 0;  // actor +0x100 — a FLOOR, applied after the clamp to 0
 };
