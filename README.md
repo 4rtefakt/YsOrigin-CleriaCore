@@ -42,6 +42,7 @@ and a C++20 asset core renders real rooms.
 | **Scene fog (SFO)** | ✅ **per-region colour/near/far, cross-faded as the game does** |
 | **The real HUD (STATUS_512)** | ✅ **authored 1024×768 coords, Hor+ scaling, the game's own digit emitter (builder A), real bar cluster, 4 equipment slots** |
 | **Fixed-step 60 Hz logic** | ✅ **decoupled from rendering — measured 165 fps / 60 tps**; timeScale-aware, uncapped catch-up like the exe |
+| **Enemy drop tables (ENEMYINFO)** | ✅ **8 slots/enemy: item id + percent chance, corpus-proven — enemies drop only tools and gold, never equipment** |
 | **Enemies (SCT placement)** | ✅ **1106 placements / 85 rooms render as sprites; no AI yet** |
 | **Torch flames (SEF + EF2)** | ✅ **placements + the 16-frame flipbook, additive** |
 | **The full archive** | ✅ **15,945/15,945 extracted — incl. 77 shaders + 820 WAVs nothing had touched** |
@@ -189,7 +190,7 @@ for facts:
 
 | thing | status |
 |---|---|
-| enemy HP / damage / reach | **our numbers** — the game has no per-enemy HP column; stats come from a GAMEINFO level curve we haven't wired |
+| enemy HP / damage / reach | **our numbers still, but the data is now mapped.** GAMEINFO holds an 11-entry (not 7) curve array — idx 10 = (150, 18150), the obvious HP candidate — and ENEMYINFO carries a six-wide log2 stat block. What's missing is the damage *formula* and the level denominator; an agent is on it |
 | YMO animation keys | **doc was wrong until now**: the scale/translation labels were swapped (the correct composition reproduces the rest pose in 5832/7016 nodes; the old labelling in **0**), and the key's trailing field is a `u32` frame number, not a float — the old "monotonic time" test passed only because denormal ordering matches integer ordering |
 | animation frame rate | **fixed — the game's own scripts drive it now.** The ASO VM holds each `anime_Pattern` for its own `anime_Wait(n)`. No constants left |
 | player sprite choice | **now the script's, not ours.** `C_010.ASO` gates `anime_File(6)`=C_102 behind `Flag_IsEqualInt(161,1)` and falls through to `anime_File(15)`=**C_111**. With flag 161 clear (normal play) the game uses **C_111/C_112/C_113** — the gameplay sets. We had hardcoded C_102/103/104, which are the **cutscene** sets |
