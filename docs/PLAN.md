@@ -140,13 +140,30 @@ ai_dispatch_table.txt` confirmed the 94-entry AI table). What that unblocked:
     hub NPCs the SCT-only path missed (count is story-flag-gated, so a fresh game reaches
     a subset, not the 146 static ops). 52 checks.
 
-### The last gap before runtime room change
+### Runtime room change — RE complete, partly wired
 
-The room-CHANGE flow: teardown is [C-DIS] (ACTOR.md), load is [C-DIS] (ROOMLOAD.md),
-populate is now WIRED. What remains is the WARP TRIGGER and the fade/commit state
-machine — how stepping into a SEN exit initiates the change — under RE now
-(build/warp_re/). Once that lands, wiring the fade→teardown→load→populate loop is what
-lets a room actually change at runtime. All research, no invention left.
+teardown [C-DIS] (ACTOR.md), load [C-DIS] (ROOMLOAD.md), populate WIRED, warp trigger +
+fade [C-DIS] (build/warp_re/WARP.md). The exit ARRIVAL position is verified and wired
+(the view spawns you at the door). What is NOT wired: the fade state machine (0.05/step,
+0.333 s each way — verified timing, cosmetic) and moving the room-change logic out of the
+view's ad-hoc `transition` into a proper engine module. Both optional; the room already
+changes on trigger.
+
+### The next BIG milestone: the enemy AI tick (build/aitick_re/AITICK.md)
+
+RE'd [C-DIS], NOT wired — `update_actor()` is still a no-op, so enemies spawn but do not
+move. The tick shape is known (activation-gate on distance to the player, cast brain,
+walkable clamp, anim-integrate, push-out, attack scan). The blocker is that **locomotion
+is ANIMATION-DRIVEN**: walk speed is a clip's ROOT MOTION × a movement-mode constant, not
+a speed field. So a moving enemy needs **animation root-motion extraction** (diff a clip's
+bone matrix frame-to-frame) which we do not have — that extraction is the real work, and
+it is a milestone, not a seam.
+
+Two findings from this pass already folded in: the superseded `+0x30c·X` speed note is
+corrected (`+0xdc` is the attack-box centre, movement is root-motion), and a
+**[DISCREPANCY]** is flagged in physics_player.hpp — the player's ½gt² vertical model vs
+the generic-actor `pos+=vel` model AITICK found; likely different systems, unresolved,
+do not reconcile blindly.
 
 ## The standing risk on this milestone
 

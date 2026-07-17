@@ -84,17 +84,38 @@ inline float step_vertical(VerticalState& s, float y, float floor_y) {
 inline void begin_jump(VerticalState& s, const CastMotion& m) { s.t = m.jump_v0; }
 
 // ---------------------------------------------------------------------------
-// NOT HERE: walk and run speed. [UNKNOWN]
+// NOT HERE: walk and run speed. And the old `+0x30c * scale * X` note was WRONG.
 //
-// The engine computes `speed = actor+0x30c * scale * X`. The base scalar is real and
-// read (CASTINFO +0x48 — 0.056 for the player, 0.035 for 168 other casts), but `X`
-// resolves to +0xdc on an object that has not been identified, so the final speed
-// cannot be stated.
+// build/aitick_re/AITICK.md [C-DIS] supersedes the earlier hypothesis. ** Horizontal
+// locomotion is ANIMATION-DRIVEN, not a speed field. ** The mover (FUN_0045a510, the
+// anim update, run first in every handler) builds each frame's displacement from the
+// current clip's ROOT MOTION — the clip's bone matrix diffed frame-to-frame into
+// +0x5b0..+0x5b8 — times one of a small set of movement-mode constants
+// {0.25, 0.6, 0.65, 0.7, 0.8, 0.9, 1.6} chosen by the mode byte +0x4b9, plus a scripted
+// push (+0x5d0) and a persisted delta (+0xa3c). There is no scalar walk-speed on the
+// actor. So a faithful mover needs animation ROOT-MOTION EXTRACTION, which we do not yet
+// have — cleria-view keeps its hand-tuned speed until that is built.
 //
-// It is deliberately NOT back-derived from the 20/13 footstep cadence. That would
-// produce a number that looks right, matches the audio, and is unfalsifiable — which
-// is exactly the class of guess this codebase is trying to eliminate. cleria-view
-// keeps its hand-tuned speed, marked as such, until X is found.
+// ** The old `X at +0xdc` was an offset-collision misread: +0xdc/+0xe0/+0xe4 is the
+// world-space centre of the actor's ATTACK hit-volume ** (written by FUN_004fed50), not
+// a speed factor. That whole formula is [H-low], superseded — recorded so it is not
+// re-derived.
+//
+// ## [DISCREPANCY, unresolved] this vertical model vs the generic-actor one
+//
+// The model ABOVE (dy = 0.5·9.81·t·|t|, +0x330 as a signed TIMER) is the PLAYER's, and
+// it is well-evidenced (apex timing, the 9.81's two xrefs). But AITICK.md decoded
+// FUN_0045a510 — the anim update EVERY actor runs — and found +0x330 integrated as a
+// VELOCITY: `pos.y += (+0x330); +0x330 -= 0.0168 (or 0.0118 grounded); clamp -0.5`, a
+// LINEAR integration, no 9.81. Both agree on the +0x330 decrement (0.0168) and the -0.5
+// clamp; they DISAGREE on the displacement (our ½gt² vs its pos+=v).
+//
+// Most likely the player and generic actors use DIFFERENT vertical integration (our
+// header is player-specific; the enemy tick goes through FUN_0045a510). But it is NOT
+// resolved which function moves the PLAYER vertically, so this is a real open question,
+// not a reconciled one. Do not change the validated player model on the strength of the
+// cross-function read; do not assume enemies share it either. Resolve by finding the
+// player's own vertical writer before wiring enemy gravity.
 // ---------------------------------------------------------------------------
 
 }  // namespace cleria
