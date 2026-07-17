@@ -217,22 +217,57 @@ int main(int argc, char** argv) {
 
         AttackStats a;
         a.atk = gi.player_atk(0, 0, 1);  // char 0, starting weapon, level 1
-        const float edef = gi.curves[kEnemyDef].at(1);
-        const float dmg = damage_real(a, edef);
         check(a.atk == 48.0f, "L1 char0 ATK == curve 25 + weapon 23",
               std::to_string(a.atk));
-        check(dmg > 0.0f, "L1 player does POSITIVE damage to an L1 enemy",
-              std::to_string(dmg) + " vs DEF " + std::to_string(edef));
-        // With the bare curve (the bug), this is negative -- assert that too, so the
-        // regression is pinned rather than just fixed.
+
+        // With the bare curve (the old bug), damage is negative -- pin it, so the
+        // mistake cannot quietly return.
         AttackStats bare;
         bare.atk = gi.curves[kPlayerAtk].at(1);  // 25 -- no weapon
-        check(damage_real(bare, edef) == 0.0f,
+        const float cdef = gi.curves[kEnemyDef].at(1);
+        check(damage_real(bare, cdef) == 0.0f,
               "bare curve (no weapon) clamps to 0 -- the old bug",
               "raw would be " + std::to_string(std::pow(bare.atk, 0.66f) *
-                                               (bare.atk - 0.98f * edef + 10.0f) / 22.92f));
-        std::printf("    L1 char0: ATK %.0f vs enemy DEF %.0f -> %.2f dmg, %.1f hits to kill\n",
-                    a.atk, edef, dmg, gi.curves[kEnemyMaxHp].at(1) / dmg);
+                                               (bare.atk - 0.98f * cdef + 10.0f) / 22.92f));
+
+        // ---- REAL enemies, not the curve --------------------------------------
+        // A curve value is not a stat: the engine scales it by the enemy's own log2
+        // column, so "the level-1 enemy has DEF 40" describes nothing that exists.
+        // Every stat below is K(column) * curve(that enemy's own level).
+        int k_ok = 0, hp_pos = 0;
+        float def_lo = 1e9f, def_hi = -1e9f;
+        const Enemy* weakest = nullptr;
+        for (const Enemy& e : et.enemies) {
+            if (e.k_neutral == 50.0f) ++k_ok;
+            const EnemyStats s = enemy_stats(gi, e);
+            if (s.max_hp > 0) ++hp_pos;
+            def_lo = std::min(def_lo, s.def);
+            def_hi = std::max(def_hi, s.def);
+            if (!weakest || e.level < weakest->level) weakest = &e;
+        }
+        check(k_ok == int(et.enemies.size()), "+0xd4 is the constant 50.0 (K == 1.0)",
+              std::to_string(k_ok) + "/" + std::to_string(et.enemies.size()));
+        check(hp_pos == int(et.enemies.size()), "every enemy has positive maxHP",
+              std::to_string(hp_pos) + "/" + std::to_string(et.enemies.size()));
+        check(def_lo < cdef && def_hi > cdef,
+              "real enemy DEF straddles the raw curve (40)",
+              std::to_string(def_lo) + ".." + std::to_string(def_hi));
+
+        // The real test the old one only pretended to be: can a starting player hurt
+        // the game's actual toughest enemy at its own level?
+        const Enemy* hardest = &et.enemies[0];
+        for (const Enemy& e : et.enemies)
+            if (enemy_stats(gi, e).def > enemy_stats(gi, *hardest).def) hardest = &e;
+        const EnemyStats hs = enemy_stats(gi, *hardest);
+        const EnemyStats ws = enemy_stats(gi, *weakest);
+        std::printf("    weakest enemy (lv%d): HP %.0f ATK %.0f DEF %.0f -> player deals %.2f\n",
+                    weakest->level, ws.max_hp, ws.atk, ws.def, damage_real(a, ws.def));
+        std::printf("    toughest DEF (lv%d): HP %.0f ATK %.0f DEF %.0f\n",
+                    hardest->level, hs.max_hp, hs.atk, hs.def);
+        check(damage_real(a, ws.def) > 0.0f,
+              "starting player can hurt the weakest real enemy",
+              std::to_string(damage_real(a, ws.def)) + " vs its real DEF " +
+                  std::to_string(ws.def));
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);

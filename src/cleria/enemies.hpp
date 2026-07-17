@@ -46,26 +46,34 @@
 // are genuine floats, and GAMEINFO.DAT was misrecorded as i32 when it is f32
 // throughout.
 //
-// ## Not here yet
+// ## The stat block [C-DIS] — +0xc8..0xdc are per-enemy LOG2 MULTIPLIERS
 //
-// +0xc8..0xdc is a six-wide stat block feeding the curve in FUN_004202e0; +0xc8 is
-// the HP scale, read only at spawn and never by the damage path. +0xd4 is a constant
-// 50.0 with NO reader in the spawn path at all — it is not consumed by the curve, and
-// why it exists is [UNKNOWN].
+// FUN_004202e0 (spawn) computes every enemy stat as `K(column) * GAMEINFO_curve(level)`,
+// with `K(v) = 2^((v-50)/20)` (the helper FUN_0041b790; the 20.0 is at 0x6bd994):
 //
-// There is NO raw EXP or gold value anywhere in the record (every non-drop i32 column
-// was scanned for a wide non-log2 range; none exists), so those are computed from the
-// GAMEINFO curve rather than stored. See cleria/gameinfo.hpp for the curve itself.
+//   maxHP  = round(K(+0xC8) * lerp(60, 475, t))
+//   ATK    = round(K(+0xCC) * lerp(40, 295, t))
+//   DEF    = round(K(+0xD0) * lerp(40, 295, t))
+//   +0xb0  = round(K(+0xDC) * lerp(15, 610, t))
+//   EXP    =       K(+0xD8) * ...              -> actor+0xc4
+//   with t = (level - 1) / 59, level from +0xe8
 //
-// The negative-damage worry that used to block this is RESOLVED, and it was ours: the
-// GAMEINFO ATK curve is the BASE, and FUN_004208f0 adds equipment into the same field
-// before the actor sees it. A real level-1 player is ATK 48 (25 curve + 23 weapon), not
-// 25, and the formula comes out at +10.56. Nothing was wrong with the enemy data.
+// So there is NO raw HP, ATK, DEF, EXP or gold stored anywhere in this record — every
+// one is a multiplier against a shared curve. That is why a scan for "a wide non-log2
+// i32 column" found nothing: the question was wrong, not the data.
 //
-// These stay unexposed for a narrower reason: whether ENEMYINFO carries per-enemy
-// ATK/DEF multipliers is still open, and if it does, the flat "level-1 enemy DEF = 40"
-// read off the curve would shift per enemy.
+// ** The GAMEINFO curve is NOT an enemy's stat. ** A level-1 enemy's DEF is not 40; it
+// is K(+0xD0) * 40, and +0xD0's real range (39..55 -> K = 0.68..1.19) puts it at 27..48.
+// This is exactly the mistake made on the player side, where the ATK curve was read as
+// the final ATK and the damage formula went negative — the curve is a BASE on both
+// sides, scaled by a multiplier here and added to by equipment there.
+//
+// +0xd4 is a constant 50.0 (K == 1.0 exactly) with NO reader in the spawn path. It is
+// not consumed by the curve, and why it exists is [UNKNOWN].
+//
+// The player path uses the same GAMEINFO lerp shape but has NO log2 multiplier at all.
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <vector>
@@ -78,9 +86,22 @@ struct DropSlot {
     float percent = 0;  // 0..100
 };
 
+// The log2 encoding every enemy stat column uses. FUN_0041b790: 50 => 1.0 (neutral),
+// +20 doubles, -20 halves.
+inline float stat_k(float v) { return std::pow(2.0f, (v - 50.0f) / 20.0f); }
+
 struct Enemy {
     DropSlot drops[8];
     std::int32_t level = 0;  // +0xe8 [C-DIS] — reader is FUN_004202e0 (enemy spawn)
+
+    // The log2 multiplier columns, stored raw. Call stat_k() to decode; they are kept
+    // encoded so the file's own values stay visible at the call site.
+    float k_maxhp = 0;   // +0xc8
+    float k_atk = 0;     // +0xcc
+    float k_def = 0;     // +0xd0
+    float k_neutral = 0; // +0xd4 — always 50.0; no reader [UNKNOWN]
+    float k_exp = 0;     // +0xd8
+    float k_unk0xb0 = 0; // +0xdc
 
     // Live slots are front-packed (90/90), so this is the count.
     int drop_count() const {
@@ -90,11 +111,21 @@ struct Enemy {
     }
 };
 
+// An enemy's actual stats at spawn. `curve_at_level` is the matching GAMEINFO curve
+// evaluated at this enemy's own level — see gameinfo.hpp. The engine rounds.
+struct EnemyStats {
+    float max_hp = 0, atk = 0, def = 0;
+};
+
 struct EnemyTable {
     std::vector<Enemy> enemies;
 
     static EnemyTable load(const std::filesystem::path& path);  // MISC/ENEMYINFO.DAT
     const Enemy* get(int cast_id) const;
 };
+
+// Defined in gameinfo.cpp, where the curves live: stats(e) = K(column) * curve(level).
+struct GameInfo;
+EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e);
 
 }  // namespace cleria

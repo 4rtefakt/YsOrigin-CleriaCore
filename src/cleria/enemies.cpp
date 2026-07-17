@@ -32,6 +32,13 @@ EnemyTable EnemyTable::load(const fs::path& path) {
         }
         // i32, NOT f32 — as a float this column is denormal garbage.
         std::memcpy(&e.level, b.data() + o + 0xE8, 4);
+        // ...whereas these five ARE f32. Same record, both conventions.
+        std::memcpy(&e.k_maxhp, b.data() + o + 0xC8, 4);
+        std::memcpy(&e.k_atk, b.data() + o + 0xCC, 4);
+        std::memcpy(&e.k_def, b.data() + o + 0xD0, 4);
+        std::memcpy(&e.k_neutral, b.data() + o + 0xD4, 4);
+        std::memcpy(&e.k_exp, b.data() + o + 0xD8, 4);
+        std::memcpy(&e.k_unk0xb0, b.data() + o + 0xDC, 4);
     }
     return t;
 }

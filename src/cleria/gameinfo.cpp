@@ -1,5 +1,8 @@
 #include "cleria/gameinfo.hpp"
 
+#include "cleria/enemies.hpp"
+
+#include <cmath>
 #include <cstring>
 #include <fstream>
 
@@ -43,6 +46,17 @@ double GameInfo::exp_to_level(int level) const {
         total += double(c.at_level_1) +
                  (double(c.at_level_60) - double(c.at_level_1)) * (double(i) / 59.0);
     return total;
+}
+
+// stat = K(the enemy's own column) * the shared GAMEINFO curve at the enemy's own
+// level. The curve alone is not a stat -- see the note in enemies.hpp.
+EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e) {
+    EnemyStats s;
+    if (!gi.ok()) return s;
+    s.max_hp = std::round(stat_k(e.k_maxhp) * gi.curves[kEnemyMaxHp].at(e.level));
+    s.atk = std::round(stat_k(e.k_atk) * gi.curves[kEnemyAtk].at(e.level));
+    s.def = std::round(stat_k(e.k_def) * gi.curves[kEnemyDef].at(e.level));
+    return s;
 }
 
 }  // namespace cleria
