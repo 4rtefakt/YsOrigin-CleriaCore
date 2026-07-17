@@ -174,4 +174,29 @@ struct EexTable {
     static EexTable load(const std::filesystem::path& path);  // MISC/EEX.DAT
 };
 
+// The 8 full-room (medallion) bosses -> their EEX record index [C-DIS][C-COR]
+// (build/boss_lookup_re/BOSS_LOOKUP.md). ** This closes the [UNKNOWN] this header opened
+// with. ** The index is a COMPILE-TIME IMMEDIATE baked into each boss's own handler,
+// reached by dispatch on the script name "boss01".."boss08" — NOT a fold, a cast_id
+// table, or a CASTINFO field (all 8 CAST_C records are byte-identical in +0x60/+0x64/
+// +0x6c, which is exactly why nothing data-driven ever reached them). The reader is
+// FUN_00443b80 (esi = EEX buffer + index*0x40), writing HP->actor+0x94, STR->+0xa4,
+// DEF->+0xa8, level->actor+0xc8 from EEX+0x18. Verified against EEX.DAT: the record
+// levels (8/16/24/32/40/45/49/50) and Zava/Dalles STR (232/255) match the published boss
+// journal in this order. One loop left open in the RE: the handler->named-boss binding
+// rests on that level/STR oracle, not a literal SCT/XSO trace of the "bossNN" names.
+inline int eex_index_for_cast(int cast_id) {
+    switch (cast_id) {
+        case 128: return 0;  // C620 Velagunder lv8
+        case 131: return 1;  // C650 Nygtilger  lv16
+        case 134: return 2;  // C680 Gelaldy    lv24
+        case 136: return 3;  // C700 Khonsclard lv32
+        case 137: return 4;  // C710 Pictimos   lv40
+        case 140: return 5;  // C740 Zava       lv45
+        case 143: return 6;  // C770 Dalles     lv49
+        case 149: return 7;  // C830 Darm       lv50
+        default:  return -1;
+    }
+}
+
 }  // namespace cleria

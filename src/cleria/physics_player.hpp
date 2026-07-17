@@ -84,38 +84,43 @@ inline float step_vertical(VerticalState& s, float y, float floor_y) {
 inline void begin_jump(VerticalState& s, const CastMotion& m) { s.t = m.jump_v0; }
 
 // ---------------------------------------------------------------------------
-// NOT HERE: walk and run speed. And the old `+0x30c * scale * X` note was WRONG.
+// NOT HERE: walk and run speed. But it is now SOURCED (build/player_re/PLAYER.md).
 //
-// build/aitick_re/AITICK.md [C-DIS] supersedes the earlier hypothesis. ** Horizontal
-// locomotion is ANIMATION-DRIVEN, not a speed field. ** The mover (FUN_0045a510, the
-// anim update, run first in every handler) builds each frame's displacement from the
-// current clip's ROOT MOTION — the clip's bone matrix diffed frame-to-frame into
-// +0x5b0..+0x5b8 — times one of a small set of movement-mode constants
-// {0.25, 0.6, 0.65, 0.7, 0.8, 0.9, 1.6} chosen by the mode byte +0x4b9, plus a scripted
-// push (+0x5d0) and a persisted delta (+0xa3c). There is no scalar walk-speed on the
-// actor. So a faithful mover needs animation ROOT-MOTION EXTRACTION, which we do not yet
-// have — cleria-view keeps its hand-tuned speed until that is built.
+// The player's horizontal speed is a "stateless per-tick product" (confirmed):
+//   +0x310 = CASTINFO+0x48 · stickFactor · rate,  then × CASTINFO+0x4c · modeConst
+// CASTINFO+0x48 = 0.056 (the player cast's base, our cast.hpp reads it into speed_base;
+// loads to actor+0x30c). `rate` = 10.0 (0x6bd928) in lock-on/strafe, else the walk
+// clip's play-rate. `modeConst ∈ {0.6, 0.7, 0.8, … 1.6}` by control-mode + run flag.
+// Velocity +0x32c/+0x334 = sin/cos(facing)·+0x310, integrated by FUN_0045a510. Grounded
+// input SNAPS to speed (no ramp — confirms the note below); airborne is a 0.12 air-
+// control lerp; no input decays at 0.05 to a 0.005 deadzone. Movement is camera-relative
+// (a single world-direction angle is passed to the mover, camera-yaw folded upstream).
+//
+// The two CASTINFO scalars ARE now read from data: +0x48 = 0.056 and +0x4c = 2.2 for
+// the player cast. ** Still [H-medium] for the ABSOLUTE magnitude, though: ** the exact
+// units/tick multiplies those by `rate` (10.0 in strafe, or the walk clip's play-rate in
+// free locomotion) and the run/mode const (0.6..1.6) — neither pinned to a concrete
+// gameplay state. So cleria-view keeps its hand-tuned kWalkSpeed rather than ship a
+// product of two unpinned factors; the sourced pieces are recorded here for when they
+// close. (Jump v0 IS clean: CASTINFO+0x50 = 0.285, and cast_motion already uses it.)
 //
 // ** The old `X at +0xdc` was an offset-collision misread: +0xdc/+0xe0/+0xe4 is the
-// world-space centre of the actor's ATTACK hit-volume ** (written by FUN_004fed50), not
-// a speed factor. That whole formula is [H-low], superseded — recorded so it is not
-// re-derived.
+// world-space centre of the actor's ATTACK hit-volume ** (FUN_004fed50), not a speed
+// factor. [H-low], superseded — recorded so it is not re-derived.
 //
-// ## [DISCREPANCY, unresolved] this vertical model vs the generic-actor one
+// ## [RESOLVED] the vertical-model discrepancy — this model is CORRECT for all actors
 //
-// The model ABOVE (dy = 0.5·9.81·t·|t|, +0x330 as a signed TIMER) is the PLAYER's, and
-// it is well-evidenced (apex timing, the 9.81's two xrefs). But AITICK.md decoded
-// FUN_0045a510 — the anim update EVERY actor runs — and found +0x330 integrated as a
-// VELOCITY: `pos.y += (+0x330); +0x330 -= 0.0168 (or 0.0118 grounded); clamp -0.5`, a
-// LINEAR integration, no 9.81. Both agree on the +0x330 decrement (0.0168) and the -0.5
-// clamp; they DISAGREE on the displacement (our ½gt² vs its pos+=v).
-//
-// Most likely the player and generic actors use DIFFERENT vertical integration (our
-// header is player-specific; the enemy tick goes through FUN_0045a510). But it is NOT
-// resolved which function moves the PLAYER vertically, so this is a real open question,
-// not a reconciled one. Do not change the validated player model on the strength of the
-// cross-function read; do not assume enemies share it either. Resolve by finding the
-// player's own vertical writer before wiring enemy gravity.
+// A prior pass (AITICK.md) decoded FUN_0045a510 and read +0x330 as a VELOCITY
+// (pos.y += v; v -= 0.0168; clamp -0.5), contradicting the ½gt² timer model above.
+// build/player_re/PLAYER.md RESOLVES it in THIS model's favour [C-DIS]: there is ONE
+// vertical path (FUN_0045a510, called by the player handler at 0x0046fd56), and it
+// contains BOTH the quadratic displacement `0.5·9.81·t·|t|` (gated on airborne
+// +0x388==0 && +0x398==0) AND the timer update `+0x330 -= 0.0168/0.0118, clamp -0.5`.
+// AITICK saw only the decrement+clamp and INFERRED the linear form — it never traced the
+// displacement term, which is quadratic. So the model above is confirmed, AITICK's
+// linear claim is retracted, and ENEMIES share it (same FUN_0045a510). Authoritative
+// constants (read from memory, not Ghidra annotations): 9.81 @0x6bd924, 0.5 @0x6bd304,
+// 0.0118 @0x6bd098, 0.0168 @0x6bd0d8, -0.5 @0x6be014.
 // ---------------------------------------------------------------------------
 
 }  // namespace cleria

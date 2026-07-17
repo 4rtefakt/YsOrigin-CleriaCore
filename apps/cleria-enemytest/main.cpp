@@ -418,6 +418,20 @@ int main(int argc, char** argv) {
             if (!s.is_inert())
                 std::printf("    lv%-3d HP %5.0f  STR %4.0f  DEF %4.0f\n", s.level, s.hp,
                             s.atk, s.def);
+
+        // The cast -> EEX index map (build/boss_lookup_re): each full-room boss cast
+        // resolves to the EEX record whose level matches its journal level.
+        const int kBossCasts[8] = {128, 131, 134, 136, 137, 140, 143, 149};
+        bool map_ok = true;
+        for (int i = 0; i < 8; ++i) {
+            const int bidx = eex_index_for_cast(kBossCasts[i]);
+            if (bidx != i || bidx >= int(ex.bosses.size()) ||
+                ex.bosses[bidx].level != kBossLevels[i])
+                map_ok = false;
+        }
+        check(map_ok, "each full-room boss cast maps to its EEX record (level matches)", "");
+        check(eex_index_for_cast(126) == -1 && eex_index_for_cast(13) == -1,
+              "and non-full-room casts map to -1 (arena bosses / the player)", "");
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
