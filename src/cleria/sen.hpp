@@ -24,14 +24,17 @@ struct SenTrigger {
     Vec3 position;          // trigger centre, world metres
     Vec3 box_lo, box_hi;    // world-space AABB (position + local min/max)
 
-    // Where the player arrives in the DESTINATION room (+0x22c). Non-zero in 281/367
-    // records, and they land on the reciprocal door — the engine (FUN_00434020)
-    // overrides the destination's SCT default spawn with this when it is set. Zero
-    // means "use the destination's own spawn".
+    // Where the player arrives in the DESTINATION room (+0x22c). The engine
+    // (FUN_00434020, WARP.md §3/§5) overrides the destination's SCT default spawn with
+    // this whenever the record's LABEL (+0x00, our `name`) is non-empty -- NOT when the
+    // arrival is non-zero. That distinction is load-bearing: 86/367 records carry a
+    // (0,0,0) arrival that is a REAL position (world origin, which in these rooms sits
+    // just inside a door), and every one of the 367 warp records has a label. Gating on
+    // "arrival != 0" instead dropped those to the SCT default -- so returning through a
+    // door with a zero arrival spawned you at the room's FIRST CAST_ADOL (the wrong
+    // entrance in any multi-door room) rather than where you came in.
     Vec3 arrival_pos{};
-    bool has_arrival() const {
-        return arrival_pos.x != 0 || arrival_pos.y != 0 || arrival_pos.z != 0;
-    }
+    bool has_arrival() const { return !name.empty(); }
 
     // ** Arrival FACING is NOT wired: it does not verify. ** WARP.md claimed clean
     // degrees at +0x238, but +0x238 is 0 in all 367 records (and +0x23c, which this

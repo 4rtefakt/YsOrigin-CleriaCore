@@ -2356,7 +2356,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     spawn_enemies();
 
     float cooldown = 1.5f;
-    auto transition = [&](const std::string& dest, Vec3 arrival = {}) {
+    auto transition = [&](const std::string& dest, Vec3 arrival = {}, bool apply_arrival = false) {
         auto it = g.sob_index.find(dest);
         if (it == g.sob_index.end()) { std::printf("  (no SOB for %s)\n", dest.c_str()); return; }
         std::printf(">> entering %s\n", dest.c_str());
@@ -2368,8 +2368,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         } else {
             spawn_player();
             // The exit's arrival position (SEN +0x22c) overrides the destination's SCT
-            // default, as the engine does (FUN_00434020). Snap to floor like spawn_player.
-            if (arrival.x != 0 || arrival.y != 0 || arrival.z != 0) {
+            // default, as the engine does (FUN_00434020): applied whenever the exit's
+            // label is set (apply_arrival), even when the position is the origin -- (0,0,0)
+            // is a real door-side spawn in these rooms, not "unset". Snap to floor like
+            // spawn_player; arrival.y is only a fallback if there's no floor there.
+            if (apply_arrival) {
                 const float fl = floor_at(phys_mesh(room), arrival.x, arrival.z,
                                           room.mesh.bmax.y + room_diag(room));
                 feet = {arrival.x, (fl > kNoFloor ? fl : arrival.y), arrival.z};
@@ -2534,7 +2537,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     std::size_t idx = std::size_t(k - SDLK_1);
                     if (idx < room.sen.triggers.size()) {
                         const SenTrigger& t = room.sen.triggers[idx];
-                        transition(t.dest_scene, t.arrival_pos);
+                        transition(t.dest_scene, t.arrival_pos, t.has_arrival());
                     }
                 }
             } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
@@ -2815,12 +2818,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (g_cam.on) apply_cam_state(cam, feet);
         }
 
-        // SEN trigger: move into a doorway volume to warp.
+        // SEN trigger: move into a doorway volume to warp. Test the PLAYER only, exactly
+        // as the engine does (FUN_0042cf00 tests actor+0x50) -- the old code also tested
+        // the camera, and the follow camera sits ~24u behind and above the player, so it
+        // entered the door volume well before the player did and warped too early. In fly
+        // mode there is no player, so the probe is the camera itself.
         if (cooldown <= 0) {
             const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kCharH * 0.5f, feet.z};
             for (const SenTrigger& t : room.sen.triggers)
-                if (t.contains(probe) || t.contains(cam.pos)) {
-                    transition(t.dest_scene, t.arrival_pos); break;
+                if (t.contains(probe)) {
+                    transition(t.dest_scene, t.arrival_pos, t.has_arrival()); break;
                 }
         }
         }  // ---- end fixed-step logic ----------------------------------------

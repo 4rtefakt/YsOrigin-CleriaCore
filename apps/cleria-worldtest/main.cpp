@@ -460,6 +460,20 @@ int main(int argc, char** argv) {
                       "(" + std::to_string(int(a.x)) + "," + std::to_string(int(a.y)) +
                           "," + std::to_string(int(a.z)) + ")");
             }
+            // Bug guard: the S_1004 exit carries a (0,0,0) arrival that is the world
+            // ORIGIN, a real door-side spawn -- has_arrival() must still be true (it gates
+            // on the label, not on the vector), or a return through this door would fall
+            // back to the wrong SCT default. This is the regression the old != 0 gate hit.
+            const SenTrigger* to1004 = nullptr;
+            for (const SenTrigger& t : sen.triggers)
+                if (t.dest_scene == "S_1004") to1004 = &t;
+            check(to1004 != nullptr, "S_1001 has an exit to S_1004");
+            if (to1004) {
+                const Vec3 a = to1004->arrival_pos;
+                check(a.x == 0 && a.y == 0 && a.z == 0 && to1004->has_arrival(),
+                      "a zero (origin) arrival still overrides spawn (label-gated)",
+                      to1004->name);
+            }
         }
     }
 
