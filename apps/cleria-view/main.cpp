@@ -2549,6 +2549,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 feet.y = fl; vy = 0; grounded = true;
             } else grounded = false;
 
+            // Tick the enemies. The engine's enemies chase the player ACTOR; we sync it
+            // to the view's player each tick, step the world (each enemy turns toward it
+            // and advances at its ENEMYINFO speed -- world.hpp update_actor), then
+            // floor-snap them, since the world has no geometry and the view owns it.
+            if (Actor* wp = world.player()) wp->pos = feet;
+            world.step();
+            for (Actor& a : world.actors()) {
+                if (a.is_player() || !a.alive()) continue;
+                const float efl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + kCharH);
+                if (efl > kNoFloor) a.pos.y = efl;
+            }
+
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS
             // reloaded from the surface record, gated on the motion state:
             //

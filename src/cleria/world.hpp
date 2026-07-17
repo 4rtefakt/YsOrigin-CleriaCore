@@ -49,6 +49,13 @@ inline constexpr int kAutoIdBase = 186;
 inline constexpr int kSimHz = 60;
 inline constexpr float kSimDt = 1.0f / float(kSimHz);
 
+// The enemy chase, from build/mover2d_re/MOVER2D.md [C-DIS]. An enemy ticks its AI only
+// when the player is within this distance (the engine tests d^2 >= 625 == 25^2 and does
+// animation-only beyond it); it turns toward the player at most this many radians/tick
+// (0.18 * a per-cast +0x36c we take as 1).
+inline constexpr float kEnemyActivationRadius = 25.0f;
+inline constexpr float kEnemyTurnRate = 0.18f;
+
 // Everything the spawn op (0x12c) carries. Named so the operand order stops being
 // load-bearing at call sites.
 struct SpawnRequest {
@@ -182,21 +189,18 @@ class ActorWorld : public XsoHost {
     const Sct* placements_ = nullptr;  // op 0xa0's source; not owned
     bool id_in_use(int id) const;
 
-    // The per-actor AI update. Still a deliberate no-op, but no longer [UNKNOWN]: the
-    // SHAPE is RE'd (build/aitick_re/AITICK.md [C-DIS]). The engine dispatches through
-    // the 94-entry AI table by actor+0x120; idx 0/1 are the PLAYER/companion (not a
-    // default enemy), real enemies are the mid/high entries. A basic enemy tick is:
-    //   1. bail unless the player (DAT_0074c09c) is within 25 units (else anim only)
-    //   2. cast-specific brain: face/approach the player, choose an attack (sets facing
-    //      +0x314 and/or scratch velocity +0x344)
-    //   3. clamp inside the room's walkable region
-    //   4. INTEGRATE from animation ROOT MOTION (FUN_0045a510) + gravity + collision
-    //   5. push apart from overlapping actors; 6. scan its own attack box; 7. cosmetics
-    // State is the ASO animation-section id (+0x994) with priority-gated transitions
-    // (aso.hpp's SetSection). This body stays empty because step 4 needs animation
-    // root-motion extraction we do not have yet — wiring it is a whole milestone, not a
-    // seam to fill. The tick STRUCTURE (order/sweep) around it is validated and live.
-    void update_actor(Actor&) {}
+    // The per-actor AI update, now LIVE for the enemy-chase case (build/mover2d_re/
+    // MOVER2D.md, [C-DIS][C-COR]). A sprite enemy within kEnemyActivationRadius of the
+    // player turns its heading toward the player at kEnemyTurnRate and advances at its
+    // ENEMYINFO move_speed. The engine's shared mover FUN_0045f4d0 does exactly this:
+    //   heading (+0x314) -> atan2(player - self), capped turn; vx=sin(h)*spd, vz=cos(h).
+    // What is NOT modelled here (honestly): the movement-mode speed scaling (0.25..1.6,
+    // unpinned for a chase), gravity/vertical (enemies are floor-snapped by the caller,
+    // which owns the geometry), collision, and the cast-specific brain beyond "approach"
+    // (attack decisions await build/attack_re/). The tick ORDER and the sweep around
+    // this are validated. Vertical is the SAME quadratic model as the player
+    // (physics_player.hpp) -- one path, FUN_0045a510, confirmed by build/player_re/.
+    void update_actor(Actor& a);
 };
 
 }  // namespace cleria

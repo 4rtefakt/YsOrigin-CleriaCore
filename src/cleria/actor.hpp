@@ -170,9 +170,14 @@ struct Actor {
 
     // --- placement and motion ---
     Vec3 pos{};
-    float yaw = 0;         // radians
+    float yaw = 0;         // radians — the actor's heading (engine +0x314). Used by the
+                           // chase mover; the billboard sprite still faces the camera.
     float floor_y = 0;     // engine: +0x318 — the floor under this actor
     VerticalState vert;    // engine: +0x330, the signed timer (physics_player.hpp)
+
+    // Chase speed, world units per tick — the enemy's ENEMYINFO base (enemies.hpp).
+    // 0 for the player and for casts with no enemy record.
+    float move_speed = 0;  // engine: actor+0x30c
 
     // engine: +0x120 <- CASTINFO+0x64. [H-high] an AI HANDLER INDEX — genuinely
     // stored (0x4342c1 -> FUN_00459410), but no consumer INDEXING it has been read.

@@ -161,6 +161,15 @@ struct Enemy {
     float k_unk_0xd8 = 0;  // +0xd8 — [UNKNOWN]. This was labelled EXP and is NOT.
     float k_exp = 0;       // +0xdc — the EXP reward multiplier -> actor+0xb0
 
+    // The enemy's CHASE SPEED, in world units per 60Hz tick [C-DIS][C-COR]
+    // (build/mover2d_re/MOVER2D.md). The shared sprite mover FUN_0045f4d0 uses
+    // actor+0x30c = ENEMYINFO+0x94 * ENEMYINFO+0x98 as the base speed. Verified against
+    // the file: M100 (Riffligan) = 0.0325*1.0 = 0.0325, M110 = 0.030, roster 0..0.2475.
+    // ** The engine additionally scales this by a movement-mode constant (0.25..1.6, by
+    // actor+0x4b9) in the integrator, and which mode a plain chase uses is not pinned **
+    // — so this is the sourced BASE and the on-screen magnitude carries that factor.
+    float move_speed = 0;  // +0x94 * +0x98
+
     // Live slots are front-packed (90/90), so this is the count.
     int drop_count() const {
         int n = 0;

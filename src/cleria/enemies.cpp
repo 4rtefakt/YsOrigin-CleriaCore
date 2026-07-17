@@ -39,6 +39,11 @@ EnemyTable EnemyTable::load(const fs::path& path) {
         std::memcpy(&e.k_neutral, b.data() + o + 0xD4, 4);
         std::memcpy(&e.k_unk_0xd8, b.data() + o + 0xD8, 4);
         std::memcpy(&e.k_exp, b.data() + o + 0xDC, 4);
+        // Chase speed = +0x94 * +0x98 (the shared sprite mover's base). See enemies.hpp.
+        float s94, s98;
+        std::memcpy(&s94, b.data() + o + 0x94, 4);
+        std::memcpy(&s98, b.data() + o + 0x98, 4);
+        e.move_speed = s94 * s98;
     }
     return t;
 }

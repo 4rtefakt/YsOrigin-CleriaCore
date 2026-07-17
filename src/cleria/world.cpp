@@ -80,6 +80,7 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
             a->def = s.def;
             a->exp_reward = s.exp;
             a->level = e->level;
+            a->move_speed = e->move_speed;
             a->enemy_index = enemy_index_for_cast(c->cast_id);
         }
         a->tag.set(r.group);
@@ -101,6 +102,31 @@ void ActorWorld::spawn_placements() {
                            p.random_yaw ? 0.0f : p.yaw * 180.0f / 3.14159265358979323846f,
                            0});
     }
+}
+
+// The enemy chase (FUN_0045f4d0). Turn toward the player, advance at move_speed. Only
+// horizontal — the caller floor-snaps (it owns the geometry). No-op for the player, for
+// statless casts, or when there is no player / it is out of activation range.
+void ActorWorld::update_actor(Actor& a) {
+    if (!player_ || &a == player_ || !a.is_enemy() || a.move_speed <= 0 || !a.alive())
+        return;
+    const float dx = player_->pos.x - a.pos.x;
+    const float dz = player_->pos.z - a.pos.z;
+    const float d2 = dx * dx + dz * dz;
+    if (d2 >= kEnemyActivationRadius * kEnemyActivationRadius) return;  // anim-only far off
+
+    // Turn the heading toward the player, capped. Heading convention matches the mover:
+    // vx = sin(h), vz = cos(h), so the target is atan2(dx, dz).
+    const float target = std::atan2(dx, dz);
+    float dyaw = target - a.yaw;
+    while (dyaw > 3.14159265358979323846f) dyaw -= 2.0f * 3.14159265358979323846f;
+    while (dyaw < -3.14159265358979323846f) dyaw += 2.0f * 3.14159265358979323846f;
+    if (dyaw > kEnemyTurnRate) dyaw = kEnemyTurnRate;
+    if (dyaw < -kEnemyTurnRate) dyaw = -kEnemyTurnRate;
+    a.yaw += dyaw;
+
+    a.pos.x += std::sin(a.yaw) * a.move_speed;
+    a.pos.z += std::cos(a.yaw) * a.move_speed;
 }
 
 // FUN_004281c0, one simulation step. Player first, then the live list in spawn order
