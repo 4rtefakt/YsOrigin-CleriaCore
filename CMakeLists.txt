@@ -30,6 +30,7 @@ add_library(cleria STATIC
   src/cleria/sef.cpp
   src/cleria/sct.cpp
   src/cleria/aso.cpp
+  src/cleria/csprite.cpp
   src/cleria/minifont.cpp
   src/cleria/effectdef.cpp
   src/cleria/surface.cpp)
