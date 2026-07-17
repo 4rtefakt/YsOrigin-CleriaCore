@@ -77,10 +77,26 @@ class AsoVm {
 
     // anime_FootSmoke (funcid 19) fired during the last tick. The handler sets
     // bit 0 of actor+0x3c0, and only when IsLand (actor+0x388). 362 uses across the
-    // corpus. Whether it also triggers the footstep SOUND is [UNKNOWN] — the
-    // dedicated anime_PlayFootfall (funcid 43) has ZERO uses in the ASO corpus, so
-    // something else must drive footfalls, and this is the obvious candidate. Do not
-    // treat it as proven.
+    // corpus.
+    //
+    // ** It does NOT drive the footstep SOUND. ** This comment used to call that
+    // [UNKNOWN] and name FootSmoke "the obvious candidate", reasoning that the
+    // dedicated anime_PlayFootfall (funcid 43) has ZERO uses in the corpus so
+    // something else must do it. The premise was right and the candidate was wrong:
+    // the something else is a tick countdown in the actor update, with no script
+    // involvement at all. FUN_0045c490 counts actor+0x4bf down once per tick and
+    // fires at zero; FUN_0045d600 then builds the sound id straight from the surface
+    // table and plays it:
+    //
+    //   0045d6b2  MOV DL,[EDI + 0x6d5dad]   ; surface +0x0D = variant_mask
+    //   0045d6c8  AND ECX,EAX               ; rng & variant_mask
+    //   0045d6ca  ADD ECX,EBX               ; + base_sound_id  (surface +0x06)
+    //   0045d6cf  CALL 0x0045d7a0           ; the SE play
+    //   0045d6ef  MOV byte ptr [ESI+0x4bf],CL   ; reload the interval (walk/run column)
+    //
+    // So FootSmoke is the visual puff and nothing more, and the cadence lives in
+    // cleria/surface.hpp. See also the README ledger: the game's footsteps are NOT
+    // paced by ASO events — a claim this project made and then refuted.
     bool foot_smoke() const { return foot_smoke_; }
 
     // Inputs the script polls.
