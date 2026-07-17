@@ -38,7 +38,12 @@ class Aso {
   public:
     struct Section {
         std::int32_t id = 0;     // +0x00 animation/action id — SPARSE, not an index
-        std::int32_t type = 0;   // +0x04 2|3|4 — meaning [UNKNOWN]; not a loop flag
+        // +0x04. ** A PRIORITY LEVEL [C-DIS], not a kind. ** FUN_00446550 (SetSection)
+    // REFUSES the transition when newType < curType — which is why walking cannot
+    // interrupt a swing, and why an attack plays to completion. This sat as
+    // "2|3|4 — meaning [UNKNOWN]; not a loop flag" while it was the whole
+    // animation-cancel rule.
+    std::int32_t type = 0;
         std::int32_t code_off = 0;  // +0x08 BYTE offset from codeBase
         std::int32_t code_len = 0;  // +0x0C length in DWORDS
     };
@@ -71,42 +76,61 @@ class AsoVm {
 
     // What the script currently wants drawn. `dir` is deliberately absent.
     //
-    // ## The script drives EVERYTHING, attacks included [C-COR]
+    // ## The script sets every tag. Nothing in code does. [C-DIS]
     //
-    // Yunica's animations are a 2x2 of {locomotion, attacks} x {weapon A, weapon B},
-    // split across two files, and the ASO drives all of it:
+    // `anime_Pattern(tag, frame)` (funcid 3) is the ONLY writer. Handler @0x00447528:
+    // `obj+0xc0 = tag; obj+0xc8 = frame`. The negative is exhaustive: no instruction in
+    // the image stores an immediate 0x12c..0x135 to memory except to actor+0x994 (the
+    // SECTION id), and writes to the tag field number ZERO. Code only picks the
+    // *section*, via `FUN_00446550(&actor[0x8f0], id, flag)` = CAniSprite::SetSection.
     //
-    //   C_111 0x0..0xa      locomotion, weapon A (a long red/white striped weapon)
-    //   C_111 0x12c..0x135  locomotion, weapon B (an axe)
-    //   C_114 0x100..0x10c  ATTACKS,    weapon A
-    //   C_114 0x10d..0x110  ATTACKS,    weapon B
+    // ## Tags come in PAIRS, switched by GLOBAL FLAG 149 [C-DIS]
     //
-    // C_010.ASO's sections 0x0..0xb select C_111; its sections 0x100..0x112 select
-    // C_114 via anime_File. Hugo (C_020 -> C_112) and Toal (C_030 -> C_113) are the
-    // same shape. There is no code-driven attack path.
+    // C_111's 0x12c..0x135 are NOT attacks. Each is the flag-149 alternate of a
+    // locomotion tag — same poses, different weapon in Yunica's hand:
     //
-    // ** Two wrong claims died here, and both died the same way — by rendering the
-    // frames and looking at them. **
+    //   0x12c = walk (alt of 0x0)     0x12f = alt of 0x4     0x134 = alt of 0x9
+    //   0x12d = run  (alt of 0x1)     0x131 = idle           0x135 = alt of 0x10a
+    //   0x12e, 0x130 = jump family    0x133 = alt of 0x5
     //
-    // build/source_map/PLAYER_ANIM.md says "C_111 carries ten 8-directional ACTION
-    // animations (0x12c-0x135) that C_102 does not have". They are not actions. They
-    // are the SAME POSES as 0x0..0xa with a different weapon in her hand — the frame
-    // counts pair exactly (0x000/0x12c both 8, 0x003/0x12e both 11 and both the jump,
-    // 0x009/0x130 both 12 and both the flip), and the renders are pose-identical. That
-    // claim was inferred from their ABSENCE IN THE DEMO FILE, which is exactly what a
-    // second weapon's locomotion would look like: cutscenes fix the weapon.
+    // The alternates sit behind `Flag_IsEqualInt(149, 1)`. **0x132 is in neither C_111
+    // nor C_010 — it is not a tag at all, and the "gap" that suggested a missing attack
+    // never existed.**
     //
-    // And this comment then asserted "the ASO does NOT drive the player's normal
-    // attacks", from Yunica alone, while Hugo's ASO plainly emits his 0x12b..0x12d.
-    // One character is not the corpus — the same over-generalisation that once made
-    // this project call the AIA second layer a "state variant" from one atypical file.
+    // Yunica's real attacks are in C_114, reached by `anime_File(11)` from sections
+    // 0x100..0x112, and their weapon variants are INTERLEAVED rather than blocked:
+    // 0x100<->0x101, 0x102<->0x103, 0x104<->0x105, 0x107<->0x110, 0x109<->0x13a,
+    // 0x10b<->0x13b/0x13c. Sections 0x10c..0x111 carry no flag-149 test — those moves
+    // are weapon-independent.
     //
-    // [UNKNOWN] what selects weapon A vs B — presumably the equipped weapon.
-    // DAT_0074c0d0 (which PLAYER_ANIM.md reads as a Boost flag, gating C_114 vs C_982)
-    // is the candidate; note INVINFO's `sw` items are ids 0..5 for three characters,
-    // i.e. two weapons each, which fits the 2x2. Not verified.
+    // ** What flag 149 MEANS is [UNKNOWN]. ** What it DOES is [C-DIS]: it is
+    // DAT_0076bb70, toggled 0/1 by FUN_0046af60, which also forces +0x994 = 2 (idle),
+    // restarting the animation. Rendering both sets: the flag-149 alternates show an
+    // AXE, the default set (flag == 0) shows a long red glowing blade.
     //
-    // Section id != AIA tag. Section 0x10a -> tag 0x10a happens to match, but sections
+    // Yunica fights with an axe, so the alternates are normal play and the default is
+    // something else. The obvious guess was Boost — **the project owner checked in-game
+    // and the red sword is NOT her Boost form**, so that reading is dead and no
+    // replacement is offered here. An animation switch that restarts the state is the
+    // shape of a transformation, a weapon change or a story mode; the data cannot tell
+    // us which, and inventing a name for it would be exactly the kind of plausible
+    // label this file has already had to retract twice.
+    //
+    // ## Two of MY claims died here, and the second lesson is the useful one
+    //
+    // build/source_map/PLAYER_ANIM.md called 0x12c..0x135 "ten 8-directional ACTION
+    // animations", inferred from their ABSENCE IN THE DEMO FILE. Absence from a
+    // cutscene set is exactly what a second weapon's locomotion looks like — cutscenes
+    // fix the weapon. Nobody rendered them.
+    //
+    // This comment then asserted "the ASO does not drive attacks", from a sweep that
+    // RAN every section through this VM and collected the tags. The sweep was sound and
+    // the conclusion was still false: the emissions sit behind a flag test this VM
+    // never satisfies from a cold start. ** A negative derived by EXECUTING a branchy
+    // script is not a negative — it is a statement about the inputs you happened to
+    // supply. ** A static scan of the bytecode finds all nine tags immediately.
+    //
+    // Section id != AIA tag. Section 0x10a -> tag 0x10a matches by coincidence; sections
     // 0x100..0x112 emit C_114's tags rather than their own ids.
     std::int32_t anim_tag() const { return anim_tag_; }
     std::int32_t frame() const { return frame_; }
@@ -140,10 +164,27 @@ class AsoVm {
     // Inputs the script polls.
     void set_is_land(bool v) { is_land_ = v; }
     void set_is_stun(bool v) { is_stun_ = v; }
-    // The game flag array — the SAME g_flags the XSO scene VM uses (FUNCLIST.DEF is
-    // the shared function enum for both VMs). Animation sections are chains of
-    // Flag_IsEqualInt-guarded variants: a failed guard jumps to the next variant, so
-    // without flags every guard fails and NOTHING plays. Not optional.
+    // The game flag array — the SAME g_flags the XSO scene VM uses, and now proven so
+    // [C-DIS]: `flag[i]` (i < 0x200) IS the global array at **0x0076b91c + i*4**, from
+    // the handler's `LEA EDX,[EAX*0x4 + 0x76b91c]`. That mapping self-checks against
+    // two globals we already knew independently:
+    //
+    //   flag[161] == 0x0076bba0  — the demo-mode global; and flag 161 selects
+    //                              anime_File(6) = C_102, the demo sprite set. ✔
+    //   flag[150] == 0x0076bb74  — the player character index. ✔
+    //   flag[149] == 0x0076bb70  — the animation-set switch (see anim_tag() above).
+    //
+    // Animation sections are chains of Flag_IsEqualInt-guarded variants: a failed guard
+    // jumps to the next variant, so without flags every guard fails and NOTHING plays.
+    // Not optional.
+    //
+    // ** That last sentence was already here, and I ignored it. ** I swept every
+    // section of every character's ASO through this VM WITHOUT SETTING FLAGS, collected
+    // the tags that came out, and published "the ASO does not drive the player's
+    // attacks". The attack emissions sit behind Flag_IsEqualInt(149,1) — a guard that
+    // cannot pass with no flags — so the sweep could not have seen them, and the file
+    // I was editing said as much. **Executing a flag-guarded script proves nothing
+    // about the branches your inputs exclude; scan the bytecode statically instead.**
     void set_flags(const std::int32_t* flags, std::size_t count) {
         flags_ = flags;
         flag_count_ = count;

@@ -2242,7 +2242,25 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     auto try_attack = [&] {
         if (atk_cd > 0) return;
         atk_cd = 0.35f;
-        const float reach = 2.6f;   // INVENTED — the one combat quantity still unsourced
+        // ** INVENTED, and now known to be wrong in BOTH magnitude and shape. **
+        //
+        // The engine's melee hitbox is a SECTOR, not a circle. anime_GenerateCollision
+        // (ASO funcid 0x23) -> FUN_004494e0(actor, args[]):
+        //
+        //   args[2] -> actor+0x110 = RADIUS       (engine default 0.75; every melee
+        //                                          swing in C_010 passes 0.6)
+        //   args[3] -> actor+0x10c = args[3] * DAT_006bd0dc, and that constant read
+        //              RAW is 0x3c8efa35 = 0.017453292 = pi/180  ==> args[3] is an
+        //              ANGLE IN DEGREES, so the shape is an arc in front of her.
+        //
+        // So the real reach is ~0.6, not 2.6 — over 4x too far — and a full circle
+        // instead of a facing arc. It is NOT swapped in yet for one honest reason:
+        // [UNKNOWN] WHEN the hitbox goes active. GenerateCollision fires once at the
+        // section top, BEFORE the first anime_Pattern, and carries no active window;
+        // the leads are actor+0x11c bit2 and +0xd0/+0xd4. Shipping 0.6 with no active
+        // window would make attacks land on frame 0 of the wind-up, which is a
+        // different wrongness, not less of it. Wire the sector and the window together.
+        const float reach = 2.6f;
         int killed = 0, hit = 0;
         for (EnemyInst& e : enemies) {
             if (!e.alive) continue;
