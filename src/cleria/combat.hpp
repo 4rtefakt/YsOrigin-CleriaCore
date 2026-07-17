@@ -1,5 +1,23 @@
 // The damage formula — disassembled from `FUN_004fd350`, the central applier
-// (7 call sites). See build/combat_re/damage.json.
+// (7 call sites). See build/combat_re/damage.json and build/dmgpath_re/dmgpath.json.
+//
+// ############################################################################
+// ## THE PATH FORKS. EVERYTHING BELOW IS THE **ENEMY-TARGET** FORMULA ONLY. ##
+// ############################################################################
+//
+// At 0x4fd3e1 the applier does:
+//
+//     if (target->cast == 13)  { CALL FUN_004fa740; JMP 0x4fd54f; }
+//
+// — i.e. when the target is the PLAYER it bypasses this entire formula *and* the
+// difficulty post-scaler. `FUN_004fa740` is a different function with different rules:
+// DEF comes from the global 0x76a740 (== the stat record's DEF field), there are two
+// soft FLOORS at 3% and 1.5% of the attacker's ATK, a hardcoded 0.5 minimum instead of
+// min_dmg, and the return is max(1.0, ...).
+//
+// ** Routing player-incoming damage through `damage_real` is WRONG. ** It is not a
+// close approximation; it is the other branch. `player_incoming_damage` below is a
+// deliberate compile-time stop rather than a guess.
 //
 // The real signature is `__fastcall(GoActor* attacker /*ECX*/, GoActor* target /*EDX*/,
 // float* knockback /*[esp+4]*/)`. Ghidra renders it `FUN_004fd350(undefined4*)` — it
@@ -53,6 +71,7 @@ struct AttackStats {
 // floor is a hardcoded 0.5 rather than min_dmg. It also applies a two-stage soft
 // FLOOR at 3% / 1.5% of the ATTACKER's ATK — a floor, not the cap it was first
 // described as.
+// ENEMY-TARGET ONLY. See the fork note at the top of this file.
 inline float damage_real(const AttackStats& a, float def) {
     const float raw =
         std::pow(a.atk, 0.66f) * (a.atk - 0.98f * def + 10.0f + a.bonus) / 22.92f;
@@ -75,8 +94,27 @@ inline float damage_real(const AttackStats& a, float def) {
 // P(round up) == P/100 to five decimals: the `0x80010003 / SAR 14` sequence is a
 // division by exactly 32767 (verified bit-exactly across the whole reachable domain —
 // note 32765/32766/32768 all match on a coarse sample and only fail on a full sweep).
-// The generator is canonical Marsaglia xorshift128 at 0x74622c, seeded
-// 123456789/362436069/521288629.
+// The generator is canonical Marsaglia xorshift128 at 0x74622c.
+//
+// ** The seeds in .data are DECOYS. ** FUN_005d6700, called once from 0x40e257, does
+// `x = timeGetTime()` (005d6759 CALL ESI; 005d6760 MOV [0x0074622c],EAX) and merely
+// re-stores y/z/w with the constants they already hold. So 123456789/362436069/
+// 521288629 — which this comment used to quote as "the seeding" — is what the image
+// ships, not what the game runs.
+//
+// ** Damage is therefore NOT replay-stable in the retail game. ** That is liberating
+// rather than blocking: there is no canonical stream to match, so CleriaCore should
+// seed from an explicit recorded seed and get the determinism the original never had.
+// Matching the ALGORITHM and the ADVANCE COUNT buys fidelity; matching the seed is
+// impossible.
+//
+// The tell for the re-seed is worth keeping: y/z/w's constants each have exactly one
+// code hit, and x's 0x075bcd15 has NONE. That asymmetry IS the srand signature — the
+// one seed that never appears in code is the one being overwritten.
+//
+// [UNKNOWN] Advance census: FIVE per call (0x4fd3dc, 0x4fd4ff, 0x4fd5f4, 0x4fdd94,
+// 0x4fddc5), not the two implied above. Only the second feeds the rounding roll;
+// #3/#4/#5 are untraced. Stream parity needs all five.
 //
 // This was disputed by two passes and the resolution is worth keeping, because both
 // were right about what they actually looked at. One read the CALLER and found an
@@ -108,18 +146,45 @@ inline int damage_int(const AttackStats& a, float def, RollPercent&& roll) {
 // multiplicatively and then adds a flat 1, and only when difficulty > 0 — meaning the
 // lowest setting takes this branch not at all rather than taking it with scale 1.0.
 //
-// ** Both globals are runtime-set and their values are [UNKNOWN]. ** We know the shape
-// of this step, not its magnitude, so it is NOT applied: `damage_int` returns the
-// unscaled roll. Wiring it with a guessed multiplier would be worse than omitting it,
-// because it would look correct. The values live in whatever writes 0x76c190 — that
-// is the next thing to disassemble before damage parity is claimable.
+// The factor is now SOURCED [C-DIS]. FUN_00431260 is a bare table lookup:
+//
+//   004313f7  MOV EAX,[0x0076bb5c]                       ; the difficulty index
+//   00431414  MOVSS XMM0,[EAX*0x4 + 0x68a268]            ; table[difficulty]
+//   00431422  MOVSS [0x0076c190],XMM0
+//
+// and DAT_0068a268 is EXACTLY THREE floats: { 1.0, 1.5, 2.0 } (verified by reading raw
+// 4-byte words out of the PE — entry [3] is 0x070805dc, an int that reads as the
+// denormal 1.02e-34, which is how you know the table ends). Index 0 is never used: the
+// gate is `> 0`. Two sibling tables share the shape — 0x689f80 (enemy HP {—, 1.2, 1.5},
+// whose [0] is the int 300) and 0x68b26c (EXP {1.5, 1.65, 1.8}).
+//
+// ** Difficulty is NOT a single 0..3 global, and there are FIVE settings, not four. **
+// It is a 3-valued index (0x76bb5c, domain {0,1,2}) PLUS two booleans — 0x76bb58
+// (easy) and 0x76bc48 (very easy). The easing half of the range is not in 0x76bb5c at
+// all, which is why it looked like a 0..3 enum. Effects, strictly monotone:
+//
+//   very easy : dmg x0.5,  enemy HP x0.75, EXP x2.0
+//   easy      : dmg x0.5,  EXP x1.1
+//   normal    : baseline (index 0 — the post-scaler branch is not taken)
+//   hard      : enemy HP x1.2, dmg x1.5 + 1
+//   nightmare : enemy HP x1.5, dmg x2.0 + 1
+//
+// The effects are [C-DIS]; the NAMES are [H-high] — the menu strings were never found.
+//
+// [H-medium], flagged rather than hidden: the factor appears to be applied on BOTH
+// sides (0x4fa8fd player-incoming, 0x4fd53c enemy-incoming), so on Nightmare the
+// player would also deal 2x+1, netting ~0.75x enemy time-to-kill — a glass-cannon
+// curve. That branch was re-read three times without breaking it, but ONE in-game
+// damage number on Nightmare vs Normal would settle it.
+inline constexpr float kDifficultyFactor[3] = {1.0f, 1.5f, 2.0f};  // DAT_0068a268
+
 struct DifficultyScale {
-    int difficulty = 0;   // *(int*)0x76bb5c
-    float factor = 1.0f;  // *(float*)0x76c190 — [UNKNOWN] at every setting
+    int difficulty = 0;   // *(int*)0x76bb5c — domain {0,1,2}
+    float factor = 1.0f;  // *(float*)0x76c190 == kDifficultyFactor[difficulty]
 };
 
 inline int apply_difficulty(int dmg, const DifficultyScale& s) {
-    if (s.difficulty <= 0) return dmg;
+    if (s.difficulty <= 0) return dmg;  // the gate is > 0, so index 0 never applies
     return int(float(dmg) * s.factor + 1.0f);
 }
 
@@ -168,34 +233,61 @@ inline HitReaction hit_reaction(int dmg, float max_hp) {
 // `cast != 13 || actor->i_frames == 0`, i.e. every non-player cast is always hittable.
 // Do not generalise it to enemies; enemy hit-spam is vanilla behaviour.
 //
-// ** GRANTING IS A max(), NOT A STORE — so this function's return value must not be
-// assigned. ** The sites we have read do:
+// ** GRANTING IS A max(), NOT A STORE. ** The sites read do:
 //
 //     actor->i_frames = max(actor->i_frames, N);
 //
 // i.e. "grant AT LEAST N ticks, never shortening an existing longer invulnerability".
-// Two such sites are visible with N = 16 and N = 3, and a plain store of 9999 exists
-// at 0x46fc90 (~166 s at 60 Hz — effectively "off"; what state that is, is [UNKNOWN]).
-// Note 3 and 16 do not both fall in the {8,12,16} set below, so there are MORE grant
-// sites than the hit-severity ones.
+// Observed N: 16, 10 (0x45e0e8) and 3 — plus a plain STORE of 9999 at 0x46fc90 (~166 s
+// at 60 Hz, effectively "off"; what state that is, is [UNKNOWN]).
 //
-// [UNKNOWN] — and these two are why nothing here is applied automatically:
-//   * The 8/12/16 values came from a pass that described them as stores. Given the
-//     sites above are maxes, whether the severity grants are stores or maxes is NOT
-//     established. Use `grant_iframes`, which encodes the max() we HAVE seen.
-//   * The DECREMENT site has never been found. It must exist — +0x734 is raised by
-//     max() and gated on == 0, so without a decrement the player would be permanently
-//     invulnerable after one hit — but "once per tick" is an inference from that
-//     argument, not something read out of the exe.
-inline int iframes_for(HitReaction r) {
-    switch (r) {
-        case HitReaction::Big: return 16;
-        case HitReaction::Medium: return 12;
-        default: return 8;
-    }
-}
+// ** The 8/12/16 this file used to publish is UNSOURCED, and is gone. ** A program-wide
+// scan of all 284 exact `[reg+0x734]` sites found the constants 3, 10, 16 and 9999 —
+// no 8 and no 12 anywhere. Those numbers came from a pass that also described the
+// grants as stores, and both halves are now in doubt. Rather than keep a plausible
+// triple nothing supports, use `grant_iframes` with a value you can cite.
+// FUN_004fd350's 24 `+0x734` accesses are where the severity grants would be, if they
+// exist at all.
+//
+// The DECREMENT is FOUND [C-DIS] — 0x00466ce3, inside FUN_00465170
+// (go_actor_player.cpp):
+//
+//   00466ce3  8b 87 34 07 00 00   MOV EAX,[EDI + 0x734]
+//   00466ce9  85 c0               TEST EAX,EAX
+//   00466ceb  74 07               JZ 0x00466cf4
+//   00466ced  48                  DEC EAX                    ; <- ONE byte
+//   00466cee  89 87 34 07 00 00   MOV [EDI + 0x734],EAX
+//
+// So "once per tick" was right — but NOT unconditional: it is skipped when
+// FUN_0040b230() returns 4, 9 or 0xb.
+//
+// ** Why every previous pass missed it, and it generalises: `DEC EAX` is one byte
+// (0x48) and contains no trace of 0x734. An operand scan is structurally incapable of
+// finding it. To locate a read-modify-write, scan for the LOAD and walk forward. **
+// (The lead pushed for this — FUN_0045c490, the per-tick update that counts the
+// footstep byte down — was wrong: it has no +0x734 access at all, which makes sense
+// because this field is player-only.)
 
 // The grant, as observed: raise, never lower.
 inline void grant_iframes(int& i_frames, int n) { i_frames = std::max(i_frames, n); }
+
+// ---------------------------------------------------------------------------
+// PLAYER-INCOMING DAMAGE — deliberately not implemented.
+//
+// FUN_004fa740 is a genuinely different function, not a variation on the one above,
+// and the applier jumps to it before reaching any of this file's math. What is known:
+//
+//   - DEF comes from the global 0x76a740 (the stat record's DEF field), not target+0xa8
+//   - two soft FLOORS at 3% and 1.5% of the ATTACKER's ATK (floors, not caps)
+//   - a hardcoded 0.5 minimum instead of min_dmg
+//   - the return is max(1.0, ...)
+//   - the difficulty factor is applied here too, at 0x4fa8fd
+//
+// That is enough to know `damage_real` is the wrong function for it and not enough to
+// write the right one. This declaration exists so that a caller reaching for it gets a
+// LINK ERROR rather than silently getting the enemy formula — the failure mode this
+// codebase keeps hitting is plausible-looking wrongness, not obvious absence.
+int player_incoming_damage(const AttackStats& attacker, float player_def);
+// ---------------------------------------------------------------------------
 
 }  // namespace cleria
