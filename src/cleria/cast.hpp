@@ -75,6 +75,12 @@ struct Cast {
     std::string stem;         // +0x24  as stored, lower-case ("c000")
     std::int32_t cast_id = 0;  // +0x60  == the record index
     std::string description;  // +0x78
+    // Movement, per cast [C-DIS] — see the note above and physics_player.hpp. Only
+    // record 13 (the player) carries bespoke values; 168-169 casts share the defaults.
+    float radius_base = 0;  // +0x34
+    float height_base = 0;  // +0x38
+    float speed_base = 0;   // +0x48
+    float jump_v0 = 0;      // +0x50
 
     // True for CAST_ADOL, the player spawn marker: placed everywhere, drawn never.
     bool is_spawn_marker() const { return name == "CAST_ADOL"; }

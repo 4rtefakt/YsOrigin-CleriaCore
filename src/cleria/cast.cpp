@@ -1,5 +1,7 @@
 #include "cleria/cast.hpp"
 
+#include "cleria/physics_player.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cstring>
@@ -43,6 +45,10 @@ CastTable CastTable::load(const fs::path& path) {
         c.stem = cstr(b, o + 0x24, 0x10);
         c.description = cstr(b, o + 0x78, 0x40);
         std::memcpy(&c.cast_id, b.data() + o + 0x60, 4);
+        std::memcpy(&c.radius_base, b.data() + o + 0x34, 4);
+        std::memcpy(&c.height_base, b.data() + o + 0x38, 4);
+        std::memcpy(&c.speed_base, b.data() + o + 0x48, 4);
+        std::memcpy(&c.jump_v0, b.data() + o + 0x50, 4);
     }
     return t;
 }
@@ -67,6 +73,17 @@ fs::path CastTable::aia_path(const fs::path& root, int cast_id) const {
     for (char& ch : s) ch = char(std::toupper((unsigned char)ch));
     s.insert(1, "_");
     return root / "ANI" / (s + ".AIA");
+}
+
+CastMotion cast_motion(const CastTable& ct, int cast_id) {
+    CastMotion m;
+    if (const Cast* c = ct.get(cast_id)) {
+        m.radius_base = c->radius_base;
+        m.height_base = c->height_base;
+        m.speed_base = c->speed_base;
+        m.jump_v0 = c->jump_v0;
+    }
+    return m;
 }
 
 }  // namespace cleria

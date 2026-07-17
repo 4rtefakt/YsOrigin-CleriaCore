@@ -33,7 +33,9 @@
 #include "cleria/aso.hpp"
 #include "cleria/dds.hpp"
 #include "cleria/mathx.hpp"
+#include "cleria/cast.hpp"
 #include "cleria/physics.hpp"
+#include "cleria/physics_player.hpp"
 #include "cleria/surface.hpp"
 #include "cleria/audio.hpp"
 #include "cleria/items.hpp"
@@ -472,6 +474,15 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
         int nf = 0;
         for (const SefEffect& e : r.fx.effects) if (e.id == kEffectTorchFlame) ++nf;
         if (!r.fx.effects.empty())
+    if (std::getenv("CLERIA_CAM")) {
+        // The game's OWN authored eye distances. Useful as a scale check: dist over
+        // the player's height says how many character-heights the camera sits back.
+        for (std::size_t i = 0; i < r.cam.regions.size(); ++i) {
+            const CameraRegion& cr = r.cam.regions[i];
+            std::printf("    [cam %zu] eye.mode=%u dist=%.2f pitch=%.3f fov=%.3f\n", i,
+                        cr.eye.mode, cr.eye.dist, cr.eye.pitch, cr.fov);
+        }
+    }
             std::printf("    %zu effects (%d torch flames), %zu cameras\n",
                         r.fx.effects.size(), nf, r.cam.regions.size());
     }
@@ -964,9 +975,12 @@ struct CharSprite {
     void set_frame(Gpu& g, std::uint32_t frame) {
         for (std::uint32_t d = 0; d < 8 && d < ndir; ++d) {
             AiaFrame fr;
-            // Body only. The second layer is decoded correctly but we do NOT draw it:
-            // its role is unproven, and the obvious reading is refuted (see aia.hpp).
-            if (!aia.decode_frame(image, d, frame % std::max(1u, nframe), fr)) continue;
+            // Body + the second layer, composited ADDITIVELY — the engine's own blend
+            // (SRCALPHA/ONE, read out of FUN_004745a0). The layer is a real overlay:
+            // Yunica's fire-sword, Toal's Boost aura, projectile orbs. ~90% of frames
+            // have none and this is then identical to decode_frame.
+            if (!aia.decode_frame_composited(image, d, frame % std::max(1u, nframe), fr))
+                continue;
             if (dirs[d].tex) { wgpuBindGroupRelease(dirs[d].bind); wgpuTextureViewRelease(dirs[d].view); wgpuTextureRelease(dirs[d].tex); }
             dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
         }
@@ -1126,7 +1140,7 @@ struct EnemyFx {
             std::uint32_t tall = 1;
             for (std::uint32_t d = 0; d < 8 && d < k.ndir; ++d) {
                 AiaFrame fr;
-                if (!k.aia.decode_frame(std::uint32_t(img), d, 0, fr)) continue;
+                if (!k.aia.decode_frame_composited(std::uint32_t(img), d, 0, fr)) continue;
                 k.dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
                 tall = std::max(tall, fr.h);
             }
@@ -1973,17 +1987,47 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool fly = false;
     Vec3 feet{}; float vy = 0; bool grounded = false; float speed_mult = 1.0f;
 
-    // Play mode. The camera is NOT hand-tuned any more — it comes from the room's SCM
-    // regions (see update_camera). Character size stays an absolute world height: the
-    // engine derives it per-actor from the player struct, which we don't model yet.
-    const float kCharH = 2.0f;      // character height (world units)
-    // Player physics, also in absolute world units (see the note above — anything
-    // scaled by room size ends up different in every room).
-    const float kCharRadius = 0.45f;  // collision radius
-    const float kGravity = 30.0f;     // units/s^2
+    // Play mode. The camera comes from the room's SCM regions (see update_camera), and
+    // the player's SHAPE and VERTICAL MOTION now come from the game too — CASTINFO
+    // record 13 (CAST_ADOL, the player's own cast) plus the engine's integrator. See
+    // cleria/physics_player.hpp; the model is not `v += g*dt` and never was.
+    CastMotion pm;
+    {
+        // CAST_ADOL is record 13 — the same 13 the damage path tests for. It is the
+        // only record in all 186 with bespoke movement tuning.
+        const CastTable ct = CastTable::load(asset_root / "MISC" / "CASTINFO.DAT");
+        pm = cast_motion(ct, 13);
+    }
+    // ** kCharH is NOT pm.height(), and that is a deliberate refusal. **
+    //
+    // The disassembly says the engine derives a player height of `+0x38 + 0.075` =
+    // 1.075 and a radius of `+0x34 * 0.9` = 0.675. Both were verified against the file.
+    // But using 1.075 as the character's WORLD height contradicts two independent
+    // measurements from the game's own data:
+    //
+    //   * S_1000's authored SCM cameras sit 18..32 units back. At 1.075 tall the
+    //     camera is 17..30x the character's height away — no 2.5D action game frames
+    //     itself like that. At 2.0 it is 9..16x, which is what Ys Origin looks like.
+    //   * The engine's own jump model peaks at 2.46 units. That is 1.2x a 2.0-tall
+    //     character (right) but 2.3x a 1.075-tall one (far too high). Note our
+    //     hand-tuned kJumpH was 2.3 — it agrees with the engine's apex to 7%, which is
+    //     what says the vertical model below IS in these units.
+    //
+    // So one of three things is true and we have not established which: the derivation
+    // is wrong; +0x38 is a scale rather than a length; or the collision capsule is
+    // simply not the sprite's size and this code conflates them. Until that is settled,
+    // the sprite keeps the number that matches the game's framing, marked INVENTED —
+    // shipping a "validated" 1.075 that visibly renders a doll would be trading a
+    // working guess for a sourced mistake.
+    const float kCharH = 2.0f;               // INVENTED — see above
+    const float kCharRadius = 0.45f;         // INVENTED — pairs with kCharH, not pm.radius()
+    const float kJumpV0 = pm.jump_v0;        // 0.285 — CASTINFO +0x50 [C-DIS]
+    const float kStepUp = 0.6f;              // INVENTED — no source found
+    // INVENTED: walk speed. The engine does `actor+0x30c * scale * X` and X resolves
+    // to +0xdc on an object we have not identified, so the real value is unknown. It
+    // is deliberately NOT back-derived from the 20/13 footstep cadence: that would
+    // look right, match the audio, and be unfalsifiable.
     const float kWalkSpeed = 10.0f;   // units/s
-    const float kStepUp = 0.6f;       // max step-up
-    const float kJumpH = 2.3f;        // jump apex (~1.1x her height)
     // INVENTED: the game paces footsteps from ASO animation events, which we do not
     // run yet. One step per this much ground travel is a stand-in for that; the
     // surface lookup and variant cycling it feeds are the game's own.
@@ -2296,7 +2340,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // Play mode: WASD moves the CHARACTER relative to the fixed camera; the
             // camera follows to keep her centred. Movement basis = the camera's
             // horizontal forward (into screen) and right.
-            const float eye = kCharH, radius = kCharRadius, gravity = kGravity;
+            const float eye = kCharH, radius = kCharRadius;
             const float walk = kWalkSpeed * speed_mult, stepUp = kStepUp;
             // Movement is relative to the live camera (last frame's — the 1-frame lag
             // is imperceptible and avoids a chicken-and-egg with the follow camera).
@@ -2313,10 +2357,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
               feet.x = body.x; feet.z = body.z; }
-            vy -= gravity * dt; feet.y += vy * dt;
+            // The engine's vertical model, not ours. `vy` is NOT a velocity: it is the
+            // signed TIME at actor+0x330, decremented ~1/60 per tick, and the Y delta
+            // is closed-form. See cleria/physics_player.hpp — reproduce it literally,
+            // it is non-physical but tuned.
+            float dy = 0.5f * kGravity * vy * std::fabs(vy);  // v*|v| — the sign carries
+            dy = std::fmax(dy, kTerminalFall);
+            feet.y += dy;
+            vy -= kTimerStep;
+            if (vy < kTimerFloor) vy = kTimerFloor;
             int floor_tri = -1;
             const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + stepUp, &floor_tri);
-            if (fl > kNoFloor && vy <= 0.0f && fl >= feet.y - stepUp) {
+            if (fl > kNoFloor && dy <= 0.0f && fl >= feet.y - stepUp) {
                 feet.y = fl; vy = 0; grounded = true;
             } else grounded = false;
 
@@ -2352,7 +2404,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             } else if (!moving) {
                 step_n = 0;   // the exe resets the counter when not in a step state
             }
-            if (grounded && ks[SDL_SCANCODE_SPACE]) { vy = std::sqrt(2 * gravity * kJumpH); grounded = false; }
+            // The jump sets the TIMER, not a velocity — apex then lands at ~v0
+            // seconds (0.285 -> tick 17), which is what makes it a time and not a
+            // speed. No sqrt(2gh): the engine never solves for an apex.
+            if (grounded && ks[SDL_SCANCODE_SPACE]) { vy = kJumpV0; grounded = false; }
             if (feet.y < room.mesh.bmin.y - D) spawn_player();
 
             // Facing: map the screen-relative heading to one of the 8 sprite dirs.
@@ -2600,7 +2655,10 @@ int main(int argc, char** argv) {
         float yaw   = argc >= 8  ? float(std::atof(argv[7]))  : 1.5708f;
         float pitch = argc >= 9  ? float(std::atof(argv[8]))  : -0.72f;
         float dist  = argc >= 10 ? float(std::atof(argv[9]))  : 28.8f;   // world units
-        float hgt   = argc >= 11 ? float(std::atof(argv[10])) : 2.0f;    // world units
+        // INVENTED, and kept that way on purpose — CASTINFO's derived 1.075 renders a
+        // doll against this room's own authored camera distances. See the long note on
+        // kCharH in play mode.
+        float hgt   = argc >= 11 ? float(std::atof(argv[10])) : 2.0f;
         std::uint32_t dir = argc >= 12 ? std::uint32_t(std::atoi(argv[11])) : 2;
         if (argc >= 13) g_fov = float(std::atof(argv[12]));
         return render_play(g, room, argv[4], W, H, asset_root, yaw, pitch, dist, hgt, dir);

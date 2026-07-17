@@ -56,6 +56,10 @@ struct CastMotion {
     float height() const { return height_base + 0.075f; }
 };
 
+struct CastTable;
+// Read a cast's motion fields. cast_id 13 is CAST_ADOL — the player.
+CastMotion cast_motion(const CastTable& ct, int cast_id);
+
 // The vertical state. `t` is the signed timer at actor+0x330 — seconds, not m/s.
 struct VerticalState {
     float t = 0;
