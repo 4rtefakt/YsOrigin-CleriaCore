@@ -1,0 +1,91 @@
+# The game's own MONSTER JOURNAL, entries 1..68 (the non-boss set), as published.
+# Columns: No  Name  HP  LV  STR  DEF  EXP
+#
+# This is the only EXTERNAL check we have on the enemy stat pipeline. Everything else
+# validates our C++ against our Python -- both reading the same bytes, both able to
+# share one wrong idea. These numbers come from the game's own in-game journal, so
+# reproducing them exercises the GAMEINFO curve, the ENEMYINFO log2 multipliers, the
+# level column and the fold(cast_id-14) index, all at once, against a source that
+# knows nothing about our parse.
+#
+# It immediately earned its keep: it proved the engine FLOORS rather than rounds.
+# With floor, 67/68 match exactly on HP/LV/STR/DEF. With round, 9/68.
+#
+# KNOWN BAD ROW: #50 Kelmarel lists DEF 200. Our data says 191, and matches on HP
+# (433), LV (36) and STR (193). Rows 48/49/50 all show DEF 200 and EXP 357 -- a value
+# copied down a column in the published table. We do NOT correct our data to match it.
+#
+# The journal's order is ENCOUNTER order, not ENEMYINFO index order, so entries are
+# matched by value rather than position.
+#
+# Boss entries (69..92) are deliberately absent: the journal fills their columns from
+# DIFFERENT difficulties (HP from Easy, STR from Normal, DEF from Hard, EXP from Very
+# Easy, SP from Nightmare), so no single run of our formula should reproduce a boss row.
+1 Riffligan 60 1 38 43 12
+2 Normous 112 2 42 52 23
+3 Selnarg 74 3 50 53 33
+4 Baocar 86 4 49 54 45
+5 Nustarl 120 3 46 54 37
+6 Vagully 86 5 61 55 59
+7 Nooze 85 5 57 55 51
+8 Wilewarer 121 7 61 68 82
+9 Sopus-Baocar 119 7 60 71 85
+10 Jestona 108 9 74 73 102
+11 NoozeBlue 116 9 73 72 84
+12 Oggnome 180 10 78 80 107
+13 Mobre 139 11 76 79 126
+14 Kelemare 125 11 86 79 122
+15 Genoid 231 12 90 87 152
+16 Vilvan 125 13 95 95 114
+17 Nipper 135 14 98 92 151
+18 Menoak 146 14 92 91 162
+19 Venueba 172 15 117 90 185
+20 Celny 144 16 104 97 155
+21 Chelasken 198 17 101 105 195
+22 NoozeRed 172 17 117 107 176
+23 Jiamobre 161 18 113 100 196
+24 Bordisch 263 19 121 115 221
+25 Hubamobre 200 20 122 120 213
+26 Sepast 168 20 122 122 221
+27 Irebolg 269 21 128 128 240
+28 Perrie 174 21 120 113 216
+29 Rezalior 218 22 119 117 243
+30 Raldisch 303 23 135 130 267
+31 Hubamobrum 350 23 140 135 8
+32 Arte-Baocar 224 25 141 143 275
+33 Sevnam 312 25 143 151 266
+34 NoozeYellow 228 25 142 155 248
+35 Twarth 258 25 146 159 295
+36 Karon 261 26 153 140 267
+37 Bicmobre 331 27 153 155 318
+38 Moz 234 27 149 149 263
+39 Zarue 297 28 165 151 318
+40 Zelkaron 320 29 180 180 6
+41 Diphtheloyd 369 29 172 145 287
+42 Chups 298 29 172 142 272
+43 Sepaswait 254 30 169 162 307
+44 Titamonus 432 31 176 169 354
+45 Chryolos 278 32 180 168 266
+46 Gunghogan 369 33 187 184 361
+47 Ogacha 302 34 191 170 347
+48 Tolpi 394 35 190 200 357
+49 Urobass 331 35 193 200 357
+50 Kelmarel 433 36 193 200 357
+51 Zeruena 413 37 197 195 405
+52 Tenat-Baocar 343 38 206 189 415
+53 NoozeGreen 343 38 192 194 368
+54 Xomack 380 38 203 214 388
+55 Samachryce 363 39 215 209 449
+56 Liliborad 472 40 223 219 422
+57 Bazeraena 524 41 224 204 397
+58 NoozePurple 386 42 232 231 354
+59 Fliogan 696 42 224 221 392
+60 Heketie 251 43 223 233 446
+61 Sinn-Piache 367 43 245 225 356
+62 Maka-Piache 437 43 233 221 375
+63 Euchreas 588 44 248 225 448
+64 Astyle 463 45 242 242 483
+65 Hekat-Baocar 454 46 247 223 408
+66 Levenueba 611 46 249 234 437
+67 Drefflum 633 46 253 237 445
+68 Glaregrave 591 47 255 263 483

@@ -48,14 +48,20 @@ double GameInfo::exp_to_level(int level) const {
     return total;
 }
 
-// stat = K(the enemy's own column) * the shared GAMEINFO curve at the enemy's own
-// level. The curve alone is not a stat -- see the note in enemies.hpp.
+// stat = FLOOR(K(the enemy's own column) * the shared curve at the enemy's own level).
+//
+// ** FLOOR, not round. ** This said `round` and was wrong in 59 of 68 cases. The
+// engine's rounding helper FUN_004217f0 is `floorf` -- which a separate pass had
+// already PROVEN (FUN_00671000 is floor(double), via `006710d6: FLDZ; RET` for
+// 0<x<1) while the stat pass's pseudocode said "round(...)" and nobody reconciled
+// the two. The game's own monster journal settles it: with floor, 67 of 68 published
+// enemies match exactly on HP, level, STR and DEF; with round, 9.
 EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e) {
     EnemyStats s;
     if (!gi.ok()) return s;
-    s.max_hp = std::round(stat_k(e.k_maxhp) * gi.curves[kEnemyMaxHp].at(e.level));
-    s.atk = std::round(stat_k(e.k_atk) * gi.curves[kEnemyAtk].at(e.level));
-    s.def = std::round(stat_k(e.k_def) * gi.curves[kEnemyDef].at(e.level));
+    s.max_hp = std::floor(stat_k(e.k_maxhp) * gi.curves[kEnemyMaxHp].at(e.level));
+    s.atk = std::floor(stat_k(e.k_atk) * gi.curves[kEnemyAtk].at(e.level));
+    s.def = std::floor(stat_k(e.k_def) * gi.curves[kEnemyDef].at(e.level));
     return s;
 }
 

@@ -14,6 +14,7 @@
 #include <map>
 #include <string>
 #include <set>
+#include <sstream>
 
 namespace fs = std::filesystem;
 using namespace cleria;
@@ -308,6 +309,50 @@ int main(int argc, char** argv) {
               "starting player can hurt the weakest real enemy",
               std::to_string(damage_real(a, ws.def)) + " vs its real DEF " +
                   std::to_string(ws.def));
+    }
+
+    // ---- the game's own MONSTER JOURNAL: the only EXTERNAL check we have ------
+    //
+    // Every other test here validates our C++ against our Python -- both reading the
+    // same bytes, both able to share one wrong idea. These numbers are published by the
+    // game itself, so matching them exercises the GAMEINFO curve, the ENEMYINFO log2
+    // multipliers, the level column and the fold(cast_id-14) index at once, against a
+    // source that knows nothing about our parse. It is what proved the engine FLOORS.
+    {
+        std::ifstream jf("tests/monster_journal.txt");
+        if (!jf) {
+            std::printf("\n(monster journal fixture not found -- skipping the external check)\n");
+        } else {
+            struct JRow { int no, hp, lv, str, def, exp; std::string name; };
+            std::vector<JRow> rows;
+            std::string line;
+            while (std::getline(jf, line)) {
+                if (line.empty() || line[0] == '#') continue;
+                std::istringstream is(line);
+                JRow r;
+                if (is >> r.no >> r.name >> r.hp >> r.lv >> r.str >> r.def >> r.exp)
+                    rows.push_back(r);
+            }
+            // The journal is in ENCOUNTER order, not index order -- match by value.
+            int exact = 0;
+            std::vector<std::string> misses;
+            for (const JRow& r : rows) {
+                bool hit = false;
+                for (const Enemy& e : et.enemies) {
+                    if (e.level != r.lv) continue;
+                    const EnemyStats s = enemy_stats(gi, e);
+                    if (int(s.max_hp) == r.hp && int(s.atk) == r.str &&
+                        int(s.def) == r.def) { hit = true; break; }
+                }
+                if (hit) ++exact; else misses.push_back(r.name);
+            }
+            // 67/68: #50 Kelmarel's published DEF is a copy-paste from the two rows
+            // above it (48/49/50 all list DEF 200, EXP 357). Our data matches it on
+            // HP/LV/STR and we do not bend to the typo.
+            check(exact >= 67, "monster journal: our stats == the game's published table",
+                  std::to_string(exact) + "/" + std::to_string(rows.size()) +
+                      (misses.empty() ? "" : "  (known: " + misses[0] + ")"));
+        }
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);

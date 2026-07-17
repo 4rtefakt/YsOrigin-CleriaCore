@@ -51,12 +51,19 @@
 // FUN_004202e0 (spawn) computes every enemy stat as `K(column) * GAMEINFO_curve(level)`,
 // with `K(v) = 2^((v-50)/20)` (the helper FUN_0041b790; the 20.0 is at 0x6bd994):
 //
-//   maxHP  = round(K(+0xC8) * lerp(60, 475, t))
-//   ATK    = round(K(+0xCC) * lerp(40, 295, t))
-//   DEF    = round(K(+0xD0) * lerp(40, 295, t))
-//   +0xb0  = round(K(+0xDC) * lerp(15, 610, t))
+//   maxHP  = FLOOR(K(+0xC8) * lerp(60, 475, t))
+//   ATK    = FLOOR(K(+0xCC) * lerp(40, 295, t))
+//   DEF    = FLOOR(K(+0xD0) * lerp(40, 295, t))
+//   +0xb0  = FLOOR(K(+0xDC) * lerp(15, 610, t))
 //   EXP    =       K(+0xD8) * ...              -> actor+0xc4
 //   with t = (level - 1) / 59, level from +0xe8
+//
+// ** FLOOR, not round. ** The engine's helper FUN_004217f0 is floorf. This was written
+// as `round` and validated against nothing until the game's own MONSTER JOURNAL was
+// checked: with floor, 67 of 68 published enemies match EXACTLY on HP/level/STR/DEF;
+// with round, 9. (The 68th, Kelmarel, matches on HP/level/STR and differs only on DEF
+// -- and the journal lists DEF 200 for three consecutive rows, so that is a
+// transcription error in the published table, not in the data.)
 //
 // So there is NO raw HP, ATK, DEF, EXP or gold stored anywhere in this record — every
 // one is a multiplier against a shared curve. That is why a scan for "a wide non-log2
