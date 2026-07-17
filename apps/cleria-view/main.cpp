@@ -1917,18 +1917,22 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
             if (stem.empty()) continue;
             EnemyInst e;
             e.stem = stem; e.display = stem; e.pos = cp.position; e.alive = true;
-            if (const Cast* ct = casts.find(cp.name))
+            if (const Cast* ct = casts.find(cp.name)) {
+                // The game's own name -- CASTINFO +0x10. "Riffligan", not "M_100".
+                if (!ct->display.empty()) e.display = ct->display;
                 if (const Enemy* en = etab.get(enemy_index_for_cast(ct->cast_id))) {
                     const EnemyStats s = enemy_stats(ginfo, *en);
                     e.max_hp = e.hp = s.max_hp; e.atk = s.atk; e.def = s.def;
                     e.level = en->level;
                 }
+            }
             list.push_back(std::move(e));
         }
         if (std::getenv("CLERIA_ENEMY"))
             for (const EnemyInst& e : list)
-                std::printf("play: %-10s lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
-                            e.stem.c_str(), e.level, e.max_hp, e.atk, e.def);
+                std::printf("play: %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
+                            e.display.c_str(), e.stem.c_str(), e.level, e.max_hp,
+                            e.atk, e.def);
         draw_enemies(g, cview, dview, efx, list, cam.forward());
     }
     // Torch flames (SEF placements + the EF2 flipbook).
@@ -2166,6 +2170,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // stats rather than an invented number — a visibly unkillable enemy is a
             // better bug report than a plausible one that hides a broken link.
             if (const Cast* ct = casts.find(c.name)) {
+                // The game's own name -- CASTINFO +0x10, cross-checked against the
+                // published monster journal: 67/67 agree.
+                if (!ct->display.empty()) e.display = ct->display;
                 const int ei = enemy_index_for_cast(ct->cast_id);
                 if (const Enemy* en = etab.get(ei)) {
                     const EnemyStats s = enemy_stats(ginfo, *en);
@@ -2184,8 +2191,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         statted);
             if (std::getenv("CLERIA_ENEMY"))
                 for (const EnemyInst& e : enemies)
-                    std::printf("    %-10s lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
-                                e.stem.c_str(), e.level, e.max_hp, e.atk, e.def);
+                    std::printf("    %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
+                                e.display.c_str(), e.stem.c_str(), e.level, e.max_hp,
+                                e.atk, e.def);
         }
     };
 

@@ -11,12 +11,30 @@
 // exactly. Fields verified against the data (build/misc_re/):
 //
 //   +0x00  char[0x10]  NAME — "CAST_M220"; this is the key SCT places by
-//   +0x10  char[0x14]  DISPLAY name (empty for most records)
+//   +0x10  char[0x14]  DISPLAY name — the enemy's REAL name ("Riffligan", "Chryolos")
 //   +0x24  char[0x10]  AIA STEM — lower-case, and NOT the filename (see below)
 //   +0x60  i32         CAST ID — equals the record index in 186/186
 //   +0x64  i32         -> actor+0x120 [C-DIS]; [H-high] the AI HANDLER INDEX
 //   +0x6c  i32         ACTOR CLASS [C-DIS]: 0x10 = monster (86), 4 (87), 2 (2), 0 (11)
 //   +0x78  char[0x40]  DESCRIPTION
+//
+// ## +0x10 is the real name, and we ignored it for weeks [C-COR]
+//
+// This line used to read "DISPLAY name (empty for most records)". It is **non-empty in
+// 147 of 186 records** — exactly backwards — and it holds the names the game shows in
+// its monster journal: CAST_M100 = "Riffligan", CAST_M220 = "Chryolos", CAST_ADOL =
+// "Adol". The field has been parsed into `Cast::display` since the loader was written
+// and nothing ever read it.
+//
+// I found it by cross-matching the game's published monster journal against our
+// computed stats to recover enemy names — and then discovered the names were sitting
+// in a field we already parsed, dismissed by our own comment. Look at the data before
+// deriving it.
+//
+// The triangulation is worth keeping though, because it is unusually strong: the
+// journal's NAME, our STAT match (level/HP/STR/DEF), and this NAME FIELD agree on
+// 67/67 enemies independently. It also catches a published typo — the journal prints
+// "Hubamobrum" where the game's own file says "Hubamobrun".
 //
 // ## +0x64 is [H-high] the AI handler index — two half-answers, joined
 //
