@@ -71,27 +71,43 @@ class AsoVm {
 
     // What the script currently wants drawn. `dir` is deliberately absent.
     //
-    // ** The ASO does NOT drive the player's normal attacks. ** [C-COR]
+    // ## The script drives EVERYTHING, attacks included [C-COR]
     //
-    // C_111.AIA (Yunica gameplay) carries nine 8-directional attack animations —
-    // tags 0x12c, 0x12d, 0x12e, 0x12f, 0x130, 0x131, 0x133, 0x134, 0x135 (0x132 is
-    // absent). Running ALL 42 of C_010.ASO's sections for 200 ticks each and
-    // collecting every tag they can emit yields NONE of them. The script's sections
-    // partition cleanly by the file they select through anime_File:
+    // Yunica's animations are a 2x2 of {locomotion, attacks} x {weapon A, weapon B},
+    // split across two files, and the ASO drives all of it:
     //
-    //   sections -> C_111 (gameplay) : tags 0x0..0x9, 0x10a   <- LOCOMOTION ONLY
-    //   sections -> C_114 (Boost)    : tags 0x100..0x13c      <- the Boost moves
-    //   sections -> C_102 (demo)     : tags 0x192, 0x19a
+    //   C_111 0x0..0xa      locomotion, weapon A (a long red/white striped weapon)
+    //   C_111 0x12c..0x135  locomotion, weapon B (an axe)
+    //   C_114 0x100..0x10c  ATTACKS,    weapon A
+    //   C_114 0x10d..0x110  ATTACKS,    weapon B
     //
-    // So a renderer driven purely by this VM can walk, run, idle, jump and Boost, and
-    // can never swing. Attacks are set from code (go_actor_player.cpp, FUN_00465170's
-    // neighbourhood) — which is inside the 641KB main/object region we have barely
-    // touched. The frames are decoded and render fine; what is missing is the trigger,
-    // the frame timing and the combo rule. Timing especially is NOT invented here: an
-    // old note's "0.09 s/frame" was explicitly flagged as unjustified and is not used.
+    // C_010.ASO's sections 0x0..0xb select C_111; its sections 0x100..0x112 select
+    // C_114 via anime_File. Hugo (C_020 -> C_112) and Toal (C_030 -> C_113) are the
+    // same shape. There is no code-driven attack path.
+    //
+    // ** Two wrong claims died here, and both died the same way — by rendering the
+    // frames and looking at them. **
+    //
+    // build/source_map/PLAYER_ANIM.md says "C_111 carries ten 8-directional ACTION
+    // animations (0x12c-0x135) that C_102 does not have". They are not actions. They
+    // are the SAME POSES as 0x0..0xa with a different weapon in her hand — the frame
+    // counts pair exactly (0x000/0x12c both 8, 0x003/0x12e both 11 and both the jump,
+    // 0x009/0x130 both 12 and both the flip), and the renders are pose-identical. That
+    // claim was inferred from their ABSENCE IN THE DEMO FILE, which is exactly what a
+    // second weapon's locomotion would look like: cutscenes fix the weapon.
+    //
+    // And this comment then asserted "the ASO does NOT drive the player's normal
+    // attacks", from Yunica alone, while Hugo's ASO plainly emits his 0x12b..0x12d.
+    // One character is not the corpus — the same over-generalisation that once made
+    // this project call the AIA second layer a "state variant" from one atypical file.
+    //
+    // [UNKNOWN] what selects weapon A vs B — presumably the equipped weapon.
+    // DAT_0074c0d0 (which PLAYER_ANIM.md reads as a Boost flag, gating C_114 vs C_982)
+    // is the candidate; note INVINFO's `sw` items are ids 0..5 for three characters,
+    // i.e. two weapons each, which fits the 2x2. Not verified.
     //
     // Section id != AIA tag. Section 0x10a -> tag 0x10a happens to match, but sections
-    // 0x100..0x112 emit C_114's tags, not their own ids. Do not conflate them.
+    // 0x100..0x112 emit C_114's tags rather than their own ids.
     std::int32_t anim_tag() const { return anim_tag_; }
     std::int32_t frame() const { return frame_; }
     std::int32_t file_id() const { return file_id_; }
