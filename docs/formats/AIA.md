@@ -52,45 +52,79 @@ layer (drawn when the body region's `flags` bit 7 is *clear*).
 | 0x08 | f32[4] | billboard placement (scale, ox, oy, oz) — constant per file |
 | 0x18 | u16×4 | tight atlas bbox `x0,y0,x1,y1` → texture is `(x1-x0)×(y1-y0)` |
 
-### The second layer — the flag is bit **0**, not bit 7
+### The second layer — an ADDITIVE OVERLAY, and bit 0 marks the pair
 
 Frames occupy region *pairs*: an even **body** region and an odd **layer** slot.
-Whether that slot is real is decided by **bit 0 of the BODY's flags**:
 
-| body flags | meaning | odd slot |
+**`[C-COR]` Bit 0 sits on BOTH members of a pair — 5906/5906.** It marks *the pair*,
+not the body; testing "bit 0 of the body" happens to work but describes the format
+wrongly. `0x80` marks *an empty region*, and — the part that kills the old reading —
+**1022 BODIES are themselves `0x80` placeholders**, so `0x80` is not a layer-slot
+property at all. Full histogram of `flags`, all 60,844 slots:
+
+| flags | bodies | layers | meaning |
+|---|---|---|---|
+| `0x00` | 53,916 | 53,916 | region present, unpaired |
+| `0x01` | 5,906 | 5,906 | **member of a body+layer pair** |
+| `0x80` | 1,022 | 1,022 | **empty region** (bbox `(canvasW,canvasH,…)` ⇒ 0×0, `imageOfs = 0`) |
+
+Byte `0x07` is `0` in all 60,844 — **there is no blend-mode field in the region
+record.** The blend is global to the sprite path, not per-region.
+
+**`[C-COR]` It is an OVERLAY: a second, independent sprite element with its own
+position, own artwork, and own palette, drawn *with* the body.** The decisive fact is
+that **the layer's bbox moves independently of the body's** — which a state variant
+cannot do:
+
+| file | tag | layer bbox over successive frames | what it is |
+|---|---|---|---|
+| `M_460` | 300 | `(173,115)→(178,128)→(178,143)→(178,158)`, 27–95 px | a **falling spark**, tracking down while the body stands still |
+| `M_910` | 7 | `(52,75)→(73,69)→(103,64)→(95,67)→(82,70)` | **projectile orbs**, flying out and returning |
+| `C_114` | 268 | `(119,28)→…→(11,35)→(29,77)→(159,73)` | a **flaming sword effect** sweeping the canvas |
+
+`build/aia_re/strip_c114.png` shows it outright: body-only is Yunica's plain blade;
+body+layer is **the blade wreathed in fire**, tracking the swing.
+
+**`[C-COR]` "Same artwork, next palette — a palette swap" is FALSE.** `sameBlob =
+0/5906`: the layer's compressed blob is *never* the body's. The content is different
+art — a flame, orbs, a slash arc, a flash. Only the palette-index relation survives:
+**`layerPal == bodyPal + 1`, 5906/5906**, no exceptions.
+
+Layer presence is **per-frame and direction-independent**, appearing in contiguous
+runs and strobes — `M_850` tag 303 is `..#..#..#.....` identically across all 8
+directions. It is an authored effect envelope, not a state.
+
+**`[H-high]` The blend is ADDITIVE, not straight alpha.** Layers carry ~7× the
+opaque-black pixels bodies do (`build/aia_re/black_test.py`):
+
+| file | body opaque-black | layer opaque-black |
 |---|---|---|
-| `0x00` | no second layer | placeholder: flags `0x80`, bbox `(canvasW,canvasH,canvasW,canvasH)` ⇒ 0×0, `imageOfs = 0` |
-| `0x01` | **has a second layer** | a real region with its own bbox and pixel data |
+| `C_104.AIA` | 0.2% | 11.5% |
+| `C_112.AIA` | 0.6% | **22.6%** (38×) |
+| `M_860.AIA` | 3.7% | 19.5% |
+| **total** | **1.3%** | **8.8%** |
 
-The `0x80` on the empty slot is what makes "bit7 = no second layer" *look* right —
-it is a property of the placeholder, not the test to use. Read **bit 0 of the body**.
+Under straight-alpha OVER an opaque black pixel punches a black hole; **under
+additive it is the identity — free.** Authoring 22.6% of an overlay's opaque pixels
+as pure black only makes sense against an additive blend. `comp_c115.png` agrees
+perceptually: `over` erases the body, `add` yields a purple-glowing Toal.
 
-**The layer's palette is always the body's palette + 1** — verified across every
-file that uses layers (18→19, 28→29, 24→25, 8→9, …, no exceptions). Same artwork,
-next palette — a **palette swap**, not a weapon or a separate prop. C_115 (Toal's
-Boost/demon form) draws its body in `palIdx 0` and its layer — a dark purple
-silhouette of the same pose — in `palIdx 1`.
+> **`[UNKNOWN]` The exact blend mode still needs disassembly.** The evidence above is
+> strong but circumstantial; the actual render state lives in the exe's 2D sprite
+> draw call (`SetRenderState(D3DRS_SRCBLEND/DESTBLEND)`), not in the AIA. Expect
+> `SRCALPHA/ONE` or `ONE/ONE` — **C_104's flash is the discriminating frame**
+> (whiteout under `add`, subtle under `add × alpha`).
 
-> **⚠️ What the engine DOES with the layer is [UNKNOWN] — do not assume "overlay".**
-> An earlier revision of this section called it a palette-swapped *overlay*. The
-> description above is right; that word is not established, and the obvious reading
-> is refuted. Reproduce it:
->
-> ```
-> build/Release/cleria-aiatest.exe assets/.../C_115.AIA 0 c115.ppm --composite
-> ```
-> Region 0 (body) and region 1 (layer) have the **identical bbox** — `73x99 @(102,13)`
-> — and near-identical coverage: **3408 vs 3406** non-transparent pixels. The layer is
-> not a sparse glow sitting *on* the body; it is the **whole silhouette**, flat purple.
-> Drawing it over the body with straight alpha therefore erases the body entirely,
-> which is plainly not what the game renders.
->
-> The likelier reading, untested: the layer is a **state variant the engine swaps in**
-> (a Boost or hit flash), not something drawn *with* the body. The distribution fits —
-> C_115 and M_340/M_370/M_540 are 100% layered, while C_104's layers appear on only
-> two special animations (tags 408 and 419) and on **none** of his locomotion, so a
-> walking Toal would never show one. Settle this before drawing anything: the renderer
-> currently draws the body only, on purpose.
+> **Retracted: "the obvious reading is refuted; the layer is a state variant."** An
+> earlier revision of this section said exactly that, on the strength of one file:
+> C_115, whose layer has the body's identical bbox (`73x99 @(102,13)`) and near-
+> identical coverage (3408 vs 3406), so compositing it with straight alpha erased the
+> body. Both observations are true and the conclusion was still wrong twice over. The
+> erasure was evidence about the **blend mode**, not about whether to draw it — and
+> C_115 is the corpus's **most atypical file**: 100% layered, full-silhouette aura,
+> and the **only file whose layers contain zero ALPHA opcodes**. Only **1983/5906
+> (34%)** of layers share their body's bbox. One weird file is not the corpus, and a
+> composite that looks wrong indicts the compositor first.
 
 The layer carries its **own bbox**, which may or may not match the body's (C_115:
 1599/1728 identical; C_112 and M_340: never identical), so it must be positioned
@@ -100,6 +134,13 @@ from its own record rather than assumed coincident.
 **C_115 = 1728/1728** and **M_340/M_370 = 100%**, while **C_102 (Yunica's base set)
 uses none at all** — which is why a renderer that ignores the layer looks correct
 until it loads a gameplay or Boost set.
+
+A **negative** result worth keeping, since it is the kind that quietly gets dropped:
+if layers were additive glows, their palettes ought to be luminance ramps from black.
+**They are not** — only 14/94 (15%) are near-monotonic. Entry 0 is black in 94/94,
+but that holds for body palettes too (a codec convention), so it proves nothing
+either way. This does *not* support the additive reading; the case for it rests on
+the opaque-black distribution above.
 
 **Palette entry:** stored `B8 G8 R8 x8`; the loader forces alpha to `0xFF`.
 Entry 0 is transparent black, entry 1 white.
