@@ -166,6 +166,23 @@ int main(int argc, char** argv) {
     check(rooms_with["CAST_ADOL"] > sct_files * 9 / 10,
           "CAST_ADOL (spawn marker) is in ~every room",
           std::to_string(rooms_with["CAST_ADOL"]) + "/" + std::to_string(sct_files) + " rooms");
+
+    // The CASTINFO -> ENEMYINFO index: a bias and a fold, not the identity this
+    // project asserted for weeks. It must be a BIJECTION onto exactly 0..89 -- that is
+    // what `cast_id` could never be (186 casts, 90 records) and what makes this one
+    // structurally right rather than merely plausible.
+    std::set<int> idx;
+    int mapped = 0, collisions = 0;
+    for (const Cast& c : ct.casts) {
+        const int e = enemy_index_for_cast(c.cast_id);
+        if (e < 0) continue;
+        ++mapped;
+        if (!idx.insert(e).second) ++collisions;
+    }
+    check(mapped == 90 && collisions == 0 && *idx.begin() == 0 && *idx.rbegin() == 89,
+          "enemy index is a bijection onto 0..89",
+          std::to_string(mapped) + " casts -> " + std::to_string(idx.size()) +
+              " indices, " + std::to_string(collisions) + " collisions");
     std::printf("  (%zu of %zu casts are placed by some room)\n", placed.size(),
                 ct.casts.size());
 

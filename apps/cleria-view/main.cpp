@@ -1905,16 +1905,30 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
     {
         EnemyFx efx;
         efx.init(g, asset_root, room.cast);
-        // Stats are placeholders: the CASTINFO -> ENEMYINFO index is [UNKNOWN].
+        // The same chain as play mode. CLERIA_ENEMY=1 dumps what a room's enemies
+        // actually are — the only headless view of it, since spawning otherwise lives
+        // in the interactive loop.
+        const CastTable casts = CastTable::load(asset_root / "MISC" / "CASTINFO.DAT");
+        const EnemyTable etab = EnemyTable::load(asset_root / "MISC" / "ENEMYINFO.DAT");
+        const GameInfo ginfo = GameInfo::load(asset_root / "MISC" / "GAMEINFO.DAT");
         std::vector<EnemyInst> list;
         for (const CastPlacement& cp : room.cast.casts) {
             const std::string stem = cp.sprite_stem();
             if (stem.empty()) continue;
             EnemyInst e;
             e.stem = stem; e.display = stem; e.pos = cp.position; e.alive = true;
-            e.max_hp = e.hp = 20;
+            if (const Cast* ct = casts.find(cp.name))
+                if (const Enemy* en = etab.get(enemy_index_for_cast(ct->cast_id))) {
+                    const EnemyStats s = enemy_stats(ginfo, *en);
+                    e.max_hp = e.hp = s.max_hp; e.atk = s.atk; e.def = s.def;
+                    e.level = en->level;
+                }
             list.push_back(std::move(e));
         }
+        if (std::getenv("CLERIA_ENEMY"))
+            for (const EnemyInst& e : list)
+                std::printf("play: %-10s lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
+                            e.stem.c_str(), e.level, e.max_hp, e.atk, e.def);
         draw_enemies(g, cview, dview, efx, list, cam.forward());
     }
     // Torch flames (SEF placements + the EF2 flipbook).
@@ -2147,12 +2161,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             e.display = stem;
             e.pos = c.position;
             e.alive = true;
-            // ** PLACEHOLDER, and it stays one: the CASTINFO -> ENEMYINFO index is
-            // [UNKNOWN]. ** See the note on `etab` below. Everything downstream of that
-            // index is solved — the level, the multipliers, the curve, the formula —
-            // so this is one missing link away from real, and no closer.
-            e.max_hp = e.hp = 20;
-            e.def = 0;
+            // The game's own stats: SCT name -> CASTINFO -> enemy_index_for_cast ->
+            // ENEMYINFO -> GAMEINFO curve. A cast with no enemy record keeps zeroed
+            // stats rather than an invented number — a visibly unkillable enemy is a
+            // better bug report than a plausible one that hides a broken link.
+            if (const Cast* ct = casts.find(c.name)) {
+                const int ei = enemy_index_for_cast(ct->cast_id);
+                if (const Enemy* en = etab.get(ei)) {
+                    const EnemyStats s = enemy_stats(ginfo, *en);
+                    e.max_hp = e.hp = s.max_hp;
+                    e.atk = s.atk;
+                    e.def = s.def;
+                    e.level = en->level;
+                }
+            }
             enemies.push_back(std::move(e));
         }
         if (!enemies.empty()) {

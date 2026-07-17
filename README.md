@@ -52,7 +52,7 @@ and a C++20 asset core renders real rooms.
 | Difficulty | ✅ **five settings, not four** — a 3-valued index (`0x76bb5c`) *plus* two booleans. Effects `[C-DIS]`: very easy `{dmg ×0.5, HP ×0.75, EXP ×2}` → nightmare `{HP ×1.5, dmg ×2+1}`. The names are `[H-high]` — the menu strings were never found |
 | RNG / replay stability | ✅ **the `.data` seeds are decoys** — `x = timeGetTime()` at startup, so retail damage is *not* replay-stable. We seed explicitly and get determinism the original never had |
 | **Enemy drop tables (ENEMYINFO)** | ✅ **8 slots/enemy: item id + percent chance, corpus-proven — enemies drop only tools and gold, never equipment** |
-| **Enemies (SCT placement)** | ✅ **1106 placements / 85 rooms render as sprites; no AI yet** |
+| **Enemies (SCT placement + the game's stats)** | ✅ **1106 placements / 85 rooms, each with its OWN level, HP, ATK and DEF from ENEMYINFO — S_1004 holds lv1/60HP Riffligans, S_6002 holds lv42/697HP. No AI yet** |
 | **Torch flames (SEF + EF2)** | ✅ **placements + the 16-frame flipbook, additive** |
 | **The full archive** | ✅ **15,945/15,945 extracted — incl. 77 shaders + 820 WAVs nothing had touched** |
 

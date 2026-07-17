@@ -90,6 +90,49 @@ struct DropSlot {
 // +20 doubles, -20 halves.
 inline float stat_k(float v) { return std::pow(2.0f, (v - 50.0f) / 20.0f); }
 
+// CASTINFO cast_id -> ENEMYINFO record index [C-DIS]. Returns -1 for a cast that has
+// no enemy record.
+//
+//   004202ed  83 FB 53           CMP EBX,0x53
+//   004202f3  8D 43 AE           LEA EAX,[EBX - 0x52]
+//   004202fb  0F 47 F0           CMOVA ESI,EAX        ; UNSIGNED: if v > 83, v -= 82
+//   004202fe  69 F6 08 01 00 00  IMUL ESI,ESI,0x108   ; stride 264
+//   00420304  03 35 E0 E7 74 00  ADD ESI,[0x74e7e0]   ; + the ENEMYINFO PAYLOAD base
+//
+// with the caller supplying `cast_id - 14`:
+//
+//   00434474  8D 53 F2           LEA EDX,[EBX - 0xe]
+//   00434479  E8 62 BE FE FF     CALL 0x4202e0
+//
+// A bias and a fold, no lookup table. cast 14..83 (M100..M790) -> enemy 0..69, and
+// cast 166..185 (M800..M990) -> enemy 70..89: exactly 90, contiguous, no collisions.
+//
+// ** Note the base at 0x74e7e0 is the PAYLOAD pointer — do NOT add the file's 16-byte
+// header again. ** (Same convention trap as GAMEINFO.)
+//
+// This project asserted `enemy_index == cast_id` for weeks. It is arithmetically
+// impossible — 186 casts, 90 records — and it produced entirely plausible stats
+// (M_150 -> lv27, HP 332) for the 71 in-range placed casts while silently giving the
+// other 9 nothing. The real M_150 is enemy 5: **lv2, HP 113**. CASTINFO +0x64 is a
+// decoy that scores well precisely because it equals enemy_index + 3 across the M_
+// range — a constant-offset shadow of the right answer, reading three records too far.
+// It is genuinely read (0x4342c1 -> FUN_00459410 -> stored to actor+0x120) but it
+// never indexes anything.
+//
+// ** This is GUARDED and the engine's own fold is NOT. ** FUN_004202e0 has no range
+// check: for casts below 14, `cast_id - 14` goes negative, CMOVA's UNSIGNED compare
+// sees a huge value, and it indexes wildly out of bounds. Six casts (CAST_M000..M050,
+// ids 7..12) pass the monster class gate and would do exactly that — but none is
+// placed in any of the 192 shipped SCTs, so it is latent, not live. FUN_00459410 has
+// the guard; we use it.
+inline int enemy_index_for_cast(int cast_id) {
+    if ((cast_id >= 14 && cast_id <= 83) || (cast_id >= 166 && cast_id <= 185)) {
+        const unsigned v = unsigned(cast_id) - 14u;
+        return int(v > 83u ? v - 82u : v);
+    }
+    return -1;
+}
+
 struct Enemy {
     DropSlot drops[8];
     std::int32_t level = 0;  // +0xe8 [C-DIS] — reader is FUN_004202e0 (enemy spawn)
