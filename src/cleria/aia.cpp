@@ -47,6 +47,14 @@ bool Aia::load(const std::filesystem::path& path) {
     }
 
     // Precompute distinct pixel-data offsets so frame_len is a binary search.
+    // ** Clear first: ** this Aia may be RELOADED with a different file (the character
+    // sprite swaps C_111<->C_114 on every attack, reusing one Aia). Without the clear,
+    // the previous file's offsets survive here, so frame_len -- which measures a blob as
+    // the gap to the next distinct offset -- finds a STALE offset wedged between the real
+    // ones, truncates the decode, and the sprite decompresses to garbage. That was the
+    // "sprite corrupts after the first swing" bug; render_play never saw it because it
+    // uses a fresh Aia per shot.
+    sorted_offsets.clear();
     sorted_offsets.reserve(nReg);
     for (std::uint32_t r = 0; r < nReg; ++r)
         sorted_offsets.push_back(rd32(&data[regtab + std::size_t(r) * 32]));

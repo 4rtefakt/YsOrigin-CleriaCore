@@ -10,6 +10,7 @@
 //
 // Until this existed, nothing tested the damage formula against a running enemy,
 // because there was no running enemy.
+#include "cleria/aia.hpp"
 #include "cleria/cast.hpp"
 #include "cleria/combat.hpp"
 #include "cleria/eex.hpp"
@@ -560,6 +561,36 @@ int main(int argc, char** argv) {
         const int floor_d = player_incoming_damage(AttackStats{5.0f, 0, 0}, 300.0f, roll);
         check(floor_d >= 1, "and a wildly-outclassed hit still deals >= 1 (the max(1))",
               std::to_string(floor_d));
+    }
+
+    // --- AIA reload: one Aia object must decode identically after loading another file.
+    // The player sprite swaps C_111<->C_114 on every attack through a single reused Aia;
+    // load() once leaked the prior file's pixel-offset table into frame_len, truncating
+    // the decode to garbage. This is the regression guard: every harness before it used a
+    // fresh Aia per file, which is exactly why nothing caught the corruption in play.
+    {
+        const fs::path a111 = root / "ANI" / "C_111.AIA";
+        const fs::path a114 = root / "ANI" / "C_114.AIA";
+        Aia fresh;   // ground truth: a never-reused object
+        Aia reused;  // the buggy path: load a second file, then come back
+        const bool loads = fresh.load(a111) && reused.load(a111) &&
+                           reused.load(a114) && reused.load(a111);
+        check(loads, "AIA reload: C_111/C_114 load into one object");
+        // Scan EVERY region: the corruption is data-dependent -- only regions whose blob
+        // gap the other file's offsets intrude into get truncated, so region 0 alone can
+        // (and did) pass while others rot. Compare fresh vs reused across all of them.
+        int scanned = 0, mismatch = 0;
+        for (std::uint32_t r = 0; loads && r < fresh.region_count(); ++r) {
+            AiaFrame ref, got;
+            const bool a = fresh.decode_region(r, ref), b = reused.decode_region(r, got);
+            if (a != b) { ++mismatch; continue; }
+            if (!a) continue;
+            ++scanned;
+            if (ref.w != got.w || ref.h != got.h || ref.rgba != got.rgba) ++mismatch;
+        }
+        check(loads && mismatch == 0,
+              "every region of a reloaded AIA decodes byte-identically to a fresh one",
+              std::to_string(scanned) + " regions, " + std::to_string(mismatch) + " corrupt");
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
