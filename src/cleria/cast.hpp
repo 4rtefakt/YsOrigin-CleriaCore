@@ -1,7 +1,11 @@
 // Actor types, from MISC/CASTINFO.DAT — the middle link of the enemy chain:
 //
-//   <ROOM>.SCT --name--> MISC/CASTINFO.DAT --cast_id--> MISC/ENEMYINFO.DAT
-//   (placement)          (186 actor types)              (90 enemy tunings)
+//   <ROOM>.SCT --name--> MISC/CASTINFO.DAT --fold(cast_id-14)--> MISC/ENEMYINFO.DAT
+//   (placement)          (186 actor types)                       (90 enemy tunings)
+//
+// The last link is NOT the identity — see enemy_index_for_cast() in enemies.hpp. 186
+// casts cannot injectively index 90 records, and this line asserted that they could
+// for weeks.
 //
 // 186 records x 512 bytes (0x200); `16 + 512*186 == 95248` accounts for the file
 // exactly. Fields verified against the data (build/misc_re/):
@@ -10,9 +14,35 @@
 //   +0x10  char[0x14]  DISPLAY name (empty for most records)
 //   +0x24  char[0x10]  AIA STEM — lower-case, and NOT the filename (see below)
 //   +0x60  i32         CAST ID — equals the record index in 186/186
-//   +0x64  i32         [H-medium] cross-reference; provisional, do not build on it
-//   +0x6c  i32         [H-medium] category; provisional
+//   +0x64  i32         -> actor+0x120 [C-DIS]; [H-high] the AI HANDLER INDEX
+//   +0x6c  i32         ACTOR CLASS [C-DIS]: 0x10 = monster (86), 4 (87), 2 (2), 0 (11)
 //   +0x78  char[0x40]  DESCRIPTION
+//
+// ## +0x64 is [H-high] the AI handler index — two half-answers, joined
+//
+// This sat as "[H-medium] cross-reference, provisional" while the answer was spread
+// across two RE notes that never met:
+//
+//   build/enemy_re/ENEMY_PLACEMENT.md : "+0x64 -> actor+0x120. Meaning [UNKNOWN]" [C-DIS]
+//   the combat pass                    : "the 94-entry AI dispatch table at 0x69b8c0
+//                                         is indexed by actor+0x120"                [C-DIS]
+//
+// Both legs are disassembled; only the composition was missing. Corroboration: every
+// one of the 186 casts has +0x64 in 0..93 — exactly the table's index range — with 92
+// distinct values across 94 handlers, and CAST_ADOL (the player) is 0.
+//
+// [H-high] not [C-DIS] because the final read has not been watched: "indexes the
+// table" could carry an offset, and a range fit is not a reader.
+//
+// It is ALSO the decoy that cost us the enemy index — see enemies.hpp. It equals
+// enemy_index + 3 across the M_ range, which is why it scored so well and read three
+// records too far. A field can correlate with an index without being one.
+//
+// ## +0x6c is the actor class [C-DIS]
+//
+// 0x10 = monster (86 casts), 4 (87), 2 (2), 0 (11). It selects the +0x60 flag word
+// (0x81/0x84/0x88), and it is the enemy/NPC discriminator — NOT the name prefix.
+// It is also the gate the enemy spawn path checks (`& 8`).
 //
 // ## The stem is not a filename [C-COR]
 //
@@ -81,6 +111,10 @@ struct Cast {
     float height_base = 0;  // +0x38
     float speed_base = 0;   // +0x48
     float jump_v0 = 0;      // +0x50
+    std::int32_t ai_index = 0;    // +0x64 -> actor+0x120 [H-high] the AI handler
+    std::int32_t actor_class = 0; // +0x6c [C-DIS] 0x10=monster, 4, 2, 0
+
+    bool is_monster() const { return actor_class == 0x10; }
 
     // True for CAST_ADOL, the player spawn marker: placed everywhere, drawn never.
     bool is_spawn_marker() const { return name == "CAST_ADOL"; }
