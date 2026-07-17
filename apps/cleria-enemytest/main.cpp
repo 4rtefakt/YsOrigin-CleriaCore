@@ -3,6 +3,7 @@
 // agreeing is weak evidence — they can share one wrong idea, as the clip-AABB
 // outliers proved — so this asserts the INVARIANTS, not "the same numbers as before".
 #include "cleria/cast.hpp"
+#include "cleria/gameinfo.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/items.hpp"
 
@@ -151,6 +152,40 @@ int main(int argc, char** argv) {
           std::to_string(rooms_with["CAST_ADOL"]) + "/" + std::to_string(sct_files) + " rooms");
     std::printf("  (%zu of %zu casts are placed by some room)\n", placed.size(),
                 ct.casts.size());
+
+    // ---- GAMEINFO stat curves ------------------------------------------------
+    const GameInfo gi = GameInfo::load(root / "MISC" / "GAMEINFO.DAT");
+    std::printf("\nGAMEINFO: %zu curves\n", gi.curves.size());
+    check(gi.ok(), "11 curves at payload +0x20 (file +0x30)",
+          std::to_string(gi.curves.size()) + "/11");
+    if (gi.ok()) {
+        // The endpoints must BE the endpoints: lerping at level 1 and 60 has to
+        // reproduce the two stored floats exactly, or the pair is not (lv1, lv60).
+        int ends_ok = 0;
+        for (const StatCurve& c : gi.curves)
+            if (c.at(1) == c.at_level_1 && c.at(60) == c.at_level_60) ++ends_ok;
+        check(ends_ok == kCurveCount, "lerp reproduces both endpoints",
+              std::to_string(ends_ok) + "/11");
+        check(gi.curves[3].is_hole() && gi.curves[9].is_hole(),
+              "pairs 3 and 9 are the (0,0) holes", "");
+        check(gi.curves[5].at_level_1 == gi.curves[4].at_level_1 &&
+                  gi.curves[5].at_level_60 == gi.curves[4].at_level_60,
+              "pair 5 is byte-identical to pair 4 (dead)", "");
+        // 400 is an INDEPENDENT number: it came out of FUN_00420c40, not this file.
+        check(gi.curves[kPlayerMaxHp].at(60) == 400.0f, "player maxHP at lv60 == 400",
+              std::to_string(gi.curves[kPlayerMaxHp].at(60)));
+        std::printf("    player HP %.0f->%.0f  ATK %.0f->%.0f  DEF %.0f->%.0f\n",
+                    gi.curves[kPlayerMaxHp].at(1), gi.curves[kPlayerMaxHp].at(60),
+                    gi.curves[kPlayerAtk].at(1), gi.curves[kPlayerAtk].at(60),
+                    gi.curves[kPlayerDef].at(1), gi.curves[kPlayerDef].at(60));
+        std::printf("    enemy  HP %.0f->%.0f  ATK %.0f->%.0f  DEF %.0f->%.0f\n",
+                    gi.curves[kEnemyMaxHp].at(1), gi.curves[kEnemyMaxHp].at(60),
+                    gi.curves[kEnemyAtk].at(1), gi.curves[kEnemyAtk].at(60),
+                    gi.curves[kEnemyDef].at(1), gi.curves[kEnemyDef].at(60));
+        std::printf("    EXP to reach lv2=%.0f lv10=%.0f lv30=%.0f lv60=%.0f\n",
+                    gi.exp_to_level(2), gi.exp_to_level(10), gi.exp_to_level(30),
+                    gi.exp_to_level(60));
+    }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
     return fails ? 1 : 0;

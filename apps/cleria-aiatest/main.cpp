@@ -55,8 +55,8 @@ int main(int argc, char** argv) {
         if (want_composite && a.has_layer(region) && lay.w) {
             // Write BOTH blends. They are the argument: on C_115 `over` erases the
             // body (which is what made us wrongly abandon the overlay reading) while
-            // `add` glows. [H-high] says `add` is the engine's; the exe has the
-            // final word.
+            // `add` glows. `add` is the engine's — SRCALPHA/ONE, read out of
+            // FUN_004745a0.
             cleria::AiaFrame over = fr;
             cleria::composite_over(over, lay);
             write_ppm(std::string(out) + ".over.ppm", over);

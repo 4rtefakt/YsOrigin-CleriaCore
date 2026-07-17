@@ -55,20 +55,25 @@ struct Aia {
                       std::uint32_t frame, AiaFrame& out) const;
     std::uint32_t region_count() const { return nReg; }
 
-    // Frames are region PAIRS: an even body and an odd second-layer slot. The layer
-    // is real only when BIT 0 OF THE BODY'S FLAGS is set — despite appearances it is
-    // not bit 7; that 0x80 belongs to the empty placeholder (a 0x0 bbox at the canvas
-    // corner). The layer is the same artwork in the NEXT palette.
+    // Frames are region PAIRS: an even body and an odd second-layer slot. The pair is
+    // marked by FLAGS BIT 0, which sits on BOTH members (5906/5906) — testing the
+    // body's happens to work but describes the format wrongly. `0x80` marks an EMPTY
+    // region, and 1022 BODIES are themselves 0x80 placeholders, so it is not a
+    // layer-slot property. Byte 0x07 is 0 in all 60,844: there is NO blend field here.
     //
-    // *** HOW THE ENGINE USES THE LAYER IS [UNKNOWN]. DO NOT ASSUME IT IS AN OVERLAY. ***
-    // An earlier revision of this comment called it "an aura — C_115 draws Toal's
-    // demon body in palette 0 and its aura in palette 1". That is REFUTED: dump
-    // C_115 region 0 and 1 and look. Both have the IDENTICAL bbox (73x99 @102,13)
-    // and near-identical coverage (3408 vs 3406 non-transparent pixels) — the layer
-    // is the WHOLE SILHOUETTE flat-shaded in purple, so compositing it OVER the body
-    // with straight alpha erases the body completely.
+    // The layer is a genuine OVERLAY, drawn additively WITH the body. Both of those
+    // are established below — and both were previously recorded as their opposites,
+    // so the reasoning is kept rather than just the answer.
     //
-    // That observation is real. The conclusion drawn from it — "so the layer is not
+    // The refuted reading, and why it was tempting: dump C_115 regions 0 and 1 and
+    // they have the IDENTICAL bbox (73x99 @102,13) and near-identical coverage (3408
+    // vs 3406 non-transparent pixels) — the layer is the WHOLE SILHOUETTE flat-shaded
+    // in purple, so compositing it OVER the body erases the body completely. From
+    // that this comment once concluded "the layer is not an overlay; it is a STATE
+    // variant the engine swaps in", and also that it is "the same artwork in the next
+    // palette — a palette swap".
+    //
+    // Those observations are real. The conclusions were WRONG, twice over, and
     // an overlay; it is a STATE variant the engine swaps in" — was WRONG, twice over,
     // and both errors are worth remembering:
     //

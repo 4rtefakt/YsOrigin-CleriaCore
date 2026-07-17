@@ -35,40 +35,68 @@ inline float damage_real(const AttackStats& a, float def) {
     return std::fmax(a.min_dmg, std::fmax(0.0f, raw));
 }
 
-// ** DISPUTED — DO NOT TREAT THE ROUNDING AS SETTLED. **
+// The rounding is PROBABILISTIC [C-DIS]. The fractional part is a percent chance to
+// round up, so 3.25 damage is 3 seventy-five percent of the time and 4 the other
+// twenty-five — every hit is an integer, and E[damage] == d, unbiased. The roll is at
+// 0x004fd521:
 //
-// The damage path computes `floor(d)` and then conditionally adds 1 based on the
-// fractional part, via a call whose identity is contested by two disassembly passes:
+//   004fd4bd  e8 2e 43 f2 ff   CALL 0x004217f0      ; floorf
+//   004fd4c2  8b 45 c0         MOV EAX,[EBP-0x40]   ; <- inlined xorshift128 starts
+//   004fd504  c1 e8 11         SHR EAX,0x11         ;    w >> 17
+//   004fd507  6b c8 64         IMUL ECX,EAX,0x64    ;    * 100
+//   004fd521  3b f0            CMP ESI,EAX          ;    P vs R   <- THE ROLL
+//   004fd523  7e 0e            JLE 0x004fd533       ;    P <= R -> no +1
+//   004fd525  f3 0f 58 ca      ADDSS XMM1,XMM2      ;    n += 1.0
 //
-//   pass A (build/combat_re/damage.json): the call is `chance(percent) -> bool`,
-//     backed by the xorshift RNG at DAT_0074622c..0x74623c. Then the step is
-//     PROBABILISTIC: frac is a percent chance to round up, so 3.25 damage is 3
-//     seventy-five percent of the time and 4 otherwise — exact on average, integral
-//     per hit. That is what this function implements.
+// P(round up) == P/100 to five decimals: the `0x80010003 / SAR 14` sequence is a
+// division by exactly 32767 (verified bit-exactly across the whole reachable domain —
+// note 32765/32766/32768 all match on a coarse sample and only fail on a full sweep).
+// The generator is canonical Marsaglia xorshift128 at 0x74622c, seeded
+// 123456789/362436069/521288629.
 //
-//   pass B (build/stats_re/stats.json): FUN_004217f0 is a 55-byte roundf() wrapper
-//     with NO RNG, no branch and no comparison. Its evidence is strong and partly
-//     decisive: FUN_00420c40 uses that function's RESULT AS maxHP, and a bool would
-//     make player maxHP 0 or 1. If the damage path really calls it, the step is
-//     `roundf(frac*100) != 0`, i.e. DETERMINISTIC and true whenever frac >= 0.005 —
-//     effectively a ceiling, and a systematic +1 bias against what we do here.
+// This was disputed by two passes and the resolution is worth keeping, because both
+// were right about what they actually looked at. One read the CALLER and found an
+// RNG; the other disassembled the CALLEE and found none. Both true: FUN_004217f0 is
+// `floorf` — not `chance()` (it touches no RNG) and not `roundf` (FUN_00671000 is
+// floor(double), proven by `006710d6: FLDZ; RET` for 0<x<1). The xorshift is INLINED
+// into the damage function five bytes past the call, so reading the callee tells you
+// nothing about the roll.
 //
-// Pass B did NOT re-disassemble the damage path to confirm which address it calls,
-// so both can be true at once: FUN_004217f0 is roundf AND the damage path calls a
-// different, genuinely stochastic helper that pass A found and mis-addressed. The
-// two passes agree that FUN_00671000 is the underlying floor/round primitive.
-//
-// The probabilistic reading is kept because it is the one that fits the damage path's
-// own shape — a `frac * 100` argument is meaningless to roundf (it would just be a
-// convoluted ceiling) and natural to a percent chance. But `roll` is a parameter
-// precisely so this is swappable: pass `[](float){ return true; }` to get pass B's
-// deterministic behaviour and the caller need not change.
+// ** The trap, which is general to this binary: MSVC inlines this global RNG at 799+
+// sites and there is no rand() symbol to xref. Inlined RNG immediately after a CALL
+// is trivially mis-attributed to the callee. **
 template <typename RollPercent>
 inline int damage_int(const AttackStats& a, float def, RollPercent&& roll) {
     const float d = damage_real(a, def);
     const float n = std::floor(d);
     const bool up = (d - n) != 0.0f && roll((d - n) * 100.0f);
     return int(n) + (up ? 1 : 0);
+}
+
+// A POST-SCALER sits on the damage path immediately after the rounding, at 0x4fd533
+// [C-DIS] — structure only:
+//
+//     if (*(int*)0x76bb5c > 0)  dmg = dmg * (*(float*)0x76c190) + 1.0f;
+//
+// 0x76bb5c is the DIFFICULTY global (identified independently, from the level-up path
+// asserting on a *different* global for player character — the two were briefly
+// conflated, and this is what separates them). So difficulty scales damage
+// multiplicatively and then adds a flat 1, and only when difficulty > 0 — meaning the
+// lowest setting takes this branch not at all rather than taking it with scale 1.0.
+//
+// ** Both globals are runtime-set and their values are [UNKNOWN]. ** We know the shape
+// of this step, not its magnitude, so it is NOT applied: `damage_int` returns the
+// unscaled roll. Wiring it with a guessed multiplier would be worse than omitting it,
+// because it would look correct. The values live in whatever writes 0x76c190 — that
+// is the next thing to disassemble before damage parity is claimable.
+struct DifficultyScale {
+    int difficulty = 0;   // *(int*)0x76bb5c
+    float factor = 1.0f;  // *(float*)0x76c190 — [UNKNOWN] at every setting
+};
+
+inline int apply_difficulty(int dmg, const DifficultyScale& s) {
+    if (s.difficulty <= 0) return dmg;
+    return int(float(dmg) * s.factor + 1.0f);
 }
 
 // Applying it. Two things here are easy to get subtly wrong, and both are load-bearing:

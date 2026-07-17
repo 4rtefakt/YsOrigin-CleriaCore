@@ -31,27 +31,38 @@
 // and every one of the 443 live drop ids is >= 66, with none below. The boundary in
 // the data and the boundary in the drop table are the same number.
 //
-// ## Level [H-high] — +0xe8, an i32 in 1..60
+// ## Level [C-DIS] — +0xe8, an i32 in 1..60
 //
-// Tagged [H-high], not [C-COR], and the distinction matters: what is PROVEN is "an
-// i32 column, range 1..60, 47 distinct, monotone with drop value (rho 0.81 with
-// expected gold; <=2 drops 0.9G, >=55 drops 11167G)". That it IS the level is an
-// inference from range and correlation — no code has been observed reading it.
+// The reader is FUN_004202e0, the enemy spawn path, which feeds it to the GAMEINFO
+// stat curve. Before that was found this was [H-high] on the strength of range (1..60
+// is the game's cap) plus a 0.81 rank correlation with expected gold — and that
+// correlation, note, was NOT what settled it. It matched a previously reported 0.79
+// from the same data shape, which is agreement without independence: two reads of one
+// table cannot corroborate each other. The disassembly settled it; the statistic
+// never could have.
 //
 // It hid because it reads as DENORMAL floats (1.4013e-45 is the i32 1). This file's
 // numeric types cannot be assumed in either direction: the same table's 0xc8..0xdc
-// are genuine floats, and GAMEINFO.DAT was misrecorded for weeks as i32 when it is
-// f32 throughout.
+// are genuine floats, and GAMEINFO.DAT was misrecorded as i32 when it is f32
+// throughout.
 //
 // ## Not here yet
 //
-// +0xc8..0xdc is a six-wide log2-encoded stat block (K = 2^((v-50)/20)); +0xd4 is
-// constant 50.0 => K == 1.0 exactly, the neutral slot. +0xc8 is the HP scale
-// (K = 0.25..32.0), read only at spawn (FUN_004202e0) and never by the damage path.
-// The rest await the disassembler: there is NO raw EXP or gold value anywhere in the
-// record (every non-drop i32 column was scanned for a wide non-log2 range and none
-// exists), so EXP and stats must be computed from a curve times these multipliers.
-// Until that reader is found, this header does not guess at them.
+// +0xc8..0xdc is a six-wide stat block feeding the curve in FUN_004202e0; +0xc8 is
+// the HP scale, read only at spawn and never by the damage path. +0xd4 is a constant
+// 50.0 with NO reader in the spawn path at all — it is not consumed by the curve, and
+// why it exists is [UNKNOWN].
+//
+// There is NO raw EXP or gold value anywhere in the record (every non-drop i32 column
+// was scanned for a wide non-log2 range; none exists), so those are computed from the
+// GAMEINFO curve rather than stored. See cleria/gameinfo.hpp for the curve itself.
+//
+// These are not exposed yet for a specific reason, not caution in general: a level-1
+// player (ATK 25) against a DEF-neutral level-1 enemy (DEF 40) computes NEGATIVE raw
+// damage through the disassembled formula, and +0xd0's 39..55 range keeps it negative.
+// Something in the chain is not understood — most likely the equipment contribution,
+// whose path (FUN_004208f0 -> struct@0x76a5e4 -> ??? -> 0x76b908) is not closed. Enemy
+// DEF does not ship until that resolves.
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -67,7 +78,7 @@ struct DropSlot {
 
 struct Enemy {
     DropSlot drops[8];
-    std::int32_t level = 0;  // +0xe8 [H-high]
+    std::int32_t level = 0;  // +0xe8 [C-DIS] — reader is FUN_004202e0 (enemy spawn)
 
     // Live slots are front-packed (90/90), so this is the count.
     int drop_count() const {
