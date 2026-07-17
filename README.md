@@ -40,7 +40,7 @@ and a C++20 asset core renders real rooms.
 | **AIA** character/monster sprites | ✅ **codec cracked, pixel-exact; 8-way facing + idle/walk/jump** |
 | **The game's own camera (SCM)** | ✅ **659 authored camera regions, follow + orbit + blend — no hand-tuning** |
 | **Scene fog (SFO)** | ✅ **per-region colour/near/far, cross-faded as the game does** |
-| **The real HUD (STATUS_512)** | ✅ **authored 1024×768 coords, Hor+ scaling, atlas glyph font** — only the digit *position* is still ours |
+| **The real HUD (STATUS_512)** | ✅ **authored 1024×768 coords, Hor+ scaling, the game's own digit emitter (builder A), real bar cluster, 4 equipment slots** |
 | **Fixed-step 60 Hz logic** | ✅ **decoupled from rendering — measured 165 fps / 60 tps**; timeScale-aware, uncapped catch-up like the exe |
 | **Enemies (SCT placement)** | ✅ **1106 placements / 85 rooms render as sprites; no AI yet** |
 | **Torch flames (SEF + EF2)** | ✅ **placements + the 16-frame flipbook, additive** |
@@ -193,7 +193,7 @@ for facts:
 | YMO animation keys | **doc was wrong until now**: the scale/translation labels were swapped (the correct composition reproduces the rest pose in 5832/7016 nodes; the old labelling in **0**), and the key's trailing field is a `u32` frame number, not a float — the old "monotonic time" test passed only because denormal ordering matches integer ordering |
 | animation frame rate | **fixed — the game's own scripts drive it now.** The ASO VM holds each `anime_Pattern` for its own `anime_Wait(n)`. No constants left |
 | player sprite choice | **now the script's, not ours.** `C_010.ASO` gates `anime_File(6)`=C_102 behind `Flag_IsEqualInt(161,1)` and falls through to `anime_File(15)`=**C_111**. With flag 161 clear (normal play) the game uses **C_111/C_112/C_113** — the gameplay sets. We had hardcoded C_102/103/104, which are the **cutscene** sets |
-| HUD digit position | **the glyphs are real, their placement is ours.** The digit emitter is builder B (`FUN_0043e800`) or D (`FUN_0043fe00`) — neither contains a single `MapCoord` call and neither is decoded. The invented `Lv`/`SP`/`EXP` captions are gone: the game's HUD is quads from `STATUS_512.DDS` and contains no text at all |
+| HUD `[EX]`/`[MP]`/`[SP]` labels + `60/ 60` | **not drawn yet.** The `f_mini` font and its exe-derived metrics are in (`minifont.hpp`), but nothing calls them. `60/ 60` needs text system B, whose font object is built at runtime — its constructor is an [H-medium] lead (`FUN_005a3850`, a 1024×256 buffer) |
 | footstep `+0x4b9` surface latch | **the last hop is open.** Everything from the actor's latched surface byte onward is proven; what fills it (`probe+0xAA`, from the ground raycast `FUN_0041e420`) is reached through an indirect callback in the physics lib and wasn't traced statically. It affects *which* surface, never *when* a step fires. A watchpoint on `EDX+0xAA` after `0x0045b03a` would settle it |
 | collision surfaces not in the table | **resolved.** `default`/`door`/`10switch`/`dafault` aren't in the 21-entry table, and the exe clamps an unmatched lookup to **1 = `stone`** (`FUN_005610e0`: both the not-found jump and the `idx<0` test land on `MOV ESI,1`). We do the same now |
 | water animation | **found — it's the material, not the shader.** Each material carries a UV-scroll velocity at `+0x44/+0x48` (`20zwater3` = +0.0006,-0.0018) gated by flag bit `0x4`; the shader can't animate itself (its phase input has no time term). We parse it now; the per-frame integrator that advances the phase is still unlocated |
