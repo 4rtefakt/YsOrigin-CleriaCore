@@ -406,6 +406,34 @@ int main(int argc, char** argv) {
           "and running the script adds op-0x12c scripted spawns SCT-only missed",
           std::to_string(n1000_full) + " with the script");
 
+    // --- the render pairing resolves REAL sprites (cast_id -> M_100 -> AIA on disk) --
+    // cleria-view pairs each spawned actor with a sprite via CastTable::sprite_stem
+    // (cast_id -> "M_100"), then loads ANI/M_100.AIA. This can't be checked with a GPU
+    // headlessly, but the RESOLUTION can: for a real room's spawned enemies, the stem
+    // must be non-empty and the .AIA must exist. Proves the view's rendering path finds
+    // real files, not just that stats are right.
+    {
+        const std::vector<std::uint8_t> b =
+            read(root / "MAP" / "S_10" / "S_1001" / "S_1001.SCT");
+        if (!b.empty()) {
+            static Sct sct;
+            sct = Sct::parse(b);
+            ActorWorld w(tables);
+            w.set_placements(&sct);
+            w.spawn_placements();
+            int enemies = 0, resolved = 0;
+            for (const Actor& a : w.actors()) {
+                if (a.is_player()) continue;
+                ++enemies;
+                const std::string stem = ct.sprite_stem(a.cast_id);  // "M_100"
+                if (!stem.empty() && fs::exists(root / "ANI" / (stem + ".AIA"))) ++resolved;
+            }
+            check(enemies > 0 && resolved == enemies,
+                  "every spawned enemy resolves cast_id -> stem -> an AIA on disk",
+                  std::to_string(resolved) + "/" + std::to_string(enemies));
+        }
+    }
+
     // --- SEN arrival position (build/warp_re/WARP.md, verified) -------------------
     // The exit's arrival position is at +0x22c; our parser reads it. S_1001's exit to
     // S_1000 arrives at (0, 8.5, 52) -- verified against the raw bytes. (WARP.md's
