@@ -4,22 +4,31 @@
 // record per placed actor, so a room repeats `CAST_M220` once per Chryolos it
 // wants. `CAST_ADOL` is the player's spawn point.
 //
-//   <ROOM>.SCT --name--> MISC/CASTINFO.DAT --???--> MISC/ENEMYINFO.DAT
-//   (placement)          (186 actor types)          (90 enemy tunings)
+//   <ROOM>.SCT --name--> MISC/CASTINFO.DAT --fold--> MISC/ENEMYINFO.DAT
+//   (placement)          (186 actor types)           (90 enemy tunings)
 //
-// ** The last link is [UNKNOWN], and this comment used to assert it was `cast_id`. **
-// It cannot be: CASTINFO has 186 records and ENEMYINFO has 90, so cast_id is out of
-// range for 96 of them. That claim was believed long enough to get wired into the
-// renderer, where it produced completely plausible enemy stats (M_150 lv27, HP 332,
-// ATK 153) for 71 of the 80 placed casts and silently gave the other 9 nothing. The
-// arithmetic had been sitting there the whole time.
+// ** The last link is SOLVED: `enemy_index_for_cast()` in enemies.hpp. ** It is a FOLD
+// of two cast ranges onto one table — `cast_id - 14`, with 166..185 folding back down
+// behind 14..83. Do not re-derive it here; that header owns it, states the engine's
+// unguarded original (FUN_004202e0) and why ours guards, and carries the evidence.
 //
-// `+0x64` is the better candidate — in range for 78/80 placed casts, and it looks like
-// an index (CAST_M100 -> 3, CAST_M130 -> 6, CAST_M150 -> 8) — but it is NOT right
-// either: it puts level 25 and level 38 enemies in the first tower rooms. Both remain
-// unverified, so enemy stats stay placeholders. Everything downstream of this index is
-// solved (the level at ENEMYINFO+0xe8, the log2 multipliers at +0xc8..0xdc, the
-// GAMEINFO curve, the damage formula) — this one link is all that is missing.
+// The whole chain is closed and EXTERNALLY VALIDATED — our stats reproduce the game's
+// own in-game monster journal 67/68 on HP/level/STR/DEF/EXP, the one miss being a typo
+// in the journal that our data locates. That is the only check this project has that
+// is not our own code against our own code.
+//
+// ** This comment asserted the opposite for weeks after the fold was proven, which is
+// why it now points at the owner instead of restating the answer. ** Two wrong readings
+// are worth keeping, because both were plausible and one shipped:
+//   - `cast_id` directly: arithmetically impossible (186 casts, 90 records), yet it was
+//     believed long enough to reach the renderer, where it produced entirely plausible
+//     stats (M_150 lv27, HP 332, ATK 153) for 71 of 80 casts and silently gave the
+//     other 9 nothing. The disproving arithmetic had been sitting there the whole time.
+//   - `+0x64`: scored BETTER (in range for 78/80, and it looks like an index —
+//     CAST_M100 -> 3, CAST_M130 -> 6, CAST_M150 -> 8) and is genuinely read by the
+//     engine. It is a decoy that tracks the truth at a constant offset: it equals
+//     enemy_index + 3 across the M_ range, reading three records too far. A near-miss
+//     that shadows the right answer is worse than a random guess.
 //
 // Reverse-engineered from yso_win.exe: loader/consumer FUN_004341a0, which walks
 // records from `base + 0x108` — which is why the useful fields sit late in the
