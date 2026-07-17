@@ -2118,6 +2118,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     XsoVm game;                        // persistent game state (survives rooms)
     game.g_flags[150] = character;
     Player player;                     // stat block (HP/SP/level/EXP)
+    // A fresh level-1 player: HP from the GAMEINFO player curve (60 at lv1), so getting
+    // hit is meaningful. player.level stays 1 (no save model).
+    if (ginfo.ok())
+        player.max_hp = player.hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(1)));
+    int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     Room room = load_room(g, asset_root, first_sob, game.g_flags, character);
     Camera cam;
     bool fly = false;
@@ -2586,6 +2591,36 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         if (!en.is_player() && en.alive()) ++left;
                     std::printf("  defeated %d (%d left)\n", killed, left);
                     if (left == 0) clear_barrier();
+                }
+            }
+
+            // Enemies hitting the player. Damage is the REAL player-incoming formula
+            // (combat.hpp player_incoming_damage = FUN_004fa740), gated by the player's
+            // i-frames exactly as the engine does (one hit per window, however many
+            // enemies are on you). ** The REACH/TRIGGER are a placeholder: ** a contact
+            // check, not each enemy's own ASO attack (that faithful trigger needs
+            // per-enemy ASO, not wired). player_def is the lv1 curve; no equipment model.
+            if (player_iframes > 0) {
+                --player_iframes;
+            } else {
+                const float pdef = ginfo.curves[kPlayerDef].at(player.level);
+                const float mreach = kCharRadius + 0.6f;
+                for (Actor& en : world.actors()) {
+                    if (en.is_player() || !en.alive() || en.atk <= 0) continue;
+                    const float dx = en.pos.x - feet.x, dz = en.pos.z - feet.z;
+                    if (dx * dx + dz * dz > mreach * mreach) continue;
+                    const int dmg = player_incoming_damage(AttackStats{en.atk, 0, 0}, pdef,
+                        [&](float p) { return float(rng_pct(rng)) < p; });
+                    player.hp -= dmg;
+                    player_iframes = 16;   // the engine's i-frame grant (combat.hpp)
+                    hud.message("-" + std::to_string(dmg) + " HP");
+                    if (player.hp <= 0) {  // down: respawn at full with a grace window
+                        player.hp = player.max_hp;
+                        spawn_player();
+                        player_iframes = 90;
+                        hud.message("Down! respawned");
+                    }
+                    break;                 // one hit per i-frame window
                 }
             }
 

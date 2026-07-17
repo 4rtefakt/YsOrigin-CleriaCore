@@ -514,6 +514,23 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- player-incoming damage (FUN_004fa740, now implemented) -------------------
+    // The player-target branch: same raw shape, two soft floors, 0.5 min, max(1,...).
+    {
+        std::mt19937 rng(7);
+        std::uniform_real_distribution<float> pct(0.0f, 100.0f);
+        auto roll = [&](float p) { return pct(rng) < p; };
+        const float player_def = gi.curves[kPlayerDef].at(1);  // ~30 at level 1
+        // A level-1 enemy (ATK ~40) hitting the level-1 player deals a sane, >=1 amount.
+        const int d = player_incoming_damage(AttackStats{40.0f, 0, 0}, player_def, roll);
+        check(d >= 1 && d <= 30, "player-incoming damage is sane for a lv1 matchup",
+              std::to_string(d) + " (DEF " + std::to_string(int(player_def)) + ")");
+        // The soft floor + max(1): even a near-zero attacker deals at least 1.
+        const int floor_d = player_incoming_damage(AttackStats{5.0f, 0, 0}, 300.0f, roll);
+        check(floor_d >= 1, "and a wildly-outclassed hit still deals >= 1 (the max(1))",
+              std::to_string(floor_d));
+    }
+
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
     return fails ? 1 : 0;
 }

@@ -16,8 +16,9 @@
 // min_dmg, and the return is max(1.0, ...).
 //
 // ** Routing player-incoming damage through `damage_real` is WRONG. ** It is not a
-// close approximation; it is the other branch. `player_incoming_damage` below is a
-// deliberate compile-time stop rather than a guess.
+// close approximation; it is the other branch, now implemented below as
+// `player_incoming_damage` (FUN_004fa740, fully disassembled). Use that for any hit
+// landing on the player; `damage_real`/`damage_int` are the enemy-target path only.
 //
 // The real signature is `__fastcall(GoActor* attacker /*ECX*/, GoActor* target /*EDX*/,
 // float* knockback /*[esp+4]*/)`. Ghidra renders it `FUN_004fd350(undefined4*)` — it
@@ -284,22 +285,39 @@ inline HitReaction hit_reaction(int dmg, float max_hp) {
 inline void grant_iframes(int& i_frames, int n) { i_frames = std::max(i_frames, n); }
 
 // ---------------------------------------------------------------------------
-// PLAYER-INCOMING DAMAGE — deliberately not implemented.
+// PLAYER-INCOMING DAMAGE — now IMPLEMENTED. FUN_004fa740, fully disassembled
+// (0x4fa740..0x4fa938, build/dmgpath_re/dmgpath.json [C-DIS]). It is a genuinely
+// different function from damage_real, and the applier jumps to it whenever the target
+// is the player (cast 13) — so this is the ONLY correct path for a hit landing on the
+// player. The raw term has the SAME shape as the enemy formula, but:
+//   - two SOFT floors: raw is pulled halfway up toward ATK*0.03, then toward ATK*0.015
+//   - a hardcoded 0.5 minimum (not min_dmg)
+//   - the final result is max(1.0, ...): the player always takes at least 1
 //
-// FUN_004fa740 is a genuinely different function, not a variation on the one above,
-// and the applier jumps to it before reaching any of this file's math. What is known:
-//
-//   - DEF comes from the global 0x76a740 (the stat record's DEF field), not target+0xa8
-//   - two soft FLOORS at 3% and 1.5% of the ATTACKER's ATK (floors, not caps)
-//   - a hardcoded 0.5 minimum instead of min_dmg
-//   - the return is max(1.0, ...)
-//   - the difficulty factor is applied here too, at 0x4fa8fd
-//
-// That is enough to know `damage_real` is the wrong function for it and not enough to
-// write the right one. This declaration exists so that a caller reaching for it gets a
-// LINK ERROR rather than silently getting the enemy formula — the failure mode this
-// codebase keeps hitting is plausible-looking wrongness, not obvious absence.
-int player_incoming_damage(const AttackStats& attacker, float player_def);
+// NOT modelled here (state we don't carry, all off in a fresh normal game): the
+// DEF-5 gate (0x76c15c & 0x20), the hit-flash raw=0.05 special-case (player+0xcd), and
+// the difficulty/easy/1.25 multipliers (0x76bb5c/0x76bb58/0x76bc40). Callers on Normal
+// get the exact number; a difficulty model would multiply the rounded result.
+inline float player_incoming_real(float attacker_atk, float bonus, float player_def) {
+    const float atk = attacker_atk;
+    float raw = std::pow(atk, 0.66f) * (atk - 0.98f * player_def + 10.0f + bonus) / 22.92f;
+    const float lo1 = atk * 0.03f;
+    if (lo1 > raw) raw = lo1 + (raw - lo1) * 0.5f;   // soft floor, not a clamp
+    const float lo2 = lo1 * 0.5f;                    // == atk * 0.015
+    if (lo2 > raw) raw = lo2 + (raw - lo2) * 0.5f;   // second soft floor
+    return std::fmax(0.5f, std::fmax(0.0f, raw));    // 0.5 minimum
+}
+
+// The integer damage a hit deals to the PLAYER. Same probabilistic rounding as
+// damage_int (P(round up) == frac*100 %), then the engine's `max(1, ...)`.
+template <typename RollPercent>
+inline int player_incoming_damage(const AttackStats& attacker, float player_def,
+                                  RollPercent&& roll) {
+    const float d = player_incoming_real(attacker.atk, attacker.bonus, player_def);
+    const float n = std::floor(d);
+    const bool up = (d - n) != 0.0f && roll((d - n) * 100.0f);
+    return std::max(1, int(n) + (up ? 1 : 0));
+}
 // ---------------------------------------------------------------------------
 
 }  // namespace cleria
