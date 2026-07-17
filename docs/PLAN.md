@@ -67,30 +67,27 @@ answer blocks.
 
 ### Buildable now — nothing here waits on the tick
 
-1. **`src/cleria/actor.hpp` — the `Actor` struct.** Our own layout, from validated
-   facts only: hp/max_hp, atk, def, exp reward, cast id, level, the AI handler index,
-   the death flag, i-frames, and the vertical state `physics_player.hpp` already
-   models. Every field cites its provenance. Fields we have NOT validated do not
-   appear — an absent field is honest, a guessed one is not.
-2. **`ActorWorld` — the pool.** Spawn, iterate, despawn. **Iteration order is left
-   explicitly undefined and documented as such** until RE answers it, because a stable
-   order we invented would look correct and be untestable. This is where inventing glue
-   is most tempting and least detectable.
-3. **Teach `XsoVm` the actor ops.** `0x12c` (spawn; 7th operand = group, `group<<8`,
-   only 1..4 honoured, gated on the enemy class bit) and `0x13f` (is-alive,
-   `hp >= 1.0`). This needs a **host interface** — `XsoVm` must spawn without `xso.cpp`
-   taking a dependency on the whole world. An abstract sink keeps the VM testable
-   headlessly, which is how every other module here got validated.
-4. **Wire the validated chain into spawn.** `cast_id` → `enemy_index_for_cast()` →
-   ENEMYINFO → the GAMEINFO curve → the actor's real hp/atk/def/exp. This is where the
-   67/68-validated numbers finally reach a live object.
-5. **Migrate `cleria-view` off `.SCT`.** It spawns from the placement list because that
-   is what it had; **the room's `.XSO` is what the game uses.** Keep `.SCT` as the
-   fallback for rooms whose scripts we cannot yet run, and say so at the call site.
-6. **`cleria-worldtest`** — headless, in the house style: run a room's XSO, assert the
-   spawned roster and their stats, apply the damage formula to a real actor, kill it,
-   assert the death flag and the EXP award. This is the first test that can catch the
-   *combat* code being wrong, as opposed to the *tables*.
+1. **DONE — `src/cleria/actor.hpp`, the `Actor` struct.** Our own layout, every field
+   citing the offset it was derived from; unvalidated fields absent.
+2. **DONE — `ActorWorld`, the pool** (`world.hpp`/`.cpp`). Keyed on the per-instance id
+   (+0x128), not the cast id. A deque, not a vector, so the Actor* the registry hands
+   out survive growth. Iteration order left explicitly undefined until RE answers it.
+3. **DONE — `XsoVm` drives the world.** Ops `0x12c` (spawn) and `0x13f` (is-alive)
+   wired through `XsoHost`, a primitive-typed interface that keeps xso.cpp free of the
+   world/stat headers. Null host => inert, so every prior XSO test runs unchanged.
+4. **DONE — the validated chain reaches spawn.** An enemy spawn runs
+   `enemy_index_for_cast()` → ENEMYINFO → GAMEINFO and lands real hp/atk/def/exp on the
+   actor.
+5. **NOT STARTED — migrate `cleria-view` off `.SCT`.** It still spawns from the
+   placement list. The room's `.XSO` is what the game uses; keep `.SCT` as the fallback
+   for rooms whose scripts we cannot yet run, and say so at the call site. This is the
+   next buildable step.
+6. **DONE — `cleria-worldtest`.** 36 checks: the spawn sequence, the id scheme, the
+   player fork, damage on a live actor (a lv1 attacker kills a 60-HP enemy in ~7 hits,
+   as combat.hpp predicted, and deals a lv60 enemy 0 — the min_dmg floor), and END TO
+   END: `EVNT_3002_THOR.XSO` run dynamically spawns five cast-35 actors as ids
+   167..171, an exact match to ENTITY.md's static `xso_spawns.py` scan. First test that
+   can catch the *combat* code being wrong, not just the tables.
 
 ### Blocked on `build/actor_re/`
 
