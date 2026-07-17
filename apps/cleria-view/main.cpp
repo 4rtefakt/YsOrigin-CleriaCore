@@ -850,16 +850,29 @@ static float room_diag(const Room& r) {
     return std::max(std::sqrt(dot(d, d)), 1.0f);
 }
 
-// The live camera, driven by the room's SCM regions. The engine picks the region
-// the player is in (else record 0), makes point A the look-at target (mode 1 =
-// follow player) and point B the eye (mode 3 = orbit at yaw/pitch/distance), and
-// blends between regions at the region's own rate. See src/cleria/scm.cpp.
-// Only the REGION PARAMETERS are blended (that is what the engine cross-fades when
-// the player crosses a region boundary). The follow itself is instant: point A is
-// the player position, and the eye is derived from it every frame. Lerping the eye
-// position instead makes the camera lag behind the character — it does not do that.
+// The live camera, driven by the room's SCM regions. build/camera_re/CAMERA.md
+// CONFIRMED this model against the disassembly (writer FUN_0042a3d0, orbit FUN_0042b6e0)
+// and re-verified our scm.cpp field-for-field: pick() tests regions 1..N-1 as rotatable
+// AABBs, first-containing wins, region 0 is the never-tested fallback; point A = follow
+// target (mode 1), point B = orbit eye (mode 3 at yaw/pitch/dist); FOV modal 30deg,
+// blend modal 0.015/frame -- both verified in the SCM corpus. The follow is INSTANT
+// (eye re-derived from the player every frame), which is right: it is a static authored
+// shot re-aimed at the player, an orbit rig pivoted on the player -- no dead-zone, no
+// trailing lerp. apply_cam_state now calls the shared scm_eye (auto-yaw included).
+//
+// ** One sourced refinement DEFERRED (needs interactive verification, and --play can't
+// run headless): ** the engine's region CHANGE lerps the EYE/TARGET/FOV positions on a
+// bounded cubic-eased t:0->1 over ~0.015/frame, re-computing BOTH regions' eyes from the
+// live player each frame (so neither endpoint lags). We instead lerp the orbit PARAMS
+// exponentially -- a close approximation that avoids lag, but not the exact transition
+// curve. Also unadopted: region STICKINESS (+0x3A8 bit0) and a target-Y low-pass
+// (0.35/frame). All sourced in CAMERA.md; left until the camera can be watched in motion.
 struct CamState {
     float fov = 0.5236f, yaw = 0, pitch = 0, dist = 24;
+    // Captured from the current region so apply_cam_state can call the shared scm_eye
+    // (which does the auto-yaw for flagged regions) instead of re-deriving the orbit.
+    std::uint32_t eye_mode = 3, eye_flags = 0;
+    Vec3 eye_fixed{};
     bool on = false;
 };
 static CamState g_cam;
@@ -871,8 +884,13 @@ static constexpr float kLookHeight = 1.0f;
 static void update_camera(const Room& room, const Vec3& feet, float dt, bool snap = false) {
     const CameraRegion* r = room.cam.pick(feet);
     if (!r) { g_cam.on = false; return; }
+    g_cam.eye_mode = r->eye.mode;      // mode/flags/fixed track the current region
+    g_cam.eye_flags = r->eye.flags;
+    g_cam.eye_fixed = r->eye.fixed_pos;
     if (!g_cam.on || snap) {
-        g_cam = {r->fov, r->eye.yaw, r->eye.pitch, r->eye.dist, true};
+        g_cam.fov = r->fov; g_cam.yaw = r->eye.yaw;
+        g_cam.pitch = r->eye.pitch; g_cam.dist = r->eye.dist;
+        g_cam.on = true;
         return;
     }
     // Ease the region's parameters only; the follow stays instant.
@@ -889,11 +907,17 @@ static void update_camera(const Room& room, const Vec3& feet, float dt, bool sna
 // eye = target + (-cos(a)*d*cos(pitch), sin(pitch)*d, sin(a)*d*cos(pitch)).
 static void apply_cam_state(Camera& cam, const Vec3& feet) {
     const Vec3 target = {feet.x, feet.y + kLookHeight, feet.z};   // A.mode 1: follow
-    const float a = -1.5707963f - g_cam.yaw;
-    const float cp = std::cos(g_cam.pitch);
-    cam.pos = {target.x - std::cos(a) * g_cam.dist * cp,
-               target.y + std::sin(g_cam.pitch) * g_cam.dist,
-               target.z + std::sin(a) * g_cam.dist * cp};
+    // Use the shared orbit (scm_eye), built from the BLENDED yaw/pitch/dist plus the
+    // current region's mode/flags. This is the engine's FUN_0042b6e0 -- including the
+    // auto-yaw for flagged regions, which the old hand-rolled copy here dropped.
+    CameraPoint b;
+    b.mode = g_cam.eye_mode;
+    b.yaw = g_cam.yaw;
+    b.pitch = g_cam.pitch;
+    b.dist = g_cam.dist;
+    b.flags = g_cam.eye_flags;
+    b.fixed_pos = g_cam.eye_fixed;
+    cam.pos = scm_eye(b, target, feet);
     const Vec3 f = normalize(target - cam.pos);
     cam.pitch = std::asin(std::max(-1.0f, std::min(1.0f, f.y)));
     cam.yaw = std::atan2(f.z, f.x);

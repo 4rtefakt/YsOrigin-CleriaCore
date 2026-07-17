@@ -52,8 +52,13 @@ struct Scm {
     const CameraRegion* pick(const Vec3& p) const;
 };
 
-// Where the eye sits for `r`, looking at `target`, with the player at `player`.
-// Mirrors FUN_0042b6e0's orbit math.
+// Where the eye sits for eye-point `b` (or region `r`'s), looking at `target`, with the
+// player at `player`. Mirrors FUN_0042b6e0's orbit math, INCLUDING the auto-yaw the
+// engine applies to the 44/659 regions whose eye flags are set (build/camera_re/
+// CAMERA.md). Use the CameraPoint overload when the yaw/pitch/dist are blended values
+// rather than a region's stored ones -- so a caller never has to re-derive this and drop
+// the auto-yaw, which is exactly the bug cleria-view had.
+Vec3 scm_eye(const CameraPoint& b, const Vec3& target, const Vec3& player);
 Vec3 scm_eye(const CameraRegion& r, const Vec3& target, const Vec3& player);
 
 }  // namespace cleria

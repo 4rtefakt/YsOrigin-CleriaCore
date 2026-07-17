@@ -89,8 +89,7 @@ const CameraRegion* Scm::pick(const Vec3& p) const {
 //   a = -PI/2 - yaw
 //   if (flags) { d = ±(player - target); a -= atan2(d.z, d.x) + PI/2; }
 //   eye = target + (-cos(a)*dist*cos(pitch), sin(pitch)*dist, sin(a)*dist*cos(pitch))
-Vec3 scm_eye(const CameraRegion& r, const Vec3& target, const Vec3& player) {
-    const CameraPoint& b = r.eye;
+Vec3 scm_eye(const CameraPoint& b, const Vec3& target, const Vec3& player) {
     if (b.mode == 0) return b.fixed_pos;
 
     float a = -kHalfPi - b.yaw;
@@ -103,6 +102,10 @@ Vec3 scm_eye(const CameraRegion& r, const Vec3& target, const Vec3& player) {
     return {target.x - std::cos(a) * b.dist * cp,
             target.y + std::sin(b.pitch) * b.dist,
             target.z + std::sin(a) * b.dist * cp};
+}
+
+Vec3 scm_eye(const CameraRegion& r, const Vec3& target, const Vec3& player) {
+    return scm_eye(r.eye, target, player);
 }
 
 }  // namespace cleria
