@@ -1179,12 +1179,18 @@ struct EnemyRender {
 };
 
 // Populate an ActorWorld from a room's SCT placements and pair each with its sprite.
-// ** SCT is a REAL engine spawn path, not a stopgap: ** its consumer FUN_004341a0 is one
-// of the 8 actor creation sites (build/actor_re/ACTOR.md), so routing placements through
-// ActorWorld::spawn is faithful. The XSO-script spawn path (op 0x12c) is ADDITIVE and
-// pending the room-load RE (build/roomload_re/); when that lands, run the room script
-// over this same world to layer scripted spawns on top. Skips CAST_ADOL (the view drives
-// the player itself). `require_sprite` matches each caller's existing filter exactly.
+//
+// ** This is the effect of XSO opcode 0xa0, done directly. ** build/roomload_re/
+// ROOMLOAD.md (verified against our own disassembly) settled how a room populates: its
+// S_xxxx.XSO runs from entry 0, opcode 0xa0 bulk-spawns the SCT once, opcode 0x12c adds
+// scripted actors 0..N times — two ADDITIVE sources. We do the 0xa0 part here directly
+// (faithful: the SCT consumer FUN_004341a0 is a real actor creation site). We do NOT yet
+// run the script, so SCRIPTED 0x12c enemies are missing — which is why a hub like S_1000
+// (SCT = just the player, 146 scripted NPCs) shows no enemies. Layering 0x12c is the next
+// milestone (docs/PLAN.md step 10). The 0xa0 area filter (record+0x7c vs sub-area) is
+// dead in the shipped game (1290/1290 records area 0), so spawning every placement is
+// correct. Skips CAST_ADOL (the view drives the player). `require_sprite` matches each
+// caller's existing filter.
 static std::vector<EnemyRender> spawn_room_enemies(ActorWorld& world, const Sct& sct,
                                                    const CastTable& casts,
                                                    const EnemyFx& fx,

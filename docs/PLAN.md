@@ -113,11 +113,37 @@ ai_dispatch_table.txt` confirmed the 94-entry AI table). What that unblocked:
    sweep (`sweep_dead()`). combat.hpp/actor.hpp corrected; the old "deferred death flag"
    framing is retired. The per-actor AI body (incl. the death state machine and motion
    state 5) is still [UNKNOWN] — `update_actor()` is an explicit no-op seam.
-10. **PARTIAL — room transition.** ACTOR.md traced request → fade → commit (`0x74c120
-    |= 3`) → frame-start teardown (`FUN_00428ec0` destroy-all) as [C-DIS], but the
-    room *load* driver (`FUN_004358b0`/`FUN_00442260`) is [H-medium], not traced
-    end-to-end. Not wired — the next RE target, and the last gap before a room can
-    actually change at runtime.
+10. **RE'd — room load is entirely XSO opcodes (build/roomload_re/ROOMLOAD.md).** And
+    it CORRECTED ACTOR.md's [H-medium] guess: `FUN_004358b0` is a name→record lookup,
+    `FUN_00442260` is boot-time init — neither is the loader. The real chain is
+    `FUN_00442dd0 → FUN_00431260 → FUN_00431840 → StartScript → the XSO VM`, and the
+    asset loads + actor spawns are VM OPCODES: `0x9b`–`0xa1` load SOB/SEF/SFO/SCM/
+    SEN+SEV/SNF, `0xa0` does the bulk SCT spawn, `0x12c` does scripted spawns. All
+    VERIFIED against our data (our disassembler shows every room script opening with
+    exactly those load ops in the claimed order; stride 0x2b0 and 1290 SCT records
+    match).
+
+    ** The population question is RESOLVED: SCT and 0x12c are two additive sources, not
+    two views of one set. ** Per room the script runs `0xa0` once (bulk SCT) then
+    `0x12c` 0..N times (scripted). S_3004 is pure-SCT (23, 0 scripted); S_1000 is a hub
+    (SCT=just ADOL, 146 scripted). ** The `0xa0` area filter (record+0x7c vs sub-area)
+    is DEAD in the shipped game — 1290/1290 records are area 0 ** (same as the
+    group-overlap quirk: real code, never exercised).
+
+    So the view's current SCT-direct spawn is the `0xa0` effect and is correct for
+    SCT rooms, but it misses scripted `0x12c` enemies (why S_1000 shows none). The
+    faithful populate — run `S_xxxx.XSO` from entry 0 through a world-connected VM,
+    `0xa0`→SCT, `0x12c`→scripted, asset ops as no-ops — is the NEXT milestone. It needs
+    VM op `0xa0` + a cast_id→sprite mapping (the VM carries cast_type, not the SCT
+    `M_` name) + connecting the view's already-present room-script run (it runs
+    `S_xxxx.XSO` hostless today, only to gate chests) to the ActorWorld.
+
+### The last gap before runtime room change
+
+The room-CHANGE flow (teardown) is [C-DIS] in ACTOR.md; the LOAD is now [C-DIS] in
+ROOMLOAD.md. Wiring them — run-script-to-populate on entry, plus the fade/commit/
+teardown state machine — is what lets a room actually change at runtime. Everything it
+needs is now RE'd; it is an integration milestone, not a research one.
 
 ## The standing risk on this milestone
 
