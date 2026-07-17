@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <random>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -34,6 +35,9 @@
 #include "cleria/dds.hpp"
 #include "cleria/mathx.hpp"
 #include "cleria/cast.hpp"
+#include "cleria/gameinfo.hpp"
+#include "cleria/enemies.hpp"
+#include "cleria/combat.hpp"
 #include "cleria/physics.hpp"
 #include "cleria/physics_player.hpp"
 #include "cleria/surface.hpp"
@@ -1152,14 +1156,24 @@ struct EnemyFx {
     }
 };
 
-// A placed enemy at runtime. HP is a PLACEHOLDER: the game has no per-enemy HP
-// column — stats are lerped from a level curve in GAMEINFO — so this is our own
-// number until that curve is wired up.
+// A placed enemy at runtime, with the game's own stats.
+//
+// The old comment here said "the game has no per-enemy HP column — stats are lerped
+// from a level curve, so this is our own number until that curve is wired up". Half
+// right, and the wrong half mattered: there IS no raw HP column, but there is a
+// per-enemy log2 MULTIPLIER, and a stat is K(column) * curve(that enemy's own level).
+// The curve alone describes no enemy that exists. See enemies.hpp.
+//
+// The chain: SCT places a CAST_ name -> CASTINFO gives cast_id -> ENEMYINFO[cast_id]
+// gives the level and the multipliers -> GAMEINFO gives the curve.
 struct EnemyInst {
     std::string stem;
     std::string display;
     Vec3 pos{};
-    int hp = 0, max_hp = 0;
+    float hp = 0, max_hp = 0;
+    float atk = 0, def = 0;
+    int level = 0;
+    std::uint32_t flags = 0;  // actor+0x3bc — bit 0x10 = dead (a DEFERRED flag)
     bool alive = true;
 };
 
@@ -1891,10 +1905,15 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
     {
         EnemyFx efx;
         efx.init(g, asset_root, room.cast);
+        // Stats are placeholders: the CASTINFO -> ENEMYINFO index is [UNKNOWN].
         std::vector<EnemyInst> list;
         for (const CastPlacement& cp : room.cast.casts) {
             const std::string stem = cp.sprite_stem();
-            if (!stem.empty()) list.push_back({stem, stem, cp.position, 20, 20, true});
+            if (stem.empty()) continue;
+            EnemyInst e;
+            e.stem = stem; e.display = stem; e.pos = cp.position; e.alive = true;
+            e.max_hp = e.hp = 20;
+            list.push_back(std::move(e));
         }
         draw_enemies(g, cview, dview, efx, list, cam.forward());
     }
@@ -1968,6 +1987,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     float fx_time = 0;
     EnemyFx efx;                         // enemy sprite sets, per room
     std::vector<EnemyInst> enemies;      // live enemy instances
+    // The game's own tables. Loaded once: the enemy chain is SCT name -> CASTINFO ->
+    // ENEMYINFO -> GAMEINFO curve.
+    const CastTable casts = CastTable::load(asset_root / "MISC" / "CASTINFO.DAT");
+    const EnemyTable etab = EnemyTable::load(asset_root / "MISC" / "ENEMYINFO.DAT");
+    const GameInfo ginfo = GameInfo::load(asset_root / "MISC" / "GAMEINFO.DAT");
+    // Our own RNG. The engine seeds its xorshift from timeGetTime(), so retail damage
+    // was never replay-stable and there is no stream to match — only the algorithm's
+    // shape matters, and an explicit seed buys us the determinism it lacked.
+    std::mt19937 rng(20260717u);
+    std::uniform_real_distribution<float> rng_pct(0.0f, 100.0f);
     float atk_cd = 0;                    // attack cooldown
     WGPUTextureView depth = make_depth(g.device, cw, ch);
 
@@ -2113,10 +2142,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         for (const CastPlacement& c : room.cast.casts) {
             const std::string stem = c.sprite_stem();
             if (stem.empty() || !efx.kinds.count(stem)) continue;
-            enemies.push_back({stem, stem, c.position, 20, 20, true});
+            EnemyInst e;
+            e.stem = stem;
+            e.display = stem;
+            e.pos = c.position;
+            e.alive = true;
+            // ** PLACEHOLDER, and it stays one: the CASTINFO -> ENEMYINFO index is
+            // [UNKNOWN]. ** See the note on `etab` below. Everything downstream of that
+            // index is solved — the level, the multipliers, the curve, the formula —
+            // so this is one missing link away from real, and no closer.
+            e.max_hp = e.hp = 20;
+            e.def = 0;
+            enemies.push_back(std::move(e));
         }
-        if (!enemies.empty())
-            std::printf("  %zu enemies spawned\n", enemies.size());
+        if (!enemies.empty()) {
+            int statted = 0;
+            for (const EnemyInst& e : enemies) statted += (e.max_hp > 0);
+            std::printf("  %zu enemies spawned (%d with game stats)\n", enemies.size(),
+                        statted);
+            if (std::getenv("CLERIA_ENEMY"))
+                for (const EnemyInst& e : enemies)
+                    std::printf("    %-10s lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
+                                e.stem.c_str(), e.level, e.max_hp, e.atk, e.def);
+        }
     };
 
     spawn_enemies();
@@ -2172,15 +2220,40 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     auto try_attack = [&] {
         if (atk_cd > 0) return;
         atk_cd = 0.35f;
-        const float reach = 2.6f;
+        const float reach = 2.6f;   // INVENTED — the one combat quantity still unsourced
         int killed = 0, hit = 0;
         for (EnemyInst& e : enemies) {
             if (!e.alive) continue;
             const float dx = e.pos.x - feet.x, dz = e.pos.z - feet.z;
             const float dy = e.pos.y - feet.y;
             if (dx * dx + dz * dz > reach * reach || std::fabs(dy) > 3.0f) continue;
-            e.hp -= 10; ++hit;
-            if (e.hp <= 0) { e.alive = false; ++killed; }
+
+            // The game's formula. ATK is the level curve PLUS the weapon — the curve
+            // alone goes negative at level 1. `bonus` is per-attack-move power, which
+            // we don't have a table for, so it stays 0 rather than being invented.
+            AttackStats a;
+            // [UNKNOWN] the row mapping. g_flags[150] is 1=Yunica/2=Hugo/3=Toal, and
+            // the weapon table is indexed 0..3 by DAT_0076bb74 — that those are the
+            // same ordering minus one is an ASSUMPTION, not something read out of the
+            // exe. It only shifts ATK by a couple of points between rows, which is
+            // exactly why it would never show up as a bug.
+            // Level and weapon tier are 1 and 0: we have no save-file model, so this
+            // is a fresh-game player rather than a claim about the player's state.
+            a.atk = ginfo.player_atk(character - 1, /*weapon tier*/ 0, /*level*/ 1);
+            const int dmg = damage_int(a, e.def, [&](float pct) {
+                // The engine's roll: P(round up) == pct/100, from an inlined xorshift.
+                // Its own seed is timeGetTime(), so there is no canonical stream to
+                // match — we use our own generator and get determinism it never had.
+                return float(rng_pct(rng)) < pct;
+            });
+            // NOT apply_difficulty(): the factor is [C-DIS] {1.0,1.5,2.0} but which
+            // sides it applies to is [H-medium] pending an in-game check.
+            const HitResult r = apply_damage(e.hp, e.flags, dmg);
+            ++hit;
+            if (std::getenv("CLERIA_DMG"))
+                std::printf("  hit %s (lv%d DEF %.0f): %d dmg, %.0f/%.0f HP left\n",
+                            e.stem.c_str(), e.level, e.def, r.damage, e.hp, e.max_hp);
+            if (r.died) { e.alive = false; ++killed; }
         }
         if (!hit) return;
         if (killed) {
