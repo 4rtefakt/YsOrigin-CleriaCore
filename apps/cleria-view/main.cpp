@@ -1187,12 +1187,15 @@ struct EnemyFx {
     struct Kind {
         Aia aia;
         SpriteTex dirs[8];
+        std::vector<SpriteTex> anim;   // the camera-facing dir's idle frames, cycled
         std::uint32_t ndir = 0;
         float height = 1.6f;
     };
     std::unordered_map<std::string, Kind> kinds;   // sprite stem -> decoded facings
 
-    // Decode frame 0 of one enemy type's idle animation. Idempotent per stem.
+    // Decode one enemy type's idle animation: frame 0 for every facing (the fallback),
+    // plus ALL frames of the camera-facing direction so draw_enemies can cycle them.
+    // Idempotent per stem.
     void load_kind(Gpu& g, const fs::path& asset_root, const std::string& stem) {
         if (stem.empty() || kinds.count(stem)) return;
         Kind k;
@@ -1207,6 +1210,17 @@ struct EnemyFx {
             AiaFrame fr;
             if (!k.aia.decode_frame_composited(std::uint32_t(img), d, 0, fr)) continue;
             k.dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
+            tall = std::max(tall, fr.h);
+        }
+        // The animation frames for the camera-facing dir (dir 6, or 0 if fewer). Real
+        // per-frame timing lives in each enemy's ASO Wait, which we don't run per enemy,
+        // so draw_enemies cycles them at a fixed rate -- a stand-in until per-enemy ASO.
+        const std::uint32_t cdir = (6 < k.ndir) ? 6u : 0u;
+        const std::uint32_t nfr = k.aia.images[img].nFrame;
+        for (std::uint32_t f = 0; f < nfr; ++f) {
+            AiaFrame fr;
+            if (!k.aia.decode_frame_composited(std::uint32_t(img), cdir, f, fr)) continue;
+            k.anim.push_back(upload_rgba(g, fr.w, fr.h, fr.rgba.data()));
             tall = std::max(tall, fr.h);
         }
         // Scale off the sprite's own pixel height, against the player's known
@@ -1301,22 +1315,31 @@ static std::vector<EnemyRender> build_enemy_render(ActorWorld& world,
     return out;
 }
 
-// Draw every living enemy as an upright camera-facing billboard.
+// Draw every living enemy as an upright camera-facing billboard, cycling its idle
+// animation. `t_anim` is the presentation clock (seconds).
 static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                          EnemyFx& fx, const std::vector<EnemyRender>& list,
-                         const Vec3& camFwd) {
+                         const Vec3& camFwd, float t_anim) {
+    constexpr float kEnemyAnimFps = 8.0f;   // TUNED: real rate is per-enemy ASO Wait
     for (const EnemyRender& e : list) {
         if (!e.actor || !e.actor->alive()) continue;
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
         const EnemyFx::Kind& k = it->second;
-        // Always face the camera: enemy direction rings are per-file and unverified,
-        // and there is no AI yet to give them a heading.
-        const SpriteTex& t = k.dirs[6 < k.ndir ? 6 : 0];
-        if (!t.tex) continue;
+        // Always face the camera (enemy direction rings are per-file and unverified).
+        // Cycle the idle frames, offset per instance so a crowd is not in lockstep.
+        const SpriteTex* t = nullptr;
+        if (!k.anim.empty()) {
+            const int n = int(k.anim.size());
+            const int fi = ((int(t_anim * kEnemyAnimFps) + e.actor->instance_id * 2) % n + n) % n;
+            t = &k.anim[fi];
+        } else {
+            t = &k.dirs[6 < k.ndir ? 6 : 0];
+        }
+        if (!t->tex) continue;
         // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
         const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
-        draw_character(g, color, depth, e.actor->pos, k.height, t, camFwd, flash);
+        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, flash);
     }
 }
 
@@ -2047,7 +2070,7 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                 std::printf("play: %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
                             e.display.c_str(), e.stem.c_str(), e.actor->level,
                             e.actor->max_hp, e.actor->atk, e.actor->def);
-        draw_enemies(g, cview, dview, efx, list, cam.forward());
+        draw_enemies(g, cview, dview, efx, list, cam.forward(), 0.0f);
     }
     // Torch flames (SEF placements + the EF2 flipbook).
     {
@@ -2675,7 +2698,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const int dmg = player_incoming_damage(AttackStats{en.atk, 0, 0}, pdef,
                         [&](float p) { return float(rng_pct(rng)) < p; });
                     player.hp -= dmg;
-                    player_iframes = 16;   // the engine's i-frame grant (combat.hpp)
+                    // The engine's generic grant is 16 ticks, but the player's post-hit
+                    // invulnerability window specifically is not pinned, and 16 (0.27s)
+                    // lets a real-level enemy shred the fresh lv1 player. TUNED to ~0.75s
+                    // until the player i-frame value is RE'd.
+                    player_iframes = 45;
                     hud.message("-" + std::to_string(dmg) + " HP");
                     if (player.hp <= 0) {  // down: respawn at full with a grace window
                         player.hp = player.max_hp;
@@ -2820,7 +2847,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // Character billboard (play mode only; fly is a free debug camera).
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex)
             draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward());
-        draw_enemies(g, view, depth, efx, render, cam.forward());
+        draw_enemies(g, view, depth, efx, render, cam.forward(), fx_time);
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         player.character = character;
