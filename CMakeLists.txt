@@ -24,6 +24,7 @@ add_library(cleria STATIC
   src/cleria/physics.cpp
   src/cleria/xso.cpp
   src/cleria/items.cpp
+  src/cleria/enemies.cpp
   src/cleria/aia.cpp
   src/cleria/sfo.cpp
   src/cleria/scm.cpp
@@ -46,6 +47,10 @@ target_link_libraries(cleria-xso PRIVATE cleria)
 # cleria-aiatest — decode an AIA sprite region to a PPM (verify vs aia_decode.py).
 add_executable(cleria-aiatest apps/cleria-aiatest/main.cpp)
 target_link_libraries(cleria-aiatest PRIVATE cleria)
+
+# cleria-enemytest — assert ENEMYINFO's drop-table invariants against the corpus.
+add_executable(cleria-enemytest apps/cleria-enemytest/main.cpp)
+target_link_libraries(cleria-enemytest PRIVATE cleria)
 
 # cleria-asotest — validate the ASO container + run the animation-script VM.
 add_executable(cleria-asotest apps/cleria-asotest/main.cpp)
