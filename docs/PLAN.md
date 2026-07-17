@@ -130,20 +130,23 @@ ai_dispatch_table.txt` confirmed the 94-entry AI table). What that unblocked:
     is DEAD in the shipped game — 1290/1290 records are area 0 ** (same as the
     group-overlap quirk: real code, never exercised).
 
-    So the view's current SCT-direct spawn is the `0xa0` effect and is correct for
-    SCT rooms, but it misses scripted `0x12c` enemies (why S_1000 shows none). The
-    faithful populate — run `S_xxxx.XSO` from entry 0 through a world-connected VM,
-    `0xa0`→SCT, `0x12c`→scripted, asset ops as no-ops — is the NEXT milestone. It needs
-    VM op `0xa0` + a cast_id→sprite mapping (the VM carries cast_type, not the SCT
-    `M_` name) + connecting the view's already-present room-script run (it runs
-    `S_xxxx.XSO` hostless today, only to gate chests) to the ActorWorld.
+11. **DONE — the faithful populate.** The view now runs `S_xxxx.XSO` from entry 0 through
+    a world-connected VM: op `0xa0` bulk-spawns the SCT (`ActorWorld::spawn_placements`),
+    op `0x12c` adds scripted actors, asset ops are inert. `CastTable::sprite_stem` gives
+    the cast_id→`M_100` mapping so `0x12c` actors (casts the SCT never named) load their
+    sprites too. `populate_room` + `EnemyFx::init_from_world` + `build_enemy_render`
+    replace the SCT-only path. Proven GPU-free by worldtest: S_3004 (pure-SCT) 23 from
+    `0xa0`; S_1000 (hub) 1 from SCT alone, 11 with the script — op `0x12c` supplying the
+    hub NPCs the SCT-only path missed (count is story-flag-gated, so a fresh game reaches
+    a subset, not the 146 static ops). 52 checks.
 
 ### The last gap before runtime room change
 
-The room-CHANGE flow (teardown) is [C-DIS] in ACTOR.md; the LOAD is now [C-DIS] in
-ROOMLOAD.md. Wiring them — run-script-to-populate on entry, plus the fade/commit/
-teardown state machine — is what lets a room actually change at runtime. Everything it
-needs is now RE'd; it is an integration milestone, not a research one.
+The room-CHANGE flow: teardown is [C-DIS] (ACTOR.md), load is [C-DIS] (ROOMLOAD.md),
+populate is now WIRED. What remains is the WARP TRIGGER and the fade/commit state
+machine — how stepping into a SEN exit initiates the change — under RE now
+(build/warp_re/). Once that lands, wiring the fade→teardown→load→populate loop is what
+lets a room actually change at runtime. All research, no invention left.
 
 ## The standing risk on this milestone
 
