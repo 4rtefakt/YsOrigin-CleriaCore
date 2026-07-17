@@ -15,11 +15,14 @@
 #include "cleria/enemies.hpp"
 #include "cleria/gameinfo.hpp"
 #include "cleria/sct.hpp"
+#include "cleria/sen.hpp"
 #include "cleria/world.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <span>
 #include <fstream>
 #include <iterator>
 #include <exception>
@@ -402,6 +405,32 @@ int main(int argc, char** argv) {
     check(n1000_full > n1000_sct + 3,
           "and running the script adds op-0x12c scripted spawns SCT-only missed",
           std::to_string(n1000_full) + " with the script");
+
+    // --- SEN arrival position (build/warp_re/WARP.md, verified) -------------------
+    // The exit's arrival position is at +0x22c; our parser reads it. S_1001's exit to
+    // S_1000 arrives at (0, 8.5, 52) -- verified against the raw bytes. (WARP.md's
+    // arrival-FACING claim did NOT verify -- +0x238 is 0 in all 367 records -- so no
+    // facing is parsed; this checks only the position, which does hold.)
+    {
+        const std::vector<std::uint8_t> b =
+            read(root / "MAP" / "S_10" / "S_1001" / "S_1001.SEN");
+        check(!b.empty(), "loaded S_1001.SEN");
+        if (!b.empty()) {
+            const Sen sen = Sen::parse(std::span<const std::uint8_t>(b.data(), b.size()));
+            const SenTrigger* to1000 = nullptr;
+            for (const SenTrigger& t : sen.triggers)
+                if (t.dest_scene == "S_1000") to1000 = &t;
+            check(to1000 != nullptr, "S_1001 has an exit to S_1000");
+            if (to1000) {
+                const Vec3 a = to1000->arrival_pos;
+                check(to1000->has_arrival() && std::fabs(a.y - 8.5f) < 0.5f &&
+                          std::fabs(a.z - 52.0f) < 0.5f,
+                      "and its arrival lands at the reciprocal door (+0x22c)",
+                      "(" + std::to_string(int(a.x)) + "," + std::to_string(int(a.y)) +
+                          "," + std::to_string(int(a.z)) + ")");
+            }
+        }
+    }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
     return fails ? 1 : 0;

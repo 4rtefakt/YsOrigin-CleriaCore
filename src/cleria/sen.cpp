@@ -49,8 +49,10 @@ Sen Sen::parse(std::span<const std::uint8_t> b) {
                     t.position.y + std::max(a.y, c.y),
                     t.position.z + std::max(a.z, c.z)};
         t.dest_scene = scene_leaf(cstr(r + 0x128, 0x60));
-        std::int32_t ang; std::memcpy(&ang, b.data() + r + 0x23C, 4);
-        t.angle_deg = float(ang);
+        // The arrival position in the destination room (+0x22c). See sen.hpp: this
+        // replaces the old +0x23c "angle" read, which was a mislabel — +0x23c is 0/NaN
+        // across the corpus and carried no facing.
+        t.arrival_pos = vec3(r + 0x22C);
         if (!t.dest_scene.empty()) s.triggers.push_back(std::move(t));
     }
     return s;

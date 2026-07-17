@@ -2232,14 +2232,27 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     spawn_enemies();
 
     float cooldown = 1.5f;
-    auto transition = [&](const std::string& dest) {
+    auto transition = [&](const std::string& dest, Vec3 arrival = {}) {
         auto it = g.sob_index.find(dest);
         if (it == g.sob_index.end()) { std::printf("  (no SOB for %s)\n", dest.c_str()); return; }
         std::printf(">> entering %s\n", dest.c_str());
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
-        if (fly) spawn_in(cam, room); else spawn_player();
+        if (fly) {
+            spawn_in(cam, room);
+        } else {
+            spawn_player();
+            // The exit's arrival position (SEN +0x22c) overrides the destination's SCT
+            // default, as the engine does (FUN_00434020). Snap to floor like spawn_player.
+            if (arrival.x != 0 || arrival.y != 0 || arrival.z != 0) {
+                const float fl = floor_at(phys_mesh(room), arrival.x, arrival.z,
+                                          room.mesh.bmax.y + room_diag(room));
+                feet = {arrival.x, (fl > kNoFloor ? fl : arrival.y), arrival.z};
+                vy = 0; grounded = false;
+                std::printf("  arrival @ (%.1f,%.1f,%.1f) [SEN]\n", feet.x, feet.y, feet.z);
+            }
+        }
         spawn_enemies();
         cooldown = 1.5f;
         g_tick_reset = true;  // don't catch up on the load stall (the exe's DAT_0075aed5)
@@ -2453,8 +2466,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 else if (k == SDLK_E && !fly) try_interact();
                 else if (k >= SDLK_1 && k <= SDLK_9) {
                     std::size_t idx = std::size_t(k - SDLK_1);
-                    if (idx < room.sen.triggers.size())
-                        transition(room.sen.triggers[idx].dest_scene);
+                    if (idx < room.sen.triggers.size()) {
+                        const SenTrigger& t = room.sen.triggers[idx];
+                        transition(t.dest_scene, t.arrival_pos);
+                    }
                 }
             } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
                 if (fly) looking = true; else try_attack();   // play mode: LMB = attack
@@ -2617,7 +2632,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (cooldown <= 0) {
             const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kCharH * 0.5f, feet.z};
             for (const SenTrigger& t : room.sen.triggers)
-                if (t.contains(probe) || t.contains(cam.pos)) { transition(t.dest_scene); break; }
+                if (t.contains(probe) || t.contains(cam.pos)) {
+                    transition(t.dest_scene, t.arrival_pos); break;
+                }
         }
         }  // ---- end fixed-step logic ----------------------------------------
         // UV scroll — the water. `phase += velocity` ONCE PER TICK, unscaled: the
