@@ -102,15 +102,52 @@
 //
 // ## [UNKNOWN] — and it is the whole reason this header exposes no lookup
 //
-// **How a boss reaches an EEX record is not established.** Bosses route through
-// category-4 `CAST_C6xx`/`C7xx`/`C8xx` casts rather than the category-16 monsters, and
-// the index expression has not been found. Until it is, this is a table we can read and
-// not a table we can use.
+// **How a boss reaches an EEX record is not established** — but we now know exactly
+// which records ask the question.
 //
-// **Only 8 of ~16 unique published bosses are here.** Vagullion, Epona, Kishgal, Toal
-// Fact, Hugo Fact, Shion, Galleon and Jenocres have published levels and STR but no EEX
-// record. Where their stats come from is [UNKNOWN] — a different table, a different
-// index into ENEMYINFO, or script.
+// ## CAST_C600..C830 are the 24 boss ENCOUNTERS [C-COR]
+//
+// CASTINFO records 126..149 map 1:1 onto the published boss journal, in order:
+// **`journal_no == cast_id - 57`, 24/24 by name.**
+//
+//   126 C600 Vagullion  #69 lv5    138 C720 Epona      #81 lv43
+//   127 C610 Epona      #70 lv5    139 C730 Kishgal    #82 lv43
+//   128 C620 Velagunder #71 lv8    140 C740 Zava       #83 lv45
+//   129 C630 Epona      #72 lv12   141 C750 Kishgal    #84 lv48
+//   130 C640 Vagullion  #73 lv12   142 C760 Toal       #85 lv48
+//   131 C650 Nygtilger  #74 lv16   143 C770 Dalles     #86 lv49
+//   132 C660 Kishgal    #75 lv19   144 C780 Galleon    #87 lv5
+//   133 C670 Toal       #76 lv19   145 C790 Hugo       #88 lv12
+//   134 C680 Gelaldy    #77 lv24   146 C800 Shion      #89 lv19
+//   135 C690 Jenocres   #78 lv29   147 C810 Kishgal    #90 lv43
+//   136 C700 Khonsclard #79 lv32   148 C820 Hugo       #91 lv48
+//   137 C710 Pictimos   #80 lv40   149 C830 Darm       #92 lv50
+//
+// All class 4, all with `enemy_index_for_cast() == -1` — 126..149 falls outside both
+// fold ranges (14..83, 166..185), which is precisely why nothing ever reached them.
+//
+// ** EACH ENCOUNTER HAS ITS OWN CAST RECORD. ** Kishgal is fought four times and has
+// four casts (C660, C730, C750, C810). That dissolves the "per-encounter modifier"
+// puzzle: his two level-43 rows at STR 228 and 231 are DIFFERENT CASTS, so no single
+// record ever had to produce both. It is per-encounter DATA, not a modifier — and it is
+// the mechanism by which the same story boss can be balanced differently per playable
+// route (the trailing block C780..C830 reads as one character's route).
+//
+// [UNKNOWN] what a C6xx record points AT. The 8 full-room bosses are C620, C650, C680,
+// C700, C710, C740, C770, C830 — NOT contiguous, so the EEX index is not a simple bias
+// off cast_id. And these casts have no ENEMYINFO record, yet every encounter has a
+// level, so the level lives somewhere in this path too.
+//
+// Note class 4 is NOT "boss": CAST_C940 "Levinstrike Warhammer", C950 "Crimson
+// Lotusblade" and C960 "Rod" are class-4 props. Class 2 appears to mean "player-side
+// actor" — only CAST_ADOL and CAST_M900 "Eye of Fact" (Hugo's floating eye) carry it.
+//
+// Until the reader is found, this is a table we can read and not one we can use.
+//
+// **Only 8 of the 24 encounters are here** — the medallion-gated full-room bosses.
+// Vagullion, Epona, Kishgal, Toal, Hugo, Shion, Galleon and Jenocres are the arena
+// fights against story characters, and they have ordinary ENEMYINFO records reached
+// through CAST_M800..M880 (see above).
 #pragma once
 #include <cstdint>
 #include <filesystem>
