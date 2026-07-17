@@ -36,6 +36,7 @@
 #include "cleria/mathx.hpp"
 #include "cleria/cast.hpp"
 #include "cleria/gameinfo.hpp"
+#include "cleria/eex.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/combat.hpp"
 #include "cleria/physics.hpp"
@@ -1995,7 +1996,8 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
         const CastTable casts = CastTable::load(asset_root / "MISC" / "CASTINFO.DAT");
         const EnemyTable etab = EnemyTable::load(asset_root / "MISC" / "ENEMYINFO.DAT");
         const GameInfo ginfo = GameInfo::load(asset_root / "MISC" / "GAMEINFO.DAT");
-        ActorWorld world({&casts, &etab, &ginfo});
+        const EexTable eex = EexTable::load(asset_root / "MISC" / "EEX.DAT");
+        ActorWorld world({&casts, &etab, &ginfo, &eex});
         std::int32_t flags[0x200] = {0};
         flags[150] = 1;  // character = Yunica (this headless shot has no save state)
         populate_room(world, room, flags);
@@ -2082,10 +2084,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     const CastTable casts = CastTable::load(asset_root / "MISC" / "CASTINFO.DAT");
     const EnemyTable etab = EnemyTable::load(asset_root / "MISC" / "ENEMYINFO.DAT");
     const GameInfo ginfo = GameInfo::load(asset_root / "MISC" / "GAMEINFO.DAT");
+    const EexTable eex = EexTable::load(asset_root / "MISC" / "EEX.DAT");  // boss stats
     // The live actors are real Actors in an ActorWorld now, not a bespoke list — one
     // spawn path, the deferred-sweep lifecycle, and the shared damage model. `render`
     // pairs each with its sprite for drawing.
-    ActorWorld world({&casts, &etab, &ginfo});
+    ActorWorld world({&casts, &etab, &ginfo, &eex});
     std::vector<EnemyRender> render;      // live enemies + their sprite identity
     // Our own RNG. The engine seeds its xorshift from timeGetTime(), so retail damage
     // was never replay-stable and there is no stream to match — only the algorithm's

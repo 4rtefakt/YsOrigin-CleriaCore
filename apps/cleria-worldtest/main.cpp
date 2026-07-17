@@ -12,6 +12,7 @@
 // because there was no running enemy.
 #include "cleria/cast.hpp"
 #include "cleria/combat.hpp"
+#include "cleria/eex.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/gameinfo.hpp"
 #include "cleria/sct.hpp"
@@ -40,6 +41,7 @@ int main(int argc, char** argv) {
     const CastTable ct = CastTable::load(root / "MISC" / "CASTINFO.DAT");
     const EnemyTable et = EnemyTable::load(root / "MISC" / "ENEMYINFO.DAT");
     const GameInfo gi = GameInfo::load(root / "MISC" / "GAMEINFO.DAT");
+    const EexTable ex = EexTable::load(root / "MISC" / "EEX.DAT");
     if (ct.casts.empty() || et.enemies.empty() || !gi.ok()) {
         std::fprintf(stderr, "load failed (root=%s)\n", root.string().c_str());
         return 2;
@@ -54,7 +56,7 @@ int main(int argc, char** argv) {
         if (!ok) ++fails;
     };
 
-    const WorldTables tables{&ct, &et, &gi};
+    const WorldTables tables{&ct, &et, &gi, &ex};
 
     // --- the kind word transform (actor.hpp) -------------------------------------
     // The bug this guards: CASTINFO+0x6c is {0,2,4,0x10} and NONE has bit 0x8. If the
@@ -492,6 +494,23 @@ int main(int argc, char** argv) {
             p2->pos = {0, 0, 0}; e2->pos = {100, 0, 0};
             for (int i = 0; i < 10; ++i) w2.step();
             check(e2->pos.x == 100.0f, "an enemy beyond the 25-unit gate stays put");
+        }
+    }
+
+    // --- full-room boss spawns with EEX stats (build/boss_lookup_re) --------------
+    // A class-4 boss cast has no ENEMYINFO record, so the enemy branch skips it; the
+    // EEX branch applies raw stats. Velagunder (cast 128) should get EEX record 0.
+    if (!ex.bosses.empty()) {
+        ActorWorld w(tables);
+        Actor* b = w.spawn({0, 128, {}, 0, 0});  // C620 Velagunder
+        check(b != nullptr, "spawned the boss cast 128 (Velagunder)");
+        if (b) {
+            check(!b->is_enemy(), "a full-room boss is class 4, NOT a kind-8 enemy");
+            check(b->level == ex.bosses[0].level && b->max_hp == ex.bosses[0].hp &&
+                      b->atk == ex.bosses[0].atk,
+                  "and it carries EEX record 0's raw stats",
+                  "lv" + std::to_string(b->level) + " HP " + std::to_string(int(b->hp)) +
+                      " STR " + std::to_string(int(b->atk)));
         }
     }
 

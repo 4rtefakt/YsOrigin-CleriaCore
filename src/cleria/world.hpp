@@ -33,6 +33,7 @@ namespace cleria {
 struct CastTable;
 struct EnemyTable;
 struct GameInfo;
+struct EexTable;
 struct Sct;
 
 // Ids the engine gives meaning to. `kIdSelf` never reaches the registry.
@@ -71,6 +72,7 @@ struct WorldTables {
     const CastTable* casts = nullptr;
     const EnemyTable* enemies = nullptr;
     const GameInfo* game = nullptr;
+    const EexTable* eex = nullptr;  // optional: full-room boss stats (eex.hpp)
 
     bool ok() const { return casts && enemies && game; }
 };

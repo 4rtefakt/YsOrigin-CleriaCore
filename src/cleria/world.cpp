@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "cleria/cast.hpp"
+#include "cleria/eex.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/gameinfo.hpp"
 #include "cleria/sct.hpp"
@@ -84,6 +85,20 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
             a->enemy_index = enemy_index_for_cast(c->cast_id);
         }
         a->tag.set(r.group);
+    } else if (tables_.eex) {
+        // A full-room (medallion) boss: class 4, no ENEMYINFO record, RAW stats from
+        // EEX. eex_index_for_cast maps the 8 boss casts -> records 0..7 (eex.hpp). The
+        // engine writes HP->+0x94, STR->+0xa4, DEF->+0xa8, level->+0xc8 directly.
+        const int bi = eex_index_for_cast(c->cast_id);
+        if (bi >= 0 && bi < int(tables_.eex->bosses.size())) {
+            const BossStats& bs = tables_.eex->bosses[bi];
+            a->max_hp = bs.hp;
+            a->hp = bs.hp;
+            a->atk = bs.atk;
+            a->def = bs.def;
+            a->level = bs.level;
+            // No move_speed: full-room bosses are not the sprite-chase movers.
+        }
     }
     return a;
 }
