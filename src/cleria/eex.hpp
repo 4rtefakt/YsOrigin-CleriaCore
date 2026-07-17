@@ -34,10 +34,24 @@
 // which is why those columns are not cross-checked here.
 //
 // [UNKNOWN] the two STR misses: Velagunder 69 vs published 70, Nygtilger 120 vs 100.
-// The Velagunder +1 echoes a systematic +1 on the published weapon Lv1 values, whose
-// cause is also unknown. The published table has already been caught in two errors
-// (Kelmarel's DEF copied down a column; "Hubamobrum" where the file says "Hubamobrun"),
-// so a typo is live — but two unexplained deltas is not something to wave away.
+//
+// ** But treat the published BOSS rows as a weak oracle. ** Unlike the monster journal
+// (entries 1..68, complete, and which our stats match 67/68), the boss section is
+// explicitly a STUB: its HP/DEF/EXP columns are blank, and its remaining columns are
+// crowd-sourced from DIFFERENT difficulties — HP from Easy, STR from Normal, DEF from
+// Hard, EXP from Very Easy, SP from Nightmare. Only STR is baseline-comparable.
+//
+// That matters for a live question we cannot currently answer: whether the story
+// characters have PER-CHARACTER stats to balance the three routes. Kishgal is published
+// twice at level 43 with STR 228 and 231, and neither is reachable at ANY level (43
+// gives 229; its neighbours give 224 and 233), so a level override alone cannot explain
+// them. A per-route modifier would — but so would two contributors playing different
+// difficulties, and a constant per-character modifier is contradicted by Hugo, whose
+// two ratios are 1.05 and 1.14. **The data supports "something else is going on" and
+// cannot distinguish which. It needs an in-game reading, not more arithmetic.**
+//
+// Hugo (e71) is the loudest outlier: lv12 -> 78 vs published 82, lv48 -> 217 vs 249.
+// Not an off-by-one — a different scale, and [UNKNOWN].
 //
 // ## A prior pass had this table and rejected it
 //
@@ -46,6 +60,45 @@
 // reading the wrong offset. `+0x18` is an i32 and reads as a DENORMAL float, the same
 // trap that hid ENEMYINFO's level column. The refusal was good discipline applied to a
 // bad read: it declined to name the table on evidence that was itself broken.
+//
+// ## The game has TWO kinds of boss, and they are two data paths [C-COR]
+//
+// Identified by someone who has played it, then confirmed in the data:
+//
+//   1. "FULL-ROOM" bosses — they fill most of the arena and are gated behind a
+//      medallion. These are the 8 EEX records, and they carry RAW stats.
+//   2. ARENA fights against STORY CHARACTERS who try to stop you climbing —
+//      Kishgal, Epona, Toal, Galleon, Shion, Hugo. **These are ORDINARY ENEMYINFO
+//      enemies**, reached by the same fold(cast_id-14) as any monster.
+//
+// CASTINFO's high range is the cast list, not a monster list:
+//
+//   166 CAST_M800 "Yunica"  class 4 -> enemy 70     172 CAST_M860 "Kishgal" -> 76
+//   167 CAST_M810 "Hugo"    class 4 -> enemy 71     173 CAST_M870 "Zava"    -> 77
+//   168 CAST_M820 "Toal"    class 4 -> enemy 72     174 CAST_M880 "Dalles"  -> 78
+//   169 CAST_M830 "Galleon" class 4 -> enemy 73     176 CAST_M900 "Eye of Fact" class 2
+//   170 CAST_M840 "Shion"   class 4 -> enemy 74
+//   171 CAST_M850 "Epona"   class 4 -> enemy 75
+//
+// So class 4 vs class 16 is the boss/monster discriminator — NOT a different index.
+//
+// ## The LEVEL OVERRIDE is what makes rematches work [C-COR]
+//
+// Story characters are fought several times during the climb. One ENEMYINFO record
+// serves every rematch, with the spawn op supplying a level override (FUN_004202e0
+// takes "the spawn op's level_override if nonzero"). Evaluating each record at its
+// PUBLISHED level rather than its own reproduces the published STR exactly:
+//
+//   Toal    (e72, own lv1)  lv19 -> 119 ✔   lv48 -> 247 ✔   <- ONE record, TWO fights
+//   Galleon (e73)           lv5  -> 58  ✔
+//   Shion   (e74)           lv19 -> 121 ✔
+//   Epona   (e75, own lv48) lv5  -> 58  ✔   lv12 -> 89  ✔
+//   Kishgal (e76, own lv1)  lv19 -> 121 ✔   lv48 -> 251 ✔
+//
+// ** ZAVA AND DALLES ARE IN BOTH TABLES, and their boss fight reads EEX. ** Their
+// ENEMYINFO records give STR 242 / 269 at the published levels; EEX gives 232 / 255 —
+// the published values exactly. That is the two-kinds-of-boss split showing up as two
+// data paths, and it is the sharpest available probe for finding the fork.
 //
 // ## [UNKNOWN] — and it is the whole reason this header exposes no lookup
 //
