@@ -53,7 +53,27 @@
 // "DEF +5" in its description and has +0x24 == 0. ** So accessory DEF does NOT come
 // from this column — which fits the disassembly exactly: `IMUL ..., 0xb8` (the record
 // stride multiply that indexes this table) occurs ONLY in the armour and shoe/shield
-// branches. Where an accessory's DEF comes from is [UNKNOWN].
+// branches.
+//
+// ** That [UNKNOWN] is now CLOSED (build/equip_re/EQUIP.md [C-DIS]): accessory stat
+// bonuses are HARDCODED constants in the aggregator FUN_004208f0, not data. ** Exactly
+// two accessories change stats — Goddess Ring (id 0x3b) = +5 ATK / +5 DEF, Cleria Ring
+// (id 0x3c) = +3 ATK / −3 DEF — both confirmed by their description strings. Every other
+// accessory only sets ability-FLAG bits (gameplay meaning [UNKNOWN]).
+//
+// ## The full player stat aggregation [C-DIS] (FUN_004208f0), for when equipment is wired
+//
+//   final ATK = base level curve + GAMEINFO.weapon[char][tier]   (INVINFO NEVER feeds ATK)
+//                                 + Goddess(+5) / Cleria(+3)
+//   final DEF = base level curve + INVINFO[armor]+0x24 + INVINFO[footwear]+0x24
+//                                 + Goddess(+5) / Cleria(−3)
+//   final MaxHP = the level curve ALONE (lerp(60,400,t), cap 999) — equipment adds NOTHING
+//                 to HP or SP (the equip-HP multiply is a hardcoded ×1.0).
+//
+// Equipped-item ids live in the save/flags block: weapon DAT_0076bb78, armor 0x76bb7c,
+// footwear/shield 0x76bb80, accessories @inventory+0x44; the per-character weapon TIER is
+// a runtime mirror at 0x76a634+char*8 (0..10). Not wired here — cleria-view has no
+// inventory/save model yet — but the formula and slots are recorded so it can be.
 //
 // The engine reads it as an i32 via CVTDQ2PS, from the INVINFO base at 0x76f1c0
 // (proven three ways: the g_scn_data.cpp loader does PUSH 0x76f1c0; +0x34 -> icon stem
