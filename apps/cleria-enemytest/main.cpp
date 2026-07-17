@@ -151,13 +151,14 @@ int main(int argc, char** argv) {
     // dead entry no room places. A cast that IS placed but has no sprite would be a
     // real bug, and this is what would catch it.
     int marker = 0, dead = 0, unexplained = 0;
-    for (const std::string& n : misses) {
-        const Cast* c = ct.find(n);
+    for (const std::string& miss_name : misses) {
+        const Cast* c = ct.find(miss_name);
         if (c && c->is_spawn_marker()) {
             ++marker;
-        } else if (placed.count(n)) {
+        } else if (placed.count(miss_name)) {
             ++unexplained;
-            std::printf("    UNEXPLAINED: %s is placed but has no sprite\n", n.c_str());
+            std::printf("    UNEXPLAINED: %s is placed but has no sprite\n",
+                        miss_name.c_str());
         } else {
             ++dead;
         }
@@ -337,7 +338,7 @@ int main(int argc, char** argv) {
             }
             // The journal is in ENCOUNTER order, not index order -- match by value.
             int exact = 0, exp_ok = 0, name_ok = 0;
-            std::vector<std::string> misses;
+            std::vector<std::string> jmisses;
             for (const JRow& r : rows) {
                 bool hit = false;
                 for (std::size_t i = 0; i < et.enemies.size(); ++i) {
@@ -367,7 +368,7 @@ int main(int argc, char** argv) {
                         }
                     break;
                 }
-                if (hit) ++exact; else misses.push_back(r.name);
+                if (hit) ++exact; else jmisses.push_back(r.name);
             }
             check(exp_ok >= 67, "monster journal: EXP == floor(K(+0xDC) * curve4)",
                   std::to_string(exp_ok) + "/" + std::to_string(rows.size()));
@@ -383,7 +384,7 @@ int main(int argc, char** argv) {
             // HP/LV/STR and we do not bend to the typo.
             check(exact >= 67, "monster journal: our stats == the game's published table",
                   std::to_string(exact) + "/" + std::to_string(rows.size()) +
-                      (misses.empty() ? "" : "  (known: " + misses[0] + ")"));
+                      (jmisses.empty() ? "" : "  (known: " + jmisses[0] + ")"));
         }
     }
 
