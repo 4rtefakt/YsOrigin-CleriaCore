@@ -49,10 +49,10 @@ Sen Sen::parse(std::span<const std::uint8_t> b) {
                     t.position.y + std::max(a.y, c.y),
                     t.position.z + std::max(a.z, c.z)};
         t.dest_scene = scene_leaf(cstr(r + 0x128, 0x60));
-        // The arrival position in the destination room (+0x22c). See sen.hpp: this
-        // replaces the old +0x23c "angle" read, which was a mislabel — +0x23c is 0/NaN
-        // across the corpus and carried no facing.
+        // The arrival position in the destination room (+0x22c), and the arrival facing
+        // in degrees at +0x238 (NOT +0x23c -- that is the volume yaw). See sen.hpp.
         t.arrival_pos = vec3(r + 0x22C);
+        std::memcpy(&t.arrival_facing_deg, b.data() + r + 0x238, 4);
         if (!t.dest_scene.empty()) s.triggers.push_back(std::move(t));
     }
     return s;

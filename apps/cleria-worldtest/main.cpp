@@ -473,8 +473,34 @@ int main(int argc, char** argv) {
                 check(a.x == 0 && a.y == 0 && a.z == 0 && to1004->has_arrival(),
                       "a zero (origin) arrival still overrides spawn (label-gated)",
                       to1004->name);
+                // Arrival facing (+0x238): parsed in degrees; both S_1001 exits store 180.
+                check(to1004->arrival_facing_deg == 180 && to1004->has_facing(),
+                      "arrival facing is parsed and non-zero (S_1004 exit = 180 deg)",
+                      std::to_string(to1004->arrival_facing_deg));
             }
         }
+    }
+
+    // The SEN facing degree maps to our Actor.yaw (vx=sin, vz=cos, 0 -> +Z) DIRECTLY,
+    // no flip -- the engine's deg2rad(90-deg) (build/warp_re/FACING.md) is measured from
+    // its own 0 -> +X heading basis, and our yaw basis is 90 off, so the flip cancels.
+    // Verified against geometry: this forward points INTO the destination room across 219
+    // shipped door pairs (mean alignment 0.81; the un-cancelled axis scores -0.03 and
+    // aims at the arrival wall). Lock the cardinals so a future axis flip is caught.
+    {
+        auto head = [](int deg) {
+            const float y = float(deg) * 3.14159265358979323846f / 180.0f;
+            return std::pair<float, float>(std::sin(y), std::cos(y));  // (vx, vz)
+        };
+        auto near = [](float a, float b) { return std::fabs(a - b) < 1e-4f; };
+        const auto n = head(0), e = head(90), s = head(180), w = head(270);
+        check(near(n.first, 0) && near(n.second, 1), "facing 0 deg -> +Z (into-room north)");
+        check(near(e.first, 1) && near(e.second, 0), "facing 90 deg -> +X (east)");
+        check(near(s.first, 0) && near(s.second, -1), "facing 180 deg -> -Z (south)");
+        check(near(w.first, -1) && near(w.second, 0), "facing 270 deg -> -X (west)");
+        SenTrigger unset;  // default: no facing
+        check(unset.arrival_facing_deg == 0 && !unset.has_facing(),
+              "a 0-degree (unset) facing does not override heading");
     }
 
     // --- the enemy CHASE mover (build/mover2d_re/MOVER2D.md, speed verified) -------

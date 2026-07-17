@@ -1110,6 +1110,19 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     wgpuBufferRelease(vb); wgpuBufferRelease(ib);
 }
 
+// A world heading (hx,hz) -> the 8-direction sprite index, screen-relative to the camera
+// yaw. One calibration shared by live movement and by SEN arrival facing: the C_10x ring
+// runs dir0=screen-right, +45 deg CCW per step (screen-up = dir2 back, down = dir6 front,
+// left = dir4). Screen basis: fwd = (cos yaw, sin yaw) is screen-up, right = cross(up,fwd)
+// = (sin yaw, -cos yaw). h need not be normalized (atan2 is scale-invariant).
+static int heading_to_facing(float hx, float hz, float cam_yaw) {
+    const float fx = std::cos(cam_yaw), fz = std::sin(cam_yaw);
+    const float sUp = hx * fx + hz * fz;      // component along screen-up
+    const float sRt = hx * fz - hz * fx;      // component along screen-right
+    const float deg = std::atan2(sUp, sRt) * 57.29578f;
+    return int(std::lround((deg + 360.0f) / 45.0f)) & 7;
+}
+
 // ---- headless shot ----------------------------------------------------------
 struct MapReq { bool done = false; };
 static void on_map(WGPUMapAsyncStatus, WGPUStringView, void* u1, void*) {
@@ -2356,7 +2369,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     spawn_enemies();
 
     float cooldown = 1.5f;
-    auto transition = [&](const std::string& dest, Vec3 arrival = {}, bool apply_arrival = false) {
+    auto transition = [&](const std::string& dest, const SenTrigger* via = nullptr) {
         auto it = g.sob_index.find(dest);
         if (it == g.sob_index.end()) { std::printf("  (no SOB for %s)\n", dest.c_str()); return; }
         std::printf(">> entering %s\n", dest.c_str());
@@ -2369,15 +2382,38 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             spawn_player();
             // The exit's arrival position (SEN +0x22c) overrides the destination's SCT
             // default, as the engine does (FUN_00434020): applied whenever the exit's
-            // label is set (apply_arrival), even when the position is the origin -- (0,0,0)
+            // label is set (has_arrival), even when the position is the origin -- (0,0,0)
             // is a real door-side spawn in these rooms, not "unset". Snap to floor like
             // spawn_player; arrival.y is only a fallback if there's no floor there.
-            if (apply_arrival) {
-                const float fl = floor_at(phys_mesh(room), arrival.x, arrival.z,
+            if (via && via->has_arrival()) {
+                const Vec3 a = via->arrival_pos;
+                const float fl = floor_at(phys_mesh(room), a.x, a.z,
                                           room.mesh.bmax.y + room_diag(room));
-                feet = {arrival.x, (fl > kNoFloor ? fl : arrival.y), arrival.z};
+                feet = {a.x, (fl > kNoFloor ? fl : a.y), a.z};
                 vy = 0; grounded = false;
                 std::printf("  arrival @ (%.1f,%.1f,%.1f) [SEN]\n", feet.x, feet.y, feet.z);
+            }
+            // Place the camera for the new room NOW: the real warp is hidden by a fade so
+            // it cuts rather than swooping, and it gives the correct screen basis for the
+            // arrival facing below.
+            update_camera(room, feet, 0.0f, /*snap=*/true);
+            if (g_cam.on) apply_cam_state(cam, feet);
+            // Arrival facing (SEN +0x238, degrees) -> world heading -> screen sprite dir.
+            // The world forward is (sin deg, cos deg), i.e. our yaw = deg directly, NO flip.
+            // Provenance: build/warp_re/FACING{,_APPLY}.md trace the field to actor+0x314
+            // via FUN_00443a80 = deg2rad(90-deg), consumed screen-relatively. That 90 is
+            // the engine's own heading basis (0 -> +X); OUR Actor.yaw is 0 -> +Z (vx=sin,
+            // vz=cos, world.cpp), a 90 offset, so the flip cancels and the degree maps to
+            // our yaw as-is. Confirmed against geometry, not just the decode: across 219
+            // shipped door pairs this forward points INTO the destination room (mean
+            // alignment 0.81), where the un-cancelled (cos deg, sin deg) scores -0.03 and
+            // aims at the wall you arrived through. heading_to_facing then maps it exactly
+            // as walking that way would, so the warped-in player faces the right way.
+            if (via && via->has_facing()) {
+                const float yaw = float(via->arrival_facing_deg) * 3.14159265358979323846f / 180.0f;
+                face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
+                facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                std::printf("  arrival facing %d deg -> dir %d\n", via->arrival_facing_deg, facing);
             }
         }
         spawn_enemies();
@@ -2535,10 +2571,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 else if (k == SDLK_E && !fly) try_interact();
                 else if (k >= SDLK_1 && k <= SDLK_9) {
                     std::size_t idx = std::size_t(k - SDLK_1);
-                    if (idx < room.sen.triggers.size()) {
-                        const SenTrigger& t = room.sen.triggers[idx];
-                        transition(t.dest_scene, t.arrival_pos, t.has_arrival());
-                    }
+                    if (idx < room.sen.triggers.size())
+                        transition(room.sen.triggers[idx].dest_scene, &room.sen.triggers[idx]);
                 }
             } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
                 if (fly) looking = true; else try_attack();   // play mode: LMB = attack
@@ -2769,17 +2803,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (grounded && ks[SDL_SCANCODE_SPACE]) { vy = kJumpV0; grounded = false; }
             if (feet.y < room.mesh.bmin.y - D) spawn_player();
 
-            // Facing: map the screen-relative heading to one of the 8 sprite dirs.
-            // (dir7 faces the camera; ring runs dir0=SW,1=W,2=NW,3=N,4=NE,5=E,6=SE,7=S.)
-            if (moving) {
-                const float sUp = (wish.x * fwd.x + wish.z * fwd.z) / wl;
-                const float sRt = (wish.x * rt.x + wish.z * rt.z) / wl;
-                const float deg = std::atan2(sUp, sRt) * 57.29578f;
-                // Screen heading -> sprite facing, calibrated from playtest against
-                // the C_10x ring (dir0=E, dir1=NE, dir2=N/back, ... 45 deg CCW per step):
-                // up->dir2(back), right->dir0, down->dir6(front), left->dir4.
-                facing = int(std::lround((deg + 360.0f) / 45.0f)) & 7;
-            }
+            // Facing: map the world movement heading to one of the 8 sprite dirs
+            // (screen-relative -- see heading_to_facing). SEN arrival facing uses the
+            // same helper, so a warped-in player faces the same way it would if it had
+            // walked in that direction.
+            if (moving) facing = heading_to_facing(wish.x, wish.z, cam.yaw);
             // Animation comes from the game's OWN script now. We only choose the
             // ACTION (a section id) and feed the VM what it polls; the script decides
             // the sprite file, the tag, the frame and how long to hold it. That last
@@ -2826,9 +2854,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (cooldown <= 0) {
             const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kCharH * 0.5f, feet.z};
             for (const SenTrigger& t : room.sen.triggers)
-                if (t.contains(probe)) {
-                    transition(t.dest_scene, t.arrival_pos, t.has_arrival()); break;
-                }
+                if (t.contains(probe)) { transition(t.dest_scene, &t); break; }
         }
         }  // ---- end fixed-step logic ----------------------------------------
         // UV scroll — the water. `phase += velocity` ONCE PER TICK, unscaled: the

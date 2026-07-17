@@ -36,11 +36,16 @@ struct SenTrigger {
     Vec3 arrival_pos{};
     bool has_arrival() const { return !name.empty(); }
 
-    // ** Arrival FACING is NOT wired: it does not verify. ** WARP.md claimed clean
-    // degrees at +0x238, but +0x238 is 0 in all 367 records (and +0x23c, which this
-    // parser once mislabelled as the facing, is 0/NaN). So shipped SEN carries no
-    // usable arrival facing; the player keeps its current/default heading. Left out
-    // rather than storing a field that is always 0.
+    // Arrival FACING (+0x238), in DEGREES. The earlier "always 0" note was wrong: the
+    // corpus scan is 0×113, 90×41, 180×144, 270×47, 45/135/167/225/315 in the tail --
+    // 254/367 records carry a real facing (matches WARP.md §1). ** 0 means UNSET **
+    // (keep the default heading), as do the sentinels -1 and 360; has_facing() gates on
+    // that. The engine converts via FUN_00443a80 = deg2rad(normalize360(90 - deg)) and
+    // writes the radian to the arriving player; the view maps it to a sprite direction.
+    int arrival_facing_deg = 0;
+    bool has_facing() const {
+        return arrival_facing_deg != 0 && arrival_facing_deg != -1 && arrival_facing_deg != 360;
+    }
 
     bool contains(const Vec3& p) const {
         return p.x >= box_lo.x && p.x <= box_hi.x &&
