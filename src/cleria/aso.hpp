@@ -103,21 +103,32 @@ class AsoVm {
     // 0x10b<->0x13b/0x13c. Sections 0x10c..0x111 carry no flag-149 test — those moves
     // are weapon-independent.
     //
-    // ** flag 149 == 1 IS NORMAL GAMEPLAY. ** Identified by showing both renders to
-    // someone who has played the game: the flag-149 ALTERNATES (0x12c..) are "Yunica as
-    // she looks walking around in the game", and the DEFAULT set (0x0.., a long red
-    // blade) is a real but unplaced state — confirmed Yunica, confirmed not her Boost
-    // form, usage unrecalled.
+    // ** flag 149 selects Yunica's DISPLAYED WEAPON: 1 = her axe, 0 = the Crimson
+    // Lotusblade. ** [H-high]
     //
-    // So the polarity is settled and the sense is inverted from what a cold read
-    // suggests: DAT_0076bb70's *initial* value is 0, which selects the RED set, so
-    // gameplay must write 1. **A global's initial value is not its normal value**, and
+    // The red blade is the **Crimson Lotusblade**, obtained on Floor 11. Per the game's
+    // own documentation: *"The Lotusblade is used when her fire skill is selected,
+    // otherwise her axe."* Her fire skill is Phoenix Flame. So flag 149 is the
+    // axe-vs-Lotusblade display switch, and every piece fits:
+    //
+    //   - flag 149 == 1 -> the 0x12c.. set (axe) = "Yunica as she looks walking around
+    //     in the game", confirmed by someone who has played it.
+    //   - flag 149 == 0 -> the 0x0.. set (Lotusblade), shown only with the fire skill
+    //     selected — and only obtainable from Floor 11 onward.
+    //   - FUN_0046af60 toggles it and forces +0x994 = 2 (idle), restarting the
+    //     animation: exactly what swapping the weapon in hand requires.
+    //
+    // ** The polarity is inverted from what a cold read suggests, and that is the
+    // lesson.** DAT_0076bb70's INITIAL value is 0 = the Lotusblade — a weapon the
+    // player cannot have for the first ten floors. So gameplay must write 1, and
     // reading "default 0" as "the default state" is what made this look backwards.
+    // **A global's initial value is not its normal value** — the same trap as the RNG
+    // seeds sitting in .data as decoys for what timeGetTime() overwrites at startup.
     //
-    // [UNKNOWN] what the red-blade state IS. An animation switch that restarts the
-    // state (FUN_0046af60 forces +0x994 = 2, idle) is the shape of a transformation, a
-    // weapon change or a story beat — the data cannot say which, and this file has
-    // already retracted two plausible labels. It stays unnamed.
+    // [H-high] rather than [C-DIS]: the write of 1 has not been watched, and "fire
+    // skill selected" is the documented behaviour rather than a disassembled predicate.
+    // Two earlier labels for this state ("Boost", "weapon tier") were retracted; this
+    // one at least explains the polarity, the restart, and the Floor-11 gate together.
     //
     // ## Two of MY claims died here, and the second lesson is the useful one
     //

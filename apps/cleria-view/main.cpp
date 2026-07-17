@@ -2272,14 +2272,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // alone goes negative at level 1. `bonus` is per-attack-move power, which
             // we don't have a table for, so it stays 0 rather than being invented.
             AttackStats a;
-            // [UNKNOWN] the row mapping. g_flags[150] is 1=Yunica/2=Hugo/3=Toal, and
-            // the weapon table is indexed 0..3 by DAT_0076bb74 — that those are the
-            // same ordering minus one is an ASSUMPTION, not something read out of the
-            // exe. It only shifts ATK by a couple of points between rows, which is
-            // exactly why it would never show up as a bug.
-            // Level and weapon tier are 1 and 0: we have no save-file model, so this
-            // is a fresh-game player rather than a claim about the player's state.
-            a.atk = ginfo.player_atk(character - 1, /*weapon tier*/ 0, /*level*/ 1);
+            // The row mapping is IDENTITY, and `character - 1` was wrong. g_flags[150]
+            // is 1=Yunica/2=Hugo/3=Toal and GAMEINFO's weapon rows are 0=Adol,
+            // 1=Yunica, 2=Hugo, 3=Toal — settled by matching each row against the
+            // published per-level STR values, which land in exactly one row each at the
+            // identical indices [1,2,4,6,8,10] while row 0 matches none of the three.
+            //
+            // I had marked this an assumption and shipped it anyway. It shifts ATK by
+            // ~1-2 points between adjacent rows — invisible in play, wrong in every
+            // frame. That is precisely why it needed an external check rather than a
+            // plausibility check.
+            //
+            // Level and tier stay 1 and 0: we have no save-file model, so this is a
+            // fresh-game player rather than a claim about the player's state.
+            a.atk = ginfo.player_atk(character, /*weapon tier*/ 0, /*level*/ 1);
             const int dmg = damage_int(a, e.def, [&](float pct) {
                 // The engine's roll: P(round up) == pct/100, from an inlined xorshift.
                 // Its own seed is timeGetTime(), so there is no canonical stream to

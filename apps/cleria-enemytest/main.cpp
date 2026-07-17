@@ -232,9 +232,32 @@ int main(int argc, char** argv) {
         check(mono == kChars, "weapon ATK rises with tier, all 4 chars",
               std::to_string(mono) + "/4");
 
+        // The weapon rows are 0=Adol (arcade-only), 1=Yunica, 2=Hugo, 3=Toal. Pinned
+        // against the game's published per-level STR: each character's values land in
+        // exactly one row, at the identical indices [1,2,4,6,8,10], and row 0 matches
+        // none of the three -- which is what identifies row 0 as the fourth character.
+        // This is the check that caught cleria-view indexing with `character - 1`.
+        struct Row { int row; const char* who; int lv2, lv3, lv7; };
+        const Row kRows[] = {{1, "Yunica", 28, 35, 91},
+                             {2, "Hugo", 29, 36, 92},
+                             {3, "Toal", 27, 34, 90}};
+        int rows_ok = 0;
+        for (const Row& r : kRows) {
+            const float* w = gi.weapon_atk[r.row];
+            if (int(w[1]) == r.lv2 && int(w[2]) == r.lv3 && int(w[10]) == r.lv7) ++rows_ok;
+        }
+        check(rows_ok == 3, "weapon rows 1/2/3 == Yunica/Hugo/Toal (published STR)",
+              std::to_string(rows_ok) + "/3");
+        // Row 0 must NOT match any of them -- that is what makes it Adol's.
+        bool row0_distinct = true;
+        for (const Row& r : kRows)
+            if (int(gi.weapon_atk[0][1]) == r.lv2) row0_distinct = false;
+        check(row0_distinct, "weapon row 0 matches no story character (= Adol)",
+              std::to_string(int(gi.weapon_atk[0][1])) + " vs 28/29/27");
+
         AttackStats a;
-        a.atk = gi.player_atk(0, 0, 1);  // char 0, starting weapon, level 1
-        check(a.atk == 48.0f, "L1 char0 ATK == curve 25 + weapon 23",
+        a.atk = gi.player_atk(0, 0, 1);  // Adol, starting weapon, level 1
+        check(a.atk == 48.0f, "L1 Adol ATK == curve 25 + weapon 23",
               std::to_string(a.atk));
 
         // With the bare curve (the old bug), damage is negative -- pin it, so the
