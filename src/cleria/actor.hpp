@@ -62,13 +62,31 @@ inline constexpr std::uint32_t kind_word(std::int32_t cast_class) {
     }
 }
 
-// ** kActorDead (actor+0x3bc bit 0x10) is owned by combat.hpp, with apply_damage() **
-// — do not redefine it here. This header did, briefly, and the only reason it built is
-// that no TU happened to include both; the first one to try would have hit a
-// redefinition. Death is a deferred FLAG, not a call, and combat.hpp carries why
-// (sub-1 HP is death, and the player's revive can XOR the bit back off). What CONSUMES
-// the flag, and where the actor is actually removed, is [UNKNOWN] — one of the
-// questions blocking the tick (docs/PLAN.md).
+// ## Death is TWO flags in two bytes, and only one of them drives removal [C-DIS]
+//
+// This was misunderstood, and the correction is load-bearing (build/actor_re/ACTOR.md
+// §4, and independently build/combat_re/damage.json — two RE passes agreeing):
+//
+//   +0x3bc bit 0x10  the "DIED event marker". Written by the damage code on a lethal
+//                    hit (and XOR-undone by the player's survival gate). ** Nothing
+//                    reads it. ** Both passes ran a full-program operand scan and found
+//                    no `TEST [x+0x3bc],0x10`; the deferral the project once pinned on
+//                    it is NOT carried here. Owned by combat.hpp as kActorDead — do not
+//                    redefine (this header did once, and only escaped a redefinition
+//                    error because no TU then included both).
+//
+//   +0x11 bit 0x2    "DESTROY-REQUESTED", kDestroyRequested below. ** This is what
+//                    actually removes the actor. ** Set by GoActor::Kill (FUN_004593c0)
+//                    AFTER the AI has played out the death state, then consumed by the
+//                    once-per-render-frame sweep (FUN_00428b10 -> the vtable dtor).
+//
+// The real lethal-hit chain: damage zeroes HP and enters MOTION STATE 5 (the dying
+// anim) in the damage code itself; the actor's AI runs state 5 over the next ticks,
+// awards EXP/drops, then calls Kill to set +0x11 bit 2; the frame-boundary sweep does
+// the order-preserving removal. So HP<1 does NOT remove an actor — a request does, a
+// frame later. (world.hpp models this; motion states are not RE'd yet, so our actor
+// requests destruction directly on death rather than through a state machine.)
+enum : std::uint8_t { kDestroyRequested = 0x2 };  // actor+0x11 bit 1
 
 // Spawn groups, from the XSO spawn op 0x12c (FUN_00570400, ENTITY.md).
 //
@@ -136,9 +154,19 @@ struct Actor {
     // combat.hpp — granting is a max(), never a store.
     std::uint32_t i_frames = 0;
 
-    // engine: +0x3bc. Test with kActorDead.
+    // engine: +0x3bc, the per-tick EVENT word. kActorDead (bit 0x10) is the "died
+    // marker" written on a lethal hit -- see the death note above: it is written but
+    // NOT read, so `dead()` is our own convenience, not a query the engine performs.
     std::uint32_t flags = 0;
     bool dead() const { return (flags & kActorDead) != 0; }
+
+    // engine: +0x11, the pooled-object header flags byte. kDestroyRequested (bit 0x2)
+    // is the flag the sweep actually consumes to remove an actor. Distinct byte from
+    // `flags` above on purpose -- the engine keeps the removal request (+0x11) and the
+    // death event (+0x3bc) in different bytes, and conflating them is the mistake the
+    // death note documents.
+    std::uint8_t header_flags = 0;
+    bool destroy_requested() const { return (header_flags & kDestroyRequested) != 0; }
 
     // --- placement and motion ---
     Vec3 pos{};

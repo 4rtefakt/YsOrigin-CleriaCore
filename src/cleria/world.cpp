@@ -86,4 +86,36 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
     return a;
 }
 
+// FUN_004281c0, one simulation step. Player first, then the live list in spawn order
+// skipping the player, count cached so mid-step spawns wait for the next step.
+void ActorWorld::step() {
+    if (player_) update_actor(*player_);
+    // Snapshot the count: a spawn during update_actor appends to the end (stable for a
+    // list iterator) but is not visited now, because we stop after n. Its first update
+    // is next step. update_actor never erases -- destruction is deferred to the sweep
+    // -- so the iterator stays valid across the loop.
+    std::size_t n = actors_.size();
+    auto it = actors_.begin();
+    for (std::size_t i = 0; i < n && it != actors_.end(); ++i, ++it) {
+        if (&*it == player_) continue;  // already updated
+        update_actor(*it);
+    }
+}
+
+// FUN_00428b10, the once-per-frame deferred sweep. Order-preserving removal of every
+// actor with kDestroyRequested; the player pointer is dropped if the player is swept.
+std::size_t ActorWorld::sweep_dead() {
+    std::size_t removed = 0;
+    for (auto it = actors_.begin(); it != actors_.end();) {
+        if (it->destroy_requested()) {
+            if (&*it == player_) player_ = nullptr;  // engine re-scans; we have one
+            it = actors_.erase(it);                  // deque erase preserves order
+            ++removed;
+        } else {
+            ++it;
+        }
+    }
+    return removed;
+}
+
 }  // namespace cleria

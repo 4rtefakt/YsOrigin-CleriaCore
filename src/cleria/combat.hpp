@@ -188,16 +188,23 @@ inline int apply_difficulty(int dmg, const DifficultyScale& s) {
     return int(float(dmg) * s.factor + 1.0f);
 }
 
-// Applying it. Two things here are easy to get subtly wrong, and both are load-bearing:
+// Applying it. Three things here are easy to get subtly wrong, all load-bearing:
 //
 //  1. The death test is `hp < 1.0f`, NOT `hp <= 0.0f`. Sub-1 HP is death.
-//  2. Death is a DEFERRED FLAG (`actor +0x3bc |= 0x10`), not a call. Nothing is
-//     destroyed here. That is precisely why our earlier pass could not link a
-//     `curHP <= 0` test to the vtable-dispatched destructor: there is no such test
-//     and no such call. Enemies additionally play animation state 5 in the same
-//     frame; for the player, a later pass can XOR the bit back OFF (auto-revive), so
-//     treating this flag as terminal at the point of damage would break revival.
-enum : std::uint32_t { kActorDead = 0x10 };  // actor +0x3bc
+//  2. `actor +0x3bc |= 0x10` is a "DIED event marker", and NOTHING READS IT. Two
+//     independent RE passes (build/combat_re/damage.json and build/actor_re/ACTOR.md)
+//     each ran a full-program operand scan and found no `TEST [x+0x3bc],0x10`. So this
+//     bit does NOT drive removal, and an earlier note here calling it "the deferred
+//     death flag" was wrong about mechanism (right that no destructor call happens).
+//  3. The REAL deferral: the damage code zeroes HP and enters MOTION STATE 5 (the
+//     dying anim) via FUN_00446550(actor+0x8f0, 5, 0); the AI plays state 5 out, then
+//     calls GoActor::Kill to set +0x11 bit 2 (kDestroyRequested), which the
+//     once-per-render-frame sweep consumes to actually remove the actor. For the
+//     player, a survival gate XORs bit 0x10 back OFF (auto-revive) — which is why this
+//     bit was never terminal even as a marker. See actor.hpp's death note and
+//     world.hpp's sweep. We still SET bit 0x10 here because the engine does; we just
+//     don't pretend it removes anything.
+enum : std::uint32_t { kActorDead = 0x10 };  // actor +0x3bc — the marker, not the trigger
 
 struct HitResult {
     int damage = 0;

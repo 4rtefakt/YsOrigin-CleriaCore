@@ -274,6 +274,53 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- the tick, the deferred sweep, order-preserving removal -------------------
+    // The lifecycle structure from build/actor_re/ACTOR.md: player-first update, cached
+    // count, destruction deferred to a frame-boundary sweep, order-preserving removal.
+    {
+        ActorWorld w(tables);
+        Actor* p = w.spawn({0, kIdPlayer, {}, 0, 0});
+        std::vector<int> spawn_order;
+        for (int i = 0; i < 5; ++i) {
+            Actor* a = w.spawn({0, monster_cast, {}, 0, 0});
+            if (a) spawn_order.push_back(a->instance_id);
+        }
+        check(w.size() == 6, "player + 5 enemies live", std::to_string(w.size()));
+
+        // A step must not remove anything -- destruction is deferred, not inline.
+        w.step();
+        check(w.size() == 6, "step() alone removes nothing (destruction is deferred)");
+
+        // Kill the middle enemy (index 2 of the 5). Requesting destroy does not remove.
+        int nth = 0, victim_id = -1;
+        for (Actor& a : w.actors()) {
+            if (a.is_enemy() && nth++ == 2) { w.request_destroy(a); victim_id = a.instance_id; }
+        }
+        check(w.size() == 6, "request_destroy does not remove immediately");
+        check(w.find(victim_id) != nullptr, "the doomed actor is still findable pre-sweep");
+
+        // The frame-boundary sweep removes exactly it, order-preserving.
+        const std::size_t removed = w.sweep_dead();
+        check(removed == 1 && w.size() == 5, "sweep removes exactly the requested one");
+        check(w.find(victim_id) == nullptr, "and it is gone after the sweep");
+
+        // Survivors keep spawn order (the removed id excised, the rest in sequence).
+        std::vector<int> survivors;
+        for (const Actor& a : w.actors())
+            if (a.is_enemy()) survivors.push_back(a.instance_id);
+        std::vector<int> expected;
+        for (int id : spawn_order) if (id != victim_id) expected.push_back(id);
+        check(survivors == expected, "order-preserving removal keeps spawn order");
+
+        // The player pointer survives an unrelated sweep (list keeps references stable).
+        check(w.player() == p, "player pointer stays valid across a middle erase");
+
+        // Sweeping the player drops the pointer (engine re-scans; we have one).
+        w.request_destroy(*p);
+        w.sweep_dead();
+        check(w.player() == nullptr, "sweeping the player nulls the player pointer");
+    }
+
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
     return fails ? 1 : 0;
 }

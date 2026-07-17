@@ -89,16 +89,32 @@ answer blocks.
    167..171, an exact match to ENTITY.md's static `xso_spawns.py` scan. First test that
    can catch the *combat* code being wrong, not just the tables.
 
-### Blocked on `build/actor_re/`
+### Was blocked on `build/actor_re/` — now RE'd (ACTOR.md), and mostly wired
 
-7. The tick driver and **update order** (stable, or allocation-dependent?).
-8. **Fixed-timestep vs delta-scaled** — and this is not a detail to assume. Both exist
-   in this engine already: the UV scroll is unscaled per 60Hz tick, the vertical model
-   runs off a signed timer, and neighbouring material fields *are* MULSS-scaled by a
-   delta. Decoupled framerate is a stated project goal, so this decision is load-bearing
-   and must be read, not chosen.
-9. What consumes the deferred death flag, and where the actor is actually removed.
-10. Room transition / actor-list teardown.
+The actor-lifecycle pass came back and was verified against two independent prior
+artifacts (`combat_re/damage.json` reproduced the death negative; `combat_re/
+ai_dispatch_table.txt` confirmed the 94-entry AI table). What that unblocked:
+
+7. **DONE — update order.** Player first, then the live list in spawn (index) order,
+   count cached so mid-step spawns wait a step, order-preserving removal. `ActorWorld::
+   step()`. It is a *correctness* invariant (hit processing runs inside the victim's
+   update), not a detail — so it is now defined, where before it was deliberately left
+   undefined.
+8. **DONE — fixed 60 Hz, NOT delta-scaled.** ACTOR.md settled it: the sim drains whole
+   1000/60-ms quanta; per-step dt is constant; the leftover fraction is
+   presentation-only interpolation. `kSimHz`/`kSimDt` in world.hpp. This is the fact the
+   decoupled-framerate goal hangs on: render decoupled, simulate fixed.
+9. **DONE (model) — death is TWO flags, and bit 0x10 is not the one.** `+0x3bc` bit 0x10
+   is a written-but-unread "died marker"; removal is driven by `+0x11` bit 2
+   (kDestroyRequested), set after the AI's death state, consumed by a **frame-boundary**
+   sweep (`sweep_dead()`). combat.hpp/actor.hpp corrected; the old "deferred death flag"
+   framing is retired. The per-actor AI body (incl. the death state machine and motion
+   state 5) is still [UNKNOWN] — `update_actor()` is an explicit no-op seam.
+10. **PARTIAL — room transition.** ACTOR.md traced request → fade → commit (`0x74c120
+    |= 3`) → frame-start teardown (`FUN_00428ec0` destroy-all) as [C-DIS], but the
+    room *load* driver (`FUN_004358b0`/`FUN_00442260`) is [H-medium], not traced
+    end-to-end. Not wired — the next RE target, and the last gap before a room can
+    actually change at runtime.
 
 ## The standing risk on this milestone
 

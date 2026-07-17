@@ -22,7 +22,7 @@
 //        later is [UNKNOWN].
 #pragma once
 #include <cstdint>
-#include <deque>
+#include <list>
 
 #include "cleria/actor.hpp"
 #include "cleria/mathx.hpp"
@@ -41,6 +41,12 @@ inline constexpr int kIdPlayerAlias = 999;
 // The auto-id allocator scans upward from here — just past the 186 CASTINFO records,
 // so an auto-id can never collide with a default (which is a cast type). [C-DIS]
 inline constexpr int kAutoIdBase = 186;
+
+// The simulation runs at a fixed 60 Hz (ACTOR.md §3: the step length is exactly
+// 1000/60 ms, drained by a catch-up loop; per-step dt is constant, actor motion is
+// not delta-scaled). physics_player.hpp's kTimerStep (~1/60) is the same clock.
+inline constexpr int kSimHz = 60;
+inline constexpr float kSimDt = 1.0f / float(kSimHz);
 
 // Everything the spawn op (0x12c) carries. Named so the operand order stops being
 // load-bearing at call sites.
@@ -103,27 +109,70 @@ class ActorWorld : public XsoHost {
     // and whether they ever diverge, is [UNKNOWN], so we keep one and say so.
     Actor* player() { return player_; }
 
-    std::deque<Actor>& actors() { return actors_; }
-    const std::deque<Actor>& actors() const { return actors_; }
-
-    // ** ITERATION ORDER IS UNDEFINED AND MUST STAY THAT WAY FOR NOW. ** The engine's
-    // update order has not been read (it is the open question blocking the tick — see
-    // docs/PLAN.md). Insertion order is what this happens to give; do not depend on
-    // it, and do not let a caller's behaviour start relying on it, because a stable
-    // order we invented would look right and be untestable against the game.
+    std::list<Actor>& actors() { return actors_; }
+    const std::list<Actor>& actors() const { return actors_; }
     std::size_t size() const { return actors_.size(); }
+
+    // ## The tick (build/actor_re/ACTOR.md §2, §3) [C-DIS]
+    //
+    // ** Iteration order IS defined, and it is a correctness requirement, not a
+    // detail. ** The earlier "order is undefined" note is retired: the engine updates
+    // the PLAYER FIRST, then walks the live list in index (= spawn) order, skipping the
+    // player. Removal is an order-preserving shift, so survivors keep their relative
+    // order across deaths. Hit processing runs inside the victim's own update, so this
+    // order is observable through gameplay — ACTOR.md §8 lists (player-first) +
+    // (spawn-order) + (order-preserving removal) as correctness invariants.
+    //
+    // ** The COUNT is cached before the loop. ** An actor spawned mid-step (a script op
+    // running inside another actor's update) is appended but NOT visited this step; its
+    // first update is next step. Reproduced here by snapshotting the size.
+    //
+    // ** Per-actor AI is [UNKNOWN] and deliberately a no-op hook. ** The engine
+    // dispatches through the 94-entry AI table (0x69b8c0) by actor+0x120; we have not
+    // RE'd what a handler does, so `update_actor` does nothing but is the honest seam.
+    // The loop STRUCTURE is validated; the loop BODY is an owned placeholder.
+    //
+    // Fixed 60 Hz: the sim dt is a constant 1/60 s (kSimHz). Actor motion is NOT
+    // delta-scaled — the render/interpolation fraction is a separate, presentation-only
+    // concern. Any variable-dt tick here would diverge from the engine.
+    void step();
+
+    // Request removal. The engine sets +0x11 bit 2 (GoActor::Kill, FUN_004593c0) after
+    // the AI has played the death state; nothing is removed at that instant. We have no
+    // death-anim state machine yet, so a killed actor requests destruction directly.
+    void request_destroy(Actor& a) { a.header_flags |= kDestroyRequested; }
+
+    // ** The deferred sweep — FUN_00428b10, ONCE PER RENDER FRAME, not per step. ** With
+    // N catch-up steps in one frame, an actor killed in step 1 is still updated in
+    // 2..N; only the frame-boundary sweep removes it. So this is called at FRAME
+    // granularity by the caller, never inside step(). Removal is order-preserving, and
+    // if the player actor is swept the player pointer is dropped (the engine re-scans
+    // for another cast-13 actor; we have exactly one, so null is correct).
+    std::size_t sweep_dead();
+
+    // The engine's pool is a fixed 128 slots (overflow fails silently, does not throw).
+    // We do NOT impose the cap: ACTOR.md §8 names the append/order/deferred-sweep
+    // invariants as what matters, not the 128 ceiling. Exposed so a caller can warn.
+    static constexpr std::size_t kEnginePoolCap = 128;
 
   private:
     WorldTables tables_;
-    // ** A deque, not a vector, and that is load-bearing. ** spawn()/find()/player()
-    // all hand out Actor*, and the engine's own idiom is a POOL of stable slots
-    // (FUN_00434f30) with three globals pointing at the player. A vector would
-    // reallocate on growth and dangle every one of those pointers — including
-    // player_, which survives from CAST_ADOL's spawn to the end of the room. A deque
-    // keeps references stable across push_back, which is the property we need.
-    std::deque<Actor> actors_;
+    // ** A list, and that is load-bearing — a deque would dangle pointers. **
+    // spawn()/find()/player() all hand out Actor*, and player_ lives from CAST_ADOL's
+    // spawn to end of room. The engine's own storage is a slab of STABLE slots with a
+    // separate pointer array for order (DAT_00730098), so a slot never moves once
+    // spawned. std::list reproduces exactly that: append keeps order, and
+    // order-preserving MIDDLE erase (what the sweep does) leaves every other node's
+    // address untouched. std::deque was the first choice and is WRONG here — its
+    // middle-erase invalidates all references, which is precisely the sweep's case.
+    std::list<Actor> actors_;
     Actor* player_ = nullptr;
     bool id_in_use(int id) const;
+
+    // The per-actor AI update. [UNKNOWN] and a deliberate no-op: the engine dispatches
+    // through the 94-entry AI table by actor+0x120, unread. The tick STRUCTURE around
+    // it is validated; this body is the honest empty seam, not invented behaviour.
+    void update_actor(Actor&) {}
 };
 
 }  // namespace cleria
