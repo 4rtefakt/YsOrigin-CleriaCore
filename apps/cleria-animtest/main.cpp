@@ -37,7 +37,16 @@ struct Box {
     bool valid() const { return mn.x <= mx.x; }
 };
 
-// The union of a clip's skinned vertex bounds over its whole frame range.
+// The union of a clip's posed vertex bounds over its whole frame range.
+//
+// **Both kinds of mesh count.** A skinned model is not necessarily skinned all the
+// way through: 8 of the 64 skinned files also carry RIGIDLY-BOUND meshes, which are
+// ordinary single-stream geometry parented to a node and posed by that node's world
+// matrix alone (`v' = v * world[node]`) — a weapon, an aura shell, a collision cage.
+// The stored clip AABB bounds EVERYTHING, so skinning only the two-stream mesh and
+// ignoring the rest under-reports the box for exactly those files. That mistake is
+// what made BOSS01_ look like a 11.4-unit outlier for so long; it is 30 rigid meshes
+// wrapped around 1 skinned one, and we were measuring the 1.
 static Box clip_box(Model& mo, const AnimClip& cl) {
     Box b;
     // Map vertex -> submesh once per mesh: the BoneId palette is per submesh.
@@ -55,13 +64,22 @@ static Box clip_box(Model& mo, const AnimClip& cl) {
     }
     for (std::uint32_t f = cl.frame_start; f <= cl.frame_end; ++f) {
         mo.pose(cl, float(f));
-        for (std::size_t mi = 0; mi < mo.meshes.size(); ++mi) {
-            const Mesh& me = mo.meshes[mi];
-            if (!me.skinned()) continue;
-            const VertexBuffer& pvb = me.vbs[1];
-            for (std::uint32_t k = 0; k < pvb.count; ++k) {
-                Vec3 out;
-                if (mo.skin_point(me, vsub[mi][k], k, pvb.position(k), false, out)) b.add(out);
+        // Walk NODES, not meshes: a rigid mesh has no bones of its own and is posed
+        // solely by the node it hangs off, so it only exists via the hierarchy.
+        for (const Node& nd : mo.nodes) {
+            if (nd.mesh_index < 0 || std::size_t(nd.mesh_index) >= mo.meshes.size()) continue;
+            const Mesh& me = mo.meshes[std::size_t(nd.mesh_index)];
+            const std::size_t mi = std::size_t(nd.mesh_index);
+            if (me.skinned()) {
+                const VertexBuffer& pvb = me.vbs[1];
+                for (std::uint32_t k = 0; k < pvb.count; ++k) {
+                    Vec3 out;
+                    if (mo.skin_point(me, vsub[mi][k], k, pvb.position(k), false, out)) b.add(out);
+                }
+            } else if (!me.vbs.empty()) {
+                const VertexBuffer& pvb = me.vbs[0];
+                for (std::uint32_t k = 0; k < pvb.count; ++k)
+                    b.add(nd.world.transform_point(pvb.position(k)));
             }
         }
     }

@@ -339,9 +339,8 @@ Ignore TANGENT0/1/2 — **0 of 40 skinning shaders read them**.
 >
 > **Consequence — a real latent bug:** a renderer that walks `0x220` gets every
 > *skinned* model wrong. Rooms are unaffected only because `B ≡ I` there.
-> (Outliers, separate `[UNKNOWN]`: `BOSS01_`/`BOSS01_SHADOW_` Δ11.4, `BOSS06A/B`
-> Δ1.3–1.6, `PIC_TOGE` Δ0.93 — likely a second animation path, since 59/64 are
-> exact.)
+> (The 5 outliers that used to sit here were **our bug, not a second animation
+> path** — see below. All 64 files now reproduce.)
 
 Corpus proof: `v' = Σ wᵢ · (v · B[bᵢ] · World[bᵢ])` with `w₃ = 1 − w₀ − w₁ − w₂`
 reproduces the stored clip AABBs. Two independent implementations agree — a Python
@@ -349,14 +348,51 @@ pass (`build/ymo_re/corpus_validate.py`) and CleriaCore's own
 (`cleria-animtest assets`, which poses and skins through `Model::pose` /
 `Model::skin_point`):
 
-    skinned files: 64   clips checked: 303   reproduced (≤1e-3): 270
+    skinned files: 64   clips checked: 303   reproduced (≤1e-3): 303
+    worst delta: 4.8e-05  at BOSS03.YMO:RSWING
 
-The 33 misses are confined to **5 files**, the same 5 in both implementations and at
-the same magnitudes: `BOSS06A`/`BOSS06B` (15 clips each, Δ1.32–1.58), `BOSS01_` and
-`BOSS01_SHADOW_` (Δ11.4084 — Python: 11.408385147045454), `PIC_TOGE` (Δ0.93). Agreeing
-to five significant figures on the *outliers* is what makes them a property of those
-files rather than of either implementation. They likely use the `type != 0` track
-path, which is [UNKNOWN].
+### The 5 outliers were ours, and the lesson is worth more than the fix
+
+This document used to report 270/303 and blame the 33 misses on the files — "likely
+a second animation path", `type != 0`. **That was wrong on both counts, and the way
+it was wrong is instructive.**
+
+`type == 0` for **every track in all 5 files** (302/302, 302/302, 480/480, 435/435,
+10/10). The `type != 0` branch was never involved; it remains unreachable and
+unobserved. The real cause: **a skinned model is not skinned all the way through.**
+The stored clip AABB bounds *all* the geometry, and 8 of the 64 skinned files also
+carry **rigidly-bound** meshes — ordinary single-stream geometry parented to a node
+and posed by that node's world matrix alone (`v' = v · World[node]`, the node found
+by `name[4] == mesh.name`). Both validators filtered to the two-stream mesh and
+skinned only that, silently dropping the rest. Any file whose rigid geometry pokes
+outside the skinned hull under-reports its box.
+
+Folding the rigid path in closes all 5 and regresses nothing:
+
+| file | skin only | skin + rigid | skinned | rigid | rigid verts |
+|---|---|---|---|---|---|
+| `BOSS01_` | 11.40839 | **0.00003** | 1 | 30 | 2325 |
+| `BOSS01_SHADOW_` | 11.40839 | **0.00003** | 1 | 76 | 5743 |
+| `BOSS06A` | 1.34990 | **0.00000** | 1 | 2 | 914 |
+| `BOSS06B` | 1.58103 | **0.00000** | 1 | 1 | 1778 |
+| `PIC_TOGE` | 0.93315 | **0.00000** | 1 | 4 | 164 |
+
+The separation is clean: of 64 skinned files exactly **8** carry rigid meshes, and
+**all 5 failures are inside that 8**; all **56** files with zero rigid meshes always
+passed. (`BBOSS02`/`BOSS02`/`SBOSS02` carry 52 rigid verts each and passed anyway —
+their rigid bits sit *inside* the skinned hull. Carrying rigid meshes is necessary
+but not sufficient to fail.) `BOSS01_`'s Δ11.4 was never mysterious once seen from
+the right end: it is a `_.YMO` collision twin, **30 rigid meshes wrapped around 1
+skinned one** — and we were measuring the 1.
+
+**The lesson: two independent implementations agreeing is NOT proof.** The Python
+pass and CleriaCore's C++ agreed to five significant figures *on the outliers*, and
+this document argued from exactly that agreement that the anomaly had to be "a
+property of those files rather than of either implementation". But they shared the
+same omission, inherited from the same misunderstanding. Agreement only rules out
+*independent* error. Two implementations built from one wrong idea will agree
+precisely, confidently, and all the way to the decimal — which is what makes the
+argument from consensus so easy to trust and so worth distrusting.
 
 Note the tag vocabulary here (`[C-DIS]` disassembled, `[C-COR]` corpus-validated,
 `[H-*]` hypothesis, `[UNKNOWN]`) is `constant_map.txt`'s; the ✅ *n*/*n* marks
@@ -477,10 +513,13 @@ see `tools/ymo_fvf.py`.
    they are the palette size and the influence count — see [Skinning](#skinning).)*
 2. Which of the three node links the loader actually walks at runtime (all three
    are present and consistent; child+sibling alone is sufficient to rebuild).
-3. The 5 clip-AABB outliers (`BOSS01_`, `BOSS01_SHADOW_`, `BOSS06A/B`, `PIC_TOGE`) —
-   likely a second animation path rather than matrix semantics, since 59/64 skinned
-   files reproduce exactly. *(The "which matrix is the bone offset" question that sat
-   here is resolved: A = local, B = inverse-bind. See [Skinning](#skinning).)*
+3. The `type != 0` track payload. It is **unreachable in the shipped data** —
+   `type == 0` in every track of every file measured — so the 80-byte-per-entry
+   layout below is read off the loader alone and can never be corpus-checked.
+   *(Two questions that sat here are now resolved and gone: "which matrix is the
+   bone offset" — A = local, B = inverse-bind — and the 5 clip-AABB outliers, which
+   were our own missing rigid-mesh path, not a second animation path. Both are in
+   [Skinning](#skinning).)*
 4. `S_SHDW_1W`..`S_SHDW_4W` exist as `.VSO` files but are **absent from the exe's
    76-entry shader table**, so they are never assigned a declaration id there.
    Something else registers them; that mechanism is unfound. (This is also why the
