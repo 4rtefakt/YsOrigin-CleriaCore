@@ -72,6 +72,14 @@ struct XsoHost {
     // op 0x13f: is the entity with this id alive? The CONDITION is [C-DIS] —
     // `find(op0) != null && hp >= 1.0`. Absent id => false.
     virtual bool is_alive(int entity_id) const = 0;
+
+    // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
+    // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns
+    // every placement through the CASTINFO factory. We pre-load the host with the
+    // room's placements, so the operand (the SCT basename) is ignored here. This runs
+    // exactly once per room script, before any 0x12c. Default: no host placements set,
+    // so nothing spawns.
+    virtual void spawn_placements() {}
 };
 
 // Dynamic executor: runs control flow (jumps, accumulator conditionals) and the

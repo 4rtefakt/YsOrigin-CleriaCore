@@ -5,6 +5,7 @@
 #include "cleria/cast.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/gameinfo.hpp"
+#include "cleria/sct.hpp"
 
 namespace cleria {
 
@@ -84,6 +85,22 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
         a->tag.set(r.group);
     }
     return a;
+}
+
+// XSO op 0xa0 (FUN_004341a0): bulk-spawn the room's SCT placements. Each placement's
+// name resolves through CASTINFO to a cast_type, then the ordinary spawn path. The
+// engine area-filters on record+0x7c, but that field is 0 for all 1290 shipped records
+// (build/roomload_re/ROOMLOAD.md), so every placement spawns. Runs once per room, before
+// any 0x12c scripted spawns; spawn order is SCT-record order, which the tick preserves.
+void ActorWorld::spawn_placements() {
+    if (!placements_ || !tables_.casts) return;
+    for (const CastPlacement& p : placements_->casts) {
+        const Cast* c = tables_.casts->find(p.name);
+        if (!c) continue;  // CAST_ADOL etc. that aren't in CASTINFO stay unspawned here
+        spawn(SpawnRequest{0, c->cast_id, p.position,
+                           p.random_yaw ? 0.0f : p.yaw * 180.0f / 3.14159265358979323846f,
+                           0});
+    }
 }
 
 // FUN_004281c0, one simulation step. Player first, then the live list in spawn order

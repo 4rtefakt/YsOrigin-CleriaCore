@@ -153,6 +153,14 @@ struct CastTable {
     const Cast* get(int cast_id) const;
     const Cast* find(std::string_view name) const;  // by the SCT's key
 
+    // The sprite stem for a cast: "m100" -> "M_100" (uppercase, "_" after char 0),
+    // the same transform aia_path uses. This is how a spawned actor (which knows only
+    // its cast_id) recovers the "M_100"-style key the sprite sets are stored under —
+    // it matches CastPlacement::sprite_stem's SCT-name derivation exactly, because
+    // CASTINFO+0x24 is "m100" for the same cast the SCT names "CAST_M100". Empty when
+    // the cast has no stem.
+    std::string sprite_stem(int cast_id) const;
+
     // "c000" -> <root>/ANI/C_000.AIA. Empty when the cast has no stem.
     std::filesystem::path aia_path(const std::filesystem::path& root, int cast_id) const;
 };

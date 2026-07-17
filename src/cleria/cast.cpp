@@ -66,7 +66,7 @@ const Cast* CastTable::find(std::string_view name) const {
     return nullptr;
 }
 
-fs::path CastTable::aia_path(const fs::path& root, int cast_id) const {
+std::string CastTable::sprite_stem(int cast_id) const {
     const Cast* c = get(cast_id);
     if (!c || c->stem.empty()) return {};
     // "c000" -> "C_000". The stored stem is not the filename: uppercase it and
@@ -74,6 +74,12 @@ fs::path CastTable::aia_path(const fs::path& root, int cast_id) const {
     std::string s = c->stem;
     for (char& ch : s) ch = char(std::toupper((unsigned char)ch));
     s.insert(1, "_");
+    return s;
+}
+
+fs::path CastTable::aia_path(const fs::path& root, int cast_id) const {
+    const std::string s = sprite_stem(cast_id);
+    if (s.empty()) return {};
     return root / "ANI" / (s + ".AIA");
 }
 

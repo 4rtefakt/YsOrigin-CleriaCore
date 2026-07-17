@@ -1130,30 +1130,41 @@ struct EnemyFx {
     };
     std::unordered_map<std::string, Kind> kinds;   // sprite stem -> decoded facings
 
-    // Decode frame 0 of the idle animation for every enemy type in the room.
-    void init(Gpu& g, const fs::path& asset_root, const Sct& cast) {
-        for (const CastPlacement& c : cast.casts) {
-            const std::string stem = c.sprite_stem();
-            if (stem.empty() || kinds.count(stem)) continue;
-            Kind k;
-            if (!k.aia.load(asset_root / "ANI" / (stem + ".AIA"))) continue;
-            int img = -1;
-            for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
-                if (k.aia.images[i].tag == 0x2) { img = int(i); break; }   // idle
-            if (img < 0) img = 0;
-            k.ndir = k.aia.images[img].nDir;
-            std::uint32_t tall = 1;
-            for (std::uint32_t d = 0; d < 8 && d < k.ndir; ++d) {
-                AiaFrame fr;
-                if (!k.aia.decode_frame_composited(std::uint32_t(img), d, 0, fr)) continue;
-                k.dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
-                tall = std::max(tall, fr.h);
-            }
-            // Scale off the sprite's own pixel height, against the player's known
-            // ~76px / 2.0 world units. Their true size is not established.
-            k.height = float(tall) * (2.0f / 76.0f);
-            kinds.emplace(stem, std::move(k));
+    // Decode frame 0 of one enemy type's idle animation. Idempotent per stem.
+    void load_kind(Gpu& g, const fs::path& asset_root, const std::string& stem) {
+        if (stem.empty() || kinds.count(stem)) return;
+        Kind k;
+        if (!k.aia.load(asset_root / "ANI" / (stem + ".AIA"))) return;
+        int img = -1;
+        for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
+            if (k.aia.images[i].tag == 0x2) { img = int(i); break; }   // idle
+        if (img < 0) img = 0;
+        k.ndir = k.aia.images[img].nDir;
+        std::uint32_t tall = 1;
+        for (std::uint32_t d = 0; d < 8 && d < k.ndir; ++d) {
+            AiaFrame fr;
+            if (!k.aia.decode_frame_composited(std::uint32_t(img), d, 0, fr)) continue;
+            k.dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
+            tall = std::max(tall, fr.h);
         }
+        // Scale off the sprite's own pixel height, against the player's known
+        // ~76px / 2.0 world units. Their true size is not established.
+        k.height = float(tall) * (2.0f / 76.0f);
+        kinds.emplace(stem, std::move(k));
+    }
+
+    // Sprites for the SCT placements (the pre-world path; still used headlessly).
+    void init(Gpu& g, const fs::path& asset_root, const Sct& cast) {
+        for (const CastPlacement& c : cast.casts) load_kind(g, asset_root, c.sprite_stem());
+    }
+
+    // Sprites for every cast actually SPAWNED into the world -- which includes op-0x12c
+    // scripted casts the SCT never named, so those hub NPCs render too. cast_id ->
+    // "M_100" via CastTable::sprite_stem, the same key init() derives from the SCT name.
+    void init_from_world(Gpu& g, const fs::path& asset_root, const ActorWorld& world,
+                         const CastTable& casts) {
+        for (const Actor& a : world.actors())
+            load_kind(g, asset_root, casts.sprite_stem(a.cast_id));
     }
 };
 
@@ -1178,38 +1189,52 @@ struct EnemyRender {
     std::string display;
 };
 
-// Populate an ActorWorld from a room's SCT placements and pair each with its sprite.
+// Populate an ActorWorld the way the engine does (build/roomload_re/ROOMLOAD.md,
+// verified against our own disassembly): run the room's S_xxxx.XSO from entry 0. Its
+// opcode 0xa0 bulk-spawns the SCT once (the world's set_placements source); its opcode
+// 0x12c adds scripted actors 0..N times. Both funnel through the CASTINFO factory
+// (ActorWorld::spawn). The asset-load opcodes (0x9b..0xa1 minus 0xa0) are inert here —
+// the view loads geometry its own way. State-gated 0x12c spawns branch on story flags,
+// so we seed the VM from the persistent game state; a fresh game reaches the
+// fresh-game subset (NOT the 146 static ops), which is faithful.
 //
-// ** This is the effect of XSO opcode 0xa0, done directly. ** build/roomload_re/
-// ROOMLOAD.md (verified against our own disassembly) settled how a room populates: its
-// S_xxxx.XSO runs from entry 0, opcode 0xa0 bulk-spawns the SCT once, opcode 0x12c adds
-// scripted actors 0..N times — two ADDITIVE sources. We do the 0xa0 part here directly
-// (faithful: the SCT consumer FUN_004341a0 is a real actor creation site). We do NOT yet
-// run the script, so SCRIPTED 0x12c enemies are missing — which is why a hub like S_1000
-// (SCT = just the player, 146 scripted NPCs) shows no enemies. Layering 0x12c is the next
-// milestone (docs/PLAN.md step 10). The 0xa0 area filter (record+0x7c vs sub-area) is
-// dead in the shipped game (1290/1290 records area 0), so spawning every placement is
-// correct. Skips CAST_ADOL (the view drives the player). `require_sprite` matches each
-// caller's existing filter.
-static std::vector<EnemyRender> spawn_room_enemies(ActorWorld& world, const Sct& sct,
-                                                   const CastTable& casts,
-                                                   const EnemyFx& fx,
-                                                   bool require_sprite = true) {
-    std::vector<EnemyRender> out;
+// This is what makes a HUB like S_1000 populate: its SCT holds only the player, and all
+// its NPCs come from 0x12c — the SCT-only path saw none of them. If the script is
+// missing, falls back to op 0xa0 alone (SCT).
+static void populate_room(ActorWorld& world, const Room& room, const std::int32_t* g_flags) {
     world.clear();
-    for (const CastPlacement& c : sct.casts) {
-        if (c.is_player()) continue;
-        const std::string stem = c.sprite_stem();
-        if (stem.empty()) continue;
-        if (require_sprite && !fx.kinds.count(stem)) continue;
-        const Cast* ct = casts.find(c.name);
-        if (!ct) continue;
-        // id 0 => auto-assign, so a room repeating one cast gets distinct instances
-        // (the same rule that gives EVNT_3002_THOR its five ids). Group 0: SCT carries
-        // no group tag — tagging is the XSO spawn op's concern.
-        Actor* a = world.spawn(SpawnRequest{0, ct->cast_id, c.position, 0.0f, 0});
-        if (!a) continue;
-        out.push_back({a, stem, ct->display.empty() ? stem : ct->display});
+    world.set_placements(&room.cast);
+    const fs::path xso = room.dir / (room.name + ".XSO");
+    if (fs::exists(xso)) {
+        XsoVm vm;
+        vm.host = &world;
+        std::copy(g_flags, g_flags + 0x200, std::begin(vm.g_flags));  // story-gated spawns
+        try {
+            vm.run(Xso::parse(read_bytes(xso)));
+        } catch (const std::exception&) {
+            world.clear();
+            world.set_placements(&room.cast);
+            world.spawn_placements();  // a corrupt script still gets the SCT
+        }
+    } else {
+        world.spawn_placements();  // op 0xa0 alone
+    }
+}
+
+// Pair each spawned ENEMY actor with its sprite. cast_id -> "M_100" (CastTable::
+// sprite_stem), skipping the player and any actor whose sprite did not load. The
+// world already holds the game state (hp/pos/level); this record only carries the
+// view-side sprite identity.
+static std::vector<EnemyRender> build_enemy_render(ActorWorld& world,
+                                                   const CastTable& casts,
+                                                   const EnemyFx& fx) {
+    std::vector<EnemyRender> out;
+    for (Actor& a : world.actors()) {
+        if (a.is_player()) continue;
+        const std::string stem = casts.sprite_stem(a.cast_id);
+        if (stem.empty() || !fx.kinds.count(stem)) continue;   // no loaded sprite
+        const Cast* c = casts.get(a.cast_id);
+        out.push_back({&a, stem, (c && !c->display.empty()) ? c->display : stem});
     }
     return out;
 }
@@ -1938,22 +1963,20 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                     ch.dirs[d].w, ch.dirs[d].h, d, ch.ndir, worldH, dist);
     } else std::printf("play: character AIA load FAILED (%s)\n", shot_stem.c_str());
 
-    // Enemies (SCT placements + their AIA sprites).
+    // Enemies: the engine's real populate (run S_xxxx.XSO -> op 0xa0 SCT + op 0x12c
+    // scripted), the same path play mode uses. CLERIA_ENEMY=1 dumps the roster — the
+    // only headless view of it, since the interactive loop needs a window.
     {
         EnemyFx efx;
-        efx.init(g, asset_root, room.cast);
-        // The same chain as play mode. CLERIA_ENEMY=1 dumps what a room's enemies
-        // actually are — the only headless view of it, since spawning otherwise lives
-        // in the interactive loop.
         const CastTable casts = CastTable::load(asset_root / "MISC" / "CASTINFO.DAT");
         const EnemyTable etab = EnemyTable::load(asset_root / "MISC" / "ENEMYINFO.DAT");
         const GameInfo ginfo = GameInfo::load(asset_root / "MISC" / "GAMEINFO.DAT");
-        // Same spawn path as play mode (ActorWorld::spawn), so stats come from ONE
-        // place. require_sprite=false keeps this dump's historic "show every placement"
-        // behaviour; draw_enemies still only draws the sprite-loaded ones.
         ActorWorld world({&casts, &etab, &ginfo});
-        std::vector<EnemyRender> list =
-            spawn_room_enemies(world, room.cast, casts, efx, /*require_sprite=*/false);
+        std::int32_t flags[0x200] = {0};
+        flags[150] = 1;  // character = Yunica (this headless shot has no save state)
+        populate_room(world, room, flags);
+        efx.init_from_world(g, asset_root, world, casts);
+        std::vector<EnemyRender> list = build_enemy_render(world, casts, efx);
         if (std::getenv("CLERIA_ENEMY"))
             for (const EnemyRender& e : list)
                 std::printf("play: %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
@@ -2184,14 +2207,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     spawn_player();
 
     auto spawn_enemies = [&] {
+        // Populate the world the engine's way: run S_xxxx.XSO (op 0xa0 -> SCT bulk,
+        // op 0x12c -> scripted), seeded with the persistent game flags. Then load a
+        // sprite for every spawned cast (incl. 0x12c hub NPCs the SCT never named) and
+        // pair them. Stats come from ONE path (ActorWorld::spawn): SCT name / cast_type
+        // -> CASTINFO -> enemy_index -> ENEMYINFO -> GAMEINFO. Real names = CASTINFO+0x10.
+        populate_room(world, room, game.g_flags);
         efx.kinds.clear();
-        efx.init(g, asset_root, room.cast);
-        // ONE spawn+stat path (ActorWorld::spawn): SCT name -> CASTINFO ->
-        // enemy_index_for_cast -> ENEMYINFO -> GAMEINFO curve. A cast with no enemy
-        // record spawns with zeroed stats rather than an invented number — a visibly
-        // unkillable enemy is a better bug report than a plausible one hiding a broken
-        // link. Real display names come from CASTINFO +0x10 (67/67 vs the journal).
-        render = spawn_room_enemies(world, room.cast, casts, efx);
+        efx.init_from_world(g, asset_root, world, casts);
+        render = build_enemy_render(world, casts, efx);
         if (!render.empty()) {
             int statted = 0;
             for (const EnemyRender& e : render) statted += (e.actor->max_hp > 0);
@@ -2279,7 +2303,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const float reach = 2.6f;
         int killed = 0, hit = 0;
         for (Actor& e : world.actors()) {
-            if (!e.alive()) continue;
+            // The world now holds the player too (CAST_ADOL via op 0xa0); it is not a
+            // melee target. (It also has hp 0, so alive() already excludes it — this is
+            // the explicit guard.)
+            if (e.is_player() || !e.alive()) continue;
             const float dx = e.pos.x - feet.x, dz = e.pos.z - feet.z;
             const float dy = e.pos.y - feet.y;
             if (dx * dx + dz * dz > reach * reach || std::fabs(dy) > 3.0f) continue;
@@ -2320,7 +2347,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (!hit) return;
         if (killed) {
             int left = 0;
-            for (const Actor& e : world.actors()) if (e.alive()) ++left;
+            for (const Actor& e : world.actors()) if (!e.is_player() && e.alive()) ++left;
             std::printf("  defeated %d (%d left)\n", killed, left);
             if (left == 0) clear_barrier();
         }

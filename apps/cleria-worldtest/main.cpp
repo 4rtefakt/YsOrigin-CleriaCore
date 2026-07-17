@@ -355,6 +355,54 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- FULL room populate: run S_xxxx.XSO -> op 0xa0 (SCT) + op 0x12c (scripted) ----
+    // The faithful populate (build/roomload_re/ROOMLOAD.md): a room script runs op 0xa0
+    // ONCE (bulk SCT spawn) then op 0x12c 0..N times (scripted). This proves both fire
+    // through a world-connected VM -- and specifically that a HUB (S_1000, whose SCT is
+    // just the player) gets its enemies from 0x12c, which the SCT-only path missed.
+    auto read = [&](const fs::path& p) {
+        std::vector<std::uint8_t> b;
+        if (std::ifstream f{p, std::ios::binary})
+            b.assign(std::istreambuf_iterator<char>(f), {});
+        return b;
+    };
+    // run_script=false gives the SCT-only baseline (op 0xa0 alone); true adds op 0x12c.
+    auto populate = [&](const char* dir, const char* stem, bool run_script) -> std::size_t {
+        const fs::path base = root / "MAP" / dir / stem / stem;  // .../S_3004/S_3004
+        const std::vector<std::uint8_t> sct_b = read(fs::path(base) += ".SCT");
+        const std::vector<std::uint8_t> xso_b = read(fs::path(base) += ".XSO");
+        if (sct_b.empty() || xso_b.empty()) return 0;
+        static Sct sct;              // must outlive the run (world holds a pointer)
+        sct = Sct::parse(sct_b);
+        ActorWorld w(tables);
+        w.set_placements(&sct);      // op 0xa0's source
+        if (run_script) {
+            XsoVm vm;
+            vm.host = &w;
+            vm.g_flags[150] = 1;     // character = Yunica; state-gated spawns branch on it
+            try { vm.run(Xso::parse(xso_b)); } catch (const std::exception&) {}
+        } else {
+            w.spawn_placements();    // op 0xa0 alone
+        }
+        return w.size();
+    };
+
+    // S_3004: pure-SCT (0x12c count = 0), so the script and the SCT-only path agree.
+    const std::size_t n3004 = populate("S_30", "S_3004", true);
+    check(n3004 >= 20 && n3004 <= 24, "S_3004 (pure-SCT) populates from op 0xa0",
+          std::to_string(n3004) + " actors");
+    // S_1000 is a hub: its SCT holds only the player, so almost everything comes from
+    // op 0x12c. The exact count is STATE-GATED (story flags 0 => a fresh-game subset,
+    // not the 146 static ops), so we don't assert 146 -- we assert the script adds
+    // actors the SCT-only path cannot, which is the whole point of this milestone.
+    const std::size_t n1000_sct = populate("S_10", "S_1000", false);
+    const std::size_t n1000_full = populate("S_10", "S_1000", true);
+    check(n1000_sct <= 1, "S_1000's SCT alone is ~empty (just the player)",
+          std::to_string(n1000_sct) + " from op 0xa0");
+    check(n1000_full > n1000_sct + 3,
+          "and running the script adds op-0x12c scripted spawns SCT-only missed",
+          std::to_string(n1000_full) + " with the script");
+
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
     return fails ? 1 : 0;
 }

@@ -33,6 +33,7 @@ namespace cleria {
 struct CastTable;
 struct EnemyTable;
 struct GameInfo;
+struct Sct;
 
 // Ids the engine gives meaning to. `kIdSelf` never reaches the registry.
 inline constexpr int kIdPlayer = 13;
@@ -94,6 +95,13 @@ class ActorWorld : public XsoHost {
             if (a.instance_id == entity_id) return a.alive();
         return false;
     }
+    // op 0xa0: spawn every placement in the room's SCT (set via set_placements). No-op
+    // if no placements are set. Defined in world.cpp (needs the Sct/CastTable bodies).
+    void spawn_placements() override;
+
+    // The room's SCT placements, the source op 0xa0 spawns from. The caller sets this
+    // to the loaded room's SCT before running its script. Not owned.
+    void set_placements(const Sct* s) { placements_ = s; }
 
     // FUN_00434d50 — the lookup behind every query op. A linear scan by instance id.
     // Returns null when absent (the engine returns 0), and resolves the player fast
@@ -171,6 +179,7 @@ class ActorWorld : public XsoHost {
     // middle-erase invalidates all references, which is precisely the sweep's case.
     std::list<Actor> actors_;
     Actor* player_ = nullptr;
+    const Sct* placements_ = nullptr;  // op 0xa0's source; not owned
     bool id_in_use(int id) const;
 
     // The per-actor AI update. [UNKNOWN] and a deliberate no-op: the engine dispatches

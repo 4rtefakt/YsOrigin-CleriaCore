@@ -223,6 +223,12 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
                             return v;
                         };
                         host->spawn(op(0), op(1), f(2), f(3), f(4), f(5), op(6));
+                    } else if (sub == 0xa0) {
+                        // The bulk SCT spawn (FUN_004341a0). The operand is the SCT
+                        // basename; the host is pre-loaded with the room's placements,
+                        // so we ignore it and let the host spawn them. Runs once, before
+                        // any 0x12c. A null host makes this inert (existing tests).
+                        if (host) host->spawn_placements();
                     } else if (sub == 0x13f && nargs >= 1) {
                         // "Is entity op0 alive?" CONDITION is [C-DIS]; the result
                         // DESTINATION is [H-high] — ENTITY.md pins the test but not the
