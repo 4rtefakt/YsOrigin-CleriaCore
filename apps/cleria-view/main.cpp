@@ -49,6 +49,7 @@
 #include "cleria/sct.hpp"
 #include "cleria/sen.hpp"
 #include "cleria/sfo.hpp"
+#include "cleria/world.hpp"
 #include "cleria/xso.hpp"
 // CLERIA_CULL=off|cw|ccw — probe. The exe sets D3DCULL_CCW, but D3D9's left-handed
 // winding inverts on the way to WebGPU, so its semantics don't transplant directly:
@@ -1166,23 +1167,53 @@ struct EnemyFx {
 //
 // The chain: SCT places a CAST_ name -> CASTINFO gives cast_id -> ENEMYINFO[cast_id]
 // gives the level and the multipliers -> GAMEINFO gives the curve.
-struct EnemyInst {
+// A rendered enemy: a real Actor in the ActorWorld, paired with its sprite identity.
+// The game-state fields (hp/atk/def/level/pos/alive) live on the Actor, not here — the
+// view stopped keeping its own copy so there is ONE spawn+stat path (ActorWorld::spawn),
+// not three. `actor` is stable across the room: the view never sweeps, so no erase
+// invalidates it (and ActorWorld's list keeps node addresses stable regardless).
+struct EnemyRender {
+    Actor* actor = nullptr;
     std::string stem;
     std::string display;
-    Vec3 pos{};
-    float hp = 0, max_hp = 0;
-    float atk = 0, def = 0;
-    int level = 0;
-    std::uint32_t flags = 0;  // actor+0x3bc — bit 0x10 = dead (a DEFERRED flag)
-    bool alive = true;
 };
+
+// Populate an ActorWorld from a room's SCT placements and pair each with its sprite.
+// ** SCT is a REAL engine spawn path, not a stopgap: ** its consumer FUN_004341a0 is one
+// of the 8 actor creation sites (build/actor_re/ACTOR.md), so routing placements through
+// ActorWorld::spawn is faithful. The XSO-script spawn path (op 0x12c) is ADDITIVE and
+// pending the room-load RE (build/roomload_re/); when that lands, run the room script
+// over this same world to layer scripted spawns on top. Skips CAST_ADOL (the view drives
+// the player itself). `require_sprite` matches each caller's existing filter exactly.
+static std::vector<EnemyRender> spawn_room_enemies(ActorWorld& world, const Sct& sct,
+                                                   const CastTable& casts,
+                                                   const EnemyFx& fx,
+                                                   bool require_sprite = true) {
+    std::vector<EnemyRender> out;
+    world.clear();
+    for (const CastPlacement& c : sct.casts) {
+        if (c.is_player()) continue;
+        const std::string stem = c.sprite_stem();
+        if (stem.empty()) continue;
+        if (require_sprite && !fx.kinds.count(stem)) continue;
+        const Cast* ct = casts.find(c.name);
+        if (!ct) continue;
+        // id 0 => auto-assign, so a room repeating one cast gets distinct instances
+        // (the same rule that gives EVNT_3002_THOR its five ids). Group 0: SCT carries
+        // no group tag — tagging is the XSO spawn op's concern.
+        Actor* a = world.spawn(SpawnRequest{0, ct->cast_id, c.position, 0.0f, 0});
+        if (!a) continue;
+        out.push_back({a, stem, ct->display.empty() ? stem : ct->display});
+    }
+    return out;
+}
 
 // Draw every living enemy as an upright camera-facing billboard.
 static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
-                         EnemyFx& fx, const std::vector<EnemyInst>& list,
+                         EnemyFx& fx, const std::vector<EnemyRender>& list,
                          const Vec3& camFwd) {
-    for (const EnemyInst& e : list) {
-        if (!e.alive) continue;
+    for (const EnemyRender& e : list) {
+        if (!e.actor || !e.actor->alive()) continue;
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
         const EnemyFx::Kind& k = it->second;
@@ -1190,7 +1221,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // and there is no AI yet to give them a heading.
         const SpriteTex& t = k.dirs[6 < k.ndir ? 6 : 0];
         if (!t.tex) continue;
-        draw_character(g, color, depth, e.pos, k.height, t, camFwd);
+        draw_character(g, color, depth, e.actor->pos, k.height, t, camFwd);
     }
 }
 
@@ -1911,28 +1942,17 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
         const CastTable casts = CastTable::load(asset_root / "MISC" / "CASTINFO.DAT");
         const EnemyTable etab = EnemyTable::load(asset_root / "MISC" / "ENEMYINFO.DAT");
         const GameInfo ginfo = GameInfo::load(asset_root / "MISC" / "GAMEINFO.DAT");
-        std::vector<EnemyInst> list;
-        for (const CastPlacement& cp : room.cast.casts) {
-            const std::string stem = cp.sprite_stem();
-            if (stem.empty()) continue;
-            EnemyInst e;
-            e.stem = stem; e.display = stem; e.pos = cp.position; e.alive = true;
-            if (const Cast* ct = casts.find(cp.name)) {
-                // The game's own name -- CASTINFO +0x10. "Riffligan", not "M_100".
-                if (!ct->display.empty()) e.display = ct->display;
-                if (const Enemy* en = etab.get(enemy_index_for_cast(ct->cast_id))) {
-                    const EnemyStats s = enemy_stats(ginfo, *en);
-                    e.max_hp = e.hp = s.max_hp; e.atk = s.atk; e.def = s.def;
-                    e.level = en->level;
-                }
-            }
-            list.push_back(std::move(e));
-        }
+        // Same spawn path as play mode (ActorWorld::spawn), so stats come from ONE
+        // place. require_sprite=false keeps this dump's historic "show every placement"
+        // behaviour; draw_enemies still only draws the sprite-loaded ones.
+        ActorWorld world({&casts, &etab, &ginfo});
+        std::vector<EnemyRender> list =
+            spawn_room_enemies(world, room.cast, casts, efx, /*require_sprite=*/false);
         if (std::getenv("CLERIA_ENEMY"))
-            for (const EnemyInst& e : list)
+            for (const EnemyRender& e : list)
                 std::printf("play: %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
-                            e.display.c_str(), e.stem.c_str(), e.level, e.max_hp,
-                            e.atk, e.def);
+                            e.display.c_str(), e.stem.c_str(), e.actor->level,
+                            e.actor->max_hp, e.actor->atk, e.actor->def);
         draw_enemies(g, cview, dview, efx, list, cam.forward());
     }
     // Torch flames (SEF placements + the EF2 flipbook).
@@ -2004,12 +2024,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::fprintf(stderr, "flames: NAGA01.DDS failed to load\n");
     float fx_time = 0;
     EnemyFx efx;                         // enemy sprite sets, per room
-    std::vector<EnemyInst> enemies;      // live enemy instances
     // The game's own tables. Loaded once: the enemy chain is SCT name -> CASTINFO ->
     // ENEMYINFO -> GAMEINFO curve.
     const CastTable casts = CastTable::load(asset_root / "MISC" / "CASTINFO.DAT");
     const EnemyTable etab = EnemyTable::load(asset_root / "MISC" / "ENEMYINFO.DAT");
     const GameInfo ginfo = GameInfo::load(asset_root / "MISC" / "GAMEINFO.DAT");
+    // The live actors are real Actors in an ActorWorld now, not a bespoke list — one
+    // spawn path, the deferred-sweep lifecycle, and the shared damage model. `render`
+    // pairs each with its sprite for drawing.
+    ActorWorld world({&casts, &etab, &ginfo});
+    std::vector<EnemyRender> render;      // live enemies + their sprite identity
     // Our own RNG. The engine seeds its xorshift from timeGetTime(), so retail damage
     // was never replay-stable and there is no stream to match — only the algorithm's
     // shape matters, and an explicit seed buys us the determinism it lacked.
@@ -2154,46 +2178,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     spawn_player();
 
     auto spawn_enemies = [&] {
-        enemies.clear();
         efx.kinds.clear();
         efx.init(g, asset_root, room.cast);
-        for (const CastPlacement& c : room.cast.casts) {
-            const std::string stem = c.sprite_stem();
-            if (stem.empty() || !efx.kinds.count(stem)) continue;
-            EnemyInst e;
-            e.stem = stem;
-            e.display = stem;
-            e.pos = c.position;
-            e.alive = true;
-            // The game's own stats: SCT name -> CASTINFO -> enemy_index_for_cast ->
-            // ENEMYINFO -> GAMEINFO curve. A cast with no enemy record keeps zeroed
-            // stats rather than an invented number — a visibly unkillable enemy is a
-            // better bug report than a plausible one that hides a broken link.
-            if (const Cast* ct = casts.find(c.name)) {
-                // The game's own name -- CASTINFO +0x10, cross-checked against the
-                // published monster journal: 67/67 agree.
-                if (!ct->display.empty()) e.display = ct->display;
-                const int ei = enemy_index_for_cast(ct->cast_id);
-                if (const Enemy* en = etab.get(ei)) {
-                    const EnemyStats s = enemy_stats(ginfo, *en);
-                    e.max_hp = e.hp = s.max_hp;
-                    e.atk = s.atk;
-                    e.def = s.def;
-                    e.level = en->level;
-                }
-            }
-            enemies.push_back(std::move(e));
-        }
-        if (!enemies.empty()) {
+        // ONE spawn+stat path (ActorWorld::spawn): SCT name -> CASTINFO ->
+        // enemy_index_for_cast -> ENEMYINFO -> GAMEINFO curve. A cast with no enemy
+        // record spawns with zeroed stats rather than an invented number — a visibly
+        // unkillable enemy is a better bug report than a plausible one hiding a broken
+        // link. Real display names come from CASTINFO +0x10 (67/67 vs the journal).
+        render = spawn_room_enemies(world, room.cast, casts, efx);
+        if (!render.empty()) {
             int statted = 0;
-            for (const EnemyInst& e : enemies) statted += (e.max_hp > 0);
-            std::printf("  %zu enemies spawned (%d with game stats)\n", enemies.size(),
+            for (const EnemyRender& e : render) statted += (e.actor->max_hp > 0);
+            std::printf("  %zu enemies spawned (%d with game stats)\n", render.size(),
                         statted);
             if (std::getenv("CLERIA_ENEMY"))
-                for (const EnemyInst& e : enemies)
+                for (const EnemyRender& e : render)
                     std::printf("    %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
-                                e.display.c_str(), e.stem.c_str(), e.level, e.max_hp,
-                                e.atk, e.def);
+                                e.display.c_str(), e.stem.c_str(), e.actor->level,
+                                e.actor->max_hp, e.actor->atk, e.actor->def);
         }
     };
 
@@ -2270,8 +2272,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // different wrongness, not less of it. Wire the sector and the window together.
         const float reach = 2.6f;
         int killed = 0, hit = 0;
-        for (EnemyInst& e : enemies) {
-            if (!e.alive) continue;
+        for (Actor& e : world.actors()) {
+            if (!e.alive()) continue;
             const float dx = e.pos.x - feet.x, dz = e.pos.z - feet.z;
             const float dy = e.pos.y - feet.y;
             if (dx * dx + dz * dz > reach * reach || std::fabs(dy) > 3.0f) continue;
@@ -2305,14 +2307,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const HitResult r = apply_damage(e.hp, e.flags, dmg);
             ++hit;
             if (std::getenv("CLERIA_DMG"))
-                std::printf("  hit %s (lv%d DEF %.0f): %d dmg, %.0f/%.0f HP left\n",
-                            e.stem.c_str(), e.level, e.def, r.damage, e.hp, e.max_hp);
-            if (r.died) { e.alive = false; ++killed; }
+                std::printf("  hit cast %d (lv%d DEF %.0f): %d dmg, %.0f/%.0f HP left\n",
+                            e.cast_id, e.level, e.def, r.damage, e.hp, e.max_hp);
+            if (r.died) ++killed;   // apply_damage set the died marker; no separate flag
         }
         if (!hit) return;
         if (killed) {
             int left = 0;
-            for (const EnemyInst& e : enemies) if (e.alive) ++left;
+            for (const Actor& e : world.actors()) if (e.alive()) ++left;
             std::printf("  defeated %d (%d left)\n", killed, left);
             if (left == 0) clear_barrier();
         }
@@ -2622,7 +2624,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // Character billboard (play mode only; fly is a free debug camera).
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex)
             draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward());
-        draw_enemies(g, view, depth, efx, enemies, cam.forward());
+        draw_enemies(g, view, depth, efx, render, cam.forward());
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         player.character = character;

@@ -14,6 +14,7 @@
 #include "cleria/combat.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/gameinfo.hpp"
+#include "cleria/sct.hpp"
 #include "cleria/world.hpp"
 
 #include <cstdint>
@@ -319,6 +320,39 @@ int main(int argc, char** argv) {
         w.request_destroy(*p);
         w.sweep_dead();
         check(w.player() == nullptr, "sweeping the player nulls the player pointer");
+    }
+
+    // --- a REAL room's SCT populates the world (cleria-view's exact path) ----------
+    // cleria-view now spawns enemies by routing SCT placements through ActorWorld::spawn
+    // -- the SCT consumer FUN_004341a0 is a real actor creation site, so this is
+    // faithful. --play can't run headlessly (it needs a window), so this exercises that
+    // path GPU-free: SCT name -> CastTable::find -> cast_id -> spawn, same as the view.
+    {
+        const fs::path scts = root / "MAP" / "S_10" / "S_1001" / "S_1001.SCT";
+        std::vector<std::uint8_t> bytes;
+        if (std::ifstream f{scts, std::ios::binary})
+            bytes.assign(std::istreambuf_iterator<char>(f), {});
+        check(!bytes.empty(), "loaded S_1001.SCT (a room with monster placements)");
+
+        if (!bytes.empty()) {
+            const Sct sct = Sct::parse(bytes);
+            ActorWorld w(tables);
+            int placed = 0, statted = 0;
+            for (const CastPlacement& c : sct.casts) {
+                if (c.is_player()) continue;   // the view drives the player itself
+                const Cast* cc = ct.find(c.name);
+                if (!cc) continue;
+                Actor* a = w.spawn(SpawnRequest{0, cc->cast_id, c.position, 0.0f, 0});
+                if (!a) continue;
+                ++placed;
+                if (a->is_enemy() && a->max_hp > 0) ++statted;
+            }
+            check(placed > 0, "SCT placements spawned into the world",
+                  std::to_string(placed) + " actors");
+            check(statted > 0, "and enemies among them carry real stats",
+                  std::to_string(statted) + " statted");
+            check(w.size() == std::size_t(placed), "world holds exactly the spawned actors");
+        }
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);

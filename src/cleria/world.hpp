@@ -113,6 +113,10 @@ class ActorWorld : public XsoHost {
     const std::list<Actor>& actors() const { return actors_; }
     std::size_t size() const { return actors_.size(); }
 
+    // Drop every actor (e.g. a room change — the engine's FUN_00428ec0 destroy-all).
+    // Invalidates every Actor* handed out, including the player pointer.
+    void clear() { actors_.clear(); player_ = nullptr; }
+
     // ## The tick (build/actor_re/ACTOR.md §2, §3) [C-DIS]
     //
     // ** Iteration order IS defined, and it is a correctness requirement, not a
