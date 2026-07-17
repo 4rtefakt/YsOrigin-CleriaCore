@@ -3,6 +3,7 @@
 #include "cleria/aia.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -16,6 +17,33 @@ int main(int argc, char** argv) {
     if (!a.load(argv[1])) { std::fprintf(stderr, "load failed\n"); return 1; }
     std::printf("ver=%x nPal=%u nImg=%u nReg=%u canvas=%ux%u\n",
                 a.version, a.nPal, a.nImg, a.nReg, a.canvasW, a.canvasH);
+
+    // --frames: decode the idle image's frames (dir 0) and report top vs bottom-half
+    // alpha coverage, to tell a decode bug (legs go transparent) from a render one.
+    if (argc > 2 && std::strcmp(argv[2], "--frames") == 0) {
+        int img = -1;
+        for (std::uint32_t i = 0; i < a.nImg; ++i)
+            if (a.images[i].tag == 0x2) { img = int(i); break; }
+        if (img < 0) img = 0;
+        std::printf("idle image %d: %u dir x %u frame\n", img, a.images[img].nDir,
+                    a.images[img].nFrame);
+        for (std::uint32_t f = 0; f < a.images[img].nFrame; ++f) {
+            cleria::AiaFrame fr;
+            if (!a.decode_frame_composited(std::uint32_t(img), 0, f, fr)) { std::printf("  f%u decode fail\n", f); continue; }
+            std::size_t bot_opaque = 0, bot_partial = 0, top_opaque = 0, top_partial = 0;
+            for (std::uint32_t y = 0; y < fr.h; ++y)
+                for (std::uint32_t x = 0; x < fr.w; ++x) {
+                    const int av = fr.rgba[(std::size_t(y) * fr.w + x) * 4 + 3];
+                    if (av == 0) continue;
+                    const bool bottom = y >= fr.h / 2;
+                    if (av >= 250) (bottom ? bot_opaque : top_opaque)++;
+                    else (bottom ? bot_partial : top_partial)++;
+                }
+            std::printf("  f%-2u %ux%u  TOP opaque=%zu partial=%zu | BOT opaque=%zu partial=%zu\n",
+                        f, fr.w, fr.h, top_opaque, top_partial, bot_opaque, bot_partial);
+        }
+        return 0;
+    }
 
     cleria::AiaFrame fr;
     if (!a.decode_region(region, fr)) { std::fprintf(stderr, "decode failed\n"); return 1; }

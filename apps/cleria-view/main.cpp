@@ -698,7 +698,11 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
                     WGPUBlendFactor_OneMinusSrcAlpha};
     WGPUColorTargetState ctarget = target; ctarget.blend = &cblend;
     WGPUFragmentState cfs = fs; cfs.entryPoint = sv("fs_char"); cfs.targets = &ctarget;
-    WGPURenderPipelineDescriptor cpd = pd; cpd.fragment = &cfs;
+    // An upright billboard's lower half sits at nearly the floor's depth where it stands,
+    // so it Z-FIGHTS the floor (the "bottom half disappears" the sprite showed). A
+    // negative depth bias pulls the whole character clearly in front of the floor without
+    // moving it on screen; the slope term handles the angled floor under it.
+    WGPURenderPipelineDescriptor cpd = pd; cpd.fragment = &cfs;  // room depth (Less+write)
     g.char_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &cpd);
 
     WGPUBufferDescriptor ud = {};
@@ -1063,7 +1067,15 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
     const float Wc = worldH * (float(spr.w) / float(spr.h));
-    const Vec3 ctr = {feet.x, feet.y + worldH * 0.5f, feet.z};
+    // Nudge the billboard toward the camera (horizontally) so its lower half clears the
+    // floor it stands on -- an upright billboard z-fights the floor at its base, and this
+    // backend ignores depthBias, so a small world-space nudge is the reliable fix.
+    Vec3 toCam = {-camForward.x, 0, -camForward.z};
+    const float tl = std::sqrt(toCam.x * toCam.x + toCam.z * toCam.z);
+    if (tl > 1e-4f) { toCam.x /= tl; toCam.z /= tl; }
+    constexpr float kDepthNudge = 0.9f;
+    const Vec3 ctr = {feet.x + toCam.x * kDepthNudge, feet.y + worldH * 0.5f,
+                      feet.z + toCam.z * kDepthNudge};
     // Vertex-colour alpha carries the hit-flash amount (fs_char lerps to white by it).
     const std::uint8_t fa = std::uint8_t(std::max(0.0f, std::min(1.0f, flash)) * 255.0f);
     auto V = [&](float sx, float sy, float u, float v) -> RoomVertex {
