@@ -42,6 +42,7 @@ and a C++20 asset core renders real rooms.
 | **Scene fog (SFO)** | ✅ **per-region colour/near/far, cross-faded as the game does** |
 | **The real HUD (STATUS_512)** | ✅ **authored 1024×768 coords, Hor+ scaling, the game's own digit emitter (builder A), real bar cluster, 4 equipment slots** |
 | **Fixed-step 60 Hz logic** | ✅ **decoupled from rendering — measured 165 fps / 60 tps**; timeScale-aware, uncapped catch-up like the exe |
+| **Enemy level** | ✅ **ENEMYINFO +0xe8, i32 1..60 — it read as denormal floats, which is why it hid** |
 | **Damage formula** | ✅ **`ATK^0.66 * (ATK - 0.98*DEF + 10 + bonus) / 22.92`, disassembled — with probabilistic rounding and a deferred death flag** |
 | **Enemy drop tables (ENEMYINFO)** | ✅ **8 slots/enemy: item id + percent chance, corpus-proven — enemies drop only tools and gold, never equipment** |
 | **Enemies (SCT placement)** | ✅ **1106 placements / 85 rooms render as sprites; no AI yet** |
@@ -191,7 +192,7 @@ for facts:
 
 | thing | status |
 |---|---|
-| enemy HP / reach | **our numbers still.** GAMEINFO holds an 11-entry (not 7) curve array — idx 10 = (150, 18150), the obvious HP candidate — and ENEMYINFO carries a six-wide log2 stat block. The formula is no longer the blocker; the level denominator is |
+| enemy HP / reach | **our numbers still**, but the gap has narrowed to one link. ENEMYINFO's level is at +0xe8 (i32 1..60) and its six-wide log2 stat block at 0xc8..0xdc holds *multipliers* (K = 2^((v−50)/20)) — there is no raw HP/EXP/gold value in the record at all. GAMEINFO (f32 at +0x30, plus a 4×11 curve block at +0xa0) is the only curve in sight. **What's missing is the code that reads it** |
 | YMO animation keys | **doc was wrong until now**: the scale/translation labels were swapped (the correct composition reproduces the rest pose in 5832/7016 nodes; the old labelling in **0**), and the key's trailing field is a `u32` frame number, not a float — the old "monotonic time" test passed only because denormal ordering matches integer ordering |
 | animation frame rate | **fixed — the game's own scripts drive it now.** The ASO VM holds each `anime_Pattern` for its own `anime_Wait(n)`. No constants left |
 | player sprite choice | **now the script's, not ours.** `C_010.ASO` gates `anime_File(6)`=C_102 behind `Flag_IsEqualInt(161,1)` and falls through to `anime_File(15)`=**C_111**. With flag 161 clear (normal play) the game uses **C_111/C_112/C_113** — the gameplay sets. We had hardcoded C_102/103/104, which are the **cutscene** sets |
