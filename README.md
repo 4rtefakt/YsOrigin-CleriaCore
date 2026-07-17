@@ -46,7 +46,10 @@ and a C++20 asset core renders real rooms.
 | **Enemy level** | ✅ **ENEMYINFO +0xe8, i32 1..60 — it read as denormal floats, which is why it hid** |
 | **Player physics (vertical)** | ✅ **there is no gravity constant — the engine keeps a signed TIME at actor+0x330 and computes `dy = 0.5*9.81*t*abs(t)` in closed form.** Jump v0 0.285, terminal fall 0.65/tick, char radius 0.675 and height 1.075 — all per-cast from CASTINFO |
 | **Equipment → stats** | ✅ **INVINFO +0x24 is the DEF column; weapon ATK is GAMEINFO's 4×11 [char][tier] table. There is no weapon ATK column in INVINFO at all** |
-| **Damage formula** | ✅ **`ATK^0.66 * (ATK - 0.98*DEF + 10 + bonus) / 22.92`, disassembled — with probabilistic rounding and a deferred death flag** |
+| **Damage formula (enemy target)** | ✅ **`ATK^0.66 * (ATK − 0.98*DEF + 10 + bonus) / 22.92`, disassembled — probabilistic rounding, a deferred death flag, and a difficulty post-scaler `{1.0, 1.5, 2.0}`** |
+| Damage formula (**player** target) | **not implemented, on purpose.** The path forks at `0x4fd3e1`: a player target bypasses the whole formula *and* the post-scaler for `FUN_004fa740` — different DEF source, two soft floors at 3%/1.5% of the attacker's ATK, a 0.5 minimum, `max(1.0, …)`. Declared-but-undefined so a caller link-errors rather than silently getting the enemy formula |
+| Difficulty | ✅ **five settings, not four** — a 3-valued index (`0x76bb5c`) *plus* two booleans. Effects `[C-DIS]`: very easy `{dmg ×0.5, HP ×0.75, EXP ×2}` → nightmare `{HP ×1.5, dmg ×2+1}`. The names are `[H-high]` — the menu strings were never found |
+| RNG / replay stability | ✅ **the `.data` seeds are decoys** — `x = timeGetTime()` at startup, so retail damage is *not* replay-stable. We seed explicitly and get determinism the original never had |
 | **Enemy drop tables (ENEMYINFO)** | ✅ **8 slots/enemy: item id + percent chance, corpus-proven — enemies drop only tools and gold, never equipment** |
 | **Enemies (SCT placement)** | ✅ **1106 placements / 85 rooms render as sprites; no AI yet** |
 | **Torch flames (SEF + EF2)** | ✅ **placements + the 16-frame flipbook, additive** |
