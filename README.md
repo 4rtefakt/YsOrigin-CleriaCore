@@ -159,6 +159,50 @@ overlay overwrites 525 scripts and the English text.
 > for headless verification. (Diagnosed the slow way once: an old commit crashed identically
 > despite having run fine an hour earlier. Same binary, different result = environment.)
 
+## How much of the game is actually reversed?
+
+**About 2.5% of the code Falcom wrote — and the denominator matters more than the
+numerator.**
+
+The exe has 6,708 functions, but **4,399 of them (66%) are not game code at all**:
+the PE entry point sits at `00626139` in the CRT, 3,025 tail functions carry real
+symbol names (Steamworks and GOG Galaxy delay-load stubs), and 2,198 are sub-32-byte
+import thunks. Quoting a fraction over 6,708 flatters us by understating what is
+left to do *and* insults the work by counting stub code as unreversed.
+
+> **The Falcom-authored body is `0040e150`–`005eeae0`: 2,097 functions,
+> 1,744,157 function-bytes.** Against that, ~53 touched functions is **~2.5%**.
+
+We can be this precise because **the binary's assert strings leak Falcom's own source
+tree** — 37 `__FILE__` paths under
+`i:\ys_origin\gamedata\windows7\yso_win\src\dump builds\20240108-smallfix\`, each
+emitted as `push <line> ; push <path> ; call assert_handler`, so both the filename and
+the line number fall out of the bytes. The 30 `main/` translation units turn out to be
+laid out **in exact alphabetical order by full source path** (`app/` < `config/` <
+`game/` < `gfx/` < `object/` < `window/`), which is not a coincidence one can arrange
+by accident — 30 items landing sorted is 1 in 30!.
+
+That law makes any address answerable: it yields a directory, and an alphabetical
+*range* the true filename must lie in. It also makes falsifiable predictions, and it
+has passed one — `FUN_00452980` was identified as the `f_mini` font drawer purely from
+asset names, and it sits exactly where `f_mini.cpp` sorts.
+
+**What it is not:** a partition. Asserts are sparse (37 files out of a tree holding
+well over a hundred), so this is 36 confirmed anchors plus an ordering law — a
+**bracket, never a name**. The `lib/` tree doesn't obey the law at all (static-library
+link order is archive-member order), and the build uses cross-TU inlining, which
+would have silently mis-attributed two functions to the wrong file had it gone
+unnoticed.
+
+**The elephant** is the `main/object` gap `00465170`–`00501a30`: 305 functions,
+641 KB, **24.7% of `.text`**, bracketed between `go_actor_player.cpp` and
+`go_mesh.cpp`. It holds the damage applier, the AIA sprite draw, and 91 of the 94 AI
+handlers — the actor/enemy/battle heart of the game, and almost entirely untouched.
+The eight `go_mesh_bossNN.cpp` files (~264 functions, ~371 KB, *zero* touched) are
+each individually anchored, making them the best-bounded large target we have.
+
+See `build/srcmap_re/`.
+
 ## Roadmap
 
 - **M0 — asset pipeline** ✅
