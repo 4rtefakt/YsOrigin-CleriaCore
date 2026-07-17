@@ -16,10 +16,37 @@ namespace cleria {
 struct SurfaceType {
     const char* name;             // +0x00
     std::uint16_t base_sound_id;  // +0x06  EFFECTDEF id of variant 0; 0 => silent
-    // +0x08 / +0x0A — the STEP INTERVAL IN TICKS, walking and running. An earlier
-    // pass recorded these as "a (always 20)" and "b (always 13)" and marked them
-    // [UNKNOWN]. They are the footstep cadence: at 60 Hz, 0.333 s per step walking
-    // and 0.2167 s running, uniform across every audible surface.
+    // +0x08 / +0x0A — the STEP INTERVAL IN TICKS, walking and running [C-DIS].
+    // At 60 Hz that is 0.333 s per step walking and 0.2167 s running, uniform across
+    // every audible surface.
+    //
+    // An earlier pass recorded these as "a (always 20)" / "b (always 13)" and marked
+    // them [UNKNOWN]; a later one named them the cadence without citing a reader,
+    // which left a correct claim looking like a guess. It is provable, so here is the
+    // proof. FUN_0045d600 picks the column by locomotion state and stores it into the
+    // actor:
+    //
+    //   0045d6d4  MOV EAX,[ESI + 0x994]          ; locomotion state
+    //   0045d6da  CMP EAX,0x1                    ; 1 = running
+    //   0045d6df  MOVZX ECX,[EDI + 0x6d5daa]     ;   -> the +0x0A column
+    //   0045d6e8  MOVZX ECX,[EDI + 0x6d5da8]     ; else the +0x08 column
+    //   0045d6ef  MOV byte ptr [ESI + 0x4bf],CL  ; -> actor+0x4bf
+    //
+    // and FUN_0045c490, the per-tick actor update, counts it down and fires on zero:
+    //
+    //   0045ceda  MOV AL,[ESI + 0x4bf]
+    //   0045cee0  TEST AL,AL
+    //   0045cee2  JNZ 0045cf2d                   ; nonzero -> just decrement
+    //   0045cf26  CALL 0x0045d600                ; zero -> FIRE, which reloads +0x4bf
+    //   0045cf2d  DEC AL                         ; <- the decrement
+    //   0045cf2f  MOV [ESI + 0x4bf],AL
+    //
+    // Load-on-fire, decrement-per-tick, fire-at-zero: an interval in ticks, and the
+    // reload column is chosen by the run flag. Both names are earned.
+    //
+    // One wrinkle we do NOT model: for the PLAYER (cast id 13 at actor+0x124) in
+    // state 0x10a, FUN_0045d600 HALVES the run interval (0045d707: MOVSX from +0x0A,
+    // then CDQ/SUB/SAR 1 — a signed divide by 2). What state 0x10a is, is [UNKNOWN].
     std::uint16_t walk_ticks;
     std::uint16_t run_ticks;
     std::uint8_t jitter;          // +0x0C  timer += rng % jitter (0 => none)
