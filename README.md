@@ -21,7 +21,7 @@ and a C++20 asset core renders real rooms.
 | Layer | Status |
 |---|---|
 | NNI/NA archive (cipher, TOC) | ✅ (from the sibling Archipelago project) |
-| **YMO** models + skeleton + animation | ✅ **1006/1006 byte-exact** (rigid FVF path; skinning specced, not drawn) |
+| **YMO** models + skeleton + animation | ✅ **1006/1006 byte-exact** — rigid FVF *and* the skinned boss path, both drawn |
 | **SOB** object placement | ✅ 1129/1129 records |
 | **SEN** room graph | ✅ 348 edges, 86.8% reciprocal |
 | DDS textures / WAV audio | ✅ standard formats, free |
@@ -31,7 +31,7 @@ and a C++20 asset core renders real rooms.
 | **Textured materials (DDS: BC1/BC2/RGB565/…)** | ✅ **per-submesh material textures + alpha-test cutouts** |
 | **Boss models + skinning (D3DX indexed palette)** | ✅ **all 8 render textured, skinned and posed — BOSS01 coils, BOSS04/08 assemble** |
 | **ASO animation-script VM** | ✅ **the game's own scripts drive the player: 115/115 files, 52,280 instructions, 0 decode errors; every opcode and call count matches the RE to the unit** |
-| **Animation clips (parse + pose + play)** | ✅ **270/303 stored clip AABBs reproduced to ≤1e-3 — the 33 misses are the 5 known-outlier files, matching an independent Python pass to 5 s.f. `CLERIA_CLIP`/`CLERIA_FRAME` pose any skinned model** |
+| **Animation clips (parse + pose + play)** | ✅ **303/303 stored clip AABBs reproduced (worst delta 4.8e-05).** The 33 that used to miss were our own bug, not 5 odd files: 8 of the 64 skinned models also carry *rigid* meshes, and both validators skinned only the two-stream mesh. `CLERIA_CLIP`/`CLERIA_FRAME` pose any skinned model |
 | **Free-fly walkthrough + SEN room transitions** | ✅ **fly through doorways to warp between connected rooms** |
 | **Baked vertex lighting** | ✅ **per-vertex DIFFUSE (lava glow, ambient) — the Falcom "lightmap"** |
 | **Grounded player controller** | ✅ **walk/jump/gravity + wall & floor collision; F toggles fly** |
@@ -69,8 +69,8 @@ lists**, and per-node scale/rotation/translation animation keys. See
 > are not in the file: they are eight static `D3DVERTEXELEMENT9` arrays inside the
 > exe, chosen by a shader table. **Ys Origin does skin**, via D3DX indexed-palette
 > blending (`_1w`…`_4w` = influence counts, `decl = 3 + N`), so the "no skinning"
-> claim this README used to make was simply wrong. We don't draw bosses yet, but the
-> format is no longer a mystery — see [docs/formats/YMO.md](docs/formats/YMO.md).
+> claim this README used to make was simply wrong. All eight bosses now render,
+> skinned and animated — see [docs/formats/YMO.md](docs/formats/YMO.md).
 
 ## Layout
 
@@ -244,13 +244,13 @@ for facts:
 | YMO animation keys | **doc was wrong until now**: the scale/translation labels were swapped (the correct composition reproduces the rest pose in 5832/7016 nodes; the old labelling in **0**), and the key's trailing field is a `u32` frame number, not a float — the old "monotonic time" test passed only because denormal ordering matches integer ordering |
 | animation frame rate | **fixed — the game's own scripts drive it now.** The ASO VM holds each `anime_Pattern` for its own `anime_Wait(n)`. No constants left |
 | player sprite choice | **now the script's, not ours.** `C_010.ASO` gates `anime_File(6)`=C_102 behind `Flag_IsEqualInt(161,1)` and falls through to `anime_File(15)`=**C_111**. With flag 161 clear (normal play) the game uses **C_111/C_112/C_113** — the gameplay sets. We had hardcoded C_102/103/104, which are the **cutscene** sets |
-| HUD `[EX]`/`[MP]`/`[SP]` labels + `60/ 60` | **not drawn yet.** The `f_mini` font and its exe-derived metrics are in (`minifont.hpp`), but nothing calls them. `60/ 60` needs text system B, whose font object is built at runtime — its constructor is an [H-medium] lead (`FUN_005a3850`, a 1024×256 buffer) |
+| HUD `[EX]`/`[MP]`/`[SP]` labels + `60/ 60` | **not drawn yet.** The `f_mini` font and its exe-derived metrics are in (`minifont.hpp`), but nothing calls them. Text system B is no longer a lead: `FUN_005a3850` **does** construct the font object at `0x007945c0`, and a csprite draws text when its `draw_kind` byte at `+0x3c` is non-zero (`005a4645`), taking the string from `+0x68` |
 | footstep `+0x4b9` surface latch | **the last hop is open.** Everything from the actor's latched surface byte onward is proven; what fills it (`probe+0xAA`, from the ground raycast `FUN_0041e420`) is reached through an indirect callback in the physics lib and wasn't traced statically. It affects *which* surface, never *when* a step fires. A watchpoint on `EDX+0xAA` after `0x0045b03a` would settle it |
 | collision surfaces not in the table | **resolved.** `default`/`door`/`10switch`/`dafault` aren't in the 21-entry table, and the exe clamps an unmatched lookup to **1 = `stone`** (`FUN_005610e0`: both the not-found jump and the `idx<0` test land on `MOV ESI,1`). We do the same now |
 | water animation | **found — it's the material, not the shader.** Each material carries a UV-scroll velocity at `+0x44/+0x48` (`20zwater3` = +0.0006,-0.0018) gated by flag bit `0x4`; the shader can't animate itself (its phase input has no time term). We parse it now; the per-frame integrator that advances the phase is still unlocated |
 | bosses | **rendered, skinned, clips parsed and validated — but not yet played in the viewer.** `Model::pose()` works and is verified against 303 stored AABBs; nothing drives it per-tick yet |
 | `BOSS06A/B`, `PIC_TOGE`, `BOSS01_` clip AABBs | **don't reproduce** (Δ1.3–11.4) while the other 59 files are exact. Suspected second animation path (`type != 0`), which is [UNKNOWN] — never observed, since `type` is 0 for all 28,161 tracks |
-| AIA second layer | decoded exactly, **deliberately not drawn.** What it *is* isn't established: for C_115 the layer has the same bbox as the body and near-identical coverage (3408 vs 3406 px) — it's the whole silhouette in flat purple, not an aura, so compositing it erases the body. Likely a state variant (Boost/hit flash). See [AIA.md](docs/formats/AIA.md) |
+| AIA second layer | ✅ **drawn, additively.** It is a real overlay — its bbox moves independently of the body's (a falling spark, orbs flying out, a blade wreathed in fire), which a state variant cannot do. `SRCALPHA/ONE`, read out of `FUN_004745a0`. The "same bbox as the body, so compositing erases it" reading was drawn from C_115 alone — the corpus's most atypical file, and the erasure was evidence about the *blend*, not about whether to draw it. See [AIA.md](docs/formats/AIA.md) |
 | 300 XSO branch sites | run `tools/xso_audit.py` — unimplemented sub-ops leave `acc` stale, so those branches are wrong at runtime |
 
 ## Credit
