@@ -37,8 +37,8 @@ EnemyTable EnemyTable::load(const fs::path& path) {
         std::memcpy(&e.k_atk, b.data() + o + 0xCC, 4);
         std::memcpy(&e.k_def, b.data() + o + 0xD0, 4);
         std::memcpy(&e.k_neutral, b.data() + o + 0xD4, 4);
-        std::memcpy(&e.k_exp, b.data() + o + 0xD8, 4);
-        std::memcpy(&e.k_unk0xb0, b.data() + o + 0xDC, 4);
+        std::memcpy(&e.k_unk_0xd8, b.data() + o + 0xD8, 4);
+        std::memcpy(&e.k_exp, b.data() + o + 0xDC, 4);
     }
     return t;
 }

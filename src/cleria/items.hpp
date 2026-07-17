@@ -15,12 +15,45 @@
 // AC 12, TL 50, SK 4, GO 8 = 128. That is the mapping the HUD needs for its four
 // equipment slots and the menus need for the inventory/shop lists.
 //
+// ** But the prefixes are NOT what we called them. ** Read the items' own names:
+//
+//   sh 30..47  SHOES, not shields — "Leather Boots", "Hard Leggings", "Sylphen Boots"
+//   sh 48..53  the REAL shields — "Wooden Shield".."Raval Shield" (`sh_aa`..`sh_ff`,
+//              the `_aa` suffix marking Adol's arcade-only gear, like `ar_aa..ff`)
+//   sk 116..119 the elemental magic BRACELETS — "Ventus/Terra/Ignis Bracelet" plus an
+//              "Unequip magic." stub. NOT seeds. The real seeds are tl_48 "Vitality
+//              Seed" and tl_49 "Air Seed".
+//   tl 78..83  the six AREA MEDALLIONS, and their descriptions name the areas in
+//              tower order: Wailing Blue, Flooded Prison, Guilty Fire, Silent Sands,
+//              (Cecilia's), Demonic Core — which independently corroborates the
+//              S_1..S_6 section mapping derived from enemy levels.
+//
+// We had "sh = shields" and "sk = seeds" for weeks. Both are wrong, and both are
+// refuted by the item's own name field, which we were already parsing.
+//
 // The dim set resolves 120/128. The 8 without one are ids 120..127 — the GOLD
 // denominations (1G/5G/.../5000G, prefix GO). Gold is never equipped or
 // unavailable, so it never needs a greyed icon: a reason, not a gap. That also
 // confirms ICON2/*V is the "unavailable" variant.
 //
-// ## +0x24 is the DEF COLUMN for armour and shields [C-DIS + C-COR]
+// ## +0x24 is the DEF COLUMN for armour and shoes/shields [C-DIS + C-COR]
+//
+// ** The data states its own answer: +0x24 == the "DEF +N" written in the item's own
+// DESCRIPTION, 48/48 for ar and sh. ** That is the same kind of self-check as the gold
+// denominations equalling the number in their name, and it is the strongest evidence
+// available from the files alone.
+//
+// It is NOT, however, independent confirmation from outside. The published wiki tables
+// agree 36/36 — but the wiki transcribed the game's own description text, so that
+// agreement only says +0x24 matches +0x4c. Two readings of one source are not two
+// sources. (This is the trap that made two implementations agree to five significant
+// figures on the clip-AABB outliers.)
+//
+// ** The 49th item is the interesting one: "Goddess Ring" (id 59, an ACCESSORY) says
+// "DEF +5" in its description and has +0x24 == 0. ** So accessory DEF does NOT come
+// from this column — which fits the disassembly exactly: `IMUL ..., 0xb8` (the record
+// stride multiply that indexes this table) occurs ONLY in the armour and shoe/shield
+// branches. Where an accessory's DEF comes from is [UNKNOWN].
 //
 // The engine reads it as an i32 via CVTDQ2PS, from the INVINFO base at 0x76f1c0
 // (proven three ways: the g_scn_data.cpp loader does PUSH 0x76f1c0; +0x34 -> icon stem
@@ -43,7 +76,7 @@
 //   go (gold, 120..127)     1, 5, 10, 50, 100, 500, 1000, 5000
 //   tl (tools, 66..115)     0, 10, 25, 50, 100, 200, 999
 //   ar (armor, 6..29)       7, 8, 13, 16, 20, 24, 26, 32, 33, 39, 40, 48, ...
-//   sh (shields, 30..53)    6, 7, 12, 13, 18, 20, 24, 26, 30, 33, 36, 39, ...
+//   sh (shoes 30..47 + shields 48..53)  6, 12, 18, 24, 30, 36 | 7, 13, 20, 26, 33, 39
 //   sw (swords, 0..5)       20 and 999 ONLY
 //   ac / sk                 all 0
 //

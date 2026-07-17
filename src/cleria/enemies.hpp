@@ -28,6 +28,10 @@
 //   sw 0..5  ar 6..29  sh 30..53  ac 54..65   = EQUIPMENT   (never dropped)
 //   tl 66..115  sk 116..119  go 120..127      = DROPPABLE
 //
+// (`sh` is SHOES 30..47 plus shields 48..53, and `sk` is the elemental BRACELETS, not
+// seeds — the real seeds are tl_48/tl_49. See items.hpp. The partition boundary at 66
+// is unaffected: what matters here is that nothing below 66 is ever dropped.)
+//
 // and every one of the 443 live drop ids is >= 66, with none below. The boundary in
 // the data and the boundary in the drop table are the same number.
 //
@@ -54,9 +58,13 @@
 //   maxHP  = FLOOR(K(+0xC8) * lerp(60, 475, t))
 //   ATK    = FLOOR(K(+0xCC) * lerp(40, 295, t))
 //   DEF    = FLOOR(K(+0xD0) * lerp(40, 295, t))
-//   +0xb0  = FLOOR(K(+0xDC) * lerp(15, 610, t))
-//   EXP    =       K(+0xD8) * ...              -> actor+0xc4
+//   EXP    = FLOOR(K(+0xDC) * lerp(15, 610, t))   -> actor+0xb0
 //   with t = (level - 1) / 59, level from +0xe8
+//
+// ** +0xDC is the EXP multiplier, and +0xD8 is not — they were swapped here. ** +0xD8
+// was labelled "the EXP column" and +0xDC "feeds actor+0xb0, meaning [UNKNOWN]". The
+// game's own published EXP settles it: floor(K(+0xDC) * curve4) matches 67/67, while
+// +0xD8 manages 9/67. What +0xD8 IS is now [UNKNOWN] again, honestly.
 //
 // ** FLOOR, not round. ** The engine's helper FUN_004217f0 is floorf. This was written
 // as `round` and validated against nothing until the game's own MONSTER JOURNAL was
@@ -149,9 +157,9 @@ struct Enemy {
     float k_maxhp = 0;   // +0xc8
     float k_atk = 0;     // +0xcc
     float k_def = 0;     // +0xd0
-    float k_neutral = 0; // +0xd4 — always 50.0; no reader [UNKNOWN]
-    float k_exp = 0;     // +0xd8
-    float k_unk0xb0 = 0; // +0xdc
+    float k_neutral = 0;   // +0xd4 — always 50.0; no reader [UNKNOWN]
+    float k_unk_0xd8 = 0;  // +0xd8 — [UNKNOWN]. This was labelled EXP and is NOT.
+    float k_exp = 0;       // +0xdc — the EXP reward multiplier -> actor+0xb0
 
     // Live slots are front-packed (90/90), so this is the count.
     int drop_count() const {
@@ -164,7 +172,7 @@ struct Enemy {
 // An enemy's actual stats at spawn. `curve_at_level` is the matching GAMEINFO curve
 // evaluated at this enemy's own level — see gameinfo.hpp. The engine rounds.
 struct EnemyStats {
-    float max_hp = 0, atk = 0, def = 0;
+    float max_hp = 0, atk = 0, def = 0, exp = 0;
 };
 
 struct EnemyTable {

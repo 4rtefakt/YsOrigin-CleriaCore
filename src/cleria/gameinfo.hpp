@@ -30,7 +30,7 @@
 //
 // ## Who reads what [C-DIS]
 //
-//   FUN_004202e0 (enemy spawn) : pairs 0, 1, 2, 4 -> maxHP, ATK, DEF, actor+0xb0
+//   FUN_004202e0 (enemy spawn) : pairs 0, 1, 2, 4 -> maxHP, ATK, DEF, EXP
 //   FUN_00420c40 (player)      : pairs 6, 7, 8    -> maxHP, ATK, DEF
 //                                pair 10          -> the EXP-to-level curve
 //
@@ -57,10 +57,28 @@
 //
 // ** Why a three-character story has a four-row table: char 0 is ADOL, who is playable
 // in ARCADE MODE. ** His sprite set is C_110 (red hair, sword and shield) and the
-// player-AIA table at 0x0069bd40 lists him first. The row order matches that table
-// (see build/source_map/PLAYER_ANIM.md), so the mapping here is not guesswork about
-// which row is whom — though note cleria-view's `character - 1` conversion from
-// g_flags[150] IS still an assumption about the 1-based/0-based relation.
+// player-AIA table at 0x0069bd40 lists him first.
+//
+// The row assignment is pinned against the game's published per-level STR, not
+// assumed: Yunica 22/28/35/50/64/79/91, Hugo 23/29/36/51/65/80/92, Toal
+// 21/27/34/49/63/78/90 each land in exactly ONE row at the identical indices
+// [1,2,4,6,8,10], and row 0 matches none of the three — which is what identifies it as
+// the fourth character. So g_flags[150] (1=Yunica) maps to these rows by IDENTITY;
+// cleria-view's old `character - 1` was a real bug, caught by exactly this check.
+//
+// ** The 11 columns are Ark-engine weapon levels 1..11, inherited. ** Ys Origin awards
+// only 7 upgrades and reads indices 0,1,2,4,6,8,10 — so 3,5,7,9 are dead
+// intermediates. The tell is independent and rather good: Ys VI (Ark of Napishtim)
+// publishes an eleven-level weapon table whose Livart column, 20/27/34/41/49/56/63/
+// 70/78/85, is IDENTICAL to our row3 at indices 0..9 (diverging only at 10: ours 90,
+// Ys VI 95). Origin reuses the Ys VI engine, and this table came along with it.
+//
+// [UNKNOWN] Every character's published Lv1 STR is exactly 1 ABOVE our row[0] (Yunica
+// 22 vs 21). Lv2..7 match 18/18 across all three, so it is not a row-assignment error —
+// and 22 appears nowhere in row1 at any index, so the published Lv1 cannot come from
+// this table. Ys VI's Livart Lv1 = 20 = its index 0 with no +1, so it is not an engine
+// rule either. Most likely the published Lv1 came from a different source than its
+// Lv2..7. Cheapest resolution: read Lv1 STR off the status screen in-game.
 //
 // This is the value that closed the negative-damage puzzle. The curve above is the
 // BASE ATK, not the final one: FUN_004208f0 adds the weapon on top, into the same
@@ -104,8 +122,12 @@ enum : int {
     kEnemyAtk = 1,
     kEnemyDef = 2,
     // 3 — hole, no reader
-    kEnemyUnk0xb0 = 4,  // feeds actor+0xb0; what that IS remains [UNKNOWN]
-    // 5 — dead: byte-identical to 4, read by nothing
+    // The enemy's EXP reward -> actor+0xb0. Named by the game's own published EXP
+    // column: floor(K(ENEMYINFO+0xDC) * this curve) matches 67/67 enemies. It sat as
+    // "feeds actor+0xb0; what that IS remains [UNKNOWN]".
+    kEnemyExp = 4,
+    // 5 — byte-identical to 4 ((15, 610)). Which one the EXP path actually reads is
+    // [UNKNOWN] and undecidable from the data alone, since both give the same answer.
     kPlayerMaxHp = 6,
     kPlayerAtk = 7,
     kPlayerDef = 8,

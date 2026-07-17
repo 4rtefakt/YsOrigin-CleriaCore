@@ -62,6 +62,7 @@ EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e) {
     s.max_hp = std::floor(stat_k(e.k_maxhp) * gi.curves[kEnemyMaxHp].at(e.level));
     s.atk = std::floor(stat_k(e.k_atk) * gi.curves[kEnemyAtk].at(e.level));
     s.def = std::floor(stat_k(e.k_def) * gi.curves[kEnemyDef].at(e.level));
+    s.exp = std::floor(stat_k(e.k_exp) * gi.curves[kEnemyExp].at(e.level));
     return s;
 }
 

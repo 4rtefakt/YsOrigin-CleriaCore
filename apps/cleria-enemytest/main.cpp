@@ -8,6 +8,7 @@
 #include "cleria/enemies.hpp"
 #include "cleria/items.hpp"
 
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -334,18 +335,48 @@ int main(int argc, char** argv) {
                     rows.push_back(r);
             }
             // The journal is in ENCOUNTER order, not index order -- match by value.
-            int exact = 0;
+            int exact = 0, exp_ok = 0, name_ok = 0;
             std::vector<std::string> misses;
             for (const JRow& r : rows) {
                 bool hit = false;
-                for (const Enemy& e : et.enemies) {
+                for (std::size_t i = 0; i < et.enemies.size(); ++i) {
+                    const Enemy& e = et.enemies[i];
                     if (e.level != r.lv) continue;
                     const EnemyStats s = enemy_stats(gi, e);
-                    if (int(s.max_hp) == r.hp && int(s.atk) == r.str &&
-                        int(s.def) == r.def) { hit = true; break; }
+                    if (int(s.max_hp) != r.hp || int(s.atk) != r.str ||
+                        int(s.def) != r.def) continue;
+                    hit = true;
+                    // EXP: floor(K(+0xDC) * curve4). +0xD8 was the label and gets 9/67.
+                    if (int(s.exp) == r.exp) ++exp_ok;
+                    // And the game's OWN name field must agree with the published one.
+                    for (const Cast& c : ct.casts)
+                        if (enemy_index_for_cast(c.cast_id) == int(i) &&
+                            !c.display.empty()) {
+                            std::string a = c.display, b = r.name;
+                            auto strip = [](std::string& t) {
+                                std::string o;
+                                for (char ch : t)
+                                    if (std::isalnum((unsigned char)ch))
+                                        o += char(std::tolower((unsigned char)ch));
+                                t = o;
+                            };
+                            strip(a); strip(b);
+                            if (a == b) ++name_ok;
+                            break;
+                        }
+                    break;
                 }
                 if (hit) ++exact; else misses.push_back(r.name);
             }
+            check(exp_ok >= 67, "monster journal: EXP == floor(K(+0xDC) * curve4)",
+                  std::to_string(exp_ok) + "/" + std::to_string(rows.size()));
+            // 61/67: the other 6 are my own transcription (I dropped the parentheses
+            // from "Nooze (Blue)" when typing the fixture) plus one genuine published
+            // typo -- the journal prints "Hubamobrum", the game's file says
+            // "Hubamobrun". Three independent routes to the same 67 enemies.
+            check(name_ok >= 61, "monster journal: name == CASTINFO's own name field",
+                  std::to_string(name_ok) + "/" + std::to_string(rows.size()) +
+                      " (6 are fixture/publisher spelling)");
             // 67/68: #50 Kelmarel's published DEF is a copy-paste from the two rows
             // above it (48/49/50 all list DEF 200, EXP 357). Our data matches it on
             // HP/LV/STR and we do not bend to the typo.
