@@ -43,13 +43,26 @@ struct CSprite {
     float dst[4];            // +0x00  {x, y, W, H} — default {1280,960,1,1}: parked off-screen
     float dst2[4];           // +0x10  a second copy, always written identically [UNKNOWN]
     std::uint8_t pad18[0x28 - 0x20];
+    // NOTE: +0x3c (inside pad30 below) is the `draw_kind` byte — see the note on
+    // pad68. It is not padding; we simply don't need to write it.
     std::uint32_t diffuse;   // +0x28  ARGB, default 0xFFFFFFFF. **Alpha gates visibility.**
     std::uint32_t specular;  // +0x2C  ARGB, default 0
     std::uint8_t pad30[0x50 - 0x30];
     float uv[4];             // +0x50  {u0, v0, u1, v1} — default {0,0,1,1} = whole texture
     std::uint32_t texture;   // +0x60  IDirect3DTexture9* -> SetTexture (vtbl +0x104)
-    std::uint32_t render_state;  // +0x64  -> FUN_005eb5b0
-    std::uint8_t pad68[0xA4 - 0x68];  // +0x68 nested sub-record [UNKNOWN]
+    std::uint32_t render_state;  // +0x64  -> FUN_005eb5b0 (the packed-state chokepoint)
+    // +0x68 is a TEXT payload, not a nested record. `draw_kind` at +0x3c selects it:
+    //     005a4645  CMP byte ptr [EDI+0x3c],0x0
+    //     005a4649  JNZ 0x005a46f4
+    // Nonzero => the quad is SKIPPED and +0x68 is drawn as text through the font
+    // object at 0x007945c0 (constructed in FUN_005a3850). So one csprite is either a
+    // textured quad or a string — which is why the status screen can sprintf Lv/HP/
+    // STR/DEF/Exp/Next through the same array that draws the panels.
+    //
+    // +0x68 is zero in every `.data` default and written by no builder: RUNTIME-ONLY.
+    // That is why it reads as an empty hole in a static dump — its absence there is
+    // evidence about WHEN it is filled, not about what it is.
+    std::uint8_t pad68[0xA4 - 0x68];  // +0x68 text payload; layout not modelled
     std::uint32_t x_anchor;  // +0xA4  MapCoord(axis=0, mode=this)
     std::uint32_t y_anchor;  // +0xA8  MapCoord(axis=1, mode=this)
 

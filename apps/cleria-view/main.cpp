@@ -793,8 +793,11 @@ static WGPUTextureView make_depth(WGPUDevice dev, std::uint32_t w, std::uint32_t
 // typical 60-degree game camera — nearly orthographic. kCamDist is paired with this
 // to hold the character's on-screen size: change one and you must change the other
 // (dist is proportional to 1/tan(fov/2)).
-// NOTE: hand-tuned against reference screenshots. The authored value probably lives in
-// the SCM camera payload — prefer that once it's decoded.
+// This is only a STARTING value for free-fly. In play mode `update_camera` overwrites
+// it every frame from the room's SCM camera region (`g_fov = g_cam.fov`), so the game's
+// authored FOV wins and this number never reaches the screen. It was hand-tuned against
+// screenshots back when the SCM camera payload was undecoded; kept as the free-fly
+// default only.
 static float g_fov = 0.4712f;  // 27 degrees
 
 // ---- free-fly camera --------------------------------------------------------
