@@ -35,10 +35,34 @@ inline float damage_real(const AttackStats& a, float def) {
     return std::fmax(a.min_dmg, std::fmax(0.0f, raw));
 }
 
-// The engine does NOT round or truncate: it rounds PROBABILISTICALLY. The fractional
-// part is a percent chance to round up, so 3.25 damage is 3 damage 75% of the time
-// and 4 the other 25% — the average is exact over many hits while every individual
-// hit stays an integer. `roll` must return true with the given percent probability.
+// ** DISPUTED — DO NOT TREAT THE ROUNDING AS SETTLED. **
+//
+// The damage path computes `floor(d)` and then conditionally adds 1 based on the
+// fractional part, via a call whose identity is contested by two disassembly passes:
+//
+//   pass A (build/combat_re/damage.json): the call is `chance(percent) -> bool`,
+//     backed by the xorshift RNG at DAT_0074622c..0x74623c. Then the step is
+//     PROBABILISTIC: frac is a percent chance to round up, so 3.25 damage is 3
+//     seventy-five percent of the time and 4 otherwise — exact on average, integral
+//     per hit. That is what this function implements.
+//
+//   pass B (build/stats_re/stats.json): FUN_004217f0 is a 55-byte roundf() wrapper
+//     with NO RNG, no branch and no comparison. Its evidence is strong and partly
+//     decisive: FUN_00420c40 uses that function's RESULT AS maxHP, and a bool would
+//     make player maxHP 0 or 1. If the damage path really calls it, the step is
+//     `roundf(frac*100) != 0`, i.e. DETERMINISTIC and true whenever frac >= 0.005 —
+//     effectively a ceiling, and a systematic +1 bias against what we do here.
+//
+// Pass B did NOT re-disassemble the damage path to confirm which address it calls,
+// so both can be true at once: FUN_004217f0 is roundf AND the damage path calls a
+// different, genuinely stochastic helper that pass A found and mis-addressed. The
+// two passes agree that FUN_00671000 is the underlying floor/round primitive.
+//
+// The probabilistic reading is kept because it is the one that fits the damage path's
+// own shape — a `frac * 100` argument is meaningless to roundf (it would just be a
+// convoluted ceiling) and natural to a percent chance. But `roll` is a parameter
+// precisely so this is swappable: pass `[](float){ return true; }` to get pass B's
+// deterministic behaviour and the caller need not change.
 template <typename RollPercent>
 inline int damage_int(const AttackStats& a, float def, RollPercent&& roll) {
     const float d = damage_real(a, def);
