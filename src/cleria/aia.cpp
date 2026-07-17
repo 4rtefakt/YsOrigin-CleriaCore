@@ -161,7 +161,7 @@ bool Aia::decode_frame_composited(std::uint32_t image, std::uint32_t dir,
     if (!decode_frame(image, dir, frame, out)) return false;
     if (std::getenv("CLERIA_NOLAYER")) return true;  // A/B the composite
     AiaFrame layer;
-    // Additive: [H-high] the engine's blend. See aia.hpp's note on `has_layer`.
+    // Additive: [C-DIS] SRCALPHA/ONE. See aia.hpp's note on `has_layer`.
     if (decode_frame_layer(image, dir, frame, layer)) composite_add(out, layer);
     return true;
 }
@@ -205,9 +205,10 @@ void finish(AiaFrame& body, Canvas& c) {
 }
 }  // namespace
 
-// [H-high] the engine's blend. Saturating add of the layer's colour, alpha maxed.
-// Pure black is the identity here, which is why ~22% of a layer's opaque pixels can
-// be black without punching holes — the fact the additive reading rests on.
+// [C-DIS] the engine's blend for the layer pass: SRCALPHA/ONE. Saturating add of the
+// layer's colour modulated by its own alpha, destination alpha maxed. Pure black is
+// the identity here, which is why ~22% of a layer's opaque pixels can be black
+// without punching holes — the observation that predicted this before we found it.
 void composite_add(AiaFrame& body, const AiaFrame& layer) {
     if (layer.w == 0 || layer.h == 0) return;
     if (body.w == 0 || body.h == 0) { body = layer; return; }
@@ -221,7 +222,6 @@ void composite_add(AiaFrame& body, const AiaFrame& layer) {
                 ((std::size_t(layer.y0 - c.y0 + y)) * c.w + (layer.x0 - c.x0 + x)) * 4;
             for (int k = 0; k < 3; ++k) {
                 // SRCALPHA/ONE — the layer is modulated by its own alpha, then added.
-                // If the true state turns out to be ONE/ONE, drop the `* sa / 255`.
                 const std::uint32_t add = layer.rgba[si + k] * sa / 255;
                 c.px[di + k] = std::uint8_t(std::min<std::uint32_t>(255, c.px[di + k] + add));
             }

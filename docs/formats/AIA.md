@@ -94,26 +94,46 @@ Layer presence is **per-frame and direction-independent**, appearing in contiguo
 runs and strobes — `M_850` tag 303 is `..#..#..#.....` identically across all 8
 directions. It is an authored effect envelope, not a state.
 
-**`[H-high]` The blend is ADDITIVE, not straight alpha.** Layers carry ~7× the
-opaque-black pixels bodies do (`build/aia_re/black_test.py`):
+**`[C-DIS]` The blend is ADDITIVE, and the body and the layer get DIFFERENT states.**
+`FUN_004745a0` (at `0x004747e0`) draws the pair in two passes:
 
-| file | body opaque-black | layer opaque-black |
-|---|---|---|
-| `C_104.AIA` | 0.2% | 11.5% |
-| `C_112.AIA` | 0.6% | **22.6%** (38×) |
-| `M_860.AIA` | 3.7% | 19.5% |
-| **total** | **1.3%** | **8.8%** |
+| pass | packed state | texture | resulting blend |
+|---|---|---|---|
+| **body** | `actor[0x294] \| 0x200` (fog only — **no blend bit**) | `sprite +0x04` | `SRCALPHA/INVSRCALPHA` |
+| **layer** | `actor[0x294] \| 0x80` | `sprite +0x30` | **`SRCALPHA/ONE` — additive** |
 
-Under straight-alpha OVER an opaque black pixel punches a black hole; **under
-additive it is the identity — free.** Authoring 22.6% of an overlay's opaque pixels
-as pure black only makes sense against an additive blend. `comp_c115.png` agrees
-perceptually: `over` erases the body, `add` yields a purple-glowing Toal.
+Both passes OR into the *same* base, so **the delta is proven regardless of what
+`actor[0x294]` holds at runtime** (its value is `[UNKNOWN]`; we are confident in the
+difference, not the body's absolute state).
 
-> **`[UNKNOWN]` The exact blend mode still needs disassembly.** The evidence above is
-> strong but circumstantial; the actual render state lives in the exe's 2D sprite
-> draw call (`SetRenderState(D3DRS_SRCBLEND/DESTBLEND)`), not in the AIA. Expect
-> `SRCALPHA/ONE` or `ONE/ONE` — **C_104's flash is the discriminating frame**
-> (whiteout under `add`, subtle under `add × alpha`).
+**No draw path sets `D3DRS_SRCBLEND`/`DESTBLEND` itself.** Everything funnels through
+**`FUN_005eb5b0(ECX = packed state dword)`**, a global chokepoint with 43 call sites
+that decodes a packed bitfield into `SetRenderState` calls; **bit 7 (`0x80`) is the
+additive bit**, gate mask `0x1200088`, and no gate bit at all means straight alpha.
+A second path, `FUN_00474290`, draws the layer with the hardcoded literal `0x247c1`
+— bit 7 set — which is an independent confirmation.
+
+`SetRenderState` is vtable **`+0xe4`** (`SetTexture` `+0x104`, `DrawPrimitiveUP`
+`+0x144`).
+
+**`[C-DIS]` The engine can select PREMULTIPLIED (`ONE/INVSRCALPHA`) per file** — the
+constructor reads **header byte `+6`, bit 2** and a `CMOVNZ` picks it over additive.
+**`[C-COR]` That branch is unreachable in the shipped data: bit 2 is set in 0 of 147
+AIA files.** Every layer in the game is additive. (Compare the `type != 0` track
+branch in [YMO.md](YMO.md) — the second unreachable path we have now found.)
+
+**`[C-COR]` Header byte `+6` bit 0 allocates the layer texture** — it is *necessary,
+not sufficient*: bit 0 clear ⇒ the file has no layers at all (**59/59**), but bit 0
+set only means the texture exists (**28 of 88** such files actually use it). Do not
+read it as "this file has layers"; read the region flags for that.
+
+**How the additive reading was reached, and why it is worth noting:** the blend mode
+is not in the AIA. It was *predicted* from the data — layers carry ~7× the opaque-
+black pixels bodies do (C_112: 22.6% vs 0.6%), and under alpha-OVER an opaque black
+pixel punches a hole while under additive it is the identity, so nobody authors 22.6%
+of an overlay as pure black against OVER. That reasoning was tagged `[H-high]` and
+sent to the disassembler to be *refuted*; it survived exactly. The prediction is the
+evidence, but the exe is the proof.
 
 > **Retracted: "the obvious reading is refuted; the layer is a state variant."** An
 > earlier revision of this section said exactly that, on the strength of one file:

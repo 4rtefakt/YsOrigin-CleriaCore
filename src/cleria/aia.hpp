@@ -30,9 +30,11 @@ struct AiaImage {  // one animation
 // of the two. Both frames carry their own canvas origin (x0,y0) — that is what
 // aligns them; their tight bboxes generally differ (only 34% coincide).
 //
-// `_over` is straight alpha, layer on top. `_add` is ADDITIVE — [H-high] the one the
-// engine uses; see the note on `has_layer` below. They differ enormously in practice:
-// on C_115, `_over` erases Toal and `_add` gives him a purple glow.
+// `_over` is straight alpha, layer on top. `_add` is ADDITIVE (SRCALPHA/ONE) — [C-DIS]
+// the one the engine uses for layers; see the note on `has_layer` below. They differ
+// enormously in practice: on C_115, `_over` erases Toal and `_add` gives him a purple
+// glow. The BODY is drawn SRCALPHA/INVSRCALPHA, i.e. `_over`'s blend — the two passes
+// genuinely differ, which is the whole point.
 void composite_over(AiaFrame& body, const AiaFrame& layer);
 void composite_add(AiaFrame& body, const AiaFrame& layer);
 
@@ -83,11 +85,23 @@ struct Aia {
     // tag 300 is a spark falling while the body stands still; M_910 tag 7 is orbs
     // flying out and returning; C_114 tag 268 is a flaming sword sweeping the canvas.
     //
-    // [H-high] THE BLEND IS ADDITIVE. Layers carry ~7x the opaque-black pixels bodies
-    // do (C_112: 22.6% vs 0.6%). Under alpha-OVER an opaque black pixel punches a
-    // hole; under additive it is the identity — free. Nobody authors 22.6% of an
-    // overlay as pure black against OVER. [UNKNOWN] the exact D3D state (SRCALPHA/ONE
-    // vs ONE/ONE) still needs disassembly — it lives in the exe's sprite draw call.
+    // [C-DIS] THE BLEND IS ADDITIVE — confirmed in the exe, and the body and the layer
+    // get DIFFERENT states. `FUN_004745a0` draws the pair in two passes that OR into
+    // the same base, so the delta holds whatever the base is at runtime:
+    //
+    //   body  : state = actor[0x294] | 0x200          -> SRCALPHA/INVSRCALPHA
+    //   layer : state = actor[0x294] | 0x80           -> SRCALPHA/ONE   (ADDITIVE)
+    //
+    // No draw path sets SRCBLEND/DESTBLEND itself: everything funnels through
+    // `FUN_005eb5b0(ECX = packed state)`, a 43-call-site chokepoint that decodes a
+    // packed bitfield, and **bit 7 (0x80) is the additive bit**. A second path,
+    // `FUN_00474290`, draws the layer with the literal 0x247c1 — bit 7 set. (This
+    // vindicates the opaque-black argument above, which is what predicted it.)
+    //
+    // The engine can also select PREMULTIPLIED (ONE/INVSRCALPHA) per file, via
+    // header byte +6 bit 2. **That branch is unreachable in the shipped data: bit 2
+    // is set in 0 of 147 AIA files.** Every layer in the game is additive, so
+    // `composite_add` covers the corpus and the premultiplied path is not implemented.
     //
     // `composite_add` is therefore the one to use; `composite_over` is kept because
     // it makes the old refutation reproducible and because the two side by side are
