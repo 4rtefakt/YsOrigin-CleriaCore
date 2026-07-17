@@ -78,10 +78,13 @@ answer blocks.
 4. **DONE — the validated chain reaches spawn.** An enemy spawn runs
    `enemy_index_for_cast()` → ENEMYINFO → GAMEINFO and lands real hp/atk/def/exp on the
    actor.
-5. **NOT STARTED — migrate `cleria-view` off `.SCT`.** It still spawns from the
-   placement list. The room's `.XSO` is what the game uses; keep `.SCT` as the fallback
-   for rooms whose scripts we cannot yet run, and say so at the call site. This is the
-   next buildable step.
+5. **DONE — `cleria-view` spawns through `ActorWorld`.** Enemies are real Actors now,
+   not a bespoke `EnemyInst`, and the SCT->stat chain that was copied THREE times (view
+   interactive, view headless, world.cpp) is collapsed onto `ActorWorld::spawn`. SCT is
+   a faithful path, not a stopgap — its consumer `FUN_004341a0` is a real creation site.
+   The `.XSO` script spawn path is additive and layers on once the room-load RE lands.
+   Verified GPU-free by a worldtest check spawning a real room's SCT (`--play` can't run
+   headlessly; the crash is pre-existing, confirmed against HEAD).
 6. **DONE — `cleria-worldtest`.** 36 checks: the spawn sequence, the id scheme, the
    player fork, damage on a live actor (a lv1 attacker kills a 60-HP enemy in ~7 hits,
    as combat.hpp predicted, and deals a lv60 enemy 0 — the min_dmg floor), and END TO
