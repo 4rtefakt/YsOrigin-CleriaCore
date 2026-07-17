@@ -37,7 +37,8 @@ add_library(cleria STATIC
   src/cleria/csprite.cpp
   src/cleria/minifont.cpp
   src/cleria/effectdef.cpp
-  src/cleria/surface.cpp)
+  src/cleria/surface.cpp
+  src/cleria/world.cpp)
 target_include_directories(cleria PUBLIC src)
 
 # cleria-dump — load a room and export it to .obj (no GPU).
@@ -54,6 +55,10 @@ target_link_libraries(cleria-aiatest PRIVATE cleria)
 # cleria-enemytest — assert ENEMYINFO's drop-table invariants against the corpus.
 add_executable(cleria-enemytest apps/cleria-enemytest/main.cpp)
 target_link_libraries(cleria-enemytest PRIVATE cleria)
+
+# cleria-worldtest — spawn real actors from the real tables and hit one.
+add_executable(cleria-worldtest apps/cleria-worldtest/main.cpp)
+target_link_libraries(cleria-worldtest PRIVATE cleria)
 
 # cleria-asotest — validate the ASO container + run the animation-script VM.
 add_executable(cleria-asotest apps/cleria-asotest/main.cpp)

@@ -1,0 +1,165 @@
+// The Actor — a live entity in a room. **Our struct, not the game's.**
+//
+// ## This is a reimplementation, so the layout is ours [design]
+//
+// build/entity_re/ENTITY.md gives the engine's real offsets (`GoActor`: +0x94 max HP,
+// +0x98 HP, +0x130 the group bits, +0x2b4 a marker colour, and a total size in the
+// 0x9xx range). **We do not reproduce that layout.** Mirroring it would import the
+// engine's accidents — padding, dead fields, MSVC's choices — into code that has no
+// reason to carry them, and this project is a clean-room reimplementation, not a
+// decompilation.
+//
+// So: fields are named for MEANING, and each cites the offset it was derived from.
+// ** The offsets below are PROVENANCE, not layout. ** Nothing here is at +0x94.
+//
+// What we DO reproduce exactly is observable BEHAVIOUR, quirks included (see the
+// group note on `tag`).
+//
+// ## A field that is absent is a field we have not validated
+//
+// Everything here traces to a read instruction. The engine's actor carries a great
+// deal more that we have not established, and it stays out: an empty slot is honest,
+// and a guessed one is the failure mode this codebase exists to avoid.
+#pragma once
+#include <cstdint>
+
+#include "cleria/combat.hpp"  // owns kActorDead and the damage path
+#include "cleria/mathx.hpp"
+#include "cleria/physics_player.hpp"
+
+namespace cleria {
+
+// The cast id of CAST_ADOL — the player. The damage path's own test is `cast != 13`
+// (actor+0x124), and it forks the whole formula on it (see combat.hpp).
+inline constexpr int kPlayerCast = 13;
+
+// The KIND WORD — actor+0x60, a u32. ** It is not CASTINFO+0x6c. ** The factory
+// (FUN_00459410) TRANSFORMS the cast's class into it [C-DIS]:
+//
+//     CASTINFO+0x6c   2  ->  0x81
+//                     4  ->  0x84
+//                  0x10  ->  0x88     (0x10 == monster, per cast.hpp)
+//
+// i.e. 0x80 | a one-bit class code. ** Bit 0x8 means ENEMY, ** and it gates group
+// tagging at 0x5704f7 (`TEST byte ptr [ESI+0x60],0x8` — the low byte of this u32).
+//
+// ** Storing the raw CASTINFO value here and testing `& 0x8` would be silently,
+// totally wrong: ** none of {0, 2, 4, 0x10} has bit 0x8 set, so the enemy gate would
+// be false for every actor in the game and nothing would ever tag. The transform is
+// where the bit comes from. This header first said "class byte, set from CASTINFO+0x6c"
+// and that sentence was the whole bug.
+//
+// [UNKNOWN] what casts with CASTINFO+0x6c == 0 become; ENTITY.md observed the domain
+// as {2, 4, 16} and cast.hpp records a 0 class, so one of the two is incomplete.
+// +0x64 is written alongside (0x3c/0x3f/0x2f) and means [UNKNOWN].
+enum : std::uint32_t { kKindEnemy = 0x8 };
+inline constexpr std::uint32_t kind_word(std::int32_t cast_class) {
+    switch (cast_class) {
+        case 2:    return 0x81;
+        case 4:    return 0x84;
+        case 0x10: return 0x88;
+        default:   return 0;  // [UNKNOWN] — not observed; deliberately not invented
+    }
+}
+
+// ** kActorDead (actor+0x3bc bit 0x10) is owned by combat.hpp, with apply_damage() **
+// — do not redefine it here. This header did, briefly, and the only reason it built is
+// that no TU happened to include both; the first one to try would have hit a
+// redefinition. Death is a deferred FLAG, not a call, and combat.hpp carries why
+// (sub-1 HP is death, and the player's revive can XOR the bit back off). What CONSUMES
+// the flag, and where the actor is actually removed, is [UNKNOWN] — one of the
+// questions blocking the tick (docs/PLAN.md).
+
+// Spawn groups, from the XSO spawn op 0x12c (FUN_00570400, ENTITY.md).
+//
+// ** The "groups" OVERLAP, and that is the engine's real behaviour. ** The setter
+// writes `n << 8` into +0x130 and the reader (FUN_00570640) masks with `n << 8`, so
+// this is a 3-BIT VALUE at bits 8..10 tested by bitwise-AND — not four independent
+// bits. A group-3 entity therefore answers YES to a query for group 1 or group 2.
+// The compiler expanded both sides as jump tables, which disguised the shift and had
+// a prior pass reporting `3 -> 0x300` as "unexplained but real".
+//
+// In the shipped game this never bites: only group 1 is ever used (157 group-1 spawns
+// across 33 XSO files, and no other). So it is documented and reproduced rather than
+// designed around — `in_group()` masks exactly as the engine does, and if a room ever
+// wants 3, it gets the game's answer instead of a tidier one.
+struct SpawnTag {
+    std::uint32_t bits = 0;  // engine: entity+0x130, bits 8..10
+
+    // The op honours 1..4 only; 0 means untagged and anything else is ignored.
+    void set(int group) {
+        if (group >= 1 && group <= 4) bits = std::uint32_t(group) << 8;
+    }
+    bool tagged() const { return (bits & 0x700u) != 0; }  // the engine's own test
+    bool in_group(int group) const {
+        return group >= 1 && group <= 4 && (bits & (std::uint32_t(group) << 8)) != 0;
+    }
+};
+
+struct Actor {
+    // --- identity ---
+    // engine: +0x128. ** PER-INSTANCE, and not the cast id ** — this is the key every
+    // query op resolves through (FUN_00434d50 linear-scans for it). The DEFAULT is the
+    // cast type, which makes the two look interchangeable across the corpus; they are
+    // not. EVNT_3002_THOR.XSO spawns five instances of cast 35 as ids 167..171.
+    int instance_id = 0;
+    int cast_id = 0;      // engine: +0x124. Indexes CASTINFO; 13 is the player.
+    int enemy_index = -1; // ours: enemies.hpp fold of cast_id, or -1 if not an enemy.
+    std::uint32_t kind = 0;  // engine: +0x60, the kind word. See kind_word().
+    SpawnTag tag;            // engine: +0x130
+
+    // The engine takes the player's identity from CASTINFO+0x60 == 13 (i.e. the
+    // CAST_ADOL record), NOT from the spawn op's operand [C-DIS].
+    bool is_player() const { return cast_id == kPlayerCast; }
+    bool is_enemy() const { return (kind & kKindEnemy) != 0; }
+
+    // --- vitals ---
+    // engine: +0x98 / +0x94, both float. The event VM's "is alive" (sub-op 0x13f) is
+    // `hp >= 1.0` — NOT `> 0`. Kept as the engine's test rather than the obvious one.
+    float hp = 0;
+    float max_hp = 0;
+    bool alive() const { return hp >= 1.0f; }
+
+    // --- combat ---
+    // engine: +0xa4. ** The level curve PLUS equipment ** — never the bare curve; see
+    // combat.hpp, where feeding the curve alone drives the formula negative.
+    float atk = 0;
+    float def = 0;  // engine: +0xa8 — read from the TARGET and subtracted.
+    // engine: +0xb0. The EXP this actor awards when killed:
+    // FLOOR(K(ENEMYINFO+0xDC) * GAMEINFO's curve 4). Validated 67/67.
+    float exp_reward = 0;
+
+    // engine: +0x734, a DWORD (not a byte — +0x4bf, the footstep counter, is the byte
+    // idiom and they are not the same). ** Gates damage FOR THE PLAYER ONLY: ** the
+    // engine's test is `cast != 13 || i_frames == 0`, so every non-player cast is
+    // always hittable. Enemy hit-spam is vanilla. Grant with grant_iframes() in
+    // combat.hpp — granting is a max(), never a store.
+    std::uint32_t i_frames = 0;
+
+    // engine: +0x3bc. Test with kActorDead.
+    std::uint32_t flags = 0;
+    bool dead() const { return (flags & kActorDead) != 0; }
+
+    // --- placement and motion ---
+    Vec3 pos{};
+    float yaw = 0;         // radians
+    float floor_y = 0;     // engine: +0x318 — the floor under this actor
+    VerticalState vert;    // engine: +0x330, the signed timer (physics_player.hpp)
+
+    // engine: +0x120 <- CASTINFO+0x64. [H-high] an AI HANDLER INDEX — genuinely
+    // stored (0x4342c1 -> FUN_00459410), but no consumer INDEXING it has been read.
+    // ** It is also a known decoy: ** it equals enemy_index + 3 across the M_ range,
+    // which is why it once scored 78/80 as a fake ENEMYINFO index. Kept because the
+    // engine keeps it; do not index anything with it.
+    std::int32_t ai_index = 0;
+
+    // --- ours, not the engine's ---
+    // The level the stats were computed at. ** Whether the engine's actor retains its
+    // level is [UNKNOWN] ** — the spawn path (FUN_004202e0) reads ENEMYINFO+0xe8, feeds
+    // the GAMEINFO curve, and we have not traced it being kept afterwards. We keep it
+    // because our own code wants to explain a stat block. Flagged so nobody later reads
+    // this as an engine fact.
+    int level = 0;
+};
+
+}  // namespace cleria
