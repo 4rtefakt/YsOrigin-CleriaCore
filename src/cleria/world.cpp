@@ -123,15 +123,16 @@ void ActorWorld::spawn_placements() {
 // horizontal — the caller floor-snaps (it owns the geometry). No-op for the player, for
 // statless casts, or when there is no player / it is out of activation range.
 void ActorWorld::update_actor(Actor& a) {
-    if (!player_ || &a == player_ || !a.is_enemy() || a.move_speed <= 0 || !a.alive())
-        return;
+    if (!player_ || &a == player_ || !a.is_enemy() || !a.alive()) return;
     const float dx = player_->pos.x - a.pos.x;
     const float dz = player_->pos.z - a.pos.z;
     const float d2 = dx * dx + dz * dz;
     if (d2 >= kEnemyActivationRadius * kEnemyActivationRadius) return;  // anim-only far off
 
-    // Turn the heading toward the player, capped. Heading convention matches the mover:
-    // vx = sin(h), vz = cos(h), so the target is atan2(dx, dz).
+    // AIM toward the player -- EVERY enemy in range, mobile or not (build/mobility_re:
+    // facing +0x314 turns independent of translation, so a rooted turret still tracks
+    // you). Heading convention matches the mover: vx = sin(h), vz = cos(h), so the
+    // target is atan2(dx, dz).
     const float target = std::atan2(dx, dz);
     float dyaw = target - a.yaw;
     while (dyaw > 3.14159265358979323846f) dyaw -= 2.0f * 3.14159265358979323846f;
@@ -140,8 +141,13 @@ void ActorWorld::update_actor(Actor& a) {
     if (dyaw < -kEnemyTurnRate) dyaw = -kEnemyTurnRate;
     a.yaw += dyaw;
 
-    a.pos.x += std::sin(a.yaw) * a.move_speed;
-    a.pos.z += std::cos(a.yaw) * a.move_speed;
+    // MOVE only if it has a chase speed. speed 0 == immobile (mechanically frozen: the
+    // engine's mover multiplies by ENEMYINFO+0x94*+0x98). Exactly 4 shipped casts are
+    // speed 0 (Normous, Nustarl, Sevnam, M990) -- they aim but never translate.
+    if (a.move_speed > 0) {
+        a.pos.x += std::sin(a.yaw) * a.move_speed;
+        a.pos.z += std::cos(a.yaw) * a.move_speed;
+    }
 }
 
 // FUN_004281c0, one simulation step. Player first, then the live list in spawn order

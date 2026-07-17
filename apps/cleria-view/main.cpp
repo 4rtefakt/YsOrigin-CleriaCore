@@ -1198,16 +1198,15 @@ struct VsOut { @builtin(position) pos : vec4<f32>, @location(0) uv : vec2<f32>,
 struct EnemyFx {
     struct Kind {
         Aia aia;
-        SpriteTex dirs[8];
-        std::vector<SpriteTex> anim;   // the camera-facing dir's idle frames, cycled
+        std::vector<SpriteTex> anim[8];   // idle animation frames, per facing direction
         std::uint32_t ndir = 0;
         float height = 1.6f;
     };
     std::unordered_map<std::string, Kind> kinds;   // sprite stem -> decoded facings
 
-    // Decode one enemy type's idle animation: frame 0 for every facing (the fallback),
-    // plus ALL frames of the camera-facing direction so draw_enemies can cycle them.
-    // Idempotent per stem.
+    // Decode ALL frames of one enemy type's idle animation for EVERY facing, so
+    // draw_enemies can both rotate (pick the dir from the enemy's heading) and animate
+    // (cycle the frames). Idempotent per stem.
     void load_kind(Gpu& g, const fs::path& asset_root, const std::string& stem) {
         if (stem.empty() || kinds.count(stem)) return;
         Kind k;
@@ -1217,23 +1216,14 @@ struct EnemyFx {
             if (k.aia.images[i].tag == 0x2) { img = int(i); break; }   // idle
         if (img < 0) img = 0;
         k.ndir = k.aia.images[img].nDir;
-        std::uint32_t tall = 1;
-        for (std::uint32_t d = 0; d < 8 && d < k.ndir; ++d) {
-            AiaFrame fr;
-            if (!k.aia.decode_frame_composited(std::uint32_t(img), d, 0, fr)) continue;
-            k.dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
-            tall = std::max(tall, fr.h);
-        }
-        // The animation frames for the camera-facing dir (dir 6, or 0 if fewer). Real
-        // per-frame timing lives in each enemy's ASO Wait, which we don't run per enemy,
-        // so draw_enemies cycles them at a fixed rate -- a stand-in until per-enemy ASO.
-        const std::uint32_t cdir = (6 < k.ndir) ? 6u : 0u;
         const std::uint32_t nfr = k.aia.images[img].nFrame;
-        for (std::uint32_t f = 0; f < nfr; ++f) {
-            AiaFrame fr;
-            if (!k.aia.decode_frame_composited(std::uint32_t(img), cdir, f, fr)) continue;
-            k.anim.push_back(upload_rgba(g, fr.w, fr.h, fr.rgba.data()));
-            tall = std::max(tall, fr.h);
+        std::uint32_t tall = 1;
+        for (std::uint32_t d = 0; d < 8 && d < k.ndir; ++d)
+            for (std::uint32_t f = 0; f < nfr; ++f) {
+                AiaFrame fr;
+                if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
+                k.anim[d].push_back(upload_rgba(g, fr.w, fr.h, fr.rgba.data()));
+                tall = std::max(tall, fr.h);
         }
         // Scale off the sprite's own pixel height, against the player's known
         // ~76px / 2.0 world units. Their true size is not established.
@@ -1333,21 +1323,33 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                          EnemyFx& fx, const std::vector<EnemyRender>& list,
                          const Vec3& camFwd, float t_anim) {
     constexpr float kEnemyAnimFps = 8.0f;   // TUNED: real rate is per-enemy ASO Wait
+    // Screen basis, matching the player's facing calibration: horizontal camera forward
+    // (screen-up) and its right. The enemy's heading is mapped into this basis so the
+    // sprite ring rotates with the enemy the same way the player's does.
+    Vec3 fwdH = {camFwd.x, 0, camFwd.z};
+    const float fl = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
+    if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
+    const Vec3 rt = normalize(cross(Vec3{0, 1, 0}, fwdH));
     for (const EnemyRender& e : list) {
         if (!e.actor || !e.actor->alive()) continue;
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
         const EnemyFx::Kind& k = it->second;
-        // Always face the camera (enemy direction rings are per-file and unverified).
-        // Cycle the idle frames, offset per instance so a crowd is not in lockstep.
-        const SpriteTex* t = nullptr;
-        if (!k.anim.empty()) {
-            const int n = int(k.anim.size());
-            const int fi = ((int(t_anim * kEnemyAnimFps) + e.actor->instance_id * 2) % n + n) % n;
-            t = &k.anim[fi];
-        } else {
-            t = &k.dirs[6 < k.ndir ? 6 : 0];
-        }
+        // Facing: the enemy's heading (yaw, vx=sin/vz=cos convention) mapped to the same
+        // 8-dir ring the player uses -- up->dir2 (back), right->dir0, down->dir6 (front).
+        // A chasing enemy faces the player (~the camera), so it mostly shows its front.
+        const Vec3 hd = {std::sin(e.actor->yaw), 0, std::cos(e.actor->yaw)};
+        const float sUp = hd.x * fwdH.x + hd.z * fwdH.z;
+        const float sRt = hd.x * rt.x + hd.z * rt.z;
+        const float deg = std::atan2(sUp, sRt) * 57.29578f;
+        int dir = int(std::lround((deg + 360.0f) / 45.0f)) & 7;
+        if (dir >= int(k.ndir) || k.anim[dir].empty()) dir = 0;   // fewer facings shipped
+        const std::vector<SpriteTex>& frames = k.anim[dir];
+        if (frames.empty()) continue;
+        // Cycle the frames, offset per instance so a crowd is not in lockstep.
+        const int n = int(frames.size());
+        const int fi = ((int(t_anim * kEnemyAnimFps) + e.actor->instance_id * 2) % n + n) % n;
+        const SpriteTex* t = &frames[fi];
         if (!t->tex) continue;
         // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
         const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
