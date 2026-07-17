@@ -183,6 +183,9 @@ fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
                   0.0, 1.0);
     c = mix(u.fogColor.rgb, c, f);
   }
+  // Hit-flash: the vertex-colour alpha carries a white-tint amount (0 normally). The
+  // room shader (fs) never reads color.a, so this channel is free for characters.
+  c = mix(c, vec3<f32>(1.0, 1.0, 1.0), in.color.a);
   return vec4<f32>(c, tc.a);
 }
 )WGSL";
@@ -1055,15 +1058,17 @@ struct CharSprite {
 // camera view direction. Reuses the room pipeline (alpha-test + white modulate).
 static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                            const Vec3& feet, float worldH, const SpriteTex& spr,
-                           const Vec3& camForward) {
+                           const Vec3& camForward, float flash = 0.0f) {
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
     const float Wc = worldH * (float(spr.w) / float(spr.h));
     const Vec3 ctr = {feet.x, feet.y + worldH * 0.5f, feet.z};
+    // Vertex-colour alpha carries the hit-flash amount (fs_char lerps to white by it).
+    const std::uint8_t fa = std::uint8_t(std::max(0.0f, std::min(1.0f, flash)) * 255.0f);
     auto V = [&](float sx, float sy, float u, float v) -> RoomVertex {
         return {ctr.x + right.x * sx * Wc * 0.5f, ctr.y + sy * worldH * 0.5f,
-                ctr.z + right.z * sx * Wc * 0.5f, 0, 0, -1, u, v, 255, 255, 255, 255};
+                ctr.z + right.z * sx * Wc * 0.5f, 0, 0, -1, u, v, 255, 255, 255, fa};
     };
     RoomVertex verts[4] = {V(-1, 1, 0, 0), V(1, 1, 1, 0), V(1, -1, 1, 1), V(-1, -1, 0, 1)};
     std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
@@ -1309,7 +1314,9 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // and there is no AI yet to give them a heading.
         const SpriteTex& t = k.dirs[6 < k.ndir ? 6 : 0];
         if (!t.tex) continue;
-        draw_character(g, color, depth, e.actor->pos, k.height, t, camFwd);
+        // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
+        const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
+        draw_character(g, color, depth, e.actor->pos, k.height, t, camFwd, flash);
     }
 }
 
@@ -2246,15 +2253,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     std::string cur_aia;
     // Load whatever sprite the script asks for. Falls back to our old hardcoded
     // choice only if the script gives nothing (e.g. a missing ASO).
-    auto sync_aia = [&]() {
+    auto sync_aia = [&]() -> bool {  // true if it swapped the AIA this call
         const char* want = aso_aia_name(avm.file_id());
         const std::string stem = (want && *want) ? std::string(want)
                                                  : std::string(char_aia(character)).substr(0, 5);
-        if (stem == cur_aia) return;
+        if (stem == cur_aia) return false;
         if (chr.load(g, asset_root / "ANI" / (stem + ".AIA"), 0)) {
             cur_aia = stem;
             std::printf("  [aso] anime_File(%d) -> %s.AIA\n", avm.file_id(), stem.c_str());
+            return true;
         }
+        return false;
     };
     avm.tick();          // run to the first Pattern so file/tag/frame are populated
     sync_aia();
@@ -2585,6 +2594,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             world.step();
             for (Actor& a : world.actors()) {
                 if (a.is_player() || !a.alive()) continue;
+                if (a.hit_flash > 0) --a.hit_flash;
+                // Knockback: add the decaying impulse, then let wall-resolve stop it at
+                // walls like any other motion.
+                a.pos.x += a.knockback.x; a.pos.z += a.knockback.z;
+                a.knockback.x *= 0.75f; a.knockback.z *= 0.75f;
                 Vec3 body = {a.pos.x, a.pos.y + stepUp, a.pos.z};
                 body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
                 a.pos.x = body.x; a.pos.z = body.z;
@@ -2617,6 +2631,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const int dmg = damage_int(a, en.def,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    // Knockback away from the player + a white hit-flash (the engine's
+                    // +0x338/+0x340 impulse and +0x4e8 tint). Decayed in the enemy tick.
+                    const float kdx = en.pos.x - feet.x, kdz = en.pos.z - feet.z;
+                    const float kd = std::sqrt(kdx * kdx + kdz * kdz);
+                    if (kd > 1e-3f) en.knockback = {kdx / kd * 0.30f, 0, kdz / kd * 0.30f};
+                    en.hit_flash = 6;
                     const std::string nm = casts.get(en.cast_id) && !casts.get(en.cast_id)->display.empty()
                                            ? casts.get(en.cast_id)->display : ("cast " + std::to_string(en.cast_id));
                     hud.message(r.died ? (nm + " defeated!")
@@ -2734,10 +2754,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (avm.section() != want_sec) avm.set_section(want_sec);
             avm.set_is_land(grounded);
             avm.tick();
-            sync_aia();  // the script may switch sprite files mid-action
+            // The script may switch sprite files mid-action (e.g. the attack section
+            // swaps C_111 -> C_114). When it does, the image INDEX for a tag can differ
+            // between the old and new AIA, so force a re-decode -- otherwise the sprite
+            // keeps a stale/mismatched frame and renders half-missing after a swing.
+            const bool aia_changed = sync_aia();
 
             const int wantImg = chr.find_tag(std::uint32_t(avm.anim_tag()));
-            if (wantImg >= 0 && std::uint32_t(wantImg) != curAnim) {
+            if (wantImg >= 0 && (aia_changed || std::uint32_t(wantImg) != curAnim)) {
                 curAnim = std::uint32_t(wantImg);
                 shownFrame = -1;
             }

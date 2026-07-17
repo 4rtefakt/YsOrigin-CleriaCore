@@ -179,6 +179,13 @@ struct Actor {
     // 0 for the player and for casts with no enemy record.
     float move_speed = 0;  // engine: actor+0x30c
 
+    // Combat reaction, on being hit. The engine writes a knockback impulse into the
+    // cosmetic offset +0x338/+0x340 and runs a hit-flash tint countdown at +0x4e8
+    // (forcing the sprite white). We keep the impulse in world XZ and decay it; hit_flash
+    // is a tick countdown the renderer tints on.
+    Vec3 knockback{};      // engine: +0x338/+0x340 (decaying push on hit)
+    int hit_flash = 0;     // engine: +0x4e8 (ticks of white tint after a hit)
+
     // engine: +0x120 <- CASTINFO+0x64. [H-high] an AI HANDLER INDEX — genuinely
     // stored (0x4342c1 -> FUN_00459410), but no consumer INDEXING it has been read.
     // ** It is also a known decoy: ** it equals enemy_index + 3 across the M_ range,
