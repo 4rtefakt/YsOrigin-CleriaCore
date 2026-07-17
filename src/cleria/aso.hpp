@@ -70,6 +70,28 @@ class AsoVm {
     void tick();
 
     // What the script currently wants drawn. `dir` is deliberately absent.
+    //
+    // ** The ASO does NOT drive the player's normal attacks. ** [C-COR]
+    //
+    // C_111.AIA (Yunica gameplay) carries nine 8-directional attack animations —
+    // tags 0x12c, 0x12d, 0x12e, 0x12f, 0x130, 0x131, 0x133, 0x134, 0x135 (0x132 is
+    // absent). Running ALL 42 of C_010.ASO's sections for 200 ticks each and
+    // collecting every tag they can emit yields NONE of them. The script's sections
+    // partition cleanly by the file they select through anime_File:
+    //
+    //   sections -> C_111 (gameplay) : tags 0x0..0x9, 0x10a   <- LOCOMOTION ONLY
+    //   sections -> C_114 (Boost)    : tags 0x100..0x13c      <- the Boost moves
+    //   sections -> C_102 (demo)     : tags 0x192, 0x19a
+    //
+    // So a renderer driven purely by this VM can walk, run, idle, jump and Boost, and
+    // can never swing. Attacks are set from code (go_actor_player.cpp, FUN_00465170's
+    // neighbourhood) — which is inside the 641KB main/object region we have barely
+    // touched. The frames are decoded and render fine; what is missing is the trigger,
+    // the frame timing and the combo rule. Timing especially is NOT invented here: an
+    // old note's "0.09 s/frame" was explicitly flagged as unjustified and is not used.
+    //
+    // Section id != AIA tag. Section 0x10a -> tag 0x10a happens to match, but sections
+    // 0x100..0x112 emit C_114's tags, not their own ids. Do not conflate them.
     std::int32_t anim_tag() const { return anim_tag_; }
     std::int32_t frame() const { return frame_; }
     std::int32_t file_id() const { return file_id_; }
