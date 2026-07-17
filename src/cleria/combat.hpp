@@ -12,6 +12,7 @@
 // and 41 and a formula that produces nonsense. Float constants must be read as raw
 // 4-byte words.
 #pragma once
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -137,14 +138,32 @@ inline HitReaction hit_reaction(int dmg, float max_hp) {
     return HitReaction::Small;
 }
 
-// Invulnerability frames. `actor +0x734`, set to 8/12/16 by hit severity.
+// Invulnerability frames. `actor +0x734`, a DWORD (not a byte — the footstep counter
+// at +0x4bf is a byte, and they are not the same idiom).
 //
 // ** This gates damage FOR THE PLAYER ONLY ** — the engine's test is
 // `cast != 13 || actor->i_frames == 0`, i.e. every non-player cast is always hittable.
 // Do not generalise it to enemies; enemy hit-spam is vanilla behaviour.
 //
-// [UNKNOWN] The DECREMENT site was never found. That this counts down once per tick
-// is an assumption — a reasonable one, but it has not been read out of the exe.
+// ** GRANTING IS A max(), NOT A STORE — so this function's return value must not be
+// assigned. ** The sites we have read do:
+//
+//     actor->i_frames = max(actor->i_frames, N);
+//
+// i.e. "grant AT LEAST N ticks, never shortening an existing longer invulnerability".
+// Two such sites are visible with N = 16 and N = 3, and a plain store of 9999 exists
+// at 0x46fc90 (~166 s at 60 Hz — effectively "off"; what state that is, is [UNKNOWN]).
+// Note 3 and 16 do not both fall in the {8,12,16} set below, so there are MORE grant
+// sites than the hit-severity ones.
+//
+// [UNKNOWN] — and these two are why nothing here is applied automatically:
+//   * The 8/12/16 values came from a pass that described them as stores. Given the
+//     sites above are maxes, whether the severity grants are stores or maxes is NOT
+//     established. Use `grant_iframes`, which encodes the max() we HAVE seen.
+//   * The DECREMENT site has never been found. It must exist — +0x734 is raised by
+//     max() and gated on == 0, so without a decrement the player would be permanently
+//     invulnerable after one hit — but "once per tick" is an inference from that
+//     argument, not something read out of the exe.
 inline int iframes_for(HitReaction r) {
     switch (r) {
         case HitReaction::Big: return 16;
@@ -152,5 +171,8 @@ inline int iframes_for(HitReaction r) {
         default: return 8;
     }
 }
+
+// The grant, as observed: raise, never lower.
+inline void grant_iframes(int& i_frames, int n) { i_frames = std::max(i_frames, n); }
 
 }  // namespace cleria
