@@ -2593,7 +2593,7 @@ struct TitleFx {
             // The engine's selection pill is a bright-WHITE but FAINT glow, not an opaque silver
             // outline: push the lines to white (whitening >100%) and drop the opacity hard. A strong
             // opaque pill over-darkens the lit row vs the reference (title_pixeldiff.py).
-            int white = 220, calpha = 28;   // whitening %, alpha scale %
+            int white = 340, calpha = 200;   // whitening %, alpha scale % (bright-white, near-opaque)
             if (const char* e = std::getenv("CLERIA_CUR_WHITE")) white = std::atoi(e);
             if (const char* e = std::getenv("CLERIA_CUR_ALPHA")) calpha = std::atoi(e);
             for (std::size_t i = 0; i + 3 < c.data.size(); i += 4) {
@@ -2676,8 +2676,8 @@ struct TitleFx {
         // Unselected label colour sampled from reference; the reference has NO visible drop-shadow
         // (adding a dark offset copy measurably raises the diff -- title_pixeldiff.py), so the shadow
         // is off by default. Env overrides kept for experiments.
-        int ur = 165, ug = 198, ub = 203, ua = 255, shr = 24, shg = 28, shb = 34, sha = 0;
-        int sr = 255, sg = 255, sb = 255, sa = 255;
+        int ur = 130, ug = 152, ub = 152, ua = 255, shr = 24, shg = 28, shb = 34, sha = 0;
+        int sr = 248, sg = 250, sb = 252, sa = 255;
         if (const char* e = std::getenv("CLERIA_MENU_U")) { sscanf(e, "%d,%d,%d,%d", &ur, &ug, &ub, &ua); }
         if (const char* e = std::getenv("CLERIA_MENU_S")) { sscanf(e, "%d,%d,%d,%d", &sr, &sg, &sb, &sa); }
         if (const char* e = std::getenv("CLERIA_MENU_SH")) { sscanf(e, "%d,%d,%d,%d", &shr, &shg, &shb, &sha); }
