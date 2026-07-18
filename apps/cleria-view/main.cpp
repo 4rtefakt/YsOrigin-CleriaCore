@@ -2850,7 +2850,7 @@ struct TitleFx {
             const SpriteTex& t = chibi[sel].dirs[dir];
             if (t.tex && t.h > 0) {
                 const float chH = 85.0f, chW = chH * float(t.w) / float(t.h);   // authored, aspect
-                const float cx = 812.0f, cy = 632.0f;                           // authored centre (measured from charselect.png)
+                const float cx = 846.0f, cy = 632.0f;                           // authored centre (measured from charselect.png)
                 draw_screen_image(g, cview, dview, false, t, AX(cx - chW * 0.5f), AY(cy - chH * 0.5f),
                                   AX(cx + chW * 0.5f), AY(cy + chH * 0.5f), 0.3f);
             }
