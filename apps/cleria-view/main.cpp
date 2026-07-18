@@ -188,6 +188,15 @@ fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
   c = mix(c, vec3<f32>(1.0, 1.0, 1.0), in.color.a);
   return vec4<f32>(c, tc.a);
 }
+
+// Floor shadow decal: pure black at the texture's alpha, NO fog (fs_char's fog would
+// tint the shadow toward the fog colour and it would blend invisibly over the floor).
+@fragment
+fn fs_shadow(in : VsOut) -> @location(0) vec4<f32> {
+  let a = textureSample(tex, smp, in.uv).a;
+  if (a < 0.004) { discard; }
+  return vec4<f32>(0.0, 0.0, 0.0, a);
+}
 )WGSL";
 
 // Effects (SEF/EF2): additive, camera-facing billboards. No fog and no alpha test —
@@ -251,6 +260,7 @@ struct Gpu {
     WGPURenderPipeline pipeline{};
     WGPURenderPipeline fx_pipeline{};   // additive effect billboards (SEF/EF2)
     WGPURenderPipeline char_pipeline{}; // alpha-blended character/enemy sprites
+    WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
     WGPUBuffer ubuf{};
     WGPUBindGroup ubind{};
     WGPUSampler sampler{};
@@ -705,6 +715,17 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     WGPURenderPipelineDescriptor cpd = pd; cpd.fragment = &cfs;  // room depth (Less+write)
     g.char_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &cpd);
 
+    // Floor shadow decal: same alpha-over blend + fs_char, but a flat floor quad and
+    // DEPTH-WRITE OFF (build/render_re/ENVIRONMENT.md) -- a decal must not punch depth
+    // holes, so overlapping shadows and the sprite above still test correctly. The SHADOW
+    // texture is black RGB + radial alpha, so fs_char (black*white) outputs (0,0,0,texA)
+    // and the blend darkens the floor by up to ~44%.
+    WGPUDepthStencilState sds = ds; sds.depthWriteEnabled = WGPUOptionalBool_False;
+    WGPUFragmentState sfs = cfs; sfs.entryPoint = sv("fs_shadow");   // black, no fog
+    WGPURenderPipelineDescriptor spd = cpd; spd.depthStencil = &sds; spd.fragment = &sfs;
+    spd.primitive.cullMode = WGPUCullMode_None;   // a flat floor decal must not be culled
+    g.shadow_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &spd);
+
     WGPUBufferDescriptor ud = {};
     ud.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst; ud.size = 112;
     g.ubuf = wgpuDeviceCreateBuffer(g.device, &ud);
@@ -1148,6 +1169,58 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     wgpuBufferRelease(vb); wgpuBufferRelease(ib);
 }
 
+// A soft round floor shadow under a character (build/render_re/ENVIRONMENT.md). The engine
+// draws a flat black alpha decal on the floor, NOT a projected silhouette. SHADOW0.DDS is
+// 64x64 with black RGB and a radial alpha falloff (peak ~0.44); loaded RGBA8 it drives
+// fs_char to output (0,0,0,texA), and the alpha-over blend darkens the floor by up to ~44%.
+struct ShadowFx {
+    SpriteTex tex;
+    bool init(Gpu& g, const fs::path& asset_root) {
+        Dds d = load_dds(asset_root / "IMAGE" / "SHADOW0.DDS");
+        if (!d.ok()) return false;
+        tex = upload_rgba(g, d.width, d.height, d.data.data());
+        return true;
+    }
+};
+
+// Draw the floor shadow decal for an actor at `feet`, on the floor plane at `floorY`, with
+// half-width `radius`. A flat quad on XZ (normal +Y), alpha-over, depth-read-no-write, so it
+// darkens the floor and is occluded by nearer geometry but never writes depth. Draw BEFORE
+// the sprite. Vertex colour (255,255,255,0): no fog dim, no hit-flash -> pure black * texA.
+static void draw_shadow(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
+                        const SpriteTex& shadow, const Vec3& feet, float floorY, float radius) {
+    if (!shadow.tex) return;
+    const float y = floorY + 0.05f;   // a hair above the floor to avoid decal z-fight
+    auto V = [&](float sx, float sz, float u, float v) -> RoomVertex {
+        return {feet.x + sx * radius, y, feet.z + sz * radius, 0, 1, 0, u, v, 255, 255, 255, 0};
+    };
+    RoomVertex verts[4] = {V(-1, -1, 0, 0), V(1, -1, 1, 0), V(1, 1, 1, 1), V(-1, 1, 0, 1)};
+    std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
+    WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
+    WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPURenderPassColorAttachment ca = {};
+    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+    WGPURenderPassDepthStencilAttachment da = {};
+    da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+    WGPURenderPassDescriptor rp = {};
+    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+    wgpuRenderPassEncoderSetPipeline(pass, g.shadow_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(pass, 1, shadow.bind, 0, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+}
+
 // A world heading (hx,hz) -> the 8-direction sprite index, screen-relative to the camera
 // yaw. One calibration shared by live movement and by SEN arrival facing: the C_10x ring
 // runs dir0=screen-right, +45 deg CCW per step (screen-up = dir2 back, down = dir6 front,
@@ -1374,7 +1447,8 @@ static std::vector<EnemyRender> build_enemy_render(ActorWorld& world,
 // animation. `t_anim` is the presentation clock (seconds).
 static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                          EnemyFx& fx, const std::vector<EnemyRender>& list,
-                         const Vec3& camFwd, const Vec3& camPos, float t_anim) {
+                         const Vec3& camFwd, const Vec3& camPos, float t_anim,
+                         const SpriteTex& shadow) {
     constexpr float kEnemyAnimFps = 8.0f;   // TUNED: real rate is per-enemy ASO Wait
     // Screen basis, matching the player's facing calibration: horizontal camera forward
     // (screen-up) and its right. The enemy's heading is mapped into this basis so the
@@ -1388,6 +1462,8 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
         const EnemyFx::Kind& k = it->second;
+        // Floor shadow first (enemies are grounded, so pos.y is the floor).
+        draw_shadow(g, color, depth, shadow, e.actor->pos, e.actor->pos.y, 0.6f);
         // Facing: the enemy's heading (yaw, vx=sin/vz=cos convention) mapped to the same
         // 8-dir ring the player uses -- up->dir2 (back), right->dir0, down->dir6 (front).
         // A chasing enemy faces the player (~the camera), so it mostly shows its front.
@@ -2105,11 +2181,13 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
     const char* shot_want = aso_aia_name(shot_vm.file_id());
     const std::string shot_stem = (shot_want && *shot_want) ? std::string(shot_want)
                                                             : std::string("C_102");
+    ShadowFx shadows; shadows.init(g, asset_root);
     bool have = ch.load(g, asset_root / "ANI" / (shot_stem + ".AIA"), 0);
     if (have) {
         const int img = ch.find_tag(std::uint32_t(shot_vm.anim_tag()));
         if (img >= 0) ch.set_anim(g, std::uint32_t(img), std::uint32_t(shot_vm.frame()));
         const std::uint32_t d = dir < ch.ndir ? dir : 0;
+        draw_shadow(g, cview, dview, shadows.tex, feet, feet.y, 0.6f);
         draw_character(g, cview, dview, feet, worldH, ch.dirs[d], cam.forward(), cam.pos);
         std::printf("play: [aso] file(%d)=%s tag=%d frame=%d | sprite %ux%u dir %u/%u, "
                     "worldH %.2f, cam dist %.2f\n",
@@ -2137,7 +2215,7 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                 std::printf("play: %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
                             e.display.c_str(), e.stem.c_str(), e.actor->level,
                             e.actor->max_hp, e.actor->atk, e.actor->def);
-        draw_enemies(g, cview, dview, efx, list, cam.forward(), cam.pos, 0.0f);
+        draw_enemies(g, cview, dview, efx, list, cam.forward(), cam.pos, 0.0f, shadows.tex);
     }
     // Torch flames (SEF placements + the EF2 flipbook).
     {
@@ -2206,6 +2284,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     FlameFx flames;                      // torch flames (SEF placements + EF2 flipbook)
     if (!flames.init(g, asset_root))
         std::fprintf(stderr, "flames: NAGA01.DDS failed to load\n");
+    ShadowFx shadows;                    // floor shadow decals under characters
+    if (!shadows.init(g, asset_root))
+        std::fprintf(stderr, "shadows: SHADOW0.DDS failed to load\n");
     float fx_time = 0;
     EnemyFx efx;                         // enemy sprite sets, per room
     // The game's own tables. Loaded once: the enemy chain is SCT name -> CASTINFO ->
@@ -2963,10 +3044,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         update_fog(room, fly ? cam.pos : feet, dt);
         write_mvp(g, cam.view_proj(float(cw) / float(ch), rad * 0.01f, rad * 8.0f));
         draw(g, room, view, depth);
-        // Character billboard (play mode only; fly is a free debug camera).
-        if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex)
+        // Character billboard (play mode only; fly is a free debug camera). Draw the floor
+        // shadow first, on the actual floor under the player (so it stays put during a jump).
+        if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex) {
+            const float sfl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + 0.5f);
+            draw_shadow(g, view, depth, shadows.tex, feet,
+                        (sfl > kNoFloor ? sfl : feet.y), 0.6f);
             draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos);
-        draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time);
+        }
+        draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         player.character = character;
