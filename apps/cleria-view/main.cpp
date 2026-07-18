@@ -2768,9 +2768,12 @@ struct TitleFx {
                                   AY(yb - 6), 0.4f, kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
             }
         }
-        // 5. Description, left-aligned at authored {48,704} (EXTRA_SKINS.md §4).
-        std::string desc = std::string("[") + charName(sel) + "]    " + charDesc(sel);
-        mf.text(desc, SX(48), 704.0f / 768.0f * sh, 32.0f / 768.0f * sh, sw, sh, 236, 236, 236, 255);
+        // 5. Description: "[Name]" left-aligned at authored x=48, and the blurb at a FIXED column
+        //    x=209 (measured: the reference body-start is ~209 for all three names regardless of
+        //    name length -- it is a tab column, not name+spaces). Baseline authored y=704.
+        const float dy = 704.0f / 768.0f * sh, dsz = 32.0f / 768.0f * sh;
+        mf.text(std::string("[") + charName(sel) + "]", SX(48), dy, dsz, sw, sh, 236, 236, 236, 255);
+        mf.text(charDesc(sel), SX(209), dy, dsz, sw, sh, 236, 236, 236, 255);
         mf.draw(g, cview);
     }
 
