@@ -2590,10 +2590,14 @@ struct TitleFx {
         // lines to white while keeping the dark inner edge dark (that edge is what gives the thin
         // lines contrast on the bright splash -- flattening to pure white made them vanish).
         if (c.ok()) {
+            int white = 132, calpha = 100;   // whitening %, alpha scale %
+            if (const char* e = std::getenv("CLERIA_CUR_WHITE")) white = std::atoi(e);
+            if (const char* e = std::getenv("CLERIA_CUR_ALPHA")) calpha = std::atoi(e);
             for (std::size_t i = 0; i + 3 < c.data.size(); i += 4) {
                 const int v = std::max(c.data[i], std::max(c.data[i + 1], c.data[i + 2]));
-                const std::uint8_t o = std::uint8_t(std::min(255, v * 132 / 100));
+                const std::uint8_t o = std::uint8_t(std::min(255, v * white / 100));
                 c.data[i] = c.data[i + 1] = c.data[i + 2] = o;
+                c.data[i + 3] = std::uint8_t(std::min(255, c.data[i + 3] * calpha / 100));
             }
             cursor = upload_rgba(g, c.width, c.height, c.data.data());
         }
@@ -2670,7 +2674,9 @@ struct TitleFx {
         // (adding a dark offset copy measurably raises the diff -- title_pixeldiff.py), so the shadow
         // is off by default. Env overrides kept for experiments.
         int ur = 165, ug = 198, ub = 203, ua = 255, shr = 24, shg = 28, shb = 34, sha = 0;
+        int sr = 240, sg = 243, sb = 243, sa = 255;
         if (const char* e = std::getenv("CLERIA_MENU_U")) { sscanf(e, "%d,%d,%d,%d", &ur, &ug, &ub, &ua); }
+        if (const char* e = std::getenv("CLERIA_MENU_S")) { sscanf(e, "%d,%d,%d,%d", &sr, &sg, &sb, &sa); }
         if (const char* e = std::getenv("CLERIA_MENU_SH")) { sscanf(e, "%d,%d,%d,%d", &shr, &shg, &shb, &sha); }
         if (sha > 0)
             for (int i = 0; i < count; ++i)
@@ -2679,8 +2685,8 @@ struct TitleFx {
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
             mf.text_centered(get(i), 0.5f, rowTop(i) + ty, pxH, sw, sh,
-                             s ? 240 : (std::uint8_t)ur, s ? 243 : (std::uint8_t)ug,
-                             s ? 243 : (std::uint8_t)ub, s ? 255 : (std::uint8_t)ua);
+                             (std::uint8_t)(s ? sr : ur), (std::uint8_t)(s ? sg : ug),
+                             (std::uint8_t)(s ? sb : ub), (std::uint8_t)(s ? sa : ua));
         }
         mf.draw(g, cview);
     }
@@ -2984,8 +2990,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Assets + flow from build/menu_re/MENUS.md.
     if (show_title) {
         TitleFx title; title.init(g, asset_root);
-        MenuFont mf;   // Felghana, native-size GGO_GRAY4 atlas (FONT_RASTER.md), re-rastered on resize
-        mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), int(std::lround(32.0 * ch / 768.0)));
+        MenuFont mf;   // Felghana atlas rasterised at the 960-internal font size (see render_title),
+        // bilinear-upscaled to the window. Format must match the window surface (fmt), not a
+        // hardcoded RGBA8Unorm, or the pipeline is incompatible with an sRGB surface pass.
+        mf.init(g, fmt, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
         WGPUTextureView tdepth = make_depth(g.device, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
         // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
@@ -3052,7 +3060,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
                     if (cw && ch) {
                         configure(); wgpuTextureViewRelease(tdepth); tdepth = make_depth(g.device, cw, ch);
-                        mf.build_atlas(g, int(std::lround(32.0 * ch / 768.0)));   // re-raster font native
+                        mf.build_atlas(g, int(std::lround(32.0 * 960.0 / 768.0)));  // 960-internal font, upscaled
                     }
                 }
             }
