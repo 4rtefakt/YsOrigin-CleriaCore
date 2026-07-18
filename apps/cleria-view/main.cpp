@@ -2641,13 +2641,13 @@ struct TitleFx {
         // Labels: light blue-teal by default, neutral/white on the selected row (sampled from
         // reference/title_main.png: unselected ~[176,205,207]). Each carries a thin dark drop-
         // shadow (as the game does -- it also keeps the light selected text legible on the bar).
-        const float ty = 3.0f * A, sx = 1.5f * A, sy = 2.0f * A;
+        const float ty = 3.0f * A, sx = -1.5f * A, sy = 2.0f * A;   // shadow bottom-left
         for (int i = 0; i < count; ++i)
             mf.text_centered(get(i), 0.5f + sx / sw, rowTop(i) + ty + sy, pxH, sw, sh, 22, 26, 32, 170);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
             mf.text_centered(get(i), 0.5f, rowTop(i) + ty, pxH, sw, sh,
-                             s ? 214 : 168, s ? 218 : 203, s ? 218 : 210, 255);
+                             s ? 240 : 168, s ? 243 : 203, s ? 243 : 210, 255);
         }
         mf.draw(g, cview);
     }
