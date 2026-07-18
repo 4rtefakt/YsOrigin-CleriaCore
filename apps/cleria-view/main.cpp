@@ -2357,9 +2357,13 @@ struct MenuFont {
     std::vector<HudVertex> verts;
     bool ok = false;
 
-    bool init(Gpu& g, WGPUTextureFormat color, const char* face = "Georgia",
-              int pxH = 46, int weight = FW_SEMIBOLD) {
+    bool init(Gpu& g, WGPUTextureFormat color, const char* face = "Constantia",
+              int pxH = 48, int weight = FW_NORMAL) {
         base = pxH;
+        // CLERIA_FONT / CLERIA_FONT_W override the face / weight, for comparing candidate serifs
+        // off-window while the exact menu font is being reverse-engineered.
+        if (const char* f = std::getenv("CLERIA_FONT")) face = f;
+        if (const char* w = std::getenv("CLERIA_FONT_W")) weight = std::atoi(w);
         HDC hdc = CreateCompatibleDC(nullptr);
         if (!hdc) return false;
         HFONT font = CreateFontA(-pxH, 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -2602,16 +2606,16 @@ struct TitleFx {
     // Shared by the main menu and the bonus sub-list. Menu text is the serif MenuFont.
     void draw_list(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                    std::uint32_t W, std::uint32_t H, int count, const char* (*get)(int),
-                   int sel, float bracket_hw = 0.32f, float top_frac = 0.685f,
+                   int sel, float bracket_hw = 0.26f, float top_frac = 0.700f,
                    float cx_frac = 0.5f) {
         const float sw = float(W), sh = float(H);
-        const float pxH = sh * 0.050f;
-        const float line_h = sh * 0.058f, top = sh * top_frac;   // below the logo
+        const float pxH = sh * 0.042f;
+        const float line_h = sh * 0.050f, top = sh * top_frac;   // below the logo
         const float cx = 2.0f * cx_frac - 1.0f;                  // list centre in NDC x
         if (cursor.tex) {   // MENUCURSOR: the scroll-curl bar, sized to hug the text row.
             const float cy = top + sel * line_h;
-            const float yt = 1.0f - 2.0f * (cy - line_h * 0.16f) / sh;
-            const float yb = 1.0f - 2.0f * (cy + line_h * 0.94f) / sh;
+            const float yt = 1.0f - 2.0f * (cy - line_h * 0.30f) / sh;
+            const float yb = 1.0f - 2.0f * (cy + line_h * 0.86f) / sh;
             draw_screen_image(g, cview, dview, false, cursor, cx - bracket_hw, yt,
                               cx + bracket_hw, yb, 0.3f);
         }
