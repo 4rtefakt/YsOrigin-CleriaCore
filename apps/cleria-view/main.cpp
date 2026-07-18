@@ -2742,9 +2742,11 @@ struct TitleFx {
         if (frame.tex)
             draw_screen_image(g, cview, dview, /*clear*/true, frame, AX(0), AY(0), AX(1024), AY(768),
                               0.95f, 0.0f, 0.0f, 1.0f, 0.749f);
-        // 2. "Character Select" banner across the top of the field.
+        // 2. "Character Select" banner across the top of the field. Width (authored x 290..734) is
+        //    correct; the old y -8..98 stretched the glyphs 1.28x too tall (measured C-height 37 vs
+        //    reference 29). y -2..81 keeps the top fixed and matches the reference glyph height.
         if (chrsel.tex)
-            draw_screen_image(g, cview, dview, false, chrsel, AX(290), AY(-8), AX(734), AY(98), 0.5f,
+            draw_screen_image(g, cview, dview, false, chrsel, AX(290), AY(-2), AX(734), AY(81), 0.5f,
                               0.557f, 0.844f, 0.998f, 1.0f);
         // 3. The selected character's key art on the left (one crop frames all three).
         if (sel >= 0 && sel < 3 && portrait[sel].tex) {
