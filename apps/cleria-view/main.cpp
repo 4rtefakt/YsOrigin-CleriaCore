@@ -2568,7 +2568,16 @@ struct TitleFx {
         Dds dg = load_dds(asset_root / "IMAGE" / "DIALOG0.DDS");         // popup scroll frame
         if (s.ok()) splash = upload_rgba(g, s.width, s.height, s.data.data());
         if (p.ok()) pillar = upload_rgba(g, p.width, p.height, p.data.data());
-        if (c.ok()) cursor = upload_rgba(g, c.width, c.height, c.data.data());
+        // MENUCURSOR's art is blue, but the engine renders the selection bar WHITE (verified vs
+        // reference/title_main.png: bar ~[227,235,239]). Desaturate to the brightest channel,
+        // keeping alpha (the bar+curl shape) -- whitens the blue while preserving the linework.
+        if (c.ok()) {
+            for (std::size_t i = 0; i + 3 < c.data.size(); i += 4) {
+                const std::uint8_t m = std::max(c.data[i], std::max(c.data[i + 1], c.data[i + 2]));
+                c.data[i] = c.data[i + 1] = c.data[i + 2] = m;
+            }
+            cursor = upload_rgba(g, c.width, c.height, c.data.data());
+        }
         if (fr.ok()) frame = upload_rgba(g, fr.width, fr.height, fr.data.data());
         if (cs.ok()) chrsel = upload_rgba(g, cs.width, cs.height, cs.data.data());
         if (dg.ok()) dialog = upload_rgba(g, dg.width, dg.height, dg.data.data());
@@ -2632,15 +2641,13 @@ struct TitleFx {
             draw_screen_image(g, cview, dview, false, cursor, ndcX(cxpx - barW * 0.5f), ndcY(bt),
                               ndcX(cxpx + barW * 0.5f), ndcY(bb), 0.3f);
         }
-        // A soft dark drop-shadow first (the splash sky is bright), then the label -- the cell
-        // top sits ~2px above the glyph so nudge the text down a hair to centre it in the bar.
+        // Muted cool-gray labels, as the game (sampled from reference/title_main.png): unselected
+        // ~[118,130,128] on the sky, the crossed row a touch lighter on the white cursor bar.
         const float ty = 3.0f * A;
-        for (int i = 0; i < count; ++i)
-            mf.text_centered(get(i), 0.5f, rowTop(i) + ty + A, pxH, sw, sh, 18, 16, 12, 170);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
             mf.text_centered(get(i), 0.5f, rowTop(i) + ty, pxH, sw, sh,
-                             s ? 255 : 232, s ? 248 : 234, s ? 214 : 236, 255);
+                             s ? 142 : 118, s ? 147 : 131, s ? 145 : 129, 255);
         }
         mf.draw(g, cview);
     }
@@ -2835,8 +2842,10 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     } else if (mode == 2) {
         title.draw_bonus(g, mf, cview, dview, W, H, /*sel=*/0);        // Time Attack lit
     } else {
+        int ts = 1;   // CLERIA_TITLE_SEL overrides which item is lit (0 New Game ... 4 Exit)
+        if (const char* e = std::getenv("CLERIA_TITLE_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 4) ts = v; }
         title.draw(g, cview, dview, W, H);
-        title.draw_menu(g, mf, cview, dview, W, H, /*sel=*/1);   // preview with Load Game lit
+        title.draw_menu(g, mf, cview, dview, W, H, ts);
     }
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPUTexelCopyTextureInfo src = {}; src.texture = color; src.aspect = WGPUTextureAspect_All;
