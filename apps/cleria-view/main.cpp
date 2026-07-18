@@ -2345,29 +2345,30 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
 struct TitleFx {
     SpriteTex splash, pillar, cursor;
     SpriteTex frame, chrsel;   // BACK00 ornate frame; CHRSELECT atlas (bars/faces/banner)
+    SpriteTex dialog;          // DIALOG0 blue scroll frame for the New-Game choice popups
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
-    SpriteTex dim, panel;      // baked solids: background dimmer + popup panel fill
+    SpriteTex dim;             // baked solid: background dimmer behind popups
     bool init(Gpu& g, const fs::path& asset_root) {
-        // Baked solid fills for the New-Game choice popups (no ornate-frame asset was found in
-        // the pack for these dialogs, so a clean translucent panel stands in). RGBA, alpha baked
-        // in (the char shader blends by texture alpha).
+        // Background dimmer for the popups (RGBA, alpha baked in -- the char shader blends by
+        // texture alpha). The popup PANEL is the real DIALOG0 asset, below.
         auto solid = [&](std::uint8_t r, std::uint8_t gg, std::uint8_t b, std::uint8_t a) {
             std::uint8_t px[4 * 4 * 4];
             for (int i = 0; i < 16; ++i) { px[i*4]=r; px[i*4+1]=gg; px[i*4+2]=b; px[i*4+3]=a; }
             return upload_rgba(g, 4, 4, px);
         };
-        dim = solid(0, 2, 6, 150);
-        panel = solid(16, 24, 46, 232);
+        dim = solid(0, 2, 6, 120);
         Dds s = load_dds(asset_root / "IMAGE" / "TITLE_000.DDS");        // the full splash art
         Dds p = load_dds(asset_root / "MENU" / "TITLEPILLAR16-9.DDS");   // widescreen side fill
-        Dds c = load_dds(asset_root / "MENU" / "CUR00.DDS");             // selection bracket
+        Dds c = load_dds(asset_root / "IMAGE" / "MENUCURSOR.DDS");       // scroll-curl selection bar
         Dds fr = load_dds(asset_root / "MENU" / "BACK00.DDS");           // ornate menu frame
         Dds cs = load_dds(asset_root / "MENU" / "CHRSELECT.DDS");        // char-select atlas
+        Dds dg = load_dds(asset_root / "IMAGE" / "DIALOG0.DDS");         // popup scroll frame
         if (s.ok()) splash = upload_rgba(g, s.width, s.height, s.data.data());
         if (p.ok()) pillar = upload_rgba(g, p.width, p.height, p.data.data());
         if (c.ok()) cursor = upload_rgba(g, c.width, c.height, c.data.data());
         if (fr.ok()) frame = upload_rgba(g, fr.width, fr.height, fr.data.data());
         if (cs.ok()) chrsel = upload_rgba(g, cs.width, cs.height, cs.data.data());
+        if (dg.ok()) dialog = upload_rgba(g, dg.width, dg.height, dg.data.data());
         // Character-select key art: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
         for (int i = 0; i < 3; ++i) {
             Dds d = load_dds(asset_root / "MENU" /
@@ -2417,12 +2418,12 @@ struct TitleFx {
         const float scale = sh / 500.0f;
         const float line_h = sh * 0.054f, top = sh * top_frac;   // below the logo
         const float cx = 2.0f * cx_frac - 1.0f;                  // list centre in NDC x
-        if (cursor.tex) {   // CUR00's teal/gold bar lives in its top-left 154x51 sub-rect. Slim
-            const float cy = top + sel * line_h;                 // it so it hugs the text row.
-            const float yt = 1.0f - 2.0f * (cy - line_h * 0.34f) / sh;
-            const float yb = 1.0f - 2.0f * (cy + line_h * 0.80f) / sh;
+        if (cursor.tex) {   // MENUCURSOR: the scroll-curl bar, sized to hug the text row.
+            const float cy = top + sel * line_h;
+            const float yt = 1.0f - 2.0f * (cy - line_h * 0.42f) / sh;
+            const float yb = 1.0f - 2.0f * (cy + line_h * 0.86f) / sh;
             draw_screen_image(g, cview, dview, false, cursor, cx - bracket_hw, yt,
-                              cx + bracket_hw, yb, 0.3f, 0.0f, 0.0f, 0.602f, 0.398f);
+                              cx + bracket_hw, yb, 0.3f);
         }
         // Draw every label with a soft dark drop-shadow first (the splash sky is bright, so
         // plain light text would wash out), then the label on top -- selected brighter.
@@ -2526,22 +2527,31 @@ struct TitleFx {
                     std::uint32_t W, std::uint32_t H, const char* title,
                     const char* const* items, int count, int sel) {
         const float sw = float(W), sh = float(H);
-        const float titleY = sh * 0.34f, itemY0 = sh * 0.46f, itemGap = sh * 0.078f;
-        const float scale = sh / 540.0f;
         auto ndcY = [&](float ypx) { return 1.0f - 2.0f * ypx / sh; };
         if (dim.tex)                                   // dim whatever is behind
             draw_screen_image(g, cview, dview, false, dim, -1, 1, 1, -1, 0.25f);
-        const float ptop = titleY - sh * 0.075f, pbot = itemY0 + (count - 1) * itemGap + sh * 0.055f;
-        const float pw = 0.40f;
-        if (panel.tex)                                 // the popup panel
-            draw_screen_image(g, cview, dview, false, panel, -pw, ndcY(ptop), pw, ndcY(pbot), 0.2f);
-        if (cursor.tex) {                              // selection bar
+        // DIALOG0 (512x256, art fills the whole texture): the blue scroll frame. Height grows a
+        // little with the item count; centred (the engine likewise stretches this wide art taller
+        // for tall lists). The title sits in the frame's header sub-bar, the items in its body.
+        const float fw = 0.50f;                        // half-width in NDC (wide, like the frame)
+        const float fhpx = sh * (0.17f + 0.043f * count);
+        const float ftop = sh * 0.33f, fbot = ftop + fhpx;
+        if (dialog.tex)
+            draw_screen_image(g, cview, dview, false, dialog, -fw, ndcY(ftop), fw, ndcY(fbot), 0.2f);
+        // Title in the header sub-bar; items distributed down the body (kept inside the frame's
+        // ornate top/bottom edges).
+        const float titleY = ftop + fhpx * 0.15f;
+        const float bodyTop = ftop + fhpx * 0.40f, bodyBot = ftop + fhpx * 0.78f;
+        const float itemGap = count > 1 ? (bodyBot - bodyTop) / (count - 1) : 0.0f;
+        const float itemY0 = count > 1 ? bodyTop : (bodyTop + bodyBot) * 0.5f;
+        const float rowH = std::min(itemGap, fhpx * 0.20f);
+        const float scale = sh / 540.0f;
+        if (cursor.tex) {                              // MENUCURSOR bar on the selection
             const float cy = itemY0 + sel * itemGap;
-            const float yt = ndcY(cy - itemGap * 0.34f), yb = ndcY(cy + itemGap * 0.80f);
-            draw_screen_image(g, cview, dview, false, cursor, -0.30f, yt, 0.30f, yb, 0.15f,
-                              0.0f, 0.0f, 0.602f, 0.398f);
+            const float yt = ndcY(cy - rowH * 0.44f), yb = ndcY(cy + rowH * 0.60f);
+            draw_screen_image(g, cview, dview, false, cursor, -0.28f, yt, 0.28f, yb, 0.15f);
         }
-        hud.text_centered(title, 0.5f, titleY, scale * 1.05f, sw, sh, 240, 238, 220, 255);
+        hud.text_centered(title, 0.5f, titleY, scale * 0.9f, sw, sh, 240, 238, 220, 255);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
             hud.text_centered(items[i], 0.5f, itemY0 + i * itemGap, scale, sw, sh,
