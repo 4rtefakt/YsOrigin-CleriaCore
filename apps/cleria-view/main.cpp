@@ -110,7 +110,8 @@ struct Player {
     int level = 1;
     int hp = 400, max_hp = 400;
     int sp = 59;   // placeholder until the stat model lands
-    float exp_pct = 42.0f;  // placeholder until the stat model lands
+    float exp = 0;          // running EXP total (build/progress_re/LEVELING.md)
+    float exp_pct = 0.0f;   // progress toward the next level, for the HUD bar
     float mp_pct = 100.0f;
     int character = 1;  // portrait: 1 Yunica / 2 Hugo / 3 Toal
 };
@@ -2333,11 +2334,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // normal value -- set the normal one.
     game.g_flags[149] = 1;
     Player player;                     // stat block (HP/SP/level/EXP)
-    // A fresh level-1 player: HP from the GAMEINFO player curve (60 at lv1), so getting
-    // hit is meaningful. player.level stays 1 (no save model).
+    // A fresh level-1 player: HP from the GAMEINFO player curve at level 1. There is no save
+    // model, so a new run always starts at level 1 with 0 EXP -- the faithful new-game state.
     if (ginfo.ok())
-        player.max_hp = player.hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(1)));
+        player.max_hp = player.hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(player.level)));
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
+
+    // Award EXP for a kill and process level-ups (build/progress_re/LEVELING.md): the engine
+    // credits the defeated enemy's EXP at the killing blow (FUN_004fbb40), then loops
+    // level-up while total >= threshold(level+1) (= gameinfo exp_to_level, cumulative pair 10),
+    // capped at 60. Each level-up recomputes maxHP from the curve and heals curHP by the
+    // maxHP DELTA -- not a full refill. (Difficulty EXP bonus / rate mult are 1.0 here.)
+    auto award_exp = [&](float enemy_exp) {
+        if (!ginfo.ok()) return;
+        player.exp += std::max(1.0f, std::round(enemy_exp));   // always at least 1
+        while (player.level < 60 &&
+               player.exp >= float(ginfo.exp_to_level(player.level + 1))) {
+            const int old_max = player.max_hp;
+            ++player.level;
+            player.max_hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(player.level)));
+            player.hp += (player.max_hp - old_max);
+            hud.message("Level up! Lv " + std::to_string(player.level));
+        }
+    };
     Room room = load_room(g, asset_root, first_sob, game.g_flags, character);
     Camera cam;
     bool fly = false;
@@ -2843,7 +2862,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (dx * dx + ddy * ddy + dz * dz > rr * rr) continue;
                     atk_hit.insert(en.instance_id);   // the engine's per-attack hit-dedup
                     AttackStats a;
-                    a.atk = ginfo.player_atk(character, /*tier*/ 0, /*level*/ 1);
+                    a.atk = ginfo.player_atk(character, /*tier*/ 0, player.level);
                     a.bonus = kHitPower;             // per-attack power, sourced from the ASO
                     const int dmg = damage_int(a, en.def,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
@@ -2863,7 +2882,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (std::getenv("CLERIA_DMG"))
                         std::printf("  hit %s (lv%d DEF %.0f): %d dmg, %.0f/%.0f left\n",
                                     nm.c_str(), en.level, en.def, r.damage, en.hp, en.max_hp);
-                    if (r.died) ++killed;
+                    if (r.died) { ++killed; award_exp(en.exp_reward); }
                 }
                 if (killed) {
                     int left = 0;
@@ -3056,6 +3075,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         player.character = character;
+        // EXP bar: progress from this level's threshold to the next (100% at the cap).
+        if (ginfo.ok()) {
+            const double e0 = ginfo.exp_to_level(player.level);
+            const double e1 = ginfo.exp_to_level(player.level + 1);
+            player.exp_pct = (player.level >= 60) ? 100.0f
+                : float(std::clamp((double(player.exp) - e0) / std::max(1.0, e1 - e0), 0.0, 1.0) * 100.0);
+        }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
         wgpuSurfacePresent(surface);
         wgpuTextureViewRelease(view);
