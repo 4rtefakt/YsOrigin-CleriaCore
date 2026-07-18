@@ -2344,13 +2344,25 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
 // MENU/BACK00.DDS the background. Rendered as screen-space quads via draw_screen_image.
 struct TitleFx {
     SpriteTex splash, pillar, cursor;
+    SpriteTex frame, chrsel;   // BACK00 ornate frame; CHRSELECT atlas (bars/faces/banner)
+    SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
     bool init(Gpu& g, const fs::path& asset_root) {
         Dds s = load_dds(asset_root / "IMAGE" / "TITLE_000.DDS");        // the full splash art
         Dds p = load_dds(asset_root / "MENU" / "TITLEPILLAR16-9.DDS");   // widescreen side fill
         Dds c = load_dds(asset_root / "MENU" / "CUR00.DDS");             // selection bracket
+        Dds fr = load_dds(asset_root / "MENU" / "BACK00.DDS");           // ornate menu frame
+        Dds cs = load_dds(asset_root / "MENU" / "CHRSELECT.DDS");        // char-select atlas
         if (s.ok()) splash = upload_rgba(g, s.width, s.height, s.data.data());
         if (p.ok()) pillar = upload_rgba(g, p.width, p.height, p.data.data());
         if (c.ok()) cursor = upload_rgba(g, c.width, c.height, c.data.data());
+        if (fr.ok()) frame = upload_rgba(g, fr.width, fr.height, fr.data.data());
+        if (cs.ok()) chrsel = upload_rgba(g, cs.width, cs.height, cs.data.data());
+        // Character-select key art: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
+        for (int i = 0; i < 3; ++i) {
+            Dds d = load_dds(asset_root / "MENU" /
+                             ("CHRSELECT_PORTRAIT" + std::to_string(i + 1) + ".DDS"));
+            if (d.ok()) portrait[i] = upload_rgba(g, d.width, d.height, d.data.data());
+        }
         return splash.tex != nullptr;
     }
     // Compose the title: the pillarbox art fills the whole (widescreen) screen, then the
@@ -2388,20 +2400,22 @@ struct TitleFx {
     // logo. Shared by the main menu and the bonus sub-list. The Hud text flushes on top.
     void draw_list(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
                    std::uint32_t W, std::uint32_t H, int count, const char* (*get)(int),
-                   int sel, float bracket_hw = 0.32f, float top_frac = 0.685f) {
+                   int sel, float bracket_hw = 0.32f, float top_frac = 0.685f,
+                   float cx_frac = 0.5f) {
         const float sw = float(W), sh = float(H);
         const float scale = sh / 500.0f;
         const float line_h = sh * 0.054f, top = sh * top_frac;   // below the logo
+        const float cx = 2.0f * cx_frac - 1.0f;                  // list centre in NDC x
         if (cursor.tex) {   // CUR00's bracket art lives in its top-left 154x51 sub-rect
             const float cy = top + sel * line_h;
             const float yt = 1.0f - 2.0f * (cy - line_h * 0.20f) / sh;
             const float yb = 1.0f - 2.0f * (cy + line_h * 0.85f) / sh;
-            draw_screen_image(g, cview, dview, false, cursor, -bracket_hw, yt, bracket_hw, yb,
-                              0.3f, 0.0f, 0.0f, 0.602f, 0.398f);
+            draw_screen_image(g, cview, dview, false, cursor, cx - bracket_hw, yt,
+                              cx + bracket_hw, yb, 0.3f, 0.0f, 0.0f, 0.602f, 0.398f);
         }
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
-            hud.text_centered(get(i), 0.5f, top + i * line_h, scale, sw, sh,
+            hud.text_centered(get(i), cx_frac, top + i * line_h, scale, sw, sh,
                               s ? 255 : 205, s ? 248 : 212, s ? 215 : 222, s ? 255 : 225);
         }
         hud.draw_lines(g, cview);
@@ -2421,16 +2435,72 @@ struct TitleFx {
         static const char* n[kCharCount] = {"Yunica", "Hugo", "Toal"};
         return n[i];
     }
-    // Character-select screen (New Game -> this): the splash plus a "choose your character"
-    // prompt and the three names, bracket on the selection. sel 0/1/2 -> character 1/2/3.
+    static const char* charDesc(int i) {
+        static const char* d[kCharCount] = {
+            "Axe-wielding fighter.  Mid speed, mid range.",
+            "Magic user.  Low speed, long range.",
+            "Sword fighter.  High speed, short range."};
+        return d[i];
+    }
+    // The real Character Select (build/menu_re/MENUS.md + CHRSELECT.DDS atlas): the BACK00
+    // frame, the "Character Select" banner, the selected character's key art on the left, three
+    // selection bars on the right (the crossed one cyan, the others dark) each capped with the
+    // character's face icon, and the description on the bottom bar. sel 0/1/2 -> character 1/2/3.
     void draw_charselect(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
                          std::uint32_t W, std::uint32_t H, int sel) {
-        draw(g, cview, dview, W, H);   // redraw the splash background
         const float sw = float(W), sh = float(H);
-        const float scale = sh / 500.0f;
-        hud.text_centered("Select your character", 0.5f, sh * 0.645f, scale * 0.95f, sw, sh,
-                          235, 230, 205, 255);   // queued; draw_list's flush emits it too
-        draw_list(g, hud, cview, dview, W, H, kCharCount, charName, sel, 0.26f, 0.725f);
+        // 1. The ornate frame (BACK00): its art fills the top ~0.772 of the 1024^2; stretch to
+        //    fill the window (it is a border, so the mild stretch of the interior reads fine).
+        if (frame.tex)
+            draw_screen_image(g, cview, dview, /*clear*/true, frame, -1, 1, 1, -1, 0.95f,
+                              0.0f, 0.0f, 1.0f, 0.772f);
+        // CHRSELECT.DDS (1024x512) atlas sub-rects (measured):
+        //   cyan (selected) bar  v[0.045,0.264], dark bar v[0.295,0.525], both u[0.06,0.875]
+        //   face icons row v[0.561,0.748]: Yunica u[0.011,0.244] Hugo u[0.264,0.495] Toal u[0.500,0.742]
+        //   "Character Select" banner u[0.557,0.998] v[0.844,1.0]
+        constexpr float kBarU0 = 0.06f, kBarU1 = 0.875f;
+        constexpr float kCyanV0 = 0.045f, kCyanV1 = 0.264f;
+        constexpr float kDarkV0 = 0.295f, kDarkV1 = 0.525f;
+        constexpr float kFaceV0 = 0.561f, kFaceV1 = 0.748f;
+        static const float kFaceU[3][2] = {{0.011f, 0.244f}, {0.264f, 0.495f}, {0.500f, 0.742f}};
+        // 2. The banner, centred at the very top so it covers the frame's own "Ys ORIGIN" text.
+        if (chrsel.tex)
+            draw_screen_image(g, cview, dview, false, chrsel, -0.50f, 1.02f, 0.50f, 0.72f, 0.5f,
+                              0.557f, 0.844f, 0.998f, 1.0f);
+        // 3. The selected character's key art, framed on the left. All three portraits share the
+        //    1024^2 convention (figure in the left ~0.68, feet at v=0.75), so one crop frames each.
+        if (sel >= 0 && sel < 3 && portrait[sel].tex) {
+            constexpr float u0 = 0.0f, u1 = 0.68f, v0 = 0.04f, v1 = 0.76f;
+            const float ar = ((u1 - u0) * 1024.0f) / ((v1 - v0) * 1024.0f);
+            const float hNDC = 1.54f;
+            const float wNDC = hNDC * ar * (sh / sw);
+            const float left = -0.80f, top = 0.66f;
+            draw_screen_image(g, cview, dview, false, portrait[sel], left, top,
+                              left + wNDC, top - hNDC, 0.4f, u0, v0, u1, v1);
+        }
+        // 4. Three selection bars on the right, each capped by its face icon. Row 0/1/2 = Yunica/
+        //    Hugo/Toal top-to-bottom; the crossed row is the cyan bar, the rest are dark.
+        const float rowY[3] = {0.44f, 0.10f, -0.24f};   // bar centre in NDC y
+        const float barH = 0.24f;
+        for (int i = 0; i < 3; ++i) {
+            const bool s = (i == sel);
+            const float yt = rowY[i] + barH * 0.5f, yb = rowY[i] - barH * 0.5f;
+            if (chrsel.tex) {
+                draw_screen_image(g, cview, dview, false, chrsel, -0.14f, yt, 0.92f, yb, 0.45f,
+                                  kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1);
+                // face icon at the bar's right end (square-ish, matched to bar height).
+                const float fw = barH * 1.05f * (sh / sw);
+                draw_screen_image(g, cview, dview, false, chrsel, 0.66f, yt + 0.02f,
+                                  0.66f + fw * 2.0f, yb - 0.02f, 0.4f,
+                                  kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
+            }
+        }
+        // 5. Description on the bottom bar (the bars themselves carry only the face icon, as in
+        //    the real screen -- the selected character is named here).
+        const float scale = sh / 620.0f;
+        std::string desc = std::string("[") + charName(sel) + "]   " + charDesc(sel);
+        hud.text_centered(desc.c_str(), 0.5f, sh * 0.90f, scale * 0.95f, sw, sh, 235, 235, 235, 255);
+        hud.draw_lines(g, cview);
     }
 };
 
@@ -2456,7 +2526,9 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
 
     Hud thud; thud.init(g, res_file("hud_font.bin"), WGPUTextureFormat_RGBA8Unorm);
     if (mode == 1) {
-        title.draw_charselect(g, thud, cview, dview, W, H, /*sel=*/0);   // Yunica lit
+        int cs = 0;   // CLERIA_CS_SEL=0|1|2 previews Yunica/Hugo/Toal off-window
+        if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) cs = v; }
+        title.draw_charselect(g, thud, cview, dview, W, H, cs);
     } else if (mode == 2) {
         title.draw_bonus(g, thud, cview, dview, W, H, /*sel=*/0);        // Time Attack lit
     } else {
