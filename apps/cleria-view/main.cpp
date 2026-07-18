@@ -2318,6 +2318,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     avm.tick();          // run to the first Pattern so file/tag/frame are populated
     sync_aia();
     int facing = 2;              // dir2 = back to camera (facing north, into the room)
+    // Edge-trigger state: the SEN trigger index the player is currently inside (-1 = none).
+    // A warp fires only on ENTERING a volume (the engine arms on entry), so arriving at a
+    // door-mouth coordinate -- which sits inside the return door's own volume -- does not
+    // instantly warp back. inside_trigger is primed to that door at spawn.
+    int inside_trigger = -1;
     std::uint32_t curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
     int animFrame = 0, shownFrame = -1;
     chr.set_anim(g, curAnim, 0);
@@ -2373,6 +2378,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         auto it = g.sob_index.find(dest);
         if (it == g.sob_index.end()) { std::printf("  (no SOB for %s)\n", dest.c_str()); return; }
         std::printf(">> entering %s\n", dest.c_str());
+        // ** Copy everything we need off `via` NOW. ** It points into the CURRENT room's
+        // sen.triggers, which `room = std::move(next)` below frees -- reading via after
+        // that is a use-after-free (it silently read as "no arrival", dropping the player
+        // at the SCT default = the wrong entrance on every return). Copy by value first.
+        const bool has_arr = via && via->has_arrival();
+        const Vec3 arr = via ? via->arrival_pos : Vec3{};
+        const bool has_fac = via && via->has_facing();
+        const int fac_deg = via ? via->arrival_facing_deg : 0;
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
@@ -2380,16 +2393,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             spawn_in(cam, room);
         } else {
             spawn_player();
-            // The exit's arrival position (SEN +0x22c) overrides the destination's SCT
-            // default, as the engine does (FUN_00434020): applied whenever the exit's
-            // label is set (has_arrival), even when the position is the origin -- (0,0,0)
-            // is a real door-side spawn in these rooms, not "unset". Snap to floor like
-            // spawn_player; arrival.y is only a fallback if there's no floor there.
-            if (via && via->has_arrival()) {
-                const Vec3 a = via->arrival_pos;
-                const float fl = floor_at(phys_mesh(room), a.x, a.z,
+            // The exit's SEN arrival (+0x22c) overrides the SCT default (FUN_00434020)
+            // whenever the exit's label is set -- verbatim, with NO zero-test: a (0,0,0)
+            // arrival is a LITERAL door-mouth coordinate, not "unset" (build/warp_re/
+            // DOORRETURN.md: S_1004->S_1005's (0,0,0) is exactly S_1005's door mouth). The
+            // per-door correctness comes from applying the CROSSED trigger's own arrival,
+            // not a by-destination lookup -- rooms joined by 2-3 doors each carry a
+            // different arrival, and picking the wrong one lands you at the wrong door.
+            if (has_arr) {
+                const float fl = floor_at(phys_mesh(room), arr.x, arr.z,
                                           room.mesh.bmax.y + room_diag(room));
-                feet = {a.x, (fl > kNoFloor ? fl : a.y), a.z};
+                feet = {arr.x, (fl > kNoFloor ? fl : arr.y), arr.z};
                 vy = 0; grounded = false;
                 std::printf("  arrival @ (%.1f,%.1f,%.1f) [SEN]\n", feet.x, feet.y, feet.z);
             }
@@ -2409,12 +2423,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // alignment 0.81), where the un-cancelled (cos deg, sin deg) scores -0.03 and
             // aims at the wall you arrived through. heading_to_facing then maps it exactly
             // as walking that way would, so the warped-in player faces the right way.
-            if (via && via->has_facing()) {
-                const float yaw = float(via->arrival_facing_deg) * 3.14159265358979323846f / 180.0f;
+            if (has_fac) {
+                const float yaw = float(fac_deg) * 3.14159265358979323846f / 180.0f;
                 face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
-                std::printf("  arrival facing %d deg -> dir %d\n", via->arrival_facing_deg, facing);
+                std::printf("  arrival facing %d deg -> dir %d\n", fac_deg, facing);
             }
+        }
+        // Prime the edge-trigger: mark whatever door volume the player spawned inside, so
+        // a door-return that lands them in the doorway doesn't immediately warp back.
+        inside_trigger = -1;
+        if (!fly) {
+            const Vec3 pr = {feet.x, feet.y + kCharH * 0.5f, feet.z};
+            for (std::size_t i = 0; i < room.sen.triggers.size(); ++i)
+                if (room.sen.triggers[i].contains(pr)) { inside_trigger = int(i); break; }
         }
         spawn_enemies();
         cooldown = 1.5f;
@@ -2850,11 +2872,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // as the engine does (FUN_0042cf00 tests actor+0x50) -- the old code also tested
         // the camera, and the follow camera sits ~24u behind and above the player, so it
         // entered the door volume well before the player did and warped too early. In fly
-        // mode there is no player, so the probe is the camera itself.
-        if (cooldown <= 0) {
+        // mode there is no player, so the probe is the camera itself. EDGE-triggered: the
+        // warp fires only on ENTERING a volume (the engine arms on entry), which is also
+        // what lets a door-return spawn the player standing in the doorway without an
+        // instant re-warp -- inside_trigger is primed to that door at spawn.
+        {
             const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kCharH * 0.5f, feet.z};
-            for (const SenTrigger& t : room.sen.triggers)
-                if (t.contains(probe)) { transition(t.dest_scene, &t); break; }
+            int now_in = -1;
+            for (std::size_t i = 0; i < room.sen.triggers.size(); ++i)
+                if (room.sen.triggers[i].contains(probe)) { now_in = int(i); break; }
+            if (now_in >= 0 && now_in != inside_trigger && cooldown <= 0) {
+                const SenTrigger& t = room.sen.triggers[std::size_t(now_in)];
+                transition(t.dest_scene, &t);   // re-primes inside_trigger for the new room
+            } else {
+                inside_trigger = now_in;
+            }
         }
         }  // ---- end fixed-step logic ----------------------------------------
         // UV scroll — the water. `phase += velocity` ONCE PER TICK, unscaled: the
