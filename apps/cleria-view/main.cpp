@@ -2339,6 +2339,196 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
 }
 
 
+// ---- menu font --------------------------------------------------------------
+// A proportional serif for menu/title text, rasterised from a Windows system font via GDI --
+// the engine renders its menu text from a system font too (MENUS.md §3.1), so this is the
+// faithful path (and needs no bundled font/library). One antialiased coverage atlas of ASCII
+// 32..126 at a base pixel height; callers ask for a target height and it scales. White glyphs
+// (alpha = coverage) tinted by the vertex colour, through the same shader as the HUD font.
+struct MenuFont {
+    struct Glyph { float u0=0, v0=0, u1=0, v1=0; int w=0, h=0, adv=0, bx=0, by=0; };
+    Glyph gl[95];
+    int base = 44, ascent = 0, lineH = 0;
+    WGPURenderPipeline pipeline{};
+    WGPUBindGroup bind{};
+    WGPUSampler samp{};
+    WGPUBuffer vbuf{};
+    std::size_t vbuf_cap = 0;
+    std::vector<HudVertex> verts;
+    bool ok = false;
+
+    bool init(Gpu& g, WGPUTextureFormat color, const char* face = "Georgia",
+              int pxH = 46, int weight = FW_SEMIBOLD) {
+        base = pxH;
+        HDC hdc = CreateCompatibleDC(nullptr);
+        if (!hdc) return false;
+        HFONT font = CreateFontA(-pxH, 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                 OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                                 FF_ROMAN, face);
+        HGDIOBJ oldf = SelectObject(hdc, font);
+        TEXTMETRICA tm; GetTextMetricsA(hdc, &tm);
+        ascent = tm.tmAscent; lineH = tm.tmHeight;
+        MAT2 mat = {{0, 1}, {0, 0}, {0, 0}, {0, 1}};
+        struct Raw { std::vector<std::uint8_t> cov; int w = 0, h = 0; };
+        std::vector<Raw> raws(95);
+        const int atlasW = 1024;
+        int x = 1, y = 1, rowH = 0;
+        for (int i = 0; i < 95; ++i) {
+            const UINT ch = 32 + i;
+            GLYPHMETRICS gm = {};
+            const DWORD sz = GetGlyphOutlineA(hdc, ch, GGO_GRAY8_BITMAP, &gm, 0, nullptr, &mat);
+            gl[i].adv = gm.gmCellIncX; gl[i].bx = gm.gmptGlyphOrigin.x; gl[i].by = gm.gmptGlyphOrigin.y;
+            Raw r;
+            if (sz != GDI_ERROR && sz > 0) {
+                std::vector<std::uint8_t> buf(sz);
+                GetGlyphOutlineA(hdc, ch, GGO_GRAY8_BITMAP, &gm, sz, buf.data(), &mat);
+                r.w = gm.gmBlackBoxX; r.h = gm.gmBlackBoxY;
+                const int pitch = (r.w + 3) & ~3;   // GDI pads glyph rows to a DWORD
+                r.cov.assign(std::size_t(r.w) * r.h, 0);
+                for (int yy = 0; yy < r.h; ++yy)
+                    for (int xx = 0; xx < r.w; ++xx) {
+                        const int v = buf[yy * pitch + xx];        // 0..64 coverage
+                        r.cov[yy * r.w + xx] = std::uint8_t(v >= 64 ? 255 : (v * 255) / 64);
+                    }
+            }
+            gl[i].w = r.w; gl[i].h = r.h;
+            if (x + r.w + 1 > atlasW) { x = 1; y += rowH + 1; rowH = 0; }
+            gl[i].u0 = float(x); gl[i].v0 = float(y);   // pixel pos, resolved to UV below
+            x += r.w + 1; rowH = std::max(rowH, r.h);
+            raws[i] = std::move(r);
+        }
+        const int atlasH = y + rowH + 1;
+        std::vector<std::uint8_t> atlas(std::size_t(atlasW) * atlasH * 4, 0);
+        for (int i = 0; i < 95; ++i) {
+            const int px = int(gl[i].u0), py = int(gl[i].v0);
+            const Raw& r = raws[i];
+            for (int yy = 0; yy < r.h; ++yy)
+                for (int xx = 0; xx < r.w; ++xx) {
+                    const std::size_t o = (std::size_t(py + yy) * atlasW + (px + xx)) * 4;
+                    atlas[o] = 255; atlas[o + 1] = 255; atlas[o + 2] = 255;
+                    atlas[o + 3] = r.cov[yy * r.w + xx];
+                }
+            gl[i].u0 = px / float(atlasW);          gl[i].v0 = py / float(atlasH);
+            gl[i].u1 = (px + r.w) / float(atlasW);  gl[i].v1 = (py + r.h) / float(atlasH);
+        }
+        SelectObject(hdc, oldf); DeleteObject(font); DeleteDC(hdc);
+
+        // Upload the atlas and build a pipeline (the HUD shader: atlas * vertex colour).
+        WGPUTextureDescriptor td = {};
+        td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        td.dimension = WGPUTextureDimension_2D; td.size = {std::uint32_t(atlasW), std::uint32_t(atlasH), 1};
+        td.format = WGPUTextureFormat_RGBA8Unorm; td.mipLevelCount = 1; td.sampleCount = 1;
+        WGPUTexture tex = wgpuDeviceCreateTexture(g.device, &td);
+        WGPUTexelCopyTextureInfo dst = {}; dst.texture = tex; dst.aspect = WGPUTextureAspect_All;
+        WGPUTexelCopyBufferLayout lay = {}; lay.bytesPerRow = atlasW * 4; lay.rowsPerImage = atlasH;
+        WGPUExtent3D ext = {std::uint32_t(atlasW), std::uint32_t(atlasH), 1};
+        wgpuQueueWriteTexture(g.queue, &dst, atlas.data(), atlas.size(), &lay, &ext);
+        WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
+        wgpuTextureRelease(tex);
+
+        WGPUShaderSourceWGSL wgsl = {};
+        wgsl.chain.sType = WGPUSType_ShaderSourceWGSL; wgsl.code = sv(kHudWGSL);
+        WGPUShaderModuleDescriptor smd = {}; smd.nextInChain = &wgsl.chain;
+        WGPUShaderModule sm = wgpuDeviceCreateShaderModule(g.device, &smd);
+        WGPUVertexAttribute at[3] = {};
+        at[0].format = WGPUVertexFormat_Float32x2; at[0].offset = 0;  at[0].shaderLocation = 0;
+        at[1].format = WGPUVertexFormat_Float32x2; at[1].offset = 8;  at[1].shaderLocation = 1;
+        at[2].format = WGPUVertexFormat_Unorm8x4;  at[2].offset = 16; at[2].shaderLocation = 2;
+        WGPUVertexBufferLayout vbl = {};
+        vbl.arrayStride = sizeof(HudVertex); vbl.attributeCount = 3; vbl.attributes = at;
+        WGPUBlendState blend = {};
+        blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
+        blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_OneMinusSrcAlpha};
+        WGPUColorTargetState tgt = {}; tgt.format = color; tgt.blend = &blend; tgt.writeMask = WGPUColorWriteMask_All;
+        WGPUFragmentState fs = {}; fs.module = sm; fs.entryPoint = sv("fs"); fs.targetCount = 1; fs.targets = &tgt;
+        WGPURenderPipelineDescriptor pd = {};
+        pd.vertex.module = sm; pd.vertex.entryPoint = sv("vs");
+        pd.vertex.bufferCount = 1; pd.vertex.buffers = &vbl;
+        pd.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        pd.multisample.count = 1; pd.multisample.mask = 0xFFFFFFFF; pd.fragment = &fs;
+        pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+        WGPUSamplerDescriptor sad = {};
+        sad.magFilter = sad.minFilter = WGPUFilterMode_Linear; sad.maxAnisotropy = 1;
+        samp = wgpuDeviceCreateSampler(g.device, &sad);
+        WGPUBindGroupLayout bgl = wgpuRenderPipelineGetBindGroupLayout(pipeline, 0);
+        WGPUBindGroupEntry e[2] = {};
+        e[0].binding = 0; e[0].textureView = view;
+        e[1].binding = 1; e[1].sampler = samp;
+        WGPUBindGroupDescriptor bd = {}; bd.layout = bgl; bd.entryCount = 2; bd.entries = e;
+        bind = wgpuDeviceCreateBindGroup(g.device, &bd);
+        wgpuShaderModuleRelease(sm);
+        ok = true;
+        return true;
+    }
+
+    // Text width in px at a given em-height (pxH).
+    float measure(const std::string& s, float pxH) const {
+        const float sc = pxH / float(base);
+        float w = 0;
+        for (unsigned char c : s) if (c >= 32 && c <= 126) w += gl[c - 32].adv * sc;
+        return w;
+    }
+    // Append `s` with its top at py_top (px), left edge at px_left. pxH = em height in px.
+    void text(const std::string& s, float px_left, float py_top, float pxH, float sw, float sh,
+              std::uint8_t r, std::uint8_t gg, std::uint8_t b, std::uint8_t a) {
+        const float sc = pxH / float(base);
+        const float baseline = py_top + ascent * sc;
+        auto NX = [&](float v) { return v / sw * 2.f - 1.f; };
+        auto NY = [&](float v) { return 1.f - v / sh * 2.f; };
+        float x = px_left;
+        for (unsigned char c : s) {
+            if (c < 32 || c > 126) { x += base * 0.3f * sc; continue; }
+            const Glyph& gp = gl[c - 32];
+            if (gp.w > 0 && gp.h > 0) {
+                const float gx = x + gp.bx * sc, gy = baseline - gp.by * sc;
+                const float gw = gp.w * sc, gh = gp.h * sc;
+                const float x0 = NX(gx), x1 = NX(gx + gw), y0 = NY(gy), y1 = NY(gy + gh);
+                HudVertex q0{x0, y0, gp.u0, gp.v0, r, gg, b, a}, q1{x1, y0, gp.u1, gp.v0, r, gg, b, a};
+                HudVertex q2{x1, y1, gp.u1, gp.v1, r, gg, b, a}, q3{x0, y1, gp.u0, gp.v1, r, gg, b, a};
+                verts.push_back(q0); verts.push_back(q1); verts.push_back(q2);
+                verts.push_back(q0); verts.push_back(q2); verts.push_back(q3);
+            }
+            x += gp.adv * sc;
+        }
+    }
+    void text_centered(const std::string& s, float cx_frac, float py_top, float pxH,
+                       float sw, float sh, std::uint8_t r, std::uint8_t gg, std::uint8_t b,
+                       std::uint8_t a) {
+        text(s, cx_frac * sw - measure(s, pxH) * 0.5f, py_top, pxH, sw, sh, r, gg, b, a);
+    }
+    // Flush accumulated glyphs onto `view` (loadOp Load). Clears after.
+    void draw(Gpu& g, WGPUTextureView view) {
+        const std::size_t nf = verts.size();
+        if (!nf) return;
+        const std::size_t bytes = nf * sizeof(HudVertex);
+        if (bytes > vbuf_cap) {
+            if (vbuf) wgpuBufferRelease(vbuf);
+            WGPUBufferDescriptor bd = {};
+            bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+            bd.size = ((bytes + 4095) / 4096) * 4096;
+            vbuf = wgpuDeviceCreateBuffer(g.device, &bd);
+            vbuf_cap = bd.size;
+        }
+        wgpuQueueWriteBuffer(g.queue, vbuf, 0, verts.data(), bytes);
+        WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+        WGPURenderPassColorAttachment ca = {};
+        ca.view = view; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+        ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+        WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
+        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+        wgpuRenderPassEncoderSetPipeline(pass, pipeline);
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, bind, 0, nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, 0, bytes);
+        wgpuRenderPassEncoderDraw(pass, std::uint32_t(nf), 1, 0, 0);
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+        WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+        wgpuQueueSubmit(g.queue, 1, &cmd);
+        wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+        verts.clear();
+    }
+};
+
 // ---- title screen -----------------------------------------------------------
 // Load the title assets (build/menu_re/MENUS.md): TITLE_000.DDS is the 1024^2 logo,
 // MENU/BACK00.DDS the background. Rendered as screen-space quads via draw_screen_image.
@@ -2408,20 +2598,20 @@ struct TitleFx {
                                                   "Back"};
         return items[i];
     }
-    // Draw a centred label list with the ornate bracket (CUR00) behind the selection, below the
-    // logo. Shared by the main menu and the bonus sub-list. The Hud text flushes on top.
-    void draw_list(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+    // Draw a centred label list with the MENUCURSOR bar behind the selection, below the logo.
+    // Shared by the main menu and the bonus sub-list. Menu text is the serif MenuFont.
+    void draw_list(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                    std::uint32_t W, std::uint32_t H, int count, const char* (*get)(int),
                    int sel, float bracket_hw = 0.32f, float top_frac = 0.685f,
                    float cx_frac = 0.5f) {
         const float sw = float(W), sh = float(H);
-        const float scale = sh / 500.0f;
-        const float line_h = sh * 0.054f, top = sh * top_frac;   // below the logo
+        const float pxH = sh * 0.050f;
+        const float line_h = sh * 0.058f, top = sh * top_frac;   // below the logo
         const float cx = 2.0f * cx_frac - 1.0f;                  // list centre in NDC x
         if (cursor.tex) {   // MENUCURSOR: the scroll-curl bar, sized to hug the text row.
             const float cy = top + sel * line_h;
-            const float yt = 1.0f - 2.0f * (cy - line_h * 0.42f) / sh;
-            const float yb = 1.0f - 2.0f * (cy + line_h * 0.86f) / sh;
+            const float yt = 1.0f - 2.0f * (cy - line_h * 0.16f) / sh;
+            const float yb = 1.0f - 2.0f * (cy + line_h * 0.94f) / sh;
             draw_screen_image(g, cview, dview, false, cursor, cx - bracket_hw, yt,
                               cx + bracket_hw, yb, 0.3f);
         }
@@ -2429,22 +2619,22 @@ struct TitleFx {
         // plain light text would wash out), then the label on top -- selected brighter.
         const float shy = sh * 0.006f;
         for (int i = 0; i < count; ++i)
-            hud.text_centered(get(i), cx_frac, top + i * line_h + shy, scale, sw, sh, 20, 18, 14, 190);
+            mf.text_centered(get(i), cx_frac, top + i * line_h + shy, pxH, sw, sh, 20, 18, 14, 190);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
-            hud.text_centered(get(i), cx_frac, top + i * line_h, scale, sw, sh,
-                              s ? 255 : 225, s ? 244 : 228, s ? 205 : 232, 255);
+            mf.text_centered(get(i), cx_frac, top + i * line_h, pxH, sw, sh,
+                             s ? 255 : 228, s ? 246 : 230, s ? 210 : 234, 255);
         }
-        hud.draw_lines(g, cview);
+        mf.draw(g, cview);
     }
-    void draw_menu(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+    void draw_menu(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                    std::uint32_t W, std::uint32_t H, int sel) {
-        draw_list(g, hud, cview, dview, W, H, kItemCount, item, sel);
+        draw_list(g, mf, cview, dview, W, H, kItemCount, item, sel);
     }
-    void draw_bonus(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+    void draw_bonus(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                     std::uint32_t W, std::uint32_t H, int sel) {
         draw(g, cview, dview, W, H);   // redraw the splash under the sub-list
-        draw_list(g, hud, cview, dview, W, H, kBonusCount, bonusItem, sel);
+        draw_list(g, mf, cview, dview, W, H, kBonusCount, bonusItem, sel);
     }
 
     static constexpr int kCharCount = 3;   // g_flags[150]: 1 Yunica, 2 Hugo, 3 Toal
@@ -2463,7 +2653,7 @@ struct TitleFx {
     // frame, the "Character Select" banner, the selected character's key art on the left, three
     // selection bars on the right (the crossed one cyan, the others dark) each capped with the
     // character's face icon, and the description on the bottom bar. sel 0/1/2 -> character 1/2/3.
-    void draw_charselect(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+    void draw_charselect(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                          std::uint32_t W, std::uint32_t H, int sel) {
         const float sw = float(W), sh = float(H);
         // 1. The ornate frame (BACK00): its art fills the top ~0.772 of the 1024^2; stretch to
@@ -2514,50 +2704,53 @@ struct TitleFx {
         }
         // 5. Description on the bottom bar (the bars themselves carry only the face icon, as in
         //    the real screen -- the selected character is named here).
-        const float scale = sh / 620.0f;
-        std::string desc = std::string("[") + charName(sel) + "]   " + charDesc(sel);
-        hud.text_centered(desc.c_str(), 0.5f, sh * 0.90f, scale * 0.95f, sw, sh, 235, 235, 235, 255);
-        hud.draw_lines(g, cview);
+        std::string desc = std::string("[") + charName(sel) + "]    " + charDesc(sel);
+        mf.text_centered(desc.c_str(), 0.5f, sh * 0.905f, sh * 0.040f, sw, sh, 236, 236, 236, 255);
+        mf.draw(g, cview);
     }
 
     // The New-Game choice popups (Type Select, Difficulty, SP Bonus Acquisition). Drawn OVER a
     // background (usually the char-select screen): a dimmer, a centred panel, a title, and the
     // choices with the CUR00 bar on the selection. Caller passes the labels + current index.
-    void draw_popup(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+    void draw_popup(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                     std::uint32_t W, std::uint32_t H, const char* title,
                     const char* const* items, int count, int sel) {
         const float sw = float(W), sh = float(H);
+        auto ndcX = [&](float xpx) { return 2.0f * xpx / sw - 1.0f; };
         auto ndcY = [&](float ypx) { return 1.0f - 2.0f * ypx / sh; };
         if (dim.tex)                                   // dim whatever is behind
             draw_screen_image(g, cview, dview, false, dim, -1, 1, 1, -1, 0.25f);
-        // DIALOG0 (512x256, art fills the whole texture): the blue scroll frame. Height grows a
-        // little with the item count; centred (the engine likewise stretches this wide art taller
-        // for tall lists). The title sits in the frame's header sub-bar, the items in its body.
-        const float fw = 0.50f;                        // half-width in NDC (wide, like the frame)
-        const float fhpx = sh * (0.17f + 0.043f * count);
-        const float ftop = sh * 0.33f, fbot = ftop + fhpx;
+        // Size the DIALOG0 frame to the actual text. Its ornate scroll-curl ends take ~18% of the
+        // width each side, so the usable body is ~64% -- widen the frame to fit the longest line.
+        const float titleH = sh * 0.046f, itemH = sh * 0.044f;
+        float contentW = mf.measure(title, titleH);
+        for (int i = 0; i < count; ++i) contentW = std::max(contentW, mf.measure(items[i], itemH));
+        float frameWpx = std::min((contentW + sh * 0.05f) / 0.64f, sw * 0.90f);
+        const float frameHpx = sh * (0.13f + 0.058f * count);
+        const float cxpx = sw * 0.5f, cypx = sh * 0.52f;
+        const float fl = cxpx - frameWpx * 0.5f, fr = cxpx + frameWpx * 0.5f;
+        const float ft = cypx - frameHpx * 0.5f, fb = cypx + frameHpx * 0.5f;
         if (dialog.tex)
-            draw_screen_image(g, cview, dview, false, dialog, -fw, ndcY(ftop), fw, ndcY(fbot), 0.2f);
-        // Title in the header sub-bar; items distributed down the body (kept inside the frame's
-        // ornate top/bottom edges).
-        const float titleY = ftop + fhpx * 0.15f;
-        const float bodyTop = ftop + fhpx * 0.40f, bodyBot = ftop + fhpx * 0.78f;
+            draw_screen_image(g, cview, dview, false, dialog, ndcX(fl), ndcY(ft), ndcX(fr), ndcY(fb), 0.2f);
+        // Title in the header sub-bar; items down the body, kept inside the ornate edges.
+        const float titleY = ft + frameHpx * 0.12f;
+        const float bodyTop = ft + frameHpx * 0.40f, bodyBot = fb - frameHpx * 0.17f;
         const float itemGap = count > 1 ? (bodyBot - bodyTop) / (count - 1) : 0.0f;
         const float itemY0 = count > 1 ? bodyTop : (bodyTop + bodyBot) * 0.5f;
-        const float rowH = std::min(itemGap, fhpx * 0.20f);
-        const float scale = sh / 540.0f;
         if (cursor.tex) {                              // MENUCURSOR bar on the selection
-            const float cy = itemY0 + sel * itemGap;
-            const float yt = ndcY(cy - rowH * 0.44f), yb = ndcY(cy + rowH * 0.60f);
-            draw_screen_image(g, cview, dview, false, cursor, -0.28f, yt, 0.28f, yb, 0.15f);
+            const float cy = itemY0 + sel * itemGap + itemH * 0.5f;   // item's vertical middle
+            const float barW = frameWpx * 0.60f, barH = itemH * 1.35f;
+            draw_screen_image(g, cview, dview, false, cursor,
+                              ndcX(cxpx - barW * 0.5f), ndcY(cy - barH * 0.5f),
+                              ndcX(cxpx + barW * 0.5f), ndcY(cy + barH * 0.5f), 0.15f);
         }
-        hud.text_centered(title, 0.5f, titleY, scale * 0.9f, sw, sh, 240, 238, 220, 255);
+        mf.text_centered(title, 0.5f, titleY, titleH, sw, sh, 242, 240, 224, 255);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
-            hud.text_centered(items[i], 0.5f, itemY0 + i * itemGap, scale, sw, sh,
-                              s ? 255 : 205, s ? 244 : 214, s ? 205 : 224, s ? 255 : 235);
+            mf.text_centered(items[i], 0.5f, itemY0 + i * itemGap, itemH, sw, sh,
+                             s ? 255 : 210, s ? 246 : 218, s ? 212 : 228, s ? 255 : 235);
         }
-        hud.draw_lines(g, cview);
+        mf.draw(g, cview);
     }
 };
 
@@ -2581,25 +2774,25 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * H;
     WGPUBuffer readback = wgpuDeviceCreateBuffer(g.device, &rbd);
 
-    Hud thud; thud.init(g, res_file("hud_font.bin"), WGPUTextureFormat_RGBA8Unorm);
+    MenuFont mf; mf.init(g, WGPUTextureFormat_RGBA8Unorm);
     if (mode == 1) {
         int cs = 0;   // CLERIA_CS_SEL=0|1|2 previews Yunica/Hugo/Toal off-window
         if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) cs = v; }
-        title.draw_charselect(g, thud, cview, dview, W, H, cs);
+        title.draw_charselect(g, mf, cview, dview, W, H, cs);
         // CLERIA_POPUP=type|diff|sp overlays a New-Game popup for off-window verification.
         if (const char* e = std::getenv("CLERIA_POPUP")) {
             static const char* ti[3] = {"Normal", "Extra", "Cancel"};
             static const char* di[4] = {"Easy", "Normal", "Hard", "Nightmare"};
             static const char* si[2] = {"Enable", "Disable"};
-            if (std::string(e) == "type") title.draw_popup(g, thud, cview, dview, W, H, "Type Select", ti, 3, 1);
-            else if (std::string(e) == "diff") title.draw_popup(g, thud, cview, dview, W, H, "Difficulty", di, 4, 3);
-            else if (std::string(e) == "sp") title.draw_popup(g, thud, cview, dview, W, H, "SP Bonus Acquisition", si, 2, 0);
+            if (std::string(e) == "type") title.draw_popup(g, mf, cview, dview, W, H, "Type Select", ti, 3, 1);
+            else if (std::string(e) == "diff") title.draw_popup(g, mf, cview, dview, W, H, "Difficulty", di, 4, 3);
+            else if (std::string(e) == "sp") title.draw_popup(g, mf, cview, dview, W, H, "SP Bonus Acquisition", si, 2, 0);
         }
     } else if (mode == 2) {
-        title.draw_bonus(g, thud, cview, dview, W, H, /*sel=*/0);        // Time Attack lit
+        title.draw_bonus(g, mf, cview, dview, W, H, /*sel=*/0);        // Time Attack lit
     } else {
         title.draw(g, cview, dview, W, H);
-        title.draw_menu(g, thud, cview, dview, W, H, /*sel=*/1);   // preview with Load Game lit
+        title.draw_menu(g, mf, cview, dview, W, H, /*sel=*/1);   // preview with Load Game lit
     }
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPUTexelCopyTextureInfo src = {}; src.texture = color; src.aspect = WGPUTextureAspect_All;
@@ -2681,6 +2874,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Assets + flow from build/menu_re/MENUS.md.
     if (show_title) {
         TitleFx title; title.init(g, asset_root);
+        MenuFont mf; mf.init(g, WGPUTextureFormat_RGBA8Unorm);   // serif menu text (GDI system font)
         WGPUTextureView tdepth = make_depth(g.device, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
         // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
@@ -2754,20 +2948,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             if (ts == CHARSELECT) {
-                title.draw_charselect(g, hud, view, tdepth, cw, ch, csel);
+                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel);
             } else if (ts == TYPESELECT || ts == DIFFICULTY || ts == SPBONUS) {
-                title.draw_charselect(g, hud, view, tdepth, cw, ch, csel);   // popup backdrop
+                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel);   // popup backdrop
                 if (ts == TYPESELECT)
-                    title.draw_popup(g, hud, view, tdepth, cw, ch, "Type Select", kTypeItems, 3, tsel);
+                    title.draw_popup(g, mf, view, tdepth, cw, ch, "Type Select", kTypeItems, 3, tsel);
                 else if (ts == DIFFICULTY)
-                    title.draw_popup(g, hud, view, tdepth, cw, ch, "Difficulty", kDiffItems, 4, dsel);
+                    title.draw_popup(g, mf, view, tdepth, cw, ch, "Difficulty", kDiffItems, 4, dsel);
                 else
-                    title.draw_popup(g, hud, view, tdepth, cw, ch, "SP Bonus Acquisition", kSpItems, 2, spsel);
+                    title.draw_popup(g, mf, view, tdepth, cw, ch, "SP Bonus Acquisition", kSpItems, 2, spsel);
             } else if (ts == BONUS) {
-                title.draw_bonus(g, hud, view, tdepth, cw, ch, bsel);
+                title.draw_bonus(g, mf, view, tdepth, cw, ch, bsel);
             } else {
                 title.draw(g, view, tdepth, cw, ch);
-                title.draw_menu(g, hud, view, tdepth, cw, ch, sel);
+                title.draw_menu(g, mf, view, tdepth, cw, ch, sel);
             }
             wgpuSurfacePresent(surface);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
