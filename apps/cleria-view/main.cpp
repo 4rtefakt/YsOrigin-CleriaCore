@@ -2413,8 +2413,10 @@ struct MenuFont {
         base = std::max(8, emPx);
         HDC hdc = CreateCompatibleDC(nullptr);
         if (!hdc) return false;
+        // Match the engine's LOGFONT (build/menu_re/FONT_RASTER.md): weight 400, OUT_TT_PRECIS,
+        // PROOF_QUALITY. It rasterises at the exact device-pixel size, so `base` is that size.
         HFONT font = CreateFontA(-base, 0, 0, 0, weight_, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                 OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                                 OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, PROOF_QUALITY,
                                  FF_ROMAN, face_name.c_str());
         HGDIOBJ oldf = SelectObject(hdc, font);
         TEXTMETRICA tm; GetTextMetricsA(hdc, &tm);
@@ -2427,19 +2429,21 @@ struct MenuFont {
         for (int i = 0; i < 95; ++i) {
             const UINT ch = 32 + i;
             GLYPHMETRICS gm = {};
-            const DWORD sz = GetGlyphOutlineA(hdc, ch, GGO_GRAY8_BITMAP, &gm, 0, nullptr, &mat);
+            // The engine rasterises with GGO_GRAY4_BITMAP (17 levels 0..16), not GRAY8 (FONT_RASTER.md).
+            const DWORD sz = GetGlyphOutlineA(hdc, ch, GGO_GRAY4_BITMAP, &gm, 0, nullptr, &mat);
             gl[i].adv = gm.gmCellIncX; gl[i].bx = gm.gmptGlyphOrigin.x; gl[i].by = gm.gmptGlyphOrigin.y;
             Raw r;
             if (sz != GDI_ERROR && sz > 0) {
                 std::vector<std::uint8_t> buf(sz);
-                GetGlyphOutlineA(hdc, ch, GGO_GRAY8_BITMAP, &gm, sz, buf.data(), &mat);
+                GetGlyphOutlineA(hdc, ch, GGO_GRAY4_BITMAP, &gm, sz, buf.data(), &mat);
                 r.w = gm.gmBlackBoxX; r.h = gm.gmBlackBoxY;
                 const int pitch = (r.w + 3) & ~3;   // GDI pads glyph rows to a DWORD
                 r.cov.assign(std::size_t(r.w) * r.h, 0);
                 for (int yy = 0; yy < r.h; ++yy)
                     for (int xx = 0; xx < r.w; ++xx) {
-                        const int v = buf[yy * pitch + xx];        // 0..64 coverage
-                        r.cov[yy * r.w + xx] = std::uint8_t(v >= 64 ? 255 : (v * 255) / 64);
+                        // Engine mapping: drop coverage 0/1, else 4-bit alpha (c-1)/15 -> 8-bit.
+                        const int v = buf[yy * pitch + xx];        // 0..16 coverage
+                        r.cov[yy * r.w + xx] = std::uint8_t(v <= 1 ? 0 : (v - 1) * 255 / 15);
                     }
             }
             gl[i].w = r.w; gl[i].h = r.h;
@@ -2861,10 +2865,9 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     WGPUBuffer readback = wgpuDeviceCreateBuffer(g.device, &rbd);
 
     MenuFont mf;
-    // Oversample the atlas (rasterise larger, downscale on draw): the game's on-screen menu text
-    // is soft, not crisp-native -- it scales a fixed-size glyph atlas (build/menu_re/FONT_RASTER.md
-    // pending). 64px matches that softness better than native-size. TODO: use the RE'd atlas size.
-    mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), 64);
+    // Rasterise at the native device-pixel em size, GGO_GRAY4 (FONT_RASTER.md): the engine's LOGFONT
+    // height is screenH*32/768 and it rasterises per-size, so match that exactly.
+    mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), int(std::lround(32.0 * H / 768.0)));
     if (mode == 1) {
         int cs = 0;   // CLERIA_CS_SEL=0|1|2 previews Yunica/Hugo/Toal off-window
         if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) cs = v; }
@@ -2966,8 +2969,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Assets + flow from build/menu_re/MENUS.md.
     if (show_title) {
         TitleFx title; title.init(g, asset_root);
-        MenuFont mf;   // Felghana, oversampled atlas (softness matched to the game; FONT_RASTER RE pending)
-        mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), 64);
+        MenuFont mf;   // Felghana, native-size GGO_GRAY4 atlas (FONT_RASTER.md), re-rastered on resize
+        mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), int(std::lround(32.0 * ch / 768.0)));
         WGPUTextureView tdepth = make_depth(g.device, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
         // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
@@ -3034,6 +3037,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
                     if (cw && ch) {
                         configure(); wgpuTextureViewRelease(tdepth); tdepth = make_depth(g.device, cw, ch);
+                        mf.build_atlas(g, int(std::lround(32.0 * ch / 768.0)));   // re-raster font native
                     }
                 }
             }
