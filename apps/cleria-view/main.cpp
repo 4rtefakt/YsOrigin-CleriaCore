@@ -2990,11 +2990,18 @@ struct TitleFx {
         const float trackX = 652.0f, trackLen = 240.0f;
         for (int i = 0; i < 3; ++i) {
             const float ty = rowY[i] + 25.6f;
+            // track = teal-gradient bar with metallic end-caps at atlas x410 and x615; the SECOND bar
+            // (rainbow/gamma variant) starts at x618 with a dark-blue cap, so stop at 616 or it leaves
+            // a stray blue stub past the track.
             draw_screen_image(g, cview, dview, false, opbtn, AX(trackX), AY(ty - 11.0f),
-                              AX(trackX + trackLen), AY(ty + 11.0f), 0.28f, 410*T, 363*T, 640*T, 390*T);
+                              AX(trackX + trackLen), AY(ty + 11.0f), 0.28f, 408*T, 365*T, 616*T, 388*T);
             const float kx = trackX + (float(sliders[i]) / 1024.0f) * trackLen;
-            draw_screen_image(g, cview, dview, false, opbtn, AX(kx - 9.0f), AY(ty - 24.0f),
-                              AX(kx + 9.0f), AY(ty + 24.0f), 0.26f, 32*T, 308*T, 58*T, 358*T);
+            // knob pill: dim silver-teal (atlas x1..15) when the row isn't focused, lit blue
+            // (x16..31) when it is -- the reference grab shows the dim variant.
+            const bool kf = (i == sel);
+            const float ku0 = (kf ? 16.0f : 1.0f) * T, ku1 = (kf ? 31.0f : 15.0f) * T;
+            draw_screen_image(g, cview, dview, false, opbtn, AX(kx - 8.0f), AY(ty - 26.0f),
+                              AX(kx + 8.0f), AY(ty + 26.0f), 0.26f, ku0, 305*T, ku1, 357*T);
         }
         // 4. checkboxes (rows 3-6): OPBTN square, checked U=0 / unchecked U=51 (OPTIONS.md §4)
         for (int i = 0; i < 4; ++i) {
