@@ -1867,6 +1867,47 @@ struct Hud {
         verts.push_back(q0); verts.push_back(q2); verts.push_back(q3);
     }
 
+    // Add text horizontally centred on cx_frac*sw. (Uses `text`; width = len*cw*scale.)
+    void text_centered(const std::string& s, float cx_frac, float y_px, float scale,
+                       float sw, float sh, std::uint8_t r, std::uint8_t gg, std::uint8_t b,
+                       std::uint8_t a) {
+        text(s, cx_frac * sw - float(s.size()) * cw * scale * 0.5f, y_px, scale, sw, sh, r, gg, b, a);
+    }
+
+    // Flush ONLY the accumulated font/solid `verts` (no status bar, no "Room:" line) to
+    // `view`, keeping what's already there (loadOp Load). For menus/titles that build their
+    // own text via text()/text_centered()/rect() and then call this. Clears verts after.
+    void draw_lines(Gpu& g, WGPUTextureView view) {
+        const std::size_t nf = verts.size();
+        if (!nf) return;
+        const std::size_t bytes = nf * sizeof(HudVertex);
+        if (bytes > vbuf_cap) {
+            if (vbuf) wgpuBufferRelease(vbuf);
+            WGPUBufferDescriptor bd = {};
+            bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+            bd.size = ((bytes + 4095) / 4096) * 4096;
+            vbuf = wgpuDeviceCreateBuffer(g.device, &bd);
+            vbuf_cap = bd.size;
+        }
+        wgpuQueueWriteBuffer(g.queue, vbuf, 0, verts.data(), bytes);
+        WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+        WGPURenderPassColorAttachment ca = {};
+        ca.view = view; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+        ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+        WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
+        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+        wgpuRenderPassEncoderSetPipeline(pass, pipeline);
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, bind, 0, nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, 0, bytes);
+        wgpuRenderPassEncoderDraw(pass, std::uint32_t(nf), 1, 0, 0);
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+        WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+        wgpuQueueSubmit(g.queue, 1, &cmd);
+        wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+        verts.clear();
+    }
+
     // The game's own digit emitter (builder A, 0x0043e550..0x0043e7b1).
     //
     //   cursor = right_x (337.5 for SP);  v = clamp(value, 0, 999999)
@@ -2328,6 +2369,34 @@ struct TitleFx {
         // The 4:3 splash (logo + moon + landscape + credits) centred, full height.
         draw_screen_image(g, cview, dview, false, splash, -sw, 1, sw, -1, 0.5f, 0, 0, 1, vc);
     }
+
+    static constexpr int kItemCount = 5;
+    static const char* item(int i) {
+        static const char* items[kItemCount] = {"New Game", "Load Game", "Bonus Modes",
+                                                 "Options", "Exit"};
+        return items[i];
+    }
+    // Draw the title menu: an ornate bracket (CUR00) behind the selected item, then the five
+    // labels centred below the logo (selected brighter). The Hud text flushes on top.
+    void draw_menu(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+                   std::uint32_t W, std::uint32_t H, int sel) {
+        const float sw = float(W), sh = float(H);
+        const float scale = sh / 500.0f;
+        const float line_h = sh * 0.054f, top = sh * 0.685f;   // below the logo
+        if (cursor.tex) {   // CUR00's bracket art lives in its top-left 154x51 sub-rect
+            const float cy = top + sel * line_h;
+            const float yt = 1.0f - 2.0f * (cy - line_h * 0.20f) / sh;
+            const float yb = 1.0f - 2.0f * (cy + line_h * 0.85f) / sh;
+            draw_screen_image(g, cview, dview, false, cursor, -0.32f, yt, 0.32f, yb, 0.3f,
+                              0.0f, 0.0f, 0.602f, 0.398f);
+        }
+        for (int i = 0; i < kItemCount; ++i) {
+            const bool s = (i == sel);
+            hud.text_centered(item(i), 0.5f, top + i * line_h, scale, sw, sh,
+                              s ? 255 : 205, s ? 248 : 212, s ? 215 : 222, s ? 255 : 225);
+        }
+        hud.draw_lines(g, cview);
+    }
 };
 
 // Headless title render (--title out.ppm), to verify the composition off-window.
@@ -2350,6 +2419,8 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     WGPUBuffer readback = wgpuDeviceCreateBuffer(g.device, &rbd);
 
     title.draw(g, cview, dview, W, H);
+    Hud thud; thud.init(g, res_file("hud_font.bin"), WGPUTextureFormat_RGBA8Unorm);
+    title.draw_menu(g, thud, cview, dview, W, H, /*sel=*/1);   // preview with Load Game lit
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPUTexelCopyTextureInfo src = {}; src.texture = color; src.aspect = WGPUTextureAspect_All;
     WGPUTexelCopyBufferInfo dst = {}; dst.buffer = readback;
@@ -2416,14 +2487,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         TitleFx title; title.init(g, asset_root);
         WGPUTextureView tdepth = make_depth(g.device, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
+        int sel = 0;   // 0 New Game, 1 Load, 2 Bonus Modes, 3 Options, 4 Exit
+        auto teardown = [&] { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); };
         for (bool started = false; !started;) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
-                if (e.type == SDL_EVENT_QUIT) { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); return 0; }
+                if (e.type == SDL_EVENT_QUIT) { teardown(); return 0; }
                 else if (e.type == SDL_EVENT_KEY_DOWN) {
                     const SDL_Keycode k = e.key.key;
-                    if (k == SDLK_ESCAPE) { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); return 0; }
-                    if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) started = true;
+                    if (k == SDLK_ESCAPE) { teardown(); return 0; }
+                    else if (k == SDLK_UP || k == SDLK_W)
+                        sel = (sel + TitleFx::kItemCount - 1) % TitleFx::kItemCount;
+                    else if (k == SDLK_DOWN || k == SDLK_S)
+                        sel = (sel + 1) % TitleFx::kItemCount;
+                    else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
+                        if (sel == 4) { teardown(); return 0; }   // Exit
+                        else if (sel == 0) started = true;         // New Game
+                        // Load Game / Bonus Modes / Options: not yet implemented.
+                    }
                 } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
                     if (cw && ch) { configure(); wgpuTextureViewRelease(tdepth); tdepth = make_depth(g.device, cw, ch); }
@@ -2435,6 +2516,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             title.draw(g, view, tdepth, cw, ch);
+            title.draw_menu(g, hud, view, tdepth, cw, ch, sel);
             wgpuSurfacePresent(surface);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
         }
