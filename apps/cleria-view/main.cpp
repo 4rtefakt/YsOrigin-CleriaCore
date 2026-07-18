@@ -2633,17 +2633,19 @@ struct TitleFx {
         auto rowTop = [&](int i) { return lastTop - (count - 1 - i) * pitch; };
         float maxW = 0;
         for (int i = 0; i < count; ++i) maxW = std::max(maxW, mf.measure(get(i), pxH));
-        if (cursor.tex) {                            // MENUCURSOR highlight bar on the selected row
-            const float bt = rowTop(sel), bb = bt + cellH, barW = maxW + 64.0f * A;
-            draw_screen_image(g, cview, dview, false, cursor, ndcX(cxpx - barW * 0.5f), ndcY(bt),
-                              ndcX(cxpx + barW * 0.5f), ndcY(bb), 0.3f);
+        const float ty = 3.0f * A;
+        if (cursor.tex) {                            // MENUCURSOR highlight bar, centred on the text
+            const float mid = rowTop(sel) + ty + 0.46f * pxH;   // glyph vertical centre
+            const float half = pxH * 0.58f, barW = maxW + 64.0f * A;
+            draw_screen_image(g, cview, dview, false, cursor, ndcX(cxpx - barW * 0.5f), ndcY(mid - half),
+                              ndcX(cxpx + barW * 0.5f), ndcY(mid + half), 0.3f);
         }
         // Labels: light blue-teal by default, neutral/white on the selected row (sampled from
         // reference/title_main.png: unselected ~[176,205,207]). Each carries a thin dark drop-
-        // shadow (as the game does -- it also keeps the light selected text legible on the bar).
-        const float ty = 3.0f * A, sx = -1.5f * A, sy = 2.0f * A;   // shadow bottom-left
+        // shadow, bottom-left (as the game does -- also keeps the light selected text legible).
+        const float sx = -0.7f * A, sy = 0.9f * A;
         for (int i = 0; i < count; ++i)
-            mf.text_centered(get(i), 0.5f + sx / sw, rowTop(i) + ty + sy, pxH, sw, sh, 22, 26, 32, 170);
+            mf.text_centered(get(i), 0.5f + sx / sw, rowTop(i) + ty + sy, pxH, sw, sh, 24, 28, 34, 140);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
             mf.text_centered(get(i), 0.5f, rowTop(i) + ty, pxH, sw, sh,
