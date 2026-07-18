@@ -633,6 +633,26 @@ int main(int argc, char** argv) {
               std::to_string(scanned) + " regions, " + std::to_string(mismatch) + " corrupt");
     }
 
+    // --- EXP-to-level curve (build/progress_re/LEVELING.md). The level-up threshold is the
+    // running sum of GAMEINFO pair 10 (150 -> 18150 over levels 1..60); EXP is credited at the
+    // killing blow (FUN_004fbb40) and the level loops while total >= threshold(level+1), cap 60.
+    // Lock the existing gameinfo.hpp::exp_to_level against the RE's closed form so a curve
+    // regression is caught: total to REACH level 60 = sum_{i=0..58} lerp(150,18150,i/59) = 530850.
+    {
+        const double e1 = gi.exp_to_level(1);
+        const double e2 = gi.exp_to_level(2);
+        const double e60 = gi.exp_to_level(60);
+        check(std::fabs(e1) < 1.0, "exp_to_level(1) == 0 (no EXP owed at the start)",
+              std::to_string(int(e1)));
+        check(std::fabs(e2 - 150.0) < 1.0, "first level-up costs 150 (pair-10 endpoint a)",
+              std::to_string(int(e2)));
+        check(std::fabs(e60 - 530850.0) < 2.0, "reaching lv60 needs 530850 EXP (RE closed form)",
+              std::to_string(int(e60)));
+        bool mono = true;
+        for (int L = 2; L <= 60; ++L) if (gi.exp_to_level(L) <= gi.exp_to_level(L - 1)) mono = false;
+        check(mono, "the EXP curve is strictly increasing over levels 1..60");
+    }
+
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
     return fails ? 1 : 0;
 }
