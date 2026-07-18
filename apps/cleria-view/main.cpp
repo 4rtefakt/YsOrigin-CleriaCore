@@ -2574,6 +2574,7 @@ struct TitleFx {
     SpriteTex dim;             // baked solid: background dimmer behind popups
     CharSprite chibi[3];       // the little walking sprite in char-select's bottom-right
     int chibi_cur[3] = {-1, -1, -1};   // frame currently decoded per character
+    SpriteTex faceClip[3];     // each char's face pre-clipped to the bar's arrow shape
     bool init(Gpu& g, const fs::path& asset_root) {
         // Background dimmer for the popups (RGBA, alpha baked in -- the char shader blends by
         // texture alpha). The popup PANEL is the real DIALOG0 asset, below.
@@ -2627,6 +2628,43 @@ struct TitleFx {
                 const int w = chibi[i].find_tag(0);
                 if (w >= 0) chibi[i].set_anim(g, std::uint32_t(w), 0);
             }
+        // Arrow-clip the face cutouts: the atlas face crops are RECTANGULAR, but the game clips each
+        // into the bar's arrow shape. Multiply each face's alpha by the bar-arrow alpha (dark-bar
+        // region) sampled at the face's position within the bar -- matching the draw rects (bar
+        // x60..956 == atlas u[0.06,0.875]; face x654..897 / y row+14..+110). Kills the rectangular
+        // overhang past the arrow's tapering right edge.
+        {
+            Dds csd = load_dds(asset_root / "MENU" / "CHRSELECT.DDS");
+            if (csd.ok()) {
+                const int AW = int(csd.width), AH = int(csd.height);
+                auto samp = [&](float u, float v, std::uint8_t* out) {
+                    const int x = std::clamp(int(u * AW), 0, AW - 1), y = std::clamp(int(v * AH), 0, AH - 1);
+                    std::memcpy(out, &csd.data[(std::size_t(y) * AW + x) * 4], 4);
+                };
+                // bar-arrow alpha region under the face (atlas uv), from the draw rects:
+                const float bu0 = 0.600f, bu1 = 0.821f, bv0 = 0.320f, bv1 = 0.493f;
+                static const float kU[3][2] = {{0.011f, 0.244f}, {0.264f, 0.495f}, {0.500f, 0.742f}};
+                constexpr float fv0 = 0.561f, fv1 = 0.748f;
+                const int FW = 256, FH = 128;
+                std::vector<std::uint8_t> buf(std::size_t(FW) * FH * 4);
+                for (int i = 0; i < 3; ++i) {
+                    for (int y = 0; y < FH; ++y)
+                        for (int x = 0; x < FW; ++x) {
+                            const float sx = float(x) / FW, sy = float(y) / FH;
+                            std::uint8_t face[4], bar[4];
+                            samp(kU[i][0] + sx * (kU[i][1] - kU[i][0]), fv0 + sy * (fv1 - fv0), face);
+                            samp(bu0 + sx * (bu1 - bu0), bv0 + sy * (bv1 - bv0), bar);
+                            std::uint8_t* o = &buf[(std::size_t(y) * FW + x) * 4];
+                            o[0] = face[0]; o[1] = face[1]; o[2] = face[2];
+                            // Clip to the arrow AND suppress the crop's soft light halo (square the
+                            // face alpha) so only the face shows, not a light rectangular box.
+                            const int fa = face[3] * face[3] / 255;
+                            o[3] = std::uint8_t(fa * bar[3] / 255);
+                        }
+                    faceClip[i] = upload_rgba(g, FW, FH, buf.data());
+                }
+            }
+        }
         return splash.tex != nullptr;
     }
     // Compose the title: the pillarbox art fills the whole (widescreen) screen, then the
@@ -2779,8 +2817,9 @@ struct TitleFx {
                 draw_screen_image(g, cview, dview, false, chrsel, AX(60), AY(yt), AX(956), AY(yb),
                                   0.45f, kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1,
                                   0.02f, 0.02f, 0.05f, s ? pulse : 0.0f);
-                draw_screen_image(g, cview, dview, false, chrsel, AX(654), AY(yt + 14), AX(897),
-                                  AY(yt + 110), 0.42f, kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
+                if (faceClip[i].tex)   // face pre-clipped to the arrow (built in init)
+                    draw_screen_image(g, cview, dview, false, faceClip[i], AX(654), AY(yt + 14),
+                                      AX(897), AY(yt + 110), 0.42f);
             }
         }
         // 4. The selected character's key art, on TOP of the bars (one crop frames all three).
