@@ -2867,7 +2867,13 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     MenuFont mf;
     // Rasterise at the native device-pixel em size, GGO_GRAY4 (FONT_RASTER.md): the engine's LOGFONT
     // height is screenH*32/768 and it rasterises per-size, so match that exactly.
-    mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), int(std::lround(32.0 * H / 768.0)));
+    // The game renders its 2D overlay at the native 1280x960 internal backbuffer, then upscales to
+    // the display. So rasterise the glyph atlas at the 960-height font size (32*960/768 = 40) and let
+    // the draw bilinear-upscale it to screen -- this reproduces the game's characteristic softness
+    // (a full-res crisp atlas over-sharpens vs the reference). build/menu_re/title_pixeldiff.py.
+    int atlasPx = int(std::lround(32.0 * 960.0 / 768.0));
+    if (const char* e = std::getenv("CLERIA_ATLAS_PX")) { int v = std::atoi(e); if (v >= 8 && v <= 400) atlasPx = v; }
+    mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), atlasPx);
     if (mode == 1) {
         int cs = 0;   // CLERIA_CS_SEL=0|1|2 previews Yunica/Hugo/Toal off-window
         if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) cs = v; }
