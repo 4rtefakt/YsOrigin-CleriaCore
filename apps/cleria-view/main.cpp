@@ -984,9 +984,20 @@ static void update_fog(const Room& room, const Vec3& player, float dt, bool snap
 }
 
 // ---- character sprite (AIA billboard) --------------------------------------
+// Besides the texture, a sprite carries where its tight bbox sits ON THE AIA CANVAS
+// (x0,y0) plus that file's constant anchor (canvasW, foot-line oy = bill[2]). This is
+// what keeps an animation from sliding: every frame is placed against the SAME canvas
+// hotspot (canvasW/2, oy), and only the silhouette moves within it (build/anim_re/
+// SPRITEANCHOR.md). place_ok stays false for non-AIA sprites (they set no canvas data).
 struct SpriteTex {
     WGPUTexture tex{}; WGPUTextureView view{}; WGPUBindGroup bind{};
     std::uint32_t w = 0, h = 0;
+    float x0 = 0, y0 = 0, canvasW = 0, oy = 0;
+    bool place_ok = false;
+    void set_placement(const AiaFrame& fr, std::uint32_t cw) {
+        x0 = float(fr.x0); y0 = float(fr.y0); canvasW = float(cw); oy = fr.bill[2];
+        place_ok = true;
+    }
 };
 
 static SpriteTex upload_rgba(Gpu& g, std::uint32_t w, std::uint32_t h, const std::uint8_t* rgba) {
@@ -1052,6 +1063,7 @@ struct CharSprite {
                 continue;
             if (dirs[d].tex) { wgpuBindGroupRelease(dirs[d].bind); wgpuTextureViewRelease(dirs[d].view); wgpuTextureRelease(dirs[d].tex); }
             dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
+            dirs[d].set_placement(fr, aia.canvasW);   // canvas anchor -> no animation slide
         }
     }
 };
@@ -1066,7 +1078,6 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
-    const float Wc = worldH * (float(spr.w) / float(spr.h));
     // Nudge the billboard toward the camera (horizontally) so its lower half clears the
     // floor it stands on -- an upright billboard z-fights the floor at its base, and this
     // backend ignores depthBias, so a small world-space nudge is the reliable fix.
@@ -1074,15 +1085,34 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     const float tl = std::sqrt(toCam.x * toCam.x + toCam.z * toCam.z);
     if (tl > 1e-4f) { toCam.x /= tl; toCam.z /= tl; }
     constexpr float kDepthNudge = 0.9f;
-    const Vec3 ctr = {feet.x + toCam.x * kDepthNudge, feet.y + worldH * 0.5f,
-                      feet.z + toCam.z * kDepthNudge};
+    const Vec3 base = {feet.x + toCam.x * kDepthNudge, feet.y, feet.z + toCam.z * kDepthNudge};
+    // Quad extents in billboard-local units (X = along `right`, Y = world up), from feet.
+    float lX, rX, tY, bY;
+    if (spr.place_ok && spr.canvasW > 0) {
+        // Canvas-anchored (SPRITEANCHOR.md): place the tight bbox at its (x0,y0) on the
+        // AIA canvas, measured from the file's CONSTANT hotspot (canvasW/2, oy=foot line),
+        // with ONE scale for every frame. That fixed hotspot is what stops an animation
+        // sliding -- the attack's silhouette shifts inside the frame, not the whole sprite.
+        // kSpriteScale is world units per canvas pixel (the old 76px = ~2.0-world reading).
+        constexpr float kSpriteScale = 2.0f / 76.0f;
+        const float S = kSpriteScale;
+        lX = (spr.x0 - spr.canvasW * 0.5f) * S;
+        rX = (spr.x0 + float(spr.w) - spr.canvasW * 0.5f) * S;
+        tY = (spr.oy - spr.y0) * S;
+        bY = (spr.oy - (spr.y0 + float(spr.h))) * S;
+    } else {
+        // Fallback (no canvas data, e.g. a DDS sprite): centre the tight bbox at the feet
+        // and span feet.y .. feet.y+worldH, keeping the old aspect-preserving behaviour.
+        const float Wc = worldH * (float(spr.w) / float(spr.h));
+        lX = -Wc * 0.5f; rX = Wc * 0.5f; tY = worldH; bY = 0.0f;
+    }
     // Vertex-colour alpha carries the hit-flash amount (fs_char lerps to white by it).
     const std::uint8_t fa = std::uint8_t(std::max(0.0f, std::min(1.0f, flash)) * 255.0f);
-    auto V = [&](float sx, float sy, float u, float v) -> RoomVertex {
-        return {ctr.x + right.x * sx * Wc * 0.5f, ctr.y + sy * worldH * 0.5f,
-                ctr.z + right.z * sx * Wc * 0.5f, 0, 0, -1, u, v, 255, 255, 255, fa};
+    auto V = [&](float lx, float ly, float u, float v) -> RoomVertex {
+        return {base.x + right.x * lx, base.y + ly, base.z + right.z * lx,
+                0, 0, -1, u, v, 255, 255, 255, fa};
     };
-    RoomVertex verts[4] = {V(-1, 1, 0, 0), V(1, 1, 1, 0), V(1, -1, 1, 1), V(-1, -1, 0, 1)};
+    RoomVertex verts[4] = {V(lX, tY, 0, 0), V(rX, tY, 1, 0), V(rX, bY, 1, 1), V(lX, bY, 0, 1)};
     std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
     WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
     WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
@@ -1235,7 +1265,9 @@ struct EnemyFx {
             for (std::uint32_t f = 0; f < nfr; ++f) {
                 AiaFrame fr;
                 if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
-                k.anim[d].push_back(upload_rgba(g, fr.w, fr.h, fr.rgba.data()));
+                SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
+                st.set_placement(fr, k.aia.canvasW);   // canvas anchor, like the player
+                k.anim[d].push_back(st);
                 tall = std::max(tall, fr.h);
         }
         // Scale off the sprite's own pixel height, against the player's known
