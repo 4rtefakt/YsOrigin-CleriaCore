@@ -2716,9 +2716,9 @@ struct TitleFx {
     }
     static const char* charDesc(int i) {
         static const char* d[kCharCount] = {
-            "Axe-wielding fighter.  Mid speed, mid range.",
-            "Magic user.  Low speed, long range.",
-            "Sword fighter.  High speed, short range."};
+            "Axe-wielding fighter. Mid speed, mid range.",
+            "Energy-firing mage. Slow speed, long range.",
+            "Berserker. Fast, close range. Experts only!"};
         return d[i];
     }
     // The real Character Select (build/menu_re/MENUS.md + CHRSELECT.DDS atlas): the BACK00
@@ -2754,30 +2754,31 @@ struct TitleFx {
         if (chrsel.tex)
             draw_screen_image(g, cview, dview, false, chrsel, AX(290), AY(-2), AX(734), AY(81), 0.5f,
                               0.557f, 0.844f, 0.998f, 1.0f);
-        // 3. The selected character's key art on the left (one crop frames all three).
-        if (sel >= 0 && sel < 3 && portrait[sel].tex) {
-            constexpr float u0 = 0.0f, u1 = 0.68f, v0 = 0.04f, v1 = 0.76f;
-            const float ar = ((u1 - u0) * 1024.0f) / ((v1 - v0) * 1024.0f);
-            const float top = 41.0f, hgt = 735.0f, left = 2.0f, wid = hgt * ar;
-            draw_screen_image(g, cview, dview, false, portrait[sel], AX(left), AY(top),
-                              AX(left + wid), AY(top + hgt), 0.4f, u0, v0, u1, v1);
-        }
-        // 4. Three selection bars (EXTRA_SKINS.md §4: x=60..956, h=128, y={128,272,416}; row
+        // 3. Three selection bars (EXTRA_SKINS.md §4: x=60..956, h=128, y={128,272,416}; row
         //    0/1/2 = Yunica/Hugo/Toal), the crossed one cyan, the rest dark, each capped by its
-        //    face icon in the wide right end.
+        //    face icon in the wide right end. Drawn BEFORE the portrait so the character's cape
+        //    blends over the bars (else the cape's semi-transparent edge writes depth and punches
+        //    light "holes"/halo through the bars behind it).
         const float rowYtop[3] = {128.0f, 272.0f, 416.0f};
         for (int i = 0; i < 3; ++i) {
             const bool s = (i == sel);
             const float yt = rowYtop[i], yb = yt + 128.0f;
             if (chrsel.tex) {
-                // The selected (cyan) bar PULSATES toward white in-game; `pulse` (0..1) white-tints
-                // it. The face icon is drawn after, so it stays readable through the pulse.
+                // The selected (cyan) bar PULSATES toward white in-game; `pulse` (0..1) white-tints it.
                 draw_screen_image(g, cview, dview, false, chrsel, AX(60), AY(yt), AX(956), AY(yb),
                                   0.45f, kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1,
                                   0.02f, 0.02f, 0.05f, s ? pulse : 0.0f);
                 draw_screen_image(g, cview, dview, false, chrsel, AX(654), AY(yt + 14), AX(897),
-                                  AY(yt + 110), 0.4f, kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
+                                  AY(yt + 110), 0.42f, kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
             }
+        }
+        // 4. The selected character's key art, on TOP of the bars (one crop frames all three).
+        if (sel >= 0 && sel < 3 && portrait[sel].tex) {
+            constexpr float u0 = 0.0f, u1 = 0.68f, v0 = 0.04f, v1 = 0.76f;
+            const float ar = ((u1 - u0) * 1024.0f) / ((v1 - v0) * 1024.0f);
+            const float top = 41.0f, hgt = 735.0f, left = 2.0f, wid = hgt * ar;
+            draw_screen_image(g, cview, dview, false, portrait[sel], AX(left), AY(top),
+                              AX(left + wid), AY(top + hgt), 0.35f, u0, v0, u1, v1);
         }
         // 5. Description: "[Name]" left-aligned at authored x=48, and the blurb at a FIXED column
         //    x=209 (measured: the reference body-start is ~209 for all three names regardless of
