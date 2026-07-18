@@ -2568,14 +2568,11 @@ struct TitleFx {
         Dds dg = load_dds(asset_root / "IMAGE" / "DIALOG0.DDS");         // popup scroll frame
         if (s.ok()) splash = upload_rgba(g, s.width, s.height, s.data.data());
         if (p.ok()) pillar = upload_rgba(g, p.width, p.height, p.data.data());
-        // MENUCURSOR's art is blue, but the engine renders the selection bar WHITE (verified vs
-        // reference/title_main.png: bar ~[227,235,239]). Desaturate to the brightest channel,
-        // keeping alpha (the bar+curl shape) -- whitens the blue while preserving the linework.
+        // MENUCURSOR's art is blue, but the engine renders the selection bar pure WHITE. Force
+        // RGB to 255, keeping alpha (the bar+curl shape) -- a white bar, not a silver one.
         if (c.ok()) {
-            for (std::size_t i = 0; i + 3 < c.data.size(); i += 4) {
-                const std::uint8_t m = std::max(c.data[i], std::max(c.data[i + 1], c.data[i + 2]));
-                c.data[i] = c.data[i + 1] = c.data[i + 2] = m;
-            }
+            for (std::size_t i = 0; i + 3 < c.data.size(); i += 4)
+                c.data[i] = c.data[i + 1] = c.data[i + 2] = 255;
             cursor = upload_rgba(g, c.width, c.height, c.data.data());
         }
         if (fr.ok()) frame = upload_rgba(g, fr.width, fr.height, fr.data.data());
@@ -2641,13 +2638,16 @@ struct TitleFx {
             draw_screen_image(g, cview, dview, false, cursor, ndcX(cxpx - barW * 0.5f), ndcY(bt),
                               ndcX(cxpx + barW * 0.5f), ndcY(bb), 0.3f);
         }
-        // Muted cool-gray labels, as the game (sampled from reference/title_main.png): unselected
-        // ~[118,130,128] on the sky, the crossed row a touch lighter on the white cursor bar.
-        const float ty = 3.0f * A;
+        // Labels: light blue-teal by default, neutral/white on the selected row (sampled from
+        // reference/title_main.png: unselected ~[176,205,207]). Each carries a thin dark drop-
+        // shadow (as the game does -- it also keeps the light selected text legible on the bar).
+        const float ty = 3.0f * A, sx = 1.5f * A, sy = 2.0f * A;
+        for (int i = 0; i < count; ++i)
+            mf.text_centered(get(i), 0.5f + sx / sw, rowTop(i) + ty + sy, pxH, sw, sh, 22, 26, 32, 170);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
             mf.text_centered(get(i), 0.5f, rowTop(i) + ty, pxH, sw, sh,
-                             s ? 142 : 118, s ? 147 : 131, s ? 145 : 129, 255);
+                             s ? 214 : 168, s ? 218 : 203, s ? 218 : 210, 255);
         }
         mf.draw(g, cview);
     }
