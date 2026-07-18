@@ -2735,11 +2735,13 @@ struct TitleFx {
         constexpr float kDarkV0 = 0.295f, kDarkV1 = 0.525f;
         constexpr float kFaceV0 = 0.561f, kFaceV1 = 0.748f;
         static const float kFaceU[3][2] = {{0.011f, 0.244f}, {0.264f, 0.495f}, {0.500f, 0.742f}};
-        // 1. Frame BACK00 fills the 4:3 field (its art is the texture's top 0.772); clears the
+        // 1. Frame BACK00 fills the 4:3 field. Its art content ends at texture row 767/1024 =
+        //    v0.749 (measured); sampling further (the old 0.772) pulled ~23 black rows in and
+        //    compressed the bottom marble border ~21 authored units too high. Clears the
         //    letterbox to the dark background.
         if (frame.tex)
             draw_screen_image(g, cview, dview, /*clear*/true, frame, AX(0), AY(0), AX(1024), AY(768),
-                              0.95f, 0.0f, 0.0f, 1.0f, 0.772f);
+                              0.95f, 0.0f, 0.0f, 1.0f, 0.749f);
         // 2. "Character Select" banner across the top of the field.
         if (chrsel.tex)
             draw_screen_image(g, cview, dview, false, chrsel, AX(290), AY(-8), AX(734), AY(98), 0.5f,
