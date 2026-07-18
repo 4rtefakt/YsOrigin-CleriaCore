@@ -2376,26 +2376,44 @@ struct TitleFx {
                                                  "Options", "Exit"};
         return items[i];
     }
-    // Draw the title menu: an ornate bracket (CUR00) behind the selected item, then the five
-    // labels centred below the logo (selected brighter). The Hud text flushes on top.
-    void draw_menu(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
-                   std::uint32_t W, std::uint32_t H, int sel) {
+    // The Bonus Modes sub-list (engine's DAT_0074e259 != 0 state). Selecting "Bonus Modes"
+    // on the main list swaps to these. Back (or Esc) returns. MENUS.md §1.4.
+    static constexpr int kBonusCount = 4;
+    static const char* bonusItem(int i) {
+        static const char* items[kBonusCount] = {"Time Attack", "Arena Mode", "Bonus Shop",
+                                                  "Back"};
+        return items[i];
+    }
+    // Draw a centred label list with the ornate bracket (CUR00) behind the selection, below the
+    // logo. Shared by the main menu and the bonus sub-list. The Hud text flushes on top.
+    void draw_list(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+                   std::uint32_t W, std::uint32_t H, int count, const char* (*get)(int),
+                   int sel, float bracket_hw = 0.32f, float top_frac = 0.685f) {
         const float sw = float(W), sh = float(H);
         const float scale = sh / 500.0f;
-        const float line_h = sh * 0.054f, top = sh * 0.685f;   // below the logo
+        const float line_h = sh * 0.054f, top = sh * top_frac;   // below the logo
         if (cursor.tex) {   // CUR00's bracket art lives in its top-left 154x51 sub-rect
             const float cy = top + sel * line_h;
             const float yt = 1.0f - 2.0f * (cy - line_h * 0.20f) / sh;
             const float yb = 1.0f - 2.0f * (cy + line_h * 0.85f) / sh;
-            draw_screen_image(g, cview, dview, false, cursor, -0.32f, yt, 0.32f, yb, 0.3f,
-                              0.0f, 0.0f, 0.602f, 0.398f);
+            draw_screen_image(g, cview, dview, false, cursor, -bracket_hw, yt, bracket_hw, yb,
+                              0.3f, 0.0f, 0.0f, 0.602f, 0.398f);
         }
-        for (int i = 0; i < kItemCount; ++i) {
+        for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
-            hud.text_centered(item(i), 0.5f, top + i * line_h, scale, sw, sh,
+            hud.text_centered(get(i), 0.5f, top + i * line_h, scale, sw, sh,
                               s ? 255 : 205, s ? 248 : 212, s ? 215 : 222, s ? 255 : 225);
         }
         hud.draw_lines(g, cview);
+    }
+    void draw_menu(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+                   std::uint32_t W, std::uint32_t H, int sel) {
+        draw_list(g, hud, cview, dview, W, H, kItemCount, item, sel);
+    }
+    void draw_bonus(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+                    std::uint32_t W, std::uint32_t H, int sel) {
+        draw(g, cview, dview, W, H);   // redraw the splash under the sub-list
+        draw_list(g, hud, cview, dview, W, H, kBonusCount, bonusItem, sel);
     }
 
     static constexpr int kCharCount = 3;   // g_flags[150]: 1 Yunica, 2 Hugo, 3 Toal
@@ -2411,28 +2429,15 @@ struct TitleFx {
         const float sw = float(W), sh = float(H);
         const float scale = sh / 500.0f;
         hud.text_centered("Select your character", 0.5f, sh * 0.645f, scale * 0.95f, sw, sh,
-                          235, 230, 205, 255);
-        const float line_h = sh * 0.058f, top = sh * 0.725f;
-        if (cursor.tex) {
-            const float cy = top + sel * line_h;
-            const float yt = 1.0f - 2.0f * (cy - line_h * 0.20f) / sh;
-            const float yb = 1.0f - 2.0f * (cy + line_h * 0.85f) / sh;
-            draw_screen_image(g, cview, dview, false, cursor, -0.26f, yt, 0.26f, yb, 0.3f,
-                              0.0f, 0.0f, 0.602f, 0.398f);
-        }
-        for (int i = 0; i < kCharCount; ++i) {
-            const bool s = (i == sel);
-            hud.text_centered(charName(i), 0.5f, top + i * line_h, scale, sw, sh,
-                              s ? 255 : 205, s ? 248 : 212, s ? 215 : 222, s ? 255 : 225);
-        }
-        hud.draw_lines(g, cview);
+                          235, 230, 205, 255);   // queued; draw_list's flush emits it too
+        draw_list(g, hud, cview, dview, W, H, kCharCount, charName, sel, 0.26f, 0.725f);
     }
 };
 
 // Headless title render (--title out.ppm), to verify the composition off-window.
-// charselect=true captures the New Game character-select screen instead of the main menu.
+// mode: 0 main menu, 1 character-select, 2 bonus sub-list.
 static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
-                        std::uint32_t W, std::uint32_t H, bool charselect = false) {
+                        std::uint32_t W, std::uint32_t H, int mode = 0) {
     TitleFx title;
     if (!title.init(g, asset_root)) { std::fprintf(stderr, "title: TITLE_000.DDS load failed\n"); return 1; }
     g_fog.on = false;
@@ -2450,8 +2455,10 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     WGPUBuffer readback = wgpuDeviceCreateBuffer(g.device, &rbd);
 
     Hud thud; thud.init(g, res_file("hud_font.bin"), WGPUTextureFormat_RGBA8Unorm);
-    if (charselect) {
+    if (mode == 1) {
         title.draw_charselect(g, thud, cview, dview, W, H, /*sel=*/0);   // Yunica lit
+    } else if (mode == 2) {
+        title.draw_bonus(g, thud, cview, dview, W, H, /*sel=*/0);        // Time Attack lit
     } else {
         title.draw(g, cview, dview, W, H);
         title.draw_menu(g, thud, cview, dview, W, H, /*sel=*/1);   // preview with Load Game lit
@@ -2533,9 +2540,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         TitleFx title; title.init(g, asset_root);
         WGPUTextureView tdepth = make_depth(g.device, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
+        // The title is a small state machine mirroring the engine (MENUS.md §1.4): the MAIN
+        // list, the BONUS sub-list (DAT_0074e259), and our New-Game CHARSELECT screen.
+        enum TState { MAIN, BONUS, CHARSELECT };
+        TState ts = MAIN;
         int sel = 0;      // main menu: 0 New Game, 1 Load, 2 Bonus Modes, 3 Options, 4 Exit
+        int bsel = 0;     // bonus sub-list: 0 Time Attack, 1 Arena, 2 Bonus Shop, 3 Back
         int csel = 0;     // character-select: 0 Yunica, 1 Hugo, 2 Toal
-        bool in_charselect = false;
         auto teardown = [&] { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); };
         for (bool started = false; !started;) {
             SDL_Event e;
@@ -2543,26 +2554,31 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (e.type == SDL_EVENT_QUIT) { teardown(); return 0; }
                 else if (e.type == SDL_EVENT_KEY_DOWN) {
                     const SDL_Keycode k = e.key.key;
-                    if (in_charselect) {
-                        if (k == SDLK_ESCAPE) in_charselect = false;   // back to main menu
-                        else if (k == SDLK_UP || k == SDLK_W)
-                            csel = (csel + TitleFx::kCharCount - 1) % TitleFx::kCharCount;
-                        else if (k == SDLK_DOWN || k == SDLK_S)
-                            csel = (csel + 1) % TitleFx::kCharCount;
-                        else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
-                            character = csel + 1;   // 0/1/2 -> 1 Yunica / 2 Hugo / 3 Toal
-                            started = true;
+                    const bool up = (k == SDLK_UP || k == SDLK_W);
+                    const bool down = (k == SDLK_DOWN || k == SDLK_S);
+                    const bool ok = (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E);
+                    if (ts == CHARSELECT) {
+                        if (k == SDLK_ESCAPE) ts = MAIN;   // back to main menu
+                        else if (up)   csel = (csel + TitleFx::kCharCount - 1) % TitleFx::kCharCount;
+                        else if (down) csel = (csel + 1) % TitleFx::kCharCount;
+                        else if (ok) { character = csel + 1; started = true; }  // 1/2/3
+                    } else if (ts == BONUS) {
+                        if (k == SDLK_ESCAPE) ts = MAIN;
+                        else if (up)   bsel = (bsel + TitleFx::kBonusCount - 1) % TitleFx::kBonusCount;
+                        else if (down) bsel = (bsel + 1) % TitleFx::kBonusCount;
+                        else if (ok) {
+                            if (bsel == 3) ts = MAIN;   // Back
+                            // Time Attack / Arena Mode / Bonus Shop: not yet implemented.
                         }
-                    } else {
+                    } else {   // MAIN
                         if (k == SDLK_ESCAPE) { teardown(); return 0; }
-                        else if (k == SDLK_UP || k == SDLK_W)
-                            sel = (sel + TitleFx::kItemCount - 1) % TitleFx::kItemCount;
-                        else if (k == SDLK_DOWN || k == SDLK_S)
-                            sel = (sel + 1) % TitleFx::kItemCount;
-                        else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
+                        else if (up)   sel = (sel + TitleFx::kItemCount - 1) % TitleFx::kItemCount;
+                        else if (down) sel = (sel + 1) % TitleFx::kItemCount;
+                        else if (ok) {
                             if (sel == 4) { teardown(); return 0; }   // Exit
-                            else if (sel == 0) in_charselect = true;   // New Game -> character-select
-                            // Load Game / Bonus Modes / Options: not yet implemented.
+                            else if (sel == 0) ts = CHARSELECT;        // New Game
+                            else if (sel == 2) { ts = BONUS; bsel = 0; }  // Bonus Modes
+                            // Load Game / Options: not yet implemented.
                         }
                     }
                 } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
@@ -2575,8 +2591,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
                 st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
-            if (in_charselect) {
+            if (ts == CHARSELECT) {
                 title.draw_charselect(g, hud, view, tdepth, cw, ch, csel);
+            } else if (ts == BONUS) {
+                title.draw_bonus(g, hud, view, tdepth, cw, ch, bsel);
             } else {
                 title.draw(g, view, tdepth, cw, ch);
                 title.draw_menu(g, hud, view, tdepth, cw, ch, sel);
@@ -3537,14 +3555,16 @@ int main(int argc, char** argv) {
         if (argc >= 13) g_fov = float(std::atof(argv[12]));
         return render_play(g, room, argv[4], W, H, asset_root, yaw, pitch, dist, hgt, dir);
     }
-    if ((argc >= 4 && std::strcmp(argv[3], "--title") == 0) ||
-        (argc >= 4 && std::strcmp(argv[3], "--charselect") == 0)) {
-        // cleria-view <root> <ignored> --title|--charselect out.ppm [W H]   (no room needed)
-        const bool cs = std::strcmp(argv[3], "--charselect") == 0;
+    if (argc >= 4 && (std::strcmp(argv[3], "--title") == 0 ||
+                      std::strcmp(argv[3], "--charselect") == 0 ||
+                      std::strcmp(argv[3], "--bonus") == 0)) {
+        // cleria-view <root> <ignored> --title|--charselect|--bonus out.ppm [W H]  (no room)
+        const int mode = std::strcmp(argv[3], "--charselect") == 0 ? 1
+                       : std::strcmp(argv[3], "--bonus") == 0      ? 2 : 0;
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 800;
-        return render_title(g, asset_root, argv[4], W, H, cs);
+        return render_title(g, asset_root, argv[4], W, H, mode);
     }
 
     if (walk) {
