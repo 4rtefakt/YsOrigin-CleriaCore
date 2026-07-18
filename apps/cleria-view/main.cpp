@@ -2901,7 +2901,7 @@ struct TitleFx {
             draw_screen_image(g, cview, dview, false, dim, -1, 1, 1, -1, 0.25f);
         const float pxH = 32.0f * A, pitch = 38.4f * A, cellH = 32.0f * A;
         const float cxpx = sw * 0.5f;                     // authored X=512 (centre)
-        const float captionTop = 256.0f * A;              // header at authored y=256
+        const float captionTop = 212.0f * A;              // header centred at authored y~228 (matches ref)
         const float firstItem = captionTop + 44.8f * A;   // caption sits 44.8 above the first item
         auto itemTop = [&](int i) { return firstItem + i * pitch; };
         float maxW = mf.measure(title, pxH);
@@ -2915,11 +2915,12 @@ struct TitleFx {
             draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
                             cxpx + barW * 0.5f, mid + half, sw, sh);
         }
-        mf.text_centered(title, 0.5f, captionTop, pxH, sw, sh, 244, 242, 226, 255);
+        mf.text_centered(title, 0.5f, captionTop, pxH, sw, sh, 240, 246, 250, 255);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
+            // Reference glyph colours: selected pure white [255,255,255], unselected teal ~[176,208,208].
             mf.text_centered(items[i], 0.5f, itemTop(i), pxH, sw, sh,
-                             s ? 255 : 214, s ? 248 : 220, s ? 214 : 230, 255);
+                             s ? 250 : 172, s ? 252 : 206, s ? 252 : 208, 255);
         }
         mf.draw(g, cview);
     }
@@ -2981,10 +2982,10 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
         // CLERIA_POPUP=type|diff|sp overlays a New-Game popup for off-window verification.
         if (const char* e = std::getenv("CLERIA_POPUP")) {
             static const char* ti[3] = {"Normal", "Extra", "Cancel"};
-            static const char* di[4] = {"Easy", "Normal", "Hard", "Nightmare"};
-            static const char* si[2] = {"Enable", "Disable"};
-            if (std::string(e) == "type") title.draw_popup(g, mf, cview, dview, W, H, "Type Select", ti, 3, 1);
-            else if (std::string(e) == "diff") title.draw_popup(g, mf, cview, dview, W, H, "Difficulty", di, 4, 3);
+            static const char* di[6] = {"Very Easy", "Easy", "Normal", "Hard", "Nightmare", "Cancel"};
+            static const char* si[2] = {"[Enable]", "[Disable]"};
+            if (std::string(e) == "type") title.draw_popup(g, mf, cview, dview, W, H, "Type Select", ti, 3, 0);
+            else if (std::string(e) == "diff") title.draw_popup(g, mf, cview, dview, W, H, "Difficulty Level", di, 6, 2);
             else if (std::string(e) == "sp") title.draw_popup(g, mf, cview, dview, W, H, "SP Bonus Acquisition", si, 2, 0);
         }
     } else if (mode == 2) {
@@ -3074,7 +3075,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     }
     // The rest of the New-Game choices (set by the title's popups; see the flow below):
     int skin = 0;          // 0 Normal, 1 Extra (alternate appearance -- swap pending skin RE)
-    int difficulty = 1;    // 0 Easy, 1 Normal, 2 Hard, 3 Nightmare (persisted TitleGameDifficulty)
+    int difficulty = 2;    // 0 VeryEasy,1 Easy,2 Normal,3 Hard,4 Nightmare (persisted TitleGameDifficulty)
     bool sp_bonus = false; // "SP Bonus Acquisition": boosts this save's SP gains
     (void)skin; (void)difficulty; (void)sp_bonus;   // stored now; applied to combat as RE lands
 
@@ -3094,13 +3095,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // Extra skin) -> DIFFICULTY (Easy..Nightmare) -> SPBONUS (SP-gain boost) -> start.
         enum TState { MAIN, BONUS, CHARSELECT, TYPESELECT, DIFFICULTY, SPBONUS };
         static const char* kTypeItems[3] = {"Normal", "Extra", "Cancel"};
-        static const char* kDiffItems[4] = {"Easy", "Normal", "Hard", "Nightmare"};
-        static const char* kSpItems[2]  = {"Enable", "Disable"};
+        static const char* kDiffItems[6] = {"Very Easy", "Easy", "Normal", "Hard", "Nightmare", "Cancel"};
+        static const char* kSpItems[2]  = {"[Enable]", "[Disable]"};
         TState ts = MAIN;
         int sel = 0;      // main menu: 0 New Game, 1 Load, 2 Bonus Modes, 3 Options, 4 Exit
         int bsel = 0;     // bonus sub-list: 0 Time Attack, 1 Arena, 2 Bonus Shop, 3 Back
         int csel = 0;     // character-select: 0 Yunica, 1 Hugo, 2 Toal
-        int tsel = 0, dsel = 1, spsel = 1;   // popup cursors (difficulty defaults Normal)
+        int tsel = 0, dsel = 2, spsel = 0;   // popup cursors (difficulty defaults Normal, SP-bonus Enable)
         auto teardown = [&] { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); };
         for (bool started = false; !started;) {
             SDL_Event e;
@@ -3122,12 +3123,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         else if (up || down) tsel = wrap(tsel, 3, up);
                         else if (ok) {
                             if (tsel == 2) ts = CHARSELECT;              // Cancel
-                            else { skin = tsel; ts = DIFFICULTY; dsel = 1; }  // Normal/Extra
+                            else { skin = tsel; ts = DIFFICULTY; dsel = 2; }  // Normal/Extra -> Difficulty (Normal)
                         }
                     } else if (ts == DIFFICULTY) {
                         if (esc) ts = TYPESELECT;
-                        else if (up || down) dsel = wrap(dsel, 4, up);
-                        else if (ok) { difficulty = dsel; ts = SPBONUS; spsel = 1; }
+                        else if (up || down) dsel = wrap(dsel, 6, up);
+                        else if (ok) {
+                            if (dsel == 5) ts = TYPESELECT;              // Cancel
+                            else { difficulty = dsel; ts = SPBONUS; spsel = 0; }  // 0 VeryEasy..4 Nightmare
+                        }
                     } else if (ts == SPBONUS) {
                         if (esc) ts = DIFFICULTY;
                         else if (up || down) spsel = wrap(spsel, 2, up);
@@ -3171,7 +3175,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (ts == TYPESELECT)
                     title.draw_popup(g, mf, view, tdepth, cw, ch, "Type Select", kTypeItems, 3, tsel);
                 else if (ts == DIFFICULTY)
-                    title.draw_popup(g, mf, view, tdepth, cw, ch, "Difficulty", kDiffItems, 4, dsel);
+                    title.draw_popup(g, mf, view, tdepth, cw, ch, "Difficulty Level", kDiffItems, 6, dsel);
                 else
                     title.draw_popup(g, mf, view, tdepth, cw, ch, "SP Bonus Acquisition", kSpItems, 2, spsel);
             } else if (ts == BONUS) {
