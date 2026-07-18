@@ -1222,6 +1222,47 @@ static void draw_shadow(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     wgpuBufferRelease(vb); wgpuBufferRelease(ib);
 }
 
+// Draw a screen-space textured quad (UI/title images) at NDC corners (l,t)-(r,b), z in [0,1].
+// Reuses the char pipeline (alpha-over, fs_char); the caller writes an IDENTITY MVP + fog off
+// beforehand so the RoomVertex positions are taken as clip space directly. `clear` starts a
+// fresh frame (clears colour to `bg` + depth); later images Load. Vertex colour (255,255,255,0):
+// no fog dim, no hit-flash -> the texture shows as-is.
+static void draw_screen_image(Gpu& g, WGPUTextureView color, WGPUTextureView depth, bool clear,
+                              const SpriteTex& tex, float l, float t, float r, float b, float z,
+                              float bgr = 0.02f, float bgg = 0.02f, float bgb = 0.05f) {
+    if (!tex.tex) return;
+    RoomVertex verts[4] = {{l, t, z, 0, 0, -1, 0, 0, 255, 255, 255, 0},
+                           {r, t, z, 0, 0, -1, 1, 0, 255, 255, 255, 0},
+                           {r, b, z, 0, 0, -1, 1, 1, 255, 255, 255, 0},
+                           {l, b, z, 0, 0, -1, 0, 1, 255, 255, 255, 0}};
+    std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
+    WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
+    WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPURenderPassColorAttachment ca = {};
+    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    ca.loadOp = clear ? WGPULoadOp_Clear : WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+    ca.clearValue = {bgr, bgg, bgb, 1.0};
+    WGPURenderPassDepthStencilAttachment da = {};
+    da.view = depth; da.depthLoadOp = clear ? WGPULoadOp_Clear : WGPULoadOp_Load;
+    da.depthStoreOp = WGPUStoreOp_Store; da.depthClearValue = 1.0f;
+    WGPURenderPassDescriptor rp = {};
+    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+    wgpuRenderPassEncoderSetPipeline(pass, g.char_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(pass, 1, tex.bind, 0, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+}
+
 // A world heading (hx,hz) -> the 8-direction sprite index, screen-relative to the camera
 // yaw. One calibration shared by live movement and by SEN arrival facing: the C_10x ring
 // runs dir0=screen-right, +45 deg CCW per step (screen-up = dir2 back, down = dir6 front,
@@ -2256,8 +2297,77 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
 }
 
 
+// ---- title screen -----------------------------------------------------------
+// Load the title assets (build/menu_re/MENUS.md): TITLE_000.DDS is the 1024^2 logo,
+// MENU/BACK00.DDS the background. Rendered as screen-space quads via draw_screen_image.
+struct TitleFx {
+    SpriteTex logo, bg;
+    bool init(Gpu& g, const fs::path& asset_root) {
+        Dds l = load_dds(asset_root / "IMAGE" / "TITLE_000.DDS");
+        Dds b = load_dds(asset_root / "MENU" / "BACK00.DDS");
+        if (l.ok()) logo = upload_rgba(g, l.width, l.height, l.data.data());
+        if (b.ok()) bg = upload_rgba(g, b.width, b.height, b.data.data());
+        return logo.tex != nullptr;
+    }
+    // Compose the title into (cview,dview): background fills the screen, the square logo
+    // sits upper-centre with its aspect preserved against the viewport aspect.
+    void draw(Gpu& g, WGPUTextureView cview, WGPUTextureView dview, std::uint32_t W, std::uint32_t H) {
+        const float aspect = float(W) / float(H);
+        const float hh = 0.42f, hw = hh / aspect;   // keep the square logo square on screen
+        const float cy = 0.18f;                      // upper-centre
+        draw_screen_image(g, cview, dview, /*clear*/true, bg, -1, 1, 1, -1, 0.9f);
+        draw_screen_image(g, cview, dview, false, logo, -hw, cy + hh, hw, cy - hh, 0.1f);
+    }
+};
+
+// Headless title render (--title out.ppm), to verify the composition off-window.
+static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
+                        std::uint32_t W, std::uint32_t H) {
+    TitleFx title;
+    if (!title.init(g, asset_root)) { std::fprintf(stderr, "title: TITLE_000.DDS load failed\n"); return 1; }
+    g_fog.on = false;
+    write_mvp(g, Mat4::identity());   // screen space: RoomVertex positions ARE clip space
+    WGPUTextureDescriptor td = {};
+    td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+    td.dimension = WGPUTextureDimension_2D; td.size = {W, H, 1};
+    td.format = WGPUTextureFormat_RGBA8Unorm; td.mipLevelCount = 1; td.sampleCount = 1;
+    WGPUTexture color = wgpuDeviceCreateTexture(g.device, &td);
+    WGPUTextureView cview = wgpuTextureCreateView(color, nullptr);
+    WGPUTextureView dview = make_depth(g.device, W, H);
+    const std::uint32_t bpr = (W * 4 + 255) & ~255u;
+    WGPUBufferDescriptor rbd = {};
+    rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * H;
+    WGPUBuffer readback = wgpuDeviceCreateBuffer(g.device, &rbd);
+
+    title.draw(g, cview, dview, W, H);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPUTexelCopyTextureInfo src = {}; src.texture = color; src.aspect = WGPUTextureAspect_All;
+    WGPUTexelCopyBufferInfo dst = {}; dst.buffer = readback;
+    dst.layout.bytesPerRow = bpr; dst.layout.rowsPerImage = H;
+    WGPUExtent3D ext = {W, H, 1};
+    wgpuCommandEncoderCopyTextureToBuffer(enc, &src, &dst, &ext);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+    MapReq mr;
+    WGPUBufferMapCallbackInfo mi = {};
+    mi.mode = WGPUCallbackMode_AllowProcessEvents; mi.callback = on_map; mi.userdata1 = &mr;
+    wgpuBufferMapAsync(readback, WGPUMapMode_Read, 0, rbd.size, mi);
+    while (!mr.done) wgpuDevicePoll(g.device, true, nullptr);
+    const auto* px = static_cast<const std::uint8_t*>(wgpuBufferGetConstMappedRange(readback, 0, rbd.size));
+    std::ofstream f(out, std::ios::binary);
+    f << "P6\n" << W << " " << H << "\n255\n";
+    for (std::uint32_t y = 0; y < H; ++y)
+        for (std::uint32_t x = 0; x < W; ++x)
+            f.write(reinterpret_cast<const char*>(px + std::size_t(y) * bpr + x * 4), 3);
+    wgpuBufferUnmap(readback);
+    std::printf("wrote %s (%ux%u)\n", out.string().c_str(), W, H);
+    return 0;
+}
+
 // ---- interactive walkthrough ------------------------------------------------
-static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& first_sob) {
+static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& first_sob,
+                         bool show_title = false) {
     if (!SDL_Init(SDL_INIT_VIDEO)) { std::fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_Window* win = SDL_CreateWindow("CleriaCore - Ys Origin", 1280, 800, SDL_WINDOW_RESIZABLE);
     HWND hwnd = (HWND)SDL_GetPointerProperty(
@@ -2288,6 +2398,38 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     ShadowFx shadows;                    // floor shadow decals under characters
     if (!shadows.init(g, asset_root))
         std::fprintf(stderr, "shadows: SHADOW0.DDS failed to load\n");
+
+    // Title screen: shown on a bare launch, before the game. Enter/Space starts a new game
+    // (falls through to the game loop below); Esc/close quits. Assets + flow from
+    // build/menu_re/MENUS.md; menu navigation beyond start/quit is a later increment.
+    if (show_title) {
+        TitleFx title; title.init(g, asset_root);
+        WGPUTextureView tdepth = make_depth(g.device, cw, ch);
+        g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
+        for (bool started = false; !started;) {
+            SDL_Event e;
+            while (SDL_PollEvent(&e)) {
+                if (e.type == SDL_EVENT_QUIT) { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); return 0; }
+                else if (e.type == SDL_EVENT_KEY_DOWN) {
+                    const SDL_Keycode k = e.key.key;
+                    if (k == SDLK_ESCAPE) { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); return 0; }
+                    if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) started = true;
+                } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
+                    cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
+                    if (cw && ch) { configure(); wgpuTextureViewRelease(tdepth); tdepth = make_depth(g.device, cw, ch); }
+                }
+            }
+            WGPUSurfaceTexture st = {};
+            wgpuSurfaceGetCurrentTexture(surface, &st);
+            if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+            WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
+            title.draw(g, view, tdepth, cw, ch);
+            wgpuSurfacePresent(surface);
+            wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
+        }
+        wgpuTextureViewRelease(tdepth);   // the game loop rebuilds fog + its own MVP
+    }
     float fx_time = 0;
     EnemyFx efx;                         // enemy sprite sets, per room
     // The game's own tables. Loaded once: the enemy chain is SCT name -> CASTINFO ->
@@ -3246,6 +3388,13 @@ int main(int argc, char** argv) {
         if (argc >= 13) g_fov = float(std::atof(argv[12]));
         return render_play(g, room, argv[4], W, H, asset_root, yaw, pitch, dist, hgt, dir);
     }
+    if (argc >= 4 && std::strcmp(argv[3], "--title") == 0) {
+        // cleria-view <root> <ignored> --title out.ppm [W H]   (no room needed)
+        build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
+        std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
+        std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 800;
+        return render_title(g, asset_root, argv[4], W, H);
+    }
 
     if (walk) {
         // Headless tour: follow exit[0] room-to-room, shooting each. Exercises
@@ -3277,5 +3426,7 @@ int main(int argc, char** argv) {
 
     // Window mode: render_window builds the pipeline (needs the surface format),
     // then loads the first room (needs the pipeline's white_bind/tex_layout).
-    return render_window(g, asset_root, sob_path);
+    // Show the title screen only on a bare launch (no room SOB given); a room argument
+    // (the dev/test path) goes straight into that room, unchanged.
+    return render_window(g, asset_root, sob_path, /*show_title=*/argc < 3);
 }
