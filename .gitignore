@@ -56,6 +56,12 @@
 /build/**/__pycache__/
 
 # ---------------------------------------------------------------------------
+# Reference screenshots of the real game UI (Falcom's copyrighted content -- ground truth for
+# the reimplementation, kept locally, NOT committed). Track only the README (the convention).
+/reference/*
+!/reference/README.md
+
+# ---------------------------------------------------------------------------
 __pycache__/
 *.pyc
 *.obj
