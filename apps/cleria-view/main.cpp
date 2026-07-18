@@ -2397,11 +2397,42 @@ struct TitleFx {
         }
         hud.draw_lines(g, cview);
     }
+
+    static constexpr int kCharCount = 3;   // g_flags[150]: 1 Yunica, 2 Hugo, 3 Toal
+    static const char* charName(int i) {
+        static const char* n[kCharCount] = {"Yunica", "Hugo", "Toal"};
+        return n[i];
+    }
+    // Character-select screen (New Game -> this): the splash plus a "choose your character"
+    // prompt and the three names, bracket on the selection. sel 0/1/2 -> character 1/2/3.
+    void draw_charselect(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+                         std::uint32_t W, std::uint32_t H, int sel) {
+        draw(g, cview, dview, W, H);   // redraw the splash background
+        const float sw = float(W), sh = float(H);
+        const float scale = sh / 500.0f;
+        hud.text_centered("Select your character", 0.5f, sh * 0.645f, scale * 0.95f, sw, sh,
+                          235, 230, 205, 255);
+        const float line_h = sh * 0.058f, top = sh * 0.725f;
+        if (cursor.tex) {
+            const float cy = top + sel * line_h;
+            const float yt = 1.0f - 2.0f * (cy - line_h * 0.20f) / sh;
+            const float yb = 1.0f - 2.0f * (cy + line_h * 0.85f) / sh;
+            draw_screen_image(g, cview, dview, false, cursor, -0.26f, yt, 0.26f, yb, 0.3f,
+                              0.0f, 0.0f, 0.602f, 0.398f);
+        }
+        for (int i = 0; i < kCharCount; ++i) {
+            const bool s = (i == sel);
+            hud.text_centered(charName(i), 0.5f, top + i * line_h, scale, sw, sh,
+                              s ? 255 : 205, s ? 248 : 212, s ? 215 : 222, s ? 255 : 225);
+        }
+        hud.draw_lines(g, cview);
+    }
 };
 
 // Headless title render (--title out.ppm), to verify the composition off-window.
+// charselect=true captures the New Game character-select screen instead of the main menu.
 static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
-                        std::uint32_t W, std::uint32_t H) {
+                        std::uint32_t W, std::uint32_t H, bool charselect = false) {
     TitleFx title;
     if (!title.init(g, asset_root)) { std::fprintf(stderr, "title: TITLE_000.DDS load failed\n"); return 1; }
     g_fog.on = false;
@@ -2418,9 +2449,13 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * H;
     WGPUBuffer readback = wgpuDeviceCreateBuffer(g.device, &rbd);
 
-    title.draw(g, cview, dview, W, H);
     Hud thud; thud.init(g, res_file("hud_font.bin"), WGPUTextureFormat_RGBA8Unorm);
-    title.draw_menu(g, thud, cview, dview, W, H, /*sel=*/1);   // preview with Load Game lit
+    if (charselect) {
+        title.draw_charselect(g, thud, cview, dview, W, H, /*sel=*/0);   // Yunica lit
+    } else {
+        title.draw(g, cview, dview, W, H);
+        title.draw_menu(g, thud, cview, dview, W, H, /*sel=*/1);   // preview with Load Game lit
+    }
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPUTexelCopyTextureInfo src = {}; src.texture = color; src.aspect = WGPUTextureAspect_All;
     WGPUTexelCopyBufferInfo dst = {}; dst.buffer = readback;
@@ -2480,14 +2515,27 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     if (!shadows.init(g, asset_root))
         std::fprintf(stderr, "shadows: SHADOW0.DDS failed to load\n");
 
-    // Title screen: shown on a bare launch, before the game. Enter/Space starts a new game
-    // (falls through to the game loop below); Esc/close quits. Assets + flow from
-    // build/menu_re/MENUS.md; menu navigation beyond start/quit is a later increment.
+    // The starting character (g_flags[150]: 1 Yunica / 2 Hugo / 3 Toal). CLERIA_CHAR=1|2|3
+    // forces it (Tab still cycles in-game); on a normal launch the title's New Game -> the
+    // character-select screen sets it. Declared here, before the title phase, so that screen
+    // can write it. Toal (3, C_104) is the only shipping player sprite with AIA second layers,
+    // so he is the one that exercises the composite path.
+    int character = 1;
+    if (const char* cs = std::getenv("CLERIA_CHAR")) {
+        const int c = std::atoi(cs);
+        if (c >= 1 && c <= 3) character = c;
+    }
+
+    // Title screen: shown on a bare launch, before the game. New Game opens character-select
+    // (pick Yunica/Hugo/Toal, then fall through to the game loop below); Esc/close quits.
+    // Assets + flow from build/menu_re/MENUS.md.
     if (show_title) {
         TitleFx title; title.init(g, asset_root);
         WGPUTextureView tdepth = make_depth(g.device, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
-        int sel = 0;   // 0 New Game, 1 Load, 2 Bonus Modes, 3 Options, 4 Exit
+        int sel = 0;      // main menu: 0 New Game, 1 Load, 2 Bonus Modes, 3 Options, 4 Exit
+        int csel = 0;     // character-select: 0 Yunica, 1 Hugo, 2 Toal
+        bool in_charselect = false;
         auto teardown = [&] { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); };
         for (bool started = false; !started;) {
             SDL_Event e;
@@ -2495,15 +2543,27 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (e.type == SDL_EVENT_QUIT) { teardown(); return 0; }
                 else if (e.type == SDL_EVENT_KEY_DOWN) {
                     const SDL_Keycode k = e.key.key;
-                    if (k == SDLK_ESCAPE) { teardown(); return 0; }
-                    else if (k == SDLK_UP || k == SDLK_W)
-                        sel = (sel + TitleFx::kItemCount - 1) % TitleFx::kItemCount;
-                    else if (k == SDLK_DOWN || k == SDLK_S)
-                        sel = (sel + 1) % TitleFx::kItemCount;
-                    else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
-                        if (sel == 4) { teardown(); return 0; }   // Exit
-                        else if (sel == 0) started = true;         // New Game
-                        // Load Game / Bonus Modes / Options: not yet implemented.
+                    if (in_charselect) {
+                        if (k == SDLK_ESCAPE) in_charselect = false;   // back to main menu
+                        else if (k == SDLK_UP || k == SDLK_W)
+                            csel = (csel + TitleFx::kCharCount - 1) % TitleFx::kCharCount;
+                        else if (k == SDLK_DOWN || k == SDLK_S)
+                            csel = (csel + 1) % TitleFx::kCharCount;
+                        else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
+                            character = csel + 1;   // 0/1/2 -> 1 Yunica / 2 Hugo / 3 Toal
+                            started = true;
+                        }
+                    } else {
+                        if (k == SDLK_ESCAPE) { teardown(); return 0; }
+                        else if (k == SDLK_UP || k == SDLK_W)
+                            sel = (sel + TitleFx::kItemCount - 1) % TitleFx::kItemCount;
+                        else if (k == SDLK_DOWN || k == SDLK_S)
+                            sel = (sel + 1) % TitleFx::kItemCount;
+                        else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
+                            if (sel == 4) { teardown(); return 0; }   // Exit
+                            else if (sel == 0) in_charselect = true;   // New Game -> character-select
+                            // Load Game / Bonus Modes / Options: not yet implemented.
+                        }
                     }
                 } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
@@ -2515,8 +2575,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
                 st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
-            title.draw(g, view, tdepth, cw, ch);
-            title.draw_menu(g, hud, view, tdepth, cw, ch, sel);
+            if (in_charselect) {
+                title.draw_charselect(g, hud, view, tdepth, cw, ch, csel);
+            } else {
+                title.draw(g, view, tdepth, cw, ch);
+                title.draw_menu(g, hud, view, tdepth, cw, ch, sel);
+            }
             wgpuSurfacePresent(surface);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
         }
@@ -2551,14 +2615,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     Vec3 face_dir{0, 0, 1};              // world dir the player faces (from movement)
     WGPUTextureView depth = make_depth(g.device, cw, ch);
 
-    // CLERIA_CHAR=1|2|3 picks the starting character (Tab still cycles). Toal (3,
-    // C_104) is the only shipping player sprite with AIA second layers, so he is
-    // the one that exercises the composite path.
-    int character = 1;                 // g_flags[150]: 1 Yunica / 2 Hugo / 3 Toal
-    if (const char* cs = std::getenv("CLERIA_CHAR")) {
-        const int c = std::atoi(cs);
-        if (c >= 1 && c <= 3) character = c;
-    }
+    // `character` was chosen above (CLERIA_CHAR override or the title's character-select).
     XsoVm game;                        // persistent game state (survives rooms)
     game.g_flags[150] = character;
     // ** Yunica's weapon: flag 149 = 1 is her AXE (her normal walking-around look); the
@@ -3480,12 +3537,14 @@ int main(int argc, char** argv) {
         if (argc >= 13) g_fov = float(std::atof(argv[12]));
         return render_play(g, room, argv[4], W, H, asset_root, yaw, pitch, dist, hgt, dir);
     }
-    if (argc >= 4 && std::strcmp(argv[3], "--title") == 0) {
-        // cleria-view <root> <ignored> --title out.ppm [W H]   (no room needed)
+    if ((argc >= 4 && std::strcmp(argv[3], "--title") == 0) ||
+        (argc >= 4 && std::strcmp(argv[3], "--charselect") == 0)) {
+        // cleria-view <root> <ignored> --title|--charselect out.ppm [W H]   (no room needed)
+        const bool cs = std::strcmp(argv[3], "--charselect") == 0;
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 800;
-        return render_title(g, asset_root, argv[4], W, H);
+        return render_title(g, asset_root, argv[4], W, H, cs);
     }
 
     if (walk) {
