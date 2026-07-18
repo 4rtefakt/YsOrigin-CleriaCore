@@ -2676,7 +2676,7 @@ struct TitleFx {
         // (its darkest label pixels reach near-black, glyph body ~[170,185,187]). The title loop's
         // region-mean had wrongly dropped it -- it is what gives the letters their edge. Offset is
         // env-tunable (CLERIA_MENU_SHXY="dx,dy" in ~px). Fill/shadow colours below.
-        int ur = 168, ug = 184, ub = 186, ua = 255, shr = 34, shg = 41, shb = 43, sha = 225;
+        int ur = 192, ug = 207, ub = 211, ua = 255, shr = 34, shg = 41, shb = 43, sha = 225;
         int sr = 248, sg = 250, sb = 252, sa = 255;
         float shdx = -0.8f, shdy = 0.9f;   // shadow offset in ~px (bottom-left)
         if (const char* e = std::getenv("CLERIA_MENU_U")) { sscanf(e, "%d,%d,%d,%d", &ur, &ug, &ub, &ua); }
