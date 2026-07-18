@@ -1230,12 +1230,16 @@ static void draw_shadow(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
 static void draw_screen_image(Gpu& g, WGPUTextureView color, WGPUTextureView depth, bool clear,
                               const SpriteTex& tex, float l, float t, float r, float b, float z,
                               float u0 = 0, float v0 = 0, float u1 = 1, float v1 = 1,
-                              float bgr = 0.02f, float bgg = 0.02f, float bgb = 0.05f) {
+                              float bgr = 0.02f, float bgg = 0.02f, float bgb = 0.05f,
+                              float wtint = 0.0f) {
     if (!tex.tex) return;
-    RoomVertex verts[4] = {{l, t, z, 0, 0, -1, u0, v0, 255, 255, 255, 0},
-                           {r, t, z, 0, 0, -1, u1, v0, 255, 255, 255, 0},
-                           {r, b, z, 0, 0, -1, u1, v1, 255, 255, 255, 0},
-                           {l, b, z, 0, 0, -1, u0, v1, 255, 255, 255, 0}};
+    // Vertex alpha carries a white-tint amount (fs_char mixes the sampled colour toward white by
+    // it) -- used for the char-select selection-bar pulse. 0 = the texture as-is.
+    const std::uint8_t wt = (std::uint8_t)(std::clamp(wtint, 0.0f, 1.0f) * 255.0f);
+    RoomVertex verts[4] = {{l, t, z, 0, 0, -1, u0, v0, 255, 255, 255, wt},
+                           {r, t, z, 0, 0, -1, u1, v0, 255, 255, 255, wt},
+                           {r, b, z, 0, 0, -1, u1, v1, 255, 255, 255, wt},
+                           {l, b, z, 0, 0, -1, u0, v1, 255, 255, 255, wt}};
     std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
     WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
     WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
@@ -2722,7 +2726,7 @@ struct TitleFx {
     // selection bars on the right (the crossed one cyan, the others dark) each capped with the
     // character's face icon, and the description on the bottom bar. sel 0/1/2 -> character 1/2/3.
     void draw_charselect(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
-                         std::uint32_t W, std::uint32_t H, int sel) {
+                         std::uint32_t W, std::uint32_t H, int sel, float pulse = 0.0f) {
         const float sw = float(W), sh = float(H);
         // The game PILLAR-BOXES char-select: the 1024x768 authored field is fit to height and
         // centred horizontally (uniform scale sh/768), NOT stretched to 16:9. The letterbox sides
@@ -2766,8 +2770,11 @@ struct TitleFx {
             const bool s = (i == sel);
             const float yt = rowYtop[i], yb = yt + 128.0f;
             if (chrsel.tex) {
+                // The selected (cyan) bar PULSATES toward white in-game; `pulse` (0..1) white-tints
+                // it. The face icon is drawn after, so it stays readable through the pulse.
                 draw_screen_image(g, cview, dview, false, chrsel, AX(60), AY(yt), AX(956), AY(yb),
-                                  0.45f, kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1);
+                                  0.45f, kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1,
+                                  0.02f, 0.02f, 0.05f, s ? pulse : 0.0f);
                 draw_screen_image(g, cview, dview, false, chrsel, AX(654), AY(yt + 14), AX(897),
                                   AY(yt + 110), 0.4f, kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
             }
@@ -2900,7 +2907,9 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     if (mode == 1) {
         int cs = 0;   // CLERIA_CS_SEL=0|1|2 previews Yunica/Hugo/Toal off-window
         if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) cs = v; }
-        title.draw_charselect(g, mf, cview, dview, W, H, cs);
+        float pulse = 0.55f;   // CLERIA_CS_PULSE phases the selection-bar glow (matches the ref frame)
+        if (const char* e = std::getenv("CLERIA_CS_PULSE")) pulse = float(std::atof(e));
+        title.draw_charselect(g, mf, cview, dview, W, H, cs, pulse);
         // CLERIA_POPUP=type|diff|sp overlays a New-Game popup for off-window verification.
         if (const char* e = std::getenv("CLERIA_POPUP")) {
             static const char* ti[3] = {"Normal", "Extra", "Cancel"};
@@ -3085,10 +3094,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
                 st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
+            // Selection-bar pulse: cyan <-> near-white, ~1s period (the game animates the lit bar).
+            const float pulse = 0.40f + 0.40f * std::sin(SDL_GetTicks() * 0.006f);
             if (ts == CHARSELECT) {
-                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel);
+                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse);
             } else if (ts == TYPESELECT || ts == DIFFICULTY || ts == SPBONUS) {
-                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel);   // popup backdrop
+                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse);   // popup backdrop
                 if (ts == TYPESELECT)
                     title.draw_popup(g, mf, view, tdepth, cw, ch, "Type Select", kTypeItems, 3, tsel);
                 else if (ts == DIFFICULTY)
