@@ -2348,7 +2348,8 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
 struct MenuFont {
     struct Glyph { float u0=0, v0=0, u1=0, v1=0; int w=0, h=0, adv=0, bx=0, by=0; };
     Glyph gl[95];
-    int base = 44, ascent = 0, lineH = 0;
+    int base = 44, ascent = 0, lineH = 0, weight_ = FW_NORMAL;
+    std::string face_name = "Constantia";
     WGPURenderPipeline pipeline{};
     WGPUBindGroup bind{};
     WGPUSampler samp{};
@@ -2357,27 +2358,64 @@ struct MenuFont {
     std::vector<HudVertex> verts;
     bool ok = false;
 
-    bool init(Gpu& g, WGPUTextureFormat color, const fs::path& fontFile = {},
-              const char* face = "Constantia", int pxH = 64, int weight = FW_NORMAL) {
-        base = pxH;
+    bool init(Gpu& g, WGPUTextureFormat color, const fs::path& fontFile = {}, int emPx = 46,
+              int weight = FW_NORMAL) {
         // The real menu font is Felghana, the game's bundled TrueType Release/yso_ins04.dat
         // (build/menu_re/MENU_LAYOUT.md). Load it as a private, process-local font; if it isn't
         // available fall back to a system serif. The engine's LOGFONT: weight 400, DEFAULT_CHARSET.
+        face_name = "Constantia";
         if (!fontFile.empty()) {
             std::vector<std::uint8_t> bytes = read_bytes(fontFile);
             DWORD n = 0;
             if (!bytes.empty() &&
                 AddFontMemResourceEx(bytes.data(), DWORD(bytes.size()), nullptr, &n) && n)
-                face = "Felghana";
+                face_name = "Felghana";
         }
         // CLERIA_FONT / CLERIA_FONT_W override the face / weight (off-window font comparison).
-        if (const char* f = std::getenv("CLERIA_FONT")) face = f;
+        if (const char* f = std::getenv("CLERIA_FONT")) face_name = f;
         if (const char* w = std::getenv("CLERIA_FONT_W")) weight = std::atoi(w);
+        weight_ = weight;
+
+        // Pipeline + sampler, built once (the HUD shader: atlas * vertex colour).
+        WGPUShaderSourceWGSL wgsl = {};
+        wgsl.chain.sType = WGPUSType_ShaderSourceWGSL; wgsl.code = sv(kHudWGSL);
+        WGPUShaderModuleDescriptor smd = {}; smd.nextInChain = &wgsl.chain;
+        WGPUShaderModule sm = wgpuDeviceCreateShaderModule(g.device, &smd);
+        WGPUVertexAttribute at[3] = {};
+        at[0].format = WGPUVertexFormat_Float32x2; at[0].offset = 0;  at[0].shaderLocation = 0;
+        at[1].format = WGPUVertexFormat_Float32x2; at[1].offset = 8;  at[1].shaderLocation = 1;
+        at[2].format = WGPUVertexFormat_Unorm8x4;  at[2].offset = 16; at[2].shaderLocation = 2;
+        WGPUVertexBufferLayout vbl = {};
+        vbl.arrayStride = sizeof(HudVertex); vbl.attributeCount = 3; vbl.attributes = at;
+        WGPUBlendState blend = {};
+        blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
+        blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_OneMinusSrcAlpha};
+        WGPUColorTargetState tgt = {}; tgt.format = color; tgt.blend = &blend; tgt.writeMask = WGPUColorWriteMask_All;
+        WGPUFragmentState fs = {}; fs.module = sm; fs.entryPoint = sv("fs"); fs.targetCount = 1; fs.targets = &tgt;
+        WGPURenderPipelineDescriptor pd = {};
+        pd.vertex.module = sm; pd.vertex.entryPoint = sv("vs");
+        pd.vertex.bufferCount = 1; pd.vertex.buffers = &vbl;
+        pd.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        pd.multisample.count = 1; pd.multisample.mask = 0xFFFFFFFF; pd.fragment = &fs;
+        pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+        WGPUSamplerDescriptor sad = {};
+        sad.magFilter = sad.minFilter = WGPUFilterMode_Linear; sad.maxAnisotropy = 1;
+        samp = wgpuDeviceCreateSampler(g.device, &sad);
+        wgpuShaderModuleRelease(sm);
+        ok = build_atlas(g, emPx);
+        return ok;
+    }
+
+    // (Re)rasterise the glyph atlas at exactly emPx device pixels -- matching the game's native GDI
+    // rasterisation (its LOGFONT height = renderH*32/768) so the hinting/AA is crisp, rather than a
+    // downscale of a fixed-size atlas. Call again on window resize; releases the previous atlas.
+    bool build_atlas(Gpu& g, int emPx) {
+        base = std::max(8, emPx);
         HDC hdc = CreateCompatibleDC(nullptr);
         if (!hdc) return false;
-        HFONT font = CreateFontA(-pxH, 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        HFONT font = CreateFontA(-base, 0, 0, 0, weight_, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                                  OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                                 FF_ROMAN, face);
+                                 FF_ROMAN, face_name.c_str());
         HGDIOBJ oldf = SelectObject(hdc, font);
         TEXTMETRICA tm; GetTextMetricsA(hdc, &tm);
         ascent = tm.tmAscent; lineH = tm.tmHeight;
@@ -2426,7 +2464,6 @@ struct MenuFont {
         }
         SelectObject(hdc, oldf); DeleteObject(font); DeleteDC(hdc);
 
-        // Upload the atlas and build a pipeline (the HUD shader: atlas * vertex colour).
         WGPUTextureDescriptor td = {};
         td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
         td.dimension = WGPUTextureDimension_2D; td.size = {std::uint32_t(atlasW), std::uint32_t(atlasH), 1};
@@ -2437,39 +2474,15 @@ struct MenuFont {
         WGPUExtent3D ext = {std::uint32_t(atlasW), std::uint32_t(atlasH), 1};
         wgpuQueueWriteTexture(g.queue, &dst, atlas.data(), atlas.size(), &lay, &ext);
         WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
-        wgpuTextureRelease(tex);
-
-        WGPUShaderSourceWGSL wgsl = {};
-        wgsl.chain.sType = WGPUSType_ShaderSourceWGSL; wgsl.code = sv(kHudWGSL);
-        WGPUShaderModuleDescriptor smd = {}; smd.nextInChain = &wgsl.chain;
-        WGPUShaderModule sm = wgpuDeviceCreateShaderModule(g.device, &smd);
-        WGPUVertexAttribute at[3] = {};
-        at[0].format = WGPUVertexFormat_Float32x2; at[0].offset = 0;  at[0].shaderLocation = 0;
-        at[1].format = WGPUVertexFormat_Float32x2; at[1].offset = 8;  at[1].shaderLocation = 1;
-        at[2].format = WGPUVertexFormat_Unorm8x4;  at[2].offset = 16; at[2].shaderLocation = 2;
-        WGPUVertexBufferLayout vbl = {};
-        vbl.arrayStride = sizeof(HudVertex); vbl.attributeCount = 3; vbl.attributes = at;
-        WGPUBlendState blend = {};
-        blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
-        blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_OneMinusSrcAlpha};
-        WGPUColorTargetState tgt = {}; tgt.format = color; tgt.blend = &blend; tgt.writeMask = WGPUColorWriteMask_All;
-        WGPUFragmentState fs = {}; fs.module = sm; fs.entryPoint = sv("fs"); fs.targetCount = 1; fs.targets = &tgt;
-        WGPURenderPipelineDescriptor pd = {};
-        pd.vertex.module = sm; pd.vertex.entryPoint = sv("vs");
-        pd.vertex.bufferCount = 1; pd.vertex.buffers = &vbl;
-        pd.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-        pd.multisample.count = 1; pd.multisample.mask = 0xFFFFFFFF; pd.fragment = &fs;
-        pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
-        WGPUSamplerDescriptor sad = {};
-        sad.magFilter = sad.minFilter = WGPUFilterMode_Linear; sad.maxAnisotropy = 1;
-        samp = wgpuDeviceCreateSampler(g.device, &sad);
         WGPUBindGroupLayout bgl = wgpuRenderPipelineGetBindGroupLayout(pipeline, 0);
         WGPUBindGroupEntry e[2] = {};
         e[0].binding = 0; e[0].textureView = view;
         e[1].binding = 1; e[1].sampler = samp;
         WGPUBindGroupDescriptor bd = {}; bd.layout = bgl; bd.entryCount = 2; bd.entries = e;
-        bind = wgpuDeviceCreateBindGroup(g.device, &bd);
-        wgpuShaderModuleRelease(sm);
+        WGPUBindGroup nb = wgpuDeviceCreateBindGroup(g.device, &bd);
+        if (bind) wgpuBindGroupRelease(bind);   // drop the previous atlas (bind holds its view+tex)
+        bind = nb;
+        wgpuTextureViewRelease(view); wgpuTextureRelease(tex);
         ok = true;
         return true;
     }
@@ -2568,11 +2581,16 @@ struct TitleFx {
         Dds dg = load_dds(asset_root / "IMAGE" / "DIALOG0.DDS");         // popup scroll frame
         if (s.ok()) splash = upload_rgba(g, s.width, s.height, s.data.data());
         if (p.ok()) pillar = upload_rgba(g, p.width, p.height, p.data.data());
-        // MENUCURSOR's art is blue, but the engine renders the selection bar pure WHITE. Force
-        // RGB to 255, keeping alpha (the bar+curl shape) -- a white bar, not a silver one.
+        // MENUCURSOR is an ornate pill OUTLINE (bright silver lines + curls, transparent interior),
+        // blue-tinted. The engine draws it WHITE. Desaturate to the max channel and lift the bright
+        // lines to white while keeping the dark inner edge dark (that edge is what gives the thin
+        // lines contrast on the bright splash -- flattening to pure white made them vanish).
         if (c.ok()) {
-            for (std::size_t i = 0; i + 3 < c.data.size(); i += 4)
-                c.data[i] = c.data[i + 1] = c.data[i + 2] = 255;
+            for (std::size_t i = 0; i + 3 < c.data.size(); i += 4) {
+                const int v = std::max(c.data[i], std::max(c.data[i + 1], c.data[i + 2]));
+                const std::uint8_t o = std::uint8_t(std::min(255, v * 132 / 100));
+                c.data[i] = c.data[i + 1] = c.data[i + 2] = o;
+            }
             cursor = upload_rgba(g, c.width, c.height, c.data.data());
         }
         if (fr.ok()) frame = upload_rgba(g, fr.width, fr.height, fr.data.data());
@@ -2637,8 +2655,8 @@ struct TitleFx {
         if (cursor.tex) {                            // MENUCURSOR highlight bar, centred on the text
             const float mid = rowTop(sel) + ty + 0.46f * pxH;   // glyph vertical centre
             const float half = pxH * 0.58f, barW = maxW + 64.0f * A;
-            draw_screen_image(g, cview, dview, false, cursor, ndcX(cxpx - barW * 0.5f), ndcY(mid - half),
-                              ndcX(cxpx + barW * 0.5f), ndcY(mid + half), 0.3f);
+            draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                            cxpx + barW * 0.5f, mid + half, sw, sh);
         }
         // Labels: light blue-teal by default, neutral/white on the selected row (sampled from
         // reference/title_main.png: unselected ~[176,205,207]). Each carries a thin dark drop-
@@ -2736,6 +2754,21 @@ struct TitleFx {
         mf.draw(g, cview);
     }
 
+    // MENUCURSOR as a horizontal 9-slice (curls u[0,0.11] and [0.89,1.0] fixed, middle stretched)
+    // so the ornate ends keep their thickness at any bar width instead of being stretched thin.
+    void draw_cursor_bar(Gpu& g, WGPUTextureView cview, WGPUTextureView dview,
+                         float lpx, float tpx, float rpx, float bpx, float sw, float sh) {
+        if (!cursor.tex) return;
+        constexpr float u1 = 0.11f, u2 = 0.89f;
+        float curl = (bpx - tpx) * (u1 * 256.0f) / 32.0f;   // curl 28px wide / 32px tall native
+        if (curl * 2.0f > (rpx - lpx) * 0.9f) curl = (rpx - lpx) * 0.45f;
+        auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+        auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+        const float z = 0.3f;
+        draw_screen_image(g, cview, dview, false, cursor, NX(lpx),        NY(tpx), NX(lpx + curl), NY(bpx), z, 0.0f, 0.0f, u1,   1.0f);
+        draw_screen_image(g, cview, dview, false, cursor, NX(lpx + curl), NY(tpx), NX(rpx - curl), NY(bpx), z, u1,   0.0f, u2,   1.0f);
+        draw_screen_image(g, cview, dview, false, cursor, NX(rpx - curl), NY(tpx), NX(rpx),        NY(bpx), z, u2,   0.0f, 1.0f, 1.0f);
+    }
     // DIALOG0 as a horizontal 9-slice (u-cuts 0 / 0.15625 / 0.65625 / 0.8125 from MENU_LAYOUT.md
     // §3.1; content v 0..0.805): fixed scroll-curl ends, stretched middle, so the curls keep their
     // shape at any width. The engine's go_wnddialog popup frame is exactly this.
@@ -2776,9 +2809,9 @@ struct TitleFx {
         draw_dialog_frame(g, cview, dview, cxpx - fhalf, captionTop - 18.0f * A,
                           cxpx + fhalf, itemTop(count - 1) + cellH + 22.0f * A, sw, sh);
         if (cursor.tex) {                                 // content-width MENUCURSOR on the choice
-            const float bt = itemTop(sel), bb = bt + cellH, barW = maxW + 64.0f * A;
-            draw_screen_image(g, cview, dview, false, cursor, NX(cxpx - barW * 0.5f), NY(bt),
-                              NX(cxpx + barW * 0.5f), NY(bb), 0.15f);
+            const float mid = itemTop(sel) + 0.46f * pxH, half = pxH * 0.58f, barW = maxW + 64.0f * A;
+            draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                            cxpx + barW * 0.5f, mid + half, sw, sh);
         }
         mf.text_centered(title, 0.5f, captionTop, pxH, sw, sh, 244, 242, 226, 255);
         for (int i = 0; i < count; ++i) {
@@ -2827,7 +2860,11 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * H;
     WGPUBuffer readback = wgpuDeviceCreateBuffer(g.device, &rbd);
 
-    MenuFont mf; mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root));
+    MenuFont mf;
+    // Oversample the atlas (rasterise larger, downscale on draw): the game's on-screen menu text
+    // is soft, not crisp-native -- it scales a fixed-size glyph atlas (build/menu_re/FONT_RASTER.md
+    // pending). 64px matches that softness better than native-size. TODO: use the RE'd atlas size.
+    mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), 64);
     if (mode == 1) {
         int cs = 0;   // CLERIA_CS_SEL=0|1|2 previews Yunica/Hugo/Toal off-window
         if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) cs = v; }
@@ -2929,7 +2966,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Assets + flow from build/menu_re/MENUS.md.
     if (show_title) {
         TitleFx title; title.init(g, asset_root);
-        MenuFont mf; mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root));   // Felghana
+        MenuFont mf;   // Felghana, oversampled atlas (softness matched to the game; FONT_RASTER RE pending)
+        mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), 64);
         WGPUTextureView tdepth = make_depth(g.device, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
         // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
@@ -2994,7 +3032,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     }
                 } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
-                    if (cw && ch) { configure(); wgpuTextureViewRelease(tdepth); tdepth = make_depth(g.device, cw, ch); }
+                    if (cw && ch) {
+                        configure(); wgpuTextureViewRelease(tdepth); tdepth = make_depth(g.device, cw, ch);
+                    }
                 }
             }
             WGPUSurfaceTexture st = {};
