@@ -651,6 +651,23 @@ int main(int argc, char** argv) {
         bool mono = true;
         for (int L = 2; L <= 60; ++L) if (gi.exp_to_level(L) <= gi.exp_to_level(L - 1)) mono = false;
         check(mono, "the EXP curve is strictly increasing over levels 1..60");
+
+        // Replicate the view's level-up loop (award_exp) exactly, to prove the wired
+        // progression lands the right level + maxHP: level up while total >= threshold(L+1),
+        // cap 60, maxHP recomputed from the curve at the new level.
+        auto level_for = [&](double total) {
+            int lv = 1;
+            while (lv < 60 && total >= gi.exp_to_level(lv + 1)) ++lv;
+            return lv;
+        };
+        check(level_for(0) == 1 && level_for(149) == 1 && level_for(150) == 2,
+              "level-up loop: 0/149 EXP -> lv1, 150 EXP -> lv2");
+        check(level_for(530849) == 59 && level_for(530850) == 60 && level_for(1e9) == 60,
+              "level-up loop: caps at 60 (530850 EXP)");
+        const int hp1 = int(std::lround(gi.curves[kPlayerMaxHp].at(1)));
+        const int hp60 = int(std::lround(gi.curves[kPlayerMaxHp].at(60)));
+        check(hp60 > hp1, "maxHP grows from lv1 to lv60 (the player gets tougher)",
+              std::to_string(hp1) + " -> " + std::to_string(hp60));
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
