@@ -69,3 +69,4 @@ __pycache__/
 *.pdb
 *.ilk
 .vs/
+yso_win.ini

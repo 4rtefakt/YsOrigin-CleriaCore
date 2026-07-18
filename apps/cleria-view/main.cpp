@@ -3036,6 +3036,7 @@ static fs::path find_felghana(const fs::path& asset_root) {
 
 // Headless title render (--title out.ppm), to verify the composition off-window.
 // mode: 0 main menu, 1 character-select, 2 bonus sub-list.
+static void options_load(int slider[3], bool chk[4]);   // yso_win.ini loader (defined below render_window)
 static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
                         std::uint32_t W, std::uint32_t H, int mode = 0) {
     TitleFx title;
@@ -3084,8 +3085,9 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     } else if (mode == 3) {
         int osel = 0;   // CLERIA_OPT_SEL = focused row 0..9
         if (const char* e = std::getenv("CLERIA_OPT_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 9) osel = v; }
-        const int sliders[3] = {512, 512, 512};
-        const bool checks[4] = {false, true, false, false};   // default = only Double-tap-to-Dash on
+        int sliders[3] = {512, 512, 512};                     // reflects yso_win.ini if present
+        bool checks[4] = {false, true, false, false};
+        options_load(sliders, checks);
         title.draw_options(g, mf, cview, dview, W, H, osel, sliders, checks);
     } else {
         int ts = 1;   // CLERIA_TITLE_SEL overrides which item is lit (0 New Game ... 4 Exit)
@@ -3116,6 +3118,99 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     wgpuBufferUnmap(readback);
     std::printf("wrote %s (%ux%u)\n", out.string().c_str(), W, H);
     return 0;
+}
+
+// ---- Option-screen persistence: yso_win.ini (build/menu_re/OPTIONS.md §3) -------------------
+// The game stores config in yso_win.ini via FUN_0040b8e0 (load) / FUN_0040d7e0 (save): sections
+// [sound] BgmVolume/EffectVolume (0..1024 decimal strings), [graphics] GammaValue ("%0.8f" float),
+// [input] PadAnalog/DashControl/AtkBtnMagic/AlwaysDashOK (0/1). We read-modify-write so the file's
+// other keys (PlayerName, TitleGameDifficulty, ...) survive. Slider<->gamma per OPTIONS.md §2.
+static float slider_to_gamma(int s) {   // 0..1024 -> 0.5..2.0, neutral 1.0 @512
+    return s <= 512 ? float(s) / 512.0f * 0.5f + 0.5f : float(s - 512) / 512.0f + 1.0f;
+}
+static int gamma_to_slider(float g) {
+    float s = g <= 1.0f ? (g - 0.5f) * 1024.0f : (g - 1.0f) * 512.0f + 512.0f;
+    return std::clamp(int(std::lround(s)), 0, 1024);
+}
+static fs::path options_ini_path() {
+    if (const char* e = std::getenv("CLERIA_INI")) return e;
+    std::error_code ec; return fs::current_path(ec) / "yso_win.ini";
+}
+// A line-preserving INI editor (keeps comments / unknown keys / section order).
+struct IniFile {
+    std::vector<std::string> lines;
+    static std::string trim(const std::string& s) {
+        std::size_t a = s.find_first_not_of(" \t\r\n");
+        if (a == std::string::npos) return "";
+        std::size_t b = s.find_last_not_of(" \t\r\n");
+        return s.substr(a, b - a + 1);
+    }
+    void load(const fs::path& p) {
+        std::ifstream f(p); std::string l;
+        while (std::getline(f, l)) { if (!l.empty() && l.back() == '\r') l.pop_back(); lines.push_back(l); }
+    }
+    void save(const fs::path& p) const {
+        std::ofstream f(p, std::ios::binary);
+        for (const auto& l : lines) f << l << "\r\n";
+    }
+    bool get(const std::string& sec, const std::string& key, std::string& out) const {
+        std::string cur;
+        for (const auto& raw : lines) {
+            std::string t = trim(raw);
+            if (t.size() >= 2 && t.front() == '[' && t.back() == ']') { cur = t.substr(1, t.size() - 2); continue; }
+            if (cur != sec) continue;
+            std::size_t eq = t.find('=');
+            if (eq != std::string::npos && trim(t.substr(0, eq)) == key) { out = trim(t.substr(eq + 1)); return true; }
+        }
+        return false;
+    }
+    void set(const std::string& sec, const std::string& key, const std::string& val) {
+        int hdr = -1, bodyEnd = int(lines.size());
+        for (int i = 0; i < int(lines.size()); ++i) {
+            std::string t = trim(lines[i]);
+            if (t.size() >= 2 && t.front() == '[' && t.back() == ']') {
+                if (hdr < 0 && t.substr(1, t.size() - 2) == sec) hdr = i;
+                else if (hdr >= 0) { bodyEnd = i; break; }
+            }
+        }
+        if (hdr >= 0) {
+            for (int i = hdr + 1; i < bodyEnd; ++i) {
+                std::string t = trim(lines[i]);
+                std::size_t eq = t.find('=');
+                if (eq != std::string::npos && trim(t.substr(0, eq)) == key) { lines[i] = key + "=" + val; return; }
+            }
+            lines.insert(lines.begin() + bodyEnd, key + "=" + val);
+        } else {
+            if (!lines.empty() && !trim(lines.back()).empty()) lines.push_back("");
+            lines.push_back("[" + sec + "]");
+            lines.push_back(key + "=" + val);
+        }
+    }
+};
+// slider[0..2] = BGM / SFX / Brightness (0..1024); chk[0..3] = rows 3..6 (Analog/Dash/HoldAtk/AlwaysDash).
+static void options_load(int slider[3], bool chk[4]) {
+    IniFile f; f.load(options_ini_path()); std::string v;
+    auto geti = [&](const char* s, const char* k, int def) { return f.get(s, k, v) ? std::atoi(v.c_str()) : def; };
+    slider[0] = std::clamp(geti("sound", "BgmVolume", 512), 0, 1024);
+    slider[1] = std::clamp(geti("sound", "EffectVolume", 512), 0, 1024);
+    slider[2] = f.get("graphics", "GammaValue", v) ? gamma_to_slider(float(std::atof(v.c_str()))) : 512;
+    chk[0] = geti("input", "PadAnalog", 0) != 0;
+    chk[1] = geti("input", "DashControl", 1) != 0;
+    chk[2] = geti("input", "AtkBtnMagic", 0) != 0;
+    chk[3] = geti("input", "AlwaysDashOK", 0) != 0;
+}
+static void options_save(const int slider[3], const bool chk[4]) {
+    const fs::path p = options_ini_path();
+    IniFile f; f.load(p);   // preserve existing content
+    f.set("sound", "BgmVolume", std::to_string(slider[0]));
+    f.set("sound", "EffectVolume", std::to_string(slider[1]));
+    char g[32]; std::snprintf(g, sizeof g, "%0.8f", slider_to_gamma(slider[2]));
+    f.set("graphics", "GammaValue", g);
+    f.set("input", "PadAnalog", chk[0] ? "1" : "0");
+    f.set("input", "DashControl", chk[1] ? "1" : "0");
+    f.set("input", "AtkBtnMagic", chk[2] ? "1" : "0");
+    f.set("input", "AlwaysDashOK", chk[3] ? "1" : "0");
+    f.save(p);
 }
 
 // ---- interactive walkthrough ------------------------------------------------
@@ -3174,6 +3269,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int skin = 0;          // 0 Normal, 1 Extra (alternate appearance -- swap pending skin RE)
     int difficulty = 2;    // 0 VeryEasy,1 Easy,2 Normal,3 Hard,4 Nightmare (persisted TitleGameDifficulty)
     bool sp_bonus = false; // "SP Bonus Acquisition": boosts this save's SP gains
+    // Option settings (persisted in yso_win.ini). Function-scope so the title menu edits them and
+    // the game loop (audio) can read them; loaded once up front.
+    int oslider[3] = {512, 512, 512};    // BGM / SFX / Brightness (0..1024)
+    bool ocheck[4] = {false, true, false, false};   // Analog / Dash / HoldAtk / AlwaysDash (rows 3..6)
+    options_load(oslider, ocheck);
     (void)skin; (void)difficulty; (void)sp_bonus;   // stored now; applied to combat as RE lands
 
     // Title screen: shown on a bare launch, before the game. New Game opens character-select
@@ -3199,9 +3299,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         int bsel = 0;     // bonus sub-list: 0 Time Attack, 1 Arena, 2 Bonus Shop, 3 Back
         int csel = 0;     // character-select: 0 Yunica, 1 Hugo, 2 Toal
         int tsel = 0, dsel = 2, spsel = 0;   // popup cursors (difficulty defaults Normal, SP-bonus Enable)
-        int osel = 0;                        // Option screen: focused row 0..9
-        int oslider[3] = {512, 512, 512};    // BGM / SFX / Brightness (0..1024)
-        bool ocheck[4] = {false, true, false, false};   // rows 3..6; default = only Double-tap-to-Dash
+        int osel = 0;                        // Option screen: focused row 0..9 (oslider/ocheck are
+                                             // in render_window scope, above -- persisted to yso_win.ini)
         auto teardown = [&] { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); };
         for (bool started = false; !started;) {
             SDL_Event e;
@@ -3247,7 +3346,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         }
                     } else if (ts == OPTIONS) {
                         // 10 rows: 0-2 sliders, 3-6 checkboxes, 7 Default, 8 Return to Title, 9 Exit Game.
-                        if (esc) ts = MAIN;
+                        // Settings persist to yso_win.ini on leaving the screen (game saves config on close).
+                        if (esc) { options_save(oslider, ocheck); ts = MAIN; }
                         else if (up || down) osel = wrap(osel, 10, up);
                         else if ((left || right) && osel < 3)
                             oslider[osel] = std::clamp(oslider[osel] + (right ? 8 : -8), 0, 1024);
@@ -3256,8 +3356,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             else if (osel == 7) {                                                // Default
                                 oslider[0] = oslider[1] = oslider[2] = 512;
                                 ocheck[0] = ocheck[2] = ocheck[3] = false; ocheck[1] = true;
-                            } else if (osel == 8) ts = MAIN;                    // Return to Title
-                            else if (osel == 9) { teardown(); return 0; }      // Exit Game
+                            } else if (osel == 8) { options_save(oslider, ocheck); ts = MAIN; }  // Return to Title
+                            else if (osel == 9) { options_save(oslider, ocheck); teardown(); return 0; }  // Exit
                         }
                     } else {   // MAIN
                         if (esc) { teardown(); return 0; }
@@ -3694,6 +3794,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
     Audio audio;
     audio.init(asset_root);  // silent (and harmless) if the device or EFFECTDEF is missing
+    audio.set_master_volume(oslider[1] / 1024.0f);   // apply the Option "SFX Volume" (BGM/gamma have
+                                                     // no consumer in CleriaCore yet -- persisted only)
 
     std::printf("\nPLAY: WASD move Yunica (8-way, fixed camera), Space jump, E interact, Tab character | F free-fly debug | wheel speed | R respawn | 1-9 exit | ESC quit\n");
     bool running = true, looking = false;
@@ -4145,6 +4247,21 @@ int main(int argc, char** argv) {
     init_cull_env();
     // No args -> free-fly the tower base (S_1000) with default assets.
     const fs::path asset_root = (argc >= 2) ? fs::path(argv[1]) : default_assets(argv[0]);
+
+    // Headless Option-persistence check: load yso_win.ini (CLERIA_INI), print, mutate, save, dump.
+    if (argc >= 3 && std::strcmp(argv[2], "--config-test") == 0) {
+        int sl[3]; bool ck[4];
+        options_load(sl, ck);
+        std::printf("LOADED bgm=%d sfx=%d bright=%d | analog=%d dash=%d holdatk=%d always=%d\n",
+                    sl[0], sl[1], sl[2], ck[0], ck[1], ck[2], ck[3]);
+        sl[0] = 333; ck[1] = !ck[1];   // mutate BGM + toggle Double-tap-to-Dash
+        options_save(sl, ck);
+        std::ifstream f(options_ini_path()); std::string line;
+        std::printf("--- yso_win.ini after save ---\n");
+        while (std::getline(f, line)) std::printf("%s\n", line.c_str());
+        return 0;
+    }
+
     const bool shot = argc >= 4 && std::strcmp(argv[3], "--shot") == 0;
     const bool walk = argc >= 4 && std::strcmp(argv[3], "--walk") == 0;
     const bool fps = argc >= 4 && std::strcmp(argv[3], "--fps") == 0;

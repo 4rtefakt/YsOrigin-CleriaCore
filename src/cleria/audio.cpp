@@ -126,8 +126,9 @@ void Audio::mix(std::int16_t* out, int frames) {
         if (!v.clip) continue;
         const std::size_t avail = v.clip->samples.size() - v.pos;
         const std::size_t take = std::min<std::size_t>(avail, std::size_t(n));
+        const float g = v.volume * master_;
         for (std::size_t k = 0; k < take; ++k) {
-            const int mixed = out[k] + int(v.clip->samples[v.pos + k] * v.volume);
+            const int mixed = out[k] + int(v.clip->samples[v.pos + k] * g);
             out[k] = std::int16_t(std::clamp(mixed, -32768, 32767));
         }
         v.pos += take;

@@ -32,6 +32,11 @@ class Audio {
     // missing ids are ignored. Safe to call every frame.
     void play(int id, float volume = 1.0f);
 
+    // Master SFX gain (0..1), applied on top of each voice's own volume. Driven by the
+    // Option screen's "SFX Volume" setting. The engine's exact value->gain curve
+    // (FUN_004217f0) isn't RE'd, so this is linear.
+    void set_master_volume(float v) { master_ = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+
     const EffectDefs& defs() const { return defs_; }
 
     // Called from SDL's audio thread. Public only so the C callback can reach it;
@@ -61,6 +66,7 @@ class Audio {
     std::unordered_map<int, std::unique_ptr<Clip>> clips_;  // id -> decoded, cached
     std::vector<Voice> voices_;
     int rate_ = 44100, channels_ = 1;
+    float master_ = 1.0f;   // SFX master gain (Option screen)
 };
 
 }  // namespace cleria
