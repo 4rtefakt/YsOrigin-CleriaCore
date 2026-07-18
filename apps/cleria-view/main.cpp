@@ -2702,70 +2702,80 @@ struct TitleFx {
             draw_screen_image(g, cview, dview, false, portrait[sel], left, top,
                               left + wNDC, top - hNDC, 0.4f, u0, v0, u1, v1);
         }
-        // 4. Three selection bars on the right, each capped by its face icon. Row 0/1/2 = Yunica/
-        //    Hugo/Toal top-to-bottom; the crossed row is the cyan bar, the rest are dark.
-        const float rowY[3] = {0.44f, 0.10f, -0.24f};   // bar centre in NDC y
-        const float barH = 0.24f;
+        // 4. Three selection bars, each capped by its face icon. Exact rects from EXTRA_SKINS.md
+        //    §4: authored 1024x768, rows x=60..956, h=128, at y={128,272,416}; row 0/1/2 = Yunica/
+        //    Hugo/Toal. The bar art is a right-pointing arrow (wide right end holds the face, thin
+        //    left tail runs behind the portrait), the crossed row cyan, the rest dark.
+        auto AX = [&](float x) { return 2.0f * x / 1024.0f - 1.0f; };   // authored -> NDC (stretch)
+        auto AY = [&](float y) { return 1.0f - 2.0f * y / 768.0f; };
+        const float rowYtop[3] = {128.0f, 272.0f, 416.0f};
         for (int i = 0; i < 3; ++i) {
             const bool s = (i == sel);
-            const float yt = rowY[i] + barH * 0.5f, yb = rowY[i] - barH * 0.5f;
+            const float yt = rowYtop[i], yb = yt + 128.0f;
             if (chrsel.tex) {
-                draw_screen_image(g, cview, dview, false, chrsel, -0.14f, yt, 0.92f, yb, 0.45f,
-                                  kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1);
-                // face icon at the bar's right end (square-ish, matched to bar height).
-                const float fw = barH * 1.05f * (sh / sw);
-                draw_screen_image(g, cview, dview, false, chrsel, 0.66f, yt + 0.02f,
-                                  0.66f + fw * 2.0f, yb - 0.02f, 0.4f,
-                                  kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
+                draw_screen_image(g, cview, dview, false, chrsel, AX(60), AY(yt), AX(956), AY(yb),
+                                  0.45f, kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1);
+                // face icon in the bar's wide right end.
+                draw_screen_image(g, cview, dview, false, chrsel, AX(792), AY(yt + 6), AX(944),
+                                  AY(yb - 6), 0.4f, kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
             }
         }
-        // 5. Description on the bottom bar (the bars themselves carry only the face icon, as in
-        //    the real screen -- the selected character is named here).
+        // 5. Description, left-aligned at authored {48,704} (EXTRA_SKINS.md §4) -- not centred.
         std::string desc = std::string("[") + charName(sel) + "]    " + charDesc(sel);
-        mf.text_centered(desc.c_str(), 0.5f, sh * 0.905f, sh * 0.040f, sw, sh, 236, 236, 236, 255);
+        mf.text(desc, 48.0f / 1024.0f * sw, 704.0f / 768.0f * sh, 32.0f / 768.0f * sh, sw, sh,
+                236, 236, 236, 255);
         mf.draw(g, cview);
     }
 
-    // The New-Game choice popups (Type Select, Difficulty, SP Bonus Acquisition). Drawn OVER a
-    // background (usually the char-select screen): a dimmer, a centred panel, a title, and the
-    // choices with the CUR00 bar on the selection. Caller passes the labels + current index.
+    // DIALOG0 as a horizontal 9-slice (u-cuts 0 / 0.15625 / 0.65625 / 0.8125 from MENU_LAYOUT.md
+    // §3.1; content v 0..0.805): fixed scroll-curl ends, stretched middle, so the curls keep their
+    // shape at any width. The engine's go_wnddialog popup frame is exactly this.
+    void draw_dialog_frame(Gpu& g, WGPUTextureView cview, WGPUTextureView dview,
+                           float lpx, float tpx, float rpx, float bpx, float sw, float sh) {
+        if (!dialog.tex) return;
+        constexpr float vc = 0.805f, u1 = 0.15625f, u2 = 0.65625f, u3 = 0.8125f;
+        float curl = (bpx - tpx) * (u1 * 512.0f) / (vc * 256.0f);   // curl 80px wide / 206px tall
+        if (curl * 2.0f > (rpx - lpx) * 0.9f) curl = (rpx - lpx) * 0.45f;
+        auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+        auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+        const float z = 0.2f;
+        draw_screen_image(g, cview, dview, false, dialog, NX(lpx),        NY(tpx), NX(lpx + curl), NY(bpx), z, 0.0f, 0.0f, u1, vc);
+        draw_screen_image(g, cview, dview, false, dialog, NX(lpx + curl), NY(tpx), NX(rpx - curl), NY(bpx), z, u1,   0.0f, u2, vc);
+        draw_screen_image(g, cview, dview, false, dialog, NX(rpx - curl), NY(tpx), NX(rpx),        NY(bpx), z, u2,   0.0f, u3, vc);
+    }
+    // The New-Game choice popups (Type Select, Difficulty, SP Bonus Acquisition): a go_wnddialog
+    // list (MENU_LAYOUT.md) -- caption at authored {512,256}, items 38.4 apart below, font cell 32,
+    // centred on X=512 -- inside the DIALOG0 9-slice frame, with the MENUCURSOR bar on the choice.
     void draw_popup(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                     std::uint32_t W, std::uint32_t H, const char* title,
                     const char* const* items, int count, int sel) {
         const float sw = float(W), sh = float(H);
-        auto ndcX = [&](float xpx) { return 2.0f * xpx / sw - 1.0f; };
-        auto ndcY = [&](float ypx) { return 1.0f - 2.0f * ypx / sh; };
-        if (dim.tex)                                   // dim whatever is behind
+        const float A = sh / 768.0f;
+        auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+        auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+        if (dim.tex)
             draw_screen_image(g, cview, dview, false, dim, -1, 1, 1, -1, 0.25f);
-        // Size the DIALOG0 frame to the actual text. Its ornate scroll-curl ends take ~18% of the
-        // width each side, so the usable body is ~64% -- widen the frame to fit the longest line.
-        const float titleH = sh * 0.046f, itemH = sh * 0.044f;
-        float contentW = mf.measure(title, titleH);
-        for (int i = 0; i < count; ++i) contentW = std::max(contentW, mf.measure(items[i], itemH));
-        float frameWpx = std::min((contentW + sh * 0.05f) / 0.64f, sw * 0.90f);
-        const float frameHpx = sh * (0.13f + 0.058f * count);
-        const float cxpx = sw * 0.5f, cypx = sh * 0.52f;
-        const float fl = cxpx - frameWpx * 0.5f, fr = cxpx + frameWpx * 0.5f;
-        const float ft = cypx - frameHpx * 0.5f, fb = cypx + frameHpx * 0.5f;
-        if (dialog.tex)
-            draw_screen_image(g, cview, dview, false, dialog, ndcX(fl), ndcY(ft), ndcX(fr), ndcY(fb), 0.2f);
-        // Title in the header sub-bar; items down the body, kept inside the ornate edges.
-        const float titleY = ft + frameHpx * 0.12f;
-        const float bodyTop = ft + frameHpx * 0.40f, bodyBot = fb - frameHpx * 0.17f;
-        const float itemGap = count > 1 ? (bodyBot - bodyTop) / (count - 1) : 0.0f;
-        const float itemY0 = count > 1 ? bodyTop : (bodyTop + bodyBot) * 0.5f;
-        if (cursor.tex) {                              // MENUCURSOR bar on the selection
-            const float cy = itemY0 + sel * itemGap + itemH * 0.5f;   // item's vertical middle
-            const float barW = frameWpx * 0.60f, barH = itemH * 1.35f;
-            draw_screen_image(g, cview, dview, false, cursor,
-                              ndcX(cxpx - barW * 0.5f), ndcY(cy - barH * 0.5f),
-                              ndcX(cxpx + barW * 0.5f), ndcY(cy + barH * 0.5f), 0.15f);
+        const float pxH = 32.0f * A, pitch = 38.4f * A, cellH = 32.0f * A;
+        const float cxpx = sw * 0.5f;                     // authored X=512 (centre)
+        const float captionTop = 256.0f * A;              // header at authored y=256
+        const float firstItem = captionTop + 44.8f * A;   // caption sits 44.8 above the first item
+        auto itemTop = [&](int i) { return firstItem + i * pitch; };
+        float maxW = mf.measure(title, pxH);
+        for (int i = 0; i < count; ++i) maxW = std::max(maxW, mf.measure(items[i], pxH));
+        // Frame around caption..last item; width = content + 41.6 authored, + curl room.
+        const float fhalf = (maxW + 41.6f * A) * 0.5f + 90.0f * A;
+        draw_dialog_frame(g, cview, dview, cxpx - fhalf, captionTop - 18.0f * A,
+                          cxpx + fhalf, itemTop(count - 1) + cellH + 22.0f * A, sw, sh);
+        if (cursor.tex) {                                 // content-width MENUCURSOR on the choice
+            const float bt = itemTop(sel), bb = bt + cellH, barW = maxW + 64.0f * A;
+            draw_screen_image(g, cview, dview, false, cursor, NX(cxpx - barW * 0.5f), NY(bt),
+                              NX(cxpx + barW * 0.5f), NY(bb), 0.15f);
         }
-        mf.text_centered(title, 0.5f, titleY, titleH, sw, sh, 242, 240, 224, 255);
+        mf.text_centered(title, 0.5f, captionTop, pxH, sw, sh, 244, 242, 226, 255);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
-            mf.text_centered(items[i], 0.5f, itemY0 + i * itemGap, itemH, sw, sh,
-                             s ? 255 : 210, s ? 246 : 218, s ? 212 : 228, s ? 255 : 235);
+            mf.text_centered(items[i], 0.5f, itemTop(i), pxH, sw, sh,
+                             s ? 255 : 214, s ? 248 : 220, s ? 214 : 230, 255);
         }
         mf.draw(g, cview);
     }
