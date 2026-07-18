@@ -18,17 +18,32 @@ The shots live on this machine and are used by:
 ## Naming convention
 | file | screen |
 |---|---|
-| `title_main.png` | Title menu (New Game / Load / Bonus Modes / Options / Exit) |
+| `title_main.png` | Title menu (New Game / Load / Bonus Modes / Options / Exit). **New Game is the selected row** — use it to check the exact cursor/text position & colour. |
 | `title_bonus.png` | Bonus Modes sub-list (Time Attack / Arena / Bonus Shop / Back) |
 | `charselect.png` | Character Select (portrait + 3 bars + banner + description) |
 | `charselect_hugo.png`, `charselect_toal.png` | …with a different character highlighted |
-| `typeselect.png` | Type Select popup (Normal / Extra / Cancel) |
+| `charselect_arena_adol.png` | Char Select in Arena mode — the 4th/Adol row is present ("[Adol] Fiery-haired swordsman. Abilities unknown.") |
+| `typeselect.png` | Type Select popup (Normal / Extra / Cancel), DIALOG0 9-slice frame |
+| `typeselect_adol.png` | Adol's Type Select — **Felghana / Napishtim / Cancel** (his two skins) |
 | `difficulty.png` | Difficulty popup (Easy … Nightmare) |
 | `spbonus.png` | SP Bonus Acquisition popup (Enable / Disable) |
 | `options.png` | Options / Config screen |
 | `bonusshop.png` | Bonus Shop (Extra-skin unlock) |
-| `arena.png` | Arena Mode |
-| `pause_*.png` | In-game pause book pages (Equip / Item / Map / Save / Load / Option) |
+
+### In-game pause book (`go_wndmain2`, framework B) — the ornate two-page book
+| file | screen |
+|---|---|
+| `pause_equip.png` | Equipment page |
+| `pause_inventory.png` | Item / Inventory page |
+| `pause_load.png` | Load (save-slot list) page |
+| `pause_topic.png` | Topic page (top level) |
+| `pause_topic_character.png` | Topic → Character roster list (1. Yunica Tovah, 2. Hugo Fact, …) |
+| `pause_topic_character_page.png` | Topic → a character bio spread (portrait + name + blurb, two per page) |
+| `pause_topic_manual_basic.png` | Topic → Manual: "Basic Actions" (Attack / Jump / Power Shot / Jump Shot), 13 tabs |
+| `pause_topic_manual_boost.png` | Topic → Manual: "Boost Mode" |
+| `pause_topic_manual_dropitem.png` | Topic → Manual: "Drop Item" |
+| `pause_topic_manual_equip.png` | Topic → Manual: "Equip" |
+| `pause_topic_manual_inventory.png` | Topic → Manual: "Inventory" |
 
 Anything else: a short descriptive lowercase name is fine. When in doubt, add a line to the table.
 
