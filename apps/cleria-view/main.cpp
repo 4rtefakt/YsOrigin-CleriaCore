@@ -2572,6 +2572,8 @@ struct TitleFx {
     SpriteTex dialog;          // DIALOG0 blue scroll frame for the New-Game choice popups
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
     SpriteTex dim;             // baked solid: background dimmer behind popups
+    CharSprite chibi[3];       // the little walking sprite in char-select's bottom-right
+    int chibi_cur[3] = {-1, -1, -1};   // frame currently decoded per character
     bool init(Gpu& g, const fs::path& asset_root) {
         // Background dimmer for the popups (RGBA, alpha baked in -- the char shader blends by
         // texture alpha). The popup PANEL is the real DIALOG0 asset, below.
@@ -2617,6 +2619,14 @@ struct TitleFx {
                              ("CHRSELECT_PORTRAIT" + std::to_string(i + 1) + ".DDS"));
             if (d.ok()) portrait[i] = upload_rgba(g, d.width, d.height, d.data.data());
         }
+        // The little walking chibi (C_102/103/104 = Yunica/Hugo/Toal); resolve the walk animation
+        // by tag 0 (canonical across characters) so char-select can animate it bottom-right.
+        static const char* cai[3] = {"C_102.AIA", "C_103.AIA", "C_104.AIA"};
+        for (int i = 0; i < 3; ++i)
+            if (chibi[i].load(g, asset_root / "ANI" / cai[i])) {
+                const int w = chibi[i].find_tag(0);
+                if (w >= 0) chibi[i].set_anim(g, std::uint32_t(w), 0);
+            }
         return splash.tex != nullptr;
     }
     // Compose the title: the pillarbox art fills the whole (widescreen) screen, then the
@@ -2726,7 +2736,8 @@ struct TitleFx {
     // selection bars on the right (the crossed one cyan, the others dark) each capped with the
     // character's face icon, and the description on the bottom bar. sel 0/1/2 -> character 1/2/3.
     void draw_charselect(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
-                         std::uint32_t W, std::uint32_t H, int sel, float pulse = 0.0f) {
+                         std::uint32_t W, std::uint32_t H, int sel, float pulse = 0.0f,
+                         int chibiFrame = 0) {
         const float sw = float(W), sh = float(H);
         // The game PILLAR-BOXES char-select: the 1024x768 authored field is fit to height and
         // centred horizontally (uniform scale sh/768), NOT stretched to 16:9. The letterbox sides
@@ -2779,6 +2790,21 @@ struct TitleFx {
             const float top = 41.0f, hgt = 735.0f, left = 2.0f, wid = hgt * ar;
             draw_screen_image(g, cview, dview, false, portrait[sel], AX(left), AY(top),
                               AX(left + wid), AY(top + hgt), 0.35f, u0, v0, u1, v1);
+        }
+        // 4b. The walking chibi in the bottom-right (the selected character's sprite, animated).
+        if (sel >= 0 && sel < 3 && chibi[sel].ndir > 0) {
+            const int nf = int(std::max(1u, chibi[sel].nframe));
+            const int f = ((chibiFrame % nf) + nf) % nf;
+            if (chibi_cur[sel] != f) { chibi[sel].set_frame(g, std::uint32_t(f)); chibi_cur[sel] = f; }
+            std::uint32_t dir = std::min(5u, chibi[sel].ndir - 1);   // front-left (faces the portrait)
+            if (const char* e = std::getenv("CLERIA_CS_CHIBI_DIR")) dir = std::min(std::uint32_t(std::atoi(e)), chibi[sel].ndir - 1);
+            const SpriteTex& t = chibi[sel].dirs[dir];
+            if (t.tex && t.h > 0) {
+                const float chH = 74.0f, chW = chH * float(t.w) / float(t.h);   // authored, aspect
+                const float cx = 862.0f, cy = 668.0f;                           // authored centre
+                draw_screen_image(g, cview, dview, false, t, AX(cx - chW * 0.5f), AY(cy - chH * 0.5f),
+                                  AX(cx + chW * 0.5f), AY(cy + chH * 0.5f), 0.3f);
+            }
         }
         // 5. Description: "[Name]" left-aligned at authored x=48, and the blurb at a FIXED column
         //    x=209 (measured: the reference body-start is ~209 for all three names regardless of
@@ -2908,9 +2934,9 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     if (mode == 1) {
         int cs = 0;   // CLERIA_CS_SEL=0|1|2 previews Yunica/Hugo/Toal off-window
         if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) cs = v; }
-        float pulse = 0.55f;   // CLERIA_CS_PULSE phases the selection-bar glow (matches the ref frame)
+        float pulse = 0.72f;   // CLERIA_CS_PULSE phases the selection-bar glow (matches the ref frame)
         if (const char* e = std::getenv("CLERIA_CS_PULSE")) pulse = float(std::atof(e));
-        title.draw_charselect(g, mf, cview, dview, W, H, cs, pulse);
+        title.draw_charselect(g, mf, cview, dview, W, H, cs, pulse, std::getenv("CLERIA_CS_CHIBI") ? std::atoi(std::getenv("CLERIA_CS_CHIBI")) : 0);
         // CLERIA_POPUP=type|diff|sp overlays a New-Game popup for off-window verification.
         if (const char* e = std::getenv("CLERIA_POPUP")) {
             static const char* ti[3] = {"Normal", "Extra", "Cancel"};
@@ -3096,11 +3122,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             // Selection-bar pulse: cyan <-> near-white, ~1s period (the game animates the lit bar).
-            const float pulse = 0.40f + 0.40f * std::sin(SDL_GetTicks() * 0.006f);
+            const float pulse = 0.50f + 0.42f * std::sin(SDL_GetTicks() * 0.006f);
             if (ts == CHARSELECT) {
-                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse);
+                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse, int(SDL_GetTicks() / 110));
             } else if (ts == TYPESELECT || ts == DIFFICULTY || ts == SPBONUS) {
-                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse);   // popup backdrop
+                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse, int(SDL_GetTicks() / 110));   // popup backdrop
                 if (ts == TYPESELECT)
                     title.draw_popup(g, mf, view, tdepth, cw, ch, "Type Select", kTypeItems, 3, tsel);
                 else if (ts == DIFFICULTY)
