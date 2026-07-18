@@ -29,8 +29,19 @@
 !/build/source_map/
 !/build/xso_ops/
 !/build/ymo_re/
+# Re-admit EVERY reverse-engineering dir, not just the hand-listed ones above -- the
+# whitelist kept going stale as new subsystem_re dirs were added, leaving most of the RE
+# (warp_re, combat_re, actor_re, ai_re, physics_re, ...) untracked despite the intent
+# stated above. This catches all of them; the exclusions below keep the bulk out.
+!/build/*_re/
 
 # ...but never the extracted assets or renders those dirs accumulate.
+# Also keep out the regenerable raw Ghidra dumps (the *.java probes stay; their *_out.txt
+# outputs are large and reproducible), so only the curated prose+scripts are tracked.
+/build/**/*_out.txt
+/build/**/*.jpg
+/build/**/*.jpeg
+/build/**/*.npy
 /build/**/*.ppm
 /build/**/*.png
 /build/**/*.gif
