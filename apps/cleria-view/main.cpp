@@ -2672,18 +2672,20 @@ struct TitleFx {
         // Labels: light blue-teal by default, neutral/white on the selected row (sampled from
         // reference/title_main.png: unselected ~[176,205,207]). Each carries a thin dark drop-
         // shadow, bottom-left (as the game does -- also keeps the light selected text legible).
-        const float sx = -0.7f * A, sy = 0.9f * A;
-        // Unselected label colour sampled from reference; the reference has NO visible drop-shadow
-        // (adding a dark offset copy measurably raises the diff -- title_pixeldiff.py), so the shadow
-        // is off by default. Env overrides kept for experiments.
-        int ur = 130, ug = 152, ub = 152, ua = 255, shr = 24, shg = 28, shb = 34, sha = 0;
+        // The reference glyphs are a LIGHT fill with a tight, DARK drop-shadow weighted bottom-left
+        // (its darkest label pixels reach near-black, glyph body ~[170,185,187]). The title loop's
+        // region-mean had wrongly dropped it -- it is what gives the letters their edge. Offset is
+        // env-tunable (CLERIA_MENU_SHXY="dx,dy" in ~px). Fill/shadow colours below.
+        int ur = 168, ug = 184, ub = 186, ua = 255, shr = 34, shg = 41, shb = 43, sha = 225;
         int sr = 248, sg = 250, sb = 252, sa = 255;
+        float shdx = -0.8f, shdy = 0.9f;   // shadow offset in ~px (bottom-left)
         if (const char* e = std::getenv("CLERIA_MENU_U")) { sscanf(e, "%d,%d,%d,%d", &ur, &ug, &ub, &ua); }
         if (const char* e = std::getenv("CLERIA_MENU_S")) { sscanf(e, "%d,%d,%d,%d", &sr, &sg, &sb, &sa); }
         if (const char* e = std::getenv("CLERIA_MENU_SH")) { sscanf(e, "%d,%d,%d,%d", &shr, &shg, &shb, &sha); }
+        if (const char* e = std::getenv("CLERIA_MENU_SHXY")) sscanf(e, "%f,%f", &shdx, &shdy);
         if (sha > 0)
             for (int i = 0; i < count; ++i)
-                mf.text_centered(get(i), 0.5f + sx / sw, rowTop(i) + ty + sy, pxH, sw, sh,
+                mf.text_centered(get(i), 0.5f + shdx * A / sw, rowTop(i) + ty + shdy * A, pxH, sw, sh,
                                  (std::uint8_t)shr, (std::uint8_t)shg, (std::uint8_t)shb, (std::uint8_t)sha);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
