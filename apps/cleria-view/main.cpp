@@ -2567,7 +2567,7 @@ struct MenuFont {
 // Load the title assets (build/menu_re/MENUS.md): TITLE_000.DDS is the 1024^2 logo,
 // MENU/BACK00.DDS the background. Rendered as screen-space quads via draw_screen_image.
 struct TitleFx {
-    SpriteTex splash, pillar, cursor;
+    SpriteTex splash, pillar, cursor, altpillar;   // altpillar = golden goddess side-art (char-select/menus)
     SpriteTex frame, chrsel;   // BACK00 ornate frame; CHRSELECT atlas (bars/faces/banner)
     SpriteTex dialog;          // DIALOG0 blue scroll frame for the New-Game choice popups
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
@@ -2585,13 +2585,15 @@ struct TitleFx {
         };
         dim = solid(0, 2, 6, 120);
         Dds s = load_dds(asset_root / "IMAGE" / "TITLE_000.DDS");        // the full splash art
-        Dds p = load_dds(asset_root / "MENU" / "TITLEPILLAR16-9.DDS");   // widescreen side fill
+        Dds p = load_dds(asset_root / "MENU" / "TITLEPILLAR16-9.DDS");   // title widescreen side fill
+        Dds ap = load_dds(asset_root / "MENU" / "ALTPILLAR16-9.DDS");    // golden goddess side fill (menus)
         Dds c = load_dds(asset_root / "IMAGE" / "MENUCURSOR.DDS");       // scroll-curl selection bar
         Dds fr = load_dds(asset_root / "MENU" / "BACK00.DDS");           // ornate menu frame
         Dds cs = load_dds(asset_root / "MENU" / "CHRSELECT.DDS");        // char-select atlas
         Dds dg = load_dds(asset_root / "IMAGE" / "DIALOG0.DDS");         // popup scroll frame
         if (s.ok()) splash = upload_rgba(g, s.width, s.height, s.data.data());
         if (p.ok()) pillar = upload_rgba(g, p.width, p.height, p.data.data());
+        if (ap.ok()) altpillar = upload_rgba(g, ap.width, ap.height, ap.data.data());
         // MENUCURSOR is an ornate pill OUTLINE (bright silver lines + curls, transparent interior),
         // blue-tinted. The engine draws it WHITE. Desaturate to the max channel and lift the bright
         // lines to white while keeping the dark inner edge dark (that edge is what gives the thin
@@ -2796,9 +2798,15 @@ struct TitleFx {
         //    v0.749 (measured); sampling further (the old 0.772) pulled ~23 black rows in and
         //    compressed the bottom marble border ~21 authored units too high. Clears the
         //    letterbox to the dark background.
+        // 0. Golden goddess-statue side-art fills the 16:9 letterbox margins (ALTPILLAR16-9: left
+        //    strip u0..0.167, right strip u0.832..1, content v0..0.749). Drawn full-screen behind the
+        //    field, then the frame (below) covers the centre 4:3 -- so only the margins show goddesses.
+        if (altpillar.tex)
+            draw_screen_image(g, cview, dview, /*clear*/true, altpillar, -1.0f, 1.0f, 1.0f, -1.0f,
+                              0.96f, 0.0f, 0.0f, 1.0f, 0.749f);
         if (frame.tex)
-            draw_screen_image(g, cview, dview, /*clear*/true, frame, AX(0), AY(0), AX(1024), AY(768),
-                              0.95f, 0.0f, 0.0f, 1.0f, 0.749f);
+            draw_screen_image(g, cview, dview, /*clear*/altpillar.tex ? false : true, frame,
+                              AX(0), AY(0), AX(1024), AY(768), 0.95f, 0.0f, 0.0f, 1.0f, 0.749f);
         // 2. "Character Select" banner across the top of the field. Width (authored x 290..734) is
         //    correct; the old y -8..98 stretched the glyphs 1.28x too tall (measured C-height 37 vs
         //    reference 29). y -2..81 keeps the top fixed and matches the reference glyph height.
@@ -2841,8 +2849,8 @@ struct TitleFx {
             if (const char* e = std::getenv("CLERIA_CS_CHIBI_DIR")) dir = std::min(std::uint32_t(std::atoi(e)), chibi[sel].ndir - 1);
             const SpriteTex& t = chibi[sel].dirs[dir];
             if (t.tex && t.h > 0) {
-                const float chH = 74.0f, chW = chH * float(t.w) / float(t.h);   // authored, aspect
-                const float cx = 780.0f, cy = 632.0f;                           // authored centre (measured from charselect.png)
+                const float chH = 85.0f, chW = chH * float(t.w) / float(t.h);   // authored, aspect
+                const float cx = 812.0f, cy = 632.0f;                           // authored centre (measured from charselect.png)
                 draw_screen_image(g, cview, dview, false, t, AX(cx - chW * 0.5f), AY(cy - chH * 0.5f),
                                   AX(cx + chW * 0.5f), AY(cy + chH * 0.5f), 0.3f);
             }
