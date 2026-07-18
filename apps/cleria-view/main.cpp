@@ -2406,17 +2406,22 @@ struct TitleFx {
         const float scale = sh / 500.0f;
         const float line_h = sh * 0.054f, top = sh * top_frac;   // below the logo
         const float cx = 2.0f * cx_frac - 1.0f;                  // list centre in NDC x
-        if (cursor.tex) {   // CUR00's bracket art lives in its top-left 154x51 sub-rect
-            const float cy = top + sel * line_h;
-            const float yt = 1.0f - 2.0f * (cy - line_h * 0.20f) / sh;
-            const float yb = 1.0f - 2.0f * (cy + line_h * 0.85f) / sh;
+        if (cursor.tex) {   // CUR00's teal/gold bar lives in its top-left 154x51 sub-rect. Slim
+            const float cy = top + sel * line_h;                 // it so it hugs the text row.
+            const float yt = 1.0f - 2.0f * (cy - line_h * 0.34f) / sh;
+            const float yb = 1.0f - 2.0f * (cy + line_h * 0.80f) / sh;
             draw_screen_image(g, cview, dview, false, cursor, cx - bracket_hw, yt,
                               cx + bracket_hw, yb, 0.3f, 0.0f, 0.0f, 0.602f, 0.398f);
         }
+        // Draw every label with a soft dark drop-shadow first (the splash sky is bright, so
+        // plain light text would wash out), then the label on top -- selected brighter.
+        const float shy = sh * 0.006f;
+        for (int i = 0; i < count; ++i)
+            hud.text_centered(get(i), cx_frac, top + i * line_h + shy, scale, sw, sh, 20, 18, 14, 190);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
             hud.text_centered(get(i), cx_frac, top + i * line_h, scale, sw, sh,
-                              s ? 255 : 205, s ? 248 : 212, s ? 215 : 222, s ? 255 : 225);
+                              s ? 255 : 225, s ? 244 : 228, s ? 205 : 232, 255);
         }
         hud.draw_lines(g, cview);
     }
