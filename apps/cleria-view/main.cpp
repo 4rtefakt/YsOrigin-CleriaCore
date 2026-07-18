@@ -2722,41 +2722,39 @@ struct TitleFx {
     void draw_charselect(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                          std::uint32_t W, std::uint32_t H, int sel) {
         const float sw = float(W), sh = float(H);
-        // 1. The ornate frame (BACK00): its art fills the top ~0.772 of the 1024^2; stretch to
-        //    fill the window (it is a border, so the mild stretch of the interior reads fine).
-        if (frame.tex)
-            draw_screen_image(g, cview, dview, /*clear*/true, frame, -1, 1, 1, -1, 0.95f,
-                              0.0f, 0.0f, 1.0f, 0.772f);
+        // The game PILLAR-BOXES char-select: the 1024x768 authored field is fit to height and
+        // centred horizontally (uniform scale sh/768), NOT stretched to 16:9. The letterbox sides
+        // are the Archipelago mod's sepia art in reference/charselect.png -- ignore them.
+        const float fwN = (4.0f / 3.0f) * sh / sw;                    // 4:3 field half-width in NDC
+        auto AX = [&](float x) { return (2.0f * x / 1024.0f - 1.0f) * fwN; };   // authored -> NDC
+        auto AY = [&](float y) { return 1.0f - 2.0f * y / 768.0f; };
+        auto SX = [&](float x) { return (AX(x) + 1.0f) * 0.5f * sw; };          // authored -> screen px
         // CHRSELECT.DDS (1024x512) atlas sub-rects (measured):
-        //   cyan (selected) bar  v[0.045,0.264], dark bar v[0.295,0.525], both u[0.06,0.875]
-        //   face icons row v[0.561,0.748]: Yunica u[0.011,0.244] Hugo u[0.264,0.495] Toal u[0.500,0.742]
-        //   "Character Select" banner u[0.557,0.998] v[0.844,1.0]
         constexpr float kBarU0 = 0.06f, kBarU1 = 0.875f;
         constexpr float kCyanV0 = 0.045f, kCyanV1 = 0.264f;
         constexpr float kDarkV0 = 0.295f, kDarkV1 = 0.525f;
         constexpr float kFaceV0 = 0.561f, kFaceV1 = 0.748f;
         static const float kFaceU[3][2] = {{0.011f, 0.244f}, {0.264f, 0.495f}, {0.500f, 0.742f}};
-        // 2. The banner, centred at the very top so it covers the frame's own "Ys ORIGIN" text.
+        // 1. Frame BACK00 fills the 4:3 field (its art is the texture's top 0.772); clears the
+        //    letterbox to the dark background.
+        if (frame.tex)
+            draw_screen_image(g, cview, dview, /*clear*/true, frame, AX(0), AY(0), AX(1024), AY(768),
+                              0.95f, 0.0f, 0.0f, 1.0f, 0.772f);
+        // 2. "Character Select" banner across the top of the field.
         if (chrsel.tex)
-            draw_screen_image(g, cview, dview, false, chrsel, -0.50f, 1.02f, 0.50f, 0.72f, 0.5f,
+            draw_screen_image(g, cview, dview, false, chrsel, AX(290), AY(-8), AX(734), AY(98), 0.5f,
                               0.557f, 0.844f, 0.998f, 1.0f);
-        // 3. The selected character's key art, framed on the left. All three portraits share the
-        //    1024^2 convention (figure in the left ~0.68, feet at v=0.75), so one crop frames each.
+        // 3. The selected character's key art on the left (one crop frames all three).
         if (sel >= 0 && sel < 3 && portrait[sel].tex) {
             constexpr float u0 = 0.0f, u1 = 0.68f, v0 = 0.04f, v1 = 0.76f;
             const float ar = ((u1 - u0) * 1024.0f) / ((v1 - v0) * 1024.0f);
-            const float hNDC = 1.54f;
-            const float wNDC = hNDC * ar * (sh / sw);
-            const float left = -0.80f, top = 0.66f;
-            draw_screen_image(g, cview, dview, false, portrait[sel], left, top,
-                              left + wNDC, top - hNDC, 0.4f, u0, v0, u1, v1);
+            const float top = 110.0f, hgt = 625.0f, left = 45.0f, wid = hgt * ar;
+            draw_screen_image(g, cview, dview, false, portrait[sel], AX(left), AY(top),
+                              AX(left + wid), AY(top + hgt), 0.4f, u0, v0, u1, v1);
         }
-        // 4. Three selection bars, each capped by its face icon. Exact rects from EXTRA_SKINS.md
-        //    §4: authored 1024x768, rows x=60..956, h=128, at y={128,272,416}; row 0/1/2 = Yunica/
-        //    Hugo/Toal. The bar art is a right-pointing arrow (wide right end holds the face, thin
-        //    left tail runs behind the portrait), the crossed row cyan, the rest dark.
-        auto AX = [&](float x) { return 2.0f * x / 1024.0f - 1.0f; };   // authored -> NDC (stretch)
-        auto AY = [&](float y) { return 1.0f - 2.0f * y / 768.0f; };
+        // 4. Three selection bars (EXTRA_SKINS.md §4: x=60..956, h=128, y={128,272,416}; row
+        //    0/1/2 = Yunica/Hugo/Toal), the crossed one cyan, the rest dark, each capped by its
+        //    face icon in the wide right end.
         const float rowYtop[3] = {128.0f, 272.0f, 416.0f};
         for (int i = 0; i < 3; ++i) {
             const bool s = (i == sel);
@@ -2764,15 +2762,13 @@ struct TitleFx {
             if (chrsel.tex) {
                 draw_screen_image(g, cview, dview, false, chrsel, AX(60), AY(yt), AX(956), AY(yb),
                                   0.45f, kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1);
-                // face icon in the bar's wide right end.
                 draw_screen_image(g, cview, dview, false, chrsel, AX(792), AY(yt + 6), AX(944),
                                   AY(yb - 6), 0.4f, kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
             }
         }
-        // 5. Description, left-aligned at authored {48,704} (EXTRA_SKINS.md §4) -- not centred.
+        // 5. Description, left-aligned at authored {48,704} (EXTRA_SKINS.md §4).
         std::string desc = std::string("[") + charName(sel) + "]    " + charDesc(sel);
-        mf.text(desc, 48.0f / 1024.0f * sw, 704.0f / 768.0f * sh, 32.0f / 768.0f * sh, sw, sh,
-                236, 236, 236, 255);
+        mf.text(desc, SX(48), 704.0f / 768.0f * sh, 32.0f / 768.0f * sh, sw, sh, 236, 236, 236, 255);
         mf.draw(g, cview);
     }
 
