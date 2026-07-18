@@ -1229,12 +1229,13 @@ static void draw_shadow(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
 // no fog dim, no hit-flash -> the texture shows as-is.
 static void draw_screen_image(Gpu& g, WGPUTextureView color, WGPUTextureView depth, bool clear,
                               const SpriteTex& tex, float l, float t, float r, float b, float z,
+                              float u0 = 0, float v0 = 0, float u1 = 1, float v1 = 1,
                               float bgr = 0.02f, float bgg = 0.02f, float bgb = 0.05f) {
     if (!tex.tex) return;
-    RoomVertex verts[4] = {{l, t, z, 0, 0, -1, 0, 0, 255, 255, 255, 0},
-                           {r, t, z, 0, 0, -1, 1, 0, 255, 255, 255, 0},
-                           {r, b, z, 0, 0, -1, 1, 1, 255, 255, 255, 0},
-                           {l, b, z, 0, 0, -1, 0, 1, 255, 255, 255, 0}};
+    RoomVertex verts[4] = {{l, t, z, 0, 0, -1, u0, v0, 255, 255, 255, 0},
+                           {r, t, z, 0, 0, -1, u1, v0, 255, 255, 255, 0},
+                           {r, b, z, 0, 0, -1, u1, v1, 255, 255, 255, 0},
+                           {l, b, z, 0, 0, -1, u0, v1, 255, 255, 255, 0}};
     std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
     WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
     WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
@@ -2301,22 +2302,31 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
 // Load the title assets (build/menu_re/MENUS.md): TITLE_000.DDS is the 1024^2 logo,
 // MENU/BACK00.DDS the background. Rendered as screen-space quads via draw_screen_image.
 struct TitleFx {
-    SpriteTex logo, bg;
+    SpriteTex splash, pillar, cursor;
     bool init(Gpu& g, const fs::path& asset_root) {
-        Dds l = load_dds(asset_root / "IMAGE" / "TITLE_000.DDS");
-        Dds b = load_dds(asset_root / "MENU" / "BACK00.DDS");
-        if (l.ok()) logo = upload_rgba(g, l.width, l.height, l.data.data());
-        if (b.ok()) bg = upload_rgba(g, b.width, b.height, b.data.data());
-        return logo.tex != nullptr;
+        Dds s = load_dds(asset_root / "IMAGE" / "TITLE_000.DDS");        // the full splash art
+        Dds p = load_dds(asset_root / "MENU" / "TITLEPILLAR16-9.DDS");   // widescreen side fill
+        Dds c = load_dds(asset_root / "MENU" / "CUR00.DDS");             // selection bracket
+        if (s.ok()) splash = upload_rgba(g, s.width, s.height, s.data.data());
+        if (p.ok()) pillar = upload_rgba(g, p.width, p.height, p.data.data());
+        if (c.ok()) cursor = upload_rgba(g, c.width, c.height, c.data.data());
+        return splash.tex != nullptr;
     }
-    // Compose the title into (cview,dview): background fills the screen, the square logo
-    // sits upper-centre with its aspect preserved against the viewport aspect.
+    // Compose the title: the pillarbox art fills the whole (widescreen) screen, then the
+    // square 1024^2 splash (TITLE_000: logo + moon + landscape + credits) is drawn fit to
+    // HEIGHT and centred on top, so its full height (incl. the bottom credits) shows and
+    // the pillar continues the misty landscape into the 16:9 side bars.
     void draw(Gpu& g, WGPUTextureView cview, WGPUTextureView dview, std::uint32_t W, std::uint32_t H) {
         const float aspect = float(W) / float(H);
-        const float hh = 0.42f, hw = hh / aspect;   // keep the square logo square on screen
-        const float cy = 0.18f;                      // upper-centre
-        draw_screen_image(g, cview, dview, /*clear*/true, bg, -1, 1, 1, -1, 0.9f);
-        draw_screen_image(g, cview, dview, false, logo, -hw, cy + hh, hw, cy - hh, 0.1f);
+        // The real art lives in the top 768 of each 1024^2 (4:3); the bottom 256 is padding
+        // (brown on the splash, transparent on the pillar). Crop V to 0.75.
+        constexpr float vc = 0.75f;
+        const float sw = (4.0f / 3.0f) / aspect;   // 4:3 splash fit to height -> half-width
+        // Pillar full-screen: its edge strips continue the landscape into the widescreen
+        // side bars; its transparent centre lets the splash show.
+        draw_screen_image(g, cview, dview, /*clear*/true, pillar, -1, 1, 1, -1, 0.9f, 0, 0, 1, vc);
+        // The 4:3 splash (logo + moon + landscape + credits) centred, full height.
+        draw_screen_image(g, cview, dview, false, splash, -sw, 1, sw, -1, 0.5f, 0, 0, 1, vc);
     }
 };
 
