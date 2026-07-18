@@ -2357,11 +2357,20 @@ struct MenuFont {
     std::vector<HudVertex> verts;
     bool ok = false;
 
-    bool init(Gpu& g, WGPUTextureFormat color, const char* face = "Constantia",
-              int pxH = 48, int weight = FW_NORMAL) {
+    bool init(Gpu& g, WGPUTextureFormat color, const fs::path& fontFile = {},
+              const char* face = "Constantia", int pxH = 64, int weight = FW_NORMAL) {
         base = pxH;
-        // CLERIA_FONT / CLERIA_FONT_W override the face / weight, for comparing candidate serifs
-        // off-window while the exact menu font is being reverse-engineered.
+        // The real menu font is Felghana, the game's bundled TrueType Release/yso_ins04.dat
+        // (build/menu_re/MENU_LAYOUT.md). Load it as a private, process-local font; if it isn't
+        // available fall back to a system serif. The engine's LOGFONT: weight 400, DEFAULT_CHARSET.
+        if (!fontFile.empty()) {
+            std::vector<std::uint8_t> bytes = read_bytes(fontFile);
+            DWORD n = 0;
+            if (!bytes.empty() &&
+                AddFontMemResourceEx(bytes.data(), DWORD(bytes.size()), nullptr, &n) && n)
+                face = "Felghana";
+        }
+        // CLERIA_FONT / CLERIA_FONT_W override the face / weight (off-window font comparison).
         if (const char* f = std::getenv("CLERIA_FONT")) face = f;
         if (const char* w = std::getenv("CLERIA_FONT_W")) weight = std::atoi(w);
         HDC hdc = CreateCompatibleDC(nullptr);
@@ -2602,32 +2611,36 @@ struct TitleFx {
                                                   "Back"};
         return items[i];
     }
-    // Draw a centred label list with the MENUCURSOR bar behind the selection, below the logo.
-    // Shared by the main menu and the bonus sub-list. Menu text is the serif MenuFont.
+    // Draw the centred label list with the MENUCURSOR bar on the selection. Exact geometry from
+    // build/menu_re/MENU_LAYOUT.md: authored 1024x768 (4:3, fit-to-height), centre X=512, font
+    // cell 32, row pitch 38.4, bottom-anchored (~y694), cursor = one 32-tall cell spanning the
+    // widest label +32 each side. Shared by the title main menu and the bonus sub-list.
     void draw_list(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
-                   std::uint32_t W, std::uint32_t H, int count, const char* (*get)(int),
-                   int sel, float bracket_hw = 0.26f, float top_frac = 0.700f,
-                   float cx_frac = 0.5f) {
+                   std::uint32_t W, std::uint32_t H, int count, const char* (*get)(int), int sel) {
         const float sw = float(W), sh = float(H);
-        const float pxH = sh * 0.042f;
-        const float line_h = sh * 0.050f, top = sh * top_frac;   // below the logo
-        const float cx = 2.0f * cx_frac - 1.0f;                  // list centre in NDC x
-        if (cursor.tex) {   // MENUCURSOR: the scroll-curl bar, sized to hug the text row.
-            const float cy = top + sel * line_h;
-            const float yt = 1.0f - 2.0f * (cy - line_h * 0.30f) / sh;
-            const float yb = 1.0f - 2.0f * (cy + line_h * 0.86f) / sh;
-            draw_screen_image(g, cview, dview, false, cursor, cx - bracket_hw, yt,
-                              cx + bracket_hw, yb, 0.3f);
+        const float A = sh / 768.0f;                 // authored px -> screen px (height-fit 4:3)
+        const float pxH = 32.0f * A, pitch = 38.4f * A, cellH = 32.0f * A;
+        const float lastTop = 694.0f * A;            // top of the last row's cell
+        const float cxpx = sw * 0.5f;                // X=512 of the centred 4:3 field
+        auto ndcX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+        auto ndcY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+        auto rowTop = [&](int i) { return lastTop - (count - 1 - i) * pitch; };
+        float maxW = 0;
+        for (int i = 0; i < count; ++i) maxW = std::max(maxW, mf.measure(get(i), pxH));
+        if (cursor.tex) {                            // MENUCURSOR highlight bar on the selected row
+            const float bt = rowTop(sel), bb = bt + cellH, barW = maxW + 64.0f * A;
+            draw_screen_image(g, cview, dview, false, cursor, ndcX(cxpx - barW * 0.5f), ndcY(bt),
+                              ndcX(cxpx + barW * 0.5f), ndcY(bb), 0.3f);
         }
-        // Draw every label with a soft dark drop-shadow first (the splash sky is bright, so
-        // plain light text would wash out), then the label on top -- selected brighter.
-        const float shy = sh * 0.006f;
+        // A soft dark drop-shadow first (the splash sky is bright), then the label -- the cell
+        // top sits ~2px above the glyph so nudge the text down a hair to centre it in the bar.
+        const float ty = 3.0f * A;
         for (int i = 0; i < count; ++i)
-            mf.text_centered(get(i), cx_frac, top + i * line_h + shy, pxH, sw, sh, 20, 18, 14, 190);
+            mf.text_centered(get(i), 0.5f, rowTop(i) + ty + A, pxH, sw, sh, 18, 16, 12, 170);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
-            mf.text_centered(get(i), cx_frac, top + i * line_h, pxH, sw, sh,
-                             s ? 255 : 228, s ? 246 : 230, s ? 210 : 234, 255);
+            mf.text_centered(get(i), 0.5f, rowTop(i) + ty, pxH, sw, sh,
+                             s ? 255 : 232, s ? 248 : 234, s ? 214 : 236, 255);
         }
         mf.draw(g, cview);
     }
@@ -2758,6 +2771,23 @@ struct TitleFx {
     }
 };
 
+// Locate the game's Felghana font (Release/yso_ins04.dat) for MenuFont. It is loose in the game's
+// release dir, not in the extracted asset pack, so check CLERIA_FONT_FILE and a few conventional
+// spots; empty -> MenuFont falls back to a system serif.
+static fs::path find_felghana(const fs::path& asset_root) {
+    if (const char* e = std::getenv("CLERIA_FONT_FILE")) {
+        fs::path p = e; std::error_code ec; if (fs::exists(p, ec)) return p;
+    }
+    const fs::path cands[] = {
+        asset_root / "yso_ins04.dat",
+        asset_root / "FONT" / "yso_ins04.dat",
+        asset_root.parent_path() / "release" / "yso_ins04.dat",
+        asset_root.parent_path() / "Release" / "yso_ins04.dat",
+    };
+    for (const auto& p : cands) { std::error_code ec; if (fs::exists(p, ec)) return p; }
+    return {};
+}
+
 // Headless title render (--title out.ppm), to verify the composition off-window.
 // mode: 0 main menu, 1 character-select, 2 bonus sub-list.
 static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
@@ -2778,7 +2808,7 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * H;
     WGPUBuffer readback = wgpuDeviceCreateBuffer(g.device, &rbd);
 
-    MenuFont mf; mf.init(g, WGPUTextureFormat_RGBA8Unorm);
+    MenuFont mf; mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root));
     if (mode == 1) {
         int cs = 0;   // CLERIA_CS_SEL=0|1|2 previews Yunica/Hugo/Toal off-window
         if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) cs = v; }
@@ -2878,7 +2908,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Assets + flow from build/menu_re/MENUS.md.
     if (show_title) {
         TitleFx title; title.init(g, asset_root);
-        MenuFont mf; mf.init(g, WGPUTextureFormat_RGBA8Unorm);   // serif menu text (GDI system font)
+        MenuFont mf; mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root));   // Felghana
         WGPUTextureView tdepth = make_depth(g.device, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
         // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
