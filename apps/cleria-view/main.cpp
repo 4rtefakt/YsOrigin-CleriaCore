@@ -2570,6 +2570,7 @@ struct TitleFx {
     SpriteTex splash, pillar, cursor, altpillar;   // altpillar = golden goddess side-art (char-select/menus)
     SpriteTex frame, chrsel;   // BACK00 ornate frame; CHRSELECT atlas (bars/faces/banner)
     SpriteTex dialog;          // DIALOG0 blue scroll frame for the New-Game choice popups
+    SpriteTex opbtn, plaque;   // OPBTN atlas (Option-screen buttons/checkboxes) + OPTION "Option" plaque
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
     SpriteTex dim;             // baked solid: background dimmer behind popups
     CharSprite chibi[3];       // the little walking sprite in char-select's bottom-right
@@ -2616,6 +2617,10 @@ struct TitleFx {
         if (fr.ok()) frame = upload_rgba(g, fr.width, fr.height, fr.data.data());
         if (cs.ok()) chrsel = upload_rgba(g, cs.width, cs.height, cs.data.data());
         if (dg.ok()) dialog = upload_rgba(g, dg.width, dg.height, dg.data.data());
+        { Dds ob = load_dds(asset_root / "MENU" / "OPBTN.DDS");    // Option-screen button/checkbox atlas
+          if (ob.ok()) opbtn = upload_rgba(g, ob.width, ob.height, ob.data.data()); }
+        { Dds op = load_dds(asset_root / "MENU" / "OPTION.DDS");   // "Option" title plaque (2 states)
+          if (op.ok()) plaque = upload_rgba(g, op.width, op.height, op.data.data()); }
         // Character-select key art: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
         for (int i = 0; i < 3; ++i) {
             Dds d = load_dds(asset_root / "MENU" /
@@ -2937,6 +2942,72 @@ struct TitleFx {
         }
         mf.draw(g, cview);
     }
+
+    // The Option/Config screen (build/menu_re/OPTIONS.md). Pillar-boxed like char-select: goddess
+    // margins + BACK00 frame, the "Option" plaque top-left, then 10 rows -- 3 volume/brightness
+    // sliders, 4 checkboxes, and Default / Return-to-Title / Exit-Game buttons. All button faces,
+    // the slider track+knob and the checkbox squares are sub-rects of the OPBTN atlas (baked labels;
+    // atlas order != screen order, so each screen row is label-mapped to its band). sliders[0..2] =
+    // 0..1024, checks[0..3] = rows 3..6. sel = focused row 0..9.
+    void draw_options(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
+                      std::uint32_t W, std::uint32_t H, int sel,
+                      const int sliders[3], const bool checks[4]) {
+        const float sw = float(W), sh = float(H);
+        const float fwN = (4.0f / 3.0f) * sh / sw;
+        auto AX = [&](float x) { return (2.0f * x / 1024.0f - 1.0f) * fwN; };
+        auto AY = [&](float y) { return 1.0f - 2.0f * y / 768.0f; };
+        auto SX = [&](float x) { return (AX(x) + 1.0f) * 0.5f * sw; };
+        auto SY = [&](float y) { return y / 768.0f * sh; };
+        constexpr float T = 1.0f / 1024.0f;   // OPBTN atlas is 1024^2
+        // 0. goddess pillars + BACK00 frame (identical to char-select's backdrop)
+        if (altpillar.tex)
+            draw_screen_image(g, cview, dview, /*clear*/true, altpillar, -1, 1, 1, -1, 0.96f, 0, 0, 1, 0.749f);
+        if (frame.tex)
+            draw_screen_image(g, cview, dview, /*clear*/altpillar.tex ? false : true, frame,
+                              AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
+        // 1. "Option" plaque, top-left (OPTION.DDS: gold cartouche is u0..0.598 of the upper half;
+        //    the rest of the texture is opaque black padding, so crop to the cartouche).
+        if (plaque.tex)
+            draw_screen_image(g, cview, dview, false, plaque, AX(30), AY(8), AX(176), AY(68),
+                              0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
+        // 2. the 10 rows. rowV = OPBTN band (px) for each SCREEN row, label-mapped; row 7 (Default)
+        //    is a short button in the atlas' right area.
+        static const float rowV[10][2] = { {1,48},{53,98},{104,150},{411,456},{462,508},
+                                           {514,559},{565,610},{307,356},{155,201},{206,252} };
+        static const float rowY[10] = { 96,150,204,258,312,366,420, 474, 560,614 };
+        for (int r = 0; r < 10; ++r) {
+            const float bx = (r <= 6) ? 179.0f : (r == 7 ? 409.0f : 307.0f);
+            const float bw = (r == 7) ? 175.0f : 409.6f;
+            const float u0 = (r == 7) ? 409.0f * T : 0.0f;
+            const float u1 = (r == 7) ? 584.0f * T : 409.6f * T;
+            const float wt = (r == sel) ? 0.30f : 0.0f;   // focus highlight (dim rows stay as-is)
+            draw_screen_image(g, cview, dview, false, opbtn, AX(bx), AY(rowY[r]), AX(bx + bw),
+                              AY(rowY[r] + 51.2f), 0.30f, u0, rowV[r][0] * T, u1, rowV[r][1] * T,
+                              0.02f, 0.02f, 0.05f, wt);
+        }
+        // 3. sliders (rows 0-2): OPBTN track (metallic-bordered teal gradient bar, atlas x410..640) +
+        //    a tall lit blue pill knob (atlas x32..58) positioned by value along the track.
+        const float trackX = 652.0f, trackLen = 240.0f;
+        for (int i = 0; i < 3; ++i) {
+            const float ty = rowY[i] + 25.6f;
+            draw_screen_image(g, cview, dview, false, opbtn, AX(trackX), AY(ty - 11.0f),
+                              AX(trackX + trackLen), AY(ty + 11.0f), 0.28f, 410*T, 363*T, 640*T, 390*T);
+            const float kx = trackX + (float(sliders[i]) / 1024.0f) * trackLen;
+            draw_screen_image(g, cview, dview, false, opbtn, AX(kx - 9.0f), AY(ty - 24.0f),
+                              AX(kx + 9.0f), AY(ty + 24.0f), 0.26f, 32*T, 308*T, 58*T, 358*T);
+        }
+        // 4. checkboxes (rows 3-6): OPBTN square, checked U=0 / unchecked U=51 (OPTIONS.md §4)
+        for (int i = 0; i < 4; ++i) {
+            const float cx = 732.0f, cy = rowY[i + 3];
+            const float u0 = checks[i] ? 0.0f : 51.0f * T, u1 = checks[i] ? 48.0f * T : 99.0f * T;
+            draw_screen_image(g, cview, dview, false, opbtn, AX(cx), AY(cy), AX(cx + 51.2f),
+                              AY(cy + 51.2f), 0.26f, u0, 616*T, u1, 661*T);
+        }
+        // 5. caption bar (book-level string)
+        const float dsz = 27.0f * sh / 768.0f;
+        mf.text("Alter the game's settings.", SX(48), SY(707), dsz, sw, sh, 236, 236, 236, 255);
+        mf.draw(g, cview);
+    }
 };
 
 // Locate the game's Felghana font (Release/yso_ins04.dat) for MenuFont. It is loose in the game's
@@ -3003,6 +3074,12 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
         }
     } else if (mode == 2) {
         title.draw_bonus(g, mf, cview, dview, W, H, /*sel=*/0);        // Time Attack lit
+    } else if (mode == 3) {
+        int osel = 0;   // CLERIA_OPT_SEL = focused row 0..9
+        if (const char* e = std::getenv("CLERIA_OPT_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 9) osel = v; }
+        const int sliders[3] = {512, 512, 512};
+        const bool checks[4] = {false, true, false, false};   // default = only Double-tap-to-Dash on
+        title.draw_options(g, mf, cview, dview, W, H, osel, sliders, checks);
     } else {
         int ts = 1;   // CLERIA_TITLE_SEL overrides which item is lit (0 New Game ... 4 Exit)
         if (const char* e = std::getenv("CLERIA_TITLE_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 4) ts = v; }
@@ -3106,7 +3183,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
         // BONUS sub-list (DAT_0074e259), and the New-Game chain CHARSELECT -> TYPESELECT (Normal/
         // Extra skin) -> DIFFICULTY (Easy..Nightmare) -> SPBONUS (SP-gain boost) -> start.
-        enum TState { MAIN, BONUS, CHARSELECT, TYPESELECT, DIFFICULTY, SPBONUS };
+        enum TState { MAIN, BONUS, CHARSELECT, TYPESELECT, DIFFICULTY, SPBONUS, OPTIONS };
         static const char* kTypeItems[3] = {"Normal", "Extra", "Cancel"};
         static const char* kDiffItems[6] = {"Very Easy", "Easy", "Normal", "Hard", "Nightmare", "Cancel"};
         static const char* kSpItems[2]  = {"[Enable]", "[Disable]"};
@@ -3115,6 +3192,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         int bsel = 0;     // bonus sub-list: 0 Time Attack, 1 Arena, 2 Bonus Shop, 3 Back
         int csel = 0;     // character-select: 0 Yunica, 1 Hugo, 2 Toal
         int tsel = 0, dsel = 2, spsel = 0;   // popup cursors (difficulty defaults Normal, SP-bonus Enable)
+        int osel = 0;                        // Option screen: focused row 0..9
+        int oslider[3] = {512, 512, 512};    // BGM / SFX / Brightness (0..1024)
+        bool ocheck[4] = {false, true, false, false};   // rows 3..6; default = only Double-tap-to-Dash
         auto teardown = [&] { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); };
         for (bool started = false; !started;) {
             SDL_Event e;
@@ -3126,6 +3206,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const bool down = (k == SDLK_DOWN || k == SDLK_S);
                     const bool ok = (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E);
                     const bool esc = (k == SDLK_ESCAPE);
+                    const bool left = (k == SDLK_LEFT || k == SDLK_A);
+                    const bool right = (k == SDLK_RIGHT || k == SDLK_D);
                     auto wrap = [](int v, int n, bool u) { return (v + (u ? n - 1 : 1)) % n; };
                     if (ts == CHARSELECT) {
                         if (esc) ts = MAIN;                              // back to main menu
@@ -3156,6 +3238,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             if (bsel == 3) ts = MAIN;   // Back
                             // Time Attack / Arena Mode / Bonus Shop: not yet implemented.
                         }
+                    } else if (ts == OPTIONS) {
+                        // 10 rows: 0-2 sliders, 3-6 checkboxes, 7 Default, 8 Return to Title, 9 Exit Game.
+                        if (esc) ts = MAIN;
+                        else if (up || down) osel = wrap(osel, 10, up);
+                        else if ((left || right) && osel < 3)
+                            oslider[osel] = std::clamp(oslider[osel] + (right ? 8 : -8), 0, 1024);
+                        else if (ok) {
+                            if (osel >= 3 && osel <= 6) ocheck[osel - 3] = !ocheck[osel - 3];   // toggle
+                            else if (osel == 7) {                                                // Default
+                                oslider[0] = oslider[1] = oslider[2] = 512;
+                                ocheck[0] = ocheck[2] = ocheck[3] = false; ocheck[1] = true;
+                            } else if (osel == 8) ts = MAIN;                    // Return to Title
+                            else if (osel == 9) { teardown(); return 0; }      // Exit Game
+                        }
                     } else {   // MAIN
                         if (esc) { teardown(); return 0; }
                         else if (up || down) sel = wrap(sel, TitleFx::kItemCount, up);
@@ -3163,7 +3259,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             if (sel == 4) { teardown(); return 0; }   // Exit
                             else if (sel == 0) { ts = CHARSELECT; csel = 0; }  // New Game
                             else if (sel == 2) { ts = BONUS; bsel = 0; }       // Bonus Modes
-                            // Load Game / Options: not yet implemented.
+                            else if (sel == 3) { ts = OPTIONS; osel = 0; }     // Options
+                            // Load Game: not yet implemented.
                         }
                     }
                 } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
@@ -3195,6 +3292,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                  /*onBlack*/true, /*capTop*/292.0f);
             } else if (ts == BONUS) {
                 title.draw_bonus(g, mf, view, tdepth, cw, ch, bsel);
+            } else if (ts == OPTIONS) {
+                title.draw_options(g, mf, view, tdepth, cw, ch, osel, oslider, ocheck);
             } else {
                 title.draw(g, view, tdepth, cw, ch);
                 title.draw_menu(g, mf, view, tdepth, cw, ch, sel);
@@ -4157,10 +4256,12 @@ int main(int argc, char** argv) {
     }
     if (argc >= 4 && (std::strcmp(argv[3], "--title") == 0 ||
                       std::strcmp(argv[3], "--charselect") == 0 ||
-                      std::strcmp(argv[3], "--bonus") == 0)) {
-        // cleria-view <root> <ignored> --title|--charselect|--bonus out.ppm [W H]  (no room)
+                      std::strcmp(argv[3], "--bonus") == 0 ||
+                      std::strcmp(argv[3], "--options") == 0)) {
+        // cleria-view <root> <ignored> --title|--charselect|--bonus|--options out.ppm [W H]  (no room)
         const int mode = std::strcmp(argv[3], "--charselect") == 0 ? 1
-                       : std::strcmp(argv[3], "--bonus") == 0      ? 2 : 0;
+                       : std::strcmp(argv[3], "--bonus") == 0      ? 2
+                       : std::strcmp(argv[3], "--options") == 0    ? 3 : 0;
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 800;
