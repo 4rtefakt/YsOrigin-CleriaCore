@@ -2766,7 +2766,7 @@ struct TitleFx {
             if (chrsel.tex) {
                 draw_screen_image(g, cview, dview, false, chrsel, AX(60), AY(yt), AX(956), AY(yb),
                                   0.45f, kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1);
-                draw_screen_image(g, cview, dview, false, chrsel, AX(792), AY(yt + 6), AX(944),
+                draw_screen_image(g, cview, dview, false, chrsel, AX(650), AY(yt + 6), AX(893),
                                   AY(yb - 6), 0.4f, kFaceU[i][0], kFaceV0, kFaceU[i][1], kFaceV1);
             }
         }
