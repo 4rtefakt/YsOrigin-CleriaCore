@@ -2623,9 +2623,11 @@ struct TitleFx {
         // The little walking chibi (C_102/103/104 = Yunica/Hugo/Toal); resolve the walk animation
         // by tag 0 (canonical across characters) so char-select can animate it bottom-right.
         static const char* cai[3] = {"C_102.AIA", "C_103.AIA", "C_104.AIA"};
+        std::uint32_t chibiTag = 1;   // run -- shows the weapon (0 walk / 1 run / 2 idle); CLERIA_CS_CHIBI_TAG
+        if (const char* e = std::getenv("CLERIA_CS_CHIBI_TAG")) chibiTag = std::uint32_t(std::atoi(e));
         for (int i = 0; i < 3; ++i)
             if (chibi[i].load(g, asset_root / "ANI" / cai[i])) {
-                const int w = chibi[i].find_tag(0);
+                const int w = chibi[i].find_tag(chibiTag);
                 if (w >= 0) chibi[i].set_anim(g, std::uint32_t(w), 0);
             }
         // Arrow-clip the face cutouts: the atlas face crops are RECTANGULAR, but the game clips each
