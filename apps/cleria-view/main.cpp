@@ -2750,7 +2750,7 @@ struct TitleFx {
         if (sel >= 0 && sel < 3 && portrait[sel].tex) {
             constexpr float u0 = 0.0f, u1 = 0.68f, v0 = 0.04f, v1 = 0.76f;
             const float ar = ((u1 - u0) * 1024.0f) / ((v1 - v0) * 1024.0f);
-            const float top = 110.0f, hgt = 625.0f, left = 45.0f, wid = hgt * ar;
+            const float top = 41.0f, hgt = 735.0f, left = 2.0f, wid = hgt * ar;
             draw_screen_image(g, cview, dview, false, portrait[sel], AX(left), AY(top),
                               AX(left + wid), AY(top + hgt), 0.4f, u0, v0, u1, v1);
         }
