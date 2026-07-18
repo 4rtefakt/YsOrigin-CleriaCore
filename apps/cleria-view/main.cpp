@@ -1074,18 +1074,26 @@ struct CharSprite {
 // camera view direction. Reuses the room pipeline (alpha-test + white modulate).
 static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                            const Vec3& feet, float worldH, const SpriteTex& spr,
-                           const Vec3& camForward, float flash = 0.0f) {
+                           const Vec3& camForward, const Vec3& camPos, float flash = 0.0f) {
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
-    // Nudge the billboard toward the camera (horizontally) so its lower half clears the
-    // floor it stands on -- an upright billboard z-fights the floor at its base, and this
-    // backend ignores depthBias, so a small world-space nudge is the reliable fix.
-    Vec3 toCam = {-camForward.x, 0, -camForward.z};
-    const float tl = std::sqrt(toCam.x * toCam.x + toCam.z * toCam.z);
-    if (tl > 1e-4f) { toCam.x /= tl; toCam.z /= tl; }
-    constexpr float kDepthNudge = 0.9f;
-    const Vec3 base = {feet.x + toCam.x * kDepthNudge, feet.y, feet.z + toCam.z * kDepthNudge};
+    // Nudge the billboard a SMALL distance toward the camera ALONG THE VIEW RAY, exactly as
+    // the engine does (build/anim_re/SPRITEDEPTH.md: base = feet - normalize(feet-camPos)*B,
+    // B ~= 0.1 world units = bill[0]). The ray's upward component lifts the base off the
+    // floor so it wins the LessEqual z-test against the floor plane. ** The old fix shoved
+    // 0.9 units HORIZONTALLY, ~9x too far, which punched the sprite in front of any fence
+    // closer than 0.9u ** -- this small full-3D nudge clears the floor without beating a
+    // fence (a fence more than ~0.12u in front still occludes the sprite, as it should).
+    Vec3 ray = {feet.x - camPos.x, feet.y - camPos.y, feet.z - camPos.z};
+    const float rl = std::sqrt(ray.x * ray.x + ray.y * ray.y + ray.z * ray.z);
+    if (rl > 1e-4f) { ray.x /= rl; ray.y /= rl; ray.z /= rl; }
+    // Engine uses ~0.1 (bill[0]) PLUS an oz/pitch per-vertex depth lean; we don't model the
+    // lean yet, so a slightly larger uniform nudge covers the floor at steep angles. Still
+    // far under a fence's ~0.5u standoff, so occlusion stays correct. [H-med] until the lean.
+    constexpr float kDepthNudge = 0.2f;
+    const Vec3 base = {feet.x - ray.x * kDepthNudge, feet.y - ray.y * kDepthNudge,
+                       feet.z - ray.z * kDepthNudge};
     // Quad extents in billboard-local units (X = along `right`, Y = world up), from feet.
     float lX, rX, tY, bY;
     if (spr.place_ok && spr.canvasW > 0) {
@@ -1366,7 +1374,7 @@ static std::vector<EnemyRender> build_enemy_render(ActorWorld& world,
 // animation. `t_anim` is the presentation clock (seconds).
 static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                          EnemyFx& fx, const std::vector<EnemyRender>& list,
-                         const Vec3& camFwd, float t_anim) {
+                         const Vec3& camFwd, const Vec3& camPos, float t_anim) {
     constexpr float kEnemyAnimFps = 8.0f;   // TUNED: real rate is per-enemy ASO Wait
     // Screen basis, matching the player's facing calibration: horizontal camera forward
     // (screen-up) and its right. The enemy's heading is mapped into this basis so the
@@ -1398,7 +1406,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (!t->tex) continue;
         // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
         const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
-        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, flash);
+        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos, flash);
     }
 }
 
@@ -2102,7 +2110,7 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
         const int img = ch.find_tag(std::uint32_t(shot_vm.anim_tag()));
         if (img >= 0) ch.set_anim(g, std::uint32_t(img), std::uint32_t(shot_vm.frame()));
         const std::uint32_t d = dir < ch.ndir ? dir : 0;
-        draw_character(g, cview, dview, feet, worldH, ch.dirs[d], cam.forward());
+        draw_character(g, cview, dview, feet, worldH, ch.dirs[d], cam.forward(), cam.pos);
         std::printf("play: [aso] file(%d)=%s tag=%d frame=%d | sprite %ux%u dir %u/%u, "
                     "worldH %.2f, cam dist %.2f\n",
                     shot_vm.file_id(), shot_stem.c_str(), shot_vm.anim_tag(), shot_vm.frame(),
@@ -2129,7 +2137,7 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                 std::printf("play: %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
                             e.display.c_str(), e.stem.c_str(), e.actor->level,
                             e.actor->max_hp, e.actor->atk, e.actor->def);
-        draw_enemies(g, cview, dview, efx, list, cam.forward(), 0.0f);
+        draw_enemies(g, cview, dview, efx, list, cam.forward(), cam.pos, 0.0f);
     }
     // Torch flames (SEF placements + the EF2 flipbook).
     {
@@ -2957,8 +2965,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         draw(g, room, view, depth);
         // Character billboard (play mode only; fly is a free debug camera).
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex)
-            draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward());
-        draw_enemies(g, view, depth, efx, render, cam.forward(), fx_time);
+            draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos);
+        draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time);
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         player.character = character;
