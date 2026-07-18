@@ -2842,7 +2842,7 @@ struct TitleFx {
             const SpriteTex& t = chibi[sel].dirs[dir];
             if (t.tex && t.h > 0) {
                 const float chH = 74.0f, chW = chH * float(t.w) / float(t.h);   // authored, aspect
-                const float cx = 862.0f, cy = 668.0f;                           // authored centre
+                const float cx = 780.0f, cy = 632.0f;                           // authored centre (measured from charselect.png)
                 draw_screen_image(g, cview, dview, false, t, AX(cx - chW * 0.5f), AY(cy - chH * 0.5f),
                                   AX(cx + chW * 0.5f), AY(cy + chH * 0.5f), 0.3f);
             }
@@ -2892,16 +2892,21 @@ struct TitleFx {
     // centred on X=512 -- inside the DIALOG0 9-slice frame, with the MENUCURSOR bar on the choice.
     void draw_popup(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                     std::uint32_t W, std::uint32_t H, const char* title,
-                    const char* const* items, int count, int sel) {
+                    const char* const* items, int count, int sel,
+                    bool onBlack = false, float capTop = 212.0f) {
         const float sw = float(W), sh = float(H);
         const float A = sh / 768.0f;
         auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
         auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
-        if (dim.tex)
+        // onBlack (the SP-Bonus step runs on a full-black screen, not over Character Select):
+        // clear the whole surface to black first. Otherwise just dim whatever backdrop is there.
+        if (onBlack)
+            draw_screen_image(g, cview, dview, /*clear*/true, dim, -1, 1, 1, -1, 0.25f, 0, 0, 1, 1, 0, 0, 0);
+        else if (dim.tex)
             draw_screen_image(g, cview, dview, false, dim, -1, 1, 1, -1, 0.25f);
         const float pxH = 32.0f * A, pitch = 38.4f * A, cellH = 32.0f * A;
         const float cxpx = sw * 0.5f;                     // authored X=512 (centre)
-        const float captionTop = 212.0f * A;              // header centred at authored y~228 (matches ref)
+        const float captionTop = capTop * A;              // header top; centre = capTop+16 (type/diff ~228, SP ~308)
         const float firstItem = captionTop + 44.8f * A;   // caption sits 44.8 above the first item
         auto itemTop = [&](int i) { return firstItem + i * pitch; };
         float maxW = mf.measure(title, pxH);
@@ -2986,7 +2991,7 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
             static const char* si[2] = {"[Enable]", "[Disable]"};
             if (std::string(e) == "type") title.draw_popup(g, mf, cview, dview, W, H, "Type Select", ti, 3, 0);
             else if (std::string(e) == "diff") title.draw_popup(g, mf, cview, dview, W, H, "Difficulty Level", di, 6, 2);
-            else if (std::string(e) == "sp") title.draw_popup(g, mf, cview, dview, W, H, "SP Bonus Acquisition", si, 2, 0);
+            else if (std::string(e) == "sp") title.draw_popup(g, mf, cview, dview, W, H, "SP Bonus Acquisition", si, 2, 0, /*onBlack*/true, /*capTop*/292.0f);
         }
     } else if (mode == 2) {
         title.draw_bonus(g, mf, cview, dview, W, H, /*sel=*/0);        // Time Attack lit
@@ -3170,14 +3175,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const float pulse = 0.50f + 0.42f * std::sin(SDL_GetTicks() * 0.006f);
             if (ts == CHARSELECT) {
                 title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse, int(SDL_GetTicks() / 110));
-            } else if (ts == TYPESELECT || ts == DIFFICULTY || ts == SPBONUS) {
+            } else if (ts == TYPESELECT || ts == DIFFICULTY) {
                 title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse, int(SDL_GetTicks() / 110));   // popup backdrop
                 if (ts == TYPESELECT)
                     title.draw_popup(g, mf, view, tdepth, cw, ch, "Type Select", kTypeItems, 3, tsel);
-                else if (ts == DIFFICULTY)
-                    title.draw_popup(g, mf, view, tdepth, cw, ch, "Difficulty Level", kDiffItems, 6, dsel);
                 else
-                    title.draw_popup(g, mf, view, tdepth, cw, ch, "SP Bonus Acquisition", kSpItems, 2, spsel);
+                    title.draw_popup(g, mf, view, tdepth, cw, ch, "Difficulty Level", kDiffItems, 6, dsel);
+            } else if (ts == SPBONUS) {
+                // SP Bonus Acquisition runs on a full-black screen (no Character Select behind it).
+                title.draw_popup(g, mf, view, tdepth, cw, ch, "SP Bonus Acquisition", kSpItems, 2, spsel,
+                                 /*onBlack*/true, /*capTop*/292.0f);
             } else if (ts == BONUS) {
                 title.draw_bonus(g, mf, view, tdepth, cw, ch, bsel);
             } else {
