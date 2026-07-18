@@ -2346,7 +2346,18 @@ struct TitleFx {
     SpriteTex splash, pillar, cursor;
     SpriteTex frame, chrsel;   // BACK00 ornate frame; CHRSELECT atlas (bars/faces/banner)
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
+    SpriteTex dim, panel;      // baked solids: background dimmer + popup panel fill
     bool init(Gpu& g, const fs::path& asset_root) {
+        // Baked solid fills for the New-Game choice popups (no ornate-frame asset was found in
+        // the pack for these dialogs, so a clean translucent panel stands in). RGBA, alpha baked
+        // in (the char shader blends by texture alpha).
+        auto solid = [&](std::uint8_t r, std::uint8_t gg, std::uint8_t b, std::uint8_t a) {
+            std::uint8_t px[4 * 4 * 4];
+            for (int i = 0; i < 16; ++i) { px[i*4]=r; px[i*4+1]=gg; px[i*4+2]=b; px[i*4+3]=a; }
+            return upload_rgba(g, 4, 4, px);
+        };
+        dim = solid(0, 2, 6, 150);
+        panel = solid(16, 24, 46, 232);
         Dds s = load_dds(asset_root / "IMAGE" / "TITLE_000.DDS");        // the full splash art
         Dds p = load_dds(asset_root / "MENU" / "TITLEPILLAR16-9.DDS");   // widescreen side fill
         Dds c = load_dds(asset_root / "MENU" / "CUR00.DDS");             // selection bracket
@@ -2507,6 +2518,37 @@ struct TitleFx {
         hud.text_centered(desc.c_str(), 0.5f, sh * 0.90f, scale * 0.95f, sw, sh, 235, 235, 235, 255);
         hud.draw_lines(g, cview);
     }
+
+    // The New-Game choice popups (Type Select, Difficulty, SP Bonus Acquisition). Drawn OVER a
+    // background (usually the char-select screen): a dimmer, a centred panel, a title, and the
+    // choices with the CUR00 bar on the selection. Caller passes the labels + current index.
+    void draw_popup(Gpu& g, Hud& hud, WGPUTextureView cview, WGPUTextureView dview,
+                    std::uint32_t W, std::uint32_t H, const char* title,
+                    const char* const* items, int count, int sel) {
+        const float sw = float(W), sh = float(H);
+        const float titleY = sh * 0.34f, itemY0 = sh * 0.46f, itemGap = sh * 0.078f;
+        const float scale = sh / 540.0f;
+        auto ndcY = [&](float ypx) { return 1.0f - 2.0f * ypx / sh; };
+        if (dim.tex)                                   // dim whatever is behind
+            draw_screen_image(g, cview, dview, false, dim, -1, 1, 1, -1, 0.25f);
+        const float ptop = titleY - sh * 0.075f, pbot = itemY0 + (count - 1) * itemGap + sh * 0.055f;
+        const float pw = 0.40f;
+        if (panel.tex)                                 // the popup panel
+            draw_screen_image(g, cview, dview, false, panel, -pw, ndcY(ptop), pw, ndcY(pbot), 0.2f);
+        if (cursor.tex) {                              // selection bar
+            const float cy = itemY0 + sel * itemGap;
+            const float yt = ndcY(cy - itemGap * 0.34f), yb = ndcY(cy + itemGap * 0.80f);
+            draw_screen_image(g, cview, dview, false, cursor, -0.30f, yt, 0.30f, yb, 0.15f,
+                              0.0f, 0.0f, 0.602f, 0.398f);
+        }
+        hud.text_centered(title, 0.5f, titleY, scale * 1.05f, sw, sh, 240, 238, 220, 255);
+        for (int i = 0; i < count; ++i) {
+            const bool s = (i == sel);
+            hud.text_centered(items[i], 0.5f, itemY0 + i * itemGap, scale, sw, sh,
+                              s ? 255 : 205, s ? 244 : 214, s ? 205 : 224, s ? 255 : 235);
+        }
+        hud.draw_lines(g, cview);
+    }
 };
 
 // Headless title render (--title out.ppm), to verify the composition off-window.
@@ -2534,6 +2576,15 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
         int cs = 0;   // CLERIA_CS_SEL=0|1|2 previews Yunica/Hugo/Toal off-window
         if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) cs = v; }
         title.draw_charselect(g, thud, cview, dview, W, H, cs);
+        // CLERIA_POPUP=type|diff|sp overlays a New-Game popup for off-window verification.
+        if (const char* e = std::getenv("CLERIA_POPUP")) {
+            static const char* ti[3] = {"Normal", "Extra", "Cancel"};
+            static const char* di[4] = {"Easy", "Normal", "Hard", "Nightmare"};
+            static const char* si[2] = {"Enable", "Disable"};
+            if (std::string(e) == "type") title.draw_popup(g, thud, cview, dview, W, H, "Type Select", ti, 3, 1);
+            else if (std::string(e) == "diff") title.draw_popup(g, thud, cview, dview, W, H, "Difficulty", di, 4, 3);
+            else if (std::string(e) == "sp") title.draw_popup(g, thud, cview, dview, W, H, "SP Bonus Acquisition", si, 2, 0);
+        }
     } else if (mode == 2) {
         title.draw_bonus(g, thud, cview, dview, W, H, /*sel=*/0);        // Time Attack lit
     } else {
@@ -2609,6 +2660,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const int c = std::atoi(cs);
         if (c >= 1 && c <= 3) character = c;
     }
+    // The rest of the New-Game choices (set by the title's popups; see the flow below):
+    int skin = 0;          // 0 Normal, 1 Extra (alternate appearance -- swap pending skin RE)
+    int difficulty = 1;    // 0 Easy, 1 Normal, 2 Hard, 3 Nightmare (persisted TitleGameDifficulty)
+    bool sp_bonus = false; // "SP Bonus Acquisition": boosts this save's SP gains
+    (void)skin; (void)difficulty; (void)sp_bonus;   // stored now; applied to combat as RE lands
 
     // Title screen: shown on a bare launch, before the game. New Game opens character-select
     // (pick Yunica/Hugo/Toal, then fall through to the game loop below); Esc/close quits.
@@ -2617,13 +2673,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         TitleFx title; title.init(g, asset_root);
         WGPUTextureView tdepth = make_depth(g.device, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
-        // The title is a small state machine mirroring the engine (MENUS.md §1.4): the MAIN
-        // list, the BONUS sub-list (DAT_0074e259), and our New-Game CHARSELECT screen.
-        enum TState { MAIN, BONUS, CHARSELECT };
+        // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
+        // BONUS sub-list (DAT_0074e259), and the New-Game chain CHARSELECT -> TYPESELECT (Normal/
+        // Extra skin) -> DIFFICULTY (Easy..Nightmare) -> SPBONUS (SP-gain boost) -> start.
+        enum TState { MAIN, BONUS, CHARSELECT, TYPESELECT, DIFFICULTY, SPBONUS };
+        static const char* kTypeItems[3] = {"Normal", "Extra", "Cancel"};
+        static const char* kDiffItems[4] = {"Easy", "Normal", "Hard", "Nightmare"};
+        static const char* kSpItems[2]  = {"Enable", "Disable"};
         TState ts = MAIN;
         int sel = 0;      // main menu: 0 New Game, 1 Load, 2 Bonus Modes, 3 Options, 4 Exit
         int bsel = 0;     // bonus sub-list: 0 Time Attack, 1 Arena, 2 Bonus Shop, 3 Back
         int csel = 0;     // character-select: 0 Yunica, 1 Hugo, 2 Toal
+        int tsel = 0, dsel = 1, spsel = 1;   // popup cursors (difficulty defaults Normal)
         auto teardown = [&] { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); };
         for (bool started = false; !started;) {
             SDL_Event e;
@@ -2634,27 +2695,41 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const bool up = (k == SDLK_UP || k == SDLK_W);
                     const bool down = (k == SDLK_DOWN || k == SDLK_S);
                     const bool ok = (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E);
+                    const bool esc = (k == SDLK_ESCAPE);
+                    auto wrap = [](int v, int n, bool u) { return (v + (u ? n - 1 : 1)) % n; };
                     if (ts == CHARSELECT) {
-                        if (k == SDLK_ESCAPE) ts = MAIN;   // back to main menu
-                        else if (up)   csel = (csel + TitleFx::kCharCount - 1) % TitleFx::kCharCount;
-                        else if (down) csel = (csel + 1) % TitleFx::kCharCount;
-                        else if (ok) { character = csel + 1; started = true; }  // 1/2/3
+                        if (esc) ts = MAIN;                              // back to main menu
+                        else if (up || down) csel = wrap(csel, TitleFx::kCharCount, up);
+                        else if (ok) { character = csel + 1; ts = TYPESELECT; tsel = 0; }
+                    } else if (ts == TYPESELECT) {
+                        if (esc) ts = CHARSELECT;
+                        else if (up || down) tsel = wrap(tsel, 3, up);
+                        else if (ok) {
+                            if (tsel == 2) ts = CHARSELECT;              // Cancel
+                            else { skin = tsel; ts = DIFFICULTY; dsel = 1; }  // Normal/Extra
+                        }
+                    } else if (ts == DIFFICULTY) {
+                        if (esc) ts = TYPESELECT;
+                        else if (up || down) dsel = wrap(dsel, 4, up);
+                        else if (ok) { difficulty = dsel; ts = SPBONUS; spsel = 1; }
+                    } else if (ts == SPBONUS) {
+                        if (esc) ts = DIFFICULTY;
+                        else if (up || down) spsel = wrap(spsel, 2, up);
+                        else if (ok) { sp_bonus = (spsel == 0); started = true; }  // -> game
                     } else if (ts == BONUS) {
-                        if (k == SDLK_ESCAPE) ts = MAIN;
-                        else if (up)   bsel = (bsel + TitleFx::kBonusCount - 1) % TitleFx::kBonusCount;
-                        else if (down) bsel = (bsel + 1) % TitleFx::kBonusCount;
+                        if (esc) ts = MAIN;
+                        else if (up || down) bsel = wrap(bsel, TitleFx::kBonusCount, up);
                         else if (ok) {
                             if (bsel == 3) ts = MAIN;   // Back
                             // Time Attack / Arena Mode / Bonus Shop: not yet implemented.
                         }
                     } else {   // MAIN
-                        if (k == SDLK_ESCAPE) { teardown(); return 0; }
-                        else if (up)   sel = (sel + TitleFx::kItemCount - 1) % TitleFx::kItemCount;
-                        else if (down) sel = (sel + 1) % TitleFx::kItemCount;
+                        if (esc) { teardown(); return 0; }
+                        else if (up || down) sel = wrap(sel, TitleFx::kItemCount, up);
                         else if (ok) {
                             if (sel == 4) { teardown(); return 0; }   // Exit
-                            else if (sel == 0) ts = CHARSELECT;        // New Game
-                            else if (sel == 2) { ts = BONUS; bsel = 0; }  // Bonus Modes
+                            else if (sel == 0) { ts = CHARSELECT; csel = 0; }  // New Game
+                            else if (sel == 2) { ts = BONUS; bsel = 0; }       // Bonus Modes
                             // Load Game / Options: not yet implemented.
                         }
                     }
@@ -2670,6 +2745,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             if (ts == CHARSELECT) {
                 title.draw_charselect(g, hud, view, tdepth, cw, ch, csel);
+            } else if (ts == TYPESELECT || ts == DIFFICULTY || ts == SPBONUS) {
+                title.draw_charselect(g, hud, view, tdepth, cw, ch, csel);   // popup backdrop
+                if (ts == TYPESELECT)
+                    title.draw_popup(g, hud, view, tdepth, cw, ch, "Type Select", kTypeItems, 3, tsel);
+                else if (ts == DIFFICULTY)
+                    title.draw_popup(g, hud, view, tdepth, cw, ch, "Difficulty", kDiffItems, 4, dsel);
+                else
+                    title.draw_popup(g, hud, view, tdepth, cw, ch, "SP Bonus Acquisition", kSpItems, 2, spsel);
             } else if (ts == BONUS) {
                 title.draw_bonus(g, hud, view, tdepth, cw, ch, bsel);
             } else {
