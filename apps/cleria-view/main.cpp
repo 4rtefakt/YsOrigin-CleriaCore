@@ -2950,7 +2950,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     WGPUSurface surface = wgpuInstanceCreateSurface(g.instance, &sd);
     WGPUSurfaceCapabilities caps = {};
     wgpuSurfaceGetCapabilities(surface, g.adapter, &caps);
-    const WGPUTextureFormat fmt = caps.formats[0];
+    // Prefer the LINEAR (non-sRGB) surface format. Our textures are already sRGB and the shaders
+    // pass them straight through; if the surface is Rgba8UnormSrgb, presenting sRGB-encodes a
+    // SECOND time and the window washes out. The offscreen renders use linear RGBA8Unorm and look
+    // correct -- match that here so all pipelines + the surface stay consistent.
+    WGPUTextureFormat fmt = caps.formats[0];
+    for (std::size_t i = 0; i < caps.formatCount; ++i) {
+        const WGPUTextureFormat f = caps.formats[i];
+        if (f == WGPUTextureFormat_RGBA8Unorm || f == WGPUTextureFormat_BGRA8Unorm) { fmt = f; break; }
+    }
     std::uint32_t cw = 1280, ch = 800;
     auto configure = [&] {
         WGPUSurfaceConfiguration sc = {};
