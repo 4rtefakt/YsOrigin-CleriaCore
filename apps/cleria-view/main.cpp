@@ -2590,7 +2590,10 @@ struct TitleFx {
         // lines to white while keeping the dark inner edge dark (that edge is what gives the thin
         // lines contrast on the bright splash -- flattening to pure white made them vanish).
         if (c.ok()) {
-            int white = 132, calpha = 100;   // whitening %, alpha scale %
+            // The engine's selection pill is a bright-WHITE but FAINT glow, not an opaque silver
+            // outline: push the lines to white (whitening >100%) and drop the opacity hard. A strong
+            // opaque pill over-darkens the lit row vs the reference (title_pixeldiff.py).
+            int white = 220, calpha = 28;   // whitening %, alpha scale %
             if (const char* e = std::getenv("CLERIA_CUR_WHITE")) white = std::atoi(e);
             if (const char* e = std::getenv("CLERIA_CUR_ALPHA")) calpha = std::atoi(e);
             for (std::size_t i = 0; i + 3 < c.data.size(); i += 4) {
@@ -2674,7 +2677,7 @@ struct TitleFx {
         // (adding a dark offset copy measurably raises the diff -- title_pixeldiff.py), so the shadow
         // is off by default. Env overrides kept for experiments.
         int ur = 165, ug = 198, ub = 203, ua = 255, shr = 24, shg = 28, shb = 34, sha = 0;
-        int sr = 240, sg = 243, sb = 243, sa = 255;
+        int sr = 255, sg = 255, sb = 255, sa = 255;
         if (const char* e = std::getenv("CLERIA_MENU_U")) { sscanf(e, "%d,%d,%d,%d", &ur, &ug, &ub, &ua); }
         if (const char* e = std::getenv("CLERIA_MENU_S")) { sscanf(e, "%d,%d,%d,%d", &sr, &sg, &sb, &sa); }
         if (const char* e = std::getenv("CLERIA_MENU_SH")) { sscanf(e, "%d,%d,%d,%d", &shr, &shg, &shb, &sha); }
