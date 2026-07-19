@@ -2574,6 +2574,7 @@ struct TitleFx {
     SpriteTex equipPlaque, wstatus, wequip, wdetail;   // pause-book Equip: plaque + status + grid + detail panel
     SpriteTex invPlaque, winvent;                      // pause-book Item page: "Inventory" plaque + 6x5 grid
     SpriteTex topicPlaque, topicBtn[3], topicCur;      // pause-book Topic page: plaque + Character/Monster/Manual + cursor glow
+    SpriteTex back02;                                  // dark marble background (Bonus Shop backdrop)
     std::unordered_map<int, SpriteTex> iconCache;   // item-id -> MENU/ICON/<stem>.DDS (lazy, cached)
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
     SpriteTex dim;             // baked solid: background dimmer behind popups
@@ -2647,6 +2648,8 @@ struct TitleFx {
         }
         { Dds c = load_dds(asset_root / "MENU" / "TOPIC_CUR.DDS");
           if (c.ok()) topicCur = upload_rgba(g, c.width, c.height, c.data.data()); }
+        { Dds b = load_dds(asset_root / "MENU" / "BACK02.DDS");   // dark marble backdrop (Bonus Shop)
+          if (b.ok()) back02 = upload_rgba(g, b.width, b.height, b.data.data()); }
         // Character-select key art: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
         for (int i = 0; i < 3; ++i) {
             Dds d = load_dds(asset_root / "MENU" /
@@ -3242,6 +3245,42 @@ struct TitleFx {
         mf.text("Browse monster, character or tutorial data.", SX(48), SY(707), 27.0f * A, sw, sh, 236, 236, 236, 255);
         mf.draw(g, cview);
     }
+
+    // The Bonus Shop (BONUSSHOP.md): a framework-A go_wnddialog TEXT LIST on the right (same DIALOG0 scroll
+    // frame + MENUCURSOR as the New-Game popups), over a dark backdrop. Spends Arena SP on Arena-stage /
+    // Extra-costume unlocks. Full-screen 16:9 (not pillar-boxed). `items` are pre-formatted rows
+    // ("[5,000] Arena Stage 2" / "[Unlocked] ..." / "Cancel"). NOTE: the game also draws Feena key-art on
+    // the left -- that asset is [UNKNOWN] (host scene, not the list fn), so it's omitted here.
+    void draw_shop(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
+                   std::uint32_t W, std::uint32_t H, const char* const* items, int count, int sel, int arenaSP) {
+        const float sw = float(W), sh = float(H);
+        if (back02.tex)   // dark marble backdrop, full-screen
+            draw_screen_image(g, cview, dview, true, back02, -1, 1, 1, -1, 0.9f, 0, 0, 1, 1);
+        else if (dim.tex)
+            draw_screen_image(g, cview, dview, true, dim, -1, 1, 1, -1, 0.9f, 0, 0, 1, 1, 0.03f, 0.02f, 0.05f);
+        // DIALOG0 scroll frame on the right (screen px)
+        const float fl = 0.435f * sw, fr = 0.878f * sw, ft = 0.11f * sh, fb = 0.50f * sh;
+        draw_dialog_frame(g, cview, dview, fl, ft, fr, fb, sw, sh);
+        const float pxH = 30.0f * sh / 768.0f;
+        const float itemX = fl + 0.035f * sw;                    // left indent for the rows
+        const float hy = ft + 0.028f * sh;
+        const float iy0 = hy + 0.05f * sh, pitch = 0.0475f * sh;
+        if (sel >= 0 && sel < count && cursor.tex) {             // MENUCURSOR on the selected row
+            const float mid = iy0 + sel * pitch + pxH * 0.46f, half = pxH * 0.60f;
+            draw_cursor_bar(g, cview, dview, fl + 0.02f * sw, mid - half, fr - 0.02f * sw, mid + half, sw, sh);
+        }
+        { const char* hdr = "Please select a bonus to unlock:"; float hw = mf.measure(hdr, pxH);
+          mf.text(hdr, (fl + fr) * 0.5f - hw * 0.5f, hy, pxH, sw, sh, 240, 246, 250, 255); }
+        for (int i = 0; i < count; ++i) {
+            const bool s = (i == sel);
+            mf.text(items[i], itemX, iy0 + i * pitch, pxH, sw, sh, s ? 250 : 172, s ? 252 : 206, s ? 252 : 208, 255);
+        }
+        { std::string sp = "Current [Arena SP]: " + std::to_string(arenaSP); float w = mf.measure(sp, pxH);
+          mf.text(sp, fr - w, 0.885f * sh, pxH, sw, sh, 236, 236, 236, 255); }
+        mf.text("You can use SP earned in Arena Mode to purchase special bonuses.",
+                0.02f * sw, 0.93f * sh, 27.0f * sh / 768.0f, sw, sh, 236, 236, 236, 255);
+        mf.draw(g, cview);
+    }
 };
 
 // Locate the game's Felghana font (Release/yso_ins04.dat) for MenuFont. It is loose in the game's
@@ -3354,6 +3393,14 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     } else if (mode == 6) {
         int sel = 0; if (const char* e = std::getenv("CLERIA_TOPIC_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) sel = v; }
         title.draw_topic(g, mf, cview, dview, W, H, sel);
+    } else if (mode == 7) {
+        // Bonus Shop preview (BONUSSHOP.md item list). Unlock state stubbed.
+        static const char* shopItems[] = {
+            "[5,000] Arena Stage 2", "[Unlocked] Adol (Felghana Version)",
+            "[Unlocked] Yunica (Extra Version)", "[Unlocked] Hugo (Extra Version)",
+            "[Unlocked] Toal (Extra Version)", "[Unlocked] Adol (Napishtim Version)", "Cancel"};
+        int sel = 0; if (const char* e = std::getenv("CLERIA_SHOP_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 6) sel = v; }
+        title.draw_shop(g, mf, cview, dview, W, H, shopItems, 7, sel, 2811);
     } else {
         int ts = 1;   // CLERIA_TITLE_SEL overrides which item is lit (0 New Game ... 4 Exit)
         if (const char* e = std::getenv("CLERIA_TITLE_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 4) ts = v; }
@@ -4649,14 +4696,16 @@ int main(int argc, char** argv) {
                       std::strcmp(argv[3], "--options") == 0 ||
                       std::strcmp(argv[3], "--equip") == 0 ||
                       std::strcmp(argv[3], "--item") == 0 ||
-                      std::strcmp(argv[3], "--topic") == 0)) {
-        // cleria-view <root> <ignored> --title|--charselect|--bonus|--options|--equip|--item|--topic out.ppm [W H]
+                      std::strcmp(argv[3], "--topic") == 0 ||
+                      std::strcmp(argv[3], "--shop") == 0)) {
+        // cleria-view <root> <ignored> --title|--charselect|--bonus|--options|--equip|--item|--topic|--shop out.ppm [W H]
         const int mode = std::strcmp(argv[3], "--charselect") == 0 ? 1
                        : std::strcmp(argv[3], "--bonus") == 0      ? 2
                        : std::strcmp(argv[3], "--options") == 0    ? 3
                        : std::strcmp(argv[3], "--equip") == 0      ? 4
                        : std::strcmp(argv[3], "--item") == 0       ? 5
-                       : std::strcmp(argv[3], "--topic") == 0      ? 6 : 0;
+                       : std::strcmp(argv[3], "--topic") == 0      ? 6
+                       : std::strcmp(argv[3], "--shop") == 0       ? 7 : 0;
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 800;
