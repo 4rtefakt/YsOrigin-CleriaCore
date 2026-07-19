@@ -2736,9 +2736,17 @@ struct TitleFx {
         // (brown on the splash, transparent on the pillar). Crop V to 0.75.
         constexpr float vc = 0.75f;
         const float sw = (4.0f / 3.0f) / aspect;   // 4:3 splash fit to height -> half-width
-        // Pillar full-screen: its edge strips continue the landscape into the widescreen
-        // side bars; its transparent centre lets the splash show.
-        draw_screen_image(g, cview, dview, /*clear*/true, pillar, -1, 1, 1, -1, 0.9f, 0, 0, 1, vc);
+        // The side bars must be ANCHORED at their inner edge to the splash edge (±sw), not drawn
+        // full-screen. The pillar's landscape meets the splash where its transparent centre begins
+        // (u ~0.168 left / ~0.831 right). Draw the LEFT strip u[0,0.168] into the left margin [-1,-sw]
+        // (its inner edge u0.168 landing exactly on -sw) and the RIGHT strip u[0.831,1] into [sw,1] --
+        // so the landscape lines up at any aspect instead of the strip being cut mid-way by the splash.
+        // Inner-edge u pulled ~2 texels inside the opaque strip (true transparent-centre bounds are
+        // 0.168/0.831): the pillar goes transparent-black exactly at 0.168, and sampling that edge
+        // bleeds a dark column at the seam. 0.166/0.833 keeps the landscape aligned with no bleed.
+        constexpr float pc0 = 0.166f, pc1 = 0.833f;
+        draw_screen_image(g, cview, dview, /*clear*/true, pillar, -1, 1, -sw, -1, 0.9f, 0.0f, 0.0f, pc0, vc);
+        draw_screen_image(g, cview, dview, false, pillar, sw, 1, 1, -1, 0.9f, pc1, 0.0f, 1.0f, vc);
         // The 4:3 splash (logo + moon + landscape + credits) centred, full height.
         draw_screen_image(g, cview, dview, false, splash, -sw, 1, sw, -1, 0.5f, 0, 0, 1, vc);
     }
