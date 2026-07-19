@@ -2573,6 +2573,7 @@ struct TitleFx {
     SpriteTex opbtn, plaque;   // OPBTN atlas (Option-screen buttons/checkboxes) + OPTION "Option" plaque
     SpriteTex equipPlaque, wstatus, wequip, wdetail;   // pause-book Equip: plaque + status + grid + detail panel
     SpriteTex invPlaque, winvent;                      // pause-book Item page: "Inventory" plaque + 6x5 grid
+    SpriteTex topicPlaque, topicBtn[3], topicCur;      // pause-book Topic page: plaque + Character/Monster/Manual + cursor glow
     std::unordered_map<int, SpriteTex> iconCache;   // item-id -> MENU/ICON/<stem>.DDS (lazy, cached)
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
     SpriteTex dim;             // baked solid: background dimmer behind popups
@@ -2638,6 +2639,14 @@ struct TitleFx {
           if (e.ok()) invPlaque = upload_rgba(g, e.width, e.height, e.data.data()); }
         { Dds w = load_dds(asset_root / "MENU" / "W_INVENT.DDS");
           if (w.ok()) winvent = upload_rgba(g, w.width, w.height, w.data.data()); }
+        { Dds e = load_dds(asset_root / "MENU" / "TOPIC.DDS");   // Topic page: plaque + 3 category buttons + cursor
+          if (e.ok()) topicPlaque = upload_rgba(g, e.width, e.height, e.data.data()); }
+        for (int i = 0; i < 3; ++i) {
+            Dds b = load_dds(asset_root / "MENU" / ("TOPIC_BTN" + std::to_string(i) + ".DDS"));
+            if (b.ok()) topicBtn[i] = upload_rgba(g, b.width, b.height, b.data.data());
+        }
+        { Dds c = load_dds(asset_root / "MENU" / "TOPIC_CUR.DDS");
+          if (c.ok()) topicCur = upload_rgba(g, c.width, c.height, c.data.data()); }
         // Character-select key art: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
         for (int i = 0; i < 3; ++i) {
             Dds d = load_dds(asset_root / "MENU" /
@@ -3198,6 +3207,41 @@ struct TitleFx {
         if (e.diffWord) { float w = mf.measure(e.diffWord, csz); mf.text(e.diffWord, SX(1006) - w, SY(707), csz, sw, sh, 236, 236, 236, 255); }
         mf.draw(g, cview);
     }
+
+    // The pause-book TOPIC category menu (PAUSEBOOK.md §4): Character / Monster / Manual, each a stacked
+    // ornate button (TOPIC_BTN0/1/2, baked labels; content u0..0.69 v0..0.668), with the cyan TOPIC_CUR
+    // glow behind the selected one. sel = 0..2. The category sub-viewers (image pages) are a follow-up.
+    void draw_topic(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
+                    std::uint32_t W, std::uint32_t H, int sel) {
+        const float sw = float(W), sh = float(H), A = sh / 768.0f;
+        const float fwN = (4.0f / 3.0f) * sh / sw;
+        auto AX = [&](float x) { return (2.0f * x / 1024.0f - 1.0f) * fwN; };
+        auto AY = [&](float y) { return 1.0f - 2.0f * y / 768.0f; };
+        auto SX = [&](float x) { return (AX(x) + 1.0f) * 0.5f * sw; };
+        auto SY = [&](float y) { return y / 768.0f * sh; };
+        if (altpillar.tex)
+            draw_screen_image(g, cview, dview, true, altpillar, -1, 1, 1, -1, 0.96f, 0, 0, 1, 0.749f);
+        if (frame.tex)
+            draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
+                              AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
+        if (topicPlaque.tex)   // "Topic" plaque top-left
+            draw_screen_image(g, cview, dview, false, topicPlaque, AX(30), AY(8), AX(176), AY(68),
+                              0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
+        // three stacked category buttons (overlapping to form one continuous ornate frame). The cyan
+        // TOPIC_CUR selection glow is drawn BEHIND the chosen row so it haloes it without masking the
+        // baked label; the game additively washes the whole row teal (needs an additive pipeline -- TODO).
+        static const float cy[3] = {212, 386, 558};   // authored row centres
+        const float bx0 = 256.0f, bx1 = 800.0f, bh = 208.0f;
+        if (sel >= 0 && sel < 3 && topicCur.tex)
+            draw_screen_image(g, cview, dview, false, topicCur, AX(bx0 + 12), AY(cy[sel] - bh * 0.5f),
+                              AX(bx1 - 12), AY(cy[sel] + bh * 0.42f), 0.50f, 0.033f, 0.0f, 0.693f, 0.809f);
+        for (int i = 0; i < 3; ++i)
+            if (topicBtn[i].tex)
+                draw_screen_image(g, cview, dview, false, topicBtn[i], AX(bx0), AY(cy[i] - bh * 0.5f),
+                                  AX(bx1), AY(cy[i] + bh * 0.5f), 0.42f - i * 0.01f, 0.0f, 0.0f, 0.690f, 0.668f);
+        mf.text("Browse monster, character or tutorial data.", SX(48), SY(707), 27.0f * A, sw, sh, 236, 236, 236, 255);
+        mf.draw(g, cview);
+    }
 };
 
 // Locate the game's Felghana font (Release/yso_ins04.dat) for MenuFont. It is loose in the game's
@@ -3307,6 +3351,9 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
         }
         const int owned[] = {1, 48, 8, 78, 79, 116};   // stub: weapon, seed, armor, 2 medallions, bracelet
         title.draw_item(g, mf, cview, dview, W, H, ev, owned, 6, items, asset_root);
+    } else if (mode == 6) {
+        int sel = 0; if (const char* e = std::getenv("CLERIA_TOPIC_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) sel = v; }
+        title.draw_topic(g, mf, cview, dview, W, H, sel);
     } else {
         int ts = 1;   // CLERIA_TITLE_SEL overrides which item is lit (0 New Game ... 4 Exit)
         if (const char* e = std::getenv("CLERIA_TITLE_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 4) ts = v; }
@@ -4601,13 +4648,15 @@ int main(int argc, char** argv) {
                       std::strcmp(argv[3], "--bonus") == 0 ||
                       std::strcmp(argv[3], "--options") == 0 ||
                       std::strcmp(argv[3], "--equip") == 0 ||
-                      std::strcmp(argv[3], "--item") == 0)) {
-        // cleria-view <root> <ignored> --title|--charselect|--bonus|--options|--equip|--item out.ppm [W H]
+                      std::strcmp(argv[3], "--item") == 0 ||
+                      std::strcmp(argv[3], "--topic") == 0)) {
+        // cleria-view <root> <ignored> --title|--charselect|--bonus|--options|--equip|--item|--topic out.ppm [W H]
         const int mode = std::strcmp(argv[3], "--charselect") == 0 ? 1
                        : std::strcmp(argv[3], "--bonus") == 0      ? 2
                        : std::strcmp(argv[3], "--options") == 0    ? 3
                        : std::strcmp(argv[3], "--equip") == 0      ? 4
-                       : std::strcmp(argv[3], "--item") == 0       ? 5 : 0;
+                       : std::strcmp(argv[3], "--item") == 0       ? 5
+                       : std::strcmp(argv[3], "--topic") == 0      ? 6 : 0;
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 800;
