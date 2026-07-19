@@ -2572,6 +2572,7 @@ struct TitleFx {
     SpriteTex dialog;          // DIALOG0 blue scroll frame for the New-Game choice popups
     SpriteTex opbtn, plaque;   // OPBTN atlas (Option-screen buttons/checkboxes) + OPTION "Option" plaque
     SpriteTex equipPlaque, wstatus, wequip, wdetail;   // pause-book Equip: plaque + status + grid + detail panel
+    SpriteTex invPlaque, winvent;                      // pause-book Item page: "Inventory" plaque + 6x5 grid
     std::unordered_map<int, SpriteTex> iconCache;   // item-id -> MENU/ICON/<stem>.DDS (lazy, cached)
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
     SpriteTex dim;             // baked solid: background dimmer behind popups
@@ -2633,6 +2634,10 @@ struct TitleFx {
           if (w.ok()) wequip = upload_rgba(g, w.width, w.height, w.data.data()); }
         { Dds w = load_dds(asset_root / "MENU" / "W_FS_MSG.DDS");   // Equip/Item bottom detail panel (ornate)
           if (w.ok()) wdetail = upload_rgba(g, w.width, w.height, w.data.data()); }
+        { Dds e = load_dds(asset_root / "MENU" / "INVENTORY.DDS");   // Item-page "Inventory" plaque + 6x5 grid
+          if (e.ok()) invPlaque = upload_rgba(g, e.width, e.height, e.data.data()); }
+        { Dds w = load_dds(asset_root / "MENU" / "W_INVENT.DDS");
+          if (w.ok()) winvent = upload_rgba(g, w.width, w.height, w.data.data()); }
         // Character-select key art: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
         for (int i = 0; i < 3; ++i) {
             Dds d = load_dds(asset_root / "MENU" /
@@ -3132,6 +3137,67 @@ struct TitleFx {
         if (e.diffWord) { float w = mf.measure(e.diffWord, csz); mf.text(e.diffWord, SX(1006) - w, SY(707), csz, sw, sh, 236, 236, 236, 255); }
         mf.draw(g, cview);
     }
+
+    // The pause-book ITEM/Inventory page (PAUSEBOOK.md §4). Same shell + Status panel as Equip, but the
+    // right side is the W_INVENT 6x5 owned-items grid (cell lattice X=441+col*75, Y=72+row*64, cell 54.4),
+    // and there is no bottom detail panel (a use-prompt appears on select instead -- not modelled). `owned`
+    // holds up to 30 item ids in cell order (-1 = empty). Stats reuse EquipView.
+    void draw_item(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
+                   std::uint32_t W, std::uint32_t H, const EquipView& e,
+                   const int* owned, int ownedCount,
+                   const ItemTable& items, const fs::path& asset_root) {
+        const float sw = float(W), sh = float(H), A = sh / 768.0f;
+        const float fwN = (4.0f / 3.0f) * sh / sw;
+        auto AX = [&](float x) { return (2.0f * x / 1024.0f - 1.0f) * fwN; };
+        auto AY = [&](float y) { return 1.0f - 2.0f * y / 768.0f; };
+        auto SX = [&](float x) { return (AX(x) + 1.0f) * 0.5f * sw; };
+        auto SY = [&](float y) { return y / 768.0f * sh; };
+        // 0. shell
+        if (altpillar.tex)
+            draw_screen_image(g, cview, dview, true, altpillar, -1, 1, 1, -1, 0.96f, 0, 0, 1, 0.749f);
+        if (frame.tex)
+            draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
+                              AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
+        // 1. "Inventory" plaque top-left
+        if (invPlaque.tex)
+            draw_screen_image(g, cview, dview, false, invPlaque, AX(30), AY(8), AX(176), AY(68),
+                              0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
+        // 2. LEFT stats panel (identical to Equip)
+        if (wstatus.tex)
+            draw_screen_image(g, cview, dview, false, wstatus, AX(157), AY(61), AX(388), AY(393),
+                              0.55f, 0.0f, 0.0f, 0.420f, 0.635f);
+        {
+            const float psz = 30.0f * A;
+            const std::string vals[6] = {
+                std::to_string(e.level), std::to_string(e.hp) + "/" + std::to_string(e.maxhp),
+                std::to_string(e.str), std::to_string(e.def), std::to_string(e.exp), std::to_string(e.next) };
+            static const char* labs[6] = {"Lv.", "HP", "STR", "DEF", "Exp", "Next"};
+            static const float ry[6] = {92, 138, 184, 230, 276, 322};
+            for (int i = 0; i < 6; ++i) {
+                mf.text(labs[i], SX(198), SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);
+                float vw = mf.measure(vals[i], psz);
+                mf.text(vals[i], SX(378) - vw, SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);
+            }
+        }
+        // 3. RIGHT inventory grid plate (W_INVENT, content u0..0.992 v0..0.678)
+        if (winvent.tex)
+            draw_screen_image(g, cview, dview, false, winvent, AX(416), AY(61), AX(894), AY(401),
+                              0.55f, 0.0f, 0.0f, 0.992f, 0.678f);
+        // 4. owned-item icons at the cell lattice (6 cols x 5 rows, cell centre = 468+col*75, 99+row*64)
+        for (int i = 0; i < ownedCount && i < 30; ++i) {
+            if (owned[i] < 0) continue;
+            const int col = i % 6, row = i / 6;
+            const float cx = 468.0f + col * 75.0f, cy = 99.0f + row * 64.0f;
+            const SpriteTex* t = icon(g, items, asset_root, owned[i]);
+            if (t) draw_screen_image(g, cview, dview, false, *t, AX(cx - 24.0f), AY(cy - 24.0f),
+                                     AX(cx + 24.0f), AY(cy + 24.0f), 0.3f);
+        }
+        // 5. caption + difficulty word
+        const float csz = 27.0f * A;
+        mf.text(e.caption, SX(48), SY(707), csz, sw, sh, 236, 236, 236, 255);
+        if (e.diffWord) { float w = mf.measure(e.diffWord, csz); mf.text(e.diffWord, SX(1006) - w, SY(707), csz, sw, sh, 236, 236, 236, 255); }
+        mf.draw(g, cview);
+    }
 };
 
 // Locate the game's Felghana font (Release/yso_ins04.dat) for MenuFont. It is loose in the game's
@@ -3225,6 +3291,22 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
         }
         ev.weaponId = 1; ev.armorId = 8; ev.selId = 1;   // stub equipped set (weapon shown in the detail)
         title.draw_equip(g, mf, cview, dview, W, H, ev, items, asset_root);
+    } else if (mode == 5) {
+        // Pause-book Item/Inventory page preview. Stats as Equip; owned items stubbed.
+        const GameInfo ginfo = GameInfo::load(asset_root / "MISC" / "GAMEINFO.DAT");
+        const ItemTable items = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+        int ch = 1; if (const char* e = std::getenv("CLERIA_CS_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 2) ch = v + 1; }
+        int lvl = 52; if (const char* e = std::getenv("CLERIA_LEVEL")) { int v = std::atoi(e); if (v >= 1 && v <= 60) lvl = v; }
+        TitleFx::EquipView ev; ev.character = ch; ev.level = lvl; ev.caption = "Examine or use an item.";
+        if (ginfo.ok()) {
+            ev.maxhp = ev.hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(lvl)));
+            ev.str = int(std::lround(ginfo.player_atk(ch, 4, lvl)));
+            ev.def = int(std::lround(ginfo.curves[kPlayerDef].at(lvl)));
+            ev.exp = long(std::llround(ginfo.exp_to_level(lvl)));
+            ev.next = long(std::llround(ginfo.exp_to_level(lvl + 1) - ginfo.exp_to_level(lvl)));
+        }
+        const int owned[] = {1, 48, 8, 78, 79, 116};   // stub: weapon, seed, armor, 2 medallions, bracelet
+        title.draw_item(g, mf, cview, dview, W, H, ev, owned, 6, items, asset_root);
     } else {
         int ts = 1;   // CLERIA_TITLE_SEL overrides which item is lit (0 New Game ... 4 Exit)
         if (const char* e = std::getenv("CLERIA_TITLE_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 4) ts = v; }
@@ -4518,12 +4600,14 @@ int main(int argc, char** argv) {
                       std::strcmp(argv[3], "--charselect") == 0 ||
                       std::strcmp(argv[3], "--bonus") == 0 ||
                       std::strcmp(argv[3], "--options") == 0 ||
-                      std::strcmp(argv[3], "--equip") == 0)) {
-        // cleria-view <root> <ignored> --title|--charselect|--bonus|--options|--equip out.ppm [W H]
+                      std::strcmp(argv[3], "--equip") == 0 ||
+                      std::strcmp(argv[3], "--item") == 0)) {
+        // cleria-view <root> <ignored> --title|--charselect|--bonus|--options|--equip|--item out.ppm [W H]
         const int mode = std::strcmp(argv[3], "--charselect") == 0 ? 1
                        : std::strcmp(argv[3], "--bonus") == 0      ? 2
                        : std::strcmp(argv[3], "--options") == 0    ? 3
-                       : std::strcmp(argv[3], "--equip") == 0      ? 4 : 0;
+                       : std::strcmp(argv[3], "--equip") == 0      ? 4
+                       : std::strcmp(argv[3], "--item") == 0       ? 5 : 0;
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 800;
