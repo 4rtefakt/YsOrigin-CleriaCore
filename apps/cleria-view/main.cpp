@@ -261,6 +261,7 @@ struct Gpu {
     WGPURenderPipeline pipeline{};
     WGPURenderPipeline fx_pipeline{};   // additive effect billboards (SEF/EF2)
     WGPURenderPipeline char_pipeline{}; // alpha-blended character/enemy sprites
+    WGPURenderPipeline char_pipeline_add{}; // additive variant, for glow overlays (Topic selection wash)
     WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
     WGPUBuffer ubuf{};
     WGPUBindGroup ubind{};
@@ -715,6 +716,16 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     // moving it on screen; the slope term handles the angled floor under it.
     WGPURenderPipelineDescriptor cpd = pd; cpd.fragment = &cfs;  // room depth (Less+write)
     g.char_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &cpd);
+
+    // Additive variant (same fs_char) for glow overlays: the sprite ADDS its colour weighted by
+    // alpha, so a cyan glow brightens a row toward teal without masking the baked label under it.
+    WGPUBlendState ablend = {};
+    ablend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_One};
+    ablend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_One};
+    WGPUColorTargetState atarget = ctarget; atarget.blend = &ablend;
+    WGPUFragmentState afs = cfs; afs.targets = &atarget;
+    WGPURenderPipelineDescriptor apd = cpd; apd.fragment = &afs;
+    g.char_pipeline_add = wgpuDeviceCreateRenderPipeline(g.device, &apd);
 
     // Floor shadow decal: same alpha-over blend + fs_char, but a flat floor quad and
     // DEPTH-WRITE OFF (build/render_re/ENVIRONMENT.md) -- a decal must not punch depth
@@ -1231,7 +1242,7 @@ static void draw_screen_image(Gpu& g, WGPUTextureView color, WGPUTextureView dep
                               const SpriteTex& tex, float l, float t, float r, float b, float z,
                               float u0 = 0, float v0 = 0, float u1 = 1, float v1 = 1,
                               float bgr = 0.02f, float bgg = 0.02f, float bgb = 0.05f,
-                              float wtint = 0.0f) {
+                              float wtint = 0.0f, bool additive = false) {
     if (!tex.tex) return;
     // Vertex alpha carries a white-tint amount (fs_char mixes the sampled colour toward white by
     // it) -- used for the char-select selection-bar pulse. 0 = the texture as-is.
@@ -1254,7 +1265,7 @@ static void draw_screen_image(Gpu& g, WGPUTextureView color, WGPUTextureView dep
     WGPURenderPassDescriptor rp = {};
     rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, g.char_pipeline);
+    wgpuRenderPassEncoderSetPipeline(pass, additive && g.char_pipeline_add ? g.char_pipeline_add : g.char_pipeline);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
     wgpuRenderPassEncoderSetBindGroup(pass, 1, tex.bind, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
@@ -3240,18 +3251,19 @@ struct TitleFx {
         if (topicPlaque.tex)   // "Topic" plaque top-left
             draw_screen_image(g, cview, dview, false, topicPlaque, AX(30), AY(8), AX(176), AY(68),
                               0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
-        // three stacked category buttons (overlapping to form one continuous ornate frame). The cyan
-        // TOPIC_CUR selection glow is drawn BEHIND the chosen row so it haloes it without masking the
-        // baked label; the game additively washes the whole row teal (needs an additive pipeline -- TODO).
+        // three stacked category buttons (overlapping to form one continuous ornate frame), then the
+        // cyan TOPIC_CUR selection glow washed ADDITIVELY over the chosen row -- it brightens the row
+        // toward teal (as the game does) without masking the baked label under it.
         static const float cy[3] = {212, 386, 558};   // authored row centres
         const float bx0 = 256.0f, bx1 = 800.0f, bh = 208.0f;
-        if (sel >= 0 && sel < 3 && topicCur.tex)
-            draw_screen_image(g, cview, dview, false, topicCur, AX(bx0 + 12), AY(cy[sel] - bh * 0.5f),
-                              AX(bx1 - 12), AY(cy[sel] + bh * 0.42f), 0.50f, 0.033f, 0.0f, 0.693f, 0.809f);
         for (int i = 0; i < 3; ++i)
             if (topicBtn[i].tex)
                 draw_screen_image(g, cview, dview, false, topicBtn[i], AX(bx0), AY(cy[i] - bh * 0.5f),
                                   AX(bx1), AY(cy[i] + bh * 0.5f), 0.42f - i * 0.01f, 0.0f, 0.0f, 0.690f, 0.668f);
+        if (sel >= 0 && sel < 3 && topicCur.tex)
+            draw_screen_image(g, cview, dview, false, topicCur, AX(bx0 + 20), AY(cy[sel] - bh * 0.42f),
+                              AX(bx1 - 20), AY(cy[sel] + bh * 0.38f), 0.30f, 0.033f, 0.0f, 0.693f, 0.809f,
+                              0.02f, 0.02f, 0.05f, 0.0f, /*additive*/true);
         mf.text("Browse monster, character or tutorial data.", SX(48), SY(707), 27.0f * A, sw, sh, 236, 236, 236, 255);
         mf.draw(g, cview);
     }
