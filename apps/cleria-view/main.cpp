@@ -2577,7 +2577,7 @@ struct TitleFx {
     SpriteTex equipPlaque, wstatus, wequip, wdetail;   // pause-book Equip: plaque + status + grid + detail panel
     SpriteTex invPlaque, winvent;                      // pause-book Item page: "Inventory" plaque + 6x5 grid
     SpriteTex topicPlaque, topicBtn[3], topicCur;      // pause-book Topic page: plaque + Character/Monster/Manual + cursor glow
-    SpriteTex back02;                                  // dark marble background (Bonus Shop backdrop)
+    SpriteTex shopBg;                                  // SHOPPILLAR16-9: the Bonus Shop backdrop (gold border + vines)
     SpriteTex loadPlaque, savePlaque, wsvld;           // pause-book Save/Load: plaques + W_SVLD slot/tab plate
     std::unordered_map<int, SpriteTex> iconCache;   // item-id -> MENU/ICON/<stem>.DDS (lazy, cached)
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
@@ -2652,8 +2652,8 @@ struct TitleFx {
         }
         { Dds c = load_dds(asset_root / "MENU" / "TOPIC_CUR.DDS");
           if (c.ok()) topicCur = upload_rgba(g, c.width, c.height, c.data.data()); }
-        { Dds b = load_dds(asset_root / "MENU" / "BACK02.DDS");   // dark marble backdrop (Bonus Shop)
-          if (b.ok()) back02 = upload_rgba(g, b.width, b.height, b.data.data()); }
+        { Dds b = load_dds(asset_root / "MENU" / "SHOPPILLAR16-9.DDS");   // Bonus Shop backdrop
+          if (b.ok()) shopBg = upload_rgba(g, b.width, b.height, b.data.data()); }
         { Dds e = load_dds(asset_root / "MENU" / "LOAD.DDS");     // Save/Load: plaques + W_SVLD slot/tab plate
           if (e.ok()) loadPlaque = upload_rgba(g, e.width, e.height, e.data.data()); }
         { Dds e = load_dds(asset_root / "MENU" / "SAVE.DDS");
@@ -3264,8 +3264,8 @@ struct TitleFx {
     void draw_shop(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                    std::uint32_t W, std::uint32_t H, const char* const* items, int count, int sel, int arenaSP) {
         const float sw = float(W), sh = float(H);
-        if (back02.tex)   // dark marble backdrop, full-screen
-            draw_screen_image(g, cview, dview, true, back02, -1, 1, 1, -1, 0.9f, 0, 0, 1, 1);
+        if (shopBg.tex)   // SHOPPILLAR16-9 backdrop (content v0..0.749), full-screen
+            draw_screen_image(g, cview, dview, true, shopBg, -1, 1, 1, -1, 0.9f, 0, 0, 1, 0.749f);
         else if (dim.tex)
             draw_screen_image(g, cview, dview, true, dim, -1, 1, 1, -1, 0.9f, 0, 0, 1, 1, 0.03f, 0.02f, 0.05f);
         // DIALOG0 scroll frame on the right (screen px)
