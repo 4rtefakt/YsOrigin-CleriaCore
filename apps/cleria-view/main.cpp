@@ -2864,9 +2864,13 @@ struct TitleFx {
         // 0. Golden goddess-statue side-art fills the 16:9 letterbox margins (ALTPILLAR16-9: left
         //    strip u0..0.167, right strip u0.832..1, content v0..0.749). Drawn full-screen behind the
         //    field, then the frame (below) covers the centre 4:3 -- so only the margins show goddesses.
-        if (altpillar.tex)
-            draw_screen_image(g, cview, dview, /*clear*/true, altpillar, -1.0f, 1.0f, 1.0f, -1.0f,
-                              0.96f, 0.0f, 0.0f, 1.0f, 0.749f);
+        if (altpillar.tex) {   // goddess strips anchored: each inner edge meets the frame (AX(0)/AX(1024)),
+            // NOT full-screen (which cut the goddess mid-figure); u pulled 2 texels in to avoid an edge bleed.
+            draw_screen_image(g, cview, dview, /*clear*/true, altpillar, -1.0f, 1.0f, AX(0), -1.0f,
+                              0.96f, 0.0f, 0.0f, 0.166f, 0.749f);
+            draw_screen_image(g, cview, dview, false, altpillar, AX(1024), 1.0f, 1.0f, -1.0f,
+                              0.96f, 0.833f, 0.0f, 1.0f, 0.749f);
+        }
         if (frame.tex)
             draw_screen_image(g, cview, dview, /*clear*/altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0.0f, 0.0f, 1.0f, 0.749f);
@@ -3019,7 +3023,9 @@ struct TitleFx {
         constexpr float T = 1.0f / 1024.0f;   // OPBTN atlas is 1024^2
         // 0. goddess pillars + BACK00 frame (identical to char-select's backdrop)
         if (altpillar.tex)
-            draw_screen_image(g, cview, dview, /*clear*/true, altpillar, -1, 1, 1, -1, 0.96f, 0, 0, 1, 0.749f);
+            draw_screen_image(g, cview, dview, /*clear*/true, altpillar, -1.0f, 1.0f, AX(0), -1.0f, 0.96f, 0.0f, 0.0f, 0.166f, 0.749f);
+        if (altpillar.tex)   // right goddess strip anchored into the right margin
+            draw_screen_image(g, cview, dview, false, altpillar, AX(1024), 1.0f, 1.0f, -1.0f, 0.96f, 0.833f, 0.0f, 1.0f, 0.749f);
         if (frame.tex)
             draw_screen_image(g, cview, dview, /*clear*/altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
@@ -3108,7 +3114,9 @@ struct TitleFx {
         auto SY = [&](float y) { return y / 768.0f * sh; };
         // 0. goddess pillars + BACK00 frame (shared book shell)
         if (altpillar.tex)
-            draw_screen_image(g, cview, dview, true, altpillar, -1, 1, 1, -1, 0.96f, 0, 0, 1, 0.749f);
+            draw_screen_image(g, cview, dview, true, altpillar, -1.0f, 1.0f, AX(0), -1.0f, 0.96f, 0.0f, 0.0f, 0.166f, 0.749f);
+        if (altpillar.tex)   // right goddess strip anchored into the right margin (inner edge at AX(1024))
+            draw_screen_image(g, cview, dview, false, altpillar, AX(1024), 1.0f, 1.0f, -1.0f, 0.96f, 0.833f, 0.0f, 1.0f, 0.749f);
         if (frame.tex)
             draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
@@ -3195,7 +3203,9 @@ struct TitleFx {
         auto SY = [&](float y) { return y / 768.0f * sh; };
         // 0. shell
         if (altpillar.tex)
-            draw_screen_image(g, cview, dview, true, altpillar, -1, 1, 1, -1, 0.96f, 0, 0, 1, 0.749f);
+            draw_screen_image(g, cview, dview, true, altpillar, -1.0f, 1.0f, AX(0), -1.0f, 0.96f, 0.0f, 0.0f, 0.166f, 0.749f);
+        if (altpillar.tex)   // right goddess strip anchored into the right margin (inner edge at AX(1024))
+            draw_screen_image(g, cview, dview, false, altpillar, AX(1024), 1.0f, 1.0f, -1.0f, 0.96f, 0.833f, 0.0f, 1.0f, 0.749f);
         if (frame.tex)
             draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
@@ -3252,7 +3262,9 @@ struct TitleFx {
         auto SX = [&](float x) { return (AX(x) + 1.0f) * 0.5f * sw; };
         auto SY = [&](float y) { return y / 768.0f * sh; };
         if (altpillar.tex)
-            draw_screen_image(g, cview, dview, true, altpillar, -1, 1, 1, -1, 0.96f, 0, 0, 1, 0.749f);
+            draw_screen_image(g, cview, dview, true, altpillar, -1.0f, 1.0f, AX(0), -1.0f, 0.96f, 0.0f, 0.0f, 0.166f, 0.749f);
+        if (altpillar.tex)   // right goddess strip anchored into the right margin (inner edge at AX(1024))
+            draw_screen_image(g, cview, dview, false, altpillar, AX(1024), 1.0f, 1.0f, -1.0f, 0.96f, 0.833f, 0.0f, 1.0f, 0.749f);
         if (frame.tex)
             draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
@@ -3326,7 +3338,9 @@ struct TitleFx {
         auto SY = [&](float y) { return y / 768.0f * sh; };
         constexpr float T = 1.0f / 1024.0f;
         if (altpillar.tex)
-            draw_screen_image(g, cview, dview, true, altpillar, -1, 1, 1, -1, 0.96f, 0, 0, 1, 0.749f);
+            draw_screen_image(g, cview, dview, true, altpillar, -1.0f, 1.0f, AX(0), -1.0f, 0.96f, 0.0f, 0.0f, 0.166f, 0.749f);
+        if (altpillar.tex)   // right goddess strip anchored into the right margin (inner edge at AX(1024))
+            draw_screen_image(g, cview, dview, false, altpillar, AX(1024), 1.0f, 1.0f, -1.0f, 0.96f, 0.833f, 0.0f, 1.0f, 0.749f);
         if (frame.tex)
             draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
