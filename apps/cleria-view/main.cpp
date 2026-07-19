@@ -1382,10 +1382,13 @@ struct EnemyFx {
         if (stem.empty() || kinds.count(stem)) return;
         Kind k;
         if (!k.aia.load(asset_root / "ANI" / (stem + ".AIA"))) return;
+        // Some enemy AIAs (e.g. S_1000's M_810) load with zero images -- skip them rather than
+        // index images[0] out of range (was a hard crash on any room that spawns such a cast).
+        if (k.aia.nImg == 0 || k.aia.images.empty()) return;
         int img = -1;
         for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
             if (k.aia.images[i].tag == 0x2) { img = int(i); break; }   // idle
-        if (img < 0) img = 0;
+        if (img < 0 || img >= int(k.aia.nImg)) img = 0;
         k.ndir = k.aia.images[img].nDir;
         const std::uint32_t nfr = k.aia.images[img].nFrame;
         std::uint32_t tall = 1;
@@ -4618,6 +4621,7 @@ static fs::path default_assets(const char* argv0) {
 }
 
 int main(int argc, char** argv) {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);   // unbuffered: breadcrumbs survive an assert/crash
     init_cull_env();
     // No args -> free-fly the tower base (S_1000) with default assets.
     const fs::path asset_root = (argc >= 2) ? fs::path(argv[1]) : default_assets(argv[0]);
