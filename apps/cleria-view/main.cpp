@@ -2575,6 +2575,7 @@ struct TitleFx {
     SpriteTex invPlaque, winvent;                      // pause-book Item page: "Inventory" plaque + 6x5 grid
     SpriteTex topicPlaque, topicBtn[3], topicCur;      // pause-book Topic page: plaque + Character/Monster/Manual + cursor glow
     SpriteTex back02;                                  // dark marble background (Bonus Shop backdrop)
+    SpriteTex loadPlaque, savePlaque, wsvld;           // pause-book Save/Load: plaques + W_SVLD slot/tab plate
     std::unordered_map<int, SpriteTex> iconCache;   // item-id -> MENU/ICON/<stem>.DDS (lazy, cached)
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
     SpriteTex dim;             // baked solid: background dimmer behind popups
@@ -2650,6 +2651,12 @@ struct TitleFx {
           if (c.ok()) topicCur = upload_rgba(g, c.width, c.height, c.data.data()); }
         { Dds b = load_dds(asset_root / "MENU" / "BACK02.DDS");   // dark marble backdrop (Bonus Shop)
           if (b.ok()) back02 = upload_rgba(g, b.width, b.height, b.data.data()); }
+        { Dds e = load_dds(asset_root / "MENU" / "LOAD.DDS");     // Save/Load: plaques + W_SVLD slot/tab plate
+          if (e.ok()) loadPlaque = upload_rgba(g, e.width, e.height, e.data.data()); }
+        { Dds e = load_dds(asset_root / "MENU" / "SAVE.DDS");
+          if (e.ok()) savePlaque = upload_rgba(g, e.width, e.height, e.data.data()); }
+        { Dds w = load_dds(asset_root / "MENU" / "W_SVLD.DDS");
+          if (w.ok()) wsvld = upload_rgba(g, w.width, w.height, w.data.data()); }
         // Character-select key art: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
         for (int i = 0; i < 3; ++i) {
             Dds d = load_dds(asset_root / "MENU" /
@@ -3281,6 +3288,59 @@ struct TitleFx {
                 0.02f * sw, 0.93f * sh, 27.0f * sh / 768.0f, sw, sh, 236, 236, 236, 255);
         mf.draw(g, cview);
     }
+
+    // The pause-book SAVE / LOAD page (SAVELOAD.md): a file-tab row (1..8) + 8 slot bars from W_SVLD
+    // (container panel u0..0.79 v0..0.556; selected bar sprite v0.571..0.625; tabs selected v0.703..0.75
+    // / dim v0.762..0.806, each ~79px). CleriaCore has no save system, so every slot renders "No Data".
+    // `save` = true for the Save plaque/caption, false for Load. fileTab 0..7, selSlot 0..7.
+    void draw_svld(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
+                   std::uint32_t W, std::uint32_t H, bool save, int fileTab, int selSlot) {
+        const float sw = float(W), sh = float(H), A = sh / 768.0f;
+        const float fwN = (4.0f / 3.0f) * sh / sw;
+        auto AX = [&](float x) { return (2.0f * x / 1024.0f - 1.0f) * fwN; };
+        auto AY = [&](float y) { return 1.0f - 2.0f * y / 768.0f; };
+        auto SX = [&](float x) { return (AX(x) + 1.0f) * 0.5f * sw; };
+        auto SY = [&](float y) { return y / 768.0f * sh; };
+        constexpr float T = 1.0f / 1024.0f;
+        if (altpillar.tex)
+            draw_screen_image(g, cview, dview, true, altpillar, -1, 1, 1, -1, 0.96f, 0, 0, 1, 0.749f);
+        if (frame.tex)
+            draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
+                              AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
+        const SpriteTex& plaque = (save && savePlaque.tex) ? savePlaque : loadPlaque;
+        if (plaque.tex)
+            draw_screen_image(g, cview, dview, false, plaque, AX(30), AY(8), AX(176), AY(68),
+                              0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
+        // file tabs 1..8 across the top (selected file highlighted)
+        for (int i = 0; i < 8; ++i) {
+            if (!wsvld.tex) break;
+            const float tw = 72.0f, tx = 344.0f + i * tw, ty = 100.0f;
+            const float u0 = (i * 79 + 4) * T, u1 = (i * 79 + 74) * T;
+            const float v0 = (i == fileTab ? 720 : 782) * T, v1 = (i == fileTab ? 766 : 824) * T;
+            draw_screen_image(g, cview, dview, false, wsvld, AX(tx), AY(ty), AX(tx + tw - 4), AY(ty + 44),
+                              0.35f, u0, v0, u1, v1);
+        }
+        // slot-list container (8 baked rows) -- keep within the authored 0..768 field
+        if (wsvld.tex)
+            draw_screen_image(g, cview, dview, false, wsvld, AX(177), AY(196), AX(915), AY(716),
+                              0.5f, 0.0f, 0.0f, 0.79f, 0.556f);
+        // 8 slot rows: "No.NN" + "No Data" (all empty); the focused row gets the bright bar sprite
+        const float rowY0 = 232.0f, pitch = 63.0f, tsz = 26.0f * A;
+        for (int i = 0; i < 8; ++i) {
+            const float cy = rowY0 + i * pitch;
+            if (i == selSlot && wsvld.tex)   // highlighted slot bar
+                draw_screen_image(g, cview, dview, false, wsvld, AX(190), AY(cy - 26), AX(905), AY(cy + 26),
+                                  0.45f, 0.0f, 0.571f, 0.712f, 0.625f);
+            char no[16]; std::snprintf(no, sizeof no, "No.%d", fileTab * 8 + i + 1);
+            mf.text(no, SX(214), SY(cy - 13), tsz, sw, sh, 236, 236, 236, 255);
+            const char* nd = "- - - - - - - - -   No Data   - - - - - - - - -";
+            float w = mf.measure(nd, tsz);
+            mf.text(nd, SX(560) - w * 0.5f, SY(cy - 13), tsz, sw, sh, 210, 214, 220, 255);
+        }
+        mf.text(save ? "Save the current gameplay session." : "Load a previously saved gameplay session.",
+                SX(48), SY(707), tsz, sw, sh, 236, 236, 236, 255);
+        mf.draw(g, cview);
+    }
 };
 
 // Locate the game's Felghana font (Release/yso_ins04.dat) for MenuFont. It is loose in the game's
@@ -3401,6 +3461,8 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
             "[Unlocked] Toal (Extra Version)", "[Unlocked] Adol (Napishtim Version)", "Cancel"};
         int sel = 0; if (const char* e = std::getenv("CLERIA_SHOP_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 6) sel = v; }
         title.draw_shop(g, mf, cview, dview, W, H, shopItems, 7, sel, 2811);
+    } else if (mode == 8 || mode == 9) {
+        title.draw_svld(g, mf, cview, dview, W, H, /*save=*/mode == 9, /*fileTab=*/5, /*selSlot=*/0);
     } else {
         int ts = 1;   // CLERIA_TITLE_SEL overrides which item is lit (0 New Game ... 4 Exit)
         if (const char* e = std::getenv("CLERIA_TITLE_SEL")) { int v = std::atoi(e); if (v >= 0 && v <= 4) ts = v; }
@@ -4697,15 +4759,19 @@ int main(int argc, char** argv) {
                       std::strcmp(argv[3], "--equip") == 0 ||
                       std::strcmp(argv[3], "--item") == 0 ||
                       std::strcmp(argv[3], "--topic") == 0 ||
-                      std::strcmp(argv[3], "--shop") == 0)) {
-        // cleria-view <root> <ignored> --title|--charselect|--bonus|--options|--equip|--item|--topic|--shop out.ppm [W H]
+                      std::strcmp(argv[3], "--shop") == 0 ||
+                      std::strcmp(argv[3], "--load") == 0 ||
+                      std::strcmp(argv[3], "--save") == 0)) {
+        // cleria-view <root> <ignored> --title|--charselect|--bonus|--options|--equip|--item|--topic|--shop|--load|--save out.ppm [W H]
         const int mode = std::strcmp(argv[3], "--charselect") == 0 ? 1
                        : std::strcmp(argv[3], "--bonus") == 0      ? 2
                        : std::strcmp(argv[3], "--options") == 0    ? 3
                        : std::strcmp(argv[3], "--equip") == 0      ? 4
                        : std::strcmp(argv[3], "--item") == 0       ? 5
                        : std::strcmp(argv[3], "--topic") == 0      ? 6
-                       : std::strcmp(argv[3], "--shop") == 0       ? 7 : 0;
+                       : std::strcmp(argv[3], "--shop") == 0       ? 7
+                       : std::strcmp(argv[3], "--load") == 0       ? 8
+                       : std::strcmp(argv[3], "--save") == 0       ? 9 : 0;
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 800;
