@@ -1,9 +1,13 @@
-// A small sound-effect mixer over SDL3's audio device stream.
+// A small sound-effect mixer + Ogg Vorbis music streamer over SDL3's audio
+// device stream.
 //
 // This is deliberately NOT a reimplementation of the game's DirectSound8 layer:
 // it plays a WAV by EFFECTDEF id at a volume, which is all the footstep path
 // needs. 3D panning, the `dup` voice cap and the emitter/listener lerp the exe
 // does in FUN_0045d7a0 are not modelled yet.
+//
+// The device is stereo because the music is: the effect WAVs are mono and get
+// upmixed by SDL when they are decoded (see Audio::clip).
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -35,7 +39,23 @@ class Audio {
     // Master SFX gain (0..1), applied on top of each voice's own volume. Driven by the
     // Option screen's "SFX Volume" setting. The engine's exact value->gain curve
     // (FUN_004217f0) isn't RE'd, so this is linear.
-    void set_master_volume(float v) { master_ = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+    void set_master_volume(float v) { master_ = clamp01(v); }
+
+    // ---- BGM: one streaming Ogg Vorbis track ---------------------------------
+    // Starts `ogg`, or keeps the current track playing untouched if it is already
+    // that file — the exe compares the file name the same way, so walking between
+    // rooms that share a track must not restart it (BGM.md §3.1). An empty path
+    // stops. Honours the LOOPSTART/LOOPLENGTH Vorbis comments; tracks without
+    // them are one-shots and simply end.
+    bool play_bgm(const std::filesystem::path& ogg);
+    void stop_bgm();
+    // File name of the streaming track ("" = none), e.g. "YSO_004.ogg".
+    const std::string& bgm_name() const { return bgm_name_; }
+    void set_bgm_volume(float v) { bgm_volume_ = clamp01(v); }
+    // How many times the current track has wrapped at its loop point. Only of
+    // interest to the test harness — a track normally loops after minutes, so
+    // $CLERIA_BGM_SEEK exists to start near the loop end and exercise the wrap.
+    std::uint32_t bgm_loops() const { return bgm_loops_; }
 
     const EffectDefs& defs() const { return defs_; }
 
@@ -45,6 +65,8 @@ class Audio {
     int channels() const { return channels_; }
 
   private:
+    static float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+
     struct Clip {
         std::vector<std::int16_t> samples;  // interleaved, already at device format
         int channels = 1;
@@ -65,8 +87,18 @@ class Audio {
     std::filesystem::path root_;
     std::unordered_map<int, std::unique_ptr<Clip>> clips_;  // id -> decoded, cached
     std::vector<Voice> voices_;
-    int rate_ = 44100, channels_ = 1;
+    int rate_ = 44100, channels_ = 2;
     float master_ = 1.0f;   // SFX master gain (Option screen)
+
+    // BGM stream state. Decoded on the audio thread; every field below is
+    // guarded by lock_.
+    void* bgm_ = nullptr;             // stb_vorbis* — kept opaque like stream_
+    std::string bgm_name_;            // "" when nothing is streaming
+    std::uint64_t bgm_pos_ = 0;       // decode cursor, in frames
+    std::uint32_t bgm_loop_start_ = 0;
+    std::uint32_t bgm_loop_end_ = 0;  // 0 = no loop points -> one-shot
+    std::uint32_t bgm_loops_ = 0;
+    float bgm_volume_ = 1.0f;
 };
 
 }  // namespace cleria

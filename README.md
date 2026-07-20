@@ -94,6 +94,17 @@ build/*_re/        raw RE notes per subsystem (source_map, ef2_re, xso_ops, …)
 
 Requires CMake ≥ 3.24 and a C++20 compiler (MSVC 2022 tested).
 
+`third_party/` is gitignored — its contents are fetched, not authored. SDL3 3.4.12
+and wgpu-native v29.0.1.1 are prebuilt drops; the third is a single source file:
+
+```sh
+curl -L -o third_party/stb/stb_vorbis.c \
+  https://raw.githubusercontent.com/nothings/stb/master/stb_vorbis.c   # music decoder, public domain
+```
+
+(The game ships its own `vorbisfile.dll`, but those are 32-bit like `yso_win.exe`,
+so an x64 build cannot load them.)
+
 ```sh
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
@@ -137,6 +148,13 @@ deps live under `third_party/` (gitignored) — SDL3 3.4.12 + wgpu-native v29.0.
 `<asset_root>` is a tree of extracted assets (`tools/extract_assets.py <data.ni> assets`).
 Extract **both** archives — `data.ni` then `data_us.ni`, in that order: the US
 overlay overwrites 525 scripts and the English text.
+
+**Music** is not in those archives — the 40 tracks are loose `.ogg` files in the
+install's `release/music/`. Point CleriaCore at them with `CLERIA_MUSIC_DIR`, or
+put them where it already looks (`<asset_root>/music`, e.g. a junction:
+`mklink /J assets\music "<install>\release\music"`). Without it everything still
+runs, just silently. Each room picks its track from `MAP/SCENELIST.SL` byte `+3`
+(see `build/audio_re/BGM.md`).
 
 ### Debug switches
 

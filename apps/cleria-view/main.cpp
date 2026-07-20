@@ -44,6 +44,8 @@
 #include "cleria/physics_player.hpp"
 #include "cleria/surface.hpp"
 #include "cleria/audio.hpp"
+#include "cleria/bgmdef.hpp"
+#include "cleria/scenelist.hpp"
 #include "cleria/items.hpp"
 #include "cleria/scene.hpp"
 #include "cleria/scm.hpp"
@@ -3687,10 +3689,45 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     options_load(oslider, ocheck);
     (void)skin; (void)difficulty; (void)sp_bonus;   // stored now; applied to combat as RE lands
 
+    // Audio comes up before the title screen: the title is a scene in its own
+    // right (SCENELIST record "title\", BGM id 1), and `transition` far below
+    // captures this to switch tracks on room entry.
+    Audio audio;
+    audio.init(asset_root);  // silent (and harmless) if the device or EFFECTDEF is missing
+    audio.set_master_volume(oslider[1] / 1024.0f);  // Option "SFX Volume"
+    audio.set_bgm_volume(oslider[0] / 1024.0f);     // Option "BGM Volume"
+
+    // Per-room music: SCENELIST record byte +3 is a bgmdef id. The exe (re)starts
+    // the track only when that id CHANGES, so walking between rooms that share one
+    // plays straight through the doorway; id 0 means STOP, not "inherit".
+    // See build/audio_re/BGM.md §2-3.
+    SceneList scenes;
+    BgmDefs bgmdefs;
+    if (!scenes.load(asset_root))
+        std::printf("audio: no MAP/SCENELIST.SL — no per-room BGM\n");
+    else if (!bgmdefs.load(asset_root))
+        std::printf("audio: no music folder found — set CLERIA_MUSIC_DIR to the game's "
+                    "release\\music to hear BGM\n");
+    else
+        std::printf("audio: %zu scenes, music from %s\n", scenes.size(),
+                    bgmdefs.dir().string().c_str());
+    int cur_bgm = -1;
+    auto apply_room_bgm = [&](const std::string& room_name) {
+        const SceneRec* s = scenes.find_room(room_name);
+        const int id = s ? int(s->bgm) : 0;
+        if (id == cur_bgm) return;
+        cur_bgm = id;
+        if (id == 0)
+            audio.stop_bgm();
+        else
+            audio.play_bgm(bgmdefs.track(id));
+    };
+
     // Title screen: shown on a bare launch, before the game. New Game opens character-select
     // (pick Yunica/Hugo/Toal, then fall through to the game loop below); Esc/close quits.
     // Assets + flow from build/menu_re/MENUS.md.
     if (show_title) {
+        apply_room_bgm("title");   // "title\" is a scene record like any room (BGM id 1)
         TitleFx title; title.init(g, asset_root);
         MenuFont mf;   // Felghana atlas rasterised at the 960-internal font size (see render_title),
         // bilinear-upscaled to the window. Format must match the window surface (fmt), not a
@@ -4039,6 +4076,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
     spawn_enemies();
 
+    apply_room_bgm(room.name);
+
     float cooldown = 1.5f;
     auto transition = [&](const std::string& dest, const SenTrigger* via = nullptr) {
         auto it = g.sob_index.find(dest);
@@ -4055,6 +4094,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
+        apply_room_bgm(room.name);
         if (fly) {
             spawn_in(cam, room);
         } else {
@@ -4202,11 +4242,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             std::printf("  %s: script error: %s\n", target->name.c_str(), e.what());
         }
     };
-
-    Audio audio;
-    audio.init(asset_root);  // silent (and harmless) if the device or EFFECTDEF is missing
-    audio.set_master_volume(oslider[1] / 1024.0f);   // apply the Option "SFX Volume" (BGM/gamma have
-                                                     // no consumer in CleriaCore yet -- persisted only)
 
     std::printf("\nPLAY: WASD move Yunica (8-way, fixed camera), Space jump, E interact, Tab character | F free-fly debug | wheel speed | R respawn | 1-9 exit | ESC quit\n");
     bool running = true, looking = false;

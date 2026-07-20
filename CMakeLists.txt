@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(CleriaCore LANGUAGES CXX)
+project(CleriaCore LANGUAGES C CXX)  # C is only for the vendored stb_vorbis decoder
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,6 +37,8 @@ add_library(cleria STATIC
   src/cleria/csprite.cpp
   src/cleria/minifont.cpp
   src/cleria/effectdef.cpp
+  src/cleria/scenelist.cpp
+  src/cleria/bgmdef.cpp
   src/cleria/surface.cpp
   src/cleria/world.cpp)
 target_include_directories(cleria PUBLIC src)
@@ -84,10 +86,20 @@ set_target_properties(sdl3 PROPERTIES
   IMPORTED_IMPLIB   "${TP}/sdl3/lib/x64/SDL3.lib"
   INTERFACE_INCLUDE_DIRECTORIES "${TP}/sdl3/include")
 
+# Ogg Vorbis decoder for the music streamer — nothings/stb v1.22, public domain,
+# vendored verbatim. Built on its own so its warnings stay out of our /W4 build.
+add_library(stb_vorbis STATIC "${TP}/stb/stb_vorbis.c")
+target_include_directories(stb_vorbis PUBLIC "${TP}/stb")
+if(MSVC)
+  target_compile_options(stb_vorbis PRIVATE /W0)
+else()
+  target_compile_options(stb_vorbis PRIVATE -w)
+endif()
+
 # Audio is split out because it is the one part of the core that needs SDL3;
 # keeping it separate lets cleria-dump / cleria-xso stay dependency-free.
 add_library(cleria-audio STATIC src/cleria/audio.cpp)
-target_link_libraries(cleria-audio PUBLIC cleria sdl3)
+target_link_libraries(cleria-audio PUBLIC cleria sdl3 PRIVATE stb_vorbis)
 
 target_link_libraries(cleria-audiotest PRIVATE cleria cleria-audio)
 

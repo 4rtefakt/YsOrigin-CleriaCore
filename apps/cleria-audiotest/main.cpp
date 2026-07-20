@@ -6,6 +6,7 @@
 //
 //   cleria-audiotest <asset_root> [--surfaces]
 //   cleria-audiotest <asset_root> --walk <room.SOB>
+//   cleria-audiotest <asset_root> --bgm [ROOM [seconds]]
 //
 // `--walk` is the end-to-end footstep test with no GPU and no audio device: it
 // walks the player across the room's collision hulls from the SCT spawn and
@@ -21,7 +22,9 @@
 #include <SDL3/SDL.h>
 
 #include "cleria/audio.hpp"
+#include "cleria/bgmdef.hpp"
 #include "cleria/effectdef.hpp"
+#include "cleria/scenelist.hpp"
 #include "cleria/physics.hpp"
 #include "cleria/scene.hpp"
 #include "cleria/sct.hpp"
@@ -112,6 +115,46 @@ int main(int argc, char** argv) {
         }
         a.play(id);
         SDL_Delay(argc >= 5 ? Uint32(std::atof(argv[4]) * 1000) : 1200);
+        return 0;
+    }
+
+    // Per-room music. With no ROOM this dumps the whole SCENELIST -> bgmdef
+    // mapping (headless — it checks the two tables against each other and against
+    // what is on disk); with one it opens a device and actually streams the track.
+    //   cleria-audiotest <root> --bgm [ROOM [seconds]]
+    if (argc >= 3 && std::strcmp(argv[2], "--bgm") == 0) {
+        SceneList scenes;
+        BgmDefs bgm;
+        if (!scenes.load(argv[1])) {
+            std::fprintf(stderr, "no MAP/SCENELIST.SL under %s\n", argv[1]);
+            return 1;
+        }
+        const bool have_music = bgm.load(argv[1]);
+        std::printf("%zu scenes; music dir: %s\n", scenes.size(),
+                    have_music ? bgm.dir().string().c_str()
+                               : "(not found -- set CLERIA_MUSIC_DIR)");
+        if (argc < 4) {
+            for (const SceneRec& s : scenes.recs()) {
+                if (s.path.empty()) continue;
+                std::printf("  %-3u %-26s bgm=%-3u %-10s %s\n", s.index, s.path.c_str(), s.bgm,
+                            s.bgm ? bgm.name(s.bgm).c_str() : "(stop)", s.display.c_str());
+            }
+            return 0;
+        }
+        const SceneRec* s = scenes.find_room(argv[3]);
+        if (!s) {
+            std::fprintf(stderr, "no scene record for room %s\n", argv[3]);
+            return 1;
+        }
+        const fs::path t = bgm.track(s->bgm);
+        std::printf("%s (%s): bgm id %u -> %s\n", argv[3], s->display.c_str(), s->bgm,
+                    t.empty() ? "(none)" : t.string().c_str());
+        if (t.empty()) return s->bgm == 0 ? 0 : 1;  // id 0 legitimately means silence
+        Audio a;
+        if (!a.init(argv[1])) return 1;
+        if (!a.play_bgm(t)) return 1;
+        SDL_Delay(argc >= 5 ? Uint32(std::atof(argv[4]) * 1000) : 5000);
+        std::printf("looped %u time(s)\n", a.bgm_loops());
         return 0;
     }
 
