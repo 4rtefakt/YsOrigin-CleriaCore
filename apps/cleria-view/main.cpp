@@ -1545,6 +1545,8 @@ struct EnemyRender {
     bool atk_hit = false;   // already connected with the player this swing
     long atk_fkey = -1;     // recovery-stall detection, as the player has
     int atk_stall = 0;
+    bool atk_armed = false; // the swing's hit-volume has fired this attack
+    int atk_age = 0;        // ticks in the current attack (hard-cap fallback)
 };
 
 // Populate an ActorWorld the way the engine does (build/roomload_re/ROOMLOAD.md,
@@ -4171,6 +4173,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     Player player;                     // stat block (HP/SP/level/EXP)
     // A fresh level-1 player: HP from the GAMEINFO player curve at level 1. There is no save
     // model, so a new run always starts at level 1 with 0 EXP -- the faithful new-game state.
+    // CLERIA_LEVEL forces a starting level: the RE'd damage formula is steep in the target's
+    // DEF (raw = ATK^0.66 * (ATK - 0.98*DEF + 10 + power)/22.92), so a lv1 player genuinely
+    // cannot dent a high-DEF enemy (Normous etc.) -- that is progression, not a bug, and this
+    // lets it be seen at a realistic level.
+    if (const char* e = std::getenv("CLERIA_LEVEL")) {
+        int v = std::atoi(e);
+        if (v >= 1 && v <= 60) player.level = v;
+    }
     if (ginfo.ok())
         player.max_hp = player.hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(player.level)));
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
@@ -4779,6 +4789,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         e.atk_hit = false;
                         e.atk_stall = 0;
                         e.atk_fkey = -1;
+                        e.atk_armed = false;
+                        e.atk_age = 0;
                         en->move_scale = 0.0f;
                     } else {
                         en->move_scale = 1.0f;   // chase
@@ -4794,14 +4806,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     e.hb = e.avm.hitbox();
                     e.atk_win = e.hb.lifetime > 0 ? e.hb.lifetime : 1;
                     e.atk_hit = false;
+                    e.atk_armed = true;
                 }
-                // Release: the swing is over once the animation stalls into its recovery
-                // hold (enemy scripts loop the last frame the same way the player's do).
+                // Release the swing. A wind-up can hold a single frame for many ticks
+                // BEFORE the hit fires (M_100 holds frame 2 for 12 ticks, then arms at
+                // tick 26), so a bare stall would end the attack before it ever hit —
+                // only release once the hit-volume has fired and its window is spent and
+                // the animation has stalled into recovery. The age cap is a safety net
+                // for a section that somehow never arms.
                 if (e.avm.section() == e.atk_section) {
+                    ++e.atk_age;
                     const long fk = (long(e.avm.anim_tag()) << 20) ^ e.avm.frame();
                     e.atk_stall = (fk == e.atk_fkey) ? e.atk_stall + 1 : 0;
                     e.atk_fkey = fk;
-                    if (e.atk_stall >= 8) {
+                    const bool recovered = e.atk_armed && e.atk_win <= 0 && e.atk_stall >= 8;
+                    if (recovered || e.atk_age >= 180) {
                         e.avm.set_section(e.idle_section, /*force*/true);
                         e.atk_cd = kEnemyAtkCooldown;
                         en->move_scale = 1.0f;
