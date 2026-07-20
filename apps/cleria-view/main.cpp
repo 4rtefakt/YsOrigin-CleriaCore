@@ -339,6 +339,37 @@ constexpr int kSfxCursor = 3;   // sys\s_move
 constexpr float kSfxMenuVol = 0.8f;
 constexpr float kSfxAnimVol = 0.8f;  // anime_SePlay3D events (swings, impacts, voices)
 
+// Damage-path sounds the engine plays from C rather than from animation data
+// (build/audio_re/SFX_TRIGGERS.md §4.3).
+constexpr int kSfxDeathEntry = 92;   // player\p_hit0 — FUN_004780e0, ANY actor whose HP hits 0
+constexpr int kSfxPlayerHurt = 94;   // player\p_damage — the id C_0x0.ASO sections 4/11 emit
+
+// The sounds an enemy's OWN death animation emits: ASO section 5 (the death motion
+// state), funcid 0x2a. Enemies do not run an ASO VM in CleriaCore — they loop a fixed
+// idle animation — so rather than invent an id, run the death section of the real
+// script once per enemy kind and cache whatever it asks for. Verified against the
+// scripts: M_100/M_130 -> 438 + 449, M_430 -> 439 + 449, M_910 -> 503 + 449, where
+// 449 (zako\z_dead11) is the death sound shared by 71 of the 86 M_*.ASO.
+static const std::vector<int>& enemy_death_sounds(const fs::path& asset_root,
+                                                  const std::string& stem) {
+    static std::unordered_map<std::string, std::vector<int>> cache;
+    const auto it = cache.find(stem);
+    if (it != cache.end()) return it->second;
+    std::vector<int>& out = cache[stem];
+    if (!stem.empty()) {
+        Aso a = Aso::load(asset_root / "ANI" / (stem + ".ASO"));
+        AsoVm vm;
+        if (a.ok() && (vm.bind(&a), vm.set_section(5))) {
+            for (int t = 0; t < 60 && out.size() < 4; ++t) {
+                vm.tick();
+                for (const AsoVm::SoundEvent& se : vm.sounds())
+                    if (std::find(out.begin(), out.end(), se.id) == out.end()) out.push_back(se.id);
+            }
+        }
+    }
+    return out;
+}
+
 // What physics collides against. The game collides against the `_.YMO` hulls, not
 // the render mesh; fall back to the render mesh only if a room ships no twins.
 // CLERIA_COLL=render forces the old behaviour, for A/B.
@@ -4465,7 +4496,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (std::getenv("CLERIA_DMG"))
                         std::printf("  hit %s (lv%d DEF %.0f): %d dmg, %.0f/%.0f left\n",
                                     nm.c_str(), en.level, en.def, r.damage, en.hp, en.max_hp);
-                    if (r.died) { ++killed; award_exp(en.exp_reward); }
+                    if (r.died) {
+                        ++killed;
+                        award_exp(en.exp_reward);
+                        // Death entry plays p_hit0 from C for any actor, and the enemy's
+                        // own death animation adds its z_dead* pair (SFX_TRIGGERS.md §4.3).
+                        audio.play(kSfxDeathEntry, kSfxAnimVol);
+                        for (int id : enemy_death_sounds(asset_root, casts.sprite_stem(en.cast_id)))
+                            audio.play(id, kSfxAnimVol);
+                    }
                 }
                 if (killed) {
                     int left = 0;
@@ -4494,6 +4533,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const int dmg = player_incoming_damage(AttackStats{en.atk, 0, 0}, pdef,
                         [&](float p) { return float(rng_pct(rng)) < p; });
                     player.hp -= dmg;
+                    // p_damage is what the player's own hurt-reaction section (C_0x0.ASO
+                    // 4/11) emits; we play it directly because that reaction animation is
+                    // not driven yet. Death entry adds p_hit0, for the player as for anything
+                    // else. (SFX_TRIGGERS.md §4.3.)
+                    audio.play(kSfxPlayerHurt, kSfxAnimVol);
+                    if (player.hp <= 0) audio.play(kSfxDeathEntry, kSfxAnimVol);
                     // The engine's generic grant is 16 ticks, but the player's post-hit
                     // invulnerability window specifically is not pinned, and 16 (0.27s)
                     // lets a real-level enemy shred the fresh lv1 player. TUNED to ~0.75s
