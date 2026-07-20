@@ -3869,6 +3869,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             // Load Game: not yet implemented.
                         }
                     }
+                    // Drive the mixer from the sliders live, so you hear the level you are
+                    // setting (and so Default resets it too). Applying these once at startup
+                    // is not enough: Audio is constructed BEFORE this screen so the title has
+                    // its BGM, which is earlier than any edit made here.
+                    audio.set_bgm_volume(oslider[0] / 1024.0f);
+                    audio.set_master_volume(oslider[1] / 1024.0f);
                 } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
                     if (cw && ch) {
