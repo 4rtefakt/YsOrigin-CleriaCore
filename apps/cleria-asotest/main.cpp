@@ -55,6 +55,20 @@ int main(int argc, char** argv) {
                 ++held;
             }
             if (vm.foot_smoke()) std::printf("  [FootSmoke] at tick %d\n", t);
+            {   // capability gates — the windows that actually define an attack's length
+                static int pa = -1, pc2 = -1, pr = -1, pt = -1;
+                static float pm = -1;
+                if (int(vm.actable()) != pa || int(vm.cancelable()) != pc2 ||
+                    int(vm.attack_reserve()) != pr || int(vm.turnable()) != pt ||
+                    vm.movable() != pm) {
+                    pa = vm.actable(); pc2 = vm.cancelable(); pr = vm.attack_reserve();
+                    pt = vm.turnable(); pm = vm.movable();
+                    std::printf("  [gates] tick %-3d actable=%d cancelable=%d reserve=%d "
+                                "turnable=%d movable=%.2f\n", t, pa, pc2, pr, pt, pm);
+                }
+            }
+            if (vm.section_ended())
+                std::printf("  [section ended] tick %d — chained to section %d\n", t, vm.section());
             for (const AsoVm::SoundEvent& se : vm.sounds())
                 std::printf("  [SePlay3D] tick %d: EFFECTDEF id %d  offset (%.2f, %.2f, %.2f)\n", t,
                             se.id, se.dx, se.dy, se.dz);

@@ -3933,12 +3933,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // shape matters, and an explicit seed buys us the determinism it lacked.
     std::mt19937 rng(20260717u);
     std::uniform_real_distribution<float> rng_pct(0.0f, 100.0f);
-    float atk_cd = 0;                    // attack cooldown (seconds)
+    // (No attack cooldown any more: the script's cancel window is the rate limit.)
     // The player's melee swing, from the ASO GenerateCollision hitbox (build/attack_re).
     // A swing arms a sphere for `atk_window` ticks; each tick it hits enemies inside it,
     // once per swing (the engine's hit-dedup). Yunica's basic swing (verified in
     // cleria-asotest): radius 0.6, 30-tick window, power 8.0, box 0.6 ahead of the actor.
     int atk_window = 0;                  // ticks left in the active hitbox
+    // The live hit-volume, copied from the script when GenerateCollision arms it.
+    // Defaults are Yunica's combo #1 so a script that never arms behaves as before.
+    AsoVm::Hitbox atk_hb{0.6f, 0.0f, 30, 8.0f};
     Vec3 atk_dir{0, 0, 1};               // the swing's facing (captured at swing start)
     std::set<int> atk_hit;               // instance ids already hit this swing (dedup)
     Vec3 face_dir{0, 0, 1};              // world dir the player faces (from movement)
@@ -4248,10 +4251,27 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // straight swing, NOT a sector arc), live for a 30-tick window, dealing `power` 8.0 as
     // the damage bonus, and hitting each enemy ONCE per swing (the engine's hit-dedup).
     // The numbers are Yunica's basic swing, verified in cleria-asotest against C_010.
+    // Start or chain a swing. The ASO owns everything about it — its length, the
+    // hit-volume (GenerateCollision arms it), and when you may act again — which is what
+    // makes the three characters feel different instead of sharing one hardcoded window.
+    // Measured from the scripts: Yunica's combo #1 roots her (Movable 0) and opens its
+    // cancel window at tick 21, Hugo's at tick 9 while he keeps full movement, Toal's at
+    // tick 10 with an 8-frame box and a slow drift. See build/attack_re/ATTACK.md.
     auto try_attack = [&] {
-        if (atk_cd > 0 || atk_window > 0) return;
-        atk_cd = 0.5f;              // one swing at a time (~ the 30-tick window)
-        atk_window = 30;            // ASO GenerateCollision lifetime (arg[6])
+        const bool swinging = avm.section() >= 0x100;
+        if (swinging && !avm.cancelable()) return;   // committed to the current swing
+        std::int32_t next = 0x100;
+        if (swinging) {
+            // Chain to the next combo section this character actually has: the ids are
+            // sparse (Yunica runs 0x100, 0x101, 0x103, 0x104) and 0x106+ is a separate
+            // faster set, so stay at or below 0x105 and wrap back to the opener.
+            std::int32_t best = -1;
+            for (const Aso::Section& s : aso.sections())
+                if (s.id > avm.section() && s.id <= 0x105 && (best < 0 || s.id < best))
+                    best = s.id;
+            next = best > 0 ? best : 0x100;
+        }
+        if (!avm.set_section(next, /*force*/true)) return;
         atk_dir = face_dir;         // the swing points where you're facing
         atk_hit.clear();
     };
@@ -4385,7 +4405,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         ++ticks;
         const float dt = kTickDt;
         if (cooldown > 0) cooldown -= dt;
-        if (atk_cd > 0) atk_cd -= dt;
 
         if (fly) {
             const Vec3 f = cam.forward();
@@ -4403,7 +4422,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // camera follows to keep her centred. Movement basis = the camera's
             // horizontal forward (into screen) and right.
             const float eye = kCharH, radius = kCharRadius;
-            const float walk = kWalkSpeed * speed_mult, stepUp = kStepUp;
+            // anime_Movable is a movement-speed SCALE, not a boolean, and it is a large
+            // part of why the three feel different: Yunica's swing drops it to 0 (rooted
+            // through the commit), Hugo keeps a full 1.0, Toal goes 0.80 -> 0.05 so he
+            // keeps drifting through his. anime_Turnable locks facing over the same span.
+            const float walk = kWalkSpeed * speed_mult * avm.movable(), stepUp = kStepUp;
             // Movement is relative to the live camera (last frame's — the 1-frame lag
             // is imperceptible and avoids a chicken-and-egg with the follow camera).
             const Vec3 fwd = normalize({std::cos(cam.yaw), 0, std::sin(cam.yaw)});  // screen-up
@@ -4417,7 +4440,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const bool moving = wl > 1e-4f;
             if (moving) {
                 feet.x += wish.x / wl * walk * dt; feet.z += wish.z / wl * walk * dt;
-                face_dir = {wish.x / wl, 0, wish.z / wl};   // the swing faces where you walk
+                if (avm.turnable())
+                    face_dir = {wish.x / wl, 0, wish.z / wl};  // the swing faces where you walk
             }
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
@@ -4470,10 +4494,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // deals one hit per swing, not 30.
             if (atk_window > 0) {
                 --atk_window;
-                constexpr float kHitReach = 0.6f, kHitRadius = 0.6f, kHitPower = 8.0f;
-                const Vec3 c = {feet.x + atk_dir.x * kHitReach, feet.y + kCharH * 0.5f,
-                                feet.z + atk_dir.z * kHitReach};
-                const float rr = kHitRadius + kCharRadius;  // box radius + enemy radius
+                // Radius and power now come from the script's own GenerateCollision
+                // rather than Yunica's values hardcoded for everyone.
+                const Vec3 c = {feet.x + atk_dir.x * atk_hb.radius, feet.y + kCharH * 0.5f,
+                                feet.z + atk_dir.z * atk_hb.radius};
+                const float rr = atk_hb.radius + kCharRadius;  // box radius + enemy radius
                 int killed = 0;
                 for (Actor& en : world.actors()) {
                     if (en.is_player() || !en.alive() || atk_hit.count(en.instance_id)) continue;
@@ -4483,7 +4508,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     atk_hit.insert(en.instance_id);   // the engine's per-attack hit-dedup
                     AttackStats a;
                     a.atk = ginfo.player_atk(character, /*tier*/ 0, player.level);
-                    a.bonus = kHitPower;             // per-attack power, sourced from the ASO
+                    a.bonus = atk_hb.power;          // per-attack power, from this section's script
                     const int dmg = damage_int(a, en.def,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
@@ -4617,11 +4642,23 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // While a swing is active, play the attack section (0x100 = the basic
             // attack, present in C_010/020/030) so the sprite actually swings instead of
             // sliding in the walk pose. Otherwise: jump / walk / idle.
-            const std::int32_t want_sec = (atk_window > 0) ? 0x100
-                                        : !grounded ? 3 : (moving ? 0 : 2);
-            if (avm.section() != want_sec) avm.set_section(want_sec);
+            const std::int32_t want_sec = !grounded ? 3 : (moving ? 0 : 2);
+            // Attack sections hold on their last frame rather than falling off the end,
+            // so locomotion only takes back over once the script opens its cancel window.
+            // Below 0x100 the priority rule inside set_section does the refusing for us.
+            if (avm.section() < 0x100)
+                avm.set_section(want_sec);
+            else if (avm.cancelable())
+                avm.set_section(want_sec, /*force*/true);
             avm.set_is_land(grounded);
             avm.tick();
+            // GenerateCollision fired: adopt this section's own box for its own lifetime.
+            if (avm.armed_hitbox()) {
+                atk_hb = avm.hitbox();
+                atk_window = atk_hb.lifetime > 0 ? atk_hb.lifetime : 1;
+                atk_dir = face_dir;
+                atk_hit.clear();
+            }
             // anime_SePlay3D events (ASO funcid 0x2a): the animation names its own
             // sounds, so the swing lands on the right frame and is per-character for
             // free -- Yunica's attack section issues 139 = player\p1_sw_slash0, and

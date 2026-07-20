@@ -67,7 +67,14 @@ class AsoVm {
     void bind(const Aso* aso);
     // Switch to a section by ID. Sections are addressed by id, not index; the VM's
     // initial state is id 2 (idle for the players), present in 112/115 files.
-    bool set_section(std::int32_t id);
+    //
+    // Section `type` is a PRIORITY (2 locomotion < 3 attack < 4 special/reaction) and
+    // SetSection (FUN_00446550) REFUSES a transition to a lower one — which is exactly
+    // why walking cannot interrupt a swing and an attack plays to its own authored
+    // length. Returns false when refused, so callers can simply ask every tick and let
+    // the running animation win. `force` bypasses the check for the internal
+    // end-of-section chain and for hard resets.
+    bool set_section(std::int32_t id, bool force = false);
     std::int32_t section() const { return section_; }
 
     // Advance one 60 Hz tick. Runs instructions until an anime_Wait yields (or the
@@ -201,6 +208,30 @@ class AsoVm {
     };
     const std::vector<SoundEvent>& sounds() const { return sounds_; }
 
+    // Actor capability fields the script drives (ASOVM.md §4, funcids 20..28). These are
+    // STATE, not per-tick events: a swing lowers Movable/Turnable during the commit and
+    // opens Cancelable/AttackReserve near the end, which is what gives each character its
+    // own attack feel. They reset to permissive defaults on a section change — the engine
+    // keeps them on the actor, but every section it enters sets what it needs, and
+    // defaulting open here means a script that never restores one cannot leave the actor
+    // permanently rooted. That is a deliberate safety deviation.
+    float movable() const { return movable_; }        // funcid 26, 0 = rooted in place
+    bool turnable() const { return turnable_; }       // funcid 27
+    bool actable() const { return actable_; }         // funcid 22, accepts a new action
+    bool cancelable() const { return cancelable_; }   // funcid 23, cancel window open
+    bool attack_reserve() const { return atk_reserve_; }  // funcid 21, combo input buffered
+    bool durable() const { return durable_; }         // funcid 24, super-armor
+    bool untouchable() const { return untouchable_; } // funcid 28, i-frames
+    bool jump_enable() const { return jump_enable_; } // funcid 25
+
+    // The section to fall into when the current one runs off its end. The engine keeps
+    // this as the queued-next field [0x2a]; sections that mean to repeat end with a jmp
+    // back to their own loop point instead of falling off (ASOVM.md §5).
+    void set_queued(std::int32_t id) { queued_ = id; }
+    std::int32_t queued() const { return queued_; }
+    // True on the tick the section ran off its end and chained away.
+    bool section_ended() const { return section_ended_; }
+
     // Inputs the script polls.
     void set_is_land(bool v) { is_land_ = v; }
     void set_is_stun(bool v) { is_stun_ = v; }
@@ -253,6 +284,11 @@ class AsoVm {
     Hitbox hitbox_;
     static constexpr std::size_t kMaxSoundsPerTick = 8;  // a script never issues near this many
     std::vector<SoundEvent> sounds_;
+    float movable_ = 1.0f;
+    bool turnable_ = true, actable_ = true, cancelable_ = false, atk_reserve_ = false;
+    bool durable_ = false, untouchable_ = false, jump_enable_ = true;
+    std::int32_t queued_ = 2;   // idle: [0x29]=[0x2a]=[0x2b]=2 at init (ASOVM.md §5)
+    bool section_ended_ = false;
 };
 
 }  // namespace cleria

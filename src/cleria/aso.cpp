@@ -34,6 +34,16 @@ enum : std::uint32_t {
     kFootSmoke = 19,       // anime_FootSmoke=
     kGenerateCollision = 0x23,  // anime_GenerateCollision — arms the melee hit-volume
     kSePlay3D = 0x2a,      // anime_SePlay3D=ifffi  — plays EFFECTDEF sound arg0 at the actor
+    // Actor capability gates (ASOVM.md §4). Persistent state, raised/lowered across an
+    // animation; together they are what makes each character's attack feel its own.
+    kAttackReserve = 21,   // anime_AttackReserve=i  actor+0xe4 — combo input buffered
+    kActable = 22,         // anime_Actable=i        actor+0xe0/0xe1 — accepts a new action
+    kCancelable = 23,      // anime_Cancelable=i     actor+0xe2 — cancel window
+    kDurable = 24,         // anime_Durable=i        actor+0xe8 — super-armor
+    kJumpEnable = 25,      // anime_JumpEnable=i     actor+0xe1
+    kMovable = 26,         // anime_Movable=f        actor+0xdc — 0 = rooted
+    kTurnable = 27,        // anime_Turnable=i
+    kUntouchable = 28,     // anime_Untouchable=i    actor+0xe7 — i-frames
     kFlagIsEqualInt = 95,  // Flag_IsEqualInt=ii   — R = (g_flags[a0] == a1)
 };
 
@@ -98,10 +108,20 @@ void AsoVm::bind(const Aso* aso) {
     set_section(2);
 }
 
-bool AsoVm::set_section(std::int32_t id) {
+bool AsoVm::set_section(std::int32_t id, bool force) {
     if (!aso_ || !aso_->ok()) return false;
     const Aso::Section* s = aso_->find(id);
     if (!s) return false;
+    // The priority refusal (FUN_00446550). Re-selecting the section already running is
+    // a no-op rather than a restart, so a caller may ask for it every tick.
+    if (!force && cur_) {
+        if (id == section_) return true;
+        if (s->type < cur_->type) return false;
+    }
+    // Capabilities default open on entry; see the note in aso.hpp.
+    movable_ = 1.0f;
+    turnable_ = actable_ = jump_enable_ = true;
+    cancelable_ = atk_reserve_ = durable_ = untouchable_ = false;
     prev_section_ = section_;
     section_ = id;
     cur_ = s;
@@ -228,6 +248,20 @@ bool AsoVm::step(std::size_t& pc) {
             hitbox_armed_ = true;
             break;
         }
+        case kAttackReserve: atk_reserve_ = (ai(0) != 0); break;
+        case kActable:       actable_ = (ai(0) != 0); break;
+        case kCancelable:    cancelable_ = (ai(0) != 0); break;
+        case kDurable:       durable_ = (ai(0) != 0); break;
+        case kJumpEnable:    jump_enable_ = (ai(0) != 0); break;
+        case kTurnable:      turnable_ = (ai(0) != 0); break;
+        case kUntouchable:   untouchable_ = (ai(0) != 0); break;
+        case kMovable: {
+            // The one float in this group: a movement-SPEED scale, not a boolean.
+            float v; const std::uint32_t raw = std::uint32_t(ai(0));
+            std::memcpy(&v, &raw, 4);
+            movable_ = v;
+            break;
+        }
         case kSePlay3D: {
             // anime_SePlay3D (0x2a): arg0 is an EFFECTDEF id, args 1..3 a float xyz
             // offset from the actor, arg4 a flag. 1072 uses across the corpus — this
@@ -264,6 +298,7 @@ bool AsoVm::step(std::size_t& pc) {
 void AsoVm::tick() {
     foot_smoke_ = false;
     hitbox_armed_ = false;
+    section_ended_ = false;
     sounds_.clear();
     if (!ok()) return;
     if (wait_ > 0) { --wait_; return; }
@@ -275,8 +310,14 @@ void AsoVm::tick() {
         if (!step(pc_)) {
             if (wait_ > 0) { --wait_; return; }  // consumed by anime_Wait
             if (pc_ == before) return;           // blocked (marker)
-            // Section ended: the players' sections loop, so restart this one.
-            pc_ = cur_ ? std::size_t(cur_->code_off) / 4 : 0;
+            // Section ran off its end. A section that means to repeat ends with a jmp
+            // back to its own loop point, so falling off here means "chain to the queued
+            // follow-on" (ASOVM.md §5) — that is what ends a swing after its authored
+            // length instead of looping it. Restart in place only if the chain target is
+            // missing, so a script can never stall.
+            section_ended_ = true;
+            if (queued_ == section_ || !set_section(queued_, /*force*/true))
+                pc_ = cur_ ? std::size_t(cur_->code_off) / 4 : 0;
             return;
         }
     }
