@@ -4071,6 +4071,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // once per swing (the engine's hit-dedup). Yunica's basic swing (verified in
     // cleria-asotest): radius 0.6, 30-tick window, power 8.0, box 0.6 ahead of the actor.
     int atk_window = 0;                  // ticks left in the active hitbox
+    // Recovery-hold tracking. Many attack sections end by looping on their final
+    // frame with Movable pinned to 0, and several (Yunica 257/258/261, and the
+    // like for Hugo/Toal) never open a cancel window at all — so `cancelable()`
+    // alone would leave the player rooted there for good. The engine returns to
+    // neutral via an action state machine we have not RE'd; stand in for it by
+    // releasing control once the swing stops animating.
+    long atk_frame_key = -1;
+    int atk_stall = 0;
     // Projectiles. The effect registries resolve a bullet's eftlist id to its real
     // EF2 and texture; without them bullets simply do not spawn (rather than draw
     // something invented).
@@ -4397,19 +4405,45 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Measured from the scripts: Yunica's combo #1 roots her (Movable 0) and opens its
     // cancel window at tick 21, Hugo's at tick 9 while he keeps full movement, Toal's at
     // tick 10 with an 8-frame box and a slow drift. See build/attack_re/ATTACK.md.
+    // A character's real combo sections: the ids in [0x100,0x110) that actually arm a
+    // hitbox or fire a bullet, ascending. The dud sections in between (Hugo's 257/258/…
+    // do neither) must be SKIPPED — chaining to the literal next id lands on one and
+    // stalls him after a single shot. Found by running each section briefly, cached per
+    // character; the combo just walks this list, wrapping.
+    auto combo_sections = [&](int chr) -> const std::vector<int>& {
+        static std::unordered_map<int, std::vector<int>> cache;
+        auto it = cache.find(chr);
+        if (it != cache.end()) return it->second;
+        std::vector<int>& out = cache[chr];
+        for (const Aso::Section& s : aso.sections()) {
+            if (s.id < 0x100 || s.id >= 0x110) continue;
+            AsoVm probe;
+            probe.bind(&aso);
+            if (!probe.set_section(s.id, /*force*/true)) continue;
+            bool real = false;
+            for (int t = 0; t < 150 && !real; ++t) {
+                probe.tick();
+                if (probe.armed_hitbox() || !probe.bullets().empty()) real = true;
+            }
+            if (real) out.push_back(s.id);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    };
     auto try_attack = [&] {
         const bool swinging = avm.section() >= 0x100;
         if (swinging && !avm.cancelable()) return;   // committed to the current swing
-        std::int32_t next = 0x100;
+        const std::vector<int>& combo = combo_sections(character);
+        if (combo.empty()) return;
+        std::int32_t next = combo.front();
         if (swinging) {
-            // Chain to the next combo section this character actually has: the ids are
-            // sparse (Yunica runs 0x100, 0x101, 0x103, 0x104) and 0x106+ is a separate
-            // faster set, so stay at or below 0x105 and wrap back to the opener.
-            std::int32_t best = -1;
-            for (const Aso::Section& s : aso.sections())
-                if (s.id > avm.section() && s.id <= 0x105 && (best < 0 || s.id < best))
-                    best = s.id;
-            next = best > 0 ? best : 0x100;
+            // Advance to the next real section after the current one, wrapping. For Hugo
+            // that is 0x100->0x103->0x106->…, a bullet on each; for Yunica/Toal the melee
+            // combo. This is NOT the game's authored combo order (which lives in the
+            // script's own AttackReserve branches, not run here) — but each step is a
+            // genuine attack, and the recovery-stall release keeps it from ever sticking.
+            auto p = std::upper_bound(combo.begin(), combo.end(), int(avm.section()));
+            next = (p != combo.end()) ? *p : combo.front();
         }
         if (!avm.set_section(next, /*force*/true)) return;
         atk_dir = face_dir;         // the swing points where you're facing
@@ -4783,12 +4817,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // attack, present in C_010/020/030) so the sprite actually swings instead of
             // sliding in the walk pose. Otherwise: jump / walk / idle.
             const std::int32_t want_sec = !grounded ? 3 : (moving ? 0 : 2);
+            // Count how long the current animation frame has been held. Active swing
+            // frames advance every 1-6 ticks; a recovery hold sits on one frame for
+            // 40+, so a stall well past the former marks "the swing is over".
+            if (avm.section() >= 0x100) {
+                const long fk = (long(avm.anim_tag()) << 20) ^ avm.frame();
+                atk_stall = (fk == atk_frame_key) ? atk_stall + 1 : 0;
+                atk_frame_key = fk;
+            } else {
+                atk_stall = 0;
+                atk_frame_key = -1;
+            }
             // Attack sections hold on their last frame rather than falling off the end,
-            // so locomotion only takes back over once the script opens its cancel window.
-            // Below 0x100 the priority rule inside set_section does the refusing for us.
+            // so locomotion takes back over on the script's cancel window OR, for the
+            // sections that never open one, once the animation has clearly stalled into
+            // its recovery. Below 0x100 the priority rule inside set_section refuses.
             if (avm.section() < 0x100)
                 avm.set_section(want_sec);
-            else if (avm.cancelable())
+            else if (avm.cancelable() || atk_stall >= 10)
                 avm.set_section(want_sec, /*force*/true);
             avm.set_is_land(grounded);
             avm.tick();
@@ -4850,7 +4896,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 p.speed = b.f[6];
                 p.accel = b.f[7];
                 p.gravity = b.f[8];
-                p.scale = b.f[10] > 0 ? b.f[10] : 1.0f;
+                // The emitter's OWN scale is the world size. arg[12] (=0.15 for Hugo) was
+                // read as a scale multiplier, but applying it shrank the shot to a
+                // near-invisible sliver, so its role is not that (it may be an anim rate).
+                // Default to the emitter scale as-authored; CLERIA_BULLET_SCALE tunes.
+                p.scale = 1.0f;
                 p.pos = {feet.x + p.dir.x * reach, feet.y + kCharH * 0.5f + voff,
                          feet.z + p.dir.z * reach};
                 p.life = bullet_art(g, asset_root, efl, eft, p.effect_id).life;
