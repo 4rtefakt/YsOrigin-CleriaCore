@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "cleria/aso.hpp"
+#include "cleria/ef2.hpp"
 
 namespace fs = std::filesystem;
 using namespace cleria;
@@ -88,6 +89,58 @@ int main(int argc, char** argv) {
                             vm.file_id(), aso_aia_name(vm.file_id()));
         }
         if (held) std::printf("  tag=%-4d frame=%-3d held %d ticks\n", last_tag, last_frame, held);
+        return 0;
+    }
+
+    // Resolve every projectile the scripts fire, end to end: ASO anime_FireBullet
+    // arg[1] -> eftlist -> .EF2 -> its emitter's texture id -> the .DDS on disk. This
+    // is the chain that decides whether a bullet can be drawn at all, so it is worth
+    // being able to check in one command.
+    //   cleria-asotest <asset_root> --bullets
+    if (argc >= 3 && std::strcmp(argv[2], "--bullets") == 0) {
+        const fs::path root = argv[1];
+        EftList efl;
+        EftTex eft;
+        if (!efl.load(root) || !eft.load(root)) {
+            std::fprintf(stderr, "eftlist/efttex load failed under %s\n", argv[1]);
+            return 1;
+        }
+        std::printf("eftlist: %zu ids, efttex: %zu textures\n", efl.size(), eft.size());
+        std::map<int, int> uses;      // effect id -> how many FireBullet calls
+        std::map<int, std::string> from;
+        for (const auto& e : fs::recursive_directory_iterator(root)) {
+            if (!e.is_regular_file()) continue;
+            std::string ext = e.path().extension().string();
+            for (char& c : ext) c = char(std::toupper((unsigned char)c));
+            if (ext != ".ASO") continue;
+            Aso a = Aso::parse(read_file(e.path()));
+            if (!a.ok()) continue;
+            AsoVm vm;
+            vm.bind(&a);
+            for (const Aso::Section& s : a.sections()) {
+                if (!vm.set_section(s.id, true)) continue;
+                for (int t = 0; t < 240; ++t) {
+                    vm.tick();
+                    for (const AsoVm::BulletEvent& b : vm.bullets()) {
+                        if (!uses.count(b.id)) from[b.id] = e.path().stem().string();
+                        ++uses[b.id];
+                    }
+                }
+            }
+        }
+        int drawable = 0;
+        for (const auto& [id, n] : uses) {
+            const fs::path ef2p = efl.path(root, id);
+            const Ef2 ef = ef2p.empty() ? Ef2{} : Ef2::load(ef2p);
+            const Ef2Emitter* em = ef.ok() ? ef.primary() : nullptr;
+            const fs::path tex = em ? eft.path(root, int(em->frames[0].tex_id)) : fs::path();
+            if (!tex.empty()) ++drawable;
+            std::printf("  id %-4d x%-4d %-28s %-34s %s\n", id, n, from[id].c_str(),
+                        efl.name(id).c_str(),
+                        tex.empty() ? "** UNRESOLVED **" : tex.filename().string().c_str());
+        }
+        std::printf("\n%zu distinct projectile effects, %d resolve to a texture on disk\n",
+                    uses.size(), drawable);
         return 0;
     }
 

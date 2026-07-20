@@ -1,0 +1,79 @@
+// EF2 — the effect format, and the two registries that resolve an effect id to files.
+//
+// Enough of it to draw one: the container, each emitter's scale/lifetime, and its
+// frame table (texture id + UV rect per frame). The particle simulation proper —
+// the 17 animation tracks in B2 — is NOT modelled; an emitter is treated as a
+// billboard that flips through its frames. See build/ef2_re/EF2_FORMAT.md for the
+// full byte layout and build/effect_re/EFFECTS.md for the id catalogue.
+//
+// Two registries, both {u32 header_zero; u32 count} then 196-byte records of
+// {u32 stored_id; char name[192]}:
+//   EFTLIST.DAT/2/3  effect id -> "pc\pc02\PC2_DEF_ATTACK.eft"   (640 ids, flat)
+//   EFTTEX.DAT       texture id -> "YsF_used\adol_g\aef_4_02.dds" (229)
+// EFTTEX's stored ids are 1-BASED, so tex_id N is record N-1 — an off-by-one that
+// silently resolves to a plausible-but-wrong texture if you get it backwards.
+#pragma once
+#include <cstdint>
+#include <filesystem>
+#include <string>
+#include <vector>
+
+namespace cleria {
+
+// effect id -> the .EF2 on disk.
+class EftList {
+  public:
+    bool load(const std::filesystem::path& asset_root);
+    std::size_t size() const { return names_.size(); }
+    // Logical name as stored, e.g. "pc\pc02\PC2_DEF_ATTACK.eft" ("" if unknown).
+    const std::string& name(int id) const;
+    // The file itself: EFFECT/EFT/PC/PC02/PC2_DEF_ATTACK.EF2, or empty if absent.
+    std::filesystem::path path(const std::filesystem::path& asset_root, int id) const;
+
+  private:
+    std::vector<std::string> names_;  // flat, indexed by effect id
+};
+
+// texture id -> the .DDS on disk.
+class EftTex {
+  public:
+    bool load(const std::filesystem::path& asset_root);
+    std::size_t size() const { return names_.size(); }
+    // Textures ship in H and L quality tiers, as a directory inserted before the
+    // filename; H is preferred and L is the fallback.
+    std::filesystem::path path(const std::filesystem::path& asset_root, int tex_id) const;
+
+  private:
+    std::vector<std::string> names_;  // indexed by stored id (index 0 unused)
+};
+
+struct Ef2Frame {
+    std::uint32_t tex_id = 0;
+    float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+};
+
+struct Ef2Emitter {
+    std::uint32_t life = 0;              // B1 +0x24, in ticks [H-medium]
+    float sx = 1, sy = 1, sz = 1;        // B1 +0x28
+    std::vector<Ef2Frame> frames;        // B2 +0x48 count, +0x4c ids, +0x8c uv rects
+    bool textured() const { return !frames.empty(); }
+};
+
+class Ef2 {
+  public:
+    static Ef2 load(const std::filesystem::path& file);
+    bool ok() const { return ok_; }
+    const std::vector<Ef2Emitter>& emitters() const { return emitters_; }
+    // The emitter a simple consumer should draw: the first textured one, since
+    // untextured emitters carry no quad at all (frame_count 0).
+    const Ef2Emitter* primary() const;
+    // Longest emitter lifetime — the engine keeps a projectile alive exactly as long
+    // as its effect lives, so this is a bullet's lifetime too.
+    std::uint32_t life() const;
+
+  private:
+    bool ok_ = false;
+    std::vector<Ef2Emitter> emitters_;
+};
+
+}  // namespace cleria

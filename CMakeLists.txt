@@ -39,6 +39,7 @@ add_library(cleria STATIC
   src/cleria/effectdef.cpp
   src/cleria/scenelist.cpp
   src/cleria/bgmdef.cpp
+  src/cleria/ef2.cpp
   src/cleria/surface.cpp
   src/cleria/world.cpp)
 target_include_directories(cleria PUBLIC src)
