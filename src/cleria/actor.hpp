@@ -179,6 +179,11 @@ struct Actor {
     // 0 for the player and for casts with no enemy record.
     float move_speed = 0;  // engine: actor+0x30c
 
+    // Transient chase-speed multiplier, driven by the enemy's animation script the way
+    // anime_Movable gates the player: the brain sets it to 0 while an attack is committed
+    // so the enemy plants for its swing instead of sliding through it. 1 = full chase.
+    float move_scale = 1.0f;
+
     // Combat reaction, on being hit. The engine writes a knockback impulse into the
     // cosmetic offset +0x338/+0x340 and runs a hit-flash tint countdown at +0x4e8
     // (forcing the sprite white). We keep the impulse in world XZ and decay it; hit_flash

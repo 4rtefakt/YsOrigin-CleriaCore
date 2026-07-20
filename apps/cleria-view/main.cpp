@@ -16,6 +16,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <array>
 #include <unordered_set>
 #include <vector>
 
@@ -1427,8 +1428,44 @@ struct EnemyFx {
         std::vector<SpriteTex> anim[8];   // idle animation frames, per facing direction
         std::uint32_t ndir = 0;
         float height = 1.6f;
+        // Other animations (walk, attack, hurt, death), decoded on demand and keyed by
+        // AIA tag -> 8 facings. Idle stays in `anim` above; this is everything the enemy
+        // ASO can ask for beyond it, so an attacking enemy shows its attack clip.
+        std::unordered_map<std::uint32_t, std::array<std::vector<SpriteTex>, 8>> byTag;
     };
     std::unordered_map<std::string, Kind> kinds;   // sprite stem -> decoded facings
+
+    // Frames for one animation tag + facing, decoded and cached lazily. Falls back to
+    // the idle set when the tag is not in this AIA (so a script asking for a clip the
+    // sprite lacks still draws something rather than vanishing).
+    const std::vector<SpriteTex>& tag_frames(Gpu& g, Kind& k, std::uint32_t tag,
+                                             std::uint32_t dir) {
+        if (dir >= 8) dir = 0;
+        auto it = k.byTag.find(tag);
+        if (it == k.byTag.end()) {
+            std::array<std::vector<SpriteTex>, 8> a;
+            int img = -1;
+            for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
+                if (k.aia.images[i].tag == tag) { img = int(i); break; }
+            if (img >= 0) {
+                const std::uint32_t nd = k.aia.images[img].nDir;
+                const std::uint32_t nf = k.aia.images[img].nFrame;
+                for (std::uint32_t d = 0; d < 8 && d < nd; ++d)
+                    for (std::uint32_t f = 0; f < nf; ++f) {
+                        AiaFrame fr;
+                        if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
+                        SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
+                        st.set_placement(fr, k.aia.canvasW);
+                        a[d].push_back(std::move(st));
+                    }
+            }
+            it = k.byTag.emplace(tag, std::move(a)).first;
+        }
+        const std::vector<SpriteTex>& v = it->second[dir];
+        if (!v.empty()) return v;
+        if (!it->second[0].empty()) return it->second[0];   // fewer facings shipped
+        return k.anim[dir < k.ndir ? dir : 0];              // tag absent -> idle
+    }
 
     // Decode ALL frames of one enemy type's idle animation for EVERY facing, so
     // draw_enemies can both rotate (pick the dir from the enemy's heading) and animate
@@ -1496,6 +1533,18 @@ struct EnemyRender {
     Actor* actor = nullptr;
     std::string stem;
     std::string display;
+    // ASO-driven combat, bound in bind_enemy_aso. When avm has no script the enemy
+    // falls back to the old idle-cycling render and never scripts an attack.
+    AsoVm avm;
+    int atk_section = -1;   // this kind's attack section id, or -1 if none
+    int idle_section = 2;   // resting section (2, else 0, else the first present)
+    int atk_cd = 0;         // ticks until it may attack again
+    int atk_win = 0;        // active-hitbox ticks remaining
+    AsoVm::Hitbox hb;
+    float atk_dx = 0, atk_dz = 1;  // heading latched when the swing begins
+    bool atk_hit = false;   // already connected with the player this swing
+    long atk_fkey = -1;     // recovery-stall detection, as the player has
+    int atk_stall = 0;
 };
 
 // Populate an ActorWorld the way the engine does (build/roomload_re/ROOMLOAD.md,
@@ -1566,7 +1615,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (!e.actor || !e.actor->alive()) continue;
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
-        const EnemyFx::Kind& k = it->second;
+        EnemyFx::Kind& k = it->second;
         // Floor shadow first (enemies are grounded, so pos.y is the floor).
         draw_shadow(g, color, depth, shadow, e.actor->pos, e.actor->pos.y, 0.6f);
         // Facing: the enemy's heading (yaw, vx=sin/vz=cos convention) mapped to the same
@@ -1577,13 +1626,28 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         const float sRt = hd.x * rt.x + hd.z * rt.z;
         const float deg = std::atan2(sUp, sRt) * 57.29578f;
         int dir = int(std::lround((deg + 360.0f) / 45.0f)) & 7;
-        if (dir >= int(k.ndir) || k.anim[dir].empty()) dir = 0;   // fewer facings shipped
-        const std::vector<SpriteTex>& frames = k.anim[dir];
-        if (frames.empty()) continue;
-        // Cycle the frames, offset per instance so a crowd is not in lockstep.
-        const int n = int(frames.size());
-        const int fi = ((int(t_anim * kEnemyAnimFps) + e.actor->instance_id * 2) % n + n) % n;
-        const SpriteTex* t = &frames[fi];
+        const std::vector<SpriteTex>* frames = nullptr;
+        int fi = 0;
+        if (e.avm.ok()) {
+            // ASO-driven: the running section's anime_Pattern picks the clip (tag) and the
+            // VM the frame, so an attacking enemy shows its attack animation, an idle one
+            // its idle, all in step with the hit-volume the same script arms.
+            const std::vector<SpriteTex>& fr =
+                fx.tag_frames(g, k, std::uint32_t(e.avm.anim_tag()), std::uint32_t(dir));
+            if (!fr.empty()) {
+                frames = &fr;
+                const int n = int(fr.size());
+                fi = (e.avm.frame() % n + n) % n;
+            }
+        }
+        if (!frames) {  // scriptless enemy: cycle idle, offset per instance
+            if (dir >= int(k.ndir) || k.anim[dir].empty()) dir = 0;
+            if (k.anim[dir].empty()) continue;
+            frames = &k.anim[dir];
+            const int n = int(frames->size());
+            fi = ((int(t_anim * kEnemyAnimFps) + e.actor->instance_id * 2) % n + n) % n;
+        }
+        const SpriteTex* t = &(*frames)[fi];
         if (!t->tex) continue;
         // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
         const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
@@ -4259,6 +4323,51 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
     spawn_player();
 
+    // Persistent per-kind enemy scripts + their attack section. The AsoVm in each
+    // EnemyRender binds to a script here, so these must outlive the render list (which
+    // is rebuilt on every spawn). Loaded and probed once per stem.
+    std::unordered_map<std::string, Aso> enemy_scripts;
+    std::unordered_map<std::string, int> enemy_atk_section;
+    auto enemy_script = [&](const std::string& stem) -> Aso* {
+        if (stem.empty()) return nullptr;
+        auto it = enemy_scripts.find(stem);
+        if (it == enemy_scripts.end()) {
+            Aso a = Aso::load(asset_root / "ANI" / (stem + ".ASO"));
+            it = enemy_scripts.emplace(stem, std::move(a)).first;
+            // The attack section: the highest-priority one that arms a hit-volume. Basic
+            // enemies have exactly one (M_100 -> section 7, a wind-up then a strike).
+            int sec = -1, best_type = -1;
+            if (it->second.ok())
+                for (const Aso::Section& s : it->second.sections()) {
+                    AsoVm probe;
+                    probe.bind(&it->second);
+                    if (!probe.set_section(s.id, /*force*/true)) continue;
+                    bool arms = false;
+                    for (int t = 0; t < 150 && !arms; ++t) {
+                        probe.tick();
+                        if (probe.armed_hitbox()) arms = true;
+                    }
+                    if (arms && s.type > best_type) { best_type = s.type; sec = s.id; }
+                }
+            enemy_atk_section[stem] = sec;
+        }
+        return it->second.ok() ? &it->second : nullptr;
+    };
+    // Bind each freshly-built enemy to its script + attack section, and start it in idle.
+    auto bind_enemy_aso = [&] {
+        for (EnemyRender& e : render) {
+            Aso* a = enemy_script(e.stem);
+            if (!a) continue;
+            e.avm.bind(a);
+            // Resting section: 2 (idle for most), else 0, else whatever exists first —
+            // set_section is what makes AsoVm::ok() true, so it must land on a real one.
+            int idle = a->find(2) ? 2 : (a->find(0) ? 0 : a->sections().front().id);
+            e.idle_section = idle;
+            e.avm.set_section(idle, /*force*/true);
+            e.atk_section = enemy_atk_section[e.stem];
+        }
+    };
+
     auto spawn_enemies = [&] {
         // Populate the world the engine's way: run S_xxxx.XSO (op 0xa0 -> SCT bulk,
         // op 0x12c -> scripted), seeded with the persistent game flags. Then load a
@@ -4269,6 +4378,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         efx.kinds.clear();
         efx.init_from_world(g, asset_root, world, casts);
         render = build_enemy_render(world, casts, efx);
+        bind_enemy_aso();
         if (!render.empty()) {
             int statted = 0;
             for (const EnemyRender& e : render) statted += (e.actor->max_hp > 0);
@@ -4645,6 +4755,60 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // through, then floor-snap. Enemy radius uses the player's for now -- a
             // per-cast collision radius (CASTINFO+0x34) is available but not yet wired.
             if (Actor* wp = world.player()) wp->pos = feet;
+            // Enemy brains, BEFORE the chase mover so move_scale gates this frame's step.
+            // Each enemy runs its own ASO: chase until in range, then commit to its attack
+            // section (the one that arms a hit-volume), plant for the swing, and return to
+            // idle when the animation stalls into recovery. This replaces the old
+            // contact-damage stand-in with the real animated attack + scripted hitbox.
+            constexpr float kEnemyAtkReach = 1.4f;   // wind-up trigger distance (+ radius)
+            constexpr int kEnemyAtkCooldown = 40;    // ticks between an enemy's swings
+            for (EnemyRender& e : render) {
+                Actor* en = e.actor;
+                if (!en || !en->alive() || !e.avm.ok()) continue;
+                if (e.atk_cd > 0) --e.atk_cd;
+                const float dx = feet.x - en->pos.x, dz = feet.z - en->pos.z;
+                const float dist2 = dx * dx + dz * dz;
+                const bool attacking = e.atk_section >= 0 && e.avm.section() == e.atk_section;
+                if (!attacking) {
+                    const float reach = kCharRadius + kEnemyAtkReach;
+                    if (e.atk_section >= 0 && e.atk_cd <= 0 && dist2 < reach * reach &&
+                        e.avm.set_section(e.atk_section, /*force*/true)) {
+                        const float dl = std::sqrt(dist2);
+                        e.atk_dx = dl > 1e-4f ? dx / dl : std::sin(en->yaw);
+                        e.atk_dz = dl > 1e-4f ? dz / dl : std::cos(en->yaw);
+                        e.atk_hit = false;
+                        e.atk_stall = 0;
+                        e.atk_fkey = -1;
+                        en->move_scale = 0.0f;
+                    } else {
+                        en->move_scale = 1.0f;   // chase
+                    }
+                } else {
+                    en->move_scale = 0.0f;       // planted through the swing
+                }
+                e.avm.set_is_land(true);
+                e.avm.tick();
+                // Its GenerateCollision arms the enemy's hit-volume, with the section's own
+                // radius/lifetime/power (M_100: frame 26, radius 1.0).
+                if (e.avm.armed_hitbox()) {
+                    e.hb = e.avm.hitbox();
+                    e.atk_win = e.hb.lifetime > 0 ? e.hb.lifetime : 1;
+                    e.atk_hit = false;
+                }
+                // Release: the swing is over once the animation stalls into its recovery
+                // hold (enemy scripts loop the last frame the same way the player's do).
+                if (e.avm.section() == e.atk_section) {
+                    const long fk = (long(e.avm.anim_tag()) << 20) ^ e.avm.frame();
+                    e.atk_stall = (fk == e.atk_fkey) ? e.atk_stall + 1 : 0;
+                    e.atk_fkey = fk;
+                    if (e.atk_stall >= 8) {
+                        e.avm.set_section(e.idle_section, /*force*/true);
+                        e.atk_cd = kEnemyAtkCooldown;
+                        en->move_scale = 1.0f;
+                    }
+                }
+            }
+
             world.step();
             for (Actor& a : world.actors()) {
                 if (a.is_player() || !a.alive()) continue;
@@ -4723,41 +4887,52 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // Enemies hitting the player. Damage is the REAL player-incoming formula
             // (combat.hpp player_incoming_damage = FUN_004fa740), gated by the player's
             // i-frames exactly as the engine does (one hit per window, however many
-            // enemies are on you). ** The REACH/TRIGGER are a placeholder: ** a contact
-            // check, not each enemy's own ASO attack (that faithful trigger needs
-            // per-enemy ASO, not wired). player_def is the lv1 curve; no equipment model.
-            if (player_iframes > 0) {
-                --player_iframes;
-            } else {
-                const float pdef = ginfo.curves[kPlayerDef].at(player.level);
-                const float mreach = kCharRadius + 0.6f;
-                for (Actor& en : world.actors()) {
-                    if (en.is_player() || !en.alive() || en.atk <= 0) continue;
-                    const float dx = en.pos.x - feet.x, dz = en.pos.z - feet.z;
-                    if (dx * dx + dz * dz > mreach * mreach) continue;
-                    const int dmg = player_incoming_damage(AttackStats{en.atk, 0, 0}, pdef,
-                        [&](float p) { return float(rng_pct(rng)) < p; });
-                    player.hp -= dmg;
-                    // p_damage is what the player's own hurt-reaction section (C_0x0.ASO
-                    // 4/11) emits; we play it directly because that reaction animation is
-                    // not driven yet. Death entry adds p_hit0, for the player as for anything
-                    // else. (SFX_TRIGGERS.md §4.3.)
-                    audio.play(kSfxPlayerHurt, kSfxAnimVol);
-                    if (player.hp <= 0) audio.play(kSfxDeathEntry, kSfxAnimVol);
-                    // The engine's generic grant is 16 ticks, but the player's post-hit
-                    // invulnerability window specifically is not pinned, and 16 (0.27s)
-                    // lets a real-level enemy shred the fresh lv1 player. TUNED to ~0.75s
-                    // until the player i-frame value is RE'd.
-                    player_iframes = 45;
-                    hud.message("-" + std::to_string(dmg) + " HP");
-                    if (player.hp <= 0) {  // down: respawn at full with a grace window
-                        player.hp = player.max_hp;
-                        spawn_player();
-                        player_iframes = 90;
-                        hud.message("Down! respawned");
-                    }
-                    break;                 // one hit per i-frame window
+            // enemies are on you). Damage now comes from the enemy's own ASO attack — its
+            // GenerateCollision box, armed on the swing frame in the brain above — not from
+            // touching it. player_def is the lv1 curve; no equipment model.
+            if (player_iframes > 0) --player_iframes;
+            const float pdef = ginfo.curves[kPlayerDef].at(player.level);
+            auto hurt_player = [&](float atk) {
+                const int dmg = player_incoming_damage(AttackStats{atk, 0, 0}, pdef,
+                    [&](float p) { return float(rng_pct(rng)) < p; });
+                player.hp -= dmg;
+                // p_damage is the player's own hurt-reaction sound; death adds p_hit0.
+                audio.play(kSfxPlayerHurt, kSfxAnimVol);
+                if (player.hp <= 0) audio.play(kSfxDeathEntry, kSfxAnimVol);
+                // Player i-frame window (~0.75s) is TUNED, not RE'd; the engine's generic
+                // 16-tick grant lets a real-level enemy shred the fresh lv1 player.
+                player_iframes = 45;
+                hud.message("-" + std::to_string(dmg) + " HP");
+                if (player.hp <= 0) {  // down: respawn at full with a grace window
+                    player.hp = player.max_hp;
+                    spawn_player();
+                    player_iframes = 90;
+                    hud.message("Down! respawned");
                 }
+            };
+            for (EnemyRender& e : render) {
+                Actor* en = e.actor;
+                if (e.atk_win <= 0) {
+                    // Scriptless enemies (no ASO) keep the old contact check so they are
+                    // not harmless; scripted ones deal damage only through their swing.
+                    if (!e.avm.ok() && en && en->alive() && en->atk > 0 && player_iframes == 0) {
+                        const float mreach = kCharRadius + 0.6f;
+                        const float dx = en->pos.x - feet.x, dz = en->pos.z - feet.z;
+                        if (dx * dx + dz * dz <= mreach * mreach) hurt_player(en->atk);
+                    }
+                    continue;
+                }
+                --e.atk_win;
+                if (!en || !en->alive() || en->atk <= 0 || e.atk_hit || player_iframes > 0)
+                    continue;
+                // The swing's box sits hb.radius ahead of the enemy in its latched heading.
+                const float cx = en->pos.x + e.atk_dx * e.hb.radius;
+                const float cz = en->pos.z + e.atk_dz * e.hb.radius;
+                const float rr = e.hb.radius + kCharRadius;
+                const float bx = feet.x - cx, bz = feet.z - cz;
+                if (bx * bx + bz * bz > rr * rr) continue;
+                e.atk_hit = true;                 // one hit per swing
+                hurt_player(en->atk);
             }
 
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS

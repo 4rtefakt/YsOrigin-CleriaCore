@@ -144,9 +144,9 @@ void ActorWorld::update_actor(Actor& a) {
     // MOVE only if it has a chase speed. speed 0 == immobile (mechanically frozen: the
     // engine's mover multiplies by ENEMYINFO+0x94*+0x98). Exactly 4 shipped casts are
     // speed 0 (Normous, Nustarl, Sevnam, M990) -- they aim but never translate.
-    if (a.move_speed > 0) {
-        a.pos.x += std::sin(a.yaw) * a.move_speed;
-        a.pos.z += std::cos(a.yaw) * a.move_speed;
+    if (a.move_speed > 0 && a.move_scale > 0.0f) {
+        a.pos.x += std::sin(a.yaw) * a.move_speed * a.move_scale;
+        a.pos.z += std::cos(a.yaw) * a.move_speed * a.move_scale;
     }
 }
 
