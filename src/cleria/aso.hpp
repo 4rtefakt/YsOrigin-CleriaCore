@@ -208,6 +208,19 @@ class AsoVm {
     };
     const std::vector<SoundEvent>& sounds() const { return sounds_; }
 
+    // anime_FireBullet (funcid 41 / 0x29) — projectile spawns, 186 uses. Hugo and Toal
+    // both fire (Yunica never does), as do many enemies. The two ints are surfaced raw
+    // and the rest kept as the script's own floats, because what they SELECT is still
+    // being reverse-engineered: `id` is NOT a CASTINFO index (its values run past that
+    // table's 186 entries, and the ones that do land in range hit unrelated boss names).
+    // Meanings land in build/projectile_re/PROJECTILE.md.
+    struct BulletEvent {
+        std::int32_t kind = 0;  // arg[0] — a small enum; only 0/1/2 appear in the corpus
+        std::int32_t id = 0;    // arg[1] — selects which projectile
+        float f[19] = {};       // arg[2..20], raw; heading/offset/speed live in here
+    };
+    const std::vector<BulletEvent>& bullets() const { return bullets_; }
+
     // Actor capability fields the script drives (ASOVM.md §4, funcids 20..28). These are
     // STATE, not per-tick events: a swing lowers Movable/Turnable during the commit and
     // opens Cancelable/AttackReserve near the end, which is what gives each character its
@@ -282,8 +295,10 @@ class AsoVm {
     bool foot_smoke_ = false;
     bool hitbox_armed_ = false;
     Hitbox hitbox_;
-    static constexpr std::size_t kMaxSoundsPerTick = 8;  // a script never issues near this many
+    static constexpr std::size_t kMaxSoundsPerTick = 8;   // a script never issues near this many
+    static constexpr std::size_t kMaxBulletsPerTick = 8;
     std::vector<SoundEvent> sounds_;
+    std::vector<BulletEvent> bullets_;
     float movable_ = 1.0f;
     bool turnable_ = true, actable_ = true, cancelable_ = false, atk_reserve_ = false;
     bool durable_ = false, untouchable_ = false, jump_enable_ = true;

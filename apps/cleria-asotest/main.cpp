@@ -69,6 +69,11 @@ int main(int argc, char** argv) {
             }
             if (vm.section_ended())
                 std::printf("  [section ended] tick %d — chained to section %d\n", t, vm.section());
+            for (const AsoVm::BulletEvent& b : vm.bullets()) {
+                std::printf("  [FireBullet] tick %d: kind=%d id=%d  f=", t, b.kind, b.id);
+                for (int i = 0; i < 8; ++i) std::printf("%g ", b.f[i]);
+                std::printf("\n");
+            }
             for (const AsoVm::SoundEvent& se : vm.sounds())
                 std::printf("  [SePlay3D] tick %d: EFFECTDEF id %d  offset (%.2f, %.2f, %.2f)\n", t,
                             se.id, se.dx, se.dy, se.dz);

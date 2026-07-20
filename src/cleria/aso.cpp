@@ -34,6 +34,7 @@ enum : std::uint32_t {
     kFootSmoke = 19,       // anime_FootSmoke=
     kGenerateCollision = 0x23,  // anime_GenerateCollision — arms the melee hit-volume
     kSePlay3D = 0x2a,      // anime_SePlay3D=ifffi  — plays EFFECTDEF sound arg0 at the actor
+    kFireBullet = 41,      // anime_FireBullet=iifff… — spawns a projectile (FUN_00593550)
     // Actor capability gates (ASOVM.md §4). Persistent state, raised/lowered across an
     // animation; together they are what makes each character's attack feel its own.
     kAttackReserve = 21,   // anime_AttackReserve=i  actor+0xe4 — combo input buffered
@@ -262,6 +263,22 @@ bool AsoVm::step(std::size_t& pc) {
             movable_ = v;
             break;
         }
+        case kFireBullet: {
+            // 21 args, typed `ii` then floats. Surfaced raw: the consumer decides what to
+            // spawn once PROJECTILE.md pins the meanings down.
+            auto af = [&](std::uint32_t i) {
+                float v; const std::uint32_t raw = std::uint32_t(ai(i));
+                std::memcpy(&v, &raw, 4); return v;
+            };
+            if (bullets_.size() < kMaxBulletsPerTick) {
+                BulletEvent b;
+                b.kind = ai(0);
+                b.id = ai(1);
+                for (std::uint32_t i = 2; i < argc && i - 2 < 19; ++i) b.f[i - 2] = af(i);
+                bullets_.push_back(b);
+            }
+            break;
+        }
         case kSePlay3D: {
             // anime_SePlay3D (0x2a): arg0 is an EFFECTDEF id, args 1..3 a float xyz
             // offset from the actor, arg4 a flag. 1072 uses across the corpus — this
@@ -300,6 +317,7 @@ void AsoVm::tick() {
     hitbox_armed_ = false;
     section_ended_ = false;
     sounds_.clear();
+    bullets_.clear();
     if (!ok()) return;
     if (wait_ > 0) { --wait_; return; }
 
