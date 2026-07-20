@@ -329,6 +329,16 @@ static int play_footstep(Audio& audio, const RoomMesh& m, int tri, unsigned step
     return footstep_interval(idx, running, jitter_roll);
 }
 
+// System SFX, from the `sys\` family at the head of EFFECTDEF.TXT (ids 0..19).
+// The Japanese comment column names each one, so these three need no guessing:
+// s_move is カーソル移動 ("cursor move") and s_ok is 決定 ("confirm").
+constexpr int kSfxConfirm = 0;  // sys\s_ok
+constexpr int kSfxCancel = 1;   // sys\s_cancel
+constexpr int kSfxBoo = 2;      // sys\s_boo — the "you can't do that" buzz
+constexpr int kSfxCursor = 3;   // sys\s_move
+constexpr float kSfxMenuVol = 0.8f;
+constexpr float kSfxAnimVol = 0.8f;  // anime_SePlay3D events (swings, impacts, voices)
+
 // What physics collides against. The game collides against the `_.YMO` hulls, not
 // the render mesh; fall back to the render mesh only if a room ships no twins.
 // CLERIA_COLL=render forces the old behaviour, for A/B.
@@ -3763,6 +3773,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const bool left = (k == SDLK_LEFT || k == SDLK_A);
                     const bool right = (k == SDLK_RIGHT || k == SDLK_D);
                     auto wrap = [](int v, int n, bool u) { return (v + (u ? n - 1 : 1)) % n; };
+                    // Menu SFX, hooked off the key classification rather than at each of the
+                    // ten state branches below. up/down always moves a cursor; left/right only
+                    // does anything on the Option page (sliders/checkboxes), so it only clicks
+                    // there. The exe's exact call sites are being RE'd separately.
+                    if (up || down || ((left || right) && ts == OPTIONS))
+                        audio.play(kSfxCursor, kSfxMenuVol);
+                    else if (ok)
+                        audio.play(kSfxConfirm, kSfxMenuVol);
+                    else if (esc)
+                        audio.play(kSfxCancel, kSfxMenuVol);
                     if (ts == CHARSELECT) {
                         if (esc) ts = MAIN;                              // back to main menu
                         else if (up || down) csel = wrap(csel, TitleFx::kCharCount, up);
@@ -4551,6 +4571,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (avm.section() != want_sec) avm.set_section(want_sec);
             avm.set_is_land(grounded);
             avm.tick();
+            // anime_SePlay3D events (ASO funcid 0x2a): the animation names its own
+            // sounds, so the swing lands on the right frame and is per-character for
+            // free -- Yunica's attack section issues 139 = player\p1_sw_slash0, and
+            // Hugo/Toal issue their own. Only drained here, on the logic tick: the
+            // other avm.tick() calls are init/character-switch and must stay silent.
+            for (const AsoVm::SoundEvent& se : avm.sounds()) audio.play(se.id, kSfxAnimVol);
             // The script may switch sprite files mid-action (e.g. the attack section
             // swaps C_111 -> C_114). When it does, the image INDEX for a tag can differ
             // between the old and new AIA, so force a re-decode -- otherwise the sprite

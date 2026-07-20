@@ -190,6 +190,17 @@ class AsoVm {
     bool armed_hitbox() const { return hitbox_armed_; }
     const Hitbox& hitbox() const { return hitbox_; }
 
+    // anime_SePlay3D (funcid 0x2a) — sound effects fired by the animation itself, which
+    // is how the game times every swing, impact and monster noise (1072 uses across the
+    // shipped scripts; see build/aso_re/ASOVM.md). `id` is an EFFECTDEF id, ready for
+    // Audio::play. Valid for the tick that produced them, like armed_hitbox(); a single
+    // tick runs many ops before it yields, so more than one can fire at once.
+    struct SoundEvent {
+        std::int32_t id = 0;      // arg[0] — EFFECTDEF id
+        float dx = 0, dy = 0, dz = 0;  // arg[1..3] — offset from the actor (unused: no panning)
+    };
+    const std::vector<SoundEvent>& sounds() const { return sounds_; }
+
     // Inputs the script polls.
     void set_is_land(bool v) { is_land_ = v; }
     void set_is_stun(bool v) { is_stun_ = v; }
@@ -240,6 +251,8 @@ class AsoVm {
     bool foot_smoke_ = false;
     bool hitbox_armed_ = false;
     Hitbox hitbox_;
+    static constexpr std::size_t kMaxSoundsPerTick = 8;  // a script never issues near this many
+    std::vector<SoundEvent> sounds_;
 };
 
 }  // namespace cleria

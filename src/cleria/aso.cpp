@@ -33,6 +33,7 @@ enum : std::uint32_t {
     kDirOffset = 16,       // anime_DirOffset=i
     kFootSmoke = 19,       // anime_FootSmoke=
     kGenerateCollision = 0x23,  // anime_GenerateCollision — arms the melee hit-volume
+    kSePlay3D = 0x2a,      // anime_SePlay3D=ifffi  — plays EFFECTDEF sound arg0 at the actor
     kFlagIsEqualInt = 95,  // Flag_IsEqualInt=ii   — R = (g_flags[a0] == a1)
 };
 
@@ -227,6 +228,23 @@ bool AsoVm::step(std::size_t& pc) {
             hitbox_armed_ = true;
             break;
         }
+        case kSePlay3D: {
+            // anime_SePlay3D (0x2a): arg0 is an EFFECTDEF id, args 1..3 a float xyz
+            // offset from the actor, arg4 a flag. 1072 uses across the corpus — this
+            // is how every swing, impact and enemy noise is timed, and it is why the
+            // sounds come out character-specific for free: each character runs its own
+            // .ASO (Yunica's swing issues 139 = player\p1_sw_slash0).
+            // The positional offset is parsed but not yet used; the mixer has no
+            // panning (see audio.hpp), so the sound plays flat.
+            auto af = [&](std::uint32_t i) {
+                float v; std::uint32_t raw = std::uint32_t(ai(i));
+                std::memcpy(&v, &raw, 4); return v;
+            };
+            if (sounds_.size() < kMaxSoundsPerTick)
+                sounds_.push_back({ai(0), argc > 3 ? af(1) : 0.0f, argc > 3 ? af(2) : 0.0f,
+                                   argc > 3 ? af(3) : 0.0f});
+            break;
+        }
         case kFlagIsEqualInt: {
             // The variant selector. 541 uses — an animation section is a chain of
             // these, each guarding one File+Pattern block.
@@ -246,6 +264,7 @@ bool AsoVm::step(std::size_t& pc) {
 void AsoVm::tick() {
     foot_smoke_ = false;
     hitbox_armed_ = false;
+    sounds_.clear();
     if (!ok()) return;
     if (wait_ > 0) { --wait_; return; }
 

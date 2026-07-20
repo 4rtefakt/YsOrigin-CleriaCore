@@ -55,6 +55,9 @@ int main(int argc, char** argv) {
                 ++held;
             }
             if (vm.foot_smoke()) std::printf("  [FootSmoke] at tick %d\n", t);
+            for (const AsoVm::SoundEvent& se : vm.sounds())
+                std::printf("  [SePlay3D] tick %d: EFFECTDEF id %d  offset (%.2f, %.2f, %.2f)\n", t,
+                            se.id, se.dx, se.dy, se.dz);
             if (vm.armed_hitbox()) {
                 const AsoVm::Hitbox& h = vm.hitbox();
                 std::printf("  [GenerateCollision] tick %d: radius=%.3f half_angle=%.1fdeg "
