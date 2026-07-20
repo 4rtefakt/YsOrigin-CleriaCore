@@ -33,6 +33,7 @@
 
 #include "cleria/aia.hpp"
 #include "cleria/aso.hpp"
+#include "cleria/ef2.hpp"
 #include "cleria/dds.hpp"
 #include "cleria/mathx.hpp"
 #include "cleria/cast.hpp"
@@ -1672,6 +1673,137 @@ static void draw_flames(Gpu& g, const Room& room, WGPUTextureView color,
     wgpuBufferRelease(vb); wgpuBufferRelease(ib);
 }
 
+
+// ---- projectiles (ASO anime_FireBullet -> an EF2 effect) --------------------
+//
+// A bullet is not an actor: the engine spawns a lightweight object whose only
+// renderable is one EF2 effect instance, and it lives exactly as long as that
+// effect does (build/projectile_re/PROJECTILE.md). So the visual is the real
+// shipped effect — arg[1] is an eftlist id, and Hugo's 130 is
+// pc\pc02\PC2_DEF_ATTACK.eft. Every textured emitter of the effect is drawn,
+// rather than guessing which one is "the" bullet.
+struct BulletArt {
+    struct Layer {
+        SpriteTex tex;
+        std::vector<Ef2Frame> frames;   // UV rect per frame, from the EF2
+        float w = 1, h = 1;             // emitter scale
+    };
+    std::vector<Layer> layers;
+    int life = 60;                      // ticks; the effect's own lifetime
+    bool ok() const { return !layers.empty(); }
+};
+
+// id -> art, loaded once. Effects that fail to resolve cache as empty so a missing
+// one is not retried every shot.
+static const BulletArt& bullet_art(Gpu& g, const fs::path& asset_root, const EftList& efl,
+                                   const EftTex& eft, int effect_id) {
+    static std::unordered_map<int, BulletArt> cache;
+    auto it = cache.find(effect_id);
+    if (it != cache.end()) return it->second;
+    BulletArt& a = cache[effect_id];
+    const fs::path p = efl.path(asset_root, effect_id);
+    if (p.empty()) return a;
+    const Ef2 ef = Ef2::load(p);
+    if (!ef.ok()) return a;
+    a.life = int(ef.life() > 0 ? ef.life() : 60);
+    for (const Ef2Emitter& em : ef.emitters()) {
+        if (!em.textured()) continue;   // frame_count 0 draws no quad at all
+        const fs::path tp = eft.path(asset_root, int(em.frames[0].tex_id));
+        if (tp.empty()) continue;
+        Dds d = load_dds(tp);
+        if (!d.ok()) continue;
+        BulletArt::Layer L;
+        L.tex = upload_rgba(g, d.width, d.height, d.data.data());
+        L.frames = em.frames;
+        L.w = em.sx;
+        L.h = em.sy;
+        a.layers.push_back(L);
+    }
+    return a;
+}
+
+struct Projectile {
+    Vec3 pos{};
+    Vec3 dir{1, 0, 0};
+    float speed = 0, accel = 0, gravity = 0;
+    float scale = 1;
+    int effect_id = 0;
+    int age = 0, life = 60;
+    bool from_player = true;
+    std::unordered_set<int> hit;   // per-bullet hit dedup, as melee does
+    bool alive() const { return age < life; }
+};
+
+// One tick of flight. The engine integrates speed then re-derives heading from the
+// resulting velocity, so gravity curves the bullet AND re-aims it.
+static void step_projectile(Projectile& p) {
+    p.speed += p.accel;
+    Vec3 v = {p.dir.x * p.speed, p.dir.y * p.speed, p.dir.z * p.speed};
+    v.y -= p.gravity;
+    const float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    if (l > 1e-6f) {
+        p.dir = {v.x / l, v.y / l, v.z / l};
+        p.speed = l;
+    }
+    p.pos.x += v.x; p.pos.y += v.y; p.pos.z += v.z;
+    ++p.age;
+}
+
+static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
+                             const fs::path& asset_root, const EftList& efl, const EftTex& eft,
+                             WGPUTextureView color, WGPUTextureView depth, const Vec3& camFwd) {
+    if (shots.empty()) return;
+    const Vec3 up = {0, 1, 0};
+    const Vec3 right = normalize(cross(up, camFwd));
+    // One draw per texture: group by layer so each keeps its own bind group.
+    for (const Projectile& s : shots) {
+        const BulletArt& art = bullet_art(g, asset_root, efl, eft, s.effect_id);
+        if (!art.ok()) continue;
+        for (const BulletArt::Layer& L : art.layers) {
+            if (L.frames.empty()) continue;
+            const int fi = std::min(int(L.frames.size()) - 1,
+                                    int(std::size_t(s.age) * L.frames.size() /
+                                        std::size_t(std::max(1, art.life))));
+            const Ef2Frame& fr = L.frames[std::size_t(fi)];
+            const float hw = L.w * s.scale * 0.5f, hh = L.h * s.scale * 0.5f;
+            RoomVertex verts[4];
+            std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
+            auto V = [&](int n, float sx, float sy, float u, float v) {
+                verts[n] = {s.pos.x + right.x * sx * hw, s.pos.y + sy * hh,
+                            s.pos.z + right.z * sx * hw, 0, 0, -1, u, v, 255, 255, 255, 255};
+            };
+            V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);
+            V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1);
+            WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof(verts),
+                                        WGPUBufferUsage_Vertex);
+            WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof(idx),
+                                        WGPUBufferUsage_Index);
+            WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+            WGPURenderPassColorAttachment ca = {};
+            ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+            ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+            WGPURenderPassDepthStencilAttachment da = {};
+            da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+            WGPURenderPassDescriptor rp = {};
+            rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
+            rp.depthStencilAttachment = &da;
+            WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+            wgpuRenderPassEncoderSetPipeline(pass, g.fx_pipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+            wgpuRenderPassEncoderSetBindGroup(pass, 1, L.tex.bind, 0, nullptr);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0,
+                                                WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
+            wgpuRenderPassEncoderEnd(pass);
+            wgpuRenderPassEncoderRelease(pass);
+            WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+            wgpuQueueSubmit(g.queue, 1, &cmd);
+            wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+            wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+        }
+    }
+}
 
 struct HudVertex { float x, y, u, v; std::uint8_t r, g, b, a; };
 
@@ -3939,6 +4071,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // once per swing (the engine's hit-dedup). Yunica's basic swing (verified in
     // cleria-asotest): radius 0.6, 30-tick window, power 8.0, box 0.6 ahead of the actor.
     int atk_window = 0;                  // ticks left in the active hitbox
+    // Projectiles. The effect registries resolve a bullet's eftlist id to its real
+    // EF2 and texture; without them bullets simply do not spawn (rather than draw
+    // something invented).
+    EftList efl;
+    EftTex eft;
+    if (!efl.load(asset_root) || !eft.load(asset_root))
+        std::printf("effects: EFTLIST/EFTTEX missing — projectiles disabled\n");
+    std::vector<Projectile> shots;
     // The live hit-volume, copied from the script when GenerateCollision arms it.
     // Defaults are Yunica's combo #1 so a script that never arms behaves as before.
     AsoVm::Hitbox atk_hb{0.6f, 0.0f, 30, 8.0f};
@@ -4652,6 +4792,88 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 avm.set_section(want_sec, /*force*/true);
             avm.set_is_land(grounded);
             avm.tick();
+            // Projectile flight. The motion here IS reverse-engineered (speed += accel,
+            // gravity applied to the velocity, heading re-derived from it, and the bullet
+            // living exactly as long as its effect). The DAMAGE is not: PROJECTILE.md
+            // marks the generic bullet->victim path [UNKNOWN] — the only damage calls in
+            // the update loop sit behind a branch for five hardcoded parryable ids. The
+            // sphere test and formula below are the melee ones reused so Hugo can fight
+            // at all. Stand-in, not engine behaviour; revisit if that path is found.
+            for (Projectile& p : shots) {
+                step_projectile(p);
+                if (!p.from_player) continue;
+                for (Actor& en : world.actors()) {
+                    if (en.is_player() || !en.alive() || p.hit.count(en.instance_id)) continue;
+                    const float bx = en.pos.x - p.pos.x, bz = en.pos.z - p.pos.z;
+                    const float by = (en.pos.y + kCharH * 0.5f) - p.pos.y;
+                    const float rr = kCharRadius + 0.3f;
+                    if (bx * bx + by * by + bz * bz > rr * rr) continue;
+                    p.hit.insert(en.instance_id);
+                    AttackStats a;
+                    a.atk = ginfo.player_atk(character, /*tier*/ 0, player.level);
+                    const int dmg = damage_int(a, en.def,
+                        [&](float pct) { return float(rng_pct(rng)) < pct; });
+                    const HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    en.hit_flash = 6;
+                    if (r.died) {
+                        award_exp(en.exp_reward);
+                        audio.play(kSfxDeathEntry, kSfxAnimVol);
+                        for (int id : enemy_death_sounds(asset_root, casts.sprite_stem(en.cast_id)))
+                            audio.play(id, kSfxAnimVol);
+                    }
+                    p.age = p.life;   // die on hit — pierce-vs-not is [UNKNOWN] too
+                    break;
+                }
+            }
+            shots.erase(std::remove_if(shots.begin(), shots.end(),
+                                       [](const Projectile& p) { return !p.alive(); }),
+                        shots.end());
+
+            // anime_FireBullet fired. Arg meanings from build/projectile_re/PROJECTILE.md:
+            // [2] forward reach, [3] vertical offset, [4] heading offset in DEGREES added
+            // to facing, [5..7] an explicit direction used iff non-zero, [8] speed,
+            // [9] acceleration, [10] gravity, [12] scale (negative = sentinel for 1.0).
+            for (const AsoVm::BulletEvent& b : avm.bullets()) {
+                Projectile p;
+                p.effect_id = b.id;
+                const float reach = b.f[0], voff = b.f[1], head_deg = b.f[2];
+                const Vec3 d{b.f[3], b.f[4], b.f[5]};
+                const float dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+                if (dl > 1e-6f) {
+                    p.dir = {d.x / dl, d.y / dl, d.z / dl};
+                } else {
+                    // Spawn geometry is the engine's x=sin / z=cos, same as GenerateCollision.
+                    const float yaw = std::atan2(face_dir.x, face_dir.z) +
+                                      head_deg * 3.14159265358979f / 180.0f;
+                    p.dir = {std::sin(yaw), 0, std::cos(yaw)};
+                }
+                p.speed = b.f[6];
+                p.accel = b.f[7];
+                p.gravity = b.f[8];
+                p.scale = b.f[10] > 0 ? b.f[10] : 1.0f;
+                p.pos = {feet.x + p.dir.x * reach, feet.y + kCharH * 0.5f + voff,
+                         feet.z + p.dir.z * reach};
+                p.life = bullet_art(g, asset_root, efl, eft, p.effect_id).life;
+                // Speed 0 means a stationary attached effect rather than a projectile —
+                // that is all of Toal's 8 calls (smoke), so they must not become bullets.
+                // How the script's scale arg combines with the emitter's own scale is
+                // NOT pinned down by the RE, so it is left tunable rather than silently
+                // fudged: CLERIA_BULLET_SCALE multiplies the result.
+                if (const char* bs = std::getenv("CLERIA_BULLET_SCALE"))
+                    p.scale *= float(std::atof(bs));
+                if (std::getenv("CLERIA_BULLET")) {
+                    const BulletArt& art = bullet_art(g, asset_root, efl, eft, p.effect_id);
+                    std::printf("  [bullet] effect %d (%s) %zu layer(s) life=%d speed=%.3f "
+                                "scale=%.3f dir=(%.2f,%.2f,%.2f)\n",
+                                p.effect_id, efl.name(p.effect_id).c_str(), art.layers.size(),
+                                p.life, p.speed, p.scale, p.dir.x, p.dir.y, p.dir.z);
+                    for (const BulletArt::Layer& L : art.layers)
+                        std::printf("           layer %ux%u  %zu frames  world size %.3f x %.3f\n",
+                                    L.tex.w, L.tex.h, L.frames.size(), L.w * p.scale,
+                                    L.h * p.scale);
+                }
+                if (p.speed > 1e-4f) shots.push_back(std::move(p));
+            }
             // GenerateCollision fired: adopt this section's own box for its own lifetime.
             if (avm.armed_hitbox()) {
                 atk_hb = avm.hitbox();
@@ -4751,6 +4973,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
+        draw_projectiles(g, shots, asset_root, efl, eft, view, depth, cam.forward());
         player.character = character;
         // EXP bar: progress from this level's threshold to the next (100% at the cap).
         if (ginfo.ok()) {
