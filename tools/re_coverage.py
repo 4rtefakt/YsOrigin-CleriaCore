@@ -66,6 +66,21 @@ def load_functions():
     return funcs
 
 
+# Statically-linked third-party libraries Ghidra could NOT tag (no FID signatures), so
+# they masquerade as game FUN_s and inflate the denominator. We would never reimplement
+# these — CleriaCore uses the real libpng/zlib/stb_vorbis — so they are excluded from the
+# ENGINE denominator. Ranges [lo, hi) identified by build/arch_re/REGION_5E_61.md.
+THIRD_PARTY = [
+    (0x5ff8d0, 0x600240, "Ogg Vorbis decoder"),
+    (0x602c80, 0x6056d0, "zlib 1.2.3"),
+    (0x6056d0, 0x61ffe0, "libpng"),
+]
+
+
+def in_third_party(addr):
+    return any(lo <= addr < hi for lo, hi, _ in THIRD_PARTY)
+
+
 def is_library(name):
     """Heuristic: a Ghidra-NAMED function (not FUN_/thunk_) is CRT/STL/D3D boilerplate
     identified by FunctionID; game code stays as FUN_ until we name it. Imperfect."""
@@ -162,8 +177,12 @@ def main():
         lines.append(f"- Functions **dumped** (in Ghidra decompilation output): **{len(dumped)}**")
     else:
         # Split library-identified from game/unknown code, by count and by bytes.
+        # Also drop identified statically-linked third-party (libpng/zlib/vorbis).
         game = {a: v for a, v in funcs.items()
-                if not is_library(v[1]) and not v[2] and not v[3]}
+                if not is_library(v[1]) and not v[2] and not v[3] and not in_third_party(a)}
+        tp = {a: v for a, v in funcs.items() if in_third_party(a)}
+        report["third_party_excluded_functions"] = len(tp)
+        report["third_party_excluded_bytes"] = sum(v[0] for v in tp.values())
         total_all = len(funcs)
         total_game = len(game)
         bytes_all = sum(v[0] for v in funcs.values())
@@ -197,8 +216,10 @@ def main():
         lines.append(f"| by code bytes | **{report['pct_documented_by_bytes']:.1f}%** "
                      f"| {report['pct_dumped_by_bytes']:.1f}% | {bytes_game:,} bytes |")
         lines.append("")
-        lines.append(f"- Total functions in exe: **{total_all}** "
-                     f"({total_game} game/unknown, {total_all - total_game} library-identified)")
+        lines.append(f"- Total functions in exe: **{total_all}** = {total_game} engine, "
+                     f"{total_all - total_game - len(tp)} CRT/D3D-library, "
+                     f"{len(tp)} vendored third-party ({report['third_party_excluded_bytes']:,} B: "
+                     f"libpng/zlib/vorbis, excluded, we use the real libs)")
         lines.append(f"- Documented game functions: **{len(doc_in_game)}** / {total_game}")
         lines.append(f"- Dumped game functions: **{len(dump_in_game)}** / {total_game}")
 
