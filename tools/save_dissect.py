@@ -60,13 +60,16 @@ def main():
     print(f"Difficulty: {DIF.get(u32(d, 0x76BB5C), '?')}")
     print(f"Save name : {cstr(d, 0x90, 0x1f).strip()!r}")
     print(f"Date/time : {cstr(d, 0x7c, 10)}  {cstr(d, 0x87, 9)}")
+    # UI name -> engine address. NB the game's "SP" is a CURRENCY (0x76a75c), NOT the
+    # code's 3000-capped "SP gauge" (0x76a738); "EX" is the Boost gauge (0x76c1b4).
     print(f"\n---- vitals ----")
-    print(f"HP     : {f32(d, 0x76A72C):.0f} / {f32(d, 0x76A730):.0f}")
-    print(f"SP     : {f32(d, 0x76A734):.0f} / {f32(d, 0x76A738):.0f}")
-    print(f"O2     : {f32(d, 0x76C1B8):.0f} / 6000")
-    print(f"ATK/DEF: {f32(d, 0x76A73C):.1f} / {f32(d, 0x76A740):.1f}")
-    print(f"Play   : {f32(d, 0x76A748):.0f} s  (~{f32(d, 0x76A748)/3600:.1f} h)")
-    print(f"Zenny  : {u32(d, 0x76A75C)}")
+    print(f"HP      : {f32(d, 0x76A72C):.0f} / {f32(d, 0x76A730):.0f}")
+    print(f"ATK/DEF : {f32(d, 0x76A73C):.1f} / {f32(d, 0x76A740):.1f}")
+    print(f"SP (cur): {u32(d, 0x76A75C):,}      # currency, no cap")
+    print(f"EXP     : {f32(d, 0x76A748):,.0f}   # toward next level")
+    print(f"EX/Boost: {f32(d, 0x76C1B4):.0f} / 30000  ({f32(d, 0x76C1B4)/300:.0f}%)")
+    print(f"Air     : {f32(d, 0x76C1B8):.0f} / 6000  (underwater oxygen)")
+    print(f"skillgge: {f32(d, 0x76A738):.0f} / {f32(d, 0x76A734):.0f}  (code-'SP', regen skill gauge)")
     print(f"\n---- equipment ----")
     print(f"Weapon   : {nm(names, u32(d, 0x76BB78))}  tier {i32(d, 0x76A634 + ch*8)}  "
           f"cachedATK {f32(d, 0x76A638 + ch*8):.0f}")

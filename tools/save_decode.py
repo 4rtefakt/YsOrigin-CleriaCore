@@ -66,7 +66,7 @@ def summarise(path):
         "difficulty": DIF.get(u32(d, 0x76BB5C), "?"),
         "location": cstr(d, 0x90, 0x1F).strip(),   # header +0x90 area line
         "date": cstr(d, 0x7C, 10),
-        "zenny": u32(d, 0x76A75C),
+        "sp": u32(d, 0x76A75C),   # UI "SP" currency (uncapped); NOT the code's SP gauge
         "hp": round(f32(d, 0x76A72C)),
         "o2": round(f32(d, 0x76C1B8)),
         "weapon_id": u32(d, 0x76BB78),
@@ -82,7 +82,7 @@ def main():
         return
     arg = sys.argv[1]
     files = sorted(glob.glob(os.path.join(arg, "yso_*.bin"))) if os.path.isdir(arg) else [arg]
-    hdr = f"{'file':12} {'char':7} {'diff':9} {'location':26} {'zenny':>8} {'HP':>4} {'wpn':>3} {'date'}"
+    hdr = f"{'file':12} {'char':7} {'diff':9} {'location':26} {'SP':>9} {'HP':>4} {'wpn':>3} {'date'}"
     print(hdr)
     for f in files:
         try:
@@ -91,7 +91,7 @@ def main():
             print(f"{os.path.basename(f):12} ERROR {e}")
             continue
         print(f"{s['file']:12} {s['char']:7} {s['difficulty']:9} {s['location'][:26]:26} "
-              f"{s['zenny']:>8} {s['hp']:>4} {s['weapon_id']:>3} {s['date']}")
+              f"{s['sp']:>9} {s['hp']:>4} {s['weapon_id']:>3} {s['date']}")
 
 
 if __name__ == "__main__":
