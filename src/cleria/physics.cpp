@@ -114,4 +114,155 @@ Vec3 resolve_walls(const RoomMesh& m, Vec3 pos, float radius, float height) {
     return pos;
 }
 
+// ---- swept-sphere collide-and-slide (Fauerby/Nettle) ------------------------
+namespace {
+
+// Barycentric point-in-triangle (with a small tolerance for the plane contact).
+bool point_in_tri(const Vec3& p, const Vec3& a, const Vec3& b, const Vec3& c) {
+    const Vec3 u = sub(b, a), w = sub(c, a), vp = sub(p, a);
+    const float uu = dot(u, u), uw = dot(u, w), ww = dot(w, w);
+    const float pu = dot(vp, u), pw = dot(vp, w);
+    const float d = uu * ww - uw * uw;
+    if (std::fabs(d) < 1e-12f) return false;
+    const float s = (ww * pu - uw * pw) / d;
+    const float t = (uu * pw - uw * pu) / d;
+    return s >= -1e-4f && t >= -1e-4f && s + t <= 1.0f + 1e-4f;
+}
+
+// Lowest root of a*t^2 + b*t + c = 0 in (0, maxT]; false if none.
+bool lowest_root(float a, float b, float c, float maxT, float& root) {
+    if (std::fabs(a) < 1e-12f) {  // degenerate -> linear
+        if (std::fabs(b) < 1e-12f) return false;
+        const float t = -c / b;
+        if (t > 1e-7f && t <= maxT) { root = t; return true; }
+        return false;
+    }
+    const float det = b * b - 4 * a * c;
+    if (det < 0) return false;
+    const float sq = std::sqrt(det);
+    float r1 = (-b - sq) / (2 * a), r2 = (-b + sq) / (2 * a);
+    if (r1 > r2) std::swap(r1, r2);
+    if (r1 > 1e-7f && r1 <= maxT) { root = r1; return true; }
+    if (r2 > 1e-7f && r2 <= maxT) { root = r2; return true; }
+    return false;
+}
+
+struct SweepHit {
+    bool hit = false;
+    float t = 1.0f;
+    Vec3 n{0, 1, 0};  // unit contact normal (sphere-center -> contact point, reversed)
+};
+
+// Earliest collision of sphere(p0, r) swept p0 -> p0+vel against triangle abc,
+// recorded into `out` only if sooner than out.t. Face, then edges + vertices.
+void sweep_tri(const Vec3& p0, const Vec3& vel, float r, const Vec3& a, const Vec3& b,
+               const Vec3& c, SweepHit& out) {
+    const Vec3 N = normalize(cross(sub(b, a), sub(c, a)));
+    const float nDotV = dot(N, vel);
+    const float dist = dot(N, sub(p0, a));  // signed distance center -> plane
+    float t0;
+    bool embedded = false;
+    if (std::fabs(nDotV) < 1e-8f) {
+        if (std::fabs(dist) >= r) return;   // parallel and never touching
+        embedded = true;
+        t0 = 0.0f;
+    } else {
+        const float ta = (r - dist) / nDotV, tb = (-r - dist) / nDotV;
+        const float lo = std::min(ta, tb), hi = std::max(ta, tb);
+        if (lo > 1.0f || hi < 0.0f) return;  // touch window outside [0,1]
+        t0 = std::clamp(lo, 0.0f, 1.0f);
+    }
+
+    float bestT = out.t;
+    Vec3 bestN{};
+    bool found = false;
+
+    // 1. Face contact at t0 (earliest possible for this triangle).
+    if (!embedded) {
+        const Vec3 cen{p0.x + vel.x * t0, p0.y + vel.y * t0, p0.z + vel.z * t0};
+        const Vec3 onPlane{cen.x - N.x * r, cen.y - N.y * r, cen.z - N.z * r};
+        if (point_in_tri(onPlane, a, b, c) && t0 < bestT) {
+            bestT = t0;
+            bestN = N;
+            found = true;
+        }
+    }
+    // 2. Edges + vertices (the sphere clips a border, not the face interior).
+    if (!found) {
+        const float vLen2 = dot(vel, vel);
+        auto vtx = [&](const Vec3& P) {
+            const Vec3 d = sub(p0, P);
+            float t;
+            if (lowest_root(vLen2, 2 * dot(vel, d), dot(d, d) - r * r, bestT, t)) {
+                const Vec3 cen{p0.x + vel.x * t, p0.y + vel.y * t, p0.z + vel.z * t};
+                bestT = t;
+                bestN = normalize(sub(cen, P));
+                found = true;
+            }
+        };
+        auto edge = [&](const Vec3& P, const Vec3& Q) {
+            const Vec3 e = sub(Q, P), d = sub(p0, P);
+            const float e2 = dot(e, e), eV = dot(e, vel), eD = dot(e, d);
+            const float A = e2 * (-vLen2) + eV * eV;
+            const float B = e2 * (2 * dot(vel, d)) - 2 * eV * eD;
+            const float C = e2 * (r * r - dot(d, d)) + eD * eD;
+            float t;
+            if (lowest_root(A, B, C, bestT, t)) {
+                const float f = (eV * t - eD) / e2;
+                if (f >= 0.0f && f <= 1.0f) {
+                    const Vec3 cen{p0.x + vel.x * t, p0.y + vel.y * t, p0.z + vel.z * t};
+                    const Vec3 fp{P.x + e.x * f, P.y + e.y * f, P.z + e.z * f};
+                    bestT = t;
+                    bestN = normalize(sub(cen, fp));
+                    found = true;
+                }
+            }
+        };
+        vtx(a); vtx(b); vtx(c);
+        edge(a, b); edge(b, c); edge(c, a);
+    }
+
+    if (found) {
+        out.hit = true;
+        out.t = bestT;
+        out.n = bestN;
+    }
+}
+
+}  // namespace
+
+Vec3 collide_and_slide(const RoomMesh& m, Vec3 pos, Vec3 vel, float radius) {
+    const auto& idx = m.indices;
+    const auto& vp = m.vertices;
+    const float skin = 0.002f;  // gap kept off the surface to avoid re-embedding
+    for (int iter = 0; iter < 15; ++iter) {
+        if (dot(vel, vel) < 1e-12f) break;
+        const Vec3 dest{pos.x + vel.x, pos.y + vel.y, pos.z + vel.z};
+        SweepHit best;
+        // Broadphase: the swept-sphere AABB over this segment.
+        const float lox = std::min(pos.x, dest.x) - radius, hix = std::max(pos.x, dest.x) + radius;
+        const float loy = std::min(pos.y, dest.y) - radius, hiy = std::max(pos.y, dest.y) + radius;
+        const float loz = std::min(pos.z, dest.z) - radius, hiz = std::max(pos.z, dest.z) + radius;
+        for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+            const Vec3 a = v(vp[idx[i]]), b = v(vp[idx[i + 1]]), c = v(vp[idx[i + 2]]);
+            if (std::max({a.x, b.x, c.x}) < lox || std::min({a.x, b.x, c.x}) > hix) continue;
+            if (std::max({a.y, b.y, c.y}) < loy || std::min({a.y, b.y, c.y}) > hiy) continue;
+            if (std::max({a.z, b.z, c.z}) < loz || std::min({a.z, b.z, c.z}) > hiz) continue;
+            sweep_tri(pos, vel, radius, a, b, c, best);
+        }
+        if (!best.hit) { pos = dest; break; }
+
+        // Advance to just before contact, keeping the skin gap off the surface.
+        const float vlen = std::sqrt(dot(vel, vel));
+        const float t = std::max(0.0f, best.t - skin / std::max(vlen, 1e-6f));
+        pos = {pos.x + vel.x * t, pos.y + vel.y * t, pos.z + vel.z * t};
+
+        // Slide: project the remaining travel onto the contact plane.
+        const Vec3 remain = sub(dest, pos);
+        const float pen = dot(remain, best.n);
+        vel = {remain.x - best.n.x * pen, remain.y - best.n.y * pen, remain.z - best.n.z * pen};
+    }
+    return pos;
+}
+
 }  // namespace cleria

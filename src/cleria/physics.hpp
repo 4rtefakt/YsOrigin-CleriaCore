@@ -27,4 +27,16 @@ std::string_view surface_of(const RoomMesh& m, int tri);
 // corrected position (horizontal only).
 Vec3 resolve_walls(const RoomMesh& m, Vec3 pos, float radius, float height);
 
+// Swept-sphere collide-and-slide (Fauerby/Nettle) — the engine's real wall
+// response (build/physics_re/COLLISION.md, FUN_005dca20): the actor is a single
+// sphere of `radius` swept from `pos` along `vel`; on contact the remaining motion
+// is projected onto the contact plane and re-swept, up to 15 times. Unlike
+// resolve_walls (a horizontal perpendicular push-out) this is a full 3-D sweep, so
+// the same call slides along walls AND lands on floors/slopes. Returns the final
+// position after the full `vel` is consumed or absorbed.
+//
+// Radius per the RE = CASTINFO+0x34 * 0.9 (0.675 for the player); the sphere center
+// is the actor origin (feet), so max unassisted step-up ~= radius.
+Vec3 collide_and_slide(const RoomMesh& m, Vec3 pos, Vec3 vel, float radius);
+
 }  // namespace cleria

@@ -63,6 +63,10 @@ target_link_libraries(cleria-enemytest PRIVATE cleria)
 add_executable(cleria-worldtest apps/cleria-worldtest/main.cpp)
 target_link_libraries(cleria-worldtest PRIVATE cleria)
 
+# cleria-collisiontest — self-verifying tests for collide_and_slide (headless).
+add_executable(cleria-collisiontest apps/cleria-collisiontest/main.cpp)
+target_link_libraries(cleria-collisiontest PRIVATE cleria)
+
 # cleria-asotest — validate the ASO container + run the animation-script VM.
 add_executable(cleria-asotest apps/cleria-asotest/main.cpp)
 target_link_libraries(cleria-asotest PRIVATE cleria)
