@@ -202,6 +202,20 @@ def main():
         lines.append(f"- Documented game functions: **{len(doc_in_game)}** / {total_game}")
         lines.append(f"- Dumped game functions: **{len(dump_in_game)}** / {total_game}")
 
+        # Self-directing target list: the biggest functions we have NOT documented are
+        # the highest coverage-per-function Ghidra targets. Regenerating this file keeps
+        # the "what to RE next" list current as coverage grows.
+        undoc = sorted(((game[a][0], a) for a in set(game) - documented), reverse=True)
+        undoc_bytes = sum(s for s, _ in undoc)
+        lines.append(f"- Undocumented: **{len(undoc)}** game functions, **{undoc_bytes:,}** bytes")
+        lines.append("")
+        lines.append("### Biggest undocumented functions (best next Ghidra targets)")
+        lines.append("")
+        lines.append("| function | bytes |")
+        lines.append("|---|---|")
+        for sz, a in undoc[:25]:
+            lines.append(f"| FUN_{a:08x} | {sz:,} |")
+
     lines.append("")
     lines.append("## By subsystem (documented functions per `build/*_re/`)")
     lines.append("")
