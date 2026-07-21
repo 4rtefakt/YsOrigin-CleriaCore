@@ -35,6 +35,15 @@
 # stated above. This catches all of them; the exclusions below keep the bulk out.
 !/build/*_re/
 
+# RE progress artifacts (top-level build/, so not caught by the *_re re-admit): the gap
+# roadmap, the coverage metric + its report, and the committed function list that lets
+# tools/re_coverage.py recompute coverage without Ghidra.
+!/build/ROADMAP.md
+!/build/RE_COVERAGE.md
+!/build/re_coverage.json
+!/build/re_coverage/
+!/build/re_coverage/all_functions.txt
+
 # ...but never the extracted assets or renders those dirs accumulate.
 # Also keep out the regenerable raw Ghidra dumps (the *.java probes stay; their *_out.txt
 # outputs are large and reproducible), so only the curated prose+scripts are tracked.
