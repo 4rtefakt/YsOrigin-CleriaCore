@@ -3231,17 +3231,21 @@ struct TitleFx {
         int sr = 255, sg = 255, sb = 255, sa = 255;
         if (const char* e = std::getenv("CLERIA_MENU_U")) { sscanf(e, "%d,%d,%d,%d", &ur, &ug, &ub, &ua); }
         if (const char* e = std::getenv("CLERIA_MENU_S")) { sscanf(e, "%d,%d,%d,%d", &sr, &sg, &sb, &sa); }
-        // Selection glow: additive band (renderstate 0x40c1), 32px tall, width maxW+64, centred on
-        // the selected row. The engine draws it over the glyphs, but its texture is [UNKNOWN] and a
-        // solid-white approximation over the bright title backdrop washes the (white) text out; drawn
-        // just UNDER the crisp white glyphs it keeps them readable, matching the reference's soft
-        // highlight (draw-order was already [HAND-TUNED] per TITLE_LAYOUT.md §1; blend/height are the
-        // code-correct part).
-        if (curGlow.tex) {
+        // Selection cursor: the ornate scroll-curl bar (IMAGE/MENUCURSOR.DDS), 32px tall,
+        // width maxW+64, centred on the selected row (TITLE_LAYOUT.md §53). The chrome
+        // handle DAT_00749d68 the disasm couldn't name IS this asset — a dark plaque with
+        // filigree ends and a ~transparent centre, so the text reads straight through it.
+        // We were drawing a plain additive glow (curGlow) instead; draw_cursor_bar 3-slices
+        // MENUCURSOR so the curls keep their thickness at any width.
+        if (cursor.tex || curGlow.tex) {
             const float mid = rowTop(sel) + ty + 0.46f * pxH;   // glyph vertical centre
             const float half = 16.0f * A, barW = maxW + 64.0f * A;
-            draw_cursor_glow(g, cview, dview, cxpx - barW * 0.5f, mid - half,
-                             cxpx + barW * 0.5f, mid + half, sw, sh);
+            if (cursor.tex)
+                draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                                cxpx + barW * 0.5f, mid + half, sw, sh);
+            else
+                draw_cursor_glow(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                                 cxpx + barW * 0.5f, mid + half, sw, sh);
         }
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
