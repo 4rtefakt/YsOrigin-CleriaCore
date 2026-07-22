@@ -1910,44 +1910,33 @@ static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
 
 // Persistent script-placed effects (op 0x11a): the barrier ward and friends. Each is one
 // eftlist effect looping its flipbook forever at a fixed world position, until op 0x119
-// removes it. Unlike a projectile, a PLACED effect is NOT a camera-facing billboard — the
-// kekkai ward lies in the GROUND plane, its texture-top pointing AWAY from the camera (its
-// furthest point), so it reads as a barrier laid across the floor rather than a card held
-// up to face you. CLERIA_BARRIER_BILLBOARD falls back to the old upright billboard.
+// removes it. Unlike a projectile it is NOT a fixed billboard — the kekkai ward stands in
+// the world around the chest, and its exact rake is still being matched to the retail
+// effect, so orientation is fully KNOB-DRIVEN: CLERIA_BARRIER_TILT rotates the plane from
+// UPRIGHT (0deg, top = straight up) toward FLAT on the ground (90deg, top = raked away from
+// the camera), about the camera's horizontal-right axis; CLERIA_BARRIER_LIFT raises the
+// centre off the floor; CLERIA_BARRIER_SCALE sizes it. Dial these live, then bake the
+// winners in as the defaults.
 static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEffect>& fx,
                                  const fs::path& asset_root, const EftList& efl, const EftTex& eft,
                                  WGPUTextureView color, WGPUTextureView depth,
                                  const Vec3& camFwd, float t) {
     if (fx.empty()) return;
-    // DEFAULT: an UPRIGHT dome standing AROUND the chest, LIFTED off the floor (a barrier
-    // enclosing the chest, not a decal lying on the ground). CLERIA_BARRIER_LIFT raises its
-    // centre (default 1.4 ~ chest height + reach); CLERIA_BARRIER_GROUND lays it flat instead.
-    if (!std::getenv("CLERIA_BARRIER_GROUND")) {
-        float lift = 0.9f;
-        if (const char* s = std::getenv("CLERIA_BARRIER_LIFT")) lift = std::atof(s);
-        std::vector<Projectile> tmp;
-        for (const ActorWorld::LocatedEffect& e : fx) {
-            float sc = (e.a > 0.01f ? e.a : 1.0f);
-            if (const char* s = std::getenv("CLERIA_BARRIER_SCALE")) { float v = std::atof(s); if (v > 0) sc = v; }
-            Projectile p; p.pos = {e.x, e.y + lift, e.z};
-            p.effect_id = e.id; p.scale = sc;
-            p.life = std::max(1, bullet_art(g, asset_root, efl, eft, e.id).life);
-            p.age = int(t * 60.0f) % p.life; tmp.push_back(p);
-        }
-        draw_projectiles(g, tmp, asset_root, efl, eft, color, depth, camFwd);
-        return;
-    }
-    // CLERIA_BARRIER_GROUND: lay it flat in the ground plane instead — width along the
-    // camera's horizontal RIGHT, depth along its horizontal FORWARD (texture top furthest).
+    float tiltDeg = 45.0f, lift = 1.0f, scaleOv = -1.0f;
+    if (const char* s = std::getenv("CLERIA_BARRIER_TILT")) tiltDeg = float(std::atof(s));
+    if (const char* s = std::getenv("CLERIA_BARRIER_LIFT")) lift = float(std::atof(s));
+    if (const char* s = std::getenv("CLERIA_BARRIER_SCALE")) { float v = float(std::atof(s)); if (v > 0) scaleOv = v; }
+    const float tr = tiltDeg * 3.14159265f / 180.0f;
     Vec3 fwdH = {camFwd.x, 0, camFwd.z};
     const float fl = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
     if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
     const Vec3 rightH = normalize(cross(Vec3{0, 1, 0}, fwdH));
+    // The plane's vertical/depth axis: world-up at tilt 0, camera-forward-horizontal at 90.
+    const Vec3 upDir = {fwdH.x * std::sin(tr), std::cos(tr), fwdH.z * std::sin(tr)};
     for (const ActorWorld::LocatedEffect& e : fx) {
         const BulletArt& art = bullet_art(g, asset_root, efl, eft, e.id);
         if (!art.ok()) continue;
-        float sc = (e.a > 0.01f ? e.a : 1.0f);
-        if (const char* s = std::getenv("CLERIA_BARRIER_SCALE")) { float v = std::atof(s); if (v > 0) sc = v; }
+        const float sc = scaleOv > 0 ? scaleOv : (e.a > 0.01f ? e.a : 1.0f);
         const int age = int(t * 60.0f) % std::max(1, art.life);
         for (const BulletArt::Layer& L : art.layers) {
             if (L.frames.empty()) continue;
@@ -1956,16 +1945,17 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
                                         std::size_t(std::max(1, art.life))));
             const Ef2Frame& fr = L.frames[std::size_t(fi)];
             const float hw = L.w * sc * 0.5f, hh = L.h * sc * 0.5f;
-            const Vec3 c = {e.x, e.y + 0.05f, e.z};   // just above the floor to avoid z-fight
+            const Vec3 c = {e.x, e.y + lift, e.z};
             RoomVertex verts[4];
             std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
-            auto V = [&](int n, float rx, float dz, float u, float v) {
-                verts[n] = {c.x + rightH.x * rx * hw + fwdH.x * dz * hh, c.y,
-                            c.z + rightH.z * rx * hw + fwdH.z * dz * hh,
+            auto V = [&](int n, float rx, float uy, float u, float v) {
+                verts[n] = {c.x + rightH.x * rx * hw + upDir.x * uy * hh,
+                            c.y + upDir.y * uy * hh,
+                            c.z + rightH.z * rx * hw + upDir.z * uy * hh,
                             0, 1, 0, u, v, 255, 255, 255, 255};
             };
-            V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);   // dz=+1 = far  = texture top
-            V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1); // dz=-1 = near = texture bottom
+            V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);   // +upDir = top (up / raked away)
+            V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1); // -upDir = bottom (down / near)
             WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof(verts), WGPUBufferUsage_Vertex);
             WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof(idx), WGPUBufferUsage_Index);
             WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
