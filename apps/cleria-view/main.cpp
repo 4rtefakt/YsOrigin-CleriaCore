@@ -4788,6 +4788,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // still ticks 60x/sec. `anime_Wait(n)` is therefore n/60 s of SCALED time — so
     // the accumulator is the thing to reproduce, not a per-frame dt scale.
     float accum = 0;
+
+    // In-game pause menu (Escape opens it, Escape/B closes; the window X still quits). Draws
+    // the pause-book Equip page over a frozen game. The menu renderer + font + item table are
+    // loaded here since the walk loop doesn't share the title-screen instances.
+    TitleFx pauseUi;
+    const bool pauseOk = pauseUi.init(g, asset_root);
+    MenuFont pmf;
+    pmf.init(g, fmt, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
+    const ItemTable pitems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+    bool paused = false;
+
     while (running) {
         const Uint64 now = SDL_GetTicks();
         const float real_dt = float(now - last) / 1000.0f; last = now;
@@ -4802,7 +4813,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
-                if (k == SDLK_ESCAPE) running = false;
+                if (k == SDLK_ESCAPE) { if (pauseOk) paused = !paused; else running = false; }
                 else if (k == SDLK_F) {
                     fly = !fly;
                     if (!fly) {  // dropping into walk: keep XZ, snap to floor
@@ -4862,6 +4873,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // The catch-up loop in the exe has NO cap; a long stall really does emit a
         // burst of ticks. We reproduce that, relying on the load-time reset above
         // rather than on clamping, so timing stays exact under normal play.
+        if (paused) accum = 0;  // freeze the game while the pause menu is open (no unpause burst)
         int ticks = 0;
         while (accum >= kTickDt) {
         accum -= kTickDt;
@@ -5396,6 +5408,28 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 : float(std::clamp((double(player.exp) - e0) / std::max(1.0, e1 - e0), 0.0, 1.0) * 100.0);
         }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
+        // Pause menu overlay: the pause-book Equip page over the frozen game (Esc to close).
+        if (paused && pauseOk) {
+            TitleFx::EquipView ev;
+            ev.character = character;
+            ev.level = player.level;
+            ev.hp = player.hp;
+            ev.maxhp = player.max_hp;
+            if (ginfo.ok()) {
+                ev.str = int(std::lround(ginfo.player_atk(character, 0, player.level)));
+                ev.def = int(std::lround(ginfo.curves[kPlayerDef].at(player.level)));
+                ev.exp = long(std::llround(ginfo.exp_to_level(player.level)));
+                ev.next = long(std::llround(ginfo.exp_to_level(player.level + 1)
+                                            - ginfo.exp_to_level(player.level)));
+            }
+            ev.caption = "";
+            write_mvp(g, Mat4::identity());  // draw_equip is screen-space
+            // Fresh depth (like the title-menu path's tdepth) so the world's z-buffer can't
+            // occlude the book; only allocated while the pause menu is actually open.
+            WGPUTextureView pdepth = make_depth(g.device, cw, ch);
+            pauseUi.draw_equip(g, pmf, view, pdepth, cw, ch, ev, pitems, asset_root);
+            wgpuTextureViewRelease(pdepth);
+        }
         wgpuSurfacePresent(surface);
         wgpuTextureViewRelease(view);
         wgpuTextureRelease(st.texture);
