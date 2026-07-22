@@ -27,6 +27,13 @@ struct DrawBatch {
     std::uint32_t first_index = 0;
     std::uint32_t index_count = 0;
     int texture = -1;
+    // The material's diffuse colour, packed R|G<<8|B<<16|A<<24. For an UNTEXTURED
+    // material this IS the surface colour: S_1000's "stone" submeshes (0.78 grey) and
+    // "none" submeshes (black) carry no texture and are meant to render flat-shaded
+    // from this. Neutral white (0xFFFFFFFF) for textured materials, so a caller may
+    // safely modulate by it either way; the view uses it to build a 1x1 fill for the
+    // untextured case instead of a wrong white/black fallback.
+    std::uint32_t diffuse = 0xFFFFFFFF;
     // UV scroll: the material's velocity, added to a runtime PHASE once per 60Hz
     // tick — unscaled, no dt (FUN_0044cda0 @0x44e165: the neighbouring fields ARE
     // MULSS-scaled by a delta; the scroll block has no MULSS at all). The disk phase

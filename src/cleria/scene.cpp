@@ -363,7 +363,15 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 // drop indices whose source is out of range, so count what landed.
                 out.tri_surface.resize(out.indices.size() / 3, surf);
                 DrawBatch b{out_first, idx_count, tex};
-                if (mat) { b.scroll_u = mat->scroll_u; b.scroll_v = mat->scroll_v; }
+                if (mat) {
+                    b.scroll_u = mat->scroll_u; b.scroll_v = mat->scroll_v;
+                    auto q = [](float f) {
+                        f = f < 0 ? 0 : (f > 1 ? 1 : f);
+                        return std::uint32_t(f * 255.0f + 0.5f);
+                    };
+                    b.diffuse = q(mat->diffuse[0]) | (q(mat->diffuse[1]) << 8) |
+                                (q(mat->diffuse[2]) << 16) | (q(mat->diffuse[3]) << 24);
+                }
                 b.first_vert = base + fv;
                 b.vert_count = vc ? vc : nvert;
                 out.batches.push_back(b);
