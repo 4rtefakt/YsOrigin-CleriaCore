@@ -86,6 +86,7 @@ THIRD_PARTY = [
     (0x622cb0, 0x6231e7, "zlib compress_block() [C-DIS: Huffman bit-buffer emit]"),
     (0x671c1e, 0x672151, "libm asin/acos [C-DIS: pi/2 const + libm_error_support]"),
     (0x66f850, 0x66fd6f, "libm asin/acos (2nd copy) [C-DIS]"),
+    (0x621a00, 0x621c20, "zlib deflate_stored() [C-DIS]"),
     (0x621c20, 0x621fd0, "zlib deflate_fast() [C-DIS: greedy matcher]"),
     (0x621fd0, 0x622498, "zlib deflate_slow() [C-DIS: lazy matcher]"),
     (0x6237c0, 0x623b00, "zlib _tr_flush_block() [C-DIS]"),
