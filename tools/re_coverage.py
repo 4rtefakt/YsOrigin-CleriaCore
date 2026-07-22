@@ -72,8 +72,9 @@ def load_functions():
 # ENGINE denominator. Ranges [lo, hi) identified by build/arch_re/REGION_5E_61.md.
 THIRD_PARTY = [
     (0x5ff8d0, 0x600240, "Ogg Vorbis decoder"),
-    (0x602c80, 0x6056d0, "zlib 1.2.3"),
+    (0x602c80, 0x6056d0, "zlib 1.2.3 (inflate)"),
     (0x6056d0, 0x61ffe0, "libpng"),
+    (0x620ba0, 0x621441, "zlib deflate() [C-DIS: gzip magic + deflate state consts]"),
     # Statically-linked CRT/libm stragglers Ghidra left un-FID-named (so they read as
     # game FUN_s). Confirmed [C-DIS] in build/core_re/BIG_FUNCS.md; see
     # build/re_coverage/EXCLUSIONS_TODO.md (a swept 0x620000-0x680000 CRT band is a
