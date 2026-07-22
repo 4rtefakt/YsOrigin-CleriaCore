@@ -281,7 +281,8 @@ struct Gpu {
     WGPUBindGroup ubind{};
     WGPUSampler sampler{};
     WGPUBindGroupLayout tex_layout{};
-    WGPUBindGroup white_bind{};
+    WGPUBindGroup white_bind{};   // failed-to-load texture (missing-ref marker)
+    WGPUBindGroup black_bind{};   // genuinely untextured material (renders its dark diffuse)
     std::unordered_map<std::string, fs::path> dds_index;  // basename(lower) -> path
     std::unordered_map<std::string, fs::path> sob_index;  // stem(upper) -> path
 };
@@ -835,12 +836,20 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     sad.magFilter = sad.minFilter = WGPUFilterMode_Linear; sad.maxAnisotropy = 1;
     g.sampler = wgpuDeviceCreateSampler(g.device, &sad);
 
-    // Shared 1x1 white for untextured / missing.
+    // Shared 1x1 white for a texture that FAILED to load (a real ref we couldn't
+    // resolve) — kept white so it reads as a "missing texture" marker while debugging.
     Room tmp;
     Dds white; white.width = white.height = 1; white.format = Dds::RGBA8;
     white.data = {255, 255, 255, 255};
     g.white_bind = tex_bindgroup(g, upload_texture(g, tmp, white));
-    // deliberately leak the 1x1 (lives for the whole run)
+    // Shared 1x1 black for a genuinely UNTEXTURED material (no ref at all; scene.cpp
+    // returns texture index -1). Those carry a diffuse (0,0,0) in S_1000's 3 "none"
+    // submeshes; sampling white made them render as bright white quads (the "white
+    // staircase"). Black matches the diffuse and removes the artifact.
+    Dds black; black.width = black.height = 1; black.format = Dds::RGBA8;
+    black.data = {0, 0, 0, 255};
+    g.black_bind = tex_bindgroup(g, upload_texture(g, tmp, black));
+    // deliberately leak the 1x1s (they live for the whole run)
     tmp.textures.clear(); tmp.views.clear();
 
     wgpuShaderModuleRelease(sm);
@@ -909,8 +918,10 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, room.vbuf, 0, WGPU_WHOLE_SIZE);
     wgpuRenderPassEncoderSetIndexBuffer(pass, room.ibuf, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
     for (const DrawBatch& b : room.mesh.batches) {
+        // A resolved (or failed-load) texture is in room.binds; a genuinely untextured
+        // material (index -1) renders its dark diffuse via black_bind, not white.
         WGPUBindGroup tb = (b.texture >= 0 && b.texture < int(room.binds.size()))
-                               ? room.binds[b.texture] : g.white_bind;
+                               ? room.binds[b.texture] : g.black_bind;
         wgpuRenderPassEncoderSetBindGroup(pass, 1, tb, 0, nullptr);
         wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
     }
