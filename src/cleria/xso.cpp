@@ -242,6 +242,19 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
                         // A null host answers "none alive", so a barrier script falls
                         // through to grant its flag (matches the run-to-completion path).
                         acc = (host && host->any_seed_alive(op(0))) ? 1 : 0;
+                    } else if (sub == 0x11a && host && nargs >= 7) {
+                        // Eft_LocatePosAddStr: place a named effect. x/y/z/a/b are float
+                        // BIT PATTERNS in the operand words (as 0x12c's are), the name is
+                        // a string-pool index. The barrier ward comes through here.
+                        auto f = [&](std::uint32_t i) {
+                            float v; const std::uint32_t raw = std::uint32_t(op(i));
+                            std::memcpy(&v, &raw, 4); return v;
+                        };
+                        host->locate_effect(op(0), f(1), f(2), f(3), f(4), f(5),
+                                            script.string(op(6)));
+                    } else if (sub == 0x119 && host && nargs >= 1) {
+                        // Eft_Kill(name): remove the named located effect (barrier break).
+                        host->kill_effect(script.string(op(0)));
                     }
                     // all other sub-ops: no-op (skipped by length)
                 }

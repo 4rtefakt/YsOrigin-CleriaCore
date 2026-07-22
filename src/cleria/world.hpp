@@ -140,7 +140,24 @@ class ActorWorld : public XsoHost {
 
     // Drop every actor (e.g. a room change — the engine's FUN_00428ec0 destroy-all).
     // Invalidates every Actor* handed out, including the player pointer.
-    void clear() { actors_.clear(); player_ = nullptr; }
+    void clear() { actors_.clear(); player_ = nullptr; effects_.clear(); }
+
+    // ## Located effects (op 0x11a / 0x119) --------------------------------------
+    // A script-placed, persistent effect instance: an eftlist effect id at a world
+    // position, addressable by name for later Eft_Kill. The engine spawns a GoEffect;
+    // the VM stays headless, so we just record what to draw and let the view resolve
+    // the id -> EF2 and render it. The barrier ward (id 210, name "eft_barrier") lives
+    // here from room-load until the barrier breaks.
+    struct LocatedEffect { int id; float x, y, z, a, b; std::string name; };
+    void locate_effect(int id, float x, float y, float z, float a, float b,
+                       const std::string& name) override {
+        effects_.push_back({id, x, y, z, a, b, name});
+    }
+    void kill_effect(const std::string& name) override {
+        for (auto it = effects_.begin(); it != effects_.end();)
+            it = (it->name == name) ? effects_.erase(it) : it + 1;
+    }
+    const std::vector<LocatedEffect>& effects() const { return effects_; }
 
     // ## The tick (build/actor_re/ACTOR.md §2, §3) [C-DIS]
     //
@@ -197,6 +214,7 @@ class ActorWorld : public XsoHost {
     std::list<Actor> actors_;
     Actor* player_ = nullptr;
     const Sct* placements_ = nullptr;  // op 0xa0's source; not owned
+    std::vector<LocatedEffect> effects_;  // op 0x11a placements; killed by 0x119
     bool id_in_use(int id) const;
 
     // The per-actor AI update, now LIVE for the enemy-chase case (build/mover2d_re/

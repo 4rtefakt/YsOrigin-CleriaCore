@@ -1887,6 +1887,36 @@ static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
     }
 }
 
+// Persistent script-placed effects (op 0x11a): the barrier ward and friends. Each is one
+// eftlist effect looping its flipbook forever at a fixed world position, until op 0x119
+// removes it. We render them through the projectile path by materialising a Projectile per
+// effect with its age wrapped to the art's life, so no GPU boilerplate is duplicated.
+static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEffect>& fx,
+                                 const fs::path& asset_root, const EftList& efl, const EftTex& eft,
+                                 WGPUTextureView color, WGPUTextureView depth,
+                                 const Vec3& camFwd, float t) {
+    if (fx.empty()) return;
+    std::vector<Projectile> tmp;
+    tmp.reserve(fx.size());
+    for (const ActorWorld::LocatedEffect& e : fx) {
+        const BulletArt& art = bullet_art(g, asset_root, efl, eft, e.id);
+        if (!art.ok()) continue;
+        Projectile p;
+        // Lift the billboard off the floor so the ward stands up out of the ground rather
+        // than being half-buried (the 0x11a y is the floor). Scale from arg 'a' (1.5 for
+        // the barrier); CLERIA_BARRIER_SCALE overrides while we eyeball it.
+        float sc = (e.a > 0.01f ? e.a : 1.0f);
+        if (const char* s = std::getenv("CLERIA_BARRIER_SCALE")) { float v = std::atof(s); if (v > 0) sc = v; }
+        p.pos = {e.x, e.y + sc, e.z};
+        p.effect_id = e.id;
+        p.scale = sc;
+        p.life = std::max(1, art.life);
+        p.age = int(t * 60.0f) % p.life;     // loop the flipbook
+        tmp.push_back(p);
+    }
+    draw_projectiles(g, tmp, asset_root, efl, eft, color, depth, camFwd);
+}
+
 struct HudVertex { float x, y, u, v; std::uint8_t r, g, b, a; };
 
 // STATUS_512.DDS source rects (measured; build/hud_re/hud_atlas_spec.json).
@@ -2661,7 +2691,23 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                 std::printf("play: %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
                             e.display.c_str(), e.stem.c_str(), e.actor->level,
                             e.actor->max_hp, e.actor->atk, e.actor->def);
+        if (std::getenv("CLERIA_BARRIER"))
+            for (const Actor& a : world.actors())
+                std::printf("barrier: id=%d cast=%d grp1=%d hp=%.0f alive=%d %s\n",
+                            a.instance_id, a.cast_id, a.tag.in_group(1), a.hp, a.alive(),
+                            casts.get(a.cast_id) ? casts.sprite_stem(a.cast_id).c_str() : "?");
         draw_enemies(g, cview, dview, efx, list, cam.forward(), cam.pos, 0.0f, shadows.tex);
+        // Barrier ward + any other 0x11a-placed effects (headless preview of world.effects()).
+        if (std::getenv("CLERIA_BARRIER"))
+            for (const auto& e : world.effects())
+                std::printf("barrier: effect id=%d '%s' at (%.1f,%.1f,%.1f) a=%.2f\n",
+                            e.id, e.name.c_str(), e.x, e.y, e.z, e.a);
+        {
+            EftList efl2; EftTex eft2;
+            if (efl2.load(asset_root) && eft2.load(asset_root))
+                draw_located_effects(g, world.effects(), asset_root, efl2, eft2, cview, dview,
+                                     cam.forward(), 0.30f);
+        }
     }
     // Torch flames (SEF placements + the EF2 flipbook).
     {
@@ -4616,7 +4662,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Barrier fight (kekkai). A room's KEKKAIZAKO_*.XSO polls Chr_IsSeedLiving(1) and,
     // when the last group-1 seed enemy dies, grants the progress flag its chest guard
     // tests (EVENTVM.md §6: S_1001 -> flag 301, which S_BOX01 requires before it opens).
-    std::vector<Xso> barrier_scripts;   // this room's KEKKAIZAKO_*.XSO
+    std::vector<Xso> barrier_scripts;        // this room's KEKKAIZAKO_*.XSO (the poll + grant)
+    std::vector<Xso> barrier_break_scripts;  // KEKKAIBREAK_*.XSO (Eft_Kill the ward + camera)
     bool barrier_seeded = false;        // a group-1 seed spawned this visit
     bool barrier_cleared = false;       // its flag has already been granted this visit
 
@@ -4636,6 +4683,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // behind the very flag the barrier grants, so a re-visit spawns nothing and we
         // must not re-fire). The poll itself runs in clear_barrier, below.
         barrier_scripts.clear();
+        barrier_break_scripts.clear();
         barrier_cleared = false;
         barrier_seeded = world.any_seed_alive(1);
         {
@@ -4643,11 +4691,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (const auto& de : fs::directory_iterator(room.dir, bec)) {
                 std::string fn = de.path().filename().string();
                 for (char& c : fn) c = char(std::toupper((unsigned char)c));
-                if (fn.rfind("KEKKAIZAKO", 0) == 0 && fn.size() >= 4 &&
-                    fn.compare(fn.size() - 4, 4, ".XSO") == 0) {
-                    try { barrier_scripts.push_back(Xso::parse(read_bytes(de.path()))); }
-                    catch (const std::exception&) {}
-                }
+                const bool xso = fn.size() >= 4 && fn.compare(fn.size() - 4, 4, ".XSO") == 0;
+                try {
+                    if (xso && fn.rfind("KEKKAIZAKO", 0) == 0)
+                        barrier_scripts.push_back(Xso::parse(read_bytes(de.path())));
+                    else if (xso && fn.rfind("KEKKAIBREAK", 0) == 0)
+                        barrier_break_scripts.push_back(Xso::parse(read_bytes(de.path())));
+                } catch (const std::exception&) {}
             }
         }
         if (!render.empty()) {
@@ -4766,6 +4816,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         XsoHost* saved = game.host;
         game.host = &world;
         for (const Xso& ks : barrier_scripts) { game.reset_run(); game.run(ks); }
+        // The break sequence: KEKKAIBREAK's Eft_Kill("eft_barrier") removes the ward from
+        // world.effects() so it stops rendering (its camera ops are still no-ops here).
+        for (const Xso& kb : barrier_break_scripts) { game.reset_run(); game.run(kb); }
         game.host = saved;
         barrier_cleared = true;
         reload_room();                 // re-gate: box_01's guard now sees flag 301 set
@@ -5532,6 +5585,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         draw_projectiles(g, shots, asset_root, efl, eft, view, depth, cam.forward());
+        // Script-placed persistent effects (the barrier ward). Killed by op 0x119 when
+        // the barrier breaks, so it renders only while the fight is unresolved.
+        draw_located_effects(g, world.effects(), asset_root, efl, eft, view, depth,
+                             cam.forward(), fx_time);
         player.character = character;
         // EXP bar: progress from this level's threshold to the next (100% at the cap).
         if (ginfo.ok()) {

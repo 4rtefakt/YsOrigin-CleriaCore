@@ -80,6 +80,17 @@ struct XsoHost {
     // Always called with arg 1 in the shipped corpus. A null/absent group => false.
     virtual bool any_seed_alive(int /*group*/) const { return false; }
 
+    // op 0x11a Eft_LocatePosAddStr(id, x,y,z, a, b, name, c): place a named effect at a
+    // world position, persistent until killed. [C-DIS] signature ifffffsf. The barrier
+    // ward is `Eft_LocatePosAddStr(210 "map_kekkai", pos, .., "eft_barrier", ..)` — id
+    // 210 resolves through eftlist to IVENT/MAP_KEKKAI.EF2. a/b/c are placement params
+    // (rotation/scale) passed through for the host to interpret.
+    virtual void locate_effect(int /*id*/, float /*x*/, float /*y*/, float /*z*/,
+                               float /*a*/, float /*b*/, const std::string& /*name*/) {}
+    // op 0x119 Eft_Kill(name): remove the named located effect. The barrier break
+    // (KEKKAIBREAK) calls `Eft_Kill("eft_barrier")`, so the ward vanishes on clear.
+    virtual void kill_effect(const std::string& /*name*/) {}
+
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns
     // every placement through the CASTINFO factory. We pre-load the host with the
