@@ -3303,15 +3303,21 @@ struct TitleFx {
         // row 8. Was {96,150,204,...,560,614} (pitch 54, gap too small -> ~16px high by row 9).
         static const float rowY[10] = { 96.0f, 150.4f, 204.8f, 259.2f, 313.6f, 368.0f, 422.4f,
                                         476.8f, 576.0f, 630.4f };
+        // Row-plate diffuse is UNIFORM across all rows (OPTIONS_LAYOUT.md §3, [C-DIS FUN_005b9b30
+        // @005ba1db -> FUN_005bae20(0,0) @005bae20): the page builder ends by writing the SAME diffuse
+        // (0xff808080) into every row's csprite colour slot (13 slots at stride 0xAC from DAT_0073d594);
+        // there is NO per-row selected/unselected plate brightening in the built state. The engine's 2D
+        // csprite pipeline is MODULATE2X, so 0x808080 renders the plate at texture-native brightness --
+        // in CleriaCore's straight-modulate pipeline that is diffuse 1.0. (Was bimodal 1.0/0.5, which the
+        // reference contradicts: all plates read equal-brightness, selected BGM no lighter than the rest.)
+        float rowd = 1.0f;
+        if (const char* e = std::getenv("CLERIA_OPT_DIM")) rowd = float(std::atof(e));
         for (int r = 0; r < 10; ++r) {
             const float bx = (r <= 6) ? 179.0f : (r == 7 ? 409.0f : 307.0f);
             const float bw = (r == 7) ? 175.0f : 409.6f;
             const float u0 = (r == 7) ? 409.0f * T : 0.0f;
             const float u1 = (r == 7) ? 584.0f * T : 409.6f * T;
-            // Focus highlight INVERTED (OPTIONS_LAYOUT.md §3, FUN_005bae20 @005bae20): the selected
-            // row stays full white (0xffffffff), the OTHER rows dim to 0xff808080 (diffuse x0.5).
-            // Was: brighten the *pick* by 30% (wtint) -- the opposite of the engine.
-            const float d = (r == sel) ? 1.0f : 0.5f;
+            const float d = rowd;
             draw_screen_image(g, cview, dview, false, opbtn, AX(bx), AY(rowY[r]), AX(bx + bw),
                               AY(rowY[r] + 51.2f), 0.30f, u0, rowV[r][0] * T, u1, rowV[r][1] * T,
                               0.02f, 0.02f, 0.05f, 0.0f, false, d, d, d);
@@ -3323,7 +3329,7 @@ struct TitleFx {
         const float trackX = 652.0f, trackLen = 188.8f;
         for (int i = 0; i < 3; ++i) {
             const float ty = rowY[i] + 25.6f;
-            const float sd = (i == sel) ? 1.0f : 0.5f;   // match the row's inverted focus dim
+            const float sd = rowd;   // uniform diffuse (FUN_005bae20(0,0)); matches the plate
             // track = teal-gradient bar with metallic end-caps at atlas x410 and x615; the SECOND bar
             // (rainbow/gamma variant) starts at x618 with a dark-blue cap, so stop at 616 or it leaves
             // a stray blue stub past the track.
@@ -3343,7 +3349,7 @@ struct TitleFx {
         for (int i = 0; i < 4; ++i) {
             const float cx = 732.0f, cy = rowY[i + 3];
             const float u0 = checks[i] ? 0.0f : 51.0f * T, u1 = checks[i] ? 48.0f * T : 99.0f * T;
-            const float cd = ((i + 3) == sel) ? 1.0f : 0.5f;   // match the row's inverted focus dim
+            const float cd = rowd;   // uniform diffuse (FUN_005bae20(0,0)); matches the plate
             draw_screen_image(g, cview, dview, false, opbtn, AX(cx), AY(cy), AX(cx + 51.2f),
                               AY(cy + 51.2f), 0.26f, u0, 616*T, u1, 661*T,
                               0.02f, 0.02f, 0.05f, 0.0f, false, cd, cd, cd);
