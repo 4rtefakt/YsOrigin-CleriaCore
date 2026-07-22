@@ -4853,6 +4853,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     const ItemTable pitems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
     bool paused = false;
     int pausePage = 0;  // pause-book tab: 0 Equip, 1 Item, 2 Topic, 3 Save/Load (Q/E cycle)
+    std::fprintf(stderr, "[pause menu] Esc opens the pause book; assets %s\n",
+                 pauseOk ? "loaded (ready)" : "MISSING TITLE_000.DDS -> book won't draw");
 
     while (running) {
         const Uint64 now = SDL_GetTicks();
@@ -4868,7 +4870,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
-                if (k == SDLK_ESCAPE) { if (pauseOk) paused = !paused; else running = false; }
+                if (k == SDLK_ESCAPE) paused = !paused;  // toggle pause; NEVER quit (X quits)
                 else if (k == SDLK_F) {
                     fly = !fly;
                     if (!fly) {  // dropping into walk: keep XZ, snap to floor
