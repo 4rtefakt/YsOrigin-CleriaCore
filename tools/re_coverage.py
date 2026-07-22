@@ -77,6 +77,7 @@ THIRD_PARTY = [
     (0x620130, 0x62038c, "libpng png_do_shift() [C-DIS]"),
     (0x620510, 0x620783, "libpng png_do_read_transformations() [C-DIS]"),
     (0x66bdae, 0x66c017, "libm natural-log [C-DIS]"),
+    (0x6680e7, 0x668333, "CRT _wsopen_nolock BOM helper [C-DIS]"),
     (0x620ba0, 0x621441, "zlib deflate() [C-DIS: gzip magic + deflate state consts]"),
     (0x622920, 0x622ba5, "zlib build_tree() [C-DIS]"),
     (0x622cb0, 0x6231e7, "zlib compress_block() [C-DIS: Huffman bit-buffer emit]"),
