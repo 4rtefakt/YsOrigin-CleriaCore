@@ -2,7 +2,10 @@
 
 A clean-room reimplementation of the **Ys Origin** engine — a purpose-built
 native PC engine that reads the original Falcom data files, in the spirit of
-devilutionX and OpenRCT2.
+devilutionX and OpenRCT2. It boots to the real title screen, lets you pick a
+character, and drops you into the tower with the game's own rooms, cameras,
+enemies, HUD, and music — all driven by the shipped data, not by constants we
+picked.
 
 > **Why not "a port like Project Dusklight"?** Dusklight is the Twilight Princess
 > decompilation compiled natively against a GameCube SDK compatibility layer — it
@@ -13,82 +16,81 @@ devilutionX and OpenRCT2.
 > API — via the only path that fits: reading the data files and rewriting the
 > engine.
 
-## Status
+## The rule
 
-The entire **static-room asset pipeline is reverse-engineered and validated**,
-and a C++20 asset core renders real rooms.
+**Reverse-engineer the whole engine from the binary before building on it, and
+only wire in what is code-traced.** Every value in the running engine is meant to
+be traceable to a disassembled function or a validated data file — the camera, the
+fog, the enemy stats, the damage formula, the physics. Where something is still a
+stand-in (a hand-picked number, a placeholder behaviour), it is called out as one,
+here and in the code, rather than dressed up as fact. The [honesty ledger](#honesty-ledger)
+at the bottom is the running list of what is *not* yet real.
+
+## What it does now
+
+`cleria-view` is a real-time engine on **SDL3 + wgpu-native** (WebGPU →
+D3D12/Vulkan/Metal — native, no browser). It currently plays end to end:
+
+- **Title → character select → difficulty → world**, the real menu assets and flow.
+- **Rooms** render textured and lit (baked vertex lighting, per-material DDS,
+  alpha-test cutouts, UV-scrolling water), with the game's **collision hulls**,
+  **authored cameras** (SCM), and **scene fog** (SFO).
+- **A grounded player** — walk/run/jump/gravity, wall & floor collision, 8-way
+  sprite facing — driven by the character's own **ASO animation scripts** (the
+  scripts decide clip, frame timing, and hit-volumes, so the three characters
+  differ because their data differs).
+- **Combat**: melee swings and combo chains, **projectiles** spawned by the ASO
+  (`anime_FireBullet` → real EF2 effects), the disassembled **damage formula**, and
+  enemies that **run their own ASO** to wind up and land animated attacks with real
+  hitboxes.
+- **Enemies** placed from each room's SCT with their **own** level/HP/ATK/DEF from
+  ENEMYINFO, and **barrier fights**: kill the script-spawned guards and the chest
+  they lock opens (op `0x131 Chr_IsSeedLiving`, wired).
+- **The real HUD** at its authored 1024×768 coordinates: HP bar with damage-lag
+  trail, the segmented green MP gauge, the EX/Boost arc around the portrait, the
+  SP counter, the portrait and equipment-slot frames.
+- **An in-game pause book** (Escape) — Equip / Item / Topic / Save-Load pages, the
+  real menu art, tab-navigable.
+- **Chests** (E) for named loot, with per-character and event gating.
+- **Music** (per-room BGM from SCENELIST) and **footsteps** (surface → cadence,
+  the exe's own rule).
+- **SEN room transitions** — walk through a doorway to warp to the connected room.
+
+Everything above is fed by the game's own files. See the status table for how each
+layer was validated, and the ledger for what is still a stand-in.
+
+### Status
 
 | Layer | Status |
 |---|---|
 | NNI/NA archive (cipher, TOC) | ✅ (from the sibling Archipelago project) |
 | **YMO** models + skeleton + animation | ✅ **1006/1006 byte-exact** — rigid FVF *and* the skinned boss path, both drawn |
 | **SOB** object placement | ✅ 1129/1129 records |
-| **SEN** room graph | ✅ 348 edges, 86.8% reciprocal |
-| DDS textures / WAV audio | ✅ standard formats, free |
-| C++20 asset core + OBJ exporter | ✅ builds `/W4` clean |
-| Differential harness (C++ vs Python) | ✅ **exact match, 197 rooms** |
-| **Real-time renderer (SDL3 + wgpu-native)** | ✅ **rooms render on GPU; orbit window + headless `--shot`** |
-| **Textured materials (DDS: BC1/BC2/RGB565/…)** | ✅ **per-submesh material textures + alpha-test cutouts** |
-| **Boss models + skinning (D3DX indexed palette)** | ✅ **all 8 render textured, skinned and posed — BOSS01 coils, BOSS04/08 assemble** |
-| **ASO animation-script VM** | ✅ **the game's own scripts drive the player: 115/115 files, 52,280 instructions, 0 decode errors; every opcode and call count matches the RE to the unit** |
-| **Animation clips (parse + pose + play)** | ✅ **303/303 stored clip AABBs reproduced (worst delta 4.8e-05).** The 33 that used to miss were our own bug, not 5 odd files: 8 of the 64 skinned models also carry *rigid* meshes, and both validators skinned only the two-stream mesh. `CLERIA_CLIP`/`CLERIA_FRAME` pose any skinned model |
-| **Free-fly walkthrough + SEN room transitions** | ✅ **fly through doorways to warp between connected rooms** |
-| **Baked vertex lighting** | ✅ **per-vertex DIFFUSE (lava glow, ambient) — the Falcom "lightmap"** |
-| **Grounded player controller** | ✅ **walk/jump/gravity + wall & floor collision; F toggles fly** |
-| **The game's own collision hulls (`_.YMO`)** | ✅ **396 tris vs 14,295 render in S_1000 — matches the authored SCT spawn in 7 more rooms than render geometry, 0 regressions** |
-| **Footsteps (surface + cadence + EFFECTDEF + SDL3 audio)** | ✅ **fully the game's rule now** — hull material name → surface → `f_stone0..3`, and the cadence is the exe's tick countdown (walk 20 / run 13, gated on the ASO section id) |
-| **AIA** character/monster sprites | ✅ **codec cracked, pixel-exact; 8-way facing + idle/walk/jump** |
-| **The game's own camera (SCM)** | ✅ **659 authored camera regions, follow + orbit + blend — no hand-tuning** |
-| **Scene fog (SFO)** | ✅ **per-region colour/near/far, cross-faded as the game does** |
-| **The real HUD (STATUS_512)** | ✅ **authored 1024×768 coords, Hor+ scaling, the game's own digit emitter (builder A), real bar cluster, 4 equipment slots** |
-| **Fixed-step 60 Hz logic** | ✅ **decoupled from rendering — measured 165 fps / 60 tps**; timeScale-aware, uncapped catch-up like the exe |
-| **Enemy stats** | ✅ **CLOSED and externally validated: 67/68 enemies match the game's own monster journal exactly** on HP/level/STR/DEF, and 67/68 on EXP. `stat = FLOOR(K(ENEMYINFO col) × curve(level))`, `K(v) = 2^((v−50)/20)` — nothing is stored raw. (The 68th is a typo in the published table; our data locates it.) |
-| **Boss stats (EEX)** | ⚠️ **table cracked, lookup open.** Bosses carry RAW stats, not multipliers — which is why the enemy index never reached them. `EEX.DAT` = 8 real + 10 inert; its levels are exactly the published 8/16/24/32/40/45/49/50 (Velagunder→Darm) and its STR matches 6/8. **How a boss reaches a record is `[UNKNOWN]`** |
-| **Enemy/player stat curves** | ✅ **CLOSED. `stat = lerp(value_at_lv1, value_at_lv60, (level−1)/59)` from GAMEINFO — enemies read pairs 0/1/2/4 (`FUN_004202e0`), the player 6/7/8 + 10 (`FUN_00420c40`)** |
-| **Enemy level** | ✅ **ENEMYINFO +0xe8, i32 1..60 — it read as denormal floats, which is why it hid** |
-| **Player physics (vertical)** | ✅ **there is no gravity constant — the engine keeps a signed TIME at actor+0x330 and computes `dy = 0.5*9.81*t*abs(t)` in closed form.** Jump v0 0.285, terminal fall 0.65/tick, char radius 0.675 and height 1.075 — all per-cast from CASTINFO |
-| **Equipment → stats** | ✅ **INVINFO +0x24 is the DEF column; weapon ATK is GAMEINFO's 4×11 [char][tier] table. There is no weapon ATK column in INVINFO at all** |
-| **Damage formula (enemy target)** | ✅ **`ATK^0.66 * (ATK − 0.98*DEF + 10 + bonus) / 22.92`, disassembled — probabilistic rounding, a deferred death flag, and a difficulty post-scaler `{1.0, 1.5, 2.0}`** |
-| Damage formula (**player** target) | **not implemented, on purpose.** The path forks at `0x4fd3e1`: a player target bypasses the whole formula *and* the post-scaler for `FUN_004fa740` — different DEF source, two soft floors at 3%/1.5% of the attacker's ATK, a 0.5 minimum, `max(1.0, …)`. Declared-but-undefined so a caller link-errors rather than silently getting the enemy formula |
-| Difficulty | ✅ **five settings, not four** — a 3-valued index (`0x76bb5c`) *plus* two booleans. Effects `[C-DIS]`: very easy `{dmg ×0.5, HP ×0.75, EXP ×2}` → nightmare `{HP ×1.5, dmg ×2+1}`. The names are `[H-high]` — the menu strings were never found |
-| RNG / replay stability | ✅ **the `.data` seeds are decoys** — `x = timeGetTime()` at startup, so retail damage is *not* replay-stable. We seed explicitly and get determinism the original never had |
-| **Enemy drop tables (ENEMYINFO)** | ✅ **8 slots/enemy: item id + percent chance, corpus-proven — enemies drop only tools and gold, never equipment** |
-| **Enemies (SCT placement + the game's stats)** | ✅ **1106 placements / 85 rooms, each with its OWN level, HP, ATK and DEF from ENEMYINFO — S_1004 holds lv1/60HP Riffligans, S_6002 holds lv42/697HP. No AI yet** |
-| **Torch flames (SEF + EF2)** | ✅ **placements + the 16-frame flipbook, additive** |
-| **The full archive** | ✅ **15,945/15,945 extracted — incl. 77 shaders + 820 WAVs nothing had touched** |
-
-The differential test is the headline: two independent implementations of the
-whole pipeline agree to the vertex — **5,659,727 vertices / 2,183,191 triangles**
-across every room in the game.
-
-### What YMO turned out to be
-
-A serialized DirectX `.X` mesh hierarchy: `D3DXFRAME` nodes, `D3DXMESHCONTAINER`
-meshes stored as **raw D3D9 FVF vertex buffers + `D3DFMT_INDEX16` triangle
-lists**, and per-node scale/rotation/translation animation keys. See
-[docs/formats/YMO.md](docs/formats/YMO.md).
-
-> **Rooms and props use legacy FVFs (`0x1D2`/`0x2D2`) with rigid node binding, and
-> that path is validated bit-exact. But that is not the whole format.** The bosses
-> under `ENEMY/` use `fvf = 0` — a D3D9 **vertex declaration**, and the declarations
-> are not in the file: they are eight static `D3DVERTEXELEMENT9` arrays inside the
-> exe, chosen by a shader table. **Ys Origin does skin**, via D3DX indexed-palette
-> blending (`_1w`…`_4w` = influence counts, `decl = 3 + N`), so the "no skinning"
-> claim this README used to make was simply wrong. All eight bosses now render,
-> skinned and animated — see [docs/formats/YMO.md](docs/formats/YMO.md).
-
-## Layout
-
-```
-src/cleria/        asset core — ymo, sob, sen, scm (cameras), sfo (fog), sct
-                   (actors), sef (effects), aia (sprites), xso (script VM), physics
-apps/cleria-view/  the engine: real-time renderer + play mode
-apps/cleria-dump/  load a room's SOB, export it to .obj
-apps/cleria-xso/   disassemble / run scripts; `--grants` scans the corpus
-docs/formats/      the reverse-engineering specs (YMO, AIA, XSO, SIDECARS)
-tools/             Python validators, probes and Ghidra scripts
-build/*_re/        raw RE notes per subsystem (source_map, ef2_re, xso_ops, …)
-```
+| **SEN** room graph | ✅ 348 edges, walked at runtime |
+| DDS textures / WAV audio | ✅ standard formats |
+| Differential harness (C++ vs Python) | ✅ **exact vertex match, 197 rooms** (5.6M verts / 2.2M tris) |
+| Real-time renderer (SDL3 + wgpu-native) | ✅ rooms on GPU; play mode + headless `--shot`/`--fps`/`--play` |
+| Textured materials (BC1/BC2/RGB565/…) | ✅ per-submesh textures + alpha-test cutouts |
+| Boss models + skinning (D3DX indexed palette) | ✅ all 8 render textured, skinned, posed |
+| **ASO animation-script VM** | ✅ **115/115 files, 52,280 instructions, 0 decode errors**; drives player *and* enemies |
+| Animation clips (parse + pose + play) | ✅ 303/303 stored clip AABBs reproduced |
+| AIA character/monster sprites | ✅ codec cracked, pixel-exact; 8-way facing + idle/walk/jump + the additive 2nd layer |
+| The game's own camera (SCM) + fog (SFO) | ✅ 659 camera regions (follow/orbit/blend); per-region fog, cross-faded |
+| Grounded player controller + physics | ✅ walk/run/jump; closed-form vertical (`dy = 0.5·9.81·t·|t|`), per-cast radius/height/jump |
+| Collision hulls (`_.YMO`) | ✅ the game's authored hulls, not render geometry |
+| Footsteps (surface + cadence + audio) | ✅ hull material → surface → `f_stone0..3`, exe's tick cadence |
+| **Enemy stats / curves / levels / drops** | ✅ **externally validated: 67/68 match the monster journal** on HP/level/STR/DEF; drop tables corpus-proven |
+| **Damage formula (enemy target)** | ✅ disassembled: `ATK^0.66·(ATK − 0.98·DEF + 10 + bonus)/22.92`, probabilistic rounding, difficulty post-scaler |
+| Equipment → stats | ✅ INVINFO DEF column + GAMEINFO weapon-ATK table (there is no ATK column in INVINFO) |
+| Difficulty | ✅ five settings (a 3-valued index + two booleans), effects `[C-DIS]` |
+| **XSO event VM** | ✅ flags/tests/give-item/acquire-box/compare/show-hide, **spawn `0x12c`**, **alive `0x13f`**, **barrier `0x131`** |
+| **Combat: melee combos + projectiles + enemy attacks** | ✅ ASO-driven — see [build/attack_re](build/attack_re) / [build/combat_re](build/combat_re) |
+| **The real HUD (STATUS_512)** | ✅ HP + damage-lag trail, segmented MP, EX/Boost arc, SP digits, portrait, slots |
+| **In-game pause book + menus** | ✅ Escape opens Equip/Item/Topic/Save-Load; assets pixel-matched |
+| **Per-room BGM (SCENELIST)** | ✅ each room picks its `.ogg`; loose files via `CLERIA_MUSIC_DIR` |
+| Boss stats (EEX) | ⚠️ table cracked; how a boss reaches its record is `[UNKNOWN]` |
+| Enemy AI | ⚠️ **stand-in** — chase + ASO attack; the game's ~90 bespoke handlers are not ported |
+| The full archive | ✅ 15,945/15,945 extracted |
 
 ## Build
 
@@ -110,171 +112,135 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-## Run
+### Assets
 
-`cleria-dump` needs a directory of extracted assets (the `MAP/`, `ENEMY/` … tree
-produced by the Archipelago project's `ni_unpack.py`).
-
-```sh
-build/Release/cleria-dump.exe <asset_root> <asset_root>/MAP/S_00/S_0000/S_0000.SOB out.obj
-python tools/render_png.py out.obj out.png    # quick-look raster (Pillow)
-```
-
-## Render
-
-`cleria-view` draws a room in real time via **SDL3 + wgpu-native** (WebGPU →
-D3D12/Vulkan/Metal). Native library, no browser.
-
-It plays the game's way: the camera, fog, enemy placement and spawn point all come
-from the room's own sidecars, not from constants we picked.
+`<asset_root>` is a tree of extracted assets (the `MAP/`, `ENEMY/` … tree). Extract
+**both** archives — `data.ni` then `data_us.ni`, in that order: the US overlay
+overwrites 525 scripts and the English text.
 
 ```sh
-build/Release/cleria-view.exe                                         # no args -> S_1000
-build/Release/cleria-view.exe <asset_root> <room.SOB>                 # a specific room
-build/Release/cleria-view.exe <asset_root> <room.SOB> --shot out.ppm 1280 860
-build/Release/cleria-view.exe <asset_root> <room.SOB> --walk 6 tour   # headless tour
+python tools/extract_assets.py <install>/data.ni    assets
+python tools/extract_assets.py <install>/data_us.ni assets   # overlay, second
 ```
 
-With no arguments it finds the asset tree (`$CLERIA_ASSETS`, then next to the exe)
-and starts in the tower base (S_1000) — just run the exe.
+**Music** is not in those archives — the tracks are loose `.ogg` files in the
+install's `release/music/`. Point CleriaCore at them with `CLERIA_MUSIC_DIR`, or put
+them where it already looks (`<asset_root>/music`, e.g. `mklink /J assets\music
+"<install>\release\music"`). Without it everything still runs, silently.
 
-In the window: **WASD** moves the character (8-way, camera-relative), **LMB** attacks,
-**Space** jumps, **E** opens chests, **Tab** switches character, **1–9** take exit N,
-**F** drops to a free-fly debug camera, **ESC** quits. Fly into a doorway (a SEN trigger volume) to warp
-to the connected room. `--shot` renders one frame offscreen to a PPM (verifiable
-headless); `--walk N` auto-traverses N connected rooms, shooting each. Prebuilt
-deps live under `third_party/` (gitignored) — SDL3 3.4.12 + wgpu-native v29.0.1.1.
+## Play
 
-`<asset_root>` is a tree of extracted assets (`tools/extract_assets.py <data.ni> assets`).
-Extract **both** archives — `data.ni` then `data_us.ni`, in that order: the US
-overlay overwrites 525 scripts and the English text.
+```sh
+build/Release/cleria-view.exe                      # no args -> title screen / S_1000
+build/Release/cleria-view.exe <asset_root> <room.SOB>   # jump straight into a room
+```
 
-**Music** is not in those archives — the 40 tracks are loose `.ogg` files in the
-install's `release/music/`. Point CleriaCore at them with `CLERIA_MUSIC_DIR`, or
-put them where it already looks (`<asset_root>/music`, e.g. a junction:
-`mklink /J assets\music "<install>\release\music"`). Without it everything still
-runs, just silently. Each room picks its track from `MAP/SCENELIST.SL` byte `+3`
-(see `build/audio_re/BGM.md`).
+With no room argument it finds the asset tree (`$CLERIA_ASSETS`, then next to the
+exe) and boots to the title screen.
 
-### Debug switches
-
-| switch | does |
+| Control | Action |
 |---|---|
-| `--model <file.ymo> out.ppm` | orbit-shot any standalone model (bosses, props) |
-| `CLERIA_SPAWN="x,y,z"` | drop the character somewhere specific |
-| `CLERIA_CLIP=<name>` `CLERIA_FRAME=<n>` | pose a skinned model at an animation frame (`--model`); list clips with `cleria-animtest <f.ymo> --clips` |
-| `CLERIA_SKIP=<substr>` | omit SOB objects whose path/name matches — bisect artifacts |
-| `CLERIA_COLL=render` | collide against render geometry again (pre-`_.YMO` behaviour) |
-| `CLERIA_NOSCROLL=1` | disable the water UV-scroll integrator |
-| `CLERIA_SCROLL_TICKS=<n>` | pre-advance the UV-scroll phase by n ticks before a `--play` shot (that path renders one frame and never ticks, so the water is otherwise frozen at phase 0) |
-| `CLERIA_COLLCHECK=1` | grid-compare the collision hulls against the render mesh |
-| `CLERIA_SURF=1` | per-surface triangle counts, split by floor-like vs wall |
-| `CLERIA_STEPS=1` | trace each footstep: surface → table id → WAV |
-| `CLERIA_VB=1` | print each mesh's vertex format; flags buffers with no UV0 |
-| `CLERIA_MAT=1` | dump every material: flags, blend mode, diffuse, UV-scroll velocity, all 3 texture slots |
-| `CLERIA_CULL=off\|cw\|ccw` | probe face culling (D3D9's `D3DCULL_CCW` does not map directly to WebGPU winding) |
-| `build/Release/cleria-animtest.exe assets` | reproduce every stored clip AABB from our own animation + skinning |
-| `python tools/xso_audit.py` | count script branches our VM would get wrong at runtime |
-| `python tools/sct_enemies.py <ROOM>` | list a room's enemies + positions + sprites |
-| `python tools/aia_gif.py <f.aia> <o.gif>` | animation contact sheet, for identifying anims |
+| **WASD** / arrows | move (8-way, camera-relative) |
+| **LMB** | attack (melee / combo) |
+| **Space** | jump |
+| **E** | interact / open chest |
+| **Tab** | switch character (Yunica / Hugo / Toal) |
+| **Escape** | open/close the pause book (the window **X** quits) |
+| **Q / E** | previous / next page in the pause book |
+| **1–9** | take exit N |
+| **F** | free-fly debug camera |
+| mouse wheel | fly speed |
+| **R** | respawn at the room's spawn |
+| **K / L** | *(debug)* −60 HP / full heal |
+| **B** | *(debug)* +Boost |
 
-> **If the interactive window segfaults with no output, check that a display is attached.**
-> SDL cannot create a window/swapchain with no active display, so `cleria-view` dies at
-> startup. `--shot` / `--play` / `--model` render offscreen and are unaffected — use them
-> for headless verification. (Diagnosed the slow way once: an old commit crashed identically
-> despite having run fine an hour earlier. Same binary, different result = environment.)
+### Headless render modes
+
+`--shot`, `--play` and `--fps` render offscreen to a PPM (verifiable with no
+display attached — the interactive window needs one). `--fps` draws the HUD, which
+is the fast way to eyeball HUD changes without a live session.
+
+```sh
+build/Release/cleria-view.exe <asset_root> <room.SOB> --shot out.ppm 1280 860
+build/Release/cleria-view.exe <asset_root> <room.SOB> --fps  hud.ppm 1280 860
+build/Release/cleria-view.exe <asset_root> <room.SOB> --walk 6 tour     # headless N-room tour
+build/Release/cleria-view.exe <asset_root> <file.ymo> --model out.ppm   # orbit any model
+```
+
+A handful of `CLERIA_*` env switches drive diagnostics (`CLERIA_MAT`, `CLERIA_VB`,
+`CLERIA_SURF`, `CLERIA_STEPS`, `CLERIA_ENEMY`, `CLERIA_CHAR`, `CLERIA_LEVEL`, …) —
+grep `std::getenv` in `apps/cleria-view/main.cpp` for the current set.
+
+## Layout
+
+```
+src/cleria/        asset core — ymo, sob, sen, scm (cameras), sfo (fog), sct
+                   (actors), sef (effects), aia (sprites), aso/xso (VMs), world, physics
+apps/cleria-view/  the engine: real-time renderer + play mode + HUD
+apps/cleria-dump/  load a room's SOB, export it to .obj
+apps/cleria-xso/   disassemble / run scripts; `--grants` scans the corpus
+docs/formats/      the reverse-engineering specs (YMO, AIA, ASO, XSO, SIDECARS)
+tools/             Python validators, probes and Ghidra scripts
+build/*_re/        raw RE notes per subsystem (source_map, hud_re, attack_re, event_re, …)
+```
 
 ## How much of the game is actually reversed?
 
-**About 2.5% of the code Falcom wrote — and the denominator matters more than the
-numerator.**
+The exe has 6,708 functions, but **4,399 of them (66%) are not game code** — the CRT,
+3,025 Steamworks/GOG delay-load stubs, and 2,198 import thunks. The Falcom-authored
+body is `0040e150`–`005eeae0`: **2,097 functions, 1.74 MB**. That is the real
+denominator, and it is what the coverage metric (`tools/re_coverage.py`) measures.
 
-The exe has 6,708 functions, but **4,399 of them (66%) are not game code at all**:
-the PE entry point sits at `00626139` in the CRT, 3,025 tail functions carry real
-symbol names (Steamworks and GOG Galaxy delay-load stubs), and 2,198 are sub-32-byte
-import thunks. Quoting a fraction over 6,708 flatters us by understating what is
-left to do *and* insults the work by counting stub code as unreversed.
-
-> **The Falcom-authored body is `0040e150`–`005eeae0`: 2,097 functions,
-> 1,744,157 function-bytes.** Against that, ~53 touched functions is **~2.5%**.
-
-We can be this precise because **the binary's assert strings leak Falcom's own source
-tree** — 37 `__FILE__` paths under
-`i:\ys_origin\gamedata\windows7\yso_win\src\dump builds\20240108-smallfix\`, each
-emitted as `push <line> ; push <path> ; call assert_handler`, so both the filename and
-the line number fall out of the bytes. The 30 `main/` translation units turn out to be
-laid out **in exact alphabetical order by full source path** (`app/` < `config/` <
-`game/` < `gfx/` < `object/` < `window/`), which is not a coincidence one can arrange
-by accident — 30 items landing sorted is 1 in 30!.
-
-That law makes any address answerable: it yields a directory, and an alphabetical
-*range* the true filename must lie in. It also makes falsifiable predictions, and it
-has passed one — `FUN_00452980` was identified as the `f_mini` font drawer purely from
-asset names, and it sits exactly where `f_mini.cpp` sorts.
-
-**What it is not:** a partition. Asserts are sparse (37 files out of a tree holding
-well over a hundred), so this is 36 confirmed anchors plus an ordering law — a
-**bracket, never a name**. The `lib/` tree doesn't obey the law at all (static-library
-link order is archive-member order), and the build uses cross-TU inlining, which
-would have silently mis-attributed two functions to the wrong file had it gone
-unnoticed.
-
-**The elephant** is the `main/object` gap `00465170`–`00501a30`: 305 functions,
-641 KB, **24.7% of `.text`**, bracketed between `go_actor_player.cpp` and
-`go_mesh.cpp`. It holds the damage applier, the AIA sprite draw, and 91 of the 94 AI
-handlers — the actor/enemy/battle heart of the game, and almost entirely untouched.
-The eight `go_mesh_bossNN.cpp` files (~264 functions, ~371 KB, *zero* touched) are
-each individually anchored, making them the best-bounded large target we have.
-
-See `build/srcmap_re/`.
+We can be precise about *where* code lives because the binary's assert strings leak
+Falcom's own source tree — 37 `__FILE__` paths under
+`i:\ys_origin\...\yso_win\src\`, and the `main/` translation units are laid out **in
+alphabetical order by source path**. That turns any address into a directory and an
+alphabetical *range* the true filename must lie in — a bracket, not a name (asserts
+are sparse; `lib/` doesn't obey the law). The still-largest untouched target is the
+`main/object` gap `00465170`–`00501a30` (305 functions, 24.7% of `.text`) — the
+actor/enemy/battle heart, bracketed between `go_actor_player.cpp` and `go_mesh.cpp`,
+and the source of the enemy-AI stand-in. See `build/srcmap_re/`.
 
 ## Roadmap
 
 - **M0 — asset pipeline** ✅
-- **M1 — render + walk** ✅: real-time renderer, textures + alpha, baked lighting,
-  SEN room transitions, and a grounded player controller (walk/jump/collide).
-  Ultrawide falls out for free (aspect-correct resizable window).
-- **M2 — scripts** ✅: the XSO event VM — parser, decoder, control flow, flag /
-  test / give-item / acquire-box ops, the comparison family, and object show/hide
-  (static grant scan: **7,505** — an earlier 7,496 was measured before the archives
-  were fully extracted, when `assets/` was a JP/US mix; `data_us.ni` overwrites 525
-  scripts and the US build grants 9 more flags). Integrated into play: **open chests** (E) for named loot, an
-  **on-screen HUD**, **character selection** (Tab: Yunica/Hugo/Toal), and
-  **per-character chest gating** — the scene-main script hides the wrong
-  character's chests (model + interactable). Presentation-heavy ops (cutscene
-  camera, entity animation, dialog) drive systems that belong to M3. See
-  [docs/formats/XSO.md](docs/formats/XSO.md).
-- **M3 — combat & entities** *(in progress)*: the game's **authored camera** (SCM),
-  **scene fog** (SFO), the **real HUD** at its authored coordinates, **character
-  sprites** (AIA) with 8-way facing and idle/walk/jump, **enemies** placed from SCT
-  (1106 across 85 rooms), and **torch flames** from SEF + the EF2 flipbook. All of it
-  driven by the game's own data — the camera constants we hand-tuned for a day were
-  thrown away the moment SCM was decoded.
-  **Blocked on the entity system:** enemies have no AI (the game's is ~90 bespoke C++
-  routines, not a table), and **barrier fights** need a live "is that enemy alive?"
-  answer — `KEKKAIZAKO_01.XSO` polls op `0x131` in a loop, so no constant can fake it.
+- **M1 — render + walk** ✅: renderer, textures + alpha, baked lighting, SEN room
+  transitions, grounded controller. Ultrawide falls out for free.
+- **M2 — scripts** ✅: the XSO event VM — parser, decoder, control flow, the flag /
+  test / give-item / acquire-box / compare / show-hide ops, plus the actor ops
+  (`0x12c` spawn, `0x13f` alive, `0x131` barrier). Chests, HUD, character select and
+  per-character chest gating are wired.
+- **M3 — combat & entities** *(largely in)*: authored camera (SCM), fog (SFO), the
+  real HUD, AIA sprites, enemies from SCT with real stats, torch flames, ASO-driven
+  **melee combos, projectiles and enemy attacks**, the disassembled **damage
+  formula**, and **barrier fights** (op `0x131`, now wired — the earlier "blocked on
+  a live is-that-enemy-alive answer" is resolved). *Open:* enemy AI is a chase +
+  attack stand-in, not the game's ~90 bespoke handlers; hitstun/interrupt and combo
+  chaining have known bugs (see the ledger).
 - **M4 — the mod API**: the Archipelago mod becomes the first CleriaCore mod.
 
 ### Honesty ledger
 
-Things we know are still invented or unknown, kept here so they don't get mistaken
-for facts:
+Things known to be a stand-in, unfinished, or unknown — kept here so they don't get
+mistaken for facts. (Removed as they are traced and validated.)
 
 | thing | status |
 |---|---|
-| enemy reach | **our numbers still** — the one combat quantity not yet traced to data |
-| walk / run speed | **our numbers still.** `speed = actor+0x30c * scale * X`; the base scalar is real (CASTINFO +0x48 — 0.056 for the player vs 0.035 for 168 other casts) but `X` resolves to `+0xdc` on an unidentified object. Deliberately **not** back-derived from the 20/13 footstep cadence: that would look right, match the audio, and be unfalsifiable |
-| YMO animation keys | **doc was wrong until now**: the scale/translation labels were swapped (the correct composition reproduces the rest pose in 5832/7016 nodes; the old labelling in **0**), and the key's trailing field is a `u32` frame number, not a float — the old "monotonic time" test passed only because denormal ordering matches integer ordering |
-| animation frame rate | **fixed — the game's own scripts drive it now.** The ASO VM holds each `anime_Pattern` for its own `anime_Wait(n)`. No constants left |
-| player sprite choice | **now the script's, not ours.** `C_010.ASO` gates `anime_File(6)`=C_102 behind `Flag_IsEqualInt(161,1)` and falls through to `anime_File(15)`=**C_111**. With flag 161 clear (normal play) the game uses **C_111/C_112/C_113** — the gameplay sets. We had hardcoded C_102/103/104, which are the **cutscene** sets |
-| HUD `[EX]`/`[MP]`/`[SP]` labels + `60/ 60` | **not drawn yet.** The `f_mini` font and its exe-derived metrics are in (`minifont.hpp`), but nothing calls them. Text system B is no longer a lead: `FUN_005a3850` **does** construct the font object at `0x007945c0`, and a csprite draws text when its `draw_kind` byte at `+0x3c` is non-zero (`005a4645`), taking the string from `+0x68` |
-| footstep `+0x4b9` surface latch | **the last hop is open.** Everything from the actor's latched surface byte onward is proven; what fills it (`probe+0xAA`, from the ground raycast `FUN_0041e420`) is reached through an indirect callback in the physics lib and wasn't traced statically. It affects *which* surface, never *when* a step fires. A watchpoint on `EDX+0xAA` after `0x0045b03a` would settle it |
-| collision surfaces not in the table | **resolved.** `default`/`door`/`10switch`/`dafault` aren't in the 21-entry table, and the exe clamps an unmatched lookup to **1 = `stone`** (`FUN_005610e0`: both the not-found jump and the `idx<0` test land on `MOV ESI,1`). We do the same now |
-| water animation | **found — it's the material, not the shader.** Each material carries a UV-scroll velocity at `+0x44/+0x48` (`20zwater3` = +0.0006,-0.0018) gated by flag bit `0x4`; the shader can't animate itself (its phase input has no time term). We parse it now; the per-frame integrator that advances the phase is still unlocated |
-| bosses | **rendered, skinned, clips parsed and validated — but not yet played in the viewer.** `Model::pose()` works and is verified against 303 stored AABBs; nothing drives it per-tick yet |
-| `BOSS06A/B`, `PIC_TOGE`, `BOSS01_` clip AABBs | **don't reproduce** (Δ1.3–11.4) while the other 59 files are exact. Suspected second animation path (`type != 0`), which is [UNKNOWN] — never observed, since `type` is 0 for all 28,161 tracks |
-| AIA second layer | ✅ **drawn, additively.** It is a real overlay — its bbox moves independently of the body's (a falling spark, orbs flying out, a blade wreathed in fire), which a state variant cannot do. `SRCALPHA/ONE`, read out of `FUN_004745a0`. The "same bbox as the body, so compositing erases it" reading was drawn from C_115 alone — the corpus's most atypical file, and the erasure was evidence about the *blend*, not about whether to draw it. See [AIA.md](docs/formats/AIA.md) |
-| 300 XSO branch sites | run `tools/xso_audit.py` — unimplemented sub-ops leave `acc` stale, so those branches are wrong at runtime |
+| **enemy AI** | **stand-in.** Chase + ASO-driven attack; the game's ~90 bespoke C++ handlers in the `main/object` gap are not ported |
+| **melee combo chaining** | **buggy** — a swing can land as a single hit instead of chaining the full section list; the combo walk over the ASO's real attack sections needs work |
+| **hitstun / attack interrupt** | **not modelled** — hitting an enemy does not yet interrupt its attack animation |
+| **enemy reach / walk-run speed** | **our numbers still** — the base scalars are real (CASTINFO), but the final multiplier resolves through an unidentified object; deliberately not back-derived from the footstep cadence |
+| **game cursor** | **missing.** The chrome cursor/frame texture handles (`DAT_00749d68`/`60`) have no static writer — they're set by a boot pointer-walk, so identifying the texture needs a **runtime dump**, not more static RE |
+| **weapon/equipment icons in the HUD slots** | **empty.** The 4 slots resolve via a per-item texture-handle LUT, but there is no runtime inventory/equipment model to tell them what is equipped yet |
+| **EX/Boost arc fill** | **tuning open** — the sweep angle is env-tunable (`CLERIA_BOOST_START`/`SWEEP`) pending a match against the real gauge |
+| **pause-book insides** | **shells, not state.** The menu *pages* are pixel-matched, but their contents (real inventory, equip stats, topic/manual text, save slots) need a runtime game-state model that does not exist yet |
+| **equip STAT aggregation** | base `curve + weapon + armor/foot + ring` is `[C-DIS]`, but real saves carry permanent stat-boost-**seed** residuals (+1..+7) with no seed field to reproduce them |
+| **boss stats (EEX) lookup** | table cracked; **how a boss reaches its record is `[UNKNOWN]`** |
+| **damage formula (player target)** | not implemented on purpose — the path forks at `0x4fd3e1` (different DEF source, soft floors, `max(1.0,…)`); declared-but-undefined so a caller link-errors rather than silently getting the enemy formula |
+| **bosses in the viewer** | rendered/skinned/posed and AABB-validated, but nothing drives them per-tick in play yet |
+| **`BOSS06A/B`, `PIC_TOGE`, `BOSS01_` clip AABBs** | don't reproduce (Δ1.3–11.4) while 59 others are exact — suspected 2nd animation path (`type != 0`), never observed |
+| **300 XSO branch sites** | `tools/xso_audit.py` lists sub-ops still unimplemented at runtime, leaving `acc` stale on the branch that reads them |
+| **S_1000 white staircase** | a geometry/material artifact in the bottom-left of the tower base, not yet diagnosed |
 
 ## Credit
 
