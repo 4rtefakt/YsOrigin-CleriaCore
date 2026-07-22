@@ -82,6 +82,7 @@ THIRD_PARTY = [
     (0x621fd0, 0x622498, "zlib deflate_slow() [C-DIS: lazy matcher]"),
     (0x6237c0, 0x623b00, "zlib _tr_flush_block() [C-DIS]"),
     (0x623b00, 0x623f3c, "zlib compress_block() 2nd copy [C-DIS]"),
+    (0x65334b, 0x653630, "CRT setlocale category-string applier [C-DIS]"),
     (0x653630, 0x6539fb, "CRT setlocale category-setter [C-DIS]"),
     (0x628ff4, 0x629381, "MSVC C++ EH __CxxFrameHandler3 worker [C-DIS]"),
     (0x652b3e, 0x652eb4, "CRT __get_qualified_locale [C-DIS]"),
