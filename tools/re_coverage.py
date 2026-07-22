@@ -76,6 +76,7 @@ THIRD_PARTY = [
     (0x6056d0, 0x61ffe0, "libpng"),
     (0x620130, 0x62038c, "libpng png_do_shift() [C-DIS]"),
     (0x620510, 0x620783, "libpng png_do_read_transformations() [C-DIS]"),
+    (0x620790, 0x620983, "zlib deflateInit2_() [C-DIS]"),
     (0x66bdae, 0x66c017, "libm natural-log [C-DIS]"),
     (0x65e916, 0x65eb51, "CRT _putenv (narrow) [C-DIS]"),
     (0x65eb51, 0x65ed8d, "CRT _wputenv [C-DIS]"),
