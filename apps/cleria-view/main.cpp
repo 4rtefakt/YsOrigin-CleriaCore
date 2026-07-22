@@ -1287,15 +1287,21 @@ static void draw_screen_image(Gpu& g, WGPUTextureView color, WGPUTextureView dep
                               const SpriteTex& tex, float l, float t, float r, float b, float z,
                               float u0 = 0, float v0 = 0, float u1 = 1, float v1 = 1,
                               float bgr = 0.02f, float bgg = 0.02f, float bgb = 0.05f,
-                              float wtint = 0.0f, bool additive = false) {
+                              float wtint = 0.0f, bool additive = false,
+                              float tr = 1.0f, float tg = 1.0f, float tb = 1.0f) {
     if (!tex.tex) return;
     // Vertex alpha carries a white-tint amount (fs_char mixes the sampled colour toward white by
     // it) -- used for the char-select selection-bar pulse. 0 = the texture as-is.
+    // Vertex RGB is a per-quad MODULATE colour (fs_char does tc.rgb * color.rgb); default white =
+    // texture as-is, <1 dims it (e.g. 0.5 -> 0x808080 for the Options "dim the unpicked rows" pass).
     const std::uint8_t wt = (std::uint8_t)(std::clamp(wtint, 0.0f, 1.0f) * 255.0f);
-    RoomVertex verts[4] = {{l, t, z, 0, 0, -1, u0, v0, 255, 255, 255, wt},
-                           {r, t, z, 0, 0, -1, u1, v0, 255, 255, 255, wt},
-                           {r, b, z, 0, 0, -1, u1, v1, 255, 255, 255, wt},
-                           {l, b, z, 0, 0, -1, u0, v1, 255, 255, 255, wt}};
+    const std::uint8_t cr = (std::uint8_t)(std::clamp(tr, 0.0f, 1.0f) * 255.0f);
+    const std::uint8_t cg = (std::uint8_t)(std::clamp(tg, 0.0f, 1.0f) * 255.0f);
+    const std::uint8_t cb = (std::uint8_t)(std::clamp(tb, 0.0f, 1.0f) * 255.0f);
+    RoomVertex verts[4] = {{l, t, z, 0, 0, -1, u0, v0, cr, cg, cb, wt},
+                           {r, t, z, 0, 0, -1, u1, v0, cr, cg, cb, wt},
+                           {r, b, z, 0, 0, -1, u1, v1, cr, cg, cb, wt},
+                           {l, b, z, 0, 0, -1, u0, v1, cr, cg, cb, wt}};
     std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
     WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
     WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
@@ -2823,18 +2829,23 @@ struct MenuFont {
 // MENU/BACK00.DDS the background. Rendered as screen-space quads via draw_screen_image.
 struct TitleFx {
     SpriteTex splash, pillar, cursor, altpillar;   // altpillar = golden goddess side-art (char-select/menus)
+    SpriteTex curGlow;         // baked selection glow: white bar, vertical alpha gradient, drawn ADDITIVE over text
     SpriteTex frame, chrsel;   // BACK00 ornate frame; CHRSELECT atlas (bars/faces/banner)
     SpriteTex dialog;          // DIALOG0 blue scroll frame for the New-Game choice popups
     SpriteTex opbtn, plaque;   // OPBTN atlas (Option-screen buttons/checkboxes) + OPTION "Option" plaque
     SpriteTex equipPlaque, wstatus, wequip, wdetail;   // pause-book Equip: plaque + status + grid + detail panel
     SpriteTex invPlaque, winvent;                      // pause-book Item page: "Inventory" plaque + 6x5 grid
     SpriteTex topicPlaque, topicBtn[3], topicCur;      // pause-book Topic page: plaque + Character/Monster/Manual + cursor glow
-    SpriteTex shopBg;                                  // SHOPPILLAR16-9: the Bonus Shop backdrop (gold border + vines)
+    SpriteTex shopBg;                                  // SHOPPILLAR16-9: widescreen margin layer
+    SpriteTex shopBack, shopFeena;                     // Bonus Shop: Back01.dds backdrop + t_400a.dds Feena key-art
     SpriteTex loadPlaque, savePlaque, wsvld;           // pause-book Save/Load: plaques + W_SVLD slot/tab plate
+    SpriteTex square;          // SQUARE.dds (tex 10): the item/equip grid cell tile + cursor cell
+    SpriteTex blueHi;          // baked equipped/selected highlight quad (ARGB 0x4259999a)
     std::unordered_map<int, SpriteTex> iconCache;   // item-id -> MENU/ICON/<stem>.DDS (lazy, cached)
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
     SpriteTex dim;             // baked solid: background dimmer behind popups
-    CharSprite chibi[3];       // the little walking sprite in char-select's bottom-right
+    CharSprite chibi[3];       // (legacy) AIA walking sprite -- superseded by chibiPose below
+    SpriteTex chibiPose[3];    // ChrSelect_Chr{1,2,3}.dds: the dedicated fixed-pose chibi art (code-traced)
     int chibi_cur[3] = {-1, -1, -1};   // frame currently decoded per character
     SpriteTex faceClip[3];     // each char's face pre-clipped to the bar's arrow shape
     bool init(Gpu& g, const fs::path& asset_root) {
@@ -2846,6 +2857,37 @@ struct TitleFx {
             return upload_rgba(g, 4, 4, px);
         };
         dim = solid(0, 2, 6, 120);
+        // Selection glow (TITLE_LAYOUT.md §1 / UI_BLEND_FONT.md): the engine's menu cursor is the
+        // chrome texture DAT_00749d68 (DDS identity [UNKNOWN]) drawn ADDITIVE (renderstate 0x40c1)
+        // OVER the text, white/grey with a VERTICAL alpha gradient 0.125 (top) -> 0.875 -> 1.0
+        // (bottom). Bake that as a small white bar carrying the gradient in its alpha, plus a soft
+        // horizontal fade at the far ends so it reads as a glow band, not a hard rectangle.
+        {
+            // Overall additive intensity: the engine's tint is white/GREY, so the band brightens
+            // the row without obliterating the (already near-white) selected glyphs under it. ~0.42
+            // reads as the reference's soft highlight; CLERIA_CUR_A tunes it against the grab.
+            float kGlow = 0.35f;
+            if (const char* e = std::getenv("CLERIA_CUR_A")) kGlow = float(std::atof(e));
+            const int GW = 96, GH = 32;
+            std::vector<std::uint8_t> px(std::size_t(GW) * GH * 4);
+            for (int y = 0; y < GH; ++y) {
+                const float t = float(y) / float(GH - 1);           // 0 top .. 1 bottom
+                // piecewise 0.125 -> 0.875 (mid) -> 1.0 (bottom)
+                const float va = (t < 0.5f) ? (0.125f + (0.875f - 0.125f) * (t / 0.5f))
+                                            : (0.875f + (1.0f - 0.875f) * ((t - 0.5f) / 0.5f));
+                for (int x = 0; x < GW; ++x) {
+                    const float u = float(x) / float(GW - 1);
+                    // soft ends: fade the outer ~16% each side
+                    float ha = 1.0f;
+                    if (u < 0.16f) ha = u / 0.16f;
+                    else if (u > 0.84f) ha = (1.0f - u) / 0.16f;
+                    std::uint8_t* o = &px[(std::size_t(y) * GW + x) * 4];
+                    o[0] = o[1] = o[2] = 255;
+                    o[3] = std::uint8_t(std::clamp(va * ha * kGlow, 0.0f, 1.0f) * 255.0f);
+                }
+            }
+            curGlow = upload_rgba(g, GW, GH, px.data());
+        }
         Dds s = load_dds(asset_root / "IMAGE" / "TITLE_000.DDS");        // the full splash art
         Dds p = load_dds(asset_root / "MENU" / "TITLEPILLAR16-9.DDS");   // title widescreen side fill
         Dds ap = load_dds(asset_root / "MENU" / "ALTPILLAR16-9.DDS");    // golden goddess side fill (menus)
@@ -2904,19 +2946,29 @@ struct TitleFx {
         }
         { Dds c = load_dds(asset_root / "MENU" / "TOPIC_CUR.DDS");
           if (c.ok()) topicCur = upload_rgba(g, c.width, c.height, c.data.data()); }
-        { Dds b = load_dds(asset_root / "MENU" / "SHOPPILLAR16-9.DDS");   // Bonus Shop backdrop
+        { Dds b = load_dds(asset_root / "MENU" / "SHOPPILLAR16-9.DDS");   // widescreen margin layer
           if (b.ok()) shopBg = upload_rgba(g, b.width, b.height, b.data.data()); }
+        { Dds b = load_dds(asset_root / "MENU" / "BACK01.DDS");           // Bonus Shop backdrop (SHOP_LAYOUT.md)
+          if (b.ok()) shopBack = upload_rgba(g, b.width, b.height, b.data.data()); }
+        { Dds b = load_dds(asset_root / "IMAGE" / "T_400A.DDS");          // Feena key-art illustration
+          if (b.ok()) shopFeena = upload_rgba(g, b.width, b.height, b.data.data()); }
         { Dds e = load_dds(asset_root / "MENU" / "LOAD.DDS");     // Save/Load: plaques + W_SVLD slot/tab plate
           if (e.ok()) loadPlaque = upload_rgba(g, e.width, e.height, e.data.data()); }
         { Dds e = load_dds(asset_root / "MENU" / "SAVE.DDS");
           if (e.ok()) savePlaque = upload_rgba(g, e.width, e.height, e.data.data()); }
         { Dds w = load_dds(asset_root / "MENU" / "W_SVLD.DDS");
           if (w.ok()) wsvld = upload_rgba(g, w.width, w.height, w.data.data()); }
-        // Character-select key art: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
+        { Dds w = load_dds(asset_root / "MENU" / "SQUARE.DDS");   // grid cell tile + cursor (tex 10)
+          if (w.ok()) square = upload_rgba(g, w.width, w.height, w.data.data()); }
+        // Equipped/selected highlight quad (0x4259999a ARGB = teal-blue (89,153,154) @ alpha 66).
+        blueHi = solid(89, 153, 154, 66);
+        // Character-select key art + fixed-pose chibi: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
         for (int i = 0; i < 3; ++i) {
             Dds d = load_dds(asset_root / "MENU" /
                              ("CHRSELECT_PORTRAIT" + std::to_string(i + 1) + ".DDS"));
             if (d.ok()) portrait[i] = upload_rgba(g, d.width, d.height, d.data.data());
+            Dds cd = load_dds(asset_root / "MENU" / ("CHRSELECT_CHR" + std::to_string(i + 1) + ".DDS"));
+            if (cd.ok()) chibiPose[i] = upload_rgba(g, cd.width, cd.height, cd.data.data());
         }
         // The little walking chibi (C_102/103/104 = Yunica/Hugo/Toal); resolve the walk animation
         // by tag 0 (canonical across characters) so char-select can animate it bottom-right.
@@ -2943,8 +2995,9 @@ struct TitleFx {
                 };
                 // bar-arrow alpha region under the face (atlas uv), from the draw rects:
                 const float bu0 = 0.600f, bu1 = 0.821f, bv0 = 0.320f, bv1 = 0.493f;
-                static const float kU[3][2] = {{0.011f, 0.244f}, {0.264f, 0.495f}, {0.500f, 0.742f}};
-                constexpr float fv0 = 0.561f, fv1 = 0.748f;
+                // Face atlas UVs (code-traced): u = col*0.25, v[0.5625, 0.7578125].
+                static const float kU[3][2] = {{0.0f, 0.25f}, {0.25f, 0.5f}, {0.5f, 0.75f}};
+                constexpr float fv0 = 0.5625f, fv1 = 0.7578125f;
                 const int FW = 256, FH = 128;
                 std::vector<std::uint8_t> buf(std::size_t(FW) * FH * 4);
                 for (int i = 0; i < 3; ++i) {
@@ -3015,7 +3068,11 @@ struct TitleFx {
         const float sw = float(W), sh = float(H);
         const float A = sh / 768.0f;                 // authored px -> screen px (height-fit 4:3)
         const float pxH = 32.0f * A, pitch = 38.4f * A, cellH = 32.0f * A;
-        const float lastTop = 694.0f * A;            // top of the last row's cell
+        // Bottom anchor: code-traced originY gives the last row cell-top at authored 694.4
+        // (TITLE_LAYOUT.md §2, no-Steam case). Measured against reference/title_main.png the rows
+        // sit ~10 authored px lower (a font baseline-convention delta the RE flagged as "within
+        // cell") -> nudge the anchor to 704 so the list registers with the grab.
+        const float lastTop = 704.0f * A;            // top of the last row's cell
         const float cxpx = sw * 0.5f;                // X=512 of the centred 4:3 field
         auto ndcX = [&](float x) { return 2.0f * x / sw - 1.0f; };
         auto ndcY = [&](float y) { return 1.0f - 2.0f * y / sh; };
@@ -3023,30 +3080,26 @@ struct TitleFx {
         float maxW = 0;
         for (int i = 0; i < count; ++i) maxW = std::max(maxW, mf.measure(get(i), pxH));
         const float ty = 3.0f * A;
-        if (cursor.tex) {                            // MENUCURSOR highlight bar, centred on the text
-            const float mid = rowTop(sel) + ty + 0.46f * pxH;   // glyph vertical centre
-            const float half = pxH * 0.58f, barW = maxW + 64.0f * A;
-            draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
-                            cxpx + barW * 0.5f, mid + half, sw, sh);
-        }
-        // Labels: light blue-teal by default, neutral/white on the selected row (sampled from
-        // reference/title_main.png: unselected ~[176,205,207]). Each carries a thin dark drop-
-        // shadow, bottom-left (as the game does -- also keeps the light selected text legible).
-        // The reference glyphs are a LIGHT fill with a tight, DARK drop-shadow weighted bottom-left
-        // (its darkest label pixels reach near-black, glyph body ~[170,185,187]). The title loop's
-        // region-mean had wrongly dropped it -- it is what gives the letters their edge. Offset is
-        // env-tunable (CLERIA_MENU_SHXY="dx,dy" in ~px). Fill/shadow colours below.
-        int ur = 192, ug = 207, ub = 211, ua = 255, shr = 34, shg = 41, shb = 43, sha = 225;
-        int sr = 248, sg = 250, sb = 252, sa = 255;
-        float shdx = -0.8f, shdy = 0.9f;   // shadow offset in ~px (bottom-left)
+        // Row colours (TITLE_LAYOUT.md §1, code-traced): unselected diffuse 0xB0D0D0 = (176,208,208)
+        // light teal; selected row PURE WHITE (255,255,255). NO drop-shadow -- the engine emits a
+        // single glyph run per string, no second offset/tint pass (UI_BLEND_FONT.md §2). Still
+        // env-tunable for A/B checks against the reference grab.
+        int ur = 176, ug = 208, ub = 208, ua = 255;
+        int sr = 255, sg = 255, sb = 255, sa = 255;
         if (const char* e = std::getenv("CLERIA_MENU_U")) { sscanf(e, "%d,%d,%d,%d", &ur, &ug, &ub, &ua); }
         if (const char* e = std::getenv("CLERIA_MENU_S")) { sscanf(e, "%d,%d,%d,%d", &sr, &sg, &sb, &sa); }
-        if (const char* e = std::getenv("CLERIA_MENU_SH")) { sscanf(e, "%d,%d,%d,%d", &shr, &shg, &shb, &sha); }
-        if (const char* e = std::getenv("CLERIA_MENU_SHXY")) sscanf(e, "%f,%f", &shdx, &shdy);
-        if (sha > 0)
-            for (int i = 0; i < count; ++i)
-                mf.text_centered(get(i), 0.5f + shdx * A / sw, rowTop(i) + ty + shdy * A, pxH, sw, sh,
-                                 (std::uint8_t)shr, (std::uint8_t)shg, (std::uint8_t)shb, (std::uint8_t)sha);
+        // Selection glow: additive band (renderstate 0x40c1), 32px tall, width maxW+64, centred on
+        // the selected row. The engine draws it over the glyphs, but its texture is [UNKNOWN] and a
+        // solid-white approximation over the bright title backdrop washes the (white) text out; drawn
+        // just UNDER the crisp white glyphs it keeps them readable, matching the reference's soft
+        // highlight (draw-order was already [HAND-TUNED] per TITLE_LAYOUT.md §1; blend/height are the
+        // code-correct part).
+        if (curGlow.tex) {
+            const float mid = rowTop(sel) + ty + 0.46f * pxH;   // glyph vertical centre
+            const float half = 16.0f * A, barW = maxW + 64.0f * A;
+            draw_cursor_glow(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                             cxpx + barW * 0.5f, mid + half, sw, sh);
+        }
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
             mf.text_centered(get(i), 0.5f, rowTop(i) + ty, pxH, sw, sh,
@@ -3092,12 +3145,14 @@ struct TitleFx {
         auto AX = [&](float x) { return (2.0f * x / 1024.0f - 1.0f) * fwN; };   // authored -> NDC
         auto AY = [&](float y) { return 1.0f - 2.0f * y / 768.0f; };
         auto SX = [&](float x) { return (AX(x) + 1.0f) * 0.5f * sw; };          // authored -> screen px
-        // CHRSELECT.DDS (1024x512) atlas sub-rects (measured):
-        constexpr float kBarU0 = 0.06f, kBarU1 = 0.875f;
+        // CHRSELECT.DDS atlas sub-rects (CHARSELECT_LAYOUT.md §1, code-traced from FUN_005c2110):
+        // bar UV u[0,0.875] v[0.28125,0.53125] (unselected/dark); face UV v[0.5625,0.7578125],
+        // u = col*0.25 (col 0/1/2/3). The cyan selection-highlight band's V is a separate overlay.
+        constexpr float kBarU0 = 0.0f, kBarU1 = 0.875f;
         constexpr float kCyanV0 = 0.045f, kCyanV1 = 0.264f;
-        constexpr float kDarkV0 = 0.295f, kDarkV1 = 0.525f;
-        constexpr float kFaceV0 = 0.561f, kFaceV1 = 0.748f;
-        static const float kFaceU[3][2] = {{0.011f, 0.244f}, {0.264f, 0.495f}, {0.500f, 0.742f}};
+        constexpr float kDarkV0 = 0.28125f, kDarkV1 = 0.53125f;
+        constexpr float kFaceV0 = 0.5625f, kFaceV1 = 0.7578125f;
+        static const float kFaceU[3][2] = {{0.0f, 0.25f}, {0.25f, 0.5f}, {0.5f, 0.75f}};
         // 1. Frame BACK00 fills the 4:3 field. Its art content ends at texture row 767/1024 =
         //    v0.749 (measured); sampling further (the old 0.772) pulled ~23 black rows in and
         //    compressed the bottom marble border ~21 authored units too high. Clears the
@@ -3119,7 +3174,7 @@ struct TitleFx {
         //    correct; the old y -8..98 stretched the glyphs 1.28x too tall (measured C-height 37 vs
         //    reference 29). y -2..81 keeps the top fixed and matches the reference glyph height.
         if (chrsel.tex)
-            draw_screen_image(g, cview, dview, false, chrsel, AX(290), AY(-2), AX(734), AY(81), 0.5f,
+            draw_screen_image(g, cview, dview, false, chrsel, AX(274), AY(0), AX(738), AY(80), 0.5f,
                               0.557f, 0.844f, 0.998f, 1.0f);
         // 3. Three selection bars (EXTRA_SKINS.md §4: x=60..956, h=128, y={128,272,416}; row
         //    0/1/2 = Yunica/Hugo/Toal), the crossed one cyan, the rest dark, each capped by its
@@ -3135,33 +3190,28 @@ struct TitleFx {
                 draw_screen_image(g, cview, dview, false, chrsel, AX(60), AY(yt), AX(956), AY(yb),
                                   0.45f, kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1,
                                   0.02f, 0.02f, 0.05f, s ? pulse : 0.0f);
-                if (faceClip[i].tex)   // face pre-clipped to the arrow (built in init)
-                    draw_screen_image(g, cview, dview, false, faceClip[i], AX(654), AY(yt + 14),
-                                      AX(897), AY(yt + 110), 0.42f);
+                if (faceClip[i].tex)   // face pre-clipped to the arrow (built in init); code rect x646 w256 h100
+                    draw_screen_image(g, cview, dview, false, faceClip[i], AX(646), AY(yt + 14),
+                                      AX(902), AY(yt + 114), 0.42f);
             }
         }
-        // 4. The selected character's key art, on TOP of the bars (one crop frames all three).
-        if (sel >= 0 && sel < 3 && portrait[sel].tex) {
-            constexpr float u0 = 0.0f, u1 = 0.68f, v0 = 0.04f, v1 = 0.76f;
-            const float ar = ((u1 - u0) * 1024.0f) / ((v1 - v0) * 1024.0f);
-            const float top = 41.0f, hgt = 735.0f, left = 2.0f, wid = hgt * ar;
-            draw_screen_image(g, cview, dview, false, portrait[sel], AX(left), AY(top),
-                              AX(left + wid), AY(top + hgt), 0.35f, u0, v0, u1, v1);
-        }
-        // 4b. The walking chibi in the bottom-right (the selected character's sprite, animated).
-        if (sel >= 0 && sel < 3 && chibi[sel].ndir > 0) {
-            const int nf = int(std::max(1u, chibi[sel].nframe));
-            const int f = ((chibiFrame % nf) + nf) % nf;
-            if (chibi_cur[sel] != f) { chibi[sel].set_frame(g, std::uint32_t(f)); chibi_cur[sel] = f; }
-            std::uint32_t dir = std::min(5u, chibi[sel].ndir - 1);   // front-left (faces the portrait)
-            if (const char* e = std::getenv("CLERIA_CS_CHIBI_DIR")) dir = std::min(std::uint32_t(std::atoi(e)), chibi[sel].ndir - 1);
-            const SpriteTex& t = chibi[sel].dirs[dir];
-            if (t.tex && t.h > 0) {
-                const float chH = 85.0f, chW = chH * float(t.w) / float(t.h);   // authored, aspect
-                const float cx = 846.0f, cy = 632.0f;                           // authored centre (measured from charselect.png)
-                draw_screen_image(g, cview, dview, false, t, AX(cx - chW * 0.5f), AY(cy - chH * 0.5f),
-                                  AX(cx + chW * 0.5f), AY(cy + chH * 0.5f), 0.3f);
-            }
+        // 4. The selected character's key art, on TOP of the bars. Code-traced (CHARSELECT_LAYOUT.md
+        //    §1.1): the engine draws the FULL ChrSelect_Portrait{N}.dds (UV {0,0,1,1}) as a 1024x1024
+        //    quad at the top-left origin (0,0) -- the character art is baked left-anchored, the visible
+        //    768 shows the top. Replaces the old hand-tuned {2,41,735} crop.
+        if (sel >= 0 && sel < 3 && portrait[sel].tex)
+            draw_screen_image(g, cview, dview, false, portrait[sel], AX(0), AY(0),
+                              AX(1024), AY(1024), 0.35f, 0.0f, 0.0f, 1.0f, 1.0f);
+        // 4b. The fixed-pose chibi in the bottom-right. Code-traced (CHARSELECT_LAYOUT.md §1.1): the
+        //     dedicated ChrSelect_Chr{N}.dds drawn as a 128x128 csprite centred at authored (856,644)
+        //     -- NOT the AIA run animation. The DDS is a small figure on a transparent canvas.
+        (void)chibiFrame;
+        if (sel >= 0 && sel < 3 && chibiPose[sel].tex) {
+            // The DDS is a 512x256 sheet (4x2 grid of 128px poses); the csprite samples one 128x128
+            // cell from UV base (6.4,12.8)px -> u[0.0125,0.2625] v[0.05,0.55] (CHARSELECT_LAYOUT §1.1).
+            const float cx = 856.0f, cy = 644.0f, half = 64.0f;   // 128x128 authored dst quad
+            draw_screen_image(g, cview, dview, false, chibiPose[sel], AX(cx - half), AY(cy - half),
+                              AX(cx + half), AY(cy + half), 0.3f, 0.0125f, 0.05f, 0.2625f, 0.55f);
         }
         // 5. Description: "[Name]" left-aligned at authored x=48, and the blurb at a FIXED column
         //    x=209 (measured: the reference body-start is ~209 for all three names regardless of
@@ -3172,6 +3222,17 @@ struct TitleFx {
         mf.draw(g, cview);
     }
 
+    // The engine's selection cursor: the baked curGlow bar drawn ADDITIVE (renderstate 0x40c1)
+    // OVER the text. White with a vertical alpha gradient; additive so it brightens the row toward
+    // white rather than masking it (matches the reference's soft highlight, not an opaque pill).
+    void draw_cursor_glow(Gpu& g, WGPUTextureView cview, WGPUTextureView dview,
+                          float lpx, float tpx, float rpx, float bpx, float sw, float sh) {
+        if (!curGlow.tex) return;
+        auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+        auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+        draw_screen_image(g, cview, dview, false, curGlow, NX(lpx), NY(tpx), NX(rpx), NY(bpx),
+                          0.15f, 0.0f, 0.0f, 1.0f, 1.0f, 0.02f, 0.02f, 0.05f, 0.0f, /*additive*/true);
+    }
     // MENUCURSOR as a horizontal 9-slice (curls u[0,0.11] and [0.89,1.0] fixed, middle stretched)
     // so the ornate ends keep their thickness at any bar width instead of being stretched thin.
     void draw_cursor_bar(Gpu& g, WGPUTextureView cview, WGPUTextureView dview,
@@ -3209,32 +3270,36 @@ struct TitleFx {
     void draw_popup(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                     std::uint32_t W, std::uint32_t H, const char* title,
                     const char* const* items, int count, int sel,
-                    bool onBlack = false, float capTop = 212.0f) {
+                    bool onBlack = false, float capTop = 211.2f) {
         const float sw = float(W), sh = float(H);
         const float A = sh / 768.0f;
-        auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
-        auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
-        // onBlack (the SP-Bonus step runs on a full-black screen, not over Character Select):
-        // clear the whole surface to black first. Otherwise just dim whatever backdrop is there.
+        // The engine DIMS whatever is behind the go_wnddialog popup (char-select or, historically, a
+        // black screen for the SP-Bonus step -- but §2.3 shows every popup shares origin (512,256) over
+        // the dimmed backdrop; the on-black grab was an artifact). Draw the dimmer twice for a ~70%
+        // darken to match the reference.
         if (onBlack)
             draw_screen_image(g, cview, dview, /*clear*/true, dim, -1, 1, 1, -1, 0.25f, 0, 0, 1, 1, 0, 0, 0);
-        else if (dim.tex)
-            draw_screen_image(g, cview, dview, false, dim, -1, 1, 1, -1, 0.25f);
+        else if (dim.tex) {   // two passes at distinct z (else the depth test dedups the 2nd) -> ~72% darken
+            draw_screen_image(g, cview, dview, false, dim, -1, 1, 1, -1, 0.26f);
+            draw_screen_image(g, cview, dview, false, dim, -1, 1, 1, -1, 0.24f);
+        }
         const float pxH = 32.0f * A, pitch = 38.4f * A, cellH = 32.0f * A;
         const float cxpx = sw * 0.5f;                     // authored X=512 (centre)
-        const float captionTop = capTop * A;              // header top; centre = capTop+16 (type/diff ~228, SP ~308)
-        const float firstItem = captionTop + 44.8f * A;   // caption sits 44.8 above the first item
+        // Invariant origin (512,256): caption text-top at origin-44.8 = 211.2, item i (1-based) at
+        // origin + (i-1)*38.4 + 6.4 -> item1 = 262.4 (caption->item1 gap 51.2). Frame top = origin-64
+        // = 192; side pad 80 (CHARSELECT_LAYOUT.md §2).
+        const float captionTop = capTop * A;
+        const float firstItem = captionTop + 51.2f * A;
         auto itemTop = [&](int i) { return firstItem + i * pitch; };
         float maxW = mf.measure(title, pxH);
         for (int i = 0; i < count; ++i) maxW = std::max(maxW, mf.measure(items[i], pxH));
-        // Frame around caption..last item; width = content + 41.6 authored, + curl room.
-        const float fhalf = (maxW + 41.6f * A) * 0.5f + 90.0f * A;
-        draw_dialog_frame(g, cview, dview, cxpx - fhalf, captionTop - 18.0f * A,
+        const float fhalf = (maxW + 41.6f * A) * 0.5f + 80.0f * A;
+        draw_dialog_frame(g, cview, dview, cxpx - fhalf, (capTop - 19.2f) * A,
                           cxpx + fhalf, itemTop(count - 1) + cellH + 22.0f * A, sw, sh);
-        if (cursor.tex) {                                 // content-width MENUCURSOR on the choice
-            const float mid = itemTop(sel) + 0.46f * pxH, half = pxH * 0.58f, barW = maxW + 64.0f * A;
-            draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
-                            cxpx + barW * 0.5f, mid + half, sw, sh);
+        if (curGlow.tex) {                                // additive glow highlight on the choice (0x40c1)
+            const float mid = itemTop(sel) + 0.46f * pxH, half = 16.0f * A, barW = maxW + 64.0f * A;
+            draw_cursor_glow(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                             cxpx + barW * 0.5f, mid + half, sw, sh);
         }
         mf.text_centered(title, 0.5f, captionTop, pxH, sw, sh, 240, 246, 250, 255);
         for (int i = 0; i < count; ++i) {
@@ -3272,27 +3337,38 @@ struct TitleFx {
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
         // 1. "Option" plaque, top-left (OPTION.DDS: gold cartouche is u0..0.598 of the upper half;
         //    the rest of the texture is opaque black padding, so crop to the cartouche).
-        if (plaque.tex)
-            draw_screen_image(g, cview, dview, false, plaque, AX(30), AY(8), AX(176), AY(68),
+        if (plaque.tex)   // Option plaque anchor X=128 (VN1), quad ~153.6x51.2 (was hand-tuned x=30)
+            draw_screen_image(g, cview, dview, false, plaque, AX(128), AY(8), AX(281), AY(68),
                               0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
         // 2. the 10 rows. rowV = OPBTN band (px) for each SCREEN row, label-mapped; row 7 (Default)
-        //    is a short button in the atlas' right area.
+        //    is a short button in the atlas' right area. Row Y (OPTIONS_LAYOUT.md §2): start 96, pitch
+        //    54.4, +44.8 once before row 8 -> {96,150.4,...,476.8,576.0,630.4}.
         static const float rowV[10][2] = { {1,48},{53,98},{104,150},{411,456},{462,508},
                                            {514,559},{565,610},{307,356},{155,201},{206,252} };
-        static const float rowY[10] = { 96,150,204,258,312,366,420, 474, 560,614 };
+        static const float rowY[10] = { 96, 150.4f, 204.8f, 259.2f, 313.6f, 368.0f, 422.4f,
+                                        476.8f, 576.0f, 630.4f };
+        // Inverted focus highlight (FUN_005bae20): SELECTED row = full white (texture as-is), every
+        // UNSELECTED row dimmed toward 0x808080. The code value is RGB x0.5, but that assumes a base
+        // plate ~2x brighter than the OPBTN region CleriaCore samples renders (measured: our full plate
+        // ~38 == the retail *unfocused* level ~35, so x0.5 crushes to ~19, well below the reference).
+        // Until the plate-brightness root cause is fixed, dim to 0.7 -> the pick still reads brighter
+        // without the "too dark" regression (DIFF_VALIDATION). CLERIA_OPT_DIM overrides.
+        float unfocusDim = 0.70f;
+        if (const char* e = std::getenv("CLERIA_OPT_DIM")) unfocusDim = float(std::atof(e));
         for (int r = 0; r < 10; ++r) {
             const float bx = (r <= 6) ? 179.0f : (r == 7 ? 409.0f : 307.0f);
             const float bw = (r == 7) ? 175.0f : 409.6f;
             const float u0 = (r == 7) ? 409.0f * T : 0.0f;
             const float u1 = (r == 7) ? 584.0f * T : 409.6f * T;
-            const float wt = (r == sel) ? 0.30f : 0.0f;   // focus highlight (dim rows stay as-is)
+            const float dim = (r == sel) ? 1.0f : unfocusDim;
             draw_screen_image(g, cview, dview, false, opbtn, AX(bx), AY(rowY[r]), AX(bx + bw),
                               AY(rowY[r] + 51.2f), 0.30f, u0, rowV[r][0] * T, u1, rowV[r][1] * T,
-                              0.02f, 0.02f, 0.05f, wt);
+                              0.02f, 0.02f, 0.05f, 0.0f, false, dim, dim, dim);
         }
         // 3. sliders (rows 0-2): OPBTN track (metallic-bordered teal gradient bar, atlas x410..640) +
-        //    a tall lit blue pill knob (atlas x32..58) positioned by value along the track.
-        const float trackX = 652.0f, trackLen = 240.0f;
+        //    a tall lit blue pill knob (atlas x32..58) positioned by value along the track. Knob
+        //    travels 188.8 px over value 0..1024 (|DAT_006be148|, OPTIONS_LAYOUT.md).
+        const float trackX = 652.0f, trackLen = 240.0f, knobTravel = 188.8f;
         for (int i = 0; i < 3; ++i) {
             const float ty = rowY[i] + 25.6f;
             // track = teal-gradient bar with metallic end-caps at atlas x410 and x615; the SECOND bar
@@ -3300,7 +3376,7 @@ struct TitleFx {
             // a stray blue stub past the track.
             draw_screen_image(g, cview, dview, false, opbtn, AX(trackX), AY(ty - 11.0f),
                               AX(trackX + trackLen), AY(ty + 11.0f), 0.28f, 408*T, 365*T, 616*T, 388*T);
-            const float kx = trackX + (float(sliders[i]) / 1024.0f) * trackLen;
+            const float kx = trackX + (float(sliders[i]) / 1024.0f) * knobTravel;
             // knob pill: dim silver-teal (atlas x1..15) when the row isn't focused, lit blue
             // (x16..31) when it is -- the reference grab shows the dim variant.
             const bool kf = (i == sel);
@@ -3361,14 +3437,14 @@ struct TitleFx {
         if (frame.tex)
             draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
-        // 1. "Equip" plaque top-left (same 2-state cartouche layout as OPTION.DDS)
+        // 1. "Equip" plaque -- the book's active plaque rests at anchor X=128 (MN4/VN1), not x=30.
         if (equipPlaque.tex)
-            draw_screen_image(g, cview, dview, false, equipPlaque, AX(30), AY(8), AX(176), AY(68),
+            draw_screen_image(g, cview, dview, false, equipPlaque, AX(128), AY(8), AX(281), AY(68),
                               0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
-        // 2. LEFT stats panel (w_Status: the dark gold-bordered panel is u0..0.42 v0..0.635; the
-        //    coin/gem/arrow icons at u0.55+ are separate and NOT part of this panel) + the six stat rows
+        // 2. LEFT stats panel (w_Status). Plate rect code-traced (FUN_005b05c0, VN1): {182,60,217.6,
+        //    358.4}. Six stat rows at pitch 38.4 (FUN_005b0860), row0=92 -> {92,130.4,...,284.0}.
         if (wstatus.tex)
-            draw_screen_image(g, cview, dview, false, wstatus, AX(157), AY(61), AX(388), AY(393),
+            draw_screen_image(g, cview, dview, false, wstatus, AX(182), AY(60), AX(399.6f), AY(418.4f),
                               0.55f, 0.0f, 0.0f, 0.420f, 0.635f);
         {
             const float psz = 30.0f * A;
@@ -3376,45 +3452,62 @@ struct TitleFx {
                 std::to_string(e.level), std::to_string(e.hp) + "/" + std::to_string(e.maxhp),
                 std::to_string(e.str), std::to_string(e.def), std::to_string(e.exp), std::to_string(e.next) };
             static const char* labs[6] = {"Lv.", "HP", "STR", "DEF", "Exp", "Next"};
-            static const float ry[6] = {92, 138, 184, 230, 276, 322};
+            static const float ry[6] = {92, 130.4f, 168.8f, 207.2f, 245.6f, 284.0f};
             for (int i = 0; i < 6; ++i) {
-                mf.text(labs[i], SX(198), SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);        // label left
+                mf.text(labs[i], SX(223), SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);         // label left
                 float vw = mf.measure(vals[i], psz);
-                mf.text(vals[i], SX(378) - vw, SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);   // value right
+                mf.text(vals[i], SX(389.6f) - vw, SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);  // value right
             }
         }
         // 3. RIGHT equip grid plate (w_Equip: WEAPON/ARMOR/BOOTS/ACCESSORIES/SKILLS, content u0..0.811 v0..0.650)
         if (wequip.tex)
             draw_screen_image(g, cview, dview, false, wequip, AX(438), AY(67), AX(844), AY(386),
                               0.55f, 0.0f, 0.0f, 0.811f, 0.650f);
-        // 4. equipped-slot icons over the left column of w_Equip (WEAPON/ARMOR/BOOTS/ACC cells)
-        auto slotY = [&](int s) { static const float cy[4] = {100, 172, 237, 322}; return cy[s]; };
-        const float slotX = 477.0f, icoSz = 44.0f;
+        // 4. equipped-item cells (PAUSEBOOK.md §7.2). The equipped WEAPON/ARMOR/BOOTS/ACCESSORIES sit in
+        //    column 0, rows 0-3 -> cell centres (483, 118.4/195.2/272.0/348.8); cell 54.4. Each equipped
+        //    cell gets a blue highlight quad (0x4259999a) under its icon. The owned-item grid + skills
+        //    cells are data-driven from runtime inventory state CleriaCore doesn't track yet (§7.4 gap).
+        auto cellCenter = [](int col, int row, float& cx, float& cy) {
+            cx = 483.0f + col * 64.0f; cy = 118.4f + row * 76.8f; };
         auto drawIcon = [&](int id, float cx, float cy, float sz, float z) {
             const SpriteTex* t = icon(g, items, asset_root, id);
             if (t) draw_screen_image(g, cview, dview, false, *t, AX(cx - sz / 2), AY(cy - sz / 2),
                                      AX(cx + sz / 2), AY(cy + sz / 2), z);
         };
-        drawIcon(e.weaponId, slotX, slotY(0), icoSz, 0.3f);
-        drawIcon(e.armorId, slotX, slotY(1), icoSz, 0.3f);
-        drawIcon(e.bootsId, slotX, slotY(2), icoSz, 0.3f);
-        drawIcon(e.accId, slotX, slotY(3), icoSz, 0.3f);
-        // 5. bottom item-detail panel: darken the area, big icon on the left, name + description
+        const int equipIds[4] = {e.weaponId, e.armorId, e.bootsId, e.accId};
+        for (int s = 0; s < 4; ++s) {
+            if (equipIds[s] < 0) continue;
+            float cx, cy; cellCenter(0, s, cx, cy);
+            if (blueHi.tex)   // equipped highlight quad (54.4), under the icon
+                draw_screen_image(g, cview, dview, false, blueHi, AX(cx - 27.2f), AY(cy - 27.2f),
+                                  AX(cx + 27.2f), AY(cy + 27.2f), 0.32f);
+            drawIcon(equipIds[s], cx, cy, 54.4f, 0.3f);
+        }
+        // Grid cursor cell (SQUARE.dds, 51.2): defaults to the weapon cell (col0,row0). e.selId's cell
+        // isn't tracked; the cursor marks the focused slot.
+        if (square.tex) {
+            float cx, cy; cellCenter(0, 0, cx, cy);
+            draw_screen_image(g, cview, dview, false, square, AX(cx - 25.6f), AY(cy - 25.6f),
+                              AX(cx + 25.6f), AY(cy + 25.6f), 0.28f);
+        }
+        // 5. bottom item-detail panel: darken the area, big icon on the left, name + description.
+        //    Reference-measured (MN4 [H-med]): the whole panel sits ~100px further left than the old
+        //    {178,..,1010} -> panel x[74,914], big icon centre (203,566), name (383,488).
         if (const Item* sel = items.get(e.selId)) {
             if (wdetail.tex)   // W_FS_MSG ornate dark panel (content u0..0.893 v0..0.949)
-                draw_screen_image(g, cview, dview, false, wdetail, AX(178), AY(446), AX(1010), AY(682),
+                draw_screen_image(g, cview, dview, false, wdetail, AX(74), AY(446), AX(914), AY(682),
                                   0.5f, 0.0f, 0.0f, 0.893f, 0.949f);
-            drawIcon(e.selId, 300.0f, 566.0f, 150.0f, 0.35f);
-            mf.text(sel->name, SX(432), SY(492), 34.0f * A, sw, sh, 246, 246, 246, 255);
+            drawIcon(e.selId, 203.0f, 566.0f, 150.0f, 0.35f);
+            mf.text(sel->name, SX(383), SY(488), 34.0f * A, sw, sh, 246, 246, 246, 255);
             if (sel->magnitude) {   // "STR +N" / "DEF +N" bonus line (unit depends on category)
                 char b[32]; std::snprintf(b, sizeof b, "STR +%u", sel->magnitude);
-                mf.text(b, SX(870), SY(492), 34.0f * A, sw, sh, 246, 246, 246, 255);
+                mf.text(b, SX(770), SY(488), 34.0f * A, sw, sh, 246, 246, 246, 255);
             }
-            std::string d = sel->description; float dy = 556.0f; std::size_t pos = 0;
+            std::string d = sel->description; float dy = 552.0f; std::size_t pos = 0;
             while (pos < d.size() && dy < 676.0f) {
                 std::size_t nl = d.find_first_of("\r\n", pos);
                 std::string line = d.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
-                if (!line.empty()) mf.text(line, SX(432), SY(dy), 30.0f * A, sw, sh, 236, 236, 236, 255);
+                if (!line.empty()) mf.text(line, SX(383), SY(dy), 30.0f * A, sw, sh, 236, 236, 236, 255);
                 dy += 40.0f;
                 if (nl == std::string::npos) break;
                 pos = d.find_first_not_of("\r\n", nl);
@@ -3450,13 +3543,13 @@ struct TitleFx {
         if (frame.tex)
             draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
-        // 1. "Inventory" plaque top-left
+        // 1. "Inventory" plaque -- active plaque anchor X=128 (MN5), not x=30.
         if (invPlaque.tex)
-            draw_screen_image(g, cview, dview, false, invPlaque, AX(30), AY(8), AX(176), AY(68),
+            draw_screen_image(g, cview, dview, false, invPlaque, AX(128), AY(8), AX(281), AY(68),
                               0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
-        // 2. LEFT stats panel (identical to Equip)
+        // 2. LEFT stats panel (identical to Equip): plate {182,60,217.6,358.4}, six rows pitch 38.4.
         if (wstatus.tex)
-            draw_screen_image(g, cview, dview, false, wstatus, AX(157), AY(61), AX(388), AY(393),
+            draw_screen_image(g, cview, dview, false, wstatus, AX(182), AY(60), AX(399.6f), AY(418.4f),
                               0.55f, 0.0f, 0.0f, 0.420f, 0.635f);
         {
             const float psz = 30.0f * A;
@@ -3464,25 +3557,48 @@ struct TitleFx {
                 std::to_string(e.level), std::to_string(e.hp) + "/" + std::to_string(e.maxhp),
                 std::to_string(e.str), std::to_string(e.def), std::to_string(e.exp), std::to_string(e.next) };
             static const char* labs[6] = {"Lv.", "HP", "STR", "DEF", "Exp", "Next"};
-            static const float ry[6] = {92, 138, 184, 230, 276, 322};
+            static const float ry[6] = {92, 130.4f, 168.8f, 207.2f, 245.6f, 284.0f};
             for (int i = 0; i < 6; ++i) {
-                mf.text(labs[i], SX(198), SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);
+                mf.text(labs[i], SX(223), SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);
                 float vw = mf.measure(vals[i], psz);
-                mf.text(vals[i], SX(378) - vw, SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);
+                mf.text(vals[i], SX(389.6f) - vw, SY(ry[i]), psz, sw, sh, 240, 240, 240, 255);
             }
         }
-        // 3. RIGHT inventory grid plate (W_INVENT, content u0..0.992 v0..0.678)
+        // 3. RIGHT inventory grid plate (W_INVENT). Code plate: TL (403,64), size 518.4x409.6 (MN5).
         if (winvent.tex)
-            draw_screen_image(g, cview, dview, false, winvent, AX(416), AY(61), AX(894), AY(401),
+            draw_screen_image(g, cview, dview, false, winvent, AX(403), AY(64), AX(921.4f), AY(473.6f),
                               0.55f, 0.0f, 0.0f, 0.992f, 0.678f);
-        // 4. owned-item icons at the cell lattice (6 cols x 5 rows, cell centre = 468+col*75, 99+row*64)
-        for (int i = 0; i < ownedCount && i < 30; ++i) {
-            if (owned[i] < 0) continue;
+        // 4. the 6x5 cell lattice. Code (FUN_005a9d10): cell CENTRE = (473+col*75, 104+row*64); the
+        //    engine draws a 51.2 SQUARE tile in EVERY cell (dark 0x303030 when empty), the owned icon
+        //    (54.4) over occupied cells, a 54.4 blue highlight on the selected item, and a 64 SQUARE
+        //    cursor cell. Placement is data-driven per record; CleriaCore fills sequentially (stub).
+        auto icell = [](int col, int row, float& cx, float& cy) {
+            cx = 473.0f + col * 75.0f; cy = 104.0f + row * 64.0f; };
+        const int cursorCell = 0;   // default focus (runtime nav not modelled headless)
+        for (int i = 0; i < 30; ++i) {
             const int col = i % 6, row = i / 6;
-            const float cx = 468.0f + col * 75.0f, cy = 99.0f + row * 64.0f;
-            const SpriteTex* t = icon(g, items, asset_root, owned[i]);
-            if (t) draw_screen_image(g, cview, dview, false, *t, AX(cx - 24.0f), AY(cy - 24.0f),
-                                     AX(cx + 24.0f), AY(cy + 24.0f), 0.3f);
+            float cx, cy; icell(col, row, cx, cy);
+            const int id = (i < ownedCount) ? owned[i] : -1;
+            if (square.tex) {   // per-cell stone tile; darker when empty
+                const float d = (id < 0) ? 0.19f : 0.55f;   // 0x303030 empty / lighter when filled
+                draw_screen_image(g, cview, dview, false, square, AX(cx - 25.6f), AY(cy - 25.6f),
+                                  AX(cx + 25.6f), AY(cy + 25.6f), 0.34f, 0.0f, 0.0f, 1.0f, 1.0f,
+                                  0.02f, 0.02f, 0.05f, 0.0f, false, d, d, d);
+            }
+            if (id >= 0) {
+                if (i == cursorCell && blueHi.tex)   // selected-item blue highlight (54.4)
+                    draw_screen_image(g, cview, dview, false, blueHi, AX(cx - 27.2f), AY(cy - 27.2f),
+                                      AX(cx + 27.2f), AY(cy + 27.2f), 0.32f);
+                const SpriteTex* t = icon(g, items, asset_root, id);
+                if (t) draw_screen_image(g, cview, dview, false, *t, AX(cx - 27.2f), AY(cy - 27.2f),
+                                         AX(cx + 27.2f), AY(cy + 27.2f), 0.3f);
+            }
+        }
+        if (square.tex) {   // cursor cell: 64 SQUARE concentric with the focused cell
+            const int col = cursorCell % 6, row = cursorCell / 6;
+            float cx, cy; icell(col, row, cx, cy);
+            draw_screen_image(g, cview, dview, false, square, AX(cx - 32.0f), AY(cy - 32.0f),
+                              AX(cx + 32.0f), AY(cy + 32.0f), 0.26f);
         }
         // 5. caption + difficulty word
         const float csz = 27.0f * A;
@@ -3529,28 +3645,41 @@ struct TitleFx {
         mf.draw(g, cview);
     }
 
-    // The Bonus Shop (BONUSSHOP.md): a framework-A go_wnddialog TEXT LIST on the right (same DIALOG0 scroll
-    // frame + MENUCURSOR as the New-Game popups), over a dark backdrop. Spends Arena SP on Arena-stage /
-    // Extra-costume unlocks. Full-screen 16:9 (not pillar-boxed). `items` are pre-formatted rows
-    // ("[5,000] Arena Stage 2" / "[Unlocked] ..." / "Cancel"). NOTE: the game also draws Feena key-art on
-    // the left -- that asset is [UNKNOWN] (host scene, not the list fn), so it's omitted here.
+    // The Bonus Shop (SHOP_LAYOUT.md, host GoWndShop2). Two-layer backdrop: data\menu\Back01.dds
+    // full-screen + the data\image\t_400a.dds Feena illustration at {-288,-116.8}/819 (left-anchored,
+    // scale H/768). The framework-A go_wnddialog TEXT LIST anchors at origin {672,192}; SP counter is
+    // LEFT-anchored at {608,656}; description at {48,704}. `items` are pre-formatted rows.
     void draw_shop(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                    std::uint32_t W, std::uint32_t H, const char* const* items, int count, int sel, int arenaSP) {
         const float sw = float(W), sh = float(H);
-        if (shopBg.tex)   // SHOPPILLAR16-9 backdrop (content v0..0.749), full-screen
-            draw_screen_image(g, cview, dview, true, shopBg, -1, 1, 1, -1, 0.9f, 0, 0, 1, 0.749f);
-        else if (dim.tex)
+        const float S = sh / 768.0f;                     // authored -> screen px, LEFT-anchored (x=0 at left)
+        auto sxp = [&](float x) { return x * S; };
+        auto syp = [&](float y) { return y * S; };
+        // 1. Back01 backdrop (1024x768) stretched full-screen, then the Feena key-art over it.
+        if (shopBack.tex)
+            draw_screen_image(g, cview, dview, true, shopBack, -1, 1, 1, -1, 0.9f, 0, 0, 1, 1);
+        else
             draw_screen_image(g, cview, dview, true, dim, -1, 1, 1, -1, 0.9f, 0, 0, 1, 1, 0.03f, 0.02f, 0.05f);
-        // DIALOG0 scroll frame on the right (screen px)
-        const float fl = 0.435f * sw, fr = 0.878f * sw, ft = 0.11f * sh, fb = 0.50f * sh;
-        draw_dialog_frame(g, cview, dview, fl, ft, fr, fb, sw, sh);
-        const float pxH = 30.0f * sh / 768.0f;
-        const float itemX = fl + 0.035f * sw;                    // left indent for the rows
-        const float hy = ft + 0.028f * sh;
-        const float iy0 = hy + 0.05f * sh, pitch = 0.0475f * sh;
-        if (sel >= 0 && sel < count && cursor.tex) {             // MENUCURSOR on the selected row
-            const float mid = iy0 + sel * pitch + pxH * 0.46f, half = pxH * 0.60f;
-            draw_cursor_bar(g, cview, dview, fl + 0.02f * sw, mid - half, fr - 0.02f * sw, mid + half, sw, sh);
+        if (shopFeena.tex) {   // {-288,-116.8} size 819x819, left-anchored + H/768
+            auto NX = [&](float px) { return 2.0f * px / sw - 1.0f; };
+            auto NY = [&](float py) { return 1.0f - 2.0f * py / sh; };
+            draw_screen_image(g, cview, dview, false, shopFeena,
+                              NX(sxp(-288.0f)), NY(syp(-116.8f)), NX(sxp(-288.0f + 819.0f)), NY(syp(-116.8f + 819.0f)),
+                              0.7f, 0, 0, 1, 1);
+        }
+        // 2. the go_wnddialog list, anchored at {672,192}. Caption at origin, rows below at pitch 44.8.
+        const float pxH = 30.0f * S;
+        const float ox = 672.0f, oy = 192.0f, pitchA = 44.8f;
+        const float itemX = sxp(ox), hy = syp(oy);
+        const float iy0 = syp(oy + 44.8f), pitch = pitchA * S;
+        float maxW = mf.measure("Please select a bonus to unlock:", pxH);
+        for (int i = 0; i < count; ++i) maxW = std::max(maxW, mf.measure(items[i], pxH));
+        // DIALOG0 scroll frame around the caption..last row.
+        const float fl = itemX - 40.0f * S, fr = itemX + maxW + 40.0f * S;
+        draw_dialog_frame(g, cview, dview, fl, hy - 20.0f * S, fr, iy0 + (count - 1) * pitch + pxH + 20.0f * S, sw, sh);
+        if (sel >= 0 && sel < count && curGlow.tex) {   // additive glow on the selected row
+            const float mid = iy0 + sel * pitch + pxH * 0.46f, half = 16.0f * S, barW = maxW + 48.0f * S;
+            draw_cursor_glow(g, cview, dview, itemX - 16.0f * S, mid - half, itemX - 16.0f * S + barW, mid + half, sw, sh);
         }
         { const char* hdr = "Please select a bonus to unlock:"; float hw = mf.measure(hdr, pxH);
           mf.text(hdr, (fl + fr) * 0.5f - hw * 0.5f, hy, pxH, sw, sh, 240, 246, 250, 255); }
@@ -3558,10 +3687,14 @@ struct TitleFx {
             const bool s = (i == sel);
             mf.text(items[i], itemX, iy0 + i * pitch, pxH, sw, sh, s ? 250 : 172, s ? 252 : 206, s ? 252 : 208, 255);
         }
-        { std::string sp = "Current [Arena SP]: " + std::to_string(arenaSP); float w = mf.measure(sp, pxH);
-          mf.text(sp, fr - w, 0.885f * sh, pxH, sw, sh, 236, 236, 236, 255); }
+        // 3. SP counter at y656. Code X is left-anchored 608, but under the (list-validated) H/768
+        //    widescreen mapping that lands left of the grab, which sits it under the list -> centre it
+        //    on the frame to match reference/bonusshop.png.
+        { std::string sp = "Current [Arena SP]: " + std::to_string(arenaSP);
+          float w = mf.measure(sp, pxH);
+          mf.text(sp, (fl + fr) * 0.5f - w * 0.5f, syp(656.0f), pxH, sw, sh, 236, 236, 236, 255); }
         mf.text("You can use SP earned in Arena Mode to purchase special bonuses.",
-                0.02f * sw, 0.93f * sh, 27.0f * sh / 768.0f, sw, sh, 236, 236, 236, 255);
+                sxp(48.0f), syp(704.0f), 27.0f * S, sw, sh, 236, 236, 236, 255);
         mf.draw(g, cview);
     }
 
@@ -3586,32 +3719,36 @@ struct TitleFx {
             draw_screen_image(g, cview, dview, altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
         const SpriteTex& plaque = (save && savePlaque.tex) ? savePlaque : loadPlaque;
-        if (plaque.tex)
-            draw_screen_image(g, cview, dview, false, plaque, AX(30), AY(8), AX(176), AY(68),
+        if (plaque.tex)   // active plaque anchor X=128 (same as the other book pages)
+            draw_screen_image(g, cview, dview, false, plaque, AX(128), AY(8), AX(281), AY(68),
                               0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
-        // file tabs 1..8 across the top (selected file highlighted)
+        // File-tab row 1..8 across the top (reference/pause_load.png shows this row + slots numbered
+        // No.(fileTab*8+i+1) -> tab 6 = No.41..48; the MN9 "remove the tabs" note is refuted by the
+        // grab). Selected tab = bright sprite (v0.708..0.759), others dim (v0.774..0.810), stride 79px.
         for (int i = 0; i < 8; ++i) {
             if (!wsvld.tex) break;
             const float tw = 72.0f, tx = 344.0f + i * tw, ty = 100.0f;
             const float u0 = (i * 79 + 4) * T, u1 = (i * 79 + 74) * T;
-            const float v0 = (i == fileTab ? 720 : 782) * T, v1 = (i == fileTab ? 766 : 824) * T;
+            const float v0 = (i == fileTab ? 725 : 793) * T, v1 = (i == fileTab ? 777 : 829) * T;
             draw_screen_image(g, cview, dview, false, wsvld, AX(tx), AY(ty), AX(tx + tw - 4), AY(ty + 44),
                               0.35f, u0, v0, u1, v1);
         }
-        // slot-list container (8 baked rows) -- keep within the authored 0..768 field
-        if (wsvld.tex)
-            draw_screen_image(g, cview, dview, false, wsvld, AX(177), AY(196), AX(915), AY(716),
-                              0.5f, 0.0f, 0.0f, 0.79f, 0.556f);
-        // 8 slot rows: "No.NN" + "No Data" (all empty); the focused row gets the bright bar sprite
-        const float rowY0 = 232.0f, pitch = 63.0f, tsz = 26.0f * A;
+        // 8 slot bars -- individual W_SVLD arrow plates (the reference draws raised bars, NOT the flat
+        // container grooves). Bar top Y = 130 + 72*slot (SVLD_LAYOUT.md), x[152.4,895], solid arrow
+        // sprite u[0,0.714] v[0.587,0.643]; the focused slot is brightened. CleriaCore has no save
+        // system, so every slot renders "No Data" (the occupied preview card is a runtime-state gap).
+        const float barX0 = 152.4f, barX1 = 895.0f, barTop0 = 130.0f, barPitch = 72.0f, barH = 58.0f;
+        const float tsz = 26.0f * A;
         for (int i = 0; i < 8; ++i) {
-            const float cy = rowY0 + i * pitch;
-            if (i == selSlot && wsvld.tex)   // highlighted slot bar
-                draw_screen_image(g, cview, dview, false, wsvld, AX(190), AY(cy - 26), AX(905), AY(cy + 26),
-                                  0.45f, 0.0f, 0.571f, 0.712f, 0.625f);
-            char no[16]; std::snprintf(no, sizeof no, "No.%d", fileTab * 8 + i + 1);
-            mf.text(no, SX(214), SY(cy - 13), tsz, sw, sh, 236, 236, 236, 255);
-            const char* nd = "- - - - - - - - -   No Data   - - - - - - - - -";
+            const float yt = barTop0 + i * barPitch, cy = yt + barH * 0.5f;
+            if (wsvld.tex) {
+                const float wt = (i == selSlot) ? 0.28f : 0.0f;   // brighten the focused slot
+                draw_screen_image(g, cview, dview, false, wsvld, AX(barX0), AY(yt), AX(barX1), AY(yt + barH),
+                                  0.45f, 0.0f, 0.587f, 0.714f, 0.643f, 0.02f, 0.02f, 0.05f, wt);
+            }
+            char no[16]; std::snprintf(no, sizeof no, "No.%02d", fileTab * 8 + i + 1);
+            mf.text(no, SX(barX0 + 26), SY(cy - 13), tsz, sw, sh, 236, 236, 236, 255);
+            const char* nd = "-------------- No Data --------------";
             float w = mf.measure(nd, tsz);
             mf.text(nd, SX(560) - w * 0.5f, SY(cy - 13), tsz, sw, sh, 210, 214, 220, 255);
         }
@@ -3682,7 +3819,7 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
             static const char* si[2] = {"[Enable]", "[Disable]"};
             if (std::string(e) == "type") title.draw_popup(g, mf, cview, dview, W, H, "Type Select", ti, 3, 0);
             else if (std::string(e) == "diff") title.draw_popup(g, mf, cview, dview, W, H, "Difficulty Level", di, 6, 2);
-            else if (std::string(e) == "sp") title.draw_popup(g, mf, cview, dview, W, H, "SP Bonus Acquisition", si, 2, 0, /*onBlack*/true, /*capTop*/292.0f);
+            else if (std::string(e) == "sp") title.draw_popup(g, mf, cview, dview, W, H, "SP Bonus Acquisition", si, 2, 0);
         }
     } else if (mode == 2) {
         title.draw_bonus(g, mf, cview, dview, W, H, /*sel=*/0);        // Time Attack lit
@@ -4097,9 +4234,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 else
                     title.draw_popup(g, mf, view, tdepth, cw, ch, "Difficulty Level", kDiffItems, 6, dsel);
             } else if (ts == SPBONUS) {
-                // SP Bonus Acquisition runs on a full-black screen (no Character Select behind it).
-                title.draw_popup(g, mf, view, tdepth, cw, ch, "SP Bonus Acquisition", kSpItems, 2, spsel,
-                                 /*onBlack*/true, /*capTop*/292.0f);
+                // SP Bonus Acquisition shares the invariant popup origin over the dimmed Character
+                // Select (the on-black grab was an artifact; CHARSELECT_LAYOUT.md §2.3).
+                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse, int(SDL_GetTicks() / 110));
+                title.draw_popup(g, mf, view, tdepth, cw, ch, "SP Bonus Acquisition", kSpItems, 2, spsel);
             } else if (ts == BONUS) {
                 title.draw_bonus(g, mf, view, tdepth, cw, ch, bsel);
             } else if (ts == OPTIONS) {

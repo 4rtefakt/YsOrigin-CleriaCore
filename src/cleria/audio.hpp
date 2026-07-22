@@ -9,6 +9,7 @@
 // The device is stereo because the music is: the effect WAVs are mono and get
 // upmixed by SDL when they are decoded (see Audio::clip).
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -37,9 +38,10 @@ class Audio {
     void play(int id, float volume = 1.0f);
 
     // Master SFX gain (0..1), applied on top of each voice's own volume. Driven by the
-    // Option screen's "SFX Volume" setting. The engine's exact value->gain curve
-    // (FUN_004217f0) isn't RE'd, so this is linear.
-    void set_master_volume(float v) { master_ = clamp01(v); }
+    // Option screen's "SFX Volume" setting. Retail applies a DirectSound centibel (log/dB) taper
+    // rather than a linear one (FUN_005ce820): gain_cB = 3322*log10(norm) -> amplitude =
+    // pow(norm, 3322/2000) = pow(f, 33.22/20); silent below 0.002, full at/above 0.998.
+    void set_master_volume(float v) { master_ = log_gain(v); }
 
     // ---- BGM: one streaming Ogg Vorbis track ---------------------------------
     // Starts `ogg`, or keeps the current track playing untouched if it is already
@@ -51,7 +53,7 @@ class Audio {
     void stop_bgm();
     // File name of the streaming track ("" = none), e.g. "YSO_004.ogg".
     const std::string& bgm_name() const { return bgm_name_; }
-    void set_bgm_volume(float v) { bgm_volume_ = clamp01(v); }
+    void set_bgm_volume(float v) { bgm_volume_ = log_gain(v); }   // same centibel taper as SFX
     // How many times the current track has wrapped at its loop point. Only of
     // interest to the test harness — a track normally loops after minutes, so
     // $CLERIA_BGM_SEEK exists to start near the loop end and exercise the wrap.
@@ -66,6 +68,13 @@ class Audio {
 
   private:
     static float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+    // DirectSound centibel volume taper (FUN_005ce820): perceptually-logarithmic slider->amplitude.
+    static float log_gain(float v) {
+        v = clamp01(v);
+        if (v < 0.002f) return 0.0f;
+        if (v >= 0.998f) return 1.0f;
+        return std::pow(v, 33.22f / 20.0f);
+    }
 
     struct Clip {
         std::vector<std::int16_t> samples;  // interleaved, already at device format
