@@ -124,6 +124,10 @@ struct Player {
     // (widget+0x2c) is a static-init [UNKNOWN] (~1), so the RATE is env-tunable (CLERIA_HPLAG);
     // the MODEL (linear catch-up) is [C-DIS]. mutable: a render-side catch-up cache.
     mutable float hp_lag = 400;
+    // EX / Boost gauge (build/ability_re/BOOST.md, build/hud_re/HUD_BOOST_ARC.md). 0..30000,
+    // full = Boost-ready. Builds on combat hits (dealt + taken); drawn as the code-traced C-arc
+    // around the portrait. Exact per-hit build amount is [H] (BOOST.md's hook is missing-HP-scaled).
+    float boost = 0;
 };
 
 // Locate a bundled resource next to the exe, or in the repo res/ dir.
@@ -2100,6 +2104,19 @@ struct Hud {
         sprites.push_back(q0); sprites.push_back(q2); sprites.push_back(q3);
     }
 
+    // Push one triangle into the STATUS sprite buffer: screen-px positions + atlas-PX UVs.
+    // Used to build the EX/Boost arc as a pie-wedge fan sampling the atlas radially (H4).
+    void tri(float ax, float ay, float au, float av,
+             float bx, float by, float bu, float bv,
+             float cx, float cy, float cu, float cv, float sw, float sh,
+             std::uint8_t r, std::uint8_t gg, std::uint8_t b, std::uint8_t a) {
+        auto NX = [&](float v){ return v / sw * 2.f - 1.f; };
+        auto NY = [&](float v){ return 1.f - v / sh * 2.f; };
+        sprites.push_back({NX(ax), NY(ay), au / atlas_w, av / atlas_h, r, gg, b, a});
+        sprites.push_back({NX(bx), NY(by), bu / atlas_w, bv / atlas_h, r, gg, b, a});
+        sprites.push_back({NX(cx), NY(cy), cu / atlas_w, cv / atlas_h, r, gg, b, a});
+    }
+
     void message(const std::string& s) { messages.push_back({s, 5.0f}); }
 
     // Append a string at screen pixel (px,py), scale, RGBA.
@@ -2280,6 +2297,32 @@ struct Hud {
         // Character portrait (drawn over the plate's left end, as the game does).
         const int ci = (p.character >= 0 && p.character < 4) ? p.character : 1;
         sprite_a(m, kAPortrait, kPortraitReal[ci], sw, sh);
+
+        // EX / Boost C-arc (H4, build/hud_re/HUD_BOOST_ARC.md): a pie-wedge fan that reveals the
+        // arc graphic from STATUS_512 as the gauge fills. Center (44,719) authored, R63, sweeping
+        // -ratio*190deg from 315deg; atlas sample center (44,410). Exact geometry [C-DIS]; if the
+        // atlas region reads blank in CleriaCore's STATUS_512 the boost just won't show (no harm).
+        {
+            const float ratio = std::max(0.f, std::min(1.f, p.boost / 30000.0f));
+            if (ratio > 0.001f) {
+                const float DEG = 3.14159265f / 180.0f;
+                const float th0 = 315.0f * DEG, sweep = ratio * 190.0f * DEG;
+                const int N = 24;
+                const float apx = m.x(44.0f), apy = m.y(719.0f);   // apex (center), screen px
+                auto rim = [&](float th, float& x, float& y, float& u, float& v) {
+                    const float s = std::sin(th), c = std::cos(th);
+                    x = m.x(44.0f + 63.0f * s); y = m.y(719.0f - 63.0f * c);  // screen px
+                    u = 44.0f + 63.0f * s;      v = 410.0f - 63.0f * c;       // atlas px
+                };
+                const std::uint8_t t = ratio >= 0.999f ? 255 : 210;   // brighten when Boost-ready
+                float px, py, pu, pv; rim(th0, px, py, pu, pv);
+                for (int i = 1; i <= N; ++i) {
+                    float nx, ny, nu, nv; rim(th0 - sweep * (float(i) / float(N)), nx, ny, nu, nv);
+                    tri(apx, apy, 44.0f, 410.0f, px, py, pu, pv, nx, ny, nu, nv, sw, sh, t, t, t, 255);
+                    px = nx; py = ny; pu = nu; pv = nv;
+                }
+            }
+        }
 
         // The four 40x40 equipment slot frames — quad 12, recovered as a LOOP:
         //   x = 126 + 40*i  (126/166/206/246), y = 676..716
@@ -4833,6 +4876,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // Pause-book tab cycling (only while the menu is open): E = next, Q = prev page.
                 else if (paused && k == SDLK_E) pausePage = (pausePage + 1) % 4;
                 else if (paused && k == SDLK_Q) pausePage = (pausePage + 3) % 4;
+                // Debug: B fills the EX/Boost gauge in ~4 presses (to eyeball the boost arc).
+                else if (k == SDLK_B) { player.boost = std::min(30000.f, player.boost + 7500.f); hud.message("(debug) +Boost"); }
                 else if (k == SDLK_TAB) {
                     character = character % 3 + 1;
                     game.g_flags[150] = character;
@@ -5054,6 +5099,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const int dmg = damage_int(a, en.def,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    // Boost builds on hits DEALT too (BOOST.md hook). Amount [H] (see hurt_player).
+                    player.boost = std::min(30000.f, player.boost + 1500.f);
                     // Knockback away from the player + a white hit-flash (the engine's
                     // +0x338/+0x340 impulse and +0x4e8 tint). Decayed in the enemy tick.
                     const float kdx = en.pos.x - feet.x, kdz = en.pos.z - feet.z;
@@ -5100,6 +5147,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const int dmg = player_incoming_damage(AttackStats{atk, 0, 0}, pdef,
                     [&](float p) { return float(rng_pct(rng)) < p; });
                 player.hp -= dmg;
+                // Boost builds on hits TAKEN (BOOST.md hook FUN_0046cc10, missing-HP-scaled) —
+                // the comeback mechanic. Amount is [H] (tuned for visibility; base const is 25).
+                player.boost = std::min(30000.f, player.boost + 2500.f);
                 // p_damage is the player's own hurt-reaction sound; death adds p_hit0.
                 audio.play(kSfxPlayerHurt, kSfxAnimVol);
                 if (player.hp <= 0) audio.play(kSfxDeathEntry, kSfxAnimVol);
