@@ -4814,6 +4814,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     std::printf("mode: %s\n", fly ? "fly" : "walk");
                 }
                 else if (k == SDLK_R) { if (fly) spawn_in(cam, room); else spawn_player(); }
+                // Debug HP for testing the red damage-lag trail (feat: HUD_HP_BARS.md H3):
+                // K = take 60 damage (watch the red ghost linger + drain), L = heal to full.
+                else if (k == SDLK_K) { player.hp = std::max(1, player.hp - 60); hud.message("(debug) -60 HP"); }
+                else if (k == SDLK_L) { player.hp = player.max_hp; hud.message("(debug) full heal"); }
                 else if (k == SDLK_TAB) {
                     character = character % 3 + 1;
                     game.g_flags[150] = character;
