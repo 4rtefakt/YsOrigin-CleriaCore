@@ -1919,19 +1919,26 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
                                  WGPUTextureView color, WGPUTextureView depth,
                                  const Vec3& camFwd, float t) {
     if (fx.empty()) return;
-    if (std::getenv("CLERIA_BARRIER_BILLBOARD")) {   // old camera-facing behaviour
+    // DEFAULT: an UPRIGHT dome standing AROUND the chest, LIFTED off the floor (a barrier
+    // enclosing the chest, not a decal lying on the ground). CLERIA_BARRIER_LIFT raises its
+    // centre (default 1.4 ~ chest height + reach); CLERIA_BARRIER_GROUND lays it flat instead.
+    if (!std::getenv("CLERIA_BARRIER_GROUND")) {
+        float lift = 0.9f;
+        if (const char* s = std::getenv("CLERIA_BARRIER_LIFT")) lift = std::atof(s);
         std::vector<Projectile> tmp;
         for (const ActorWorld::LocatedEffect& e : fx) {
-            Projectile p; p.pos = {e.x, e.y + (e.a > 0.01f ? e.a : 1.0f), e.z};
-            p.effect_id = e.id; p.scale = (e.a > 0.01f ? e.a : 1.0f);
+            float sc = (e.a > 0.01f ? e.a : 1.0f);
+            if (const char* s = std::getenv("CLERIA_BARRIER_SCALE")) { float v = std::atof(s); if (v > 0) sc = v; }
+            Projectile p; p.pos = {e.x, e.y + lift, e.z};
+            p.effect_id = e.id; p.scale = sc;
             p.life = std::max(1, bullet_art(g, asset_root, efl, eft, e.id).life);
             p.age = int(t * 60.0f) % p.life; tmp.push_back(p);
         }
         draw_projectiles(g, tmp, asset_root, efl, eft, color, depth, camFwd);
         return;
     }
-    // Ground-plane orientation: width along the camera's horizontal RIGHT, depth along its
-    // horizontal FORWARD (so the texture's top edge sits at the far side, furthest away).
+    // CLERIA_BARRIER_GROUND: lay it flat in the ground plane instead — width along the
+    // camera's horizontal RIGHT, depth along its horizontal FORWARD (texture top furthest).
     Vec3 fwdH = {camFwd.x, 0, camFwd.z};
     const float fl = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
     if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
