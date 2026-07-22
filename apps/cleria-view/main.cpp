@@ -2294,16 +2294,10 @@ struct Hud {
         ex.x1 = ex.x0 + 230.0f * std::max(0.f, std::min(1.f, p.exp_pct / 100.0f));
         sprite_a(m, ex, kExpOrange, sw, sh);
 
-        // MP / mana skill-fill bar (H1, HUD_LAYOUT elem 11): a continuous fill in the lower
-        // channel, ratio = mp/max, sampling the STATUS right-half band {252,36,252,8} (the default;
-        // the engine shifts the band by equipped magic). Supersedes the old "leave it empty" note,
-        // which was a pre-H1 misread — H1 [C-DIS] confirms it IS a cur/max fill.
-        const float mp_frac = std::max(0.f, std::min(1.f, p.mp_pct / 100.0f));
-        if (mp_frac > 0.001f) {
-            Ar mp = {120.0f, 737.0f, 120.0f + 252.0f * mp_frac, 745.0f};
-            static const Rc kMpFill = {252, 36, 252, 8};
-            sprite_a(m, mp, kMpFill, sw, sh);
-        }
+        // MP / mana bar: REMOVED. My src {252,36,252,8} sampled the wrong STATUS_512 region and
+        // produced a rainbow smear (visual regression). The real bar is a SEGMENTED "split" asset,
+        // not a plain fill — the correct atlas rect isn't confirmed, so drawing nothing beats
+        // drawing garbage. TODO: identify the segmented mana-bar cell before re-adding.
 
         // Character portrait (drawn over the plate's left end, as the game does).
         const int ci = (p.character >= 0 && p.character < 4) ? p.character : 1;
@@ -2317,7 +2311,11 @@ struct Hud {
             const float ratio = std::max(0.f, std::min(1.f, p.boost / 30000.0f));
             if (ratio > 0.001f) {
                 const float DEG = 3.14159265f / 180.0f;
-                const float th0 = 315.0f * DEG, sweep = ratio * 190.0f * DEG;
+                // H4 traced start=315deg, sweep=190deg. The user reports it doesn't fill fully, so
+                // expose both for dialing until we verify against the real arc visually.
+                auto envf = [](const char* k, float d){ if (const char* e = std::getenv(k)) { float v = std::atof(e); if (v != 0) return v; } return d; };
+                const float th0 = envf("CLERIA_BOOST_START", 315.0f) * DEG;
+                const float sweep = ratio * envf("CLERIA_BOOST_SWEEP", 190.0f) * DEG;
                 const int N = 24;
                 const float apx = m.x(44.0f), apy = m.y(719.0f);   // apex (center), screen px
                 auto rim = [&](float th, float& x, float& y, float& u, float& v) {
