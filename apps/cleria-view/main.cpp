@@ -540,26 +540,16 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
             r.binds.push_back(g.white_bind);
         }
     }
-    // Untextured materials render FLAT-SHADED from their diffuse colour, not from a
-    // texture (S_1000's grey "stone" stairs and black "none" quads). Give each distinct
-    // diffuse a 1x1 fill and repoint the batch, so the draw path stays uniform and the
-    // colour is right instead of a white (ignores diffuse) or black (wrong) fallback.
-    {
-        std::unordered_map<std::uint32_t, int> fill_bind;
-        for (DrawBatch& b : r.mesh.batches) {
-            if (b.texture >= 0) continue;
-            auto it = fill_bind.find(b.diffuse);
-            if (it == fill_bind.end()) {
-                Dds d; d.width = d.height = 1; d.format = Dds::RGBA8;
-                d.data = {std::uint8_t(b.diffuse & 0xff), std::uint8_t((b.diffuse >> 8) & 0xff),
-                          std::uint8_t((b.diffuse >> 16) & 0xff), std::uint8_t((b.diffuse >> 24) & 0xff)};
-                const int idx = int(r.binds.size());
-                r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, d)));
-                it = fill_bind.emplace(b.diffuse, idx).first;
-            }
-            b.texture = it->second;
-        }
-    }
+    // Untextured submeshes (no texture ref) are a non-rendering DUPLICATE/helper layer
+    // sitting ON the real textured floor. S_1000's platform ring carries "stone" (grey)
+    // and "none" (black) materials with no texture over the same tiles that also have a
+    // textured version; drawing them as flat quads paints a grey/black patch over the
+    // stone — the "white staircase" was exactly this (via the old 1x1-white fallback).
+    // The retail game doesn't draw them: skipping reveals the clean textured geometry
+    // underneath with NO gaps (verified in S_1000, whole floor intact). So we skip any
+    // batch with no texture rather than inventing a fill colour for it.
+    for (DrawBatch& b : r.mesh.batches)
+        if (b.texture < 0) b.index_count = 0;
 
     // SEN sidecar sits beside the SOB (same stem).
     fs::path sen = sob; sen.replace_extension(".SEN");
