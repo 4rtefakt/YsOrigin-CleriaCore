@@ -2294,6 +2294,17 @@ struct Hud {
         ex.x1 = ex.x0 + 230.0f * std::max(0.f, std::min(1.f, p.exp_pct / 100.0f));
         sprite_a(m, ex, kExpOrange, sw, sh);
 
+        // MP / mana skill-fill bar (H1, HUD_LAYOUT elem 11): a continuous fill in the lower
+        // channel, ratio = mp/max, sampling the STATUS right-half band {252,36,252,8} (the default;
+        // the engine shifts the band by equipped magic). Supersedes the old "leave it empty" note,
+        // which was a pre-H1 misread — H1 [C-DIS] confirms it IS a cur/max fill.
+        const float mp_frac = std::max(0.f, std::min(1.f, p.mp_pct / 100.0f));
+        if (mp_frac > 0.001f) {
+            Ar mp = {120.0f, 737.0f, 120.0f + 252.0f * mp_frac, 745.0f};
+            static const Rc kMpFill = {252, 36, 252, 8};
+            sprite_a(m, mp, kMpFill, sw, sh);
+        }
+
         // Character portrait (drawn over the plate's left end, as the game does).
         const int ci = (p.character >= 0 && p.character < 4) ? p.character : 1;
         sprite_a(m, kAPortrait, kPortraitReal[ci], sw, sh);
