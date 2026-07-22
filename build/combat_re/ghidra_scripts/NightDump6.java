@@ -7,20 +7,20 @@ public class NightDump6 extends Re2Lib {
     public void run() throws Exception {
         open(System.getenv("NIGHT_OUT"));
         long[] fns = {
-            0x00620790L, // CRT triage
-            0x005a1180L, // window/pause-book
-            0x00584860L, // effect
-            0x0055c960L, // boss region
-            0x005f6e50L, // render/D3D
-            0x0041dd00L  // core/window
+            0x0042b350L, // camera 0x42
+            0x0053f6e0L, // boss 0x53
+            0x00596b30L, // effect/projectile 0x59
+            0x00474cd0L, // object/enemy 0x47
+            0x00579f10L, // window/go_wnd 0x57
+            0x005e3fc0L  // render/scenegraph 0x5e
         };
         String[] tags = {
-            "A CRT triage FUN_00620790",
-            "B1 window FUN_005a1180",
-            "B2 effect FUN_00584860",
-            "B3 boss FUN_0055c960",
-            "B4 render FUN_005f6e50",
-            "B5 core FUN_0041dd00"
+            "camera 0x42 FUN_0042b350",
+            "boss 0x53 FUN_0053f6e0",
+            "effect 0x59 FUN_00596b30",
+            "object/enemy 0x47 FUN_00474cd0",
+            "window 0x57 FUN_00579f10",
+            "render 0x5e FUN_005e3fc0"
         };
         for (int i = 0; i < fns.length; i++) {
             dumpFunc(fns[i], tags[i]);
