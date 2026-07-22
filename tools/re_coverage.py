@@ -77,6 +77,8 @@ THIRD_PARTY = [
     (0x620ba0, 0x621441, "zlib deflate() [C-DIS: gzip magic + deflate state consts]"),
     (0x622cb0, 0x6231e7, "zlib compress_block() [C-DIS: Huffman bit-buffer emit]"),
     (0x671c1e, 0x672151, "libm asin/acos [C-DIS: pi/2 const + libm_error_support]"),
+    (0x66f850, 0x66fd6f, "libm asin/acos (2nd copy) [C-DIS]"),
+    (0x621fd0, 0x622498, "zlib deflate_slow() [C-DIS: lazy matcher]"),
     # Statically-linked CRT/libm stragglers Ghidra left un-FID-named (so they read as
     # game FUN_s). Confirmed [C-DIS] in build/core_re/BIG_FUNCS.md; see
     # build/re_coverage/EXCLUSIONS_TODO.md (a swept 0x620000-0x680000 CRT band is a
