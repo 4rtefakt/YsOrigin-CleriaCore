@@ -73,6 +73,13 @@ struct XsoHost {
     // `find(op0) != null && hp >= 1.0`. Absent id => false.
     virtual bool is_alive(int entity_id) const = 0;
 
+    // op 0x131 Chr_IsSeedLiving(group): "is any live entity tagged with group-N still
+    // in the registry?" (FUN_00570640, EVENTVM.md §6). Maps arg 1..4 -> bit (n<<8) at
+    // entity+0x130; scans the live registry for a match. The barrier-fight poll: a
+    // KEKKAIZAKO script loops on it and grants its progress flag when it goes false.
+    // Always called with arg 1 in the shipped corpus. A null/absent group => false.
+    virtual bool any_seed_alive(int /*group*/) const { return false; }
+
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns
     // every placement through the CASTINFO factory. We pre-load the host with the

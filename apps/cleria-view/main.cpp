@@ -1928,6 +1928,10 @@ static const Rc kBarHousing  = {0, 468, 271, 44};  // confirmed from quad 2's UV
 static const Rc kHpBlue      = {0,   0, 252, 8};   // HP fill      (ink is {2,1,248,7})
 static const Rc kHpTrail     = {0,   8, 252, 8};   // HP damage trail
 static const Rc kExpOrange   = {0,  16, 240, 8};   // EXP fill — 240 art -> 230 screen
+static const Rc kMpGreen     = {0,  44, 252, 8};   // green mana/skill fill (measured: the
+                                                   // pointed green bar stacked under HP/red/pink)
+static const Rc kBarTick     = {302, 1,   3, 14};  // segment-divider tick; the atlas holds a
+                                                   // strip of these at x277+25k (stride 25)
 static const Rc kSlotFrame   = {472, 472, 40, 40}; // the 40x40 equipment slot frame
 
 // ---- the game's real HUD layout (from build/source_map/HUD_COORDS.md) --------
@@ -1963,6 +1967,7 @@ static const Ar kABarPlate = {115, 714, 386, 758};  // the housing / plate
 static const Ar kAHpFill  = {120, 726, 372, 734};  // blue HP; max fill 252
 static const Ar kAExpFill = {142, 718, 372, 722};  // orange EXP; max fill 230
 static const Ar kAThinBar  = {142, 718, 372, 722};  // thin bar (EX/MP — name unconfirmed)
+static const Ar kAMpFill   = {120, 737, 372, 745};  // green MP channel (below HP); max fill 252
 static const Ar kASlot[4] = {{0, 620, 40, 632}, {0, 632, 40, 644},
                              {0, 644, 40, 656}, {0, 656, 40, 668}};  // equipment slots
 // Portrait UVs: 4 portraits in a 2x2 grid, 116x96 px each, indexed by character.
@@ -2294,10 +2299,23 @@ struct Hud {
         ex.x1 = ex.x0 + 230.0f * std::max(0.f, std::min(1.f, p.exp_pct / 100.0f));
         sprite_a(m, ex, kExpOrange, sw, sh);
 
-        // MP / mana bar: REMOVED. My src {252,36,252,8} sampled the wrong STATUS_512 region and
-        // produced a rainbow smear (visual regression). The real bar is a SEGMENTED "split" asset,
-        // not a plain fill — the correct atlas rect isn't confirmed, so drawing nothing beats
-        // drawing garbage. TODO: identify the segmented mana-bar cell before re-adding.
+        // MP / mana bar (H1). The green fill is the REAL STATUS_512 art at {0,44,252,8}
+        // — the pointed green bar stacked below the blue HP / red-trail / pink rows in
+        // the atlas's bar column (measured off the pixels; the earlier {252,36,...}
+        // rainbow was just the wrong cell). Over it go the SEGMENT DIVIDERS the user
+        // asked for: the atlas carries beveled tick sprites at x277+25k (stride 25), and
+        // a 252px bar / 25 ≈ 10 cells, so 9 interior ticks split it into ~10 blocks.
+        {
+            const float mp = std::max(0.f, std::min(1.f, p.mp_pct / 100.0f));
+            Ar mpf = kAMpFill;
+            mpf.x1 = mpf.x0 + 252.0f * mp;
+            sprite_a(m, mpf, kMpGreen, sw, sh);                 // green fill (real art)
+            for (int k = 1; k < 10; ++k) {                      // 9 dividers -> ~10 cells
+                const float cx = kAMpFill.x0 + 25.2f * float(k);
+                Ar tick = {cx - 1.0f, kAMpFill.y0, cx + 1.0f, kAMpFill.y1};
+                sprite_a(m, tick, kBarTick, sw, sh);
+            }
+        }
 
         // Character portrait (drawn over the plate's left end, as the game does).
         const int ci = (p.character >= 0 && p.character < 4) ? p.character : 1;
@@ -4595,6 +4613,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
     };
 
+    // Barrier fight (kekkai). A room's KEKKAIZAKO_*.XSO polls Chr_IsSeedLiving(1) and,
+    // when the last group-1 seed enemy dies, grants the progress flag its chest guard
+    // tests (EVENTVM.md §6: S_1001 -> flag 301, which S_BOX01 requires before it opens).
+    std::vector<Xso> barrier_scripts;   // this room's KEKKAIZAKO_*.XSO
+    bool barrier_seeded = false;        // a group-1 seed spawned this visit
+    bool barrier_cleared = false;       // its flag has already been granted this visit
+
     auto spawn_enemies = [&] {
         // Populate the world the engine's way: run S_xxxx.XSO (op 0xa0 -> SCT bulk,
         // op 0x12c -> scripted), seeded with the persistent game flags. Then load a
@@ -4606,6 +4631,25 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         efx.init_from_world(g, asset_root, world, casts);
         render = build_enemy_render(world, casts, efx);
         bind_enemy_aso();
+        // Detect this room's barrier fight: load its KEKKAIZAKO_*.XSO poll scripts and
+        // note whether S_xxxx.XSO's 0x12c actually spawned a group-1 seed (it is gated
+        // behind the very flag the barrier grants, so a re-visit spawns nothing and we
+        // must not re-fire). The poll itself runs in clear_barrier, below.
+        barrier_scripts.clear();
+        barrier_cleared = false;
+        barrier_seeded = world.any_seed_alive(1);
+        {
+            std::error_code bec;
+            for (const auto& de : fs::directory_iterator(room.dir, bec)) {
+                std::string fn = de.path().filename().string();
+                for (char& c : fn) c = char(std::toupper((unsigned char)c));
+                if (fn.rfind("KEKKAIZAKO", 0) == 0 && fn.size() >= 4 &&
+                    fn.compare(fn.size() - 4, 4, ".XSO") == 0) {
+                    try { barrier_scripts.push_back(Xso::parse(read_bytes(de.path()))); }
+                    catch (const std::exception&) {}
+                }
+            }
+        }
         if (!render.empty()) {
             int statted = 0;
             for (const EnemyRender& e : render) statted += (e.actor->max_hp > 0);
@@ -4702,28 +4746,33 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         room = std::move(next);
     };
 
-    // Populate the room's enemies from its SCT placements.
-    // The barrier fight is NOT wired up, deliberately.
+    // The barrier fight, now wired. A KEKKAIZAKO_*.XSO polls its group-1 seeds:
     //
-    // A room's KEKKAIZAKO*.XSO ("kekkai" = barrier, "zako" = mobs) is what sets the
-    // progress flag a barrier gates — S_1001's grants g_flags[301], which
-    // S_BOX01.XSO's second guard tests. But its real condition is sub-op 0x131(1),
-    // which we do not implement:
+    //     0: 0x131(1)       <- acc = any group-1 seed still alive?   (now implemented)
+    //     3: jz -> 8        <- all dead -> grant
+    //     5: 0xf0 / jmp 0   <- else wait a frame and loop
+    //     8: 0x64(301, 1)   <- set the progress flag (S_1001 -> 301)
     //
-    //     0: 0x131(1)       <- the barrier-clear test  (UNIMPLEMENTED)
-    //     3: class 6        jump-if-acc==0
-    //     8: 0x64(301, 1)   set flag 301
-    //
-    // Because the VM skips unknown sub-ops, `acc` stays 0, the guard always passes,
-    // and merely RUNNING the script grants the flag — no matter what the player did.
-    // That is not a barrier fight, it is a free flag. 0x131 occurs 34 times across
-    // exactly 4 files, all KEKKAIZAKO*, so it is precisely the check we're missing.
-    // The trigger is also not "kill everything" (this barrier wants one specific
-    // enemy), so guessing a trigger would compound the error.
-    //
-    // Wire this only once 0x131 is reverse-engineered (its handler is in the entity
-    // interpreter FUN_004472e0). Until then, killing enemies does nothing.
-    auto clear_barrier = [&] {};
+    // 0x131 is Chr_IsSeedLiving (FUN_00570640, EVENTVM.md §6): ActorWorld answers it
+    // from the live registry. We poll each frame; the instant the last seed dies we run
+    // the script to completion on the PERSISTENT VM (with the seed gone, 0x131 reads
+    // false, so it falls through to its grant) and re-gate the room, so the chest guard
+    // S_BOX01 — which requires flag 301 before it will open — now unlocks. This is a
+    // real fight now, not the old "running it grants the flag for free": no seed spawns
+    // (the 0x12c is gated behind 301) or none die => no grant.
+    auto clear_barrier = [&] {
+        if (barrier_scripts.empty() || barrier_cleared || !barrier_seeded) return;
+        if (world.any_seed_alive(1)) return;   // seeds still alive: keep fighting
+        XsoHost* saved = game.host;
+        game.host = &world;
+        for (const Xso& ks : barrier_scripts) { game.reset_run(); game.run(ks); }
+        game.host = saved;
+        barrier_cleared = true;
+        reload_room();                 // re-gate: box_01's guard now sees flag 301 set
+        hud.message("The barrier fades.");
+        std::printf("  [barrier] all seeds down -> ran %zu KEKKAIZAKO script(s); "
+                    "flag 301 = %d\n", barrier_scripts.size(), game.g_flags[301]);
+    };
 
     // Melee swing. Damage and reach are OUR numbers: the game has no per-enemy HP
     // column (stats come from a level curve we have not wired), and the player's
@@ -5418,6 +5467,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
         }
         }  // ---- end fixed-step logic ----------------------------------------
+        // Barrier fight: if the last group-1 seed died during this frame's ticks, grant
+        // the barrier's flag and re-gate the room so its chest unlocks (no-op otherwise).
+        clear_barrier();
         // UV scroll — the water. `phase += velocity` ONCE PER TICK, unscaled: the
         // disassembly is unambiguous (FUN_0044cda0 @0x44e165 — the neighbouring
         // fields ARE MULSS-scaled by a delta, the scroll block has no MULSS at all).

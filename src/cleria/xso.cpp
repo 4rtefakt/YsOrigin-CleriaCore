@@ -236,6 +236,12 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
                         // (0x5F/0x60/0x81/0x90), so acc is the inference, not a read.
                         // A null host answers "not alive", which keeps scripts running.
                         acc = (host && host->is_alive(op(0))) ? 1 : 0;
+                    } else if (sub == 0x131 && nargs >= 1) {
+                        // Chr_IsSeedLiving(group): the barrier poll (FUN_00570640,
+                        // EVENTVM.md §6). acc = any live entity tagged with group op0.
+                        // A null host answers "none alive", so a barrier script falls
+                        // through to grant its flag (matches the run-to-completion path).
+                        acc = (host && host->any_seed_alive(op(0))) ? 1 : 0;
                     }
                     // all other sub-ops: no-op (skipped by length)
                 }

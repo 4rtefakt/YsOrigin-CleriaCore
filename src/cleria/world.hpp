@@ -104,6 +104,14 @@ class ActorWorld : public XsoHost {
             if (a.instance_id == entity_id) return a.alive();
         return false;
     }
+    // op 0x131 Chr_IsSeedLiving(group): FUN_00570640 scans the live registry for any
+    // entity whose +0x130 group bits include (group<<8). The player is never tagged, so
+    // this is just "any living group-N seed enemy left?".
+    bool any_seed_alive(int group) const override {
+        for (const Actor& a : actors_)
+            if (a.tag.in_group(group) && a.alive()) return true;
+        return false;
+    }
     // op 0xa0: spawn every placement in the room's SCT (set via set_placements). No-op
     // if no placements are set. Defined in world.cpp (needs the Sct/CastTable bodies).
     void spawn_placements() override;
