@@ -1910,32 +1910,81 @@ static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
 
 // Persistent script-placed effects (op 0x11a): the barrier ward and friends. Each is one
 // eftlist effect looping its flipbook forever at a fixed world position, until op 0x119
-// removes it. We render them through the projectile path by materialising a Projectile per
-// effect with its age wrapped to the art's life, so no GPU boilerplate is duplicated.
+// removes it. Unlike a projectile, a PLACED effect is NOT a camera-facing billboard — the
+// kekkai ward lies in the GROUND plane, its texture-top pointing AWAY from the camera (its
+// furthest point), so it reads as a barrier laid across the floor rather than a card held
+// up to face you. CLERIA_BARRIER_BILLBOARD falls back to the old upright billboard.
 static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEffect>& fx,
                                  const fs::path& asset_root, const EftList& efl, const EftTex& eft,
                                  WGPUTextureView color, WGPUTextureView depth,
                                  const Vec3& camFwd, float t) {
     if (fx.empty()) return;
-    std::vector<Projectile> tmp;
-    tmp.reserve(fx.size());
+    if (std::getenv("CLERIA_BARRIER_BILLBOARD")) {   // old camera-facing behaviour
+        std::vector<Projectile> tmp;
+        for (const ActorWorld::LocatedEffect& e : fx) {
+            Projectile p; p.pos = {e.x, e.y + (e.a > 0.01f ? e.a : 1.0f), e.z};
+            p.effect_id = e.id; p.scale = (e.a > 0.01f ? e.a : 1.0f);
+            p.life = std::max(1, bullet_art(g, asset_root, efl, eft, e.id).life);
+            p.age = int(t * 60.0f) % p.life; tmp.push_back(p);
+        }
+        draw_projectiles(g, tmp, asset_root, efl, eft, color, depth, camFwd);
+        return;
+    }
+    // Ground-plane orientation: width along the camera's horizontal RIGHT, depth along its
+    // horizontal FORWARD (so the texture's top edge sits at the far side, furthest away).
+    Vec3 fwdH = {camFwd.x, 0, camFwd.z};
+    const float fl = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
+    if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
+    const Vec3 rightH = normalize(cross(Vec3{0, 1, 0}, fwdH));
     for (const ActorWorld::LocatedEffect& e : fx) {
         const BulletArt& art = bullet_art(g, asset_root, efl, eft, e.id);
         if (!art.ok()) continue;
-        Projectile p;
-        // Lift the billboard off the floor so the ward stands up out of the ground rather
-        // than being half-buried (the 0x11a y is the floor). Scale from arg 'a' (1.5 for
-        // the barrier); CLERIA_BARRIER_SCALE overrides while we eyeball it.
         float sc = (e.a > 0.01f ? e.a : 1.0f);
         if (const char* s = std::getenv("CLERIA_BARRIER_SCALE")) { float v = std::atof(s); if (v > 0) sc = v; }
-        p.pos = {e.x, e.y + sc, e.z};
-        p.effect_id = e.id;
-        p.scale = sc;
-        p.life = std::max(1, art.life);
-        p.age = int(t * 60.0f) % p.life;     // loop the flipbook
-        tmp.push_back(p);
+        const int age = int(t * 60.0f) % std::max(1, art.life);
+        for (const BulletArt::Layer& L : art.layers) {
+            if (L.frames.empty()) continue;
+            const int fi = std::min(int(L.frames.size()) - 1,
+                                    int(std::size_t(age) * L.frames.size() /
+                                        std::size_t(std::max(1, art.life))));
+            const Ef2Frame& fr = L.frames[std::size_t(fi)];
+            const float hw = L.w * sc * 0.5f, hh = L.h * sc * 0.5f;
+            const Vec3 c = {e.x, e.y + 0.05f, e.z};   // just above the floor to avoid z-fight
+            RoomVertex verts[4];
+            std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
+            auto V = [&](int n, float rx, float dz, float u, float v) {
+                verts[n] = {c.x + rightH.x * rx * hw + fwdH.x * dz * hh, c.y,
+                            c.z + rightH.z * rx * hw + fwdH.z * dz * hh,
+                            0, 1, 0, u, v, 255, 255, 255, 255};
+            };
+            V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);   // dz=+1 = far  = texture top
+            V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1); // dz=-1 = near = texture bottom
+            WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof(verts), WGPUBufferUsage_Vertex);
+            WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof(idx), WGPUBufferUsage_Index);
+            WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+            WGPURenderPassColorAttachment ca = {};
+            ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+            ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+            WGPURenderPassDepthStencilAttachment da = {};
+            da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+            WGPURenderPassDescriptor rp = {};
+            rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
+            rp.depthStencilAttachment = &da;
+            WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+            wgpuRenderPassEncoderSetPipeline(pass, g.fx_pipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+            wgpuRenderPassEncoderSetBindGroup(pass, 1, L.tex.bind, 0, nullptr);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
+            wgpuRenderPassEncoderEnd(pass);
+            wgpuRenderPassEncoderRelease(pass);
+            WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+            wgpuQueueSubmit(g.queue, 1, &cmd);
+            wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+            wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+        }
     }
-    draw_projectiles(g, tmp, asset_root, efl, eft, color, depth, camFwd);
 }
 
 struct HudVertex { float x, y, u, v; std::uint8_t r, g, b, a; };
