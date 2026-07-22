@@ -5065,6 +5065,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (EnemyRender& e : render) {
                 Actor* en = e.actor;
                 if (!en || !en->alive() || !e.avm.ok()) continue;
+                // Hitstun: a landed player hit interrupts the enemy. Drop out of the attack
+                // section back to idle, clear the swing state, and hold (no chase/attack)
+                // until the stun ends — so the swing visibly STOPS instead of playing on.
+                if (en->hitstun > 0) {
+                    --en->hitstun;
+                    if (e.avm.section() == e.atk_section) {
+                        e.avm.set_section(e.idle_section, /*force*/true);
+                        e.atk_win = 0; e.atk_armed = false; e.atk_age = 0;
+                        e.atk_cd = kEnemyAtkCooldown;   // no instant retaliation
+                    }
+                    en->move_scale = 0.0f;              // planted (knockback still slides it)
+                    e.avm.set_is_land(true);
+                    e.avm.tick();
+                    continue;
+                }
                 if (e.atk_cd > 0) --e.atk_cd;
                 const float dx = feet.x - en->pos.x, dz = feet.z - en->pos.z;
                 const float dist2 = dx * dx + dz * dz;
@@ -5167,6 +5182,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const float kd = std::sqrt(kdx * kdx + kdz * kdz);
                     if (kd > 1e-3f) en.knockback = {kdx / kd * 0.30f, 0, kdz / kd * 0.30f};
                     en.hit_flash = 6;
+                    if (!r.died) en.hitstun = 14;   // interrupt its attack (duration [TUNED])
                     const std::string nm = casts.get(en.cast_id) && !casts.get(en.cast_id)->display.empty()
                                            ? casts.get(en.cast_id)->display : ("cast " + std::to_string(en.cast_id));
                     hud.message(r.died ? (nm + " defeated!")

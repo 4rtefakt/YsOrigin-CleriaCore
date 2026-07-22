@@ -190,6 +190,11 @@ struct Actor {
     // is a tick countdown the renderer tints on.
     Vec3 knockback{};      // engine: +0x338/+0x340 (decaying push on hit)
     int hit_flash = 0;     // engine: +0x4e8 (ticks of white tint after a hit)
+    // Hitstun: ticks an enemy is stunned after the player lands a hit, during which its
+    // in-progress attack is interrupted and it can't act. The DURATION is [TUNED], not
+    // RE'd from the enemy hurt-handler (which lives in the untouched main/object gap); it
+    // exists so a hit visibly stops an enemy's swing instead of the swing continuing.
+    int hitstun = 0;
 
     // engine: +0x120 <- CASTINFO+0x64. [H-high] an AI HANDLER INDEX — genuinely
     // stored (0x4342c1 -> FUN_00459410), but no consumer INDEXING it has been read.
