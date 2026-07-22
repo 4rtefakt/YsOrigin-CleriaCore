@@ -3292,8 +3292,12 @@ struct TitleFx {
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0, 0, 1, 0.749f);
         // 1. "Option" plaque, top-left (OPTION.DDS: gold cartouche is u0..0.598 of the upper half;
         //    the rest of the texture is opaque black padding, so crop to the cartouche).
+        //    Anchor X=128, quad W=153.6 (OPTIONS_LAYOUT.md §6, [C-DIS FUN_005a68f0 @ Option-alt sub-id
+        //    0x11: _DAT_00733328 = DAT_00703578 = 0x80 = X 128; lit sprite quad 0x4319999a=153.6 x
+        //    0x424ccccd=51.2, tex Option.dds]). Was X=30 -- ~98px too far left (same shift as the MN4
+        //    Equip plaque); the reference "Option" cartouche sits at the tab-anchor X, not the frame edge.
         if (plaque.tex)
-            draw_screen_image(g, cview, dview, false, plaque, AX(30), AY(8), AX(176), AY(68),
+            draw_screen_image(g, cview, dview, false, plaque, AX(128), AY(8), AX(281.6f), AY(68),
                               0.4f, 0.0f, 0.0f, 0.598f, 0.492f);
         // 2. the 10 rows. rowV = OPBTN band (px) for each SCREEN row, label-mapped; row 7 (Default)
         //    is a short button in the atlas' right area.
