@@ -118,6 +118,12 @@ struct Player {
     float exp_pct = 0.0f;   // progress toward the next level, for the HUD bar
     float mp_pct = 100.0f;
     int character = 1;  // portrait: 1 Yunica / 2 Hugo / 3 Toal
+    // Red HP damage-lag "ghost" bar (build/hud_re/HUD_HP_BARS.md, H3). The HP widget is
+    // {cur, lag, max}: on damage the lag holds the old value and decays toward cur, drawing
+    // the red trail in the [cur, lag] segment. Decay = 0.2 * coeff * max per tick; the coeff
+    // (widget+0x2c) is a static-init [UNKNOWN] (~1), so the RATE is env-tunable (CLERIA_HPLAG);
+    // the MODEL (linear catch-up) is [C-DIS]. mutable: a render-side catch-up cache.
+    mutable float hp_lag = 400;
 };
 
 // Locate a bundled resource next to the exe, or in the repo res/ dir.
@@ -2212,6 +2218,20 @@ struct Hud {
     void player_hud(const Player& p, float sw, float sh) {
         const HudMap m{std::uint32_t(sw), std::uint32_t(sh)};
 
+        // Advance the HP damage-lag (H3). Heal snaps the lag up to cur instantly (no red on
+        // heal); damage lets cur drop and the lag decays down toward it, per tick. coeff ~1
+        // is [UNKNOWN] — CLERIA_HPLAG scales the visible catch-up speed (default 0.05 so the
+        // trail is watchable; the traced form is 0.2 * coeff * max).
+        if (p.hp_lag < float(p.hp)) p.hp_lag = float(p.hp);
+        else if (p.hp_lag > float(p.hp)) {
+            static const float k = [] {
+                if (const char* e = std::getenv("CLERIA_HPLAG")) { float v = std::atof(e); if (v > 0) return v; }
+                return 0.006f;  // ~0.5 HP/frame at max 400 -> a big hit's trail drains over ~1s
+            }();
+            p.hp_lag -= 0.2f * k * float(p.max_hp);
+            if (p.hp_lag < float(p.hp)) p.hp_lag = float(p.hp);
+        }
+
         // NOT DRAWN: the four stacked 12px rows at x0=0 (y 620/632/644/656). Their
         // geometry is recovered, but their identity is not — an earlier pass called them
         // "equipment slots", yet they sit flush left with RUNTIME-COMPUTED widths, which
@@ -2229,12 +2249,19 @@ struct Hud {
         // and the `60/ 60` readout are provably one value.
         const float hp_frac = p.max_hp > 0
                                   ? std::max(0.f, std::min(1.f, float(p.hp) / p.max_hp)) : 0.f;
+        // The red damage trail FIRST (quad 0x0043c5b2), at the lagging value, then the blue
+        // current HP on top — so the red shows only in the [cur, lag] segment. Now that we
+        // have the H3 lag model, this closes the long-standing "no lag model" gap.
+        const float lag_frac = p.max_hp > 0
+                                   ? std::max(0.f, std::min(1.f, p.hp_lag / p.max_hp)) : 0.f;
+        if (lag_frac > hp_frac) {
+            Ar red = kAHpFill;
+            red.x1 = red.x0 + 252.0f * lag_frac;
+            sprite_a(m, red, kHpBlue, sw, sh, 214, 46, 46, 255);  // red ghost behind
+        }
         Ar hp = kAHpFill;
         hp.x1 = hp.x0 + 252.0f * hp_frac;
-        sprite_a(m, hp, kHpBlue, sw, sh);
-        // (Not drawn: the red HP damage trail, quad 0x0043c5b2 — the segment between
-        // cur and a lagging catch-up value at 0x006d5f24, i.e. the HP struct is
-        // {cur, lag, max}. It only exists while catching up, and we have no lag model.)
+        sprite_a(m, hp, kHpBlue, sw, sh);                          // blue current HP on top
 
         // EXP for the current level — quad 6, the orange band. This is the ONLY HUD
         // quad that is NOT 1:1: 240px of art into 230px of screen, and 8px of art
