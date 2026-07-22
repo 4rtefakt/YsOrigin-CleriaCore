@@ -74,39 +74,15 @@ THIRD_PARTY = [
     (0x5ff8d0, 0x600240, "Ogg Vorbis decoder"),
     (0x602c80, 0x6056d0, "zlib 1.2.3 (inflate)"),
     (0x6056d0, 0x61ffe0, "libpng"),
-    (0x620130, 0x62038c, "libpng png_do_shift() [C-DIS]"),
-    (0x620510, 0x620783, "libpng png_do_read_transformations() [C-DIS]"),
-    (0x620790, 0x620983, "zlib deflateInit2_() [C-DIS]"),
-    (0x66bdae, 0x66c017, "libm natural-log [C-DIS]"),
-    (0x65b151, 0x65b338, "CRT _ldexp/scalbn [C-DIS]"),
-    (0x65bdcc, 0x65bfad, "CRT _mktime [C-DIS]"),
-    (0x65e916, 0x65eb51, "CRT _putenv (narrow) [C-DIS]"),
-    (0x66941b, 0x669601, "CRT __isindst DST tester [C-DIS]"),
-    (0x65eb51, 0x65ed8d, "CRT _wputenv [C-DIS]"),
-    (0x6680e7, 0x668333, "CRT _wsopen_nolock BOM helper [C-DIS]"),
-    (0x620ba0, 0x621441, "zlib deflate() [C-DIS: gzip magic + deflate state consts]"),
-    (0x622680, 0x622888, "zlib gen_bitlen() [C-DIS]"),
-    (0x622920, 0x622ba5, "zlib build_tree() [C-DIS]"),
-    (0x6232d0, 0x6234fb, "zlib send_all_trees() [C-DIS]"),
-    (0x622cb0, 0x6231e7, "zlib compress_block() [C-DIS: Huffman bit-buffer emit]"),
-    (0x671c1e, 0x672151, "libm asin/acos [C-DIS: pi/2 const + libm_error_support]"),
-    (0x66f850, 0x66fd6f, "libm asin/acos (2nd copy) [C-DIS]"),
-    (0x621a00, 0x621c20, "zlib deflate_stored() [C-DIS]"),
-    (0x621c20, 0x621fd0, "zlib deflate_fast() [C-DIS: greedy matcher]"),
-    (0x621fd0, 0x622498, "zlib deflate_slow() [C-DIS: lazy matcher]"),
-    (0x6237c0, 0x623b00, "zlib _tr_flush_block() [C-DIS]"),
-    (0x623b00, 0x623f3c, "zlib compress_block() 2nd copy [C-DIS]"),
-    (0x65334b, 0x653630, "CRT setlocale category-string applier [C-DIS]"),
-    (0x653630, 0x6539fb, "CRT setlocale category-setter [C-DIS]"),
-    (0x628ff4, 0x629381, "MSVC C++ EH __CxxFrameHandler3 worker [C-DIS]"),
-    (0x652b3e, 0x652eb4, "CRT __get_qualified_locale [C-DIS]"),
-    (0x661d94, 0x66207d, "CRT locale lang/country matcher [C-DIS]"),
-    # Statically-linked CRT/libm stragglers Ghidra left un-FID-named (so they read as
-    # game FUN_s). Confirmed [C-DIS] in build/core_re/BIG_FUNCS.md; see
-    # build/re_coverage/EXCLUSIONS_TODO.md (a swept 0x620000-0x680000 CRT band is a
-    # candidate but is left unswept pending per-function verification — no guessing).
-    (0x6664bc, 0x667857, "CRT float->string formatter (printf core)"),
-    (0x672329, 0x672e2f, "libm float10 math"),
+    # --- Swept CRT/runtime band (user-approved 2026-07-22) ---------------------------
+    # The MSVC C runtime + libm + locale/time + C++ EH + zlib-deflate/libpng stragglers
+    # are statically linked AFTER the game code and the vendored libs above (which end at
+    # 0x61ffe0). Every function triaged in 0x620000..0x67a1f0 across ~24 passes was CRT/
+    # libm/locale/time/EH/zlib/libpng (0 game functions), and the last real function sits
+    # at ~0x67a1f0 — so this whole band is runtime we never reimplement. Swept as one
+    # range (individual [C-DIS] confirmations are recorded in build/re_coverage/
+    # EXCLUSIONS_TODO.md). Bounds are conservative to the observed function tail.
+    (0x620000, 0x680000, "CRT / libm / locale-time / C++ EH + zlib-deflate/libpng stragglers"),
 ]
 
 
