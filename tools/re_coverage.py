@@ -74,6 +74,12 @@ THIRD_PARTY = [
     (0x5ff8d0, 0x600240, "Ogg Vorbis decoder"),
     (0x602c80, 0x6056d0, "zlib 1.2.3"),
     (0x6056d0, 0x61ffe0, "libpng"),
+    # Statically-linked CRT/libm stragglers Ghidra left un-FID-named (so they read as
+    # game FUN_s). Confirmed [C-DIS] in build/core_re/BIG_FUNCS.md; see
+    # build/re_coverage/EXCLUSIONS_TODO.md (a swept 0x620000-0x680000 CRT band is a
+    # candidate but is left unswept pending per-function verification — no guessing).
+    (0x6664bc, 0x667857, "CRT float->string formatter (printf core)"),
+    (0x672329, 0x672e2f, "libm float10 math"),
 ]
 
 
