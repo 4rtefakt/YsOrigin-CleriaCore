@@ -85,6 +85,7 @@ THIRD_PARTY = [
     (0x653630, 0x6539fb, "CRT setlocale category-setter [C-DIS]"),
     (0x628ff4, 0x629381, "MSVC C++ EH __CxxFrameHandler3 worker [C-DIS]"),
     (0x652b3e, 0x652eb4, "CRT __get_qualified_locale [C-DIS]"),
+    (0x661d94, 0x66207d, "CRT locale lang/country matcher [C-DIS]"),
     # Statically-linked CRT/libm stragglers Ghidra left un-FID-named (so they read as
     # game FUN_s). Confirmed [C-DIS] in build/core_re/BIG_FUNCS.md; see
     # build/re_coverage/EXCLUSIONS_TODO.md (a swept 0x620000-0x680000 CRT band is a
