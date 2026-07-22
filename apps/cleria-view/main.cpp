@@ -4798,6 +4798,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     pmf.init(g, fmt, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
     const ItemTable pitems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
     bool paused = false;
+    int pausePage = 0;  // pause-book tab: 0 Equip, 1 Item, 2 Topic, 3 Save/Load (Q/E cycle)
 
     while (running) {
         const Uint64 now = SDL_GetTicks();
@@ -4829,6 +4830,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // K = take 60 damage (watch the red ghost linger + drain), L = heal to full.
                 else if (k == SDLK_K) { player.hp = std::max(1, player.hp - 60); hud.message("(debug) -60 HP"); }
                 else if (k == SDLK_L) { player.hp = player.max_hp; hud.message("(debug) full heal"); }
+                // Pause-book tab cycling (only while the menu is open): E = next, Q = prev page.
+                else if (paused && k == SDLK_E) pausePage = (pausePage + 1) % 4;
+                else if (paused && k == SDLK_Q) pausePage = (pausePage + 3) % 4;
                 else if (k == SDLK_TAB) {
                     character = character % 3 + 1;
                     game.g_flags[150] = character;
@@ -5422,12 +5426,28 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 ev.next = long(std::llround(ginfo.exp_to_level(player.level + 1)
                                             - ginfo.exp_to_level(player.level)));
             }
-            ev.caption = "";
-            write_mvp(g, Mat4::identity());  // draw_equip is screen-space
+            write_mvp(g, Mat4::identity());  // the pause-book pages are screen-space
             // Fresh depth (like the title-menu path's tdepth) so the world's z-buffer can't
             // occlude the book; only allocated while the pause menu is actually open.
             WGPUTextureView pdepth = make_depth(g.device, cw, ch);
-            pauseUi.draw_equip(g, pmf, view, pdepth, cw, ch, ev, pitems, asset_root);
+            switch (pausePage) {
+                case 1: {  // Item / Inventory
+                    static const int owned[] = {1, 48, 8, 78, 79, 116};  // stub inventory
+                    ev.caption = "Examine or use an item.";
+                    pauseUi.draw_item(g, pmf, view, pdepth, cw, ch, ev, owned, 6, pitems, asset_root);
+                    break;
+                }
+                case 2:  // Topic (Character / Monster / Manual)
+                    pauseUi.draw_topic(g, pmf, view, pdepth, cw, ch, 0);
+                    break;
+                case 3:  // Save / Load
+                    pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/false, /*fileTab=*/5, /*sel=*/0);
+                    break;
+                default:  // Equip
+                    ev.caption = "Your equipped weapon.";
+                    pauseUi.draw_equip(g, pmf, view, pdepth, cw, ch, ev, pitems, asset_root);
+                    break;
+            }
             wgpuTextureViewRelease(pdepth);
         }
         wgpuSurfacePresent(surface);
