@@ -1287,15 +1287,21 @@ static void draw_screen_image(Gpu& g, WGPUTextureView color, WGPUTextureView dep
                               const SpriteTex& tex, float l, float t, float r, float b, float z,
                               float u0 = 0, float v0 = 0, float u1 = 1, float v1 = 1,
                               float bgr = 0.02f, float bgg = 0.02f, float bgb = 0.05f,
-                              float wtint = 0.0f, bool additive = false) {
+                              float wtint = 0.0f, bool additive = false,
+                              float dr = 1.0f, float dg = 1.0f, float db = 1.0f) {
     if (!tex.tex) return;
     // Vertex alpha carries a white-tint amount (fs_char mixes the sampled colour toward white by
     // it) -- used for the char-select selection-bar pulse. 0 = the texture as-is.
+    // Vertex RGB is a DIFFUSE multiply (fs_char: tc.rgb * color.rgb) -- default white; drop it to
+    // 0.5 to render a row/element at 0xff808080, e.g. the Options unfocused-row dim.
     const std::uint8_t wt = (std::uint8_t)(std::clamp(wtint, 0.0f, 1.0f) * 255.0f);
-    RoomVertex verts[4] = {{l, t, z, 0, 0, -1, u0, v0, 255, 255, 255, wt},
-                           {r, t, z, 0, 0, -1, u1, v0, 255, 255, 255, wt},
-                           {r, b, z, 0, 0, -1, u1, v1, 255, 255, 255, wt},
-                           {l, b, z, 0, 0, -1, u0, v1, 255, 255, 255, wt}};
+    const std::uint8_t cr = (std::uint8_t)(std::clamp(dr, 0.0f, 1.0f) * 255.0f);
+    const std::uint8_t cg = (std::uint8_t)(std::clamp(dg, 0.0f, 1.0f) * 255.0f);
+    const std::uint8_t cb = (std::uint8_t)(std::clamp(db, 0.0f, 1.0f) * 255.0f);
+    RoomVertex verts[4] = {{l, t, z, 0, 0, -1, u0, v0, cr, cg, cb, wt},
+                           {r, t, z, 0, 0, -1, u1, v0, cr, cg, cb, wt},
+                           {r, b, z, 0, 0, -1, u1, v1, cr, cg, cb, wt},
+                           {l, b, z, 0, 0, -1, u0, v1, cr, cg, cb, wt}};
     std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
     WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
     WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
@@ -2943,8 +2949,10 @@ struct TitleFx {
                 };
                 // bar-arrow alpha region under the face (atlas uv), from the draw rects:
                 const float bu0 = 0.600f, bu1 = 0.821f, bv0 = 0.320f, bv1 = 0.493f;
-                static const float kU[3][2] = {{0.011f, 0.244f}, {0.264f, 0.495f}, {0.500f, 0.742f}};
-                constexpr float fv0 = 0.561f, fv1 = 0.748f;
+                // Code-traced face UV (CHARSELECT_LAYOUT.md §3.3): u = col*0.25, v[0.5625,0.7578125].
+                // Was u{0.011-0.244,...}, v[0.561,0.748].
+                static const float kU[3][2] = {{0.0f, 0.25f}, {0.25f, 0.5f}, {0.5f, 0.75f}};
+                constexpr float fv0 = 0.5625f, fv1 = 0.7578125f;
                 const int FW = 256, FH = 128;
                 std::vector<std::uint8_t> buf(std::size_t(FW) * FH * 4);
                 for (int i = 0; i < 3; ++i) {
@@ -3023,22 +3031,13 @@ struct TitleFx {
         float maxW = 0;
         for (int i = 0; i < count; ++i) maxW = std::max(maxW, mf.measure(get(i), pxH));
         const float ty = 3.0f * A;
-        if (cursor.tex) {                            // MENUCURSOR highlight bar, centred on the text
-            const float mid = rowTop(sel) + ty + 0.46f * pxH;   // glyph vertical centre
-            const float half = pxH * 0.58f, barW = maxW + 64.0f * A;
-            draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
-                            cxpx + barW * 0.5f, mid + half, sw, sh);
-        }
-        // Labels: light blue-teal by default, neutral/white on the selected row (sampled from
-        // reference/title_main.png: unselected ~[176,205,207]). Each carries a thin dark drop-
-        // shadow, bottom-left (as the game does -- also keeps the light selected text legible).
-        // The reference glyphs are a LIGHT fill with a tight, DARK drop-shadow weighted bottom-left
-        // (its darkest label pixels reach near-black, glyph body ~[170,185,187]). The title loop's
-        // region-mean had wrongly dropped it -- it is what gives the letters their edge. Offset is
-        // env-tunable (CLERIA_MENU_SHXY="dx,dy" in ~px). Fill/shadow colours below.
-        int ur = 192, ug = 207, ub = 211, ua = 255, shr = 34, shg = 41, shb = 43, sha = 225;
-        int sr = 248, sg = 250, sb = 252, sa = 255;
-        float shdx = -0.8f, shdy = 0.9f;   // shadow offset in ~px (bottom-left)
+        // Labels: unselected light teal, selected pure white -- exact code-traced DIFFUSE colours
+        // (TITLE_LAYOUT.md §1: unselected 0xB0D0D0 = FUN_00578f80 @0x579605; selected 0xFFFFFF @0x57964f).
+        // The engine draws NO text drop-shadow (each row is a single glyph call; the soft edge is
+        // glyph-AA + backbuffer upscale) -- default sha=0. Colours/shadow stay env-tunable.
+        int ur = 176, ug = 208, ub = 208, ua = 255, shr = 34, shg = 41, shb = 43, sha = 0;
+        int sr = 255, sg = 255, sb = 255, sa = 255;
+        float shdx = -0.8f, shdy = 0.9f;   // shadow offset in ~px (bottom-left) -- only if re-enabled
         if (const char* e = std::getenv("CLERIA_MENU_U")) { sscanf(e, "%d,%d,%d,%d", &ur, &ug, &ub, &ua); }
         if (const char* e = std::getenv("CLERIA_MENU_S")) { sscanf(e, "%d,%d,%d,%d", &sr, &sg, &sb, &sa); }
         if (const char* e = std::getenv("CLERIA_MENU_SH")) { sscanf(e, "%d,%d,%d,%d", &shr, &shg, &shb, &sha); }
@@ -3054,6 +3053,15 @@ struct TitleFx {
                              (std::uint8_t)(s ? sb : ub), (std::uint8_t)(s ? sa : ua));
         }
         mf.draw(g, cview);
+        // Selection bar LAST, drawn OVER the text as an additive glow (TITLE_LAYOUT.md §1:
+        // FUN_00578f80 draws the bar in the tail, renderstate 0x40c1; height 32.0 = DAT_006bd9f0;
+        // width maxW+64). Previously drawn UNDER the text as an alpha pill.
+        if (cursor.tex) {
+            const float mid = rowTop(sel) + ty + 0.46f * pxH;   // glyph vertical centre
+            const float half = pxH * 0.5f, barW = maxW + 64.0f * A;   // height 32.0 (was ~37 = 0.58*pxH)
+            draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                            cxpx + barW * 0.5f, mid + half, sw, sh, /*additive*/true);
+        }
     }
     void draw_menu(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                    std::uint32_t W, std::uint32_t H, int sel) {
@@ -3093,11 +3101,13 @@ struct TitleFx {
         auto AY = [&](float y) { return 1.0f - 2.0f * y / 768.0f; };
         auto SX = [&](float x) { return (AX(x) + 1.0f) * 0.5f * sw; };          // authored -> screen px
         // CHRSELECT.DDS (1024x512) atlas sub-rects (measured):
-        constexpr float kBarU0 = 0.06f, kBarU1 = 0.875f;
+        // CHARSELECT_LAYOUT.md §1: unselected bar UV = u[0,0.875] v[0.28125,0.53125]
+        // (FUN_005c2110 pfVar6[0x13..0x16]). Was u0=0.06, dark v[0.295,0.525].
+        constexpr float kBarU0 = 0.0f, kBarU1 = 0.875f;
         constexpr float kCyanV0 = 0.045f, kCyanV1 = 0.264f;
-        constexpr float kDarkV0 = 0.295f, kDarkV1 = 0.525f;
-        constexpr float kFaceV0 = 0.561f, kFaceV1 = 0.748f;
-        static const float kFaceU[3][2] = {{0.011f, 0.244f}, {0.264f, 0.495f}, {0.500f, 0.742f}};
+        constexpr float kDarkV0 = 0.28125f, kDarkV1 = 0.53125f;
+        // Face UV (CHARSELECT_LAYOUT.md §3.3): v[0.5625,0.7578125], u = col*0.25 -- applied where the
+        // face is actually sampled, in init's faceClip builder (kU/fv0/fv1).
         // 1. Frame BACK00 fills the 4:3 field. Its art content ends at texture row 767/1024 =
         //    v0.749 (measured); sampling further (the old 0.772) pulled ~23 black rows in and
         //    compressed the bottom marble border ~21 authored units too high. Clears the
@@ -3115,11 +3125,11 @@ struct TitleFx {
         if (frame.tex)
             draw_screen_image(g, cview, dview, /*clear*/altpillar.tex ? false : true, frame,
                               AX(0), AY(0), AX(1024), AY(768), 0.95f, 0.0f, 0.0f, 1.0f, 0.749f);
-        // 2. "Character Select" banner across the top of the field. Width (authored x 290..734) is
-        //    correct; the old y -8..98 stretched the glyphs 1.28x too tall (measured C-height 37 vs
-        //    reference 29). y -2..81 keeps the top fixed and matches the reference glyph height.
+        // 2. "Character Select" banner across the top of the field. Code-traced rect {274,0,464,80}
+        //    -> x[274,738], y[0,80] (CHARSELECT_LAYOUT.md §1, FUN_005c2110 @005c2664-26bf). Was
+        //    {290,-2,734,81}. UV unchanged.
         if (chrsel.tex)
-            draw_screen_image(g, cview, dview, false, chrsel, AX(290), AY(-2), AX(734), AY(81), 0.5f,
+            draw_screen_image(g, cview, dview, false, chrsel, AX(274), AY(0), AX(738), AY(80), 0.5f,
                               0.557f, 0.844f, 0.998f, 1.0f);
         // 3. Three selection bars (EXTRA_SKINS.md §4: x=60..956, h=128, y={128,272,416}; row
         //    0/1/2 = Yunica/Hugo/Toal), the crossed one cyan, the rest dark, each capped by its
@@ -3136,8 +3146,10 @@ struct TitleFx {
                                   0.45f, kBarU0, s ? kCyanV0 : kDarkV0, kBarU1, s ? kCyanV1 : kDarkV1,
                                   0.02f, 0.02f, 0.05f, s ? pulse : 0.0f);
                 if (faceClip[i].tex)   // face pre-clipped to the arrow (built in init)
-                    draw_screen_image(g, cview, dview, false, faceClip[i], AX(654), AY(yt + 14),
-                                      AX(897), AY(yt + 110), 0.42f);
+                    // Code-traced face rect x=646 w=256 h=100 (CHARSELECT_LAYOUT.md §3.3,
+                    // FUN_005c2110 pfVar6[0xbf..0xc4]); centred in the 128-tall bar. Was x[654,897] h96.
+                    draw_screen_image(g, cview, dview, false, faceClip[i], AX(646), AY(yt + 14),
+                                      AX(902), AY(yt + 114), 0.42f);
             }
         }
         // 4. The selected character's key art, on TOP of the bars (one crop frames all three).
@@ -3174,8 +3186,11 @@ struct TitleFx {
 
     // MENUCURSOR as a horizontal 9-slice (curls u[0,0.11] and [0.89,1.0] fixed, middle stretched)
     // so the ornate ends keep their thickness at any bar width instead of being stretched thin.
+    // `additive` = TITLE_LAYOUT.md §1: the engine draws the selection bar with renderstate 0x40c1
+    // (ADDITIVE + alpha-test), as a glow OVER the text, not an alpha pill under it.
     void draw_cursor_bar(Gpu& g, WGPUTextureView cview, WGPUTextureView dview,
-                         float lpx, float tpx, float rpx, float bpx, float sw, float sh) {
+                         float lpx, float tpx, float rpx, float bpx, float sw, float sh,
+                         bool additive = false) {
         if (!cursor.tex) return;
         constexpr float u1 = 0.11f, u2 = 0.89f;
         float curl = (bpx - tpx) * (u1 * 256.0f) / 32.0f;   // curl 28px wide / 32px tall native
@@ -3183,9 +3198,9 @@ struct TitleFx {
         auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
         auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
         const float z = 0.3f;
-        draw_screen_image(g, cview, dview, false, cursor, NX(lpx),        NY(tpx), NX(lpx + curl), NY(bpx), z, 0.0f, 0.0f, u1,   1.0f);
-        draw_screen_image(g, cview, dview, false, cursor, NX(lpx + curl), NY(tpx), NX(rpx - curl), NY(bpx), z, u1,   0.0f, u2,   1.0f);
-        draw_screen_image(g, cview, dview, false, cursor, NX(rpx - curl), NY(tpx), NX(rpx),        NY(bpx), z, u2,   0.0f, 1.0f, 1.0f);
+        draw_screen_image(g, cview, dview, false, cursor, NX(lpx),        NY(tpx), NX(lpx + curl), NY(bpx), z, 0.0f, 0.0f, u1,   1.0f, 0.02f, 0.02f, 0.05f, 0.0f, additive);
+        draw_screen_image(g, cview, dview, false, cursor, NX(lpx + curl), NY(tpx), NX(rpx - curl), NY(bpx), z, u1,   0.0f, u2,   1.0f, 0.02f, 0.02f, 0.05f, 0.0f, additive);
+        draw_screen_image(g, cview, dview, false, cursor, NX(rpx - curl), NY(tpx), NX(rpx),        NY(bpx), z, u2,   0.0f, 1.0f, 1.0f, 0.02f, 0.02f, 0.05f, 0.0f, additive);
     }
     // DIALOG0 as a horizontal 9-slice (u-cuts 0 / 0.15625 / 0.65625 / 0.8125 from MENU_LAYOUT.md
     // §3.1; content v 0..0.805): fixed scroll-curl ends, stretched middle, so the curls keep their
@@ -3223,19 +3238,17 @@ struct TitleFx {
         const float pxH = 32.0f * A, pitch = 38.4f * A, cellH = 32.0f * A;
         const float cxpx = sw * 0.5f;                     // authored X=512 (centre)
         const float captionTop = capTop * A;              // header top; centre = capTop+16 (type/diff ~228, SP ~308)
-        const float firstItem = captionTop + 44.8f * A;   // caption sits 44.8 above the first item
+        // CHARSELECT_LAYOUT.md §3.6: caption at origin-44.8, item1 at origin+6.4 -> caption->first
+        // gap = 51.2 (was 44.8).
+        const float firstItem = captionTop + 51.2f * A;
         auto itemTop = [&](int i) { return firstItem + i * pitch; };
         float maxW = mf.measure(title, pxH);
         for (int i = 0; i < count; ++i) maxW = std::max(maxW, mf.measure(items[i], pxH));
-        // Frame around caption..last item; width = content + 41.6 authored, + curl room.
-        const float fhalf = (maxW + 41.6f * A) * 0.5f + 90.0f * A;
+        // Frame around caption..last item; width = content + 41.6 authored, + curl room. Side pad
+        // 80 (CHARSELECT_LAYOUT.md §3.7 = DAT_006bdac8; was 90).
+        const float fhalf = (maxW + 41.6f * A) * 0.5f + 80.0f * A;
         draw_dialog_frame(g, cview, dview, cxpx - fhalf, captionTop - 18.0f * A,
                           cxpx + fhalf, itemTop(count - 1) + cellH + 22.0f * A, sw, sh);
-        if (cursor.tex) {                                 // content-width MENUCURSOR on the choice
-            const float mid = itemTop(sel) + 0.46f * pxH, half = pxH * 0.58f, barW = maxW + 64.0f * A;
-            draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
-                            cxpx + barW * 0.5f, mid + half, sw, sh);
-        }
         mf.text_centered(title, 0.5f, captionTop, pxH, sw, sh, 240, 246, 250, 255);
         for (int i = 0; i < count; ++i) {
             const bool s = (i == sel);
@@ -3244,6 +3257,13 @@ struct TitleFx {
                              s ? 250 : 172, s ? 252 : 206, s ? 252 : 208, 255);
         }
         mf.draw(g, cview);
+        // Selection bar LAST, additive glow OVER the text (CHARSELECT_LAYOUT.md §2: shared
+        // FUN_00578f80 cursor, blend 0x40c1; height 32.0 = DAT_006bd9f0, was ~37 = 0.58*pxH).
+        if (cursor.tex) {
+            const float mid = itemTop(sel) + 0.46f * pxH, half = pxH * 0.5f, barW = maxW + 64.0f * A;
+            draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                            cxpx + barW * 0.5f, mid + half, sw, sh, /*additive*/true);
+        }
     }
 
     // The Option/Config screen (build/menu_re/OPTIONS.md). Pillar-boxed like char-select: goddess
@@ -3279,41 +3299,54 @@ struct TitleFx {
         //    is a short button in the atlas' right area.
         static const float rowV[10][2] = { {1,48},{53,98},{104,150},{411,456},{462,508},
                                            {514,559},{565,610},{307,356},{155,201},{206,252} };
-        static const float rowY[10] = { 96,150,204,258,312,366,420, 474, 560,614 };
+        // Code-traced Y table (OPTIONS_LAYOUT.md §2): start 96, pitch 54.4, extra +44.8 gap before
+        // row 8. Was {96,150,204,...,560,614} (pitch 54, gap too small -> ~16px high by row 9).
+        static const float rowY[10] = { 96.0f, 150.4f, 204.8f, 259.2f, 313.6f, 368.0f, 422.4f,
+                                        476.8f, 576.0f, 630.4f };
         for (int r = 0; r < 10; ++r) {
             const float bx = (r <= 6) ? 179.0f : (r == 7 ? 409.0f : 307.0f);
             const float bw = (r == 7) ? 175.0f : 409.6f;
             const float u0 = (r == 7) ? 409.0f * T : 0.0f;
             const float u1 = (r == 7) ? 584.0f * T : 409.6f * T;
-            const float wt = (r == sel) ? 0.30f : 0.0f;   // focus highlight (dim rows stay as-is)
+            // Focus highlight INVERTED (OPTIONS_LAYOUT.md §3, FUN_005bae20 @005bae20): the selected
+            // row stays full white (0xffffffff), the OTHER rows dim to 0xff808080 (diffuse x0.5).
+            // Was: brighten the *pick* by 30% (wtint) -- the opposite of the engine.
+            const float d = (r == sel) ? 1.0f : 0.5f;
             draw_screen_image(g, cview, dview, false, opbtn, AX(bx), AY(rowY[r]), AX(bx + bw),
                               AY(rowY[r] + 51.2f), 0.30f, u0, rowV[r][0] * T, u1, rowV[r][1] * T,
-                              0.02f, 0.02f, 0.05f, wt);
+                              0.02f, 0.02f, 0.05f, 0.0f, false, d, d, d);
         }
         // 3. sliders (rows 0-2): OPBTN track (metallic-bordered teal gradient bar, atlas x410..640) +
         //    a tall lit blue pill knob (atlas x32..58) positioned by value along the track.
-        const float trackX = 652.0f, trackLen = 240.0f;
+        // Knob travels 188.8 px over value 0..1024 (OPTIONS_LAYOUT.md §3, |DAT_006be148|); the drawn
+        // track matches so the knob reaches each end. Was 240 -> knob overshot the track ~27%.
+        const float trackX = 652.0f, trackLen = 188.8f;
         for (int i = 0; i < 3; ++i) {
             const float ty = rowY[i] + 25.6f;
+            const float sd = (i == sel) ? 1.0f : 0.5f;   // match the row's inverted focus dim
             // track = teal-gradient bar with metallic end-caps at atlas x410 and x615; the SECOND bar
             // (rainbow/gamma variant) starts at x618 with a dark-blue cap, so stop at 616 or it leaves
             // a stray blue stub past the track.
             draw_screen_image(g, cview, dview, false, opbtn, AX(trackX), AY(ty - 11.0f),
-                              AX(trackX + trackLen), AY(ty + 11.0f), 0.28f, 408*T, 365*T, 616*T, 388*T);
+                              AX(trackX + trackLen), AY(ty + 11.0f), 0.28f, 408*T, 365*T, 616*T, 388*T,
+                              0.02f, 0.02f, 0.05f, 0.0f, false, sd, sd, sd);
             const float kx = trackX + (float(sliders[i]) / 1024.0f) * trackLen;
             // knob pill: dim silver-teal (atlas x1..15) when the row isn't focused, lit blue
             // (x16..31) when it is -- the reference grab shows the dim variant.
             const bool kf = (i == sel);
             const float ku0 = (kf ? 16.0f : 1.0f) * T, ku1 = (kf ? 31.0f : 15.0f) * T;
             draw_screen_image(g, cview, dview, false, opbtn, AX(kx - 8.0f), AY(ty - 26.0f),
-                              AX(kx + 8.0f), AY(ty + 26.0f), 0.26f, ku0, 305*T, ku1, 357*T);
+                              AX(kx + 8.0f), AY(ty + 26.0f), 0.26f, ku0, 305*T, ku1, 357*T,
+                              0.02f, 0.02f, 0.05f, 0.0f, false, sd, sd, sd);
         }
         // 4. checkboxes (rows 3-6): OPBTN square, checked U=0 / unchecked U=51 (OPTIONS.md §4)
         for (int i = 0; i < 4; ++i) {
             const float cx = 732.0f, cy = rowY[i + 3];
             const float u0 = checks[i] ? 0.0f : 51.0f * T, u1 = checks[i] ? 48.0f * T : 99.0f * T;
+            const float cd = ((i + 3) == sel) ? 1.0f : 0.5f;   // match the row's inverted focus dim
             draw_screen_image(g, cview, dview, false, opbtn, AX(cx), AY(cy), AX(cx + 51.2f),
-                              AY(cy + 51.2f), 0.26f, u0, 616*T, u1, 661*T);
+                              AY(cy + 51.2f), 0.26f, u0, 616*T, u1, 661*T,
+                              0.02f, 0.02f, 0.05f, 0.0f, false, cd, cd, cd);
         }
         // 5. caption bar (book-level string)
         const float dsz = 27.0f * sh / 768.0f;
