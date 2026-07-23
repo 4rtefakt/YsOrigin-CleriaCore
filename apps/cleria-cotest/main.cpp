@@ -106,6 +106,36 @@ int main(int argc, char** argv) {
                     t, !mgr.any_live(), h.lines.size(), ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // 6) The barrier break-pan: KEKKAIBREAK_01 driven as a cutscene must, in order and on
+    //    the script's real frame schedule, pan the camera to the ward (Scroll_MoveTo, 180f),
+    //    Eft_Kill it, then Scroll_Return (120f) and end. Proves the camera event, not a
+    //    silent run-to-completion. (assets/MAP/S_10/S_1001/KEKKAIBREAK_01.XSO)
+    {
+        struct BreakHost : XsoHost {
+            int frame = 0, fMove = -1, fKill = -1, fReturn = -1;
+            void scroll_moveto(float, float, float, int) override { if (fMove < 0) fMove = frame; }
+            void scroll_return(int) override { if (fReturn < 0) fReturn = frame; }
+            void kill_effect(const std::string&) override { if (fKill < 0) fKill = frame; }
+            void spawn(int, int, float, float, float, float, int) override {}
+            bool is_alive(int) const override { return false; }
+        } bh;
+        struct NoLoader : ScriptLoader {
+            std::shared_ptr<const Xso> load_script(const std::string&) override { return nullptr; }
+        } nl;
+        ScriptManager mgr; mgr.loader = &nl; mgr.vm.host = &bh;
+        auto kb = std::make_shared<Xso>(Xso::parse(rd(root + "/MAP/S_10/S_1001/KEKKAIBREAK_01.XSO")));
+        mgr.start_root(kb, "kekkaibreak_01");
+        for (bh.frame = 1; bh.frame < 600 && mgr.any_live(); ++bh.frame) mgr.tick_all();
+        // Order: move first (frame 0), kill after the 180f pan, return after the 60f hold,
+        // and the whole thing ends near frame 360 (180+60+120). Allow small slack.
+        const bool ordered = bh.fMove == 0 && bh.fKill > bh.fMove && bh.fReturn > bh.fKill;
+        const bool timed = bh.fKill >= 175 && bh.fKill <= 185 && bh.fReturn >= 235 && bh.fReturn <= 245;
+        const bool ended = !mgr.any_live() && bh.frame >= 350 && bh.frame <= 370;
+        const bool ok = ordered && timed && ended;
+        std::printf("[brk]  KEKKAIBREAK: move@%d kill@%d return@%d end@%d %s\n",
+                    bh.fMove, bh.fKill, bh.fReturn, bh.frame, ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

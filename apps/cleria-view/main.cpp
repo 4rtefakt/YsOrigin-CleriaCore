@@ -4860,6 +4860,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     std::vector<Xso> barrier_break_scripts;  // KEKKAIBREAK_*.XSO (Eft_Kill the ward + camera)
     bool barrier_seeded = false;        // a group-1 seed spawned this visit
     bool barrier_cleared = false;       // its flag has already been granted this visit
+    bool barrier_break_pending = false; // grant done; the main loop must play KEKKAIBREAK
 
     auto spawn_enemies = [&] {
         // Populate the world the engine's way: run S_xxxx.XSO (op 0xa0 -> SCT bulk,
@@ -5010,15 +5011,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         XsoHost* saved = game.host;
         game.host = &world;
         for (const Xso& ks : barrier_scripts) { game.reset_run(); game.run(ks); }
-        // The break sequence: KEKKAIBREAK's Eft_Kill("eft_barrier") removes the ward from
-        // world.effects() so it stops rendering (its camera ops are still no-ops here).
-        for (const Xso& kb : barrier_break_scripts) { game.reset_run(); game.run(kb); }
         game.host = saved;
         barrier_cleared = true;
-        reload_room();                 // re-gate: box_01's guard now sees flag 301 set
-        hud.message("The barrier fades.");
-        std::printf("  [barrier] all seeds down -> ran %zu KEKKAIZAKO script(s); "
-                    "flag 301 = %d\n", barrier_scripts.size(), game.g_flags[301]);
+        // The break sequence (KEKKAIBREAK: Fix -> Scroll_MoveTo the ward -> Eft_Kill it ->
+        // Scroll_Return -> Unfix) is a real camera CUTSCENE. Play it through the script
+        // manager (the main loop starts it when no other cutscene is up) so the pan is
+        // visible and the ward vanishes mid-pan, then re-gate the chest when it ends. With
+        // no break script, re-gate immediately (old behaviour).
+        if (barrier_break_scripts.empty()) { reload_room(); hud.message("The barrier fades."); }
+        else barrier_break_pending = true;
+        std::printf("  [barrier] all seeds down -> ran %zu KEKKAIZAKO script(s); flag 301 = %d; "
+                    "break %s\n", barrier_scripts.size(), game.g_flags[301],
+                    barrier_break_scripts.empty() ? "none" : "queued (cutscene)");
     };
 
     // ## In-engine cutscene runner (CUTSCENE_PLAN.md B3/B9) — MVP: one debug-triggered
@@ -5058,6 +5062,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         void scroll_moveto(float x, float y, float z, int frames) override { ::scroll_moveto(x, y, z, frames); }
         void scroll_return(int frames) override { ::scroll_return(frames); }
+        // Effect ops forward to the world so a cutscene's Eft_Kill / Eft_LocatePosAddStr
+        // really adds/removes the ward from world.effects() (the barrier break-pan).
+        XsoHost* worldHost = nullptr;
+        void kill_effect(const std::string& n) override { if (worldHost) worldHost->kill_effect(n); }
+        void locate_effect(int id, float x, float y, float z, float a, float b,
+                           const std::string& n) override {
+            if (worldHost) worldHost->locate_effect(id, x, y, z, a, b, n);
+        }
         void spawn(int, int, float, float, float, float, int) override {}
         bool is_alive(int) const override { return false; }
         bool any_seed_alive(int) const override { return false; }
@@ -5084,23 +5096,31 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csMgr.vm.host = &csHost;
     csMgr.loader = &csLoader;
     csHost.mgr = &csMgr;
+    csHost.worldHost = &world;
     bool have_cutscene = false;
+    std::function<void()> after_cutscene;    // ran once when a cutscene ends (e.g. re-gate the room)
     SpriteTex captionTex; std::string captionLoaded;   // cached area-name card (op 0xe2)
-    // Start a cutscene from a script file. `debug235` sets the S_1000 test-route flag so the
-    // debug T key reaches TALKC210's dialogue variant; real triggers pass false (live flags).
-    auto start_cutscene = [&](const fs::path& p, bool debug235) {
-        std::shared_ptr<Xso> s;
-        try { s = std::make_shared<Xso>(Xso::parse(read_bytes(p))); }
-        catch (const std::exception&) { hud.message("cutscene: load failed"); return; }
+    // Start a cutscene from an already-parsed script. `debug235` sets the S_1000 test-route
+    // flag so the debug T key reaches TALKC210's dialogue variant; real triggers pass false.
+    auto start_cutscene_xso = [&](std::shared_ptr<Xso> s, const std::string& name, bool debug235) {
         std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);  // current game state
         csMgr.vm.g_flags[150] = character;
         if (debug235) csMgr.vm.g_flags[235] = 1;
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0;
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
-        csMgr.start_root(s, p.stem().string());   // ticks once; may park on a Wait_* or end
+        csMgr.start_root(std::move(s), name);      // ticks once; may park on a Wait_* or end
         have_cutscene = csMgr.any_live();          // a wait-less script just ran; don't freeze
-        if (!have_cutscene) std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);
-        std::printf("  [cutscene] started %s (live=%zu)\n", p.filename().string().c_str(), csMgr.live.size());
+        if (!have_cutscene) {
+            std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);
+            if (after_cutscene) { auto f = after_cutscene; after_cutscene = nullptr; f(); }
+        }
+        std::printf("  [cutscene] started %s (live=%zu)\n", name.c_str(), csMgr.live.size());
+    };
+    auto start_cutscene = [&](const fs::path& p, bool debug235) {
+        std::shared_ptr<Xso> s;
+        try { s = std::make_shared<Xso>(Xso::parse(read_bytes(p))); }
+        catch (const std::exception&) { hud.message("cutscene: load failed"); return; }
+        start_cutscene_xso(std::move(s), p.stem().string(), debug235);
     };
     auto tick_cutscene = [&] {
         if (csHost.box_active && csHost.reveal < int(csHost.text.size())) csHost.reveal += 2;
@@ -5108,6 +5128,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (!csMgr.any_live()) {                    // every script finished -> resume the world
             std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);  // persist grants
             have_cutscene = false; csHost.box_active = false;
+            if (after_cutscene) { auto f = after_cutscene; after_cutscene = nullptr; f(); }
         }
         // The world is frozen (Fix), but the scripted CAMERA still moves: advance the scroll
         // ramp and re-evaluate the camera around the (possibly scrolled) look-at point.
@@ -5326,6 +5347,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
         const bool* ks = SDL_GetKeyboardState(nullptr);
         const float D = room_diag(room);
+        // The barrier just broke: play KEKKAIBREAK as a camera cutscene (once no other
+        // cutscene is up). Its host forwards Eft_Kill to the world so the ward vanishes
+        // mid-pan; when it ends, after_cutscene re-gates the room so the chest unlocks.
+        if (barrier_break_pending && !have_cutscene && !barrier_break_scripts.empty()) {
+            barrier_break_pending = false;
+            after_cutscene = [&] { reload_room(); hud.message("The barrier fades."); };
+            start_cutscene_xso(std::make_shared<Xso>(barrier_break_scripts.front()),
+                               "KEKKAIBREAK", /*debug235*/false);
+        }
         // ---- fixed 60 Hz logic, 0..N ticks per rendered frame --------------
         // The catch-up loop in the exe has NO cap; a long stall really does emit a
         // burst of ticks. We reproduce that, relying on the load-time reset above
