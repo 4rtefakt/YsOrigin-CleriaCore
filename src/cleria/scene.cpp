@@ -192,6 +192,24 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                     if (it.opened_flag >= 0 && e.opened_flag == it.opened_flag) { dup = true; break; }
             if (!dup) out.interactables.push_back(std::move(it));
         }
+        // Goddess/save statues: object "save_NN". In the real game, interacting with
+        // one opens the SAVE dialog (the pause book's page is Load-only) — the view
+        // special-cases the "save" name prefix, so no script is attached here. The
+        // character-variant statues stack at one spot (S_SAVEOBJECTCHANGE hides the
+        // losers when flags are known); dedupe by position for the flagless path.
+        if (lname.rfind("save", 0) == 0 && !collision) {
+            bool dup = false;
+            for (const Interactable& e : out.interactables) {
+                const float dx = e.position.x - o.position.x, dz = e.position.z - o.position.z;
+                if (dx * dx + dz * dz < 1.0f) { dup = true; break; }
+            }
+            if (!dup) {
+                Interactable it;
+                it.name = o.name;
+                it.position = o.position;
+                out.interactables.push_back(std::move(it));
+            }
+        }
         if (box_hidden) continue;  // skip this chest's geometry too
 
         fs::path ymo_file = resolve_ymo(asset_root, o.ymo_path);

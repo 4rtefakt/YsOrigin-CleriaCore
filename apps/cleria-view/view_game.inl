@@ -730,6 +730,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Pause-book Save/Load page state: slot cursor + cached slot lines (refreshed on
     // page entry and after a save — not per frame, that would be 8 file reads a frame).
     int svldSlot = 0;
+    bool save_dlg = false;   // goddess-statue SAVE dialog (opened by try_interact)
     std::array<std::string, 8> svldLabels;
     auto refresh_slots = [&] { for (int i = 0; i < 8; ++i) svldLabels[std::size_t(i)] = slot_label(i); };
     auto capture_save = [&]() -> SaveState {
@@ -1061,6 +1062,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (d2 < best) { best = d2; target = &it; }
         }
         if (!target) { std::printf("  (nothing to interact with here)\n"); return; }
+        // Goddess statue -> the SAVE dialog (the real game's save flow; the pause
+        // book's Save/Load page only LOADS).
+        std::string tl = target->name;
+        for (char& c : tl) c = char(std::tolower((unsigned char)c));
+        if (tl.rfind("save", 0) == 0) {
+            refresh_slots();
+            svldSlot = 0;
+            save_dlg = true;
+            return;
+        }
         if (target->script.empty()) { std::printf("  %s: no script\n", target->name.c_str()); return; }
         try {
             Xso x = Xso::parse(read_bytes(target->script));
@@ -1139,9 +1150,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
+                // The goddess-statue SAVE dialog swallows all input while open
+                // (the real game's save flow: statue -> dialog, book page = Load).
+                if (save_dlg) {
+                    if (k == SDLK_UP || k == SDLK_W) svldSlot = (svldSlot + 7) % 8;
+                    else if (k == SDLK_DOWN || k == SDLK_S) svldSlot = (svldSlot + 1) % 8;
+                    else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
+                        do_save(svldSlot);
+                        save_dlg = false;
+                    } else if (k == SDLK_ESCAPE) save_dlg = false;
+                }
                 // While the world is frozen by a cutscene, a confirm key advances the dialogue
                 // and other gameplay input is swallowed (the sim is skipped anyway).
-                if (csMgr.world_frozen()) {
+                else if (csMgr.world_frozen()) {
                     if (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_E || k == SDLK_Z)
                         csHost.advance = true;
                 }
@@ -1151,15 +1172,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     paused = !paused;  // toggle pause; NEVER quit (X quits)
                     if (paused && pausePage == 3) refresh_slots();
                 }
-                // Save/Load page (pause tab 3): Up/Down slot, Enter saves, L loads.
-                // Placed BEFORE the debug K/L handlers so L means "load" here.
+                // The book's page is LOAD-only, as in the real game (saving happens at
+                // a goddess statue): Up/Down slot, Enter loads. Before the debug K/L keys.
                 else if (paused && pausePage == 3 && (k == SDLK_UP || k == SDLK_W))
                     svldSlot = (svldSlot + 7) % 8;
                 else if (paused && pausePage == 3 && (k == SDLK_DOWN || k == SDLK_S))
                     svldSlot = (svldSlot + 1) % 8;
-                else if (paused && pausePage == 3 && (k == SDLK_RETURN || k == SDLK_SPACE))
-                    do_save(svldSlot);
-                else if (paused && pausePage == 3 && k == SDLK_L) {
+                else if (paused && pausePage == 3 && (k == SDLK_RETURN || k == SDLK_SPACE)) {
                     std::ifstream f(slot_path(svldSlot), std::ios::binary);
                     std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
                     if (auto r = SaveRecord::decode(raw)) {
@@ -1249,7 +1268,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // The catch-up loop in the exe has NO cap; a long stall really does emit a
         // burst of ticks. We reproduce that, relying on the load-time reset above
         // rather than on clamping, so timing stays exact under normal play.
-        if (paused) accum = 0;  // freeze the game while the pause menu is open (no unpause burst)
+        if (paused || save_dlg) accum = 0;  // freeze while the pause menu / save dialog is open
         int ticks = 0;
         while (accum >= kTickDt) {
         accum -= kTickDt;
@@ -1876,8 +1895,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 case 2:  // Topic (Character / Monster / Manual)
                     pauseUi.draw_topic(g, pmf, view, pdepth, cw, ch, 0);
                     break;
-                case 3:  // Save / Load (Up/Down slot, Enter = save, L = load)
-                    pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/true, /*fileTab=*/0,
+                case 3:  // Load page (Up/Down slot, Enter = load; saving is at statues)
+                    pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/false, /*fileTab=*/0,
                                       svldSlot, svldLabels.data());
                     break;
                 default:  // Equip
@@ -1885,6 +1904,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     pauseUi.draw_equip(g, pmf, view, pdepth, cw, ch, ev, pitems, asset_root);
                     break;
             }
+            wgpuTextureViewRelease(pdepth);
+        }
+        // The goddess-statue SAVE dialog, over the frozen game (real-game save flow).
+        if (save_dlg && pauseOk) {
+            write_mvp(g, Mat4::identity());
+            WGPUTextureView pdepth = make_depth(g.device, cw, ch);
+            pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/true, /*fileTab=*/0,
+                              svldSlot, svldLabels.data());
             wgpuTextureViewRelease(pdepth);
         }
         wgpuSurfacePresent(surface);
