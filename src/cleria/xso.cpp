@@ -184,6 +184,9 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                             return Step::Continue;
                         }
                     }
+                    // Fix (0xb6, has a slot arg) / Unfix (0xb7): the ref-counted world freeze.
+                    if (sub == 0xb6) { if (on_fix) on_fix(); return Step::Continue; }
+                    if (sub == 0xb7) { if (on_unfix) on_unfix(); return Step::Continue; }
                 }
                 // Dialogue / caption ops forward to the host. Handled here (not in the
                 // nargs>=1 store chain below) so 0xd2's zero-arg case isn't skipped. A host
@@ -424,7 +427,9 @@ bool ScriptManager::start(const std::string& name) {
 void ScriptManager::tick_inst(Inst& in) {
     if (in.finished || !in.script) return;
     // Load this instance's coroutine registers into the shared scratch VM, run one frame,
-    // then save them back. g_flags stay in `vm` (shared across every instance).
+    // then save them back. g_flags stay in `vm` (shared across every instance). cur_inst_ lets
+    // the Fix/Unfix sinks attribute the ref-count to this script.
+    cur_inst_ = &in;
     vm.co_script = in.script.get();
     vm.co_pc = in.pc;
     vm.co_wait = in.wait;
@@ -436,6 +441,7 @@ void ScriptManager::tick_inst(Inst& in) {
     in.acc = vm.acc;
     in.locals = std::move(vm.locals);
     vm.locals.clear();
+    cur_inst_ = nullptr;
     if (t == XsoVm::Tick::Ended) in.finished = true;
 }
 
@@ -454,7 +460,12 @@ void ScriptManager::tick_all() {
     // Record how many GoScripts were resident together this frame (before the reap drops
     // the ones that just finished) — the concurrency the manager actually sustained.
     peak_live = std::max(peak_live, live.size());
-    // Reap finished scripts (the driver skips them; a separate pass removes them, §5d).
+    // Reap finished scripts (the driver skips them; a separate pass removes them, §5d). A
+    // script that ended still holding a Fix is auto-released on teardown (the engine's
+    // FUN_0056eab0 unfix path), so the world doesn't stay frozen forever.
+    for (Inst& i : live)
+        if (i.finished && i.fix_held > 0) { fix_count -= i.fix_held; i.fix_held = 0; }
+    if (fix_count < 0) fix_count = 0;
     live.erase(std::remove_if(live.begin(), live.end(),
                               [](const Inst& i) { return i.finished; }),
                live.end());

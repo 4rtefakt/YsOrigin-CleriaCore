@@ -127,15 +127,17 @@ int main(int argc, char** argv) {
         ScriptManager mgr; mgr.loader = &nl; mgr.vm.host = &bh;
         auto kb = std::make_shared<Xso>(Xso::parse(rd(root + "/MAP/S_10/S_1001/KEKKAIBREAK_01.XSO")));
         mgr.start_root(kb, "kekkaibreak_01");
+        const bool frozenDuring = mgr.world_frozen();   // Fix(0) ran in the first burst
         for (bh.frame = 1; bh.frame < 600 && mgr.any_live(); ++bh.frame) mgr.tick_all();
+        const bool thawedAfter = !mgr.world_frozen();    // Unfix + teardown released it
         // Order: move first (frame 0), kill after the 180f pan, return after the 60f hold,
         // and the whole thing ends near frame 360 (180+60+120). Allow small slack.
         const bool ordered = bh.fMove == 0 && bh.fKill > bh.fMove && bh.fReturn > bh.fKill;
         const bool timed = bh.fKill >= 175 && bh.fKill <= 185 && bh.fReturn >= 235 && bh.fReturn <= 245;
         const bool ended = !mgr.any_live() && bh.frame >= 350 && bh.frame <= 370;
-        const bool ok = ordered && timed && ended;
-        std::printf("[brk]  KEKKAIBREAK: move@%d kill@%d return@%d end@%d %s\n",
-                    bh.fMove, bh.fKill, bh.fReturn, bh.frame, ok ? "OK" : "FAIL");
+        const bool ok = ordered && timed && ended && frozenDuring && thawedAfter;
+        std::printf("[brk]  KEKKAIBREAK: move@%d kill@%d return@%d end@%d frozen=%d thawed=%d %s\n",
+                    bh.fMove, bh.fKill, bh.fReturn, bh.frame, frozenDuring, thawedAfter, ok ? "OK" : "FAIL");
         fails += !ok;
     }
     // 7) SceneBox OBB containment (op 0x13d math, OP_13D_REGION.md §3), independent of the

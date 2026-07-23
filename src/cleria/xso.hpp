@@ -154,6 +154,11 @@ struct XsoVm {
     // exactly the run-to-completion behaviour for static grant extraction, so `run()` and
     // `--grants` never try to load or recurse into children. Only fired in coroutine mode.
     std::function<void(const std::string& name)> on_start_script;
+
+    // Fix (0xb6) / Unfix (0xb7) sinks (CUTSCENE_CAMERA.md §7): a running COROUTINE that Fixes
+    // freezes the world (ref-counted); Unfix (and script teardown) releases. The ScriptManager
+    // counts these to drive `world_frozen()`. Coroutine-only; null => inert (run-to-completion).
+    std::function<void()> on_fix, on_unfix;
     std::int32_t g_flags[0x200] = {0};
     std::unordered_map<int, std::int32_t> locals;  // indices >= 0x200
     std::int32_t acc = 0;
@@ -268,14 +273,24 @@ struct ScriptManager {
         std::int32_t acc = 0;
         std::unordered_map<int, std::int32_t> locals;
         bool finished = false;
+        int fix_held = 0;                  // net Fix(0xb6) this script holds (released on teardown)
     };
     std::vector<Inst> live;
     std::vector<std::string> spawn_queue;   // names queued by StartScript during a tick
     std::size_t peak_live = 0;              // max instances resident in one frame (pre-reap)
+    int fix_count = 0;                      // global Fix ref-count -> world_frozen()
 
     ScriptManager() {
         vm.on_start_script = [this](const std::string& n) { spawn_queue.push_back(n); };
+        // Fix/Unfix adjust the current instance's held count and the global ref-count.
+        vm.on_fix = [this] { if (cur_inst_) { ++cur_inst_->fix_held; ++fix_count; } };
+        vm.on_unfix = [this] {
+            if (cur_inst_ && cur_inst_->fix_held > 0) { --cur_inst_->fix_held; if (fix_count > 0) --fix_count; }
+        };
     }
+
+    // The world is frozen while any live script holds a Fix (CUTSCENE_CAMERA.md §7).
+    bool world_frozen() const { return fix_count > 0; }
 
     // Register a root (or already-loaded child) instance and tick it once this frame,
     // matching StartScript's immediate first tick (§5a). Returns the live-index.
@@ -291,6 +306,7 @@ struct ScriptManager {
 
   private:
     void tick_inst(Inst& in);          // swap regs into `vm`, run one frame, save back
+    Inst* cur_inst_ = nullptr;         // the instance being ticked (for Fix/Unfix attribution)
 };
 
 }  // namespace cleria
