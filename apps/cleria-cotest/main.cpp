@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cctype>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -380,6 +381,60 @@ int main(int argc, char** argv) {
                 ok = false;
             }
         std::printf("[queryops] 14 query-op results via synthetic script %s\n", ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
+    // EVENTS-ON-BY-DEFAULT burn-in (PLAN.md Phase 2): EVERY room root, started on the
+    // faithful new-game flag state + the flag-235 intro stand-in, must SETTLE (no Fix
+    // held) within 600 ticks under an auto-advancing host. A room stuck frozen at
+    // entry would soft-lock live play — this pins the whole corpus, not just S_1000.
+    {
+        namespace fs = std::filesystem;
+        struct EntryHost : XsoHost {
+            bool wait_prompt() override { return true; }   // auto-advance dialogue
+            void spawn(int, int, float, float, float, float, int) override {}
+            bool is_alive(int e) const override { return e == 13; }
+        } eh;
+        struct DirLoader : ScriptLoader {
+            fs::path dir;
+            std::shared_ptr<const Xso> load_script(const std::string& name) override {
+                std::string up = name; for (char& c : up) c = char(std::toupper((unsigned char)c));
+                std::ifstream f(dir / (up + ".XSO"), std::ios::binary);
+                std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f), {}};
+                if (b.size() < 4) return nullptr;
+                try { return std::make_shared<Xso>(Xso::parse(b)); }
+                catch (const std::exception&) { return nullptr; }
+            }
+        } loader;
+        int rooms = 0, frozen = 0;
+        std::string frozen_names;
+        for (const auto& band : fs::directory_iterator(root + "/MAP")) {
+            if (!band.is_directory()) continue;
+            for (const auto& rm : fs::directory_iterator(band.path())) {
+                if (!rm.is_directory()) continue;
+                const std::string name = rm.path().filename().string();
+                const fs::path xso = rm.path() / (name + ".XSO");
+                std::error_code ec;
+                if (!fs::exists(xso, ec)) continue;
+                std::ifstream f(xso, std::ios::binary);
+                std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f), {}};
+                loader.dir = rm.path();
+                ScriptManager mgr; mgr.loader = &loader; mgr.vm.host = &eh;
+                mgr.vm.new_game(1);                 // Yunica, faithful init
+                mgr.vm.g_flags[235] = 1;            // the intro-script stand-in
+                try { mgr.start_root(std::make_shared<Xso>(Xso::parse(b)), name); }
+                catch (const std::exception&) { continue; }
+                std::fprintf(stderr, "  sweep %s...\n", name.c_str());
+                for (int t = 0; t < 300; ++t) mgr.tick_all();
+                ++rooms;
+                if (mgr.world_frozen()) { ++frozen; frozen_names += " " + name; }
+            }
+        }
+        // BASELINE 2026-07-23: 33 of 186 roots stay frozen on new-game flags (the
+        // events-on-by-default burn-down list, PLAN.md Phase 2). This pin only
+        // RATCHETS DOWN: fixing rooms lowers it; a regression above 33 fails.
+        const bool ok = rooms > 50 && frozen <= 33;
+        std::printf("[rootsweep] %d room roots settle on new-game flags; %d frozen%s %s\n",
+                    rooms, frozen, frozen_names.c_str(), ok ? "OK" : "FAIL");
         fails += !ok;
     }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
