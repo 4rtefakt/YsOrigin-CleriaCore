@@ -3042,6 +3042,7 @@ struct TitleFx {
     SpriteTex curGlow;         // baked selection glow: white bar, vertical alpha gradient, drawn ADDITIVE over text
     SpriteTex frame, chrsel;   // BACK00 ornate frame; CHRSELECT atlas (bars/faces/banner)
     SpriteTex dialog;          // DIALOG0 blue scroll frame for the New-Game choice popups
+    SpriteTex facewin;         // FACEWIN0 — the in-engine cutscene DIALOGUE box (bottom bar)
     SpriteTex opbtn, plaque;   // OPBTN atlas (Option-screen buttons/checkboxes) + OPTION "Option" plaque
     SpriteTex equipPlaque, wstatus, wequip, wdetail;   // pause-book Equip: plaque + status + grid + detail panel
     SpriteTex invPlaque, winvent;                      // pause-book Item page: "Inventory" plaque + 6x5 grid
@@ -3105,6 +3106,8 @@ struct TitleFx {
         Dds fr = load_dds(asset_root / "MENU" / "BACK00.DDS");           // ornate menu frame
         Dds cs = load_dds(asset_root / "MENU" / "CHRSELECT.DDS");        // char-select atlas
         Dds dg = load_dds(asset_root / "IMAGE" / "DIALOG0.DDS");         // popup scroll frame
+        { Dds fw = load_dds(asset_root / "IMAGE" / "FACEWIN0.DDS");      // cutscene dialogue box
+          if (fw.ok()) facewin = upload_rgba(g, fw.width, fw.height, fw.data.data()); }
         if (s.ok()) splash = upload_rgba(g, s.width, s.height, s.data.data());
         if (p.ok()) pillar = upload_rgba(g, p.width, p.height, p.data.data());
         if (ap.ok()) altpillar = upload_rgba(g, ap.width, ap.height, ap.data.data());
@@ -3477,6 +3480,46 @@ struct TitleFx {
         draw_screen_image(g, cview, dview, false, dialog, NX(lpx),        NY(tpx), NX(lpx + curl), NY(bpx), z, 0.0f, 0.0f, u1, vc);
         draw_screen_image(g, cview, dview, false, dialog, NX(lpx + curl), NY(tpx), NX(rpx - curl), NY(bpx), z, u1,   0.0f, u2, vc);
         draw_screen_image(g, cview, dview, false, dialog, NX(rpx - curl), NY(tpx), NX(rpx),        NY(bpx), z, u2,   0.0f, u3, vc);
+    }
+    // The in-engine cutscene DIALOGUE box (CUTSCENE_DIALOGUE.md): FACEWIN0 as a full-width
+    // bottom bar (authored y544..768 of the 768 frame => bottom 224px), 3-sliced so the ornate
+    // curls keep their size while the middle stretches. `name` = cream line above the divider,
+    // `text` = white body below, split on the literal "\n" authors write, revealed up to
+    // `reveal` chars (typewriter; <0 shows all). Portrait slot on the left is a TODO — the
+    // face asset/id mapping is still [UNKNOWN] (KAO_* is a noise texture, not portraits).
+    void draw_dialogue(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
+                       std::uint32_t W, std::uint32_t H, const std::string& name,
+                       const std::string& text, int reveal) {
+        if (!facewin.tex) return;
+        const float sw = float(W), sh = float(H);
+        const float by1 = sh, by0 = sh - sh * (224.0f / 768.0f);   // bottom 224/768 of the frame
+        const float bx0 = 0.0f, bx1 = sw;
+        constexpr float vc = 0.5f, uL = 0.19f, uR = 0.586f, uEnd = 0.809f;   // FACEWIN0 slice UVs
+        float curl = (by1 - by0) * (uL * 512.0f) / (vc * 512.0f);   // keep the src curl aspect
+        if (curl * 2.0f > (bx1 - bx0) * 0.5f) curl = (bx1 - bx0) * 0.25f;
+        auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+        auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+        const float z = 0.15f;
+        draw_screen_image(g, cview, dview, false, facewin, NX(bx0),        NY(by0), NX(bx0 + curl), NY(by1), z, 0.0f, 0.0f, uL,   vc);
+        draw_screen_image(g, cview, dview, false, facewin, NX(bx0 + curl), NY(by0), NX(bx1 - curl), NY(by1), z, uL,   0.0f, uR,   vc);
+        draw_screen_image(g, cview, dview, false, facewin, NX(bx1 - curl), NY(by0), NX(bx1),        NY(by1), z, uR,   0.0f, uEnd, vc);
+        const float boxH = by1 - by0;
+        const float tx = sw * 0.15f;                 // left text margin (past the portrait slot)
+        const float pxName = boxH * 0.15f, pxBody = boxH * 0.21f;
+        if (!name.empty())
+            mf.text(name, tx, by0 + boxH * 0.10f, pxName, sw, sh, 240, 224, 192, 255);   // cream
+        std::string shown = (reveal >= 0 && reveal < int(text.size())) ? text.substr(0, reveal) : text;
+        float ly = by0 + boxH * 0.34f;
+        std::size_t i = 0;
+        for (;;) {
+            const std::size_t nl = shown.find("\\n", i);   // authors write the two chars \ n
+            mf.text(shown.substr(i, (nl == std::string::npos ? shown.size() : nl) - i),
+                    tx, ly, pxBody, sw, sh, 255, 255, 255, 255);
+            ly += pxBody * 1.15f;
+            if (nl == std::string::npos) break;
+            i = nl + 2;
+        }
+        mf.draw(g, cview);   // flush the accumulated glyphs
     }
     // The New-Game choice popups (Type Select, Difficulty, SP Bonus Acquisition): a go_wnddialog
     // list (MENU_LAYOUT.md) -- caption at authored {512,256}, items 38.4 apart below, font cell 32,
@@ -4898,6 +4941,52 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     "flag 301 = %d\n", barrier_scripts.size(), game.g_flags[301]);
     };
 
+    // ## In-engine cutscene runner (CUTSCENE_PLAN.md B3/B9) — MVP: one debug-triggered
+    // script driven by the resumable XSO VM (CUTSCENE_COROUTINE.md). The host receives the
+    // dialogue ops and gates Wait_Prompt on "text fully revealed + advance pressed"; the
+    // fixed-step loop ticks the coroutine and FREEZES the world while it runs (op 0xb6 Fix).
+    struct CutsceneHost : XsoHost {
+        std::string name, text;
+        int speaker = 0;
+        bool box_active = false;
+        int reveal = 0;           // typewriter char count (advanced by the loop)
+        bool advance = false;     // set by input; consumed to advance one line
+        void window_msg(int sp, int, const std::string& nm, const std::string& tx) override {
+            speaker = sp; name = nm; text = tx; reveal = 0; box_active = true;
+        }
+        void window_close() override { box_active = false; name.clear(); text.clear(); }
+        bool wait_prompt() override {
+            if (reveal < int(text.size())) return false;    // line still typing out
+            if (advance) { advance = false; return true; }  // one press advances one line
+            return false;
+        }
+        void spawn(int, int, float, float, float, float, int) override {}
+        bool is_alive(int) const override { return false; }
+        bool any_seed_alive(int) const override { return false; }
+    } csHost;
+    XsoVm cutsceneVm; cutsceneVm.host = &csHost;
+    Xso cutscene_script;              // kept alive while the coroutine is active
+    bool have_cutscene = false;
+    auto start_cutscene = [&](const fs::path& p) {
+        try { cutscene_script = Xso::parse(read_bytes(p)); }
+        catch (const std::exception&) { hud.message("cutscene: load failed"); return; }
+        std::copy(game.g_flags, game.g_flags + 0x200, cutsceneVm.g_flags);  // current game state
+        cutsceneVm.g_flags[150] = character;
+        cutsceneVm.g_flags[235] = 1;   // TEST: route TALKC210 into a dialogue variant
+        cutsceneVm.reset_run();
+        cutsceneVm.co_begin(cutscene_script);
+        csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
+        have_cutscene = true;
+        std::printf("  [cutscene] started %s\n", p.filename().string().c_str());
+    };
+    auto tick_cutscene = [&] {
+        if (csHost.box_active && csHost.reveal < int(csHost.text.size())) csHost.reveal += 2;
+        if (cutsceneVm.tick() == XsoVm::Tick::Ended || !cutsceneVm.co_active()) {
+            std::copy(cutsceneVm.g_flags, cutsceneVm.g_flags + 0x200, game.g_flags);  // persist grants
+            have_cutscene = false; csHost.box_active = false;
+        }
+    };
+
     // Melee swing. Damage and reach are OUR numbers: the game has no per-enemy HP
     // column (stats come from a level curve we have not wired), and the player's
     // attack animation tags in c_111 are not identified yet.
@@ -5041,7 +5130,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
-                if (k == SDLK_ESCAPE) paused = !paused;  // toggle pause; NEVER quit (X quits)
+                // During a cutscene the player is frozen; a confirm key advances the dialogue.
+                if (have_cutscene) {
+                    if (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_E || k == SDLK_Z)
+                        csHost.advance = true;
+                }
+                // T = trigger a test cutscene (S_1000's Roy/Ramona talk) — debug.
+                else if (k == SDLK_T) start_cutscene(asset_root / "MAP" / "S_10" / "S_1000" / "TALKC210.XSO");
+                else if (k == SDLK_ESCAPE) paused = !paused;  // toggle pause; NEVER quit (X quits)
                 else if (k == SDLK_F) {
                     fly = !fly;
                     if (!fly) {  // dropping into walk: keep XZ, snap to floor
@@ -5111,6 +5207,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         while (accum >= kTickDt) {
         accum -= kTickDt;
         ++ticks;
+        // A cutscene freezes the world (op 0xb6 Fix): tick the coroutine at 60 Hz and skip
+        // the player/enemy/camera update for this tick.
+        if (have_cutscene) { tick_cutscene(); continue; }
         const float dt = kTickDt;
         if (cooldown > 0) cooldown -= dt;
 
@@ -5669,6 +5768,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 : float(std::clamp((double(player.exp) - e0) / std::max(1.0, e1 - e0), 0.0, 1.0) * 100.0);
         }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
+        // Cutscene dialogue box over the frozen world (FACEWIN0 bottom bar + name + text).
+        if (have_cutscene && csHost.box_active && pauseOk) {
+            write_mvp(g, Mat4::identity());   // the box is screen-space
+            WGPUTextureView ddepth = make_depth(g.device, cw, ch);
+            pauseUi.draw_dialogue(g, pmf, view, ddepth, cw, ch, csHost.name, csHost.text, csHost.reveal);
+            wgpuTextureViewRelease(ddepth);
+        }
         // Pause menu overlay: the pause-book Equip page over the frozen game (Esc to close).
         if (paused && pauseOk) {
             TitleFx::EquipView ev;
