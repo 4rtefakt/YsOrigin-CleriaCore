@@ -712,6 +712,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         room_events_dirty = true;   // re-run the room's event scripts for the re-gated room
     };
 
+    // Positional SFX: pan from the camera's right axis, distance from the player
+    // (the engine's listener object; its emitter->listener lerp tames the pan the
+    // same direction). Curve/pan-law caveats live on Audio::play_at.
+    auto sfx_at = [&](int id, const Vec3& p, float vol) {
+        const Vec3 f = cam.forward();
+        const float rl = std::sqrt(f.x * f.x + f.z * f.z);
+        const float rx = rl > 1e-4f ? f.z / rl : 0.0f;     // right = (fz, -fx) on XZ
+        const float rz = rl > 1e-4f ? -f.x / rl : 1.0f;
+        const float dx = p.x - feet.x, dy = p.y - feet.y, dz = p.z - feet.z;
+        const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const float pan = dist > 1e-4f ? (dx * rx + dz * rz) / dist : 0.0f;
+        audio.play_at(id, pan, dist, vol);
+    };
+
     // ---- save / load (PLAN.md Phase 2; codec src/cleria/save.*) -------------------
     // Pause-book Save/Load page state: slot cursor + cached slot lines (refreshed on
     // page entry and after a save — not per frame, that would be 8 file reads a frame).
@@ -1454,9 +1468,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         award_exp(en.exp_reward);
                         // Death entry plays p_hit0 from C for any actor, and the enemy's
                         // own death animation adds its z_dead* pair (SFX_TRIGGERS.md §4.3).
-                        audio.play(kSfxDeathEntry, kSfxAnimVol);
+                        // Positional: panned/attenuated from the enemy's spot.
+                        sfx_at(kSfxDeathEntry, en.pos, kSfxAnimVol);
                         for (int id : enemy_death_sounds(asset_root, casts.sprite_stem(en.cast_id)))
-                            audio.play(id, kSfxAnimVol);
+                            sfx_at(id, en.pos, kSfxAnimVol);
                     }
                 }
                 if (killed) {
@@ -1625,9 +1640,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     en.hit_flash = 6;
                     if (r.died) {
                         award_exp(en.exp_reward);
-                        audio.play(kSfxDeathEntry, kSfxAnimVol);
+                        sfx_at(kSfxDeathEntry, en.pos, kSfxAnimVol);
                         for (int id : enemy_death_sounds(asset_root, casts.sprite_stem(en.cast_id)))
-                            audio.play(id, kSfxAnimVol);
+                            sfx_at(id, en.pos, kSfxAnimVol);
                     }
                     p.age = p.life;   // die on hit — pierce-vs-not is [UNKNOWN] too
                     break;

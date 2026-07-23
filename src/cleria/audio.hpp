@@ -37,6 +37,16 @@ class Audio {
     // missing ids are ignored. Safe to call every frame.
     void play(int id, float volume = 1.0f);
 
+    // Positional play (AUDIO.md: the engine's SE path FUN_0045d7a0 plays at the
+    // emitter's position; EFFECTDEF carries per-record `dup` = max simultaneous
+    // voices and mindist/maxdist = 8/180 across the corpus). `pan` is listener-
+    // relative -1..+1, `dist` in world units. Attenuation is LINEAR between
+    // mindist/maxdist [HAND-TUNED: the engine's curve reader was never found];
+    // equal-power pan [HAND-TUNED: the exact pan law is inside FUN_0043a080,
+    // untraced]. At/over the dup cap the NEW voice is dropped [H — the engine's
+    // cap policy is not traced either].
+    void play_at(int id, float pan, float dist, float volume = 1.0f);
+
     // Master SFX gain (0..1), applied on top of each voice's own volume. Driven by the
     // Option screen's "SFX Volume" setting. Retail applies a DirectSound centibel (log/dB) taper
     // rather than a linear one (FUN_005ce820): gain_cB = 3322*log10(norm) -> amplitude =
@@ -86,6 +96,7 @@ class Audio {
         const Clip* clip = nullptr;
         std::size_t pos = 0;
         float volume = 1.0f;
+        float gl = 1.0f, gr = 1.0f;  // per-channel pan gains (stereo interleave)
     };
 
     // SDL types are kept out of this header so cleria-dump and friends need not

@@ -129,6 +129,28 @@ void Audio::play(int id, float volume) {
     SDL_UnlockMutex(mx(lock_));
 }
 
+void Audio::play_at(int id, float pan, float dist, float volume) {
+    if (!stream_ || id < 0) return;
+    const EffectDef* def = defs_.find(id);
+    float att = 1.0f;
+    if (def && def->maxdist > def->mindist) {
+        if (dist >= def->maxdist) return;                      // out of earshot
+        if (dist > def->mindist)
+            att = 1.0f - (dist - def->mindist) / (def->maxdist - def->mindist);
+    }
+    const Clip* c = clip(id);
+    if (!c) return;
+    pan = std::clamp(pan, -1.0f, 1.0f);
+    const float th = (pan + 1.0f) * 0.25f * 3.14159265f;       // equal-power
+    SDL_LockMutex(mx(lock_));
+    int same = 0;
+    for (const Voice& v : voices_) same += (v.clip == c);
+    const bool capped = def && def->dup > 0 && same >= def->dup;
+    if (!capped && voices_.size() < kMaxVoices)
+        voices_.push_back({c, 0, volume * att, std::cos(th), std::sin(th)});
+    SDL_UnlockMutex(mx(lock_));
+}
+
 bool Audio::play_bgm(const fs::path& ogg) {
     if (!stream_) return false;
     if (ogg.empty()) {
@@ -250,7 +272,9 @@ void Audio::mix(std::int16_t* out, int frames) {
         const std::size_t take = std::min<std::size_t>(avail, std::size_t(n));
         const float g = v.volume * master_;
         for (std::size_t k = 0; k < take; ++k) {
-            const int mixed = out[k] + int(v.clip->samples[v.pos + k] * g);
+            // interleaved stereo: even = L, odd = R (pan gains are 1/1 for 2D plays)
+            const float pg = ((v.pos + k) & 1) ? v.gr : v.gl;
+            const int mixed = out[k] + int(v.clip->samples[v.pos + k] * g * pg);
             out[k] = std::int16_t(std::clamp(mixed, -32768, 32767));
         }
         v.pos += take;
