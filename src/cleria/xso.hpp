@@ -207,6 +207,35 @@ struct XsoVm {
         acquires.clear(); obj_enable.clear(); obj_opened.clear(); obj_visible.clear();
     }
 
+    // NEW GAME flag initialization — faithful port of FUN_0041fd10 (the exe's own
+    // main\game\g_flags.cpp), per build/event_re/NEWGAME_FLAGS.md [C-DIS]:
+    //   - the whole array is wiped (the engine memsets the 0x1fc8 save block),
+    //   - flags 0..127 are the owned-item/inventory array, filled with -1 (= not owned),
+    //   - a fixed header set is written, then four per-character stores: the two
+    //     starting items {char-1, char*6} and the header pair 151/152 mirroring them.
+    // `character` is g_flags[150] (1 Yunica / 2 Hugo / 3 Toal; 0 = the exe's unused
+    // Adol row — same pattern, kept for fidelity). Flags 225/232/234/235/236/237 stay 0:
+    // the intro XSO sets the S_1000 routing flag at runtime, never this init.
+    // `time_attack` mirrors the DAT_0074e25e∈{1,2} gate that sets flag 193.
+    void new_game(int character, bool time_attack = false) {
+        for (int i = 0;   i < 0x200; ++i) g_flags[i] = 0;    // the memset
+        for (int i = 0;   i < 0x80;  ++i) g_flags[i] = -1;   // inventory: not owned
+        g_flags[119] = 1;                                    // always-owned base item
+        g_flags[149] = 1;                                    // character-block header
+        g_flags[150] = character;                            // preserved across the wipe
+        g_flags[153] = -1;                                   // header sentinel
+        g_flags[154] = 1;
+        g_flags[155] = 1;
+        g_flags[193] = time_attack ? 1 : 0;
+        g_flags[228] = 16;
+        const int item_a = character - 1 < 0 ? 3 : character - 1;   // char 0 -> {3,24}
+        const int item_b = character == 0 ? 24 : character * 6;
+        g_flags[item_a] = 1;                                 // starting equipment
+        g_flags[item_b] = 1;
+        g_flags[151] = item_a;
+        g_flags[152] = item_b;
+    }
+
     // Execute from word `entry`; bounded by max_steps. Returns steps executed. This is
     // the RUN-TO-COMPLETION path (static grant extraction): Wait_* ops are inert no-ops.
     int run(const Xso& script, std::uint32_t entry = 0, int max_steps = 2'000'000);

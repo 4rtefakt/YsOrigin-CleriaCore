@@ -298,6 +298,29 @@ int main(int argc, char** argv) {
                     int(zeroLocks), int(flag235ok), ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // NEW-GAME flag init (XsoVm::new_game) matches FUN_0041fd10 exactly
+    // (build/event_re/NEWGAME_FLAGS.md §2): inventory -1 fill, header set,
+    // per-character starting items, and the script-only flags (235 &c.) left 0.
+    {
+        XsoVm vm;
+        vm.g_flags[235] = 7;  vm.locals[0x300] = 1;  // dirt that the wipe must clear
+        vm.new_game(1);                              // Yunica
+        bool ok = vm.g_flags[150] == 1 && vm.g_flags[149] == 1 &&
+                  vm.g_flags[0] == 1 && vm.g_flags[6] == 1 &&      // starting items
+                  vm.g_flags[151] == 0 && vm.g_flags[152] == 6 &&
+                  vm.g_flags[3] == -1 && vm.g_flags[127] == -1 &&  // unowned stay -1
+                  vm.g_flags[119] == 1 && vm.g_flags[153] == -1 &&
+                  vm.g_flags[154] == 1 && vm.g_flags[155] == 1 &&
+                  vm.g_flags[228] == 16 && vm.g_flags[193] == 0 &&
+                  vm.g_flags[235] == 0 && vm.g_flags[128] == 0;    // story flags wiped
+        vm.new_game(3);                              // Toal
+        ok = ok && vm.g_flags[2] == 1 && vm.g_flags[18] == 1 &&
+             vm.g_flags[151] == 2 && vm.g_flags[152] == 18 && vm.g_flags[150] == 3;
+        vm.new_game(2, /*time_attack*/true);         // Hugo, TA mode
+        ok = ok && vm.g_flags[1] == 1 && vm.g_flags[12] == 1 && vm.g_flags[193] == 1;
+        std::printf("[newgame] init table matches NEWGAME_FLAGS.md %s\n", ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

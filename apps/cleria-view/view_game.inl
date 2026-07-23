@@ -302,13 +302,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
     // `character` was chosen above (CLERIA_CHAR override or the title's character-select).
     XsoVm game;                        // persistent game state (survives rooms)
-    game.g_flags[150] = character;
-    // ** Yunica's weapon: flag 149 = 1 is her AXE (her normal walking-around look); the
-    // uninitialised 0 is the Crimson Lotusblade (red sword), shown only with her fire
-    // skill (aso.hpp). ** Her attack animations sit behind Flag_IsEqualInt(149,1), so
-    // without this the swing renders the red sword. A global's initial value is not its
-    // normal value -- set the normal one.
-    game.g_flags[149] = 1;
+    // The exe's own new-game init (FUN_0041fd10, NEWGAME_FLAGS.md): inventory -1 fill,
+    // header set, per-character starting items. This also writes flag 149 = 1 — which is
+    // what keeps Yunica's swing on her AXE (her attack ASO branches on Flag_IsEqualInt(149,1);
+    // 0 would render the Crimson Lotusblade fire-skill form).
+    game.new_game(character);
     Player player;                     // stat block (HP/SP/level/EXP)
     // A fresh level-1 player: HP from the GAMEINFO player curve at level 1. There is no save
     // model, so a new run always starts at level 1 with 0 EXP -- the faithful new-game state.
