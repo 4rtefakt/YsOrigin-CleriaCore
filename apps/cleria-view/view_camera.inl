@@ -66,15 +66,25 @@ struct CamState {
     std::uint32_t eye_mode = 3, eye_flags = 0;
     Vec3 eye_fixed{};
     bool on = false;
+    // Cutscene Camera_Set (op 0xc5): forces the SCM region INDEX (the engine's
+    // `if (0x76a1f8 >= 0) sel = id`). -1 = auto (pick by player position), as
+    // Camera_Return (0xc6) restores. CUTSCENE_CAMERA.md §4.
+    int forced_region = -1;
 };
 static CamState g_cam;
+static void camera_set(int id) { g_cam.forced_region = id; }
+static void camera_return() { g_cam.forced_region = -1; }
 
 // The game aims at ground + a per-actor offset (player+0x230 + player+0x324),
 // which we don't model yet; a fixed chest-height offset stands in for it.
 static constexpr float kLookHeight = 1.0f;
 
 static void update_camera(const Room& room, const Vec3& feet, float dt, bool snap = false) {
-    const CameraRegion* r = room.cam.pick(feet);
+    // A cutscene Camera_Set forces a specific region index over the position pick.
+    const CameraRegion* r =
+        (g_cam.forced_region >= 0 && std::size_t(g_cam.forced_region) < room.cam.regions.size())
+            ? &room.cam.regions[std::size_t(g_cam.forced_region)]
+            : room.cam.pick(feet);
     if (!r) { g_cam.on = false; return; }
     g_cam.eye_mode = r->eye.mode;      // mode/flags/fixed track the current region
     g_cam.eye_flags = r->eye.flags;

@@ -232,6 +232,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0xca && nargs >= 2) { host->fader_color(op(0), op(1)); return Step::Continue; }
                     if (sub == 0xca && nargs >= 1) { host->fader_color(op(0), 0xff); return Step::Continue; }
                     if (sub == 0xcc && nargs >= 1) { host->fader_time(op(0));   return Step::Continue; }
+                    if (sub == 0xc5 && nargs >= 1) { host->camera_set(op(0), nargs >= 2 ? op(1) : 0); return Step::Continue; }
+                    if (sub == 0xc6) { host->camera_return(nargs >= 1 ? op(0) : 0); return Step::Continue; }
                 }
                 if (sub == 0x5F && nargs >= 2) {            // acc = (flag[op0]==op1)
                     acc = (flag(op(0)) == op(1)) ? 1 : 0;

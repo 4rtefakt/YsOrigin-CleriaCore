@@ -177,6 +177,10 @@ struct XsoHost {
     virtual void fader_target(float /*alpha01*/) {}
     virtual void fader_color(int /*rgb*/, int /*a*/) {}
     virtual void fader_time(int /*frames*/) {}
+    // Camera_Set (0xc5) forces an SCM region index; Camera_Return (0xc6) reverts to
+    // the position pick (CUTSCENE_CAMERA.md §4). Frames = blend, ignored for now.
+    virtual void camera_set(int /*region*/, int /*frames*/) {}
+    virtual void camera_return(int /*frames*/) {}
 
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns

@@ -903,6 +903,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void scroll_moveto(float x, float y, float z, int frames) override { ::scroll_moveto(x, y, z, frames); }
         void scroll_return(int frames) override { ::scroll_return(frames); }
         void shake(float ax, float ay, float az, int frames) override { ::shake(ax, ay, az, frames); }
+        void camera_set(int region, int) override { ::camera_set(region); }
+        void camera_return(int) override { ::camera_return(); }
         // Effect ops forward to the world so a cutscene's Eft_Kill / Eft_LocatePosAddStr
         // really adds/removes the ward from world.effects() (the barrier break-pan).
         XsoHost* worldHost = nullptr;
@@ -1046,6 +1048,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     auto start_room_events = [&] {
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_count = 0;
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
+        camera_return();                            // no forced camera carries across rooms
         after_cutscene = nullptr; prev_frozen = false;
         if (!events_enabled) return;                 // safe default: no live room root
         std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
@@ -1099,6 +1102,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             skip_cutscene = false;
             csHost.box_active = false;             // drop any half-revealed line
             scroll_reset(); shake(0, 0, 0, 0);     // clear the scripted look-at + shake
+            camera_return();                       // drop any forced camera region
             after_cutscene = nullptr;              // its thaw-action is moot after a skip
             // Snap the region camera straight back onto the player this frame, so the
             // view doesn't stay parked where the cutscene had panned it.
