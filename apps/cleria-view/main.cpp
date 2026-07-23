@@ -4889,6 +4889,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool barrier_seeded = false;        // a group-1 seed spawned this visit
     bool barrier_cleared = false;       // its flag has already been granted this visit
     bool barrier_break_pending = false; // grant done; the main loop must play KEKKAIBREAK
+    bool room_events_dirty = true;      // (re)run the room's event scripts on the manager
 
     auto spawn_enemies = [&] {
         // Populate the world the engine's way: run S_xxxx.XSO (op 0xa0 -> SCT bulk,
@@ -4956,6 +4957,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
+        room_events_dirty = true;   // the new room's event scripts start next frame
         apply_room_bgm(room.name);
         if (fly) {
             spawn_in(cam, room);
@@ -5017,6 +5019,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
+        room_events_dirty = true;   // re-run the room's event scripts for the re-gated room
     };
 
     // The barrier fight, now wired. A KEKKAIZAKO_*.XSO polls its group-1 seeds:
@@ -5135,24 +5138,47 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csMgr.loader = &csLoader;
     csHost.mgr = &csMgr;
     csHost.worldHost = &world;
-    bool have_cutscene = false;
-    std::function<void()> after_cutscene;    // ran once when a cutscene ends (e.g. re-gate the room)
+    csHost.roomPtr = &room;         // op 0x13d tests the player vs the current room's .SEV boxes
+    csHost.playerPos = &feet;
+    bool prev_frozen = false;
+    std::function<void()> after_cutscene;   // ran once when the world thaws (e.g. re-gate the room)
     SpriteTex captionTex; std::string captionLoaded;   // cached area-name card (op 0xe2)
-    // Start a cutscene from an already-parsed script. `debug235` sets the S_1000 test-route
-    // flag so the debug T key reaches TALKC210's dialogue variant; real triggers pass false.
-    auto start_cutscene_xso = [&](std::shared_ptr<Xso> s, const std::string& name, bool debug235) {
-        std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);  // current game state
-        csMgr.vm.g_flags[150] = character;
-        if (debug235) csMgr.vm.g_flags[235] = 1;
-        csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0;
+
+    // (Re)start the room's event scripts: run the room root S_xxxx.XSO on the PERSISTENT
+    // manager. The root StartScripts the region-talk controllers (Stop*_Roi_*), the save
+    // point, ambient effects, etc., which then poll each frame (op 0x13d) and fire talks when
+    // the player enters a .SEV box. Seeded from the live game flags; csMgr owns its flag copy
+    // for the room's lifetime. Spawn/placement ops no-op on csHost (the world is populated
+    // separately by spawn_enemies), so this only drives flags + child scripts + camera/box.
+    // OPT-IN (CLERIA_EVENTS): running the full room root live needs a correct STORY-FLAG state,
+    // which CleriaCore doesn't model yet. With fresh/zero flags the root misroutes — e.g. S_1000
+    // fires BattleStart1, which Fixes and locks the hub (cleria-cotest test 11 pins this). So it
+    // is off by default (the debug-T talk + barrier break-pan still work, they're started
+    // explicitly); set CLERIA_EVENTS=1 to run live region-talk triggers experimentally.
+    const bool events_enabled = std::getenv("CLERIA_EVENTS") != nullptr;
+    auto start_room_events = [&] {
+        csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_count = 0;
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
-        csMgr.start_root(std::move(s), name);      // ticks once; may park on a Wait_* or end
-        have_cutscene = csMgr.any_live();          // a wait-less script just ran; don't freeze
-        if (!have_cutscene) {
-            std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);
-            if (after_cutscene) { auto f = after_cutscene; after_cutscene = nullptr; f(); }
-        }
-        std::printf("  [cutscene] started %s (live=%zu)\n", name.c_str(), csMgr.live.size());
+        after_cutscene = nullptr; prev_frozen = false;
+        if (!events_enabled) return;                 // safe default: no live room root
+        std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
+        csMgr.vm.g_flags[150] = character;
+        const fs::path xso = room.dir / (room.name + ".XSO");
+        if (!fs::exists(xso)) return;
+        try { csMgr.start_root(std::make_shared<Xso>(Xso::parse(read_bytes(xso))), room.name); }
+        catch (const std::exception&) {}
+        std::printf("  [events] room %s -> %zu live script(s)%s\n", room.name.c_str(),
+                    csMgr.live.size(), csMgr.world_frozen() ? " (frozen)" : "");
+    };
+
+    // Start an EXTRA cutscene script (debug T, barrier break) alongside the room's live
+    // scripts; its Fix (0xb6) freezes the world and it reaps itself on end. Does NOT clear the
+    // persistent controllers. `debug235` sets the S_1000 test-route flag for the debug T key.
+    auto start_cutscene_xso = [&](std::shared_ptr<Xso> s, const std::string& name, bool debug235) {
+        if (debug235) csMgr.vm.g_flags[235] = 1;
+        csMgr.start_root(std::move(s), name);
+        std::printf("  [cutscene] started %s (live=%zu, frozen=%d)\n", name.c_str(),
+                    csMgr.live.size(), int(csMgr.world_frozen()));
     };
     auto start_cutscene = [&](const fs::path& p, bool debug235) {
         std::shared_ptr<Xso> s;
@@ -5160,19 +5186,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         catch (const std::exception&) { hud.message("cutscene: load failed"); return; }
         start_cutscene_xso(std::move(s), p.stem().string(), debug235);
     };
-    auto tick_cutscene = [&] {
-        if (csHost.box_active && csHost.reveal < int(csHost.text.size())) csHost.reveal += 2;
+
+    // One fixed tick of the room's event scripts. Returns whether the world is FROZEN (a Fix
+    // is held) — the caller skips the player/enemy sim for that tick but the camera still runs.
+    auto tick_events = [&] {
         csMgr.tick_all();
-        if (!csMgr.any_live()) {                    // every script finished -> resume the world
-            std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);  // persist grants
-            have_cutscene = false; csHost.box_active = false;
-            if (after_cutscene) { auto f = after_cutscene; after_cutscene = nullptr; f(); }
-        }
-        // The world is frozen (Fix), but the scripted CAMERA still moves: advance the scroll
-        // ramp + shake and re-evaluate the camera around the (possibly scrolled) look-at point.
+        if (csHost.box_active && csHost.reveal < int(csHost.text.size())) csHost.reveal += 2;
         scroll_advance();
         shake_advance();
-        if (g_cam.on) apply_cam_state(cam, feet);
+        const bool frozen = csMgr.world_frozen();
+        if (!frozen && prev_frozen && after_cutscene) {    // world just thawed -> queued action
+            auto f = after_cutscene; after_cutscene = nullptr; f();
+        }
+        prev_frozen = frozen;
+        if (frozen && g_cam.on) apply_cam_state(cam, feet);
+        return frozen;
     };
 
     // Melee swing. Damage and reach are OUR numbers: the game has no per-enemy HP
@@ -5318,8 +5346,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
-                // During a cutscene the player is frozen; a confirm key advances the dialogue.
-                if (have_cutscene) {
+                // While the world is frozen by a cutscene, a confirm key advances the dialogue
+                // and other gameplay input is swallowed (the sim is skipped anyway).
+                if (csMgr.world_frozen()) {
                     if (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_E || k == SDLK_Z)
                         csHost.advance = true;
                 }
@@ -5386,10 +5415,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
         const bool* ks = SDL_GetKeyboardState(nullptr);
         const float D = room_diag(room);
-        // The barrier just broke: play KEKKAIBREAK as a camera cutscene (once no other
-        // cutscene is up). Its host forwards Eft_Kill to the world so the ward vanishes
-        // mid-pan; when it ends, after_cutscene re-gates the room so the chest unlocks.
-        if (barrier_break_pending && !have_cutscene && !barrier_break_scripts.empty()) {
+        // A newly (re)built room (re)starts its event scripts on the persistent manager.
+        if (room_events_dirty) { room_events_dirty = false; start_room_events(); }
+        // The barrier just broke: play KEKKAIBREAK as a camera cutscene (once the world is not
+        // already frozen). Its host forwards Eft_Kill to the world so the ward vanishes mid-pan;
+        // when it ends (thaw), after_cutscene re-gates the room so the chest unlocks.
+        if (barrier_break_pending && !csMgr.world_frozen() && !barrier_break_scripts.empty()) {
             barrier_break_pending = false;
             after_cutscene = [&] { reload_room(); hud.message("The barrier fades."); };
             start_cutscene_xso(std::make_shared<Xso>(barrier_break_scripts.front()),
@@ -5404,9 +5435,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         while (accum >= kTickDt) {
         accum -= kTickDt;
         ++ticks;
-        // A cutscene freezes the world (op 0xb6 Fix): tick the coroutine at 60 Hz and skip
-        // the player/enemy/camera update for this tick.
-        if (have_cutscene) { tick_cutscene(); continue; }
+        // Tick the room's event scripts every frame (controllers poll here). If a Fix is held
+        // (a talk / cutscene) the world is frozen: skip the player/enemy sim for this tick (the
+        // camera still runs inside tick_events).
+        if (tick_events()) continue;
         const float dt = kTickDt;
         if (cooldown > 0) cooldown -= dt;
 
@@ -5966,7 +5998,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
         // Cutscene dialogue box over the frozen world (FACEWIN0 bottom bar + name + text).
-        if (have_cutscene && csHost.box_active && pauseOk) {
+        if (csHost.box_active && pauseOk) {
             write_mvp(g, Mat4::identity());   // the box is screen-space
             WGPUTextureView ddepth = make_depth(g.device, cw, ch);
             pauseUi.draw_dialogue(g, pmf, view, ddepth, cw, ch, csHost.name, csHost.text, csHost.reveal);

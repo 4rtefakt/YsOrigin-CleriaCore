@@ -249,6 +249,47 @@ int main(int argc, char** argv) {
                     talkBefore, talkAfter, ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // 11) DOCUMENTED FINDING (why live room-events are opt-in): running the S_1000 root with a
+    //     FRESH/zero flag state misroutes — with no story progress set it fires 'BattleStart1'
+    //     (a battle-intro cutscene) which Fixes the world and never releases, locking the hub.
+    //     The real game enters S_1000 with progression flags set that route away from it; until
+    //     CleriaCore models that story-flag state, running the full root live is gated behind
+    //     CLERIA_EVENTS. This test pins the artifact so the reason stays visible.
+    {
+        const std::string dir = root + "/MAP/S_10/S_1000/";
+        struct EntryHost : XsoHost {
+            bool wait_prompt() override { return true; }
+            bool chr_in_event_box(int, const std::string&) const override { return false; }
+            void spawn(int, int, float, float, float, float, int) override {}
+            bool is_alive(int e) const override { return e == 13; }
+        } eh;
+        struct FsLoader2 : ScriptLoader {
+            std::string dir;
+            std::shared_ptr<const Xso> load_script(const std::string& name) override {
+                std::string up = name; for (char& c : up) c = char(std::toupper((unsigned char)c));
+                auto b = rd(dir + up + ".XSO");
+                if (b.size() < 4) return nullptr;
+                try { return std::make_shared<Xso>(Xso::parse(b)); } catch (const std::exception&) { return nullptr; }
+            }
+        } loader; loader.dir = dir;
+        ScriptManager mgr; mgr.loader = &loader; mgr.vm.host = &eh;
+        mgr.vm.g_flags[150] = 1;                                     // Yunica; NO story flags set
+        mgr.start_root(std::make_shared<Xso>(Xso::parse(rd(dir + "S_1000.XSO"))), "s_1000");
+        for (int f = 0; f < 300; ++f) mgr.tick_all();
+        bool battleStartHolds = false;
+        for (const auto& in : mgr.live) {
+            std::string lo = in.name;
+            for (char& c : lo) c = char(std::tolower((unsigned char)c));
+            if (in.fix_held > 0 && lo.rfind("battle", 0) == 0) battleStartHolds = true;
+        }
+        // The finding is: zero-flag entry freezes via a battle-intro child. That is exactly why
+        // live events are opt-in (CLERIA_EVENTS), not on by default.
+        const bool ok = mgr.world_frozen() && battleStartHolds;
+        std::printf("[live] S_1000 zero-flag entry: frozen=%d battleStart-holds-Fix=%d %s\n",
+                    int(mgr.world_frozen()), int(battleStartHolds),
+                    ok ? "OK (finding pinned)" : "FAIL");
+        fails += !ok;
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }
