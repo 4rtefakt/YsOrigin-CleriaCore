@@ -1922,7 +1922,7 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
                                  WGPUTextureView color, WGPUTextureView depth,
                                  const Vec3& camFwd, float t) {
     if (fx.empty()) return;
-    float tiltDeg = 45.0f, lift = 1.0f, scaleOv = -1.0f;
+    float tiltDeg = 90.0f, lift = 0.8f, scaleOv = -1.0f;   // flat + lifted (user: 90 closest, wants it higher/around the chest)
     if (const char* s = std::getenv("CLERIA_BARRIER_TILT")) tiltDeg = float(std::atof(s));
     if (const char* s = std::getenv("CLERIA_BARRIER_LIFT")) lift = float(std::atof(s));
     if (const char* s = std::getenv("CLERIA_BARRIER_SCALE")) { float v = float(std::atof(s)); if (v > 0) scaleOv = v; }
