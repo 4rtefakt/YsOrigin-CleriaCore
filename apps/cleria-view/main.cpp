@@ -2845,6 +2845,21 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
             hud.text("That voice... it can't be. Is that really you?", tx, by0 + boxH * 0.45f, 2.6f, sw, sh, 255, 255, 255, 255);
         }
     }
+    // CLERIA_CAPTION=map_name03: preview the area-name card (op 0xe2 loads IMAGE/<name>.dds).
+    if (const char* cap = std::getenv("CLERIA_CAPTION")) {
+        std::string nm = cap; for (char& c : nm) c = char(std::toupper((unsigned char)c));
+        Dds cd = load_dds(asset_root / "IMAGE" / (nm + ".DDS"));
+        if (cd.ok()) {
+            SpriteTex ct = upload_rgba(g, cd.width, cd.height, cd.data.data());
+            write_mvp(g, Mat4::identity());
+            const float sw = float(W), sh = float(H);
+            const float cw2 = sw * 0.6f, chh = cw2 * float(cd.height) / float(cd.width);
+            const float cx = (sw - cw2) * 0.5f, cy = sh * 0.16f;
+            auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+            auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+            draw_screen_image(g, cview, dview, false, ct, NX(cx), NY(cy), NX(cx + cw2), NY(cy + chh), 0.1f);
+        }
+    }
     hud.render(g, cview, W, H, room.name, 0.016f, &pv);
 
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -5013,6 +5028,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             speaker = sp; name = nm; text = tx; reveal = 0; box_active = true;
         }
         void window_close() override { box_active = false; name.clear(); text.clear(); }
+        std::string caption_name; int caption_timer = 0;   // 0xe2 area-name card (frames left)
+        void caption(const std::string& nm) override { caption_name = nm; caption_timer = 210; }
         bool wait_prompt() override {
             if (reveal < int(text.size())) return false;    // line still typing out
             if (advance) { advance = false; return true; }  // one press advances one line
@@ -5027,6 +5044,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     XsoVm cutsceneVm; cutsceneVm.host = &csHost;
     Xso cutscene_script;              // kept alive while the coroutine is active
     bool have_cutscene = false;
+    SpriteTex captionTex; std::string captionLoaded;   // cached area-name card (op 0xe2)
     auto start_cutscene = [&](const fs::path& p) {
         try { cutscene_script = Xso::parse(read_bytes(p)); }
         catch (const std::exception&) { hud.message("cutscene: load failed"); return; }
@@ -5838,6 +5856,30 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             WGPUTextureView ddepth = make_depth(g.device, cw, ch);
             pauseUi.draw_dialogue(g, pmf, view, ddepth, cw, ch, csHost.name, csHost.text, csHost.reveal);
             wgpuTextureViewRelease(ddepth);
+        }
+        // Area-name caption card (op 0xe2 = pre-rendered IMAGE/<name>.dds), fading out.
+        if (csHost.caption_timer > 0) {
+            if (csHost.caption_name != captionLoaded) {
+                std::string nm = csHost.caption_name;
+                for (char& c : nm) c = char(std::toupper((unsigned char)c));
+                Dds cd = load_dds(asset_root / "IMAGE" / (nm + ".DDS"));
+                if (cd.ok()) { captionTex = upload_rgba(g, cd.width, cd.height, cd.data.data()); }
+                captionLoaded = csHost.caption_name;
+            }
+            if (captionTex.tex) {
+                write_mvp(g, Mat4::identity());
+                WGPUTextureView cdepth = make_depth(g.device, cw, ch);
+                const float sw = float(cw), sh = float(ch);
+                const float cw2 = sw * 0.6f, chh = cw2 * float(captionTex.h) / float(captionTex.w);
+                const float cx = (sw - cw2) * 0.5f, cy = sh * 0.16f;
+                const float a = std::min(1.0f, csHost.caption_timer / 45.0f);   // fade over the last 45f
+                auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+                auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+                draw_screen_image(g, view, cdepth, false, captionTex, NX(cx), NY(cy), NX(cx + cw2), NY(cy + chh),
+                                  0.1f, 0, 0, 1, 1, 0.02f, 0.02f, 0.05f, 0.0f, false, a, a, a);
+                wgpuTextureViewRelease(cdepth);
+            }
+            --csHost.caption_timer;
         }
         // Pause menu overlay: the pause-book Equip page over the frozen game (Esc to close).
         if (paused && pauseOk) {
