@@ -13,7 +13,11 @@ static std::vector<std::uint8_t> rd(const std::string& p) {
 }
 struct H : XsoHost {
     bool prompt = false;
+    std::vector<std::string> lines;
     bool wait_prompt() override { return prompt; }
+    void window_msg(int, int, const std::string& name, const std::string& text) override {
+        lines.push_back((name.empty() ? "" : "[" + name + "] ") + text);
+    }
     void spawn(int, int, float, float, float, float, int) override {}
     bool is_alive(int) const override { return false; }
 };
@@ -35,8 +39,10 @@ int main(int argc, char** argv) {
     // 3) prompt ALWAYS pressed -> advances through every line and ends.
     { XsoVm vm; H h; h.prompt = true; vm.host = &h; vm.g_flags[150] = 1; vm.g_flags[235] = 1; vm.co_begin(talk);
       bool ended = false; int t = 0; for (; t < 5000; ++t) if (vm.tick() == XsoVm::Tick::Ended) { ended = true; break; }
-      std::printf("[tick] prompt=ALWAYS: ticked %d ended=%d %s\n", t, ended, ended ? "OK" : "FAIL");
-      fails += !ended; }
+      const bool ok = ended && !h.lines.empty();
+      std::printf("[tick] prompt=ALWAYS: ticked %d ended=%d lines=%zu %s\n", t, ended, h.lines.size(), ok ? "OK" : "FAIL");
+      for (const auto& l : h.lines) std::printf("       > %.72s\n", l.c_str());
+      fails += !ok; }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

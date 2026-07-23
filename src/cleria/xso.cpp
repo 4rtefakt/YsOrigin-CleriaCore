@@ -168,6 +168,23 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         default: break;
                     }
                 }
+                // Dialogue / caption ops forward to the host. Handled here (not in the
+                // nargs>=1 store chain below) so 0xd2's zero-arg case isn't skipped. A host
+                // that doesn't render dialogue (ActorWorld) inherits the no-op defaults, so
+                // this is inert during grant extraction. (CUTSCENE_DIALOGUE.md)
+                if (host) {
+                    if (sub == 0xd2) { host->window_close(); return Step::Continue; }  // Window_Close
+                    if (sub == 0xd3 && nargs >= 4) {          // Window_Msg(speaker,voice,name,text)
+                        const int ni = op(2), ti = op(3);
+                        host->window_msg(op(0), op(1),
+                                         ni >= 0 ? script.string(ni) : std::string(),
+                                         ti >= 0 ? script.string(ti) : std::string());
+                        return Step::Continue;
+                    }
+                    if (sub == 0xe2 && nargs >= 1) {          // Caption(name) — pre-rendered art
+                        host->caption(script.string(op(0))); return Step::Continue;
+                    }
+                }
                 if (sub == 0x5F && nargs >= 2) {            // acc = (flag[op0]==op1)
                     acc = (flag(op(0)) == op(1)) ? 1 : 0;
                 } else if (sub == 0x60 && nargs >= 2) {     // acc = (flag[op0]==flag[op1])

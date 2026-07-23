@@ -101,6 +101,17 @@ struct XsoHost {
     virtual bool wait_sound(int /*channel*/) { return true; }    // 0xf7: SE on channel done?
     virtual bool wait_script_done(const std::string& /*name*/) { return true; } // 0xf4: child ended?
 
+    // --- dialogue / caption ops (CUTSCENE_DIALOGUE.md) --------------------------------
+    // op 0xd3 Window_Msg(speakerId, voiceParam, nameStrIdx, textStrIdx): open/update the
+    // message box with a line. `speaker` picks the face/voice (player id remaps by char);
+    // `name`/`text` are the resolved pool strings ("" if the index was < 0). The box
+    // stays up until 0xd2. The next Wait_Prompt gates on advance + text fully revealed.
+    virtual void window_msg(int /*speaker*/, int /*voice*/, const std::string& /*name*/,
+                            const std::string& /*text*/) {}
+    virtual void window_close() {}                                // op 0xd2 Window_Close
+    // op 0xe2 Caption(name): the area-name card is PRE-RENDERED art (data/image/<name>.dds).
+    virtual void caption(const std::string& /*name*/) {}
+
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns
     // every placement through the CASTINFO factory. We pre-load the host with the
