@@ -1248,7 +1248,8 @@ struct CharSprite {
 // camera view direction. Reuses the room pipeline (alpha-test + white modulate).
 static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                            const Vec3& feet, float worldH, const SpriteTex& spr,
-                           const Vec3& camForward, const Vec3& camPos, float flash = 0.0f) {
+                           const Vec3& camForward, const Vec3& camPos, float flash = 0.0f,
+                           float tr = 1.0f, float tg = 1.0f, float tb = 1.0f) {
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
@@ -1288,11 +1289,15 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         const float Wc = worldH * (float(spr.w) / float(spr.h));
         lX = -Wc * 0.5f; rX = Wc * 0.5f; tY = worldH; bY = 0.0f;
     }
-    // Vertex-colour alpha carries the hit-flash amount (fs_char lerps to white by it).
+    // Vertex-colour alpha carries the hit-flash amount (fs_char lerps to white by it); RGB is
+    // a per-quad modulate (tc.rgb * color.rgb) — white = as-is, a red tint marks event seeds.
     const std::uint8_t fa = std::uint8_t(std::max(0.0f, std::min(1.0f, flash)) * 255.0f);
+    const std::uint8_t cr = std::uint8_t(std::clamp(tr, 0.0f, 1.0f) * 255.0f);
+    const std::uint8_t cg = std::uint8_t(std::clamp(tg, 0.0f, 1.0f) * 255.0f);
+    const std::uint8_t cb = std::uint8_t(std::clamp(tb, 0.0f, 1.0f) * 255.0f);
     auto V = [&](float lx, float ly, float u, float v) -> RoomVertex {
         return {base.x + right.x * lx, base.y + ly, base.z + right.z * lx,
-                0, 0, -1, u, v, 255, 255, 255, fa};
+                0, 0, -1, u, v, cr, cg, cb, fa};
     };
     RoomVertex verts[4] = {V(lX, tY, 0, 0), V(rX, tY, 1, 0), V(rX, bY, 1, 1), V(lX, bY, 0, 1)};
     std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
@@ -1755,7 +1760,14 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (!t->tex) continue;
         // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
         const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
-        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos, flash);
+        // Event-bound (group-1 seed) enemies render RED in the retail game (the barrier fight):
+        // a strong red modulate, gently pulsing, so the seed reads distinct from normal enemies.
+        float tr = 1.0f, tg = 1.0f, tb = 1.0f;
+        if (e.actor->tag.in_group(1)) {
+            const float pulse = 0.20f + 0.10f * std::sin(t_anim * 6.0f);  // 0.10..0.30
+            tg = tb = pulse; tr = 1.0f;
+        }
+        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos, flash, tr, tg, tb);
     }
 }
 
