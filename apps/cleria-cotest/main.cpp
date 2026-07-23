@@ -1,8 +1,10 @@
 // Headless test for the XSO coroutine VM (CUTSCENE_COROUTINE.md): verifies run()
 // is unchanged, tick() parks/advances on Wait_Prompt, and the ScriptManager spawns +
 // ticks concurrent StartScript children. Usage: cleria-cotest <assets>
+#include "cleria/sev.hpp"
 #include "cleria/xso.hpp"
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstdio>
 #include <fstream>
@@ -134,6 +136,32 @@ int main(int argc, char** argv) {
         const bool ok = ordered && timed && ended;
         std::printf("[brk]  KEKKAIBREAK: move@%d kill@%d return@%d end@%d %s\n",
                     bh.fMove, bh.fKill, bh.fReturn, bh.frame, ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
+    // 7) SceneBox OBB containment (op 0x13d math, OP_13D_REGION.md §3), independent of the
+    //    .SEV byte layout: an axis-aligned box, then the same box rotated 90deg about Y.
+    {
+        SceneBox box;                        // 20 wide (x), 4 tall (y), 4 deep (z), at (10,0,10)
+        box.center = {10, 0, 10};
+        box.amin = {-10, 0, -2};
+        box.amax = {10, 4, 2};
+        int t = 0;
+        auto chk = [&](bool got, bool want, const char* what) {
+            if (got != want) { std::printf("       box FAIL: %s (got %d want %d)\n", what, got, want); ++t; }
+        };
+        // Axis-aligned: a point at the center is in; one 5 past the +Z face (z=17) is out.
+        chk(box.contains({10, 2, 10}), true, "center inside");
+        chk(box.contains({10, 2, 17}), false, "past +Z face out");
+        chk(box.contains({10, 2, 11.9f}), true, "near +Z edge in");
+        chk(box.contains({19, 2, 10}), true, "wide +X in");
+        chk(box.contains({22, 2, 10}), false, "past +X out");
+        chk(box.contains({10, 5, 10}), false, "above top out");
+        // Rotate the long axis 90deg about Y: what was the wide X extent now runs along Z.
+        box.rot_y = 3.14159265f / 2.0f;
+        chk(box.contains({10, 2, 19}), true, "rotated: long axis now Z, in");
+        chk(box.contains({19, 2, 10}), false, "rotated: old wide-X now narrow, out");
+        const bool ok = (t == 0);
+        std::printf("[box]  SceneBox OBB containment: %s\n", ok ? "OK" : "FAIL");
         fails += !ok;
     }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

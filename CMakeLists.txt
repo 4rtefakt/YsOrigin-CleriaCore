@@ -23,6 +23,7 @@ add_library(cleria STATIC
   src/cleria/sen.cpp
   src/cleria/physics.cpp
   src/cleria/xso.cpp
+  src/cleria/sev.cpp
   src/cleria/items.cpp
   src/cleria/enemies.cpp
   src/cleria/cast.cpp
