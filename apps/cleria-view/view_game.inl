@@ -739,7 +739,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // do?" choice, 2 = save-slot screen, 3 = blessing list. The cleansing animation
     // (Yunica/Hugo first-use) is NOT modelled yet — statues open the menu directly
     // [stand-in]; blessings list real costs but effects are not implemented.
-    int statue_ui = 0, statue_sel = 0;
+    int statue_ui = 0, statue_sel = 0, statue_reveal = 0;
     std::array<std::string, 8> svldLabels;
     auto refresh_slots = [&] {
         for (int i = 0; i < 8; ++i) svldLabels[std::size_t(i)] = slot_label(svldTab * 8 + i);
@@ -1091,7 +1091,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         for (char& c : tl) c = char(std::tolower((unsigned char)c));
         if (tl.rfind("save", 0) == 0) {
             statue_ui = 1;            // "What will you do?" (STATUE_MENU.md flow)
-            statue_sel = 0;
+            statue_sel = 0; statue_reveal = 0;
             return;
         }
         if (target->script.empty()) { std::printf("  %s: no script\n", target->name.c_str()); return; }
@@ -1246,7 +1246,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     else if (k == SDLK_DOWN || k == SDLK_S) statue_sel = (statue_sel + 1) % 3;
                     else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
                         if (statue_sel == 0) { refresh_slots(); statue_ui = 2; }
-                        else if (statue_sel == 1) { statue_ui = 3; statue_sel = 0; }
+                        else if (statue_sel == 1) { statue_ui = 3; statue_sel = 0; statue_reveal = 0; }
                         else statue_ui = 0;        // Nothing right now
                     } else if (k == SDLK_ESCAPE) statue_ui = 0;
                 } else if (statue_ui == 2) {       // save-slot screen (8 tabs x 8)
@@ -1257,7 +1257,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
                         do_save(svldTab * 8 + svldSlot);
                         statue_ui = 0;
-                    } else if (k == SDLK_ESCAPE) { statue_ui = 1; statue_sel = 0; }
+                    } else if (k == SDLK_ESCAPE) { statue_ui = 1; statue_sel = 0; statue_reveal = 0; }
                 } else if (statue_ui == 3) {       // blessing list (effects pending)
                     constexpr int kBless = 15;     // 14 blessings + "Nothing right now"
                     if (k == SDLK_UP || k == SDLK_W) statue_sel = (statue_sel + kBless - 1) % kBless;
@@ -2024,9 +2024,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (statue_ui && pauseOk) {
             write_mvp(g, Mat4::identity());
             WGPUTextureView pdepth = make_depth(g, cw, ch);
+            // The statue menu IS a go_wnddialog popup (WndMenu dump: Window_Menu's
+            // window class = go_wnddialog.cpp) — DIALOG0 frame, MENUCURSOR capsule,
+            // the traced (512,256) layout. The title types in like the engine's.
+            statue_reveal = std::min(statue_reveal + 2, 64);
+            char tbuf[40];
             if (statue_ui == 1) {
                 static const char* kChoice[3] = {"Save", "Accept divine blessing", "Nothing right now"};
-                pauseUi.draw_menu_window(g, pmf, view, pdepth, cw, ch, "What will you do?", kChoice, 3, statue_sel);
+                std::snprintf(tbuf, sizeof tbuf, "%.*s", statue_reveal, "What will you do?");
+                pauseUi.draw_popup(g, pmf, view, pdepth, cw, ch, tbuf, kChoice, 3, statue_sel);
             } else if (statue_ui == 2) {
                 pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/true, svldTab,
                                   svldSlot, svldLabels.data());
@@ -2049,8 +2055,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     "Reduce MP usage LV1 - [SP:]30000",
                     "Increase movement speed - [SP:]500000",
                     "Nothing right now"};
-                pauseUi.draw_menu_window(g, pmf, view, pdepth, cw, ch, "Please select a blessing.",
-                                         kBless, 15, statue_sel);
+                std::snprintf(tbuf, sizeof tbuf, "%.*s", statue_reveal, "Please select a blessing.");
+                // 15 rows: anchor the caption near the top so the list fits (authored
+                // ~72, matching statue_blessings.png's window top).
+                pauseUi.draw_popup(g, pmf, view, pdepth, cw, ch, tbuf, kBless, 15, statue_sel,
+                                   false, 72.0f);
             }
             wgpuTextureViewRelease(pdepth);
         }
