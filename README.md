@@ -231,6 +231,7 @@ mistaken for facts. (Removed as they are traced and validated.)
 | **hitstun / attack interrupt** | **not modelled** — hitting an enemy does not yet interrupt its attack animation |
 | **enemy reach / walk-run speed** | **our numbers still** — the base scalars are real (CASTINFO), but the final multiplier resolves through an unidentified object; deliberately not back-derived from the footstep cadence |
 | **game cursor** | **missing.** The chrome cursor/frame texture handles (`DAT_00749d68`/`60`) have no static writer — they're set by a boot pointer-walk, so identifying the texture needs a **runtime dump**, not more static RE |
+| **HUD `%3d/%3d` HP counter font** | drawn with F_MINI (font_A); the engine uses font_B, a runtime GDI glyph font we don't build yet |
 | **weapon/equipment icons in the HUD slots** | **empty.** The 4 slots resolve via a per-item texture-handle LUT, but there is no runtime inventory/equipment model to tell them what is equipped yet |
 | **EX/Boost arc fill** | **tuning open** — the sweep angle is env-tunable (`CLERIA_BOOST_START`/`SWEEP`) pending a match against the real gauge |
 | **pause-book insides** | **shells, not state.** The menu *pages* are pixel-matched, but their contents (real inventory, equip stats, topic/manual text, save slots) need a runtime game-state model that does not exist yet |

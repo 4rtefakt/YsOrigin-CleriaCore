@@ -34,6 +34,7 @@ static int render_fps(Gpu& g, const Room& room, const fs::path& out,
     Hud hud; hud.init(g, res_file("hud_font.bin"), WGPUTextureFormat_RGBA8Unorm);
     if (!asset_root.empty()) {
         hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
+    hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");
         hud.init_boss(g, asset_root / "IMAGE" / "HP2.DDS");
         hud.boss_frac = 0.72f; hud.boss_name = "Nygtilger";  // preview the boss bar
     }
@@ -217,6 +218,7 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
 
     Hud hud; hud.init(g, res_file("hud_font.bin"), WGPUTextureFormat_RGBA8Unorm);
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
+    hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");
     Player pv; pv.hp = 312; pv.max_hp = 400; pv.level = 6; pv.sp = 138663; pv.exp_pct = 42.1f;
     // CLERIA_DLG=1: preview the cutscene dialogue box (FACEWIN0 3-slice + name/text) so its
     // slice-UVs/position can be tuned headlessly against reference/realgame/dialogue_box_*.png.

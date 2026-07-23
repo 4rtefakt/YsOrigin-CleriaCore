@@ -38,6 +38,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     build_pipeline(g, fmt);
     Hud hud; hud.init(g, res_file("hud_font.bin"), fmt);
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
+    hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");
     FlameFx flames;                      // torch flames (SEF placements + EF2 flipbook)
     if (!flames.init(g, asset_root))
         std::fprintf(stderr, "flames: NAGA01.DDS failed to load\n");

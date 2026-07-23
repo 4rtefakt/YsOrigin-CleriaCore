@@ -57,6 +57,7 @@
 #include "cleria/sct.hpp"
 #include "cleria/sen.hpp"
 #include "cleria/sfo.hpp"
+#include "cleria/minifont.hpp"
 #include "cleria/save.hpp"
 #include "cleria/world.hpp"
 #include "cleria/xso.hpp"

@@ -114,6 +114,11 @@ struct Hud {
     WGPUBindGroup boss_bind{};
     std::uint32_t boss_w = 0, boss_h = 0;
     std::vector<HudVertex> boss_sprites; // quads sampling the HP2 atlas
+    // font_A = F_MINI.DDS, the engine's 12x14 proportional bitmap font (minifont.hpp,
+    // FUN_00452980). Drives the [EX]/[MP]/[SP] readouts (HUD_COUNTERS.md §2-3).
+    WGPUBindGroup mini_bind{};
+    MiniFont mini;
+    std::vector<HudVertex> mini_verts;
     float boss_frac = -1.f;              // <0 = no boss on screen
     std::string boss_name;
     struct Msg { std::string text; float ttl; };
@@ -207,6 +212,54 @@ struct Hud {
     // Load the game's HP2 atlas (boss health bar graphics).
     void init_boss(Gpu& g, const fs::path& dds_path) {
         boss_bind = upload_atlas(g, dds_path, boss_w, boss_h);
+    }
+    // Load F_MINI.DDS (font_A). MiniFont decodes the A4R4G4B4 sheet to RGBA itself.
+    void init_mini(Gpu& g, const fs::path& dds_path) {
+        if (!mini.load(dds_path, kMiniWidths, sizeof kMiniWidths) || !mini.ok()) return;
+        const std::uint32_t mw = std::uint32_t(mini.width()), mh = std::uint32_t(mini.height());
+        WGPUTextureDescriptor td = {};
+        td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        td.dimension = WGPUTextureDimension_2D; td.size = {mw, mh, 1};
+        td.format = WGPUTextureFormat_RGBA8Unorm; td.mipLevelCount = 1; td.sampleCount = 1;
+        WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
+        WGPUTexelCopyTextureInfo dst = {}; dst.texture = t; dst.aspect = WGPUTextureAspect_All;
+        WGPUTexelCopyBufferLayout lay = {}; lay.bytesPerRow = mw * 4; lay.rowsPerImage = mh;
+        WGPUExtent3D ext = {mw, mh, 1};
+        wgpuQueueWriteTexture(g.queue, &dst, mini.rgba().data(), mini.rgba().size(), &lay, &ext);
+        WGPUTextureView v = wgpuTextureCreateView(t, nullptr);
+        wgpuTextureRelease(t);
+        WGPUBindGroupEntry e[2] = {};
+        e[0].binding = 0; e[0].textureView = v; e[1].binding = 1; e[1].sampler = samp;
+        WGPUBindGroupDescriptor bd = {}; bd.layout = bgl; bd.entryCount = 2; bd.entries = e;
+        mini_bind = wgpuDeviceCreateBindGroup(g.device, &bd);
+    }
+    // font_A text at AUTHORED 1024x768 coordinates (through the HudMap, like sprite_a).
+    // The engine draws each glyph as its 12x14 cell and advances by the width table
+    // (FUN_00452f40); y is the cell TOP ([H] — the 12px row pitch of the readouts
+    // overlaps the 14px cell by 2, exactly as the cell's empty rows allow).
+    void mini_text(const HudMap& m, std::string_view s, float x, float y, float sw, float sh,
+                   std::uint8_t r, std::uint8_t gg, std::uint8_t b, std::uint8_t a = 255) {
+        if (!mini_bind) return;
+        float pen = x;
+        auto NX = [&](float v) { return v / sw * 2.f - 1.f; };
+        auto NY = [&](float v) { return 1.f - v / sh * 2.f; };
+        for (char c : s) {
+            const MiniGlyph gl = mini.glyph(c);
+            if (c != ' ') {
+                const float x0 = m.x(pen), y0 = m.y(y);
+                const float x1 = m.x(pen + MiniFont::kCellW), y1 = m.y(y + MiniFont::kCellH);
+                const float u0 = float(gl.cell_x) / mini.width(), v0 = float(gl.cell_y) / mini.height();
+                const float u1 = float(gl.cell_x + MiniFont::kCellW) / mini.width();
+                const float v1 = float(gl.cell_y + MiniFont::kCellH) / mini.height();
+                HudVertex q0{NX(x0), NY(y0), u0, v0, r, gg, b, a};
+                HudVertex q1{NX(x1), NY(y0), u1, v0, r, gg, b, a};
+                HudVertex q2{NX(x1), NY(y1), u1, v1, r, gg, b, a};
+                HudVertex q3{NX(x0), NY(y1), u0, v1, r, gg, b, a};
+                mini_verts.push_back(q0); mini_verts.push_back(q1); mini_verts.push_back(q2);
+                mini_verts.push_back(q0); mini_verts.push_back(q2); mini_verts.push_back(q3);
+            }
+            pen += float(gl.advance);
+        }
     }
 
     // Draw a quad of the STATUS atlas: dst screen rect (px), src atlas rect (px).
@@ -494,6 +547,25 @@ struct Hud {
         // SP, at the game's real place: right edge 349.5, y 752..764, right-aligned.
         // (The emitter's cursor starts at 337.5 = the LEFT edge of the ones digit.)
         draw_number_right(m, p.sp, 349.5f, 752.0f, sw, sh);
+
+        // Builder-D font readouts (HUD_COUNTERS.md §2-3, coords/format/colors [C-DIS],
+        // localized -> SHIPPED, not debug):
+        //   [EX]%3.3f%%  font_A @(288,670) = boost/30000*100
+        //   [MP]%3.3f%%  font_A @(288,682) = MP percent
+        //   HP %3d/%3d   font_B @(288,694), pale mint, always bright. font_B is the
+        //                runtime GDI glyph font we don't build yet; F_MINI stands in
+        //                for it here [HAND-TUNED substitution].
+        //   [SP]         font_A @(248,752), grey, next to the SP counter above.
+        // The dim->mint warning brightening (low-MP via 0x76c194; boost via flag 141)
+        // is not wired yet — [EX]/[MP] draw in their common dim state.
+        char rbuf[32];
+        std::snprintf(rbuf, sizeof rbuf, "[EX]%3.3f%%", double(p.boost) / 30000.0 * 100.0);
+        mini_text(m, rbuf, 288, 670, sw, sh, 0x50, 0x72, 0x64);
+        std::snprintf(rbuf, sizeof rbuf, "[MP]%3.3f%%", double(p.mp_pct));
+        mini_text(m, rbuf, 288, 682, sw, sh, 0x50, 0x72, 0x64);
+        std::snprintf(rbuf, sizeof rbuf, "%3d/%3d", p.hp, p.max_hp);
+        mini_text(m, rbuf, 288, 694, sw, sh, 0xa1, 0xe4, 0xc9);
+        mini_text(m, "[SP]", 248, 752, sw, sh, 0xbb, 0xbb, 0xbb);
     }
 
     // Draw a quad of the HP2 (boss) atlas: dst screen rect (px), src atlas rect (px).
@@ -538,6 +610,7 @@ struct Hud {
         verts.clear();
         sprites.clear();
         boss_sprites.clear();
+        mini_verts.clear();
         const float s = std::max(1.f, sh / 540.f);  // scale text to window height
         text("Room: " + room_name, 12 * s, 10 * s, s, float(sw), float(sh), 230, 220, 150, 255);
         float my = float(sh) * 0.5f;
@@ -551,10 +624,11 @@ struct Hud {
         if (player) player_hud(*player, float(sw), float(sh));
         if (boss_frac >= 0.f) boss_bar(boss_frac, boss_name, float(sw), float(sh));
         const std::size_t nf = verts.size(), ns = sprites.size(), nb = boss_sprites.size();
-        if (nf + ns + nb == 0) return;
+        const std::size_t nm = mini_verts.size();
+        if (nf + ns + nb + nm == 0) return;
 
-        // Concatenate the batches: font atlas verts, STATUS sprites, then HP2 sprites.
-        const std::size_t bytes = (nf + ns + nb) * sizeof(HudVertex);
+        // Concatenate the batches: font atlas verts, STATUS sprites, HP2, then F_MINI.
+        const std::size_t bytes = (nf + ns + nb + nm) * sizeof(HudVertex);
         if (bytes > vbuf_cap) {
             if (vbuf) wgpuBufferRelease(vbuf);
             WGPUBufferDescriptor bd = {};
@@ -566,6 +640,7 @@ struct Hud {
         if (nf) wgpuQueueWriteBuffer(g.queue, vbuf, 0, verts.data(), nf * sizeof(HudVertex));
         if (ns) wgpuQueueWriteBuffer(g.queue, vbuf, nf * sizeof(HudVertex), sprites.data(), ns * sizeof(HudVertex));
         if (nb) wgpuQueueWriteBuffer(g.queue, vbuf, (nf + ns) * sizeof(HudVertex), boss_sprites.data(), nb * sizeof(HudVertex));
+        if (nm) wgpuQueueWriteBuffer(g.queue, vbuf, (nf + ns + nb) * sizeof(HudVertex), mini_verts.data(), nm * sizeof(HudVertex));
 
         WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
         WGPURenderPassColorAttachment ca = {};
@@ -588,6 +663,11 @@ struct Hud {
             wgpuRenderPassEncoderSetBindGroup(pass, 0, boss_bind, 0, nullptr);
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, (nf + ns) * sizeof(HudVertex), nb * sizeof(HudVertex));
             wgpuRenderPassEncoderDraw(pass, std::uint32_t(nb), 1, 0, 0);
+        }
+        if (nm && mini_bind) {  // F_MINI (font_A readouts) batch
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, mini_bind, 0, nullptr);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, (nf + ns + nb) * sizeof(HudVertex), nm * sizeof(HudVertex));
+            wgpuRenderPassEncoderDraw(pass, std::uint32_t(nm), 1, 0, 0);
         }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
