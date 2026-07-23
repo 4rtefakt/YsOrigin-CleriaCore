@@ -654,26 +654,31 @@ struct TitleFx {
         draw_screen_image(g, cview, dview, false, cursor, NX(lpx + curl), NY(tpx), NX(rpx - curl), NY(bpx), z, u1,   0.0f, u2,   1.0f);
         draw_screen_image(g, cview, dview, false, cursor, NX(rpx - curl), NY(tpx), NX(rpx),        NY(bpx), z, u2,   0.0f, 1.0f, 1.0f);
     }
-    // DIALOG0 as a horizontal 9-slice (u-cuts 0 / 0.15625 / 0.65625 / 0.8125 from MENU_LAYOUT.md
-    // §3.1; content v 0..0.805): fixed scroll-curl ends, stretched middle, so the curls keep their
-    // shape at any width. The engine's go_wnddialog popup frame is exactly this.
+    // DIALOG0 as a TRUE 4x4 nine-slice — exactly the engine's go_wnddialog frame
+    // (FUN_00578f80, decompiled): U cuts {0, 0.15625, 0.65625, 0.8125} with FIXED side
+    // caps of 80px (DAT_006bdac8), and V cuts {0, 0.25, 0.6875, 0.8125} (DAT_006bea50[])
+    // with a FIXED top cap 64px (DAT_006bdaa8) and bottom cap 32px (DAT_006bd9f0). The
+    // middle band stretches in both axes; the ornate curls keep their real size at any
+    // window size — this is why the old height-only stretch blew the blessing list up.
     void draw_dialog_frame(Gpu& g, WGPUTextureView cview, WGPUTextureView dview,
                            float lpx, float tpx, float rpx, float bpx, float sw, float sh) {
         if (!dialog.tex) return;
-        constexpr float vc = 0.805f, u1 = 0.15625f, u2 = 0.65625f, u3 = 0.8125f;
-        float curl = (bpx - tpx) * (u1 * 512.0f) / (vc * 256.0f);   // curl 80px wide / 206px tall
-        // Tall windows (the statue blessing list) keep the scroll caps near their
-        // popup-height size instead of scaling with height — the height-proportional
-        // curl blew up into the content [measured vs statue_blessings.png].
-        const float curlMax = 92.0f * (sh / 768.0f);
-        if (curl > curlMax) curl = curlMax;
-        if (curl * 2.0f > (rpx - lpx) * 0.9f) curl = (rpx - lpx) * 0.45f;
+        const float A = sh / 768.0f;
+        const float uc[4] = {0.0f, 0.15625f, 0.65625f, 0.8125f};
+        const float vc[4] = {0.0f, 0.25f, 0.6875f, 0.8125f};
+        float capL = 80.0f * A, capT = 64.0f * A, capB = 32.0f * A;   // authored cap px
+        if (capL * 2.0f > (rpx - lpx)) capL = (rpx - lpx) * 0.5f;
+        if (capT + capB > (bpx - tpx)) { const float s = (bpx - tpx) / (capT + capB); capT *= s; capB *= s; }
+        const float xs[4] = {lpx, lpx + capL, rpx - capL, rpx};
+        const float ys[4] = {tpx, tpx + capT, bpx - capB, bpx};
         auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
         auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
         const float z = 0.2f;
-        draw_screen_image(g, cview, dview, false, dialog, NX(lpx),        NY(tpx), NX(lpx + curl), NY(bpx), z, 0.0f, 0.0f, u1, vc);
-        draw_screen_image(g, cview, dview, false, dialog, NX(lpx + curl), NY(tpx), NX(rpx - curl), NY(bpx), z, u1,   0.0f, u2, vc);
-        draw_screen_image(g, cview, dview, false, dialog, NX(rpx - curl), NY(tpx), NX(rpx),        NY(bpx), z, u2,   0.0f, u3, vc);
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c)
+                draw_screen_image(g, cview, dview, false, dialog,
+                                  NX(xs[c]), NY(ys[r]), NX(xs[c + 1]), NY(ys[r + 1]), z,
+                                  uc[c], vc[r], uc[c + 1], vc[r + 1]);
     }
     // The in-engine cutscene DIALOGUE box (CUTSCENE_DIALOGUE.md): FACEWIN0 as a full-width
     // bottom bar (authored y544..768 of the 768 frame => bottom 224px), 3-sliced so the ornate
@@ -783,10 +788,17 @@ struct TitleFx {
         const float fhalf = (maxW + 41.6f * A) * 0.5f + 80.0f * A;
         draw_dialog_frame(g, cview, dview, cxpx - fhalf, (capTop - 19.2f) * A,
                           cxpx + fhalf, itemTop(count - 1) + cellH + 22.0f * A, sw, sh);
-        if (curGlow.tex) {                                // additive glow highlight on the choice (0x40c1)
+        // Selection cursor = the MENUCURSOR scroll-curl bar, IDENTICAL to the title
+        // list (draw_list). The popup used to draw the plain additive glow, which is
+        // the mismatch the reference shows. 32px-tall cell, width = widest label + 64.
+        if (cursor.tex || curGlow.tex) {
             const float mid = itemTop(sel) + 0.46f * pxH, half = 16.0f * A, barW = maxW + 64.0f * A;
-            draw_cursor_glow(g, cview, dview, cxpx - barW * 0.5f, mid - half,
-                             cxpx + barW * 0.5f, mid + half, sw, sh);
+            if (cursor.tex)
+                draw_cursor_bar(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                                cxpx + barW * 0.5f, mid + half, sw, sh);
+            else
+                draw_cursor_glow(g, cview, dview, cxpx - barW * 0.5f, mid - half,
+                                 cxpx + barW * 0.5f, mid + half, sw, sh);
         }
         mf.text_centered(title, 0.5f, captionTop, pxH, sw, sh, 240, 246, 250, 255);
         for (int i = 0; i < count; ++i) {
