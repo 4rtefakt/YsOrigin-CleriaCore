@@ -161,6 +161,15 @@ struct XsoHost {
     // the camera basis is jittered by a fresh random per-axis offset in [-amp,+amp]. The three
     // floats are per-axis amplitudes, the int a frame duration (CUTSCENE_CAMERA.md §6).
     virtual void shake(float /*ampX*/, float /*ampY*/, float /*ampZ*/, int /*frames*/) {}
+    // Screen FADER (EVENTVM_HANDLERS.md §4, fader obj 0x769f18): a fullscreen colored
+    // overlay whose alpha ramps `current`→`target` at `1/frames` per frame. 0xc8 sets
+    // current instantly, 0xc9 the target, 0xca the RGB(A), 0xcc the frame count.
+    // Wait_Fader (0xf1) blocks until current==target. (Used for cut-to-black scene
+    // transitions and the crossfades in the S_1000 talks.)
+    virtual void fader_current(float /*alpha01*/) {}
+    virtual void fader_target(float /*alpha01*/) {}
+    virtual void fader_color(int /*rgb*/, int /*a*/) {}
+    virtual void fader_time(int /*frames*/) {}
 
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns

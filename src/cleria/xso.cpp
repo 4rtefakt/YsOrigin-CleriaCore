@@ -222,6 +222,16 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         };
                         host->shake(f(0), f(1), f(2), op(3)); return Step::Continue;
                     }
+                    // Screen fader ops (float args are bit patterns like scroll/shake).
+                    auto fb = [&](std::uint32_t i) {
+                        float v; const std::uint32_t raw = std::uint32_t(op(i));
+                        std::memcpy(&v, &raw, 4); return v;
+                    };
+                    if (sub == 0xc8 && nargs >= 1) { host->fader_current(fb(0)); return Step::Continue; }
+                    if (sub == 0xc9 && nargs >= 1) { host->fader_target(fb(0));  return Step::Continue; }
+                    if (sub == 0xca && nargs >= 2) { host->fader_color(op(0), op(1)); return Step::Continue; }
+                    if (sub == 0xca && nargs >= 1) { host->fader_color(op(0), 0xff); return Step::Continue; }
+                    if (sub == 0xcc && nargs >= 1) { host->fader_time(op(0));   return Step::Continue; }
                 }
                 if (sub == 0x5F && nargs >= 2) {            // acc = (flag[op0]==op1)
                     acc = (flag(op(0)) == op(1)) ? 1 : 0;

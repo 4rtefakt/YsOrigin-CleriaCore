@@ -871,7 +871,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (advance) { advance = false; return true; }  // one press advances one line
             return false;
         }
-        bool wait_fader() override { return true; }
+        // Screen fader (EVENTVM_HANDLERS.md §4): a fullscreen colored overlay, alpha
+        // ramping current->target at fade_rate/frame. fade_advance() steps it each tick.
+        float fade_cur = 0, fade_tgt = 0, fade_rate = 1;
+        std::uint32_t fade_rgb = 0;   // 0xRRGGBB (default black)
+        void fader_current(float a) override { fade_cur = std::clamp(a, 0.0f, 1.0f); }
+        void fader_target(float a) override { fade_tgt = std::clamp(a, 0.0f, 1.0f); }
+        void fader_color(int rgb, int) override { fade_rgb = std::uint32_t(rgb) & 0xffffffu; }
+        void fader_time(int frames) override { fade_rate = frames > 0 ? 1.0f / frames : 1.0f; }
+        void fade_advance() {
+            const float d = fade_tgt - fade_cur, step = std::min(1.0f, fade_rate);
+            fade_cur = (std::abs(d) <= step) ? fade_tgt : fade_cur + (d > 0 ? step : -step);
+        }
+        bool wait_fader() override { return skipping || fade_cur == fade_tgt; }
         bool wait_window(bool) override { return true; }
         bool wait_sound(int) override { return true; }
         // 0xf4 Wait_Script(name): a parent controller blocks until its spawned talk child
@@ -1042,6 +1054,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             csHost.skipping = false;
             csHost.advance = false;
+            csHost.fade_cur = csHost.fade_tgt;   // land the fade at its end state
             skip_cutscene = false;
             csHost.box_active = false;             // drop any half-revealed line
             scroll_reset(); shake(0, 0, 0, 0);     // clear the scripted look-at + shake
@@ -1056,6 +1069,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (csHost.box_active && csHost.reveal < int(csHost.text.size())) csHost.reveal += 2;
         scroll_advance();
         shake_advance();
+        csHost.fade_advance();
         const bool frozen = csMgr.world_frozen();
         if (!frozen && prev_frozen && after_cutscene) {    // world just thawed -> queued action
             auto f = after_cutscene; after_cutscene = nullptr; f();
@@ -2030,6 +2044,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             player.exp_pct = (player.level >= 60) ? 100.0f
                 : float(std::clamp((double(player.exp) - e0) / std::max(1.0, e1 - e0), 0.0, 1.0) * 100.0);
         }
+        // Screen fader (op 0xc8/0xc9/0xca/0xcc): the HUD draws a fullscreen solid-color
+        // quad at the fader's current alpha, over the scene+HUD but UNDER the dialogue
+        // box/caption (drawn below) so a partial crossfade keeps text readable while a
+        // full fade blacks the scene out. set_fade routes it into the HUD's alpha batch.
+        hud.set_fade(csHost.fade_rgb, csHost.fade_cur);
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
         // Cutscene dialogue box over the frozen world (FACEWIN0 bottom bar + name + text).
         if (csHost.box_active && pauseOk) {

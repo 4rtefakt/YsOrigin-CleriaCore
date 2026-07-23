@@ -292,6 +292,10 @@ struct Hud {
     }
 
     void message(const std::string& s) { messages.push_back({s, 5.0f}); }
+    // Screen fader (cutscene op 0xc8..): a fullscreen colored quad at `alpha`, drawn
+    // FIRST in render() so it sits over the 3D scene but under the HUD/dialogue text.
+    std::uint32_t fade_rgb = 0; float fade_alpha = 0;
+    void set_fade(std::uint32_t rgb, float alpha) { fade_rgb = rgb; fade_alpha = alpha; }
 
     // Append a string at screen pixel (px,py), scale, RGBA.
     void text(const std::string& s, float px, float py, float scale, float sw, float sh,
@@ -611,6 +615,11 @@ struct Hud {
         sprites.clear();
         boss_sprites.clear();
         mini_verts.clear();
+        // Fader FIRST (under everything else the HUD draws): a fullscreen solid quad.
+        if (fade_alpha > 0.001f)
+            rect(0, 0, float(sw), float(sh), float(sw), float(sh),
+                 std::uint8_t((fade_rgb >> 16) & 0xff), std::uint8_t((fade_rgb >> 8) & 0xff),
+                 std::uint8_t(fade_rgb & 0xff), std::uint8_t(std::min(1.0f, fade_alpha) * 255.0f));
         const float s = std::max(1.f, sh / 540.f);  // scale text to window height
         text("Room: " + room_name, 12 * s, 10 * s, s, float(sw), float(sh), 230, 220, 150, 255);
         float my = float(sh) * 0.5f;
