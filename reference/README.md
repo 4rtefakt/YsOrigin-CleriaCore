@@ -51,3 +51,13 @@ Anything else: a short descriptive lowercase name is fine. When in doubt, add a 
 Exact **positions, sizes, and the font** — that's the layout RE this folder feeds
 (`build/menu_re/MENU_LAYOUT.md`). A clean full-screen grab at a known resolution lets us read
 element coordinates directly.
+
+## Playthrough video references (ground truth for events/cutscenes/menus)
+Full playthrough playlists (user-provided, 2026-07-23). Frame-grab with yt-dlp+opencv
+(both installed); one video already saved at `reference/video/hugo_p1.mp4`.
+
+| character | playlist |
+|---|---|
+| Yunica | https://www.youtube.com/watch?v=uOV_A9xlUYQ&list=PLuWHr3qdYIyIG1gr7HUYMcVCa3blD1Jg2 |
+| Hugo | https://www.youtube.com/watch?v=1mYBrrjeCpA&list=PLuWHr3qdYIyJc5L42luV_d6DJDbL9Hw6c |
+| Toal | https://www.youtube.com/watch?v=1aYpnhD3VW0&list=PLuWHr3qdYIyKuRwRKIPcO1b8KvLuO8DZ8 |
