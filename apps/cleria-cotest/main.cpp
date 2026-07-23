@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -385,6 +386,49 @@ int main(int argc, char** argv) {
     }
     // EVENTS-ON-BY-DEFAULT burn-in (PLAN.md Phase 2): EVERY room root, started on the
     // faithful new-game flag state + the flag-235 intro stand-in, must SETTLE (no Fix
+    // FLAG-ROUTING PROBE (2026-07-24): S_1000's root branches on story flags to pick a
+    // per-moment NPC config. Determine the FRESH-GAME state empirically: run the root
+    // under each candidate flag set and report whether it soft-locks + how many NPCs it
+    // spawns. Candidates: zero flags, the old flag-235 hack, and FLAG_MAIN_1 (the first
+    // story-checkpoint state, MAP/S_01/S_0100). A good fresh state = doesn't lock the
+    // hub AND spawns the just-arrived scene.
+    {
+        namespace fs = std::filesystem;
+        struct ProbeHost : XsoHost {
+            int spawns = 0;
+            bool wait_prompt() override { return true; }
+            void spawn(int id, int, float, float, float, float, int) override { if (id > 0) ++spawns; }
+            bool is_alive(int e) const override { return e == 13; }
+            bool any_seed_alive(int) const override { return false; }
+        };
+        struct DirLoader2 : ScriptLoader {
+            std::string dir;
+            std::shared_ptr<const Xso> load_script(const std::string& name) override {
+                std::string up = name; for (char& c : up) c = char(std::toupper((unsigned char)c));
+                auto b = rd(dir + up + ".XSO");
+                if (b.size() < 4) return nullptr;
+                try { return std::make_shared<Xso>(Xso::parse(b)); } catch (...) { return nullptr; }
+            }
+        } dl; dl.dir = root + "/MAP/S_10/S_1000/";
+        // FLAG_MAIN_1's flag set (NEWGAME_FLAGS.md addendum): the first story checkpoint.
+        static const int fm1[] = {246,300,187,229,84,85,86,303,116,107,304,247,111,87,248,
+            312,442,230,54,313,99,314,316,249,55,444,78,318,319,321,323,220,275};
+        auto probe = [&](const char* label, std::function<void(XsoVm&)> setflags) {
+            ProbeHost ph; DirLoader2 ld; ld.dir = dl.dir;
+            ScriptManager mgr; mgr.loader = &ld; mgr.vm.host = &ph;
+            mgr.vm.new_game(1);                        // Yunica base
+            setflags(mgr.vm);
+            try { mgr.start_root(std::make_shared<Xso>(Xso::parse(rd(dl.dir + "S_1000.XSO"))), "s_1000"); }
+            catch (...) {}
+            for (int t = 0; t < 400; ++t) mgr.tick_all();
+            std::printf("[flagprobe] %-12s locked=%d npc_spawns=%d live=%zu\n",
+                        label, int(mgr.world_frozen()), ph.spawns, mgr.live.size());
+        };
+        probe("zero-flags",  [](XsoVm&){});
+        probe("flag235=1",   [](XsoVm& v){ v.g_flags[235] = 1; });
+        probe("FLAG_MAIN_1", [&](XsoVm& v){ for (int f : fm1) v.g_flags[f] = 1; v.g_flags[182]=0; v.g_flags[78]=0; });
+    }
+
     // held) within 600 ticks under an auto-advancing host. A room stuck frozen at
     // entry would soft-lock live play — this pins the whole corpus, not just S_1000.
     {
