@@ -978,6 +978,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // scripts; its Fix (0xb6) freezes the world and it reaps itself on end. Does NOT clear the
     // persistent controllers. `debug235` sets the S_1000 test-route flag for the debug T key.
     auto start_cutscene_xso = [&](std::shared_ptr<Xso> s, const std::string& name, bool debug235) {
+        // Seed the cutscene VM with the LIVE game flags: talk scripts branch on the
+        // character (flag 150) and story flags, and their default paths are EMPTY —
+        // with unseeded flags the script Fixes, matches nothing, Unfixes and ends in
+        // one burst (no box, no freeze). start_room_events does the same copy.
+        std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
         if (debug235) csMgr.vm.g_flags[235] = 1;
         csMgr.start_root(std::move(s), name);
         std::printf("  [cutscene] started %s (live=%zu, frozen=%d)\n", name.c_str(),
