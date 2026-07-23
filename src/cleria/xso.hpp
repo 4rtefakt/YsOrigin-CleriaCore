@@ -112,6 +112,12 @@ struct XsoHost {
     // op 0xe2 Caption(name): the area-name card is PRE-RENDERED art (data/image/<name>.dds).
     virtual void caption(const std::string& /*name*/) {}
 
+    // --- cutscene camera ops (CUTSCENE_CAMERA.md) ------------------------------------
+    // op 0xc3 Scroll_MoveTo(x,y,z, frames, priority): slide the camera look-at to a world
+    // point over `frames` (linear); op 0xc4 Scroll_Return(frames): slide it back to the player.
+    virtual void scroll_moveto(float /*x*/, float /*y*/, float /*z*/, int /*frames*/) {}
+    virtual void scroll_return(int /*frames*/) {}
+
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns
     // every placement through the CASTINFO factory. We pre-load the host with the

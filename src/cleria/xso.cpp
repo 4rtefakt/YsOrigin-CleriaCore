@@ -184,6 +184,16 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0xe2 && nargs >= 1) {          // Caption(name) — pre-rendered art
                         host->caption(script.string(op(0))); return Step::Continue;
                     }
+                    if (sub == 0xc3 && nargs >= 4) {          // Scroll_MoveTo(x,y,z,frames,priority)
+                        auto f = [&](std::uint32_t i) {
+                            float v; const std::uint32_t raw = std::uint32_t(op(i));
+                            std::memcpy(&v, &raw, 4); return v;
+                        };
+                        host->scroll_moveto(f(0), f(1), f(2), op(3)); return Step::Continue;
+                    }
+                    if (sub == 0xc4 && nargs >= 1) {          // Scroll_Return(frames,priority)
+                        host->scroll_return(op(0)); return Step::Continue;
+                    }
                 }
                 if (sub == 0x5F && nargs >= 2) {            // acc = (flag[op0]==op1)
                     acc = (flag(op(0)) == op(1)) ? 1 : 0;

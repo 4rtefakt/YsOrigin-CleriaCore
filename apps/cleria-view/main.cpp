@@ -1054,8 +1054,39 @@ static void update_camera(const Room& room, const Vec3& feet, float dt, bool sna
 // Place `cam` from the blended parameters and the player's CURRENT position, using
 // the engine's orbit math (FUN_0042b6e0): a = -PI/2 - yaw, then
 // eye = target + (-cos(a)*d*cos(pitch), sin(pitch)*d, sin(a)*d*cos(pitch)).
+// Event-camera SCROLL override (CUTSCENE_CAMERA.md §9): op 0xc3 Scroll_MoveTo slides the
+// camera's LOOK-AT point (not the eye) to a scripted world target over `frames`, linearly;
+// 0xc4 Scroll_Return slides it back to the player. The orbit rig (scm_eye) then frames the
+// scripted point automatically. State + the last follow point (the scroll_base source) live
+// here so apply_cam_state can lerp; scroll_advance() steps `t` once per 60 Hz frame.
+struct ScrollCam { Vec3 target{}, base{}; float t = 0, t_dest = 0, rate = 1; bool active = false; };
+static ScrollCam g_scroll;
+static Vec3 g_last_look{};
+static void scroll_moveto(float x, float y, float z, int frames) {
+    g_scroll.target = {x, y, z}; g_scroll.base = g_last_look;
+    g_scroll.t = 0; g_scroll.t_dest = 1; g_scroll.rate = frames > 0 ? 1.0f / frames : 1.0f;
+    g_scroll.active = true;
+    if (g_scroll.rate >= 1.0f) g_scroll.t = 1.0f;   // instant
+}
+static void scroll_return(int frames) {
+    g_scroll.base = g_last_look; g_scroll.t_dest = 0;
+    g_scroll.rate = frames > 0 ? 1.0f / frames : 1.0f;
+    if (g_scroll.rate >= 1.0f) { g_scroll.t = 0; g_scroll.active = false; }
+}
+static void scroll_advance() {
+    if (!g_scroll.active) return;
+    const float d = g_scroll.t_dest - g_scroll.t, step = std::min(1.0f, g_scroll.rate);
+    if (std::abs(d) <= step) { g_scroll.t = g_scroll.t_dest; if (g_scroll.t == 0.0f) g_scroll.active = false; }
+    else g_scroll.t += (d > 0 ? step : -step);
+}
+
 static void apply_cam_state(Camera& cam, const Vec3& feet) {
-    const Vec3 target = {feet.x, feet.y + kLookHeight, feet.z};   // A.mode 1: follow
+    Vec3 target = {feet.x, feet.y + kLookHeight, feet.z};   // A.mode 1: follow
+    g_last_look = target;                                    // remember the follow point (scroll base)
+    if (g_scroll.active && g_scroll.t != 0.0f)              // event scroll: lerp toward the scripted point
+        target = {g_scroll.base.x + (g_scroll.target.x - g_scroll.base.x) * g_scroll.t,
+                  g_scroll.base.y + (g_scroll.target.y - g_scroll.base.y) * g_scroll.t,
+                  g_scroll.base.z + (g_scroll.target.z - g_scroll.base.z) * g_scroll.t};
     // Use the shared orbit (scm_eye), built from the BLENDED yaw/pitch/dist plus the
     // current region's mode/flags. This is the engine's FUN_0042b6e0 -- including the
     // auto-yaw for flagged regions, which the old hand-rolled copy here dropped.
@@ -2662,6 +2693,11 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
     update_fog(room, feet, 0, /*snap=*/true);
     Camera cam;
     update_camera(room, feet, 0, /*snap=*/true);
+    // CLERIA_SCROLL="x,y,z": inject a cutscene camera Scroll_MoveTo (instant) to verify the
+    // event-camera override headlessly — the framing should re-centre on that world point.
+    if (const char* sc = std::getenv("CLERIA_SCROLL")) {
+        float x, y, z; if (std::sscanf(sc, "%f,%f,%f", &x, &y, &z) == 3) scroll_moveto(x, y, z, 0);
+    }
     if (g_cam.on) {  // the room's authored SCM camera
         apply_cam_state(cam, feet);
         const CameraRegion* rg = room.cam.pick(feet);
@@ -4982,6 +5018,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (advance) { advance = false; return true; }  // one press advances one line
             return false;
         }
+        void scroll_moveto(float x, float y, float z, int frames) override { ::scroll_moveto(x, y, z, frames); }
+        void scroll_return(int frames) override { ::scroll_return(frames); }
         void spawn(int, int, float, float, float, float, int) override {}
         bool is_alive(int) const override { return false; }
         bool any_seed_alive(int) const override { return false; }
@@ -5007,6 +5045,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             std::copy(cutsceneVm.g_flags, cutsceneVm.g_flags + 0x200, game.g_flags);  // persist grants
             have_cutscene = false; csHost.box_active = false;
         }
+        // The world is frozen (Fix), but the scripted CAMERA still moves: advance the scroll
+        // ramp and re-evaluate the camera around the (possibly scrolled) look-at point.
+        scroll_advance();
+        if (g_cam.on) apply_cam_state(cam, feet);
     };
 
     // Melee swing. Damage and reach are OUR numbers: the game has no per-enemy HP
