@@ -6,6 +6,7 @@
 // In the window: WASD/QE fly, hold LMB to look, wheel = speed, R = recenter,
 // ESC = quit. Fly into a doorway (a SEN trigger volume) to warp to the connected
 // room; number keys 1-9 take exit N directly.
+#include <functional>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -1062,6 +1063,11 @@ static void update_camera(const Room& room, const Vec3& feet, float dt, bool sna
 struct ScrollCam { Vec3 target{}, base{}; float t = 0, t_dest = 0, rate = 1; bool active = false; };
 static ScrollCam g_scroll;
 static Vec3 g_last_look{};
+
+// Optional overlay for the headless --play path: main can set this to draw UI (e.g. the
+// real cutscene dialogue box via TitleFx::draw_dialogue) over the room after the HUD, so a
+// preview goes through the actual render code rather than a re-implementation.
+static std::function<void(Gpu&, WGPUTextureView, WGPUTextureView, std::uint32_t, std::uint32_t)> g_play_overlay;
 static void scroll_moveto(float x, float y, float z, int frames) {
     g_scroll.target = {x, y, z}; g_scroll.base = g_last_look;
     g_scroll.t = 0; g_scroll.t_dest = 1; g_scroll.rate = frames > 0 ? 1.0f / frames : 1.0f;
@@ -2861,6 +2867,7 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
         }
     }
     hud.render(g, cview, W, H, room.name, 0.016f, &pv);
+    if (g_play_overlay) g_play_overlay(g, cview, dview, W, H);   // e.g. the real dialogue box (--dialogue)
 
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPUTexelCopyTextureInfo src = {}; src.texture = color; src.aspect = WGPUTextureAspect_All;
@@ -6080,6 +6087,23 @@ int main(int argc, char** argv) {
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 720;
         float yaw = argc >= 8 ? float(std::atof(argv[7])) : 1.0f;
         return render_fps(g, room, argv[4], W, H, yaw, asset_root);
+    }
+    if (argc >= 4 && std::strcmp(argv[3], "--dialogue") == 0) {
+        // cleria-view <root> <sob> --dialogue out.ppm [W H] — preview the REAL cutscene box
+        // (TitleFx::draw_dialogue: FACEWIN0 frame + Felghana name/text) over a room, headless.
+        build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
+        Room room = load_room(g, asset_root, sob_path);
+        std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
+        std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 720;
+        static TitleFx tfx; tfx.init(g, asset_root);
+        static MenuFont mf;
+        mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
+        g_play_overlay = [W, H](Gpu& gg, WGPUTextureView cv, WGPUTextureView dv, std::uint32_t, std::uint32_t) {
+            write_mvp(gg, Mat4::identity());
+            tfx.draw_dialogue(gg, mf, cv, dv, W, H, "Iris",
+                              "Roy and Ramona just left.\\nThe Commander and I will be following shortly.", -1);
+        };
+        return render_play(g, room, argv[4], W, H, asset_root, 1.5708f, -0.72f, 28.8f, 2.0f, 2);
     }
     if (play) {
         // cleria-view <root> <sob> --play out.ppm [W H yaw pitch distFrac heightFrac dir]
