@@ -1086,6 +1086,28 @@ static void scroll_advance() {
     else g_scroll.t += (d > 0 ? step : -step);
 }
 
+// Event-camera SHAKE (CUTSCENE_CAMERA.md §6): op 0xcf jitters the camera for `frames` frames
+// by a fresh random per-axis offset in [-amp,+amp], decaying to nothing when the counter hits
+// 0. shake_advance() regenerates the offset + counts down once per 60 Hz frame; apply_cam_state
+// folds the offset into the look-at. The exact geometric axis (basis vs eye) is [H]; the
+// random-per-frame decay is the certain, code-grounded part. (PRNG is a local xorshift — the
+// game's exact seed isn't matched, noted rather than hidden.)
+struct ShakeCam { Vec3 amp{}, off{}; int frames = 0; std::uint32_t rs = 0x9e3779b9u; };
+static ShakeCam g_shake;
+static void shake(float ax, float ay, float az, int frames) {
+    g_shake.amp = {ax, ay, az}; g_shake.frames = frames; g_shake.off = {0, 0, 0};
+}
+static void shake_advance() {
+    if (g_shake.frames <= 0) { g_shake.off = {0, 0, 0}; return; }
+    auto nextf = [&] {                       // xorshift32 -> [-1, 1)
+        std::uint32_t x = g_shake.rs;
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5; g_shake.rs = x;
+        return (float(x) / 4294967296.0f) * 2.0f - 1.0f;
+    };
+    g_shake.off = {nextf() * g_shake.amp.x, nextf() * g_shake.amp.y, nextf() * g_shake.amp.z};
+    --g_shake.frames;
+}
+
 static void apply_cam_state(Camera& cam, const Vec3& feet) {
     Vec3 target = {feet.x, feet.y + kLookHeight, feet.z};   // A.mode 1: follow
     g_last_look = target;                                    // remember the follow point (scroll base)
@@ -1093,6 +1115,7 @@ static void apply_cam_state(Camera& cam, const Vec3& feet) {
         target = {g_scroll.base.x + (g_scroll.target.x - g_scroll.base.x) * g_scroll.t,
                   g_scroll.base.y + (g_scroll.target.y - g_scroll.base.y) * g_scroll.t,
                   g_scroll.base.z + (g_scroll.target.z - g_scroll.base.z) * g_scroll.t};
+    if (g_shake.frames > 0) { target.x += g_shake.off.x; target.y += g_shake.off.y; target.z += g_shake.off.z; }
     // Use the shared orbit (scm_eye), built from the BLENDED yaw/pitch/dist plus the
     // current region's mode/flags. This is the engine's FUN_0042b6e0 -- including the
     // auto-yaw for flagged regions, which the old hand-rolled copy here dropped.
@@ -5062,6 +5085,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         void scroll_moveto(float x, float y, float z, int frames) override { ::scroll_moveto(x, y, z, frames); }
         void scroll_return(int frames) override { ::scroll_return(frames); }
+        void shake(float ax, float ay, float az, int frames) override { ::shake(ax, ay, az, frames); }
         // Effect ops forward to the world so a cutscene's Eft_Kill / Eft_LocatePosAddStr
         // really adds/removes the ward from world.effects() (the barrier break-pan).
         XsoHost* worldHost = nullptr;
@@ -5131,8 +5155,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (after_cutscene) { auto f = after_cutscene; after_cutscene = nullptr; f(); }
         }
         // The world is frozen (Fix), but the scripted CAMERA still moves: advance the scroll
-        // ramp and re-evaluate the camera around the (possibly scrolled) look-at point.
+        // ramp + shake and re-evaluate the camera around the (possibly scrolled) look-at point.
         scroll_advance();
+        shake_advance();
         if (g_cam.on) apply_cam_state(cam, feet);
     };
 

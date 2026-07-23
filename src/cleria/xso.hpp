@@ -126,6 +126,10 @@ struct XsoHost {
     // point over `frames` (linear); op 0xc4 Scroll_Return(frames): slide it back to the player.
     virtual void scroll_moveto(float /*x*/, float /*y*/, float /*z*/, int /*frames*/) {}
     virtual void scroll_return(int /*frames*/) {}
+    // op 0xcf Shake(ampX, ampY, ampZ, frames): a decaying screen shake — for `frames` frames
+    // the camera basis is jittered by a fresh random per-axis offset in [-amp,+amp]. The three
+    // floats are per-axis amplitudes, the int a frame duration (CUTSCENE_CAMERA.md §6).
+    virtual void shake(float /*ampX*/, float /*ampY*/, float /*ampZ*/, int /*frames*/) {}
 
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns

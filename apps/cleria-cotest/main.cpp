@@ -164,6 +164,26 @@ int main(int argc, char** argv) {
         std::printf("[box]  SceneBox OBB containment: %s\n", ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // 8) Camera shake op 0xcf: EV_TILT (Wait_Time 20 -> Shake(0.12,0.12,0,15)) forwards the
+    //    per-axis amplitudes + frame count to the host after the wait (CUTSCENE_CAMERA.md §6).
+    //    (The op word 1039516303 = 0x3DF5C28F = 0.12f — the doc's "0.1257" was approximate.)
+    {
+        struct ShakeH : XsoHost {
+            float ax = -1, ay = -1, az = -1; int fr = -1;
+            void shake(float x, float y, float z, int frames) override { ax = x; ay = y; az = z; fr = frames; }
+            void spawn(int, int, float, float, float, float, int) override {}
+            bool is_alive(int) const override { return false; }
+        } sh;
+        XsoVm vm; vm.host = &sh;
+        Xso evtilt = Xso::parse(rd(root + "/MAP/S_10/S_1000/EV_TILT.XSO"));
+        vm.co_begin(evtilt);
+        for (int t = 0; t < 60 && vm.co_active(); ++t) vm.tick();
+        const bool ok = sh.fr == 15 && std::fabs(sh.ax - 0.12f) < 0.001f &&
+                        std::fabs(sh.ay - 0.12f) < 0.001f && sh.az == 0.0f;
+        std::printf("[shk]  EV_TILT Shake: amp=(%.4f,%.4f,%.4f) frames=%d %s\n",
+                    sh.ax, sh.ay, sh.az, sh.fr, ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }
