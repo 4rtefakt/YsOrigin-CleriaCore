@@ -1,5 +1,7 @@
 #include "cleria/xso.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <stdexcept>
 
@@ -166,6 +168,21 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                             if (eval_wait(sub, script, old, argoff, nargs)) return Step::Continue;
                             pc = old; return Step::Park;       // rewind to this op; re-poll next frame
                         default: break;
+                    }
+                    // StartScript (0xb4) / StartScript2 (0xb8): hand the resolved child NAME
+                    // to the manager (CUTSCENE_COROUTINE.md §5). The name is a string-pool
+                    // index (corpus-verified: S_1000's StartScript operands index its pool of
+                    // child-script names). StartScript2's explicit two-string path is the
+                    // concatenation of its two operands. Coroutine-only + gated on the sink,
+                    // so run-to-completion never spawns.
+                    if (on_start_script) {
+                        if (sub == 0xb4 && nargs >= 1) {
+                            on_start_script(script.string(op(0))); return Step::Continue;
+                        }
+                        if (sub == 0xb8 && nargs >= 2) {
+                            on_start_script(script.string(op(0)) + script.string(op(1)));
+                            return Step::Continue;
+                        }
                     }
                 }
                 // Dialogue / caption ops forward to the host. Handled here (not in the
@@ -352,6 +369,88 @@ bool XsoVm::eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
         default:   return true;   // chr/mesh-region waits (0xf9/fd/fe/ff/100/101/104/105/106):
                                   // proceed — a stand-in until those subsystems are modelled
     }
+}
+
+// ---- ScriptManager: the concurrent GoScript runtime (CUTSCENE_COROUTINE.md §2/§5) -------
+
+namespace {
+bool iequal(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i)
+        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
+    return true;
+}
+}  // namespace
+
+std::size_t ScriptManager::start_root(std::shared_ptr<const Xso> s, std::string name) {
+    Inst in;
+    in.script = std::move(s);
+    in.name = std::move(name);
+    live.push_back(std::move(in));
+    const std::size_t idx = live.size() - 1;
+    tick_inst(live[idx]);   // immediate first tick this frame (§5a)
+    return idx;
+}
+
+bool ScriptManager::start(const std::string& name) {
+    // Single-instance dedup: the engine refuses a second live spawn of the same name
+    // (unless AllowMultiInstance, which no room controller in this corpus sets). §5a.
+    for (const Inst& i : live)
+        if (!i.finished && iequal(i.name, name)) return false;
+    if (!loader) return false;
+    std::shared_ptr<const Xso> s = loader->load_script(name);
+    if (!s) return false;                 // target doesn't exist -> skip (engine would throw)
+    Inst in;
+    in.script = std::move(s);
+    in.name = name;
+    live.push_back(std::move(in));
+    tick_inst(live.back());               // child runs its first burst the same frame
+    return true;
+}
+
+void ScriptManager::tick_inst(Inst& in) {
+    if (in.finished || !in.script) return;
+    // Load this instance's coroutine registers into the shared scratch VM, run one frame,
+    // then save them back. g_flags stay in `vm` (shared across every instance).
+    vm.co_script = in.script.get();
+    vm.co_pc = in.pc;
+    vm.co_wait = in.wait;
+    vm.acc = in.acc;
+    vm.locals = std::move(in.locals);
+    const XsoVm::Tick t = vm.tick();
+    in.pc = vm.co_pc;
+    in.wait = vm.co_wait;
+    in.acc = vm.acc;
+    in.locals = std::move(vm.locals);
+    vm.locals.clear();
+    if (t == XsoVm::Tick::Ended) in.finished = true;
+}
+
+void ScriptManager::tick_all() {
+    if (paused) return;                   // global freeze: no countdown, no burst (§3)
+    // Tick the scripts live at the start of the frame; children queued this frame are
+    // spawned+ticked in the drain below (so a child spawned this frame still runs now, §5a).
+    const std::size_t n = live.size();
+    for (std::size_t i = 0; i < n; ++i) tick_inst(live[i]);
+    // Drain StartScript spawns. start() ticks each child once, which may queue more.
+    while (!spawn_queue.empty()) {
+        std::vector<std::string> batch;
+        batch.swap(spawn_queue);
+        for (const std::string& nm : batch) start(nm);
+    }
+    // Record how many GoScripts were resident together this frame (before the reap drops
+    // the ones that just finished) — the concurrency the manager actually sustained.
+    peak_live = std::max(peak_live, live.size());
+    // Reap finished scripts (the driver skips them; a separate pass removes them, §5d).
+    live.erase(std::remove_if(live.begin(), live.end(),
+                              [](const Inst& i) { return i.finished; }),
+               live.end());
+}
+
+bool ScriptManager::any_live() const {
+    for (const Inst& i : live)
+        if (!i.finished) return true;
+    return false;
 }
 
 }  // namespace cleria

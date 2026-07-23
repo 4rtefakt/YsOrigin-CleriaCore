@@ -1,10 +1,15 @@
 // Headless test for the XSO coroutine VM (CUTSCENE_COROUTINE.md): verifies run()
-// is unchanged and tick() parks/advances on Wait_Prompt. Usage: cleria-cotest <assets>
+// is unchanged, tick() parks/advances on Wait_Prompt, and the ScriptManager spawns +
+// ticks concurrent StartScript children. Usage: cleria-cotest <assets>
 #include "cleria/xso.hpp"
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 using namespace cleria;
 static std::vector<std::uint8_t> rd(const std::string& p) {
@@ -43,6 +48,48 @@ int main(int argc, char** argv) {
       std::printf("[tick] prompt=ALWAYS: ticked %d ended=%d lines=%zu %s\n", t, ended, h.lines.size(), ok ? "OK" : "FAIL");
       for (const auto& l : h.lines) std::printf("       > %.72s\n", l.c_str());
       fails += !ok; }
+    // 4) ScriptManager: run the S_1000 ROOM ROOT and confirm it spawns + ticks its
+    //    concurrent StartScript children (CUTSCENE_COROUTINE.md §5). A filesystem loader
+    //    resolves each child NAME -> <room>/<NAME>.XSO and records every request, so we can
+    //    assert the root asked the engine for its documented ungated controllers.
+    {
+        const std::string dir = root + "/MAP/S_10/S_1000/";
+        struct FsLoader : ScriptLoader {
+            std::string dir;
+            std::unordered_set<std::string> requested;   // upper-cased names asked for
+            std::shared_ptr<const Xso> load_script(const std::string& name) override {
+                std::string up = name;
+                for (char& c : up) c = char(std::toupper((unsigned char)c));
+                requested.insert(up);
+                auto bytes = rd(dir + up + ".XSO");
+                if (bytes.size() < 4) return nullptr;     // not present -> engine skips
+                try { return std::make_shared<Xso>(Xso::parse(bytes)); }
+                catch (const std::exception&) { return nullptr; }
+            }
+        } loader;
+        loader.dir = dir;
+        H h; h.prompt = true;                             // auto-advance any dialogue that fires
+        ScriptManager mgr;
+        mgr.loader = &loader;
+        mgr.vm.host = &h;
+        mgr.vm.g_flags[150] = 1;                          // Yunica
+        auto rootScript = std::make_shared<Xso>(Xso::parse(rd(dir + "S_1000.XSO")));
+        mgr.start_root(rootScript, "s_1000");             // ticks once (spawns children)
+        for (int f = 0; f < 120; ++f) mgr.tick_all();
+        const std::size_t peak = mgr.peak_live;           // max GoScripts resident in one frame
+        const bool spawnedCaption = loader.requested.count("EV_CAPTION") > 0;
+        const bool spawnedSave = loader.requested.count("S_SAVEOBJECTCHANGE_START") > 0;
+        const bool concurrent = peak > 1;                 // >1 GoScript alive at once
+        const bool ok = spawnedCaption && spawnedSave && concurrent;
+        std::printf("[mgr]  S_1000 root: requested %zu children, peak-live=%zu, "
+                    "EV_Caption=%d Save=%d %s\n",
+                    loader.requested.size(), peak, spawnedCaption, spawnedSave,
+                    ok ? "OK" : "FAIL");
+        std::vector<std::string> names(loader.requested.begin(), loader.requested.end());
+        std::sort(names.begin(), names.end());
+        for (const auto& nnm : names) std::printf("       spawned: %s\n", nnm.c_str());
+        fails += !ok;
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

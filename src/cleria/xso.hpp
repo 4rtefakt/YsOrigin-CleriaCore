@@ -4,6 +4,8 @@
 // docs/formats/ and tools/xso_dis.py (the validated static reference).
 #pragma once
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -134,6 +136,13 @@ struct XsoVm {
     // Optional: set to drive live actors. Null => the actor ops (0x12c/0x13f) are
     // inert and the VM behaves exactly as it did before actors existed.
     XsoHost* host = nullptr;
+
+    // StartScript sink (op 0xb4 StartScript / 0xb8 StartScript2, CUTSCENE_COROUTINE.md §5).
+    // A running COROUTINE hands the resolved child-script NAME here so a ScriptManager can
+    // spawn it as a concurrent GoScript. Null (the default) => the op is inert — which is
+    // exactly the run-to-completion behaviour for static grant extraction, so `run()` and
+    // `--grants` never try to load or recurse into children. Only fired in coroutine mode.
+    std::function<void(const std::string& name)> on_start_script;
     std::int32_t g_flags[0x200] = {0};
     std::unordered_map<int, std::int32_t> locals;  // indices >= 0x200
     std::int32_t acc = 0;
@@ -216,6 +225,61 @@ struct XsoVm {
     // A condition-wait predicate (0xf1/0xf3/0xf4/0xf5/0xf6/0xf7/0xf8): true => proceed.
     bool eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
                    std::uint32_t argoff, std::uint32_t nargs);
+};
+
+// Resolves a StartScript child NAME to a parsed script. The host owns filesystem access
+// and decompression (the VM/manager stay headless and testable); the manager keeps the
+// returned script alive for the child's lifetime. Return null if the target doesn't exist
+// (the engine throws "StartScript target doesn't exist"; we skip the spawn instead).
+struct ScriptLoader {
+    virtual ~ScriptLoader() = default;
+    virtual std::shared_ptr<const Xso> load_script(const std::string& name) = 0;
+};
+
+// The concurrent event-script runtime (CUTSCENE_COROUTINE.md §2/§5): the engine's
+// `DAT_0073014c` live-GoScript array and its per-frame driver `FUN_004281c0`. Owns the
+// live set of script instances, ticks each once per frame, spawns StartScript children
+// (which tick the same frame), and reaps finished scripts. Every instance SHARES one flag
+// array (the game state) held by the embedded scratch `vm`; each instance carries its own
+// PC / wait counter / accumulator / locals, loaded into the scratch VM around each tick.
+struct ScriptManager {
+    XsoVm vm;                          // shared g_flags + host; scratch coroutine registers
+    ScriptLoader* loader = nullptr;    // resolves child names -> scripts (host-side FS)
+    bool paused = false;               // the global freeze byte DAT_0074e686 (§2/§3 pause gate)
+
+    // One live GoScript. Resume state (pc/wait/acc/locals) is the coroutine; the shared
+    // g_flags live in `vm`, so every instance reads/writes the same game flags.
+    struct Inst {
+        std::shared_ptr<const Xso> script;
+        std::string name;
+        std::uint32_t pc = 0;
+        std::int32_t wait = 0;
+        std::int32_t acc = 0;
+        std::unordered_map<int, std::int32_t> locals;
+        bool finished = false;
+    };
+    std::vector<Inst> live;
+    std::vector<std::string> spawn_queue;   // names queued by StartScript during a tick
+    std::size_t peak_live = 0;              // max instances resident in one frame (pre-reap)
+
+    ScriptManager() {
+        vm.on_start_script = [this](const std::string& n) { spawn_queue.push_back(n); };
+    }
+
+    // Register a root (or already-loaded child) instance and tick it once this frame,
+    // matching StartScript's immediate first tick (§5a). Returns the live-index.
+    std::size_t start_root(std::shared_ptr<const Xso> s, std::string name);
+    // Spawn a child by NAME via the loader (the StartScript path). Dedup: refuse if a live
+    // instance with the same name already exists (single-instance; §5a). Ticks the child
+    // once immediately. Returns false if deduped or the loader can't find it.
+    bool start(const std::string& name);
+    // One engine frame: tick every live script once, drain StartScript spawns (children
+    // tick this frame too), then reap finished scripts. A no-op while paused.
+    void tick_all();
+    bool any_live() const;
+
+  private:
+    void tick_inst(Inst& in);          // swap regs into `vm`, run one frame, save back
 };
 
 }  // namespace cleria
