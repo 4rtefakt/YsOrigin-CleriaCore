@@ -12,6 +12,9 @@
 # Prebuilt dependencies (SDL3 + wgpu-native) — fetched, not authored.
 /third_party/
 
+# Secondary CMake build tree (used for wiring-phase test builds) — pure output, never tracked.
+/build_diff/
+
 # ---------------------------------------------------------------------------
 # Build tree: ignore it wholesale, then re-admit the reverse-engineering notes.
 # The agents write findings under build/<subsystem>_re/, and those notes are the
