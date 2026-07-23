@@ -132,7 +132,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         apply_room_bgm("title");   // "title\" is a scene record like any room (BGM id 1)
         TitleFx title; title.init(g, asset_root);
         std::array<std::string, 8> tslots;
-        int lsel = 0;
+        int lsel = 0, ltab = 0;
+        auto scan_tab = [&] { for (int i = 0; i < 8; ++i) tslots[std::size_t(i)] = slot_label(ltab * 8 + i); };
         MenuFont mf;   // Felghana atlas rasterised at the 960-internal font size (see render_title),
         // bilinear-upscaled to the window. Format must match the window surface (fmt), not a
         // hardcoded RGBA8Unorm, or the pipeline is incompatible with an sRGB surface pass.
@@ -209,8 +210,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     } else if (ts == LOADGAME) {
                         if (esc) ts = MAIN;
                         else if (up || down) lsel = wrap(lsel, 8, up);
+                        else if (left)  { ltab = (ltab + 7) % 8; scan_tab(); }
+                        else if (right) { ltab = (ltab + 1) % 8; scan_tab(); }
                         else if (ok && !tslots[std::size_t(lsel)].empty()) {
-                            std::ifstream f(slot_path(lsel), std::ios::binary);
+                            std::ifstream f(slot_path(ltab * 8 + lsel), std::ios::binary);
                             std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
                             if (auto r = SaveRecord::decode(raw)) {
                                 pending_load = from_record(*r);
@@ -241,7 +244,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             else if (sel == 2) { ts = BONUS; bsel = 0; }       // Bonus Modes
                             else if (sel == 3) { ts = OPTIONS; osel = 0; }     // Options
                             else if (sel == 1) {                               // Load Game
-                                for (int i = 0; i < 8; ++i) tslots[std::size_t(i)] = slot_label(i);
+                                ltab = 0; scan_tab();
                                 ts = LOADGAME; lsel = 0;
                             }
                         }
@@ -285,7 +288,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             } else if (ts == OPTIONS) {
                 title.draw_options(g, mf, view, tdepth, cw, ch, osel, oslider, ocheck);
             } else if (ts == LOADGAME) {
-                title.draw_svld(g, mf, view, tdepth, cw, ch, /*save=*/false, 0, lsel, tslots.data());
+                title.draw_svld(g, mf, view, tdepth, cw, ch, /*save=*/false, ltab, lsel, tslots.data());
             } else {
                 title.draw(g, view, tdepth, cw, ch);
                 title.draw_menu(g, mf, view, tdepth, cw, ch, sel);
@@ -729,10 +732,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // ---- save / load (PLAN.md Phase 2; codec src/cleria/save.*) -------------------
     // Pause-book Save/Load page state: slot cursor + cached slot lines (refreshed on
     // page entry and after a save — not per frame, that would be 8 file reads a frame).
-    int svldSlot = 0;
-    bool save_dlg = false;   // goddess-statue SAVE dialog (opened by try_interact)
+    // 64 save slots = 8 file TABS x 8 slots (the real slot screen, reference/realgame/
+    // statue_save_slots.png); absolute slot = tab*8 + row -> yso_NN.bin (00..63).
+    int svldTab = 0, svldSlot = 0;
+    // Goddess-statue UI state machine (STATUE_MENU.md): 0 = closed, 1 = "What will you
+    // do?" choice, 2 = save-slot screen, 3 = blessing list. The cleansing animation
+    // (Yunica/Hugo first-use) is NOT modelled yet — statues open the menu directly
+    // [stand-in]; blessings list real costs but effects are not implemented.
+    int statue_ui = 0, statue_sel = 0;
     std::array<std::string, 8> svldLabels;
-    auto refresh_slots = [&] { for (int i = 0; i < 8; ++i) svldLabels[std::size_t(i)] = slot_label(i); };
+    auto refresh_slots = [&] {
+        for (int i = 0; i < 8; ++i) svldLabels[std::size_t(i)] = slot_label(svldTab * 8 + i);
+    };
     auto capture_save = [&]() -> SaveState {
         SaveState s;
         std::memcpy(s.flags, game.g_flags, sizeof s.flags);
@@ -1067,9 +1078,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::string tl = target->name;
         for (char& c : tl) c = char(std::tolower((unsigned char)c));
         if (tl.rfind("save", 0) == 0) {
-            refresh_slots();
-            svldSlot = 0;
-            save_dlg = true;
+            statue_ui = 1;            // "What will you do?" (STATUE_MENU.md flow)
+            statue_sel = 0;
             return;
         }
         if (target->script.empty()) { std::printf("  %s: no script\n", target->name.c_str()); return; }
@@ -1150,15 +1160,33 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
-                // The goddess-statue SAVE dialog swallows all input while open
-                // (the real game's save flow: statue -> dialog, book page = Load).
-                if (save_dlg) {
-                    if (k == SDLK_UP || k == SDLK_W) svldSlot = (svldSlot + 7) % 8;
+                // The goddess-statue menu swallows all input while open (real flow,
+                // STATUE_MENU.md: choice -> save slots / blessings; Esc backs out).
+                if (statue_ui == 1) {              // "What will you do?"
+                    if (k == SDLK_UP || k == SDLK_W) statue_sel = (statue_sel + 2) % 3;
+                    else if (k == SDLK_DOWN || k == SDLK_S) statue_sel = (statue_sel + 1) % 3;
+                    else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
+                        if (statue_sel == 0) { refresh_slots(); statue_ui = 2; }
+                        else if (statue_sel == 1) { statue_ui = 3; statue_sel = 0; }
+                        else statue_ui = 0;        // Nothing right now
+                    } else if (k == SDLK_ESCAPE) statue_ui = 0;
+                } else if (statue_ui == 2) {       // save-slot screen (8 tabs x 8)
+                    if (k == SDLK_LEFT || k == SDLK_A) { svldTab = (svldTab + 7) % 8; refresh_slots(); }
+                    else if (k == SDLK_RIGHT || k == SDLK_D) { svldTab = (svldTab + 1) % 8; refresh_slots(); }
+                    else if (k == SDLK_UP || k == SDLK_W) svldSlot = (svldSlot + 7) % 8;
                     else if (k == SDLK_DOWN || k == SDLK_S) svldSlot = (svldSlot + 1) % 8;
                     else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
-                        do_save(svldSlot);
-                        save_dlg = false;
-                    } else if (k == SDLK_ESCAPE) save_dlg = false;
+                        do_save(svldTab * 8 + svldSlot);
+                        statue_ui = 0;
+                    } else if (k == SDLK_ESCAPE) { statue_ui = 1; statue_sel = 0; }
+                } else if (statue_ui == 3) {       // blessing list (effects pending)
+                    constexpr int kBless = 15;     // 14 blessings + "Nothing right now"
+                    if (k == SDLK_UP || k == SDLK_W) statue_sel = (statue_sel + kBless - 1) % kBless;
+                    else if (k == SDLK_DOWN || k == SDLK_S) statue_sel = (statue_sel + 1) % kBless;
+                    else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
+                        if (statue_sel == kBless - 1) { statue_ui = 1; statue_sel = 1; }
+                        else hud.message("Blessings are not implemented yet.");
+                    } else if (k == SDLK_ESCAPE) { statue_ui = 1; statue_sel = 1; }
                 }
                 // While the world is frozen by a cutscene, a confirm key advances the dialogue
                 // and other gameplay input is swallowed (the sim is skipped anyway).
@@ -1178,14 +1206,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     svldSlot = (svldSlot + 7) % 8;
                 else if (paused && pausePage == 3 && (k == SDLK_DOWN || k == SDLK_S))
                     svldSlot = (svldSlot + 1) % 8;
+                else if (paused && pausePage == 3 && (k == SDLK_LEFT || k == SDLK_A)) {
+                    svldTab = (svldTab + 7) % 8; refresh_slots();
+                }
+                else if (paused && pausePage == 3 && (k == SDLK_RIGHT || k == SDLK_D)) {
+                    svldTab = (svldTab + 1) % 8; refresh_slots();
+                }
                 else if (paused && pausePage == 3 && (k == SDLK_RETURN || k == SDLK_SPACE)) {
-                    std::ifstream f(slot_path(svldSlot), std::ios::binary);
+                    std::ifstream f(slot_path(svldTab * 8 + svldSlot), std::ios::binary);
                     std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
                     if (auto r = SaveRecord::decode(raw)) {
                         apply_loaded(from_record(*r));
                         paused = false;
                         hud.message("Game loaded.");
-                    } else hud.message("No data in slot " + std::to_string(svldSlot + 1));
+                    } else hud.message("No data in slot " + std::to_string(svldTab * 8 + svldSlot + 1));
                 }
                 else if (k == SDLK_F) {
                     fly = !fly;
@@ -1268,7 +1302,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // The catch-up loop in the exe has NO cap; a long stall really does emit a
         // burst of ticks. We reproduce that, relying on the load-time reset above
         // rather than on clamping, so timing stays exact under normal play.
-        if (paused || save_dlg) accum = 0;  // freeze while the pause menu / save dialog is open
+        if (paused || statue_ui) accum = 0;  // freeze while the pause menu / statue menu is open
         int ticks = 0;
         while (accum >= kTickDt) {
         accum -= kTickDt;
@@ -1895,8 +1929,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 case 2:  // Topic (Character / Monster / Manual)
                     pauseUi.draw_topic(g, pmf, view, pdepth, cw, ch, 0);
                     break;
-                case 3:  // Load page (Up/Down slot, Enter = load; saving is at statues)
-                    pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/false, /*fileTab=*/0,
+                case 3:  // Load page (L/R tab, Up/Down slot, Enter = load; saving is at statues)
+                    pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/false, svldTab,
                                       svldSlot, svldLabels.data());
                     break;
                 default:  // Equip
@@ -1906,12 +1940,38 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             wgpuTextureViewRelease(pdepth);
         }
-        // The goddess-statue SAVE dialog, over the frozen game (real-game save flow).
-        if (save_dlg && pauseOk) {
+        // The goddess-statue menu, over the frozen game (STATUE_MENU.md flow).
+        if (statue_ui && pauseOk) {
             write_mvp(g, Mat4::identity());
             WGPUTextureView pdepth = make_depth(g.device, cw, ch);
-            pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/true, /*fileTab=*/0,
-                              svldSlot, svldLabels.data());
+            if (statue_ui == 1) {
+                static const char* kChoice[3] = {"Save", "Accept divine blessing", "Nothing right now"};
+                pauseUi.draw_popup(g, pmf, view, pdepth, cw, ch, "What will you do?", kChoice, 3, statue_sel);
+            } else if (statue_ui == 2) {
+                pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/true, svldTab,
+                                  svldSlot, svldLabels.data());
+            } else {
+                // Blessing names + SP costs are the retail-observed table (STATUE_MENU.md).
+                // Selecting one only reports "not implemented" — no SP is spent.
+                static const char* kBless[15] = {
+                    "Strengthen current armor - [SP:]100",
+                    "Increase stationary heal rate - [SP:]1000",
+                    "Reduce damage from terrain - [SP:]4000",
+                    "Increase stun effect - [SP:]8000",
+                    "Increase SP gain - [SP:]16000",
+                    "Increase item drop rate - [SP:]24000",
+                    "Reduce bad status duration LV1 - [SP:]1500",
+                    "Increase effect of herbs LV1 - [SP:]2000",
+                    "Bolster bad status resists LV1 - [SP:]2500",
+                    "Extend drop item effects LV1 - [SP:]3000",
+                    "Increase Boost recovery LV1 - [SP:]10000",
+                    "Hasten Skill recovery LV1 - [SP:]20000",
+                    "Reduce MP usage LV1 - [SP:]30000",
+                    "Increase movement speed - [SP:]500000",
+                    "Nothing right now"};
+                pauseUi.draw_popup(g, pmf, view, pdepth, cw, ch, "Please select a blessing.",
+                                   kBless, 15, statue_sel, false, 96.0f);
+            }
             wgpuTextureViewRelease(pdepth);
         }
         wgpuSurfacePresent(surface);
