@@ -48,6 +48,21 @@ The Roda-tree scene is a whole cutscene room to add later; the tower-entrance in
 - **Group-enemy red glow** — the ward enemies should glow red; likely the wrong (non-group) enemy
   set is spawning under the current flag state. Tied to the same flag-state work as the intro.
 
+## Status at end of session
+- **All 7 test suites pass** (347s incl. the 186-room sweep). No regressions.
+- **Default (events-OFF) build unchanged** — your normal game is exactly as before.
+- Everything committed. Latest: the verified S_1000 intro.
+
+## The intro's script chain (for reference, from the string pool)
+S_1000 root (flag 141=1) → **BattleStart1** (walk-in cutscene) → **battle_0** (Unfixes for the
+interactive fight; spawns 6 mobs; waits for their deaths) → **TalkC270** (resume dialogue) →
+**SwordTutorial1** (the cleanse tutorial). If it stalls, it's most likely at the battle_0 kill-wait
+(needs the mobs killable + the death-gate to fire) — that's the thing to watch and report.
+
+## Ops implemented today (the cutscene runtime that was missing)
+Chr_Pos, Chr_MoveTo, Chr_Dir, Wait_ChrMoving, Camera_Set/Return, the screen fader (Fader_*),
+Chr_Delete, event NPC spawn→world, + the depth-buffer fix that made ALL overlays render.
+
 ## Rule I'm following now
 No more flag-roulette. Read the actual script, find the actual trigger/op, implement it, verify.
 The intro win came from doing exactly that. The remaining items are the same kind of work.
