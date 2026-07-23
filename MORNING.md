@@ -20,6 +20,11 @@ $env:CLERIA_EVENTS=1; & "C:\Users\kores\repos\YsOrigin-CleriaCore\build\Release\
 New Game → Yunica → the intro should play (entrance → walk to platform → mobs → dialogue).
 Keep pressing **Enter/E** to advance the dialogue and see how far the intro gets.
 
+## Context you gave me (recorded)
+Real new-game flow = **video movie → in-engine Roda-tree cutscene (per character, a room you never
+revisit) → tower entrance**. We skip the movie + Roda-tree and jump to the tower (seeding flag 141).
+The Roda-tree scene is a whole cutscene room to add later; the tower-entrance intro is what's playing.
+
 ## What to look for / tell me
 
 - **Does the intro COMPLETE?** After the battle/dialogue it should reach the cleanse tutorial and

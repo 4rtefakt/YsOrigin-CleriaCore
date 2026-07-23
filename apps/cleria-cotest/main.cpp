@@ -420,13 +420,17 @@ int main(int argc, char** argv) {
             setflags(mgr.vm);
             try { mgr.start_root(std::make_shared<Xso>(Xso::parse(rd(dl.dir + "S_1000.XSO"))), "s_1000"); }
             catch (...) {}
-            for (int t = 0; t < 400; ++t) mgr.tick_all();
+            for (int t = 0; t < 500; ++t) mgr.tick_all();
             std::printf("[flagprobe] %-12s locked=%d npc_spawns=%d live=%zu\n",
                         label, int(mgr.world_frozen()), ph.spawns, mgr.live.size());
         };
         probe("zero-flags",  [](XsoVm&){});
         probe("flag235=1",   [](XsoVm& v){ v.g_flags[235] = 1; });
         probe("FLAG_MAIN_1", [&](XsoVm& v){ for (int f : fm1) v.g_flags[f] = 1; v.g_flags[182]=0; v.g_flags[78]=0; });
+        // The VERIFIED intro trigger: flag 141=1 -> BATTLESTART1. Confirm the intro
+        // chain COMPLETES (world unfrozen) rather than soft-locking, under a host that
+        // auto-advances prompts + reports actors "still" (so Wait_ChrMoving proceeds).
+        probe("flag141=1",   [](XsoVm& v){ v.g_flags[141] = 1; });
     }
 
     // held) within 600 ticks under an auto-advancing host. A room stuck frozen at
