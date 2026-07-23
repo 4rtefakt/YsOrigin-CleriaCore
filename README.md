@@ -145,7 +145,8 @@ exe) and boots to the title screen.
 | **Space** | jump |
 | **E** | interact / open chest |
 | **Tab** | switch character (Yunica / Hugo / Toal) |
-| **Escape** | open/close the pause book (the window **X** quits) |
+| **Escape** | open/close the pause book — or **skip a playing cutscene** (the window **X** quits) |
+| **Backspace** | skip a playing cutscene |
 | **Q / E** | previous / next page in the pause book |
 | **1–9** | take exit N |
 | **F** | free-fly debug camera |

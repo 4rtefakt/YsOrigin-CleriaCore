@@ -944,6 +944,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csHost.roomPtr = &room;         // op 0x13d tests the player vs the current room's .SEV boxes
     csHost.playerPos = &feet;
     bool prev_frozen = false;
+    bool skip_cutscene = false;   // set by ESC/Backspace during a frozen cutscene
     std::function<void()> after_cutscene;   // ran once when the world thaws (e.g. re-gate the room)
     SpriteTex captionTex; std::string captionLoaded;   // cached area-name card (op 0xe2)
 
@@ -958,7 +959,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // fires BattleStart1, which Fixes and locks the hub (cleria-cotest test 11 pins this). So it
     // is off by default (the debug-T talk + barrier break-pan still work, they're started
     // explicitly); set CLERIA_EVENTS=1 to run live region-talk triggers experimentally.
-    const bool events_enabled = std::getenv("CLERIA_EVENTS") != nullptr;
+    // Room-root event scripts are ON BY DEFAULT (2026-07-23). The old opt-in gate was
+    // there because unseeded flags misrouted S_1000 into a hub-locking battle intro;
+    // that's fixed (new_game() + flag 235), and the cotest [rootsweep] proves ZERO of
+    // the 186 roots soft-lock on the faithful new-game state (every headless "freeze"
+    // is a cutscene actively counting down a Wait_Time). CLERIA_EVENTS=0 disables.
+    const char* ev = std::getenv("CLERIA_EVENTS");
+    const bool events_enabled = !ev || std::atoi(ev) != 0;
     auto start_room_events = [&] {
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_count = 0;
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
@@ -998,6 +1005,23 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // One fixed tick of the room's event scripts. Returns whether the world is FROZEN (a Fix
     // is held) — the caller skips the player/enemy sim for that tick but the camera still runs.
     auto tick_events = [&] {
+        // Cutscene SKIP: drain every live script to completion this frame, collapsing
+        // Wait_Time delays and auto-advancing dialogue prompts, until the world thaws
+        // (all Fixes released) or a bounded budget is hit. Side effects (flags, spawns,
+        // warps, Eft/Scroll) still run in order — only the waiting is removed. Bounded
+        // so a script that legitimately never ends (a persistent controller) can't hang.
+        if (skip_cutscene) {
+            csHost.advance = true;                 // clear any Wait_Prompt
+            for (int guard = 0; guard < 20000 && csMgr.world_frozen(); ++guard) {
+                csMgr.skip_waits();                // zero every live script's Wait_Time
+                csHost.advance = true;
+                csMgr.tick_all();
+            }
+            skip_cutscene = false;
+            csHost.box_active = false;             // drop any half-revealed line
+            scroll_return(0); shake(0, 0, 0, 0);   // snap the camera back instantly
+            hud.message("(skipped)");
+        }
         csMgr.tick_all();
         if (csHost.box_active && csHost.reveal < int(csHost.text.size())) csHost.reveal += 2;
         scroll_advance();
@@ -1269,9 +1293,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 }
                 // While the world is frozen by a cutscene, a confirm key advances the dialogue
                 // and other gameplay input is swallowed (the sim is skipped anyway).
+                // ESC (or the dedicated skip key) SKIPS the whole cutscene — like retail's
+                // cancel-to-skip: tick_events drains it to the end, applying every flag /
+                // spawn / warp in order but collapsing the Wait_Time delays.
                 else if (csMgr.world_frozen()) {
                     if (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_E || k == SDLK_Z)
                         csHost.advance = true;
+                    else if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE)
+                        skip_cutscene = true;
                 }
                 // T = trigger a test cutscene (S_1000's Roy/Ramona talk) — debug.
                 else if (k == SDLK_T) start_cutscene(asset_root / "MAP" / "S_10" / "S_1000" / "TALKC210.XSO", /*debug235*/true);

@@ -363,6 +363,12 @@ struct ScriptManager {
     void tick_all();
     bool any_live() const;
 
+    // Cutscene SKIP support: zero every live script's pending Wait_Time countdown so the
+    // next tick_all() bursts straight through the delays. Side effects still execute in
+    // order — only the waiting collapses. Caller loops tick_all() until world_frozen()
+    // clears. (The per-instance `wait` is the saved co_wait; see tick_inst.)
+    void skip_waits() { for (Inst& in : live) if (!in.finished) in.wait = 0; }
+
   private:
     void tick_inst(Inst& in);          // swap regs into `vm`, run one frame, save back
     Inst* cur_inst_ = nullptr;         // the instance being ticked (for Fix/Unfix attribution)
