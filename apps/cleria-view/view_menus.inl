@@ -678,9 +678,19 @@ struct TitleFx {
     // face asset/id mapping is still [UNKNOWN] (KAO_* is a noise texture, not portraits).
     void draw_dialogue(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                        std::uint32_t W, std::uint32_t H, const std::string& name,
-                       const std::string& text, int reveal) {
+                       const std::string& text, int reveal, const SpriteTex* face = nullptr) {
         if (!facewin.tex) return;
         const float sw = float(W), sh = float(H);
+        // The speaker PORTRAIT: quad DAT_00732a80 = authored (47.5,517.5)-(277.5,747.5),
+        // 230x230, UV 0..1 of the face canvas (CUTSCENE_DIALOGUE.md addendum). Authored
+        // X mapped through the centred 4:3 content region ([H] for ultrawide anchoring).
+        if (face && face->tex) {
+            const float A = sh / 768.0f, xoff = (sw - 1024.0f * A) * 0.5f;
+            auto FX = [&](float x) { return 2.0f * (xoff + x * A) / sw - 1.0f; };
+            auto FY = [&](float y) { return 1.0f - 2.0f * (y * A) / sh; };
+            draw_screen_image(g, cview, dview, false, *face, FX(47.5f), FY(517.5f),
+                              FX(277.5f), FY(747.5f), 0.14f, 0.0f, 0.0f, 1.0f, 1.0f);
+        }
         const float by1 = sh, by0 = sh - sh * (224.0f / 768.0f);   // bottom 224/768 of the frame
         const float bx0 = 0.0f, bx1 = sw;
         constexpr float vc = 0.5f, uL = 0.19f, uR = 0.586f, uEnd = 0.809f;   // FACEWIN0 slice UVs

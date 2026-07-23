@@ -853,8 +853,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         int reveal = 0;           // typewriter char count (advanced by the loop)
         bool advance = false;     // set by input; consumed to advance one line
         ScriptManager* mgr = nullptr;   // for Wait_Script (is the named child still live?)
-        void window_msg(int sp, int, const std::string& nm, const std::string& tx) override {
-            speaker = sp; name = nm; text = tx; reveal = 0; box_active = true;
+        int voice = -1;           // Window_Msg param1 — doubles as the FACE FRAME index
+        void window_msg(int sp, int vc, const std::string& nm, const std::string& tx) override {
+            speaker = sp; voice = vc; name = nm; text = tx; reveal = 0; box_active = true;
         }
         void window_close() override { box_active = false; name.clear(); text.clear(); }
         std::string caption_name; int caption_timer = 0;   // 0xe2 area-name card (frames left)
@@ -888,7 +889,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                            const std::string& n) override {
             if (worldHost) worldHost->locate_effect(id, x, y, z, a, b, n);
         }
-        void spawn(int, int, float, float, float, float, int) override {}
+        // Cutscene spawns (op 0x12c): remember entity->cast so the dialogue can
+        // resolve a speaker id to its face set (F_<cast>.AIA). Not drawn as actors
+        // here — the world host owns real spawns.
+        std::unordered_map<int, int> spawn_cast;
+        void spawn(int entity_id, int cast_type, float, float, float, float, int) override {
+            if (entity_id > 0) spawn_cast[entity_id] = cast_type;
+        }
         bool is_alive(int) const override { return false; }
         bool any_seed_alive(int) const override { return false; }
         // op 0x13d: is the player inside the named .SEV box? Only the player (13) is
@@ -1129,6 +1136,65 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // loaded here since the walk loop doesn't share the title-screen instances.
     TitleFx pauseUi;
     const bool pauseOk = pauseUi.init(g, asset_root);
+    // Dialogue PORTRAIT (CUTSCENE_DIALOGUE.md addendum): face = AIA frame of an ani
+    // slot. Slot from the speaker class; frame = the Window_Msg voice param. Decoded
+    // with the pixel-exact AIA decoder, composed at its canvas position, cached until
+    // the slot/frame changes (the engine re-uploads exactly the same way, +0x264 gate).
+    struct PortraitCache {
+        int cast = -1, frame = -1;   // frame -2 = decode failed (don't retry per frame)
+        Aia aia; bool aia_ok = false;
+        SpriteTex tex{};
+    } portrait;
+    auto portrait_cast = [&](int sp) -> int {
+        // Speaker -> face SET (empirical + CUTSCENE_DIALOGUE.md addendum): a speaker id
+        // that the cutscene itself spawned (TALKC210: Roy = entity 87, cast 210) uses
+        // its cast's face file F_<cast>.AIA (8 single-frame 256x256 expressions; the
+        // engine routes this through runtime ani slots via actor+0x124). Player ids
+        // have no F_ file — faceless for now [H: player-bust source not located].
+        auto it = csHost.spawn_cast.find(sp);
+        if (it != csHost.spawn_cast.end()) return it->second;
+        // No spawn recorded: the doc's rule — an id <= 0xa5 IS the class/cast index
+        // (S_1000 spawns entities with id == cast; TALKC210's 87 = CAST_C210 = Roy).
+        return (sp > 0 && sp <= 0xa5) ? sp : -1;
+    };
+    auto portrait_tex = [&]() -> const SpriteTex* {
+        const int cast = portrait_cast(csHost.speaker);
+        const int frame = csHost.voice;
+        if (cast < 0 || frame < 0) return nullptr;
+        if (portrait.cast != cast) {
+            portrait.cast = cast; portrait.frame = -1; portrait.aia_ok = false;
+            // cast INDEX -> sprite stem ("C_210") -> face set "F_210.AIA".
+            std::string stem = casts.sprite_stem(cast);
+            if (stem.size() > 2) {
+                stem[0] = 'F';
+                portrait.aia = Aia{};
+                portrait.aia_ok = portrait.aia.load(asset_root / "ANI" / (stem + ".AIA")) &&
+                                  portrait.aia.ok();
+            }
+        }
+        if (portrait.aia_ok && portrait.frame != frame) {
+            AiaFrame f;
+            if (portrait.aia.decode_frame(std::uint32_t(frame), 0, 0, f) && f.w > 0) {
+                // Compose onto the full canvas so the face sits where it was authored
+                // (the engine textures the whole record; a tight bbox would drift).
+                const std::uint32_t cw = portrait.aia.canvasW, chh = portrait.aia.canvasH;
+                std::vector<std::uint8_t> canvas(std::size_t(cw) * chh * 4, 0);
+                for (std::uint32_t y = 0; y < f.h; ++y) {
+                    const std::uint32_t dy = y + f.y0;
+                    if (dy >= chh) break;
+                    for (std::uint32_t x = 0; x < f.w; ++x) {
+                        const std::uint32_t dx = x + f.x0;
+                        if (dx >= cw) break;
+                        std::memcpy(&canvas[(std::size_t(dy) * cw + dx) * 4],
+                                    &f.rgba[(std::size_t(y) * f.w + x) * 4], 4);
+                    }
+                }
+                portrait.tex = upload_rgba(g, cw, chh, canvas.data());
+                portrait.frame = frame;
+            } else portrait.frame = -2;
+        }
+        return (portrait.frame == frame && portrait.tex.tex) ? &portrait.tex : nullptr;
+    };
     MenuFont pmf;
     pmf.init(g, fmt, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
     const ItemTable pitems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
@@ -1874,7 +1940,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (csHost.box_active && pauseOk) {
             write_mvp(g, Mat4::identity());   // the box is screen-space
             WGPUTextureView ddepth = make_depth(g.device, cw, ch);
-            pauseUi.draw_dialogue(g, pmf, view, ddepth, cw, ch, csHost.name, csHost.text, csHost.reveal);
+            pauseUi.draw_dialogue(g, pmf, view, ddepth, cw, ch, csHost.name, csHost.text, csHost.reveal,
+                                  portrait_tex());
             wgpuTextureViewRelease(ddepth);
         }
         // Area-name caption card (op 0xe2 = pre-rendered IMAGE/<name>.dds), fading out.
