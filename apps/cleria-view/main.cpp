@@ -2003,13 +2003,17 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
     if (const char* s = std::getenv("CLERIA_BARRIER_TILT")) tiltDeg = float(std::atof(s));
     if (const char* s = std::getenv("CLERIA_BARRIER_LIFT")) lift = float(std::atof(s));
     if (const char* s = std::getenv("CLERIA_BARRIER_SCALE")) { float v = float(std::atof(s)); if (v > 0) scaleOv = v; }
-    const float tr = tiltDeg * 3.14159265f / 180.0f;
+    const float trFlat = tiltDeg * 3.14159265f / 180.0f;
     Vec3 fwdH = {camFwd.x, 0, camFwd.z};
     const float fl = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
     if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
     const Vec3 rightH = normalize(cross(Vec3{0, 1, 0}, fwdH));
-    // The plane's vertical/depth axis: world-up at tilt 0, camera-forward-horizontal at 90.
-    const Vec3 upDir = {fwdH.x * std::sin(tr), std::cos(tr), fwdH.z * std::sin(tr)};
+    // The retail ward is a FLAT ground ring PLUS a VERTICAL light beam (user's 1080p shot).
+    // Those are separate layers of map_kekkai, so orient each by its aspect: a tall layer
+    // (h > w) is the beam -> stand it UPRIGHT (world-up, camera-facing); a wide/square layer
+    // is the ring -> lay it FLAT (raked by tiltDeg). upDir is the layer's vertical axis.
+    const Vec3 upFlat = {fwdH.x * std::sin(trFlat), std::cos(trFlat), fwdH.z * std::sin(trFlat)};
+    const Vec3 upBeam = {0, 1, 0};
     for (const ActorWorld::LocatedEffect& e : fx) {
         const BulletArt& art = bullet_art(g, asset_root, efl, eft, e.id);
         if (!art.ok()) continue;
@@ -2017,12 +2021,16 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
         const int age = int(t * 60.0f) % std::max(1, art.life);
         for (const BulletArt::Layer& L : art.layers) {
             if (L.frames.empty()) continue;
+            const bool beam = L.h > L.w * 1.3f;          // tall layer -> the vertical beam
+            const Vec3 upDir = beam ? upBeam : upFlat;
             const int fi = std::min(int(L.frames.size()) - 1,
                                     int(std::size_t(age) * L.frames.size() /
                                         std::size_t(std::max(1, art.life))));
             const Ef2Frame& fr = L.frames[std::size_t(fi)];
             const float hw = L.w * sc * 0.5f, hh = L.h * sc * 0.5f;
-            const Vec3 c = {e.x, e.y + lift, e.z};
+            // The flat ring sits at the ward point (raised by `lift`); the beam STANDS ON the
+            // ground and rises, so its centre is one half-height up from the floor.
+            const Vec3 c = beam ? Vec3{e.x, e.y + hh, e.z} : Vec3{e.x, e.y + lift, e.z};
             RoomVertex verts[4];
             std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
             auto V = [&](int n, float rx, float uy, float u, float v) {
