@@ -7,13 +7,15 @@ Launch = the **CleriaCore** Start-menu shortcut. Skip any section you don't feel
 
 ## ⭐ Test the cutscene fixes (needs events ON)
 
-Events are OFF by default right now. To turn them ON for a test, launch from a terminal:
+Events are OFF by default right now. To turn them ON for a test, open **PowerShell**
+(the blue terminal) and paste this ONE line:
 
-```bash
-CLERIA_EVENTS=1 "C:\Users\kores\repos\YsOrigin-CleriaCore\build\Release\cleria-view.exe" "C:\Users\kores\repos\YsOrigin-CleriaCore\assets"
+```powershell
+$env:CLERIA_EVENTS=1; & "C:\Users\kores\repos\YsOrigin-CleriaCore\build\Release\cleria-view.exe" "C:\Users\kores\repos\YsOrigin-CleriaCore\assets"
 ```
 
-(Or just play normally without it — the default build is clean.)
+⚠️ It stays ON for that terminal window. To go back to normal: close the terminal,
+or run `$env:CLERIA_EVENTS=0`. (Or just double-click the shortcut — that's always events-OFF.)
 
 **With events ON, check these 3 things:**
 
