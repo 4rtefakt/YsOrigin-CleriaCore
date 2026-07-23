@@ -969,13 +969,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // fires BattleStart1, which Fixes and locks the hub (cleria-cotest test 11 pins this). So it
     // is off by default (the debug-T talk + barrier break-pan still work, they're started
     // explicitly); set CLERIA_EVENTS=1 to run live region-talk triggers experimentally.
-    // Room-root event scripts are ON BY DEFAULT (2026-07-23). The old opt-in gate was
-    // there because unseeded flags misrouted S_1000 into a hub-locking battle intro;
-    // that's fixed (new_game() + flag 235), and the cotest [rootsweep] proves ZERO of
-    // the 186 roots soft-lock on the faithful new-game state (every headless "freeze"
-    // is a cutscene actively counting down a Wait_Time). CLERIA_EVENTS=0 disables.
+    // Room-root event scripts are OPT-IN (CLERIA_EVENTS=1). The headless [rootsweep]
+    // proves no room stays frozen forever, but the LIVE cutscene RUNTIME still has real
+    // gaps that make on-by-default a broken experience (user-verified 2026-07-23):
+    //   - cutscene camera pans place the eye in the floor (scroll/scm_eye fidelity)
+    //   - cutscene-spawned NPCs (0x12c in event context) are never drawn — csHost.spawn
+    //     only records the cast id for portraits; it doesn't create a visible actor
+    //   - controller/story-flag gating misfires: talks re-fire, and a kill-gated event
+    //     triggers on room entry (the "group cleared" predicate is wrong when enemies
+    //     are present)
+    // These are the real Phase-2 cutscene work (PLAN.md). Until they're solid, events
+    // stay opt-in so the default game isn't degraded.
     const char* ev = std::getenv("CLERIA_EVENTS");
-    const bool events_enabled = !ev || std::atoi(ev) != 0;
+    const bool events_enabled = ev && std::atoi(ev) != 0;
     auto start_room_events = [&] {
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_count = 0;
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
