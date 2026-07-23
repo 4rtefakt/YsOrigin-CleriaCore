@@ -301,6 +301,12 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // A null host answers "none alive", so a barrier script falls
                         // through to grant its flag (matches the run-to-completion path).
                         acc = (host && host->any_seed_alive(op(0))) ? 1 : 0;
+                    } else if (sub == 0x13d && nargs >= 2) {
+                        // Chr_IsInEventBox(entityId, boxNameIdx): the region-talk trigger
+                        // predicate (OP_13D_REGION.md). op1 is a string-pool index -> the box
+                        // name. acc = actor op0 inside that named .SEV box. A null host / an
+                        // unresolved box answers false (no trigger).
+                        acc = (host && host->chr_in_event_box(op(0), script.string(op(1)))) ? 1 : 0;
                     } else if (sub == 0x11a && host && nargs >= 7) {
                         // Eft_LocatePosAddStr: place a named effect. x/y/z/a/b are float
                         // BIT PATTERNS in the operand words (as 0x12c's are), the name is

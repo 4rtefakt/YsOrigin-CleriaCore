@@ -75,6 +75,13 @@ struct XsoHost {
     // `find(op0) != null && hp >= 1.0`. Absent id => false.
     virtual bool is_alive(int entity_id) const = 0;
 
+    // op 0x13d Chr_IsInEventBox(entityId, boxName): is the actor (998=self, 13=player, else
+    // by id) inside the named oriented box placed in the map's .SEV scene-event table? An
+    // OBB containment test (build/event_re/OP_13D_REGION.md). This is the region-talk trigger
+    // predicate — a Stop*_Roi_* controller polls it before firing a TalkCxxx. A null/absent
+    // host answers false, so nothing triggers until the .SEV boxes are wired.
+    virtual bool chr_in_event_box(int /*entityId*/, const std::string& /*boxName*/) const { return false; }
+
     // op 0x131 Chr_IsSeedLiving(group): "is any live entity tagged with group-N still
     // in the registry?" (FUN_00570640, EVENTVM.md §6). Maps arg 1..4 -> bit (n<<8) at
     // entity+0x130; scans the live registry for a match. The barrier-fight poll: a
