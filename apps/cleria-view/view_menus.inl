@@ -710,6 +710,53 @@ struct TitleFx {
         }
         mf.draw(g, cview);   // flush the accumulated glyphs
     }
+    // The in-world CHOICE window (Window_Menu 0xd4): the statue "What will you do?" /
+    // blessing list. The window art is FACEWIN0's upper region — the same ornate
+    // filigree panel the dialogue box uses (reference/realgame/statue_choice.png shows
+    // it verbatim: silver scrollwork, translucent blue fill, title band + divider).
+    // 3-sliced horizontally like draw_dialogue; stretched vertically for tall lists
+    // (retail's own blessing window stretches the same way).
+    void draw_menu_window(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
+                          std::uint32_t W, std::uint32_t H, const char* title,
+                          const char* const* items, int count, int sel) {
+        if (!facewin.tex) return;
+        const float sw = float(W), sh = float(H), A = sh / 768.0f;
+        const float pxH = 30.0f * A, pitch = 40.0f * A;
+        // Window extent: width fits the longest line + margins; height = title band +
+        // items. Centered at authored X=512; vertically centered on the screen.
+        float maxW = mf.measure(title, pxH);
+        for (int i = 0; i < count; ++i) maxW = std::max(maxW, mf.measure(items[i], pxH));
+        const float wpx = std::min(sw * 0.92f, maxW + 200.0f * A);
+        const float titleBand = 64.0f * A;
+        const float hpx = titleBand + 18.0f * A + count * pitch + 30.0f * A;
+        const float lpx = (sw - wpx) * 0.5f, rpx = lpx + wpx;
+        const float tpx = std::max(8.0f * A, (sh - hpx) * 0.5f), bpx = tpx + hpx;
+        constexpr float vc = 0.5f, uL = 0.19f, uR = 0.586f, uEnd = 0.809f;  // FACEWIN0 slices
+        float curl = (bpx - tpx) * (uL * 512.0f) / (vc * 512.0f);
+        if (curl * 2.0f > (rpx - lpx) * 0.5f) curl = (rpx - lpx) * 0.25f;
+        auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+        auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+        const float z = 0.2f;
+        draw_screen_image(g, cview, dview, false, facewin, NX(lpx),        NY(tpx), NX(lpx + curl), NY(bpx), z, 0.0f, 0.0f, uL,   vc);
+        draw_screen_image(g, cview, dview, false, facewin, NX(lpx + curl), NY(tpx), NX(rpx - curl), NY(bpx), z, uL,   0.0f, uR,   vc);
+        draw_screen_image(g, cview, dview, false, facewin, NX(rpx - curl), NY(tpx), NX(rpx),        NY(bpx), z, uR,   0.0f, uEnd, vc);
+        // Title in the band, items below the divider; selected row bright white with
+        // the additive glow capsule, others pale teal (statue_choice.png colours).
+        mf.text_centered(title, 0.5f, tpx + titleBand * 0.28f, pxH, sw, sh, 245, 248, 252, 255);
+        const float first = tpx + titleBand + 18.0f * A;
+        for (int i = 0; i < count; ++i) {
+            const float ty = first + i * pitch;
+            if (i == sel && curGlow.tex) {
+                const float mid = ty + 0.46f * pxH, half = 15.0f * A;
+                const float barW = mf.measure(items[i], pxH) + 90.0f * A;
+                draw_cursor_glow(g, cview, dview, sw * 0.5f - barW * 0.5f, mid - half,
+                                 sw * 0.5f + barW * 0.5f, mid + half, sw, sh);
+            }
+            mf.text_centered(items[i], 0.5f, ty, pxH, sw, sh,
+                             i == sel ? 252 : 190, i == sel ? 253 : 214, i == sel ? 253 : 220, 255);
+        }
+        mf.draw(g, cview);
+    }
     // The New-Game choice popups (Type Select, Difficulty, SP Bonus Acquisition): a go_wnddialog
     // list (MENU_LAYOUT.md) -- caption at authored {512,256}, items 38.4 apart below, font cell 32,
     // centred on X=512 -- inside the DIALOG0 9-slice frame, with the MENUCURSOR bar on the choice.

@@ -1946,7 +1946,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             WGPUTextureView pdepth = make_depth(g.device, cw, ch);
             if (statue_ui == 1) {
                 static const char* kChoice[3] = {"Save", "Accept divine blessing", "Nothing right now"};
-                pauseUi.draw_popup(g, pmf, view, pdepth, cw, ch, "What will you do?", kChoice, 3, statue_sel);
+                pauseUi.draw_menu_window(g, pmf, view, pdepth, cw, ch, "What will you do?", kChoice, 3, statue_sel);
             } else if (statue_ui == 2) {
                 pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/true, svldTab,
                                   svldSlot, svldLabels.data());
@@ -1969,8 +1969,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     "Reduce MP usage LV1 - [SP:]30000",
                     "Increase movement speed - [SP:]500000",
                     "Nothing right now"};
-                pauseUi.draw_popup(g, pmf, view, pdepth, cw, ch, "Please select a blessing.",
-                                   kBless, 15, statue_sel, false, 96.0f);
+                pauseUi.draw_menu_window(g, pmf, view, pdepth, cw, ch, "Please select a blessing.",
+                                         kBless, 15, statue_sel);
             }
             wgpuTextureViewRelease(pdepth);
         }
