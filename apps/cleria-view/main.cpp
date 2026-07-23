@@ -5031,6 +5031,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         bool box_active = false;
         int reveal = 0;           // typewriter char count (advanced by the loop)
         bool advance = false;     // set by input; consumed to advance one line
+        ScriptManager* mgr = nullptr;   // for Wait_Script (is the named child still live?)
         void window_msg(int sp, int, const std::string& nm, const std::string& tx) override {
             speaker = sp; name = nm; text = tx; reveal = 0; box_active = true;
         }
@@ -5042,32 +5043,70 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (advance) { advance = false; return true; }  // one press advances one line
             return false;
         }
+        // 0xf4 Wait_Script(name): a parent controller blocks until its spawned talk child
+        // is gone. Answer from the live set (case-insensitive; script names vary in case).
+        bool wait_script_done(const std::string& n) override {
+            if (!mgr) return true;
+            for (const auto& i : mgr->live) {
+                if (i.finished || i.name.size() != n.size()) continue;
+                bool same = true;
+                for (std::size_t k = 0; k < n.size(); ++k)
+                    if (std::tolower((unsigned char)i.name[k]) != std::tolower((unsigned char)n[k])) { same = false; break; }
+                if (same) return false;   // still running -> keep waiting
+            }
+            return true;
+        }
         void scroll_moveto(float x, float y, float z, int frames) override { ::scroll_moveto(x, y, z, frames); }
         void scroll_return(int frames) override { ::scroll_return(frames); }
         void spawn(int, int, float, float, float, float, int) override {}
         bool is_alive(int) const override { return false; }
         bool any_seed_alive(int) const override { return false; }
     } csHost;
-    XsoVm cutsceneVm; cutsceneVm.host = &csHost;
-    Xso cutscene_script;              // kept alive while the coroutine is active
+    // The cutscene runtime is the concurrent GoScript manager (CUTSCENE_COROUTINE.md §2/§5):
+    // a triggered script can StartScript sub-talks / captions that tick alongside it. Its
+    // loader resolves child names from the CURRENT room's script dir (&room.dir stays valid
+    // across transitions — `room` is reassigned in place). Flags are copied in at start and
+    // back out at end, so a cutscene reads/writes the live game state.
+    struct ViewLoader : ScriptLoader {
+        const fs::path* dir = nullptr;
+        std::shared_ptr<const Xso> load_script(const std::string& name) override {
+            std::string up = name;
+            for (char& c : up) c = char(std::toupper((unsigned char)c));
+            const fs::path p = *dir / (up + ".XSO");
+            std::error_code ec;
+            if (!fs::exists(p, ec)) return nullptr;    // engine would throw; we skip
+            try { return std::make_shared<Xso>(Xso::parse(read_bytes(p))); }
+            catch (const std::exception&) { return nullptr; }
+        }
+    } csLoader;
+    csLoader.dir = &room.dir;
+    ScriptManager csMgr;
+    csMgr.vm.host = &csHost;
+    csMgr.loader = &csLoader;
+    csHost.mgr = &csMgr;
     bool have_cutscene = false;
     SpriteTex captionTex; std::string captionLoaded;   // cached area-name card (op 0xe2)
-    auto start_cutscene = [&](const fs::path& p) {
-        try { cutscene_script = Xso::parse(read_bytes(p)); }
+    // Start a cutscene from a script file. `debug235` sets the S_1000 test-route flag so the
+    // debug T key reaches TALKC210's dialogue variant; real triggers pass false (live flags).
+    auto start_cutscene = [&](const fs::path& p, bool debug235) {
+        std::shared_ptr<Xso> s;
+        try { s = std::make_shared<Xso>(Xso::parse(read_bytes(p))); }
         catch (const std::exception&) { hud.message("cutscene: load failed"); return; }
-        std::copy(game.g_flags, game.g_flags + 0x200, cutsceneVm.g_flags);  // current game state
-        cutsceneVm.g_flags[150] = character;
-        cutsceneVm.g_flags[235] = 1;   // TEST: route TALKC210 into a dialogue variant
-        cutsceneVm.reset_run();
-        cutsceneVm.co_begin(cutscene_script);
+        std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);  // current game state
+        csMgr.vm.g_flags[150] = character;
+        if (debug235) csMgr.vm.g_flags[235] = 1;
+        csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0;
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
-        have_cutscene = true;
-        std::printf("  [cutscene] started %s\n", p.filename().string().c_str());
+        csMgr.start_root(s, p.stem().string());   // ticks once; may park on a Wait_* or end
+        have_cutscene = csMgr.any_live();          // a wait-less script just ran; don't freeze
+        if (!have_cutscene) std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);
+        std::printf("  [cutscene] started %s (live=%zu)\n", p.filename().string().c_str(), csMgr.live.size());
     };
     auto tick_cutscene = [&] {
         if (csHost.box_active && csHost.reveal < int(csHost.text.size())) csHost.reveal += 2;
-        if (cutsceneVm.tick() == XsoVm::Tick::Ended || !cutsceneVm.co_active()) {
-            std::copy(cutsceneVm.g_flags, cutsceneVm.g_flags + 0x200, game.g_flags);  // persist grants
+        csMgr.tick_all();
+        if (!csMgr.any_live()) {                    // every script finished -> resume the world
+            std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);  // persist grants
             have_cutscene = false; csHost.box_active = false;
         }
         // The world is frozen (Fix), but the scripted CAMERA still moves: advance the scroll
@@ -5225,7 +5264,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         csHost.advance = true;
                 }
                 // T = trigger a test cutscene (S_1000's Roy/Ramona talk) — debug.
-                else if (k == SDLK_T) start_cutscene(asset_root / "MAP" / "S_10" / "S_1000" / "TALKC210.XSO");
+                else if (k == SDLK_T) start_cutscene(asset_root / "MAP" / "S_10" / "S_1000" / "TALKC210.XSO", /*debug235*/true);
                 else if (k == SDLK_ESCAPE) paused = !paused;  // toggle pause; NEVER quit (X quits)
                 else if (k == SDLK_F) {
                     fly = !fly;

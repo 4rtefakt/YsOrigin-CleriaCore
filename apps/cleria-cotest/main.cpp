@@ -90,6 +90,22 @@ int main(int argc, char** argv) {
         for (const auto& nnm : names) std::printf("       spawned: %s\n", nnm.c_str());
         fails += !ok;
     }
+    // 5) The cleria-view path: a self-contained TALK run as a ScriptManager root emits the
+    //    same dialogue as the single-VM coroutine (test 3). Proves the manager integration.
+    {
+        struct NoLoader : ScriptLoader {
+            std::shared_ptr<const Xso> load_script(const std::string&) override { return nullptr; }
+        } noloader;
+        H h; h.prompt = true;
+        ScriptManager mgr; mgr.loader = &noloader; mgr.vm.host = &h;
+        mgr.vm.g_flags[150] = 1; mgr.vm.g_flags[235] = 1;
+        mgr.start_root(std::make_shared<Xso>(talk), "talkc210");
+        int t = 0; for (; t < 5000 && mgr.any_live(); ++t) mgr.tick_all();
+        const bool ok = !mgr.any_live() && h.lines.size() == 3;
+        std::printf("[mgr]  TALKC210 as root: ticked %d, ended=%d lines=%zu %s\n",
+                    t, !mgr.any_live(), h.lines.size(), ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }
