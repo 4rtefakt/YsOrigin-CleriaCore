@@ -1,0 +1,137 @@
+#include "cleria/save.hpp"
+
+#include <cstring>
+
+namespace cleria {
+namespace {
+
+// The rolling byte cipher (SAVELOAD.md §4.1): per-span seed s; each byte steps
+// s = s*0x3d09 and applies (s>>16)&0xff — ADD on write, SUBTRACT on load
+// (FUN_005e5dc0 is the load direction; validated by tools/save_decode.py).
+void scramble(std::uint8_t* p, std::size_t off, std::size_t len, std::uint32_t key, bool write) {
+    std::uint32_t s = key;
+    for (std::size_t i = off; i < off + len; ++i) {
+        s *= 0x3D09u;
+        const std::uint8_t k = std::uint8_t(s >> 16);
+        p[i] = std::uint8_t(write ? p[i] + k : p[i] - k);
+    }
+}
+
+std::size_t va_off(std::uint32_t va) { return std::size_t(va - SaveRecord::kBase); }
+
+}  // namespace
+
+std::int32_t SaveRecord::i32(std::uint32_t va) const {
+    std::int32_t v; std::memcpy(&v, b.data() + va_off(va), 4); return v;
+}
+float SaveRecord::f32(std::uint32_t va) const {
+    float v; std::memcpy(&v, b.data() + va_off(va), 4); return v;
+}
+std::string SaveRecord::str(std::uint32_t va, std::size_t max) const {
+    return hdr_str(va_off(va), max);
+}
+void SaveRecord::set_i32(std::uint32_t va, std::int32_t v) {
+    std::memcpy(b.data() + va_off(va), &v, 4);
+}
+void SaveRecord::set_f32(std::uint32_t va, float v) {
+    std::memcpy(b.data() + va_off(va), &v, 4);
+}
+void SaveRecord::set_str(std::uint32_t va, const std::string& s, std::size_t max) {
+    set_hdr_str(va_off(va), s, max);
+}
+std::uint32_t SaveRecord::hdr_u32(std::size_t off) const {
+    std::uint32_t v; std::memcpy(&v, b.data() + off, 4); return v;
+}
+void SaveRecord::set_hdr_u32(std::size_t off, std::uint32_t v) {
+    std::memcpy(b.data() + off, &v, 4);
+}
+std::string SaveRecord::hdr_str(std::size_t off, std::size_t max) const {
+    std::size_t n = 0;
+    while (n < max && off + n < kSize && b[off + n]) ++n;
+    return std::string(reinterpret_cast<const char*>(b.data() + off), n);
+}
+void SaveRecord::set_hdr_str(std::size_t off, const std::string& s, std::size_t max) {
+    const std::size_t n = s.size() < max ? s.size() : max;
+    std::memcpy(b.data() + off, s.data(), n);
+    for (std::size_t i = n; i < max && off + i < kSize; ++i) b[off + i] = 0;
+}
+
+std::optional<SaveRecord> SaveRecord::decode(std::span<const std::uint8_t> raw) {
+    if (raw.size() != kSize) return std::nullopt;
+    SaveRecord r;
+    std::memcpy(r.b.data(), raw.data(), kSize);
+    if (r.hdr_u32(0x00) != kMagic || r.hdr_u32(0x04) != 1 || r.hdr_u32(0x08) != kSize)
+        return std::nullopt;
+    // key A descrambles the +0x30 header span; key B lives INSIDE that span, so
+    // strictly in this order (SAVELOAD.md §4.1 / save_decode.py).
+    scramble(r.b.data(), 0x30, 0xA0, r.hdr_u32(0x10), /*write*/ false);
+    scramble(r.b.data(), 0xD0, kSize - 0xD0, r.hdr_u32(0xC0), /*write*/ false);
+    return r;
+}
+
+std::vector<std::uint8_t> SaveRecord::encode(std::uint32_t key_a, std::uint32_t key_b) const {
+    std::vector<std::uint8_t> out(b.begin(), b.end());
+    // Keys are stamped THEN their spans scrambled; key B is written before the key-A
+    // span is scrambled (it sits at +0xc0, inside it) — the exact load-order inverse.
+    std::memcpy(out.data() + 0xC0, &key_b, 4);
+    scramble(out.data(), 0xD0, kSize - 0xD0, key_b, /*write*/ true);
+    std::memcpy(out.data() + 0x10, &key_a, 4);
+    scramble(out.data(), 0x30, 0xA0, key_a, /*write*/ true);
+    return out;
+}
+
+SaveRecord to_record(const SaveState& s, const std::string& area_line,
+                     const std::string& date, const std::string& time) {
+    SaveRecord r;
+    // --- payload: the game-state block, by VA -------------------------------
+    for (int i = 0; i < 0x200; ++i) r.set_i32(0x0076B91C + 4 * i, s.flags[i]);
+    for (int i = 0; i < 54; ++i) r.set_i32(0x0076A654 + 4 * i, s.item_arr[i]);
+    r.set_f32(0x0076A72C, s.hp_max);
+    r.set_f32(0x0076A730, s.hp_cur);
+    r.set_f32(0x0076A748, s.exp);
+    r.set_i32(0x0076A75C, s.sp);
+    r.set_i32(0x0076A760, s.level);
+    r.set_str(0x0076A3B4, s.scene, 0x20);
+    r.set_f32(0x0076C13C, s.pos_x);
+    r.set_f32(0x0076C144, s.pos_z);
+    r.set_f32(0x0076C148, s.yaw);
+    // --- header stamps (SAVELOAD.md §4.1) ------------------------------------
+    r.set_hdr_u32(0x00, SaveRecord::kMagic);
+    r.set_hdr_u32(0x04, 1);
+    r.set_hdr_u32(0x08, std::uint32_t(SaveRecord::kSize));
+    // +0x0c / +0xc4 checksums: FUN_005ee870 algorithm [UNKNOWN] — left 0 (see save.hpp).
+    r.set_hdr_u32(0x50, std::uint32_t(s.difficulty() + 1));  // 1-based; 0 = empty slot
+    r.set_hdr_u32(0x68, std::uint32_t(s.character()));
+    r.set_hdr_str(0x7C, date, 11);
+    r.set_hdr_str(0x87, time, 9);
+    r.set_hdr_str(0x90, area_line, 0x1F);
+    return r;
+}
+
+SaveState from_record(const SaveRecord& r) {
+    SaveState s;
+    for (int i = 0; i < 0x200; ++i) s.flags[i] = r.i32(0x0076B91C + 4 * i);
+    for (int i = 0; i < 54; ++i) s.item_arr[i] = r.i32(0x0076A654 + 4 * i);
+    s.hp_max = r.f32(0x0076A72C);
+    s.hp_cur = r.f32(0x0076A730);
+    s.exp = r.f32(0x0076A748);
+    s.sp = r.i32(0x0076A75C);
+    s.level = r.i32(0x0076A760);
+    s.scene = r.str(0x0076A3B4, 0x20);
+    s.pos_x = r.f32(0x0076C13C);
+    s.pos_z = r.f32(0x0076C144);
+    s.yaw = r.f32(0x0076C148);
+    return s;
+}
+
+SaveMeta meta_of(const SaveRecord& r) {
+    SaveMeta m;
+    m.character = int(r.hdr_u32(0x68));
+    m.difficulty = int(r.hdr_u32(0x50)) - 1;
+    m.date = r.hdr_str(0x7C, 11);
+    m.time = r.hdr_str(0x87, 9);
+    m.area = r.hdr_str(0x90, 0x1F);
+    return m;
+}
+
+}  // namespace cleria

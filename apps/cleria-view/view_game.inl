@@ -100,12 +100,38 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             audio.play_bgm(bgmdefs.track(id));
     };
 
+    // Save slots (PLAN.md Phase 2; src/cleria/save.hpp codec). One yso_NN.bin per slot
+    // under CLERIA_SAVE_DIR (default ./saves), mirroring the game's own file naming.
+    auto save_dir = [] {
+        const char* e = std::getenv("CLERIA_SAVE_DIR");
+        return fs::path(e ? e : "saves");
+    };
+    auto slot_path = [&](int i) {
+        char n[16]; std::snprintf(n, sizeof n, "yso_%02d.bin", i);
+        return save_dir() / n;
+    };
+    auto slot_label = [&](int i) -> std::string {   // "" = empty slot
+        std::error_code ec;
+        if (!fs::exists(slot_path(i), ec)) return {};
+        std::ifstream f(slot_path(i), std::ios::binary);
+        std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
+        auto r = SaveRecord::decode(raw);
+        if (!r) return {};
+        const SaveMeta m = meta_of(*r);
+        return std::string(kCharNames[m.character & 3]) + "  " + m.area + "  " + m.date;
+    };
+    // A save picked on the title's Load Game screen; applied to the game state below
+    // (flags/character before the first room load, stats/position after the world exists).
+    std::optional<SaveState> pending_load;
+
     // Title screen: shown on a bare launch, before the game. New Game opens character-select
     // (pick Yunica/Hugo/Toal, then fall through to the game loop below); Esc/close quits.
     // Assets + flow from build/menu_re/MENUS.md.
     if (show_title) {
         apply_room_bgm("title");   // "title\" is a scene record like any room (BGM id 1)
         TitleFx title; title.init(g, asset_root);
+        std::array<std::string, 8> tslots;
+        int lsel = 0;
         MenuFont mf;   // Felghana atlas rasterised at the 960-internal font size (see render_title),
         // bilinear-upscaled to the window. Format must match the window surface (fmt), not a
         // hardcoded RGBA8Unorm, or the pipeline is incompatible with an sRGB surface pass.
@@ -115,7 +141,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
         // BONUS sub-list (DAT_0074e259), and the New-Game chain CHARSELECT -> TYPESELECT (Normal/
         // Extra skin) -> DIFFICULTY (Easy..Nightmare) -> SPBONUS (SP-gain boost) -> start.
-        enum TState { MAIN, BONUS, CHARSELECT, TYPESELECT, DIFFICULTY, SPBONUS, OPTIONS };
+        enum TState { MAIN, BONUS, CHARSELECT, TYPESELECT, DIFFICULTY, SPBONUS, OPTIONS, LOADGAME };
         static const char* kTypeItems[3] = {"Normal", "Extra", "Cancel"};
         static const char* kDiffItems[6] = {"Very Easy", "Easy", "Normal", "Hard", "Nightmare", "Cancel"};
         static const char* kSpItems[2]  = {"[Enable]", "[Disable]"};
@@ -179,6 +205,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             if (bsel == 3) ts = MAIN;   // Back
                             // Time Attack / Arena Mode / Bonus Shop: not yet implemented.
                         }
+                    } else if (ts == LOADGAME) {
+                        if (esc) ts = MAIN;
+                        else if (up || down) lsel = wrap(lsel, 8, up);
+                        else if (ok && !tslots[std::size_t(lsel)].empty()) {
+                            std::ifstream f(slot_path(lsel), std::ios::binary);
+                            std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
+                            if (auto r = SaveRecord::decode(raw)) {
+                                pending_load = from_record(*r);
+                                started = true;              // -> game, state applied below
+                            }
+                        }
                     } else if (ts == OPTIONS) {
                         // 10 rows: 0-2 sliders, 3-6 checkboxes, 7 Default, 8 Return to Title, 9 Exit Game.
                         // Settings persist to yso_win.ini on leaving the screen (game saves config on close).
@@ -202,7 +239,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             else if (sel == 0) { ts = CHARSELECT; csel = 0; }  // New Game
                             else if (sel == 2) { ts = BONUS; bsel = 0; }       // Bonus Modes
                             else if (sel == 3) { ts = OPTIONS; osel = 0; }     // Options
-                            // Load Game: not yet implemented.
+                            else if (sel == 1) {                               // Load Game
+                                for (int i = 0; i < 8; ++i) tslots[std::size_t(i)] = slot_label(i);
+                                ts = LOADGAME; lsel = 0;
+                            }
                         }
                     }
                     // Drive the mixer from the sliders live, so you hear the level you are
@@ -243,6 +283,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 title.draw_bonus(g, mf, view, tdepth, cw, ch, bsel);
             } else if (ts == OPTIONS) {
                 title.draw_options(g, mf, view, tdepth, cw, ch, osel, oslider, ocheck);
+            } else if (ts == LOADGAME) {
+                title.draw_svld(g, mf, view, tdepth, cw, ch, /*save=*/false, 0, lsel, tslots.data());
             } else {
                 title.draw(g, view, tdepth, cw, ch);
                 title.draw_menu(g, mf, view, tdepth, cw, ch, sel);
@@ -321,6 +363,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     if (ginfo.ok())
         player.max_hp = player.hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(player.level)));
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
+    // Loaded game (title Load screen): flags + character must be right BEFORE the first
+    // room load (chest gating reads them); stats/position are applied after the world
+    // exists, below. This mirrors the engine's load = init-then-overwrite (SAVELOAD §4.2).
+    fs::path boot_sob = first_sob;
+    if (pending_load) {
+        std::memcpy(game.g_flags, pending_load->flags, sizeof game.g_flags);
+        std::memcpy(game.item_arr, pending_load->item_arr, sizeof game.item_arr);
+        character = std::clamp(pending_load->character(), 1, 3);
+        if (!pending_load->scene.empty()) {
+            auto it = g.sob_index.find(pending_load->scene);
+            if (it != g.sob_index.end()) boot_sob = it->second;
+        }
+    }
 
     // Award EXP for a kill and process level-ups (build/progress_re/LEVELING.md): the engine
     // credits the defeated enemy's EXP at the killing blow (FUN_004fbb40), then loops
@@ -339,7 +394,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             hud.message("Level up! Lv " + std::to_string(player.level));
         }
     };
-    Room room = load_room(g, asset_root, first_sob, game.g_flags, character);
+    Room room = load_room(g, asset_root, boot_sob, game.g_flags, character);
     Camera cam;
     bool fly = false;
     Vec3 feet{}; float vy = 0; bool grounded = false; float speed_mult = 1.0f;
@@ -654,6 +709,76 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         free_room(room, g.white_bind);
         room = std::move(next);
         room_events_dirty = true;   // re-run the room's event scripts for the re-gated room
+    };
+
+    // ---- save / load (PLAN.md Phase 2; codec src/cleria/save.*) -------------------
+    // Pause-book Save/Load page state: slot cursor + cached slot lines (refreshed on
+    // page entry and after a save — not per frame, that would be 8 file reads a frame).
+    int svldSlot = 0;
+    std::array<std::string, 8> svldLabels;
+    auto refresh_slots = [&] { for (int i = 0; i < 8; ++i) svldLabels[std::size_t(i)] = slot_label(i); };
+    auto capture_save = [&]() -> SaveState {
+        SaveState s;
+        std::memcpy(s.flags, game.g_flags, sizeof s.flags);
+        std::memcpy(s.item_arr, game.item_arr, sizeof s.item_arr);
+        s.hp_max = float(player.max_hp); s.hp_cur = float(player.hp);
+        s.exp = player.exp; s.level = player.level; s.sp = player.sp;
+        s.scene = room.name;
+        s.pos_x = feet.x; s.pos_z = feet.z;
+        s.yaw = std::atan2(face_dir.x, face_dir.z) * 180.0f / 3.14159265f;  // SEN-style degrees
+        return s;
+    };
+    auto do_save = [&](int slot) {
+        std::time_t now = std::time(nullptr);
+        std::tm tm{};
+#ifdef _WIN32
+        localtime_s(&tm, &now);
+#else
+        localtime_r(&now, &tm);
+#endif
+        char date[16], tim[16];
+        std::snprintf(date, sizeof date, "%02d/%02d/%04d", tm.tm_mon + 1, tm.tm_mday, tm.tm_year + 1900);
+        std::snprintf(tim, sizeof tim, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+        const SaveRecord rec = to_record(capture_save(), room.name, date, tim);
+        // Keys: any nonzero pair — the engine rerolls them per save too (SAVELOAD §4.1).
+        std::random_device rd;
+        const std::vector<std::uint8_t> raw = rec.encode(rd() | 1, rd() | 1);
+        std::error_code ec;
+        fs::create_directories(save_dir(), ec);
+        std::ofstream f(slot_path(slot), std::ios::binary);
+        f.write(reinterpret_cast<const char*>(raw.data()), std::streamsize(raw.size()));
+        hud.message(f ? ("Saved to slot " + std::to_string(slot + 1))
+                      : "Save FAILED (disk?)");
+        refresh_slots();
+    };
+    auto apply_loaded = [&](const SaveState& s) {
+        std::memcpy(game.g_flags, s.flags, sizeof s.flags);
+        std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
+        character = std::clamp(s.character(), 1, 3);
+        player.level = std::clamp(s.level, 1, 60);
+        player.exp = s.exp; player.sp = s.sp;
+        player.max_hp = int(std::lround(s.hp_max));
+        player.hp = int(std::lround(s.hp_cur));
+        player.hp_lag = float(player.hp);
+        // Re-bind the character's ASO (same sequence as the Tab character swap).
+        aso = Aso::load(asset_root / "ANI" / char_aso(character));
+        avm = AsoVm{};
+        avm.bind(&aso);
+        avm.set_flags(game.g_flags, 0x200);
+        avm.tick();
+        sync_aia();
+        curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
+        animFrame = 0; shownFrame = -1;
+        if (!s.scene.empty() && s.scene != room.name) transition(s.scene);
+        else reload_room();
+        // Position: the save's continue-snapshot x/z + facing; y re-grounds via the
+        // floor raycast (the engine does not save y either).
+        feet.x = s.pos_x; feet.z = s.pos_z;
+        const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
+        if (fl > kNoFloor) feet.y = fl;
+        vy = 0;
+        const float rad = s.yaw * 3.14159265f / 180.0f;
+        face_dir = {std::sin(rad), 0, std::cos(rad)};
     };
 
     // The barrier fight, now wired. A KEKKAIZAKO_*.XSO polls its group-1 seeds:
@@ -976,6 +1101,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     std::fprintf(stderr, "[pause menu] Esc opens the pause book; assets %s\n",
                  pauseOk ? "loaded (ready)" : "MISSING TITLE_000.DDS -> book won't draw");
 
+    // A title-screen Load lands here: flags/character/room were applied before the room
+    // load above; apply_loaded now sets the stats and the saved position (idempotent on
+    // the flags), completing the engine's init-then-overwrite load (SAVELOAD §4.2).
+    if (pending_load) {
+        apply_loaded(*pending_load);
+        pending_load.reset();
+        hud.message("Game loaded.");
+    }
+
     while (running) {
         const Uint64 now = SDL_GetTicks();
         const float real_dt = float(now - last) / 1000.0f; last = now;
@@ -998,7 +1132,27 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 }
                 // T = trigger a test cutscene (S_1000's Roy/Ramona talk) — debug.
                 else if (k == SDLK_T) start_cutscene(asset_root / "MAP" / "S_10" / "S_1000" / "TALKC210.XSO", /*debug235*/true);
-                else if (k == SDLK_ESCAPE) paused = !paused;  // toggle pause; NEVER quit (X quits)
+                else if (k == SDLK_ESCAPE) {
+                    paused = !paused;  // toggle pause; NEVER quit (X quits)
+                    if (paused && pausePage == 3) refresh_slots();
+                }
+                // Save/Load page (pause tab 3): Up/Down slot, Enter saves, L loads.
+                // Placed BEFORE the debug K/L handlers so L means "load" here.
+                else if (paused && pausePage == 3 && (k == SDLK_UP || k == SDLK_W))
+                    svldSlot = (svldSlot + 7) % 8;
+                else if (paused && pausePage == 3 && (k == SDLK_DOWN || k == SDLK_S))
+                    svldSlot = (svldSlot + 1) % 8;
+                else if (paused && pausePage == 3 && (k == SDLK_RETURN || k == SDLK_SPACE))
+                    do_save(svldSlot);
+                else if (paused && pausePage == 3 && k == SDLK_L) {
+                    std::ifstream f(slot_path(svldSlot), std::ios::binary);
+                    std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
+                    if (auto r = SaveRecord::decode(raw)) {
+                        apply_loaded(from_record(*r));
+                        paused = false;
+                        hud.message("Game loaded.");
+                    } else hud.message("No data in slot " + std::to_string(svldSlot + 1));
+                }
                 else if (k == SDLK_F) {
                     fly = !fly;
                     if (!fly) {  // dropping into walk: keep XZ, snap to floor
@@ -1015,8 +1169,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 else if (k == SDLK_K) { player.hp = std::max(1, player.hp - 60); hud.message("(debug) -60 HP"); }
                 else if (k == SDLK_L) { player.hp = player.max_hp; hud.message("(debug) full heal"); }
                 // Pause-book tab cycling (only while the menu is open): E = next, Q = prev page.
-                else if (paused && k == SDLK_E) pausePage = (pausePage + 1) % 4;
-                else if (paused && k == SDLK_Q) pausePage = (pausePage + 3) % 4;
+                else if (paused && k == SDLK_E) {
+                    pausePage = (pausePage + 1) % 4;
+                    if (pausePage == 3) refresh_slots();
+                }
+                else if (paused && k == SDLK_Q) {
+                    pausePage = (pausePage + 3) % 4;
+                    if (pausePage == 3) refresh_slots();
+                }
                 // Debug: B fills the EX/Boost gauge in ~4 presses (to eyeball the boost arc).
                 else if (k == SDLK_B) { player.boost = std::min(30000.f, player.boost + 7500.f); hud.message("(debug) +Boost"); }
                 else if (k == SDLK_TAB) {
@@ -1700,8 +1860,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 case 2:  // Topic (Character / Monster / Manual)
                     pauseUi.draw_topic(g, pmf, view, pdepth, cw, ch, 0);
                     break;
-                case 3:  // Save / Load
-                    pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/false, /*fileTab=*/5, /*sel=*/0);
+                case 3:  // Save / Load (Up/Down slot, Enter = save, L = load)
+                    pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/true, /*fileTab=*/0,
+                                      svldSlot, svldLabels.data());
                     break;
                 default:  // Equip
                     ev.caption = "Your equipped weapon.";

@@ -42,12 +42,17 @@ add_library(cleria STATIC
   src/cleria/bgmdef.cpp
   src/cleria/ef2.cpp
   src/cleria/surface.cpp
+  src/cleria/save.cpp
   src/cleria/world.cpp)
 target_include_directories(cleria PUBLIC src)
 
 # cleria-dump — load a room and export it to .obj (no GPU).
 add_executable(cleria-cotest apps/cleria-cotest/main.cpp)
 target_link_libraries(cleria-cotest PRIVATE cleria)
+
+# cleria-savetest — save-codec round-trip (SAVELOAD.md; real-save read via CLERIA_REAL_SAVE).
+add_executable(cleria-savetest apps/cleria-savetest/main.cpp)
+target_link_libraries(cleria-savetest PRIVATE cleria)
 
 add_executable(cleria-dump apps/cleria-dump/main.cpp)
 target_link_libraries(cleria-dump PRIVATE cleria)
@@ -130,7 +135,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

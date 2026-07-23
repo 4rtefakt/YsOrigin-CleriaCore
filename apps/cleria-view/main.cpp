@@ -57,8 +57,11 @@
 #include "cleria/sct.hpp"
 #include "cleria/sen.hpp"
 #include "cleria/sfo.hpp"
+#include "cleria/save.hpp"
 #include "cleria/world.hpp"
 #include "cleria/xso.hpp"
+#include <ctime>
+#include <optional>
 // CLERIA_CULL=off|cw|ccw — probe. The exe sets D3DCULL_CCW, but D3D9's left-handed
 // winding inverts on the way to WebGPU, so its semantics don't transplant directly:
 // measured in S_1000, "ccw" changes no visible pixel and "cw" culls the whole room,

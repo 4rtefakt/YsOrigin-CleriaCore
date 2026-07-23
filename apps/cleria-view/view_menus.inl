@@ -1148,8 +1148,10 @@ struct TitleFx {
     // (container panel u0..0.79 v0..0.556; selected bar sprite v0.571..0.625; tabs selected v0.703..0.75
     // / dim v0.762..0.806, each ~79px). CleriaCore has no save system, so every slot renders "No Data".
     // `save` = true for the Save plaque/caption, false for Load. fileTab 0..7, selSlot 0..7.
+    // `labels`: optional 8 slot lines ("" = empty slot -> "No Data"); null = all empty.
     void draw_svld(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
-                   std::uint32_t W, std::uint32_t H, bool save, int fileTab, int selSlot) {
+                   std::uint32_t W, std::uint32_t H, bool save, int fileTab, int selSlot,
+                   const std::string* labels = nullptr) {
         const float sw = float(W), sh = float(H), A = sh / 768.0f;
         const float fwN = (4.0f / 3.0f) * sh / sw;
         auto AX = [&](float x) { return (2.0f * x / 1024.0f - 1.0f) * fwN; };
@@ -1194,9 +1196,12 @@ struct TitleFx {
             }
             char no[16]; std::snprintf(no, sizeof no, "No.%02d", fileTab * 8 + i + 1);
             mf.text(no, SX(barX0 + 26), SY(cy - 13), tsz, sw, sh, 236, 236, 236, 255);
-            const char* nd = "-------------- No Data --------------";
+            const bool occupied = labels && !labels[i].empty();
+            const char* nd = occupied ? labels[i].c_str()
+                                      : "-------------- No Data --------------";
             float w = mf.measure(nd, tsz);
-            mf.text(nd, SX(560) - w * 0.5f, SY(cy - 13), tsz, sw, sh, 210, 214, 220, 255);
+            mf.text(nd, SX(560) - w * 0.5f, SY(cy - 13), tsz, sw, sh,
+                    occupied ? 236 : 210, occupied ? 236 : 214, occupied ? 200 : 220, 255);
         }
         mf.text(save ? "Save the current gameplay session." : "Load a previously saved gameplay session.",
                 SX(48), SY(707), tsz, sw, sh, 236, 236, 236, 255);
