@@ -110,6 +110,8 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
 // any 0x12c scripted spawns; spawn order is SCT-record order, which the tick preserves.
 void ActorWorld::spawn_placements() {
     if (!placements_ || !tables_.casts) return;
+    if (placements_spawned_) return;   // op 0xa0 runs once per room load (see the guard note)
+    placements_spawned_ = true;
     for (const CastPlacement& p : placements_->casts) {
         const Cast* c = tables_.casts->find(p.name);
         if (!c) continue;  // CAST_ADOL etc. that aren't in CASTINFO stay unspawned here

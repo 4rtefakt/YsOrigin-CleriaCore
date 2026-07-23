@@ -161,7 +161,7 @@ class ActorWorld : public XsoHost {
 
     // Drop every actor (e.g. a room change — the engine's FUN_00428ec0 destroy-all).
     // Invalidates every Actor* handed out, including the player pointer.
-    void clear() { actors_.clear(); player_ = nullptr; effects_.clear(); }
+    void clear() { actors_.clear(); player_ = nullptr; effects_.clear(); placements_spawned_ = false; }
 
     // ## Located effects (op 0x11a / 0x119) --------------------------------------
     // A script-placed, persistent effect instance: an eftlist effect id at a world
@@ -235,6 +235,11 @@ class ActorWorld : public XsoHost {
     std::list<Actor> actors_;
     Actor* player_ = nullptr;
     const Sct* placements_ = nullptr;  // op 0xa0's source; not owned
+    // op 0xa0 (SCT bulk spawn) uses AUTO-ids, so a second call would DOUBLE the room's
+    // enemies. With events on the root runs twice (populate run-to-completion, then the
+    // live coroutine), so guard it: spawn_placements is a no-op after the first call,
+    // reset on clear() (room load). Explicit-id 0x12c spawns dedup by id already.
+    bool placements_spawned_ = false;
     std::vector<LocatedEffect> effects_;  // op 0x11a placements; killed by 0x119
     bool id_in_use(int id) const;
 

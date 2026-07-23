@@ -671,5 +671,29 @@ int main(int argc, char** argv) {
     }
 
     std::printf("\n%s (%d failed)\n", fails ? "FAILURES" : "all invariants hold", fails);
+    // --- SCT bulk spawn is idempotent (events-on double-run safety) ---------------
+    // op 0xa0 uses auto-ids, so running a room root twice (populate run-to-completion
+    // + the live coroutine when events are on) would DOUBLE the roster without the
+    // spawn_placements guard. Load a real room's SCT and prove a second call is a no-op.
+    {
+        std::vector<std::uint8_t> sbytes;
+        if (std::ifstream f{root / "MAP" / "S_10" / "S_1001" / "S_1001.SCT", std::ios::binary})
+            sbytes.assign(std::istreambuf_iterator<char>(f), {});
+        const Sct sct = Sct::parse(sbytes);
+        ActorWorld w(tables);
+        w.set_placements(&sct);
+        w.spawn_placements();
+        const std::size_t after_first = w.size();
+        w.spawn_placements();                        // the redundant second root run
+        check(after_first > 0 && w.size() == after_first,
+              "spawn_placements is idempotent (no doubled SCT roster on a 2nd run)",
+              std::to_string(after_first) + " -> " + std::to_string(w.size()));
+        // Explicit-id 0x12c also dedups: same id reuses, not doubles.
+        w.spawn({999001, monster_cast, {0, 0, 0}, 0, 1});
+        const std::size_t after_spawn = w.size();
+        w.spawn({999001, monster_cast, {5, 0, 5}, 0, 1});
+        check(w.size() == after_spawn, "explicit-id spawn reuses, not doubles");
+    }
+
     return fails ? 1 : 0;
 }
