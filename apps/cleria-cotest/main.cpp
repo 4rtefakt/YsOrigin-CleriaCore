@@ -184,6 +184,27 @@ int main(int argc, char** argv) {
                     sh.ax, sh.ay, sh.az, sh.fr, ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // 9) .SEV parse (SEV_FORMAT.md): S_1000.SEV has 5 boxes; 'event_01' must match the doc's
+    //    numeric cross-check (center (-0.093,2.56,25.2), min (-5,-2.5,-2.5), max (5,10,2.5)),
+    //    and a point at its center must test inside via the op-0x13d containment.
+    {
+        auto boxes = parse_sev(rd(root + "/MAP/S_10/S_1000/S_1000.SEV"));
+        const SceneBox* e1 = find_box(boxes, "event_01");
+        bool ok = boxes.size() == 5 && e1 != nullptr;
+        if (e1) {
+            ok = ok && std::fabs(e1->center.x + 0.0933f) < 0.01f
+                    && std::fabs(e1->center.z - 25.206f) < 0.01f
+                    && std::fabs(e1->amin.x + 5.0f) < 0.01f && std::fabs(e1->amax.x - 5.0f) < 0.01f
+                    && std::fabs(e1->amax.y - 10.0f) < 0.01f && e1->rot_y == 0.0f
+                    && e1->contains(e1->center)                     // center is inside
+                    && !e1->contains({e1->center.x + 100, e1->center.y, e1->center.z}); // far is out
+        }
+        std::printf("[sev]  S_1000.SEV: %zu boxes, event_01 center=(%.3f,%.3f,%.3f) min.x=%.1f max=(%.1f,%.1f,%.1f) %s\n",
+                    boxes.size(), e1 ? e1->center.x : 0, e1 ? e1->center.y : 0, e1 ? e1->center.z : 0,
+                    e1 ? e1->amin.x : 0, e1 ? e1->amax.x : 0, e1 ? e1->amax.y : 0, e1 ? e1->amax.z : 0,
+                    ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

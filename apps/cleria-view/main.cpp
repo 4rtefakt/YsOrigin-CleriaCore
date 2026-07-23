@@ -51,6 +51,7 @@
 #include "cleria/scenelist.hpp"
 #include "cleria/items.hpp"
 #include "cleria/scene.hpp"
+#include "cleria/sev.hpp"
 #include "cleria/scm.hpp"
 #include "cleria/sef.hpp"
 #include "cleria/sct.hpp"
@@ -307,6 +308,7 @@ struct Room {
     Scm cam;                 // per-region cameras (SCM sidecar)
     Sef fx;                  // scene effects: torch flames etc (SEF sidecar)
     Sct cast;                // actor placement: enemies + player spawn (SCT sidecar)
+    std::vector<SceneBox> event_boxes;  // named trigger boxes (.SEV) — op 0x13d Chr_IsInEventBox
     fs::path dir;            // the room folder (its scripts live beside the SOB)
     std::string name;
     WGPUBuffer vbuf{}, ibuf{};
@@ -457,6 +459,9 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     Room r;
     r.name = sob.stem().string();
     r.dir = sob.parent_path();
+    // The room's named trigger boxes, for op 0x13d Chr_IsInEventBox (region-talk triggers).
+    // parse_sev returns empty until the .SEV record layout is confirmed, so this is inert now.
+    r.event_boxes = load_sev(r.dir / (r.name + ".SEV"));
 
     // Character-gate chests BEFORE building geometry: run the room's scene-main
     // script (the same object-enable logic the game runs on entry) on a throwaway
@@ -5097,6 +5102,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void spawn(int, int, float, float, float, float, int) override {}
         bool is_alive(int) const override { return false; }
         bool any_seed_alive(int) const override { return false; }
+        // op 0x13d: is the player inside the named .SEV box? Only the player (13) is
+        // positioned here; other ids resolve to no actor -> false (the engine's null path).
+        const Room* roomPtr = nullptr;
+        const Vec3* playerPos = nullptr;
+        bool chr_in_event_box(int entityId, const std::string& name) const override {
+            if (entityId != 13 || !roomPtr || !playerPos) return false;
+            const SceneBox* b = find_box(roomPtr->event_boxes, name);
+            return b && b->contains(*playerPos);
+        }
     } csHost;
     // The cutscene runtime is the concurrent GoScript manager (CUTSCENE_COROUTINE.md §2/§5):
     // a triggered script can StartScript sub-talks / captions that tick alongside it. Its
