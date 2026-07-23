@@ -926,8 +926,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void despawn(int entity_id) override {
             if (worldHost) { worldHost->despawn(entity_id); world_changed = true; }
         }
-        bool is_alive(int) const override { return false; }
-        bool any_seed_alive(int) const override { return false; }
+        // Forward the live predicates to the WORLD — a cutscene/controller that spawned
+        // actors polls these to gate itself. Returning false made the barrier controller
+        // (Chr_IsSeedLiving) think its guard was already dead and break on room entry.
+        bool is_alive(int id) const override { return worldHost && worldHost->is_alive(id); }
+        bool any_seed_alive(int grp) const override { return worldHost && worldHost->any_seed_alive(grp); }
         // op 0x13d: is the player inside the named .SEV box? Only the player (13) is
         // positioned here; other ids resolve to no actor -> false (the engine's null path).
         const Room* roomPtr = nullptr;
