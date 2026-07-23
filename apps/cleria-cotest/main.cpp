@@ -205,6 +205,48 @@ int main(int argc, char** argv) {
                     ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // 10) END-TO-END region triggering: run the STOP1000_ROI_NORTH controller on the manager;
+    //     it polls op 0x13d against 'event_01' each frame and StartScripts its talk only when
+    //     the player is inside the box. Proves the trigger chain (controller -> 0x13d ->
+    //     StartScript the talk) gates on player position.
+    {
+        const std::string dir = root + "/MAP/S_10/S_1000/";
+        struct TrigHost : XsoHost {
+            bool inBox = false;                       // driven by the test (player in event_01)
+            bool chr_in_event_box(int entity, const std::string& name) const override {
+                return inBox && entity == 13 && name == "event_01";
+            }
+            bool wait_prompt() override { return true; }   // auto-advance any dialogue
+            void spawn(int, int, float, float, float, float, int) override {}
+            bool is_alive(int e) const override { return e == 13; }   // the player is alive
+        } th;
+        struct RecLoader : ScriptLoader {
+            std::string dir;
+            std::unordered_set<std::string> requested;
+            std::shared_ptr<const Xso> load_script(const std::string& name) override {
+                std::string up = name;
+                for (char& c : up) c = char(std::toupper((unsigned char)c));
+                requested.insert(up);
+                auto bytes = rd(dir + up + ".XSO");
+                if (bytes.size() < 4) return nullptr;
+                try { return std::make_shared<Xso>(Xso::parse(bytes)); }
+                catch (const std::exception&) { return nullptr; }
+            }
+        } loader; loader.dir = dir;
+        ScriptManager mgr; mgr.loader = &loader; mgr.vm.host = &th;
+        mgr.vm.g_flags[150] = 1;                       // Yunica; flag 243 (talked) stays 0
+        mgr.start_root(std::make_shared<Xso>(Xso::parse(rd(dir + "STOP1000_ROI_NORTH.XSO"))),
+                       "stop1000_roi_north");
+        for (int f = 0; f < 60; ++f) mgr.tick_all();   // player OUTSIDE: talk must not fire
+        const bool talkBefore = loader.requested.count("STOP1000_ROI_TALK_1") > 0;
+        th.inBox = true;                               // player walks into event_01
+        for (int f = 0; f < 60; ++f) mgr.tick_all();
+        const bool talkAfter = loader.requested.count("STOP1000_ROI_TALK_1") > 0;
+        const bool ok = !talkBefore && talkAfter;
+        std::printf("[trg]  STOP1000_ROI_NORTH: talk(player out)=%d talk(player in)=%d %s\n",
+                    talkBefore, talkAfter, ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }
