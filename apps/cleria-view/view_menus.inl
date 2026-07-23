@@ -649,7 +649,11 @@ struct TitleFx {
         if (curl * 2.0f > (rpx - lpx) * 0.9f) curl = (rpx - lpx) * 0.45f;
         auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
         auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
-        const float z = 0.3f;
+        // MUST be NEARER than the popup frame (z=0.2) or the frame's middle band
+        // depth-occludes the cursor — the exact reason it showed only on the title
+        // (no frame there) and vanished on every dialog. Its interior is transparent,
+        // so the row text still reads through the silver brackets.
+        const float z = 0.12f;
         draw_screen_image(g, cview, dview, false, cursor, NX(lpx),        NY(tpx), NX(lpx + curl), NY(bpx), z, 0.0f, 0.0f, u1,   1.0f);
         draw_screen_image(g, cview, dview, false, cursor, NX(lpx + curl), NY(tpx), NX(rpx - curl), NY(bpx), z, u1,   0.0f, u2,   1.0f);
         draw_screen_image(g, cview, dview, false, cursor, NX(rpx - curl), NY(tpx), NX(rpx),        NY(bpx), z, u2,   0.0f, 1.0f, 1.0f);
