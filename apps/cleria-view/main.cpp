@@ -2787,6 +2787,28 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
     Hud hud; hud.init(g, res_file("hud_font.bin"), WGPUTextureFormat_RGBA8Unorm);
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
     Player pv; pv.hp = 312; pv.max_hp = 400; pv.level = 6; pv.sp = 138663; pv.exp_pct = 42.1f;
+    // CLERIA_DLG=1: preview the cutscene dialogue box (FACEWIN0 3-slice + name/text) so its
+    // slice-UVs/position can be tuned headlessly against reference/realgame/dialogue_box_*.png.
+    // (Layout check — uses the HUD font here, not Felghana; TitleFx::draw_dialogue is the real path.)
+    if (std::getenv("CLERIA_DLG")) {
+        Dds fwd = load_dds(asset_root / "IMAGE" / "FACEWIN0.DDS");
+        SpriteTex fw = fwd.ok() ? upload_rgba(g, fwd.width, fwd.height, fwd.data.data()) : SpriteTex{};
+        if (fw.tex) {
+            write_mvp(g, Mat4::identity());
+            const float sw = float(W), sh = float(H);
+            const float by1 = sh, by0 = sh - sh * (224.0f / 768.0f);
+            constexpr float vc = 0.5f, uL = 0.19f, uR = 0.586f, uEnd = 0.809f;
+            float curl = (by1 - by0) * (uL * 512.0f) / (vc * 512.0f);
+            auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+            auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+            draw_screen_image(g, cview, dview, false, fw, NX(0),        NY(by0), NX(curl),    NY(by1), 0.15f, 0.0f, 0.0f, uL,   vc);
+            draw_screen_image(g, cview, dview, false, fw, NX(curl),     NY(by0), NX(sw-curl), NY(by1), 0.15f, uL,   0.0f, uR,   vc);
+            draw_screen_image(g, cview, dview, false, fw, NX(sw-curl),  NY(by0), NX(sw),      NY(by1), 0.15f, uR,   0.0f, uEnd, vc);
+            const float boxH = by1 - by0, tx = sw * 0.15f;
+            hud.text("Boy in Black", tx, by0 + boxH * 0.14f, 2.0f, sw, sh, 240, 224, 192, 255);
+            hud.text("That voice... it can't be. Is that really you?", tx, by0 + boxH * 0.45f, 2.6f, sw, sh, 255, 255, 255, 255);
+        }
+    }
     hud.render(g, cview, W, H, room.name, 0.016f, &pv);
 
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
