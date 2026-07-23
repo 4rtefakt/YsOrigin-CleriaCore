@@ -1039,12 +1039,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // stay opt-in so the default game isn't degraded.
     const char* ev = std::getenv("CLERIA_EVENTS");
     const bool events_enabled = ev && std::atoi(ev) != 0;
-    // Story-flag state for events: LIVE-DISPROVEN candidates so far (build/event_re/
-    // S1000_FIRSTVISIT.md). FLAG_MAIN_1 is a checkpoint PAST the S_1000 first-visit
-    // intro — it spawns the permanent statue guards and skips the walk-in/battle/NPC/
-    // item/cleanse sequence the intro should play. So the fresh state is NOT a
-    // FLAG_MAIN_N checkpoint; it's the post-opening-demo state, still unpinned. Events
-    // run on the near-fresh new_game() flags for now (known-incomplete; see the doc).
+    // Story-flag state for events (build/event_re/S1000_FIRSTVISIT.md). TRACED, not
+    // guessed: S_1000's root fires StartScript(1)=BATTLESTART1 — the first-visit intro
+    // (walk to platform → battle → NPC dialogue → StartScript(21) cleanse tutorial) —
+    // only when FLAG 141 == 1 (pc 43/47). The opening movie sets 141; we skip the
+    // movie, so it was never set and the intro never played (zero-flags AND FLAG_MAIN_1
+    // both leave 141=0 → the intro is skipped). Set it here for a fresh events-on game.
+    // [Minimal intro trigger; the opening likely sets a few more flags — HAND-CHOSEN
+    // seed, being narrowed against the playthrough videos.]
+    if (events_enabled && !pending_load) game.g_flags[141] = 1;
     auto start_room_events = [&] {
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_count = 0;
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
