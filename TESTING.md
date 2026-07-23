@@ -60,3 +60,16 @@ That's all I need — I can read the game's code to find the rest.
 ## For me (not you): the controls cheat-sheet
 WASD move · LMB attack · Space jump · **E** interact/statue · **Esc** pause **or** skip cutscene ·
 **Backspace** skip cutscene · Tab swap character · 1-9 take exit N · T debug-talk · F free-fly cam
+
+---
+
+## 🆕 Note for the next events-ON test (2026-07-24)
+
+When you launch with `CLERIA_EVENTS=1` now, a new game seeds the **FLAG_MAIN_1** story
+state (the first main-story checkpoint) so cutscenes route to the *just-arrived* scenes
+instead of the wrong floor-6 scene you saw before.
+
+**The key question to answer:** when you enter S_1000 (new game, Yunica), does the
+cutscene now show the **correct first-visit scene** — the right NPCs (search party), in
+roughly the right spots? If yes, we adopt this and turn events on for real. If it's still
+the wrong scene, tell me what you see and I'll pick a different checkpoint.

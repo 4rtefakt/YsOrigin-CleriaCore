@@ -1005,6 +1005,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // stay opt-in so the default game isn't degraded.
     const char* ev = std::getenv("CLERIA_EVENTS");
     const bool events_enabled = ev && std::atoi(ev) != 0;
+    // Story-flag state for the OPT-IN events path: run FLAG_MAIN_1.XSO (the first
+    // main-story checkpoint, MAP/S_01/S_0100) over the game flags so room roots route
+    // to the just-arrived scenes instead of the floor-6 flag-235 hack or the
+    // hub-locking zero-flag path (cotest [flagprobe] evidence, NEWGAME_FLAGS.md). Fresh
+    // game only (a load carries its own flags); events-only so the default game is
+    // untouched. [The exact fresh-checkpoint is FLAG_MAIN_1 by headless evidence;
+    // needs live confirmation the scene is visually correct — HAND-CHOSEN.]
+    if (events_enabled && !pending_load) {
+        const fs::path fm1 = asset_root / "MAP" / "S_01" / "S_0100" / "FLAG_MAIN_1.XSO";
+        std::error_code fec;
+        if (fs::exists(fm1, fec)) {
+            try { game.run(Xso::parse(read_bytes(fm1))); game.reset_run(); }
+            catch (const std::exception&) {}
+            game.g_flags[150] = character;   // FLAG_MAIN_1 mustn't clobber the character
+        }
+    }
     auto start_room_events = [&] {
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_count = 0;
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
