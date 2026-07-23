@@ -121,6 +121,9 @@ static void scroll_return(int frames) {
     g_scroll.rate = frames > 0 ? 1.0f / frames : 1.0f;
     if (g_scroll.rate >= 1.0f) { g_scroll.t = 0; g_scroll.active = false; }
 }
+// Hard-reset the event scroll to neutral (no offset) — used when SKIPPING a cutscene,
+// where the normal return-lerp would leave the look-at parked at the scripted point.
+static void scroll_reset() { g_scroll.active = false; g_scroll.t = 0.0f; }
 static void scroll_advance() {
     if (!g_scroll.active) return;
     const float d = g_scroll.t_dest - g_scroll.t, step = std::min(1.0f, g_scroll.rate);

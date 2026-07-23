@@ -1019,7 +1019,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             skip_cutscene = false;
             csHost.box_active = false;             // drop any half-revealed line
-            scroll_return(0); shake(0, 0, 0, 0);   // snap the camera back instantly
+            scroll_reset(); shake(0, 0, 0, 0);     // clear the scripted look-at + shake
+            after_cutscene = nullptr;              // its thaw-action is moot after a skip
+            // Snap the region camera straight back onto the player this frame, so the
+            // view doesn't stay parked where the cutscene had panned it.
+            update_camera(room, feet, 0.0f, /*snap=*/true);
+            if (g_cam.on) apply_cam_state(cam, feet);
             hud.message("(skipped)");
         }
         csMgr.tick_all();
