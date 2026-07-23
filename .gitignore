@@ -41,6 +41,8 @@
 # RE progress artifacts (top-level build/, so not caught by the *_re re-admit): the gap
 # roadmap, the coverage metric + its report, and the committed function list that lets
 # tools/re_coverage.py recompute coverage without Ghidra.
+!/build/PLAN.md
+!/build/PROGRESS.md
 !/build/ROADMAP.md
 !/build/RE_COVERAGE.md
 !/build/RE_INDEX.md

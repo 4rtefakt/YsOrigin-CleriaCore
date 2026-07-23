@@ -124,3 +124,14 @@ add_custom_command(TARGET cleria-view POST_BUILD
     "${TP}/sdl3/lib/x64/SDL3.dll" "$<TARGET_FILE_DIR:cleria-view>"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_SOURCE_DIR}/res/hud_font.bin" "$<TARGET_FILE_DIR:cleria-view>")
+
+# ---- tests ------------------------------------------------------------------
+# The self-verifying test apps, registered so `ctest -C Release` runs the suite.
+# All take the extracted asset root (default `assets/`, resolved from the source
+# dir) and exit non-zero on any failed assert.
+enable_testing()
+foreach(t collisiontest cotest worldtest enemytest asotest animtest)
+  add_test(NAME ${t}
+           COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
+           WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+endforeach()
