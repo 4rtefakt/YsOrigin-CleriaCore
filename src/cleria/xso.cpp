@@ -113,24 +113,21 @@ std::vector<Grant> Xso::grants() const {
     return out;
 }
 
-int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
+XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine) {
     const std::vector<std::int32_t>& code = script.words();
     const std::uint32_t n = std::uint32_t(code.size());
     auto word = [&](std::uint32_t i) -> std::uint32_t {
         return (i < n) ? std::uint32_t(code[i]) : 0;
     };
-
-    std::uint32_t pc = entry;
-    int steps = 0;
-    for (; steps < max_steps && pc < n; ++steps) {
-        const std::uint32_t old = pc;
-        const std::uint32_t w = word(old);
-        const std::uint32_t cls = w >> 24;
-        pc = old + 1;  // provisional; each class fixes it up
+    if (pc >= n) return Step::End;                         // ran off the end -> script end
+    const std::uint32_t old = pc;
+    const std::uint32_t w = word(old);
+    const std::uint32_t cls = w >> 24;
+    pc = old + 1;  // provisional; each class fixes it up
 
         switch (cls) {
             case 0: break;                                     // nop
-            case 1: return steps;                              // end
+            case 1: return Step::End;                          // end
             case 3: case 0xB: pc = word(old + 1); break;       // jump
             case 4: pc = old + 2; break;                       // 2-word nop
             // conditional jumps on the accumulator (target at old+1):
@@ -153,6 +150,24 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
                 const std::uint32_t sub = (w >> 12) & 0xFFF;
                 auto op = [&](std::uint32_t i) { return std::int32_t(word(old + argoff + i)); };
                 pc = old + argoff + nargs;
+                // Wait_* ops park the burst — coroutine (tick) mode only; in run-to-
+                // completion they fall through to the generic no-op (CUTSCENE_COROUTINE.md §4).
+                if (coroutine) {
+                    if (sub == 0xf2) {                         // Wait_Time(op0): frame countdown
+                        const int f = nargs >= 1 ? op(0) : 0;
+                        if (f <= 0) return Step::Continue;     // 0-frame wait is a true nop
+                        co_wait = f - 1; return Step::Park;
+                    }
+                    if (sub == 0xf0) return Step::Park;         // Wait_Interval: park exactly 1 frame
+                    switch (sub) {                             // condition waits (rewind + re-test)
+                        case 0xf1: case 0xf3: case 0xf4: case 0xf5: case 0xf6: case 0xf7:
+                        case 0xf8: case 0xf9: case 0xfd: case 0xfe: case 0xff: case 0x100:
+                        case 0x101: case 0x104: case 0x105: case 0x106:
+                            if (eval_wait(sub, script, old, argoff, nargs)) return Step::Continue;
+                            pc = old; return Step::Park;       // rewind to this op; re-poll next frame
+                        default: break;
+                    }
+                }
                 if (sub == 0x5F && nargs >= 2) {            // acc = (flag[op0]==op1)
                     acc = (flag(op(0)) == op(1)) ? 1 : 0;
                 } else if (sub == 0x60 && nargs >= 2) {     // acc = (flag[op0]==flag[op1])
@@ -260,10 +275,56 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
                 }
                 break;
             }
-            default: return steps;  // unknown class -> stop
+            default: return Step::Unknown;  // unknown class -> stop
         }
+    return Step::Continue;
+}
+
+int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
+    std::uint32_t pc = entry;
+    int steps = 0;
+    for (; steps < max_steps; ++steps) {
+        const Step s = step_one(script, pc, /*coroutine*/false);
+        if (s == Step::End || s == Step::Unknown) return steps;
     }
     return steps;
+}
+
+// One frame of a resumable script (CUTSCENE_COROUTINE.md §3): if a wait counter is armed
+// count it down, else burst-execute until a Wait_* op parks or the script ends.
+XsoVm::Tick XsoVm::tick() {
+    if (!co_script) return Tick::Ended;
+    if (co_wait > 0) { if (--co_wait > 0) return Tick::Waiting; }   // still counting down
+    for (int guard = 0; guard < 2'000'000; ++guard) {              // bound a wait-less loop
+        const Step s = step_one(*co_script, co_pc, /*coroutine*/true);
+        if (s == Step::Park) return Tick::Waiting;
+        if (s == Step::End || s == Step::Unknown) { co_script = nullptr; return Tick::Ended; }
+        // Step::Continue -> next op in this frame's burst
+    }
+    return Tick::Waiting;   // a script with no wait would spin forever — yield instead of hang
+}
+
+// Condition-wait predicate: true => the burst proceeds past the op; false => the VM
+// rewinds and re-polls next frame. A null host answers true for all (never blocks).
+bool XsoVm::eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
+                      std::uint32_t argoff, std::uint32_t nargs) {
+    const std::vector<std::int32_t>& code = script.words();
+    const std::uint32_t n = std::uint32_t(code.size());
+    auto op = [&](std::uint32_t i) {
+        const std::uint32_t k = old + argoff + i;
+        return (k < n) ? std::int32_t(code[k]) : 0;
+    };
+    switch (sub) {
+        case 0xf1: return host ? host->wait_fader() : true;               // fade finished
+        case 0xf3: return host ? host->wait_prompt() : true;             // advance pressed
+        case 0xf4: return host ? host->wait_script_done(script.string(op(0))) : true;
+        case 0xf5: return host ? host->wait_window(true) : true;         // msg window open
+        case 0xf6: return host ? host->wait_window(false) : true;        // msg window closed
+        case 0xf7: return host ? host->wait_sound(nargs >= 1 ? op(0) : 0) : true;
+        case 0xf8: return nargs >= 2 ? (flag(op(0)) == op(1)) : true;    // Wait_FlagEqualInt
+        default:   return true;   // chr/mesh-region waits (0xf9/fd/fe/ff/100/101/104/105/106):
+                                  // proceed — a stand-in until those subsystems are modelled
+    }
 }
 
 }  // namespace cleria

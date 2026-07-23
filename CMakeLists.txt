@@ -45,6 +45,9 @@ add_library(cleria STATIC
 target_include_directories(cleria PUBLIC src)
 
 # cleria-dump — load a room and export it to .obj (no GPU).
+add_executable(cleria-cotest apps/cleria-cotest/main.cpp)
+target_link_libraries(cleria-cotest PRIVATE cleria)
+
 add_executable(cleria-dump apps/cleria-dump/main.cpp)
 target_link_libraries(cleria-dump PRIVATE cleria)
 

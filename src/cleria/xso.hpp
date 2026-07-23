@@ -91,6 +91,16 @@ struct XsoHost {
     // (KEKKAIBREAK) calls `Eft_Kill("eft_barrier")`, so the ward vanishes on clear.
     virtual void kill_effect(const std::string& /*name*/) {}
 
+    // --- cutscene condition-wait predicates (CUTSCENE_COROUTINE.md §4b) --------------
+    // A condition-wait op re-tests its predicate every frame (the VM rewinds the PC to
+    // the op until it passes). The host answers each; the DEFAULTS all return true so a
+    // null host / headless run never blocks (and run-to-completion never calls these).
+    virtual bool wait_prompt() { return true; }              // 0xf3: advance button pressed?
+    virtual bool wait_fader() { return true; }               // 0xf1: fade finished?
+    virtual bool wait_window(bool /*wantOpen*/) { return true; } // 0xf5/0xf6: msg window open/closed?
+    virtual bool wait_sound(int /*channel*/) { return true; }    // 0xf7: SE on channel done?
+    virtual bool wait_script_done(const std::string& /*name*/) { return true; } // 0xf4: child ended?
+
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns
     // every placement through the CASTINFO factory. We pre-load the host with the
@@ -155,8 +165,40 @@ struct XsoVm {
         acquires.clear(); obj_enable.clear(); obj_opened.clear(); obj_visible.clear();
     }
 
-    // Execute from word `entry`; bounded by max_steps. Returns steps executed.
+    // Execute from word `entry`; bounded by max_steps. Returns steps executed. This is
+    // the RUN-TO-COMPLETION path (static grant extraction): Wait_* ops are inert no-ops.
     int run(const Xso& script, std::uint32_t entry = 0, int max_steps = 2'000'000);
+
+    // ## Coroutine (resumable) execution — the runtime model for cutscenes/events.
+    // CUTSCENE_COROUTINE.md: FUN_00566350 ticks a GoScript once per frame — if a wait
+    // counter is armed it counts down, else it BURSTS instructions until a Wait_* op
+    // parks the burst or the script ends. Counter waits (Wait_Time/Interval) arm a frame
+    // countdown; condition waits (Wait_Prompt/Fader/Window/Sound/Script/FlagEq) rewind
+    // the PC to the same op and re-test each frame (no stored condition). One coroutine
+    // per XsoVm for now (concurrent StartScript children come later); acc/locals/g_flags
+    // are shared with the VM, so a cutscene reads/writes the same game flags.
+    enum class Tick { Ended, Waiting };
+    const Xso* co_script = nullptr;   // bound script (caller keeps it alive); null = inactive
+    std::uint32_t co_pc = 0;          // saved PC (engine GoScript+0x1e4)
+    std::int32_t co_wait = 0;         // frame countdown (engine +0x1e8)
+
+    // Begin a resumable run of `s` from `entry`. Shares g_flags; resets acc/pc/wait.
+    void co_begin(const Xso& s, std::uint32_t entry = 0) {
+        co_script = &s; co_pc = entry; co_wait = 0; acc = 0;
+    }
+    bool co_active() const { return co_script != nullptr; }
+    // Run one frame: count down a wait, else burst until a Wait_* parks or the script ends.
+    Tick tick();
+
+  private:
+    // One instruction at code word `pc` (updated in place). `coroutine` enables the
+    // Wait_* ops (park the burst); false = run-to-completion (waits are no-ops). Shared
+    // by run() and tick() so the opcode semantics live in exactly one place.
+    enum class Step { Continue, End, Unknown, Park };
+    Step step_one(const Xso& script, std::uint32_t& pc, bool coroutine);
+    // A condition-wait predicate (0xf1/0xf3/0xf4/0xf5/0xf6/0xf7/0xf8): true => proceed.
+    bool eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
+                   std::uint32_t argoff, std::uint32_t nargs);
 };
 
 }  // namespace cleria
