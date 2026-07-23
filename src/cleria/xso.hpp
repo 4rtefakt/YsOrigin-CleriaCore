@@ -82,6 +82,11 @@ struct XsoHost {
     // host answers false, so nothing triggers until the .SEV boxes are wired.
     virtual bool chr_in_event_box(int /*entityId*/, const std::string& /*boxName*/) const { return false; }
 
+    // op 0x12d Chr_Delete(id): remove the actor with this instance id. Cutscene NPCs
+    // spawn (0x12c), talk, then delete themselves; enemies use it too. Null host / an
+    // absent id is a no-op.
+    virtual void despawn(int /*entity_id*/) {}
+
     // op 0x131 Chr_IsSeedLiving(group): "is any live entity tagged with group-N still
     // in the registry?" (FUN_00570640, EVENTVM.md §6). Maps arg 1..4 -> bit (n<<8) at
     // entity+0x130; scans the live registry for a match. The barrier-fight poll: a

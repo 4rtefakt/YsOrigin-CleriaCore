@@ -126,6 +126,13 @@ class ActorWorld : public XsoHost {
             if (a.tag.in_group(group) && a.alive()) return true;
         return false;
     }
+    // op 0x12d Chr_Delete(id): remove the actor with this instance id (never the
+    // player). std::list keeps other Actor* handles valid across the erase.
+    void despawn(int entity_id) override {
+        for (auto it = actors_.begin(); it != actors_.end(); ++it)
+            if (it->instance_id == entity_id && &*it != player_) { actors_.erase(it); return; }
+    }
+
     // op 0xa0: spawn every placement in the room's SCT (set via set_placements). No-op
     // if no placements are set. Defined in world.cpp (needs the Sct/CastTable bodies).
     void spawn_placements() override;

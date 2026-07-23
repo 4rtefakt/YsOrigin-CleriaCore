@@ -899,12 +899,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                            const std::string& n) override {
             if (worldHost) worldHost->locate_effect(id, x, y, z, a, b, n);
         }
-        // Cutscene spawns (op 0x12c): remember entity->cast so the dialogue can
-        // resolve a speaker id to its face set (F_<cast>.AIA). Not drawn as actors
-        // here — the world host owns real spawns.
+        // Cutscene spawns (op 0x12c): create a REAL actor in the world so the NPC is
+        // drawn (Riko, the search party = CAST_M800, …), AND remember entity->cast so
+        // the dialogue can resolve a speaker to its face set. `world_changed` tells the
+        // view to (re)load the new cast's sprite and rebuild its render list.
         std::unordered_map<int, int> spawn_cast;
-        void spawn(int entity_id, int cast_type, float, float, float, float, int) override {
+        bool world_changed = false;
+        void spawn(int entity_id, int cast_type, float x, float y, float z, float yaw,
+                   int group) override {
             if (entity_id > 0) spawn_cast[entity_id] = cast_type;
+            if (worldHost) { worldHost->spawn(entity_id, cast_type, x, y, z, yaw, group);
+                             world_changed = true; }
+        }
+        void despawn(int entity_id) override {
+            if (worldHost) { worldHost->despawn(entity_id); world_changed = true; }
         }
         bool is_alive(int) const override { return false; }
         bool any_seed_alive(int) const override { return false; }
@@ -1053,7 +1061,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             auto f = after_cutscene; after_cutscene = nullptr; f();
         }
         prev_frozen = frozen;
-        if (frozen && g_cam.on) apply_cam_state(cam, feet);
+        if (frozen) {
+            // The SCM region camera KEEPS UPDATING during a cutscene — the event VM
+            // doesn't replace it, it writes a scroll look-at the normal updater folds
+            // in (CUTSCENE_CAMERA.md §0). Refresh g_cam from the region every frozen
+            // frame so the scripted look-at (often at floor y=0) orbits the correct
+            // pitch/dist; skipping this left a stale/zero g_cam and put the eye in the
+            // floor on the first-frame room-entry cutscene.
+            update_camera(room, feet, kTickDt);
+            if (g_cam.on) apply_cam_state(cam, feet);
+        }
         return frozen;
     };
 
@@ -1271,6 +1288,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         hud.message("Game loaded.");
     }
 
+    // Establish the region camera for the INITIAL room before the first tick — a
+    // room-entry cutscene can freeze on frame 1, and apply_cam_state needs a valid
+    // g_cam (pitch/dist) or it puts the eye at the scroll look-at (in the floor).
+    if (!fly) { update_camera(room, feet, 0.0f, /*snap=*/true); if (g_cam.on) apply_cam_state(cam, feet); }
+
     while (running) {
         const Uint64 now = SDL_GetTicks();
         const float real_dt = float(now - last) / 1000.0f; last = now;
@@ -1440,7 +1462,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // Tick the room's event scripts every frame (controllers poll here). If a Fix is held
         // (a talk / cutscene) the world is frozen: skip the player/enemy sim for this tick (the
         // camera still runs inside tick_events).
-        if (tick_events()) continue;
+        const bool frozen_now = tick_events();
+        // A cutscene spawned/deleted an actor (op 0x12c/0x12d): load any new cast's
+        // sprite and rebuild the render list so the NPC is drawn (or gone). Done here
+        // so it happens whether or not the world is frozen.
+        if (csHost.world_changed) {
+            efx.init_from_world(g, asset_root, world, casts);
+            render = build_enemy_render(world, casts, efx);
+            csHost.world_changed = false;
+        }
+        if (frozen_now) continue;
         const float dt = kTickDt;
         if (cooldown > 0) cooldown -= dt;
 

@@ -369,6 +369,9 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // so we ignore it and let the host spawn them. Runs once, before
                         // any 0x12c. A null host makes this inert (existing tests).
                         if (host) host->spawn_placements();
+                    } else if (sub == 0x12d && host && nargs >= 1) {
+                        // Chr_Delete(id): remove the actor (cutscene NPC despawn).
+                        host->despawn(op(0));
                     } else if (sub == 0x13f && nargs >= 1) {
                         // "Is entity op0 alive?" CONDITION is [C-DIS]; the result
                         // DESTINATION is [H-high] — ENTITY.md pins the test but not the
