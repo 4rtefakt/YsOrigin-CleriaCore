@@ -21,6 +21,7 @@
 //        ** Do not read 999 as "not the player". ** Whether anything re-points it
 //        later is [UNKNOWN].
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <list>
 
@@ -126,6 +127,38 @@ class ActorWorld : public XsoHost {
             if (a.tag.in_group(group) && a.alive()) return true;
         return false;
     }
+    // Cutscene actor control (ops 0x140/0x143/0x133/0x100). The player (id 13/999) is
+    // NOT a world actor in the view — the host special-cases it — so these act on
+    // spawned NPCs only; an absent id is a no-op.
+    void chr_pos(int id, float x, float y, float z) override {          // 0x140 teleport
+        if (Actor* a = find(id)) { a->pos = {x, y, z}; a->cmoving = false; }
+    }
+    void chr_dir(int id, float deg) override {                          // 0x133 facing (degrees)
+        if (Actor* a = find(id)) a->yaw = deg * 3.14159265358979323846f / 180.0f;
+    }
+    void chr_moveto(int id, float x, float z, float speed) override {   // 0x143 walk-to
+        if (Actor* a = find(id)) {
+            a->cmove_tgt = {x, a->pos.y, z};
+            a->cmove_spd = speed > 0 ? speed : 0.1f;
+            a->cmoving = true;
+        }
+    }
+    bool chr_moving(int id) const override {                            // 0x100 Wait_ChrMoving
+        for (const Actor& a : actors_) if (a.instance_id == id) return a.cmoving;
+        return false;
+    }
+    // Advance every cutscene walk-to one frame (called each tick, incl. while frozen —
+    // NPCs move during a Fix). Turns toward the target and steps; stops within reach.
+    void advance_cutscene_moves() {
+        for (Actor& a : actors_) {
+            if (!a.cmoving) continue;
+            const float dx = a.cmove_tgt.x - a.pos.x, dz = a.cmove_tgt.z - a.pos.z;
+            const float d = std::sqrt(dx * dx + dz * dz);
+            if (d <= a.cmove_spd || d < 1e-3f) { a.pos.x = a.cmove_tgt.x; a.pos.z = a.cmove_tgt.z; a.cmoving = false; }
+            else { a.pos.x += dx / d * a.cmove_spd; a.pos.z += dz / d * a.cmove_spd; a.yaw = std::atan2(dx, dz); }
+        }
+    }
+
     // op 0x12d Chr_Delete(id): remove the actor with this instance id (never the
     // player). std::list keeps other Actor* handles valid across the erase.
     void despawn(int entity_id) override {

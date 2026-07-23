@@ -926,6 +926,37 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void despawn(int entity_id) override {
             if (worldHost) { worldHost->despawn(entity_id); world_changed = true; }
         }
+        // Cutscene actor control. The PLAYER (13/999) is `*playerPos` (feet), not a world
+        // actor, so move it here; NPCs forward to the world. This is what makes the intro
+        // actually walk the player to the platform (op 0x143) instead of standing still.
+        bool p_isplayer(int id) const { return id == 13 || id == 999; }
+        Vec3 p_move_tgt{}; float p_move_spd = 0; bool p_moving = false;
+        void chr_pos(int id, float x, float y, float z) override {
+            if (p_isplayer(id)) { if (playerPosW) *playerPosW = {x, y, z}; p_moving = false; }
+            else if (worldHost) worldHost->chr_pos(id, x, y, z);
+        }
+        void chr_dir(int id, float deg) override {
+            if (p_isplayer(id)) { if (playerYawDeg) *playerYawDeg = deg; }
+            else if (worldHost) worldHost->chr_dir(id, deg);
+        }
+        void chr_moveto(int id, float x, float z, float spd) override {
+            if (p_isplayer(id)) { p_move_tgt = {x, 0, z}; p_move_spd = spd > 0 ? spd : 0.1f; p_moving = true; }
+            else if (worldHost) worldHost->chr_moveto(id, x, z, spd);
+        }
+        bool chr_moving(int id) const override {
+            if (p_isplayer(id)) return p_moving;
+            return worldHost && worldHost->chr_moving(id);
+        }
+        // Advance the player's cutscene walk one frame (NPCs advance in the world).
+        Vec3* playerPosW = nullptr; float* playerYawDeg = nullptr;
+        void advance_player_move() {
+            if (!p_moving || !playerPosW) return;
+            const float dx = p_move_tgt.x - playerPosW->x, dz = p_move_tgt.z - playerPosW->z;
+            const float d = std::sqrt(dx * dx + dz * dz);
+            if (d <= p_move_spd || d < 1e-3f) { playerPosW->x = p_move_tgt.x; playerPosW->z = p_move_tgt.z; p_moving = false; }
+            else { playerPosW->x += dx / d * p_move_spd; playerPosW->z += dz / d * p_move_spd;
+                   if (playerYawDeg) *playerYawDeg = std::atan2(dx, dz) * 180.0f / 3.14159265f; }
+        }
         // Forward the live predicates to the WORLD — a cutscene/controller that spawned
         // actors polls these to gate itself. Returning false made the barrier controller
         // (Chr_IsSeedLiving) think its guard was already dead and break on room entry.
@@ -976,6 +1007,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csHost.worldHost = &world;
     csHost.roomPtr = &room;         // op 0x13d tests the player vs the current room's .SEV boxes
     csHost.playerPos = &feet;
+    csHost.playerPosW = &feet;      // Chr_Pos/Chr_MoveTo move the player's feet in a cutscene
     bool prev_frozen = false;
     bool skip_cutscene = false;   // set by ESC/Backspace during a frozen cutscene
     std::function<void()> after_cutscene;   // ran once when the world thaws (e.g. re-gate the room)
@@ -1005,22 +1037,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // stay opt-in so the default game isn't degraded.
     const char* ev = std::getenv("CLERIA_EVENTS");
     const bool events_enabled = ev && std::atoi(ev) != 0;
-    // Story-flag state for the OPT-IN events path: run FLAG_MAIN_1.XSO (the first
-    // main-story checkpoint, MAP/S_01/S_0100) over the game flags so room roots route
-    // to the just-arrived scenes instead of the floor-6 flag-235 hack or the
-    // hub-locking zero-flag path (cotest [flagprobe] evidence, NEWGAME_FLAGS.md). Fresh
-    // game only (a load carries its own flags); events-only so the default game is
-    // untouched. [The exact fresh-checkpoint is FLAG_MAIN_1 by headless evidence;
-    // needs live confirmation the scene is visually correct — HAND-CHOSEN.]
-    if (events_enabled && !pending_load) {
-        const fs::path fm1 = asset_root / "MAP" / "S_01" / "S_0100" / "FLAG_MAIN_1.XSO";
-        std::error_code fec;
-        if (fs::exists(fm1, fec)) {
-            try { game.run(Xso::parse(read_bytes(fm1))); game.reset_run(); }
-            catch (const std::exception&) {}
-            game.g_flags[150] = character;   // FLAG_MAIN_1 mustn't clobber the character
-        }
-    }
+    // Story-flag state for events: LIVE-DISPROVEN candidates so far (build/event_re/
+    // S1000_FIRSTVISIT.md). FLAG_MAIN_1 is a checkpoint PAST the S_1000 first-visit
+    // intro — it spawns the permanent statue guards and skips the walk-in/battle/NPC/
+    // item/cleanse sequence the intro should play. So the fresh state is NOT a
+    // FLAG_MAIN_N checkpoint; it's the post-opening-demo state, still unpinned. Events
+    // run on the near-fresh new_game() flags for now (known-incomplete; see the doc).
     auto start_room_events = [&] {
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_count = 0;
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
@@ -1089,6 +1111,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         scroll_advance();
         shake_advance();
         csHost.fade_advance();
+        // Advance cutscene walk-to moves (op 0x143): the player (feet) and NPCs (world).
+        // Re-snap the player to the floor after the XZ step so a walk-to follows terrain.
+        csHost.advance_player_move();
+        world.advance_cutscene_moves();
+        if (csHost.p_moving) {
+            const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
+            if (fl > kNoFloor) feet.y = fl;
+        }
         const bool frozen = csMgr.world_frozen();
         if (!frozen && prev_frozen && after_cutscene) {    // world just thawed -> queued action
             auto f = after_cutscene; after_cutscene = nullptr; f();

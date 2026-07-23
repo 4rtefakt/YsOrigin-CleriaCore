@@ -82,6 +82,13 @@ struct XsoHost {
     // host answers false, so nothing triggers until the .SEV boxes are wired.
     virtual bool chr_in_event_box(int /*entityId*/, const std::string& /*boxName*/) const { return false; }
 
+    // Cutscene actor control (Chr family, EVENTVM_HANDLERS.md §4). The player (id
+    // 13/999) is special-cased by the view (its position is not a world actor).
+    virtual void chr_pos(int /*id*/, float /*x*/, float /*y*/, float /*z*/) {}   // 0x140 teleport
+    virtual void chr_dir(int /*id*/, float /*deg*/) {}                           // 0x133 facing
+    virtual void chr_moveto(int /*id*/, float /*x*/, float /*z*/, float /*spd*/) {}  // 0x143 walk-to
+    virtual bool chr_moving(int /*id*/) const { return false; }                  // 0x100 Wait_ChrMoving
+
     // op 0x12d Chr_Delete(id): remove the actor with this instance id. Cutscene NPCs
     // spawn (0x12c), talk, then delete themselves; enemies use it too. Null host / an
     // absent id is a no-op.

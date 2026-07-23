@@ -382,6 +382,19 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     } else if (sub == 0x12d && host && nargs >= 1) {
                         // Chr_Delete(id): remove the actor (cutscene NPC despawn).
                         host->despawn(op(0));
+                    } else if (sub == 0x140 && host && nargs >= 4) {
+                        // Chr_Pos(id, x, y, z): teleport. x/y/z are float bit patterns.
+                        auto f = [&](std::uint32_t i){ float v; std::uint32_t r=std::uint32_t(op(i)); std::memcpy(&v,&r,4); return v; };
+                        host->chr_pos(op(0), f(1), f(2), f(3));
+                    } else if (sub == 0x133 && host && nargs >= 2) {
+                        // Chr_Dir(id, deg): set facing (float degrees).
+                        float d; std::uint32_t r=std::uint32_t(op(1)); std::memcpy(&d,&r,4);
+                        host->chr_dir(op(0), d);
+                    } else if (sub == 0x143 && host && nargs >= 5) {
+                        // Chr_MoveTo(id, x, y, z, speed) [iffff]: ground walk-to; the
+                        // worker uses x/z/speed (y is the height the XZ move ignores).
+                        auto f = [&](std::uint32_t i){ float v; std::uint32_t r=std::uint32_t(op(i)); std::memcpy(&v,&r,4); return v; };
+                        host->chr_moveto(op(0), f(1), f(3), f(4));
                     } else if (sub == 0x13f && nargs >= 1) {
                         // "Is entity op0 alive?" CONDITION is [C-DIS]; the result
                         // DESTINATION is [H-high] — ENTITY.md pins the test but not the
@@ -466,7 +479,8 @@ bool XsoVm::eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
         case 0xf6: return host ? host->wait_window(false) : true;        // msg window closed
         case 0xf7: return host ? host->wait_sound(nargs >= 1 ? op(0) : 0) : true;
         case 0xf8: return nargs >= 2 ? (flag(op(0)) == op(1)) : true;    // Wait_FlagEqualInt
-        default:   return true;   // chr/mesh-region waits (0xf9/fd/fe/ff/100/101/104/105/106):
+        case 0x100: return host ? !host->chr_moving(op(0)) : true;       // Wait_ChrMoving: proceed when STILL
+        default:   return true;   // other chr/mesh-region waits (0xf9/fd/fe/ff/101/104/105/106):
                                   // proceed — a stand-in until those subsystems are modelled
     }
 }

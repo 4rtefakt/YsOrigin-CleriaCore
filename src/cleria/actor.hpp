@@ -179,6 +179,13 @@ struct Actor {
     // 0 for the player and for casts with no enemy record.
     float move_speed = 0;  // engine: actor+0x30c
 
+    // Cutscene walk-to (op 0x143 Chr_MoveTo -> +0x358 move block): the actor walks
+    // toward `cmove_tgt` at `cmove_spd` units/frame until within reach, then stops.
+    // `cmoving` is what Wait_ChrMoving (0x100) polls. Advanced by ActorWorld each tick.
+    Vec3 cmove_tgt{};
+    float cmove_spd = 0;
+    bool cmoving = false;
+
     // Transient chase-speed multiplier, driven by the enemy's animation script the way
     // anime_Movable gates the player: the brain sets it to 0 while an attack is committed
     // so the enemy plants for its swing instead of sliding through it. 1 = full chase.
