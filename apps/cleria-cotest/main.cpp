@@ -284,10 +284,18 @@ int main(int argc, char** argv) {
         }
         // The finding is: zero-flag entry freezes via a battle-intro child. That is exactly why
         // live events are opt-in (CLERIA_EVENTS), not on by default.
-        const bool ok = mgr.world_frozen() && battleStartHolds;
-        std::printf("[live] S_1000 zero-flag entry: frozen=%d battleStart-holds-Fix=%d %s\n",
-                    int(mgr.world_frozen()), int(battleStartHolds),
-                    ok ? "OK (finding pinned)" : "FAIL");
+        const bool zeroLocks = mgr.world_frozen() && battleStartHolds;
+        // ...and with the first-visit story flag (235 = search party present) the root routes
+        // to the opening scene and does NOT fall into the battle lock: after settling (dialogue
+        // auto-advances) the world is not frozen. This is the candidate new-game state.
+        ScriptManager mgr2; mgr2.loader = &loader; mgr2.vm.host = &eh;
+        mgr2.vm.g_flags[150] = 1; mgr2.vm.g_flags[235] = 1;
+        mgr2.start_root(std::make_shared<Xso>(Xso::parse(rd(dir + "S_1000.XSO"))), "s_1000");
+        for (int f = 0; f < 300; ++f) mgr2.tick_all();
+        const bool flag235ok = !mgr2.world_frozen();
+        const bool ok = zeroLocks && flag235ok;
+        std::printf("[live] S_1000: zero-flag locks(battle)=%d | flag235 settles-free=%d %s\n",
+                    int(zeroLocks), int(flag235ok), ok ? "OK" : "FAIL");
         fails += !ok;
     }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
