@@ -318,7 +318,7 @@ static int render_shot(Gpu& g, const Room& room, const fs::path& out,
     td.format = WGPUTextureFormat_RGBA8Unorm; td.mipLevelCount = 1; td.sampleCount = 1;
     WGPUTexture color = wgpuDeviceCreateTexture(g.device, &td);
     WGPUTextureView cview = wgpuTextureCreateView(color, nullptr);
-    WGPUTextureView dview = make_depth(g.device, W, H);
+    WGPUTextureView dview = make_depth(g, W, H);
     const std::uint32_t bpr = (W * 4 + 255) & ~255u;
     WGPUBufferDescriptor rbd = {};
     rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * H;

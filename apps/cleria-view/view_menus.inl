@@ -681,16 +681,6 @@ struct TitleFx {
                        const std::string& text, int reveal, const SpriteTex* face = nullptr) {
         if (!facewin.tex) return;
         const float sw = float(W), sh = float(H);
-        // The speaker PORTRAIT: quad DAT_00732a80 = authored (47.5,517.5)-(277.5,747.5),
-        // 230x230, UV 0..1 of the face canvas (CUTSCENE_DIALOGUE.md addendum). Authored
-        // X mapped through the centred 4:3 content region ([H] for ultrawide anchoring).
-        if (face && face->tex) {
-            const float A = sh / 768.0f, xoff = (sw - 1024.0f * A) * 0.5f;
-            auto FX = [&](float x) { return 2.0f * (xoff + x * A) / sw - 1.0f; };
-            auto FY = [&](float y) { return 1.0f - 2.0f * (y * A) / sh; };
-            draw_screen_image(g, cview, dview, false, *face, FX(47.5f), FY(517.5f),
-                              FX(277.5f), FY(747.5f), 0.14f, 0.0f, 0.0f, 1.0f, 1.0f);
-        }
         const float by1 = sh, by0 = sh - sh * (224.0f / 768.0f);   // bottom 224/768 of the frame
         const float bx0 = 0.0f, bx1 = sw;
         constexpr float vc = 0.5f, uL = 0.19f, uR = 0.586f, uEnd = 0.809f;   // FACEWIN0 slice UVs
@@ -702,19 +692,55 @@ struct TitleFx {
         draw_screen_image(g, cview, dview, false, facewin, NX(bx0),        NY(by0), NX(bx0 + curl), NY(by1), z, 0.0f, 0.0f, uL,   vc);
         draw_screen_image(g, cview, dview, false, facewin, NX(bx0 + curl), NY(by0), NX(bx1 - curl), NY(by1), z, uL,   0.0f, uR,   vc);
         draw_screen_image(g, cview, dview, false, facewin, NX(bx1 - curl), NY(by0), NX(bx1),        NY(by1), z, uR,   0.0f, uEnd, vc);
+        // The speaker PORTRAIT: quad DAT_00732a80 = authored (47.5,517.5)-(277.5,747.5),
+        // 230x230, UV 0..1 of the face canvas (CUTSCENE_DIALOGUE.md addendum). Drawn
+        // AFTER the bar so the bust reads over its translucent fill (as in
+        // reference/realgame/dialogue_box_*.png). Authored X mapped through the
+        // centred 4:3 content region ([H] for ultrawide anchoring).
+        const float A2 = sh / 768.0f, xoff = (sw - 1024.0f * A2) * 0.5f;
+        if (face && face->tex) {
+            auto FX = [&](float x) { return 2.0f * (xoff + x * A2) / sw - 1.0f; };
+            auto FY = [&](float y) { return 1.0f - 2.0f * (y * A2) / sh; };
+            draw_screen_image(g, cview, dview, false, *face, FX(47.5f), FY(517.5f),
+                              FX(277.5f), FY(747.5f), 0.12f, 0.0f, 0.0f, 1.0f, 1.0f);
+        }
         const float boxH = by1 - by0;
-        const float tx = sw * 0.15f;                 // left text margin (past the portrait slot)
-        const float pxName = boxH * 0.15f, pxBody = boxH * 0.21f;
+        // Text clears the portrait slot when a face is up (authored ~300 [HAND-TUNED]).
+        // Text metrics measured off reference/realgame/dialogue_box_shion_statue.png
+        // (1280x720): body cell = authored ~34px, name ~28px, text left = authored
+        // ~283 — mapped through the same centred 4:3 region as the portrait.
+        const float tx = xoff + 283.0f * A2;
+        const float pxName = 28.0f * A2, pxBody = 34.0f * A2;
         if (!name.empty())
             mf.text(name, tx, by0 + boxH * 0.10f, pxName, sw, sh, 240, 224, 192, 255);   // cream
         std::string shown = (reveal >= 0 && reveal < int(text.size())) ? text.substr(0, reveal) : text;
         float ly = by0 + boxH * 0.34f;
+        // Greedy word-wrap: authored "\n" splits first, then any segment wider than
+        // the box wraps at spaces (the portrait margin can overflow authored lines).
+        const float maxW = sw - tx - sw * 0.05f;
+        auto emit = [&](const std::string& seg) {
+            std::string line;
+            std::size_t w0 = 0;
+            while (w0 <= seg.size()) {
+                std::size_t sp = seg.find(' ', w0);
+                if (sp == std::string::npos) sp = seg.size();
+                const std::string word = seg.substr(w0, sp - w0);
+                const std::string cand = line.empty() ? word : line + " " + word;
+                if (!line.empty() && mf.measure(cand, pxBody) > maxW) {
+                    mf.text(line, tx, ly, pxBody, sw, sh, 255, 255, 255, 255);
+                    ly += pxBody * 1.15f;
+                    line = word;
+                } else line = cand;
+                if (sp >= seg.size()) break;
+                w0 = sp + 1;
+            }
+            mf.text(line, tx, ly, pxBody, sw, sh, 255, 255, 255, 255);
+            ly += pxBody * 1.15f;
+        };
         std::size_t i = 0;
         for (;;) {
             const std::size_t nl = shown.find("\\n", i);   // authors write the two chars \ n
-            mf.text(shown.substr(i, (nl == std::string::npos ? shown.size() : nl) - i),
-                    tx, ly, pxBody, sw, sh, 255, 255, 255, 255);
-            ly += pxBody * 1.15f;
+            emit(shown.substr(i, (nl == std::string::npos ? shown.size() : nl) - i));
             if (nl == std::string::npos) break;
             i = nl + 2;
         }
@@ -1298,7 +1324,7 @@ static int render_title(Gpu& g, const fs::path& asset_root, const fs::path& out,
     td.format = WGPUTextureFormat_RGBA8Unorm; td.mipLevelCount = 1; td.sampleCount = 1;
     WGPUTexture color = wgpuDeviceCreateTexture(g.device, &td);
     WGPUTextureView cview = wgpuTextureCreateView(color, nullptr);
-    WGPUTextureView dview = make_depth(g.device, W, H);
+    WGPUTextureView dview = make_depth(g, W, H);
     const std::uint32_t bpr = (W * 4 + 255) & ~255u;
     WGPUBufferDescriptor rbd = {};
     rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * H;

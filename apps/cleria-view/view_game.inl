@@ -138,7 +138,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // bilinear-upscaled to the window. Format must match the window surface (fmt), not a
         // hardcoded RGBA8Unorm, or the pipeline is incompatible with an sRGB surface pass.
         mf.init(g, fmt, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
-        WGPUTextureView tdepth = make_depth(g.device, cw, ch);
+        WGPUTextureView tdepth = make_depth(g, cw, ch);
         g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
         // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
         // BONUS sub-list (DAT_0074e259), and the New-Game chain CHARSELECT -> TYPESELECT (Normal/
@@ -258,7 +258,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
                     if (cw && ch) {
-                        configure(); wgpuTextureViewRelease(tdepth); tdepth = make_depth(g.device, cw, ch);
+                        configure(); wgpuTextureViewRelease(tdepth); tdepth = make_depth(g, cw, ch);
                         mf.build_atlas(g, int(std::lround(32.0 * 960.0 / 768.0)));  // 960-internal font, upscaled
                     }
                 }
@@ -344,7 +344,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     Vec3 atk_dir{0, 0, 1};               // the swing's facing (captured at swing start)
     std::set<int> atk_hit;               // instance ids already hit this swing (dedup)
     Vec3 face_dir{0, 0, 1};              // world dir the player faces (from movement)
-    WGPUTextureView depth = make_depth(g.device, cw, ch);
+    WGPUTextureView depth = make_depth(g, cw, ch);
 
     // `character` was chosen above (CLERIA_CHAR override or the title's character-select).
     XsoVm game;                        // persistent game state (survives rooms)
@@ -1168,14 +1168,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (cast < 0 || frame < 0) return nullptr;
         if (portrait.cast != cast) {
             portrait.cast = cast; portrait.frame = -1; portrait.aia_ok = false;
-            // cast INDEX -> sprite stem ("C_210") -> face set "F_210.AIA".
-            std::string stem = casts.sprite_stem(cast);
-            if (stem.size() > 2) {
-                stem[0] = 'F';
+            // cast INDEX -> CASTINFO name "CAST_C210" -> face set "F_210.AIA".
+            // (NPC casts carry no sprite stem — the name is the reliable key.)
+            std::string face;
+            if (const Cast* cr = casts.get(cast)) {
+                const std::string& n = cr->name;                 // "CAST_C210"
+                const std::size_t c = n.rfind('C');
+                if (c != std::string::npos && c + 1 < n.size())
+                    face = "F_" + n.substr(c + 1);               // "F_210"
+            }
+            if (!face.empty()) {
                 portrait.aia = Aia{};
-                portrait.aia_ok = portrait.aia.load(asset_root / "ANI" / (stem + ".AIA")) &&
+                portrait.aia_ok = portrait.aia.load(asset_root / "ANI" / (face + ".AIA")) &&
                                   portrait.aia.ok();
             }
+            std::printf("  [portrait] speaker=%d cast=%d face='%s' aia=%d\n",
+                        csHost.speaker, cast, face.c_str(), int(portrait.aia_ok));
         }
         if (portrait.aia_ok && portrait.frame != frame) {
             AiaFrame f;
@@ -1352,7 +1360,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 speed_mult = std::max(0.1f, std::min(8.0f, speed_mult));
             } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                 cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
-                if (cw && ch) { configure(); wgpuTextureViewRelease(depth); depth = make_depth(g.device, cw, ch); }
+                if (cw && ch) { configure(); wgpuTextureViewRelease(depth); depth = make_depth(g, cw, ch); }
             }
         }
 
@@ -1944,7 +1952,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // Cutscene dialogue box over the frozen world (FACEWIN0 bottom bar + name + text).
         if (csHost.box_active && pauseOk) {
             write_mvp(g, Mat4::identity());   // the box is screen-space
-            WGPUTextureView ddepth = make_depth(g.device, cw, ch);
+            WGPUTextureView ddepth = make_depth(g, cw, ch);
             pauseUi.draw_dialogue(g, pmf, view, ddepth, cw, ch, csHost.name, csHost.text, csHost.reveal,
                                   portrait_tex());
             wgpuTextureViewRelease(ddepth);
@@ -1960,7 +1968,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             if (captionTex.tex) {
                 write_mvp(g, Mat4::identity());
-                WGPUTextureView cdepth = make_depth(g.device, cw, ch);
+                WGPUTextureView cdepth = make_depth(g, cw, ch);
                 const float sw = float(cw), sh = float(ch);
                 const float cw2 = sw * 0.6f, chh = cw2 * float(captionTex.h) / float(captionTex.w);
                 const float cx = (sw - cw2) * 0.5f, cy = sh * 0.16f;
@@ -1990,7 +1998,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             write_mvp(g, Mat4::identity());  // the pause-book pages are screen-space
             // Fresh depth (like the title-menu path's tdepth) so the world's z-buffer can't
             // occlude the book; only allocated while the pause menu is actually open.
-            WGPUTextureView pdepth = make_depth(g.device, cw, ch);
+            WGPUTextureView pdepth = make_depth(g, cw, ch);
             switch (pausePage) {
                 case 1: {  // Item / Inventory
                     static const int owned[] = {1, 48, 8, 78, 79, 116};  // stub inventory
@@ -2015,7 +2023,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // The goddess-statue menu, over the frozen game (STATUE_MENU.md flow).
         if (statue_ui && pauseOk) {
             write_mvp(g, Mat4::identity());
-            WGPUTextureView pdepth = make_depth(g.device, cw, ch);
+            WGPUTextureView pdepth = make_depth(g, cw, ch);
             if (statue_ui == 1) {
                 static const char* kChoice[3] = {"Save", "Accept divine blessing", "Nothing right now"};
                 pauseUi.draw_menu_window(g, pmf, view, pdepth, cw, ch, "What will you do?", kChoice, 3, statue_sel);

@@ -702,14 +702,31 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
     wgpuCommandEncoderRelease(enc);
 }
 
-static WGPUTextureView make_depth(WGPUDevice dev, std::uint32_t w, std::uint32_t h) {
+static WGPUTextureView make_depth(Gpu& g, std::uint32_t w, std::uint32_t h) {
     WGPUTextureDescriptor td = {};
     td.usage = WGPUTextureUsage_RenderAttachment; td.dimension = WGPUTextureDimension_2D;
     td.size = {w, h, 1}; td.format = WGPUTextureFormat_Depth24Plus;
     td.mipLevelCount = 1; td.sampleCount = 1;
-    WGPUTexture t = wgpuDeviceCreateTexture(dev, &td);
+    WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
     WGPUTextureView v = wgpuTextureCreateView(t, nullptr);
     wgpuTextureRelease(t);
+    // CLEAR to far (1.0) immediately: a fresh depth texture's contents are undefined
+    // (in practice zero = NEAREST), so any overlay that draws with loadOp Load before
+    // a clearing pass — the dialogue box, the statue menu — silently depth-fails every
+    // quad. A depth-only clearing pass here makes every make_depth safe to Load from.
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPURenderPassDepthStencilAttachment da = {};
+    da.view = v; da.depthLoadOp = WGPULoadOp_Clear; da.depthStoreOp = WGPUStoreOp_Store;
+    da.depthClearValue = 1.0f;
+    WGPURenderPassDescriptor rp = {};
+    rp.colorAttachmentCount = 0; rp.depthStencilAttachment = &da;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd);
+    wgpuCommandEncoderRelease(enc);
     return v;
 }
 
