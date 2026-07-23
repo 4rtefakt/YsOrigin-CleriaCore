@@ -145,6 +145,24 @@ Ef2 Ef2::load(const fs::path& file) {
         std::memcpy(&em.sx, b.data() + o1 + 0x28, 4);
         std::memcpy(&em.sy, b.data() + o1 + 0x2c, 4);
         std::memcpy(&em.sz, b.data() + o1 + 0x30, 4);
+        // Orientation mode (B2+0x00) + blend (B2+0x08), EF2_RENDER.md §A. Bit 0x8 => the
+        // procedural flat ring (params in the B2 tail at +0x8f8..+0x904); bit 0x80 of the
+        // packed render-state word => additive.
+        std::uint16_t mode = 0;
+        std::uint32_t blend = 0;
+        std::memcpy(&mode, b.data() + o2 + 0x00, 2);
+        std::memcpy(&blend, b.data() + o2 + 0x08, 4);
+        em.additive = (blend & 0x80) != 0;
+        if ((mode & 0x8) != 0) {
+            em.ring = true;
+            std::memcpy(&em.ring_segs, b.data() + o2 + 0x8f8, 4);
+            std::memcpy(&em.ring_outer, b.data() + o2 + 0x8fc, 4);
+            std::memcpy(&em.ring_inner, b.data() + o2 + 0x900, 4);
+            float h = 0;
+            std::memcpy(&h, b.data() + o2 + 0x904, 4);
+            em.ring_height = h * 0.5f;
+            if (em.ring_segs < 1 || em.ring_segs > 512) em.ring_segs = 0, em.ring = false;
+        }
         std::uint32_t fc = 0;
         std::memcpy(&fc, b.data() + o2 + 0x48, 4);
         if (fc > 16) fc = 16;  // the parser's own bound; 0 = draws no textured quad

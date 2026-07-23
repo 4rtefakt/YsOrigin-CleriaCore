@@ -56,6 +56,15 @@ struct Ef2Emitter {
     std::uint32_t life = 0;              // B1 +0x24, in ticks [H-medium]
     float sx = 1, sy = 1, sz = 1;        // B1 +0x28
     std::vector<Ef2Frame> frames;        // B2 +0x48 count, +0x4c ids, +0x8c uv rects
+    // Orientation MODE + blend, from the B2 header (build/effect_re/EF2_RENDER.md §A). `ring`
+    // (B2+0x00 bit 0x8) means this emitter is NOT a billboard but a procedurally-generated FLAT
+    // horizontal annulus in the world XZ plane (the kekkai ward): `ring_segs` segments, radii
+    // `ring_inner..ring_outer`, at Y = `ring_height`. `additive` (B2+0x08 bit 0x80) selects the
+    // additive glow blend vs alpha.
+    bool ring = false;
+    int ring_segs = 0;
+    float ring_outer = 0, ring_inner = 0, ring_height = 0;
+    bool additive = false;
     bool textured() const { return !frames.empty(); }
 };
 

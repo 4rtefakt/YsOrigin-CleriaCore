@@ -1249,7 +1249,8 @@ struct CharSprite {
 static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                            const Vec3& feet, float worldH, const SpriteTex& spr,
                            const Vec3& camForward, const Vec3& camPos, float flash = 0.0f,
-                           float tr = 1.0f, float tg = 1.0f, float tb = 1.0f) {
+                           float tr = 1.0f, float tg = 1.0f, float tb = 1.0f,
+                           bool additive = false) {
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
@@ -1313,7 +1314,7 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     WGPURenderPassDescriptor rp = {};
     rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, g.char_pipeline);
+    wgpuRenderPassEncoderSetPipeline(pass, additive && g.char_pipeline_add ? g.char_pipeline_add : g.char_pipeline);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
     wgpuRenderPassEncoderSetBindGroup(pass, 1, spr.bind, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
@@ -1760,14 +1761,25 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (!t->tex) continue;
         // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
         const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
-        // Event-bound (group-1 seed) enemies render RED in the retail game (the barrier fight):
-        // a strong red modulate, gently pulsing, so the seed reads distinct from normal enemies.
-        float tr = 1.0f, tg = 1.0f, tb = 1.0f;
-        if (e.actor->tag.in_group(1)) {
-            const float pulse = 0.20f + 0.10f * std::sin(t_anim * 6.0f);  // 0.10..0.30
-            tg = tb = pulse; tr = 1.0f;
+        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos, flash);
+        // Event-bound (group-1..4) enemies GLOW their marker colour, ADDED to their own sprite and
+        // pulsing by |sin(phase)| — the engine's FUN_00473c60 mechanism (build/effect_re/EF2_RENDER.md
+        // §B): marker ARGB, alpha = intensity, per-enemy phase. Group 1 = 0xFFE00000 (red 224). We
+        // reproduce it as a second ADDITIVE pass of the same sprite tinted by RGB*(A*|sin|/255).
+        static const std::uint32_t kGroupColour[4] = {0xFFE00000u, 0xFF00D000u, 0xFF0000FFu, 0xFF00C0C0u};
+        for (int grp = 1; grp <= 4; ++grp) {
+            if (!e.actor->tag.in_group(grp)) continue;
+            const std::uint32_t mk = kGroupColour[grp - 1];
+            const float A = float((mk >> 24) & 0xFF) / 255.0f;
+            const float mr = float((mk >> 16) & 0xFF) / 255.0f;
+            const float mg = float((mk >> 8) & 0xFF) / 255.0f;
+            const float mb = float(mk & 0xFF) / 255.0f;
+            const float phase = float(e.actor->instance_id) * 2.4f + t_anim * 6.2831853f;  // per-enemy offset
+            const float I = A * std::fabs(std::sin(phase));                                 // pulsing intensity
+            draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos,
+                           0.0f, mr * I, mg * I, mb * I, /*additive*/true);
+            break;
         }
-        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos, flash, tr, tg, tb);
     }
 }
 
@@ -1867,6 +1879,11 @@ struct BulletArt {
         SpriteTex tex;
         std::vector<Ef2Frame> frames;   // UV rect per frame, from the EF2
         float w = 1, h = 1;             // emitter scale
+        // Ring primitive (EF2_RENDER.md §A): a flat horizontal annulus in world XZ, not a
+        // billboard — the kekkai ward. Segments + radii + Y come straight from the EF2.
+        bool ring = false;
+        int ring_segs = 0;
+        float ring_outer = 0, ring_inner = 0, ring_height = 0;
     };
     std::vector<Layer> layers;
     int life = 60;                      // ticks; the effect's own lifetime
@@ -1897,6 +1914,11 @@ static const BulletArt& bullet_art(Gpu& g, const fs::path& asset_root, const Eft
         L.frames = em.frames;
         L.w = em.sx;
         L.h = em.sy;
+        L.ring = em.ring;
+        L.ring_segs = em.ring_segs;
+        L.ring_outer = em.ring_outer;
+        L.ring_inner = em.ring_inner;
+        L.ring_height = em.ring_height;
         a.layers.push_back(L);
     }
     return a;
