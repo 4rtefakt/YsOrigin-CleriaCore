@@ -321,6 +321,67 @@ int main(int argc, char** argv) {
         std::printf("[newgame] init table matches NEWGAME_FLAGS.md %s\n", ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // Query-op batch 2026-07-23 (0x3c/0x8c/0x9a/0xc1/0x139/0x13a/0x13b): run the REAL
+    // ops through the VM on a synthetic XSR container, storing each acc into a local
+    // (>= 0x200) via Flag_MovReg (0x66) so the results are observable.
+    {
+        struct PosHost : XsoHost {
+            void spawn(int, int, float, float, float, float, int) override {}
+            bool is_alive(int) const override { return false; }
+            bool actor_pos(int id, float out[3]) const override {
+                if (id != 13) return false;              // only the player resolves
+                out[0] = 5; out[1] = 1; out[2] = -3; return true;
+            }
+            bool is_fix() const override { return true; }
+        } ph;
+        std::vector<std::int32_t> code;
+        auto W = [](int sub, int nargs) {                // class-2 word, argoff bits 0
+            return std::int32_t((2u << 24) | (std::uint32_t(sub) << 12) | std::uint32_t(nargs));
+        };
+        auto F = [](float v) { std::int32_t w; std::memcpy(&w, &v, 4); return w; };
+        int next_local = 0x200;
+        auto q = [&](std::initializer_list<std::int32_t> opwords) {   // query; store acc
+            code.insert(code.end(), opwords);
+            code.push_back(W(0x66, 2)); code.push_back(next_local++); code.push_back(0);
+        };
+        q({W(0x9a, 1), 3});                              // 0x200: story bit 3 -> 1
+        q({W(0x9a, 1), 7});                              // 0x201: itemArr[flag152] -> 1
+        q({W(0x9a, 1), 9});                              // 0x202: spliced -> bit 7 -> 1
+        q({W(0x9a, 1), 10});                             // 0x203: spliced -> bit 8 -> 0
+        q({W(0x139, 5), 13, F(5), F(1), F(-3), F(0.25f)});          // 0x204: at center -> 1
+        q({W(0x139, 5), 13, F(5), F(9), F(-3), F(2)});              // 0x205: 8 above -> 0
+        q({W(0x13a, 6), 13, F(5), F(9), F(-3), F(0.5f), F(10)});    // 0x206: tall cyl -> 1
+        q({W(0x13a, 6), 13, F(5), F(9), F(-3), F(0.5f), F(2)});     // 0x207: short cyl -> 0
+        q({W(0x13b, 7), 13, F(6), F(2), F(-2), F(4), F(0), F(-4)}); // 0x208: box (swapped corners) -> 1
+        q({W(0x13b, 7), 13, F(6), F(2), F(-2), F(5.5f), F(0), F(-4)}); // 0x209: outside -> 0
+        q({W(0xc1, 0)});                                 // 0x20a: IsFix -> 1
+        code.push_back(std::int32_t(0xEu << 24)); code.push_back(42);  // acc = 42
+        q({W(0x3c, 1), 42});                             // 0x20b: Reg_IsEqualInt -> 1
+        q({W(0x8c, 1), 5});                              // 0x20c: IsEquip, no model -> 0
+        q({W(0x139, 5), 42, F(5), F(1), F(-3), F(9)});   // 0x20d: unknown actor -> 0
+        code.push_back(std::int32_t(1u << 24));          // end
+        std::vector<std::uint8_t> bytes(0x24, 0);
+        std::memcpy(bytes.data(), "XSR\0", 4);
+        const std::uint32_t words = std::uint32_t(code.size());
+        std::memcpy(bytes.data() + 0x1C, &words, 4);     // string count @0x20 stays 0
+        const auto* cp = reinterpret_cast<const std::uint8_t*>(code.data());
+        bytes.insert(bytes.end(), cp, cp + code.size() * 4);
+
+        XsoVm vm; vm.host = &ph;
+        vm.g_flags[217] = (1 << 3) | (1 << 7);           // story bits 3 and 7
+        vm.item_arr[6] = 1; vm.g_flags[152] = 6;         // op0==7 escape hits
+        vm.run(Xso::parse(bytes));
+        const int expect[] = {1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0};
+        bool ok = true;
+        for (int i = 0; i < 14; ++i)
+            if (vm.flag(0x200 + i) != expect[i]) {
+                std::printf("  queryops: local 0x%x = %d, want %d\n",
+                            0x200 + i, vm.flag(0x200 + i), expect[i]);
+                ok = false;
+            }
+        std::printf("[queryops] 14 query-op results via synthetic script %s\n", ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

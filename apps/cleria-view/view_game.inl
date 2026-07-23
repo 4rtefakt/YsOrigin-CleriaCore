@@ -748,6 +748,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const SceneBox* b = find_box(roomPtr->event_boxes, name);
             return b && b->contains(*playerPos);
         }
+        // ops 0x139/0x13a/0x13b position source: like 0x13d, only the player (13) is
+        // positioned in cutscene context; other ids -> no actor -> false.
+        bool actor_pos(int entityId, float out[3]) const override {
+            if (entityId != 13 || !playerPos) return false;
+            out[0] = playerPos->x; out[1] = playerPos->y; out[2] = playerPos->z;
+            return true;
+        }
+        // op 0xc1 IsFix(): the ScriptManager's ref-counted Fix/world-freeze state IS the
+        // engine's 0x75ad90 fix counter (there is no separate pause counter here yet).
+        bool is_fix() const override { return mgr && mgr->world_frozen(); }
     } csHost;
     // The cutscene runtime is the concurrent GoScript manager (CUTSCENE_COROUTINE.md §2/§5):
     // a triggered script can StartScript sub-talks / captions that tick alongside it. Its

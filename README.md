@@ -239,7 +239,6 @@ mistaken for facts. (Removed as they are traced and validated.)
 | **damage formula (player target)** | not implemented on purpose — the path forks at `0x4fd3e1` (different DEF source, soft floors, `max(1.0,…)`); declared-but-undefined so a caller link-errors rather than silently getting the enemy formula |
 | **bosses in the viewer** | rendered/skinned/posed and AABB-validated, but nothing drives them per-tick in play yet |
 | **`BOSS06A/B`, `PIC_TOGE`, `BOSS01_` clip AABBs** | don't reproduce (Δ1.3–11.4) while 59 others are exact — suspected 2nd animation path (`type != 0`), never observed |
-| **300 XSO branch sites** | `tools/xso_audit.py` lists sub-ops still unimplemented at runtime, leaving `acc` stale on the branch that reads them |
 | **S_1000 white staircase** | a geometry/material artifact in the bottom-left of the tower base, not yet diagnosed |
 
 ## Credit

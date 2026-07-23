@@ -89,6 +89,32 @@ struct XsoHost {
     // Always called with arg 1 in the shipped corpus. A null/absent group => false.
     virtual bool any_seed_alive(int /*group*/) const { return false; }
 
+    // Position lookup behind the region-query ops 0x139/0x13a/0x13b (Chr_IsInSphere/
+    // Cylinder/Box). The workers (FUN_00570c10/c80/cf0) resolve the actor (998=self,
+    // else FUN_00434d50 by id) and read its position (+0x50/+0x54/+0x58); the GEOMETRY
+    // lives in the VM (operand-supplied), only the position comes from the host.
+    // Returns false when the id resolves to no actor — the engine's null path.
+    virtual bool actor_pos(int /*entityId*/, float /*out*/[3]) const { return false; }
+
+    // op 0x8c Flag_IsEquip(itemId): acc = FUN_00443ce0(itemId), "is this item currently
+    // equipped" (EVENTVM_HANDLERS_2.md). CleriaCore has no runtime equipment model yet,
+    // so the default answers false (nothing equipped) rather than guessing.
+    virtual bool is_equipped(int /*itemId*/) const { return false; }
+
+    // op 0xc1 IsFix(): acc = (fix counter 0x75ad90 + pause counter 0x75ad94) != 0 —
+    // "is any script holding the world fixed/paused?" (FUN_0040b2c0,
+    // EVENTVM_HANDLERS_5.md §1). The ScriptManager's ref-counted Fix state answers it.
+    virtual bool is_fix() const { return false; }
+
+    // op 0xc2 IsUnderWaterWorld(): acc = (int @0x76a544 == 2) — the world-mode global
+    // (EVENTVM_HANDLERS_5.md). CleriaCore has no underwater-world mode yet; default false.
+    virtual bool is_underwater_world() const { return false; }
+
+    // op 0x13e Chr_IsThisChr(id): acc = (resolve(id) == this script's bound actor
+    // GoScript+0x240), FUN_005706c0 [C-DIS]. CleriaCore scripts don't model a bound
+    // actor yet, so the default answers false.
+    virtual bool chr_is_this(int /*entityId*/) const { return false; }
+
     // op 0x11a Eft_LocatePosAddStr(id, x,y,z, a, b, name, c): place a named effect at a
     // world position, persistent until killed. [C-DIS] signature ifffffsf. The barrier
     // ward is `Eft_LocatePosAddStr(210 "map_kekkai", pos, .., "eft_barrier", ..)` — id
@@ -160,6 +186,10 @@ struct XsoVm {
     // counts these to drive `world_frozen()`. Coroutine-only; null => inert (run-to-completion).
     std::function<void()> on_fix, on_unfix;
     std::int32_t g_flags[0x200] = {0};
+    // `itemArr` u32[54] @0x76a654 (EQUIP.md): per-item ownership/availability, 0 at new
+    // game (the memset covers it), written by the scene dispatcher FUN_00431840. Read by
+    // IsXXX (0x9a) op0==7/8 through FUN_00420210. Lives in the save block like g_flags.
+    std::int32_t item_arr[54] = {0};
     std::unordered_map<int, std::int32_t> locals;  // indices >= 0x200
     std::int32_t acc = 0;
     // outputs collected during a run:

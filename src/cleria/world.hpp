@@ -104,6 +104,20 @@ class ActorWorld : public XsoHost {
             if (a.instance_id == entity_id) return a.alive();
         return false;
     }
+    // Region-query position source (ops 0x139/0x13a/0x13b): the worker's actor resolve
+    // (FUN_00434d50 by id, player fast path) then position read (+0x50/+0x54/+0x58).
+    bool actor_pos(int entity_id, float out[3]) const override {
+        const Actor* a = nullptr;
+        if ((entity_id == kIdPlayer || entity_id == kIdPlayerAlias) && player_) {
+            a = player_;
+        } else {
+            for (const Actor& c : actors_)
+                if (c.instance_id == entity_id) { a = &c; break; }
+        }
+        if (!a) return false;
+        out[0] = a->pos.x; out[1] = a->pos.y; out[2] = a->pos.z;
+        return true;
+    }
     // op 0x131 Chr_IsSeedLiving(group): FUN_00570640 scans the live registry for any
     // entity whose +0x130 group bits include (group<<8). The player is never tagged, so
     // this is just "any living group-N seed enemy left?".

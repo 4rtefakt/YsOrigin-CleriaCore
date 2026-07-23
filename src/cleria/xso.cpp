@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 
@@ -244,6 +245,76 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     acc = ((flag(op(0)) & op(1)) != 0) ? 1 : 0;
                 } else if (sub == 0x81 && nargs >= 1) {     // percentage roll: rand%100 < op0
                     acc = (int(rng_next() >> 17) % 100 < op(0)) ? 1 : 0;
+                } else if (sub == 0x3c && nargs >= 1) {     // Reg_IsEqualInt(i)
+                    // The Reg_* family head: compare on acc (EVENTVM.md §5a).
+                    acc = (acc == op(0)) ? 1 : 0;
+                } else if (sub == 0x80) {
+                    // Reg_EntryLabel(s): the StartScript entry-label MARKER (EVENTVM.md).
+                    // No state change — recognized explicitly so acc is knowingly intact.
+                } else if (sub == 0x8c && nargs >= 1) {     // Flag_IsEquip(itemId)
+                    // acc = FUN_00443ce0(itemId) "is item equipped" (EVENTVM_HANDLERS_2.md).
+                    acc = (host && host->is_equipped(op(0))) ? 1 : 0;
+                } else if (sub == 0x9a && nargs >= 1) {
+                    // IsXXX(i): the story-bitset query — 34-case jump table 0x56e778
+                    // (EVENTVM_HANDLERS_2.md §4) over the dword @0x76bc80 = FLAG 217
+                    // ((0x76bc80-0x76b91c)/4). op0>0x21 -> false. op0 7/8 are the two
+                    // character-availability escapes: itemArr[flag152/flag153]==1
+                    // (FUN_00420210). op0 9..0x21 map to bits 7..31 (bit = op0-2): the
+                    // escapes are spliced INTO the bit sequence. Bit meanings [UNKNOWN],
+                    // the query itself is [C-DIS].
+                    const std::int32_t o = op(0);
+                    if (o < 0 || o > 0x21) {
+                        acc = 0;
+                    } else if (o == 7 || o == 8) {
+                        const std::int32_t idx = flag(o == 7 ? 152 : 153);
+                        acc = (idx >= 0 && idx < 54 && item_arr[idx] == 1) ? 1 : 0;
+                    } else {
+                        acc = (flag(217) >> ((o <= 6) ? o : o - 2)) & 1;
+                    }
+                } else if (sub == 0xc1) {                   // IsFix()
+                    // acc = (fix ctr 0x75ad90 + pause ctr 0x75ad94) != 0 (FUN_0040b2c0).
+                    acc = (host && host->is_fix()) ? 1 : 0;
+                } else if (sub == 0xc2) {                   // IsUnderWaterWorld()
+                    // acc = (*0x76a544 == 2); CleriaCore has no underwater mode yet.
+                    acc = (host && host->is_underwater_world()) ? 1 : 0;
+                } else if ((sub == 0x139 || sub == 0x13a || sub == 0x13b) && nargs >= 5) {
+                    // Chr_IsInSphere / Cylinder / Box: the geometry comes from the
+                    // operands (float BIT PATTERNS), only the actor position from the
+                    // host (workers FUN_00570c10/c80/cf0 read actor +0x50/54/58 — dumped
+                    // 2026-07-23, see OP_13D_REGION.md addendum). Null actor -> false.
+                    auto f = [&](std::uint32_t i) {
+                        float v; const std::uint32_t raw = std::uint32_t(op(i));
+                        std::memcpy(&v, &raw, 4); return v;
+                    };
+                    float p[3];
+                    if (!host || !host->actor_pos(op(0), p)) {
+                        acc = 0;
+                    } else if (sub == 0x139) {
+                        // sphere(center xyz, r): full 3D squared distance vs r².
+                        const float dx = p[0] - f(1), dy = p[1] - f(2), dz = p[2] - f(3);
+                        const float r = f(4);
+                        acc = (dx * dx + dy * dy + dz * dz <= r * r) ? 1 : 0;
+                    } else if (sub == 0x13a && nargs >= 6) {
+                        // cylinder(center xyz, r, halfH): XZ distance vs r², then
+                        // |dy| <= halfH (FUN_0041f170 = fabs, [C-COR] 3 docs).
+                        const float dx = p[0] - f(1), dy = p[1] - f(2), dz = p[2] - f(3);
+                        const float r = f(4), hh = f(5);
+                        acc = (dx * dx + dz * dz <= r * r && std::fabs(dy) <= hh) ? 1 : 0;
+                    } else if (sub == 0x13b && nargs >= 7) {
+                        // box(corner A xyz, corner B xyz): per-axis min/max normalize
+                        // (the worker swaps), then inclusive AABB containment.
+                        acc = 1;
+                        for (int a3 = 0; a3 < 3; ++a3) {
+                            const float lo = std::min(f(1 + a3), f(4 + a3));
+                            const float hi = std::max(f(1 + a3), f(4 + a3));
+                            if (p[a3] < lo || p[a3] > hi) { acc = 0; break; }
+                        }
+                    } else {
+                        acc = 0;
+                    }
+                } else if (sub == 0x13e && nargs >= 1) {    // Chr_IsThisChr(id)
+                    // acc = (resolve(id) == script-bound actor +0x240), FUN_005706c0.
+                    acc = (host && host->chr_is_this(op(0))) ? 1 : 0;
                 } else if (nargs >= 1) {
                     const std::int32_t i0 = op(0);
                     const char* sn = store_name(sub);
