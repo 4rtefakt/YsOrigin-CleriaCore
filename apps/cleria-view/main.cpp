@@ -2008,85 +2008,100 @@ static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
 }
 
 // Persistent script-placed effects (op 0x11a): the barrier ward and friends. Each is one
-// eftlist effect looping its flipbook forever at a fixed world position, until op 0x119
-// removes it. Unlike a projectile it is NOT a fixed billboard — the kekkai ward stands in
-// the world around the chest, and its exact rake is still being matched to the retail
-// effect, so orientation is fully KNOB-DRIVEN: CLERIA_BARRIER_TILT rotates the plane from
-// UPRIGHT (0deg, top = straight up) toward FLAT on the ground (90deg, top = raked away from
-// the camera), about the camera's horizontal-right axis; CLERIA_BARRIER_LIFT raises the
-// centre off the floor; CLERIA_BARRIER_SCALE sizes it. Dial these live, then bake the
-// winners in as the defaults.
+// eftlist effect looping forever at a fixed world position until op 0x119 removes it. Every
+// emitter is drawn ADDITIVE (its EF2 blend word, EF2_RENDER.md §A.3). Orientation comes from
+// the DATA per emitter, no knobs:
+//  - RING emitters (B2+0x00 bit 0x8, e.g. map_kekkai emitter 6) are a procedural CYLINDER WALL
+//    in the world: two edge-rings at the SAME radius but +/-height/2 in Y, so the visible band
+//    is vertical (FUN_0044c250). Vertex i uses the (s-c, s+c) basis (radius x sqrt2), textured
+//    u-around / v-across, white verts (colour is the additive texture).
+//  - other emitters are upright camera-facing billboards (the ward's central glow).
+// World size = emitter scale (EF2 B1+0x28) x the locate op's effect scale (e.a). [radius/height
+// scale split x/z vs y]. The emitter-scale->world-matrix compose is [H-high] per EF2_RENDER.md.
 static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEffect>& fx,
                                  const fs::path& asset_root, const EftList& efl, const EftTex& eft,
                                  WGPUTextureView color, WGPUTextureView depth,
                                  const Vec3& camFwd, float t) {
     if (fx.empty()) return;
-    float tiltDeg = 90.0f, lift = 0.8f, scaleOv = -1.0f;   // flat + lifted (user: 90 closest, wants it higher/around the chest)
-    if (const char* s = std::getenv("CLERIA_BARRIER_TILT")) tiltDeg = float(std::atof(s));
-    if (const char* s = std::getenv("CLERIA_BARRIER_LIFT")) lift = float(std::atof(s));
-    if (const char* s = std::getenv("CLERIA_BARRIER_SCALE")) { float v = float(std::atof(s)); if (v > 0) scaleOv = v; }
-    const float trFlat = tiltDeg * 3.14159265f / 180.0f;
     Vec3 fwdH = {camFwd.x, 0, camFwd.z};
     const float fl = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
     if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
     const Vec3 rightH = normalize(cross(Vec3{0, 1, 0}, fwdH));
-    // The retail ward is a FLAT ground ring PLUS a VERTICAL light beam (user's 1080p shot).
-    // Those are separate layers of map_kekkai, so orient each by its aspect: a tall layer
-    // (h > w) is the beam -> stand it UPRIGHT (world-up, camera-facing); a wide/square layer
-    // is the ring -> lay it FLAT (raked by tiltDeg). upDir is the layer's vertical axis.
-    const Vec3 upFlat = {fwdH.x * std::sin(trFlat), std::cos(trFlat), fwdH.z * std::sin(trFlat)};
-    const Vec3 upBeam = {0, 1, 0};
+    auto submit = [&](const std::vector<RoomVertex>& verts, const std::vector<std::uint32_t>& idx,
+                      WGPUBindGroup tex) {
+        if (idx.empty()) return;
+        WGPUBuffer vb = make_buffer(g.device, g.queue, verts.data(),
+                                    verts.size() * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
+        WGPUBuffer ib = make_buffer(g.device, g.queue, idx.data(),
+                                    idx.size() * sizeof(std::uint32_t), WGPUBufferUsage_Index);
+        WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+        WGPURenderPassColorAttachment ca = {};
+        ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+        ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+        WGPURenderPassDepthStencilAttachment da = {};
+        da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+        WGPURenderPassDescriptor rp = {};
+        rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+        wgpuRenderPassEncoderSetPipeline(pass, g.fx_pipeline);   // additive
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+        wgpuRenderPassEncoderSetBindGroup(pass, 1, tex, 0, nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+        wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+        wgpuRenderPassEncoderDrawIndexed(pass, std::uint32_t(idx.size()), 1, 0, 0, 0);
+        wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
+        WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+        wgpuQueueSubmit(g.queue, 1, &cmd);
+        wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+        wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+    };
     for (const ActorWorld::LocatedEffect& e : fx) {
         const BulletArt& art = bullet_art(g, asset_root, efl, eft, e.id);
         if (!art.ok()) continue;
-        const float sc = scaleOv > 0 ? scaleOv : (e.a > 0.01f ? e.a : 1.0f);
+        const float scale = e.a > 0.01f ? e.a : 1.0f;   // the locate op's effect scale (op arg a)
         const int age = int(t * 60.0f) % std::max(1, art.life);
         for (const BulletArt::Layer& L : art.layers) {
             if (L.frames.empty()) continue;
-            const bool beam = L.h > L.w * 1.3f;          // tall layer -> the vertical beam
-            const Vec3 upDir = beam ? upBeam : upFlat;
             const int fi = std::min(int(L.frames.size()) - 1,
                                     int(std::size_t(age) * L.frames.size() /
                                         std::size_t(std::max(1, art.life))));
             const Ef2Frame& fr = L.frames[std::size_t(fi)];
-            const float hw = L.w * sc * 0.5f, hh = L.h * sc * 0.5f;
-            // The flat ring sits at the ward point (raised by `lift`); the beam STANDS ON the
-            // ground and rises, so its centre is one half-height up from the floor.
-            const Vec3 c = beam ? Vec3{e.x, e.y + hh, e.z} : Vec3{e.x, e.y + lift, e.z};
-            RoomVertex verts[4];
-            std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
-            auto V = [&](int n, float rx, float uy, float u, float v) {
-                verts[n] = {c.x + rightH.x * rx * hw + upDir.x * uy * hh,
-                            c.y + upDir.y * uy * hh,
-                            c.z + rightH.z * rx * hw + upDir.z * uy * hh,
+            std::vector<RoomVertex> verts;
+            std::vector<std::uint32_t> idx;
+            if (L.ring && L.ring_segs >= 1) {
+                // Cylinder wall: N segments, top ring at +hh (radius Rtop), bottom at -hh (Rbot).
+                const int N = L.ring_segs;
+                const float radXZ = L.w * scale;         // emitter sx * effect scale (radius)
+                const float radY = L.h * scale;          // emitter sy * effect scale (band height)
+                const float Rtop = L.ring_inner, Rbot = L.ring_outer, hh = L.ring_height;
+                verts.reserve(std::size_t(N + 1) * 2);
+                for (int i = 0; i <= N; ++i) {
+                    const float a = float(i) * 6.2831853f / float(N);
+                    const float s = std::sin(a), c = std::cos(a);
+                    const float u = fr.u0 + (fr.u1 - fr.u0) * (float(i) / float(N));  // around the ring
+                    verts.push_back({e.x + (s - c) * Rtop * radXZ, e.y + hh * radY,
+                                     e.z + (s + c) * Rtop * radXZ, 0, 1, 0, u, fr.v0, 255, 255, 255, 255});
+                    verts.push_back({e.x + (s - c) * Rbot * radXZ, e.y - hh * radY,
+                                     e.z + (s + c) * Rbot * radXZ, 0, 1, 0, u, fr.v1, 255, 255, 255, 255});
+                }
+                idx.reserve(std::size_t(N) * 6);
+                for (int i = 0; i < N; ++i) {
+                    const std::uint32_t t0 = std::uint32_t(2 * i), b0 = t0 + 1, t1 = t0 + 2, b1 = t0 + 3;
+                    idx.insert(idx.end(), {t0, b0, t1, t1, b0, b1});
+                }
+            } else {
+                // Upright, camera-facing additive billboard (the central glow), centred at the pos.
+                const float hw = L.w * scale * 0.5f, half = L.h * scale * 0.5f;
+                const Vec3 c = {e.x, e.y, e.z};
+                auto V = [&](float rx, float uy, float u, float v) -> RoomVertex {
+                    return {c.x + rightH.x * rx * hw, c.y + uy * half, c.z + rightH.z * rx * hw,
                             0, 1, 0, u, v, 255, 255, 255, 255};
-            };
-            V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);   // +upDir = top (up / raked away)
-            V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1); // -upDir = bottom (down / near)
-            WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof(verts), WGPUBufferUsage_Vertex);
-            WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof(idx), WGPUBufferUsage_Index);
-            WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
-            WGPURenderPassColorAttachment ca = {};
-            ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-            ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
-            WGPURenderPassDepthStencilAttachment da = {};
-            da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
-            WGPURenderPassDescriptor rp = {};
-            rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
-            rp.depthStencilAttachment = &da;
-            WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-            wgpuRenderPassEncoderSetPipeline(pass, g.fx_pipeline);
-            wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
-            wgpuRenderPassEncoderSetBindGroup(pass, 1, L.tex.bind, 0, nullptr);
-            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
-            wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
-            wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
-            wgpuRenderPassEncoderEnd(pass);
-            wgpuRenderPassEncoderRelease(pass);
-            WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
-            wgpuQueueSubmit(g.queue, 1, &cmd);
-            wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
-            wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+                };
+                verts = {V(-1, 1, fr.u0, fr.v0), V(1, 1, fr.u1, fr.v0),
+                         V(1, -1, fr.u1, fr.v1), V(-1, -1, fr.u0, fr.v1)};
+                idx = {0, 1, 2, 0, 2, 3};
+            }
+            submit(verts, idx, L.tex.bind);
         }
     }
 }
