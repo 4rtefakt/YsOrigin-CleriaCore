@@ -860,14 +860,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void window_close() override { box_active = false; name.clear(); text.clear(); }
         std::string caption_name; int caption_timer = 0;   // 0xe2 area-name card (frames left)
         void caption(const std::string& nm) override { caption_name = nm; caption_timer = 210; }
+        // SKIP: while set, EVERY wait predicate reports "done" so every live script
+        // bursts to its end (its side effects — flags/spawns/warps — still run). This
+        // clears not just Wait_Prompt but Wait_Script / Wait_Window / Wait_Sound /
+        // Wait_Fader too, which a plain Wait_Time collapse can't. Set by the skip loop.
+        bool skipping = false;
         bool wait_prompt() override {
+            if (skipping) return true;
             if (reveal < int(text.size())) return false;    // line still typing out
             if (advance) { advance = false; return true; }  // one press advances one line
             return false;
         }
+        bool wait_fader() override { return true; }
+        bool wait_window(bool) override { return true; }
+        bool wait_sound(int) override { return true; }
         // 0xf4 Wait_Script(name): a parent controller blocks until its spawned talk child
         // is gone. Answer from the live set (case-insensitive; script names vary in case).
         bool wait_script_done(const std::string& n) override {
+            if (skipping) return true;
             if (!mgr) return true;
             for (const auto& i : mgr->live) {
                 if (i.finished || i.name.size() != n.size()) continue;
@@ -1011,12 +1021,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // warps, Eft/Scroll) still run in order — only the waiting is removed. Bounded
         // so a script that legitimately never ends (a persistent controller) can't hang.
         if (skip_cutscene) {
-            csHost.advance = true;                 // clear any Wait_Prompt
+            csHost.skipping = true;                // every wait predicate reports "done"
             for (int guard = 0; guard < 20000 && csMgr.world_frozen(); ++guard) {
                 csMgr.skip_waits();                // zero every live script's Wait_Time
-                csHost.advance = true;
                 csMgr.tick_all();
             }
+            csHost.skipping = false;
+            csHost.advance = false;
             skip_cutscene = false;
             csHost.box_active = false;             // drop any half-revealed line
             scroll_reset(); shake(0, 0, 0, 0);     // clear the scripted look-at + shake
@@ -2004,8 +2015,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 write_mvp(g, Mat4::identity());
                 WGPUTextureView cdepth = make_depth(g, cw, ch);
                 const float sw = float(cw), sh = float(ch);
-                const float cw2 = sw * 0.6f, chh = cw2 * float(captionTex.h) / float(captionTex.w);
-                const float cx = (sw - cw2) * 0.5f, cy = sh * 0.16f;
+                // Upper-LEFT area-name card (user-corrected: the RE's "centred-upper"
+                // was a guess). Sized to the 4:3 content region so it doesn't stretch on
+                // widescreen; anchored near the top-left corner. [HAND-TUNED vs retail.]
+                const float A = sh / 768.0f, xoff = (sw - 1024.0f * A) * 0.5f;
+                const float cw2 = 384.0f * A, chh = cw2 * float(captionTex.h) / float(captionTex.w);
+                const float cx = xoff + 40.0f * A, cy = 48.0f * A;
                 const float a = std::min(1.0f, csHost.caption_timer / 45.0f);   // fade over the last 45f
                 auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
                 auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
