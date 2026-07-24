@@ -1895,30 +1895,40 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (EnemyRender& e : render) {
                 Actor* en = e.actor;
                 if (!en || !en->alive() || !e.avm.ok()) continue;
-                // Hitstun: a landed player hit interrupts the enemy. Drop out of the attack
-                // section back to idle, clear the swing state, and hold (no chase/attack)
-                // until the stun ends — so the swing visibly STOPS instead of playing on.
-                if (en->hitstun > 0) {
-                    --en->hitstun;
-                    if (e.avm.section() == e.atk_section) {
-                        e.avm.set_section(e.idle_section, /*force*/true);
-                        e.atk_win = 0; e.atk_armed = false; e.atk_age = 0;
-                        e.atk_cd = kEnemyAtkCooldown;   // no instant retaliation
-                    }
+                // Hurt/flinch is MOTION STATE 4 (MOTIONSTATE.md: id 4 = hurt, section type 4,
+                // which outranks an in-progress attack at type 3). There is no numeric stun
+                // counter in the engine — the stun IS the hurt clip's own length, per enemy,
+                // from its ASO. Hold here until that section ends, then fall back to idle.
+                if (e.avm.section() == 4) {
                     en->move_scale = 0.0f;              // planted (knockback still slides it)
                     e.avm.set_is_land(true);
                     e.avm.tick();
+                    if (e.avm.section_ended()) {
+                        e.avm.set_section(e.idle_section, /*force*/true);
+                        e.atk_cd = kEnemyAtkCooldown;   // no instant retaliation
+                    }
                     continue;
                 }
                 if (e.atk_cd > 0) --e.atk_cd;
                 const float dx = feet.x - en->pos.x, dz = feet.z - en->pos.z;
                 const float dist2 = dx * dx + dz * dz;
                 const bool attacking = e.atk_section >= 0 && e.avm.section() == e.atk_section;
+                // Gates the M100 melee brain applies before it may commit an attack
+                // (build/ai_re/eai1_out.txt): a DIFFERENT-FLOOR check and a FACING CONE.
+                // Without them an enemy swings at a player standing on a balcony above it or
+                // directly behind it, which is what let hits land through floors and fences.
+                const float vsep = feet.y - en->pos.y;
+                const bool other_floor = vsep >= 2.0f;              // DAT_006bd580 = 2.0
+                const float dl = std::sqrt(dist2);
+                const bool in_front = dl <= 1e-4f ||                // DAT_006bcff0 = 0.001
+                    (std::sin(en->yaw) * dx + std::cos(en->yaw) * dz) / dl >= 0.001f;
                 if (!attacking) {
-                    const float reach = kCharRadius + kEnemyAtkReach;
+                    // Attack range is centre-to-centre dist^2 <= 2.5 (DAT_006bd624), i.e.
+                    // 1.5811 units — the enemy radius is NOT added.
+                    const float reach = 1.5811f;
                     if (e.atk_section >= 0 && e.atk_cd <= 0 && dist2 < reach * reach &&
+                        !other_floor && in_front &&
                         e.avm.set_section(e.atk_section, /*force*/true)) {
-                        const float dl = std::sqrt(dist2);
                         e.atk_dx = dl > 1e-4f ? dx / dl : std::sin(en->yaw);
                         e.atk_dz = dl > 1e-4f ? dz / dl : std::cos(en->yaw);
                         e.atk_hit = false;
@@ -1974,6 +1984,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // Knockback: add the decaying impulse, then let wall-resolve stop it at
                 // walls like any other motion.
                 a.pos.x += a.knockback.x; a.pos.z += a.knockback.z;
+                // Cap the folded impulse per MOVER2D (_DAT_006bd2b8 = 0.36/frame), then damp.
+                // The damping FACTOR itself is [HAND-TUNED] — the engine's is a subtractive
+                // term scaled by DAT_006bd3f8, which is not dumped as a float yet.
+                const float kl = std::sqrt(a.knockback.x * a.knockback.x + a.knockback.z * a.knockback.z);
+                if (kl > 0.36f) { a.knockback.x *= 0.36f / kl; a.knockback.z *= 0.36f / kl; }
                 a.knockback.x *= 0.75f; a.knockback.z *= 0.75f;
                 Vec3 body = {a.pos.x, a.pos.y + stepUp, a.pos.z};
                 body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
@@ -1981,6 +1996,32 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const float efl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + kCharH);
                 if (efl > kNoFloor) a.pos.y = efl;
             }
+
+            // The victim's hit reaction, shared by the melee and projectile paths.
+            // HITREACT_ENEMY.md: an ENEMY victim takes a different branch than the player and
+            // gets ONLY the flinch — no i-frames and no hit-stop exist for enemies. The two
+            // effects are (a) motion state 4 (the hurt clip; guard=0 so a re-hit RESTARTS it)
+            // and (b) an impulse of magnitude DAT_006bd19c = 0.1 directed AWAY from the
+            // attacker, ADDED to the existing velocity (not assigned). Enemies have no mass or
+            // "immovable" term, so even a rooted enemy is displaced.
+            auto react_enemy = [&](Actor& en, const Vec3& from, bool died) {
+                en.hit_flash = 6;                       // our cosmetic tint (+0x4e8)
+                const float kdx = en.pos.x - from.x, kdz = en.pos.z - from.z;
+                const float kd = std::sqrt(kdx * kdx + kdz * kdz);
+                if (kd > 1e-3f) {                       // ADD, m = 0.1 (was assign at 0.30)
+                    en.knockback.x += kdx / kd * 0.1f;
+                    en.knockback.z += kdz / kd * 0.1f;
+                }
+                if (died) return;                       // death is handled by the caller
+                for (EnemyRender& er : render) {
+                    if (er.actor != &en || !er.avm.ok()) continue;
+                    if (er.avm.durable()) break;        // poise (anime_Durable ~ +0x9d8)
+                    // Priority-gated request; a re-hit while already flinching restarts it.
+                    er.avm.set_section(4, /*force*/ er.avm.section() == 4);
+                    er.atk_win = 0; er.atk_armed = false; er.atk_age = 0;
+                    break;
+                }
+            };
 
             // The player's melee swing (build/attack_re). While the hit-volume is live,
             // hit every enemy inside the sphere once. The box sphere sits 0.6 ahead in
@@ -2010,13 +2051,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
                     // Boost builds on hits DEALT too (BOOST.md hook). Amount [H] (see hurt_player).
                     player.boost = std::min(30000.f, player.boost + 1500.f);
-                    // Knockback away from the player + a white hit-flash (the engine's
-                    // +0x338/+0x340 impulse and +0x4e8 tint). Decayed in the enemy tick.
-                    const float kdx = en.pos.x - feet.x, kdz = en.pos.z - feet.z;
-                    const float kd = std::sqrt(kdx * kdx + kdz * kdz);
-                    if (kd > 1e-3f) en.knockback = {kdx / kd * 0.30f, 0, kdz / kd * 0.30f};
-                    en.hit_flash = 6;
-                    if (!r.died) en.hitstun = 14;   // interrupt its attack (duration [TUNED])
+                    react_enemy(en, feet, r.died);
                     const std::string nm = casts.get(en.cast_id) && !casts.get(en.cast_id)->display.empty()
                                            ? casts.get(en.cast_id)->display : ("cast " + std::to_string(en.cast_id));
                     hud.message(r.died ? (nm + " defeated!")
@@ -2106,6 +2141,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const float rr = e.hb.radius + kCharRadius;
                 const float bx = feet.x - cx, bz = feet.z - cz;
                 if (bx * bx + bz * bz > rr * rr) continue;
+                // The engine's overlap test is 3-D (FUN_004f9e90): the victim is a vertical
+                // CAPSULE, so the planar reject is followed by projecting the Y delta onto the
+                // capsule's half-length. Without this an enemy on the floor below or above
+                // could hit the player. Player capsule = CASTINFO CAST_ADOL +0x58 (half 0.5),
+                // box centre ~ body mid (its arg[4] vertical offset is not parsed yet).
+                const float cy = en->pos.y + kCharH * 0.5f;
+                float by = std::fabs((feet.y + 0.5f) - cy) - 0.5f;
+                if (by < 0.0f) by = 0.0f;
+                if (bx * bx + bz * bz + by * by > rr * rr) continue;
                 e.atk_hit = true;                 // one hit per swing
                 hurt_player(en->atk);
             }
@@ -2210,7 +2254,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const int dmg = damage_int(a, en.def,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
-                    en.hit_flash = 6;
+                    react_enemy(en, p.pos, r.died);   // same flinch+impulse as a melee hit
                     if (r.died) {
                         award_exp(en.exp_reward);
                         sfx_at(kSfxDeathEntry, en.pos, kSfxAnimVol);
