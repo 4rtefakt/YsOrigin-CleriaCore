@@ -765,9 +765,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int svldTab = 0, svldSlot = 0;
     // Goddess-statue UI state machine (STATUE_MENU.md): 0 = closed, 1 = "What will you
     // do?" choice, 2 = save-slot screen, 3 = blessing list. The cleansing animation
-    // (Yunica/Hugo first-use) is NOT modelled yet — statues open the menu directly
-    // [stand-in]; blessings list real costs but effects are not implemented.
+    // (Yunica/Hugo first-use) plays SAVE.XSO (the goddess cleanse cutscene) the first
+    // time a sealed statue (flag 300 == 0) is touched — see the cleanse wiring below;
+    // blessings list real costs but effects are not implemented.
     int statue_ui = 0, statue_sel = 0, statue_reveal = 0;
+    bool cleanse_pending = false;   // a cleanse cutscene (SAVE.XSO) is playing on csMgr
     std::array<std::string, 8> svldLabels;
     auto refresh_slots = [&] {
         for (int i = 0; i < 8; ++i) svldLabels[std::size_t(i)] = slot_label(svldTab * 8 + i);
@@ -1309,6 +1311,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::string tl = target->name;
         for (char& c : tl) c = char(std::tolower((unsigned char)c));
         if (tl.rfind("save", 0) == 0) {
+            // A SEALED goddess statue (flag 300 == 0) must be CLEANSED first for Yunica/Hugo
+            // (Toal skips it). Play SAVE.XSO through the live cutscene manager — it self-gates
+            // on its prereqs (intro-done flag 165 + story flags), Fixes the world, spawns the
+            // goddess, sets flag 300 = 1, and Unfixes. When it ends we re-gate the room so the
+            // statue swaps to its cleansed model; if it didn't cleanse (prereqs unmet) we fall
+            // back to the save menu. Events-off / cleansed / Toal go straight to the menu.
+            const bool sealed = game.g_flags[300] == 0;
+            if (events_enabled && sealed && (character == 1 || character == 2) &&
+                fs::exists(room.dir / "SAVE.XSO")) {
+                std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
+                csMgr.vm.g_flags[150] = character;
+                if (csMgr.start("save")) { cleanse_pending = true; return; }
+            }
             statue_ui = 1;            // "What will you do?" (STATUE_MENU.md flow)
             statue_sel = 0; statue_reveal = 0;
             return;
@@ -1676,6 +1691,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (gr.has_value && gr.index >= 0 && gr.index < 0x200)
                     game.g_flags[gr.index] = gr.value;
             csMgr.vm.grants.clear();
+        }
+        // Statue cleanse finished? SAVE.XSO has left csMgr.live. If it cleansed (flag 300
+        // now set — the drain above persisted it) re-gate the room so the statue swaps to
+        // its cleansed model; if it didn't (prereqs unmet, script exited early) fall back
+        // to the save menu so the statue is still usable.
+        if (cleanse_pending) {
+            bool live = false;
+            for (const auto& in : csMgr.live) if (!in.finished && in.name == "save") { live = true; break; }
+            if (!live) {
+                cleanse_pending = false;
+                if (game.g_flags[300] != 0) { reload_room(); hud.message("The goddess statue is cleansed."); }
+                else { statue_ui = 1; statue_sel = 0; statue_reveal = 0; }
+            }
         }
         // A cutscene spawned/deleted an actor (op 0x12c/0x12d): load any new cast's
         // sprite and rebuild the render list so the NPC is drawn (or gone). Done here

@@ -772,6 +772,32 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- Statue MODEL swap: S_SAVEOBJECTCHANGE must hide a DIFFERENT statue variant for the
+    // sealed (flag300==0) vs cleansed (flag300==1) state, so the post-cleanse reload shows the
+    // cleansed statue. (The view runs this at load_room and hides the losers.) --------------
+    {
+        const std::string dir = (root / "MAP" / "S_10" / "S_1000").string() + "/";
+        try {
+            std::vector<std::uint8_t> sb;
+            if (std::ifstream f{dir + "S_SAVEOBJECTCHANGE.XSO", std::ios::binary})
+                sb.assign(std::istreambuf_iterator<char>(f), {});
+            const Xso soc = Xso::parse(sb);
+            auto hidden_set = [&](std::int32_t f300) {
+                XsoVm vm; vm.g_flags[150] = 1; vm.g_flags[300] = f300;
+                vm.reset_run(); vm.run(soc);
+                std::string s;
+                for (const auto& [name, shown] : vm.obj_visible) if (!shown) { s += name; s += ","; }
+                return s;
+            };
+            const std::string sealed = hidden_set(0), cleansed = hidden_set(1);
+            check(!sealed.empty() && sealed != cleansed,
+                  "statue model differs sealed vs cleansed (S_SAVEOBJECTCHANGE keys on flag 300)",
+                  "sealed hides {" + sealed + "} cleansed hides {" + cleansed + "}");
+        } catch (const std::exception& e) {
+            check(false, "statue model-swap (S_SAVEOBJECTCHANGE)", e.what());
+        }
+    }
+
     // --- Goddess-statue CLEANSE (SAVE.XSO): must run to completion and set flag 300 (cleansed).
     // Wiring this to statue-touch requires that it doesn't soft-lock (leave the world frozen). --
     {
