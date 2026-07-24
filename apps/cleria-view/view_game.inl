@@ -1980,6 +1980,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // GenerateCollision box, armed on the swing frame in the brain above — not from
             // touching it. player_def is the lv1 curve; no equipment model.
             if (player_iframes > 0) --player_iframes;
+            // A CLEANSED goddess statue (flag 300) is a safe zone: standing near it restores
+            // HP to full. [range HAND-TUNED — no proximity constant located in the RE yet.]
+            if (game.g_flags[300] != 0 && player.hp < player.max_hp)
+                for (const Interactable& it : room.mesh.interactables) {
+                    std::string nm = it.name;
+                    for (char& c : nm) c = char(std::tolower((unsigned char)c));
+                    if (nm.rfind("save", 0) != 0) continue;
+                    const float dx = it.position.x - feet.x, dz = it.position.z - feet.z;
+                    if (dx * dx + dz * dz < 36.0f) { player.hp = player.max_hp; break; }
+                }
             const float pdef = ginfo.curves[kPlayerDef].at(player.level);
             auto hurt_player = [&](float atk) {
                 const int dmg = player_incoming_damage(AttackStats{atk, 0, 0}, pdef,
