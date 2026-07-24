@@ -848,6 +848,34 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- FINDING: S_1000's entry enemies are NOT gated by flag 141 (hypothesis disproved) ---
+    // The live log showed 6 Riffligan at room load on the intro. I suspected the view seeding
+    // flag 141 after populate, but running the root as populate does with 141 unset vs set gives
+    // the SAME roster — so the entry enemies come from an ungated spawn, not the intro gate.
+    // Locked in here so the (wrong) flag-timing theory is not retried.
+    {
+        const std::string dir = (root / "MAP" / "S_10" / "S_1000").string() + "/";
+        try {
+            std::vector<std::uint8_t> rb;
+            if (std::ifstream f{dir + "S_1000.XSO", std::ios::binary})
+                rb.assign(std::istreambuf_iterator<char>(f), {});
+            const Xso rootxso = Xso::parse(rb);
+            auto count_enemies = [&](std::int32_t f141) {
+                ActorWorld w(tables);
+                XsoVm vm; vm.host = &w;
+                vm.g_flags[150] = 1; vm.g_flags[141] = f141;
+                vm.run(rootxso);
+                int n = 0; for (const Actor& a : w.actors()) if (a.is_enemy()) ++n;
+                return n;
+            };
+            check(count_enemies(0) == count_enemies(1),
+                  "S_1000 entry enemies are NOT gated by flag 141 (ungated spawn)",
+                  std::to_string(count_enemies(0)) + " either way");
+        } catch (const std::exception& e) {
+            check(false, "S_1000 flag-141 populate diagnostic", e.what());
+        }
+    }
+
     // --- S_1004 altar (Flabellum) pickup: flag 304 gates it, grants skill flags 116/107 ----
     // TALKITEM.XSO: if flag304==1 return (already taken); else set skill flags 116 & 107 and
     // mark 304. Proves the altar grants the wind skill once, character-independently.
