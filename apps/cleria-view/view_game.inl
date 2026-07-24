@@ -1337,11 +1337,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // statue swaps to its cleansed model; if it didn't cleanse (prereqs unmet) we fall
             // back to the save menu. Events-off / cleansed / Toal go straight to the menu.
             const bool sealed = game.g_flags[300] == 0;
+            std::printf("  [statue] flag300(cleansed)=%d 165(intro)=%d 84=%d 86=%d events=%d char=%d\n",
+                        game.g_flags[300], game.g_flags[165], game.g_flags[84], game.g_flags[86],
+                        int(events_enabled), character);
             if (events_enabled && sealed && (character == 1 || character == 2) &&
                 fs::exists(room.dir / "SAVE.XSO")) {
                 std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
                 csMgr.vm.g_flags[150] = character;
-                if (csMgr.start("save")) { cleanse_pending = true; return; }
+                if (csMgr.start("save")) {
+                    cleanse_pending = true;
+                    std::printf("  [statue] started cleanse (SAVE.XSO); prereqs %s\n",
+                                (game.g_flags[165] && (game.g_flags[84] || game.g_flags[86]))
+                                    ? "MET -> will cleanse" : "UNMET -> will fall back to menu");
+                    return;
+                }
             }
             statue_ui = 1;            // "What will you do?" (STATUE_MENU.md flow)
             statue_sel = 0; statue_reveal = 0;
