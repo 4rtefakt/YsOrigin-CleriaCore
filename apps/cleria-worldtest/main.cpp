@@ -778,21 +778,20 @@ int main(int argc, char** argv) {
     {
         ActorWorld w(tables);
         int checked = 0, skipped_as_dead = 0;
-        int with_body = 0, no_body = 0;
+        int with_body = 0;
         for (int casttype : {166, 170, 91, 94}) {
             Actor* a = w.spawn({0, casttype, {0, 0, 0}, 0, 0});
             if (!a) continue;
             ++checked;
             const bool npc = !a->is_enemy() && !a->is_player();
             if (npc && !a->alive()) ++skipped_as_dead;   // a real NPC that alive() calls "dead"
-            if (ct.sprite_stem(a->cast_id).empty()) ++no_body; else ++with_body;
+            if (!ct.sprite_stem(a->cast_id).empty()) ++with_body;
         }
-        // FINDING: casts 166 (M_800) and 170 (M_840=Shion) have body sprites; 91 and 94
-        // (Eolia/Dino) have NO sprite_stem, so their bodies can't render as billboards even
-        // with the draw fix — their portraits work but the models need separate RE.
-        check(with_body == 2 && no_body == 2,
-              "intro NPC bodies: 2 have sprites (Shion/M800), 2 don't (Eolia/Dino 91/94)",
-              std::to_string(with_body) + " with, " + std::to_string(no_body) + " without");
+        // All four intro NPCs now resolve a body sprite: M8xx via the stem field, C2xx
+        // (Eolia CAST_C250 / Dino CAST_C280) via the name-derived C_NNN fallback.
+        check(with_body == checked && checked == 4,
+              "all 4 intro NPC casts resolve a body sprite (incl. Eolia/Dino via name fallback)",
+              std::to_string(with_body) + "/" + std::to_string(checked));
         check(checked > 0 && skipped_as_dead == checked,
               "intro NPC casts are non-enemy with hp=0 (alive()==false -> wrongly skipped in draw)",
               std::to_string(skipped_as_dead) + "/" + std::to_string(checked) + " read as 'dead'");

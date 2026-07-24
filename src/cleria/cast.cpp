@@ -68,10 +68,18 @@ const Cast* CastTable::find(std::string_view name) const {
 
 std::string CastTable::sprite_stem(int cast_id) const {
     const Cast* c = get(cast_id);
-    if (!c || c->stem.empty()) return {};
+    if (!c) return {};
     // "c000" -> "C_000". The stored stem is not the filename: uppercase it and
     // insert an underscore after the first character.
     std::string s = c->stem;
+    if (s.empty()) {
+        // The C2xx dialogue NPCs (Eolia=CAST_C250, Dino=CAST_C280, Roy=CAST_C210, ...) store
+        // NO stem in CASTINFO+0x24, but their body sprite exists name-derived: CAST_C250 ->
+        // C_250.AIA. Recover it from the SCT name after the "CAST_" prefix. (The M8xx casts
+        // carry a real stem, so they never reach this path.)
+        if (c->name.rfind("CAST_", 0) == 0 && c->name.size() > 6) s = c->name.substr(5);
+        else return {};
+    }
     for (char& ch : s) ch = char(std::toupper((unsigned char)ch));
     s.insert(1, "_");
     return s;
