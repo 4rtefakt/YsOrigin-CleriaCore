@@ -897,7 +897,8 @@ int main(int argc, char** argv) {
                 for (const Ef2Emitter& em : ef.emitters()) {
                     if (em.frames.empty()) continue;
                     textured = true;
-                    if (em.ring) ring = true;
+                    if (em.ring) ring = true;   // (ring params: inner==outer==0.30 => a ring band,
+                                                //  not a flat annulus; the view's geometry is right)
                     std::string t = eft.path(root, int(em.frames[0].tex_id)).string();
                     for (char& c : t) c = char(std::tolower((unsigned char)c));
                     if (t.find("yuni_kekkai") != std::string::npos)
