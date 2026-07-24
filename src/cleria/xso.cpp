@@ -397,6 +397,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // worker uses x/z/speed (y is the height the XZ move ignores).
                         auto f = [&](std::uint32_t i){ float v; std::uint32_t r=std::uint32_t(op(i)); std::memcpy(&v,&r,4); return v; };
                         host->chr_moveto(op(0), f(1), f(3), f(4));
+                    } else if (sub == 0x154 && host && nargs >= 3) {
+                        // Chr_Alpha(id, startA, endA, frames) [iffi]: honour the END alpha
+                        // as a visibility toggle (op2 = end alpha, float bit pattern).
+                        float endA; std::uint32_t r=std::uint32_t(op(2)); std::memcpy(&endA,&r,4);
+                        host->chr_alpha(op(0), endA);
                     } else if (sub == 0x13f && nargs >= 1) {
                         // "Is entity op0 alive?" CONDITION is [C-DIS]; the result
                         // DESTINATION is [H-high] — ENTITY.md pins the test but not the

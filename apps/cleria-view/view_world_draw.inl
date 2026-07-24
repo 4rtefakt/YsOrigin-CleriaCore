@@ -220,6 +220,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     const Vec3 rt = normalize(cross(Vec3{0, 1, 0}, fwdH));
     for (const EnemyRender& e : list) {
         if (!e.actor || !e.actor->alive()) continue;
+        if (!e.actor->visible) continue;   // Chr_Alpha faded it out (cutscene visibility)
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
         EnemyFx::Kind& k = it->second;

@@ -949,6 +949,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (p_isplayer(id)) return p_moving;
             return worldHost && worldHost->chr_moving(id);
         }
+        void chr_alpha(int id, float endA) override {
+            if (!p_isplayer(id) && worldHost) worldHost->chr_alpha(id, endA);
+        }
         // Advance the player's cutscene walk one frame (NPCs advance in the world).
         Vec3* playerPosW = nullptr; float* playerYawDeg = nullptr;
         void advance_player_move() {

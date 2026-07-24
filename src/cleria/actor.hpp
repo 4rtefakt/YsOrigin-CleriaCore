@@ -186,6 +186,12 @@ struct Actor {
     float cmove_spd = 0;
     bool cmoving = false;
 
+    // Cutscene visibility (op 0x154 Chr_Alpha end-alpha): actors fade in/out during
+    // scripted scenes; we don't do the smooth fade, but honour the END state so an
+    // actor that fades OUT (end alpha 0) is hidden and one that fades IN appears at the
+    // right time instead of popping in at spawn. Drawn only when visible.
+    bool visible = true;
+
     // Transient chase-speed multiplier, driven by the enemy's animation script the way
     // anime_Movable gates the player: the brain sets it to 0 while an attack is committed
     // so the enemy plants for its swing instead of sliding through it. 1 = full chase.

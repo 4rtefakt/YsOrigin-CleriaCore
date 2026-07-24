@@ -147,6 +147,9 @@ class ActorWorld : public XsoHost {
         for (const Actor& a : actors_) if (a.instance_id == id) return a.cmoving;
         return false;
     }
+    void chr_alpha(int id, float end_alpha) override {                  // 0x154 Chr_Alpha (end state)
+        if (Actor* a = find(id)) a->visible = end_alpha > 0.01f;
+    }
     // Advance every cutscene walk-to one frame (called each tick, incl. while frozen —
     // NPCs move during a Fix). Turns toward the target and steps; stops within reach.
     void advance_cutscene_moves() {
