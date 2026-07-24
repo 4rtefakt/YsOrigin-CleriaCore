@@ -1532,6 +1532,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // Tick the room's event scripts every frame (controllers poll here). If a Fix is held
         // (a talk / cutscene) the world is frozen: skip the player/enemy sim for this tick (the
         // camera still runs inside tick_events).
+        // Battle-gate counter: flag 132 == DAT_0076bb2c == the engine's LIVE-ENEMY
+        // count (0x76b91c + 132*4 = 0x76bb2c; Chr_Delete decrements it). A scripted
+        // battle waits on Wait_FlagEqualInt(132, 0) — "all battle enemies dead" — to
+        // resume (e.g. the S_1000 intro's battle_0). Maintain it each frame so killing
+        // the mobs advances the cutscene. Written into BOTH VMs (the live cutscene VM
+        // reads it directly; game keeps the canonical copy).
+        {
+            std::int32_t live = 0;
+            for (const Actor& a : world.actors())
+                if (a.is_enemy() && a.alive()) ++live;
+            game.g_flags[132] = live;
+            csMgr.vm.g_flags[132] = live;
+        }
         const bool frozen_now = tick_events();
         // A cutscene spawned/deleted an actor (op 0x12c/0x12d): load any new cast's
         // sprite and rebuild the render list so the NPC is drawn (or gone). Done here
