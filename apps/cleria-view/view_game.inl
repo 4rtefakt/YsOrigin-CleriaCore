@@ -478,7 +478,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     Aso aso = Aso::load(asset_root / "ANI" / char_aso(character));
     AsoVm avm;
     avm.bind(&aso);
-    avm.set_flags(game.g_flags, 0x200);
+    // The PLAYER's ASO reads flag 141 as the BOOST flag: C_030.ASO (Toal) branches on it 27
+    // times to pick anime_File(17)=C_113 (normal) vs anime_File(12)=C_115 (demon/Boost form).
+    // A new game leaves it 0 (NEWGAME_FLAGS.md: "141 -> 0, explicit reset"), so Toal should
+    // start normal. We cannot simply clear game.g_flags[141], because our room-event trigger
+    // currently also uses index 141 to gate S_1000's intro (S_1000.XSO pc43) — that collision
+    // is unresolved RE. So the player's ASO gets its OWN flag view: a copy of the game flags
+    // with 141 forced to the real boost state. Keeps the intro working AND un-demons Toal.
+    std::array<std::int32_t, 0x200> aso_flags{};
+    auto sync_aso_flags = [&] {
+        std::copy(game.g_flags, game.g_flags + 0x200, aso_flags.begin());
+        aso_flags[141] = player.boosting ? 1 : 0;   // DAT_0076bb50
+    };
+    sync_aso_flags();
+    avm.set_flags(aso_flags.data(), 0x200);
 
     CharSprite chr;
     std::string cur_aia;
@@ -826,7 +839,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         aso = Aso::load(asset_root / "ANI" / char_aso(character));
         avm = AsoVm{};
         avm.bind(&aso);
-        avm.set_flags(game.g_flags, 0x200);
+        avm.set_flags(aso_flags.data(), 0x200);
         avm.tick();
         sync_aia();
         curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
@@ -1665,7 +1678,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     aso = Aso::load(asset_root / "ANI" / char_aso(character));
                     avm = AsoVm{};
                     avm.bind(&aso);
-                    avm.set_flags(game.g_flags, 0x200);
+                    avm.set_flags(aso_flags.data(), 0x200);
                     avm.tick();
                     sync_aia();
                     curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
@@ -2230,6 +2243,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 avm.set_section(want_sec);
             else if (avm.cancelable() || atk_stall >= 10)
                 avm.set_section(want_sec, /*force*/true);
+            sync_aso_flags();   // refresh the player's ASO flag view (141 = live boost state)
             avm.set_is_land(grounded);
             avm.tick();
             // Projectile flight. The motion here IS reverse-engineered (speed += accel,

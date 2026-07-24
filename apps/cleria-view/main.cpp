@@ -134,6 +134,10 @@ struct Player {
     // full = Boost-ready. Builds on combat hits (dealt + taken); drawn as the code-traced C-arc
     // around the portrait. Exact per-hit build amount is [H] (BOOST.md's hook is missing-HP-scaled).
     float boost = 0;
+    // Boost MODE (engine DAT_0076bb50, mirrored into flag 141 for the player's ASO, and the
+    // mode bit DAT_0076c198 & 0x20). Entering requires a FULL gauge (== 30000 exactly) and
+    // grants 16 i-frames; the gauge then drains ~30/tick (~1000 frames on Normal).
+    bool boosting = false;
 };
 
 // Locate a bundled resource next to the exe, or in the repo res/ dir.
