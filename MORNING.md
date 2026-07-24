@@ -95,6 +95,27 @@ chest is now sitting open. *Pending polish:* the lid doesn't yet swing open in r
 open it (that needs a per-object re-pose; a full room reload would cause an unfaithful stall, so I didn't
 fake it). It shows open on re-entry, which is the persistent-state-correct behavior.
 
+## ⭐⭐ NEW: I PROVED the barrier + intro-battle runtime logic is CORRECT (strict headless tests)
+You said "strict and robust" — so instead of guessing, I drove the **real** room scripts through the
+**real** event runtime (ScriptManager) against a **real** game world (ActorWorld) in headless tests
+that tick frame-by-frame, and asserted the actual behavior. Two big results (both now permanent
+regression tests in `cleria-worldtest`):
+
+**Barrier (S_1001) — the logic is correct, the ward breaks ONLY on the kill:**
+- The barrier mob spawns as a live group-1 seed on entry ✔
+- The ward does **NOT** break on entry — flag 301 stays 0 for 60 frames while the mob lives ✔
+- Killing the mob sets flag 301 → 1 and starts the KekkaiBreak cutscene ✔
+So the "barrier fires on entry regardless of the kill" is **not** a runtime-logic bug. If you still
+see it events-on, it's the *view wiring* (below), and this test is the yardstick to fix against.
+
+**Intro battle (S_1000 battle_0) — the whole multi-wave fight works end-to-end:**
+- Waves spawn (the scripted mobs, counted) ✔
+- The kill-gate is **real**: if you never kill anything, the script stays stuck at the gate ✔
+- If you kill each wave, the battle **runs to completion** (battle_0 finishes, sets flag 165) in
+  ~4510 frames — i.e. "mobs spawn → you kill them → the cutscene resumes" genuinely works ✔
+This proves the mechanic you narrated is faithful at the runtime level; what remains is purely the
+view deciding *which* enemies exist when (see below).
+
 ## The barrier "fires on entry regardless of the kill" — root cause found (not yet wired)
 The background RE proved the barrier mob **is** correctly gated (`if flag 301 != 1` in the room root),
 and CleriaCore honours that gate. The bug: the little **watcher script** that sets `flag 301 = 1` when
