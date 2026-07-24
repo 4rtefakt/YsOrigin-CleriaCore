@@ -219,7 +219,10 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
     const Vec3 rt = normalize(cross(Vec3{0, 1, 0}, fwdH));
     for (const EnemyRender& e : list) {
-        if (!e.actor || !e.actor->alive()) continue;
+        // Skip DEAD ENEMIES only. Cutscene NPCs (Shion/Roy/…) are non-enemy actors that
+        // ActorWorld::spawn leaves at hp=0, so alive() is false for them though they are
+        // very much present — gating on alive() alone made every intro NPC invisible.
+        if (!e.actor || (e.actor->is_enemy() && !e.actor->alive())) continue;
         if (!e.actor->visible) continue;   // Chr_Alpha faded it out (cutscene visibility)
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;

@@ -772,6 +772,24 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- Intro NPCs: battle_0 spawns cutscene NPCs (cast 166/170/91/94). They are NON-enemies,
+    // so ActorWorld::spawn leaves hp=0 -> alive()==false -> draw_enemies skips them as if dead.
+    // That is why "the other NPCs didn't appear". Confirm they are non-enemy with a sprite. ---
+    {
+        ActorWorld w(tables);
+        int checked = 0, skipped_as_dead = 0;
+        for (int ct : {166, 170, 91, 94}) {
+            Actor* a = w.spawn({0, ct, {0, 0, 0}, 0, 0});
+            if (!a) continue;
+            ++checked;
+            const bool npc = !a->is_enemy() && !a->is_player();
+            if (npc && !a->alive()) ++skipped_as_dead;   // a real NPC that alive() calls "dead"
+        }
+        check(checked > 0 && skipped_as_dead == checked,
+              "intro NPC casts are non-enemy with hp=0 (alive()==false -> wrongly skipped in draw)",
+              std::to_string(skipped_as_dead) + "/" + std::to_string(checked) + " read as 'dead'");
+    }
+
     // --- Statue MODEL swap: S_SAVEOBJECTCHANGE must hide a DIFFERENT statue variant for the
     // sealed (flag300==0) vs cleansed (flag300==1) state, so the post-cleanse reload shows the
     // cleansed statue. (The view runs this at load_room and hides the losers.) --------------
