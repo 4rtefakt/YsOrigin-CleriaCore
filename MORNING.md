@@ -62,17 +62,30 @@ live battle script and only look permanent if the fight never resolves in the vi
   → Confirmed the vanishing chest is exactly a missing `0x175` object-model swap. A background RE pass
   is pinning down how the closed/opened chest models are stored before I wire it (so I don't guess).
 
-## Still known-broken (not regressions — never worked)
+## Still open (updated with tonight's proofs)
 
-- **Enemy spawn-gating** — battle mobs appear statically instead of being spawned/gated by the room
-  root's story flags (the "6 always-there enemies"). Root cause identified; fix pending the RE pass.
-- **Statue cleansing** mechanic (Yunica/Hugo must cleanse; Toal skips) — not implemented.
+- **Intro battle, live in the view** — the RUNTIME is proven correct (headless test: waves spawn,
+  kill-gate blocks then resumes, battle_0 completes). The only open question is the in-view play
+  experience: do the 6 wave mobs appear, are they killable, does the fight resume? Needs a play-test.
+  I also fixed cutscene-spawned enemies not getting their ASO bound (they'd render static) — that
+  was a likely contributor. **This is the #1 thing to try events-on in the morning.**
+- **Statue cleansing** mechanic (Yunica/Hugo cleanse; Toal skips) — fully decoded (flag 300), not yet
+  implemented (save-flow-adjacent; wants your eyes). See `build/event_re/STATUE_CLEANSE_RE.md`.
 - **Inventory** — the 2 intro items / the Flabellum skill can't be seen (no inventory model).
-- **S_1001 chest / S_1004 altar** "opened" model — vanishes instead of showing the emptied model
-  (the `0x175` object-model swap; mechanic now fully decoded, see addendum above).
-- **Ward effect** around the chest/altar — not appearing.
-- **Group-enemy red glow** — the ward enemies should glow red; likely the wrong (non-group) enemy
-  set is spawning under the current flag state. Tied to the same spawn-gating work.
+- **S_1004 altar "opened" model** — the altar/stepping-stone objects still need their `0x175` state
+  clips wired (the chest path is done; altar clip names not yet identified).
+- **Ward effect** around the chest/altar — barrier ward renders (prior work); confirm it shows for
+  the altar's 3-enemy ward too.
+- **Group-enemy red glow** — verify the ward enemies glow (the group-1 seed spawns correctly per the
+  new barrier test; the glow rendering itself wants a live look).
+
+## ✅ FIXED / PROVEN tonight (all headless-verified, default game untouched)
+- **Chest "vanishing"** → opened chests now render posed OPEN (positive regression test).
+- **Barrier logic** → PROVEN: ward breaks only on the kill, never on entry (end-to-end test).
+- **Intro battle logic** → PROVEN: multi-wave kill-gate blocks without kills, completes with them.
+- **Chest unlock gating** → PROVEN: barrier flag 301 gates S_BOX01; altar flag 304 gates the Flabellum.
+- **Cutscene-spawned enemies** → now get their ASO bound (were rendering static).
+- **All 7 test suites pass (100%), all 7 goldens match, both build trees built.**
 
 ## Ops added in the late-night pass
 - **Chr_DirChr / Chr_LookAtChr (0x134/0x136)** and **Chr_LookAtPos (0x137)** — cutscene actors now
