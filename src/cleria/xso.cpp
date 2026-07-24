@@ -444,6 +444,20 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         };
                         host->locate_effect(op(0), f(1), f(2), f(3), f(4), f(5),
                                             script.string(op(6)));
+                    } else if (sub == 0x117 && host && nargs >= 4) {
+                        // Eft_LocatePos(id, x, y, z, a, b, name): spawn a named effect at a
+                        // world position (EVENTVM_HANDLERS_2: FUN_0056ef90). Same layout +
+                        // render path as 0x11a; this is the cleansed-statue glow (eff 84/85
+                        // "eft_clear", blue for Yunica/Hugo, purple for Toal) and battle
+                        // spawn-in FX. Was unhandled, so those effects never appeared.
+                        auto f = [&](std::uint32_t i) {
+                            float v; const std::uint32_t raw = std::uint32_t(op(i));
+                            std::memcpy(&v, &raw, 4); return v;
+                        };
+                        const float a = nargs > 4 ? f(4) : 1.0f, b = nargs > 5 ? f(5) : 0.0f;
+                        std::string nm = nargs > 6 ? script.string(op(6)) : std::string();
+                        if (nm.empty()) nm = "eft117_" + std::to_string(op(0));  // unique-ish key
+                        host->locate_effect(op(0), f(1), f(2), f(3), a, b, nm);
                     } else if (sub == 0x119 && host && nargs >= 1) {
                         // Eft_Kill(name): remove the named located effect (barrier break).
                         host->kill_effect(script.string(op(0)));

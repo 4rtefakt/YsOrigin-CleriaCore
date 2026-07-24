@@ -1320,9 +1320,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csHost.item_name_fn = [&](int id) { return items_tbl.name(id); };  // 0xd5 "Acquired X" box
     auto try_interact = [&] {
         const Vec3 p = fly ? cam.pos : Vec3{feet.x, feet.y, feet.z};
-        // Interact reach: you must actually stand next to a statue/chest. Uncapped the room
-        // diagonal gave ~40m; capped tight so it takes stepping up to the object.
-        const float reach = std::min(room_diag(room) * 0.09f, 1.5f);
+        // Interact reach: you must stand next to a statue/chest. Uncapped the room diagonal
+        // gave ~40m; 1.5u was too tight to reach a statue behind its pedestal. 2.5u lets you
+        // interact from the front without being a room-wide grab.
+        const float reach = std::min(room_diag(room) * 0.09f, 2.5f);
         const Interactable* target = nullptr;
         float best = reach * reach;
         for (const Interactable& it : room.mesh.interactables) {

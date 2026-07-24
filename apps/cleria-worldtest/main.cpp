@@ -818,6 +818,17 @@ int main(int argc, char** argv) {
             check(!sealed.empty() && sealed != cleansed,
                   "statue model differs sealed vs cleansed (S_SAVEOBJECTCHANGE keys on flag 300)",
                   "sealed hides {" + sealed + "} cleansed hides {" + cleansed + "}");
+            // The cleansed statue GLOW: S_SAVEOBJECTCHANGE places a 0x117 effect (84 for
+            // Yunica/Hugo, 85 for Toal) which was unhandled. With the 0x117 handler it must
+            // land in world.effects().
+            {
+                ActorWorld w(tables);
+                XsoVm vm; vm.host = &w; vm.g_flags[150] = 1; vm.g_flags[300] = 1;
+                vm.reset_run(); vm.run(soc);
+                bool glow = false;
+                for (const auto& e : w.effects()) if (e.id == 84 || e.id == 85) glow = true;
+                check(glow, "cleansed statue glow (0x117 eff 84/85) is placed via the effect handler");
+            }
         } catch (const std::exception& e) {
             check(false, "statue model-swap (S_SAVEOBJECTCHANGE)", e.what());
         }
