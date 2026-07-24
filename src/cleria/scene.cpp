@@ -78,9 +78,11 @@ RoomMesh build_model(const fs::path& asset_root, const fs::path& ymo_path,
 
 RoomMesh build_room(const fs::path& asset_root, const fs::path& sob_path,
                     const std::unordered_set<std::string>* box_whitelist,
-                    const std::unordered_set<std::string>* hidden) {
+                    const std::unordered_set<std::string>* hidden,
+                    const std::int32_t* open_flags) {
     return build_room_objects(asset_root, Sob::parse(read_file(sob_path)),
-                              sob_path.parent_path(), box_whitelist, hidden);
+                              sob_path.parent_path(), box_whitelist, hidden,
+                              false, nullptr, 0, open_flags);
 }
 
 RoomMesh build_collision(const fs::path& asset_root, const fs::path& sob_path,
@@ -94,7 +96,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                             const fs::path& script_dir,
                             const std::unordered_set<std::string>* box_whitelist,
                             const std::unordered_set<std::string>* hidden,
-                            bool collision, const char* clip_name, float frame) {
+                            bool collision, const char* clip_name, float frame,
+                            const std::int32_t* open_flags) {
     RoomMesh out;
     out.bmin = {1e30f, 1e30f, 1e30f};
     out.bmax = {-1e30f, -1e30f, -1e30f};
@@ -176,6 +179,17 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         // Character gating: a whitelisted set hides non-listed chests entirely
         // (both interactable and rendered model).
         const bool box_hidden = is_box && box_whitelist && !box_whitelist->count(lname);
+        // An already-looted chest is drawn OPEN on entry (the room root's
+        // 0x175(box,OPEN,0,-1) re-pose). Decide per-object from the live flags so a
+        // fresh save (all opened-flags 0) still renders every chest closed.
+        bool box_pose_open = false;
+        if (is_box && !box_hidden && open_flags) {
+            fs::path bscript = script_dir / ("S_BOX" + lname.substr(4) + ".XSO");
+            if (fs::exists(bscript)) {
+                const int of = chest_opened_flag(bscript);
+                if (of >= 0 && of < 0x200 && open_flags[of] != 0) box_pose_open = true;
+            }
+        }
         if (is_box && !box_hidden && !collision) {
             Interactable it;
             it.name = o.name;
@@ -224,9 +238,15 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             model = Model::parse(read_file(ymo_file));
             model.resolve_hierarchy();
             // Pose before appending: skin_point() reads the node world matrices.
-            if (clip_name)
+            // An already-looted chest snaps to the final frame of its "OPEN" clip
+            // (lid up); otherwise honour the caller's global clip (boss viewer).
+            if (box_pose_open) {
+                for (const AnimClip& c : model.clips)
+                    if (c.name == "OPEN") { model.pose(c, float(c.frame_end)); break; }
+            } else if (clip_name) {
                 for (const AnimClip& c : model.clips)
                     if (c.name == clip_name) { model.pose(c, frame); break; }
+            }
         } catch (const std::exception&) { ++out.missing; continue; }
         const Mat4 place = o.world();
         // Debug: CLERIA_MAT=1 dumps the fields the engine's render struct actually

@@ -264,7 +264,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
         }
     }
     r.mesh = build_room(asset_root, sob, gates_box ? &box_whitelist : nullptr,
-                        hidden.empty() ? nullptr : &hidden);
+                        hidden.empty() ? nullptr : &hidden, base_flags);
     r.coll = build_collision(asset_root, sob, gates_box ? &box_whitelist : nullptr,
                              hidden.empty() ? nullptr : &hidden);
     // Materials that scroll their UVs. Only 397 of 6642 corpus-wide do, and the disk

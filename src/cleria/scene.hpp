@@ -78,7 +78,8 @@ struct RoomMesh {
 RoomMesh build_room(const std::filesystem::path& asset_root,
                     const std::filesystem::path& sob_path,
                     const std::unordered_set<std::string>* box_whitelist = nullptr,
-                    const std::unordered_set<std::string>* hidden = nullptr);
+                    const std::unordered_set<std::string>* hidden = nullptr,
+                    const std::int32_t* open_flags = nullptr);
 
 // Build a mesh from a single YMO at the origin — for models no SOB places, such
 // as the bosses under ENEMY/ (their paths are hardcoded in the exe).
@@ -103,11 +104,15 @@ RoomMesh build_collision(const std::filesystem::path& asset_root,
 // Shared by all three: assemble already-parsed placements. `script_dir` is where a
 // chest's S_BOXNN.XSO is looked up. `collision` swaps each object's YMO for its `_`
 // twin, fills `surfaces`/`tri_surface`, and skips the chest-script scan.
+// `open_flags`, if given, is the live g_flags array (>= 0x200 ints): a chest whose
+// opened-flag is set is built posed to its `OPEN` clip (lid up), matching the game's
+// on-entry `0x175(box,OPEN,0,-1)` re-pose of an already-looted chest.
 RoomMesh build_room_objects(const std::filesystem::path& asset_root, const Sob& sob,
                             const std::filesystem::path& script_dir,
                             const std::unordered_set<std::string>* box_whitelist = nullptr,
                             const std::unordered_set<std::string>* hidden = nullptr,
                             bool collision = false,
-                            const char* clip_name = nullptr, float frame = 0);
+                            const char* clip_name = nullptr, float frame = 0,
+                            const std::int32_t* open_flags = nullptr);
 
 }  // namespace cleria
