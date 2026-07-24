@@ -883,6 +883,27 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- S_1004 item stand: the root spawns the altar item as actor 159 (a non-enemy prop) ---
+    // The Flabellum pickup (TALKITEM) triggers on interacting with this actor, so the view
+    // registers an interactable at its position. Confirm the id/kind the wiring depends on.
+    {
+        const std::string dir = (root / "MAP" / "S_10" / "S_1004").string() + "/";
+        try {
+            std::vector<std::uint8_t> rb;
+            if (std::ifstream f{dir + "S_1004.XSO", std::ios::binary})
+                rb.assign(std::istreambuf_iterator<char>(f), {});
+            ActorWorld w(tables);
+            XsoVm vm; vm.host = &w; vm.g_flags[150] = 1;
+            vm.run(Xso::parse(rb));
+            const Actor* item = w.find(159);
+            check(item != nullptr && !item->is_enemy() && !item->is_player(),
+                  "S_1004 root spawns the altar item as non-enemy actor 159",
+                  item ? "found" : "MISSING");
+        } catch (const std::exception& e) {
+            check(false, "S_1004 item-stand spawn", e.what());
+        }
+    }
+
     // --- S_1004 altar (Flabellum) pickup: flag 304 gates it, grants skill flags 116/107 ----
     // TALKITEM.XSO: if flag304==1 return (already taken); else set skill flags 116 & 107 and
     // mark 304. Proves the altar grants the wind skill once, character-independently.

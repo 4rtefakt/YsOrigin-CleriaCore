@@ -584,6 +584,28 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool barrier_break_pending = false; // grant done; the main loop must play KEKKAIBREAK
     bool room_events_dirty = true;      // (re)run the room's event scripts on the manager
 
+    // Register any SCRIPT-spawned pickup that the mesh's box_/save_ scan can't see. The
+    // S_1004 Flabellum altar is the one case in the game: its pickup (TALKITEM.XSO) fires
+    // on interacting with the item stand — a 0x12c-spawned actor (entity 159), not an SOB
+    // object. Add an interactable at the item's live position bound to TALKITEM (obtained
+    // -flag 304). Must re-run after every room (re)build, since load_room rebuilds the mesh.
+    auto register_script_pickups = [&] {
+        const fs::path ti = room.dir / "TALKITEM.XSO";
+        if (!fs::exists(ti)) return;                       // S_1004 only
+        const Actor* item = world.find(159);               // the altar item stand
+        if (!item) return;
+        for (const Interactable& e : room.mesh.interactables)
+            if (e.name == "altar_item") return;            // already registered this build
+        Interactable it;
+        it.name = "altar_item";
+        it.position = item->pos;
+        it.script = ti.string();
+        it.opened_flag = 304;
+        room.mesh.interactables.push_back(std::move(it));
+        std::printf("  [altar] registered Flabellum pickup at (%.1f,%.1f,%.1f)\n",
+                    item->pos.x, item->pos.y, item->pos.z);
+    };
+
     auto spawn_enemies = [&] {
         // Populate the world the engine's way: run S_xxxx.XSO (op 0xa0 -> SCT bulk,
         // op 0x12c -> scripted), seeded with the persistent game flags. Then load a
@@ -632,6 +654,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                 grp ? ("  <-- GROUP " + std::to_string(grp) + " (should glow)").c_str() : "");
                 }
         }
+        register_script_pickups();   // altar item etc. (needs the populated world)
     };
 
     spawn_enemies();
@@ -717,6 +740,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         free_room(room, g.white_bind);
         room = std::move(next);
         room_events_dirty = true;   // re-run the room's event scripts for the re-gated room
+        register_script_pickups();  // the rebuilt mesh lost script-spawned interactables
     };
 
     // Positional SFX: pan from the camera's right axis, distance from the player
@@ -1281,18 +1305,30 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (target->script.empty()) { std::printf("  %s: no script\n", target->name.c_str()); return; }
         try {
             Xso x = Xso::parse(read_bytes(target->script));
+            const bool preOpened = target->opened_flag >= 0 &&
+                                   game.g_flags[target->opened_flag] != 0;
             game.reset_run();
             game.run(x);
             // Prefer the game's acquire-box items (0xD5); fall back to give-item.
             const std::vector<int>& got = !game.acquires.empty() ? game.acquires : game.items;
-            if (got.empty()) {
+            const bool nowOpened = target->opened_flag >= 0 &&
+                                   game.g_flags[target->opened_flag] != 0;
+            if (got.empty() && !preOpened && nowOpened) {
+                // The interaction FIRED an event that set its own flag but grants no
+                // inventory item — e.g. the S_1004 Flabellum altar (TALKITEM), which
+                // sets the SKILL flags 116/107 and its obtained-flag 304. That is a
+                // success, not "locked": re-gate so the item glow / state updates.
+                hud.message("Obtained a new power!");
+                std::printf("  >> event fired: %s set flag %d\n",
+                            target->name.c_str(), target->opened_flag);
+                reload_room();
+            } else if (got.empty()) {
                 // No item can mean two different things, and they are NOT the same:
                 // the chest's opened-flag is set (truly already looted), or the script
                 // hit a later prerequisite guard and ended early. S_1001's box_01, for
                 // instance, tests a second flag (301) that some event must set first —
                 // reporting that as "already opened" is simply wrong.
-                const bool opened = target->opened_flag >= 0 &&
-                                    game.g_flags[target->opened_flag] != 0;
+                const bool opened = nowOpened;
                 hud.message(std::string(target->name) +
                             (opened ? ": already opened" : ": locked (needs an event first)"));
                 std::printf("  %s: no item — opened_flag %d = %d -> %s\n",
