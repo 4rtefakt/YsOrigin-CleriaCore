@@ -587,7 +587,12 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
         const BulletArt& art = bullet_art(g, asset_root, efl, eft, e.id);
         if (!art.ok()) continue;
         const float scale = e.a > 0.01f ? e.a : 1.0f;   // the locate op's effect scale (op arg a)
-        const int age = int(t * 60.0f) % std::max(1, art.life);
+        // Age from the effect's OWN spawn, not wall-clock: a one-shot burst (b == 0, e.g. the
+        // enemy warp-in ring) plays its EF2 once and is then reaped by tick_effects; only a
+        // held effect (b != 0 — the wards, the statue aura) loops. Previously every effect
+        // used `t*60 % life`, so one-shots re-played forever and rings never disappeared.
+        const int life = std::max(1, art.life);
+        const int age = (e.b != 0.0f) ? (e.age % life) : std::min(e.age, life - 1);
         for (const BulletArt::Layer& L : art.layers) {
             if (L.frames.empty()) continue;
             const int fi = std::min(int(L.frames.size()) - 1,

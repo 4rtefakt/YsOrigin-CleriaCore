@@ -1964,6 +1964,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
 
             world.step();
+            // Age script-placed effects and reap finished one-shots (the enemy warp-in rings).
+            world.tick_effects([&](int id) {
+                return bullet_art(g, asset_root, efl, eft, id).life;
+            });
             for (Actor& a : world.actors()) {
                 if (a.is_player() || !a.alive()) continue;
                 if (a.hit_flash > 0) --a.hit_flash;

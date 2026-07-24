@@ -219,10 +219,33 @@ class ActorWorld : public XsoHost {
     // the VM stays headless, so we just record what to draw and let the view resolve
     // the id -> EF2 and render it. The barrier ward (id 210, name "eft_barrier") lives
     // here from room-load until the barrier breaks.
-    struct LocatedEffect { int id; float x, y, z, a, b; std::string name; };
+    // `age` ticks up every sim frame; a ONE-SHOT effect is removed when it passes its EF2
+    // lifetime (EFFECTS.md §: the effect object's tick has a lifetime gate `+0x130 >= +0x12c`
+    // that sets the destroy bit). `hold` is the op's 6th operand: 0 for fire-and-forget
+    // bursts (enemy warp-in `z_warp`, hit sparks) and 25.0 for the effects that must stay up
+    // until an explicit Eft_Kill (the `map_kekkai` wards, the `save_*zou` statue auras).
+    // [H-med] the operand's exact unit isn't traced, but the 0-vs-nonzero split is exactly the
+    // observed one-shot/persistent split across the whole S_10 script corpus.
+    struct LocatedEffect { int id; float x, y, z, a, b; std::string name; int age = 0; };
     void locate_effect(int id, float x, float y, float z, float a, float b,
                        const std::string& name) override {
-        effects_.push_back({id, x, y, z, a, b, name});
+        // Effects are addressed BY NAME (Eft_Kill looks a name up), so a name can only denote
+        // one live effect: re-placing a name replaces it rather than stacking a second copy.
+        // Without this, a script re-run piles duplicate auras on the goddess statue.
+        if (!name.empty())
+            for (LocatedEffect& e : effects_)
+                if (e.name == name) { e = {id, x, y, z, a, b, name, 0}; return; }
+        effects_.push_back({id, x, y, z, a, b, name, 0});
+    }
+    // Age every located effect one sim tick and drop the finished one-shots. `life_of(id)`
+    // resolves the EF2's own lifetime in frames (the view owns the EF2 registry).
+    void tick_effects(const std::function<int(int)>& life_of) {
+        for (auto it = effects_.begin(); it != effects_.end();) {
+            ++it->age;
+            const bool persistent = it->b != 0.0f;      // held until Eft_Kill
+            const int life = life_of(it->id);
+            it = (!persistent && life > 0 && it->age >= life) ? effects_.erase(it) : it + 1;
+        }
     }
     void kill_effect(const std::string& name) override {
         for (auto it = effects_.begin(); it != effects_.end();)

@@ -502,17 +502,20 @@ struct Hud {
             const float ratio = std::max(0.f, std::min(1.f, p.boost / 30000.0f));
             if (ratio > 0.001f) {
                 const float DEG = 3.14159265f / 180.0f;
-                // H4 traced start=315deg, sweep=190deg. The user reports it doesn't fill fully, so
-                // expose both for dialing until we verify against the real arc visually.
-                auto envf = [](const char* k, float d){ if (const char* e = std::getenv(k)) { float v = std::atof(e); if (v != 0) return v; } return d; };
-                const float th0 = envf("CLERIA_BOOST_START", 315.0f) * DEG;
-                const float sweep = ratio * envf("CLERIA_BOOST_SWEEP", 190.0f) * DEG;
+                // H4 traced start=315deg, sweep=190deg — both exact. The arc used to stop at ~94%
+                // because the rim used x=sin/y=cos; the EX glyph in STATUS_512 (annulus centred
+                // exactly on the traced UV centre 44,410, radii 26..39) spans 123.7..312.9deg,
+                // which matches x=cos/y=sin to sub-pixel at both hard ends. Ghidra can't recover
+                // which of FUN_0066fd70/FUN_00670d30 feeds x vs y (XMM return), so the art is the
+                // ground truth here. Fills lower-right -> bottom -> upper-left, as the art reads.
+                const float th0 = 315.0f * DEG;
+                const float sweep = ratio * 190.0f * DEG;
                 const int N = 24;
                 const float apx = m.x(44.0f), apy = m.y(719.0f);   // apex (center), screen px
                 auto rim = [&](float th, float& x, float& y, float& u, float& v) {
                     const float s = std::sin(th), c = std::cos(th);
-                    x = m.x(44.0f + 63.0f * s); y = m.y(719.0f - 63.0f * c);  // screen px
-                    u = 44.0f + 63.0f * s;      v = 410.0f - 63.0f * c;       // atlas px
+                    x = m.x(44.0f + 63.0f * c); y = m.y(719.0f - 63.0f * s);  // screen px
+                    u = 44.0f + 63.0f * c;      v = 410.0f - 63.0f * s;       // atlas px
                 };
                 const std::uint8_t t = ratio >= 0.999f ? 255 : 210;   // brighten when Boost-ready
                 float px, py, pu, pv; rim(th0, px, py, pu, pv);
