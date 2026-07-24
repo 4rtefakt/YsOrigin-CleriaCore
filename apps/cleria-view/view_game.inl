@@ -854,8 +854,46 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         bool advance = false;     // set by input; consumed to advance one line
         ScriptManager* mgr = nullptr;   // for Wait_Script (is the named child still live?)
         int voice = -1;           // Window_Msg param1 — doubles as the FACE FRAME index
+        std::uint8_t text_r = 255, text_g = 255, text_b = 255;   // body colour (<color:> tag)
+        // Falcom colour markup: a line may lead with `<color:0xAARRGGBB>` (and rarely more
+        // `<...>` tags). Apply the FIRST colour to the body and strip every tag so the
+        // literal markup never shows (and the typewriter counts only visible chars).
+        static std::string parse_tags(std::string s, std::uint8_t& r, std::uint8_t& gg, std::uint8_t& b) {
+            r = gg = b = 255;
+            bool got = false;
+            std::string out;
+            for (std::size_t i = 0; i < s.size();) {
+                if (s[i] == '<') {
+                    const std::size_t e = s.find('>', i);
+                    if (e == std::string::npos) { out += s.substr(i); break; }
+                    const std::string tag = s.substr(i, e - i + 1);   // "<color:0xAARRGGBB>"
+                    const std::size_t hx = tag.find("0x");
+                    if (!got && hx != std::string::npos && hx + 10 <= tag.size()) {
+                        auto hexval = [&](std::size_t o) {
+                            std::uint32_t v = 0;
+                            for (std::size_t k = 0; k < 8 && o + k < tag.size(); ++k) {
+                                const char c = tag[o + k];
+                                v = v * 16 + (c >= '0' && c <= '9' ? c - '0'
+                                            : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                                            : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 0);
+                            }
+                            return v;   // 0xAARRGGBB
+                        };
+                        const std::uint32_t argb = hexval(hx + 2);
+                        r = std::uint8_t((argb >> 16) & 0xFF);
+                        gg = std::uint8_t((argb >> 8) & 0xFF);
+                        b = std::uint8_t(argb & 0xFF);
+                        got = true;
+                    }
+                    i = e + 1;   // drop the whole tag
+                } else { out += s[i]; ++i; }
+            }
+            return out;
+        }
         void window_msg(int sp, int vc, const std::string& nm, const std::string& tx) override {
-            speaker = sp; voice = vc; name = nm; text = tx; reveal = 0; box_active = true;
+            speaker = sp; voice = vc; name = nm;
+            text = parse_tags(tx, text_r, text_g, text_b);
+            reveal = 0; box_active = true;
         }
         void window_close() override { box_active = false; name.clear(); text.clear(); }
         std::string caption_name; int caption_timer = 0;   // 0xe2 area-name card (frames left)
@@ -1262,6 +1300,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 for (int it : got) { msg += " "; msg += items_tbl.name(it); }
                 hud.message(msg);
                 std::printf("  >> %s\n", msg.c_str());
+                // The chest script set its opened-flag on `game`; re-gate the room so the
+                // just-looted chest re-poses to its OPEN clip immediately (build_room reads
+                // the flags). Enemies live in `world`, which reload_room doesn't touch.
+                reload_room();
             }
         } catch (const std::exception& e) {
             std::printf("  %s: script error: %s\n", target->name.c_str(), e.what());
@@ -2140,7 +2182,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             write_mvp(g, Mat4::identity());   // the box is screen-space
             WGPUTextureView ddepth = make_depth(g, cw, ch);
             pauseUi.draw_dialogue(g, pmf, view, ddepth, cw, ch, csHost.name, csHost.text, csHost.reveal,
-                                  portrait_tex());
+                                  portrait_tex(), csHost.text_r, csHost.text_g, csHost.text_b);
             wgpuTextureViewRelease(ddepth);
         }
         // Area-name caption card (op 0xe2 = pre-rendered IMAGE/<name>.dds), fading out.

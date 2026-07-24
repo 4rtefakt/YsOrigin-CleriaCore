@@ -692,7 +692,8 @@ struct TitleFx {
     // face asset/id mapping is still [UNKNOWN] (KAO_* is a noise texture, not portraits).
     void draw_dialogue(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
                        std::uint32_t W, std::uint32_t H, const std::string& name,
-                       const std::string& text, int reveal, const SpriteTex* face = nullptr) {
+                       const std::string& text, int reveal, const SpriteTex* face = nullptr,
+                       std::uint8_t tr = 255, std::uint8_t tg = 255, std::uint8_t tb = 255) {
         if (!facewin.tex) return;
         const float sw = float(W), sh = float(H);
         const float by1 = sh, by0 = sh - sh * (224.0f / 768.0f);   // bottom 224/768 of the frame
@@ -741,14 +742,14 @@ struct TitleFx {
                 const std::string word = seg.substr(w0, sp - w0);
                 const std::string cand = line.empty() ? word : line + " " + word;
                 if (!line.empty() && mf.measure(cand, pxBody) > maxW) {
-                    mf.text(line, tx, ly, pxBody, sw, sh, 255, 255, 255, 255);
+                    mf.text(line, tx, ly, pxBody, sw, sh, tr, tg, tb, 255);
                     ly += pxBody * 1.15f;
                     line = word;
                 } else line = cand;
                 if (sp >= seg.size()) break;
                 w0 = sp + 1;
             }
-            mf.text(line, tx, ly, pxBody, sw, sh, 255, 255, 255, 255);
+            mf.text(line, tx, ly, pxBody, sw, sh, tr, tg, tb, 255);
             ly += pxBody * 1.15f;
         };
         std::size_t i = 0;

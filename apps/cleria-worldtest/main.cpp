@@ -747,6 +747,13 @@ int main(int argc, char** argv) {
             for (int f = 0; f < 60; ++f) { mgr.tick_all(); if (mgr.vm.g_flags[301] != 0) broke_early = true; }
             check(w.any_seed_alive(1),
                   "barrier mob spawns as a live group-1 seed on entry");
+            // The group-1 seed must be a VISIBLE enemy (a sprite_stem), else it can't show the
+            // red ward glow. Finding: cast 14 -> M_100 (a normal Riffligan), so it IS visible;
+            // the "no red glow" is a render issue, not an invisible seed.
+            bool seed_visible = false;
+            for (const Actor& a : w.actors())
+                if (a.tag.in_group(1) && !ct.sprite_stem(a.cast_id).empty()) seed_visible = true;
+            check(seed_visible, "the group-1 ward seed has a sprite (visible, can carry the glow)");
             check(!broke_early && mgr.vm.g_flags[301] == 0,
                   "ward does NOT break on entry while the mob lives (flag 301 stays 0)");
             check(loader.requested.count("KEKKAIZAKO_01") > 0,
