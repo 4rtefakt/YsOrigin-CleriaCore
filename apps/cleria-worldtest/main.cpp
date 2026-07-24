@@ -848,6 +848,35 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- S_1001 chest UNLOCK gating: barrier flag (301) must gate the chest (S_BOX01) -----
+    // S_BOX01.XSO: if flag302==1 return (already looted); if flag301==0 return (barrier still
+    // up); else open, give item 89, set flag302=1. This is the exact path the view's interact
+    // handler runs, so it proves the barrier -> chest link end to end.
+    {
+        const std::string dir = (root / "MAP" / "S_10" / "S_1001").string() + "/";
+        try {
+            std::vector<std::uint8_t> bb;
+            if (std::ifstream f{dir + "S_BOX01.XSO", std::ios::binary})
+                bb.assign(std::istreambuf_iterator<char>(f), {});
+            const Xso box = Xso::parse(bb);
+            auto opens = [&](std::int32_t f301, std::int32_t f302) {
+                XsoVm vm; vm.g_flags[301] = f301; vm.g_flags[302] = f302;
+                vm.reset_run(); vm.run(box);
+                bool got89 = false; for (int it : vm.items) if (it == 89) got89 = true;
+                return std::make_pair(got89, vm.g_flags[302]);
+            };
+            auto barrier_up   = opens(0, 0);   // barrier still up  -> locked
+            auto barrier_down = opens(1, 0);   // barrier down, fresh -> opens
+            auto already      = opens(1, 1);   // already looted    -> nothing
+            check(!barrier_up.first,  "chest is LOCKED while the barrier is up (flag301==0)");
+            check(barrier_down.first && barrier_down.second == 1,
+                  "chest OPENS after the barrier falls: item 89 + flag302 set");
+            check(!already.first, "an already-opened chest (flag302==1) gives nothing again");
+        } catch (const std::exception& e) {
+            check(false, "S_1001 chest-unlock gating", e.what());
+        }
+    }
+
     // --- Opened chests render POSED to their OPEN clip (build/event_re/S1001_..._RE.md) ---
     // A chest is one YMO with an in-model OPEN clip on its hinged lid; the room root
     // re-poses an already-looted chest on entry (0x175(box,OPEN,0,-1)). build_room now
