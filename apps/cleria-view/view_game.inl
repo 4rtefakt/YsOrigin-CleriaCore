@@ -770,6 +770,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // blessings list real costs but effects are not implemented.
     int statue_ui = 0, statue_sel = 0, statue_reveal = 0;
     bool cleanse_pending = false;   // a cleanse cutscene (SAVE.XSO) is playing on csMgr
+    std::int32_t prev_flag300 = 0;  // to detect the cleanse flag flipping (statue model swap)
+    bool statue_reload_pending = false;  // reload for the model swap once the cutscene thaws
     std::array<std::string, 8> svldLabels;
     auto refresh_slots = [&] {
         for (int i = 0; i < 8; ++i) svldLabels[std::size_t(i)] = slot_label(svldTab * 8 + i);
@@ -1225,15 +1227,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
             if (fl > kNoFloor) feet.y = fl;
         }
-        // Cutscene NPCs spawn at authored heights (Shion at y~2) and never fall — snap
-        // non-player actors to the floor while a cutscene runs so they don't hover. If no
+        // Cutscene NPCs spawn at authored heights (Shion at y~2) and never fall — keep
+        // non-player, non-enemy actors on the floor at ALL times (they persist after the
+        // cutscene too, so gating on 'frozen' left them hovering during normal play). If no
         // collision floor is under them, fall back to the player's floor level (same room).
-        if (csMgr.world_frozen())
-            for (Actor& a : world.actors()) {
-                if (a.is_player()) continue;
-                const float fl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + room_diag(room));
-                a.pos.y = (fl > kNoFloor) ? fl : feet.y;
-            }
+        for (Actor& a : world.actors()) {
+            if (a.is_player() || a.is_enemy()) continue;
+            const float fl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + room_diag(room));
+            a.pos.y = (fl > kNoFloor) ? fl : feet.y;
+        }
         const bool frozen = csMgr.world_frozen();
         if (!frozen && prev_frozen && after_cutscene) {    // world just thawed -> queued action
             auto f = after_cutscene; after_cutscene = nullptr; f();
@@ -1733,9 +1735,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (const auto& in : csMgr.live) if (!in.finished && in.name == "save") { live = true; break; }
             if (!live) {
                 cleanse_pending = false;
-                if (game.g_flags[300] != 0) { reload_room(); hud.message("The goddess statue is cleansed."); }
-                else { statue_ui = 1; statue_sel = 0; statue_reveal = 0; }
+                if (game.g_flags[300] == 0) { statue_ui = 1; statue_sel = 0; statue_reveal = 0; }
             }
+        }
+        // Robust statue MODEL swap: the instant flag 300 flips to cleansed, mark a reload so
+        // S_SAVEOBJECTCHANGE swaps the dark statue for the cleansed one — independent of
+        // whether SAVE.XSO cleanly finished. The reload waits until the world is NOT frozen
+        // so we never rebuild the room mid-cutscene (and the flip may happen while frozen).
+        if (prev_flag300 == 0 && game.g_flags[300] != 0) statue_reload_pending = true;
+        prev_flag300 = game.g_flags[300];
+        if (statue_reload_pending && !csMgr.world_frozen()) {
+            statue_reload_pending = false;
+            reload_room();
+            hud.message("The goddess statue is cleansed.");
         }
         // A cutscene spawned/deleted an actor (op 0x12c/0x12d): load any new cast's
         // sprite and rebuild the render list so the NPC is drawn (or gone). Done here
