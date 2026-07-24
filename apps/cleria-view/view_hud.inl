@@ -119,6 +119,12 @@ struct Hud {
     WGPUBindGroup mini_bind{};
     MiniFont mini;
     std::vector<HudVertex> mini_verts;
+    // Equipped-item icons (HUD_PORTRAIT_SLOTS.md): one DDS per item id from MENU/ICON, NOT
+    // atlas sub-rects, so each needs its own bind group. Slot order is weapon / armor /
+    // footwear / accessory[0]; a slot with id < 0 draws its bare frame.
+    std::unordered_map<int, WGPUBindGroup> icon_binds;
+    WGPUBindGroup equip_bind[4] = {};
+    std::vector<HudVertex> equip_verts[4];
     float boss_frac = -1.f;              // <0 = no boss on screen
     std::string boss_name;
     struct Msg { std::string text; float ttl; };
@@ -208,6 +214,21 @@ struct Hud {
     // Load the game's STATUS_512 HUD atlas (player status graphics).
     void init_atlas(Gpu& g, const fs::path& dds_path) {
         atlas_bind = upload_atlas(g, dds_path, atlas_w, atlas_h);
+    }
+    // Bind the four HUD slots to the currently equipped item ids (-1 = empty). Each item's
+    // icon is its own MENU/ICON/<STEM>.DDS, cached by id so this is cheap to call per frame.
+    void set_equip(Gpu& g, const ItemTable& items, const fs::path& asset_root, const int ids[4]) {
+        for (int i = 0; i < 4; ++i) {
+            const int id = ids[i];
+            if (id < 0 || id == 0xff) { equip_bind[i] = nullptr; continue; }
+            auto it = icon_binds.find(id);
+            if (it == icon_binds.end()) {
+                std::uint32_t w = 0, h = 0;
+                WGPUBindGroup bg = upload_atlas(g, items.icon_path(asset_root, id, false), w, h);
+                it = icon_binds.emplace(id, bg).first;
+            }
+            equip_bind[i] = it->second;
+        }
     }
     // Load the game's HP2 atlas (boss health bar graphics).
     void init_boss(Gpu& g, const fs::path& dds_path) {
@@ -533,10 +554,22 @@ struct Hud {
         // Builder D blits each equipped item's icon on top at (132+40i, 682) — a 6px
         // inset — from a per-item texture handle array (DAT_0074a958[itemId]), NOT
         // from the atlas. Unequipped slots are drawn greyed (tint & 0xff303030). We
-        // draw the empty frames; the icons need the item/equipment model.
+        // draw the empty frames, then blit each equipped icon on top.
         for (int i = 0; i < 4; ++i) {
             const Ar d{126.0f + 40.0f * i, 676.0f, 166.0f + 40.0f * i, 716.0f};
             sprite_a(m, d, kSlotFrame, sw, sh);
+            equip_verts[i].clear();
+            if (!equip_bind[i]) continue;
+            // Icon is 40x40 at +6,+6 from the frame — it overhangs the frame bottom-right
+            // by 6px, which is verbatim what the builder does; do not "correct" it.
+            const float x0 = m.x(132.0f + 40.0f * i), y0 = m.y(682.0f);
+            const float x1 = m.x(172.0f + 40.0f * i), y1 = m.y(722.0f);
+            auto V = [&](float x, float y, float u, float v) {
+                equip_verts[i].push_back({x / float(sw) * 2.0f - 1.0f,
+                                          1.0f - y / float(sh) * 2.0f, u, v, 255, 255, 255, 255});
+            };
+            V(x0, y0, 0, 0); V(x1, y0, 1, 0); V(x1, y1, 1, 1);
+            V(x0, y0, 0, 0); V(x1, y1, 1, 1); V(x0, y1, 0, 1);
         }
 
         // The level, in the atlas's own gold glyph font (y15..36, proportional widths,
@@ -637,10 +670,12 @@ struct Hud {
         if (boss_frac >= 0.f) boss_bar(boss_frac, boss_name, float(sw), float(sh));
         const std::size_t nf = verts.size(), ns = sprites.size(), nb = boss_sprites.size();
         const std::size_t nm = mini_verts.size();
-        if (nf + ns + nb + nm == 0) return;
+        std::size_t ne = 0;                       // equipped-item icon quads (one batch/slot)
+        for (const auto& v : equip_verts) ne += v.size();
+        if (nf + ns + nb + nm + ne == 0) return;
 
         // Concatenate the batches: font atlas verts, STATUS sprites, HP2, then F_MINI.
-        const std::size_t bytes = (nf + ns + nb + nm) * sizeof(HudVertex);
+        const std::size_t bytes = (nf + ns + nb + nm + ne) * sizeof(HudVertex);
         if (bytes > vbuf_cap) {
             if (vbuf) wgpuBufferRelease(vbuf);
             WGPUBufferDescriptor bd = {};
@@ -653,6 +688,13 @@ struct Hud {
         if (ns) wgpuQueueWriteBuffer(g.queue, vbuf, nf * sizeof(HudVertex), sprites.data(), ns * sizeof(HudVertex));
         if (nb) wgpuQueueWriteBuffer(g.queue, vbuf, (nf + ns) * sizeof(HudVertex), boss_sprites.data(), nb * sizeof(HudVertex));
         if (nm) wgpuQueueWriteBuffer(g.queue, vbuf, (nf + ns + nb) * sizeof(HudVertex), mini_verts.data(), nm * sizeof(HudVertex));
+        {   // each slot's icon is its own texture, so each is its own little batch
+            std::size_t off = (nf + ns + nb + nm) * sizeof(HudVertex);
+            for (const auto& v : equip_verts) {
+                if (!v.empty()) wgpuQueueWriteBuffer(g.queue, vbuf, off, v.data(), v.size() * sizeof(HudVertex));
+                off += v.size() * sizeof(HudVertex);
+            }
+        }
 
         WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
         WGPURenderPassColorAttachment ca = {};
@@ -680,6 +722,18 @@ struct Hud {
             wgpuRenderPassEncoderSetBindGroup(pass, 0, mini_bind, 0, nullptr);
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, (nf + ns + nb) * sizeof(HudVertex), nm * sizeof(HudVertex));
             wgpuRenderPassEncoderDraw(pass, std::uint32_t(nm), 1, 0, 0);
+        }
+        {   // equipped-item icons: one draw per occupied slot (its own DDS bind group)
+            std::size_t off = (nf + ns + nb + nm) * sizeof(HudVertex);
+            for (int i = 0; i < 4; ++i) {
+                const std::size_t n = equip_verts[i].size();
+                if (n && equip_bind[i]) {
+                    wgpuRenderPassEncoderSetBindGroup(pass, 0, equip_bind[i], 0, nullptr);
+                    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, off, n * sizeof(HudVertex));
+                    wgpuRenderPassEncoderDraw(pass, std::uint32_t(n), 1, 0, 0);
+                }
+                off += n * sizeof(HudVertex);
+            }
         }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);

@@ -2567,6 +2567,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // box/caption (drawn below) so a partial crossfade keeps text readable while a
         // full fade blacks the scene out. set_fade routes it into the HUD's alpha batch.
         hud.set_fade(csHost.fade_rgb, csHost.fade_cur);
+        // Bind the HUD's four equipment slots to the live equipped ids. The new-game seed
+        // writes weapon/armor into flags 151/152 and they round-trip through save/load;
+        // footwear and accessory have no global yet, so those two slots stay bare frames.
+        {
+            const int ids[4] = {game.g_flags[151], game.g_flags[152], -1, -1};
+            hud.set_equip(g, items_tbl, asset_root, ids);
+        }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
         // Standing bust portraits (op 0xe3 Portrait_Open): IMAGE/<name>.dds sprites drawn in the
         // 2D overlay, behind the dialogue box. Anchor is bottom-left in the authored 1024x768
