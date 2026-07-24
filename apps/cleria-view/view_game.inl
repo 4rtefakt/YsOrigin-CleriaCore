@@ -623,10 +623,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             std::printf("  %zu enemies spawned (%d with game stats)\n", render.size(),
                         statted);
             if (std::getenv("CLERIA_ENEMY"))
-                for (const EnemyRender& e : render)
-                    std::printf("    %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f\n",
+                for (const EnemyRender& e : render) {
+                    int grp = 0;
+                    for (int gq = 1; gq <= 4; ++gq) if (e.actor->tag.in_group(gq)) { grp = gq; break; }
+                    std::printf("    %-14s (%-6s) lv%-3d HP %6.0f  ATK %5.0f  DEF %5.0f%s\n",
                                 e.display.c_str(), e.stem.c_str(), e.actor->level,
-                                e.actor->max_hp, e.actor->atk, e.actor->def);
+                                e.actor->max_hp, e.actor->atk, e.actor->def,
+                                grp ? ("  <-- GROUP " + std::to_string(grp) + " (should glow)").c_str() : "");
+                }
         }
     };
 

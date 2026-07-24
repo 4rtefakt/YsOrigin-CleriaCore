@@ -273,7 +273,10 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             const float mg = float((mk >> 8) & 0xFF) / 255.0f;
             const float mb = float(mk & 0xFF) / 255.0f;
             const float phase = float(e.actor->instance_id) * 2.4f + t_anim * 6.2831853f;  // per-enemy offset
-            const float I = A * std::fabs(std::sin(phase));                                 // pulsing intensity
+            // Keep a floor under the pulse so a ward seed always reads as glowing (it never
+            // fully fades to 0), and make the pulse a touch stronger — the retail ward glow
+            // is subtle but always present.
+            const float I = A * (0.45f + 0.55f * std::fabs(std::sin(phase)));               // pulsing intensity
             draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos,
                            0.0f, mr * I, mg * I, mb * I, /*additive*/true);
             break;
