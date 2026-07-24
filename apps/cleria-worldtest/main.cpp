@@ -772,6 +772,42 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- Goddess-statue CLEANSE (SAVE.XSO): must run to completion and set flag 300 (cleansed).
+    // Wiring this to statue-touch requires that it doesn't soft-lock (leave the world frozen). --
+    {
+        const std::string dir = (root / "MAP" / "S_10" / "S_1000").string() + "/";
+        struct FsLoader : ScriptLoader {
+            std::string dir;
+            std::shared_ptr<const Xso> load_script(const std::string& name) override {
+                std::string up = name; for (char& c : up) c = char(std::toupper((unsigned char)c));
+                std::ifstream f(dir + up + ".XSO", std::ios::binary);
+                if (!f) return nullptr;
+                std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f), {}};
+                if (b.size() < 4) return nullptr;
+                try { return std::make_shared<Xso>(Xso::parse(b)); } catch (const std::exception&) { return nullptr; }
+            }
+        } loader; loader.dir = dir;
+        try {
+            std::vector<std::uint8_t> sb;
+            if (std::ifstream f{dir + "SAVE.XSO", std::ios::binary}) sb.assign(std::istreambuf_iterator<char>(f), {});
+            ActorWorld w(tables);
+            ScriptManager mgr; mgr.loader = &loader; mgr.vm.host = &w;
+            mgr.vm.g_flags[150] = 1;      // Yunica
+            mgr.vm.g_flags[300] = 0;      // statue SEALED
+            mgr.vm.g_flags[165] = 1;      // intro/cleanse-tutorial done (gates the cleanse)
+            mgr.vm.g_flags[84]  = 1;      // story-progress prereq (0x5D: flag84 || flag86)
+            mgr.start_root(std::make_shared<Xso>(Xso::parse(sb)), "save");
+            auto save_live = [&] { for (const auto& i : mgr.live) if (i.name == "save") return true; return false; };
+            int f = 0; for (; f < 3000 && save_live(); ++f) { w.advance_cutscene_moves(); mgr.tick_all(); }
+            check(!save_live() && mgr.vm.g_flags[300] == 1,
+                  "statue cleanse SAVE.XSO completes and sets flag 300 (cleansed)",
+                  "frames=" + std::to_string(f) + " flag300=" + std::to_string(mgr.vm.g_flags[300]));
+            check(!mgr.world_frozen(), "cleanse releases the world freeze (no soft-lock)");
+        } catch (const std::exception& e) {
+            check(false, "statue cleanse SAVE.XSO run", e.what());
+        }
+    }
+
     // --- S_1000 intro battle: the multi-wave KILL-GATE blocks w/o kills, resumes with them --
     // battle_0 is the interactive fight ("mobs spawn, I kill them, the cutscene resumes").
     // It is a multi-wave loop: Fix -> spawn wave (0x12C, cast 14, group 0) -> Unfix ->
