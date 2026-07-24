@@ -1646,6 +1646,26 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (Actor* wp = world.player()) wp->pos = feet;
         }
         const bool frozen_now = tick_events();
+        // Persist what the cutscene GRANTED back to the game state. csMgr runs on a COPY
+        // of the flags and its own item lists, so without this a cutscene's story-flag
+        // progression AND item pickups are silently lost (e.g. BATTLE_0 hands Yunica the
+        // Lila Shell + Crystal via 0xD5, and sets the intro's completion flags).
+        {
+            for (int id : csMgr.vm.acquires) {
+                hud.message("Acquired " + items_tbl.name(id));
+                if (id >= 0 && id < 54) game.item_arr[id] = 1;   // store the ones the model holds
+            }
+            for (int id : csMgr.vm.items)
+                if (id >= 0 && id < 54) game.item_arr[id] = 1;
+            csMgr.vm.acquires.clear();
+            csMgr.vm.items.clear();
+            // Apply the recorded flag deltas (only what the cutscene actually changed, so
+            // nothing the game set independently is clobbered).
+            for (const Grant& gr : csMgr.vm.grants)
+                if (gr.has_value && gr.index >= 0 && gr.index < 0x200)
+                    game.g_flags[gr.index] = gr.value;
+            csMgr.vm.grants.clear();
+        }
         // A cutscene spawned/deleted an actor (op 0x12c/0x12d): load any new cast's
         // sprite and rebuild the render list so the NPC is drawn (or gone). Done here
         // so it happens whether or not the world is frozen.
