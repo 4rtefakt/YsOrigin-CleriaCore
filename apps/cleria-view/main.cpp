@@ -123,6 +123,12 @@ struct Player {
     float exp = 0;          // running EXP total (build/progress_re/LEVELING.md)
     float exp_pct = 0.0f;   // progress toward the next level, for the HUD bar
     float mp_pct = 100.0f;
+    // The magic/skill resource (engine DAT_0076a738 cur / DAT_0076a734 max = 3000.0, mirrored
+    // to actor+0xa0/+0x9c). NOT `sp` above, which is the shop currency. Regenerates while the
+    // regen mode bit is live; a skill spends its per-character cost (ABILITY.md §1a/§2a).
+    float sp_cur = 3000.0f, sp_max = 3000.0f;
+    // Equipped magic (DAT_0076a630): 0x74/0x75/0x76 -> skill slot 0/1/2, anything else = none.
+    int magic = 0x74;
     int character = 1;  // portrait: 1 Yunica / 2 Hugo / 3 Toal
     // Red HP damage-lag "ghost" bar (build/hud_re/HUD_HP_BARS.md, H3). The HP widget is
     // {cur, lag, max}: on damage the lag holds the old value and decays toward cur, drawing

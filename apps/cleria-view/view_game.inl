@@ -1352,6 +1352,65 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         atk_hit.clear();
     };
 
+    // The EX/Boost gauge builds on hits DEALT and TAKEN alike (FUN_0046cc10): the amount is
+    // missing-HP-scaled, `(1 - hp/hpMax) * 25 + 1`, and is refused while already boosting or
+    // once the gauge is full. Replaces the earlier flat 1500/2500 hand-picked amounts.
+    auto add_boost = [&] {
+        if (player.boosting || player.boost >= 30000.0f) return;
+        const float missing = 1.0f - float(player.hp) / float(std::max(1, player.max_hp));
+        player.boost = std::min(30000.0f, player.boost + missing * 25.0f + 1.0f);
+    };
+
+    // ---- Boost (build/ability_re/BOOST.md, ABILITY.md §4b) -------------------------------
+    // Entering needs a FULL gauge — the engine compares == 30000.0 exactly — and grants 16
+    // i-frames. A SECOND press spends the whole gauge on the character's EXTRA/super section.
+    // The RE is explicit that Boost carries NO damage or speed multiplier: its offence is the
+    // super section's own hitboxes. The drain (~30/tick) lives in the fixed-step block.
+    auto try_boost = [&] {
+        if (!player.boosting) {
+            if (player.boost < 30000.0f) return;          // UCOMISS against the full value
+            player.boosting = true;
+            player_iframes = std::max(player_iframes, 16);
+            hud.message("Boost!");
+            return;
+        }
+        // Second press: the EXTRA section. These live outside the 0x100..0x10f combo range,
+        // so they are requested directly; they carry their own hitboxes, which the existing
+        // armed_hitbox() path already resolves.
+        const int extra = character == 1 ? 313 : character == 2 ? 300 : 317;
+        if (!avm.set_section(extra, /*force*/true)) return;
+        atk_dir = face_dir;
+        atk_hit.clear();
+        player.boost = 0.0f;                              // spends the gauge
+        player_iframes = std::max(player_iframes, 16);
+    };
+
+    // ---- Skills / magic (ABILITY.md §2a, BOOST.md §4, GAUGES_UI.md) ----------------------
+    // A skill is NOT a special animation: it is a different ASO section, gated by SP. The
+    // per-character SP costs are fully dumped; the section table is only partly dumped (one
+    // row of PTR_DAT_0068afd0), so the per-character rows are [PARTIAL] — see the note below.
+    auto try_skill = [&] {
+        const int slot = player.magic == 0x74 ? 0 : player.magic == 0x75 ? 1
+                       : player.magic == 0x76 ? 2 : 3;    // FUN_0046d560
+        if (slot == 3) return;                            // nothing equipped
+        static const short kSkillCost[4][3] = {{1000, 600, 300},   // char 0
+                                               {700, 700, 400},    // Yunica
+                                               {2000, 600, 900},   // Hugo
+                                               {300, 700, 600}};   // Toal
+        // [PARTIAL] only PTR_DAT_0068afd0's single dumped row {0x110,0x10f,0x111} is known;
+        // the per-character rows of PTR_DAT_0068afe0 were never dumped. Hugo in particular is
+        // documented to use 0x112 / 300-304. We request the known row and fall back to any
+        // section the character's own ASO actually defines, rather than inventing ids.
+        static const short kSkillSec[3] = {0x110, 0x10f, 0x111};
+        const float cost = float(kSkillCost[character & 3][slot]);
+        if (player.sp_cur - cost < 0.0f) return;          // threshold is 0.0
+        if (avm.section() >= 0x100 && !avm.cancelable()) return;
+        if (!avm.set_section(kSkillSec[slot], /*force*/true)) return;
+        player.sp_cur -= cost;                            // 0x46f2eb
+        atk_dir = face_dir;
+        atk_hit.clear();
+    };
+
     const ItemTable items_tbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
     csHost.item_name_fn = [&](int id) { return items_tbl.name(id); };  // 0xd5 "Acquired X" box
     auto try_interact = [&] {
@@ -1670,6 +1729,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 }
                 // Debug: B fills the EX/Boost gauge in ~4 presses (to eyeball the boost arc).
                 else if (k == SDLK_B) { player.boost = std::min(30000.f, player.boost + 7500.f); hud.message("(debug) +Boost"); }
+                // Boost (engine: button bit 8) and skill/magic (button bit 4). The engine's
+                // pad bits have no keyboard mapping of their own, so these take free keys.
+                else if (k == SDLK_X && !fly && !paused) try_boost();
+                else if (k == SDLK_C && !fly && !paused) try_skill();
                 else if (k == SDLK_TAB) {
                     character = character % 3 + 1;
                     game.g_flags[150] = character;
@@ -2063,7 +2126,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
                     // Boost builds on hits DEALT too (BOOST.md hook). Amount [H] (see hurt_player).
-                    player.boost = std::min(30000.f, player.boost + 1500.f);
+                    add_boost();
                     react_enemy(en, feet, r.died);
                     const std::string nm = casts.get(en.cast_id) && !casts.get(en.cast_id)->display.empty()
                                            ? casts.get(en.cast_id)->display : ("cast " + std::to_string(en.cast_id));
@@ -2101,6 +2164,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // GenerateCollision box, armed on the swing frame in the brain above — not from
             // touching it. player_def is the lv1 curve; no equipment model.
             if (player_iframes > 0) --player_iframes;
+            // Boost drain (FUN_00462c40): the gauge falls ~30/tick on Normal, so a Boost runs
+            // ~1000 frames (~16.7 s). At zero the mode clears and the player drops to idle.
+            if (player.boosting) {
+                player.boost -= 30.0f;
+                if (player.boost <= 0.0f) {
+                    player.boost = 0.0f;
+                    player.boosting = false;
+                    avm.set_section(2, /*force*/true);      // FUN_00446550(2,0) -> idle
+                }
+            }
+            // SP regen (mover FUN_00465170): a flat base of 5.0/tick plus a per-slot addend
+            // whose table (0x68b078) is not dumped — so this is the base only. [PARTIAL]
+            player.sp_cur = std::min(player.sp_max, player.sp_cur + 5.0f);
+            player.mp_pct = player.sp_max > 0 ? player.sp_cur / player.sp_max * 100.0f : 0.0f;
             // A CLEANSED goddess statue (flag 300) is a safe zone: standing near it restores
             // HP to full. [range HAND-TUNED — no proximity constant located in the RE yet.]
             if (game.g_flags[300] != 0 && player.hp < player.max_hp)
@@ -2118,7 +2195,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 player.hp -= dmg;
                 // Boost builds on hits TAKEN (BOOST.md hook FUN_0046cc10, missing-HP-scaled) —
                 // the comeback mechanic. Amount is [H] (tuned for visibility; base const is 25).
-                player.boost = std::min(30000.f, player.boost + 2500.f);
+                add_boost();
                 // p_damage is the player's own hurt-reaction sound; death adds p_hit0.
                 audio.play(kSfxPlayerHurt, kSfxAnimVol);
                 if (player.hp <= 0) audio.play(kSfxDeathEntry, kSfxAnimVol);
