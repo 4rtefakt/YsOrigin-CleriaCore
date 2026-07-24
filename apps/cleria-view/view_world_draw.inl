@@ -33,6 +33,7 @@ struct EnemyFx {
         std::vector<SpriteTex> anim[8];   // idle animation frames, per facing direction
         std::uint32_t ndir = 0;
         float height = 1.6f;
+        float footFix = 0;   // per-file foot correction (oy - resting bbox bottom); see draw_character
         // Other animations (walk, attack, hurt, death), decoded on demand and keyed by
         // AIA tag -> 8 facings. Idle stays in `anim` above; this is everything the enemy
         // ASO can ask for beyond it, so an attacking enemy shows its attack clip.
@@ -61,6 +62,7 @@ struct EnemyFx {
                         if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
                         SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
                         st.set_placement(fr, k.aia.canvasW);
+                        st.footFix = k.footFix;   // same per-file foot correction as idle
                         a[d].push_back(std::move(st));
                     }
             }
@@ -88,6 +90,14 @@ struct EnemyFx {
         if (img < 0 || img >= int(k.aia.nImg)) img = 0;
         k.ndir = k.aia.images[img].nDir;
         const std::uint32_t nfr = k.aia.images[img].nFrame;
+        // Per-file foot correction (CUTSCENE_POLISH_RE.md §2): a large canvas can place the
+        // foot line `oy` below the character art (M_840 256px: oy=180 vs art bottom ~172), so
+        // the sprite floats. footFix = oy - resting bbox bottom; subtracting it in
+        // draw_character grounds the resting frame, and being ONE constant per file it adds
+        // no slide. Measured on the idle resting frame (image `img`, dir 0, frame 0).
+        { AiaFrame rest;
+          if (k.aia.decode_frame_composited(std::uint32_t(img), 0, 0, rest))
+              k.footFix = rest.bill[2] - float(rest.y0 + rest.h); }
         std::uint32_t tall = 1;
         for (std::uint32_t d = 0; d < 8 && d < k.ndir; ++d)
             for (std::uint32_t f = 0; f < nfr; ++f) {
@@ -95,6 +105,7 @@ struct EnemyFx {
                 if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
                 SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
                 st.set_placement(fr, k.aia.canvasW);   // canvas anchor, like the player
+                st.footFix = k.footFix;
                 k.anim[d].push_back(st);
                 tall = std::max(tall, fr.h);
         }

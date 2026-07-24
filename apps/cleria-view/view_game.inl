@@ -1449,18 +1449,23 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
     auto portrait_tex = [&]() -> const SpriteTex* {
         const int cast = portrait_cast(csHost.speaker);
-        const int frame = csHost.voice;
+        int frame = csHost.voice;
         if (cast < 0 || frame < 0) return nullptr;
         if (portrait.cast != cast) {
             portrait.cast = cast; portrait.frame = -1; portrait.aia_ok = false;
             // cast INDEX -> CASTINFO name "CAST_C210" -> face set "F_210.AIA".
             // (NPC casts carry no sprite stem — the name is the reliable key.)
             std::string face;
-            if (const Cast* cr = casts.get(cast)) {
+            if (csHost.speaker == 13 || csHost.speaker == 999) {
+                // The PLAYER's cutscene face (CUTSCENE_POLISH_RE.md §1): the engine remaps the
+                // player class by character to CAST_M800/M810/M820 (Yunica/Hugo/Toal), whose
+                // faces are F_800/F_810/F_820. CAST_ADOL has no F_ file, so this was blank —
+                // that's the "introduce themselves" self-lines (e.g. Yunica's intro).
+                face = (character == 2) ? "F_810" : (character == 3) ? "F_820" : "F_800";
+            } else if (const Cast* cr = casts.get(cast)) {
                 // The face set is F_<trailing digits of the cast name>: CAST_C210 -> F_210,
                 // CAST_M840 (Shion) -> F_840, CAST_M800 -> F_800. The old rfind('C') produced
-                // the bogus "F_AST_M840" for M-prefixed casts (no second 'C'). Casts with no
-                // trailing digits (CAST_ADOL, the player) have no F_ file -> stay faceless.
+                // the bogus "F_AST_M840" for M-prefixed casts (no second 'C').
                 const std::string& n = cr->name;
                 std::size_t d = n.size();
                 while (d > 0 && n[d - 1] >= '0' && n[d - 1] <= '9') --d;
@@ -1474,6 +1479,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             std::printf("  [portrait] speaker=%d cast=%d face='%s' aia=%d\n",
                         csHost.speaker, cast, face.c_str(), int(portrait.aia_ok));
         }
+        // Clamp the expression to the sheet — an out-of-range voice shows the last
+        // expression instead of a blank (CUTSCENE_POLISH_RE.md §1).
+        if (portrait.aia_ok && portrait.aia.nImg > 0)
+            frame = std::min(frame, int(portrait.aia.nImg) - 1);
         if (portrait.aia_ok && portrait.frame != frame) {
             AiaFrame f;
             if (portrait.aia.decode_frame(std::uint32_t(frame), 0, 0, f) && f.w > 0) {
@@ -1759,6 +1768,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             bind_enemy_aso();   // mirror spawn_enemies: cutscene-spawned enemies must get
                                 // their ASO bound too, or they render static (no idle/attack).
             csHost.world_changed = false;
+        }
+        // Cutscene WALK animation (CUTSCENE_POLISH_RE.md §3): the frozen 'continue' below skips
+        // the whole sim, so a cutscene-moving actor's ASO never ticks and it slides in a static
+        // idle frame. Drive the walk section (0) for any actor that is cmoving/p_moving, tick it
+        // each frozen frame (draw_enemies / the player render read the ASO), and settle back to
+        // idle on arrival. Walk clip = ASO section 0 -> AIA tag 0 for these casts.
+        if (frozen_now) {
+            for (EnemyRender& e : render) {
+                if (!e.actor || !e.avm.ok()) continue;
+                if (e.actor->cmoving) e.avm.set_section(0, /*force*/true);
+                else if (e.avm.section() != e.idle_section) e.avm.set_section(e.idle_section, true);
+                e.avm.tick();
+            }
+            if (csHost.p_moving) { avm.set_section(0, /*force*/true); avm.tick(); }
         }
         if (frozen_now) continue;
         const float dt = kTickDt;

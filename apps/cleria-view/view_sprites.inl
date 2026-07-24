@@ -13,6 +13,8 @@ struct SpriteTex {
     WGPUTexture tex{}; WGPUTextureView view{}; WGPUBindGroup bind{};
     std::uint32_t w = 0, h = 0;
     float x0 = 0, y0 = 0, canvasW = 0, oy = 0;
+    float footFix = 0;   // per-file foot correction: oy - resting-frame bbox bottom (grounds
+                         // large-canvas sprites whose oy sits below the art; see draw_character)
     bool place_ok = false;
     void set_placement(const AiaFrame& fr, std::uint32_t cw) {
         x0 = float(fr.x0); y0 = float(fr.y0); canvasW = float(cw); oy = fr.bill[2];
@@ -128,8 +130,11 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         const float S = kSpriteScale;
         lX = (spr.x0 - spr.canvasW * 0.5f) * S;
         rX = (spr.x0 + float(spr.w) - spr.canvasW * 0.5f) * S;
-        tY = (spr.oy - spr.y0) * S;
-        bY = (spr.oy - (spr.y0 + float(spr.h))) * S;
+        // footFix (per file, constant across frames -> no slide) drops the foot line to the
+        // resting art bottom so a large-canvas sprite (M_840, oy 8px under its feet) grounds.
+        const float foot = spr.oy - spr.footFix;
+        tY = (foot - spr.y0) * S;
+        bY = (foot - (spr.y0 + float(spr.h))) * S;
     } else {
         // Fallback (no canvas data, e.g. a DDS sprite): centre the tight bbox at the feet
         // and span feet.y .. feet.y+worldH, keeping the old aspect-preserving behaviour.
