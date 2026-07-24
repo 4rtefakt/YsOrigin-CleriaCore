@@ -80,6 +80,36 @@ statically from placement. That's the one real fault, and it's being worked (see
   so facing + in-sphere/box tests resolve the player correctly.
 - All still green: build both trees, cotest (full script sweep) passes exit 0.
 
+## ✅ Chest "vanishing" is FIXED (opened chests now render OPEN)
+I RE'd how chests work (a background agent confirmed it from the model files): a chest is **one model
+with a built-in `OPEN` animation clip** that swings its hinged lid (`futa`) up — there is **no separate
+"opened" model and the chest is never hidden/deleted**. The game re-poses an already-looted chest to
+its OPEN pose the moment you re-enter the room (op `0x175(box,OPEN,0,-1)`).
+
+I wired exactly that: on room load, any chest whose opened-flag is set (S_1001: flag 302/314/478) is
+built posed to the final frame of its `OPEN` clip. **Fresh save = all flags 0 = every chest closed**, so
+nothing changes until you actually loot one — proven by **all 7 golden screenshots still matching**.
+
+**To see it:** open a chest (needs its barrier down first — see below), leave the room, come back — the
+chest is now sitting open. *Pending polish:* the lid doesn't yet swing open in real-time the instant you
+open it (that needs a per-object re-pose; a full room reload would cause an unfaithful stall, so I didn't
+fake it). It shows open on re-entry, which is the persistent-state-correct behavior.
+
+## The barrier "fires on entry regardless of the kill" — root cause found (not yet wired)
+The background RE proved the barrier mob **is** correctly gated (`if flag 301 != 1` in the room root),
+and CleriaCore honours that gate. The bug: the little **watcher script** that sets `flag 301 = 1` when
+you kill the barrier mob (`KekkaiZako_01`, which polls the mob's death and then plays the break cutscene)
+is launched with `StartScript`, and `StartScript` is **inert in the room-populate path** — so flag 301
+never flips and the barrier keeps coming back. This is a live-runtime wiring job (the events runtime that's
+still opt-in), and it needs you playing to verify, so I documented it precisely rather than guess-wiring
+it blind. Full trace: `build/event_re/S1001_BARRIER_CHEST_RE.md`.
+
+## New RE docs written tonight (all code-traced, evidence-tagged)
+- `build/event_re/S1001_BARRIER_CHEST_RE.md` — barrier mob, chest model/flags, the whole trigger chain.
+- `build/event_re/S1004_ALTAR_RE.md` — the Flabellum altar (flag 304), stepping-stone puzzle, `0x175` states.
+- `build/event_re/STATUE_CLEANSE_RE.md` — goddess-statue cleanse (flag 300), sealed vs cleansed models.
+  The cleanse even uses the player-LookAtPos op I added tonight. Fully decoded, ready to implement with you.
+
 ## Status at end of session
 - **All 7 test suites pass** (347s incl. the 186-room sweep). No regressions.
 - **Default (events-OFF) build unchanged** — your normal game is exactly as before.
