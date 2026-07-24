@@ -20,6 +20,7 @@
 #include "cleria/sct.hpp"
 #include "cleria/sen.hpp"
 #include "cleria/world.hpp"
+#include "cleria/xso.hpp"
 
 #include <array>
 #include <cmath>
@@ -695,6 +696,72 @@ int main(int argc, char** argv) {
         const std::size_t after_spawn = w.size();
         w.spawn({999001, monster_cast, {5, 0, 5}, 0, 1});
         check(w.size() == after_spawn, "explicit-id spawn reuses, not doubles");
+    }
+
+    // --- S_1001 barrier: the ward must break ONLY on the mob's death, not on entry --------
+    // End-to-end against the REAL ActorWorld host + the REAL room scripts. Reproduces (or
+    // refutes) the user's "the barrier event triggers on entry regardless of the kill".
+    // The root spawns the barrier mob (0x12C entity 167, cast 14, group 1) only while
+    // flag301 != 1, then StartScripts the watcher KekkaiZako_01, which polls
+    // Chr_IsSeedLiving(group 1) and — only when it dies — sets flag301=1 and starts the
+    // KekkaiBreak_01 cutscene. If the mob fails to spawn as a live group-1 seed, the poll
+    // is instantly false and the ward breaks on entry — which THIS test would catch.
+    {
+        const std::string dir = (root / "MAP" / "S_10" / "S_1001").string() + "/";
+        struct FsLoader : ScriptLoader {
+            std::string dir;
+            std::set<std::string> requested;
+            std::shared_ptr<const Xso> load_script(const std::string& name) override {
+                std::string up = name;
+                for (char& c : up) c = char(std::toupper((unsigned char)c));
+                requested.insert(up);
+                std::ifstream f(dir + up + ".XSO", std::ios::binary);
+                if (!f) return nullptr;
+                std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f), {}};
+                if (b.size() < 4) return nullptr;
+                try { return std::make_shared<Xso>(Xso::parse(b)); }
+                catch (const std::exception&) { return nullptr; }
+            }
+        } loader;
+        loader.dir = dir;
+        try {
+            std::vector<std::uint8_t> sbytes;
+            if (std::ifstream f{dir + "S_1001.SCT", std::ios::binary})
+                sbytes.assign(std::istreambuf_iterator<char>(f), {});
+            const Sct sct = Sct::parse(sbytes);
+            std::vector<std::uint8_t> rbytes;
+            if (std::ifstream f{dir + "S_1001.XSO", std::ios::binary})
+                rbytes.assign(std::istreambuf_iterator<char>(f), {});
+
+            ActorWorld w(tables);
+            w.set_placements(&sct);
+            ScriptManager mgr;
+            mgr.loader = &loader;
+            mgr.vm.host = &w;
+            mgr.vm.g_flags[150] = 1;     // Yunica
+            mgr.vm.g_flags[301] = 0;     // barrier UP (not yet broken)
+            mgr.start_root(std::make_shared<Xso>(Xso::parse(rbytes)), "s_1001");
+
+            // Phase A — mob alive: run 60 frames and prove the ward stays up the WHOLE time.
+            bool broke_early = false;
+            for (int f = 0; f < 60; ++f) { mgr.tick_all(); if (mgr.vm.g_flags[301] != 0) broke_early = true; }
+            check(w.any_seed_alive(1),
+                  "barrier mob spawns as a live group-1 seed on entry");
+            check(!broke_early && mgr.vm.g_flags[301] == 0,
+                  "ward does NOT break on entry while the mob lives (flag 301 stays 0)");
+            check(loader.requested.count("KEKKAIZAKO_01") > 0,
+                  "the barrier watcher KekkaiZako_01 was started");
+
+            // Phase B — kill every group-1 seed; the watcher must then break the ward.
+            for (Actor& a : w.actors()) if (a.tag.in_group(1) && a.alive()) a.hp = 0;
+            for (int f = 0; f < 60 && mgr.any_live(); ++f) mgr.tick_all();
+            check(mgr.vm.g_flags[301] == 1,
+                  "flag 301 -> 1 after the barrier mob dies (ward down)");
+            check(loader.requested.count("KEKKAIBREAK_01") > 0,
+                  "KekkaiBreak_01 break-cutscene starts on the mob's death");
+        } catch (const std::exception& e) {
+            check(false, "S_1001 barrier end-to-end", e.what());
+        }
     }
 
     // --- Opened chests render POSED to their OPEN clip (build/event_re/S1001_..._RE.md) ---
