@@ -848,6 +848,32 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- S_1004 altar (Flabellum) pickup: flag 304 gates it, grants skill flags 116/107 ----
+    // TALKITEM.XSO: if flag304==1 return (already taken); else set skill flags 116 & 107 and
+    // mark 304. Proves the altar grants the wind skill once, character-independently.
+    {
+        const std::string dir = (root / "MAP" / "S_10" / "S_1004").string() + "/";
+        try {
+            std::vector<std::uint8_t> tb;
+            if (std::ifstream f{dir + "TALKITEM.XSO", std::ios::binary})
+                tb.assign(std::istreambuf_iterator<char>(f), {});
+            const Xso talk = Xso::parse(tb);
+            auto take = [&](std::int32_t f304) {
+                XsoVm vm; vm.g_flags[150] = 1; vm.g_flags[304] = f304;
+                vm.reset_run(); vm.run(talk);
+                return std::array<std::int32_t, 3>{vm.g_flags[116], vm.g_flags[107], vm.g_flags[304]};
+            };
+            const auto fresh = take(0);      // first time -> grants
+            const auto again = take(1);      // already have it -> no-op
+            check(fresh[0] == 1 && fresh[1] == 1 && fresh[2] == 1,
+                  "altar grants skill flags 116+107 and marks obtained (304)");
+            check(again[0] == 0 && again[1] == 0 && again[2] == 1,
+                  "an already-taken altar (flag304==1) grants nothing again");
+        } catch (const std::exception& e) {
+            check(false, "S_1004 altar pickup gating", e.what());
+        }
+    }
+
     // --- S_1001 chest UNLOCK gating: barrier flag (301) must gate the chest (S_BOX01) -----
     // S_BOX01.XSO: if flag302==1 return (already looted); if flag301==0 return (barrier still
     // up); else open, give item 89, set flag302=1. This is the exact path the view's interact
