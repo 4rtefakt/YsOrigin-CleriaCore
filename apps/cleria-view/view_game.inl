@@ -1218,17 +1218,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // Re-snap the player to the floor after the XZ step so a walk-to follows terrain.
         csHost.advance_player_move();
         world.advance_cutscene_moves();
-        if (csHost.p_moving) {
+        // Keep the player on the floor for the WHOLE cutscene, not just mid-step: Chr_Pos
+        // teleports her to authored Y (sometimes below the floor) and she never falls while
+        // the sim is frozen, so snap every frozen frame.
+        if (csMgr.world_frozen() || csHost.p_moving) {
             const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
             if (fl > kNoFloor) feet.y = fl;
         }
         // Cutscene NPCs spawn at authored heights (Shion at y~2) and never fall — snap
-        // non-player actors to the floor while a cutscene runs so they don't hover.
+        // non-player actors to the floor while a cutscene runs so they don't hover. If no
+        // collision floor is under them, fall back to the player's floor level (same room).
         if (csMgr.world_frozen())
             for (Actor& a : world.actors()) {
                 if (a.is_player()) continue;
                 const float fl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + room_diag(room));
-                if (fl > kNoFloor) a.pos.y = fl;
+                a.pos.y = (fl > kNoFloor) ? fl : feet.y;
             }
         const bool frozen = csMgr.world_frozen();
         if (!frozen && prev_frozen && after_cutscene) {    // world just thawed -> queued action
@@ -1314,9 +1318,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csHost.item_name_fn = [&](int id) { return items_tbl.name(id); };  // 0xd5 "Acquired X" box
     auto try_interact = [&] {
         const Vec3 p = fly ? cam.pos : Vec3{feet.x, feet.y, feet.z};
-        // Interact reach: room-relative but CAPPED so you must actually stand next to a
-        // statue/chest. Uncapped, a big room's diagonal (S_1000) gave a ~40m reach.
-        const float reach = std::min(room_diag(room) * 0.09f, 3.0f);
+        // Interact reach: you must actually stand next to a statue/chest. Uncapped the room
+        // diagonal gave ~40m; capped tight so it takes stepping up to the object.
+        const float reach = std::min(room_diag(room) * 0.09f, 1.5f);
         const Interactable* target = nullptr;
         float best = reach * reach;
         for (const Interactable& it : room.mesh.interactables) {

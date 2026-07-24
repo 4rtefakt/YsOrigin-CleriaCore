@@ -827,7 +827,9 @@ struct TitleFx {
         auto SX = [&](float ax) { return xoff + ax * A; };     // authored px -> screen px
         auto SY = [&](float ay) { return ay * A; };
         const float pxH = 30.0f * A, iconSz = 48.0f * A;
-        const float gap = 12.0f * A, padX = 40.0f * A, padY = 26.0f * A;
+        // The DIALOG0 9-slice reserves 80px caps (the ornate scroll ends) each side that don't
+        // hold content, so the frame must be wider than the content by that cap + a margin.
+        const float gap = 14.0f * A, padX = 96.0f * A, padY = 34.0f * A;
         const bool hasIcon = iconTex && iconTex->tex;
         const float textW = mf.measure(caption, pxH);
         const float contentW = (hasIcon ? iconSz + gap : 0.0f) + textW;
