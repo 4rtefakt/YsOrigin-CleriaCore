@@ -596,15 +596,25 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
                     idx.insert(idx.end(), {t0, b0, t1, t1, b0, b1});
                 }
             } else {
-                // Upright, camera-facing additive billboard (the central glow), centred at the pos.
-                const float hw = L.w * scale * 0.5f, half = L.h * scale * 0.5f;
+                // Upright, camera-facing additive billboard: the ward's central glow. The EF2
+                // emitter's sx/sy is the particle EMISSION AREA (up to ~3.5x5 units here), not a
+                // single sprite — we have no particle system, so a full-area quad reads as one
+                // huge bright blob. Approximate the retail look — a contained column rising from
+                // the item — by (a) anchoring the quad's BOTTOM at the placed floor Y instead of
+                // centring it (a centred quad sinks half below the floor), and (b) shrinking the
+                // emission area toward a glow-sized column. kGlowArea is [HAND-TUNED] against the
+                // retail ward (reference/realgame/yt/hugo_p2_ward_barrier.jpg) — a stand-in until
+                // a real EF2 particle emitter exists, NOT an RE'd value.
+                constexpr float kGlowArea = 0.34f;
+                const float hw = L.w * scale * 0.5f * kGlowArea, ht = L.h * scale * kGlowArea;
                 const Vec3 c = {e.x, e.y, e.z};
-                auto V = [&](float rx, float uy, float u, float v) -> RoomVertex {
-                    return {c.x + rightH.x * rx * hw, c.y + uy * half, c.z + rightH.z * rx * hw,
+                auto V = [&](float rx, float uy01, float u, float v) -> RoomVertex {
+                    return {c.x + rightH.x * rx * hw, c.y + uy01 * ht, c.z + rightH.z * rx * hw,
                             0, 1, 0, u, v, 255, 255, 255, 255};
                 };
+                // uy01: 0 = floor (c.y), 1 = top (c.y + ht) — the glow stands on the ground.
                 verts = {V(-1, 1, fr.u0, fr.v0), V(1, 1, fr.u1, fr.v0),
-                         V(1, -1, fr.u1, fr.v1), V(-1, -1, fr.u0, fr.v1)};
+                         V(1, 0, fr.u1, fr.v1), V(-1, 0, fr.u0, fr.v1)};
                 idx = {0, 1, 2, 0, 2, 3};
             }
             submit(verts, idx, L.tex.bind);
