@@ -16,10 +16,12 @@
 #include "cleria/eex.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/gameinfo.hpp"
+#include "cleria/scene.hpp"
 #include "cleria/sct.hpp"
 #include "cleria/sen.hpp"
 #include "cleria/world.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -693,6 +695,36 @@ int main(int argc, char** argv) {
         const std::size_t after_spawn = w.size();
         w.spawn({999001, monster_cast, {5, 0, 5}, 0, 1});
         check(w.size() == after_spawn, "explicit-id spawn reuses, not doubles");
+    }
+
+    // --- Opened chests render POSED to their OPEN clip (build/event_re/S1001_..._RE.md) ---
+    // A chest is one YMO with an in-model OPEN clip on its hinged lid; the room root
+    // re-poses an already-looted chest on entry (0x175(box,OPEN,0,-1)). build_room now
+    // takes the live g_flags and poses each box to its OPEN final frame when its
+    // opened-flag is set. Positive proof: with S_1001's box_01 opened-flag (302) set,
+    // the room geometry MUST differ from the fresh (all-closed) build, and the vertex
+    // COUNT must be identical (same model, just re-posed — not hidden, not a new model).
+    {
+        const fs::path sob = root / "MAP" / "S_10" / "S_1001" / "S_1001.SOB";
+        auto poshash = [](const RoomMesh& m) {
+            double h = 0;                       // order-sensitive position checksum
+            for (const RoomVertex& v : m.vertices) h = h * 1.0000001 + v.px + 2*v.py + 3*v.pz;
+            return h;
+        };
+        try {
+            std::array<std::int32_t, 0x200> closed{};      // fresh save: all flags 0
+            std::array<std::int32_t, 0x200> opened{};
+            opened[302] = 1;                                // box_01 looted (S_BOX01 guard)
+            const RoomMesh mc = build_room(root, sob, nullptr, nullptr, closed.data());
+            const RoomMesh mo = build_room(root, sob, nullptr, nullptr, opened.data());
+            check(mc.vertices.size() == mo.vertices.size() && !mc.vertices.empty(),
+                  "opened chest keeps the same vertex count (re-posed, not hidden/replaced)",
+                  std::to_string(mc.vertices.size()) + " vs " + std::to_string(mo.vertices.size()));
+            check(poshash(mc) != poshash(mo),
+                  "opened chest actually MOVES geometry (OPEN lid pose applied)");
+        } catch (const std::exception& e) {
+            check(false, "S_1001 room build for chest-pose test", e.what());
+        }
     }
 
     return fails ? 1 : 0;
