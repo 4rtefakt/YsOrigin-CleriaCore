@@ -1360,10 +1360,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // (NPC casts carry no sprite stem — the name is the reliable key.)
             std::string face;
             if (const Cast* cr = casts.get(cast)) {
-                const std::string& n = cr->name;                 // "CAST_C210"
-                const std::size_t c = n.rfind('C');
-                if (c != std::string::npos && c + 1 < n.size())
-                    face = "F_" + n.substr(c + 1);               // "F_210"
+                // The face set is F_<trailing digits of the cast name>: CAST_C210 -> F_210,
+                // CAST_M840 (Shion) -> F_840, CAST_M800 -> F_800. The old rfind('C') produced
+                // the bogus "F_AST_M840" for M-prefixed casts (no second 'C'). Casts with no
+                // trailing digits (CAST_ADOL, the player) have no F_ file -> stay faceless.
+                const std::string& n = cr->name;
+                std::size_t d = n.size();
+                while (d > 0 && n[d - 1] >= '0' && n[d - 1] <= '9') --d;
+                if (d < n.size()) face = "F_" + n.substr(d);     // "F_840"
             }
             if (!face.empty()) {
                 portrait.aia = Aia{};
