@@ -923,18 +923,25 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void window_msg(int sp, int vc, const std::string& nm, const std::string& tx) override {
             speaker = sp; voice = vc; name = nm;
             text = parse_tags(tx, text_r, text_g, text_b);
-            reveal = 0; box_active = true;
+            reveal = 0; box_active = true; acquire_active = false;
         }
-        void window_close() override { box_active = false; name.clear(); text.clear(); }
-        // The "Acquired X" box (op 0xd5). Shown through the same dialogue box + typewriter +
-        // Wait_Prompt path — the item name is resolved by the view (which owns the item table).
+        void window_close() override {
+            box_active = false; name.clear(); text.clear(); acquire_active = false;
+        }
+        // The "Acquired X" box (op 0xd5 Window_Treasure): NOT the running-dialogue box — it's a
+        // separate DIALOG0 9-slice centred at the op's (x,y), with the item ICON + caption
+        // (FUN_005781f0). The item name is resolved by the view (which owns the item table); the
+        // view renders the box from these fields. The following Wait_Prompt dismisses it.
         std::function<std::string(int)> item_name_fn;
-        void acquire_item(int id) override {
+        bool acquire_active = false; int acquire_id = -1;
+        float acquire_x = 512.0f, acquire_y = 122.0f;   // authored 1024x768 space (x=512 => centred)
+        void acquire_item(float x, float y, int id) override {
+            acquire_active = true; acquire_id = id; acquire_x = x; acquire_y = y;
+            name.clear(); speaker = 0; voice = -1;
             const std::string nm = item_name_fn ? item_name_fn(id) : ("item " + std::to_string(id));
-            speaker = 0; voice = -1; name.clear();
-            text = "Obtained " + nm + "!";
-            text_r = 255; text_g = 236; text_b = 160;   // warm gold, like the item-get window
-            reveal = 0; box_active = true;
+            text = "Acquired " + nm;
+            reveal = int(text.size());   // shown at once, no typewriter
+            box_active = true;           // gate the following Wait_Prompt
         }
         std::string caption_name; int caption_timer = 0;   // 0xe2 area-name card (frames left)
         void caption(const std::string& nm) override { caption_name = nm; caption_timer = 210; }
@@ -946,7 +953,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         bool wait_prompt() override {
             if (skipping) return true;
             if (reveal < int(text.size())) return false;    // line still typing out
-            if (advance) { advance = false; return true; }  // one press advances one line
+            if (advance) { advance = false;                 // one press advances / dismisses
+                if (acquire_active) { acquire_active = false; box_active = false; }
+                return true; }
             return false;
         }
         // Screen fader (EVENTVM_HANDLERS.md §4): a fullscreen colored overlay, alpha
@@ -1305,7 +1314,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csHost.item_name_fn = [&](int id) { return items_tbl.name(id); };  // 0xd5 "Acquired X" box
     auto try_interact = [&] {
         const Vec3 p = fly ? cam.pos : Vec3{feet.x, feet.y, feet.z};
-        const float reach = room_diag(room) * 0.09f;
+        // Interact reach: room-relative but CAPPED so you must actually stand next to a
+        // statue/chest. Uncapped, a big room's diagonal (S_1000) gave a ~40m reach.
+        const float reach = std::min(room_diag(room) * 0.09f, 3.0f);
         const Interactable* target = nullptr;
         float best = reach * reach;
         for (const Interactable& it : room.mesh.interactables) {
@@ -2289,7 +2300,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         hud.set_fade(csHost.fade_rgb, csHost.fade_cur);
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
         // Cutscene dialogue box over the frozen world (FACEWIN0 bottom bar + name + text).
-        if (csHost.box_active && pauseOk) {
+        if (csHost.acquire_active && pauseOk) {
+            // op 0xd5 Window_Treasure: the centred item-get box with the item icon (NOT the
+            // running-dialogue box). Position/name come from the op; icon from the item table.
+            write_mvp(g, Mat4::identity());
+            WGPUTextureView ddepth = make_depth(g, cw, ch);
+            const SpriteTex* ic = pauseUi.icon(g, items_tbl, asset_root, csHost.acquire_id);
+            pauseUi.draw_item_get(g, pmf, view, ddepth, cw, ch, csHost.acquire_x, csHost.acquire_y,
+                                  csHost.text, ic);
+            wgpuTextureViewRelease(ddepth);
+        } else if (csHost.box_active && pauseOk) {
             write_mvp(g, Mat4::identity());   // the box is screen-space
             WGPUTextureView ddepth = make_depth(g, cw, ch);
             pauseUi.draw_dialogue(g, pmf, view, ddepth, cw, ch, csHost.name, csHost.text, csHost.reveal,

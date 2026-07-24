@@ -815,6 +815,38 @@ struct TitleFx {
         mf.draw(g, cview);
     }
 
+    // Window_Treasure (op 0xd5): the "Acquired X" item-get box. A DIALOG0 9-slice centred at
+    // the op's screen (originX, originY) in the authored 1024x768 field (x=512 => centre), with
+    // the item ICON on the left and the caption to its right (FUN_005781f0). Drawn over the
+    // world during a cutscene; the following Wait_Prompt dismisses it.
+    void draw_item_get(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
+                       std::uint32_t W, std::uint32_t H, float originX, float originY,
+                       const std::string& caption, const SpriteTex* iconTex) {
+        const float sw = float(W), sh = float(H), A = sh / 768.0f;
+        const float xoff = (sw - 1024.0f * A) * 0.5f;          // pillar-box the 4:3 field
+        auto SX = [&](float ax) { return xoff + ax * A; };     // authored px -> screen px
+        auto SY = [&](float ay) { return ay * A; };
+        const float pxH = 30.0f * A, iconSz = 48.0f * A;
+        const float gap = 12.0f * A, padX = 40.0f * A, padY = 26.0f * A;
+        const bool hasIcon = iconTex && iconTex->tex;
+        const float textW = mf.measure(caption, pxH);
+        const float contentW = (hasIcon ? iconSz + gap : 0.0f) + textW;
+        const float ox = SX(originX), oy = SY(originY);
+        const float halfW = contentW * 0.5f + padX;
+        const float halfH = std::max(iconSz, pxH) * 0.5f + padY;
+        draw_dialog_frame(g, cview, dview, ox - halfW, oy - halfH, ox + halfW, oy + halfH, sw, sh);
+        auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+        auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+        float cx = ox - contentW * 0.5f;
+        if (hasIcon) {
+            draw_screen_image(g, cview, dview, false, *iconTex, NX(cx), NY(oy - iconSz * 0.5f),
+                              NX(cx + iconSz), NY(oy + iconSz * 0.5f), 0.12f, 0, 0, 1, 1);
+            cx += iconSz + gap;
+        }
+        mf.text(caption, cx, oy - pxH * 0.5f, pxH, sw, sh, 255, 236, 160, 255);
+        mf.draw(g, cview);
+    }
+
     // The Option/Config screen (build/menu_re/OPTIONS.md). Pillar-boxed like char-select: goddess
     // margins + BACK00 frame, the "Option" plaque top-left, then 10 rows -- 3 volume/brightness
     // sliders, 4 checkboxes, and Default / Return-to-Title / Exit-Game buttons. All button faces,

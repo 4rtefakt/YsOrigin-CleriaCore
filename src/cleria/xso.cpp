@@ -350,9 +350,13 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         }
                     } else if (sub == 0x116) {   // give-item(op0)
                         items.push_back(i0);
-                    } else if (sub == 0xD5 && nargs >= 3) {  // "Acquired X" box, item = op2
+                    } else if (sub == 0xD5 && nargs >= 3) {  // Window_Treasure(x,y,item,s)
                         acquires.push_back(op(2));
-                        if (host) host->acquire_item(op(2));   // show the box live (cutscene path)
+                        if (host) {                             // show the box live (cutscene path)
+                            float x, y; std::uint32_t rx=std::uint32_t(op(0)), ry=std::uint32_t(op(1));
+                            std::memcpy(&x,&rx,4); std::memcpy(&y,&ry,4);
+                            host->acquire_item(x, y, op(2));
+                        }
                     } else if (sub == 0x169) {   // enable/show object (name = string op0)
                         obj_enable.push_back(script.string(op(0)));
                     } else if (sub == 0x175) {   // set object to opened state (name op0)
