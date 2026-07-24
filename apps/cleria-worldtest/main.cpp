@@ -16,6 +16,7 @@
 #include "cleria/eex.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/gameinfo.hpp"
+#include "cleria/ef2.hpp"
 #include "cleria/scene.hpp"
 #include "cleria/sct.hpp"
 #include "cleria/sen.hpp"
@@ -880,6 +881,32 @@ int main(int argc, char** argv) {
                   std::to_string(count_enemies(0)) + " either way");
         } catch (const std::exception& e) {
             check(false, "S_1000 flag-141 populate diagnostic", e.what());
+        }
+    }
+
+    // --- The barrier ward (effect 210) resolves to MAP_KEKKAI.EF2 and textures its emitters.
+    // (Finding: it uses BARIARING01/MADARA01/NAGA02/etc., NOT the boss bos\yuni_kekkai — so any
+    // "wrong ward texture" is a render/compose issue or a single emitter, not a file mixup.) --
+    {
+        EftList efl; EftTex eft;
+        if (efl.load(root) && eft.load(root)) {
+            const fs::path p = efl.path(root, 210);
+            bool textured = false, ring = false;
+            if (!p.empty()) {
+                const Ef2 ef = Ef2::load(p);
+                for (const Ef2Emitter& em : ef.emitters()) {
+                    if (em.frames.empty()) continue;
+                    textured = true;
+                    if (em.ring) ring = true;
+                    std::string t = eft.path(root, int(em.frames[0].tex_id)).string();
+                    for (char& c : t) c = char(std::tolower((unsigned char)c));
+                    if (t.find("yuni_kekkai") != std::string::npos)
+                        check(false, "ward emitter wrongly uses the BOSS barrier texture",
+                              eft.path(root, int(em.frames[0].tex_id)).filename().string());
+                }
+            }
+            check(p.filename().string() == "MAP_KEKKAI.EF2" && textured && ring,
+                  "ward (effect 210) = MAP_KEKKAI.EF2 with a textured ring emitter");
         }
     }
 
