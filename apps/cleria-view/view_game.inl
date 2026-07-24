@@ -1566,6 +1566,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (csHost.world_changed) {
             efx.init_from_world(g, asset_root, world, casts);
             render = build_enemy_render(world, casts, efx);
+            bind_enemy_aso();   // mirror spawn_enemies: cutscene-spawned enemies must get
+                                // their ASO bound too, or they render static (no idle/attack).
             csHost.world_changed = false;
         }
         if (frozen_now) continue;

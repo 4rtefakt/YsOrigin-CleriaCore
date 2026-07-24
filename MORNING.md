@@ -47,9 +47,10 @@ I decoded `S_1000.XSO`. On the first visit (`flag 141 == 1`) the root only start
 scripts and hides one object. The townsfolk (Kadena=92, Roy=87, Galeon, Riko, entities 91/94/199/200…)
 are each spawned under **later story flags** (225 / 235 / 236 / 237 / 242) — i.e. they only appear
 when you come back to the entrance later in the story. So an empty entrance on the intro run is faithful.
-→ The thing you actually saw wrong ("6 enemies ALWAYS there") is the **enemy spawn-gating** bug: the
-battle mobs should be spawned by the intro's `battle_0` script gated on flag 141, not sitting there
-statically from placement. That's the one real fault, and it's being worked (see below).
+→ The "6 enemies ALWAYS there" are actually **battle_0's own first wave** (6 mobs). S_1000.SCT has
+**zero** placement enemies (only the player), so nothing is "statically" there — the 6 come from the
+live battle script and only look permanent if the fight never resolves in the view. See the updated
+`build/event_re/S1000_FIRSTVISIT.md` for the corrected analysis and the one thing to check live.
 
 **2. The S_1001 barrier-chest mechanic — fully decoded from `S_BOX01.XSO` / `KEKKAIZAKO_01.XSO` / the root:**
 - **flag 301 = "barrier mob killed / barrier down"**, **flag 302 = "chest already opened"**.
