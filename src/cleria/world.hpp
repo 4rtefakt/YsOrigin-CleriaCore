@@ -161,6 +161,9 @@ class ActorWorld : public XsoHost {
     void chr_lookat_pos(int id, float x, float z) override {
         if (Actor* a = find(id)) a->yaw = std::atan2(x - a->pos.x, z - a->pos.z);
     }
+    void chr_animate(int id, int motion) override {   // 0x151 pin/clear the pose tag
+        if (Actor* a = find(id)) a->anim_pin = motion;
+    }
     // Advance every cutscene walk-to one frame (called each tick, incl. while frozen —
     // NPCs move during a Fix). Turns toward the target and steps; stops within reach.
     void advance_cutscene_moves() {

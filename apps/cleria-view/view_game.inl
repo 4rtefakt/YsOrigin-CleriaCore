@@ -947,6 +947,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         std::string caption_name; int caption_timer = 0;   // 0xe2 area-name card (frames left)
         void caption(const std::string& nm) override { caption_name = nm; caption_timer = 210; }
+        // Standing bust portraits (0xe3/0xe4/0xe5). The intro shows one at a time (t_840a the
+        // captain, then v_003a the villain), but hold a small list so overlapping opens work.
+        struct Bust { std::string name; float x, y; };
+        std::vector<Bust> busts;
+        void portrait_open(const std::string& nm, float x, float y) override {
+            for (Bust& b : busts) if (b.name == nm) { b.x = x; b.y = y; return; }
+            busts.push_back({nm, x, y});
+        }
+        void portrait_move(const std::string& nm, float x, float y) override {
+            for (Bust& b : busts) if (b.name == nm) { b.x = x; b.y = y; return; }
+            busts.push_back({nm, x, y});
+        }
+        void portrait_close(const std::string& nm) override {
+            busts.erase(std::remove_if(busts.begin(), busts.end(),
+                        [&](const Bust& b) { return b.name == nm; }), busts.end());
+        }
         // SKIP: while set, EVERY wait predicate reports "done" so every live script
         // bursts to its end (its side effects — flags/spawns/warps — still run). This
         // clears not just Wait_Prompt but Wait_Script / Wait_Window / Wait_Sound /
@@ -1047,6 +1063,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void chr_lookat_pos(int id, float x, float z) override {
             if (!p_isplayer(id) && worldHost) worldHost->chr_lookat_pos(id, x, z);
         }
+        void chr_animate(int id, int motion) override {   // 0x151 pose (NPCs; player poses TODO)
+            if (!p_isplayer(id) && worldHost) worldHost->chr_animate(id, motion);
+        }
         // Advance the player's cutscene walk one frame (NPCs advance in the world).
         Vec3* playerPosW = nullptr; float* playerYawDeg = nullptr;
         void advance_player_move() {
@@ -1112,6 +1131,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool skip_cutscene = false;   // set by ESC/Backspace during a frozen cutscene
     std::function<void()> after_cutscene;   // ran once when the world thaws (e.g. re-gate the room)
     SpriteTex captionTex; std::string captionLoaded;   // cached area-name card (op 0xe2)
+    std::unordered_map<std::string, SpriteTex> bustTex;   // cached bust portraits (op 0xe3), by name
 
     // (Re)start the room's event scripts: run the room root S_xxxx.XSO on the PERSISTENT
     // manager. The root StartScripts the region-talk controllers (Stop*_Roi_*), the save
@@ -2358,6 +2378,34 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // full fade blacks the scene out. set_fade routes it into the HUD's alpha batch.
         hud.set_fade(csHost.fade_rgb, csHost.fade_cur);
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
+        // Standing bust portraits (op 0xe3 Portrait_Open): IMAGE/<name>.dds sprites drawn in the
+        // 2D overlay, behind the dialogue box. Anchor is bottom-left in the authored 1024x768
+        // space; the 1024x1024 DDS is blitted 1:1 (its alpha channel masks the character art).
+        if (!csHost.busts.empty() && pauseOk) {
+            write_mvp(g, Mat4::identity());
+            WGPUTextureView bdepth = make_depth(g, cw, ch);
+            const float sw = float(cw), sh = float(ch);
+            const float A = sh / 768.0f, xoff = (sw - 1024.0f * A) * 0.5f;
+            auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
+            auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
+            for (const auto& b : csHost.busts) {
+                auto it = bustTex.find(b.name);
+                if (it == bustTex.end()) {
+                    std::string nm = b.name;
+                    for (char& c : nm) c = char(std::toupper((unsigned char)c));
+                    Dds d = load_dds(asset_root / "IMAGE" / (nm + ".DDS"));
+                    SpriteTex t = d.ok() ? upload_rgba(g, d.width, d.height, d.data.data()) : SpriteTex{};
+                    it = bustTex.emplace(b.name, t).first;
+                }
+                const SpriteTex& t = it->second;
+                if (!t.tex) continue;
+                const float left = xoff + b.x * A, bottom = b.y * A;
+                const float w = float(t.w) * A, h = float(t.h) * A, top = bottom - h;
+                draw_screen_image(g, view, bdepth, false, t, NX(left), NY(top), NX(left + w), NY(bottom),
+                                  0.09f, 0, 0, 1, 1, 0, 0, 0, 0, false, 1, 1, 1);
+            }
+            wgpuTextureViewRelease(bdepth);
+        }
         // Cutscene dialogue box over the frozen world (FACEWIN0 bottom bar + name + text).
         if (csHost.acquire_active && pauseOk) {
             // op 0xd5 Window_Treasure: the centred item-get box with the item icon (NOT the

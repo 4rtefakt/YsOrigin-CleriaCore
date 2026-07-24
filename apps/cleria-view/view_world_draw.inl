@@ -250,7 +250,15 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         int dir = int(std::lround((deg + 360.0f) / 45.0f)) & 7;
         const std::vector<SpriteTex>* frames = nullptr;
         int fi = 0;
-        if (e.avm.ok()) {
+        if (e.actor->anim_pin >= 0) {
+            // Chr_Animate(id, motion>=0): a pinned dialogue pose overrides the ASO — render
+            // the pinned AIA tag, held on frame 0. Falls through to the ASO if that tag is
+            // absent, so a bad pin never blanks the actor.
+            const std::vector<SpriteTex>& fr =
+                fx.tag_frames(g, k, std::uint32_t(e.actor->anim_pin), std::uint32_t(dir));
+            if (!fr.empty()) frames = &fr;
+        }
+        if (!frames && e.avm.ok()) {
             // ASO-driven: the running section's anime_Pattern picks the clip (tag) and the
             // VM the frame, so an attacking enemy shows its attack animation, an idle one
             // its idle, all in step with the hit-volume the same script arms.

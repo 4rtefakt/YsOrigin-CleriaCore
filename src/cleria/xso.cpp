@@ -205,6 +205,19 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0xe2 && nargs >= 1) {          // Caption(name) — pre-rendered art
                         host->caption(script.string(op(0))); return Step::Continue;
                     }
+                    // Standing bust portraits: name is a string index, x/y are float bit patterns.
+                    if ((sub == 0xe3 || sub == 0xe5) && nargs >= 3) {
+                        auto f = [&](std::uint32_t i) {
+                            float v; const std::uint32_t raw = std::uint32_t(op(i));
+                            std::memcpy(&v, &raw, 4); return v;
+                        };
+                        if (sub == 0xe3) host->portrait_open(script.string(op(0)), f(1), f(2));
+                        else             host->portrait_move(script.string(op(0)), f(1), f(2));
+                        return Step::Continue;
+                    }
+                    if (sub == 0xe4 && nargs >= 1) {          // Portrait_Close(name)
+                        host->portrait_close(script.string(op(0))); return Step::Continue;
+                    }
                     if (sub == 0xc3 && nargs >= 4) {          // Scroll_MoveTo(x,y,z,frames,priority)
                         auto f = [&](std::uint32_t i) {
                             float v; const std::uint32_t raw = std::uint32_t(op(i));
@@ -410,6 +423,10 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // as a visibility toggle (op2 = end alpha, float bit pattern).
                         float endA; std::uint32_t r=std::uint32_t(op(2)); std::memcpy(&endA,&r,4);
                         host->chr_alpha(op(0), endA);
+                    } else if (sub == 0x151 && host && nargs >= 2) {
+                        // Chr_Animate(id, motion): pin the actor's rendered AIA tag to `motion`
+                        // (a dialogue pose) when >= 0; -1 clears back to auto idle/walk.
+                        host->chr_animate(op(0), op(1));
                     } else if ((sub == 0x134 || sub == 0x136) && host && nargs >= 2) {
                         host->chr_lookat(op(0), op(1));   // Chr_DirChr / Chr_LookAtChr
                     } else if (sub == 0x137 && host && nargs >= 3) {

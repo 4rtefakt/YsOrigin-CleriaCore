@@ -186,6 +186,11 @@ struct Actor {
     float cmove_spd = 0;
     bool cmoving = false;
 
+    // Cutscene pose (op 0x151 Chr_Animate(id, motion)): motion >= 0 pins the rendered AIA
+    // tag to that value (a dialogue gesture, e.g. Eolia's tag-400 talking pose); -1 = auto
+    // (idle/walk by state). The renderer uses this tag instead of the ASO's when >= 0.
+    int anim_pin = -1;
+
     // Cutscene visibility (op 0x154 Chr_Alpha end-alpha): actors fade in/out during
     // scripted scenes; we don't do the smooth fade, but honour the END state so an
     // actor that fades OUT (end alpha 0) is hidden and one that fades IN appears at the

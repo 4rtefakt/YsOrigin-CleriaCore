@@ -30,11 +30,28 @@ static int cmd_disasm(const fs::path& p) {
             std::printf("  %4u: call sub=0x%-3X (%u args:", in.pc, in.sub,
                         unsigned(in.ops.size()));
             for (std::int32_t o : in.ops) std::printf(" %d", o);
-            std::printf(")\n");
+            std::printf(")");
+            // Annotate ops whose args index the string table so text is readable.
+            if (in.sub == 0xd3 && in.ops.size() >= 4) {           // Window_Msg: name, text
+                if (in.ops[2] >= 0) std::printf("  name=\"%s\"", x.string(in.ops[2]).c_str());
+                if (in.ops[3] >= 0) std::printf("  text=\"%s\"", x.string(in.ops[3]).c_str());
+            } else if (in.sub == 0xe2 && !in.ops.empty()) {       // Caption(name)
+                std::printf("  caption=\"%s\"", x.string(in.ops[0]).c_str());
+            } else if ((in.sub == 0xd8 || in.sub == 0xd4) && in.ops.size() >= 2) {  // Menu label/script
+                std::printf("  \"%s\"/\"%s\"", x.string(in.ops[0]).c_str(), x.string(in.ops[1]).c_str());
+            } else if ((in.sub == 0xe3 || in.sub == 0xe4 || in.sub == 0xe5) && !in.ops.empty()) {
+                std::printf("  portrait[%d]=\"%s\"", in.ops[0], x.string(in.ops[0]).c_str());
+            } else if (in.sub == 0x12c && !in.ops.empty()) {      // spawn(entity,cast,...)
+                std::printf("  entity=\"%s\"", x.string(in.ops[0]).c_str());
+            }
+            std::printf("\n");
         } else {
             std::printf("  %4u: class 0x%X\n", in.pc, in.cls);
         }
     }
+    std::printf("--- string table (%d) ---\n", x.string_count());
+    for (int i = 0; i < x.string_count(); ++i)
+        std::printf("  [%d] \"%s\"\n", i, x.string(i).c_str());
     return 0;
 }
 

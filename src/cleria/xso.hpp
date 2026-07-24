@@ -49,6 +49,7 @@ class Xso {
     std::string string(int idx) const {
         return (idx >= 0 && idx < int(strings_.size())) ? strings_[idx] : std::string();
     }
+    int string_count() const { return int(strings_.size()); }
 
   private:
     std::vector<std::int32_t> code_;
@@ -91,6 +92,13 @@ struct XsoHost {
     virtual void chr_alpha(int /*id*/, float /*end_alpha*/) {}                    // 0x154 Chr_Alpha (end)
     virtual void chr_lookat(int /*id*/, int /*target*/) {}                        // 0x134/0x136 face actor
     virtual void chr_lookat_pos(int /*id*/, float /*x*/, float /*z*/) {}          // 0x137 face point
+    virtual void chr_animate(int /*id*/, int /*motion*/) {}                        // 0x151 pin/clear pose
+    // Standing bust portraits (0xe3 Portrait_Open / 0xe4 Portrait_Close / 0xe5 Portrait_Move):
+    // a GoXx type-6 sprite loaded from IMAGE/<name>.dds, positioned in the 2D overlay. `name`
+    // is the DDS stem (e.g. "t_840a", "v_003a"); (x,y) is the authored 2D anchor.
+    virtual void portrait_open(const std::string& /*name*/, float /*x*/, float /*y*/) {}
+    virtual void portrait_close(const std::string& /*name*/) {}
+    virtual void portrait_move(const std::string& /*name*/, float /*x*/, float /*y*/) {}
 
     // op 0x12d Chr_Delete(id): remove the actor with this instance id. Cutscene NPCs
     // spawn (0x12c), talk, then delete themselves; enemies use it too. Null host / an
