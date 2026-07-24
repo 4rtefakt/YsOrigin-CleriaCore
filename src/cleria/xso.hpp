@@ -89,6 +89,8 @@ struct XsoHost {
     virtual void chr_moveto(int /*id*/, float /*x*/, float /*z*/, float /*spd*/) {}  // 0x143 walk-to
     virtual bool chr_moving(int /*id*/) const { return false; }                  // 0x100 Wait_ChrMoving
     virtual void chr_alpha(int /*id*/, float /*end_alpha*/) {}                    // 0x154 Chr_Alpha (end)
+    virtual void chr_lookat(int /*id*/, int /*target*/) {}                        // 0x134/0x136 face actor
+    virtual void chr_lookat_pos(int /*id*/, float /*x*/, float /*z*/) {}          // 0x137 face point
 
     // op 0x12d Chr_Delete(id): remove the actor with this instance id. Cutscene NPCs
     // spawn (0x12c), talk, then delete themselves; enemies use it too. Null host / an

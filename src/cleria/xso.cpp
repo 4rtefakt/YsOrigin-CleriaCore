@@ -402,6 +402,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // as a visibility toggle (op2 = end alpha, float bit pattern).
                         float endA; std::uint32_t r=std::uint32_t(op(2)); std::memcpy(&endA,&r,4);
                         host->chr_alpha(op(0), endA);
+                    } else if ((sub == 0x134 || sub == 0x136) && host && nargs >= 2) {
+                        host->chr_lookat(op(0), op(1));   // Chr_DirChr / Chr_LookAtChr
+                    } else if (sub == 0x137 && host && nargs >= 3) {
+                        auto f = [&](std::uint32_t i){ float v; std::uint32_t r=std::uint32_t(op(i)); std::memcpy(&v,&r,4); return v; };
+                        host->chr_lookat_pos(op(0), f(1), f(2));   // Chr_LookAtPos (id,x,z)
                     } else if (sub == 0x13f && nargs >= 1) {
                         // "Is entity op0 alive?" CONDITION is [C-DIS]; the result
                         // DESTINATION is [H-high] — ENTITY.md pins the test but not the

@@ -952,6 +952,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void chr_alpha(int id, float endA) override {
             if (!p_isplayer(id) && worldHost) worldHost->chr_alpha(id, endA);
         }
+        void chr_lookat(int id, int target) override {
+            if (!p_isplayer(id) && worldHost) worldHost->chr_lookat(id, target);
+        }
+        void chr_lookat_pos(int id, float x, float z) override {
+            if (!p_isplayer(id) && worldHost) worldHost->chr_lookat_pos(id, x, z);
+        }
         // Advance the player's cutscene walk one frame (NPCs advance in the world).
         Vec3* playerPosW = nullptr; float* playerYawDeg = nullptr;
         void advance_player_move() {
@@ -1547,6 +1553,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (a.is_enemy() && a.alive()) ++live;
             game.g_flags[132] = live;
             csMgr.vm.g_flags[132] = live;
+            // Keep the world's player actor on the view's feet EVERY frame (incl. during
+            // a frozen cutscene) so cutscene ops that resolve the player — Chr_LookAtChr,
+            // Chr_IsInSphere/Box — see the real position. (The gameplay chase re-syncs
+            // it below too; harmless.)
+            if (Actor* wp = world.player()) wp->pos = feet;
         }
         const bool frozen_now = tick_events();
         // A cutscene spawned/deleted an actor (op 0x12c/0x12d): load any new cast's

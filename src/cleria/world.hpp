@@ -150,6 +150,17 @@ class ActorWorld : public XsoHost {
     void chr_alpha(int id, float end_alpha) override {                  // 0x154 Chr_Alpha (end state)
         if (Actor* a = find(id)) a->visible = end_alpha > 0.01f;
     }
+    // Facing control (ops 0x134 Chr_DirChr / 0x136 Chr_LookAtChr): actor `id` turns to
+    // face actor `target`. 0x137 Chr_LookAtPos faces a world point. Player (13/999)
+    // resolves through the synced player_ actor. Billboard sprites use yaw for the
+    // 8-direction ring, so this rotates the on-screen sprite toward the target.
+    void chr_lookat(int id, int target) override {
+        Actor* a = find(id); Actor* t = find(target);
+        if (a && t) a->yaw = std::atan2(t->pos.x - a->pos.x, t->pos.z - a->pos.z);
+    }
+    void chr_lookat_pos(int id, float x, float z) override {
+        if (Actor* a = find(id)) a->yaw = std::atan2(x - a->pos.x, z - a->pos.z);
+    }
     // Advance every cutscene walk-to one frame (called each tick, incl. while frozen —
     // NPCs move during a Fix). Turns toward the target and steps; stops within reach.
     void advance_cutscene_moves() {
