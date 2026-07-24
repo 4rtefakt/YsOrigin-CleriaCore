@@ -764,6 +764,90 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- S_1000 intro battle: the multi-wave KILL-GATE blocks w/o kills, resumes with them --
+    // battle_0 is the interactive fight ("mobs spawn, I kill them, the cutscene resumes").
+    // It is a multi-wave loop: Fix -> spawn wave (0x12C, cast 14, group 0) -> Unfix ->
+    // Wait_FlagEqualInt(132, 0) [op 0xF8] -> next wave. flag 132 = live-enemy count, which
+    // the engine (and this test) sync from the world each frame. Two strict scenarios prove
+    // the gate is real: (A) never killing anything must LEAVE the script stuck at a gate;
+    // (B) killing each wave must let it run to completion (no soft-lock).
+    {
+        const std::string dir = (root / "MAP" / "S_10" / "S_1000").string() + "/";
+        struct FsLoader : ScriptLoader {
+            std::string dir;
+            std::shared_ptr<const Xso> load_script(const std::string& name) override {
+                std::string up = name;
+                for (char& c : up) c = char(std::toupper((unsigned char)c));
+                std::ifstream f(dir + up + ".XSO", std::ios::binary);
+                if (!f) return nullptr;
+                std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f), {}};
+                if (b.size() < 4) return nullptr;
+                try { return std::make_shared<Xso>(Xso::parse(b)); }
+                catch (const std::exception&) { return nullptr; }
+            }
+        } loader;
+        loader.dir = dir;
+        auto live_count = [](ActorWorld& w) {
+            std::int32_t n = 0;
+            for (const Actor& a : w.actors()) if (a.is_enemy() && a.alive()) ++n;
+            return n;
+        };
+        try {
+            std::vector<std::uint8_t> b0;
+            if (std::ifstream f{dir + "BATTLE_0.XSO", std::ios::binary})
+                b0.assign(std::istreambuf_iterator<char>(f), {});
+            auto battle = std::make_shared<Xso>(Xso::parse(b0));
+
+            // (A) Never kill: the script MUST get stuck at a kill-gate (spawned mobs stay alive).
+            {
+                ActorWorld w(tables);
+                ScriptManager mgr; mgr.loader = &loader; mgr.vm.host = &w;
+                mgr.vm.g_flags[150] = 1;
+                mgr.start_root(battle, "battle_0");
+                bool spawned_any = false;
+                for (int f = 0; f < 4000 && mgr.any_live(); ++f) {
+                    mgr.vm.g_flags[132] = live_count(w);
+                    if (mgr.vm.g_flags[132] > 0) spawned_any = true;
+                    mgr.tick_all();
+                    w.advance_cutscene_moves();   // scripted NPC walks (Wait_ChrMoving resolves)
+                }
+                check(spawned_any, "intro battle spawns wave enemies (cast 14, counted)");
+                check(mgr.any_live(),
+                      "battle STALLS at the kill-gate when nothing is killed (gate is real)");
+            }
+            // (B) Kill each wave: battle_0 MUST run through to its end (flag 165=1 at pc2028),
+            // its root instance retiring. Persistent region triggers it spawns (s_Stop1000_*)
+            // legitimately stay live for the room's lifetime, so "all scripts dead" is the
+            // WRONG completion test — the signal is battle_0 itself finishing.
+            {
+                ActorWorld w(tables);
+                ScriptManager mgr; mgr.loader = &loader; mgr.vm.host = &w;
+                mgr.vm.g_flags[150] = 1;
+                mgr.start_root(battle, "battle_0");
+                auto battle_live = [&] {
+                    for (const auto& i : mgr.live) if (i.name == "battle_0") return true;
+                    return false;
+                };
+                int f = 0;
+                for (; f < 8000 && battle_live(); ++f) {
+                    mgr.vm.g_flags[132] = live_count(w);      // sync BEFORE the tick (gate reads it)
+                    mgr.tick_all();
+                    w.advance_cutscene_moves();               // scripted NPC walks resolve
+                    for (Actor& a : w.actors()) if (a.is_enemy() && a.alive()) a.hp = 0;  // perfect combat
+                }
+                check(!battle_live() && mgr.vm.g_flags[165] == 1,
+                      "intro battle runs to completion once each wave is killed (flag165=1)",
+                      "frames=" + std::to_string(f) + " flag165=" + std::to_string(mgr.vm.g_flags[165]));
+                if (battle_live())
+                    for (const auto& inst : mgr.live)
+                        std::printf("       [stuck] %s @pc=%u wait=%d\n",
+                                    inst.name.c_str(), inst.pc, inst.wait);
+            }
+        } catch (const std::exception& e) {
+            check(false, "S_1000 intro battle end-to-end", e.what());
+        }
+    }
+
     // --- Opened chests render POSED to their OPEN clip (build/event_re/S1001_..._RE.md) ---
     // A chest is one YMO with an in-model OPEN clip on its hinged lid; the room root
     // re-poses an already-looted chest on entry (0x175(box,OPEN,0,-1)). build_room now
