@@ -407,6 +407,11 @@ struct BulletArt {
         bool ring = false;
         int ring_segs = 0;
         float ring_outer = 0, ring_inner = 0, ring_height = 0;
+        // This EMITTER's own lifetime in frames (EF2 B1+0x24), which is NOT the effect's.
+        // PC2_DEF_ATTACK's emitters run 7/14/10 ticks under 43-tick particle drivers, so
+        // drawing every layer for the effect's 43 ticks left the big 14-tick flash on
+        // screen three times too long and stretched its 9-frame flipbook to match.
+        int life = 60;
     };
     std::vector<Layer> layers;
     int life = 60;                      // ticks; the effect's own lifetime
@@ -447,6 +452,7 @@ static const BulletArt& bullet_art(Gpu& g, const fs::path& asset_root, const Eft
         L.ring_outer = em.ring_outer;
         L.ring_inner = em.ring_inner;
         L.ring_height = em.ring_height;
+        L.life = em.life > 0 ? int(em.life) : 60;
         a.layers.push_back(L);
     }
     return a;
@@ -491,9 +497,12 @@ static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
         if (!art.ok()) continue;
         for (const BulletArt::Layer& L : art.layers) {
             if (L.frames.empty()) continue;
+            // Each emitter dies on its OWN lifetime, and its flipbook is paced against that
+            // — not against the effect's (longest) life, which stretched short flashes.
+            if (s.age >= L.life) continue;
             const int fi = std::min(int(L.frames.size()) - 1,
                                     int(std::size_t(s.age) * L.frames.size() /
-                                        std::size_t(std::max(1, art.life))));
+                                        std::size_t(std::max(1, L.life))));
             const Ef2Frame& fr = L.frames[std::size_t(fi)];
             const float hw = L.w * s.scale * 0.5f, hh = L.h * s.scale * 0.5f;
             RoomVertex verts[4];

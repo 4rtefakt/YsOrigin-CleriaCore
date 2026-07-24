@@ -561,10 +561,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     AsoVm probe;
                     probe.bind(&it->second);
                     if (!probe.set_section(s.id, /*force*/true)) continue;
+                    // An attack is any section that arms a hit-volume OR fires a bullet —
+                    // the same rule the player's own combo probe uses. Keying on hitboxes
+                    // alone left every RANGED enemy inert: 14 shooter scripts (M_150, M_170,
+                    // M_230, M_250, M_290, M_310, M_390, M_450, M_460, M_480, M_490, M_720,
+                    // M_860, M_870) contain no GenerateCollision at all, so they scored -1
+                    // and never attacked; several more picked their melee section and so
+                    // never shot.
                     bool arms = false;
                     for (int t = 0; t < 150 && !arms; ++t) {
                         probe.tick();
-                        if (probe.armed_hitbox()) arms = true;
+                        if (probe.armed_hitbox() || !probe.bullets().empty()) arms = true;
                     }
                     if (arms && s.type > best_type) { best_type = s.type; sec = s.id; }
                 }
@@ -1352,6 +1359,60 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         atk_hit.clear();
     };
 
+    // Spawn every bullet an ASO section fired this tick. Shared by the player and by
+    // enemies: previously only the player drained bullets(), so no enemy could ever
+    // shoot even when its script fired one. `origin` is the shooter's feet, `fdir` its
+    // facing; the heading offset arg is applied on top of that.
+    auto spawn_bullets = [&](const AsoVm& vm, const Vec3& origin, const Vec3& fdir,
+                             bool from_player) {
+        for (const AsoVm::BulletEvent& b : vm.bullets()) {
+            Projectile p;
+            p.effect_id = b.id;
+            const float reach = b.f[0], voff = b.f[1], head_deg = b.f[2];
+            const Vec3 d{b.f[3], b.f[4], b.f[5]};
+            const float dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+            if (dl > 1e-6f) {
+                p.dir = {d.x / dl, d.y / dl, d.z / dl};
+            } else {
+                // Spawn geometry is the engine's x=sin / z=cos, same as GenerateCollision.
+                const float yaw = std::atan2(fdir.x, fdir.z) +
+                                  head_deg * 3.14159265358979f / 180.0f;
+                p.dir = {std::sin(yaw), 0, std::cos(yaw)};
+            }
+            p.speed = b.f[6];
+            p.accel = b.f[7];
+            p.gravity = b.f[8];
+            // The emitter's OWN scale is the world size. arg[12] (=0.15 for Hugo) was
+            // read as a scale multiplier, but applying it shrank the shot to a
+            // near-invisible sliver, so its role is not that (it may be an anim rate).
+            // Default to the emitter scale as-authored; CLERIA_BULLET_SCALE tunes.
+            p.scale = 1.0f;
+            p.pos = {origin.x + p.dir.x * reach, origin.y + kCharH * 0.5f + voff,
+                     origin.z + p.dir.z * reach};
+            p.life = bullet_art(g, asset_root, efl, eft, p.effect_id).life;
+            // Speed 0 means a stationary attached effect rather than a projectile —
+            // that is all of Toal's 8 calls (smoke), so they must not become bullets.
+            // How the script's scale arg combines with the emitter's own scale is
+            // NOT pinned down by the RE, so it is left tunable rather than silently
+            // fudged: CLERIA_BULLET_SCALE multiplies the result.
+            if (const char* bs = std::getenv("CLERIA_BULLET_SCALE"))
+                p.scale *= float(std::atof(bs));
+            if (std::getenv("CLERIA_BULLET")) {
+                const BulletArt& art = bullet_art(g, asset_root, efl, eft, p.effect_id);
+                std::printf("  [bullet] effect %d (%s) %zu layer(s) life=%d speed=%.3f "
+                            "scale=%.3f dir=(%.2f,%.2f,%.2f)\n",
+                            p.effect_id, efl.name(p.effect_id).c_str(), art.layers.size(),
+                            p.life, p.speed, p.scale, p.dir.x, p.dir.y, p.dir.z);
+                for (const BulletArt::Layer& L : art.layers)
+                    std::printf("           layer %ux%u  %zu frames  world size %.3f x %.3f\n",
+                                L.tex.w, L.tex.h, L.frames.size(), L.w * p.scale,
+                                L.h * p.scale);
+            }
+            p.from_player = from_player;
+            if (p.speed > 1e-4f) shots.push_back(std::move(p));
+        }
+            };
+
     // The EX/Boost gauge builds on hits DEALT and TAKEN alike (FUN_0046cc10): the amount is
     // missing-HP-scaled, `(1 - hp/hpMax) * 25 + 1`, and is refused while already boosting or
     // once the gauge is full. Replaces the earlier flat 1500/2500 hand-picked amounts.
@@ -2021,6 +2082,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 }
                 e.avm.set_is_land(true);
                 e.avm.tick();
+                // Drain any bullet this enemy's script fired. Its facing is x=sin/z=cos of the
+                // actor yaw, the same basis the spawn geometry uses.
+                spawn_bullets(e.avm, en->pos, {std::sin(en->yaw), 0, std::cos(en->yaw)},
+                              /*from_player*/false);
                 // Its GenerateCollision arms the enemy's hit-volume, with the section's own
                 // radius/lifetime/power (M_100: frame 26, radius 1.0).
                 if (e.avm.armed_hitbox()) {
@@ -2332,7 +2397,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // at all. Stand-in, not engine behaviour; revisit if that path is found.
             for (Projectile& p : shots) {
                 step_projectile(p);
-                if (!p.from_player) continue;
+                if (!p.from_player) {
+                    // An ENEMY bullet vs the player. Same caveat as above: the engine's
+                    // bullet->victim damage path is [UNKNOWN], so this reuses the melee
+                    // sphere + the enemy's own atk. Stand-in, not engine behaviour — but a
+                    // bullet that passes through the player would be worse than a stand-in.
+                    if (player_iframes > 0 || p.hit.count(-1)) continue;
+                    const float bx = feet.x - p.pos.x, bz = feet.z - p.pos.z;
+                    const float by = (feet.y + kCharH * 0.5f) - p.pos.y;
+                    const float rr = kCharRadius + 0.3f;
+                    if (bx * bx + by * by + bz * bz > rr * rr) continue;
+                    p.hit.insert(-1);
+                    float atk = 0;
+                    for (const Actor& src : world.actors())
+                        if (!src.is_player() && src.alive()) { atk = std::max(atk, float(src.atk)); }
+                    hurt_player(atk > 0 ? atk : 10.0f);
+                    p.age = p.life;      // spend the bullet on the hit
+                    continue;
+                }
                 for (Actor& en : world.actors()) {
                     if (en.is_player() || !en.alive() || p.hit.count(en.instance_id)) continue;
                     const float bx = en.pos.x - p.pos.x, bz = en.pos.z - p.pos.z;
@@ -2364,51 +2446,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // [2] forward reach, [3] vertical offset, [4] heading offset in DEGREES added
             // to facing, [5..7] an explicit direction used iff non-zero, [8] speed,
             // [9] acceleration, [10] gravity, [12] scale (negative = sentinel for 1.0).
-            for (const AsoVm::BulletEvent& b : avm.bullets()) {
-                Projectile p;
-                p.effect_id = b.id;
-                const float reach = b.f[0], voff = b.f[1], head_deg = b.f[2];
-                const Vec3 d{b.f[3], b.f[4], b.f[5]};
-                const float dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-                if (dl > 1e-6f) {
-                    p.dir = {d.x / dl, d.y / dl, d.z / dl};
-                } else {
-                    // Spawn geometry is the engine's x=sin / z=cos, same as GenerateCollision.
-                    const float yaw = std::atan2(face_dir.x, face_dir.z) +
-                                      head_deg * 3.14159265358979f / 180.0f;
-                    p.dir = {std::sin(yaw), 0, std::cos(yaw)};
-                }
-                p.speed = b.f[6];
-                p.accel = b.f[7];
-                p.gravity = b.f[8];
-                // The emitter's OWN scale is the world size. arg[12] (=0.15 for Hugo) was
-                // read as a scale multiplier, but applying it shrank the shot to a
-                // near-invisible sliver, so its role is not that (it may be an anim rate).
-                // Default to the emitter scale as-authored; CLERIA_BULLET_SCALE tunes.
-                p.scale = 1.0f;
-                p.pos = {feet.x + p.dir.x * reach, feet.y + kCharH * 0.5f + voff,
-                         feet.z + p.dir.z * reach};
-                p.life = bullet_art(g, asset_root, efl, eft, p.effect_id).life;
-                // Speed 0 means a stationary attached effect rather than a projectile —
-                // that is all of Toal's 8 calls (smoke), so they must not become bullets.
-                // How the script's scale arg combines with the emitter's own scale is
-                // NOT pinned down by the RE, so it is left tunable rather than silently
-                // fudged: CLERIA_BULLET_SCALE multiplies the result.
-                if (const char* bs = std::getenv("CLERIA_BULLET_SCALE"))
-                    p.scale *= float(std::atof(bs));
-                if (std::getenv("CLERIA_BULLET")) {
-                    const BulletArt& art = bullet_art(g, asset_root, efl, eft, p.effect_id);
-                    std::printf("  [bullet] effect %d (%s) %zu layer(s) life=%d speed=%.3f "
-                                "scale=%.3f dir=(%.2f,%.2f,%.2f)\n",
-                                p.effect_id, efl.name(p.effect_id).c_str(), art.layers.size(),
-                                p.life, p.speed, p.scale, p.dir.x, p.dir.y, p.dir.z);
-                    for (const BulletArt::Layer& L : art.layers)
-                        std::printf("           layer %ux%u  %zu frames  world size %.3f x %.3f\n",
-                                    L.tex.w, L.tex.h, L.frames.size(), L.w * p.scale,
-                                    L.h * p.scale);
-                }
-                if (p.speed > 1e-4f) shots.push_back(std::move(p));
-            }
+            spawn_bullets(avm, feet, face_dir, /*from_player*/true);
             // GenerateCollision fired: adopt this section's own box for its own lifetime.
             if (avm.armed_hitbox()) {
                 atk_hb = avm.hitbox();
