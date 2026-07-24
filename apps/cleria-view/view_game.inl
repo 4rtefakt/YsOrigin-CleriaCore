@@ -924,6 +924,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             reveal = 0; box_active = true;
         }
         void window_close() override { box_active = false; name.clear(); text.clear(); }
+        // The "Acquired X" box (op 0xd5). Shown through the same dialogue box + typewriter +
+        // Wait_Prompt path — the item name is resolved by the view (which owns the item table).
+        std::function<std::string(int)> item_name_fn;
+        void acquire_item(int id) override {
+            const std::string nm = item_name_fn ? item_name_fn(id) : ("item " + std::to_string(id));
+            speaker = 0; voice = -1; name.clear();
+            text = "Obtained " + nm + "!";
+            text_r = 255; text_g = 236; text_b = 160;   // warm gold, like the item-get window
+            reveal = 0; box_active = true;
+        }
         std::string caption_name; int caption_timer = 0;   // 0xe2 area-name card (frames left)
         void caption(const std::string& nm) override { caption_name = nm; caption_timer = 210; }
         // SKIP: while set, EVERY wait predicate reports "done" so every live script
@@ -1282,6 +1292,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
 
     const ItemTable items_tbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+    csHost.item_name_fn = [&](int id) { return items_tbl.name(id); };  // 0xd5 "Acquired X" box
     auto try_interact = [&] {
         const Vec3 p = fly ? cam.pos : Vec3{feet.x, feet.y, feet.z};
         const float reach = room_diag(room) * 0.09f;
@@ -1651,10 +1662,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // progression AND item pickups are silently lost (e.g. BATTLE_0 hands Yunica the
         // Lila Shell + Crystal via 0xD5, and sets the intro's completion flags).
         {
-            for (int id : csMgr.vm.acquires) {
-                hud.message("Acquired " + items_tbl.name(id));
-                if (id >= 0 && id < 54) game.item_arr[id] = 1;   // store the ones the model holds
-            }
+            // The "Acquired X" BOX is shown live by CutsceneHost::acquire_item; here we only
+            // persist the pickup into the inventory model (the ids that fit it).
+            for (int id : csMgr.vm.acquires)
+                if (id >= 0 && id < 54) game.item_arr[id] = 1;
             for (int id : csMgr.vm.items)
                 if (id >= 0 && id < 54) game.item_arr[id] = 1;
             csMgr.vm.acquires.clear();

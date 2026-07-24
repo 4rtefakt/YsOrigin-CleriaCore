@@ -352,6 +352,7 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         items.push_back(i0);
                     } else if (sub == 0xD5 && nargs >= 3) {  // "Acquired X" box, item = op2
                         acquires.push_back(op(2));
+                        if (host) host->acquire_item(op(2));   // show the box live (cutscene path)
                     } else if (sub == 0x169) {   // enable/show object (name = string op0)
                         obj_enable.push_back(script.string(op(0)));
                     } else if (sub == 0x175) {   // set object to opened state (name op0)

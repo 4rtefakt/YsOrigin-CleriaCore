@@ -401,12 +401,17 @@ static const BulletArt& bullet_art(Gpu& g, const fs::path& asset_root, const Eft
     BulletArt& a = cache[effect_id];
     const fs::path p = efl.path(asset_root, effect_id);
     if (p.empty()) return a;
+    const bool dbg = std::getenv("CLERIA_BARRIER") != nullptr;
+    if (dbg) std::printf("  [fx] effect %d -> EF2 %s\n", effect_id, p.filename().string().c_str());
     const Ef2 ef = Ef2::load(p);
     if (!ef.ok()) return a;
     a.life = int(ef.life() > 0 ? ef.life() : 60);
     for (const Ef2Emitter& em : ef.emitters()) {
         if (!em.textured()) continue;   // frame_count 0 draws no quad at all
         const fs::path tp = eft.path(asset_root, int(em.frames[0].tex_id));
+        if (dbg) std::printf("        emitter tex_id=%d -> %s%s\n", int(em.frames[0].tex_id),
+                             tp.empty() ? "(unresolved)" : tp.filename().string().c_str(),
+                             em.ring ? "  [ring/cylinder]" : "  [billboard]");
         if (tp.empty()) continue;
         Dds d = load_dds(tp);
         if (!d.ok()) continue;

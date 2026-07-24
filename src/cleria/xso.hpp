@@ -161,6 +161,9 @@ struct XsoHost {
     virtual void window_close() {}                                // op 0xd2 Window_Close
     // op 0xe2 Caption(name): the area-name card is PRE-RENDERED art (data/image/<name>.dds).
     virtual void caption(const std::string& /*name*/) {}
+    // op 0xd5 Window_ItemGet(item): the "Acquired X" box. The script parks on the following
+    // Wait_Prompt, so the host shows it and the player dismisses it like a dialogue line.
+    virtual void acquire_item(int /*item_id*/) {}
 
     // --- cutscene camera ops (CUTSCENE_CAMERA.md) ------------------------------------
     // op 0xc3 Scroll_MoveTo(x,y,z, frames, priority): slide the camera look-at to a world
