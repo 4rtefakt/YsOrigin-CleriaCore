@@ -394,10 +394,13 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         float d; std::uint32_t r=std::uint32_t(op(1)); std::memcpy(&d,&r,4);
                         host->chr_dir(op(0), d);
                     } else if (sub == 0x143 && host && nargs >= 5) {
-                        // Chr_MoveTo(id, x, y, z, speed) [iffff]: ground walk-to; the
-                        // worker uses x/z/speed (y is the height the XZ move ignores).
+                        // Chr_MoveTo(id, x, z, y, speed) [iffff]: ground walk-to. The operand
+                        // order is x, Z, Y (height) — NOT x,y,z: proven from BATTLE_0, where
+                        // op2 equals the actor's spawn Z (~25) and op3 is the floor height
+                        // (~0.1). Reading op3 as Z walked every NPC to z~0.1 (dead centre, on
+                        // the player). The XZ move uses op1=x, op2=z; op3 (height) is ignored.
                         auto f = [&](std::uint32_t i){ float v; std::uint32_t r=std::uint32_t(op(i)); std::memcpy(&v,&r,4); return v; };
-                        host->chr_moveto(op(0), f(1), f(3), f(4));
+                        host->chr_moveto(op(0), f(1), f(2), f(4));
                     } else if (sub == 0x154 && host && nargs >= 3) {
                         // Chr_Alpha(id, startA, endA, frames) [iffi]: honour the END alpha
                         // as a visibility toggle (op2 = end alpha, float bit pattern).

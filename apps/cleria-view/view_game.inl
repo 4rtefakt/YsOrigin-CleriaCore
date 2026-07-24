@@ -1213,6 +1213,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
             if (fl > kNoFloor) feet.y = fl;
         }
+        // Cutscene NPCs spawn at authored heights (Shion at y~2) and never fall — snap
+        // non-player actors to the floor while a cutscene runs so they don't hover.
+        if (csMgr.world_frozen())
+            for (Actor& a : world.actors()) {
+                if (a.is_player()) continue;
+                const float fl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + room_diag(room));
+                if (fl > kNoFloor) a.pos.y = fl;
+            }
         const bool frozen = csMgr.world_frozen();
         if (!frozen && prev_frozen && after_cutscene) {    // world just thawed -> queued action
             auto f = after_cutscene; after_cutscene = nullptr; f();

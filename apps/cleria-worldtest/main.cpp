@@ -926,6 +926,13 @@ int main(int argc, char** argv) {
                 check(!battle_live() && mgr.vm.g_flags[165] == 1,
                       "intro battle runs to completion once each wave is killed (flag165=1)",
                       "frames=" + std::to_string(f) + " flag165=" + std::to_string(mgr.vm.g_flags[165]));
+                // Shion (entity 200) spawns at z~25 and Chr_MoveTo's near there — with the
+                // axis fix he ends near z~25, NOT dead-centre z~0 (the old y/z-swap bug that
+                // piled the NPCs on the player). Prove the fixed operand order.
+                if (const Actor* shion = w.find(200))
+                    check(shion->pos.z > 15.0f,
+                          "cutscene NPC ends near its spawn (Chr_MoveTo z from op2, not centre)",
+                          "Shion z=" + std::to_string(shion->pos.z));
                 if (battle_live())
                     for (const auto& inst : mgr.live)
                         std::printf("       [stuck] %s @pc=%u wait=%d\n",
