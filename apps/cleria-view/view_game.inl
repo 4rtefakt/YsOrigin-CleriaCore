@@ -733,13 +733,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         g_tick_reset = true;  // don't catch up on the load stall (the exe's DAT_0075aed5)
     };
     // Reload the current room (re-gates chests for the new character / state).
-    auto reload_room = [&] {
+    // rerun_events=false rebuilds ONLY the visual mesh (statue model swap) without re-running
+    // the room's event scripts — safe to call mid-cutscene (the goddess-cleanse swap happens
+    // while the world is frozen, and re-running events then would restart BATTLESTART etc.).
+    auto reload_room = [&](bool rerun_events = true) {
         auto it = g.sob_index.find(room.name);
         if (it == g.sob_index.end()) return;
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
-        room_events_dirty = true;   // re-run the room's event scripts for the re-gated room
+        if (rerun_events) room_events_dirty = true;   // re-run scripts for the re-gated room
         register_script_pickups();  // the rebuilt mesh lost script-spawned interactables
     };
 
@@ -1768,16 +1771,26 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (game.g_flags[300] == 0) { statue_ui = 1; statue_sel = 0; statue_reveal = 0; }
             }
         }
-        // Robust statue MODEL swap: the instant flag 300 flips to cleansed, mark a reload so
-        // S_SAVEOBJECTCHANGE swaps the dark statue for the cleansed one — independent of
-        // whether SAVE.XSO cleanly finished. The reload waits until the world is NOT frozen
-        // so we never rebuild the room mid-cutscene (and the flip may happen while frozen).
+        // Statue MODEL swap timing (RE: SAVE.XSO 0xB4 spawns "s_SaveObjectChange", whose 0x16b
+        // ops flip save_01 -> save_03 at the cleanse-glow beat mid-cutscene). flag300 flips
+        // EARLIER (SAVE.XSO pc82), so we mark pending on the flip but do the mesh rebuild the
+        // instant that child script appears on csMgr — matching the beat instead of popping the
+        // model after the whole cutscene thaws. Mesh-only while frozen (no event re-run, which
+        // would restart BATTLESTART); a post-thaw full reload is the fallback if it never ran.
         if (prev_flag300 == 0 && game.g_flags[300] != 0) statue_reload_pending = true;
         prev_flag300 = game.g_flags[300];
-        if (statue_reload_pending && !csMgr.world_frozen()) {
-            statue_reload_pending = false;
-            reload_room();
-            hud.message("The goddess statue is cleansed.");
+        if (statue_reload_pending) {
+            bool swap_beat = false;
+            for (const auto& in : csMgr.live) {
+                std::string n = in.name; for (char& c : n) c = char(std::tolower((unsigned char)c));
+                if (n == "s_saveobjectchange") { swap_beat = true; break; }
+            }
+            const bool thawed = !csMgr.world_frozen();
+            if (swap_beat || thawed) {
+                statue_reload_pending = false;
+                reload_room(/*rerun_events=*/thawed);
+                hud.message("The goddess statue is cleansed.");
+            }
         }
         // A cutscene spawned/deleted an actor (op 0x12c/0x12d): load any new cast's
         // sprite and rebuild the render list so the NPC is drawn (or gone). Done here
