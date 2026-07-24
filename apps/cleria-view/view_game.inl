@@ -940,8 +940,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void acquire_item(float x, float y, int id) override {
             acquire_active = true; acquire_id = id; acquire_x = x; acquire_y = y;
             name.clear(); speaker = 0; voice = -1;
-            const std::string nm = item_name_fn ? item_name_fn(id) : ("item " + std::to_string(id));
-            text = "Acquired " + nm;
+            // RE (FUN_005781f0): the box shows the item NAME only (+ icon), no verb prefix.
+            text = item_name_fn ? item_name_fn(id) : ("item " + std::to_string(id));
             reveal = int(text.size());   // shown at once, no typewriter
             box_active = true;           // gate the following Wait_Prompt
         }

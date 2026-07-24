@@ -665,12 +665,13 @@ struct TitleFx {
     // middle band stretches in both axes; the ornate curls keep their real size at any
     // window size — this is why the old height-only stretch blew the blessing list up.
     void draw_dialog_frame(Gpu& g, WGPUTextureView cview, WGPUTextureView dview,
-                           float lpx, float tpx, float rpx, float bpx, float sw, float sh) {
+                           float lpx, float tpx, float rpx, float bpx, float sw, float sh,
+                           float capLa = 80.0f, float capTa = 64.0f, float capBa = 32.0f) {
         if (!dialog.tex) return;
         const float A = sh / 768.0f;
         const float uc[4] = {0.0f, 0.15625f, 0.65625f, 0.8125f};
         const float vc[4] = {0.0f, 0.25f, 0.6875f, 0.8125f};
-        float capL = 80.0f * A, capT = 64.0f * A, capB = 32.0f * A;   // authored cap px
+        float capL = capLa * A, capT = capTa * A, capB = capBa * A;   // authored cap px
         if (capL * 2.0f > (rpx - lpx)) capL = (rpx - lpx) * 0.5f;
         if (capT + capB > (bpx - tpx)) { const float s = (bpx - tpx) / (capT + capB); capT *= s; capB *= s; }
         const float xs[4] = {lpx, lpx + capL, rpx - capL, rpx};
@@ -824,28 +825,32 @@ struct TitleFx {
                        const std::string& caption, const SpriteTex* iconTex) {
         const float sw = float(W), sh = float(H), A = sh / 768.0f;
         const float xoff = (sw - 1024.0f * A) * 0.5f;          // pillar-box the 4:3 field
-        auto SX = [&](float ax) { return xoff + ax * A; };     // authored px -> screen px
-        auto SY = [&](float ay) { return ay * A; };
-        const float pxH = 30.0f * A, iconSz = 48.0f * A;
-        // The DIALOG0 9-slice reserves 80px caps (the ornate scroll ends) each side that don't
-        // hold content, so the frame must be wider than the content by that cap + a margin.
-        const float gap = 14.0f * A, padX = 96.0f * A, padY = 34.0f * A;
+        // Window_Treasure (op 0xd5 -> FUN_005781f0): a COMPACT box sized to the item-name text
+        // + icon, centred at the op's (x,y). RE constants (authored px): width = textW + 128
+        // (with icon) / +38.4 (none); height = textH + 25.6; icon column = 89.6; frame overhead
+        // ~19.2 px/side horizontal, ~12.8 px/side vertical -- NOT the big DIALOG0 caps. Shows the
+        // item NAME + ICON only (no "Acquired"/"Obtained" verb; that text isn't measured/drawn).
         const bool hasIcon = iconTex && iconTex->tex;
-        const float textW = mf.measure(caption, pxH);
-        const float contentW = (hasIcon ? iconSz + gap : 0.0f) + textW;
-        const float ox = SX(originX), oy = SY(originY);
-        const float halfW = contentW * 0.5f + padX;
-        const float halfH = std::max(iconSz, pxH) * 0.5f + padY;
-        draw_dialog_frame(g, cview, dview, ox - halfW, oy - halfH, ox + halfW, oy + halfH, sw, sh);
+        const float fontA = 28.0f;                              // authored name-text height
+        const float textWa = mf.measure(caption, fontA * A) / A;   // authored text width
+        const float iconColA = 89.6f;
+        const float boxWa = textWa + (hasIcon ? 128.0f : 38.4f);
+        const float boxHa = fontA + 25.6f;
+        const float ox = xoff + originX * A, oy = originY * A;  // box centre, screen px
+        const float hw = boxWa * 0.5f * A, hh = boxHa * 0.5f * A;
+        draw_dialog_frame(g, cview, dview, ox - hw, oy - hh, ox + hw, oy + hh, sw, sh,
+                          19.2f, 12.8f, 12.8f);
         auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
         auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
-        float cx = ox - contentW * 0.5f;
+        float cx = ox - hw + 19.2f * A;                        // content start (after left border)
         if (hasIcon) {
-            draw_screen_image(g, cview, dview, false, *iconTex, NX(cx), NY(oy - iconSz * 0.5f),
-                              NX(cx + iconSz), NY(oy + iconSz * 0.5f), 0.12f, 0, 0, 1, 1);
-            cx += iconSz + gap;
+            const float isz = std::min(iconColA - 16.0f, boxHa - 8.0f) * A;
+            const float icx = cx + (iconColA * A - isz) * 0.5f;
+            draw_screen_image(g, cview, dview, false, *iconTex, NX(icx), NY(oy - isz * 0.5f),
+                              NX(icx + isz), NY(oy + isz * 0.5f), 0.12f, 0, 0, 1, 1);
+            cx += iconColA * A;
         }
-        mf.text(caption, cx, oy - pxH * 0.5f, pxH, sw, sh, 255, 236, 160, 255);
+        mf.text(caption, cx, oy - fontA * A * 0.5f, fontA * A, sw, sh, 255, 236, 160, 255);
         mf.draw(g, cview);
     }
 
