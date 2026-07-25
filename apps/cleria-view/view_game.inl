@@ -2715,9 +2715,25 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ginfo.ok()) {
                 ev.str = int(std::lround(ginfo.player_atk(character, 0, player.level)));
                 ev.def = int(std::lround(ginfo.curves[kPlayerDef].at(player.level)));
-                ev.exp = long(std::llround(ginfo.exp_to_level(player.level)));
+                // Exp is the RUNNING TOTAL and Next is what REMAINS to the next level —
+                // both were showing level-band arithmetic instead of live progress.
+                ev.exp = long(std::llround(player.exp));
                 ev.next = long(std::llround(ginfo.exp_to_level(player.level + 1)
-                                            - ginfo.exp_to_level(player.level)));
+                                            - double(player.exp)));
+                if (ev.next < 0) ev.next = 0;
+            }
+            // The equipped ids drive BOTH the slot icons and the whole bottom detail panel
+            // (plate, big icon, name, stat line, description) — with them left at -1 the
+            // panel resolved item -1 and drew nothing, which is most of why the page looked
+            // like a fixed image. Same source as the HUD slots.
+            ev.weaponId = game.g_flags[151];
+            ev.armorId = game.g_flags[152];
+            ev.selId = ev.weaponId;
+            // The difficulty word was hardcoded "Normal" even though the setting is live.
+            {
+                static const char* kDiff[] = {"Very Easy", "Easy", "Normal", "Hard", "Nightmare"};
+                const int di = std::clamp(difficulty, 0, 4);
+                ev.diffWord = kDiff[di];
             }
             write_mvp(g, Mat4::identity());  // the pause-book pages are screen-space
             // Fresh depth (like the title-menu path's tdepth) so the world's z-buffer can't

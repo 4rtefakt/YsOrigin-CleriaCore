@@ -128,7 +128,11 @@ void ActorWorld::update_actor(Actor& a) {
     if (!player_ || &a == player_ || !a.is_enemy() || !a.alive()) return;
     const float dx = player_->pos.x - a.pos.x;
     const float dz = player_->pos.z - a.pos.z;
-    const float d2 = dx * dx + dz * dz;
+    const float dy = player_->pos.y - a.pos.y;
+    // The one code-traced activation gate in the engine is 3-D — it squares the Y delta
+    // alongside X and Z (FUN_004c2fb0). Testing it planar, as we did, let an enemy two
+    // floors below lock on to a player directly overhead and track them around the room.
+    const float d2 = dx * dx + dy * dy + dz * dz;
     if (d2 >= kEnemyActivationRadius * kEnemyActivationRadius) return;  // anim-only far off
 
     // AIM toward the player -- EVERY enemy in range, mobile or not (build/mobility_re:
