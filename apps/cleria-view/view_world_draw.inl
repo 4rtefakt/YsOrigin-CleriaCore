@@ -419,6 +419,7 @@ struct BulletArt {
         bool face_cam = true;
         // B1+0x48[2] — this emitter's height offset above the effect's placed origin.
         float hoff = 0;   // B1+0x48[2] * effect scale, added to the effect's Y
+        std::uint32_t orient = 0;   // B2+0x44: 0 camera-facing, 1 world-oriented (flat)
         // Ring primitive (EF2_RENDER.md §A): a flat horizontal annulus in world XZ, not a
         // billboard — the kekkai ward. Segments + radii + Y come straight from the EF2.
         bool ring = false;
@@ -467,6 +468,7 @@ static const BulletArt& bullet_art(Gpu& g, const fs::path& asset_root, const Eft
         L.additive = em.additive;
         L.face_cam = em.face_cam;
         L.hoff = em.off[2];
+        L.orient = em.orient;
         L.ring = em.ring;
         L.ring_segs = em.ring_segs;
         L.ring_outer = em.ring_outer;
@@ -660,6 +662,23 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
                     const std::uint32_t t0 = std::uint32_t(2 * i), b0 = t0 + 1, t1 = t0 + 2, b1 = t0 + 3;
                     idx.insert(idx.end(), {t0, b0, t1, t1, b0, b1});
                 }
+            } else if (L.orient == 1) {
+                // WORLD-ORIENTED quad (B2+0x44 == 1), drawn FLAT in the world XZ plane.
+                // This is the ward's magenta ring: MAP_KEKKAI emitters 7 and 8 are
+                // BARIARING01.DDS, a texture that is literally a purple annulus, and they
+                // carry orient 1 exactly as its cylinder ring (em6) does, while every one
+                // of its upright glows carries 0 -- as does every glow of the goddess
+                // statue's aura. Drawn camera-facing these stood on edge; laid flat they
+                // reproduce the ring around the pedestal in
+                // reference/realgame/yt/hugo_p2_ward_barrier.jpg.
+                const float hw = L.w * scale * 0.5f, hd = L.h * scale * 0.5f;
+                const Vec3 c = {e.x, ey, e.z};
+                auto V = [&](float rx, float rz, float u, float v) -> RoomVertex {
+                    return {c.x + rx * hw, c.y, c.z + rz * hd, 0, 1, 0, u, v, 255, 255, 255, 255};
+                };
+                verts = {V(-1, -1, fr.u0, fr.v0), V(1, -1, fr.u1, fr.v0),
+                         V(1, 1, fr.u1, fr.v1), V(-1, 1, fr.u0, fr.v1)};
+                idx = {0, 1, 2, 0, 2, 3};
             } else {
                 // Upright, camera-facing additive billboard: the ward's central glow. The EF2
                 // emitter's sx/sy is the particle EMISSION AREA (up to ~3.5x5 units here), not a

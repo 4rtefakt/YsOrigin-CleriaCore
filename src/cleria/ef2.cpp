@@ -155,6 +155,7 @@ Ef2 Ef2::load(const fs::path& file) {
         std::memcpy(&blend, b.data() + o2 + 0x08, 4);
         em.additive = (blend & 0x80) != 0;
         em.face_cam = (mode & 0x100) != 0;
+        std::memcpy(&em.orient, b.data() + o2 + 0x44, 4);
         if ((mode & 0x8) != 0) {
             em.ring = true;
             std::memcpy(&em.ring_segs, b.data() + o2 + 0x8f8, 4);

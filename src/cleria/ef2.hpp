@@ -69,6 +69,12 @@ struct Ef2Emitter {
     // how MAP_KEKKAI's two BARIARING01 emitters (7 and 8 — the ward's magenta ring) are
     // authored, against bit 0x100 being set on its camera-facing glow emitters.
     bool face_cam = false;
+    // B2+0x44 — the emitter's ORIENTATION mode, and the field that actually separates a
+    // world-oriented quad from a camera-facing one (B2+0x00 bit 0x100 does not):
+    //   0 = camera-facing billboard   1 = world-oriented (lies in the world plane)   2 = ?
+    // MAP_KEKKAI: 1 on exactly its cylinder + its two BARIARING01 rings, 0 on every upright
+    // glow. SAVE_MEGAMIZOU01: 0 on all its glows (one 2). PC2_DEF_ATTACK: 1 on its bolts.
+    std::uint32_t orient = 0;
     // B1+0x48 local offset triple. Its THIRD component is a world-height offset: it is the
     // only field separating MAP_KEKKAI's two otherwise byte-identical ring emitters (0.65
     // vs 0.40 — the ward's two concentric bands, with its cylinder at 0.50), and in
