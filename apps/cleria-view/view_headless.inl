@@ -40,6 +40,15 @@ static int render_fps(Gpu& g, const Room& room, const fs::path& out,
     }
     hud.message("Acquired Chain Mail");
     Player pv; pv.hp = 312; pv.max_hp = 400; pv.level = 6; pv.sp = 138663; pv.exp_pct = 42.1f;
+    // Bind the equipment slots here too, so a headless shot shows what the live HUD shows.
+    // Without this the slots are structurally always empty in --play/--shot, which makes the
+    // screenshots misleading and the equip wiring impossible to verify headlessly. Ids are
+    // the new-game seed's (weapon = character-1, armor = character*6; Yunica -> 0 and 6).
+    if (!asset_root.empty()) {
+        const ItemTable itbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+        const int ids[4] = {0, 6, -1, -1};
+        hud.set_equip(g, itbl, asset_root, ids);
+    }
     hud.render(g, cview, W, H, room.name, 0.016f, &pv);
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPUTexelCopyTextureInfo src = {}; src.texture = color; src.aspect = WGPUTextureAspect_All;
