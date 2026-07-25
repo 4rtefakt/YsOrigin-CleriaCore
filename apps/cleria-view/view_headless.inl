@@ -228,6 +228,15 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
     Hud hud; hud.init(g, res_file("hud_font.bin"), WGPUTextureFormat_RGBA8Unorm);
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
     hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");
+    // Bind the equipment slots here too. The previous pass added this to render_fps only,
+    // so --play — the shot everyone actually looks at — still rendered structurally empty
+    // slots, which read as "the icons fail to load" when nothing had been asked to load.
+    // Ids are the new-game seed's (weapon = character-1, armor = character*6; Yunica -> 0, 6).
+    if (!asset_root.empty()) {
+        const ItemTable itbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+        const int ids[4] = {0, 6, -1, -1};
+        hud.set_equip(g, itbl, asset_root, ids);
+    }
     Player pv; pv.hp = 312; pv.max_hp = 400; pv.level = 6; pv.sp = 138663; pv.exp_pct = 42.1f;
     // CLERIA_DLG=1: preview the cutscene dialogue box (FACEWIN0 3-slice + name/text) so its
     // slice-UVs/position can be tuned headlessly against reference/realgame/dialogue_box_*.png.
