@@ -239,6 +239,23 @@ struct TitleFx {
     SpriteTex shopBg;                                  // SHOPPILLAR16-9: widescreen margin layer
     SpriteTex shopBack, shopFeena;                     // Bonus Shop: Back01.dds backdrop + t_400a.dds Feena key-art
     SpriteTex loadPlaque, savePlaque, wsvld;           // pause-book Save/Load: plaques + W_SVLD slot/tab plate
+    // SQUARE.dds (tex 10) is a 512x256 ATLAS of four tiles, not a single cell graphic:
+    //   texels (0,0)-(54,54)     dark navy plain  -> the per-cell tile
+    //   texels (55,0)-(109,54)   blue glow
+    //   texels (0,102)-(64,166)  red hollow frame -> the grid cursor
+    //   texels (65,102)-(128,166) green glow
+    // (bounds measured from the file's alpha channel). Blitting the whole sheet into one
+    // cell is what produced the stray outlined squares over the equip page's weapon slot
+    // — every tile got squashed into the corner of the cell. Always pass a UV sub-rect.
+    // The cell tile's UV is code-traced: FUN_005a7580 writes the 54.4 quad's UV as
+    // (0, 0, 0.10625, 0.2125) = exactly texels (0,0)-(54.4,54.4). [C-DIS]
+    static constexpr float kSqCellU0 = 0.0f,      kSqCellV0 = 0.0f;
+    static constexpr float kSqCellU1 = 0.10625f,  kSqCellV1 = 0.2125f;
+    // The cursor tile's rect is the atlas measurement (64x64 at (0,102)) plus the retail
+    // screenshot, which shows a red frame around the focused cell — but WHICH tile the
+    // cursor draw picks was not traced in the exe. [H-med]
+    static constexpr float kSqCurU0 = 0.0f,       kSqCurV0 = 0.3984375f;   // 102/256
+    static constexpr float kSqCurU1 = 0.125f,     kSqCurV1 = 0.6484375f;   // 166/256
     SpriteTex square;          // SQUARE.dds (tex 10): the item/equip grid cell tile + cursor cell
     SpriteTex blueHi;          // baked equipped/selected highlight quad (ARGB 0x4259999a)
     std::unordered_map<int, SpriteTex> iconCache;   // item-id -> MENU/ICON/<stem>.DDS (lazy, cached)
@@ -1024,14 +1041,18 @@ struct TitleFx {
             if (blueHi.tex)   // equipped highlight quad (54.4), under the icon
                 draw_screen_image(g, cview, dview, false, blueHi, AX(cx - 27.2f), AY(cy - 27.2f),
                                   AX(cx + 27.2f), AY(cy + 27.2f), 0.32f);
-            drawIcon(equipIds[s], cx, cy, 54.4f, 0.3f);
+            // FUN_005a7580 sizes the ITEM ICON quad 51.2 (`pfVar7[0x3b3..0x3b8] = 51.2`, its
+            // texture the per-item handle `DAT_0074a958[id]` at full UV) and the SQUARE cell
+            // quad 54.4 — the opposite of what we had. [C-DIS]
+            drawIcon(equipIds[s], cx, cy, 51.2f, 0.3f);
         }
-        // Grid cursor cell (SQUARE.dds, 51.2): defaults to the weapon cell (col0,row0). e.selId's cell
-        // isn't tracked; the cursor marks the focused slot.
+        // Grid cursor cell (SQUARE.dds, 64.0): defaults to the weapon cell (col0,row0). e.selId's cell
+        // isn't tracked; the cursor marks the focused slot. One TILE of the atlas, never the sheet.
         if (square.tex) {
             float cx, cy; cellCenter(0, 0, cx, cy);
-            draw_screen_image(g, cview, dview, false, square, AX(cx - 25.6f), AY(cy - 25.6f),
-                              AX(cx + 25.6f), AY(cy + 25.6f), 0.28f);
+            draw_screen_image(g, cview, dview, false, square, AX(cx - 32.0f), AY(cy - 32.0f),
+                              AX(cx + 32.0f), AY(cy + 32.0f), 0.28f,
+                              kSqCurU0, kSqCurV0, kSqCurU1, kSqCurV1);
         }
         // 5. bottom item-detail panel: darken the area, big icon on the left, name + description.
         //    Reference-measured (MN4 [H-med]): the whole panel sits ~100px further left than the old
@@ -1124,8 +1145,13 @@ struct TitleFx {
             const int id = (i < ownedCount) ? owned[i] : -1;
             if (square.tex) {   // per-cell stone tile; darker when empty
                 const float d = (id < 0) ? 0.19f : 0.55f;   // 0x303030 empty / lighter when filled
+                // The 51.2 size here is from the earlier MENU_RENDER_FIXES note on
+                // FUN_005aad90, which was NOT re-traced this pass — only the UV is fixed.
+                // (On the equip page the same pairing turned out to be swapped, so treat
+                // this size as unconfirmed.)
                 draw_screen_image(g, cview, dview, false, square, AX(cx - 25.6f), AY(cy - 25.6f),
-                                  AX(cx + 25.6f), AY(cy + 25.6f), 0.34f, 0.0f, 0.0f, 1.0f, 1.0f,
+                                  AX(cx + 25.6f), AY(cy + 25.6f), 0.34f,
+                                  kSqCellU0, kSqCellV0, kSqCellU1, kSqCellV1,
                                   0.02f, 0.02f, 0.05f, 0.0f, false, d, d, d);
             }
             if (id >= 0) {
@@ -1141,7 +1167,8 @@ struct TitleFx {
             const int col = cursorCell % 6, row = cursorCell / 6;
             float cx, cy; icell(col, row, cx, cy);
             draw_screen_image(g, cview, dview, false, square, AX(cx - 32.0f), AY(cy - 32.0f),
-                              AX(cx + 32.0f), AY(cy + 32.0f), 0.26f);
+                              AX(cx + 32.0f), AY(cy + 32.0f), 0.26f,
+                              kSqCurU0, kSqCurV0, kSqCurU1, kSqCurV1);
         }
         // 5. caption + difficulty word
         const float csz = 27.0f * A;
