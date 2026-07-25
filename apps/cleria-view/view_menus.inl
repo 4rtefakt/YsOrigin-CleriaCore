@@ -262,7 +262,6 @@ struct TitleFx {
     static constexpr float kSqCurU0 = 0.0f,       kSqCurV0 = 0.3984375f;   // 102/256
     static constexpr float kSqCurU1 = 0.125f,     kSqCurV1 = 0.6484375f;   // 166/256
     SpriteTex square;          // SQUARE.dds (tex 10): the item/equip grid cell tile + cursor cell
-    SpriteTex squareEquip;     // ...same sheet, alpha pre-scaled to the equipped quad's 0x42
     SpriteTex blueHi;          // baked equipped/selected highlight quad (ARGB 0x4259999a)
     std::unordered_map<int, SpriteTex> iconCache;   // item-id -> MENU/ICON/<stem>.DDS (lazy, cached)
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
@@ -384,20 +383,7 @@ struct TitleFx {
         { Dds w = load_dds(asset_root / "MENU" / "W_SVLD.DDS");
           if (w.ok()) wsvld = upload_rgba(g, w.width, w.height, w.data.data()); }
         { Dds w = load_dds(asset_root / "MENU" / "SQUARE.DDS");   // grid cell tile + cursor (tex 10)
-          if (w.ok()) {
-              square = upload_rgba(g, w.width, w.height, w.data.data());
-              // A second copy with the alpha pre-scaled by the equipped quad's diffuse
-              // alpha (0x4259999a -> 0x42 = 66/255). fs_char returns the TEXTURE's alpha
-              // and spends the vertex alpha channel on the white-tint, so there is no
-              // per-draw alpha multiplier to use — baking it into a dedicated texture is
-              // the only way to get the translucent "equipped" glow without touching the
-              // shared shader. RGB is left alone: modulating it toward the diffuse's
-              // rgb(0.35,0.60,0.60) shifted the hue away from the retail look.
-              std::vector<std::uint8_t> a = w.data;
-              for (std::size_t i = 3; i < a.size(); i += 4)
-                  a[i] = std::uint8_t(a[i] * 66 / 255);
-              squareEquip = upload_rgba(g, w.width, w.height, a.data());
-          } }
+          if (w.ok()) square = upload_rgba(g, w.width, w.height, w.data.data()); }
         // Equipped/selected highlight quad (0x4259999a ARGB = teal-blue (89,153,154) @ alpha 66).
         blueHi = solid(89, 153, 154, 66);
         // Character-select key art + fixed-pose chibi: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
@@ -1078,12 +1064,13 @@ struct TitleFx {
             if (equipIds[s] < 0) continue;
             float cx, cy; cellCenter(0, s, cx, cy);
             // "Equipped" marker (54.4), under the icon: the BLUE tile of SQUARE.dds, drawn
-            // from the alpha-scaled copy so it reads as a translucent glow rather than an
-            // opaque flood. The 0x42 alpha is the equipped quad's own diffuse from
-            // FUN_005a7580 (0x4259999a); its RGB is deliberately NOT applied — see the
-            // squareEquip upload.
-            if (squareEquip.tex)
-                draw_screen_image(g, cview, dview, false, squareEquip,
+            // at its OWN alpha and colour — no tint, no alpha scaling. Retail shows it
+            // opaque. Note FUN_005a7580 also writes a diffuse 0x4259999a (teal-blue at
+            // alpha 0x42) for the equipped item; neither its alpha nor its RGB matches what
+            // the game displays, so that quad is evidently an ADDITIONAL layer rather than
+            // this tile's vertex colour. Applying either made it visibly wrong.
+            if (square.tex)
+                draw_screen_image(g, cview, dview, false, square,
                                   AX(cx - 27.2f), AY(cy - 27.2f),
                                   AX(cx + 27.2f), AY(cy + 27.2f), 0.32f,
                                   kSqEqpU0, kSqEqpV0, kSqEqpU1, kSqEqpV1);
