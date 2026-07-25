@@ -523,20 +523,48 @@ static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
             if (L.frames.empty()) continue;
             // Each emitter dies on its OWN lifetime, and its flipbook is paced against that
             // — not against the effect's (longest) life, which stretched short flashes.
-            if (s.age >= L.life) continue;
+            // Emitters CYCLE for the projectile's life rather than expiring with it. A
+            // real particle emitter emits continuously for the effect's duration and each
+            // particle lives L.life; with no particle system, treating L.life as a hard
+            // cutoff made the shot VANISH mid-flight — PC2_DEF_ATTACK's layers run 7/14/10
+            // ticks against the effect's 43, so Hugo's bolt was invisible for its last 29
+            // ticks while still travelling and still able to hit. Found with
+            // CLERIA_BULLET_PREVIEW.
+            const int la = (L.life > 0) ? (s.age % L.life) : s.age;
             const int fi = std::min(int(L.frames.size()) - 1,
-                                    int(std::size_t(s.age) * L.frames.size() /
+                                    int(std::size_t(la) * L.frames.size() /
                                         std::size_t(std::max(1, L.life))));
             const Ef2Frame& fr = L.frames[std::size_t(fi)];
             const float hw = L.w * s.scale * 0.5f, hh = L.h * s.scale * 0.5f;
             RoomVertex verts[4];
             std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
-            auto V = [&](int n, float sx, float sy, float u, float v) {
-                verts[n] = {s.pos.x + right.x * sx * hw, s.pos.y + sy * hh,
-                            s.pos.z + right.z * sx * hw, 0, 0, -1, u, v, 255, 255, 255, 255};
-            };
-            V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);
-            V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1);
+            if (L.flat) {
+                // Same world-oriented rule the located effects use (Ef2Emitter::flat): an
+                // emitter that authored a meaningful sz lies in the world plane instead of
+                // facing the camera. On a projectile "the world plane" is the plane the shot
+                // travels in, so the quad is laid out along the FLIGHT direction (its L.h
+                // extent) and across it (L.w) — a trail, not a billboard.
+                // PC2_DEF_ATTACK: em2 is AEF_2_00, a 9-frame lightning crackle at 0.5x5.0,
+                // which as an axis-aligned billboard stood up as a 5-unit vertical BAR
+                // through Hugo's shot. em4 (1,1,1, the AEF_4_02 orb) keeps sz == 1 and stays
+                // camera-facing, which is what retail actually shows flying.
+                const Vec3 f = normalize(Vec3{s.dir.x, 0, s.dir.z});
+                const Vec3 rt = normalize(cross(Vec3{0, 1, 0}, f));
+                auto V = [&](int n, float a, float b, float u, float v) {
+                    verts[n] = {s.pos.x + rt.x * a * hw + f.x * b * hh, s.pos.y,
+                                s.pos.z + rt.z * a * hw + f.z * b * hh,
+                                0, 1, 0, u, v, 255, 255, 255, 255};
+                };
+                V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);
+                V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1);
+            } else {
+                auto V = [&](int n, float sx, float sy, float u, float v) {
+                    verts[n] = {s.pos.x + right.x * sx * hw, s.pos.y + sy * hh,
+                                s.pos.z + right.z * sx * hw, 0, 0, -1, u, v, 255, 255, 255, 255};
+                };
+                V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);
+                V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1);
+            }
             WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof(verts),
                                         WGPUBufferUsage_Vertex);
             WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof(idx),

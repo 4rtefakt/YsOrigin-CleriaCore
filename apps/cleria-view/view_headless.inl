@@ -217,9 +217,28 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                             e.id, e.name.c_str(), e.x, e.y, e.z, e.a);
         {
             EftList efl2; EftTex eft2;
-            if (efl2.load(asset_root) && eft2.load(asset_root))
+            if (efl2.load(asset_root) && eft2.load(asset_root)) {
                 draw_located_effects(g, world.effects(), asset_root, efl2, eft2, cview, dview,
                                      cam.forward(), 0.30f);
+                // CLERIA_BULLET_PREVIEW=<effectId>[,age] — park one projectile in front of
+                // the player and draw it. Bullet art was otherwise only reachable by firing
+                // in the live loop, so its orientation and size could never be checked
+                // against a reference. 130 = Hugo's basic shot (PC2_DEF_ATTACK.eft).
+                if (const char* bp = std::getenv("CLERIA_BULLET_PREVIEW")) {
+                    Projectile p;
+                    p.effect_id = std::atoi(bp);
+                    const char* comma = std::strchr(bp, ',');
+                    p.age = comma ? std::atoi(comma + 1) : 4;
+                    p.dir = {1, 0, 0};                       // flying +X, across the shot
+                    p.pos = {feet.x + 2.0f, feet.y + 1.0f, feet.z};   // ~chest height
+                    p.life = 60;
+                    std::vector<Projectile> shots{p};
+                    draw_projectiles(g, shots, asset_root, efl2, eft2, cview, dview,
+                                     cam.forward());
+                    std::printf("play: bullet preview effect %d age %d at (%.1f,%.1f,%.1f)\n",
+                                p.effect_id, p.age, p.pos.x, p.pos.y, p.pos.z);
+                }
+            }
         }
     }
     // Torch flames (SEF placements + the EF2 flipbook).
