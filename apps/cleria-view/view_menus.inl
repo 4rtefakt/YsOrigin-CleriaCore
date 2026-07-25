@@ -240,23 +240,29 @@ struct TitleFx {
     SpriteTex shopBack, shopFeena;                     // Bonus Shop: Back01.dds backdrop + t_400a.dds Feena key-art
     SpriteTex loadPlaque, savePlaque, wsvld;           // pause-book Save/Load: plaques + W_SVLD slot/tab plate
     // SQUARE.dds (tex 10) is a 512x256 ATLAS of four tiles, not a single cell graphic:
-    //   texels (0,0)-(54,54)     dark navy plain  -> the per-cell tile
-    //   texels (55,0)-(109,54)   blue glow
-    //   texels (0,102)-(64,166)  red hollow frame -> the grid cursor
-    //   texels (65,102)-(128,166) green glow
-    // (bounds measured from the file's alpha channel). Blitting the whole sheet into one
-    // cell is what produced the stray outlined squares over the equip page's weapon slot
-    // — every tile got squashed into the corner of the cell. Always pass a UV sub-rect.
+    // The top row runs on a 54.4-texel pitch (contiguous, no gutter); the second row holds
+    // two 64-texel tiles at y=102:
+    //   u 0      ..0.10625  v 0..0.2125             dark navy plain  -> the per-cell tile
+    //   u 0.10625..0.2125   v 0..0.2125             BLUE glow        -> "this is EQUIPPED"
+    //   texels (0,102)-(64,166)   red hollow frame  -> the HOVERED cell (the cursor)
+    //   texels (65,102)-(128,166) green glow           (role unknown, unused)
+    // Blitting the whole sheet into one cell is what produced the stray outlined squares
+    // over the equip page's weapon slot — every tile got squashed into the corner of the
+    // cell. Always pass a UV sub-rect.
     // The cell tile's UV is code-traced: FUN_005a7580 writes the 54.4 quad's UV as
     // (0, 0, 0.10625, 0.2125) = exactly texels (0,0)-(54.4,54.4). [C-DIS]
     static constexpr float kSqCellU0 = 0.0f,      kSqCellV0 = 0.0f;
     static constexpr float kSqCellU1 = 0.10625f,  kSqCellV1 = 0.2125f;
-    // The cursor tile's rect is the atlas measurement (64x64 at (0,102)) plus the retail
-    // screenshot, which shows a red frame around the focused cell — but WHICH tile the
-    // cursor draw picks was not traced in the exe. [H-med]
+    // Equipped marker: the tile one cell to the right, same 54.4 pitch.
+    static constexpr float kSqEqpU0 = 0.10625f,   kSqEqpV0 = 0.0f;
+    static constexpr float kSqEqpU1 = 0.2125f,    kSqEqpV1 = 0.2125f;
+    // Hover cursor: the 64x64 red frame at (0,102). Which tile each draw picks is NOT
+    // traced in the exe — the equipped/hover assignment is from the retail game, and the
+    // rects are exact atlas measurements. [H-med on the assignment, exact on the rects]
     static constexpr float kSqCurU0 = 0.0f,       kSqCurV0 = 0.3984375f;   // 102/256
     static constexpr float kSqCurU1 = 0.125f,     kSqCurV1 = 0.6484375f;   // 166/256
     SpriteTex square;          // SQUARE.dds (tex 10): the item/equip grid cell tile + cursor cell
+    SpriteTex squareEquip;     // ...same sheet, alpha pre-scaled to the equipped quad's 0x42
     SpriteTex blueHi;          // baked equipped/selected highlight quad (ARGB 0x4259999a)
     std::unordered_map<int, SpriteTex> iconCache;   // item-id -> MENU/ICON/<stem>.DDS (lazy, cached)
     SpriteTex portrait[3];     // CHRSELECT_PORTRAIT1/2/3 = Yunica / Hugo / Toal key art
@@ -378,7 +384,20 @@ struct TitleFx {
         { Dds w = load_dds(asset_root / "MENU" / "W_SVLD.DDS");
           if (w.ok()) wsvld = upload_rgba(g, w.width, w.height, w.data.data()); }
         { Dds w = load_dds(asset_root / "MENU" / "SQUARE.DDS");   // grid cell tile + cursor (tex 10)
-          if (w.ok()) square = upload_rgba(g, w.width, w.height, w.data.data()); }
+          if (w.ok()) {
+              square = upload_rgba(g, w.width, w.height, w.data.data());
+              // A second copy with the alpha pre-scaled by the equipped quad's diffuse
+              // alpha (0x4259999a -> 0x42 = 66/255). fs_char returns the TEXTURE's alpha
+              // and spends the vertex alpha channel on the white-tint, so there is no
+              // per-draw alpha multiplier to use — baking it into a dedicated texture is
+              // the only way to get the translucent "equipped" glow without touching the
+              // shared shader. RGB is left alone: modulating it toward the diffuse's
+              // rgb(0.35,0.60,0.60) shifted the hue away from the retail look.
+              std::vector<std::uint8_t> a = w.data;
+              for (std::size_t i = 3; i < a.size(); i += 4)
+                  a[i] = std::uint8_t(a[i] * 66 / 255);
+              squareEquip = upload_rgba(g, w.width, w.height, a.data());
+          } }
         // Equipped/selected highlight quad (0x4259999a ARGB = teal-blue (89,153,154) @ alpha 66).
         blueHi = solid(89, 153, 154, 66);
         // Character-select key art + fixed-pose chibi: index 1/2/3 (Yunica/Hugo/Toal); 0 is Adol (unused).
@@ -1020,15 +1039,35 @@ struct TitleFx {
             }
         }
         // 3. RIGHT equip grid plate (w_Equip: WEAPON/ARMOR/BOOTS/ACCESSORIES/SKILLS, content u0..0.811 v0..0.650)
+        constexpr float kPlateL = 438.0f, kPlateT = 67.0f, kPlateR = 844.0f, kPlateB = 386.0f;
+        constexpr float kPlateTexW = 0.811f * 512.0f, kPlateTexH = 0.650f * 512.0f;
         if (wequip.tex)
-            draw_screen_image(g, cview, dview, false, wequip, AX(438), AY(67), AX(844), AY(386),
+            draw_screen_image(g, cview, dview, false, wequip,
+                              AX(kPlateL), AY(kPlateT), AX(kPlateR), AY(kPlateB),
                               0.55f, 0.0f, 0.0f, 0.811f, 0.650f);
         // 4. equipped-item cells (PAUSEBOOK.md §7.2). The equipped WEAPON/ARMOR/BOOTS/ACCESSORIES sit in
-        //    column 0, rows 0-3 -> cell centres (483, 118.4/195.2/272.0/348.8); cell 54.4. Each equipped
-        //    cell gets a blue highlight quad (0x4259999a) under its icon. The owned-item grid + skills
-        //    cells are data-driven from runtime inventory state CleriaCore doesn't track yet (§7.4 gap).
+        //    column 0, rows 0-3. The owned-item grid + skills cells are data-driven from
+        //    runtime inventory state CleriaCore doesn't track yet (§7.4 gap).
+        // Cell centres, from FUN_005a7580's own arithmetic:
+        //     x = plateOrigin.x + 16.0 + col*64.0 + 4.8       (the 54.4 SQUARE quad's TL)
+        //     y = plateOrigin.y + 22.4 + row*76.8 + 4.8
+        // and the 51.2 icon quad uses 6.4 in place of 4.8, so both quads share the CENTRE
+        // plateOrigin + (48.0, 54.4) + (col*64.0, row*76.8). All six constants read from
+        // memory: DAT_006bd96c=16.0, DAT_006bd9a8=22.4, DAT_006bdaa8=64.0,
+        // DAT_006bdac4=76.8, DAT_006bd860=4.8, DAT_006bd89c=6.4. [C-DIS]
+        //
+        // Those offsets are in the plate's OWN space. Our plate rect (438,67)-(844,386) is
+        // still approximate — the art's baked cell pitch is (64, 76) texels against a
+        // design pitch of (64, 76.8), so a faithful plate would be drawn ~1:1 and ours is
+        // squashed ~2-4%. Rather than let the overlay drift off the art as row grows (the
+        // armour slot sat visibly low and left), map the traced offsets THROUGH the rect we
+        // actually draw, so the cells track the art whatever the rect ends up being.
         auto cellCenter = [](int col, int row, float& cx, float& cy) {
-            cx = 483.0f + col * 64.0f; cy = 118.4f + row * 76.8f; };
+            const float sx = (kPlateR - kPlateL) / kPlateTexW;
+            const float sy = (kPlateB - kPlateT) / kPlateTexH;
+            cx = kPlateL + (48.0f + col * 64.0f) * sx;
+            cy = kPlateT + (54.4f + row * 76.8f) * sy;
+        };
         auto drawIcon = [&](int id, float cx, float cy, float sz, float z) {
             const SpriteTex* t = icon(g, items, asset_root, id);
             if (t) draw_screen_image(g, cview, dview, false, *t, AX(cx - sz / 2), AY(cy - sz / 2),
@@ -1038,16 +1077,24 @@ struct TitleFx {
         for (int s = 0; s < 4; ++s) {
             if (equipIds[s] < 0) continue;
             float cx, cy; cellCenter(0, s, cx, cy);
-            if (blueHi.tex)   // equipped highlight quad (54.4), under the icon
-                draw_screen_image(g, cview, dview, false, blueHi, AX(cx - 27.2f), AY(cy - 27.2f),
-                                  AX(cx + 27.2f), AY(cy + 27.2f), 0.32f);
+            // "Equipped" marker (54.4), under the icon: the BLUE tile of SQUARE.dds, drawn
+            // from the alpha-scaled copy so it reads as a translucent glow rather than an
+            // opaque flood. The 0x42 alpha is the equipped quad's own diffuse from
+            // FUN_005a7580 (0x4259999a); its RGB is deliberately NOT applied — see the
+            // squareEquip upload.
+            if (squareEquip.tex)
+                draw_screen_image(g, cview, dview, false, squareEquip,
+                                  AX(cx - 27.2f), AY(cy - 27.2f),
+                                  AX(cx + 27.2f), AY(cy + 27.2f), 0.32f,
+                                  kSqEqpU0, kSqEqpV0, kSqEqpU1, kSqEqpV1);
             // FUN_005a7580 sizes the ITEM ICON quad 51.2 (`pfVar7[0x3b3..0x3b8] = 51.2`, its
             // texture the per-item handle `DAT_0074a958[id]` at full UV) and the SQUARE cell
             // quad 54.4 — the opposite of what we had. [C-DIS]
             drawIcon(equipIds[s], cx, cy, 51.2f, 0.3f);
         }
-        // Grid cursor cell (SQUARE.dds, 64.0): defaults to the weapon cell (col0,row0). e.selId's cell
-        // isn't tracked; the cursor marks the focused slot. One TILE of the atlas, never the sheet.
+        // Hover cursor (64, the red frame tile): defaults to the weapon cell (col0,row0).
+        // e.selId's cell isn't tracked, so the cursor marks the focused slot. One TILE of
+        // the atlas, never the whole sheet.
         if (square.tex) {
             float cx, cy; cellCenter(0, 0, cx, cy);
             draw_screen_image(g, cview, dview, false, square, AX(cx - 32.0f), AY(cy - 32.0f),
@@ -1155,9 +1202,10 @@ struct TitleFx {
                                   0.02f, 0.02f, 0.05f, 0.0f, false, d, d, d);
             }
             if (id >= 0) {
-                if (i == cursorCell && blueHi.tex)   // selected-item blue highlight (54.4)
-                    draw_screen_image(g, cview, dview, false, blueHi, AX(cx - 27.2f), AY(cy - 27.2f),
-                                      AX(cx + 27.2f), AY(cy + 27.2f), 0.32f);
+                // No blue "equipped" tile here: the blue marker means EQUIPPED, and this
+                // preview doesn't know which inventory entries are equipped. It used to be
+                // drawn on the CURSOR cell, which conflated hover with equipped — the hover
+                // state is the red frame below.
                 const SpriteTex* t = icon(g, items, asset_root, id);
                 if (t) draw_screen_image(g, cview, dview, false, *t, AX(cx - 27.2f), AY(cy - 27.2f),
                                          AX(cx + 27.2f), AY(cy + 27.2f), 0.3f);

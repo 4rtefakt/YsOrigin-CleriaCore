@@ -552,18 +552,23 @@ struct Hud {
         //   x = 126 + 40*i  (126/166/206/246), y = 676..716
         //   UV (0.921875,0.921875)..(1,1) = atlas px (472,472)..(512,512)
         // Builder D blits each equipped item's icon on top at (132+40i, 682) — a 6px
-        // inset — from a per-item texture handle array (DAT_0074a958[itemId]), NOT
-        // from the atlas. Unequipped slots are drawn greyed (tint & 0xff303030). We
+        // inset — at 32x32, from a per-item texture handle array (DAT_0074a958[itemId]),
+        // NOT from the atlas. Unequipped slots are drawn greyed (tint & 0xff303030). We
         // draw the empty frames, then blit each equipped icon on top.
         for (int i = 0; i < 4; ++i) {
             const Ar d{126.0f + 40.0f * i, 676.0f, 166.0f + 40.0f * i, 716.0f};
             sprite_a(m, d, kSlotFrame, sw, sh);
             equip_verts[i].clear();
             if (!equip_bind[i]) continue;
-            // Icon is 40x40 at +6,+6 from the frame — it overhangs the frame bottom-right
-            // by 6px, which is verbatim what the builder does; do not "correct" it.
+            // Icon is 32x32 at +6,+6 from the frame, so it sits INSIDE the 40x40 housing
+            // (132..164 within 126..166). Read from builder D, not assumed: FUN_0043fe00
+            // writes the quad's y as 0x442a8000 = 682.0 and its four size fields as
+            // 0x42000000 = 32.0 (0043fe87..0043fecc) — the same shape as the equip page's
+            // four 54.4 writes. HUD_PORTRAIT_SLOTS.md §2's "40x40 / {132,682,172,722}" is
+            // WRONG; a 40x40 icon overhangs the frame bottom-right by 6px, which the retail
+            // HUD does not do. [C-DIS]
             const float x0 = m.x(132.0f + 40.0f * i), y0 = m.y(682.0f);
-            const float x1 = m.x(172.0f + 40.0f * i), y1 = m.y(722.0f);
+            const float x1 = m.x(164.0f + 40.0f * i), y1 = m.y(714.0f);
             auto V = [&](float x, float y, float u, float v) {
                 equip_verts[i].push_back({x / float(sw) * 2.0f - 1.0f,
                                           1.0f - y / float(sh) * 2.0f, u, v, 255, 255, 255, 255});
