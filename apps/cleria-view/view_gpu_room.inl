@@ -230,6 +230,11 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     // enables. Hidden chests are then skipped entirely (model + interactable).
     std::unordered_set<std::string> box_whitelist;
     bool gates_box = false;
+    // What the room's own root script did to its objects at load: 0x175 poses (stepping
+    // stones UP/STOP, switch TURN_ON/OFF, a looted chest OPEN) and 0x173 placements.
+    // Collected from the SAME throwaway run that already gathers obj_enable/obj_opened.
+    ObjStates obj_states;
+    std::unordered_set<std::string> root_hidden;
     {
         fs::path scene_main = sob; scene_main.replace_extension(".XSO");
         if (fs::exists(scene_main)) {
@@ -238,7 +243,29 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                 XsoVm tmp;
                 if (base_flags) std::memcpy(tmp.g_flags, base_flags, sizeof(tmp.g_flags));
                 tmp.g_flags[150] = character;
+                // Follow the root's StartScript children. Their object bookkeeping is part
+                // of the room's load-time state: S_1004's root starts StepShadowUpdate,
+                // which is what binds each step_NN_shadow to its stone (op 0x188). Without
+                // following it a hidden stone leaves its shadow behind as a black quad.
+                // Collected by STATIC disassembly, not the on_start_script sink — that
+                // sink is coroutine-only by design ("run-to-completion never spawns"), and
+                // this load-time pass is run-to-completion. The child list is static data
+                // anyway: 0xb4's operand is a string-pool index.
+                std::vector<std::string> children;
+                for (const XsoInstr& in : sm.disasm()) {
+                    if (in.cls != 2 || in.ops.empty()) continue;
+                    if (in.sub == 0xb4) children.push_back(sm.string(in.ops[0]));
+                    else if (in.sub == 0xb8 && in.ops.size() >= 2)
+                        children.push_back(sm.string(in.ops[0]) + sm.string(in.ops[1]));
+                }
                 tmp.run(sm);
+                for (const std::string& nm : children) {
+                    std::string up = nm;
+                    for (char& c : up) c = char(std::toupper((unsigned char)c));
+                    const fs::path cp = sob.parent_path() / (up + ".XSO");
+                    if (!fs::exists(cp)) continue;
+                    try { tmp.run(Xso::parse(read_bytes(cp))); } catch (const std::exception&) {}
+                }
                 auto low = [](std::string s) { for (char& c : s) c = char(std::tolower((unsigned char)c)); return s; };
                 for (const std::string& s : tmp.obj_enable) {
                     std::string l = low(s); box_whitelist.insert(l);
@@ -246,6 +273,27 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                 }
                 for (const std::string& s : tmp.obj_opened)
                     if (low(s).rfind("box", 0) == 0) gates_box = true;
+                for (const auto& [nm, clip] : tmp.obj_state) obj_states.clip[low(nm)] = clip;
+                for (const auto& [nm, p2] : tmp.obj_place)
+                    obj_states.pos[low(nm)] = {p2.x, p2.y, p2.z};
+                // The root also hides objects outright (S_1004 drops stepping stones
+                // 04-06 for Yunica/Hugo). These were being discarded, so those rooms
+                // rendered every stone regardless of character.
+                for (const auto& [nm, shown] : tmp.obj_visible)
+                    if (!shown) root_hidden.insert(low(nm));
+                // A drop shadow (0x188) inherits its owner's fate: hidden with it, and
+                // moved with it (the shadow keeps its own Y — it lies on the floor).
+                for (const auto& [sh, owner] : tmp.obj_shadow_of) {
+                    const std::string ls = low(sh), lo = low(owner);
+                    if (root_hidden.count(lo)) root_hidden.insert(ls);
+                    auto pit = obj_states.pos.find(lo);
+                    if (pit != obj_states.pos.end()) {
+                        auto sit = obj_states.pos.find(ls);
+                        const float keepY = (sit != obj_states.pos.end()) ? sit->second[1]
+                                                                         : pit->second[1];
+                        obj_states.pos[ls] = {pit->second[0], keepY, pit->second[2]};
+                    }
+                }
             } catch (const std::exception&) {}
         }
     }
@@ -297,9 +345,11 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     // writes none, so it legitimately respawns on a fresh load, as in retail).
     if (extra_hidden)
         for (const std::string& n : *extra_hidden) hidden.insert(n);
+    for (const std::string& n : root_hidden) hidden.insert(n);
     r.load_effects = std::move(load_fx);
     r.mesh = build_room(asset_root, sob, gates_box ? &box_whitelist : nullptr,
-                        hidden.empty() ? nullptr : &hidden, base_flags);
+                        hidden.empty() ? nullptr : &hidden, base_flags,
+                        (obj_states.clip.empty() && obj_states.pos.empty()) ? nullptr : &obj_states);
     r.coll = build_collision(asset_root, sob, gates_box ? &box_whitelist : nullptr,
                              hidden.empty() ? nullptr : &hidden);
     // Materials that scroll their UVs. Only 397 of 6642 corpus-wide do, and the disk

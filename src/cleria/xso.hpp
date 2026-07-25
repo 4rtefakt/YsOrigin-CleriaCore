@@ -237,7 +237,17 @@ struct XsoVm {
     std::vector<int> items;     // give-item ids (sub-op 0x116)
     std::vector<int> acquires;  // "Acquired X" box item ids (sub-op 0xD5, operand 2)
     std::vector<std::string> obj_enable;  // 0x169: object names shown/spawned
-    std::vector<std::string> obj_opened;  // 0x175: object names set to opened state
+    std::vector<std::string> obj_opened;  // 0x175: object names given a state (legacy view)
+    // 0x175 in full: object name -> the YMO animation CLIP it was posed to ("OPEN" for a
+    // looted chest, "UP"/"STOP" for S_1004's stepping stones, "TURN_ON"/"OFF" for its switch).
+    std::unordered_map<std::string, std::string> obj_state;
+    // 0x173 Obj_SetPos: object name -> world position it was moved to.
+    struct ObjPos { float x, y, z; };
+    std::unordered_map<std::string, ObjPos> obj_place;
+    // 0x188 Obj_BindShadow: shadow object name -> the object it follows. A shadow must
+    // inherit its owner's visibility and placement, or hiding/moving a stepping stone
+    // leaves its drop shadow behind as a black quad on the floor.
+    std::unordered_map<std::string, std::string> obj_shadow_of;
     // 0x16B/0x16C: explicit object visibility, name -> shown. Several rooms place
     // multiple variants of one object at the same spot and let a script pick.
     std::unordered_map<std::string, bool> obj_visible;
@@ -275,6 +285,7 @@ struct XsoVm {
     void reset_run() {
         acc = 0; locals.clear(); grants.clear(); items.clear();
         acquires.clear(); obj_enable.clear(); obj_opened.clear(); obj_visible.clear();
+        obj_state.clear(); obj_place.clear(); obj_shadow_of.clear();
     }
 
     // NEW GAME flag initialization — faithful port of FUN_0041fd10 (the exe's own

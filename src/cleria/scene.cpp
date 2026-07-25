@@ -1,4 +1,5 @@
 #include "cleria/scene.hpp"
+#include <cstdio>
 
 #include <cstdlib>
 
@@ -79,10 +80,10 @@ RoomMesh build_model(const fs::path& asset_root, const fs::path& ymo_path,
 RoomMesh build_room(const fs::path& asset_root, const fs::path& sob_path,
                     const std::unordered_set<std::string>* box_whitelist,
                     const std::unordered_set<std::string>* hidden,
-                    const std::int32_t* open_flags) {
+                    const std::int32_t* open_flags, const ObjStates* states) {
     return build_room_objects(asset_root, Sob::parse(read_file(sob_path)),
                               sob_path.parent_path(), box_whitelist, hidden,
-                              false, nullptr, 0, open_flags);
+                              false, nullptr, 0, open_flags, states);
 }
 
 RoomMesh build_collision(const fs::path& asset_root, const fs::path& sob_path,
@@ -97,7 +98,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                             const std::unordered_set<std::string>* box_whitelist,
                             const std::unordered_set<std::string>* hidden,
                             bool collision, const char* clip_name, float frame,
-                            const std::int32_t* open_flags) {
+                            const std::int32_t* open_flags, const ObjStates* states) {
     RoomMesh out;
     out.bmin = {1e30f, 1e30f, 1e30f};
     out.bmax = {-1e30f, -1e30f, -1e30f};
@@ -174,6 +175,9 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         // (binding verified 62/62 across the corpus).
         std::string lname = o.name;
         for (char& c : lname) c = char(std::tolower((unsigned char)c));
+        if (std::getenv("CLERIA_OBJ"))
+            std::printf("  [obj] %-20s hidden=%d\n", lname.c_str(),
+                        hidden && hidden->count(lname) ? 1 : 0);
         if (hidden && hidden->count(lname)) continue;   // a script hid this variant
         const bool is_box = lname.rfind("box", 0) == 0 && lname.size() > 4 && lname[3] == '_';
         // Character gating: a whitelisted set hides non-listed chests entirely
@@ -265,7 +269,17 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             // Pose before appending: skin_point() reads the node world matrices.
             // An already-looted chest snaps to the final frame of its "OPEN" clip
             // (lid up); otherwise honour the caller's global clip (boss viewer).
-            if (box_pose_open) {
+            // A room script's 0x175 names the clip explicitly; that wins over the
+            // chest heuristic, since the chest case IS just 0x175(box, OPEN).
+            const std::string* want = nullptr;
+            if (states) {
+                auto it = states->clip.find(lname);
+                if (it != states->clip.end()) want = &it->second;
+            }
+            if (want) {
+                for (const AnimClip& c : model.clips)
+                    if (c.name == *want) { model.pose(c, float(c.frame_end)); break; }
+            } else if (box_pose_open) {
                 for (const AnimClip& c : model.clips)
                     if (c.name == "OPEN") { model.pose(c, float(c.frame_end)); break; }
             } else if (clip_name) {
@@ -273,7 +287,16 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                     if (c.name == clip_name) { model.pose(c, frame); break; }
             }
         } catch (const std::exception&) { ++out.missing; continue; }
-        const Mat4 place = o.world();
+        // 0x173 Obj_SetPos moved this object at load (S_1004 lays its stepping stones
+        // out per character). Rebuild the placement from the script's position, keeping
+        // the SOB's own rotation/scale.
+        SobObject po = o;
+        if (states) {
+            auto it = states->pos.find(lname);
+            if (it != states->pos.end())
+                po.position = {it->second[0], it->second[1], it->second[2]};
+        }
+        const Mat4 place = po.world();
         // Debug: CLERIA_MAT=1 dumps the fields the engine's render struct actually
         // reads (flags/blend/diffuse/scroll), plus all three texture slots.
         if (std::getenv("CLERIA_MAT"))

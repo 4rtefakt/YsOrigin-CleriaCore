@@ -372,8 +372,34 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         }
                     } else if (sub == 0x169) {   // enable/show object (name = string op0)
                         obj_enable.push_back(script.string(op(0)));
-                    } else if (sub == 0x175) {   // set object to opened state (name op0)
+                    } else if (sub == 0x175) {
+                        // Obj_SetState(objName, stateName, ?, ?) — BOTH operands are
+                        // string-pool indices, and the second is a YMO ANIMATION CLIP name.
+                        // Long read as "set to opened" because every early site was a chest
+                        // (`0x175(box, OPEN, 0, -1)`), but S_1004's root uses the same op for
+                        // its stepping stones and switch: `0x175(step00, UP)`, `(step00, STOP)`,
+                        // `(switch01, TURN_ON)`, `(switch01, OFF)` — pool entries 10..13. So it
+                        // is a general "pose this object to this named clip".
                         obj_opened.push_back(script.string(op(0)));
+                        if (nargs >= 2) obj_state[script.string(op(0))] = script.string(op(1));
+                    } else if (sub == 0x188 && nargs >= 2) {
+                        // Obj_BindShadow(shadowName, ownerName, height, alpha) — declares the
+                        // first object to be the second's projected drop shadow; the paired
+                        // 0x189 gives its follow params. S_1004's STEPSHADOWUPDATE binds each
+                        // step_NN_shadow to its stepNN, so a stone the root hid or moved must
+                        // take its shadow with it (otherwise a hidden stone leaves a black
+                        // shadow quad on the floor).
+                        obj_shadow_of[script.string(op(0))] = script.string(op(1));
+                    } else if (sub == 0x173 && nargs >= 4) {
+                        // Obj_SetPos(objName, x, y, z) — float BIT PATTERNS, as 0x12c's are.
+                        // S_1004 lays its stepping stones out per character with this (Toal
+                        // gets 7 stones, Yunica/Hugo 4 in different places), so without it the
+                        // room shows whatever the SOB authored rather than the live layout.
+                        auto f = [&](std::uint32_t i) {
+                            float v; const std::uint32_t raw = std::uint32_t(op(i));
+                            std::memcpy(&v, &raw, 4); return v;
+                        };
+                        obj_place[script.string(op(0))] = {f(1), f(2), f(3)};
                     } else if ((sub == 0x16B || sub == 0x16C) && nargs >= 2) {
                         // Object visibility: (string_pool_index, 0|1). Verified in
                         // S_SAVEOBJECTCHANGE.XSO, whose pool is [save_01, save_02,

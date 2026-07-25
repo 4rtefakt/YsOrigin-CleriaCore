@@ -1,9 +1,11 @@
 // Room assembly: turn a SOB + its referenced YMOs into GPU-ready geometry plus
 // per-material draw batches. Shared by cleria-dump, cleria-view, future tools.
 #pragma once
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -91,11 +93,19 @@ struct RoomMesh {
 // `hidden` (lower-cased object names) drops those objects entirely. Some rooms
 // stack several variants of one object at a single spot — e.g. S_1000 places
 // save_01/02/03 together — and a script picks which one is visible.
+// Per-object overrides a room script applied at load: 0x175 poses an object to a named
+// YMO clip, 0x173 moves it. Keyed by the SOB object name, lower-cased by the caller.
+struct ObjStates {
+    std::unordered_map<std::string, std::string> clip;   // 0x175 name -> clip
+    std::unordered_map<std::string, std::array<float, 3>> pos;  // 0x173 name -> world pos
+};
+
 RoomMesh build_room(const std::filesystem::path& asset_root,
                     const std::filesystem::path& sob_path,
                     const std::unordered_set<std::string>* box_whitelist = nullptr,
                     const std::unordered_set<std::string>* hidden = nullptr,
-                    const std::int32_t* open_flags = nullptr);
+                    const std::int32_t* open_flags = nullptr,
+                    const ObjStates* states = nullptr);
 
 // Build a mesh from a single YMO at the origin — for models no SOB places, such
 // as the bosses under ENEMY/ (their paths are hardcoded in the exe).
@@ -129,6 +139,7 @@ RoomMesh build_room_objects(const std::filesystem::path& asset_root, const Sob& 
                             const std::unordered_set<std::string>* hidden = nullptr,
                             bool collision = false,
                             const char* clip_name = nullptr, float frame = 0,
-                            const std::int32_t* open_flags = nullptr);
+                            const std::int32_t* open_flags = nullptr,
+                            const ObjStates* states = nullptr);
 
 }  // namespace cleria
