@@ -330,6 +330,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // releasing control once the swing stops animating.
     long atk_frame_key = -1;
     int atk_stall = 0;
+    // The combo stage — the engine's `actor+0x6f0`, an index into the per-character
+    // attack-section table (build/combat_re/COMBO_CHAIN.md). `combo_idle` stands in for
+    // the engine's `+0x6fc` post-attack counter that drops the chain back to hit #1.
+    int combo_stage = 0;
+    int combo_idle = 0;
     // Projectiles. The effect registries resolve a bullet's eftlist id to its real
     // EF2 and texture; without them bullets simply do not spawn (rather than draw
     // something invented).
@@ -1320,47 +1325,36 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Measured from the scripts: Yunica's combo #1 roots her (Movable 0) and opens its
     // cancel window at tick 21, Hugo's at tick 9 while he keeps full movement, Toal's at
     // tick 10 with an 8-frame box and a slow drift. See build/attack_re/ATTACK.md.
-    // A character's real combo sections: the ids in [0x100,0x110) that actually arm a
-    // hitbox or fire a bullet, ascending. The dud sections in between (Hugo's 257/258/…
-    // do neither) must be SKIPPED — chaining to the literal next id lands on one and
-    // stalls him after a single shot. Found by running each section briefly, cached per
-    // character; the combo just walks this list, wrapping.
-    auto combo_sections = [&](int chr) -> const std::vector<int>& {
-        static std::unordered_map<int, std::vector<int>> cache;
-        auto it = cache.find(chr);
-        if (it != cache.end()) return it->second;
-        std::vector<int>& out = cache[chr];
-        for (const Aso::Section& s : aso.sections()) {
-            if (s.id < 0x100 || s.id >= 0x110) continue;
-            AsoVm probe;
-            probe.bind(&aso);
-            if (!probe.set_section(s.id, /*force*/true)) continue;
-            bool real = false;
-            for (int t = 0; t < 150 && !real; ++t) {
-                probe.tick();
-                if (probe.armed_hitbox() || !probe.bullets().empty()) real = true;
-            }
-            if (real) out.push_back(s.id);
-        }
-        std::sort(out.begin(), out.end());
-        return out;
+    // The combo order is DATA, not a walk over the section ids. The engine reads
+    //     section = comboTable[character][actor+0x6f0]
+    // at 0x0046ef96..0x0046efb0, where the table pointer comes from 0x00732664[character]
+    // and the chain length from the byte array 0x00732678[character] = {6,4,2,5}.
+    // Decoded in build/combat_re/COMBO_CHAIN.md; `character` here is the same 1/2/3
+    // Yunica/Hugo/Toal id the engine keeps in DAT_0076bb74. Index 0 is the unlockable
+    // fourth form (its script is not one of C_010/020/030) — carried for completeness.
+    // This replaces the old probe-and-upper_bound guess, which got both the ORDER
+    // (0x100->0x101 instead of 0x100->0x103) and the LENGTH wrong, and which stalled
+    // Hugo because his 0x101/0x102/0x104/0x105 are empty 4-dword stubs.
+    static constexpr std::int32_t kComboTable[4][7] = {
+        {0x100, 0x103, 0x104, 0x101, 0x102, 0x105, 0x109},   // 0: unlockable form
+        {0x100, 0x103, 0x104, 0x101, 0x106, 0x107, 0x108},   // 1: Yunica
+        {0x100, 0x103,     0,     0,     0,     0,     0},   // 2: Hugo — two shots
+        {0x100, 0x103, 0x104, 0x101, 0x102,     0,     0},   // 3: Toal
     };
+    static constexpr int kComboLen[4] = {6, 4, 2, 5};
     auto try_attack = [&] {
         const bool swinging = avm.section() >= 0x100;
         if (swinging && !avm.cancelable()) return;   // committed to the current swing
-        const std::vector<int>& combo = combo_sections(character);
-        if (combo.empty()) return;
-        std::int32_t next = combo.front();
-        if (swinging) {
-            // Advance to the next real section after the current one, wrapping. For Hugo
-            // that is 0x100->0x103->0x106->…, a bullet on each; for Yunica/Toal the melee
-            // combo. This is NOT the game's authored combo order (which lives in the
-            // script's own AttackReserve branches, not run here) — but each step is a
-            // genuine attack, and the recovery-stall release keeps it from ever sticking.
-            auto p = std::upper_bound(combo.begin(), combo.end(), int(avm.section()));
-            next = (p != combo.end()) ? *p : combo.front();
-        }
+        const int chr = (character >= 0 && character < 4) ? character : 1;
+        const int len = kComboLen[chr];
+        if (combo_stage >= len) combo_stage = 0;
+        const std::int32_t next = kComboTable[chr][combo_stage];
         if (!avm.set_section(next, /*force*/true)) return;
+        // The stage advances AFTER the section is played, and WRAPS rather than stalling
+        // (0x0046f351: ++stage; 0x0046f5a5: if (stage >= len) stage = 0) — holding the
+        // button cycles the chain forever, which is what the game does.
+        combo_stage = (combo_stage + 1 >= len) ? 0 : combo_stage + 1;
+        combo_idle = 0;
         atk_dir = face_dir;         // the swing points where you're facing
         atk_hit.clear();
     };
@@ -2430,9 +2424,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const long fk = (long(avm.anim_tag()) << 20) ^ avm.frame();
                 atk_stall = (fk == atk_frame_key) ? atk_stall + 1 : 0;
                 atk_frame_key = fk;
+                combo_idle = 0;
             } else {
                 atk_stall = 0;
                 atk_frame_key = -1;
+                // Drop the chain back to hit #1 once the player has been out of an attack
+                // for the engine's post-attack window: FUN_00465170 increments +0x6fc each
+                // tick and, past 10, plays section 0x124 and clears the stage +0x6f0
+                // (COMBO_CHAIN.md §2b). The counter and the 10 are [C-DIS]; that this is
+                // THE combo window is [H-med].
+                if (combo_stage != 0 && ++combo_idle > 10) { combo_stage = 0; combo_idle = 0; }
             }
             // Attack sections hold on their last frame rather than falling off the end,
             // so locomotion takes back over on the script's cancel window OR, for the
