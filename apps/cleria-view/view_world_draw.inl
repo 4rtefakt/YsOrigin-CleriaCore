@@ -419,7 +419,8 @@ struct BulletArt {
         bool face_cam = true;
         // B1+0x48[2] — this emitter's height offset above the effect's placed origin.
         float hoff = 0;   // B1+0x48[2] * effect scale, added to the effect's Y
-        std::uint32_t orient = 0;   // B2+0x44: 0 camera-facing, 1 world-oriented (flat)
+        std::uint32_t orient = 0;   // B2+0x44: 0 camera-facing, 1 world-oriented
+        bool flat = false;          // quad lies in the world XZ plane (see Ef2Emitter::flat)
         // Ring primitive (EF2_RENDER.md §A): a flat horizontal annulus in world XZ, not a
         // billboard — the kekkai ward. Segments + radii + Y come straight from the EF2.
         bool ring = false;
@@ -469,6 +470,7 @@ static const BulletArt& bullet_art(Gpu& g, const fs::path& asset_root, const Eft
         L.face_cam = em.face_cam;
         L.hoff = em.off[2];
         L.orient = em.orient;
+        L.flat = em.flat;
         L.ring = em.ring;
         L.ring_segs = em.ring_segs;
         L.ring_outer = em.ring_outer;
@@ -662,7 +664,7 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
                     const std::uint32_t t0 = std::uint32_t(2 * i), b0 = t0 + 1, t1 = t0 + 2, b1 = t0 + 3;
                     idx.insert(idx.end(), {t0, b0, t1, t1, b0, b1});
                 }
-            } else if (L.orient == 1) {
+            } else if (L.flat) {
                 // WORLD-ORIENTED quad (B2+0x44 == 1), drawn FLAT in the world XZ plane.
                 // This is the ward's magenta ring: MAP_KEKKAI emitters 7 and 8 are
                 // BARIARING01.DDS, a texture that is literally a purple annulus, and they

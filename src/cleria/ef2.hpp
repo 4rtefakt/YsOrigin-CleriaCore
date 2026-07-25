@@ -75,6 +75,18 @@ struct Ef2Emitter {
     // MAP_KEKKAI: 1 on exactly its cylinder + its two BARIARING01 rings, 0 on every upright
     // glow. SAVE_MEGAMIZOU01: 0 on all its glows (one 2). PC2_DEF_ATTACK: 1 on its bolts.
     std::uint32_t orient = 0;
+    // True when this emitter's quad lies FLAT in the world XZ plane rather than facing the
+    // camera. There is no per-emitter flag for it: MAP_KEKKAI's flat ground pool (em3) and
+    // SAVE_MEGAMIZOU01's upright glow (em1) have byte-identical B1/B2 apart from texture,
+    // UVs, scale and height. What separates them is that a flat quad needs a SECOND in-plane
+    // extent, so its author sets sz; an upright XY quad only uses sx/sy and leaves sz at the
+    // default 1.0. Checked against both retail frames:
+    //   MAP_KEKKAI       sz != 1 on em1,2,3,4,6,7,8 -> ground pool + both rings lie flat;
+    //                    em5 (sz 1) stays upright as the column.
+    //   SAVE_MEGAMIZOU01 sz == 1 on em0,1,2,3 -> wings, envelope and column upright;
+    //                    em4 (sz 3.5, height -0.2) lies flat as the floor pool.
+    // A heuristic on authored data, NOT a decoded flag. [H-med]
+    bool flat = false;
     // B1+0x48 local offset triple. Its THIRD component is a world-height offset: it is the
     // only field separating MAP_KEKKAI's two otherwise byte-identical ring emitters (0.65
     // vs 0.40 — the ward's two concentric bands, with its cylinder at 0.50), and in
