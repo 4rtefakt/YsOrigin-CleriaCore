@@ -229,6 +229,8 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                     p.effect_id = std::atoi(bp);
                     const char* comma = std::strchr(bp, ',');
                     p.age = comma ? std::atoi(comma + 1) : 4;
+                    const char* c2 = comma ? std::strchr(comma + 1, ',') : nullptr;
+                    if (c2) p.scale = float(std::atof(c2 + 1));
                     p.dir = {1, 0, 0};                       // flying +X, across the shot
                     p.pos = {feet.x + 2.0f, feet.y + 1.0f, feet.z};   // ~chest height
                     p.life = 60;
