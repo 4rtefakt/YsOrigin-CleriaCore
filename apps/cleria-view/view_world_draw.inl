@@ -401,7 +401,15 @@ struct BulletArt {
     struct Layer {
         SpriteTex tex;
         std::vector<Ef2Frame> frames;   // UV rect per frame, from the EF2
-        float w = 1, h = 1;             // emitter scale
+        // Emitter scale (EF2 B1+0x28). For a NON-ring emitter the mesh is the unit quad at
+        // B1+0x7c — verified to be exactly (±0.5, ±0.5, 0) in every player/effect EF2 — so
+        // the world half-size is 0.5*w and 0.5*h. sx/sy is therefore a genuine SPRITE SIZE
+        // here, not the particle emission area it is on the ring/ward path; see
+        // build/effect_re/EF2_BULLET_ART.md §1. Do NOT apply a kGlowArea-style shrink.
+        float w = 1, h = 1;
+        // Packed D3D render-state word B2+0x08, bit 0x80: set = additive (DST=ONE),
+        // clear = alpha (DST=INVSRCALPHA). EF2_RENDER.md §A.3.
+        bool additive = true;
         // Ring primitive (EF2_RENDER.md §A): a flat horizontal annulus in world XZ, not a
         // billboard — the kekkai ward. Segments + radii + Y come straight from the EF2.
         bool ring = false;
@@ -447,6 +455,7 @@ static const BulletArt& bullet_art(Gpu& g, const fs::path& asset_root, const Eft
         L.frames = em.frames;
         L.w = em.sx;
         L.h = em.sy;
+        L.additive = em.additive;
         L.ring = em.ring;
         L.ring_segs = em.ring_segs;
         L.ring_outer = em.ring_outer;
@@ -527,7 +536,11 @@ static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
             rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
             rp.depthStencilAttachment = &da;
             WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-            wgpuRenderPassEncoderSetPipeline(pass, g.fx_pipeline);
+            // Blend comes from the emitter's own render-state word, not from an assumption:
+            // additive (fx) when B2+0x08 & 0x80, alpha-over (char) otherwise. Every emitter
+            // of PC2_DEF_ATTACK is 0x46c1/0xc6c1 = additive, so Hugo looks the same — but a
+            // bullet whose art is alpha-blended no longer renders as a glow.
+            wgpuRenderPassEncoderSetPipeline(pass, L.additive ? g.fx_pipeline : g.char_pipeline);
             wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
             wgpuRenderPassEncoderSetBindGroup(pass, 1, L.tex.bind, 0, nullptr);
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
