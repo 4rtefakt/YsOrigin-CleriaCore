@@ -145,6 +145,7 @@ Ef2 Ef2::load(const fs::path& file) {
         std::memcpy(&em.sx, b.data() + o1 + 0x28, 4);
         std::memcpy(&em.sy, b.data() + o1 + 0x2c, 4);
         std::memcpy(&em.sz, b.data() + o1 + 0x30, 4);
+        std::memcpy(em.off, b.data() + o1 + 0x48, 12);
         // Orientation mode (B2+0x00) + blend (B2+0x08), EF2_RENDER.md §A. Bit 0x8 => the
         // procedural flat ring (params in the B2 tail at +0x8f8..+0x904); bit 0x80 of the
         // packed render-state word => additive.
@@ -153,6 +154,7 @@ Ef2 Ef2::load(const fs::path& file) {
         std::memcpy(&mode, b.data() + o2 + 0x00, 2);
         std::memcpy(&blend, b.data() + o2 + 0x08, 4);
         em.additive = (blend & 0x80) != 0;
+        em.face_cam = (mode & 0x100) != 0;
         if ((mode & 0x8) != 0) {
             em.ring = true;
             std::memcpy(&em.ring_segs, b.data() + o2 + 0x8f8, 4);

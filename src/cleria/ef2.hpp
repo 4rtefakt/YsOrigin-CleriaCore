@@ -65,6 +65,17 @@ struct Ef2Emitter {
     int ring_segs = 0;
     float ring_outer = 0, ring_inner = 0, ring_height = 0;
     bool additive = false;
+    // B2+0x00 bit 0x100: the quad is CAMERA-FACING. Clear = a world-fixed quad, which is
+    // how MAP_KEKKAI's two BARIARING01 emitters (7 and 8 — the ward's magenta ring) are
+    // authored, against bit 0x100 being set on its camera-facing glow emitters.
+    bool face_cam = false;
+    // B1+0x48 local offset triple. Its THIRD component is a world-height offset: it is the
+    // only field separating MAP_KEKKAI's two otherwise byte-identical ring emitters (0.65
+    // vs 0.40 — the ward's two concentric bands, with its cylinder at 0.50), and in
+    // SAVE_MEGAMIZOU01 it puts the statue's wing glow at 1.5 and its floor pool at -0.2.
+    // Whether the triple is (x,y,z) in a rotated local space was NOT traced — only that
+    // off[2] behaves as height, across three independent effects. [H-high]
+    float off[3] = {0, 0, 0};
     bool textured() const { return !frames.empty(); }
 };
 

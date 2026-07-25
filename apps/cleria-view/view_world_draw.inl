@@ -410,6 +410,15 @@ struct BulletArt {
         // Packed D3D render-state word B2+0x08, bit 0x80: set = additive (DST=ONE),
         // clear = alpha (DST=INVSRCALPHA). EF2_RENDER.md §A.3.
         bool additive = true;
+        // B2+0x00 bit 0x100 — EF2_RENDER.md §A.4's candidate "camera-facing" flag. Parsed
+        // and carried, but NOT acted on: it does not separate the cases. MAP_KEKKAI's two
+        // BARIARING01 ring emitters (7, 8) and SAVE_MEGAMIZOU01's big glow emitters (1, 3,
+        // 4) are all mode 0x0001, yet the ward's rings clearly lie FLAT in the retail frame
+        // while the statue's glows clearly stand UP. Drawing every 0x100-clear emitter flat
+        // reproduced the ward and destroyed the statue. The real discriminator is unknown.
+        bool face_cam = true;
+        // B1+0x48[2] — this emitter's height offset above the effect's placed origin.
+        float hoff = 0;   // B1+0x48[2] * effect scale, added to the effect's Y
         // Ring primitive (EF2_RENDER.md §A): a flat horizontal annulus in world XZ, not a
         // billboard — the kekkai ward. Segments + radii + Y come straight from the EF2.
         bool ring = false;
@@ -456,6 +465,8 @@ static const BulletArt& bullet_art(Gpu& g, const fs::path& asset_root, const Eft
         L.w = em.sx;
         L.h = em.sy;
         L.additive = em.additive;
+        L.face_cam = em.face_cam;
+        L.hoff = em.off[2];
         L.ring = em.ring;
         L.ring_segs = em.ring_segs;
         L.ring_outer = em.ring_outer;
@@ -621,6 +632,11 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
                                     int(std::size_t(age) * L.frames.size() /
                                         std::size_t(std::max(1, art.life))));
             const Ef2Frame& fr = L.frames[std::size_t(fi)];
+            // Each emitter sits at its own height above the effect's placed origin
+            // (B1+0x48[2], scaled by the locate op's effect scale). This is what stacks
+            // the ward's bands (cylinder 0.50, rings 0.65 and 0.40) and what lifts the
+            // statue's wing glow off its floor pool.
+            const float ey = e.y + L.hoff * scale;
             std::vector<RoomVertex> verts;
             std::vector<std::uint32_t> idx;
             if (L.ring && L.ring_segs >= 1) {
@@ -634,9 +650,9 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
                     const float a = float(i) * 6.2831853f / float(N);
                     const float s = std::sin(a), c = std::cos(a);
                     const float u = fr.u0 + (fr.u1 - fr.u0) * (float(i) / float(N));  // around the ring
-                    verts.push_back({e.x + (s - c) * Rtop * radXZ, e.y + hh * radY,
+                    verts.push_back({e.x + (s - c) * Rtop * radXZ, ey + hh * radY,
                                      e.z + (s + c) * Rtop * radXZ, 0, 1, 0, u, fr.v0, 255, 255, 255, 255});
-                    verts.push_back({e.x + (s - c) * Rbot * radXZ, e.y - hh * radY,
+                    verts.push_back({e.x + (s - c) * Rbot * radXZ, ey - hh * radY,
                                      e.z + (s + c) * Rbot * radXZ, 0, 1, 0, u, fr.v1, 255, 255, 255, 255});
                 }
                 idx.reserve(std::size_t(N) * 6);
@@ -656,7 +672,7 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
                 // a real EF2 particle emitter exists, NOT an RE'd value.
                 constexpr float kGlowArea = 0.34f;
                 const float hw = L.w * scale * 0.5f * kGlowArea, ht = L.h * scale * kGlowArea;
-                const Vec3 c = {e.x, e.y, e.z};
+                const Vec3 c = {e.x, ey, e.z};
                 auto V = [&](float rx, float uy01, float u, float v) -> RoomVertex {
                     return {c.x + rightH.x * rx * hw, c.y + uy01 * ht, c.z + rightH.z * rx * hw,
                             0, 1, 0, u, v, 255, 255, 255, 255};
