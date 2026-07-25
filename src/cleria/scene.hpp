@@ -53,12 +53,28 @@ struct Interactable {
     int opened_flag = -1;          // g_flags index its guard tests (chest identity)
 };
 
+// A scene object that reacts to the world rather than to the action button: the SOB
+// behaviour block's trigger classes 1 (attackable — pots and other breakables) and 2
+// (step-on plates). Class 8 (action button) stays an Interactable; class 4/6 (touch
+// volumes and spike damage) ride the same record and are carried here for later use.
+struct SceneTrigger {
+    std::string name;
+    Vec3 position;
+    Vec3 aabb_min{}, aabb_max{};   // world-space bounds of this object's geometry
+    int trigger = 0;               // SOB +0x150 bitfield
+    std::string script;            // resolved absolute XSO path ("" if unresolved)
+    std::string script_stem;       // as authored ('@' = MAP/S_COMMON)
+    int i0 = 0, i1 = 0;            // -> the script's $I0/$I1 (break drops, spike damage)
+    float f0 = 0;                  // -> $F0
+};
+
 struct RoomMesh {
     std::vector<RoomVertex> vertices;
     std::vector<std::uint32_t> indices;
     std::vector<DrawBatch> batches;
     std::vector<std::string> textures;  // resolved absolute DDS paths (see scene.cpp)
     std::vector<Interactable> interactables;
+    std::vector<SceneTrigger> triggers;   // breakables + step plates (SOB +0x150)
     // Collision meshes only (build_collision): the material name per triangle is
     // the physical SURFACE TYPE — "stone", "wood", "water", "ice", plus the control
     // names "stopper" (invisible wall) and "door". `tri_surface` has one entry per

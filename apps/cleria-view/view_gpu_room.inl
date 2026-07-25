@@ -208,7 +208,8 @@ static void free_room(Room& r, WGPUBindGroup shared_white) {
 
 // Load a room's geometry, textures and SEN into fresh GPU resources.
 static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
-                      const std::int32_t* base_flags = nullptr, int character = 1) {
+                      const std::int32_t* base_flags = nullptr, int character = 1,
+                      const std::unordered_set<std::string>* extra_hidden = nullptr) {
     Room r;
     r.name = sob.stem().string();
     r.dir = sob.parent_path();
@@ -263,6 +264,11 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
             } catch (const std::exception&) {}
         }
     }
+    // Objects the player has already destroyed this session are hidden the same way the
+    // statue's losing variants are (a breakable has no opened-flag of its own — @Break_*
+    // writes none, so it legitimately respawns on a fresh load, as in retail).
+    if (extra_hidden)
+        for (const std::string& n : *extra_hidden) hidden.insert(n);
     r.mesh = build_room(asset_root, sob, gates_box ? &box_whitelist : nullptr,
                         hidden.empty() ? nullptr : &hidden, base_flags);
     r.coll = build_collision(asset_root, sob, gates_box ? &box_whitelist : nullptr,

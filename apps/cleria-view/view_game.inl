@@ -756,10 +756,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // rerun_events=false rebuilds ONLY the visual mesh (statue model swap) without re-running
     // the room's event scripts — safe to call mid-cutscene (the goddess-cleanse swap happens
     // while the world is frozen, and re-running events then would restart BATTLESTART etc.).
+    // Objects destroyed this session (SOB trigger class 1). Breakables carry no opened-flag
+    // — @Break_* writes none — so this is deliberately session-scoped, matching retail where
+    // pots respawn when you re-enter from a load.
+    std::unordered_set<std::string> broken_objects;
+    std::unordered_set<std::string> plates_armed;   // step plates the player is standing off
     auto reload_room = [&](bool rerun_events = true) {
         auto it = g.sob_index.find(room.name);
         if (it == g.sob_index.end()) return;
-        Room next = load_room(g, asset_root, it->second, game.g_flags, character);
+        Room next = load_room(g, asset_root, it->second, game.g_flags, character,
+                              broken_objects.empty() ? nullptr : &broken_objects);
         free_room(room, g.white_bind);
         room = std::move(next);
         if (rerun_events) room_events_dirty = true;   // re-run scripts for the re-gated room
@@ -2177,7 +2183,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const Vec3 c = {feet.x + atk_dir.x * atk_hb.radius, feet.y + kCharH * 0.5f,
                                 feet.z + atk_dir.z * atk_hb.radius};
                 const float rr = atk_hb.radius + kCharRadius;  // box radius + enemy radius
-                int killed = 0;
+                int killed = 0, broke = 0;
                 for (Actor& en : world.actors()) {
                     if (en.is_player() || !en.alive() || atk_hit.count(en.instance_id)) continue;
                     const float dx = en.pos.x - c.x, dz = en.pos.z - c.z;
@@ -2213,6 +2219,34 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             sfx_at(id, en.pos, kSfxAnimVol);
                     }
                 }
+                // BREAKABLES (SOB trigger class 1 with a script): the same swing volume also
+                // tests the room's attackable scene objects. @Break_* is a one-hit break —
+                // no SOB field holds HP, and Mesh_SetHp is called by none of the shipped
+                // scripts — then it plays SE 114, rolls each of its two $I drop slots and
+                // fades the mesh out. The roll rate is the script's own: @Break_5 20%,
+                // @Break_30 50%, @Break_100 always.
+                for (const SceneTrigger& t : room.mesh.triggers) {
+                    if (!(t.trigger & 1) || broken_objects.count(t.name)) continue;
+                    // Sphere vs the object's world AABB.
+                    const float qx = std::max(t.aabb_min.x, std::min(c.x, t.aabb_max.x));
+                    const float qy = std::max(t.aabb_min.y, std::min(c.y, t.aabb_max.y));
+                    const float qz = std::max(t.aabb_min.z, std::min(c.z, t.aabb_max.z));
+                    const float ddx = c.x - qx, ddy = c.y - qy, ddz = c.z - qz;
+                    if (ddx * ddx + ddy * ddy + ddz * ddz > atk_hb.radius * atk_hb.radius) continue;
+                    broken_objects.insert(t.name);
+                    sfx_at(114, t.position, kSfxAnimVol);      // the shatter SE
+                    int pct = 50;                               // @Break_30
+                    if (t.script_stem.find("_5") != std::string::npos) pct = 20;
+                    if (t.script_stem.find("_100") != std::string::npos) pct = 100;
+                    for (int slot : {t.i0, t.i1}) {
+                        if (slot <= 0) continue;
+                        if (pct < 100 && rng_pct(rng) >= float(pct)) continue;
+                        if (slot >= 0 && slot < 0x200) game.item_arr[slot] = 1;
+                        hud.message(items_tbl.name(slot));
+                    }
+                    ++broke;
+                }
+                if (broke) reload_room(/*rerun_events*/false);   // drop the shattered mesh
                 if (killed) {
                     int left = 0;
                     for (const Actor& en : world.actors())
@@ -2229,6 +2263,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // GenerateCollision box, armed on the swing frame in the brain above — not from
             // touching it. player_def is the lv1 curve; no equipment model.
             if (player_iframes > 0) --player_iframes;
+            // STEP PLATES (SOB trigger class 2): the plate's script fires when the player
+            // steps ON it, and re-arms only after stepping OFF — the engine does that with
+            // Mesh_EnableEvent(off) ... Wait_ChrLeaveMesh ... Mesh_EnableEvent(on), which
+            // this arm/disarm pair reproduces without needing the wait op.
+            if (events_enabled)
+                for (const SceneTrigger& t : room.mesh.triggers) {
+                    if (!(t.trigger & 2) || t.script.empty()) continue;
+                    const float pad = kCharRadius;
+                    const bool on = feet.x >= t.aabb_min.x - pad && feet.x <= t.aabb_max.x + pad &&
+                                    feet.z >= t.aabb_min.z - pad && feet.z <= t.aabb_max.z + pad &&
+                                    feet.y >= t.aabb_min.y - 1.0f && feet.y <= t.aabb_max.y + 2.0f;
+                    const bool armed = plates_armed.count(t.name) == 0;   // absent = armed
+                    if (on && armed) {
+                        plates_armed.insert(t.name);                      // disarm
+                        fs::path sp(t.script);
+                        std::string stem = sp.stem().string();
+                        for (char& ch : stem) ch = char(std::tolower((unsigned char)ch));
+                        if (csMgr.start(stem))
+                            std::printf("  [plate] %s -> %s\n", t.name.c_str(), stem.c_str());
+                    } else if (!on && !armed) {
+                        plates_armed.erase(t.name);                       // re-arm on leave
+                    }
+                }
             // Boost drain (FUN_00462c40): the gauge falls ~30/tick on Normal, so a Boost runs
             // ~1000 frames (~16.7 s). At zero the mode clears and the player drops to idle.
             if (player.boosting) {

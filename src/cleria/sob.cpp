@@ -40,6 +40,19 @@ Sob Sob::parse(std::span<const std::uint8_t> b) {
         o.rotation = vec3(r + 0x110);
         o.scale = vec3(r + 0x11C);
         o.name = cstr(r + 0x128, 0x20);
+        auto i32 = [&](std::size_t at) {
+            std::int32_t v;
+            std::memcpy(&v, b.data() + at, 4);
+            return v;
+        };
+        o.rflags = i32(r + 0x14C);
+        o.trigger = i32(r + 0x150);
+        o.enabled = i32(r + 0x154);
+        o.i0 = i32(r + 0x160);
+        o.i1 = i32(r + 0x164);
+        std::memcpy(&o.f0, b.data() + r + 0x1C8, 4);
+        o.script = cstr(r + 0x188, 0x20);
+        o.label = cstr(r + 0x1A8, 0x20);
         s.objects.push_back(std::move(o));
     }
     return s;

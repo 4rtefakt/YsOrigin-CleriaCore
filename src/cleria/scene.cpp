@@ -226,6 +226,31 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         }
         if (box_hidden) continue;  // skip this chest's geometry too
 
+        // World-reactive objects (SOB behaviour block): attackable bodies (breakables) and
+        // step-on plates. Their bounds are filled in from the geometry appended below, so
+        // the record is pushed first and patched after. The room's own geometry record also
+        // carries trigger=1 but has no script, which is what distinguishes it.
+        const std::size_t trig_index = out.triggers.size();
+        const bool is_trigger = !collision && !o.script.empty() &&
+                                (o.step_on() || o.attackable() || o.touch());
+        if (is_trigger) {
+            SceneTrigger t;
+            t.name = o.name;
+            t.position = o.position;
+            t.trigger = o.trigger;
+            t.script_stem = o.script;
+            t.i0 = o.i0; t.i1 = o.i1; t.f0 = o.f0;
+            // '@' prefix = the shared script pool in MAP/S_COMMON, else beside the room.
+            const bool shared = o.script[0] == '@';
+            std::string stem = shared ? o.script.substr(1) : o.script;
+            for (char& c : stem) c = char(std::toupper((unsigned char)c));
+            fs::path sp = shared ? (asset_root / "MAP" / "S_COMMON" / (stem + ".XSO"))
+                                 : (script_dir / (stem + ".XSO"));
+            if (fs::exists(sp)) t.script = sp.string();
+            out.triggers.push_back(std::move(t));
+        }
+        const std::size_t trig_v0 = out.vertices.size();
+
         fs::path ymo_file = resolve_ymo(asset_root, o.ymo_path);
         if (collision) {
             // The collision twin sits beside the render model: X.YMO -> X_.YMO.
@@ -438,6 +463,18 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 emit(0, std::uint32_t(ib.idx.size()), tex, surf,
                      model.materials.empty() ? nullptr : &model.materials[0], 0, nvert);
             }
+        }
+        // Fill in this trigger's world bounds from the geometry just appended.
+        if (is_trigger && trig_index < out.triggers.size() &&
+            out.vertices.size() > trig_v0) {
+            SceneTrigger& t = out.triggers[trig_index];
+            Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+            for (std::size_t vi = trig_v0; vi < out.vertices.size(); ++vi) {
+                const RoomVertex& v = out.vertices[vi];
+                lo.x = std::min(lo.x, v.px); lo.y = std::min(lo.y, v.py); lo.z = std::min(lo.z, v.pz);
+                hi.x = std::max(hi.x, v.px); hi.y = std::max(hi.y, v.py); hi.z = std::max(hi.z, v.pz);
+            }
+            t.aabb_min = lo; t.aabb_max = hi;
         }
     }
     return out;
