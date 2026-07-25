@@ -403,7 +403,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             hud.message("Level up! Lv " + std::to_string(player.level));
         }
     };
+    // Hand the room-load script's placed effects (op 0x117) to the world so they render.
+    // S_SAVEOBJECTCHANGE both picks the statue variant AND places its idle glow; before
+    // this the glow was parsed and thrown away, so a cleansed statue stood there dark.
+    // Called on every path that swaps `room`, since each one re-runs that script.
+    auto apply_load_effects = [&](const Room& rm) {
+        for (const Room::LoadEffect& e : rm.load_effects)
+            world.locate_effect(e.id, e.x, e.y, e.z, e.a, e.b, e.name);
+    };
     Room room = load_room(g, asset_root, boot_sob, game.g_flags, character);
+    apply_load_effects(room);
     Camera cam;
     bool fly = false;
     Vec3 feet{}; float vy = 0; bool grounded = false; float speed_mult = 1.0f;
@@ -702,6 +711,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
+        apply_load_effects(room);
         room_events_dirty = true;   // the new room's event scripts start next frame
         apply_room_bgm(room.name);
         if (fly) {
@@ -773,6 +783,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                               broken_objects.empty() ? nullptr : &broken_objects);
         free_room(room, g.white_bind);
         room = std::move(next);
+        apply_load_effects(room);
         if (rerun_events) room_events_dirty = true;   // re-run scripts for the re-gated room
         register_script_pickups();  // the rebuilt mesh lost script-spawned interactables
     };

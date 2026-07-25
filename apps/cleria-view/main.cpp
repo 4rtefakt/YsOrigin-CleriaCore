@@ -399,10 +399,37 @@ int main(int argc, char** argv) {
     std::printf("assets: %s\nstart:  %s\n",
                 asset_root.string().c_str(), sob_path.string().c_str());
 
+    // CLERIA_FLAGS="300=1,150=2" — seed the game flags the headless room load sees. The
+    // room-load scripts branch on them (S_SAVEOBJECTCHANGE picks the statue variant on
+    // flag 300 and the character on 150), so without this every headless shot renders the
+    // fresh-game state and a cleansed/altered room can never be looked at.
+    static std::int32_t hl_flags[0x200] = {};
+    const std::int32_t* hl_flagp = nullptr;
+    int hl_char = 1;
+    if (const char* fs_env = std::getenv("CLERIA_FLAGS")) {
+        std::string s(fs_env);
+        std::size_t i = 0;
+        while (i < s.size()) {
+            std::size_t c = s.find(',', i);
+            if (c == std::string::npos) c = s.size();
+            const std::string tok = s.substr(i, c - i);
+            const std::size_t eq = tok.find('=');
+            if (eq != std::string::npos) {
+                const int idx = std::atoi(tok.substr(0, eq).c_str());
+                const int val = std::atoi(tok.substr(eq + 1).c_str());
+                if (idx >= 0 && idx < 0x200) hl_flags[idx] = val;
+            }
+            i = c + 1;
+        }
+        hl_flagp = hl_flags;
+        if (hl_flags[150] >= 1 && hl_flags[150] <= 3) hl_char = hl_flags[150];
+        std::printf("flags:  CLERIA_FLAGS applied (character %d)\n", hl_char);
+    }
+
     if (shot) {
         // shot mode builds its own pipeline (RGBA target) then loads one room
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
-        Room room = load_room(g, asset_root, sob_path);
+        Room room = load_room(g, asset_root, sob_path, hl_flagp, hl_char);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 860;
         float yaw   = argc >= 8 ? float(std::atof(argv[7])) : -0.7f;
@@ -425,7 +452,7 @@ int main(int argc, char** argv) {
     }
     if (fps) {
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
-        Room room = load_room(g, asset_root, sob_path);
+        Room room = load_room(g, asset_root, sob_path, hl_flagp, hl_char);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 720;
         float yaw = argc >= 8 ? float(std::atof(argv[7])) : 1.0f;
@@ -435,7 +462,7 @@ int main(int argc, char** argv) {
         // cleria-view <root> <sob> --dialogue out.ppm [W H] — preview the REAL cutscene box
         // (TitleFx::draw_dialogue: FACEWIN0 frame + Felghana name/text) over a room, headless.
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
-        Room room = load_room(g, asset_root, sob_path);
+        Room room = load_room(g, asset_root, sob_path, hl_flagp, hl_char);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 720;
         static TitleFx tfx; tfx.init(g, asset_root);
@@ -448,10 +475,34 @@ int main(int argc, char** argv) {
         };
         return render_play(g, room, argv[4], W, H, asset_root, 1.5708f, -0.72f, 28.8f, 2.0f, 2);
     }
+    if (argc >= 4 && std::strcmp(argv[3], "--itemget") == 0) {
+        // cleria-view <root> <sob> --itemget out.ppm [W H itemId] — preview the REAL
+        // Window_Treasure box (op 0xd5 -> TitleFx::draw_item_get) over a room, headless.
+        // Without this the item-get box was only reachable mid-cutscene, so its frame
+        // sizing/icon column could never be checked against the RE or a reference grab.
+        build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
+        Room room = load_room(g, asset_root, sob_path, hl_flagp, hl_char);
+        std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
+        std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 720;
+        const int itemId = argc >= 8 ? std::atoi(argv[7]) : 89;   // 89 = a chest drop
+        static TitleFx tfx; tfx.init(g, asset_root);
+        static MenuFont mf;
+        mf.init(g, WGPUTextureFormat_RGBA8Unorm, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
+        static ItemTable itbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+        static fs::path aroot = asset_root;
+        g_play_overlay = [W, H, itemId](Gpu& gg, WGPUTextureView cv, WGPUTextureView dv,
+                                        std::uint32_t, std::uint32_t) {
+            write_mvp(gg, Mat4::identity());
+            const SpriteTex* ic = tfx.icon(gg, itbl, aroot, itemId);
+            // 512,122 is the op's default authored origin (x=512 => horizontally centred).
+            tfx.draw_item_get(gg, mf, cv, dv, W, H, 512.0f, 122.0f, itbl.name(itemId), ic);
+        };
+        return render_play(g, room, argv[4], W, H, asset_root, 1.5708f, -0.72f, 28.8f, 2.0f, 2);
+    }
     if (play) {
         // cleria-view <root> <sob> --play out.ppm [W H yaw pitch distFrac heightFrac dir]
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
-        Room room = load_room(g, asset_root, sob_path);
+        Room room = load_room(g, asset_root, sob_path, hl_flagp, hl_char);
         std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
         std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 720;
         float yaw   = argc >= 8  ? float(std::atof(argv[7]))  : 1.5708f;
@@ -497,7 +548,7 @@ int main(int argc, char** argv) {
         build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
         const int steps = argc >= 5 ? std::atoi(argv[4]) : 6;
         const std::string prefix = argc >= 6 ? argv[5] : "walk";
-        Room room = load_room(g, asset_root, sob_path);
+        Room room = load_room(g, asset_root, sob_path, hl_flagp, hl_char);
         std::vector<std::string> visited;
         for (int i = 0; i < steps; ++i) {
             char out[256];

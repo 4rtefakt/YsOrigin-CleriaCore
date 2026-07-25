@@ -62,6 +62,13 @@ struct Room {
     Sef fx;                  // scene effects: torch flames etc (SEF sidecar)
     Sct cast;                // actor placement: enemies + player spawn (SCT sidecar)
     std::vector<SceneBox> event_boxes;  // named trigger boxes (.SEV) — op 0x13d Chr_IsInEventBox
+    // Effects the room-load object-variant script placed (op 0x117 Eft_LocatePos). The
+    // cleansed goddess statue's glow comes through here: S_SAVEOBJECTCHANGE picks the
+    // cleansed model AND spawns eff 84 (Yunica/Hugo) / 85 (Toal) beside it. The visibility
+    // run used to use a hostless VM, so `locate_effect` went nowhere and the statue stood
+    // cleansed but unlit. The caller forwards these into the world after the room loads.
+    struct LoadEffect { int id; float x, y, z, a, b; std::string name; };
+    std::vector<LoadEffect> load_effects;
     fs::path dir;            // the room folder (its scripts live beside the SOB)
     std::string name;
     WGPUBuffer vbuf{}, ibuf{};
@@ -247,21 +254,42 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     // single spot and let a script choose (S_1000 places save_01/02/03 together).
     // Ops 0x16B/0x16C name the winner; run the script and hide the losers.
     std::unordered_set<std::string> hidden;
+    std::vector<Room::LoadEffect> load_fx;
     {
         const fs::path vis = sob.parent_path() / "S_SAVEOBJECTCHANGE.XSO";
         if (fs::exists(vis)) {
-            try {
-                XsoVm tmp;
-                if (base_flags) std::memcpy(tmp.g_flags, base_flags, sizeof(tmp.g_flags));
-                tmp.g_flags[150] = character;
-                tmp.run(Xso::parse(read_bytes(vis)));
-                for (const auto& [name, shown] : tmp.obj_visible) {
-                    if (shown) continue;
-                    std::string l = name;
-                    for (char& c : l) c = char(std::tolower((unsigned char)c));
-                    hidden.insert(l);
+            // The script does two things at once: choose the object variant (0x16b/0x16c)
+            // and place that variant's idle effect (0x117). Give it a host so the second
+            // half is not silently dropped — without one the cleansed statue never glowed.
+            struct FxCatcher : XsoHost {
+                std::vector<Room::LoadEffect>* out;
+                // This host exists only to catch 0x117; the two pure virtuals are inert
+                // here (the visibility script spawns no actors and tests no liveness).
+                void spawn(int, int, float, float, float, float, int) override {}
+                bool is_alive(int) const override { return false; }
+                void locate_effect(int id, float x, float y, float z, float a, float b,
+                                   const std::string& name) override {
+                    for (Room::LoadEffect& e : *out)
+                        if (!name.empty() && e.name == name) { e = {id, x, y, z, a, b, name}; return; }
+                    out->push_back({id, x, y, z, a, b, name});
                 }
-            } catch (const std::exception&) {}
+            };
+            if (fs::exists(vis)) {
+                try {
+                    XsoVm tmp;
+                    FxCatcher fc; fc.out = &load_fx;
+                    tmp.host = &fc;
+                    if (base_flags) std::memcpy(tmp.g_flags, base_flags, sizeof(tmp.g_flags));
+                    tmp.g_flags[150] = character;
+                    tmp.run(Xso::parse(read_bytes(vis)));
+                    for (const auto& [name, shown] : tmp.obj_visible) {
+                        if (shown) continue;
+                        std::string l = name;
+                        for (char& c : l) c = char(std::tolower((unsigned char)c));
+                        hidden.insert(l);
+                    }
+                } catch (const std::exception&) {}
+            }
         }
     }
     // Objects the player has already destroyed this session are hidden the same way the
@@ -269,6 +297,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     // writes none, so it legitimately respawns on a fresh load, as in retail).
     if (extra_hidden)
         for (const std::string& n : *extra_hidden) hidden.insert(n);
+    r.load_effects = std::move(load_fx);
     r.mesh = build_room(asset_root, sob, gates_box ? &box_whitelist : nullptr,
                         hidden.empty() ? nullptr : &hidden, base_flags);
     r.coll = build_collision(asset_root, sob, gates_box ? &box_whitelist : nullptr,

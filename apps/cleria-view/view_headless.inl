@@ -192,6 +192,11 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
         std::int32_t flags[0x200] = {0};
         flags[150] = 1;  // character = Yunica (this headless shot has no save state)
         populate_room(world, room, flags);
+        // Effects the room-load object-variant script placed (op 0x117) — the cleansed
+        // goddess statue's glow. Same forwarding the live loop does; without it a headless
+        // shot with CLERIA_FLAGS=300=1 shows the cleansed statue standing dark.
+        for (const Room::LoadEffect& e : room.load_effects)
+            world.locate_effect(e.id, e.x, e.y, e.z, e.a, e.b, e.name);
         efx.init_from_world(g, asset_root, world, casts);
         std::vector<EnemyRender> list = build_enemy_render(world, casts, efx);
         if (std::getenv("CLERIA_ENEMY"))
