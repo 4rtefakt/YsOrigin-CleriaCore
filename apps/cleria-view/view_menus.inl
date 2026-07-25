@@ -1177,16 +1177,19 @@ struct TitleFx {
             const int col = i % 6, row = i / 6;
             float cx, cy; icell(col, row, cx, cy);
             const int id = (i < ownedCount) ? owned[i] : -1;
-            if (square.tex) {   // per-cell stone tile; darker when empty
-                const float d = (id < 0) ? 0.19f : 0.55f;   // 0x303030 empty / lighter when filled
-                // The 51.2 size here is from the earlier MENU_RENDER_FIXES note on
-                // FUN_005aad90, which was NOT re-traced this pass — only the UV is fixed.
-                // (On the equip page the same pairing turned out to be swapped, so treat
-                // this size as unconfirmed.)
+            if (square.tex) {   // per-cell stone tile
+                // Drawn at FULL brightness. The 0x303030 in the RE is an AND-mask applied
+                // to an unavailable item's ICON tint (HUD_PORTRAIT_SLOTS.md section 2 uses
+                // the identical mask that way on the HUD), not a dimming of the cell tile —
+                // multiplying the tile by 0.19 crushed every empty cell to black and made
+                // the grid read as solid columns, where retail shows the plate's own stone
+                // squares through a subtle navy tile.
+                // The 51.2 size is from the earlier MENU_RENDER_FIXES note on FUN_005aad90,
+                // which was NOT re-traced; on the equip page the analogous pairing turned
+                // out to be swapped, so treat it as unconfirmed.
                 draw_screen_image(g, cview, dview, false, square, AX(cx - 25.6f), AY(cy - 25.6f),
                                   AX(cx + 25.6f), AY(cy + 25.6f), 0.34f,
-                                  kSqCellU0, kSqCellV0, kSqCellU1, kSqCellV1,
-                                  0.02f, 0.02f, 0.05f, 0.0f, false, d, d, d);
+                                  kSqCellU0, kSqCellV0, kSqCellU1, kSqCellV1);
             }
             if (id >= 0) {
                 // No blue "equipped" tile here: the blue marker means EQUIPPED, and this
@@ -1236,15 +1239,30 @@ struct TitleFx {
         // three stacked category buttons (overlapping to form one continuous ornate frame), then the
         // cyan TOPIC_CUR selection glow washed ADDITIVELY over the chosen row -- it brightens the row
         // toward teal (as the game does) without masking the baked label under it.
-        static const float cy[3] = {212, 386, 558};   // authored row centres
-        const float bx0 = 256.0f, bx1 = 800.0f, bh = 208.0f;
+        // Geometry is REFERENCE-MEASURED, not code-traced — TOPIC_LAYOUT.md section 6 says
+        // FUN_005bb810's raw immediates do not reconcile (axis assignment ambiguous in the
+        // decomp) and that the reference is authoritative here. Measured off
+        // reference/pause_topic.png: the plate spans authored x 164..860, y 123..594 — a
+        // LANDSCAPE frame — with its two white dividers at y 283 and 437, giving three
+        // ~157-tall bands centred at 203 / 360 / 515. The previous {212,386,558} over
+        // x 256..800 made the plate nearly square and the bands far too tall. [H-med]
+        static const float cy[3] = {203, 360, 515};   // authored row centres
+        const float bx0 = 164.0f, bx1 = 860.0f, bh = 160.0f;
         for (int i = 0; i < 3; ++i)
             if (topicBtn[i].tex)
                 draw_screen_image(g, cview, dview, false, topicBtn[i], AX(bx0), AY(cy[i] - bh * 0.5f),
                                   AX(bx1), AY(cy[i] + bh * 0.5f), 0.42f - i * 0.01f, 0.0f, 0.0f, 0.690f, 0.668f);
+        // Selection wash: confined to the selected band's INNER area (inside the ornate
+        // side pillars). TOPIC_CUR.DDS is 1024x256, a CONSTANT teal (0,114,171) whose ALPHA
+        // is the gradient — it ramps from 0, peaks ~148 at v 0.31, and is back to 0 by
+        // v 0.65, with the whole top quarter of the texture empty. Sampling to v 0.809 (the
+        // old value) packed the entire visible gradient into the upper ~80% of the quad, so
+        // the glow read as a bright cyan blob sitting high in the row instead of an even
+        // wash. Cropping to the live band centres it. Colour needs no tint — the texture is
+        // already the right teal, and it is composited additively.
         if (sel >= 0 && sel < 3 && topicCur.tex)
-            draw_screen_image(g, cview, dview, false, topicCur, AX(bx0 + 20), AY(cy[sel] - bh * 0.42f),
-                              AX(bx1 - 20), AY(cy[sel] + bh * 0.38f), 0.30f, 0.033f, 0.0f, 0.693f, 0.809f,
+            draw_screen_image(g, cview, dview, false, topicCur, AX(bx0 + 72), AY(cy[sel] - bh * 0.44f),
+                              AX(bx1 - 72), AY(cy[sel] + bh * 0.44f), 0.30f, 0.033f, 0.0f, 0.693f, 0.65f,
                               0.02f, 0.02f, 0.05f, 0.0f, /*additive*/true);
         mf.text("Browse monster, character or tutorial data.", SX(48), SY(707), 27.0f * A, sw, sh, 236, 236, 236, 255);
         mf.draw(g, cview);
