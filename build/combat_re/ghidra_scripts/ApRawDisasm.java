@@ -59,9 +59,8 @@ public class ApRawDisasm extends Re2Lib {
 
     public void run() throws Exception {
         open(System.getenv("NIGHT_OUT"));
-        raw(0x00568d4aL, 0x00568e40L, "0xaf SetXXX handler (blessing grant dispatch)");
-        dumpBytes(0x0056e6f0L, 64, "0xaf jump table @0x56e6f0");
-        raw(0x0056e6f0L, 0x0056e7a0L, "0xaf jump-table region as code");
+        dumpBytes(0x0056e6f0L, 136, "0xaf jump table @0x56e6f0 (34 entries)");
+        raw(0x00568e36L, 0x00568f60L, "0xaf cases idx 14..33");
         close();
     }
 }
