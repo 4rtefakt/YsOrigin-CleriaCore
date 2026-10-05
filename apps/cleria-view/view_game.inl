@@ -2204,6 +2204,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     env.character = character;
                     env.sprite_dir = sprite_dir_of(en->yaw, cam_fwd);
                     env.aso_frame = e.avm.frame();
+                    env.movable = e.avm.movable();
                     env.durable = e.avm.durable();
                     env.target_floor = last_floor;
                     env.target_rehit_clear = player_iframes == 0;

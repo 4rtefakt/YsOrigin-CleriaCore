@@ -112,6 +112,7 @@ struct AiEnv {
     int character = 1;           // DAT_0076bb74 = g_flags[150]: 0 Adol, 1 Yunica, 2 Hugo, 3 Toal
     int sprite_dir = 0;          // +0x9b4: the sprite's camera-relative direction row (0..7)
     int aso_frame = 0;           // +0x9b8: the current anime_Pattern frame
+    float movable = 1;           // +0x9cc: the ASO anime_Movable value
     bool durable = false;        // +0x9d8: anime_Durable
     Vec3 self{};                 // the actor's ORIGIN (floor + height)
     float facing = 0;            // +0x314: the visible facing, engine basis (cos, sin)

@@ -37,6 +37,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 47: return &brains::m540;   // M540 Perrie
         case 48: return &brains::m550;   // M550 Arte-Baocar
         case 51: return &brains::m580;   // M580 Sevnam
+        case 52: return &brains::m590;   // M590 Sepaswait
         case 53: return &brains::m600;   // M600 Titamonus
         case 69: return &brains::m760;   // M760 Raldisch
         case 70: return &brains::m770;   // M770 Hubamobrun

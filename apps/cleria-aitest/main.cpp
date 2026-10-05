@@ -1812,6 +1812,105 @@ int main() {
         check(attack_sub > 0 && boss.ai.alpha == 1.0f, "visible again, it picks an attack (rush / shots / gas)");
     }
 
+    // ---- M590 Sepaswait (build/ai_spec/M590.md) ----
+    {
+        const EnemyBrain m590 = enemy_brain_for(52);
+        check(m590 != nullptr, "Sepaswait brain registered (AI index 52)");
+        const EnemyAiParams sp = params(0.075f, 0.03f, 1.0f, 2.0f, 0.0f);
+        {   // 4u away: legs away from it, a laser roll; the hold fires 3 lasers every 25 ticks.
+            Actor A; A.cast_id = 63; A.flags12c = 0x00098050u;
+            Rig r; r.env.actor = &A; r.env.target = {4.0f, 1.075f, 0};
+            int t = 0;
+            for (; t < 4000 && A.ai.i(0x72c) != 101; ++t) {
+                enemy_ai_tick(A.ai, sp, r.env, m590);
+                if (A.ai.i(0x72c) == 200) { A.ai.i(0x72c) = 20; A.ai.cool() = 0; }   // laser only here
+            }
+            const int hold = A.ai.dur(), win = A.ai.i(0x7a8);
+            std::printf("[ai]   M590 laser at tick %d: dur %d, window %d, lasers since dash %d\n", t, hold, win, A.ai.i(0x7c4));
+            check(A.ai.i(0x72c) == 101 && hold - win >= 29 && hold - win <= 30 && hold >= 359 && hold <= 389 &&
+                  A.ai.i(0x7c4) == 1, "the laser: hold 360 + R%30, window opens 30 ticks in");
+            r.env.section = 2; r.env.aso_marker = 9025446;
+            int volleys = 0, lasers = 0, se = 0, moves = 0, durable_ok = 1, k = 0;
+            for (; k < 500 && A.ai.i(0x72c) == 101; ++k) {
+                r.env.aso_frame = (k / 9) % 8;
+                const AiOut o = enemy_ai_tick(A.ai, sp, r.env, m590);
+                int n = 0;
+                for (const AiEffect& f : o.effects) {
+                    if (f.id == 446 && f.rtype == 1 && f.tag >= 0xfd) ++n;
+                    moves += f.move_tag >= 0xfd;
+                }
+                lasers += n; volleys += n == 3;
+                if (n) durable_ok &= o.set_durable == 1;
+                for (int s : o.sounds) se += s == 523;
+            }
+            std::printf("[ai]   M590 hold: %d volleys (%d lasers), SE 523 x%d, cool %d\n", volleys, lasers, se, A.ai.cool());
+            check(volleys >= 9 && volleys <= 12 && lasers == volleys * 3 && durable_ok,
+                  "the window: 3 lasers (EF2 446, rtype 1, owned) per 25-tick volley, Durable");
+            check(se >= 4 && se <= 6 && moves == k * 3 && A.ai.i(0x72c) == 0 && A.ai.cool() == 149,
+                  "SE 523 every ~58 ticks; the ring re-placed every tick; cool 150 - 20d (- the tick)");
+        }
+        {   // The dash: section 7, rooted, then the ramp at a tenth of the turn rate; sparkles; 202.
+            Actor A; A.cast_id = 63; A.flags12c = 0x00198050u;      // probe off for the test
+            Rig r; r.env.actor = &A; r.env.target = {4.0f, 1.075f, 0};
+            enemy_ai_tick(A.ai, sp, r.env, m590);
+            enemy_ai_tick(A.ai, sp, r.env, m590);
+            A.ai.i(0x72c) = 200;
+            const AiOut o = enemy_ai_tick(A.ai, sp, r.env, m590);
+            check(o.section == 7 && A.ai.i(0x72c) == 201 && o.set_durable == 1, "dash wind-up at frame 0: section 7 (gated), Durable");
+            r.env.section = 7; r.env.movable = 0.0f; r.env.aso_marker = 72;
+            enemy_ai_tick(A.ai, sp, r.env, m590);
+            check(A.ai.f(0x78c) == 0.0f && std::fabs(A.ai.f(0x814) - 0.075f) < 1e-7f, "rooted (Movable 0): no ramp, full turn rate");
+            r.env.movable = 1.0f;
+            int sparks = 0; bool scale_ok = true;
+            float s1 = 0, s2 = 0;
+            for (int t = 0; t < 60; ++t) {
+                const AiOut d = enemy_ai_tick(A.ai, sp, r.env, m590);
+                if (t == 0) s1 = A.ai.speed;
+                if (t == 1) s2 = A.ai.speed;
+                for (const AiEffect& f : d.effects) if (f.id == 72) { ++sparks; scale_ok &= f.scale >= 0.5f && f.scale < 2.5f; }
+            }
+            std::printf("[ai]   M590 dash: speed %.4f, %.4f; %d sparkles in 60 ticks\n", s1, s2, sparks);
+            check(A.ai.f(0x78c) == 10.0f && std::fabs(A.ai.f(0x814) - 0.0075f) < 1e-7f &&
+                  std::fabs(s1 - 0.06f) < 1e-7f && std::fabs(s2 - 0.0645f) < 1e-7f,
+                  "Movable: ramp target 10 (+0.15/call: 0.06, 0.0645), turn rate x0.1");
+            check(sparks >= 6 && sparks <= 12 && scale_ok, "sparkles: the marker effect (72), every 12 -> 4 ticks with the ramp");
+            r.env.aso_frame = 7;
+            AiOut w;
+            for (int t = 0; t < 300 && A.ai.i(0x72c) == 201; ++t) w = enemy_ai_tick(A.ai, sp, r.env, m590);
+            check(A.ai.i(0x72c) == 202 && w.section == 8 && A.ai.f(0x78c) == 2.0f && A.ai.f(0x82c) == 0.05f,
+                  "frame 7 after 180 ticks: section 8 (gated), ramp target 2.0, steps 0.05");
+            r.env.section = 8;
+            enemy_ai_tick(A.ai, sp, r.env, m590);
+            r.env.section = 2;
+            enemy_ai_tick(A.ai, sp, r.env, m590);
+            check(A.ai.i(0x72c) == 0 && A.ai.f(0x78c) == 0.0f && A.ai.cool() == 119, "section 8 over: stop, cool 120 - 20d");
+        }
+        {   // Two Sepaswaits inside 2r + 0.2: each is nudged 0.0625 apart; spark + SE 472.
+            struct Two : AiWorld {
+                std::list<Actor> actors;
+                void for_each(const std::function<void(Actor&)>& f) override { for (Actor& a : actors) f(a); }
+                Actor* find(int) override { return nullptr; }
+                Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+                void remove(Actor&) override {}
+                Ray ray(const Vec3&, const Vec3&) override { return {}; }
+                bool sphere_hits(const Vec3&, float) override { return false; }
+                void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+                const float* enemy_raw(int) override { return nullptr; }
+            } w;
+            Actor& A = (w.actors.emplace_back(), w.actors.back());
+            Actor& B = (w.actors.emplace_back(), w.actors.back());
+            A.cast_id = B.cast_id = 63; A.hp = B.hp = 50; A.pos = {0, 0, 0}; B.pos = {1.0f, 0, 0};
+            B.ai.phase() = 2;
+            Rig r; r.env.actor = &A; r.env.world = &w; r.env.radius = 0.9f; r.env.target = {9.0f, 1.075f, 9.0f};
+            const AiOut o = enemy_ai_tick(A.ai, sp, r.env, m590);
+            bool spark = false, se = false;
+            for (const AiEffect& f : o.effects) spark |= f.id == 65;
+            for (int s : o.sounds) se |= s == 472;
+            check(std::fabs(A.pos.x + 0.0625f) < 1e-6f && B.ai.f(0x7cc) > 0.0f && spark && se,
+                  "neighbour push: a 0.0625 nudge away, the other's accumulator pushed, spark + SE 472");
+        }
+    }
+
     // ---- the move primitive FUN_00477720 (build/ai_spec/MOVEPRIM.md) ----
     {
         auto bits = [](float v) { std::uint32_t u; std::memcpy(&u, &v, 4); return u; };
