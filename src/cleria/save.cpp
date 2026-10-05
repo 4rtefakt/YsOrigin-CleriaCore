@@ -124,6 +124,8 @@ SaveRecord to_record(const SaveState& s, const std::string& area_line,
     r.set_f32(0x0076B90C, s.luck_base);
     r.set_i32(0x0076C19C, s.timer_atk);
     r.set_i32(0x0076C1A0, s.timer_def);
+    std::memcpy(r.b.data() + (0x0076B8D8 - SaveRecord::kBase), s.manual_on, sizeof s.manual_on);
+    std::memcpy(r.b.data() + (0x0076C11C - SaveRecord::kBase), s.warp_on, sizeof s.warp_on);
     // --- header stamps (SAVELOAD.md §4.1) ------------------------------------
     r.set_hdr_u32(0x00, SaveRecord::kMagic);
     r.set_hdr_u32(0x04, 1);
@@ -160,6 +162,8 @@ SaveState from_record(const SaveRecord& r) {
     s.luck_base = r.f32(0x0076B90C);
     s.timer_atk = r.i32(0x0076C19C);
     s.timer_def = r.i32(0x0076C1A0);
+    std::memcpy(s.manual_on, r.b.data() + (0x0076B8D8 - SaveRecord::kBase), sizeof s.manual_on);
+    std::memcpy(s.warp_on, r.b.data() + (0x0076C11C - SaveRecord::kBase), sizeof s.warp_on);
     return s;
 }
 

@@ -219,6 +219,10 @@ struct XsoHost {
     virtual void heal_spot(float /*x*/, float /*y*/, float /*z*/) {}
     // op 0xa7 SetWarpEnableIndex(i): unlock goddess-statue warp destination i (saved).
     virtual void warp_enable(int /*index*/) {}
+    // 0x92 SetManualEnableIndex: 0x76b8d8[i] = 1. 0x93 SetTopicKnownIndex: the collection
+    // record 0x74ac40 + i*0x1c: seen = 1, count + 1 capped at 50 (EVENTVM_HANDLERS_2.md).
+    virtual void manual_enable(int /*index*/) {}
+    virtual void topic_known(int /*index*/) {}
     // op 0xa6 GoWarpPoint(): ChangeScene to warp table[flag 137] (the Wing).
     virtual void go_warp_point() {}
 

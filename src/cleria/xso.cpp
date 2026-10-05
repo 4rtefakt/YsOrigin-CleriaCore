@@ -327,6 +327,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     }
                     if (sub == 0x94 && nargs >= 3) { host->heal_spot(opf(0), opf(1), opf(2)); return Step::Continue; }
                     if (sub == 0xa7 && nargs >= 1) { host->warp_enable(op(0)); return Step::Continue; }
+                    if (sub == 0x92 && nargs >= 1) { host->manual_enable(op(0)); return Step::Continue; }
+                    if (sub == 0x93 && nargs >= 1) { host->topic_known(op(0)); return Step::Continue; }
                     if (sub == 0xa6) { host->go_warp_point(); return Step::Continue; }
                     // Scripted map objects (WAITOPS.md §4). 0x175 / 0x173 also fall through to
                     // the load-time bookkeeping below.

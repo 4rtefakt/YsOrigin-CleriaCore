@@ -39,6 +39,7 @@
 #include "cleria/ef2.hpp"
 #include "cleria/bullet.hpp"
 #include "cleria/inventory.hpp"
+#include "cleria/pausebook.hpp"
 #include "cleria/meshobj.hpp"
 #include "cleria/ef2_sim.hpp"
 #include "cleria/dds.hpp"
@@ -284,6 +285,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_hud.inl"
 #include "view_headless.inl"
 #include "view_menus.inl"
+#include "view_book.inl"
 #include "view_game.inl"
 
 static void build_indexes(Gpu& g, const fs::path& root) {
@@ -524,6 +526,13 @@ int main(int argc, char** argv) {
         std::uint32_t dir = argc >= 12 ? std::uint32_t(std::atoi(argv[11])) : 2;
         if (argc >= 13) g_fov = float(std::atof(argv[12]));
         return render_play(g, room, argv[4], W, H, asset_root, yaw, pitch, dist, hgt, dir);
+    }
+    if (argc >= 5 && std::strcmp(argv[3], "--book") == 0) {
+        // cleria-view <root> <ignored> --book out.ppm [W H]: the rebuilt pause book (view_book.inl).
+        build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
+        const std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
+        const std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 800;
+        return render_book(g, asset_root, argv[4], W, H);
     }
     if (argc >= 4 && (std::strcmp(argv[3], "--title") == 0 ||
                       std::strcmp(argv[3], "--charselect") == 0 ||

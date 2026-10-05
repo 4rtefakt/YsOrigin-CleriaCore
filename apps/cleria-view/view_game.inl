@@ -415,6 +415,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // [not modelled] saving InvState: the save codec carries only flags / item_arr so far.
     InvState inv;
     inv_new_game(inv);
+    // Saved with the game: the warp points 0x76c11c[24] (op 0xa7) and the manual pages
+    // 0x76b8d8[13] (op 0x92). The Topic collection 0x74ac40 (seen byte + kill count per cast
+    // id) is system data outside the save record [not modelled: persisting it].
+    std::uint8_t warp_on[24] = {};
+    std::uint8_t manual_on[13] = {};
+    std::uint8_t topic_seen[256] = {};
+    std::int32_t topic_kills[256] = {};
     const ItemTable inv_items = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
     auto player_stats = [&]() -> PlayerStats {
         if (!ginfo.ok() || inv_items.items.empty()) return PlayerStats{};
@@ -917,13 +924,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
 
     // ---- save / load (PLAN.md Phase 2; codec src/cleria/save.*) -------------------
-    // Pause-book Save/Load page state: slot cursor + cached slot lines (refreshed on
-    // page entry and after a save — not per frame, that would be 8 file reads a frame).
-    // 64 save slots = 8 file TABS x 8 slots (the real slot screen, reference/realgame/
-    // statue_save_slots.png); absolute slot = tab*8 + row -> yso_NN.bin (00..63).
-    int svldTab = 0, svldSlot = 0;
     // Goddess-statue UI state machine (STATUE_MENU.md): 0 = closed, 1 = "What will you
-    // do?" choice, 2 = save-slot screen, 3 = blessing list. The cleansing animation
+    // do?" choice, 3 = blessing list (Save opens the pause book's Save list). The cleansing animation
     // (Yunica/Hugo first-use) plays SAVE.XSO (the goddess cleanse cutscene) the first
     // time a sealed statue (flag 300 == 0) is touched — see the cleanse wiring below;
     // blessings list real costs but effects are not implemented.
@@ -931,10 +933,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool cleanse_pending = false;   // a cleanse cutscene (SAVE.XSO) is playing on csMgr
     std::int32_t prev_flag300 = 0;  // to detect the cleanse flag flipping (statue model swap)
     bool statue_reload_pending = false;  // reload for the model swap once the cutscene thaws
-    std::array<std::string, 8> svldLabels;
-    auto refresh_slots = [&] {
-        for (int i = 0; i < 8; ++i) svldLabels[std::size_t(i)] = slot_label(svldTab * 8 + i);
-    };
     auto capture_save = [&]() -> SaveState {
         SaveState s;
         std::memcpy(s.flags, game.g_flags, sizeof s.flags);
@@ -945,6 +943,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         for (int c = 0; c < 4; ++c) s.tier[c] = inv.tier[c];
         s.hp_bonus = inv.hp_bonus; s.atk_buff = inv.atk_buff; s.def_buff = inv.def_buff;
         s.luck_base = inv.luck_base; s.timer_atk = inv.timer_atk; s.timer_def = inv.timer_def;
+        std::memcpy(s.warp_on, warp_on, sizeof warp_on);
+        std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
         s.pos_x = feet.x; s.pos_z = feet.z;
         s.yaw = std::atan2(face_dir.x, face_dir.z) * 180.0f / 3.14159265f;  // SEN-style degrees
@@ -971,7 +971,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         f.write(reinterpret_cast<const char*>(raw.data()), std::streamsize(raw.size()));
         hud.message(f ? ("Saved to slot " + std::to_string(slot + 1))
                       : "Save FAILED (disk?)");
-        refresh_slots();
     };
     auto apply_loaded = [&](const SaveState& s) {
         std::memcpy(game.g_flags, s.flags, sizeof s.flags);
@@ -983,6 +982,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         for (int c = 0; c < 4; ++c) inv.tier[c] = s.tier[c];
         inv.hp_bonus = s.hp_bonus; inv.atk_buff = s.atk_buff; inv.def_buff = s.def_buff;
         inv.luck_base = s.luck_base; inv.timer_atk = s.timer_atk; inv.timer_def = s.timer_def;
+        std::memcpy(warp_on, s.warp_on, sizeof warp_on);
+        std::memcpy(manual_on, s.manual_on, sizeof manual_on);
         inv_sanitize(game.g_flags, inv);                  // FUN_00431840's clamps after a load
         player.max_hp = int(std::lround(s.hp_max));
         player.hp = int(std::lround(s.hp_cur));
@@ -1175,11 +1176,28 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         struct HealSpot { float x, y, z; int cooldown = 0; };
         std::vector<HealSpot> heal_spots;
         void heal_spot(float x, float y, float z) override { heal_spots.push_back({x, y, z, 0}); }
-        // 0xa7: unlocked warp destinations. [not modelled] saving them, the Wing menu, 0xa6.
-        std::vector<int> warp_unlocked;
-        void warp_enable(int i) override {
-            if (std::find(warp_unlocked.begin(), warp_unlocked.end(), i) == warp_unlocked.end())
-                warp_unlocked.push_back(i);
+        // 0xa7 / 0x92 / 0x93: the warp points, the manual pages, the Topic collection.
+        std::uint8_t* warp_on = nullptr;
+        std::uint8_t* manual_on = nullptr;
+        std::uint8_t* topic_seen = nullptr;
+        std::int32_t* topic_kills = nullptr;
+        void warp_enable(int i) override { if (warp_on && i >= 0 && i < 24) warp_on[i] = 1; }
+        void manual_enable(int i) override { if (manual_on && i >= 0 && i < 13) manual_on[i] = 1; }
+        void topic_known(int i) override {
+            if (!topic_seen || i < 0 || i >= 256) return;
+            topic_seen[i] = 1;
+            topic_kills[i] = std::min(topic_kills[i] + 1, 50);
+        }
+        // 0xa6 GoWarpPoint: ChangeScene(table 0x68c190[flag 137]) (SCENEFLOW.md §3).
+        void go_warp_point() override {
+            static const char* kWarpRooms[22] = {
+                "s_10\\s_1000", "s_10\\s_1009", "s_10\\s_1011", "s_20\\s_2000", "s_20\\s_2013", "s_21\\s_2100",
+                "s_20\\s_2012", "s_30\\s_3000", "s_30\\s_3006", "s_30\\s_3015", "s_30\\s_3014", "s_40\\s_4000",
+                "s_41\\s_4104", "s_40\\s_4020", "s_50\\s_5000", "s_50\\s_5010", "s_50\\s_5014", "s_60\\s_6000",
+                "s_60\\s_6010", "s_60\\s_6082", "s_60\\s_6053", "s_70\\s_7000"};
+            if (!mgr) return;
+            const int i = mgr->vm.g_flags[137];
+            if (i >= 0 && i < 22) change_scene(kWarpRooms[i]);
         }
         // 0xcd CrossFade: [not modelled] the frozen-frame dissolve (purely visual in the corpus).
         // Scripted map objects (meshobj.hpp).
@@ -1351,10 +1369,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // back out at end, so a cutscene reads/writes the live game state.
     struct ViewLoader : ScriptLoader {
         const fs::path* dir = nullptr;
+        fs::path common;                   // MAP/S_COMMON
         std::shared_ptr<const Xso> load_script(const std::string& name) override {
-            std::string up = name;
+            // FUN_00434970: an '@' label is data\map\s_common\<name>; anything else is the
+            // current room's script.
+            const bool at = !name.empty() && name[0] == '@';
+            std::string up = at ? name.substr(1) : name;
             for (char& c : up) c = char(std::toupper((unsigned char)c));
-            const fs::path p = *dir / (up + ".XSO");
+            const fs::path p = (at ? common : *dir) / (up + ".XSO");
             std::error_code ec;
             if (!fs::exists(p, ec)) return nullptr;    // engine would throw; we skip
             try { return std::make_shared<Xso>(Xso::parse(read_bytes(p))); }
@@ -1362,10 +1384,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
     } csLoader;
     csLoader.dir = &room.dir;
+    csLoader.common = asset_root / "MAP" / "S_COMMON";
     ScriptManager csMgr;
     csMgr.vm.host = &csHost;
     csMgr.loader = &csLoader;
     csHost.mgr = &csMgr;
+    csHost.warp_on = warp_on;
+    csHost.manual_on = manual_on;
+    csHost.topic_seen = topic_seen;
+    csHost.topic_kills = topic_kills;
     csHost.meshes = &meshes;
     csHost.player_floor = &player_floor_obj;
     csHost.worldHost = &world;
@@ -1881,7 +1908,46 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     pmf.init(g, fmt, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
     const ItemTable pitems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
     bool paused = false;
-    int pausePage = 0;  // pause-book tab: 0 Equip, 1 Item, 2 Topic, 3 Save/Load (Q/E cycle)
+    // The pause book (src/cleria/pausebook, build/menu_re/PAUSEBOOK_DRAW.md), drawn by
+    // view_book.inl. It steps on the 60 Hz tick; Confirm / Cancel are key edges, the
+    // directions come from the held keys with the engine's auto-repeat (§0.7).
+    PauseBook book;
+    BookRenderer bookR;
+    const bool bookOk = bookR.init(g, fmt, asset_root, pitems);
+    BookInput bookIn;
+    int bookHold[4] = {};
+    float bookAccum = 0;
+    int bookSaveNo = 0;                                    // DAT_0074ac3e (ini SaveFileNo) [session only]
+    auto book_model = [&]() {
+        const PlayerStats st = player_stats();             // also refreshes inv.raval
+        BookModel m;
+        m.flags = game.g_flags; m.inv = &inv; m.items = &inv_items; m.gi = &ginfo;
+        m.character = character; m.level = player.level;
+        m.hp = float(player.hp); m.max_hp = st.max_hp; m.atk = st.atk; m.def = st.def;
+        m.exp = player.exp;
+        m.next_exp = ginfo.ok() ? float(ginfo.exp_to_level(player.level + 1)) : 0.0f;
+        m.preview = [&](int id) {
+            return book_preview(game.g_flags, inv, ginfo, inv_items, character, player.level, id);
+        };
+        m.player_can_act = player.hp > 0;                  // [STAND-IN] grounded / not hurt
+        m.scan = [&](int slot) { return scan_slot(slot_path(slot)); };
+        m.save_file_no = &bookSaveNo;
+        m.sliders = oslider;
+        m.checks = ocheck;
+        m.topic_seen = topic_seen;
+        m.topic_kills = topic_kills;
+        m.manual_on = manual_on;
+        m.casts = &casts;
+        m.enemies = &etab;
+        m.warp_on = warp_on;
+        m.start_script = [&](const std::string& name) {   // FUN_00434970: start + first burst
+            std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
+            csMgr.vm.g_flags[150] = character;
+            if (!csMgr.start(name)) std::printf("  [book] %s did not start\n", name.c_str());
+            std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);
+        };
+        return m;
+    };
     std::fprintf(stderr, "[pause menu] Esc opens the pause book; assets %s\n",
                  pauseOk ? "loaded (ready)" : "MISSING TITLE_000.DDS -> book won't draw");
 
@@ -1955,19 +2021,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (k == SDLK_UP || k == SDLK_W) statue_sel = (statue_sel + 2) % 3;
                     else if (k == SDLK_DOWN || k == SDLK_S) statue_sel = (statue_sel + 1) % 3;
                     else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
-                        if (statue_sel == 0) { refresh_slots(); statue_ui = 2; }
+                        if (statue_sel == 0) {
+                            statue_ui = 0;
+                            paused = true;
+                            book.open(book_model(), 1);
+                            bookIn = {};
+                            for (int& h : bookHold) h = 0;
+                            bookAccum = 0;
+                        }
                         else if (statue_sel == 1) { statue_ui = 3; statue_sel = 0; statue_reveal = 0; }
                         else statue_ui = 0;        // Nothing right now
                     } else if (k == SDLK_ESCAPE) statue_ui = 0;
-                } else if (statue_ui == 2) {       // save-slot screen (8 tabs x 8)
-                    if (k == SDLK_LEFT || k == SDLK_A) { svldTab = (svldTab + 7) % 8; refresh_slots(); }
-                    else if (k == SDLK_RIGHT || k == SDLK_D) { svldTab = (svldTab + 1) % 8; refresh_slots(); }
-                    else if (k == SDLK_UP || k == SDLK_W) svldSlot = (svldSlot + 7) % 8;
-                    else if (k == SDLK_DOWN || k == SDLK_S) svldSlot = (svldSlot + 1) % 8;
-                    else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
-                        do_save(svldTab * 8 + svldSlot);
-                        statue_ui = 0;
-                    } else if (k == SDLK_ESCAPE) { statue_ui = 1; statue_sel = 0; statue_reveal = 0; }
                 } else if (statue_ui == 3) {       // blessing list (effects pending)
                     constexpr int kBless = 15;     // 14 blessings + "Nothing right now"
                     if (k == SDLK_UP || k == SDLK_W) statue_sel = (statue_sel + kBless - 1) % kBless;
@@ -1988,32 +2052,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     else if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE)
                         skip_cutscene = true;
                 }
+                else if (paused) {
+                    const bool ok = k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E || k == SDLK_Z;
+                    const bool esc = k == SDLK_ESCAPE || k == SDLK_BACKSPACE;
+                    if (ok) bookIn.confirm = true;
+                    if (esc) bookIn.cancel = true;
+                }
                 // T = trigger a test cutscene (S_1000's Roy/Ramona talk) — debug.
                 else if (k == SDLK_T) start_cutscene(asset_root / "MAP" / "S_10" / "S_1000" / "TALKC210.XSO", /*debug235*/true);
-                else if (k == SDLK_ESCAPE) {
-                    paused = !paused;  // toggle pause; NEVER quit (X quits)
-                    if (paused && pausePage == 3) refresh_slots();
-                }
-                // The book's page is LOAD-only, as in the real game (saving happens at
-                // a goddess statue): Up/Down slot, Enter loads. Before the debug K/L keys.
-                else if (paused && pausePage == 3 && (k == SDLK_UP || k == SDLK_W))
-                    svldSlot = (svldSlot + 7) % 8;
-                else if (paused && pausePage == 3 && (k == SDLK_DOWN || k == SDLK_S))
-                    svldSlot = (svldSlot + 1) % 8;
-                else if (paused && pausePage == 3 && (k == SDLK_LEFT || k == SDLK_A)) {
-                    svldTab = (svldTab + 7) % 8; refresh_slots();
-                }
-                else if (paused && pausePage == 3 && (k == SDLK_RIGHT || k == SDLK_D)) {
-                    svldTab = (svldTab + 1) % 8; refresh_slots();
-                }
-                else if (paused && pausePage == 3 && (k == SDLK_RETURN || k == SDLK_SPACE)) {
-                    std::ifstream f(slot_path(svldTab * 8 + svldSlot), std::ios::binary);
-                    std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
-                    if (auto r = SaveRecord::decode(raw)) {
-                        apply_loaded(from_record(*r));
-                        paused = false;
-                        hud.message("Game loaded.");
-                    } else hud.message("No data in slot " + std::to_string(svldTab * 8 + svldSlot + 1));
+                else if (k == SDLK_ESCAPE) {         // open the book; NEVER quit (X quits)
+                    paused = true;
+                    book.open(book_model());
+                    bookIn = {};
+                    for (int& h : bookHold) h = 0;
+                    bookAccum = 0;
                 }
                 else if (k == SDLK_F) {
                     fly = !fly;
@@ -2030,15 +2082,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // K = take 60 damage (watch the red ghost linger + drain), L = heal to full.
                 else if (k == SDLK_K) { player.hp = std::max(1, player.hp - 60); hud.message("(debug) -60 HP"); }
                 else if (k == SDLK_L) { player.hp = player.max_hp; hud.message("(debug) full heal"); }
-                // Pause-book tab cycling (only while the menu is open): E = next, Q = prev page.
-                else if (paused && k == SDLK_E) {
-                    pausePage = (pausePage + 1) % 4;
-                    if (pausePage == 3) refresh_slots();
-                }
-                else if (paused && k == SDLK_Q) {
-                    pausePage = (pausePage + 3) % 4;
-                    if (pausePage == 3) refresh_slots();
-                }
                 // Debug: B fills the EX/Boost gauge in ~4 presses (to eyeball the boost arc).
                 else if (k == SDLK_B) { player.boost = std::min(30000.f, player.boost + 7500.f); hud.message("(debug) +Boost"); }
                 // Boost (engine: button bit 8) and skill/magic (button bit 4). The engine's
@@ -2101,6 +2144,71 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // burst of ticks. We reproduce that, relying on the load-time reset above
         // rather than on clamping, so timing stays exact under normal play.
         if (paused || statue_ui) accum = 0;  // freeze while the pause menu / statue menu is open
+        if (paused && book.is_open()) {
+            bookAccum += real_dt;
+            while (bookAccum >= kTickDt && book.is_open()) {
+                bookAccum -= kTickDt;
+                // Auto-repeat (FUN_005d2ba0): a held direction fires on its 1st frame, its
+                // 28th, then every 5th.
+                const bool* ks = SDL_GetKeyboardState(nullptr);
+                const bool held[4] = {ks[SDL_SCANCODE_LEFT] || ks[SDL_SCANCODE_A],
+                                      ks[SDL_SCANCODE_RIGHT] || ks[SDL_SCANCODE_D],
+                                      ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W],
+                                      ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S]};
+                bool fire[4];
+                for (int i = 0; i < 4; ++i) {
+                    bookHold[i] = held[i] ? bookHold[i] + 1 : 0;
+                    const int n = bookHold[i];
+                    fire[i] = n == 1 || (n >= 28 && (n - 28) % 5 == 0);
+                }
+                BookInput in = bookIn;
+                bookIn = {};
+                in.hstep = fire[0] ? -1 : fire[1] ? 1 : 0;
+                in.vstep = fire[2] ? -1 : fire[3] ? 1 : 0;
+                in.held_left = held[0];
+                in.held_right = held[1];
+                BookModel bm = book_model();
+                BookEvents bev;
+                book.update(in, bm, bev);
+                for (int id : bev.sounds) audio.play(id, kSfxMenuVol);
+                if (bev.clamp_hp) player.hp = std::min(player.hp, int(player_stats().max_hp));
+                if (bev.use_item >= 0) {                     // the Panacea (FUN_00443390, count - 1)
+                    float hp = float(player.hp);
+                    EffectEnv env;
+                    env.flags = game.g_flags; env.hp = &hp; env.max_hp = player_stats().max_hp;
+                    use_item(inv, inv_items, env, bev.use_item, nullptr);
+                    player.hp = int(hp);
+                }
+                if (!bev.script.empty()) {                   // S_COMMON "@UseHammer" ...
+                    std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
+                    csMgr.vm.g_flags[150] = character;
+                    if (!csMgr.start(bev.script))
+                        std::printf("  [book] %s did not start\n", bev.script.c_str());
+                }
+                if (bev.save_slot >= 0) do_save(bev.save_slot);
+                if (bev.delete_slot >= 0) {
+                    std::error_code ec;
+                    fs::remove(slot_path(bev.delete_slot), ec);
+                }
+                if (bev.load_slot >= 0) {
+                    std::ifstream f(slot_path(bev.load_slot), std::ios::binary);
+                    std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
+                    if (auto r = SaveRecord::decode(raw)) {
+                        apply_loaded(from_record(*r));
+                        hud.message("Game loaded.");
+                    }
+                }
+                if (bev.options_changed) {
+                    audio.set_bgm_volume(oslider[0] / 1024.0f);
+                    audio.set_master_volume(oslider[1] / 1024.0f);
+                    options_save(oslider, ocheck);
+                }
+                if (bev.option_quit == 1) running = false;  // Exit: WM_CLOSE
+                if (bev.option_quit == 0)                    // [not modelled] Return to Title
+                    hud.message("Return to Title is not implemented yet.");
+                if (bev.closed) paused = false;
+            }
+        }
         int ticks = 0;
         while (accum >= kTickDt) {
         accum -= kTickDt;
@@ -2788,6 +2896,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (r.died) {
                         ++killed;
                         award_exp(en.exp_reward);
+                        if (en.cast_id >= 0 && en.cast_id < 256) {   // FUN_004fbb40: the Topic record
+                            topic_seen[en.cast_id] = 1;
+                            topic_kills[en.cast_id] = std::min(topic_kills[en.cast_id] + 1, 50);
+                        }
                         // Death entry plays p_hit0 from C for any actor, and the enemy's
                         // own death animation adds its z_dead* pair (SFX_TRIGGERS.md §4.3).
                         // Positional: panned/attenuated from the enemy's spot.
@@ -3392,60 +3504,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             --csHost.caption_timer;
         }
-        // Pause menu overlay: the pause-book Equip page over the frozen game (Esc to close).
-        if (paused && pauseOk) {
-            TitleFx::EquipView ev;
-            ev.character = character;
-            ev.level = player.level;
-            ev.hp = player.hp;
-            ev.maxhp = player.max_hp;
-            if (ginfo.ok()) {
-                ev.str = int(player_stats().atk);
-                ev.def = int(player_stats().def);
-                // Exp is the RUNNING TOTAL and Next is what REMAINS to the next level —
-                // both were showing level-band arithmetic instead of live progress.
-                ev.exp = long(std::llround(player.exp));
-                ev.next = long(std::llround(ginfo.exp_to_level(player.level + 1)
-                                            - double(player.exp)));
-                if (ev.next < 0) ev.next = 0;
-            }
-            // The equipped ids drive BOTH the slot icons and the whole bottom detail panel
-            // (plate, big icon, name, stat line, description) — with them left at -1 the
-            // panel resolved item -1 and drew nothing, which is most of why the page looked
-            // like a fixed image. Same source as the HUD slots.
-            ev.weaponId = game.g_flags[151];
-            ev.armorId = game.g_flags[152];
-            ev.selId = ev.weaponId;
-            // The difficulty word was hardcoded "Normal" even though the setting is live.
-            {
-                static const char* kDiff[] = {"Very Easy", "Easy", "Normal", "Hard", "Nightmare"};
-                const int di = std::clamp(difficulty, 0, 4);
-                ev.diffWord = kDiff[di];
-            }
-            write_mvp(g, Mat4::identity());  // the pause-book pages are screen-space
-            // Fresh depth (like the title-menu path's tdepth) so the world's z-buffer can't
-            // occlude the book; only allocated while the pause menu is actually open.
-            WGPUTextureView pdepth = make_depth(g, cw, ch);
-            switch (pausePage) {
-                case 1: {  // Item / Inventory
-                    static const int owned[] = {1, 48, 8, 78, 79, 116};  // stub inventory
-                    ev.caption = "Examine or use an item.";
-                    pauseUi.draw_item(g, pmf, view, pdepth, cw, ch, ev, owned, 6, pitems, asset_root);
-                    break;
-                }
-                case 2:  // Topic (Character / Monster / Manual)
-                    pauseUi.draw_topic(g, pmf, view, pdepth, cw, ch, 0);
-                    break;
-                case 3:  // Load page (L/R tab, Up/Down slot, Enter = load; saving is at statues)
-                    pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/false, svldTab,
-                                      svldSlot, svldLabels.data());
-                    break;
-                default:  // Equip
-                    ev.caption = "Your equipped weapon.";
-                    pauseUi.draw_equip(g, pmf, view, pdepth, cw, ch, ev, pitems, asset_root);
-                    break;
-            }
-            wgpuTextureViewRelease(pdepth);
+        // The pause book over the frozen game (BACK00 is opaque; the pillars cover the rest).
+        if (paused && bookOk && book.is_open()) {
+            DrawList dl;
+            book.draw(dl, book_model());
+            bookR.render(g, view, cw, ch, dl);
         }
         // The goddess-statue menu, over the frozen game (STATUE_MENU.md flow).
         if (statue_ui && pauseOk) {
@@ -3460,9 +3523,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 static const char* kChoice[3] = {"Save", "Accept divine blessing", "Nothing right now"};
                 std::snprintf(tbuf, sizeof tbuf, "%.*s", statue_reveal, "What will you do?");
                 pauseUi.draw_popup(g, pmf, view, pdepth, cw, ch, tbuf, kChoice, 3, statue_sel);
-            } else if (statue_ui == 2) {
-                pauseUi.draw_svld(g, pmf, view, pdepth, cw, ch, /*save=*/true, svldTab,
-                                  svldSlot, svldLabels.data());
             } else {
                 // Blessing names + SP costs are the retail-observed table (STATUE_MENU.md).
                 // Selecting one only reports "not implemented" — no SP is spent.

@@ -16,7 +16,8 @@
 //   +0x60  i32         CAST ID — equals the record index in 186/186
 //   +0x64  i32         -> actor+0x120 [C-DIS]; [H-high] the AI HANDLER INDEX
 //   +0x6c  i32         ACTOR CLASS [C-DIS]: 0x10 = monster (86), 4 (87), 2 (2), 0 (11)
-//   +0x78  char[0x40]  DESCRIPTION
+//   +0x78  char[0x100] DESCRIPTION (the Topic datacard text; up to 216 bytes in use)
+//   +0x178 char[0x88]  a second text block (empty in the EN data)
 //
 // ## +0x10 is the real name, and we ignored it for weeks [C-COR]
 //
@@ -130,7 +131,8 @@ struct Cast {
     std::string display;      // +0x10
     std::string stem;         // +0x24  as stored, lower-case ("c000")
     std::int32_t cast_id = 0;  // +0x60  == the record index
-    std::string description;  // +0x78
+    std::string description;  // +0x78 (0x100: the Topic datacard's first text block)
+    std::string description2;  // +0x178 (the second block; empty in the EN data)
     // Movement, per cast [C-DIS] — see the note above and physics_player.hpp. Only
     // record 13 (the player) carries bespoke values; 168-169 casts share the defaults.
     float radius_base = 0;  // +0x34

@@ -1,0 +1,234 @@
+// The in-game pause book (go_wndmain2), ported from build/menu_re/PAUSEBOOK_DRAW.md: the shell
+// and tab navigator (FUN_005a6230 / FUN_005a68f0 / FUN_005a73c0), the Equip page (FUN_005a7580
+// / FUN_005a8030 / FUN_005a9140), the Item page with its Use popup (FUN_005a9d10 / FUN_005aa370
+// / FUN_005aad90 / FUN_005ab0d0 / FUN_005abd10), the status panel (FUN_005b05c0 /
+// FUN_005b1680) and the caption + item-detail panel (FUN_005ae280 / FUN_005ae970 /
+// FUN_005b0130). Every widget is a MenuSprite; draw() emits the engine's draw order.
+//
+// The Load / Save lists, their Load / Save / Delete dialogs and the Option page follow
+// build/menu_re/PAUSEBOOK_DRAW_SVLD_OPT.md (pausebook_lists.cpp).
+//
+// The Topic page (category menu, index sheets, datacard viewer, manual) and the Crystal's
+// warp map follow build/menu_re/PAUSEBOOK_DRAW_TOPIC_MAP.md (pausebook_topic.cpp).
+//
+// [not modelled] the title-side contexts (the title Load list's crash-backup box); the mouse; languages
+// other than English.
+#pragma once
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <string>
+#include <vector>
+
+#include "cleria/inventory.hpp"
+#include "cleria/menusprite.hpp"
+
+namespace cleria {
+
+struct GameInfo;
+struct ItemTable;
+struct CastTable;
+struct EnemyTable;
+
+// A save slot as the header scanner FUN_00430140 leaves it (PAUSEBOOK_DRAW_SVLD_OPT.md §1.2).
+struct SlotCard {
+    int status = 0;                         // rec+0x90: 1 card, 0 empty, anything else broken
+    int level = 0;                          // +0x04
+    int difficulty = 0;                     // +0x20: 0 Normal, 1 Hard, 2 Nightmare
+    bool easy = false, very_easy = false, inferno = false;   // +0x28 / +0x2c / +0x30
+    std::uint32_t play_frames = 0;          // +0x34 (1/60 s)
+    int character = 0;                      // +0x38 (the icon cell)
+    std::string date, time, area;           // +0x4c / +0x57 / +0x94
+};
+
+// What the book reads and writes of the game (FUN_00420c40 recomputes the stats every frame
+// the book is open, so the host refreshes these before each update).
+struct BookModel {
+    std::int32_t* flags = nullptr;          // g_flags: counts 0..127, slots 151..153, 228 ...
+    InvState* inv = nullptr;
+    const ItemTable* items = nullptr;
+    const GameInfo* gi = nullptr;
+    int character = 1;                      // 0x76bb74 = g_flags[150]
+    int level = 1;
+    float hp = 0, max_hp = 0, atk = 0, def = 0, exp = 0;
+    float next_exp = 0;                     // 0x76b910: the EXP total for the next level
+    // FUN_00420880: the stats with a candidate item swapped into its slot (the Equip preview).
+    std::function<PlayerStats(int item)> preview;
+    bool player_can_act = true;             // grounded and not hurt/dead (else "@UseItemBoo")
+    bool underwater = false;                // the Harmonica's "@UseHarmonica2"
+    // The Load / Save list: the scanner for slot 0..63 (yso_NN.bin) and the last-used slot
+    // DAT_0074ac3e (ini SaveFileNo).
+    std::function<SlotCard(int slot)> scan;
+    int* save_file_no = nullptr;
+    // The Option page's live values: BGM / SFX / brightness 0..1024 and the four switches
+    // (analog, dash, hold-attack, always-dash; bytes 0x6d606d..0x6d6070).
+    int* sliders = nullptr;
+    bool* checks = nullptr;
+    // The Topic page: the collection records 0x74ac40 + id*0x1c (seen byte, kill count; by cast
+    // id, null = nothing seen), the cleared-difficulty bytes 0x74ab88.. (the boss stats; null =
+    // none), the manual pages enabled 0x76b8d8[13], and CASTINFO / ENEMYINFO.
+    const std::uint8_t* topic_seen = nullptr;
+    const std::int32_t* topic_kills = nullptr;
+    const std::uint8_t* clear_flags = nullptr;
+    std::uint8_t* manual_on = nullptr;
+    const CastTable* casts = nullptr;
+    const EnemyTable* enemies = nullptr;
+    // The warp map: points enabled 0x76c11c[24]; the host starts an S_COMMON script and runs
+    // its first burst at once (FUN_00434970), so the book reads flag 198 straight after.
+    const std::uint8_t* warp_on = nullptr;
+    std::function<void(const std::string&)> start_script;
+};
+
+// The input record (PAUSEBOOK_DRAW.md §0.7), with the host's auto-repeat already applied.
+struct BookInput {
+    int hstep = 0, vstep = 0;               // -1 / +1 (vstep +1 = down)
+    bool confirm = false, cancel = false;   // pressed edges 0x2000 / 0x4000
+    bool held_left = false, held_right = false;   // d-pad bits 2 / 4 held (the Option sliders)
+};
+
+struct BookEvents {
+    std::vector<int> sounds;                // FUN_0043a040 ids (0 confirm, 1 cancel, 2 buzzer, 3 move, ...)
+    std::string script;                     // an S_COMMON script to start ("@UseHammer" ...)
+    int use_item = -1;                      // FUN_00443390 + count-- (the Panacea)
+    bool clamp_hp = false;                  // the equip changed: curHP = min(curHP, maxHP)
+    bool closed = false;                    // subId = -1
+    int load_slot = -1, save_slot = -1, delete_slot = -1;   // FUN_0042f5e0 / FUN_0042e9a0 / FUN_0042f510
+    bool options_changed = false;           // a slider / switch moved (apply + write the ini)
+    int option_quit = -1;                   // Yes in a message box: 0 Return to Title, 1 Exit
+};
+
+class PauseBook {
+  public:
+    // FUN_005a4fd0(ctx): 0 = the pause book, 1 = straight into the Save list (the statue).
+    void open(const BookModel& m, int ctx = 0);
+    bool is_open() const { return open_; }
+    void close() { open_ = false; }
+    void update(const BookInput& in, BookModel& m, BookEvents& ev);   // FUN_005a5130 (a real step)
+    void draw(DrawList& out, const BookModel& m) const;              // FUN_005a5d50
+    int page() const { return page_; }
+    int sub_id() const { return sub_; }
+
+  private:
+    // shell
+    void build_shell();
+    void update_nav(const BookInput& in, BookEvents& ev);
+    // Equip
+    void build_equip(const BookModel& m);
+    void equip_colours(bool focused, bool animate);
+    void update_equip(const BookInput& in, BookModel& m, BookEvents& ev);
+    void draw_equip(DrawList& out, const BookModel& m) const;
+    // Item + the Use popup
+    void build_item(const BookModel& m);
+    void item_colours(bool bright, bool animate);
+    void update_item(const BookInput& in, BookModel& m, BookEvents& ev);
+    void build_popup();
+    void update_popup(const BookInput& in, BookModel& m, BookEvents& ev);
+    void draw_item(DrawList& out, const BookModel& m) const;
+    // status, caption, detail
+    void draw_status(DrawList& out, const BookModel& m) const;
+    void update_caption(const BookModel& m);
+    void set_detail(int id);
+    void draw_caption_detail(DrawList& out, const BookModel& m) const;
+    // the Load / Save list and its dialogs
+    void build_svld(const BookModel& m, bool from_open);
+    void svld_colours(bool lit, bool animate);
+    void rescan(const BookModel& m);
+    void update_svld(const BookInput& in, BookModel& m, BookEvents& ev);
+    void draw_svld(DrawList& out) const;
+    struct Dialog {
+        int state = 0, cur = 0, ret = 0;
+        MenuSprite bg, btn[3], cursor;
+    };
+    void build_dialog(int k);               // 0 Load, 1 Save, 2 Delete
+    void update_dialog(int k, const BookInput& in, BookModel& m, BookEvents& ev);
+    void draw_dialog(DrawList& out, int k) const;
+    // the Topic page
+    void build_category();
+    void update_category(const BookInput& in, BookModel& m, BookEvents& ev);
+    void build_sheet(const BookModel& m);
+    void enter_set(const BookModel& m, int set);
+    void build_bar();
+    void bar_uvs();
+    void pager(const BookModel& m, int d);
+    void update_bar(const BookInput& in, BookModel& m, BookEvents& ev);
+    void update_grid(const BookInput& in, BookModel& m, BookEvents& ev);
+    void place_grid_cursor(const BookModel& m);
+    void build_viewer();
+    void build_card(const BookModel& m);
+    void step_card(const BookModel& m, int d);
+    void update_viewer(const BookInput& in, BookModel& m, BookEvents& ev);
+    void build_manual(const BookModel& m);
+    void manual_targets(const BookModel& m);
+    void update_manual(const BookInput& in, BookModel& m, BookEvents& ev);
+    void draw_topic(DrawList& out, const BookModel& m) const;
+    int topic_count(int page) const;
+    int topic_base() const;
+    int topic_entry(int slot) const;          // the global entry index of a sheet slot, -1 if none
+    bool topic_seen(const BookModel& m, int slot) const;
+    // the warp map
+    void build_map();
+    void update_map(const BookInput& in, BookModel& m, BookEvents& ev);
+    void draw_map(DrawList& out, const BookModel& m) const;
+    // the Option page
+    void build_option(const BookModel& m);
+    void option_colours(bool lit, bool animate);
+    void option_checks(const BookModel& m);
+    void place_knob(int i, int value);
+    void update_option(const BookInput& in, BookModel& m, BookEvents& ev);
+    void draw_option(DrawList& out) const;
+
+    bool open_ = false;
+    int sub_ = 0;                           // menuObj+0x130
+    int frames_ = 0;                        // menuObj+0x134
+    // the shell (0x732c50.. )
+    int nav_ = 0, page_ = 0, last_page_ = 0;
+    MenuSprite back_, plaque_[9], cursor_, gold_;
+    // Equip (0x7335c8 ..)
+    int estate_ = 0, ecur_ = 0;
+    std::array<std::int32_t, 22> erec_count_{};
+    MenuSprite epanel_, ecursor_, etile_[22], eicon_[22], emarker_[5];
+    // Item (0x735e28 ..)
+    int istate_ = 0, icur_ = 0;
+    std::array<std::int32_t, 30> irec_count_{};
+    MenuSprite ipanel_, icursor_, itile_[30], iicon_[30], ihi_;
+    // the Use popup (0x738b40 ..)
+    int pstate_ = 0, psel_ = 0, pitem_ = -1;
+    MenuSprite pframe_, pyes_, pno_, pcur_;
+    float pbx_ = 0, pby_ = 0;
+    // the caption / detail panel
+    std::string caption_;
+    int detail_id_ = -1;
+    MenuSprite dplate_, dicon_;
+    // the Load / Save list (0x73bc30 ..) and the dialogs (0x73cb08 / 0x73ce78 / 0x73d1e8)
+    int svstate_ = 0, svpage_ = 0, svrow_ = 0;
+    std::array<SlotCard, 8> cards_{};
+    MenuSprite svpanel_, svcursor_, svtab_[8], svplate_[8], svicon_[4];
+    Dialog dlg_[3];
+    // the Option page (0x73d4b0 ..)
+    int ostate_ = 0, orow_ = 0, oenter_ = 0x0b;
+    MenuSprite orow_spr_[10], ocursor_, ocheck_[4], otrack_[3], oknob_[3];
+    Dialog omsg_[2];                        // Return to Title / Exit (w_MsgBox)
+    // Topic: the category menu (0x73eab8 ..)
+    int tstate_ = 0, tcur_ = 0, tset_ = 0;
+    MenuSprite tbar_[3], tglow_;
+    // the index sheet (0x73f038 ..) and its Prev / Select / Next bar (0x73ed78 ..)
+    int gstate_ = 0, gcur_ = 0, gpage_ = 0, bstate_ = 0, bcur_ = 0;
+    MenuSprite tbook_, tcell_[32], gcursor_, gglow_, tbtn_[3], bglow_;
+    // the datacard viewer (0x7409e8 ..)
+    int vstate_ = 0, vcur_ = 0, vfirst_ = 0;
+    bool vboss_ = false;
+    MenuSprite vbg_, vbtn_[2], vglow_, vport_[2], vboss_pic_;
+    std::string vtext_[2][2];               // [entry][block]
+    std::string vstat_[2][6];               // HP STR EXP LV DEF GOLD
+    // the manual (0x794680 ..)
+    int mstate_ = 0, mcur_ = 0, mshown_ = 0;
+    MenuSprite mbook_, mpage_, mtab_[13], mlabel_[13], mglow_;
+    // the warp map (popup state 3; 0x738e00 ..)
+    int mapcur_ = 0;
+    float pan_ = 0;
+    bool close_next_ = false;
+    MenuSprite mtower_, mplaque_, mcrystal_, mplate_[22], mbar_;
+    std::uint32_t mpillar_diffuse_ = 0, mpillar_specular_ = 0x808080;
+};
+
+}  // namespace cleria

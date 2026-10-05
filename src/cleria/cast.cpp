@@ -43,7 +43,8 @@ CastTable CastTable::load(const fs::path& path) {
         c.name = cstr(b, o + 0x00, 0x10);
         c.display = cstr(b, o + 0x10, 0x14);
         c.stem = cstr(b, o + 0x24, 0x10);
-        c.description = cstr(b, o + 0x78, 0x40);
+        c.description = cstr(b, o + 0x78, 0x100);
+        c.description2 = cstr(b, o + 0x178, 0x88);
         std::memcpy(&c.cast_id, b.data() + o + 0x60, 4);
         std::memcpy(&c.radius_base, b.data() + o + 0x34, 4);
         std::memcpy(&c.height_base, b.data() + o + 0x38, 4);

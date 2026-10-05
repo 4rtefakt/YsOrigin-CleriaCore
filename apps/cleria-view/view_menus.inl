@@ -16,6 +16,7 @@ struct MenuFont {
     std::string face_name = "Constantia";
     WGPURenderPipeline pipeline{};
     WGPUBindGroup bind{};
+    WGPUTextureView atlas_view{};
     WGPUSampler samp{};
     WGPUBuffer vbuf{};
     std::size_t vbuf_cap = 0;
@@ -150,7 +151,9 @@ struct MenuFont {
         WGPUBindGroup nb = wgpuDeviceCreateBindGroup(g.device, &bd);
         if (bind) wgpuBindGroupRelease(bind);   // drop the previous atlas (bind holds its view+tex)
         bind = nb;
-        wgpuTextureViewRelease(view); wgpuTextureRelease(tex);
+        if (atlas_view) wgpuTextureViewRelease(atlas_view);
+        atlas_view = view;                      // kept for binding through other pipelines
+        wgpuTextureRelease(tex);
         ok = true;
         return true;
     }
