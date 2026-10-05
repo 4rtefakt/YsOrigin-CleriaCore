@@ -8,11 +8,10 @@
 // load subtracts): key A @+0x10 covers +0x30..+0xd0, key B @+0xc0 (inside the key-A
 // span) covers +0xd0..end. The "magic ptr" &LAB_004f7359 is little-endian "YsO\0".
 //
-// Honesty: the header checksums (+0x0c over the +0x30 span, +0xc4 over the payload;
-// FUN_005ee870) use an algorithm that is still [UNKNOWN], so CleriaCore writes 0 and
-// does not verify them — CleriaCore reads real saves fine, but the REAL exe would
-// reject a CleriaCore-written file until that hash is traced. The engine itself
-// zeroes both after verifying on load.
+// Checksums (FUN_005ee870 = zlib CRC-32, verified 51/51 real saves): +0x0c covers the
+// scrambled +0x30..+0x60, +0xc4 the scrambled payload. encode() stamps both, so the
+// real exe accepts CleriaCore-written files; decode() does not verify them (the engine
+// zeroes both after verifying on load).
 #include <array>
 #include <cstdint>
 #include <optional>

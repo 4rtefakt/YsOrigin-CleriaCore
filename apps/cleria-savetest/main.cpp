@@ -74,6 +74,11 @@ int main() {
                         "lv=%d hp=%.0f/%.0f sp=%d\n",
                         rm.character, rm.difficulty, rm.area.c_str(), rm.date.c_str(),
                         rs.scene.c_str(), rs.level, rs.hp_cur, rs.hp_max, rs.sp);
+            // Write-compat: re-encoding with the file's own keys must reproduce it byte
+            // for byte — CRC A/B included, so the real exe will accept our saves.
+            const bool same = r->encode(r->hdr_u32(0x10), r->hdr_u32(0xC0)) == real;
+            std::printf("[save] REAL save re-encode byte-exact (CRCs) %s\n", same ? "OK" : "FAIL");
+            fails += !same;
         } else {
             std::printf("[save] REAL save FAILED to decode\n");
             ++fails;

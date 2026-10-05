@@ -19,6 +19,18 @@ void scramble(std::uint8_t* p, std::size_t off, std::size_t len, std::uint32_t k
 
 std::size_t va_off(std::uint32_t va) { return std::size_t(va - SaveRecord::kBase); }
 
+// FUN_005ee870(ecx=ptr, edx=len): table-driven reflected CRC-32, poly 0xEDB88320,
+// init/xorout 0xFFFFFFFF — i.e. zlib crc32 [C-DIS, 0x5ee870..0x5ee951]. Verified on
+// 51/51 real saves (build/audit/menus.md S3).
+std::uint32_t crc32(const std::uint8_t* p, std::size_t len) {
+    std::uint32_t c = 0xFFFFFFFFu;
+    for (std::size_t i = 0; i < len; ++i) {
+        c ^= p[i];
+        for (int k = 0; k < 8; ++k) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+    }
+    return ~c;
+}
+
 }  // namespace
 
 std::int32_t SaveRecord::i32(std::uint32_t va) const {
@@ -71,12 +83,19 @@ std::optional<SaveRecord> SaveRecord::decode(std::span<const std::uint8_t> raw) 
 
 std::vector<std::uint8_t> SaveRecord::encode(std::uint32_t key_a, std::uint32_t key_b) const {
     std::vector<std::uint8_t> out(b.begin(), b.end());
-    // Keys are stamped THEN their spans scrambled; key B is written before the key-A
-    // span is scrambled (it sits at +0xc0, inside it) — the exact load-order inverse.
+    // Writer order (FUN_0042e9a0 tail): key B, scramble the payload, CRC B over the
+    // SCRAMBLED payload -> +0xc4 (+0xc8 zeroed); then key A, scramble +0x30..+0xd0
+    // (which covers key B and CRC B), CRC A over the scrambled +0x30..+0x60 -> +0x0c.
+    // The loader FUN_0042f5e0 checks both and reports "Data is corrupt" on a mismatch.
     std::memcpy(out.data() + 0xC0, &key_b, 4);
     scramble(out.data(), 0xD0, kSize - 0xD0, key_b, /*write*/ true);
+    const std::uint32_t crc_b = crc32(out.data() + 0xD0, kSize - 0xD0), zero = 0;
+    std::memcpy(out.data() + 0xC4, &crc_b, 4);
+    std::memcpy(out.data() + 0xC8, &zero, 4);
     std::memcpy(out.data() + 0x10, &key_a, 4);
     scramble(out.data(), 0x30, 0xA0, key_a, /*write*/ true);
+    const std::uint32_t crc_a = crc32(out.data() + 0x30, 0x30);
+    std::memcpy(out.data() + 0x0C, &crc_a, 4);
     return out;
 }
 
@@ -99,7 +118,7 @@ SaveRecord to_record(const SaveState& s, const std::string& area_line,
     r.set_hdr_u32(0x00, SaveRecord::kMagic);
     r.set_hdr_u32(0x04, 1);
     r.set_hdr_u32(0x08, std::uint32_t(SaveRecord::kSize));
-    // +0x0c / +0xc4 checksums: FUN_005ee870 algorithm [UNKNOWN] — left 0 (see save.hpp).
+    // +0x0c / +0xc4 checksums are stamped by encode() (they cover scrambled bytes).
     r.set_hdr_u32(0x50, std::uint32_t(s.difficulty() + 1));  // 1-based; 0 = empty slot
     r.set_hdr_u32(0x68, std::uint32_t(s.character()));
     r.set_hdr_str(0x7C, date, 11);
