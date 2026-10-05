@@ -2201,7 +2201,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
                     // [not modelled] attachment to the actor (FUN_00451c20) and the scale.
                     for (const AiEffect& fx : o.effects) {
-                        if (fx.move_tag >= 0) world.move_owned_effects(en->instance_id, fx.move_tag, fx.pos.x, fx.pos.y, fx.pos.z);
+                        if (fx.kill_tag >= 0) world.kill_owned_effects(en->instance_id, fx.kill_tag);
+                        else if (fx.move_tag >= 0) world.move_owned_effects(en->instance_id, fx.move_tag, fx.pos.x, fx.pos.y, fx.pos.z);
                         else if (fx.tag >= 0) world.locate_owned_effect(fx.id, fx.pos.x, fx.pos.y, fx.pos.z, en->instance_id, fx.tag);
                         else world.locate_effect(fx.id, fx.pos.x, fx.pos.y, fx.pos.z, 0.0f, 0.0f, "");
                     }
@@ -2231,6 +2232,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (o.set_durable >= 0) e.avm.set_durable(o.set_durable != 0);
                     if (o.set_own_jump >= 0) e.avm.set_own_jump(o.set_own_jump != 0);
                     if (o.set_frame >= 0) e.avm.set_frame(o.set_frame);
+                    if (e.actor->ai.hit_cut) { e.atk_win = 0; e.actor->ai.hit_cut = false; }   // disengage
                     if (o.fast_forward >= 0) e.avm.fast_forward_to_marker(o.fast_forward);
                     if (o.snap_facing) e.facing = e.actor->ai.heading;
                     // A hit volume armed by the brain (FUN_004494e0), placed like any other.

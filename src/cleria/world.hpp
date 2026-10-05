@@ -267,6 +267,10 @@ class ActorWorld : public XsoHost {
         for (LocatedEffect& e : effects_)
             if (e.owner == owner && e.tag == tag) { e.x = x; e.y = y; e.z = z; }
     }
+    void kill_owned_effects(int owner, int tag) {
+        for (auto it = effects_.begin(); it != effects_.end();)
+            it = (it->owner == owner && it->tag == tag) ? effects_.erase(it) : it + 1;
+    }
     void kill_effect(const std::string& name) override {
         for (auto it = effects_.begin(); it != effects_.end();)
             it = (it->name == name) ? effects_.erase(it) : it + 1;

@@ -73,6 +73,7 @@ struct EnemyAi {
     float speed = 0;       // +0x30c
     float speed310 = 0;    // +0x310: the last speed FUN_00477720 wrote (M170's sidestep weight)
     float alpha = 1;       // +0x4d8: sprite opacity (brains that fade, e.g. M390)
+    bool hit_cut = false;  // FUN_00475860 zeroed +0x118 (the armed hit record's life); the host clears it
     bool hittable = true;  // +0x60 & 0x80: hit tests and body push skip the actor when clear
     int w_type = 0;        // +0x424: wander type (0 wander, 1 stand)
     int w_phase = 1;       // +0x428
@@ -162,10 +163,11 @@ struct AiSpawn {
 };
 // An EF2 effect a brain spawns at a point (the inlined pool-pop + FUN_00451a40 pattern).
 // tag >= 0: the brain owns it (M530's beams); move_tag >= 0: no spawn, re-place every live
-// effect this actor owns with that tag at pos.
+// effect this actor owns with that tag at pos; kill_tag >= 0: no spawn, kill them (M140's
+// KILLFX — the engine fades them over 16 steps; [not modelled] the fade).
 struct AiEffect {
     int id = 0; Vec3 pos{}; float scale = 1; bool attach = false;
-    int tag = -1, move_tag = -1;
+    int tag = -1, move_tag = -1, kill_tag = -1;
 };
 // A hit volume a brain arms by hand: FUN_004494e0, the anime_GenerateCollision body, with
 // its 13 arguments in script order (hit_volume.hpp volume_from_args decodes them).
@@ -183,6 +185,14 @@ struct AiBullet {
     float scale = 1;
     int trail_effect = 0, trail_period = 0;   // +0x158 / +0x15c: a trail puff every N ticks
     bool gas = false;                         // its EF2 gets +0x1a8 = owner (the gas floor)
+    // FUN_00593550's block, for the bullet kinds the view does not run yet (PROJECTILE.md):
+    // [not modelled] the per-kind update — the view flies every brain bullet straight.
+    int kind = 1;                             // +0x124
+    int owner = -1;                           // +0x120: an actor instance id; -1 = the brain's actor
+    int home_period = 0;                      // +0x160: home every N ticks (0 = never)
+    float home_rate = 0;                      // +0x164: rad per homing step
+    bool probe = false;                       // +0x168 != 0: the terrain probe
+    float f16c = 0, f170 = 0;                 // +0x16c / +0x170 (kind 2: the homing window; 0xb: heal n)
 };
 struct AiOut {
     int section = -1;            // FUN_00446550(section, 0): a priority-GATED request

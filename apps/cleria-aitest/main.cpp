@@ -610,6 +610,26 @@ int main() {
         check(c3 >= 75 && c3 <= 119, "lunge at 4.8u (< 5.0); Nightmare (d = -2): cooldown (d + 3)*15 + hold 60 + 0..44");
     }
 
+    // ---- M940 Nooze (Yellow): splits ~only when hit (35%) (build/ai_spec/M940.md) ----
+    {
+        const EnemyBrain m940 = enemy_brain_for(87);
+        check(m940 != nullptr, "Nooze (Yellow) brain registered (AI index 87)");
+        EnemyAiParams np = params(0.03f, 0.02f, 1.0f, 3.0f, 0.0f);
+        np.raw[6] = 0.1f; np.raw[7] = 0.15f;
+        int hit_splits = 0, free_splits = 0;
+        for (int s = 0; s < 1000; ++s)
+            for (int sec : {4, 0}) {
+                Rig r; EnemyAi ai; for (int i = 0; i < s; ++i) r.rng();
+                r.env.target = {6.0f, 1.075f, 0}; r.env.hp = 100; r.env.max_hp = 100;
+                enemy_ai_tick(ai, np, r.env, m940);
+                r.env.hp = 80; r.env.section = sec; r.env.aso_marker = 9;
+                const AiOut o = enemy_ai_tick(ai, np, r.env, m940);
+                if (!o.spawns.empty()) (sec == 4 ? hit_splits : free_splits) += 1;
+            }
+        std::printf("[ai]   M940 splits over 1000 seeds: hit %d, otherwise %d\n", hit_splits, free_splits);
+        check(hit_splits > 310 && hit_splits < 390 && free_splits < 6, "split odds: 35% in the hit reaction, 0.1% otherwise");
+    }
+
     // ---- M920 Nooze (Blue): M910 with other constants (build/ai_spec/M920.md) ----
     {
         const EnemyBrain m920 = enemy_brain_for(85);
@@ -1313,6 +1333,136 @@ int main() {
             bool spark = false; for (const AiEffect& f : ob.effects) spark |= f.id == 65;
             check(std::fabs(S.mover.k1.x + 0.25f) < 1e-5f && spark && std::fabs(O.ai.f(0x7cc) - 1.0f) < 1e-5f,
                   "bounce: pushed off its neighbour (k1 -0.25), spark EF2 65, the neighbour's accumulator pushed");
+        }
+    }
+
+    // ---- M580 Sevnam: M500's teleporter with the bubble attack (build/ai_spec/M580.md) ----
+    {
+        const EnemyBrain m580 = enemy_brain_for(51);
+        check(m580 != nullptr, "Sevnam brain registered (AI index 51)");
+        const EnemyAiParams sp = params(0.1f, 0.0f, 0.0f, 0.0f, 0.0f);
+        Rig r; EnemyAi ai; r.env.target = {4.0f, 1.075f, 0};
+        enemy_ai_tick(ai, sp, r.env, m580);                            // init: fade out (302)
+        r.env.section = 0x12e; r.env.aso_frame = 7;
+        enemy_ai_tick(ai, sp, r.env, m580);                            // vanished: hidden, timer
+        check(ai.i(0x728) == 3 && ai.cool() >= 90 - 1 && ai.cool() <= 209, "hidden: timer R%120 - 20d + 90 (Normal 90..209)");
+        ai.cool() = 0;
+        r.env.aso_frame = 0;
+        int trig = -1;
+        for (int t = 0; t < 300 && trig < 0; ++t) {
+            const AiOut o = enemy_ai_tick(ai, sp, r.env, m580);
+            if (ai.i(0x728) == 0 && r.env.section == 0x12e) r.env.section = 0x12d;   // the appear plays
+            if (o.section == 7) trig = t;
+        }
+        check(trig >= 0 && ai.i(0x728) == 4, "appeared and near: the attack (section 7 requested at once)");
+        r.env.section = 7; r.env.aso_marker = 4910491;
+        const AiOut o = enemy_ai_tick(ai, sp, r.env, m580);
+        int spits = 0, drops = 0;
+        for (const AiBullet& b : o.bullets) {
+            if (b.effect != 491) continue;
+            if (b.dir.y > 0.8f && std::fabs(b.speed - 0.5f) < 1e-6f) ++spits;
+            if (b.dir.y == -1.0f && std::fabs(b.speed - 0.15f) < 1e-6f && b.pos.y > 21.0f) ++drops;
+        }
+        check(spits == 1 && drops == 2 && o.set_marker == 0, "marker 4910491: one spit up (491) + two drops from 21+ (Normal)");
+        r.env.section = 2; r.env.aso_marker = 0;
+        enemy_ai_tick(ai, sp, r.env, m580);
+        check(ai.i(0x728) == 1 && ai.cool() + 1 >= 180 && ai.cool() + 1 <= 267, "section 7 over: the attack ends, cooldown (R%30 + 60) x 3");
+    }
+
+    // ---- M140 Twarth and M270 Moz (build/ai_spec/M140.md, M270.md) ----
+    {
+        const EnemyBrain m140 = enemy_brain_for(7), m270 = enemy_brain_for(20);
+        check(m140 && m270, "Twarth / Moz brains registered (AI 7 / 20)");
+        const EnemyAiParams tp = params(0.12f, 0.03f, 1.2f, 2.8f, 0.0f);
+        {   // The charge: within 5u a 5% roll starts a 113-tick run (Normal); effect 268 at Marker 1.
+            Actor A; Rig r; r.env.actor = &A; r.env.target = {3.0f, 1.075f, 0};
+            int run = -1;
+            for (int t = 0; t < 400 && run < 0; ++t) { enemy_ai_tick(A.ai, tp, r.env, m140); if (A.ai.action() == 0x800) run = t; }
+            check(run >= 0 && A.ai.dur() == 112 && A.ai.i(0x7c4) == 1, "within 5u: the run (0x800, 113 ticks on Normal)");
+            r.env.section = 1; r.env.aso_marker = 1;
+            const AiOut o = enemy_ai_tick(A.ai, tp, r.env, m140);
+            bool fx = false; for (const AiEffect& f : o.effects) fx |= f.id == 268 && f.tag == 0x88c;
+            check(fx && o.set_durable == 1 && std::fabs(A.ai.f(0x814) - 0.18f) < 1e-6f,
+                  "run past Marker 1: the charge effect (EF2 268, owned), Durable, turn x1.5");
+            for (int t = 0; t < 200 && A.ai.action() != 0; ++t) enemy_ai_tick(A.ai, tp, r.env, m140);
+            r.env.section = 1;
+            const AiOut e2 = enemy_ai_tick(A.ai, tp, r.env, m140);
+            bool killed = false; for (const AiEffect& f : e2.effects) killed |= f.kill_tag == 0x88c;
+            check(e2.section == 0x139 && e2.section_force && killed && A.ai.cool() + 1 == 275,
+                  "run over: section 0x139 forced, the effect killed, cooldown 275 (Normal)");
+        }
+        {   // Moz: arms its contact sphere every 8th tick of the run section; the hurt hold.
+            Actor M; M.flags12c = 0x00110010u;
+            const EnemyAiParams mp = params(0.05f, 0.0335f, 1.0f, 3.5f, 0.0f);
+            Rig r; r.env.actor = &M; r.env.target = {4.0f, 1.075f, 0}; r.env.section = 1;
+            int arms = 0;
+            for (int t = 0; t < 64; ++t)
+                for (const AiHitbox& h : enemy_ai_tick(M.ai, mp, r.env, m270).hitboxes)
+                    arms += h.radius == 0.45f && h.fwd == 0.5f && h.life == 8 && h.rehit == 16;
+            check(arms == 8 && (M.flags12c & 0x71c802u) == 0x71c802u, "Moz: the contact sphere every 8 ticks in section 1; +0x12c |= 0x71c802");
+            r.env.section = 4;
+            enemy_ai_tick(M.ai, mp, r.env, m270);
+            check(M.ai.action() == 1 && M.ai.dur() == 29, "in the hit reaction: stand heading-locked 30 ticks");
+        }
+    }
+
+    // ---- M550 Arte-Baocar (build/ai_spec/M550.md) ----
+    {
+        struct Field : AiWorld {        // a floor at y = 0, open sky; holds a wounded ally
+            std::list<Actor> actors;
+            void for_each(const std::function<void(Actor&)>& f) override { for (Actor& a : actors) f(a); }
+            Actor* find(int id) override { for (Actor& a : actors) if (a.instance_id == id) return &a; return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3& o, const Vec3& d) override {
+                Ray r;
+                if (d.y < 0 && o.y >= 0 && o.y + d.y <= 0) { r.hit = true; r.point = {o.x, 0, o.z}; }
+                return r;
+            }
+            bool sphere_hits(const Vec3& c, float rr) override { return c.y - rr < 0; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+        };
+        const EnemyBrain m550 = enemy_brain_for(48);
+        check(m550 != nullptr, "Arte-Baocar brain registered (AI index 48)");
+        EnemyAiParams bp = params(0.05f, 0.03f, 1.0f, 2.0f, 0.0f);
+        bp.raw[8] = 1.2f;                                              // +0x834 hover
+        {   // The warp-attack chain: 3 teleports near the target, then the shot cast (section 8).
+            Field w; Actor& B = (w.actors.emplace_back(), w.actors.back()); B.instance_id = 3; B.cast_id = 0x3b; B.hp = B.max_hp = 50;
+            B.height = 1.0f; B.flyer = true;
+            Rig r; r.env.actor = &B; r.env.world = &w; r.env.target = {6.0f, 1.075f, 0};
+            int warps = 0, cast = -1;
+            for (int t = 0; t < 3000 && cast < 0; ++t) {
+                r.env.self = {B.pos.x, B.pos.y + B.height, B.pos.z};
+                const AiOut o = enemy_ai_tick(B.ai, bp, r.env, m550);
+                for (const AiEffect& f : o.effects) warps += f.id == 0x10d;
+                if (o.section == 8) cast = t;
+            }
+            std::printf("[ai]   M550: %d warp effects before the cast (tick %d)\n", warps, cast);
+            check(cast > 0 && warps == 6, "chain: 3 warps (out + in effects each), then the shot cast (section 8)");
+            check(B.ai.dur() == 149 && B.ai.cool() + 1 == 330, "shot cast: 150 ticks, cooldown 330 (Normal)");
+            r.env.section = 8; r.env.aso_marker = 310;
+            const AiOut o = enemy_ai_tick(B.ai, bp, r.env, m550);
+            check(o.bullets.size() == 1 && o.bullets[0].kind == 2 && o.bullets[0].effect == 310 &&
+                  o.bullets[0].speed == 0.2f && o.set_marker == 0, "Marker(310): one homing shot (kind 2, effect 310, 0.2), marker consumed");
+        }
+        {   // The heal cast: a wounded ally (< 30%) -> section 7; the heal shot is owned by the ally.
+            Field w; Actor& B = (w.actors.emplace_back(), w.actors.back()); B.instance_id = 3; B.cast_id = 0x3b; B.hp = B.max_hp = 50;
+            Actor& F = (w.actors.emplace_back(), w.actors.back()); F.instance_id = 9; F.cast_id = 0x20; F.max_hp = 100; F.hp = 20;
+            B.height = 1.0f; B.flyer = true;
+            Rig r; r.env.actor = &B; r.env.world = &w; r.env.target = {6.0f, 1.075f, 0};
+            int heal = -1;
+            for (int t = 0; t < 3000 && heal < 0; ++t) {
+                r.env.self = {B.pos.x, B.pos.y + B.height, B.pos.z};
+                const AiOut o = enemy_ai_tick(B.ai, bp, r.env, m550);
+                if (o.section == 7) heal = t;
+                if (o.section == 8) { B.ai.i(0x730) = 0; B.ai.cool() = 0; }   // skip the chain for this test
+            }
+            r.env.section = 7; r.env.aso_marker = 314;
+            const AiOut o = enemy_ai_tick(B.ai, bp, r.env, m550);
+            check(heal >= 0 && o.bullets.size() == 1 && o.bullets[0].kind == 0xb && o.bullets[0].owner == 9 &&
+                  o.bullets[0].f16c == 50.0f && o.set_marker == 4,
+                  "heal cast: section 7; Marker(314) a heal shot (kind 0xb) owned by the ally, heal 50 (Normal)");
         }
     }
 

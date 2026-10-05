@@ -243,8 +243,9 @@ void acquire(EnemyAi& a) {   // FUN_004758a0
     if (a.leash() != 0) return;
     a.i(0x6fc) = 0; a.phase() = 2; a.action() = 0; a.dur() = 0; a.cool() = 0; a.ncrumb() = 0;
 }
-void disengage(EnemyAi& a) {   // FUN_00475860
+void disengage(EnemyAi& a) {   // FUN_00475860 (it also zeroes +0x118, the hit record's life)
     a.phase() = 1; a.i(0x6fc) = 0; a.dur() = 0; a.cool() = 0; a.ncrumb() = 0;
+    a.hit_cut = true;
 }
 
 // FUN_00475a80: sight. Vertical gap <= max_dy, distance^2 <= d2max (XMM2), inside

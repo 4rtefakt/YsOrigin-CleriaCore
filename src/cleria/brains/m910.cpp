@@ -32,7 +32,7 @@ struct Nooze {
     int split;            // per mille outside the hit reaction: 30, 30, 230
     int hit_split;        // per mille in the hit reaction: 150, 200, 50
     unsigned pool_cap;    // 24, 26, 28
-    int split_cast;       // itself: 0xb1, 0xb2, 0xb3
+    int split_cast;       // itself: 0xb1, 0xb2, 0xb3 (M940: 0xb4)
     float chunk_keep;     // HP chunk = max(0.31 max, h - h*this): 0.5, 0.525, 0.55
 };
 
@@ -157,6 +157,11 @@ AiOut m920(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
 // with a reaction-2 (knock-down) hit.
 AiOut m930(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     return nooze(a, p, e, {5.0f, 200u, 15, 3, 45u, 230, 50, 28u, 0xb3, 0.55f});
+}
+// M940 Nooze (Yellow), FUN_004eec20 (AI 87): the same routine (build/ai_spec/M940.md); it
+// splits almost only from the hit reaction (35%; 0.1% otherwise); its ASO lunge is Durable.
+AiOut m940(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+    return nooze(a, p, e, {4.5f, 250u, 15, 3, 30u, 1, 350, 24u, 0xb4, 0.575f});
 }
 
 }  // namespace cleria::brains

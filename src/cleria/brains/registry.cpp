@@ -10,6 +10,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 4: return &brains::m110;    // M110 Genoid
         case 5: return &brains::m120;    // M120 Jestona
         case 6: return &brains::m130;    // M130 Selnarg
+        case 7: return &brains::m140;    // M140 Twarth
         case 8: return &brains::m150;    // M150 Normous
         case 10: return &brains::m170;   // M170 Vilvan
         case 11: return &brains::m180;   // M180 Wilewarer
@@ -18,6 +19,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 14: return &brains::m210;   // M210 Kelemare
         case 17: return &brains::m240;   // M240 Bordisch
         case 18: return &brains::m250;   // M250 Nipper
+        case 20: return &brains::m270;   // M270 Moz
         case 23: return &brains::m300;   // M300 Hubamobre
         case 24: return &brains::m310;   // M310 Jiamobre
         case 27: return &brains::m340;   // M340 Rezalior
@@ -32,11 +34,14 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 45: return &brains::m520;   // M520 Menoak
         case 46: return &brains::m530;   // M530 Sepast
         case 47: return &brains::m540;   // M540 Perrie
+        case 48: return &brains::m550;   // M550 Arte-Baocar
+        case 51: return &brains::m580;   // M580 Sevnam
         case 69: return &brains::m760;   // M760 Raldisch
         case 70: return &brains::m770;   // M770 Hubamobrun
         case 84: return &brains::m910;   // M910 Nooze
         case 85: return &brains::m920;   // M920 Nooze (Blue)
         case 86: return &brains::m930;   // M930 Nooze (Red)
+        case 87: return &brains::m940;   // M940 Nooze (Yellow)
         case 90: return &brains::m970;   // M970 Vagully
         default: return nullptr;
     }
