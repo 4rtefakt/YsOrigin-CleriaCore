@@ -169,6 +169,7 @@ struct EnemyRender {
     float facing = 0;       // +0x314, the visible facing, ENGINE basis (cos, sin)
     int loco = -1;          // last locomotion section requested (table 0x69ba48)
     bool hit = false;       // landed hit this tick (+0x3bc & 4), read by the next AI tick
+    bool dmg_hit = false;   // ...and it did >= 1 damage (+0x3bc & 2)
     float origin_h = 1.075f;  // +0x324: this cast's origin height above its floor
 };
 

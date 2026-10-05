@@ -177,6 +177,7 @@ struct Enemy {
     // The engine overwrites +0x30c at spawn and re-derives speed per move mode in
     // FUN_00477720: walk = base*walk, run = base*run (M100: x1.5; roster up to x6).
     float ai_turn = 0, ai_base = 0, ai_walk = 0, ai_run = 0, ai_sight = 0;
+    float ai_raw[16] = {};  // +0x90..+0xcc verbatim (-> actor +0x814..+0x850)
 
     // Live slots are front-packed (90/90), so this is the count.
     int drop_count() const {

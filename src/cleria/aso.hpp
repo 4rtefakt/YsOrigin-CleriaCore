@@ -291,6 +291,11 @@ class AsoVm {
     std::int32_t wait_ = 0;
     std::int32_t anim_tag_ = -1, frame_ = 0, file_id_ = -1, dir_offset_ = 0;
     std::int32_t marker_ = -1, marker_wait_ = -1;
+public:
+    // anime_Marker's last value = the actor's +0x9bc (sprite[0x33]) that brains read.
+    // The sprite starts zeroed, so "never set" reads as 0.
+    std::int32_t marker() const { return marker_ < 0 ? 0 : marker_; }
+private:
     std::int32_t r_ = 0;             // the comparison register
     std::int32_t locals_[32] = {};   // obj[0x3b + n]
     const std::int32_t* flags_ = nullptr;

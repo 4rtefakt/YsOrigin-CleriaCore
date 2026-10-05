@@ -15,7 +15,8 @@ endif()
 set(TP "${CMAKE_SOURCE_DIR}/third_party")
 
 # Asset core — the reverse-engineered format parsers + room assembly.
-add_library(cleria STATIC
+file(GLOB CLERIA_BRAINS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/cleria/brains/*.cpp)
+add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/ymo.cpp
   src/cleria/sob.cpp
   src/cleria/scene.cpp

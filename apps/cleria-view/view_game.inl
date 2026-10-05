@@ -589,10 +589,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         return it->second.ok() ? &it->second : nullptr;
     };
     // Bind each freshly-built enemy to its script + attack section, and start it in idle.
-    auto bind_enemy_aso = [&] {
-        for (EnemyRender& e : render) {
+    auto bind_one_enemy = [&](EnemyRender& e) {
+        {
             Aso* a = enemy_script(e.stem);
-            if (!a) continue;
+            if (!a) return;
             e.avm.bind(a);
             // Resting section: 2 (idle for most), else 0, else whatever exists first —
             // set_section is what makes AsoVm::ok() true, so it must land on a real one.
@@ -602,13 +602,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             e.atk_section = enemy_atk_section[e.stem];
             if (e.actor) {
                 if (const Enemy* er = etab.get(e.actor->cast_id))
-                    e.aip = {er->ai_turn, er->ai_base, er->ai_walk, er->ai_run, er->ai_sight};
+                {
+                    e.aip = {er->ai_turn, er->ai_base, er->ai_walk, er->ai_run, er->ai_sight, {}};
+                    std::copy(std::begin(er->ai_raw), std::end(er->ai_raw), e.aip.raw);
+                }
                 e.origin_h = cast_motion(casts, e.actor->cast_id).height();
                 // Engine heading basis (cos, sin) from the actor's (sin, cos) yaw.
                 e.facing = e.ai.heading = 1.5707963f - e.actor->yaw;
             }
         }
     };
+    auto bind_enemy_aso = [&] { for (EnemyRender& e : render) bind_one_enemy(e); };
 
     // Barrier fight (kekkai). A room's KEKKAIZAKO_*.XSO polls Chr_IsSeedLiving(1) and,
     // when the last group-1 seed enemy dies, grants the progress flag its chest guard
@@ -2073,6 +2077,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const float cw = q.x * m[3] + q.y * m[7] + q.z * m[11] + m[15];
                     return cw > 0 && std::fabs(cx) <= cw && std::fabs(cy) <= cw && cz >= 0 && cz <= cw;
                 };
+                int pool = 0;
+                for (const Actor& a : world.actors()) pool += a.alive();
+                std::vector<std::pair<Actor*, AiSpawn>> brain_spawns;
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
                     if (!en || !en->alive() || !e.avm.ok()) continue;
@@ -2086,8 +2093,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     env.target_alive = player.hp >= 1;
                     env.target_grounded = pv.grounded;
                     env.was_hit = e.hit;
+                    env.took_damage = e.dmg_hit;
+                    env.group_tag = en->tag.tagged();
+                    env.aso_marker = e.avm.marker();
                     env.culled = !in_view(en->pos);
                     env.difficulty = d;
+                    env.diff_index = difficulty >= 2 ? difficulty - 2 : 0;
+                    env.diff_easy = difficulty <= 1;
+                    env.diff_very_easy = difficulty == 0;
+                    env.pool_count = pool;
                     env.blocked = [&](const Vec3& a0, const Vec3& b0) {
                         return segment_blocked(phys_mesh(room), a0, b0); };
                     env.has_floor = [&](float x, float z, float from_y, float depth) {
@@ -2095,15 +2109,28 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         return f > kNoFloor && from_y - f <= depth; };
                     env.rng = [&] { return std::uint32_t(rng()); };
                     e.hit = false;
-                    const AiOut o = enemy_ai_tick_m100(e.ai, e.aip, env);
+                    e.dmg_hit = false;
+                    env.hp = en->hp; env.max_hp = en->max_hp; env.section = e.avm.section();
+                    const EnemyBrain own = enemy_brain_for(en->ai_index);
+                    const AiOut o = enemy_ai_tick(e.ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
+                    // The brain's own writes to its HP (+0x98) / EXP (+0xb0), and its spawns.
+                    if (o.set_hp >= 0) en->hp = o.set_hp;
+                    en->exp_reward *= o.exp_scale;
+                    for (const AiSpawn& s : o.spawns) brain_spawns.push_back({en, s});
+                    pool += int(o.spawns.size());
                     if (ai_debug && (tick_count % 60) == 0)
                         std::printf("[ai] #%d cast %d phase %d sub %d act 0x%x steer %d mode %d spd %.4f "
-                                    "dist %.2f head %.2f culled %d sec %d mov %.2f\n",
-                                    en->instance_id, en->cast_id, e.ai.phase, e.ai.sub, e.ai.action,
-                                    e.ai.steer, e.ai.mode, e.ai.speed, e.ai.dist, e.ai.heading,
-                                    int(env.culled), e.avm.section(), e.avm.movable());
-                    // Strike: the brain's FUN_00446550(7,0) — a priority-gated request.
-                    if (o.attack && !hurt && e.atk_section >= 0 && e.avm.set_section(e.atk_section)) {
+                                    "dist %.2f head %.2f culled %d sec %d mov %.2f hp %.1f mk %d at (%.1f,%.1f)\n",
+                                    en->instance_id, en->cast_id, e.ai.phase(), e.ai.i(0x728), e.ai.action(),
+                                    e.ai.i(0x708), e.ai.mode(), e.ai.speed, e.ai.dist(), e.ai.heading,
+                                    int(env.culled), e.avm.section(), e.avm.movable(), en->hp, env.aso_marker,
+                                    en->pos.x, en->pos.z);
+                    // Strike: the brain's FUN_00446550(sec,0) — a priority-gated request. A
+                    // ported brain names its section literally; the M100 stand-in's 7 maps to
+                    // this kind's guessed attack section.
+                    const int want = (!own && o.section == 7 && e.atk_section >= 0) ? e.atk_section : o.section;
+                    if (o.section >= 0 && !hurt && e.avm.set_section(want, o.section_force)) {
+                        if (own) e.atk_section = want;
                         e.atk_dx = std::cos(e.facing);
                         e.atk_dz = std::sin(e.facing);
                         e.atk_hit = false; e.atk_stall = 0; e.atk_fkey = -1;
@@ -2119,7 +2146,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const float spd = enemy_move_speed(e.ai, e.avm.movable());
                     en->pos.x += std::cos(e.ai.heading) * spd;
                     en->pos.z += std::sin(e.ai.heading) * spd;
-                    e.facing = enemy_turn_facing(e.facing, e.ai.heading, e.ai.mode == 2);
+                    e.facing = enemy_turn_facing(e.facing, e.ai.heading, e.ai.mode() == 2);
                     en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
                     e.avm.set_is_land(true);
                     e.avm.tick();
@@ -2148,6 +2175,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             e.loco = -1;
                         }
                     }
+                }
+                // A brain's spawns (FUN_00476d70: a fresh actor of that cast at the given
+                // spot and heading, phase 0). Appended after the loop: `render` can't grow
+                // while it is being iterated. The child shares its parent's sprite set.
+                for (auto& [parent, s] : brain_spawns) {
+                    SpawnRequest req;
+                    req.cast_type = s.cast;
+                    req.pos = s.pos;
+                    req.yaw_degrees = (1.5707963f - s.yaw) * 57.29577951f;   // heading -> view yaw
+                    Actor* c = world.spawn(req);
+                    if (!c) continue;
+                    if (s.hp >= 0) c->hp = s.hp;
+                    if (s.exp_copy) c->exp_reward = parent->exp_reward;
+                    const std::string stem = casts.sprite_stem(c->cast_id);
+                    if (stem.empty() || !efx.kinds.count(stem)) continue;
+                    const Cast* cc = casts.get(c->cast_id);
+                    render.push_back({c, stem, (cc && !cc->display.empty()) ? cc->display : stem});
+                    bind_one_enemy(render.back());
                 }
             }
 
@@ -2185,6 +2230,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 for (EnemyRender& er : render) {
                     if (er.actor != &en || !er.avm.ok()) continue;
                     er.hit = true;                      // +0x3bc & 4: wakes an unaware enemy
+                    if (dmg >= 1) er.dmg_hit = true;    // +0x3bc & 2: a damaging hit
                     if (enemy_flinch_state(dmg, false, rtype, er.avm.durable(), er.avm.section()) == 4) {
                         er.avm.set_section(4, /*force*/ er.avm.section() == 4);
                         er.atk_win = 0; er.atk_armed = false; er.atk_age = 0;
