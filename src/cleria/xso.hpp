@@ -75,6 +75,8 @@ struct XsoHost {
     // op 0x13f: is the entity with this id alive? The CONDITION is [C-DIS] —
     // `find(op0) != null && hp >= 1.0`. Absent id => false.
     virtual bool is_alive(int entity_id) const = 0;
+    // op 0x10e EnclosePlayer: the arena rectangle {xmin, zmin, xmax, zmax}.
+    virtual void enclose(float /*xmin*/, float /*zmin*/, float /*xmax*/, float /*zmax*/) {}
 
     // op 0x13d Chr_IsInEventBox(entityId, boxName): is the actor (998=self, 13=player, else
     // by id) inside the named oriented box placed in the map's .SEV scene-event table? An

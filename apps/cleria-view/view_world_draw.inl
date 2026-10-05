@@ -163,8 +163,7 @@ struct EnemyRender {
     int atk_stall = 0;
     bool atk_armed = false; // the swing's hit-volume has fired this attack
     int atk_age = 0;        // ticks in the current attack (hard-cap fallback)
-    // The AI handler's state (src/cleria/enemy_ai.hpp) and this cast's ENEMYINFO row.
-    EnemyAi ai;
+    // This cast's ENEMYINFO row (the AI block itself lives on the Actor: actor->ai).
     EnemyAiParams aip;
     float facing = 0;       // +0x314, the visible facing, ENGINE basis (cos, sin)
     int loco = -1;          // last locomotion section requested (table 0x69ba48)
@@ -204,6 +203,41 @@ static void populate_room(ActorWorld& world, const Room& room, const std::int32_
         world.spawn_placements();  // op 0xa0 alone
     }
 }
+
+// The sprite's camera-relative direction row (+0x9b4, what the AIA renderer draws): the
+// actor's facing (yaw, vx=sin/vz=cos) mapped onto the 8-way ring the player uses —
+// up -> dir2 (back), right -> dir0, down -> dir6 (front). Brains read it (M460's formation).
+static int sprite_dir_of(float yaw, const Vec3& camFwd) {
+    Vec3 fwdH = {camFwd.x, 0, camFwd.z};
+    const float fl = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
+    if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
+    const Vec3 rt = normalize(cross(Vec3{0, 1, 0}, fwdH));
+    const Vec3 hd = {std::sin(yaw), 0, std::cos(yaw)};
+    const float sUp = hd.x * fwdH.x + hd.z * fwdH.z;
+    const float sRt = hd.x * rt.x + hd.z * rt.z;
+    const float deg = std::atan2(sUp, sRt) * 57.29578f;
+    return int(std::lround((deg + 360.0f) / 45.0f)) & 7;
+}
+
+// The AiWorld a brain reaches other actors through, implemented with the host's lambdas.
+struct FnAiWorld : AiWorld {
+    std::function<void(const std::function<void(Actor&)>&)> each;
+    std::function<Actor*(int)> find_fn;
+    std::function<Actor*(Actor&, int, const Vec3&, int, bool)> spawn_fn;
+    std::function<void(Actor&)> remove_fn;
+    std::function<Ray(const Vec3&, const Vec3&)> ray_fn;
+    std::function<bool(const Vec3&, float)> sphere_fn;
+    std::function<void(float*)> arena_fn;
+    std::function<const float*(int)> raw_fn;
+    void for_each(const std::function<void(Actor&)>& f) override { each(f); }
+    Actor* find(int id) override { return id ? find_fn(id) : nullptr; }
+    Actor* spawn_child(Actor& p, int c, const Vec3& d, int lv, bool k) override { return spawn_fn(p, c, d, lv, k); }
+    void remove(Actor& a) override { remove_fn(a); }
+    Ray ray(const Vec3& o, const Vec3& dl) override { return ray_fn(o, dl); }
+    bool sphere_hits(const Vec3& c, float r) override { return sphere_fn(c, r); }
+    void arena(float r[4]) override { arena_fn(r); }
+    const float* enemy_raw(int c) override { return raw_fn(c); }
+};
 
 // Pair each spawned ENEMY actor with its sprite. cast_id -> "M_100" (CastTable::
 // sprite_stem), skipping the player and any actor whose sprite did not load. The
@@ -245,20 +279,17 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (!e.actor->visible) continue;   // Chr_Alpha faded it out (cutscene visibility)
         // A brain's opacity (+0x4d8, e.g. M390's warp fades): the render submit FUN_00473540
         // skips the actor at exactly 0; otherwise it is drawn at that opacity.
-        if (e.ai.alpha <= 0.0f) continue;
+        if (e.actor->ai.alpha <= 0.0f) continue;
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
         EnemyFx::Kind& k = it->second;
         // Floor shadow first (enemies are grounded, so pos.y is the floor).
-        draw_shadow(g, color, depth, shadow, e.actor->pos, e.actor->pos.y, 0.6f);
+        draw_shadow(g, color, depth, shadow, e.actor->pos,
+                    e.actor->flyer ? e.actor->floor_y : e.actor->pos.y, 0.6f);   // flyers: on the floor
         // Facing: the enemy's heading (yaw, vx=sin/vz=cos convention) mapped to the same
         // 8-dir ring the player uses -- up->dir2 (back), right->dir0, down->dir6 (front).
         // A chasing enemy faces the player (~the camera), so it mostly shows its front.
-        const Vec3 hd = {std::sin(e.actor->yaw), 0, std::cos(e.actor->yaw)};
-        const float sUp = hd.x * fwdH.x + hd.z * fwdH.z;
-        const float sRt = hd.x * rt.x + hd.z * rt.z;
-        const float deg = std::atan2(sUp, sRt) * 57.29578f;
-        int dir = int(std::lround((deg + 360.0f) / 45.0f)) & 7;
+        int dir = sprite_dir_of(e.actor->yaw, camFwd);
         const std::vector<SpriteTex>* frames = nullptr;
         int fi = 0;
         if (e.actor->anim_pin >= 0) {
@@ -292,8 +323,8 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (!t->tex) continue;
         // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
         const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
-        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos, flash,
-                       1.0f, 1.0f, 1.0f, false, e.ai.alpha);
+        draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos, flash,
+                       1.0f, 1.0f, 1.0f, false, e.actor->ai.alpha * e.actor->tint_alpha);
         // Event-bound (group-1..4) enemies GLOW their marker colour, ADDED to their own sprite and
         // pulsing by |sin(phase)| — the engine's FUN_00473c60 mechanism (build/effect_re/EF2_RENDER.md
         // §B): marker ARGB, alpha = intensity, per-enemy phase. Group 1 = 0xFFE00000 (red 224). We
@@ -311,8 +342,8 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             // fully fades to 0), and make the pulse a touch stronger — the retail ward glow
             // is subtle but always present.
             const float I = A * (0.45f + 0.55f * std::fabs(std::sin(phase)));               // pulsing intensity
-            draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos,
-                           0.0f, mr * I, mg * I, mb * I, /*additive*/true, e.ai.alpha);
+            draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos,
+                           0.0f, mr * I, mg * I, mb * I, /*additive*/true, e.actor->ai.alpha);
             break;
         }
     }
@@ -502,6 +533,8 @@ struct Projectile {
     int effect_id = 0;
     int age = 0, life = 60;
     bool from_player = true;
+    int trail_effect = 0, trail_period = 0;   // GoXx +0x158/+0x15c: a trail puff every N ticks
+    int gas_owner = 0;                         // its EF2 +0x1a8: the M460 whose gas floor applies
     std::unordered_set<int> hit;   // per-bullet hit dedup, as melee does
     bool alive() const { return age < life; }
 };

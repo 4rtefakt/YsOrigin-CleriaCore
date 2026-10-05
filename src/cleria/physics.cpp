@@ -289,4 +289,73 @@ bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b) {
     return false;
 }
 
+bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, Vec3* normal) {
+    const Vec3 d = sub(b, a);
+    const auto& idx = m.indices;
+    const auto& vp = m.vertices;
+    float best = 2.0f;
+    Vec3 bn{};
+    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        const Vec3 p0 = v(vp[idx[i]]), p1 = v(vp[idx[i + 1]]), p2 = v(vp[idx[i + 2]]);
+        const Vec3 e1 = sub(p1, p0), e2 = sub(p2, p0);
+        const Vec3 h = cross(d, e2);
+        const float det = dot(e1, h);
+        if (std::fabs(det) < 1e-9f) continue;
+        const float inv = 1.0f / det;
+        const Vec3 s0 = sub(a, p0);
+        const float u = dot(s0, h) * inv;
+        if (u < 0.0f || u > 1.0f) continue;
+        const Vec3 q = cross(s0, e1);
+        const float w = dot(d, q) * inv;
+        if (w < 0.0f || u + w > 1.0f) continue;
+        const float t = dot(e2, q) * inv;
+        if (t > 1e-4f && t < best) { best = t; bn = cross(e1, e2); }
+    }
+    if (best > 1.0f) return false;
+    if (point) *point = {a.x + d.x * best, a.y + d.y * best, a.z + d.z * best};
+    if (normal) {
+        const float l = std::sqrt(dot(bn, bn));
+        *normal = l > 0 ? Vec3{bn.x / l, bn.y / l, bn.z / l} : Vec3{};
+    }
+    return true;
+}
+
+bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r) {
+    // Closest point on each triangle (Ericson, Real-Time Collision Detection 5.1.5).
+    const auto& idx = m.indices;
+    const auto& vp = m.vertices;
+    const float r2 = r * r;
+    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        const Vec3 A = v(vp[idx[i]]), B = v(vp[idx[i + 1]]), C = v(vp[idx[i + 2]]);
+        const Vec3 ab = sub(B, A), ac = sub(C, A), ap = sub(c, A);
+        Vec3 q;
+        const float d1 = dot(ab, ap), d2 = dot(ac, ap);
+        if (d1 <= 0 && d2 <= 0) { q = A; }
+        else {
+            const Vec3 bp = sub(c, B);
+            const float d3 = dot(ab, bp), d4 = dot(ac, bp);
+            const Vec3 cp = sub(c, C);
+            const float d5 = dot(ab, cp), d6 = dot(ac, cp);
+            const float vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+            if (d3 >= 0 && d4 <= d3) q = B;
+            else if (d6 >= 0 && d5 <= d6) q = C;
+            else if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+                const float t = d1 / (d1 - d3); q = {A.x + ab.x * t, A.y + ab.y * t, A.z + ab.z * t};
+            } else if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+                const float t = d2 / (d2 - d6); q = {A.x + ac.x * t, A.y + ac.y * t, A.z + ac.z * t};
+            } else if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+                const float t = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+                q = {B.x + (C.x - B.x) * t, B.y + (C.y - B.y) * t, B.z + (C.z - B.z) * t};
+            } else {
+                const float den = 1.0f / (va + vb + vc);
+                const float vv = vb * den, ww = vc * den;
+                q = {A.x + ab.x * vv + ac.x * ww, A.y + ab.y * vv + ac.y * ww, A.z + ab.z * vv + ac.z * ww};
+            }
+        }
+        const Vec3 dq = sub(c, q);
+        if (dot(dq, dq) <= r2) return true;
+    }
+    return false;
+}
+
 }  // namespace cleria

@@ -24,6 +24,7 @@
 #include <cstdint>
 
 #include "cleria/combat.hpp"  // owns kActorDead and the damage path
+#include "cleria/enemy_ai.hpp"
 #include "cleria/mathx.hpp"
 #include "cleria/physics_player.hpp"
 
@@ -209,6 +210,15 @@ struct Actor {
     // is a tick countdown the renderer tints on.
     Vec3 knockback{};      // engine: +0x338/+0x340 (decaying push on hit)
     int hit_flash = 0;     // engine: +0x4e8 (ticks of white tint after a hit)
+    float scale = 1.0f;    // engine: +0x248, the model/sprite scale (M460 shrinks on a split)
+    float height = 0.0f;   // engine: +0x324, collision height: the origin floats this far above pos
+    bool flyer = false;    // engine: byte +0x398 (CASTINFO+0x44 > 0 or EI+0xb0 != 0): hovers via
+                           // FUN_00476960, no gravity, never floor-snapped
+    float spawn_y = 0.0f;  // engine: +0x31c, the authored placement y (the hover's phase-0/1 base)
+    float radius = 0.675f; // engine: +0x328, collision radius (M460 rescales it)
+    int aso_local15 = 0;   // engine: +0xa18 = ASO local int 15, applied when its script binds
+    bool no_min_damage = false;   // engine: byte +0xce — no min-1 chip (hit.hpp no_floor)
+    float tint_alpha = 1.0f;      // engine: the alpha byte of +0x290 (M460's crowding fade)
     // Hitstun: ticks an enemy is stunned after the player lands a hit, during which its
     // in-progress attack is interrupted and it can't act. The DURATION is [TUNED], not
     // RE'd from the enemy hurt-handler (which lives in the untouched main/object gap); it
@@ -221,6 +231,10 @@ struct Actor {
     // which is why it once scored 78/80 as a fake ENEMYINFO index. Kept because the
     // engine keeps it; do not index anything with it.
     std::int32_t ai_index = 0;
+    // The enemy AI block (+0x6f0..+0x8b0 plus heading/speed/opacity/hittable): part of the
+    // actor, as in the engine, so a brain can read and write OTHER actors' state (M460 and
+    // its bats). src/cleria/enemy_ai.hpp.
+    EnemyAi ai;
 
     // --- ours, not the engine's ---
     // The level the stats were computed at. ** Whether the engine's actor retains its

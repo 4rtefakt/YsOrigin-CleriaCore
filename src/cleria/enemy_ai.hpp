@@ -80,7 +80,37 @@ struct EnemyAi {
     bool initialised = false;
 };
 
+struct Actor;   // cleria/actor.hpp (which embeds an EnemyAi)
+
+// The world as the brains that reach OTHER actors see it (M460 and its bats): the live
+// actor list in engine order, the generic child spawn, removal, and the collision
+// queries their waypoint searches use. Implemented by the host (the view).
+struct AiWorld {
+    virtual ~AiWorld() = default;
+    virtual void for_each(const std::function<void(Actor&)>& f) = 0;   // DAT_00730098 order
+    virtual Actor* find(int instance_id) = 0;
+    // FUN_00476d70(parent, cast, dx, dy, dz, level, keep_phase0): a fresh actor of `cast`
+    // at the parent's origin + d with the parent's heading; AI memset, +0x854 = parent,
+    // phase 0 if keep_phase0 else 4. nullptr when the pool is full.
+    virtual Actor* spawn_child(Actor& parent, int cast, const Vec3& d, int level,
+                               bool keep_phase0) = 0;
+    virtual void remove(Actor& a) = 0;                       // FUN_004593c0
+    struct Ray { bool hit = false; Vec3 point{}, normal{}; };
+    virtual Ray ray(const Vec3& origin, const Vec3& delta) = 0;   // FUN_005e9380 + FUN_0041e420
+    virtual bool sphere_hits(const Vec3& centre, float radius) = 0;  // FUN_005e92b0 + FUN_0041ea80
+    // DAT_0076a5cc..d8 = {xmin, zmin, xmax, zmax}: the arena rectangle.
+    virtual void arena(float rect[4]) = 0;
+    // ENEMYINFO +0x90..+0xcc (16 floats) for a cast, or nullptr.
+    virtual const float* enemy_raw(int cast) = 0;
+};
+
 struct AiEnv {
+    Actor* actor = nullptr;      // this actor (brains that write its stats/scale/opacity)
+    AiWorld* world = nullptr;    // the other actors (nullptr when the host has none)
+    int character = 1;           // DAT_0076bb74 = g_flags[150]: 0 Adol, 1 Yunica, 2 Hugo, 3 Toal
+    int sprite_dir = 0;          // +0x9b4: the sprite's camera-relative direction row (0..7)
+    int aso_frame = 0;           // +0x9b8: the current anime_Pattern frame
+    bool durable = false;        // +0x9d8: anime_Durable
     Vec3 self{};                 // the actor's ORIGIN (floor + height)
     bool grounded = true;        // +0x388
     float radius = 0.675f;       // +0x328
@@ -88,6 +118,8 @@ struct AiEnv {
     float hp = 1, max_hp = 1;    // +0x98 / +0x94
     int section = 0;             // +0x994, the live motion section
     Vec3 target{};               // the target's ORIGIN
+    float target_floor = 0;      // the target's floor (+0x318), latched by the hover when grounded
+    bool target_rehit_clear = true;  // no attacker holds a re-hit timer on the player (P+0x90 bank)
     Vec3 target_vel{};           // the target's +0xa3c..+0xa44 (per tick)
     bool target_alive = true;    // HP >= 1.0 (or the scene keeps it targetable)
     bool target_grounded = true;
@@ -122,6 +154,20 @@ struct AiSpawn {
 };
 // An EF2 effect a brain spawns at a point (the inlined pool-pop + FUN_00451a40 pattern).
 struct AiEffect { int id = 0; Vec3 pos{}; float scale = 1; bool attach = false; };
+// A hit volume a brain arms by hand: FUN_004494e0, the anime_GenerateCollision body, with
+// its 13 arguments in script order.
+struct AiHitbox {
+    float a0 = 0, fwd = 0, radius = 0, angle_deg = 0, voff = 0, a5 = 0;   // [0]..[5]
+    int life = 0, rehit = 0, one_shot = 0, rtype = 0, status = 0;          // [6]..[10]
+    float power = 0, knock = 0;                                           // [11], [12]
+};
+// A GoXx bullet a brain creates directly (FUN_0040f700 + FUN_00583a00 + FUN_00593b90).
+struct AiBullet {
+    int effect = 0; Vec3 pos{}, dir{}; float speed = 0, accel = 0, gravity = 0;
+    float scale = 1;
+    int trail_effect = 0, trail_period = 0;   // +0x158 / +0x15c: a trail puff every N ticks
+    bool gas = false;                         // its EF2 gets +0x1a8 = owner (the gas floor)
+};
 struct AiOut {
     int section = -1;            // FUN_00446550(section, 0): a priority-GATED request
     bool section_force = false;  // FUN_00446620: ungated
@@ -130,11 +176,22 @@ struct AiOut {
     std::vector<AiEffect> effects;
     float set_hp = -1;           // the brain wrote its own HP (+0x98); < 0 = untouched
     float exp_scale = 1;         // x its own EXP reward (+0xb0)
+    std::vector<AiHitbox> hitboxes;
+    std::vector<AiBullet> bullets;
+    int set_marker = -1000;      // write +0x9bc (the ASO marker) when > -1000
+    int set_marker_block = -1000;  // write +0x9c0 (the marker block value) when > -1000
+    int set_durable = -1;        // write +0x9d8 (anime_Durable) when >= 0
+    float gauge_hp = -1;         // FUN_0043a460: show the boss gauge at this HP when >= 0
+    bool snap_facing = false;    // the brain set +0x314 = +0x308 (visible facing = heading)
     // Back-compat for the M100 path: true when the request is the cast's attack.
     bool attack = false;
 };
 
 using EnemyBrain = AiOut (*)(EnemyAi&, const EnemyAiParams&, const AiEnv&);
+
+// Handler code that runs on the dead path (HP < 1) for some casts — M460 kills its flock.
+using EnemyDeathHook = void (*)(Actor&, AiWorld&);
+EnemyDeathHook enemy_death_hook_for(int ai_index);
 
 // The brain for an AI index (actor +0x120 = CASTINFO +0x64), or nullptr when not yet
 // ported (callers fall back to the M100 brain as a stand-in and say so).
@@ -179,6 +236,14 @@ void wander(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);         // FUN_
 void idle(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);           // FUN_00478470
 void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);  // FUN_00479b00
 void init(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);         // FUN_004782f0
+// The same for an actor that is not the caller (M460 initialising a bat it just spawned):
+// home = its origin, raw = its ENEMYINFO +0x90..+0xcc (nullptr: leave +0x814.. zero).
+void init_block(EnemyAi& a, const Vec3& home, const float raw[16]);
+// FUN_00476960(mode): the flyer altitude controller. Moves `self`'s origin y toward
+// base + H (+0x834) by at most one rise (+0x838) / sink (+0x83c) step, with the bob
+// (+0x840 amplitude, +0x844 deg/tick, +0x848 phase). `ref` is +0x888 (null = the player,
+// read from e.target_floor / e.target_grounded). build/ai_spec/FLYER.md §1.
+void hover(EnemyAi& a, Actor& self, const AiEnv& e, const Actor* ref, int mode);
 // FUN_005eec50: norm(a) - norm(h) (FUN_005ef010, into [0, 2pi]) wrapped into [-pi, pi].
 double angle_diff(float h, float a);
 // FUN_00446550(id, no_restart) as the brain sees it: accepted unless the section is

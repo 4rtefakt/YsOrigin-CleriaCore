@@ -343,6 +343,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     if (!efl.load(asset_root) || !eft.load(asset_root))
         std::printf("effects: EFTLIST/EFTTEX missing — projectiles disabled\n");
     std::vector<Projectile> shots;
+    int gauge_owner = 0;                 // the actor whose HP the boss gauge shows (DAT_006d5fd8)
     // The live hit-volume, copied from the script when GenerateCollision arms it.
     // Defaults are Yunica's combo #1 so a script that never arms behaves as before.
     AsoVm::Hitbox atk_hb{0.6f, 0.0f, 30, 8.0f};
@@ -607,8 +608,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     std::copy(std::begin(er->ai_raw), std::end(er->ai_raw), e.aip.raw);
                 }
                 e.origin_h = cast_motion(casts, e.actor->cast_id).height();
+                e.actor->height = e.origin_h;
+                e.actor->radius = cast_motion(casts, e.actor->cast_id).radius();   // +0x328
                 // Engine heading basis (cos, sin) from the actor's (sin, cos) yaw.
-                e.facing = e.ai.heading = 1.5707963f - e.actor->yaw;
+                e.facing = e.actor->ai.heading = 1.5707963f - e.actor->yaw;
             }
         }
     };
@@ -1083,6 +1086,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         void despawn(int entity_id) override {
             if (worldHost) { worldHost->despawn(entity_id); world_changed = true; }
+        }
+        void enclose(float xmin, float zmin, float xmax, float zmax) override {   // op 0x10e
+            if (worldHost) worldHost->enclose(xmin, zmin, xmax, zmax);
         }
         // Cutscene actor control. The PLAYER (13/999) is `*playerPos` (feet), not a world
         // actor, so move it here; NPCs forward to the world. This is what makes the intro
@@ -2080,14 +2086,71 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 int pool = 0;
                 for (const Actor& a : world.actors()) pool += a.alive();
                 std::vector<std::pair<Actor*, AiSpawn>> brain_spawns;
+                // The other actors, as brains that reach them see them (M460 and its bats).
+                std::vector<Actor*> new_children;
+                FnAiWorld aiw;
+                aiw.each = [&](const std::function<void(Actor&)>& f) {
+                    for (Actor& a : world.actors()) if (!a.is_player() && !a.destroy_requested()) f(a);
+                };
+                aiw.find_fn = [&](int id) -> Actor* {
+                    for (Actor& a : world.actors())
+                        if (a.instance_id == id && !a.is_player() && !a.destroy_requested()) return &a;
+                    return nullptr;
+                };
+                aiw.spawn_fn = [&](Actor& p, int cast, const Vec3& dd, int lv, bool keep0) -> Actor* {
+                    // FUN_00476d70: at the parent position + d (world axes), with its heading.
+                    SpawnRequest req;
+                    req.cast_type = cast;
+                    req.pos = {p.pos.x + dd.x, p.pos.y + dd.y, p.pos.z + dd.z};
+                    req.yaw_degrees = (1.5707963f - p.ai.heading) * 57.29577951f;
+                    Actor* c = world.spawn(req);
+                    if (!c) return nullptr;
+                    c->height = cast_motion(casts, cast).height();
+                    c->radius = cast_motion(casts, cast).radius();
+                    c->level = lv;
+                    c->floor_y = p.floor_y;
+                    c->ai.heading = p.ai.heading;
+                    c->ai.i(0x854) = p.instance_id;
+                    c->ai.phase() = keep0 ? 0 : 4;
+                    new_children.push_back(c);
+                    return c;
+                };
+                aiw.remove_fn = [&](Actor& a) {                    // FUN_004593c0
+                    world.request_destroy(a);
+                    a.ai.hittable = false; a.hp = 0; a.visible = false;
+                };
+                aiw.ray_fn = [&](const Vec3& o, const Vec3& dl) {
+                    AiWorld::Ray r;
+                    r.hit = segment_hit(phys_mesh(room), o, {o.x + dl.x, o.y + dl.y, o.z + dl.z}, &r.point, &r.normal);
+                    return r;
+                };
+                aiw.sphere_fn = [&](const Vec3& c, float r) { return sphere_overlaps(phys_mesh(room), c, r); };
+                aiw.arena_fn = [&](float* r) { for (int k = 0; k < 4; ++k) r[k] = world.arena[k]; };
+                aiw.raw_fn = [&](int cast) -> const float* {
+                    const Enemy* er = etab.get(cast);
+                    return er ? er->ai_raw : nullptr;
+                };
+                const Vec3 cam_fwd = cam.forward();
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
-                    if (!en || !en->alive() || !e.avm.ok()) continue;
+                    // The dead path of a handler that has extra work there (M460: its flock).
+                    if (en && !en->alive() && !en->destroy_requested())
+                        if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) hk(*en, aiw);
+                    if (!en || !en->alive() || en->destroy_requested() || !e.avm.ok()) continue;
                     const bool hurt = e.avm.section() == 4;
                     const bool attacking = e.atk_section >= 0 && e.avm.section() == e.atk_section;
                     AiEnv env;
-                    env.self = {en->pos.x, en->pos.y + e.origin_h, en->pos.z};
-                    env.height = e.origin_h;
+                    env.self = {en->pos.x, en->pos.y + en->height, en->pos.z};
+                    env.height = en->height;
+                    env.radius = en->radius;
+                    env.actor = en;
+                    env.world = &aiw;
+                    env.character = character;
+                    env.sprite_dir = sprite_dir_of(en->yaw, cam_fwd);
+                    env.aso_frame = e.avm.frame();
+                    env.durable = e.avm.durable();
+                    env.target_floor = last_floor;
+                    env.target_rehit_clear = player_iframes == 0;
                     env.target = {feet.x, feet.y + kOriginH, feet.z};
                     env.target_vel = {pvel.x, 0, pvel.z};
                     env.target_alive = player.hp >= 1;
@@ -2119,7 +2182,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     e.dmg_hit = false;
                     env.hp = en->hp; env.max_hp = en->max_hp; env.section = e.avm.section();
                     const EnemyBrain own = enemy_brain_for(en->ai_index);
-                    const AiOut o = enemy_ai_tick(e.ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
+                    const AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
                     // The brain's own writes to its HP (+0x98) / EXP (+0xb0), and its spawns.
                     if (o.set_hp >= 0) en->hp = o.set_hp;
                     en->exp_reward *= o.exp_scale;
@@ -2132,32 +2195,68 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (ai_debug && (tick_count % 60) == 0)
                         std::printf("[ai] #%d cast %d phase %d sub %d act 0x%x steer %d mode %d spd %.4f "
                                     "dist %.2f head %.2f culled %d sec %d mov %.2f hp %.1f mk %d at (%.1f,%.1f)\n",
-                                    en->instance_id, en->cast_id, e.ai.phase(), e.ai.i(0x728), e.ai.action(),
-                                    e.ai.i(0x708), e.ai.mode(), e.ai.speed, e.ai.dist(), e.ai.heading,
+                                    en->instance_id, en->cast_id, e.actor->ai.phase(), e.actor->ai.i(0x728), e.actor->ai.action(),
+                                    e.actor->ai.i(0x708), e.actor->ai.mode(), e.actor->ai.speed, e.actor->ai.dist(), e.actor->ai.heading,
                                     int(env.culled), e.avm.section(), e.avm.movable(), en->hp, env.aso_marker,
                                     en->pos.x, en->pos.z);
                     // Strike: the brain's FUN_00446550(sec,0) — a priority-gated request. A
                     // ported brain names its section literally; the M100 stand-in's 7 maps to
                     // this kind's guessed attack section.
                     const int want = (!own && o.section == 7 && e.atk_section >= 0) ? e.atk_section : o.section;
-                    if (o.section >= 0 && !hurt && e.avm.set_section(want, o.section_force)) {
+                    if (o.section >= 0 && (!hurt || o.section_force) && e.avm.set_section(want, o.section_force)) {
                         if (own && o.attack) e.atk_section = want;
                         e.atk_dx = std::cos(e.facing);
                         e.atk_dz = std::sin(e.facing);
                         e.atk_hit = false; e.atk_stall = 0; e.atk_fkey = -1;
                         e.atk_armed = false; e.atk_age = 0;
                     }
+                    // The brain writes its ASO registers directly (+0x9bc / +0x9c0 / +0x9d8);
+                    // a section that restarts at pc 0 this tick clears the first two again.
+                    if (o.set_marker > -1000) e.avm.set_marker(o.set_marker);
+                    if (o.set_marker_block > -1000) e.avm.set_marker_block(o.set_marker_block);
+                    if (o.set_durable >= 0) e.avm.set_durable(o.set_durable != 0);
+                    if (o.snap_facing) e.facing = e.actor->ai.heading;
+                    // A hit volume armed by the brain (FUN_004494e0). [not modelled] arg[1]
+                    // (forward offset) and arg[4] (vertical offset): the box sits hb.radius ahead.
+                    for (const AiHitbox& h : o.hitboxes) {
+                        e.hb.radius = h.radius;
+                        e.hb.half_angle = h.angle_deg * 0.017453292f;
+                        e.hb.lifetime = h.life; e.hb.rehit = h.rehit; e.hb.rtype = h.rtype;
+                        e.hb.status = h.status; e.hb.power = h.power; e.hb.knock = h.knock;
+                        if (e.atk_win <= 0) e.atk_hit = false;
+                        e.atk_win = h.life > 0 ? h.life : 1;
+                        e.atk_armed = true;
+                        e.atk_dx = std::cos(e.facing); e.atk_dz = std::sin(e.facing);
+                    }
+                    // GoXx bullets the brain made directly (M460 gas).
+                    for (const AiBullet& b : o.bullets) {
+                        Projectile pr;
+                        pr.effect_id = b.effect;
+                        pr.pos = b.pos;                                     // world space, like spawn_bullets
+                        pr.dir = b.dir; pr.speed = b.speed; pr.accel = b.accel; pr.gravity = b.gravity;
+                        pr.life = bullet_art(g, asset_root, efl, eft, b.effect).life;
+                        pr.from_player = false;
+                        pr.trail_effect = b.trail_effect; pr.trail_period = b.trail_period;
+                        pr.gas_owner = b.gas ? en->instance_id : 0;
+                        shots.push_back(std::move(pr));
+                    }
+                    if (o.gauge_hp >= 0) {                         // FUN_0043a460: the boss gauge
+                        gauge_owner = en->instance_id;
+                        hud.boss_frac = en->max_hp > 0 ? std::clamp(o.gauge_hp / en->max_hp, 0.0f, 1.0f) : 0.0f;
+                        const Cast* bc = casts.get(en->cast_id);
+                        hud.boss_name = bc ? bc->display : std::string();
+                    }
                     // Locomotion section on a mode change (FUN_0045f4d0, gated, movable != 0).
-                    const int loco = enemy_loco_section(e.ai, true);
+                    const int loco = enemy_loco_section(e.actor->ai, true);
                     if (loco != e.loco && e.avm.movable() != 0.0f) {
                         e.loco = loco;
                         if (!hurt && !attacking) e.avm.set_section(loco);
                     }
                     // Move along the heading (grounded snap) and turn the visible facing.
-                    const float spd = enemy_move_speed(e.ai, e.avm.movable());
-                    en->pos.x += std::cos(e.ai.heading) * spd;
-                    en->pos.z += std::sin(e.ai.heading) * spd;
-                    e.facing = enemy_turn_facing(e.facing, e.ai.heading, e.ai.mode() == 2);
+                    const float spd = enemy_move_speed(e.actor->ai, e.avm.movable());
+                    en->pos.x += std::cos(e.actor->ai.heading) * spd;
+                    en->pos.z += std::sin(e.actor->ai.heading) * spd;
+                    e.facing = enemy_turn_facing(e.facing, e.actor->ai.heading, e.actor->ai.mode() == 2);
                     en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
                     e.avm.set_is_land(true);
                     e.avm.tick();
@@ -2205,6 +2304,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     render.push_back({c, stem, (cc && !cc->display.empty()) ? cc->display : stem});
                     bind_one_enemy(render.back());
                 }
+                for (Actor* c : new_children) {
+                    const std::string stem = casts.sprite_stem(c->cast_id);
+                    if (!stem.empty() && !efx.kinds.count(stem)) efx.load_kind(g, asset_root, stem);
+                    if (stem.empty() || !efx.kinds.count(stem)) continue;
+                    const Cast* cc = casts.get(c->cast_id);
+                    const float heading = c->ai.heading;
+                    render.push_back({c, stem, (cc && !cc->display.empty()) ? cc->display : stem});
+                    bind_one_enemy(render.back());
+                    c->ai.heading = heading;
+                    render.back().facing = heading;
+                    if (c->aso_local15) render.back().avm.set_local(15, c->aso_local15);   // +0xa18
+                }
+                // The boss gauge disappears with its owner (DAT_006d5fd8 cleared at death).
+                if (hud.boss_frac >= 0.0f && gauge_owner != 0) {
+                    bool live = false;
+                    for (const Actor& a : world.actors()) live |= a.instance_id == gauge_owner && a.alive();
+                    if (!live) { hud.boss_frac = -1.0f; gauge_owner = 0; }
+                }
             }
 
             world.step();
@@ -2222,11 +2339,23 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const Impulse kd = step_knockback(kv, /*grounded*/ true, a.hp < 1);
                     a.knockback.x = kv.x; a.knockback.z = kv.z;
                     a.pos.x += kd.x; a.pos.z += kd.z; }
-                Vec3 body = {a.pos.x, a.pos.y + stepUp, a.pos.z};
-                body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
-                a.pos.x = body.x; a.pos.z = body.z;
+                if (a.flyer) {
+                    // A flyer's collision is its sphere round the hovering origin (+0x328),
+                    // not a walker's capsule from the feet — it clears low geometry.
+                    const float oy = a.pos.y + a.height;
+                    Vec3 body = {a.pos.x, oy - a.radius, a.pos.z};
+                    body = resolve_walls(phys_mesh(room), body, a.radius, 2.0f * a.radius);
+                    a.pos.x = body.x; a.pos.z = body.z;
+                } else {
+                    Vec3 body = {a.pos.x, a.pos.y + stepUp, a.pos.z};
+                    body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
+                    a.pos.x = body.x; a.pos.z = body.z;
+                }
                 const float efl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + kCharH);
-                if (efl > kNoFloor) a.pos.y = efl;
+                if (efl > kNoFloor) {
+                    a.floor_y = efl;                   // +0x318, for flyers too (0x45ba8e)
+                    if (!a.flyer) a.pos.y = efl;       // a flyer has no gravity and never lands
+                }
             }
 
             // The enemy's reaction to the player's hit (FUN_004fbb40, src/cleria/hit.hpp).
@@ -2267,7 +2396,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (en.is_player() || !en.alive() || atk_rehit.count(en.instance_id)) continue;
                     const EnemyRender* vr = nullptr;
                     for (const EnemyRender& er : render) if (er.actor == &en) { vr = &er; break; }
-                    if (vr && !vr->ai.hittable) continue;            // +0x60 & 0x80 clear
+                    if (vr && !vr->actor->ai.hittable) continue;            // +0x60 & 0x80 clear
                     const float dx = en.pos.x - c.x, dz = en.pos.z - c.z;
                     const float ddy = (en.pos.y + kCharH * 0.5f) - c.y;
                     if (dx * dx + ddy * ddy + dz * dz > rr * rr) continue;
@@ -2587,6 +2716,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // at all. Stand-in, not engine behaviour; revisit if that path is found.
             for (Projectile& p : shots) {
                 step_projectile(p);
+                // GoXx trail (+0x158 effect every +0x15c ticks, FUN_00594230 0x59565e).
+                if (p.trail_period > 0 && p.trail_effect > 0 && p.age % p.trail_period == 0)
+                    world.locate_effect(p.trail_effect, p.pos.x, p.pos.y, p.pos.z, 0.0f, 0.0f, "");
+                // M460 gas floor pass (handler #14): a puff that sinks below the owner
+                // +0x7c8 stops descending and sits there.
+                if (p.gas_owner != 0 && p.dir.y != 0.0f) {
+                    for (const Actor& a : world.actors())
+                        if (a.instance_id == p.gas_owner) {
+                            const float lvl = a.ai.f(0x7c8);              // world y, as the puff
+                            if (lvl > p.pos.y) { p.dir.y = 0.0f; p.pos.y = lvl; }
+                            break;
+                        }
+                }
                 if (!p.from_player) {
                     // An ENEMY bullet vs the player. Same caveat as above: the engine's
                     // bullet->victim damage path is [UNKNOWN], so this reuses the melee

@@ -295,7 +295,19 @@ public:
     // anime_Marker's last value = the actor's +0x9bc (sprite[0x33]) that brains read.
     // The sprite starts zeroed, so "never set" reads as 0.
     std::int32_t marker() const { return marker_ < 0 ? 0 : marker_; }
+    // Brains write both registers directly: +0x9bc (the marker) and +0x9c0 (the block
+    // value — Marker(n) holds while it equals n; M460 writes 3 to park section 8 on its
+    // final Marker(3)). Both are cleared when the VM next starts a section at pc 0.
+    void set_marker(std::int32_t v) { marker_ = v; }
+    void set_marker_block(std::int32_t v) { marker_wait_ = v; }
+    void set_durable(bool v) { durable_ = v; }                 // brains write +0x9d8 too
+    void set_local(int n, std::int32_t v) { if (n >= 0 && n < 32) locals_[n] = v; }   // obj[0x3b+n]
+    std::int32_t marker_block() const { return marker_wait_; }
 private:
+    // FUN_004472e0: whenever the VM runs a section from its first word, it memsets
+    // obj[0x33..0x42] (the marker, the block value, ..., locals 0..7) and sets the block
+    // value obj[0x34] = -1 — both on a fresh section and on a chain.
+    void reset_section_regs();
     std::int32_t r_ = 0;             // the comparison register
     std::int32_t locals_[32] = {};   // obj[0x3b + n]
     const std::int32_t* flags_ = nullptr;

@@ -136,6 +136,8 @@ struct Cast {
     float radius_base = 0;  // +0x34
     float height_base = 0;  // +0x38
     float speed_base = 0;   // +0x48
+    float lift = 0;         // +0x44 -> actor+0x414: spawn height above the rest origin; > 0 makes
+                            // a flyer (FUN_00459410 0x45960f) [C-DIS build/ai_spec/FLYER.md]
     float jump_v0 = 0;      // +0x50
     float run_mult = 0;     // +0x4c -> actor+0x410 (2.2 for the player)
     float center_offset = 0;  // +0x54 -> actor+0x41c (collision-sphere centre = origin + this)

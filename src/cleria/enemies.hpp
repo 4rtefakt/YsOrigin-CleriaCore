@@ -176,6 +176,8 @@ struct Enemy {
     // +0x814..+0x834): turn rate, base speed, walk and run multipliers, sight value.
     // The engine overwrites +0x30c at spawn and re-derives speed per move mode in
     // FUN_00477720: walk = base*walk, run = base*run (M100: x1.5; roster up to x6).
+    // ai_sight = EI+0xb0: the action player's sight-dy term, AND the flyer hover height H —
+    // non-zero makes the actor a flyer (FUN_00459410 0x45967a; build/ai_spec/FLYER.md).
     float ai_turn = 0, ai_base = 0, ai_walk = 0, ai_run = 0, ai_sight = 0;
     float ai_raw[16] = {};  // +0x90..+0xcc verbatim (-> actor +0x814..+0x850)
 

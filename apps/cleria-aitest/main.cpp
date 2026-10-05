@@ -2,8 +2,11 @@
 // brain, driven through scripted situations with a deterministic xorshift128.
 #include <cmath>
 #include <cstdio>
+#include <list>
+#include <unordered_map>
 #include <utility>
 
+#include "cleria/actor.hpp"
 #include "cleria/enemy_ai.hpp"
 
 using namespace cleria;
@@ -537,6 +540,144 @@ int main() {
             }
             check(reset && high, "every 240 ticks: 50% to fly high (hover 3.0)");
         }
+    }
+
+    // ---- M460 the bat-swarm boss + M970 brain B (build/ai_spec/M460.md, M970.md §2B) ----
+    {
+        // A 24 x 24 walled room, floor y = 0; the player stands at (0, 0, -6).
+        struct Room : AiWorld {
+            std::list<Actor> actors;
+            int next_id = 200;
+            float raw87[16] = {0.05f, 0.04f, 1.0f, 2.0f, 0, 0, 0, 0, 1.0f, 0.03f, 0.03f, 0.3f, 10.0f, 0, 49.5f, 52.0f};
+            void for_each(const std::function<void(Actor&)>& f) override {
+                for (Actor& a : actors) if (!a.destroy_requested()) f(a);
+            }
+            Actor* find(int id) override {
+                for (Actor& a : actors) if (a.instance_id == id && !a.destroy_requested()) return &a;
+                return nullptr;
+            }
+            Actor* spawn_child(Actor& p, int cast, const Vec3& d, int lv, bool keep0) override {
+                actors.emplace_back();
+                Actor& c = actors.back();
+                c.instance_id = next_id++; c.cast_id = cast; c.level = lv;
+                c.pos = {p.pos.x + d.x, p.pos.y + d.y, p.pos.z + d.z};
+                c.height = 0.5f; c.hp = c.max_hp = 30; c.flyer = true; c.floor_y = 0;
+                c.ai.heading = p.ai.heading; c.ai.i(0x854) = p.instance_id; c.ai.phase() = keep0 ? 0 : 4;
+                return &c;
+            }
+            void remove(Actor& a) override { a.header_flags |= kDestroyRequested; a.hp = 0; }
+            Ray ray(const Vec3& o, const Vec3& dl) override {   // the walls at |x|, |z| = 12
+                Ray r; float best = 2;
+                auto tryp = [&](float t, Vec3 n) { if (t > 1e-4f && t < best) { best = t; r.normal = n; } };
+                if (dl.x != 0) { tryp((12 - o.x) / dl.x, {-1, 0, 0}); tryp((-12 - o.x) / dl.x, {1, 0, 0}); }
+                if (dl.z != 0) { tryp((12 - o.z) / dl.z, {0, 0, -1}); tryp((-12 - o.z) / dl.z, {0, 0, 1}); }
+                if (best > 1) return r;
+                r.hit = true; r.point = {o.x + dl.x * best, o.y + dl.y * best, o.z + dl.z * best};
+                return r;
+            }
+            bool sphere_hits(const Vec3& c, float rr) override {
+                return std::fabs(c.x) > 12 - rr || std::fabs(c.z) > 12 - rr;
+            }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int cast) override { return cast == 0xb7 ? raw87 : nullptr; }
+        } room;
+        XorShift rng;
+        // M460: EI[36] +0x90..+0xcc.
+        EnemyAiParams bp = params(0.16f, 0.12f, 1.0f, 2.0f, 2.5f);
+        bp.raw[4] = 1.0f; bp.raw[5] = 0.1f; bp.raw[6] = 0.01f; bp.raw[7] = 0.01f;
+        bp.raw[9] = 0.1f; bp.raw[10] = 0.1f; bp.raw[11] = 0.3f; bp.raw[12] = 3.0f;
+        const EnemyAiParams batp = params(0.05f, 0.04f, 1.0f, 2.0f, 1.0f);
+        room.actors.emplace_back();
+        Actor& boss = room.actors.back();
+        boss.instance_id = 50; boss.cast_id = 0x32; boss.hp = boss.max_hp = 600; boss.def = 20;
+        boss.height = 1.5f; boss.radius = 1.0f; boss.flyer = true; boss.ai.alpha = 1.0f;
+        const EnemyBrain m460 = enemy_brain_for(39), m970 = enemy_brain_for(90);
+        check(m460 != nullptr, "M460 brain registered (AI index 39)");
+        std::unordered_map<int, int> sec;                  // per-actor ASO section stand-in
+        std::unordered_map<int, int> mark;
+        auto tick_actor = [&](Actor& a, const EnemyAiParams& pp, EnemyBrain br) {
+            AiEnv e;
+            e.actor = &a; e.world = &room;
+            e.self = {a.pos.x, a.pos.y + a.height, a.pos.z};
+            e.height = a.height; e.radius = a.radius;
+            e.target = {0, 1.075f, -6}; e.target_floor = 0;
+            e.hp = a.hp; e.max_hp = a.max_hp;
+            e.section = sec[a.instance_id]; e.aso_marker = mark[a.instance_id];
+            e.rng = [&] { return rng(); };
+            const AiOut o = enemy_ai_tick(a.ai, pp, e, br);
+            if (o.section >= 0) sec[a.instance_id] = o.section;
+            if (o.set_marker > -1000) mark[a.instance_id] = o.set_marker;
+            // the swarm moves: speed along the heading (no ASO Movable here)
+            a.pos.x += std::cos(a.ai.heading) * a.ai.speed;
+            a.pos.z += std::sin(a.ai.heading) * a.ai.speed;
+            return o;
+        };
+        int t = 0, sec8_at = -1, spawned_at = -1, gone_at = -1;
+        for (; t < 400 && gone_at < 0; ++t) {
+            const AiOut o = tick_actor(boss, bp, m460);
+            if (o.section == 8 && sec8_at < 0) sec8_at = t;
+            if (sec8_at >= 0 && t == sec8_at + 36) mark[50] = 1;   // section 8 reaches Marker(1)
+            int bats = 0;
+            for (Actor& b : room.actors) if (b.cast_id == 0xb7) { ++bats; tick_actor(b, batp, m970); }
+            if (bats > 0 && spawned_at < 0) spawned_at = t;
+            if (spawned_at >= 0 && boss.ai.alpha == 0.0f && gone_at < 0) gone_at = t;
+        }
+        int nbat = 0, owned = 0, phase4 = 0, invis = 0;
+        float minx = 1e9f, maxx = -1e9f;
+        for (Actor& b : room.actors) if (b.cast_id == 0xb7) {
+            ++nbat; owned += b.ai.i(0x854) == 50; phase4 += b.ai.phase() == 4;
+            invis += b.def == 999.0f && b.no_min_damage;
+            minx = std::min(minx, b.ai.f(0x7f0)); maxx = std::max(maxx, b.ai.f(0x7f0));
+        }
+        std::printf("[ai]   M460 section 8 @%d, bats @%d (%d), faded out @%d; slot x %.2f..%.2f\n",
+                    sec8_at, spawned_at, nbat, gone_at, minx, maxx);
+        check(sec8_at == 90, "hold 90 - 30d ticks (Normal: 90), then dissolve (section 8)");
+        check(nbat == 32 && owned == 32 && phase4 == 32, "Marker(1): 32 Vagully, owned, phase 4");
+        check(invis == 32, "bats: DEF 999, no min-1 chip");
+        check(std::fabs(minx + 1.125f) < 1e-4f && std::fabs(maxx - 1.125f) < 1e-4f,
+              "4 x 4 x 2 formation: slot x = (q%4 - 1.5) * 0.75");
+        check(gone_at - spawned_at >= 39 && gone_at - spawned_at <= 41, "the body fades out over 40 ticks");
+        // Fly + swarm for a while: the bats fade in and swarm; the core heads for waypoints.
+        int bat_vis = 0, wp_set = 0;
+        for (int k = 0; k < 120; ++k) {
+            tick_actor(boss, bp, m460);
+            for (Actor& b : room.actors) if (b.cast_id == 0xb7) tick_actor(b, batp, m970);
+            wp_set += boss.ai.i(0x728) == 0xb;
+        }
+        for (Actor& b : room.actors) if (b.cast_id == 0xb7) bat_vis += b.ai.alpha == 1.0f && b.ai.i(0x728) == 10;
+        check(bat_vis == 32, "bats fade in (+0.04/tick) and swarm (sub 10)");
+        check(wp_set > 0, "the invisible core picks wall-side waypoints and flies (sub 0xb)");
+        check(!boss.ai.hittable, "the core is unhittable while invisible");
+        // Recall after 400 ticks of flight.
+        bool recalled = false, bats_return = false;
+        for (int k = 0; k < 600 && !bats_return; ++k) {
+            tick_actor(boss, bp, m460);
+            for (Actor& b : room.actors) if (b.cast_id == 0xb7) tick_actor(b, batp, m970);
+            recalled |= boss.ai.i(0x728) == 0x14;
+            int ret = 0;
+            for (Actor& b : room.actors) if (b.cast_id == 0xb7) ret += b.ai.i(0x728) == 0x14;
+            bats_return = ret == 32;
+        }
+        check(recalled && bats_return, "after 400 ticks: recall (0x14); every bat heads back (0x14)");
+        // Dock -> (re-scatter at most twice) -> reform (section 21) -> fade in -> attack choice.
+        int reform_at = -1, attack_sub = -1, k = 0, scatters = 0, prev_sub = boss.ai.i(0x728);
+        for (; k < 6000 && attack_sub < 0; ++k) {
+            const AiOut o = tick_actor(boss, bp, m460);
+            const int s = boss.ai.i(0x728);
+            if (prev_sub == 0x14 && s == 10) ++scatters;
+            prev_sub = s;
+            if (o.section == 0x15 && reform_at < 0) reform_at = k;
+            if (s == 0x32 || s == 0x3c || s == 0x46) attack_sub = s;
+            if (s == 0x1e && reform_at >= 0) sec[50] = 0x15;   // section 21 is playing
+            for (Actor& b : room.actors) if (b.cast_id == 0xb7 && !b.destroy_requested()) tick_actor(b, batp, m970);
+        }
+        int left = 0;
+        for (Actor& b : room.actors) left += b.cast_id == 0xb7 && !b.destroy_requested();
+        std::printf("[ai]   M460 re-scatters %d, reform @%d, attack sub 0x%x @%d, bats left %d\n",
+                    scatters, reform_at, attack_sub, k, left);
+        check(scatters <= 2, "re-scatters at most twice per cycle (+0x7a0 < 2)");
+        check(reform_at >= 0 && left == 0, "reform: section 21, the flock dissolves into the body");
+        check(attack_sub > 0 && boss.ai.alpha == 1.0f, "visible again, it picks an attack (rush / shots / gas)");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

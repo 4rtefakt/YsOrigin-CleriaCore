@@ -1,5 +1,7 @@
 #include "cleria/enemy_ai.hpp"
 
+#include "cleria/actor.hpp"
+
 #include <cmath>
 #include <cstring>
 
@@ -42,7 +44,8 @@ void stop(EnemyAi& a, int hold) {
 // A wall hit counts only for a non-engaged actor; then a down-ray of 2 + radius from the
 // probe point must find floor. (Water and the +0x130/+0x12c probe variants not modelled.)
 bool blocked_ahead(const EnemyAi& a, const AiEnv& e) {
-    if (!e.grounded) return false;
+    // FUN_00477450 probes only grounded walkers: not +0x12c & 0x100000, not a flyer (+0x398).
+    if (!e.grounded || (e.actor && e.actor->flyer)) return false;
     float L = e.radius > 0.5f ? e.radius + 0.5f : 1.0f;
     if (a.phase() == 1) L *= 1.5f;
     if (a.mode() == 0) L *= 1.5f;
@@ -193,13 +196,74 @@ void wander(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
 }
 
 // FUN_00478470 by +0x70c: 0 wander, 1 stand (turning), 2 stand (heading locked).
+// FUN_00478470. Every case first runs the flyer hover (0x4784fe / 0x4784de / 0x478496).
 void idle(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
-    switch (a.i(0x70c)) {
+    const int c = a.i(0x70c);
+    if (c >= 0 && c <= 2 && e.actor && e.actor->flyer) hover(a, *e.actor, e, nullptr, a.i(0x720));
+    switch (c) {
         case 0: wander(a, p, e); return;
         case 1: stop(a, 0); return;
         case 2: stop(a, 1); return;
         default: return;
     }
+}
+
+void hover(EnemyAi& a, Actor& self, const AiEnv& e, const Actor* ref, int mode) {
+    if ((a.i(0x724) & 0xff) != 0) return;
+    const bool ref_grounded = ref ? true : e.target_grounded;      // +0x388 (actors keep 1)
+    if (ref_grounded) a.f(0x754) = ref ? ref->floor_y : e.target_floor;
+    const float floor = self.floor_y;
+    float base;
+    if (std::uint32_t(a.phase()) <= 1u) {
+        const float p = self.spawn_y;
+        base = p > floor ? (4.0f > p - floor ? p : floor + 4.0f) : floor;
+    } else {
+        base = a.f(0x754) > floor ? a.f(0x754) : floor;
+    }
+    const float H = a.f(0x834), rise = a.f(0x838), sink = a.f(0x83c);
+    float y = self.pos.y + self.height;                            // the origin, +0x54
+    const Vec3 o{self.pos.x, y, self.pos.z};
+    // The up-probe is the solid set (sel 0); the down-probe is the water set (sel 1), which
+    // the room collision here does not have — so it is never blocked.
+    auto up_blocked = [&](float step) {
+        return e.blocked && e.blocked(o, {o.x, o.y + e.radius * 1.05f + step, o.z});
+    };
+    auto store = [&] { self.pos.y = y - self.height; };
+    if (mode == 1) {                                               // terrain follow, no bob
+        const float T = floor + H;
+        if (T > y) {
+            if (up_blocked(rise)) return;
+            y += rise;
+            float s = rise;
+            if (floor + H - 0.5f > y) s *= 20.0f;
+            y += s;
+            if (y > T) y = T;
+        } else if (y > T) {
+            float s = sink;
+            if (y > floor + H + 0.5f) s *= 20.0f;
+            y -= s;
+            if (T > y) y = T;
+        } else {
+            y = T;
+        }
+        store();
+        return;
+    }
+    if (mode == 2) return;
+    if (mode == 5) base = floor;
+    const float bob = float(std::sin(double(a.f(0x848) * 0.017453292f)));
+    y -= bob * a.f(0x840);
+    const float G = base + H;
+    if (G > y) {
+        if (!up_blocked(rise)) { y += rise; if (y > G) y = G; }
+    } else if (y > G) {
+        y -= sink; if (G > y) y = G;
+    } else {
+        y = G;
+    }
+    y += float(std::sin(double(a.f(0x848) * 0.017453292f))) * a.f(0x840);
+    a.f(0x848) += a.f(0x844);
+    store();
 }
 
 // FUN_00479b00: the action player.
@@ -225,6 +289,7 @@ void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 if (a.steer() == 0 && !los_keep(a, e, max_dy, a.f(0x834))) disengage(a);
                 steer(a, e);
                 turn(a, a.f(0x814));
+                if (e.actor && e.actor->flyer) hover(a, *e.actor, e, nullptr, a.i(0x720));   // 0x47a45b
                 act(a, p, e);
             } else if (a.cool() == 0) {
                 a.phase() = 1;
@@ -244,17 +309,19 @@ void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
 // (+0x72c, +0x730, +0x7e4..+0x7f8, +0x7fc..+0x804, +0x854, the +0x86c byte); phase = 1;
 // home (+0x790) = the anchor. The heading (+0x308) lies outside and survives. The
 // ENEMYINFO row +0x90..+0xcc is copied to +0x814..+0x850 by the brains' init branch.
-void init(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+void init_block(EnemyAi& a, const Vec3& home, const float raw[16]) {
     const EnemyAi keep = a;
     for (int off = 0x6f4; off < 0x8ac; off += 4) a.i(off) = 0;
     for (int off : {0x72c, 0x730, 0x7e4, 0x7e8, 0x7ec, 0x7f0, 0x7f4, 0x7f8, 0x7fc, 0x800, 0x804, 0x854})
         a.i(off) = keep.i(off);
     a.blk[(0x86c - EnemyAi::kBase) / 4] = keep.blk[(0x86c - EnemyAi::kBase) / 4];
     a.phase() = 1;
-    a.set_v(0x790, e.self);
-    for (int k = 0; k < 16; ++k) a.f(0x814 + 4 * k) = p.raw[k];
+    a.set_v(0x790, home);
+    if (raw) for (int k = 0; k < 16; ++k) a.f(0x814 + 4 * k) = raw[k];
     a.initialised = true;
 }
+
+void init(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) { init_block(a, e.self, p.raw); }
 
 double angle_diff(float h, float a) {
     constexpr double k2Pi = 6.2831854820251465, kPiD = 3.1415927410125732;

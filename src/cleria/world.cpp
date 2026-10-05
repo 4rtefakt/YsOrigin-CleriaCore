@@ -52,12 +52,15 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
     a->instance_id = id;
     a->cast_id = c->cast_id;
     a->ai_index = c->ai_index;
+    a->ai = EnemyAi{};    // the factory builds a fresh actor: brain phase 0
     a->kind = kind_word(c->actor_class);
 
     // Step 5: placement. ** The op stores DEGREES ** and the engine converts
     // (FUN_00443a80). Storing the raw operand as radians would be a silent 57x error.
     a->pos = r.pos;
+    a->spawn_y = r.pos.y;          // +0x31c (FUN_00459ff0 0x45a012)
     a->yaw = r.yaw_degrees * 3.14159265358979323846f / 180.0f;
+    a->flyer = c->lift > 0.0f;     // +0x398 (FUN_00459410 0x45960f); EI+0xb0 below
 
     // Step 6: AND [obj+0x12c], ~0x10 — cleared at spawn. +0x12c is NOT +0x3bc (the
     // death flag), and the shared 0x10 makes them easy to conflate. What +0x12c's
@@ -81,6 +84,7 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
             a->def = s.def;
             for (int k = 0; k < 4; ++k) a->resist[k] = e->resist[k];
             a->exp_reward = s.exp;
+            if (e->ai_sight != 0.0f) a->flyer = true;   // EI+0xb0 (0x45967a)
             a->level = e->level;
             a->move_speed = e->move_speed;
             a->enemy_index = enemy_index_for_cast(c->cast_id);

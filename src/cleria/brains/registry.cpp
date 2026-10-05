@@ -11,10 +11,18 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 8: return &brains::m150;    // M150 Normous
         case 11: return &brains::m180;   // M180 Wilewarer
         case 32: return &brains::m390;   // M390 Baocar
+        case 39: return &brains::m460;   // M460 the bat-swarm familiar
         case 41: return &brains::m480;   // M480 Nustarl
         case 42: return &brains::m490;   // M490 Sopus-Baocar
         case 84: return &brains::m910;   // M910 Nooze
         case 90: return &brains::m970;   // M970 Vagully
+        default: return nullptr;
+    }
+}
+
+EnemyDeathHook enemy_death_hook_for(int ai_index) {
+    switch (ai_index) {
+        case 39: return &brains::m460_dead;
         default: return nullptr;
     }
 }

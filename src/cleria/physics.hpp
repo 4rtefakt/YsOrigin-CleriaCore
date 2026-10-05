@@ -43,5 +43,10 @@ Vec3 collide_and_slide(const RoomMesh& m, Vec3 pos, Vec3 vel, float radius);
 // line queries (FUN_005e9380 ray + FUN_0041e420 test) — used for enemy sight / line of
 // sight and the wall/ledge probes (src/cleria/enemy_ai.hpp).
 bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b);
+// The nearest hit along a -> b (FUN_0041e420's "closest hit point" + the triangle's plane
+// normal). False when nothing is hit.
+bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, Vec3* normal);
+// True when any collision triangle comes within `r` of `c` (a zero-sweep sphere query).
+bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r);
 
 }  // namespace cleria

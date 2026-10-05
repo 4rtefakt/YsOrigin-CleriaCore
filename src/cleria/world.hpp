@@ -205,7 +205,20 @@ class ActorWorld : public XsoHost {
 
     // Drop every actor (e.g. a room change — the engine's FUN_00428ec0 destroy-all).
     // Invalidates every Actor* handed out, including the player pointer.
-    void clear() { actors_.clear(); player_ = nullptr; effects_.clear(); placements_spawned_ = false; }
+    void clear() {
+        actors_.clear(); player_ = nullptr; effects_.clear(); placements_spawned_ = false;
+        reset_arena();
+    }
+    // The arena rectangle DAT_0076a5cc..d8 {xmin, zmin, xmax, zmax}: set by op 0x10e, reset
+    // to +/-FLT_MAX on every room load (FUN_00431840 0x431aae) and never by a script.
+    float arena[4] = {-3.402823466e+38f, -3.402823466e+38f, 3.402823466e+38f, 3.402823466e+38f};
+    void reset_arena() {
+        arena[0] = arena[1] = -3.402823466e+38f;
+        arena[2] = arena[3] = 3.402823466e+38f;
+    }
+    void enclose(float xmin, float zmin, float xmax, float zmax) override {
+        arena[0] = xmin; arena[1] = zmin; arena[2] = xmax; arena[3] = zmax;
+    }
 
     // ## Located effects (op 0x11a / 0x119) --------------------------------------
     // A script-placed, persistent effect instance: an eftlist effect id at a world

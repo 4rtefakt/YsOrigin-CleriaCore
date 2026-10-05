@@ -477,6 +477,15 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // name. acc = actor op0 inside that named .SEV box. A null host / an
                         // unresolved box answers false (no trigger).
                         acc = (host && host->chr_in_event_box(op(0), script.string(op(1)))) ? 1 : 0;
+                    } else if (sub == 0x10e && host && nargs >= 4) {
+                        // EnclosePlayer(xmin, zmin, xmax, zmax) (handler 0x56a977): the arena
+                        // rectangle DAT_0076a5cc..d8, float bit patterns. The mode is flag 190,
+                        // set separately with 0x64. build/ai_spec/ARENA_AND_BOSSBAR.md.
+                        auto f = [&](std::uint32_t i) {
+                            float v; const std::uint32_t raw = std::uint32_t(op(i));
+                            std::memcpy(&v, &raw, 4); return v;
+                        };
+                        host->enclose(f(0), f(1), f(2), f(3));
                     } else if (sub == 0x11a && host && nargs >= 7) {
                         // Eft_LocatePosAddStr: place a named effect. x/y/z/a/b are float
                         // BIT PATTERNS in the operand words (as 0x12c's are), the name is

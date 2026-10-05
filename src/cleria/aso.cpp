@@ -323,6 +323,12 @@ bool AsoVm::step(std::size_t& pc) {
     return true;
 }
 
+void AsoVm::reset_section_regs() {
+    marker_ = 0;
+    marker_wait_ = -1;
+    for (int n = 0; n < 8; ++n) locals_[n] = 0;   // obj[0x3b..0x42]
+}
+
 void AsoVm::tick() {
     foot_smoke_ = false;
     hitbox_armed_ = false;
@@ -343,6 +349,7 @@ void AsoVm::tick() {
             return;
         }
     }
+    if (cur_ && pc_ == std::size_t(cur_->code_off) / 4) reset_section_regs();
 
     // Run until something yields. The bound is a runaway guard: a section with no
     // Wait on its path would otherwise spin forever.
