@@ -416,7 +416,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     apply_load_effects(room);
     Camera cam;
     bool fly = false;
-    Vec3 feet{}; float vy = 0; bool grounded = false; float speed_mult = 1.0f;
+    Vec3 feet{}; bool grounded = false; float speed_mult = 1.0f;
+    // The engine's locomotion state (physics_player.hpp). `feet` stays the view's anchor
+    // (= origin - height); the origin itself floats at floor + 1.075 (+0x324).
+    VerticalState pv;            // +0x330 timer, +0x388 grounded, +0x3b0 coyote, jump flag
+    PlanarVelocity pvel;         // +0x32c/+0x334
+    float last_floor = 0;        // +0x318 — kept when the down-ray misses
+    int cur_surface = 1;         // +0x4b9, latched surface id (surface.hpp order)
+    float surface_up = 1.0f;     // the latched surface's scale on a rising dy
 
     // Play mode. The camera comes from the room's SCM regions (see update_camera), and
     // the player's SHAPE and VERTICAL MOTION now come from the game too — CASTINFO
@@ -429,36 +436,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const CastTable ct = CastTable::load(asset_root / "MISC" / "CASTINFO.DAT");
         pm = cast_motion(ct, 13);
     }
-    // ** kCharH is NOT pm.height(), and that is a deliberate refusal. **
-    //
-    // The disassembly says the engine derives a player height of `+0x38 + 0.075` =
-    // 1.075 and a radius of `+0x34 * 0.9` = 0.675. Both were verified against the file.
-    // But using 1.075 as the character's WORLD height contradicts two independent
-    // measurements from the game's own data:
-    //
-    //   * S_1000's authored SCM cameras sit 18..32 units back. At 1.075 tall the
-    //     camera is 17..30x the character's height away — no 2.5D action game frames
-    //     itself like that. At 2.0 it is 9..16x, which is what Ys Origin looks like.
-    //   * The engine's own jump model peaks at 2.46 units. That is 1.2x a 2.0-tall
-    //     character (right) but 2.3x a 1.075-tall one (far too high). Note our
-    //     hand-tuned kJumpH was 2.3 — it agrees with the engine's apex to 7%, which is
-    //     what says the vertical model below IS in these units.
-    //
-    // So one of three things is true and we have not established which: the derivation
-    // is wrong; +0x38 is a scale rather than a length; or the collision capsule is
-    // simply not the sprite's size and this code conflates them. Until that is settled,
-    // the sprite keeps the number that matches the game's framing, marked INVENTED —
-    // shipping a "validated" 1.075 that visibly renders a doll would be trading a
-    // working guess for a sourced mistake.
+    // ** kCharH is NOT pm.height() — and that is now understood. ** pm.height() = 1.075
+    // (+0x324) is not the character's size: it is how high the ORIGIN floats above the
+    // floor (audit core_gameplay.md #2; physics_player.hpp). The movement code above uses
+    // it as such. kCharH remains the view's own sprite/hitbox body height until sprite
+    // anchoring (sphere centre = origin + CASTINFO+0x54) and the attack-box heights are
+    // re-derived against the floating origin — so it stays INVENTED for now.
     const float kCharH = 2.0f;               // INVENTED — see above
     const float kCharRadius = 0.45f;         // INVENTED — pairs with kCharH, not pm.radius()
-    const float kJumpV0 = pm.jump_v0;        // 0.285 — CASTINFO +0x50 [C-DIS]
     const float kStepUp = 0.6f;              // INVENTED — no source found
-    // INVENTED: walk speed. The engine does `actor+0x30c * scale * X` and X resolves
-    // to +0xdc on an object we have not identified, so the real value is unknown. It
-    // is deliberately NOT back-derived from the 20/13 footstep cadence: that would
-    // look right, match the audio, and be unfalsifiable.
-    const float kWalkSpeed = 10.0f;   // units/s
+    // Walk/run speed is the engine's per-tick product now (physics_player.hpp
+    // player_speed): CASTINFO+0x48 x stick x anime_Movable, x2.2 x a per-character
+    // constant while running. The old "X at +0xdc" was the anim VM's +0xdc = actor+0x9cc
+    // = anime_Movable, which avm.movable() already supplies.
+    const float kOriginH = pm.height();   // +0x324 = 1.075: origin height above the floor
     // INVENTED: the game paces footsteps from ASO animation events, which we do not
     // run yet. One step per this much ground travel is a stand-in for that; the
     // surface lookup and variant cycling it feeds are the game's own.
@@ -549,7 +540,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const Vec3 c = sp ? sp->position : center(room);
         const float fl = floor_at(phys_mesh(room), c.x, c.z, room.mesh.bmax.y + room_diag(room));
         feet = {c.x, (fl > kNoFloor ? fl : c.y), c.z};
-        vy = 0; grounded = false;
+        pv = VerticalState{}; pvel = {}; last_floor = feet.y; grounded = pv.grounded;
         std::printf("spawn: %s(%.1f,%.1f,%.1f) floor=%s\n",
                     sp ? "CAST_ADOL" : "room centre", c.x, c.y, c.z,
                     fl > kNoFloor ? std::to_string(fl).c_str() : "none");
@@ -730,7 +721,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const float fl = floor_at(phys_mesh(room), arr.x, arr.z,
                                           room.mesh.bmax.y + room_diag(room));
                 feet = {arr.x, (fl > kNoFloor ? fl : arr.y), arr.z};
-                vy = 0; grounded = false;
+                pv = VerticalState{}; pvel = {}; last_floor = feet.y; grounded = pv.grounded;
                 std::printf("  arrival @ (%.1f,%.1f,%.1f) [SEN]\n", feet.x, feet.y, feet.z);
             }
             // Place the camera for the new room NOW: the real warp is hidden by a fade so
@@ -881,7 +872,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         feet.x = s.pos_x; feet.z = s.pos_z;
         const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
         if (fl > kNoFloor) feet.y = fl;
-        vy = 0;
+        pv = VerticalState{}; pvel = {}; last_floor = feet.y;
         const float rad = s.yaw * 3.14159265f / 180.0f;
         face_dir = {std::sin(rad), 0, std::cos(rad)};
     };
@@ -1785,7 +1776,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         feet = {cam.pos.x, cam.pos.y, cam.pos.z};
                         const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
                         if (fl > kNoFloor) feet.y = fl;
-                        vy = 0;
+                        pv = VerticalState{}; pvel = {}; last_floor = feet.y;
                     }
                     std::printf("mode: %s\n", fly ? "fly" : "walk");
                 }
@@ -1992,7 +1983,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // part of why the three feel different: Yunica's swing drops it to 0 (rooted
             // through the commit), Hugo keeps a full 1.0, Toal goes 0.80 -> 0.05 so he
             // keeps drifting through his. anime_Turnable locks facing over the same span.
-            const float walk = kWalkSpeed * speed_mult * avm.movable(), stepUp = kStepUp;
+            const float stepUp = kStepUp;
             // Movement is relative to the live camera (last frame's — the 1-frame lag
             // is imperceptible and avoids a chicken-and-egg with the follow camera).
             const Vec3 fwd = normalize({std::cos(cam.yaw), 0, std::sin(cam.yaw)});  // screen-up
@@ -2004,31 +1995,45 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ks[SDL_SCANCODE_A]) { wish.x -= rt.x; wish.z -= rt.z; }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
             const bool moving = wl > 1e-4f;
-            if (moving) {
-                feet.x += wish.x / wl * walk * dt; feet.z += wish.z / wl * walk * dt;
-                if (avm.turnable())
-                    face_dir = {wish.x / wl, 0, wish.z / wl};  // the swing faces where you walk
+            // The engine's locomotion (physics_player.hpp): a keyboard direction is a full
+            // stick, which is past the run threshold, so the player runs — the walk
+            // modifier (+0x510 & 0x20) is not mapped yet. speed_mult is the debug wheel.
+            {   const int sec = avm.section();
+                const bool skill_sec = sec == 0x109 || (sec >= 0x10c && sec <= 0x111);
+                const bool blessing_run = (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 0x2000) != 0;
+                const float spd = player_speed(pm, character, 1.0f, avm.movable(), /*running*/ moving,
+                                               pv.grounded, skill_sec, blessing_run) * speed_mult;
+                step_planar(pvel, moving, std::atan2(wish.z, wish.x), spd, pv.grounded);
+                const SurfaceScale ss = surface_scale(cur_surface, /*in_water*/ false);
+                feet.x += pvel.x * ss.xz; feet.z += pvel.z * ss.xz;
+                surface_up = ss.up;
             }
+            if (moving && avm.turnable())
+                face_dir = {wish.x / wl, 0, wish.z / wl};  // the swing faces where you walk
             {   // Knockback (+0x338/+0x340), spent by the player mover's own law (hit.hpp).
                 const Impulse kd = step_knockback(player_kb, grounded, player.hp < 1, Mover::Player);
                 feet.x += kd.x; feet.z += kd.z; }
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
               feet.x = body.x; feet.z = body.z; }
-            // The engine's vertical model, not ours. `vy` is NOT a velocity: it is the
-            // signed TIME at actor+0x330, decremented ~1/60 per tick, and the Y delta
-            // is closed-form. See cleria/physics_player.hpp — reproduce it literally,
-            // it is non-physical but tuned.
-            float dy = 0.5f * kGravity * vy * std::fabs(vy);  // v*|v| — the sign carries
-            dy = std::fmax(dy, kTerminalFall);
-            feet.y += dy;
-            vy -= kTimerStep;
-            if (vy < kTimerFloor) vy = kTimerFloor;
+            // The engine's vertical model (physics_player.hpp), on the ORIGIN, which floats
+            // at floor + 1.075: dy from the signed timer (linear while grounded, ½gt²
+            // airborne), the down-ray from the origin, then landing / coyote / fall with the
+            // 0.65 settle lerp. `feet` is derived back for the rest of the view.
+            float oy = feet.y + kOriginH;
+            {   float dy = vertical_dy(pv);
+                if (dy > 0.0f) dy *= surface_up;      // sand2/lava/blood slow a rise too
+                oy += dy; }
             int floor_tri = -1;
-            const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + stepUp, &floor_tri);
-            if (fl > kNoFloor && dy <= 0.0f && fl >= feet.y - stepUp) {
-                feet.y = fl; vy = 0; grounded = true;
-            } else grounded = false;
+            const float fl = floor_at(phys_mesh(room), feet.x, feet.z, oy, &floor_tri);
+            if (fl > kNoFloor) {
+                last_floor = fl;                      // +0x318 persists when the ray misses
+                if (oy - fl < 1.6f)                   // surface latch (0x45ba7e: hit t < 1.6)
+                    cur_surface = surface_index_or_default(surface_of(phys_mesh(room), floor_tri));
+            }
+            settle_vertical(pv, oy, last_floor, kOriginH);
+            grounded = pv.grounded;
+            feet.y = oy - kOriginH;
 
             // Tick the enemies. The engine's enemies chase the player ACTOR; we sync it
             // to the view's player each tick, step the world (each enemy turns toward it
@@ -2431,7 +2436,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // The jump sets the TIMER, not a velocity — apex then lands at ~v0
             // seconds (0.285 -> tick 17), which is what makes it a time and not a
             // speed. No sqrt(2gh): the engine never solves for an apex.
-            if (grounded && ks[SDL_SCANCODE_SPACE]) { vy = kJumpV0; grounded = false; }
+            if (grounded && !pv.jumping && ks[SDL_SCANCODE_SPACE]) begin_jump(pv, pm);
             if (feet.y < room.mesh.bmin.y - D) spawn_player();
 
             // Facing: map the world movement heading to one of the 8 sprite dirs

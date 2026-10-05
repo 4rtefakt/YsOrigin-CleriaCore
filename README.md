@@ -233,7 +233,8 @@ mistaken for facts. (Removed as they are traced and validated.)
 |---|---|
 | **the RE corpus itself** | **partly wrong.** The 2026-10-05 audit ([build/audit/README.md](build/audit/README.md)) found 35% of 371 load-bearing claims wrong and 11% overclaimed. Check a claim there before building on it |
 | **enemy AI** | **stand-in.** Chase (at walk speed — the engine promotes to run) + ASO attack; the 25-unit activation gate is applied to every enemy but only ~8 of 90 handlers have it. The ~90 bespoke brains are not ported, and their docs never pinned the per-cast constants |
-| **actor vertical placement** | **origin treated as feet**; the engine floats the collision centre at floor + `+0x324` (1.075 for the player) with a 4-tick coyote grace |
+| **actor vertical placement** | the player's movement now runs on the engine's floating origin (floor + 1.075, `physics_player.hpp`); sprites, hitboxes and the camera still anchor to a derived `feet` with an INVENTED 2.0 body height until they are re-derived |
+| **enemy chase speed** | enemies move at the walk product EI[0x94]·EI[0x98]; the engine switches brains into run mode (EI[0x9c], 1.5–6× faster) per call site, not yet traced per brain |
 | **Boost** | per-hit gains and the ×0.5 incoming are now the engine's (hit.hpp); the passive per-tick fill and the 60-i-frame entry are not yet, and the gauge only charges once story flag 187 is set |
 | **EF2 effects** | **single flipbook quad per emitter.** The engine samples 17 curve tracks per particle per tick (speed/alpha/colour/spin/scale); orientation and blend modes are partly heuristic |
 | **chest gating** | **inverted** for some rooms — op `0x169` deletes the named objects, the code treats them as the ones to show |

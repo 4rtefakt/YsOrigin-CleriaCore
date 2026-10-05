@@ -54,6 +54,10 @@ target_link_libraries(cleria-cotest PRIVATE cleria)
 add_executable(cleria-combattest apps/cleria-combattest/main.cpp)
 target_link_libraries(cleria-combattest PRIVATE cleria)
 
+# cleria-movetest — player locomotion + vertical model (src/cleria/physics_player.hpp).
+add_executable(cleria-movetest apps/cleria-movetest/main.cpp)
+target_link_libraries(cleria-movetest PRIVATE cleria)
+
 # cleria-savetest — save-codec round-trip (SAVELOAD.md; real-save read via CLERIA_REAL_SAVE).
 add_executable(cleria-savetest apps/cleria-savetest/main.cpp)
 target_link_libraries(cleria-savetest PRIVATE cleria)
@@ -139,7 +143,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

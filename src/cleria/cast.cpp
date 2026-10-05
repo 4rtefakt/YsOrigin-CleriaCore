@@ -49,6 +49,8 @@ CastTable CastTable::load(const fs::path& path) {
         std::memcpy(&c.height_base, b.data() + o + 0x38, 4);
         std::memcpy(&c.speed_base, b.data() + o + 0x48, 4);
         std::memcpy(&c.jump_v0, b.data() + o + 0x50, 4);
+        std::memcpy(&c.run_mult, b.data() + o + 0x4C, 4);
+        std::memcpy(&c.center_offset, b.data() + o + 0x54, 4);
         std::memcpy(&c.ai_index, b.data() + o + 0x64, 4);
         std::memcpy(&c.actor_class, b.data() + o + 0x6C, 4);
     }
@@ -98,6 +100,8 @@ CastMotion cast_motion(const CastTable& ct, int cast_id) {
         m.height_base = c->height_base;
         m.speed_base = c->speed_base;
         m.jump_v0 = c->jump_v0;
+        m.run_mult = c->run_mult;
+        m.center_offset = c->center_offset;
     }
     return m;
 }

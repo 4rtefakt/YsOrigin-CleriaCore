@@ -137,6 +137,8 @@ struct Cast {
     float height_base = 0;  // +0x38
     float speed_base = 0;   // +0x48
     float jump_v0 = 0;      // +0x50
+    float run_mult = 0;     // +0x4c -> actor+0x410 (2.2 for the player)
+    float center_offset = 0;  // +0x54 -> actor+0x41c (collision-sphere centre = origin + this)
     std::int32_t ai_index = 0;    // +0x64 -> actor+0x120 [H-high] the AI handler
     std::int32_t actor_class = 0; // +0x6c [C-DIS] 0x10=monster, 4, 2, 0
 
