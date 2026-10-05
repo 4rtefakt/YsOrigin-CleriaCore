@@ -80,7 +80,7 @@ layer was validated, and the ledger for what is still a stand-in.
 | Collision hulls (`_.YMO`) | ✅ the game's authored hulls, not render geometry |
 | Footsteps (surface + cadence + audio) | ✅ hull material → surface → `f_stone0..3`, exe's tick cadence |
 | **Enemy stats / curves / levels / drops** | ✅ **externally validated: 67/68 match the monster journal** on HP/level/STR/DEF; drop tables corpus-proven |
-| **Damage formula (enemy target)** | ⚠️ the implemented `ATK^0.66·(ATK − 0.98·DEF + 10 + bonus)/22.92` is the boss-script branch; the player's hits use `FUN_004fa550` (resist multiplier, min 1) — see the ledger |
+| **Damage formula** | ✅ both directions re-verified 2026-10-05 and tested (`src/cleria/hit.hpp`, `cleria-combattest`): player→enemy `FUN_004fa550` (resist multiplier, min 1), enemy→player `FUN_004fa740`, probabilistic rounding |
 | Equipment → stats | ✅ INVINFO DEF column + GAMEINFO weapon-ATK table (there is no ATK column in INVINFO) |
 | Difficulty | ✅ five settings (a 3-valued index + two booleans), effects `[C-DIS]` |
 | **XSO event VM** | ✅ flags/tests/give-item/acquire-box/compare/show-hide, **spawn `0x12c`**, **alive `0x13f`**, **barrier `0x131`** |
@@ -233,10 +233,8 @@ mistaken for facts. (Removed as they are traced and validated.)
 |---|---|
 | **the RE corpus itself** | **partly wrong.** The 2026-10-05 audit ([build/audit/README.md](build/audit/README.md)) found 35% of 371 load-bearing claims wrong and 11% overclaimed. Check a claim there before building on it |
 | **enemy AI** | **stand-in.** Chase (at walk speed — the engine promotes to run) + ASO attack; the 25-unit activation gate is applied to every enemy but only ~8 of 90 handlers have it. The ~90 bespoke brains are not ported, and their docs never pinned the per-cast constants |
-| **player→enemy damage** | **wrong branch.** `damage_real` is the boss-script path; the player's hits go through `FUN_004fa550` (elemental resist multiplier, min 1, skill bonus) |
-| **player hit reaction** | **values wrong.** Flat 45 i-frames; the engine grants 8/12/16, freezes the countdown in hurt states, and adds knockback on every hit |
 | **actor vertical placement** | **origin treated as feet**; the engine floats the collision centre at floor + `+0x324` (1.075 for the player) with a 4-tick coyote grace |
-| **Boost** | gauge fill amounts are ours; the engine fills +300/hit dealt, +100×damage taken and passively, and Boost halves incoming damage |
+| **Boost** | per-hit gains and the ×0.5 incoming are now the engine's (hit.hpp); the passive per-tick fill and the 60-i-frame entry are not yet, and the gauge only charges once story flag 187 is set |
 | **EF2 effects** | **single flipbook quad per emitter.** The engine samples 17 curve tracks per particle per tick (speed/alpha/colour/spin/scale); orientation and blend modes are partly heuristic |
 | **chest gating** | **inverted** for some rooms — op `0x169` deletes the named objects, the code treats them as the ones to show |
 | **cutscene runtime** | opt-in (`CLERIA_EVENTS=1`); `Chr_MoveTo` speed argument misread; speaker names missing on lines with an empty name operand; `$I/$F/$S` script variables unhandled |

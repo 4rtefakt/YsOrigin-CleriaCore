@@ -143,6 +143,7 @@ struct Actor {
     // combat.hpp, where feeding the curve alone drives the formula negative.
     float atk = 0;
     float def = 0;  // engine: +0xa8 — read from the TARGET and subtracted.
+    float resist[4] = {0, 0, 0, 0};  // engine: +0xb4..+0xc0, (1 - r) per damage class (hit.hpp)
     // engine: +0xb0. The EXP this actor awards when killed:
     // FLOOR(K(ENEMYINFO+0xDC) * GAMEINFO's curve 4). Validated 67/67.
     float exp_reward = 0;

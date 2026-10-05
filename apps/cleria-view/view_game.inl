@@ -347,7 +347,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Defaults are Yunica's combo #1 so a script that never arms behaves as before.
     AsoVm::Hitbox atk_hb{0.6f, 0.0f, 30, 8.0f};
     Vec3 atk_dir{0, 0, 1};               // the swing's facing (captured at swing start)
-    std::set<int> atk_hit;               // instance ids already hit this swing (dedup)
     Vec3 face_dir{0, 0, 1};              // world dir the player faces (from movement)
     WGPUTextureView depth = make_depth(g, cw, ch);
 
@@ -372,6 +371,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     if (ginfo.ok())
         player.max_hp = player.hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(player.level)));
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
+    Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
+    std::unordered_map<int, int> atk_rehit;  // victim -> ticks until the swing may hit it again
     // Loaded game (title Load screen): flags + character must be right BEFORE the first
     // room load (chest gating reads them); stats/position are applied after the world
     // exists, below. This mirrors the engine's load = init-then-overwrite (SAVELOAD §4.2).
@@ -1367,7 +1368,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         combo_stage = (combo_stage + 1 >= len) ? 0 : combo_stage + 1;
         combo_idle = 0;
         atk_dir = face_dir;         // the swing points where you're facing
-        atk_hit.clear();
+        atk_rehit.clear();
     };
 
     // Spawn every bullet an ASO section fired this tick. Shared by the player and by
@@ -1424,13 +1425,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
             };
 
-    // The EX/Boost gauge builds on hits DEALT and TAKEN alike (FUN_0046cc10): the amount is
-    // missing-HP-scaled, `(1 - hp/hpMax) * 25 + 1`, and is refused while already boosting or
-    // once the gauge is full. Replaces the earlier flat 1500/2500 hand-picked amounts.
-    auto add_boost = [&] {
-        if (player.boosting || player.boost >= 30000.0f) return;
-        const float missing = 1.0f - float(player.hp) / float(std::max(1, player.max_hp));
-        player.boost = std::min(30000.0f, player.boost + missing * 25.0f + 1.0f);
+    // FUN_0046cc10(amount): the EX/Boost gauge add. Refused while boosting or full, and
+    // ONLY counts while g_flags[187] is set (0x76bc08 — set by the floor-1 story scripts,
+    // e.g. MAP/S_01/S_0100/S1004.XSO), so a fresh game cannot charge Boost before that beat.
+    // Call-site amounts (audit combat.md #22): +300 per hit dealt (FUN_004fbb40 0x4fd0bf),
+    // +dmg*100 per hit taken (0x4fded0). [not yet modelled] the passive per-tick fill in the
+    // mover (0x467d8c: (1-hp/max)*word[0x68b070]+1) — the old per-hit formula here was that
+    // passive term misplaced.
+    auto add_boost = [&](float amount) {
+        if (player.boosting || player.boost >= 30000.0f || game.g_flags[187] == 0) return;
+        player.boost = std::min(30000.0f, player.boost + amount);
     };
 
     // ---- Boost (build/ability_re/BOOST.md, ABILITY.md §4b) -------------------------------
@@ -1452,7 +1456,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const int extra = character == 1 ? 313 : character == 2 ? 300 : 317;
         if (!avm.set_section(extra, /*force*/true)) return;
         atk_dir = face_dir;
-        atk_hit.clear();
+        atk_rehit.clear();
         player.boost = 0.0f;                              // spends the gauge
         player_iframes = std::max(player_iframes, 16);
     };
@@ -1480,7 +1484,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (!avm.set_section(kSkillSec[slot], /*force*/true)) return;
         player.sp_cur -= cost;                            // 0x46f2eb
         atk_dir = face_dir;
-        atk_hit.clear();
+        atk_rehit.clear();
     };
 
     const ItemTable items_tbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
@@ -2005,6 +2009,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (avm.turnable())
                     face_dir = {wish.x / wl, 0, wish.z / wl};  // the swing faces where you walk
             }
+            {   // Knockback (+0x338/+0x340), spent by the player mover's own law (hit.hpp).
+                const Impulse kd = step_knockback(player_kb, grounded, player.hp < 1, Mover::Player);
+                feet.x += kd.x; feet.z += kd.z; }
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
               feet.x = body.x; feet.z = body.z; }
@@ -2133,15 +2140,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (Actor& a : world.actors()) {
                 if (a.is_player() || !a.alive()) continue;
                 if (a.hit_flash > 0) --a.hit_flash;
-                // Knockback: add the decaying impulse, then let wall-resolve stop it at
-                // walls like any other motion.
-                a.pos.x += a.knockback.x; a.pos.z += a.knockback.z;
-                // Cap the folded impulse per MOVER2D (_DAT_006bd2b8 = 0.36/frame), then damp.
-                // The damping FACTOR itself is [HAND-TUNED] — the engine's is a subtractive
-                // term scaled by DAT_006bd3f8, which is not dumped as a float yet.
-                const float kl = std::sqrt(a.knockback.x * a.knockback.x + a.knockback.z * a.knockback.z);
-                if (kl > 0.36f) { a.knockback.x *= 0.36f / kl; a.knockback.z *= 0.36f / kl; }
-                a.knockback.x *= 0.75f; a.knockback.z *= 0.75f;
+                // Knockback, spent by the 2-D sprite mover's law (hit.hpp step_knockback):
+                // displacement capped at 0.36/tick, velocity damped 1 - 0.135*0.95. Then
+                // wall-resolve stops it at walls like any other motion.
+                {   Impulse kv{a.knockback.x, a.knockback.z};
+                    const Impulse kd = step_knockback(kv, /*grounded*/ true, a.hp < 1);
+                    a.knockback.x = kv.x; a.knockback.z = kv.z;
+                    a.pos.x += kd.x; a.pos.z += kd.z; }
                 Vec3 body = {a.pos.x, a.pos.y + stepUp, a.pos.z};
                 body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
                 a.pos.x = body.x; a.pos.z = body.z;
@@ -2149,38 +2154,30 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (efl > kNoFloor) a.pos.y = efl;
             }
 
-            // The victim's hit reaction, shared by the melee and projectile paths.
-            // HITREACT_ENEMY.md: an ENEMY victim takes a different branch than the player and
-            // gets ONLY the flinch — no i-frames and no hit-stop exist for enemies. The two
-            // effects are (a) motion state 4 (the hurt clip; guard=0 so a re-hit RESTARTS it)
-            // and (b) an impulse of magnitude DAT_006bd19c = 0.1 directed AWAY from the
-            // attacker, ADDED to the existing velocity (not assigned). Enemies have no mass or
-            // "immovable" term, so even a rooted enemy is displaced.
-            auto react_enemy = [&](Actor& en, const Vec3& from, bool died) {
+            // The enemy's reaction to the player's hit (FUN_004fbb40, src/cleria/hit.hpp).
+            // No i-frames and no hit-stop exist for enemies. The knockback impulse `k` is
+            // ADDED to +0x338/+0x340 whatever the damage; the flinch (section 4; a re-hit
+            // while flinching restarts it) needs dmg >= 1 and is skipped for rtype 3 or a
+            // durable victim (anime_Durable ~ +0x9d8).
+            auto react_enemy = [&](Actor& en, int dmg, bool died, int rtype, const Impulse& k) {
                 en.hit_flash = 6;                       // our cosmetic tint (+0x4e8)
-                const float kdx = en.pos.x - from.x, kdz = en.pos.z - from.z;
-                const float kd = std::sqrt(kdx * kdx + kdz * kdz);
-                if (kd > 1e-3f) {                       // ADD, m = 0.1 (was assign at 0.30)
-                    en.knockback.x += kdx / kd * 0.1f;
-                    en.knockback.z += kdz / kd * 0.1f;
-                }
+                en.knockback.x += k.x; en.knockback.z += k.z;
                 if (died) return;                       // death is handled by the caller
                 for (EnemyRender& er : render) {
                     if (er.actor != &en || !er.avm.ok()) continue;
-                    if (er.avm.durable()) break;        // poise (anime_Durable ~ +0x9d8)
-                    // Priority-gated request; a re-hit while already flinching restarts it.
-                    er.avm.set_section(4, /*force*/ er.avm.section() == 4);
-                    er.atk_win = 0; er.atk_armed = false; er.atk_age = 0;
+                    if (enemy_flinch_state(dmg, false, rtype, er.avm.durable(), er.avm.section()) == 4) {
+                        er.avm.set_section(4, /*force*/ er.avm.section() == 4);
+                        er.atk_win = 0; er.atk_armed = false; er.atk_age = 0;
+                    }
                     break;
                 }
             };
 
-            // The player's melee swing (build/attack_re). While the hit-volume is live,
-            // hit every enemy inside the sphere once. The box sphere sits 0.6 ahead in
-            // atk_dir with radius 0.6; an enemy is hit if its centre is within
-            // (0.6 + enemy radius). Damage uses the game's formula with the ASO's power
-            // as the +0xfc bonus (8.0), and marks each enemy hit so a 30-tick window
-            // deals one hit per swing, not 30.
+            // The player's melee swing (build/attack_re). While the hit-volume is live, an
+            // enemy inside the sphere is hit, then shielded for the swing's re-hit timer
+            // (arg[7]; the engine's 10-slot victim bank) — so a box whose timer is shorter
+            // than its lifetime multi-hits. Damage is FUN_004fa550 (hit.hpp), NOT
+            // damage_real: elemental resist multiplier, a min-1 chip, Yunica's x1.1.
             if (atk_window > 0) {
                 --atk_window;
                 // Radius and power now come from the script's own GenerateCollision
@@ -2190,20 +2187,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const float rr = atk_hb.radius + kCharRadius;  // box radius + enemy radius
                 int killed = 0, broke = 0;
                 for (Actor& en : world.actors()) {
-                    if (en.is_player() || !en.alive() || atk_hit.count(en.instance_id)) continue;
+                    if (en.is_player() || !en.alive() || atk_rehit.count(en.instance_id)) continue;
                     const float dx = en.pos.x - c.x, dz = en.pos.z - c.z;
                     const float ddy = (en.pos.y + kCharH * 0.5f) - c.y;
                     if (dx * dx + ddy * ddy + dz * dz > rr * rr) continue;
-                    atk_hit.insert(en.instance_id);   // the engine's per-attack hit-dedup
+                    atk_rehit[en.instance_id] = atk_hb.rehit;   // the victim's re-hit bank
                     AttackStats a;
                     a.atk = ginfo.player_atk(character, /*tier*/ 0, player.level);
                     a.bonus = atk_hb.power;          // per-attack power, from this section's script
-                    const int dmg = damage_int(a, en.def,
+                    EnemyDefense vd; vd.def = en.def;
+                    for (int k = 0; k < 4; ++k) vd.resist[k] = en.resist[k];
+                    PlayerDamageMods mods;
+                    mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
+                    const int dmg = enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
-                    // Boost builds on hits DEALT too (BOOST.md hook). Amount [H] (see hurt_player).
-                    add_boost();
-                    react_enemy(en, feet, r.died);
+                    if (dmg > 0) add_boost(300.0f);  // +300 per hit dealt (0x4fd0bf, DAT_006bdc44)
+                    // Knockback: L = walk speed (CASTINFO+0x48) x1.7 [x run mult while running —
+                    // the view has no run state yet] x the swing's arg[12], driven along the
+                    // player's facing (hit.hpp player_knock_angle).
+                    const float kang = player_knock_angle(std::atan2(atk_dir.z, atk_dir.x),
+                                                          feet.x, feet.z, feet.y, en.pos.x, en.pos.z, en.pos.y);
+                    react_enemy(en, dmg, r.died, atk_hb.rtype,
+                                knock_impulse(kang, player_knock_scale(pm.speed_base, false, 2.2f) * atk_hb.knock));
                     const std::string nm = casts.get(en.cast_id) && !casts.get(en.cast_id)->display.empty()
                                            ? casts.get(en.cast_id)->display : ("cast " + std::to_string(en.cast_id));
                     hud.message(r.died ? (nm + " defeated!")
@@ -2267,7 +2273,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // enemies are on you). Damage now comes from the enemy's own ASO attack — its
             // GenerateCollision box, armed on the swing frame in the brain above — not from
             // touching it. player_def is the lv1 curve; no equipment model.
-            if (player_iframes > 0) --player_iframes;
+            // The countdown is frozen while a hurt section (4/9/0xb) plays (0x466cc1).
+            tick_iframes(player_iframes, avm.section());
+            for (auto it = atk_rehit.begin(); it != atk_rehit.end();)   // FUN_0045c490 decrement
+                it = (--it->second <= 0) ? atk_rehit.erase(it) : std::next(it);
             // STEP PLATES (SOB trigger class 2): the plate's script fires when the player
             // steps ON it, and re-arms only after stepping OFF — the engine does that with
             // Mesh_EnableEvent(off) ... Wait_ChrLeaveMesh ... Mesh_EnableEvent(on), which
@@ -2316,23 +2325,35 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (dx * dx + dz * dz < 36.0f) { player.hp = player.max_hp; break; }
                 }
             const float pdef = ginfo.curves[kPlayerDef].at(player.level);
-            auto hurt_player = [&](float atk) {
-                const int dmg = player_incoming_damage(AttackStats{atk, 0, 0}, pdef,
+            // A hit landing on the player: FUN_004fd350's player branch (src/cleria/hit.hpp).
+            // Damage is FUN_004fa740 with the swing's own power as the bonus (attacker +0xfc
+            // = GenerateCollision arg[11]), halved during Boost; then the severity reaction —
+            // i-frames 8/12/16, hurt section 4/0xb/9, knockback 0.1 (+1.2 on a knockdown)
+            // along `angle` (atan2(dz,dx) from the attacker to the player), and +dmg*100
+            // Boost gauge. `rtype` is the swing's arg[9].
+            auto hurt_player = [&](float atk, float bonus, int rtype, float angle) {
+                const int raw = player_incoming_damage(AttackStats{atk, bonus, 0}, pdef,
                     [&](float p) { return float(rng_pct(rng)) < p; });
+                const int dmg = player_damage_after_boost(raw, player.boosting);
                 player.hp -= dmg;
-                // Boost builds on hits TAKEN (BOOST.md hook FUN_0046cc10, missing-HP-scaled) —
-                // the comeback mechanic. Amount is [H] (tuned for visibility; base const is 25).
-                add_boost();
+                const bool died = player.hp < 1;              // the engine's test is < 1.0
+                const PlayerReaction re = player_reaction(dmg, float(player.max_hp), rtype, died,
+                                                          avm.durable(), avm.section());
+                if (re.iframes > 0) player_iframes = std::max(player_iframes, re.iframes);
+                if (re.motion_state >= 0 && re.motion_state != 5) avm.set_section(re.motion_state);
+                if (re.face_attacker)
+                    face_dir = {std::cos(angle + 3.14159265f), 0, std::sin(angle + 3.14159265f)};
+                const Impulse k = knock_impulse(angle, re.knockback);
+                player_kb.x += k.x; player_kb.z += k.z;
+                if (re.boost_gain > 0) add_boost(re.boost_gain);
                 // p_damage is the player's own hurt-reaction sound; death adds p_hit0.
-                audio.play(kSfxPlayerHurt, kSfxAnimVol);
-                if (player.hp <= 0) audio.play(kSfxDeathEntry, kSfxAnimVol);
-                // Player i-frame window (~0.75s) is TUNED, not RE'd; the engine's generic
-                // 16-tick grant lets a real-level enemy shred the fresh lv1 player.
-                player_iframes = 45;
+                if (dmg > 0) audio.play(kSfxPlayerHurt, kSfxAnimVol);
+                if (died) audio.play(kSfxDeathEntry, kSfxAnimVol);
                 hud.message("-" + std::to_string(dmg) + " HP");
-                if (player.hp <= 0) {  // down: respawn at full with a grace window
+                if (died) {  // STAND-IN: the game-over / continue flow is not RE'd yet
                     player.hp = player.max_hp;
                     spawn_player();
+                    player_kb = {};
                     player_iframes = 90;
                     hud.message("Down! respawned");
                 }
@@ -2345,7 +2366,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (!e.avm.ok() && en && en->alive() && en->atk > 0 && player_iframes == 0) {
                         const float mreach = kCharRadius + 0.6f;
                         const float dx = en->pos.x - feet.x, dz = en->pos.z - feet.z;
-                        if (dx * dx + dz * dz <= mreach * mreach) hurt_player(en->atk);
+                        if (dx * dx + dz * dz <= mreach * mreach)
+                            hurt_player(en->atk, 0, 0, std::atan2(-dz, -dx));
                     }
                     continue;
                 }
@@ -2368,7 +2390,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (by < 0.0f) by = 0.0f;
                 if (bx * bx + bz * bz + by * by > rr * rr) continue;
                 e.atk_hit = true;                 // one hit per swing
-                hurt_player(en->atk);
+                // Angle: from the attacker (+0xdc = its position when the box was armed;
+                // we use its live position) to the player (FUN_004fe9e0).
+                hurt_player(en->atk, e.hb.power, e.hb.rtype,
+                            std::atan2(feet.z - en->pos.z, feet.x - en->pos.x));
             }
 
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS
@@ -2480,7 +2505,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     float atk = 0;
                     for (const Actor& src : world.actors())
                         if (!src.is_player() && src.alive()) { atk = std::max(atk, float(src.atk)); }
-                    hurt_player(atk > 0 ? atk : 10.0f);
+                    hurt_player(atk > 0 ? atk : 10.0f, 0, 0, std::atan2(bz, bx));
                     p.age = p.life;      // spend the bullet on the hit
                     continue;
                 }
@@ -2493,10 +2518,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     p.hit.insert(en.instance_id);
                     AttackStats a;
                     a.atk = ginfo.player_atk(character, /*tier*/ 0, player.level);
-                    const int dmg = damage_int(a, en.def,
+                    EnemyDefense vd; vd.def = en.def;
+                    for (int k = 0; k < 4; ++k) vd.resist[k] = en.resist[k];
+                    // STAND-IN: the bullet's own class/power/knock fields are [UNKNOWN]
+                    // (the tag-0x18 path takes its angle from FUN_00591ef0), so it hits
+                    // as class-less with the base 0.1 impulse away from the bullet.
+                    const int dmg = enemy_incoming_damage(a, kDamageClassNone, vd, PlayerDamageMods{},
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
-                    react_enemy(en, p.pos, r.died);   // same flinch+impulse as a melee hit
+                    if (dmg > 0) add_boost(300.0f);
+                    react_enemy(en, dmg, r.died, 0,
+                                knock_impulse(std::atan2(en.pos.z - p.pos.z, en.pos.x - p.pos.x), 0.1f));
                     if (r.died) {
                         award_exp(en.exp_reward);
                         sfx_at(kSfxDeathEntry, en.pos, kSfxAnimVol);
@@ -2521,7 +2553,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 atk_hb = avm.hitbox();
                 atk_window = atk_hb.lifetime > 0 ? atk_hb.lifetime : 1;
                 atk_dir = face_dir;
-                atk_hit.clear();
+                atk_rehit.clear();
             }
             // anime_SePlay3D events (ASO funcid 0x2a): the animation names its own
             // sounds, so the swing lands on the right frame and is per-character for

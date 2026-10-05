@@ -233,19 +233,25 @@ bool AsoVm::step(std::size_t& pc) {
             if (is_land_) foot_smoke_ = true;
             break;
         case kGenerateCollision: {
-            // anime_GenerateCollision (0x23): arm the melee hit-volume. Arg encoding
-            // from build/attack_re + build/combat_re: [2] radius and [11] power are
-            // FLOAT bit patterns in the arg word; [3] angle is an integer DEGREE count
-            // (× pi/180); [6] lifetime is an integer frame count. Verified against
-            // C_010.ASO (Yunica's swing: frame 0, radius 0.6, lifetime 30).
+            // anime_GenerateCollision (0x23): arm the melee hit-volume. The handler
+            // FUN_004494e0 -> FUN_0045e750 maps [2] radius -> +0x110, [3] FLOAT degrees
+            // (x pi/180) -> +0x10c, [6] lifetime -> +0x118, [7] re-hit timer -> +0xf4,
+            // [9] reaction type -> +0x108, [10] status bits -> +0x10b, [11] power -> +0xfc,
+            // [12] knockback scale -> +0x104 (0x4494eb..0x4495a8). Floats are bit patterns
+            // in the arg word. Verified against C_010.ASO (Yunica's swing: radius 0.6,
+            // lifetime 30).
             auto af = [&](std::uint32_t i) {
                 float v; std::uint32_t raw = std::uint32_t(ai(i));
                 std::memcpy(&v, &raw, 4); return v;
             };
             hitbox_.radius = af(2);
-            hitbox_.half_angle = float(ai(3)) * 3.14159265358979323846f / 180.0f;
+            hitbox_.half_angle = af(3) * 3.14159265358979323846f / 180.0f;
             hitbox_.lifetime = ai(6);
+            hitbox_.rehit = argc > 7 ? ai(7) : 0;
+            hitbox_.rtype = argc > 9 ? ai(9) & 0xff : 0;
+            hitbox_.status = argc > 10 ? ai(10) & 0xff : 0;
             hitbox_.power = argc > 11 ? af(11) : 0.0f;
+            hitbox_.knock = argc > 12 ? af(12) : 0.0f;
             hitbox_armed_ = true;
             break;
         }

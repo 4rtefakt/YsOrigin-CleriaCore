@@ -160,6 +160,9 @@ struct Enemy {
     float k_neutral = 0;   // +0xd4 — always 50.0; no reader [UNKNOWN]
     float k_unk_0xd8 = 0;  // +0xd8 — [UNKNOWN]. This was labelled EXP and is NOT.
     float k_exp = 0;       // +0xdc — the EXP reward multiplier -> actor+0xb0
+    // +0x3c..+0x48 — elemental resists, copied to actor+0xb4..+0xc0 by FUN_004202e0.
+    // Applied as a (1 - r) damage multiplier per damage class (hit.hpp); slot 3 = melee.
+    float resist[4] = {0, 0, 0, 0};
 
     // The enemy's CHASE SPEED, in world units per 60Hz tick [C-DIS][C-COR]
     // (build/mover2d_re/MOVER2D.md). The shared sprite mover FUN_0045f4d0 uses

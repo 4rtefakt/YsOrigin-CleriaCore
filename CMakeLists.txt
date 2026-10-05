@@ -50,6 +50,10 @@ target_include_directories(cleria PUBLIC src)
 add_executable(cleria-cotest apps/cleria-cotest/main.cpp)
 target_link_libraries(cleria-cotest PRIVATE cleria)
 
+# cleria-combattest — hit resolution (src/cleria/hit.hpp) against the disassembly's rules.
+add_executable(cleria-combattest apps/cleria-combattest/main.cpp)
+target_link_libraries(cleria-combattest PRIVATE cleria)
+
 # cleria-savetest — save-codec round-trip (SAVELOAD.md; real-save read via CLERIA_REAL_SAVE).
 add_executable(cleria-savetest apps/cleria-savetest/main.cpp)
 target_link_libraries(cleria-savetest PRIVATE cleria)
@@ -135,7 +139,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

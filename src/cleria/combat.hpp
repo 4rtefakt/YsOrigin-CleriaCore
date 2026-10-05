@@ -1,8 +1,15 @@
 // The damage formula — disassembled from `FUN_004fd350`, the central applier
 // (7 call sites). See build/combat_re/damage.json and build/dmgpath_re/dmgpath.json.
 //
+// ** 2026-10-05 audit: the PLAYER'S hits on enemies do NOT come through here. ** They go
+// FUN_004fed50(ecx=0) -> FUN_004fbb40 -> FUN_004fa550 — see hit.hpp
+// enemy_incoming_damage (resist multiplier, min-1 chip). FUN_004fd350's non-player
+// branch below (damage_real) is reached only from boss code (0x504b00, 0x505640,
+// 0x538820, 0x540d40, 0x571ae0). Its player branch (FUN_004fa740) IS the path for
+// every hit landing on the player.
+//
 // ############################################################################
-// ## THE PATH FORKS. EVERYTHING BELOW IS THE **ENEMY-TARGET** FORMULA ONLY. ##
+// ## THE PATH FORKS. damage_real BELOW IS THE BOSS-SCRIPT NON-PLAYER BRANCH. ##
 // ############################################################################
 //
 // At 0x4fd3e1 the applier does:
@@ -177,11 +184,10 @@ inline int damage_int(const AttackStats& a, float def, RollPercent&& roll) {
 //
 // The effects are [C-DIS]; the NAMES are [H-high] — the menu strings were never found.
 //
-// [H-medium], flagged rather than hidden: the factor appears to be applied on BOTH
-// sides (0x4fa8fd player-incoming, 0x4fd53c enemy-incoming), so on Nightmare the
-// player would also deal 2x+1, netting ~0.75x enemy time-to-kill — a glass-cannon
-// curve. That branch was re-read three times without breaking it, but ONE in-game
-// damage number on Nightmare vs Normal would settle it.
+// The factor is read at 0x4fa8fd (player-incoming) and 0x4fd53c (fd350's non-player
+// branch, boss code only). The player's own hits (FUN_004fbb40/FUN_004fa550) have no
+// c190 reader at all, so there is no "glass cannon" — difficulty scales only what the
+// player takes (audit combat.md #4).
 inline constexpr float kDifficultyFactor[3] = {1.0f, 1.5f, 2.0f};  // DAT_0068a268
 
 struct DifficultyScale {
@@ -251,16 +257,11 @@ inline HitReaction hit_reaction(int dmg, float max_hp) {
 //     actor->i_frames = max(actor->i_frames, N);
 //
 // i.e. "grant AT LEAST N ticks, never shortening an existing longer invulnerability".
-// Observed N: 16, 10 (0x45e0e8) and 3 — plus a plain STORE of 9999 at 0x46fc90 (~166 s
-// at 60 Hz, effectively "off"; what state that is, is [UNKNOWN]).
-//
-// ** The 8/12/16 this file used to publish is UNSOURCED, and is gone. ** A program-wide
-// scan of all 284 exact `[reg+0x734]` sites found the constants 3, 10, 16 and 9999 —
-// no 8 and no 12 anywhere. Those numbers came from a pass that also described the
-// grants as stores, and both halves are now in doubt. Rather than keep a plausible
-// triple nothing supports, use `grant_iframes` with a value you can cite.
-// FUN_004fd350's 24 `+0x734` accesses are where the severity grants would be, if they
-// exist at all.
+// The severity grants ARE 8/12/16 (0x4fdf46 / 0x4fdf65 / 0x4fdf9f, as
+// `mov ecx,imm; cmova ecx,eax; mov [edi+0x734],ecx` — which is why an immediate-store
+// scan missed them and this comment once called them unsourced). Others: 10
+// (0x45e0f5), 18 (FUN_004fe9e0), 60 (Boost entry), 16 (Boost super, skill guards) and a
+// plain STORE of 9999 at 0x46fc90. See hit.hpp player_reaction / tick_iframes.
 //
 // The DECREMENT is FOUND [C-DIS] — 0x00466ce3, inside FUN_00465170
 // (go_actor_player.cpp):

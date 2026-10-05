@@ -190,9 +190,13 @@ class AsoVm {
     // in the hit scan). Both the player and 49 monster scripts use this.
     struct Hitbox {
         float radius = 0;     // arg[2]  -> actor+0x110 (0.6 for Yunica's swing)
-        float half_angle = 0; // arg[3]  -> actor+0x10c, radians (arg is DEGREES)
+        float half_angle = 0; // arg[3]  -> actor+0x10c, radians (arg is FLOAT degrees; role [UNKNOWN])
         int lifetime = 0;     // arg[6]  -> actor+0x118, frames the box is live
+        int rehit = 0;        // arg[7]  -> actor+0xf4, ticks before the same victim can be hit again
+        int rtype = 0;        // arg[9]  -> actor+0x108, reaction type (hit.hpp player_reaction)
+        int status = 0;       // arg[10] -> actor+0x10b, status-effect bits rolled on the victim
         float power = 0;      // arg[11] -> actor+0xfc, the per-attack damage bonus
+        float knock = 0;      // arg[12] -> actor+0x104, knockback scale (hit.hpp)
     };
     bool armed_hitbox() const { return hitbox_armed_; }
     const Hitbox& hitbox() const { return hitbox_; }

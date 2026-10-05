@@ -79,6 +79,7 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
             a->hp = s.max_hp;
             a->atk = s.atk;
             a->def = s.def;
+            for (int k = 0; k < 4; ++k) a->resist[k] = e->resist[k];
             a->exp_reward = s.exp;
             a->level = e->level;
             a->move_speed = e->move_speed;
