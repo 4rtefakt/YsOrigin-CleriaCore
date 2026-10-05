@@ -2225,6 +2225,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         e.atk_hit = false; e.atk_stall = 0; e.atk_fkey = -1;
                         e.atk_armed = false; e.atk_age = 0;
                     }
+                    if (o.vm_step) e.avm.tick();                      // the brain's FUN_004472e0
                     // The brain writes its ASO registers directly (+0x9bc / +0x9c0 / +0x9d8);
                     // a section that restarts at pc 0 this tick clears the first two again.
                     if (o.set_marker > -1000) e.avm.set_marker(o.set_marker);
@@ -2293,7 +2294,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         en->pos = {org.x, org.y - en->height, org.z};
                     }
                     if (o.durable_rule == 1) e.avm.set_durable(true);              // the handler's
-                    else if (o.durable_rule == 0 && e.avm.section() != 7) e.avm.set_durable(false);
+                    else if (o.durable_rule == 2 && e.avm.section() == 0x138) e.avm.set_durable(true);
+                    else if ((o.durable_rule == 0 || o.durable_rule == 2) && e.avm.section() != 7) e.avm.set_durable(false);
                     if (hurt && e.avm.section_ended()) e.avm.set_section(e.idle_section, /*force*/true);
                     // Drain any bullet this enemy's script fired (facing basis: x=sin/z=cos of yaw).
                     spawn_bullets(e.avm, en->pos, {std::sin(en->yaw), 0, std::cos(en->yaw)},

@@ -65,6 +65,8 @@ AiOut m580(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0049db20 Sevn
 AiOut m140(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0049f370 Twarth (gauntlet, charge)
 AiOut m270(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a1940 Moz (running contact)
 AiOut m550(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0049c130 Arte-Baocar (warp caster, healer)
+AiOut m350(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a56c0 Diphtheloyd (flying breath, swoop)
+AiOut m600(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a8ea0 Titamonus (M110 + the 312 dive)
 AiOut m170(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048a6c0 Vilvan (orbits)
 AiOut m180(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047cfd0 Wilewarer (guards)
 AiOut m390(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047f6a0 Baocar (warp mage)

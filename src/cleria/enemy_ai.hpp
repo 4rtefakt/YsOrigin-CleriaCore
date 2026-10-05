@@ -214,8 +214,13 @@ struct AiOut {
     int set_frame = -1;          // write +0x9b8 (the current pattern frame) when >= 0
     int fast_forward = -1;       // FUN_00446680(m) right after this tick's section request
     // A handler that overrides +0x9d8 (Durable) AFTER the VM step (M110): 1 = force on,
-    // 0 = force off unless in section 7, -1 = leave it to the script.
+    // 0 = force off unless in section 7, 2 = on in section 312 else as 0 (M600), -1 = leave it
+    // to the script.
     int durable_rule = -1;
+    // FUN_004472e0 called by the brain right after its section request (M600's 312): one
+    // extra VM step on whatever section is current, before the brain's +0x9c0 write lands.
+    // [not modelled] that extra step's sound / bullet events (the main step's clear drops them).
+    bool vm_step = false;
     // Back-compat for the M100 path: true when the request is the cast's attack.
     bool attack = false;
 };

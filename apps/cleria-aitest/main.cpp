@@ -1466,6 +1466,60 @@ int main() {
         }
     }
 
+    // ---- M600 Titamonus and M350 Diphtheloyd (build/ai_spec/M600.md, M350.md) ----
+    {
+        const EnemyBrain m600 = enemy_brain_for(53), m350 = enemy_brain_for(28);
+        check(m600 && m350, "Titamonus / Diphtheloyd brains registered (AI 53 / 28)");
+        {   // M600: 4.5..5.5u -> the 312 leap with an immediate VM step and the Marker(1) hold.
+            EnemyAiParams tp = params(0.09f, 0.05f, 1.0f, 2.6f, 0.0f);
+            Actor A; A.height = 1.78f;
+            Rig r; r.env.actor = &A; r.env.target = {5.0f, 1.075f, 0};
+            r.env.section_type = [](int id) { return id == 0x138 || id == 7 || id == 8 ? 3 : 2; };
+            AiOut req;
+            for (int t = 0; t < 2000; ++t) { req = enemy_ai_tick(A.ai, tp, r.env, m600); if (req.section == 0x138) break; }
+            // (the action / steer the 312 block sets are run and cleared by the action player: dur 0)
+            check(req.section == 0x138 && req.vm_step && req.set_marker_block == 1,
+                  "4.5..5.5u: the 312 leap: gated request, immediate VM step, blk 1");
+            r.env.section = 0x138; r.env.aso_marker = 1; r.env.aso_marker_block = 1;
+            AiOut o = enemy_ai_tick(A.ai, tp, r.env, m600);
+            check(std::fabs(A.vert.t - 0.45f) < 1e-6f && !A.vert.grounded && o.set_marker_block == 2,
+                  "Marker 1: the brain launches 0.45 (its jump did not), releases to Marker 2");
+            r.env.aso_marker = 2; r.env.aso_marker_block = 2; A.vert.t = -0.01f; r.env.grounded = false;
+            o = enemy_ai_tick(A.ai, tp, r.env, m600);
+            check(o.set_marker_block == 3, "Marker 2, past the apex: release to the dive (blk 3)");
+            r.env.aso_marker = 3; r.env.aso_marker_block = 3; A.floor_y = -10.0f;
+            int fx = 0, ticks = 0;
+            for (; ticks < 9; ++ticks) {
+                o = enemy_ai_tick(A.ai, tp, r.env, m600);
+                for (const AiEffect& f : o.effects) fx += f.id == 193;
+            }
+            check(fx == 3, "the dive: EF2 193 every third tick");
+            r.env.grounded = true; A.vert.grounded = true;
+            o = enemy_ai_tick(A.ai, tp, r.env, m600);
+            check(o.set_marker_block == 4 && std::fabs(A.vert.t - 0.2f) < 1e-6f, "landed: release to Marker 4 with a 0.2 hop");
+            r.env.aso_marker = 4; r.env.aso_marker_block = 4;
+            o = enemy_ai_tick(A.ai, tp, r.env, m600);
+            check(A.ai.f(0x818) < 0 && A.ai.speed < 0 && o.set_marker_block == -1, "Marker 4: a backwards run (negative speed), released on the ground");
+        }
+        {   // M350: strafes on the 6-unit ring; the breath window fires every third tick.
+            EnemyAiParams dp = params(0.05f, 0.1f, 1.0f, 2.0f, 0.0f);
+            dp.raw[8] = 5.2f; dp.raw[9] = 0.03f; dp.raw[10] = 0.04f;
+            Actor A; A.flyer = true;
+            Rig r; r.env.actor = &A; r.env.target = {5.0f, 1.075f, 0};
+            int sec7 = -1;
+            for (int t = 0; t < 3000 && sec7 < 0; ++t) if (enemy_ai_tick(A.ai, dp, r.env, m350).section == 7) sec7 = t;
+            check(sec7 >= 0 && A.ai.dur() == 141 && A.ai.i(0x728) == 2, "4.5..6.5u facing: the breath (section 7, 142 ticks)");
+            r.env.section = 7; r.env.aso_marker = 302;
+            AiOut o = enemy_ai_tick(A.ai, dp, r.env, m350);
+            check(A.ai.i(0x7c0) == 302 && o.set_marker == 0, "Marker(302): the bullet window opens (marker consumed)");
+            r.env.aso_marker = 0;
+            int shots = 0;
+            for (int t = 0; t < 45; ++t) for (const AiBullet& b : enemy_ai_tick(A.ai, dp, r.env, m350).bullets) shots += b.effect == 302 && b.kind == 2;
+            std::printf("[ai]   M350 breath: %d bullets in 45 ticks\n", shots);
+            check(shots == 15, "the window: a fire bullet (kind 2, effect 302) every third tick");
+        }
+    }
+
     // ---- M520 Menoak (build/ai_spec/M520.md) ----
     {
         const EnemyBrain m520 = enemy_brain_for(45);
