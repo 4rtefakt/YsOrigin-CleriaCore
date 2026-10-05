@@ -38,6 +38,7 @@
 #include "cleria/aso.hpp"
 #include "cleria/ef2.hpp"
 #include "cleria/bullet.hpp"
+#include "cleria/inventory.hpp"
 #include "cleria/meshobj.hpp"
 #include "cleria/ef2_sim.hpp"
 #include "cleria/dds.hpp"

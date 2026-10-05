@@ -410,8 +410,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         int v = std::atoi(e);
         if (v >= 1 && v <= 60) player.level = v;
     }
+    // The inventory / equipment state beside the flags (src/cleria/inventory.hpp,
+    // build/progress_re/INVENTORY.md) and the player stat block it feeds (FUN_00420c40).
+    // [not modelled] saving InvState: the save codec carries only flags / item_arr so far.
+    InvState inv;
+    inv_new_game(inv);
+    const ItemTable inv_items = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+    auto player_stats = [&]() -> PlayerStats {
+        if (!ginfo.ok() || inv_items.items.empty()) return PlayerStats{};
+        std::copy(game.item_arr, game.item_arr + 54, inv.raval);   // 0x76a654 lives in `game`
+        return compute_stats(game.g_flags, inv, ginfo, inv_items, character, player.level);
+    };
     if (ginfo.ok())
-        player.max_hp = player.hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(player.level)));
+        player.max_hp = player.hp = int(player_stats().max_hp);
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
     Mat4 last_vp; bool have_vp = false;  // last frame's camera, for the AI's off-screen test
@@ -452,10 +463,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         player.exp += std::max(1.0f, std::round(enemy_exp));   // always at least 1
         while (player.level < 60 &&
                player.exp >= float(ginfo.exp_to_level(player.level + 1))) {
-            const int old_max = player.max_hp;
             ++player.level;
-            player.max_hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(player.level)));
-            player.hp += (player.max_hp - old_max);
+            player.max_hp = int(player_stats().max_hp);
+            // FUN_00420c40 bit 0x01: each level-up is a full heal (FUN_004fa160(9999)) unless
+            // the player is in the death state.
+            if (player.hp >= 1) player.hp = player.max_hp;
             hud.message("Level up! Lv " + std::to_string(player.level));
         }
     };
@@ -929,6 +941,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::memcpy(s.item_arr, game.item_arr, sizeof s.item_arr);
         s.hp_max = float(player.max_hp); s.hp_cur = float(player.hp);
         s.exp = player.exp; s.level = player.level; s.sp = player.sp;
+        s.accessory = inv.accessory; s.held = inv.held; s.magic = inv.magic;
+        for (int c = 0; c < 4; ++c) s.tier[c] = inv.tier[c];
+        s.hp_bonus = inv.hp_bonus; s.atk_buff = inv.atk_buff; s.def_buff = inv.def_buff;
+        s.luck_base = inv.luck_base; s.timer_atk = inv.timer_atk; s.timer_def = inv.timer_def;
         s.scene = room.name;
         s.pos_x = feet.x; s.pos_z = feet.z;
         s.yaw = std::atan2(face_dir.x, face_dir.z) * 180.0f / 3.14159265f;  // SEN-style degrees
@@ -963,6 +979,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         character = std::clamp(s.character(), 1, 3);
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
+        inv.accessory = s.accessory; inv.held = s.held; inv.magic = s.magic;
+        for (int c = 0; c < 4; ++c) inv.tier[c] = s.tier[c];
+        inv.hp_bonus = s.hp_bonus; inv.atk_buff = s.atk_buff; inv.def_buff = s.def_buff;
+        inv.luck_base = s.luck_base; inv.timer_atk = s.timer_atk; inv.timer_def = s.timer_def;
+        inv_sanitize(game.g_flags, inv);                  // FUN_00431840's clamps after a load
         player.max_hp = int(std::lround(s.hp_max));
         player.hp = int(std::lround(s.hp_cur));
         player.hp_lag = float(player.hp);
@@ -2733,7 +2754,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (en.bank.check_and_record(player_hit_serial, atk_hb.rehit)) continue;   // FUN_004faac0
                     if (atk_hb.one_shot) atk_window = 0;                     // 0x4fd251
                     AttackStats a;
-                    a.atk = ginfo.player_atk(character, /*tier*/ 0, player.level);
+                    a.atk = player_stats().atk;
                     a.bonus = atk_hb.power;          // per-attack power, from this section's script
                     EnemyDefense vd; vd.def = en.def;
                     for (int k = 0; k < 4; ++k) vd.resist[k] = en.resist[k];
@@ -2890,7 +2911,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         sfx_at(0xad, feet, kSfxAnimVol);
                     }
                 }
-            const float pdef = ginfo.curves[kPlayerDef].at(player.level);
+            const float pdef = player_stats().def;
             // A hit landing on the player: FUN_004fd350's player branch (src/cleria/hit.hpp).
             // Damage is FUN_004fa740 with the swing's own power as the bonus (attacker +0xfc
             // = GenerateCollision arg[11]), halved during Boost; then the severity reaction —
@@ -3135,7 +3156,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (bx * bx + by * by + bz * bz > rr * rr) continue;
                     p.hit.insert(en.instance_id);
                     AttackStats a;
-                    a.atk = ginfo.player_atk(character, /*tier*/ 0, player.level);
+                    a.atk = player_stats().atk;
                     EnemyDefense vd; vd.def = en.def;
                     for (int k = 0; k < 4; ++k) vd.resist[k] = en.resist[k];
                     // STAND-IN: the bullet's own class/power/knock fields are [UNKNOWN]
@@ -3289,11 +3310,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // box/caption (drawn below) so a partial crossfade keeps text readable while a
         // full fade blacks the scene out. set_fade routes it into the HUD's alpha batch.
         hud.set_fade(csHost.fade_rgb, csHost.fade_cur);
-        // Bind the HUD's four equipment slots to the live equipped ids. The new-game seed
-        // writes weapon/armor into flags 151/152 and they round-trip through save/load;
-        // footwear and accessory have no global yet, so those two slots stay bare frames.
+        // Bind the HUD's four equipment slots (FUN_0043fe00): weapon, armor, foot (flags
+        // 151..153) and the accessory (0x76a628; 0xff = none). [not modelled] the dimming of a
+        // used-up item and the Lv badges (INVENTORY.md §7).
         {
-            const int ids[4] = {game.g_flags[151], game.g_flags[152], -1, -1};
+            const int acc = (inv.accessory == 0xff) ? -1 : inv.accessory;
+            const int ids[4] = {game.g_flags[151], game.g_flags[152], game.g_flags[153], acc};
             hud.set_equip(g, items_tbl, asset_root, ids);
         }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
@@ -3378,8 +3400,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             ev.hp = player.hp;
             ev.maxhp = player.max_hp;
             if (ginfo.ok()) {
-                ev.str = int(std::lround(ginfo.player_atk(character, 0, player.level)));
-                ev.def = int(std::lround(ginfo.curves[kPlayerDef].at(player.level)));
+                ev.str = int(player_stats().atk);
+                ev.def = int(player_stats().def);
                 // Exp is the RUNNING TOTAL and Next is what REMAINS to the next level —
                 // both were showing level-band arithmetic instead of live progress.
                 ev.exp = long(std::llround(player.exp));

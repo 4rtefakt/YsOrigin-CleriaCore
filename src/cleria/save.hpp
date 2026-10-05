@@ -63,6 +63,13 @@ struct SaveState {
     std::int32_t level = 1, sp = 0;
     std::string scene;                    // room to re-enter on load (e.g. "s_1000")
     float pos_x = 0, pos_z = 0, yaw = 0;  // continue-snapshot position (no y saved)
+    // The inventory fields outside g_flags (build/progress_re/INVENTORY.md §0): accessory /
+    // held item / magic 0x76a628/62c/630, weapon tier 0x76a634 + 8ch, the Panacea HP bonus
+    // 0x76b8fc, the drop buffs 0x76b904/908, luck 0x76b90c, the buff timers 0x76c19c/1a0.
+    std::int32_t accessory = -1, held = -1, magic = -1;
+    std::int32_t tier[4] = {0, 0, 0, 0};
+    float hp_bonus = 0, atk_buff = 0, def_buff = 0, luck_base = 0;
+    std::int32_t timer_atk = 0, timer_def = 0;
 
     int character() const { return flags[150]; }
     int difficulty() const { return flags[144]; }  // DAT_0076bb5c; header +0x50 = this+1

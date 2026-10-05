@@ -114,6 +114,16 @@ SaveRecord to_record(const SaveState& s, const std::string& area_line,
     r.set_f32(0x0076C13C, s.pos_x);
     r.set_f32(0x0076C144, s.pos_z);
     r.set_f32(0x0076C148, s.yaw);
+    r.set_i32(0x0076A628, s.accessory);
+    r.set_i32(0x0076A62C, s.held);
+    r.set_i32(0x0076A630, s.magic);
+    for (int c = 0; c < 4; ++c) r.set_i32(0x0076A634 + 8 * c, s.tier[c]);
+    r.set_f32(0x0076B8FC, s.hp_bonus);
+    r.set_f32(0x0076B904, s.atk_buff);
+    r.set_f32(0x0076B908, s.def_buff);
+    r.set_f32(0x0076B90C, s.luck_base);
+    r.set_i32(0x0076C19C, s.timer_atk);
+    r.set_i32(0x0076C1A0, s.timer_def);
     // --- header stamps (SAVELOAD.md §4.1) ------------------------------------
     r.set_hdr_u32(0x00, SaveRecord::kMagic);
     r.set_hdr_u32(0x04, 1);
@@ -140,6 +150,16 @@ SaveState from_record(const SaveRecord& r) {
     s.pos_x = r.f32(0x0076C13C);
     s.pos_z = r.f32(0x0076C144);
     s.yaw = r.f32(0x0076C148);
+    s.accessory = r.i32(0x0076A628);
+    s.held = r.i32(0x0076A62C);
+    s.magic = r.i32(0x0076A630);
+    for (int c = 0; c < 4; ++c) s.tier[c] = r.i32(0x0076A634 + 8 * c);
+    s.hp_bonus = r.f32(0x0076B8FC);
+    s.atk_buff = r.f32(0x0076B904);
+    s.def_buff = r.f32(0x0076B908);
+    s.luck_base = r.f32(0x0076B90C);
+    s.timer_atk = r.i32(0x0076C19C);
+    s.timer_def = r.i32(0x0076C1A0);
     return s;
 }
 
