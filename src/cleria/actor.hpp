@@ -224,6 +224,9 @@ struct Actor {
     int hurt_shape = 0;
     RehitBank bank;
     std::uint32_t hit_serial = 0;   // +0x3c4: drawn at spawn; the player redraws per attack
+    // The factory's flag words +0x12c / +0x130 (factory_flags.hpp, build/ai_spec/FACTORY.md).
+    std::uint32_t flags12c = 0x00110010;
+    std::uint32_t flags130 = 0;
     int aso_local15 = 0;   // engine: +0xa18 = ASO local int 15, applied when its script binds
     bool no_min_damage = false;   // engine: byte +0xce — no min-1 chip (hit.hpp no_floor)
     float tint_alpha = 1.0f;      // engine: the alpha byte of +0x290 (M460's crowding fade)

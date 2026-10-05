@@ -10,11 +10,12 @@
 // needs >= 5 HP lost since init) or at a stand's start (3%; needs HP >= 10% max), while
 // the actor pool holds < 24. Both halves keep HP - max(0.31 max, 0.5 HP) (floored to 1.1)
 // and EXP x 0.5025.
-// [not modelled] the keep-out box restore (FUN_0042dc90 over 0x76a2b4); the jump section
-// 0x13a launch/push (needs the shared jump helper FUN_00476200, which the view lacks).
+// The jump helper's section-0x13a launch (K 0.1, a fixed 0.3 push; FACTORY.md: all Noozes
+// are jump-capable). [not modelled] the keep-out box restore (FUN_0042dc90 over 0x76a2b4).
 #include <algorithm>
 #include <cmath>
 
+#include "cleria/actor.hpp"
 #include "cleria/brains/brains.hpp"
 
 namespace cleria::brains {
@@ -23,13 +24,16 @@ namespace {
 // The constants that differ between the Nooze colour variants (one routine; their brains
 // diff to identical control flow — build/ai_spec/M920.md).
 struct Nooze {
-    float lunge_dist;     // M910 4.0, M920 4.5 (0x6bd830)
-    unsigned lunge_roll;  // per mille: 100, 150
-    int cool_per_d;       // the cooldown's difficulty term: 60 + this*d (10, 15)
-    int hit_split;        // per mille in the hit reaction: 150, 200
-    unsigned pool_cap;    // 24, 26
-    int split_cast;       // itself: 0xb1, 0xb2
-    float chunk_keep;     // HP chunk = max(0.31 max, h - h*this): 0.5, 0.525
+    float lunge_dist;     // M910 4.0, M920 4.5 (0x6bd830), M930 5.0 (0x6bd868)
+    unsigned lunge_roll;  // per mille: 100, 150, 200
+    int cool_per_d;       // the cooldown term (d + cool_d0) * this: 10, 15, 15
+    int cool_d0;          //   6, 4, 3 (so 60 + 10d, 60 + 15d, 45 + 15d)
+    unsigned cool_mod;    // the cooldown's random part R % this: 60, 60, 45
+    int split;            // per mille outside the hit reaction: 30, 30, 230
+    int hit_split;        // per mille in the hit reaction: 150, 200, 50
+    unsigned pool_cap;    // 24, 26, 28
+    int split_cast;       // itself: 0xb1, 0xb2, 0xb3
+    float chunk_keep;     // HP chunk = max(0.31 max, h - h*this): 0.5, 0.525, 0.55
 };
 
 AiOut nooze(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, const Nooze& k) {
@@ -76,7 +80,7 @@ AiOut nooze(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, const Nooze& k) 
                         out.attack = true;
                         a.dur() = 60;
                         a.action() = 1;
-                        a.cool() = int(r15(e) % 60u) + 60 + k.cool_per_d * d + a.dur();
+                        a.cool() = int(r15(e) % k.cool_mod) + (d + k.cool_d0) * k.cool_per_d + a.dur();
                     }
                 }
             }
@@ -89,7 +93,7 @@ AiOut nooze(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, const Nooze& k) 
     }
 
     // Split (mitosis) — every phase.
-    int thr = 30;
+    int thr = k.split;
     if ((marker == 9 || (a.phase() == 2 && a.action() == 2 && a.cool() == 0)) && a.i(0x79c) == 0) {
         if (marker == 9) a.i(0x79c) = 1;
         if (a.action() == 2) a.cool() = a.dur();                   // one stand roll per stand
@@ -126,17 +130,33 @@ AiOut nooze(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, const Nooze& k) 
     else if (tgt > cur) { cur = std::min(cur + a.f(0x82c), tgt); a.f(0x7d4) = cur; }
     a.f(0x81c) = cur;
     a.f(0x820) = cur;
+
+    // Section 314, the jump helper's jump: at Marker 1 (grounded) the launch, K 0.1; at
+    // Marker 2 with +0x9c0 == 2 a push only; either way channel 1 += 0.3 along the heading.
+    if (sec == 0x13a && e.actor) {
+        Actor& A = *e.actor;
+        bool push = false;
+        if (e.grounded && marker == 1) { launch(A, a.f(0x7dc) * 0.1f, out); push = true; }
+        else if (marker == 2 && e.aso_marker_block == 2) push = true;
+        if (push) push1(A, a.heading + 0.0f, 0.3f);
+    }
     return out;
 }
 
 }  // namespace
 
 AiOut m910(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
-    return nooze(a, p, e, {4.0f, 100u, 10, 150, 24u, 0xb1, 0.5f});
+    return nooze(a, p, e, {4.0f, 100u, 10, 6, 60u, 30, 150, 24u, 0xb1, 0.5f});
 }
 // M920 Nooze (Blue), FUN_004ed3c0 (AI 85): faster, poisoning lunge (its ASO's hitbox status 1).
 AiOut m920(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
-    return nooze(a, p, e, {4.5f, 150u, 15, 200, 26u, 0xb2, 0.525f});
+    return nooze(a, p, e, {4.5f, 150u, 15, 4, 60u, 30, 200, 26u, 0xb2, 0.525f});
+}
+// M930 Nooze (Red), FUN_004ee000 (AI 86): the same routine (build/ai_spec/M930.md); it splits
+// mostly on its own (23%) rather than when hit (5%); its ASO lunge is a hop (Dash + Jump)
+// with a reaction-2 (knock-down) hit.
+AiOut m930(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+    return nooze(a, p, e, {5.0f, 200u, 15, 3, 45u, 230, 50, 28u, 0xb3, 0.55f});
 }
 
 }  // namespace cleria::brains

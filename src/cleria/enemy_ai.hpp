@@ -131,6 +131,7 @@ struct AiEnv {
     bool took_damage = false;    // +0x3bc & 2: a hit of >= 1 damage landed (cleared each tick)
     bool group_tag = false;      // +0x130 & 0x700: spawned with an XSO group tag
     int aso_marker = 0;          // +0x9bc: the animation script's anime_Marker value
+    int aso_marker_block = -1;   // +0x9c0: the marker block value (-1 after a section start)
     bool launched = false;       // +0x4d0 != 0: the knock-up state (brains early-out) [not modelled]
     int difficulty = 0;          // 3 (g_flags[201]), -2 v.easy, -1 easy, 0/1/2 index
     // The raw difficulty globals, for brains that read them directly:
@@ -144,6 +145,7 @@ struct AiEnv {
     std::uint32_t events = 0;    // +0x3bc this tick: 0x2000/0x4000 = the stun-rolling hits (REACT.md §1)
     bool stun_immune = false;    // +0x12c & 0x80000
     bool bless_stun = false;     // g_flags[217] & 0x80: the "Increase stun effect" blessing
+    bool boss_fight = false;     // DAT_0076bb8c = g_flags[156] == 1 (M540's handler picks its boss brain)
     // This actor's ASO section priority ("type") by id, or -1 if it has no such section —
     // what FUN_00446550 compares, so a brain can tell whether its request is accepted.
     std::function<int(int)> section_type;
@@ -159,13 +161,21 @@ struct AiSpawn {
     bool exp_copy = false;    // the child's EXP (+0xb0) = the parent's, after AiOut::exp_scale
 };
 // An EF2 effect a brain spawns at a point (the inlined pool-pop + FUN_00451a40 pattern).
-struct AiEffect { int id = 0; Vec3 pos{}; float scale = 1; bool attach = false; };
+// tag >= 0: the brain owns it (M530's beams); move_tag >= 0: no spawn, re-place every live
+// effect this actor owns with that tag at pos.
+struct AiEffect {
+    int id = 0; Vec3 pos{}; float scale = 1; bool attach = false;
+    int tag = -1, move_tag = -1;
+};
 // A hit volume a brain arms by hand: FUN_004494e0, the anime_GenerateCollision body, with
 // its 13 arguments in script order (hit_volume.hpp volume_from_args decodes them).
 struct AiHitbox {
     float shape = 0, radius = 0, fwd = 0, angle_deg = 0, voff = 0, half_h = 0;   // [0]..[5]
     int life = 0, rehit = 0, one_shot = 0, rtype = 0, status = 0;                // [6]..[10]
     float power = 0, knock = 0;                                                 // [11], [12]
+    // FUN_00477f00 (the brain-armed sphere, M340/M380 stings) draws a FRESH hit serial on
+    // every call into the attacker (+0x3c4) and the record; FUN_004494e0 keeps the actor's.
+    bool new_serial = false;
 };
 // A GoXx bullet a brain creates directly (FUN_0040f700 + FUN_00583a00 + FUN_00593b90).
 struct AiBullet {
@@ -191,6 +201,7 @@ struct AiOut {
     bool snap_facing = false;    // the brain set +0x314 = +0x308 (visible facing = heading)
     bool launch_clear = false;   // the stun exit cleared +0x4d0
     int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
+    int set_frame = -1;          // write +0x9b8 (the current pattern frame) when >= 0
     int fast_forward = -1;       // FUN_00446680(m) right after this tick's section request
     // A handler that overrides +0x9d8 (Durable) AFTER the VM step (M110): 1 = force on,
     // 0 = force off unless in section 7, -1 = leave it to the script.
@@ -204,6 +215,15 @@ using EnemyBrain = AiOut (*)(EnemyAi&, const EnemyAiParams&, const AiEnv&);
 // Handler code that runs on the dead path (HP < 1) for some casts — M460 kills its flock.
 using EnemyDeathHook = void (*)(Actor&, AiWorld&);
 EnemyDeathHook enemy_death_hook_for(int ai_index);
+
+// FUN_0047abf0, the arena clamp some handlers run after the mover input (M100's, M310's;
+// build/ai_spec/ARENA_AND_BOSSBAR.md §(a)). mode = g_flags[190]: 1 clamps x/z into the rect
+// {xmin, zmin, xmax, zmax}; 2 projects the ORIGIN onto the sphere {cx, cy, cz, radius}.
+bool enemy_handler_clamps(int ai_index);
+void arena_clamp(Vec3& origin, int mode, const float rect[4]);
+// The handler-tail position clamps per AI index: FUN_0047abf0 above for M100 / M310, and
+// M530's own (0x497b7a): while DAT_0076bb8c (g_flags[156]) != 0, z >= -2.75.
+void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_fight, const float rect[4]);
 
 // The brain for an AI index (actor +0x120 = CASTINFO +0x64), or nullptr when not yet
 // ported (callers fall back to the M100 brain as a stand-in and say so).
@@ -235,11 +255,13 @@ float rotate_toward(float cur, float target, float rate);
 namespace ai {
 inline std::uint32_t r15(const AiEnv& e) { return e.rng() >> 17; }       // (w >> 17)
 void stop(EnemyAi& a, int hold);                                         // FUN_004776e0
-bool blocked_ahead(const EnemyAi& a, const AiEnv& e);                    // FUN_00477450
+bool blocked_ahead(const EnemyAi& a, const AiEnv& e);                    // FUN_00477450(origin)
+bool probe_ahead(const EnemyAi& a, const AiEnv& e, const Vec3& P);       // FUN_00477450(P)
 void move(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, int approach, int walk);  // FUN_00477720
 void steer(EnemyAi& a, const AiEnv& e);                                  // FUN_004758f0(+0x708)
 void turn(EnemyAi& a, float rate);                                       // FUN_00476900
-void act(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);            // FUN_00479a70(+0x710)
+// FUN_00479a70(+0x710); with `out`, the jump helper FUN_00476200 runs for jump-capable casts.
+void act(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut* out = nullptr);
 void acquire(EnemyAi& a);                                                // FUN_004758a0
 void disengage(EnemyAi& a);                                              // FUN_00475860
 bool sees(const EnemyAi& a, const AiEnv& e, float max_dy, float d2max, float cone);  // FUN_00475a80

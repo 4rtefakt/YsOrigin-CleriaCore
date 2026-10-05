@@ -8,12 +8,13 @@
 // refused request just re-rolls): hold 110 (125 Easy), cooldown + 30..59 above Normal or
 // + 90..119. In section 7, every 7th marker-1 tick a disc (effect 317) sweeps from -40 deg to
 // +60 deg across its heading (speed 0.06, 0.09 above Normal); above Normal its heading
-// tracks the target at 0.012 rad/tick. Sections 7/8 make it Durable for good.
+// tracks the target at 0.012 rad/tick. Durable in sections 7/8 (the VM's section start
+// clears it again). The jump helper's section-0x13a launch: K 0.1, no horizontal push.
 // [not modelled] water (+0x38a/+0x38b: the flailing, the HP drain and popups — the room
-// collision has no water set); the keep-out box restore (FUN_0042dc90); the 0x13a launch
-// (the shared jump helper FUN_00476200 is not modelled).
+// collision has no water set); the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
+#include "cleria/actor.hpp"
 #include "cleria/brains/brains.hpp"
 
 namespace cleria::brains {
@@ -38,6 +39,12 @@ AiOut m510(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         default: return out;
     }
     const float dist = a.dist();
+    // TAIL (0x489586), every phase-2 tick: the jump launch, K 0.1, no horizontal push.
+    Actor* A = e.actor;
+    auto tail = [&]() -> AiOut {
+        if (A && launch_gate(e)) launch(*A, a.f(0x7dc) * 0.1f, out);
+        return out;
+    };
     if (dist > 20.0f) ai::disengage(a);
     a.steer() = 0;
     a.action() = 0x400;
@@ -65,14 +72,14 @@ AiOut m510(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 b.accel = -0.0008f;
                 out.bullets.push_back(b);
             }
-            return out;
+            return tail();
         }
         a.i(0x7a0) = 0;
-        return out;
+        return tail();
     }
     if (a.i(0x728) == 100) {
         if ((S != 0x13a || std::uint32_t(e.aso_marker) >= 2u) && e.grounded) a.i(0x728) = 0;
-        return out;
+        return tail();
     }
     switch (a.i(0x72c)) {
         case 0:                                                    // approach / hold / retreat
@@ -114,7 +121,7 @@ AiOut m510(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         default:
             break;
     }
-    return out;
+    return tail();
 }
 
 }  // namespace cleria::brains

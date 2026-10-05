@@ -1,4 +1,5 @@
 #include "cleria/world.hpp"
+#include "cleria/factory_flags.hpp"
 
 #include <cmath>
 
@@ -66,10 +67,15 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
     a->bank = RehitBank{};
     a->hit_serial = next_hit_serial(hit_serial_counter_);   // 0x4597c8
 
+    // The factory's per-cast flag words (its switch on the cast id; FACTORY.md §5).
+    {
+        const FactoryFlags ff = factory_flags(c->cast_id);
+        a->flags12c = ff.f12c; a->flags130 = ff.f130;
+    }
     // Step 6: AND [obj+0x12c], ~0x10 — cleared at spawn. +0x12c is NOT +0x3bc (the
-    // death flag), and the shared 0x10 makes them easy to conflate. What +0x12c's
-    // 0x10 means is [UNKNOWN], so it is not modelled; recorded here so the gap is
-    // visible rather than forgotten.
+    // death flag). 0x10 enables the idle wander (FUN_004601a0, FACTORY.md §7.1), so an
+    // XSO-spawned enemy does not wander [the wander gate itself is not modelled yet].
+    a->flags12c &= ~0x10u;
 
     // Step 7: the player. ** Identity comes from the CAST record, not the operand. **
     if (c->cast_id == kIdPlayer) {

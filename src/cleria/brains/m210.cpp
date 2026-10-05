@@ -13,7 +13,7 @@
 // 4.8 behind) or, walled in, forward 0.7.
 // [not modelled] "spawned mode" (+0x730 != 0, set only by the gimmick spawner FUN_00511340:
 // the fade/scale intro, waypoint backing and bubble bullets); water (+0x389/+0x38a/+0x320);
-// the keep-out box restore (FUN_0042dc90); the 0x13a obstacle-jump launch (FUN_00476200).
+// the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -222,6 +222,12 @@ AiOut m210(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 if (A && l > 0) { A->mover.k1.x += to.x / l * 0.05f; A->mover.k1.z += to.z / l * 0.05f; }
             }
         }
+    }
+    // The jump helper's section-0x13a launch: K 0.1, push +0x7e0 (no fallback). The engine
+    // also launches from deep water (+0x38a with t < 0) — [not modelled] (no water set).
+    if (A && S == 0x13a && grounded && e.aso_marker == 1) {
+        launch(*A, a.f(0x7dc) * 0.1f, out);
+        push1(*A, a.heading, a.f(0x7e0));
     }
     return out;
 }

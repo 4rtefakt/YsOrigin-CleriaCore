@@ -233,7 +233,10 @@ class ActorWorld : public XsoHost {
     // until an explicit Eft_Kill (the `map_kekkai` wards, the `save_*zou` statue auras).
     // [H-med] the operand's exact unit isn't traced, but the 0-vs-nonzero split is exactly the
     // observed one-shot/persistent split across the whole S_10 script corpus.
-    struct LocatedEffect { int id; float x, y, z, a, b; std::string name; int age = 0; };
+    struct LocatedEffect {
+        int id; float x, y, z, a, b; std::string name; int age = 0;
+        int owner = 0, tag = -1;   // a brain's private owner tag (M530: fx+0x1a4 = self, fx+0x1d5)
+    };
     void locate_effect(int id, float x, float y, float z, float a, float b,
                        const std::string& name) override {
         // Effects are addressed BY NAME (Eft_Kill looks a name up), so a name can only denote
@@ -253,6 +256,16 @@ class ActorWorld : public XsoHost {
             const int life = life_of(it->id);
             it = (!persistent && life > 0 && it->age >= life) ? effects_.erase(it) : it + 1;
         }
+    }
+    // A brain's own effect (owner = its instance id, tag = its private slot byte), and the
+    // per-tick re-place of every live effect it owns with that tag: the position moves, the
+    // age (the animation) keeps running. [not modelled] the rotation (no oriented draw).
+    void locate_owned_effect(int id, float x, float y, float z, int owner, int tag) {
+        effects_.push_back({id, x, y, z, 0.0f, 0.0f, std::string(), 0, owner, tag});
+    }
+    void move_owned_effects(int owner, int tag, float x, float y, float z) {
+        for (LocatedEffect& e : effects_)
+            if (e.owner == owner && e.tag == tag) { e.x = x; e.y = y; e.z = z; }
     }
     void kill_effect(const std::string& name) override {
         for (auto it = effects_.begin(); it != effects_.end();)

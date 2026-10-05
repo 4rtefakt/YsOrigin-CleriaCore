@@ -71,7 +71,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // right (SCENELIST record "title\", BGM id 1), and `transition` far below
     // captures this to switch tracks on room entry.
     Audio audio;
-    audio.init(asset_root);  // silent (and harmless) if the device or EFFECTDEF is missing
+    if (!std::getenv("CLERIA_MUTE"))   // CLERIA_MUTE=1: no audio device at all (quiet test runs)
+        audio.init(asset_root);  // silent (and harmless) if the device or EFFECTDEF is missing
     audio.set_master_volume(oslider[1] / 1024.0f);  // Option "SFX Volume"
     audio.set_bgm_volume(oslider[0] / 1024.0f);     // Option "BGM Volume"
 
@@ -2165,7 +2166,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     env.took_damage = e.dmg_hit;
                     env.group_tag = en->tag.tagged();
                     env.aso_marker = e.avm.marker();
-                    env.culled = !in_view(en->pos);
+                    env.aso_marker_block = e.avm.marker_block();
+                    env.culled = !(en->flags12c & 0x1000000u) && !in_view(en->pos);   // never-cull bit
+                    env.stun_immune = (en->flags12c & 0x80000u) != 0;                  // FACTORY.md
+                    env.bless_stun = (game.g_flags[217] & 0x80) != 0;                  // GROW09
+                    env.boss_fight = game.g_flags[156] == 1;                           // DAT_0076bb8c
                     env.difficulty = d;
                     env.diff_index = difficulty >= 2 ? difficulty - 2 : 0;
                     env.diff_easy = difficulty <= 1;
@@ -2195,8 +2200,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     for (const AiSpawn& s : o.spawns) brain_spawns.push_back({en, s});
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
                     // [not modelled] attachment to the actor (FUN_00451c20) and the scale.
-                    for (const AiEffect& fx : o.effects)
-                        world.locate_effect(fx.id, fx.pos.x, fx.pos.y, fx.pos.z, 0.0f, 0.0f, "");
+                    for (const AiEffect& fx : o.effects) {
+                        if (fx.move_tag >= 0) world.move_owned_effects(en->instance_id, fx.move_tag, fx.pos.x, fx.pos.y, fx.pos.z);
+                        else if (fx.tag >= 0) world.locate_owned_effect(fx.id, fx.pos.x, fx.pos.y, fx.pos.z, en->instance_id, fx.tag);
+                        else world.locate_effect(fx.id, fx.pos.x, fx.pos.y, fx.pos.z, 0.0f, 0.0f, "");
+                    }
                     pool += int(o.spawns.size());
                     if (ai_debug && (tick_count % 60) == 0)
                         std::printf("[ai] #%d cast %d phase %d sub %d act 0x%x steer %d mode %d spd %.4f "
@@ -2222,10 +2230,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (o.set_marker_block > -1000) e.avm.set_marker_block(o.set_marker_block);
                     if (o.set_durable >= 0) e.avm.set_durable(o.set_durable != 0);
                     if (o.set_own_jump >= 0) e.avm.set_own_jump(o.set_own_jump != 0);
+                    if (o.set_frame >= 0) e.avm.set_frame(o.set_frame);
                     if (o.fast_forward >= 0) e.avm.fast_forward_to_marker(o.fast_forward);
                     if (o.snap_facing) e.facing = e.actor->ai.heading;
                     // A hit volume armed by the brain (FUN_004494e0), placed like any other.
                     for (const AiHitbox& h : o.hitboxes) {
+                        if (h.new_serial) en->hit_serial = next_hit_serial(world.hit_serial_counter_);
                         const float args[13] = {h.shape, h.radius, h.fwd, h.angle_deg, h.voff, h.half_h,
                                                 float(h.life), float(h.rehit), float(h.one_shot),
                                                 float(h.rtype), float(h.status), h.power, h.knock};
@@ -2271,16 +2281,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     }
                     if (e.avm.dashed()) apply_dash(en->mover, e.actor->ai.heading, e.avm.dash_d());
                     mover_post(en->mover, idx_pre, e.actor->ai.speed, e.actor->ai.heading, en->vert.grounded,
-                               en->flyer, movable_pre, e.avm.movable(), en->hp);
+                               en->flyer, movable_pre, e.avm.movable(), en->hp, en->flags12c);
                     if (e.facing != e.actor->ai.heading)              // FUN_005eee60, x +0x36c (1.0)
                         e.facing = turn_facing(idx_pre == 2 ? 0.35f : 0.18f, e.facing, e.actor->ai.heading);
                     en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
+                    {                                                 // the handler-tail clamps
+                        Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
+                        enemy_handler_clamp(en->ai_index, org, game.g_flags[190], game.g_flags[156] != 0, world.arena);
+                        en->pos = {org.x, org.y - en->height, org.z};
+                    }
                     if (o.durable_rule == 1) e.avm.set_durable(true);              // the handler's
                     else if (o.durable_rule == 0 && e.avm.section() != 7) e.avm.set_durable(false);
                     if (hurt && e.avm.section_ended()) e.avm.set_section(e.idle_section, /*force*/true);
                     // Drain any bullet this enemy's script fired (facing basis: x=sin/z=cos of yaw).
                     spawn_bullets(e.avm, en->pos, {std::sin(en->yaw), 0, std::cos(en->yaw)},
                                   /*from_player*/false);
+                    // anime_GenerateEffect: placed off the origin along facing + angle. [not
+                    // modelled] its hits (no EF2 particles yet), the attach mode, the scale.
+                    for (const AsoVm::EffectEvent& fe : e.avm.effects()) {
+                        const float an = fe.angle_deg * 0.0174533f + e.facing;
+                        world.locate_effect(fe.id, en->pos.x + std::cos(an) * fe.fwd,
+                                            en->pos.y + en->height + fe.voff,
+                                            en->pos.z + std::sin(an) * fe.fwd, 0.0f, 0.0f, "");
+                    }
                     // Its GenerateCollision arms the enemy's hit-volume, with the section's own
                     // radius/lifetime/power/knock.
                     if (e.avm.armed_hitbox()) {

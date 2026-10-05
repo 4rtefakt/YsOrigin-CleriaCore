@@ -1,13 +1,17 @@
 // Headless tests for src/cleria/enemy_ai.hpp — the shared enemy machinery and the M100
 // brain, driven through scripted situations with a deterministic xorshift128.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <list>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "cleria/actor.hpp"
 #include "cleria/enemy_ai.hpp"
+#include "cleria/enemy_mover.hpp"
+#include "cleria/factory_flags.hpp"
 
 using namespace cleria;
 
@@ -572,6 +576,40 @@ int main() {
         }
     }
 
+    // ---- M930 Nooze (Red): the same routine; splits on its own, rarely when hit (M930.md) ----
+    {
+        const EnemyBrain m930 = enemy_brain_for(86);
+        check(m930 != nullptr, "Nooze (Red) brain registered (AI index 86)");
+        EnemyAiParams np = params(0.04f, 0.05f, 1.0f, 3.25f, 0.0f);
+        np.raw[6] = 0.125f; np.raw[7] = 0.15f;
+        int hit_splits = 0, free_splits = 0;
+        for (int s = 0; s < 1000; ++s) {
+            for (int sec : {4, 0}) {
+                Rig r; EnemyAi ai; for (int i = 0; i < s; ++i) r.rng();
+                r.env.target = {6.0f, 1.075f, 0}; r.env.hp = 100; r.env.max_hp = 100;
+                enemy_ai_tick(ai, np, r.env, m930);
+                r.env.hp = 80; r.env.section = sec; r.env.aso_marker = 9;
+                const AiOut o = enemy_ai_tick(ai, np, r.env, m930);
+                if (!o.spawns.empty()) {
+                    (sec == 4 ? hit_splits : free_splits) += 1;
+                    check(o.spawns[0].cast == 0xb3 && std::fabs(o.set_hp - 44.0f) < 1e-4f, "splits into 0xb3; chunk max(31, 80 - 44) = 36 -> 44 each");
+                }
+            }
+        }
+        std::printf("[ai]   M930 splits over 1000 seeds: hit %d, otherwise %d\n", hit_splits, free_splits);
+        check(hit_splits > 25 && hit_splits < 80 && free_splits > 190 && free_splits < 270,
+              "split odds: 5% in the hit reaction, 23% otherwise (the reverse of M910/M920)");
+        int c3 = -1;
+        for (int s = 0; s < 200 && c3 < 0; ++s) {
+            Rig r; EnemyAi ai; for (int i = 0; i < s; ++i) r.rng();
+            r.env.target = {4.8f, 1.075f, 0}; r.env.section = 2; r.env.difficulty = 2;
+            r.env.hp = 50; r.env.max_hp = 50;
+            for (int t = 0; t < 400 && c3 < 0; ++t)
+                if (enemy_ai_tick(ai, np, r.env, m930).section == 7) c3 = ai.cool() + 1;
+        }
+        check(c3 >= 75 && c3 <= 119, "lunge at 4.8u (< 5.0); Nightmare (d = -2): cooldown (d + 3)*15 + hold 60 + 0..44");
+    }
+
     // ---- M920 Nooze (Blue): M910 with other constants (build/ai_spec/M920.md) ----
     {
         const EnemyBrain m920 = enemy_brain_for(85);
@@ -773,6 +811,509 @@ int main() {
         std::printf("[ai]   M510 discs %d, sweep %.1f .. %.1f deg\n", discs, first_deg, last_deg);
         check(discs == 8 && std::fabs(first_deg + 38.0f) < 0.1f && std::fabs(last_deg - 60.0f) < 0.1f,
               "51 marker-1 ticks: 8 discs sweeping -38 .. +60 deg");
+    }
+
+    // ---- M190 Irebolg (build/ai_spec/M190.md) ----
+    {
+        const EnemyBrain m190 = enemy_brain_for(12);
+        check(m190 != nullptr, "Irebolg brain registered (AI index 12)");
+        const EnemyAiParams ip = params(0.05f, 0.03f, 1.0f, 2.0f, 0.0f);
+        auto first = [&](float x, int& dur, int& cool) {
+            Rig r; EnemyAi ai; r.env.target = {x, 1.075f, 0};
+            for (int t = 0; t < 400; ++t) {
+                const AiOut o = enemy_ai_tick(ai, ip, r.env, m190);
+                if (o.section == 7 || o.section == 8) { dur = ai.dur() + 1; cool = ai.cool() + 1; return o.section; }
+            }
+            return -1;
+        };
+        int d8 = 0, c8 = 0, d7 = 0, c7 = 0;
+        const int s3 = first(3.0f, d8, c8), s6 = first(6.0f, d7, c7);
+        check(s3 == 8 && d8 == 95 && c8 >= 95 && c8 < 145, "within 4u: the leap (section 8), stand 95, cooldown + R%50");
+        check(s6 == 7 && d7 == 80 && c7 >= 80 && c7 < 130, "4..7u: the charge (section 7), stand 80");
+        {   // Hard, inside 4.5: a 50% back-hop (section 301: 0.2 up, 0.5 back along the facing).
+            int hops = 0, bad = 0;
+            for (int s = 0; s < 40; ++s) {
+                Actor A; A.height = 1.075f;
+                Rig r; for (int i = 0; i < s; ++i) r.rng();
+                r.env.actor = &A; r.env.target = {3.0f, 1.075f, 0}; r.env.difficulty = 1; r.env.diff_index = 1;
+                for (int t = 0; t < 200; ++t) {
+                    const AiOut o = enemy_ai_tick(A.ai, ip, r.env, m190);
+                    if (o.section == 0x12d) {
+                        ++hops;
+                        bad += !(std::fabs(A.vert.t - 0.2f) < 1e-6f && std::fabs(A.mover.k1.x + 0.5f) < 1e-5f && !A.vert.grounded);
+                        break;
+                    }
+                    if (o.section == 7 || o.section == 8) break;
+                }
+            }
+            std::printf("[ai]   M190 Hard back-hops over 40 seeds: %d\n", hops);
+            check(hops > 8 && hops < 32, "Hard, inside 4.5u: about half the attacks start with the back-hop");
+            check(bad == 0, "back-hop: t 0.2, channel 1 -0.5 along the facing, airborne");
+        }
+    }
+
+    // ---- M240 Bordisch (build/ai_spec/M240.md) ----
+    {
+        const EnemyBrain m240 = enemy_brain_for(17);
+        check(m240 != nullptr, "Bordisch brain registered (AI index 17)");
+        const EnemyAiParams bp = params(0.05f, 0.03f, 1.0f, 2.0f, 0.0f);
+        auto run = [&](float hp, int& sec, int& cool, Actor& A) {
+            Rig r; r.env.actor = &A; r.env.target = {2.0f, 1.075f, 0}; r.env.hp = hp; r.env.max_hp = 100;
+            for (int t = 0; t < 300; ++t) {
+                const AiOut o = enemy_ai_tick(A.ai, bp, r.env, m240);
+                if (o.section == 7 || o.section == 8) { sec = o.section; cool = A.ai.cool() + 1; return; }
+            }
+        };
+        Actor a1; a1.atk = 40; int s1 = -1, c1 = 0; run(100, s1, c1, a1);
+        check(s1 == 7 && c1 >= 123 && c1 <= 162, "HP >= 60%: hop-smash (section 7), cooldown 63 + 60 + R%40 (Normal)");
+        Actor a2; a2.atk = 40; int s2 = -1, c2 = 0; run(50, s2, c2, a2);
+        check(s2 == 8 && std::fabs(a2.atk - 46.0f) < 1e-4f, "33..60%: leap slam (section 8), STR x1.15");
+        Actor a3; a3.atk = 40; int s3 = -1, c3 = 0; run(20, s3, c3, a3);
+        check(s3 == 7 && c3 == 63, "rage (< 33%): section 7 with a fixed 63-tick lock");
+        {   // The push: 1/n into channel 2 along the facing at markers 2..4 of section 7.
+            Actor A; A.atk = 40;
+            Rig r; r.env.actor = &A; r.env.target = {2.0f, 1.075f, 0}; r.env.hp = 100; r.env.max_hp = 100;
+            for (int t = 0; t < 300 && A.ai.i(0x72c) != 102; ++t) enemy_ai_tick(A.ai, bp, r.env, m240);
+            r.env.section = 7; r.env.aso_marker = 2; r.env.facing = 0;
+            enemy_ai_tick(A.ai, bp, r.env, m240);
+            check(std::fabs(A.mover.k2.x - 0.5f) < 1e-5f, "smash push: channel 2 += 1/n (n = 2 on the tick after the request)");
+        }
+    }
+
+    // ---- M760 Raldisch (build/ai_spec/M760.md) ----
+    {
+        const EnemyBrain m760 = enemy_brain_for(69);
+        check(m760 != nullptr, "Raldisch brain registered (AI index 69)");
+        const EnemyAiParams rp = params(0.0724f, 0.03f, 1.0f, 2.3f, 0.0f);
+        auto secs = [&](float x, float hp, std::vector<int>& got, Actor& A) {
+            Rig r; r.env.actor = &A; r.env.target = {x, 1.075f, 0}; r.env.hp = hp; r.env.max_hp = 100;
+            for (int t = 0; t < 600 && got.size() < 2; ++t) {
+                const AiOut o = enemy_ai_tick(A.ai, rp, r.env, m760);
+                if (o.section == 7 || o.section == 8) got.push_back(o.section * 1000 + A.ai.cool() + 1);
+            }
+        };
+        { Actor A; A.atk = 50; std::vector<int> g; secs(4.0f, 100, g, A);
+          check(!g.empty() && g[0] / 1000 == 7 && g[0] % 1000 >= 123 && g[0] % 1000 <= 162, "within 5u: the jump press (section 7)"); }
+        { Actor A; A.atk = 50; std::vector<int> g; secs(5.5f, 100, g, A);
+          check(!g.empty() && g[0] / 1000 == 8, "5..6u: the charge (section 8)"); }
+        { Actor A; A.atk = 50; std::vector<int> g; secs(5.5f, 40, g, A);
+          check(g.size() == 2 && g[0] == 7063 && g[1] / 1000 == 8, "below half HP beyond 5u: press (cool 63) then charge");
+          check(std::fabs(A.atk - 57.5f) < 1e-4f && std::fabs(A.ai.f(0x820) - 2.3f * 1.5f) < 1e-4f, "enrage: STR x1.15, run x1.5"); }
+        {   // The charge push: ((40 + 0)/n)^2 at marker 3 on Normal; smoke every 3rd tick.
+            Actor A; A.atk = 50;
+            Rig r; r.env.actor = &A; r.env.target = {5.5f, 1.075f, 0}; r.env.hp = 100; r.env.max_hp = 100;
+            for (int t = 0; t < 600 && A.ai.i(0x72c) != 112; ++t) enemy_ai_tick(A.ai, rp, r.env, m760);
+            for (int t = 0; t < 63; ++t) enemy_ai_tick(A.ai, rp, r.env, m760);   // n = 64
+            r.env.section = 8; r.env.aso_marker = 3; r.env.facing = 0;
+            const int n = A.ai.i(0x87c);
+            A.mover.k2 = {};
+            enemy_ai_tick(A.ai, rp, r.env, m760);
+            const float want = (40.0f / float(n)) * (40.0f / float(n));
+            check(std::fabs(A.mover.k2.x - want) < 1e-5f, "charge push: channel 2 += (40/n)^2 along the facing");
+        }
+    }
+
+    // ---- M300 Hubamobre (build/ai_spec/M300.md) ----
+    {
+        const EnemyBrain m300 = enemy_brain_for(23);
+        check(m300 != nullptr, "Hubamobre brain registered (AI index 23)");
+        const EnemyAiParams hp = params(0.06f, 0.034f, 1.0f, 2.0f, 0.0f);
+        Rig r; EnemyAi ai; r.env.target = {4.0f, 1.075f, 0};
+        int sec7 = -1;
+        for (int t = 0; t < 600 && sec7 < 0; ++t) if (enemy_ai_tick(ai, hp, r.env, m300).section == 7) sec7 = t;
+        check(sec7 >= 0 && ai.dur() == 109 && ai.cool() >= 129 && ai.cool() <= 148, "2.25..5.25u: fire fan (section 7), hold 110, cool + 20 + R%20");
+        r.env.section = 7; r.env.aso_marker = 1;
+        int shots = 0; float first = 0, last = 0;
+        for (int t = 0; t < 51; ++t) {
+            const AiOut o = enemy_ai_tick(ai, hp, r.env, m300);
+            check(o.set_durable == 1 || t > 0, "Durable in section 7");
+            for (const AiBullet& b : o.bullets) {
+                const float dg = (std::atan2(b.dir.z, b.dir.x) - ai.heading) * 57.29578f;
+                if (!shots) first = dg;
+                last = dg; ++shots;
+            }
+        }
+        std::printf("[ai]   M300 fan: %d bullets, %.1f .. %.1f deg\n", shots, first, last);
+        check(shots == 13 && std::fabs(first + 40.0f) < 0.1f && std::fabs(last - 56.0f) < 0.1f, "51 marker ticks: 13 fire bullets, -40 .. +56 deg");
+        Rig r2; EnemyAi a2; r2.env.target = {1.5f, 1.075f, 0};
+        int sec8 = -1;
+        for (int t = 0; t < 400 && sec8 < 0; ++t) if (enemy_ai_tick(a2, hp, r2.env, m300).section == 8) sec8 = t;
+        check(sec8 >= 0 && a2.dur() == 49, "inside 2.25u facing: body slam (section 8), hold 50");
+    }
+
+    // ---- M770 Hubamobrun (build/ai_spec/M770.md) ----
+    {
+        const EnemyBrain m770 = enemy_brain_for(70);
+        check(m770 != nullptr, "Hubamobrun brain registered (AI index 70)");
+        const EnemyAiParams hp = params(0.06f, 0.034f, 1.0f, 2.0f, 0.0f);
+        {
+            Rig r; EnemyAi ai; r.env.target = {5.0f, 1.075f, 0}; r.env.hp = 100; r.env.max_hp = 100;
+            int sec = -1;
+            for (int t = 0; t < 400 && sec < 0; ++t) sec = enemy_ai_tick(ai, hp, r.env, m770).section;
+            check(sec == 7 && ai.cool() + 1 >= 170 && ai.cool() + 1 <= 199, "3..7.5u: fire fan (section 7), cool 110 + 60 + R%30");
+            r.env.section = 7; r.env.aso_marker = 1;
+            int shots = 0; float last = 0;
+            for (int t = 0; t < 51; ++t)
+                for (const AiBullet& b : enemy_ai_tick(ai, hp, r.env, m770).bullets) {
+                    last = (std::atan2(b.dir.z, b.dir.x) - ai.heading) * 57.29578f; ++shots;
+                    check(std::fabs(b.speed - 0.15f) < 1e-6f && b.effect == 302, "bullet: effect 302 at 0.15");
+                }
+            check(shots == 13 && std::fabs(last - 94.0f) < 0.1f, "section 7: 13 bullets up to +94 deg");
+        }
+        {   // Half HP: section 301; its completion doubles the turn rate for good (source bug).
+            Rig r; EnemyAi ai; r.env.target = {5.0f, 1.075f, 0}; r.env.hp = 40; r.env.max_hp = 100;
+            int sec = -1;
+            for (int t = 0; t < 400 && sec < 0; ++t) sec = enemy_ai_tick(ai, hp, r.env, m770).section;
+            check(sec == 0x12d && ai.dur() + 1 == 155, "at or below half HP: the double fan (section 301), hold 155");
+            r.env.section = 0x12d;
+            for (int t = 0; t < 400 && ai.i(0x72c) == 122; ++t) enemy_ai_tick(ai, hp, r.env, m770);
+            check(std::fabs(ai.f(0x7ac) - 0.12f) < 1e-6f && std::fabs(ai.f(0x814) - 0.12f) < 1e-6f,
+                  "after a full 301: turn rate doubled for good (0.06 -> 0.12)");
+        }
+    }
+
+    // ---- M380 Chelasken / M340 Rezalior, the flying breeders, and M370 Celny ----
+    {
+        struct Brood : AiWorld {       // open space; children are kept in a list
+            std::list<Actor> actors;
+            int next_id = 300;
+            void for_each(const std::function<void(Actor&)>& f) override { for (Actor& a : actors) f(a); }
+            Actor* find(int id) override { for (Actor& a : actors) if (a.instance_id == id) return &a; return nullptr; }
+            Actor* spawn_child(Actor& p, int cast, const Vec3& d, int lv, bool keep0) override {
+                actors.emplace_back();
+                Actor& c = actors.back();
+                c.instance_id = next_id++; c.cast_id = cast; c.level = lv; c.hp = c.max_hp = 20;
+                c.pos = {p.pos.x + d.x, p.pos.y + d.y, p.pos.z + d.z};
+                c.ai.heading = p.ai.heading; c.ai.i(0x854) = p.instance_id; c.ai.phase() = keep0 ? 0 : 4;
+                return &c;
+            }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3&, const Vec3&) override { return {}; }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+        };
+        const EnemyBrain m380 = enemy_brain_for(31), m340 = enemy_brain_for(27), m370 = enemy_brain_for(30);
+        check(m380 && m340 && m370, "Chelasken / Rezalior / Celny brains registered (AI 31 / 27 / 30)");
+        EnemyAiParams cp = params(0.0275f, 0.03f, 1.0f, 1.7f, 0.0f);
+        cp.raw[8] = 2.5f; cp.raw[9] = 0.03f; cp.raw[10] = 0.03f;
+        for (int which = 0; which < 2; ++which) {
+            Brood w; Actor& A = (w.actors.emplace_back(), w.actors.back());
+            A.instance_id = 1; A.hp = A.max_hp = 50; A.flyer = true; A.height = 1.0f; A.level = 7;
+            Rig r; r.env.actor = &A; r.env.world = &w; r.env.target = {3.0f, 1.075f, 0}; r.env.self = {0, 3.5f, 0};
+            r.env.target_grounded = true;
+            const EnemyBrain br = which ? m340 : m380;
+            int sec7 = -1;
+            bool sting = false, stung_fresh = true;
+            for (int t = 0; t < 2000 && sec7 < 0; ++t) {
+                const AiOut o = enemy_ai_tick(A.ai, cp, r.env, br);
+                for (const AiHitbox& h : o.hitboxes) { sting = true; stung_fresh &= h.new_serial && h.radius == 0.3f && h.fwd == -0.5f; }
+                if (o.section == 7) sec7 = t;
+            }
+            check(sec7 >= 0 && A.ai.dur() == 49 && A.ai.cool() == 149, which ? "Rezalior: breed (section 7), hold 50, cooldown 150"
+                                                                           : "Chelasken: breed (section 7), hold 50, cooldown 150");
+            r.env.section = 7; r.env.aso_marker = 1;
+            for (int t = 0; t < 3; ++t) enemy_ai_tick(A.ai, cp, r.env, br);
+            int kids = 0; bool kid_ok = false;
+            for (Actor& c : w.actors) if (&c != &A) {
+                ++kids;
+                kid_ok = c.cast_id == (which ? 0x3a : 0x29) && c.ai.phase() == 0 && c.ai.i(0x854) == 1 &&
+                         std::fabs(c.ai.f(0x7f0) - A.ai.heading) < 1e-6f;
+            }
+            check(kids == 1 && kid_ok, which ? "at Marker 1: ONE Perrie (0x3a), phase 0, parent + heading set"
+                                             : "at Marker 1: ONE Celny (0x29), phase 0, parent + heading set");
+            // The drip: force a burst and run until a bullet drops.
+            A.ai.i(0x7c0) = 150; A.ai.i(0x7bc) = 0;
+            r.env.section = 0; r.env.aso_marker = 0;
+            int drips = 0; bool drip_ok = true;
+            for (int t = 0; t < 140; ++t) {
+                const AiOut o = enemy_ai_tick(A.ai, cp, r.env, br);
+                for (const AiHitbox& h : o.hitboxes) { sting = true; stung_fresh &= h.new_serial && h.radius == 0.3f && h.fwd == -0.5f; }
+                for (const AiBullet& b : o.bullets) {
+                    ++drips;
+                    drip_ok &= b.effect == (which ? 500 : 264) && b.dir.y == -1.0f && b.speed == 0.09f && b.scale >= 1.1f && b.scale < 2.3f;
+                }
+            }
+            std::printf("[ai]   breeder drip: %d bullets, ok %d, sting seen %d\n", drips, int(drip_ok), int(sting));
+            // +0x8a0 % P with P re-rolled at each drip: the spacing is irregular (can be < 60).
+            check(drips >= 1 && drips <= 6 && drip_ok, "drip burst: bullets on +0x8a0 % (60..99), falling at 0.09, scale 1.1..2.3");
+            check(sting && stung_fresh, "from the 61st undamaged tick: the 0.3 sting 0.5 behind, fresh serial");
+        }
+        {   // Celny born of a parent: phase 4, section 8, unhittable, grows 0.5 -> 1, engages ~tick 102.
+            Brood w;
+            Actor& P = (w.actors.emplace_back(), w.actors.back()); P.instance_id = 1;
+            Actor* C = w.spawn_child(P, 0x29, {0, 0, 0}, 1, true);
+            C->ai.f(0x7f0) = 0.0f;
+            const EnemyAiParams lp = params(0.035f, 0.04f, 1.5f, 1.0f, 0.0f);
+            Rig r; r.env.actor = C; r.env.world = &w; r.env.target = {6.0f, 1.075f, 0};
+            enemy_ai_tick(C->ai, lp, r.env, m370);
+            check(C->ai.phase() == 4 && C->scale == 0.5f && C->ai.alpha == 0.5f, "init: phase 4 (birth), alpha and scale 0.5");
+            const AiOut o = enemy_ai_tick(C->ai, lp, r.env, m370);
+            check(o.section == 8 && o.set_durable == 1 && !C->ai.hittable && C->mover.k2.x > 0.07f,
+                  "birth: section 8, Durable, unhittable, slid along the parent's heading");
+            r.env.section = 8;
+            int engaged = -1;
+            for (int t = 0; t < 200 && engaged < 0; ++t) {
+                enemy_ai_tick(C->ai, lp, r.env, m370);
+                if (C->ai.phase() == 2) engaged = t;
+            }
+            std::printf("[ai]   M370 born child engages after %d ticks\n", engaged + 2);
+            check(engaged > 90 && engaged < 110 && C->scale == 1.0f && C->ai.hittable, "engages after the 100-tick hold: full size, hittable");
+        }
+        {   // A placed Celny engages at once; back turned within 4u it charges (0x400, 164 on Normal).
+            Actor C; C.instance_id = 9;
+            const EnemyAiParams lp = params(0.035f, 0.04f, 1.5f, 1.0f, 0.0f);
+            Rig r; r.env.actor = &C; r.env.target = {3.0f, 1.075f, 0}; r.env.target_heading = 0.0f;   // looking away (+x)
+            enemy_ai_tick(C.ai, lp, r.env, m370);
+            enemy_ai_tick(C.ai, lp, r.env, m370);
+            check(C.ai.phase() == 2 && C.scale == 1.0f, "placed: engaged at once at full size");
+            for (int t = 0; t < 4; ++t) enemy_ai_tick(C.ai, lp, r.env, m370);
+            check(C.ai.action() == 0x400 && C.ai.i(0x730) == 2, "back turned within 4u: the hop charge (run section)");
+            Actor F; F.instance_id = 10;
+            Rig r2; r2.env.actor = &F; r2.env.target = {3.0f, 1.075f, 0}; r2.env.target_heading = 3.14159f;   // looking at it (-x)
+            for (int t = 0; t < 4; ++t) enemy_ai_tick(F.ai, lp, r2.env, m370);
+            check(F.ai.action() == 0x10 && F.ai.steer() == 3, "faced within 5u: flees (walk, steered away)");
+        }
+    }
+
+    // ---- M310 Jiamobre (build/ai_spec/M310.md) ----
+    {
+        struct Floor : AiWorld {       // an endless floor at y = 0, no walls
+            void for_each(const std::function<void(Actor&)>&) override {}
+            Actor* find(int) override { return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3& o, const Vec3& dl) override {
+                Ray r;
+                if (dl.y < 0 && o.y + dl.y <= 0 && o.y >= 0) { r.hit = true; r.point = {o.x, 0, o.z}; r.normal = {0, 1, 0}; }
+                return r;
+            }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+        } fl;
+        const EnemyBrain m310 = enemy_brain_for(24);
+        check(m310 != nullptr && enemy_handler_clamps(24) && !enemy_handler_clamps(5), "Jiamobre brain registered (AI 24); its handler keeps the arena clamp");
+        EnemyAiParams jp = params(0.0888f, 0.03f, 1.0f, 2.0f, 0.0f);
+        jp.raw[5] = 3.5f;                                              // +0x828 = H
+        {   // Far: the hop search picks the farthest spot (r up to 6) toward the target, section 314.
+            Actor J; J.height = 1.075f;
+            Rig r; r.env.actor = &J; r.env.world = &fl; r.env.target = {12.0f, 1.075f, 0};
+            int sec = -1;
+            for (int t = 0; t < 10 && sec < 0; ++t) { const AiOut o = enemy_ai_tick(J.ai, jp, r.env, m310); if (o.section == 0x13a) sec = t; }
+            check(sec >= 0 && J.ai.i(0x7c8) == 1 && std::fabs(J.ai.f(0x7b8) - 6.0f) < 1e-5f && J.ai.dur() == 31,
+                  "far: hop to the farthest clear spot (6u), section 314, hold 32");
+            const float ang = J.ai.f(0x7b4);
+            check(std::fabs(ang) <= 0.53f, "the hop angle is within +/-30 deg of the target");
+            for (int t = 0; t < 20; ++t) enemy_ai_tick(J.ai, jp, r.env, m310);   // past the 17-tick launch gate
+            r.env.section = 0x13a; r.env.aso_marker = 1; r.env.grounded = true;
+            const float y0 = J.pos.y;
+            enemy_ai_tick(J.ai, jp, r.env, m310);
+            check(std::fabs(J.pos.y - y0 - 0.7f) < 1e-5f && std::fabs(J.mover.k1.x - std::cos(ang) * 0.6f) < 1e-5f && !J.vert.grounded,
+                  "launch (mode 1): y += 0.7, channel 1 += dist*0.1 along the hop angle");
+        }
+        {   // Close: back-hop, then section 7 (hold 67), then a section 8 at its Marker 4 (Normal: N = 2).
+            Actor J; J.height = 1.075f;
+            Rig r; r.env.actor = &J; r.env.world = &fl; r.env.target = {3.0f, 1.075f, 0};
+            std::vector<int> secs;
+            for (int t = 0; t < 200 && secs.size() < 2; ++t) {
+                const AiOut o = enemy_ai_tick(J.ai, jp, r.env, m310);
+                if (o.section >= 0) { secs.push_back(o.section); if (o.section == 0x13a) r.env.section = 0; }
+            }
+            check(secs.size() == 2 && secs[0] == 0x13a && secs[1] == 7 && J.ai.dur() == 66, "close: a back-hop (314), then the throw (section 7), hold 67");
+            const float bang = J.ai.f(0x7b4);
+            check(std::fabs(std::fabs(bang) - 3.14159f) <= 0.53f, "the back-hop heads away from the target");
+            r.env.section = 7; r.env.aso_marker = 1;
+            enemy_ai_tick(J.ai, jp, r.env, m310);
+            check(std::fabs(J.ai.f(0x814) - 0.0888f * 3.0f) < 1e-6f && J.ai.action() == 2, "Marker 1: tracks at x3 (Normal)");
+            r.env.aso_marker = 4;
+            enemy_ai_tick(J.ai, jp, r.env, m310);
+            const AiOut o8 = enemy_ai_tick(J.ai, jp, r.env, m310);
+            check(o8.section == 8, "Normal: N = 2, so a second throw (section 8) at Marker 4");
+        }
+    }
+
+    // ---- The factory's flag words and the jump helper (FACTORY.md, JUMPHELPER.md) ----
+    {
+        check(factory_flags(0x1c).f12c == 0x00490050u && factory_flags(0x0e).f12c == 0x00910010u &&
+              factory_flags(0xb3).f12c == 0x2041c012u && factory_flags(0x17).f130 == 0x4000u,
+              "factory flags: M240 / M100 / Nooze (Red) / M190 as FACTORY.md §5");
+        {   // 0x40 sums channel 2 only; 0x40 | 0x2000000 moves not at all.
+            MoverState m1; m1.k1 = {0.2f, 0, 0}; m1.k2 = {0, 0, 0.1f};
+            MoverState m2 = m1, m3 = m1;
+            mover_post(m1, 0, 0, 0, true, false, true, 1.0f, 30.0f, 0x00110010u);
+            mover_post(m2, 0, 0, 0, true, false, true, 1.0f, 30.0f, 0x00490050u);
+            mover_post(m3, 0, 0, 0, true, false, true, 1.0f, 30.0f, 0x02394052u);
+            check(std::fabs(m1.dx - 0.2f) < 1e-6f && std::fabs(m1.dz - 0.1f) < 1e-6f &&
+                  m2.dx == 0.0f && std::fabs(m2.dz - 0.1f) < 1e-6f && m3.dx == 0.0f && m3.dz == 0.0f,
+                  "knock: both channels / channel 2 only (0x40) / none (0x40 | 0x2000000)");
+        }
+        // A world of axis-aligned boxes; the floor is boxes too (top at y = 0).
+        struct Boxes : AiWorld {
+            struct Box { Vec3 lo, hi; };
+            std::vector<Box> boxes;
+            void for_each(const std::function<void(Actor&)>&) override {}
+            Actor* find(int) override { return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3& o, const Vec3& d) override {
+                Ray r; float best = 2.0f;
+                for (const Box& b : boxes) {
+                    float t0 = 0, t1 = 1; bool ok = true;
+                    const float oo[3] = {o.x, o.y, o.z}, dd[3] = {d.x, d.y, d.z};
+                    const float lo[3] = {b.lo.x, b.lo.y, b.lo.z}, hi[3] = {b.hi.x, b.hi.y, b.hi.z};
+                    for (int k = 0; k < 3 && ok; ++k) {
+                        if (dd[k] == 0) { if (oo[k] < lo[k] || oo[k] > hi[k]) ok = false; continue; }
+                        float ta = (lo[k] - oo[k]) / dd[k], tb = (hi[k] - oo[k]) / dd[k];
+                        if (ta > tb) std::swap(ta, tb);
+                        t0 = std::max(t0, ta); t1 = std::min(t1, tb);
+                        if (t0 > t1) ok = false;
+                    }
+                    // Faces only, two-sided like physics.cpp's segment_hit: a ray that starts
+                    // inside a box hits the face it leaves through.
+                    if (ok && t0 == 0.0f) t0 = t1 < 1.0f || t1 == 1.0f ? t1 : 2.0f;
+                    if (ok && t0 <= 1.0f && t0 < best) { best = t0; r.hit = true; r.point = {o.x + d.x * t0, o.y + d.y * t0, o.z + d.z * t0}; }
+                }
+                return r;
+            }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+        };
+        EnemyAiParams hp = params(0.06f, 0.034f, 1.0f, 2.0f, 0.0f);
+        hp.raw[5] = 3.2f;                                              // +0x828 = H
+        const EnemyBrain m300 = enemy_brain_for(23);
+        auto run_toward = [&](Boxes& w, Actor& A, int ticks, int* sec_out) {
+            Rig r; r.env.actor = &A; r.env.world = &w; r.env.target = {12.0f, 1.075f, 0};
+            r.env.radius = 0.675f; r.env.height = 1.075f;
+            for (int t = 0; t < ticks; ++t) {
+                r.env.self = {A.pos.x, A.pos.y + 1.075f, A.pos.z};
+                r.env.grounded = A.vert.grounded;
+                const AiOut o = enemy_ai_tick(A.ai, hp, r.env, m300);
+                if (o.section == 0x13a) { *sec_out = t; return; }
+            }
+        };
+        {   // A 2-wide gap at x 2..4: the gap jump at d = 3.0, +0x7e0 = 0.45, +0x7dc = 2.1.
+            Boxes w; w.boxes = {{{-20, -1, -20}, {2, 0, 20}}, {{4, -1, -20}, {20, 0, 20}}};
+            Actor A; A.flags12c = factory_flags(0x22).f12c; A.pos = {1.2f, 0, 0}; A.floor_y = 0;
+            int sec = -1; run_toward(w, A, 5, &sec);
+            check(sec >= 0 && A.ai.i(0x728) == 100 &&   // (action 1, then cleared: dur is 0)
+                 
+                  std::fabs(A.ai.f(0x7e0) - 0.45f) < 1e-5f && std::fabs(A.ai.f(0x7dc) - 2.1f) < 1e-5f,
+                  "gap ahead: the jump helper's gap jump (d 3.0): 0x7e0 0.45, 0x7dc 2.1, section 314");
+            // The brain's tail then launches at section 314's Marker 1 (M300: K 0.11).
+            Rig r; r.env.actor = &A; r.env.world = &w; r.env.target = {12.0f, 1.075f, 0};
+            r.env.self = {A.pos.x, 1.075f, 0}; r.env.section = 0x13a; r.env.aso_marker = 1;
+            enemy_ai_tick(A.ai, hp, r.env, m300);
+            check(std::fabs(A.vert.t - 2.1f * 0.11f) < 1e-5f && !A.vert.grounded && std::fabs(A.mover.k1.x - 0.45f) < 1e-5f,
+                  "M300's tail at Marker 1: t = 0.231, airborne, channel 1 += 0.45");
+        }
+        {   // The same gap with the probe flag 0x100000 set (an M100-style cast): no jump.
+            Boxes w; w.boxes = {{{-20, -1, -20}, {2, 0, 20}}, {{4, -1, -20}, {20, 0, 20}}};
+            Actor A; A.flags12c = 0x00510010u; A.pos = {1.2f, 0, 0};
+            int sec = -1; run_toward(w, A, 5, &sec);
+            check(sec < 0, "0x100000 set: the probe is off and no jump arms (0x400000 alone is not enough)");
+        }
+        {   // A knee-high block (0.8) ahead: the step-up hop (t 0.1, y + 0.1).
+            Boxes w; w.boxes = {{{-20, -1, -20}, {20, 0, 20}}, {{1.8f, 0, -2}, {3, 0.8f, 2}}};
+            Actor A; A.flags12c = factory_flags(0x22).f12c; A.pos = {1.0f, 0, 0};
+            int sec = -1;
+            Rig r; r.env.actor = &A; r.env.world = &w; r.env.target = {12.0f, 1.075f, 0};
+            r.env.self = {1.0f, 1.075f, 0}; r.env.radius = 0.675f; r.env.height = 1.075f;
+            enemy_ai_tick(A.ai, hp, r.env, m300);
+            enemy_ai_tick(A.ai, hp, r.env, m300);
+            (void)sec;
+            check(!A.vert.grounded && std::fabs(A.vert.t - 0.1f) < 1e-6f && std::fabs(A.pos.y - 0.1f) < 1e-6f,
+                  "knee-high block: the step-up hop (t 0.1, y + 0.1)");
+        }
+        {   // A 2.5-high wall: the climb (FUN_00475fd0): h = 2.5 - (1.075 - 1.275) = 2.7 -> capped
+            // at H - 1 = 2.2; +0x7dc = 2.8, +0x7e0 = 0.
+            Boxes w; w.boxes = {{{-20, -1, -20}, {20, 0, 20}}, {{1.8f, 0, -2}, {3, 2.5f, 2}}};
+            Actor A; A.flags12c = factory_flags(0x22).f12c; A.pos = {1.0f, 0, 0};
+            int sec = -1; run_toward(w, A, 3, &sec);
+            std::printf("[ai]   climb: sec %d sub %d 7dc %.3f 7e0 %.3f\n", sec, A.ai.i(0x728), A.ai.f(0x7dc), A.ai.f(0x7e0));
+            check(sec >= 0 && A.ai.i(0x728) == 100 && std::fabs(A.ai.f(0x7dc) - 2.8f) < 1e-5f && A.ai.f(0x7e0) == 0.0f,
+                  "a 2.5 wall: the climb (h capped at H - 1 = 2.2): 0x7dc 2.8, no push");
+        }
+    }
+
+    // ---- M540 Perrie and M530 Sepast (build/ai_spec/M540.md, M530.md) ----
+    {
+        struct Pen : AiWorld {          // open space; remembers removals
+            std::list<Actor> actors;
+            int removed = 0;
+            void for_each(const std::function<void(Actor&)>& f) override { for (Actor& a : actors) f(a); }
+            Actor* find(int id) override { for (Actor& a : actors) if (a.instance_id == id) return &a; return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor& a) override { ++removed; a.hp = 0; }
+            Ray ray(const Vec3& o, const Vec3& d) override {       // a floor at y = 0, no walls
+                Ray r;
+                if (d.y < 0 && o.y >= 0 && o.y + d.y <= 0) { r.hit = true; r.point = {o.x, 0, o.z}; }
+                return r;
+            }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+        };
+        const EnemyBrain m540 = enemy_brain_for(47), m530 = enemy_brain_for(46);
+        check(m540 && m530, "Perrie / Sepast brains registered (AI 47 / 46)");
+        const EnemyAiParams pp = params(0.035f, 0.04f, 1.5f, 1.75f, 0.0f);
+        {   // A placed Perrie: phase 2 at once; a damaging hit lights the fuse; 358 ticks later it explodes.
+            Pen w; Actor& P = (w.actors.emplace_back(), w.actors.back()); P.instance_id = 5; P.hp = P.max_hp = 20;
+            Rig r; r.env.actor = &P; r.env.world = &w; r.env.target = {8.0f, 1.075f, 0};
+            enemy_ai_tick(P.ai, pp, r.env, m540);
+            enemy_ai_tick(P.ai, pp, r.env, m540);
+            check(P.ai.phase() == 2 && (P.flags12c & 0x80000u) != 0, "placed Perrie: engaged at once; init made it stun-immune");
+            r.env.took_damage = true;
+            enemy_ai_tick(P.ai, pp, r.env, m540);
+            r.env.took_damage = false;
+            check(P.ai.i(0x730) == 10 && P.ai.i(0x7c4) == 2, "a damaging hit lights the fuse (count 2), sub 10 (chase)");
+            enemy_ai_tick(P.ai, pp, r.env, m540);
+            check(P.ai.action() == 0x10 && P.ai.steer() == 0 && std::fabs(P.ai.f(0x81c) - 3.0f) < 1e-5f,
+                  "lit: walks AT the target at walk x2");
+            int glow = -1, boom = -1;
+            for (int t = 0; t < 400 && boom < 0; ++t) {
+                const AiOut o = enemy_ai_tick(P.ai, pp, r.env, m540);
+                for (const AiEffect& f : o.effects) { if (f.id == 321) glow = t; if (f.id == 267) boom = t; }
+            }
+            std::printf("[ai]   M540 fuse: glow %d, explosion %d (ticks after the first chase tick)\n", glow, boom);
+            check(boom - glow == 19 && w.removed == 1, "the glow 19 ticks before the explosion (EF2 267 + SE 437), then removed");
+        }
+        {   // The boss-fight brain (DAT_0076bb8c == 1): HP 350, DEF 50, a fuse start of 0..399.
+            Actor P; P.instance_id = 6; P.hp = P.max_hp = 20;
+            Rig r; r.env.actor = &P; r.env.boss_fight = true; r.env.target = {8.0f, 1.075f, 0};
+            enemy_ai_tick(P.ai, pp, r.env, m540);
+            check(P.hp == 350.0f && P.def == 50.0f && P.ai.phase() == 4 && P.ai.i(0x7a8) < 400, "boss Perrie: HP 350, DEF 50, birth");
+        }
+        {   // Sepast: one leg, the glow leg, then the attack: frame 0 -> stand 224 (Normal), volleys.
+            const EnemyAiParams sp = params(0.03f, 0.0425f, 1.0f, 2.0f, 0.0f);
+            Pen w; Actor& S = (w.actors.emplace_back(), w.actors.back()); S.instance_id = 7; S.cast_id = 57; S.hp = S.max_hp = 40;
+            Rig r; r.env.actor = &S; r.env.world = &w; r.env.target = {6.0f, 1.075f, 0}; r.env.radius = 0.9f;
+            int t10 = -1;
+            for (int t = 0; t < 600 && t10 < 0; ++t) { enemy_ai_tick(S.ai, sp, r.env, m530); if (S.ai.i(0x72c) >= 10) t10 = t; }
+            std::printf("[ai]   M530 attack after %d ticks\n", t10);
+            // Acquired on the init tick (no phase-1 tick): the leg count starts at 0, so 6 legs
+            // + the glow leg (60 ticks each), then the attack.
+            check(t10 > 410 && t10 < 430, "engaged at once: 6 legs + the glow leg (60 ticks each), then the attack");
+            r.env.aso_frame = 0; r.env.aso_marker = 1;
+            const AiOut o = enemy_ai_tick(S.ai, sp, r.env, m530);
+            int beams = 0, moves = 0;
+            for (const AiEffect& f : o.effects) { beams += f.id == 235 && f.tag >= 0xfd; moves += f.move_tag >= 0xfd; }
+            // (frame 0: sub 10 runs and falls through into 11 this tick; 224 - this tick's decrement)
+            check(S.ai.i(0x72c) == 11 && S.ai.dur() == 223 && beams == 3 && moves == 3 && o.sounds.size() == 1 && o.sounds[0] == 477,
+                  "attack: stand 224 (Normal); a volley of 3 owned beams (EF2 235, SE 477), all re-placed");
+            int volleys = 1;
+            for (int t = 0; t < 56; ++t) for (int s2 : enemy_ai_tick(S.ai, sp, r.env, m530).sounds) volleys += s2 == 477;
+            check(volleys == 3, "a volley every 28 ticks while the marker is up");
+            // The bounce: another Sepast 1.5 away pushes this one off (channel 1 += 0.25 along the push).
+            Actor& O = (w.actors.emplace_back(), w.actors.back()); O.instance_id = 8; O.cast_id = 57; O.hp = 40; O.ai.phase() = 2;
+            O.pos = {1.5f, 0, 0};
+            S.mover.k1 = {};
+            const AiOut ob = enemy_ai_tick(S.ai, sp, r.env, m530);
+            bool spark = false; for (const AiEffect& f : ob.effects) spark |= f.id == 65;
+            check(std::fabs(S.mover.k1.x + 0.25f) < 1e-5f && spark && std::fabs(O.ai.f(0x7cc) - 1.0f) < 1e-5f,
+                  "bounce: pushed off its neighbour (k1 -0.25), spark EF2 65, the neighbour's accumulator pushed");
+        }
     }
 
     // ---- M520 Menoak (build/ai_spec/M520.md) ----

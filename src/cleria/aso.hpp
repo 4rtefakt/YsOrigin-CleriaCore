@@ -231,6 +231,18 @@ class AsoVm {
     };
     const std::vector<BulletEvent>& bullets() const { return bullets_; }
 
+    // anime_GenerateEffect (funcid 0x25, `iffffiiiff`) = FUN_004496f0: an EF2 effect at
+    // origin + (cos, sin)(angle + facing) x fwd, y + voff (build/ai_spec/EFFECTHIT.md §6). The
+    // hit fields (rtype / status / power / knock) arm the EF2's hit emitters — [not modelled]
+    // until the EF2 particle simulation exists; the effect is placed, not yet harmful.
+    struct EffectEvent {
+        std::int32_t id = 0;
+        float fwd = 0, angle_deg = 0, voff = 0, scale = 1;
+        std::int32_t attach = 0, rtype = 0, status = 0;
+        float power = 0, knock = 0;
+    };
+    const std::vector<EffectEvent>& effects() const { return effects_; }
+
     // Actor capability fields the script drives (ASOVM.md §4, funcids 20..28). These are
     // STATE, not per-tick events: a swing lowers Movable/Turnable during the commit and
     // opens Cancelable/AttackReserve near the end, which is what gives each character its
@@ -307,6 +319,7 @@ public:
     void set_marker(std::int32_t v) { marker_ = v; }
     void set_marker_block(std::int32_t v) { marker_wait_ = v; }
     void set_durable(bool v) { durable_ = v; }                 // brains write +0x9d8 too
+    void set_frame(std::int32_t f) { frame_ = f; }             // a brain forcing +0x9b8 (M760)
     void set_local(int n, std::int32_t v) { if (n >= 0 && n < 32) locals_[n] = v; }   // obj[0x3b+n]
     std::int32_t marker_block() const { return marker_wait_; }
 private:
@@ -328,6 +341,7 @@ private:
     static constexpr std::size_t kMaxBulletsPerTick = 8;
     std::vector<SoundEvent> sounds_;
     std::vector<BulletEvent> bullets_;
+    std::vector<EffectEvent> effects_;
     float movable_ = 1.0f;
     bool turnable_ = true, actable_ = true, cancelable_ = false, atk_reserve_ = false;
     bool durable_ = false, untouchable_ = false, jump_enable_ = true;

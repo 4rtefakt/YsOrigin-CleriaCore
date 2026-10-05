@@ -252,6 +252,19 @@ int main(int argc, char** argv) {
                         ok ? "OK" : "MISMATCH", h.radius, h.fwd, h.voff, h.life, h.rehit, int(h.one_shot));
             if (!ok) gencol_fail = 1;
         }
+        // anime_GenerateEffect (0x25): Perrie's run section 1 lays its fire puff,
+        // GenerateEffect(251, 0, 0, -0.25, 1, 0, rtype 1, status 0, power 0, knock 1) (EFFECTHIT.md §7).
+        Aso pe = Aso::load(fs::path(argv[1]) / "ANI" / "M_540.ASO");
+        if (pe.ok()) {
+            AsoVm vm; vm.bind(&pe); vm.set_section(1);
+            bool got = false; AsoVm::EffectEvent ev;
+            for (int t = 0; t < 200 && !got; ++t) { vm.tick(); if (!vm.effects().empty()) { got = true; ev = vm.effects()[0]; } }
+            const bool ok = got && ev.id == 251 && std::fabs(ev.voff + 0.25f) < 1e-5f && ev.rtype == 1 &&
+                            std::fabs(ev.knock - 1.0f) < 1e-5f && ev.power == 0.0f;
+            std::printf("GenerateEffect M_540 sec1: %s (id=%d voff=%.2f rtype=%d power=%.1f knock=%.1f)\n",
+                        ok ? "OK" : "MISMATCH", ev.id, ev.voff, ev.rtype, ev.power, ev.knock);
+            if (!ok) gencol_fail = 1;
+        }
     }
 
     // Section chaining on `end` (FUN_004472e0): Yunica's hurt section 4 is two frames

@@ -9,8 +9,9 @@
 // hops back 0.4 (+/-0.5 rad; wall within 2 behind -> forward 0.8*k instead; vy 0.17/0.25).
 // When the player swings at it face to face within 8 u it sidesteps (always above Normal,
 // 10% otherwise): a 0.4*k hop at heading +/-1.5 rad. k = 1.0 above Normal, else 0.8.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the obstacle / double jump
-// (cases 100/101 and the 0x13a launch need the shared jump helper FUN_00476200).
+// The jump helper's jumps: cases 100 / 0x65 (the double jump re-forces section 314 after
+// 30 ticks for a mid-air second kick) and the Marker-1 launch.
+// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -50,6 +51,29 @@ AiOut m120(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         default: return out;
     }
     const float dist = a.dist();
+    // POST (0x4848a8), every phase-2 tick: the jump helper's launch at section 314's Marker 1
+    // (K 0.1 through FUN_004773f0, push +0x7e0, no fallback), and the double jump's mid-air
+    // second kick 30 ticks into sub-state 0x65 (+2v, effect 0x6d).
+    auto post = [&]() -> AiOut {
+        if (e.section != 0x13a || !A) return out;
+        if (e.grounded && e.aso_marker == 1) {
+            const float v = a.f(0x7dc) * 0.1f;
+            A->vert.t = v;
+            hop(v);                                                // FUN_004773f0(v)
+            A->vert.grounded = false; out.set_own_jump = 1;
+            push1(*A, a.heading, a.f(0x7e0));
+            return out;
+        }
+        if (a.i(0x728) == 0x65 && a.i(0x730) == 30) {
+            const float v = a.f(0x7dc) * 0.1f;
+            A->vert.t = v; A->pos.y += v + v;
+            A->vert.grounded = false; out.set_own_jump = 1;
+            push1(*A, a.heading, a.f(0x7e0));
+            a.i(0x730) += 1;
+            out.effects.push_back({0x6d, {e.self.x, e.self.y, e.self.z}, 1.0f, false});
+        }
+        return out;
+    };
     int S = e.section;
     if (dist > 20.0f) ai::disengage(a);
     a.i(0x79c) += 1;
@@ -113,7 +137,7 @@ AiOut m120(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             8.0f > D && S != 7 && S != 8) {
             if (hardp || r15(e) % 1000u < 100u) { a.action() = 0; a.i(0x7bc) = 2; }
         }
-        return out;
+        return post();
     }
     auto end12 = [&] {
         if (std::uint32_t(a.i(0x79c)) > 10u && e.grounded && S != 3 && a.cool() == 0) {
@@ -161,7 +185,15 @@ AiOut m120(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             }
         }
         end12();
-        return out;
+        return post();
+    }
+    if (sub == 0x65) {                                             // the double-jump timer
+        if (a.i(0x730) == 30) { out.section = 0x13a; out.section_force = true; }   // forced restart
+        else a.i(0x730) += 1;
+    }
+    if (sub == 100 || sub == 0x65) {                               // the jump wait
+        if (!(S == 0x13a && std::uint32_t(e.aso_marker) < 2u) && e.grounded) { a.action() = 0x400; sub = 0; }
+        return post();
     }
     if (sub == 2) {                                                // sidestep
         if (a.i(0x79c) == 1) {
@@ -191,9 +223,9 @@ AiOut m120(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             a.cool() = int(r15(e) % 20u) + 20;
         }
         end12();
-        return out;
+        return post();
     }
-    return out;
+    return post();
 }
 
 }  // namespace cleria::brains

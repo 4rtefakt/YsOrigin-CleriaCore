@@ -2,6 +2,7 @@
 
 #include "cleria/actor.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -39,22 +40,142 @@ void stop(EnemyAi& a, int hold) {
     a.speed = 0;
 }
 
-// FUN_00477450: a wall or a ledge ahead along the heading. Grounded actors only. The
-// probe reaches radius + 0.5 (min 1.0), x1.5 while unaware and again while stopped.
-// A wall hit counts only for a non-engaged actor; then a down-ray of 2 + radius from the
-// probe point must find floor. (Water and the +0x130/+0x12c probe variants not modelled.)
-bool blocked_ahead(const EnemyAi& a, const AiEnv& e) {
-    // FUN_00477450 probes only grounded walkers: not +0x12c & 0x100000, not a flyer (+0x398).
-    if (!e.grounded || (e.actor && e.actor->flyer)) return false;
+// FUN_00477450(P): a wall or a ledge ahead of P along the heading (JUMPHELPER.md §4.2).
+// Off for +0x12c & 0x100000 (most casts: FACTORY.md), flyers and airborne actors. The
+// probe reaches radius + 0.5 (min 1.0), x1.5 while unaware and again while stopped. A wall
+// at origin height counts only for a non-engaged actor; else a floor must lie within
+// `depth` below the far point (-7.5 with +0x130 & 0x20; min(-(H + 2), -2.5) for jump-capable
+// casts; else -(2 + radius)). [not modelled] the deep-water test (DAT_0076a544 == 1, sel 1).
+bool probe_ahead(const EnemyAi& a, const AiEnv& e, const Vec3& P) {
+    const Actor* A = e.actor;
+    const std::uint32_t f12c = A ? A->flags12c : 0u, f130 = A ? A->flags130 : 0u;
+    if (f12c & 0x100000u) return false;
+    if (!e.grounded || (A && A->flyer)) return false;
     float L = e.radius > 0.5f ? e.radius + 0.5f : 1.0f;
     if (a.phase() == 1) L *= 1.5f;
     if (a.mode() == 0) L *= 1.5f;
-    const Vec3 ahead{e.self.x + std::cos(a.heading) * L, e.self.y, e.self.z + std::sin(a.heading) * L};
-    if (e.blocked && e.blocked(e.self, ahead)) return a.phase() != 2;
-    if (e.has_floor && !e.has_floor(ahead.x, ahead.z, e.self.y + L - e.height, 2.0f + e.radius))
-        return true;
+    const float depth = (f130 & 0x20u) ? -7.5f
+                      : (f12c & 0x400000u) ? std::min(-(a.f(0x828) + 2.0f), -2.5f)
+                      : -2.0f - e.radius;
+    const float c = std::cos(a.heading), s = std::sin(a.heading);
+    const Vec3 D{L * c, 0, L * s};
+    const Vec3 Q{P.x + L * c, P.y + (L - e.height), P.z + L * s};
+    if (e.world) {
+        if (e.world->ray(P, D).hit) return a.phase() != 2;
+        return !e.world->ray(Q, {0, depth, 0}).hit;
+    }
+    if (e.blocked && e.blocked(P, add(P, D))) return a.phase() != 2;
+    if (e.has_floor && !e.has_floor(Q.x, Q.z, Q.y, -depth)) return true;
     return false;
 }
+
+bool blocked_ahead(const EnemyAi& a, const AiEnv& e) { return probe_ahead(a, e, e.self); }
+
+namespace {
+
+// A solid-set segment test (FUN_005e9380 + FUN_0041e420, sel 0) that also reports the hit y.
+bool solid(const AiEnv& e, const Vec3& o, const Vec3& d, float* hit_y = nullptr) {
+    if (!e.world) return false;
+    const AiWorld::Ray r = e.world->ray(o, d);
+    if (r.hit && hit_y) *hit_y = r.point.y;
+    return r.hit;
+}
+
+// FUN_00475fd0(lo, up): the wall-top measure. A wall at floor + lo within L ahead (0.2
+// behind the origin), then an up-ray of `up` from the far end of that probe; h = the hit y
+// above the feet, kept only above lo and capped at up - 1.
+bool wall_top(const EnemyAi& a, const AiEnv& e, float lo, float up, float* h) {
+    const Actor* A = e.actor;
+    const float L = std::max(1.0f, e.radius + 0.5f);
+    const float foot = e.height > 0.8f ? e.height + 0.2f : 1.0f;
+    const float c = float(std::cos(double(a.heading))), s = float(std::sin(double(a.heading)));
+    const Vec3 O1{e.self.x - c * 0.2f, A->floor_y + lo, e.self.z - s * 0.2f};
+    const Vec3 D1{L * c, 0, L * s};
+    if (!solid(e, O1, D1)) return false;
+    float hy = 0;
+    if (!solid(e, add(O1, D1), {0, up, 0}, &hy)) return false;
+    const float t = hy - (e.self.y - foot);
+    if (!(t > lo)) return false;
+    *h = std::min(up - 1.0f, t);
+    return true;
+}
+
+// FUN_00476200 (lo = 0.5, H = +0x828): the step-up hop, then the gap jump, the double
+// jump (+0x130 & 0x20) and the climb, each arming section 0x13a with +0x7dc / +0x7e0 for
+// the brain's launch tail. build/ai_spec/JUMPHELPER.md §3.
+void jump_helper(EnemyAi& a, const AiEnv& e, AiOut& out) {
+    Actor* A = e.actor;
+    if (!A || !e.world) return;
+    const float lo = 0.5f, H = a.f(0x828);
+    const float L = std::max(1.0f, e.radius + 0.5f);
+    float c = float(std::cos(double(a.heading))), s = float(std::sin(double(a.heading)));
+    // 1. the step-up hop
+    Vec3 O{e.self.x - c * 0.1f, A->floor_y + lo, e.self.z - s * 0.1f};
+    const Vec3 D{L * c, 0, L * s};
+    if (solid(e, O, D)) {
+        O.y = A->floor_y + 1.0f;
+        if (!solid(e, O, D)) {
+            if (!A->vert.grounded) return;
+            A->vert.grounded = false;
+            A->vert.t = 0.1f;                                      // +0x420 not written
+            A->pos.y += 0.1f;
+            out.set_own_jump = 1;
+            return;
+        }
+    }
+    // 2. gates
+    if (a.phase() == 3 || e.section == 0x13a) return;
+    if (!A->vert.grounded) return;                                 // (the +0x710 rewrite is dead)
+    auto request = [&](int sub) {
+        out.section = 0x13a;                                       // gated; result ignored
+        a.action() = 1;
+        a.i(0x728) = sub;
+    };
+    // 3. the gap jump
+    const bool blocked = probe_ahead(a, e, e.self);
+    if (a.phase() == 2 && blocked && !(A->flags12c & 0x40u)) {
+        float d = 1.5f;
+        const float dmax = H * 1.5f;
+        if (dmax > 1.5f) {
+            do {
+                c = float(std::cos(double(a.heading))); s = float(std::sin(double(a.heading)));
+                float y = H;
+                if (d > H) y = H - (d - H);
+                if (!solid(e, e.self, {d * c, y, d * s})) {
+                    const Vec3 P{e.self.x + d * c, e.self.y + y, e.self.z + d * s};
+                    float hy = 0;
+                    if (solid(e, P, {0, -(y + H), 0}, &hy)) {
+                        a.f(0x7e0) = d * 0.1f + 0.15f;
+                        a.f(0x7dc) = std::min(H, d) * 0.5f + (std::max(0.0f, hy - e.self.y) + 0.6f);
+                        request(100);
+                        return;
+                    }
+                }
+                d = d + 0.5f;
+            } while (dmax > d);
+        }
+    }
+    // 4. the double jump
+    float h = 0;
+    if (A->flags130 & 0x20u) {
+        if (wall_top(a, e, H, H * 2.0f, &h)) {
+            if (h > H * 2.0f) return;
+            a.f(0x7e0) = 0;
+            a.f(0x7dc) = (H - 0.4f > h - H) ? H - 0.4f : h - H;
+            request(0x65);
+            a.i(0x730) = 0;
+            return;
+        }
+    }
+    // 5. the climb
+    if (!wall_top(a, e, lo, H, &h)) return;
+    if (h > H) return;
+    a.f(0x7e0) = 0;
+    a.f(0x7dc) = h + 0.6f;
+    request(100);
+}
+
+}  // namespace
 
 // FUN_00477720(approach, walk). approach=0: always move — walk (walk=1) or run.
 // approach=1: move only while the target is >= 0.75 away; runs unless the heading is
@@ -104,16 +225,18 @@ void turn(EnemyAi& a, float rate) {
 }
 
 // FUN_00479a70(+0x710). 0 / unknown ids leave the mover as it was.
-void act(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+void act(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut* out) {
     switch (a.action()) {
-        case 1: stop(a, 1); break;
-        case 2: stop(a, 0); break;
+        case 1: stop(a, 1); return;
+        case 2: stop(a, 0); return;
         case 0x10: move(a, p, e, 1, 1); break;
         case 0x20: move(a, p, e, 0, 1); break;
         case 0x400: move(a, p, e, 1, 0); break;
         case 0x800: move(a, p, e, 0, 0); break;
-        default: break;
+        default: return;
     }
+    // 0x479aca: the jump helper for +0x12c & 0x400000 (JUMPHELPER.md §1).
+    if (out && e.actor && (e.actor->flags12c & 0x400000u)) jump_helper(a, e, *out);
 }
 
 void acquire(EnemyAi& a) {   // FUN_004758a0
@@ -138,6 +261,7 @@ bool sees(const EnemyAi& a, const AiEnv& e, float max_dy, float d2max, float con
 // FUN_00475c00: keep line of sight, leaving up to 4 breadcrumbs (+0x758, count +0x788)
 // of the target's last-seen positions to follow round corners. False = lost.
 bool los_keep(EnemyAi& a, const AiEnv& e, float max_dy, float sight) {
+    if (e.actor && (e.actor->flags12c & 0x200000u)) return true;   // 0x475c0b
     if (std::fabs(e.target.y - e.self.y) > max_dy) return false;
     auto clear = [&](const Vec3& from) { return !(e.blocked && e.blocked(from, e.target)); };
     auto crumb = [&](int k) { return 0x758 + k * 12; };
@@ -318,7 +442,7 @@ void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut& ou
                 steer(a, e);
                 turn(a, a.f(0x814));
                 if (e.actor && e.actor->flyer) hover(a, *e.actor, e, nullptr, a.i(0x720));   // 0x47a45b
-                act(a, p, e);
+                act(a, p, e, &out);
             } else if (a.cool() == 0) {
                 a.phase() = 1;
             }
@@ -377,6 +501,17 @@ bool request(int& cur, int id, bool no_restart, const AiEnv& e) {
 }
 
 }  // namespace ai
+
+void arena_clamp(Vec3& o, int mode, const float r[4]) {
+    if (mode == 1) {
+        if (o.x < r[0]) o.x = r[0]; else if (o.x > r[2]) o.x = r[2];
+        if (o.z < r[1]) o.z = r[1]; else if (o.z > r[3]) o.z = r[3];
+    } else if (mode == 2) {
+        const Vec3 d{o.x - r[0], o.y - r[1], o.z - r[2]};
+        const float L = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+        if (L > r[3]) { const float k = r[3] / L; o = {r[0] + d.x * k, r[1] + d.y * k, r[2] + d.z * k}; }
+    }
+}
 
 AiOut enemy_ai_tick(EnemyAi& a, const EnemyAiParams& p, const AiEnv& env, EnemyBrain brain) {
     // The handler's first branch: an actor not yet engaged that is off-screen does nothing.

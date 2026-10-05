@@ -10,8 +10,7 @@
 // tints at marker 30, then base speed x1.3, STR x1.075 and permanent Durable. Tagged spawns
 // get speed/walk x1.1, max HP x1.35 (refilled), STR x1.05.
 // Handler: no arena clamp; it overrides Durable after the VM step (durable_rule).
-// [not modelled] the keep-out box restore (FUN_0042dc90); the section-314 jump launch (needs
-// the shared jump helper FUN_00476200 the action dispatcher calls for +0x12c & 0x400000).
+// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <algorithm>
 #include <cmath>
 
@@ -127,7 +126,12 @@ AiOut m110(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         A->tint = col;
         a.i(0x79c) = 2;
     }
-    // G: the section-314 launch is [not modelled] (see the header).
+    // G: section 314, the jump helper's jump: walk x2 for the whole section; at Marker 1,
+    // grounded, the launch (K 0.1, no horizontal push — +0x12c & 0x40 ignores channel 1 anyway).
+    if (S == 0x13a) {
+        a.f(0x81c) = a.f(0x7ac) + a.f(0x7ac);
+        if (A && e.grounded && m == 1) launch(*A, a.f(0x7dc) * 0.1f, out);
+    }
     out.durable_rule = (a.i(0x79c) != 0 || tag) ? 1 : 0;
     return out;
 }

@@ -6,12 +6,11 @@
 // face within +/-60 deg for up to 30 ticks, ASO section 7), else sword (sub 20: close to
 // <= 2.5, face for up to 10 ticks, section 8). A strike holds action 1 for 130/105
 // (charge) or 100/80 (sword) by difficulty index >= 1, +20 on Easy; the cooldown is that
-// + 10 + R%30. [not modelled] the post-switch jump launch (section 0x13a + marker 1 +
-// grounded): it only fires after the shared jump helper FUN_00476200 (reached from the
-// action dispatcher for +0x12c & 0x400000 casts) enters section 0x13a, which the
-// view does not run yet — so Selnarg never gap-jumps or climbs here.
+// + 10 + R%30. After the switch, the jump helper's section-0x13a launch (K 0.11, push
+// +0x7e0 or +0x818 x 3.5) — its gap jumps and climbs.
 #include <cmath>
 
+#include "cleria/actor.hpp"
 #include "cleria/brains/brains.hpp"
 
 namespace cleria::brains {
@@ -97,6 +96,14 @@ AiOut m130(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             strike(100, 80);
             break;
         default: break;
+    }
+    // Post-switch (§2.4), every phase-2 tick: the jump helper's launch, K 0.11, channel 1
+    // += +0x7e0 along the heading (+0x818 x 3.5 when +0x7e0 is 0).
+    if (Actor* A = e.actor; A && launch_gate(e)) {
+        launch(*A, a.f(0x7dc) * 0.11f, out);
+        float sp = a.f(0x7e0);
+        if (sp == 0.0f) sp = a.f(0x818) * 3.5f;
+        push1(*A, a.heading, sp);
     }
     return out;
 }

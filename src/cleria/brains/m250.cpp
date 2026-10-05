@@ -29,6 +29,19 @@ void jump(Actor& a, float v, float cast_jump_v0, AiOut& out) {   // FUN_004773f0
     out.set_own_jump = 1;                                          // +0x9d6
 }
 
+void launch(Actor& a, float v, AiOut& out) {
+    a.vert.t = v;
+    a.pos.y += v;
+    a.vert.grounded = false;
+    out.set_own_jump = 1;
+}
+
+void push1(Actor& a, float heading, float sp) {
+    a.mover.k1.x += float(std::cos(double(heading))) * sp;
+    a.mover.k1.y += 0.0f;
+    a.mover.k1.z += float(std::sin(double(heading))) * sp;
+}
+
 AiOut m250(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     using ai::r15;
     AiOut out;

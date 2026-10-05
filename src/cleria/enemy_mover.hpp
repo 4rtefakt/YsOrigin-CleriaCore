@@ -75,9 +75,11 @@ inline float turn_facing(float rate, float cur, float tgt) {
 // FUN_0045f4d0 0x45fa68..0x46002f, after the ASO step: velocity toward heading x speed x
 // Movable (snapped when grounded, blended 0.12 / 0.05 in the air), then the knockback of
 // both channels (capped 0.36/tick, damped 1 - 0.95f / 1 - 5f, f = 0.135, x0.75 airborne).
-// `movable_pre` is +0x9cc before the step, `movable` after it.
+// `movable_pre` is +0x9cc before the step, `movable` after it. `flags12c` is the factory's
+// +0x12c (factory_flags.hpp): 0x40 sums channel 2 only, 0x40 | 0x2000000 none at all.
 inline void mover_post(MoverState& m, int idx_pre, float speed, float heading, bool grounded,
-                       bool flyer, bool movable_pre, float movable, float hp) {
+                       bool flyer, bool movable_pre, float movable, float hp,
+                       std::uint32_t flags12c = 0x00110010) {
     m.dx = m.dz = 0;
     float f = 0.135f;
     if (!grounded) f *= 0.75f;
@@ -100,8 +102,10 @@ inline void mover_post(MoverState& m, int idx_pre, float speed, float heading, b
         }
         m.dx = vx; m.dz = vz;
     }
-    // Knockback: enemies (+0x12c & 0x40 clear) sum both channels, y included.
-    const Vec3 K{m.k1.x + m.k2.x, m.k1.y + m.k2.y, m.k1.z + m.k2.z};
+    // Knockback (0x45fd7c): both channels, y included, unless +0x12c & 0x40.
+    Vec3 K{};
+    if (!(flags12c & 0x40u)) K = {m.k1.x + m.k2.x, m.k1.y + m.k2.y, m.k1.z + m.k2.z};
+    else if (!(flags12c & 0x2000000u)) K = m.k2;
     const float m2 = K.x * K.x + K.y * K.y + K.z * K.z;
     Vec3 disp = K;
     if (m2 > 0.1296f) {
