@@ -177,23 +177,80 @@ void jump_helper(EnemyAi& a, const AiEnv& e, AiOut& out) {
 
 }  // namespace
 
-// FUN_00477720(approach, walk). approach=0: always move — walk (walk=1) or run.
-// approach=1: move only while the target is >= 0.75 away; runs unless the heading is
-// locked (+0x704) or walk is asked. speed = +0x818 x (+0x81c walk | +0x820 run): the
-// actor's copy of EI+0x94/+0x98/+0x9c, which a brain may rewrite (M910's speed ramp).
-// [not modelled] the stuck-escape fan (+0x130 & 0x800), speed ramp (+0x78c), edge probe.
+namespace {
+
+// The stuck-escape fan (0x47777b..0x477b84, MOVEPRIM.md §2.2): 18 points 30 ticks of travel
+// ahead at facing + 0, -0, +0.3, -0.3 .. +-2.4, each needing a floor within h + 0.5 below it
+// and a clear probe from it (along the current heading). A side turns once it has three clear
+// decisive probes in a row; "floor but blocked" leaves that side's flags alone. Only the
+// heading is written.
+bool fan(EnemyAi& a, const AiEnv& e) {
+    const Vec3 down{0.0f, -(e.height + 0.5f), 0.0f};
+    bool even_cur = false, even_prev = false, odd_cur = false, odd_prev = false;
+    float ang = 0.0f;
+    for (int k = 2;; ++k) {
+        const bool odd = (k & 1) != 0;
+        if (odd) ang = -ang;
+        const float fac = (a.mode() == 2 || a.mode() == 0) ? a.f(0x820) : a.f(0x81c);
+        const float spd = (fac * a.f(0x818)) * 30.0f;
+        const float d = e.facing + ang;
+        const float dx = float(std::cos(double(d))) * spd, dz = float(std::sin(double(d))) * spd;
+        const Vec3 P{e.self.x + dx, e.self.y + 0.0f, e.self.z + dz};
+        bool& cur = odd ? odd_cur : even_cur;
+        bool& prev = odd ? odd_prev : even_prev;
+        const bool ok = prev && cur;
+        if (solid(e, P, down)) {
+            if (!probe_ahead(a, e, P)) {
+                prev = cur; cur = true;
+                if (ok) { a.heading = e.facing + ang; return true; }
+            }
+        } else {
+            prev = cur; cur = false;
+        }
+        if (odd) ang = -ang + 0.3f;
+        if (!(2.6179938f > ang)) return false;
+    }
+}
+
+}  // namespace
+
+// FUN_00477720(approach, walk) (MOVEPRIM.md). approach=0: always move — walk (walk=1) or
+// run. approach=1: move only while the target is >= 0.75 away; runs unless the heading is
+// locked (+0x704) or walk is asked. speed = +0x818 x (+0x81c walk | +0x820 run): the actor's
+// copy of EI+0x94/+0x98/+0x9c, which a brain may rewrite (M910's speed ramp). Blocked (the
+// probe from the origin): the fan for +0x130 & 0x800 while grounded and engaged, else a stop.
+// The ramp (+0x78c a target factor, +0x824 the accumulated step) is live only for M590.
+// [not modelled] the swim block (+0x130 & 0x80; needs the surface bytes); the displacement
+// +0xa3c/+0xa44 (read only by the mover's ice blend).
 void move(EnemyAi& a, const EnemyAiParams&, const AiEnv& e, int approach, int walk) {
-    if (blocked_ahead(a, e)) { stop(a, 0); return; }
+    if (blocked_ahead(a, e)) {
+        const Actor* A = e.actor;
+        if (e.grounded && a.phase() == 2 && A && (A->flags130 & 0x800u) && fan(a, e)) return;
+        stop(a, 0);
+        return;
+    }
     int m;
     if (!approach) {
         a.speed = a.f(0x818);
         m = walk ? 1 : 2;
     } else {
-        a.speed = a.dist() >= 0.75f ? a.f(0x818) : 0.0f;   // DAT_006bd390
+        a.speed = 0.75f > a.dist() ? 0.0f : a.f(0x818);   // DAT_006bd390; NaN moves
         m = a.speed == 0.0f ? 0 : (a.turn_hold() == 0 && !walk) ? 2 : 1;
     }
     a.mode() = m;
-    a.speed *= m == 2 ? a.f(0x820) : m == 1 ? a.f(0x81c) : 0.0f;
+    float f = m == 2 ? a.f(0x820) : m == 1 ? a.f(0x81c) : 0.0f;
+    const float R = a.f(0x78c);
+    if (R != 0.0f) {                                   // 0x477c8c: the ramp
+        const float r = a.f(0x824);
+        if (f > R) {
+            f = f - r;
+            if (f > R) a.f(0x824) = r - a.f(0x830);    // as written: diverges (unreached)
+        } else {
+            f = f + r;
+            if (R > f) a.f(0x824) = a.f(0x82c) + r;
+        }
+    }
+    a.speed *= f;
     a.speed310 = a.speed;                              // 0x477cfc
 }
 

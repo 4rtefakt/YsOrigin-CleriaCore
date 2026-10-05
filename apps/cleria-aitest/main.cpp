@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <list>
 #include <unordered_map>
 #include <utility>
@@ -1809,6 +1810,68 @@ int main() {
         check(scatters <= 2, "re-scatters at most twice per cycle (+0x7a0 < 2)");
         check(reform_at >= 0 && left == 0, "reform: section 21, the flock dissolves into the body");
         check(attack_sub > 0 && boss.ai.alpha == 1.0f, "visible again, it picks an attack (rush / shots / gas)");
+    }
+
+    // ---- the move primitive FUN_00477720 (build/ai_spec/MOVEPRIM.md) ----
+    {
+        auto bits = [](float v) { std::uint32_t u; std::memcpy(&u, &v, 4); return u; };
+        {   // §4.3: M590's dash ramp, R 10, steps 0.15, f 2.0, base 0.03 (the probe off)
+            Actor A; A.flags12c = 0x00110010u;
+            Rig r; r.env.actor = &A;
+            EnemyAi& a = A.ai;
+            a.phase() = 2;
+            a.f(0x818) = 0.03f; a.f(0x820) = 2.0f; a.f(0x81c) = 1.0f;
+            a.f(0x78c) = 10.0f; a.f(0x82c) = 0.15f; a.f(0x830) = 0.15f; a.f(0x824) = 0.0f;
+            std::uint32_t s[60];
+            float r53 = 0;
+            for (int n = 0; n < 60; ++n) {
+                ai::move(a, p, r.env, 0, 0);
+                s[n] = bits(a.speed);
+                if (n == 53) r53 = a.f(0x824);
+            }
+            std::printf("[ai]   ramp: s0 %08x s1 %08x s5 %08x s54 %08x s59 %08x r53 %08x\n", s[0], s[1], s[5], s[54], s[59], bits(r53));
+            check(s[0] == 0x3d75c28fu && s[1] == 0x3d841894u && s[5] == 0x3da8f5c2u && a.mode() == 2,
+                  "ramp: 0.06, 0.0645 .. 0.0825 (f32 exact), mode 2");
+            check(s[54] == 0x3e9b22d4u && s[59] == 0x3e9b22d4u && bits(r53) == 0x4101999du,
+                  "ramp: r stops at 8.100003 after 54 steps; factor 10.1 from call 54 on");
+            a.f(0x78c) = 0.0f; a.f(0x824) = 0.0f;
+            ai::move(a, p, r.env, 0, 0);
+            check(bits(a.speed) == 0x3d75c28fu, "R = 0: speed = +0x818 x +0x820 (0.06)");
+        }
+        struct Ledge : AiWorld {        // floor (y = 0) only where x < 0.9 or |z| >= 0.9; no walls
+            void for_each(const std::function<void(Actor&)>&) override {}
+            Actor* find(int) override { return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3& o, const Vec3& d) override {
+                Ray r;
+                if (d.y < 0 && o.y >= 0 && o.y + d.y <= 0 && (o.x < 0.9f || std::fabs(o.z) >= 0.9f)) {
+                    r.hit = true; r.point = {o.x, 0, o.z};
+                }
+                return r;
+            }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+        };
+        auto ledge_case = [&](std::uint32_t f130, float* heading, int* mode, float* speed) {
+            Ledge w;
+            Actor A; A.flags12c = 0x00010010u; A.flags130 = f130;
+            Rig r; r.env.actor = &A; r.env.world = &w;
+            r.env.self = {0, 1.0f, 0}; r.env.height = 1.0f; r.env.radius = 0.675f; r.env.facing = 0.0f;
+            EnemyAi& a = A.ai;
+            a.phase() = 2; a.mode() = 2; a.heading = 0.0f; a.speed = 0.123f;
+            a.f(0x818) = 0.03f; a.f(0x820) = 2.0f; a.f(0x81c) = 1.0f;
+            ai::move(a, p, r.env, 0, 0);
+            *heading = a.heading; *mode = a.mode(); *speed = a.speed;
+        };
+        float h = 0, sp = 0; int m = 0;
+        ledge_case(0x800u, &h, &m, &sp);
+        std::printf("[ai]   fan: heading %.7f mode %d speed %.3f\n", h, m, sp);
+        check(std::fabs(h - 1.2f) < 1e-6f && m == 2 && sp == 0.123f,
+              "fan: a ledge ahead, floor from +-0.6: turns to facing + 1.2 (3 clear in a row), keeps mode/speed");
+        ledge_case(0u, &h, &m, &sp);
+        check(h == 0.0f && m == 0 && sp == 0.0f, "no +0x130 & 0x800: the ledge stops it");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
