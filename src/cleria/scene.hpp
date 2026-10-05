@@ -85,7 +85,32 @@ struct RoomMesh {
     std::vector<int> tri_surface;
     Vec3 bmin, bmax;                     // world-space bounds
     int objects = 0, missing = 0;
+    // Each placed object's vertex and triangle range (objects append contiguously), so a
+    // scripted move or pose can rewrite just that object (rebake_object / translate_object).
+    struct ObjRange {
+        std::string name;                // lower-case
+        std::uint32_t v0 = 0, v1 = 0;    // vertices [v0, v1)
+        std::uint32_t t0 = 0, t1 = 0;    // triangles [t0, t1)
+        SobObject obj;                   // the placement it was built from
+        // Its YMO's animation sections (FUN_005f31d0): name, frames, next, rate.
+        struct Clip { std::string name; std::int32_t start = 0, end = 0, next = -1; float rate = 0.25f; };
+        std::vector<Clip> clips;
+        std::string posed_clip;          // the clip it was built posed at ("" = rest)
+    };
+    std::vector<ObjRange> object_ranges;
+    const ObjRange* object_range(const std::string& lname) const {
+        for (const ObjRange& r : object_ranges) if (r.name == lname) return &r;
+        return nullptr;
+    }
 };
+
+// Shift one object's vertices by `d` (a scripted translation). False if it is not in `m`.
+bool translate_object(RoomMesh& m, const std::string& lname, const Vec3& d);
+// Re-bake one object in place, posed at `frame` of `clip` and placed at `pos` (null = its SOB
+// position). False when it is not in `m` or the vertex count changed. `collision` selects the
+// X_.YMO twin, as build_collision does.
+bool rebake_object(RoomMesh& m, const std::filesystem::path& asset_root, const std::string& lname,
+                   const char* clip, float frame, const Vec3* pos, bool collision);
 
 // If box_whitelist is non-null, chest objects ("box_NN") are included (geometry
 // and interactable) only when their lower-cased name is in the set — this gates

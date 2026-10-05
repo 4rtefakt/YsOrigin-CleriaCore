@@ -151,6 +151,30 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
     // is always frozen at phase 0 — this is how to see it move headlessly.
     if (const char* st = std::getenv("CLERIA_SCROLL_TICKS"))
         if (!room.scrolls.empty()) advance_scroll(g, room, std::atoi(st));
+    // CLERIA_MESHMOVE="name:dx,dy,dz[;...]": shift scripted objects through the same
+    // translate_object path a live Mesh_MoveTo uses, to see a moved platform headlessly.
+    if (const char* mm = std::getenv("CLERIA_MESHMOVE")) {
+        std::string spec = mm;
+        std::size_t at = 0;
+        while (at < spec.size()) {
+            const std::size_t end = spec.find(';', at);
+            const std::string one = spec.substr(at, end == std::string::npos ? std::string::npos : end - at);
+            const std::size_t colon = one.find(':');
+            Vec3 d{};
+            if (colon != std::string::npos &&
+                std::sscanf(one.c_str() + colon + 1, "%f,%f,%f", &d.x, &d.y, &d.z) == 3) {
+                std::string nm = one.substr(0, colon);
+                for (char& c : nm) c = char(std::tolower((unsigned char)c));
+                const bool ok = translate_object(room.mesh, nm, d);
+                std::printf("  meshmove %s by (%.2f,%.2f,%.2f): %s\n", nm.c_str(), d.x, d.y, d.z,
+                            ok ? "moved" : "no such object");
+            }
+            if (end == std::string::npos) break;
+            at = end + 1;
+        }
+        wgpuQueueWriteBuffer(g.queue, room.vbuf, 0, room.mesh.vertices.data(),
+                             room.mesh.vertices.size() * sizeof(RoomVertex));
+    }
     draw(g, room, cview, dview);
     // Let the game's own animation script pick the sprite, as the live path does:
     // C_010 is Yunica's script, and with flag 161 clear it selects the GAMEPLAY set

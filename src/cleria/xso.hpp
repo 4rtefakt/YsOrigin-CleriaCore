@@ -222,6 +222,26 @@ struct XsoHost {
     // op 0xa6 GoWarpPoint(): ChangeScene to warp table[flag 137] (the Wing).
     virtual void go_warp_point() {}
 
+    // --- scripted map objects (build/event_re/WAITOPS.md §4; meshobj.hpp) ---------------
+    virtual void mesh_move(const std::string& /*name*/, float /*x*/, float /*y*/, float /*z*/,
+                           float /*radius*/, float /*speed*/, bool /*offset*/) {}   // 0x170 / 0x171
+    virtual void mesh_set_motion(const std::string& /*name*/, const std::string& /*clip*/,
+                                 bool /*blend*/, int /*start*/) {}                 // 0x175 (live)
+    virtual void mesh_stop_motion(const std::string& /*name*/, int /*on*/) {}       // 0x16d
+    virtual void mesh_sleep(const std::string& /*name*/, bool /*on*/) {}            // 0x16a
+    virtual void mesh_set_position(const std::string& /*name*/, float /*x*/, float /*y*/, float /*z*/) {}  // 0x173 (live)
+    virtual void mesh_reset_position(const std::string& /*name*/) {}                // 0x178
+    virtual void mesh_enable_event(const std::string& /*name*/, bool /*on*/) {}     // 0x176
+    virtual void mesh_time_scale(const std::string& /*name*/, float /*s*/) {}       // 0x17b
+    // The waits. A missing object returns `found` = false; the original then rewinds forever
+    // (0x104 / 0x105) or proceeds (0x101). Defaults: found and done, so no host never blocks.
+    virtual bool mesh_moving(const std::string& /*name*/, bool* found) const { *found = true; return false; }
+    virtual bool mesh_motion_finished(const std::string& /*name*/, std::uint32_t /*n*/, bool* found) const {
+        *found = true; return true;
+    }
+    // 0x101: is the actor grounded on / touching this mesh (its +0x540 / +0x52c contact)?
+    virtual bool chr_on_mesh(int /*id*/, const std::string& /*name*/) const { return false; }
+
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns
     // every placement through the CASTINFO factory. We pre-load the host with the

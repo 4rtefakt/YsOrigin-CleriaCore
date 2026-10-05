@@ -755,6 +755,40 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
     apply_room_bgm(room.name);
 
+    // Scripted map objects (src/cleria/meshobj.hpp, build/event_re/WAITOPS.md §4): moves,
+    // clip playback and the event bit, re-baked into the room's render + collision meshes
+    // when they change. `mesh_delta` is each object's displacement in the last mesh step (the
+    // platform carry reads it next tick, MOVER.md §3.3).
+    MeshWorld meshes;
+    std::unordered_map<std::string, Vec3> baked_pos, mesh_delta;
+    std::string player_floor_obj;            // the object the player stands on (+0x540)
+    Vec3 carry{};                            // +0x5b0..: the platform carry
+    // (Re)seed the mesh runtime from the room's objects. keep = a reload of the same room:
+    // objects keep their runtime state and are re-baked from it.
+    auto load_meshes = [&](bool keep) {
+        std::unordered_map<std::string, MeshObj> old;
+        if (keep) old = meshes.all();
+        meshes.clear(); baked_pos.clear(); mesh_delta.clear();
+        for (const RoomMesh::ObjRange& r : room.mesh.object_ranges) {
+            std::vector<MeshClip> clips;
+            for (const auto& c : r.clips) clips.push_back({c.name, c.start, c.end, c.next, c.rate});
+            MeshObj& m = meshes.add(r.name, r.obj.position, std::move(clips));
+            baked_pos[r.name] = r.obj.position;
+            for (std::size_t i = 0; i < m.clips.size(); ++i)        // built posed at a clip's end
+                if (!r.posed_clip.empty() && m.clips[i].name == r.posed_clip) {
+                    m.sect = int(i); m.time = float(m.clips[i].end); m.count = 1;
+                }
+            auto it = old.find(r.name);
+            if (it != old.end()) {
+                const Vec3 sp = m.spawn;
+                m = it->second; m.spawn = sp;
+                m.dirty_pos = m.dirty_pose = true;
+            }
+        }
+        carry = {};
+    };
+
+    load_meshes(false);
     float cooldown = 1.5f;
     auto transition = [&](const std::string& dest, const SenTrigger* via = nullptr) {
         auto it = g.sob_index.find(dest);
@@ -778,6 +812,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
+        load_meshes(false);
         apply_load_effects(room);
         room_events_dirty = true;   // the new room's event scripts start next frame
         apply_room_bgm(room.name);
@@ -842,7 +877,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // — @Break_* writes none — so this is deliberately session-scoped, matching retail where
     // pots respawn when you re-enter from a load.
     std::unordered_set<std::string> broken_objects;
-    std::unordered_set<std::string> plates_armed;   // step plates the player is standing off
     auto reload_room = [&](bool rerun_events = true) {
         auto it = g.sob_index.find(room.name);
         if (it == g.sob_index.end()) return;
@@ -850,6 +884,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                               broken_objects.empty() ? nullptr : &broken_objects);
         free_room(room, g.white_bind);
         room = std::move(next);
+        load_meshes(/*keep*/true);
         apply_load_effects(room);
         if (rerun_events) room_events_dirty = true;   // re-run scripts for the re-gated room
         register_script_pickups();  // the rebuilt mesh lost script-spawned interactables
@@ -1126,6 +1161,44 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 warp_unlocked.push_back(i);
         }
         // 0xcd CrossFade: [not modelled] the frozen-frame dissolve (purely visual in the corpus).
+        // Scripted map objects (meshobj.hpp).
+        MeshWorld* meshes = nullptr;
+        const std::string* player_floor = nullptr;   // the object the player stands on
+        mutable std::unordered_set<std::string> missing_warned;
+        void mesh_move(const std::string& n, float x, float y, float z, float r, float s, bool off) override {
+            if (meshes) meshes->move_to(n, {x, y, z}, r, s, off);
+        }
+        void mesh_set_motion(const std::string& n, const std::string& c, bool b, int st) override {
+            if (meshes) meshes->set_motion(n, c, b, st);
+        }
+        void mesh_stop_motion(const std::string& n, int on) override { if (meshes) meshes->stop_motion(n, on); }
+        void mesh_sleep(const std::string& n, bool on) override { if (meshes) meshes->sleep(n, on); }
+        void mesh_set_position(const std::string& n, float x, float y, float z) override {
+            if (meshes) meshes->set_position(n, {x, y, z});
+        }
+        void mesh_reset_position(const std::string& n) override { if (meshes) meshes->reset_position(n); }
+        void mesh_enable_event(const std::string& n, bool on) override { if (meshes) meshes->enable_event(n, on); }
+        void mesh_time_scale(const std::string& n, float s) override { if (meshes) meshes->set_time_scale(n, s); }
+        bool mesh_moving(const std::string& n, bool* found) const override {
+            if (skipping) { *found = true; return false; }
+            const bool mv = meshes && meshes->moving(n, found);
+            if (!*found && missing_warned.insert(n).second)
+                std::printf("  [mesh] Wait_MeshMoving on missing object '%s' (the original hangs)\n", n.c_str());
+            return mv;
+        }
+        bool mesh_motion_finished(const std::string& n, std::uint32_t k, bool* found) const override {
+            if (skipping) { *found = true; return true; }
+            const bool fin = meshes && meshes->motion_finished(n, k, found);
+            if (!*found && missing_warned.insert(n).second)
+                std::printf("  [mesh] Wait_MeshMotionFinish on missing object '%s' (the original hangs)\n", n.c_str());
+            return fin;
+        }
+        bool chr_on_mesh(int id, const std::string& n) const override {
+            if (id != 998 && id != 13) return false;           // only the player's contact is tracked
+            std::string l = n;
+            for (char& c : l) c = char(std::tolower((unsigned char)c));
+            return player_floor && *player_floor == l;
+        }
         bool wait_window(bool) override { return true; }
         bool wait_sound(int) override { return true; }
         // 0xf4 Wait_Script(name): a parent controller blocks until its spawned talk child
@@ -1272,6 +1345,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csMgr.vm.host = &csHost;
     csMgr.loader = &csLoader;
     csHost.mgr = &csMgr;
+    csHost.meshes = &meshes;
+    csHost.player_floor = &player_floor_obj;
     csHost.worldHost = &world;
     csHost.roomPtr = &room;         // op 0x13d tests the player vs the current room's .SEV boxes
     csHost.playerPos = &feet;
@@ -2106,7 +2181,38 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             if (csHost.p_moving) { avm.set_section(0, /*force*/true); avm.tick(); }
         }
-        if (frozen_now) continue;
+        // The GoMesh pool updates every live step, a Fix or not (WAITOPS.md §4.7).
+        auto step_meshes = [&] {
+            meshes.step();
+            mesh_delta.clear();
+            for (auto& [nm, m] : meshes.all()) {
+                if (!m.dirty_pos && !m.dirty_pose) continue;
+                const Vec3 was = baked_pos.count(nm) ? baked_pos[nm] : m.spawn;
+                if (m.dirty_pose) {
+                    const char* clip = (m.sect >= 0 && std::size_t(m.sect) < m.clips.size())
+                                           ? m.clips[std::size_t(m.sect)].name.c_str() : nullptr;
+                    rebake_object(room.mesh, asset_root, nm, clip, m.time, &m.pos, false);
+                    rebake_object(room.coll, asset_root, nm, clip, m.time, &m.pos, true);
+                } else {
+                    const Vec3 d{m.pos.x - was.x, m.pos.y - was.y, m.pos.z - was.z};
+                    translate_object(room.mesh, nm, d);
+                    translate_object(room.coll, nm, d);
+                }
+                mesh_delta[nm] = {m.pos.x - was.x, m.pos.y - was.y, m.pos.z - was.z};
+                baked_pos[nm] = m.pos;
+                static const bool mesh_log = std::getenv("CLERIA_MESHLOG") != nullptr;
+                if (mesh_log && (tick_count % 30 == 0 || m.speed == 0.0f))
+                    std::printf("  [mesh] %s pos (%.2f,%.2f,%.2f) speed %.3f clip %d t %.1f n %u\n", nm.c_str(),
+                                m.pos.x, m.pos.y, m.pos.z, m.speed, m.sect, m.time, m.count);
+                if (const RoomMesh::ObjRange* rr = room.mesh.object_range(nm))
+                    if (rr->v1 > rr->v0 && rr->v1 <= room.mesh.vertices.size())
+                        wgpuQueueWriteBuffer(g.queue, room.vbuf, std::size_t(rr->v0) * sizeof(RoomVertex),
+                                             &room.mesh.vertices[rr->v0],
+                                             std::size_t(rr->v1 - rr->v0) * sizeof(RoomVertex));
+                m.dirty_pos = m.dirty_pose = false;
+            }
+        };
+        if (frozen_now) { step_meshes(); continue; }
         const float dt = kTickDt;
         if (cooldown > 0) cooldown -= dt;
 
@@ -2145,6 +2251,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // The engine's locomotion (physics_player.hpp): a keyboard direction is a full
             // stick, which is past the run threshold, so the player runs — the walk
             // modifier (+0x510 & 0x20) is not mapped yet. speed_mult is the debug wheel.
+            {   // MOVER.md §3.3: the platform carry. Grounded on an object that moved last
+                // step: its displacement (clamped to 0.3); airborne: the carry decays x0.975.
+                auto it = mesh_delta.find(player_floor_obj);
+                if (pv.grounded && it != mesh_delta.end()) {
+                    Vec3 cd = it->second;
+                    const float q = cd.x * cd.x + cd.y * cd.y + cd.z * cd.z;
+                    if (q > 0.09f) { const float k = 0.3f / std::sqrt(q); cd = {cd.x * k, cd.y * k, cd.z * k}; }
+                    carry = cd;
+                } else if (!pv.grounded) {
+                    carry = {carry.x * 0.975f, carry.y * 0.975f, carry.z * 0.975f};
+                } else {
+                    carry = {};
+                }
+                feet.x += carry.x; feet.y += carry.y; feet.z += carry.z;
+            }
             {   const int sec = avm.section();
                 const bool skill_sec = sec == 0x109 || (sec >= 0x10c && sec <= 0x111);
                 const bool blessing_run = (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 0x2000) != 0;
@@ -2181,6 +2302,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             settle_vertical(pv, oy, last_floor, kOriginH);
             grounded = pv.grounded;
             feet.y = oy - kOriginH;
+            // The floor contact record (+0x540): the object under a grounded player whose floor
+            // point lies within 1.1 x the origin height (FUN_0045a510 0x45c2b5).
+            player_floor_obj.clear();
+            if (pv.grounded && floor_tri >= 0 && fl > kNoFloor && oy - fl <= 1.1f * kOriginH)
+                for (const RoomMesh::ObjRange& r : phys_mesh(room).object_ranges)
+                    if (std::uint32_t(floor_tri) >= r.t0 && std::uint32_t(floor_tri) < r.t1) {
+                        player_floor_obj = r.name; break;
+                    }
+            step_meshes();
 
             // Tick the enemies. The engine's enemies chase the player ACTOR; we sync it
             // to the view's player each tick, step the world (each enemy turns toward it
@@ -2692,20 +2822,27 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             tick_iframes(player_iframes, avm.section());
             for (Actor& a : world.actors()) a.bank.tick();          // FUN_0045c490: every actor
             player_bank.tick();
-            // STEP PLATES (SOB trigger class 2): the plate's script fires when the player
-            // steps ON it, and re-arms only after stepping OFF — the engine does that with
-            // Mesh_EnableEvent(off) ... Wait_ChrLeaveMesh ... Mesh_EnableEvent(on), which
-            // this arm/disarm pair reproduces without needing the wait op.
-            if (events_enabled)
+            // STEP PLATES (FUN_0045a4a0): while no script holds a fix, the player's contact with
+            // an object whose touch script is enabled starts that script (single instance per
+            // name). The scripts gate themselves: Mesh_EnableEvent(off), ...,
+            // Wait_ChrLeaveMesh, Mesh_EnableEvent(on). Contact = the floor record; an object
+            // with no collision hull falls back to its render bounds [STAND-IN].
+            if (events_enabled && !csMgr.world_frozen())
                 for (const SceneTrigger& t : room.mesh.triggers) {
                     if (!(t.trigger & 2) || t.script.empty()) continue;
-                    const float pad = kCharRadius;
-                    const bool on = feet.x >= t.aabb_min.x - pad && feet.x <= t.aabb_max.x + pad &&
-                                    feet.z >= t.aabb_min.z - pad && feet.z <= t.aabb_max.z + pad &&
-                                    feet.y >= t.aabb_min.y - 1.0f && feet.y <= t.aabb_max.y + 2.0f;
-                    const bool armed = plates_armed.count(t.name) == 0;   // absent = armed
-                    if (on && armed) {
-                        plates_armed.insert(t.name);                      // disarm
+                    std::string ln = t.name;
+                    for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
+                    bool on;
+                    if (phys_mesh(room).object_range(ln)) {
+                        on = player_floor_obj == ln;
+                    } else {
+                        const float pad = kCharRadius;
+                        on = grounded && feet.x >= t.aabb_min.x - pad && feet.x <= t.aabb_max.x + pad &&
+                             feet.z >= t.aabb_min.z - pad && feet.z <= t.aabb_max.z + pad &&
+                             feet.y >= t.aabb_min.y - 1.0f && feet.y <= t.aabb_max.y + 2.0f;
+                    }
+                    const MeshObj* mo = meshes.find(ln);
+                    if (on && (!mo || mo->event_on)) {
                         fs::path sp(t.script);
                         std::string stem = sp.stem().string();
                         for (char& ch : stem) ch = char(std::tolower((unsigned char)ch));
@@ -2716,8 +2853,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         ov.s[0] = t.name; ov.i[0] = t.i0; ov.i[1] = t.i1; ov.f[0] = t.f0;
                         if (csMgr.start(stem, ov))
                             std::printf("  [plate] %s -> %s\n", t.name.c_str(), stem.c_str());
-                    } else if (!on && !armed) {
-                        plates_armed.erase(t.name);                       // re-arm on leave
                     }
                 }
             // Boost drain (FUN_00462c40): the gauge falls ~30/tick on Normal, so a Boost runs

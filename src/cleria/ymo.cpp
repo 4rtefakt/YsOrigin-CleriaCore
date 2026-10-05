@@ -260,8 +260,8 @@ Model Model::parse(std::span<const std::uint8_t> bytes) {
 
     // 4. Animation clips. Header is 0xA0 = 160 bytes:
     //   0x00 name[0x60] · 0x60 aabb_min · 0x6C aabb_max · 0x78 center · 0x84 radius
-    //   0x88 u32 frame_start · 0x8C u32 frame_end · 0x90 u32 · 0x94 f32 · 0x98 f32
-    //   0x9C u32 track_count
+    //   0x88 u32 frame_start · 0x8C u32 frame_end · 0x90 i32 next · 0x94 f32 rate
+    //   0x98 f32 crossfade rate · 0x9C u32 track_count (FUN_005f31d0 005f37d3..005f3809)
     // The AABB is this clip's swept volume — the ground truth we validate against.
     mo.clips.reserve(n_clip);
     for (std::uint32_t c = 0; c < n_clip; ++c) {
@@ -273,6 +273,9 @@ Model Model::parse(std::span<const std::uint8_t> bytes) {
         cl.radius = r.f32(o + 0x84);
         cl.frame_start = r.u32(o + 0x88);
         cl.frame_end = r.u32(o + 0x8C);
+        cl.next = std::int32_t(r.u32(o + 0x90));
+        cl.rate = r.f32(o + 0x94);
+        cl.blend_rate = r.f32(o + 0x98);
         const std::uint32_t n_track = r.u32(o + 0x9C);
         o += kClipHeader;
 

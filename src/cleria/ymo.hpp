@@ -172,6 +172,11 @@ struct AnimClip {
     Vec3 center;
     float radius = 0;
     std::uint32_t frame_start = 0, frame_end = 0;
+    // The section record FUN_005f31d0 copies field for field (model+0x298, stride 0xA8):
+    // next (+0x34: >= 0 chain, -2 loop, else stop; only -1 / -2 occur in the corpus),
+    // the playback rate in frames per step (+0x38) and the crossfade-out rate (+0x3c).
+    std::int32_t next = -1;
+    float rate = 0.25f, blend_rate = 0.05f;
     std::vector<AnimTrack> tracks;
 };
 

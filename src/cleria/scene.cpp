@@ -254,6 +254,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             out.triggers.push_back(std::move(t));
         }
         const std::size_t trig_v0 = out.vertices.size();
+        const std::size_t obj_i0 = out.indices.size();
 
         fs::path ymo_file = resolve_ymo(asset_root, o.ymo_path);
         if (collision) {
@@ -499,8 +500,46 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             }
             t.aabb_min = lo; t.aabb_max = hi;
         }
+        if (out.vertices.size() > trig_v0) {
+            RoomMesh::ObjRange r;
+            r.name = lname;
+            r.v0 = std::uint32_t(trig_v0); r.v1 = std::uint32_t(out.vertices.size());
+            r.t0 = std::uint32_t(obj_i0 / 3); r.t1 = std::uint32_t(out.indices.size() / 3);
+            r.obj = po;
+            for (const AnimClip& c : model.clips)
+                r.clips.push_back({c.name, std::int32_t(c.frame_start), std::int32_t(c.frame_end), c.next, c.rate});
+            if (states) {
+                auto it = states->clip.find(lname);
+                if (it != states->clip.end()) r.posed_clip = it->second;
+            }
+            if (r.posed_clip.empty() && box_pose_open) r.posed_clip = "OPEN";
+            out.object_ranges.push_back(std::move(r));
+        }
     }
     return out;
+}
+
+bool translate_object(RoomMesh& m, const std::string& lname, const Vec3& d) {
+    const RoomMesh::ObjRange* r = m.object_range(lname);
+    if (!r) return false;
+    for (std::uint32_t i = r->v0; i < r->v1 && i < m.vertices.size(); ++i) {
+        m.vertices[i].px += d.x; m.vertices[i].py += d.y; m.vertices[i].pz += d.z;
+    }
+    return true;
+}
+
+bool rebake_object(RoomMesh& m, const fs::path& asset_root, const std::string& lname,
+                   const char* clip, float frame, const Vec3* pos, bool collision) {
+    const RoomMesh::ObjRange* r = m.object_range(lname);
+    if (!r) return false;
+    Sob one;
+    one.objects.push_back(r->obj);
+    if (pos) one.objects.back().position = *pos;
+    const RoomMesh tmp = build_room_objects(asset_root, one, fs::path(), nullptr, nullptr,
+                                            collision, clip, frame);
+    if (tmp.vertices.size() != std::size_t(r->v1 - r->v0)) return false;
+    for (std::size_t k = 0; k < tmp.vertices.size(); ++k) m.vertices[r->v0 + k] = tmp.vertices[k];
+    return true;
 }
 
 }  // namespace cleria

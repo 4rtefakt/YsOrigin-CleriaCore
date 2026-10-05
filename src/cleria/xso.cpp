@@ -328,6 +328,20 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0x94 && nargs >= 3) { host->heal_spot(opf(0), opf(1), opf(2)); return Step::Continue; }
                     if (sub == 0xa7 && nargs >= 1) { host->warp_enable(op(0)); return Step::Continue; }
                     if (sub == 0xa6) { host->go_warp_point(); return Step::Continue; }
+                    // Scripted map objects (WAITOPS.md §4). 0x175 / 0x173 also fall through to
+                    // the load-time bookkeeping below.
+                    if ((sub == 0x170 || sub == 0x171) && nargs >= 6) {
+                        host->mesh_move(ops(0), opf(1), opf(2), opf(3), opf(4), opf(5), sub == 0x171);
+                        return Step::Continue;
+                    }
+                    if (sub == 0x16d && nargs >= 2) { host->mesh_stop_motion(ops(0), op(1)); return Step::Continue; }
+                    if (sub == 0x16a && nargs >= 2) { host->mesh_sleep(ops(0), op(1) != 0); return Step::Continue; }
+                    if (sub == 0x178 && nargs >= 1) { host->mesh_reset_position(ops(0)); return Step::Continue; }
+                    if (sub == 0x176 && nargs >= 2) { host->mesh_enable_event(ops(0), op(1) != 0); return Step::Continue; }
+                    if (sub == 0x17b && nargs >= 2) { host->mesh_time_scale(ops(0), opf(1)); return Step::Continue; }
+                    if (sub == 0x175 && nargs >= 2)
+                        host->mesh_set_motion(ops(0), ops(1), nargs >= 3 && op(2) != 0, nargs >= 4 ? op(3) : 0);
+                    if (sub == 0x173 && nargs >= 4) host->mesh_set_position(ops(0), opf(1), opf(2), opf(3));
                     if (sub == 0xc6) { host->camera_return(nargs >= 1 ? op(0) : 0); return Step::Continue; }
                 }
                 if (sub == 0x5F && nargs >= 2) {            // acc = (flag[op0]==op1)
@@ -624,8 +638,23 @@ bool XsoVm::eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
         case 0xf7: return host ? host->wait_sound(nargs >= 1 ? op(0) : 0) : true;
         case 0xf8: return nargs >= 2 ? (flag(op(0)) == op(1)) : true;    // Wait_FlagEqualInt
         case 0x100: return host ? !host->chr_moving(op(0)) : true;       // Wait_ChrMoving: proceed when STILL
-        default:   return true;   // other chr/mesh-region waits (0xf9/fd/fe/ff/101/104/105/106):
-                                  // proceed — a stand-in until those subsystems are modelled
+        // WAITOPS.md §3.1-3.3. A missing object hangs 0x104/0x105 in the original (kept).
+        case 0x104: {                                                     // Wait_MeshMoving
+            if (!host) return true;
+            bool found = false;
+            const bool mv = host->mesh_moving(op_str(script, old, 0), &found);
+            return found && !mv;
+        }
+        case 0x105: {                                                     // Wait_MeshMotionFinish
+            if (!host) return true;
+            bool found = false;
+            const bool fin = host->mesh_motion_finished(op_str(script, old, 0),
+                                                         std::uint32_t(op_int(script, old, 1)), &found);
+            return found && fin;
+        }
+        case 0x101:                                                       // Wait_ChrLeaveMesh
+            return host ? !host->chr_on_mesh(op(0), op_str(script, old, 1)) : true;
+        default:   return true;   // 0xf9/0xfd/0xfe/0xff/0x106: 0 corpus sites (WAITOPS.md §3.4-3.8)
     }
 }
 
