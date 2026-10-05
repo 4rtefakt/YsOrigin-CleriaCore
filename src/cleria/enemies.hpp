@@ -171,7 +171,12 @@ struct Enemy {
     // ** The engine additionally scales this by a movement-mode constant (0.25..1.6, by
     // actor+0x4b9) in the integrator, and which mode a plain chase uses is not pinned **
     // — so this is the sourced BASE and the on-screen magnitude carries that factor.
-    float move_speed = 0;  // +0x94 * +0x98
+    float move_speed = 0;  // +0x94 * +0x98 (the WALK speed; see enemy_ai.hpp)
+    // The movement row the brain init copies into the actor (FUN_0047adf0 state 0,
+    // +0x814..+0x834): turn rate, base speed, walk and run multipliers, sight value.
+    // The engine overwrites +0x30c at spawn and re-derives speed per move mode in
+    // FUN_00477720: walk = base*walk, run = base*run (M100: x1.5; roster up to x6).
+    float ai_turn = 0, ai_base = 0, ai_walk = 0, ai_run = 0, ai_sight = 0;
 
     // Live slots are front-packed (90/90), so this is the count.
     int drop_count() const {

@@ -128,6 +128,7 @@ bool AsoVm::set_section(std::int32_t id, bool force) {
     cur_ = s;
     pc_ = std::size_t(s->code_off) / 4;
     wait_ = 0;
+    end_yield_ = false;
     return true;
 }
 
@@ -152,7 +153,11 @@ bool AsoVm::step(std::size_t& pc) {
     auto target = [&]() -> std::size_t { return base + std::size_t(c[pc + 1]); };
 
     switch (op) {
-        case 0x01:  // end
+        case 0x01:  // end: FUN_004472e0 advances the pc BEFORE dispatch, so `end` consumes
+                    // itself and yields the tick; the next tick finds the pc at the
+                    // section's length and chains to the queued follow-on.
+            pc = pc + 1;
+            end_yield_ = true;
             return false;
         case 0x03:  // jmp
             pc = target();
@@ -327,12 +332,25 @@ void AsoVm::tick() {
     if (!ok()) return;
     if (wait_ > 0) { --wait_; return; }
 
+    // FUN_004472e0 (0x447470..): a pc at or past the section's length chains to the
+    // queued follow-on — [0x2a], or [0x2b] when leaving section 3 (the jump) — via the
+    // UNGATED FUN_00446620, then keeps executing the new section in the same tick.
+    if (cur_ && pc_ >= std::size_t(cur_->code_off) / 4 + std::size_t(cur_->code_len)) {
+        section_ended_ = true;
+        const std::int32_t next = section_ == 3 ? queued_jump_ : queued_;
+        if (next == section_ || !set_section(next, /*force*/true)) {
+            pc_ = std::size_t(cur_->code_off) / 4;   // missing target: restart, never stall
+            return;
+        }
+    }
+
     // Run until something yields. The bound is a runaway guard: a section with no
     // Wait on its path would otherwise spin forever.
     for (int guard = 0; guard < 4096; ++guard) {
         const std::size_t before = pc_;
         if (!step(pc_)) {
             if (wait_ > 0) { --wait_; return; }  // consumed by anime_Wait
+            if (end_yield_) { end_yield_ = false; return; }   // `end`: chain next tick
             if (pc_ == before) return;           // blocked (marker)
             // Section ran off its end. A section that means to repeat ends with a jmp
             // back to its own loop point, so falling off here means "chain to the queued

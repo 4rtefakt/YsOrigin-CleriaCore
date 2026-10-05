@@ -307,6 +307,8 @@ class AsoVm {
     bool turnable_ = true, actable_ = true, cancelable_ = false, atk_reserve_ = false;
     bool durable_ = false, untouchable_ = false, jump_enable_ = true;
     std::int32_t queued_ = 2;   // idle: [0x29]=[0x2a]=[0x2b]=2 at init (ASOVM.md §5)
+    std::int32_t queued_jump_ = 2;  // [0x2b]: the follow-on after section 3 (the jump)
+    bool end_yield_ = false;        // the last step was `end` (yield; chain next tick)
     bool section_ended_ = false;
 };
 

@@ -22,6 +22,7 @@ add_library(cleria STATIC
   src/cleria/dds.cpp
   src/cleria/sen.cpp
   src/cleria/physics.cpp
+  src/cleria/enemy_ai.cpp
   src/cleria/xso.cpp
   src/cleria/sev.cpp
   src/cleria/items.cpp
@@ -57,6 +58,10 @@ target_link_libraries(cleria-combattest PRIVATE cleria)
 # cleria-movetest — player locomotion + vertical model (src/cleria/physics_player.hpp).
 add_executable(cleria-movetest apps/cleria-movetest/main.cpp)
 target_link_libraries(cleria-movetest PRIVATE cleria)
+
+# cleria-aitest — enemy AI machinery + the M100 brain (src/cleria/enemy_ai.hpp).
+add_executable(cleria-aitest apps/cleria-aitest/main.cpp)
+target_link_libraries(cleria-aitest PRIVATE cleria)
 
 # cleria-savetest — save-codec round-trip (SAVELOAD.md; real-save read via CLERIA_REAL_SAVE).
 add_executable(cleria-savetest apps/cleria-savetest/main.cpp)
@@ -143,7 +148,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

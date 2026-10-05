@@ -51,12 +51,6 @@ inline constexpr int kAutoIdBase = 186;
 inline constexpr int kSimHz = 60;
 inline constexpr float kSimDt = 1.0f / float(kSimHz);
 
-// The enemy chase, from build/mover2d_re/MOVER2D.md [C-DIS]. An enemy ticks its AI only
-// when the player is within this distance (the engine tests d^2 >= 625 == 25^2 and does
-// animation-only beyond it); it turns toward the player at most this many radians/tick
-// (0.18 * a per-cast +0x36c we take as 1).
-inline constexpr float kEnemyActivationRadius = 25.0f;
-inline constexpr float kEnemyTurnRate = 0.18f;
 
 // Everything the spawn op (0x12c) carries. Named so the operand order stops being
 // load-bearing at call sites.
@@ -316,17 +310,9 @@ class ActorWorld : public XsoHost {
     std::vector<LocatedEffect> effects_;  // op 0x11a placements; killed by 0x119
     bool id_in_use(int id) const;
 
-    // The per-actor AI update, now LIVE for the enemy-chase case (build/mover2d_re/
-    // MOVER2D.md, [C-DIS][C-COR]). A sprite enemy within kEnemyActivationRadius of the
-    // player turns its heading toward the player at kEnemyTurnRate and advances at its
-    // ENEMYINFO move_speed. The engine's shared mover FUN_0045f4d0 does exactly this:
-    //   heading (+0x314) -> atan2(player - self), capped turn; vx=sin(h)*spd, vz=cos(h).
-    // What is NOT modelled here (honestly): the movement-mode speed scaling (0.25..1.6,
-    // unpinned for a chase), gravity/vertical (enemies are floor-snapped by the caller,
-    // which owns the geometry), collision, and the cast-specific brain beyond "approach"
-    // (attack decisions await build/attack_re/). The tick ORDER and the sweep around
-    // this are validated. Vertical is the SAME quadratic model as the player
-    // (physics_player.hpp) -- one path, FUN_0045a510, confirmed by build/player_re/.
+    // The per-actor update hook (tick ORDER + the sweep around it are validated). Enemy
+    // AI and movement are the handler's — src/cleria/enemy_ai.hpp, run by the view,
+    // which holds each enemy's animation script and the room geometry it needs.
     void update_actor(Actor& a);
 };
 

@@ -44,6 +44,7 @@
 #include "cleria/enemies.hpp"
 #include "cleria/combat.hpp"
 #include "cleria/hit.hpp"
+#include "cleria/enemy_ai.hpp"
 #include "cleria/physics.hpp"
 #include "cleria/physics_player.hpp"
 #include "cleria/surface.hpp"

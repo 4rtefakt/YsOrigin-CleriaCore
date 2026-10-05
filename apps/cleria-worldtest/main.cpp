@@ -507,10 +507,10 @@ int main(int argc, char** argv) {
               "a 0-degree (unset) facing does not override heading");
     }
 
-    // --- the enemy CHASE mover (build/mover2d_re/MOVER2D.md, speed verified) -------
-    // An enemy within 25 units turns toward the player and advances at its ENEMYINFO
-    // speed. GPU-free proof: place a player at the origin and an enemy 10 units away,
-    // tick a second, assert it closed the distance and moved at ~its sourced speed.
+    // --- enemy movement is the AI handler's, not the world's ----------------------
+    // The world used to run an invented chase (a universal 25-unit gate, turn-then-
+    // advance at walk speed). Steering and movement now live in src/cleria/enemy_ai.hpp
+    // (tested by cleria-aitest); world.step() must leave enemies where they are.
     {
         ActorWorld w(tables);
         Actor* p = w.spawn({0, kIdPlayer, {0, 0, 0}, 0, 0});
@@ -518,27 +518,10 @@ int main(int argc, char** argv) {
         if (p && e) {
             p->pos = {0, 0, 0};
             e->pos = {10, 0, 0};
-            e->yaw = 0;
-            check(e->move_speed > 0, "the enemy carries a sourced chase speed",
+            check(e->move_speed > 0, "the enemy carries its sourced walk speed",
                   std::to_string(e->move_speed) + " u/tick");
-            const float d0 = 10.0f;
-            for (int i = 0; i < 60; ++i) w.step();  // one second at 60 Hz
-            const float d1 = std::sqrt(e->pos.x * e->pos.x + e->pos.z * e->pos.z);
-            check(d1 < d0 - 0.01f, "it moved toward the player over 60 ticks",
-                  "dist " + std::to_string(d0) + " -> " + std::to_string(d1));
-            // After the brief turn-in, it advances ~move_speed/tick; over 60 ticks it
-            // closes on the order of move_speed*60 (looser bound absorbs the turn phase).
-            const float closed = d0 - d1;
-            check(closed > e->move_speed * 30.0f && closed <= e->move_speed * 61.0f,
-                  "closing rate matches the sourced speed (allowing the turn-in)",
-                  std::to_string(closed));
-            // An enemy with the player OUT of range does not move.
-            ActorWorld w2(tables);
-            Actor* p2 = w2.spawn({0, kIdPlayer, {0, 0, 0}, 0, 0});
-            Actor* e2 = w2.spawn({0, monster_cast, {100, 0, 0}, 0, 0});
-            p2->pos = {0, 0, 0}; e2->pos = {100, 0, 0};
-            for (int i = 0; i < 10; ++i) w2.step();
-            check(e2->pos.x == 100.0f, "an enemy beyond the 25-unit gate stays put");
+            for (int i = 0; i < 60; ++i) w.step();
+            check(e->pos.x == 10.0f && e->pos.z == 0.0f, "world.step() does not move enemies");
         }
     }
 

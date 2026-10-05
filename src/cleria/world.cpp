@@ -122,40 +122,12 @@ void ActorWorld::spawn_placements() {
     }
 }
 
-// The enemy chase (FUN_0045f4d0). Turn toward the player, advance at move_speed. Only
-// horizontal — the caller floor-snaps (it owns the geometry). No-op for the player, for
-// statless casts, or when there is no player / it is out of activation range.
-void ActorWorld::update_actor(Actor& a) {
-    if (!player_ || &a == player_ || !a.is_enemy() || !a.alive()) return;
-    const float dx = player_->pos.x - a.pos.x;
-    const float dz = player_->pos.z - a.pos.z;
-    const float dy = player_->pos.y - a.pos.y;
-    // The one code-traced activation gate in the engine is 3-D — it squares the Y delta
-    // alongside X and Z (FUN_004c2fb0). Testing it planar, as we did, let an enemy two
-    // floors below lock on to a player directly overhead and track them around the room.
-    const float d2 = dx * dx + dy * dy + dz * dz;
-    if (d2 >= kEnemyActivationRadius * kEnemyActivationRadius) return;  // anim-only far off
-
-    // AIM toward the player -- EVERY enemy in range, mobile or not (build/mobility_re:
-    // facing +0x314 turns independent of translation, so a rooted turret still tracks
-    // you). Heading convention matches the mover: vx = sin(h), vz = cos(h), so the
-    // target is atan2(dx, dz).
-    const float target = std::atan2(dx, dz);
-    float dyaw = target - a.yaw;
-    while (dyaw > 3.14159265358979323846f) dyaw -= 2.0f * 3.14159265358979323846f;
-    while (dyaw < -3.14159265358979323846f) dyaw += 2.0f * 3.14159265358979323846f;
-    if (dyaw > kEnemyTurnRate) dyaw = kEnemyTurnRate;
-    if (dyaw < -kEnemyTurnRate) dyaw = -kEnemyTurnRate;
-    a.yaw += dyaw;
-
-    // MOVE only if it has a chase speed. speed 0 == immobile (mechanically frozen: the
-    // engine's mover multiplies by ENEMYINFO+0x94*+0x98). Exactly 4 shipped casts are
-    // speed 0 (Normous, Nustarl, Sevnam, M990) -- they aim but never translate.
-    if (a.move_speed > 0 && a.move_scale > 0.0f) {
-        a.pos.x += std::sin(a.yaw) * a.move_speed * a.move_scale;
-        a.pos.z += std::cos(a.yaw) * a.move_speed * a.move_scale;
-    }
-}
+// The per-actor update hook. Enemy steering and movement are NOT here any more: they
+// are the AI handler's (src/cleria/enemy_ai.hpp — sight/acquisition, the brain, the
+// action player and the move primitive), which needs the actor's animation script
+// (anime_Movable) and the room geometry, so the view runs it. The old invented chase
+// (a universal 25-unit gate, turn-then-advance at walk speed) is gone.
+void ActorWorld::update_actor(Actor&) {}
 
 // FUN_004281c0, one simulation step. Player first, then the live list in spawn order
 // skipping the player, count cached so mid-step spawns wait for the next step.

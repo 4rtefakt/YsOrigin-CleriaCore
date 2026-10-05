@@ -39,4 +39,9 @@ Vec3 resolve_walls(const RoomMesh& m, Vec3 pos, float radius, float height);
 // is the actor origin (feet), so max unassisted step-up ~= radius.
 Vec3 collide_and_slide(const RoomMesh& m, Vec3 pos, Vec3 vel, float radius);
 
+// True if the segment a->b crosses any collision triangle (both faces). The engine's
+// line queries (FUN_005e9380 ray + FUN_0041e420 test) — used for enemy sight / line of
+// sight and the wall/ledge probes (src/cleria/enemy_ai.hpp).
+bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b);
+
 }  // namespace cleria

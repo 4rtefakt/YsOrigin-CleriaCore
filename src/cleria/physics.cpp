@@ -265,4 +265,28 @@ Vec3 collide_and_slide(const RoomMesh& m, Vec3 pos, Vec3 vel, float radius) {
     return pos;
 }
 
+bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b) {
+    // Moller-Trumbore against every triangle, t restricted to (0, 1).
+    const Vec3 d = sub(b, a);
+    const auto& idx = m.indices;
+    const auto& vp = m.vertices;
+    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        const Vec3 p0 = v(vp[idx[i]]), p1 = v(vp[idx[i + 1]]), p2 = v(vp[idx[i + 2]]);
+        const Vec3 e1 = sub(p1, p0), e2 = sub(p2, p0);
+        const Vec3 h = cross(d, e2);
+        const float det = dot(e1, h);
+        if (std::fabs(det) < 1e-9f) continue;
+        const float inv = 1.0f / det;
+        const Vec3 s0 = sub(a, p0);
+        const float u = dot(s0, h) * inv;
+        if (u < 0.0f || u > 1.0f) continue;
+        const Vec3 q = cross(s0, e1);
+        const float w = dot(d, q) * inv;
+        if (w < 0.0f || u + w > 1.0f) continue;
+        const float t = dot(e2, q) * inv;
+        if (t > 1e-4f && t < 1.0f - 1e-4f) return true;
+    }
+    return false;
+}
+
 }  // namespace cleria

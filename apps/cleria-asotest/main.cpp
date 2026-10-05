@@ -238,5 +238,22 @@ int main(int argc, char** argv) {
             if (!okhit) gencol_fail = 1;
         }
     }
-    return (ok == files && bad_tile == 0 && decode_err == 0 && !gencol_fail) ? 0 : 1;
+
+    // Section chaining on `end` (FUN_004472e0): Yunica's hurt section 4 is two frames
+    // (Wait 5 + Wait 4) then `end`. The engine consumes `end`, yields, and on the next
+    // tick chains to the queued follow-on (idle, 2). It must NOT hold forever — that
+    // left the player stuck in a hurt section with its i-frames frozen (2026-10-05).
+    int chain_fail = 0;
+    {
+        Aso a = Aso::load(fs::path(argv[1]) / "ANI" / "C_010.ASO");
+        if (a.ok()) {
+            AsoVm vm; vm.bind(&a); vm.set_section(4, /*force*/true);
+            int back = -1;
+            for (int t = 1; t <= 60 && back < 0; ++t) { vm.tick(); if (vm.section() == 2) back = t; }
+            const bool okc = back > 0 && back <= 14;
+            std::printf("section 4 -> 2 on `end`: %s (after %d ticks)\n", okc ? "OK" : "FAIL", back);
+            if (!okc) chain_fail = 1;
+        }
+    }
+    return (ok == files && bad_tile == 0 && decode_err == 0 && !gencol_fail && !chain_fail) ? 0 : 1;
 }

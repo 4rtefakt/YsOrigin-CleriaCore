@@ -372,6 +372,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         player.max_hp = player.hp = int(std::lround(ginfo.curves[kPlayerMaxHp].at(player.level)));
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
+    Mat4 last_vp; bool have_vp = false;  // last frame's camera, for the AI's off-screen test
+    const bool ai_debug = std::getenv("CLERIA_AI") != nullptr;
+    std::uint64_t tick_count = 0;
     std::unordered_map<int, int> atk_rehit;  // victim -> ticks until the swing may hit it again
     // Loaded game (title Load screen): flags + character must be right BEFORE the first
     // room load (chest gating reads them); stats/position are applied after the world
@@ -597,6 +600,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             e.idle_section = idle;
             e.avm.set_section(idle, /*force*/true);
             e.atk_section = enemy_atk_section[e.stem];
+            if (e.actor) {
+                if (const Enemy* er = etab.get(e.actor->cast_id))
+                    e.aip = {er->ai_turn, er->ai_base, er->ai_walk, er->ai_run, er->ai_sight};
+                e.origin_h = cast_motion(casts, e.actor->cast_id).height();
+                // Engine heading basis (cos, sin) from the actor's (sin, cos) yaw.
+                e.facing = e.ai.heading = 1.5707963f - e.actor->yaw;
+            }
         }
     };
 
@@ -1859,6 +1869,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         int ticks = 0;
         while (accum >= kTickDt) {
         accum -= kTickDt;
+        ++tick_count;
         ++ticks;
         // Tick the room's event scripts every frame (controllers poll here). If a Fix is held
         // (a talk / cutscene) the world is frozen: skip the player/enemy sim for this tick (the
@@ -2045,94 +2056,97 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // through, then floor-snap. Enemy radius uses the player's for now -- a
             // per-cast collision radius (CASTINFO+0x34) is available but not yet wired.
             if (Actor* wp = world.player()) wp->pos = feet;
-            // Enemy brains, BEFORE the chase mover so move_scale gates this frame's step.
-            // Each enemy runs its own ASO: chase until in range, then commit to its attack
-            // section (the one that arms a hit-volume), plant for the swing, and return to
-            // idle when the animation stalls into recovery. This replaces the old
-            // contact-damage stand-in with the real animated attack + scripted hitbox.
-            constexpr float kEnemyAtkReach = 1.4f;   // wind-up trigger distance (+ radius)
-            constexpr int kEnemyAtkCooldown = 40;    // ticks between an enemy's swings
-            for (EnemyRender& e : render) {
-                Actor* en = e.actor;
-                if (!en || !en->alive() || !e.avm.ok()) continue;
-                // Hurt/flinch is MOTION STATE 4 (MOTIONSTATE.md: id 4 = hurt, section type 4,
-                // which outranks an in-progress attack at type 3). There is no numeric stun
-                // counter in the engine — the stun IS the hurt clip's own length, per enemy,
-                // from its ASO. Hold here until that section ends, then fall back to idle.
-                if (e.avm.section() == 4) {
-                    en->move_scale = 0.0f;              // planted (knockback still slides it)
+            // Enemy AI — the engine's handler (src/cleria/enemy_ai.hpp): sight/acquisition,
+            // the M100 brain (approach at run speed, hold, waypoint wander, the 10-tick
+            // pre-attack hold, the 30-tick aim, section 7, a 100..139-tick cooldown), the
+            // action player and move primitive; then the sprite mover moves it along its
+            // heading at speed x anime_Movable. STAND-IN for non-M100 casts: every enemy
+            // runs the M100 brain until its own is ported (build/audit/ai_bosses.md).
+            {
+                const int d = game.g_flags[201] ? 3 : (difficulty - 2);   // -2 v.easy .. 2 nightmare
+                auto in_view = [&](const Vec3& q) {
+                    if (!have_vp) return true;
+                    const auto& m = last_vp.m;
+                    const float cx = q.x * m[0] + q.y * m[4] + q.z * m[8] + m[12];
+                    const float cy = q.x * m[1] + q.y * m[5] + q.z * m[9] + m[13];
+                    const float cz = q.x * m[2] + q.y * m[6] + q.z * m[10] + m[14];
+                    const float cw = q.x * m[3] + q.y * m[7] + q.z * m[11] + m[15];
+                    return cw > 0 && std::fabs(cx) <= cw && std::fabs(cy) <= cw && cz >= 0 && cz <= cw;
+                };
+                for (EnemyRender& e : render) {
+                    Actor* en = e.actor;
+                    if (!en || !en->alive() || !e.avm.ok()) continue;
+                    const bool hurt = e.avm.section() == 4;
+                    const bool attacking = e.atk_section >= 0 && e.avm.section() == e.atk_section;
+                    AiEnv env;
+                    env.self = {en->pos.x, en->pos.y + e.origin_h, en->pos.z};
+                    env.height = e.origin_h;
+                    env.target = {feet.x, feet.y + kOriginH, feet.z};
+                    env.target_vel = {pvel.x, 0, pvel.z};
+                    env.target_alive = player.hp >= 1;
+                    env.target_grounded = pv.grounded;
+                    env.was_hit = e.hit;
+                    env.culled = !in_view(en->pos);
+                    env.difficulty = d;
+                    env.blocked = [&](const Vec3& a0, const Vec3& b0) {
+                        return segment_blocked(phys_mesh(room), a0, b0); };
+                    env.has_floor = [&](float x, float z, float from_y, float depth) {
+                        const float f = floor_at(phys_mesh(room), x, z, from_y);
+                        return f > kNoFloor && from_y - f <= depth; };
+                    env.rng = [&] { return std::uint32_t(rng()); };
+                    e.hit = false;
+                    const AiOut o = enemy_ai_tick_m100(e.ai, e.aip, env);
+                    if (ai_debug && (tick_count % 60) == 0)
+                        std::printf("[ai] #%d cast %d phase %d sub %d act 0x%x steer %d mode %d spd %.4f "
+                                    "dist %.2f head %.2f culled %d sec %d mov %.2f\n",
+                                    en->instance_id, en->cast_id, e.ai.phase, e.ai.sub, e.ai.action,
+                                    e.ai.steer, e.ai.mode, e.ai.speed, e.ai.dist, e.ai.heading,
+                                    int(env.culled), e.avm.section(), e.avm.movable());
+                    // Strike: the brain's FUN_00446550(7,0) — a priority-gated request.
+                    if (o.attack && !hurt && e.atk_section >= 0 && e.avm.set_section(e.atk_section)) {
+                        e.atk_dx = std::cos(e.facing);
+                        e.atk_dz = std::sin(e.facing);
+                        e.atk_hit = false; e.atk_stall = 0; e.atk_fkey = -1;
+                        e.atk_armed = false; e.atk_age = 0;
+                    }
+                    // Locomotion section on a mode change (FUN_0045f4d0, gated, movable != 0).
+                    const int loco = enemy_loco_section(e.ai, true);
+                    if (loco != e.loco && e.avm.movable() != 0.0f) {
+                        e.loco = loco;
+                        if (!hurt && !attacking) e.avm.set_section(loco);
+                    }
+                    // Move along the heading (grounded snap) and turn the visible facing.
+                    const float spd = enemy_move_speed(e.ai, e.avm.movable());
+                    en->pos.x += std::cos(e.ai.heading) * spd;
+                    en->pos.z += std::sin(e.ai.heading) * spd;
+                    e.facing = enemy_turn_facing(e.facing, e.ai.heading, e.ai.mode == 2);
+                    en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
                     e.avm.set_is_land(true);
                     e.avm.tick();
-                    if (e.avm.section_ended()) {
-                        e.avm.set_section(e.idle_section, /*force*/true);
-                        e.atk_cd = kEnemyAtkCooldown;   // no instant retaliation
-                    }
-                    continue;
-                }
-                if (e.atk_cd > 0) --e.atk_cd;
-                const float dx = feet.x - en->pos.x, dz = feet.z - en->pos.z;
-                const float dist2 = dx * dx + dz * dz;
-                const bool attacking = e.atk_section >= 0 && e.avm.section() == e.atk_section;
-                // Gates the M100 melee brain applies before it may commit an attack
-                // (build/ai_re/eai1_out.txt): a DIFFERENT-FLOOR check and a FACING CONE.
-                // Without them an enemy swings at a player standing on a balcony above it or
-                // directly behind it, which is what let hits land through floors and fences.
-                const float vsep = feet.y - en->pos.y;
-                const bool other_floor = vsep >= 2.0f;              // DAT_006bd580 = 2.0
-                const float dl = std::sqrt(dist2);
-                const bool in_front = dl <= 1e-4f ||                // DAT_006bcff0 = 0.001
-                    (std::sin(en->yaw) * dx + std::cos(en->yaw) * dz) / dl >= 0.001f;
-                if (!attacking) {
-                    // Attack range is centre-to-centre dist^2 <= 2.5 (DAT_006bd624), i.e.
-                    // 1.5811 units — the enemy radius is NOT added.
-                    const float reach = 1.5811f;
-                    if (e.atk_section >= 0 && e.atk_cd <= 0 && dist2 < reach * reach &&
-                        !other_floor && in_front &&
-                        e.avm.set_section(e.atk_section, /*force*/true)) {
-                        e.atk_dx = dl > 1e-4f ? dx / dl : std::sin(en->yaw);
-                        e.atk_dz = dl > 1e-4f ? dz / dl : std::cos(en->yaw);
+                    if (hurt && e.avm.section_ended()) e.avm.set_section(e.idle_section, /*force*/true);
+                    // Drain any bullet this enemy's script fired (facing basis: x=sin/z=cos of yaw).
+                    spawn_bullets(e.avm, en->pos, {std::sin(en->yaw), 0, std::cos(en->yaw)},
+                                  /*from_player*/false);
+                    // Its GenerateCollision arms the enemy's hit-volume, with the section's own
+                    // radius/lifetime/power/knock.
+                    if (e.avm.armed_hitbox()) {
+                        e.hb = e.avm.hitbox();
+                        e.atk_win = e.hb.lifetime > 0 ? e.hb.lifetime : 1;
                         e.atk_hit = false;
-                        e.atk_stall = 0;
-                        e.atk_fkey = -1;
-                        e.atk_armed = false;
-                        e.atk_age = 0;
-                        en->move_scale = 0.0f;
-                    } else {
-                        en->move_scale = 1.0f;   // chase
+                        e.atk_armed = true;
                     }
-                } else {
-                    en->move_scale = 0.0f;       // planted through the swing
-                }
-                e.avm.set_is_land(true);
-                e.avm.tick();
-                // Drain any bullet this enemy's script fired. Its facing is x=sin/z=cos of the
-                // actor yaw, the same basis the spawn geometry uses.
-                spawn_bullets(e.avm, en->pos, {std::sin(en->yaw), 0, std::cos(en->yaw)},
-                              /*from_player*/false);
-                // Its GenerateCollision arms the enemy's hit-volume, with the section's own
-                // radius/lifetime/power (M_100: frame 26, radius 1.0).
-                if (e.avm.armed_hitbox()) {
-                    e.hb = e.avm.hitbox();
-                    e.atk_win = e.hb.lifetime > 0 ? e.hb.lifetime : 1;
-                    e.atk_hit = false;
-                    e.atk_armed = true;
-                }
-                // Release the swing. A wind-up can hold a single frame for many ticks
-                // BEFORE the hit fires (M_100 holds frame 2 for 12 ticks, then arms at
-                // tick 26), so a bare stall would end the attack before it ever hit —
-                // only release once the hit-volume has fired and its window is spent and
-                // the animation has stalled into recovery. The age cap is a safety net
-                // for a section that somehow never arms.
-                if (e.avm.section() == e.atk_section) {
-                    ++e.atk_age;
-                    const long fk = (long(e.avm.anim_tag()) << 20) ^ e.avm.frame();
-                    e.atk_stall = (fk == e.atk_fkey) ? e.atk_stall + 1 : 0;
-                    e.atk_fkey = fk;
-                    const bool recovered = e.atk_armed && e.atk_win <= 0 && e.atk_stall >= 8;
-                    if (recovered || e.atk_age >= 180) {
-                        e.avm.set_section(e.idle_section, /*force*/true);
-                        e.atk_cd = kEnemyAtkCooldown;
-                        en->move_scale = 1.0f;
+                    // Release a swing that holds its last frame (attack sections jmp-hold):
+                    // once the box has fired, its window is spent and the clip has stalled.
+                    if (e.avm.section() == e.atk_section) {
+                        ++e.atk_age;
+                        const long fk = (long(e.avm.anim_tag()) << 20) ^ e.avm.frame();
+                        e.atk_stall = (fk == e.atk_fkey) ? e.atk_stall + 1 : 0;
+                        e.atk_fkey = fk;
+                        const bool recovered = e.atk_armed && e.atk_win <= 0 && e.atk_stall >= 8;
+                        if (recovered || e.atk_age >= 180) {
+                            e.avm.set_section(e.idle_section, /*force*/true);
+                            e.loco = -1;
+                        }
                     }
                 }
             }
@@ -2170,6 +2184,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (died) return;                       // death is handled by the caller
                 for (EnemyRender& er : render) {
                     if (er.actor != &en || !er.avm.ok()) continue;
+                    er.hit = true;                      // +0x3bc & 4: wakes an unaware enemy
                     if (enemy_flinch_state(dmg, false, rtype, er.avm.durable(), er.avm.section()) == 4) {
                         er.avm.set_section(4, /*force*/ er.avm.section() == 4);
                         er.atk_win = 0; er.atk_armed = false; er.atk_age = 0;
@@ -2344,6 +2359,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const bool died = player.hp < 1;              // the engine's test is < 1.0
                 const PlayerReaction re = player_reaction(dmg, float(player.max_hp), rtype, died,
                                                           avm.durable(), avm.section());
+                if (ai_debug)
+                    std::printf("[hurt] dmg %d state %d grant %d pif %d psec 0x%x\n", dmg,
+                                re.motion_state, re.iframes, player_iframes, avm.section());
                 if (re.iframes > 0) player_iframes = std::max(player_iframes, re.iframes);
                 if (re.motion_state >= 0 && re.motion_state != 5) avm.set_section(re.motion_state);
                 if (re.face_attacker)
@@ -2377,6 +2395,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     continue;
                 }
                 --e.atk_win;
+                if (ai_debug && en)
+                    std::printf("[swing] #%d win %d hit %d pif %d psec 0x%x box(%.2f,%.2f r%.2f) "
+                                "dir(%.2f,%.2f) d_player %.2f\n", en->instance_id, e.atk_win,
+                                int(e.atk_hit), player_iframes, avm.section(),
+                                en->pos.x + e.atk_dx * e.hb.radius, en->pos.z + e.atk_dz * e.hb.radius,
+                                e.hb.radius, e.atk_dx, e.atk_dz,
+                                std::sqrt((feet.x - en->pos.x) * (feet.x - en->pos.x) +
+                                          (feet.z - en->pos.z) * (feet.z - en->pos.z)));
                 if (!en || !en->alive() || en->atk <= 0 || e.atk_hit || player_iframes > 0)
                     continue;
                 // The swing's box sits hb.radius ahead of the enemy in its latched heading.
@@ -2642,7 +2668,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
         const float rad = room_diag(room);
         update_fog(room, fly ? cam.pos : feet, dt);
-        write_mvp(g, cam.view_proj(float(cw) / float(ch), rad * 0.01f, rad * 8.0f));
+        last_vp = cam.view_proj(float(cw) / float(ch), rad * 0.01f, rad * 8.0f);
+        have_vp = true;
+        write_mvp(g, last_vp);
         draw(g, room, view, depth);
         // Character billboard (play mode only; fly is a free debug camera). Draw the floor
         // shadow first, on the actual floor under the player (so it stays put during a jump).

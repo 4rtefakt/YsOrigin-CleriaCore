@@ -163,6 +163,13 @@ struct EnemyRender {
     int atk_stall = 0;
     bool atk_armed = false; // the swing's hit-volume has fired this attack
     int atk_age = 0;        // ticks in the current attack (hard-cap fallback)
+    // The AI handler's state (src/cleria/enemy_ai.hpp) and this cast's ENEMYINFO row.
+    EnemyAi ai;
+    EnemyAiParams aip;
+    float facing = 0;       // +0x314, the visible facing, ENGINE basis (cos, sin)
+    int loco = -1;          // last locomotion section requested (table 0x69ba48)
+    bool hit = false;       // landed hit this tick (+0x3bc & 4), read by the next AI tick
+    float origin_h = 1.075f;  // +0x324: this cast's origin height above its floor
 };
 
 // Populate an ActorWorld the way the engine does (build/roomload_re/ROOMLOAD.md,
