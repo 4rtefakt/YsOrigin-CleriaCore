@@ -71,6 +71,8 @@ struct EnemyAi {
     // Outside the block.
     float heading = 0;     // +0x308, ENGINE basis: direction (cos, sin) in (x, z)
     float speed = 0;       // +0x30c
+    float alpha = 1;       // +0x4d8: sprite opacity (brains that fade, e.g. M390)
+    bool hittable = true;  // +0x60 & 0x80: hit tests and body push skip the actor when clear
     int w_type = 0;        // +0x424: wander type (0 wander, 1 stand)
     int w_phase = 1;       // +0x428
     int w_timer = 0;       // +0x42c
@@ -101,6 +103,12 @@ struct AiEnv {
     bool diff_easy = false;      // DAT_0076bb58 = g_flags[143]: easy OR very easy
     bool diff_very_easy = false; // DAT_0076bc48: very easy (set together with bb58)
     int pool_count = 0;          // DAT_0073009c: live actors in the GoActor pool
+    int target_section = -1;     // the player's ASO section (P+0x994)
+    float target_heading = 0;    // the player's heading (P+0x308), engine basis (cos, sin)
+    bool turnable = true;        // this actor's ASO anime_Turnable (+0x9d3)
+    // This actor's ASO section priority ("type") by id, or -1 if it has no such section —
+    // what FUN_00446550 compares, so a brain can tell whether its request is accepted.
+    std::function<int(int)> section_type;
     std::function<bool(const Vec3&, const Vec3&)> blocked;   // segment hits collision
     std::function<bool(float x, float z, float from_y, float depth)> has_floor;
     std::function<std::uint32_t()> rng;  // one xorshift128 advance; returns the new word
@@ -112,11 +120,14 @@ struct AiSpawn {
     float hp = -1;            // the child's HP (+0x98); < 0 = its cast's own max
     bool exp_copy = false;    // the child's EXP (+0xb0) = the parent's, after AiOut::exp_scale
 };
+// An EF2 effect a brain spawns at a point (the inlined pool-pop + FUN_00451a40 pattern).
+struct AiEffect { int id = 0; Vec3 pos{}; float scale = 1; bool attach = false; };
 struct AiOut {
     int section = -1;            // FUN_00446550(section, 0): a priority-GATED request
     bool section_force = false;  // FUN_00446620: ungated
     std::vector<AiSpawn> spawns; // FUN_00476d70 / FUN_00475710 style spawns (cast ids)
-    std::vector<int> sounds;     // EFFECTDEF ids
+    std::vector<int> sounds;     // EFFECTDEF ids, played at the actor (FUN_0043a080)
+    std::vector<AiEffect> effects;
     float set_hp = -1;           // the brain wrote its own HP (+0x98); < 0 = untouched
     float exp_scale = 1;         // x its own EXP reward (+0xb0)
     // Back-compat for the M100 path: true when the request is the cast's attack.
@@ -168,6 +179,12 @@ void wander(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);         // FUN_
 void idle(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);           // FUN_00478470
 void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);  // FUN_00479b00
 void init(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);         // FUN_004782f0
+// FUN_005eec50: norm(a) - norm(h) (FUN_005ef010, into [0, 2pi]) wrapped into [-pi, pi].
+double angle_diff(float h, float a);
+// FUN_00446550(id, no_restart) as the brain sees it: accepted unless the section is
+// missing, already current with no_restart, or of lower priority than the current one.
+// On acceptance `cur` becomes id (FUN_00446620 updates +0x994 at once).
+bool request(int& cur, int id, bool no_restart, const AiEnv& e);
 }  // namespace ai
 
 }  // namespace cleria

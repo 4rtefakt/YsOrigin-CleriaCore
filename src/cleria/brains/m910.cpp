@@ -18,20 +18,6 @@
 #include "cleria/brains/brains.hpp"
 
 namespace cleria::brains {
-namespace {
-
-// FUN_005eec50: norm(ang) - norm(heading), each into [0, 2pi), then wrapped to (-pi, pi].
-double angle_diff(float heading, float ang) {
-    constexpr double k2Pi = 6.2831854820251465, kPi = 3.141592653589793;
-    auto norm = [&](double v) { v = std::fmod(v, k2Pi); return v < 0 ? v + k2Pi : v; };
-    double d = norm(ang) - norm(heading);
-    if (d < 0 && d < -kPi) d += k2Pi;
-    else if (d > kPi) d -= k2Pi;
-    return d;
-}
-
-}  // namespace
-
 AiOut m910(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     using ai::r15;
     AiOut out;
@@ -71,7 +57,7 @@ AiOut m910(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 if (r15(e) % 1000u < 100u) {
                     const Vec3 to = a.v(0x734);
                     const float ang = float(std::atan2(double(to.z), double(to.x)));
-                    if (0.785398185 > std::fabs(angle_diff(a.heading, ang))) {
+                    if (0.785398185 > std::fabs(ai::angle_diff(a.heading, ang))) {
                         out.section = 7;                           // lunge; may be refused
                         out.attack = true;
                         a.dur() = 60;

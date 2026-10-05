@@ -14,6 +14,10 @@ AiOut m100(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047adf0 Riff
 AiOut m130(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047bae0 Selnarg
 AiOut m150(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047c5d0 Normous (turret)
 AiOut m910(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ec790 Nooze (splits)
+AiOut m180(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047cfd0 Wilewarer (guards)
+AiOut m390(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047f6a0 Baocar (warp mage)
+AiOut m490(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00481940 Sopus-Baocar (bomb rings)
+AiOut m970(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ca1a0 Vagully (lone bat)
 AiOut m480(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00480f50 Nustarl (turret)
 
 }  // namespace cleria::brains

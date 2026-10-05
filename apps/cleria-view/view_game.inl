@@ -2102,6 +2102,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     env.diff_easy = difficulty <= 1;
                     env.diff_very_easy = difficulty == 0;
                     env.pool_count = pool;
+                    env.target_section = avm.section();
+                    env.target_heading = std::atan2(face_dir.z, face_dir.x);
+                    env.turnable = e.avm.turnable();
+                    const Aso* escr = enemy_script(e.stem);
+                    env.section_type = [escr](int id) {
+                        const Aso::Section* s = escr ? escr->find(id) : nullptr;
+                        return s ? int(s->type) : -1; };
                     env.blocked = [&](const Vec3& a0, const Vec3& b0) {
                         return segment_blocked(phys_mesh(room), a0, b0); };
                     env.has_floor = [&](float x, float z, float from_y, float depth) {
@@ -2117,6 +2124,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (o.set_hp >= 0) en->hp = o.set_hp;
                     en->exp_reward *= o.exp_scale;
                     for (const AiSpawn& s : o.spawns) brain_spawns.push_back({en, s});
+                    for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
+                    // [not modelled] attachment to the actor (FUN_00451c20) and the scale.
+                    for (const AiEffect& fx : o.effects)
+                        world.locate_effect(fx.id, fx.pos.x, fx.pos.y, fx.pos.z, 0.0f, 0.0f, "");
                     pool += int(o.spawns.size());
                     if (ai_debug && (tick_count % 60) == 0)
                         std::printf("[ai] #%d cast %d phase %d sub %d act 0x%x steer %d mode %d spd %.4f "
@@ -2130,7 +2141,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     // this kind's guessed attack section.
                     const int want = (!own && o.section == 7 && e.atk_section >= 0) ? e.atk_section : o.section;
                     if (o.section >= 0 && !hurt && e.avm.set_section(want, o.section_force)) {
-                        if (own) e.atk_section = want;
+                        if (own && o.attack) e.atk_section = want;
                         e.atk_dx = std::cos(e.facing);
                         e.atk_dz = std::sin(e.facing);
                         e.atk_hit = false; e.atk_stall = 0; e.atk_fkey = -1;
@@ -2254,6 +2265,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 int killed = 0, broke = 0;
                 for (Actor& en : world.actors()) {
                     if (en.is_player() || !en.alive() || atk_rehit.count(en.instance_id)) continue;
+                    const EnemyRender* vr = nullptr;
+                    for (const EnemyRender& er : render) if (er.actor == &en) { vr = &er; break; }
+                    if (vr && !vr->ai.hittable) continue;            // +0x60 & 0x80 clear
                     const float dx = en.pos.x - c.x, dz = en.pos.z - c.z;
                     const float ddy = (en.pos.y + kCharH * 0.5f) - c.y;
                     if (dx * dx + ddy * ddy + dz * dz > rr * rr) continue;
@@ -2265,8 +2279,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     for (int k = 0; k < 4; ++k) vd.resist[k] = en.resist[k];
                     PlayerDamageMods mods;
                     mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                    const int dmg = enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                    int dmg = enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
+                    // The guard (FUN_004fbb40): a victim in section 6 facing the swing blocks it.
+                    if (vr && vr->avm.ok() &&
+                        guard_blocks(en.cast_id, vr->avm.section() == 6, vr->avm.durable(), atk_hb.rtype,
+                                     vr->facing, std::atan2(atk_dir.z, atk_dir.x)))
+                        dmg = 0;
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
                     if (dmg > 0) add_boost(300.0f);  // +300 per hit dealt (0x4fd0bf, DAT_006bdc44)
                     // Knockback: L = walk speed (CASTINFO+0x48) x1.7 [x run mult while running —

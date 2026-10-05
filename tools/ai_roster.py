@@ -7,7 +7,8 @@ Chain (all read from the shipped data + the exe, nothing hand-entered):
   room SCT placements + XSO op 0x12c spawns   -> cast id
   CASTINFO +0x64                              -> AI index (actor +0x120)
   dispatch table 0x69b8c0[idx]                -> handler (FUN_0045a2f0 jmp)
-  the call right before `call 0x479b00` in it -> the cast's brain
+  the last call before `call 0x479b00` in it
+  that no other handler makes             -> the cast's brain
 Area order is the MAP/S_xx folder order (S_10 = the tower's first section, ...).
 """
 import os
@@ -39,18 +40,46 @@ def handler_of(ai_idx):
     return struct.unpack("<I", read(0x69B8C0 + ai_idx * 4, 4))[0]
 
 
-def brain_of(handler):
-    """The last direct call before `call 0x479b00` (the action player)."""
-    prev = None
+def calls_before_action_player(handler):
+    """Direct call targets before `call 0x479b00` (the action player), in order."""
+    out = []
     for ins in md.disasm(read(handler, 0x900), handler):
         if ins.mnemonic == "call" and ins.op_str.startswith("0x"):
             tgt = int(ins.op_str, 16)
             if tgt == 0x479B00:
-                return prev
-            prev = tgt
+                return out
+            out.append(tgt)
         if ins.mnemonic == "ret":
             break
-    return None
+    return out
+
+
+_shared = None
+
+
+def shared_helpers():
+    """Targets called (before the action player) by 2+ distinct handlers: shared machinery
+    such as FUN_0047aa80 (the player-dead helper), never a cast's own brain."""
+    global _shared
+    if _shared is None:
+        users = defaultdict(set)
+        for i in range(94):
+            h = handler_of(i)
+            if h:
+                for t in calls_before_action_player(h):
+                    users[t].add(h)
+        _shared = {t for t, hs in users.items() if len(hs) > 1}
+    return _shared
+
+
+def brain_of(handler):
+    """The handler's own brain: the last call before the action player that no other
+    handler makes. (Taking simply the last call mis-picks when a shared helper is called
+    after the brain — M460's handler calls FUN_0047aa80 there; its brain is FUN_004c7020.)
+    A handler that dispatches between two brains (M970: phase 4 -> FUN_004ca830, else
+    FUN_004ca1a0) has both; the last is reported."""
+    own = [t for t in calls_before_action_player(handler) if t not in shared_helpers()]
+    return own[-1] if own else None
 
 
 def main():

@@ -98,6 +98,34 @@ inline int enemy_incoming_damage(const AttackStats& a, int dmg_class, const Enem
 // [not modelled yet] the 1/30 accessory block (0x76a624 & 0x200) and the per-character
 // skill guards (Yunica/Toal spend 500 MP to block in their guard states, else x0.75;
 // Hugo's shield charges +0x7c0/+0x7e0) — 0x4fd5a2..0x4fdab3.
+// The guard/deflect test of FUN_004fbb40 (0x4fbf77..0x4fc028): a victim that is guarding
+// (byte +0x399, or ASO section 6) takes 0 damage from a hit whose reaction byte (+0x108,
+// GenerateCollision arg[9]) is <= 1 when its visible facing (+0x314) lies within
+// arc/2 of the direction back toward the attacker: |wrap(norm(facing) - norm(angle + pi))|
+// < arc * 0.5 * pi/180, arc 150 (0x6bdb6c). Casts 0x49, 0xa7, 0xac, 0xb8 (and 0xad while
+// Durable) block every reaction type, all round (arc 360). The hit still lands
+// (+0x3bc |= 4) — only bit 2 (damage) is missing, which brains read as "blocked".
+// `hit_angle` is the record's +4 float; that it is the ATTACKER'S FACING (the XMM3 =
+// +0x314 FUN_004fed50 receives) is [INFERRED], not traced to the write.
+inline bool guard_blocks(int victim_cast, bool guarding, bool victim_durable, int rtype,
+                         float victim_facing, float hit_angle) {
+    if (!guarding) return false;
+    const bool all_round = victim_cast == 0x49 || victim_cast == 0xa7 || victim_cast == 0xac ||
+                           victim_cast == 0xb8 || (victim_cast == 0xad && victim_durable);
+    if (std::uint8_t(rtype) > 1 && !all_round) return false;
+    constexpr float k2Pi = 6.2831855f, kPi = 3.1415927f;
+    auto norm = [&](float x) {                                 // FUN_005ef010
+        if (x > k2Pi) return float(std::fmod(double(x), double(k2Pi)));
+        if (x < 0) return float(std::fmod(double(x), double(k2Pi))) + k2Pi;
+        return x;
+    };
+    float d = norm(victim_facing) - norm(hit_angle + kPi);
+    if (d < 0) { if (d < -kPi) d += k2Pi; }
+    else if (d > kPi) d -= k2Pi;
+    const float arc = all_round ? 360.0f : 150.0f;
+    return arc * 0.5f * 0.017453292f > std::fabs(d);
+}
+
 inline int player_damage_after_boost(int dmg, bool boosting) {
     return boosting ? int(float(dmg) * 0.5f) : dmg;
 }

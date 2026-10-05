@@ -333,6 +333,212 @@ int main() {
         }
     }
 
+    // ---- M180 Wilewarer (build/ai_spec/M180.md) ----
+    {
+        const EnemyBrain m180 = enemy_brain_for(11);
+        check(m180 != nullptr, "Wilewarer brain registered (AI index 11)");
+        const EnemyAiParams wp = params(0.11f, 0.042f, 1.0f, 2.0f, 0.0f);
+        // M_180.ASO priorities: 0..3 = 2, 4/5 = 4, 6 = 2, 7 = 3, 300 = 2, 315 = 4.
+        auto prio = [](int id) {
+            switch (id) { case 0: case 1: case 2: case 3: case 6: case 300: return 2;
+                          case 7: return 3; case 4: case 5: case 315: return 4; default: return -1; }
+        };
+        struct W { Rig r; EnemyAi ai; AiOut o; };
+        // Engaged 3u in front (+X), facing the player; the player faces back (-X).
+        auto setup = [&](W& w, int psec, float pheading) {
+            w.r.env.section_type = prio;
+            w.r.env.section = 2;
+            w.r.env.target = {3.0f, 1.075f, 0};
+            w.r.env.target_section = psec;
+            w.r.env.target_heading = pheading;
+            for (int i = 0; i < 2; ++i) enemy_ai_tick(w.ai, wp, w.r.env, m180);   // init, acquire
+        };
+        auto tick = [&](W& w) {
+            w.o = enemy_ai_tick(w.ai, wp, w.r.env, m180);
+            if (w.o.section >= 0) w.r.env.section = w.o.section;      // the request lands
+            w.r.env.was_hit = w.r.env.took_damage = false;
+        };
+        const float pi = 3.14159265f;
+        {
+            W w; setup(w, 0x100, pi);
+            tick(w);
+            check(w.o.section == 6 && w.ai.action() == 2 && w.ai.dur() == 59,
+                  "player swinging (0x100) in 5u, face to face: guard (section 6, 60 ticks)");
+        }
+        {
+            W w; setup(w, 0x100, 0.0f);       // the player faces away from it
+            bool g = false;
+            for (int t = 0; t < 60; ++t) { tick(w); g |= w.o.section == 6; }
+            check(!g, "player facing away: never guards (needs it within +/-45 deg)");
+        }
+        {   // An excluded player section (0x109): only the 3% random guard remains.
+            int guards = 0;
+            for (int s = 0; s < 200; ++s) {
+                W w; for (int i = 0; i < s; ++i) w.r.rng();
+                setup(w, 0x109, pi);
+                tick(w);
+                guards += w.o.section == 6;
+            }
+            std::printf("[ai]   M180 guards vs section 0x109: %d / 200\n", guards);
+            check(guards < 20, "excluded player section 0x109: no reactive guard (random ~3% only)");
+        }
+        {   // Blocked hits: 3 on Normal (bb5c 0) break the guard -> 300, lockout 60.
+            W w; setup(w, 0x100, pi);
+            tick(w);
+            int broke = -1;
+            for (int t = 0; t < 3 && broke < 0; ++t) {
+                w.r.env.was_hit = true;                                   // landed, no damage
+                tick(w);
+                if (w.o.section == 300) broke = t;
+            }
+            check(broke == 2 && w.ai.i(0x72c) == 59 && w.ai.i(0x878) == 0,
+                  "3 blocked hits (Normal) break the guard: section 300, 60-tick lockout");
+        }
+        {   // Hard (bb5c 1): 4 blocks; lockout 40.
+            W w; w.r.env.diff_index = 1; setup(w, 0x100, pi);
+            tick(w);
+            int n = 0, broke = -1;
+            for (int t = 0; t < 5 && broke < 0; ++t) { w.r.env.was_hit = true; tick(w); ++n; if (w.o.section == 300) broke = n; }
+            check(broke == 4 && w.ai.i(0x72c) == 39, "Hard: 4 blocks, 40-tick lockout");
+        }
+        {   // The guard times out 60 ticks after the player stops qualifying.
+            W w; setup(w, 0x100, pi);
+            tick(w);
+            w.r.env.target_section = 2;       // stops swinging
+            w.r.env.target_heading = 0.0f;    // and turns away (no random guard either)
+            int broke = -1;
+            for (int t = 0; t < 80 && broke < 0; ++t) { tick(w); if (w.o.section == 300) broke = t; }
+            std::printf("[ai]   M180 guard timeout after %d ticks\n", broke);
+            check(broke >= 58 && broke <= 61, "guard breaks on its 60-tick timer");
+        }
+        {   // The strike: 22% a tick in 4u, +/-45 deg; hold 132 (142 Easy), cool + 20..39.
+            W w; setup(w, 2, 0.0f);
+            int at = -1;
+            for (int t = 0; t < 200 && at < 0; ++t) { tick(w); if (w.o.section == 7) at = t; }
+            check(at >= 0 && w.o.attack && w.ai.dur() == 131 && w.ai.cool() >= 151 && w.ai.cool() <= 170,
+                  "strike: section 7, hold 132, cooldown 152..171");
+            W e; e.r.env.diff_easy = true; setup(e, 2, 0.0f);
+            int ate = -1;
+            for (int t = 0; t < 200 && ate < 0; ++t) { tick(e); if (e.o.section == 7) ate = t; }
+            check(ate >= 0 && e.ai.dur() == 141, "Easy: hold 142");
+            W far; setup(far, 2, 0.0f); far.r.env.target = {3.0f, 3.5f, 0};   // 2.4 above, grounded
+            bool hit = false;
+            for (int t = 0; t < 200; ++t) { tick(far); hit |= far.o.section == 7; }
+            check(!hit, "player 2+ above and grounded: no strike");
+        }
+    }
+
+    // ---- M390 Baocar (build/ai_spec/M390.md) ----
+    {
+        const EnemyBrain m390 = enemy_brain_for(32);
+        check(m390 != nullptr, "Baocar brain registered (AI index 32)");
+        EnemyAiParams bp = params(0.095f, 0.0335f, 2.0f, 4.0f, 1.2f);
+        bp.raw[9] = 0.005f; bp.raw[10] = 0.02f;                 // EI+0xb4/+0xb8 climb/descend
+        Rig r; EnemyAi ai;
+        r.env.target = {6.0f, 1.075f, 0};                       // within 8u: acquired at once
+        r.env.target_heading = 3.14159265f;                     // the player faces -X (toward it)
+        enemy_ai_tick(ai, bp, r.env, m390);
+        check(ai.alpha == 0.0f && !ai.hittable, "spawns invisible and unhittable");
+        int dash_tick = -1, appear = -1, visible = -1, cast = -1, fx = 0, snd = 0;
+        float dash_speed = 0, wp_ahead = 0;
+        for (int t = 0; t < 600 && cast < 0; ++t) {
+            const AiOut o = enemy_ai_tick(ai, bp, r.env, m390);
+            fx += int(o.effects.size()); snd += int(o.sounds.size());
+            if (dash_tick < 0 && ai.i(0x72c) == 13) {
+                dash_tick = t; dash_speed = ai.f(0x818);
+                wp_ahead = r.env.target.x - ai.v(0x894).x;      // in front of a -X-facing player
+            }
+            if (appear < 0 && ai.i(0x730) == 201) appear = t;
+            if (visible < 0 && ai.alpha == 1.0f) visible = t;
+            if (o.section == 7) cast = t;
+        }
+        std::printf("[ai]   M390 dash@%d appear@%d visible@%d cast@%d fx %d snd %d\n",
+                    dash_tick, appear, visible, cast, fx, snd);
+        check(dash_tick >= 0 && std::fabs(dash_speed - 0.0335f * 4.0f) < 1e-6f,
+              "invisible within 15u: dash at base x4");
+        check(wp_ahead >= 4.0f && wp_ahead <= 6.0f + 1.0f, "dash target 4..7 u IN FRONT of the player");
+        check(appear > dash_tick + 25 && visible - appear >= 58 && visible - appear <= 61,
+              "after the 20-tick dash + 10-tick stop: a 60-tick fade-in");
+        check(fx == 2 && snd == 1, "fade-in start: effects 270 + 269 and SE 464, once");
+        check(cast > visible + 59, "holds (4-d)*15 = 60 after appearing, then may cast");
+        check(cast < 0 || (ai.dur() == 89 && ai.cool() >= 119 && ai.cool() <= 138),
+              "cast: section 7, action 90 (Normal), cooldown +30..49");
+    }
+
+    // ---- M490 Sopus-Baocar (build/ai_spec/M490.md) ----
+    {
+        const EnemyBrain m490 = enemy_brain_for(42);
+        check(m490 != nullptr, "Sopus-Baocar brain registered (AI index 42)");
+        EnemyAiParams sp = params(0.095f, 0.0335f, 2.0f, 4.0f, 1.2f);
+        sp.raw[9] = 0.005f; sp.raw[10] = 0.02f;
+        // Close (3u): appears, then the bomb dance (section 8) with rings in its marker-1 window.
+        Rig r; EnemyAi ai;
+        r.env.target = {3.0f, 1.075f, 0};
+        r.env.target_heading = 3.14159265f;
+        int sec8 = -1, rings = 0, bombs = 0, ring_ticks[8] = {}, snd = 0;
+        float hover_up = 0;
+        for (int t = 0; t < 700; ++t) {
+            const AiOut o = enemy_ai_tick(ai, sp, r.env, m490);
+            if (o.section == 8 && sec8 < 0) { sec8 = t; r.env.section = 8; hover_up = ai.f(0x834); }
+            if (sec8 >= 0 && t >= sec8 + 84) r.env.aso_marker = 1;        // the section's window
+            if (sec8 >= 0 && t >= sec8 + 180) r.env.aso_marker = 2;
+            int b = 0;
+            for (const AiEffect& f : o.effects) b += f.id == 0x10b;
+            if (b) { if (rings < 8) ring_ticks[rings] = t; ++rings; bombs += b; }
+            for (int s : o.sounds) snd += s == 0x1b5;
+        }
+        std::printf("[ai]   M490 section 8 @%d, rings %d (bombs %d) at %d, %d, %d\n",
+                    sec8, rings, bombs, ring_ticks[0], ring_ticks[1], ring_ticks[2]);
+        check(sec8 >= 0 && std::fabs(hover_up - 2.7f) < 1e-5f, "under 4u: bomb dance (section 8), hover 1.2 + 1.5");
+        check(rings == 3 && bombs == 9 && snd == 9, "Normal: 3 rings x 3 bombs, SE 437 per bomb");
+        check(ring_ticks[1] - ring_ticks[0] == 30 && ring_ticks[2] - ring_ticks[1] == 30,
+              "rings every 30 ticks inside the marker-1 window");
+        check(std::fabs(ai.f(0x834) - 1.2f) < 1e-5f, "marker 2 restores the hover height");
+
+        Rig r2; EnemyAi far;                                     // 6u: disc shots (section 7)
+        r2.env.target = {6.0f, 1.075f, 0};
+        r2.env.target_heading = 3.14159265f;
+        int sec7 = -1;
+        for (int t = 0; t < 600 && sec7 < 0; ++t)
+            if (enemy_ai_tick(far, sp, r2.env, m490).section == 7) sec7 = t;
+        check(sec7 >= 0 && far.dur() == 109, "4..d+8 u: disc shot (section 7), lock 110 on Normal");
+    }
+
+    // ---- M970 Vagully, brain A (build/ai_spec/M970.md §2A) ----
+    {
+        const EnemyBrain m970 = enemy_brain_for(90);
+        check(m970 != nullptr, "Vagully brain registered (AI index 90)");
+        const EnemyAiParams vp = params(0.05f, 0.04f, 1.0f, 2.0f, 1.0f);
+        {   // Close (1.5u): always runs (0x800) and steers AWAY.
+            Rig r; EnemyAi ai; r.env.target = {1.5f, 1.075f, 0};
+            for (int t = 0; t < 4; ++t) enemy_ai_tick(ai, vp, r.env, m970);
+            const Vec3 sv = ai.v(0x748);
+            check(ai.mode() == 2 && std::fabs(ai.speed - 0.08f) < 1e-6f, "engaged: always runs at 0.04 x 2.0");
+            check(sv.x < 0, "under 2u: steers away from the target");
+        }
+        {   // 5u, level, in front: a strike every so often; never when not level.
+            Rig r; EnemyAi ai; r.env.target = {5.0f, 1.075f, 0};
+            int strikes = 0;
+            for (int t = 0; t < 300; ++t) strikes += enemy_ai_tick(ai, vp, r.env, m970).section == 7;
+            Rig r2; EnemyAi hi; r2.env.target = {5.0f, 2.2f, 0};          // 1.1 above: not level
+            int strikes2 = 0;
+            for (int t = 0; t < 300; ++t) strikes2 += enemy_ai_tick(hi, vp, r2.env, m970).section == 7;
+            std::printf("[ai]   M970 strike requests in 300 ticks: level %d, 1.1 above %d\n", strikes, strikes2);
+            check(strikes > 0 && strikes <= 20, "level, within 6u, +/-54 deg: 30% every 15th tick");
+            check(strikes2 == 0, "|dy| >= 1: never strikes");
+        }
+        {   // The high-flight coin flip every (e+16)*15 = 240 ticks on Normal.
+            Rig r; EnemyAi ai; r.env.target = {-14.0f, 1.075f, 0};      // unaware; tail still runs
+            bool high = false, reset = false;
+            for (int t = 0; t < 2000; ++t) {
+                enemy_ai_tick(ai, vp, r.env, m970);
+                high |= ai.f(0x834) == 3.0f;
+                if (t == 241) reset = ai.i(0x7a0) < 5;
+            }
+            check(reset && high, "every 240 ticks: 50% to fly high (hover 3.0)");
+        }
+    }
+
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

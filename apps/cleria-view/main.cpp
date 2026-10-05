@@ -173,6 +173,7 @@ struct VsOut {
   @location(0) uv : vec2<f32>,
   @location(1) color : vec4<f32>,
   @location(2) depth : f32,     // view-space depth for fog
+  @location(3) opacity : f32,   // characters only: 1 - nrm.x (sprites pass nx = 1 - opacity)
 };
 
 @vertex
@@ -183,6 +184,7 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
   o.uv = uv;
   o.color = color;              // baked per-vertex lighting (D3D diffuse)
   o.depth = o.clip.w;           // LH perspective: w == view-space z
+  o.opacity = 1.0 - nrm.x;      // read by fs_char only; every non-sprite user passes nx = 0
   return o;
 }
 
@@ -219,7 +221,7 @@ fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
   // Hit-flash: the vertex-colour alpha carries a white-tint amount (0 normally). The
   // room shader (fs) never reads color.a, so this channel is free for characters.
   c = mix(c, vec3<f32>(1.0, 1.0, 1.0), in.color.a);
-  return vec4<f32>(c, tc.a);
+  return vec4<f32>(c, tc.a * clamp(in.opacity, 0.0, 1.0));
 }
 
 // Floor shadow decal: pure black at the texture's alpha, NO fog (fs_char's fog would

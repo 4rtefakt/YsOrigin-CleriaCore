@@ -131,6 +131,17 @@ int main() {
     step_knockback(vel, false, false, Mover::Player);
     check(near(vel.x, 1.0f - 0.0405f), "player mover airborne: friction x0.3");
 
+    {   // Guard (FUN_004fbb40 0x4fbf77): section 6 / +0x399, rtype <= 1, +/-75 deg.
+        // Attacker faces +X (angle 0); a victim facing back at it (pi) is square on.
+        const float pi = 3.14159265f;
+        check(guard_blocks(22, true, false, 1, pi, 0.0f), "guard: facing the attacker blocks (rtype 1)");
+        check(guard_blocks(22, true, false, 0, pi + 1.2f, 0.0f), "guard: 69 deg off still inside the 150 arc");
+        check(!guard_blocks(22, true, false, 1, pi + 1.4f, 0.0f), "guard: 80 deg off is outside +/-75");
+        check(!guard_blocks(22, true, false, 2, pi, 0.0f), "guard: rtype 2 is never blocked");
+        check(!guard_blocks(22, false, false, 1, pi, 0.0f), "not guarding: no block");
+        check(guard_blocks(0xa7, true, false, 3, 0.1f, 0.0f), "cast 0xa7: blocks any rtype from (nearly) behind (arc 360)");
+    }
+
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

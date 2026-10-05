@@ -256,6 +256,28 @@ void init(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     a.initialised = true;
 }
 
+double angle_diff(float h, float a) {
+    constexpr double k2Pi = 6.2831854820251465, kPiD = 3.1415927410125732;
+    auto norm = [&](double x) {
+        if (x > k2Pi) return std::fmod(x, k2Pi);
+        if (x < 0) return std::fmod(x, k2Pi) + k2Pi;
+        return x;
+    };
+    const double d = norm(a) - norm(h);
+    if (d < 0) return d >= -kPiD ? d : d + k2Pi;
+    return d <= kPiD ? d : d - k2Pi;
+}
+
+bool request(int& cur, int id, bool no_restart, const AiEnv& e) {
+    const int t = e.section_type ? e.section_type(id) : 0;
+    if (t < 0) return false;
+    if (no_restart && cur == id) return false;
+    const int ct = e.section_type ? e.section_type(cur) : 0;
+    if (ct >= 0 && std::uint32_t(ct) > std::uint32_t(t)) return false;
+    cur = id;
+    return true;
+}
+
 }  // namespace ai
 
 AiOut enemy_ai_tick(EnemyAi& a, const EnemyAiParams& p, const AiEnv& env, EnemyBrain brain) {

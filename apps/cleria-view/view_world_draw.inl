@@ -243,6 +243,9 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // very much present — gating on alive() alone made every intro NPC invisible.
         if (!e.actor || (e.actor->is_enemy() && !e.actor->alive())) continue;
         if (!e.actor->visible) continue;   // Chr_Alpha faded it out (cutscene visibility)
+        // A brain's opacity (+0x4d8, e.g. M390's warp fades): the render submit FUN_00473540
+        // skips the actor at exactly 0; otherwise it is drawn at that opacity.
+        if (e.ai.alpha <= 0.0f) continue;
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
         EnemyFx::Kind& k = it->second;
@@ -289,7 +292,8 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (!t->tex) continue;
         // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
         const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
-        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos, flash);
+        draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos, flash,
+                       1.0f, 1.0f, 1.0f, false, e.ai.alpha);
         // Event-bound (group-1..4) enemies GLOW their marker colour, ADDED to their own sprite and
         // pulsing by |sin(phase)| — the engine's FUN_00473c60 mechanism (build/effect_re/EF2_RENDER.md
         // §B): marker ARGB, alpha = intensity, per-enemy phase. Group 1 = 0xFFE00000 (red 224). We
@@ -308,7 +312,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             // is subtle but always present.
             const float I = A * (0.45f + 0.55f * std::fabs(std::sin(phase)));               // pulsing intensity
             draw_character(g, color, depth, e.actor->pos, k.height, *t, camFwd, camPos,
-                           0.0f, mr * I, mg * I, mb * I, /*additive*/true);
+                           0.0f, mr * I, mg * I, mb * I, /*additive*/true, e.ai.alpha);
             break;
         }
     }
