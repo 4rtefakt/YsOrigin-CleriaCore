@@ -80,7 +80,7 @@ layer was validated, and the ledger for what is still a stand-in.
 | Collision hulls (`_.YMO`) | ✅ the game's authored hulls, not render geometry |
 | Footsteps (surface + cadence + audio) | ✅ hull material → surface → `f_stone0..3`, exe's tick cadence |
 | **Enemy stats / curves / levels / drops** | ✅ **externally validated: 67/68 match the monster journal** on HP/level/STR/DEF; drop tables corpus-proven |
-| **Damage formula (enemy target)** | ✅ disassembled: `ATK^0.66·(ATK − 0.98·DEF + 10 + bonus)/22.92`, probabilistic rounding, difficulty post-scaler |
+| **Damage formula (enemy target)** | ⚠️ the implemented `ATK^0.66·(ATK − 0.98·DEF + 10 + bonus)/22.92` is the boss-script branch; the player's hits use `FUN_004fa550` (resist multiplier, min 1) — see the ledger |
 | Equipment → stats | ✅ INVINFO DEF column + GAMEINFO weapon-ATK table (there is no ATK column in INVINFO) |
 | Difficulty | ✅ five settings (a 3-valued index + two booleans), effects `[C-DIS]` |
 | **XSO event VM** | ✅ flags/tests/give-item/acquire-box/compare/show-hide, **spawn `0x12c`**, **alive `0x13f`**, **barrier `0x131`** |
@@ -192,6 +192,10 @@ The exe has 6,708 functions, but **4,399 of them (66%) are not game code** — t
 body is `0040e150`–`005eeae0`: **2,097 functions, 1.74 MB**. That is the real
 denominator, and it is what the coverage metric (`tools/re_coverage.py`) measures.
 
+> **Caveat (2026-10-05 audit):** that metric counts a function as "documented" when its
+> address appears in any doc. Sampled by code size, only **~16%** of engine code is explained
+> well enough to reimplement; ~77% has a known role. See `build/audit/engine_arch.md`.
+
 We can be precise about *where* code lives because the binary's assert strings leak
 Falcom's own source tree — 37 `__FILE__` paths under
 `i:\ys_origin\...\yso_win\src\`, and the `main/` translation units are laid out **in
@@ -227,21 +231,22 @@ mistaken for facts. (Removed as they are traced and validated.)
 
 | thing | status |
 |---|---|
-| **enemy AI** | **stand-in.** Chase + ASO-driven attack; the game's ~90 bespoke C++ handlers in the `main/object` gap are not ported |
-| **melee combo chaining** | **buggy** — a swing can land as a single hit instead of chaining the full section list; the combo walk over the ASO's real attack sections needs work |
-| **hitstun / attack interrupt** | **not modelled** — hitting an enemy does not yet interrupt its attack animation |
-| **enemy reach / walk-run speed** | **our numbers still** — the base scalars are real (CASTINFO), but the final multiplier resolves through an unidentified object; deliberately not back-derived from the footstep cadence |
-| **game cursor** | **missing.** The chrome cursor/frame texture handles (`DAT_00749d68`/`60`) have no static writer — they're set by a boot pointer-walk, so identifying the texture needs a **runtime dump**, not more static RE |
-| **HUD `%3d/%3d` HP counter font** | drawn with F_MINI (font_A); the engine uses font_B, a runtime GDI glyph font we don't build yet |
-| **weapon/equipment icons in the HUD slots** | **empty.** The 4 slots resolve via a per-item texture-handle LUT, but there is no runtime inventory/equipment model to tell them what is equipped yet |
-| **EX/Boost arc fill** | **tuning open** — the sweep angle is env-tunable (`CLERIA_BOOST_START`/`SWEEP`) pending a match against the real gauge |
-| **pause-book insides** | **shells, not state.** The menu *pages* are pixel-matched, but their contents (real inventory, equip stats, topic/manual text, save slots) need a runtime game-state model that does not exist yet |
-| **equip STAT aggregation** | base `curve + weapon + armor/foot + ring` is `[C-DIS]`, but real saves carry permanent stat-boost-**seed** residuals (+1..+7) with no seed field to reproduce them |
-| **boss stats (EEX) lookup** | table cracked; **how a boss reaches its record is `[UNKNOWN]`** |
-| **damage formula (player target)** | not implemented on purpose — the path forks at `0x4fd3e1` (different DEF source, soft floors, `max(1.0,…)`); declared-but-undefined so a caller link-errors rather than silently getting the enemy formula |
+| **the RE corpus itself** | **partly wrong.** The 2026-10-05 audit ([build/audit/README.md](build/audit/README.md)) found 35% of 371 load-bearing claims wrong and 11% overclaimed. Check a claim there before building on it |
+| **enemy AI** | **stand-in.** Chase (at walk speed — the engine promotes to run) + ASO attack; the 25-unit activation gate is applied to every enemy but only ~8 of 90 handlers have it. The ~90 bespoke brains are not ported, and their docs never pinned the per-cast constants |
+| **player→enemy damage** | **wrong branch.** `damage_real` is the boss-script path; the player's hits go through `FUN_004fa550` (elemental resist multiplier, min 1, skill bonus) |
+| **player hit reaction** | **values wrong.** Flat 45 i-frames; the engine grants 8/12/16, freezes the countdown in hurt states, and adds knockback on every hit |
+| **actor vertical placement** | **origin treated as feet**; the engine floats the collision centre at floor + `+0x324` (1.075 for the player) with a 4-tick coyote grace |
+| **Boost** | gauge fill amounts are ours; the engine fills +300/hit dealt, +100×damage taken and passively, and Boost halves incoming damage |
+| **EF2 effects** | **single flipbook quad per emitter.** The engine samples 17 curve tracks per particle per tick (speed/alpha/colour/spin/scale); orientation and blend modes are partly heuristic |
+| **chest gating** | **inverted** for some rooms — op `0x169` deletes the named objects, the code treats them as the ones to show |
+| **cutscene runtime** | opt-in (`CLERIA_EVENTS=1`); `Chr_MoveTo` speed argument misread; speaker names missing on lines with an empty name operand; `$I/$F/$S` script variables unhandled |
+| **items** | granted into `item_arr` (that is the item-level array); the engine grants by setting the item's flag |
+| **HUD details** | HP-lag rate 0.006 (engine: static 0.02); bars stretched instead of cropped; buff/combo timers, magic icon and world popups not drawn |
+| **`HUD %3d/%3d` HP counter font** | drawn with F_MINI (font_A); the engine uses font_B, a runtime GDI glyph font we don't build yet |
+| **equip STAT aggregation** | base `curve + weapon + armor/foot + ring` is `[C-DIS]`; the permanent +1..+7 residuals in real saves are the statue blessings (0x76bc80 is the blessing bitset) |
+| **boss stats (EEX) lookup** | `eex_index_for_cast` is our invention; the doc's lookup chain was wrong (the name match is in the mesh factory `FUN_00501a30`) |
 | **bosses in the viewer** | rendered/skinned/posed and AABB-validated, but nothing drives them per-tick in play yet |
 | **`BOSS06A/B`, `PIC_TOGE`, `BOSS01_` clip AABBs** | don't reproduce (Δ1.3–11.4) while 59 others are exact — suspected 2nd animation path (`type != 0`), never observed |
-| **S_1000 white staircase** | a geometry/material artifact in the bottom-left of the tower base, not yet diagnosed |
 
 ## Credit
 
