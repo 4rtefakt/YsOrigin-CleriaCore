@@ -146,6 +146,8 @@ AiOut m600(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 fx.id = 193;                                       // pc3_S_A_tame (the shockwave trail)
                 fx.pos = {e.self.x + 0.0f, e.self.y - 1.0f, e.self.z + 0.0f};
                 fx.scale = 1.5f;
+                fx.rot = {-1.4137167f, a.heading, 0.0f};
+                fx.power = 5.0f; fx.knock = 10.0f; fx.rtype = 2;
                 out.effects.push_back(fx);
             }
             if (e.grounded || (A && A->floor_y + 2.0f > e.self.y) || inside) {

@@ -43,6 +43,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/scenelist.cpp
   src/cleria/bgmdef.cpp
   src/cleria/ef2.cpp
+  src/cleria/ef2_sim.cpp
   src/cleria/surface.cpp
   src/cleria/save.cpp
   src/cleria/world.cpp)
@@ -59,6 +60,10 @@ target_link_libraries(cleria-combattest PRIVATE cleria)
 # cleria-movetest — player locomotion + vertical model (src/cleria/physics_player.hpp).
 add_executable(cleria-movetest apps/cleria-movetest/main.cpp)
 target_link_libraries(cleria-movetest PRIVATE cleria)
+
+# cleria-ef2simtest — the EF2 particle simulation vs build/ai_spec/EF2SIM.md §5.
+add_executable(cleria-ef2simtest apps/cleria-ef2simtest/main.cpp)
+target_link_libraries(cleria-ef2simtest PRIVATE cleria)
 
 # cleria-aitest — enemy AI machinery + the M100 brain (src/cleria/enemy_ai.hpp).
 add_executable(cleria-aitest apps/cleria-aitest/main.cpp)
@@ -149,7 +154,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

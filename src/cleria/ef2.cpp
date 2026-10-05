@@ -136,11 +136,29 @@ Ef2 Ef2::load(const fs::path& file) {
 
     const std::size_t b1 = 0x20 + std::size_t(nA) * 8;
     const std::size_t b2 = b1 + std::size_t(nB) * kB1;
+    for (std::uint32_t n = 0; n < nA; ++n) {                       // A[n]: (s8) b0, u32[1] delay
+        Ef2Root r;
+        r.emitter = int(std::int8_t(b[0x20 + std::size_t(n) * 8]));
+        std::memcpy(&r.delay, b.data() + 0x20 + std::size_t(n) * 8 + 4, 4);
+        e.roots_.push_back(r);
+    }
     e.emitters_.resize(nB);
     for (std::uint32_t i = 0; i < nB; ++i) {
         const std::size_t o1 = b1 + std::size_t(i) * kB1;
         const std::size_t o2 = b2 + std::size_t(i) * kB2;
         Ef2Emitter& em = e.emitters_[i];
+        em.b1.assign(b.begin() + std::ptrdiff_t(o1), b.begin() + std::ptrdiff_t(o1 + kB1));
+        em.b2.assign(b.begin() + std::ptrdiff_t(o2), b.begin() + std::ptrdiff_t(o2 + kB2));
+        // The loader's track collapse: count 0, or every key equal to key 0 -> count 1.
+        for (int k = 0; k < 17; ++k) {
+            const std::size_t t = 0x19c + std::size_t(k) * 0x68;
+            std::uint32_t cnt = 0;
+            std::memcpy(&cnt, em.b2.data() + t + 4, 4);
+            bool same = true;
+            for (std::uint32_t j = 1; j < cnt && j < 8; ++j)
+                if (std::memcmp(em.b2.data() + t + 8 + 4, em.b2.data() + t + 8 + j * 12 + 4, 4) != 0) same = false;
+            if (cnt == 0 || same) { const std::uint32_t one = 1; std::memcpy(em.b2.data() + t + 4, &one, 4); }
+        }
         std::memcpy(&em.life, b.data() + o1 + 0x24, 4);
         std::memcpy(&em.sx, b.data() + o1 + 0x28, 4);
         std::memcpy(&em.sy, b.data() + o1 + 0x2c, 4);

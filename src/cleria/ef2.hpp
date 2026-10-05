@@ -1,10 +1,9 @@
 // EF2 — the effect format, and the two registries that resolve an effect id to files.
 //
-// Enough of it to draw one: the container, each emitter's scale/lifetime, and its
-// frame table (texture id + UV rect per frame). The particle simulation proper —
-// the 17 animation tracks in B2 — is NOT modelled; an emitter is treated as a
-// billboard that flips through its frames. See build/ef2_re/EF2_FORMAT.md for the
-// full byte layout and build/effect_re/EFFECTS.md for the id catalogue.
+// The container, each emitter's scale/lifetime and frame table (texture id + UV rect per
+// frame), plus the raw B1 / B2 records and the A array, which the particle simulation
+// (ef2_sim.hpp, build/ai_spec/EF2SIM.md) reads field by field. See build/ef2_re/EF2_FORMAT.md
+// for the container and build/effect_re/EFFECTS.md for the id catalogue.
 //
 // Two registries, both {u32 header_zero; u32 count} then 196-byte records of
 // {u32 stored_id; char name[192]}:
@@ -95,13 +94,20 @@ struct Ef2Emitter {
     // off[2] behaves as height, across three independent effects. [H-high]
     float off[3] = {0, 0, 0};
     bool textured() const { return !frames.empty(); }
+    // The raw records (0xf0 / 0x924 bytes) as the engine's loader leaves them in memory: the
+    // tracks with constant values collapsed to one key (EF2SIM.md §3.5.2).
+    std::vector<std::uint8_t> b1, b2;
 };
+
+// An A-array entry: a root emitter spawned at effect creation, and its start delay.
+struct Ef2Root { int emitter = 0; std::uint32_t delay = 0; };
 
 class Ef2 {
   public:
     static Ef2 load(const std::filesystem::path& file);
     bool ok() const { return ok_; }
     const std::vector<Ef2Emitter>& emitters() const { return emitters_; }
+    const std::vector<Ef2Root>& roots() const { return roots_; }
     // The emitter a simple consumer should draw: the first textured one, since
     // untextured emitters carry no quad at all (frame_count 0).
     const Ef2Emitter* primary() const;
@@ -112,6 +118,7 @@ class Ef2 {
   private:
     bool ok_ = false;
     std::vector<Ef2Emitter> emitters_;
+    std::vector<Ef2Root> roots_;
 };
 
 }  // namespace cleria

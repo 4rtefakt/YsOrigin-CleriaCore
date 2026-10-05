@@ -100,6 +100,7 @@ AiOut m530(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                         fx.id = 235;                               // enemy\m_530_bi-mu01.eft
                         fx.pos = {e.self.x + c, e.self.y - 0.7f, e.self.z + s};
                         fx.tag = 0xff - i;                         // fx+0x1d5 = ~i, fx+0x1a4 = self
+                        fx.rot = {0.0f, -1.5708f - an, 0.0f};
                         out.effects.push_back(fx);
                     }
                     out.sounds.push_back(477);                     // zako\z_370_atk
@@ -113,6 +114,7 @@ AiOut m530(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                     AiEffect mv;
                     mv.pos = {e.self.x + s, e.self.y - 0.7f, e.self.z + c * -1.0f};
                     mv.move_tag = 0xff - kk;
+                    mv.rot = {0.0f, -rr, 0.0f};
                     out.effects.push_back(mv);
                 }
             } else if (sub == 12) {                                // recovery
@@ -162,7 +164,9 @@ AiOut m530(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     if (A) { A->mover.k1.z += kz; A->mover.k1.x += kx; }
     const float ux = px / len * r, uz = pz / len * r;
     if (hit) {
-        out.effects.push_back({65, {e.self.x - ux, e.self.y - 0.3f, e.self.z - uz}, 1.0f, false});   // z_yarare01
+        AiEffect sp{65, {e.self.x - ux, e.self.y - 0.3f, e.self.z - uz}, 1.0f, false};   // z_yarare01
+        sp.rot = {0.0f, -1.5708f - e.facing, 0.0f};
+        out.effects.push_back(sp);
         out.sounds.push_back(472);                                 // zako\z_210_atk
     }
     a.heading = float(std::atan2(double(uz), double(ux)));

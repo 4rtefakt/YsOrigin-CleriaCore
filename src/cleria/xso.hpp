@@ -274,7 +274,7 @@ struct XsoVm {
 
     // xorshift128, as the game implements it (FUN_00439120). Sub-op 0x81 rolls a
     // percentage from it, so scripts using it are non-deterministic by design.
-    std::uint32_t rs[4] = {123456789u, 362436069u, 521288629u, 88675123u};
+    std::uint32_t rs[4] = {123456789u, 362436069u, 521288629u, 916191069u};   // .data 0x74622c (read)
     std::uint32_t rng_next() {
         const std::uint32_t t = rs[0] ^ (rs[0] << 11);
         rs[0] = rs[1]; rs[1] = rs[2]; rs[2] = rs[3];

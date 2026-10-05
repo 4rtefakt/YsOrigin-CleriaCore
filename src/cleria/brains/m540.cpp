@@ -88,7 +88,9 @@ AiOut perrie_boss(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         if (A) A->def = 999.0f;
         if ((a.i(0x8a4) >> 8 & 0xff) == 1) {
             a.i(0x8a4) &= ~0xff00;
-            out.effects.push_back({410, e.self, 1.0f, true});      // bos\bs_03_bomb1.eft, attached
+            AiEffect bb{410, e.self, 1.0f, true};                   // bos\bs_03_bomb1.eft, attached
+            bb.power = 10.0f;
+            out.effects.push_back(bb);
         }
     }
     if (std::uint32_t(a.i(0x7a8)) >= 800u) {
@@ -145,13 +147,17 @@ AiOut perrie(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         a.i(0x7c8) += 1;
         c = std::uint32_t(a.i(0x7c4)) + 1; a.i(0x7c4) = int(c);
         if (c >= 360u && (a.i(0x8a4) & 0xff) == 0) {               // EXPLODE
-            out.effects.push_back({267, e.self, 1.0f, false});     // enemy\m_bom01.eft
+            AiEffect ex{267, e.self, 1.0f, false};                  // enemy\m_bom01.eft
+            ex.power = 15.0f; ex.knock = 0.0f; ex.rtype = 2;
+            out.effects.push_back(ex);
             out.sounds.push_back(0x1b5);                           // SE 437 zako\z_bomb
             if (e.world && A) e.world->remove(*A);
             a.i(0x8a4) |= 1; c = 0; a.i(0x7c4) = 0;
         }
         if ((a.i(0x8a4) & 0xff00) == 0 && 360u - c < 20u) {       // GLOW (attached)
-            out.effects.push_back({321, e.self, 1.0f, true});      // bos\bs_01_leser_tame.eft
+            AiEffect gl{321, e.self, 1.0f, true};                   // bos\bs_01_leser_tame.eft
+            gl.power = 10.0f;
+            out.effects.push_back(gl);
             a.i(0x8a4) |= 0x100;
             c = std::uint32_t(a.i(0x7c4));
         }

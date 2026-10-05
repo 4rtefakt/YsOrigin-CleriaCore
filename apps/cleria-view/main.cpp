@@ -8,6 +8,7 @@
 // room; number keys 1-9 take exit N directly.
 #include <functional>
 #include <cmath>
+#include <map>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -36,6 +37,7 @@
 #include "cleria/aia.hpp"
 #include "cleria/aso.hpp"
 #include "cleria/ef2.hpp"
+#include "cleria/ef2_sim.hpp"
 #include "cleria/dds.hpp"
 #include "cleria/mathx.hpp"
 #include "cleria/cast.hpp"

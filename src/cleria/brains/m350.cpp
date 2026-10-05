@@ -138,6 +138,7 @@ AiOut m350(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                         fx.pos = {e.self.x + std::cos(yaw) * std::cos(pitch) * rr,
                                   e.self.y + std::sin(pitch) * rr - 2.0f,
                                   e.self.z + std::sin(yaw) * std::cos(pitch) * rr};
+                        fx.power = -5.0f; fx.rtype = 1;
                         out.effects.push_back(fx);
                     }
                     a.action() = m == 1 ? 2 : 1;

@@ -354,6 +354,40 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
     // `character` was chosen above (CLERIA_CHAR override or the title's character-select).
     XsoVm game;                        // persistent game state (survives rooms)
+    // The EF2 particle simulation (src/cleria/ef2_sim.hpp, build/ai_spec/EF2SIM.md): every
+    // brain- and script-spawned effect except the XSO-placed ones, its particles' hits
+    // included (EFFECTHIT.md). It draws from the game's one xorshift (game.rs), as every
+    // effect in the engine does.
+    ef2sim::Rng fx_rng;
+    fx_rng.bind(game.rs);
+    ef2sim::System fxsim(&fx_rng);
+    std::unordered_map<int, std::unique_ptr<Ef2>> ef2_cache;   // id -> the parsed EF2 (stable)
+    std::unordered_map<int, ef2sim::M4> actor_mats;           // an actor's +0x20 (its origin), for attaches
+    auto ef2_of = [&](int id) -> const Ef2* {
+        auto it = ef2_cache.find(id);
+        if (it != ef2_cache.end()) return it->second->ok() ? it->second.get() : nullptr;
+        auto ef = std::make_unique<Ef2>();
+        const fs::path p = efl.path(asset_root, id);
+        if (!p.empty()) *ef = Ef2::load(p);
+        const Ef2* r = ef->ok() ? ef.get() : nullptr;
+        ef2_cache[id] = std::move(ef);
+        return r;
+    };
+    // FUN_00450410 / the brains' inlined spawn. attach_owner != 0: FUN_00451c20 mode 2 — the
+    // effect follows that actor's origin at (pos - origin); its spawn rotation / scale are
+    // dropped as the attach's own (0 / 1) replace them.
+    auto spawn_sim_fx = [&](int id, const Vec3& pos, const Vec3& rot, float scale,
+                            ef2sim::SpawnParams sp, int attach_owner, const Vec3& origin) {
+        const Ef2* ef = ef2_of(id);
+        if (!ef) return;
+        sp.pos = pos; sp.rot = rot; sp.scale = {scale, scale, scale};
+        ef2sim::Effect* fx = fxsim.spawn(id, *ef, sp);
+        if (fx && attach_owner != 0) {
+            fx->local = ef2sim::translation(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
+            fx->attach_parent = &actor_mats[attach_owner];
+            fx->attach_mode = 2;
+        }
+    };
     // The exe's own new-game init (FUN_0041fd10, NEWGAME_FLAGS.md): inventory -1 fill,
     // header set, per-character starting items. This also writes flag 149 = 1 — which is
     // what keeps Yunica's swing on her AXE (her attack ASO branches on Flag_IsEqualInt(149,1);
@@ -660,6 +694,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // pair them. Stats come from ONE path (ActorWorld::spawn): SCT name / cast_type
         // -> CASTINFO -> enemy_index -> ENEMYINFO -> GAMEINFO. Real names = CASTINFO+0x10.
         populate_room(world, room, game.g_flags);
+        fxsim.clear();
+        actor_mats.clear();
         efx.kinds.clear();
         efx.init_from_world(g, asset_root, world, casts);
         render = build_enemy_render(world, casts, efx);
@@ -2200,11 +2236,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     for (const AiSpawn& s : o.spawns) brain_spawns.push_back({en, s});
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
                     // [not modelled] attachment to the actor (FUN_00451c20) and the scale.
+                    // The brain's effects, through the particle simulation (their hit fields arm
+                    // the EF2's hit emitters; EFFECTHIT.md). Owned ones are killed / re-placed by tag.
                     for (const AiEffect& fx : o.effects) {
-                        if (fx.kill_tag >= 0) world.kill_owned_effects(en->instance_id, fx.kill_tag);
-                        else if (fx.move_tag >= 0) world.move_owned_effects(en->instance_id, fx.move_tag, fx.pos.x, fx.pos.y, fx.pos.z);
-                        else if (fx.tag >= 0) world.locate_owned_effect(fx.id, fx.pos.x, fx.pos.y, fx.pos.z, en->instance_id, fx.tag);
-                        else world.locate_effect(fx.id, fx.pos.x, fx.pos.y, fx.pos.z, 0.0f, 0.0f, "");
+                        const Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
+                        if (fx.kill_tag >= 0) { fxsim.kill_owned(en->instance_id, fx.kill_tag); continue; }
+                        if (fx.move_tag >= 0) { fxsim.move_owned(en->instance_id, fx.move_tag, fx.pos, fx.rot, {1, 1, 1}); continue; }
+                        ef2sim::SpawnParams sp;
+                        sp.power = fx.power; sp.knock = fx.knock; sp.rtype = fx.rtype; sp.status = fx.status;
+                        sp.atk = en->atk; sp.side = 1; sp.owner = en->instance_id; sp.tag = fx.tag;
+                        spawn_sim_fx(fx.id, fx.pos, fx.rot, fx.scale, sp, fx.attach ? en->instance_id : 0, org);
                     }
                     pool += int(o.spawns.size());
                     if (ai_debug && (tick_count % 60) == 0)
@@ -2300,13 +2341,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     // Drain any bullet this enemy's script fired (facing basis: x=sin/z=cos of yaw).
                     spawn_bullets(e.avm, en->pos, {std::sin(en->yaw), 0, std::cos(en->yaw)},
                                   /*from_player*/false);
-                    // anime_GenerateEffect: placed off the origin along facing + angle. [not
-                    // modelled] its hits (no EF2 particles yet), the attach mode, the scale.
+                    // anime_GenerateEffect (FUN_004496f0, EFFECTHIT.md §6): at origin + (cos, sin)
+                    // (angle + facing) x fwd, y + voff, yaw angle - (facing + pi/2), its args 6..9
+                    // as the hit fields; attach mode != 0 follows the actor (as mode 2).
                     for (const AsoVm::EffectEvent& fe : e.avm.effects()) {
-                        const float an = fe.angle_deg * 0.0174533f + e.facing;
-                        world.locate_effect(fe.id, en->pos.x + std::cos(an) * fe.fwd,
-                                            en->pos.y + en->height + fe.voff,
-                                            en->pos.z + std::sin(an) * fe.fwd, 0.0f, 0.0f, "");
+                        const float a = fe.angle_deg * 0.0174533f;
+                        const float an = a + e.facing;
+                        const Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
+                        const Vec3 at{org.x + std::cos(an) * fe.fwd, org.y + fe.voff, org.z + std::sin(an) * fe.fwd};
+                        ef2sim::SpawnParams sp;
+                        sp.power = fe.power; sp.knock = fe.knock; sp.rtype = fe.rtype; sp.status = fe.status;
+                        sp.atk = en->atk; sp.side = 1; sp.owner = en->instance_id;
+                        spawn_sim_fx(fe.id, at, {0.0f, a - (e.facing + 1.5707963f), 0.0f}, fe.scale, sp,
+                                     fe.attach != 0 ? en->instance_id : 0, org);
                     }
                     // Its GenerateCollision arms the enemy's hit-volume, with the section's own
                     // radius/lifetime/power/knock.
@@ -2645,6 +2692,34 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 e.atk_hit = true;
                 hurt_player(en->atk, e.hb.power, e.hb.rtype, hang);
             }
+            // The EF2 particles (EF2SIM.md §1.1: effects, then particles, after the actors). An
+            // enemy effect's armed particle tests the player alone (EFFECTHIT.md §5): the
+            // player's hit guard, the overlap, the re-hit bank keyed on token 0 (shared by every
+            // effect), then the damage with the owner's ATK and the effect's power.
+            for (Actor& a : world.actors())
+                actor_mats[a.instance_id] = ef2sim::translation(a.pos.x, a.pos.y + a.height, a.pos.z);
+            {
+                const Cast* pc = casts.get(13);
+                const HitShape pbody = body_shape({feet.x, feet.y + kOriginH, feet.z},
+                                                  pc ? pc->hurt_radius : 0.45f, pc ? pc->hurt_half_h : 0.5f,
+                                                  pc ? pc->hurt_shape : 1, pc ? pc->center_offset : -0.25f);
+                fxsim.step([&](ef2sim::Particle& p) {
+                    if (p.hit.side != 1 || player_iframes > 0 || player.hp < 1) return false;
+                    const HitShape vol{p.hit.radius, p.hit.centre, p.hit.half_h, p.hit.half_h > 0.0f ? 1 : 0};
+                    float ang = 0;
+                    if (!overlap(vol, pbody, &ang)) return false;
+                    if (player_bank.check_and_record(0u, p.hit.rehit)) return false;
+                    hurt_player(p.hit.atk, p.hit.power, p.hit.rtype, ang);
+                    return true;
+                });
+                fxsim.sweep();
+                if (ai_debug && (tick_count % 60) == 0 && !fxsim.effects().empty())
+                {
+                    std::printf("[fx] effects %zu particles %zu:", fxsim.effects().size(), fxsim.particles().size());
+                    for (const auto& f : fxsim.effects()) std::printf(" %d(owner %d live %d)", f->id, f->owner, f->live);
+                    std::puts("");
+                }
+            }
 
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS
             // reloaded from the surface record, gated on the motion state:
@@ -2920,6 +2995,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // the barrier breaks, so it renders only while the fight is unresolved.
         draw_located_effects(g, world.effects(), asset_root, efl, eft, view, depth,
                              cam.forward(), fx_time);
+        draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward());
         player.character = character;
         // EXP bar: progress from this level's threshold to the next (100% at the cap).
         if (ginfo.ok()) {

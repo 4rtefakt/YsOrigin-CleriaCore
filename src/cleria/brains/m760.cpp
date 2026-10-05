@@ -129,6 +129,7 @@ AiOut m760(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                         AiEffect fx;
                         fx.id = 232;                               // m_760_tossinkemuri01 (charge smoke)
                         fx.pos = {e.self.x, e.self.y - 0.75f, e.self.z};
+                        fx.rot = {0.0f, -1.5707964f - e.facing, 0.0f};
                         out.effects.push_back(fx);
                     }
                     break;

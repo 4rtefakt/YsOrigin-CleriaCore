@@ -165,9 +165,16 @@ struct AiSpawn {
 // tag >= 0: the brain owns it (M530's beams); move_tag >= 0: no spawn, re-place every live
 // effect this actor owns with that tag at pos; kill_tag >= 0: no spawn, kill them (M140's
 // KILLFX — the engine fades them over 16 steps; [not modelled] the fade).
+// rot = (pitch, yaw, roll) for FUN_00451a40; power / knock / rtype / status = the GoEffect hit
+// fields (+0x1c4 / +0x1c8 / +0x1ec / +0x1c0) its hit emitters arm (EFFECTHIT.md); the defaults
+// are the inlined spawn's usual 0 / 1.0 / 0 / 0. attach: follow the actor (FUN_00451c20 mode 2,
+// offset = pos - the actor's origin).
 struct AiEffect {
     int id = 0; Vec3 pos{}; float scale = 1; bool attach = false;
     int tag = -1, move_tag = -1, kill_tag = -1;
+    Vec3 rot{};
+    float power = 0, knock = 1;
+    int rtype = 0, status = 0;
 };
 // A hit volume a brain arms by hand: FUN_004494e0, the anime_GenerateCollision body, with
 // its 13 arguments in script order (hit_volume.hpp volume_from_args decodes them).

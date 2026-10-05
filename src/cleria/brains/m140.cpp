@@ -104,6 +104,7 @@ AiOut m140(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                     fx.id = 268;                                   // enemy\m_140_attack01.eft
                     fx.pos = {e.self.x, e.self.y + 0.25f, e.self.z};
                     fx.tag = kFx;
+                    fx.rtype = 2;
                     out.effects.push_back(fx);
                     a.i(kFx) = 1;
                     a.i(0x7c0) = 1;

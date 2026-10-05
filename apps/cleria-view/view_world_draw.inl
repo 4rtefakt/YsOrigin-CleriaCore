@@ -786,3 +786,97 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
     }
 }
 
+
+// The EF2 particle simulation's particles (src/cleria/ef2_sim.hpp; build/ai_spec/EF2SIM.md §4).
+// B2[0] & 0x100: a camera-facing billboard, half-size scale.x * mult.x * fx scale * 0.5 (x only),
+// rolled by rot.z through the cosine table; otherwise the unit quad (+/-0.5) transformed by the
+// particle matrix (B1 pitch pi/2 lies it flat). Colour = the track diffuse ARGB: additive emitters
+// (B2+0x08 & 0x80) add rgb * alpha, the others blend alpha-over. [not modelled] the ring mesh
+// (& 8) and EFTMESH (& 0x200) emitters, the specular add, the UV scroll, render interpolation.
+static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& asset_root,
+                           const EftTex& eft, WGPUTextureView color, WGPUTextureView depth,
+                           const Vec3& camFwd) {
+    if (sim.particles().empty()) return;
+    static std::unordered_map<std::uint32_t, SpriteTex> texs;   // tex_id -> texture (empty = failed)
+    auto tex_of = [&](std::uint32_t id) -> const SpriteTex* {
+        auto it = texs.find(id);
+        if (it == texs.end()) {
+            SpriteTex t{};
+            const fs::path p = eft.path(asset_root, int(id));
+            if (!p.empty()) {
+                Dds d = load_dds(p);
+                if (d.ok()) t = upload_rgba(g, d.width, d.height, d.data.data());
+            }
+            it = texs.emplace(id, t).first;
+        }
+        return it->second.bind ? &it->second : nullptr;
+    };
+    const Vec3 up = {0, 1, 0};
+    const Vec3 right = normalize(cross(up, camFwd));
+    struct Batch { std::vector<RoomVertex> v; std::vector<std::uint32_t> i; WGPUBindGroup bind{}; bool additive = true; };
+    std::map<std::pair<std::uint32_t, bool>, Batch> batches;
+    for (const auto& pp : sim.particles()) {
+        const ef2sim::Particle& p = *pp;
+        if (p.dead || p.delay != 0 || p.remaining == 0) continue;
+        const Ef2Emitter& E = p.fx->ef->emitters()[std::size_t(p.em)];
+        std::uint16_t flags = 0;
+        std::memcpy(&flags, E.b2.data(), 2);
+        if ((flags & 0x400) || !(flags & 7) || (flags & 0x208)) continue;
+        if (E.frames.empty()) continue;
+        const Ef2Frame& fr = E.frames[std::min<std::size_t>(p.frame, E.frames.size() - 1)];
+        const SpriteTex* t = tex_of(fr.tex_id);
+        if (!t) continue;
+        Batch& b = batches[{fr.tex_id, E.additive}];
+        b.bind = t->bind; b.additive = E.additive;
+        const float a = float(p.diffuse >> 24) / 255.0f;
+        float r = float((p.diffuse >> 16) & 0xff), gc = float((p.diffuse >> 8) & 0xff), bc = float(p.diffuse & 0xff);
+        if (E.additive) { r *= a; gc *= a; bc *= a; }
+        const std::uint8_t R = std::uint8_t(r), G = std::uint8_t(gc), B = std::uint8_t(bc);
+        // fs_char: vertex alpha is the hit-flash (0), opacity = 1 - nrm.x.
+        const float nx = E.additive ? 0.0f : 1.0f - a;
+        const std::uint8_t VA = E.additive ? 255 : 0;
+        const std::uint32_t base = std::uint32_t(b.v.size());
+        Vec3 c[4];
+        const float uv[4][2] = {{fr.u0, fr.v0}, {fr.u0, fr.v1}, {fr.u1, fr.v0}, {fr.u1, fr.v1}};
+        if (flags & 0x100) {
+            const Vec3 o = p.world_pos();
+            const float h = p.scale.x * p.mult.x * p.fx->scale_x * 0.5f;
+            const int ti = int(p.rot.z * 40.743664f) & 0xff;
+            const float cc = cos_table(ti) * h, ss = cos_table((ti - 64) & 0xff) * h;
+            const float xy[4][2] = {{ss - cc, ss + cc}, {-ss - cc, ss - cc}, {ss + cc, cc - ss}, {cc - ss, -ss - cc}};
+            for (int k = 0; k < 4; ++k)
+                c[k] = {o.x + right.x * xy[k][0], o.y + xy[k][1], o.z + right.z * xy[k][0]};
+        } else {
+            const float q[4][2] = {{-0.5f, 0.5f}, {-0.5f, -0.5f}, {0.5f, 0.5f}, {0.5f, -0.5f}};
+            for (int k = 0; k < 4; ++k) c[k] = ef2sim::transform_coord({q[k][0], q[k][1], 0.0f}, p.world);
+        }
+        for (int k = 0; k < 4; ++k)
+            b.v.push_back({c[k].x, c[k].y, c[k].z, nx, 1, 0, uv[k][0], uv[k][1], R, G, B, VA});
+        b.i.insert(b.i.end(), {base, base + 1, base + 2, base + 2, base + 1, base + 3});
+    }
+    for (auto& [key, b] : batches) {
+        if (b.i.empty()) continue;
+        WGPUBuffer vb = make_buffer(g.device, g.queue, b.v.data(), b.v.size() * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
+        WGPUBuffer ib = make_buffer(g.device, g.queue, b.i.data(), b.i.size() * sizeof(std::uint32_t), WGPUBufferUsage_Index);
+        WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+        WGPURenderPassColorAttachment ca = {};
+        ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+        ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+        WGPURenderPassDepthStencilAttachment da = {};
+        da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+        WGPURenderPassDescriptor rp = {};
+        rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+        wgpuRenderPassEncoderSetPipeline(pass, b.additive ? g.fx_pipeline : g.char_pipeline);
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+        wgpuRenderPassEncoderSetBindGroup(pass, 1, b.bind, 0, nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+        wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+        wgpuRenderPassEncoderDrawIndexed(pass, std::uint32_t(b.i.size()), 1, 0, 0, 0);
+        wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
+        WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+        wgpuQueueSubmit(g.queue, 1, &cmd);
+        wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+        wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+    }
+}
