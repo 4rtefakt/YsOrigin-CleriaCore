@@ -12,9 +12,7 @@
 // other actor, healing it 25..200 by difficulty on contact. Unaware it may warp around itself.
 // While warping it stands, is Durable and, below alpha 0.5, unhittable; every other tick
 // Durable is cleared. A coin flip on each relocation raises its hover height for good.
-// [not modelled] the bullets' homing and the heal on contact (the view flies brain bullets
-// straight; AiBullet carries the fields); the warp effects' attachment; the keep-out box
-// restore (FUN_0042dc90).
+// [not modelled] the warp effects' attachment; the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -110,9 +108,9 @@ AiOut m550(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                         AiBullet b;
                         b.kind = 2; b.effect = M;
                         b.pos = {e.self.x + c * 0.5f, e.self.y + 0.75f, e.self.z + s * 0.5f};
-                        b.dir = v; b.speed = 0.2f; b.scale = 1.15f;
+                        b.dir = v; b.speed = 0.2f; b.knock = 1.15f;
                         b.home_period = 1; b.home_rate = d >= 2 ? 0.0191986f : d >= 0 ? 0.01309f : 0.0f;
-                        b.probe = true; b.f16c = 0; b.f170 = 300.0f;
+                        b.f168 = 1.0f; b.f16c = 0; b.f170 = 300.0f;
                         out.bullets.push_back(b);
                         if (d >= 1 && a.i(0x7c0) == 0) {
                             a.i(0x7c0) = 1;
@@ -155,8 +153,8 @@ AiOut m550(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                             AiBullet b;
                             b.kind = 0xb; b.effect = M; b.owner = owner;
                             b.pos = {e.self.x + u.x, (u.y + 0.5f) + e.self.y, e.self.z + u.z};
-                            b.dir = dir; b.speed = 0.05f; b.accel = 0.0001f; b.scale = 1.0f;
-                            b.home_period = 2; b.home_rate = 0.15707964f; b.probe = true;
+                            b.dir = dir; b.speed = 0.05f; b.accel = 0.0001f; b.knock = 1.0f;
+                            b.home_period = 2; b.home_rate = 0.15707964f; b.f168 = 1.0f;
                             b.f16c = float(n); b.f170 = 30.0f;
                             out.bullets.push_back(b);
                         }

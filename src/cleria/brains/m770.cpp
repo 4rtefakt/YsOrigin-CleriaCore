@@ -12,7 +12,7 @@
 // Durable on in sections 7/8 and OFF otherwise.
 // Literal source bug kept: section 301's stand doubles +0x814 from +0x7ac, and the shared exit
 // copies +0x814 BACK into +0x7ac, so every completed 301 doubles the turn rate for good.
-// [not modelled] the keep-out box restore (FUN_0042dc90); bullet block field +0x150 (-2.0).
+// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -56,7 +56,8 @@ AiOut m770(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         b.pos = {e.self.x + c * 0.75f, e.self.y + yoff + 0.0f, e.self.z + s * 0.75f};
         b.dir = {c, 0, s};
         b.speed = 0.15f; b.accel = -0.0015f; b.gravity = 0;
-        b.scale = 2.0f;                                            // the brain's x2 override of the instance
+        b.power = -2.0f; b.knock = 1.0f; b.f168 = 1.0f;
+        b.fx_scale = 2.0f;                                         // the brain's x2 override of the instance
         out.bullets.push_back(b);
     };
     auto exit_a = [&] { a.f(0x7ac) = a.f(0x814); sub = a.i(0x79c); };

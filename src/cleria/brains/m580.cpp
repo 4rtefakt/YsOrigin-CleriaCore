@@ -175,7 +175,7 @@ AiOut m580(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                     V.z = float(std::sin(double((u5 * 0.2f - 0.1f) + a.heading)));
                     const float l = std::sqrt(V.x * V.x + V.y * V.y + V.z * V.z);
                     if (l > 0) V = {V.x / l, V.y / l, V.z / l};
-                    b.effect = eff_up; b.dir = V; b.speed = 0.5f; b.scale = 1.0f;   // the spit (kind 1)
+                    b.effect = eff_up; b.dir = V; b.speed = 0.5f; b.knock = 1.0f;   // the spit (kind 1)
                     out.bullets.push_back(b);
                     for (int k = 0; k < 2; ++k) {
                         Vec3 Q;
@@ -189,7 +189,9 @@ AiOut m580(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                         }
                         AiBullet dr;                               // the drop (kind 0x29)
                         dr.effect = eff_down; dr.pos = Q; dr.dir = {0, -1.0f, 0};
-                        dr.speed = 0.15f; dr.scale = 1.0f;
+                        dr.kind = 0x29; dr.speed = 0.15f; dr.knock = 1.0f;
+                        dr.home_period = 1; dr.home_rate = 0.00087266f;
+                        dr.f168 = 131172.0f; dr.f16c = 1.6f; dr.f170 = 2.0f; dr.f174 = 3.0f;
                         out.bullets.push_back(dr);
                     }
                 }

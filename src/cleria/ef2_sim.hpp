@@ -78,6 +78,9 @@ struct Particle {
     std::uint32_t diffuse = 0, specular = 0;
     M4 world;                     // p+0x120; row 3 = the world position
     Vec3 prev_world{};            // p+0x290
+    bool collide = false;         // p+0x2b0: die on world contact (B2+0x895 & 1)
+    bool latched = false;         // p+0x2b1
+    Vec3 latch{};                 // p+0x2b4: the position the contact trace starts from
     HitRecord hit;
     Vec3 world_pos() const { return {world.m[3][0], world.m[3][1], world.m[3][2]}; }
 };
@@ -95,6 +98,7 @@ struct Effect {
     int fade_rate = 0;            // fx+0x1d0
     int live = 0;                 // fx+0x1b8
     bool dead = false;
+    bool held = false;            // a carrier (a GoXx bullet) still points at it: not freed
     // hit parameters (EFFECTHIT.md §2)
     float power = 0, knock = 1, atk = 0;
     int rtype = 0, status = 0, cls = -1, side = 1;
@@ -125,8 +129,17 @@ class System {
     // M140's KILLFX over every effect an owner tagged: each particle loses its hit and fades
     // over 16 steps with its clock reset to 16 (FUN_00564480 -> FUN_0044ebb0 force 1).
     void kill_owned(int owner, int tag);
-    // Re-place every effect an owner tagged (FUN_00451a40 on M530's beams): the world matrix.
+    // Re-place every effect an owner tagged (FUN_00451a40 on M530's beams).
     void move_owned(int owner, int tag, const Vec3& pos, const Vec3& rot, const Vec3& scale);
+    // FUN_00451a40: the world matrix S * RotYPR * T, and the effect scale +0x1ac.. = scale.
+    static void place(Effect& fx, const Vec3& pos, const Vec3& rot, const Vec3& scale);
+    // The first live particle of `fx` in the pool (the bullets' `p+0x1a0 == fx` scans).
+    Particle* first_particle(const Effect* fx);
+    // The EF2 of an EFTLIST id, for impact children (B2+0x16); none = no impact effects.
+    void set_lookup(std::function<const Ef2*(int)> f) { lookup_ = std::move(f); }
+    // The terrain segment test (FUN_0041e420, set 2) for particles that die on world contact:
+    // true on a hit, with the contact point. None = no world contact.
+    void set_world(std::function<bool(const Vec3& from, const Vec3& d, Vec3* at)> f) { world_ = std::move(f); }
     const std::vector<std::unique_ptr<Particle>>& particles() const { return parts_; }
     const std::vector<std::unique_ptr<Effect>>& effects() const { return fx_; }
     std::vector<std::unique_ptr<Effect>>& effects() { return fx_; }
@@ -138,7 +151,11 @@ class System {
     void full_step(Particle& p, bool moving);
     void simple_step(Particle& p, bool moving);
     void hit_tick(Particle& p, const std::function<bool(Particle&)>& on_hit);
+    void collide_tick(Particle& p);
+    bool impact(Particle& p, bool force);
     Rng* rng_;
+    std::function<const Ef2*(int)> lookup_;
+    std::function<bool(const Vec3&, const Vec3&, Vec3*)> world_;
     std::vector<std::unique_ptr<Effect>> fx_;
     std::vector<std::unique_ptr<Particle>> parts_;
 };

@@ -536,7 +536,6 @@ struct Projectile {
     int age = 0, life = 60;
     bool from_player = true;
     int trail_effect = 0, trail_period = 0;   // GoXx +0x158/+0x15c: a trail puff every N ticks
-    int gas_owner = 0;                         // its EF2 +0x1a8: the M460 whose gas floor applies
     std::unordered_set<int> hit;   // per-bullet hit dedup, as melee does
     bool alive() const { return age < life; }
 };

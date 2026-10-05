@@ -1,0 +1,262 @@
+// cleria-bullettest — the GoXx bullet (src/cleria/bullet.hpp) against build/ai_spec/BULLETS.md:
+// the orientation / homing helpers, worked example A (M510's disc, §5), the kill-flag park, the
+// kind-2 homing window, the heal shot, the drip's bounce, the spawn's knock / side rules and the
+// trail.
+// Usage: cleria-bullettest <assets dir>
+#include <cmath>
+#include <cstdio>
+#include <filesystem>
+#include <map>
+
+#include "cleria/bullet.hpp"
+#include "cleria/ef2.hpp"
+#include "cleria/ef2_sim.hpp"
+
+using namespace cleria;
+using namespace cleria::bullet;
+
+static int fails = 0;
+static void check(bool ok, const char* what) {
+    std::printf("[bullet] %-66s %s\n", what, ok ? "OK" : "FAIL");
+    fails += !ok;
+}
+static bool near(float a, float b, float tol = 2e-4f) { return std::fabs(a - b) <= tol; }
+
+static Vec3 row_mul(const Vec3& v, const ef2sim::M4& m) {
+    return {v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0],
+            v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1],
+            v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2]};
+}
+
+int main(int argc, char** argv) {
+    if (argc < 2) { std::fprintf(stderr, "usage: cleria-bullettest <assets>\n"); return 2; }
+    const std::filesystem::path enemy = std::filesystem::path(argv[1]) / "EFFECT" / "EFT" / "ENEMY";
+    std::map<int, Ef2> efs;
+    efs[317] = Ef2::load(enemy / "M_510_ATTACK01.EF2");
+    efs[302] = Ef2::load(enemy / "M_300_FIRE01.EF2");
+    efs[314] = Ef2::load(enemy / "M_720_HEAL01.EF2");
+    efs[500] = Ef2::load(enemy / "M_380_02.EF2");
+    for (auto& [id, ef] : efs) if (!ef.ok()) { std::fprintf(stderr, "missing EF2 %d\n", id); return 2; }
+    auto ef2_of = [&](int id) -> const Ef2* {
+        auto it = efs.find(id);
+        return it == efs.end() ? nullptr : &it->second;
+    };
+
+    // ---- FUN_00458970 / FUN_004585c0 ----
+    {
+        const Vec3 F{0, 0, -1};
+        const Vec3 ds[] = {{1, 0, 0}, {0, 0, 1}, {0.6f, 0.0f, 0.8f}, {0.36f, -0.48f, 0.8f}, {0, 1, 0}};
+        bool ok = true;
+        for (const Vec3& d : ds) {
+            const Vec3 o = row_mul(F, look_rotation(d));
+            ok = ok && near(o.x, d.x, 1e-5f) && near(o.y, d.y, 1e-5f) && near(o.z, d.z, 1e-5f);
+        }
+        check(ok, "look_rotation: the base forward (0,0,-1) lands on the direction");
+        const Vec3 h0 = home({0, 0, 0}, {1, 0, 0}, {0, 0, 5}, 0.0f);
+        check(near(h0.x, 1) && near(h0.z, 0), "home: max turn 0 leaves the direction");
+        const Vec3 h1 = home({0, 0, 0}, {1, 0, 0}, {0, 0, 5}, 0.1f);
+        check(near(h1.x, std::cos(0.1f), 1e-5f) && near(h1.z, std::sin(0.1f), 1e-5f) && near(h1.y, 0),
+              "home: turns 0.1 rad toward a target 90 deg away");
+        const Vec3 h2 = home({0, 0, 0}, {1, 0, 0}, {3, 3, 0}, 2.0f);
+        check(near(h2.x, 0.70711f, 1e-4f) && near(h2.y, 0.70711f, 1e-4f), "home: a large max turn reaches the target (3-D)");
+    }
+
+    // ---- §5 worked example A: M510's disc, kind 1, effect 317 ----
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        Spawn s;
+        s.kind = 1; s.effect = 317; s.owner = 7; s.owner_atk = 20;
+        s.pos = {0, 0, 0}; s.dir = {1, 0, 0}; s.speed = 0.06f; s.accel = -0.0008f; s.knock = 1.0f; s.f168 = 1.0f;
+        Bullet* b = bs.spawn(s);
+        check(b && b->side == 1 && b->fx && b->fx->atk == 20 && b->fx->rtype == 0, "spawn: side 1, owner ATK, rtype 0");
+        Env env;
+        env.player = {100, 0, 100};
+        const std::map<int, float> table{{1, 0.06f}, {2, 0.1192f}, {3, 0.1776f}, {5, 0.2920f}, {10, 0.5640f},
+                                         {20, 1.0480f}, {30, 1.4520f}, {40, 1.7760f}, {50, 2.0200f},
+                                         {60, 2.1840f}, {75, 2.2800f}, {80, 2.2800f}};
+        bool rows = true, nonneg = true;
+        int destroyed_at = -1;
+        for (int k = 1; k <= 120; ++k) {
+            bs.update(env, nullptr);
+            if (bs.list().empty()) { destroyed_at = k; break; }
+            const Bullet& c = *bs.list()[0];
+            nonneg = nonneg && c.s.speed >= 0.0f;
+            auto it = table.find(k);
+            if (it != table.end() && !near(c.s.pos.x, it->second, 5e-4f)) {
+                std::printf("[bullet]   k %d x %.4f (want %.4f)\n", k, c.s.pos.x, it->second);
+                rows = false;
+            }
+            fx.step();
+            fx.sweep();
+        }
+        std::printf("[bullet]   disc destroyed at update %d\n", destroyed_at);
+        check(rows, "example A: the displacement table (v0 0.06)");
+        check(nonneg, "example A: speed never negative");
+        check(destroyed_at >= 78 && destroyed_at <= 84, "example A: destroyed when its EF2 empties (k ~ 80)");
+    }
+
+    // ---- the kill flag parks the bullet; the matrix carries the effect ----
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        Spawn s;
+        s.kind = 1; s.effect = 317; s.dir = {0, 0, 1}; s.speed = 0.09f;
+        Bullet* b = bs.spawn(s);
+        Env env;
+        for (int k = 0; k < 10; ++k) { bs.update(env, nullptr); fx.step(); fx.sweep(); }
+        const float z10 = b->s.pos.z;
+        check(near(fx.effects()[0]->M.m[3][2], z10, 1e-5f), "the effect follows the bullet matrix (mode 1)");
+        b->fx->kill = true;
+        bs.update(env, nullptr);
+        const float z11 = b->s.pos.z;
+        bs.update(env, nullptr);
+        check(b->s.speed == 0.0f && b->s.pos.z == z11, "a raised kill flag parks it (speed 0, position frozen)");
+    }
+
+    // ---- kind 2: the homing window (M350's shot: period 1, 30..120) ----
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        Spawn s;
+        s.kind = 2; s.effect = 302; s.dir = {1, 0, 0}; s.speed = 0.01f; s.knock = 1.0f;
+        s.f160 = 1; s.f164 = 0.0174533f; s.f168 = 1.0f; s.f16c = 30.0f; s.f170 = 120.0f;
+        Bullet* b = bs.spawn(s);
+        Env env;
+        env.player = {0, 0, 50};
+        bool still = true;
+        for (int k = 0; k < 30; ++k) { bs.update(env, nullptr); still = still && b->s.dir.z == 0.0f; }
+        check(still, "kind 2: no homing before the start age");
+        bs.update(env, nullptr);
+        check(b->s.dir.z > 0.0f, "kind 2: homing from the start age");
+        check(fx.first_particle(b->fx)->hit.rtype == 30, "kind 2: +0x16c also overwrites the first particle's rtype");
+        for (int k = 0; k < 95; ++k) bs.update(env, nullptr);
+        const Vec3 d = b->s.dir;
+        bs.update(env, nullptr);
+        check(b->s.dir.x == d.x && b->s.dir.z == d.z && b->s.f160 == 0, "kind 2: off for good past the end age");
+    }
+
+    // ---- kind 0xb: the heal shot ----
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        Spawn s;
+        s.kind = 0xb; s.effect = 314; s.owner = 9; s.pos = {1, 0, 0}; s.dir = {-1, 0, 0}; s.speed = 0.05f;
+        s.knock = 1.0f; s.f160 = 2; s.f164 = 0.15707964f; s.f168 = 1.0f; s.f16c = 50.0f; s.f170 = 30.0f;
+        bs.spawn(s);
+        Env env;
+        env.player = {50, 0, 50}; env.player_hp = 100;
+        env.actor = [](int id, Vec3* p, float* hp) { if (id != 9) return false; *p = {0, 0, 0}; *hp = 40; return true; };
+        std::vector<Event> ev;
+        int k = 0;
+        for (; k < 40 && ev.empty(); ++k) bs.update(env, &ev);
+        bool heal = false, se = false;
+        for (const Event& e : ev) {
+            heal = heal || (e.type == Event::kHeal && e.target == 9 && e.amount == 50.0f);
+            se = se || (e.type == Event::kSound && e.id == 0xad);
+        }
+        std::printf("[bullet]   heal shot reached its owner at update %d\n", k);
+        check(heal && se && bs.list()[0]->gone && bs.list()[0]->fx->kill,
+              "kind 0xb: within 0.5 of its owner it heals by +0x16c, SE 0xad, kills");
+        Spawn p = s;
+        p.owner = 0; p.pos = {49.5f, 0, 50};
+        bs.spawn(p);
+        ev.clear();
+        bs.update(env, &ev);
+        bool ph = false;
+        for (const Event& e : ev) ph = ph || (e.type == Event::kHeal && e.target == 0 && e.amount == 30.0f);
+        check(ph, "kind 0xb: within 1.0 of the player it heals the player by +0x170");
+    }
+
+    // ---- kind 0x10: the drip falls, bounces x0.6 and rests ----
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        Spawn s;
+        s.kind = 0x10; s.effect = 500; s.owner = 3; s.owner_atk = 25; s.pos = {0, 1.0f, 0}; s.dir = {0, -1, 0};
+        s.speed = 0.09f; s.knock = 1.0f; s.f168 = 1.0f;
+        Bullet* b = bs.spawn(s);
+        check(b->atk == 0.0f && b->side == 1 && b->fx->atk == 0.0f, "kind 0x10: the proxy's stat block (ATK 0), side 1");
+        Env env;
+        env.ray = [](const Vec3& f, const Vec3& d, int set) {
+            RayHit r;
+            if (set != 2 || d.y >= 0.0f || f.y < 0.0f || f.y + d.y > 0.0f) return r;
+            const float t = f.y / -d.y;
+            r.hit = true; r.point = {f.x + d.x * t, 0.0f, f.z + d.z * t}; r.normal = {0, 1, 0};
+            return r;
+        };
+        for (int k = 0; k < 30; ++k) bs.update(env, nullptr);
+        // 0.09 x 0.6 = 0.054 < 0.1: speed 0, but the step already built (0x599f33) still lands
+        // (0x59a07d adds the pre-rest velocity), so it rests 0.054 above its snap point.
+        std::printf("[bullet]   drip after the bounce: speed %.4f, y %.4f dir.y %.1f\n", b->s.speed, b->s.pos.y, b->s.dir.y);
+        check(b->s.speed == 0.0f && b->s.dir.y > 0.0f && b->s.pos.y > 0.05f && b->s.pos.y < 0.065f,
+              "kind 0x10: 0.09 x 0.6 < 0.1 on the floor: reflected, then at rest");
+    }
+
+    // ---- the spawn: a negative knock is an rtype code; the trail ----
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        Spawn s;
+        s.kind = 1; s.effect = 302; s.dir = {1, 0, 0}; s.speed = 0.05f; s.knock = -3.0f; s.power = -2.0f;
+        s.f158 = 302; s.f15c = 3;
+        Bullet* b = bs.spawn(s);
+        check(b->fx->rtype == 2 && b->s.knock == 1.0f && b->fx->knock == 1.0f && b->fx->power == -2.0f,
+              "knock -3: rtype 2, knock 1.0; power passes through (-2)");
+        Env env;
+        for (int k = 0; k < 9; ++k) bs.update(env, nullptr);
+        check(fx.effects().size() == 4, "trail: a +0x158 puff every +0x15c ticks (ages 3, 6, 9)");
+        Spawn m = s;
+        m.owner_monster = false; m.cls = 2; m.knock = 1.0f;
+        Bullet* pb = bs.spawn(m);
+        check(pb->side == 0 && pb->fx->cls == 2 && pb->y190 == m.pos.y, "a player-side owner: side 0, the weapon class");
+    }
+
+    // ---- a wall: the die-on-wall hit particle raises the kill flag, parks the bullet and
+    //      spawns its impact child (310 m_hanyoutama01 -> 236 m_hanyouhit01; EFFECTHIT §4.2/§5.5)
+    {
+        efs[310] = Ef2::load(enemy / "M_HANYOUTAMA01.EF2");
+        efs[236] = Ef2::load(enemy / "M_HANYOUHIT01.EF2");
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        fx.set_lookup(ef2_of);
+        fx.set_world([](const Vec3& f, const Vec3& d, Vec3* at) {     // the plane x = 1
+            if (d.x <= 0.0f || f.x > 1.0f || f.x + d.x < 1.0f) return false;
+            const float t = (1.0f - f.x) / d.x;
+            *at = {1.0f, f.y + d.y * t, f.z + d.z * t};
+            return true;
+        });
+        Bullets bs(&fx, ef2_of);
+        Spawn s;
+        s.kind = 1; s.effect = 310; s.dir = {1, 0, 0}; s.speed = 0.1f; s.knock = 1.0f;
+        Bullet* b = bs.spawn(s);
+        Env env;
+        int killed_at = -1;
+        for (int k = 1; k <= 40 && killed_at < 0; ++k) {
+            bs.update(env, nullptr);
+            fx.step();
+            fx.sweep();
+            if (b->fx->kill) killed_at = k;
+        }
+        bs.update(env, nullptr);
+        const float x = b->s.pos.x;
+        bs.update(env, nullptr);
+        bool child = false;
+        for (const auto& e : fx.effects()) child = child || e->id == 236;
+        std::printf("[bullet]   wall contact at update %d, parked at x %.3f\n", killed_at, x);
+        // The die-on-wall particles ride ahead of the bullet's origin (local -z is the flight
+        // direction), so it parks short of the wall (BULLETS.md §10.3: placement untraced).
+        check(killed_at > 0 && x > 0.5f && x < 1.0f && b->s.pos.x == x && b->s.speed == 0.0f,
+              "die-on-wall: the kill flag parks the bullet short of the wall");
+        check(child, "die-on-wall: the impact child (236) spawns");
+    }
+
+    std::printf("[bullet] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
+    return fails ? 1 : 0;
+}

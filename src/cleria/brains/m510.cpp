@@ -69,7 +69,7 @@ AiOut m510(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 b.pos = {e.self.x + c * 0.75f, e.self.y - 0.35f + 0.0f, e.self.z + s * 0.75f};
                 b.dir = {c, 0, s};
                 b.speed = d > 0 ? 0.09f : 0.06f;
-                b.accel = -0.0008f;
+                b.accel = -0.0008f; b.knock = 1.0f; b.f168 = 1.0f;
                 out.bullets.push_back(b);
             }
             return tail();

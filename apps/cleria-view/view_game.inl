@@ -373,6 +373,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         ef2_cache[id] = std::move(ef);
         return r;
     };
+    fxsim.set_lookup(ef2_of);                                 // impact children (B2+0x16)
+    // GoXx bullets (src/cleria/bullet.hpp, BULLETS.md): each carries one effect on its matrix;
+    // the effect's particles do the damage. gas_owner: the M460 whose gas floor applies
+    // (fx+0x1a8; its handler pass #14).
+    bullet::Bullets bullets(&fxsim, ef2_of);
+    std::unordered_map<const bullet::Bullet*, int> gas_owner;
     // FUN_00450410 / the brains' inlined spawn. attach_owner != 0: FUN_00451c20 mode 2 — the
     // effect follows that actor's origin at (pos - origin); its spawn rotation / scale are
     // dropped as the attach's own (0 / 1) replace them.
@@ -456,6 +462,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
     Room room = load_room(g, asset_root, boot_sob, game.g_flags, character);
     apply_load_effects(room);
+    // Particles that die on world contact trace their last step against the room (set 2).
+    fxsim.set_world([&](const Vec3& f, const Vec3& d, Vec3* at) {
+        Vec3 n{};
+        return segment_hit(phys_mesh(room), f, {f.x + d.x, f.y + d.y, f.z + d.z}, at, &n);
+    });
     Camera cam;
     bool fly = false;
     Vec3 feet{}; bool grounded = false; float speed_mult = 1.0f;
@@ -694,6 +705,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // pair them. Stats come from ONE path (ActorWorld::spawn): SCT name / cast_type
         // -> CASTINFO -> enemy_index -> ENEMYINFO -> GAMEINFO. Real names = CASTINFO+0x10.
         populate_room(world, room, game.g_flags);
+        bullets.clear();                                      // before the effects they hold
+        gas_owner.clear();
         fxsim.clear();
         actor_mats.clear();
         efx.kinds.clear();
@@ -2288,17 +2301,26 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         e.atk_armed = true;
                         e.atk_dx = std::cos(e.facing); e.atk_dz = std::sin(e.facing);
                     }
-                    // GoXx bullets the brain made directly (M460 gas).
+                    // GoXx bullets the brain made directly (FUN_00593550 / FUN_00593b90).
                     for (const AiBullet& b : o.bullets) {
-                        Projectile pr;
-                        pr.effect_id = b.effect;
-                        pr.pos = b.pos;                                     // world space, like spawn_bullets
-                        pr.dir = b.dir; pr.speed = b.speed; pr.accel = b.accel; pr.gravity = b.gravity;
-                        pr.life = bullet_art(g, asset_root, efl, eft, b.effect).life;
-                        pr.from_player = false;
-                        pr.trail_effect = b.trail_effect; pr.trail_period = b.trail_period;
-                        pr.gas_owner = b.gas ? en->instance_id : 0;
-                        shots.push_back(std::move(pr));
+                        bullet::Spawn s;
+                        s.kind = b.kind; s.effect = b.effect;
+                        const Actor* ow = b.owner < 0 ? en : world.find(b.owner);
+                        s.owner = ow ? ow->instance_id : 0;
+                        s.owner_monster = !(ow && ow->is_player());
+                        s.owner_atk = ow ? float(ow->atk) : 0.0f;
+                        s.pos = b.pos; s.dir = b.dir;
+                        s.speed = b.speed; s.accel = b.accel; s.gravity = b.gravity;
+                        s.power = b.power; s.knock = b.knock;
+                        s.f158 = std::uint32_t(b.trail_effect); s.f15c = std::uint32_t(b.trail_period);
+                        s.f160 = std::uint32_t(b.home_period); s.f164 = b.home_rate;
+                        s.f168 = b.f168; s.f16c = b.f16c; s.f170 = b.f170; s.f174 = b.f174;
+                        bullet::Bullet* bl = bullets.spawn(s);
+                        if (!bl) continue;
+                        if (b.fx_scale > 0.0f) {                            // the brain's +0x1ac.. write
+                            bl->fx->scale_x = bl->fx->scale_y = bl->fx->scale_z = b.fx_scale;
+                        }
+                        if (b.gas) gas_owner[bl] = en->instance_id;
                     }
                     if (o.gauge_hp >= 0) {                         // FUN_0043a460: the boss gauge
                         gauge_owner = en->instance_id;
@@ -2338,9 +2360,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     else if (o.durable_rule == 2 && e.avm.section() == 0x138) e.avm.set_durable(true);
                     else if ((o.durable_rule == 0 || o.durable_rule == 2) && e.avm.section() != 7) e.avm.set_durable(false);
                     if (hurt && e.avm.section_ended()) e.avm.set_section(e.idle_section, /*force*/true);
-                    // Drain any bullet this enemy's script fired (facing basis: x=sin/z=cos of yaw).
-                    spawn_bullets(e.avm, en->pos, {std::sin(en->yaw), 0, std::cos(en->yaw)},
-                                  /*from_player*/false);
+                    // anime_FireBullet (the VM case at 0x447b91, BULLETS.md §1.2): at the origin +
+                    // (cos, sin)(arg4 deg + facing) x arg2, y + arg3; the direction args 5..7 or
+                    // that heading; args 8.. straight into the block (13..15 as raw words).
+                    for (const AsoVm::BulletEvent& fb : e.avm.bullets()) {
+                        const float ang = fb.f[2] * 0.0174533f + e.facing;
+                        const float c = float(std::cos(double(ang))), sn = float(std::sin(double(ang)));
+                        bullet::Spawn s;
+                        s.kind = fb.kind; s.effect = fb.id;
+                        s.owner = en->instance_id; s.owner_atk = float(en->atk);
+                        s.pos = {en->pos.x + c * fb.f[0], en->pos.y + en->height + fb.f[1], en->pos.z + sn * fb.f[0]};
+                        Vec3 d{fb.f[3], fb.f[4], fb.f[5]};
+                        if (d.x * d.x + d.y * d.y + d.z * d.z == 0.0f) d = {c, 0.0f, sn};
+                        const float dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+                        s.dir = dl == 0.0f ? Vec3{} : Vec3{d.x / dl, d.y / dl, d.z / dl};
+                        s.speed = fb.f[6]; s.accel = fb.f[7]; s.gravity = fb.f[8];
+                        s.power = fb.f[9]; s.knock = fb.f[10];
+                        std::memcpy(&s.f158, &fb.f[11], 4);
+                        std::memcpy(&s.f15c, &fb.f[12], 4);
+                        std::memcpy(&s.f160, &fb.f[13], 4);
+                        s.f164 = fb.f[14] * 0.0174533f;
+                        s.f168 = fb.f[15]; s.f16c = fb.f[16]; s.f170 = fb.f[17]; s.f174 = fb.f[18];
+                        bullets.spawn(s);
+                    }
                     // anime_GenerateEffect (FUN_004496f0, EFFECTHIT.md §6): at origin + (cos, sin)
                     // (angle + facing) x fwd, y + voff, yaw angle - (facing + pi/2), its args 6..9
                     // as the hit fields; attach mode != 0 follows the actor (as mode 2).
@@ -2696,6 +2738,48 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // enemy effect's armed particle tests the player alone (EFFECTHIT.md §5): the
             // player's hit guard, the overlap, the re-hit bank keyed on token 0 (shared by every
             // effect), then the damage with the owner's ATK and the effect's power.
+            {
+                // M460's handler pass #14: a gas puff that sank below its floor sits on it.
+                for (auto& bp : bullets.list()) {
+                    auto it = gas_owner.find(bp.get());
+                    if (it == gas_owner.end()) continue;
+                    const Actor* ga = world.find(it->second);
+                    if (!ga) continue;
+                    const float lvl = ga->ai.f(0x7c8);
+                    if (bp->s.dir.y != 0.0f && lvl > bp->s.pos.y) { bp->s.dir.y = 0.0f; bp->s.pos.y = lvl; }
+                }
+                bullet::Env benv;
+                benv.player = {feet.x, feet.y + kOriginH, feet.z};
+                benv.player_hp = float(player.hp);
+                benv.ray = [&](const Vec3& o, const Vec3& dl, int set) {
+                    bullet::RayHit r;
+                    if (set != 2) return r;                          // [not modelled] water (set 1)
+                    r.hit = segment_hit(phys_mesh(room), o, {o.x + dl.x, o.y + dl.y, o.z + dl.z}, &r.point, &r.normal);
+                    return r;
+                };
+                benv.actor = [&](int id, Vec3* p, float* hp) {
+                    const Actor* a = world.find(id);
+                    if (!a) return false;
+                    *p = {a->pos.x, a->pos.y + a->height, a->pos.z};
+                    *hp = a->hp;
+                    return true;
+                };
+                std::vector<bullet::Event> bev;
+                bullets.update(benv, &bev);
+                for (auto it = gas_owner.begin(); it != gas_owner.end();) {
+                    bool live = false;
+                    for (auto& bp : bullets.list()) live = live || bp.get() == it->first;
+                    it = live ? std::next(it) : gas_owner.erase(it);
+                }
+                for (const bullet::Event& ev : bev) {
+                    if (ev.type == bullet::Event::kSound) { sfx_at(ev.id, ev.pos, kSfxAnimVol); continue; }
+                    if (ev.target == 0) {                            // FUN_004fa160: the player
+                        player.hp = std::min(player.max_hp, player.hp + int(ev.amount));
+                    } else if (Actor* a = world.find(ev.target)) {  // the owner, clamped to its max
+                        a->hp = std::min(a->max_hp, a->hp + ev.amount);
+                    }
+                }
+            }
             for (Actor& a : world.actors())
                 actor_mats[a.instance_id] = ef2sim::translation(a.pos.x, a.pos.y + a.height, a.pos.z);
             {
@@ -2819,34 +2903,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // GoXx trail (+0x158 effect every +0x15c ticks, FUN_00594230 0x59565e).
                 if (p.trail_period > 0 && p.trail_effect > 0 && p.age % p.trail_period == 0)
                     world.locate_effect(p.trail_effect, p.pos.x, p.pos.y, p.pos.z, 0.0f, 0.0f, "");
-                // M460 gas floor pass (handler #14): a puff that sinks below the owner
-                // +0x7c8 stops descending and sits there.
-                if (p.gas_owner != 0 && p.dir.y != 0.0f) {
-                    for (const Actor& a : world.actors())
-                        if (a.instance_id == p.gas_owner) {
-                            const float lvl = a.ai.f(0x7c8);              // world y, as the puff
-                            if (lvl > p.pos.y) { p.dir.y = 0.0f; p.pos.y = lvl; }
-                            break;
-                        }
-                }
-                if (!p.from_player) {
-                    // An ENEMY bullet vs the player. Same caveat as above: the engine's
-                    // bullet->victim damage path is [UNKNOWN], so this reuses the melee
-                    // sphere + the enemy's own atk. Stand-in, not engine behaviour — but a
-                    // bullet that passes through the player would be worse than a stand-in.
-                    if (player_iframes > 0 || p.hit.count(-1)) continue;
-                    const float bx = feet.x - p.pos.x, bz = feet.z - p.pos.z;
-                    const float by = (feet.y + kCharH * 0.5f) - p.pos.y;
-                    const float rr = kCharRadius + 0.3f;
-                    if (bx * bx + by * by + bz * bz > rr * rr) continue;
-                    p.hit.insert(-1);
-                    float atk = 0;
-                    for (const Actor& src : world.actors())
-                        if (!src.is_player() && src.alive()) { atk = std::max(atk, float(src.atk)); }
-                    hurt_player(atk > 0 ? atk : 10.0f, 0, 0, std::atan2(bz, bx));
-                    p.age = p.life;      // spend the bullet on the hit
-                    continue;
-                }
                 for (Actor& en : world.actors()) {
                     if (en.is_player() || !en.alive() || p.hit.count(en.instance_id)) continue;
                     const float bx = en.pos.x - p.pos.x, bz = en.pos.z - p.pos.z;

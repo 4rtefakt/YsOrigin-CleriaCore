@@ -164,7 +164,9 @@ AiOut m500(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                     b.pos = {float(std::cos(double(a.heading))) * 0.5f + e.self.x, e.self.y + 0.3f,
                              float(std::sin(double(a.heading))) * 0.5f + e.self.z};
                     b.dir = {vx, vy, vz};
-                    b.speed = 0.1f; b.gravity = 0.004f; b.scale = 1.0f;
+                    b.kind = 0x29;
+                    b.speed = 0.1f; b.gravity = 0.004f; b.knock = 1.0f;
+                    b.f168 = 131172.0f; b.f16c = 1.2f; b.f170 = 1.2f; b.f174 = 2.4f;   // raw 0x48001900
                     out.bullets.push_back(b);
                 }
                 break;

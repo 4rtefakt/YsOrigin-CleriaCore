@@ -12,8 +12,7 @@
 // (10% roll, 120..199 ticks, every (60..99)th tick) drop a bullet 170..189 deg behind, falling
 // at 0.09, scaled 1.1..2.3. From the 61st tick without taking damage it arms a 0.3 sting
 // sphere 0.5 behind itself every tick (FUN_00477f00: fresh serial, life 1, re-hit 200).
-// [not modelled] the keep-out box restore (FUN_0042dc90); the drip's kind-0x10 update
-// (FUN_00599a30, untraced: drawn as a plain falling bullet) and its released proxy actor.
+// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -135,10 +134,12 @@ AiOut breeder(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, int child_cast
     const std::uint32_t w4 = e.rng();                              // RAW
     b.pos.y = (unit(w4) * 0.5f - 0.5f) + e.self.y;
     b.pos.z = std::sin(ang + a.heading) * rr + e.self.z;
-    b.effect = drip_effect;
+    b.kind = 0x10; b.effect = drip_effect;
     b.dir = {0, -1.0f, 0};
-    b.speed = 0.09f;
-    b.scale = unit(e.rng()) * 1.2f + 1.1f;                         // RAW; the bullet is always found here
+    b.speed = 0.09f; b.knock = 1.0f; b.f168 = 1.0f;
+    // The proxy is released at once (no batting); then FUN_00451a40 re-seats the effect at scale
+    // k and A's stat block is copied in (only later-armed particles would see it).
+    b.fx_scale = unit(e.rng()) * 1.2f + 1.1f;                      // RAW; the bullet is always found here
     out.bullets.push_back(b);
     return out;
 }

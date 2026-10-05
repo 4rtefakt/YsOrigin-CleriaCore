@@ -447,7 +447,7 @@ AiOut m460(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 bl.dir = {c, -0.6f, s};                            // normalised in xz, then y = -0.6
                 bl.speed = (d > 0 ? fd * 0.025f : fd * 0.01f) + spd_base;
                 bl.accel = accel;
-                bl.scale = 5.0f;
+                bl.knock = 5.0f; bl.f168 = 1.0f;                  // a11 0 / a12 5.0
                 bl.trail_effect = trail > 0 ? g : 0; bl.trail_period = trail;
                 bl.gas = true;
                 out.bullets.push_back(bl);

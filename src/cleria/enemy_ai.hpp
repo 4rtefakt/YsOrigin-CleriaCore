@@ -187,19 +187,21 @@ struct AiHitbox {
     bool new_serial = false;
 };
 // A GoXx bullet a brain creates directly (FUN_0040f700 + FUN_00583a00 + FUN_00593b90).
+// FUN_00593550's block (build/ai_spec/BULLETS.md §1.1); the host runs it as a GoXx bullet
+// (src/cleria/bullet.hpp). The floats after the direction land at +0x144..+0x174.
 struct AiBullet {
-    int effect = 0; Vec3 pos{}, dir{}; float speed = 0, accel = 0, gravity = 0;
-    float scale = 1;
-    int trail_effect = 0, trail_period = 0;   // +0x158 / +0x15c: a trail puff every N ticks
-    bool gas = false;                         // its EF2 gets +0x1a8 = owner (the gas floor)
-    // FUN_00593550's block, for the bullet kinds the view does not run yet (PROJECTILE.md):
-    // [not modelled] the per-kind update — the view flies every brain bullet straight.
     int kind = 1;                             // +0x124
+    int effect = 0;                           // +0x128
     int owner = -1;                           // +0x120: an actor instance id; -1 = the brain's actor
+    Vec3 pos{}, dir{};
+    float speed = 0, accel = 0, gravity = 0;  // +0x144 / +0x148 / +0x14c
+    float power = 0, knock = 1;               // +0x150 / +0x154 (knock < 0: an rtype code)
+    int trail_effect = 0, trail_period = 0;   // +0x158 / +0x15c: a trail puff every N ticks
     int home_period = 0;                      // +0x160: home every N ticks (0 = never)
     float home_rate = 0;                      // +0x164: rad per homing step
-    bool probe = false;                       // +0x168 != 0: the terrain probe
-    float f16c = 0, f170 = 0;                 // +0x16c / +0x170 (kind 2: the homing window; 0xb: heal n)
+    float f168 = 0, f16c = 0, f170 = 0, f174 = 0;   // per kind (BULLETS.md §1.1)
+    float fx_scale = 0;                       // > 0: the brain then sets the effect's scale (+0x1ac..)
+    bool gas = false;                         // its EF2 gets +0x1a8 = owner (the M460 gas floor)
 };
 struct AiOut {
     int section = -1;            // FUN_00446550(section, 0): a priority-GATED request

@@ -9,7 +9,7 @@
 // speed 0.08, accel -0.0008. Cooldown = hold + 20 + R%20. After an attack it stands 40 ticks
 // at double turn rate. Durable in sections 7/8. Requests are gated and unchecked.
 // The jump helper's jumps: sub-state 100 and the section-0x13a launch tail (K 0.11).
-// [not modelled] the keep-out box restore (FUN_0042dc90); bullet block field +0x150 (-2.0).
+// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -83,7 +83,8 @@ AiOut m300(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 b.effect = 302;                                    // enemy\m_300_fire01.eft
                 b.pos = {e.self.x + c * 0.75f, (e.self.y - 0.35f) + 0.0f, e.self.z + s * 0.75f};
                 b.dir = {c, 0, s};
-                b.speed = 0.08f; b.accel = -0.0008f; b.gravity = 0; b.scale = 1.0f;
+                b.speed = 0.08f; b.accel = -0.0008f; b.gravity = 0; b.power = -2.0f; b.knock = 1.0f;
+                b.f168 = 1.0f;
                 out.bullets.push_back(b);
             }
             a.i(0x7c0) = int(n + 1);

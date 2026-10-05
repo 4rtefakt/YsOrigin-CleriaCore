@@ -37,6 +37,7 @@
 #include "cleria/aia.hpp"
 #include "cleria/aso.hpp"
 #include "cleria/ef2.hpp"
+#include "cleria/bullet.hpp"
 #include "cleria/ef2_sim.hpp"
 #include "cleria/dds.hpp"
 #include "cleria/mathx.hpp"

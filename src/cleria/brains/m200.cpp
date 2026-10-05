@@ -133,7 +133,9 @@ AiOut m200(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                                  float(std::sin(double(yaw))) * ss + (-0.75f * f + 1.5f * f * u4)};
                         b.pos = {e.self.x + float(std::cos(double(a.heading))) * 0.2f, e.self.y + 0.6f,
                                  e.self.z + float(std::sin(double(a.heading))) * 0.2f};
-                        b.speed = 0.12f; b.gravity = 0.004f; b.scale = 1.0f;
+                        b.kind = 0x29;
+                        b.speed = 0.12f; b.gravity = 0.004f; b.knock = 1.0f;
+                        b.f168 = 131172.0f; b.f16c = 1.2f; b.f170 = 1.2f; b.f174 = 2.4f;   // raw 0x48001900: the burst
                         out.bullets.push_back(b);
                     }
                     break;

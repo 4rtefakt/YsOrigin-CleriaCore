@@ -1051,7 +1051,7 @@ int main() {
                 for (const AiHitbox& h : o.hitboxes) { sting = true; stung_fresh &= h.new_serial && h.radius == 0.3f && h.fwd == -0.5f; }
                 for (const AiBullet& b : o.bullets) {
                     ++drips;
-                    drip_ok &= b.effect == (which ? 500 : 264) && b.dir.y == -1.0f && b.speed == 0.09f && b.scale >= 1.1f && b.scale < 2.3f;
+                    drip_ok &= b.effect == (which ? 500 : 264) && b.dir.y == -1.0f && b.speed == 0.09f && b.kind == 0x10 && b.fx_scale >= 1.1f && b.fx_scale < 2.3f;
                 }
             }
             std::printf("[ai]   breeder drip: %d bullets, ok %d, sting seen %d\n", drips, int(drip_ok), int(sting));

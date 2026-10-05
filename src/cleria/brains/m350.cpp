@@ -9,8 +9,7 @@
 // pitched at the target's depth), or 2.5% the swoop (section 8, 100 ticks: the hover drops
 // 0.2 a tick to 2.2 during marker 3 and climbs back from marker 5, fire puffs at
 // marker-dependent rates). Cooldown hold + (6 - d) x 15 + R%45. Durable in 8 on Hard+.
-// [not modelled] the puffs' and bullets' damage (EF2 particle hits; the kind-2 update); the
-// attached second puff while marker 1; the s_4013 particle flag; the keep-out box restore.
+// [not modelled] the attached second puff while marker 1; the s_4013 particle flag; the keep-out box restore.
 #include <algorithm>
 #include <cmath>
 
@@ -177,8 +176,8 @@ AiOut m350(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 b.pos = {e.self.x + std::cos(th) * 0.55f,
                          e.self.y - (std::fabs(nf - 22.5f) * 0.005f + 1.635f),
                          e.self.z + std::sin(th) * 0.55f};
-                b.speed = 0.16f; b.accel = -0.0012f; b.scale = 1.0f;
-                b.home_period = 1; b.home_rate = 0.0174533f; b.probe = true; b.f16c = 30.0f; b.f170 = 120.0f;
+                b.speed = 0.16f; b.accel = -0.0012f; b.knock = 1.0f;
+                b.home_period = 1; b.home_rate = 0.0174533f; b.f168 = 1.0f; b.f16c = 30.0f; b.f170 = 120.0f;
                 out.bullets.push_back(b);
             }
             a.i(0x7c4) = int(n + 1);

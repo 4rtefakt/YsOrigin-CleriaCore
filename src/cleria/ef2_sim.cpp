@@ -169,6 +169,7 @@ void System::emit(Effect& fx, int em, int delay, Particle* parent) {
             h.power = fx.power; h.knock = fx.knock; h.rtype = fx.rtype; h.status = fx.status;
             h.cls = fx.cls; h.side = fx.side; h.atk = fx.atk;
         }
+        if (rd<std::uint8_t>(E.b2, 0x895) & 1) p->collide = true;   // EFFECTHIT §1 0x45039e
         fx.live += 1;
         parts_.push_back(std::move(p));
     }
@@ -431,13 +432,53 @@ void System::hit_tick(Particle& p, const std::function<bool(Particle&)>& on_hit)
     p.hit.radius = rd<float>(E.b2, 0x884) *
                    (fx.scale_x * p.mult.x + fx.scale_y * p.mult.y + fx.scale_z * p.mult.z) * 0.333333f;
     if (!on_hit || !on_hit(p)) return;
-    // FUN_0044ebb0(force 0): mode 2 disarms, fades and raises the kill flag.
-    if (p.hit.mode == 2) {
+    if (impact(p, false)) { p.collide = false; p.hit.armed = false; }
+}
+
+// FUN_0044ebb0 (EFFECTHIT §5.5): mode 2 or a forced (world-contact) call kills the particle and
+// raises the effect's kill flag; both modes then spawn the impact child B2+0x16 at the particle
+// with the effect's hit fields (power 8.0 for impact id 0x8b). The child gate's "culled by the
+// last draw" byte is taken as 0. [not modelled] impact id 0x194's bullet; the SEs of §5.5.
+bool System::impact(Particle& p, bool force) {
+    const Ef2Emitter& E = emitter(p);
+    bool ret = false;
+    if (!force) {
+        if (p.hit.mode == 0) return false;
+    }
+    if (force || p.hit.mode == 2) {
+        ret = true;
         p.dying = true;
         p.fx->kill = true;
         p.fx->fade_rate = p.fade_rate;
-        p.hit.armed = false;
     }
+    const int id = rd<std::uint16_t>(E.b2, 0x16);
+    if (id != 0 && lookup_) {
+        if (const Ef2* ef = lookup_(id)) {
+            const Effect& fx = *p.fx;
+            SpawnParams sp;
+            sp.pos = p.world_pos();
+            sp.power = id == 0x8b ? 8.0f : fx.power;
+            sp.knock = fx.knock; sp.rtype = fx.rtype; sp.status = fx.status; sp.cls = fx.cls;
+            sp.side = fx.side; sp.atk = fx.atk; sp.owner = fx.owner;
+            spawn(id, *ef, sp);
+        }
+    }
+    return ret;
+}
+
+// FUN_005645b0 0x56460b..0x564756: a world-colliding particle traces its last live step against
+// the terrain; on contact it snaps there and dies through FUN_0044ebb0(force 1) (hit disarmed).
+// With fx+0x1dc & 0x80 the test is only "below y = 0" ([not modelled]: no effect sets it here).
+void System::collide_tick(Particle& p) {
+    const Vec3 w = p.world_pos();
+    if (!p.latched) { p.latched = true; p.latch = w; return; }
+    Vec3 at{};
+    if (world_ && world_(p.latch, vsub(w, p.latch), &at)) {
+        const bool died = impact(p, true);                        // the child at p+0x150 (pre-snap)
+        p.world.m[3][0] = at.x; p.world.m[3][1] = at.y; p.world.m[3][2] = at.z;
+        if (died) { p.collide = false; p.hit.armed = false; return; }
+    }
+    p.latch = p.world_pos();
 }
 
 void System::step(const std::function<bool(Particle&)>& on_hit) {
@@ -467,7 +508,9 @@ void System::step(const std::function<bool(Particle&)>& on_hit) {
         p.prev_world = p.world_pos();
         update_particle(p, true);
         if (p.remaining == 0) { p.dead = true; continue; }
-        if (p.delay == 0) hit_tick(p, on_hit);
+        if (p.delay != 0) continue;
+        if (p.collide) collide_tick(p);
+        hit_tick(p, on_hit);
     }
 }
 
@@ -488,9 +531,19 @@ void System::kill_owned(int owner, int tag) {
 
 void System::move_owned(int owner, int tag, const Vec3& pos, const Vec3& rot, const Vec3& scale) {
     for (auto& f : fx_)
-        if (f->owner == owner && f->tag == tag)
-            f->M = mul(mul(scaling(scale.x, scale.y, scale.z), rot_ypr(rot.y, rot.x, rot.z)),
-                       translation(pos.x, pos.y, pos.z));
+        if (f->owner == owner && f->tag == tag) place(*f, pos, rot, scale);
+}
+
+void System::place(Effect& fx, const Vec3& pos, const Vec3& rot, const Vec3& scale) {
+    fx.scale_x = scale.x; fx.scale_y = scale.y; fx.scale_z = scale.z;
+    fx.M = mul(mul(scaling(scale.x, scale.y, scale.z), rot_ypr(rot.y, rot.x, rot.z)),
+               translation(pos.x, pos.y, pos.z));
+}
+
+Particle* System::first_particle(const Effect* fx) {
+    for (auto& p : parts_)
+        if (p->fx == fx && !p->dead) return p.get();
+    return nullptr;
 }
 
 void System::sweep() {
@@ -502,7 +555,7 @@ void System::sweep() {
         parts_.erase(parts_.begin() + std::ptrdiff_t(i));
     }
     for (std::size_t i = 0; i < fx_.size();) {
-        if (fx_[i]->dead && fx_[i]->live == 0) fx_.erase(fx_.begin() + std::ptrdiff_t(i));
+        if (fx_[i]->dead && fx_[i]->live == 0 && !fx_[i]->held) fx_.erase(fx_.begin() + std::ptrdiff_t(i));
         else ++i;
     }
 }
