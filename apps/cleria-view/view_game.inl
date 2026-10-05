@@ -2246,7 +2246,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     for (int slot : {t.i0, t.i1}) {
                         if (slot <= 0) continue;
                         if (pct < 100 && rng_pct(rng) >= float(pct)) continue;
-                        if (slot >= 0 && slot < 0x200) game.item_arr[slot] = 1;
+                        if (slot < int(std::size(game.item_arr))) game.item_arr[slot] = 1;
                         hud.message(items_tbl.name(slot));
                     }
                     ++broke;
