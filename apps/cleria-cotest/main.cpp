@@ -2,6 +2,7 @@
 // is unchanged, tick() parks/advances on Wait_Prompt, and the ScriptManager spawns +
 // ticks concurrent StartScript children. Usage: cleria-cotest <assets>
 #include "cleria/sev.hpp"
+#include "cleria/wndtext.hpp"
 #include "cleria/xso.hpp"
 #include <algorithm>
 #include <cmath>
@@ -676,6 +677,19 @@ int main(int argc, char** argv) {
                     rooms, frozen, soft_locked, locked_names.c_str(), ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // [unescape] FUN_0057ad90: the window text escapes (wndtext.hpp).
+    { struct C { const char* in; const char* want; } cases[] = {
+          {"Acquired\\n<color:0xfff2ea8c>Celcetan Panacea<color:> x 1.", "Acquired\n<color:0xfff2ea8c>Celcetan Panacea<color:> x 1."},
+          {"Hello, \\a.\\tBye", "Hello, Adol. Bye"},
+          {"\\x3 and \\c", "Adol Christin and Christin"},
+          {"a\\qb", "aqb"},
+          {"x\\x0yz", "xA"},
+          {"end\\n\\n  ", "end"}};
+      int bad = 0;
+      for (const C& c : cases)
+          if (wnd_unescape(c.in) != c.want) { ++bad; std::printf("  unescape '%s' -> '%s'\n", c.in, wnd_unescape(c.in).c_str()); }
+      std::printf("[unescape] %d/6 %s\n", 6 - bad, bad ? "FAIL" : "OK");
+      fails += bad != 0; }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

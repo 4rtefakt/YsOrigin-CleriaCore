@@ -713,7 +713,7 @@ struct TitleFx {
     // The in-engine cutscene DIALOGUE box (CUTSCENE_DIALOGUE.md): FACEWIN0 as a full-width
     // bottom bar (authored y544..768 of the 768 frame => bottom 224px), 3-sliced so the ornate
     // curls keep their size while the middle stretches. `name` = cream line above the divider,
-    // `text` = white body below, split on the literal "\n" authors write, revealed up to
+    // `text` = white body below, split on its newlines (unescaped by the host), revealed up to
     // `reveal` chars (typewriter; <0 shows all). Portrait slot on the left is a TODO — the
     // face asset/id mapping is still [UNKNOWN] (KAO_* is a noise texture, not portraits).
     void draw_dialogue(Gpu& g, MenuFont& mf, WGPUTextureView cview, WGPUTextureView dview,
@@ -756,7 +756,7 @@ struct TitleFx {
             mf.text(name, tx, by0 + boxH * 0.10f, pxName, sw, sh, 240, 224, 192, 255);   // cream
         std::string shown = (reveal >= 0 && reveal < int(text.size())) ? text.substr(0, reveal) : text;
         float ly = by0 + boxH * 0.34f;
-        // Greedy word-wrap: authored "\n" splits first, then any segment wider than
+        // Greedy word-wrap: newlines split first, then any segment wider than
         // the box wraps at spaces (the portrait margin can overflow authored lines).
         const float maxW = sw - tx - sw * 0.05f;
         auto emit = [&](const std::string& seg) {
@@ -780,10 +780,12 @@ struct TitleFx {
         };
         std::size_t i = 0;
         for (;;) {
-            const std::size_t nl = shown.find("\\n", i);   // authors write the two chars \ n
+            // The host runs FUN_0057ad90 (wndtext.hpp) first, so the authored two-char escape
+            // arrives as a real newline.
+            const std::size_t nl = shown.find('\n', i);
             emit(shown.substr(i, (nl == std::string::npos ? shown.size() : nl) - i));
             if (nl == std::string::npos) break;
-            i = nl + 2;
+            i = nl + 1;
         }
         mf.draw(g, cview);   // flush the accumulated glyphs
     }

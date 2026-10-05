@@ -24,6 +24,10 @@ struct VsOut { @builtin(position) pos : vec4<f32>, @location(0) uv : vec2<f32>,
 
 struct BookRenderer {
     WGPURenderPipeline pipeline{};
+    WGPURenderPipeline pipeline_add{};  // render state 0x40c1: additive (SRCALPHA / ONE)
+    bool add_mode = false;
+    // The message box's face (TexRef::Face): f_(200 + 10*face), frame; the host owns them.
+    std::function<WGPUBindGroup(int face, int frame)> face_bind;
     WGPUSampler clamp{};                // render states 0x24041 / 0x20001: address mode CLAMP (§0.3)
     WGPUBuffer vbuf{};
     std::size_t vbuf_cap = 0;
@@ -32,7 +36,7 @@ struct BookRenderer {
     std::unordered_map<std::string, SpriteTex> named_tex;     // Topic portraits, manual pages
     std::unordered_map<std::string, fs::path> image_files;    // IMAGE/, lower-case basename
     std::unordered_map<int, WGPUBindGroup> wrap_bind;         // menu texture -> WRAP sampler
-    SpriteTex f_middle, f_mini;
+    SpriteTex f_middle, f_mini, white;
     MenuFont gdi;                       // Felghana at a 32-px cell (lfHeight +32)
     WGPUBindGroup gdi_bind{};
     fs::path root;
@@ -92,6 +96,12 @@ struct BookRenderer {
             if (it->is_regular_file()) image_files.emplace(lower(it->path().filename().string()), it->path());
         f_middle = load(g, asset_root / "IMAGE" / "F_MIDDLE.DDS");
         f_mini = load(g, asset_root / "IMAGE" / "F_MINI.DDS");
+        {
+            const std::uint8_t px[16] = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+            white = upload_rgba(g, 2, 2, px);
+            if (white.bind) wgpuBindGroupRelease(white.bind);
+            white.bind = clamp_bind(g, white.view);
+        }
         // The GDI font: lfHeight +32 is the CELL height (tmHeight); MenuFont takes an em size, so
         // rasterise once, then re-rasterise at the em that makes tmHeight 32.
         if (gdi.init(g, color, find_felghana(asset_root), 32) && gdi.lineH > 0 && gdi.lineH != 32)
@@ -124,6 +134,11 @@ struct BookRenderer {
         pd.primitive.topology = WGPUPrimitiveTopology_TriangleList;
         pd.multisample.count = 1; pd.multisample.mask = 0xFFFFFFFF; pd.fragment = &fsd;
         pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+        WGPUBlendState add = {};
+        add.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_One};
+        add.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_One};
+        tgt.blend = &add;
+        pipeline_add = wgpuDeviceCreateRenderPipeline(g.device, &pd);
         wgpuPipelineLayoutRelease(pl);
         wgpuShaderModuleRelease(sm);
         ok = pipeline && f_middle.bind && f_mini.bind && gdi_bind;
@@ -157,12 +172,25 @@ struct BookRenderer {
                 }
                 return it->second.bind;
             }
+            case TexRef::Face: return face_bind ? face_bind(t.id, t.aux) : nullptr;
+            case TexRef::None: return white.bind;              // an untextured quad: the diffuse
             default: return nullptr;
         }
     }
 
+    // The GDI font's metrics for the window text layout (richtext.hpp): a 32-unit cell.
+    RichMetrics metrics() const {
+        RichMetrics m;
+        m.height = float(gdi.lineH);
+        m.ascent = float(gdi.ascent);
+        m.space = float(gdi.gl[0].adv);
+        const MenuFont* f = &gdi;
+        m.advance = [f](unsigned char c) { return (c >= 32 && c <= 126) ? float(f->gl[c - 32].adv) : 16.0f; };
+        return m;
+    }
+
     // ---- building the vertex stream -------------------------------------------------------
-    struct Batch { WGPUBindGroup bind; std::uint32_t first, count; };
+    struct Batch { WGPUBindGroup bind; std::uint32_t first, count; bool add; };
     std::vector<BookVertex> verts;
     std::vector<Batch> batches;
     float W = 0, H = 0, W43 = 0;
@@ -194,8 +222,8 @@ struct BookRenderer {
         q[1].x = NX(x1); q[1].y = NY(y0); q[1].u = u1; q[1].v = v0;
         q[2].x = NX(x1); q[2].y = NY(y1); q[2].u = u1; q[2].v = v1;
         q[3].x = NX(x0); q[3].y = NY(y1); q[3].u = u0; q[3].v = v1;
-        if (batches.empty() || batches.back().bind != bind)
-            batches.push_back({bind, std::uint32_t(verts.size()), 0});
+        if (batches.empty() || batches.back().bind != bind || batches.back().add != add_mode)
+            batches.push_back({bind, std::uint32_t(verts.size()), 0, add_mode});
         for (int i : {0, 1, 2, 0, 2, 3}) verts.push_back(q[i]);
         batches.back().count += 6;
     }
@@ -220,8 +248,8 @@ struct BookRenderer {
         const float mn = std::min(W, H), ref = H < W ? 768.0f : 1024.0f;
         auto NX = [&](float v) { return v / W * 2.f - 1.f; };
         auto NY = [&](float v) { return 1.f - v / H * 2.f; };
-        if (batches.empty() || batches.back().bind != it->second)
-            batches.push_back({it->second, std::uint32_t(verts.size()), 0});
+        if (batches.empty() || batches.back().bind != it->second || batches.back().add)
+            batches.push_back({it->second, std::uint32_t(verts.size()), 0, false});
         for (std::uint16_t ix : c.indices) {
             const DrawCmd::Vert& v = c.verts[ix];
             BookVertex b{};
@@ -274,6 +302,35 @@ struct BookRenderer {
         run(0.0f, 0.0f, c.diffuse);
     }
 
+    // The window text (richtext.hpp, WNDDIALOG_DRAW.md §6.4-§6.6): every glyph's black shadow at
+    // (-1, +1) first, then the glyphs in their run colours; the typewriter fades the glyph at the
+    // reveal counter in. Glyphs scale about the baseline.
+    void text_rich(const DrawCmd& c) {
+        const float ca = float(c.diffuse >> 24) / 255.0f;
+        for (int pass = 0; pass < 2; ++pass) {
+            const float ox = pass == 0 ? -1.0f : 0.0f, oy = pass == 0 ? 1.0f : 0.0f;
+            for (const RichGlyph& gl : c.rich) {
+                if (gl.ext || gl.c < 33 || gl.c > 126) continue;
+                const float r = reveal_alpha(gl, c.reveal);
+                if (r <= 0) continue;
+                const MenuFont::Glyph& gp = gdi.gl[gl.c - 32];
+                if (gp.w <= 0 || gp.h <= 0) continue;
+                const float k = gl.scale;
+                const float gx = c.x + gl.x + ox + float(gp.bx) * k;
+                const float gy = c.y + 1.0f + gl.y + oy + float(gdi.ascent) - float(gp.by) * k;
+                const std::uint32_t a = std::uint32_t(float(gl.colour >> 24) * ca * r);
+                // The run colour is baked into the raster; the draw colour modulates it (the
+                // menu rows' 0xB0D0D0, an unfocused dialog's 0x7F7F7F).
+                auto ch = [&](int sh) {
+                    return std::uint32_t(((gl.colour >> sh) & 0xFF) * ((c.diffuse >> sh) & 0xFF) / 255) << sh;
+                };
+                const std::uint32_t col = (a << 24) | (pass == 0 ? 0u : (ch(16) | ch(8) | ch(0)));
+                aquad(gdi_bind, gx, gy, float(gp.w) * k, float(gp.h) * k, c.anchor_x, c.anchor_y,
+                      gp.u0, gp.v0, gp.u1, gp.v1, col, 0, false);
+            }
+        }
+    }
+
     // Execute `list` over `view` (loadOp Load). The side pillars (§2.1, raw pixels, opaque)
     // come first, as FUN_005a73c0 draws them.
     void render(Gpu& g, WGPUTextureView view, std::uint32_t sw, std::uint32_t sh, const DrawList& list) {
@@ -284,9 +341,12 @@ struct BookRenderer {
         for (const DrawCmd& c : list) {
             switch (c.kind) {
                 case DrawCmd::Quad:
+                    add_mode = (c.flags & 0x80) != 0;
                     aquad(bind_of(g, c.tex), c.x, c.y, c.w, c.h, c.anchor_x, c.anchor_y, c.u0, c.v0, c.u1, c.v1,
                           c.diffuse, c.specular, (c.flags & 0xFFFF) == 0x0001);
+                    add_mode = false;
                     break;
+                case DrawCmd::TextRich: text_rich(c); break;
                 case DrawCmd::TextMiddle: text_bitmap(g, c, true); break;
                 case DrawCmd::TextMini: text_bitmap(g, c, false); break;
                 case DrawCmd::TextGdi: text_gdi(c); break;
@@ -298,7 +358,9 @@ struct BookRenderer {
                     const float Lx = (W - W43) / 2, R = Lx + W43;
                     const float ul = wide ? 0.16796875f : 0.1015625f, ur = wide ? 0.83203125f : 0.8984375f;
                     quad(pb, 0, 0, Lx, H, 0, 0, ul, 0.75f, c.diffuse, c.specular, true);
-                    quad(pb, R, 0, W, H, ur, 0, 1, 0.75f, c.diffuse, c.specular, true);
+                    // The right strip starts a pixel inside the field (R - 1.0 for the title's
+                    // strips, R - 0.5 for the book's), so no seam shows against the logo / Back00.
+                    quad(pb, R - 1.0f, 0, W, H, ur, 0, 1, 0.75f, c.diffuse, c.specular, true);
                     break;
                 }
                 case DrawCmd::Mesh: mesh(g, c); break;
@@ -321,9 +383,9 @@ struct BookRenderer {
         ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
         WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-        wgpuRenderPassEncoderSetPipeline(pass, pipeline);
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, 0, bytes);
         for (const Batch& b : batches) {
+            wgpuRenderPassEncoderSetPipeline(pass, b.add ? pipeline_add : pipeline);
             wgpuRenderPassEncoderSetBindGroup(pass, 0, b.bind, 0, nullptr);
             wgpuRenderPassEncoderDraw(pass, b.count, 1, b.first, 0);
         }
@@ -332,6 +394,42 @@ struct BookRenderer {
         WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
         wgpuQueueSubmit(g.queue, 1, &cmd);
         wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+    }
+};
+
+// The message box's face (WNDDIALOG_DRAW.md §2.5 step 3): face index k -> ani slot 154 + k ->
+// ANI/F_(200 + 10k).AIA; the frame (the Window_Msg op1) is composed onto the set's canvas, as
+// the engine textures the whole record, and cached until the face or frame changes. The frame is
+// clamped to the sheet [H: the engine's out-of-range behaviour is unknown, Uncertain #8].
+struct FaceCache {
+    int face = -1, frame = -1;            // frame -2 = decode failed (don't retry every frame)
+    Aia aia;
+    bool aia_ok = false;
+    SpriteTex tex{};
+    const SpriteTex* get(Gpu& g, const fs::path& root, int k, int fr) {
+        if (k < 0 || fr < 0) return nullptr;
+        if (face != k) {
+            face = k; frame = -1; aia_ok = false;
+            char nm[16];
+            std::snprintf(nm, sizeof nm, "F_%d", 200 + 10 * k);
+            aia = Aia{};
+            aia_ok = aia.load(root / "ANI" / (std::string(nm) + ".AIA")) && aia.ok();
+        }
+        if (aia_ok && aia.nImg > 0) fr = std::min(fr, int(aia.nImg) - 1);
+        if (aia_ok && frame != fr) {
+            AiaFrame f;
+            if (aia.decode_frame(std::uint32_t(fr), 0, 0, f) && f.w > 0) {
+                const std::uint32_t cw = aia.canvasW, chh = aia.canvasH;
+                std::vector<std::uint8_t> canvas(std::size_t(cw) * chh * 4, 0);
+                for (std::uint32_t y = 0; y < f.h && y + f.y0 < chh; ++y)
+                    for (std::uint32_t x = 0; x < f.w && x + f.x0 < cw; ++x)
+                        std::memcpy(&canvas[(std::size_t(y + f.y0) * cw + x + f.x0) * 4],
+                                    &f.rgba[(std::size_t(y) * f.w + x) * 4], 4);
+                tex = upload_rgba(g, cw, chh, canvas.data());
+                frame = fr;
+            } else frame = -2;
+        }
+        return (frame == fr && tex.tex) ? &tex : nullptr;
     }
 };
 
@@ -493,6 +591,100 @@ static int render_book(Gpu& g, const fs::path& asset_root, const fs::path& out, 
     dst.layout.bytesPerRow = bpr; dst.layout.rowsPerImage = H;
     WGPUExtent3D ext = {W, H, 1};
     wgpuCommandEncoderCopyTextureToBuffer(enc, &src, &dst, &ext);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+    MapReq mr;
+    WGPUBufferMapCallbackInfo mi = {};
+    mi.mode = WGPUCallbackMode_AllowProcessEvents; mi.callback = on_map; mi.userdata1 = &mr;
+    wgpuBufferMapAsync(readback, WGPUMapMode_Read, 0, rbd.size, mi);
+    while (!mr.done) wgpuDevicePoll(g.device, true, nullptr);
+    const auto* px = static_cast<const std::uint8_t*>(wgpuBufferGetConstMappedRange(readback, 0, rbd.size));
+    std::ofstream f(out, std::ios::binary);
+    f << "P6\n" << W << " " << H << "\n255\n";
+    for (std::uint32_t y = 0; y < H; ++y)
+        for (std::uint32_t x = 0; x < W; ++x)
+            f.write(reinterpret_cast<const char*>(px + std::size_t(y) * bpr + x * 4), 3);
+    wgpuBufferUnmap(readback);
+    std::printf("wrote %s (%ux%u)\n", out.string().c_str(), W, H);
+    return 0;
+}
+
+// Headless: cleria-view <root> x --wnd out.ppm [W H]. CLERIA_WND = msg | item | menu (the
+// message box with a face, the item-get box, the statue's choice box); CLERIA_WND_BG = a P6
+// .ppm of the same size to draw over (e.g. a --play shot). The window is armed and stepped 240
+// frames, as if Wait_Prompt were waiting on it.
+static int render_wnd(Gpu& g, const fs::path& asset_root, const fs::path& out, std::uint32_t W, std::uint32_t H) {
+    const ItemTable items = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+    WGPUTextureDescriptor td = {};
+    td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc | WGPUTextureUsage_CopyDst;
+    td.dimension = WGPUTextureDimension_2D; td.size = {W, H, 1};
+    td.format = WGPUTextureFormat_RGBA8Unorm; td.mipLevelCount = 1; td.sampleCount = 1;
+    WGPUTexture color = wgpuDeviceCreateTexture(g.device, &td);
+    WGPUTextureView cview = wgpuTextureCreateView(color, nullptr);
+    {   // the background (or black)
+        std::vector<std::uint8_t> px(std::size_t(W) * H * 4, 0);
+        for (std::size_t i = 3; i < px.size(); i += 4) px[i] = 255;
+        if (const char* bg = std::getenv("CLERIA_WND_BG")) {
+            std::ifstream f(bg, std::ios::binary);
+            std::string magic; std::uint32_t bw = 0, bh = 0, mx = 0;
+            f >> magic >> bw >> bh >> mx; f.get();
+            if (magic == "P6" && bw == W && bh == H)
+                for (std::size_t i = 0; i < std::size_t(W) * H; ++i) f.read(reinterpret_cast<char*>(&px[i * 4]), 3);
+        }
+        WGPUTexelCopyTextureInfo dst = {}; dst.texture = color; dst.aspect = WGPUTextureAspect_All;
+        WGPUTexelCopyBufferLayout lay = {}; lay.bytesPerRow = W * 4; lay.rowsPerImage = H;
+        WGPUExtent3D ext = {W, H, 1};
+        wgpuQueueWriteTexture(g.queue, &dst, px.data(), px.size(), &lay, &ext);
+    }
+    BookRenderer br;
+    br.init(g, WGPUTextureFormat_RGBA8Unorm, asset_root, items);
+    FaceCache faces;
+    br.face_bind = [&](int face, int frame) -> WGPUBindGroup {
+        const SpriteTex* t = faces.get(g, asset_root, face, frame);
+        return t ? t->bind : nullptr;
+    };
+    const RichMetrics m = br.metrics();
+    const std::string kind = std::getenv("CLERIA_WND") ? std::getenv("CLERIA_WND") : "msg";
+    WndText t;
+    WndDialog d;
+    std::vector<int> snd;
+    if (kind == "item") {
+        d.treasure(512, 122, 0x54, "Received\n<color:0xfff2ea8c>Crystal<color:>.", m);
+        d.arm();
+    } else if (kind == "menu") {
+        d.menu(512, 282, "What will you do?", {"Save", "Accept divine blessing", "Nothing right now"},
+               {"@SaveMenu", "@GrowMenu", "@SaveBack"}, m, true);
+        d.arm();
+    } else if (kind != "title") {
+        t.message(0x57, 1, 0, "Roy", "Heh, so you're the new recruits.\nWelcome to the <color:0xfff2ea8c>"
+                  "Search Party<color:>.", m);
+        t.arm();
+    }
+    TitleScreen ts;
+    TitleGates gates;
+    if (kind == "title") {                               // the title screen; CLERIA_WND_CLEAR=1 = all cleared
+        if (std::getenv("CLERIA_WND_CLEAR")) gates.clear_toal = gates.clear_hugo = gates.clear_yunica = gates.nya = true;
+        for (int i = 0; i < 40; ++i) ts.update({}, false, gates, m, snd);
+    }
+    for (int i = 0; i < 240; ++i) { t.update({}, snd); d.update({}, snd); }
+    DrawList dl;
+    if (kind == "title") ts.draw(dl);
+    t.draw(dl, d.alive());
+    d.draw(dl);
+    br.render(g, cview, W, H, dl);
+    std::printf("wnd: %s, %zu draw commands\n", kind.c_str(), dl.size());
+
+    const std::uint32_t bpr = (W * 4 + 255) & ~255u;
+    WGPUBufferDescriptor rbd = {};
+    rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * H;
+    WGPUBuffer readback = wgpuDeviceCreateBuffer(g.device, &rbd);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPUTexelCopyTextureInfo src = {}; src.texture = color; src.aspect = WGPUTextureAspect_All;
+    WGPUTexelCopyBufferInfo dstb = {}; dstb.buffer = readback;
+    dstb.layout.bytesPerRow = bpr; dstb.layout.rowsPerImage = H;
+    WGPUExtent3D ext = {W, H, 1};
+    wgpuCommandEncoderCopyTextureToBuffer(enc, &src, &dstb, &ext);
     WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
     wgpuQueueSubmit(g.queue, 1, &cmd);
     wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);

@@ -134,6 +134,21 @@ void PauseBook::update_nav(const BookInput& in, BookEvents& ev) {
     const BookInput& I = sub_ != 0 ? none : in;              // the navigator zeroes its copy while a page has focus
     switch (nav_) {
         case 0:
+            if (sub_ == 4 || sub_ == 8 || sub_ == 0x11 || sub_ == 0x17) {
+                // TITLE_DRAW.md §4.2: a direct entry slides its own plaque in; Load / Option
+                // also slide the gold plaque in on top. The Cur00 cursor stays off screen.
+                const int p = sub_ == 4 ? 5 : sub_ == 8 ? 6 : sub_ == 0x11 ? 7 : 8;
+                page_ = p;
+                plaque_[p].set_target(kTabs[p].x, 0, 16);
+                if (sub_ == 8 || sub_ == 0x11) {
+                    gold_.set_rect(128, -51.2f, 153.6f, 51.2f);
+                    gold_.set_target(128, 0, 16);
+                    gold_.tex = menu(sub_ == 8 ? 3 : 6);
+                    gold_.set_colour(kWhite, 0);
+                }
+                nav_ = 1;
+                break;
+            }
             if (sub_ == 0) {
                 cursor_.set_target(kTabs[page_].x, 0, 16);
                 for (int i = 0; i < 5; ++i) plaque_[i].set_target(kTabs[i].x, 0, 16);
@@ -494,7 +509,11 @@ void PauseBook::update_popup(const BookInput& in, BookModel& m, BookEvents& ev) 
                         pstate_ = 3;
                         mtower_.fade_to(kWhite, 0, 24);        // the pillars follow the tower
                         return;
-                    case 0x55: ev.script = can ? "@Riranokaigara" : "@UseItemBoo"; break;
+                    case 0x55:                               // flag 503 = the O2 gauge is up ([not modelled]: 0)
+                        m.flags[503] = 0;
+                        ev.script = can ? "@Riranokaigara" : "@UseItemBoo";
+                        break;
+                    case 0x70: ev.script = can ? "@DarkRiranokaigara" : "@UseItemBoo"; break;
                     case 0x5F: ev.script = !can ? "@UseItemBoo" : m.underwater ? "@UseHarmonica2" : "@UseHarmonica"; break;
                     case 0x60: ev.script = can ? "@UseHammer" : "@UseItemBoo"; break;
                     case 0x69: ev.script = can ? "@UseSekizou" : "@UseItemBoo"; break;
@@ -615,7 +634,7 @@ void PauseBook::update_caption(const BookModel& m) {
             break;
         }
         case 10: caption_ = "Delete this data?"; set_detail(-1); break;
-        case 0x13: case 0x14: case 0x15: case 0x16: caption_.clear(); set_detail(-1); break;
+        case 0x13: case 0x14: case 0x15: case 0x16: case 0x17: case 0x18: caption_.clear(); set_detail(-1); break;
         default: caption_ = page_caption(page_); set_detail(-1); break;
     }
     tween(dicon_);
@@ -668,8 +687,8 @@ void PauseBook::open(const BookModel& m, int ctx) {
     sub_ = kSub[std::clamp(ctx, 0, 4)];
     frames_ = 0;
     icur_ = std::clamp(m.flags[228], 0, 29);
-    if (ctx == 1) last_page_ = 5;                            // [H] the Save context shows page 5
     build_shell();
+    if (ctx >= 1) page_ = ctx == 1 ? 5 : ctx == 2 ? 6 : ctx == 3 ? 7 : 8;   // the direct pages (§4.2)
     build_item(m);
     build_popup();
     build_equip(m);
@@ -683,6 +702,7 @@ void PauseBook::open(const BookModel& m, int ctx) {
     build_sheet(m);
     build_viewer();
     build_manual(m);
+    build_charsel(m);
     dplate_ = MenuSprite{};
     dicon_ = MenuSprite{};
     dicon_.set_colour(0x00FFFFFF, 0);
@@ -708,6 +728,7 @@ void PauseBook::update(const BookInput& in0, BookModel& m, BookEvents& ev) {
     update_grid(in, m, ev);
     update_viewer(in, m, ev);
     update_manual(in, m, ev);
+    update_charsel(in, m, ev);
     if (sub_ == -1) { open_ = false; ev.closed = true; }
 }
 
@@ -720,7 +741,7 @@ void PauseBook::draw(DrawList& out, const BookModel& m) const {
     out.push_back(pillars);
     cleria::draw(out, back_);
     for (int i = 0; i < 9; ++i) if (i != page_) cleria::draw(out, plaque_[i]);
-    cleria::draw(out, plaque_[page_]);
+    if (page_ != 8) cleria::draw(out, plaque_[page_]);      // showTabs = (page != 8)
     cleria::draw(out, cursor_);
     cleria::draw(out, gold_);
     draw_caption_detail(out, m);
@@ -738,6 +759,7 @@ void PauseBook::draw(DrawList& out, const BookModel& m) const {
         case 2: case 6: draw_svld(out); draw_dialog(out, 0); draw_dialog(out, 2); break;
         case 5: draw_svld(out); draw_dialog(out, 1); draw_dialog(out, 2); break;
         case 3: case 7: draw_option(out); break;
+        case 8: draw_charsel(out); break;
         default: break;
     }
 }
@@ -1889,6 +1911,231 @@ void PauseBook::draw_map(DrawList& out, const BookModel& m) const {
         cleria::draw(out, pl);
     }
     cleria::draw(out, mbar_);
+}
+
+
+// ==== Character Select, book page 8 (TITLE_DRAW.md §5-§6) ====================================
+
+namespace {
+
+constexpr std::uint32_t kCsDim = 0xFF808080;
+const char* const kCsName[4] = {"[Yunica]", "[Hugo]", "[Toal]", "[Adol]"};
+const char* const kCsBlurb[4] = {"Axe-wielding fighter. Mid speed, mid range.",
+                                 "Energy-firing mage. Slow speed, long range.",
+                                 "Berserker. Fast, close range. Experts only!",
+                                 "Fiery-haired swordsman. Abilities unknown."};
+const char* const kCsPortrait[4] = {"CHRSELECT_PORTRAIT1.DDS", "CHRSELECT_PORTRAIT2.DDS", "CHRSELECT_PORTRAIT3.DDS",
+                                    "CHRSELECT_PORTRAIT0.DDS"};
+const char* const kCsChibi[4] = {"CHRSELECT_CHR1.DDS", "CHRSELECT_CHR2.DDS", "CHRSELECT_CHR3.DDS", "CHRSELECT_CHR0.DDS"};
+TexRef cs_tex(const char* n) { return {TexRef::Named, 0, n}; }
+
+}  // namespace
+
+bool PauseBook::cs_locked(const BookModel& m, int bar) const {
+    const CharSelectGates& g = m.charsel;
+    if (g.mode == 1) {                                       // Time Attack: only cleared characters
+        const bool cleared[4] = {g.clear_yunica, g.clear_hugo, g.clear_toal, true};
+        return !cleared[std::clamp(bar, 0, 3)];
+    }
+    return csn_ == 3 && bar == 2 && !(g.clear_yunica || g.clear_hugo);
+}
+
+// FUN_005c2110
+void PauseBook::build_charsel(const BookModel& m) {
+    const CharSelectGates& g = m.charsel;
+    csn_ = (g.nya && g.clear_yunica && g.clear_hugo && g.clear_toal && (g.adol_felghana || g.adol_napishtim) &&
+            (g.mode == 1 || g.mode == 2)) ? 4 : 3;
+    static constexpr float kY3[3] = {128, 272, 416}, kY4[4] = {80, 208, 336, 464};
+    csstate_ = 0;
+    cssel_ = 0;
+    cspanel_ = make({}, 0, 0, 1024, 768, 0, 0, 1, 1, 0x4040);
+    cspanel_.anchor_x = 0;
+    cspanel_.set_colour(0, 0);
+    for (int i = 0; i < csn_; ++i) {
+        const float y = csn_ == 3 ? kY3[i] : kY4[i];
+        csbar_[i] = make(cs_tex("CHRSELECT.DDS"), 60, y, 896, 128, 0, 144.0f / 512, 0.875f, 272.0f / 512);
+        csbar_[i].set_colour(0x00FFFFFF, 0);
+        csface_[i] = make(cs_tex("CHRSELECT.DDS"), 646, y + 16, 256, 100, 256.0f * float(i) / 1024, 288.0f / 512,
+                          256.0f * float(i + 1) / 1024, 388.0f / 512);
+        csface_[i].set_colour(0x00FFFFFF, 0);
+        csport_[i] = make(cs_tex(kCsPortrait[i]), 0, 0, 1024, 1024, 0, 0, 1, 1);
+        csport_[i].set_colour(0, 0);
+    }
+    cshi_.pulse_specular_off();
+    cshi_ = make(cs_tex("CHRSELECT.DDS"), 60, csbar_[0].y, 896, 128, 0, 16.0f / 512, 0.875f, 144.0f / 512, 0x24081);
+    cshi_.pulse_specular_on(8);
+    csport_[0].set_rect(-160, 0, 1024, 1024);
+    csport_[0].set_target(0, 0, 16);
+    csstrip_ = make(cs_tex("CHRSELECT.DDS"), 0, 688, 512, 80, 0, 432.0f / 512, 0.5f, 1);
+    csstrip_.set_colour(0x00FFFFFF, 0);
+    csbanner_ = make(cs_tex("CHRSELECT.DDS"), 274, 0, 464, 80, 560.0f / 1024, 432.0f / 512, 1, 1);
+    csbanner_.set_colour(0x00FFFFFF, 0);
+    cstext_.set_colour(0x00FFFFFF, 0);
+    cs_pop_chibi();
+    cs_colours(m, true);
+}
+
+// FUN_005c1e70: the chibi pops in from a point at its centre.
+void PauseBook::cs_pop_chibi() {
+    cschibi_ = make(cs_tex(kCsChibi[std::clamp(cssel_, 0, 3)]), 856, 644, 0, 0, 0, 0, 0.25f, 0.5f);
+    cschibi_.tx = 792; cschibi_.ty = 580; cschibi_.tw = 128; cschibi_.th = 128;
+    cschibi_.pos_speed = 6.4f; cschibi_.size_speed = 12.8f;
+    cschibi_.set_colour(0, 0);
+    cschibi_.fade_to(kWhite, 0, 2.0f);
+}
+
+// FUN_005c3320(lit, set): colour targets at colour speed 2.
+void PauseBook::cs_colours(const BookModel& m, bool lit) {
+    const std::uint32_t C = lit ? kWhite : kCsDim;
+    for (MenuSprite* s : {&csstrip_, &csbanner_, &cschibi_, &cshi_}) s->fade_to(C, 0, 2.0f);
+    for (int i = 0; i < csn_; ++i) {
+        csport_[i].fade_to(i == cssel_ ? C : 0x00FFFFFFu, 0, 2.0f);
+        const bool locked = cs_locked(m, i);
+        csbar_[i].fade_to(locked ? 0x80404040u : C, 0, 2.0f);
+        csface_[i].fade_to(locked ? 0x40808080u : C, 0, 2.0f);
+    }
+    cstext_.fade_to(lit ? kWhite : 0x00FFFFFFu, 0, 2.0f);
+    cspanel_.fade_to(lit ? 0u : 0x80000000u, 0, 2.0f);
+}
+
+// The Type Select / Outfit Select / Difficulty popups (go_wnddialog at (512, 256), no tick).
+void PauseBook::cs_popup(const BookModel& m, int which) {
+    const CharSelectGates& g = m.charsel;
+    std::vector<std::string> items;
+    cspop_codes_.clear();
+    auto add = [&](const char* t, int code) { items.push_back(t); cspop_codes_.push_back(code); };
+    std::string title;
+    if (which == 0) {                                        // Type Select
+        title = "Type Select";
+        if (cssel_ == 3) {
+            if (g.adol_felghana) add("Felghana", 0);
+            if (g.adol_napishtim) add("Napishtim", 1);
+        } else { add("Normal", 0); add("Extra", 1); }
+        add("Cancel", -1);
+    } else if (which == 1) {                                 // Outfit Select
+        title = "Outfit Select";
+        if (g.adol_felghana) add("Normal", 0);
+        if (g.adol_napishtim) add("School", 1);
+        add("Cancel", -1);
+    } else {                                                 // Difficulty Level
+        title = "Difficulty Level";
+        if (g.mode == 0 && g.nya) add("Very Easy", 10);
+        add("Easy", 11);
+        add("Normal", 12);
+        add("Hard", 13);
+        if (g.nya) add("Nightmare", 14);
+        add("Cancel", -1);
+    }
+    const std::vector<std::string> labels(items.size());
+    cspop_.menu(512, 256, title, items, labels, m.metrics, false, false);
+    cspop_.set_cancel(int(items.size()));
+    if (which == 2) for (std::size_t k = 0; k < cspop_codes_.size(); ++k) if (cspop_codes_[k] == 12) cspop_.set_cursor(int(k) + 1);
+    cspop_.arm();
+    cspop_kind_ = which;
+    cspop_done_ = false;
+    cshi_.pulse_specular_off();
+    cs_colours(m, false);
+}
+
+// FUN_005c3790 (+ the dispatcher's difficulty step)
+void PauseBook::update_charsel(const BookInput& in0, BookModel& m, BookEvents& ev) {
+    const BookInput none{};
+    const BookInput& in = sub_ == 0x17 ? in0 : none;
+    for (MenuSprite* s : {&cspanel_, &cshi_, &cschibi_, &csstrip_, &csbanner_, &cstext_}) tween(*s);
+    for (int i = 0; i < csn_; ++i) { tween(csbar_[i]); tween(csface_[i]); tween(csport_[i]); }
+    cschibi_c_ = (cschibi_c_ + 15) % 800;                    // 8 cells of a 4x2 sheet
+    const int f = cschibi_c_ / 100, col = f & 3, row = f >> 2;
+    cschibi_.set_uv(128.0f * float(col) / 512, 128.0f * float(row) / 256, (128.0f * float(col) + 128) / 512,
+                    (128.0f * float(row) + 128) / 256);
+    // The popup.
+    if (cspop_.alive()) {
+        WndInput wi;
+        wi.confirm_pressed = in0.confirm; wi.cancel_pressed = in0.cancel; wi.vstep = in0.vstep;
+        wi.confirm_held = in0.confirm; wi.cancel_held = in0.cancel;
+        cspop_.update(wi, ev.sounds);
+        if (cspop_.accepted() && !cspop_done_) {
+            cspop_done_ = true;
+            const int k = cspop_.chosen_index() - 1;
+            const int code = k >= 0 && k < int(cspop_codes_.size()) ? cspop_codes_[std::size_t(k)] : -1;
+            if (cspop_kind_ == 2) {
+                if (code < 0) { cs_cancelled_ = true; }
+                else {
+                    cs_result_.difficulty = code == 13 ? 1 : code == 14 ? 2 : 0;
+                    cs_result_.easy = code == 10 || code == 11;
+                    cs_result_.very_easy = code == 10;
+                    cs_cancelled_ = false;
+                }
+            } else if (code < 0) {
+                csstate_ = 1; cshi_.pulse_specular_on(8); cs_colours(m, true);
+            } else {
+                if (cspop_kind_ == 0) cs_result_.type = code; else cs_result_.outfit = code;
+                if (cspop_kind_ == 0 && cssel_ == 0 && m.charsel.yunica_outfit) cs_next_ = 1;
+                else cs_next_ = 2;
+            }
+        }
+    } else if (cspop_done_) {
+        cspop_done_ = false;
+        if (cspop_kind_ == 2) {                              // the window is gone: 0x75aed4 ? 0x17 : -1
+            if (cs_cancelled_) { sub_ = 0x17; csstate_ = 1; cshi_.pulse_specular_on(8); cs_colours(m, true); }
+            else { ev.new_game = true; ev.new_game_info = cs_result_; sub_ = -1; }
+        } else if (cs_next_ >= 0) {
+            const int n = cs_next_;
+            cs_next_ = -1;
+            if (n == 2) sub_ = 0x18;
+            cs_popup(m, n);
+        }
+    }
+    switch (csstate_) {
+        case 0:
+            if (sub_ == 0x17) { csstate_ = 1; cs_colours(m, true); }
+            break;
+        case 1: {
+            if (in.cancel) { sub_ = -1; ev.sounds.push_back(1); break; }
+            const CharSelectGates& g = m.charsel;
+            const int mm = (csn_ == 3 && !(g.clear_yunica || g.clear_hugo)) ? 2 : csn_;
+            const int s = (cssel_ + in.vstep + mm) % mm;
+            if (s != cssel_) {
+                cssel_ = s;
+                ev.sounds.push_back(3);
+                cshi_.set_rect(60, csbar_[s].y, 896, 128);
+                csport_[s].set_rect(-160, 0, 1024, 1024);
+                csport_[s].set_target(0, 0, 16);
+                cs_pop_chibi();
+                cs_colours(m, true);
+            }
+            if (in.confirm) {
+                ev.sounds.push_back(0);
+                static constexpr int kChar[4] = {1, 2, 3, 0};
+                cs_result_ = {};
+                cs_result_.character = kChar[cssel_];
+                const bool type = (cssel_ == 0 && g.extra_yunica) || (cssel_ == 1 && g.extra_hugo) ||
+                                  (cssel_ == 2 && g.extra_toal) || (cssel_ == 3 && (g.adol_felghana || g.adol_napishtim));
+                csstate_ = 2;
+                if (type) cs_popup(m, 0);
+                else { sub_ = 0x18; cs_popup(m, 2); }
+            }
+            break;
+        }
+        default: break;
+    }
+}
+
+// FUN_005a5d50 page 8
+void PauseBook::draw_charsel(DrawList& out) const {
+    cleria::draw(out, cspanel_);
+    for (int i = 0; i < csn_; ++i) { cleria::draw(out, csbar_[i]); cleria::draw(out, csface_[i]); }
+    cleria::draw(out, cshi_);
+    for (int i = 0; i < csn_; ++i) cleria::draw(out, csport_[i]);
+    cleria::draw(out, cschibi_);
+    cleria::draw(out, csstrip_);
+    const std::uint32_t ta = cstext_.diffuse >> 24;
+    if (ta != 0) {
+        const std::uint32_t col = (ta << 24) | 0xC0C0C0;
+        out.push_back(text_cmd(DrawCmd::TextGdi, kCsName[std::clamp(cssel_, 0, 3)], 48, 704, col, 4));
+        out.push_back(text_cmd(DrawCmd::TextGdi, kCsBlurb[std::clamp(cssel_, 0, 3)], 208, 704, col, 4));
+    }
+    cleria::draw(out, csbanner_);
+    cspop_.draw(out);
 }
 
 }  // namespace cleria

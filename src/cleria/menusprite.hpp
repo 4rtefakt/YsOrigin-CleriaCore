@@ -7,16 +7,22 @@
 #include <string>
 #include <vector>
 
+#include "cleria/richtext.hpp"
+
 namespace cleria {
 
 // What a quad samples: a menu-table texture (data\menu\..., §0.6), an item icon
 // (MENU/ICON/<stem>.DDS, 64²), an item's big icon (MENU/ICON2/<stem>V.DDS, 256²), or a file
 // loaded by name (a Topic portrait or a manual page: `name`, a static string).
 struct TexRef {
-    enum Kind : std::uint8_t { None, Menu, Icon, Icon2, Named } kind = None;
+    // Face: a message-box face, f_(200 + 10*id), frame `aux` (the host resolves it).
+    enum Kind : std::uint8_t { None, Menu, Icon, Icon2, Named, Face } kind = None;
     int id = 0;
     const char* name = nullptr;
-    bool operator==(const TexRef& o) const { return kind == o.kind && id == o.id && name == o.name; }
+    int aux = 0;
+    bool operator==(const TexRef& o) const {
+        return kind == o.kind && id == o.id && name == o.name && aux == o.aux;
+    }
 };
 
 struct MenuSprite {
@@ -54,7 +60,9 @@ bool tween(MenuSprite& s);
 struct DrawCmd {
     // Pillars: the side pillars in raw pixels (§2.1; tex.id = the 16:9 texture, +1 = 16:10).
     // Mesh: an indexed triangle list (the map's clouds), x scaled by min(W,H)/768, WRAP sampler.
-    enum Kind : std::uint8_t { Quad, TextMiddle, TextMini, TextGdi, Pillars, Mesh } kind = Quad;
+    // TextRich: laid-out window text (richtext.hpp) at (x, y), alpha from `diffuse`, the
+    // typewriter counter `reveal`, with the GDI shadow. Quad flags 0x40c1 = additive.
+    enum Kind : std::uint8_t { Quad, TextMiddle, TextMini, TextGdi, Pillars, Mesh, TextRich } kind = Quad;
     // Quad
     TexRef tex;
     float x = 0, y = 0, w = 0, h = 0, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
@@ -68,6 +76,9 @@ struct DrawCmd {
     struct Vert { float x, y, u, v; std::uint32_t argb; };
     std::vector<Vert> verts;
     std::vector<std::uint16_t> indices;
+    // TextRich
+    std::vector<RichGlyph> rich;
+    std::uint32_t reveal = 0xFFFFFFFFu;
 };
 using DrawList = std::vector<DrawCmd>;
 

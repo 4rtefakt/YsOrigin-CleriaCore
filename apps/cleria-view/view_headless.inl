@@ -197,6 +197,54 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
         const std::uint32_t d = dir < ch.ndir ? dir : 0;
         draw_shadow(g, cview, dview, shadows.tex, feet, feet.y, 0.6f);
         draw_character(g, cview, dview, feet, worldH, ch.dirs[d], cam.forward(), cam.pos);
+        // CLERIA_PICKUPS="id,id,...": drop those items as enemy drops 1.5 units in front of the
+        // player, simulate CLERIA_PICKUP_TICKS (default 120) ticks, and draw them (pickup.hpp).
+        if (const char* pl = std::getenv("CLERIA_PICKUPS")) {
+            const ItemTable itbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+            ef2sim::Rng rng;
+            std::vector<Pickup> pks;
+            Vec3 at = {feet.x + 1.5f, feet.y + 0.5f, feet.z};       // CLERIA_PICKUP_AT="dx,dz" moves it
+            if (const char* pa = std::getenv("CLERIA_PICKUP_AT")) {
+                float dx = 0, dz = 0;
+                if (std::sscanf(pa, "%f,%f", &dx, &dz) == 2) at = {feet.x + dx, feet.y + 0.5f, feet.z + dz};
+            }
+            for (const char* q = pl; *q;) {
+                const int id = std::atoi(q);
+                spawn_pickups(rng, &id, 1, at, SpawnArgs{}, false, pks);
+                while (*q && *q != ',') ++q;
+                if (*q == ',') ++q;
+            }
+            PickupWorld pw;
+            pw.hit = [&](const Vec3& a, const Vec3& b2, Vec3* pt, Vec3* n) {
+                return segment_hit(phys_mesh(room), a, b2, pt, n);
+            };
+            pw.player = {feet.x + 50, feet.y, feet.z};          // out of reach: nothing collected
+            const int ticks = std::getenv("CLERIA_PICKUP_TICKS") ? std::atoi(std::getenv("CLERIA_PICKUP_TICKS")) : 120;
+            for (int t = 0; t < ticks; ++t) for (Pickup& pk : pks) step_pickup(rng, pk, pw);
+            // CLERIA_POPUP_AGE=n: also pop "+25" gold numbers over each drop, n ticks old (§13).
+            if (const char* pa = std::getenv("CLERIA_POPUP_AGE")) {
+                Dds fd = load_dds(asset_root / "IMAGE" / "F_GEO20.DDS");
+                const SpriteTex geo = fd.ok() ? upload_rgba(g, fd.width, fd.height, fd.data.data()) : SpriteTex{};
+                WGPUTextureView pd = make_depth(g, W, H);
+                for (const Pickup& pk : pks) {
+                    Popup pp = make_popup("25", 0xcdacd0, 0.75f, {pk.pos.x, pk.pos.y + 0.5f, pk.pos.z});
+                    for (int t = 0; t < std::atoi(pa); ++t) step_popup(pp);
+                    draw_popup_glyphs(g, cview, pd, geo, pp, cam.forward());
+                }
+                wgpuTextureViewRelease(pd);
+            }
+            for (const Pickup& pk : pks) {
+                Dds dd = load_dds(itbl.icon_path(asset_root, pk.id, false));
+                if (!dd.ok() || pk.dead) continue;
+                const SpriteTex ic = upload_rgba(g, dd.width, dd.height, dd.data.data());
+                const float sa = pk.shadow_alpha();
+                if (sa > 0) draw_shadow(g, cview, dview, ic, pk.pos, pk.ground_y - 0.07f, pk.half, 0, sa);
+                draw_character(g, cview, dview, {pk.pos.x, pk.pos.y + 0.1f - pk.half, pk.pos.z}, 2 * pk.half,
+                               ic, cam.forward(), cam.pos, 0, 1, 1, 1, false, pk.alpha());
+                std::printf("  pickup %d at (%.2f, %.2f, %.2f) resting %d age %.0f\n", pk.id, pk.pos.x,
+                            pk.pos.y, pk.pos.z, int(pk.resting), pk.age);
+            }
+        }
         std::printf("play: [aso] file(%d)=%s tag=%d frame=%d | sprite %ux%u dir %u/%u, "
                     "worldH %.2f, cam dist %.2f\n",
                     shot_vm.file_id(), shot_stem.c_str(), shot_vm.anim_tag(), shot_vm.frame(),

@@ -5,6 +5,8 @@
 // FUN_005b1680) and the caption + item-detail panel (FUN_005ae280 / FUN_005ae970 /
 // FUN_005b0130). Every widget is a MenuSprite; draw() emits the engine's draw order.
 //
+// Character Select (page 8, ctx 4) and the New-Game popups follow build/menu_re/TITLE_DRAW.md
+// §4-§6, as do the direct contexts' plaques (ctx 1 statue Save, ctx 2 / 3 title Load / Option).
 // The Load / Save lists, their Load / Save / Delete dialogs and the Option page follow
 // build/menu_re/PAUSEBOOK_DRAW_SVLD_OPT.md (pausebook_lists.cpp).
 //
@@ -22,6 +24,7 @@
 
 #include "cleria/inventory.hpp"
 #include "cleria/menusprite.hpp"
+#include "cleria/wnddialog.hpp"
 
 namespace cleria {
 
@@ -29,6 +32,25 @@ struct GameInfo;
 struct ItemTable;
 struct CastTable;
 struct EnemyTable;
+
+// Character Select's gates (TITLE_DRAW.md §5-§6): the clear bytes, data.nya, the unlocked
+// versions (0x74ac00 / 04 / 08 Yunica / Hugo / Toal Extra, 0x74abf8 / 0x74abfc Adol's Felghana /
+// Napishtim, 0x74ac24 Yunica's outfit) and the mode 0x74e25e (0 New Game, 1 Time Attack, 2 Arena).
+struct CharSelectGates {
+    bool clear_yunica = false, clear_hugo = false, clear_toal = false;
+    bool nya = false;
+    bool extra_yunica = false, extra_hugo = false, extra_toal = false;
+    bool adol_felghana = false, adol_napishtim = false, yunica_outfit = false;
+    int mode = 0;
+};
+// What Character Select and Difficulty chose (the callbacks' writes).
+struct NewGameInfo {
+    int character = 1;                      // 0x76bb74: 1 Yunica, 2 Hugo, 3 Toal, 0 Adol
+    int type = 0;                           // 0x74c0dc / d8 / d4 / cc: 0 Normal, 1 Extra (Adol: Felghana / Napishtim)
+    int outfit = 0;                         // 0x74c0d0
+    int difficulty = 0;                     // 0x74ac3c: 0 Normal, 1 Hard, 2 Nightmare
+    bool easy = false, very_easy = false;   // 0x74e685 / 0x74e684
+};
 
 // A save slot as the header scanner FUN_00430140 leaves it (PAUSEBOOK_DRAW_SVLD_OPT.md §1.2).
 struct SlotCard {
@@ -77,6 +99,9 @@ struct BookModel {
     // its first burst at once (FUN_00434970), so the book reads flag 198 straight after.
     const std::uint8_t* warp_on = nullptr;
     std::function<void(const std::string&)> start_script;
+    // Character Select (ctx 4) and the GDI metrics its popups lay out with.
+    CharSelectGates charsel;
+    RichMetrics metrics;
 };
 
 // The input record (PAUSEBOOK_DRAW.md §0.7), with the host's auto-repeat already applied.
@@ -95,6 +120,8 @@ struct BookEvents {
     int load_slot = -1, save_slot = -1, delete_slot = -1;   // FUN_0042f5e0 / FUN_0042e9a0 / FUN_0042f510
     bool options_changed = false;           // a slider / switch moved (apply + write the ini)
     int option_quit = -1;                   // Yes in a message box: 0 Return to Title, 1 Exit
+    bool new_game = false;                  // Difficulty chosen: start a game with new_game_info
+    NewGameInfo new_game_info;
 };
 
 class PauseBook {
@@ -165,6 +192,14 @@ class PauseBook {
     int topic_base() const;
     int topic_entry(int slot) const;          // the global entry index of a sheet slot, -1 if none
     bool topic_seen(const BookModel& m, int slot) const;
+    // Character Select (page 8)
+    bool cs_locked(const BookModel& m, int bar) const;
+    void build_charsel(const BookModel& m);
+    void cs_pop_chibi();
+    void cs_colours(const BookModel& m, bool lit);
+    void cs_popup(const BookModel& m, int which);   // 0 Type, 1 Outfit, 2 Difficulty
+    void update_charsel(const BookInput& in, BookModel& m, BookEvents& ev);
+    void draw_charsel(DrawList& out) const;
     // the warp map
     void build_map();
     void update_map(const BookInput& in, BookModel& m, BookEvents& ev);
@@ -229,6 +264,14 @@ class PauseBook {
     bool close_next_ = false;
     MenuSprite mtower_, mplaque_, mcrystal_, mplate_[22], mbar_;
     std::uint32_t mpillar_diffuse_ = 0, mpillar_specular_ = 0x808080;
+    // Character Select (0x742f78 ..)
+    int csn_ = 3, csstate_ = 0, cssel_ = 0, cschibi_c_ = 0;
+    MenuSprite cspanel_, csbar_[4], csface_[4], csport_[4], cshi_, cschibi_, csstrip_, csbanner_, cstext_;
+    WndDialog cspop_;
+    std::vector<int> cspop_codes_;
+    int cspop_kind_ = 0, cs_next_ = -1;
+    bool cspop_done_ = false, cs_cancelled_ = false;
+    NewGameInfo cs_result_;
 };
 
 }  // namespace cleria

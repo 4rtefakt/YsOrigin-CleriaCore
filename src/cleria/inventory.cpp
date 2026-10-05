@@ -163,7 +163,7 @@ UseResult use_item(InvState& inv, const ItemTable& items, EffectEnv& env, int id
     switch (id) {
         case 0x54: case 0x56: script = "@CheckWing"; break;
         case 0x55: script = "@Riranokaigara"; break;
-        case 0x70: script = "@DarkRiranokaiga"; break;
+        case 0x70: script = "@DarkRiranokaigara"; break;
         case 0x5f: script = "@UseHarmonica"; break;
         case 0x60: script = "@UseHammer"; break;
         case 0x69: script = "@UseSekizou"; break;
@@ -202,7 +202,12 @@ PickupResult pickup(InvState& inv, const ItemTable& items, EffectEnv& env, int i
         } else if (id <= 0x4b) {
             if (inv.def_buff < 3.0f) inv.def_buff = std::min(3.0f, inv.def_buff + 0.3f * lv);
             inv.timer_def = timer;
-        }                                                // [not modelled] the MP Drop (bit 0x10)
+        } else {                                         // FUN_00463f40 bit 0x10 (PICKUPS.md §7.3)
+            if (inv.mp_buff == 0.0f) inv.mp_buff = 1.0f + 0.2f * lv;
+            else if (inv.mp_buff < 3.0f) inv.mp_buff += 0.2f * lv;
+            inv.mp_buff = std::min(3.0f, inv.mp_buff);
+            inv.timer_mp = timer;
+        }
         return PickupResult::Taken;
     }
     if (!env.flags || id < 0 || id >= 128) return PickupResult::LeftInWorld;

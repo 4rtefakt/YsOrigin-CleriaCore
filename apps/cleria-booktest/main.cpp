@@ -279,6 +279,37 @@ int main(int argc, char** argv) {
         }
         m.warp_on = nullptr; m.start_script = nullptr;
     }
+    {   // TITLE_DRAW.md §4.2: the title's Load opens page 6 with the gold Load plaque sliding in.
+        PauseBook L;
+        L.open(m, 2);
+        BookEvents e2;
+        for (int i = 0; i < 6; ++i) { e2 = {}; L.update({}, m, e2); }
+        DrawList dl;
+        L.draw(dl, m);
+        bool gold = false;
+        for (const DrawCmd& c : dl)
+            if (c.kind == DrawCmd::Quad && c.tex.kind == TexRef::Menu && c.tex.id == 3 && c.y == 0.0f && c.v0 > 0.39f) gold = true;
+        check(L.page() == 6 && L.sub_id() == 8 && gold, "ctx 2: page 6, the gold Load plaque at (128, 0)");
+    }
+    {   // §5: Character Select (ctx 4). Nothing cleared: Toal is unreachable; Yunica with no Extra
+        // goes straight to Difficulty; Normal starts the game.
+        PauseBook C;
+        C.open(m, 4);
+        auto cstep = [&](BookInput in) { ev = {}; C.update(in, m, ev); };
+        for (int i = 0; i < 10; ++i) cstep({});
+        check(C.page() == 8 && C.sub_id() == 0x17, "ctx 4: Character Select is page 8, subId 0x17");
+        cstep({0, +1, false, false});
+        cstep({0, +1, false, false});
+        cstep({0, 0, true, false});
+        check(C.sub_id() == 0x18, "down twice wraps past locked Toal back to Yunica; Confirm opens Difficulty");
+        for (int i = 0; i < 60; ++i) cstep({});
+        cstep({0, 0, true, false});                              // the default row: Normal
+        bool started = false;
+        NewGameInfo info;
+        for (int i = 0; i < 30 && !started; ++i) { cstep({}); if (ev.new_game) { started = true; info = ev.new_game_info; } }
+        check(started && info.character == 1 && info.difficulty == 0 && !info.easy && ev.closed,
+              "Difficulty Normal: a new game as Yunica (0x76bb74 = 1), Normal; the book closes");
+    }
     std::printf("[book] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }

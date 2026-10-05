@@ -70,6 +70,8 @@ struct SaveState {
     std::int32_t tier[4] = {0, 0, 0, 0};
     float hp_bonus = 0, atk_buff = 0, def_buff = 0, luck_base = 0;
     std::int32_t timer_atk = 0, timer_def = 0;
+    float mp_buff = 0;                    // 0x76b900, the MP Drop buff; its timer 0x76c1a4
+    std::int32_t timer_mp = 0;
     // The manual pages enabled 0x76b8d8[13] (op 0x92) and the warp points 0x76c11c[24]
     // (op 0xa7) (build/menu_re/PAUSEBOOK_DRAW_TOPIC_MAP.md §5.1, §6.4).
     std::uint8_t manual_on[13] = {};

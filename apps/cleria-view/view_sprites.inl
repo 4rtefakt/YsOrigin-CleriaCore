@@ -180,6 +180,57 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     wgpuBufferRelease(vb); wgpuBufferRelease(ib);
 }
 
+// GoPopup glyphs (src/cleria/popup.hpp, PICKUPS.md §13.5): F_GEO20 quads on a billboard at
+// the anchor, risen per glyph, the popup's colour and alpha. `depth` must be a fresh (cleared)
+// depth view: the engine draws them with no Z test, so geometry never hides one. The billboard
+// keeps world up [H: 0x7961b0 is the camera-facing matrix; its exact axes are open].
+static void draw_popup_glyphs(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& font,
+                              const Popup& p, const Vec3& camForward) {
+    if (!font.tex || p.glyphs.empty()) return;
+    const Vec3 right = normalize(cross(Vec3{0, 1, 0}, camForward));
+    const std::uint32_t d = p.diffuse();
+    const float op = float(d >> 24) / 255.0f;
+    std::vector<RoomVertex> verts;
+    std::vector<std::uint32_t> idx;
+    for (std::size_t i = 0; i < p.glyphs.size(); ++i) {
+        const PopupGlyph& gl = p.glyphs[i];
+        const float r = p.rise(int(i));
+        auto V = [&](float lx, float ly, float u, float v) -> RoomVertex {
+            return {p.pos.x + right.x * lx, p.pos.y + ly + r, p.pos.z + right.z * lx, 1.0f - op, 0, -1, u, v,
+                    std::uint8_t(d >> 16), std::uint8_t(d >> 8), std::uint8_t(d), 0};
+        };
+        const std::uint32_t b = std::uint32_t(verts.size());
+        verts.push_back(V(gl.x0, gl.top, gl.u0, gl.v0));
+        verts.push_back(V(gl.x1, gl.top, gl.u1, gl.v0));
+        verts.push_back(V(gl.x1, gl.bottom, gl.u1, gl.v1));
+        verts.push_back(V(gl.x0, gl.bottom, gl.u0, gl.v1));
+        for (std::uint32_t k : {0u, 1u, 2u, 0u, 2u, 3u}) idx.push_back(b + k);
+    }
+    WGPUBuffer vb = make_buffer(g.device, g.queue, verts.data(), verts.size() * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
+    WGPUBuffer ib = make_buffer(g.device, g.queue, idx.data(), idx.size() * sizeof(std::uint32_t), WGPUBufferUsage_Index);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPURenderPassColorAttachment ca = {};
+    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+    WGPURenderPassDepthStencilAttachment da = {};
+    da.view = depth; da.depthLoadOp = WGPULoadOp_Clear; da.depthClearValue = 1.0f; da.depthStoreOp = WGPUStoreOp_Store;
+    WGPURenderPassDescriptor rp = {};
+    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+    wgpuRenderPassEncoderSetPipeline(pass, g.char_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(pass, 1, font.bind, 0, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderDrawIndexed(pass, std::uint32_t(idx.size()), 1, 0, 0, 0);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+}
+
 // A soft round floor shadow under a character (build/render_re/ENVIRONMENT.md). The engine
 // draws a flat black alpha decal on the floor, NOT a projected silhouette. SHADOW0.DDS is
 // 64x64 with black RGB and a radial alpha falloff (peak ~0.44); loaded RGBA8 it drives
@@ -198,12 +249,16 @@ struct ShadowFx {
 // half-width `radius`. A flat quad on XZ (normal +Y), alpha-over, depth-read-no-write, so it
 // darkens the floor and is occluded by nearer geometry but never writes depth. Draw BEFORE
 // the sprite. Vertex colour (255,255,255,0): no fog dim, no hit-flash -> pure black * texA.
+// `rgb` modulates the texture (0 = a black silhouette of a coloured texture, the pickups'
+// flat icon shadow) and `opacity` scales its alpha (nx carries 1 - opacity, as for sprites).
 static void draw_shadow(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
-                        const SpriteTex& shadow, const Vec3& feet, float floorY, float radius) {
+                        const SpriteTex& shadow, const Vec3& feet, float floorY, float radius,
+                        std::uint8_t rgb = 255, float opacity = 1.0f) {
     if (!shadow.tex) return;
     const float y = floorY + 0.05f;   // a hair above the floor to avoid decal z-fight
+    const float nx = 1.0f - std::clamp(opacity, 0.0f, 1.0f);
     auto V = [&](float sx, float sz, float u, float v) -> RoomVertex {
-        return {feet.x + sx * radius, y, feet.z + sz * radius, 0, 1, 0, u, v, 255, 255, 255, 0};
+        return {feet.x + sx * radius, y, feet.z + sz * radius, nx, 1, 0, u, v, rgb, rgb, rgb, 0};
     };
     RoomVertex verts[4] = {V(-1, -1, 0, 0), V(1, -1, 1, 0), V(1, 1, 1, 1), V(-1, 1, 0, 1)};
     std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};

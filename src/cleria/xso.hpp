@@ -173,6 +173,21 @@ struct XsoHost {
     virtual void window_msg(int /*speaker*/, int /*voice*/, const std::string& /*name*/,
                             const std::string& /*text*/) {}
     virtual void window_close() {}                                // op 0xd2 Window_Close
+    // The choice box (build/event_re/WNDDIALOG_DRAW.md §1, §5): 0xd4 Window_Menu(x, y, title,
+    // (text, label)...), 0xd7 Menu_Init, 0xd8 Menu_Add(text, label), 0xd9 Menu_Select(title),
+    // 0xda Menu_AssignCancel(label), 0xdb MoveCursorLastScript. A chosen record's label is a
+    // script the host starts on the window's owner. 0xd6 SetMsgSpd: 16.16 glyphs per frame.
+    virtual void window_menu(float /*x*/, float /*y*/, const std::string& /*title*/,
+                             const std::vector<std::string>& /*texts*/, const std::vector<std::string>& /*labels*/) {}
+    virtual void menu_init() {}
+    virtual void menu_add(const std::string& /*text*/, const std::string& /*label*/) {}
+    virtual void menu_select(const std::string& /*title*/) {}
+    virtual void menu_assign_cancel(const std::string& /*label*/) {}
+    virtual void menu_cursor_last() {}
+    virtual void set_msg_speed(int /*v*/) {}
+    // 0x8b EventXX(n): sub-kind 10 unequips the accessory, 7 clears accessory / held / magic
+    // (build/item_re/KEY_ITEMS.md §5).
+    virtual void event_xx(int /*n*/) {}
     // op 0xe2 Caption(name): the area-name card is PRE-RENDERED art (data/image/<name>.dds).
     virtual void caption(const std::string& /*name*/) {}
     // op 0xd5 Window_Treasure(x, y, item, s): the "Acquired X" box (FUN_005781f0 draws a

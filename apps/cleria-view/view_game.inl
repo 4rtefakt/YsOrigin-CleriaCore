@@ -126,178 +126,136 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // (flags/character before the first room load, stats/position after the world exists).
     std::optional<SaveState> pending_load;
 
-    // Title screen: shown on a bare launch, before the game. New Game opens character-select
-    // (pick Yunica/Hugo/Toal, then fall through to the game loop below); Esc/close quits.
-    // Assets + flow from build/menu_re/MENUS.md.
     if (show_title) {
+        // The title (build/menu_re/TITLE_DRAW.md): GoWndDemo's background and the title list
+        // (src/cleria/titlescreen), and the pause book opened from it — New Game = ctx 4
+        // (Character Select, then the Type / Difficulty popups), Load Game = ctx 2, Options =
+        // ctx 3. SP Bonus Acquisition is not here: it is a script menu (GOHOUBIMENU.XSO) the
+        // new game's router runs. Steps on the 60 Hz tick like the game.
+        // [not modelled] the clear / system data behind the gates (Bonus Modes, Toal, the
+        // Extra types) — a fresh install's title; Time Attack / Arena / the Bonus Shop.
         apply_room_bgm("title");   // "title\" is a scene record like any room (BGM id 1)
-        TitleFx title; title.init(g, asset_root);
-        std::array<std::string, 8> tslots;
-        int lsel = 0, ltab = 0;
-        auto scan_tab = [&] { for (int i = 0; i < 8; ++i) tslots[std::size_t(i)] = slot_label(ltab * 8 + i); };
-        MenuFont mf;   // Felghana atlas rasterised at the 960-internal font size (see render_title),
-        // bilinear-upscaled to the window. Format must match the window surface (fmt), not a
-        // hardcoded RGBA8Unorm, or the pipeline is incompatible with an sRGB surface pass.
-        mf.init(g, fmt, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
-        WGPUTextureView tdepth = make_depth(g, cw, ch);
-        g_fog.on = false; write_mvp(g, Mat4::identity());   // screen-space draw
-        // The title is a state machine mirroring the engine (MENUS.md §1.4): the MAIN list, the
-        // BONUS sub-list (DAT_0074e259), and the New-Game chain CHARSELECT -> TYPESELECT (Normal/
-        // Extra skin) -> DIFFICULTY (Easy..Nightmare) -> SPBONUS (SP-gain boost) -> start.
-        enum TState { MAIN, BONUS, CHARSELECT, TYPESELECT, DIFFICULTY, SPBONUS, OPTIONS, LOADGAME };
-        static const char* kTypeItems[3] = {"Normal", "Extra", "Cancel"};
-        static const char* kDiffItems[6] = {"Very Easy", "Easy", "Normal", "Hard", "Nightmare", "Cancel"};
-        static const char* kSpItems[2]  = {"[Enable]", "[Disable]"};
-        TState ts = MAIN;
-        int sel = 0;      // main menu: 0 New Game, 1 Load, 2 Bonus Modes, 3 Options, 4 Exit
-        int bsel = 0;     // bonus sub-list: 0 Time Attack, 1 Arena, 2 Bonus Shop, 3 Back
-        int csel = 0;     // character-select: 0 Yunica, 1 Hugo, 2 Toal
-        int tsel = 0, dsel = 2, spsel = 0;   // popup cursors (difficulty defaults Normal, SP-bonus Enable)
-        int osel = 0;                        // Option screen: focused row 0..9 (oslider/ocheck are
-                                             // in render_window scope, above -- persisted to yso_win.ini)
-        auto teardown = [&] { wgpuTextureViewRelease(tdepth); SDL_DestroyWindow(win); SDL_Quit(); };
+        const ItemTable titems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
+        BookRenderer tr;
+        tr.init(g, fmt, asset_root, titems);
+        TitleScreen tscreen;
+        PauseBook tbook;
+        TitleGates tgates;
+        std::int32_t tflags[0x200];
+        for (std::int32_t& v : tflags) v = -1;
+        InvState tinv;
+        int tsave_no = 0;
+        auto tmodel = [&]() {
+            BookModel m;
+            m.flags = tflags; m.inv = &tinv; m.items = &titems;
+            m.scan = [&](int slot) { return scan_slot(slot_path(slot)); };
+            m.save_file_no = &tsave_no;
+            m.sliders = oslider; m.checks = ocheck;
+            m.metrics = tr.metrics();
+            return m;
+        };
+        int hold[4] = {};
+        bool confirm_edge = false, cancel_edge = false;
+        float taccum = 0;
+        Uint64 tlast = SDL_GetTicks();
+        auto teardown = [&] { SDL_DestroyWindow(win); SDL_Quit(); };
         for (bool started = false; !started;) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
                 if (e.type == SDL_EVENT_QUIT) { teardown(); return 0; }
-                else if (e.type == SDL_EVENT_KEY_DOWN) {
+                else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
                     const SDL_Keycode k = e.key.key;
-                    const bool up = (k == SDLK_UP || k == SDLK_W);
-                    const bool down = (k == SDLK_DOWN || k == SDLK_S);
-                    const bool ok = (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E);
-                    const bool esc = (k == SDLK_ESCAPE);
-                    const bool left = (k == SDLK_LEFT || k == SDLK_A);
-                    const bool right = (k == SDLK_RIGHT || k == SDLK_D);
-                    auto wrap = [](int v, int n, bool u) { return (v + (u ? n - 1 : 1)) % n; };
-                    // Menu SFX, hooked off the key classification rather than at each of the
-                    // ten state branches below. up/down always moves a cursor; left/right only
-                    // does anything on the Option page (sliders/checkboxes), so it only clicks
-                    // there. The exe's exact call sites are being RE'd separately.
-                    if (up || down || ((left || right) && ts == OPTIONS))
-                        audio.play(kSfxCursor, kSfxMenuVol);
-                    else if (ok)
-                        audio.play(kSfxConfirm, kSfxMenuVol);
-                    else if (esc)
-                        audio.play(kSfxCancel, kSfxMenuVol);
-                    if (ts == CHARSELECT) {
-                        if (esc) ts = MAIN;                              // back to main menu
-                        else if (up || down) csel = wrap(csel, TitleFx::kCharCount, up);
-                        else if (ok) { character = csel + 1; ts = TYPESELECT; tsel = 0; }
-                    } else if (ts == TYPESELECT) {
-                        if (esc) ts = CHARSELECT;
-                        else if (up || down) tsel = wrap(tsel, 3, up);
-                        else if (ok) {
-                            if (tsel == 2) ts = CHARSELECT;              // Cancel
-                            else { skin = tsel; ts = DIFFICULTY; dsel = 2; }  // Normal/Extra -> Difficulty (Normal)
-                        }
-                    } else if (ts == DIFFICULTY) {
-                        if (esc) ts = TYPESELECT;
-                        else if (up || down) dsel = wrap(dsel, 6, up);
-                        else if (ok) {
-                            if (dsel == 5) ts = TYPESELECT;              // Cancel
-                            else { difficulty = dsel; ts = SPBONUS; spsel = 0; }  // 0 VeryEasy..4 Nightmare
-                        }
-                    } else if (ts == SPBONUS) {
-                        if (esc) ts = DIFFICULTY;
-                        else if (up || down) spsel = wrap(spsel, 2, up);
-                        else if (ok) { sp_bonus = (spsel == 0); started = true; }  // -> game
-                    } else if (ts == BONUS) {
-                        if (esc) ts = MAIN;
-                        else if (up || down) bsel = wrap(bsel, TitleFx::kBonusCount, up);
-                        else if (ok) {
-                            if (bsel == 3) ts = MAIN;   // Back
-                            // Time Attack / Arena Mode / Bonus Shop: not yet implemented.
-                        }
-                    } else if (ts == LOADGAME) {
-                        if (esc) ts = MAIN;
-                        else if (up || down) lsel = wrap(lsel, 8, up);
-                        else if (left)  { ltab = (ltab + 7) % 8; scan_tab(); }
-                        else if (right) { ltab = (ltab + 1) % 8; scan_tab(); }
-                        else if (ok && !tslots[std::size_t(lsel)].empty()) {
-                            std::ifstream f(slot_path(ltab * 8 + lsel), std::ios::binary);
-                            std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
-                            if (auto r = SaveRecord::decode(raw)) {
-                                pending_load = from_record(*r);
-                                started = true;              // -> game, state applied below
-                            }
-                        }
-                    } else if (ts == OPTIONS) {
-                        // 10 rows: 0-2 sliders, 3-6 checkboxes, 7 Default, 8 Return to Title, 9 Exit Game.
-                        // Settings persist to yso_win.ini on leaving the screen (game saves config on close).
-                        if (esc) { options_save(oslider, ocheck); ts = MAIN; }
-                        else if (up || down) osel = wrap(osel, 10, up);
-                        else if ((left || right) && osel < 3)
-                            oslider[osel] = std::clamp(oslider[osel] + (right ? 8 : -8), 0, 1024);
-                        else if (ok) {
-                            if (osel >= 3 && osel <= 6) ocheck[osel - 3] = !ocheck[osel - 3];   // toggle
-                            else if (osel == 7) {                                                // Default
-                                oslider[0] = oslider[1] = oslider[2] = 512;
-                                ocheck[0] = ocheck[2] = ocheck[3] = false; ocheck[1] = true;
-                            } else if (osel == 8) { options_save(oslider, ocheck); ts = MAIN; }  // Return to Title
-                            else if (osel == 9) { options_save(oslider, ocheck); teardown(); return 0; }  // Exit
-                        }
-                    } else {   // MAIN
-                        if (esc) { teardown(); return 0; }
-                        else if (up || down) sel = wrap(sel, TitleFx::kItemCount, up);
-                        else if (ok) {
-                            if (sel == 4) { teardown(); return 0; }   // Exit
-                            else if (sel == 0) { ts = CHARSELECT; csel = 0; }  // New Game
-                            else if (sel == 2) { ts = BONUS; bsel = 0; }       // Bonus Modes
-                            else if (sel == 3) { ts = OPTIONS; osel = 0; }     // Options
-                            else if (sel == 1) {                               // Load Game
-                                ltab = 0; scan_tab();
-                                ts = LOADGAME; lsel = 0;
-                            }
-                        }
-                    }
-                    // Drive the mixer from the sliders live, so you hear the level you are
-                    // setting (and so Default resets it too). Applying these once at startup
-                    // is not enough: Audio is constructed BEFORE this screen so the title has
-                    // its BGM, which is earlier than any edit made here.
-                    audio.set_bgm_volume(oslider[0] / 1024.0f);
-                    audio.set_master_volume(oslider[1] / 1024.0f);
+                    if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E || k == SDLK_Z) confirm_edge = true;
+                    if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE) cancel_edge = true;
                 } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
-                    if (cw && ch) {
-                        configure(); wgpuTextureViewRelease(tdepth); tdepth = make_depth(g, cw, ch);
-                        mf.build_atlas(g, int(std::lround(32.0 * 960.0 / 768.0)));  // 960-internal font, upscaled
+                    if (cw && ch) configure();
+                }
+            }
+            const Uint64 now = SDL_GetTicks();
+            taccum += float(now - tlast) / 1000.0f;
+            tlast = now;
+            while (taccum >= kTickDt && !started) {
+                taccum -= kTickDt;
+                // The input record (§0.7): edges, and the held directions with the auto-repeat.
+                const bool* ks = SDL_GetKeyboardState(nullptr);
+                const bool held[4] = {ks[SDL_SCANCODE_LEFT] || ks[SDL_SCANCODE_A], ks[SDL_SCANCODE_RIGHT] || ks[SDL_SCANCODE_D],
+                                      ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W], ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S]};
+                bool fire[4];
+                for (int i = 0; i < 4; ++i) {
+                    hold[i] = held[i] ? hold[i] + 1 : 0;
+                    fire[i] = hold[i] == 1 || (hold[i] >= 28 && (hold[i] - 28) % 5 == 0);
+                }
+                const bool conf_held = ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_E] || ks[SDL_SCANCODE_Z];
+                std::vector<int> snd;
+                if (tbook.is_open()) {
+                    BookInput in;
+                    in.hstep = fire[0] ? -1 : fire[1] ? 1 : 0;
+                    in.vstep = fire[2] ? -1 : fire[3] ? 1 : 0;
+                    in.confirm = confirm_edge; in.cancel = cancel_edge;
+                    in.held_left = held[0]; in.held_right = held[1];
+                    BookModel m = tmodel();
+                    BookEvents ev;
+                    tbook.update(in, m, ev);
+                    snd = ev.sounds;
+                    if (ev.options_changed) {
+                        audio.set_bgm_volume(oslider[0] / 1024.0f);
+                        audio.set_master_volume(oslider[1] / 1024.0f);
+                        options_save(oslider, ocheck);
+                    }
+                    if (ev.option_quit == 1) { teardown(); return 0; }
+                    if (ev.load_slot >= 0) {
+                        std::ifstream f(slot_path(ev.load_slot), std::ios::binary);
+                        std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
+                        if (auto r = SaveRecord::decode(raw)) { pending_load = from_record(*r); started = true; }
+                    }
+                    if (ev.new_game) {
+                        const NewGameInfo& ng = ev.new_game_info;
+                        character = std::clamp(ng.character, 1, 3);   // [not modelled] Adol (0)
+                        skin = ng.type;
+                        difficulty = ng.very_easy ? 0 : ng.easy ? 1 : 2 + ng.difficulty;
+                        started = true;
+                    }
+                } else {
+                    WndInput in;
+                    in.confirm_held = conf_held; in.confirm_pressed = confirm_edge;
+                    in.cancel_pressed = cancel_edge;
+                    in.vstep = fire[2] ? -1 : fire[3] ? 1 : 0;
+                    switch (tscreen.update(in, false, tgates, tr.metrics(), snd)) {
+                        case TitleAction::NewGame: tbook.open(tmodel(), 4); break;
+                        case TitleAction::LoadGame: tbook.open(tmodel(), 2); break;
+                        case TitleAction::Options: tbook.open(tmodel(), 3); break;
+                        case TitleAction::Exit: teardown(); return 0;
+                        default: break;
                     }
                 }
+                for (int id : snd) audio.play(id, kSfxMenuVol);
+                confirm_edge = cancel_edge = false;
             }
             WGPUSurfaceTexture st = {};
             wgpuSurfaceGetCurrentTexture(surface, &st);
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
                 st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
-            // Selection-bar pulse: cyan <-> near-white, ~1s period (the game animates the lit bar).
-            const float pulse = 0.50f + 0.42f * std::sin(SDL_GetTicks() * 0.006f);
-            if (ts == CHARSELECT) {
-                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse, int(SDL_GetTicks() / 110));
-            } else if (ts == TYPESELECT || ts == DIFFICULTY) {
-                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse, int(SDL_GetTicks() / 110));   // popup backdrop
-                if (ts == TYPESELECT)
-                    title.draw_popup(g, mf, view, tdepth, cw, ch, "Type Select", kTypeItems, 3, tsel);
-                else
-                    title.draw_popup(g, mf, view, tdepth, cw, ch, "Difficulty Level", kDiffItems, 6, dsel);
-            } else if (ts == SPBONUS) {
-                // SP Bonus Acquisition shares the invariant popup origin over the dimmed Character
-                // Select (the on-black grab was an artifact; CHARSELECT_LAYOUT.md §2.3).
-                title.draw_charselect(g, mf, view, tdepth, cw, ch, csel, pulse, int(SDL_GetTicks() / 110));
-                title.draw_popup(g, mf, view, tdepth, cw, ch, "SP Bonus Acquisition", kSpItems, 2, spsel);
-            } else if (ts == BONUS) {
-                title.draw_bonus(g, mf, view, tdepth, cw, ch, bsel);
-            } else if (ts == OPTIONS) {
-                title.draw_options(g, mf, view, tdepth, cw, ch, osel, oslider, ocheck);
-            } else if (ts == LOADGAME) {
-                title.draw_svld(g, mf, view, tdepth, cw, ch, /*save=*/false, ltab, lsel, tslots.data());
-            } else {
-                title.draw(g, view, tdepth, cw, ch);
-                title.draw_menu(g, mf, view, tdepth, cw, ch, sel);
+            {   // clear, then the title (or the book over it: its Back00 and pillars are opaque)
+                WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+                WGPURenderPassColorAttachment ca = {};
+                ca.view = view; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+                ca.loadOp = WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store; ca.clearValue = {0, 0, 0, 1};
+                WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
+                WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+                wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
+                WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+                wgpuQueueSubmit(g.queue, 1, &cmd);
+                wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
             }
+            DrawList dl;
+            tscreen.draw(dl);
+            if (tbook.is_open()) tbook.draw(dl, tmodel());
+            tr.render(g, view, cw, ch, dl);
             wgpuSurfacePresent(surface);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
         }
-        wgpuTextureViewRelease(tdepth);   // the game loop rebuilds fog + its own MVP
     }
     float fx_time = 0;
     EnemyFx efx;                         // enemy sprite sets, per room
@@ -378,6 +336,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // the effect's particles do the damage. gas_owner: the M460 whose gas floor applies
     // (fx+0x1a8; its handler pass #14).
     bullet::Bullets bullets(&fxsim, ef2_of);
+    // World item pickups (src/cleria/pickup.hpp, build/item_re/PICKUPS.md).
+    std::vector<Pickup> pickups;
+    std::vector<Popup> popups;                            // GoPopup (pool 7, 32 at most)
+    ef2sim::Rng pick_rng;
+    pick_rng.bind(game.rs);
     std::unordered_map<const bullet::Bullet*, int> gas_owner;
     // FUN_00450410 / the brains' inlined spawn. attach_owner != 0: FUN_00451c20 mode 2 — the
     // effect follows that actor's origin at (pos - origin); its spawn rotation / scale are
@@ -486,6 +449,23 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         for (const Room::LoadEffect& e : rm.load_effects)
             world.locate_effect(e.id, e.x, e.y, e.z, e.a, e.b, e.name);
     };
+    // FUN_00431840's per-room writes on every scene entry (build/item_re/KEY_ITEMS.md §1.6): the
+    // room number (flag 505), the item gates 290 (S_3009, the Harmonica's noise corridor), 459
+    // (S_3103, the Hammer's pillar), 474 (S_5080), and the whole-room water mode 0x76a544 = 2 in
+    // five S_20 rooms. The room's own scripts may override them.
+    int water_mode = 0;
+    auto room_entry_flags = [&](const std::string& scene) {
+        std::string up = scene;
+        for (char& c : up) c = char(std::toupper(static_cast<unsigned char>(c)));
+        const std::size_t us = up.rfind("S_");
+        const int num = us == std::string::npos ? 0 : std::atoi(up.c_str() + us + 2);
+        game.g_flags[505] = num;
+        game.g_flags[290] = num == 3009;
+        game.g_flags[459] = num == 3103;
+        game.g_flags[474] = num == 5080;
+        water_mode = (num == 2008 || num == 2009 || num == 2010 || num == 2014 || num == 2015) ? 2 : 0;
+    };
+    room_entry_flags(boot_sob.stem().string());
     Room room = load_room(g, asset_root, boot_sob, game.g_flags, character);
     apply_load_effects(room);
     // Particles that die on world contact trace their last step against the room (set 2).
@@ -725,6 +705,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         bullets.clear();                                      // before the effects they hold
         gas_owner.clear();
         fxsim.clear();
+        pickups.clear();
+        popups.clear();
         actor_mats.clear();
         efx.kinds.clear();
         efx.init_from_world(g, asset_root, world, casts);
@@ -828,6 +810,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         for (int f : {161, 209, 156, 130, 132, 189, 190, 194, 197, 200, 135, 497, 506}) game.g_flags[f] = 0;
         for (int f = 165; f <= 180; ++f) game.g_flags[f] = 0;    // the per-room scratch block
         game.g_flags[185] = 1;
+        room_entry_flags(dest);
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
@@ -943,6 +926,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         for (int c = 0; c < 4; ++c) s.tier[c] = inv.tier[c];
         s.hp_bonus = inv.hp_bonus; s.atk_buff = inv.atk_buff; s.def_buff = inv.def_buff;
         s.luck_base = inv.luck_base; s.timer_atk = inv.timer_atk; s.timer_def = inv.timer_def;
+        s.mp_buff = inv.mp_buff; s.timer_mp = inv.timer_mp;
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
@@ -982,6 +966,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         for (int c = 0; c < 4; ++c) inv.tier[c] = s.tier[c];
         inv.hp_bonus = s.hp_bonus; inv.atk_buff = s.atk_buff; inv.def_buff = s.def_buff;
         inv.luck_base = s.luck_base; inv.timer_atk = s.timer_atk; inv.timer_def = s.timer_def;
+        inv.mp_buff = s.mp_buff; inv.timer_mp = s.timer_mp;
         std::memcpy(warp_on, s.warp_on, sizeof warp_on);
         std::memcpy(manual_on, s.manual_on, sizeof manual_on);
         inv_sanitize(game.g_flags, inv);                  // FUN_00431840's clamps after a load
@@ -1050,75 +1035,82 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     struct CutsceneHost : XsoHost {
         std::string name, text;
         int speaker = 0;
-        bool box_active = false;
-        int reveal = 0;           // typewriter char count (advanced by the loop)
+        bool box_active = false;   // a window is up (the message box or a dialog)
+        // The event windows (src/cleria/wnddialog.hpp, WNDDIALOG_DRAW.md). `last_win` is the
+        // script slot's window (1 = message box, 2 = dialog): Wait_Prompt arms and polls it.
+        WndText wtext;
+        WndDialog wdlg;
+        int last_win = 0;
+        RichMetrics wmetrics;
+        int character = 1;
+        std::function<int(int)> class_fn;                 // speaker -> entity class (-1 none)
+        std::function<void(const std::string&)> start_label;   // a chosen menu record's script
+        std::vector<std::string> menu_texts, menu_labels;
+        std::string menu_cancel, last_label;
+        bool menu_last = false, menu_ran = false;
         bool advance = false;     // set by input; consumed to advance one line
         ScriptManager* mgr = nullptr;   // for Wait_Script (is the named child still live?)
         int voice = -1;           // Window_Msg param1 — doubles as the FACE FRAME index
-        std::uint8_t text_r = 255, text_g = 255, text_b = 255;   // body colour (<color:> tag)
-        // Falcom colour markup: a line may lead with `<color:0xAARRGGBB>` (and rarely more
-        // `<...>` tags). Apply the FIRST colour to the body and strip every tag so the
-        // literal markup never shows (and the typewriter counts only visible chars).
-        static std::string parse_tags(std::string s, std::uint8_t& r, std::uint8_t& gg, std::uint8_t& b) {
-            r = gg = b = 255;
-            bool got = false;
-            std::string out;
-            for (std::size_t i = 0; i < s.size();) {
-                if (s[i] == '<') {
-                    const std::size_t e = s.find('>', i);
-                    if (e == std::string::npos) { out += s.substr(i); break; }
-                    const std::string tag = s.substr(i, e - i + 1);   // "<color:0xAARRGGBB>"
-                    const std::size_t hx = tag.find("0x");
-                    if (!got && hx != std::string::npos && hx + 10 <= tag.size()) {
-                        auto hexval = [&](std::size_t o) {
-                            std::uint32_t v = 0;
-                            for (std::size_t k = 0; k < 8 && o + k < tag.size(); ++k) {
-                                const char c = tag[o + k];
-                                v = v * 16 + (c >= '0' && c <= '9' ? c - '0'
-                                            : c >= 'a' && c <= 'f' ? c - 'a' + 10
-                                            : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 0);
-                            }
-                            return v;   // 0xAARRGGBB
-                        };
-                        const std::uint32_t argb = hexval(hx + 2);
-                        r = std::uint8_t((argb >> 16) & 0xFF);
-                        gg = std::uint8_t((argb >> 8) & 0xFF);
-                        b = std::uint8_t(argb & 0xFF);
-                        got = true;
-                    }
-                    i = e + 1;   // drop the whole tag
-                } else { out += s[i]; ++i; }
-            }
-            return out;
-        }
         // FUN_00573e60: an empty NAME defaults to the speaker's cast record name (+0x10).
         std::function<std::string(int)> speaker_name_fn;
         void window_msg(int sp, int vc, const std::string& nm, const std::string& tx) override {
+            // FUN_00573e60: an unresolvable speaker (no entity, id > 0xa5) shows nothing.
+            const int cls = sp == 0 ? 0 : (class_fn ? class_fn(sp) : sp);
+            if (sp != 0 && cls < 0) return;
             speaker = sp; voice = vc;
             name = (nm.empty() && sp != 0 && speaker_name_fn) ? speaker_name_fn(sp) : nm;
-            text = parse_tags(tx, text_r, text_g, text_b);
-            reveal = 0; box_active = true; acquire_active = false;
+            text = tx;
+            if (wdlg.alive()) wdlg.close();               // Window_Msg replaces a dialog
+            wtext.message(cls, character, vc, name, tx, wmetrics);
+            last_win = 1; box_active = true;
         }
-        void window_close() override {
-            box_active = false; name.clear(); text.clear(); acquire_active = false;
+        void window_close() override {                    // 0xd2: the windows fade out by themselves
+            wtext.close(); wdlg.close(); last_win = 0;
         }
-        // The "Acquired X" box (op 0xd5 Window_Treasure): NOT the running-dialogue box — it's a
-        // separate DIALOG0 9-slice centred at the op's (x,y), with the item ICON + caption
-        // (FUN_005781f0). The item name is resolved by the view (which owns the item table); the
-        // view renders the box from these fields. The following Wait_Prompt dismisses it.
+        void open_dialog_common() {
+            if (wtext.alive()) wtext.close();             // a dialog replaces the message box
+            last_win = 2; box_active = true; menu_ran = false;
+        }
+        void window_menu(float x, float y, const std::string& title, const std::vector<std::string>& texts,
+                         const std::vector<std::string>& labels) override {
+            open_dialog_common();
+            wdlg.menu(x, y, title, texts, labels, wmetrics, false);
+        }
+        void menu_init() override {                       // 0xd7: (512, 282), title "\p"
+            menu_texts.clear(); menu_labels.clear(); menu_cancel.clear(); menu_last = false;
+        }
+        void menu_add(const std::string& t, const std::string& l) override { menu_texts.push_back(t); menu_labels.push_back(l); }
+        void menu_assign_cancel(const std::string& l) override { menu_cancel = l; }
+        void menu_cursor_last() override { menu_last = true; }
+        void menu_select(const std::string& title) override {   // 0xd9: lay out, centre vertically
+            open_dialog_common();
+            wdlg.menu(512, 282, title, menu_texts, menu_labels, wmetrics, true);
+            for (std::size_t k = 0; k < menu_labels.size(); ++k) {
+                if (!menu_cancel.empty() && menu_labels[k] == menu_cancel) wdlg.set_cancel(int(k) + 1);
+                if (menu_last && menu_labels[k] == last_label) wdlg.set_cursor(int(k) + 1);
+            }
+        }
+        void set_msg_speed(int v) override { wtext.set_speed(std::uint32_t(v)); }
+        // 0x8c Flag_IsEquip (FUN_00443ce0) and 0x8b EventXX's unequip sub-kinds (KEY_ITEMS.md §5).
+        std::function<bool(int)> equipped_fn;
+        std::function<void(int)> event_xx_fn;
+        bool is_equipped(int id) const override { return equipped_fn && equipped_fn(id); }
+        void event_xx(int n) override { if (event_xx_fn) event_xx_fn(n); }
+        // FUN_00578960: a menu accept runs the chosen record's label script on the owner.
+        void dispatch_menu() {
+            if (menu_ran || !wdlg.is_menu() || !wdlg.accepted()) return;
+            menu_ran = true;
+            last_label = wdlg.chosen();                   // 0x75ad98
+            if (!last_label.empty() && start_label) start_label(last_label);
+        }
+        // The "Acquired X" box (op 0xd5 Window_Treasure): a GoWndDialog with the item icon, its
+        // top edge at the op's y (WNDDIALOG_DRAW.md §4). The item name fills a NULL string.
         std::function<std::string(int)> item_name_fn;
-        bool acquire_active = false; int acquire_id = -1;
-        float acquire_x = 512.0f, acquire_y = 122.0f;   // authored 1024x768 space (x=512 => centred)
         void acquire_item(float x, float y, int id, const std::string& tx) override {
-            acquire_active = true; acquire_id = id; acquire_x = x; acquire_y = y;
-            name.clear(); speaker = 0; voice = -1;
-            // FUN_005781f0 copies the op3 string into the window text (e.g. "Acquired /
-            // <color:..>Ring Mail<color:>."); audit event_vm #27. The item NAME is a fallback
-            // only for a NULL string.
-            text = !tx.empty() ? parse_tags(tx, text_r, text_g, text_b)
-                               : (item_name_fn ? item_name_fn(id) : ("item " + std::to_string(id)));
-            reveal = int(text.size());   // shown at once, no typewriter
-            box_active = true;           // gate the following Wait_Prompt
+            // FUN_005781f0: the item NAME is a fallback only for a NULL string (audit event_vm #27).
+            const std::string t = !tx.empty() ? tx : (item_name_fn ? item_name_fn(id) : ("item " + std::to_string(id)));
+            open_dialog_common();
+            wdlg.treasure(x, y, id, t, wmetrics);
         }
         std::string caption_name; int caption_timer = 0;   // 0xe2 area-name card (frames left)
         void caption(const std::string& nm) override { caption_name = nm; caption_timer = 210; }
@@ -1143,12 +1135,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // clears not just Wait_Prompt but Wait_Script / Wait_Window / Wait_Sound /
         // Wait_Fader too, which a plain Wait_Time collapse can't. Set by the skip loop.
         bool skipping = false;
+        // FUN_005741b0: arm the slot's window and return its "accepted"; with no window,
+        // proceed on a Confirm press.
         bool wait_prompt() override {
             if (skipping) return true;
-            if (reveal < int(text.size())) return false;    // line still typing out
-            if (advance) { advance = false;                 // one press advances / dismisses
-                if (acquire_active) { acquire_active = false; box_active = false; }
-                return true; }
+            if (last_win == 2 && wdlg.alive()) { wdlg.arm(); return wdlg.accepted(); }
+            if (last_win == 1 && wtext.alive()) { wtext.arm(); return wtext.accepted(); }
+            if (advance) { advance = false; return true; }
             return false;
         }
         // Screen fader (EVENTVM_HANDLERS.md §4): a fullscreen colored overlay, alpha
@@ -1428,7 +1421,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_counts[0] = csMgr.fix_counts[1] = 0;
         csMgr.paused = false;
         csHost.heal_spots.clear();
-        csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
+        csHost.box_active = false; csHost.advance = false;
         camera_return();                            // no forced camera carries across rooms
         after_cutscene = nullptr; prev_frozen = false;
         if (!events_enabled) return;                 // safe default: no live room root
@@ -1492,7 +1485,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             hud.message("(skipped)");
         }
         csMgr.tick_all();
-        if (csHost.box_active && csHost.reveal < int(csHost.text.size())) csHost.reveal += 2;
+        // The windows (FUN_0057a0e0 / FUN_005789a0): Confirm = Space / Return / E / Z.
+        if (csHost.wtext.alive() || csHost.wdlg.alive()) {
+            const bool* ks = SDL_GetKeyboardState(nullptr);
+            WndInput win;
+            win.confirm_held = ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_E] || ks[SDL_SCANCODE_Z];
+            win.confirm_pressed = csHost.advance;
+            csHost.advance = false;
+            std::vector<int> wsnd;
+            csHost.wtext.update(win, wsnd);
+            csHost.wdlg.update(win, wsnd);
+            csHost.dispatch_menu();
+            for (int id : wsnd) audio.play(id, kSfxMenuVol);
+        }
+        csHost.box_active = csHost.wtext.alive() || csHost.wdlg.alive();
         scroll_advance();
         shake_advance();
         csHost.fade_advance();
@@ -1716,6 +1722,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const Cast* c = cast >= 0 ? casts.get(cast) : nullptr;
         return c ? c->display : std::string();
     };
+    // FUN_00573e60 step 3: the speaker's entity class (+0x124); the player is class 0xd (its
+    // face remaps by character); an id with no entity is its own class only if 1..0xa5.
+    csHost.class_fn = [&](int sp) -> int {
+        csHost.character = character;
+        if (sp == 13 || sp == 999 || sp == 0x3e6) return 0xd;
+        if (auto it = csHost.spawn_cast.find(sp); it != csHost.spawn_cast.end()) return it->second;
+        return (sp >= 1 && sp <= 0xa5) ? sp : -1;
+    };
+    csHost.equipped_fn = [&](int id) { return inv_is_equipped(game.g_flags, inv, id); };
+    csHost.event_xx_fn = [&](int n) {                     // [EXPORT] sub-kinds 10 and 7 only
+        if (n == 10) inv.accessory = 0xff;
+        else if (n == 7) { inv.accessory = -1; inv.held = -1; inv.magic = -1; }
+    };
+    csHost.start_label = [&](const std::string& l) {     // [not modelled] the owner actor
+        if (!csMgr.start(l)) std::printf("  [menu] %s did not start\n", l.c_str());
+    };
     auto try_interact = [&] {
         const Vec3 p = fly ? cam.pos : Vec3{feet.x, feet.y, feet.z};
         // Interact reach: you must stand next to a statue/chest. Uncapped the room diagonal
@@ -1824,86 +1846,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // loaded here since the walk loop doesn't share the title-screen instances.
     TitleFx pauseUi;
     const bool pauseOk = pauseUi.init(g, asset_root);
-    // Dialogue PORTRAIT (CUTSCENE_DIALOGUE.md addendum): face = AIA frame of an ani
-    // slot. Slot from the speaker class; frame = the Window_Msg voice param. Decoded
-    // with the pixel-exact AIA decoder, composed at its canvas position, cached until
-    // the slot/frame changes (the engine re-uploads exactly the same way, +0x264 gate).
-    struct PortraitCache {
-        int cast = -1, frame = -1;   // frame -2 = decode failed (don't retry per frame)
-        Aia aia; bool aia_ok = false;
-        SpriteTex tex{};
-    } portrait;
-    auto portrait_cast = [&](int sp) -> int {
-        // Speaker -> face SET (empirical + CUTSCENE_DIALOGUE.md addendum): a speaker id
-        // that the cutscene itself spawned (TALKC210: Roy = entity 87, cast 210) uses
-        // its cast's face file F_<cast>.AIA (8 single-frame 256x256 expressions; the
-        // engine routes this through runtime ani slots via actor+0x124). Player ids
-        // have no F_ file — faceless for now [H: player-bust source not located].
-        auto it = csHost.spawn_cast.find(sp);
-        if (it != csHost.spawn_cast.end()) return it->second;
-        // No spawn recorded: the doc's rule — an id <= 0xa5 IS the class/cast index
-        // (S_1000 spawns entities with id == cast; TALKC210's 87 = CAST_C210 = Roy).
-        return (sp > 0 && sp <= 0xa5) ? sp : -1;
-    };
-    auto portrait_tex = [&]() -> const SpriteTex* {
-        const int cast = portrait_cast(csHost.speaker);
-        int frame = csHost.voice;
-        if (cast < 0 || frame < 0) return nullptr;
-        if (portrait.cast != cast) {
-            portrait.cast = cast; portrait.frame = -1; portrait.aia_ok = false;
-            // cast INDEX -> CASTINFO name "CAST_C210" -> face set "F_210.AIA".
-            // (NPC casts carry no sprite stem — the name is the reliable key.)
-            std::string face;
-            if (csHost.speaker == 13 || csHost.speaker == 999) {
-                // The PLAYER's cutscene face (CUTSCENE_POLISH_RE.md §1): the engine remaps the
-                // player class by character to CAST_M800/M810/M820 (Yunica/Hugo/Toal), whose
-                // faces are F_800/F_810/F_820. CAST_ADOL has no F_ file, so this was blank —
-                // that's the "introduce themselves" self-lines (e.g. Yunica's intro).
-                face = (character == 2) ? "F_810" : (character == 3) ? "F_820" : "F_800";
-            } else if (const Cast* cr = casts.get(cast)) {
-                // The face set is F_<trailing digits of the cast name>: CAST_C210 -> F_210,
-                // CAST_M840 (Shion) -> F_840, CAST_M800 -> F_800. The old rfind('C') produced
-                // the bogus "F_AST_M840" for M-prefixed casts (no second 'C').
-                const std::string& n = cr->name;
-                std::size_t d = n.size();
-                while (d > 0 && n[d - 1] >= '0' && n[d - 1] <= '9') --d;
-                if (d < n.size()) face = "F_" + n.substr(d);     // "F_840"
-            }
-            if (!face.empty()) {
-                portrait.aia = Aia{};
-                portrait.aia_ok = portrait.aia.load(asset_root / "ANI" / (face + ".AIA")) &&
-                                  portrait.aia.ok();
-            }
-            std::printf("  [portrait] speaker=%d cast=%d face='%s' aia=%d\n",
-                        csHost.speaker, cast, face.c_str(), int(portrait.aia_ok));
-        }
-        // Clamp the expression to the sheet — an out-of-range voice shows the last
-        // expression instead of a blank (CUTSCENE_POLISH_RE.md §1).
-        if (portrait.aia_ok && portrait.aia.nImg > 0)
-            frame = std::min(frame, int(portrait.aia.nImg) - 1);
-        if (portrait.aia_ok && portrait.frame != frame) {
-            AiaFrame f;
-            if (portrait.aia.decode_frame(std::uint32_t(frame), 0, 0, f) && f.w > 0) {
-                // Compose onto the full canvas so the face sits where it was authored
-                // (the engine textures the whole record; a tight bbox would drift).
-                const std::uint32_t cw = portrait.aia.canvasW, chh = portrait.aia.canvasH;
-                std::vector<std::uint8_t> canvas(std::size_t(cw) * chh * 4, 0);
-                for (std::uint32_t y = 0; y < f.h; ++y) {
-                    const std::uint32_t dy = y + f.y0;
-                    if (dy >= chh) break;
-                    for (std::uint32_t x = 0; x < f.w; ++x) {
-                        const std::uint32_t dx = x + f.x0;
-                        if (dx >= cw) break;
-                        std::memcpy(&canvas[(std::size_t(dy) * cw + dx) * 4],
-                                    &f.rgba[(std::size_t(y) * f.w + x) * 4], 4);
-                    }
-                }
-                portrait.tex = upload_rgba(g, cw, chh, canvas.data());
-                portrait.frame = frame;
-            } else portrait.frame = -2;
-        }
-        return (portrait.frame == frame && portrait.tex.tex) ? &portrait.tex : nullptr;
-    };
+    FaceCache faces;                                      // the message box's face (view_book.inl)
+    auto face_tex = [&](int face, int frame) { return faces.get(g, asset_root, face, frame); };
     MenuFont pmf;
     pmf.init(g, fmt, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
     const ItemTable pitems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
@@ -1914,6 +1858,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     PauseBook book;
     BookRenderer bookR;
     const bool bookOk = bookR.init(g, fmt, asset_root, pitems);
+    csHost.wmetrics = bookR.metrics();
+    bookR.face_bind = [&](int face, int frame) -> WGPUBindGroup {
+        const SpriteTex* t = face_tex(face, frame);
+        return t ? t->bind : nullptr;
+    };
     BookInput bookIn;
     int bookHold[4] = {};
     float bookAccum = 0;
@@ -1929,7 +1878,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         m.preview = [&](int id) {
             return book_preview(game.g_flags, inv, ginfo, inv_items, character, player.level, id);
         };
-        m.player_can_act = player.hp > 0;                  // [STAND-IN] grounded / not hurt
+        m.player_can_act = player.hp > 0 && pv.grounded;   // +0x388; [not modelled] motion states 4 / 5
+        m.underwater = water_mode == 2;                    // [not modelled] submerged (+0x38a)
         m.scan = [&](int slot) { return scan_slot(slot_path(slot)); };
         m.save_file_no = &bookSaveNo;
         m.sliders = oslider;
@@ -2896,6 +2846,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (r.died) {
                         ++killed;
                         award_exp(en.exp_reward);
+                        if (const Enemy* er = etab.get(en.cast_id)) {     // FUN_00478510
+                            DropContext dc;                 // [not modelled] launch count, combo, luck
+                            dc.flag108 = game.g_flags[108] == 1;
+                            dc.bless8 = (game.g_flags[217] & 8) != 0;
+                            dc.no_drops = game.g_flags[146] != 0;
+                            dc.boss_lock = game.g_flags[156] != 0;
+                            roll_enemy_drops(pick_rng, *er, en.cast_id, en.pos, dc, pickups);
+                        }
                         if (en.cast_id >= 0 && en.cast_id < 256) {   // FUN_004fbb40: the Topic record
                             topic_seen[en.cast_id] = 1;
                             topic_kills[en.cast_id] = std::min(topic_kills[en.cast_id] + 1, 50);
@@ -2988,6 +2946,56 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             std::printf("  [plate] %s -> %s\n", t.name.c_str(), stem.c_str());
                     }
                 }
+            // FUN_00462550: holding the powered Evil Ring (held 0x5e with count[93] == 1) is -9999 HP
+            // every tick unless the Blue Necklace (equip bit 0x20000) is on (KEY_ITEMS.md §3.6).
+            // [not modelled] its 9999 popup and effect.
+            if (inv.held == 0x5e && game.g_flags[93] == 1 && player.hp >= 1) {
+                (void)player_stats();                         // refreshes inv.equip_flags
+                if (!(inv.equip_flags & 0x20000u)) player.hp = std::max(0, player.hp - 9999);
+            }
+            // World pickups: motion, bounce, collect (FUN_00584f90 / FUN_005856c0 / FUN_00585ff0).
+            if (!pickups.empty()) {
+                PickupWorld pw;
+                pw.hit = [&](const Vec3& a, const Vec3& b, Vec3* pt, Vec3* n) {
+                    return segment_hit(phys_mesh(room), a, b, pt, n);
+                };
+                pw.player = feet;
+                pw.touch = [&](Pickup& pk) {
+                    if (fly || player.hp <= 0) return false;
+                    float hp = float(player.hp);
+                    EffectEnv env;
+                    env.flags = game.g_flags; env.hp = &hp; env.max_hp = float(player.max_hp);
+                    env.player_alive = player.hp > 0; env.boost = &player.boost;
+                    inv.sp = player.sp;
+                    int pop = 0;
+                    if (pickup(inv, inv_items, env, pk.id, &pop) != PickupResult::Taken) return false;
+                    player.sp = inv.sp;
+                    player.hp = int(hp);
+                    // The GoPopup (PICKUPS.md §7.3, §13.6); a full pool skips it, the grant stands.
+                    auto pop_at = [&](const std::string& t, std::uint32_t col, float sc, const Vec3& at) {
+                        if (popups.size() < 32) popups.push_back(make_popup(t, col, sc, {at.x, at.y + 0.5f, at.z}));
+                    };
+                    const int id = pk.id;
+                    if (id >= 0x78 && id <= 0x7f) pop_at(std::to_string(pop), 0xcdacd0, 0.75f, pk.pos);
+                    else if (id >= 0x42 && id <= 0x47) { if (pop > 0) pop_at(std::to_string(pop), 0x00ff00, 1.0f, feet); }
+                    else if (id == 0x72) pop_at("BOOST MAX", 0x00ff00, 0.65f, feet);
+                    else if (id == 0x73) pop_at("OXYGEN MAX", 0x00ff00, 0.65f, feet);
+                    else if (id == 0x48 || id == 0x49) pop_at("str +", 0xff6060, 1.0f, feet);
+                    else if (id == 0x4a || id == 0x4b) pop_at("def +", 0x6060ff, 1.0f, feet);
+                    else if (id == 0x4c || id == 0x4d) pop_at("mp +", 0xffff60, 1.0f, feet);
+                    if ((pk.id >= 0x42 && pk.id <= 0x4d) || pk.id == 0x72 || pk.id == 0x73)
+                        spawn_sim_fx(63, feet, {}, 1.0f, {}, 0, {});    // common\cure.eft on the player
+                    spawn_sim_fx(72, pk.pos, {}, 1.0f, {}, 0, {});      // common\z_item.eft
+                    sfx_at(88, pk.pos, kSfxAnimVol);                     // player\p_takeitem
+                    return true;
+                };
+                for (Pickup& pk : pickups) step_pickup(pick_rng, pk, pw);
+                pickups.erase(std::remove_if(pickups.begin(), pickups.end(),
+                                             [](const Pickup& pk) { return pk.dead; }), pickups.end());
+            }
+            for (Popup& pp : popups) step_popup(pp);           // FUN_00565170
+            popups.erase(std::remove_if(popups.begin(), popups.end(), [](const Popup& pp) { return pp.dead; }),
+                         popups.end());
             // Boost drain (FUN_00462c40): the gauge falls ~30/tick on Normal, so a Boost runs
             // ~1000 frames (~16.7 s). At zero the mode clears and the player drops to idle.
             if (player.boosting) {
@@ -3400,6 +3408,32 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         (sfl > kNoFloor ? sfl : feet.y), 0.6f);
             draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos);
         }
+        {
+            const std::uint32_t ms = std::uint32_t(SDL_GetTicks());
+            for (const Pickup& pk : pickups) {
+                if (pk.delay > 0) continue;
+                const SpriteTex* ic = pauseUi.icon(g, items_tbl, asset_root, pk.id);
+                if (!ic) continue;
+                const float sa = pk.shadow_alpha();
+                if (sa > 0) draw_shadow(g, view, depth, *ic, pk.pos, pk.ground_y - 0.07f, pk.half, 0, sa);
+                // The glint is a specular add (grey 0..70); fs_char's flash lerps toward white
+                // instead [approximation]. In water the RGB is halved.
+                const float t = pk.in_water ? 0.5f : 1.0f;
+                draw_character(g, view, depth, {pk.pos.x, pk.pos.y + 0.1f - pk.half, pk.pos.z}, 2 * pk.half,
+                               *ic, cam.forward(), cam.pos, float(pk.glint(ms)) / 255.0f, t, t, t, false,
+                               pk.alpha());
+            }
+            if (!popups.empty()) {                            // layer 0xf, after the world, no Z test
+                static SpriteTex geo20;
+                if (!geo20.tex) {
+                    Dds dd = load_dds(asset_root / "IMAGE" / "F_GEO20.DDS");
+                    if (dd.ok()) geo20 = upload_rgba(g, dd.width, dd.height, dd.data.data());
+                }
+                WGPUTextureView pdepth = make_depth(g, cw, ch);
+                for (const Popup& pp : popups) draw_popup_glyphs(g, view, pdepth, geo20, pp, cam.forward());
+                wgpuTextureViewRelease(pdepth);
+            }
+        }
         draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
@@ -3460,21 +3494,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             wgpuTextureViewRelease(bdepth);
         }
         // Cutscene dialogue box over the frozen world (FACEWIN0 bottom bar + name + text).
-        if (csHost.acquire_active && pauseOk) {
-            // op 0xd5 Window_Treasure: the centred item-get box with the item icon (NOT the
-            // running-dialogue box). Position/name come from the op; icon from the item table.
-            write_mvp(g, Mat4::identity());
-            WGPUTextureView ddepth = make_depth(g, cw, ch);
-            const SpriteTex* ic = pauseUi.icon(g, items_tbl, asset_root, csHost.acquire_id);
-            pauseUi.draw_item_get(g, pmf, view, ddepth, cw, ch, csHost.acquire_x, csHost.acquire_y,
-                                  csHost.text, ic);
-            wgpuTextureViewRelease(ddepth);
-        } else if (csHost.box_active && pauseOk) {
-            write_mvp(g, Mat4::identity());   // the box is screen-space
-            WGPUTextureView ddepth = make_depth(g, cw, ch);
-            pauseUi.draw_dialogue(g, pmf, view, ddepth, cw, ch, csHost.name, csHost.text, csHost.reveal,
-                                  portrait_tex(), csHost.text_r, csHost.text_g, csHost.text_b);
-            wgpuTextureViewRelease(ddepth);
+        // The event windows: the message box, then the dialog (WNDDIALOG_DRAW.md; the draw-key
+        // order between them is [H], Uncertain #3).
+        if (bookOk && (csHost.wtext.alive() || csHost.wdlg.alive())) {
+            DrawList wl;
+            csHost.wtext.draw(wl, csHost.wdlg.alive());
+            csHost.wdlg.draw(wl);
+            bookR.render(g, view, cw, ch, wl);
         }
         // Area-name caption card (op 0xe2 = pre-rendered IMAGE/<name>.dds), fading out.
         if (csHost.caption_timer > 0) {

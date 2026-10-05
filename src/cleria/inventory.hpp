@@ -25,6 +25,8 @@ struct InvState {
     float atk_buff = 0, def_buff = 0;     // 0x76b904 / 0x76b908: the Strength / Defense Drops
     float luck_base = 0;                  // 0x76b90c (no writer in code)
     std::int32_t timer_atk = 0, timer_def = 0;   // 0x76c19c / 0x76c1a0
+    float mp_buff = 0;                    // 0x76b900: the MP Drop buff (0 off, else 1.0..3.0)
+    std::int32_t timer_mp = 0;            // 0x76c1a4
     std::int32_t sp = 0;                  // 0x76a75c: the SP wallet (gold adds here), 0..999999
     std::uint32_t equip_flags = 0;        // 0x76a624: derived ability bits
 };

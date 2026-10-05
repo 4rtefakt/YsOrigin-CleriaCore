@@ -273,7 +273,7 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0xb7) { if (on_unfix) on_unfix(); return Step::Continue; }
                     // Window_Msg / Window_Menu / Window_Treasure fix slot 0 when this script
                     // holds no fix (audit event_vm #27).
-                    if ((sub == 0xd3 || sub == 0xd4 || sub == 0xd5) && on_window_fix) on_window_fix();
+                    if ((sub == 0xd3 || sub == 0xd4 || sub == 0xd5 || sub == 0xd7) && on_window_fix) on_window_fix();
                 }
                 // Dialogue / caption ops forward to the host. Handled here (not in the
                 // nargs>=1 store chain below) so 0xd2's zero-arg case isn't skipped. A host
@@ -281,6 +281,19 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                 // this is inert during grant extraction. (CUTSCENE_DIALOGUE.md)
                 if (host) {
                     if (sub == 0xd2) { host->window_close(); return Step::Continue; }  // Window_Close
+                    if (sub == 0xd4 && nargs >= 3) {          // Window_Menu(x, y, title, (text, label)...)
+                        std::vector<std::string> texts, labels;
+                        for (int k = 3; k + 1 < nargs; k += 2) { texts.push_back(ops(k)); labels.push_back(ops(k + 1)); }
+                        host->window_menu(opf(0), opf(1), ops(2), texts, labels);
+                        return Step::Continue;
+                    }
+                    if (sub == 0xd6 && nargs >= 1) { host->set_msg_speed(op(0)); return Step::Continue; }
+                    if (sub == 0xd7) { host->menu_init(); return Step::Continue; }
+                    if (sub == 0xd8 && nargs >= 2) { host->menu_add(ops(0), ops(1)); return Step::Continue; }
+                    if (sub == 0xd9) { host->menu_select(nargs >= 1 ? ops(0) : std::string()); return Step::Continue; }
+                    if (sub == 0xda && nargs >= 1) { host->menu_assign_cancel(ops(0)); return Step::Continue; }
+                    if (sub == 0xdb) { host->menu_cursor_last(); return Step::Continue; }
+                    if (sub == 0x8b && nargs >= 1) { host->event_xx(op(0)); return Step::Continue; }
                     if (sub == 0xd3 && nargs >= 4) {          // Window_Msg(speaker,voice,name,text)
                         host->window_msg(op(0), op(1), ops(2), ops(3));   // type-0 -1 -> ""
                         return Step::Continue;

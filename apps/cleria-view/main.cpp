@@ -40,6 +40,8 @@
 #include "cleria/bullet.hpp"
 #include "cleria/inventory.hpp"
 #include "cleria/pausebook.hpp"
+#include "cleria/pickup.hpp"
+#include "cleria/popup.hpp"
 #include "cleria/meshobj.hpp"
 #include "cleria/ef2_sim.hpp"
 #include "cleria/dds.hpp"
@@ -69,6 +71,9 @@
 #include "cleria/save.hpp"
 #include "cleria/world.hpp"
 #include "cleria/xso.hpp"
+#include "cleria/wndtext.hpp"
+#include "cleria/wnddialog.hpp"
+#include "cleria/titlescreen.hpp"
 #include <ctime>
 #include <optional>
 // CLERIA_CULL=off|cw|ccw — probe. The exe sets D3DCULL_CCW, but D3D9's left-handed
@@ -526,6 +531,13 @@ int main(int argc, char** argv) {
         std::uint32_t dir = argc >= 12 ? std::uint32_t(std::atoi(argv[11])) : 2;
         if (argc >= 13) g_fov = float(std::atof(argv[12]));
         return render_play(g, room, argv[4], W, H, asset_root, yaw, pitch, dist, hgt, dir);
+    }
+    if (argc >= 5 && std::strcmp(argv[3], "--wnd") == 0) {
+        // cleria-view <root> <ignored> --wnd out.ppm [W H]: the event windows (view_book.inl).
+        build_pipeline(g, WGPUTextureFormat_RGBA8Unorm);
+        const std::uint32_t W = argc >= 6 ? std::uint32_t(std::atoi(argv[5])) : 1280;
+        const std::uint32_t H = argc >= 7 ? std::uint32_t(std::atoi(argv[6])) : 720;
+        return render_wnd(g, asset_root, argv[4], W, H);
     }
     if (argc >= 5 && std::strcmp(argv[3], "--book") == 0) {
         // cleria-view <root> <ignored> --book out.ppm [W H]: the rebuilt pause book (view_book.inl).
