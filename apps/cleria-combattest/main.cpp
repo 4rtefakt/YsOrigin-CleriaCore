@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "cleria/hit.hpp"
+#include "cleria/hit_volume.hpp"
 
 using namespace cleria;
 
@@ -130,6 +131,43 @@ int main() {
     vel = {1.0f, 0.0f};
     step_knockback(vel, false, false, Mover::Player);
     check(near(vel.x, 1.0f - 0.0405f), "player mover airborne: friction x0.3");
+
+    {   // Hit volumes (hit_volume.hpp, build/ai_spec/HITVOLUME.md).
+        const float c010[13] = {0, 0.5f, 0.6f, 0, -0.5f, 0, 30, 10, 0, 0, 0, 8.0f, 1.0f};
+        const HitVolume v = volume_from_args(c010, 1);
+        const Vec3 c = volume_centre(v, {0, 1.075f, 0}, 0.0f);
+        check(near(c.x, 0.6f) && near(c.y, 0.575f) && near(c.z, 0.0f), "volume centre: 0.6 ahead, 0.5 down from the origin");
+        const Vec3 c90 = volume_centre(v, {0, 1.075f, 0}, 1.5707964f);
+        check(std::fabs(c90.x) < 1e-6f && near(c90.z, 0.6f), "facing pi/2: cos table index 64 -> straight +Z");
+        // vs M_100's body (cylinder r 0.65, half 0.8, centre 0.825 above its floor): the reach
+        // from the volume centre is 0.5 + 0.65 = 1.15 horizontally.
+        auto m100_at = [](float x) { return body_shape({x, 1.025f, 0}, 0.65f, 0.8f, 1, -0.2f); };
+        const HitShape vol = volume_shape(v, {0, 1.075f, 0}, 0.0f);
+        check(overlap(vol, m100_at(0.6f + 1.14f)) && !overlap(vol, m100_at(0.6f + 1.16f)),
+              "Yunica's first hit vs M100: reach 1.15 from the volume centre");
+        // M_180's first hit (r 0.7, 1.5 ahead, 0.5 up from origin 1.276) vs the player cylinder
+        // (r 0.45, half 0.5, centre 0.825): the end-cap rule gives a reach of 1.29.
+        const float m180[13] = {0, 0.7f, 1.5f, 0, 0.5f, 0, 3, 43, 1, 1, 0, 0, 1.25f};
+        const HitShape mv = volume_shape(volume_from_args(m180, 2), {0, 1.276f, 0}, 0.0f);
+        auto player_at = [](float x) { return body_shape({x, 1.075f, 0}, 0.45f, 0.5f, 1, -0.25f); };
+        // HITVOLUME.md §6 quotes 1.29 here, but the horizontal pre-reject (r_a + r_b)^2 binds
+        // first (FUN_004f9e90: `else if (h2 <= R2)` before the end cap), so the reach is 1.15.
+        check(overlap(mv, player_at(1.5f + 1.14f)) && !overlap(mv, player_at(1.5f + 1.16f)),
+              "Wilewarer's first hit vs the player: reach 1.15 (the pre-reject binds)");
+        // Where the end cap binds: a sphere r 2.0 whose centre is 1.5 above a short cylinder
+        // (r 0.1, half 0.1): e = 1.6 - 0.1 = 1.5, reach |cos(atan2(1.5, 2))| + 0.1 = 0.9, not 2.1.
+        const HitShape big{2.0f, {0, 1.6f, 0}, 0, 0};
+        auto stub = [](float x) { return HitShape{0.1f, {x, 0.0f, 0}, 0.1f, 1}; };
+        check(overlap(big, stub(0.89f)) && !overlap(big, stub(0.91f)),
+              "end cap: |cos(atan2(e, r))| + r_cyl, never times r (the engine's quirk)");
+        RehitBank bank;
+        const bool first = bank.check_and_record(7, 3);
+        const bool again = bank.check_and_record(7, 3);
+        bank.tick(); bank.tick(); bank.tick();
+        const bool after = bank.check_and_record(7, 3);
+        check(!first && again && !after, "re-hit bank: same token blocked until its timer runs out");
+        check(!bank.check_and_record(8, 3), "a different token (another attack) hits at once");
+    }
 
     {   // Guard (FUN_004fbb40 0x4fbf77): section 6 / +0x399, rtype <= 1, +/-75 deg.
         // Attacker faces +X (angle 0); a victim facing back at it (pi) is square on.

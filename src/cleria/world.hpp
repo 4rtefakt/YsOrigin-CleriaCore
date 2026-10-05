@@ -321,6 +321,9 @@ class ActorWorld : public XsoHost {
     // reset on clear() (room load). Explicit-id 0x12c spawns dedup by id already.
     bool placements_spawned_ = false;
     std::vector<LocatedEffect> effects_;  // op 0x11a placements; killed by 0x119
+public:
+    std::uint32_t hit_serial_counter_ = 0;   // DAT_007d9b78 (shared with the player's attacks)
+private:
     bool id_in_use(int id) const;
 
     // The per-actor update hook (tick ORDER + the sweep around it are validated). Enemy

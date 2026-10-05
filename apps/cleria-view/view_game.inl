@@ -346,7 +346,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int gauge_owner = 0;                 // the actor whose HP the boss gauge shows (DAT_006d5fd8)
     // The live hit-volume, copied from the script when GenerateCollision arms it.
     // Defaults are Yunica's combo #1 so a script that never arms behaves as before.
-    AsoVm::Hitbox atk_hb{0.6f, 0.0f, 30, 8.0f};
+    AsoVm::Hitbox atk_hb;
     Vec3 atk_dir{0, 0, 1};               // the swing's facing (captured at swing start)
     Vec3 face_dir{0, 0, 1};              // world dir the player faces (from movement)
     WGPUTextureView depth = make_depth(g, cw, ch);
@@ -376,7 +376,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     Mat4 last_vp; bool have_vp = false;  // last frame's camera, for the AI's off-screen test
     const bool ai_debug = std::getenv("CLERIA_AI") != nullptr;
     std::uint64_t tick_count = 0;
-    std::unordered_map<int, int> atk_rehit;  // victim -> ticks until the swing may hit it again
+    // The player's hit serial (+0x3c4): redrawn at every attack start (FUN_0046ea00); it is
+    // the token each victim's re-hit bank keys on (hit_volume.hpp RehitBank).
+    std::uint32_t player_hit_serial = 0;
+    RehitBank player_bank;               // the player's own victim bank (+0x5e0)
     // Loaded game (title Load screen): flags + character must be right BEFORE the first
     // room load (chest gating reads them); stats/position are applied after the world
     // exists, below. This mirrors the engine's load = init-then-overwrite (SAVELOAD §4.2).
@@ -1379,7 +1382,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         combo_stage = (combo_stage + 1 >= len) ? 0 : combo_stage + 1;
         combo_idle = 0;
         atk_dir = face_dir;         // the swing points where you're facing
-        atk_rehit.clear();
+        player_hit_serial = next_hit_serial(world.hit_serial_counter_);
     };
 
     // Spawn every bullet an ASO section fired this tick. Shared by the player and by
@@ -1467,7 +1470,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const int extra = character == 1 ? 313 : character == 2 ? 300 : 317;
         if (!avm.set_section(extra, /*force*/true)) return;
         atk_dir = face_dir;
-        atk_rehit.clear();
+        player_hit_serial = next_hit_serial(world.hit_serial_counter_);
         player.boost = 0.0f;                              // spends the gauge
         player_iframes = std::max(player_iframes, 16);
     };
@@ -1495,7 +1498,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (!avm.set_section(kSkillSec[slot], /*force*/true)) return;
         player.sp_cur -= cost;                            // 0x46f2eb
         atk_dir = face_dir;
-        atk_rehit.clear();
+        player_hit_serial = next_hit_serial(world.hit_serial_counter_);
     };
 
     const ItemTable items_tbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
@@ -2143,6 +2146,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     env.self = {en->pos.x, en->pos.y + en->height, en->pos.z};
                     env.height = en->height;
                     env.radius = en->radius;
+                    env.facing = e.facing;
+                    env.grounded = en->vert.grounded;                // +0x388
+                    env.jump_v0 = cast_motion(casts, en->cast_id).jump_v0;
                     env.actor = en;
                     env.world = &aiw;
                     env.character = character;
@@ -2215,15 +2221,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (o.set_marker > -1000) e.avm.set_marker(o.set_marker);
                     if (o.set_marker_block > -1000) e.avm.set_marker_block(o.set_marker_block);
                     if (o.set_durable >= 0) e.avm.set_durable(o.set_durable != 0);
+                    if (o.set_own_jump >= 0) e.avm.set_own_jump(o.set_own_jump != 0);
+                    if (o.fast_forward >= 0) e.avm.fast_forward_to_marker(o.fast_forward);
                     if (o.snap_facing) e.facing = e.actor->ai.heading;
-                    // A hit volume armed by the brain (FUN_004494e0). [not modelled] arg[1]
-                    // (forward offset) and arg[4] (vertical offset): the box sits hb.radius ahead.
+                    // A hit volume armed by the brain (FUN_004494e0), placed like any other.
                     for (const AiHitbox& h : o.hitboxes) {
-                        e.hb.radius = h.radius;
-                        e.hb.half_angle = h.angle_deg * 0.017453292f;
-                        e.hb.lifetime = h.life; e.hb.rehit = h.rehit; e.hb.rtype = h.rtype;
-                        e.hb.status = h.status; e.hb.power = h.power; e.hb.knock = h.knock;
-                        if (e.atk_win <= 0) e.atk_hit = false;
+                        const float args[13] = {h.shape, h.radius, h.fwd, h.angle_deg, h.voff, h.half_h,
+                                                float(h.life), float(h.rehit), float(h.one_shot),
+                                                float(h.rtype), float(h.status), h.power, h.knock};
+                        e.hb = volume_from_args(args, en->hit_serial);
                         e.atk_win = h.life > 0 ? h.life : 1;
                         e.atk_armed = true;
                         e.atk_dx = std::cos(e.facing); e.atk_dz = std::sin(e.facing);
@@ -2246,20 +2252,31 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         const Cast* bc = casts.get(en->cast_id);
                         hud.boss_name = bc ? bc->display : std::string();
                     }
-                    // Locomotion section on a mode change (FUN_0045f4d0, gated, movable != 0).
-                    const int loco = enemy_loco_section(e.actor->ai, true);
-                    if (loco != e.loco && e.avm.movable() != 0.0f) {
-                        e.loco = loco;
-                        if (!hurt && !attacking) e.avm.set_section(loco);
-                    }
-                    // Move along the heading (grounded snap) and turn the visible facing.
-                    const float spd = enemy_move_speed(e.actor->ai, e.avm.movable());
-                    en->pos.x += std::cos(e.actor->ai.heading) * spd;
-                    en->pos.z += std::sin(e.actor->ai.heading) * spd;
-                    e.facing = enemy_turn_facing(e.facing, e.actor->ai.heading, e.actor->ai.mode() == 2);
-                    en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
-                    e.avm.set_is_land(true);
+                    // The mover (FUN_00478080 -> FUN_0045f4d0, build/ai_spec/MOVER.md): the
+                    // locomotion section on an index change (gated), the ASO step (Jump/Dash/
+                    // Movable land here), then velocity + knockback, then the facing turn. The
+                    // integrator (sweep + settle) runs in the per-actor pass after world.step().
+                    const bool grounded_now = en->vert.grounded;
+                    const bool movable_pre = e.avm.movable() != 0.0f;
+                    int idx_pre = 0;
+                    const int lsec = mover_pre(en->mover, e.actor->ai.mode(), grounded_now, e.avm.own_jump(),
+                                               movable_pre, e.avm.section(), &idx_pre);
+                    if (lsec >= 0) e.avm.set_section(lsec);          // FUN_00446550: priority-gated
+                    e.avm.set_is_land(grounded_now);
                     e.avm.tick();
+                    if (e.avm.jumped()) {                             // anime_Jump (FUN_00449460)
+                        float oy = en->pos.y + en->height;
+                        apply_jump(en->vert, oy, e.avm.jump_v(), cast_motion(casts, en->cast_id).jump_v0);
+                        en->pos.y = oy - en->height;
+                    }
+                    if (e.avm.dashed()) apply_dash(en->mover, e.actor->ai.heading, e.avm.dash_d());
+                    mover_post(en->mover, idx_pre, e.actor->ai.speed, e.actor->ai.heading, en->vert.grounded,
+                               en->flyer, movable_pre, e.avm.movable(), en->hp);
+                    if (e.facing != e.actor->ai.heading)              // FUN_005eee60, x +0x36c (1.0)
+                        e.facing = turn_facing(idx_pre == 2 ? 0.35f : 0.18f, e.facing, e.actor->ai.heading);
+                    en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
+                    if (o.durable_rule == 1) e.avm.set_durable(true);              // the handler's
+                    else if (o.durable_rule == 0 && e.avm.section() != 7) e.avm.set_durable(false);
                     if (hurt && e.avm.section_ended()) e.avm.set_section(e.idle_section, /*force*/true);
                     // Drain any bullet this enemy's script fired (facing basis: x=sin/z=cos of yaw).
                     spawn_bullets(e.avm, en->pos, {std::sin(en->yaw), 0, std::cos(en->yaw)},
@@ -2268,7 +2285,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     // radius/lifetime/power/knock.
                     if (e.avm.armed_hitbox()) {
                         e.hb = e.avm.hitbox();
-                        e.atk_win = e.hb.lifetime > 0 ? e.hb.lifetime : 1;
+                        e.atk_win = e.hb.life > 0 ? e.hb.life : 1;
                         e.atk_hit = false;
                         e.atk_armed = true;
                     }
@@ -2332,29 +2349,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (Actor& a : world.actors()) {
                 if (a.is_player() || !a.alive()) continue;
                 if (a.hit_flash > 0) --a.hit_flash;
-                // Knockback, spent by the 2-D sprite mover's law (hit.hpp step_knockback):
-                // displacement capped at 0.36/tick, velocity damped 1 - 0.135*0.95. Then
-                // wall-resolve stops it at walls like any other motion.
-                {   Impulse kv{a.knockback.x, a.knockback.z};
-                    const Impulse kd = step_knockback(kv, /*grounded*/ true, a.hp < 1);
-                    a.knockback.x = kv.x; a.knockback.z = kv.z;
-                    a.pos.x += kd.x; a.pos.z += kd.z; }
-                if (a.flyer) {
-                    // A flyer's collision is its sphere round the hovering origin (+0x328),
-                    // not a walker's capsule from the feet — it clears low geometry.
-                    const float oy = a.pos.y + a.height;
-                    Vec3 body = {a.pos.x, oy - a.radius, a.pos.z};
-                    body = resolve_walls(phys_mesh(room), body, a.radius, 2.0f * a.radius);
-                    a.pos.x = body.x; a.pos.z = body.z;
-                } else {
-                    Vec3 body = {a.pos.x, a.pos.y + stepUp, a.pos.z};
-                    body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
-                    a.pos.x = body.x; a.pos.z = body.z;
-                }
-                const float efl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + kCharH);
-                if (efl > kNoFloor) {
-                    a.floor_y = efl;                   // +0x318, for flyers too (0x45ba8e)
-                    if (!a.flyer) a.pos.y = efl;       // a flyer has no gravity and never lands
+                // The integrator FUN_0045a510 (MOVER.md §3): one swept sphere (radius +0x328,
+                // centred on the ORIGIN) through D = (displacement, dy), the floor ray from the
+                // pre-move origin, then the settle (land with a 0.65 lerp / coyote / fall).
+                // A flyer: dy = t (0 for the AI), no settle — the hover owns its altitude.
+                {
+                    const Vec3 o0{a.pos.x, a.pos.y + a.height, a.pos.z};
+                    const float dy = a.flyer ? a.vert.t : vertical_dy(a.vert);
+                    const float hitY = floor_at(phys_mesh(room), o0.x, o0.z, o0.y);
+                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {a.mover.dx, dy, a.mover.dz}, a.radius);
+                    if (hitY > kNoFloor && o1.y > hitY) a.floor_y = hitY;     // +0x318
+                    if (!a.flyer) {
+                        a.vert.jumping = a.mover.loco == 3;                  // the coyote keys on +0x3a0
+                        settle_vertical(a.vert, o1.y, a.floor_y, a.height);
+                    }
+                    a.pos = {o1.x, o1.y - a.height, o1.z};
                 }
             }
 
@@ -2365,7 +2374,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // durable victim (anime_Durable ~ +0x9d8).
             auto react_enemy = [&](Actor& en, int dmg, bool died, int rtype, const Impulse& k) {
                 en.hit_flash = 6;                       // our cosmetic tint (+0x4e8)
-                en.knockback.x += k.x; en.knockback.z += k.z;
+                en.mover.k1.x += k.x; en.mover.k1.z += k.z;   // knock channel 1 (+0x338/+0x340)
                 if (died) return;                       // death is handled by the caller
                 for (EnemyRender& er : render) {
                     if (er.actor != &en || !er.avm.ok()) continue;
@@ -2386,21 +2395,23 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // damage_real: elemental resist multiplier, a min-1 chip, Yunica's x1.1.
             if (atk_window > 0) {
                 --atk_window;
-                // Radius and power now come from the script's own GenerateCollision
-                // rather than Yunica's values hardcoded for everyone.
-                const Vec3 c = {feet.x + atk_dir.x * atk_hb.radius, feet.y + kCharH * 0.5f,
-                                feet.z + atk_dir.z * atk_hb.radius};
-                const float rr = atk_hb.radius + kCharRadius;  // box radius + enemy radius
+                // FUN_004fed50 mode 0 (build/ai_spec/HITVOLUME.md §2): the volume is placed
+                // from the player's ORIGIN and current facing every tick, then tested against
+                // each monster's hurt body; the victim's bank keys on this attack's serial.
+                const float pface = std::atan2(face_dir.z, face_dir.x);
+                const HitShape vol = volume_shape(atk_hb, {feet.x, feet.y + kOriginH, feet.z}, pface);
+                const Vec3 c = vol.centre;
                 int killed = 0, broke = 0;
                 for (Actor& en : world.actors()) {
-                    if (en.is_player() || !en.alive() || atk_rehit.count(en.instance_id)) continue;
+                    if (en.is_player() || !en.alive() || en.destroy_requested()) continue;
                     const EnemyRender* vr = nullptr;
                     for (const EnemyRender& er : render) if (er.actor == &en) { vr = &er; break; }
                     if (vr && !vr->actor->ai.hittable) continue;            // +0x60 & 0x80 clear
-                    const float dx = en.pos.x - c.x, dz = en.pos.z - c.z;
-                    const float ddy = (en.pos.y + kCharH * 0.5f) - c.y;
-                    if (dx * dx + ddy * ddy + dz * dz > rr * rr) continue;
-                    atk_rehit[en.instance_id] = atk_hb.rehit;   // the victim's re-hit bank
+                    const HitShape body = body_shape({en.pos.x, en.pos.y + en.height, en.pos.z},
+                                                     en.hurt_radius, en.hurt_half_h, en.hurt_shape, en.hurt_off);
+                    if (!overlap(vol, body)) continue;
+                    if (en.bank.check_and_record(player_hit_serial, atk_hb.rehit)) continue;   // FUN_004faac0
+                    if (atk_hb.one_shot) atk_window = 0;                     // 0x4fd251
                     AttackStats a;
                     a.atk = ginfo.player_atk(character, /*tier*/ 0, player.level);
                     a.bonus = atk_hb.power;          // per-attack power, from this section's script
@@ -2489,8 +2500,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // touching it. player_def is the lv1 curve; no equipment model.
             // The countdown is frozen while a hurt section (4/9/0xb) plays (0x466cc1).
             tick_iframes(player_iframes, avm.section());
-            for (auto it = atk_rehit.begin(); it != atk_rehit.end();)   // FUN_0045c490 decrement
-                it = (--it->second <= 0) ? atk_rehit.erase(it) : std::next(it);
+            for (Actor& a : world.actors()) a.bank.tick();          // FUN_0045c490: every actor
+            player_bank.tick();
             // STEP PLATES (SOB trigger class 2): the plate's script fires when the player
             // steps ON it, and re-arms only after stepping OFF — the engine does that with
             // Mesh_EnableEvent(off) ... Wait_ChrLeaveMesh ... Mesh_EnableEvent(on), which
@@ -2577,48 +2588,35 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             };
             for (EnemyRender& e : render) {
                 Actor* en = e.actor;
-                if (e.atk_win <= 0) {
-                    // Scriptless enemies (no ASO) keep the old contact check so they are
-                    // not harmless; scripted ones deal damage only through their swing.
-                    if (!e.avm.ok() && en && en->alive() && en->atk > 0 && player_iframes == 0) {
-                        const float mreach = kCharRadius + 0.6f;
-                        const float dx = en->pos.x - feet.x, dz = en->pos.z - feet.z;
-                        if (dx * dx + dz * dz <= mreach * mreach)
-                            hurt_player(en->atk, 0, 0, std::atan2(-dz, -dx));
-                    }
-                    continue;
-                }
+                // An enemy hurts only through an armed volume: the body pass (FUN_0045e460) only
+                // pushes, it never damages (HITVOLUME.md §5), so there is no contact damage.
+                if (e.atk_win <= 0) continue;
                 --e.atk_win;
                 if (ai_debug && en)
                     std::printf("[swing] #%d win %d hit %d pif %d psec 0x%x box(%.2f,%.2f r%.2f) "
                                 "dir(%.2f,%.2f) d_player %.2f\n", en->instance_id, e.atk_win,
                                 int(e.atk_hit), player_iframes, avm.section(),
-                                en->pos.x + e.atk_dx * e.hb.radius, en->pos.z + e.atk_dz * e.hb.radius,
+                                volume_centre(e.hb, {en->pos.x, en->pos.y + en->height, en->pos.z}, e.facing).x,
+                                volume_centre(e.hb, {en->pos.x, en->pos.y + en->height, en->pos.z}, e.facing).z,
                                 e.hb.radius, e.atk_dx, e.atk_dz,
                                 std::sqrt((feet.x - en->pos.x) * (feet.x - en->pos.x) +
                                           (feet.z - en->pos.z) * (feet.z - en->pos.z)));
-                if (!en || !en->alive() || en->atk <= 0 || e.atk_hit || player_iframes > 0)
-                    continue;
-                // The swing's box sits hb.radius ahead of the enemy in its latched heading.
-                const float cx = en->pos.x + e.atk_dx * e.hb.radius;
-                const float cz = en->pos.z + e.atk_dz * e.hb.radius;
-                const float rr = e.hb.radius + kCharRadius;
-                const float bx = feet.x - cx, bz = feet.z - cz;
-                if (bx * bx + bz * bz > rr * rr) continue;
-                // The engine's overlap test is 3-D (FUN_004f9e90): the victim is a vertical
-                // CAPSULE, so the planar reject is followed by projecting the Y delta onto the
-                // capsule's half-length. Without this an enemy on the floor below or above
-                // could hit the player. Player capsule = CASTINFO CAST_ADOL +0x58 (half 0.5),
-                // box centre ~ body mid (its arg[4] vertical offset is not parsed yet).
-                const float cy = en->pos.y + kCharH * 0.5f;
-                float by = std::fabs((feet.y + 0.5f) - cy) - 0.5f;
-                if (by < 0.0f) by = 0.0f;
-                if (bx * bx + bz * bz + by * by > rr * rr) continue;
-                e.atk_hit = true;                 // one hit per swing
-                // Angle: from the attacker (+0xdc = its position when the box was armed;
-                // we use its live position) to the player (FUN_004fe9e0).
-                hurt_player(en->atk, e.hb.power, e.hb.rtype,
-                            std::atan2(feet.z - en->pos.z, feet.x - en->pos.x));
+                // FUN_004fed50 mode 1 -> FUN_004fe9e0: the player alone (no team mask). The
+                // volume follows the attacker: re-placed from its origin and visible facing
+                // each tick. P+0x734 (player_iframes) guards; the player's bank keys on the
+                // enemy's spawn serial, so its re-hits are paced only by the timer.
+                if (!en || !en->alive() || player_iframes > 0) continue;
+                const HitShape vol = volume_shape(e.hb, {en->pos.x, en->pos.y + en->height, en->pos.z}, e.facing);
+                const Cast* pc = casts.get(13);
+                const HitShape pbody = body_shape({feet.x, feet.y + kOriginH, feet.z},
+                                                  pc ? pc->hurt_radius : 0.45f, pc ? pc->hurt_half_h : 0.5f,
+                                                  pc ? pc->hurt_shape : 1, pc ? pc->center_offset : -0.25f);
+                float hang = 0;
+                if (!overlap(vol, pbody, &hang)) continue;
+                if (player_bank.check_and_record(en->hit_serial, e.hb.rehit)) continue;
+                if (e.hb.one_shot) e.atk_win = 0;
+                e.atk_hit = true;
+                hurt_player(en->atk, e.hb.power, e.hb.rtype, hang);
             }
 
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS
@@ -2789,9 +2787,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // GenerateCollision fired: adopt this section's own box for its own lifetime.
             if (avm.armed_hitbox()) {
                 atk_hb = avm.hitbox();
-                atk_window = atk_hb.lifetime > 0 ? atk_hb.lifetime : 1;
+                atk_window = atk_hb.life > 0 ? atk_hb.life : 1;
                 atk_dir = face_dir;
-                atk_rehit.clear();
+                player_hit_serial = next_hit_serial(world.hit_serial_counter_);
             }
             // anime_SePlay3D events (ASO funcid 0x2a): the animation names its own
             // sounds, so the swing lands on the right frame and is per-character for

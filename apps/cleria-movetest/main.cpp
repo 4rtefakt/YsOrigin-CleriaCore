@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "cleria/enemy_mover.hpp"
 #include "cleria/physics_player.hpp"
 
 using namespace cleria;
@@ -103,6 +104,36 @@ int main() {
         float high = 100.0f;
         settle_vertical(s, high, 0.0f, h);
         check(near(s.t, -0.5f), "timer floors at -0.5");
+    }
+    {   // The enemy mover + integrator, MOVER.md §7's worked example: speed 0.05 along heading 0,
+        // height 1.0, flat floor at 0; anime_Jump(0.2) on tick 4.
+        MoverState m; VerticalState vs; float x = 0, y = 1.0f;
+        float y4 = 0, apex = 0; int apex_t = 0, land_t = 0; float y_land = 0;
+        bool x_ok = true;
+        for (int t = 1; t <= 40; ++t) {
+            int idx_pre = 0;
+            mover_pre(m, 2, vs.grounded, false, true, 1, &idx_pre);
+            if (t == 4) apply_jump(vs, y, 0.2f, 0.0f);
+            mover_post(m, idx_pre, 0.05f, 0.0f, vs.grounded, false, true, 1.0f, 30.0f);
+            const float dy = vertical_dy(vs);
+            const bool was_air = !vs.grounded;
+            x += m.dx; y += dy;
+            settle_vertical(vs, y, 0.0f, 1.0f);
+            x_ok &= std::fabs(x - 0.05f * float(t)) < 1e-4f;
+            if (t == 4) y4 = y;
+            if (y > apex) { apex = y; apex_t = t; }
+            if (was_air && vs.grounded && land_t == 0) { land_t = t; y_land = y; }
+        }
+        std::printf("[move] enemy jump: y4 %.4f apex %.4f @%d, land @%d -> %.4f\n", y4, apex, apex_t, land_t, y_land);
+        check(x_ok, "enemy mover: x advances 0.05/tick throughout");
+        check(std::fabs(y4 - 1.3962f) < 1e-3f, "anime_Jump(0.2) launch tick: y = 1 + 0.2 + 4.905*0.04 = 1.3962");
+        check(std::fabs(apex - 2.0794f) < 2e-3f && (apex_t == 15 || apex_t == 16), "apex ~2.0794 on ticks 15-16");
+        check(land_t == 27 && std::fabs(y_land - 1.1265f) < 2e-3f, "lands on tick 27 and lerps to 1.1265");
+    }
+    {   // FUN_005eee60: steps by the rate; snaps within it; mid-turn values wrap into (pi, 3pi].
+        const float r = turn_facing(0.18f, 0.0f, 1.0f);
+        check(std::fabs(std::fmod(r, 6.2831853f) - 0.18f) < 1e-5f, "turn_facing steps +0.18 toward the target");
+        check(std::fabs(turn_facing(0.18f, 0.0f, 0.1f) - 0.1f) < 1e-6f, "turn_facing snaps to a target within the rate");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

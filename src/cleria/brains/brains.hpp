@@ -20,6 +20,11 @@ inline float unit(std::uint32_t w) {
     return f - 1.0f;
 }
 
+// FUN_004773f0, the brains' jump primitive (identical to anime_Jump's FUN_00449460): when
+// grounded, +0x330 = v (the cast's +0x408 when v == 0), y += v, airborne, own-jump byte set.
+// Defined in m250.cpp.
+void jump(Actor& a, float v, float cast_jump_v0, AiOut& out);
+
 // The swarm speed M460 seeds into a bat's +0x818 (brain B halves it for the final dock).
 inline float swarm_speed(int d, bool hugo) {
     const float df = float(d), dc = float((d > 1 ? d : 1) - 1);
@@ -28,15 +33,25 @@ inline float swarm_speed(int d, bool hugo) {
 }
 
 AiOut m100(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047adf0 Riffligan
+AiOut m110(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00489970 Genoid
+AiOut m120(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00483200 Jestona (swordsman)
 AiOut m130(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047bae0 Selnarg
 AiOut m150(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047c5d0 Normous (turret)
+AiOut m920(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ed3c0 Nooze (Blue)
 AiOut m910(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ec790 Nooze (splits)
+AiOut m170(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048a6c0 Vilvan (orbits)
 AiOut m180(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047cfd0 Wilewarer (guards)
 AiOut m390(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047f6a0 Baocar (warp mage)
 AiOut m490(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00481940 Sopus-Baocar (bomb rings)
 AiOut m970(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ca1a0 Vagully (lone bat)
 AiOut m460(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c7020 the bat-swarm boss
 void m460_dead(Actor&, AiWorld&);                              // its handler's dead path (#5)
+AiOut m500(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00485050 Oggnome (teleporter)
+AiOut m200(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047db90 Venueba
+AiOut m250(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048e190 Nipper (hops)
+AiOut m510(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00488a90 Mobre (disc sweep)
+AiOut m520(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048b460 Menoak (hop, spin)
+AiOut m210(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004865b0 Kelemare (spit, sting)
 AiOut m480(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00480f50 Nustarl (turret)
 
 }  // namespace cleria::brains

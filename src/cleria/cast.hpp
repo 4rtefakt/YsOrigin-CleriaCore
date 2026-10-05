@@ -136,6 +136,11 @@ struct Cast {
     float radius_base = 0;  // +0x34
     float height_base = 0;  // +0x38
     float speed_base = 0;   // +0x48
+    // The hurt body (victim record +0x60, build/ai_spec/HITVOLUME.md §4): radius, cylinder
+    // half-height, shape (0 sphere, else a vertical cylinder), centred +0x54 off the origin.
+    float hurt_radius = 0;        // +0x30 -> +0x68
+    float hurt_half_h = 0;        // +0x58 -> +0x78
+    std::int32_t hurt_shape = 0;  // +0x5c -> +0x7c
     float lift = 0;         // +0x44 -> actor+0x414: spawn height above the rest origin; > 0 makes
                             // a flyer (FUN_00459410 0x45960f) [C-DIS build/ai_spec/FLYER.md]
     float jump_v0 = 0;      // +0x50

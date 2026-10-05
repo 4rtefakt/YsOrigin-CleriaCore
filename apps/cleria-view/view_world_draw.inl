@@ -323,8 +323,10 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (!t->tex) continue;
         // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
         const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
+        const std::uint32_t tc = e.actor->tint;
         draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos, flash,
-                       1.0f, 1.0f, 1.0f, false, e.actor->ai.alpha * e.actor->tint_alpha);
+                       float((tc >> 16) & 0xff) / 255.0f, float((tc >> 8) & 0xff) / 255.0f,
+                       float(tc & 0xff) / 255.0f, false, e.actor->ai.alpha * e.actor->tint_alpha);
         // Event-bound (group-1..4) enemies GLOW their marker colour, ADDED to their own sprite and
         // pulsing by |sin(phase)| — the engine's FUN_00473c60 mechanism (build/effect_re/EF2_RENDER.md
         // §B): marker ARGB, alpha = intensity, per-enemy phase. Group 1 = 0xFFE00000 (red 224). We
@@ -581,6 +583,9 @@ static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
                                         std::size_t(std::max(1, L.life))));
             const Ef2Frame& fr = L.frames[std::size_t(fi)];
             const float hw = L.w * s.scale * 0.5f, hh = L.h * s.scale * 0.5f;
+            // fs_char reads vertex alpha as the hit-flash (lerp to white): an alpha-over layer
+            // must pass 0 or it draws as a white silhouette. The additive shader keeps 255.
+            const std::uint8_t va = L.additive ? 255 : 0;
             RoomVertex verts[4];
             std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
             if (L.flat) {
@@ -598,14 +603,14 @@ static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
                 auto V = [&](int n, float a, float b, float u, float v) {
                     verts[n] = {s.pos.x + rt.x * a * hw + f.x * b * hh, s.pos.y,
                                 s.pos.z + rt.z * a * hw + f.z * b * hh,
-                                0, 1, 0, u, v, 255, 255, 255, 255};
+                                0, 1, 0, u, v, 255, 255, 255, va};
                 };
                 V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);
                 V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1);
             } else {
                 auto V = [&](int n, float sx, float sy, float u, float v) {
                     verts[n] = {s.pos.x + right.x * sx * hw, s.pos.y + sy * hh,
-                                s.pos.z + right.z * sx * hw, 0, 0, -1, u, v, 255, 255, 255, 255};
+                                s.pos.z + right.z * sx * hw, 0, 0, -1, u, v, 255, 255, 255, va};
                 };
                 V(0, -1, 1, fr.u0, fr.v0);  V(1, 1, 1, fr.u1, fr.v0);
                 V(2, 1, -1, fr.u1, fr.v1);  V(3, -1, -1, fr.u0, fr.v1);

@@ -31,6 +31,8 @@ enum : std::uint32_t {
     kIsLand = 12,          // anime_IsLand=
     kIsStunNow = 13,       // anime_IsStunNow=
     kDirOffset = 16,       // anime_DirOffset=i
+    kJump = 17,            // anime_Jump=f  FUN_00449460: if grounded, t = v (or +0x408 when 0)
+    kDash = 18,            // anime_Dash=f  0x447665: knock channel 1 = (cos, sin)(heading) * d
     kFootSmoke = 19,       // anime_FootSmoke=
     kGenerateCollision = 0x23,  // anime_GenerateCollision — arms the melee hit-volume
     kSePlay3D = 0x2a,      // anime_SePlay3D=ifffi  — plays EFFECTDEF sound arg0 at the actor
@@ -119,10 +121,8 @@ bool AsoVm::set_section(std::int32_t id, bool force) {
         if (id == section_) return true;
         if (s->type < cur_->type) return false;
     }
-    // Capabilities default open on entry; see the note in aso.hpp.
-    movable_ = 1.0f;
-    turnable_ = actable_ = jump_enable_ = true;
-    cancelable_ = atk_reserve_ = durable_ = untouchable_ = false;
+    // Capabilities are NOT touched here (FUN_00446620 leaves them): the VM zeroes them when it
+    // next runs the section from its first word (reset_section_regs).
     prev_section_ = section_;
     section_ = id;
     cur_ = s;
@@ -237,26 +237,40 @@ bool AsoVm::step(std::size_t& pc) {
             // The handler gates on IsLand (actor+0x388), same input as funcid 12.
             if (is_land_) foot_smoke_ = true;
             break;
+        case kJump: {                                  // FUN_00449460
+            if (is_land_) {
+                float v; const std::uint32_t raw = std::uint32_t(ai(0)); std::memcpy(&v, &raw, 4);
+                jumped_ = true; jump_v_ = v;               // 0.0 = use the cast's +0x408
+                own_jump_ = true;                          // +0x9d6
+                is_land_ = false;                          // +0x388 = 0 (a second Jump is a no-op)
+            }
+            break;
+        }
+        case kDash: {                                  // 0x447665
+            float v; const std::uint32_t raw = std::uint32_t(ai(0)); std::memcpy(&v, &raw, 4);
+            dashed_ = true; dash_d_ = v;
+            break;
+        }
         case kGenerateCollision: {
-            // anime_GenerateCollision (0x23): arm the melee hit-volume. The handler
-            // FUN_004494e0 -> FUN_0045e750 maps [2] radius -> +0x110, [3] FLOAT degrees
-            // (x pi/180) -> +0x10c, [6] lifetime -> +0x118, [7] re-hit timer -> +0xf4,
-            // [9] reaction type -> +0x108, [10] status bits -> +0x10b, [11] power -> +0xfc,
-            // [12] knockback scale -> +0x104 (0x4494eb..0x4495a8). Floats are bit patterns
-            // in the arg word. Verified against C_010.ASO (Yunica's swing: radius 0.6,
-            // lifetime 30).
+            // anime_GenerateCollision (0x23): arm the hit volume, FUN_004494e0 ->
+            // FUN_0045e750 (build/ai_spec/HITVOLUME.md §1): [0] shape, [1] radius, [2] forward
+            // distance, [3] angle offset (degrees), [4] vertical offset, [5] cylinder
+            // half-height, [6] lifetime, [7] re-hit timer, [8] one-shot, [9] reaction type,
+            // [10] status bits, [11] power, [12] knockback. The int args are int words, the
+            // float args float bit patterns. (Before 2026-10-05 arg[2] was read as the radius.)
             auto af = [&](std::uint32_t i) {
                 float v; std::uint32_t raw = std::uint32_t(ai(i));
                 std::memcpy(&v, &raw, 4); return v;
             };
-            hitbox_.radius = af(2);
-            hitbox_.half_angle = af(3) * 3.14159265358979323846f / 180.0f;
-            hitbox_.lifetime = ai(6);
-            hitbox_.rehit = argc > 7 ? ai(7) : 0;
-            hitbox_.rtype = argc > 9 ? ai(9) & 0xff : 0;
-            hitbox_.status = argc > 10 ? ai(10) & 0xff : 0;
-            hitbox_.power = argc > 11 ? af(11) : 0.0f;
-            hitbox_.knock = argc > 12 ? af(12) : 0.0f;
+            // Each arg is converted by its own type nibble (0 int, 1 float; low nibble first).
+            auto num = [&](std::uint32_t k) {
+                const std::uint32_t tw = c[pc + 1 + k / 8];
+                return ((tw >> (4 * (k % 8))) & 0xF) == 1 ? af(k) : float(ai(k));
+            };
+            float a[13] = {};
+            for (std::uint32_t k = 0; k < 13 && k < argc; ++k) a[k] = num(k);
+            hitbox_ = volume_from_args(a, 0);
+            hitbox_.rtype &= 0xff; hitbox_.status &= 0xff;
             hitbox_armed_ = true;
             break;
         }
@@ -324,13 +338,36 @@ bool AsoVm::step(std::size_t& pc) {
 }
 
 void AsoVm::reset_section_regs() {
+    // FUN_004472e0 memsets vm+0xcc..+0x10b (actor +0x9bc..+0x9fb) and sets +0x9c0 = -1: the
+    // marker, the block value, Movable (+0x9cc), the capability bytes (+0x9d0..+0x9d8: actable,
+    // turnable, durable, the own-jump flag +0x9d6, ...) and locals 0..7. Scripts re-raise what
+    // they need (C_010's locomotion sections start with Actable/Movable/Turnable(1)).
     marker_ = 0;
     marker_wait_ = -1;
     for (int n = 0; n < 8; ++n) locals_[n] = 0;   // obj[0x3b..0x42]
+    movable_ = 0.0f;
+    turnable_ = actable_ = jump_enable_ = false;
+    cancelable_ = atk_reserve_ = durable_ = untouchable_ = false;
+    own_jump_ = false;
+}
+
+void AsoVm::fast_forward_to_marker(std::int32_t m) {
+    if (!cur_ || marker() == m) return;
+    marker_wait_ = -1;
+    const std::int32_t sec = section_;
+    const std::size_t end = std::size_t(cur_->code_off) / 4 + std::size_t(cur_->code_len);
+    for (int guard = 0; guard < 1001; ++guard) {
+        if (pc_ >= end || marker() == m || section_ != sec) break;
+        wait_ = 0;
+        if (pc_ == std::size_t(cur_->code_off) / 4) reset_section_regs();
+        if (!step(pc_)) { if (end_yield_) { end_yield_ = false; break; } }
+    }
+    wait_ = 0;
 }
 
 void AsoVm::tick() {
     foot_smoke_ = false;
+    jumped_ = dashed_ = false;
     hitbox_armed_ = false;
     section_ended_ = false;
     sounds_.clear();

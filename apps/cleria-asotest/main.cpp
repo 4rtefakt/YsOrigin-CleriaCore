@@ -80,9 +80,10 @@ int main(int argc, char** argv) {
                             se.id, se.dx, se.dy, se.dz);
             if (vm.armed_hitbox()) {
                 const AsoVm::Hitbox& h = vm.hitbox();
-                std::printf("  [GenerateCollision] tick %d: radius=%.3f half_angle=%.1fdeg "
-                            "lifetime=%d power=%.1f\n", t, h.radius,
-                            h.half_angle * 180.0f / 3.14159265f, h.lifetime, h.power);
+                std::printf("  [GenerateCollision] tick %d: shape=%d radius=%.3f fwd=%.3f angle=%.1fdeg "
+                            "voff=%.3f half_h=%.3f life=%d rehit=%d one_shot=%d rtype=%d status=%d power=%.1f knock=%.2f\n",
+                            t, h.shape, h.radius, h.fwd, h.angle * 180.0f / 3.14159265f, h.voff, h.half_h,
+                            h.life, h.rehit, int(h.one_shot), h.rtype, h.status, h.power, h.knock);
             }
             if (t == 0)
                 std::printf("  -> anime_File(%d) = %s   (the script picks the sprite)\n",
@@ -231,11 +232,25 @@ int main(int argc, char** argv) {
             AsoVm vm; vm.bind(&a); vm.set_section(0x100);
             bool armed = false; AsoVm::Hitbox h;
             for (int t = 0; t < 4 && !armed; ++t) { vm.tick(); if (vm.armed_hitbox()) { armed = true; h = vm.hitbox(); } }
-            const bool okhit = armed && std::fabs(h.radius - 0.6f) < 0.01f &&
-                               h.lifetime == 30 && std::fabs(h.power - 8.0f) < 0.01f;
-            std::printf("GenerateCollision C_010 sec0x100: %s (r=%.2f life=%d pow=%.1f)\n",
-                        okhit ? "OK" : "MISMATCH", h.radius, h.lifetime, h.power);
+            // build/ai_spec/HITVOLUME.md §6: sphere r 0.5, 0.6 ahead, 0.5 down, life 30, power 8.
+            const bool okhit = armed && h.shape == 0 && std::fabs(h.radius - 0.5f) < 0.01f &&
+                               std::fabs(h.fwd - 0.6f) < 0.01f && std::fabs(h.voff + 0.5f) < 0.01f &&
+                               h.life == 30 && std::fabs(h.power - 8.0f) < 0.01f;
+            std::printf("GenerateCollision C_010 sec0x100: %s (r=%.2f fwd=%.2f voff=%.2f life=%d pow=%.1f)\n",
+                        okhit ? "OK" : "MISMATCH", h.radius, h.fwd, h.voff, h.life, h.power);
             if (!okhit) gencol_fail = 1;
+        }
+        Aso m = Aso::load(fs::path(argv[1]) / "ANI" / "M_180.ASO");
+        if (m.ok()) {   // M_180 section 7, first hit: r 0.7, 1.5 ahead, 0.5 up, life 3, re-hit 43, one-shot
+            AsoVm vm; vm.bind(&m); vm.set_section(7);
+            bool armed = false; AsoVm::Hitbox h;
+            for (int t = 0; t < 200 && !armed; ++t) { vm.tick(); if (vm.armed_hitbox()) { armed = true; h = vm.hitbox(); } }
+            const bool ok = armed && std::fabs(h.radius - 0.7f) < 0.01f && std::fabs(h.fwd - 1.5f) < 0.01f &&
+                            std::fabs(h.voff - 0.5f) < 0.01f && h.life == 3 && h.rehit == 43 && h.one_shot &&
+                            h.rtype == 1 && std::fabs(h.knock - 1.25f) < 0.01f;
+            std::printf("GenerateCollision M_180 sec7: %s (r=%.2f fwd=%.2f voff=%.2f life=%d rehit=%d one=%d)\n",
+                        ok ? "OK" : "MISMATCH", h.radius, h.fwd, h.voff, h.life, h.rehit, int(h.one_shot));
+            if (!ok) gencol_fail = 1;
         }
     }
 

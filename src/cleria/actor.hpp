@@ -25,6 +25,8 @@
 
 #include "cleria/combat.hpp"  // owns kActorDead and the damage path
 #include "cleria/enemy_ai.hpp"
+#include "cleria/enemy_mover.hpp"
+#include "cleria/hit_volume.hpp"
 #include "cleria/mathx.hpp"
 #include "cleria/physics_player.hpp"
 
@@ -208,7 +210,8 @@ struct Actor {
     // cosmetic offset +0x338/+0x340 and runs a hit-flash tint countdown at +0x4e8
     // (forcing the sprite white). We keep the impulse in world XZ and decay it; hit_flash
     // is a tick countdown the renderer tints on.
-    Vec3 knockback{};      // engine: +0x338/+0x340 (decaying push on hit)
+    Vec3 knockback{};      // (legacy; enemies use mover.k1/k2 — the player keeps its own)
+    MoverState mover;      // engine: +0x32c velocity, +0x338/+0x344 knock channels, +0xa3c disp
     int hit_flash = 0;     // engine: +0x4e8 (ticks of white tint after a hit)
     float scale = 1.0f;    // engine: +0x248, the model/sprite scale (M460 shrinks on a split)
     float height = 0.0f;   // engine: +0x324, collision height: the origin floats this far above pos
@@ -216,9 +219,15 @@ struct Actor {
                            // FUN_00476960, no gravity, never floor-snapped
     float spawn_y = 0.0f;  // engine: +0x31c, the authored placement y (the hover's phase-0/1 base)
     float radius = 0.675f; // engine: +0x328, collision radius (M460 rescales it)
+    // The hurt body +0x60 (CASTINFO +0x30/+0x58/+0x5c/+0x54) and its re-hit bank +0x5e0.
+    float hurt_radius = 0.4f, hurt_half_h = 0.0f, hurt_off = 0.0f;
+    int hurt_shape = 0;
+    RehitBank bank;
+    std::uint32_t hit_serial = 0;   // +0x3c4: drawn at spawn; the player redraws per attack
     int aso_local15 = 0;   // engine: +0xa18 = ASO local int 15, applied when its script binds
     bool no_min_damage = false;   // engine: byte +0xce — no min-1 chip (hit.hpp no_floor)
     float tint_alpha = 1.0f;      // engine: the alpha byte of +0x290 (M460's crowding fade)
+    std::uint32_t tint = 0xffffffffu;  // engine: +0x148/+0x278 colour words (M110's enrage), ARGB [INFERRED order]
     // Hitstun: ticks an enemy is stunned after the player lands a hit, during which its
     // in-progress attack is interrupted and it can't act. The DURATION is [TUNED], not
     // RE'd from the enemy hurt-handler (which lives in the untouched main/object gap); it

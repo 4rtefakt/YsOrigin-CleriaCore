@@ -61,6 +61,10 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
     a->spawn_y = r.pos.y;          // +0x31c (FUN_00459ff0 0x45a012)
     a->yaw = r.yaw_degrees * 3.14159265358979323846f / 180.0f;
     a->flyer = c->lift > 0.0f;     // +0x398 (FUN_00459410 0x45960f); EI+0xb0 below
+    a->hurt_radius = c->hurt_radius; a->hurt_half_h = c->hurt_half_h;
+    a->hurt_shape = c->hurt_shape; a->hurt_off = c->center_offset;
+    a->bank = RehitBank{};
+    a->hit_serial = next_hit_serial(hit_serial_counter_);   // 0x4597c8
 
     // Step 6: AND [obj+0x12c], ~0x10 — cleared at spawn. +0x12c is NOT +0x3bc (the
     // death flag), and the shared 0x10 makes them easy to conflate. What +0x12c's

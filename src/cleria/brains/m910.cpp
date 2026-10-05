@@ -18,7 +18,21 @@
 #include "cleria/brains/brains.hpp"
 
 namespace cleria::brains {
-AiOut m910(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+namespace {
+
+// The constants that differ between the Nooze colour variants (one routine; their brains
+// diff to identical control flow — build/ai_spec/M920.md).
+struct Nooze {
+    float lunge_dist;     // M910 4.0, M920 4.5 (0x6bd830)
+    unsigned lunge_roll;  // per mille: 100, 150
+    int cool_per_d;       // the cooldown's difficulty term: 60 + this*d (10, 15)
+    int hit_split;        // per mille in the hit reaction: 150, 200
+    unsigned pool_cap;    // 24, 26
+    int split_cast;       // itself: 0xb1, 0xb2
+    float chunk_keep;     // HP chunk = max(0.31 max, h - h*this): 0.5, 0.525
+};
+
+AiOut nooze(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, const Nooze& k) {
     using ai::r15;
     AiOut out;
     if (e.launched) return out;                                    // +0x4d0
@@ -52,9 +66,9 @@ AiOut m910(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             }
             if (a.dist() > 20.0f) {
                 ai::disengage(a);
-            } else if (busy && a.dist() < 4.0f && sec != 7 && a.cool() == 0 && e.grounded &&
+            } else if (busy && a.dist() < k.lunge_dist && sec != 7 && a.cool() == 0 && e.grounded &&
                        std::uint32_t(a.i(0x87c)) % 10u == 0) {
-                if (r15(e) % 1000u < 100u) {
+                if (r15(e) % 1000u < k.lunge_roll) {
                     const Vec3 to = a.v(0x734);
                     const float ang = float(std::atan2(double(to.z), double(to.x)));
                     if (0.785398185 > std::fabs(ai::angle_diff(a.heading, ang))) {
@@ -62,7 +76,7 @@ AiOut m910(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                         out.attack = true;
                         a.dur() = 60;
                         a.action() = 1;
-                        a.cool() = int(r15(e) % 60u) + (d + 6) * 10 + a.dur();
+                        a.cool() = int(r15(e) % 60u) + 60 + k.cool_per_d * d + a.dur();
                     }
                 }
             }
@@ -80,15 +94,15 @@ AiOut m910(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         if (marker == 9) a.i(0x79c) = 1;
         if (a.action() == 2) a.cool() = a.dur();                   // one stand roll per stand
         const std::uint32_t r = r15(e) % 1000u;
-        if (sec == 4) thr = 150;                                   // in the hit reaction
-        if (r < std::uint32_t(thr) && std::uint32_t(e.pool_count) < 24u &&
+        if (sec == 4) thr = k.hit_split;                                   // in the hit reaction
+        if (r < std::uint32_t(thr) && std::uint32_t(e.pool_count) < k.pool_cap &&
             ((marker == 9 && a.f(0x7ac) - e.hp >= 5.0f) ||
              (a.action() == 2 && e.hp >= e.max_hp * 0.1f))) {
             float h = e.hp;
-            const float chunk = std::max(e.max_hp * 0.31f, h - h * 0.5f);
+            const float chunk = std::max(e.max_hp * 0.31f, h - h * k.chunk_keep);
             h = h - chunk;
             AiSpawn c;
-            c.cast = 0xb1;
+            c.cast = k.split_cast;
             c.pos = {e.self.x, e.self.y - e.height, e.self.z};
             c.yaw = a.heading;
             c.hp = h < 1.0f ? 1.1f : h;
@@ -113,6 +127,16 @@ AiOut m910(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     a.f(0x81c) = cur;
     a.f(0x820) = cur;
     return out;
+}
+
+}  // namespace
+
+AiOut m910(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+    return nooze(a, p, e, {4.0f, 100u, 10, 150, 24u, 0xb1, 0.5f});
+}
+// M920 Nooze (Blue), FUN_004ed3c0 (AI 85): faster, poisoning lunge (its ASO's hitbox status 1).
+AiOut m920(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+    return nooze(a, p, e, {4.5f, 150u, 15, 200, 26u, 0xb2, 0.525f});
 }
 
 }  // namespace cleria::brains

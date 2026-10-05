@@ -118,14 +118,16 @@ AiOut brain_b(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         const float l = std::sqrt(v.x * v.x + v.z * v.z);
         if (l > 0) { v.x /= l; v.z /= l; } else { v = {}; }
         const float k = std::max(1.0f, 9.0f / std::max(0.75f, a.dist() * a.dist()));
-        self->knockback.x += v.x * 0.04f * k;                      // +0x338 / +0x340
-        self->knockback.z += v.z * 0.04f * k;
+        self->mover.k1.x += v.x * 0.04f * k;                       // +0x338 / +0x340
+        self->mover.k1.z += v.z * 0.04f * k;
+        self->mover.k2.x += 2 * (v.x * 0.04f) * k;                 // +0x344 / +0x34c
+        self->mover.k2.z += 2 * (v.z * 0.04f) * k;
     }
     // The bite, armed by hand in section 8 while no attacker holds a re-hit timer on the
     // player. [STAND-IN] that bank (P+0x90) is read as "the player's i-frames are clear".
     if (e.section == 8 && e.target_rehit_clear) {
         AiHitbox h;
-        h.fwd = 0.55f; h.radius = 0.5f; h.life = 2; h.rehit = 64 - std::max(0, 12 * d);
+        h.radius = 0.55f; h.fwd = 0.5f; h.life = 2; h.rehit = 64 - std::max(0, 12 * d);
         h.rtype = 0; h.power = -12.0f; h.knock = 1.0f;
         out.hitboxes.push_back(h);
     }
@@ -226,7 +228,8 @@ AiOut brain_b(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                         a.f(0x7cc) = nb;
                         self->pos.x = a.f(0x894) - std::cos(a.heading) * nb;
                         self->pos.z = a.f(0x89c) - std::sin(a.heading) * nb;
-                        self->knockback = {};
+                        self->mover.k1 = {}; self->mover.k2 = {};
+                        self->mover.vx = self->mover.vz = 0;
                     }
                 }
             }

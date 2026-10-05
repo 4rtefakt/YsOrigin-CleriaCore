@@ -73,6 +73,7 @@ void move(EnemyAi& a, const EnemyAiParams&, const AiEnv& e, int approach, int wa
     }
     a.mode() = m;
     a.speed *= m == 2 ? a.f(0x820) : m == 1 ? a.f(0x81c) : 0.0f;
+    a.speed310 = a.speed;                              // 0x477cfc
 }
 
 // FUN_004758f0(+0x708): what the heading steers toward (+0x748).
@@ -266,8 +267,8 @@ void hover(EnemyAi& a, Actor& self, const AiEnv& e, const Actor* ref, int mode) 
     store();
 }
 
-// FUN_00479b00: the action player.
-void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+// FUN_00479b00: the action player. build/ai_spec/REACT.md §2.
+void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut& out) {
     a.set_v(0x734, e.target - e.self);
     const Vec3 to = a.v(0x734);
     a.dist() = std::sqrt(dot(to, to));
@@ -282,9 +283,36 @@ void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             if (e.was_hit) acquire(a);
             if (a.dist() < 8.0f && sees(a, e, max_dy, 64.0f, kPi)) acquire(a); // 8 u, all round
         }
+    } else if (a.phase() == 3) {
+        // The stun hold (0x479ca1): re-request 0x13B unless hurt (4), hard stop; exit after 99.
+        int S = e.section;
+        if ((a.i(0x724) & 0xff) != 0 && S != 0x13b && S != 4 && request(S, 0x13b, false, e)) out.section = 0x13b;
+        a.turn_hold() = 1; a.mode() = 0; a.speed = 0;
+        if (a.dur() == 0) {
+            a.i(0x724) = 0;                                 // FUN_004522b0 releases the stars
+            a.phase() = 2; a.dur() = 0; a.cool() = 0;
+            out.launch_clear = true;                        // +0x4d0 = 0
+            out.section = 4; out.section_force = true;      // inlined FUN_00446620(4)
+        }
     } else if (a.phase() == 2) {
         if (a.action() != -1) {
-            // [not modelled] reactive dodge (+0x3bc & 0x6480 -> state 3), home leash.
+            // The stun check (0x479dce): +0x3bc & 0x6480, unless stun-immune (+0x12c & 0x80000).
+            if (!e.stun_immune && (e.events & 0x6480u) != 0) {
+                bool hit = false;
+                if (e.events & 0x4000u) hit = (e.rng() >> 17) % 100u <= (e.bless_stun ? 70u : 60u);
+                else if (e.events & 0x2000u) hit = (e.rng() >> 17) % 100u <= (e.bless_stun ? 40u : 30u);
+                if (e.character == 2) hit = false;          // Hugo never stuns (after the draw)
+                if (hit) {                                  // STUN_ENTER (0x479f06)
+                    out.effects.push_back({0, {e.self.x, e.self.y, e.self.z}, 1.0f, false});
+                    out.effects.push_back({60, {e.self.x, e.self.y, e.self.z}, 0.8f, true});   // the stars
+                    a.phase() = 3; a.dur() = 99; a.i(0x724) = 1;
+                    int S = e.section;
+                    if (request(S, 0x13b, false, e)) out.section = 0x13b;
+                    out.sounds.push_back(0xb8);
+                }
+            }
+            // [not modelled] the home leash (+0x12c & 0x800000: the per-class flag table is
+            // not enumerated). The body below ALSO runs on the stun tick (literal).
             if (e.target_alive) {
                 if (a.steer() == 0 && !los_keep(a, e, max_dy, a.f(0x834))) disengage(a);
                 steer(a, e);
@@ -298,7 +326,10 @@ void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     }
     if (a.cool() != 0 && a.cool() != -1) --a.cool();
     a.i(0x87c) += 1;                                   // per-tick counter (M910's lunge gate)
-    if (a.action() != -1) {
+    a.i(0x8a0) += 1;                                   // another per-tick counter (0x47a580; M200's tail)
+    if (a.action() == -1) {
+        if (a.i(0x71c) != 0 && a.i(0x71c) != -1) --a.i(0x71c);   // the brain's own timer (0x47a5e3)
+    } else {
         if (a.dur() == 0) { a.action() = 0; a.steer() = 0; a.i(0x824) = 0; }
         else if (a.dur() != -1) --a.dur();
     }
@@ -351,7 +382,13 @@ AiOut enemy_ai_tick(EnemyAi& a, const EnemyAiParams& p, const AiEnv& env, EnemyB
     // The handler's first branch: an actor not yet engaged that is off-screen does nothing.
     if (a.phase() < 2 && env.culled) { ai::stop(a, 1); return {}; }
     AiOut out = brain ? brain(a, p, env) : AiOut{};
-    ai::action_player(a, p, env);
+    AiOut ap;
+    ai::action_player(a, p, env, ap);
+    // The action player's own requests come after the brain's in the engine; it wins a tie.
+    if (ap.section >= 0) { out.section = ap.section; out.section_force = ap.section_force; }
+    for (const AiEffect& f : ap.effects) out.effects.push_back(f);
+    for (int s : ap.sounds) out.sounds.push_back(s);
+    out.launch_clear |= ap.launch_clear;
     return out;
 }
 

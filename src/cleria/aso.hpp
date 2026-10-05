@@ -17,6 +17,8 @@
 #include <string>
 #include <vector>
 
+#include "cleria/hit_volume.hpp"
+
 namespace cleria {
 
 // `anime_File(id)` indexes the exe's AIA name table at `.data 0x68a800` (269
@@ -181,6 +183,17 @@ class AsoVm {
     // cleria/surface.hpp. See also the README ledger: the game's footsteps are NOT
     // paced by ASO events — a claim this project made and then refuted.
     bool foot_smoke() const { return foot_smoke_; }
+    // anime_Jump this tick: the host sets +0x330 = +0x420 = v (the cast's +0x408 when v == 0),
+    // y += it, +0x388 = 0. anime_Dash: the host sets knock channel 1 = (cos, sin)(heading) * d.
+    bool jumped() const { return jumped_; }
+    float jump_v() const { return jump_v_; }
+    bool dashed() const { return dashed_; }
+    float dash_d() const { return dash_d_; }
+    bool own_jump() const { return own_jump_; }   // +0x9d6: keeps the mover off the air section
+    void set_own_jump(bool v) { own_jump_ = v; }
+    // FUN_00446680(m): run the current section NOW, skipping waits, until its Marker(m), its
+    // end, or a section change (at most 1001 steps). A no-op when the marker is already m.
+    void fast_forward_to_marker(std::int32_t m);
 
     // anime_GenerateCollision (funcid 0x23) armed a melee hit-volume THIS tick
     // (build/attack_re/ATTACK.md). It is the sole melee attack trigger: the ASO section
@@ -188,16 +201,9 @@ class AsoVm {
     // op. `armed_hitbox()` is true only on the tick it fires; the consumer counts down
     // `lifetime` frames itself (the engine decrements actor+0x118 once per attacker tick
     // in the hit scan). Both the player and 49 monster scripts use this.
-    struct Hitbox {
-        float radius = 0;     // arg[2]  -> actor+0x110 (0.6 for Yunica's swing)
-        float half_angle = 0; // arg[3]  -> actor+0x10c, radians (arg is FLOAT degrees; role [UNKNOWN])
-        int lifetime = 0;     // arg[6]  -> actor+0x118, frames the box is live
-        int rehit = 0;        // arg[7]  -> actor+0xf4, ticks before the same victim can be hit again
-        int rtype = 0;        // arg[9]  -> actor+0x108, reaction type (hit.hpp player_reaction)
-        int status = 0;       // arg[10] -> actor+0x10b, status-effect bits rolled on the victim
-        float power = 0;      // arg[11] -> actor+0xfc, the per-attack damage bonus
-        float knock = 0;      // arg[12] -> actor+0x104, knockback scale (hit.hpp)
-    };
+    // The armed hit volume: GenerateCollision's 13 args decoded exactly as FUN_004494e0 does
+    // (hit_volume.hpp). Its token (+0xf0) is the ATTACKER's hit serial, filled by the host.
+    using Hitbox = HitVolume;
     bool armed_hitbox() const { return hitbox_armed_; }
     const Hitbox& hitbox() const { return hitbox_; }
 
@@ -314,6 +320,8 @@ private:
     std::size_t flag_count_ = 0;
     bool is_land_ = true, is_stun_ = false;
     bool foot_smoke_ = false;
+    bool jumped_ = false, dashed_ = false, own_jump_ = false;
+    float jump_v_ = 0, dash_d_ = 0;
     bool hitbox_armed_ = false;
     Hitbox hitbox_;
     static constexpr std::size_t kMaxSoundsPerTick = 8;   // a script never issues near this many

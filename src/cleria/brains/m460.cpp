@@ -396,7 +396,7 @@ AiOut m460(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 else if (f == 5) { a1 = ratio * 1.75f; ang = -65.0f;  vo = ratio * -1.5f; }
                 else if (f == 6) { a1 = ratio * 2.25f; ang = -15.0f;  vo = ratio * -1.5f; }
                 AiHitbox h;
-                h.fwd = a1; h.radius = 1.75f; h.angle_deg = ang; h.voff = vo;
+                h.radius = a1; h.fwd = 1.75f; h.angle_deg = ang; h.voff = vo;   // [1] r, [2] fwd
                 h.life = 6; h.rehit = 32; h.rtype = 2; h.power = 12.0f; h.knock = 5.0f;
                 out.hitboxes.push_back(h);
             } else if (f < 2u) {

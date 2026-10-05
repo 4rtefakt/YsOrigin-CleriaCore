@@ -71,6 +71,7 @@ struct EnemyAi {
     // Outside the block.
     float heading = 0;     // +0x308, ENGINE basis: direction (cos, sin) in (x, z)
     float speed = 0;       // +0x30c
+    float speed310 = 0;    // +0x310: the last speed FUN_00477720 wrote (M170's sidestep weight)
     float alpha = 1;       // +0x4d8: sprite opacity (brains that fade, e.g. M390)
     bool hittable = true;  // +0x60 & 0x80: hit tests and body push skip the actor when clear
     int w_type = 0;        // +0x424: wander type (0 wander, 1 stand)
@@ -112,6 +113,8 @@ struct AiEnv {
     int aso_frame = 0;           // +0x9b8: the current anime_Pattern frame
     bool durable = false;        // +0x9d8: anime_Durable
     Vec3 self{};                 // the actor's ORIGIN (floor + height)
+    float facing = 0;            // +0x314: the visible facing, engine basis (cos, sin)
+    float jump_v0 = 0;           // +0x408: the cast's jump speed (CASTINFO+0x50), the 0-arg jump
     bool grounded = true;        // +0x388
     float radius = 0.675f;       // +0x328
     float height = 1.075f;       // +0x324
@@ -138,6 +141,9 @@ struct AiEnv {
     int target_section = -1;     // the player's ASO section (P+0x994)
     float target_heading = 0;    // the player's heading (P+0x308), engine basis (cos, sin)
     bool turnable = true;        // this actor's ASO anime_Turnable (+0x9d3)
+    std::uint32_t events = 0;    // +0x3bc this tick: 0x2000/0x4000 = the stun-rolling hits (REACT.md §1)
+    bool stun_immune = false;    // +0x12c & 0x80000
+    bool bless_stun = false;     // g_flags[217] & 0x80: the "Increase stun effect" blessing
     // This actor's ASO section priority ("type") by id, or -1 if it has no such section —
     // what FUN_00446550 compares, so a brain can tell whether its request is accepted.
     std::function<int(int)> section_type;
@@ -155,11 +161,11 @@ struct AiSpawn {
 // An EF2 effect a brain spawns at a point (the inlined pool-pop + FUN_00451a40 pattern).
 struct AiEffect { int id = 0; Vec3 pos{}; float scale = 1; bool attach = false; };
 // A hit volume a brain arms by hand: FUN_004494e0, the anime_GenerateCollision body, with
-// its 13 arguments in script order.
+// its 13 arguments in script order (hit_volume.hpp volume_from_args decodes them).
 struct AiHitbox {
-    float a0 = 0, fwd = 0, radius = 0, angle_deg = 0, voff = 0, a5 = 0;   // [0]..[5]
-    int life = 0, rehit = 0, one_shot = 0, rtype = 0, status = 0;          // [6]..[10]
-    float power = 0, knock = 0;                                           // [11], [12]
+    float shape = 0, radius = 0, fwd = 0, angle_deg = 0, voff = 0, half_h = 0;   // [0]..[5]
+    int life = 0, rehit = 0, one_shot = 0, rtype = 0, status = 0;                // [6]..[10]
+    float power = 0, knock = 0;                                                 // [11], [12]
 };
 // A GoXx bullet a brain creates directly (FUN_0040f700 + FUN_00583a00 + FUN_00593b90).
 struct AiBullet {
@@ -183,6 +189,12 @@ struct AiOut {
     int set_durable = -1;        // write +0x9d8 (anime_Durable) when >= 0
     float gauge_hp = -1;         // FUN_0043a460: show the boss gauge at this HP when >= 0
     bool snap_facing = false;    // the brain set +0x314 = +0x308 (visible facing = heading)
+    bool launch_clear = false;   // the stun exit cleared +0x4d0
+    int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
+    int fast_forward = -1;       // FUN_00446680(m) right after this tick's section request
+    // A handler that overrides +0x9d8 (Durable) AFTER the VM step (M110): 1 = force on,
+    // 0 = force off unless in section 7, -1 = leave it to the script.
+    int durable_rule = -1;
     // Back-compat for the M100 path: true when the request is the cast's attack.
     bool attack = false;
 };
@@ -234,7 +246,7 @@ bool sees(const EnemyAi& a, const AiEnv& e, float max_dy, float d2max, float con
 bool los_keep(EnemyAi& a, const AiEnv& e, float max_dy, float sight);    // FUN_00475c00
 void wander(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);         // FUN_00476f40
 void idle(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);           // FUN_00478470
-void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);  // FUN_00479b00
+void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut& out);  // FUN_00479b00
 void init(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);         // FUN_004782f0
 // The same for an actor that is not the caller (M460 initialising a bat it just spawned):
 // home = its origin, raw = its ENEMYINFO +0x90..+0xcc (nullptr: leave +0x814.. zero).
