@@ -53,6 +53,7 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
     a->instance_id = id;
     a->cast_id = c->cast_id;
     a->ai_index = c->ai_index;
+    a->speed30c = c->speed_base;   // 0x4596a8: +0x30c = CASTINFO+0x48 (WAITOPS.md §6.2)
     a->ai = EnemyAi{};    // the factory builds a fresh actor: brain phase 0
     a->kind = kind_word(c->actor_class);
 

@@ -20,6 +20,47 @@ static std::vector<std::uint8_t> rd(const std::string& p) {
     std::ifstream f(p, std::ios::binary);
     return {std::istreambuf_iterator<char>(f), {}};
 }
+// A synthetic XSR builder: class-2 ops carry their operand-type descriptor words
+// (2 bits per operand: 0 int, 1 float, 2 string-pool index), as the shipped corpus does.
+struct Asm {
+    std::vector<std::int32_t> code;
+    std::vector<std::string> pool;
+    struct A { int t; std::int32_t v; };
+    static A I(std::int32_t v) { return {0, v}; }
+    static A F(float f) { std::int32_t w; std::memcpy(&w, &f, 4); return {1, w}; }
+    A S(const std::string& s) {
+        for (std::size_t k = 0; k < pool.size(); ++k) if (pool[k] == s) return {2, std::int32_t(k)};
+        pool.push_back(s); return {2, std::int32_t(pool.size() - 1)};
+    }
+    void op(int sub, std::initializer_list<A> args) {
+        const std::uint32_t n = std::uint32_t(args.size()), nd = (n + 7) / 8;
+        code.push_back(std::int32_t((2u << 24) | (std::uint32_t(sub) << 12) | (nd << 8) | n));
+        std::vector<std::uint32_t> d(nd, 0u);
+        std::uint32_t i = 0;
+        for (const A& a : args) { d[i >> 3] |= std::uint32_t(a.t) << ((i & 7) * 4); ++i; }
+        for (std::uint32_t w : d) code.push_back(std::int32_t(w));
+        for (const A& a : args) code.push_back(a.v);
+    }
+    void raw(std::int32_t w) { code.push_back(w); }
+    std::vector<std::uint8_t> bytes() const {
+        std::vector<std::uint8_t> b(0x24, 0);
+        std::memcpy(b.data(), "XSR\0", 4);
+        const std::uint32_t words = std::uint32_t(code.size()), cnt = std::uint32_t(pool.size());
+        std::memcpy(b.data() + 0x1C, &words, 4);
+        std::memcpy(b.data() + 0x20, &cnt, 4);
+        const auto* cp = reinterpret_cast<const std::uint8_t*>(code.data());
+        b.insert(b.end(), cp, cp + code.size() * 4);
+        std::uint32_t off = 0;
+        for (const std::string& s : pool) {
+            const auto* op = reinterpret_cast<const std::uint8_t*>(&off);
+            b.insert(b.end(), op, op + 4);
+            off += std::uint32_t(s.size() + 1);
+        }
+        for (const std::string& s : pool) { b.insert(b.end(), s.begin(), s.end()); b.push_back(0); }
+        return b;
+    }
+};
+
 struct H : XsoHost {
     bool prompt = false;
     std::vector<std::string> lines;
@@ -282,7 +323,7 @@ int main(int argc, char** argv) {
         for (const auto& in : mgr.live) {
             std::string lo = in.name;
             for (char& c : lo) c = char(std::tolower((unsigned char)c));
-            if (in.fix_held > 0 && lo.rfind("battle", 0) == 0) battleStartHolds = true;
+            if (in.fix_slot >= 0 && lo.rfind("battle", 0) == 0) battleStartHolds = true;
         }
         // The finding is: zero-flag entry freezes via a battle-intro child. That is exactly why
         // live events are opt-in (CLERIA_EVENTS), not on by default.
@@ -336,38 +377,30 @@ int main(int argc, char** argv) {
             }
             bool is_fix() const override { return true; }
         } ph;
-        std::vector<std::int32_t> code;
-        auto W = [](int sub, int nargs) {                // class-2 word, argoff bits 0
-            return std::int32_t((2u << 24) | (std::uint32_t(sub) << 12) | std::uint32_t(nargs));
-        };
-        auto F = [](float v) { std::int32_t w; std::memcpy(&w, &v, 4); return w; };
+        Asm as;
+        auto I = Asm::I; auto F = Asm::F;
         int next_local = 0x200;
-        auto q = [&](std::initializer_list<std::int32_t> opwords) {   // query; store acc
-            code.insert(code.end(), opwords);
-            code.push_back(W(0x66, 2)); code.push_back(next_local++); code.push_back(0);
+        auto q = [&](int sub, std::initializer_list<Asm::A> a) {   // query; store acc
+            as.op(sub, a);
+            as.op(0x66, {I(next_local++), I(0)});
         };
-        q({W(0x9a, 1), 3});                              // 0x200: story bit 3 -> 1
-        q({W(0x9a, 1), 7});                              // 0x201: itemArr[flag152] -> 1
-        q({W(0x9a, 1), 9});                              // 0x202: spliced -> bit 7 -> 1
-        q({W(0x9a, 1), 10});                             // 0x203: spliced -> bit 8 -> 0
-        q({W(0x139, 5), 13, F(5), F(1), F(-3), F(0.25f)});          // 0x204: at center -> 1
-        q({W(0x139, 5), 13, F(5), F(9), F(-3), F(2)});              // 0x205: 8 above -> 0
-        q({W(0x13a, 6), 13, F(5), F(9), F(-3), F(0.5f), F(10)});    // 0x206: tall cyl -> 1
-        q({W(0x13a, 6), 13, F(5), F(9), F(-3), F(0.5f), F(2)});     // 0x207: short cyl -> 0
-        q({W(0x13b, 7), 13, F(6), F(2), F(-2), F(4), F(0), F(-4)}); // 0x208: box (swapped corners) -> 1
-        q({W(0x13b, 7), 13, F(6), F(2), F(-2), F(5.5f), F(0), F(-4)}); // 0x209: outside -> 0
-        q({W(0xc1, 0)});                                 // 0x20a: IsFix -> 1
-        code.push_back(std::int32_t(0xEu << 24)); code.push_back(42);  // acc = 42
-        q({W(0x3c, 1), 42});                             // 0x20b: Reg_IsEqualInt -> 1
-        q({W(0x8c, 1), 5});                              // 0x20c: IsEquip, no model -> 0
-        q({W(0x139, 5), 42, F(5), F(1), F(-3), F(9)});   // 0x20d: unknown actor -> 0
-        code.push_back(std::int32_t(1u << 24));          // end
-        std::vector<std::uint8_t> bytes(0x24, 0);
-        std::memcpy(bytes.data(), "XSR\0", 4);
-        const std::uint32_t words = std::uint32_t(code.size());
-        std::memcpy(bytes.data() + 0x1C, &words, 4);     // string count @0x20 stays 0
-        const auto* cp = reinterpret_cast<const std::uint8_t*>(code.data());
-        bytes.insert(bytes.end(), cp, cp + code.size() * 4);
+        q(0x9a, {I(3)});                                 // 0x200: story bit 3 -> 1
+        q(0x9a, {I(7)});                                 // 0x201: itemArr[flag152] -> 1
+        q(0x9a, {I(9)});                                 // 0x202: spliced -> bit 7 -> 1
+        q(0x9a, {I(10)});                                // 0x203: spliced -> bit 8 -> 0
+        q(0x139, {I(13), F(5), F(1), F(-3), F(0.25f)});             // 0x204: at center -> 1
+        q(0x139, {I(13), F(5), F(9), F(-3), F(2)});                 // 0x205: 8 above -> 0
+        q(0x13a, {I(13), F(5), F(9), F(-3), F(0.5f), F(10)});       // 0x206: tall cyl -> 1
+        q(0x13a, {I(13), F(5), F(9), F(-3), F(0.5f), F(2)});        // 0x207: short cyl -> 0
+        q(0x13b, {I(13), F(6), F(2), F(-2), F(4), F(0), F(-4)});    // 0x208: box (swapped corners) -> 1
+        q(0x13b, {I(13), F(6), F(2), F(-2), F(5.5f), F(0), F(-4)}); // 0x209: outside -> 0
+        q(0xc1, {});                                     // 0x20a: IsFix -> 1
+        as.raw(std::int32_t(0xEu << 24)); as.raw(42);    // acc = 42
+        q(0x3c, {I(42)});                                // 0x20b: Reg_IsEqualInt -> 1
+        q(0x8c, {I(5)});                                 // 0x20c: IsEquip, no model -> 0
+        q(0x139, {I(42), F(5), F(1), F(-3), F(9)});      // 0x20d: unknown actor -> 0
+        as.raw(std::int32_t(1u << 24));                  // end
+        const std::vector<std::uint8_t> bytes = as.bytes();
 
         XsoVm vm; vm.host = &ph;
         vm.g_flags[217] = (1 << 3) | (1 << 7);           // story bits 3 and 7
@@ -383,6 +416,138 @@ int main(int argc, char** argv) {
             }
         std::printf("[queryops] 14 query-op results via synthetic script %s\n", ok ? "OK" : "FAIL");
         fails += !ok;
+    }
+    // The decompile-verified VM fixes (build/audit/event_vm.md Part C, 2026-10-05).
+    {
+        auto I = Asm::I; auto F = Asm::F;
+        // Typed operands (#11): a `$I0` string operand reads the script's variable block, a
+        // float-typed operand read by an int accessor is 0, `$F0` converts for an int read.
+        {
+            Asm as;
+            as.op(0x64, {I(0x210), as.S("$I0")});
+            as.op(0x64, {I(0x211), F(5.0f)});
+            as.op(0x64, {I(0x212), as.S("$F0")});
+            as.op(0x64, {I(0x213), I(9)});
+            as.raw(std::int32_t(1u << 24));
+            XsoVm vm; vm.vars.i[0] = 77; vm.vars.f[0] = 3.75f;
+            vm.run(Xso::parse(as.bytes()));
+            const bool ok = vm.flag(0x210) == 77 && vm.flag(0x211) == 0 && vm.flag(0x212) == 3 && vm.flag(0x213) == 9;
+            std::printf("[typedops] $I0 -> 77, float-as-int -> 0, $F0 3.75 -> 3, literal 9 %s\n", ok ? "OK" : "FAIL");
+            fails += !ok;
+        }
+        // Wait_Time(0) yields one frame (#14).
+        {
+            Asm as;
+            as.op(0xf2, {I(0)});
+            as.op(0x64, {I(0x214), I(1)});
+            as.raw(std::int32_t(1u << 24));
+            const Xso x = Xso::parse(as.bytes());
+            XsoVm vm; vm.co_begin(x);
+            vm.tick();
+            const int after1 = vm.flag(0x214);
+            vm.tick();
+            const bool ok = after1 == 0 && vm.flag(0x214) == 1;
+            std::printf("[waittime0] Wait_Time(0) parks one frame %s\n", ok ? "OK" : "FAIL");
+            fails += !ok;
+        }
+        // Fix(slot): one fix per script; Unfix releases; Window_Msg fixes slot 0 implicitly
+        // when the script holds none; teardown releases (FUN_0056e8d0, Part C).
+        {
+            Asm as;
+            as.op(0xb6, {I(0)});                       // Fix(0)
+            as.op(0xb6, {I(1)});                       // Fix(1): releases slot 0
+            as.op(0xf0, {});                           // Wait_Interval
+            as.op(0xb7, {});                           // Unfix
+            as.op(0xd3, {I(0), I(-1), I(-1), as.S("hi")});   // Window_Msg -> implicit Fix(0)
+            as.op(0xf0, {});
+            as.raw(std::int32_t(1u << 24));
+            ScriptManager mgr; H h; mgr.vm.host = &h;
+            mgr.start_root(std::make_shared<Xso>(Xso::parse(as.bytes())), "fixtest");
+            const bool a = mgr.fix_counts[0] == 0 && mgr.fix_counts[1] == 1;
+            mgr.tick_all();
+            const bool b = mgr.fix_counts[0] == 1 && mgr.fix_counts[1] == 0;
+            mgr.tick_all();
+            const bool c = !mgr.world_frozen() && mgr.live.empty();
+            const bool ok = a && b && c;
+            std::printf("[fixslot] Fix(0)+Fix(1) holds one slot; Window_Msg implicit Fix(0); teardown releases %s\n",
+                        ok ? "OK" : "FAIL");
+            fails += !ok;
+        }
+        // Wait_Script("@Flag_Inv") proceeds (#15); 0x169 deletes, 0x16c is collision (#29);
+        // 0x116 grants nothing (#28); StartScript marshals its extra operand into $I0 (#33).
+        {
+            Asm as;
+            as.op(0xf4, {as.S("@Flag_Inv")});
+            as.op(0x169, {as.S("box_02")});
+            as.op(0x16c, {as.S("wall"), I(0)});
+            as.op(0x116, {I(7), I(0), as.S("box_01")});
+            as.op(0xb4, {as.S("child"), I(998)});
+            as.op(0x64, {I(0x215), I(1)});
+            as.raw(std::int32_t(1u << 24));
+            const Xso x = Xso::parse(as.bytes());
+            struct Blocker : XsoHost {                 // every other Wait_Script blocks
+                void spawn(int, int, float, float, float, float, int) override {}
+                bool is_alive(int) const override { return false; }
+                bool wait_script_done(const std::string&) override { return false; }
+            } blk;
+            XsoVm vm; vm.host = &blk;
+            std::string child; std::int32_t child_i0 = 0;
+            vm.on_start_script = [&](const std::string& n, const XsoVm::Vars& v) { child = n; child_i0 = v.i[0]; };
+            vm.co_begin(x);
+            vm.tick();
+            const bool ok = vm.flag(0x215) == 1 && vm.obj_deleted.size() == 1 && vm.obj_deleted[0] == "box_02" &&
+                            vm.obj_collide.count("wall") && !vm.obj_collide["wall"] && !vm.obj_visible.count("wall") &&
+                            vm.flag(7) == 0 && child == "child" && child_i0 == 998;
+            std::printf("[meshops] @Flag_Inv proceeds; Mesh_Delete; collision != visibility; no 0x116 grant; StartScript $I0 %s\n",
+                        ok ? "OK" : "FAIL");
+            fails += !ok;
+        }
+        // ChangeScene (SCENEFLOW.md §1.4): the request reaches the host, the caller runs on to
+        // its next yield, and every other script stops ticking this frame.
+        {
+            struct SceneHost : XsoHost {
+                ScriptManager* mgr = nullptr; std::string req;
+                void spawn(int, int, float, float, float, float, int) override {}
+                bool is_alive(int) const override { return false; }
+                void change_scene(const std::string& n) override { req = n; mgr->paused = true; }
+            } sh;
+            Asm a1;
+            a1.op(0x97, {a1.S("s_10\\s_1009\\"), I(0)});
+            a1.op(0x64, {I(0x1f0), I(1)});                 // still runs: same burst
+            a1.op(0xf0, {});
+            a1.op(0x64, {I(0x1f1), I(1)});                 // never runs: frozen
+            a1.raw(std::int32_t(1u << 24));
+            Asm a2;
+            a2.op(0xf0, {});
+            a2.op(0x64, {I(0x1f2), I(1)});                 // frozen before its turn
+            a2.raw(std::int32_t(1u << 24));
+            ScriptManager mgr; sh.mgr = &mgr; mgr.vm.host = &sh;
+            mgr.start_root(std::make_shared<Xso>(Xso::parse(a2.bytes())), "other");
+            mgr.start_root(std::make_shared<Xso>(Xso::parse(a1.bytes())), "caller");
+            mgr.tick_all();
+            const bool ok = sh.req == "s_10\\s_1009\\" && mgr.vm.flag(0x1f0) == 1 && mgr.vm.flag(0x1f1) == 0 &&
+                            mgr.vm.flag(0x1f2) == 0;
+            std::printf("[changescene] request to the host; the caller finishes its burst; the VM freezes %s\n",
+                        ok ? "OK" : "FAIL");
+            fails += !ok;
+        }
+        // Chr_MoveTo(id, x, z, radius, speedScale) (#32).
+        {
+            struct MoveHost : XsoHost {
+                float r = -1, s = -1;
+                void spawn(int, int, float, float, float, float, int) override {}
+                bool is_alive(int) const override { return false; }
+                void chr_moveto(int, float, float, float radius, float scale) override { r = radius; s = scale; }
+            } mh;
+            Asm as;
+            as.op(0x143, {I(87), F(1.0f), F(2.0f), F(0.1f), F(3.5f)});
+            as.raw(std::int32_t(1u << 24));
+            XsoVm vm; vm.host = &mh;
+            vm.run(Xso::parse(as.bytes()));
+            const bool ok = std::fabs(mh.r - 0.1f) < 1e-6f && std::fabs(mh.s - 3.5f) < 1e-6f;
+            std::printf("[moveto] op3 = arrival radius, op4 = speed scale %s\n", ok ? "OK" : "FAIL");
+            fails += !ok;
+        }
     }
     // EVENTS-ON-BY-DEFAULT burn-in (PLAN.md Phase 2): EVERY room root, started on the
     // faithful new-game flag state + the flag-235 intro stand-in, must SETTLE (no Fix
@@ -487,7 +652,7 @@ int main(int argc, char** argv) {
                     ++frozen;
                     bool locked = false;
                     for (const auto& in : mgr.live) {
-                        if (in.finished || in.fix_held <= 0) continue;
+                        if (in.finished || in.fix_slot < 0) continue;
                         std::uint32_t psub = 0;
                         for (const XsoInstr& ins : in.script->disasm())
                             if (ins.pc == in.pc) { psub = ins.sub; break; }

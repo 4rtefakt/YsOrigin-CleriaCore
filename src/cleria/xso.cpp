@@ -116,6 +116,71 @@ std::vector<Grant> Xso::grants() const {
     return out;
 }
 
+// ---- typed operand reads (audit event_vm #11) -------------------------------------------
+// The descriptor words between the op word and its operands hold a 2-bit type per operand:
+// type(i) = (desc[i >> 3] >> ((i & 7) * 4)) & 3, 0 int / 1 float / 2 string. Each accessor
+// returns the literal only for its own type (else 0 / NULL). A string operand starting with
+// '$' names this script's variable block: $I0/$I1 (+0x244/+0x248), $F0/$F1 (+0x24c/+0x250),
+// $S0/$S1 (+0x258/+0x278); the int accessor converts $F and the float accessor $I.
+namespace {
+// "$Xn" -> kind X and slot n (0/1), else false.
+bool var_ref(const std::string& s, char* kind, int* slot) {
+    if (s.size() != 3 || s[0] != '$' || (s[2] != '0' && s[2] != '1')) return false;
+    *kind = s[1]; *slot = s[2] - '0';
+    return true;
+}
+}  // namespace
+
+std::uint32_t XsoVm::op_type(const Xso& sc, std::uint32_t old, std::uint32_t i) const {
+    const std::vector<std::int32_t>& c = sc.words();
+    if (old >= c.size()) return 0;
+    const std::uint32_t argoff = 1 + ((std::uint32_t(c[old]) >> 8) & 0xF);
+    const std::uint32_t d = old + 1 + (i >> 3);
+    if (d >= old + argoff || d >= c.size()) return 0;
+    return (std::uint32_t(c[d]) >> ((i & 7) * 4)) & 3;
+}
+
+namespace {
+std::int32_t raw_op(const Xso& sc, std::uint32_t old, std::uint32_t i) {
+    const std::vector<std::int32_t>& c = sc.words();
+    if (old >= c.size()) return 0;
+    const std::uint32_t k = old + 1 + ((std::uint32_t(c[old]) >> 8) & 0xF) + i;
+    return k < c.size() ? c[k] : 0;
+}
+}  // namespace
+
+std::int32_t XsoVm::op_int(const Xso& sc, std::uint32_t old, std::uint32_t i) const {
+    const std::uint32_t t = op_type(sc, old, i);
+    const std::int32_t r = raw_op(sc, old, i);
+    if (t == 0) return r;
+    char k; int n;
+    if (t == 2 && var_ref(sc.string(r), &k, &n)) {
+        if (k == 'I') return vars.i[n];
+        if (k == 'F') return std::int32_t(vars.f[n]);              // cvttss2si
+    }
+    return 0;
+}
+
+float XsoVm::op_float(const Xso& sc, std::uint32_t old, std::uint32_t i) const {
+    const std::uint32_t t = op_type(sc, old, i);
+    const std::int32_t r = raw_op(sc, old, i);
+    if (t == 1) { float v; std::memcpy(&v, &r, 4); return v; }
+    char k; int n;
+    if (t == 2 && var_ref(sc.string(r), &k, &n)) {
+        if (k == 'F') return vars.f[n];
+        if (k == 'I') return float(vars.i[n]);
+    }
+    return 0.0f;
+}
+
+std::string XsoVm::op_str(const Xso& sc, std::uint32_t old, std::uint32_t i) const {
+    if (op_type(sc, old, i) != 2) return std::string();             // NULL
+    std::string str = sc.string(raw_op(sc, old, i));
+    char k; int n;
+    if (var_ref(str, &k, &n) && k == 'S') return vars.s[n];
+    return str;
+}
+
 XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine) {
     const std::vector<std::int32_t>& code = script.words();
     const std::uint32_t n = std::uint32_t(code.size());
@@ -151,15 +216,19 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                 const std::uint32_t argoff = 1 + ((w >> 8) & 0xF);
                 const std::uint32_t nargs = w & 0xFF;
                 const std::uint32_t sub = (w >> 12) & 0xFFF;
-                auto op = [&](std::uint32_t i) { return std::int32_t(word(old + argoff + i)); };
+                // Typed reads: `op` = the int accessor, `opf` float, `ops` string (+ $-vars).
+                auto op = [&](std::uint32_t i) { return op_int(script, old, i); };
+                auto opf = [&](std::uint32_t i) { return op_float(script, old, i); };
+                auto ops = [&](std::uint32_t i) { return op_str(script, old, i); };
                 pc = old + argoff + nargs;
                 // Wait_* ops park the burst — coroutine (tick) mode only; in run-to-
                 // completion they fall through to the generic no-op (CUTSCENE_COROUTINE.md §4).
                 if (coroutine) {
                     if (sub == 0xf2) {                         // Wait_Time(op0): frame countdown
+                        // 0x56de74: +0x1e8 = op0 - 1, clamped at 0; it always yields, so
+                        // Wait_Time(N) waits max(1, N - 1) frames (audit event_vm #14).
                         const int f = nargs >= 1 ? op(0) : 0;
-                        if (f <= 0) return Step::Continue;     // 0-frame wait is a true nop
-                        co_wait = f - 1; return Step::Park;
+                        co_wait = f - 1 > 0 ? f - 1 : 0; return Step::Park;
                     }
                     if (sub == 0xf0) return Step::Park;         // Wait_Interval: park exactly 1 frame
                     switch (sub) {                             // condition waits (rewind + re-test)
@@ -176,18 +245,35 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // child-script names). StartScript2's explicit two-string path is the
                     // concatenation of its two operands. Coroutine-only + gated on the sink,
                     // so run-to-completion never spawns.
+                    // The operands after the name are marshalled into the child's variable
+                    // block (FUN_00434970 copies 0x1d dwords to +0x244..), by type in order:
+                    // ints to $I0/$I1, floats to $F0/$F1, strings to $S0/$S1. [H-high: the
+                    // packing order; the corpus's only extra operand is 998 -> $I0.]
+                    auto marshal = [&](std::uint32_t first) {
+                        Vars v; int ni = 0, nfl = 0, nst = 0;
+                        for (std::uint32_t k = first; k < nargs; ++k) {
+                            const std::uint32_t t = op_type(script, old, k);
+                            if (t == 0 && ni < 2) v.i[ni++] = op(k);
+                            else if (t == 1 && nfl < 2) v.f[nfl++] = opf(k);
+                            else if (t == 2 && nst < 2) v.s[nst++] = ops(k);
+                        }
+                        return v;
+                    };
                     if (on_start_script) {
                         if (sub == 0xb4 && nargs >= 1) {
-                            on_start_script(script.string(op(0))); return Step::Continue;
+                            on_start_script(ops(0), marshal(1)); return Step::Continue;
                         }
                         if (sub == 0xb8 && nargs >= 2) {
-                            on_start_script(script.string(op(0)) + script.string(op(1)));
+                            on_start_script(ops(0) + ops(1), marshal(2));
                             return Step::Continue;
                         }
                     }
-                    // Fix (0xb6, has a slot arg) / Unfix (0xb7): the ref-counted world freeze.
-                    if (sub == 0xb6) { if (on_fix) on_fix(); return Step::Continue; }
+                    // Fix(slot) (0xb6) / Unfix (0xb7): one fix per script (FUN_0056e8d0).
+                    if (sub == 0xb6) { if (on_fix) on_fix(nargs >= 1 ? op(0) : 0); return Step::Continue; }
                     if (sub == 0xb7) { if (on_unfix) on_unfix(); return Step::Continue; }
+                    // Window_Msg / Window_Menu / Window_Treasure fix slot 0 when this script
+                    // holds no fix (audit event_vm #27).
+                    if ((sub == 0xd3 || sub == 0xd4 || sub == 0xd5) && on_window_fix) on_window_fix();
                 }
                 // Dialogue / caption ops forward to the host. Handled here (not in the
                 // nargs>=1 store chain below) so 0xd2's zero-arg case isn't skipped. A host
@@ -196,56 +282,52 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                 if (host) {
                     if (sub == 0xd2) { host->window_close(); return Step::Continue; }  // Window_Close
                     if (sub == 0xd3 && nargs >= 4) {          // Window_Msg(speaker,voice,name,text)
-                        const int ni = op(2), ti = op(3);
-                        host->window_msg(op(0), op(1),
-                                         ni >= 0 ? script.string(ni) : std::string(),
-                                         ti >= 0 ? script.string(ti) : std::string());
+                        host->window_msg(op(0), op(1), ops(2), ops(3));   // type-0 -1 -> ""
                         return Step::Continue;
                     }
                     if (sub == 0xe2 && nargs >= 1) {          // Caption(name) — pre-rendered art
-                        host->caption(script.string(op(0))); return Step::Continue;
+                        host->caption(ops(0)); return Step::Continue;
                     }
                     // Standing bust portraits: name is a string index, x/y are float bit patterns.
                     if ((sub == 0xe3 || sub == 0xe5) && nargs >= 3) {
-                        auto f = [&](std::uint32_t i) {
-                            float v; const std::uint32_t raw = std::uint32_t(op(i));
-                            std::memcpy(&v, &raw, 4); return v;
-                        };
-                        if (sub == 0xe3) host->portrait_open(script.string(op(0)), f(1), f(2));
-                        else             host->portrait_move(script.string(op(0)), f(1), f(2));
+                        auto f = [&](std::uint32_t i) { return opf(i); };
+                        if (sub == 0xe3) host->portrait_open(ops(0), f(1), f(2));
+                        else             host->portrait_move(ops(0), f(1), f(2));
                         return Step::Continue;
                     }
                     if (sub == 0xe4 && nargs >= 1) {          // Portrait_Close(name)
-                        host->portrait_close(script.string(op(0))); return Step::Continue;
+                        host->portrait_close(ops(0)); return Step::Continue;
                     }
                     if (sub == 0xc3 && nargs >= 4) {          // Scroll_MoveTo(x,y,z,frames,priority)
-                        auto f = [&](std::uint32_t i) {
-                            float v; const std::uint32_t raw = std::uint32_t(op(i));
-                            std::memcpy(&v, &raw, 4); return v;
-                        };
+                        auto f = [&](std::uint32_t i) { return opf(i); };
                         host->scroll_moveto(f(0), f(1), f(2), op(3)); return Step::Continue;
                     }
                     if (sub == 0xc4 && nargs >= 1) {          // Scroll_Return(frames,priority)
                         host->scroll_return(op(0)); return Step::Continue;
                     }
                     if (sub == 0xcf && nargs >= 4) {          // Shake(ampX,ampY,ampZ,frames)
-                        auto f = [&](std::uint32_t i) {
-                            float v; const std::uint32_t raw = std::uint32_t(op(i));
-                            std::memcpy(&v, &raw, 4); return v;
-                        };
+                        auto f = [&](std::uint32_t i) { return opf(i); };
                         host->shake(f(0), f(1), f(2), op(3)); return Step::Continue;
                     }
                     // Screen fader ops (float args are bit patterns like scroll/shake).
-                    auto fb = [&](std::uint32_t i) {
-                        float v; const std::uint32_t raw = std::uint32_t(op(i));
-                        std::memcpy(&v, &raw, 4); return v;
-                    };
+                    auto fb = [&](std::uint32_t i) { return opf(i); };
                     if (sub == 0xc8 && nargs >= 1) { host->fader_current(fb(0)); return Step::Continue; }
                     if (sub == 0xc9 && nargs >= 1) { host->fader_target(fb(0));  return Step::Continue; }
                     if (sub == 0xca && nargs >= 2) { host->fader_color(op(0), op(1)); return Step::Continue; }
                     if (sub == 0xca && nargs >= 1) { host->fader_color(op(0), 0xff); return Step::Continue; }
                     if (sub == 0xcc && nargs >= 1) { host->fader_time(op(0));   return Step::Continue; }
                     if (sub == 0xc5 && nargs >= 1) { host->camera_set(op(0), nargs >= 2 ? op(1) : 0); return Step::Continue; }
+                    // Scene flow (SCENEFLOW.md). ChangeScene does NOT end the burst: the caller
+                    // runs on to its next yield before the freeze.
+                    if (sub == 0x97 && nargs >= 1) { host->change_scene(ops(0)); return Step::Continue; }
+                    if (sub == 0xcd && nargs >= 2) {
+                        host->crossfade(opf(0), opf(1));
+                        if (nargs >= 3 && !ops(2).empty()) host->change_scene(ops(2));
+                        return Step::Continue;
+                    }
+                    if (sub == 0x94 && nargs >= 3) { host->heal_spot(opf(0), opf(1), opf(2)); return Step::Continue; }
+                    if (sub == 0xa7 && nargs >= 1) { host->warp_enable(op(0)); return Step::Continue; }
+                    if (sub == 0xa6) { host->go_warp_point(); return Step::Continue; }
                     if (sub == 0xc6) { host->camera_return(nargs >= 1 ? op(0) : 0); return Step::Continue; }
                 }
                 if (sub == 0x5F && nargs >= 2) {            // acc = (flag[op0]==op1)
@@ -269,7 +351,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                 } else if (sub == 0x90 && nargs >= 2) {     // bit test
                     acc = ((flag(op(0)) & op(1)) != 0) ? 1 : 0;
                 } else if (sub == 0x81 && nargs >= 1) {     // percentage roll: rand%100 < op0
-                    acc = (int(rng_next() >> 17) % 100 < op(0)) ? 1 : 0;
+                    // idiv 100 then an UNSIGNED compare (audit event_vm #21).
+                    acc = ((rng_next() >> 17) % 100u < std::uint32_t(op(0))) ? 1 : 0;
                 } else if (sub == 0x3c && nargs >= 1) {     // Reg_IsEqualInt(i)
                     // The Reg_* family head: compare on acc (EVENTVM.md §5a).
                     acc = (acc == op(0)) ? 1 : 0;
@@ -307,10 +390,7 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // operands (float BIT PATTERNS), only the actor position from the
                     // host (workers FUN_00570c10/c80/cf0 read actor +0x50/54/58 — dumped
                     // 2026-07-23, see OP_13D_REGION.md addendum). Null actor -> false.
-                    auto f = [&](std::uint32_t i) {
-                        float v; const std::uint32_t raw = std::uint32_t(op(i));
-                        std::memcpy(&v, &raw, 4); return v;
-                    };
+                    auto f = [&](std::uint32_t i) { return opf(i); };
                     float p[3];
                     if (!host || !host->actor_pos(op(0), p)) {
                         acc = 0;
@@ -361,17 +441,17 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                             g.value = flag(i0); g.has_value = true;
                             grants.push_back(std::move(g));
                         }
-                    } else if (sub == 0x116) {   // give-item(op0)
+                    } else if (sub == 0x116) {
+                        // Effect_GetItem(icon, ?, mesh): an item-icon sprite above the named mesh
+                        // (FUN_00573210), visual only; the grant is the script's own Flag_SetInt
+                        // (audit event_vm #28). [not modelled] the sprite.
                         items.push_back(i0);
                     } else if (sub == 0xD5 && nargs >= 3) {  // Window_Treasure(x,y,item,s)
                         acquires.push_back(op(2));
-                        if (host) {                             // show the box live (cutscene path)
-                            float x, y; std::uint32_t rx=std::uint32_t(op(0)), ry=std::uint32_t(op(1));
-                            std::memcpy(&x,&rx,4); std::memcpy(&y,&ry,4);
-                            host->acquire_item(x, y, op(2));
-                        }
-                    } else if (sub == 0x169) {   // enable/show object (name = string op0)
-                        obj_enable.push_back(script.string(op(0)));
+                        if (host) host->acquire_item(opf(0), opf(1), op(2), nargs >= 4 ? ops(3) : std::string());
+                    } else if (sub == 0x169) {   // Mesh_Delete(name): a destroy request
+                        obj_deleted.push_back(ops(0));
+                        obj_enable.push_back(ops(0));   // deprecated alias
                     } else if (sub == 0x175) {
                         // Obj_SetState(objName, stateName, ?, ?) — BOTH operands are
                         // string-pool indices, and the second is a YMO ANIMATION CLIP name.
@@ -380,8 +460,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // its stepping stones and switch: `0x175(step00, UP)`, `(step00, STOP)`,
                         // `(switch01, TURN_ON)`, `(switch01, OFF)` — pool entries 10..13. So it
                         // is a general "pose this object to this named clip".
-                        obj_opened.push_back(script.string(op(0)));
-                        if (nargs >= 2) obj_state[script.string(op(0))] = script.string(op(1));
+                        obj_opened.push_back(ops(0));
+                        if (nargs >= 2) obj_state[ops(0)] = ops(1);
                     } else if (sub == 0x188 && nargs >= 2) {
                         // Obj_BindShadow(shadowName, ownerName, height, alpha) — declares the
                         // first object to be the second's projected drop shadow; the paired
@@ -389,35 +469,28 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // step_NN_shadow to its stepNN, so a stone the root hid or moved must
                         // take its shadow with it (otherwise a hidden stone leaves a black
                         // shadow quad on the floor).
-                        obj_shadow_of[script.string(op(0))] = script.string(op(1));
+                        obj_shadow_of[ops(0)] = ops(1);
                     } else if (sub == 0x173 && nargs >= 4) {
                         // Obj_SetPos(objName, x, y, z) — float BIT PATTERNS, as 0x12c's are.
                         // S_1004 lays its stepping stones out per character with this (Toal
                         // gets 7 stones, Yunica/Hugo 4 in different places), so without it the
                         // room shows whatever the SOB authored rather than the live layout.
-                        auto f = [&](std::uint32_t i) {
-                            float v; const std::uint32_t raw = std::uint32_t(op(i));
-                            std::memcpy(&v, &raw, 4); return v;
-                        };
-                        obj_place[script.string(op(0))] = {f(1), f(2), f(3)};
-                    } else if ((sub == 0x16B || sub == 0x16C) && nargs >= 2) {
-                        // Object visibility: (string_pool_index, 0|1). Verified in
-                        // S_SAVEOBJECTCHANGE.XSO, whose pool is [save_01, save_02,
-                        // save_03, eft_heal]: it shows exactly one save statue and
-                        // hides the other two (all three are placed at one spot).
-                        obj_visible[script.string(op(0))] = (op(1) != 0);
+                        auto f = [&](std::uint32_t i) { return opf(i); };
+                        obj_place[ops(0)] = {f(1), f(2), f(3)};
+                    } else if (sub == 0x16B && nargs >= 2) {
+                        // Mesh_SetVisible(name, on) (FUN_00572aa0: bit 0x20 = hidden).
+                        // S_SAVEOBJECTCHANGE shows one of three statues stacked at one spot.
+                        obj_visible[ops(0)] = (op(1) != 0);
+                    } else if (sub == 0x16C && nargs >= 2) {
+                        // Mesh_EnableCollision(name, on) (FUN_00572ae0: bit 0x40 = no collision).
+                        obj_collide[ops(0)] = (op(1) != 0);
                     } else if (sub == 0x12c && host && nargs >= 7) {
                         // The SPAWN op. Operand layout [C-DIS][C-COR] over 1198 sites:
                         //   (entity_id, cast_type, x, y, z, yaw_deg, group)
                         // x/y/z/yaw are float BIT PATTERNS in the operand words —
                         // reinterpret, do not convert (op5's 0x43340000 is 180.0f,
                         // not the integer 1127481344).
-                        auto f = [&](std::uint32_t i) {
-                            float v;
-                            const std::uint32_t raw = std::uint32_t(op(i));
-                            std::memcpy(&v, &raw, 4);
-                            return v;
-                        };
+                        auto f = [&](std::uint32_t i) { return opf(i); };
                         host->spawn(op(0), op(1), f(2), f(3), f(4), f(5), op(6));
                     } else if (sub == 0xa0) {
                         // The bulk SCT spawn (FUN_004341a0). The operand is the SCT
@@ -430,25 +503,19 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         host->despawn(op(0));
                     } else if (sub == 0x140 && host && nargs >= 4) {
                         // Chr_Pos(id, x, y, z): teleport. x/y/z are float bit patterns.
-                        auto f = [&](std::uint32_t i){ float v; std::uint32_t r=std::uint32_t(op(i)); std::memcpy(&v,&r,4); return v; };
+                        auto f = [&](std::uint32_t i) { return opf(i); };
                         host->chr_pos(op(0), f(1), f(2), f(3));
                     } else if (sub == 0x133 && host && nargs >= 2) {
-                        // Chr_Dir(id, deg): set facing (float degrees).
-                        float d; std::uint32_t r=std::uint32_t(op(1)); std::memcpy(&d,&r,4);
-                        host->chr_dir(op(0), d);
-                    } else if (sub == 0x143 && host && nargs >= 4) {
-                        // Chr_MoveTo(id, x, z, speed): ground walk-to (EVENTVM_HANDLERS: worker
-                        // FUN_00570ad0, "walk-to target (x,z,speed)"; Chr_FlyTo/0x144 is the one
-                        // that also takes y). So op1=x, op2=z, op3=SPEED (~0.1/frame, a gradual
-                        // walk) — NOT op4 (~3.5/1.2, which snapped actors there instantly). The
-                        // actor's Y comes from the floor, not an operand.
-                        auto f = [&](std::uint32_t i){ float v; std::uint32_t r=std::uint32_t(op(i)); std::memcpy(&v,&r,4); return v; };
-                        host->chr_moveto(op(0), f(1), f(2), f(3));
+                        host->chr_dir(op(0), opf(1));            // Chr_Dir(id, deg)
+                    } else if (sub == 0x143 && host && nargs >= 5) {
+                        // Chr_MoveTo(id, x, z, arriveRadius, speedScale) (FUN_00570ad0; audit
+                        // event_vm #32): op3 is the arrival radius, op4 a multiplier on the
+                        // actor's walk speed. The actor's Y comes from the floor.
+                        host->chr_moveto(op(0), opf(1), opf(2), opf(3), opf(4));
                     } else if (sub == 0x154 && host && nargs >= 3) {
                         // Chr_Alpha(id, startA, endA, frames) [iffi]: honour the END alpha
-                        // as a visibility toggle (op2 = end alpha, float bit pattern).
-                        float endA; std::uint32_t r=std::uint32_t(op(2)); std::memcpy(&endA,&r,4);
-                        host->chr_alpha(op(0), endA);
+                        // as a visibility toggle.
+                        host->chr_alpha(op(0), opf(2));
                     } else if (sub == 0x151 && host && nargs >= 2) {
                         // Chr_Animate(id, motion): pin the actor's rendered AIA tag to `motion`
                         // (a dialogue pose) when >= 0; -1 clears back to auto idle/walk.
@@ -456,7 +523,7 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     } else if ((sub == 0x134 || sub == 0x136) && host && nargs >= 2) {
                         host->chr_lookat(op(0), op(1));   // Chr_DirChr / Chr_LookAtChr
                     } else if (sub == 0x137 && host && nargs >= 3) {
-                        auto f = [&](std::uint32_t i){ float v; std::uint32_t r=std::uint32_t(op(i)); std::memcpy(&v,&r,4); return v; };
+                        auto f = [&](std::uint32_t i) { return opf(i); };
                         host->chr_lookat_pos(op(0), f(1), f(2));   // Chr_LookAtPos (id,x,z)
                     } else if (sub == 0x13f && nargs >= 1) {
                         // "Is entity op0 alive?" CONDITION is [C-DIS]; the result
@@ -476,43 +543,34 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // predicate (OP_13D_REGION.md). op1 is a string-pool index -> the box
                         // name. acc = actor op0 inside that named .SEV box. A null host / an
                         // unresolved box answers false (no trigger).
-                        acc = (host && host->chr_in_event_box(op(0), script.string(op(1)))) ? 1 : 0;
+                        acc = (host && host->chr_in_event_box(op(0), ops(1))) ? 1 : 0;
                     } else if (sub == 0x10e && host && nargs >= 4) {
                         // EnclosePlayer(xmin, zmin, xmax, zmax) (handler 0x56a977): the arena
                         // rectangle DAT_0076a5cc..d8, float bit patterns. The mode is flag 190,
                         // set separately with 0x64. build/ai_spec/ARENA_AND_BOSSBAR.md.
-                        auto f = [&](std::uint32_t i) {
-                            float v; const std::uint32_t raw = std::uint32_t(op(i));
-                            std::memcpy(&v, &raw, 4); return v;
-                        };
+                        auto f = [&](std::uint32_t i) { return opf(i); };
                         host->enclose(f(0), f(1), f(2), f(3));
                     } else if (sub == 0x11a && host && nargs >= 7) {
                         // Eft_LocatePosAddStr: place a named effect. x/y/z/a/b are float
                         // BIT PATTERNS in the operand words (as 0x12c's are), the name is
                         // a string-pool index. The barrier ward comes through here.
-                        auto f = [&](std::uint32_t i) {
-                            float v; const std::uint32_t raw = std::uint32_t(op(i));
-                            std::memcpy(&v, &raw, 4); return v;
-                        };
+                        auto f = [&](std::uint32_t i) { return opf(i); };
                         host->locate_effect(op(0), f(1), f(2), f(3), f(4), f(5),
-                                            script.string(op(6)));
+                                            ops(6));
                     } else if (sub == 0x117 && host && nargs >= 4) {
                         // Eft_LocatePos(id, x, y, z, a, b, name): spawn a named effect at a
                         // world position (EVENTVM_HANDLERS_2: FUN_0056ef90). Same layout +
                         // render path as 0x11a; this is the cleansed-statue glow (eff 84/85
                         // "eft_clear", blue for Yunica/Hugo, purple for Toal) and battle
                         // spawn-in FX. Was unhandled, so those effects never appeared.
-                        auto f = [&](std::uint32_t i) {
-                            float v; const std::uint32_t raw = std::uint32_t(op(i));
-                            std::memcpy(&v, &raw, 4); return v;
-                        };
+                        auto f = [&](std::uint32_t i) { return opf(i); };
                         const float a = nargs > 4 ? f(4) : 1.0f, b = nargs > 5 ? f(5) : 0.0f;
-                        std::string nm = nargs > 6 ? script.string(op(6)) : std::string();
+                        std::string nm = nargs > 6 ? ops(6) : std::string();
                         if (nm.empty()) nm = "eft117_" + std::to_string(op(0));  // unique-ish key
                         host->locate_effect(op(0), f(1), f(2), f(3), a, b, nm);
                     } else if (sub == 0x119 && host && nargs >= 1) {
                         // Eft_Kill(name): remove the named located effect (barrier break).
-                        host->kill_effect(script.string(op(0)));
+                        host->kill_effect(ops(0));
                     }
                     // all other sub-ops: no-op (skipped by length)
                 }
@@ -551,16 +609,16 @@ XsoVm::Tick XsoVm::tick() {
 // rewinds and re-polls next frame. A null host answers true for all (never blocks).
 bool XsoVm::eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
                       std::uint32_t argoff, std::uint32_t nargs) {
-    const std::vector<std::int32_t>& code = script.words();
-    const std::uint32_t n = std::uint32_t(code.size());
-    auto op = [&](std::uint32_t i) {
-        const std::uint32_t k = old + argoff + i;
-        return (k < n) ? std::int32_t(code[k]) : 0;
-    };
+    (void)argoff;
+    auto op = [&](std::uint32_t i) { return op_int(script, old, i); };
     switch (sub) {
         case 0xf1: return host ? host->wait_fader() : true;               // fade finished
         case 0xf3: return host ? host->wait_prompt() : true;             // advance pressed
-        case 0xf4: return host ? host->wait_script_done(script.string(op(0))) : true;
+        case 0xf4: {                                                      // Wait_Script(name)
+            const std::string nm = op_str(script, old, 0);
+            if (nm == "@Flag_Inv") return true;                          // 0x69f640: proceeds
+            return host ? host->wait_script_done(nm) : true;
+        }
         case 0xf5: return host ? host->wait_window(true) : true;         // msg window open
         case 0xf6: return host ? host->wait_window(false) : true;        // msg window closed
         case 0xf7: return host ? host->wait_sound(nargs >= 1 ? op(0) : 0) : true;
@@ -592,7 +650,7 @@ std::size_t ScriptManager::start_root(std::shared_ptr<const Xso> s, std::string 
     return idx;
 }
 
-bool ScriptManager::start(const std::string& name) {
+bool ScriptManager::start(const std::string& name, const XsoVm::Vars& vars) {
     // Single-instance dedup: the engine refuses a second live spawn of the same name
     // (unless AllowMultiInstance, which no room controller in this corpus sets). §5a.
     for (const Inst& i : live)
@@ -603,9 +661,22 @@ bool ScriptManager::start(const std::string& name) {
     Inst in;
     in.script = std::move(s);
     in.name = name;
+    in.vars = vars;
     live.push_back(std::move(in));
     tick_inst(live.back());               // child runs its first burst the same frame
     return true;
+}
+
+void ScriptManager::fix(Inst& in, int slot) {
+    if (slot < 0 || slot > 1) return;
+    if (in.fix_slot >= 0 && fix_counts[in.fix_slot] > 0) --fix_counts[in.fix_slot];
+    ++fix_counts[slot];
+    in.fix_slot = slot;
+}
+
+void ScriptManager::unfix(Inst& in) {
+    if (in.fix_slot >= 0 && fix_counts[in.fix_slot] > 0) --fix_counts[in.fix_slot];
+    in.fix_slot = -1;
 }
 
 void ScriptManager::tick_inst(Inst& in) {
@@ -619,6 +690,7 @@ void ScriptManager::tick_inst(Inst& in) {
     vm.co_wait = in.wait;
     vm.acc = in.acc;
     vm.locals = std::move(in.locals);
+    vm.vars = in.vars;
     const XsoVm::Tick t = vm.tick();
     in.pc = vm.co_pc;
     in.wait = vm.co_wait;
@@ -634,22 +706,24 @@ void ScriptManager::tick_all() {
     // Tick the scripts live at the start of the frame; children queued this frame are
     // spawned+ticked in the drain below (so a child spawned this frame still runs now, §5a).
     const std::size_t n = live.size();
-    for (std::size_t i = 0; i < n; ++i) tick_inst(live[i]);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (paused) return;               // a scene change froze the VM mid-frame (SCENEFLOW §1.4)
+        tick_inst(live[i]);
+    }
     // Drain StartScript spawns. start() ticks each child once, which may queue more.
-    while (!spawn_queue.empty()) {
-        std::vector<std::string> batch;
+    while (!spawn_queue.empty() && !paused) {
+        std::vector<Spawn> batch;
         batch.swap(spawn_queue);
-        for (const std::string& nm : batch) start(nm);
+        for (const Spawn& sp : batch) start(sp.name, sp.vars);
     }
     // Record how many GoScripts were resident together this frame (before the reap drops
     // the ones that just finished) — the concurrency the manager actually sustained.
     peak_live = std::max(peak_live, live.size());
     // Reap finished scripts (the driver skips them; a separate pass removes them, §5d). A
-    // script that ended still holding a Fix is auto-released on teardown (the engine's
+    // script that ended still holding a fix is released on teardown (the engine's
     // FUN_0056eab0 unfix path), so the world doesn't stay frozen forever.
     for (Inst& i : live)
-        if (i.finished && i.fix_held > 0) { fix_count -= i.fix_held; i.fix_held = 0; }
-    if (fix_count < 0) fix_count = 0;
+        if (i.finished) unfix(i);
     live.erase(std::remove_if(live.begin(), live.end(),
                               [](const Inst& i) { return i.finished; }),
                live.end());

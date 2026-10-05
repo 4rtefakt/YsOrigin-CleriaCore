@@ -425,6 +425,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // room load (chest gating reads them); stats/position are applied after the world
     // exists, below. This mirrors the engine's load = init-then-overwrite (SAVELOAD §4.2).
     fs::path boot_sob = first_sob;
+    // A New Game from the title enters `s_00\s_0000\`, the router script that sends each
+    // character into its prologue (SCENEFLOW.md §5). A room given on the command line is a
+    // dev start and is kept.
+    if (show_title && !pending_load) {
+        auto it = g.sob_index.find("S_0000");
+        if (it != g.sob_index.end()) boot_sob = it->second;
+    }
     if (pending_load) {
         std::memcpy(game.g_flags, pending_load->flags, sizeof game.g_flags);
         std::memcpy(game.item_arr, pending_load->item_arr, sizeof game.item_arr);
@@ -537,20 +544,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     Aso aso = Aso::load(asset_root / "ANI" / char_aso(character));
     AsoVm avm;
     avm.bind(&aso);
-    // The PLAYER's ASO reads flag 141 as the BOOST flag: C_030.ASO (Toal) branches on it 27
-    // times to pick anime_File(17)=C_113 (normal) vs anime_File(12)=C_115 (demon/Boost form).
-    // A new game leaves it 0 (NEWGAME_FLAGS.md: "141 -> 0, explicit reset"), so Toal should
-    // start normal. We cannot simply clear game.g_flags[141], because our room-event trigger
-    // currently also uses index 141 to gate S_1000's intro (S_1000.XSO pc43) — that collision
-    // is unresolved RE. So the player's ASO gets its OWN flag view: a copy of the game flags
-    // with 141 forced to the real boost state. Keeps the intro working AND un-demons Toal.
-    std::array<std::int32_t, 0x200> aso_flags{};
-    auto sync_aso_flags = [&] {
-        std::copy(game.g_flags, game.g_flags + 0x200, aso_flags.begin());
-        aso_flags[141] = player.boosting ? 1 : 0;   // DAT_0076bb50
-    };
-    sync_aso_flags();
-    avm.set_flags(aso_flags.data(), 0x200);
+    // The PLAYER's ASO reads the game flags directly. Flag 141 (DAT_0076bb50) IS the
+    // Boost-active flag (audit event_vm #36): FUN_00463f40 sets it when Boost starts and
+    // FUN_00462c40 clears it when the timer runs out; C_030.ASO (Toal) branches on it to pick
+    // the demon form. It was never the S_1000 intro trigger.
+    avm.set_flags(game.g_flags, 0x200);
 
     CharSprite chr;
     std::string cur_aia;
@@ -770,6 +768,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const Vec3 arr = via ? via->arrival_pos : Vec3{};
         const bool has_fac = via && via->has_facing();
         const int fac_deg = via ? via->arrival_facing_deg : 0;
+        // Every scene entry, door or script (FUN_00431840; SCENEFLOW.md 6.2): a dead player is
+        // revived, and the per-scene flags are reset before the room's scripts read them.
+        if (player.hp < 1) { player.hp = player.max_hp; player.sp_cur = player.sp_max; }
+        game.g_flags[160] = 0;                                   // the sub-area (0 in the data)
+        for (int f : {161, 209, 156, 130, 132, 189, 190, 194, 197, 200, 135, 497, 506}) game.g_flags[f] = 0;
+        for (int f = 165; f <= 180; ++f) game.g_flags[f] = 0;    // the per-room scratch block
+        game.g_flags[185] = 1;
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
@@ -930,7 +935,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         aso = Aso::load(asset_root / "ANI" / char_aso(character));
         avm = AsoVm{};
         avm.bind(&aso);
-        avm.set_flags(aso_flags.data(), 0x200);
+        avm.set_flags(game.g_flags, 0x200);
         avm.tick();
         sync_aia();
         curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
@@ -1029,8 +1034,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             return out;
         }
+        // FUN_00573e60: an empty NAME defaults to the speaker's cast record name (+0x10).
+        std::function<std::string(int)> speaker_name_fn;
         void window_msg(int sp, int vc, const std::string& nm, const std::string& tx) override {
-            speaker = sp; voice = vc; name = nm;
+            speaker = sp; voice = vc;
+            name = (nm.empty() && sp != 0 && speaker_name_fn) ? speaker_name_fn(sp) : nm;
             text = parse_tags(tx, text_r, text_g, text_b);
             reveal = 0; box_active = true; acquire_active = false;
         }
@@ -1044,11 +1052,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::function<std::string(int)> item_name_fn;
         bool acquire_active = false; int acquire_id = -1;
         float acquire_x = 512.0f, acquire_y = 122.0f;   // authored 1024x768 space (x=512 => centred)
-        void acquire_item(float x, float y, int id) override {
+        void acquire_item(float x, float y, int id, const std::string& tx) override {
             acquire_active = true; acquire_id = id; acquire_x = x; acquire_y = y;
             name.clear(); speaker = 0; voice = -1;
-            // RE (FUN_005781f0): the box shows the item NAME only (+ icon), no verb prefix.
-            text = item_name_fn ? item_name_fn(id) : ("item " + std::to_string(id));
+            // FUN_005781f0 copies the op3 string into the window text (e.g. "Acquired /
+            // <color:..>Ring Mail<color:>."); audit event_vm #27. The item NAME is a fallback
+            // only for a NULL string.
+            text = !tx.empty() ? parse_tags(tx, text_r, text_g, text_b)
+                               : (item_name_fn ? item_name_fn(id) : ("item " + std::to_string(id)));
             reveal = int(text.size());   // shown at once, no typewriter
             box_active = true;           // gate the following Wait_Prompt
         }
@@ -1096,6 +1107,25 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             fade_cur = (std::abs(d) <= step) ? fade_tgt : fade_cur + (d > 0 ? step : -step);
         }
         bool wait_fader() override { return skipping || fade_cur == fade_tgt; }
+        // Scene flow (build/event_re/SCENEFLOW.md). A ChangeScene is applied at the start of
+        // the next frame; until then every script is frozen (the caller's burst finishes).
+        std::string pending_scene;
+        void change_scene(const std::string& nm) override {
+            if (!pending_scene.empty() || nm.empty()) return;    // refused while one is pending
+            pending_scene = nm;
+            if (mgr) mgr->paused = true;
+        }
+        // 0x94 SetHealSpot: the statue heal objects of this room (they die with it).
+        struct HealSpot { float x, y, z; int cooldown = 0; };
+        std::vector<HealSpot> heal_spots;
+        void heal_spot(float x, float y, float z) override { heal_spots.push_back({x, y, z, 0}); }
+        // 0xa7: unlocked warp destinations. [not modelled] saving them, the Wing menu, 0xa6.
+        std::vector<int> warp_unlocked;
+        void warp_enable(int i) override {
+            if (std::find(warp_unlocked.begin(), warp_unlocked.end(), i) == warp_unlocked.end())
+                warp_unlocked.push_back(i);
+        }
+        // 0xcd CrossFade: [not modelled] the frozen-frame dissolve (purely visual in the corpus).
         bool wait_window(bool) override { return true; }
         bool wait_sound(int) override { return true; }
         // 0xf4 Wait_Script(name): a parent controller blocks until its spawned talk child
@@ -1147,7 +1177,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // actor, so move it here; NPCs forward to the world. This is what makes the intro
         // actually walk the player to the platform (op 0x143) instead of standing still.
         bool p_isplayer(int id) const { return id == 13 || id == 999; }
-        Vec3 p_move_tgt{}; float p_move_spd = 0; bool p_moving = false;
+        // The player's +0x30c is CASTINFO[13]+0x48 = 0.056 for its whole life (nothing in
+        // FUN_00465170 rewrites it); a scripted walk is 0.056 x scale x Movable per step.
+        float player_speed30c = 0.056f;      // set from CASTINFO[13]+0x48 below
+        std::function<float()> movable_fn;   // the player's ASO anime_Movable
+        Vec3 p_move_tgt{}; float p_move_spd = 0, p_move_r2 = 0; bool p_moving = false;
         void chr_pos(int id, float x, float y, float z) override {
             if (p_isplayer(id)) { if (playerPosW) *playerPosW = {x, y, z}; p_moving = false; }
             else if (worldHost) worldHost->chr_pos(id, x, y, z);
@@ -1156,9 +1190,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (p_isplayer(id)) { if (playerYawDeg) *playerYawDeg = deg; }
             else if (worldHost) worldHost->chr_dir(id, deg);
         }
-        void chr_moveto(int id, float x, float z, float spd) override {
-            if (p_isplayer(id)) { p_move_tgt = {x, 0, z}; p_move_spd = spd > 0 ? spd : 0.1f; p_moving = true; }
-            else if (worldHost) worldHost->chr_moveto(id, x, z, spd);
+        void chr_moveto(int id, float x, float z, float radius, float scale) override {
+            if (p_isplayer(id)) {
+                p_move_tgt = {x, 0, z};
+                p_move_spd = player_speed30c * scale;                 // 0.056 x scale (x Movable below)
+                const float r = std::max(0.025f, radius);
+                p_move_r2 = r * r; p_moving = true;
+            } else if (worldHost) worldHost->chr_moveto(id, x, z, radius, scale);
         }
         bool chr_moving(int id) const override {
             if (p_isplayer(id)) return p_moving;
@@ -1182,8 +1220,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (!p_moving || !playerPosW) return;
             const float dx = p_move_tgt.x - playerPosW->x, dz = p_move_tgt.z - playerPosW->z;
             const float d = std::sqrt(dx * dx + dz * dz);
-            if (d <= p_move_spd || d < 1e-3f) { playerPosW->x = p_move_tgt.x; playerPosW->z = p_move_tgt.z; p_moving = false; }
-            else { playerPosW->x += dx / d * p_move_spd; playerPosW->z += dz / d * p_move_spd;
+            if (dx * dx + dz * dz <= p_move_r2) { p_moving = false; }   // planar arrival test first
+            else { const float st = p_move_spd * (movable_fn ? movable_fn() : 1.0f);
+                   playerPosW->x += dx / d * st; playerPosW->z += dz / d * st;
                    if (playerYawDeg) *playerYawDeg = std::atan2(dx, dz) * 180.0f / 3.14159265f; }
         }
         // Forward the live predicates to the WORLD — a cutscene/controller that spawned
@@ -1254,30 +1293,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // fires BattleStart1, which Fixes and locks the hub (cleria-cotest test 11 pins this). So it
     // is off by default (the debug-T talk + barrier break-pan still work, they're started
     // explicitly); set CLERIA_EVENTS=1 to run live region-talk triggers experimentally.
-    // Room-root event scripts are OPT-IN (CLERIA_EVENTS=1). The headless [rootsweep]
-    // proves no room stays frozen forever, but the LIVE cutscene RUNTIME still has real
-    // gaps that make on-by-default a broken experience (user-verified 2026-07-23):
-    //   - cutscene camera pans place the eye in the floor (scroll/scm_eye fidelity)
-    //   - cutscene-spawned NPCs (0x12c in event context) are never drawn — csHost.spawn
-    //     only records the cast id for portraits; it doesn't create a visible actor
-    //   - controller/story-flag gating misfires: talks re-fire, and a kill-gated event
-    //     triggers on room entry (the "group cleared" predicate is wrong when enemies
-    //     are present)
-    // These are the real Phase-2 cutscene work (PLAN.md). Until they're solid, events
-    // stay opt-in so the default game isn't degraded.
+    // Room-root event scripts run by default, as in the game (PLAN.md Current focus 1):
+    // the story beats, scripted warps, step plates and boss rooms all live in them.
+    // CLERIA_EVENTS=0 turns them off (a debugging aid only).
     const char* ev = std::getenv("CLERIA_EVENTS");
-    const bool events_enabled = ev && std::atoi(ev) != 0;
-    // Story-flag state for events (build/event_re/S1000_FIRSTVISIT.md). TRACED, not
-    // guessed: S_1000's root fires StartScript(1)=BATTLESTART1 — the first-visit intro
-    // (walk to platform → battle → NPC dialogue → StartScript(21) cleanse tutorial) —
-    // only when FLAG 141 == 1 (pc 43/47). The opening movie sets 141; we skip the
-    // movie, so it was never set and the intro never played (zero-flags AND FLAG_MAIN_1
-    // both leave 141=0 → the intro is skipped). Set it here for a fresh events-on game.
-    // [Minimal intro trigger; the opening likely sets a few more flags — HAND-CHOSEN
-    // seed, being narrowed against the playthrough videos.]
-    if (events_enabled && !pending_load) game.g_flags[141] = 1;
+    const bool events_enabled = !(ev && std::atoi(ev) == 0);
+    // A fresh game needs no story-flag seed: with the FUN_0041fd10 new-game state the S_1000
+    // root routes Yunica / Hugo / Toal to BattleStart1/2/3, the first-visit intro (audit
+    // event_vm #36/#40; flag 141 only guards one EventXX call).
     auto start_room_events = [&] {
-        csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_count = 0;
+        csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_counts[0] = csMgr.fix_counts[1] = 0;
+        csMgr.paused = false;
+        csHost.heal_spots.clear();
         csHost.box_active = false; csHost.reveal = 0; csHost.advance = false;
         camera_return();                            // no forced camera carries across rooms
         after_cutscene = nullptr; prev_frozen = false;
@@ -1510,6 +1537,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (!player.boosting) {
             if (player.boost < 30000.0f) return;          // UCOMISS against the full value
             player.boosting = true;
+            game.g_flags[141] = 1;                        // FUN_00463f40: Boost active
             player_iframes = std::max(player_iframes, 16);
             hud.message("Boost!");
             return;
@@ -1553,6 +1581,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
     const ItemTable items_tbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
     csHost.item_name_fn = [&](int id) { return items_tbl.name(id); };  // 0xd5 "Acquired X" box
+    if (const Cast* pc13 = casts.get(13)) csHost.player_speed30c = pc13->speed_base;
+    csHost.movable_fn = [&] { return avm.movable(); };
+    // The default speaker name: the speaker's actor cast (+0x124); the player id 0xd remaps
+    // by character to 0xa6/0xa7/0xa8 (audit event_vm #26).
+    csHost.speaker_name_fn = [&](int sp) -> std::string {
+        int cast = -1;
+        if (sp == 13 || sp == 999) cast = character == 2 ? 0xa7 : character == 3 ? 0xa8 : 0xa6;
+        else if (auto it = csHost.spawn_cast.find(sp); it != csHost.spawn_cast.end()) cast = it->second;
+        else if (sp > 0 && sp <= 0xa5) cast = sp;
+        const Cast* c = cast >= 0 ? casts.get(cast) : nullptr;
+        return c ? c->display : std::string();
+    };
     auto try_interact = [&] {
         const Vec3 p = fly ? cam.pos : Vec3{feet.x, feet.y, feet.z};
         // Interact reach: you must stand next to a statue/chest. Uncapped the room diagonal
@@ -1763,7 +1803,43 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // g_cam (pitch/dist) or it puts the eye at the scroll look-at (in the floor).
     if (!fly) { update_camera(room, feet, 0.0f, /*snap=*/true); if (g_cam.on) apply_cam_state(cam, feet); }
 
+    // A scene path ("s_10\s_1009\", "demo3\") -> the room to enter. A demo scene is a movie
+    // that then warps to a fixed next scene (SCENEFLOW.md 5.1); movies are [not modelled], so
+    // the demo is passed through at once. "" = no room (the title, an unknown name).
+    auto scene_room = [&](std::string s) -> std::string {
+        for (char& c : s) c = (c == '/') ? '\\' : char(std::tolower((unsigned char)c));
+        while (!s.empty() && s.back() == '\\') s.pop_back();
+        if (s.rfind("demo", 0) == 0 && s.size() == 5) {
+            const bool toal = character == 3;
+            switch (s[4]) {
+                case '1': return toal ? "S_1000" : "S_0002";
+                case '2': return toal ? "S_7001" : "S_0002";
+                case '3': return "S_1000";
+                case '4': return "S_6080";
+                case '5': return "S_7002";
+                case '7': case '8': return "S_0003";
+                default: return "";                              // demo6 -> the title
+            }
+        }
+        const std::size_t k = s.find_last_of('\\');
+        std::string room_name = k == std::string::npos ? s : s.substr(k + 1);
+        for (char& c : room_name) c = char(std::toupper((unsigned char)c));
+        return g.sob_index.count(room_name) ? room_name : std::string();
+    };
+
     while (running) {
+        if (!csHost.pending_scene.empty()) {
+            const std::string req = csHost.pending_scene;
+            csHost.pending_scene.clear();
+            csMgr.paused = false;
+            const std::string dest = scene_room(req);
+            std::printf("  [scene] ChangeScene '%s' -> %s\n", req.c_str(), dest.empty() ? "(none)" : dest.c_str());
+            if (!dest.empty()) {
+                transition(dest);                                // SCT default arrival, no label
+                // Every arrival fades in from black over 20 steps (SCENEFLOW.md 1.5).
+                csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+            }
+        }
         const Uint64 now = SDL_GetTicks();
         const float real_dt = float(now - last) / 1000.0f; last = now;
         accum += real_dt * g_time_scale;
@@ -1881,7 +1957,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     aso = Aso::load(asset_root / "ANI" / char_aso(character));
                     avm = AsoVm{};
                     avm.bind(&aso);
-                    avm.set_flags(aso_flags.data(), 0x200);
+                    avm.set_flags(game.g_flags, 0x200);
                     avm.tick();
                     sync_aia();
                     curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
@@ -1961,12 +2037,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // progression AND item pickups are silently lost (e.g. BATTLE_0 hands Yunica the
         // Lila Shell + Crystal via 0xD5, and sets the intro's completion flags).
         {
-            // The "Acquired X" BOX is shown live by CutsceneHost::acquire_item; here we only
-            // persist the pickup into the inventory model (the ids that fit it).
-            for (int id : csMgr.vm.acquires)
-                if (id >= 0 && id < 54) game.item_arr[id] = 1;
-            for (int id : csMgr.vm.items)
-                if (id >= 0 && id < 54) game.item_arr[id] = 1;
+            // The "Acquired X" BOX is shown live by CutsceneHost::acquire_item. Neither it nor
+            // 0x116 grants anything: the item is owned through the script's own
+            // Flag_SetInt(item, 1), applied with the grants below (audit event_vm #28).
             csMgr.vm.acquires.clear();
             csMgr.vm.items.clear();
             // Apply the recorded flag deltas (only what the cutscene actually changed, so
@@ -2636,7 +2709,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         fs::path sp(t.script);
                         std::string stem = sp.stem().string();
                         for (char& ch : stem) ch = char(std::tolower((unsigned char)ch));
-                        if (csMgr.start(stem))
+                        // The object's script reads its own name as $S0 and its SOB values
+                        // as $I0/$I1/$F0 (audit event_vm #11; TURNSWITCH1 / S20SWICH00_FUMI
+                        // pose and wait on `$S0`).
+                        XsoVm::Vars ov;
+                        ov.s[0] = t.name; ov.i[0] = t.i0; ov.i[1] = t.i1; ov.f[0] = t.f0;
+                        if (csMgr.start(stem, ov))
                             std::printf("  [plate] %s -> %s\n", t.name.c_str(), stem.c_str());
                     } else if (!on && !armed) {
                         plates_armed.erase(t.name);                       // re-arm on leave
@@ -2649,6 +2727,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (player.boost <= 0.0f) {
                     player.boost = 0.0f;
                     player.boosting = false;
+                    game.g_flags[141] = 0;                // FUN_00462c40: the timer ran out
                     avm.set_section(2, /*force*/true);      // FUN_00446550(2,0) -> idle
                 }
             }
@@ -2656,15 +2735,25 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // whose table (0x68b078) is not dumped — so this is the base only. [PARTIAL]
             player.sp_cur = std::min(player.sp_max, player.sp_cur + 5.0f);
             player.mp_pct = player.sp_max > 0 ? player.sp_cur / player.sp_max * 100.0f : 0.0f;
-            // A CLEANSED goddess statue (flag 300) is a safe zone: standing near it restores
-            // HP to full. [range HAND-TUNED — no proximity constant located in the RE yet.]
-            if (game.g_flags[300] != 0 && player.hp < player.max_hp)
-                for (const Interactable& it : room.mesh.interactables) {
-                    std::string nm = it.name;
-                    for (char& c : nm) c = char(std::tolower((unsigned char)c));
-                    if (nm.rfind("save", 0) != 0) continue;
-                    const float dx = it.position.x - feet.x, dz = it.position.z - feet.z;
-                    if (dx * dx + dz * dz < 36.0f) { player.hp = player.max_hp; break; }
+            // The statue heal: the heal-spot objects 0x94 registered (FUN_0058c290; SCENEFLOW.md
+            // §4). Each statue's S_SaveObjectChange registers one only on its cleansed arm, so
+            // that is what gates healing. Within 3.0 (XZ) and the height band, no Fix: every
+            // 15 steps HP +9999 and the second gauge +3000 (both clamped). Flag 191 = inside.
+            if (!csMgr.world_frozen())
+                for (auto& hs : csHost.heal_spots) {
+                    if (hs.cooldown > 0) { --hs.cooldown; continue; }
+                    const float dx = hs.x - feet.x, dz = hs.z - feet.z;
+                    if (dx * dx + dz * dz >= 9.0f) { game.g_flags[191] = 0; continue; }
+                    if (std::fabs(hs.y - (feet.y + kOriginH) + 1.0f) >= 0.5f) continue;
+                    if (game.g_flags[191] == 0) { game.g_flags[191] = 1; sfx_at(0x12, feet, kSfxAnimVol); }
+                    hs.cooldown = 15;
+                    if (player.hp < 1) continue;
+                    // [H-med] the second gauge 0x76a738 is taken as the SP/mana bar.
+                    player.sp_cur = std::min(player.sp_max, player.sp_cur + 3000.0f);
+                    if (player.hp < player.max_hp) {
+                        player.hp = player.max_hp;   // +9999, clamped
+                        sfx_at(0xad, feet, kSfxAnimVol);
+                    }
                 }
             const float pdef = ginfo.curves[kPlayerDef].at(player.level);
             // A hit landing on the player: FUN_004fd350's player branch (src/cleria/hit.hpp).
@@ -2889,7 +2978,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 avm.set_section(want_sec);
             else if (avm.cancelable() || atk_stall >= 10)
                 avm.set_section(want_sec, /*force*/true);
-            sync_aso_flags();   // refresh the player's ASO flag view (141 = live boost state)
             avm.set_is_land(grounded);
             avm.tick();
             // Projectile flight. The motion here IS reverse-engineered (speed += accel,

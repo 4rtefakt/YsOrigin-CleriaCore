@@ -21,6 +21,7 @@
 //        ** Do not read 999 as "not the player". ** Whether anything re-points it
 //        later is [UNKNOWN].
 #pragma once
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <list>
@@ -30,6 +31,7 @@
 #include "cleria/xso.hpp"
 
 namespace cleria {
+
 
 struct CastTable;
 struct EnemyTable;
@@ -130,10 +132,15 @@ class ActorWorld : public XsoHost {
     void chr_dir(int id, float deg) override {                          // 0x133 facing (degrees)
         if (Actor* a = find(id)) a->yaw = deg * 3.14159265358979323846f / 180.0f;
     }
-    void chr_moveto(int id, float x, float z, float speed) override {   // 0x143 walk-to
+    // 0x143 walk-to (FUN_00570ad0): until within max(0.025, radius), at +0x30c (CASTINFO+0x48,
+    // 0.035 for most casts) x speed_scale x Movable per step (FUN_0045f4d0; WAITOPS.md §6.2).
+    // [not modelled] an NPC's ASO Movable (taken as 1).
+    void chr_moveto(int id, float x, float z, float radius, float scale) override {
         if (Actor* a = find(id)) {
             a->cmove_tgt = {x, a->pos.y, z};
-            a->cmove_spd = speed > 0 ? speed : 0.1f;
+            a->cmove_spd = a->speed30c * scale;
+            const float r = std::max(0.025f, radius);
+            a->cmove_r2 = r * r;
             a->cmoving = true;
         }
     }
@@ -165,8 +172,10 @@ class ActorWorld : public XsoHost {
             if (!a.cmoving) continue;
             const float dx = a.cmove_tgt.x - a.pos.x, dz = a.cmove_tgt.z - a.pos.z;
             const float d = std::sqrt(dx * dx + dz * dz);
-            if (d <= a.cmove_spd || d < 1e-3f) { a.pos.x = a.cmove_tgt.x; a.pos.z = a.cmove_tgt.z; a.cmoving = false; }
-            else { a.pos.x += dx / d * a.cmove_spd; a.pos.z += dz / d * a.cmove_spd; a.yaw = std::atan2(dx, dz); }
+            // The planar arrival test runs before the step; the step is the full speed (no
+            // clamp; the engine can overshoot by less than one step).
+            if (dx * dx + dz * dz <= a.cmove_r2) { a.cmoving = false; continue; }
+            a.pos.x += dx / d * a.cmove_spd; a.pos.z += dz / d * a.cmove_spd; a.yaw = std::atan2(dx, dz);
         }
     }
 

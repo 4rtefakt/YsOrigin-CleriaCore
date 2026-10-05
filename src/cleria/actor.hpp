@@ -188,6 +188,8 @@ struct Actor {
     // `cmoving` is what Wait_ChrMoving (0x100) polls. Advanced by ActorWorld each tick.
     Vec3 cmove_tgt{};
     float cmove_spd = 0;
+    float speed30c = 0;          // +0x30c from the factory (CASTINFO+0x48); a script walk's base
+    float cmove_r2 = 0;          // the squared arrival radius (+0x364)
     bool cmoving = false;
 
     // Cutscene pose (op 0x151 Chr_Animate(id, motion)): motion >= 0 pins the rendered AIA

@@ -224,17 +224,15 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     // parse_sev returns empty until the .SEV record layout is confirmed, so this is inert now.
     r.event_boxes = load_sev(r.dir / (r.name + ".SEV"));
 
-    // Character-gate chests BEFORE building geometry: run the room's scene-main
-    // script (the same object-enable logic the game runs on entry) on a throwaway
-    // VM seeded with current g_flags + character, and whitelist the chests it
-    // enables. Hidden chests are then skipped entirely (model + interactable).
-    std::unordered_set<std::string> box_whitelist;
-    bool gates_box = false;
-    // What the room's own root script did to its objects at load: 0x175 poses (stepping
-    // stones UP/STOP, switch TURN_ON/OFF, a looted chest OPEN) and 0x173 placements.
-    // Collected from the SAME throwaway run that already gathers obj_enable/obj_opened.
+    // The room's root script at load, run on a throwaway VM seeded with current g_flags +
+    // character: what it did to its objects. 0x169 Mesh_Delete removes an object (this is
+    // how a room picks the character's chests: S_2005 deletes box_02/box_03 for Yunica and
+    // Hugo; audit event_vm #29/#30), 0x16b hides one, 0x16c drops its collision, 0x175
+    // poses it (stepping stones UP/STOP, switch TURN_ON/OFF, a looted chest OPEN) and 0x173
+    // places it.
     ObjStates obj_states;
-    std::unordered_set<std::string> root_hidden;
+    std::unordered_set<std::string> root_hidden;     // deleted or hidden: no model, no collision
+    std::unordered_set<std::string> no_collide;      // 0x16c off: drawn, not solid
     {
         fs::path scene_main = sob; scene_main.replace_extension(".XSO");
         if (fs::exists(scene_main)) {
@@ -267,12 +265,9 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                     try { tmp.run(Xso::parse(read_bytes(cp))); } catch (const std::exception&) {}
                 }
                 auto low = [](std::string s) { for (char& c : s) c = char(std::tolower((unsigned char)c)); return s; };
-                for (const std::string& s : tmp.obj_enable) {
-                    std::string l = low(s); box_whitelist.insert(l);
-                    if (l.rfind("box", 0) == 0) gates_box = true;
-                }
-                for (const std::string& s : tmp.obj_opened)
-                    if (low(s).rfind("box", 0) == 0) gates_box = true;
+                for (const std::string& s : tmp.obj_deleted) root_hidden.insert(low(s));
+                for (const auto& [nm, on] : tmp.obj_collide)
+                    if (!on) no_collide.insert(low(nm));
                 for (const auto& [nm, clip] : tmp.obj_state) obj_states.clip[low(nm)] = clip;
                 for (const auto& [nm, p2] : tmp.obj_place)
                     obj_states.pos[low(nm)] = {p2.x, p2.y, p2.z};
@@ -330,12 +325,11 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                     if (base_flags) std::memcpy(tmp.g_flags, base_flags, sizeof(tmp.g_flags));
                     tmp.g_flags[150] = character;
                     tmp.run(Xso::parse(read_bytes(vis)));
-                    for (const auto& [name, shown] : tmp.obj_visible) {
-                        if (shown) continue;
-                        std::string l = name;
-                        for (char& c : l) c = char(std::tolower((unsigned char)c));
-                        hidden.insert(l);
-                    }
+                    auto low = [](std::string s) { for (char& c : s) c = char(std::tolower((unsigned char)c)); return s; };
+                    for (const auto& [name, shown] : tmp.obj_visible)
+                        if (!shown) hidden.insert(low(name));
+                    for (const auto& [name, on] : tmp.obj_collide)
+                        if (!on) no_collide.insert(low(name));
                 } catch (const std::exception&) {}
             }
         }
@@ -347,11 +341,13 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
         for (const std::string& n : *extra_hidden) hidden.insert(n);
     for (const std::string& n : root_hidden) hidden.insert(n);
     r.load_effects = std::move(load_fx);
-    r.mesh = build_room(asset_root, sob, gates_box ? &box_whitelist : nullptr,
+    r.mesh = build_room(asset_root, sob, nullptr,
                         hidden.empty() ? nullptr : &hidden, base_flags,
                         (obj_states.clip.empty() && obj_states.pos.empty()) ? nullptr : &obj_states);
-    r.coll = build_collision(asset_root, sob, gates_box ? &box_whitelist : nullptr,
-                             hidden.empty() ? nullptr : &hidden);
+    std::unordered_set<std::string> coll_hidden = hidden;
+    coll_hidden.insert(no_collide.begin(), no_collide.end());
+    r.coll = build_collision(asset_root, sob, nullptr,
+                             coll_hidden.empty() ? nullptr : &coll_hidden);
     // Materials that scroll their UVs. Only 397 of 6642 corpus-wide do, and the disk
     // phase is 0.0 in every one — it is pure runtime state, so we start at zero too.
     for (const DrawBatch& b : r.mesh.batches)

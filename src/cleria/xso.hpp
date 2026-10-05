@@ -89,7 +89,10 @@ struct XsoHost {
     // 13/999) is special-cased by the view (its position is not a world actor).
     virtual void chr_pos(int /*id*/, float /*x*/, float /*y*/, float /*z*/) {}   // 0x140 teleport
     virtual void chr_dir(int /*id*/, float /*deg*/) {}                           // 0x133 facing
-    virtual void chr_moveto(int /*id*/, float /*x*/, float /*z*/, float /*spd*/) {}  // 0x143 walk-to
+    // 0x143 Chr_MoveTo(id, x, z, arriveRadius, speedScale) (FUN_00570ad0, audit event_vm #32):
+    // walk until within `radius` (+0x364 = max(0.025, r)^2), at the actor's base walk speed
+    // times `speed_scale` (+0x368).
+    virtual void chr_moveto(int /*id*/, float /*x*/, float /*z*/, float /*radius*/, float /*speed_scale*/) {}
     virtual bool chr_moving(int /*id*/) const { return false; }                  // 0x100 Wait_ChrMoving
     virtual void chr_alpha(int /*id*/, float /*end_alpha*/) {}                    // 0x154 Chr_Alpha (end)
     virtual void chr_lookat(int /*id*/, int /*target*/) {}                        // 0x134/0x136 face actor
@@ -162,19 +165,22 @@ struct XsoHost {
     virtual bool wait_script_done(const std::string& /*name*/) { return true; } // 0xf4: child ended?
 
     // --- dialogue / caption ops (CUTSCENE_DIALOGUE.md) --------------------------------
-    // op 0xd3 Window_Msg(speakerId, voiceParam, nameStrIdx, textStrIdx): open/update the
-    // message box with a line. `speaker` picks the face/voice (player id remaps by char);
-    // `name`/`text` are the resolved pool strings ("" if the index was < 0). The box
-    // stays up until 0xd2. The next Wait_Prompt gates on advance + text fully revealed.
+    // op 0xd3 Window_Msg(speakerId, voiceParam, name, text): open/update the message box
+    // with a line. `speaker` picks the face/voice (player id remaps by char); `name`/`text`
+    // are the string operands ("" when NULL). FUN_00573e60 defaults an EMPTY NAME to the
+    // speaker's cast record name (+0x10) -- the host does that (it owns the cast table;
+    // audit event_vm #26). The box stays up until 0xd2; Wait_Prompt gates on advance.
     virtual void window_msg(int /*speaker*/, int /*voice*/, const std::string& /*name*/,
                             const std::string& /*text*/) {}
     virtual void window_close() {}                                // op 0xd2 Window_Close
     // op 0xe2 Caption(name): the area-name card is PRE-RENDERED art (data/image/<name>.dds).
     virtual void caption(const std::string& /*name*/) {}
     // op 0xd5 Window_Treasure(x, y, item, s): the "Acquired X" box (FUN_005781f0 draws a
-    // DIALOG0 9-slice at screen (x,y) with the item icon + caption; x=512 => centred).
-    // The script parks on the following Wait_Prompt, so the player dismisses it.
-    virtual void acquire_item(float /*x*/, float /*y*/, int /*item_id*/) {}
+    // DIALOG0 9-slice at screen (x,y) with the item icon; x=512 => centred). Its TEXT is the
+    // op3 string verbatim (e.g. "Acquired<newline><color:..>Ring Mail<color:>."), and it writes
+    // no inventory: the grant is the script's own Flag_SetInt(item, 1) (audit event_vm
+    // #27/#28). The script parks on the following Wait_Prompt, so the player dismisses it.
+    virtual void acquire_item(float /*x*/, float /*y*/, int /*item_id*/, const std::string& /*text*/) {}
 
     // --- cutscene camera ops (CUTSCENE_CAMERA.md) ------------------------------------
     // op 0xc3 Scroll_MoveTo(x,y,z, frames, priority): slide the camera look-at to a world
@@ -199,6 +205,23 @@ struct XsoHost {
     virtual void camera_set(int /*region*/, int /*frames*/) {}
     virtual void camera_return(int /*frames*/) {}
 
+    // --- scene flow (build/event_re/SCENEFLOW.md) -------------------------------------
+    // op 0x97 ChangeScene(name, entry): FUN_00430ef0(sceneId, force 0) — a request for the
+    // START OF THE NEXT FRAME (refused while one is pending); `entry` is ignored. The engine
+    // then freezes every script (the caller finishes its current burst) and tears the room
+    // down. `name` is a scene path ("s_10\s_1009\" or "demo3\").
+    virtual void change_scene(const std::string& /*name*/) {}
+    // op 0xcd CrossFade(start, rate, name, entry): freeze this frame's image and dissolve it
+    // into the live view, opacity `start` then += `rate` per step. A non-NULL name (never in
+    // the corpus) would also change scene.
+    virtual void crossfade(float /*start*/, float /*rate*/) {}
+    // op 0x94 SetHealSpot(x, y, z): a heal-spot object for this room (the statue heal).
+    virtual void heal_spot(float /*x*/, float /*y*/, float /*z*/) {}
+    // op 0xa7 SetWarpEnableIndex(i): unlock goddess-statue warp destination i (saved).
+    virtual void warp_enable(int /*index*/) {}
+    // op 0xa6 GoWarpPoint(): ChangeScene to warp table[flag 137] (the Wing).
+    virtual void go_warp_point() {}
+
     // op 0xa0, the BULK SCT SPAWN (build/roomload_re/ROOMLOAD.md §3). The engine's
     // handler FUN_004341a0 loads the room's .SCT (named by the operand) and spawns
     // every placement through the CASTINFO factory. We pre-load the host with the
@@ -216,17 +239,31 @@ struct XsoVm {
     // inert and the VM behaves exactly as it did before actors existed.
     XsoHost* host = nullptr;
 
+    // The GoScript variable block +0x244..+0x2b7 that `$I0/$I1`, `$F0/$F1`, `$S0/$S1` operands
+    // read (audit event_vm #11): filled by StartScript's extra operands or by the map object
+    // whose script this is (its SOB name and i0/i1/f0; sob.hpp). Per running script.
+    struct Vars {
+        std::int32_t i[2] = {0, 0};
+        float f[2] = {0.0f, 0.0f};
+        std::string s[2];
+    };
+    Vars vars;
+
     // StartScript sink (op 0xb4 StartScript / 0xb8 StartScript2, CUTSCENE_COROUTINE.md §5).
     // A running COROUTINE hands the resolved child-script NAME here so a ScriptManager can
-    // spawn it as a concurrent GoScript. Null (the default) => the op is inert — which is
+    // spawn it as a concurrent GoScript, with the operands after the name marshalled into the
+    // child's variable block (FUN_00434970). Null (the default) => the op is inert, which is
     // exactly the run-to-completion behaviour for static grant extraction, so `run()` and
     // `--grants` never try to load or recurse into children. Only fired in coroutine mode.
-    std::function<void(const std::string& name)> on_start_script;
+    std::function<void(const std::string& name, const Vars& child)> on_start_script;
 
-    // Fix (0xb6) / Unfix (0xb7) sinks (CUTSCENE_CAMERA.md §7): a running COROUTINE that Fixes
-    // freezes the world (ref-counted); Unfix (and script teardown) releases. The ScriptManager
-    // counts these to drive `world_frozen()`. Coroutine-only; null => inert (run-to-completion).
-    std::function<void()> on_fix, on_unfix;
+    // Fix(slot) (0xb6) / Unfix (0xb7) sinks (FUN_0056e8d0, audit event_vm Part C): a script
+    // holds at most one fix. Fix(slot) releases its previous one, then counts slot
+    // (0x75ad90[slot]); Unfix releases it. Window_Msg / Window_Treasure / Window_Menu fix
+    // slot 0 implicitly when the script holds none (`on_window_fix`). Coroutine-only; null
+    // => inert (run-to-completion).
+    std::function<void(int slot)> on_fix;
+    std::function<void()> on_unfix, on_window_fix;
     std::int32_t g_flags[0x200] = {0};
     // `itemArr` u32[54] @0x76a654 (EQUIP.md): per-item ownership/availability, 0 at new
     // game (the memset covers it), written by the scene dispatcher FUN_00431840. Read by
@@ -236,9 +273,16 @@ struct XsoVm {
     std::int32_t acc = 0;
     // outputs collected during a run:
     std::vector<Grant> grants;
-    std::vector<int> items;     // give-item ids (sub-op 0x116)
+    // 0x116 Effect_GetItem icon ids: a VISUAL item sprite only, never a grant (the grant is
+    // the script's Flag_SetInt(item, 1); audit event_vm #28).
+    std::vector<int> items;
     std::vector<int> acquires;  // "Acquired X" box item ids (sub-op 0xD5, operand 2)
-    std::vector<std::string> obj_enable;  // 0x169: object names shown/spawned
+    // 0x169 Mesh_Delete (FUN_00572a30: +0x11 |= 2, +0x60 &= ~0x80, a destroy request; audit
+    // event_vm #29): object names this script removed. (It was long misread as "enable".)
+    std::vector<std::string> obj_deleted;
+    // Deprecated duplicate of obj_deleted under its old (wrong) name, kept so tools that still
+    // print it (apps/cleria-xso) build. Do not read it for semantics.
+    std::vector<std::string> obj_enable;
     std::vector<std::string> obj_opened;  // 0x175: object names given a state (legacy view)
     // 0x175 in full: object name -> the YMO animation CLIP it was posed to ("OPEN" for a
     // looted chest, "UP"/"STOP" for S_1004's stepping stones, "TURN_ON"/"OFF" for its switch).
@@ -250,9 +294,11 @@ struct XsoVm {
     // inherit its owner's visibility and placement, or hiding/moving a stepping stone
     // leaves its drop shadow behind as a black quad on the floor.
     std::unordered_map<std::string, std::string> obj_shadow_of;
-    // 0x16B/0x16C: explicit object visibility, name -> shown. Several rooms place
+    // 0x16B Mesh_SetVisible: name -> shown (+0x298 bit 0x20 = hidden). Several rooms place
     // multiple variants of one object at the same spot and let a script pick.
     std::unordered_map<std::string, bool> obj_visible;
+    // 0x16C Mesh_EnableCollision: name -> collidable (+0x298 bit 0x40 = no collision).
+    std::unordered_map<std::string, bool> obj_collide;
 
     std::int32_t& flag(int idx) { return idx < 0x200 ? g_flags[idx] : locals[idx]; }
 
@@ -285,8 +331,8 @@ struct XsoVm {
     // Clear per-run state (accumulator, locals, outputs) but keep g_flags, so one
     // VM can persist game state across many script runs.
     void reset_run() {
-        acc = 0; locals.clear(); grants.clear(); items.clear();
-        acquires.clear(); obj_enable.clear(); obj_opened.clear(); obj_visible.clear();
+        acc = 0; locals.clear(); grants.clear(); items.clear(); obj_enable.clear();
+        acquires.clear(); obj_deleted.clear(); obj_opened.clear(); obj_visible.clear(); obj_collide.clear();
         obj_state.clear(); obj_place.clear(); obj_shadow_of.clear();
     }
 
@@ -350,6 +396,13 @@ struct XsoVm {
     // by run() and tick() so the opcode semantics live in exactly one place.
     enum class Step { Continue, End, Unknown, Park };
     Step step_one(const Xso& script, std::uint32_t& pc, bool coroutine);
+    // Typed operand reads (FUN_00566190 int / FUN_00566250 float / FUN_00566100 string): the
+    // 2-bit type per operand in the descriptor words; a mismatched type reads 0 / "" and a
+    // `$`-string reads this script's variable block. `old` = the op's pc.
+    std::uint32_t op_type(const Xso& s, std::uint32_t old, std::uint32_t i) const;
+    std::int32_t op_int(const Xso& s, std::uint32_t old, std::uint32_t i) const;
+    float op_float(const Xso& s, std::uint32_t old, std::uint32_t i) const;
+    std::string op_str(const Xso& s, std::uint32_t old, std::uint32_t i) const;
     // A condition-wait predicate (0xf1/0xf3/0xf4/0xf5/0xf6/0xf7/0xf8): true => proceed.
     bool eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
                    std::uint32_t argoff, std::uint32_t nargs);
@@ -385,24 +438,27 @@ struct ScriptManager {
         std::int32_t acc = 0;
         std::unordered_map<int, std::int32_t> locals;
         bool finished = false;
-        int fix_held = 0;                  // net Fix(0xb6) this script holds (released on teardown)
+        int fix_slot = -1;                 // +0x230: the fix slot this script holds (-1 none)
+        XsoVm::Vars vars;                  // +0x244..: $I/$F/$S
     };
     std::vector<Inst> live;
-    std::vector<std::string> spawn_queue;   // names queued by StartScript during a tick
+    struct Spawn { std::string name; XsoVm::Vars vars; };
+    std::vector<Spawn> spawn_queue;         // children queued by StartScript during a tick
     std::size_t peak_live = 0;              // max instances resident in one frame (pre-reap)
-    int fix_count = 0;                      // global Fix ref-count -> world_frozen()
+    int fix_counts[2] = {0, 0};             // 0x75ad90 / 0x75ad94: the two fix slots
 
     ScriptManager() {
-        vm.on_start_script = [this](const std::string& n) { spawn_queue.push_back(n); };
-        // Fix/Unfix adjust the current instance's held count and the global ref-count.
-        vm.on_fix = [this] { if (cur_inst_) { ++cur_inst_->fix_held; ++fix_count; } };
-        vm.on_unfix = [this] {
-            if (cur_inst_ && cur_inst_->fix_held > 0) { --cur_inst_->fix_held; if (fix_count > 0) --fix_count; }
+        vm.on_start_script = [this](const std::string& n, const XsoVm::Vars& v) {
+            spawn_queue.push_back({n, v});
         };
+        vm.on_fix = [this](int slot) { if (cur_inst_) fix(*cur_inst_, slot); };
+        vm.on_unfix = [this] { if (cur_inst_) unfix(*cur_inst_); };
+        vm.on_window_fix = [this] { if (cur_inst_ && cur_inst_->fix_slot < 0) fix(*cur_inst_, 0); };
     }
 
-    // The world is frozen while any live script holds a Fix (CUTSCENE_CAMERA.md §7).
-    bool world_frozen() const { return fix_count > 0; }
+    // The world is frozen while any live script holds a fix (IsFix = the two counters'
+    // sum, FUN_0040b2c0; CUTSCENE_CAMERA.md §7).
+    bool world_frozen() const { return fix_counts[0] + fix_counts[1] > 0; }
 
     // Register a root (or already-loaded child) instance and tick it once this frame,
     // matching StartScript's immediate first tick (§5a). Returns the live-index.
@@ -410,7 +466,7 @@ struct ScriptManager {
     // Spawn a child by NAME via the loader (the StartScript path). Dedup: refuse if a live
     // instance with the same name already exists (single-instance; §5a). Ticks the child
     // once immediately. Returns false if deduped or the loader can't find it.
-    bool start(const std::string& name);
+    bool start(const std::string& name, const XsoVm::Vars& vars = {});
     // One engine frame: tick every live script once, drain StartScript spawns (children
     // tick this frame too), then reap finished scripts. A no-op while paused.
     void tick_all();
@@ -424,6 +480,8 @@ struct ScriptManager {
 
   private:
     void tick_inst(Inst& in);          // swap regs into `vm`, run one frame, save back
+    void fix(Inst& in, int slot);      // FUN_0056e8d0: release the held slot, count `slot`
+    void unfix(Inst& in);
     Inst* cur_inst_ = nullptr;         // the instance being ticked (for Fix/Unfix attribution)
 };
 
