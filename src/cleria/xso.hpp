@@ -94,7 +94,7 @@ struct XsoHost {
     // times `speed_scale` (+0x368).
     virtual void chr_moveto(int /*id*/, float /*x*/, float /*z*/, float /*radius*/, float /*speed_scale*/) {}
     virtual bool chr_moving(int /*id*/) const { return false; }                  // 0x100 Wait_ChrMoving
-    virtual void chr_alpha(int /*id*/, float /*end_alpha*/) {}                    // 0x154 Chr_Alpha (end)
+    virtual void chr_alpha(int /*id*/, float /*start*/, float /*end*/, int /*frames*/) {}   // 0x154 Chr_Alpha
     virtual void chr_lookat(int /*id*/, int /*target*/) {}                        // 0x134/0x136 face actor
     virtual void chr_lookat_pos(int /*id*/, float /*x*/, float /*z*/) {}          // 0x137 face point
     virtual void chr_animate(int /*id*/, int /*motion*/) {}                        // 0x151 pin/clear pose
@@ -103,7 +103,13 @@ struct XsoHost {
     // is the DDS stem (e.g. "t_840a", "v_003a"); (x,y) is the authored 2D anchor.
     virtual void portrait_open(const std::string& /*name*/, float /*x*/, float /*y*/) {}
     virtual void portrait_close(const std::string& /*name*/) {}
-    virtual void portrait_move(const std::string& /*name*/, float /*x*/, float /*y*/) {}
+    // 0xe5 Portrait_Move(s, x, y, frames, curve, ?) tweens (curve 0 smoothstep, 2 sine, else
+    // linear); 0xe6 Color(s, four corner ARGBs); 0xe7 Priority(s, p); 0xe8 FadeSpeed(s, f)
+    // (build/event_re/WNDDIALOG_DRAW.md §8).
+    virtual void portrait_move(const std::string& /*name*/, float /*x*/, float /*y*/, int /*frames*/, int /*curve*/) {}
+    virtual void portrait_color(const std::string& /*name*/, const std::uint32_t* /*corners4*/) {}
+    virtual void portrait_priority(const std::string& /*name*/, int /*p*/) {}
+    virtual void portrait_fade_speed(const std::string& /*name*/, float /*s*/) {}
 
     // op 0x12d Chr_Delete(id): remove the actor with this instance id. Cutscene NPCs
     // spawn (0x12c), talk, then delete themselves; enemies use it too. Null host / an
@@ -188,6 +194,23 @@ struct XsoHost {
     // 0x8b EventXX(n): sub-kind 10 unequips the accessory, 7 clears accessory / held / magic
     // (build/item_re/KEY_ITEMS.md §5).
     virtual void event_xx(int /*n*/) {}
+    // 0x116 Effect_GetItem(item, flag, mesh): the display-only item icon that rises out of a
+    // chest (FUN_00573210, build/item_re/PICKUPS.md §9). It grants nothing.
+    virtual void effect_get_item(int /*item*/, int /*flag*/, const std::string& /*mesh*/) {}
+    // 0x17e Mesh_DropItem(mesh, item, keep): a world pickup 0.5 above the mesh (FUN_00573150;
+    // keep = never expires). The chance is the script's own 0x81 roll (PICKUPS.md §13.7).
+    virtual void mesh_drop_item(const std::string& /*mesh*/, int /*item*/, int /*keep*/) {}
+    // 0x130 Chr_AttachScript(id, script): the actor's talk script +0x630 (FUN_00570770).
+    virtual void chr_attach_script(int /*id*/, const std::string& /*script*/) {}
+    // 0x160 Chr_SetStatus(id, lv, hp, s1..s4, r1..r4) (FUN_00571bf0, EVENTVM_HANDLERS_3 §2):
+    // f[0] = HP, f[1..4] = +0xa4..+0xb0, f[5..8] = the resists +0xb4..+0xc0.
+    virtual void chr_set_status(int /*id*/, int /*lv*/, const float* /*f*/) {}
+    // 0xBC Se_Play(se, vol): FUN_004396f0(se). 0xBB Bgm_Volume(volume, time): FUN_00432fe0,
+    // the BGM stream's +0x10 / +0x14 (BARRIER_OBJECTS.md §1).
+    virtual void se_play(int /*se*/) {}
+    virtual void bgm_volume(int /*volume*/, int /*time*/) {}
+    // 0x8F Set_Skill(i): *0x76a630 = i, the equipped magic (EVENTVM_HANDLERS_2).
+    virtual void set_skill(int /*i*/) {}
     // op 0xe2 Caption(name): the area-name card is PRE-RENDERED art (data/image/<name>.dds).
     virtual void caption(const std::string& /*name*/) {}
     // op 0xd5 Window_Treasure(x, y, item, s): the "Acquired X" box (FUN_005781f0 draws a

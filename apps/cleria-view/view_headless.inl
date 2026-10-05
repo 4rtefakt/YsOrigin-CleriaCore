@@ -290,8 +290,35 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
         {
             EftList efl2; EftTex eft2;
             if (efl2.load(asset_root) && eft2.load(asset_root)) {
-                draw_located_effects(g, world.effects(), asset_root, efl2, eft2, cview, dview,
-                                     cam.forward(), 0.30f);
+                // The script-placed effects through the EF2 sim, as the live loop runs them
+                // (rot = (0, -pi/2 - b deg, 0), scale a). CLERIA_FX_TICKS=N steps them N ticks
+                // (default 1); CLERIA_FX_KILL=K applies Eft_Kill to every one at tick K.
+                std::vector<std::unique_ptr<Ef2>> ef2s;
+                ef2sim::Rng rng;
+                ef2sim::System sim(&rng);
+                for (const auto& e : world.effects()) {
+                    auto ef = std::make_unique<Ef2>();
+                    const fs::path p = efl2.path(asset_root, e.id);
+                    if (!p.empty()) *ef = Ef2::load(p);
+                    if (!ef->ok()) continue;
+                    ef2sim::SpawnParams sp;
+                    sp.pos = {e.x, e.y, e.z};
+                    sp.rot = {0.0f, -1.5707964f - e.b * 0.017453292f, 0.0f};
+                    sp.scale = {e.a, e.a, e.a};
+                    if (ef2sim::Effect* fx = sim.spawn(e.id, *ef, sp)) fx->name = e.name;
+                    ef2s.push_back(std::move(ef));
+                }
+                const int fx_ticks = std::getenv("CLERIA_FX_TICKS") ? std::atoi(std::getenv("CLERIA_FX_TICKS")) : 1;
+                const int fx_kill = std::getenv("CLERIA_FX_KILL") ? std::atoi(std::getenv("CLERIA_FX_KILL")) : -1;
+                for (int t = 1; t < fx_ticks; ++t) {
+                    if (t == fx_kill) for (auto& f : sim.effects()) f->kill = true;
+                    sim.step();
+                    sim.sweep();
+                }
+                if (std::getenv("CLERIA_BARRIER"))
+                    std::printf("barrier: fx sim at tick %d: %zu effect(s), %zu particle(s)\n",
+                                fx_ticks, sim.effects().size(), sim.particles().size());
+                draw_particles(g, sim, asset_root, eft2, cview, dview, cam.forward());
                 // CLERIA_BULLET_PREVIEW=<effectId>[,age] — park one projectile in front of
                 // the player and draw it. Bullet art was otherwise only reachable by firing
                 // in the live loop, so its orientation and size could never be checked

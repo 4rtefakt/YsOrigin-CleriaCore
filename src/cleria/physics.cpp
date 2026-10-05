@@ -289,13 +289,16 @@ bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b) {
     return false;
 }
 
-bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, Vec3* normal) {
+namespace {
+// The nearest crossing of a -> b over the triangles [t0, t1): its fraction (> 1 = none).
+float nearest_crossing(const RoomMesh& m, const Vec3& a, const Vec3& b, std::size_t t0, std::size_t t1,
+                       Vec3* bn_out) {
     const Vec3 d = sub(b, a);
     const auto& idx = m.indices;
     const auto& vp = m.vertices;
     float best = 2.0f;
     Vec3 bn{};
-    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+    for (std::size_t i = t0 * 3; i + 2 < idx.size() && i < t1 * 3; i += 3) {
         const Vec3 p0 = v(vp[idx[i]]), p1 = v(vp[idx[i + 1]]), p2 = v(vp[idx[i + 2]]);
         const Vec3 e1 = sub(p1, p0), e2 = sub(p2, p0);
         const Vec3 h = cross(d, e2);
@@ -311,6 +314,19 @@ bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, V
         const float t = dot(e2, q) * inv;
         if (t > 1e-4f && t < best) { best = t; bn = cross(e1, e2); }
     }
+    if (bn_out) *bn_out = bn;
+    return best;
+}
+}  // namespace
+
+bool segment_hits_tris(const RoomMesh& m, const Vec3& a, const Vec3& b, std::uint32_t t0, std::uint32_t t1) {
+    return nearest_crossing(m, a, b, t0, t1, nullptr) <= 1.0f;
+}
+
+bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, Vec3* normal) {
+    const Vec3 d = sub(b, a);
+    Vec3 bn{};
+    const float best = nearest_crossing(m, a, b, 0, m.indices.size() / 3, &bn);
     if (best > 1.0f) return false;
     if (point) *point = {a.x + d.x * best, a.y + d.y * best, a.z + d.z * best};
     if (normal) {

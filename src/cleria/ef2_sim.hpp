@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "cleria/ef2.hpp"
@@ -104,6 +105,7 @@ struct Effect {
     int rtype = 0, status = 0, cls = -1, side = 1;
     int owner = 0;                // an actor instance id (bookkeeping only)
     int tag = -1;                 // a brain's private tag (M530 beams, M140 charge)
+    std::string name;             // fx+0x20c, set by the script placements (FUN_00451da0)
 };
 
 struct SpawnParams {

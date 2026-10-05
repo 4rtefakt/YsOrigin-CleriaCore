@@ -46,6 +46,8 @@ bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b);
 // The nearest hit along a -> b (FUN_0041e420's "closest hit point" + the triangle's plane
 // normal). False when nothing is hit.
 bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, Vec3* normal);
+// The same test restricted to triangles [t0, t1) (one object's range, RoomMesh::ObjRange).
+bool segment_hits_tris(const RoomMesh& m, const Vec3& a, const Vec3& b, std::uint32_t t0, std::uint32_t t1);
 // True when any collision triangle comes within `r` of `c` (a zero-sweep sphere query).
 bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r);
 

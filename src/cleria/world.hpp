@@ -80,6 +80,9 @@ struct WorldTables {
 class ActorWorld : public XsoHost {
   public:
     explicit ActorWorld(WorldTables t) : tables_(t) {}
+    // The game's xorshift128 state (XsoVm::rs), for the draws the spawn op makes (the glow phase
+    // seed). Null = no draw (headless tools).
+    std::uint32_t* rng = nullptr;
 
     // The spawn op, end to end (FUN_00570400). Returns null if the cast is unknown.
     //
@@ -148,8 +151,37 @@ class ActorWorld : public XsoHost {
         for (const Actor& a : actors_) if (a.instance_id == id) return a.cmoving;
         return false;
     }
-    void chr_alpha(int id, float end_alpha) override {                  // 0x154 Chr_Alpha (end state)
-        if (Actor* a = find(id)) a->visible = end_alpha > 0.01f;
+    void chr_alpha(int id, float start, float end, int frames) override {   // 0x154 (FUN_005715d0)
+        if (Actor* a = find(id)) {
+            const float s = std::clamp(start, 0.0f, 1.0f), t = std::clamp(end, 0.0f, 1.0f);
+            a->ai.alpha = s;
+            a->alpha_to = t;
+            a->alpha_step = (t - s) / float(frames == 0 ? 1 : frames);
+        }
+    }
+    // The +0x4e0 lerp of the actor tick (FUN_0045c490 0x45d147). [H] It also runs under a Fix:
+    // the scripts fade an actor and Wait_Time the fade out under their own Fix (TALKITEM's
+    // Chr_Alpha(159, 1, 0, 50); Wait_Time(50)), so the view calls this every tick.
+    void tick_alpha_fades() {
+        for (Actor& a : actors_) {
+            if (a.alpha_step == 0.0f) continue;
+            a.ai.alpha += a.alpha_step;
+            const bool short_of = a.alpha_step < 0.0f ? a.alpha_to < a.ai.alpha : a.ai.alpha < a.alpha_to;
+            if (!short_of) { a.alpha_step = 0.0f; a.ai.alpha = a.alpha_to; }
+        }
+    }
+    void chr_attach_script(int id, const std::string& s) override {    // 0x130
+        if (Actor* a = find(id)) a->talk_script = s;
+    }
+    void chr_set_status(int id, int lv, const float* f) override {      // 0x160
+        if (Actor* a = find(id)) {
+            a->level = lv;
+            a->hp = a->max_hp = f[0];
+            a->atk = f[1];                                              // +0xa4
+            a->def = f[2];                                              // +0xa8
+            a->exp_reward = f[4];                                       // +0xb0 (f[3] = +0xac, not modelled)
+            for (int k = 0; k < 4; ++k) a->resist[k] = f[5 + k];
+        }
     }
     // Facing control (ops 0x134 Chr_DirChr / 0x136 Chr_LookAtChr): actor `id` turns to
     // face actor `target`. 0x137 Chr_LookAtPos faces a world point. Player (13/999)
@@ -237,11 +269,11 @@ class ActorWorld : public XsoHost {
     // here from room-load until the barrier breaks.
     // `age` ticks up every sim frame; a ONE-SHOT effect is removed when it passes its EF2
     // lifetime (EFFECTS.md §: the effect object's tick has a lifetime gate `+0x130 >= +0x12c`
-    // that sets the destroy bit). `hold` is the op's 6th operand: 0 for fire-and-forget
-    // bursts (enemy warp-in `z_warp`, hit sparks) and 25.0 for the effects that must stay up
-    // until an explicit Eft_Kill (the `map_kekkai` wards, the `save_*zou` statue auras).
-    // [H-med] the operand's exact unit isn't traced, but the 0-vs-nonzero split is exactly the
-    // observed one-shot/persistent split across the whole S_10 script corpus.
+    // that sets the destroy bit). For 0x117/0x11A `a` is the scale and `b` the yaw in degrees
+    // (BARRIER_OBJECTS.md §1), NOT a hold flag: the old "b != 0 = held until Eft_Kill" reading
+    // is WRONG (every 0x11A site has b = 0). The live loop runs those placements through the
+    // EF2 sim instead, where persistence is the emitters' own re-arm; this list keeps the
+    // headless preview and the brains' owned effects.
     struct LocatedEffect {
         int id; float x, y, z, a, b; std::string name; int age = 0;
         int owner = 0, tag = -1;   // a brain's private owner tag (M530: fx+0x1a4 = self, fx+0x1d5)
@@ -283,6 +315,11 @@ class ActorWorld : public XsoHost {
     void kill_effect(const std::string& name) override {
         for (auto it = effects_.begin(); it != effects_.end();)
             it = (it->name == name) ? effects_.erase(it) : it + 1;
+    }
+    // Drop the script-placed (named) effects; the live loop places them in the EF2 sim.
+    void drop_named_effects() {
+        for (auto it = effects_.begin(); it != effects_.end();)
+            it = it->name.empty() ? it + 1 : effects_.erase(it);
     }
     const std::vector<LocatedEffect>& effects() const { return effects_; }
 

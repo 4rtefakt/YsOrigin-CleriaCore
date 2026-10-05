@@ -327,26 +327,20 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos, flash,
                        float((tc >> 16) & 0xff) / 255.0f, float((tc >> 8) & 0xff) / 255.0f,
                        float(tc & 0xff) / 255.0f, false, e.actor->ai.alpha * e.actor->tint_alpha);
-        // Event-bound (group-1..4) enemies GLOW their marker colour, ADDED to their own sprite and
-        // pulsing by |sin(phase)| — the engine's FUN_00473c60 mechanism (build/effect_re/EF2_RENDER.md
-        // §B): marker ARGB, alpha = intensity, per-enemy phase. Group 1 = 0xFFE00000 (red 224). We
-        // reproduce it as a second ADDITIVE pass of the same sprite tinted by RGB*(A*|sin|/255).
-        static const std::uint32_t kGroupColour[4] = {0xFFE00000u, 0xFF00D000u, 0xFF0000FFu, 0xFF00C0C0u};
-        for (int grp = 1; grp <= 4; ++grp) {
-            if (!e.actor->tag.in_group(grp)) continue;
-            const std::uint32_t mk = kGroupColour[grp - 1];
-            const float A = float((mk >> 24) & 0xFF) / 255.0f;
+        // Event-bound (group-1..4) enemies GLOW their marker colour (FUN_00473c60 [BYTES 0x473ec8..f87],
+        // BARRIER_OBJECTS.md §1a): A = marker alpha * |sin(2 pi phase / 255)|, no floor, the phase
+        // stepped in the actor tick (so it holds still under a Fix). [H] the composition: the
+        // engine adds RGB * A / 255 into the actor's colour word; we draw it as a second additive
+        // pass of the same sprite.
+        if (const std::uint32_t mk = e.actor->glow_marker) {
+            const float I = float((mk >> 24) & 0xFF) / 255.0f *
+                            std::fabs(std::sin(float(e.actor->glow_phase) * 6.2831855f / 255.0f));
             const float mr = float((mk >> 16) & 0xFF) / 255.0f;
             const float mg = float((mk >> 8) & 0xFF) / 255.0f;
             const float mb = float(mk & 0xFF) / 255.0f;
-            const float phase = float(e.actor->instance_id) * 2.4f + t_anim * 6.2831853f;  // per-enemy offset
-            // Keep a floor under the pulse so a ward seed always reads as glowing (it never
-            // fully fades to 0), and make the pulse a touch stronger — the retail ward glow
-            // is subtle but always present.
-            const float I = A * (0.45f + 0.55f * std::fabs(std::sin(phase)));               // pulsing intensity
-            draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos,
-                           0.0f, mr * I, mg * I, mb * I, /*additive*/true, e.actor->ai.alpha);
-            break;
+            if (I > 0.0f)
+                draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos,
+                               0.0f, mr * I, mg * I, mb * I, /*additive*/true, e.actor->ai.alpha);
         }
     }
 }

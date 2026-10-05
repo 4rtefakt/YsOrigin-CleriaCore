@@ -178,6 +178,15 @@ struct BookRenderer {
         }
     }
 
+    // A named texture's size (the busts are drawn 1:1); false when the file is missing.
+    bool named_size(Gpu& g, const std::string& name, int* w, int* h) {
+        bind_of(g, {TexRef::Named, 0, name.c_str()});
+        auto it = named_tex.find(lower(name));
+        if (it == named_tex.end() || !it->second.tex) return false;
+        *w = int(it->second.w); *h = int(it->second.h);
+        return true;
+    }
+
     // The GDI font's metrics for the window text layout (richtext.hpp): a 32-unit cell.
     RichMetrics metrics() const {
         RichMetrics m;
@@ -656,11 +665,16 @@ static int render_wnd(Gpu& g, const fs::path& asset_root, const fs::path& out, s
         d.menu(512, 282, "What will you do?", {"Save", "Accept divine blessing", "Nothing right now"},
                {"@SaveMenu", "@GrowMenu", "@SaveBack"}, m, true);
         d.arm();
-    } else if (kind != "title") {
+    } else if (kind != "title" && kind != "caption" && kind != "bust") {
         t.message(0x57, 1, 0, "Roy", "Heh, so you're the new recruits.\nWelcome to the <color:0xfff2ea8c>"
                   "Search Party<color:>.", m);
         t.arm();
     }
+    CaptionCard cap;                                     // CLERIA_WND=caption: map_name04 at mid-hold
+    Busts busts;                                         // CLERIA_WND=bust: t_840a at (80, 768), faded in
+    busts.size_of = [&](const std::string& tx, int* w, int* h) { return br.named_size(g, tx, w, h); };
+    if (kind == "caption") { cap.open("map_name04"); for (int i = 0; i < 70; ++i) cap.step(); }
+    if (kind == "bust") { busts.open("t_840a", 80, 768); for (int i = 0; i < 60; ++i) busts.step(); }
     TitleScreen ts;
     TitleGates gates;
     if (kind == "title") {                               // the title screen; CLERIA_WND_CLEAR=1 = all cleared
@@ -670,6 +684,8 @@ static int render_wnd(Gpu& g, const fs::path& asset_root, const fs::path& out, s
     for (int i = 0; i < 240; ++i) { t.update({}, snd); d.update({}, snd); }
     DrawList dl;
     if (kind == "title") ts.draw(dl);
+    busts.draw(dl);
+    cap.draw(dl);
     t.draw(dl, d.alive());
     d.draw(dl);
     br.render(g, cview, W, H, dl);

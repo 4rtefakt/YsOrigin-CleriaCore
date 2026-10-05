@@ -22,6 +22,7 @@
 // and a guessed one is the failure mode this codebase exists to avoid.
 #pragma once
 #include <cstdint>
+#include <string>
 
 #include "cleria/combat.hpp"  // owns kActorDead and the damage path
 #include "cleria/enemy_ai.hpp"
@@ -197,10 +198,19 @@ struct Actor {
     // (idle/walk by state). The renderer uses this tag instead of the ASO's when >= 0.
     int anim_pin = -1;
 
-    // Cutscene visibility (op 0x154 Chr_Alpha end-alpha): actors fade in/out during
-    // scripted scenes; we don't do the smooth fade, but honour the END state so an
-    // actor that fades OUT (end alpha 0) is hidden and one that fades IN appears at the
-    // right time instead of popping in at spawn. Drawn only when visible.
+    // Op 0x130 Chr_AttachScript (FUN_00570770): the talk script +0x630 the action probe starts
+    // (FUN_00460470, build/event_re/BARRIER_OBJECTS.md §1b). Empty = not a probe candidate.
+    std::string talk_script;
+    // Op 0x154 Chr_Alpha's fade block (FUN_005715d0): ai.alpha (+0x4d8) steps by +0x4e0 toward
+    // +0x4dc in the actor tick (FUN_0045c490 0x45d147). ActorWorld::tick_alpha_fades.
+    float alpha_to = 1.0f, alpha_step = 0.0f;
+    // The event-group glow (build/event_re/BARRIER_OBJECTS.md §1a): the spawn op's group writes the
+    // marker ARGB +0x2b4 (group 1 = 0xFFE00000) and seeds the phase byte +0x2a7 from the game RNG;
+    // the actor tick steps the phase; the colour builder adds RGB * A * |sin(2 pi phase / 255)|.
+    std::uint32_t glow_marker = 0;   // +0x2b4 (0 = no glow)
+    std::uint8_t glow_phase = 0;     // +0x2a7
+
+    // Hidden outright (a removed corpse). Chr_Alpha fades ai.alpha instead (above).
     bool visible = true;
 
     // Transient chase-speed multiplier, driven by the enemy's animation script the way

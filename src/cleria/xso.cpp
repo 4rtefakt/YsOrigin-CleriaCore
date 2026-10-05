@@ -294,6 +294,17 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0xda && nargs >= 1) { host->menu_assign_cancel(ops(0)); return Step::Continue; }
                     if (sub == 0xdb) { host->menu_cursor_last(); return Step::Continue; }
                     if (sub == 0x8b && nargs >= 1) { host->event_xx(op(0)); return Step::Continue; }
+                    if (sub == 0x17e && nargs >= 3) { host->mesh_drop_item(ops(0), op(1), op(2)); return Step::Continue; }
+                    if (sub == 0x130 && nargs >= 2) { host->chr_attach_script(op(0), ops(1)); return Step::Continue; }
+                    if (sub == 0x160 && nargs >= 11) {        // (id, lv, 9 floats)
+                        float f[9];
+                        for (std::uint32_t k = 0; k < 9; ++k) f[k] = opf(2 + k);
+                        host->chr_set_status(op(0), op(1), f);
+                        return Step::Continue;
+                    }
+                    if (sub == 0xbc && nargs >= 1) { host->se_play(op(0)); return Step::Continue; }
+                    if (sub == 0xbb && nargs >= 2) { host->bgm_volume(op(0), op(1)); return Step::Continue; }
+                    if (sub == 0x8f && nargs >= 1) { host->set_skill(op(0)); return Step::Continue; }
                     if (sub == 0xd3 && nargs >= 4) {          // Window_Msg(speaker,voice,name,text)
                         host->window_msg(op(0), op(1), ops(2), ops(3));   // type-0 -1 -> ""
                         return Step::Continue;
@@ -305,9 +316,15 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if ((sub == 0xe3 || sub == 0xe5) && nargs >= 3) {
                         auto f = [&](std::uint32_t i) { return opf(i); };
                         if (sub == 0xe3) host->portrait_open(ops(0), f(1), f(2));
-                        else             host->portrait_move(ops(0), f(1), f(2));
+                        else host->portrait_move(ops(0), f(1), f(2), nargs >= 4 ? op(3) : 0, nargs >= 5 ? op(4) : 1);
                         return Step::Continue;
                     }
+                    if (sub == 0xe6 && nargs >= 5) {
+                        const std::uint32_t c[4] = {std::uint32_t(op(1)), std::uint32_t(op(2)), std::uint32_t(op(3)), std::uint32_t(op(4))};
+                        host->portrait_color(ops(0), c); return Step::Continue;
+                    }
+                    if (sub == 0xe7 && nargs >= 2) { host->portrait_priority(ops(0), op(1)); return Step::Continue; }
+                    if (sub == 0xe8 && nargs >= 2) { host->portrait_fade_speed(ops(0), opf(1)); return Step::Continue; }
                     if (sub == 0xe4 && nargs >= 1) {          // Portrait_Close(name)
                         host->portrait_close(ops(0)); return Step::Continue;
                     }
@@ -471,10 +488,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                             grants.push_back(std::move(g));
                         }
                     } else if (sub == 0x116) {
-                        // Effect_GetItem(icon, ?, mesh): an item-icon sprite above the named mesh
+                        // Effect_GetItem(icon, flag, mesh): an item-icon sprite above the named mesh
                         // (FUN_00573210), visual only; the grant is the script's own Flag_SetInt
-                        // (audit event_vm #28). [not modelled] the sprite.
+                        // (audit event_vm #28).
                         items.push_back(i0);
+                        if (host) host->effect_get_item(i0, nargs >= 2 ? op(1) : 0, nargs >= 3 ? ops(2) : std::string());
                     } else if (sub == 0xD5 && nargs >= 3) {  // Window_Treasure(x,y,item,s)
                         acquires.push_back(op(2));
                         if (host) host->acquire_item(opf(0), opf(1), op(2), nargs >= 4 ? ops(3) : std::string());
@@ -542,9 +560,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // actor's walk speed. The actor's Y comes from the floor.
                         host->chr_moveto(op(0), opf(1), opf(2), opf(3), opf(4));
                     } else if (sub == 0x154 && host && nargs >= 3) {
-                        // Chr_Alpha(id, startA, endA, frames) [iffi]: honour the END alpha
-                        // as a visibility toggle.
-                        host->chr_alpha(op(0), opf(2));
+                        // Chr_Alpha(id, startA, endA, frames) [iffi] (FUN_005715d0): a fade.
+                        host->chr_alpha(op(0), opf(1), opf(2), nargs >= 4 ? op(3) : 0);
                     } else if (sub == 0x151 && host && nargs >= 2) {
                         // Chr_Animate(id, motion): pin the actor's rendered AIA tag to `motion`
                         // (a dialogue pose) when >= 0; -1 clears back to auto idle/walk.

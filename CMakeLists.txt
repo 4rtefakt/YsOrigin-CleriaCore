@@ -55,6 +55,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/wnddialog.cpp
   src/cleria/titlescreen.cpp
   src/cleria/popup.cpp
+  src/cleria/eventsprites.cpp
   src/cleria/surface.cpp
   src/cleria/save.cpp
   src/cleria/world.cpp)

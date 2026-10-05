@@ -17,19 +17,34 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     WGPUSurface surface = wgpuInstanceCreateSurface(g.instance, &sd);
     WGPUSurfaceCapabilities caps = {};
     wgpuSurfaceGetCapabilities(surface, g.adapter, &caps);
+    // A CLERIA_DRIVE run with no presentable surface (a non-interactive desktop) renders into an
+    // offscreen target instead, so its `shot`s still work.
+    const bool offscreen = caps.formatCount == 0 && std::getenv("CLERIA_DRIVE");
+    if (caps.formatCount == 0 && !offscreen) { std::fprintf(stderr, "no presentable surface\n"); return 1; }
     // Prefer the LINEAR (non-sRGB) surface format. Our textures are already sRGB and the shaders
     // pass them straight through; if the surface is Rgba8UnormSrgb, presenting sRGB-encodes a
     // SECOND time and the window washes out. The offscreen renders use linear RGBA8Unorm and look
     // correct -- match that here so all pipelines + the surface stay consistent.
-    WGPUTextureFormat fmt = caps.formats[0];
+    WGPUTextureFormat fmt = offscreen ? WGPUTextureFormat_RGBA8Unorm : caps.formats[0];
     for (std::size_t i = 0; i < caps.formatCount; ++i) {
         const WGPUTextureFormat f = caps.formats[i];
         if (f == WGPUTextureFormat_RGBA8Unorm || f == WGPUTextureFormat_BGRA8Unorm) { fmt = f; break; }
     }
     std::uint32_t cw = 1280, ch = 800;
+    WGPUTexture off_tex = nullptr;
     auto configure = [&] {
+        if (offscreen) {
+            if (off_tex) wgpuTextureRelease(off_tex);
+            WGPUTextureDescriptor td = {};
+            td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+            td.dimension = WGPUTextureDimension_2D; td.size = {cw, ch, 1};
+            td.format = fmt; td.mipLevelCount = 1; td.sampleCount = 1;
+            off_tex = wgpuDeviceCreateTexture(g.device, &td);
+            return;
+        }
         WGPUSurfaceConfiguration sc = {};
         sc.device = g.device; sc.format = fmt; sc.usage = WGPUTextureUsage_RenderAttachment;
+        if (std::getenv("CLERIA_DRIVE")) sc.usage |= WGPUTextureUsage_CopySrc;   // its `shot`
         sc.width = cw; sc.height = ch; sc.alphaMode = WGPUCompositeAlphaMode_Auto;
         sc.presentMode = WGPUPresentMode_Fifo;
         wgpuSurfaceConfigure(surface, &sc);
@@ -91,6 +106,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::printf("audio: %zu scenes, music from %s\n", scenes.size(),
                     bgmdefs.dir().string().c_str());
     int cur_bgm = -1;
+    float bgm_gain = 1.0f, bgm_gain_to = 1.0f, bgm_gain_step = 0.0f;   // op 0xBB Bgm_Volume
     auto apply_room_bgm = [&](const std::string& room_name) {
         const SceneRec* s = scenes.find_room(room_name);
         const int id = s ? int(s->bgm) : 0;
@@ -318,6 +334,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // effect in the engine does.
     ef2sim::Rng fx_rng;
     fx_rng.bind(game.rs);
+    world.rng = game.rs;                                       // the spawn op's glow-phase draw
     ef2sim::System fxsim(&fx_rng);
     std::unordered_map<int, std::unique_ptr<Ef2>> ef2_cache;   // id -> the parsed EF2 (stable)
     std::unordered_map<int, ef2sim::M4> actor_mats;           // an actor's +0x20 (its origin), for attaches
@@ -346,9 +363,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // effect follows that actor's origin at (pos - origin); its spawn rotation / scale are
     // dropped as the attach's own (0 / 1) replace them.
     auto spawn_sim_fx = [&](int id, const Vec3& pos, const Vec3& rot, float scale,
-                            ef2sim::SpawnParams sp, int attach_owner, const Vec3& origin) {
+                            ef2sim::SpawnParams sp, int attach_owner, const Vec3& origin) -> ef2sim::Effect* {
         const Ef2* ef = ef2_of(id);
-        if (!ef) return;
+        if (!ef) return nullptr;
         sp.pos = pos; sp.rot = rot; sp.scale = {scale, scale, scale};
         ef2sim::Effect* fx = fxsim.spawn(id, *ef, sp);
         if (fx && attach_owner != 0) {
@@ -356,6 +373,30 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             fx->attach_parent = &actor_mats[attach_owner];
             fx->attach_mode = 2;
         }
+        return fx;
+    };
+    // The script placements 0x117 Eft_LocatePos and 0x11A Eft_LocatePosAddStr: both reach
+    // FUN_00450410 with rot = (0, -pi/2 - op5 degrees, 0) and scale (op4, op4, op4), then name the
+    // effect (FUN_00451da0). BARRIER_OBJECTS.md §1 [BYTES 0x56b0fe, 0x56f920]. They are ordinary
+    // EF2 effects: the barrier ward stays up because its emitters re-arm (B2 & 0x800), and goes
+    // only on 0x119 Eft_Kill, which sets fx+0x1d4 (FUN_0056f880) so the 0x895&2 emitters fade.
+    auto place_named_fx = [&](int id, float x, float y, float z, float scale, float rot_deg,
+                              const std::string& name) {
+        const Vec3 rot{0.0f, -1.5707964f - rot_deg * 0.017453292f, 0.0f};
+        // [guard, not retail] our loop re-places a room's effects (a reload re-runs the statue
+        // variant script), which retail never does: re-place a live same-named effect instead
+        // of stacking a second copy.
+        if (!name.empty())
+            for (auto& f : fxsim.effects())
+                if (f->name == name && f->id == id && !f->kill && !f->dead) {
+                    ef2sim::System::place(*f, {x, y, z}, rot, {scale, scale, scale});
+                    return;
+                }
+        if (ef2sim::Effect* fx = spawn_sim_fx(id, {x, y, z}, rot, scale, {}, 0, {})) fx->name = name;
+    };
+    auto kill_named_fx = [&](const std::string& name) {
+        for (auto& f : fxsim.effects())
+            if (f->name == name) f->kill = true;
     };
     // The exe's own new-game init (FUN_0041fd10, NEWGAME_FLAGS.md): inventory -1 fill,
     // header set, per-character starting items. This also writes flag 149 = 1 — which is
@@ -447,7 +488,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Called on every path that swaps `room`, since each one re-runs that script.
     auto apply_load_effects = [&](const Room& rm) {
         for (const Room::LoadEffect& e : rm.load_effects)
-            world.locate_effect(e.id, e.x, e.y, e.z, e.a, e.b, e.name);
+            place_named_fx(e.id, e.x, e.y, e.z, e.a, e.b, e.name);
     };
     // FUN_00431840's per-room writes on every scene entry (build/item_re/KEY_ITEMS.md §1.6): the
     // room number (flag 505), the item gates 290 (S_3009, the Harmonica's noise corridor), 459
@@ -467,7 +508,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
     room_entry_flags(boot_sob.stem().string());
     Room room = load_room(g, asset_root, boot_sob, game.g_flags, character);
-    apply_load_effects(room);
     // Particles that die on world contact trace their last step against the room (set 2).
     fxsim.set_world([&](const Vec3& f, const Vec3& d, Vec3* at) {
         Vec3 n{};
@@ -663,37 +703,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
     auto bind_enemy_aso = [&] { for (EnemyRender& e : render) bind_one_enemy(e); };
 
-    // Barrier fight (kekkai). A room's KEKKAIZAKO_*.XSO polls Chr_IsSeedLiving(1) and,
-    // when the last group-1 seed enemy dies, grants the progress flag its chest guard
-    // tests (EVENTVM.md §6: S_1001 -> flag 301, which S_BOX01 requires before it opens).
-    std::vector<Xso> barrier_scripts;        // this room's KEKKAIZAKO_*.XSO (the poll + grant)
-    std::vector<Xso> barrier_break_scripts;  // KEKKAIBREAK_*.XSO (Eft_Kill the ward + camera)
-    bool barrier_seeded = false;        // a group-1 seed spawned this visit
-    bool barrier_cleared = false;       // its flag has already been granted this visit
-    bool barrier_break_pending = false; // grant done; the main loop must play KEKKAIBREAK
     bool room_events_dirty = true;      // (re)run the room's event scripts on the manager
 
-    // Register any SCRIPT-spawned pickup that the mesh's box_/save_ scan can't see. The
-    // S_1004 Flabellum altar is the one case in the game: its pickup (TALKITEM.XSO) fires
-    // on interacting with the item stand — a 0x12c-spawned actor (entity 159), not an SOB
-    // object. Add an interactable at the item's live position bound to TALKITEM (obtained
-    // -flag 304). Must re-run after every room (re)build, since load_room rebuilds the mesh.
-    auto register_script_pickups = [&] {
-        const fs::path ti = room.dir / "TALKITEM.XSO";
-        if (!fs::exists(ti)) return;                       // S_1004 only
-        const Actor* item = world.find(159);               // the altar item stand
-        if (!item) return;
-        for (const Interactable& e : room.mesh.interactables)
-            if (e.name == "altar_item") return;            // already registered this build
-        Interactable it;
-        it.name = "altar_item";
-        it.position = item->pos;
-        it.script = ti.string();
-        it.opened_flag = 304;
-        room.mesh.interactables.push_back(std::move(it));
-        std::printf("  [altar] registered Flabellum pickup at (%.1f,%.1f,%.1f)\n",
-                    item->pos.x, item->pos.y, item->pos.z);
-    };
 
     auto spawn_enemies = [&] {
         // Populate the world the engine's way: run S_xxxx.XSO (op 0xa0 -> SCT bulk,
@@ -702,9 +713,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // pair them. Stats come from ONE path (ActorWorld::spawn): SCT name / cast_type
         // -> CASTINFO -> enemy_index -> ENEMYINFO -> GAMEINFO. Real names = CASTINFO+0x10.
         populate_room(world, room, game.g_flags);
+        // This spawn pass runs the root only for its actors; its named effects (the ward) are
+        // placed again by the live root on csMgr, into the EF2 sim.
+        world.drop_named_effects();
         bullets.clear();                                      // before the effects they hold
         gas_owner.clear();
         fxsim.clear();
+        apply_load_effects(room);                             // after the clear (the statue glow)
         pickups.clear();
         popups.clear();
         actor_mats.clear();
@@ -712,28 +727,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         efx.init_from_world(g, asset_root, world, casts);
         render = build_enemy_render(world, casts, efx);
         bind_enemy_aso();
-        // Detect this room's barrier fight: load its KEKKAIZAKO_*.XSO poll scripts and
-        // note whether S_xxxx.XSO's 0x12c actually spawned a group-1 seed (it is gated
-        // behind the very flag the barrier grants, so a re-visit spawns nothing and we
-        // must not re-fire). The poll itself runs in clear_barrier, below.
-        barrier_scripts.clear();
-        barrier_break_scripts.clear();
-        barrier_cleared = false;
-        barrier_seeded = world.any_seed_alive(1);
-        {
-            std::error_code bec;
-            for (const auto& de : fs::directory_iterator(room.dir, bec)) {
-                std::string fn = de.path().filename().string();
-                for (char& c : fn) c = char(std::toupper((unsigned char)c));
-                const bool xso = fn.size() >= 4 && fn.compare(fn.size() - 4, 4, ".XSO") == 0;
-                try {
-                    if (xso && fn.rfind("KEKKAIZAKO", 0) == 0)
-                        barrier_scripts.push_back(Xso::parse(read_bytes(de.path())));
-                    else if (xso && fn.rfind("KEKKAIBREAK", 0) == 0)
-                        barrier_break_scripts.push_back(Xso::parse(read_bytes(de.path())));
-                } catch (const std::exception&) {}
-            }
-        }
         if (!render.empty()) {
             int statted = 0;
             for (const EnemyRender& e : render) statted += (e.actor->max_hp > 0);
@@ -749,7 +742,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                 grp ? ("  <-- GROUP " + std::to_string(grp) + " (should glow)").c_str() : "");
                 }
         }
-        register_script_pickups();   // altar item etc. (needs the populated world)
     };
 
     spawn_enemies();
@@ -815,7 +807,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         free_room(room, g.white_bind);
         room = std::move(next);
         load_meshes(false);
-        apply_load_effects(room);
         room_events_dirty = true;   // the new room's event scripts start next frame
         apply_room_bgm(room.name);
         if (fly) {
@@ -889,7 +880,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         load_meshes(/*keep*/true);
         apply_load_effects(room);
         if (rerun_events) room_events_dirty = true;   // re-run scripts for the re-gated room
-        register_script_pickups();  // the rebuilt mesh lost script-spawned interactables
     };
 
     // Positional SFX: pan from the camera's right axis, distance from the player
@@ -994,40 +984,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         face_dir = {std::sin(rad), 0, std::cos(rad)};
     };
 
-    // The barrier fight, now wired. A KEKKAIZAKO_*.XSO polls its group-1 seeds:
-    //
-    //     0: 0x131(1)       <- acc = any group-1 seed still alive?   (now implemented)
-    //     3: jz -> 8        <- all dead -> grant
-    //     5: 0xf0 / jmp 0   <- else wait a frame and loop
-    //     8: 0x64(301, 1)   <- set the progress flag (S_1001 -> 301)
-    //
-    // 0x131 is Chr_IsSeedLiving (FUN_00570640, EVENTVM.md §6): ActorWorld answers it
-    // from the live registry. We poll each frame; the instant the last seed dies we run
-    // the script to completion on the PERSISTENT VM (with the seed gone, 0x131 reads
-    // false, so it falls through to its grant) and re-gate the room, so the chest guard
-    // S_BOX01 — which requires flag 301 before it will open — now unlocks. This is a
-    // real fight now, not the old "running it grants the flag for free": no seed spawns
-    // (the 0x12c is gated behind 301) or none die => no grant.
-    auto clear_barrier = [&] {
-        if (barrier_scripts.empty() || barrier_cleared || !barrier_seeded) return;
-        if (world.any_seed_alive(1)) return;   // seeds still alive: keep fighting
-        XsoHost* saved = game.host;
-        game.host = &world;
-        for (const Xso& ks : barrier_scripts) { game.reset_run(); game.run(ks); }
-        game.host = saved;
-        barrier_cleared = true;
-        // The break sequence (KEKKAIBREAK: Fix -> Scroll_MoveTo the ward -> Eft_Kill it ->
-        // Scroll_Return -> Unfix) is a real camera CUTSCENE. Play it through the script
-        // manager (the main loop starts it when no other cutscene is up) so the pan is
-        // visible and the ward vanishes mid-pan, then re-gate the chest when it ends. With
-        // no break script, re-gate immediately (old behaviour).
-        if (barrier_break_scripts.empty()) { reload_room(); hud.message("The barrier fades."); }
-        else barrier_break_pending = true;
-        std::printf("  [barrier] all seeds down -> ran %zu KEKKAIZAKO script(s); flag 301 = %d; "
-                    "break %s\n", barrier_scripts.size(), game.g_flags[301],
-                    barrier_break_scripts.empty() ? "none" : "queued (cutscene)");
-    };
-
     // ## In-engine cutscene runner (CUTSCENE_PLAN.md B3/B9) — MVP: one debug-triggered
     // script driven by the resumable XSO VM (CUTSCENE_COROUTINE.md). The host receives the
     // dialogue ops and gates Wait_Prompt on "text fully revealed + advance pressed"; the
@@ -1112,24 +1068,28 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             open_dialog_common();
             wdlg.treasure(x, y, id, t, wmetrics);
         }
-        std::string caption_name; int caption_timer = 0;   // 0xe2 area-name card (frames left)
-        void caption(const std::string& nm) override { caption_name = nm; caption_timer = 210; }
+        // 0xe2 the area-name card and 0xe3..0xe8 the busts (eventsprites.hpp, WNDDIALOG_DRAW.md §7-§8).
+        CaptionCard caption_card;
+        Busts bust_set;
+        void caption(const std::string& nm) override { caption_card.open(nm); }
         // Standing bust portraits (0xe3/0xe4/0xe5). The intro shows one at a time (t_840a the
         // captain, then v_003a the villain), but hold a small list so overlapping opens work.
-        struct Bust { std::string name; float x, y; };
-        std::vector<Bust> busts;
-        void portrait_open(const std::string& nm, float x, float y) override {
-            for (Bust& b : busts) if (b.name == nm) { b.x = x; b.y = y; return; }
-            busts.push_back({nm, x, y});
+        void portrait_open(const std::string& nm, float x, float y) override { bust_set.open(nm, x, y); }
+        std::function<void(int, int, const std::string&)> get_item_fn;   // 0x116 -> the chest item
+        std::function<void(const std::string&, int, int)> drop_item_fn;  // 0x17e -> a world pickup
+        void mesh_drop_item(const std::string& mesh, int item, int keep) override {
+            if (drop_item_fn) drop_item_fn(mesh, item, keep);
         }
-        void portrait_move(const std::string& nm, float x, float y) override {
-            for (Bust& b : busts) if (b.name == nm) { b.x = x; b.y = y; return; }
-            busts.push_back({nm, x, y});
+        void effect_get_item(int item, int flag, const std::string& mesh) override {
+            if (get_item_fn) get_item_fn(item, flag, mesh);
         }
-        void portrait_close(const std::string& nm) override {
-            busts.erase(std::remove_if(busts.begin(), busts.end(),
-                        [&](const Bust& b) { return b.name == nm; }), busts.end());
+        void portrait_move(const std::string& nm, float x, float y, int frames, int curve) override {
+            bust_set.move(nm, x, y, frames, curve);
         }
+        void portrait_close(const std::string& nm) override { bust_set.close(nm); }
+        void portrait_color(const std::string& nm, const std::uint32_t* c) override { bust_set.colour(nm, c); }
+        void portrait_priority(const std::string& nm, int pr) override { bust_set.priority(nm, pr); }
+        void portrait_fade_speed(const std::string& nm, float sp) override { bust_set.fade_speed(nm, sp); }
         // SKIP: while set, EVERY wait predicate reports "done" so every live script
         // bursts to its end (its side effects — flags/spawns/warps — still run). This
         // clears not just Wait_Prompt but Wait_Script / Wait_Window / Wait_Sound /
@@ -1252,13 +1212,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void shake(float ax, float ay, float az, int frames) override { ::shake(ax, ay, az, frames); }
         void camera_set(int region, int) override { ::camera_set(region); }
         void camera_return(int) override { ::camera_return(); }
-        // Effect ops forward to the world so a cutscene's Eft_Kill / Eft_LocatePosAddStr
-        // really adds/removes the ward from world.effects() (the barrier break-pan).
         XsoHost* worldHost = nullptr;
-        void kill_effect(const std::string& n) override { if (worldHost) worldHost->kill_effect(n); }
+        // The effect ops go to the EF2 sim (place_named_fx / kill_named_fx): a = scale, b = yaw.
+        std::function<void(int, float, float, float, float, float, const std::string&)> locate_fx;
+        std::function<void(const std::string&)> kill_fx;
+        void kill_effect(const std::string& n) override { if (kill_fx) kill_fx(n); }
         void locate_effect(int id, float x, float y, float z, float a, float b,
                            const std::string& n) override {
-            if (worldHost) worldHost->locate_effect(id, x, y, z, a, b, n);
+            if (locate_fx) locate_fx(id, x, y, z, a, b, n);
         }
         // Cutscene spawns (op 0x12c): create a REAL actor in the world so the NPC is
         // drawn (Riko, the search party = CAST_M800, …), AND remember entity->cast so
@@ -1307,9 +1268,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (p_isplayer(id)) return p_moving;
             return worldHost && worldHost->chr_moving(id);
         }
-        void chr_alpha(int id, float endA) override {
-            if (!p_isplayer(id) && worldHost) worldHost->chr_alpha(id, endA);
+        void chr_alpha(int id, float a0, float a1, int frames) override {
+            if (!p_isplayer(id) && worldHost) worldHost->chr_alpha(id, a0, a1, frames);
         }
+        void chr_attach_script(int id, const std::string& sc) override {
+            if (worldHost) worldHost->chr_attach_script(id, sc);
+        }
+        void chr_set_status(int id, int lv, const float* f) override {
+            if (worldHost) worldHost->chr_set_status(id, lv, f);
+        }
+        std::function<void(int)> se_fn, set_skill_fn;
+        std::function<void(int, int)> bgm_volume_fn;
+        void se_play(int se) override { if (se_fn) se_fn(se); }
+        void bgm_volume(int v, int t) override { if (bgm_volume_fn) bgm_volume_fn(v, t); }
+        void set_skill(int i) override { if (set_skill_fn) set_skill_fn(i); }
         void chr_lookat(int id, int target) override {
             if (!p_isplayer(id) && worldHost) worldHost->chr_lookat(id, target);
         }
@@ -1389,14 +1361,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csHost.meshes = &meshes;
     csHost.player_floor = &player_floor_obj;
     csHost.worldHost = &world;
+    csHost.locate_fx = place_named_fx;
+    csHost.kill_fx = kill_named_fx;
     csHost.roomPtr = &room;         // op 0x13d tests the player vs the current room's .SEV boxes
     csHost.playerPos = &feet;
     csHost.playerPosW = &feet;      // Chr_Pos/Chr_MoveTo move the player's feet in a cutscene
     bool prev_frozen = false;
     bool skip_cutscene = false;   // set by ESC/Backspace during a frozen cutscene
     std::function<void()> after_cutscene;   // ran once when the world thaws (e.g. re-gate the room)
-    SpriteTex captionTex; std::string captionLoaded;   // cached area-name card (op 0xe2)
-    std::unordered_map<std::string, SpriteTex> bustTex;   // cached bust portraits (op 0xe3), by name
 
     // (Re)start the room's event scripts: run the room root S_xxxx.XSO on the PERSISTENT
     // manager. The root StartScripts the region-talk controllers (Stop*_Roi_*), the save
@@ -1499,6 +1471,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (int id : wsnd) audio.play(id, kSfxMenuVol);
         }
         csHost.box_active = csHost.wtext.alive() || csHost.wdlg.alive();
+        csHost.caption_card.step();
+        csHost.bust_set.step();
         scroll_advance();
         shake_advance();
         csHost.fade_advance();
@@ -1738,101 +1712,181 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csHost.start_label = [&](const std::string& l) {     // [not modelled] the owner actor
         if (!csMgr.start(l)) std::printf("  [menu] %s did not start\n", l.c_str());
     };
+    // 0xBC / 0xBB / 0x8F. [H] Se_Play's 2nd operand (1024 everywhere) is not read by
+    // FUN_004396f0. Bgm_Volume's (volume /1024, time) read as a linear fade over `time` ms [H].
+    csHost.se_fn = [&](int se) { audio.play(se, kSfxAnimVol); };
+    csHost.set_skill_fn = [&](int i) { inv.magic = i; };
+    csHost.bgm_volume_fn = [&](int v, int t) {
+        bgm_gain_to = std::clamp(float(v) / 1024.0f, 0.0f, 1.0f);
+        const float ticks = std::max(1.0f, float(t) * 60.0f / 1000.0f);
+        bgm_gain_step = (bgm_gain_to - bgm_gain) / ticks;
+        if (bgm_gain_step == 0.0f) bgm_gain = bgm_gain_to;
+    };
+    // The action probe FUN_00460470 (build/event_re/BARRIER_OBJECTS.md §1b), on the action key
+    // while no Fix is held. Its candidates:
+    //  - actors with a talk script (+0x630, op 0x130) within their radius + 0.95 of the point
+    //    1.05 ahead of the player's origin and within +-70 degrees of the facing, scored by that
+    //    squared distance;
+    //  - the first action-button object (SOB trigger 8) with its event on (op 0x176) that one of
+    //    four forward rays of 1.25 hits, scored 0.7. The rays start at the origin +0.05 and
+    //    -0.45, and 0.3 to either side at -0.3 [BYTES 0x460672..0x46080f].
+    // Sorted by score; the first whose script starts wins. A mesh script gets its name as $S0.
+    // [approx] the probe's HP >= 1 gate is applied to enemies only: the factory gives every
+    // cast HP from CASTINFO+0x74 (FACTORY.md 0x4595aa), ours gives it to enemies only. The
+    // +0x60 & 4 kind gate is not modelled (only 0x130 gives an actor a script).
     auto try_interact = [&] {
-        const Vec3 p = fly ? cam.pos : Vec3{feet.x, feet.y, feet.z};
-        // Interact reach: you must stand next to a statue/chest. Uncapped the room diagonal
-        // gave ~40m; 1.5u was too tight to reach a statue behind its pedestal. 2.5u lets you
-        // interact from the front without being a room-wide grab.
-        const float reach = std::min(room_diag(room) * 0.09f, 2.5f);
-        const Interactable* target = nullptr;
-        float best = reach * reach;
-        for (const Interactable& it : room.mesh.interactables) {
-            const float dx = it.position.x - p.x, dy = it.position.y - p.y, dz = it.position.z - p.z;
+        if (fly || csMgr.world_frozen()) return;
+        const Vec3 o{feet.x, feet.y + kOriginH, feet.z};
+        const float fl = std::sqrt(face_dir.x * face_dir.x + face_dir.z * face_dir.z);
+        if (fl < 1e-6f) return;
+        const float c = face_dir.x / fl, sn = face_dir.z / fl;    // the facing, (cos, sin)
+        struct Cand { float score; const Actor* actor; const Interactable* obj; };
+        std::vector<Cand> cands;
+        const Vec3 ahead{o.x + c * 1.05f, o.y, o.z + sn * 1.05f};
+        for (const Actor& a : world.actors()) {
+            if (a.is_player() || a.talk_script.empty() || a.destroy_requested()) continue;
+            if (a.is_enemy() && !a.alive()) continue;
+            const Vec3 ao{a.pos.x, a.pos.y + a.height, a.pos.z};
+            const float dx = ao.x - ahead.x, dy = ao.y - ahead.y, dz = ao.z - ahead.z;
             const float d2 = dx * dx + dy * dy + dz * dz;
-            if (d2 < best) { best = d2; target = &it; }
+            const float r = a.hurt_radius + 0.95f;                // +0x68 + 0.95
+            if (d2 > r * r) continue;
+            float da = std::atan2(ao.z - o.z, ao.x - o.x) - std::atan2(sn, c);
+            while (da > 3.14159265f) da -= 6.2831853f;
+            while (da < -3.14159265f) da += 6.2831853f;
+            if (std::fabs(da) < 1.2217305f) cands.push_back({d2, &a, nullptr});
         }
-        if (!target) { std::printf("  (nothing to interact with here)\n"); return; }
-        // Goddess statue -> the SAVE dialog (the real game's save flow; the pause
-        // book's Save/Load page only LOADS).
-        std::string tl = target->name;
-        for (char& c : tl) c = char(std::tolower((unsigned char)c));
-        if (tl.rfind("save", 0) == 0) {
-            // A SEALED goddess statue (flag 300 == 0) must be CLEANSED first for Yunica/Hugo
-            // (Toal skips it). Play SAVE.XSO through the live cutscene manager — it self-gates
-            // on its prereqs (intro-done flag 165 + story flags), Fixes the world, spawns the
-            // goddess, sets flag 300 = 1, and Unfixes. When it ends we re-gate the room so the
-            // statue swaps to its cleansed model; if it didn't cleanse (prereqs unmet) we fall
-            // back to the save menu. Events-off / cleansed / Toal go straight to the menu.
-            const bool sealed = game.g_flags[300] == 0;
-            std::printf("  [statue] flag300(cleansed)=%d 165(intro)=%d 84=%d 86=%d events=%d char=%d\n",
-                        game.g_flags[300], game.g_flags[165], game.g_flags[84], game.g_flags[86],
-                        int(events_enabled), character);
-            if (events_enabled && sealed && (character == 1 || character == 2) &&
-                fs::exists(room.dir / "SAVE.XSO")) {
-                std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
-                csMgr.vm.g_flags[150] = character;
-                if (csMgr.start("save")) {
-                    cleanse_pending = true;
-                    std::printf("  [statue] started cleanse (SAVE.XSO); prereqs %s\n",
-                                (game.g_flags[165] && (game.g_flags[84] || game.g_flags[86]))
-                                    ? "MET -> will cleanse" : "UNMET -> will fall back to menu");
+        {
+            const float px = -sn * 0.3f, pz = c * 0.3f;          // 0.3 to the side
+            const Vec3 from[4] = {{o.x, o.y + 0.05f, o.z}, {o.x, o.y - 0.45f, o.z},
+                                  {o.x + px, o.y - 0.3f, o.z + pz}, {o.x - px, o.y - 0.3f, o.z - pz}};
+            const Vec3 d{c * 1.25f, 0.0f, sn * 1.25f};
+            bool hit = false;
+            for (int r = 0; r < 4 && !hit; ++r)
+                for (const Interactable& it : room.mesh.interactables) {
+                    std::string ln = it.name;
+                    for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
+                    const MeshObj* mo = meshes.find(ln);
+                    if (mo && !mo->event_on) continue;            // +0x298 & 0x80 (op 0x176)
+                    // The collision hull, else the render geometry [STAND-IN].
+                    const RoomMesh* rm = &phys_mesh(room);
+                    const RoomMesh::ObjRange* rr = rm->object_range(ln);
+                    if (!rr) { rm = &room.mesh; rr = rm->object_range(ln); }
+                    if (!rr) continue;
+                    const Vec3 b{from[r].x + d.x, from[r].y, from[r].z + d.z};
+                    if (segment_hits_tris(*rm, from[r], b, rr->t0, rr->t1)) {
+                        cands.push_back({0.7f, nullptr, &it});
+                        hit = true;
+                        break;
+                    }
+                }
+        }
+        std::stable_sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.score < b.score; });
+        for (const Cand& cd : cands) {
+            std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
+            csMgr.vm.g_flags[150] = character;
+            if (cd.actor) {
+                std::string sc = cd.actor->talk_script;
+                for (char& ch : sc) ch = char(std::tolower((unsigned char)ch));
+                if (csMgr.start(sc)) {
+                    std::printf("  [probe] actor %d -> %s\n", cd.actor->instance_id, sc.c_str());
                     return;
                 }
+                continue;
             }
-            statue_ui = 1;            // "What will you do?" (STATUE_MENU.md flow)
-            statue_sel = 0; statue_reveal = 0;
-            return;
-        }
-        if (target->script.empty()) { std::printf("  %s: no script\n", target->name.c_str()); return; }
-        try {
-            Xso x = Xso::parse(read_bytes(target->script));
-            const bool preOpened = target->opened_flag >= 0 &&
-                                   game.g_flags[target->opened_flag] != 0;
-            game.reset_run();
-            game.run(x);
-            // Prefer the game's acquire-box items (0xD5); fall back to give-item.
-            const std::vector<int>& got = !game.acquires.empty() ? game.acquires : game.items;
-            const bool nowOpened = target->opened_flag >= 0 &&
-                                   game.g_flags[target->opened_flag] != 0;
-            if (got.empty() && !preOpened && nowOpened) {
-                // The interaction FIRED an event that set its own flag but grants no
-                // inventory item — e.g. the S_1004 Flabellum altar (TALKITEM), which
-                // sets the SKILL flags 116/107 and its obtained-flag 304. That is a
-                // success, not "locked": re-gate so the item glow / state updates.
-                hud.message("Obtained a new power!");
-                std::printf("  >> event fired: %s set flag %d\n",
-                            target->name.c_str(), target->opened_flag);
-                reload_room();
-            } else if (got.empty()) {
-                // No item can mean two different things, and they are NOT the same:
-                // the chest's opened-flag is set (truly already looted), or the script
-                // hit a later prerequisite guard and ended early. S_1001's box_01, for
-                // instance, tests a second flag (301) that some event must set first —
-                // reporting that as "already opened" is simply wrong.
-                const bool opened = nowOpened;
-                hud.message(std::string(target->name) +
-                            (opened ? ": already opened" : ": locked (needs an event first)"));
-                std::printf("  %s: no item — opened_flag %d = %d -> %s\n",
-                            target->name.c_str(), target->opened_flag,
-                            target->opened_flag >= 0 ? game.g_flags[target->opened_flag] : -1,
-                            opened ? "already opened" : "gated by a later guard");
-            } else {
-                std::string msg = "Acquired";
-                for (int it : got) { msg += " "; msg += items_tbl.name(it); }
-                hud.message(msg);
-                std::printf("  >> %s\n", msg.c_str());
-                // The chest script set its opened-flag on `game`; re-gate the room so the
-                // just-looted chest re-poses to its OPEN clip immediately (build_room reads
-                // the flags). Enemies live in `world`, which reload_room doesn't touch.
-                reload_room();
+            const Interactable* target = cd.obj;
+            // Goddess statue -> the SAVE dialog (the real game's save flow; the pause
+            // book's Save/Load page only LOADS).
+            std::string tl = target->name;
+            for (char& ch : tl) ch = char(std::tolower((unsigned char)ch));
+            if (tl.rfind("save", 0) == 0) {
+                // A SEALED goddess statue (flag 300 == 0) must be CLEANSED first for Yunica/Hugo
+                // (Toal skips it). Play SAVE.XSO through the live cutscene manager — it self-gates
+                // on its prereqs (intro-done flag 165 + story flags), Fixes the world, spawns the
+                // goddess, sets flag 300 = 1, and Unfixes. When it ends we re-gate the room so the
+                // statue swaps to its cleansed model; if it didn't cleanse (prereqs unmet) we fall
+                // back to the save menu. Events-off / cleansed / Toal go straight to the menu.
+                const bool sealed = game.g_flags[300] == 0;
+                std::printf("  [statue] flag300(cleansed)=%d 165(intro)=%d 84=%d 86=%d events=%d char=%d\n",
+                            game.g_flags[300], game.g_flags[165], game.g_flags[84], game.g_flags[86],
+                            int(events_enabled), character);
+                if (events_enabled && sealed && (character == 1 || character == 2) &&
+                    fs::exists(room.dir / "SAVE.XSO")) {
+                    std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
+                    csMgr.vm.g_flags[150] = character;
+                    if (csMgr.start("save")) {
+                        cleanse_pending = true;
+                        std::printf("  [statue] started cleanse (SAVE.XSO); prereqs %s\n",
+                                    (game.g_flags[165] && (game.g_flags[84] || game.g_flags[86]))
+                                        ? "MET -> will cleanse" : "UNMET -> will fall back to menu");
+                        return;
+                    }
+                }
+                statue_ui = 1;            // "What will you do?" (STATUE_MENU.md flow)
+                statue_sel = 0; statue_reveal = 0;
+                return;
             }
-        } catch (const std::exception& e) {
-            std::printf("  %s: script error: %s\n", target->name.c_str(), e.what());
+            if (target->script.empty()) continue;
+            std::string stem = fs::path(target->script).stem().string();
+            for (char& ch : stem) ch = char(std::tolower((unsigned char)ch));
+            XsoVm::Vars ov;
+            ov.s[0] = target->name;                                // the object's own name ($S0)
+            if (csMgr.start(stem, ov)) {
+                std::printf("  [probe] %s -> %s\n", target->name.c_str(), stem.c_str());
+                return;
+            }
         }
     };
 
     std::printf("\nPLAY: WASD move Yunica (8-way, fixed camera), Space jump, E interact, Tab character | F free-fly debug | wheel speed | R respawn | 1-9 exit | ESC quit\n");
     bool running = true, looking = false;
+    // CLERIA_DRIVE (debug): timed commands for unattended verification runs, keyed by the fixed
+    // tick count, e.g. "30:at=-27,24,180;60:kill1;400:shot;700:act;800:ok;900:quit".
+    //   at=x,z,deg  place the player (floor y) facing deg      kill1  remove the group-1 actors
+    //   act         the action key (the probe)                 ok     a confirm press
+    //   shot        write the next frame to CLERIA_SHOT_DIR/t<tick>.ppm          quit
+    struct DriveCmd { std::uint64_t tick; std::string cmd; };
+    std::vector<DriveCmd> drive;
+    if (const char* dv = std::getenv("CLERIA_DRIVE")) {
+        std::string all = dv;
+        std::size_t p0 = 0;
+        while (p0 < all.size()) {
+            std::size_t p1 = all.find(';', p0);
+            if (p1 == std::string::npos) p1 = all.size();
+            const std::string item = all.substr(p0, p1 - p0);
+            const std::size_t c = item.find(':');
+            if (c != std::string::npos) drive.push_back({std::stoull(item.substr(0, c)), item.substr(c + 1)});
+            p0 = p1 + 1;
+        }
+    }
+    std::string drive_shot;                 // a pending `shot` file
+    auto run_drive = [&](const std::string& cmd) {
+        std::printf("  [drive] t%llu %s\n", (unsigned long long)tick_count, cmd.c_str());
+        if (cmd.rfind("at=", 0) == 0) {
+            float x = 0, z = 0, deg = 0;
+            if (std::sscanf(cmd.c_str() + 3, "%f,%f,%f", &x, &z, &deg) >= 2) {
+                const float fl = floor_at(phys_mesh(room), x, z, feet.y + room_diag(room));
+                feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                const float yaw = deg * 3.14159265358979323846f / 180.0f;
+                face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
+                facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+            }
+        } else if (cmd == "kill1") {
+            std::vector<int> ids;
+            for (const Actor& a : world.actors()) if (a.tag.in_group(1)) ids.push_back(a.instance_id);
+            for (int id : ids) world.despawn(id);
+            csHost.world_changed = true;
+        } else if (cmd == "act") {
+            try_interact();
+        } else if (cmd == "ok") {
+            csHost.advance = true;
+        } else if (cmd == "shot") {
+            const char* d = std::getenv("CLERIA_SHOT_DIR");
+            drive_shot = (fs::path(d ? d : ".") / ("t" + std::to_string(tick_count) + ".ppm")).string();
+        } else if (cmd == "quit") {
+            running = false;
+        }
+    };
     Uint64 last = SDL_GetTicks();
     // Fixed-step logic. The game runs its logic at a FIXED 60 Hz with catch-up,
     // decoupled from rendering: it accumulates REAL elapsed milliseconds scaled by
@@ -1859,6 +1913,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     BookRenderer bookR;
     const bool bookOk = bookR.init(g, fmt, asset_root, pitems);
     csHost.wmetrics = bookR.metrics();
+    csHost.bust_set.size_of = [&](const std::string& tex, int* w, int* h) { return bookR.named_size(g, tex, w, h); };
+    // FUN_00573210: the chest item 0.3 above the named mesh (no mesh: nothing is spawned).
+    // FUN_00573150: Mesh_DropItem spawns one drop 0.5 above the mesh (flags 0xd when kept).
+    auto drop_at = [&](const Vec3& at, int item, bool keep) {
+        SpawnArgs a;
+        a.flags = keep ? 0xd : 5;
+        spawn_pickups(pick_rng, &item, 1, {at.x, at.y + 0.5f, at.z}, a, water_mode == 2, pickups);
+    };
+    csHost.drop_item_fn = [&](const std::string& mesh, int item, int keep) {
+        if (const MeshObj* mo = meshes.find(mesh)) drop_at(mo->pos, item, keep != 0);
+    };
+    csHost.get_item_fn = [&](int item, int flag, const std::string& mesh) {
+        const MeshObj* mo = meshes.find(mesh);
+        if (!mo) { std::printf("  [0x116] no mesh '%s'\n", mesh.c_str()); return; }
+        pickups.push_back(make_chest_item(pick_rng, item, mo->pos, flag != 0));
+    };
     bookR.face_bind = [&](int face, int frame) -> WGPUBindGroup {
         const SpriteTex* t = face_tex(face, frame);
         return t ? t->bind : nullptr;
@@ -2080,15 +2150,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const float D = room_diag(room);
         // A newly (re)built room (re)starts its event scripts on the persistent manager.
         if (room_events_dirty) { room_events_dirty = false; start_room_events(); }
-        // The barrier just broke: play KEKKAIBREAK as a camera cutscene (once the world is not
-        // already frozen). Its host forwards Eft_Kill to the world so the ward vanishes mid-pan;
-        // when it ends (thaw), after_cutscene re-gates the room so the chest unlocks.
-        if (barrier_break_pending && !csMgr.world_frozen() && !barrier_break_scripts.empty()) {
-            barrier_break_pending = false;
-            after_cutscene = [&] { reload_room(); hud.message("The barrier fades."); };
-            start_cutscene_xso(std::make_shared<Xso>(barrier_break_scripts.front()),
-                               "KEKKAIBREAK", /*debug235*/false);
-        }
         // ---- fixed 60 Hz logic, 0..N ticks per rendered frame --------------
         // The catch-up loop in the exe has NO cap; a long stall really does emit a
         // burst of ticks. We reproduce that, relying on the load-time reset above
@@ -2163,6 +2224,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         while (accum >= kTickDt) {
         accum -= kTickDt;
         ++tick_count;
+        for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
         ++ticks;
         // Tick the room's event scripts every frame (controllers poll here). If a Fix is held
         // (a talk / cutscene) the world is frozen: skip the player/enemy sim for this tick (the
@@ -2186,6 +2248,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (Actor* wp = world.player()) wp->pos = feet;
         }
         const bool frozen_now = tick_events();
+        world.tick_alpha_fades();                  // Chr_Alpha (runs under a Fix too, [H])
+        if (bgm_gain_step != 0.0f) {               // Bgm_Volume's fade
+            bgm_gain += bgm_gain_step;
+            if (bgm_gain_step < 0.0f ? bgm_gain <= bgm_gain_to : bgm_gain >= bgm_gain_to) {
+                bgm_gain = bgm_gain_to;
+                bgm_gain_step = 0.0f;
+            }
+            audio.set_bgm_volume(oslider[0] / 1024.0f * bgm_gain);
+        }
         // Persist what the cutscene GRANTED back to the game state. csMgr runs on a COPY
         // of the flags and its own item lists, so without this a cutscene's story-flag
         // progression AND item pickups are silently lost (e.g. BATTLE_0 hands Yunica the
@@ -2291,7 +2362,31 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 m.dirty_pos = m.dirty_pose = false;
             }
         };
-        if (frozen_now) { step_meshes(); continue; }
+        if (frozen_now) {
+            step_meshes();
+            // Effects run on under a Fix: the GoParticle step (0x5644c0) gates only on the menu
+            // and the real-step flags, not the fix counters (STATUE_CLEANSE.md §2 [BYTES
+            // 0x5644c1..d5]). This is what fades the ward mid-pan after KEKKAIBREAK's Eft_Kill.
+            // [H] no hit tick here: whether particle hits land under a Fix is not traced.
+            fxsim.step();
+            fxsim.sweep();
+            // The chest item (0x116, kind 2) rises and fades under the opening script's own Fix:
+            // S_BOXnn places it, then Wait_Time(60) / Wait_Time(210) inside Fix(1), across exactly
+            // its rise (30..90) and fade (176..210). [H-high] from that timing; its pool's own
+            // fix gate is not traced. Display-only: nothing is collected here.
+            {
+                PickupWorld pw;
+                pw.hit = [&](const Vec3& a, const Vec3& b, Vec3* pt, Vec3* n) {
+                    return segment_hit(phys_mesh(room), a, b, pt, n);
+                };
+                pw.player = feet;
+                pw.touch = [](Pickup&) { return false; };
+                for (Pickup& pk : pickups) if (pk.kind == 2) step_pickup(pick_rng, pk, pw);
+                pickups.erase(std::remove_if(pickups.begin(), pickups.end(),
+                                             [](const Pickup& pk) { return pk.dead; }), pickups.end());
+            }
+            continue;
+        }
         const float dt = kTickDt;
         if (cooldown > 0) cooldown -= dt;
 
@@ -2746,6 +2841,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 return bullet_art(g, asset_root, efl, eft, id).life;
             });
             for (Actor& a : world.actors()) {
+                // FUN_0045c490 [BYTES 0x45d371]: a tagged actor's glow phase +1 per tick.
+                // [not modelled] +4/+5 in state +0x6f0 == 2 (its meaning for enemies is unknown).
+                if (a.tag.tagged()) a.glow_phase = std::uint8_t(a.glow_phase + 1);
                 if (a.is_player() || !a.alive()) continue;
                 if (a.hit_flash > 0) --a.hit_flash;
                 // The integrator FUN_0045a510 (MOVER.md §3): one swept sphere (radius +0x328,
@@ -2885,11 +2983,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     int pct = 50;                               // @Break_30
                     if (t.script_stem.find("_5") != std::string::npos) pct = 20;
                     if (t.script_stem.find("_100") != std::string::npos) pct = 100;
+                    // The script's guard + 0x81 roll (one game-RNG draw: (xs() >> 17) % 100 < p),
+                    // then 0x17e Mesh_DropItem($S0, $Ix, 1): a kept world pickup (PICKUPS.md §13.7).
+                    // [STAND-IN] the BREAK_* script itself is not run here yet.
                     for (int slot : {t.i0, t.i1}) {
-                        if (slot <= 0) continue;
-                        if (pct < 100 && rng_pct(rng) >= float(pct)) continue;
-                        if (slot < int(std::size(game.item_arr))) game.item_arr[slot] = 1;
-                        hud.message(items_tbl.name(slot));
+                        if (slot == 0) continue;
+                        if (pct < 100 && int(pick_rng.next() >> 17) % 100 >= pct) continue;
+                        drop_at(t.position, slot, true);
                     }
                     ++broke;
                 }
@@ -2899,7 +2999,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     for (const Actor& en : world.actors())
                         if (!en.is_player() && en.alive()) ++left;
                     std::printf("  defeated %d (%d left)\n", killed, left);
-                    if (left == 0) clear_barrier();
                 }
             }
 
@@ -3361,9 +3460,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
         }
         }  // ---- end fixed-step logic ----------------------------------------
-        // Barrier fight: if the last group-1 seed died during this frame's ticks, grant
-        // the barrier's flag and re-gate the room so its chest unlocks (no-op otherwise).
-        clear_barrier();
         // UV scroll — the water. `phase += velocity` ONCE PER TICK, unscaled: the
         // disassembly is unambiguous (FUN_0044cda0 @0x44e165 — the neighbouring
         // fields ARE MULSS-scaled by a delta, the scroll block has no MULSS at all).
@@ -3390,7 +3486,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
 
         WGPUSurfaceTexture st = {};
-        wgpuSurfaceGetCurrentTexture(surface, &st);
+        if (offscreen) {
+            st.texture = off_tex;
+            wgpuTextureAddRef(off_tex);
+            st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal;
+        } else {
+            wgpuSurfaceGetCurrentTexture(surface, &st);
+        }
         if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
             st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
         WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
@@ -3465,70 +3567,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             hud.set_equip(g, items_tbl, asset_root, ids);
         }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
-        // Standing bust portraits (op 0xe3 Portrait_Open): IMAGE/<name>.dds sprites drawn in the
-        // 2D overlay, behind the dialogue box. Anchor is bottom-left in the authored 1024x768
-        // space; the 1024x1024 DDS is blitted 1:1 (its alpha channel masks the character art).
-        if (!csHost.busts.empty() && pauseOk) {
-            write_mvp(g, Mat4::identity());
-            WGPUTextureView bdepth = make_depth(g, cw, ch);
-            const float sw = float(cw), sh = float(ch);
-            const float A = sh / 768.0f, xoff = (sw - 1024.0f * A) * 0.5f;
-            auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
-            auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
-            for (const auto& b : csHost.busts) {
-                auto it = bustTex.find(b.name);
-                if (it == bustTex.end()) {
-                    std::string nm = b.name;
-                    for (char& c : nm) c = char(std::toupper((unsigned char)c));
-                    Dds d = load_dds(asset_root / "IMAGE" / (nm + ".DDS"));
-                    SpriteTex t = d.ok() ? upload_rgba(g, d.width, d.height, d.data.data()) : SpriteTex{};
-                    it = bustTex.emplace(b.name, t).first;
-                }
-                const SpriteTex& t = it->second;
-                if (!t.tex) continue;
-                const float left = xoff + b.x * A, bottom = b.y * A;
-                const float w = float(t.w) * A, h = float(t.h) * A, top = bottom - h;
-                draw_screen_image(g, view, bdepth, false, t, NX(left), NY(top), NX(left + w), NY(bottom),
-                                  0.09f, 0, 0, 1, 1, 0, 0, 0, 0, false, 1, 1, 1);
-            }
-            wgpuTextureViewRelease(bdepth);
-        }
-        // Cutscene dialogue box over the frozen world (FACEWIN0 bottom bar + name + text).
-        // The event windows: the message box, then the dialog (WNDDIALOG_DRAW.md; the draw-key
-        // order between them is [H], Uncertain #3).
-        if (bookOk && (csHost.wtext.alive() || csHost.wdlg.alive())) {
+        // The cutscene overlay, in descending draw key (WNDDIALOG_DRAW.md; the sort direction is
+        // [H], Uncertain #3): the busts (0x0a000000 + priority), the message box (0x08000000),
+        // the caption card (0x06800000), the dialogs (0x03000000 + z).
+        if (bookOk && (!csHost.bust_set.empty() || csHost.wtext.alive() || csHost.wdlg.alive() ||
+                       csHost.caption_card.alive())) {
             DrawList wl;
+            csHost.bust_set.draw(wl);
             csHost.wtext.draw(wl, csHost.wdlg.alive());
+            csHost.caption_card.draw(wl);
             csHost.wdlg.draw(wl);
             bookR.render(g, view, cw, ch, wl);
-        }
-        // Area-name caption card (op 0xe2 = pre-rendered IMAGE/<name>.dds), fading out.
-        if (csHost.caption_timer > 0) {
-            if (csHost.caption_name != captionLoaded) {
-                std::string nm = csHost.caption_name;
-                for (char& c : nm) c = char(std::toupper((unsigned char)c));
-                Dds cd = load_dds(asset_root / "IMAGE" / (nm + ".DDS"));
-                if (cd.ok()) { captionTex = upload_rgba(g, cd.width, cd.height, cd.data.data()); }
-                captionLoaded = csHost.caption_name;
-            }
-            if (captionTex.tex) {
-                write_mvp(g, Mat4::identity());
-                WGPUTextureView cdepth = make_depth(g, cw, ch);
-                const float sw = float(cw), sh = float(ch);
-                // Upper-LEFT area-name card (user-corrected: the RE's "centred-upper"
-                // was a guess). Sized to the 4:3 content region so it doesn't stretch on
-                // widescreen; anchored near the top-left corner. [HAND-TUNED vs retail.]
-                const float A = sh / 768.0f, xoff = (sw - 1024.0f * A) * 0.5f;
-                const float cw2 = 384.0f * A, chh = cw2 * float(captionTex.h) / float(captionTex.w);
-                const float cx = xoff + 40.0f * A, cy = 48.0f * A;
-                const float a = std::min(1.0f, csHost.caption_timer / 45.0f);   // fade over the last 45f
-                auto NX = [&](float x) { return 2.0f * x / sw - 1.0f; };
-                auto NY = [&](float y) { return 1.0f - 2.0f * y / sh; };
-                draw_screen_image(g, view, cdepth, false, captionTex, NX(cx), NY(cy), NX(cx + cw2), NY(cy + chh),
-                                  0.1f, 0, 0, 1, 1, 0.02f, 0.02f, 0.05f, 0.0f, false, a, a, a);
-                wgpuTextureViewRelease(cdepth);
-            }
-            --csHost.caption_timer;
         }
         // The pause book over the frozen game (BACK00 is opaque; the pillars cover the rest).
         if (paused && bookOk && book.is_open()) {
@@ -3576,7 +3625,42 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             wgpuTextureViewRelease(pdepth);
         }
-        wgpuSurfacePresent(surface);
+        if (!drive_shot.empty()) {                       // CLERIA_DRIVE `shot`
+            const std::uint32_t bpr = (cw * 4 + 255) & ~255u;
+            WGPUBufferDescriptor rbd = {};
+            rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * ch;
+            WGPUBuffer rb = wgpuDeviceCreateBuffer(g.device, &rbd);
+            WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+            WGPUTexelCopyTextureInfo src = {}; src.texture = st.texture; src.aspect = WGPUTextureAspect_All;
+            WGPUTexelCopyBufferInfo dst = {}; dst.buffer = rb;
+            dst.layout.bytesPerRow = bpr; dst.layout.rowsPerImage = ch;
+            WGPUExtent3D ext = {cw, ch, 1};
+            wgpuCommandEncoderCopyTextureToBuffer(enc, &src, &dst, &ext);
+            WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+            wgpuQueueSubmit(g.queue, 1, &cmd);
+            wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+            MapReq mr;
+            WGPUBufferMapCallbackInfo mi = {};
+            mi.mode = WGPUCallbackMode_AllowProcessEvents; mi.callback = on_map; mi.userdata1 = &mr;
+            wgpuBufferMapAsync(rb, WGPUMapMode_Read, 0, rbd.size, mi);
+            while (!mr.done) wgpuDevicePoll(g.device, true, nullptr);
+            const auto* px = static_cast<const std::uint8_t*>(wgpuBufferGetConstMappedRange(rb, 0, rbd.size));
+            const bool bgra = fmt == WGPUTextureFormat_BGRA8Unorm || fmt == WGPUTextureFormat_BGRA8UnormSrgb;
+            std::ofstream f(drive_shot, std::ios::binary);
+            f << "P6\n" << cw << " " << ch << "\n255\n";
+            for (std::uint32_t y = 0; y < ch; ++y)
+                for (std::uint32_t x = 0; x < cw; ++x) {
+                    const std::uint8_t* q = px + std::size_t(y) * bpr + x * 4;
+                    const char rgb[3] = {char(q[bgra ? 2 : 0]), char(q[1]), char(q[bgra ? 0 : 2])};
+                    f.write(rgb, 3);
+                }
+            wgpuBufferUnmap(rb);
+            wgpuBufferRelease(rb);
+            std::printf("  [drive] wrote %s\n", drive_shot.c_str());
+            drive_shot.clear();
+        }
+        if (!offscreen) wgpuSurfacePresent(surface);
+        else wgpuDevicePoll(g.device, true, nullptr);    // no vsync: wait out each frame
         wgpuTextureViewRelease(view);
         wgpuTextureRelease(st.texture);
     }

@@ -101,6 +101,19 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
             a->enemy_index = enemy_index_for_cast(c->cast_id);
         }
         a->tag.set(r.group);
+        // FUN_00570400's group block [BYTES 0x57052c..0x5705d0]: the marker ARGB and the glow
+        // phase seed +0x2a7 += (xorshift >> 17) >> 7.
+        static const std::uint32_t kMarker[4] = {0xFFE00000u, 0xFF00D000u, 0xFF0000FFu, 0xFF00C0C0u};
+        if (r.group >= 1 && r.group <= 4) {
+            a->glow_marker = kMarker[r.group - 1];
+            if (rng) {
+                std::uint32_t* q = rng;
+                const std::uint32_t t = q[0] ^ (q[0] << 11);
+                q[0] = q[1]; q[1] = q[2]; q[2] = q[3];
+                q[3] = q[3] ^ (q[3] >> 19) ^ t ^ (t >> 8);
+                a->glow_phase = std::uint8_t(a->glow_phase + ((q[3] >> 17) >> 7));
+            }
+        }
     } else if (tables_.eex) {
         // A full-room (medallion) boss: class 4, no ENEMYINFO record, RAW stats from
         // EEX. eex_index_for_cast maps the 8 boss casts -> records 0..7 (eex.hpp). The
