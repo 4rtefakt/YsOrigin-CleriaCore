@@ -53,8 +53,8 @@ CastMotion cast_motion(const CastTable& ct, int cast_id);
 // multiplies by run_mult(2.2) and then:
 //   airborne (and not in a skill section 0x109/0x10c..0x111): x0.6
 //   grounded: a per-character constant (0x4691cb..0x469260), with/without blessing bit
-//   0x76bc80 & 0x2000 — Yunica 1.125/1.225, Hugo 1.0/1.1 (1.075/1.175 when +0x7bc is
-//   set, [UNKNOWN] field), Toal 1.275, Adol 1.175.
+//   0x76bc80 & 0x2000 — Yunica 1.125/1.225, Hugo 1.0/1.1 (1.075/1.175 while +0x7bc, the
+//   Force Shield's life, is non-zero: ABILITIES_VERIFIED.md §3.2), Toal 1.275, Adol 1.175.
 // [not modelled] the special table entered when FUN_00460c10()+0x44 is set in sections
 // 0x10a/3 (1.35..1.55), and the 10.0 rate of the lock-on branch.
 inline float run_char_const(int character, bool blessing_2000, bool hugo_7bc = false) {
@@ -68,12 +68,12 @@ inline float run_char_const(int character, bool blessing_2000, bool hugo_7bc = f
 
 inline float player_speed(const CastMotion& m, int character, float stick, float movable,
                           bool running, bool grounded, bool skill_section,
-                          bool blessing_2000 = false) {
+                          bool blessing_2000 = false, bool hugo_7bc = false) {
     float s = m.speed_base * stick * movable;
     if (!running) return s;
     s *= m.run_mult;
     if (!grounded && !skill_section) return s * 0.6f;
-    return s * run_char_const(character, blessing_2000);
+    return s * run_char_const(character, blessing_2000, hugo_7bc);
 }
 
 // Velocity (+0x32c/+0x334), per tick. `angle` is the world move direction in the

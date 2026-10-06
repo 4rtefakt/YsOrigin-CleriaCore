@@ -1837,6 +1837,31 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // The skill button (ABILITIES_VERIFIED.md §2.2, src/cleria/skillmp): charge while held
     // (+25/tick while affordable), cast on release — the normal {0x10d,0x10c,0x10e}, or after
     // 121 held ticks with a Lv2+ bracelet the charged {0x110,0x10f,0x111}. Run once per tick.
+    // Hugo's Force Shield (ABILITIES_VERIFIED.md §3.2): +0x7c4 the shield effect (PC2_S_B, its
+    // handle stored by the player's GenerateEffect 0x86 / 0x87, FUN_004496f0), +0x7c0 the hits it
+    // still blocks, +0x7bc its life in ticks.
+    ef2sim::Effect* shield_fx = nullptr;
+    bool shield_on = false;
+    int shield_hits = 0, shield_life = 0;
+    auto fx_live = [&](const ef2sim::Effect* p) {
+        if (!p) return false;
+        for (const auto& f : fxsim.effects()) if (f.get() == p) return !f->dead;
+        return false;
+    };
+    // The removal (FUN_0046a3e0 0x46a6e2..0x46a6fd): fx+0x1d4 = 1, the three fields zeroed. The
+    // break (hits spent, or a Fix starting, FUN_0046af60 L411-536) first attaches EF2 140
+    // PC2_S_B_koware and plays SE 153 (0x99) at the player. [not modelled] the fade-out (10) of
+    // SE 157 / 152 (FUN_005cdc40): the audio layer has no stop-by-id.
+    auto remove_shield = [&](bool broken) {
+        if (broken) {
+            const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
+            spawn_sim_fx(0x8c, at, {}, 1.0f, {}, 13, at);
+            sfx_at(0x99, feet, kSfxAnimVol);
+        }
+        if (fx_live(shield_fx)) shield_fx->kill = true;
+        shield_fx = nullptr; shield_on = false;
+        shield_hits = 0; shield_life = 0;
+    };
     skillmp::Charge skill_charge;
     bool drive_skill = false;                             // CLERIA_DRIVE skill+ / skill-
     bool drive_jump = false;                              // CLERIA_DRIVE jump: one press
@@ -1872,6 +1897,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const int sec = avm.section();
         if (sec == 0x139 || sec == 300 || sec == 0x13d) return;
         player_iframes = std::max(player_iframes, 3);
+        // FUN_0046ea00 L77-112: Hugo's Ventus (0x74) frees the old shield and arms the new one,
+        // 1 hit / 360 ticks (charged, c138 == 2: 2 / 380); in Boost (0x76c198 & 0x20) 480 ticks
+        // and one hit more. [not modelled] the Extra-mode lives (DAT_0074c0d8: 420 / 440) and
+        // DAT_0076bc64 (10 hits / 1000 ticks).
+        if (character == 2 && inv.magic == 0x74) {
+            if (fx_live(shield_fx)) shield_fx->kill = true;
+            shield_fx = nullptr; shield_on = false;
+            const bool charged = so.level == 2;
+            shield_hits = charged ? 2 : 1;
+            shield_life = charged ? 0x17c : 0x168;
+            if (player.boosting) { shield_life = 0x1e0; shield_hits += 1; }
+        }
         avm.set_section(so.section, /*force*/true);
         avm.set_local(12, so.level);                      // LocalInt 12 = c138
         player.sp_cur -= float(so.cost);                  // unconditionally, after the SetSection
@@ -2252,8 +2289,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (const auto& li : csMgr.live)
                 std::printf("  [drive]   script %s pc %u wait %d%s\n", li.name.c_str(), li.pc, li.wait, li.finished ? " (done)" : "");
         } else if (cmd == "pos") {                     // print the player's feet and O2
-            std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d\n", feet.x, feet.y, feet.z,
-                        oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage);
+            std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d sp %.0f shield %d/%d/%d\n", feet.x, feet.y, feet.z,
+                        oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage,
+                        player.sp_cur, int(shield_on), shield_hits, shield_life);
         } else if (cmd.rfind("obj=", 0) == 0) {        // obj=<name>: stand 1.5 from that scene object, facing it
             std::string ln = cmd.substr(4);
             for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
@@ -3535,6 +3573,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
         };
         if (frozen_now) {
+            if (shield_on) remove_shield(true);      // FUN_0046af60 L411-536 [H-med: 0x75ad90/94 = the fix counters]
             step_meshes();
             // Effects run on under a Fix: the GoParticle step (0x5644c0) gates only on the menu
             // and the real-step flags, not the fix counters (STATUE_CLEANSE.md §2 [BYTES
@@ -3652,13 +3691,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (pa_out.t_add != 0.0f) pv.t += pa_out.t_add;            // the air combo's hang time
             if (pa_out.impulse) { player_kb.x += pa_out.impulse_x; player_kb.z += pa_out.impulse_z; }
             if (pa_out.lunge) { player_kb.x = pa_out.lunge_x; player_kb.z = pa_out.lunge_z; }
+            // The Force Shield's tick (FUN_0046a3e0 from the mover 0x467f2b, Hugo only): the life
+            // counts down; out of life with hits left it goes quietly, out of hits it breaks.
+            if (character == 2 && shield_on) {
+                if (shield_life != 0) --shield_life;
+                if (shield_life == 0 || shield_hits == 0) remove_shield(shield_hits == 0);
+                else if (!fx_live(shield_fx)) remove_shield(false);   // [guard, not retail] the effect is gone
+            }
             {   const int sec = avm.section();
                 const bool skill_sec = sec == 0x109 || (sec >= 0x10c && sec <= 0x111);
                 const bool blessing_run = (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 0x2000) != 0;
                 float spd = player_speed(pm, character, 1.0f, avm.movable(), /*running*/ moving,
-                                         pv.grounded || avm.actable(), skill_sec, blessing_run) * speed_mult;
+                                         pv.grounded || avm.actable(), skill_sec, blessing_run,
+                                         shield_life != 0) * speed_mult;
                 if (moving && (sec == 0x10a || (sec == 3 && pact.dash)))   // the dash run (0x10a, or a dash jump)
-                    spd = pm.speed_base * avm.movable() * pm.run_mult * dash_char_const(character, blessing_run) * speed_mult;
+                    spd = pm.speed_base * avm.movable() * pm.run_mult *
+                          dash_char_const(character, blessing_run, shield_life != 0) * speed_mult;
                 step_planar(pvel, moving, std::atan2(wish.z, wish.x), spd, pv.grounded);
                 // Godspeed: each tick in 0x10d / 0x110 past Marker 1 the C++ drives the dash and
                 // ends the endless ASO loop with SetSection(0x105).
@@ -3750,6 +3798,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (pv.t < 0.0f) pv.t *= 0.95f;
                     pv.t += character == 0 ? 0.015f : 0.01f;
                 }
+                // Hugo's: while the shield effect stands (any section), airborne and falling,
+                // t *= 0.88 (0x6bd3d8) — a sink of ~0.074 u/tick.
+                if (character == 2 && shield_on && !pv.grounded && pv.t < 0.0f) pv.t *= 0.88f;
             }
             {   float dy = vertical_dy(pv, submerged, cur_surface == 0x12);
                 if (dy > 0.0f) dy *= surface_up;      // sand2/lava/blood slow a rise too
@@ -4712,6 +4763,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (player.hp < 1) player_death();                // lava / noise / drowning this tick
             auto hurt_player = [&](float atk, float bonus, int rtype, float angle) {
                 if (p_untouchable) return;
+                // Hugo's Force Shield (FUN_004fd350 0x4fd9d4 -> 0x4fd90e): a charge left blocks the
+                // hit: damage 0, i-frames at least 16, SE 121, the "GUARD" popup (0xffaa00, scale
+                // 0.75, origin + 0.75; English 0x69bf04), knockback 0.1 [ABILITIES_VERIFIED §3.2].
+                // The break follows on the next shield tick. [not modelled] the white flash
+                // (+0x268..+0x274) and the +0x7e0 guard (effect 0x90).
+                if (character == 2 && shield_on && shield_hits > 0) {
+                    --shield_hits;
+                    player_iframes = std::max(player_iframes, 16);
+                    audio.play(0x79, kSfxAnimVol);
+                    if (popups.size() < 32)
+                        popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
+                                                    {feet.x, feet.y + kOriginH + 0.75f, feet.z}));
+                    const Impulse k = knock_impulse(angle, 0.1f);
+                    player_kb.x += k.x; player_kb.z += k.z;
+                    return;
+                }
                 const int raw = player_incoming_damage(AttackStats{atk, bonus, 0}, pdef,
                     [&](float p) { return float(rng_pct(rng)) < p; });
                 const int dmg = player_damage_after_boost(raw, player.boosting);
@@ -5097,6 +5164,26 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // to facing, [5..7] an explicit direction used iff non-zero, [8] speed,
             // [9] acceleration, [10] gravity, [12] scale (negative = sentinel for 1.0).
             spawn_bullets(avm, feet, face_dir, /*from_player*/true);
+            // anime_GenerateEffect from the player's ASO (FUN_004496f0, as the enemies' below): at
+            // origin + (cos, sin)(angle + facing) x fwd, y + voff, yaw angle - (facing + pi/2), the
+            // player's side (0), class FUN_0046d5e0 (the section's), Hugo's 0x86 / 0x87 with rtype 3
+            // and their handle kept as the Force Shield (+0x7c4). [not modelled] side-0 particle hits
+            // on enemies (the hit tick below resolves only the enemies' particles).
+            for (const AsoVm::EffectEvent& fe : avm.effects()) {
+                const float pf = std::atan2(face_dir.z, face_dir.x);
+                const float a = fe.angle_deg * 0.0174533f;
+                const Vec3 org{feet.x, feet.y + kOriginH, feet.z};
+                const Vec3 at{org.x + std::cos(a + pf) * fe.fwd, org.y + fe.voff, org.z + std::sin(a + pf) * fe.fwd};
+                const bool shield_id = character == 2 && (fe.id == 0x86 || fe.id == 0x87);
+                ef2sim::SpawnParams sp;
+                sp.power = fe.power; sp.knock = fe.knock; sp.status = fe.status;
+                sp.rtype = shield_id ? 3 : fe.rtype;
+                sp.cls = player_damage_class(avm.section());
+                sp.atk = player_stats().atk; sp.side = 0; sp.owner = 13;
+                ef2sim::Effect* fx = spawn_sim_fx(fe.id, at, {0.0f, a - (pf + 1.5707963f), 0.0f}, fe.scale, sp,
+                                                  fe.attach != 0 ? 13 : 0, org);
+                if (shield_id) { shield_fx = fx; shield_on = fx != nullptr; }
+            }
             // GenerateCollision fired: adopt this section's own box for its own lifetime.
             if (avm.armed_hitbox()) {
                 atk_hb = avm.hitbox();
