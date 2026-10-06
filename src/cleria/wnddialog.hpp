@@ -55,6 +55,9 @@ class WndText {
     int face() const { return face_; }                    // +0x258: f_(200 + 10*face) (-1 none)
     int face_frame() const { return frame_; }             // +0x25c
     float box_alpha() const { return box_; }              // +0x248
+    // CleriaCore's text-speed assist (access::TextSpeed): 0 retail, 1 always the fast rate, 2 the
+    // whole message at once. The host sets it; 0 is the faithful window.
+    int text_speed = 0;
 
   private:
     bool alive_ = false, close_ = false, armed_ = false, accepted_ = false;
@@ -91,6 +94,7 @@ class WndDialog {
     void update(const WndInput& in, std::vector<int>& sounds);
     void draw(DrawList& out) const;
     bool is_menu() const { return !treasure_; }
+    int text_speed = 0;                                   // as WndText::text_speed
 
   private:
     void layout(const RichMetrics& m);

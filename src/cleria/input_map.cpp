@@ -3,6 +3,8 @@
 // pefile; the mapper was re-read instruction by instruction at 0x5d2ba0..0x5d3376.
 #include "cleria/input_map.hpp"
 
+#include "cleria/pad.hpp"
+
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -272,7 +274,8 @@ const Frame& Mapper::step(const Snapshot& s) {
             const float fx = float(x), fy = float(y);
             if (cfg_.linear_magnitude) {    // [cleria.input] LinearStickMagnitude [H, CleriaCore QoL]
                 mag = float(std::sqrt(double(fx * fx + fy * fy))) * 0.0009765625f;
-                if (mag > 1.0f) mag = 1.0f;
+                // [cleria.pad] OuterDeadZone / ResponseCurve (defaults: min(mag, 1), as before)
+                mag = pad::shaped_magnitude(mag, float(dz_) * 0.0009765625f, cfg_.outer_dead_zone, cfg_.response_curve);
             } else {                        // retail: sqrt(x^4 + y^4) / 1024 [BYTES 0x5d2f37..0x5d2f6f]
                 const float x2 = fx * fx, y2 = fy * fy;
                 mag = float(std::sqrt(double(y2 * y2 + x2 * x2))) * 0.0009765625f;
@@ -319,13 +322,21 @@ const Frame& Mapper::step(const Snapshot& s) {
                     if (mouse_aoc) continue;
                     held |= kClick;
                     pressed |= (pressed & 1) << 15;   // 0x8000
+                } else if (g == 1 && cfg_.swap_ok_cancel) {   // [cleria.pad] SwapConfirmCancel
+                    held |= kCancel;
+                    pressed |= (pressed & 1) << 14;
                 } else {
                     held |= kOk;
                     pressed |= (pressed & 1) << 13;   // 0x2000
                 }
             } else if (bit == 2 && !mouse_aoc) {
-                held |= kCancel;
-                pressed |= (pressed & 2) << 13;       // 0x4000
+                if (g == 1 && cfg_.swap_ok_cancel) {          // [cleria.pad] SwapConfirmCancel
+                    held |= kOk;
+                    pressed |= (pressed & 2) << 12;
+                } else {
+                    held |= kCancel;
+                    pressed |= (pressed & 2) << 13;       // 0x4000
+                }
             }
         }
     }

@@ -72,6 +72,8 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/vfs.cpp
   src/cleria/mods.cpp
   src/cleria/settings.cpp
+  src/cleria/access.cpp
+  src/cleria/pad.cpp
   src/cleria/ni_archive.cpp
   src/cleria/gamedata.cpp)
 target_include_directories(cleria PUBLIC src)
@@ -180,9 +182,19 @@ target_link_libraries(cleria-modstest PRIVATE cleria miniz)
 add_executable(cleria-settingstest apps/cleria-settingstest/main.cpp)
 target_link_libraries(cleria-settingstest PRIVATE cleria)
 
+# cleria-accesstest — the accessibility assists / cheats: the skip gate, the multipliers, the flash
+# limiter, cleria.ini [cleria.access] / [cleria.cheats] (src/cleria/access, build/shell_re/ACCESS.md).
+add_executable(cleria-accesstest apps/cleria-accesstest/main.cpp)
+target_link_libraries(cleria-accesstest PRIVATE cleria)
+
 # cleria-inputtest — the binding tables and the mapper FUN_005d2ba0 vs build/shell_re/CONFIG.md §3.
 add_executable(cleria-inputtest apps/cleria-inputtest/main.cpp)
 target_link_libraries(cleria-inputtest PRIVATE cleria)
+
+# cleria-padtest — the Controller page's logic: glyph sets, binding swaps, the analog-walk shaping, the
+# swapped OK / Cancel and retail's force-feedback table (src/cleria/pad.hpp) vs build/shell_re/PAD.md.
+add_executable(cleria-padtest apps/cleria-padtest/main.cpp)
+target_link_libraries(cleria-padtest PRIVATE cleria)
 
 # cleria-mousetest — the cursor transform, the cursor manager, the sprite, click-to-move, the skill
 # wheel and the menu hit tests (src/cleria/mouse.hpp) vs build/shell_re/MOUSE.md.
@@ -326,7 +338,7 @@ else()
 endif()
 set(CLERIA_TEST_ASSETS "${_cleria_assets_default}" CACHE PATH "Asset root the ctest suite runs on")
 enable_testing()
-foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest)
+foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

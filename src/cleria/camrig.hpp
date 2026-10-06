@@ -61,6 +61,9 @@ class CamRig {
     int shake_frames() const { return sh_frames_; }
     void set_shake_amp(const Vec3& a) { sh_amp_ = a; }
     void set_shake_frames(int f) { sh_frames_ = f; }
+    // CleriaCore's screen-shake assist (access.hpp): x the shake's offset where it is applied. The
+    // draws still happen (they share the game's xorshift), only the displacement shrinks. 1 = retail.
+    float shake_scale = 1.0f;
 
     struct Out { Vec3 eye{}, target{}; float fov = 0.5236f, pitch = 0; };
     // One 60 Hz step. `player` = the player's origin (the volume test), `look` = the live look point

@@ -75,6 +75,7 @@ struct DropContext {
     bool no_drops = false;            // flag 146 or enemy+0x130 & 1: nothing at all
     bool boss_lock = false;           // 0x76bb8c != 0: no buff scatter
     bool whole_room_water = false;
+    float rate = 1.0f;                // CleriaCore's drop-rate cheat (access.hpp): x every slot's chance
 };
 // `entry_draw` false: the caller already took FUN_00478510's entry draw (the death effect's
 // scale) and spawned the death effects, which draw too, before these rolls.

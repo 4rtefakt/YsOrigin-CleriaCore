@@ -66,6 +66,7 @@ struct EffectEnv {
     float max_hp = 0;
     bool player_alive = true;
     float* boost = nullptr, * oxygen = nullptr;
+    float sp_rate = 1.0f;   // the SP rate 0x76a5f8 (1.0 in retail; CleriaCore's SP cheat, access.hpp)
 };
 int apply_item_effect(InvState& inv, const ItemTable& items, EffectEnv& env, int id);
 

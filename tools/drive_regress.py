@@ -48,6 +48,21 @@ CASES = {
         room="S_10/S_1009/S_1009",
         drive="70:hp=0;200:down;210:ok;400:quit",
         expect=["[gameover] gameover.dds", "[gameover] chose title", "Return to Title"]),
+    # The shell's Cutscene skip = Double press (build/shell_re/ACCESS.md §1): during the cleanse the first
+    # Esc only shows the prompt (the world stays frozen), the second skips to the end.
+    "access_skip_double": dict(
+        room="S_10/S_1009/S_1009",
+        drive="5:flag=310,1;6:flag=84,1;8:opt=CutsceneSkip=1;10:at=-0.036,8.2,0;20:act;50:esctap;55:scripts;"
+              "80:esctap;85:scripts;90:quit",
+        expect=["[access] skip prompt: press again", "t55 scripts", "frozen 1",
+                "[access] cutscene skip (double)", "t85 scripts", "frozen 0 fix 0/0"]),
+    # The Cheats (ACCESS.md §2): Damage dealt x10 kills the Selnarg (74 HP) in 4 hits of 20/30, EXP x2
+    # credits 66 (retail 33), Damage taken 0 keeps the 60 HP it would otherwise lose some of.
+    "access_cheats": dict(
+        room="S_10/S_1002/S_1002",
+        drive="8:opt=DamageDealt=10;9:opt=ExpRate=2;10:opt=DamageTaken=0;15:stats;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:stats;430:quit",
+        expect=["stats exp 0 lv 1 hp 60/60", "stats exp 66 lv 1 hp 60/60"]),
 }
 
 

@@ -151,10 +151,16 @@ struct Shell {
         g_shell_focus = ready && (open || launcher);       // every frame, so it can never stay stuck on
         if (!ready || (!open && !under && hud.empty()) || w == 0 || h == 0) return;
         ui::S = float(h) / 1000.0f;                       // [H] the reference shots were 1125 px tall
+        // ImGui shows / shapes the OS pointer only while the shell owns the input: under hud layers
+        // alone the game's hidden pointer (sync_os_cursor) must stay hidden.
+        if (open || launcher) ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+        else ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
         ImGui_ImplWGPU_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        const ui::Nav nav = capture.active ? ui::Nav{} : ui::read_nav();   // a capture owns the keys
+        // A capture owns the keys, also on the frame it finished: ImGui polls the pad, so the button
+        // just bound would read as a fresh OK / d-pad press and restart the capture.
+        const ui::Nav nav = capture.active || capture.done ? ui::Nav{} : ui::read_nav();
         ImDrawList* dl = ImGui::GetForegroundDrawList();
         const bool was_open = open;
         if (under) under(dl, float(w), float(h), open ? ui::Nav{} : nav);

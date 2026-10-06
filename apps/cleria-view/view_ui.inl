@@ -69,19 +69,30 @@ struct Nav {
 // window, and the clipped test would clip to the implicit 400x400 debug window.
 inline bool hovering(const ImVec2& a, const ImVec2& b) { return ImGui::IsMouseHoveringRect(a, b, false); }
 
+// The pad's share of the navigation (view_pad.inl): [cleria.pad] SwapConfirmCancel swaps its OK and
+// Back, and while the Controller page is drawn (pad_test_frame = that frame) the pad is free for the
+// live test: only the d-pad moves and Start activates; the sticks, face buttons and bumpers just light up.
+inline bool pad_swap_ok = false;
+inline int pad_test_frame = -100;
+
 inline Nav read_nav() {
     Nav n;
     auto pr = [](ImGuiKey k) { return ImGui::IsKeyPressed(k, true); };
-    n.up = pr(ImGuiKey_UpArrow) || pr(ImGuiKey_W) || pr(ImGuiKey_GamepadDpadUp) || pr(ImGuiKey_GamepadLStickUp);
-    n.down = pr(ImGuiKey_DownArrow) || pr(ImGuiKey_S) || pr(ImGuiKey_GamepadDpadDown) || pr(ImGuiKey_GamepadLStickDown);
-    n.left = pr(ImGuiKey_LeftArrow) || pr(ImGuiKey_A) || pr(ImGuiKey_GamepadDpadLeft) || pr(ImGuiKey_GamepadLStickLeft);
-    n.right = pr(ImGuiKey_RightArrow) || pr(ImGuiKey_D) || pr(ImGuiKey_GamepadDpadRight) || pr(ImGuiKey_GamepadLStickRight);
+    const bool test = ImGui::GetFrameCount() - pad_test_frame <= 1;
+    auto st = [&](ImGuiKey k) { return !test && pr(k); };   // a pad key the live test frees
+    const ImGuiKey pad_ok = pad_swap_ok ? ImGuiKey_GamepadFaceRight : ImGuiKey_GamepadFaceDown;
+    const ImGuiKey pad_back = pad_swap_ok ? ImGuiKey_GamepadFaceDown : ImGuiKey_GamepadFaceRight;
+    n.up = pr(ImGuiKey_UpArrow) || pr(ImGuiKey_W) || pr(ImGuiKey_GamepadDpadUp) || st(ImGuiKey_GamepadLStickUp);
+    n.down = pr(ImGuiKey_DownArrow) || pr(ImGuiKey_S) || pr(ImGuiKey_GamepadDpadDown) || st(ImGuiKey_GamepadLStickDown);
+    n.left = pr(ImGuiKey_LeftArrow) || pr(ImGuiKey_A) || pr(ImGuiKey_GamepadDpadLeft) || st(ImGuiKey_GamepadLStickLeft);
+    n.right = pr(ImGuiKey_RightArrow) || pr(ImGuiKey_D) || pr(ImGuiKey_GamepadDpadRight) || st(ImGuiKey_GamepadLStickRight);
     n.ok = ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
-           ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false);
+           ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+           ImGui::IsKeyPressed(test ? ImGuiKey_GamepadStart : pad_ok, false);
     n.back = ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false) ||
-             ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
-    n.tab_prev = pr(ImGuiKey_Q) || pr(ImGuiKey_GamepadL1) || pr(ImGuiKey_PageUp);
-    n.tab_next = pr(ImGuiKey_E) || pr(ImGuiKey_GamepadR1) || pr(ImGuiKey_PageDown) ||
+             (!test && ImGui::IsKeyPressed(pad_back, false));
+    n.tab_prev = pr(ImGuiKey_Q) || st(ImGuiKey_GamepadL1) || pr(ImGuiKey_PageUp);
+    n.tab_next = pr(ImGuiKey_E) || st(ImGuiKey_GamepadR1) || pr(ImGuiKey_PageDown) ||
                  ImGui::IsKeyPressed(ImGuiKey_Tab, true);
     return n;
 }
@@ -286,6 +297,7 @@ struct Panel {
     std::vector<Page> pages;
     int tab = 0;
     bool open = false;
+    ImVec2 side_a{}, side_b{};   // this frame's right-hand pane (under the description), for a page's picture
 
     void add(const std::string& name, std::function<void(List&)> draw) { pages.push_back({name, std::move(draw), {}}); }
 
@@ -329,6 +341,7 @@ struct Panel {
         Page& pg = pages[std::clamp(tab, 0, int(pages.size()) - 1)];
         List& L = pg.list;
         const ImVec2 lo{a.x + 19.0f * S, a.y + tab_h + 14.0f * S};
+        side_a = {split + 20.0f * S, a.y + tab_h + 20.0f * S}; side_b = {b.x - 20.0f * S, b.y - 12.0f * S};
         list_begin(L, dl, lo, {split - lo.x - 6.0f * S, b.y - lo.y - 12.0f * S}, nav, true);
         pg.draw(L);
         list_end(L);

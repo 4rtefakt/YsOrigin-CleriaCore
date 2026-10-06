@@ -95,7 +95,8 @@ void WndText::update(const WndInput& in, std::vector<int>& sounds) {
     if (!in.confirm_held) released_ = true;
     if ((reveal_ & 0xffff0000u) < reveal_end_) {
         if (++tick_ > 4) { tick_ = 0; sounds.push_back(0x0c); }
-        reveal_ += fast_ ? 0x50000u : speed_;
+        reveal_ += (fast_ || text_speed == 1) ? 0x50000u : speed_;
+        if (text_speed == 2) reveal_ = std::max(reveal_, reveal_end_);   // CleriaCore: instant text
         if (close_ || (released_ && in.confirm_held)) fast_ = true;
         return;
     }
@@ -200,7 +201,8 @@ void WndDialog::update(const WndInput& in, std::vector<int>& sounds) {
     if (!held) released_ = true;
     if (reveal_ < reveal_end_) {
         if (tick_sound_ && ++tick_ > 4) { tick_ = 0; sounds.push_back(0x0c); }
-        reveal_ += close_ ? 0x30000u : 0x7000u;              // [not modelled] held bit 0x1 (fast)
+        reveal_ += (close_ || text_speed == 1) ? 0x30000u : 0x7000u;   // [not modelled] held bit 0x1 (fast)
+        if (text_speed == 2) reveal_ = std::max(reveal_, reveal_end_);   // CleriaCore: instant text
         return;
     }
     revealed_ = true;

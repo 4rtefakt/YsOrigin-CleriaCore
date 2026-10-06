@@ -122,6 +122,12 @@ struct Config {
     // half tilt walks. Retail's is sqrt(x^4 + y^4) / 1024 (>= ~125 past any deadzone: the stick
     // always runs) [BYTES 0x5d2f37..0x5d2f6f].
     bool linear_magnitude = false;
+    // [cleria.pad] (CleriaCore, build/shell_re/PAD.md): the analog-walk shaping (pad::shaped_magnitude;
+    // read only with linear_magnitude), and the pad group's OK / Cancel swapped (Nintendo-style menus;
+    // the Attack / Jump bits themselves are unchanged).
+    float outer_dead_zone = 1.0f;
+    int response_curve = 0;
+    bool swap_ok_cancel = false;
 };
 
 // The 0x34-byte output record (CONFIG.md §3.4).

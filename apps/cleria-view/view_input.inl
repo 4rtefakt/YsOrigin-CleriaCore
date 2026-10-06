@@ -241,10 +241,11 @@ struct SdlInput {
                 const int i = input::pad_button_from_sdl(b);
                 if (i >= 0 && SDL_GetGamepadButton(pad, SDL_GamepadButton(b))) s.pad[std::size_t(i)] = true;
             }
-            // [H, CleriaCore] the triggers as Button 11 / 12 past a quarter pull.
-            if (SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 8192)
+            // [H, CleriaCore] the triggers as Button 11 / 12 past [cleria.pad] TriggerThreshold (a quarter pull).
+            const int trig = int(settings().s.pad.trigger_threshold * 32767.0f);
+            if (SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > trig)
                 s.pad[std::size_t(input::pad_button_from_sdl(input::kSdlLeftTrigger))] = true;
-            if (SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8192)
+            if (SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > trig)
                 s.pad[std::size_t(input::pad_button_from_sdl(input::kSdlRightTrigger))] = true;
             // The d-pad as POV 0 (hundredths of a degree clockwise from up) [H: the HID hat].
             const bool u = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_UP);

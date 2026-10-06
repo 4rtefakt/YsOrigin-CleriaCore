@@ -201,7 +201,8 @@ CamRig::Out CamRig::step(const Vec3& player, const Vec3& look, const std::functi
     }
     pub_ = o;                                  // the published (pre-offset) target: the scroll base
     // 9. FUN_0042a080: the camera-space offset (+ the shake) moves eye and target together.
-    if (sh_frames_ != 0) off = {off.x + sh_off_.x, off.y + sh_off_.y, off.z + sh_off_.z};
+    if (sh_frames_ != 0)
+        off = {off.x + sh_off_.x * shake_scale, off.y + sh_off_.y * shake_scale, off.z + sh_off_.z * shake_scale};
     Vec3 f = {o.target.x - o.eye.x, o.target.y - o.eye.y, o.target.z - o.eye.z};
     const float fl = std::sqrt(f.x * f.x + f.y * f.y + f.z * f.z);
     if (fl > 1e-6f) f = {f.x / fl, f.y / fl, f.z / fl}; else f = {};

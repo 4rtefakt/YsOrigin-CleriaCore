@@ -454,6 +454,8 @@ void read_cleria(const Ini& ini, Settings& s) {
     for (int i = 0; i < 8; ++i)
         if (auto v = ini.get_string("cleria.input", std::string("PadBind{") + kPadSlotNames[i] + "}"))
             c.pad_bind[std::size_t(i)] = *v;
+    access::read(ini, s.access);
+    read_pad(ini, s.pad);
 }
 
 void write_cleria(Ini& ini, const Settings& s) {
@@ -470,6 +472,8 @@ void write_cleria(Ini& ini, const Settings& s) {
     ini.set_int("cleria.input", "NativePadBinds", c.native_pad_binds);
     for (int i = 0; i < 8; ++i)
         ini.set_string("cleria.input", std::string("PadBind{") + kPadSlotNames[i] + "}", c.pad_bind[std::size_t(i)]);
+    access::write(ini, s.access);
+    write_pad(ini, s.pad);
 }
 
 input::Config mapper_config(const Settings& s, bool book_mode) {
@@ -487,6 +491,9 @@ input::Config mapper_config(const Settings& s, bool book_mode) {
     c.double_click_frame = std::uint32_t(s.input.double_click_frame);
     c.book_mode = book_mode;
     c.linear_magnitude = s.cleria.linear_stick_magnitude;
+    c.outer_dead_zone = s.pad.outer_dead_zone;           // [cleria.pad] (analog walk only)
+    c.response_curve = s.pad.response_curve;
+    c.swap_ok_cancel = s.pad.swap_confirm_cancel;
     return c;
 }
 

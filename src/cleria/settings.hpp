@@ -17,7 +17,9 @@
 #include <string_view>
 #include <vector>
 
+#include "cleria/access.hpp"
 #include "cleria/input_map.hpp"
+#include "cleria/pad.hpp"
 
 namespace cleria {
 
@@ -126,6 +128,8 @@ struct Settings {
         std::array<std::string, 8> pad_bind = {   // [cleria.input] PadBind{PAD_ACTION..PAD_SWORD_REVU}
             "a", "b", "x", "y", "start", "lefttrigger", "leftshoulder", "rightshoulder"};   // [H]
     } cleria;
+    access::Settings access;   // [cleria.access] / [cleria.cheats] (src/cleria/access.hpp)
+    PadSettings pad;                         // cleria.ini [cleria.pad] (src/cleria/pad.hpp, PAD.md)
 };
 
 // The keys skipped when IniVersion != 0x100 (FUN_0040d1d0's gate around the early HighResoText /

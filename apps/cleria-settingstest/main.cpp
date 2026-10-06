@@ -204,6 +204,24 @@ int main() {
               "[cleria.mods] UseMods / Order / Active round trip (quoted strings)");
     }
 
+    // ---- [cleria.pad] (the Controller page, build/shell_re/PAD.md) ----
+    {
+        Settings s;
+        Ini c; write_cleria(c, s);
+        check(c.has("cleria.pad", "Glyphs") && c.has("cleria.pad", "OuterDeadZone") && c.has("cleria.pad", "ResponseCurve") &&
+              c.has("cleria.pad", "TriggerThreshold") && c.has("cleria.pad", "SwapConfirmCancel") &&
+              c.has("cleria.pad", "VibrationIntensity"), "cleria.ini writes the six [cleria.pad] keys");
+        const input::Config mc = mapper_config(s);
+        check(mc.outer_dead_zone == 1.0f && mc.response_curve == 0 && !mc.swap_ok_cancel && s.input.force_feedback == 0,
+              "[cleria.pad] defaults = retail: no outer deadzone, linear, no OK/Cancel swap; ForceFeedback off");
+        s.pad.swap_confirm_cancel = true;
+        s.pad.outer_dead_zone = 0.9f;
+        Ini c2; write_cleria(c2, s);
+        Settings t; read_cleria(c2, t);
+        check(mapper_config(t).swap_ok_cancel && std::fabs(mapper_config(t).outer_dead_zone - 0.9f) < 1e-6f,
+              "[cleria.pad] round trip reaches the mapper config");
+    }
+
     // ---- retail's location rules (FUN_005de1d0) ----
     {
         const fs::path sg = "C:/SG", inst = "D:/Game";
@@ -235,8 +253,12 @@ int main() {
         check(fs::exists(mine) && fs::exists(root / "CleriaCore" / "cleria.ini") && slurp(retail) == retail_before,
               "the import was saved (yso_win.ini + cleria.ini); retail's file untouched");
         check(slurp(mine) == retail_before, "the imported copy is byte-identical to retail's");
+        check(!st.s.access.cheats_active() && st.s.access.game_speed == 1.0f,
+              "imported: the access / cheat keys at their retail defaults (retail has none)");
         st.s.sound.bgm_volume = 300;
         st.s.cleria.debug_hud = true;
+        st.s.access.exp_rate = 2.0f;                       // [cleria.cheats] ExpRate (src/cleria/access)
+        st.s.access.cutscene_skip = int(access::SkipMode::Double);   // [cleria.access] CutsceneSkip
         const auto rev = st.revision();
         st.touch();
         check(st.dirty() && st.revision() == rev + 1, "touch(): dirty + a revision bump");
@@ -244,6 +266,9 @@ int main() {
         SettingsStore st2;
         check(st2.load(mine, retail) == SettingsStore::Origin::Loaded && st2.s.sound.bgm_volume == 300 &&
               st2.s.cleria.debug_hud, "second run: loaded (no re-import), the edits kept");
+        check(st2.s.access.exp_rate == 2.0f && st2.s.access.cutscene_skip == int(access::SkipMode::Double) &&
+              st2.cleria_doc().has("cleria.cheats", "ExpRate") && !st2.retail_doc().has("cleria.cheats", "ExpRate"),
+              "the cheats / assists persist in cleria.ini, never in yso_win.ini");
         check(slurp(retail) == retail_before, "retail's file still untouched");
         const fs::path other = root / "fresh" / "yso_win.ini";
         SettingsStore st3;

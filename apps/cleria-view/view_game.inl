@@ -73,6 +73,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool shell_drive_close = false;                      // CLERIA_DRIVE `shell`: close after the shot
     int shell_shot_frames = 0;                           // frames left before that shot
     shell.init(win, g, fmt);
+    shell.hud["pad"] = pad_hud;                          // controller hot-plug notice (view_pad.inl)
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
     hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");
     hud.init_boss(g, asset_root / "IMAGE" / "HP2.DDS");    // the boss HP bar (it was never loaded live)
@@ -120,9 +121,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     audio.set_bgm_volume(oslider[0] / 1024.0f);     // Option "BGM Volume"
 
     // ---- the shell's settings pages (F1, and SETTINGS in the launcher) -------------------------
-    // CleriaCore-only switches: QoL off by default (retail behaviour), cheats off. [not persisted
-    // yet: the settings model lands with cleria.ini]
-    bool cheat_hp = false, cheat_mp = false, cheat_boost = false, cheat_o2 = false, cheat_ohko = false;
+    // CleriaCore-only switches: QoL off by default (retail behaviour), cheats off. The cheats live in
+    // cleria.ini [cleria.cheats] (src/cleria/access.hpp; the Cheats page is view_access.inl).
+    bool &cheat_hp = settings().s.access.inf_hp, &cheat_mp = settings().s.access.inf_mp,
+         &cheat_boost = settings().s.access.inf_boost, &cheat_o2 = settings().s.access.inf_o2,
+         &cheat_ohko = settings().s.access.one_hit_kill;
     int window_mode = settings().s.cleria.borderless_fullscreen ? 1 : 0;   // 0 windowed, 1 borderless
     if (window_mode == 1 && !offscreen) SDL_SetWindowFullscreen(win, true);
     auto persist = [] { settings().touch(); settings().save(); };   // a shell edit, saved at once
@@ -271,6 +274,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // Configure Inputs: the 34 retail binding slots ([input] Assign{...}, CONFIG.md §3.3), rebound
             // by capturing the next key / mouse button / pad button (Shell::Capture). With [cleria.input]
             // NativePadBinds the PAD_* slots use SDL gamepad button names (Xbox layout) instead.
+            if (g_pad_ui.open) { pad_page(L, shell); return; }   // Input > Controller (view_pad.inl)
             bool& binding = input_bind_mode;
             static std::string bind_msg;
             auto& in = settings().s.input;
@@ -351,10 +355,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             ui::section(L, "Inputs");
             if (ui::button(L, "Configure Inputs", "Rebind keyboard keys, mouse buttons and gamepad buttons."))
                 binding = true;
+            if (ui::button(L, "Controller", "Your controller live: its buttons, sticks and triggers, rebinding on a "
+                           "picture of the pad, deadzones, vibration."))
+                g_pad_ui.open = true;
             ui::section(L, "Options");
             bool ch = false;
-            ch |= ui::toggle(L, "Analog movement", &ocheck[0],
-                             "Walk or run depending on how far the stick is pushed. (In-game Options.)");
+            ch |= ui::toggle(L, "Analog as digital", &ocheck[0],
+                             "Treat the stick like the d-pad: 8 directions, always at full speed. (In-game Options: "
+                             "Use Analog as Digital.)");
             ch |= ui::toggle(L, "Dash", &ocheck[1], "Allow dashing once the Silver Bracelet is obtained. (In-game Options.)");
             ch |= ui::toggle(L, "Hold attack for magic", &ocheck[2],
                              "Charge and cast skills by holding the attack button. (In-game Options.)");
@@ -367,20 +375,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             vol(L, "Music volume", oslider[0], "Background music volume. (The same setting as the in-game Options.)", true);
             vol(L, "Sound effects volume", oslider[1], "Sound effect volume. (The same setting as the in-game Options.)", false);
         });
-        shell.panel.add("Gameplay", [&](ui::List& L) {
-            ui::section(L, "Speed");
-            ui::slider(L, "Game speed", &g_time_scale, 0.25f, 4.0f, 0.25f, "%.2fx",
-                       "Runs the whole game faster or slower. Not a retail option.");
-        });
-        shell.panel.add("Cheats", [&](ui::List& L) {
-            ui::section(L, "Resources");
-            ui::toggle(L, "Infinite HP", &cheat_hp, "Your HP is refilled every frame.");
-            ui::toggle(L, "Infinite MP", &cheat_mp, "Your skill gauge never runs out.");
-            ui::toggle(L, "Infinite Boost", &cheat_boost, "The Boost gauge stays full.");
-            ui::toggle(L, "Infinite oxygen", &cheat_o2, "Never run out of air underwater.");
-            ui::section(L, "Combat");
-            ui::toggle(L, "One-hit kills", &cheat_ohko, "Every hit you land defeats the enemy.");
-        });
+        // Gameplay (the cutscene skip, the game speed) and Cheats: view_access.inl.
+        shell.panel.add("Gameplay", [&](ui::List& L) { access_gameplay_page(L, persist); });
+        shell.panel.add("Cheats", [&](ui::List& L) { access_cheats_page(L, persist); });
+        shell.hud["access"] = access_hud;               // the cutscene-skip prompt
         shell.panel.add("Mods", [&](ui::List& L) { mods_page(L); });   // view_mods.inl
         shell.panel.add("Interface", [&](ui::List& L) {
             ui::section(L, "Overlays");
@@ -390,6 +388,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 settings().s.cleria.debug_hud = hud.debug_text;
                 persist();
             }
+            access_interface_rows(L, persist);        // flashes, shake, text speed (view_access.inl)
         });
     }
 
@@ -699,9 +698,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             else if (hit >= 0) choice_made = hit;
         };
         if (launcher_env && std::string(launcher_env) == "settings") shell.open = true;
-        // CLERIA_SHELL_PAGE=<tab name>[:bind] (headless captures): open the panel on that tab.
+        // CLERIA_SHELL_PAGE=<tab name>[:bind|:pad] (headless captures): open the panel on that tab
+        // (:pad = Input > Controller, view_pad.inl).
         if (const char* pg = std::getenv("CLERIA_SHELL_PAGE")) {
             std::string want = pg;
+            if (want.size() > 4 && want.substr(want.size() - 4) == ":pad") { want.resize(want.size() - 4); g_pad_ui.open = true; }
             const bool bind = want.size() > 5 && want.substr(want.size() - 5) == ":bind";
             if (bind) want.resize(want.size() - 5);
             for (int i = 0; i < int(shell.panel.pages.size()); ++i)
@@ -1188,7 +1189,8 @@ title_again:
     // maxHP DELTA -- not a full refill. (Difficulty EXP bonus / rate mult are 1.0 here.)
     auto award_exp = [&](float enemy_exp) {
         if (!ginfo.ok()) return;
-        player.exp += std::max(1.0f, std::round(enemy_exp));   // always at least 1
+        // always at least 1; the shell's EXP rate stands where retail's 0x76a5fc (1.0) multiplies it
+        player.exp += access::exp_gain(enemy_exp, settings().s.access.exp_rate);
         while (player.level < 60 &&
                player.exp >= float(ginfo.exp_to_level(player.level + 1))) {
             ++player.level;
@@ -2514,6 +2516,7 @@ title_again:
             csHost.wnd_cancel = false;
             wnd_mouse(win);
             std::vector<int> wsnd;
+            csHost.wtext.text_speed = csHost.wdlg.text_speed = settings().s.access.text_speed;   // the shell's
             csHost.wtext.update(win, wsnd);
             csHost.wdlg.update(win, wsnd);
             csHost.dispatch_menu();
@@ -2707,6 +2710,7 @@ title_again:
         // armed_hitbox() path already resolves.
         const int extra = character == 1 ? 313 : character == 2 ? 300 : 317;
         if (!avm.set_section(extra, /*force*/true)) return;
+        pad_rumble(5);                                    // FUN_005d3500(5) at 0x465dc0 (view_pad.inl)
         atk_dir = face_dir;
         player_hit_serial = next_hit_serial(world.hit_serial_counter_);
         player.boost = 0.0f;                              // spends the gauge
@@ -2792,6 +2796,7 @@ title_again:
             shield_life = charged ? 0x17c : 0x168;
             if (player.boosting) { shield_life = 0x1e0; shield_hits += 1; }
         }
+        pad_rumble(so.level == 2 ? 2 : 0);               // FUN_005d3500: 0x46f19b charged (2) / 0x46f27a (0)
         avm.set_section(so.section, /*force*/true);
         avm.set_local(12, so.level);                      // LocalInt 12 = c138
         player.sp_cur -= float(so.cost);                  // unconditionally, after the SetSection
@@ -3369,6 +3374,10 @@ title_again:
             player.hp = std::atoi(cmd.c_str() + 3);
         } else if (cmd.rfind("sp=", 0) == 0) {         // sp=<n>: the SP wallet 0x76a75c
             player.sp = std::atoi(cmd.c_str() + 3);
+        } else if (cmd == "stats") {                   // EXP / level / HP / SP (the access checks)
+            std::printf("  [drive] stats exp %.0f lv %d hp %d/%d sp %d\n", double(player.exp), player.level, player.hp,
+                        player.max_hp, player.sp);
+        } else if (access_drive(cmd)) {                // opt=Key=value, esctap, eschold=n (view_access.inl)
         } else if (cmd == "jump") {
             drive_jump = true;
         } else if (cmd == "skill+" || cmd == "skill-") {   // hold / release the skill button
@@ -3652,6 +3661,7 @@ title_again:
         boss->camera().cur = g_rig.current(); boss->camera().prev = g_rig.from();
         boss->camera().t = g_rig.blend_t(); boss->camera().forced = g_rig.forced();
         const Boss01Output out = boss->tick(in);
+        for (int id : out.rumble) pad_rumble(id);        // FUN_005d3500 (view_pad.inl)
         if (out.camera_written) {
             const Boss01Camera& bc = boss->camera();
             g_rig.write_sel(bc.cur, bc.prev, bc.t, bc.rate);
@@ -3750,7 +3760,7 @@ title_again:
     // by its full matrix (MeshObj::world). No boss camera (N10).
     // [not modelled] the stone shells SBOSS02* (§5.5: the statue look before the wake), the
     // glows / arcs / debris (cosmetic; Boss02Input::cosmetic is not hooked, so after a debris
-    // call the shared RNG runs behind the engine's), the pad rumble, the option-byte sparks,
+    // call the shared RNG runs behind the engine's), the option-byte sparks,
     // the looped SE stop/start (216 / 217 play once), the touch's section-9 reaction (U2).
     constexpr int kB2Owner = -0xB02;                       // fx owner tag for the slot effects
     std::array<RehitBank, boss02::kObjects> boss2_banks{}; // FUN_004faac0 per piece (the mesh path)
@@ -3786,6 +3796,7 @@ title_again:
     };
     // A Boss02Output (a tick's, or accept_hit's feedback), applied in order.
     auto boss2_apply = [&](const Boss02Output& out) {
+        for (int id : out.rumble) pad_rumble(id);        // FUN_005d3500 (view_pad.inl)
         for (const Boss02ClipSet& c : out.clips) {
             const char* nm = boss02::object_name(c.object);
             if (c.by_index) meshes.set_clip_index(nm, c.clip, 0);       // [H] the shell swap's re-apply
@@ -4050,7 +4061,7 @@ title_again:
     // shake globals (its step IS FUN_00427c90: 3 shared-RNG draws per frame while it runs).
     // [not modelled] the node overrides (Neji / ForeArm2 / Neck4 / the Head bug: the baked model
     // has no per-node override, so a broken forearm is not thrown away visibly), the zoom blur
-    // and the screen flash, the pad rumble, the SE stop / fade, the buff clear and the
+    // and the screen flash, the SE stop / fade, the buff clear and the
     // achievement, the drop (obj+0xc4), the element bonus on the arm HP (dmg_hp = dmg), the
     // lava floor (surface 13, §6.5), the S_3099_1.SOB ring set on Hard / Nightmare (FLOOR3 B8:
     // the root script's Scene_LoadStaticObjects pick is not honoured by the room load).
@@ -4061,6 +4072,7 @@ title_again:
     std::array<int, boss03::kClips> boss3_sect{};          // clip id -> the mesh's section index
     Boss03ArmGauge boss3_arm{};                            // the mini-gauge globals 0x76c1cc..
     auto boss3_apply = [&](const Boss03Output& out, MeshObj* bm) {
+        for (int id : out.rumble) pad_rumble(id);        // FUN_005d3500 (view_pad.inl)
         for (const Boss03ClipSet& c : out.clips) {             // FUN_005f5c80 (+ the death's hard re-set)
             if (c.clip < 0 || c.clip >= boss03::kClips || boss3_sect[std::size_t(c.clip)] < 0) continue;
             meshes.set_clip_index("boss03", boss3_sect[std::size_t(c.clip)], 0);
@@ -4402,7 +4414,8 @@ title_again:
         }
         const Uint64 now = SDL_GetTicks();
         const float real_dt = float(now - last) / 1000.0f; last = now;
-        accum += real_dt * g_time_scale;
+        // The shell's Game speed scales how many fixed ticks run per real second (never the tick's dt).
+        accum += real_dt * g_time_scale * std::clamp(settings().s.access.game_speed, access::kSpeedMin, access::kSpeedMax);
         // The exe's own hitch protection (DAT_0075aed5): after a load it forces a
         // single tick with a zero delta rather than catching up on the stall. Room
         // transitions set this; without it a slow load bursts hundreds of ticks.
@@ -4578,6 +4591,7 @@ title_again:
         ++tick_count;
         ++game.g_flags[199];                       // 0x76bc38, the play time (FUN_004281c0 0x428274)
         for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
+        access_tick();                             // a drive's held Esc, the shake scale (view_access.inl)
         ++ticks;
         // ---- the input record: one mapper step per logic tick (FUN_005d2ba0 from FUN_00410440) ----
         // g_in is read below by the windows (tick_events), the mover's move / walk / jump / attack /
@@ -4615,6 +4629,7 @@ title_again:
                                        &cc.anchor_x, &cc.anchor_y);
                 cursor_tick(pin, cc);
             }
+            if (death_t > 0 || !csMgr.world_frozen()) g_skip_gate.reset();   // no cutscene: no skip prompt
             if (death_t > 0) {
                 // The game-over menu (FUN_00427820) takes the OK edge; its cursor reads the repeat step.
                 if (inf.pressed & input::kOk) csHost.advance = true;
@@ -4625,10 +4640,16 @@ title_again:
                 // whole cutscene [CleriaCore]: tick_events drains it to the end, applying every flag /
                 // spawn / warp in order but collapsing the Wait_Time delays. A text window's own
                 // Cancel (the auto-repeat 0x4000) is retail's fast-forward, read in tick_events.
+                // Retail has no cutscene skip: FUN_004106e0 ignores the menu bit while the fix count
+                // 0x75ad90 + 0x75ad94 is non-zero (build/shell_re/ACCESS.md §1).
                 const bool menu = csHost.wdlg.alive() && csHost.wdlg.is_menu();
+                // The shell's Cutscene skip mode (single / double / hold / off: view_access.inl).
+                const bool skip_now = !menu && access_skip_step((inf.pressed & input::kMenu) != 0,
+                                                                (inf.held & input::kMenu) != 0);
+                if (menu) g_skip_gate.reset();
                 if (inf.pressed & (menu ? input::kOk : input::kOk | input::kClick)) csHost.advance = true;
                 else if (menu && (inf.pressed & (input::kCancel | input::kMenu))) csHost.wnd_cancel = true;
-                else if (!menu && (inf.pressed & input::kMenu)) skip_cutscene = true;
+                else if (skip_now) skip_cutscene = true;
             } else if (!paused) {
                 if ((inf.pressed & input::kMenu) && (!fly || ks[SDL_SCANCODE_ESCAPE])) {
                     // The book (FUN_00443150 on the menu bit's edge, PAUSEBOOK_DRAW.md §1): Esc or the
@@ -5746,6 +5767,7 @@ title_again:
                         guard_blocks(en.cast_id, vr->avm.section() == 6 || en.guard399, vr->avm.durable(), rtype,
                                      vr->facing, heading))
                         dmg = 0;
+                    dmg = access::damage_dealt(dmg, settings().s.access.damage_dealt);       // the shell's Cheats
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
                     {   // FUN_004fbb40's own feedback (hit_feedback.hpp), at the victim's origin.
@@ -5807,6 +5829,7 @@ title_again:
                             dc.bless8 = (game.g_flags[217] & 8) != 0;
                             dc.no_drops = game.g_flags[146] != 0;
                             dc.boss_lock = game.g_flags[156] != 0;
+                            dc.rate = settings().s.access.drop_rate;   // the shell's Cheats
                             roll_enemy_drops(pick_rng, *er, en.cast_id, en.pos, dc, pickups, /*entry_draw*/ false);
                         }
                         if (en.cast_id >= 0 && en.cast_id < 256) {   // FUN_004fbb40: the Topic record
@@ -5927,8 +5950,8 @@ title_again:
                         for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
                         PlayerDamageMods mods;
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        const int dmg = enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
-                            [&](float pct) { return float(rng_pct(rng)) < pct; });
+                        const int dmg = access::damage_dealt(enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                            [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
                         if (dmg > 0) boss->add_part_damage(pi, float(dmg));
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                         if (std::getenv("CLERIA_DMG"))
@@ -5957,8 +5980,8 @@ title_again:
                         for (int k = 0; k < 4; ++k) vd.resist[k] = resist[k];
                         PlayerDamageMods mods;
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        return enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
-                            [&](float pct) { return float(rng_pct(rng)) < pct; });
+                        return access::damage_dealt(enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                            [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
                     };
                     for (int o = 0; o < boss02::kObjects && atk_window > 0; ++o) {
                         if (!boss2->mesh_hittable(o)) continue;
@@ -6018,8 +6041,8 @@ title_again:
                         for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
                         PlayerDamageMods mods;
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        const int dmg = enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
-                            [&](float pct) { return float(rng_pct(rng)) < pct; });
+                        const int dmg = access::damage_dealt(enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                            [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
                         if (dmg > 0) boss3->add_part_damage(pi, float(dmg));   // [not modelled] the element bonus on HP
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                         if (std::getenv("CLERIA_DMG"))
@@ -6163,6 +6186,7 @@ title_again:
                     EffectEnv env;
                     env.flags = game.g_flags; env.hp = &hp; env.max_hp = float(player.max_hp);
                     env.player_alive = player.hp > 0; env.boost = &player.boost; env.oxygen = &oxy.o2;
+                    env.sp_rate = settings().s.access.sp_rate;    // SPrate 0x76a5f8 (the shell's Cheats)
                     inv.sp = player.sp;
                     int pop = 0;
                     if (pickup(inv, inv_items, env, pk.id, &pop) != PickupResult::Taken) return false;
@@ -6318,7 +6342,8 @@ title_again:
                 }
                 const int raw = player_incoming_damage(AttackStats{atk, bonus, 0}, pdef,
                     [&](float p) { return float(rng_pct(rng)) < p; });
-                const int dmg = player_damage_after_boost(raw, player.boosting);
+                const int dmg = access::damage_taken(player_damage_after_boost(raw, player.boosting),
+                                                     settings().s.access.damage_taken);   // the shell's Cheats
                 player.hp -= dmg;
                 const bool died = player.hp < 1;              // the engine's test is < 1.0
                 const PlayerReaction re = player_reaction(dmg, float(player.max_hp), rtype, died,
@@ -6328,6 +6353,7 @@ title_again:
                                 re.motion_state, re.iframes, player_iframes, avm.section());
                 if (re.iframes > 0) player_iframes = std::max(player_iframes, re.iframes);
                 if (re.motion_state >= 0 && re.motion_state != 5) avm.set_section(re.motion_state);
+                pad_rumble(pad::hit_effect(re.motion_state));   // FUN_005d3500 0x4fde93..0x4fdfb5 (view_pad.inl)
                 if (re.face_attacker)
                     face_dir = {std::cos(angle + 3.14159265f), 0, std::sin(angle + 3.14159265f)};
                 const Impulse k = knock_impulse(angle, re.knockback);
@@ -6882,7 +6908,7 @@ title_again:
         // quad at the fader's current alpha, over the scene+HUD but UNDER the dialogue
         // box/caption (drawn below) so a partial crossfade keeps text readable while a
         // full fade blacks the scene out. set_fade routes it into the HUD's alpha batch.
-        hud.set_fade(csHost.fade_rgb, csHost.fade_cur);
+        access_set_fade(hud, csHost.fade_rgb, csHost.fade_cur);   // hud.set_fade, through ReduceFlashes
         hud.overlay_bind = cf_bind;
         hud.overlay_alpha = cf_bind ? csHost.cf_alpha : 0.0f;
         // Bind the HUD's four equipment slots (FUN_0043fe00): weapon, armor, foot (flags

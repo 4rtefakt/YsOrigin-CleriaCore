@@ -123,7 +123,7 @@ void roll_enemy_drops(ef2sim::Rng& rng, const Enemy& rec, int cast_id, const Vec
         const int roll = int(rng.next() >> 17) % 100;
         const float ka = std::min(0.25f, float(c.launch) * 0.025f) + 1.0f;
         const float kb = std::min(0.25f, float(c.combo) * 0.01f);
-        const float chance = (kb + ka) * ((luck * 0.1f + 1.0f) * s.percent);
+        const float chance = (kb + ka) * ((luck * 0.1f + 1.0f) * s.percent) * c.rate;
         if (chance > float(roll)) spawn_pickups(rng, &s.item_id, 1, pos, a, c.whole_room_water, out);
     }
     if (c.boss_lock) return;
