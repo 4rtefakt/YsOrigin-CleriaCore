@@ -303,6 +303,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_sprites.inl"
 #include "view_world_draw.inl"
 #include "view_hud.inl"
+#include "view_shell.inl"
 #include "view_headless.inl"
 #include "view_menus.inl"
 #include "view_book.inl"

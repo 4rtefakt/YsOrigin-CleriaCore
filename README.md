@@ -104,6 +104,11 @@ curl -L -o third_party/stb/stb_vorbis.c \
   https://raw.githubusercontent.com/nothings/stb/master/stb_vorbis.c   # music decoder, public domain
 ```
 
+The F1 shell overlay uses Dear ImGui v1.92.9b (MIT): from
+`https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9b.zip`, copy `imgui*.cpp/.h`, `imconfig.h`,
+`imstb_*.h`, `LICENSE.txt` and `backends/imgui_impl_{sdl3,wgpu}.{cpp,h}` into `third_party/imgui/`
+(same layout).
+
 (The game ships its own `vorbisfile.dll`, but those are 32-bit like `yso_win.exe`,
 so an x64 build cannot load them.)
 

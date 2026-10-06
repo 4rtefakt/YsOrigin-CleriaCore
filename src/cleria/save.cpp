@@ -108,6 +108,8 @@ SaveRecord to_record(const SaveState& s, const std::string& area_line,
     r.set_f32(0x0076A72C, s.hp_max);
     r.set_f32(0x0076A730, s.hp_cur);
     r.set_f32(0x0076A748, s.exp);
+    r.set_f32(0x0076A734, s.mp_max);
+    r.set_f32(0x0076A738, s.mp_cur);
     r.set_i32(0x0076A75C, s.sp);
     r.set_i32(0x0076A760, s.level);
     r.set_str(0x0076A3B4, s.scene, 0x20);
@@ -133,7 +135,20 @@ SaveRecord to_record(const SaveState& s, const std::string& area_line,
     r.set_hdr_u32(0x04, 1);
     r.set_hdr_u32(0x08, std::uint32_t(SaveRecord::kSize));
     // +0x0c / +0xc4 checksums are stamped by encode() (they cover scrambled bytes).
+    // The quick copies the slot list reads (SAVELOAD.md §4.1; the float ones truncated like cvttss2si).
+    // Verified against 20 retail saves: +0x34 level, +0x38 / +0x3c / +0x40 / +0x44 HP, MP, max HP, max MP,
+    // +0x48 EXP, +0x4c SP, +0x58 / +0x5c / +0x60 flags 143 / 203 / 201 [DATA].
+    r.set_hdr_u32(0x34, std::uint32_t(s.level));
+    r.set_hdr_u32(0x38, std::uint32_t(std::int32_t(s.hp_cur)));
+    r.set_hdr_u32(0x3C, std::uint32_t(std::int32_t(s.mp_cur)));
+    r.set_hdr_u32(0x40, std::uint32_t(std::int32_t(s.hp_max)));
+    r.set_hdr_u32(0x44, std::uint32_t(std::int32_t(s.mp_max)));
+    r.set_hdr_u32(0x48, std::uint32_t(std::int32_t(s.exp)));
+    r.set_hdr_u32(0x4C, std::uint32_t(s.sp));
     r.set_hdr_u32(0x50, std::uint32_t(s.difficulty() + 1));  // 1-based; 0 = empty slot
+    r.set_hdr_u32(0x58, std::uint32_t(s.flags[143]));
+    r.set_hdr_u32(0x5C, std::uint32_t(s.flags[203]));
+    r.set_hdr_u32(0x60, std::uint32_t(s.flags[201]));
     // +0x64 = 0x76bc38 = flag 199, the play-time step count (FUN_004281c0 0x428274 counts it every
     // real, menu-free step; the HUD shows it as count * 1000 / 60 ms) [BYTES].
     r.set_hdr_u32(0x64, std::uint32_t(s.flags[199]));
@@ -150,6 +165,8 @@ SaveState from_record(const SaveRecord& r) {
     for (int i = 0; i < 54; ++i) s.item_arr[i] = r.i32(0x0076A654 + 4 * i);
     s.hp_max = r.f32(0x0076A72C);
     s.hp_cur = r.f32(0x0076A730);
+    s.mp_max = r.f32(0x0076A734);
+    s.mp_cur = r.f32(0x0076A738);
     s.exp = r.f32(0x0076A748);
     s.sp = r.i32(0x0076A75C);
     s.level = r.i32(0x0076A760);

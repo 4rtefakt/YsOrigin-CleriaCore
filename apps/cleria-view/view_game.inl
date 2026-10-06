@@ -32,6 +32,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     }
     std::uint32_t cw = 1280, ch = 800;
     WGPUTexture off_tex = nullptr;
+    bool vsync = true;                                   // the shell's Video > VSync (Fifo vs Immediate)
     auto configure = [&] {
         if (offscreen) {
             if (off_tex) wgpuTextureRelease(off_tex);
@@ -49,12 +50,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             sc.usage |= WGPUTextureUsage_CopySrc;
         sc.width = cw; sc.height = ch; sc.alphaMode = WGPUCompositeAlphaMode_Auto;
         sc.presentMode = WGPUPresentMode_Fifo;
+        if (!vsync)
+            for (std::size_t i = 0; i < caps.presentModeCount; ++i)
+                if (caps.presentModes[i] == WGPUPresentMode_Immediate) sc.presentMode = WGPUPresentMode_Immediate;
         wgpuSurfaceConfigure(surface, &sc);
     };
     configure();
     build_pipeline(g, fmt);
     Hud hud; hud.init(g, res_file("hud_font.bin"), fmt);
     hud.debug_text = std::getenv("CLERIA_DEBUG_HUD") != nullptr;
+    Shell shell;                                         // F1: CleriaCore's overlay (view_shell.inl)
+    bool shell_drive_close = false;                      // CLERIA_DRIVE `shell`: close after the shot
+    int shell_shot_frames = 0;                           // frames left before that shot
+    shell.init(win, g, fmt);
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
     hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");
     hud.init_boss(g, asset_root / "IMAGE" / "HP2.DDS");    // the boss HP bar (it was never loaded live)
@@ -100,6 +108,87 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         audio.init(asset_root);  // silent (and harmless) if the device or EFFECTDEF is missing
     audio.set_master_volume(oslider[1] / 1024.0f);  // Option "SFX Volume"
     audio.set_bgm_volume(oslider[0] / 1024.0f);     // Option "BGM Volume"
+
+    // ---- the shell's settings pages (F1, and SETTINGS in the launcher) -------------------------
+    // CleriaCore-only switches: QoL off by default (retail behaviour), cheats off. [not persisted
+    // yet: the settings model lands with cleria.ini]
+    bool qol_skip_logo = false, qol_movie_skip = false;
+    bool cheat_hp = false, cheat_mp = false, cheat_boost = false, cheat_o2 = false, cheat_ohko = false;
+    int window_mode = 0;                                  // 0 windowed, 1 borderless fullscreen
+    {
+        auto vol = [&](ui::List& L, const char* label, int& v, const char* desc, bool bgm) {
+            float pct = std::round(float(v) * 100.0f / 1024.0f);
+            if (ui::slider(L, label, &pct, 0.0f, 100.0f, 5.0f, "%.0f%%", desc)) {
+                v = int(std::lround(pct * 1024.0f / 100.0f));
+                if (bgm) audio.set_bgm_volume(float(v) / 1024.0f);
+                else audio.set_master_volume(float(v) / 1024.0f);
+                options_save(oslider, ocheck);
+            }
+        };
+        shell.panel.add("Prelaunch", [&](ui::List& L) {
+            ui::section(L, "Game data");
+            ui::info(L, "Data folder", fs::absolute(asset_root).lexically_normal().string().c_str(), ui::kValue,
+                     "Where CleriaCore reads Ys Origin's game files from.");
+            ui::info(L, "Status", "Ready", ui::kGood, "All the game files CleriaCore needs were found.");
+            ui::button(L, "Locate Ys Origin...", "Pick your Ys Origin install folder. (Arrives with the game-data "
+                       "installer: CleriaCore will read the game's own data.ni / data.na directly.)", false);
+            ui::section(L, "Startup");
+            ui::toggle(L, "Skip logo movie", &qol_skip_logo,
+                       "Go straight to the title screen instead of playing the Falcom logo movie first.");
+            ui::toggle(L, "Unlock movie skipping", &qol_movie_skip,
+                       "Lets you skip the prologue and opening movies at any time. In the original they become "
+                       "skippable only after you have cleared the game once.");
+        });
+        shell.panel.add("Video", [&](ui::List& L) {
+            static const char* kModes[] = {"Windowed", "Borderless fullscreen"};
+            ui::section(L, "Display");
+            if (ui::choice(L, "Window mode", &window_mode, kModes, 2,
+                           "Windowed, or fullscreen at your desktop resolution."))
+                SDL_SetWindowFullscreen(win, window_mode == 1);
+            if (ui::toggle(L, "VSync", &vsync, "Synchronise frames with the display's refresh rate to avoid tearing."))
+                configure();
+        });
+        shell.panel.add("Input", [&](ui::List& L) {
+            ui::section(L, "Inputs");
+            ui::button(L, "Configure Inputs", "Rebind keyboard keys and gamepad buttons. (Arrives with the input "
+                       "remapper.)", false);
+            ui::section(L, "Options");
+            bool ch = false;
+            ch |= ui::toggle(L, "Analog movement", &ocheck[0],
+                             "Walk or run depending on how far the stick is pushed. (In-game Options.)");
+            ch |= ui::toggle(L, "Dash", &ocheck[1], "Allow dashing once the Silver Bracelet is obtained. (In-game Options.)");
+            ch |= ui::toggle(L, "Hold attack for magic", &ocheck[2],
+                             "Charge and cast skills by holding the attack button. (In-game Options.)");
+            ch |= ui::toggle(L, "Always dash", &ocheck[3],
+                             "Dash whenever you run, without holding a button. (In-game Options.)");
+            if (ch) options_save(oslider, ocheck);
+        });
+        shell.panel.add("Audio", [&](ui::List& L) {
+            ui::section(L, "Volume");
+            vol(L, "Music volume", oslider[0], "Background music volume. (The same setting as the in-game Options.)", true);
+            vol(L, "Sound effects volume", oslider[1], "Sound effect volume. (The same setting as the in-game Options.)", false);
+        });
+        shell.panel.add("Gameplay", [&](ui::List& L) {
+            ui::section(L, "Speed");
+            ui::slider(L, "Game speed", &g_time_scale, 0.25f, 4.0f, 0.25f, "%.2fx",
+                       "Runs the whole game faster or slower. Not a retail option.");
+        });
+        shell.panel.add("Cheats", [&](ui::List& L) {
+            ui::section(L, "Resources");
+            ui::toggle(L, "Infinite HP", &cheat_hp, "Your HP is refilled every frame.");
+            ui::toggle(L, "Infinite MP", &cheat_mp, "Your skill gauge never runs out.");
+            ui::toggle(L, "Infinite Boost", &cheat_boost, "The Boost gauge stays full.");
+            ui::toggle(L, "Infinite oxygen", &cheat_o2, "Never run out of air underwater.");
+            ui::section(L, "Combat");
+            ui::toggle(L, "One-hit kills", &cheat_ohko, "Every hit you land defeats the enemy.");
+        });
+        shell.panel.add("Interface", [&](ui::List& L) {
+            ui::section(L, "Overlays");
+            ui::toggle(L, "Debug text", &hud.debug_text,
+                       "Shows CleriaCore's debug text: the room name, damage numbers and test notes. Not part of "
+                       "the original game. (F3)");
+        });
+    }
 
     // Per-room music: SCENELIST record byte +3 is a bgmdef id. The exe (re)starts
     // the track only when that id CHANGES, so walking between rooms that share one
@@ -203,7 +292,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             mview = wgpuTextureCreateView(mtex, nullptr);
             mbind = hud.make_bind(g, mview);
         }
-        const bool skippable = movie_skippable(demo, movie_seen);
+        const bool skippable = qol_movie_skip || movie_skippable(demo, movie_seen);   // the shell's QoL unlock
         MovieSkip skip;
         bool finished = file.empty();                  // FUN_005758f0 straight from Play
         float fcur = finished ? 0.0f : 1.0f, ftgt = finished ? 1.0f : 0.0f;
@@ -347,8 +436,119 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (mtex) wgpuTextureRelease(mtex);
         return !quit;
     };
+    // ---- The launcher: CleriaCore's own front end (not retail), before the game boots ----------
+    // PLAY / SETTINGS / QUIT over a live room with a slow camera drift. Shown once per process on a
+    // title boot (Return to Title goes straight back to the game's title). CLERIA_DRIVE runs skip
+    // it unless CLERIA_LAUNCHER is set (=settings also opens the panel); they then shoot one frame
+    // to CLERIA_SHOT_DIR/launcher.ppm and quit. CLERIA_LAUNCH_ROOM / CLERIA_LAUNCH_CAM
+    // ("x,y,z,yaw_deg,pitch_deg") pick the backdrop.
+    static bool s_launcher_shown = false;
+    const char* launcher_env = std::getenv("CLERIA_LAUNCHER");
+    if (show_title && !s_launcher_shown && (!std::getenv("CLERIA_DRIVE") || launcher_env)) {
+        s_launcher_shown = true;
+        const char* rn = std::getenv("CLERIA_LAUNCH_ROOM");
+        const std::string bg_name = rn ? rn : "S_1000";        // the tower's entrance hall
+        Room bg;
+        if (auto it = g.sob_index.find(bg_name); it != g.sob_index.end()) bg = load_room(g, asset_root, it->second);
+        Camera lcam;
+        spawn_in(lcam, bg);
+        if (!rn) { lcam.pos = {-10.0f, 4.0f, -40.0f}; lcam.yaw = 1.5707963f; lcam.pitch = 0.087f; }   // the stairs
+        if (const char* c = std::getenv("CLERIA_LAUNCH_CAM")) {
+            float x, y, z, yw, pt;
+            if (std::sscanf(c, "%f,%f,%f,%f,%f", &x, &y, &z, &yw, &pt) == 5) {
+                lcam.pos = {x, y, z}; lcam.yaw = yw * 0.0174533f; lcam.pitch = pt * 0.0174533f;
+            }
+        }
+        const Camera base = lcam;
+        const float D = room_diag(bg);
+        if (std::getenv("CLERIA_DRIVE")) {                 // framing aid: the bounds and the highest point
+            Vec3 top = bg.mesh.bmin;
+            for (const RoomVertex& v : bg.mesh.vertices) if (v.py > top.y) top = {v.px, v.py, v.pz};
+            std::printf("  [launcher] %s bounds (%.1f %.1f %.1f)..(%.1f %.1f %.1f) top (%.1f %.1f %.1f) cam (%.1f %.1f %.1f)\n",
+                        bg_name.c_str(), bg.mesh.bmin.x, bg.mesh.bmin.y, bg.mesh.bmin.z, bg.mesh.bmax.x, bg.mesh.bmax.y,
+                        bg.mesh.bmax.z, top.x, top.y, top.z, lcam.pos.x, lcam.pos.y, lcam.pos.z);
+        }
+        g_fog.on = false;
+        update_fog(bg, lcam.pos, 0.0f, /*snap*/true);
+        WGPUTextureView ldepth = make_depth(g, cw, ch);
+        static const char* kItems[] = {"Play", "Settings", "Quit"};
+        ui::MainMenu menu;
+        int choice_made = -1;
+        shell.launcher = true;
+        shell.under = [&](ImDrawList* dl, float w, float h, const ui::Nav& nav) {
+            const int hit = menu.draw(dl, w, h, nav, kItems, 3, !shell.open);
+            ui::status(dl, h, true, "Game data ready.", "Ys Origin  \xE2\x80\xA2  English");
+            ui::version(dl, w, h, "CleriaCore 0.1 (dev)");
+            if (hit == 1) shell.open = true;
+            else if (hit >= 0) choice_made = hit;
+        };
+        if (launcher_env && std::string(launcher_env) == "settings") shell.open = true;
+        const Uint64 t0 = SDL_GetTicksNS();
+        Uint64 last = t0;
+        for (int frame_no = 0; choice_made < 0; ++frame_no) {
+            SDL_Event e;
+            while (SDL_PollEvent(&e)) {
+                if (shell.event(e)) continue;
+                if (e.type == SDL_EVENT_QUIT) choice_made = 2;
+                else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
+                    cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
+                    if (cw && ch) { configure(); wgpuTextureViewRelease(ldepth); ldepth = make_depth(g, cw, ch); }
+                }
+            }
+            const Uint64 now = SDL_GetTicksNS();
+            const float t = float(double(now - t0) * 1e-9);
+            const float dt = float(double(now - last) * 1e-9);
+            last = now;
+            // the drift: a slow sway of the yaw and a gentle bob
+            lcam = base;
+            lcam.yaw = base.yaw + 0.06f * std::sin(t * 0.07f);
+            lcam.pitch = base.pitch + 0.015f * std::sin(t * 0.11f);
+            lcam.pos.y = base.pos.y + D * 0.002f * std::sin(t * 0.13f);
+            advance_scroll(g, bg, 1);
+            update_fog(bg, lcam.pos, dt);
+            WGPUSurfaceTexture st = {};
+            if (offscreen) { st.texture = off_tex; wgpuTextureAddRef(off_tex); st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal; }
+            else wgpuSurfaceGetCurrentTexture(surface, &st);
+            if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+            WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
+            {   // clear to the fog colour (or black), then the room
+                WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+                WGPURenderPassColorAttachment ca = {};
+                ca.view = view; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+                ca.loadOp = WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
+                ca.clearValue = g_fog.on ? WGPUColor{g_fog.r, g_fog.g, g_fog.b, 1} : WGPUColor{0, 0, 0, 1};
+                WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
+                WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+                wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
+                WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+                wgpuQueueSubmit(g.queue, 1, &cmd);
+                wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+            }
+            write_mvp(g, lcam.view_proj(float(cw) / float(ch), D * 0.002f, D * 6.0f));
+            draw(g, bg, view, ldepth);
+            shell.frame(g, view, cw, ch);
+            if (std::getenv("CLERIA_DRIVE") && frame_no == 6) {     // a headless capture of the launcher
+                const char* sd = std::getenv("CLERIA_SHOT_DIR");
+                const fs::path out = fs::path(sd ? sd : ".") / "launcher.ppm";
+                save_frame_ppm(g, st.texture, fmt, cw, ch, out);
+                std::printf("  [launcher] wrote %s\n", out.string().c_str());
+                choice_made = 2;
+            }
+            if (!offscreen) wgpuSurfacePresent(surface);
+            else wgpuDevicePoll(g.device, true, nullptr);
+            wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
+        }
+        shell.under = nullptr;
+        shell.launcher = false;
+        shell.open = false;
+        wgpuTextureViewRelease(ldepth);
+        free_room(bg, g.white_bind);
+        g_fog.on = false;
+        if (choice_made == 2) { SDL_DestroyWindow(win); SDL_Quit(); return 0; }
+    }
     // Boot (FUN_00442260): the first scene is demo6\, the logo, which then warps to title\.
-    if (show_title && !play_demo(6)) { SDL_DestroyWindow(win); SDL_Quit(); return 0; }
+    if (show_title && !qol_skip_logo && !play_demo(6)) { SDL_DestroyWindow(win); SDL_Quit(); return 0; }
 
     // The game over's "Return to Title" comes back here (the jump at the end of this function):
     // everything declared below is destroyed and built again for the next game.
@@ -396,6 +596,7 @@ title_again:
         for (bool started = false; !started;) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
+                if (shell.event(e)) continue;
                 if (e.type == SDL_EVENT_QUIT) { teardown(); return 0; }
                 else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
                     const SDL_Keycode k = e.key.key;
@@ -409,6 +610,7 @@ title_again:
             const Uint64 now = SDL_GetTicks();
             taccum += float(now - tlast) / 1000.0f;
             tlast = now;
+            if (shell.open) taccum = 0;                     // the shell pauses the title too
             while (taccum >= kTickDt && !started) {
                 taccum -= kTickDt;
                 {   // the fader, 0.05 a step
@@ -507,6 +709,7 @@ title_again:
                 hud.render(g, view, cw, ch, "", 0.0f, nullptr);
                 hud.set_fade(0, 0.0f);
             }
+            shell.frame(g, view, cw, ch);
             wgpuSurfacePresent(surface);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
         }
@@ -1218,6 +1421,7 @@ title_again:
         std::memcpy(s.item_arr, game.item_arr, sizeof s.item_arr);
         s.hp_max = float(player.max_hp); s.hp_cur = float(player.hp);
         s.exp = player.exp; s.level = player.level; s.sp = player.sp;
+        s.mp_max = player.sp_max; s.mp_cur = player.sp_cur;
         s.accessory = inv.accessory; s.held = inv.held; s.magic = inv.magic;
         for (int c = 0; c < 4; ++c) s.tier[c] = inv.tier[c];
         s.hp_bonus = inv.hp_bonus; s.atk_buff = inv.atk_buff; s.def_buff = inv.def_buff;
@@ -1296,6 +1500,7 @@ title_again:
         character = std::clamp(s.character(), 1, 3);
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
+        if (s.mp_max > 0.0f) { player.sp_max = s.mp_max; player.sp_cur = std::min(s.mp_cur, s.mp_max); }
         inv.accessory = s.accessory; inv.held = s.held; inv.magic = s.magic;
         for (int c = 0; c < 4; ++c) inv.tier[c] = s.tier[c];
         inv.hp_bonus = s.hp_bonus; inv.atk_buff = s.atk_buff; inv.def_buff = s.def_buff;
@@ -2735,6 +2940,11 @@ title_again:
             std::printf("  [drive]   frozen %d fix %d/%d\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1]);
             for (const auto& li : csMgr.live)
                 std::printf("  [drive]   script %s pc %u wait %d%s\n", li.name.c_str(), li.pc, li.wait, li.finished ? " (done)" : "");
+        } else if (cmd == "shell") {                   // open the F1 shell overlay, shoot it, close it
+            // (the shell pauses the logic ticks, so the drive closes it itself after the shot)
+            shell.open = true;
+            shell_drive_close = true;
+            shell_shot_frames = 3;                       // ImGui lays the tab bar out a frame late
         } else if (cmd == "pos") {                     // print the player's feet and O2
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d sp %.0f shield %d/%d/%d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage,
@@ -3772,6 +3982,58 @@ title_again:
     // so a root's own Fader_Target (S_0000's) still wins. [dev] a command-line room starts unfaded.
     if (show_title) { csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f; }
     g_tick_reset = true;   // the first room's load stall is not caught up either (DAT_0075aed5)
+    // ---- The shell's Debug page: the live game's state (added once the game loop's state exists). ----
+    {
+        std::vector<std::string> rooms;
+        for (const auto& [k, v] : g.sob_index) if (k.rfind("S_", 0) == 0 && k.size() == 6) rooms.push_back(k);
+        std::sort(rooms.begin(), rooms.end());
+        shell.panel.add("Debug", [&, rooms](ui::List& L) {
+            static int warp_i = 0, flag_i = 0;
+            static float flag_f = 0;
+            char buf[160];
+            ui::section(L, "Player");
+            std::snprintf(buf, sizeof buf, "%s  (%s)", room.name.c_str(), kCharNames[character]);
+            ui::info(L, "Room", buf);
+            std::snprintf(buf, sizeof buf, "%.2f  %.2f  %.2f", feet.x, feet.y, feet.z);
+            ui::info(L, "Position", buf);
+            std::snprintf(buf, sizeof buf, "HP %d / %d    MP %.0f / %.0f    Lv %d", player.hp, player.max_hp,
+                          player.sp_cur, player.sp_max, player.level);
+            ui::info(L, "Stats", buf);
+            if (ui::button(L, "Heal", "Refill HP and MP.")) { player.hp = player.max_hp; player.sp_cur = player.sp_max; }
+            if (ui::button(L, fly ? "Walk" : "Fly", "Toggle the free-fly camera (F).")) {
+                fly = !fly;
+                if (!fly) {
+                    feet = {cam.pos.x, cam.pos.y, cam.pos.z};
+                    const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
+                    if (fl > kNoFloor) feet.y = fl;
+                    pv = VerticalState{}; pvel = {}; last_floor = feet.y;
+                }
+            }
+            if (ui::button(L, "Respawn", "Put the player back at the room's spawn point (R).")) spawn_player();
+            ui::section(L, "Warp");
+            if (!rooms.empty()) {
+                std::vector<const char*> items;
+                for (const std::string& r : rooms) items.push_back(r.c_str());
+                warp_i = std::clamp(warp_i, 0, int(items.size()) - 1);
+                ui::choice(L, "Room", &warp_i, items.data(), int(items.size()),
+                           "Pick a room with left / right, then Warp.");
+                if (ui::button(L, "Warp", "Enter the chosen room at its default spawn.")) {
+                    csHost.pending_scene = rooms[warp_i];
+                    shell.open = false;
+                }
+            }
+            ui::section(L, "Flags");
+            float fi = float(flag_i);
+            if (ui::slider(L, "Flag", &fi, 0.0f, 511.0f, 1.0f, "%.0f", "The game flag to inspect (g_flags).")) {
+                flag_i = int(fi);
+                flag_f = float(game.g_flags[flag_i]);
+            }
+            std::snprintf(buf, sizeof buf, "%d", game.g_flags[flag_i]);
+            ui::info(L, "Current value", buf);
+            ui::slider(L, "New value", &flag_f, -1.0f, 9999.0f, 1.0f, "%.0f", "Left / right to change, then Set.");
+            if (ui::button(L, "Set", "Write the new value into the flag.")) game.g_flags[flag_i] = int(flag_f);
+        });
+    }
     while (running) {
         if (!csHost.pending_scene.empty()) {
             const std::string req = csHost.pending_scene;
@@ -3797,6 +4059,7 @@ title_again:
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
+            if (shell.event(e)) continue;
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
@@ -3903,6 +4166,7 @@ title_again:
         // burst of ticks. We reproduce that, relying on the load-time reset above
         // rather than on clamping, so timing stays exact under normal play.
         if (paused) accum = 0;               // freeze while the pause book is open
+        if (shell.open) accum = 0;           // and while the shell overlay is open
         if (paused && book.is_open()) {
             bookAccum += real_dt;
             while (bookAccum >= kTickDt && book.is_open()) {
@@ -4967,6 +5231,7 @@ title_again:
                         guard_blocks(en.cast_id, vr->avm.section() == 6 || en.guard399, vr->avm.durable(), rtype,
                                      vr->facing, heading))
                         dmg = 0;
+                    if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
                     // +300 per hit dealt (0x4fd0bf, DAT_006bdc44) when the kind is not 0 / 5 (skills).
                     if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
@@ -5479,6 +5744,11 @@ title_again:
                                 feet.z, avm.section());
                 }
             };
+            // The shell's Cheats (not retail): refilled before the death check.
+            if (cheat_hp) player.hp = player.max_hp;
+            if (cheat_mp) player.sp_cur = player.sp_max;
+            if (cheat_boost && !player.boosting) player.boost = skillmp::kBoostFull;
+            if (cheat_o2) oxy.o2 = 6000.0f;
             if (player.hp < 1) player_death();                // lava / noise / drowning this tick
             auto hurt_player = [&](float atk, float bonus, int rtype, float angle) {
                 if (p_untouchable) return;
@@ -6127,6 +6397,11 @@ title_again:
             wgpuQueueSubmit(g.queue, 1, &cmd);
             wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
         }
+        shell.frame(g, view, cw, ch);                    // after the crossfade capture; a drive `shot` sees it
+        if (shell_shot_frames > 0 && --shell_shot_frames == 0) {
+            const char* d = std::getenv("CLERIA_SHOT_DIR");
+            drive_shot = (fs::path(d ? d : ".") / ("shell_t" + std::to_string(tick_count) + ".ppm")).string();
+        }
         if (!drive_shot.empty()) {                       // CLERIA_DRIVE `shot`
             const std::uint32_t bpr = (cw * 4 + 255) & ~255u;
             WGPUBufferDescriptor rbd = {};
@@ -6160,6 +6435,7 @@ title_again:
             wgpuBufferRelease(rb);
             std::printf("  [drive] wrote %s\n", drive_shot.c_str());
             drive_shot.clear();
+            if (shell_drive_close) { shell.open = false; shell_drive_close = false; }
         }
         if (!offscreen) wgpuSurfacePresent(surface);
         else wgpuDevicePoll(g.device, true, nullptr);    // no vsync: wait out each frame

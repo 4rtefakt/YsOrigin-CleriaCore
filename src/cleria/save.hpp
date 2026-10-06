@@ -60,6 +60,7 @@ struct SaveState {
     std::int32_t flags[0x200] = {0};
     std::int32_t item_arr[54] = {0};
     float hp_max = 0, hp_cur = 0, exp = 0;
+    float mp_max = 0, mp_cur = 0;         // the skill gauge 0x76a734 / 0x76a738 (0 in older CleriaCore saves)
     std::int32_t level = 1, sp = 0;
     std::string scene;                    // room to re-enter on load (e.g. "s_1000")
     float pos_x = 0, pos_z = 0, yaw = 0;  // continue-snapshot position (no y saved)

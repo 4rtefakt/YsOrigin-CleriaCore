@@ -48,6 +48,23 @@ int main() {
     std::printf("[save] round-trip + header meta %s\n", ok ? "OK" : "FAIL");
     fails += !ok;
 
+    // The slot list's quick copies (SAVELOAD.md §4.1, checked against 20 retail saves): +0x34 level
+    // (the list's "Lv"), +0x38..+0x44 HP / MP / max HP / max MP, +0x48 EXP, +0x4c SP, +0x58/5c/60
+    // flags 143 / 203 / 201; and the skill gauge round-trips through the payload.
+    {
+        SaveState q = s;
+        q.mp_max = 3000.0f; q.mp_cur = 1234.9f;
+        q.flags[143] = 1; q.flags[203] = 0; q.flags[201] = 7;
+        const auto rq = SaveRecord::decode(to_record(q, "x", "01/01/2026", "00:00:00").encode(1u, 2u));
+        bool hq = rq && rq->hdr_u32(0x34) == 9 && rq->hdr_u32(0x38) == 55 && rq->hdr_u32(0x3C) == 1234 &&
+                  rq->hdr_u32(0x40) == 78 && rq->hdr_u32(0x44) == 3000 && rq->hdr_u32(0x48) == 1234 &&
+                  rq->hdr_u32(0x4C) == 4321 && rq->hdr_u32(0x58) == 1 && rq->hdr_u32(0x5C) == 0 &&
+                  rq->hdr_u32(0x60) == 7;
+        if (rq) { const SaveState tq = from_record(*rq); hq = hq && tq.mp_max == 3000.0f && tq.mp_cur == 1234.9f; }
+        std::printf("[save] slot-list header copies (level %u) %s\n", rq ? rq->hdr_u32(0x34) : 0u, hq ? "OK" : "FAIL");
+        fails += !hq;
+    }
+
     // Rejection: wrong size, wrong magic.
     std::vector<std::uint8_t> bad(raw.begin(), raw.end() - 1);
     bool rej = !SaveRecord::decode(bad);

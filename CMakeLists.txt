@@ -195,6 +195,23 @@ set_target_properties(sdl3 PROPERTIES
   IMPORTED_IMPLIB   "${TP}/sdl3/lib/x64/SDL3.lib"
   INTERFACE_INCLUDE_DIRECTORIES "${TP}/sdl3/include")
 
+# Dear ImGui (ocornut/imgui v1.92.9b, MIT), vendored verbatim in third_party/imgui: the shell
+# overlay (apps/cleria-view/view_shell.inl). Built on its own so its warnings stay out of /W4.
+add_library(imgui STATIC
+  "${TP}/imgui/imgui.cpp" "${TP}/imgui/imgui_draw.cpp" "${TP}/imgui/imgui_tables.cpp"
+  "${TP}/imgui/imgui_widgets.cpp"
+  "${TP}/imgui/backends/imgui_impl_sdl3.cpp" "${TP}/imgui/backends/imgui_impl_wgpu.cpp")
+target_include_directories(imgui PUBLIC "${TP}/imgui")
+# wgpu-native v29 follows the standardized webgpu.h (WGPUComputeState, chained vertex
+# attributes) that the backend's DAWN path targets; its WGPU path is for older wgpu-native.
+target_compile_definitions(imgui PUBLIC IMGUI_IMPL_WEBGPU_BACKEND_DAWN)
+target_link_libraries(imgui PUBLIC wgpu_native sdl3)
+if(MSVC)
+  target_compile_options(imgui PRIVATE /W0)
+else()
+  target_compile_options(imgui PRIVATE -w)
+endif()
+
 # Ogg Vorbis decoder for the music streamer — nothings/stb v1.22, public domain,
 # vendored verbatim. Built on its own so its warnings stay out of our /W4 build.
 add_library(stb_vorbis STATIC "${TP}/stb/stb_vorbis.c")
@@ -224,7 +241,7 @@ target_link_libraries(cleria-movietest PRIVATE cleria cleria-movie)
 
 # cleria-view — real-time WebGPU renderer.
 add_executable(cleria-view apps/cleria-view/main.cpp)
-target_link_libraries(cleria-view PRIVATE cleria cleria-audio cleria-movie wgpu_native sdl3)
+target_link_libraries(cleria-view PRIVATE cleria cleria-audio cleria-movie imgui wgpu_native sdl3)
 
 # Copy the runtime DLLs next to the viewer so it runs from the build dir.
 add_custom_command(TARGET cleria-view POST_BUILD
@@ -233,7 +250,9 @@ add_custom_command(TARGET cleria-view POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${TP}/sdl3/lib/x64/SDL3.dll" "$<TARGET_FILE_DIR:cleria-view>"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${CMAKE_SOURCE_DIR}/res/hud_font.bin" "$<TARGET_FILE_DIR:cleria-view>")
+    "${CMAKE_SOURCE_DIR}/res/hud_font.bin" "$<TARGET_FILE_DIR:cleria-view>"
+  # the shell's fonts (Fira Sans / Fira Sans Condensed, SIL OFL; third_party/fonts)
+  COMMAND ${CMAKE_COMMAND} -E copy_directory "${TP}/fonts" "$<TARGET_FILE_DIR:cleria-view>/fonts")
 
 # ---- tests ------------------------------------------------------------------
 # The self-verifying test apps, registered so `ctest -C Release` runs the suite.
