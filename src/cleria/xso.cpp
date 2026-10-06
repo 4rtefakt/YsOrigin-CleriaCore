@@ -296,6 +296,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0x8b && nargs >= 1) { host->event_xx(op(0)); return Step::Continue; }
                     if (sub == 0x17e && nargs >= 3) { host->mesh_drop_item(ops(0), op(1), op(2)); return Step::Continue; }
                     if (sub == 0x130 && nargs >= 2) { host->chr_attach_script(op(0), ops(1)); return Step::Continue; }
+                    if (sub == 0x12f && nargs >= 4) { host->chr_locate_dummy(op(0), opf(1), opf(2), opf(3)); return Step::Continue; }
+                    if (sub == 0x141 && nargs >= 2) { host->chr_jump(op(0), opf(1)); return Step::Continue; }
                     if (sub == 0x160 && nargs >= 11) {        // (id, lv, 9 floats)
                         float f[9];
                         for (std::uint32_t k = 0; k < 9; ++k) f[k] = opf(2 + k);
@@ -465,7 +467,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     }
                 } else if (sub == 0x13e && nargs >= 1) {    // Chr_IsThisChr(id)
                     // acc = (resolve(id) == script-bound actor +0x240), FUN_005706c0.
-                    acc = (host && host->chr_is_this(op(0))) ? 1 : 0;
+                    // acc = (resolve(id) == the script's bound actor +0x240); 999 is the
+                    // player (13), 998 the bound actor itself.
+                    const int id = op(0);
+                    const int r = id == 999 ? 13 : id == 998 ? owner : id;
+                    acc = (owner != 0 && r == owner) ? 1 : 0;
                 } else if (nargs >= 1) {
                     const std::int32_t i0 = op(0);
                     const char* sn = store_name(sub);
@@ -713,7 +719,7 @@ std::size_t ScriptManager::start_root(std::shared_ptr<const Xso> s, std::string 
     return idx;
 }
 
-bool ScriptManager::start(const std::string& name, const XsoVm::Vars& vars) {
+bool ScriptManager::start(const std::string& name, const XsoVm::Vars& vars, int owner) {
     // Single-instance dedup: the engine refuses a second live spawn of the same name
     // (unless AllowMultiInstance, which no room controller in this corpus sets). §5a.
     for (const Inst& i : live)
@@ -725,6 +731,7 @@ bool ScriptManager::start(const std::string& name, const XsoVm::Vars& vars) {
     in.script = std::move(s);
     in.name = name;
     in.vars = vars;
+    in.owner = owner;
     live.push_back(std::move(in));
     tick_inst(live.back());               // child runs its first burst the same frame
     return true;
@@ -754,6 +761,7 @@ void ScriptManager::tick_inst(Inst& in) {
     vm.acc = in.acc;
     vm.locals = std::move(in.locals);
     vm.vars = in.vars;
+    vm.owner = in.owner;
     const XsoVm::Tick t = vm.tick();
     in.pc = vm.co_pc;
     in.wait = vm.co_wait;
@@ -777,7 +785,7 @@ void ScriptManager::tick_all() {
     while (!spawn_queue.empty() && !paused) {
         std::vector<Spawn> batch;
         batch.swap(spawn_queue);
-        for (const Spawn& sp : batch) start(sp.name, sp.vars);
+        for (const Spawn& sp : batch) start(sp.name, sp.vars, sp.owner);
     }
     // Record how many GoScripts were resident together this frame (before the reap drops
     // the ones that just finished) — the concurrency the manager actually sustained.

@@ -56,6 +56,10 @@ void separation_pass(Actor& A, AiWorld& w) {
 }  // namespace
 
 void m460_dead(Actor& A, AiWorld& w) {                             // handler #5
+    // M460.md row 7 (0x4c9b10..3b): the dead path clears the boss-battle state DAT_0076bb8c
+    // (flag 156) and DAT_0076bb24 (flag 130). [H] run here at the death, not at the destroy.
+    w.set_flag(156, 0);
+    w.set_flag(130, 0);
     const int partner = A.ai.i(0x854);
     w.for_each([&](Actor& b) {
         if (b.cast_id == kBat && b.hp >= 1.0f &&

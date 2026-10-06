@@ -170,6 +170,18 @@ class ActorWorld : public XsoHost {
             if (!short_of) { a.alpha_step = 0.0f; a.ai.alpha = a.alpha_to; }
         }
     }
+    void chr_locate_dummy(int id, float x, float y, float z) override {  // 0x12F (FUN_00570350)
+        // The factory on CASTINFO record 1 (CAST_C000: class 4 = talkable, radius 0.4, no sprite)
+        // and the placement; its HP = CASTINFO+0x74 = 25 (FACTORY.md 0x4595aa: every cast).
+        if (!find(id)) spawn(id, 1, x, y, z, 0.0f, 0);
+        if (Actor* a = find(id)) {
+            a->pos = {x, y, z};
+            a->hp = a->max_hp = 25.0f;
+        }
+    }
+    void chr_jump(int id, float v) override {                           // 0x141 (FUN_005709d0)
+        if (Actor* a = find(id)) { a->vert.t = v; a->pos.y += v; a->vert.grounded = false; }
+    }
     void chr_attach_script(int id, const std::string& s) override {    // 0x130
         if (Actor* a = find(id)) a->talk_script = s;
     }

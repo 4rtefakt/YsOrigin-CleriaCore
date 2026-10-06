@@ -234,6 +234,8 @@ struct FnAiWorld : AiWorld {
     std::function<bool(const Vec3&, float)> sphere_fn;
     std::function<void(float*)> arena_fn;
     std::function<const float*(int)> raw_fn;
+    std::function<void(int, int)> flag_fn;
+    void set_flag(int i, int v) override { if (flag_fn) flag_fn(i, v); }
     void for_each(const std::function<void(Actor&)>& f) override { each(f); }
     Actor* find(int id) override { return id ? find_fn(id) : nullptr; }
     Actor* spawn_child(Actor& p, int c, const Vec3& d, int lv, bool k) override { return spawn_fn(p, c, d, lv, k); }

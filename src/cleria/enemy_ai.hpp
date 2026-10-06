@@ -104,6 +104,8 @@ struct AiWorld {
     virtual void arena(float rect[4]) = 0;
     // ENEMYINFO +0x90..+0xcc (16 floats) for a cast, or nullptr.
     virtual const float* enemy_raw(int cast) = 0;
+    // A game flag the brain writes (M460's dead path clears the boss-battle flags 156 / 130).
+    virtual void set_flag(int /*index*/, int /*value*/) {}
 };
 
 struct AiEnv {

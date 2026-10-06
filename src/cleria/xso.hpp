@@ -147,7 +147,12 @@ struct XsoHost {
     // op 0x13e Chr_IsThisChr(id): acc = (resolve(id) == this script's bound actor
     // GoScript+0x240), FUN_005706c0 [C-DIS]. CleriaCore scripts don't model a bound
     // actor yet, so the default answers false.
-    virtual bool chr_is_this(int /*entityId*/) const { return false; }
+    // 0x12F Chr_LocateDummy(id, x, y, z) (FUN_00570350): an actor of CASTINFO record 1
+    // (CAST_C000: class 4, no sprite) at the point, created when `id` is not live; scripts
+    // attach talk scripts to it (the locked doors, the Blue Moon plate).
+    virtual void chr_locate_dummy(int /*id*/, float /*x*/, float /*y*/, float /*z*/) {}
+    // 0x141 Chr_Jump(id, v) (FUN_005709d0): +0x330 = v, +0x54 += v, +0x388 = 0, +0x9d6 = 1.
+    virtual void chr_jump(int /*id*/, float /*v*/) {}
 
     // op 0x11a Eft_LocatePosAddStr(id, x,y,z, a, b, name, c): place a named effect at a
     // world position, persistent until killed. [C-DIS] signature ifffffsf. The barrier
@@ -313,6 +318,9 @@ struct XsoVm {
         std::string s[2];
     };
     Vars vars;
+    // The running script's bound actor (GoScript +0x240): what Chr_IsThisChr compares against
+    // and what id 998 (0x3e6) resolves to. 13 = the player; 0 = none (a room root).
+    int owner = 0;
 
     // StartScript sink (op 0xb4 StartScript / 0xb8 StartScript2, CUTSCENE_COROUTINE.md §5).
     // A running COROUTINE hands the resolved child-script NAME here so a ScriptManager can
@@ -505,16 +513,18 @@ struct ScriptManager {
         bool finished = false;
         int fix_slot = -1;                 // +0x230: the fix slot this script holds (-1 none)
         XsoVm::Vars vars;                  // +0x244..: $I/$F/$S
+        int owner = 0;                     // +0x240: the bound actor (13 = the player)
     };
     std::vector<Inst> live;
-    struct Spawn { std::string name; XsoVm::Vars vars; };
+    struct Spawn { std::string name; XsoVm::Vars vars; int owner = 0; };
     std::vector<Spawn> spawn_queue;         // children queued by StartScript during a tick
     std::size_t peak_live = 0;              // max instances resident in one frame (pre-reap)
     int fix_counts[2] = {0, 0};             // 0x75ad90 / 0x75ad94: the two fix slots
 
     ScriptManager() {
         vm.on_start_script = [this](const std::string& n, const XsoVm::Vars& v) {
-            spawn_queue.push_back({n, v});
+            // [H] a StartScript child inherits its parent's bound actor.
+            spawn_queue.push_back({n, v, cur_inst_ ? cur_inst_->owner : 0});
         };
         vm.on_fix = [this](int slot) { if (cur_inst_) fix(*cur_inst_, slot); };
         vm.on_unfix = [this] { if (cur_inst_) unfix(*cur_inst_); };
@@ -531,7 +541,7 @@ struct ScriptManager {
     // Spawn a child by NAME via the loader (the StartScript path). Dedup: refuse if a live
     // instance with the same name already exists (single-instance; §5a). Ticks the child
     // once immediately. Returns false if deduped or the loader can't find it.
-    bool start(const std::string& name, const XsoVm::Vars& vars = {});
+    bool start(const std::string& name, const XsoVm::Vars& vars = {}, int owner = 0);
     // One engine frame: tick every live script once, drain StartScript spawns (children
     // tick this frame too), then reap finished scripts. A no-op while paused.
     void tick_all();

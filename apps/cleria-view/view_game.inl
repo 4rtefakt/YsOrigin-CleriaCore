@@ -1273,7 +1273,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // Cutscene actor control. The PLAYER (13/999) is `*playerPos` (feet), not a world
         // actor, so move it here; NPCs forward to the world. This is what makes the intro
         // actually walk the player to the platform (op 0x143) instead of standing still.
-        bool p_isplayer(int id) const { return id == 13 || id == 999; }
+        // 998 (0x3e6) = the running script's bound actor (+0x240).
+        int rid(int id) const { return (id == 998 && mgr) ? mgr->vm.owner : id; }
+        bool p_isplayer(int id) const { id = rid(id); return id == 13 || id == 999; }
+        std::function<void(float)> player_jump_fn;
+        void chr_jump(int id, float v) override {
+            if (p_isplayer(id)) { if (player_jump_fn) player_jump_fn(v); }
+            else if (worldHost) worldHost->chr_jump(rid(id), v);
+        }
+        void chr_locate_dummy(int id, float x, float y, float z) override {
+            if (worldHost) { worldHost->chr_locate_dummy(id, x, y, z); world_changed = true; }
+        }
         // The player's +0x30c is CASTINFO[13]+0x48 = 0.056 for its whole life (nothing in
         // FUN_00465170 rewrites it); a scripted walk is 0.056 x scale x Movable per step.
         float player_speed30c = 0.056f;      // set from CASTINFO[13]+0x48 below
@@ -1749,6 +1759,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // 0xBC / 0xBB / 0x8F. [H] Se_Play's 2nd operand (1024 everywhere) is not read by
     // FUN_004396f0. Bgm_Volume's (volume /1024, time) read as a linear fade over `time` ms [H].
     csHost.se_fn = [&](int se) { audio.play(se, kSfxAnimVol); };
+    // Chr_Jump on the player: the vertical timer +0x330 = v, the origin rises v, airborne.
+    // [not modelled] +0x9d6 = 1.
+    csHost.player_jump_fn = [&](float v) {
+        pv.t = v; pv.grounded = false; pv.jumping = false;
+        feet.y += v;
+        grounded = false;
+    };
     // A live 0x16B / 0x16C: record it, and rebuild only when it changes what the room shows.
     csHost.mesh_state_fn = [&](const std::string& n, bool coll, bool on) {
         std::string ln = n;
@@ -1831,7 +1848,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (cd.actor) {
                 std::string sc = cd.actor->talk_script;
                 for (char& ch : sc) ch = char(std::tolower((unsigned char)ch));
-                if (csMgr.start(sc)) {
+                if (csMgr.start(sc, {}, cd.actor->instance_id)) {        // bound to the actor [H]
                     std::printf("  [probe] actor %d -> %s\n", cd.actor->instance_id, sc.c_str());
                     return;
                 }
@@ -1858,7 +1875,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             XsoVm::Vars ov;
             ov.s[0] = target->name;                                // the object's own name ($S0)
             ov.i[0] = target->i0; ov.i[1] = target->i1; ov.f[0] = target->f0;
-            if (csMgr.start(name, ov)) {
+            if (csMgr.start(name, ov, /*owner: the player*/ 13)) {
                 std::printf("  [probe] %s -> %s\n", target->name.c_str(), name.c_str());
                 return;
             }
@@ -2283,6 +2300,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // it below too; harmless.)
             if (Actor* wp = world.player()) wp->pos = feet;
         }
+        // One flag store (FLOOR1_ROUTE_AUDIT B4): the engine's own writes (156 / 130 at a boss
+        // death, 141 Boost, the pickups) reach the running scripts; their writes come back
+        // through the grants drain below.
+        std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
+        csMgr.vm.g_flags[150] = character;
         const bool frozen_now = tick_events();
         world.tick_alpha_fades();                  // Chr_Alpha (runs under a Fix too, [H])
         {   // FUN_004281c0: the HUD's alpha moves 0.1 per step toward 1 - the box's alpha (0 while
@@ -2573,6 +2595,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 };
                 aiw.sphere_fn = [&](const Vec3& c, float r) { return sphere_overlaps(phys_mesh(room), c, r); };
                 aiw.arena_fn = [&](float* r) { for (int k = 0; k < 4; ++k) r[k] = world.arena[k]; };
+                aiw.flag_fn = [&](int i, int v) { if (i >= 0 && i < 0x200) game.g_flags[i] = v; };
                 aiw.raw_fn = [&](int cast) -> const float* {
                     const Enemy* er = etab.get(cast);
                     return er ? er->ai_raw : nullptr;
@@ -3050,15 +3073,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     }
                     const MeshObj* mo = meshes.find(ln);
                     if (on && (!mo || mo->event_on)) {
-                        fs::path sp(t.script);
-                        std::string stem = sp.stem().string();
+                        // The authored name ('@' = S_COMMON: @Jump_001, @Fall_001, @Touch_Toge).
+                        std::string stem = t.script_stem;
                         for (char& ch : stem) ch = char(std::tolower((unsigned char)ch));
                         // The object's script reads its own name as $S0 and its SOB values
                         // as $I0/$I1/$F0 (audit event_vm #11; TURNSWITCH1 / S20SWICH00_FUMI
                         // pose and wait on `$S0`).
                         XsoVm::Vars ov;
                         ov.s[0] = t.name; ov.i[0] = t.i0; ov.i[1] = t.i1; ov.f[0] = t.f0;
-                        if (csMgr.start(stem, ov))
+                        if (csMgr.start(stem, ov, /*owner: the player*/ 13))
                             std::printf("  [plate] %s -> %s\n", t.name.c_str(), stem.c_str());
                     }
                 }
