@@ -1529,6 +1529,7 @@ title_again:
             std::vector<MeshClip> clips;
             for (const auto& c : r.clips) clips.push_back({c.name, c.start, c.end, c.next, c.rate});
             MeshObj& m = meshes.add(r.name, r.obj.position, std::move(clips));
+            m.rot = r.obj.rotation;              // the re-bake passes &m.rot: keep the placement's turn
             baked_pos[r.name] = r.obj.position;
             for (std::size_t i = 0; i < m.clips.size(); ++i)        // built posed at a clip's end
                 if (!r.posed_clip.empty() && m.clips[i].name == r.posed_clip) {
