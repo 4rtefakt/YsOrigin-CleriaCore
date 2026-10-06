@@ -99,6 +99,35 @@ int main(int, char**) {
         check(near(o.target.y, 6.0f, 1e-2f) && near(o.eye.y - o.target.y, scm_eye(scm.regions[0].eye, look, look).y - 1.0f, 1e-2f),
               "+0x3AC offset (0, 5, 0) lifts eye and target by 5 (a pan, not a rotation)");
     }
+    {   // the boss hook (BOSS_CAMERA.md §1): the current slot is rewritten fixed and claimed
+        Scm scm;
+        scm.regions.push_back(region(0, 0.5f, 20, 0.5f, 0.015f));
+        for (int k = 1; k <= 6; ++k)
+            scm.regions.push_back(region(0, 0.5f, 30, 0.5236f, 0.015f, {10000, 10000, 10000}, {-1, -1, -1}, {1, 1, 1}));
+        CamRig rig; rig.reset(scm);
+        rig.step(player, look, rng);
+        rig.write_forced(-1);
+        rig.write_sel(1, 0, 0.0f, 0.02f);                                // the fight start
+        CamRig::BossPresets bp;
+        bp.eye[1] = {0, 17.9f, 0.227f}; bp.target[1] = {0, 2, 30.967f};
+        bp.eye[2] = {0, 10, 3};          bp.target[2] = {0, 2, 33};
+        rig.set_boss(bp);
+        rig.step(player, look, rng);
+        check(rig.current() == 1 && rig.from() == 0 && near(rig.blend_t(), 0.02f),
+              "boss: preset 1 claimed (no volume pick), blending from slot 0 at 0.02");
+        check(rig.slot(1).eye.mode == 0 && near(rig.slot(1).eye.fixed_pos.y, 17.9f) && near(rig.slot(1).fov, 0.61086524f) &&
+              near(rig.slot(1).eye.dist, 27.0f) && near(rig.slot(1).eye.pitch, 0.24434610f),
+              "boss: slot 1 = fixed eye/target, dist 27, pitch 14 deg, fov 35 deg");
+        for (int k = 0; k < 60; ++k) rig.step(player, look, rng);
+        CamRig::Out o = rig.step(player, look, rng);
+        check(near(o.eye.y, 17.9f) && near(o.eye.z, 0.227f) && near(o.fov, 0.61086524f), "boss: settled on preset 1");
+        rig.write_sel(2, 1, 0.0f, 0.03f);
+        rig.step(player, look, rng);
+        check(near(rig.slot(2).fov, 0.78539819f), "boss: preset 2 takes the 45 deg fov");
+        rig.clear_boss();
+        for (int k = 0; k < 40; ++k) rig.step(player, look, rng);
+        check(rig.current() == 0, "boss off: the volume pick returns to region 0");
+    }
     std::printf("[cam] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }

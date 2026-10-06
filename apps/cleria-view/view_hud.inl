@@ -640,13 +640,15 @@ struct Hud {
         //                runtime GDI glyph font we don't build yet; F_MINI stands in
         //                for it here [HAND-TUNED substitution].
         //   [SP]         font_A @(248,752), grey, next to the SP counter above.
-        // The dim->mint warning brightening (low-MP via 0x76c194; boost via flag 141)
-        // is not wired yet — [EX]/[MP] draw in their common dim state.
+        // [MP] brightens while its lag value has caught up (0x440190); [EX]'s boost-driven
+        // colour is not wired yet.
         char rbuf[32];
         std::snprintf(rbuf, sizeof rbuf, "[EX]%3.3f%%", double(p.boost) / 30000.0 * 100.0);
         mini_text(m, rbuf, 288, 670, sw, sh, 0x50, 0x72, 0x64);
         std::snprintf(rbuf, sizeof rbuf, "[MP]%3.3f%%", double(p.mp_pct));
-        mini_text(m, rbuf, 288, 682, sw, sh, 0x50, 0x72, 0x64);
+        // 0x440190: mint 0xa1e4c9 while the lag DAT_0076c194 <= MP, dim 0x507264 while it drains.
+        if (p.sp_lag <= p.sp_cur) mini_text(m, rbuf, 288, 682, sw, sh, 0xa1, 0xe4, 0xc9);
+        else mini_text(m, rbuf, 288, 682, sw, sh, 0x50, 0x72, 0x64);
         std::snprintf(rbuf, sizeof rbuf, "%3d/%3d", p.hp, p.max_hp);
         mini_text(m, rbuf, 288, 694, sw, sh, 0xa1, 0xe4, 0xc9);
         mini_text(m, "[SP]", 248, 752, sw, sh, 0xbb, 0xbb, 0xbb);

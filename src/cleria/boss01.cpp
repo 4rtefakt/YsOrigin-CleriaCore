@@ -303,9 +303,73 @@ Boss01Output Boss01::tick(const Boss01Input& in) {
         push_player();
     }
     tail_always();
+    camera_presets();                             // every tick, the HP < 1 path included
     in_ = nullptr;
     out_ = nullptr;
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// The camera presets [BYTES 0x50766f..0x5082be], build/boss_re/BOSS_CAMERA.md §3. Rebuilt from
+// scratch every tick; V0 = look_ (blk+0x100), V1 = home_ (blk+0x10c), dc = blk+0xdc (stale on the
+// death path, as in the engine), yaw = blk+0xd4.
+void Boss01::camera_presets() {
+    const Vec3 P = in_->player_pos, B = pos_;
+    constexpr float k3 = 0.33333334f;                       // 0x6bd29c
+    const float dcl = std::min(20.0f, std::max(5.0f, dc_));
+    const float f = (std::max(0.0f, dcl - 10.0f) / 10.0f) * 0.2f;
+    const float h = (2.0f <= P.y - 2.0f) ? (P.y - 2.0f) - 2.0f : 0.0f;
+    const float lift = h * 0.2f * h * 0.2f;
+    auto tb = [&](float zo) {
+        return Vec3{(B.x - look_.x) * k3 + 0.0f, (2.0f - look_.y) * k3 + 2.0f, (B.z - look_.z) * k3 + 18.0f + zo};
+    };
+    auto follow = [&](Vec3 T) {
+        T.x = (P.x - T.x) * f + T.x;
+        T.y = (2.0f - T.y) * f + T.y;
+        T.z = (P.z - T.z) * f + T.z;
+        return T;
+    };
+    auto clamp_y = [&](Vec3 T) { const float y = lift + T.y; T.y = P.y < y ? P.y : y; return T; };
+    const Vec3 a = norm0(Vec3{B.x - look_.x, 2.0f - look_.y, B.z - look_.z});
+    const Vec3 b = norm0(home_ - look_);
+    const float s = (1.0f - (b.y * a.y + a.x * b.x + b.z * a.z)) * -2.0f;
+    // 1: fight
+    const Vec3 T1 = clamp_y(follow(tb(10.0f)));
+    cam_tgt_[1] = T1;
+    cam_eye_[1] = {T1.x + 0.0f, f * 15.0f + 15.0f + T1.y, f * -29.0f + -29.0f + s + T1.z};
+    // 2: inhale / bite — the eye 17 + D past the boss along its facing, at y = 10
+    cam_tgt_[2] = B;
+    const float dx = P.x - B.x, dz = P.z - B.z;
+    const float D = std::max(6.0f, std::sqrt(dx * dx + dz * dz));
+    const Vec3 fwd = rot_y({0, 0, -1.0f}, d4_);
+    Vec3 e2{fwd.x * D + B.x, fwd.y * D + 2.0f, fwd.z * D + B.z};
+    e2 = {fwd.x * 17.0f + e2.x, e2.y + 8.0f, fwd.z * 17.0f + e2.z};
+    cam_eye_[2] = e2;
+    // 3: bubble spray
+    const Vec3 T3 = clamp_y(follow(tb(8.0f)));
+    const float z3off = s - (f * 28.0f + 28.0f);
+    cam_tgt_[3] = T3;
+    cam_eye_[3] = {T3.x + 0.0f, f * 19.0f + 19.0f + T3.y, T3.z + z3off};
+    // 4: arm sweep
+    const Vec3 T4 = clamp_y(follow(tb(12.0f)));
+    cam_tgt_[4] = T4;
+    cam_eye_[4] = {T4.x + 0.0f, f * 16.0f + 16.0f + T4.y, (s - (f * 32.0f + 32.0f)) + T4.z};
+    // 5: stun — the follow term uses preset 1's final target (the engine's own operand)
+    const float py = std::min(P.y, 13.0f);
+    const float lx = P.x - B.x, ly = py - (B.y + 11.0f), lz = P.z - B.z;
+    const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
+    float nearv = 0.0f;
+    if (len < 16.0f) nearv = std::min(0.7f, (16.0f - len) * 0.0625f);
+    Vec3 T5 = tb(8.0f);
+    T5 = {(P.x - T1.x) * f + T5.x, (2.0f - T1.y) * f + T5.y, (P.z - T1.z) * f + T5.z};
+    T5.y += nearv * 9.0f;
+    cam_tgt_[5] = T5;
+    cam_eye_[5] = {T5.x + 0.0f, f * 17.0f + 17.0f + nearv * 9.0f + T5.y,
+                   (nearv * 12.0f - (f * 30.0f + 30.0f)) + s + T5.z};
+    // 6: laser
+    const Vec3 T6 = clamp_y(follow(tb(9.0f)));
+    cam_tgt_[6] = T6;
+    cam_eye_[6] = {T6.x + 0.0f, f * 18.0f + 18.0f + T6.y, T6.z + z3off};
 }
 
 // ---------------------------------------------------------------------------
@@ -521,7 +585,21 @@ void Boss01::aim_update() {
 void Boss01::stun_entry() {
     if (cam_.cur != 5) {
         if (cam_.t == 1.0f) cam_.prev = cam_.cur;
-        else cam_.prev = 0xb;   // snapshot of the running blend into region 0xb (geometry not ported)
+        else {
+            // The snapshot of the running blend into slot 0xb (BOSS_CAMERA.md §4b), LINEAR in t,
+            // from LAST tick's presets (the recompute runs later this tick). from == 5 reads
+            // preset 4's fields [BYTES 0x506c6f]; outside 1..6 the engine reads stale stack [H].
+            const int fi = cam_.prev == 5 ? 4 : cam_.prev, ci = cam_.cur;
+            if (fi >= 1 && fi <= 6 && ci >= 1 && ci <= 6) {
+                const float t = cam_.t;
+                auto lerp = [t](const Vec3& p, const Vec3& q) {
+                    return Vec3{(q.x - p.x) * t + p.x, (q.y - p.y) * t + p.y, (q.z - p.z) * t + p.z};
+                };
+                out_->cam_snapshot = std::make_pair(lerp(cam_eye_[std::size_t(fi)], cam_eye_[std::size_t(ci)]),
+                                                    lerp(cam_tgt_[std::size_t(fi)], cam_tgt_[std::size_t(ci)]));
+            }
+            cam_.prev = 0xb;
+        }
         cam_.rate = 0.01f;
         cam_.t = 0.0f;
         cam_.cur = 5;

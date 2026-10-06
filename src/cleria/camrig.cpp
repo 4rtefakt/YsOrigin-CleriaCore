@@ -82,6 +82,16 @@ void CamRig::scroll_return(int frames, int prio) {
 
 void CamRig::shake(const Vec3& amp, int frames) { sh_amp_ = amp; sh_frames_ = frames; }
 
+void CamRig::write_fixed(int k, const Vec3& eye, const Vec3& target, float dist, float pitch, float fov) {
+    if (k < 0 || k >= kSlots) return;
+    CameraRegion& r = slots_[std::size_t(k)].rec;
+    r.eye.fixed_pos = eye;   r.eye.mode = 0;       // slot+0x288 / +0x268
+    r.target.fixed_pos = target; r.target.mode = 0;   // slot+0xb4 / +0x94
+    r.eye.dist = dist;       // +0x274
+    r.eye.pitch = pitch;     // +0x270
+    r.fov = fov;             // +0x418
+}
+
 void CamRig::evaluate(Slot& s, const Vec3& look, const Vec3& scrolled) {
     const CameraRegion& r = s.rec;
     // A: mode 1 follows the (scrolled) look point; mode 0 / 3 = its fixed point [mode 3 not modelled].
@@ -112,10 +122,26 @@ CamRig::Out CamRig::step(const Vec3& player, const Vec3& look, const std::functi
         else if (sc_t_ > sc_dest_) sc_t_ = std::max(sc_dest_, sc_t_ - st);
         if (sc_t_ == sc_dest_) sc_rate_ = 0.0f;
     }
+    // 2b. FUN_0042bb10's boss path: the current slot is refreshed from the presets and claimed.
+    bool claimed = false;
+    if (boss_on_) {
+        constexpr float kDist = 27.0f, kPitch = 0.24434610f, kFov = 0.61086524f, kFov2 = 0.78539819f;
+        if (cur_ >= 1 && cur_ <= 6) {
+            write_fixed(cur_, boss_.eye[std::size_t(cur_)], boss_.target[std::size_t(cur_)], kDist, kPitch,
+                        cur_ == 2 ? kFov2 : kFov);
+            claimed = true;
+        } else if (cur_ == 0xb) {
+            write_fixed(cur_, boss_.snap_eye, boss_.snap_target, kDist, kPitch, kFov);
+            claimed = true;
+        }
+    }
     // 3. select
-    int sel = slots_[std::size_t(cur_)].rec.sticky ? cur_ : 0;
-    for (int i = 1; i < count_; ++i)
-        if (slots_[std::size_t(i)].populated && slots_[std::size_t(i)].rec.contains(player)) { sel = i; break; }
+    int sel = cur_;
+    if (!claimed) {
+        sel = slots_[std::size_t(cur_)].rec.sticky ? cur_ : 0;
+        for (int i = 1; i < count_; ++i)
+            if (slots_[std::size_t(i)].populated && slots_[std::size_t(i)].rec.contains(player)) { sel = i; break; }
+    }
     if (forced_ >= 0 && forced_ < kSlots) sel = forced_;
     // 4. a region change
     if (c0_ || sel != cur_) {

@@ -8,9 +8,12 @@
 //  - FUN_0042a080: the camera-space offset (+ the shake) translates eye and target together;
 //  - the ops 0xEB CopyCamera_Set, 0xEC Camera_Change, 0xC5 Camera_Set, 0xC6 Camera_Return,
 //    0xC3 Scroll_MoveTo, 0xC4 Scroll_Return, 0xCF Shake.
+//  - FUN_0042bb10's boss path (build/boss_re/BOSS_CAMERA.md §1): while set, the current slot k in
+//    {1..6, 11} is rewritten from the boss brain's presets before the select, and claims it;
 // [not modelled] mode-2 points (no corpus users), the mode-3 TARGET orbit (4 records; evaluated as
-// its fixed point), the boss camera hooks (FUN_0042bb10's boss path), the render interpolation.
+// its fixed point), the render interpolation.
 #pragma once
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -37,6 +40,19 @@ class CamRig {
     void scroll_return(int frames, int prio);                                      // 0xC4
     void shake(const Vec3& amp, int frames);                                       // 0xCF
     void hard_cut() { c0_ = true; }
+
+    // The selection globals a brain writes directly (0x76a158 / 15c / 1bc / 1b8, 0x76a1f8).
+    void write_sel(int cur, int from, float t, float rate) { cur_ = cur; from_ = from; t_ = t; rate_ = rate; }
+    void write_forced(int f) { forced_ = f; }
+    // FUN_0042bf80's slot write: both points fixed (mode 0), the eye's dist / pitch, the fov.
+    void write_fixed(int k, const Vec3& eye, const Vec3& target, float dist, float pitch, float fov);
+    // The boss presets (eye/target per slot 1..6; [0] unused) and the slot-0xb snapshot.
+    struct BossPresets {
+        std::array<Vec3, 7> eye{}, target{};
+        Vec3 snap_eye{}, snap_target{};
+    };
+    void set_boss(const BossPresets& p) { boss_ = p; boss_on_ = true; }
+    void clear_boss() { boss_on_ = false; }
 
     struct Out { Vec3 eye{}, target{}; float fov = 0.5236f, pitch = 0; };
     // One 60 Hz step. `player` = the player's origin (the volume test), `look` = the live look point
@@ -78,6 +94,9 @@ class CamRig {
     // the published values
     Out pub_{};
     Vec3 last_look_{};               // 0x76a1c4: L, the Scroll_Return base
+    // the boss hook
+    BossPresets boss_{};
+    bool boss_on_ = false;
 };
 
 }  // namespace cleria

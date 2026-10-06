@@ -1718,10 +1718,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // +dmg*100 per hit taken (0x4fded0). [not yet modelled] the passive per-tick fill in the
     // mover (0x467d8c: (1-hp/max)*word[0x68b070]+1) — the old per-hit formula here was that
     // passive term misplaced.
+    // The engine's fix (0x75ad90 + 0x75ad94) is taken as the script world freeze [approx].
     auto add_boost = [&](float amount) {
-        if (player.boosting || player.boost >= 30000.0f || game.g_flags[187] == 0) return;
-        player.boost = std::min(30000.0f, player.boost + amount);
+        if (!skillmp::boost_can_add(game.g_flags[187] != 0, game.g_flags[161] != 0, csMgr.world_frozen(),
+                                    player.boosting, player.boost)) return;
+        player.boost += amount;
+        if (player.boost >= skillmp::kBoostFull) {    // READY (0x46cd4c..): EF2 42 on the player, SE 0x13
+            player.boost = skillmp::kBoostFull;
+            spawn_sim_fx(42, {feet.x, feet.y + kOriginH, feet.z}, {}, 1.0f, {}, 13, {feet.x, feet.y + kOriginH, feet.z});
+            sfx_at(0x13, feet, kSfxAnimVol);          // [not modelled] the white tint flash
+        }
     };
+
 
     // ---- Boost (build/ability_re/BOOST.md, ABILITY.md §4b) -------------------------------
     // Entering needs a FULL gauge — the engine compares == 30000.0 exactly — and grants 16
@@ -1730,13 +1738,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // super section's own hitboxes. The drain (~30/tick) lives in the fixed-step block.
     auto try_boost = [&] {
         if (!player.boosting) {
-            if (player.boost < 30000.0f) return;          // UCOMISS against the full value
+            // mover 0x465b1d: g_flags[187], the gauge exactly full, not busy, no fix.
+            if (player.boost < skillmp::kBoostFull || game.g_flags[187] == 0) return;
+            if (game.g_flags[161] != 0 || game.g_flags[151] == -1 || csMgr.world_frozen()) return;
+            const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
+            spawn_sim_fx(50, at, {}, 1.0f, {}, 0, {});   // adol_S_mode_f [approx] offset (0,0,-0.5) not applied
             player.boosting = true;
-            game.g_flags[141] = 1;                        // FUN_00463f40: Boost active
-            player_iframes = std::max(player_iframes, 16);
-            hud.message("Boost!");
+            game.g_flags[141] = 1;                        // FUN_00463f40(0x20): bb50 = 1
+            if (ef2sim::Effect* a = spawn_sim_fx(character == 3 ? 171 : 39, at, {}, 1.0f, {}, 13, at))
+                a->name = "#boost_aura";                  // +0x758: the aura, attached (39 / Toal 171)
+            sfx_at(0xb4, feet, kSfxAnimVol);
+            player_iframes = std::max(player_iframes, 60);
+            avm.set_section(2, /*force*/true);            // SetSection(2, 0): entering cancels the move
             return;
         }
+        // The super needs g_flags[188] (first set late, S_6009) and a section outside {9, 5}.
+        if (game.g_flags[188] == 0 || avm.section() == 9 || avm.section() == 5) return;
         // Second press: the EXTRA section. These live outside the 0x100..0x10f combo range,
         // so they are requested directly; they carry their own hitboxes, which the existing
         // armed_hitbox() path already resolves.
@@ -1752,24 +1769,43 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // A skill is NOT a special animation: it is a different ASO section, gated by SP. The
     // per-character SP costs are fully dumped; the section table is only partly dumped (one
     // row of PTR_DAT_0068afd0), so the per-character rows are [PARTIAL] — see the note below.
-    auto try_skill = [&] {
-        const int slot = player.magic == 0x74 ? 0 : player.magic == 0x75 ? 1
-                       : player.magic == 0x76 ? 2 : 3;    // FUN_0046d560
-        if (slot == 3) return;                            // nothing equipped
-        static const short kSkillCost[4][3] = {{1000, 600, 300},   // char 0
-                                               {700, 700, 400},    // Yunica
-                                               {2000, 600, 900},   // Hugo
-                                               {300, 700, 600}};   // Toal
-        // [PARTIAL] only PTR_DAT_0068afd0's single dumped row {0x110,0x10f,0x111} is known;
-        // the per-character rows of PTR_DAT_0068afe0 were never dumped. Hugo in particular is
-        // documented to use 0x112 / 300-304. We request the known row and fall back to any
-        // section the character's own ASO actually defines, rather than inventing ids.
-        static const short kSkillSec[3] = {0x110, 0x10f, 0x111};
-        const float cost = float(kSkillCost[character & 3][slot]);
-        if (player.sp_cur - cost < 0.0f) return;          // threshold is 0.0
-        if (avm.section() >= 0x100 && !avm.cancelable()) return;
-        if (!avm.set_section(kSkillSec[slot], /*force*/true)) return;
-        player.sp_cur -= cost;                            // 0x46f2eb
+    // The skill button (ABILITIES_VERIFIED.md §2.2, src/cleria/skillmp): charge while held
+    // (+25/tick while affordable), cast on release — the normal {0x10d,0x10c,0x10e}, or after
+    // 121 held ticks with a Lv2+ bracelet the charged {0x110,0x10f,0x111}. Run once per tick.
+    skillmp::Charge skill_charge;
+    bool drive_skill = false;                             // CLERIA_DRIVE skill+ / skill-
+    auto skill_tick = [&](bool skill_held, bool attack_held) {
+        const int slot = skillmp::bracelet_slot(player.magic);
+        skillmp::SkillIn si;
+        si.skill_held = skill_held; si.attack_held = attack_held;
+        si.magic = player.magic;
+        si.bracelet_level = slot < 3 ? game.g_flags[182 + slot] : 0;
+        si.section = avm.section();
+        si.kind = skillmp::attack_kind(si.section);
+        si.busy = game.g_flags[161] != 0 || game.g_flags[151] == -1;
+        si.fix = csMgr.world_frozen();
+        si.bc80 = std::uint32_t(game.g_flags[217]);
+        si.cost.chr = character;
+        si.cost.difficulty = difficulty >= 2 ? difficulty - 2 : 0;   // DAT_0076bb5c 0 / 1 / 2
+        si.cost.bc80 = si.bc80;
+        si.cost.boosting = player.boosting;
+        // [not modelled] accessory bit 0x76a624 & 0x200000 (x0.80), Adol's DAT_0074c0cc table.
+        skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
+        const skillmp::SkillOut so = skillmp::skill_tick(si, mp, skill_charge);
+        if (so.charged_ready) {                           // the charge-ready effect, attached
+            static const int kReadyFx[3] = {7, 6, 5};     // 0x69bcfc[slot] (Adol)
+            const int id = character == 1 ? 0x80 : character == 2 ? 0x8d : character == 3 ? 0xb9 : kReadyFx[slot];
+            const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
+            spawn_sim_fx(id, at, {}, 1.0f, {}, 13, at);
+        }
+        if (!so.cast) return;
+        // FUN_0046ea00(1): refused in the super sections; [not modelled] the ASO re-cast lock.
+        const int sec = avm.section();
+        if (sec == 0x139 || sec == 300 || sec == 0x13d) return;
+        player_iframes = std::max(player_iframes, 3);
+        avm.set_section(so.section, /*force*/true);
+        avm.set_local(12, so.level);                      // LocalInt 12 = c138
+        player.sp_cur -= float(so.cost);                  // unconditionally, after the SetSection
         atk_dir = face_dir;
         player_hit_serial = next_hit_serial(world.hit_serial_counter_);
     };
@@ -1805,7 +1841,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (player.hp >= 1) { player.hp = player.max_hp; player.hp_lag = float(player.hp); }
         }
         else if (n == 0 || n == 12) {                     // Boost off (DAT_0076c1b4 = 0; FUN_00462c40)
-            if (player.boosting) { player.boosting = false; game.g_flags[141] = 0; }
+            if (player.boosting) { player.boosting = false; game.g_flags[141] = 0; kill_named_fx("#boost_aura"); }
         }
         // [not modelled] 11 (zero 0x76c160..16c; FUN_00462550) and the rest of 12.
     };
@@ -2039,6 +2075,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
         } else if (cmd == "atk") {                     // the attack button
             try_attack();
+        } else if (cmd == "skill+" || cmd == "skill-") {   // hold / release the skill button
+            drive_skill = cmd == "skill+";
         } else if (cmd == "act") {
             try_interact();
         } else if (cmd == "ok") {
@@ -2185,7 +2223,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool boss_bullet_warned = false;
     auto boss_tick = [&] {
         MeshObj* bm = meshes.find("boss01");
-        if (!bm) { boss.reset(); return; }
+        if (!bm) { boss.reset(); g_rig.clear_boss(); return; }
         Model* mdl = cached_big_model(resolve_ymo_path(asset_root, "data\\enemy\\boss01\\boss01.ymo"));
         if (!mdl) return;
         auto lw = [](std::string t) { for (char& ch : t) ch = char(std::tolower((unsigned char)ch)); return t; };
@@ -2257,14 +2295,34 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                  a.is_player() ? float(player.hp) : a.hp});
         }
         in.rng = [&] { return pick_rng.next(); };
+        // The region camera owns the selection globals the brain reads and writes.
+        boss->camera().cur = g_rig.current(); boss->camera().prev = g_rig.from();
+        boss->camera().t = g_rig.blend_t(); boss->camera().forced = g_rig.forced();
         const Boss01Output out = boss->tick(in);
+        if (out.camera_written) {
+            const Boss01Camera& bc = boss->camera();
+            g_rig.write_sel(bc.cur, bc.prev, bc.t, bc.rate);
+            if (bc.forced != g_rig.forced()) g_rig.write_forced(bc.forced);
+        }
+        if (out.cam_snapshot) {
+            g_rig.write_fixed(0xb, out.cam_snapshot->first, out.cam_snapshot->second, 27.0f, 0.24434610f, 0.61086524f);
+        }
+        // FUN_0042bb10: the presets claim the current slot while flag 156 (the fight) is on.
+        if (game.g_flags[156] != 0 && !boss->destroyed()) {
+            CamRig::BossPresets bp;
+            bp.eye = boss->cam_eyes(); bp.target = boss->cam_targets();
+            if (out.cam_snapshot) { bp.snap_eye = out.cam_snapshot->first; bp.snap_target = out.cam_snapshot->second; }
+            else { bp.snap_eye = g_rig.slot(0xb).eye.fixed_pos; bp.snap_target = g_rig.slot(0xb).target.fixed_pos; }
+            g_rig.set_boss(bp);
+        } else {
+            g_rig.clear_boss();
+        }
         static const bool boss_log = std::getenv("CLERIA_BOSSLOG") != nullptr;
         if (boss_log && tick_count % 30 == 0)
             std::printf("  [boss] t%llu state %d sub %d c0 %u phase %d hp %.0f stun %.0f%s clip %s(%d) cnt %u fr %.1f cam %d/%.2f core (%.2f,%.2f,%.2f) r%.2f def %.0f feet (%.2f,%.2f,%.2f)\n",
                         (unsigned long long)tick_count, boss->state(), boss->sub(), boss->timer(), boss->phase(),
                         boss->hp(), boss->stun_gauge(), boss->stunned() ? " STUNNED" : "", cur_clip.c_str(),
                         in.clip, in.clip_count, in.clip_frame, boss->camera().cur, boss->camera().t, boss->part(0).hurt_centre.x, boss->part(0).hurt_centre.y, boss->part(0).hurt_centre.z, boss->part(0).hurt_radius, boss->part(0).def, feet.x, feet.y, feet.z);
-        boss->camera().step_standin();                    // [STAND-IN] no boss camera presets
         // The requests, in order.
         for (const Boss01ClipSet& c : out.clips)
             if (c.clip >= 0 && c.clip < boss01::kClips) meshes.set_clip_now("boss01", boss01::kClipTable[c.clip].name);
@@ -2423,7 +2481,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // Boost (engine: button bit 8) and skill/magic (button bit 4). The engine's
                 // pad bits have no keyboard mapping of their own, so these take free keys.
                 else if (k == SDLK_X && !fly && !paused) try_boost();
-                else if (k == SDLK_C && !fly && !paused) try_skill();
                 else if (k == SDLK_TAB) {
                     character = character % 3 + 1;
                     game.g_flags[150] = character;
@@ -3262,7 +3319,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                      vr->facing, std::atan2(atk_dir.z, atk_dir.x)))
                         dmg = 0;
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
-                    if (dmg > 0) add_boost(300.0f);  // +300 per hit dealt (0x4fd0bf, DAT_006bdc44)
+                    // +300 per hit dealt (0x4fd0bf, DAT_006bdc44) when the kind is not 0 / 5 (skills).
+                    if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                     // Knockback: L = walk speed (CASTINFO+0x48) x1.7 [x run mult while running —
                     // the view has no run state yet] x the swing's arg[12], driven along the
                     // player's facing (hit.hpp player_knock_angle).
@@ -3351,7 +3409,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                         const int dmg = enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
                             [&](float pct) { return float(rng_pct(rng)) < pct; });
-                        if (dmg > 0) { boss->add_part_damage(pi, float(dmg)); add_boost(300.0f); }
+                        if (dmg > 0) boss->add_part_damage(pi, float(dmg));
+                        if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                         if (std::getenv("CLERIA_DMG"))
                             std::printf("  hit boss part %d (DEF %.0f): %d dmg, HP %.0f stun %.0f\n",
                                         pi, bp.def, dmg, boss->hp(), boss->stun_gauge());
@@ -3460,18 +3519,36 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                          popups.end());
             // Boost drain (FUN_00462c40): the gauge falls ~30/tick on Normal, so a Boost runs
             // ~1000 frames (~16.7 s). At zero the mode clears and the player drops to idle.
-            if (player.boosting) {
-                player.boost -= 30.0f;
+            if (player.boosting && !csMgr.world_frozen()) {
+                // [not modelled] DAT_0076bda4 (the 400 Nightmare drain), accessory 0x3b (x0.6).
+                player.boost -= skillmp::boost_drain(difficulty >= 2 ? difficulty - 2 : 0, false, false);
                 if (player.boost <= 0.0f) {
                     player.boost = 0.0f;
                     player.boosting = false;
                     game.g_flags[141] = 0;                // FUN_00462c40: the timer ran out
+                    kill_named_fx("#boost_aura");         // the aura's +0x1d4 = 1
+                    if (character == 3) {                 // PC3_mazin_hatudou
+                        const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
+                        spawn_sim_fx(172, at, {}, 1.0f, {}, 13, at);
+                    }
                     avm.set_section(2, /*force*/true);      // FUN_00446550(2,0) -> idle
                 }
             }
-            // SP regen (mover FUN_00465170): a flat base of 5.0/tick plus a per-slot addend
-            // whose table (0x68b078) is not dumped — so this is the base only. [PARTIAL]
-            player.sp_cur = std::min(player.sp_max, player.sp_cur + 5.0f);
+            // The passive Boost fill (mover 0x467c0a..0x467d8c): ((1 - hp/max) * 25 + 1) * M.
+            add_boost(skillmp::boost_passive(float(player.hp), float(player.max_hp),
+                                             difficulty >= 2 ? difficulty - 2 : 0, std::uint32_t(game.g_flags[217])));
+            // The skill button, then MP regen with its lag (mover 0x467aff..0x467bfa).
+            if (!fly) {
+                const bool held = !paused && (ks[SDL_SCANCODE_C] || drive_skill);
+                const bool atk = !paused && (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
+                skill_tick(held, atk);
+            }
+            {
+                const int slot = skillmp::bracelet_slot(player.magic);
+                skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
+                mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0);
+                player.sp_cur = mp.mp; player.sp_lag = mp.lag;
+            }
             player.mp_pct = player.sp_max > 0 ? player.sp_cur / player.sp_max * 100.0f : 0.0f;
             // The statue heal: the heal-spot objects 0x94 registered (FUN_0058c290; SCENEFLOW.md
             // §4). Each statue's S_SaveObjectChange registers one only on its cleansed arm, so
@@ -3765,7 +3842,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     const int dmg = enemy_incoming_damage(a, kDamageClassNone, vd, PlayerDamageMods{},
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
-                    if (dmg > 0) add_boost(300.0f);
+                    // [H] a bullet credits the player's current attack kind (owner+0x404).
+                    if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                     react_enemy(en, dmg, r.died, 0,
                                 knock_impulse(std::atan2(en.pos.z - p.pos.z, en.pos.x - p.pos.x), 0.1f));
                     if (r.died) {

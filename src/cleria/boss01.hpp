@@ -253,6 +253,8 @@ struct Boss01Output {
     std::optional<Boss01Gauge> gauge;          // FUN_0043a460 (called only when HP changed)
     bool gauge_hide = false;                   // DAT_006d5fd8 = 0
     bool camera_written = false;               // Boss01::camera() was written this tick
+    // Stun entry mid-blend (§4b, BOSS_CAMERA.md): the slot-0xb eye / target snapshot (blk+0x25c / 0x2b0).
+    std::optional<std::pair<Vec3, Vec3>> cam_snapshot;
     std::array<Mat4, 2> hit_mesh{};            // boss01_hit1/2 world matrix (obj x T(0,0,-1.75/-3))
 };
 
@@ -321,6 +323,10 @@ public:
     bool destroyed() const { return destroyed_; }
     int eaten() const { return eaten_; }             // blk+0x1e4
     Boss01Camera& camera() { return cam_; }
+    // The six camera presets blk+0x214.. (eye) / blk+0x268.. (target), index 1..6, rebuilt at
+    // the end of every tick (BOSS_CAMERA.md §3). [0] is unused.
+    const std::array<Vec3, 7>& cam_eyes() const { return cam_eye_; }
+    const std::array<Vec3, 7>& cam_targets() const { return cam_tgt_; }
     const Boss01Camera& camera() const { return cam_; }
 
     // Raw blk fields the decision reads (exposed for goldens / the test).
@@ -414,6 +420,8 @@ private:
     std::array<bool, 11> fx_slot_{};
 
     Boss01Camera cam_;
+    std::array<Vec3, 7> cam_eye_{}, cam_tgt_{};
+    void camera_presets();
     std::array<Boss01Part, boss01::kParts> parts_{};
     Boss01Contact contact_;
 
