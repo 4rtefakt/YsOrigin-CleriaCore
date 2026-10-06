@@ -1516,6 +1516,7 @@ title_again:
     // platform carry reads it next tick, MOVER.md §3.3).
     MeshWorld meshes;
     std::unordered_map<std::string, Vec3> baked_pos, mesh_delta;
+    std::unordered_map<std::string, Vec3> baked_frame;   // the floor object's frame at its last bake (the carry)
     std::string player_floor_obj;            // the object the player stands on (+0x540)
     Vec3 carry{};                            // +0x5b0..: the platform carry
     // (Re)seed the mesh runtime from the room's objects. keep = a reload of the same room:
@@ -1523,7 +1524,7 @@ title_again:
     auto load_meshes = [&](bool keep) {
         std::unordered_map<std::string, MeshObj> old;
         if (keep) old = meshes.all();
-        meshes.clear(); baked_pos.clear(); mesh_delta.clear();
+        meshes.clear(); baked_pos.clear(); mesh_delta.clear(); baked_frame.clear();
         for (const RoomMesh::ObjRange& r : room.mesh.object_ranges) {
             std::vector<MeshClip> clips;
             for (const auto& c : r.clips) clips.push_back({c.name, c.start, c.end, c.next, c.rate});
@@ -2215,6 +2216,18 @@ title_again:
         }
         void mesh_alpha_target(const std::string& n, float a, int fr) override {
             if (meshes) { std::string ln = n; for (char& ch : ln) ch = char(std::tolower((unsigned char)ch)); meshes->alpha_target(ln, a, fr); }
+        }
+        // 0x188 / 0x189 (meshobj.hpp). The frame heights and the +0x298 bits are the room's.
+        std::function<void(const std::string&)> mesh_frame_y_fn;
+        std::function<void(const std::string&, const std::string&)> mesh_sync_bits_fn;
+        void mesh_distance_alpha(const std::string& a, const std::string& b, float div, float k) override {
+            if (!meshes) return;
+            if (mesh_frame_y_fn) { mesh_frame_y_fn(a); mesh_frame_y_fn(b); }
+            meshes->distance_to_alpha(a, b, div, k);
+        }
+        void mesh_sync_pos(const std::string& a, const std::string& b, bool x, bool y, bool z) override {
+            if (meshes) meshes->sync_pos(a, b, x, y, z);
+            if (mesh_sync_bits_fn) mesh_sync_bits_fn(a, b);
         }
         void bgm_default(int id) override { if (bgm_default_fn) bgm_default_fn(id); }
         void bgm_play(int id) override { if (bgm_play_fn) bgm_play_fn(id); }
@@ -2949,6 +2962,38 @@ title_again:
                               : room.mesh.object_range(ln) != nullptr;
         if (now != on) live_obj_dirty = true;
     };
+    // A scene object's frame (its render node of mesh 0, posed, placed): scene.hpp object_frame.
+    // False when it is hidden (no render range) or its model cannot be read.
+    auto mesh_frame = [&](const MeshObj& m, Vec3* t) {
+        const RoomMesh::ObjRange* r = room.mesh.object_range(m.name);
+        if (!r) return false;
+        SobObject o = r->obj;
+        o.position = m.pos;
+        if (m.has_world) { o.has_world = true; o.world_mat = m.world; }
+        const char* clip = (m.sect >= 0 && std::size_t(m.sect) < m.clips.size())
+                               ? m.clips[std::size_t(m.sect)].name.c_str() : nullptr;
+        return object_frame(asset_root, o, clip, m.time, t);
+    };
+    // Mesh_DistanceToAlpha's frame height, cached until the object moves or re-poses
+    // (step_meshes clears frame_y_ok). A hidden object keeps its last height.
+    csHost.mesh_frame_y_fn = [&](const std::string& n) {
+        MeshObj* m = meshes.find(n);
+        if (!m || (m->frame_y_ok && !m->dirty_pos && !m->dirty_pose)) return;
+        Vec3 t{};
+        if (mesh_frame(*m, &t)) { m->frame_y = t.y; m->frame_y_ok = true; }
+    };
+    // Mesh_SyncronizePos's +0x298 & 0x60 copy, on the live intent (a 0x16B / 0x16C of b).
+    csHost.mesh_sync_bits_fn = [&](const std::string& a, const std::string& b) {
+        std::string la = a, lb = b;
+        for (char& ch : la) ch = char(std::tolower((unsigned char)ch));
+        for (char& ch : lb) ch = char(std::tolower((unsigned char)ch));
+        for (const bool coll : {false, true}) {
+            const auto& mp = coll ? live_obj.collide : live_obj.visible;
+            const auto ib = mp.find(lb), ia = mp.find(la);
+            const bool vb = ib == mp.end() || ib->second, va = ia == mp.end() || ia->second;
+            if (va != vb) csHost.mesh_state_fn(la, coll, vb);
+        }
+    };
     csHost.set_skill_fn = [&](int i) { inv.magic = i; };
     csHost.bgm_volume_fn = [&](int v, int t) {
         bgm_gain_to = std::clamp(float(v) / 1024.0f, 0.0f, 1.0f);
@@ -3262,6 +3307,16 @@ title_again:
                     std::printf("  [fx] '%s' id %d alpha %.3f -> %.3f attach %d at (%.2f, %.2f, %.2f)%s\n", f->name.c_str(),
                                 f->id, f->alpha_mul, f->alpha_target, f->attach_mode, f->M.m[3][0], f->M.m[3][1],
                                 f->M.m[3][2], f->kill ? " (killed)" : "");
+        } else if (cmd.rfind("mesh=", 0) == 0) {       // mesh=<name>: a scene object's runtime state
+            if (const MeshObj* mo = meshes.find(cmd.substr(5))) {
+                int va = -1;                            // its largest drawn vertex alpha
+                if (const RoomMesh::ObjRange* rr = room.mesh.object_range(mo->name))
+                    for (std::uint32_t k = rr->v0; k < rr->v1 && k < room.mesh.vertices.size(); ++k)
+                        va = std::max(va, int(room.mesh.vertices[k].a));
+                std::printf("  [drive] mesh %s pos (%.2f, %.2f, %.2f) clip %d t %.1f alpha %.4f frame_y %.3f%s max a %d\n",
+                            mo->name.c_str(), mo->pos.x, mo->pos.y, mo->pos.z, mo->sect, mo->time, mo->alpha,
+                            mo->frame_y, mo->frame_y_ok ? "" : " (stale)", va);
+            }
         } else if (cmd.rfind("obj=", 0) == 0) {        // obj=<name>: stand 1.5 from that scene object, facing it
             std::string ln = cmd.substr(4);
             for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
@@ -4740,7 +4795,18 @@ title_again:
             boss3_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
-                if (!m.dirty_pos && !m.dirty_pose) continue;
+                if (!m.dirty_pos && !m.dirty_pose && !m.dirty_alpha) continue;
+                if (!m.dirty_pos && !m.dirty_pose) {         // 0x16e / 0x188 alpha only
+                    apply_object_alpha(room, nm, m.alpha);
+                    if (const RoomMesh::ObjRange* rr = room.mesh.object_range(nm))
+                        if (rr->v1 > rr->v0 && rr->v1 <= room.mesh.vertices.size())
+                            wgpuQueueWriteBuffer(g.queue, room.vbuf, std::size_t(rr->v0) * sizeof(RoomVertex),
+                                                 &room.mesh.vertices[rr->v0],
+                                                 std::size_t(rr->v1 - rr->v0) * sizeof(RoomVertex));
+                    m.dirty_alpha = false;
+                    continue;
+                }
+                m.frame_y_ok = false;
                 const Vec3 was = baked_pos.count(nm) ? baked_pos[nm] : m.spawn;
                 if (m.dirty_pose) {
                     const char* clip = (m.sect >= 0 && std::size_t(m.sect) < m.clips.size())
@@ -4756,8 +4822,9 @@ title_again:
                                 room.coll.vertices[k].py = room.coll.vertices[cr->v0].py;
                                 room.coll.vertices[k].pz = room.coll.vertices[cr->v0].pz;
                             }
-                    // [STAND-IN] Mesh_SetAlphaTarget's alpha (the anim object's +0xc) is not drawn
-                    // translucent: alpha 0 collapses the object, anything else draws it opaque.
+                    // The object alpha (+0x418 -> the anim object's +0xc) reaches the blended
+                    // subsets (apply_object_alpha). [STAND-IN] for the opaque ones: alpha 0
+                    // collapses the object, anything else draws them opaque.
                     if (m.alpha <= 0.0f)
                         if (const RoomMesh::ObjRange* rr = room.mesh.object_range(nm))
                             for (std::uint32_t k = rr->v0; k < rr->v1 && k < room.mesh.vertices.size(); ++k) {
@@ -4765,12 +4832,29 @@ title_again:
                                 room.mesh.vertices[k].py = room.mesh.vertices[rr->v0].py;
                                 room.mesh.vertices[k].pz = room.mesh.vertices[rr->v0].pz;
                             }
+                    apply_object_alpha(room, nm, m.alpha);   // the re-bake dropped d7 x alpha
                 } else {
                     const Vec3 d{m.pos.x - was.x, m.pos.y - was.y, m.pos.z - was.z};
                     translate_object(room.mesh, nm, d);
                     translate_object(room.coll, nm, d);
+                    if (m.dirty_alpha) apply_object_alpha(room, nm, m.alpha);
                 }
                 mesh_delta[nm] = {m.pos.x - was.x, m.pos.y - was.y, m.pos.z - was.z};
+                // MOVER.md §3.3: the carry is the change of the floor sub-mesh's matrix, and a
+                // twin sub-mesh rides its render node (COLLISION.md §1c), so a re-posed floor
+                // object carries by its frame's move (S_1004's rising steps), not just +0x50.
+                // [approx] the frame of mesh 0 stands in for the sub-mesh stood on.
+                if (nm == player_floor_obj) {
+                    Vec3 f{};
+                    if (mesh_frame(m, &f)) {
+                        auto bf = baked_frame.find(nm);
+                        if (bf != baked_frame.end())
+                            mesh_delta[nm] = {f.x - bf->second.x, f.y - bf->second.y, f.z - bf->second.z};
+                        baked_frame[nm] = f;
+                    }
+                } else {
+                    baked_frame.erase(nm);
+                }
                 baked_pos[nm] = m.pos;
                 static const bool mesh_log = std::getenv("CLERIA_MESHLOG") != nullptr;
                 if (mesh_log && (tick_count % 30 == 0 || m.speed == 0.0f))
@@ -4781,7 +4865,7 @@ title_again:
                         wgpuQueueWriteBuffer(g.queue, room.vbuf, std::size_t(rr->v0) * sizeof(RoomVertex),
                                              &room.mesh.vertices[rr->v0],
                                              std::size_t(rr->v1 - rr->v0) * sizeof(RoomVertex));
-                m.dirty_pos = m.dirty_pose = false;
+                m.dirty_pos = m.dirty_pose = m.dirty_alpha = false;
             }
         };
         // The dead player (FUN_0046fba0's HP < 1 branch): no input decode / mover (FUN_0046f980),

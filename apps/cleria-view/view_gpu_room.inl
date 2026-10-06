@@ -57,6 +57,7 @@ struct Room {
     RoomMesh mesh;
     std::vector<ScrollBatch> scrolls;  // materials with flag 0x4 / nonzero velocity
     RoomMesh coll;           // the `_.YMO` collision hulls — what physics collides against
+    std::vector<std::uint8_t> base_a;  // each vertex's alpha after bake_material_alpha (apply_object_alpha)
     Sen sen;
     Sfo fog;                 // per-region scene fog (SFO sidecar)
     Scm cam;                 // per-region cameras (SCM sidecar)
@@ -208,7 +209,8 @@ static WGPUBindGroup tex_bindgroup(Gpu& g, WGPUTextureView view) {
 //   per-draw alpha a = d7 (diffuse A) x node alpha x model alpha. FUN_005faca0 writes that
 //     product into the subset's alpha slot, which FUN_005fb0e0 hands FUN_005f92b0 in XMM1
 //     (0x5fb1fb..0x5fb469). Node and model alpha are 1.0 for a scene object at rest (node
-//     alpha is initialised to 1.0 by FUN_005f4420); runtime fades are [not modelled].
+//     alpha is initialised to 1.0 by FUN_005f4420); the runtime model alpha reaches the blended
+//     subsets through apply_object_alpha, its mode switch is [not modelled].
 //   mode = d3, then if mode < 2: mode = (a < 1 || flags & 0x10) ? 1 : 0.
 //   (int)(d13 * a) >= 1, or flags & 0x40000, with a == 1 -> mode 0 (an alpha-test cutout)
 //     [H: that override is gated by DAT_0076519a != 0, a capability byte never seen written].
@@ -248,6 +250,22 @@ static void bake_material_alpha(RoomMesh& m) {
             done[v] = 1;
             m.vertices[v].a = std::uint8_t(float(m.vertices[v].a) * a + 0.5f);
         }
+    }
+}
+
+// One scene object's live alpha (+0x418, copied to its anim object's +0xc each update by
+// FUN_00503190: the model alpha). The per-draw alpha is d7 x node x model (MATERIAL.md §6.2), so
+// a blended subset's vertex alpha is its load-time (d7-baked) value x this. Opaque subsets keep
+// the stand-in in step_meshes (drawn opaque; alpha 0 collapses the object) — [not modelled] the
+// mode 0 -> 1 switch FUN_005f92b0 makes when a < 1. Also restores the d7 bake after a re-bake.
+static void apply_object_alpha(Room& room, const std::string& lname, float a) {
+    const RoomMesh::ObjRange* r = room.mesh.object_range(lname);
+    if (!r || room.base_a.size() != room.mesh.vertices.size()) return;
+    const float k = std::clamp(a, 0.0f, 1.0f);
+    for (const DrawBatch& b : room.mesh.batches) {
+        if (b.first_vert < r->v0 || b.first_vert >= r->v1 || material_blend_mode(b) == 0) continue;
+        for (std::uint32_t v = b.first_vert; v < b.first_vert + b.vert_count && v < r->v1; ++v)
+            room.mesh.vertices[v].a = std::uint8_t(float(room.base_a[v]) * k + 0.5f);
     }
 }
 
@@ -313,7 +331,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                 tmp.g_flags[150] = character;
                 // Follow the root's StartScript children. Their object bookkeeping is part
                 // of the room's load-time state: S_1004's root starts StepShadowUpdate,
-                // which is what binds each step_NN_shadow to its stone (op 0x188). Without
+                // which is what binds each step_NN_shadow to its stone (op 0x189 Mesh_SyncronizePos). Without
                 // following it a hidden stone leaves its shadow behind as a black quad.
                 // Collected by STATIC disassembly, not the on_start_script sink — that
                 // sink is coroutine-only by design ("run-to-completion never spawns"), and
@@ -348,17 +366,25 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                 // rendered every stone regardless of character.
                 for (const auto& [nm, shown] : tmp.obj_visible)
                     if (!shown) root_hidden.insert(low(nm));
-                // A drop shadow (0x188) inherits its owner's fate: hidden with it, and
-                // moved with it (the shadow keeps its own Y — it lies on the floor).
-                for (const auto& [sh, owner] : tmp.obj_shadow_of) {
-                    const std::string ls = low(sh), lo = low(owner);
-                    if (root_hidden.count(lo)) root_hidden.insert(ls);
-                    auto pit = obj_states.pos.find(lo);
+                // 0x189 Mesh_SyncronizePos(a, b, x, y, z): a takes b's hidden / no-collision
+                // bits and b's position on the gated axes (S_1004's shadows: x and z; each
+                // keeps its own y on the floor).
+                const Sob sob_objs = tmp.obj_sync.empty() ? Sob{} : Sob::parse(read_bytes(sob));
+                for (const auto& [an, sy] : tmp.obj_sync) {
+                    const std::string la = low(an), lb = low(sy.from);
+                    if (root_hidden.count(lb)) root_hidden.insert(la);
+                    if (no_collide.count(lb)) no_collide.insert(la);
+                    auto pit = obj_states.pos.find(lb);
                     if (pit != obj_states.pos.end()) {
-                        auto sit = obj_states.pos.find(ls);
-                        const float keepY = (sit != obj_states.pos.end()) ? sit->second[1]
-                                                                         : pit->second[1];
-                        obj_states.pos[ls] = {pit->second[0], keepY, pit->second[2]};
+                        auto sit = obj_states.pos.find(la);
+                        std::array<float, 3> p = (sit != obj_states.pos.end()) ? sit->second : pit->second;
+                        if (sit == obj_states.pos.end())     // not placed by the root: its SOB spot
+                            for (const SobObject& so : sob_objs.objects)
+                                if (low(so.name) == la) { p = {so.position.x, so.position.y, so.position.z}; break; }
+                        if (sy.x) p[0] = pit->second[0];
+                        if (sy.y) p[1] = pit->second[1];
+                        if (sy.z) p[2] = pit->second[2];
+                        obj_states.pos[la] = p;
                     }
                 }
             } catch (const std::exception&) {}
@@ -433,11 +459,16 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                         (obj_states.clip.empty() && obj_states.pos.empty()) ? nullptr : &obj_states,
                         located.empty() ? nullptr : &located);
     bake_material_alpha(r.mesh);
+    r.base_a.resize(r.mesh.vertices.size());
+    for (std::size_t k = 0; k < r.base_a.size(); ++k) r.base_a[k] = r.mesh.vertices[k].a;
     std::unordered_set<std::string> coll_hidden = hidden;
     coll_hidden.insert(no_collide.begin(), no_collide.end());
+    // The hulls take the same load-time poses / placements as the render objects: a twin sits
+    // on its render model's posed node (COLLISION.md §1c; S_1004's raised steps).
     r.coll = build_collision(asset_root, sob, nullptr,
                              coll_hidden.empty() ? nullptr : &coll_hidden,
-                             located.empty() ? nullptr : &located);
+                             located.empty() ? nullptr : &located,
+                             (obj_states.clip.empty() && obj_states.pos.empty()) ? nullptr : &obj_states);
     // Materials that scroll their UVs. Only 397 of 6642 corpus-wide do, and the disk
     // phase is 0.0 in every one — it is pure runtime state, so we start at zero too.
     for (const DrawBatch& b : r.mesh.batches)

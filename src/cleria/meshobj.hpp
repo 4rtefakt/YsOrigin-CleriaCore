@@ -49,6 +49,15 @@ struct MeshObj {
     float fall_start = 0, fall_vel = 0, fall_e = 0;
     // Mesh_SetAlphaTarget 0x16E (FUN_00572b40): +0x418 alpha, +0x41c target, +0x420 step.
     float alpha = 1, alpha_target = 1, alpha_step = 0;
+    // +0x468: the second fade an object with +0x298 & 0x200 steps toward +0x46c (FUN_00503190);
+    // 1.0 from the ctor (FUN_00501a30) otherwise. [not modelled] the 0x200 fade itself.
+    float fade = 1;
+    // The world y of the object's frame (render node of mesh 0) that Mesh_DistanceToAlpha reads.
+    // The host fills it (scene.hpp object_frame) and clears frame_y_ok when the object moves
+    // or re-poses.
+    float frame_y = 0;
+    bool frame_y_ok = false;
+    bool dirty_alpha = false;         // +0x418 changed: the host re-applies it to the draw
     // A full placement a brain owns (boss02's pieces, obj+0x20): the re-bake uses it instead of
     // pos / rot (pos is still kept as its row 3 for the platform carry).
     bool has_world = false;
@@ -81,6 +90,13 @@ class MeshWorld {
     void set_clip_now(const std::string& name, const std::string& clip, std::int32_t start = 0);
     void set_clip_index(const std::string& name, int idx, std::int32_t start = 0);
     void alpha_target(const std::string& name, float a, int frames);   // Mesh_SetAlphaTarget 0x16e
+    // Mesh_DistanceToAlpha 0x188 (FUN_00573aa0): a's +0x418 = (b.fade + 1) x 0.5 x k x b.alpha x
+    // clamp(1 - |b.frame_y - a.frame_y| / div, 0, 1) (div 0 = no divide). Both frame_y must be
+    // filled. Missing objects: nothing happens.
+    void distance_to_alpha(const std::string& a, const std::string& b, float div, float k);
+    // Mesh_SyncronizePos 0x189 (FUN_00573b80): copy b's position to a on the gated axes. (The
+    // +0x298 hidden / no-collision bits it also copies are the host's: they are room geometry.)
+    void sync_pos(const std::string& a, const std::string& b, bool x, bool y, bool z);
 
     // One live step of every object (FUN_00503ef0): the anim advance, then the move, then
     // the pending clip. Marks objects whose position / pose changed.

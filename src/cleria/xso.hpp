@@ -277,6 +277,12 @@ struct XsoHost {
                                        float /*oz*/) {}
     virtual void mesh_fall(const std::string& /*name*/, float /*e*/, float /*h*/) {}
     virtual void mesh_alpha_target(const std::string& /*name*/, float /*a*/, int /*frames*/) {}
+    // 0x188 Mesh_DistanceToAlpha(a, b, f div, f k) (FUN_00573aa0) and 0x189
+    // Mesh_SyncronizePos(a, b, x, y, z) (FUN_00573b80); meshobj.hpp has the formulas.
+    virtual void mesh_distance_alpha(const std::string& /*a*/, const std::string& /*b*/, float /*div*/,
+                                     float /*k*/) {}
+    virtual void mesh_sync_pos(const std::string& /*a*/, const std::string& /*b*/, bool /*x*/, bool /*y*/,
+                               bool /*z*/) {}
     // 0xA4 Scene_SetDefaultBgm(id), 0xB9 Bgm_Play(id; -1 = the default), 0xBA Bgm_Stop(time)
     // (EVENTVM_HANDLERS_2 §3).
     virtual void bgm_default(int /*id*/) {}
@@ -443,10 +449,12 @@ struct XsoVm {
     // FUN_00501a30): a new named mesh. The boss rooms place their boss with it.
     struct ObjLocate { std::string ymo, name; float x, y, z, rx, ry, rz; };
     std::vector<ObjLocate> obj_locate;
-    // 0x188 Obj_BindShadow: shadow object name -> the object it follows. A shadow must
-    // inherit its owner's visibility and placement, or hiding/moving a stepping stone
-    // leaves its drop shadow behind as a black quad on the floor.
-    std::unordered_map<std::string, std::string> obj_shadow_of;
+    // 0x189 Mesh_SyncronizePos(a, b, x, y, z) (FUN_00573b80): a takes b's position on the
+    // gated axes and b's hidden / no-collision bits (+0x298 & 0x60). Recorded for the load
+    // pass (S_1004's STEPSHADOWUPDATE keeps each step_NN_shadow under its stepNN, so a stone
+    // the root hid or moved takes its shadow with it).
+    struct ObjSync { std::string from; bool x, y, z; };
+    std::unordered_map<std::string, ObjSync> obj_sync;
     // 0x16B Mesh_SetVisible: name -> shown (+0x298 bit 0x20 = hidden). Several rooms place
     // multiple variants of one object at the same spot and let a script pick.
     std::unordered_map<std::string, bool> obj_visible;
@@ -486,7 +494,7 @@ struct XsoVm {
     void reset_run() {
         acc = 0; locals.clear(); grants.clear(); items.clear(); obj_enable.clear();
         acquires.clear(); obj_deleted.clear(); obj_opened.clear(); obj_visible.clear(); obj_collide.clear();
-        obj_state.clear(); obj_place.clear(); obj_shadow_of.clear();
+        obj_state.clear(); obj_place.clear(); obj_sync.clear();
     }
 
     // NEW GAME flag initialization — faithful port of FUN_0041fd10 (the exe's own

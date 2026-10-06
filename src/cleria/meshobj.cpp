@@ -1,6 +1,7 @@
 // Scripted map objects at runtime: build/event_re/WAITOPS.md §4. See meshobj.hpp.
 #include "cleria/meshobj.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 
@@ -139,6 +140,37 @@ void MeshWorld::alpha_target(const std::string& name, float a, int frames) {
     }
 }
 
+void MeshWorld::distance_to_alpha(const std::string& a, const std::string& b, float div, float k) {
+    MeshObj* ma = find(a);
+    if (!ma) return;
+    const MeshObj* mb = find(b);
+    if (!mb) return;
+    // [BYTES 0x573acf..0x573b71] d = |yB - yA| (FUN_0041f170 = fabs via cvtss2sd/andps);
+    // d /= div unless div == 0; f = 1 - d; 0 > f -> 0, else min(1, f).
+    float d = std::fabs(mb->frame_y - ma->frame_y);
+    if (div != 0.0f) d /= div;
+    const float f = 1.0f - d;
+    const float t = (0.0f > f) ? 0.0f : std::min(1.0f, f);
+    const float was = ma->alpha;
+    ma->alpha = (mb->fade + 1.0f) * 0.5f * k * mb->alpha * t;    // 0x6bd438 = 1.0, 0x6bd304 = 0.5
+    if (ma->alpha != was) {
+        ma->dirty_alpha = true;
+        if ((was > 0.0f) != (ma->alpha > 0.0f)) ma->dirty_pose = true;   // the alpha-0 collapse
+    }
+}
+
+void MeshWorld::sync_pos(const std::string& a, const std::string& b, bool x, bool y, bool z) {
+    MeshObj* ma = find(a);
+    if (!ma) return;
+    const MeshObj* mb = find(b);
+    if (!mb) return;
+    const Vec3 was = ma->pos;
+    if (x) ma->pos.x = mb->pos.x;
+    if (y) ma->pos.y = mb->pos.y;
+    if (z) ma->pos.z = mb->pos.z;
+    if (ma->pos.x != was.x || ma->pos.y != was.y || ma->pos.z != was.z) ma->dirty_pos = true;
+}
+
 void MeshWorld::step() {
     for (auto& [nm, m] : objs_) {
         if (m.sleeping) continue;
@@ -153,6 +185,7 @@ void MeshWorld::step() {
                 if (!(m.alpha < m.alpha_target)) m.alpha = m.alpha_target;
             }
             if ((was > 0.0f) != (m.alpha > 0.0f)) m.dirty_pose = true;
+            if (m.alpha != was) m.dirty_alpha = true;
         }
         // 1. the anim advance (0x503fc8): time += rate x dt(1) x time scale
         if (!m.frozen && m.sect >= 0 && std::size_t(m.sect) < m.clips.size()) {

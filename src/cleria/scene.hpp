@@ -128,6 +128,13 @@ struct Model;
 Model* cached_big_model(const std::filesystem::path& ymo_file);
 std::filesystem::path resolve_ymo_path(const std::filesystem::path& root, const std::string& ymo);
 
+// The world translation of an object's frame: the render model's node bound to mesh 0
+// (mesh+0x2c), posed at `frame` of `clip` (null = rest), B x world under the placement (`o` with
+// its live position / rotation / world). Its y is what Mesh_DistanceToAlpha (op 0x188,
+// FUN_00573aa0) reads. False when the model cannot be read or has no mesh.
+bool object_frame(const std::filesystem::path& asset_root, const SobObject& o, const char* clip,
+                  float frame, Vec3* t);
+
 // `world` (non-null): place it with that full matrix instead (SobObject::world_mat).
 bool rebake_object(RoomMesh& m, const std::filesystem::path& asset_root, const std::string& lname,
                    const char* clip, float frame, const Vec3* pos, bool collision,
@@ -170,11 +177,14 @@ RoomMesh build_model(const std::filesystem::path& asset_root,
 // names are surface types. They also carry geometry the render mesh has no reason
 // to contain, such as invisible walls. Identified bit-exactly by `flags2 == 0x10`
 // (400/400 twins vs 0/606 plain models). Objects with no twin are skipped.
+// `states`: the room script's load-time poses / placements, as build_room takes them — a
+// twin sits where its render model sits and follows its posed nodes (COLLISION.md §1c).
 RoomMesh build_collision(const std::filesystem::path& asset_root,
                          const std::filesystem::path& sob_path,
                          const std::unordered_set<std::string>* box_whitelist = nullptr,
                          const std::unordered_set<std::string>* hidden = nullptr,
-                         const std::vector<SobObject>* extra = nullptr);
+                         const std::vector<SobObject>* extra = nullptr,
+                         const ObjStates* states = nullptr);
 
 // Shared by all three: assemble already-parsed placements. `script_dir` is where a
 // chest's S_BOXNN.XSO is looked up. `collision` swaps each object's YMO for its `_`

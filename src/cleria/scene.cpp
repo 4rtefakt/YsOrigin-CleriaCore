@@ -107,10 +107,11 @@ RoomMesh build_room(const fs::path& asset_root, const fs::path& sob_path,
 RoomMesh build_collision(const fs::path& asset_root, const fs::path& sob_path,
                          const std::unordered_set<std::string>* box_whitelist,
                          const std::unordered_set<std::string>* hidden,
-                         const std::vector<SobObject>* extra) {
+                         const std::vector<SobObject>* extra, const ObjStates* states) {
     Sob sob = Sob::parse(read_file(sob_path));
     if (extra) sob.objects.insert(sob.objects.end(), extra->begin(), extra->end());
-    RoomMesh m = build_room_objects(asset_root, sob, sob_path.parent_path(), box_whitelist, hidden, true);
+    RoomMesh m = build_room_objects(asset_root, sob, sob_path.parent_path(), box_whitelist, hidden, true,
+                                    nullptr, 0, nullptr, states);
     // The two-pass split (WATER.md §1): surface 3 "water" goes to the water tree only.
     m.tri_water.assign(m.tri_surface.size(), 0);
     for (std::size_t t = 0; t < m.tri_surface.size(); ++t) {
@@ -325,6 +326,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         auto& big_models = big_model_cache();
         Model local_model;
         Model* model_ptr = &local_model;
+        Model render_twin;                 // a collision twin's render model, posed (below)
+        const Model* twin_src = nullptr;
         try {
             const std::string key = model_key(ymo_file);
             auto bit = big_models.find(key);
@@ -370,15 +373,36 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 auto it = states->clip.find(lname);
                 if (it != states->clip.end()) want = &it->second;
             }
-            if (want) {
-                for (const AnimClip& c : model.clips)
-                    if (c.name == *want) { model.pose(c, float(c.frame_end)); break; }
-            } else if (box_pose_open) {
-                for (const AnimClip& c : model.clips)
-                    if (c.name == "OPEN") { model.pose(c, float(c.frame_end)); break; }
-            } else if (clip_name) {
-                for (const AnimClip& c : model.clips)
-                    if (c.name == clip_name) { model.pose(c, frame); break; }
+            auto pose_as_asked = [&](Model& pm) {
+                if (want) {
+                    for (const AnimClip& c : pm.clips)
+                        if (c.name == *want) { pm.pose(c, float(c.frame_end)); break; }
+                } else if (box_pose_open) {
+                    for (const AnimClip& c : pm.clips)
+                        if (c.name == "OPEN") { pm.pose(c, float(c.frame_end)); break; }
+                } else if (clip_name) {
+                    for (const AnimClip& c : pm.clips)
+                        if (c.name == clip_name) { pm.pose(c, frame); break; }
+                }
+            };
+            pose_as_asked(model);
+            // A collision twin is not posed by its own clips. FUN_005601e0 binds each twin
+            // mesh's node BY NAME (FUN_005f4e10) to the GoMesh's RENDER model node (entry
+            // +0x80 = its index), and every update FUN_00502fe0 rebuilds the entry matrix as
+            // B x posed world of that render node (D3DXMatrixMultiply(node rec +0, state +0x80)).
+            // So the twin follows the render model's animation: S_1004's s10step_00_.YMO has only
+            // a DEFAULT clip, yet its hull rises with the render model's UP (COLLISION.md §1c).
+            // Only needed when a pose was asked for (at rest the twin's own rest nodes are used,
+            // as before); the big-model twins keep their clip-copy path above.
+            if (collision && model_ptr == &local_model && (want || box_pose_open || clip_name)) {
+                const fs::path rfile = resolve_ymo(asset_root, o.ymo_path);
+                Model* rp = cached_big_model(rfile);
+                if (!rp && fs::exists(rfile)) {
+                    render_twin = Model::parse(read_file(rfile));
+                    render_twin.resolve_hierarchy();
+                    rp = &render_twin;
+                }
+                if (rp) { if (rp != &render_twin) rp->rest_pose(); pose_as_asked(*rp); twin_src = rp; }
             }
         } catch (const std::exception&) { ++out.missing; continue; }
         const Model& model = *model_ptr;
@@ -406,7 +430,10 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             if (node.mesh_index < 0) continue;
             const Mesh& mesh = model.meshes[node.mesh_index];
             if (mesh.vbs.empty() || mesh.ibs.empty()) continue;
-            const Mat4 xf = node.world * place;  // local -> node -> room
+            Mat4 xf = node.world * place;  // local -> node -> room
+            if (twin_src)                  // the same-named render node, posed (see above)
+                for (const Node& rn : twin_src->nodes)
+                    if (rn.name == node.name) { xf = rn.offset * rn.world * place; break; }
 
             // Append the primary vertex buffer (submeshes index into vbs[0]).
             const VertexBuffer& vb = mesh.vbs[0];
@@ -622,6 +649,35 @@ bool translate_object(RoomMesh& m, const std::string& lname, const Vec3& d) {
         m.vertices[i].px += d.x; m.vertices[i].py += d.y; m.vertices[i].pz += d.z;
     }
     return true;
+}
+
+bool object_frame(const fs::path& asset_root, const SobObject& o, const char* clip, float frame,
+                  Vec3* t) {
+    // FUN_00573aa0: *(state+4 + mesh[0]+0x2c * 0x170 + 0x34), i.e. row 3 y of that node's
+    // instance matrix (state +0x00; B x world, with B identity in ~98.5% of nodes).
+    const fs::path file = resolve_ymo(asset_root, o.ymo_path);
+    Model local;
+    Model* mp = cached_big_model(file);
+    try {
+        if (!mp) {
+            local = Model::parse(read_file(file));
+            local.resolve_hierarchy();
+            mp = &local;
+        } else {
+            mp->rest_pose();
+        }
+    } catch (const std::exception&) { return false; }
+    if (clip)
+        for (const AnimClip& c : mp->clips)
+            if (c.name == clip) { mp->pose(c, frame); break; }
+    const Mat4 place = o.has_world ? o.world_mat : o.world();
+    for (const Node& n : mp->nodes)
+        if (n.mesh_index == 0) {
+            const Mat4 f = n.offset * n.world * place;
+            *t = {f.m[12], f.m[13], f.m[14]};
+            return true;
+        }
+    return false;
 }
 
 bool rebake_object(RoomMesh& m, const fs::path& asset_root, const std::string& lname,

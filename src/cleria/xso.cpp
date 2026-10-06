@@ -594,14 +594,18 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // is a general "pose this object to this named clip".
                         obj_opened.push_back(ops(0));
                         if (nargs >= 2) obj_state[ops(0)] = ops(1);
-                    } else if (sub == 0x188 && nargs >= 2) {
-                        // Obj_BindShadow(shadowName, ownerName, height, alpha) — declares the
-                        // first object to be the second's projected drop shadow; the paired
-                        // 0x189 gives its follow params. S_1004's STEPSHADOWUPDATE binds each
-                        // step_NN_shadow to its stepNN, so a stone the root hid or moved must
-                        // take its shadow with it (otherwise a hidden stone leaves a black
-                        // shadow quad on the floor).
-                        obj_shadow_of[ops(0)] = ops(1);
+                    } else if (sub == 0x188 && nargs >= 4) {
+                        // Mesh_DistanceToAlpha(a, b, f div, f k) (FUN_00573aa0): a's alpha from
+                        // its frame height below b. Dispatch [BYTES 0x56d99a..0x56da14]: op2 ->
+                        // xmm3 (the divisor), op3 -> the stack float. S_1004's STEPSHADOWUPDATE
+                        // fades each step_NN_shadow (a, d7 0.999) by its stepNN's lift (b).
+                        if (host) host->mesh_distance_alpha(ops(0), ops(1), opf(2), opf(3));
+                    } else if (sub == 0x189 && nargs >= 5) {
+                        // Mesh_SyncronizePos(a, b, x, y, z) (FUN_00573b80; [BYTES 0x56da24..
+                        // 0x56daab] ops in order): a takes b's position on the nonzero axes and
+                        // b's +0x298 & 0x60 (hidden / no collision) bits.
+                        obj_sync[ops(0)] = {ops(1), op(2) != 0, op(3) != 0, op(4) != 0};
+                        if (host) host->mesh_sync_pos(ops(0), ops(1), op(2) != 0, op(3) != 0, op(4) != 0);
                     } else if (sub == 0x173 && nargs >= 4) {
                         // Obj_SetPos(objName, x, y, z) — float BIT PATTERNS, as 0x12c's are.
                         // S_1004 lays its stepping stones out per character with this (Toal
