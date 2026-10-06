@@ -4540,9 +4540,11 @@ title_again:
                         e.atk_hit = false;
                         e.atk_armed = true;
                     }
-                    // Release a swing that holds its last frame (attack sections jmp-hold):
-                    // once the box has fired, its window is spent and the clip has stalled.
-                    if (e.avm.section() == e.atk_section) {
+                    // [STAND-IN] for the stand-in brain only: release a swing that holds its last
+                    // frame once its box has fired and the clip has stalled. A ported brain is the
+                    // engine's own FUN_00446550 driver and its sections end by `end` chaining, so
+                    // the release would cut its long holds short.
+                    if (!own && e.avm.section() == e.atk_section) {
                         ++e.atk_age;
                         const long fk = (long(e.avm.anim_tag()) << 20) ^ e.avm.frame();
                         e.atk_stall = (fk == e.atk_fkey) ? e.atk_stall + 1 : 0;
