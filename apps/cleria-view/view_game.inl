@@ -2082,8 +2082,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     //   shot        write the next frame to CLERIA_SHOT_DIR/t<tick>.ppm          quit
     //   flag=i,v    set a game flag      atk   the attack button      boss  face Velagunder
     //   boss2[=o]   stand by a hittable Nygtilger piece (o = its object index)
+    //   boss3[=i]   stand by a hittable Gelaldy part (i = 0 core, 1 right arm, 3 left arm)
+    //   cam=x,y,z,yaw,pitch   draw from that fixed pose (degrees) from now on, for shots (the game runs on)
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
+    std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     if (const char* dv = std::getenv("CLERIA_DRIVE")) {
@@ -2099,6 +2102,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
     }
     std::string drive_shot;                 // a pending `shot` file
+    std::optional<Camera> drive_cam;        // `cam=`: the view drawn from instead of the rig's
     // The CrossFade capture (0xcd): the frozen frame and its bind group for the HUD overlay.
     WGPUTexture cf_tex = nullptr; WGPUTextureView cf_view = nullptr; WGPUBindGroup cf_bind = nullptr;
     std::uint32_t cf_w = 0, cf_h = 0;
@@ -2166,6 +2170,46 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                 boss02::object_name(o), c.x, c.y, c.z, bp.hp, boss2->pool(), boss2->pool_max(),
                                 boss2->phase(), boss2->mode());
                 }
+            }
+        } else if (cmd.rfind("boss3", 0) == 0) {       // boss3[=i]: stand by a hittable Gelaldy part
+            // The target: `i` if given, else the core once it is open, else an unguarded arm
+            // (the right one first). The player is put on the arena side of the part, just
+            // inside its hurt sphere horizontally, on the floor below (or at the part's height
+            // when there is none), facing it.
+            if (boss3) {
+                int i = -1;
+                if (cmd.size() > 6 && cmd[5] == '=') i = std::atoi(cmd.c_str() + 6);
+                auto open = [&](int k) { return boss3->part_hittable(k) && boss3->part(k).hurt_centre.y > -500.0f; };
+                for (int k : {0, 1, 3}) if (i < 0 && open(k)) i = k;
+                if (i >= 0 && i < boss03::kParts) {
+                    const Boss03Part& bp = boss3->part(i);
+                    const Vec3 c = bp.hurt_centre;
+                    const Vec3 bc = boss3->pos();
+                    float dx = c.x - bc.x, dz = c.z - bc.z;
+                    const float l = std::sqrt(dx * dx + dz * dz);
+                    if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
+                    const float reach = std::max(0.5f, bp.hurt_radius * 0.5f);
+                    const float x = c.x + dx * reach, z = c.z + dz * reach;
+                    const float fl = floor_at(phys_mesh(room), x, z, c.y + 2.0f);
+                    feet = {x, fl > kNoFloor ? fl : c.y - kOriginH, z};
+                    pv = VerticalState{}; pv.grounded = false;
+                    face_dir = {-dx, 0.0f, -dz};
+                    facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                    std::printf("  [drive] boss3 -> part %d (%.2f,%.2f,%.2f) r %.2f hp %.0f body %.0f/%.0f feet (%.2f,%.2f,%.2f)\n",
+                                i, c.x, c.y, c.z, bp.hurt_radius, bp.hp, boss3->hp(), boss3->max_hp(), feet.x, feet.y, feet.z);
+                } else {
+                    std::printf("  [drive] boss3: no open part (core guard %d, arms %d/%d)\n", int(boss3->core_guard()),
+                                int(boss3->arm_guard(0)), int(boss3->arm_guard(1)));
+                }
+            }
+        } else if (cmd.rfind("cam=", 0) == 0) {        // cam=x,y,z,yaw,pitch (deg): a fixed view for shots
+            float x = 0, y = 0, z = 0, yw = 0, pt = 0;
+            if (std::sscanf(cmd.c_str() + 4, "%f,%f,%f,%f,%f", &x, &y, &z, &yw, &pt) == 5) {
+                Camera c;
+                c.pos = {x, y, z};
+                c.yaw = yw * 3.14159265f / 180.0f;
+                c.pitch = pt * 3.14159265f / 180.0f;
+                drive_cam = c;
             }
         } else if (cmd == "atk") {                     // the attack button
             try_attack();
@@ -2851,6 +2895,246 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
     };
 
+    // ---- Gelaldy, boss03 (src/cleria/boss03, build/boss_re/GELALDY.md §12 / §16) -----------
+    // The GoMesh "boss03" the room script Mesh_Locate's (one model, a yaw-only matrix) is driven
+    // by the Boss03 brain every live step, after the clip advance (the mesh pool runs under a Fix
+    // too). Its five GoXx parts are the sword targets / the BEAT arm cylinders; the ring floor is
+    // the scene objects ring00..35 (their y, render + collision) and the markers atari00..35.
+    // The camera writes go into the region camera's current slot, the shake into the rig's
+    // shake globals (its step IS FUN_00427c90: 3 shared-RNG draws per frame while it runs).
+    // [not modelled] the node overrides (Neji / ForeArm2 / Neck4 / the Head bug: the baked model
+    // has no per-node override, so a broken forearm is not thrown away visibly), the zoom blur
+    // and the screen flash, the pad rumble, the SE stop / fade, the buff clear and the
+    // achievement, the drop (obj+0xc4), the element bonus on the arm HP (dmg_hp = dmg), the
+    // lava floor (surface 13, §6.5), the S_3099_1.SOB ring set on Hard / Nightmare (FLOOR3 B8:
+    // the root script's Scene_LoadStaticObjects pick is not honoured by the room load).
+    constexpr int kB3Owner = -0xB03;                       // fx owner tag for the core slot
+    std::array<int, boss03::kNodes> boss3_node{};          // kNodeNames -> the model's node index
+    std::array<ef2sim::M4, boss03::kNodes> boss3_node_m{}; // the posed node frames (attach parents)
+    std::array<RehitBank, boss03::kParts> boss3_banks{};   // the parts' own re-hit banks (+0x14c)
+    std::array<int, boss03::kClips> boss3_sect{};          // clip id -> the mesh's section index
+    Boss03ArmGauge boss3_arm{};                            // the mini-gauge globals 0x76c1cc..
+    auto boss3_apply = [&](const Boss03Output& out, MeshObj* bm) {
+        for (const Boss03ClipSet& c : out.clips) {             // FUN_005f5c80 (+ the death's hard re-set)
+            if (c.clip < 0 || c.clip >= boss03::kClips || boss3_sect[std::size_t(c.clip)] < 0) continue;
+            meshes.set_clip_index("boss03", boss3_sect[std::size_t(c.clip)], 0);
+            if (c.hard && c.frame) { bm->time = *c.frame; bm->count = 0; }
+        }
+        if (out.anim_speed) bm->time_scale = *out.anim_speed;
+        for (const Boss03Sound& sd : out.sounds) {
+            if (sd.kind == Boss03Sound::k3D) sfx_at(sd.id, sd.pos, kSfxAnimVol);
+            else if (sd.kind == Boss03Sound::k2D) audio.play(sd.id, kSfxAnimVol);
+            // [not modelled] kStop / kFade: the mixer has neither
+        }
+        // The effects, with the kills interleaved where the brain issued them.
+        std::size_t ki = 0;
+        auto kills_upto = [&](std::size_t n) {
+            for (; ki < out.kills.size() && out.kills[ki].effects_before <= n; ++ki) {
+                const Boss03Kill& k = out.kills[ki];
+                for (auto& f : fxsim.effects()) {
+                    if (k.what == Boss03Kill::kId ? f->id == k.id : (f->owner == kB3Owner && f->tag == 1)) f->kill = true;
+                }
+            }
+        };
+        for (std::size_t i = 0; i < out.effects.size(); ++i) {
+            kills_upto(i);
+            const Boss03Effect& fe = out.effects[i];
+            const Ef2* ef = ef2_of(fe.id);
+            if (!ef) continue;
+            ef2sim::SpawnParams sp;
+            sp.pos = fe.pos; sp.rot = fe.rot; sp.scale = fe.scale;
+            sp.power = fe.power; sp.knock = fe.knock; sp.rtype = fe.rtype;
+            sp.atk = fe.stat == Boss03Effect::kBoss ? boss3->str() : 0.0f;
+            ef2sim::Effect* fx = fxsim.spawn(fe.id, *ef, sp);
+            if (!fx) continue;
+            if (fe.node >= 0 && fe.node < boss03::kNodes) {
+                // [approx] eff+0x1a0 = the node record, +0x1d5 = 1: the effect follows the node's
+                // translation and keeps its own rotation (the node record's consumer is not traced).
+                fx->local = fx->M;
+                fx->local.m[3][0] = fx->local.m[3][1] = fx->local.m[3][2] = 0.0f;
+                fx->attach_parent = &boss3_node_m[std::size_t(fe.node)];
+                fx->attach_mode = 2;
+            }
+            if (fe.slot == Boss03Effect::kCore) { fx->owner = kB3Owner; fx->tag = 1; }
+        }
+        kills_upto(out.effects.size());
+        for (const Boss03Spawn& s : out.spawns) {          // FUN_00475710 + the brain's writes (§7)
+            SpawnRequest req;
+            req.cast_type = s.cast;
+            req.pos = s.pos;
+            req.yaw_degrees = float(s.yaw_deg);
+            Actor* a = world.spawn(req);
+            if (!a) continue;
+            a->height = cast_motion(casts, s.cast).height();
+            a->radius = cast_motion(casts, s.cast).radius();
+            a->level = s.level;
+            a->vert.t += s.d330;                           // +0x330 -= 0.1: it falls out of the mouth
+            a->vert.grounded = false;
+            a->flags130 |= s.or130;
+            a->flags12c |= s.or12c;
+            const float fl = floor_at(phys_mesh(room), s.pos.x, s.pos.z, s.pos.y);
+            if (fl > kNoFloor) a->floor_y = fl;
+            csHost.world_changed = true;
+            std::printf("  [boss03] t%llu Perrie spawned at (%.2f,%.2f,%.2f) yaw %d\n", (unsigned long long)tick_count,
+                        s.pos.x, s.pos.y, s.pos.z, s.yaw_deg);
+        }
+        if (out.kill_perries)
+            for (Actor& a : world.actors()) if (a.cast_id == 0x3a) a.hp = 0.0f;
+        for (const Boss03RingMove& r : out.rings)           // ringNN +0x54 (render and collision follow)
+            if (MeshObj* m = meshes.find(boss03::ring_name(r.ring)))   // (the endless float32 rise, G13: only on a change)
+                if (m->pos.y != r.y) { m->pos.y = r.y; m->dirty_pos = true; }
+        for (int k : out.atari_lowered)                     // atariNN +0x54 = -1.8
+            if (MeshObj* m = meshes.find(boss03::atari_name(k))) { m->pos.y = -1.8f; m->dirty_pos = true; }
+        if (out.shake.frames) g_rig.set_shake_frames(*out.shake.frames);
+        if (out.shake.amp) g_rig.set_shake_amp(*out.shake.amp);
+        if (out.time_scale) g_time_scale = *out.time_scale;   // 0x6d6078
+        {
+            const Boss03Camera& c = out.camera;             // the current slot (BOSS_CAMERA.md §1b)
+            CameraRegion& r = g_rig.edit_slot(g_rig.current());
+            if (c.pitch) r.eye.pitch = *c.pitch;            // +0x270
+            if (c.up) r.offset.y = *c.up;                   // +0x410
+            if (c.dist) r.eye.dist = *c.dist;               // +0x274
+            if (c.target) r.target.fixed_pos = *c.target;   // +0xb4
+            if (c.target_mode) r.target.mode = std::uint32_t(*c.target_mode);   // +0x94
+            if (c.eye) r.eye.fixed_pos = *c.eye;            // +0x288
+            if (c.eye_mode) r.eye.mode = std::uint32_t(*c.eye_mode);            // +0x268
+            if (c.eye_flags) r.eye.flags = std::uint32_t(*c.eye_flags);         // +0x278
+        }
+        for (const auto& [fi, fv] : out.flags) {
+            if (fi < 0 || fi >= 0x200) continue;
+            if (game.g_flags[fi] != fv) std::printf("  [boss03] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
+            game.g_flags[fi] = fv;
+        }
+        if (out.player_iframes) player_iframes = std::max(player_iframes, 9999);   // +0x734 = 9999
+        feet.x += out.player_push.x;                       // the head push-out (§9): +0x50 ...
+        feet.z += out.player_push.z;
+        player_kb.x += out.player_push_vel.x;              // ... and +0x338..0x340
+        player_kb.z += out.player_push_vel.z;
+        if (out.exp && out.exp->award) {                   // [H] b0 = the GAMEINFO curve at the level, as boss01/02
+            std::printf("  [boss03] t%llu EXP %.0f x %.2f (lv %d)\n", (unsigned long long)tick_count, out.exp->b0,
+                        out.exp->mult, out.exp->level);
+            award_exp(out.exp->b0 * out.exp->mult);
+        }
+        if (out.destroy) {                                  // obj+0x11 |= 2: gone, its collision too
+            bm->alpha = bm->alpha_target = 0.0f;
+            bm->no_collide = true;
+            bm->dirty_pose = true;
+            std::printf("  [boss03] t%llu destroyed\n", (unsigned long long)tick_count);
+        }
+        if (out.gauge) {                                    // §10: the body HP, 481 px, emblem 3
+            hud.set_boss_gauge(-7, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->emblem);
+            gauge_owner = 0;
+        }
+        if (out.gauge_hide) hud.hide_boss_gauge();
+        if (out.arm_gauge) boss3_arm = *out.arm_gauge;
+    };
+    auto boss3_tick = [&] {
+        MeshObj* bm = meshes.find("boss03");
+        if (!bm) { boss3.reset(); boss3_arm = {}; return; }
+        Model* mdl = cached_big_model(resolve_ymo_path(asset_root, "data\\enemy\\boss03\\boss03.ymo"));
+        if (!mdl) return;
+        auto lw = [](std::string t) { for (char& ch : t) ch = char(std::tolower((unsigned char)ch)); return t; };
+        if (!boss3) {
+            Boss03Setup su;                                // EEX record 2 (§2.1)
+            if (eex.bosses.size() > 2) {
+                const BossStats& bs = eex.bosses[2];
+                su.eex_hp = bs.hp; su.eex_str = bs.atk; su.eex_def = bs.def; su.rec4 = bs.unk10; su.level = bs.level;
+            }                                              // rec3 (+0x0c) is not in EexTable: the default
+            if (ginfo.ok()) su.exp_b0 = ginfo.curves[kEnemyExp].at(su.level);   // [H] as boss01/02
+            su.character = character;
+            su.diff_index = game.g_flags[144];
+            su.diff_easy = game.g_flags[143] != 0;
+            su.diff_very_easy = game.g_flags[203] != 0;
+            su.boss_rush = game.g_flags[193] != 0;
+            su.flag201 = game.g_flags[201] == 1;
+            su.retries = game.g_flags[196];
+            su.pos = bm->pos;
+            su.player_pos = {feet.x, feet.y + kOriginH, feet.z};
+            for (int k = 0; k < boss03::kRings; ++k) {      // the markers of the SOB this room loaded
+                const MeshObj* m = meshes.find(boss03::atari_name(k));
+                su.atari_present[std::size_t(k)] = m != nullptr;
+                su.atari[std::size_t(k)] = m ? m->pos : Vec3{};
+            }
+            if (const MeshObj* r0 = meshes.find(boss03::ring_name(0))) su.ring_y0 = r0->pos.y;
+            boss3 = std::make_unique<Boss03>(su);
+            boss3_banks.fill(RehitBank{});
+            boss3_arm = {};
+            for (int k = 0; k < boss03::kNodes; ++k) {
+                boss3_node[std::size_t(k)] = -1;
+                for (std::size_t n = 0; n < mdl->nodes.size(); ++n)
+                    if (mdl->nodes[n].name == boss03::kNodeNames[k]) { boss3_node[std::size_t(k)] = int(n); break; }
+                if (boss3_node[std::size_t(k)] < 0) std::printf("  [boss03] no node %s\n", boss03::kNodeNames[k]);
+            }
+            for (int c = 0; c < boss03::kClips; ++c) {      // the clip id IS the YMO section (§2.5); by name
+                boss3_sect[std::size_t(c)] = -1;
+                for (std::size_t s = 0; s < bm->clips.size(); ++s)
+                    if (lw(bm->clips[s].name) == lw(boss03::kClipTable[c].name)) { boss3_sect[std::size_t(c)] = int(s); break; }
+                if (boss3_sect[std::size_t(c)] != c)
+                    std::printf("  [boss03] clip %s -> section %d\n", boss03::kClipTable[c].name, boss3_sect[std::size_t(c)]);
+            }
+            std::printf("  [boss03] Gelaldy: body %.0f, arms %.0f, STR %.0f DEF %.0f lv %d, %d atari, ring y %.2f\n",
+                        boss3->hp(), boss3->part(1).max_hp, boss3->str(), boss3->def(), boss3->level(),
+                        int(std::count(su.atari_present.begin(), su.atari_present.end(), true)), su.ring_y0);
+            boss3_apply(boss3->ctor_requests(), bm);
+        }
+        for (RehitBank& b : boss3_banks) b.tick();
+        // The posed model at this step's clip frame (FUN_005f6000), placed by the boss matrix.
+        int clip = boss03::kAll;
+        for (int c = 0; c < boss03::kClips; ++c) if (boss3_sect[std::size_t(c)] == bm->sect) { clip = c; break; }
+        bool posed = false;
+        if (bm->sect >= 0 && std::size_t(bm->sect) < bm->clips.size())
+            for (const AnimClip& c : mdl->clips)
+                if (c.name == bm->clips[std::size_t(bm->sect)].name) { mdl->pose(c, bm->time); posed = true; break; }
+        if (!posed) mdl->rest_pose();
+        const Mat4 place = boss3->matrix();
+        Boss03Input in;
+        for (int k = 0; k < boss03::kNodes; ++k) {
+            const int ni = boss3_node[std::size_t(k)];
+            const Mat4 w = (ni >= 0 && std::size_t(ni) < mdl->nodes.size()) ? mdl->nodes[std::size_t(ni)].world * place : place;
+            in.nodes[std::size_t(k)] = {w.m[12], w.m[13], w.m[14]};
+            boss3_node_m[std::size_t(k)] = to_m4(w);
+        }
+        in.player_pos = {feet.x, feet.y + kOriginH, feet.z};
+        in.player_hp = float(player.hp);
+        in.fight = game.g_flags[156] == 1;
+        in.clip = clip;
+        in.clip_done = bm->count != 0;
+        in.clip_frame = bm->time;
+        for (const Actor& a : world.actors()) if (a.cast_id == 0x3a && a.alive()) ++in.perrie_count;
+        {
+            const CameraRegion& r = g_rig.edit_slot(g_rig.current());
+            in.cam_pitch = r.eye.pitch; in.cam_up = r.offset.y; in.cam_dist = r.eye.dist;
+        }
+        in.shake_amp = g_rig.shake_amp();
+        in.rng = [&] { return pick_rng.next(); };
+        const Boss03Output out = boss3->tick(in);
+        boss3_apply(out, bm);
+        // The placement (obj+0x20: RotY(yaw) + the position) and the fade.
+        const Mat4 wm = boss3->matrix();
+        if (!bm->has_world || bm->world.m != wm.m) bm->dirty_pose = true;
+        bm->has_world = true;
+        bm->world = wm;
+        bm->pos = boss3->pos();
+        static const bool boss_log = std::getenv("CLERIA_BOSSLOG") != nullptr;
+        if (boss_log && tick_count % 30 == 0) {
+            int sunk = 0;
+            for (int k = 0; k < boss03::kRings; ++k) sunk += boss3->ring_state(k) == 2 || boss3->ring_state(k) == 3;
+            std::printf("  [boss03] t%llu phase %d special %d idx %d code %d sub %d clip %s fr %.1f done %d | body %.0f core %.0f R %.0f L %.0f"
+                        " guard %d/%d/%d alive %d/%d | rings sunk %d perries %d f156 %d feet (%.2f,%.2f,%.2f) php %d\n",
+                        (unsigned long long)tick_count, boss3->phase(), boss3->special(), boss3->seq_index(), boss3->code(),
+                        boss3->sub(), boss03::kClipTable[clip].name, bm->time, int(in.clip_done), boss3->hp(),
+                        boss3->part(0).hp, boss3->part(1).hp, boss3->part(3).hp, int(boss3->core_guard()),
+                        int(boss3->arm_guard(0)), int(boss3->arm_guard(1)), int(boss3->arm_alive(0)),
+                        int(boss3->arm_alive(1)), sunk, in.perrie_count, game.g_flags[156], feet.x, feet.y, feet.z,
+                        player.hp);
+            const CameraRegion& r = g_rig.edit_slot(g_rig.current());
+            std::printf("  [boss03]   cam slot %d eye mode %u yaw %.3f pitch %.3f dist %.2f flags %u | target mode %u | off (%.2f,%.2f,%.2f)"
+                        " | eye (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f)\n", g_rig.current(), r.eye.mode, r.eye.yaw, r.eye.pitch,
+                        r.eye.dist, r.eye.flags, r.target.mode, r.offset.x, r.offset.y, r.offset.z, g_cam_out.eye.x,
+                        g_cam_out.eye.y, g_cam_out.eye.z, g_cam_out.target.x, g_cam_out.target.y, g_cam_out.target.z);
+        }
+    };
+
     g_tick_reset = true;   // the first room's load stall is not caught up either (DAT_0075aed5)
     while (running) {
         if (!csHost.pending_scene.empty()) {
@@ -3177,6 +3461,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             meshes.step();
             boss_tick();
             boss2_tick();
+            boss3_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
                 if (!m.dirty_pos && !m.dirty_pose) continue;
@@ -4043,6 +4328,31 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                         boss02::object_name(o), pt.def, dmg, pt.hp, boss2->pool());
                     }
                 }
+                // Gelaldy's five GoXx parts (GELALDY.md §2.3 / §3): the hurt sphere (a guarded part's
+                // centre sits at y -1000), the part's own re-hit bank, FUN_004faf20 with the part's
+                // DEF / resist into +0x134 (and the part HP: the arms are counted twice, G9).
+                if (boss3 && !boss3->destroyed())
+                    for (int pi = 0; pi < boss03::kParts && atk_window > 0; ++pi) {
+                        if (!boss3->part_hittable(pi)) continue;
+                        const Boss03Part& bp = boss3->part(pi);
+                        if (!overlap(vol, body_shape(bp.hurt_centre, bp.hurt_radius, 0.0f, 0, 0.0f))) continue;
+                        if (boss3_banks[std::size_t(pi)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
+                        if (atk_hb.one_shot) atk_window = 0;
+                        AttackStats a;
+                        a.atk = player_stats().atk;
+                        a.bonus = atk_hb.power;
+                        EnemyDefense vd; vd.def = bp.def;
+                        for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
+                        PlayerDamageMods mods;
+                        mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
+                        const int dmg = enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                            [&](float pct) { return float(rng_pct(rng)) < pct; });
+                        if (dmg > 0) boss3->add_part_damage(pi, float(dmg));   // [not modelled] the element bonus on HP
+                        if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
+                        if (std::getenv("CLERIA_DMG"))
+                            std::printf("  hit gelaldy part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",
+                                        pi, bp.def, dmg, bp.hp, boss3->hp());
+                    }
                 if (broke) reload_room(/*rerun_events*/false);   // drop the shattered mesh
                 if (killed) {
                     int left = 0;
@@ -4244,6 +4554,26 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // i-frames 8/12/16, hurt section 4/0xb/9, knockback 0.1 (+1.2 on a knockdown)
             // along `angle` (atan2(dz,dx) from the attacker to the player), and +dmg*100
             // Boost gauge. `rtype` is the swing's arg[9].
+            // The player's death, whatever the cause (a hit, lava, drowning): FUN_0046f810.
+            // With g_flags[133] (a losable duel) the fight ends instead of the game: 156 = 0,
+            // 130 = 0 (174 stays 0, the scripts' "lost" branch), the boss gauge hidden, HP 1,
+            // i-frames 9999. [not modelled] the stat recompute and the motion fields it zeroes.
+            // Otherwise [STAND-IN] the game-over / continue flow is not RE'd yet: respawn.
+            auto player_death = [&] {
+                if (game.g_flags[133] != 0) {
+                    game.g_flags[156] = 0; game.g_flags[130] = 0;
+                    hud.hide_boss_gauge();
+                    player.hp = 1;
+                    player_iframes = 9999;
+                    return;
+                }
+                player.hp = player.max_hp;
+                spawn_player();
+                player_kb = {};
+                player_iframes = 90;
+                hud.message("Down! respawned");
+            };
+            if (player.hp < 1) player_death();                // lava / noise / drowning this tick
             auto hurt_player = [&](float atk, float bonus, int rtype, float angle) {
                 const int raw = player_incoming_damage(AttackStats{atk, bonus, 0}, pdef,
                     [&](float p) { return float(rng_pct(rng)) < p; });
@@ -4266,22 +4596,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (dmg > 0) audio.play(kSfxPlayerHurt, kSfxAnimVol);
                 if (died) audio.play(kSfxDeathEntry, kSfxAnimVol);
                 hud.message("-" + std::to_string(dmg) + " HP");
-                if (died && game.g_flags[133] != 0) {
-                    // FUN_0046f810 with g_flags[133] (a losable duel): the fight ends instead of the
-                    // game: 156 = 0, 130 = 0 (174 stays 0, the scripts' "lost" branch), the boss gauge
-                    // hidden, HP 1, i-frames 9999. [not modelled] the stat recompute and the motion
-                    // fields it zeroes.
-                    game.g_flags[156] = 0; game.g_flags[130] = 0;
-                    hud.hide_boss_gauge();
-                    player.hp = 1;
-                    player_iframes = 9999;
-                } else if (died) {  // STAND-IN: the game-over / continue flow is not RE'd yet
-                    player.hp = player.max_hp;
-                    spawn_player();
-                    player_kb = {};
-                    player_iframes = 90;
-                    hud.message("Down! respawned");
-                }
+                if (died) player_death();
             };
             for (EnemyRender& e : render) {
                 Actor* en = e.actor;
@@ -4355,6 +4670,27 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (std::getenv("CLERIA_DMG"))
                         std::printf("  touch %s (STR %.0f): player hp %d\n", nm, t.str, player.hp);
                     boss2->touch_applied(o, float(player.hp));
+                    break;
+                }
+            }
+            // Gelaldy's armed parts: the BEAT arm cylinders (+0x19c, r 3, half-height 3), the
+            // damage with the boss's STR and the part's power / rtype. [H] one shared re-hit token
+            // with re-hit 30, as Velagunder's parts.
+            if (boss3 && !boss3->destroyed() && player_iframes == 0 && player.hp >= 1) {
+                const Cast* pc = casts.get(13);
+                const HitShape pbody = body_shape({feet.x, feet.y + kOriginH, feet.z},
+                                                  pc ? pc->hurt_radius : 0.45f, pc ? pc->hurt_half_h : 0.5f,
+                                                  pc ? pc->hurt_shape : 1, pc ? pc->center_offset : -0.25f);
+                for (int pi = 0; pi < boss03::kParts; ++pi) {
+                    const Boss03Part& bp = boss3->part(pi);
+                    if (!bp.armed || bp.radius <= 0.0f) continue;
+                    const HitShape vol{bp.radius, bp.centre, bp.half_h, bp.shape};
+                    float hang = 0;
+                    if (!overlap(vol, pbody, &hang)) continue;
+                    if (player_bank.check_and_record(0xB0530000u, 30)) break;
+                    hurt_player(boss3->str(), bp.power, bp.rtype, hang);
+                    if (std::getenv("CLERIA_DMG"))
+                        std::printf("  gelaldy arm %d hits the player: hp %d\n", pi, player.hp);
                     break;
                 }
             }
@@ -4689,6 +5025,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
         WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
         const float rad = room_diag(room);
+        if (drive_cam) cam = *drive_cam;
         update_fog(room, fly ? cam.pos : feet, dt);
         last_vp = cam.view_proj(float(cw) / float(ch), rad * 0.01f, rad * 8.0f);
         {   // The oxygen bar's anchor: the player's origin through the frame's view-projection.
@@ -4700,6 +5037,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (pw > 1e-4f) {
                 player.o2_px = (px / pw * 0.5f + 0.5f) * float(cw);
                 player.o2_py = (0.5f - py / pw * 0.5f) * float(ch);
+            }
+        }
+        hud.arm_frac = -1.0f;                              // Gelaldy's arm mini-gauge, at the arm
+        if (boss3 && boss3->hp() > 0.0f && boss3_arm.timer > 0 && boss3_arm.max > 0.0f) {
+            const Vec3 o = boss3_arm.pos;
+            const float* M = last_vp.m.data();
+            const float px = o.x * M[0] + o.y * M[4] + o.z * M[8] + M[12];
+            const float py = o.x * M[1] + o.y * M[5] + o.z * M[9] + M[13];
+            const float pw = o.x * M[3] + o.y * M[7] + o.z * M[11] + M[15];
+            if (pw > 1e-4f) {
+                hud.arm_frac = std::max(0.0f, boss3_arm.hp / boss3_arm.max);
+                hud.arm_px = (px / pw * 0.5f + 0.5f) * float(cw);
+                hud.arm_py = (0.5f - py / pw * 0.5f) * float(ch);
             }
         }
         have_vp = true;

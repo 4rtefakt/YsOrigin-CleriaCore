@@ -140,6 +140,10 @@ struct Hud {
         boss_frac = max > 0 ? std::clamp(cur / max, 0.0f, 1.0f) : 0.0f;
     }
     void hide_boss_gauge() { boss_frac = -1.0f; boss_id = 0; }
+    // Gelaldy's arm mini-gauge 0x76c1cc..0x76c1e0 (GELALDY.md §3.2, HUD_LAYOUT item 10): HP / max
+    // of the arm last hit, at its projected position (screen px). < 0 = hidden. [approx] a plain
+    // two-rect bar: the widget's own art and layout are not RE'd.
+    float arm_frac = -1.f, arm_px = 0, arm_py = 0;
     // FUN_0043a540, every 60 Hz step: the lag moves toward cur by w+0x2c (0.02) x max x 0.2.
     void tick_boss_gauge() {
         if (boss_frac < 0.0f) return;
@@ -759,6 +763,11 @@ struct Hud {
         if (boss_frac >= 0.f) {
             if (boss_max <= 0.0f) { boss_max = 1.0f; boss_cur = boss_lag = boss_frac; }   // a bare preview
             boss_bar(float(sw), float(sh));
+        }
+        if (arm_frac >= 0.f) {
+            const float w = 60.0f * s, h = 6.0f * s;
+            rect(arm_px - w * 0.5f - s, arm_py - h - s, w + 2.0f * s, h + 2.0f * s, float(sw), float(sh), 0, 0, 0, 170);
+            rect(arm_px - w * 0.5f, arm_py - h, w * std::min(1.0f, arm_frac), h, float(sw), float(sh), 230, 50, 30, 230);
         }
         if (gauge_alpha < 1.0f) {
             auto dim = [&](std::vector<HudVertex>& v, std::size_t from) {

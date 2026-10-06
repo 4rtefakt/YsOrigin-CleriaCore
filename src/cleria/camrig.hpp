@@ -53,6 +53,14 @@ class CamRig {
     };
     void set_boss(const BossPresets& p) { boss_ = p; boss_on_ = true; }
     void clear_boss() { boss_on_ = false; }
+    // A brain's direct writes into a slot record (boss03: the current slot's pitch +0x270, eye
+    // dist +0x274, up offset +0x410, and the death's target / eye points), and the shake globals
+    // 0x76a5ac (frames) / 0x76a594..59c (amplitude) it reads and writes one by one.
+    CameraRegion& edit_slot(int i) { return slots_[std::size_t(i)].rec; }
+    Vec3 shake_amp() const { return sh_amp_; }
+    int shake_frames() const { return sh_frames_; }
+    void set_shake_amp(const Vec3& a) { sh_amp_ = a; }
+    void set_shake_frames(int f) { sh_frames_ = f; }
 
     struct Out { Vec3 eye{}, target{}; float fov = 0.5236f, pitch = 0; };
     // One 60 Hz step. `player` = the player's origin (the volume test), `look` = the live look point
