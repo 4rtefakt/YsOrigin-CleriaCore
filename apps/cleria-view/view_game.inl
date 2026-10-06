@@ -1472,6 +1472,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const bool at = !name.empty() && name[0] == '@';
             std::string up = at ? name.substr(1) : name;
             for (char& c : up) c = char(std::toupper((unsigned char)c));
+            // StartScript2 (0xb8) hands "<dir>\<file>.xso", e.g. "s_31\s_3103\s_UseHammer.xso":
+            // a path under data\map\ with its own extension (FLOOR3_ROUTE_AUDIT.md B4).
+            if (!at && up.find_first_of("\\/") != std::string::npos) {
+                for (char& c : up) if (c == '\\') c = '/';
+                fs::path rel(up);
+                if (rel.extension().empty()) rel += ".XSO";
+                const fs::path p2 = common.parent_path() / rel;
+                std::error_code ec2;
+                if (!fs::exists(p2, ec2)) return nullptr;
+                try { return std::make_shared<Xso>(Xso::parse(read_bytes(p2))); }
+                catch (const std::exception&) { return nullptr; }
+            }
             const fs::path p = (at ? common : *dir) / (up + ".XSO");
             std::error_code ec;
             if (!fs::exists(p, ec)) return nullptr;    // engine would throw; we skip
@@ -2201,6 +2213,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
                 std::printf("  [drive] at object %s (%.2f, %.2f, %.2f)\n", ln.c_str(), at.x, at.y, at.z);
             }
+        } else if (cmd.rfind("run=", 0) == 0) {        // run=<script>: start a script (owner: the player)
+            const std::string nm = cmd.substr(4);
+            std::printf("  [drive] run %s -> %s\n", nm.c_str(), csMgr.start(nm, {}, 13) ? "started" : "not found");
         } else if (cmd == "water") {                   // drop the player over the first water triangle
             const RoomMesh& pm2 = phys_mesh(room);
             for (std::size_t t = 0; t < pm2.tri_water.size(); ++t) {
