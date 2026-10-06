@@ -83,6 +83,7 @@
 #include "cleria/skillmp.hpp"
 #include "cleria/oxygen.hpp"
 #include "cleria/hazard.hpp"
+#include "cleria/player_actions.hpp"
 #include "cleria/ymo.hpp"
 #include <ctime>
 #include <optional>

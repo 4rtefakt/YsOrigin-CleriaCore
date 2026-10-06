@@ -276,7 +276,9 @@ bool AsoVm::step(std::size_t& pc) {
             break;
         }
         case kAttackReserve: atk_reserve_ = (ai(0) != 0); break;
-        case kActable:       actable_ = (ai(0) != 0); break;
+        // FUN_004472e0 case 0x16 writes BOTH +0x9d0 (actable) and +0x9d1 (the jump-enable byte that
+        // case 0x19 writes alone): Actable(1) also allows the jump (the mover's gate 0x46520c).
+        case kActable:       actable_ = jump_enable_ = (ai(0) != 0); break;
         case kCancelable:    cancelable_ = (ai(0) != 0); break;
         case kDurable:       durable_ = (ai(0) != 0); break;
         case kJumpEnable:    jump_enable_ = (ai(0) != 0); break;

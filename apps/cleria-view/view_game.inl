@@ -320,6 +320,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // the engine's `+0x6fc` post-attack counter that drops the chain back to hit #1.
     int combo_stage = 0;
     int combo_idle = 0;
+    // The action input (src/cleria/player_actions): the attack request / combo, the air attacks,
+    // the 0x112 tap-step, the dash and the double jump. The press is latched by the input events
+    // and consumed by the next logic tick.
+    PlayerActions pact;
+    bool atk_press_pending = false;
+    int jump_phase = 0;                    // +0x3a8: the jump section's marker phase
+    int sec3_ground = 0;                   // ticks grounded in the jump section (the stand-in guard)
+    bool p_landed = false;                 // last tick's touch-down
     // Projectiles. The effect registries resolve a bullet's eftlist id to its real
     // EF2 and texture; without them bullets simply do not spawn (rather than draw
     // something invented).
@@ -1710,22 +1718,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         {0x100, 0x103, 0x104, 0x101, 0x102,     0,     0},   // 3: Toal
     };
     static constexpr int kComboLen[4] = {6, 4, 2, 5};
-    auto try_attack = [&] {
-        const bool swinging = avm.section() >= 0x100;
-        if (swinging && !avm.cancelable()) return;   // committed to the current swing
-        const int chr = (character >= 0 && character < 4) ? character : 1;
-        const int len = kComboLen[chr];
-        if (combo_stage >= len) combo_stage = 0;
-        const std::int32_t next = kComboTable[chr][combo_stage];
-        if (!avm.set_section(next, /*force*/true)) return;
-        // The stage advances AFTER the section is played, and WRAPS rather than stalling
-        // (0x0046f351: ++stage; 0x0046f5a5: if (stage >= len) stage = 0) — holding the
-        // button cycles the chain forever, which is what the game does.
-        combo_stage = (combo_stage + 1 >= len) ? 0 : combo_stage + 1;
-        combo_idle = 0;
-        atk_dir = face_dir;         // the swing points where you're facing
-        player_hit_serial = next_hit_serial(world.hit_serial_counter_);
-    };
+    // The attack button's press (+0x50c & 1): latched here, resolved by PlayerActions in the
+    // next logic tick (the request / buffer / combo rules of FUN_00465170 + FUN_0046ea00).
+    auto try_attack = [&] { atk_press_pending = true; };
 
     // Spawn every bullet an ASO section fired this tick. Shared by the player and by
     // enemies: previously only the player drained bullets(), so no enemy could ever
@@ -2257,8 +2252,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (const auto& li : csMgr.live)
                 std::printf("  [drive]   script %s pc %u wait %d%s\n", li.name.c_str(), li.pc, li.wait, li.finished ? " (done)" : "");
         } else if (cmd == "pos") {                     // print the player's feet and O2
-            std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d\n", feet.x, feet.y, feet.z,
-                        oxy.o2, oxy.alpha, player.hp, int(submerged));
+            std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d\n", feet.x, feet.y, feet.z,
+                        oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage);
         } else if (cmd.rfind("obj=", 0) == 0) {        // obj=<name>: stand 1.5 from that scene object, facing it
             std::string ln = cmd.substr(4);
             for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
@@ -3618,11 +3613,52 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 }
                 feet.x += carry.x; feet.y += carry.y; feet.z += carry.z;
             }
+            // The jump press (+0x50c & 2), read once per tick.
+            const bool jump_down = ks[SDL_SCANCODE_SPACE] || drive_jump;
+            drive_jump = false;
+            const bool jump_edge = jump_down && !jump_prev;
+            jump_prev = jump_down;
+            // The action input (FUN_00465170 / FUN_0046ea00 via src/cleria/player_actions).
+            PlayerActions::Out pa_out;
+            if (!fly) {
+                PlayerActions::In pi;
+                pi.character = character;
+                pi.attack_pressed = atk_press_pending && !paused;
+                pi.attack_held = !paused && (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
+                pi.skill_held = !paused && (ks[SDL_SCANCODE_C] || drive_skill);
+                pi.jump_pressed = jump_edge && !submerged;       // the water re-jump stays below
+                pi.stick_active = moving;
+                pi.stick_angle = std::atan2(wish.z, wish.x);
+                pi.facing = std::atan2(face_dir.z, face_dir.x);
+                pi.section = avm.section();
+                pi.actable = avm.actable(); pi.cancelable = avm.cancelable(); pi.reserve = avm.attack_reserve();
+                pi.jump_enable = avm.jump_enable();
+                pi.grounded = pv.grounded; pi.submerged = submerged; pi.t = pv.t; pi.landed = p_landed;
+                pi.flag181 = game.g_flags[181] > 0;
+                pi.flag163 = game.g_flags[163] > 0;
+                pi.always_dash = ocheck[3];
+                pi.kind = skillmp::attack_kind(pi.section);
+                pi.busy = game.g_flags[161] != 0 || game.g_flags[151] == -1;
+                pi.yunica_form = game.g_flags[149] != 0;
+                pa_out = pact.tick(pi);
+            }
+            atk_press_pending = false;
+            if (pa_out.face) face_dir = {std::cos(pa_out.face_angle), 0.0f, std::sin(pa_out.face_angle)};
+            if (pa_out.section >= 0) avm.set_section(pa_out.section);   // FUN_00446550(id, 0): priority-gated
+            if (pa_out.new_attack) {
+                atk_dir = face_dir;                                    // the swing points where you face
+                player_hit_serial = next_hit_serial(world.hit_serial_counter_);
+            }
+            if (pa_out.t_add != 0.0f) pv.t += pa_out.t_add;            // the air combo's hang time
+            if (pa_out.impulse) { player_kb.x += pa_out.impulse_x; player_kb.z += pa_out.impulse_z; }
+            if (pa_out.lunge) { player_kb.x = pa_out.lunge_x; player_kb.z = pa_out.lunge_z; }
             {   const int sec = avm.section();
                 const bool skill_sec = sec == 0x109 || (sec >= 0x10c && sec <= 0x111);
                 const bool blessing_run = (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 0x2000) != 0;
-                const float spd = player_speed(pm, character, 1.0f, avm.movable(), /*running*/ moving,
-                                               pv.grounded, skill_sec, blessing_run) * speed_mult;
+                float spd = player_speed(pm, character, 1.0f, avm.movable(), /*running*/ moving,
+                                         pv.grounded || avm.actable(), skill_sec, blessing_run) * speed_mult;
+                if (moving && (sec == 0x10a || (sec == 3 && pact.dash)))   // the dash run (0x10a, or a dash jump)
+                    spd = pm.speed_base * avm.movable() * pm.run_mult * dash_char_const(character, blessing_run) * speed_mult;
                 step_planar(pvel, moving, std::atan2(wish.z, wish.x), spd, pv.grounded);
                 // Godspeed: each tick in 0x10d / 0x110 past Marker 1 the C++ drives the dash and
                 // ends the endless ASO loop with SetSection(0x105).
@@ -3725,7 +3761,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (oy - fl < 1.6f)                   // surface latch (0x45ba7e: hit t < 1.6)
                     cur_surface = surface_index_or_default(surface_of(phys_mesh(room), floor_tri));
             }
-            settle_vertical(pv, oy, last_floor, kOriginH, submerged);
+            p_landed = settle_vertical(pv, oy, last_floor, kOriginH, submerged);
             {   // The water test after the vertical step (FUN_0046fba0 0x46fd7c -> FUN_0045c490).
                 // Mode 2: submerged throughout. Mode 1: a ray up from feet - 0.25 into the water
                 // tree; submerged past a depth of 1.1, wading between 0.35 and 2.0; a change of
@@ -4920,20 +4956,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // The gate takes the PRESS (+0x50c & 2). Submerged, a press re-jumps once the timer
             // is <= 0.05, and every jump kicks the origin up by v0 at once and restarts section 3
             // (+0x3a0 = -1); in mode 2 it plays SE 780 (0x468ba7..0x468dc8, WATER.md §2b).
-            const bool jump_down = ks[SDL_SCANCODE_SPACE] || drive_jump;
-            drive_jump = false;
-            const bool jump_edge = jump_down && !jump_prev;
-            jump_prev = jump_down;
-            if (jump_edge && ((grounded && !pv.jumping) || can_rejump(pv, submerged))) {
-                if (submerged) {
-                    float oj = feet.y + kOriginH;
-                    begin_rejump(pv, oj, pm);
-                    feet.y = oj - kOriginH;
-                    avm.set_section(3, /*force*/true);
-                    if (water_mode == 2) sfx_at(0x30c, feet, kSfxAnimVol);
-                } else {
-                    begin_jump(pv, pm);
-                }
+            // Every jump sets t = v0 and kicks the origin up by it the same tick (0x468d8c..0x468d9e):
+            // the ground jump and the double jump through PlayerActions, the water re-jump here.
+            const bool water_jump = submerged && jump_edge && avm.jump_enable() &&
+                                    ((grounded && !pv.jumping) || can_rejump(pv, true));
+            if (water_jump || pa_out.jump || pa_out.double_jump) {
+                float oj = feet.y + kOriginH;
+                begin_rejump(pv, oj, pm);
+                feet.y = oj - kOriginH;
+                if (water_jump || pa_out.double_jump) avm.set_section(3, /*force*/true);   // +0x3a0 = -1
+                if (water_jump && water_mode == 2) sfx_at(0x30c, feet, kSfxAnimVol);
+                jump_phase = 1;
             }
             if (feet.y < room.mesh.bmin.y - D) spawn_player();
 
@@ -4957,7 +4990,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // sliding in the walk pose. Otherwise: jump / walk / idle.
             // The locomotion table 0x69bd0c = {2, 0, 1, 3}: idle 2, walk 0, run 1, air 3. A keyboard
             // press is a full stick, so moving is RUNNING (section 1), as the speed already assumes.
-            const std::int32_t want_sec = !grounded ? 3 : (moving ? 1 : 2);
+            const std::int32_t want_sec = !grounded ? 3 : (moving ? (pa_out.locomotion_dash ? 0x10a : 1) : 2);
             // Count how long the current animation frame has been held. Active swing
             // frames advance every 1-6 ticks; a recovery hold sits on one frame for
             // 40+, so a stall well past the former marks "the swing is over".
@@ -4980,9 +5013,30 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // so locomotion takes back over on the script's cancel window OR, for the
             // sections that never open one, once the animation has clearly stalled into
             // its recovery. Below 0x100 the priority rule inside set_section refuses.
-            if (avm.section() < 0x100)
+            // The jump section's phases (+0x3a8, 00465170.c:1964-1988): rising it holds at marker
+            // 2; once the timer falls to <= 0.01 it fast-forwards to marker 2 and holds at 3; on the
+            // ground it fast-forwards to 3 and releases, so the landing frames play out.
+            if (avm.section() == 3) {
+                if (jump_phase == 0 && !grounded) { jump_phase = 2; avm.fast_forward_to_marker(2); avm.set_marker_block(3); }
+                if (jump_phase == 1) {
+                    avm.set_marker_block(2);
+                    if (pv.t <= 0.01f) { jump_phase = 2; avm.fast_forward_to_marker(2); avm.set_marker_block(3); }
+                }
+                if (grounded && jump_phase != 0) { jump_phase = 0; avm.fast_forward_to_marker(3); avm.set_marker_block(-1); }
+            } else {
+                jump_phase = 0;
+            }
+            sec3_ground = (avm.section() == 3 && grounded) ? sec3_ground + 1 : 0;
+            // The mover reselects locomotion only below section 3 or in the dash 0x10a
+            // (00465170.c:1935-1943); the jump plays out and chains on its own.
+            const int cur_sec = avm.section();
+            if (cur_sec < 3 || cur_sec == 0x10a)
                 avm.set_section(want_sec);
-            else if (avm.cancelable() || atk_stall >= 10)
+            else if (cur_sec == 3 && sec3_ground >= 60)
+                avm.set_section(want_sec, /*force*/true);         // [STAND-IN] a jump section that never ends
+            else if (cur_sec >= 0x100 && atk_stall >= 10)
+                // [STAND-IN] an attack that holds its last frame for 10 ticks is released. Cancelable
+                // only lets a buffered request fire (FUN_00465170:1880); it does not end the swing.
                 avm.set_section(want_sec, /*force*/true);
             avm.set_is_land(grounded);
             avm.tick();
