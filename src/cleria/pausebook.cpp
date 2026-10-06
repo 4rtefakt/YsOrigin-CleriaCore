@@ -56,6 +56,12 @@ MenuSprite make(TexRef tex, float x, float y, float w, float h, float u0, float 
 }
 TexRef menu(int i) { return {TexRef::Menu, i}; }
 
+// FUN_005a4760 at the arrow tip (rec.x - 16, rec.y - 16) [EXPORT; MOUSE.md §5.3].
+bool hit(const MenuSprite& s, const BookInput& in) {
+    const mouse::Point t = mouse::tip(in.mx, in.my);
+    return mouse::csprite_hit(s.x, s.y, s.w, s.h, s.anchor_x, t.x, t.y, in.display);
+}
+
 // The page captions (EN 0x68eaf4) and the Equip per-cell captions (EN 0x68ea78).
 const char* page_caption(int page) {
     switch (page) {
@@ -164,16 +170,22 @@ void PauseBook::update_nav(const BookInput& in, BookEvents& ev) {
             break;
         case 2: {
             if (I.cancel) { sub_ = -1; ev.sounds.push_back(1); break; }
+            int p = page_;
             if (I.hstep != 0) {
-                int p = (I.hstep + 9 + page_) % 9;
+                p = (I.hstep + 9 + page_) % 9;
                 while (p >= 5) p = (I.hstep + 9 + p) % 9;
-                if (p != page_) {
-                    page_ = p;
-                    ev.sounds.push_back(3);
-                    cursor_.set_rect(kTabs[page_].x, 0, 153.6f, 51.2f);
-                }
             }
-            if (I.confirm) {
+            // Hover on motion: the loop scans the 9 plaques, only 0..4 take [EXPORT FUN_005a68f0].
+            if (I.moved)
+                for (int i = 0; i < 5; ++i)
+                    if (hit(plaque_[i], I)) { p = i; break; }
+            if (p != page_) {
+                page_ = p;
+                ev.sounds.push_back(3);
+                cursor_.set_rect(kTabs[page_].x, 0, 153.6f, 51.2f);
+            }
+            // One click inside the selected plaque selects and opens [BYTES 0x5a7060..0x5a7075].
+            if (I.confirm || (I.click && hit(plaque_[page_], I))) {
                 nav_ = 3;
                 ev.sounds.push_back(0);
                 const float sp = 16.0f * float(page_) + 16.0f;
@@ -270,12 +282,15 @@ void PauseBook::update_equip(const BookInput& in0, BookModel& m, BookEvents& ev)
             else if (in.hstep > 0) cur = kEquipNbr[cur][1];
             if (in.vstep < 0) cur = kEquipNbr[cur][2];
             else if (in.vstep > 0) cur = kEquipNbr[cur][3];
+            if (in.moved)                                    // the 22 hit tiles 0x733730 [EXPORT FUN_005a8030]
+                for (int i = 0; i < 22; ++i)
+                    if (hit(etile_[i], in)) { cur = i; break; }
             if (cur != ecur_) {
                 ecur_ = cur;
                 ev.sounds.push_back(3);
                 ecursor_.set_rect(equip_x0(cur), equip_y0(cur), 64, 64);
             }
-            if (in.confirm) {
+            if (in.confirm || (in.click && hit(etile_[ecur_], in))) {
                 const int id = grid[std::size_t(ecur_)];
                 if (erec_count_[std::size_t(ecur_)] <= 0) {
                     ev.sounds.push_back(2);
@@ -404,13 +419,16 @@ void PauseBook::update_item(const BookInput& in0, BookModel& m, BookEvents& ev) 
             int col = icur_ % 6, row = icur_ / 6;
             if (in.hstep) col = (col + in.hstep + 6) % 6;
             if (in.vstep) row = (row + in.vstep + 5) % 5;
-            const int cur = row * 6 + col;
+            int cur = row * 6 + col;
+            if (in.moved)                                    // the 30 tiles 0x735f90 [EXPORT FUN_005aa370]
+                for (int i = 0; i < 30; ++i)
+                    if (hit(itile_[i], in)) { cur = i; break; }
             if (cur != icur_) {
                 icur_ = cur;
                 ev.sounds.push_back(3);
                 icursor_.set_rect(item_x0(cur), item_y0(cur), 64, 64);
             }
-            if (in.confirm) {
+            if (in.confirm || (in.click && hit(itile_[icur_], in))) {
                 const int id = grid[std::size_t(icur_)];
                 const std::int32_t n = irec_count_[std::size_t(icur_)];
                 if (id < 0 || n <= 0) { ev.sounds.push_back(2); break; }
@@ -489,8 +507,14 @@ void PauseBook::update_popup(const BookInput& in, BookModel& m, BookEvents& ev) 
                 pstate_ = 0;
                 break;
             }
-            if (in.vstep != 0) { psel_ ^= 1; ev.sounds.push_back(3); place_cursor(); }
-            if (in.confirm) {
+            int sel = psel_;
+            if (in.vstep != 0) sel ^= 1;
+            if (in.moved) {                                  // Yes / No [EXPORT FUN_005abd10 st 1]
+                if (hit(pyes_, in)) sel = 0;
+                else if (hit(pno_, in)) sel = 1;
+            }
+            if (sel != psel_) { psel_ = sel; ev.sounds.push_back(3); place_cursor(); }
+            if (in.confirm || (in.click && hit(psel_ == 0 ? pyes_ : pno_, in))) {
                 pstate_ = 4;
                 pcur_.pulse_specular_off();
                 (psel_ == 0 ? pyes_ : pno_).fade_to(kWhite, 0x808080, 64);
@@ -712,13 +736,17 @@ void PauseBook::open(const BookModel& m, int ctx) {
 
 void PauseBook::update(const BookInput& in0, BookModel& m, BookEvents& ev) {
     if (!open_) return;
-    const BookInput none{};
-    const BookInput& in = frames_ < 2 ? none : in0;          // the dispatcher zeroes the first 2 frames
+    BookInput in = frames_ < 2 ? BookInput{} : in0;          // the dispatcher zeroes the first 2 frames
     ++frames_;
+    // The wheel debounce 0x7d9be0: a wheel tick, then the next 3 ticks' wheels are dropped [BYTES
+    // 0x5a524f..0x5a5291]. [not modelled] the whole record zeroed while the page-transition
+    // highlight tweens (0x74418c == 0): CleriaCore has no transition highlight.
+    if (wheel_db_ > 0) { in.wheel = 0; --wheel_db_; }
+    else if (in.wheel != 0) wheel_db_ = 3;
     update_nav(in, ev);
     update_equip(in, m, ev);
     update_item(in, m, ev);
-    update_popup(sub_ == 3 ? in : none, m, ev);
+    update_popup(sub_ == 3 ? in : BookInput{}, m, ev);
     update_caption(m);
     update_svld(in, m, ev);
     for (int k = 0; k < 3; ++k) update_dialog(k, in, m, ev);
@@ -840,22 +868,35 @@ void PauseBook::update_svld(const BookInput& in0, BookModel& m, BookEvents& ev) 
                 else { sub_ = 0; build_svld(m, false); }
                 break;
             }
-            const int row = (svrow_ + in.vstep + 8) & 7;
+            int row = (svrow_ + in.vstep + 8) & 7;
+            int page = svpage_;
+            if (row == svrow_) page = (svpage_ + in.hstep + 8) & 7;
+            // The mouse [EXPORT FUN_005b5100]: motion hovers the 8 plates; a click on a tab sets the
+            // page (not motion-gated); the wheel steps the row (up = row - 1) and warps the pointer to
+            // the plate's bottom-right (883, 187 + 72 row), mode 2 [BYTES 0x5b5841..0x5b589c].
+            if (in.moved)
+                for (int s = 0; s < 8; ++s)
+                    if (hit(svplate_[s], in)) { row = s; break; }
+            if (in.click)
+                for (int t = 0; t < 8; ++t)
+                    if (hit(svtab_[t], in)) { page = t; break; }
+            if (in.wheel != 0) {
+                row = (row - (in.wheel > 0 ? 1 : -1) + 8) & 7;
+                ev.warp = true; ev.warp_x = 883; ev.warp_y = 187 + 72 * row; ev.warp_mode = 2;
+            }
+            if (page != svpage_) {
+                ev.sounds.push_back(3);
+                tab_uv(svtab_[svpage_], svpage_, false);
+                svpage_ = page;
+                tab_uv(svtab_[svpage_], svpage_, true);
+                rescan(m);
+            }
             if (row != svrow_) {
                 svrow_ = row;
                 ev.sounds.push_back(3);
                 svcursor_.set_rect(149.4f, 127.0f + 72.0f * float(row), 737, 64);
-            } else if (in.hstep != 0) {
-                const int page = (svpage_ + in.hstep + 8) & 7;
-                if (page != svpage_) {
-                    ev.sounds.push_back(3);
-                    tab_uv(svtab_[svpage_], svpage_, false);
-                    svpage_ = page;
-                    tab_uv(svtab_[svpage_], svpage_, true);
-                    rescan(m);
-                }
             }
-            if (in.confirm) {
+            if (in.confirm || (in.click && hit(svplate_[svrow_], in))) {
                 const int slot = svpage_ * 8 + svrow_;
                 const bool card = cards_[std::size_t(svrow_)].status == 1;
                 auto highlight = [&] {
@@ -1007,8 +1048,11 @@ void PauseBook::update_dialog(int k, const BookInput& in0, BookModel& m, BookEve
             int cur = d.cur;
             if (in.hstep != 0 && cur != 2) cur = (cur + in.hstep) & 1;
             if (in.vstep != 0 && k != 2) cur = cur != 2 ? 2 : 1;
+            if (in.moved)                                    // the buttons [EXPORT FUN_005b6eb0 / 5b7cc0 / 5b6220]
+                for (int b = 0; b < nbtn; ++b)
+                    if (hit(d.btn[b], in)) { cur = b; break; }
             if (cur != d.cur) { d.cur = cur; ev.sounds.push_back(3); place_cursor(); }
-            if (!in.confirm) break;
+            if (!(in.confirm || (in.click && hit(d.btn[d.cur], in)))) break;
             d.state = 2;
             d.cursor.pulse_specular_off();
             d.cursor.fade_to(kWhite, 0x808080, 64);
@@ -1144,8 +1188,20 @@ void PauseBook::update_option(const BookInput& in0, BookModel& m, BookEvents& ev
         if (!active || !m.sliders) continue;
         if (in0.cancel) { sub_ = 0x0b; ev.sounds.push_back(1); continue; }
         int v = m.sliders[i];
-        if (in0.held_left) v -= 8;
-        else if (in0.held_right) v += 8;
+        // The drag [BYTES 0x5b948c..0x5b96e7]: while 0x10000 is held, a hit on the knob grabs it
+        // (+0x18 = knob.x - raw x); then on motion value = trunc((raw x + off - base) * max / 188.8),
+        // with the RAW x (not unprojected: at 16:9 the knob outruns the pointer, a retail quirk).
+        if (in0.click_held) {
+            if (hit(oknob_[i], in0)) { odrag_[i] = true; odrag_off_[i] = int(oknob_[i].x - float(in0.mx)); }
+            if (odrag_[i] && in0.moved) v = int((float(in0.mx) + float(odrag_off_[i]) - 652.0f) * 1024.0f / 188.8f);
+        } else {
+            odrag_[i] = false;
+        }
+        // The keys: +-max/128 a tick, only outside mouse mode and without MOUSE_DIR held.
+        if (!in0.dir_held && !in0.mouse_mode) {
+            if (in0.held_left) v -= 8;
+            if (in0.held_right) v += 8;
+        }
         v = std::clamp(v, 0, 1024);
         if (v != m.sliders[i]) { m.sliders[i] = v; place_knob(i, v); ev.options_changed = true; }
     }
@@ -1162,12 +1218,20 @@ void PauseBook::update_option(const BookInput& in0, BookModel& m, BookEvents& ev
                 break;
             case 1:
                 if (in.cancel) { sub_ = 0x0b; ev.sounds.push_back(1); all(0); d.state = 0; break; }
-                if (in.hstep != 0) {
-                    d.cur ^= 1;
-                    ev.sounds.push_back(3);
-                    d.cursor.set_rect(d.btn[d.cur].x - 3, d.btn[d.cur].y - 3, 94, 32);
+                {
+                    int cur = d.cur;
+                    if (in.hstep != 0) cur ^= 1;
+                    if (in.moved) {                          // Yes +0x16c / No +0x218 [EXPORT FUN_005b8d40]
+                        if (hit(d.btn[0], in)) cur = 0;
+                        else if (hit(d.btn[1], in)) cur = 1;
+                    }
+                    if (cur != d.cur) {
+                        d.cur = cur;
+                        ev.sounds.push_back(3);
+                        d.cursor.set_rect(d.btn[d.cur].x - 3, d.btn[d.cur].y - 3, 94, 32);
+                    }
                 }
-                if (in.confirm) {
+                if (in.confirm || (in.click && hit(d.btn[d.cur], in))) {
                     sub_ = 0x0b;
                     ev.sounds.push_back(0);
                     d.cursor.pulse_specular_off();
@@ -1203,13 +1267,16 @@ void PauseBook::update_option(const BookInput& in0, BookModel& m, BookEvents& ev
                 else { sub_ = 0; build_option(m); }
                 break;
             }
-            const int row = (orow_ + in.vstep + 10) % 10;
+            int row = (orow_ + in.vstep + 10) % 10;
+            if (in.moved)                                    // the 10 rows 0x73d564 [BYTES 0x5ba53f..0x5ba8b8]
+                for (int r = 0; r < 10; ++r)
+                    if (hit(orow_spr_[r], in)) { row = r; break; }
             if (row != orow_) {
                 orow_ = row;
                 ev.sounds.push_back(3);
                 ocursor_.set_rect(kOptX[row], kOptY[row], row == 7 ? 179.2f : 409.6f, 51.2f);
             }
-            if (!in.confirm) break;
+            if (!(in.confirm || (in.click && hit(orow_spr_[orow_], in)))) break;
             ev.sounds.push_back(0);
             if (orow_ >= 3 && orow_ <= 6) {
                 if (m.checks) m.checks[orow_ - 3] = !m.checks[orow_ - 3];
@@ -1848,6 +1915,17 @@ void PauseBook::update_map(const BookInput& in, BookModel& m, BookEvents& ev) {
     }
     const int h = kMapRecs[mapcur_].link[1 + in.hstep];
     int cur = kMapRecs[std::clamp(h, 0, 21)].link[4 + in.vstep];
+    // The mouse [EXPORT FUN_005abd10 st 3]: no wheel -> hover the 22 markers on motion; a wheel tick
+    // -> (sign + 22 + idx) % 22 (up = +1) and the warp to the marker's bottom-right, mode 2.
+    if (in.wheel == 0) {
+        if (in.moved)
+            for (int i = 0; i < 22; ++i)
+                if (hit(mplate_[i], in)) { cur = i; break; }
+    } else if (cur >= 0 && cur <= 21) {
+        cur = ((in.wheel > 0 ? 1 : -1) + 22 + cur) % 22;
+        ev.warp = true;
+        ev.warp_x = int(kMapRecs[cur].x + 240.0f); ev.warp_y = int(kMapRecs[cur].y + 40.0f); ev.warp_mode = 2;
+    }
     if (cur < 0) cur = 21;
     if (cur > 21) cur = 0;
     mcrystal_.set_rect(kMapRecs[cur].x2 - 16, kMapRecs[cur].y2 - 64, 80, 80);
@@ -1856,7 +1934,7 @@ void PauseBook::update_map(const BookInput& in, BookModel& m, BookEvents& ev) {
         ev.sounds.push_back(3);
         mbar_.set_rect(kMapRecs[cur].x, kMapRecs[cur].y, 240, 40);
     }
-    if (in.confirm) {
+    if (in.confirm || (in.click && hit(mplate_[mapcur_], in))) {
         if (cur < 24 && m.warp_on && m.warp_on[cur]) {
             m.flags[137] = cur;
             ev.sounds.push_back(0);
@@ -2052,6 +2130,8 @@ void PauseBook::update_charsel(const BookInput& in0, BookModel& m, BookEvents& e
         WndInput wi;
         wi.confirm_pressed = in0.confirm; wi.cancel_pressed = in0.cancel; wi.vstep = in0.vstep;
         wi.confirm_held = in0.confirm; wi.cancel_held = in0.cancel;
+        wi.click_pressed = in0.click; wi.mouse_moved = in0.moved; wi.mouse_mode = in0.mouse_mode;
+        wi.mx = in0.mx; wi.my = in0.my; wi.display = in0.display;
         cspop_.update(wi, ev.sounds);
         if (cspop_.accepted() && !cspop_done_) {
             cspop_done_ = true;
@@ -2093,7 +2173,19 @@ void PauseBook::update_charsel(const BookInput& in0, BookModel& m, BookEvents& e
             if (in.cancel) { sub_ = -1; ev.sounds.push_back(1); break; }
             const CharSelectGates& g = m.charsel;
             const int mm = (csn_ == 3 && !(g.clear_yunica || g.clear_hugo)) ? 2 : csn_;
-            const int s = (cssel_ + in.vstep + mm) % mm;
+            // The mouse [EXPORT FUN_005c3790]: no wheel -> hover the bars on motion; a wheel tick ->
+            // (n + cur - sign) % n (up = the upper bar). [H] the bars past CleriaCore's row limit `mm`
+            // (Toal still locked) do not take the hover.
+            int s = cssel_;
+            bool hovered = false;
+            if (in.wheel == 0) {
+                if (in.moved)
+                    for (int i = 0; i < mm; ++i)
+                        if (hit(csbar_[i], in)) { s = i; hovered = true; break; }
+            } else {
+                s = (mm + s - (in.wheel > 0 ? 1 : -1)) % mm;
+            }
+            s = (s + in.vstep + mm) % mm;
             if (s != cssel_) {
                 cssel_ = s;
                 ev.sounds.push_back(3);
@@ -2102,8 +2194,14 @@ void PauseBook::update_charsel(const BookInput& in0, BookModel& m, BookEvents& e
                 csport_[s].set_target(0, 0, 16);
                 cs_pop_chibi();
                 cs_colours(m, true);
+                // A change not from the hover (keys, wheel) warps the pointer to the bar's bottom-right
+                // inset by 32, mode 2, with NO mouse-mode gate [BYTES 0x5c3a6d..0x5c3e80].
+                if (!hovered) {
+                    ev.warp = true; ev.warp_mode = 2;
+                    ev.warp_x = int(csbar_[s].x + 896.0f - 32.0f); ev.warp_y = int(csbar_[s].y + 128.0f - 32.0f);
+                }
             }
-            if (in.confirm) {
+            if (in.confirm || (in.click && hit(csbar_[cssel_], in))) {
                 ev.sounds.push_back(0);
                 static constexpr int kChar[4] = {1, 2, 3, 0};
                 cs_result_ = {};

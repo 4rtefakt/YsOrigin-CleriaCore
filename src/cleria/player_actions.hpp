@@ -21,7 +21,7 @@ struct PlayerActions {
     int lunge_t = 0;             // +0x730 (counts down; at 0 the lunge is written)
     float lunge_v = 0;           // +0x72c
     float lunge_angle = 0;
-    int tap_state = 0, tap_t = 0;   // +0x710 / +0x718
+    int tap_state = 0, tap_t = 0;   // +0x710 / +0x718 (state 4 = the mouse's double-click window)
     float tap_angle = 0;            // +0x714
     int tap_window = 0;             // +0x70c (12 ticks)
     int step_t = 0;                 // +0x400 (the 0x112 lunge timer, 13 ticks)
@@ -51,6 +51,11 @@ struct PlayerActions {
         int kind = 0;                // +0x404
         bool busy = false;           // g_flags[161] / 151 == -1
         bool yunica_form = true;     // g_flags[149] (DAT_0076bb70) != 0: her air-combo timer adds
+        // The mouse (build/shell_re/MOUSE.md §4.2): mouse mode 0x7325d4, the double-click edge
+        // (pressed 0x800) and the player -> cursor angle 0x7325fc, here in the stick_angle basis.
+        bool mouse_mode = false;
+        bool double_click = false;
+        float mouse_angle = 0;
     };
     struct Out {
         int section = -1;            // a SetSection request (-1 none)

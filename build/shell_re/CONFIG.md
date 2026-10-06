@@ -175,7 +175,7 @@ Struct offsets were verified by name-offset consistency:
 |---|---|---|---|---|---|
 | `Device` | int | −1 / −1 | `0x765140` | `CreateDevice(adapter, DevType = Device+1, …)` (HAL = 0) [EXPORT `0x5d3fd0`] | — |
 | `Adapter` | int | 0 | `0x765144` | adapter index | combo **1031** "Adapter" (`"%S (Display %d)"`) |
-| `BackBufferWidth` / `Height` | px | 800×600 | `0x765148` / `0x76514c`, plus `0x7035c4` / `0x7035c8` (mouse scale) | PP `BackBufferWidth/Height`; window size | combo **1035** "Resolution": `"%u x %u"` from the adapter mode list |
+| `BackBufferWidth` / `Height` | px | 800×600 | `0x765148` / `0x76514c`, plus `0x7035c4` / `0x7035c8` (plain copies: the cursor mapping's divisors and the warp's, MOUSE.md §1) | PP `BackBufferWidth/Height`; window size | combo **1035** "Resolution": `"%u x %u"` from the adapter mode list |
 | `StretchAspect` | 0/1 | 0 | `0x765150` | viewport / letterbox: `FUN_005acf90`, `FUN_005d3ab0`, `FUN_005e2670` | checkbox **1531** "Stretch Widescreen" |
 | `RefreshRate` | Hz, 0 = default | 0 | `0x765154` | `FullScreen_RefreshRateInHz`, validated against the mode list | combo **1037** (beside the "Refresh Rate" label): "Default", `"%u Hz"` |
 | `MultiSampleType` | 0, 2..16 | 0 | `0x765158` | PP MultiSampleType (`0x765110`) | combo **1039** (beside the "FSAA Type" label): "None", `"%u samples"` |
@@ -255,7 +255,7 @@ Each frame, `FUN_005d6170` fills one of two 0x160-byte state blocks at `0x764888
 | Offset | Content |
 |---|---|
 | `+0x000` | keyboard[256], DIK-indexed |
-| `+0x100` | `DIMOUSESTATE`: lX, lY, lZ (wheel); buttons at `+0x10c` = `0x764994` (L), `0x764995` (R), `0x764996` (M). L/R are swapped when `SM_SWAPBUTTON` is set (`0x75aed7`). |
+| `+0x100` | `DIMOUSESTATE`: lX, lY, lZ are written but **never read** (the warp zeroes lX/lY); the cursor is `GetCursorPos` and the wheel is `WM_MOUSEWHEEL` (MOUSE.md §1.1) [EXPORT globals.tsv, `FUN_0040efb0`]. Buttons at `+0x10c` = `0x764994` (L), `0x764995` (R), `0x764996` (M). L/R are swapped when `SM_SWAPBUTTON` is set (`0x75aed7`). |
 | `+0x110` | `DIJOYSTATE` (0x50 bytes): lX `0x764998`, lY `0x76499c`, lRx `0x7649a4`, lRy `0x7649a8`, POV[4] `0x7649b8`, buttons `0x7649c8` |
 
 ### 3.2 Key codes and names [BYTES table `0x68edf8`, 131 × {u32 code, char* name}]
@@ -310,7 +310,7 @@ Output per frame: two 0x34-byte blocks at `0x764730 + DAT_00764798·0x34`.
 
 | Offset | Content |
 |---|---|
-| `+0x00`, `+0x04` | cursor x / y in 1024×768 space |
+| `+0x00`, `+0x04` | cursor x / y in an **over-scanned** 1024×768 space: x ∈ [−48, 1072), y ∈ [0, 864) at fullscreen (gains 1.09375 / 1.125); the drawn copy is clamped to [−48, 1072] × [−48, 816] (MOUSE.md §1) |
 | `+0x08` | wheel |
 | `+0x0c`, `+0x10` | stick x / y |
 | `+0x14` | **direction bits** |

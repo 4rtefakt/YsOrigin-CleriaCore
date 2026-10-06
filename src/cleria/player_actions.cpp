@@ -45,7 +45,14 @@ PlayerActions::Out PlayerActions::tick(const In& in) {
     }
 
     // ---- the tap machine +0x710 (0x465643..0x465819): a short tap opens a 12-tick window ----
-    switch (tap_state) {
+    if (in.mouse_mode) {
+        // Mouse mode [BYTES 0x465643..0x4656d6]: +0x70c = 0; state 4 holds the window for 12 more
+        // ticks (+0x718 past 12 ends it); a double click (pressed 0x800) arms it toward the cursor.
+        tap_window = 0;
+        if (tap_state == 4) { ++tap_t; tap_window = 1; if (tap_t > 12) tap_state = 0; }
+        else tap_t = 0;
+        if (in.double_click) { tap_angle = in.mouse_angle; tap_window = 1; tap_state = 4; tap_t = 0; }
+    } else switch (tap_state) {
         case 0:
             if (press_edge && std::fabs(wrap(in.stick_angle - in.facing)) < 2.243995f) {   // 0x6bd5cc
                 tap_state = 1; tap_t = 0; tap_angle = in.stick_angle;
@@ -56,9 +63,12 @@ PlayerActions::Out PlayerActions::tick(const In& in) {
             if (!in.stick_active) { tap_state = 2; tap_window = 12; }
             else if (tap_t > 10) tap_state = 0;
             break;
-        default:
+        case 2:
             if (tap_window > 0) --tap_window;
             if (tap_window == 0 || press_edge) { tap_state = 0; tap_window = 0; }
+            break;
+        default:                           // a mouse window left over: the keyboard path ignores it
+            tap_window = 0;
             break;
     }
 

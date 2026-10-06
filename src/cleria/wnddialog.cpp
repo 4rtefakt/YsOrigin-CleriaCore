@@ -183,8 +183,19 @@ void WndDialog::update(const WndInput& in, std::vector<int>& sounds) {
         if (alpha_ <= 0) { alpha_ = 0; alive_ = false; }
         return;
     }
-    if (alpha_ < 1.0f) { alpha_ = std::min(1.0f, alpha_ + 0.075f); return; }
     const bool interactive = armed_;
+    // Path A [BYTES 0x578a0e..0x578af1]: on the first interactive tick in mouse mode, snap the cursor
+    // to the row under the pointer (before the fade-in completes, like retail).
+    if (interactive && !was_interactive_ && in.mouse_mode && !treasure_) {
+        const int row = mouse::wnddialog_row(in.mx, in.my, x_, y_, w_, h_, int(texts_.size()), false, in.display);
+        if (row > 0) {
+            if (row != cursor_) sounds.push_back(3);
+            cursor_ = row;
+            hover_ = true;
+        }
+    }
+    was_interactive_ = interactive;
+    if (alpha_ < 1.0f) { alpha_ = std::min(1.0f, alpha_ + 0.075f); return; }
     const bool held = in.confirm_held || (cancel_ >= 0 && in.cancel_held);
     if (!held) released_ = true;
     if (reveal_ < reveal_end_) {
@@ -195,8 +206,10 @@ void WndDialog::update(const WndInput& in, std::vector<int>& sounds) {
     revealed_ = true;
     if (interactive) ++prompt_;
     if (close_) { armed_ = false; accepted_ = true; return; }
+    if (treasure_) hover_ = true;                            // 0x578d1d: a click anywhere takes the item-get box
     if (!interactive || !released_) return;
-    if (in.confirm_pressed) {
+    // Confirm on OK 0x2000, or on the click 0x10000 with the hover flag [BYTES 0x578bca..0x578be9].
+    if (in.confirm_pressed || (in.click_pressed && hover_)) {
         accepted_ = true;
         sounds.push_back(0);
         chosen_ = treasure_ ? std::string() : labels_[std::size_t(cursor_)];
@@ -217,6 +230,17 @@ void WndDialog::update(const WndInput& in, std::vector<int>& sounds) {
         if (c >= n) c = 1;
         cursor_ = c;
         sounds.push_back(3);                                  // SE 3 whenever vstep != 0 (0x578d41)
+    }
+    // Path B [BYTES 0x578d87..0x578e90]: on cursor motion (no mouse-mode test) the hover flag drops,
+    // then the row under the pointer (with the left gate) takes the cursor.
+    if (!treasure_ && in.mouse_moved) {
+        hover_ = false;
+        const int row = mouse::wnddialog_row(in.mx, in.my, x_, y_, w_, h_, int(texts_.size()), true, in.display);
+        if (row > 0) {
+            if (row != cursor_) sounds.push_back(3);
+            cursor_ = row;
+            hover_ = true;
+        }
     }
 }
 

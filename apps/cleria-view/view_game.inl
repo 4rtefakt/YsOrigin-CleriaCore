@@ -125,6 +125,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int window_mode = settings().s.cleria.borderless_fullscreen ? 1 : 0;   // 0 windowed, 1 borderless
     if (window_mode == 1 && !offscreen) SDL_SetWindowFullscreen(win, true);
     auto persist = [] { settings().touch(); settings().save(); };   // a shell edit, saved at once
+    // The pointer (view_input.inl): a CLERIA_DRIVE run uses a virtual pointer (the drive's mouse=,
+    // click, mhold, mrelease, wheel=), starting at the window centre; a played session reads the real
+    // one. Each frame: the swapchain size and window mode the cursor maps through, the OS pointer.
+    g_sdl_in.win = win;
+    g_sdl_in.virtual_ptr = std::getenv("CLERIA_DRIVE") != nullptr;
+    g_sdl_in.ptr_x = int(cw) / 2; g_sdl_in.ptr_y = int(ch) / 2;
+    auto ptr_sync = [&] {
+        g_sdl_in.bb_w = int(cw); g_sdl_in.bb_h = int(ch);
+        g_sdl_in.windowed = window_mode == 0;
+        sync_os_cursor();
+    };
     // The shell's game-data setup: a folder pick (SDL's native dialog, answered on any thread), a
     // validation, and the unpack on a worker thread (gamedata::InstallTask), polled each frame.
     struct GameDataUi {
@@ -433,6 +444,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 }
             }
             if (quit) break;
+            ptr_sync();
             const Uint64 now = SDL_GetTicksNS();
             const double t = double(now - t0) * 1e-9;
             acc += double(now - last) * 1e-9;
@@ -712,6 +724,7 @@ title_again:
         // scene is committed when the screen is black.
         float tf_cur = 1.0f, tf_tgt = 0.0f;
         bool ng_commit = false;
+        mouse::Point tbook_pt;                           // the book's open-time cursor (this+0x128)
         for (bool started = false; !started;) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
@@ -723,6 +736,7 @@ title_again:
                     if (cw && ch) configure();
                 }
             }
+            ptr_sync();
             const Uint64 now = SDL_GetTicks();
             taccum += float(now - tlast) / 1000.0f;
             tlast = now;
@@ -733,6 +747,12 @@ title_again:
                 // Cancel 0x4000, the auto-repeat steps; the book's 4-way stick while it is up.
                 const input::Frame& inf = input_tick(tbook.is_open());
                 sync_settings();
+                {   // the cursor manager (FUN_004263c0): the title list and the book are menu windows
+                    mouse::Context cc;
+                    cc.menu = tscreen.list_alive() || tbook.is_open();
+                    input::Frame rec = inf;
+                    cursor_tick(rec, cc);
+                }
                 {   // the fader, 0.05 a step
                     const float d = tf_tgt - tf_cur;
                     tf_cur = std::abs(d) <= 0.05f ? tf_tgt : tf_cur + (d > 0 ? 0.05f : -0.05f);
@@ -754,10 +774,13 @@ title_again:
                     in.confirm = confirm_edge; in.cancel = cancel_edge;
                     in.held_left = live && (inf.dir & input::kLeft);
                     in.held_right = live && (inf.dir & input::kRight);
+                    if (live) book_mouse(in);
                     BookModel m = tmodel();
                     BookEvents ev;
                     tbook.update(in, m, ev);
                     snd = ev.sounds;
+                    if (ev.warp) cursor_warp(ev.warp_x, ev.warp_y, ev.warp_mode);
+                    if (ev.closed) cursor_warp(tbook_pt.x, tbook_pt.y, 2);   // the dtors' warp back (mode 2)
                     if (ev.options_changed) {
                         audio.set_bgm_volume(oslider[0] / 1024.0f);
                         audio.set_master_volume(oslider[1] / 1024.0f);
@@ -783,7 +806,11 @@ title_again:
                     in.confirm_held = conf_held; in.confirm_pressed = confirm_edge;
                     in.cancel_pressed = cancel_edge;
                     in.vstep = vstep;
-                    switch (tscreen.update(in, false, tgates, tr.metrics(), snd)) {
+                    if (live) wnd_mouse(in);
+                    const TitleAction act = tscreen.update(in, false, tgates, tr.metrics(), snd);
+                    if (act == TitleAction::NewGame || act == TitleAction::LoadGame || act == TitleAction::Options)
+                        tbook_pt = {g_in.x, g_in.y};            // FUN_005a4fd0 saves the record's cursor
+                    switch (act) {
                         case TitleAction::NewGame: tbook.open(tmodel(), 4); break;
                         case TitleAction::LoadGame: tbook.open(tmodel(), 2); break;
                         case TitleAction::Options: tbook.open(tmodel(), 3); break;
@@ -819,6 +846,7 @@ title_again:
                 hud.render(g, view, cw, ch, "", 0.0f, nullptr);
                 hud.set_fade(0, 0.0f);
             }
+            draw_cursor(g, tr, view, cw, ch, false);
             shell.frame(g, view, cw, ch);
             wgpuSurfacePresent(surface);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
@@ -859,6 +887,10 @@ title_again:
     // a drive's atk) is latched at the top of the logic tick and consumed by that tick's mover.
     PlayerActions pact;
     bool atk_press_pending = false;
+    // The bracelet switch (src/cleria/mouse SkillSwitch = FUN_0046cb00; the apply in FUN_00465170
+    // 0x4652ca..0x465377): the wheel and the skill bits make a request (+0x518), the mover lands it.
+    mouse::SkillSwitch skill_sw;
+    int skill_req = -1;
     int jump_phase = 0;                    // +0x3a8: the jump section's marker phase
     int sec3_ground = 0;                   // ticks grounded in the jump section (the stand-in guard)
     bool p_landed = false;                 // last tick's touch-down
@@ -1458,6 +1490,15 @@ title_again:
                 face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
                 std::printf("  arrival facing %d deg -> dir %d\n", fac_deg, facing);
+            }
+            // FUN_00426bc0, from FUN_00434020 with xmm1 = the placed heading +0x314 [BYTES
+            // 0x4340df..0x4340f2]: moveAngle = drawAngle = theta and the pointer warps (mode 0) to
+            // 96 units from the screen centre along it. [H] theta = CleriaCore's facing heading.
+            {
+                const float theta = std::atan2(face_dir.z, face_dir.x);
+                const mouse::Point sp = mouse::spawn_cursor(theta);
+                cursor_warp(sp.x, sp.y, 0);
+                g_cursor.move_angle = g_cursor.draw_angle = theta;
             }
         }
         // Prime the edge-trigger: mark whatever door volume the player spawned inside, so
@@ -2328,6 +2369,7 @@ title_again:
             win.cancel_pressed = csHost.wnd_cancel;
             csHost.wnd_vstep = 0;
             csHost.wnd_cancel = false;
+            wnd_mouse(win);
             std::vector<int> wsnd;
             csHost.wtext.update(win, wsnd);
             csHost.wdlg.update(win, wsnd);
@@ -2895,6 +2937,10 @@ title_again:
     //                         frames count as ticks), else the windows and the game-over menu
     //   hp=n / sp=n           the player's HP (0 = die) / the SP wallet
     //   fx                    the named (script-placed) effects and the glare byte
+    //   mouse=X,Y             the virtual pointer so the record cursor reads (X, Y) (1024x768 units)
+    //   click / rclick        an L / R tap (one tick); mhold / mrelease  hold / release L (MOUSE_DIR)
+    //   wheel=n               one tick of raw wheel delta (+-120 a notch)
+    //   cursor                print the cursor manager's state
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
@@ -3144,6 +3190,20 @@ title_again:
             drive_skill = cmd == "skill+";
         } else if (cmd == "act") {
             try_interact();
+        } else if (cmd.rfind("mouse=", 0) == 0) {      // the virtual pointer (view_input.inl)
+            int X = 0, Y = 0;
+            if (std::sscanf(cmd.c_str() + 6, "%d,%d", &X, &Y) == 2) g_sdl_in.place_virtual(X, Y);
+        } else if (cmd == "click" || cmd == "rclick") {
+            g_sdl_in.vtap[cmd == "click" ? 0 : 1] = true;
+        } else if (cmd == "mhold" || cmd == "mrelease") {
+            g_sdl_in.vbtn[0] = cmd == "mhold";
+        } else if (cmd.rfind("wheel=", 0) == 0) {
+            g_sdl_in.vwheel = std::atoi(cmd.c_str() + 6);
+        } else if (cmd == "cursor") {
+            std::printf("  [drive] cursor rec (%d, %d) drawn (%.0f, %.0f) visible %d mouse %d moved %d menu %d alpha %.2f "
+                        "colour %08x move %.3f draw %.3f hold %d\n", g_in.x, g_in.y, g_cursor.X, g_cursor.Y,
+                        int(g_cursor.visible), int(g_cursor.mouse_mode), int(g_cursor.moved), int(g_cursor.menu),
+                        g_cursor.alpha, unsigned(g_cursor.colour), g_cursor.move_angle, g_cursor.draw_angle, g_cursor.hold);
         } else if (drive_book && drive_book(cmd)) {    // ok / esc / up / down while the book is up
         } else if (cmd == "ok") {                      // confirm: the windows, the game-over menu
             csHost.advance = true;
@@ -3238,7 +3298,9 @@ title_again:
     };
     std::fprintf(stderr, "[pause menu] Esc opens the pause book; assets %s\n",
                  pauseOk ? "loaded (ready)" : "MISSING TITLE_000.DDS -> book won't draw");
+    mouse::Point book_pt;                                  // the book's open-time cursor (this+0x128)
     auto open_book = [&](int page) {
+        book_pt = {g_in.x, g_in.y};                        // FUN_005a4fd0 saves the record's cursor
         paused = true;
         book.open(book_model(), page);
         bookIn = {};
@@ -4232,6 +4294,7 @@ title_again:
         }
 
         sync_settings();
+        ptr_sync();
         const bool* ks = SDL_GetKeyboardState(nullptr);   // free-fly's raw keys (debug, outside the mapper)
         const float D = room_diag(room);
         // A newly (re)built room (re)starts its event scripts on the persistent manager.
@@ -4254,8 +4317,17 @@ title_again:
                 // OK 0x2000 / Cancel 0x4000 edges, the auto-repeat steps (1st frame, 28th, every 5th),
                 // the held Left / Right bits for the Option sliders. A drive's ok / esc / up / down too.
                 const input::Frame& inf = input_tick(/*book_mode*/true);
+                {   // the cursor manager: the book is a menu window; the player tick does not run
+                    mouse::Context cc;
+                    cc.menu = true;
+                    cc.event = csMgr.world_frozen() || csHost.wtext.alive();
+                    cc.player = !fly;
+                    input::Frame rec = inf;
+                    cursor_tick(rec, cc);
+                }
                 BookInput in = bookIn;
                 bookIn = {};
+                book_mouse(in);
                 in.confirm = in.confirm || (inf.pressed & input::kOk);
                 in.cancel = in.cancel || (inf.pressed & input::kCancel);
                 in.hstep = inf.dx;
@@ -4267,6 +4339,8 @@ title_again:
                 BookEvents bev;
                 book.update(in, bm, bev);
                 for (int id : bev.sounds) audio.play(id, kSfxMenuVol);
+                if (bev.warp) cursor_warp(bev.warp_x, bev.warp_y, bev.warp_mode);
+                if (bev.closed) cursor_warp(book_pt.x, book_pt.y, 2);   // the dtors' warp back (mode 2)
                 if (bev.clamp_hp) player.hp = std::min(player.hp, int(player_stats().max_hp));
                 if (bev.use_item >= 0) {                     // the Panacea (FUN_00443390, count - 1)
                     float hp = float(player.hp);
@@ -4319,8 +4393,39 @@ title_again:
         // ---- the input record: one mapper step per logic tick (FUN_005d2ba0 from FUN_00410440) ----
         // g_in is read below by the windows (tick_events), the mover's move / walk / jump / attack /
         // magic bits; its edges are dispatched here. A drive's commands land alongside (above).
+        input::Frame pin;                          // the player's copy of the record (click-to-move writes it)
+        bool probe_hit = false;                    // this tick's attack press started an action (FUN_00460470)
         {
             const input::Frame& inf = input_tick();
+            // The cursor manager FUN_004263c0 runs before the object ticks, on a record that only the
+            // player tick sees (FUN_004106e0 restores it around them): `pin` [EXPORT FUN_004281c0].
+            pin = inf;
+            {
+                auto project = [&](const Vec3& o, float* x, float* y) {   // 0x796170: world -> back-buffer px
+                    if (!have_vp) return false;
+                    const float* M = last_vp.m.data();
+                    const float px = o.x * M[0] + o.y * M[4] + o.z * M[8] + M[12];
+                    const float py = o.x * M[1] + o.y * M[5] + o.z * M[9] + M[13];
+                    const float pw = o.x * M[3] + o.y * M[7] + o.z * M[11] + M[15];
+                    if (!(pw > 1e-6f)) return false;
+                    *x = (px / pw * 0.5f + 0.5f) * float(cw);
+                    *y = (0.5f - py / pw * 0.5f) * float(ch);
+                    return std::isfinite(*x) && std::isfinite(*y);
+                };
+                mouse::Context cc;
+                cc.menu = csHost.wdlg.alive() || gameover_menu.alive();   // GoWndDialog windows
+                cc.event = csMgr.world_frozen() || csHost.wtext.alive();  // a fix, or GoWndText
+                cc.player = cc.controlled = !fly;
+                // FUN_00473540's point for the arrow (0x7325c8): the floor under the player clamped into
+                // [feet - 2.75, feet] [BYTES 0x473907..0x473962].
+                float ax = 0, ay = 0;
+                if (project({feet.x, mouse::shadow_y(feet.y, last_floor), feet.z}, &ax, &ay)) { g_cursor.px = ax; g_cursor.py = ay; }
+                // The click-to-move anchor (the look point - 2.0) [BYTES 0x42684f..0x4268a9]. [H] the
+                // 0.15-smoothed +0x230 is taken unsmoothed: the floor under the player + h.
+                cc.anchor_ok = project({feet.x, mouse::steer_anchor_y(feet.y + kOriginH, last_floor + kOriginH, kOriginH), feet.z},
+                                       &cc.anchor_x, &cc.anchor_y);
+                cursor_tick(pin, cc);
+            }
             if (death_t > 0) {
                 // The game-over menu (FUN_00427820) takes the OK edge; its cursor reads the repeat step.
                 if (inf.pressed & input::kOk) csHost.advance = true;
@@ -4346,7 +4451,7 @@ title_again:
                     // The attack press runs the action probe FUN_00460470 first (+0x50c & 1,
                     // [BYTES 0x465abf]); only when it starts nothing is it a swing. [approx] the
                     // probe's surrounding gates in FUN_00465170 are not modelled.
-                    if ((inf.pressed & input::kAttack) && !try_interact()) try_attack();
+                    if (inf.pressed & input::kAttack) { probe_hit = try_interact(); if (!probe_hit) try_attack(); }
                     if (inf.pressed & input::kBoost) try_boost();   // the mover 0x465b1d on +0x50c & 8
                 }
             }
@@ -4565,6 +4670,7 @@ title_again:
                 csHost.advance = false;
                 gin.vstep = csHost.wnd_vstep != 0 ? csHost.wnd_vstep : g_in.dy;
                 csHost.wnd_vstep = 0;
+                wnd_mouse(gin);
                 std::vector<int> wsnd;
                 gameover_menu.update(gin, wsnd);
                 for (int id : wsnd) audio.play(id, kSfxMenuVol);
@@ -4643,15 +4749,21 @@ title_again:
             // The stick (+0x514 direction bits, +0x18 angle; FUN_005d2ba0): angle 0 = screen right,
             // +pi/2 = screen up. A digital direction composes the basis vectors exactly as the keys
             // always did; an analog stick takes its own angle.
+            // `pin` is the record the player tick sees: click-to-move may have written its direction,
+            // angle and magnitude (src/cleria/mouse). In mouse mode the mover takes the player -> cursor
+            // angle 0x7325fc instead of the record's (FUN_0046f980 [BYTES 0x46f9fb..0x46fa12]), so a
+            // key direction while the mouse moves steers toward the cursor too.
             Vec3 wish{0, 0, 0};
-            if (g_in.analog) {
-                const float c = std::cos(g_in.angle), s = std::sin(g_in.angle);
+            const bool cursor_angle = g_cursor.mouse_mode && pin.dir != 0;
+            if (pin.analog || cursor_angle) {
+                const float a = cursor_angle ? g_cursor.move_angle : pin.angle;
+                const float c = std::cos(a), s = std::sin(a);
                 wish.x = rt.x * c + fwd.x * s; wish.z = rt.z * c + fwd.z * s;
             } else {
-                if (g_in.dir & input::kUp) { wish.x += fwd.x; wish.z += fwd.z; }
-                if (g_in.dir & input::kDown) { wish.x -= fwd.x; wish.z -= fwd.z; }
-                if (g_in.dir & input::kRight) { wish.x += rt.x; wish.z += rt.z; }
-                if (g_in.dir & input::kLeft) { wish.x -= rt.x; wish.z -= rt.z; }
+                if (pin.dir & input::kUp) { wish.x += fwd.x; wish.z += fwd.z; }
+                if (pin.dir & input::kDown) { wish.x -= fwd.x; wish.z -= fwd.z; }
+                if (pin.dir & input::kRight) { wish.x += rt.x; wish.z += rt.z; }
+                if (pin.dir & input::kLeft) { wish.x -= rt.x; wish.z -= rt.z; }
             }
             if (drive_wish_n > 0) { --drive_wish_n; wish.x += drive_wish.x; wish.z += drive_wish.z; }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
@@ -4662,8 +4774,8 @@ title_again:
             // A drive's move= is a full stick. [not modelled] the actor flag 0x40000 forcing the walk
             // bit. The speed itself is walk x run_mult (local_38 = 1.0 [EXPORT l.404]), not x stick.
             // speed_mult is the debug wheel.
-            const bool run_gait = moving && !(g_in.held & input::kWalk) &&
-                                 (g_in.dir == 0 || g_in.magnitude >= settings().s.input.run_walk_threshold);
+            const bool run_gait = moving && !(pin.held & input::kWalk) &&
+                                 (pin.dir == 0 || pin.magnitude >= settings().s.input.run_walk_threshold);
             {   // MOVER.md §3.3: the platform carry. Grounded on an object that moved last
                 // step: its displacement (clamped to 0.3); airborne: the carry decays x0.975.
                 auto it = mesh_delta.find(player_floor_obj);
@@ -4687,6 +4799,18 @@ title_again:
             // The action input (FUN_00465170 / FUN_0046ea00 via src/cleria/player_actions).
             PlayerActions::Out pa_out;
             if (!fly) {
+                // The bracelet switch lands (FUN_00465170 0x4652ca..0x465377): a pending request when the
+                // ASO is actable (+0x9d0), or a buffered attack meets an open cancel window (+0x9d2).
+                // [not modelled] the 0x76b914 |= 0x20 bit and the +0x6fc / +0x708 / 0x76c134 resets.
+                if (skill_req != -1 && (avm.actable() || (pact.request && avm.cancelable()))) {
+                    if (skill_req >= 0x74 && skill_req <= 0x77) {
+                        inv.magic = skill_req == 0x77 ? 0xff : skill_req;
+                        pact.stage = 0;
+                        pact.request = false;
+                        audio.play(0x0a, kSfxMenuVol);                    // FUN_0043a040(0xa)
+                    }
+                    skill_req = -1;
+                }
                 PlayerActions::In pi;
                 pi.character = character;
                 pi.attack_pressed = atk_press_pending && !paused;
@@ -4706,7 +4830,21 @@ title_again:
                 pi.kind = skillmp::attack_kind(pi.section);
                 pi.busy = game.g_flags[161] != 0 || game.g_flags[151] == -1;
                 pi.yunica_form = game.g_flags[149] != 0;
+                // The double-click lunge (MOUSE.md §4.2): mouse mode, the 0x800 edge, the player ->
+                // cursor angle in the stick basis (screen y-up through the camera, as the stick's).
+                pi.mouse_mode = g_cursor.mouse_mode;
+                pi.double_click = (pin.pressed & input::kDoubleClick) != 0;
+                {
+                    const float c = std::cos(g_cursor.move_angle), s = std::sin(g_cursor.move_angle);
+                    pi.mouse_angle = std::atan2(rt.z * c + fwd.z * s, rt.x * c + fwd.x * s);
+                }
                 pa_out = pact.tick(pi);
+                // The request (FUN_0046cb00 [BYTES 0x465a56..0x465b31]): the raw wheel (15-tick
+                // cooldown), Previous / Next Skill, Skill 1-3; skipped when the attack press started an
+                // action. Lands on a later tick (above).
+                const int r = skill_sw.tick(g_in.wheel, g_in.pressed, probe_hit, inv.magic,
+                                            [&](int id) { return id >= 0 && id < 0x200 && game.g_flags[id] > 0; });
+                if (r >= 0) skill_req = r;
             }
             atk_press_pending = false;
             if (pa_out.face) face_dir = {std::cos(pa_out.face_angle), 0.0f, std::sin(pa_out.face_angle)};
@@ -6481,6 +6619,9 @@ title_again:
             gameover_menu.draw(gl);
             bookR.render(g, view, cw, ch, gl);
         }
+        // The cursor sprite (key 0x02000000: over the HUD, the windows, the book). [H] drawn after the
+        // CrossFade capture, so a dissolve does not carry a ghost of it.
+        const bool cursor_now = bookOk && g_cursor.queued() && g_cursor.colour != 0;
         // CrossFade: every frame is kept in cf_tex until a fade starts; the op then dissolves the
         // last frame the player saw (the op's "this frame") into the live view. [H] the engine
         // captures at its own present; keeping the last frame avoids depending on tick order.
@@ -6507,6 +6648,7 @@ title_again:
             wgpuQueueSubmit(g.queue, 1, &cmd);
             wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
         }
+        if (cursor_now) draw_cursor(g, bookR, view, cw, ch, !fly);
         shell.frame(g, view, cw, ch);                    // after the crossfade capture; a drive `shot` sees it
         if (shell_shot_frames > 0 && --shell_shot_frames == 0) {
             const char* d = std::getenv("CLERIA_SHOT_DIR");

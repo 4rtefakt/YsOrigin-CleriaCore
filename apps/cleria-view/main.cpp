@@ -89,6 +89,7 @@
 #include "cleria/locus.hpp"
 #include "cleria/ymo.hpp"
 #include "cleria/input_map.hpp"
+#include "cleria/mouse.hpp"
 #include "cleria/settings.hpp"
 #include <ctime>
 #include <optional>

@@ -375,6 +375,33 @@ struct BookRenderer {
                 case DrawCmd::Mesh: mesh(g, c); break;
             }
         }
+        submit(g, view);
+    }
+
+    // The game cursor (FUN_00426f20, src/cleria/mouse): CURSOR.DDS (data\image\cursor.dds, the image
+    // table's entry 3) as one quad of back-buffer pixels, the triangle strip v0 v1 v2 / v2 v1 v3,
+    // white-modulated, alpha-blended (render state 0x41: SRCALPHA / INVSRCALPHA).
+    void cursor(Gpu& g, WGPUTextureView view, std::uint32_t sw, std::uint32_t sh, const mouse::Quad& q) {
+        W = float(sw); H = float(sh);
+        verts.clear(); batches.clear();
+        const WGPUBindGroup bind = bind_of(g, {TexRef::Named, 0, "CURSOR.DDS"});
+        if (!bind) return;
+        BookVertex b{};
+        b.d[0] = std::uint8_t(q.colour >> 16); b.d[1] = std::uint8_t(q.colour >> 8);
+        b.d[2] = std::uint8_t(q.colour); b.d[3] = std::uint8_t(q.colour >> 24);
+        batches.push_back({bind, 0, 0, false});
+        for (int i : {0, 1, 2, 2, 1, 3}) {
+            BookVertex v = b;
+            v.x = q.x[i] / W * 2.f - 1.f;
+            v.y = 1.f - q.y[i] / H * 2.f;
+            v.u = q.u[i]; v.v = q.v[i];
+            verts.push_back(v);
+            ++batches.back().count;
+        }
+        submit(g, view);
+    }
+
+    void submit(Gpu& g, WGPUTextureView view) {
         if (verts.empty()) return;
         const std::size_t bytes = verts.size() * sizeof(BookVertex);
         if (bytes > vbuf_cap) {
@@ -405,6 +432,17 @@ struct BookRenderer {
         wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
     }
 };
+
+// The cursor sprite over the finished 2D layers (key 0x02000000 in pass 15: above the HUD, the
+// windows, the book and the title; below the FPS text and the screen flashes, MOUSE.md §2.5). The field
+// look turns toward the cursor when no menu window is up and a player exists. Never while the shell
+// owns the input (it shows the OS pointer).
+static void draw_cursor(Gpu& g, BookRenderer& br, WGPUTextureView view, std::uint32_t w, std::uint32_t h,
+                        bool player) {
+    if (!g_cursor.queued() || g_cursor.colour == 0 || g_shell_focus) return;
+    const mouse::Quad q = mouse::cursor_quad(g_cursor, !g_cursor.menu && player, g_sdl_in.display());
+    br.cursor(g, view, w, h, q);
+}
 
 // The message box's face (WNDDIALOG_DRAW.md §2.5 step 3): face index k -> ani slot 154 + k ->
 // ANI/F_(200 + 10k).AIA; the frame (the Window_Msg op1) is composed onto the set's canvas, as

@@ -6,14 +6,17 @@
 //    Update FUN_005789a0, draw FUN_00578f80.
 // Both emit draw lists (menusprite.hpp) in authored 1024x768 units, x-anchor 2.
 //
-// [not modelled] the "hidden" toggle (dead in this build), the mouse, focus between several
-// dialogs (one dialog at a time is always focused), the language-0 indent.
+// The mouse (build/shell_re/MOUSE.md §5.1): GoWndDialog's hover (path A on the first interactive
+// tick in mouse mode, path B on cursor motion) and the click that confirms only over a row.
+// [not modelled] the "hidden" toggle (dead in this build), focus between several dialogs (one
+// dialog at a time is always focused), the language-0 indent.
 #pragma once
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "cleria/menusprite.hpp"
+#include "cleria/mouse.hpp"
 #include "cleria/richtext.hpp"
 
 namespace cleria {
@@ -25,6 +28,13 @@ struct WndInput {
     bool confirm_held = false, confirm_pressed = false;
     bool cancel_held = false, cancel_pressed = false, cancel_repeat = false;
     int vstep = 0;
+    // The mouse (MOUSE.md §5.1): the click edge 0x10000 (it confirms only with the hover flag), the
+    // cursor manager's moved 0x7325d8 / mouse-mode 0x7325d4, the record's RAW cursor ints and the
+    // display X() maps through.
+    bool click_pressed = false;
+    bool mouse_moved = false, mouse_mode = false;
+    int mx = 0, my = 0;
+    mouse::Display display;
 };
 
 class WndText {
@@ -76,6 +86,8 @@ class WndDialog {
     // The chosen record's label after a menu accept (copied to 0x75ad98), else empty.
     const std::string& chosen() const { return chosen_; }
     int chosen_index() const { return chosen_index_; }    // the accepted record (1-based), else -1
+    bool hover() const { return hover_; }                 // +0x1fd7: the pointer is over the cursor row
+    int cursor() const { return cursor_; }
     void update(const WndInput& in, std::vector<int>& sounds);
     void draw(DrawList& out) const;
     bool is_menu() const { return !treasure_; }
@@ -92,6 +104,8 @@ class WndDialog {
     float widest_ = 0;
     int item_ = -1;                                        // +0x1ff4
     int cursor_ = 1, cancel_ = -1;                         // +0x1ffc, +0x2004
+    bool hover_ = false;                                   // +0x1fd7
+    bool was_interactive_ = false;                         // +0x2008
     std::vector<std::string> texts_, labels_;
     std::vector<RichLayout> lay_;
     std::vector<float> rx_, ry_;                           // record offsets

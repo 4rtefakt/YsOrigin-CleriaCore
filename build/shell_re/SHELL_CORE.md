@@ -93,8 +93,12 @@ settings. `--config-test` requires `CLERIA_INI`.
   - `held`, `pressed`, `repeat`;
   - `dx` / `dy` (the menu auto-repeat steps);
   - `dir`, `angle`, `magnitude`;
-  - `stick_x` / `stick_y`, `wheel`;
+  - `stick_x` / `stick_y`, `wheel` (the raw ±120 delta);
+  - `x` / `y` (+0x00 / +0x04): the cursor through `mouse::cursor_from_client` (MOUSE.md §1.1), from
+    `Snapshot.cursor_x/y` (the client position in back-buffer pixels) and `Snapshot.display`;
   - `analog` (true when the angle is the stick's own).
+- The cursor, its sprite, click-to-move, the skill switch and the menu hit tests live in
+  `src/cleria/mouse.hpp` (build/shell_re/MOUSE.md §11).
 
 **Capturing a key for rebinding** (the overlay). From an SDL event:
 - `SDL_EVENT_KEY_DOWN`: the code is `input::dik_from_sdl_scancode(e.key.scancode)`. Refuse 0, or a
@@ -167,17 +171,16 @@ The CLERIA_DRIVE commands are unchanged and land alongside the mapper. Drive run
 - [H] Around `key=value`, spaces are trimmed.
 - [H] A relative `BaseDir` resolves against the install folder.
 - [not modelled]:
-  - the cursor's transform into 1024×768;
   - the per-bit press timestamps `0x7647b0[]`;
   - direction slots bound to codes ≥ 0x100 (retail reads the bytes behind the keyboard array);
   - MOUSE_DIR codes `0x104..0x106` (retail reads joystick bytes);
-  - the move-toward-cursor behaviour of `kMouseDir`;
-  - the mouse hover test for menu clicks (`kClick` is not a menu OK);
-  - the prev / next skill and Skill 1–3 bits: the bracelet switch is not wired, because its consumer in
-    FUN_00465170 is not traced;
   - the L/R tab step of the book;
   - rumble;
   - the actor flag 0x40000 that forces walk.
+
+Since 2026-10-06 (MOUSE.md §11) the cursor transform, click-to-move, the menu hover / click tests and the
+skill bits (the bracelet switch FUN_0046cb00 and its apply, traced) are modelled: Previous / Next Skill and
+Skill 1–3 now switch the bracelet from the keyboard and the pad as well as the wheel.
 
 ## 8. RE findings made while building this
 

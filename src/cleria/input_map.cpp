@@ -220,6 +220,11 @@ const Frame& Mapper::step(const Snapshot& s) {
     const std::uint32_t prev = cur_.held;   // the previous block's +0x20 (the edge reference)
     const std::uint32_t prev2 = held_prev2_; // the block being overwritten (two frames back)
     Frame f;
+    // The cursor [BYTES 0x5d2be8..0x5d2c55] and the wheel, copied raw [BYTES 0x5d2c58] (the caller
+    // zeroes its wheel after each snapshot, as the mapper zeroes 0x76479c).
+    const mouse::Point cur = mouse::cursor_from_client(s.cursor_x, s.cursor_y, s.display);
+    f.x = cur.x;
+    f.y = cur.y;
     f.wheel = s.wheel;
 
     // ---- the digital direction: slots 11..18, then the fixed arrows [BYTES 0x5d2c..0x5d2d] -------
@@ -346,7 +351,7 @@ const Frame& Mapper::step(const Snapshot& s) {
     }
     // Esc is fixed to the menu bit (DIK 1) [BYTES 0x5d3294].
     if (s.key[kDikEscape]) { held |= kMenu; if (!(prev & kMenu)) pressed |= kMenu; }
-    // [not modelled] the per-bit press timestamps 0x7647b0[] (timeGetTime) and the cursor transform.
+    // [not modelled] the per-bit press timestamps 0x7647b0[] (timeGetTime).
     f.held = held;
     f.pressed = pressed;
 

@@ -13,8 +13,14 @@
 // The Topic page (category menu, index sheets, datacard viewer, manual) and the Crystal's
 // warp map follow build/menu_re/PAUSEBOOK_DRAW_TOPIC_MAP.md (pausebook_topic.cpp).
 //
-// [not modelled] the title-side contexts (the title Load list's crash-backup box); the mouse; languages
-// other than English.
+// The mouse follows build/shell_re/MOUSE.md §5.3-§5.4: hover on cursor motion over the tab plaques,
+// the Equip / Item tiles, the Use popup, the Load / Save plates (+ the tabs on a click, the wheel and
+// its warp), the Load / Save / Delete buttons, the Option rows, its message boxes and the sliders'
+// drag, the warp map (+ the wheel and its warp) and Character Select (+ the wheel and its warp); a
+// click confirms only inside the selected item.
+// [not modelled] the title-side contexts (the title Load list's crash-backup box); the Topic pages'
+// mouse; the page-transition highlight 0x7440e0 (its input block and its warp); languages other than
+// English.
 #pragma once
 #include <array>
 #include <cstdint>
@@ -24,6 +30,7 @@
 
 #include "cleria/inventory.hpp"
 #include "cleria/menusprite.hpp"
+#include "cleria/mouse.hpp"
 #include "cleria/wnddialog.hpp"
 
 namespace cleria {
@@ -109,6 +116,15 @@ struct BookInput {
     int hstep = 0, vstep = 0;               // -1 / +1 (vstep +1 = down)
     bool confirm = false, cancel = false;   // pressed edges 0x2000 / 0x4000
     bool held_left = false, held_right = false;   // d-pad bits 2 / 4 held (the Option sliders)
+    // The mouse (MOUSE.md §5.3): the record's RAW cursor ints (+0x00 / +0x04; the hit point is the
+    // arrow tip, -16), the click edge and the held 0x10000 (the slider grab), the held MOUSE_DIR
+    // 0x1000, the cursor manager's moved 0x7325d8 (every hover gate) and mouse mode 0x7325d4, the
+    // wheel (+0x08; the dispatcher debounces it) and the display (the x-anchor-2 unprojection).
+    int mx = 0, my = 0;
+    bool click = false, click_held = false, dir_held = false;
+    bool moved = false, mouse_mode = false;
+    int wheel = 0;
+    mouse::Display display;
 };
 
 struct BookEvents {
@@ -122,6 +138,9 @@ struct BookEvents {
     int option_quit = -1;                   // Yes in a message box: 0 Return to Title, 1 Exit
     bool new_game = false;                  // Difficulty chosen: start a game with new_game_info
     NewGameInfo new_game_info;
+    // A cursor warp FUN_005d33f0(warp_x, warp_y, warp_mode) (record units; the host moves the pointer).
+    bool warp = false;
+    int warp_x = 0, warp_y = 0, warp_mode = 0;
 };
 
 class PauseBook {
@@ -241,6 +260,9 @@ class PauseBook {
     Dialog dlg_[3];
     // the Option page (0x73d4b0 ..)
     int ostate_ = 0, orow_ = 0, oenter_ = 0x0b;
+    bool odrag_[3] = {};                    // slider +0x14: the knob is grabbed
+    int odrag_off_[3] = {};                 // slider +0x18: knob.x - the grab's raw x
+    int wheel_db_ = 0;                      // 0x7d9be0: the dispatcher's wheel debounce
     MenuSprite orow_spr_[10], ocursor_, ocheck_[4], otrack_[3], oknob_[3];
     Dialog omsg_[2];                        // Return to Title / Exit (w_MsgBox)
     // Topic: the category menu (0x73eab8 ..)

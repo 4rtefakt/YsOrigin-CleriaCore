@@ -68,6 +68,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/save.cpp
   src/cleria/world.cpp
   src/cleria/input_map.cpp
+  src/cleria/mouse.cpp
   src/cleria/settings.cpp
   src/cleria/ni_archive.cpp
   src/cleria/gamedata.cpp)
@@ -175,6 +176,11 @@ target_link_libraries(cleria-settingstest PRIVATE cleria)
 # cleria-inputtest — the binding tables and the mapper FUN_005d2ba0 vs build/shell_re/CONFIG.md §3.
 add_executable(cleria-inputtest apps/cleria-inputtest/main.cpp)
 target_link_libraries(cleria-inputtest PRIVATE cleria)
+
+# cleria-mousetest — the cursor transform, the cursor manager, the sprite, click-to-move, the skill
+# wheel and the menu hit tests (src/cleria/mouse.hpp) vs build/shell_re/MOUSE.md.
+add_executable(cleria-mousetest apps/cleria-mousetest/main.cpp)
+target_link_libraries(cleria-mousetest PRIVATE cleria)
 
 # cleria-aitest — enemy AI machinery + the M100 brain (src/cleria/enemy_ai.hpp).
 add_executable(cleria-aitest apps/cleria-aitest/main.cpp)
@@ -308,7 +314,7 @@ else()
 endif()
 set(CLERIA_TEST_ASSETS "${_cleria_assets_default}" CACHE PATH "Asset root the ctest suite runs on")
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest gamedatatest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

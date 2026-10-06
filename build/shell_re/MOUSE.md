@@ -725,7 +725,7 @@ the cursor manager, the menus, the shop and the book].
 
 ---
 
-## 7. What CleriaCore does today (2026-10-06 working tree)
+## 7. What CleriaCore did before the port (2026-10-06 working tree; superseded by §11)
 
 - `apps/cleria-view/view_input.inl` `SdlInput`:
   - feeds **only the mouse buttons** (`SDL_GetMouseState` button mask, plus sub-tick taps) and the
@@ -812,6 +812,9 @@ the cursor manager, the menus, the shop and the book].
 
 ## 9. Corrections to CONFIG.md §3
 
+**Applied 2026-10-06** with the port (§11): CONFIG.md §2.3 / §3.1 / §3.4, TOPIC_LAYOUT.md §4.1,
+WINDOW_UI.md (four places) and MOVEMENT_GAPS.md 5a now say what is below.
+
 - §3.1 lists `lX, lY, lZ` as the mouse state. **The cursor is `GetCursorPos`**, and `lX/lY/lZ`
   are never read. The wheel is `WM_MOUSEWHEEL`, not `lZ`. [EXPORT globals.tsv, `FUN_0040efb0`]
 - §3.4 "cursor x / y in 1024×768 space": it is an **over-scanned** 1024×768 space,
@@ -853,3 +856,84 @@ Other docs:
     disassembly (0x5bb1f9..) before porting the transition warp.
 11. **The `+0x515` angle gate in `FUN_0046f980`** compares `rec.angle`, not the cursor angle, with
     `+0x308`. Its effect on mouse steering after a turn-in-place is untested.
+
+Answered while porting (§11.2): 4 (`+0x230` is the smoothed floor + h), 10 is still open (CleriaCore has
+no transition highlight), the spawn yaw's source (§4.3) is the placed heading.
+
+---
+
+## 11. The CleriaCore port (2026-10-06)
+
+### 11.1 What is implemented
+
+| Piece | Where | Provenance |
+|---|---|---|
+| The cursor transform and the warp (§1.1, §1.3), the windowed x quirk, `A`, `FUN_005d3be0(0, 2, ·)`, `FUN_0057b3c0` | `src/cleria/mouse.cpp` `cursor_from_client` / `client_from_cursor` / `aspect` / `pillar_x` / `pillar_inv` | [BYTES 0x5d2be8..0x5d2c55, 0x5d3be0..0x5d3e20; EXPORT FUN_005d33f0, FUN_005d62b0, FUN_005d3ab0, FUN_0057b3c0] |
+| `Frame.x/y` (+0x00/+0x04), the raw ±120 wheel (last event wins) | `input_map` (`Snapshot.cursor_x/y`, `Snapshot.display`); `view_input.inl` `SdlInput` | [BYTES 0x5d2c58] |
+| The cursor manager (§3): motion, mouse mode, the idle hide, the demo hide, the arrow channel, the fades and the colour trick, the clamp/scale copy (`FUN_00426e30`) | `CursorState::step` / `place`, `fade_colour` | [BYTES 0x4263c0..0x426bb6, 0x426e30..0x426f12] |
+| The field arrow's angle with the 2 / 2.721 weights (§2.4) and the FUN_00473540 point | `draw_angle`, `shadow_y` | [BYTES 0x4267ab..0x426818, 0x473907..0x473962] |
+| Click-to-move (§4.1): the anchor height, the angle, the 0.25 stop, the 2-tick carry, the 8 / 4-way bits from the screen centre | `CursorState::step`, `steer_anchor_y`, `steer_bits` | [BYTES 0x42681e..0x426b53] |
+| The sprite (§2.2): CURSOR.DDS 36-texel crop, transposed, 23×23 at −15..+8, rotated in the field, squared at A ≠ 1 | `cursor_quad`; drawn by `BookRenderer::cursor` / `draw_cursor` (view_book.inl) | [BYTES 0x426f20..0x427297, table 0x6981e4] |
+| The spawn warp (§4.3) | `spawn_cursor`; `transition` in view_game.inl | [BYTES 0x426bc0..0x426c64, 0x4340df..0x4340f2] |
+| The skill switch: the wheel (/120, 15-tick cooldown), Previous / Next Skill, Skill 1–3, and the apply | `SkillSwitch` (FUN_0046cb00); the apply in the view's mover | [BYTES 0x465a56..0x465b31, 0x46cb00..0x46cc0c, 0x4652ca..0x465377] |
+| The double-click lunge (§4.2): state 4, the 12-tick window, 0x112 toward the cursor, jump suppressed | `PlayerActions` (`In::mouse_mode / double_click / mouse_angle`) | [BYTES 0x465643..0x4656d6; EXPORT FUN_00465170 l.333-355] |
+| The mouse-mode mover angle (`0x7325fc` instead of `+0x18`) | view_game.inl, the mover's wish | [BYTES 0x46f9fb..0x46fa12] |
+| GoWndDialog (§5.1): path A (the first interactive tick in mouse mode), path B (motion, the left gate), the `X()` band, confirm = OK or click with hover, the item-get box's forced hover | `wnddialog` (`WndInput` mouse fields), `mouse::wnddialog_row`; the title list, script menus, the game-over menu, the Character-Select popups | [BYTES 0x578a0e..0x578af1, 0x578b30..0x578c22, 0x578d1d..0x578e90] |
+| The pause book (§5.3/§5.4): the shared hit `FUN_005a4760` at the tip; the dispatcher's wheel debounce; hover + click-inside-selected for the tab plaques (0..4), Equip (22 tiles), Item (30 tiles), the Use popup, the Save / Load plates (+ the tabs on a click, the wheel and its warp), the Load / Save / Delete buttons, the Option rows, the Option message boxes, the sliders' drag (raw x) and their key gate, the warp map (+ the wheel and its warp), Character Select (+ the wheel and the ungated warp) | `pausebook.cpp` (`BookInput` mouse fields, `BookEvents::warp`) | [EXPORT FUN_005a68f0, 5a8030, 5aa370, 5abd10, 5b5100, 5b6eb0, 5b7cc0, 5b6220, 5ba2b0, 5b8d40, 5b9480, 5c3790; BYTES 0x5a524f..0x5a5291, 0x5a7060..0x5a7075, 0x5b5841..0x5b589c, 0x5b948c..0x5b96e7] |
+| The book's open/close warp (the saved point, mode 2) | view_game.inl (`book_pt`, `tbook_pt`) | [BYTES 0x5a4bdf..0x5a4c2d] |
+| The OS pointer hidden over the client while the game owns the input; shown by the shell (ImGui) | `sync_os_cursor` (view_input.inl) | [EXPORT FUN_0040efb0 WM_SETCURSOR] |
+
+**View wiring (apps/cleria-view):** each loop (the title, the book, the game tick) steps the cursor manager
+right after `input_tick`. The game tick passes a copy of the record (`pin`) that only the player's mover
+reads, as FUN_004106e0 restores the record around the object ticks. The sprite is drawn after the
+game-over menu and before the shell; the title draws it after its fader. Warps go through
+`SDL_WarpMouseInWindow`, only while the window has the input focus [H]. `CLERIA_DRIVE` runs never read the
+real mouse: a virtual pointer and buttons, driven by `mouse=X,Y` (record units), `click`, `rclick`,
+`mhold` / `mrelease`, `wheel=n`, and printed by `cursor`. Tests: `cleria-mousetest` (and `cleria-inputtest`,
+`cleria-wndtest`, `cleria-booktest`, `cleria-actiontest` still pass).
+
+**Hand-chosen [H] and not modelled:**
+- [H] The first cursor step takes the pointer as it is (retail's `0x73265c` starts at 0, so its first frame
+  reads as motion).
+- [H] `+0x230` (the 0.15-smoothed floor + h) is taken unsmoothed: the floor under the player + h.
+- [H] The world → back-buffer matrix `0x796170` is the view's last frame's view-projection.
+- [H] The spawn warp's θ is CleriaCore's facing heading `atan2(face_dir.z, face_dir.x)`.
+- [H] The sprite is drawn after the CrossFade capture (no ghost cursor in a dissolve).
+- [H] `FUN_005e4100`: the port takes `floor(v·s)` and drops D3D9's −0.5 half-pixel shift, as the book
+  renderer does; its two other modes (§11.2) are not modelled.
+- [H] Character Select's hover skips the bars past CleriaCore's own row limit (Toal still locked).
+- [not modelled] the TA/Arena list (§5.2), the Bonus Shop (§5.4; not ported), the Topic pages' mouse, the
+  page-transition highlight `0x7440e0` (its input block and its warp; CleriaCore has none), the
+  `0x76b914 |= 0x20` bit and the `+0x6fc / +0x708 / 0x76c134` resets of the bracelet apply,
+  `param_3 = 1` of the mouse-mode mover call, `StretchAspect`, the `ShowFPS` layer above the cursor.
+
+### 11.2 RE findings made while porting (re-read from the bytes)
+
+1. **`0x7325fc` first takes the centre angle.** Each tick with alpha ≠ 0, before the player angle,
+   `0x7325fc = atan2(−(Y − 360), X − 512)` with **no weights** [BYTES 0x42670a..0x42679c]. The player angle
+   overwrites it only when there is a controlled player, a finite projection, d² ≠ 0 and colour ≠ 0. So in a
+   menu, or with no player, the double-click lunge would aim from the screen centre.
+2. **The steer writes the previous `0x7325fc`** when d² = 0 or colour = 0 [BYTES 0x426a40..0x426a56]; the
+   4-way table is taken whenever `0x7035c0 ≠ 8` (`cmp [0x7035c0], 8`) [BYTES 0x426ac6].
+3. **`+0x230` is the 0.15-smoothed `floor + h`** (engine_arch C15, MOVER.md), so `base` is the camera's look
+   point and the click-to-move anchor is **`floor + 2h − 2.0` ≈ the feet + 0.15** when grounded (§10 Q4).
+4. **The spawn yaw** passed to `FUN_00426bc0` is `xmm1 = [ebp−0x10]`, the placed heading: the continue
+   snapshot's `0x76a3ac` (+0x314) or the placement's own [BYTES 0x4340b6..0x4340f2].
+5. **`FUN_0046cb00` (the skill request), fully:** with no bracelet (`0x76a630 == −1`) it requests 0x74 when
+   owned. Otherwise the wheel's `trunc(wheel/120)` sign, or the pressed bits 0x40 (+1) / 0x80 (−1), step
+   0x74..0x76 with wrap (0xff → 0x74 going up, 0x76 going down). An unowned step re-enters the loop with
+   ±1, which truncates to 0 and falls to the **bits**: the keyboard keeps stepping and so skips unowned
+   bracelets, but **a wheel step cannot** (it lands on the Skill-1 path: 0x74, or none). Skill 1/2/3
+   (0x100 / 0x200 / 0x400) request 0x74 / 0x75 / 0x76, or −1 (= no request) if unowned. A request equal to
+   the current bracelet is not made [BYTES 0x46cb00..0x46cc0c]. §4.3's "skipping unowned ones" holds for
+   the keys only.
+6. **The bracelet apply** [BYTES 0x4652ca..0x465377]: a request `+0x518 ≠ −1` lands when `+0x9d0` (Actable),
+   or `+0x9d0 && !+0x39a && !busy`, or (`+0x6f4` a buffered attack and `+0x9d2` Cancelable); 0x74..0x76 / 0x77
+   (→ 0xff) are written to `0x76a630`, the combo stage `+0x6f0` and `+0x6f4/+0x6f5` reset, SE **0xa**,
+   `0x76b914 |= 0x20`; the request clears either way. It runs near the top of FUN_00465170, so a request
+   lands on a later tick.
+7. **`FUN_005e4100` has three modes**: with `0x765552` clear, `floor(v) − 0.5` (no scale); with it set and the
+   scale `0x745fdc` > 1, `v·s` unfloored; else `floor(v·s) − 0.5` [EXPORT FUN_005e4100].
+8. **The book's slider grab** tests the held 0x10000 (`+0x20`), and the value uses the RAW x with the grab
+   offset `knob.x − rawX`; the keys move ±max/128 only when `!(held & 0x1000) && !mouse mode` [BYTES
+   0x5b948c..0x5b96e7] (§5.4 confirmed).

@@ -12,6 +12,8 @@
 #include <string>
 #include <string_view>
 
+#include "cleria/mouse.hpp"
+
 namespace cleria::input {
 
 // ---- the slots [BYTES names 0x68f210, stride 8] ------------------------------------------------
@@ -92,7 +94,14 @@ std::optional<Code> pad_code_from_sdl_name(std::string_view name);
 struct Snapshot {
     std::array<bool, 256> key{};    // DIK-indexed, true = down (retail tests the 0x80 bit)
     bool mouse[5] = {};             // L, R, M, X1, X2 (DIMOUSESTATE.rgbButtons[0..3] + X2)
-    int wheel = 0;                  // passed through to Frame::wheel [not modelled: its consumer]
+    // The raw WM_MOUSEWHEEL delta (short)HIWORD(wParam): +-120 per notch, the LAST message of the
+    // frame (0x76479c), not a sum [BYTES 0x5d2c58, EXPORT FUN_0040efb0 msg 0x20a]. The skill switch
+    // needs |wheel| >= 120 (mouse.hpp SkillSwitch); the menus read only its sign.
+    int wheel = 0;
+    // The cursor: GetCursorPos. CleriaCore passes the client-area position in back-buffer pixels and
+    // the display it maps through (mouse::cursor_from_client, MOUSE.md §1.1).
+    int cursor_x = 0, cursor_y = 0;
+    mouse::Display display;
     bool pad_present = false;       // 0x764b94: a joystick was opened
     int lx = 0, ly = 0, rx = 0, ry = 0;   // DIJOYSTATE lX/lY/lRx/lRy, +-1024, y down positive
     std::int32_t pov = -1;          // POV[0] in hundredths of a degree (0 = up), -1 = centred
@@ -117,6 +126,7 @@ struct Config {
 
 // The 0x34-byte output record (CONFIG.md §3.4).
 struct Frame {
+    int x = 0, y = 0;            // +0x00 / +0x04: the cursor in the over-scanned 1024x768 space
     std::uint32_t held = 0;      // +0x20
     std::uint32_t pressed = 0;   // +0x24 (rising edge vs the previous frame's held)
     std::uint32_t repeat = 0;    // +0x28 (= held on an auto-repeat frame)

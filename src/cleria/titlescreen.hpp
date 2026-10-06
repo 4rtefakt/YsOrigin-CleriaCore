@@ -6,7 +6,7 @@
 // book with ctx 4, Load Game ctx 2, Options ctx 3.
 //
 // [not modelled] the Time Attack / Arena overlays and their shade channels (the logo stays
-// white), the Steam achievements overlay, the mouse.
+// white), the Steam achievements overlay. The mouse is GoWndDialog's (wnddialog.hpp, MOUSE.md §5.1).
 #pragma once
 #include <vector>
 

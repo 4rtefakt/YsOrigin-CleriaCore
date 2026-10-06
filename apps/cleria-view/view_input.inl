@@ -86,9 +86,77 @@ struct SdlInput {
     SDL_Gamepad* pad = nullptr;
     std::array<bool, 256> tapped{};   // keys that went down since the last snapshot (a sub-tick tap
     bool mouse_tapped[5] = {};        // still reads as held for one tick) [H, CleriaCore]
+    // The raw WM_MOUSEWHEEL delta: +-120 a notch, the LAST event of the tick wins (0x76479c is
+    // overwritten per message, not summed) [BYTES 0x5d2c58; MOUSE.md §1.1]. SDL's float y is the
+    // delta / WHEEL_DELTA, so x 120 restores it.
     int wheel = 0;
     // The shell overlay owns the input: the game sees nothing pressed (and the taps are dropped).
     bool suppressed = false;
+    // The pointer (MOUSE.md §1): retail reads GetCursorPos. The view sets the window and the back-buffer
+    // size (the swapchain) each frame. A CLERIA_DRIVE run never reads the real mouse: its pointer and
+    // its buttons are virtual (the drive's mouse= / click / mhold / mrelease / wheel=), so a drive
+    // behaves the same whatever the user's mouse does.
+    SDL_Window* win = nullptr;
+    int bb_w = 1024, bb_h = 768;
+    bool windowed = true;
+    bool virtual_ptr = false;
+    int ptr_x = 0, ptr_y = 0;         // the virtual pointer, client px in back-buffer space
+    bool vbtn[3] = {}, vtap[3] = {};  // the virtual L / R / M (held, one-tick tap)
+    int vwheel = 0;
+    int last_cx = 0, last_cy = 0;     // the last real pointer (kept while the shell owns the input)
+
+    // The display the cursor maps through: the swapchain, and in windowed mode the client origin on
+    // the desktop (FUN_005d62b0's ClientToScreen: retail's x quirk, MOUSE.md §1.1).
+    mouse::Display display() const {
+        mouse::Display d;
+        d.bb_w = bb_w; d.bb_h = bb_h;
+        d.windowed = windowed && !virtual_ptr && win;
+        if (d.windowed) {
+            int wx = 0, wy = 0, ww = 0, wh = 0;
+            SDL_GetWindowPosition(win, &wx, &wy);
+            SDL_GetWindowSize(win, &ww, &wh);
+            d.origin_x = ww > 0 ? wx * bb_w / ww : wx;
+            d.origin_y = wh > 0 ? wy * bb_h / wh : wy;
+        }
+        return d;
+    }
+    // The pointer in client pixels of the back buffer: the desktop position (GetCursorPos also
+    // tracks it outside the window) minus the window's client origin, scaled to the swapchain.
+    void pointer(int* cx, int* cy) {
+        if (virtual_ptr) { *cx = ptr_x; *cy = ptr_y; return; }
+        if (!win) { *cx = last_cx; *cy = last_cy; return; }
+        float gx = 0, gy = 0;
+        SDL_GetGlobalMouseState(&gx, &gy);
+        int wx = 0, wy = 0, ww = 0, wh = 0;
+        SDL_GetWindowPosition(win, &wx, &wy);
+        SDL_GetWindowSize(win, &ww, &wh);
+        *cx = ww > 0 ? int(std::floor((gx - float(wx)) * float(bb_w) / float(ww))) : int(gx);
+        *cy = wh > 0 ? int(std::floor((gy - float(wy)) * float(bb_h) / float(wh))) : int(gy);
+    }
+    // FUN_005d33f0's SetCursorPos: move the pointer so the record reads (X, Y) (mode 0 full-width,
+    // 2 = the pillarboxed 4:3 field). [H] the real pointer moves only while the window has the input
+    // focus (CleriaCore never pulls the pointer of a background window).
+    void warp(int X, int Y, int mode) {
+        const mouse::Point c = mouse::client_from_cursor(X, Y, mode, display());
+        if (virtual_ptr) { ptr_x = c.x; ptr_y = c.y; return; }
+        if (!win || !(SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS)) return;
+        int ww = 0, wh = 0;
+        SDL_GetWindowSize(win, &ww, &wh);
+        SDL_WarpMouseInWindow(win, float(c.x) * float(ww) / float(bb_w), float(c.y) * float(wh) / float(bb_h));
+    }
+    // A drive's mouse=X,Y: the virtual pointer at a client pixel the transform maps to exactly (X, Y)
+    // (searched around the inverse; the gains make some units unreachable, then the nearest).
+    void place_virtual(int X, int Y) {
+        const mouse::Display d = display();
+        const mouse::Point c = mouse::client_from_cursor(X, Y, 0, d);
+        int best = 1 << 30;
+        for (int dy = -3; dy <= 3; ++dy)
+            for (int dx = -3; dx <= 3; ++dx) {
+                const mouse::Point r = mouse::cursor_from_client(c.x + dx, c.y + dy, d);
+                const int e = std::abs(r.x - X) + std::abs(r.y - Y);
+                if (e < best) { best = e; ptr_x = c.x + dx; ptr_y = c.y + dy; }
+            }
+    }
 
     static const std::array<std::uint8_t, SDL_SCANCODE_COUNT>& dik_of() {
         static const auto t = [] {
@@ -120,7 +188,8 @@ struct SdlInput {
             static constexpr int kIdx[6] = {-1, 0, 2, 1, 3, 4};   // SDL 1 L, 2 M, 3 R, 4 X1, 5 X2
             if (e.button.button >= 1 && e.button.button <= 5) mouse_tapped[kIdx[e.button.button]] = true;
         } else if (e.type == SDL_EVENT_MOUSE_WHEEL) {
-            wheel += int(e.wheel.y);
+            const float y = e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -e.wheel.y : e.wheel.y;
+            wheel = int(std::lround(y * 120.0f));
         } else if (e.type == SDL_EVENT_GAMEPAD_ADDED) {
             open_pad();
         } else if (e.type == SDL_EVENT_GAMEPAD_REMOVED) {
@@ -133,7 +202,15 @@ struct SdlInput {
     }
     input::Snapshot snapshot() {
         input::Snapshot s;
-        if (suppressed) { tapped = {}; for (bool& m : mouse_tapped) m = false; wheel = 0; return s; }
+        s.display = display();
+        if (suppressed) {
+            tapped = {}; for (bool& m : mouse_tapped) m = false; wheel = 0; vwheel = 0;
+            for (bool& t : vtap) t = false;
+            s.cursor_x = last_cx; s.cursor_y = last_cy;   // the pointer stays put for the game
+            return s;
+        }
+        pointer(&s.cursor_x, &s.cursor_y);
+        last_cx = s.cursor_x; last_cy = s.cursor_y;
         int n = 0;
         const bool* ks = SDL_GetKeyboardState(&n);
         const auto& dk = dik_of();
@@ -141,11 +218,17 @@ struct SdlInput {
             if (ks[sc] && dk[std::size_t(sc)]) s.key[dk[std::size_t(sc)]] = true;
         for (int d = 0; d < 256; ++d) s.key[std::size_t(d)] = s.key[std::size_t(d)] || tapped[std::size_t(d)];
         s.key[input::kDikF1] = false;   // F1 = the shell overlay, never a game key
-        const SDL_MouseButtonFlags mb = SDL_GetMouseState(nullptr, nullptr);
-        const SDL_MouseButtonFlags mm[5] = {SDL_BUTTON_LMASK, SDL_BUTTON_RMASK, SDL_BUTTON_MMASK,
-                                            SDL_BUTTON_X1MASK, SDL_BUTTON_X2MASK};
-        for (int i = 0; i < 5; ++i) s.mouse[i] = (mb & mm[i]) != 0 || mouse_tapped[i];
-        s.wheel = wheel;
+        if (virtual_ptr) {
+            for (int i = 0; i < 3; ++i) { s.mouse[i] = vbtn[i] || vtap[i]; vtap[i] = false; }
+            s.wheel = vwheel;
+            vwheel = 0;
+        } else {
+            const SDL_MouseButtonFlags mb = SDL_GetMouseState(nullptr, nullptr);
+            const SDL_MouseButtonFlags mm[5] = {SDL_BUTTON_LMASK, SDL_BUTTON_RMASK, SDL_BUTTON_MMASK,
+                                                SDL_BUTTON_X1MASK, SDL_BUTTON_X2MASK};
+            for (int i = 0; i < 5; ++i) s.mouse[i] = (mb & mm[i]) != 0 || mouse_tapped[i];
+            s.wheel = wheel;
+        }
         if (pad) {
             s.pad_present = true;
             // SDL's -32768..32767 to DInput's DIPROP_RANGE -1024..1024 [H: linear, as DInput scales].
@@ -198,4 +281,51 @@ static const input::Frame& input_tick(bool book_mode = false) {
     }
     g_in = g_mapper.step(g_sdl_in.snapshot());
     return g_in;
+}
+
+// ---- the game cursor: the cursor manager FUN_004263c0 (src/cleria/mouse, MOUSE.md §2-§5) -------------
+static mouse::CursorState g_cursor;
+static bool g_cursor_primed = false;
+// One cursor-manager step on `rec` (the mapper's record or the player's private copy of it). Call once
+// per logic tick after input_tick, BEFORE the player tick. Returns true when click-to-move wrote rec.
+static bool cursor_tick(input::Frame& rec, const mouse::Context& c) {
+    // [H, CleriaCore] the first step takes the pointer as it is: retail's prev (0x73265c) starts at 0,
+    // so its first frame reads as motion; here a boot or a drive starts with the cursor still.
+    if (!g_cursor_primed) { g_cursor.prev_x = rec.x; g_cursor.prev_y = rec.y; g_cursor_primed = true; }
+    return g_cursor.step(rec, c, g_sdl_in.display());
+}
+// FUN_005d33f0: the pointer to record (X, Y); the record and the cursor's float copy follow at once
+// (every caller also writes 0x73261c / 0x732620), so the sprite jumps the same tick.
+static void cursor_warp(int X, int Y, int mode) {
+    g_sdl_in.warp(X, Y, mode);
+    g_in.x = X; g_in.y = Y;
+    g_cursor.fx = float(X); g_cursor.fy = float(Y);
+    g_cursor.place(g_sdl_in.display());
+}
+// The windows' and the book's mouse inputs from this tick's record and the cursor manager.
+static void wnd_mouse(WndInput& w) {
+    w.click_pressed = (g_in.pressed & input::kClick) != 0;
+    w.mouse_moved = g_cursor.moved;
+    w.mouse_mode = g_cursor.mouse_mode;
+    w.mx = g_in.x; w.my = g_in.y;
+    w.display = g_sdl_in.display();
+}
+static void book_mouse(BookInput& b) {
+    b.mx = g_in.x; b.my = g_in.y;
+    b.click = (g_in.pressed & input::kClick) != 0;
+    b.click_held = (g_in.held & input::kClick) != 0;
+    b.dir_held = (g_in.held & input::kMouseDir) != 0;
+    b.moved = g_cursor.moved;
+    b.mouse_mode = g_cursor.mouse_mode;
+    b.wheel = g_in.wheel;
+    b.display = g_sdl_in.display();
+}
+// The OS pointer over the client area (retail's WM_SETCURSOR -> SetCursor(NULL)): hidden while the
+// game owns the input; the shell (ImGui) shows and shapes it itself while it is up. A drive run
+// leaves the user's pointer alone.
+static void sync_os_cursor() {
+    static bool hidden = false;
+    if (g_sdl_in.virtual_ptr) return;
+    if (g_shell_focus) { hidden = false; return; }   // ImGui_ImplSDL3 calls SDL_ShowCursor itself
+    if (!hidden || SDL_CursorVisible()) { SDL_HideCursor(); hidden = true; }
 }

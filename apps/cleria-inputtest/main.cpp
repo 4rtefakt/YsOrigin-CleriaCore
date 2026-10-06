@@ -292,6 +292,30 @@ int main() {
         check(m.step(s).dir == 0, "no pad opened: no stick");
     }
 
+    // ---- the cursor (+0x00 / +0x04) and the wheel (+0x08) [BYTES 0x5d2be8..0x5d2c58; MOUSE.md §1.1] ----
+    {
+        Mapper m = fresh(preset1());
+        Snapshot s;
+        s.display.bb_w = 1024; s.display.bb_h = 768;
+        s.cursor_x = 0; s.cursor_y = 0;
+        Frame f = m.step(s);
+        check(f.x == -48 && f.y == 0, "the cursor: client (0, 0) -> record (-48, 0) (the over-scanned x)");
+        s.cursor_x = 1024; s.cursor_y = 768;
+        f = m.step(s);
+        check(f.x == 1072 && f.y == 864, "client (1024, 768) -> (1072, 864): gains 1.09375 / 1.125");
+        s.display.windowed = true; s.display.origin_x = 64; s.display.origin_y = 32;
+        s.cursor_x = 512; s.cursor_y = 384;
+        f = m.step(s);
+        check(f.x == 506 && f.y == 432, "windowed at x 64: the centre reads 6 units left (retail's quirk)");
+        s = Snapshot{};
+        s.wheel = 120;
+        check(m.step(s).wheel == 120, "the wheel is the raw delta (+120 a notch away), not notches");
+        s.wheel = -240;
+        check(m.step(s).wheel == -240, "two notches toward you in one message: -240 (the skill switch takes the sign)");
+        s.wheel = 0;
+        check(m.step(s).wheel == 0, "no message: 0 (the caller zeroes it after each snapshot)");
+    }
+
     std::printf("%s (%d failure%s)\n", fails ? "FAILED" : "all passed", fails, fails == 1 ? "" : "s");
     return fails ? 1 : 0;
 }
