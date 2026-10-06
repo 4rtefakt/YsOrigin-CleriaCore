@@ -513,6 +513,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int splash_cd = 0;                     // +0x4c3: the splash cooldown
     Oxygen oxy;
     float drown_acc = 0.0f;
+    SurfaceHazard hazard;                  // FUN_00462550's floor / noise counters (+0x4c8 / +0x810)
+    float hazard_acc = 0.0f;
     bool jump_prev = false;                // the jump button last tick (+0x50c is the pressed mask)
     auto room_entry_flags = [&](const std::string& scene) {
         std::string up = scene;
@@ -4077,6 +4079,33 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             std::printf("  [plate] %s -> %s\n", t.name.c_str(), stem.c_str());
                     }
                 }
+            {   // FUN_00462550: lava / blood floors and the S_3009 noise drain (src/cleria/hazard.hpp).
+                SurfaceHazard::In hz;
+                hz.surface = cur_surface;
+                hz.noise = game.g_flags[290] != 0;
+                hz.iframes = player_iframes > 0;
+                hz.grounded = grounded;
+                hz.submerged = submerged;
+                hz.character = character;
+                hz.boosting = player.boosting;
+                hz.difficulty = difficulty >= 2 ? difficulty - 2 : 0;
+                hz.easy = game.g_flags[143] != 0;
+                hz.blessing2 = (game.g_flags[217] & 2) != 0;
+                hz.acc_lava = (inv.equip_flags & 0x2000u) != 0;
+                hz.acc_blood = (inv.equip_flags & 0x4000000u) != 0;
+                hz.max_hp = float(player.max_hp);
+                const float hd = hazard.tick(hz);
+                if (std::getenv("CLERIA_HAZ") && tick_count % 50 == 0) std::printf("  [haz] surf %d noise %d if %d g %d t %u hd %.2f\n", hz.surface, int(hz.noise), int(hz.iframes), int(hz.grounded), unsigned(hazard.t), hd);
+                if (hd > 0.0f && player.hp > 0) {
+                    hazard_acc += hd;                           // [approx] the view's HP is an int
+                    const int n = int(hazard_acc);
+                    hazard_acc -= float(n);
+                    player.hp = std::max(0, player.hp - n);
+                    // FUN_004fae00(0xffa000a0): the damage popup.
+                    if (n > 0 && popups.size() < 32)
+                        popups.push_back(make_popup(std::to_string(n), 0xa000a0, 1.0f, {feet.x, feet.y + kOriginH + 0.5f, feet.z}));
+                }
+            }
             // FUN_00462550: holding the powered Evil Ring (held 0x5e with count[93] == 1) is -9999 HP
             // every tick unless the Blue Necklace (equip bit 0x20000) is on (KEY_ITEMS.md §3.6).
             // [not modelled] its 9999 popup and effect.

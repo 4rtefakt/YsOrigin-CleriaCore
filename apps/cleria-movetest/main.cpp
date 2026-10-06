@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "cleria/enemy_mover.hpp"
+#include "cleria/hazard.hpp"
 #include "cleria/oxygen.hpp"
 #include "cleria/physics_player.hpp"
 
@@ -183,6 +184,31 @@ int main() {
         while (r.alpha != 0) { r.tick(false, 0, false, false, 600.0f); ++fade; }
         r.o2 = 100.0f; r.tick(false, 0, false, false, 600.0f);
         check(fade == 51 && r.o2 == Oxygen::kMax, "the gauge fades over 51 ticks, then snaps to full");
+    }
+
+    {   // Floor hazards and the noise drain (FUN_00462550, src/cleria/hazard.hpp).
+        SurfaceHazard h;
+        SurfaceHazard::In in; in.surface = 0x0d; in.grounded = true; in.max_hp = 100;
+        float total = 0; int hits = 0;
+        for (int k = 0; k < 30; ++k) { const float d = h.tick(in); total += d; hits += d > 0; }
+        check(hits == 3 && near(total, 9.0f), "lava, Normal: 3 HP every 10 ticks while grounded");
+        SurfaceHazard e; in.easy = true;
+        check(near(e.tick(in), 1.0f), "lava on Easy: 1 HP");
+        in.easy = false;
+        SurfaceHazard air; in.grounded = false;
+        float a2 = 0; for (int k = 0; k < 30; ++k) a2 += air.tick(in);
+        check(a2 == 0.0f && air.t == 30, "lava while airborne: no damage, the counter still runs");
+        SurfaceHazard iv; in.grounded = true; in.iframes = true;
+        check(iv.tick(in) == 0.0f && iv.t == 0, "i-frames: the block is skipped, the counter holds");
+        SurfaceHazard n; SurfaceHazard::In ni; ni.noise = true; ni.max_hp = 200;
+        int nh = 0; for (int k = 0; k < 1000; ++k) nh += n.tick(ni) > 0.0f;
+        check(nh == 20, "noise: maxHP x 0.05 every 50 ticks for the first 1000 ticks");
+        for (int k = 0; k < 4000; ++k) n.tick(ni);
+        int fast = 0; for (int k = 0; k < 100; ++k) fast += n.tick(ni) > 0.0f;
+        check(fast == 100, "noise past 60 counts: every tick");
+        SurfaceHazard tl; ni.character = 3; ni.boosting = true;
+        int th = 0; float tv = 0; for (int k = 0; k < 900; ++k) { const float d = tl.tick(ni); th += d > 0; tv = d > 0 ? d : tv; }
+        check(th == 3 && near(tv, 1.0f), "noise, Toal boosting: 1 HP every 300 ticks");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

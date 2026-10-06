@@ -81,6 +81,7 @@
 #include "cleria/camrig.hpp"
 #include "cleria/skillmp.hpp"
 #include "cleria/oxygen.hpp"
+#include "cleria/hazard.hpp"
 #include "cleria/ymo.hpp"
 #include <ctime>
 #include <optional>
