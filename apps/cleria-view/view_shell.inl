@@ -77,8 +77,47 @@ struct Shell {
     // Feed one SDL event. Returns true when the shell consumed it (the game must not see it): the
     // F1 toggle, and every input event while the panel or the launcher owns the screen. Window /
     // quit events always pass through.
+    // Rebinding: the next raw input of the asked kind (Configure Inputs). Esc cancels, Delete /
+    // Backspace unbinds; F1 is never captured (input::bindable).
+    struct Capture {
+        enum Kind { Key, Mouse, Pad } kind = Key;
+        int slot = -1;
+        bool active = false, done = false, cancelled = false, cleared = false;
+        int value = 0;            // an SDL scancode / mouse button / gamepad button (or kSdl*Trigger)
+        std::string label;        // the action being bound, for the prompt
+        void start(Kind k, int s, const std::string& what) {
+            *this = Capture{}; kind = k; slot = s; label = what; active = true;
+        }
+    } capture;
+
+    bool capture_event(const SDL_Event& e) {
+        auto finish = [&](int v) { capture.value = v; capture.active = false; capture.done = true; };
+        if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
+            if (e.key.key == SDLK_ESCAPE) { capture.cancelled = true; finish(0); return true; }
+            if (e.key.key == SDLK_DELETE || e.key.key == SDLK_BACKSPACE) { capture.cleared = true; finish(0); return true; }
+            if (capture.kind == Capture::Key && e.key.key != SDLK_F1) finish(int(e.key.scancode));
+            return true;
+        }
+        if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+            if (capture.kind == Capture::Mouse) finish(int(e.button.button));
+            return true;
+        }
+        if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+            if (capture.kind == Capture::Pad) finish(int(e.gbutton.button));
+            return true;
+        }
+        if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && capture.kind == Capture::Pad && e.gaxis.value > 16000) {
+            if (e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER) finish(input::kSdlLeftTrigger);
+            if (e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) finish(input::kSdlRightTrigger);
+            return true;
+        }
+        return e.type == SDL_EVENT_KEY_UP || e.type == SDL_EVENT_MOUSE_BUTTON_UP ||
+               e.type == SDL_EVENT_GAMEPAD_BUTTON_UP || e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION;
+    }
+
     bool event(const SDL_Event& e) {
         if (!ready) return false;
+        if (capture.active && (open || launcher) && capture_event(e)) return true;
         if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_F1 && !e.key.repeat) {
             open = !open;
             g_shell_focus = open || launcher;
@@ -105,12 +144,17 @@ struct Shell {
         ImGui_ImplWGPU_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        const ui::Nav nav = ui::read_nav();
+        const ui::Nav nav = capture.active ? ui::Nav{} : ui::read_nav();   // a capture owns the keys
         ImDrawList* dl = ImGui::GetForegroundDrawList();
         if (under) under(dl, float(w), float(h), open ? ui::Nav{} : nav);
         panel.open = open;
         panel.draw(dl, float(w), float(h), nav);
         open = panel.open;
+        if (open && capture.active) {
+            static const char* kWhat[] = {"Press a key", "Click a mouse button", "Press a gamepad button"};
+            ui::prompt(dl, float(w), float(h), kWhat[int(capture.kind)], capture.label.c_str(),
+                       "Esc cancels  â¢  Delete clears the binding");
+        }
         g_shell_focus = open || launcher;
         ImGui::Render();
 

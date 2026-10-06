@@ -241,6 +241,13 @@ inline bool choice(List& L, const char* label, int* idx, const char* const* item
     return *idx != old;
 }
 
+// A label / value row whose activation starts something (a rebind): returns true on OK / click.
+inline bool choice_label(List& L, const char* label, const char* value, const char* desc = nullptr, bool enabled = true) {
+    const RowIo r = row_frame(L, desc, enabled);
+    row_texts(L, r, label, value, enabled);
+    return r.activate;
+}
+
 // A full-width action ("Configure Inputs"): centred text, no value.
 inline bool button(List& L, const char* label, const char* desc = nullptr, bool enabled = true) {
     const RowIo r = row_frame(L, desc, enabled);
@@ -399,6 +406,22 @@ inline void version(ImDrawList* dl, float w, float h, const char* v) {
     const float px = 21.0f * S;
     const ImVec2 ts = text_size(F.body, px, v);
     text(dl, F.body, px, {w - 75.0f * S - ts.x, h - 100.0f * S}, IM_COL32(236, 232, 222, 255), v);
+}
+
+// A centred modal card (the rebind prompt): a gold-ruled box over a dimmed panel.
+inline void prompt(ImDrawList* dl, float w, float h, const char* head, const char* what, const char* hint) {
+    dl->AddRectFilled({0, 0}, {w, h}, IM_COL32(0, 0, 0, 120));
+    const float bw = 420.0f * S, bh = 150.0f * S;
+    const ImVec2 a{(w - bw) * 0.5f, (h - bh) * 0.5f}, b{a.x + bw, a.y + bh};
+    dl->AddRectFilled(a, b, kPanel, 8.0f * S);
+    dl->AddRect(a, b, kGold, 8.0f * S, 0, 1.5f * S);
+    auto centred = [&](ImFont* f, float px, float y, ImU32 c, const char* t) {
+        const ImVec2 ts = text_size(f, px, t);
+        text(dl, f, px, {(a.x + b.x - ts.x) * 0.5f, y}, c, t);
+    };
+    centred(F.cond, 15.0f * S, a.y + 22.0f * S, kSection, upper(head).c_str());
+    centred(F.bold, 26.0f * S, a.y + 50.0f * S, kTabOn, upper(what).c_str());
+    centred(F.body, 15.5f * S, a.y + 106.0f * S, kMuted, hint);
 }
 
 // Bottom-centre: a notice card.

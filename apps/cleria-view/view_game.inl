@@ -125,6 +125,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int window_mode = settings().s.cleria.borderless_fullscreen ? 1 : 0;   // 0 windowed, 1 borderless
     if (window_mode == 1 && !offscreen) SDL_SetWindowFullscreen(win, true);
     auto persist = [] { settings().touch(); settings().save(); };   // a shell edit, saved at once
+    bool input_bind_mode = false;                         // Input > Configure Inputs is showing
     // The pointer (view_input.inl): a CLERIA_DRIVE run uses a virtual pointer (the drive's mouse=,
     // click, mhold, mrelease, wheel=), starting at the window centre; a played session reads the real
     // one. Each frame: the swapchain size and window mode the cursor maps through, the OS pointer.
@@ -266,9 +267,89 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
         });
         shell.panel.add("Input", [&](ui::List& L) {
+            // Configure Inputs: the 34 retail binding slots ([input] Assign{...}, CONFIG.md §3.3), rebound
+            // by capturing the next key / mouse button / pad button (Shell::Capture). With [cleria.input]
+            // NativePadBinds the PAD_* slots use SDL gamepad button names (Xbox layout) instead.
+            bool& binding = input_bind_mode;
+            static std::string bind_msg;
+            auto& in = settings().s.input;
+            auto& cl = settings().s.cleria;
+            if (shell.capture.done) {                       // a capture finished: apply it
+                const auto cap = shell.capture;
+                shell.capture = {};
+                const int slot = cap.slot;
+                bind_msg.clear();
+                if (cap.cancelled) {
+                } else if (cap.cleared) {
+                    if (slot >= input::PAD_ACTION && slot <= input::PAD_SWORD_REVU && cl.native_pad_binds)
+                        cl.pad_bind[std::size_t(slot - input::PAD_ACTION)] = "";
+                    else in.assign[std::size_t(slot)] = 0x103;   // "---" (retail's unbound spelling)
+                    persist();
+                } else if (cap.kind == Shell::Capture::Key) {
+                    const input::Code c = input::dik_from_sdl_scancode(cap.value);
+                    if (c == 0 || !input::bindable(c)) bind_msg = "That key can't be bound.";
+                    else { in.assign[std::size_t(slot)] = c; persist(); }
+                } else if (cap.kind == Shell::Capture::Mouse) {
+                    const int b = cap.value == SDL_BUTTON_LEFT ? 0 : cap.value == SDL_BUTTON_RIGHT ? 1
+                                : cap.value == SDL_BUTTON_MIDDLE ? 2 : -1;
+                    if (b < 0) bind_msg = "Only the left, right and middle buttons can be bound.";
+                    else { in.assign[std::size_t(slot)] = input::kMouseL + input::Code(b); persist(); }
+                } else {                                     // a pad button
+                    if (cl.native_pad_binds) {
+                        const char* nm = input::sdl_pad_name(cap.value);
+                        if (!nm) bind_msg = "That button can't be bound.";
+                        else { cl.pad_bind[std::size_t(slot - input::PAD_ACTION)] = nm; persist(); }
+                    } else {
+                        const int bi = input::pad_button_from_sdl(cap.value);
+                        if (bi < 0) bind_msg = "The d-pad moves; it can't be bound to an action.";
+                        else { in.assign[std::size_t(slot)] = input::kPadButton1 + input::Code(bi); persist(); }
+                    }
+                }
+            }
+            if (binding) {
+                if (ui::button(L, "< Back", "Back to the input options.")) binding = false;
+                auto value_of = [&](int slot) -> std::string {
+                    if (slot >= input::PAD_ACTION && slot <= input::PAD_SWORD_REVU && cl.native_pad_binds) {
+                        const std::string& n = cl.pad_bind[std::size_t(slot - input::PAD_ACTION)];
+                        return n.empty() ? "---" : n;
+                    }
+                    const char* n = input::code_name(in.assign[std::size_t(slot)]);
+                    return n ? n : "---";
+                };
+                auto row = [&](int slot, Shell::Capture::Kind kind, const char* desc) {
+                    const std::string v = value_of(slot);
+                    if (ui::choice_label(L, input::slot_label(slot), v.c_str(), desc))
+                        shell.capture.start(kind, slot, input::slot_label(slot));
+                };
+                ui::section(L, "Keyboard");
+                for (int sl = input::KEY_ACTION; sl <= input::KEY_DOWNRIGHT; ++sl)
+                    row(sl, Shell::Capture::Key, "Select, then press the key to bind. Esc cancels, Delete clears. "
+                        "The arrow keys and Esc always work as well.");
+                ui::section(L, "Mouse");
+                row(input::MOUSE_DIR, Shell::Capture::Mouse, "Hold this mouse button to walk toward the cursor.");
+                for (int sl = input::MOUSE_ACTION; sl <= input::MOUSE_WALK; ++sl)
+                    row(sl, Shell::Capture::Mouse, "Select, then click the mouse button to bind.");
+                ui::section(L, "Gamepad");
+                for (int sl = input::PAD_ACTION; sl <= input::PAD_SWORD_REVU; ++sl)
+                    row(sl, Shell::Capture::Pad, "Select, then press the gamepad button to bind. The left stick "
+                        "and the d-pad always move.");
+                if (ui::toggle(L, "Xbox-style button names", &cl.native_pad_binds,
+                               "Bind the gamepad by its own button names (A, B, X, Y, triggers...) instead of the "
+                               "original game's numbered DirectInput buttons. Not a retail option."))
+                    persist();
+                ui::section(L, "Presets");
+                if (ui::button(L, "Preset 1  [Arrows / ZXCV]", "The game's default keyboard layout.")) {
+                    in.assign = input::preset1(); persist();
+                }
+                if (ui::button(L, "Preset 2  [WASD / Mouse]", "The game's WASD and mouse layout.")) {
+                    in.assign = input::preset2(); persist();
+                }
+                if (!bind_msg.empty()) ui::info(L, "", bind_msg.c_str(), ui::kWarn);
+                return;
+            }
             ui::section(L, "Inputs");
-            ui::button(L, "Configure Inputs", "Rebind keyboard keys and gamepad buttons. (Arrives with the input "
-                       "remapper.)", false);
+            if (ui::button(L, "Configure Inputs", "Rebind keyboard keys, mouse buttons and gamepad buttons."))
+                binding = true;
             ui::section(L, "Options");
             bool ch = false;
             ch |= ui::toggle(L, "Analog movement", &ocheck[0],
@@ -616,6 +697,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             else if (hit >= 0) choice_made = hit;
         };
         if (launcher_env && std::string(launcher_env) == "settings") shell.open = true;
+        // CLERIA_SHELL_PAGE=<tab name>[:bind] (headless captures): open the panel on that tab.
+        if (const char* pg = std::getenv("CLERIA_SHELL_PAGE")) {
+            std::string want = pg;
+            const bool bind = want.size() > 5 && want.substr(want.size() - 5) == ":bind";
+            if (bind) want.resize(want.size() - 5);
+            for (int i = 0; i < int(shell.panel.pages.size()); ++i)
+                if (shell.panel.pages[i].name == want) shell.panel.tab = i;
+            input_bind_mode = bind;
+            shell.open = true;
+        }
         const Uint64 t0 = SDL_GetTicksNS();
         Uint64 last = t0;
         for (int frame_no = 0; choice_made < 0; ++frame_no) {
