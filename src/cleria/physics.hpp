@@ -18,6 +18,13 @@ constexpr float kNoFloor = -1e30f;
 // `m.surfaces[m.tri_surface[*out_tri]]` on a collision mesh), or -1 if none.
 float floor_at(const RoomMesh& m, float x, float z, float ceiling, int* out_tri = nullptr);
 
+// The floor an actor placed at `p` stands on (FUN_00459ff0, every placement: the SCT
+// spawn, a SEN arrival, a script's Chr_Pos): a ray straight down 510 from `p` itself
+// (DAT_007302d0 = (0,-510,0)); a hit closer than 1.5 (DAT_006bd4d4; 0.25 for an enemy,
+// +0x60 & 8: DAT_006bd244) is the floor, otherwise `p.y` verbatim and the actor falls
+// from there [BYTES 0x45a003..0x45a0b9]. Never a surface above `p`.
+float placement_floor(const RoomMesh& m, Vec3 p, bool enemy = false);
+
 // The surface name of triangle `tri` on a collision mesh, or "" if unknown.
 // Feed it to surface_index() to reach the footstep table.
 std::string_view surface_of(const RoomMesh& m, int tri);

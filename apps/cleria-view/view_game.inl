@@ -1389,12 +1389,18 @@ title_again:
                 (r.mesh.bmin.z + r.mesh.bmax.z) * 0.5f};
     };
     auto eye_h = [&] { return room_diag(room) * 0.02f; };
+    // FUN_00434020 places the player through FUN_00459ff0 (the SCT default and a SEN arrival):
+    // the floor below the placed point itself (placement_floor), never the room's top surface
+    // at that x/z -- in a stacked room (S_2008, S_2014) that put the player on a ceiling slab,
+    // hidden behind the walls.
+    auto placed_floor = [&](const Vec3& p) { return placement_floor(phys_mesh(room), p); };
     auto spawn_player = [&] {
         // The room's own spawn point: the SCT's CAST_ADOL record. Room centre is
         // only a fallback for rooms that don't place the player.
         const CastPlacement* sp = room.cast.player_spawn();
         const Vec3 c = sp ? sp->position : center(room);
-        const float fl = floor_at(phys_mesh(room), c.x, c.z, room.mesh.bmax.y + room_diag(room));
+        const float fl = sp ? placed_floor(c)
+                            : floor_at(phys_mesh(room), c.x, c.z, room.mesh.bmax.y + room_diag(room));
         feet = {c.x, (fl > kNoFloor ? fl : c.y), c.z};
         pv = VerticalState{}; pvel = {}; last_floor = feet.y; grounded = pv.grounded;
         std::printf("spawn: %s(%.1f,%.1f,%.1f) floor=%s\n",
@@ -1594,9 +1600,8 @@ title_again:
             // not a by-destination lookup -- rooms joined by 2-3 doors each carry a
             // different arrival, and picking the wrong one lands you at the wrong door.
             if (has_arr) {
-                const float fl = floor_at(phys_mesh(room), arr.x, arr.z,
-                                          room.mesh.bmax.y + room_diag(room));
-                feet = {arr.x, (fl > kNoFloor ? fl : arr.y), arr.z};
+                feet = {arr.x, placed_floor(arr), arr.z};          // FUN_00459ff0's ray down
+                fly = false;    // a room with no CAST_ADOL (S_2006) is still entered on foot
                 pv = VerticalState{}; pvel = {}; last_floor = feet.y; grounded = pv.grounded;
                 std::printf("  arrival @ (%.1f,%.1f,%.1f) [SEN]\n", feet.x, feet.y, feet.z);
             }
@@ -3121,6 +3126,7 @@ title_again:
     //   click / rclick        an L / R tap (one tick); mhold / mrelease  hold / release L (MOUSE_DIR)
     //   wheel=n               one tick of raw wheel delta (+-120 a notch)
     //   cursor                print the cursor manager's state
+    //   exit=i                take SEN exit i (the door's own arrival + facing, as walking through it)
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
@@ -3251,6 +3257,9 @@ title_again:
                 c.pitch = pt * 3.14159265f / 180.0f;
                 drive_cam = c;
             }
+        } else if (cmd.rfind("exit=", 0) == 0) {       // exit=i: take the room's SEN exit i (arrival + facing)
+            const std::size_t i = std::size_t(std::atoi(cmd.c_str() + 5));
+            if (i < room.sen.triggers.size()) transition(room.sen.triggers[i].dest_scene, &room.sen.triggers[i]);
         } else if (cmd == "atk") {                     // the attack button
             try_attack();
         } else if (cmd.rfind("near=", 0) == 0) {       // near=cast: stand 2.0 from that actor, facing it
@@ -4334,8 +4343,7 @@ title_again:
         std::printf("  [gameover] Retry -> %s (%.2f, %.2f, %.2f), retries %d\n", cont.s.scene.c_str(),
                     cont.feet.x, cont.feet.y, cont.feet.z, game.g_flags[196]);
         feet = cont.feet;                                // the arrival 0x76a3a0..a8 = the snapshot pose
-        const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
-        if (fl > kNoFloor) feet.y = fl;
+        feet.y = placed_floor(feet);                     // placed by FUN_00434020 -> FUN_00459ff0
         pv = VerticalState{}; pvel = {}; last_floor = feet.y;
         facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
         csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;

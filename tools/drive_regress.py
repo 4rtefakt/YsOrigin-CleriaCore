@@ -63,6 +63,17 @@ CASES = {
         drive="8:opt=DamageDealt=10;9:opt=ExpRate=2;10:opt=DamageTaken=0;15:stats;" +
               ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:stats;430:quit",
         expect=["stats exp 0 lv 1 hp 60/60", "stats exp 66 lv 1 hp 60/60"]),
+    # FUN_00459ff0: a SEN arrival stands on the floor below the arrival point, not on the room's
+    # top surface at that x/z (S_2008's door mouth at y 0 was put on the y 14 slab above it).
+    "arrival_floor": dict(
+        room="S_20/S_2007/S_2007",
+        drive="40:exit=1;60:pos;70:quit",
+        expect=[">> entering S_2008", "arrival @ (1.0,0.0,-8.0) [SEN]", "feet (1.000, 0.000, -8.000)"]),
+    # S_2006 has no CAST_ADOL: entering it by a door still puts the player on foot (not free-fly).
+    "arrival_on_foot": dict(
+        room="S_20/S_2004/S_2004",
+        drive="20:exit=2;40:move=1,0,60;110:pos;120:quit",
+        expect=[">> entering S_2006", "arrival @ (0.0,0.0,0.0) [SEN]", "feet (8.316, 0.000, 0.000)"]),
 }
 
 

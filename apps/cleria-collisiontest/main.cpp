@@ -130,6 +130,21 @@ int main() {
         check(!sphere_overlaps(m, {1, 2, 1}, 0.5f), "water: a sphere in the surface does not collide");
     }
 
+    // 10. Placement (FUN_00459ff0): the floor below the placed point, never a slab above it.
+    {
+        RoomMesh m = floor_y(0.0f);                        // a stacked room: floor 0, slab at 14
+        const RoomMesh top = floor_y(14.0f);
+        const std::uint32_t base = std::uint32_t(m.vertices.size());
+        for (const RoomVertex& v : top.vertices) m.vertices.push_back(v);
+        for (std::uint32_t k : top.indices) m.indices.push_back(base + k);
+        check(std::fabs(placement_floor(m, {1, 0, -8}) - 0.0f) < 1e-4f, "placement: on the floor at its own height, not the slab above");
+        check(std::fabs(placement_floor(m, {1, 1.2f, -8}) - 0.0f) < 1e-4f, "placement: a floor within 1.5 below snaps");
+        check(std::fabs(placement_floor(m, {1, 3.0f, -8}) - 3.0f) < 1e-4f, "placement: 3 above the floor stays (falls)");
+        check(std::fabs(placement_floor(m, {1, 0.4f, -8}, true) - 0.4f) < 1e-4f, "placement: an enemy snaps only within 0.25");
+        check(std::fabs(placement_floor(m, {1, 14.5f, -8}) - 14.0f) < 1e-4f, "placement: placed on the slab, stands on it");
+        check(std::fabs(placement_floor(m, {50, 2, 50}) - 2.0f) < 1e-4f, "placement: no floor below keeps the placed y");
+    }
+
     std::printf("%s (%d failures)\n", g_fail ? "FAILED" : "ALL PASS", g_fail);
     return g_fail ? 1 : 0;
 }

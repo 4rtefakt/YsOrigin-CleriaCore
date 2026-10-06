@@ -82,6 +82,12 @@ float floor_at(const RoomMesh& m, float x, float z, float ceiling, int* out_tri)
     return best;
 }
 
+float placement_floor(const RoomMesh& m, Vec3 p, bool enemy) {
+    const float fl = floor_at(m, p.x, p.z, p.y);
+    const float snap = enemy ? 0.25f : 1.5f;   // DAT_006bd244 / DAT_006bd4d4
+    return (fl > kNoFloor && fl >= p.y - 510.0f && p.y - fl < snap) ? fl : p.y;
+}
+
 Vec3 resolve_walls(const RoomMesh& m, Vec3 pos, float radius, float height) {
     const auto& idx = m.indices;
     const auto& vp = m.vertices;
