@@ -137,6 +137,9 @@ class System {
     static void place(Effect& fx, const Vec3& pos, const Vec3& rot, const Vec3& scale);
     // The first live particle of `fx` in the pool (the bullets' `p+0x1a0 == fx` scans).
     Particle* first_particle(const Effect* fx);
+    // FUN_00564480(ecx = p, force 1): FUN_0044ebb0(force 1) — the particle dies, its effect's
+    // kill flag rises, the impact child spawns — then the hit and the world collide go off.
+    bool strike(Particle& p);
     // The EF2 of an EFTLIST id, for impact children (B2+0x16); none = no impact effects.
     void set_lookup(std::function<const Ef2*(int)> f) { lookup_ = std::move(f); }
     // The terrain segment test (FUN_0041e420, set 2) for particles that die on world contact:

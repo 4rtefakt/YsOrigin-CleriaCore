@@ -2213,14 +2213,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // ---- Velagunder, boss01 (src/cleria/boss01, build/boss_re/VELAGUNDER.md) ----------------
     // The GoMesh "boss01" a room script Mesh_Locate'd is driven by the Boss01 brain every live
     // step (the mesh pool runs under a Fix too): the clip advance, then the brain (FUN_00562990
-    // switch +0x28d case 5), then its requests. [not modelled] bullet kinds 0x1e / 0x1f (the
-    // bubbles, the drool), the laser's terrain ray, the inhale's actor pull, the boss camera
-    // presets, the boss01_hit1/2 solid meshes, the mesh-contact damage (§3.4), the M890 brain.
+    // switch +0x28d case 5), then its requests. [not modelled] the laser's terrain ray, the
+    // inhale's actor pull, the boss01_hit1/2 solid meshes, the mesh-contact damage (§3.4), the M890 brain.
     std::array<int, boss01::kBones> boss_node{};
     int boss_n114 = -1, boss_n115 = -1;
     std::vector<RehitBank> boss_banks;                    // the parts' own re-hit banks (+0x14c)
     bool player_hurt_this_tick = false;                   // +0x3bc & 2 (the boss reads it)
-    bool boss_bullet_warned = false;
     auto boss_tick = [&] {
         MeshObj* bm = meshes.find("boss01");
         if (!bm) { boss.reset(); g_rig.clear_boss(); return; }
@@ -2295,6 +2293,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                  a.is_player() ? float(player.hp) : a.hp});
         }
         in.rng = [&] { return pick_rng.next(); };
+        std::vector<bullet::Bullet*> in_bullets;          // DAT_00730248, in list order
+        for (auto& bp : bullets.list()) {
+            if (bp->gone || bp->destroyed) continue;
+            in.bubbles.push_back({bp->s.effect, bp->s.pos});
+            in_bullets.push_back(bp.get());
+        }
         // The region camera owns the selection globals the brain reads and writes.
         boss->camera().cur = g_rig.current(); boss->camera().prev = g_rig.from();
         boss->camera().t = g_rig.blend_t(); boss->camera().forced = g_rig.forced();
@@ -2356,9 +2360,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         for (int id : out.kill_effects)
             for (auto& f : fxsim.effects()) if (f->id == id) f->kill = true;
-        if (!out.bullets.empty() && !boss_bullet_warned) {
-            boss_bullet_warned = true;
-            std::printf("  [boss] bullet kind %d [not modelled]\n", out.bullets.front().kind);
+        // FUN_00593550: the bubble (0x1e) and drool (0x1f) bullets, BULLETS.md §3.8 / §3.11.
+        for (const Boss01Bullet& b : out.bullets) {
+            bullet::Spawn s = bullet::block_spawn(b.kind, b.effect, b.pos, b.dir, b.f.data());
+            s.owner = 0; s.owner_monster = true; s.owner_atk = boss->str();   // [H] the boss is no world actor
+            bullets.spawn(s);
+        }
+        for (const Boss01BubbleEdit& e : out.bubble_edits) {   // the inhale pull / swallow
+            if (e.index < 0 || std::size_t(e.index) >= in_bullets.size()) continue;
+            bullet::Bullet* bp = in_bullets[std::size_t(e.index)];
+            bp->s.pos = e.pos;
+            if (e.kill && bp->fx) { bp->fx->kill = true; bp->gone = true; }   // [H] the eat = a handler kill
         }
         for (const Boss01Spawn& s : out.spawns) {          // M890 (its brain: the stand-in)
             world.spawn(0, s.cast, s.pos.x, s.pos.y, s.pos.z, float(s.yaw_deg), 0);
@@ -3687,6 +3699,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     *hp = a->hp;
                     return true;
                 };
+                // The player's live swing for the bubble pop (FUN_004f9e90 on P+0xd0).
+                benv.swing = [&](const HitShape& v) {
+                    if (atk_window <= 0) return false;
+                    const HitShape vol = volume_shape(atk_hb, {feet.x, feet.y + kOriginH, feet.z},
+                                                      std::atan2(face_dir.z, face_dir.x));
+                    return overlap(vol, v);
+                };
+                benv.swing_rtype = atk_hb.rtype;
+                benv.character = character;
+                benv.difficulty = difficulty >= 2 ? difficulty - 2 : 0;
+                benv.rng = [&] { return pick_rng.next(); };
                 std::vector<bullet::Event> bev;
                 bullets.update(benv, &bev);
                 for (auto it = gas_owner.begin(); it != gas_owner.end();) {
@@ -3696,6 +3719,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 }
                 for (const bullet::Event& ev : bev) {
                     if (ev.type == bullet::Event::kSound) { sfx_at(ev.id, ev.pos, kSfxAnimVol); continue; }
+                    if (ev.type == bullet::Event::kPush) {          // knock channel 2 (+0x344/+0x34c)
+                        // [approx] the view's player has one knock channel; channel 2 is folded into it.
+                        player_kb.x += ev.push.x; player_kb.z += ev.push.z;
+                        continue;
+                    }
                     if (ev.target == 0) {                            // FUN_004fa160: the player
                         player.hp = std::min(player.max_hp, player.hp + int(ev.amount));
                     } else if (Actor* a = world.find(ev.target)) {  // the owner, clamped to its max

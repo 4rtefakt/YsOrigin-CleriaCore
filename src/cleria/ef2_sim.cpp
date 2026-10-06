@@ -546,6 +546,12 @@ Particle* System::first_particle(const Effect* fx) {
     return nullptr;
 }
 
+bool System::strike(Particle& p) {
+    if (!impact(p, true)) return false;
+    p.collide = false; p.hit.armed = false;                        // p+0x2b0 = 0, p+0x118 = 0
+    return true;
+}
+
 void System::sweep() {
     for (std::size_t i = 0; i < parts_.size();) {
         if (!parts_[i]->dead) { ++i; continue; }

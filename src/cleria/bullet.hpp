@@ -7,12 +7,12 @@
 // parks it. The 13 floats after the direction land at +0x144..+0x174 and mean different things
 // per kind, so they are kept here as the raw slots.
 //
-// [not modelled] kinds 3, 5, 6, 8, 9, 0xa, 0xc, 0xd, 0x11 and up (BULLETS.md §10.6) — they fly
-// as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md); the kind-0x10/0x23 proxy victim
-// (the player batting a drip); the struck test (§4.4, boss effect ids); the effect-id special
-// cases (0x82 rtype, 0x1e7 random scale, 0x20/0x15 Adol fire, 0x178, 0x1c9/0x1df splashes);
-// the kind-0x29 water ripple and impact burst; the kind-0x10 spawn-actor branch; flash
-// sprites and shadow decals (visual).
+// [not modelled] kinds 3, 5, 6, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x1e / 0x1f / 0x29
+// (BULLETS.md §10.6) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
+// the kind-0x10/0x23 proxy victim (the player batting a drip); the struck test (§4.4, boss
+// effect ids); the effect-id special cases (0x82 rtype, 0x1e7 random scale, 0x20/0x15 Adol
+// fire, 0x178, 0x1c9/0x1df splashes); the kind-0x29 water ripple and impact burst; the
+// kind-0x10 spawn-actor branch; flash sprites and shadow decals (visual).
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "cleria/ef2_sim.hpp"
+#include "cleria/hit_volume.hpp"
 #include "cleria/mathx.hpp"
 
 namespace cleria::bullet {
@@ -39,10 +40,16 @@ struct Spawn {
     float f168 = 0, f16c = 0, f170 = 0, f174 = 0; // per kind (§1.1)
 };
 
+// FUN_00593550's stack block as a brain pushes it (`f` = its 13 floats, Boss01Bullet::f): the
+// dwords land verbatim, so f5..f7 (+0x158/+0x15c/+0x160) keep their raw bits as ints. The
+// owner fields are the host's.
+Spawn block_spawn(int kind, int effect, const Vec3& pos, const Vec3& dir, const float* f13);
+
 struct Bullet {
     Spawn s;
     std::uint32_t age = 0;        // +0x17c
     std::uint32_t u184 = 0;       // +0x184: kind 2 the saved period; kind 0x10 in water
+    std::uint32_t u194 = 0;       // +0x194: kind 0x1e the tick count; kind 0x1f the first-tick latch
     float y190 = 0;               // +0x190
     int side = 1;                 // +0x188
     float atk = 0;                // the stat block the effect was armed with (the proxy's 0 for 0x10/0x23)
@@ -65,15 +72,24 @@ struct Env {
     std::function<RayHit(const Vec3& from, const Vec3& d, int set)> ray;
     // An actor's origin and HP by instance id; false when it no longer exists.
     std::function<bool(int id, Vec3* pos, float* hp)> actor;
+    // The player's live swing (P+0x118 != 0) against a victim record: FUN_004f9e90 on the
+    // player's +0xd0 attacker record (hit_volume.hpp overlap). None = no live swing.
+    std::function<bool(const HitShape& victim)> swing;
+    int swing_rtype = 0;          // P+0x108 (u8): the live swing's reaction type
+    int character = 1;            // DAT_0076bb74: 0 Adol, 1 Yunica, 2 Hugo, 3 Toal
+    int difficulty = 0;           // DAT_0076bb5c: 0 Normal, 1 Hard, 2 Nightmare
+    // One advance of the engine's xorshift128 (0x74622c), returning the new word. None = word 0.
+    std::function<std::uint32_t()> rng;
 };
 
 // What an update asks the host to do.
 struct Event {
-    enum Type { kSound, kHeal } type = kSound;
+    enum Type { kSound, kHeal, kPush } type = kSound;
     int id = 0;                   // kSound: the EFFECTDEF id
     Vec3 pos{};
     int target = 0;               // kHeal: an actor instance id, or 0 = the player
     float amount = 0;             // kHeal: HP to add (the host clamps to the max)
+    Vec3 push{};                  // kPush: add (x, z) to the player's knock channel 2 (+0x344/+0x34c)
 };
 
 // FUN_00458970 with eye 0: the rotation taking the base forward (0, 0, -1) to `d`.
@@ -97,7 +113,8 @@ class Bullets {
 
   private:
     ef2sim::Effect* spawn_fx(int id, const Vec3& pos, const Vec3& rot, int side, float atk,
-                             float power, float knock, int rtype, int status, int cls, int owner);
+                             float power, float knock, int rtype, int status, int cls, int owner,
+                             const Vec3& scale = {1, 1, 1});
     void step(Bullet& b, const Env& env, std::vector<Event>* events);
     ef2sim::System* fx_;
     Ef2Of ef2_of_;
