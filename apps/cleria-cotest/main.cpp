@@ -725,6 +725,51 @@ int main(int argc, char** argv) {
         }
         fails += !real_ok;
     }
+    // [statue] the goddess-statue / blessing-shop ops: 0xdd Menu_AddSpShop (text + "%d" price),
+    // 0xdc Menu_RenameLastScript, 0xe0 SaveMenu_Enter, 0xb0 SetRavalCostToFlag (flag 218 from the
+    // armor / boots id), 0x84 SetGoldflagNowZenny (wallet <-> flag 216), 0x6a Flag_SubFlag and
+    // 0xaf SetXXX (flag 217 bits, the escapes 7 / 8 -> itemArr).
+    {
+        struct SH : H {
+            std::vector<std::string> texts, labels;
+            std::string renamed;
+            int save_menus = 0, wallet = 250, raval = -1;
+            void menu_add(const std::string& t, const std::string& l) override { texts.push_back(t); labels.push_back(l); }
+            void menu_rename_last(const std::string& l) override { renamed = l; }
+            void save_menu_enter() override { ++save_menus; }
+            int gold() const override { return wallet; }
+            void set_gold(int v) override { wallet = v; }
+            void item_arr_set(int i, int v) override { if (v == 1) raval = i; }
+        };
+        Asm a;
+        a.op(0xdd, {a.S("Strengthen current armor - [SP:]"), a.S("@GrowAr"), Asm::I(100)});
+        a.op(0xdc, {a.S("@Save")});
+        a.op(0xe0, {a.S("$S1")});
+        a.op(0x64, {Asm::I(152), Asm::I(12)});           // armor id 12 -> bucket 0 -> 100
+        a.op(0x64, {Asm::I(153), Asm::I(31)});           // boots id 31 -> bucket 1 -> 300
+        a.op(0xb0, {Asm::I(1)});
+        a.op(0x65, {Asm::I(300), Asm::I(218)});          // keep the boots cost in flag 300
+        a.op(0xb0, {Asm::I(0)});
+        a.op(0x84, {Asm::I(0)});                          // 216 = wallet 250
+        a.op(0x6a, {Asm::I(216), Asm::I(218)});          // 216 -= 100
+        a.op(0x84, {Asm::I(1)});                          // wallet = 150
+        a.op(0xaf, {Asm::I(7)});                          // itemArr[12] = 1
+        a.op(0xaf, {Asm::I(3)});                          // bit 3
+        a.op(0xaf, {Asm::I(9)});                          // bit 7
+        a.op(0xaf, {Asm::I(33)});                         // bit 31
+        a.raw(0x01000000);
+        const Xso syn = Xso::parse(a.bytes());
+        SH h; XsoVm vm; vm.host = &h; vm.run(syn);
+        const bool ok = h.texts.size() == 1 && h.texts[0] == "Strengthen current armor - [SP:]100" &&
+                        h.labels[0] == "@GrowAr" && h.renamed == "@Save" && h.save_menus == 1 &&
+                        vm.g_flags[218] == 100 && vm.g_flags[300] == 300 && vm.g_flags[216] == 150 &&
+                        h.wallet == 150 && h.raval == 12 && vm.item_arr[12] == 1 &&
+                        std::uint32_t(vm.g_flags[217]) == ((1u << 3) | (1u << 7) | (1u << 31));
+        std::printf("[statue] menu '%s' rename %s save_menu %d cost %d/%d wallet %d raval %d bits 0x%x %s\n",
+                    h.texts.empty() ? "" : h.texts[0].c_str(), h.renamed.c_str(), h.save_menus, vm.g_flags[218],
+                    vm.g_flags[300], h.wallet, h.raval, std::uint32_t(vm.g_flags[217]), ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
     // [unescape] FUN_0057ad90: the window text escapes (wndtext.hpp).
     { struct C { const char* in; const char* want; } cases[] = {
           {"Acquired\\n<color:0xfff2ea8c>Celcetan Panacea<color:> x 1.", "Acquired\n<color:0xfff2ea8c>Celcetan Panacea<color:> x 1."},

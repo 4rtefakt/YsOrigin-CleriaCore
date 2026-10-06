@@ -152,6 +152,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // (flags/character before the first room load, stats/position after the world exists).
     std::optional<SaveState> pending_load;
 
+    // The game over's "Return to Title" comes back here (the jump at the end of this function):
+    // everything declared below is destroyed and built again for the next game.
+title_again:
     if (show_title) {
         // The title (build/menu_re/TITLE_DRAW.md): GoWndDemo's background and the title list
         // (src/cleria/titlescreen), and the pause book opened from it — New Game = ctx 4
@@ -970,12 +973,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
 
     // ---- save / load (PLAN.md Phase 2; codec src/cleria/save.*) -------------------
-    // Goddess-statue UI state machine (STATUE_MENU.md): 0 = closed, 1 = "What will you
-    // do?" choice, 3 = blessing list (Save opens the pause book's Save list). The cleansing animation
-    // (Yunica/Hugo first-use) plays SAVE.XSO (the goddess cleanse cutscene) the first
-    // time a sealed statue (flag 300 == 0) is touched — see the cleanse wiring below;
-    // blessings list real costs but effects are not implemented.
-    int statue_ui = 0, statue_sel = 0, statue_reveal = 0;
+    // The goddess statue is all script: the sealed model runs the room's SAVE.XSO (the
+    // cleanse), the cleansed one S_COMMON/SAVE.XSO, whose menu runs @SaveMenu (then 0xe0
+    // SaveMenu_Enter opens the book's Save page), @GrowMenu (the blessing shop) or @SaveBack.
     auto capture_save = [&]() -> SaveState {
         SaveState s;
         std::memcpy(s.flags, game.g_flags, sizeof s.flags);
@@ -994,6 +994,42 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         s.yaw = std::atan2(face_dir.x, face_dir.z) * 180.0f / 3.14159265f;  // SEN-style degrees
         return s;
     };
+    // FUN_00574970 (SaveMenu_Enter): the slot's area line 0x74c0ac (31 chars, header +0x90). A
+    // switch on the scene index names the boss rooms and a few others; every other scene takes
+    // its SCENELIST display string (+0xc4), cut after a ':' (sprintf "%s" of the text 2 past it).
+    auto save_area_line = [&]() -> std::string {
+        const SceneRec* sr = scenes.find_room(room.name);
+        if (!sr) return room.name;                       // [STAND-IN] a room without a record
+        switch (sr->index) {                             // [BYTES 0x69fe58..0x6a0054]
+            case 0x1b: return character == 3 ? "Tower Entrance" : " 1F - Search Party's Base";
+            case 0x24: return " 4F - Wailing Blue";
+            case 0x26: return " 5F - Beast's Chamber";
+            case 0x31: return " 6F - Flooded Prison";
+            case 0x3d: return " 9F - Arthropod's Chamber";
+            case 0x3e: return " 7F - Flooded Prison 2";
+            case 0x46: return " 8F - Flooded Prison 3";
+            case 0x48: return "10F - Guilty Fire";
+            case 0x4e: return "11F - Guilty Fire 2";
+            case 0x56: return "13F - Construct's Chamber";
+            case 0x57: return "12F - Devil's Corridor";
+            case 0x63: return "14F - Silent Sands";
+            case 0x77: return "17F - Creeper's Chamber";
+            case 0x80: return "Rado's Annex";
+            case 0x81: return "18F - Blighted Blood";
+            case 0x8b: return "20F - Blighted Blood 2";
+            case 0x8f: return "21F - Mantid's Chamber";
+            case 0x99: return "22F - Demonic Core";
+            case 0x9e: return "23F - Demonic Core 2";
+            case 0xa4: return "25F - Devil's Throne";
+            case 0xa6: return "24F - Hall of Reflection";
+            case 0xac: return "Tower Summit";
+            default: break;
+        }
+        std::string d = sr->display;
+        const std::size_t k = d.find(':');               // FUN_00627fe0(buf, ":")
+        if (k != std::string::npos) d = k + 2 <= d.size() ? d.substr(k + 2) : std::string();
+        return d.substr(0, 0x1f);
+    };
     auto do_save = [&](int slot) {
         std::time_t now = std::time(nullptr);
         std::tm tm{};
@@ -1005,7 +1041,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         char date[16], tim[16];
         std::snprintf(date, sizeof date, "%02d/%02d/%04d", tm.tm_mon + 1, tm.tm_mday, tm.tm_year + 1900);
         std::snprintf(tim, sizeof tim, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
-        const SaveRecord rec = to_record(capture_save(), room.name, date, tim);
+        const SaveRecord rec = to_record(capture_save(), save_area_line(), date, tim);
         // Keys: any nonzero pair — the engine rerolls them per save too (SAVELOAD §4.1).
         std::random_device rd;
         const std::vector<std::uint8_t> raw = rec.encode(rd() | 1, rd() | 1);
@@ -1016,7 +1052,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         hud.message(f ? ("Saved to slot " + std::to_string(slot + 1))
                       : "Save FAILED (disk?)");
     };
-    auto apply_loaded = [&](const SaveState& s) {
+    // force_scene: re-enter the scene even when it is the current one (the game over's Retry is a
+    // ChangeScene to the current scene; a load of the same room only re-gates it).
+    auto apply_loaded = [&](const SaveState& s, bool force_scene = false) {
         std::memcpy(game.g_flags, s.flags, sizeof s.flags);
         std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
         character = std::clamp(s.character(), 1, 3);
@@ -1042,7 +1080,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         sync_aia();
         curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
         animFrame = 0; shownFrame = -1;
-        if (!s.scene.empty() && s.scene != room.name) transition(s.scene);
+        if (!s.scene.empty() && (force_scene || s.scene != room.name)) transition(s.scene);
         else reload_room();
         // Position: the save's continue-snapshot x/z + facing; y re-grounds via the
         // floor raycast (the engine does not save y either).
@@ -1108,6 +1146,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void menu_add(const std::string& t, const std::string& l) override { menu_texts.push_back(t); menu_labels.push_back(l); }
         void menu_assign_cancel(const std::string& l) override { menu_cancel = l; }
         void menu_cursor_last() override { menu_last = true; }
+        void menu_rename_last(const std::string& l) override { last_label = l; }   // 0xdc -> 0x75ad98
+        std::function<void()> save_menu_fn;
+        void save_menu_enter() override { if (save_menu_fn) save_menu_fn(); }
+        std::function<int()> gold_get_fn;
+        std::function<void(int)> gold_set_fn;
+        std::function<void(int, int)> item_arr_fn;
+        int gold() const override { return gold_get_fn ? gold_get_fn() : 0; }
+        void set_gold(int v) override { if (gold_set_fn) gold_set_fn(v); }
+        void item_arr_set(int i, int v) override { if (item_arr_fn) item_arr_fn(i, v); }
+        // The dialog's cursor step and cancel edge this frame (keys / CLERIA_DRIVE up, down, esc).
+        int wnd_vstep = 0;
+        bool wnd_cancel = false;
         void menu_select(const std::string& title) override {   // 0xd9: lay out, centre vertically
             open_dialog_common();
             wdlg.menu(512, 282, title, menu_texts, menu_labels, wmetrics, true);
@@ -1412,7 +1462,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void bgm_stop(int t) override { if (bgm_stop_fn) bgm_stop_fn(t); }
         void heal_hp() override { if (heal_fn) heal_fn(); }
         void chr_muteking(int id, int n) override { if (p_isplayer(id) && muteking_fn) muteking_fn(n); }   // player only
-        void save_cont_data() override { std::printf("  [script] SaveContData [not modelled]\n"); }
+        std::function<void()> save_cont_fn;
+        void save_cont_data() override { if (save_cont_fn) save_cont_fn(); }
         std::function<void(int)> se_fn, set_skill_fn;
         std::function<void(int, int)> bgm_volume_fn;
         void se_play(int se) override { if (se_fn) se_fn(se); }
@@ -1532,6 +1583,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     csHost.roomPtr = &room;         // op 0x13d tests the player vs the current room's .SEV boxes
     csHost.playerPos = &feet;
     csHost.playerPosW = &feet;      // Chr_Pos/Chr_MoveTo move the player's feet in a cutscene
+    // Apply the flag writes the scripts recorded (only what they changed, so nothing the game set
+    // independently is clobbered) to the game state, and clear them.
+    auto apply_script_grants = [&] {
+        for (const Grant& gr : csMgr.vm.grants)
+            if (gr.has_value && gr.index >= 0 && gr.index < 0x200)
+                game.g_flags[gr.index] = gr.value;
+        csMgr.vm.grants.clear();
+    };
     bool prev_frozen = false;
     bool skip_cutscene = false;   // set by ESC/Backspace during a frozen cutscene
     std::function<void()> after_cutscene;   // ran once when the world thaws (e.g. re-gate the room)
@@ -1602,6 +1661,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
 
     // One fixed tick of the room's event scripts. Returns whether the world is FROZEN (a Fix
     // is held) — the caller skips the player/enemy sim for that tick but the camera still runs.
+    int wnd_hold[2] = {};                         // the windows' held Up / Down (auto-repeat)
     auto tick_events = [&] {
         // Cutscene SKIP: drain every live script to completion this frame, collapsing
         // Wait_Time delays and auto-advancing dialogue prompts, until the world thaws
@@ -1629,13 +1689,25 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             hud.message("(skipped)");
         }
         csMgr.tick_all();
-        // The windows (FUN_0057a0e0 / FUN_005789a0): Confirm = Space / Return / E / Z.
+        // The windows (FUN_0057a0e0 / FUN_005789a0): Confirm = Space / Return / E / Z; a menu's
+        // cursor = Up / Down (W / S) with the auto-repeat FUN_005d2ba0 (1st frame, 28th, then
+        // every 5th), its cancel = Esc / Backspace (the key handler's edge).
         if (csHost.wtext.alive() || csHost.wdlg.alive()) {
             const bool* ks = SDL_GetKeyboardState(nullptr);
             WndInput win;
             win.confirm_held = ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_E] || ks[SDL_SCANCODE_Z];
             win.confirm_pressed = csHost.advance;
             csHost.advance = false;
+            const bool held[2] = {ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W], ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S]};
+            bool fire[2];
+            for (int i = 0; i < 2; ++i) {
+                wnd_hold[i] = held[i] ? wnd_hold[i] + 1 : 0;
+                fire[i] = wnd_hold[i] == 1 || (wnd_hold[i] >= 28 && (wnd_hold[i] - 28) % 5 == 0);
+            }
+            win.vstep = csHost.wnd_vstep != 0 ? csHost.wnd_vstep : fire[0] ? -1 : fire[1] ? 1 : 0;
+            win.cancel_pressed = csHost.wnd_cancel;
+            csHost.wnd_vstep = 0;
+            csHost.wnd_cancel = false;
             std::vector<int> wsnd;
             csHost.wtext.update(win, wsnd);
             csHost.wdlg.update(win, wsnd);
@@ -2108,15 +2180,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             std::string name = target->script_name;
             if (name.empty() && !target->script.empty()) name = fs::path(target->script).stem().string();
             for (char& ch : name) ch = char(std::tolower((unsigned char)ch));
-            std::string tl = target->name;
-            for (char& ch : tl) ch = char(std::tolower((unsigned char)ch));
-            if (tl.rfind("save", 0) == 0 && (name.empty() || name == "@save")) {
-                // [STAND-IN] S_COMMON/SAVE.XSO's script-built menu (its 0x9A / 0xDC / 0xDD / 0xE0
-                // ops and @GrowMenu are not ported): the hand-made statue menu.
-                statue_ui = 1;            // "What will you do?" (STATUE_MENU.md flow)
-                statue_sel = 0; statue_reveal = 0;
-                return;
-            }
             if (name.empty() || target->script.empty()) continue;
             XsoVm::Vars ov;
             ov.s[0] = target->name;                                // the object's own name ($S0)
@@ -2139,6 +2202,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     //   boss2[=o]   stand by a hittable Nygtilger piece (o = its object index)
     //   boss3[=i]   stand by a hittable Gelaldy part (i = 0 core, 1 right arm, 3 left arm)
     //   cam=x,y,z,yaw,pitch   draw from that fixed pose (degrees) from now on, for shots (the game runs on)
+    //   ok / esc / up / down  confirm / cancel / a cursor step: the pause book while it is up (its
+    //                         frames count as ticks), else the windows and the game-over menu
+    //   hp=n / sp=n           the player's HP (0 = die) / the SP wallet
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
@@ -2157,6 +2223,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
     }
     std::string drive_shot;                 // a pending `shot` file
+    // ok / esc / up / down go to the pause book while it is up (set where the book lives); the
+    // drive's tick count runs on through the book's frames, since the game ticks are held.
+    std::function<bool(const std::string&)> drive_book;
     std::optional<Camera> drive_cam;        // `cam=`: the view drawn from instead of the rig's
     // The CrossFade capture (0xcd): the frozen frame and its bind group for the HUD overlay.
     WGPUTexture cf_tex = nullptr; WGPUTextureView cf_view = nullptr; WGPUBindGroup cf_bind = nullptr;
@@ -2337,14 +2406,23 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (std::sscanf(cmd.c_str() + 5, "%f,%f,%d", &dx, &dz, &nn) == 3) { drive_wish = {dx, 0, dz}; drive_wish_n = nn; }
         } else if (cmd.rfind("bracelet=", 0) == 0) {   // bracelet=<item id>: the equipped bracelet 0x76a630
             inv.magic = std::atoi(cmd.c_str() + 9);
+        } else if (cmd.rfind("hp=", 0) == 0) {         // hp=<n>: the player's HP (0 = the death)
+            player.hp = std::atoi(cmd.c_str() + 3);
+        } else if (cmd.rfind("sp=", 0) == 0) {         // sp=<n>: the SP wallet 0x76a75c
+            player.sp = std::atoi(cmd.c_str() + 3);
         } else if (cmd == "jump") {
             drive_jump = true;
         } else if (cmd == "skill+" || cmd == "skill-") {   // hold / release the skill button
             drive_skill = cmd == "skill+";
         } else if (cmd == "act") {
             try_interact();
-        } else if (cmd == "ok") {
+        } else if (drive_book && drive_book(cmd)) {    // ok / esc / up / down while the book is up
+        } else if (cmd == "ok") {                      // confirm: the windows, the game-over menu
             csHost.advance = true;
+        } else if (cmd == "esc") {                     // a script menu's cancel
+            csHost.wnd_cancel = true;
+        } else if (cmd == "up" || cmd == "down") {     // one menu cursor step
+            csHost.wnd_vstep = cmd == "up" ? -1 : 1;
         } else if (cmd == "shot") {
             const char* d = std::getenv("CLERIA_SHOT_DIR");
             drive_shot = (fs::path(d ? d : ".") / ("t" + std::to_string(tick_count) + ".ppm")).string();
@@ -2367,8 +2445,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     const bool pauseOk = pauseUi.init(g, asset_root);
     FaceCache faces;                                      // the message box's face (view_book.inl)
     auto face_tex = [&](int face, int frame) { return faces.get(g, asset_root, face, frame); };
-    MenuFont pmf;
-    pmf.init(g, fmt, find_felghana(asset_root), int(std::lround(32.0 * 960.0 / 768.0)));
     const ItemTable pitems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
     bool paused = false;
     // The pause book (src/cleria/pausebook, build/menu_re/PAUSEBOOK_DRAW.md), drawn by
@@ -2435,6 +2511,51 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
     std::fprintf(stderr, "[pause menu] Esc opens the pause book; assets %s\n",
                  pauseOk ? "loaded (ready)" : "MISSING TITLE_000.DDS -> book won't draw");
+    auto open_book = [&](int page) {
+        paused = true;
+        book.open(book_model(), page);
+        bookIn = {};
+        for (int& h : bookHold) h = 0;
+        bookAccum = 0;
+    };
+    int drive_book_v = 0;                                  // a CLERIA_DRIVE up / down for the book
+    drive_book = [&](const std::string& c) {
+        if (!(paused && book.is_open())) return false;
+        if (c == "ok") bookIn.confirm = true;
+        else if (c == "esc") bookIn.cancel = true;
+        else if (c == "up" || c == "down") drive_book_v = c == "up" ? -1 : 1;
+        else return false;
+        return true;
+    };
+    // 0xe0 SaveMenu_Enter (FUN_00574eb0 -> FUN_00443150): the book's Save page, refused while
+    // HP < 1 (0x76a730 < 1.0) or with the book already up. [not modelled] the second window
+    // gate 0x730294.
+    csHost.save_menu_fn = [&] {
+        if (player.hp < 1 || (paused && book.is_open())) return;
+        std::printf("  [script] SaveMenu_Enter -> the book's Save page\n");
+        open_book(1);
+    };
+    // The continue snapshot 0x767f50 (FUN_00443d70; SCENEFLOW.md §6.3): the save block and the
+    // player's x / foot y / z / heading +0x314, with the scene. Taken by 0x96 SaveContData, by
+    // every save write (FUN_0042e9a0) and after a load (FUN_00431260's "load" label); the game
+    // over's Retry restores it. In memory only, like the engine's.
+    struct ContSnap { SaveState s; Vec3 feet{}; bool valid = false; } cont;
+    auto save_cont = [&] {
+        apply_script_grants();                    // a script's writes this burst are in the block
+        cont.s = capture_save();
+        cont.feet = feet;
+        cont.valid = true;
+        std::printf("  [cont] snapshot %s (%.2f, %.2f, %.2f) hp %d\n", cont.s.scene.c_str(),
+                    feet.x, feet.y, feet.z, player.hp);
+    };
+    csHost.save_cont_fn = save_cont;
+    // 0x84 / 0xaf: the SP wallet 0x76a75c and itemArr 0x76a654 (the blessing shop's purchase).
+    csHost.gold_get_fn = [&] { return player.sp; };
+    csHost.gold_set_fn = [&](int v) { player.sp = v; };
+    csHost.item_arr_fn = [&](int i, int v) {
+        game.item_arr[i] = v;
+        inv.raval[i] = v;                         // [approx] FUN_00420c40's recompute: player_stats()
+    };
 
     // A title-screen Load lands here: flags/character/room were applied before the room
     // load above; apply_loaded now sets the stats and the saved position (idempotent on
@@ -2442,6 +2563,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     if (pending_load) {
         apply_loaded(*pending_load);
         pending_load.reset();
+        save_cont();                              // FUN_00431260 "load": the continue snapshot
         hud.message("Game loaded.");
     }
 
@@ -3196,6 +3318,54 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
     };
 
+    // ---- the player's death and the game over (build/gameflow_re/GAMEFLOW.md §3.4) ---------
+    // FUN_0046fba0 (and FUN_0046f810) on HP < 1 without flag 133: the first dead step sets
+    // +0x3fc = 1 and zeroes the motion fields, the rest count it up, and at 100 FUN_00427820 runs:
+    // gameover.dds as a held type-8 card at (0, 192) (FUN_005a15d0), a two-item menu "Retry" /
+    // "Return to Title" at (512, 460.8) (FUN_00578440(&pos, " ", 0) + FUN_00578680 + FUN_00578710),
+    // armed at once (+0x1fd1 = 1), and Bgm_Play(36); time attack (flag 193) skips the card and the
+    // BGM. Retry (LAB_004276b0) = ChangeScene(the current scene, label "continue"): FUN_00431260
+    // restores the continue snapshot, counts flag 196 up and arrives at the snapshot's pose.
+    // Return to Title (LAB_00427750) leaves for the title (FUN_0042f510).
+    // [not modelled] the fader pair 0x769f24 = 1/3, 0x769f28 = 0.01; Hugo's scene-0x93 achievement;
+    // the death count's own gate 0x74ab8f (the menu) and the actor fields beyond the motion.
+    int death_t = 0;                                     // +0x3fc
+    CaptionCard gameover_card;
+    WndDialog gameover_menu;
+    int gameover_hold[2] = {};
+    bool return_to_title = false;
+    auto game_over = [&] {                               // FUN_00427820
+        std::printf("  [gameover] gameover.dds + Retry / Return to Title\n");
+        const bool time_attack = game.g_flags[193] != 0;
+        if (!time_attack) gameover_card.open("gameover", /*hold*/true, /*alt*/true);
+        gameover_menu.menu(512.0f, 460.8f, " ", {"Retry", "Return to Title"}, {"retry", "title"},
+                           bookR.metrics(), /*centre_y*/false, /*tick*/false);
+        gameover_menu.arm();
+        if (!time_attack) csHost.bgm_play_fn(36);
+    };
+    auto retry = [&] {                                   // LAB_004276b0 -> FUN_00431260 "continue"
+        gameover_card = CaptionCard{};
+        gameover_menu = WndDialog{};
+        death_t = 0;
+        if (!cont.valid) {
+            // [STAND-IN] no snapshot yet (the engine's 0x767f50 would hold whatever was there):
+            // revive in place at the room's spawn.
+            std::printf("  [gameover] Retry: no continue snapshot, respawn\n");
+            player.hp = player.max_hp;
+            spawn_player();
+            return;
+        }
+        apply_loaded(cont.s, /*force_scene*/true);
+        game.g_flags[196] += 1;                          // DAT_0076bc2c, the retry count
+        std::printf("  [gameover] Retry -> %s (%.2f, %.2f, %.2f), retries %d\n", cont.s.scene.c_str(),
+                    cont.feet.x, cont.feet.y, cont.feet.z, game.g_flags[196]);
+        feet = cont.feet;                                // the arrival 0x76a3a0..a8 = the snapshot pose
+        const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
+        if (fl > kNoFloor) feet.y = fl;
+        pv = VerticalState{}; pvel = {}; last_floor = feet.y;
+        facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+        csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+    };
     g_tick_reset = true;   // the first room's load stall is not caught up either (DAT_0075aed5)
     while (running) {
         if (!csHost.pending_scene.empty()) {
@@ -3223,42 +3393,25 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
-                // The goddess-statue menu swallows all input while open (real flow,
-                // STATUE_MENU.md: choice -> save slots / blessings; Esc backs out).
-                if (statue_ui == 1) {              // "What will you do?"
-                    if (k == SDLK_UP || k == SDLK_W) statue_sel = (statue_sel + 2) % 3;
-                    else if (k == SDLK_DOWN || k == SDLK_S) statue_sel = (statue_sel + 1) % 3;
-                    else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
-                        if (statue_sel == 0) {
-                            statue_ui = 0;
-                            paused = true;
-                            book.open(book_model(), 1);
-                            bookIn = {};
-                            for (int& h : bookHold) h = 0;
-                            bookAccum = 0;
-                        }
-                        else if (statue_sel == 1) { statue_ui = 3; statue_sel = 0; statue_reveal = 0; }
-                        else statue_ui = 0;        // Nothing right now
-                    } else if (k == SDLK_ESCAPE) statue_ui = 0;
-                } else if (statue_ui == 3) {       // blessing list (effects pending)
-                    constexpr int kBless = 15;     // 14 blessings + "Nothing right now"
-                    if (k == SDLK_UP || k == SDLK_W) statue_sel = (statue_sel + kBless - 1) % kBless;
-                    else if (k == SDLK_DOWN || k == SDLK_S) statue_sel = (statue_sel + 1) % kBless;
-                    else if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E) {
-                        if (statue_sel == kBless - 1) { statue_ui = 1; statue_sel = 1; }
-                        else hud.message("Blessings are not implemented yet.");
-                    } else if (k == SDLK_ESCAPE) { statue_ui = 1; statue_sel = 1; }
+                // The game-over menu (FUN_00427820) takes the confirm; up / down are read held in
+                // the death step.
+                if (death_t > 0) {
+                    if (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_E || k == SDLK_Z)
+                        csHost.advance = true;
                 }
                 // While the world is frozen by a cutscene, a confirm key advances the dialogue
                 // and other gameplay input is swallowed (the sim is skipped anyway).
                 // ESC (or the dedicated skip key) SKIPS the whole cutscene — like retail's
                 // cancel-to-skip: tick_events drains it to the end, applying every flag /
-                // spawn / warp in order but collapsing the Wait_Time delays.
+                // spawn / warp in order but collapsing the Wait_Time delays. Over a script menu
+                // (the statue's) it is the menu's cancel instead (Menu_AssignCancel).
                 else if (csMgr.world_frozen()) {
                     if (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_E || k == SDLK_Z)
                         csHost.advance = true;
-                    else if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE)
-                        skip_cutscene = true;
+                    else if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE) {
+                        if (csHost.wdlg.alive() && csHost.wdlg.is_menu()) csHost.wnd_cancel = true;
+                        else skip_cutscene = true;
+                    }
                 }
                 else if (paused) {
                     const bool ok = k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E || k == SDLK_Z;
@@ -3341,11 +3494,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // The catch-up loop in the exe has NO cap; a long stall really does emit a
         // burst of ticks. We reproduce that, relying on the load-time reset above
         // rather than on clamping, so timing stays exact under normal play.
-        if (paused || statue_ui) accum = 0;  // freeze while the pause menu / statue menu is open
+        if (paused) accum = 0;               // freeze while the pause book is open
         if (paused && book.is_open()) {
             bookAccum += real_dt;
             while (bookAccum >= kTickDt && book.is_open()) {
                 bookAccum -= kTickDt;
+                if (!drive.empty()) {                        // CLERIA_DRIVE runs on through the book
+                    ++tick_count;
+                    for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
+                }
                 // Auto-repeat (FUN_005d2ba0): a held direction fires on its 1st frame, its
                 // 28th, then every 5th.
                 const bool* ks = SDL_GetKeyboardState(nullptr);
@@ -3363,6 +3520,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 bookIn = {};
                 in.hstep = fire[0] ? -1 : fire[1] ? 1 : 0;
                 in.vstep = fire[2] ? -1 : fire[3] ? 1 : 0;
+                if (drive_book_v != 0) { in.vstep = drive_book_v; drive_book_v = 0; }
                 in.held_left = held[0];
                 in.held_right = held[1];
                 BookModel bm = book_model();
@@ -3383,7 +3541,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (!csMgr.start(bev.script))
                         std::printf("  [book] %s did not start\n", bev.script.c_str());
                 }
-                if (bev.save_slot >= 0) do_save(bev.save_slot);
+                if (bev.save_slot >= 0) {
+                    save_cont();                     // FUN_0042e9a0 snapshots before it writes
+                    do_save(bev.save_slot);
+                }
                 if (bev.delete_slot >= 0) {
                     std::error_code ec;
                     fs::remove(slot_path(bev.delete_slot), ec);
@@ -3393,6 +3554,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
                     if (auto r = SaveRecord::decode(raw)) {
                         apply_loaded(from_record(*r));
+                        save_cont();                 // FUN_00431260 "load"
                         hud.message("Game loaded.");
                     }
                 }
@@ -3411,6 +3573,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         while (accum >= kTickDt) {
         accum -= kTickDt;
         ++tick_count;
+        ++game.g_flags[199];                       // 0x76bc38, the play time (FUN_004281c0 0x428274)
         for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
         ++ticks;
         // Tick the room's event scripts every frame (controllers poll here). If a Fix is held
@@ -3441,8 +3604,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         // One flag store (FLOOR1_ROUTE_AUDIT B4): the engine's own writes (156 / 130 at a boss
         // death, 141 Boost, the pickups) reach the running scripts; their writes come back
-        // through the grants drain below.
+        // through the grants drain below. Writes a script made since the last drain (a probe or
+        // a book script started between ticks) are applied FIRST: the copy would otherwise
+        // undo them in the VM before the script's own child reads them (the statue cleanse:
+        // SAVE.XSO's 311 = 1, then s_SaveObjectChange read 311 == 0 and kept the demon statue).
+        apply_script_grants();
         std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
+        std::copy(game.item_arr, game.item_arr + 54, csMgr.vm.item_arr);   // IsXXX 7 / 8 read it
         csMgr.vm.g_flags[150] = character;
         const bool frozen_now = tick_events();
         world.tick_alpha_fades();                  // Chr_Alpha (runs under a Fix too, [H])
@@ -3480,12 +3648,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // Flag_SetInt(item, 1), applied with the grants below (audit event_vm #28).
             csMgr.vm.acquires.clear();
             csMgr.vm.items.clear();
-            // Apply the recorded flag deltas (only what the cutscene actually changed, so
-            // nothing the game set independently is clobbered).
-            for (const Grant& gr : csMgr.vm.grants)
-                if (gr.has_value && gr.index >= 0 && gr.index < 0x200)
-                    game.g_flags[gr.index] = gr.value;
-            csMgr.vm.grants.clear();
+            apply_script_grants();
         }
         // A live script showed / hid an object (or switched its collision): rebuild the room's
         // geometry with the overrides, mesh only (the scripts keep running).
@@ -3572,6 +3735,41 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 m.dirty_pos = m.dirty_pose = false;
             }
         };
+        // The dead player (FUN_0046fba0's HP < 1 branch): no input decode / mover (FUN_0046f980),
+        // the death count, the ASO plays the death section on (FUN_004472e0), then the game over.
+        // [approx] the rest of the world (enemies, bullets) stands still here; retail runs it on.
+        if (death_t > 0) {
+            if (death_t < 0x65 && ++death_t == 100) game_over();
+            avm.tick();
+            step_meshes();
+            fxsim.step();
+            fxsim.sweep();
+            gameover_card.step();
+            if (gameover_menu.alive()) {                     // FUN_005789a0 on the game-over menu
+                WndInput gin;
+                gin.confirm_held = ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_E] || ks[SDL_SCANCODE_Z];
+                gin.confirm_pressed = csHost.advance;
+                csHost.advance = false;
+                const bool held[2] = {ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W], ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S]};
+                bool fire[2];
+                for (int i = 0; i < 2; ++i) {
+                    gameover_hold[i] = held[i] ? gameover_hold[i] + 1 : 0;
+                    fire[i] = gameover_hold[i] == 1 || (gameover_hold[i] >= 28 && (gameover_hold[i] - 28) % 5 == 0);
+                }
+                gin.vstep = csHost.wnd_vstep != 0 ? csHost.wnd_vstep : fire[0] ? -1 : fire[1] ? 1 : 0;
+                csHost.wnd_vstep = 0;
+                std::vector<int> wsnd;
+                gameover_menu.update(gin, wsnd);
+                for (int id : wsnd) audio.play(id, kSfxMenuVol);
+                if (gameover_menu.accepted()) {              // the record's callback
+                    const std::string pick = gameover_menu.chosen();
+                    std::printf("  [gameover] chose %s\n", pick.c_str());
+                    if (pick == "retry") retry();
+                    else { return_to_title = true; running = false; accum = 0; }
+                }
+            }
+            continue;
+        }
         if (frozen_now) {
             if (shield_on) remove_shield(true);      // FUN_0046af60 L411-536 [H-med: 0x75ad90/94 = the fix counters]
             step_meshes();
@@ -4742,7 +4940,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // With g_flags[133] (a losable duel) the fight ends instead of the game: 156 = 0,
             // 130 = 0 (174 stays 0, the scripts' "lost" branch), the boss gauge hidden, HP 1,
             // i-frames 9999. [not modelled] the stat recompute and the motion fields it zeroes.
-            // Otherwise [STAND-IN] the game-over / continue flow is not RE'd yet: respawn.
+            // Otherwise the player is dead: the death count and the game over (death_t above).
             // FUN_004fe9e0 L31-34: a hit needs the victim's +0x60 & 0x80 AND its Untouchable byte
             // (+0x9d7, ASO funcid 28) clear — the player's skill sections set it.
             const bool p_untouchable = avm.untouchable() || gs_ramp < 1.0f;
@@ -4754,11 +4952,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     player_iframes = 9999;
                     return;
                 }
-                player.hp = player.max_hp;
-                spawn_player();
-                player_kb = {};
-                player_iframes = 90;
-                hud.message("Down! respawned");
+                if (death_t == 0) {                          // +0x3fc 0 -> 1: the first dead step
+                    death_t = 1;
+                    player_kb = {}; pvel = {};               // +0x32c/+0x334/+0xa3c/+0xa44/+0x5d0.. zeroed
+                    // [H] the death section 5 (the hit reaction's state for a lethal hit); for lava /
+                    // drowning the setter is not traced.
+                    avm.set_section(5, /*force*/true);
+                    std::printf("  [death] HP %d at (%.2f, %.2f, %.2f), section %d\n", player.hp, feet.x, feet.y,
+                                feet.z, avm.section());
+                }
             };
             if (player.hp < 1) player_death();                // lava / noise / drowning this tick
             auto hurt_player = [&](float atk, float bonus, int rtype, float angle) {
@@ -5414,45 +5616,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             book.draw(dl, book_model());
             bookR.render(g, view, cw, ch, dl);
         }
-        // The goddess-statue menu, over the frozen game (STATUE_MENU.md flow).
-        if (statue_ui && pauseOk) {
-            write_mvp(g, Mat4::identity());
-            WGPUTextureView pdepth = make_depth(g, cw, ch);
-            // The statue menu IS a go_wnddialog popup (WndMenu dump: Window_Menu's
-            // window class = go_wnddialog.cpp) — DIALOG0 frame, MENUCURSOR capsule,
-            // the traced (512,256) layout. The title types in like the engine's.
-            statue_reveal = std::min(statue_reveal + 2, 64);
-            char tbuf[40];
-            if (statue_ui == 1) {
-                static const char* kChoice[3] = {"Save", "Accept divine blessing", "Nothing right now"};
-                std::snprintf(tbuf, sizeof tbuf, "%.*s", statue_reveal, "What will you do?");
-                pauseUi.draw_popup(g, pmf, view, pdepth, cw, ch, tbuf, kChoice, 3, statue_sel);
-            } else {
-                // Blessing names + SP costs are the retail-observed table (STATUE_MENU.md).
-                // Selecting one only reports "not implemented" — no SP is spent.
-                static const char* kBless[15] = {
-                    "Strengthen current armor - [SP:]100",
-                    "Increase stationary heal rate - [SP:]1000",
-                    "Reduce damage from terrain - [SP:]4000",
-                    "Increase stun effect - [SP:]8000",
-                    "Increase SP gain - [SP:]16000",
-                    "Increase item drop rate - [SP:]24000",
-                    "Reduce bad status duration LV1 - [SP:]1500",
-                    "Increase effect of herbs LV1 - [SP:]2000",
-                    "Bolster bad status resists LV1 - [SP:]2500",
-                    "Extend drop item effects LV1 - [SP:]3000",
-                    "Increase Boost recovery LV1 - [SP:]10000",
-                    "Hasten Skill recovery LV1 - [SP:]20000",
-                    "Reduce MP usage LV1 - [SP:]30000",
-                    "Increase movement speed - [SP:]500000",
-                    "Nothing right now"};
-                std::snprintf(tbuf, sizeof tbuf, "%.*s", statue_reveal, "Please select a blessing.");
-                // 15 rows: anchor the caption near the top so the list fits (authored
-                // ~72, matching statue_blessings.png's window top).
-                pauseUi.draw_popup(g, pmf, view, pdepth, cw, ch, tbuf, kBless, 15, statue_sel,
-                                   false, 72.0f);
-            }
-            wgpuTextureViewRelease(pdepth);
+        // The game over (FUN_00427820): gameover.dds as a held caption card, then its menu.
+        if (bookOk && (gameover_card.alive() || gameover_menu.alive())) {
+            DrawList gl;
+            gameover_card.draw(gl);
+            gameover_menu.draw(gl);
+            bookR.render(g, view, cw, ch, gl);
         }
         // CrossFade: every frame is kept in cf_tex until a fade starts; the op then dissolves the
         // last frame the player saw (the op's "this frame") into the live view. [H] the engine
@@ -5518,6 +5687,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         else wgpuDevicePoll(g.device, true, nullptr);    // no vsync: wait out each frame
         wgpuTextureViewRelease(view);
         wgpuTextureRelease(st.texture);
+    }
+    // LAB_00427750 -> FUN_0042f510: the game over's Return to Title. [approx] the old room's GPU
+    // buffers are not freed (as on exit). A CLERIA_DRIVE run has no title to show (the title
+    // loop needs a presentable surface), so it ends here instead.
+    if (return_to_title) {
+        std::printf("  [gameover] Return to Title%s\n", offscreen ? " (CLERIA_DRIVE: exit)" : "");
+        if (!offscreen) {
+            show_title = true;
+            g_rig_room.clear();                          // the camera rig re-reads the next room
+            emotions.clear();
+            goto title_again;
+        }
     }
     SDL_DestroyWindow(win); SDL_Quit();
     return 0;

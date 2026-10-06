@@ -16,7 +16,10 @@ namespace cleria {
 
 class CaptionCard {
   public:
-    void open(const std::string& name);              // +0x120 = 150
+    // `hold` = +0x124 (the timer stops at 45: fade in, then stay up), `alt` = +0x128 (drawn at
+    // (0, 192) in the 4:3 field instead of (16, 16) on the left edge). The op's card has neither;
+    // the game over's gameover.dds (FUN_00427820 -> FUN_005a15d0) has both.
+    void open(const std::string& name, bool hold = false, bool alt = false);   // +0x120 = 150
     void step();                                     // FUN_0058fcb0 case 8
     void draw(DrawList& out) const;                  // FUN_005a16c0
     bool alive() const { return timer_ > 0; }
@@ -24,6 +27,7 @@ class CaptionCard {
   private:
     std::string tex_;                                // "<NAME>.DDS"
     int timer_ = 0;
+    bool hold_ = false, alt_ = false;                // +0x124, +0x128
 };
 
 class Busts {

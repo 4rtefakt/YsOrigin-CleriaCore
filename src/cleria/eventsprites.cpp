@@ -27,13 +27,15 @@ bool starts(const std::string& s, const char* p) {
 
 // ---- the caption card ------------------------------------------------------------------------
 
-void CaptionCard::open(const std::string& name) {
+void CaptionCard::open(const std::string& name, bool hold, bool alt) {
     tex_ = tex_name(name);
     timer_ = 150;
+    hold_ = hold;
+    alt_ = alt;
 }
 
 void CaptionCard::step() {
-    if (timer_ > 0) --timer_;
+    if (timer_ > 0 && (!hold_ || timer_ > 45)) --timer_;   // +0x124 holds it at 45 (full alpha)
 }
 
 void CaptionCard::draw(DrawList& out) const {
@@ -44,11 +46,11 @@ void CaptionCard::draw(DrawList& out) const {
     DrawCmd c;
     c.kind = DrawCmd::Quad;
     c.tex = {TexRef::Named, 0, tex_.c_str()};
-    c.x = 16; c.y = 16; c.w = 1024; c.h = 256;
+    c.x = alt_ ? 0.0f : 16.0f; c.y = alt_ ? 192.0f : 16.0f; c.w = 1024; c.h = 256;
     c.u0 = 0; c.v0 = 0; c.u1 = 1; c.v1 = 1;
     c.diffuse = (al << 24) | 0xFFFFFF;
     c.flags = 0x40c1;                                      // additive
-    c.anchor_x = 1; c.anchor_y = 0;                        // pinned to the screen's left edge
+    c.anchor_x = alt_ ? 2 : 1; c.anchor_y = 0;             // the 4:3 field / the screen's left edge
     if (al) out.push_back(std::move(c));
 }
 

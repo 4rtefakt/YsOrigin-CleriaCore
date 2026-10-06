@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""CLERIA_DRIVE regressions for cleria-view: scripted live-game runs checked by their stdout.
+
+Each case launches cleria-view on a room with a CLERIA_DRIVE command list (see the
+CLERIA_DRIVE comment in apps/cleria-view/view_game.inl) and requires every `expect`
+substring to appear in the output, in order. Saves go to a scratch directory
+(CLERIA_SAVE_DIR), never ./saves.
+
+    python tools/drive_regress.py                 # all cases
+    python tools/drive_regress.py statue_swap     # one case
+    python tools/drive_regress.py --exe build_diff/Release/cleria-view.exe --assets <dir>
+"""
+import os, subprocess, sys, tempfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXE = os.path.join(ROOT, "build", "Release", "cleria-view.exe")
+ASSETS = os.path.join(ROOT, "assets")
+
+# The S_1009 statue cleanse (Yunica, flags 310 visited / 84 the Crystal), confirmed through
+# the narration box: SAVE.XSO's 311 = 1 must reach its s_SaveObjectChange child.
+CLEANSE = "5:flag=310,1;6:flag=84,1;10:at=-0.036,8.2,0;20:act;60:ok;80:ok;100:ok;120:ok;140:ok;160:ok"
+
+CASES = {
+    # STATUE_CLEANSE.md D2: the touch cleanse swaps save_01 for save_03 at once, and the
+    # cleansed statue's @Save menu -> Save opens the book (0xe0), which writes slot 1.
+    "statue_swap": dict(
+        room="S_10/S_1009/S_1009",
+        drive=CLEANSE + ";220:act;300:ok;400:ok;450:esc;500:quit",
+        expect=["[probe] save_01 -> save", "chest save_03", "[probe] save_03 -> @save",
+                "SaveMenu_Enter -> the book's Save page", "[cont] snapshot S_1009"]),
+    # The blessing shop (@GrowMenu): buying "Strengthen current armor" for 100 SP, then
+    # "Nothing right now" (the cancel) ends every script and thaws the world.
+    "blessing": dict(
+        room="S_10/S_1009/S_1009",
+        drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;400:ok;480:ok;570:ok;650:ok;651:scripts;730:ok;"
+              "820:esc;830:scripts;840:quit",
+        expect=["[probe] save_03 -> @save", "script @GrowMenu", "script @GrowYes", "t830 scripts",
+                "frozen 0 fix 0/0"]),
+    # The game over: HP 0 -> 100 frames -> gameover.dds + Retry / Return to Title; Retry
+    # re-enters the snapshot's room at its pose (the room root's SaveContData).
+    "gameover_retry": dict(
+        room="S_10/S_1009/S_1009",
+        drive="10:move=1,0,40;70:hp=0;220:ok;260:pos;300:quit",
+        expect=["[cont] snapshot S_1009 (0.05, 2.00, 7.80)", "[death] HP 0", "[gameover] gameover.dds",
+                "[gameover] chose retry", "Retry -> S_1009 (0.05, 2.00, 7.80), retries 1",
+                "feet (0.055, 2.000, 7.800)"]),
+    "gameover_title": dict(
+        room="S_10/S_1009/S_1009",
+        drive="70:hp=0;200:down;210:ok;400:quit",
+        expect=["[gameover] gameover.dds", "[gameover] chose title", "Return to Title"]),
+}
+
+
+def run(name, case, exe, assets):
+    with tempfile.TemporaryDirectory() as saves:
+        env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR="1", CLERIA_DRIVE=case["drive"],
+                   CLERIA_SAVE_DIR=saves)
+        sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
+        r = subprocess.run([exe, assets, sob], env=env, capture_output=True, text=True, timeout=300)
+    out = r.stdout + r.stderr
+    at = 0
+    for e in case["expect"]:
+        k = out.find(e, at)
+        if k < 0:
+            print(f"FAIL {name}: missing '{e}' (after offset {at})")
+            return False
+        at = k + len(e)
+    print(f"ok   {name}")
+    return True
+
+
+def main():
+    args = sys.argv[1:]
+    opt = {"--exe": EXE, "--assets": ASSETS}
+    for k in opt:
+        if k in args:
+            i = args.index(k)
+            opt[k] = os.path.abspath(args[i + 1])
+            del args[i:i + 2]
+    names = args or list(CASES)
+    fails = sum(not run(n, CASES[n], opt["--exe"], opt["--assets"]) for n in names)
+    print(f"{len(names) - fails}/{len(names)} passed")
+    sys.exit(1 if fails else 0)
+
+
+if __name__ == "__main__":
+    main()

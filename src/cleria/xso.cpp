@@ -297,6 +297,14 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0xd9) { host->menu_select(nargs >= 1 ? ops(0) : std::string()); return Step::Continue; }
                     if (sub == 0xda && nargs >= 1) { host->menu_assign_cancel(ops(0)); return Step::Continue; }
                     if (sub == 0xdb) { host->menu_cursor_last(); return Step::Continue; }
+                    if (sub == 0xdc && nargs >= 1) { host->menu_rename_last(ops(0)); return Step::Continue; }
+                    // 0xdd Menu_AddSpShop(text, label, price) [BYTES 0x56a149..0x56a1c9]: the record
+                    // text is op0 with sprintf("%d", op2) appended (fmt 0x69f63c), then Menu_Add.
+                    if (sub == 0xdd && nargs >= 3) {
+                        host->menu_add(ops(0) + std::to_string(op(2)), ops(1));
+                        return Step::Continue;
+                    }
+                    if (sub == 0xe0) { host->save_menu_enter(); return Step::Continue; }
                     if (sub == 0x8b && nargs >= 1) { host->event_xx(op(0)); return Step::Continue; }
                     if (sub == 0x17e && nargs >= 3) { host->mesh_drop_item(ops(0), op(1), op(2)); return Step::Continue; }
                     if (sub == 0x130 && nargs >= 2) { host->chr_attach_script(op(0), ops(1)); return Step::Continue; }
@@ -444,6 +452,45 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         acc = (idx >= 0 && idx < 54 && item_arr[idx] == 1) ? 1 : 0;
                     } else {
                         acc = (flag(217) >> ((o <= 6) ? o : o - 2)) & 1;
+                    }
+                } else if (sub == 0x6a && nargs >= 2) {     // Flag_SubFlag: flag[op0] -= flag[op1]
+                    // [BYTES 0x567e4c..0x567e97] (the GROWAR / GROWLE price deduction).
+                    const std::int32_t i0 = op(0);
+                    flag(i0) -= flag(op(1));
+                    if (i0 >= 0 && i0 < 0x200) grants.push_back({"sub", i0, flag(i0), true});
+                } else if (sub == 0x84 && nargs >= 1) {     // SetGoldflagNowZenny(i) [BYTES 0x56876d]
+                    // 0: the live wallet 0x76a75c -> flag 216 (0x76bc7c); else flag 216 -> the wallet.
+                    if (op(0) == 0) {
+                        flag(216) = host ? host->gold() : 0;
+                        grants.push_back({"set", 216, flag(216), true});
+                    } else if (host) {
+                        host->set_gold(flag(216));
+                    }
+                } else if (sub == 0xaf && nargs >= 1) {     // SetXXX(idx): the blessing grant
+                    // Jump table 0x56e6f0 (BLESSING_SHOP.md §2): idx 0..6 set bit idx of flag 217
+                    // (0x76bc80), 7 / 8 FUN_00420200(flag 152 / 153, 1) (the armor / boots Raval),
+                    // 9..33 bit idx - 2. [not modelled] idx > 0x21 throws in the engine.
+                    const std::int32_t o = op(0);
+                    if (o == 7 || o == 8) {
+                        const std::int32_t id = flag(o == 7 ? 152 : 153);
+                        if (id >= 0 && id < 54) {
+                            item_arr[id] = 1;
+                            if (host) host->item_arr_set(id, 1);
+                        }
+                    } else if (o >= 0 && o <= 0x21) {
+                        flag(217) |= std::int32_t(1u << (o <= 6 ? o : o - 2));
+                        grants.push_back({"or", 217, flag(217), true});
+                    }
+                } else if (sub == 0xb0 && nargs >= 1) {     // SetRavalCostToFlag(i) [BYTES 0x5691fd]
+                    // The equipped armor (op0 0: flag 152, id - 6) or boots (flag 153, id - 0x1e) picks a
+                    // bucket from the byte LUT 0x56e818 / 0x56e848 (0..5 repeating), and the bucket's
+                    // jump target (0x56e800 / 0x56e830) stores its cost into flag 218 (0x76bc84).
+                    // [not modelled] an id outside the 24-entry range throws in the engine.
+                    static const std::int32_t kCost[6] = {100, 300, 1000, 3000, 6000, 12000};
+                    const std::int32_t k = op(0) == 0 ? flag(152) - 6 : flag(153) - 0x1e;
+                    if (k >= 0 && k <= 0x17) {
+                        flag(218) = kCost[k % 6];
+                        grants.push_back({"set", 218, flag(218), true});
                     }
                 } else if (sub == 0xc1) {                   // IsFix()
                     // acc = (fix ctr 0x75ad90 + pause ctr 0x75ad94) != 0 (FUN_0040b2c0).

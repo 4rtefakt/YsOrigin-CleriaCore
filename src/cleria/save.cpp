@@ -134,6 +134,9 @@ SaveRecord to_record(const SaveState& s, const std::string& area_line,
     r.set_hdr_u32(0x08, std::uint32_t(SaveRecord::kSize));
     // +0x0c / +0xc4 checksums are stamped by encode() (they cover scrambled bytes).
     r.set_hdr_u32(0x50, std::uint32_t(s.difficulty() + 1));  // 1-based; 0 = empty slot
+    // +0x64 = 0x76bc38 = flag 199, the play-time step count (FUN_004281c0 0x428274 counts it every
+    // real, menu-free step; the HUD shows it as count * 1000 / 60 ms) [BYTES].
+    r.set_hdr_u32(0x64, std::uint32_t(s.flags[199]));
     r.set_hdr_u32(0x68, std::uint32_t(s.character()));
     r.set_hdr_str(0x7C, date, 11);
     r.set_hdr_str(0x87, time, 9);

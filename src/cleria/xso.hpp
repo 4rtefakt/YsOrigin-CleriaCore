@@ -207,6 +207,18 @@ struct XsoHost {
     virtual void menu_select(const std::string& /*title*/) {}
     virtual void menu_assign_cancel(const std::string& /*label*/) {}
     virtual void menu_cursor_last() {}
+    // 0xdc Menu_RenameLastScript(s) (FUN_00430940): copies s over the last chosen label 0x75ad98,
+    // the record MoveCursorLastScript parks on (EVENTVM_HANDLERS_4 §5).
+    virtual void menu_rename_last(const std::string& /*label*/) {}
+    // 0xe0 SaveMenu_Enter(s) (FUN_00574eb0): builds the slot's area string (FUN_00574970), then
+    // opens the book on its Save page (FUN_00443150, refused while HP < 1). s is walked, unused.
+    virtual void save_menu_enter() {}
+    // 0x84 SetGoldflagNowZenny(i): the live SP wallet 0x76a75c, which op0 0 copies into flag 216
+    // and op0 != 0 restores from it (BLESSING_SHOP.md §0). 0xaf SetXXX(7 / 8) =
+    // FUN_00420200(armor / boots id, 1): itemArr[id] = 1, then the stat recompute FUN_00420c40.
+    virtual int gold() const { return 0; }
+    virtual void set_gold(int /*v*/) {}
+    virtual void item_arr_set(int /*idx*/, int /*v*/) {}
     virtual void set_msg_speed(int /*v*/) {}
     // 0x8b EventXX(n): sub-kind 10 unequips the accessory, 7 clears accessory / held / magic
     // (build/item_re/KEY_ITEMS.md §5).
