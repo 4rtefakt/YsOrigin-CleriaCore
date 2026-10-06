@@ -54,6 +54,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     configure();
     build_pipeline(g, fmt);
     Hud hud; hud.init(g, res_file("hud_font.bin"), fmt);
+    hud.debug_text = std::getenv("CLERIA_DEBUG_HUD") != nullptr;
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
     hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");
     hud.init_boss(g, asset_root / "IMAGE" / "HP2.DDS");    // the boss HP bar (it was never loaded live)
@@ -1660,7 +1661,7 @@ title_again:
     auto start_cutscene = [&](const fs::path& p, bool debug235) {
         std::shared_ptr<Xso> s;
         try { s = std::make_shared<Xso>(Xso::parse(read_bytes(p))); }
-        catch (const std::exception&) { hud.message("cutscene: load failed"); return; }
+        catch (const std::exception&) { hud.debug_message("cutscene: load failed"); return; }
         start_cutscene_xso(std::move(s), p.stem().string(), debug235);
     };
 
@@ -1691,7 +1692,7 @@ title_again:
             // view doesn't stay parked where the cutscene had panned it.
             update_camera(room, feet, 0.0f, /*snap=*/true);
             if (g_cam.on) apply_cam_state(cam, feet);
-            hud.message("(skipped)");
+            hud.debug_message("(skipped)");
         }
         csMgr.tick_all();
         // The windows (FUN_0057a0e0 / FUN_005789a0): Confirm = Space / Return / E / Z; a menu's
@@ -3425,19 +3426,20 @@ title_again:
                     std::printf("mode: %s\n", fly ? "fly" : "walk");
                 }
                 else if (k == SDLK_R) { if (fly) spawn_in(cam, room); else spawn_player(); }
+                else if (k == SDLK_F3) hud.debug_text = !hud.debug_text;   // our debug overlay
                 // Debug HP for testing the red damage-lag trail (feat: HUD_HP_BARS.md H3):
                 // K = take 60 damage (watch the red ghost linger + drain), L = heal to full.
-                else if (k == SDLK_K) { player.hp = std::max(1, player.hp - 60); hud.message("(debug) -60 HP"); }
-                else if (k == SDLK_L) { player.hp = player.max_hp; hud.message("(debug) full heal"); }
+                else if (k == SDLK_K) { player.hp = std::max(1, player.hp - 60); hud.debug_message("(debug) -60 HP"); }
+                else if (k == SDLK_L) { player.hp = player.max_hp; hud.debug_message("(debug) full heal"); }
                 // Debug: B fills the EX/Boost gauge in ~4 presses (to eyeball the boost arc).
-                else if (k == SDLK_B) { player.boost = std::min(30000.f, player.boost + 7500.f); hud.message("(debug) +Boost"); }
+                else if (k == SDLK_B) { player.boost = std::min(30000.f, player.boost + 7500.f); hud.debug_message("(debug) +Boost"); }
                 // Boost (engine: button bit 8) and skill/magic (button bit 4). The engine's
                 // pad bits have no keyboard mapping of their own, so these take free keys.
                 else if (k == SDLK_X && !fly && !paused) try_boost();
                 else if (k == SDLK_TAB) {
                     character = character % 3 + 1;
                     game.g_flags[150] = character;
-                    hud.message(std::string("Character: ") + kCharNames[character]);
+                    hud.debug_message(std::string("Character: ") + kCharNames[character]);
                     // Swap the SCRIPT, not the sprite: the script picks the sprite.
                     aso = Aso::load(asset_root / "ANI" / char_aso(character));
                     avm = AsoVm{};
@@ -3965,7 +3967,8 @@ title_again:
                 face_dir = {std::cos(h), 0, std::sin(h)};
             }
             {   // Knockback (+0x338/+0x340), spent by the player mover's own law (hit.hpp).
-                const Impulse kd = step_knockback(player_kb, grounded, player.hp < 1, Mover::Player);
+                const Impulse kd = step_knockback(player_kb, grounded, player.hp < 1, Mover::Player,
+                                                    pact.step_t != 0);
                 feet.x += kd.x; feet.z += kd.z; }
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
@@ -4516,7 +4519,7 @@ title_again:
                                 knock_impulse(kang, player_knock_scale(pm.speed_base, false, 2.2f) * knock));
                     const std::string nm = casts.get(en.cast_id) && !casts.get(en.cast_id)->display.empty()
                                            ? casts.get(en.cast_id)->display : ("cast " + std::to_string(en.cast_id));
-                    hud.message(r.died ? (nm + " defeated!")
+                    hud.debug_message(r.died ? (nm + " defeated!")
                                        : (nm + "  -" + std::to_string(dmg) + " (" +
                                           std::to_string(int(en.hp)) + "/" +
                                           std::to_string(int(en.max_hp)) + ")"));
@@ -5055,7 +5058,7 @@ title_again:
                 // p_damage is the player's own hurt-reaction sound; death adds p_hit0.
                 if (dmg > 0) audio.play(kSfxPlayerHurt, kSfxAnimVol);
                 if (died) audio.play(kSfxDeathEntry, kSfxAnimVol);
-                hud.message("-" + std::to_string(dmg) + " HP");
+                hud.debug_message("-" + std::to_string(dmg) + " HP");
                 if (died) player_death();
             };
             for (EnemyRender& e : render) {

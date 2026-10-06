@@ -151,7 +151,11 @@ struct Hud {
         if (boss_lag > boss_cur) boss_lag = std::max(boss_cur, boss_lag - step);
         else if (boss_lag < boss_cur) boss_lag = std::min(boss_cur, boss_lag + step);
     }
-    struct Msg { std::string text; float ttl; };
+    struct Msg { std::string text; float ttl; bool debug = false; };
+    // Our own debug overlay — the room label, hit / damage lines, the debug keys' notes. Retail
+    // shows none of it (no damage numbers: HUD_RE.md), so it is off unless toggled (F3) or
+    // CLERIA_DEBUG_HUD=1.
+    bool debug_text = false;
     std::vector<Msg> messages;
 
     void init(Gpu& g, const fs::path& font_bin, WGPUTextureFormat color) {
@@ -340,6 +344,7 @@ struct Hud {
     }
 
     void message(const std::string& s) { messages.push_back({s, 5.0f}); }
+    void debug_message(const std::string& s) { messages.push_back({s, 5.0f, true}); }
     // Screen fader (cutscene op 0xc8..): a fullscreen colored quad at `alpha`, drawn
     // FIRST in render() so it sits over the 3D scene but under the HUD/dialogue text.
     std::uint32_t fade_rgb = 0; float fade_alpha = 0;
@@ -738,11 +743,12 @@ struct Hud {
                  std::uint8_t((fade_rgb >> 16) & 0xff), std::uint8_t((fade_rgb >> 8) & 0xff),
                  std::uint8_t(fade_rgb & 0xff), std::uint8_t(std::min(1.0f, fade_alpha) * 255.0f));
         const float s = std::max(1.f, sh / 540.f);  // scale text to window height
-        text("Room: " + room_name, 12 * s, 10 * s, s, float(sw), float(sh), 230, 220, 150, 255);
+        if (debug_text) text("Room: " + room_name, 12 * s, 10 * s, s, float(sw), float(sh), 230, 220, 150, 255);
         float my = float(sh) * 0.5f;
         for (auto it = messages.begin(); it != messages.end();) {
             it->ttl -= dt;
             if (it->ttl <= 0) { it = messages.erase(it); continue; }
+            if (it->debug && !debug_text) { ++it; continue; }
             const std::uint8_t a = std::uint8_t(255 * std::min(1.0f, it->ttl));
             text(it->text, 12 * s, my, s * 1.15f, float(sw), float(sh), 255, 235, 120, a);
             my += 30 * s; ++it;
