@@ -451,6 +451,14 @@ void hover(EnemyAi& a, Actor& self, const AiEnv& e, const Actor* ref, int mode) 
 
 // FUN_00479b00: the action player. build/ai_spec/REACT.md §2.
 void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut& out) {
+    // 0x479b36..0x479b5c: a damaging hit since the last tick -> FUN_00478510 (the spark, from the
+    // previous +0x734) then FUN_0043a080(92 player\p_hit0, origin). build/combat_re/HIT_FEEDBACK.md
+    if (e.took_damage) {
+        const Vec3 last = a.v(0x734);
+        out.hit_spark = true;
+        out.hit_spark_dx = last.x; out.hit_spark_dz = last.z;
+        out.sounds.push_back(92);
+    }
     a.set_v(0x734, e.target - e.self);
     const Vec3 to = a.v(0x734);
     a.dist() = std::sqrt(dot(to, to));
@@ -594,6 +602,7 @@ AiOut enemy_ai_tick(EnemyAi& a, const EnemyAiParams& p, const AiEnv& env, EnemyB
     if (ap.section >= 0) { out.section = ap.section; out.section_force = ap.section_force; }
     for (const AiEffect& f : ap.effects) out.effects.push_back(f);
     for (int s : ap.sounds) out.sounds.push_back(s);
+    if (ap.hit_spark) { out.hit_spark = true; out.hit_spark_dx = ap.hit_spark_dx; out.hit_spark_dz = ap.hit_spark_dz; }
     out.launch_clear |= ap.launch_clear;
     return out;
 }

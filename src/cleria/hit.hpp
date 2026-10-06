@@ -251,4 +251,25 @@ inline Impulse step_knockback(Impulse& v, bool grounded, bool dead, Mover m = Mo
     return disp;
 }
 
+// The player mover's BOTH knock channels (FUN_00465170 0x468e84.., export L2390..L2507):
+// channel 1 (+0x338/+0x340: hits, Dash) and channel 2 (+0x344/+0x34c: the body push, bullet
+// pushes). The displacement is their SUM, capped at 0.36. Channel 1 damps as step_knockback's
+// player law; channel 2 by 1 - 5f (0x6bd868) on the ground, (1 - 5f) * 0.85 (0x6bd3bc) in the
+// air. Both are zeroed when the SUM is under 0.000225 (not while stepping) or on a dead actor.
+inline Impulse step_knockback_player(Impulse& k1, Impulse& k2, bool grounded, bool dead, bool step = false) {
+    Impulse disp{k1.x + k2.x, k1.z + k2.z};
+    const float m2 = disp.x * disp.x + disp.z * disp.z;
+    if (m2 > 0.1296f) {
+        const float s = 0.36f / std::sqrt(m2);
+        disp.x *= s; disp.z *= s;
+    }
+    const float f = (step ? 0.0675f : 0.135f) * (grounded ? 1.0f : 0.3f);
+    const float d1 = 1.0f - f;
+    const float d2 = grounded ? 1.0f - f * 5.0f : (1.0f - f * 5.0f) * 0.85f;
+    k1.x *= d1; k1.z *= d1;
+    k2.x *= d2; k2.z *= d2;
+    if ((!step && m2 < 0.000225f) || dead) { k1 = {}; k2 = {}; }
+    return disp;
+}
+
 }  // namespace cleria

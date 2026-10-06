@@ -112,8 +112,8 @@ void spawn_pickups(ef2sim::Rng& rng, const int* bag, int n, const Vec3& pos, con
 }
 
 void roll_enemy_drops(ef2sim::Rng& rng, const Enemy& rec, int cast_id, const Vec3& pos,
-                      const DropContext& c, std::vector<Pickup>& out) {
-    rng.next();                                               // the entry draw (death effect scale)
+                      const DropContext& c, std::vector<Pickup>& out, bool entry_draw) {
+    if (entry_draw) rng.next();                               // the entry draw (death effect scale)
     if (c.no_drops) return;
     if (cast_id == 0xb0 || cast_id == 0xaf) return;           // rolls skipped (SP / flag 162 are the host's)
     SpawnArgs a;

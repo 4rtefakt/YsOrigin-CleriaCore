@@ -808,8 +808,129 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
 // B2[0] & 0x100: a camera-facing billboard, half-size scale.x * mult.x * fx scale * 0.5 (x only),
 // rolled by rot.z through the cosine table; otherwise the unit quad (+/-0.5) transformed by the
 // particle matrix (B1 pitch pi/2 lies it flat). Colour = the track diffuse ARGB: additive emitters
-// (B2+0x08 & 0x80) add rgb * alpha, the others blend alpha-over. [not modelled] the ring mesh
-// (& 8) and EFTMESH (& 0x200) emitters, the specular add, the UV scroll, render interpolation.
+// (B2+0x08 & 0x80) add rgb * alpha, the others blend alpha-over. EFTMESH (& 0x200) emitters:
+// draw_eftmesh_particles. [not modelled] the ring mesh (& 8) emitters, the specular add, the UV
+// scroll, render interpolation.
+//
+// EFTMESH emitters — FUN_0044f2e0's `B2 & 0x200` branch [EXPORT 0x44f2e0, EF2SIM.md §4]: the
+// YMO `DAT_0074e274[B2+0x18]` (EFTMESH.DAT: u32 0, u32 count, then {u32 id, char name[0xC0]}
+// records stored BY id — FUN_00450d50) drawn through the ordinary model path FUN_005fafc0(0, -1)
+// with the particle's world matrix. Before the draw, every material of the mesh gets:
+//   diffuse rgb = the track colour / 255; model alpha (+0x29c+0xc) = track alpha / 255, snapped
+//   to 1 above 0.985 (0x6bd418) and to 0 below 0.015 (0x6bd0c0);
+//   UV scroll on (flag 4) with phase = the particle's uv + the frame's (u0, v0) (B2+0x8c/+0x90 +
+//   16 * frame), or off when both are 0;
+//   when the emitter has frames (B2+0x48), the frame's EFTTEX texture replaces the mesh's (the
+//   first 8 materials; [approx] counted here per batch, one batch per material in practice).
+// Each material then blends by its own d3 with that alpha (material_blend_mode), and colour =
+// texture x vertex colour x c16, c16 = material diffuse (x the scene colour, [not modelled] as
+// on the room). Vertices are transformed on the CPU (the room uniform has no per-draw matrix).
+// [not modelled] the mesh's animation time (B2+0x1c..0x24, FUN_005f5e10): the rest pose is drawn.
+static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::path& asset_root,
+                                   const std::function<const SpriteTex*(std::uint32_t)>& tex_of,
+                                   WGPUTextureView color, WGPUTextureView depth) {
+    static std::unordered_map<int, fs::path> names;           // EFTMESH.DAT id -> YMO
+    static bool names_read = false;
+    if (!names_read) {
+        names_read = true;
+        const std::vector<std::uint8_t> b = read_bytes(asset_root / "EFFECT" / "EFT" / "EFTMESH.DAT");
+        auto u32 = [&](std::size_t o) { std::uint32_t v = 0; if (o + 4 <= b.size()) std::memcpy(&v, &b[o], 4); return v; };
+        const std::uint32_t n = b.size() >= 8 && u32(0) == 0 ? std::min<std::uint32_t>(u32(4), 0x100) : 0;
+        for (std::uint32_t i = 0; i < n; ++i) {
+            const std::size_t o = 8 + std::size_t(i) * 0xC4;
+            if (o + 0xC4 > b.size()) break;
+            std::string nm(reinterpret_cast<const char*>(&b[o + 4]), 0xC0);
+            nm.resize(std::strlen(nm.c_str()));
+            for (char& c : nm) if (c == '\\') c = '/';
+            if (!nm.empty() && u32(o) < 0x100) names[int(u32(o))] = asset_root / "EFFECT" / "EFT" / nm;
+        }
+    }
+    static std::unordered_map<int, Room> models;              // id -> uploaded YMO (empty = failed)
+    auto model_of = [&](int id) -> const Room* {
+        auto it = models.find(id);
+        if (it == models.end()) {
+            Room r;
+            auto nt = names.find(id);
+            if (nt != names.end() && fs::exists(nt->second)) r = load_model(g, asset_root, nt->second);
+            it = models.emplace(id, std::move(r)).first;
+        }
+        return it->second.mesh.vertices.empty() ? nullptr : &it->second;
+    };
+    struct Bucket { std::vector<RoomVertex> v; WGPURenderPipeline pipe{}; WGPUBindGroup bind{}; };
+    std::vector<Bucket> opaque, blended;
+    for (const auto& pp : sim.particles()) {
+        const ef2sim::Particle& p = *pp;
+        if (p.dead || p.delay != 0 || p.remaining == 0) continue;
+        const Ef2Emitter& E = p.fx->ef->emitters()[std::size_t(p.em)];
+        std::uint32_t flags = 0;
+        std::memcpy(&flags, E.b2.data(), 4);
+        if (!(flags & 0x200) || (flags & 0x400)) continue;
+        const Room* m = model_of(E.b2[0x18]);
+        if (!m) continue;
+        float a = float(p.diffuse >> 24) / 255.0f;
+        a = a > 0.985f ? 1.0f : (a < 0.015f ? 0.0f : a);
+        if (a <= 0.0f) continue;                                  // FUN_005faca0: nothing above 0
+        const float tr = float((p.diffuse >> 16) & 0xff) / 255.0f, tg = float((p.diffuse >> 8) & 0xff) / 255.0f,
+                    tb = float(p.diffuse & 0xff) / 255.0f;
+        const std::size_t fo = 0x8c + std::size_t(p.frame) * 16;
+        float du = p.uv_u, dv = p.uv_v, fu = 0, fv = 0;
+        if (fo + 8 <= E.b2.size()) { std::memcpy(&fu, &E.b2[fo], 4); std::memcpy(&fv, &E.b2[fo + 4], 4); }
+        du += fu; dv += fv;
+        const SpriteTex* over = nullptr;
+        if (!E.frames.empty())
+            over = tex_of(E.frames[std::min<std::size_t>(p.frame, E.frames.size() - 1)].tex_id);
+        int mat_i = 0;
+        for (const DrawBatch& bt : m->mesh.batches) {
+            if (bt.index_count == 0) continue;
+            const int mode = material_blend_mode(bt, a);
+            WGPUBindGroup bind = (bt.texture >= 0 && bt.texture < int(m->binds.size())) ? m->binds[bt.texture] : g.black_bind;
+            if (over && mat_i < 8) bind = over->bind;
+            ++mat_i;
+            const WGPURenderPipeline pipe = mode == 0 ? g.pipeline : g.mat_pipe[mode][material_zwrite(bt) ? 1 : 0];
+            std::vector<Bucket>& list = mode == 0 ? opaque : blended;
+            if (list.empty() || list.back().pipe != pipe || list.back().bind != bind) list.push_back({{}, pipe, bind});
+            std::vector<RoomVertex>& out = list.back().v;
+            for (std::uint32_t k = 0; k < bt.index_count; ++k) {
+                const std::size_t ii = std::size_t(bt.first_index) + k;
+                if (ii >= m->mesh.indices.size() || m->mesh.indices[ii] >= m->mesh.vertices.size()) break;
+                RoomVertex v = m->mesh.vertices[m->mesh.indices[ii]];
+                const Vec3 w = ef2sim::transform_coord({v.px, v.py, v.pz}, p.world);
+                v.px = w.x; v.py = w.y; v.pz = w.z;
+                v.u += du; v.v += dv;
+                v.r = std::uint8_t(float(v.r) * tr + 0.5f);
+                v.g = std::uint8_t(float(v.g) * tg + 0.5f);
+                v.b = std::uint8_t(float(v.b) * tb + 0.5f);
+                v.a = std::uint8_t(float(v.a) * a + 0.5f);
+                out.push_back(v);
+            }
+        }
+    }
+    for (std::vector<Bucket>* list : {&opaque, &blended})
+        for (const Bucket& bk : *list) {
+            if (bk.v.empty()) continue;
+            WGPUBuffer vb = make_buffer(g.device, g.queue, bk.v.data(), bk.v.size() * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
+            WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+            WGPURenderPassColorAttachment ca = {};
+            ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+            ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+            WGPURenderPassDepthStencilAttachment da = {};
+            da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+            WGPURenderPassDescriptor rp = {};
+            rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+            WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+            wgpuRenderPassEncoderSetPipeline(pass, bk.pipe);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+            wgpuRenderPassEncoderSetBindGroup(pass, 1, bk.bind, 0, nullptr);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderDraw(pass, std::uint32_t(bk.v.size()), 1, 0, 0);
+            wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
+            WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+            wgpuQueueSubmit(g.queue, 1, &cmd);
+            wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+            wgpuBufferRelease(vb);
+        }
+}
+
 static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& asset_root,
                            const EftTex& eft, WGPUTextureView color, WGPUTextureView depth,
                            const Vec3& camFwd) {
@@ -828,6 +949,7 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         }
         return it->second.bind ? &it->second : nullptr;
     };
+    draw_eftmesh_particles(g, sim, asset_root, tex_of, color, depth);
     const Vec3 up = {0, 1, 0};
     const Vec3 right = normalize(cross(up, camFwd));
     struct Batch { std::vector<RoomVertex> v; std::vector<std::uint32_t> i; WGPUBindGroup bind{}; bool additive = true; };

@@ -23,6 +23,7 @@ struct Material {
     std::uint32_t flags = 0;     // +0x00  bit 0x4 = UV scroll, 0x8 = ZENABLE, 0x400 = no cull
     std::uint32_t blend = 0;     // +0x0C  0..3, indexes the engine's blend-mode jump table
     float diffuse[4]{1, 1, 1, 1};  // +0x10  RGBA; alpha is what the alpha test reads
+    std::uint32_t alpha_ref = 0;   // +0x34  d13: FUN_005f92b0 local_6c = (int)(d13 * alpha) -> alpha-test cutout
     float scroll_u = 0, scroll_v = 0;  // +0x44/+0x48  UV scroll velocity -> c1.xy
     std::string name;
     std::string texture[3];  // three slots, stride 0xC0; ".DDS", may be empty

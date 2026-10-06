@@ -76,8 +76,10 @@ struct DropContext {
     bool boss_lock = false;           // 0x76bb8c != 0: no buff scatter
     bool whole_room_water = false;
 };
+// `entry_draw` false: the caller already took FUN_00478510's entry draw (the death effect's
+// scale) and spawned the death effects, which draw too, before these rolls.
 void roll_enemy_drops(ef2sim::Rng& rng, const Enemy& rec, int cast_id, const Vec3& pos,
-                      const DropContext& c, std::vector<Pickup>& out);
+                      const DropContext& c, std::vector<Pickup>& out, bool entry_draw = true);
 
 // 0x116 Effect_GetItem: the display-only chest item at a mesh (+0.3 up, life 210, kind 2).
 Pickup make_chest_item(ef2sim::Rng& rng, int id, const Vec3& mesh_pos, bool flag);

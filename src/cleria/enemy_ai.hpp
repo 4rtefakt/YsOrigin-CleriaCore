@@ -232,6 +232,12 @@ struct AiOut {
     std::vector<AiSpawn> spawns; // FUN_00476d70 / FUN_00475710 style spawns (cast ids)
     std::vector<int> sounds;     // EFFECTDEF ids, played at the actor (FUN_0043a080)
     std::vector<AiEffect> effects;
+    // FUN_00479b00's first act on a tick after a damaging hit (+0x3bc & 2): FUN_00478510's
+    // alive path, the character hit spark (hit_feedback.hpp), placed from the victim's LAST
+    // vector to the player (+0x734/+0x73c before this tick's refresh). The host spawns it (it
+    // needs the camera and the game RNG); SE 92 is queued in `sounds`.
+    bool hit_spark = false;
+    float hit_spark_dx = 0, hit_spark_dz = 0;
     float set_hp = -1;           // the brain wrote its own HP (+0x98); < 0 = untouched
     float exp_scale = 1;         // x its own EXP reward (+0xb0)
     std::vector<AiHitbox> hitboxes;

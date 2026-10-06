@@ -959,6 +959,38 @@ title_again:
         }
         return fx;
     };
+    // anime_GenerateEffect (FUN_004496f0) for an actor at `org` facing `facing` (radians).
+    //   arg 5 == 0 [EXPORT]: FUN_00450410 at org + (cos, sin)(angle + facing) x fwd, y + voff, rot
+    //     (0, angle - (facing + pi/2), 0), scale (s, s, s); not attached.
+    //   arg 5 != 0 [BYTES 0x4499ce..0x449a33]: spawned at 0 with scale (s, s, s), then
+    //     FUN_00451c20(parent = the actor's +0x20, off (0, voff, -fwd), rot (pitch +0x4ec, yaw angle,
+    //     roll 0), scale (s, s, s), mode = arg 5): local = T(off) * RotYPR * S (0x451c81..0x451d33).
+    //     Mode 2/3 add only the parent's translation, so that local is the whole story. Mode 1
+    //     multiplies by the full +0x20; [H] its rotation is the actor's yaw -(facing + pi/2) (the
+    //     unattached branch's), baked at spawn — actor_mats carry the origin translation only.
+    //     [not modelled] actor +0x4ec (taken as 0); mode 3's +0x230 height (run as mode 2).
+    // The attached effect used to keep only the offset, so it lost its scale: Yunica's
+    // Whirlwind (102, s 1.5, mode 2) drew at 1x.
+    auto spawn_generate_effect = [&](const AsoVm::EffectEvent& fe, const Vec3& org, float facing,
+                                     const ef2sim::SpawnParams& sp, int owner) -> ef2sim::Effect* {
+        const float a = fe.angle_deg * 0.017453292f;                  // 0x6bd0dc
+        if (fe.attach == 0) {
+            const Vec3 at{org.x + std::cos(a + facing) * fe.fwd, org.y + fe.voff,
+                          org.z + std::sin(a + facing) * fe.fwd};
+            return spawn_sim_fx(fe.id, at, {0.0f, a - (facing + 1.5707963f), 0.0f}, fe.scale, sp, 0, {});
+        }
+        ef2sim::Effect* fx = spawn_sim_fx(fe.id, {}, {}, fe.scale, sp, 0, {});
+        if (fx) {
+            fx->local = ef2sim::mul(ef2sim::mul(ef2sim::translation(0.0f, fe.voff, -fe.fwd),
+                                                ef2sim::rot_ypr(a, 0.0f, 0.0f)),
+                                    ef2sim::scaling(fe.scale, fe.scale, fe.scale));
+            if (fe.attach == 1)
+                fx->local = ef2sim::mul(fx->local, ef2sim::rot_ypr(-(facing + 1.5707963f), 0.0f, 0.0f));
+            fx->attach_parent = &actor_mats[owner];
+            fx->attach_mode = fe.attach == 1 ? 1 : 2;
+        }
+        return fx;
+    };
     // The script placements 0x117 Eft_LocatePos and 0x11A Eft_LocatePosAddStr: both reach
     // FUN_00450410 with rot = (0, -pi/2 - op5 degrees, 0) and scale (op4, op4, op4), then name the
     // effect (FUN_00451da0). BARRIER_OBJECTS.md §1 [BYTES 0x56b0fe, 0x56f920]. They are ordinary
@@ -1026,6 +1058,7 @@ title_again:
         player.max_hp = player.hp = int(player_stats().max_hp);
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
+    Impulse player_kb2{};              // knock channel 2, +0x344/+0x34c: body / bullet pushes
     Mat4 last_vp; bool have_vp = false;  // last frame's camera, for the AI's off-screen test
     const bool ai_debug = std::getenv("CLERIA_AI") != nullptr;
     std::uint64_t tick_count = 0;
@@ -1551,6 +1584,7 @@ title_again:
     // Positional SFX: pan from the camera's right axis, distance from the player
     // (the engine's listener object; its emitter->listener lerp tames the pan the
     // same direction). Curve/pan-law caveats live on Audio::play_at.
+    const bool sfx_log = std::getenv("CLERIA_SFXLOG") != nullptr;   // debug: the SE / hit-effect ids
     auto sfx_at = [&](int id, const Vec3& p, float vol) {
         const Vec3 f = cam.forward();
         const float rl = std::sqrt(f.x * f.x + f.z * f.z);
@@ -1559,6 +1593,7 @@ title_again:
         const float dx = p.x - feet.x, dy = p.y - feet.y, dz = p.z - feet.z;
         const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
         const float pan = dist > 1e-4f ? (dx * rx + dz * rz) / dist : 0.0f;
+        if (sfx_log) std::printf("  [sfx] t%llu %d at (%.2f, %.2f, %.2f)\n", (unsigned long long)tick_count, id, p.x, p.y, p.z);
         audio.play_at(id, pan, dist, vol);
     };
 
@@ -4222,6 +4257,10 @@ title_again:
         // single tick with a zero delta rather than catching up on the stall. Room
         // transitions set this; without it a slow load bursts hundreds of ticks.
         if (g_tick_reset) { accum = kTickDt; g_tick_reset = false; }
+        // CLERIA_DRIVE_LOCKSTEP=1: one logic tick per rendered frame, so a drive `shot` lands on
+        // its own tick (a hidden offscreen run renders slower than 60 Hz and would skip it).
+        static const bool lockstep = std::getenv("CLERIA_DRIVE") && std::getenv("CLERIA_DRIVE_LOCKSTEP");
+        if (lockstep) accum = kTickDt;
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -4936,9 +4975,10 @@ title_again:
                 const float h = turn_facing(run_gait ? 0.35f : 0.18f, std::atan2(face_dir.z, face_dir.x), std::atan2(wish.z, wish.x));
                 face_dir = {std::cos(h), 0, std::sin(h)};
             }
-            {   // Knockback (+0x338/+0x340), spent by the player mover's own law (hit.hpp).
-                const Impulse kd = step_knockback(player_kb, grounded, player.hp < 1, Mover::Player,
-                                                    pact.step_t != 0);
+            {   // Knockback, both channels (+0x338/+0x340 and +0x344/+0x34c), by the player
+                // mover's own law (hit.hpp step_knockback_player).
+                const Impulse kd = step_knockback_player(player_kb, player_kb2, grounded, player.hp < 1,
+                                                         pact.step_t != 0);
                 feet.x += kd.x; feet.z += kd.z; }
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
@@ -5183,6 +5223,20 @@ title_again:
                     if (o.set_hp >= 0) en->hp = o.set_hp;
                     en->exp_reward *= o.exp_scale;
                     for (const AiSpawn& s : o.spawns) brain_spawns.push_back({en, s});
+                    // FUN_00479b00 -> FUN_00478510's alive path (hit_feedback.hpp): one game-RNG draw
+                    // (the scale), the character's hit spark one unit toward the camera; SE 92 is in
+                    // o.sounds. [not modelled] its FUN_0058a5f0 particle burst (no particle system).
+                    if (o.hit_spark) {
+                        const float sc = hitfx::spark_scale(pick_rng.next(), hitfx::kAliveLo, hitfx::kAliveHi);
+                        const int sid = hitfx::hit_spark_effect(character, game.g_flags[149], true, avm.section());
+                        if (sid >= 0 && !hitfx::alive_spark_suppressed(en->cast_id, game.g_flags[156] != 0)) {
+                            const hitfx::Spark sk = hitfx::place_spark({en->pos.x, en->pos.y + en->height, en->pos.z},
+                                                                       cam_fwd, o.hit_spark_dx, o.hit_spark_dz, sc);
+                            ef2sim::SpawnParams sp; sp.side = 0;          // +0x1d7 = 0, +0x1d6 = 0xff
+                            spawn_sim_fx(sid, sk.pos, sk.rot, sk.scale, sp, 0, {});
+                            if (sfx_log) std::printf("  [hitfx] t%llu spark 0x%x x%.2f\n", (unsigned long long)tick_count, sid, sc);
+                        }
+                    }
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
                     // [not modelled] attachment to the actor (FUN_00451c20) and the scale.
                     // The brain's effects, through the particle simulation (their hit fields arm
@@ -5324,17 +5378,13 @@ title_again:
                     }
                     // anime_GenerateEffect (FUN_004496f0, EFFECTHIT.md §6): at origin + (cos, sin)
                     // (angle + facing) x fwd, y + voff, yaw angle - (facing + pi/2), its args 6..9
-                    // as the hit fields; attach mode != 0 follows the actor (as mode 2).
+                    // as the hit fields; attach mode != 0 follows the actor (spawn_generate_effect).
                     for (const AsoVm::EffectEvent& fe : e.avm.effects()) {
-                        const float a = fe.angle_deg * 0.0174533f;
-                        const float an = a + e.facing;
                         const Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
-                        const Vec3 at{org.x + std::cos(an) * fe.fwd, org.y + fe.voff, org.z + std::sin(an) * fe.fwd};
                         ef2sim::SpawnParams sp;
                         sp.power = fe.power; sp.knock = fe.knock; sp.rtype = fe.rtype; sp.status = fe.status;
                         sp.atk = en->atk; sp.side = 1; sp.owner = en->instance_id;
-                        spawn_sim_fx(fe.id, at, {0.0f, a - (e.facing + 1.5707963f), 0.0f}, fe.scale, sp,
-                                     fe.attach != 0 ? en->instance_id : 0, org);
+                        spawn_generate_effect(fe, org, e.facing, sp, en->instance_id);
                     }
                     // Its GenerateCollision arms the enemy's hit-volume, with the section's own
                     // radius/lifetime/power/knock.
@@ -5403,7 +5453,43 @@ title_again:
             world.tick_effects([&](int id) {
                 return bullet_art(g, asset_root, efl, eft, id).life;
             });
+            // FUN_0045e460, the body push (body_push.hpp): every actor's body in the list's order;
+            // each ticking monster runs its pass right after its own integrator, as the handlers do
+            // (FUN_0045a510 then FUN_0045e460). The player's own pass pushes nobody, so it is not run.
+            // [not modelled] NPC passes (class 4 bodies: no NPC is alive() in the view).
+            std::vector<bodypush::Body> bodies;
+            std::vector<bodypush::Body*> body_list;
+            {
+                const Cast* pc = casts.get(13);
+                for (Actor& a : world.actors()) {
+                    bodypush::Body b;
+                    if (a.is_player()) {
+                        b.shape = body_shape({feet.x, feet.y + kOriginH, feet.z}, pc ? pc->hurt_radius : 0.45f,
+                                             pc ? pc->hurt_half_h : 0.5f, pc ? pc->hurt_shape : 1,
+                                             pc ? pc->center_offset : -0.25f);
+                        // +0x60 & 0x80: cleared at death and while Godspeed's ramp runs (+0x4d8 < 1).
+                        b.kind = std::uint8_t(player.hp >= 1 && gs_ramp >= 1.0f ? 0x81 : 0x01);
+                        b.section = avm.section();
+                        b.push = bodypush::Push::of(player_kb2);
+                    } else {
+                        b.shape = body_shape({a.pos.x, a.pos.y + a.height, a.pos.z}, a.hurt_radius, a.hurt_half_h,
+                                             a.hurt_shape, a.hurt_off);
+                        const bool live = a.alive() && a.ai.hittable && !a.destroy_requested();
+                        b.kind = std::uint8_t(live ? (a.kind & 0xff) : (a.kind & 0x7f));
+                        b.speed = a.ai.speed310;                     // +0x310
+                        for (const EnemyRender& er : render)
+                            if (er.actor == &a && er.avm.ok()) { b.section = er.avm.section(); break; }
+                        b.token = 0x02000000u | std::uint32_t(a.instance_id);   // [H] +0x80 = actor+0x14
+                        b.bank = &a.bank;
+                        b.push = bodypush::Push::of(a.mover.k2);
+                    }
+                    bodies.push_back(b);
+                }
+                for (bodypush::Body& b : bodies) body_list.push_back(&b);
+            }
+            std::size_t body_i = 0;
             for (Actor& a : world.actors()) {
+                bodypush::Body& self_body = bodies[body_i++];
                 // FUN_0045c490 [BYTES 0x45d371]: a tagged actor's glow phase +1 per tick.
                 // [not modelled] +4/+5 in state +0x6f0 == 2 (its meaning for enemies is unknown).
                 if (a.tag.tagged()) a.glow_phase = std::uint8_t(a.glow_phase + 1);
@@ -5427,6 +5513,8 @@ title_again:
                     }
                     a.pos = {o1.x, o1.y - a.height, o1.z};
                 }
+                self_body.shape.centre = {a.pos.x, a.pos.y + a.height + a.hurt_off, a.pos.z};
+                bodypush::pass(self_body, body_list.data(), body_list.size(), character);
             }
 
             // The enemy's reaction to the player's hit (FUN_004fbb40, src/cleria/hit.hpp).
@@ -5481,6 +5569,21 @@ title_again:
                         dmg = 0;
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    {   // FUN_004fbb40's own feedback (hit_feedback.hpp), at the victim's origin.
+                        const Vec3 org{en.pos.x, en.pos.y + en.height, en.pos.z};
+                        if (dmg < 1) {
+                            // 0x4fd1b5: a guarded / zero hit. [not modelled] the FUN_00589130 sparks
+                            // (10; 25 more on a guard) and the guard's yellow tint.
+                            sfx_at(hitfx::no_damage_se(en.cast_id), org, kSfxAnimVol);
+                        } else if (const int fx = hitfx::skill_hit_effect(cls, character); fx >= 0) {
+                            // 0x4fd020: the damage class's elemental hit effect (FUN_00450410).
+                            ef2sim::SpawnParams sp;
+                            sp.side = 0; sp.power = 0.0f; sp.knock = 1.0f; sp.cls = cls; sp.owner = 13;
+                            const float vf = vr ? vr->facing : heading_of_yaw(en.yaw);
+                            spawn_sim_fx(fx, org, {0.0f, hitfx::skill_hit_yaw(vf), 0.0f}, 1.0f, sp, 0, {});
+                            if (sfx_log) std::printf("  [hitfx] t%llu class %d hit effect 0x%x\n", (unsigned long long)tick_count, cls, fx);
+                        }
+                    }
                     // +300 per hit dealt (0x4fd0bf, DAT_006bdc44) when the kind is not 0 / 5 (skills).
                     if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                     // Knockback: L = walk speed (CASTINFO+0x48) x1.7 [x run mult while running —
@@ -5501,13 +5604,31 @@ title_again:
                                     nm.c_str(), en.level, en.def, r.damage, en.hp, en.max_hp);
                     if (r.died) {
                         award_exp(en.exp_reward);
+                        {   // FUN_004780e0 -> FUN_00478510's death path (hit_feedback.hpp): its entry
+                            // draw (the scale), the puff (+ SE 862 with +0x130 & 0x2000) and the
+                            // character's spark, from the victim's last vector to the player.
+                            const std::uint32_t d0 = pick_rng.next();
+                            const hitfx::DeathPuff dp = hitfx::death_puff(en.flags130);
+                            if (dp.spark) {
+                                const Vec3 tp = en.ai.v(0x734);
+                                const hitfx::Spark sk = hitfx::place_spark({en.pos.x, en.pos.y + en.height, en.pos.z},
+                                    cam.forward(), tp.x, tp.z, hitfx::spark_scale(d0, hitfx::kDeathLo, hitfx::kDeathHi));
+                                ef2sim::SpawnParams sp; sp.side = 0;
+                                if (dp.effect >= 0) spawn_sim_fx(dp.effect, sk.pos, sk.rot, sk.scale, sp, 0, {});
+                                if (dp.se >= 0) sfx_at(dp.se, sk.pos, kSfxAnimVol);
+                                const int sid = hitfx::hit_spark_effect(character, game.g_flags[149], false, 0);
+                                if (sid >= 0) spawn_sim_fx(sid, sk.pos, sk.rot, sk.scale, sp, 0, {});
+                                if (sfx_log) std::printf("  [hitfx] t%llu death puff 0x%x spark 0x%x x%.2f\n",
+                                                         (unsigned long long)tick_count, dp.effect, sid, sk.scale);
+                            }
+                        }
                         if (const Enemy* er = etab.get(en.cast_id)) {     // FUN_00478510
                             DropContext dc;                 // [not modelled] launch count, combo, luck
                             dc.flag108 = game.g_flags[108] == 1;
                             dc.bless8 = (game.g_flags[217] & 8) != 0;
                             dc.no_drops = game.g_flags[146] != 0;
                             dc.boss_lock = game.g_flags[156] != 0;
-                            roll_enemy_drops(pick_rng, *er, en.cast_id, en.pos, dc, pickups);
+                            roll_enemy_drops(pick_rng, *er, en.cast_id, en.pos, dc, pickups, /*entry_draw*/ false);
                         }
                         if (en.cast_id >= 0 && en.cast_id < 256) {   // FUN_004fbb40: the Topic record
                             topic_seen[en.cast_id] = 1;
@@ -6186,8 +6307,7 @@ title_again:
                 for (const bullet::Event& ev : bev) {
                     if (ev.type == bullet::Event::kSound) { sfx_at(ev.id, ev.pos, kSfxAnimVol); continue; }
                     if (ev.type == bullet::Event::kPush) {          // knock channel 2 (+0x344/+0x34c)
-                        // [approx] the view's player has one knock channel; channel 2 is folded into it.
-                        player_kb.x += ev.push.x; player_kb.z += ev.push.z;
+                        player_kb2.x += ev.push.x; player_kb2.z += ev.push.z;
                         continue;
                     }
                     if (ev.target == 0) {                            // FUN_004fa160: the player
@@ -6199,6 +6319,10 @@ title_again:
             }
             for (Actor& a : world.actors())
                 actor_mats[a.instance_id] = ef2sim::translation(a.pos.x, a.pos.y + a.height, a.pos.z);
+            // The player's world Actor carries no height, so its matrix sat at the FEET: every
+            // player-attached effect (Whirlwind, the charge glow) drew kOriginH low. Its origin
+            // is feet + kOriginH (+0x324), as every spawn above computes `org`.
+            actor_mats[13] = ef2sim::translation(feet.x, feet.y + kOriginH, feet.z);
             {
                 const Cast* pc = casts.get(13);
                 const HitShape pbody = body_shape({feet.x, feet.y + kOriginH, feet.z},
@@ -6362,17 +6486,14 @@ title_again:
             // in the hit tick below.
             for (const AsoVm::EffectEvent& fe : avm.effects()) {
                 const float pf = std::atan2(face_dir.z, face_dir.x);
-                const float a = fe.angle_deg * 0.0174533f;
                 const Vec3 org{feet.x, feet.y + kOriginH, feet.z};
-                const Vec3 at{org.x + std::cos(a + pf) * fe.fwd, org.y + fe.voff, org.z + std::sin(a + pf) * fe.fwd};
                 const bool shield_id = character == 2 && (fe.id == 0x86 || fe.id == 0x87);
                 ef2sim::SpawnParams sp;
                 sp.power = fe.power; sp.knock = fe.knock; sp.status = fe.status;
                 sp.rtype = shield_id ? 3 : fe.rtype;
                 sp.cls = player_damage_class(avm.section());
                 sp.atk = player_stats().atk; sp.side = 0; sp.owner = 13;
-                ef2sim::Effect* fx = spawn_sim_fx(fe.id, at, {0.0f, a - (pf + 1.5707963f), 0.0f}, fe.scale, sp,
-                                                  fe.attach != 0 ? 13 : 0, org);
+                ef2sim::Effect* fx = spawn_generate_effect(fe, org, pf, sp, 13);
                 if (shield_id) { shield_fx = fx; shield_on = fx != nullptr; }
             }
             // GenerateCollision fired: adopt this section's own box for its own lifetime.

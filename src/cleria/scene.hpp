@@ -36,6 +36,11 @@ struct DrawBatch {
     // safely modulate by it either way; the view uses it to build a 1x1 fill for the
     // untextured case instead of a wrong white/black fallback.
     std::uint32_t diffuse = 0xFFFFFFFF;
+    // The material's flags word (disk d0), blend mode (d3: 0 opaque, 1 alpha, 2 additive,
+    // 3 reverse-subtract) and d13 (an alpha-test reference) — what FUN_005faca0 /
+    // FUN_005f92b0 pick the draw pass and blend state from. See material_blend_mode().
+    std::uint32_t mat_flags = 0, blend = 0, alpha_ref = 0;
+    float mat_alpha = 1.0f;   // diffuse A (d7), unquantized: 0.999 must stay < 1
     // UV scroll: the material's velocity, added to a runtime PHASE once per 60Hz
     // tick — unscaled, no dt (FUN_0044cda0 @0x44e165: the neighbouring fields ARE
     // MULSS-scaled by a delta; the scroll block has no MULSS at all). The disk phase

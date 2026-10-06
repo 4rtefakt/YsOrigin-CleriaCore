@@ -150,6 +150,7 @@ Model Model::parse(std::span<const std::uint8_t> bytes) {
         m.flags = r.u32(o + 0x00);
         m.blend = r.u32(o + 0x0C);
         for (int k = 0; k < 4; ++k) m.diffuse[k] = r.f32(o + 0x10 + k * 4);
+        m.alpha_ref = r.u32(o + 0x34);
         m.scroll_u = r.f32(o + 0x44);
         m.scroll_v = r.f32(o + 0x48);
         m.name = r.cstr(o + 0x4C, 0x60);

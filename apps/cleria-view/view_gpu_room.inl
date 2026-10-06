@@ -32,6 +32,7 @@ struct Gpu {
     WGPURenderPipeline char_pipeline{}; // alpha-blended character/enemy sprites
     WGPURenderPipeline char_pipeline_add{}; // additive variant, for glow overlays (Topic selection wash)
     WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
+    WGPURenderPipeline mat_pipe[4][2]{};  // blended YMO materials: [blend mode 1..3][z-write]
     WGPUBuffer ubuf{};
     WGPUBindGroup ubind{};
     WGPUSampler sampler{};
@@ -200,6 +201,54 @@ static WGPUBindGroup tex_bindgroup(Gpu& g, WGPUTextureView view) {
     WGPUBindGroupDescriptor d = {};
     d.layout = g.tex_layout; d.entryCount = 2; d.entries = e;
     return wgpuDeviceCreateBindGroup(g.device, &d);
+}
+
+// ---- YMO material blend state (build/render_re/MATERIAL.md §4, §6.2) -------------------
+// The blend mode FUN_005f92b0 draws a material with [EXPORT FUN_005f92b0, FUN_005faca0]:
+//   per-draw alpha a = d7 (diffuse A) x node alpha x model alpha. FUN_005faca0 writes that
+//     product into the subset's alpha slot, which FUN_005fb0e0 hands FUN_005f92b0 in XMM1
+//     (0x5fb1fb..0x5fb469). Node and model alpha are 1.0 for a scene object at rest (node
+//     alpha is initialised to 1.0 by FUN_005f4420); runtime fades are [not modelled].
+//   mode = d3, then if mode < 2: mode = (a < 1 || flags & 0x10) ? 1 : 0.
+//   (int)(d13 * a) >= 1, or flags & 0x40000, with a == 1 -> mode 0 (an alpha-test cutout)
+//     [H: that override is gated by DAT_0076519a != 0, a capability byte never seen written].
+// So an artist's 0.999 diffuse alpha (the s10step shadows) is how a mesh asks to be blended.
+// `a` is the per-draw alpha. A scene object passes d7 (FUN_005faca0 folds it in); an EFTMESH
+// particle draws with FUN_005fafc0(0, -1), whose subsets take node x model alpha instead
+// (FUN_005fb0e0 0x5fb202..0x5fb216), the model alpha being the particle's track alpha.
+static int material_blend_mode(const DrawBatch& b, float a) {
+    int mode = int(b.blend);
+    if (mode > 3) mode = 0;                       // only 0..3 occur (MATERIAL.md §4)
+    if (mode >= 2) return mode;
+    const int cut = int(float(b.alpha_ref) * a);  // local_6c
+    if ((cut != 0 || (b.mat_flags & 0x40000)) && a < 1.0f) return 1;
+    if (cut >= 1 || (b.mat_flags & 0x40000)) return 0;
+    return (a < 1.0f || (b.mat_flags & 0x10)) ? 1 : 0;
+}
+static int material_blend_mode(const DrawBatch& b) { return material_blend_mode(b, b.mat_alpha); }
+// D3DRS_ZWRITEENABLE (local_70): cleared by flags 0x20000, and by flags 0x10 on the alpha
+// path [H: the 0x10 clear is skipped when DAT_00765553 & 0x20, a runtime byte the actor draw
+// toggles; taken as clear for scene objects].
+static bool material_zwrite(const DrawBatch& b) {
+    return (b.mat_flags & 0x20000) == 0 && (b.mat_flags & 0x10) == 0;
+}
+// oD0 = c16 * v2 (b_ndst1_trn / b_ndst2_trn, `mul oD0, c16, v2`) and c16.w is the per-draw
+// alpha, so a blended material's alpha reaches the pixel through the vertex alpha. Fold it
+// in once at load (the room uniform has no per-draw slot). Opaque materials never read it.
+static void bake_material_alpha(RoomMesh& m) {
+    std::vector<std::uint8_t> done(m.vertices.size(), 0);
+    for (const DrawBatch& b : m.batches) {
+        if (material_blend_mode(b) == 0 || b.mat_alpha >= 1.0f) continue;
+        const float a = std::max(b.mat_alpha, 0.0f);
+        for (std::uint32_t i = 0; i < b.index_count; ++i) {
+            const std::size_t k = std::size_t(b.first_index) + i;
+            if (k >= m.indices.size()) break;
+            const std::uint32_t v = m.indices[k];
+            if (v >= m.vertices.size() || done[v]) continue;
+            done[v] = 1;
+            m.vertices[v].a = std::uint8_t(float(m.vertices[v].a) * a + 0.5f);
+        }
+    }
 }
 
 // `shared_white` is owned by Gpu, not the room — missing-texture batches store
@@ -383,6 +432,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                         hidden.empty() ? nullptr : &hidden, base_flags,
                         (obj_states.clip.empty() && obj_states.pos.empty()) ? nullptr : &obj_states,
                         located.empty() ? nullptr : &located);
+    bake_material_alpha(r.mesh);
     std::unordered_set<std::string> coll_hidden = hidden;
     coll_hidden.insert(no_collide.begin(), no_collide.end());
     r.coll = build_collision(asset_root, sob, nullptr,
@@ -558,6 +608,7 @@ static Room load_model(Gpu& g, const fs::path& asset_root, const fs::path& ymo) 
     const char* clip = std::getenv("CLERIA_CLIP");
     const char* fr = std::getenv("CLERIA_FRAME");
     r.mesh = build_model(asset_root, ymo, clip, fr ? float(std::atof(fr)) : 0.0f);
+    bake_material_alpha(r.mesh);
     // CopyDst: the UV-scroll integrator rewrites scrolling materials' vertices in
     // place each frame via wgpuQueueWriteBuffer, which requires it.
     r.vbuf = make_buffer(g.device, g.queue, r.mesh.vertices.data(),
@@ -684,6 +735,28 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     spd.primitive.cullMode = WGPUCullMode_None;   // a flat floor decal must not be culled
     g.shadow_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &spd);
 
+    // Blended YMO materials: FUN_005f92b0's jump table 0x5fa768 (MATERIAL.md §4) — mode 1
+    // SRCALPHA/INVSRCALPHA, 2 SRCALPHA/ONE, 3 SRCALPHA/ONE REVSUBTRACT; COLORWRITEENABLE 7
+    // (RGB only: `|8` is set on the opaque path alone). Same depth test as the world, z-write
+    // per material (material_zwrite). Modes 2/3 set FOGCOLOR 0 (local_60), so fs_mat_add
+    // fogs toward black.
+    for (int mode = 1; mode <= 3; ++mode)
+        for (int zw = 0; zw < 2; ++zw) {
+            WGPUBlendState mb = {};
+            mb.color = {mode == 3 ? WGPUBlendOperation_ReverseSubtract : WGPUBlendOperation_Add,
+                        WGPUBlendFactor_SrcAlpha,
+                        mode == 1 ? WGPUBlendFactor_OneMinusSrcAlpha : WGPUBlendFactor_One};
+            mb.alpha = mb.color;
+            WGPUColorTargetState mt = target; mt.blend = &mb;
+            mt.writeMask = WGPUColorWriteMask_Red | WGPUColorWriteMask_Green | WGPUColorWriteMask_Blue;
+            WGPUFragmentState mfs = fs; mfs.targets = &mt;
+            mfs.entryPoint = sv(mode == 1 ? "fs_mat" : "fs_mat_add");
+            WGPUDepthStencilState mds = ds;
+            mds.depthWriteEnabled = zw ? WGPUOptionalBool_True : WGPUOptionalBool_False;
+            WGPURenderPipelineDescriptor mpd = pd; mpd.fragment = &mfs; mpd.depthStencil = &mds;
+            g.mat_pipe[mode][zw] = wgpuDeviceCreateRenderPipeline(g.device, &mpd);
+        }
+
     WGPUBufferDescriptor ud = {};
     ud.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst; ud.size = 112;
     g.ubuf = wgpuDeviceCreateBuffer(g.device, &ud);
@@ -807,13 +880,24 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
     wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, room.vbuf, 0, WGPU_WHOLE_SIZE);
     wgpuRenderPassEncoderSetIndexBuffer(pass, room.ibuf, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
-    for (const DrawBatch& b : room.mesh.batches) {
-        // A resolved (or failed-load) texture is in room.binds; a genuinely untextured
-        // material (index -1) renders its dark diffuse via black_bind, not white.
-        WGPUBindGroup tb = (b.texture >= 0 && b.texture < int(room.binds.size()))
-                               ? room.binds[b.texture] : g.black_bind;
-        wgpuRenderPassEncoderSetBindGroup(pass, 1, tb, 0, nullptr);
-        wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
+    // Opaque first, then the blended materials: a scene object queues its opaque subsets
+    // (pass bit 1) on render layer 3 and its blended (bit 4) and additive (bit 0x10) ones
+    // on layer 5 (FUN_00561f40 @0x562186..0x5621e3; the room itself: layers 2 / 5,
+    // FUN_005053e0). Layer 5's per-object distance sort is [not modelled]: batch order.
+    for (int blended = 0; blended < 2; ++blended) {
+        for (const DrawBatch& b : room.mesh.batches) {
+            if (b.index_count == 0) continue;
+            const int mode = material_blend_mode(b);
+            if ((mode != 0) != (blended != 0)) continue;
+            if (blended)
+                wgpuRenderPassEncoderSetPipeline(pass, g.mat_pipe[mode][material_zwrite(b) ? 1 : 0]);
+            // A resolved (or failed-load) texture is in room.binds; a genuinely untextured
+            // material (index -1) renders its dark diffuse via black_bind, not white.
+            WGPUBindGroup tb = (b.texture >= 0 && b.texture < int(room.binds.size()))
+                                   ? room.binds[b.texture] : g.black_bind;
+            wgpuRenderPassEncoderSetBindGroup(pass, 1, tb, 0, nullptr);
+            wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
+        }
     }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);

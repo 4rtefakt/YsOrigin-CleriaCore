@@ -212,6 +212,11 @@ target_link_libraries(cleria-worldtest PRIVATE cleria)
 add_executable(cleria-collisiontest apps/cleria-collisiontest/main.cpp)
 target_link_libraries(cleria-collisiontest PRIVATE cleria)
 
+# cleria-bodytest — the body push FUN_0045e460 (body_push.hpp), the player's two knock
+# channels and the hit feedback tables (hit_feedback.hpp).
+add_executable(cleria-bodytest apps/cleria-bodytest/main.cpp)
+target_link_libraries(cleria-bodytest PRIVATE cleria)
+
 # cleria-asotest — validate the ASO container + run the animation-script VM.
 add_executable(cleria-asotest apps/cleria-asotest/main.cpp)
 target_link_libraries(cleria-asotest PRIVATE cleria)
@@ -314,7 +319,7 @@ else()
 endif()
 set(CLERIA_TEST_ASSETS "${_cleria_assets_default}" CACHE PATH "Asset root the ctest suite runs on")
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest)
+foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

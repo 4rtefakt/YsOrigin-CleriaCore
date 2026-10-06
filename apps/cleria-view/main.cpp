@@ -52,6 +52,8 @@
 #include "cleria/enemies.hpp"
 #include "cleria/combat.hpp"
 #include "cleria/hit.hpp"
+#include "cleria/hit_feedback.hpp"
+#include "cleria/body_push.hpp"
 #include "cleria/enemy_ai.hpp"
 #include "cleria/physics.hpp"
 #include "cleria/physics_player.hpp"
@@ -232,6 +234,33 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
     c = mix(u.fogColor.rgb, c, f);
   }
   return vec4<f32>(c, 1.0);
+}
+
+// Blended YMO materials (modes 1-3, material_blend_mode). Stage 0 is MODULATE in colour
+// AND alpha, TEXTURE x DIFFUSE (FUN_005f6e50: COLOROP 4, ALPHAOP 4, ARG1 TEXTURE, ARG2
+// DIFFUSE), and DIFFUSE = oD0 = c16 * v2 — the material alpha is baked into v2.a at load.
+// ALPHATESTENABLE with ALPHAREF 1 drops only fully transparent texels. Mode 1 fogs to the
+// room's fog colour; modes 2/3 set FOGCOLOR 0 (FUN_005f92b0 local_60), so they fog to black.
+fn mat_lit(in : VsOut) -> vec4<f32> {
+  let tc = textureSample(tex, smp, in.uv);
+  return vec4<f32>(tc.rgb * in.color.rgb, tc.a * in.color.a);
+}
+fn fog_f(depth : f32) -> f32 {
+  return clamp((u.fogParams.y - depth) / max(u.fogParams.y - u.fogParams.x, 0.001), 0.0, 1.0);
+}
+@fragment
+fn fs_mat(in : VsOut) -> @location(0) vec4<f32> {
+  var c = mat_lit(in);
+  if (c.a * 255.0 < 0.5) { discard; }
+  if (u.fogParams.z > 0.5) { c = vec4<f32>(mix(u.fogColor.rgb, c.rgb, fog_f(in.depth)), c.a); }
+  return c;
+}
+@fragment
+fn fs_mat_add(in : VsOut) -> @location(0) vec4<f32> {
+  var c = mat_lit(in);
+  if (c.a * 255.0 < 0.5) { discard; }
+  if (u.fogParams.z > 0.5) { c = vec4<f32>(c.rgb * fog_f(in.depth), c.a); }
+  return c;
 }
 
 // Character/enemy sprites: ALPHA-BLEND, not the room's hard 0.5 alpha-test. The AIA

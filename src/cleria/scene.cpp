@@ -164,7 +164,20 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             if (fs::exists(p)) return p;
         }
         const fs::path p = dir / file;  // some refs already name the mip dir
-        return fs::exists(p) ? p : fs::path{};
+        if (fs::exists(p)) return p;
+        // An EFTMESH model (EFFECT/EFT/pc1/ENGETURIN.YMO) names its textures from the EFT
+        // root ("pc1\emgeturin.dds" -> EFT/PC1/H/EMGETURIN.DDS) [DATA: every EFTMESH.DAT model].
+        for (fs::path a = ymo_dir; a.has_parent_path() && a != a.parent_path(); a = a.parent_path()) {
+            std::string nm = a.filename().string();
+            for (char& c : nm) c = char(std::toupper((unsigned char)c));
+            if (nm != "EFT") continue;
+            for (const char* mip : {"H", "L"}) {
+                const fs::path q = (a / rp.parent_path()).lexically_normal() / mip / file;
+                if (fs::exists(q)) return q;
+            }
+            break;
+        }
+        return fs::path{};
     };
 
     // Interned by RESOLVED PATH, not basename: two YMOs in one room may legitimately
@@ -539,6 +552,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                     };
                     b.diffuse = q(mat->diffuse[0]) | (q(mat->diffuse[1]) << 8) |
                                 (q(mat->diffuse[2]) << 16) | (q(mat->diffuse[3]) << 24);
+                    b.mat_flags = mat->flags; b.blend = mat->blend;
+                    b.alpha_ref = mat->alpha_ref; b.mat_alpha = mat->diffuse[3];
                 }
                 b.first_vert = base + fv;
                 b.vert_count = vc ? vc : nvert;
