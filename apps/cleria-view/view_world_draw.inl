@@ -565,21 +565,6 @@ struct Projectile {
     bool alive() const { return age < life; }
 };
 
-// One tick of flight. The engine integrates speed then re-derives heading from the
-// resulting velocity, so gravity curves the bullet AND re-aims it.
-static void step_projectile(Projectile& p) {
-    p.speed += p.accel;
-    Vec3 v = {p.dir.x * p.speed, p.dir.y * p.speed, p.dir.z * p.speed};
-    v.y -= p.gravity;
-    const float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-    if (l > 1e-6f) {
-        p.dir = {v.x / l, v.y / l, v.z / l};
-        p.speed = l;
-    }
-    p.pos.x += v.x; p.pos.y += v.y; p.pos.z += v.z;
-    ++p.age;
-}
-
 static void draw_projectiles(Gpu& g, const std::vector<Projectile>& shots,
                              const fs::path& asset_root, const EftList& efl, const EftTex& eft,
                              WGPUTextureView color, WGPUTextureView depth, const Vec3& camFwd) {

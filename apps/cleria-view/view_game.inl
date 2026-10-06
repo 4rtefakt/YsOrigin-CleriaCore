@@ -344,7 +344,6 @@ title_again:
     EftTex eft;
     if (!efl.load(asset_root) || !eft.load(asset_root))
         std::printf("effects: EFTLIST/EFTTEX missing — projectiles disabled\n");
-    std::vector<Projectile> shots;
     int gauge_owner = 0;                 // the actor whose HP the boss gauge shows (DAT_006d5fd8)
     // The live hit-volume, copied from the script when GenerateCollision arms it.
     // Defaults are Yunica's combo #1 so a script that never arms behaves as before.
@@ -1804,55 +1803,36 @@ title_again:
     // enemies: previously only the player drained bullets(), so no enemy could ever
     // shoot even when its script fired one. `origin` is the shooter's feet, `fdir` its
     // facing; the heading offset arg is applied on top of that.
-    auto spawn_bullets = [&](const AsoVm& vm, const Vec3& origin, const Vec3& fdir,
-                             bool from_player) {
-        for (const AsoVm::BulletEvent& b : vm.bullets()) {
-            Projectile p;
-            p.effect_id = b.id;
-            const float reach = b.f[0], voff = b.f[1], head_deg = b.f[2];
-            const Vec3 d{b.f[3], b.f[4], b.f[5]};
+    // The player's anime_FireBullet (the VM case at 0x447b91, BULLETS.md §1.2-1.3, the
+    // ABILITIES_VERIFIED.md FireBullet addendum): as the monsters', at the origin + (cos, sin)
+    // (arg4 deg + facing +0x314) x arg2, y + arg3; the player's side with the section's class (the
+    // 0x594174 table, FUN_0046d5e0's). Every bullet spawns and lives as long as its effect; only
+    // emitters with a hit arm deal damage (Toal's smoke puffs have none).
+    auto spawn_player_bullets = [&] {
+        const float pf = std::atan2(face_dir.z, face_dir.x);
+        for (const AsoVm::BulletEvent& fb : avm.bullets()) {
+            const float ang = fb.f[2] * 0.0174533f + pf;
+            const float c = float(std::cos(double(ang))), sn = float(std::sin(double(ang)));
+            bullet::Spawn s;
+            s.kind = fb.kind; s.effect = fb.id;
+            s.owner = 13; s.owner_monster = false;
+            s.owner_atk = float(player_stats().atk);
+            s.cls = player_damage_class(avm.section());
+            s.pos = {feet.x + c * fb.f[0], feet.y + kOriginH + fb.f[1], feet.z + sn * fb.f[0]};
+            Vec3 d{fb.f[3], fb.f[4], fb.f[5]};
+            if (d.x * d.x + d.y * d.y + d.z * d.z == 0.0f) d = {c, 0.0f, sn};
             const float dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-            if (dl > 1e-6f) {
-                p.dir = {d.x / dl, d.y / dl, d.z / dl};
-            } else {
-                // Spawn geometry is the engine's x=sin / z=cos, same as GenerateCollision.
-                const float yaw = std::atan2(fdir.x, fdir.z) +
-                                  head_deg * 3.14159265358979f / 180.0f;
-                p.dir = {std::sin(yaw), 0, std::cos(yaw)};
-            }
-            p.speed = b.f[6];
-            p.accel = b.f[7];
-            p.gravity = b.f[8];
-            // The emitter's OWN scale is the world size. arg[12] (=0.15 for Hugo) was
-            // read as a scale multiplier, but applying it shrank the shot to a
-            // near-invisible sliver, so its role is not that (it may be an anim rate).
-            // Default to the emitter scale as-authored; CLERIA_BULLET_SCALE tunes.
-            p.scale = 1.0f;
-            p.pos = {origin.x + p.dir.x * reach, origin.y + kCharH * 0.5f + voff,
-                     origin.z + p.dir.z * reach};
-            p.life = bullet_art(g, asset_root, efl, eft, p.effect_id).life;
-            // Speed 0 means a stationary attached effect rather than a projectile —
-            // that is all of Toal's 8 calls (smoke), so they must not become bullets.
-            // How the script's scale arg combines with the emitter's own scale is
-            // NOT pinned down by the RE, so it is left tunable rather than silently
-            // fudged: CLERIA_BULLET_SCALE multiplies the result.
-            if (const char* bs = std::getenv("CLERIA_BULLET_SCALE"))
-                p.scale *= float(std::atof(bs));
-            if (std::getenv("CLERIA_BULLET")) {
-                const BulletArt& art = bullet_art(g, asset_root, efl, eft, p.effect_id);
-                std::printf("  [bullet] effect %d (%s) %zu layer(s) life=%d speed=%.3f "
-                            "scale=%.3f dir=(%.2f,%.2f,%.2f)\n",
-                            p.effect_id, efl.name(p.effect_id).c_str(), art.layers.size(),
-                            p.life, p.speed, p.scale, p.dir.x, p.dir.y, p.dir.z);
-                for (const BulletArt::Layer& L : art.layers)
-                    std::printf("           layer %ux%u  %zu frames  world size %.3f x %.3f\n",
-                                L.tex.w, L.tex.h, L.frames.size(), L.w * p.scale,
-                                L.h * p.scale);
-            }
-            p.from_player = from_player;
-            if (p.speed > 1e-4f) shots.push_back(std::move(p));
+            s.dir = dl == 0.0f ? Vec3{} : Vec3{d.x / dl, d.y / dl, d.z / dl};
+            s.speed = fb.f[6]; s.accel = fb.f[7]; s.gravity = fb.f[8];
+            s.power = fb.f[9]; s.knock = fb.f[10];
+            std::memcpy(&s.f158, &fb.f[11], 4);
+            std::memcpy(&s.f15c, &fb.f[12], 4);
+            std::memcpy(&s.f160, &fb.f[13], 4);
+            s.f164 = fb.f[14] * 0.0174533f;
+            s.f168 = fb.f[15]; s.f16c = fb.f[16]; s.f170 = fb.f[17]; s.f174 = fb.f[18];
+            bullets.spawn(s);
         }
-            };
+    };
 
     // FUN_0046cc10(amount): the EX/Boost gauge add. Refused while boosting or full, and
     // ONLY counts while g_flags[187] is set (0x76bc08 — set by the floor-1 story scripts,
@@ -3776,6 +3756,15 @@ title_again:
             }
             continue;
         }
+        // Yunica's form flag g_flags[149] (DAT_0076bb70) follows the bracelet each tick, under a
+        // Fix too (FUN_0046af60 L102-120): 0x74 / 0x75 -> 1, 0x76 -> 0, others leave it; a change
+        // forces section 2 (+0x994 = 2 written directly; the previous kept in +0x9a0).
+        if (character == 1) {
+            const int was = game.g_flags[149];
+            if (inv.magic == 0x74 || inv.magic == 0x75) game.g_flags[149] = 1;
+            else if (inv.magic == 0x76) game.g_flags[149] = 0;
+            if (game.g_flags[149] != was) avm.set_section(2, /*force*/true);
+        }
         if (frozen_now) {
             if (shield_on) remove_shield(true);      // FUN_0046af60 L411-536 [H-med: 0x75ad90/94 = the fix counters]
             step_meshes();
@@ -5402,63 +5391,13 @@ title_again:
                 player_kb.x = std::cos(h) * avm.dash_d();
                 player_kb.z = std::sin(h) * avm.dash_d();
             }
-            // Projectile flight. The motion here IS reverse-engineered (speed += accel,
-            // gravity applied to the velocity, heading re-derived from it, and the bullet
-            // living exactly as long as its effect). The DAMAGE is not: PROJECTILE.md
-            // marks the generic bullet->victim path [UNKNOWN] — the only damage calls in
-            // the update loop sit behind a branch for five hardcoded parryable ids. The
-            // sphere test and formula below are the melee ones reused so Hugo can fight
-            // at all. Stand-in, not engine behaviour; revisit if that path is found.
-            for (Projectile& p : shots) {
-                step_projectile(p);
-                // GoXx trail (+0x158 effect every +0x15c ticks, FUN_00594230 0x59565e).
-                if (p.trail_period > 0 && p.trail_effect > 0 && p.age % p.trail_period == 0)
-                    world.locate_effect(p.trail_effect, p.pos.x, p.pos.y, p.pos.z, 0.0f, 0.0f, "");
-                for (Actor& en : world.actors()) {
-                    if (en.is_player() || !en.alive() || p.hit.count(en.instance_id)) continue;
-                    const float bx = en.pos.x - p.pos.x, bz = en.pos.z - p.pos.z;
-                    const float by = (en.pos.y + kCharH * 0.5f) - p.pos.y;
-                    const float rr = kCharRadius + 0.3f;
-                    if (bx * bx + by * by + bz * bz > rr * rr) continue;
-                    p.hit.insert(en.instance_id);
-                    AttackStats a;
-                    a.atk = player_stats().atk;
-                    EnemyDefense vd; vd.def = en.def;
-                    for (int k = 0; k < 4; ++k) vd.resist[k] = en.resist[k];
-                    // STAND-IN: the bullet's own class/power/knock fields are [UNKNOWN]
-                    // (the tag-0x18 path takes its angle from FUN_00591ef0), so it hits
-                    // as class-less with the base 0.1 impulse away from the bullet.
-                    const int dmg = enemy_incoming_damage(a, kDamageClassNone, vd, PlayerDamageMods{},
-                        [&](float pct) { return float(rng_pct(rng)) < pct; });
-                    const HitResult r = apply_damage(en.hp, en.flags, dmg);
-                    // [H] a bullet credits the player's current attack kind (owner+0x404).
-                    if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
-                    react_enemy(en, dmg, r.died, 0,
-                                knock_impulse(std::atan2(en.pos.z - p.pos.z, en.pos.x - p.pos.x), 0.1f));
-                    if (r.died) {
-                        award_exp(en.exp_reward);
-                        sfx_at(kSfxDeathEntry, en.pos, kSfxAnimVol);
-                        for (int id : enemy_death_sounds(asset_root, casts.sprite_stem(en.cast_id)))
-                            sfx_at(id, en.pos, kSfxAnimVol);
-                    }
-                    p.age = p.life;   // die on hit — pierce-vs-not is [UNKNOWN] too
-                    break;
-                }
-            }
-            shots.erase(std::remove_if(shots.begin(), shots.end(),
-                                       [](const Projectile& p) { return !p.alive(); }),
-                        shots.end());
 
-            // anime_FireBullet fired. Arg meanings from build/projectile_re/PROJECTILE.md:
-            // [2] forward reach, [3] vertical offset, [4] heading offset in DEGREES added
-            // to facing, [5..7] an explicit direction used iff non-zero, [8] speed,
-            // [9] acceleration, [10] gravity, [12] scale (negative = sentinel for 1.0).
-            spawn_bullets(avm, feet, face_dir, /*from_player*/true);
+            spawn_player_bullets();                      // anime_FireBullet
             // anime_GenerateEffect from the player's ASO (FUN_004496f0, as the enemies' below): at
             // origin + (cos, sin)(angle + facing) x fwd, y + voff, yaw angle - (facing + pi/2), the
             // player's side (0), class FUN_0046d5e0 (the section's), Hugo's 0x86 / 0x87 with rtype 3
-            // and their handle kept as the Force Shield (+0x7c4). [not modelled] side-0 particle hits
-            // on enemies (the hit tick below resolves only the enemies' particles).
+            // and their handle kept as the Force Shield (+0x7c4). Their particles hit the monsters
+            // in the hit tick below.
             for (const AsoVm::EffectEvent& fe : avm.effects()) {
                 const float pf = std::atan2(face_dir.z, face_dir.x);
                 const float a = fe.angle_deg * 0.0174533f;
@@ -5650,7 +5589,6 @@ title_again:
         draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
-        draw_projectiles(g, shots, asset_root, efl, eft, view, depth, cam.forward());
         // Script-placed persistent effects (the barrier ward). Killed by op 0x119 when
         // the barrier breaks, so it renders only while the fight is unresolved.
         draw_located_effects(g, world.effects(), asset_root, efl, eft, view, depth,

@@ -127,6 +127,8 @@ Bullet* Bullets::spawn(const Spawn& in) {
     b->atk = s.owner_atk;
     if (s.kind == 0x10 || s.kind == 0x23) { monster = true; b->atk = 0.0f; }
     int rtype = 0;
+    // Hugo's shot (effect 0x82): rtype 3. [not modelled] its x1.35 speed under DAT_0074c0d8 (Extra mode).
+    if (s.effect == 0x82) rtype = 3;
     const int status = s.effect == 0x36 ? 8 : 0;
     if (s.knock < 0.0f) {                                          // an rtype code
         switch (int(s.knock)) {                                    // cvttss2si
