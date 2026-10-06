@@ -548,6 +548,9 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // room shows whatever the SOB authored rather than the live layout.
                         auto f = [&](std::uint32_t i) { return opf(i); };
                         obj_place[ops(0)] = {f(1), f(2), f(3)};
+                    } else if (sub == 0x186 && nargs >= 5) {
+                        // Mesh_SetSphereCollision(name, r, ox, oy, oz): a hittable child sphere.
+                        if (host) host->mesh_sphere_collision(ops(0), opf(1), opf(2), opf(3), opf(4));
                     } else if (sub == 0x187 && nargs >= 8) {
                         // Mesh_Locate(ymo, name, x, y, z, rx, ry, rz, i): recorded for the load
                         // pass, and spawned live through the host.

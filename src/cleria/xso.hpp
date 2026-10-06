@@ -231,6 +231,11 @@ struct XsoHost {
     // 0x187 Mesh_Locate (the spawn), 0x18A Mesh_Fall(name, e, h), 0x16E Mesh_SetAlphaTarget(name,
     // alpha, frames) (EVENTVM_HANDLERS_3 §3).
     virtual void mesh_locate(const ObjLocateArgs& /*a*/) {}
+    // 0x186 Mesh_SetSphereCollision(name, r, ox, oy, oz) (FUN_005735b0): the GoMesh gets one
+    // child sphere collider (+0x278 = 1, +0x298 |= 0x4000) with its stat block; the player's swing
+    // hitting it runs the mesh's script (FLOOR3_ROUTE_AUDIT.md B1).
+    virtual void mesh_sphere_collision(const std::string& /*name*/, float /*r*/, float /*ox*/, float /*oy*/,
+                                       float /*oz*/) {}
     virtual void mesh_fall(const std::string& /*name*/, float /*e*/, float /*h*/) {}
     virtual void mesh_alpha_target(const std::string& /*name*/, float /*a*/, int /*frames*/) {}
     // 0xA4 Scene_SetDefaultBgm(id), 0xB9 Bgm_Play(id; -1 = the default), 0xBA Bgm_Stop(time)

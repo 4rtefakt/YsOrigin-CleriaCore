@@ -902,12 +902,27 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // Objects destroyed this session (SOB trigger class 1). Breakables carry no opened-flag
     // — @Break_* writes none — so this is deliberately session-scoped, matching retail where
     // pots respawn when you re-enter from a load.
+    // Keyed "<room>/<object>": a name is only unique within its room (FLOOR2 B5).
     std::unordered_set<std::string> broken_objects;
+    auto broken_in = [&](const std::string& room_name) {
+        std::unordered_set<std::string> out;
+        const std::string pre = room_name + "/";
+        for (const std::string& k : broken_objects)
+            if (k.compare(0, pre.size(), pre) == 0) out.insert(k.substr(pre.size()));
+        return out;
+    };
+    // 0x186 Mesh_SetSphereCollision'd objects of the current room (FUN_005735b0), by lower-case
+    // name: the child sphere (radius, offset from the mesh), its HP (the mesh's +0x98 copy) and
+    // whether its death already ran the script. [H] HP 0: no shipped script sets a mesh HP, so
+    // the first damaging hit kills the child.
+    struct HitMesh { float r = 1.0f; Vec3 off{}; float hp = 0.0f; bool ran = false; RehitBank bank; };
+    std::unordered_map<std::string, HitMesh> hit_meshes;
     auto reload_room = [&](bool rerun_events = true) {
         auto it = g.sob_index.find(room.name);
         if (it == g.sob_index.end()) return;
+        const std::unordered_set<std::string> gone = broken_in(room.name);
         Room next = load_room(g, asset_root, it->second, game.g_flags, character,
-                              broken_objects.empty() ? nullptr : &broken_objects, &live_obj);
+                              gone.empty() ? nullptr : &gone, &live_obj);
         free_room(room, g.white_bind);
         room = std::move(next);
         load_meshes(/*keep*/true);
@@ -1357,6 +1372,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::function<void()> heal_fn;
         std::function<void(int)> muteking_fn;
         void mesh_locate(const ObjLocateArgs& a) override { if (mesh_locate_fn) mesh_locate_fn(a); }
+        std::function<void(const std::string&, float, float, float, float)> mesh_sphere_fn;
+        void mesh_sphere_collision(const std::string& n, float r, float ox, float oy, float oz) override {
+            if (mesh_sphere_fn) mesh_sphere_fn(n, r, ox, oy, oz);
+        }
         void mesh_fall(const std::string& n, float e, float h) override {
             if (meshes) { std::string ln = n; for (char& ch : ln) ch = char(std::tolower((unsigned char)ch)); meshes->fall(ln, e, h); }
         }
@@ -1501,6 +1520,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // event_vm #36/#40; flag 141 only guards one EventXX call).
     auto start_room_events = [&] {
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_counts[0] = csMgr.fix_counts[1] = 0;
+        hit_meshes.clear();                         // the root re-issues its 0x186s on every visit
         csMgr.paused = false;
         csHost.heal_spots.clear();
         csHost.box_active = false; csHost.advance = false;
@@ -1885,6 +1905,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
     csHost.emotion_fn = [&](int owner, int kind, float yoff) { spawn_emotion(emotions, owner, kind, yoff); };
     // 0x187 live: a mesh the room build does not have yet is added and the room rebuilt.
+    csHost.mesh_sphere_fn = [&](const std::string& n, float r, float ox, float oy, float oz) {
+        std::string ln = n;
+        for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
+        HitMesh& h = hit_meshes[ln];
+        h.r = r; h.off = {ox, oy, oz};
+    };
     csHost.mesh_locate_fn = [&](const ObjLocateArgs& a) {
         std::string ln = a.name;
         for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
@@ -2118,6 +2144,28 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         } else if (cmd == "pos") {                     // print the player's feet and O2
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged));
+        } else if (cmd.rfind("obj=", 0) == 0) {        // obj=<name>: stand 1.5 from that scene object, facing it
+            std::string ln = cmd.substr(4);
+            for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
+            Vec3 at{};
+            bool found = false;
+            if (const MeshObj* mo = meshes.find(ln)) { at = mo->pos; found = true; }
+            else for (const SceneTrigger& t : room.mesh.triggers) {
+                std::string tn = t.name;
+                for (char& ch : tn) ch = char(std::tolower((unsigned char)ch));
+                if (tn == ln) { at = t.position; found = true; break; }
+            }
+            if (found) {
+                float dx = feet.x - at.x, dz = feet.z - at.z;
+                const float l = std::sqrt(dx * dx + dz * dz);
+                if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
+                const float x = at.x + dx * 1.5f, z = at.z + dz * 1.5f;
+                const float fl = floor_at(phys_mesh(room), x, z, at.y + 3.0f);
+                feet = {x, fl > kNoFloor ? fl : at.y, z};
+                face_dir = {-dx, 0.0f, -dz};
+                facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                std::printf("  [drive] at object %s (%.2f, %.2f, %.2f)\n", ln.c_str(), at.x, at.y, at.z);
+            }
         } else if (cmd == "water") {                   // drop the player over the first water triangle
             const RoomMesh& pm2 = phys_mesh(room);
             for (std::size_t t = 0; t < pm2.tri_water.size(); ++t) {
@@ -3494,14 +3542,42 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // fades the mesh out. The roll rate is the script's own: @Break_5 20%,
                 // @Break_30 50%, @Break_100 always.
                 for (const SceneTrigger& t : room.mesh.triggers) {
-                    if (!(t.trigger & 1) || broken_objects.count(t.name)) continue;
+                    if (!(t.trigger & 1) || broken_objects.count(room.name + "/" + t.name)) continue;
+                    std::string lname = t.name;
+                    for (char& ch : lname) ch = char(std::tolower((unsigned char)ch));
+                    if (auto hm = hit_meshes.find(lname); hm != hit_meshes.end()) {
+                        // FUN_004fed50's GoMesh pass: the swing vs the 0x186 child sphere (at the
+                        // mesh + offset); the child's re-hit bank; HP -= dmg; at HP < 0 the mesh's
+                        // script runs (FUN_00434970) and the object STAYS (FLOOR3 B1).
+                        HitMesh& h = hm->second;
+                        if (h.ran) continue;
+                        const MeshObj* mo = meshes.find(lname);
+                        const Vec3 at = mo ? mo->pos : t.position;
+                        const HitShape body = body_shape({at.x + h.off.x, at.y + h.off.y, at.z + h.off.z}, h.r, 0.0f, 0, 0.0f);
+                        if (!overlap(vol, body)) continue;
+                        if (h.bank.check_and_record(player_hit_serial, atk_hb.rehit)) continue;
+                        if (atk_hb.one_shot) atk_window = 0;
+                        h.hp -= std::max(1.0f, player_stats().atk);   // [H] any damaging hit
+                        if (h.hp >= 0.0f) continue;
+                        h.ran = true;
+                        std::string stem = t.script_stem;
+                        for (char& ch : stem) ch = char(std::tolower((unsigned char)ch));
+                        XsoVm::Vars ov;
+                        ov.s[0] = t.name; ov.i[0] = t.i0; ov.i[1] = t.i1; ov.f[0] = t.f0;
+                        if (csMgr.start(stem, ov, /*owner: the player*/ 13))
+                            std::printf("  [hit] %s -> %s\n", t.name.c_str(), stem.c_str());
+                        continue;
+                    }
+                    // Only the @Break_* family is the smash; any other trigger-1 script waits for
+                    // its 0x186 (the root sets it on every visit).
+                    if (t.script_stem.empty() || t.script_stem[0] != '@') continue;
                     // Sphere vs the object's world AABB.
                     const float qx = std::max(t.aabb_min.x, std::min(c.x, t.aabb_max.x));
                     const float qy = std::max(t.aabb_min.y, std::min(c.y, t.aabb_max.y));
                     const float qz = std::max(t.aabb_min.z, std::min(c.z, t.aabb_max.z));
                     const float ddx = c.x - qx, ddy = c.y - qy, ddz = c.z - qz;
                     if (ddx * ddx + ddy * ddy + ddz * ddz > atk_hb.radius * atk_hb.radius) continue;
-                    broken_objects.insert(t.name);
+                    broken_objects.insert(room.name + "/" + t.name);
                     sfx_at(114, t.position, kSfxAnimVol);      // the shatter SE
                     int pct = 50;                               // @Break_30
                     if (t.script_stem.find("_5") != std::string::npos) pct = 20;
