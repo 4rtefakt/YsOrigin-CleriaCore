@@ -61,6 +61,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     if (!flames.init(g, asset_root))
         std::fprintf(stderr, "flames: NAGA01.DDS failed to load\n");
     ShadowFx shadows;                    // floor shadow decals under characters
+    std::vector<Emotion> emotions;       // op 0x148's GoEmotion bubbles (pool 3)
+    SpriteTex emotion_tex;               // IMAGE/EMOTION.DDS, 8 x 4 cells of 32 x 32
+    {
+        Dds d = load_dds(asset_root / "IMAGE" / "EMOTION.DDS");
+        if (d.ok()) emotion_tex = upload_rgba(g, d.width, d.height, d.data.data());
+    }
     if (!shadows.init(g, asset_root))
         std::fprintf(stderr, "shadows: SHADOW0.DDS failed to load\n");
 
@@ -817,6 +823,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (player.hp < 1) { player.hp = player.max_hp; player.sp_cur = player.sp_max; }
         scene_entry_flags(dest);
         live_obj = {};                                           // a new visit
+        emotions.clear();
         live_obj_dirty = false;
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
@@ -1276,7 +1283,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // actor, so move it here; NPCs forward to the world. This is what makes the intro
         // actually walk the player to the platform (op 0x143) instead of standing still.
         // 998 (0x3e6) = the running script's bound actor (+0x240).
-        int rid(int id) const { return (id == 998 && mgr) ? mgr->vm.owner : id; }
+        int rid(int id) const {
+            if (id == 998 && mgr) id = mgr->vm.owner;
+            return id == 999 ? 13 : id;
+        }
+        std::function<void(float)> player_face_fn;          // degrees (Falcom facing)
+        std::function<void(int, int, float)> emotion_fn;    // (owner, kind, yoff)
+        std::function<bool(int, Vec3*)> actor_pos_fn;       // an id's feet (13 = the player)
+        void chr_emotion(int id, int kind, float yoff) override { if (emotion_fn) emotion_fn(rid(id), kind, yoff); }
+        void chr_shadow(int id, bool on) override { if (worldHost) worldHost->chr_shadow(rid(id), on); }
         bool p_isplayer(int id) const { id = rid(id); return id == 13 || id == 999; }
         std::function<void(float)> player_jump_fn;
         void chr_jump(int id, float v) override {
@@ -1293,11 +1308,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         Vec3 p_move_tgt{}; float p_move_spd = 0, p_move_r2 = 0; bool p_moving = false;
         void chr_pos(int id, float x, float y, float z) override {
             if (p_isplayer(id)) { if (playerPosW) *playerPosW = {x, y, z}; p_moving = false; }
-            else if (worldHost) worldHost->chr_pos(id, x, y, z);
+            else if (worldHost) worldHost->chr_pos(rid(id), x, y, z);
         }
         void chr_dir(int id, float deg) override {
-            if (p_isplayer(id)) { if (playerYawDeg) *playerYawDeg = deg; }
-            else if (worldHost) worldHost->chr_dir(id, deg);
+            if (p_isplayer(id)) { if (player_face_fn) player_face_fn(deg); }
+            else if (worldHost) worldHost->chr_dir(rid(id), deg);
         }
         void chr_moveto(int id, float x, float z, float radius, float scale) override {
             if (p_isplayer(id)) {
@@ -1305,20 +1320,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 p_move_spd = player_speed30c * scale;                 // 0.056 x scale (x Movable below)
                 const float r = std::max(0.025f, radius);
                 p_move_r2 = r * r; p_moving = true;
-            } else if (worldHost) worldHost->chr_moveto(id, x, z, radius, scale);
+            } else if (worldHost) worldHost->chr_moveto(rid(id), x, z, radius, scale);
         }
         bool chr_moving(int id) const override {
             if (p_isplayer(id)) return p_moving;
-            return worldHost && worldHost->chr_moving(id);
+            return worldHost && worldHost->chr_moving(rid(id));
         }
+        // The player's Chr_Alpha fades the world player actor's +0x4d8 (drawn by the view).
         void chr_alpha(int id, float a0, float a1, int frames) override {
-            if (!p_isplayer(id) && worldHost) worldHost->chr_alpha(id, a0, a1, frames);
+            if (worldHost) worldHost->chr_alpha(rid(id), a0, a1, frames);
         }
         void chr_attach_script(int id, const std::string& sc) override {
-            if (worldHost) worldHost->chr_attach_script(id, sc);
+            if (worldHost) worldHost->chr_attach_script(rid(id), sc);
         }
         void chr_set_status(int id, int lv, const float* f) override {
-            if (worldHost) worldHost->chr_set_status(id, lv, f);
+            if (worldHost) worldHost->chr_set_status(rid(id), lv, f);
         }
         std::function<void(const std::string&, bool, bool)> mesh_state_fn;   // (name, collision?, on)
         void mesh_visible(const std::string& n, bool on) override { if (mesh_state_fn) mesh_state_fn(n, false, on); }
@@ -1338,21 +1354,33 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void bgm_play(int id) override { if (bgm_play_fn) bgm_play_fn(id); }
         void bgm_stop(int t) override { if (bgm_stop_fn) bgm_stop_fn(t); }
         void heal_hp() override { if (heal_fn) heal_fn(); }
-        void chr_muteking(int id, int n) override { if (p_isplayer(id) && muteking_fn) muteking_fn(n); }
+        void chr_muteking(int id, int n) override { if (p_isplayer(id) && muteking_fn) muteking_fn(n); }   // player only
         void save_cont_data() override { std::printf("  [script] SaveContData [not modelled]\n"); }
         std::function<void(int)> se_fn, set_skill_fn;
         std::function<void(int, int)> bgm_volume_fn;
         void se_play(int se) override { if (se_fn) se_fn(se); }
         void bgm_volume(int v, int t) override { if (bgm_volume_fn) bgm_volume_fn(v, t); }
         void set_skill(int i) override { if (set_skill_fn) set_skill_fn(i); }
+        // [approx] an instant turn: the engine's look modes turn 0.18 rad/tick and hold until
+        // released (CHR_OPS.md §6); the player turns as an NPC does.
         void chr_lookat(int id, int target) override {
-            if (!p_isplayer(id) && worldHost) worldHost->chr_lookat(id, target);
+            const int t = rid(target);
+            if (p_isplayer(id)) {
+                Vec3 me{}, to{};
+                if (actor_pos_fn && actor_pos_fn(13, &me) && actor_pos_fn(t, &to) && player_face_fn &&
+                    (to.x != me.x || to.z != me.z))
+                    player_face_fn(std::atan2(to.x - me.x, to.z - me.z) * 57.29578f);
+            } else if (worldHost) worldHost->chr_lookat(rid(id), t);
         }
         void chr_lookat_pos(int id, float x, float z) override {
-            if (!p_isplayer(id) && worldHost) worldHost->chr_lookat_pos(id, x, z);
+            if (p_isplayer(id)) {
+                Vec3 me{};
+                if (actor_pos_fn && actor_pos_fn(13, &me) && player_face_fn && (x != me.x || z != me.z))
+                    player_face_fn(std::atan2(x - me.x, z - me.z) * 57.29578f);
+            } else if (worldHost) worldHost->chr_lookat_pos(rid(id), x, z);
         }
         void chr_animate(int id, int motion) override {   // 0x151 pose (NPCs; player poses TODO)
-            if (!p_isplayer(id) && worldHost) worldHost->chr_animate(id, motion);
+            if (!p_isplayer(id) && worldHost) worldHost->chr_animate(rid(id), motion);
         }
         // Advance the player's cutscene walk one frame (NPCs advance in the world).
         Vec3* playerPosW = nullptr; float* playerYawDeg = nullptr;
@@ -1363,7 +1391,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (dx * dx + dz * dz <= p_move_r2) { p_moving = false; }   // planar arrival test first
             else { const float st = p_move_spd * (movable_fn ? movable_fn() : 1.0f);
                    playerPosW->x += dx / d * st; playerPosW->z += dz / d * st;
-                   if (playerYawDeg) *playerYawDeg = std::atan2(dx, dz) * 180.0f / 3.14159265f; }
+                   if (player_face_fn) player_face_fn(std::atan2(dx, dz) * 180.0f / 3.14159265f); }
         }
         // Forward the live predicates to the WORLD — a cutscene/controller that spawned
         // actors polls these to gate itself. Returning false made the barrier controller
@@ -1786,6 +1814,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // 0xBC / 0xBB / 0x8F. [H] Se_Play's 2nd operand (1024 everywhere) is not read by
     // FUN_004396f0. Bgm_Volume's (volume /1024, time) read as a linear fade over `time` ms [H].
     csHost.se_fn = [&](int se) { audio.play(se, kSfxAnimVol); };
+    // Facing in Falcom degrees maps to the view's yaw directly (memory: no 90-degree flip).
+    csHost.player_face_fn = [&](float deg) {
+        const float yaw = deg * 3.14159265358979323846f / 180.0f;
+        face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
+        facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+    };
+    csHost.actor_pos_fn = [&](int id, Vec3* out) {
+        if (id == 13 || id == 999) { *out = feet; return true; }
+        if (const Actor* a = world.find(id)) { *out = a->pos; return true; }
+        return false;
+    };
+    csHost.emotion_fn = [&](int owner, int kind, float yoff) { spawn_emotion(emotions, owner, kind, yoff); };
     // 0x187 live: a mesh the room build does not have yet is added and the room rebuilt.
     csHost.mesh_locate_fn = [&](const ObjLocateArgs& a) {
         std::string ln = a.name;
@@ -2534,6 +2574,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         csMgr.vm.g_flags[150] = character;
         const bool frozen_now = tick_events();
         world.tick_alpha_fades();                  // Chr_Alpha (runs under a Fix too, [H])
+        for (Emotion& em : emotions) {             // FUN_004ffab0 (not frozen by a Fix)
+            // [H] the engine never clears a dead owner's pointer; the port drops the bubble.
+            if (em.owner != 13 && !world.find(em.owner)) em.dead = true;
+            step_emotion(em);
+        }
+        emotions.erase(std::remove_if(emotions.begin(), emotions.end(),
+                                      [](const Emotion& em) { return em.dead; }), emotions.end());
         hud.tick_boss_gauge();                     // FUN_004281c0's widget loop (FUN_0043a540)
         {   // FUN_004281c0: the HUD's alpha moves 0.1 per step toward 1 - the box's alpha (0 while
             // flag 185 == 0) [BYTES 0x428638..86]; the CrossFade opacity steps by its rate.
@@ -3836,9 +3883,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // shadow first, on the actual floor under the player (so it stays put during a jump).
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex) {
             const float sfl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + 0.5f);
-            draw_shadow(g, view, depth, shadows.tex, feet,
-                        (sfl > kNoFloor ? sfl : feet.y), 0.6f);
-            draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos);
+            const Actor* wpl = world.player();
+            if (!wpl || !(wpl->flags12c & 1u))          // Chr_Shadow(13, 0)
+                draw_shadow(g, view, depth, shadows.tex, feet,
+                            (sfl > kNoFloor ? sfl : feet.y), 0.6f);
+            const float palpha = wpl ? wpl->ai.alpha : 1.0f;   // Chr_Alpha(13, ...) (+0x4d8)
+            if (palpha > 0.0f)
+                draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos,
+                               0.0f, 1.0f, 1.0f, 1.0f, false, palpha);
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());
@@ -3875,6 +3927,26 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         draw_located_effects(g, world.effects(), asset_root, efl, eft, view, depth,
                              cam.forward(), fx_time);
         draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward());
+        {   // The bubbles (FUN_004ffdb0): at the owner's origin + 0.75 + yoff, far-to-near.
+            struct EmDraw { const Emotion* e; Vec3 base; float d2; };
+            std::vector<EmDraw> ems;
+            for (const Emotion& em : emotions) {
+                if (em.age <= 0) continue;
+                Vec3 base;
+                if (em.owner == 13) base = {feet.x, feet.y + kOriginH, feet.z};
+                else if (const Actor* a = world.find(em.owner)) base = {a->pos.x, a->pos.y + a->height, a->pos.z};
+                else continue;
+                base.y += 0.75f + em.yoff;
+                const float dx = base.x - cam.pos.x, dy = base.y - cam.pos.y, dz = base.z - cam.pos.z;
+                ems.push_back({&em, base, dx * dx + dy * dy + dz * dz});
+            }
+            std::sort(ems.begin(), ems.end(), [](const EmDraw& a, const EmDraw& b) { return a.d2 > b.d2; });
+            for (const EmDraw& ed : ems) {
+                const EmotionQuad q = emotion_quad(*ed.e);
+                draw_billboard_uv(g, view, depth, emotion_tex, ed.base, q.x0, q.x1, q.y0, q.y1,
+                                  q.u0, q.v0, q.u1, q.v1, cam.forward(), float(q.a8) / 255.0f);
+            }
+        }
         player.character = character;
         // EXP bar: progress from this level's threshold to the next (100% at the cap).
         if (ginfo.ok()) {

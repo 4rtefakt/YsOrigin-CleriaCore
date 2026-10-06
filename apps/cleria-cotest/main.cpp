@@ -492,14 +492,16 @@ int main(int argc, char** argv) {
                 bool wait_script_done(const std::string&) override { return false; }
             } blk;
             XsoVm vm; vm.host = &blk;
-            std::string child; std::int32_t child_i0 = 0;
-            vm.on_start_script = [&](const std::string& n, const XsoVm::Vars& v) { child = n; child_i0 = v.i[0]; };
+            std::string child; std::int32_t child_i0 = -1; int child_owner = 0;
+            vm.on_start_script = [&](const std::string& n, const XsoVm::Vars& v, int o) {
+                child = n; child_i0 = v.i[0]; child_owner = o;
+            };
             vm.co_begin(x);
             vm.tick();
             const bool ok = vm.flag(0x215) == 1 && vm.obj_deleted.size() == 1 && vm.obj_deleted[0] == "box_02" &&
                             vm.obj_collide.count("wall") && !vm.obj_collide["wall"] && !vm.obj_visible.count("wall") &&
-                            vm.flag(7) == 0 && child == "child" && child_i0 == 998;
-            std::printf("[meshops] @Flag_Inv proceeds; Mesh_Delete; collision != visibility; no 0x116 grant; StartScript $I0 %s\n",
+                            vm.flag(7) == 0 && child == "child" && child_owner == 998 && child_i0 == 0;
+            std::printf("[meshops] @Flag_Inv proceeds; Mesh_Delete; collision != visibility; no 0x116 grant; StartScript owner 998 %s\n",
                         ok ? "OK" : "FAIL");
             fails += !ok;
         }

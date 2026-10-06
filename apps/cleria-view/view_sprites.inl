@@ -235,6 +235,46 @@ static void draw_popup_glyphs(Gpu& g, WGPUTextureView color, WGPUTextureView dep
 // draws a flat black alpha decal on the floor, NOT a projected silhouette. SHADOW0.DDS is
 // 64x64 with black RGB and a radial alpha falloff (peak ~0.44); loaded RGBA8 it drives
 // fs_char to output (0,0,0,texA), and the alpha-over blend darkens the floor by up to ~44%.
+// A camera-facing quad at `base` spanning [x0, x1] along the yaw-only camera right and [y0, y1]
+// up, sampling `uv` of `tex`, at `opacity`. The bubbles' FUN_004ffdb0 basis (RotationY of the view
+// yaw, upright). [approx] depth-tested through the character pipeline (the engine's 0x41 state has
+// Z test off).
+static void draw_billboard_uv(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& tex,
+                              const Vec3& base, float x0, float x1, float y0, float y1,
+                              float u0, float v0, float u1, float v1, const Vec3& camForward, float opacity) {
+    if (!tex.tex) return;
+    const Vec3 right = normalize(cross(Vec3{0, 1, 0}, camForward));
+    auto V = [&](float lx, float ly, float u, float v) -> RoomVertex {
+        return {base.x + right.x * lx, base.y + ly, base.z + right.z * lx,
+                1.0f - std::clamp(opacity, 0.0f, 1.0f), 0, -1, u, v, 255, 255, 255, 0};
+    };
+    RoomVertex verts[4] = {V(x0, y1, u0, v0), V(x1, y1, u1, v0), V(x1, y0, u1, v1), V(x0, y0, u0, v1)};
+    std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
+    WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
+    WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPURenderPassColorAttachment ca = {};
+    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+    WGPURenderPassDepthStencilAttachment da = {};
+    da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+    WGPURenderPassDescriptor rp = {};
+    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+    wgpuRenderPassEncoderSetPipeline(pass, g.char_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(pass, 1, tex.bind, 0, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+}
+
 struct ShadowFx {
     SpriteTex tex;
     bool init(Gpu& g, const fs::path& asset_root) {

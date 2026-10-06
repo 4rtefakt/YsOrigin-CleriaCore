@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "cleria/emotion.hpp"
 #include "cleria/richtext.hpp"
 #include "cleria/wnddialog.hpp"
 #include "cleria/wndtext.hpp"
@@ -119,6 +120,32 @@ int main() {
         WndText p;
         p.message(0xd, 3, 0, "", "x", m);
         check(p.face() == 0x3c + 2, "the player (class 0xd) as Toal -> f_820");
+    }
+    {   // The emotion bubble (CHR_OPS.md §1.7 test vectors, kind 0, L = 60).
+        std::vector<Emotion> list;
+        spawn_emotion(list, 13, 0, 0.0f);
+        Emotion& e = list.back();
+        struct Row { int age, cell; float alpha; int a8; };
+        const Row rows[] = {{1, 2, 1.0f / 15, 0}, {9, 2, 0.6f, 136}, {10, 3, 10.0f / 15, 153}, {15, 4, 1.0f, 238},
+                            {20, 5, 1.0f, 255}, {60, 5, 1.0f, 255}, {61, 5, 0.96f, 255}, {84, 5, 0.04f, 20}};
+        bool ok = true;
+        for (int t = 1; t <= 84; ++t) {
+            step_emotion(e);
+            for (const Row& r : rows)
+                if (r.age == t && (e.cell != r.cell || std::fabs(e.alpha - r.alpha) > 1e-4f || e.a8 != r.a8)) ok = false;
+        }
+        check(ok, "kind 0: the cells, the alpha ramp and the previous-tick vertex alpha");
+        step_emotion(e);
+        check(e.dead, "kind 0 dies at age L + 25 = 85");
+        std::vector<Emotion> d;
+        spawn_emotion(d, 7, 0, 0.0f);
+        for (int t = 0; t < 30; ++t) step_emotion(d.back());
+        spawn_emotion(d, 7, 1, 0.0f);
+        check(d[0].age == 60, "a new bubble on the same actor jumps the older one to its fade-out");
+        step_emotion(d[0]);
+        check(d[0].age == 61 && std::fabs(d[0].alpha - 0.96f) < 1e-4f, "... and it fades from the next tick");
+        const EmotionQuad q = emotion_quad(e);
+        check(q.x0 == 0.0f && q.x1 == 0.75f && q.y1 == 0.75f, "kind 0: the 0.75 quad offset 0.375 to the right");
     }
     std::printf("[wnd] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;

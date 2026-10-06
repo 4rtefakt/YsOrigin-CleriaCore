@@ -291,6 +291,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (it == fx.kinds.end()) continue;
         EnemyFx::Kind& k = it->second;
         // Floor shadow first (enemies are grounded, so pos.y is the floor).
+        if (!(e.actor->flags12c & 1u))                 // +0x12c bit 1: no shadow (Chr_Shadow 0x153)
         draw_shadow(g, color, depth, shadow, e.actor->pos,
                     e.actor->flyer ? e.actor->floor_y : e.actor->pos.y, 0.6f);   // flyers: on the floor
         // Facing: the enemy's heading (yaw, vx=sin/vz=cos convention) mapped to the same

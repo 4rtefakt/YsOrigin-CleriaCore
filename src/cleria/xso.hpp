@@ -156,6 +156,10 @@ struct XsoHost {
     virtual void chr_locate_dummy(int /*id*/, float /*x*/, float /*y*/, float /*z*/) {}
     // 0x141 Chr_Jump(id, v) (FUN_005709d0): +0x330 = v, +0x54 += v, +0x388 = 0, +0x9d6 = 1.
     virtual void chr_jump(int /*id*/, float /*v*/) {}
+    // 0x148 Chr_Emotion(id, kind, yoff) (FUN_005710d0, CHR_OPS.md §1): a bubble over the actor.
+    virtual void chr_emotion(int /*id*/, int /*kind*/, float /*yoff*/) {}
+    // 0x153 Chr_Shadow(id, on) (FUN_00570a80): +0x12c bit 1 = (on == 0), the floor shadow hidden.
+    virtual void chr_shadow(int /*id*/, bool /*on*/) {}
 
     // op 0x11a Eft_LocatePosAddStr(id, x,y,z, a, b, name, c): place a named effect at a
     // world position, persistent until killed. [C-DIS] signature ifffffsf. The barrier
@@ -346,7 +350,8 @@ struct XsoVm {
     // child's variable block (FUN_00434970). Null (the default) => the op is inert, which is
     // exactly the run-to-completion behaviour for static grant extraction, so `run()` and
     // `--grants` never try to load or recurse into children. Only fired in coroutine mode.
-    std::function<void(const std::string& name, const Vars& child)> on_start_script;
+    // owner_id: StartScript's operand 1 (0 = none, 998 = the parent's owner, else an actor id).
+    std::function<void(const std::string& name, const Vars& child, int owner_id)> on_start_script;
 
     // Fix(slot) (0xb6) / Unfix (0xb7) sinks (FUN_0056e8d0, audit event_vm Part C): a script
     // holds at most one fix. Fix(slot) releases its previous one, then counts slot
@@ -544,9 +549,11 @@ struct ScriptManager {
     int fix_counts[2] = {0, 0};             // 0x75ad90 / 0x75ad94: the two fix slots
 
     ScriptManager() {
-        vm.on_start_script = [this](const std::string& n, const XsoVm::Vars& v) {
-            // [H] a StartScript child inherits its parent's bound actor.
-            spawn_queue.push_back({n, v, cur_inst_ ? cur_inst_->owner : 0});
+        vm.on_start_script = [this](const std::string& n, const XsoVm::Vars& v, int oid) {
+            // FUN_00570330: 998 -> the parent's +0x240; 999 / 13 -> the player; 0 -> no owner.
+            const int parent = cur_inst_ ? cur_inst_->owner : 0;
+            const int owner = oid == 998 ? parent : oid == 999 ? 13 : oid;
+            spawn_queue.push_back({n, v, owner});
         };
         vm.on_fix = [this](int slot) { if (cur_inst_) fix(*cur_inst_, slot); };
         vm.on_unfix = [this] { if (cur_inst_) unfix(*cur_inst_); };

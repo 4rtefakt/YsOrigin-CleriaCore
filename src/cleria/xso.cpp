@@ -245,26 +245,30 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // child-script names). StartScript2's explicit two-string path is the
                     // concatenation of its two operands. Coroutine-only + gated on the sink,
                     // so run-to-completion never spawns.
-                    // The operands after the name are marshalled into the child's variable
-                    // block (FUN_00434970 copies 0x1d dwords to +0x244..), by type in order:
-                    // ints to $I0/$I1, floats to $F0/$F1, strings to $S0/$S1. [H-high: the
-                    // packing order; the corpus's only extra operand is 998 -> $I0.]
-                    auto marshal = [&](std::uint32_t first) {
-                        Vars v; int ni = 0, nfl = 0, nst = 0;
-                        for (std::uint32_t k = first; k < nargs; ++k) {
-                            const std::uint32_t t = op_type(script, old, k);
-                            if (t == 0 && ni < 2) v.i[ni++] = op(k);
-                            else if (t == 1 && nfl < 2) v.f[nfl++] = opf(k);
-                            else if (t == 2 && nst < 2) v.s[nst++] = ops(k);
-                        }
+                    // The handler 0x569716..0x56983a (CHR_OPS.md §10) [BYTES]: operand 1 (after
+                    // the name), if non-zero, is an ACTOR id that becomes the child's owner +0x240
+                    // (998 = the parent's own owner); ints at 2..3 -> $I0/$I1, strings at 4..6 ->
+                    // $S0..(two kept), floats at 7..9 -> $F0.. (two kept). No operand = owner 0.
+                    auto marshal = [&](std::uint32_t first, int* owner_id) {
+                        Vars v;
+                        *owner_id = (first < nargs) ? op(first) : 0;
+                        for (std::uint32_t k = 0; k < 2; ++k)
+                            if (first + 1 + k < nargs) v.i[k] = op(first + 1 + k);
+                        for (std::uint32_t k = 0; k < 2; ++k)
+                            if (first + 3 + k < nargs) v.s[k] = ops(first + 3 + k);
+                        for (std::uint32_t k = 0; k < 2; ++k)
+                            if (first + 6 + k < nargs) v.f[k] = opf(first + 6 + k);
                         return v;
                     };
                     if (on_start_script) {
+                        int oid = 0;
                         if (sub == 0xb4 && nargs >= 1) {
-                            on_start_script(ops(0), marshal(1)); return Step::Continue;
+                            const Vars v = marshal(1, &oid);
+                            on_start_script(ops(0), v, oid); return Step::Continue;
                         }
                         if (sub == 0xb8 && nargs >= 2) {
-                            on_start_script(ops(0) + ops(1), marshal(2));
+                            const Vars v = marshal(2, &oid);
+                            on_start_script(ops(0) + ops(1), v, oid);
                             return Step::Continue;
                         }
                     }
@@ -298,6 +302,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0x130 && nargs >= 2) { host->chr_attach_script(op(0), ops(1)); return Step::Continue; }
                     if (sub == 0x12f && nargs >= 4) { host->chr_locate_dummy(op(0), opf(1), opf(2), opf(3)); return Step::Continue; }
                     if (sub == 0x141 && nargs >= 2) { host->chr_jump(op(0), opf(1)); return Step::Continue; }
+                    if (sub == 0x148 && nargs >= 3) { host->chr_emotion(op(0), op(1), opf(2)); return Step::Continue; }
+                    if (sub == 0x153 && nargs >= 2) { host->chr_shadow(op(0), op(1) != 0); return Step::Continue; }
                     if (sub == 0x18a && nargs >= 3) { host->mesh_fall(ops(0), opf(1), opf(2)); return Step::Continue; }
                     if (sub == 0x16e && nargs >= 3) { host->mesh_alpha_target(ops(0), opf(1), op(2)); return Step::Continue; }
                     if (sub == 0xa4 && nargs >= 1) { host->bgm_default(op(0)); return Step::Continue; }
