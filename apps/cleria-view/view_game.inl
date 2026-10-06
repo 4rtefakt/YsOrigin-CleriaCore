@@ -4823,9 +4823,9 @@ title_again:
                                 room.coll.vertices[k].py = room.coll.vertices[cr->v0].py;
                                 room.coll.vertices[k].pz = room.coll.vertices[cr->v0].pz;
                             }
-                    // The object alpha (+0x418 -> the anim object's +0xc) reaches the blended
-                    // subsets (apply_object_alpha). [STAND-IN] for the opaque ones: alpha 0
-                    // collapses the object, anything else draws them opaque.
+                    // The object alpha (+0x418 -> the anim object's +0xc) reaches every subset
+                    // through apply_object_alpha (the draw switches a fading opaque subset to
+                    // mode 1 and skips a = 0); collapsing an alpha-0 object is now redundant.
                     if (m.alpha <= 0.0f)
                         if (const RoomMesh::ObjRange* rr = room.mesh.object_range(nm))
                             for (std::uint32_t k = rr->v0; k < rr->v1 && k < room.mesh.vertices.size(); ++k) {

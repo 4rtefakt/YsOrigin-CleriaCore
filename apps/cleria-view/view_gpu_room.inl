@@ -58,6 +58,7 @@ struct Room {
     std::vector<ScrollBatch> scrolls;  // materials with flag 0x4 / nonzero velocity
     RoomMesh coll;           // the `_.YMO` collision hulls — what physics collides against
     std::vector<std::uint8_t> base_a;  // each vertex's alpha after bake_material_alpha (apply_object_alpha)
+    std::vector<float> batch_alpha;    // each batch's live object (model) alpha; empty / missing = 1
     Sen sen;
     Sfo fog;                 // per-region scene fog (SFO sidecar)
     Scm cam;                 // per-region cameras (SCM sidecar)
@@ -254,18 +255,25 @@ static void bake_material_alpha(RoomMesh& m) {
 }
 
 // One scene object's live alpha (+0x418, copied to its anim object's +0xc each update by
-// FUN_00503190: the model alpha). The per-draw alpha is d7 x node x model (MATERIAL.md §6.2), so
-// a blended subset's vertex alpha is its load-time (d7-baked) value x this. Opaque subsets keep
-// the stand-in in step_meshes (drawn opaque; alpha 0 collapses the object) — [not modelled] the
-// mode 0 -> 1 switch FUN_005f92b0 makes when a < 1. Also restores the d7 bake after a re-bake.
+// FUN_00503190: the model alpha). The per-draw alpha is d7 x node x model (MATERIAL.md §6.2):
+// the draw takes the mode from it per batch (batch_alpha), so an opaque subset of a fading
+// object draws as mode 1 the way FUN_005f92b0 switches it when a < 1, and a = 0 draws nothing
+// (FUN_005faca0). A subset drawn blended gets its vertex alpha = load-time value x d7 (unless
+// the load already baked d7 in) x this. Also restores the d7 bake after a re-bake.
 static void apply_object_alpha(Room& room, const std::string& lname, float a) {
     const RoomMesh::ObjRange* r = room.mesh.object_range(lname);
     if (!r || room.base_a.size() != room.mesh.vertices.size()) return;
     const float k = std::clamp(a, 0.0f, 1.0f);
-    for (const DrawBatch& b : room.mesh.batches) {
-        if (b.first_vert < r->v0 || b.first_vert >= r->v1 || material_blend_mode(b) == 0) continue;
+    room.batch_alpha.resize(room.mesh.batches.size(), 1.0f);
+    for (std::size_t i = 0; i < room.mesh.batches.size(); ++i) {
+        const DrawBatch& b = room.mesh.batches[i];
+        if (b.first_vert < r->v0 || b.first_vert >= r->v1) continue;
+        room.batch_alpha[i] = k;
+        const bool baked = material_blend_mode(b) != 0 && b.mat_alpha < 1.0f;   // bake_material_alpha
+        const float f = material_blend_mode(b, b.mat_alpha * k) == 0 ? 1.0f
+                        : k * (baked ? 1.0f : std::clamp(b.mat_alpha, 0.0f, 1.0f));
         for (std::uint32_t v = b.first_vert; v < b.first_vert + b.vert_count && v < r->v1; ++v)
-            room.mesh.vertices[v].a = std::uint8_t(float(room.base_a[v]) * k + 0.5f);
+            room.mesh.vertices[v].a = std::uint8_t(float(room.base_a[v]) * f + 0.5f);
     }
 }
 
@@ -916,9 +924,12 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
     // on layer 5 (FUN_00561f40 @0x562186..0x5621e3; the room itself: layers 2 / 5,
     // FUN_005053e0). Layer 5's per-object distance sort is [not modelled]: batch order.
     for (int blended = 0; blended < 2; ++blended) {
-        for (const DrawBatch& b : room.mesh.batches) {
+        for (std::size_t bi = 0; bi < room.mesh.batches.size(); ++bi) {
+            const DrawBatch& b = room.mesh.batches[bi];
             if (b.index_count == 0) continue;
-            const int mode = material_blend_mode(b);
+            const float ka = bi < room.batch_alpha.size() ? room.batch_alpha[bi] : 1.0f;   // the object's alpha
+            if (ka <= 0.0f) continue;                       // FUN_005faca0: nothing at a = 0
+            const int mode = material_blend_mode(b, b.mat_alpha * ka);
             if ((mode != 0) != (blended != 0)) continue;
             if (blended)
                 wgpuRenderPassEncoderSetPipeline(pass, g.mat_pipe[mode][material_zwrite(b) ? 1 : 0]);
