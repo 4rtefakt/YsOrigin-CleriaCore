@@ -298,6 +298,14 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0x130 && nargs >= 2) { host->chr_attach_script(op(0), ops(1)); return Step::Continue; }
                     if (sub == 0x12f && nargs >= 4) { host->chr_locate_dummy(op(0), opf(1), opf(2), opf(3)); return Step::Continue; }
                     if (sub == 0x141 && nargs >= 2) { host->chr_jump(op(0), opf(1)); return Step::Continue; }
+                    if (sub == 0x18a && nargs >= 3) { host->mesh_fall(ops(0), opf(1), opf(2)); return Step::Continue; }
+                    if (sub == 0x16e && nargs >= 3) { host->mesh_alpha_target(ops(0), opf(1), op(2)); return Step::Continue; }
+                    if (sub == 0xa4 && nargs >= 1) { host->bgm_default(op(0)); return Step::Continue; }
+                    if (sub == 0xb9 && nargs >= 1) { host->bgm_play(op(0)); return Step::Continue; }
+                    if (sub == 0xba) { host->bgm_stop(nargs >= 1 ? op(0) : 0); return Step::Continue; }
+                    if (sub == 0x85) { host->heal_hp(); return Step::Continue; }
+                    if (sub == 0x14e && nargs >= 2) { host->chr_muteking(op(0), op(1)); return Step::Continue; }
+                    if (sub == 0x96) { host->save_cont_data(); return Step::Continue; }
                     if (sub == 0x160 && nargs >= 11) {        // (id, lv, 9 floats)
                         float f[9];
                         for (std::uint32_t k = 0; k < 9; ++k) f[k] = opf(2 + k);
@@ -530,6 +538,12 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // room shows whatever the SOB authored rather than the live layout.
                         auto f = [&](std::uint32_t i) { return opf(i); };
                         obj_place[ops(0)] = {f(1), f(2), f(3)};
+                    } else if (sub == 0x187 && nargs >= 8) {
+                        // Mesh_Locate(ymo, name, x, y, z, rx, ry, rz, i): recorded for the load
+                        // pass, and spawned live through the host.
+                        ObjLocateArgs a{ops(0), ops(1), opf(2), opf(3), opf(4), opf(5), opf(6), opf(7)};
+                        obj_locate.push_back({a.ymo, a.name, a.x, a.y, a.z, a.rx, a.ry, a.rz});
+                        if (host) host->mesh_locate(a);
                     } else if (sub == 0x16B && nargs >= 2) {
                         // Mesh_SetVisible(name, on) (FUN_00572aa0: bit 0x20 = hidden).
                         // S_SAVEOBJECTCHANGE shows one of three statues stacked at one spot.

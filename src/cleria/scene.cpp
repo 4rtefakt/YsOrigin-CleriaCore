@@ -39,6 +39,9 @@ std::vector<std::uint8_t> read_file(const fs::path& p) {
     return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
 }
 
+// One spelling per file for the cache (resolve_ymo mixes / and \).
+static std::string model_key(const fs::path& p) { return p.lexically_normal().make_preferred().string(); }
+
 fs::path resolve_ymo(const fs::path& root, std::string path) {
     for (char& c : path)
         if (c == '\\') c = '/';
@@ -77,22 +80,41 @@ RoomMesh build_model(const fs::path& asset_root, const fs::path& ymo_path,
                               false, clip_name, frame);
 }
 
+std::unordered_map<std::string, Model>& big_model_cache() {
+    static std::unordered_map<std::string, Model> cache;
+    return cache;
+}
+
+Model* cached_big_model(const fs::path& ymo_file) {
+    auto it = big_model_cache().find(model_key(ymo_file));
+    return it == big_model_cache().end() ? nullptr : &it->second;
+}
+
+fs::path resolve_ymo_path(const fs::path& root, const std::string& ymo) { return resolve_ymo(root, ymo); }
+
 RoomMesh build_room(const fs::path& asset_root, const fs::path& sob_path,
                     const std::unordered_set<std::string>* box_whitelist,
                     const std::unordered_set<std::string>* hidden,
-                    const std::int32_t* open_flags, const ObjStates* states) {
-    return build_room_objects(asset_root, Sob::parse(read_file(sob_path)),
+                    const std::int32_t* open_flags, const ObjStates* states,
+                    const std::vector<SobObject>* extra) {
+    Sob sob = Sob::parse(read_file(sob_path));
+    if (extra) sob.objects.insert(sob.objects.end(), extra->begin(), extra->end());
+    return build_room_objects(asset_root, sob,
                               sob_path.parent_path(), box_whitelist, hidden,
                               false, nullptr, 0, open_flags, states);
 }
 
 RoomMesh build_collision(const fs::path& asset_root, const fs::path& sob_path,
                          const std::unordered_set<std::string>* box_whitelist,
-                         const std::unordered_set<std::string>* hidden) {
-    return build_room_objects(asset_root, Sob::parse(read_file(sob_path)),
+                         const std::unordered_set<std::string>* hidden,
+                         const std::vector<SobObject>* extra) {
+    Sob sob = Sob::parse(read_file(sob_path));
+    if (extra) sob.objects.insert(sob.objects.end(), extra->begin(), extra->end());
+    return build_room_objects(asset_root, sob,
                               sob_path.parent_path(), box_whitelist, hidden, true);
 }
 
+std::unordered_map<std::string, Model>& big_model_cache();
 RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                             const fs::path& script_dir,
                             const std::unordered_set<std::string>* box_whitelist,
@@ -277,10 +299,43 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                        (ymo_file.stem().string() + "_" + ymo_file.extension().string());
         }
         if (!fs::exists(ymo_file)) { ++out.missing; continue; }
-        Model model;
+        // Big models (the bosses, 13 MB) are parsed once and re-posed in place: a script-driven
+        // object is re-baked every tick it moves or animates.
+        auto& big_models = big_model_cache();
+        Model local_model;
+        Model* model_ptr = &local_model;
         try {
-            model = Model::parse(read_file(ymo_file));
-            model.resolve_hierarchy();
+            const std::string key = model_key(ymo_file);
+            auto bit = big_models.find(key);
+            if (bit != big_models.end()) {
+                model_ptr = &bit->second;
+                model_ptr->rest_pose();
+            } else {
+                local_model = Model::parse(read_file(ymo_file));
+                local_model.resolve_hierarchy();
+                std::error_code fec;
+                if (fs::file_size(ymo_file, fec) > (2u << 20)) {
+                    // A big collision twin (X_.YMO, BOSS01_: one DEFAULT clip, its own nodes)
+                    // moves with its render model: take the render model's clips once,
+                    // re-resolved against the twin's node names. [H] the engine poses the
+                    // twin from the same anim cursor.
+                    if (collision) {
+                        std::string stem = ymo_file.stem().string();
+                        if (!stem.empty() && stem.back() == '_') stem.pop_back();
+                        auto rit = big_models.find(model_key(ymo_file.parent_path() / (stem + ymo_file.extension().string())));
+                        if (rit != big_models.end()) {
+                            for (const AnimClip& c : rit->second.clips) {
+                                bool have = false;
+                                for (const AnimClip& o : local_model.clips) have |= o.name == c.name;
+                                if (!have) local_model.clips.push_back(c);
+                            }
+                            local_model.resolve_hierarchy();
+                        }
+                    }
+                    model_ptr = &big_models.emplace(key, std::move(local_model)).first->second;
+                }
+            }
+            Model& model = *model_ptr;
             // Pose before appending: skin_point() reads the node world matrices.
             // An already-looted chest snaps to the final frame of its "OPEN" clip
             // (lid up); otherwise honour the caller's global clip (boss viewer).
@@ -302,6 +357,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                     if (c.name == clip_name) { model.pose(c, frame); break; }
             }
         } catch (const std::exception&) { ++out.missing; continue; }
+        const Model& model = *model_ptr;
         // 0x173 Obj_SetPos moved this object at load (S_1004 lays its stepping stones
         // out per character). Rebuild the placement from the script's position, keeping
         // the SOB's own rotation/scale.
@@ -543,12 +599,13 @@ bool translate_object(RoomMesh& m, const std::string& lname, const Vec3& d) {
 }
 
 bool rebake_object(RoomMesh& m, const fs::path& asset_root, const std::string& lname,
-                   const char* clip, float frame, const Vec3* pos, bool collision) {
+                   const char* clip, float frame, const Vec3* pos, bool collision, const Vec3* rot) {
     const RoomMesh::ObjRange* r = m.object_range(lname);
     if (!r) return false;
     Sob one;
     one.objects.push_back(r->obj);
     if (pos) one.objects.back().position = *pos;
+    if (rot) one.objects.back().rotation = *rot;
     const RoomMesh tmp = build_room_objects(asset_root, one, fs::path(), nullptr, nullptr,
                                             collision, clip, frame);
     if (tmp.vertices.size() != std::size_t(r->v1 - r->v0)) return false;

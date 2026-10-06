@@ -107,9 +107,46 @@ void MeshWorld::set_time(MeshObj& m, float t) {
     }
 }
 
+void MeshWorld::fall(const std::string& name, float e, float h) {
+    if (MeshObj* m = find(name)) {
+        m->fall_start = m->pos.y;          // +0x44c = y before the lift
+        m->fall_vel = 0.0f;
+        m->fall_e = e;
+        m->pos.y += h;
+        m->dirty_pos = true;
+    }
+}
+
+void MeshWorld::set_clip_now(const std::string& name, const std::string& clip) {
+    MeshObj* m = find(name);
+    if (!m) return;
+    const std::string want = lower(clip);
+    for (std::size_t i = 0; i < m->clips.size(); ++i)
+        if (lower(m->clips[i].name) == want) { apply_clip(*m, int(i), 0); m->dirty_pose = true; return; }
+}
+
+void MeshWorld::alpha_target(const std::string& name, float a, int frames) {
+    if (MeshObj* m = find(name)) {
+        m->alpha_target = a;
+        m->alpha_step = frames == 0 ? 1.0f : 1.0f / float(frames);
+    }
+}
+
 void MeshWorld::step() {
     for (auto& [nm, m] : objs_) {
         if (m.sleeping) continue;
+        // 0. the alpha fade (FUN_00503190): +0x418 steps by +0x420 toward +0x41c.
+        if (m.alpha != m.alpha_target) {
+            const float was = m.alpha;
+            if (m.alpha_target <= m.alpha) {
+                m.alpha -= m.alpha_step;
+                if (!(m.alpha_target < m.alpha)) m.alpha = m.alpha_target;
+            } else {
+                m.alpha += m.alpha_step;
+                if (!(m.alpha < m.alpha_target)) m.alpha = m.alpha_target;
+            }
+            if ((was > 0.0f) != (m.alpha > 0.0f)) m.dirty_pose = true;
+        }
         // 1. the anim advance (0x503fc8): time += rate x dt(1) x time scale
         if (!m.frozen && m.sect >= 0 && std::size_t(m.sect) < m.clips.size()) {
             const float before = m.time;
@@ -127,6 +164,19 @@ void MeshWorld::step() {
             if (l1 > l0 || l1 <= m.radius) {
                 if (m.radius < 0.01f) m.pos = m.dest;
                 m.speed = 0.0f;
+            }
+            m.dirty_pos = true;
+        }
+        // 2b. the fall (FUN_00503190): v -= 0.02; y += v; at the start height it bounces with
+        //     v = -e*v, y = start + e*(start - y), and stops once the bounce is under 0.025.
+        if (m.fall_e != 0.0f) {
+            m.fall_vel -= 0.02f;                                   // 0x6bd0ec
+            m.pos.y += m.fall_vel;
+            const float under = m.fall_start - m.pos.y;
+            if (under >= 0.0f) {
+                m.fall_vel = -(m.fall_e * m.fall_vel);
+                m.pos.y = m.fall_e * under + m.fall_start;
+                if (m.fall_vel < 0.025f) { m.fall_e = 0.0f; m.pos.y = m.fall_start; }   // 0x6bd0f8
             }
             m.dirty_pos = true;
         }

@@ -62,6 +62,9 @@ class Xso {
 // testable — the same isolation that let every other module here be validated alone.
 // ActorWorld (or a thin adapter) implements it. A null host makes the actor ops
 // no-ops, which is exactly how every existing XSO test already runs.
+// 0x187 Mesh_Locate's operands (XsoHost::mesh_locate).
+struct ObjLocateArgs { std::string ymo, name; float x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0; };
+
 struct XsoHost {
     virtual ~XsoHost() = default;
 
@@ -216,6 +219,21 @@ struct XsoHost {
     virtual void bgm_volume(int /*volume*/, int /*time*/) {}
     // 0x8F Set_Skill(i): *0x76a630 = i, the equipped magic (EVENTVM_HANDLERS_2).
     virtual void set_skill(int /*i*/) {}
+    // 0x187 Mesh_Locate (the spawn), 0x18A Mesh_Fall(name, e, h), 0x16E Mesh_SetAlphaTarget(name,
+    // alpha, frames) (EVENTVM_HANDLERS_3 §3).
+    virtual void mesh_locate(const ObjLocateArgs& /*a*/) {}
+    virtual void mesh_fall(const std::string& /*name*/, float /*e*/, float /*h*/) {}
+    virtual void mesh_alpha_target(const std::string& /*name*/, float /*a*/, int /*frames*/) {}
+    // 0xA4 Scene_SetDefaultBgm(id), 0xB9 Bgm_Play(id; -1 = the default), 0xBA Bgm_Stop(time)
+    // (EVENTVM_HANDLERS_2 §3).
+    virtual void bgm_default(int /*id*/) {}
+    virtual void bgm_play(int /*id*/) {}
+    virtual void bgm_stop(int /*time*/) {}
+    // 0x85 HealHp() (FUN_004fa0e0: HP to max), 0x14E Chr_Muteking(id, n) (player +0x734 =
+    // max(+0x734, n)), 0x96 SaveContData() (the continue checkpoint, FUN_00443d70).
+    virtual void heal_hp() {}
+    virtual void chr_muteking(int /*id*/, int /*frames*/) {}
+    virtual void save_cont_data() {}
     // op 0xe2 Caption(name): the area-name card is PRE-RENDERED art (data/image/<name>.dds).
     virtual void caption(const std::string& /*name*/) {}
     // op 0xd5 Window_Treasure(x, y, item, s): the "Acquired X" box (FUN_005781f0 draws a
@@ -363,6 +381,10 @@ struct XsoVm {
     // 0x173 Obj_SetPos: object name -> world position it was moved to.
     struct ObjPos { float x, y, z; };
     std::unordered_map<std::string, ObjPos> obj_place;
+    // 0x187 Mesh_Locate(ymo, name, x, y, z, rx, ry, rz, i) (FUN_00573930 -> the GoMesh factory
+    // FUN_00501a30): a new named mesh. The boss rooms place their boss with it.
+    struct ObjLocate { std::string ymo, name; float x, y, z, rx, ry, rz; };
+    std::vector<ObjLocate> obj_locate;
     // 0x188 Obj_BindShadow: shadow object name -> the object it follows. A shadow must
     // inherit its owner's visibility and placement, or hiding/moving a stepping stone
     // leaves its drop shadow behind as a black quad on the floor.

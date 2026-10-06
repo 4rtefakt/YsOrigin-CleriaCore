@@ -125,8 +125,28 @@ struct Hud {
     std::unordered_map<int, WGPUBindGroup> icon_binds;
     WGPUBindGroup equip_bind[4] = {};
     std::vector<HudVertex> equip_verts[4];
-    float boss_frac = -1.f;              // <0 = no boss on screen
-    std::string boss_name;
+    float boss_frac = -1.f;              // <0 = no boss gauge (DAT_006d5fd8 == 0)
+    std::string boss_name;               // not drawn: the retail gauge has no text
+    // Widget 3 (0x6d5fd4): +0x04 owner id, +0x30 cur, +0x34 lag, +0x38 max, +0x44 lenScale; the
+    // emblem DAT_0076c214 (0 default, 1..8 = boss01..08).
+    int boss_id = 0, boss_emblem = 0;
+    float boss_cur = 0, boss_lag = 0, boss_max = 0, boss_len = 3000;
+    // FUN_0043a460: a new owner starts with no trail; the same owner trails from its last cur.
+    void set_boss_gauge(int id, float cur, float max, float len_scale, int emblem) {
+        boss_lag = (boss_id == id) ? boss_cur : cur;
+        boss_id = id; boss_cur = cur; boss_max = max;
+        boss_len = len_scale == 0.0f ? max : len_scale;
+        boss_emblem = emblem;
+        boss_frac = max > 0 ? std::clamp(cur / max, 0.0f, 1.0f) : 0.0f;
+    }
+    void hide_boss_gauge() { boss_frac = -1.0f; boss_id = 0; }
+    // FUN_0043a540, every 60 Hz step: the lag moves toward cur by w+0x2c (0.02) x max x 0.2.
+    void tick_boss_gauge() {
+        if (boss_frac < 0.0f) return;
+        const float step = 0.02f * boss_max * 0.2f;
+        if (boss_lag > boss_cur) boss_lag = std::max(boss_cur, boss_lag - step);
+        else if (boss_lag < boss_cur) boss_lag = std::min(boss_cur, boss_lag + step);
+    }
     struct Msg { std::string text; float ttl; };
     std::vector<Msg> messages;
 
@@ -649,23 +669,54 @@ struct Hud {
     }
 
     // Boss health bar (top-centre), from the game's HP2 atlas: ornate frame + red fill.
-    void boss_bar(float frac, const std::string& name, float sw, float sh) {
+    // The boss gauge FUN_0043a770 (build/hud_re/BOSS_GAUGE_DRAW.md §5): HP2.DDS, top-left, left
+    // anchored through the HUD mapping. Fixed quads S1 ornament, S2 channel, S3 end cap, S4 emblem;
+    // then the fill on the unit axis 0..len+48 at x 75+unit (y 24..40) with the red lag trail, or
+    // only the lag while it refills. No text. [not modelled] the draw order after F_MINI (G11).
+    void boss_bar(float sw, float sh) {
         if (!boss_w) return;
-        frac = std::max(0.f, std::min(1.f, frac));
-        const float s = std::max(1.f, sh / 720.f);
-        const Rc frame = {0, 99, 161, 26};   // dark ornate housing
-        const Rc fill  = {0, 161, 161, 12};  // red gauge
-        const float bw = sw * 0.58f, bh = frame.h * (bw / frame.w);
-        const float bx = (sw - bw) * 0.5f, by = 20 * s;
-        boss_sprite(bx, by, bw, bh, frame.x, frame.y, frame.w, frame.h, sw, sh);
-        // Red fill inside the frame's channel, clipped to the current fraction.
-        const float inset = bw * 0.018f;
-        const float tw = bw - 2 * inset, ry = by + bh * 0.30f, rh = bh * 0.42f;
-        boss_sprite(bx + inset, ry, tw * frac, rh, fill.x, fill.y, fill.w * frac, fill.h, sw, sh);
-        // Boss name centred just above the bar.
-        if (!name.empty())
-            text(name, sw * 0.5f - name.size() * cw * s * 0.22f, by - 20 * s, s * 0.7f,
-                 sw, sh, 235, 225, 205, 245);
+        const HudMap m{std::uint32_t(sw), std::uint32_t(sh)};
+        const float max = boss_max > 0.0f ? boss_max : 1.0f;
+        const float cur = std::clamp(boss_cur, 0.0f, max), lag = std::clamp(boss_lag, 0.0f, max);
+        const float len = std::clamp(boss_len / 11.427428f, 1.0f, 875.0f);
+        const float M = len + 24.0f, TOT = len + 48.0f, K = 1.0f / 256.0f;
+        const std::uint8_t ta = std::uint8_t(std::clamp(gauge_alpha, 0.0f, 1.0f) * 255.0f);
+        auto quad = [&](float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1,
+                        bool red) {
+            const float X0 = m.x(x0) / sw * 2.f - 1.f, X1 = m.x(x1) / sw * 2.f - 1.f;
+            const float Y0 = 1.f - m.y(y0) / sh * 2.f, Y1 = 1.f - m.y(y1) / sh * 2.f;
+            const std::uint8_t r = 255, g = red ? 0 : 255, b = red ? 0 : 255, a = red ? 255 : ta;
+            const HudVertex q0{X0, Y0, u0, v0, r, g, b, a}, q1{X1, Y0, u1, v0, r, g, b, a};
+            const HudVertex q2{X1, Y1, u1, v1, r, g, b, a}, q3{X0, Y1, u0, v1, r, g, b, a};
+            boss_sprites.push_back(q0); boss_sprites.push_back(q1); boss_sprites.push_back(q2);
+            boss_sprites.push_back(q0); boss_sprites.push_back(q2); boss_sprites.push_back(q3);
+        };
+        quad(15, 8, 100, 56, 0, 0, 0.328125f, 0.1875f, false);                       // S1
+        quad(99, 16, 99 + len, 48, 0, 0.375f, 0.62f, 0.5f, false);                    // S2
+        quad(99 + len, 8, 136 + len, 56, 0, 0.1875f, 0.1484375f, 0.375f, false);      // S3
+        if (boss_emblem <= 0) quad(33, 16, 65, 48, 0, 0.75f, 0.125f, 0.875f, false);  // S4
+        else { const float u = float(boss_emblem - 1) * 32.0f * K;
+               quad(33, 16, 65, 48, u, 0.875f, u + 0.125f, 1.0f, false); }
+        auto fill_to = [&](float e) {                                                // A4-A6 / B1-B3
+            const float c = std::min(24.0f, e);
+            if (c > 0) quad(75, 24, 75 + c, 40, 0, 0.5f, c * K, 0.5625f, false);
+            if (e > 24) quad(99, 24, 99 + std::min(len, e - 24), 40, 0, 0.625f, 0.62f, 0.6875f, false);
+            if (e > M) { const float d = std::min(24.0f, e - M);
+                         quad(99 + len, 24, 99 + len + d, 40, 0, 0.5625f, d * K, 0.625f, false); }
+        };
+        if (lag < cur) { fill_to(TOT * lag / max); return; }                         // branch B: refill
+        const float f = TOT * cur / max, gg = TOT * lag / max;
+        if (f < 24) { const float w = std::min(24 - f, gg - f);                      // A1
+                      if (w > 0) quad(75 + f, 24, 75 + f + w, 40, f * K, 0.5f, (f + w) * K, 0.5625f, true); }
+        if ((24 < f && f < M) || (24 < gg && gg < M) || (f < 24 && gg > M)) {        // A2
+            const float a = std::max(24.0f, f);
+            const float w = std::min(M - a, gg - a);
+            if (w > 0) quad(75 + a, 24, 75 + a + w, 40, 0, 0.625f, 0.62f, 0.6875f, true);
+        }
+        if (gg > M) { const float a = std::max(M, f), u0 = (24 + std::max(0.0f, f - M)) * K;   // A3
+                      const float w = std::min(TOT - a, gg - a);
+                      if (w > 0) quad(75 + a, 24, 75 + a + w, 40, u0, 0.5f, u0 + (gg - a) * K, 0.5625f, true); }
+        fill_to(f);
     }
 
     // Build this frame's HUD, then draw it over `colorView`.
@@ -690,14 +741,17 @@ struct Hud {
             text(it->text, 12 * s, my, s * 1.15f, float(sw), float(sh), 255, 235, 120, a);
             my += 30 * s; ++it;
         }
-        const std::size_t g0 = verts.size(), g1 = sprites.size(), g2 = boss_sprites.size(), g3 = mini_verts.size();
+        const std::size_t g0 = verts.size(), g1 = sprites.size(), g3 = mini_verts.size();
         if (player) player_hud(*player, float(sw), float(sh));
-        if (boss_frac >= 0.f) boss_bar(boss_frac, boss_name, float(sw), float(sh));
+        if (boss_frac >= 0.f) {
+            if (boss_max <= 0.0f) { boss_max = 1.0f; boss_cur = boss_lag = boss_frac; }   // a bare preview
+            boss_bar(float(sw), float(sh));
+        }
         if (gauge_alpha < 1.0f) {
             auto dim = [&](std::vector<HudVertex>& v, std::size_t from) {
                 for (std::size_t k = from; k < v.size(); ++k) v[k].a = std::uint8_t(float(v[k].a) * gauge_alpha);
             };
-            dim(verts, g0); dim(sprites, g1); dim(boss_sprites, g2); dim(mini_verts, g3);
+            dim(verts, g0); dim(sprites, g1); dim(mini_verts, g3);   // the boss gauge dims itself (red trail unfaded)
             for (auto& v : equip_verts) dim(v, 0);
         }
         const std::size_t nf = verts.size(), ns = sprites.size(), nb = boss_sprites.size();

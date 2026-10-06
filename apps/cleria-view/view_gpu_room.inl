@@ -218,7 +218,20 @@ static void free_room(Room& r, WGPUBindGroup shared_white) {
 // applied over everything the load-time scripts decided.
 struct LiveObjState {
     std::unordered_map<std::string, bool> visible, collide;
+    std::vector<ObjLocateArgs> located;     // 0x187 Mesh_Locate'd live (not by the load pass)
 };
+// A 0x187 Mesh_Locate as a placed object. [H] the rotation operands as degrees (all 0 in S_10).
+static SobObject located_object(const std::string& ymo, const std::string& name, float x, float y, float z,
+                                float rx, float ry, float rz) {
+    SobObject o;
+    o.ymo_path = ymo;
+    o.name = name;
+    o.position = {x, y, z};
+    const float k = 0.017453292f;
+    o.rotation = {rx * k, ry * k, rz * k};
+    o.scale = {1, 1, 1};
+    return o;
+}
 static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                       const std::int32_t* base_flags = nullptr, int character = 1,
                       const std::unordered_set<std::string>* extra_hidden = nullptr,
@@ -237,6 +250,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     // poses it (stepping stones UP/STOP, switch TURN_ON/OFF, a looted chest OPEN) and 0x173
     // places it.
     ObjStates obj_states;
+    std::vector<SobObject> located;                  // 0x187 Mesh_Locate (render + its X_.YMO collision twin)
     std::unordered_set<std::string> root_hidden;     // deleted or hidden: no model, no collision
     std::unordered_set<std::string> no_collide;      // 0x16c off: drawn, not solid
     {
@@ -275,6 +289,8 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                 for (const auto& [nm, on] : tmp.obj_collide)
                     if (!on) no_collide.insert(low(nm));
                 for (const auto& [nm, clip] : tmp.obj_state) obj_states.clip[low(nm)] = clip;
+                for (const auto& l : tmp.obj_locate)
+                    located.push_back(located_object(l.ymo, low(l.name), l.x, l.y, l.z, l.rx, l.ry, l.rz));
                 for (const auto& [nm, p2] : tmp.obj_place)
                     obj_states.pos[low(nm)] = {p2.x, p2.y, p2.z};
                 // The root also hides objects outright (S_1004 drops stepping stones
@@ -347,17 +363,26 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
         for (const std::string& n : *extra_hidden) hidden.insert(n);
     for (const std::string& n : root_hidden) hidden.insert(n);
     if (live) {
+        for (const ObjLocateArgs& l : live->located) {
+            std::string ln = l.name;
+            for (char& c : ln) c = char(std::tolower((unsigned char)c));
+            bool have = false;
+            for (const SobObject& o : located) have |= o.name == ln;
+            if (!have) located.push_back(located_object(l.ymo, ln, l.x, l.y, l.z, l.rx, l.ry, l.rz));
+        }
         for (const auto& [n, on] : live->visible) { if (on) hidden.erase(n); else hidden.insert(n); }
         for (const auto& [n, on] : live->collide) { if (on) no_collide.erase(n); else no_collide.insert(n); }
     }
     r.load_effects = std::move(load_fx);
     r.mesh = build_room(asset_root, sob, nullptr,
                         hidden.empty() ? nullptr : &hidden, base_flags,
-                        (obj_states.clip.empty() && obj_states.pos.empty()) ? nullptr : &obj_states);
+                        (obj_states.clip.empty() && obj_states.pos.empty()) ? nullptr : &obj_states,
+                        located.empty() ? nullptr : &located);
     std::unordered_set<std::string> coll_hidden = hidden;
     coll_hidden.insert(no_collide.begin(), no_collide.end());
     r.coll = build_collision(asset_root, sob, nullptr,
-                             coll_hidden.empty() ? nullptr : &coll_hidden);
+                             coll_hidden.empty() ? nullptr : &coll_hidden,
+                             located.empty() ? nullptr : &located);
     // Materials that scroll their UVs. Only 397 of 6642 corpus-wide do, and the disk
     // phase is 0.0 in every one — it is pure runtime state, so we start at zero too.
     for (const DrawBatch& b : r.mesh.batches)

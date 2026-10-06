@@ -75,6 +75,8 @@
 #include "cleria/wnddialog.hpp"
 #include "cleria/titlescreen.hpp"
 #include "cleria/eventsprites.hpp"
+#include "cleria/boss01.hpp"
+#include "cleria/ymo.hpp"
 #include <ctime>
 #include <optional>
 // CLERIA_CULL=off|cw|ccw — probe. The exe sets D3DCULL_CCW, but D3D9's left-handed

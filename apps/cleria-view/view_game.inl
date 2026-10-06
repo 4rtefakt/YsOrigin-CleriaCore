@@ -56,6 +56,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     Hud hud; hud.init(g, res_file("hud_font.bin"), fmt);
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
     hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");
+    hud.init_boss(g, asset_root / "IMAGE" / "HP2.DDS");    // the boss HP bar (it was never loaded live)
     FlameFx flames;                      // torch flames (SEF placements + EF2 flipbook)
     if (!flames.init(g, asset_root))
         std::fprintf(stderr, "flames: NAGA01.DDS failed to load\n");
@@ -108,6 +109,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::printf("audio: %zu scenes, music from %s\n", scenes.size(),
                     bgmdefs.dir().string().c_str());
     int cur_bgm = -1;
+    int default_bgm = 0;                 // 0x76c17c: Scene_SetDefaultBgm / Bgm_Play(-1)
     float bgm_gain = 1.0f, bgm_gain_to = 1.0f, bgm_gain_step = 0.0f;   // op 0xBB Bgm_Volume
     auto apply_room_bgm = [&](const std::string& room_name) {
         const SceneRec* s = scenes.find_room(room_name);
@@ -1321,6 +1323,23 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::function<void(const std::string&, bool, bool)> mesh_state_fn;   // (name, collision?, on)
         void mesh_visible(const std::string& n, bool on) override { if (mesh_state_fn) mesh_state_fn(n, false, on); }
         void mesh_collision(const std::string& n, bool on) override { if (mesh_state_fn) mesh_state_fn(n, true, on); }
+        std::function<void(const ObjLocateArgs&)> mesh_locate_fn;
+        std::function<void(int)> bgm_default_fn, bgm_play_fn, bgm_stop_fn;
+        std::function<void()> heal_fn;
+        std::function<void(int)> muteking_fn;
+        void mesh_locate(const ObjLocateArgs& a) override { if (mesh_locate_fn) mesh_locate_fn(a); }
+        void mesh_fall(const std::string& n, float e, float h) override {
+            if (meshes) { std::string ln = n; for (char& ch : ln) ch = char(std::tolower((unsigned char)ch)); meshes->fall(ln, e, h); }
+        }
+        void mesh_alpha_target(const std::string& n, float a, int fr) override {
+            if (meshes) { std::string ln = n; for (char& ch : ln) ch = char(std::tolower((unsigned char)ch)); meshes->alpha_target(ln, a, fr); }
+        }
+        void bgm_default(int id) override { if (bgm_default_fn) bgm_default_fn(id); }
+        void bgm_play(int id) override { if (bgm_play_fn) bgm_play_fn(id); }
+        void bgm_stop(int t) override { if (bgm_stop_fn) bgm_stop_fn(t); }
+        void heal_hp() override { if (heal_fn) heal_fn(); }
+        void chr_muteking(int id, int n) override { if (p_isplayer(id) && muteking_fn) muteking_fn(n); }
+        void save_cont_data() override { std::printf("  [script] SaveContData [not modelled]\n"); }
         std::function<void(int)> se_fn, set_skill_fn;
         std::function<void(int, int)> bgm_volume_fn;
         void se_play(int se) override { if (se_fn) se_fn(se); }
@@ -1749,9 +1768,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         return (sp >= 1 && sp <= 0xa5) ? sp : -1;
     };
     csHost.equipped_fn = [&](int id) { return inv_is_equipped(game.g_flags, inv, id); };
-    csHost.event_xx_fn = [&](int n) {                     // [EXPORT] sub-kinds 10 and 7 only
+    csHost.event_xx_fn = [&](int n) {                     // FUN_0058f210 [EXPORT], VELAGUNDER.md §1.9
         if (n == 10) inv.accessory = 0xff;
         else if (n == 7) { inv.accessory = -1; inv.held = -1; inv.magic = -1; }
+        else if (n == 2) player.sp_cur = player.sp_max;  // DAT_0076a738 = DAT_0076a734: the second gauge refilled
+        else if (n == 8) {                                // HealHp's body if alive; [not modelled] DAT_0076b914 |= 0x75
+            if (player.hp >= 1) { player.hp = player.max_hp; player.hp_lag = float(player.hp); }
+        }
+        else if (n == 0 || n == 12) {                     // Boost off (DAT_0076c1b4 = 0; FUN_00462c40)
+            if (player.boosting) { player.boosting = false; game.g_flags[141] = 0; }
+        }
+        // [not modelled] 11 (zero 0x76c160..16c; FUN_00462550) and the rest of 12.
     };
     csHost.start_label = [&](const std::string& l) {     // [not modelled] the owner actor
         if (!csMgr.start(l)) std::printf("  [menu] %s did not start\n", l.c_str());
@@ -1759,6 +1786,32 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // 0xBC / 0xBB / 0x8F. [H] Se_Play's 2nd operand (1024 everywhere) is not read by
     // FUN_004396f0. Bgm_Volume's (volume /1024, time) read as a linear fade over `time` ms [H].
     csHost.se_fn = [&](int se) { audio.play(se, kSfxAnimVol); };
+    // 0x187 live: a mesh the room build does not have yet is added and the room rebuilt.
+    csHost.mesh_locate_fn = [&](const ObjLocateArgs& a) {
+        std::string ln = a.name;
+        for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
+        if (room.mesh.object_range(ln)) return;
+        live_obj.located.push_back(a);
+        live_obj_dirty = true;
+    };
+    // 0xA4 / 0xB9 / 0xBA: the default (scene) BGM, play (-1 = the default), stop.
+    // [H] Bgm_Stop's operand (3500) read as a fade time; the stop is immediate here.
+    csHost.bgm_default_fn = [&](int id) { default_bgm = id; };
+    csHost.bgm_play_fn = [&](int id) {
+        if (id == -1) id = default_bgm;
+        if (id <= 0) { audio.stop_bgm(); cur_bgm = 0; return; }
+        if (id == cur_bgm) return;
+        cur_bgm = id;
+        audio.play_bgm(bgmdefs.track(id));
+    };
+    csHost.bgm_stop_fn = [&](int) { audio.stop_bgm(); cur_bgm = 0; };
+    // 0x85 HealHp (FUN_004fa0e0): HP to max; SE 0x75 (FUN_00430790). [not modelled] FUN_00420c40.
+    csHost.heal_fn = [&] {
+        if (player.hp >= 1) { player.hp = player.max_hp; player.hp_lag = float(player.hp); }
+        audio.play(0x75, kSfxMenuVol);
+    };
+    // 0x14E Chr_Muteking: the player's i-frames +0x734 = max(+0x734, n).
+    csHost.muteking_fn = [&](int n) { player_iframes = std::max(player_iframes, n); };
     // Chr_Jump on the player: the vertical timer +0x330 = v, the origin rises v, airborne.
     // [not modelled] +0x9d6 = 1.
     csHost.player_jump_fn = [&](float v) {
@@ -1889,7 +1942,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     //   at=x,z,deg  place the player (floor y) facing deg      kill1  remove the group-1 actors
     //   act         the action key (the probe)                 ok     a confirm press
     //   shot        write the next frame to CLERIA_SHOT_DIR/t<tick>.ppm          quit
-    //   flag=i,v    set a game flag
+    //   flag=i,v    set a game flag      atk   the attack button      boss  face Velagunder
+    std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     if (const char* dv = std::getenv("CLERIA_DRIVE")) {
@@ -1928,6 +1982,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             int fi = 0, fv = 0;
             if (std::sscanf(cmd.c_str() + 5, "%d,%d", &fi, &fv) == 2 && fi >= 0 && fi < 0x200)
                 game.g_flags[fi] = fv;
+        } else if (cmd == "boss") {                    // stand 2.5 in front of Velagunder's part 1, facing it
+            if (boss) {
+                const int pi = boss->stunned() ? 0 : 1;          // the core while stunned
+                const Vec3 c = boss->part(pi).pos;
+                float dx = feet.x - c.x, dz = feet.z - c.z;
+                const float l = std::sqrt(dx * dx + dz * dz);
+                if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
+                const float reach = pi == 0 ? 1.4f : 2.5f;
+                const float x = c.x + dx * reach, z = c.z + dz * reach;
+                const float fl = floor_at(phys_mesh(room), x, z, feet.y + room_diag(room));
+                feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                face_dir = {-dx, 0.0f, -dz};
+                facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+            }
+        } else if (cmd == "atk") {                     // the attack button
+            try_attack();
         } else if (cmd == "act") {
             try_interact();
         } else if (cmd == "ok") {
@@ -2059,6 +2129,158 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::string room_name = k == std::string::npos ? s : s.substr(k + 1);
         for (char& c : room_name) c = char(std::toupper((unsigned char)c));
         return g.sob_index.count(room_name) ? room_name : std::string();
+    };
+
+    // ---- Velagunder, boss01 (src/cleria/boss01, build/boss_re/VELAGUNDER.md) ----------------
+    // The GoMesh "boss01" a room script Mesh_Locate'd is driven by the Boss01 brain every live
+    // step (the mesh pool runs under a Fix too): the clip advance, then the brain (FUN_00562990
+    // switch +0x28d case 5), then its requests. [not modelled] bullet kinds 0x1e / 0x1f (the
+    // bubbles, the drool), the laser's terrain ray, the inhale's actor pull, the boss camera
+    // presets, the boss01_hit1/2 solid meshes, the mesh-contact damage (§3.4), the M890 brain.
+    std::array<int, boss01::kBones> boss_node{};
+    int boss_n114 = -1, boss_n115 = -1;
+    std::vector<RehitBank> boss_banks;                    // the parts' own re-hit banks (+0x14c)
+    bool player_hurt_this_tick = false;                   // +0x3bc & 2 (the boss reads it)
+    bool boss_bullet_warned = false;
+    auto boss_tick = [&] {
+        MeshObj* bm = meshes.find("boss01");
+        if (!bm) { boss.reset(); return; }
+        Model* mdl = cached_big_model(resolve_ymo_path(asset_root, "data\\enemy\\boss01\\boss01.ymo"));
+        if (!mdl) return;
+        auto lw = [](std::string t) { for (char& ch : t) ch = char(std::tolower((unsigned char)ch)); return t; };
+        auto node_of = [&](const char* nm) {
+            for (std::size_t k = 0; k < mdl->nodes.size(); ++k) if (mdl->nodes[k].name == nm) return int(k);
+            return -1;
+        };
+        if (!boss) {
+            Boss01Setup su;                                // EEX record 0 (§2.2)
+            if (!eex.bosses.empty()) {
+                const BossStats& bs = eex.bosses[0];
+                su.hp = bs.hp; su.str = bs.atk; su.def = bs.def; su.rec4 = bs.unk10; su.level = bs.level;
+            }                                              // rec3 (+0x0c, 50.0) is not in EexTable: the default
+            // [H] +0xb0 = the GAMEINFO enemy-EXP curve at the boss level (FUN_004217f0 not reduced).
+            if (ginfo.ok()) su.exp_b0 = ginfo.curves[kEnemyExp].at(su.level);
+            su.character = character;
+            su.diff_index = game.g_flags[144];
+            su.diff_easy = game.g_flags[143] != 0;
+            su.diff_very_easy = game.g_flags[203] != 0;
+            su.time_attack = game.g_flags[193] != 0;
+            su.retries = game.g_flags[196];
+            su.pos = bm->pos;
+            su.player_pos = {feet.x, feet.y + kOriginH, feet.z};
+            boss = std::make_unique<Boss01>(su);
+            for (int k = 0; k < boss01::kBones; ++k) boss_node[std::size_t(k)] = node_of(boss01::kBoneNames[k]);
+            boss_n114 = node_of("Bone(114)");
+            boss_n115 = node_of("Bone(115)");
+            boss_banks.assign(boss01::kParts, RehitBank{});
+            std::printf("  [boss] Velagunder: HP %.0f STR %.0f DEF %.0f lv %d\n",
+                        boss->max_hp(), boss->str(), boss->def(), boss->level());
+        }
+        for (RehitBank& b : boss_banks) b.tick();
+        // The posed model at this step's clip frame (FUN_005f6000), placed at the boss matrix.
+        std::string cur_clip;
+        if (bm->sect >= 0 && std::size_t(bm->sect) < bm->clips.size()) cur_clip = bm->clips[std::size_t(bm->sect)].name;
+        bool posed = false;
+        for (const AnimClip& c : mdl->clips)
+            if (!cur_clip.empty() && c.name == cur_clip) { mdl->pose(c, bm->time); posed = true; break; }
+        if (!posed) mdl->rest_pose();
+        const Mat4 place = compose_trs(bm->pos, bm->rot, {1, 1, 1});
+        auto world_of = [&](int ni) -> Vec3 {
+            if (ni < 0 || std::size_t(ni) >= mdl->nodes.size()) return bm->pos;
+            const Mat4 w = mdl->nodes[std::size_t(ni)].world * place;
+            return {w.m[12], w.m[13], w.m[14]};
+        };
+        Boss01Input in;
+        for (int k = 0; k < boss01::kBones; ++k) in.bones[std::size_t(k)] = world_of(boss_node[std::size_t(k)]);
+        in.bone114 = world_of(boss_n114);
+        in.bone115 = world_of(boss_n115);
+        in.player_pos = {feet.x, feet.y + kOriginH, feet.z};
+        in.player_hp = float(player.hp);
+        in.player_grounded = grounded;
+        in.player_floor = last_floor;
+        in.player_section = avm.section();
+        in.player_took_damage = player_hurt_this_tick;
+        in.clip = boss01::kWait;
+        for (int k = 0; k < boss01::kClips; ++k)
+            if (!cur_clip.empty() && lw(cur_clip) == lw(boss01::kClipTable[k].name)) { in.clip = k; break; }
+        in.clip_count = bm->count;
+        in.clip_frame = bm->time;
+        in.fight = game.g_flags[156] == 1;
+        in.continue_snap = game.g_flags[175] != 0;
+        for (const Actor& a : world.actors()) {
+            if (a.cast_id == 0xaf && a.alive()) {
+                ++in.spawn_count;
+                if (a.ai.i(0x72c) == 1) in.spawn_chaser_exists = true;
+            }
+            in.actors.push_back({a.cast_id, {a.pos.x, a.pos.y + a.height, a.pos.z},
+                                 a.is_player() ? float(player.hp) : a.hp});
+        }
+        in.rng = [&] { return pick_rng.next(); };
+        const Boss01Output out = boss->tick(in);
+        static const bool boss_log = std::getenv("CLERIA_BOSSLOG") != nullptr;
+        if (boss_log && tick_count % 30 == 0)
+            std::printf("  [boss] t%llu state %d sub %d c0 %u phase %d hp %.0f stun %.0f%s clip %s(%d) cnt %u fr %.1f cam %d/%.2f core (%.2f,%.2f,%.2f) r%.2f def %.0f feet (%.2f,%.2f,%.2f)\n",
+                        (unsigned long long)tick_count, boss->state(), boss->sub(), boss->timer(), boss->phase(),
+                        boss->hp(), boss->stun_gauge(), boss->stunned() ? " STUNNED" : "", cur_clip.c_str(),
+                        in.clip, in.clip_count, in.clip_frame, boss->camera().cur, boss->camera().t, boss->part(0).hurt_centre.x, boss->part(0).hurt_centre.y, boss->part(0).hurt_centre.z, boss->part(0).hurt_radius, boss->part(0).def, feet.x, feet.y, feet.z);
+        boss->camera().step_standin();                    // [STAND-IN] no boss camera presets
+        // The requests, in order.
+        for (const Boss01ClipSet& c : out.clips)
+            if (c.clip >= 0 && c.clip < boss01::kClips) meshes.set_clip_now("boss01", boss01::kClipTable[c.clip].name);
+        if (out.speed) bm->time_scale = *out.speed;
+        bm->pos = boss->pos();
+        bm->rot = {0.0f, boss->yaw(), 0.0f};
+        bm->dirty_pose = true;
+        for (const Boss01Sound& sd : out.sounds) {
+            if (sd.kind == Boss01Sound::k3D) sfx_at(sd.id, sd.pos, kSfxAnimVol);
+            else if (sd.kind == Boss01Sound::k2D) audio.play(sd.id, kSfxAnimVol);
+        }
+        for (const Boss01Effect& fe : out.effects) {
+            Vec3 at = fe.pos;                              // [approx] an attached effect starts at its
+            switch (fe.attach) {                           // parent + offset and does not follow it
+                case Boss01Effect::kBone:
+                    if (fe.attach_bone >= 0 && fe.attach_bone < boss01::kBones) {
+                        const Vec3 b = in.bones[std::size_t(fe.attach_bone)];
+                        at = {b.x + fe.attach_off.x, b.y + fe.attach_off.y, b.z + fe.attach_off.z};
+                    }
+                    break;
+                case Boss01Effect::kBone114: at = {in.bone114.x + fe.attach_off.x, in.bone114.y + fe.attach_off.y, in.bone114.z + fe.attach_off.z}; break;
+                case Boss01Effect::kBone115: at = {in.bone115.x + fe.attach_off.x, in.bone115.y + fe.attach_off.y, in.bone115.z + fe.attach_off.z}; break;
+                case Boss01Effect::kPart0: { const Vec3 b = boss->part(0).pos; at = {b.x + fe.attach_off.x, b.y + fe.attach_off.y, b.z + fe.attach_off.z}; } break;
+                default: break;
+            }
+            ef2sim::SpawnParams sp;
+            sp.side = fe.side; sp.power = fe.power; sp.knock = fe.knock; sp.rtype = fe.rtype;
+            sp.status = fe.status; sp.cls = fe.cls;
+            sp.atk = fe.stat == Boss01Effect::kBoss ? boss->str() : 0.0f;
+            spawn_sim_fx(fe.id, at, fe.rot, fe.scale.x, sp, 0, {});
+        }
+        for (int id : out.kill_effects)
+            for (auto& f : fxsim.effects()) if (f->id == id) f->kill = true;
+        if (!out.bullets.empty() && !boss_bullet_warned) {
+            boss_bullet_warned = true;
+            std::printf("  [boss] bullet kind %d [not modelled]\n", out.bullets.front().kind);
+        }
+        for (const Boss01Spawn& s : out.spawns) {          // M890 (its brain: the stand-in)
+            world.spawn(0, s.cast, s.pos.x, s.pos.y, s.pos.z, float(s.yaw_deg), 0);
+            csHost.world_changed = true;
+        }
+        if (out.kill_minions)
+            for (Actor& a : world.actors()) if (a.cast_id == 0x19 || a.cast_id == 0xaf) a.hp = 0.0f;
+        feet.x += out.player_push.x;                       // [approx] +0x338/+0x340 added as a shift
+        feet.z += out.player_push.z;
+        if (out.tilt) shake(out.tilt->amp.x, out.tilt->amp.y, out.tilt->amp.z, out.tilt->frames);
+        if (out.alpha_target) bm->alpha_target = *out.alpha_target;
+        if (out.alpha_step) bm->alpha_step = *out.alpha_step;
+        for (const auto& [fi, fv] : out.flags) if (fi >= 0 && fi < 0x200) game.g_flags[fi] = fv;
+        if (out.award_exp) award_exp(boss->exp_b0());
+        if (out.destroy) { bm->alpha = bm->alpha_target = 0.0f; }
+        if (out.gauge) {                                   // §6: the HP2 bar, 306 px, strip 1
+            hud.set_boss_gauge(-5, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->strip);
+            gauge_owner = 0;
+        }
+        if (out.gauge_hide) hud.hide_boss_gauge();
+        player_hurt_this_tick = false;
     };
 
     g_tick_reset = true;   // the first room's load stall is not caught up either (DAT_0075aed5)
@@ -2297,8 +2519,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // Keep the world's player actor on the view's feet EVERY frame (incl. during
             // a frozen cutscene) so cutscene ops that resolve the player — Chr_LookAtChr,
             // Chr_IsInSphere/Box — see the real position. (The gameplay chase re-syncs
-            // it below too; harmless.)
-            if (Actor* wp = world.player()) wp->pos = feet;
+            // it below too; harmless.) Its HP too: Chr_IsLiving(13) (0x13F) reads it, and the
+            // region triggers (S_EVT1099's boss intro and 8 more floor-1 scripts) gate on it.
+            if (Actor* wp = world.player()) {
+                wp->pos = feet;
+                wp->hp = float(player.hp);
+                wp->max_hp = float(player.max_hp);
+            }
         }
         // One flag store (FLOOR1_ROUTE_AUDIT B4): the engine's own writes (156 / 130 at a boss
         // death, 141 Boost, the pickups) reach the running scripts; their writes come back
@@ -2307,6 +2534,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         csMgr.vm.g_flags[150] = character;
         const bool frozen_now = tick_events();
         world.tick_alpha_fades();                  // Chr_Alpha (runs under a Fix too, [H])
+        hud.tick_boss_gauge();                     // FUN_004281c0's widget loop (FUN_0043a540)
         {   // FUN_004281c0: the HUD's alpha moves 0.1 per step toward 1 - the box's alpha (0 while
             // flag 185 == 0) [BYTES 0x428638..86]; the CrossFade opacity steps by its rate.
             const float box = csHost.wtext.alive() ? csHost.wtext.box_alpha() : 0.0f;
@@ -2373,6 +2601,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // The GoMesh pool updates every live step, a Fix or not (WAITOPS.md §4.7).
         auto step_meshes = [&] {
             meshes.step();
+            boss_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
                 if (!m.dirty_pos && !m.dirty_pose) continue;
@@ -2380,8 +2609,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (m.dirty_pose) {
                     const char* clip = (m.sect >= 0 && std::size_t(m.sect) < m.clips.size())
                                            ? m.clips[std::size_t(m.sect)].name.c_str() : nullptr;
-                    rebake_object(room.mesh, asset_root, nm, clip, m.time, &m.pos, false);
-                    rebake_object(room.coll, asset_root, nm, clip, m.time, &m.pos, true);
+                    rebake_object(room.mesh, asset_root, nm, clip, m.time, &m.pos, false, &m.rot);
+                    rebake_object(room.coll, asset_root, nm, clip, m.time, &m.pos, true, &m.rot);
+                    // [STAND-IN] Mesh_SetAlphaTarget's alpha (the anim object's +0xc) is not drawn
+                    // translucent: alpha 0 collapses the object, anything else draws it opaque.
+                    if (m.alpha <= 0.0f)
+                        if (const RoomMesh::ObjRange* rr = room.mesh.object_range(nm))
+                            for (std::uint32_t k = rr->v0; k < rr->v1 && k < room.mesh.vertices.size(); ++k) {
+                                room.mesh.vertices[k].px = room.mesh.vertices[rr->v0].px;
+                                room.mesh.vertices[k].py = room.mesh.vertices[rr->v0].py;
+                                room.mesh.vertices[k].pz = room.mesh.vertices[rr->v0].pz;
+                            }
                 } else {
                     const Vec3 d{m.pos.x - was.x, m.pos.y - was.y, m.pos.z - was.z};
                     translate_object(room.mesh, nm, d);
@@ -2497,6 +2735,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
               feet.x = body.x; feet.z = body.z; }
+            // FUN_0046fba0 0x470049 (ARENA_AND_BOSSBAR.md §1.5c): in arena mode 1 (flag 190) the
+            // player is box-clamped to the EnclosePlayer rect, min then max. [not modelled] mode 2.
+            if (game.g_flags[190] == 1) {
+                if (feet.x < world.arena[0]) feet.x = world.arena[0];
+                if (feet.z < world.arena[1]) feet.z = world.arena[1];
+                if (feet.x > world.arena[2]) feet.x = world.arena[2];
+                if (feet.z > world.arena[3]) feet.z = world.arena[3];
+            }
             // The engine's vertical model (physics_player.hpp), on the ORIGIN, which floats
             // at floor + 1.075: dy from the signed timer (linear while grounded, ½gt²
             // airborne), the down-ray from the origin, then landing / coyote / fall with the
@@ -2742,9 +2988,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     }
                     if (o.gauge_hp >= 0) {                         // FUN_0043a460: the boss gauge
                         gauge_owner = en->instance_id;
-                        hud.boss_frac = en->max_hp > 0 ? std::clamp(o.gauge_hp / en->max_hp, 0.0f, 1.0f) : 0.0f;
-                        const Cast* bc = casts.get(en->cast_id);
-                        hud.boss_name = bc ? bc->display : std::string();
+                        // M460: lenScale 3000, 4000 when the player is Hugo (ARENA_AND_BOSSBAR §3.1);
+                        // M460 never writes the emblem (0, the default).
+                        hud.set_boss_gauge(en->instance_id, o.gauge_hp, en->max_hp,
+                                           character == 2 ? 4000.0f : 3000.0f, 0);
                     }
                     // The mover (FUN_00478080 -> FUN_0045f4d0, build/ai_spec/MOVER.md): the
                     // locomotion section on an index change (gated), the ASO step (Jump/Dash/
@@ -2871,7 +3118,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (hud.boss_frac >= 0.0f && gauge_owner != 0) {
                     bool live = false;
                     for (const Actor& a : world.actors()) live |= a.instance_id == gauge_owner && a.alive();
-                    if (!live) { hud.boss_frac = -1.0f; gauge_owner = 0; }
+                    if (!live) { hud.hide_boss_gauge(); gauge_owner = 0; }
                 }
             }
 
@@ -3033,6 +3280,31 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     }
                     ++broke;
                 }
+                // FUN_004fed50's GoMesh pass (VELAGUNDER.md §3.3): each boss part's hurt sphere,
+                // its own re-hit bank, the damage with the part's DEF / resist into part +0x134.
+                // [not modelled] the armour's skipped elemental bonus, Toal's refused sections.
+                if (boss && !boss->destroyed())
+                    for (int pi = 0; pi < boss01::kParts; ++pi) {
+                        if (!boss->part_hittable(pi)) continue;
+                        const Boss01Part& bp = boss->part(pi);
+                        const HitShape body = body_shape(bp.hurt_centre, bp.hurt_radius, 0.0f, 0, 0.0f);
+                        if (!overlap(vol, body)) continue;
+                        if (boss_banks[std::size_t(pi)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
+                        if (atk_hb.one_shot) atk_window = 0;
+                        AttackStats a;
+                        a.atk = player_stats().atk;
+                        a.bonus = atk_hb.power;
+                        EnemyDefense vd; vd.def = bp.def;
+                        for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
+                        PlayerDamageMods mods;
+                        mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
+                        const int dmg = enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                            [&](float pct) { return float(rng_pct(rng)) < pct; });
+                        if (dmg > 0) { boss->add_part_damage(pi, float(dmg)); add_boost(300.0f); }
+                        if (std::getenv("CLERIA_DMG"))
+                            std::printf("  hit boss part %d (DEF %.0f): %d dmg, HP %.0f stun %.0f\n",
+                                        pi, bp.def, dmg, boss->hp(), boss->stun_gauge());
+                    }
                 if (broke) reload_room(/*rerun_events*/false);   // drop the shattered mesh
                 if (killed) {
                     int left = 0;
@@ -3238,6 +3510,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (e.hb.one_shot) e.atk_win = 0;
                 e.atk_hit = true;
                 hurt_player(en->atk, e.hb.power, e.hb.rtype, hang);
+            }
+            // The boss parts' armed volumes (GoXx kind 9, mode-0 scan; VELAGUNDER.md §3.2): all
+            // share re-hit token 0 with re-hit 30 [H-med], the damage with the boss's STR.
+            if (boss && !boss->destroyed() && player_iframes == 0 && player.hp >= 1) {
+                const Cast* pc = casts.get(13);
+                const HitShape pbody = body_shape({feet.x, feet.y + kOriginH, feet.z},
+                                                  pc ? pc->hurt_radius : 0.45f, pc ? pc->hurt_half_h : 0.5f,
+                                                  pc ? pc->hurt_shape : 1, pc ? pc->center_offset : -0.25f);
+                for (const Boss01Part& bp : boss->parts()) {
+                    if (!bp.armed || bp.radius <= 0.0f) continue;
+                    const HitShape vol{bp.radius, bp.centre, bp.half_h, bp.shape};
+                    float hang = 0;
+                    if (!overlap(vol, pbody, &hang)) continue;
+                    if (player_bank.check_and_record(0xB0550000u, 30)) break;
+                    hurt_player(boss->str(), bp.power, bp.rtype, hang);
+                    player_hurt_this_tick = true;
+                    break;
+                }
             }
             // The EF2 particles (EF2SIM.md §1.1: effects, then particles, after the actors). An
             // enemy effect's armed particle tests the player alone (EFFECTHIT.md §5): the

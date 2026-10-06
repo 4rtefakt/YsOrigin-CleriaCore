@@ -112,8 +112,15 @@ bool translate_object(RoomMesh& m, const std::string& lname, const Vec3& d);
 // Re-bake one object in place, posed at `frame` of `clip` and placed at `pos` (null = its SOB
 // position). False when it is not in `m` or the vertex count changed. `collision` selects the
 // X_.YMO twin, as build_collision does.
+// The parsed model behind a big (> 4 MB) object YMO, cached by the room builder; nullptr when it
+// has not been built yet. Posing it changes what the next rebake of that object draws.
+struct Model;
+Model* cached_big_model(const std::filesystem::path& ymo_file);
+std::filesystem::path resolve_ymo_path(const std::filesystem::path& root, const std::string& ymo);
+
 bool rebake_object(RoomMesh& m, const std::filesystem::path& asset_root, const std::string& lname,
-                   const char* clip, float frame, const Vec3* pos, bool collision);
+                   const char* clip, float frame, const Vec3* pos, bool collision,
+                   const Vec3* rot = nullptr);
 
 // If box_whitelist is non-null, chest objects ("box_NN") are included (geometry
 // and interactable) only when their lower-cased name is in the set — this gates
@@ -128,12 +135,14 @@ struct ObjStates {
     std::unordered_map<std::string, std::array<float, 3>> pos;  // 0x173 name -> world pos
 };
 
+// `extra`: objects a script placed with 0x187 Mesh_Locate (the boss), appended to the SOB's.
 RoomMesh build_room(const std::filesystem::path& asset_root,
                     const std::filesystem::path& sob_path,
                     const std::unordered_set<std::string>* box_whitelist = nullptr,
                     const std::unordered_set<std::string>* hidden = nullptr,
                     const std::int32_t* open_flags = nullptr,
-                    const ObjStates* states = nullptr);
+                    const ObjStates* states = nullptr,
+                    const std::vector<SobObject>* extra = nullptr);
 
 // Build a mesh from a single YMO at the origin — for models no SOB places, such
 // as the bosses under ENEMY/ (their paths are hardcoded in the exe).
@@ -153,7 +162,8 @@ RoomMesh build_model(const std::filesystem::path& asset_root,
 RoomMesh build_collision(const std::filesystem::path& asset_root,
                          const std::filesystem::path& sob_path,
                          const std::unordered_set<std::string>* box_whitelist = nullptr,
-                         const std::unordered_set<std::string>* hidden = nullptr);
+                         const std::unordered_set<std::string>* hidden = nullptr,
+                         const std::vector<SobObject>* extra = nullptr);
 
 // Shared by all three: assemble already-parsed placements. `script_dir` is where a
 // chest's S_BOXNN.XSO is looked up. `collision` swaps each object's YMO for its `_`

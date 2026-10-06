@@ -43,6 +43,12 @@ struct MeshObj {
     bool sleeping = false;            // +0x298 & 0x10: Mesh_Sleep(name, 1) skips the update
     bool event_on = true;             // Mesh_EnableEvent: its touch script may start
     bool dirty_pos = false, dirty_pose = false;   // the host must re-bake this tick
+    Vec3 rot{};                       // the placement rotation (radians, as SobObject): boss facing
+    // Mesh_Fall 0x18A (FUN_00573be0 -> FUN_00503190): +0x44c start y, +0x450 velocity,
+    // +0x454 restitution (0 = not falling).
+    float fall_start = 0, fall_vel = 0, fall_e = 0;
+    // Mesh_SetAlphaTarget 0x16E (FUN_00572b40): +0x418 alpha, +0x41c target, +0x420 step.
+    float alpha = 1, alpha_target = 1, alpha_step = 0;
 };
 
 class MeshWorld {
@@ -64,6 +70,10 @@ class MeshWorld {
     void reset_position(const std::string& name);                // Mesh_ResetPosition 0x178
     void enable_event(const std::string& name, bool on);         // Mesh_EnableEvent 0x176
     void set_time_scale(const std::string& name, float s);       // Mesh_SetTimeScale 0x17b
+    void fall(const std::string& name, float e, float h);        // Mesh_Fall 0x18a
+    // FUN_005f5c80 called by a brain: the clip switches now (not deferred like Mesh_SetMotion).
+    void set_clip_now(const std::string& name, const std::string& clip);
+    void alpha_target(const std::string& name, float a, int frames);   // Mesh_SetAlphaTarget 0x16e
 
     // One live step of every object (FUN_00503ef0): the anim advance, then the move, then
     // the pending clip. Marks objects whose position / pose changed.
