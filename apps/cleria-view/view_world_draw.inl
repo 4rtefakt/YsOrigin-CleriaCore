@@ -340,7 +340,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             if (!fr.empty()) {
                 frames = &fr;
                 const int n = int(fr.size());
-                fi = (e.avm.frame() % n + n) % n;
+                fi = std::max(0, std::min(int(e.avm.frame()), n - 1));   // FUN_00444dc0 clamps
             }
         }
         if (!frames) {  // scriptless enemy: cycle idle, offset per instance

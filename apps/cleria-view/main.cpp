@@ -154,8 +154,6 @@ struct Player {
     // The oxygen bar (build/physics_re/WATER.md §3): O2 0x76c1b8, its alpha 0x76c1bc, and the
     // player's projected origin in window pixels (the bar's anchor).
     float o2 = 6000.0f; int o2_alpha = 0; float o2_px = 0, o2_py = 0;   // DAT_0076c194: regen waits for it to drain after a spend (skillmp::Mp)
-    // Equipped magic (DAT_0076a630): 0x74/0x75/0x76 -> skill slot 0/1/2, anything else = none.
-    int magic = 0x74;
     int character = 1;  // portrait: 1 Yunica / 2 Hugo / 3 Toal
     // Red HP damage-lag "ghost" bar (build/hud_re/HUD_HP_BARS.md, H3). The HP widget is
     // {cur, lag, max}: on damage the lag holds the old value and decays toward cur, drawing

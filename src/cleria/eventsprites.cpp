@@ -117,7 +117,9 @@ void Busts::step() {
 void Busts::draw(DrawList& out) const {
     std::vector<const Bust*> order;
     for (const Bust& b : list_) order.push_back(&b);
-    std::stable_sort(order.begin(), order.end(), [](const Bust* a, const Bust* b) { return a->prio < b->prio; });
+    // [H-high] a LOWER prio draws on top: the scripts open each card at 0 over a backdrop at 1/3 and
+    // demote the previous card to 1 (FUN_0058b1b0 keys 0x0a000000 + prio; the list's order is untraced).
+    std::stable_sort(order.begin(), order.end(), [](const Bust* a, const Bust* b) { return a->prio > b->prio; });
     for (const Bust* b : order) {
         if (b->w <= 0 || b->h <= 0) continue;
         int mode = 2;                                      // x-mode by name (0x58b988..)

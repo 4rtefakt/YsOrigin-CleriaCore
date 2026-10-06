@@ -414,6 +414,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // what keeps Yunica's swing on her AXE (her attack ASO branches on Flag_IsEqualInt(149,1);
     // 0 would render the Crimson Lotusblade fire-skill form).
     game.new_game(character);
+    // FUN_0041fd10: flag 144 = the difficulty 0x74ac3c (0 Normal / 1 Hard / 2 Nightmare), 143 =
+    // Easy (0x74e685), 203 = Very Easy (0x74e684). [not modelled] 201 (0x74e25f) and the clear
+    // bytes 297..299.
+    game.g_flags[144] = difficulty >= 2 ? difficulty - 2 : 0;
+    game.g_flags[143] = difficulty == 1 ? 1 : 0;
+    game.g_flags[203] = difficulty == 0 ? 1 : 0;
     Player player;                     // stat block (HP/SP/level/EXP)
     // A fresh level-1 player: HP from the GAMEINFO player curve at level 1. There is no save
     // model, so a new run always starts at level 1 with 0 EXP -- the faithful new-game state.
@@ -516,6 +522,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     SurfaceHazard hazard;                  // FUN_00462550's floor / noise counters (+0x4c8 / +0x810)
     float hazard_acc = 0.0f;
     bool jump_prev = false;                // the jump button last tick (+0x50c is the pressed mask)
+    // Toal's Godspeed (ABILITIES_VERIFIED.md §3.3, mover 0x4693ed..0x469a97): the dash counter
+    // +0x7a4, the lock-on (+0x7a8 / target point +0x790), and the body-collision ramp +0x4d8 that
+    // restores +0x60 |= 0x80 once it is back to 1.0.
+    int gs_t = 0;
+    bool gs_locked = false;
+    Vec3 gs_target{};
+    float gs_ramp = 1.0f;
     auto room_entry_flags = [&](const std::string& scene) {
         std::string up = scene;
         for (char& c : up) c = char(std::toupper(static_cast<unsigned char>(c)));
@@ -819,6 +832,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool live_obj_dirty = false;
     load_meshes(false);
     float cooldown = 1.5f;
+    bool scene_objects_reset = false;   // a scene change destroys every object: the busts too
     auto transition = [&](const std::string& dest, const SenTrigger* via = nullptr) {
         auto it = g.sob_index.find(dest);
         if (it == g.sob_index.end()) { std::printf("  (no SOB for %s)\n", dest.c_str()); return; }
@@ -835,6 +849,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // revived, and the per-scene flags are reset before the room's scripts read them.
         if (player.hp < 1) { player.hp = player.max_hp; player.sp_cur = player.sp_max; }
         scene_entry_flags(dest);
+        scene_objects_reset = true;                              // busts / caption card (start_room_events)
         live_obj = {};                                           // a new visit
         emotions.clear();
         live_obj_dirty = false;
@@ -1535,6 +1550,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     auto start_room_events = [&] {
         csMgr.live.clear(); csMgr.spawn_queue.clear(); csMgr.peak_live = 0; csMgr.fix_counts[0] = csMgr.fix_counts[1] = 0;
         hit_meshes.clear();                         // the root re-issues its 0x186s on every visit
+        if (scene_objects_reset) {                  // FUN_00428ec0: the busts / V_ cards and the caption
+            scene_objects_reset = false;            // card die with the scene (Toal's prologue never
+            csHost.bust_set.clear();                // closes its V_109 backdrop)
+            csHost.caption_card = CaptionCard{};
+        }
         csMgr.paused = false;
         csHost.heal_spots.clear();
         csHost.box_active = false; csHost.advance = false;
@@ -1825,11 +1845,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     skillmp::Charge skill_charge;
     bool drive_skill = false;                             // CLERIA_DRIVE skill+ / skill-
     bool drive_jump = false;                              // CLERIA_DRIVE jump: one press
+    Vec3 drive_wish{};                                    // CLERIA_DRIVE move=dx,dz,n: a held stick
+    int drive_wish_n = 0;
     auto skill_tick = [&](bool skill_held, bool attack_held) {
-        const int slot = skillmp::bracelet_slot(player.magic);
+        const int slot = skillmp::bracelet_slot(inv.magic);
         skillmp::SkillIn si;
         si.skill_held = skill_held; si.attack_held = attack_held;
-        si.magic = player.magic;
+        si.magic = inv.magic;
         si.bracelet_level = slot < 3 ? game.g_flags[182 + slot] : 0;
         si.section = avm.section();
         si.kind = skillmp::attack_kind(si.section);
@@ -1840,7 +1862,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         si.cost.difficulty = difficulty >= 2 ? difficulty - 2 : 0;   // DAT_0076bb5c 0 / 1 / 2
         si.cost.bc80 = si.bc80;
         si.cost.boosting = player.boosting;
-        // [not modelled] accessory bit 0x76a624 & 0x200000 (x0.80), Adol's DAT_0074c0cc table.
+        si.cost.acc_mp = (inv.equip_flags & 0x200000u) != 0;   // the Ring of Ease (x0.80)
+        // [not modelled] Adol's DAT_0074c0cc table.
         skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
         const skillmp::SkillOut so = skillmp::skill_tick(si, mp, skill_charge);
         if (so.charged_ready) {                           // the charge-ready effect, attached
@@ -2276,6 +2299,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 std::printf("  [drive] water tri %zu surface %.2f floor below %.2f at (%.2f, %.2f)\n", t, c.y, fl, c.x, c.z);
                 break;
             }
+        } else if (cmd.rfind("move=", 0) == 0) {       // move=dx,dz,n: hold a world direction n ticks
+            float dx = 0, dz = 0; int nn = 0;
+            if (std::sscanf(cmd.c_str() + 5, "%f,%f,%d", &dx, &dz, &nn) == 3) { drive_wish = {dx, 0, dz}; drive_wish_n = nn; }
+        } else if (cmd.rfind("bracelet=", 0) == 0) {   // bracelet=<item id>: the equipped bracelet 0x76a630
+            inv.magic = std::atoi(cmd.c_str() + 9);
         } else if (cmd == "jump") {
             drive_jump = true;
         } else if (cmd == "skill+" || cmd == "skill-") {   // hold / release the skill button
@@ -3450,11 +3478,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (frozen_now) {
             for (EnemyRender& e : render) {
                 if (!e.actor || !e.avm.ok()) continue;
-                if (e.actor->cmoving) e.avm.set_section(0, /*force*/true);
+                if (e.actor->cmoving) { if (e.avm.section() != 0) e.avm.set_section(0, /*force*/true); }
                 else if (e.avm.section() != e.idle_section) e.avm.set_section(e.idle_section, true);
                 e.avm.tick();
             }
-            if (csHost.p_moving) { avm.set_section(0, /*force*/true); avm.tick(); }
+            // [H] the scripted walk keeps playing its section (a forced re-set every frame froze it on
+            // frame 0) and settles to idle on arrival, as the generic mover's table does.
+            if (csHost.p_moving) { if (avm.section() != 0) avm.set_section(0, /*force*/true); avm.tick(); }
+            else if (avm.section() == 0 || avm.section() == 1) { avm.set_section(2, /*force*/true); avm.tick(); }
         }
         // The GoMesh pool updates every live step, a Fix or not (WAITOPS.md §4.7).
         auto step_meshes = [&] {
@@ -3566,6 +3597,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ks[SDL_SCANCODE_S]) { wish.x -= fwd.x; wish.z -= fwd.z; }
             if (ks[SDL_SCANCODE_D]) { wish.x += rt.x; wish.z += rt.z; }
             if (ks[SDL_SCANCODE_A]) { wish.x -= rt.x; wish.z -= rt.z; }
+            if (drive_wish_n > 0) { --drive_wish_n; wish.x += drive_wish.x; wish.z += drive_wish.z; }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
             const bool moving = wl > 1e-4f;
             // The engine's locomotion (physics_player.hpp): a keyboard direction is a full
@@ -3592,14 +3624,69 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const float spd = player_speed(pm, character, 1.0f, avm.movable(), /*running*/ moving,
                                                pv.grounded, skill_sec, blessing_run) * speed_mult;
                 step_planar(pvel, moving, std::atan2(wish.z, wish.x), spd, pv.grounded);
+                // Godspeed: each tick in 0x10d / 0x110 past Marker 1 the C++ drives the dash and
+                // ends the endless ASO loop with SetSection(0x105).
+                if (character == 3 && (sec == 0x10d || sec == 0x110)) {
+                    gs_ramp = std::max(0.0f, gs_ramp - 0.1f);          // +0x4d8 -= 0.1 (collision off)
+                    if (avm.marker() >= 1) {
+                        if (gs_t == 0) {
+                            gs_locked = false;
+                            if (!moving) {                              // the lock-on, stick neutral
+                                float best = 12.0f * 12.0f;
+                                for (const Actor& en : world.actors()) {
+                                    if (en.is_player() || !en.alive() || en.hp < 1.0f) continue;
+                                    const float ex = en.pos.x - feet.x, ez = en.pos.z - feet.z;
+                                    const float d2 = ex * ex + ez * ez;
+                                    if (d2 >= best) continue;
+                                    const Vec3 a{feet.x, feet.y + kOriginH, feet.z};
+                                    const Vec3 b{en.pos.x, en.pos.y + en.height, en.pos.z};
+                                    if (segment_blocked(phys_mesh(room), a, b)) continue;   // line of sight
+                                    best = d2;
+                                    gs_locked = true;
+                                    gs_target = {feet.x + ex * 0.95f, en.pos.y, feet.z + ez * 0.95f};
+                                }
+                                if (gs_locked) {
+                                    const float dx = gs_target.x - feet.x, dz = gs_target.z - feet.z;
+                                    const float l = std::sqrt(dx * dx + dz * dz);
+                                    if (l > 1e-4f) face_dir = {dx / l, 0.0f, dz / l};
+                                }
+                            }
+                        }
+                        const float v = pm.speed_base * 10.0f;            // +0x30c x 10 = 0.56 / tick
+                        const Vec3 want{face_dir.x * v, 0.0f, face_dir.z * v};
+                        if (pv.grounded) { pvel.x = want.x; pvel.z = want.z; }
+                        else { pvel.x += (want.x - pvel.x) * 0.1f; pvel.z += (want.z - pvel.z) * 0.1f; }
+                        ++gs_t;
+                        const bool charged = sec == 0x110;
+                        bool end = false;
+                        if (!gs_locked) end = gs_t > (charged ? 20 : 10);
+                        else {
+                            const float dx = gs_target.x - feet.x, dz = gs_target.z - feet.z;
+                            end = (gs_t > 4 && dx * dx + dz * dz < 4.0f) || gs_t > (charged ? 30 : 15);
+                        }
+                        if (end) {
+                            avm.set_section(0x105, /*force*/true);       // Toal's recovery
+                            gs_t = 0;
+                        }
+                    } else {
+                        gs_t = 0;                                       // the wind-up
+                    }
+                } else if (gs_ramp < 1.0f) {
+                    gs_ramp = std::min(1.0f, gs_ramp + 0.0784f);       // 0x6bd17c, then +0x60 |= 0x80
+                    gs_t = 0;
+                }
                 const SurfaceScale ss = surface_scale(cur_surface, submerged,
                                                       (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 2) != 0,
                                                       /*foot gear 0x76a624 & 0x1000000 [not modelled]*/ false);
                 feet.x += pvel.x * ss.xz; feet.z += pvel.z * ss.xz;
                 surface_up = ss.up;
             }
-            if (moving && avm.turnable())
-                face_dir = {wish.x / wl, 0, wish.z / wl};  // the swing faces where you walk
+            if (moving && avm.turnable()) {
+                // The heading +0x314 turns toward the stick at 0.35 rad/tick running (0.18 walking;
+                // 0x6bd2b0 / 0x6bd1fc, FUN_005eee60). A keyboard press is a full stick: running.
+                const float h = turn_facing(0.35f, std::atan2(face_dir.z, face_dir.x), std::atan2(wish.z, wish.x));
+                face_dir = {std::cos(h), 0, std::sin(h)};
+            }
             {   // Knockback (+0x338/+0x340), spent by the player mover's own law (hit.hpp).
                 const Impulse kd = step_knockback(player_kb, grounded, player.hp < 1, Mover::Player);
                 feet.x += kd.x; feet.z += kd.z; }
@@ -3619,6 +3706,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // airborne), the down-ray from the origin, then landing / coyote / fall with the
             // 0.65 settle lerp. `feet` is derived back for the rest of the view.
             float oy = feet.y + kOriginH;
+            {   // The Ventus glide: Yunica (and Adol), airborne in 0x10d / 0x110 with the timer at or
+                // under 0.05: a falling timer is damped x0.95, then lifted 0.01 (Adol 0.015).
+                const int ss = avm.section();
+                if ((character == 1 || character == 0) && !pv.grounded && (ss == 0x10d || ss == 0x110) &&
+                    pv.t <= 0.05f) {
+                    if (pv.t < 0.0f) pv.t *= 0.95f;
+                    pv.t += character == 0 ? 0.015f : 0.01f;
+                }
+            }
             {   float dy = vertical_dy(pv, submerged, cur_surface == 0x12);
                 if (dy > 0.0f) dy *= surface_up;      // sand2/lava/blood slow a rise too
                 oy += dy; }
@@ -4485,8 +4581,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // Boost drain (FUN_00462c40): the gauge falls ~30/tick on Normal, so a Boost runs
             // ~1000 frames (~16.7 s). At zero the mode clears and the player drops to idle.
             if (player.boosting && !csMgr.world_frozen()) {
-                // [not modelled] DAT_0076bda4 (the 400 Nightmare drain), accessory 0x3b (x0.6).
-                player.boost -= skillmp::boost_drain(difficulty >= 2 ? difficulty - 2 : 0, false, false);
+                // Accessory 0x3b (DAT_0076a628) drains x0.6; flag 290 (DAT_0076bda4) is the 400 drain.
+                player.boost -= skillmp::boost_drain(difficulty >= 2 ? difficulty - 2 : 0,
+                                                     game.g_flags[290] != 0, inv.accessory == 0x3b);
                 if (player.boost <= 0.0f) {
                     player.boost = 0.0f;
                     player.boosting = false;
@@ -4509,7 +4606,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 skill_tick(held, atk);
             }
             {
-                const int slot = skillmp::bracelet_slot(player.magic);
+                const int slot = skillmp::bracelet_slot(inv.magic);
                 skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
                 mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0);
                 player.sp_cur = mp.mp; player.sp_lag = mp.lag;
@@ -4559,6 +4656,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // 130 = 0 (174 stays 0, the scripts' "lost" branch), the boss gauge hidden, HP 1,
             // i-frames 9999. [not modelled] the stat recompute and the motion fields it zeroes.
             // Otherwise [STAND-IN] the game-over / continue flow is not RE'd yet: respawn.
+            // FUN_004fe9e0 L31-34: a hit needs the victim's +0x60 & 0x80 AND its Untouchable byte
+            // (+0x9d7, ASO funcid 28) clear — the player's skill sections set it.
+            const bool p_untouchable = avm.untouchable() || gs_ramp < 1.0f;
             auto player_death = [&] {
                 if (game.g_flags[133] != 0) {
                     game.g_flags[156] = 0; game.g_flags[130] = 0;
@@ -4575,6 +4675,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             };
             if (player.hp < 1) player_death();                // lava / noise / drowning this tick
             auto hurt_player = [&](float atk, float bonus, int rtype, float angle) {
+                if (p_untouchable) return;
                 const int raw = player_incoming_damage(AttackStats{atk, bonus, 0}, pdef,
                     [&](float p) { return float(rng_pct(rng)) < p; });
                 const int dmg = player_damage_after_boost(raw, player.boosting);
@@ -4617,7 +4718,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // volume follows the attacker: re-placed from its origin and visible facing
                 // each tick. P+0x734 (player_iframes) guards; the player's bank keys on the
                 // enemy's spawn serial, so its re-hits are paced only by the timer.
-                if (!en || !en->alive() || player_iframes > 0) continue;
+                if (!en || !en->alive() || player_iframes > 0 || p_untouchable) continue;
                 const HitShape vol = volume_shape(e.hb, {en->pos.x, en->pos.y + en->height, en->pos.z}, e.facing);
                 const Cast* pc = casts.get(13);
                 const HitShape pbody = body_shape({feet.x, feet.y + kOriginH, feet.z},
@@ -4764,7 +4865,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                                   pc ? pc->hurt_radius : 0.45f, pc ? pc->hurt_half_h : 0.5f,
                                                   pc ? pc->hurt_shape : 1, pc ? pc->center_offset : -0.25f);
                 fxsim.step([&](ef2sim::Particle& p) {
-                    if (p.hit.side != 1 || player_iframes > 0 || player.hp < 1) return false;
+                    if (p.hit.side != 1 || player_iframes > 0 || p_untouchable || player.hp < 1) return false;
                     const HitShape vol{p.hit.radius, p.hit.centre, p.hit.half_h, p.hit.half_h > 0.0f ? 1 : 0};
                     float ang = 0;
                     if (!overlap(vol, pbody, &ang)) return false;
@@ -4840,7 +4941,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // (screen-relative -- see heading_to_facing). SEN arrival facing uses the
             // same helper, so a warped-in player faces the same way it would if it had
             // walked in that direction.
-            if (moving) facing = heading_to_facing(wish.x, wish.z, cam.yaw);
+            facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
             // Animation comes from the game's OWN script now. We only choose the
             // ACTION (a section id) and feed the VM what it polls; the script decides
             // the sprite file, the tag, the frame and how long to hold it. That last
@@ -4854,7 +4955,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // While a swing is active, play the attack section (0x100 = the basic
             // attack, present in C_010/020/030) so the sprite actually swings instead of
             // sliding in the walk pose. Otherwise: jump / walk / idle.
-            const std::int32_t want_sec = !grounded ? 3 : (moving ? 0 : 2);
+            // The locomotion table 0x69bd0c = {2, 0, 1, 3}: idle 2, walk 0, run 1, air 3. A keyboard
+            // press is a full stick, so moving is RUNNING (section 1), as the speed already assumes.
+            const std::int32_t want_sec = !grounded ? 3 : (moving ? 1 : 2);
             // Count how long the current animation frame has been held. Active swing
             // frames advance every 1-6 ticks; a recovery hold sits on one frame for
             // 40+, so a stall well past the former marks "the swing is over".
@@ -4883,6 +4986,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 avm.set_section(want_sec, /*force*/true);
             avm.set_is_land(grounded);
             avm.tick();
+            if (avm.dashed()) {                         // anime_Dash (0x447665): channel 1 = (cos, sin)(heading) * d
+                const float h = std::atan2(face_dir.z, face_dir.x);
+                player_kb.x = std::cos(h) * avm.dash_d();
+                player_kb.z = std::sin(h) * avm.dash_d();
+            }
             // Projectile flight. The motion here IS reverse-engineered (speed += accel,
             // gravity applied to the velocity, heading re-derived from it, and the bullet
             // living exactly as long as its effect). The DAMAGE is not: PROJECTILE.md
@@ -4960,7 +5068,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 shownFrame = -1;
             }
             const int nf = int(std::max(1u, chr.frames_of(curAnim)));
-            animFrame = nf ? (avm.frame() % nf) : 0;
+            animFrame = std::max(0, std::min(avm.frame(), nf - 1));   // FUN_00444dc0 clamps
             if (animFrame != shownFrame) { chr.set_anim(g, curAnim, animFrame); shownFrame = animFrame; }
 
             // The room's authored camera (SCM): the last rig step (stepped per tick below).
