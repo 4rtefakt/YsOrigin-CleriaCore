@@ -58,6 +58,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/eventsprites.cpp
   src/cleria/boss01.cpp
   src/cleria/boss02.cpp
+  src/cleria/boss03.cpp
   src/cleria/emotion.cpp
   src/cleria/camrig.cpp
   src/cleria/skillmp.cpp
@@ -113,6 +114,10 @@ target_link_libraries(cleria-bosstest PRIVATE cleria)
 # cleria-boss02test — Nygtilger's brain (src/cleria/boss02) vs build/boss_re/NYGTILGER.md.
 add_executable(cleria-boss02test apps/cleria-boss02test/main.cpp)
 target_link_libraries(cleria-boss02test PRIVATE cleria)
+
+# cleria-boss03test — Gelaldy's brain (src/cleria/boss03) vs build/boss_re/GELALDY.md.
+add_executable(cleria-boss03test apps/cleria-boss03test/main.cpp)
+target_link_libraries(cleria-boss03test PRIVATE cleria)
 
 # cleria-picktest — world item pickups vs build/item_re/PICKUPS.md.
 add_executable(cleria-picktest apps/cleria-picktest/main.cpp)
@@ -211,7 +216,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test camtest skilltest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
