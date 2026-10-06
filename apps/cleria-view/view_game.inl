@@ -678,6 +678,25 @@ title_again:
     std::uint32_t curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
     int animFrame = 0, shownFrame = -1;
     chr.set_anim(g, curAnim, 0);
+    int p_motion_applied = -1;   // the Chr_Animate motion last applied to her ASO (CHR_OPS.md §4)
+    // Pick the player's sprite frame: FUN_00446340 uses the Chr_Pattern pin (+0xa1c/+0xa20) when
+    // set, else the ASO's tag/frame; FUN_00444dc0 clamps the frame. A pinned tag this AIA lacks
+    // falls back to the ASO [H: the engine falls to the AIA's default record].
+    auto show_player_frame = [&](const Actor* wp) {
+        const bool aia_changed = sync_aia();   // an AIA swap re-decodes (see the gameplay call site)
+        int tag = avm.anim_tag(), frame = avm.frame();
+        if (wp && wp->pattern.pinned() && chr.find_tag(std::uint32_t(wp->pattern.tag)) >= 0) {
+            tag = wp->pattern.tag; frame = wp->pattern.frame;
+        }
+        const int wantImg = chr.find_tag(std::uint32_t(tag));
+        if (wantImg >= 0 && (aia_changed || std::uint32_t(wantImg) != curAnim)) {
+            curAnim = std::uint32_t(wantImg);
+            shownFrame = -1;
+        }
+        const int nf = int(std::max(1u, chr.frames_of(curAnim)));
+        animFrame = std::max(0, std::min(frame, nf - 1));   // FUN_00444dc0 clamps
+        if (animFrame != shownFrame) { chr.set_anim(g, curAnim, animFrame); shownFrame = animFrame; }
+    };
 
     auto center = [](const Room& r) -> Vec3 {
         return {(r.mesh.bmin.x + r.mesh.bmax.x) * 0.5f,
@@ -1415,14 +1434,35 @@ title_again:
         float player_speed30c = 0.056f;      // set from CASTINFO[13]+0x48 below
         std::function<float()> movable_fn;   // the player's ASO anime_Movable
         Vec3 p_move_tgt{}; float p_move_spd = 0, p_move_r2 = 0; bool p_moving = false;
+        // The player's Chr state (look block, pattern, tremble, run bit) lives on the world's
+        // player actor, which every Chr op reaches through worldHost (find(13) = player_); the
+        // view turns and draws her from it (CHR_OPS.md §11). Null before CAST_ADOL spawns.
+        std::function<Actor*()> wplayer_fn;
+        Actor* wplayer() const { return wplayer_fn ? wplayer_fn() : nullptr; }
+        // Chr_Pos on the player: FUN_00459ff0 with yaw = +0x308, so +0x314 = +0x360 = +0x308.
+        std::function<void(float)> player_heading_fn;   // snap her facing to an engine heading
         void chr_pos(int id, float x, float y, float z) override {
-            if (p_isplayer(id)) { if (playerPosW) *playerPosW = {x, y, z}; p_moving = false; }
+            if (p_isplayer(id)) {
+                if (playerPosW) *playerPosW = {x, y, z};
+                p_moving = false;
+                if (Actor* wp = wplayer()) {
+                    wp->look.dir = wp->look.cmd;
+                    if (player_heading_fn) player_heading_fn(wp->look.cmd);
+                }
+            }
             else if (worldHost) worldHost->chr_pos(rid(id), x, y, z);
         }
+        // Chr_Dir: +0x308 and look mode 0 on the actor; the turn happens per tick (the world's
+        // tick_facing for NPCs, the view's player facing tick for her). Without a world player
+        // the old instant face is kept.
         void chr_dir(int id, float deg) override {
-            if (p_isplayer(id)) { if (player_face_fn) player_face_fn(deg); }
+            if (p_isplayer(id) && !wplayer()) { if (player_face_fn) player_face_fn(float(int(deg))); }
             else if (worldHost) worldHost->chr_dir(rid(id), deg);
         }
+        // The player's MoveTo speed when +0x12c & 0x20 (Chr_RunOrWalk) arms the run stage +0x4ca:
+        // x +0x410 (CASTINFO+0x4c = 2.2) x the grounded per-character constant (CHR_OPS.md §5,
+        // WAITOPS §6.2(a); physics_player.hpp run_char_const). Set by the view.
+        std::function<float()> player_run_factor_fn;
         void chr_moveto(int id, float x, float z, float radius, float scale) override {
             if (p_isplayer(id)) {
                 p_move_tgt = {x, 0, z};
@@ -1430,6 +1470,25 @@ title_again:
                 const float r = std::max(0.025f, radius);
                 p_move_r2 = r * r; p_moving = true;
             } else if (worldHost) worldHost->chr_moveto(rid(id), x, z, radius, scale);
+        }
+        bool p_running() const {
+            const Actor* wp = wplayer();
+            return p_moving && wp && (wp->flags12c & 0x20u) != 0;
+        }
+        void chr_pattern(int id, int tag, int frame) override { if (worldHost) worldHost->chr_pattern(rid(id), tag, frame); }
+        void chr_run(int id, bool run) override { if (worldHost) worldHost->chr_run(rid(id), run); }
+        void chr_tremble(int id, int ticks, int period, float dx, float dy) override {
+            if (worldHost) worldHost->chr_tremble(rid(id), ticks, period, dx, dy);
+        }
+        void chr_foot_sound(int id, int on) override { if (worldHost) worldHost->chr_foot_sound(rid(id), on); }
+        void chr_fly(int id, bool on) override { if (worldHost) worldHost->chr_fly(rid(id), on); }
+        void chr_flyto(int id, float x, float y, float z, float r, float sc) override {
+            if (worldHost) worldHost->chr_flyto(rid(id), x, y, z, r, sc);
+        }
+        void chr_turn_speed(int id, float m) override { if (worldHost) worldHost->chr_turn_speed(rid(id), m); }
+        void chr_look_dir(int id, float deg) override { if (worldHost) worldHost->chr_look_dir(rid(id), deg); }
+        void chr_dir_chr(int id, int target) override {
+            if (worldHost) worldHost->chr_dir_chr(rid(id), rid(target));
         }
         bool chr_moving(int id) const override {
             if (p_isplayer(id)) return p_moving;
@@ -1475,11 +1534,12 @@ title_again:
         void se_play(int se) override { if (se_fn) se_fn(se); }
         void bgm_volume(int v, int t) override { if (bgm_volume_fn) bgm_volume_fn(v, t); }
         void set_skill(int i) override { if (set_skill_fn) set_skill_fn(i); }
-        // [approx] an instant turn: the engine's look modes turn 0.18 rad/tick and hold until
-        // released (CHR_OPS.md §6); the player turns as an NPC does.
+        // The look modes (CHR_OPS.md §6): the world writes the look block (the player's too, on
+        // the world player actor) and the facing turns per tick. Without a world player the old
+        // instant face is kept.
         void chr_lookat(int id, int target) override {
-            const int t = rid(target);
-            if (p_isplayer(id)) {
+            const int t = target == 0 ? 0 : rid(target);
+            if (p_isplayer(id) && !wplayer()) {
                 Vec3 me{}, to{};
                 if (actor_pos_fn && actor_pos_fn(13, &me) && actor_pos_fn(t, &to) && player_face_fn &&
                     (to.x != me.x || to.z != me.z))
@@ -1487,25 +1547,43 @@ title_again:
             } else if (worldHost) worldHost->chr_lookat(rid(id), t);
         }
         void chr_lookat_pos(int id, float x, float z) override {
-            if (p_isplayer(id)) {
+            if (p_isplayer(id) && !wplayer()) {
                 Vec3 me{};
                 if (actor_pos_fn && actor_pos_fn(13, &me) && player_face_fn && (x != me.x || z != me.z))
                     player_face_fn(std::atan2(x - me.x, z - me.z) * 57.29578f);
             } else if (worldHost) worldHost->chr_lookat_pos(rid(id), x, z);
         }
-        void chr_animate(int id, int motion) override {   // 0x151 pose (NPCs; player poses TODO)
-            if (!p_isplayer(id) && worldHost) worldHost->chr_animate(rid(id), motion);
+        // 0x151 Chr_Animate (FUN_00571000): the ASO motion +0x994 and the pattern pin released,
+        // on NPCs and the player alike (the view's ASO tick plays the motion). [not modelled] the
+        // player's re-bind FUN_00464fc0 (only for the literal id 13).
+        void chr_animate(int id, int motion) override {
+            if (worldHost) worldHost->chr_animate(rid(id), motion);
         }
-        // Advance the player's cutscene walk one frame (NPCs advance in the world).
+        // Advance the player's cutscene walk one frame (NPCs advance in the world). FUN_00465170
+        // 0x465819..0x4658d5: +0x308 = atan2(dz, dx), the step goes along +0x308 and her facing
+        // TURNS toward it in the view's facing tick (0.18, or 0.35 on the run stage); on arrival
+        // +0x308 = +0x314. Without a world player the old instant face is kept.
         Vec3* playerPosW = nullptr; float* playerYawDeg = nullptr;
+        std::function<float()> player_heading_now_fn;   // her current facing, engine heading
         void advance_player_move() {
             if (!p_moving || !playerPosW) return;
+            Actor* wp = wplayer();
             const float dx = p_move_tgt.x - playerPosW->x, dz = p_move_tgt.z - playerPosW->z;
             const float d = std::sqrt(dx * dx + dz * dz);
-            if (dx * dx + dz * dz <= p_move_r2) { p_moving = false; }   // planar arrival test first
-            else { const float st = p_move_spd * (movable_fn ? movable_fn() : 1.0f);
-                   playerPosW->x += dx / d * st; playerPosW->z += dz / d * st;
-                   if (player_face_fn) player_face_fn(std::atan2(dx, dz) * 180.0f / 3.14159265f); }
+            if (dx * dx + dz * dz <= p_move_r2) {                         // planar arrival test first
+                p_moving = false;
+                if (wp && player_heading_now_fn) wp->look.cmd = player_heading_now_fn();
+                return;
+            }
+            float st = p_move_spd * (movable_fn ? movable_fn() : 1.0f);
+            if (p_running() && player_run_factor_fn) st *= player_run_factor_fn();
+            if (wp) {
+                wp->look.cmd = float(std::atan2(double(dz), double(dx)));
+                playerPosW->x += std::cos(wp->look.cmd) * st; playerPosW->z += std::sin(wp->look.cmd) * st;
+            } else {
+                playerPosW->x += dx / d * st; playerPosW->z += dz / d * st;
+                if (player_face_fn) player_face_fn(std::atan2(dx, dz) * 180.0f / 3.14159265f);
+            }
         }
         // Forward the live predicates to the WORLD — a cutscene/controller that spawned
         // actors polls these to gate itself. Returning false made the barrier controller
@@ -1728,6 +1806,30 @@ title_again:
         // Re-snap the player to the floor after the XZ step so a walk-to follows terrain.
         csHost.advance_player_move();
         world.advance_cutscene_moves();
+        // The facing turn (CHR_OPS.md §6): NPCs turn toward their look goal in the world; the AI
+        // loop owns a live actor's facing outside a Fix. The player turns here while a Fix holds
+        // or a scripted walk runs (FUN_00465170 0x46a080..0x46a16f: no +0x36c factor); in free
+        // play the stick owns her facing and +0x308 follows it [H].
+        {
+            const bool fz = csMgr.world_frozen();
+            world.tick_facing([&](const Actor& a) { return !fz && a.alive() && !a.destroy_requested(); });
+            if (Actor* wp = world.player()) {
+                const float cur = std::atan2(face_dir.z, face_dir.x);
+                if (fz || csHost.p_moving) {
+                    float txz[2];
+                    const float* tp = nullptr;
+                    if (wp->look.mode == 1 && wp->look.target != 0)
+                        if (const Actor* t = world.find(wp->look.target)) { txz[0] = t->pos.x; txz[1] = t->pos.z; tp = txz; }
+                    const float goal = look_goal(wp->look, feet.x, feet.z, tp);
+                    const float h = look_turn(cur, goal, player_turn_rate(csHost.p_running()));
+                    if (h != cur) face_dir = {std::cos(h), 0.0f, std::sin(h)};
+                    facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                } else {
+                    wp->look.cmd = cur;
+                    wp->anim_motion = -1;   // [H] in free play her own tick owns the motion (+0x994)
+                }
+            }
+        }
         // Keep the player on the floor for the WHOLE cutscene, not just mid-step: Chr_Pos
         // teleports her to authored Y (sometimes below the floor) and she never falls while
         // the sim is frozen, so snap every frozen frame.
@@ -1741,6 +1843,7 @@ title_again:
         // collision floor is under them, fall back to the player's floor level (same room).
         for (Actor& a : world.actors()) {
             if (a.is_player() || a.is_enemy()) continue;
+            if (a.flyer) continue;   // +0x398 (Chr_FlyOnOff / the factory): no floor clamp (FUN_0045a510)
             const float fl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + room_diag(room));
             a.pos.y = (fl > kNoFloor) ? fl : feet.y;
         }
@@ -2025,6 +2128,18 @@ title_again:
         const float yaw = deg * 3.14159265358979323846f / 180.0f;
         face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
         facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+    };
+    // The player's Chr block lives on the world player actor (CHR_OPS.md §11); her facing is
+    // face_dir, whose engine heading is atan2(z, x) (+0x314).
+    csHost.wplayer_fn = [&]() -> Actor* { return world.player(); };
+    csHost.player_heading_fn = [&](float h) {
+        face_dir = {std::cos(h), 0.0f, std::sin(h)};
+        facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+    };
+    csHost.player_heading_now_fn = [&] { return std::atan2(face_dir.z, face_dir.x); };
+    csHost.player_run_factor_fn = [&] {      // +0x410 x the grounded per-character constant
+        const bool blessing_run = (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 0x2000) != 0;
+        return pm.run_mult * run_char_const(character, blessing_run, shield_life != 0);
     };
     csHost.actor_pos_fn = [&](int id, Vec3* out) {
         if (id == 13 || id == 999) { *out = feet; return true; }
@@ -2348,6 +2463,32 @@ title_again:
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d sp %.0f shield %d/%d/%d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage,
                         player.sp_cur, int(shield_on), shield_hits, shield_life);
+        } else if (cmd.rfind("chr=", 0) == 0) {        // chr=<id>[,<id>..]: an actor's Chr state (CHR_OPS.md)
+            std::string ids = cmd.substr(4);
+            for (std::size_t q0 = 0; q0 <= ids.size();) {
+                std::size_t q1 = ids.find(',', q0);
+                if (q1 == std::string::npos) q1 = ids.size();
+                const int id = std::atoi(ids.substr(q0, q1 - q0).c_str());
+                q0 = q1 + 1;
+                const Actor* a = world.find(id);
+                if (!a) { std::printf("  [chr] %d absent\n", id); continue; }
+                const bool pl = a->is_player();
+                // Facing as the engine heading in degrees (0 = +X): hers from face_dir, an NPC's from yaw.
+                const float h = pl ? std::atan2(face_dir.z, face_dir.x) : heading_of_yaw(a->yaw);
+                int sec = -1, tag = -1, fr = -1;
+                if (pl) { sec = avm.section(); tag = avm.anim_tag(); fr = avm.frame(); }
+                else for (const EnemyRender& e : render)
+                    if (e.actor == a && e.avm.ok()) { sec = e.avm.section(); tag = e.avm.anim_tag(); fr = e.avm.frame(); }
+                std::printf("  [chr] %d face %.1f cmd %.1f mode %d tgt %d dir %.1f mult %.2f run %d pin %d/%d motion %d "
+                            "aso %d/%d/%d tremble %d/%d/%d %.1f,%.1f%s foot %d fly %d%s pos (%.2f, %.2f, %.2f)\n",
+                            id, h * 57.29578f, a->look.cmd * 57.29578f, int(a->look.mode), a->look.target,
+                            a->look.dir * 57.29578f, a->look.mult, int((a->flags12c & 0x20u) != 0),
+                            a->pattern.tag, a->pattern.frame, a->anim_motion, sec, tag, fr,
+                            a->tremble.ticks, a->tremble.period, a->tremble.cnt, a->tremble.dx, a->tremble.dy,
+                            tremble_active(a->tremble) ? " ON" : "", int(a->footsteps), int(a->flyer),
+                            a->fly_r2 != 0.0f ? " flyto" : "",
+                            pl ? feet.x : a->pos.x, pl ? feet.y : a->pos.y, pl ? feet.z : a->pos.z);
+            }
         } else if (cmd.rfind("obj=", 0) == 0) {        // obj=<name>: stand 1.5 from that scene object, facing it
             std::string ln = cmd.substr(4);
             for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
@@ -3602,6 +3743,7 @@ title_again:
         csMgr.vm.g_flags[150] = character;
         const bool frozen_now = tick_events();
         world.tick_alpha_fades();                  // Chr_Alpha (runs under a Fix too, [H])
+        world.tick_tremble();                      // Chr_Tremble (the anim tick's head, 0x447306)
         for (Emotion& em : emotions) {             // FUN_004ffab0 (not frozen by a Fix)
             // [H] the engine never clears a dead owner's pointer; the port drops the bubble.
             if (em.owner != 13 && !world.find(em.owner)) em.dead = true;
@@ -3660,16 +3802,53 @@ title_again:
         // each frozen frame (draw_enemies / the player render read the ASO), and settle back to
         // idle on arrival. Walk clip = ASO section 0 -> AIA tag 0 for these casts.
         if (frozen_now) {
+            // CHR_OPS.md §4/§5: a Chr_Pattern pin stops the actor's ASO (FUN_004472e0 0x44735f returns
+            // before the VM); a Chr_Animate motion (+0x994) is the section played, set once when it
+            // changes; otherwise the locomotion section of the mover's table 0x69ba48 {idle 2, walk
+            // 0, run 1}, run = moving with the RunOrWalk bit (+0x12c & 0x20).
             for (EnemyRender& e : render) {
                 if (!e.actor || !e.avm.ok()) continue;
-                if (e.actor->cmoving) { if (e.avm.section() != 0) e.avm.set_section(0, /*force*/true); }
-                else if (e.avm.section() != e.idle_section) e.avm.set_section(e.idle_section, true);
+                const Actor& A = *e.actor;
+                if (A.pattern.pinned()) continue;
+                if (A.anim_motion >= 0) {
+                    if (e.motion_applied != A.anim_motion) {
+                        e.avm.set_section(A.anim_motion, /*force*/true);
+                        e.motion_applied = A.anim_motion;
+                    }
+                } else {
+                    e.motion_applied = -1;
+                    if (A.cmoving || A.fly_r2 != 0.0f) {
+                        const int want = (A.flags12c & 0x20u) ? 1 : 0;
+                        if (e.avm.section() != want && !e.avm.set_section(want, /*force*/true))
+                            e.avm.set_section(0, /*force*/true);
+                    }
+                    else if (e.avm.section() != e.idle_section) e.avm.set_section(e.idle_section, true);
+                }
                 e.avm.tick();
             }
             // [H] the scripted walk keeps playing its section (a forced re-set every frame froze it on
-            // frame 0) and settles to idle on arrival, as the generic mover's table does.
-            if (csHost.p_moving) { if (avm.section() != 0) avm.set_section(0, /*force*/true); avm.tick(); }
-            else if (avm.section() == 0 || avm.section() == 1) { avm.set_section(2, /*force*/true); avm.tick(); }
+            // frame 0) and settles to idle on arrival, as the generic mover's table does. The run
+            // stage (+0x4ca, a RunOrWalk'd MoveTo) plays the run section 1 [H-high: the table].
+            const Actor* wp = world.player();
+            if (!(wp && wp->pattern.pinned())) {
+                if (wp && wp->anim_motion >= 0) {
+                    if (p_motion_applied != wp->anim_motion) {
+                        avm.set_section(wp->anim_motion, /*force*/true);
+                        p_motion_applied = wp->anim_motion;
+                    }
+                    avm.tick();
+                } else if (csHost.p_moving) {
+                    p_motion_applied = -1;
+                    const int want = csHost.p_running() ? 1 : 0;
+                    if (avm.section() != want) avm.set_section(want, /*force*/true);
+                    avm.tick();
+                } else if (avm.section() == 0 || avm.section() == 1 || p_motion_applied >= 0) {
+                    p_motion_applied = -1;
+                    avm.set_section(2, /*force*/true); avm.tick();
+                }
+            }
+            // Her sprite under a Fix: the pinned pattern, else what the ASO shows.
+            show_player_frame(wp);
         }
         // The GoMesh pool updates every live step, a Fix or not (WAITOPS.md §4.7).
         auto step_meshes = [&] {
@@ -5287,7 +5466,9 @@ title_again:
             // SECTION ID, so our VM supplies it directly. Note the cadence is
             // deliberately NOT animation-synced: 20 ticks/step against C_010's
             // 48-tick walk cycle, so steps drift against footplants by design.
-            if (step_timer > 0) {
+            // `enable` is +0x4be, Chr_FootSound's byte (FUN_00571320; class 2 defaults to 1).
+            if (const Actor* fs_wp = world.player(); fs_wp && !fs_wp->footsteps) {
+            } else if (step_timer > 0) {
                 --step_timer;
             } else if (grounded && (avm.section() == 0 || avm.section() == 1)) {
                 const bool is_running = avm.section() == 1;
@@ -5447,16 +5628,7 @@ title_again:
             // swaps C_111 -> C_114). When it does, the image INDEX for a tag can differ
             // between the old and new AIA, so force a re-decode -- otherwise the sprite
             // keeps a stale/mismatched frame and renders half-missing after a swing.
-            const bool aia_changed = sync_aia();
-
-            const int wantImg = chr.find_tag(std::uint32_t(avm.anim_tag()));
-            if (wantImg >= 0 && (aia_changed || std::uint32_t(wantImg) != curAnim)) {
-                curAnim = std::uint32_t(wantImg);
-                shownFrame = -1;
-            }
-            const int nf = int(std::max(1u, chr.frames_of(curAnim)));
-            animFrame = std::max(0, std::min(avm.frame(), nf - 1));   // FUN_00444dc0 clamps
-            if (animFrame != shownFrame) { chr.set_anim(g, curAnim, animFrame); shownFrame = animFrame; }
+            show_player_frame(world.player());
 
             // The room's authored camera (SCM): the last rig step (stepped per tick below).
             if (g_cam.on) apply_cam_state(cam, feet);
@@ -5561,7 +5733,9 @@ title_again:
             const float palpha = wpl ? wpl->ai.alpha : 1.0f;   // Chr_Alpha(13, ...) (+0x4d8)
             if (palpha > 0.0f)
                 draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos,
-                               0.0f, 1.0f, 1.0f, 1.0f, false, palpha);
+                               0.0f, 1.0f, 1.0f, 1.0f, false, palpha,
+                               wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,   // Chr_Tremble(13)
+                               wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f);
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());

@@ -62,6 +62,17 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
     a->pos = r.pos;
     a->spawn_y = r.pos.y;          // +0x31c (FUN_00459ff0 0x45a012)
     a->yaw = r.yaw_degrees * 3.14159265358979323846f / 180.0f;
+    // The Chr state the factory rebuilds even on a reused id (FUN_00459410 runs on every spawn):
+    // +0x36c = 1.0 (0x4596d6), no pin/motion/tremble/FlyTo, look mode 0; FUN_00459ff0 then sets
+    // +0x308 = +0x314 = +0x360 = the spawn yaw. Footsteps +0x4be: class 2 (the player) 1, cast
+    // 0x7e forced 1, every other class 0 (CHR_OPS.md §3; class 4 [H-high]: zeroed allocation).
+    a->look = LookState{};
+    a->look.cmd = a->look.dir = heading_of_yaw(a->yaw);
+    a->pattern = PatternPin{};
+    a->anim_motion = -1;
+    a->tremble = Tremble{};
+    a->fly_r2 = 0.0f;
+    a->footsteps = c->actor_class == 2 || c->cast_id == 0x7e;
     a->flyer = c->lift > 0.0f;     // +0x398 (FUN_00459410 0x45960f); EI+0xb0 below
     a->hurt_radius = c->hurt_radius; a->hurt_half_h = c->hurt_half_h;
     a->hurt_shape = c->hurt_shape; a->hurt_off = c->center_offset;

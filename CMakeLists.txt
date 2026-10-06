@@ -121,6 +121,10 @@ target_link_libraries(cleria-boss02test PRIVATE cleria)
 add_executable(cleria-boss03test apps/cleria-boss03test/main.cpp)
 target_link_libraries(cleria-boss03test PRIVATE cleria)
 
+# cleria-chrtest — the cutscene actor ops (build/event_re/CHR_OPS.md): facing, pattern, tremble, fly.
+add_executable(cleria-chrtest apps/cleria-chrtest/main.cpp)
+target_link_libraries(cleria-chrtest PRIVATE cleria)
+
 # cleria-actiontest — the player's action input (src/cleria/player_actions).
 add_executable(cleria-actiontest apps/cleria-actiontest/main.cpp)
 target_link_libraries(cleria-actiontest PRIVATE cleria)
@@ -226,7 +230,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

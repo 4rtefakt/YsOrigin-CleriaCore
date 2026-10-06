@@ -98,7 +98,8 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                            const Vec3& feet, float worldH, const SpriteTex& spr,
                            const Vec3& camForward, const Vec3& camPos, float flash = 0.0f,
                            float tr = 1.0f, float tg = 1.0f, float tb = 1.0f,
-                           bool additive = false, float opacity = 1.0f) {
+                           bool additive = false, float opacity = 1.0f,
+                           float px_dx = 0.0f, float px_dy = 0.0f) {
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
@@ -140,6 +141,13 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // and span feet.y .. feet.y+worldH, keeping the old aspect-preserving behaviour.
         const float Wc = worldH * (float(spr.w) / float(spr.h));
         lX = -Wc * 0.5f; rX = Wc * 0.5f; tY = worldH; bY = 0.0f;
+    }
+    // Chr_Tremble's offset (FUN_00446340 0x4463ca..0x446419): (dx, dy) AIA pixels added to the
+    // quad origin before the pixel scale, x right, y onto the top edge (up). Same canvas-pixel
+    // scale as the sprite itself (kSpriteScale here; the engine's AIA scale x 0.03125).
+    if (px_dx != 0.0f || px_dy != 0.0f) {
+        constexpr float kPx = 2.0f / 76.0f;
+        lX += px_dx * kPx; rX += px_dx * kPx; tY += px_dy * kPx; bY += px_dy * kPx;
     }
     // Vertex-colour alpha carries the hit-flash amount (fs_char lerps to white by it); RGB is
     // a per-quad modulate (tc.rgb * color.rgb) — white = as-is, a red tint marks event seeds.

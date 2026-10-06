@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <string>
 
+#include "cleria/chr_state.hpp"
 #include "cleria/combat.hpp"  // owns kActorDead and the damage path
 #include "cleria/enemy_ai.hpp"
 #include "cleria/enemy_mover.hpp"
@@ -193,10 +194,23 @@ struct Actor {
     float cmove_r2 = 0;          // the squared arrival radius (+0x364)
     bool cmoving = false;
 
-    // Cutscene pose (op 0x151 Chr_Animate(id, motion)): motion >= 0 pins the rendered AIA
-    // tag to that value (a dialogue gesture, e.g. Eolia's tag-400 talking pose); -1 = auto
-    // (idle/walk by state). The renderer uses this tag instead of the ASO's when >= 0.
-    int anim_pin = -1;
+    // Op 0x151 Chr_Animate(id, motion) (FUN_00571000): +0x994 = motion, the ASO SECTION to play
+    // (a dialogue gesture: C_250/C_280 carry section 400, C_270 319); -1 = +0x994 = +0x998, back
+    // to the mover's locomotion section. It also clears the Chr_Pattern pin. CHR_OPS.md §4.
+    int anim_motion = -1;
+    // Op 0x152 Chr_Pattern (FUN_005712e0, CHR_OPS.md §4): the pinned AIA tag/frame; freezes the ASO.
+    PatternPin pattern;
+    // The look block +0x308/+0x39a/+0x370/+0x350/+0x354/+0x360/+0x36c (ops 0x132..0x138, §6).
+    // look.cmd is +0x308 and `yaw` is +0x314 (in the CleriaCore basis; chr_state.hpp).
+    LookState look;
+    // Op 0x162 Chr_Tremble (FUN_00571ce0, §7): the body sprite's square-wave jitter.
+    Tremble tremble;
+    // Op 0x159 Chr_FootSound (FUN_00571320): +0x4be. Factory: class 2 (the player) 1, else 0 (§3).
+    bool footsteps = false;
+    // Op 0x144 Chr_FlyTo's block (FUN_00570b30): the 3D target ORIGIN (+0x374..+0x37c), the
+    // squared arrival radius +0x380 (0 = none) and the speed scale +0x368 (§8).
+    Vec3 fly_tgt{};
+    float fly_r2 = 0.0f, fly_spd = 0.0f;
 
     // Op 0x130 Chr_AttachScript (FUN_00570770): the talk script +0x630 the action probe starts
     // (FUN_00460470, build/event_re/BARRIER_OBJECTS.md §1b). Empty = not a probe candidate.

@@ -129,11 +129,34 @@ class ActorWorld : public XsoHost {
     // Cutscene actor control (ops 0x140/0x143/0x133/0x100). The player (id 13/999) is
     // NOT a world actor in the view — the host special-cases it — so these act on
     // spawned NPCs only; an absent id is a no-op.
-    void chr_pos(int id, float x, float y, float z) override {          // 0x140 teleport
-        if (Actor* a = find(id)) { a->pos = {x, y, z}; a->cmoving = false; }
+    // 0x140 Chr_Pos (FUN_00570a40 -> FUN_00459ff0 with xmm2 = +0x308): the placement also
+    // snaps the facing, +0x314 = +0x360 = +0x308 (the COMMANDED heading), mode untouched.
+    void chr_pos(int id, float x, float y, float z) override {
+        if (Actor* a = find(id)) {
+            a->pos = {x, y, z}; a->cmoving = false;
+            a->yaw = yaw_of_heading(a->look.cmd);
+            a->look.dir = a->look.cmd;
+        }
     }
-    void chr_dir(int id, float deg) override {                          // 0x133 facing (degrees)
-        if (Actor* a = find(id)) a->yaw = deg * 3.14159265358979323846f / 180.0f;
+    // 0x133 Chr_Dir (FUN_005708c0): +0x308 = FUN_00443a80((int)deg), look mode 0. The facing
+    // TURNS there in the actor tick (tick_facing), it does not snap (CHR_OPS.md §6).
+    void chr_dir(int id, float deg) override {
+        if (Actor* a = find(id)) look_dir_cmd(a->look, falcom_heading(int(deg), rng));
+    }
+    // 0x134 Chr_DirChr (FUN_00570960): +0x308 = atan2(target - self) once, look mode 0.
+    void chr_dir_chr(int id, int target) override {
+        Actor* a = find(id); Actor* t = find(target);
+        if (a && t)
+            look_dir_cmd(a->look, float(std::atan2(double(t->pos.z) - double(a->pos.z),
+                                                   double(t->pos.x) - double(a->pos.x))));
+    }
+    // 0x138 Chr_LookAtDir (FUN_00570870): look mode 3 on FUN_00443a80((int)deg), +0x370 = 0.
+    void chr_look_dir(int id, float deg) override {
+        if (Actor* a = find(id)) look_fixed_dir(a->look, falcom_heading(int(deg), rng));
+    }
+    // 0x132 Chr_TurnSpeed (FUN_005714d0): +0x36c = mult. The player's turn never reads it.
+    void chr_turn_speed(int id, float mult) override {
+        if (Actor* a = find(id)) a->look.mult = mult;
     }
     // 0x143 walk-to (FUN_00570ad0): until within max(0.025, radius), at +0x30c (CASTINFO+0x48,
     // 0.035 for most casts) x speed_scale x Movable per step (FUN_0045f4d0; WAITOPS.md §6.2).
@@ -147,8 +170,9 @@ class ActorWorld : public XsoHost {
             a->cmoving = true;
         }
     }
-    bool chr_moving(int id) const override {                            // 0x100 Wait_ChrMoving
-        for (const Actor& a : actors_) if (a.instance_id == id) return a.cmoving;
+    // 0x100 Wait_ChrMoving (FUN_00570bc0): +0x364 != 0 || +0x380 != 0 (a MoveTo or a FlyTo).
+    bool chr_moving(int id) const override {
+        for (const Actor& a : actors_) if (a.instance_id == id) return a.cmoving || a.fly_r2 != 0.0f;
         return false;
     }
     void chr_alpha(int id, float start, float end, int frames) override {   // 0x154 (FUN_005715d0)
@@ -185,6 +209,37 @@ class ActorWorld : public XsoHost {
     void chr_jump(int id, float v) override {                           // 0x141 (FUN_005709d0)
         if (Actor* a = find(id)) { a->vert.t = v; a->pos.y += v; a->vert.grounded = false; }
     }
+    // 0x152 Chr_Pattern (FUN_005712e0): the sprite pin (+0xa1c/+0xa20). CHR_OPS.md §4.
+    void chr_pattern(int id, int tag, int frame) override {
+        if (Actor* a = find(id)) { a->pattern.tag = tag; a->pattern.frame = frame; }
+    }
+    // 0x145 Chr_RunOrWalk (FUN_00570fb0): +0x12c bit 0x20 = run. CHR_OPS.md §5.
+    void chr_run(int id, bool run) override {
+        if (Actor* a = find(id)) a->flags12c = (a->flags12c & ~0x20u) | (run ? 0x20u : 0u);
+    }
+    // 0x162 Chr_Tremble (FUN_00571ce0). CHR_OPS.md §7.
+    void chr_tremble(int id, int ticks, int period, float dx, float dy) override {
+        if (Actor* a = find(id)) tremble_set(a->tremble, ticks, period, dx, dy);
+    }
+    // 0x159 Chr_FootSound (FUN_00571320): +0x4be = on & 1.
+    void chr_foot_sound(int id, int on) override {
+        if (Actor* a = find(id)) a->footsteps = (on & 1) != 0;
+    }
+    // 0x15d Chr_FlyOnOff (FUN_00571bc0, stub setne): +0x398 = (on != 0).
+    void chr_fly(int id, bool on) override {
+        if (Actor* a = find(id)) a->flyer = on;
+    }
+    // 0x144 Chr_FlyTo (FUN_00570b30): the 3D move block. The script y is a FEET height; the
+    // engine stores the ORIGIN (y + lift +0x414 + height +0x324). CleriaCore's pos is the feet
+    // and lift is not modelled per actor, so the target is kept in feet space [H: lift = 0].
+    void chr_flyto(int id, float x, float y, float z, float radius, float scale) override {
+        if (Actor* a = find(id)) {
+            a->fly_tgt = {x, y, z};
+            const float r = std::max(0.025f, radius);   // 0x6bd0f8 = 0.025
+            a->fly_r2 = r * r;
+            a->fly_spd = scale;
+        }
+    }
     void chr_attach_script(int id, const std::string& s) override {    // 0x130
         if (Actor* a = find(id)) a->talk_script = s;
     }
@@ -198,32 +253,92 @@ class ActorWorld : public XsoHost {
             for (int k = 0; k < 4; ++k) a->resist[k] = f[5 + k];
         }
     }
-    // Facing control (ops 0x134 Chr_DirChr / 0x136 Chr_LookAtChr): actor `id` turns to
-    // face actor `target`. 0x137 Chr_LookAtPos faces a world point. Player (13/999)
-    // resolves through the synced player_ actor. Billboard sprites use yaw for the
-    // 8-direction ring, so this rotates the on-screen sprite toward the target.
+    // Facing control (CHR_OPS.md §6). 0x136 Chr_LookAtChr (FUN_005707b0): target 0 releases
+    // (mode 0, +0x370 = 0); otherwise mode 1 tracking the target, unchanged if it is not found.
+    // 0x137 Chr_LookAtPos (FUN_00570820): mode 2 on the point. The turn is tick_facing's.
+    // The player (13/999) resolves to the synced player_ actor; the view turns her.
     void chr_lookat(int id, int target) override {
-        Actor* a = find(id); Actor* t = find(target);
-        if (a && t) a->yaw = std::atan2(t->pos.x - a->pos.x, t->pos.z - a->pos.z);
+        if (Actor* a = find(id)) look_at_actor(a->look, target, target == 0 || find(target) != nullptr);
     }
     void chr_lookat_pos(int id, float x, float z) override {
-        if (Actor* a = find(id)) a->yaw = std::atan2(x - a->pos.x, z - a->pos.z);
+        if (Actor* a = find(id)) look_at_point(a->look, x, z);
     }
-    void chr_animate(int id, int motion) override {   // 0x151 pin/clear the pose tag
-        if (Actor* a = find(id)) a->anim_pin = motion;
+    // 0x151 Chr_Animate (FUN_00571000): the ASO motion +0x994 (-1 = back to the locomotion
+    // motion) and the pattern pin released (+0xa1c = -1, +0xa20 = 0). The view's ASO tick plays
+    // the section. [not modelled] +0x9a0/+0x9a4..+0x9ac/+0x9bc..+0x97c, the player's re-bind.
+    void chr_animate(int id, int motion) override {
+        if (Actor* a = find(id)) { a->anim_motion = motion; a->pattern = PatternPin{}; }
     }
     // Advance every cutscene walk-to one frame (called each tick, incl. while frozen —
-    // NPCs move during a Fix). Turns toward the target and steps; stops within reach.
+    // NPCs move during a Fix). The mover (FUN_0045f4d0 0x45f607..0x45f6b4): +0x308 = the
+    // heading to the target and the step goes along +0x308; the FACING (+0x314) turns toward it
+    // at the turn rate in tick_facing, so a walker turns into its path instead of snapping. On
+    // arrival +0x308 = +0x314 (it stops turning where it is).
     void advance_cutscene_moves() {
         for (Actor& a : actors_) {
+            if (a.is_player()) continue;   // the view walks the player (CutsceneHost)
+            if (a.fly_r2 != 0.0f) { advance_fly(a); continue; }
             if (!a.cmoving) continue;
             const float dx = a.cmove_tgt.x - a.pos.x, dz = a.cmove_tgt.z - a.pos.z;
-            const float d = std::sqrt(dx * dx + dz * dz);
             // The planar arrival test runs before the step; the step is the full speed (no
             // clamp; the engine can overshoot by less than one step).
-            if (dx * dx + dz * dz <= a.cmove_r2) { a.cmoving = false; continue; }
-            a.pos.x += dx / d * a.cmove_spd; a.pos.z += dz / d * a.cmove_spd; a.yaw = std::atan2(dx, dz);
+            if (dx * dx + dz * dz <= a.cmove_r2) {
+                a.cmoving = false;
+                a.look.cmd = heading_of_yaw(a.yaw);
+                continue;
+            }
+            a.look.cmd = float(std::atan2(double(dz), double(dx)));
+            a.pos.x += std::cos(a.look.cmd) * a.cmove_spd; a.pos.z += std::sin(a.look.cmd) * a.cmove_spd;
         }
+    }
+    // The FlyTo branch of the mover (0x45f6d3..0x45f80b) [BYTES]: a 3D arrival test against
+    // +0x380 (then +0x308 = +0x314, +0x380 = 0); else +0x308 = atan2(dz, dx) (+0x314 when
+    // dxz == 0), pitch = atan2(dy, |dxz|), speed v = +0x30c x scale (x Movable [not modelled]: 1),
+    // horizontal v cos(pitch) along +0x308 and, for a flyer, vertical v sin(pitch). A non-flyer
+    // keeps only the horizontal part (the view's floor snap holds it down).
+    // [not modelled] the 10%/tick decay and the integrator: the vertical step is applied direct.
+    void advance_fly(Actor& a) {
+        const float dx = a.fly_tgt.x - a.pos.x, dy = a.fly_tgt.y - a.pos.y, dz = a.fly_tgt.z - a.pos.z;
+        if (dx * dx + dy * dy + dz * dz <= a.fly_r2) {
+            a.look.cmd = heading_of_yaw(a.yaw);
+            a.fly_r2 = 0.0f;
+            return;
+        }
+        const float dxz = std::sqrt(dx * dx + dz * dz);
+        a.look.cmd = dxz == 0.0f ? heading_of_yaw(a.yaw) : float(std::atan2(double(dz), double(dx)));
+        const float pitch = float(std::atan2(double(dy), double(dxz)));
+        const float v = a.speed30c * a.fly_spd;
+        const float h = v * std::cos(pitch);
+        a.pos.x += std::cos(a.look.cmd) * h; a.pos.z += std::sin(a.look.cmd) * h;
+        if (a.flyer) a.pos.y += v * std::sin(pitch);
+    }
+    // The facing turn of the NPC mover (0x46002f..0x46011a), once per tick for every actor but
+    // the player. `ai_live(a)` names the actors whose facing the enemy brain owns this tick
+    // (the view's AI loop writes their yaw); for those +0x308 follows the facing so a later
+    // Fix does not turn them back to a stale command [H].
+    template <class AiLive>
+    void tick_facing(AiLive ai_live) {
+        for (Actor& a : actors_) {
+            if (a.is_player()) continue;
+            if (ai_live(a)) { a.look.cmd = heading_of_yaw(a.yaw); continue; }
+            float txz[2];
+            const float* tp = nullptr;
+            if (a.look.mode == 1 && a.look.target != 0)
+                if (const Actor* t = find(a.look.target)) { txz[0] = t->pos.x; txz[1] = t->pos.z; tp = txz; }
+            const float goal = look_goal(a.look, a.pos.x, a.pos.z, tp);
+            // Running = moving with the walk bit clear: +0x510 & 0x20 is re-set every tick and
+            // cleared again only while a MoveTo/FlyTo runs with +0x12c & 0x20 (0x45f6c3/0x45f812).
+            const bool moving = a.cmoving || a.fly_r2 != 0.0f;
+            const bool running = moving && (a.flags12c & 0x20u) != 0;
+            const float cur = heading_of_yaw(a.yaw);
+            const float h = look_turn(cur, goal, npc_turn_rate(a.look, running));
+            if (h != cur) a.yaw = yaw_of_heading(h);
+        }
+    }
+    // The anim tick's head for every actor (FUN_004472e0 0x447306..0x447344): the tremble
+    // timers, which run under a Chr_Pattern pin and under a Fix.
+    void tick_tremble() {
+        for (Actor& a : actors_) tremble_step(a.tremble);
     }
 
     // op 0x12d Chr_Delete(id): remove the actor with this instance id (never the

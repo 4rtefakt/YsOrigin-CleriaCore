@@ -648,8 +648,28 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // Chr_Animate(id, motion): pin the actor's rendered AIA tag to `motion`
                         // (a dialogue pose) when >= 0; -1 clears back to auto idle/walk.
                         host->chr_animate(op(0), op(1));
-                    } else if ((sub == 0x134 || sub == 0x136) && host && nargs >= 2) {
-                        host->chr_lookat(op(0), op(1));   // Chr_DirChr / Chr_LookAtChr
+                    } else if (sub == 0x136 && host && nargs >= 2) {
+                        host->chr_lookat(op(0), op(1));   // Chr_LookAtChr (FUN_005707b0): mode 1 / release
+                    } else if (sub == 0x134 && host && nargs >= 2) {
+                        host->chr_dir_chr(op(0), op(1));  // Chr_DirChr (FUN_00570960): +0x308 once, mode 0
+                    } else if (sub == 0x138 && host && nargs >= 2) {
+                        host->chr_look_dir(op(0), opf(1));   // Chr_LookAtDir (FUN_00570870), deg in XMM2
+                    } else if (sub == 0x132 && host && nargs >= 2) {
+                        host->chr_turn_speed(op(0), opf(1)); // Chr_TurnSpeed (FUN_005714d0), mult in XMM2
+                    } else if (sub == 0x152 && host && nargs >= 3) {
+                        host->chr_pattern(op(0), op(1), op(2));   // Chr_Pattern (FUN_005712e0)
+                    } else if (sub == 0x145 && host && nargs >= 2) {
+                        host->chr_run(op(0), op(1) != 0);         // Chr_RunOrWalk (FUN_00570fb0)
+                    } else if (sub == 0x162 && host && nargs >= 5) {
+                        // Chr_Tremble(id, ticks, period, dx, dy) (FUN_00571ce0) [iiiff]
+                        host->chr_tremble(op(0), op(1), op(2), opf(3), opf(4));
+                    } else if (sub == 0x159 && host && nargs >= 2) {
+                        host->chr_foot_sound(op(0), op(1));       // Chr_FootSound (FUN_00571320): on & 1
+                    } else if (sub == 0x15d && host && nargs >= 2) {
+                        host->chr_fly(op(0), op(1) != 0);         // Chr_FlyOnOff (FUN_00571bc0): setne
+                    } else if (sub == 0x144 && host && nargs >= 6) {
+                        // Chr_FlyTo(id, x, y, z, radius, scale) (FUN_00570b30) [ifffff]
+                        host->chr_flyto(op(0), opf(1), opf(2), opf(3), opf(4), opf(5));
                     } else if (sub == 0x137 && host && nargs >= 3) {
                         auto f = [&](std::uint32_t i) { return opf(i); };
                         host->chr_lookat_pos(op(0), f(1), f(2));   // Chr_LookAtPos (id,x,z)

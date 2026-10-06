@@ -98,9 +98,20 @@ struct XsoHost {
     virtual void chr_moveto(int /*id*/, float /*x*/, float /*z*/, float /*radius*/, float /*speed_scale*/) {}
     virtual bool chr_moving(int /*id*/) const { return false; }                  // 0x100 Wait_ChrMoving
     virtual void chr_alpha(int /*id*/, float /*start*/, float /*end*/, int /*frames*/) {}   // 0x154 Chr_Alpha
-    virtual void chr_lookat(int /*id*/, int /*target*/) {}                        // 0x134/0x136 face actor
-    virtual void chr_lookat_pos(int /*id*/, float /*x*/, float /*z*/) {}          // 0x137 face point
-    virtual void chr_animate(int /*id*/, int /*motion*/) {}                        // 0x151 pin/clear pose
+    // The facing model (build/event_re/CHR_OPS.md §6): the ops write the look block, the actor
+    // tick turns toward it at the turn rate.
+    virtual void chr_lookat(int /*id*/, int /*target*/) {}                        // 0x136 track actor (0 = release)
+    virtual void chr_dir_chr(int /*id*/, int /*target*/) {}                       // 0x134 one-shot face actor
+    virtual void chr_lookat_pos(int /*id*/, float /*x*/, float /*z*/) {}          // 0x137 track point
+    virtual void chr_look_dir(int /*id*/, float /*deg*/) {}                        // 0x138 fixed direction
+    virtual void chr_turn_speed(int /*id*/, float /*mult*/) {}                     // 0x132 turn-rate factor
+    virtual void chr_animate(int /*id*/, int /*motion*/) {}                        // 0x151 ASO motion; clears 0x152
+    virtual void chr_pattern(int /*id*/, int /*tag*/, int /*frame*/) {}            // 0x152 sprite pin (§4)
+    virtual void chr_run(int /*id*/, bool /*run*/) {}                              // 0x145 RunOrWalk (§5)
+    virtual void chr_tremble(int /*id*/, int /*ticks*/, int /*period*/, float /*dx*/, float /*dy*/) {}   // 0x162 (§7)
+    virtual void chr_foot_sound(int /*id*/, int /*on*/) {}                         // 0x159 (§3)
+    virtual void chr_fly(int /*id*/, bool /*on*/) {}                               // 0x15d FlyOnOff (§8)
+    virtual void chr_flyto(int /*id*/, float /*x*/, float /*y*/, float /*z*/, float /*radius*/, float /*scale*/) {}   // 0x144
     // Standing bust portraits (0xe3 Portrait_Open / 0xe4 Portrait_Close / 0xe5 Portrait_Move):
     // a GoXx type-6 sprite loaded from IMAGE/<name>.dds, positioned in the 2D overlay. `name`
     // is the DDS stem (e.g. "t_840a", "v_003a"); (x,y) is the authored 2D anchor.

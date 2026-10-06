@@ -187,6 +187,7 @@ struct EnemyRender {
     EnemyAiParams aip;
     float facing = 0;       // +0x314, the visible facing, ENGINE basis (cos, sin)
     int loco = -1;          // last locomotion section requested (table 0x69ba48)
+    int motion_applied = -1;  // the Chr_Animate motion (+0x994) last set on avm (CHR_OPS.md §4)
     bool hit = false;       // landed hit this tick (+0x3bc & 4), read by the next AI tick
     bool dmg_hit = false;   // ...and it did >= 1 damage (+0x3bc & 2)
     float origin_h = 1.075f;  // +0x324: this cast's origin height above its floor
@@ -323,13 +324,16 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         int dir = sprite_dir_of(e.actor->yaw, camFwd);
         const std::vector<SpriteTex>* frames = nullptr;
         int fi = 0;
-        if (e.actor->anim_pin >= 0) {
-            // Chr_Animate(id, motion>=0): a pinned dialogue pose overrides the ASO — render
-            // the pinned AIA tag, held on frame 0. Falls through to the ASO if that tag is
-            // absent, so a bad pin never blanks the actor.
+        if (e.actor->pattern.pinned()) {
+            // Chr_Pattern(id, tag, frame) (FUN_005712e0 -> FUN_00446340 0x446365): the pinned AIA
+            // tag and frame override the ASO's; FUN_00444dc0 clamps the frame. A tag this AIA
+            // lacks falls through to the ASO [H: the engine uses the AIA's default record].
             const std::vector<SpriteTex>& fr =
-                fx.tag_frames(g, k, std::uint32_t(e.actor->anim_pin), std::uint32_t(dir));
-            if (!fr.empty()) frames = &fr;
+                fx.tag_frames(g, k, std::uint32_t(e.actor->pattern.tag), std::uint32_t(dir));
+            if (!fr.empty()) {
+                frames = &fr;
+                fi = std::max(0, std::min(e.actor->pattern.frame, int(fr.size()) - 1));
+            }
         }
         if (!frames && e.avm.ok()) {
             // ASO-driven: the running section's anime_Pattern picks the clip (tag) and the
@@ -357,7 +361,9 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         const std::uint32_t tc = e.actor->tint;
         draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos, flash,
                        float((tc >> 16) & 0xff) / 255.0f, float((tc >> 8) & 0xff) / 255.0f,
-                       float(tc & 0xff) / 255.0f, false, e.actor->ai.alpha * e.actor->tint_alpha);
+                       float(tc & 0xff) / 255.0f, false, e.actor->ai.alpha * e.actor->tint_alpha,
+                       tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,     // Chr_Tremble
+                       tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f);
         // Event-bound (group-1..4) enemies GLOW their marker colour (FUN_00473c60 [BYTES 0x473ec8..f87],
         // BARRIER_OBJECTS.md §1a): A = marker alpha * |sin(2 pi phase / 255)|, no floor, the phase
         // stepped in the actor tick (so it holds still under a Fix). [H] the composition: the

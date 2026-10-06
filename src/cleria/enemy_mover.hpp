@@ -53,6 +53,9 @@ inline int mover_pre(MoverState& m, int mode, bool grounded, bool own_jump, bool
 inline float turn_facing(float rate, float cur, float tgt) {
     constexpr float kPi = 3.14159265f, k2Pi = 6.2831853f;
     auto wrap = [&](float x) {                     // FUN_00444660: into [-pi, pi)
+        // Only an angle outside [-pi, pi) is wrapped (0x5eee77..0x5eeebd): an in-range one is
+        // used bit-exact, so a turn that reaches its goal returns the goal itself.
+        if (x < kPi && !(-kPi > x)) return x;
         float r = std::fmod(x + kPi, k2Pi);
         if (r < 0) r += k2Pi;
         return r - kPi;
