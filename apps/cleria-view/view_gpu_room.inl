@@ -523,7 +523,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     // SEN sidecar sits beside the SOB (same stem).
     fs::path sen = sob; sen.replace_extension(".SEN");
     if (fs::exists(sen)) {
-        std::ifstream f(sen, std::ios::binary);
+        std::ifstream f(vfs::resolve(sen), std::ios::binary);
         std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
                                     std::istreambuf_iterator<char>()};
         r.sen = Sen::parse(b);

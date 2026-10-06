@@ -1,4 +1,5 @@
 #include "cleria/scenelist.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <cstring>
 #include <fstream>
@@ -34,7 +35,7 @@ std::string leaf(const std::string& path) {
 }  // namespace
 
 bool SceneList::load(const fs::path& asset_root) {
-    std::ifstream f(asset_root / "MAP" / "SCENELIST.SL", std::ios::binary);
+    std::ifstream f(vfs::resolve(asset_root / "MAP" / "SCENELIST.SL"), std::ios::binary);
     if (!f) return false;
     const std::string blob((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     if (blob.size() < kHeader) return false;

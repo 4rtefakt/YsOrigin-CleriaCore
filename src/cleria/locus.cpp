@@ -1,5 +1,6 @@
 // GoLocusSword — see locus.hpp and build/ability_re/LOCUS.md.
 #include "cleria/locus.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <cmath>
 #include <cstring>
@@ -49,7 +50,7 @@ Sl2 Sl2::parse(const std::vector<std::uint8_t>& b) {
 bool Sl2Set::load(const std::filesystem::path& asset_root) {
     bool all = true;
     for (int i = 0; i < 6; ++i) {
-        std::ifstream f(asset_root / "EFFECT" / ("SWORD" + std::to_string(i) + ".SL2"), std::ios::binary);
+        std::ifstream f(vfs::resolve(asset_root / "EFFECT" / ("SWORD" + std::to_string(i) + ".SL2")), std::ios::binary);
         if (!f) { all = false; continue; }
         const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         sword[std::size_t(i)] = Sl2::parse(bytes);

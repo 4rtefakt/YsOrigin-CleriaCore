@@ -1,4 +1,5 @@
 #include "cleria/effectdef.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <cctype>
 #include <cstdio>
@@ -127,7 +128,7 @@ EffectDefs EffectDefs::parse(const std::string& text) {
 
 EffectDefs EffectDefs::load(const fs::path& asset_root) {
     const fs::path p = asset_root / "WAVE" / "EFFECT" / "EFFECTDEF.TXT";
-    std::ifstream f(p, std::ios::binary);
+    std::ifstream f(vfs::resolve(p), std::ios::binary);
     if (!f) return {};
     std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     return parse(text);

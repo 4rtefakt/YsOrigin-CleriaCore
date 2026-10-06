@@ -1,4 +1,5 @@
 #include "cleria/bgmdef.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include "cleria/gamedata.hpp"
 
@@ -24,7 +25,7 @@ bool BgmDefs::load(const fs::path& asset_root, bool japanese) {
     for (const fs::path& d : cands) {
         std::error_code ec;
         if (d.empty() || !fs::exists(d / file, ec)) continue;
-        std::ifstream f(d / file);
+        std::ifstream f(vfs::resolve(d / file));
         if (!f) continue;
         std::string line;
         while (std::getline(f, line)) {
@@ -53,8 +54,7 @@ fs::path BgmDefs::track(int id) const {
     const std::string n = name(id);
     if (n.empty() || dir_.empty()) return {};
     const fs::path p = dir_ / (n + ".ogg");
-    std::error_code ec;
-    return fs::exists(p, ec) ? p : fs::path();
+    return vfs::exists(p) ? p : fs::path();   // a track a mod adds counts too
 }
 
 }  // namespace cleria

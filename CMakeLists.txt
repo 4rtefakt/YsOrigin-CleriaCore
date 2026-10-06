@@ -69,6 +69,8 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/world.cpp
   src/cleria/input_map.cpp
   src/cleria/mouse.cpp
+  src/cleria/vfs.cpp
+  src/cleria/mods.cpp
   src/cleria/settings.cpp
   src/cleria/ni_archive.cpp
   src/cleria/gamedata.cpp)
@@ -168,6 +170,11 @@ target_link_libraries(cleria-picktest PRIVATE cleria)
 # cleria-wndtest — the event windows and their text vs build/event_re/WNDDIALOG_DRAW.md.
 add_executable(cleria-wndtest apps/cleria-wndtest/main.cpp)
 target_link_libraries(cleria-wndtest PRIVATE cleria)
+
+# cleria-modstest — mod manifests, load order, dependency / conflict checks, zip mods and the vfs
+# resolution order (src/cleria/mods, src/cleria/vfs; build/shell_re/MODS.md). Writes only under %TEMP%.
+add_executable(cleria-modstest apps/cleria-modstest/main.cpp)
+target_link_libraries(cleria-modstest PRIVATE cleria miniz)
 
 # cleria-settingstest — the yso_win.ini dialect / cleria.ini / import vs build/shell_re/CONFIG.md §1-2.
 add_executable(cleria-settingstest apps/cleria-settingstest/main.cpp)
@@ -324,3 +331,4 @@ foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest sav
            COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endforeach()
+add_test(NAME modstest COMMAND cleria-modstest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

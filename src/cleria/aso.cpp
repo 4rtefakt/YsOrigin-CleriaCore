@@ -1,4 +1,5 @@
 #include "cleria/aso.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <cstring>
 #include <fstream>
@@ -119,7 +120,7 @@ Aso Aso::parse(const std::vector<std::uint8_t>& b) {
 }
 
 Aso Aso::load(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
+    std::ifstream f(vfs::resolve(p), std::ios::binary);
     if (!f) return {};
     std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
                                 std::istreambuf_iterator<char>()};

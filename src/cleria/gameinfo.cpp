@@ -1,4 +1,5 @@
 #include "cleria/gameinfo.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include "cleria/enemies.hpp"
 
@@ -11,7 +12,7 @@ namespace fs = std::filesystem;
 
 GameInfo GameInfo::load(const fs::path& path) {
     GameInfo g;
-    std::ifstream f(path, std::ios::binary);
+    std::ifstream f(vfs::resolve(path), std::ios::binary);
     if (!f) return g;
     std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
                                 std::istreambuf_iterator<char>()};

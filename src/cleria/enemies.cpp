@@ -1,4 +1,5 @@
 #include "cleria/enemies.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <cstring>
 #include <fstream>
@@ -8,7 +9,7 @@ namespace fs = std::filesystem;
 
 EnemyTable EnemyTable::load(const fs::path& path) {
     EnemyTable t;
-    std::ifstream f(path, std::ios::binary);
+    std::ifstream f(vfs::resolve(path), std::ios::binary);
     if (!f) return t;
     std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
                                 std::istreambuf_iterator<char>()};

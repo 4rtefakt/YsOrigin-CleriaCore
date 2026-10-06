@@ -1,4 +1,5 @@
 #include "cleria/movie.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include "cleria/gamedata.hpp"
 
@@ -124,7 +125,7 @@ MovieQuad movie_quad(std::uint32_t w, std::uint32_t h) {
 }
 
 std::optional<double> avi_duration(const fs::path& file) {
-    std::ifstream f(file, std::ios::binary);
+    std::ifstream f(vfs::resolve(file), std::ios::binary);
     if (!f) return std::nullopt;
     std::vector<char> b(1 << 16);
     f.read(b.data(), std::streamsize(b.size()));
@@ -276,7 +277,7 @@ bool MovieDecoder::open(const fs::path& file) {
     // inserts are AVIs named *.dat.
     IStream* mem = nullptr;
     {
-        std::ifstream f(file, std::ios::binary | std::ios::ate);
+        std::ifstream f(vfs::resolve(file), std::ios::binary | std::ios::ate);
         const std::streamoff n = f ? std::streamoff(f.tellg()) : 0;
         HGLOBAL hg = n > 0 ? GlobalAlloc(GMEM_MOVEABLE, SIZE_T(n)) : nullptr;
         if (!hg) return false;

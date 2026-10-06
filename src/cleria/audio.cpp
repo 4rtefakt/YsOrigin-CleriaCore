@@ -1,4 +1,5 @@
 #include "cleria/audio.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <SDL3/SDL.h>
 
@@ -80,7 +81,7 @@ const Audio::Clip* Audio::clip(int id) {
 
     // Cache the miss too (as null) so a missing WAV isn't retried every step.
     clips_.emplace(id, nullptr);
-    const fs::path p = defs_.wav_path(root_, id);
+    const fs::path p = vfs::resolve(defs_.wav_path(root_, id));
     if (p.empty() || !fs::exists(p)) return nullptr;
 
     SDL_AudioSpec ws{};
@@ -176,7 +177,7 @@ bool Audio::play_bgm(const fs::path& ogg) {
     stop_bgm();
 
     int err = 0;
-    stb_vorbis* v = stb_vorbis_open_filename(ogg.string().c_str(), &err, nullptr);
+    stb_vorbis* v = stb_vorbis_open_filename(vfs::resolve(ogg).string().c_str(), &err, nullptr);
     if (!v) {
         std::fprintf(stderr, "audio: stb_vorbis_open(%s) failed (error %d)\n",
                      ogg.string().c_str(), err);

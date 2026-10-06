@@ -1,4 +1,5 @@
 #include "cleria/cast.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include "cleria/physics_player.hpp"
 
@@ -23,7 +24,7 @@ std::string cstr(const std::vector<std::uint8_t>& b, std::size_t at, std::size_t
 
 CastTable CastTable::load(const fs::path& path) {
     CastTable t;
-    std::ifstream f(path, std::ios::binary);
+    std::ifstream f(vfs::resolve(path), std::ios::binary);
     if (!f) return t;
     std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
                                 std::istreambuf_iterator<char>()};

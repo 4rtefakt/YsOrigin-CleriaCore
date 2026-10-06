@@ -1,4 +1,5 @@
 #include "cleria/dds.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <cstring>
 #include <fstream>
@@ -16,7 +17,7 @@ std::uint32_t rd32(const std::uint8_t* p) {
 
 Dds load_dds(const std::filesystem::path& path) {
     Dds out;
-    std::ifstream f(path, std::ios::binary);
+    std::ifstream f(vfs::resolve(path), std::ios::binary);
     if (!f) return out;
     std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
                                 std::istreambuf_iterator<char>()};

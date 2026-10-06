@@ -1,4 +1,5 @@
 #include "cleria/scene.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 #include <cstdio>
 
 #include <cstdlib>
@@ -18,7 +19,7 @@ namespace {
 // A chest's identity = the g_flags index its opening-guard tests (0x5F at pc 0).
 // Two chests sharing it are character variants of one logical chest.
 int chest_opened_flag(const std::filesystem::path& script) {
-    std::ifstream f(script, std::ios::binary);
+    std::ifstream f(vfs::resolve(script), std::ios::binary);
     if (!f) return -1;
     std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
                                 std::istreambuf_iterator<char>()};
@@ -34,7 +35,7 @@ int chest_opened_flag(const std::filesystem::path& script) {
 namespace fs = std::filesystem;
 
 std::vector<std::uint8_t> read_file(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
+    std::ifstream f(vfs::resolve(p), std::ios::binary);
     if (!f) throw std::runtime_error("cannot open " + p.string());
     return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
 }
@@ -338,7 +339,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 local_model = Model::parse(read_file(ymo_file));
                 local_model.resolve_hierarchy();
                 std::error_code fec;
-                const bool big = fs::file_size(ymo_file, fec) > (2u << 20);
+                const bool big = fs::file_size(vfs::resolve(ymo_file), fec) > (2u << 20);
                 // A brain-placed object (a world matrix: boss02's 36 pieces) is re-baked every
                 // tick, so its model is kept parsed too, whatever its size.
                 if (big || o.has_world) {

@@ -114,7 +114,9 @@ struct Settings {
 
     // ---- cleria.ini (CleriaCore-only). QoL defaults OFF = retail behaviour. ----
     struct Cleria {
-        bool debug_hud = false;              // [cleria.video] DebugHud (start with the F3 overlay up)
+        bool use_mods = true;                // [cleria.mods] UseMods (0 = unmodded; no mod is active until turned on)
+        std::string mod_order, mod_active;   // [cleria.mods] Order / Active: mod ids, comma-separated (src/cleria/mods)
+        bool debug_hud = false;             // [cleria.video] DebugHud (start with the F3 overlay up)
         bool unlock_movie_skip = false;      // [cleria.qol] UnlockMovieSkip (skip a demo never seen)
         bool skip_logo_movie = false;        // [cleria.qol] SkipLogoMovie (boot straight to the title)
         bool vsync = true;                   // [cleria.video] VSync (CleriaCore's own; retail WaitVSync round-trips)

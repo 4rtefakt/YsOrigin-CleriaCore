@@ -1,4 +1,5 @@
 #include "cleria/sev.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <algorithm>
 #include <cctype>
@@ -85,7 +86,7 @@ std::vector<SceneBox> parse_sev(std::span<const std::uint8_t> b) {
 }
 
 std::vector<SceneBox> load_sev(const std::filesystem::path& sev_path) {
-    std::ifstream f(sev_path, std::ios::binary);
+    std::ifstream f(vfs::resolve(sev_path), std::ios::binary);
     if (!f) return {};
     std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(f), {}};
     return parse_sev(bytes);

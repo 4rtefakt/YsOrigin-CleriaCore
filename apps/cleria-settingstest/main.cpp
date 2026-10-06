@@ -190,6 +190,19 @@ int main() {
         Settings r;
         check(mapper_config(r).assign == r.input.assign, "NativePadBinds off: the retail Assign{} codes");
     }
+    {   // [cleria.mods] (src/cleria/mods): the load order and the enabled ids
+        Settings s;
+        check(s.cleria.use_mods && s.cleria.mod_order.empty() && s.cleria.mod_active.empty(),
+              "[cleria.mods] defaults: UseMods on, no mod active");
+        s.cleria.use_mods = false;
+        s.cleria.mod_order = "a.one,b.two";
+        s.cleria.mod_active = "b.two";
+        Ini c; write_cleria(c, s);
+        Settings t; read_cleria(c, t);
+        check(!t.cleria.use_mods && t.cleria.mod_order == "a.one,b.two" && t.cleria.mod_active == "b.two" &&
+              c.raw("cleria.mods", "Order") == std::optional<std::string>("\"a.one,b.two\""),
+              "[cleria.mods] UseMods / Order / Active round trip (quoted strings)");
+    }
 
     // ---- retail's location rules (FUN_005de1d0) ----
     {

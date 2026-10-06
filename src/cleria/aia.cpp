@@ -1,4 +1,5 @@
 #include "cleria/aia.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <algorithm>
 #include <cstdlib>
@@ -22,7 +23,7 @@ std::uint32_t rd32(const std::uint8_t* p) {
 }  // namespace
 
 bool Aia::load(const std::filesystem::path& path) {
-    std::ifstream f(path, std::ios::binary);
+    std::ifstream f(vfs::resolve(path), std::ios::binary);
     if (!f) return false;
     data.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
     if (data.size() < 0x28 || std::memcmp(data.data(), "AIA\0", 4) != 0) { data.clear(); return false; }

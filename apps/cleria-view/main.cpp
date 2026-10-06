@@ -93,6 +93,7 @@
 #include "cleria/input_map.hpp"
 #include "cleria/mouse.hpp"
 #include "cleria/settings.hpp"
+#include "cleria/vfs.hpp"
 #include <ctime>
 #include <optional>
 // CLERIA_CULL=off|cw|ccw — probe. The exe sets D3DCULL_CCW, but D3D9's left-handed
@@ -131,7 +132,7 @@ namespace fs = std::filesystem;
 static WGPUStringView sv(const char* s) { return {s, s ? std::strlen(s) : 0}; }
 
 static std::vector<std::uint8_t> read_bytes(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
+    std::ifstream f(vfs::resolve(p), std::ios::binary);
     return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
 }
 
@@ -338,6 +339,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_hud.inl"
 #include "view_input.inl"
 #include "view_shell.inl"
+#include "view_mods.inl"
 #include "view_headless.inl"
 #include "view_menus.inl"
 #include "view_book.inl"

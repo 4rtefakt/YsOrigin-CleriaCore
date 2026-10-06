@@ -1,4 +1,5 @@
 #include "cleria/minifont.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <cstring>
 #include <fstream>
@@ -7,7 +8,7 @@ namespace cleria {
 namespace fs = std::filesystem;
 
 bool MiniFont::load(const fs::path& p, const std::int8_t* widths, std::size_t n) {
-    std::ifstream f(p, std::ios::binary);
+    std::ifstream f(vfs::resolve(p), std::ios::binary);
     if (!f) return false;
     std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
                                 std::istreambuf_iterator<char>()};

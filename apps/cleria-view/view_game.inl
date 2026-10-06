@@ -10,6 +10,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // The settings (view_input.inl): the persistent file for a played session, memory defaults for a
     // CLERIA_DRIVE run. The gamepad: SDL's gamepad layer, mapped into the retail pad codes.
     settings_init(std::getenv("CLERIA_DRIVE") == nullptr);
+    mods_startup(g, asset_root);   // the vfs + the enabled mods, before any asset loads (view_mods.inl)
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) std::fprintf(stderr, "SDL gamepad: %s\n", SDL_GetError());
     else g_sdl_in.open_pad();
     // A CLERIA_DRIVE run is headless: a hidden window (nothing on the user's desktop or taskbar) and an
@@ -380,6 +381,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             ui::section(L, "Combat");
             ui::toggle(L, "One-hit kills", &cheat_ohko, "Every hit you land defeats the enemy.");
         });
+        shell.panel.add("Mods", [&](ui::List& L) { mods_page(L); });   // view_mods.inl
         shell.panel.add("Interface", [&](ui::List& L) {
             ui::section(L, "Overlays");
             if (ui::toggle(L, "Debug text", &hud.debug_text,

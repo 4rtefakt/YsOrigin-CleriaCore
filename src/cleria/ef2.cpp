@@ -1,4 +1,5 @@
 #include "cleria/ef2.hpp"
+#include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
 #include <cstring>
 #include <fstream>
@@ -13,7 +14,7 @@ constexpr std::size_t kRegHeader = 8;    // {u32 zero; u32 count}
 constexpr std::size_t kRegStride = 196;  // {u32 stored_id; char name[192]}
 
 std::string read_all(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
+    std::ifstream f(vfs::resolve(p), std::ios::binary);
     if (!f) return {};
     return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
 }
