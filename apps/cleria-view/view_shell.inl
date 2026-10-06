@@ -50,6 +50,10 @@ struct Shell {
     // Drawn under the panel every frame while set (the launcher's main menu). `nav` is empty while
     // the panel is open, so the menu does not react to the panel's keys.
     std::function<void(ImDrawList*, float, float, const ui::Nav&)> under;
+    // Always-on layers over the game, drawn whether or not the panel is open (a speedrun timer, a
+    // tracker, the cutscene-skip prompt), over `under` and under the panel. Keyed by feature so each
+    // can set or erase its own; a layer draws nothing when it has nothing to show.
+    std::map<std::string, std::function<void(ImDrawList*, float, float)>> hud;
 
     void init(SDL_Window* win, Gpu& g, WGPUTextureFormat fmt) {
         IMGUI_CHECKVERSION();
@@ -145,7 +149,7 @@ struct Shell {
     // Draw the shell over `view` (the finished frame) when the panel is open or the launcher is up.
     void frame(Gpu& g, WGPUTextureView view, std::uint32_t w, std::uint32_t h) {
         g_shell_focus = ready && (open || launcher);       // every frame, so it can never stay stuck on
-        if (!ready || (!open && !under) || w == 0 || h == 0) return;
+        if (!ready || (!open && !under && hud.empty()) || w == 0 || h == 0) return;
         ui::S = float(h) / 1000.0f;                       // [H] the reference shots were 1125 px tall
         ImGui_ImplWGPU_NewFrame();
         ImGui_ImplSDL3_NewFrame();
@@ -154,6 +158,7 @@ struct Shell {
         ImDrawList* dl = ImGui::GetForegroundDrawList();
         const bool was_open = open;
         if (under) under(dl, float(w), float(h), open ? ui::Nav{} : nav);
+        for (auto& [name, layer] : hud) layer(dl, float(w), float(h));
         if (was_open || !open) {      // opened by the launcher menu just now: the panel starts next frame,
             panel.open = open;        // or the same OK / click would also act on its selected row
             panel.draw(dl, float(w), float(h), nav);
