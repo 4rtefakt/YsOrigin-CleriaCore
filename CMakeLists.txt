@@ -58,6 +58,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/eventsprites.cpp
   src/cleria/boss01.cpp
   src/cleria/emotion.cpp
+  src/cleria/camrig.cpp
   src/cleria/surface.cpp
   src/cleria/save.cpp
   src/cleria/world.cpp)
@@ -94,6 +95,10 @@ target_link_libraries(cleria-invtest PRIVATE cleria)
 # cleria-booktest — the pause book vs build/menu_re/PAUSEBOOK_DRAW.md.
 add_executable(cleria-booktest apps/cleria-booktest/main.cpp)
 target_link_libraries(cleria-booktest PRIVATE cleria)
+
+# cleria-camtest — the region camera rig (src/cleria/camrig) vs build/event_re/CAMERA_OPS.md.
+add_executable(cleria-camtest apps/cleria-camtest/main.cpp)
+target_link_libraries(cleria-camtest PRIVATE cleria)
 
 # cleria-bosstest — Velagunder's brain (src/cleria/boss01) vs build/boss_re/VELAGUNDER.md.
 add_executable(cleria-bosstest apps/cleria-bosstest/main.cpp)
@@ -196,7 +201,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest camtest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

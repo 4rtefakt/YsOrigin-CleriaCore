@@ -65,6 +65,7 @@ Scm Scm::parse(const std::vector<std::uint8_t>& b) {
         g.sticky = r[0x3A8] != 0;
         g.fov = rdf(r + 0x3B8);
         g.blend = rdf(r + 0x3BC);
+        g.offset = rdv(r + 0x3AC);
         if (!(g.blend > 0.0f) || g.blend > 1.0f) g.blend = 0.015f;  // engine fallback
         const char* nm = reinterpret_cast<const char*>(r + 0x3C0);
         g.name.assign(nm, ::strnlen(nm, 0x20));

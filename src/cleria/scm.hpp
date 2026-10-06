@@ -35,6 +35,8 @@ struct CameraRegion {
     CameraPoint eye;             // point B
     float fov = 0;               // vertical FOV, radians
     float blend = 0.015f;        // per-frame lerp increment
+    Vec3 offset{};               // +0x3AC..+0x3B4: camera-space (right, up, forward) pan of eye AND
+                                 // target (FUN_0042a080; CAMERA_OPS.md §6), non-zero in 362/659 records
     std::string name;            // CP932 (e.g. "基本カメラ")
     Vec3 origin{};
     Vec3 aabb_min{}, aabb_max{}; // relative to origin

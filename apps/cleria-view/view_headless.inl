@@ -101,7 +101,8 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
     // CLERIA_SCROLL="x,y,z": inject a cutscene camera Scroll_MoveTo (instant) to verify the
     // event-camera override headlessly — the framing should re-centre on that world point.
     if (const char* sc = std::getenv("CLERIA_SCROLL")) {
-        float x, y, z; if (std::sscanf(sc, "%f,%f,%f", &x, &y, &z) == 3) scroll_moveto(x, y, z, 0);
+        float x, y, z;
+        if (std::sscanf(sc, "%f,%f,%f", &x, &y, &z) == 3) { scroll_moveto(x, y, z, 0); update_camera(room, feet, 0); }
     }
     if (g_cam.on) {  // the room's authored SCM camera
         apply_cam_state(cam, feet);

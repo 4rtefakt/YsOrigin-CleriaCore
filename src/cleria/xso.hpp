@@ -269,6 +269,10 @@ struct XsoHost {
     // the position pick (CUTSCENE_CAMERA.md §4). Frames = blend, ignored for now.
     virtual void camera_set(int /*region*/, int /*frames*/) {}
     virtual void camera_return(int /*frames*/) {}
+    // 0xEB CopyCamera_Set(id) / 0xEC Camera_Change(dist, yaw deg, pitch deg, fov deg, frames)
+    // (CAMERA_OPS.md §3): negative operands keep the current value (pitch: -1.1 < p < 0 keeps).
+    virtual void camera_copy_set(int /*id*/) {}
+    virtual void camera_change(float /*dist*/, float /*yaw*/, float /*pitch*/, float /*fov*/, int /*frames*/) {}
 
     // --- scene flow (build/event_re/SCENEFLOW.md) -------------------------------------
     // op 0x97 ChangeScene(name, entry): FUN_00430ef0(sceneId, force 0) — a request for the

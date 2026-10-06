@@ -351,6 +351,10 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0xc4 && nargs >= 1) {          // Scroll_Return(frames,priority)
                         host->scroll_return(op(0)); return Step::Continue;
                     }
+                    if (sub == 0xeb && nargs >= 1) { host->camera_copy_set(op(0)); return Step::Continue; }
+                    if (sub == 0xec && nargs >= 5) {          // Camera_Change(dist, yaw, pitch, fov, frames)
+                        host->camera_change(opf(0), opf(1), opf(2), opf(3), op(4)); return Step::Continue;
+                    }
                     if (sub == 0xcf && nargs >= 4) {          // Shake(ampX,ampY,ampZ,frames)
                         auto f = [&](std::uint32_t i) { return opf(i); };
                         host->shake(f(0), f(1), f(2), op(3)); return Step::Continue;

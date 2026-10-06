@@ -77,6 +77,7 @@
 #include "cleria/eventsprites.hpp"
 #include "cleria/boss01.hpp"
 #include "cleria/emotion.hpp"
+#include "cleria/camrig.hpp"
 #include "cleria/ymo.hpp"
 #include <ctime>
 #include <optional>

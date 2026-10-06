@@ -368,6 +368,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     std::vector<Popup> popups;                            // GoPopup (pool 7, 32 at most)
     ef2sim::Rng pick_rng;
     pick_rng.bind(game.rs);
+    g_cam_rng = [&] { return pick_rng.next(); };          // the camera shake's draws
     std::unordered_map<const bullet::Bullet*, int> gas_owner;
     // FUN_00450410 / the brains' inlined spawn. attach_owner != 0: FUN_00451c20 mode 2 — the
     // effect follows that actor's origin at (pos - origin); its spawn rotation / scale are
@@ -1250,8 +1251,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void scroll_moveto(float x, float y, float z, int frames) override { ::scroll_moveto(x, y, z, frames); }
         void scroll_return(int frames) override { ::scroll_return(frames); }
         void shake(float ax, float ay, float az, int frames) override { ::shake(ax, ay, az, frames); }
-        void camera_set(int region, int) override { ::camera_set(region); }
-        void camera_return(int) override { ::camera_return(); }
+        void camera_set(int region, int frames) override { ::camera_set(region, frames); }
+        void camera_return(int frames) override { ::camera_return(frames); }
+        void camera_copy_set(int id) override { ::camera_copy_set(id); }
+        void camera_change(float d, float y, float p, float f, int frames) override { ::camera_change(d, y, p, f, frames); }
         XsoHost* worldHost = nullptr;
         // The effect ops go to the EF2 sim (place_named_fx / kill_named_fx): a = scale, b = yaw.
         std::function<void(int, float, float, float, float, float, const std::string&)> locate_fx;
@@ -1564,8 +1567,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         csHost.box_active = csHost.wtext.alive() || csHost.wdlg.alive();
         csHost.caption_card.step();
         csHost.bust_set.step();
-        scroll_advance();
-        shake_advance();
         csHost.fade_advance();
         // Advance cutscene walk-to moves (op 0x143): the player (feet) and NPCs (world).
         // Re-snap the player to the floor after the XZ step so a walk-to follows terrain.
@@ -2817,6 +2818,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         player_floor_obj = r.name; break;
                     }
             step_meshes();
+            // The region camera runs inside the player's update (FUN_00473540 -> FUN_00429450),
+            // once per step: after this tick's move (CAMERA_OPS.md §5).
+            update_camera(room, feet, kTickDt);
 
             // Tick the enemies. The engine's enemies chase the player ACTOR; we sync it
             // to the view's player each tick, step the world (each enemy turns toward it
@@ -3811,8 +3815,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             animFrame = nf ? (avm.frame() % nf) : 0;
             if (animFrame != shownFrame) { chr.set_anim(g, curAnim, animFrame); shownFrame = animFrame; }
 
-            // The room's authored camera (SCM): region-selected, follow + orbit, blended.
-            update_camera(room, feet, dt);
+            // The room's authored camera (SCM): the last rig step (stepped per tick below).
             if (g_cam.on) apply_cam_state(cam, feet);
         }
 
