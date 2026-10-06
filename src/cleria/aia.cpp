@@ -33,6 +33,7 @@ bool Aia::load(const std::filesystem::path& path) {
     nReg = rd32(&data[16]);
     canvasW = rd16(&data[0x14]);
     canvasH = rd16(&data[0x16]);
+    std::memcpy(&scaleA, &data[0x1c], 4);
 
     imgtab = 0x28;
     regtab = imgtab + std::size_t(nImg) * 16;

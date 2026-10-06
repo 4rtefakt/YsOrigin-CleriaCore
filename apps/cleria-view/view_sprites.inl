@@ -16,8 +16,13 @@ struct SpriteTex {
     float footFix = 0;   // per-file foot correction: oy - resting-frame bbox bottom (grounds
                          // large-canvas sprites whose oy sits below the art; see draw_character)
     bool place_ok = false;
-    void set_placement(const AiaFrame& fr, std::uint32_t cw) {
+    // World units per canvas pixel: the quad builder FUN_00446340 (0x4463ab..) takes
+    // S = AIA header +0x1c x the actor's +0x248 x 1/32 (DAT_006bd104); the actor's factor is
+    // applied at draw time. render_effects.md S1/S2.
+    float S = 0.03125f;
+    void set_placement(const AiaFrame& fr, std::uint32_t cw, float scaleA) {
         x0 = float(fr.x0); y0 = float(fr.y0); canvasW = float(cw); oy = fr.bill[2];
+        S = scaleA * 0.03125f;
         place_ok = true;
     }
 };
@@ -85,7 +90,7 @@ struct CharSprite {
                 continue;
             if (dirs[d].tex) { wgpuBindGroupRelease(dirs[d].bind); wgpuTextureViewRelease(dirs[d].view); wgpuTextureRelease(dirs[d].tex); }
             dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
-            dirs[d].set_placement(fr, aia.canvasW);   // canvas anchor -> no animation slide
+            dirs[d].set_placement(fr, aia.canvasW, aia.scaleA);   // canvas anchor -> no animation slide
         }
     }
 };
@@ -99,7 +104,7 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                            const Vec3& camForward, const Vec3& camPos, float flash = 0.0f,
                            float tr = 1.0f, float tg = 1.0f, float tb = 1.0f,
                            bool additive = false, float opacity = 1.0f,
-                           float px_dx = 0.0f, float px_dy = 0.0f) {
+                           float px_dx = 0.0f, float px_dy = 0.0f, float actor_scale = 1.0f) {
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
@@ -126,9 +131,8 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // AIA canvas, measured from the file's CONSTANT hotspot (canvasW/2, oy=foot line),
         // with ONE scale for every frame. That fixed hotspot is what stops an animation
         // sliding -- the attack's silhouette shifts inside the frame, not the whole sprite.
-        // kSpriteScale is world units per canvas pixel (the old 76px = ~2.0-world reading).
-        constexpr float kSpriteScale = 2.0f / 76.0f;
-        const float S = kSpriteScale;
+        // S: world units per canvas pixel (the file's scale x the actor's +0x248 / 32).
+        const float S = spr.S * actor_scale;
         lX = (spr.x0 - spr.canvasW * 0.5f) * S;
         rX = (spr.x0 + float(spr.w) - spr.canvasW * 0.5f) * S;
         // footFix (per file, constant across frames -> no slide) drops the foot line to the
@@ -144,9 +148,9 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     }
     // Chr_Tremble's offset (FUN_00446340 0x4463ca..0x446419): (dx, dy) AIA pixels added to the
     // quad origin before the pixel scale, x right, y onto the top edge (up). Same canvas-pixel
-    // scale as the sprite itself (kSpriteScale here; the engine's AIA scale x 0.03125).
+    // scale as the sprite itself (the AIA scale x the actor's x 0.03125).
     if (px_dx != 0.0f || px_dy != 0.0f) {
-        constexpr float kPx = 2.0f / 76.0f;
+        const float kPx = spr.S * actor_scale;
         lX += px_dx * kPx; rX += px_dx * kPx; tY += px_dy * kPx; bY += px_dy * kPx;
     }
     // Vertex-colour alpha carries the hit-flash amount (fs_char lerps to white by it); RGB is

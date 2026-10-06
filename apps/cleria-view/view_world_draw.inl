@@ -66,7 +66,7 @@ struct EnemyFx {
                         AiaFrame fr;
                         if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
                         SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
-                        st.set_placement(fr, k.aia.canvasW);
+                        st.set_placement(fr, k.aia.canvasW, k.aia.scaleA);
                         st.footFix = k.footFix;   // same per-file foot correction as idle
                         a[d].push_back(std::move(st));
                     }
@@ -124,7 +124,7 @@ struct EnemyFx {
                 AiaFrame fr;
                 if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
                 SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
-                st.set_placement(fr, k.aia.canvasW);   // canvas anchor, like the player
+                st.set_placement(fr, k.aia.canvasW, k.aia.scaleA);   // canvas anchor, like the player
                 st.footFix = k.footFix;
                 k.anim[d].push_back(st);
                 tall = std::max(tall, fr.h);
@@ -363,7 +363,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                        float((tc >> 16) & 0xff) / 255.0f, float((tc >> 8) & 0xff) / 255.0f,
                        float(tc & 0xff) / 255.0f, false, e.actor->ai.alpha * e.actor->tint_alpha,
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,     // Chr_Tremble
-                       tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f);
+                       tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale);
         // Event-bound (group-1..4) enemies GLOW their marker colour (FUN_00473c60 [BYTES 0x473ec8..f87],
         // BARRIER_OBJECTS.md §1a): A = marker alpha * |sin(2 pi phase / 255)|, no floor, the phase
         // stepped in the actor tick (so it holds still under a Fix). [H] the composition: the
@@ -377,7 +377,9 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             const float mb = float(mk & 0xFF) / 255.0f;
             if (I > 0.0f)
                 draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos,
-                               0.0f, mr * I, mg * I, mb * I, /*additive*/true, e.actor->ai.alpha);
+                               0.0f, mr * I, mg * I, mb * I, /*additive*/true, e.actor->ai.alpha,
+                               tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,
+                               tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale);
         }
     }
 }

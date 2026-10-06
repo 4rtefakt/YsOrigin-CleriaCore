@@ -43,6 +43,7 @@ struct Aia {
     std::uint16_t version = 0;
     std::uint32_t nPal = 0, nImg = 0, nReg = 0;
     std::uint16_t canvasW = 0, canvasH = 0;
+    float scaleA = 1.0f;                 // header +0x1c: the sprite scale (0.605 Yunica, 0.625 Hugo / Toal)
     std::vector<AiaImage> images;
 
     bool load(const std::filesystem::path& path);
