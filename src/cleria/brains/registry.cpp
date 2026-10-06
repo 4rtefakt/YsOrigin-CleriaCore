@@ -44,6 +44,9 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 78: return &brains::m850;   // M850 Epona (the duel)
         case 74: return &brains::m810;   // M810 Hugo (class-4 duel)
         case 76: return &brains::m830;   // M830 Galleon (class-4 duel)
+        case 75: return &brains::m820;   // M820 Toal (class-4 duel, Hugo's S_3080)
+        case 77: return &brains::m840;   // M840 Shion (class-4 duel, Toal's S_3080)
+        case 79: return &brains::m860;   // M860 Kishgal (class-4 duel, Yunica's S_3080)
         case 83: return &brains::m900;   // M900 the Eyes of Fact (M810's)
         case 84: return &brains::m910;   // M910 Nooze
         case 85: return &brains::m920;   // M920 Nooze (Blue)
@@ -65,6 +68,8 @@ void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_f
     // The class-4 duel handlers clamp on their live path only (g_flags[130] != 0; boss_fight
     // stands in for it [H]: the duel scripts set and the defeat clears 156 and 130 together).
     if (ai_index == 76 && boss_fight) arena_clamp(origin, arena_mode, rect);   // M830: FUN_0047abf0
+    // M820 (0x4e305c), M840 (0x4df8ab), M860 (0x4e803d): FUN_0047abf0 on the same live path.
+    if ((ai_index == 75 || ai_index == 77 || ai_index == 79) && boss_fight) arena_clamp(origin, arena_mode, rect);
     if (ai_index == 74 && boss_fight) {                // M810 (0x4daa88): mode-blind, a 0.01 inset
         constexpr float kIn = 0.009999997913837433f;   // DAT_006bd080
         float x = origin.x, z = origin.z;
@@ -94,6 +99,9 @@ EnemyDeathHook enemy_death_hook_for(int ai_index) {
         case 78: return &brains::m850_dead;
         case 74: return &brains::m810_dead;
         case 76: return &brains::m830_dead;
+        case 75: return &brains::m820_dead;
+        case 77: return &brains::m840_dead;
+        case 79: return &brains::m860_dead;
         default: return nullptr;
     }
 }

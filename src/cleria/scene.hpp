@@ -86,6 +86,11 @@ struct RoomMesh {
     // triangle (indices.size()/3), indexing `surfaces`; -1 when unknown.
     std::vector<std::string> surfaces;
     std::vector<int> tri_surface;
+    // Collision meshes only: 1 for a "water" (surface 3) triangle. The engine's mesh builder
+    // puts those into a separate water tree (+0x94) and the rest into the solid one (+0x90),
+    // so water is never stood on or walked into (build/physics_re/WATER.md §1).
+    std::vector<std::uint8_t> tri_water;
+    bool has_water() const { for (auto w : tri_water) if (w) return true; return false; }
     Vec3 bmin, bmax;                     // world-space bounds
     int objects = 0, missing = 0;
     // Each placed object's vertex and triangle range (objects append contiguously), so a

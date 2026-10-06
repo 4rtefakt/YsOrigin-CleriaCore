@@ -110,8 +110,18 @@ RoomMesh build_collision(const fs::path& asset_root, const fs::path& sob_path,
                          const std::vector<SobObject>* extra) {
     Sob sob = Sob::parse(read_file(sob_path));
     if (extra) sob.objects.insert(sob.objects.end(), extra->begin(), extra->end());
-    return build_room_objects(asset_root, sob,
-                              sob_path.parent_path(), box_whitelist, hidden, true);
+    RoomMesh m = build_room_objects(asset_root, sob, sob_path.parent_path(), box_whitelist, hidden, true);
+    // The two-pass split (WATER.md §1): surface 3 "water" goes to the water tree only.
+    m.tri_water.assign(m.tri_surface.size(), 0);
+    for (std::size_t t = 0; t < m.tri_surface.size(); ++t) {
+        const int s = m.tri_surface[t];
+        if (s >= 0 && std::size_t(s) < m.surfaces.size()) {
+            std::string n = m.surfaces[std::size_t(s)];
+            for (char& c : n) c = char(std::tolower(static_cast<unsigned char>(c)));
+            m.tri_water[t] = n == "water";
+        }
+    }
+    return m;
 }
 
 std::unordered_map<std::string, Model>& big_model_cache();

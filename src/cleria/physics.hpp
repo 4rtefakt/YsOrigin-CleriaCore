@@ -50,5 +50,8 @@ bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, V
 bool segment_hits_tris(const RoomMesh& m, const Vec3& a, const Vec3& b, std::uint32_t t0, std::uint32_t t1);
 // True when any collision triangle comes within `r` of `c` (a zero-sweep sphere query).
 bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r);
+// The water tree's surface straight above (x, y, z) within `reach` (FUN_0045c490's upward ray),
+// or kNoFloor. Only collision meshes carry water triangles (RoomMesh::tri_water).
+float water_above(const RoomMesh& m, float x, float y, float z, float reach = 50.0f);
 
 }  // namespace cleria

@@ -2329,6 +2329,274 @@ int main() {
         }
     }
 
+    // ---- the S_3080 duel opponents M820 Toal / M840 Shion / M860 Kishgal (build/ai_spec/M820.md,
+    // M840.md, M860.md): the handler gates, INIT, the gauge, the end resolution and the clamp ----
+    {
+        // Open ground; the game flags, the player, the gauge and the current room as the host shows them.
+        struct Duel3080 : AiWorld {
+            std::unordered_map<int, int> flags;
+            Actor* P = nullptr;
+            int gauge_hidden = 0;
+            bool s3080 = true;
+            void for_each(const std::function<void(Actor&)>&) override {}
+            Actor* find(int) override { return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3&, const Vec3&) override { return {}; }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+            void set_flag(int i, int v) override { flags[i] = v; }
+            int flag(int i, int unset) override { auto it = flags.find(i); return it == flags.end() ? unset : it->second; }
+            Actor* player() override { return P; }
+            void hide_boss_gauge() override { ++gauge_hidden; }
+            bool in_room(const char* dir) override { return s3080 && std::strcmp(dir, "s_30\\s_3080\\") == 0; }
+        };
+        XorShift rng;
+        auto env_for = [&](Actor& A, Duel3080& w, int character, int section) {
+            AiEnv e;
+            e.actor = &A; e.world = &w; e.character = character;
+            e.self = {A.pos.x, A.pos.y + A.height, A.pos.z};
+            e.height = A.height; e.radius = A.radius;
+            e.target = {3.0f, 1.075f, 0.0f}; e.target_floor = 0;
+            e.hp = A.hp; e.max_hp = A.max_hp; e.section = section;
+            e.rng = [&] { return rng(); };
+            return e;
+        };
+        auto make_duelist = [](Actor& A, int cast, int ai_index) {
+            A.instance_id = 198; A.cast_id = cast; A.ai_index = ai_index;
+            A.hp = A.max_hp = 300; A.atk = 40; A.def = 30; A.exp_reward = 100;
+            A.kind = 0x84; A.height = 1.0f; A.flags12c = 0x01180050u | 0xc000u;
+        };
+        auto killed = [](const AiOut& o, int tag) {
+            for (const AiEffect& f : o.effects) if (f.kill_tag == tag) return true;
+            return false;
+        };
+        const EnemyAiParams gp = params(0.08f, 0.05f, 1.0f, 2.0f, 1.0f);
+        check(enemy_brain_for(75) && enemy_brain_for(77) && enemy_brain_for(79) && enemy_death_hook_for(75) &&
+              enemy_death_hook_for(77) && enemy_death_hook_for(79) &&
+              enemy_brain_or_standin(79) == enemy_brain_for(79),
+              "M820 / M840 / M860 brains and death hooks registered (AI 75 / 77 / 79)");
+
+        for (const int idx : {75, 77, 79}) {
+            const EnemyBrain b = enemy_brain_for(idx);
+            const int cast = idx == 75 ? 0xa8 : idx == 77 ? 0xaa : 0xac;
+            {   // g_flags[130] == 0: a script puppet (no INIT, no action player), HP floored at 1.
+                Duel3080 w; w.flags[130] = 0;
+                Actor A; make_duelist(A, cast, idx);
+                const AiOut o = enemy_ai_tick(A.ai, gp, env_for(A, w, 1, 2), b);
+                bool ok = o.skip_action_player && A.ai.phase() == 0 && A.kind == 0x84 && o.gauge_hp < 0;
+                A.hp = 0.5f;
+                enemy_death_hook_for(idx)(A, w);
+                ok = ok && A.hp == 1.0f && w.flags.count(156) == 0 && w.flags.count(174) == 0;
+                char msg[96];
+                std::snprintf(msg, sizeof msg, "AI %d, flag 130 = 0: puppet; the dead branch only floors HP at 1", idx);
+                check(ok, msg);
+            }
+            {   // g_flags[131] != 0 after INIT: frozen (FUN_0045f470 only) but the gauge still follows HP.
+                Duel3080 w; w.flags[130] = 1; w.flags[131] = 0; w.flags[156] = 1;
+                Actor A; make_duelist(A, cast, idx);
+                enemy_ai_tick(A.ai, gp, env_for(A, w, 1, 2), b);
+                EnemyAi before = A.ai;
+                w.flags[131] = 1;
+                A.hp = 290;
+                const AiOut o = enemy_ai_tick(A.ai, gp, env_for(A, w, 1, 2), b);
+                const bool ok = o.skip_action_player && o.section < 0 && A.ai.i(0x72c) == before.i(0x72c) &&
+                                A.ai.dur() == before.dur() && A.ai.mode() == 0 && o.gauge_hp == 290.0f;
+                char msg[96];
+                std::snprintf(msg, sizeof msg, "AI %d, flag 131 = 1: frozen, no brain; the gauge follows HP", idx);
+                check(ok, msg);
+            }
+            {   // The handler-tail clamp (FUN_0047abf0) on the live path only.
+                const float rect[4] = {-26.637f, 36.834f, 0.783f, 58.657f};   // Battle_0's EnclosePlayer
+                Vec3 o{5.0f, 1.0f, 70.0f}, q{5.0f, 1.0f, 70.0f};
+                enemy_handler_clamp(idx, o, 1, true, rect);
+                enemy_handler_clamp(idx, q, 1, false, rect);
+                char msg[96];
+                std::snprintf(msg, sizeof msg, "AI %d clamp: FUN_0047abf0 while the duel runs, not after", idx);
+                check(o.x == 0.783f && o.z == 58.657f && q.x == 5.0f && q.z == 70.0f, msg);
+            }
+            {   // The player lost first: HP 1.1, unhittable, DEF 999, the duel flags untouched.
+                Duel3080 w; w.flags[130] = 1; w.flags[156] = 1;
+                Actor Pl; Pl.hp = 0; Pl.max_hp = 100;
+                w.P = &Pl;
+                Actor A; make_duelist(A, cast, idx);
+                A.hp = 0.0f;
+                enemy_death_hook_for(idx)(A, w);
+                char msg[96];
+                std::snprintf(msg, sizeof msg, "AI %d with the player dead: HP 1.1, FUN_0047aa80, flags untouched", idx);
+                check(std::fabs(A.hp - 1.1f) < 1e-6f && !A.ai.hittable && A.def == 999.0f && w.flags[156] == 1 &&
+                      w.flags.count(174) == 0, msg);
+            }
+        }
+
+        // ---- M820 Toal
+        {   // INIT (0x4dfc98): +0x7b0 = DEF, +0x7b4 = the run multiplier, then +0x820 = 5; dur 30.
+            Duel3080 w; w.flags[130] = 1; w.flags[156] = 1;
+            Actor T; make_duelist(T, 0xa8, 75);
+            const AiOut o = enemy_ai_tick(T.ai, gp, env_for(T, w, 2, 2), enemy_brain_for(75));
+            check(T.ai.phase() == 4 && T.kind == 0x88 && T.flags12c == 0x1090000u && (T.flags130 & 1u) &&
+                  T.ai.f(0x7b0) == 30.0f && T.ai.f(0x7b4) == 2.0f && T.ai.f(0x820) == 5.0f &&
+                  T.ai.f(0x7ac) == 0.08f && T.exp_reward == 100.0f && o.effects.empty(),
+                  "M820 INIT: phase 4, +0x60 0x88, +0x12c = 0x1090000, DEF / run saved, +0x820 = 5");
+            check(o.gauge_hp == 300.0f && o.gauge_len == 7500.0f, "M820: the gauge (lenScale 7500)");
+            Duel3080 w2; w2.flags[130] = 1; w2.flags[179] = 1;
+            Actor T2; make_duelist(T2, 0xa8, 75);
+            const AiOut o2 = enemy_ai_tick(T2.ai, gp, env_for(T2, w2, 2, 2), enemy_brain_for(75));
+            bool aura = false;
+            for (const AiEffect& f : o2.effects) aura |= f.id == 0xab && f.attach && f.tag == 0;
+            check(aura && T2.exp_reward == 16100.0f && o2.gauge_len == 8500.0f,
+                  "M820 INIT with flag 179: the EF2 0xab aura, EXP + 16000, lenScale 8500");
+        }
+        {   // The defeat (0x4e2c8b): HP < 1 with the player alive -> Battle_Win (174 = 1).
+            Duel3080 w; w.flags[130] = 1; w.flags[156] = 1; w.flags[133] = 1; w.flags[174] = 0;
+            Actor Pl; Pl.hp = Pl.max_hp = 100;
+            w.P = &Pl;
+            Actor T; make_duelist(T, 0xa8, 75);
+            enemy_ai_tick(T.ai, gp, env_for(T, w, 2, 2), enemy_brain_for(75));
+            T.def = 55.0f; T.ai.f(0x814) = 0.5f; T.ai.f(0x820) = 9.0f; T.ai.alpha = 0.3f;
+            T.hp = 0.0f;
+            enemy_death_hook_for(75)(T, w);
+            check(w.flags[156] == 0 && w.flags[130] == 0 && w.flags[174] == 1 && w.flags[133] == 1 && T.hp == 1.0f &&
+                  w.gauge_hidden == 1 && Pl.i_frames == 9999 && T.def == 30.0f && T.ai.f(0x814) == 0.08f &&
+                  T.ai.f(0x820) == 2.0f && T.ai.alpha == 1.0f && T.ai.f(0x880) < -7777777.0f,
+                  "M820 defeat: 156 = 130 = 0, 174 = 1, HP 1, DEF / turn / run restored, alpha 1");
+            const AiOut o = enemy_ai_tick(T.ai, gp, env_for(T, w, 2, 2), enemy_brain_for(75));
+            check(o.skip_action_player && o.section == 5 && killed(o, 0),
+                  "M820 after the defeat: a puppet; section 5 and the attached effects' kill next tick");
+            T.hp = 0.0f; w.flags[130] = 1; w.flags[156] = 1;
+            enemy_death_hook_for(75)(T, w);
+            check(w.flags[156] == 1 && T.hp == 0.0f, "M820: the defeat resolves once (+0x880 below -7777777)");
+        }
+
+        // ---- M840 Shion
+        {   // INIT (0x4dd043): +0x7ac = DEF; ATK / DEF - 2 below normal difficulty; no dur write.
+            Duel3080 w; w.flags[130] = 1; w.flags[156] = 1;
+            Actor S; make_duelist(S, 0xaa, 77);
+            const AiOut o = enemy_ai_tick(S.ai, gp, env_for(S, w, 3, 2), enemy_brain_for(77));
+            check(S.ai.phase() == 4 && S.kind == 0x88 && S.flags12c == 0x1090000u && S.ai.f(0x7ac) == 30.0f &&
+                  S.atk == 40.0f && S.def == 30.0f && S.ai.i(0x88c) == 0,
+                  "M840 INIT: phase 4, +0x60 0x88, +0x12c = 0x1090000, +0x7ac = DEF");
+            check(o.gauge_hp == 300.0f && o.gauge_len == 5000.0f, "M840: the gauge (lenScale 5000)");
+            Actor S2; make_duelist(S2, 0xaa, 77);
+            AiEnv e2 = env_for(S2, w, 3, 2);
+            e2.difficulty = -1;
+            enemy_ai_tick(S2.ai, gp, e2, enemy_brain_for(77));
+            check(S2.atk == 38.0f && S2.def == 28.0f && S2.ai.f(0x7ac) == 30.0f,
+                  "M840 INIT on easy: ATK - 2, DEF - 2 (DAT_006bd580), +0x7ac keeps the old DEF");
+        }
+        {   // The defeat (0x4df4c9): the +0x88c effect dies, the hover stops, he falls.
+            Duel3080 w; w.flags[130] = 1; w.flags[156] = 1;
+            Actor Pl; Pl.hp = Pl.max_hp = 100;
+            w.P = &Pl;
+            Actor S; make_duelist(S, 0xaa, 77);
+            S.flyer = true;
+            enemy_ai_tick(S.ai, gp, env_for(S, w, 3, 2), enemy_brain_for(77));
+            S.ai.i(0x88c) = 1; S.ai.f(0x840) = 0.2f; S.ai.f(0x844) = 3.0f;
+            S.hp = -2.0f;
+            enemy_death_hook_for(77)(S, w);
+            check(w.flags[156] == 0 && w.flags[130] == 0 && w.flags[174] == 1 && S.hp == 1.0f && w.gauge_hidden == 1 &&
+                  Pl.i_frames == 9999 && !S.flyer && S.ai.f(0x840) == 0.0f && S.ai.f(0x844) == 0.0f &&
+                  S.ai.i(0x88c) == 0 && S.ai.action() == 2 && S.ai.steer() == 0,
+                  "M840 defeat: 156 = 130 = 0, 174 = 1, HP 1, bob 0, flyer byte 0");
+            const AiOut o = enemy_ai_tick(S.ai, gp, env_for(S, w, 3, 2), enemy_brain_for(77));
+            check(o.skip_action_player && killed(o, 0) && o.section < 0,
+                  "M840 after the defeat: a puppet; the +0x88c effect is killed, no section request");
+        }
+
+        // ---- M860 Kishgal
+        {   // INIT in S_3080 as Yunica (d 0): ATK floored at the player's DEF + 15, no flag 179, no aura.
+            Duel3080 w; w.flags[130] = 1; w.flags[156] = 1;
+            Actor Pl; Pl.hp = Pl.max_hp = 100; Pl.def = 50;
+            w.P = &Pl;
+            Actor K; make_duelist(K, 0xac, 79);
+            const AiOut o = enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+            check(K.ai.phase() == 4 && K.kind == 0x88 && K.flags12c == 0x1090000u && K.atk == 65.0f &&
+                  K.def == 30.0f && K.ai.f(0x7d8) == 30.0f && std::fabs(K.resist[1] - 0.45f) < 1e-7f &&
+                  K.exp_reward == 100.0f && w.flags.count(179) == 0 && o.effects.empty(),
+                  "M860 INIT in S_3080 (Yunica): ATK = max(ATK, P.DEF + 15), resist 0.45, no 179");
+            check(o.gauge_hp == 300.0f && o.gauge_len == 7500.0f, "M860 in S_3080: the gauge (lenScale 7500)");
+            Actor K2; make_duelist(K2, 0xac, 79);
+            AiEnv ve = env_for(K2, w, 1, 2);
+            ve.difficulty = -2;
+            enemy_ai_tick(K2.ai, gp, ve, enemy_brain_for(79));
+            check(K2.atk == 65.0f + 12.0f + 5.0f && K2.def == 30.0f + 3.0f + 1.0f,
+                  "M860 INIT in S_3080 on very easy: ATK + 12 + 5, DEF + 3 + 1");
+        }
+        {   // INIT elsewhere as Yunica: flag 179 = 1, the EF2 0xab aura, EXP + 7500, lenScale 8500.
+            Duel3080 w; w.s3080 = false; w.flags[130] = 1;
+            Actor K; make_duelist(K, 0xac, 79);
+            const AiOut o = enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+            bool aura = false;
+            for (const AiEffect& f : o.effects) aura |= f.id == 0xab && f.attach && f.tag == 0;
+            check(w.flags[179] == 1 && aura && K.atk == 40.0f && K.exp_reward == 7600.0f && o.gauge_len == 8500.0f,
+                  "M860 INIT outside S_3080: 179 = 1, the 0xab aura, EXP + 7500, lenScale 8500");
+            Duel3080 wh; wh.s3080 = false; wh.flags[130] = 1;
+            Actor KH; make_duelist(KH, 0xac, 79);
+            AiEnv he = env_for(KH, wh, 2, 2);
+            he.difficulty = 2;
+            const AiOut oh = enemy_ai_tick(KH.ai, gp, he, enemy_brain_for(79));
+            check(wh.flags.count(179) == 0 && oh.effects.empty() && KH.atk == 38.5f &&
+                  std::fabs(KH.resist[1] - 0.63f) < 1e-7f && KH.def == 50.0f && oh.gauge_len == 7500.0f,
+                  "M860 INIT vs Hugo (d 2): no 179, ATK - 1.5, resist 0.63, DEF + 20");
+        }
+        {   // The S_3080 story duel ends at half HP (0x4e7fc6): HP pinned, 156 = 0, 174 = 1, 130 kept.
+            Duel3080 w; w.flags[130] = 1; w.flags[156] = 1; w.flags[174] = 0;
+            Actor Pl; Pl.hp = Pl.max_hp = 100;
+            w.P = &Pl;
+            Actor K; make_duelist(K, 0xac, 79);
+            enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+            K.hp = 151.0f;
+            AiOut o = enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+            check(K.hp == 151.0f && w.flags[156] == 1 && w.flags[174] == 0, "M860 in S_3080 above half HP: the duel goes on");
+            K.hp = 120.0f;
+            o = enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+            check(K.hp == 150.0f && w.flags[156] == 0 && w.flags[174] == 1 && w.flags[130] == 1 && o.gauge_hp == 120.0f,
+                  "M860 in S_3080 below half HP: HP = max / 2, 156 = 0, 174 = 1, 130 left to the script");
+            // Outside S_3080 the same hit does not end it.
+            Duel3080 wo; wo.s3080 = false; wo.flags[130] = 1; wo.flags[156] = 1; wo.flags[174] = 0;
+            Actor K2; make_duelist(K2, 0xac, 79);
+            enemy_ai_tick(K2.ai, gp, env_for(K2, wo, 1, 2), enemy_brain_for(79));
+            K2.hp = 120.0f;
+            enemy_ai_tick(K2.ai, gp, env_for(K2, wo, 1, 2), enemy_brain_for(79));
+            check(K2.hp == 120.0f && wo.flags[156] == 1 && wo.flags[174] == 0, "M860 outside S_3080: no half-HP end");
+        }
+        {   // The KO (0x4e7c07) in S_3080: 174 = 1, 156 = 130 = 0, then the half-HP rule lifts HP 1 to max / 2.
+            Duel3080 w; w.flags[130] = 1; w.flags[156] = 1; w.flags[133] = 1;
+            Actor Pl; Pl.hp = Pl.max_hp = 100;
+            w.P = &Pl;
+            Actor K; make_duelist(K, 0xac, 79);
+            enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+            K.hp = -10.0f;
+            enemy_death_hook_for(79)(K, w);
+            check(w.flags[174] == 1 && w.flags[156] == 0 && w.flags[130] == 0 && K.hp == 150.0f && w.gauge_hidden == 1 &&
+                  Pl.i_frames == 9999 && K.ai.action() == 2 && K.ai.f(0x880) < -7777777.0f,
+                  "M860 KO in S_3080: 174 = 1, 156 = 130 = 0, gauge hidden, HP 1 -> max / 2");
+            const AiOut o = enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+            check(o.skip_action_player && killed(o, 0) && killed(o, 1),
+                  "M860 after the KO: a puppet; every EF2 0x122 and 0xab is killed");
+            // Outside S_3080 the KO leaves him at 1 HP.
+            Duel3080 wo; wo.s3080 = false; wo.flags[130] = 1; wo.flags[156] = 1;
+            wo.P = &Pl;
+            Actor K2; make_duelist(K2, 0xac, 79);
+            enemy_ai_tick(K2.ai, gp, env_for(K2, wo, 1, 2), enemy_brain_for(79));
+            K2.hp = 0.0f;
+            enemy_death_hook_for(79)(K2, wo);
+            check(wo.flags[174] == 1 && wo.flags[156] == 0 && wo.flags[130] == 0 && K2.hp == 1.0f,
+                  "M860 KO outside S_3080: 174 = 1, 156 = 130 = 0, HP 1");
+        }
+        {   // The puppet in S_3080 kills every live EF2 0x122 each tick (0x4e7b31); elsewhere it does not.
+            Duel3080 w; w.flags[130] = 0;
+            Actor K; make_duelist(K, 0xac, 79);
+            const AiOut o = enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+            Duel3080 wo; wo.s3080 = false; wo.flags[130] = 0;
+            Actor K2; make_duelist(K2, 0xac, 79);
+            const AiOut o2 = enemy_ai_tick(K2.ai, gp, env_for(K2, wo, 1, 2), enemy_brain_for(79));
+            check(o.skip_action_player && killed(o, 1) && !killed(o, 0) && o2.effects.empty(),
+                  "M860 puppet: kills the EF2 0x122 in S_3080 only");
+        }
+    }
+
     // ---- M900 the Eyes of Fact, and M810 commanding them (build/ai_spec/M900.md, M810.md) ----
     {
         // A pool in engine order (stable addresses), the game flags, FUN_00476d70.

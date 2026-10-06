@@ -115,6 +115,21 @@ int main() {
         check(std::fabs(p.y - r) < 0.1f, "walk across a floor stays at ride height");
     }
 
+    // 9. Water (build/physics_re/WATER.md §1): a "water" triangle is in the water tree only.
+    {
+        RoomMesh m = floor_y(0.0f);
+        const RoomMesh w = floor_y(2.0f);
+        const std::uint32_t base = std::uint32_t(m.vertices.size());
+        for (const RoomVertex& v : w.vertices) m.vertices.push_back(v);
+        for (std::uint32_t k : w.indices) m.indices.push_back(base + k);
+        m.tri_water = {0, 0, 1, 1};
+        check(m.has_water(), "water: the mesh reports a water tree");
+        check(std::fabs(floor_at(m, 1, 1, 10) - 0.0f) < 1e-4f, "water: floor_at stands on the floor, not the water");
+        check(std::fabs(water_above(m, 1, 0.5f, 1) - 2.0f) < 1e-4f, "water: the up-ray finds the surface at 2");
+        check(water_above(m, 1, 3.0f, 1) == kNoFloor, "water: nothing above the surface");
+        check(!sphere_overlaps(m, {1, 2, 1}, 0.5f), "water: a sphere in the surface does not collide");
+    }
+
     std::printf("%s (%d failures)\n", g_fail ? "FAILED" : "ALL PASS", g_fail);
     return g_fail ? 1 : 0;
 }

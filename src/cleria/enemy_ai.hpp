@@ -122,6 +122,10 @@ struct AiWorld {
     virtual Actor* player() { return nullptr; }
     // DAT_006d5fd8 = 0: hide the boss HP gauge (the class-4 duel handlers' defeat paths).
     virtual void hide_boss_gauge() {}
+    // FUN_004358b0(dir) then `cmp [0x76a534], word [record]`: the current room is the scene-list
+    // record named `dir` (case-insensitive, e.g. "s_30\\s_3080\\"; M860's story-duel rules). A
+    // host that does not override it answers false, the engine's answer when no record matches.
+    virtual bool in_room(const char* /*dir*/) { return false; }
 };
 
 struct AiEnv {

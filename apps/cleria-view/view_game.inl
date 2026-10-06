@@ -506,10 +506,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // (S_3103, the Hammer's pillar), 474 (S_5080), and the whole-room water mode 0x76a544 = 2 in
     // five S_20 rooms. The room's own scripts may override them.
     int water_mode = 0;
-    // The player's water state (FUN_0045c490, build/physics_re/WATER.md §1a): +0x38a submerged.
-    // Mode 2 rooms are submerged throughout. [not modelled] mode 1 (the collision twin's water
-    // set: pools, wading +0x389, the depth ray — WATER.md G5/G6).
-    bool submerged = false;
+    // The player's water state (FUN_0045c490, build/physics_re/WATER.md §1a): +0x38a submerged,
+    // +0x389 wading. Mode 2 rooms are submerged throughout; mode 1 (a room whose collision has
+    // a water tree) casts up into it every tick. [not modelled] enemies' water state (G6).
+    bool submerged = false, wading = false;
+    int splash_cd = 0;                     // +0x4c3: the splash cooldown
     Oxygen oxy;
     float drown_acc = 0.0f;
     bool jump_prev = false;                // the jump button last tick (+0x50c is the pressed mask)
@@ -524,6 +525,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         game.g_flags[474] = num == 5080;
         water_mode = (num == 2008 || num == 2009 || num == 2010 || num == 2014 || num == 2015) ? 2 : 0;
         submerged = water_mode == 2;          // the factory / warp placement sets it, no transition
+        wading = false;
     };
     // FUN_00431840's per-scene flag writes (SCENEFLOW.md 6.2), on every scene entry: the first
     // room too (a dev start into a room otherwise kept flag 185 = 0 and the HUD faded out).
@@ -1429,6 +1431,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // engine's 0x75ad90 fix counter (there is no separate pause counter here yet).
         bool is_fix() const override { return mgr && mgr->world_frozen(); }
         const int* water_mode_p = nullptr;
+        std::function<void(float, float, float, float, float)> water_wall_fn;   // 0x112 (BULLETS.md §3.14)
+        void water_wall_hitchk(float x, float y, float z, float r, float st) override {
+            if (water_wall_fn) water_wall_fn(x, y, z, r, st);
+        }
         bool is_underwater_world() const override { return water_mode_p && *water_mode_p == 2; }
     } csHost;
     // The cutscene runtime is the concurrent GoScript manager (CUTSCENE_COROUTINE.md §2/§5):
@@ -1863,6 +1869,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // FUN_004396f0. Bgm_Volume's (volume /1024, time) read as a linear fade over `time` ms [H].
     csHost.se_fn = [&](int se) { audio.play(se, kSfxAnimVol); };
     csHost.water_mode_p = &water_mode;
+    csHost.water_wall_fn = [&](float x, float y, float z, float r, float st) {
+        bullets.spawn_water_probe({x, y, z}, r, st);    // the falling splash probe (GoXx type 0x16)
+    };
     // Facing in Falcom degrees maps to the view's yaw directly (memory: no 90-degree flip).
     csHost.player_face_fn = [&](float deg) {
         const float yaw = deg * 3.14159265358979323846f / 180.0f;
@@ -2109,6 +2118,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         } else if (cmd == "pos") {                     // print the player's feet and O2
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged));
+        } else if (cmd == "water") {                   // drop the player over the first water triangle
+            const RoomMesh& pm2 = phys_mesh(room);
+            for (std::size_t t = 0; t < pm2.tri_water.size(); ++t) {
+                if (!pm2.tri_water[t]) continue;
+                Vec3 c{};
+                for (int k = 0; k < 3; ++k) {
+                    const RoomVertex& v = pm2.vertices[pm2.indices[t * 3 + std::size_t(k)]];
+                    c.x += v.px / 3.0f; c.y += v.py / 3.0f; c.z += v.pz / 3.0f;
+                }
+                const float fl = floor_at(pm2, c.x, c.z, c.y + 50.0f);
+                feet = {c.x, c.y + 0.5f, c.z};
+                pv = VerticalState{}; pv.grounded = false;
+                std::printf("  [drive] water tri %zu surface %.2f floor below %.2f at (%.2f, %.2f)\n", t, c.y, fl, c.x, c.z);
+                break;
+            }
         } else if (cmd == "jump") {
             drive_jump = true;
         } else if (cmd == "skill+" || cmd == "skill-") {   // hold / release the skill button
@@ -2915,8 +2939,40 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             settle_vertical(pv, oy, last_floor, kOriginH, submerged);
             {   // The water test after the vertical step (FUN_0046fba0 0x46fd7c -> FUN_0045c490).
-                const bool sub = water_mode == 2;
-                if (sub != submerged) { water_transition(pv); submerged = sub; }
+                // Mode 2: submerged throughout. Mode 1: a ray up from feet - 0.25 into the water
+                // tree; submerged past a depth of 1.1, wading between 0.35 and 2.0; a change of
+                // +0x38a caps the timer at 0.1; a wading change or a surfacing splashes.
+                if (splash_cd > 0) --splash_cd;
+                if (water_mode == 2) {
+                    if (!submerged) { water_transition(pv); submerged = true; }
+                    wading = false;
+                } else if (phys_mesh(room).has_water()) {
+                    const float o0 = feet.y - 0.25f;                 // 0x6bd244 [not modelled] sand2's -0.7
+                    const float surf = water_above(phys_mesh(room), feet.x, o0, feet.z);
+                    if (surf <= kNoFloor) {
+                        submerged = wading = false;                   // no hit: both cleared, no splash
+                    } else {
+                        const float depth = surf - o0;
+                        const bool sub = depth > 1.1f;                // 0x6bd464
+                        bool surfaced = false;
+                        if (sub != submerged) {
+                            water_transition(pv);
+                            surfaced = !sub;
+                            submerged = sub;
+                        }
+                        const bool wade = depth > 0.35f && depth < 2.0f;   // 0x6bd2b0 / 0x6bd580
+                        if (wade != wading || surfaced) {
+                            wading = wade;
+                            if (splash_cd == 0) {                     // 0x45c90d..0x45ca04
+                                splash_cd = 15;
+                                spawn_sim_fx(0x44, {feet.x, surf + 0.15f, feet.z}, {}, 1.0f, {}, 0, {});
+                                sfx_at(0x30, feet, kSfxAnimVol);
+                            }
+                        }
+                    }
+                } else {
+                    submerged = wading = false;
+                }
             }
             grounded = pv.grounded;
             feet.y = oy - kOriginH;
@@ -3009,6 +3065,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // view's player_iframes.
                 aiw.player_fn = [&]() -> Actor* { return world.player(); };
                 aiw.hide_gauge_fn = [&] { hud.hide_boss_gauge(); };
+                // The current scene's directory, e.g. "s_30\s_3080\", compared case-blind.
+                aiw.in_room_fn = [&](const char* dir) {
+                    std::string want = dir, have = (room.dir.parent_path().filename() / room.dir.filename()).string();
+                    for (char& c : want) c = char(std::tolower((unsigned char)c) == '/' ? '\\' : std::tolower((unsigned char)c));
+                    for (char& c : have) c = char(std::tolower((unsigned char)c) == '/' ? '\\' : std::tolower((unsigned char)c));
+                    while (!want.empty() && want.back() == '\\') want.pop_back();
+                    return have == want;
+                };
                 aiw.raw_fn = [&](int cast) -> const float* {
                     const Enemy* er = etab.get(cast);
                     return er ? er->ai_raw : nullptr;
@@ -3300,6 +3364,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // FUN_0045c490 [BYTES 0x45d371]: a tagged actor's glow phase +1 per tick.
                 // [not modelled] +4/+5 in state +0x6f0 == 2 (its meaning for enemies is unknown).
                 if (a.tag.tagged()) a.glow_phase = std::uint8_t(a.glow_phase + 1);
+                ++a.age_ticks;                          // +0x504, every actor every tick (0x45d32d; M900's ring reads Hugo's)
                 // The cosmetic hit flash fades on the dead too (a duel puppet stays on screen).
                 if (a.hit_flash > 0) --a.hit_flash;
                 if (a.is_player() || !a.alive()) continue;

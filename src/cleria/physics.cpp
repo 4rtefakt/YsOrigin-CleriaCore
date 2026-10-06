@@ -8,6 +8,8 @@ namespace {
 
 inline Vec3 v(const RoomVertex& r) { return {r.px, r.py, r.pz}; }
 inline Vec3 sub(const Vec3& a, const Vec3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+// The solid tree only: water triangles (RoomMesh::tri_water) are not collided with.
+inline bool water_tri(const RoomMesh& m, std::size_t t) { return t < m.tri_water.size() && m.tri_water[t]; }
 
 // Closest point on triangle abc to p (Ericson, Real-Time Collision Detection).
 Vec3 closest_on_tri(const Vec3& p, const Vec3& a, const Vec3& b, const Vec3& c) {
@@ -57,6 +59,7 @@ float floor_at(const RoomMesh& m, float x, float z, float ceiling, int* out_tri)
     const auto& idx = m.indices;
     const auto& vp = m.vertices;
     for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        if (water_tri(m, i / 3)) continue;
         const Vec3 a = v(vp[idx[i]]), b = v(vp[idx[i + 1]]), c = v(vp[idx[i + 2]]);
         // XZ bounding-box reject.
         if (x < std::min({a.x, b.x, c.x}) || x > std::max({a.x, b.x, c.x}) ||
@@ -87,6 +90,7 @@ Vec3 resolve_walls(const RoomMesh& m, Vec3 pos, float radius, float height) {
         bool moved = false;
         const Vec3 q = {pos.x, pos.y + height * 0.5f, pos.z};
         for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        if (water_tri(m, i / 3)) continue;
             const Vec3 a = v(vp[idx[i]]), b = v(vp[idx[i + 1]]), c = v(vp[idx[i + 2]]);
             // Vertical span reject: triangle entirely above/below the capsule.
             if (std::max({a.y, b.y, c.y}) < pos.y ||
@@ -244,6 +248,7 @@ Vec3 collide_and_slide(const RoomMesh& m, Vec3 pos, Vec3 vel, float radius) {
         const float loy = std::min(pos.y, dest.y) - radius, hiy = std::max(pos.y, dest.y) + radius;
         const float loz = std::min(pos.z, dest.z) - radius, hiz = std::max(pos.z, dest.z) + radius;
         for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        if (water_tri(m, i / 3)) continue;
             const Vec3 a = v(vp[idx[i]]), b = v(vp[idx[i + 1]]), c = v(vp[idx[i + 2]]);
             if (std::max({a.x, b.x, c.x}) < lox || std::min({a.x, b.x, c.x}) > hix) continue;
             if (std::max({a.y, b.y, c.y}) < loy || std::min({a.y, b.y, c.y}) > hiy) continue;
@@ -271,6 +276,7 @@ bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b) {
     const auto& idx = m.indices;
     const auto& vp = m.vertices;
     for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        if (water_tri(m, i / 3)) continue;
         const Vec3 p0 = v(vp[idx[i]]), p1 = v(vp[idx[i + 1]]), p2 = v(vp[idx[i + 2]]);
         const Vec3 e1 = sub(p1, p0), e2 = sub(p2, p0);
         const Vec3 h = cross(d, e2);
@@ -299,6 +305,7 @@ float nearest_crossing(const RoomMesh& m, const Vec3& a, const Vec3& b, std::siz
     float best = 2.0f;
     Vec3 bn{};
     for (std::size_t i = t0 * 3; i + 2 < idx.size() && i < t1 * 3; i += 3) {
+        if (water_tri(m, i / 3)) continue;
         const Vec3 p0 = v(vp[idx[i]]), p1 = v(vp[idx[i + 1]]), p2 = v(vp[idx[i + 2]]);
         const Vec3 e1 = sub(p1, p0), e2 = sub(p2, p0);
         const Vec3 h = cross(d, e2);
@@ -342,6 +349,7 @@ bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r) {
     const auto& vp = m.vertices;
     const float r2 = r * r;
     for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        if (water_tri(m, i / 3)) continue;
         const Vec3 A = v(vp[idx[i]]), B = v(vp[idx[i + 1]]), C = v(vp[idx[i + 2]]);
         const Vec3 ab = sub(B, A), ac = sub(C, A), ap = sub(c, A);
         Vec3 q;
@@ -372,6 +380,31 @@ bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r) {
         if (dot(dq, dq) <= r2) return true;
     }
     return false;
+}
+
+// FUN_0045c490's ray (0, +reach, 0) from (x, y, z) against the water tree only: the lowest
+// water surface at or above y, or kNoFloor (WATER.md §1a).
+float water_above(const RoomMesh& m, float x, float y, float z, float reach) {
+    float best = kNoFloor;
+    if (m.tri_water.empty()) return best;
+    const auto& idx = m.indices;
+    const auto& vp = m.vertices;
+    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        if (!water_tri(m, i / 3)) continue;
+        const Vec3 a = v(vp[idx[i]]), b = v(vp[idx[i + 1]]), c = v(vp[idx[i + 2]]);
+        if (x < std::min({a.x, b.x, c.x}) || x > std::max({a.x, b.x, c.x}) ||
+            z < std::min({a.z, b.z, c.z}) || z > std::max({a.z, b.z, c.z}))
+            continue;
+        const float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+        if (std::fabs(d) < 1e-8f) continue;
+        const float wa = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / d;
+        const float wb = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / d;
+        const float wc = 1.0f - wa - wb;
+        if (wa < -1e-3f || wb < -1e-3f || wc < -1e-3f) continue;
+        const float h = wa * a.y + wb * b.y + wc * c.y;
+        if (h >= y && h <= y + reach && (best == kNoFloor || h < best)) best = h;
+    }
+    return best;
 }
 
 }  // namespace cleria

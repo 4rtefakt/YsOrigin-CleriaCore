@@ -82,6 +82,12 @@ void m810_dead(Actor&, AiWorld&);                              // its handler's 
 AiOut m900(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004731d0 / FUN_004dab30 Eyes of Fact (M810's)
 AiOut m830(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004e9870 / FUN_004e8050 Galleon (duel)
 void m830_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4e98bd)
+AiOut m820(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004e2bd0 / FUN_004df8c0 Toal (duel)
+void m820_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4e2c1d)
+AiOut m840(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004df410 / FUN_004dce30 Shion (duel)
+void m840_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4df45d)
+AiOut m860(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004e7af0 / FUN_004e3070 Kishgal (duel)
+void m860_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4e7bac)
 AiOut m500(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00485050 Oggnome (teleporter)
 AiOut m200(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047db90 Venueba
 AiOut m250(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048e190 Nipper (hops)
