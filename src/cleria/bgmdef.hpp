@@ -18,8 +18,9 @@ namespace cleria {
 class BgmDefs {
   public:
     // Locates the music folder and parses its bgmdef. Search order:
-    //   $CLERIA_MUSIC_DIR, <asset_root>/music, <asset_root>/../music,
-    //   <asset_root>/../release/music
+    //   $CLERIA_MUSIC_DIR, <install>/release/music (when asset_root is a data folder whose
+    //   manifest names the install, src/cleria/gamedata), <asset_root>/music,
+    //   <asset_root>/../music, <asset_root>/../release/music
     bool load(const std::filesystem::path& asset_root, bool japanese = false);
 
     bool ready() const { return !names_.empty(); }

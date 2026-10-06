@@ -37,8 +37,9 @@ const char* movie_file(int idx);
 // frames at 60 fps (218.0 s) match BGM 19 (YSO_019.ogg, 218.05 s), the demo1 soundtrack.
 std::vector<const char*> movie_file_candidates(int idx);
 
-// Where the movies are looked for: $CLERIA_MOVIE_DIR, <asset_root>/movie (where the release\
-// AVIs are copied, like assets/music), then <asset_root>/../release. Empty if not found.
+// Where the movies are looked for: $CLERIA_MOVIE_DIR, <install>/release when asset_root is a
+// data folder whose manifest names the install (src/cleria/gamedata), <asset_root>/movie (where
+// the release\ AVIs were copied, like assets/music), then <asset_root>/../release. Empty if not found.
 std::filesystem::path find_movie(const std::filesystem::path& asset_root, int idx);
 
 // "demo3\" / "DEMO3" / "demo3" -> 3; anything else -> 0.

@@ -1,6 +1,8 @@
 # ---------------------------------------------------------------------------
 # Game data — NEVER commit. This is Falcom's copyrighted content; CleriaCore is a
-# clean-room engine that READS it. Extract it from your own copy of the game:
+# clean-room engine that READS it. Unpack it from your own copy of the game with
+# `cleria-gamedata --install` (into %LOCALAPPDATA%\CleriaCore\data, outside the repo), or the
+# legacy route into assets/:
 #   python tools/extract_assets.py <install>/release/data.ni    assets
 #   python tools/extract_assets.py <install>/release/data_us.ni assets   # US overlay, 2nd
 /assets/

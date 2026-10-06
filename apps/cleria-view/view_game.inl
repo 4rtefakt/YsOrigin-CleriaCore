@@ -125,6 +125,75 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int window_mode = settings().s.cleria.borderless_fullscreen ? 1 : 0;   // 0 windowed, 1 borderless
     if (window_mode == 1 && !offscreen) SDL_SetWindowFullscreen(win, true);
     auto persist = [] { settings().touch(); settings().save(); };   // a shell edit, saved at once
+    // The shell's game-data setup: a folder pick (SDL's native dialog, answered on any thread), a
+    // validation, and the unpack on a worker thread (gamedata::InstallTask), polled each frame.
+    struct GameDataUi {
+        gamedata::InstallTask task;
+        gamedata::Status st;
+        std::string msg;
+        bool msg_ok = false;
+        bool was_running = false;
+        int refresh = 0;
+        fs::path asset_root;
+        std::mutex mu;
+        std::string picked;                     // set by the dialog callback
+        bool ready() const { return st.state == gamedata::State::Ready; }
+        std::string status_line() const {
+            if (ready()) return st.stale ? "Ready (your install changed since - unpack again)" : "Ready";
+            if (st.partial) return "Unpack interrupted - locate Ys Origin again";
+            return "Using the development assets folder";
+        }
+        void start(const fs::path& dir) {
+            const gamedata::Validation v = gamedata::validate(dir);
+            if (!v.ok) {
+                msg = "Not a Ys Origin folder" + (v.missing.empty() ? std::string() : ": missing " + v.missing[0]);
+                msg_ok = false;
+                return;
+            }
+            msg.clear();
+            if (!task.start(v.root)) { msg = "Could not start unpacking."; msg_ok = false; }
+        }
+        void pick(SDL_Window* w) {
+            SDL_ShowOpenFolderDialog([](void* u, const char* const* list, int) {
+                auto* self = static_cast<GameDataUi*>(u);
+                if (!list || !list[0]) return;      // cancelled or failed
+                std::lock_guard<std::mutex> lk(self->mu);
+                self->picked = list[0];
+            }, this, w, nullptr, false);
+        }
+        void find_and_install() {
+            for (const gamedata::Validation& v : gamedata::find_installs())
+                if (v.ok) { start(v.root); return; }
+            msg = "Ys Origin was not found in your Steam libraries - use Locate instead.";
+            msg_ok = false;
+        }
+        void poll() {
+            std::string p;
+            { std::lock_guard<std::mutex> lk(mu); p.swap(picked); }
+            if (!p.empty()) start(fs::u8path(p));
+            const bool run = task.running();
+            if (was_running && !run) {          // just finished
+                const gamedata::InstallResult r = task.result();
+                if (r.ok) {
+                    msg_ok = true;
+                    char buf[160];
+                    std::snprintf(buf, sizeof buf, "Unpacked %llu files in %.0f s.%s", (unsigned long long)r.files,
+                                  r.seconds,
+                                  fs::absolute(asset_root) == fs::absolute(gamedata::data_dir())
+                                      ? "" : " Restart CleriaCore to use it.");
+                    msg = buf;
+                } else {
+                    msg_ok = false;
+                    msg = r.cancelled ? "Unpacking cancelled." : ("Unpacking failed: " + r.error);
+                }
+                refresh = 0;
+            }
+            was_running = run;
+            if (!run && refresh-- <= 0) { st = gamedata::status(); refresh = 120; }
+        }
+    };
+    static GameDataUi gd;
+    gd.asset_root = asset_root;
     {
         auto vol = [&](ui::List& L, const char* label, int& v, const char* desc, bool bgm) {
             float pct = std::round(float(v) * 100.0f / 1024.0f);
@@ -136,12 +205,31 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
         };
         shell.panel.add("Prelaunch", [&](ui::List& L) {
+            // The game data (src/cleria/gamedata): CleriaCore unpacks the install's own data.ni / data.na
+            // (+ the data_us overlay) into its data folder; music and movies are read from the install.
+            gd.poll();
             ui::section(L, "Game data");
-            ui::info(L, "Data folder", fs::absolute(asset_root).lexically_normal().string().c_str(), ui::kValue,
-                     "Where CleriaCore reads Ys Origin's game files from.");
-            ui::info(L, "Status", "Ready", ui::kGood, "All the game files CleriaCore needs were found.");
-            ui::button(L, "Locate Ys Origin...", "Pick your Ys Origin install folder. (Arrives with the game-data "
-                       "installer: CleriaCore will read the game's own data.ni / data.na directly.)", false);
+            if (gd.task.running()) {
+                const gamedata::Progress pr = gd.task.progress();
+                char buf[96];
+                std::snprintf(buf, sizeof buf, "Unpacking...  %d%%  (%llu / %llu files)",
+                              pr.bytes_total ? int(pr.bytes_done * 100 / pr.bytes_total) : 0,
+                              (unsigned long long)pr.files_done, (unsigned long long)pr.files_total);
+                ui::info(L, "Status", buf, ui::kWarn);
+                if (ui::button(L, "Cancel", "Stop unpacking. Nothing in your Ys Origin install is touched.")) gd.task.cancel();
+            } else {
+                ui::info(L, "Status", gd.status_line().c_str(), gd.ready() ? ui::kGood : ui::kWarn);
+                if (!gd.st.install.empty())
+                    ui::info(L, "Ys Origin install", gd.st.install.string().c_str());
+                ui::info(L, "Data folder", fs::absolute(asset_root).lexically_normal().string().c_str(), ui::kValue);
+                if (ui::button(L, "Locate Ys Origin...",
+                               "Pick your Ys Origin install folder (the one with yso_win.exe). CleriaCore unpacks the "
+                               "game's own data from it into its data folder; your install is never modified."))
+                    gd.pick(win);
+                if (ui::button(L, "Find automatically", "Look for Ys Origin in your Steam libraries."))
+                    gd.find_and_install();
+            }
+            if (!gd.msg.empty()) ui::info(L, "", gd.msg.c_str(), gd.msg_ok ? ui::kGood : ui::kWarn);
             ui::section(L, "Startup");
             if (ui::toggle(L, "Skip logo movie", &settings().s.cleria.skip_logo_movie,
                        "Go straight to the title screen instead of playing the Falcom logo movie first."))
@@ -507,7 +595,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         shell.launcher = true;
         shell.under = [&](ImDrawList* dl, float w, float h, const ui::Nav& nav) {
             const int hit = menu.draw(dl, w, h, nav, kItems, 3, !shell.open);
-            ui::status(dl, h, true, "Game data ready.", "Ys Origin  \xE2\x80\xA2  English");
+            gd.poll();
+            if (gd.task.running()) ui::status(dl, h, false, "Unpacking the game data...", "Settings  \xE2\x80\xA2  Prelaunch");
+            else ui::status(dl, h, true, "Game data ready.", gd.ready() ? "Ys Origin  \xE2\x80\xA2  English"
+                                                                          : "Development assets  \xE2\x80\xA2  English");
             ui::version(dl, w, h, "CleriaCore 0.1 (dev)");
             if (hit == 1) shell.open = true;
             else if (hit >= 0) choice_made = hit;

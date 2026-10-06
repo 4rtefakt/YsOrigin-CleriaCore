@@ -1,5 +1,7 @@
 #include "cleria/bgmdef.hpp"
 
+#include "cleria/gamedata.hpp"
+
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -12,6 +14,8 @@ namespace fs = std::filesystem;
 bool BgmDefs::load(const fs::path& asset_root, bool japanese) {
     std::vector<fs::path> cands;
     if (const char* e = std::getenv("CLERIA_MUSIC_DIR")) cands.emplace_back(e);
+    if (const fs::path rel = gamedata::release_dir_for(asset_root); !rel.empty())
+        cands.push_back(rel / "music");   // the install a data folder was unpacked from
     cands.push_back(asset_root / "music");
     cands.push_back(asset_root.parent_path() / "music");
     cands.push_back(asset_root.parent_path() / "release" / "music");

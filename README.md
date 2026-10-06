@@ -112,6 +112,10 @@ The F1 shell overlay uses Dear ImGui v1.92.9b (MIT): from
 (The game ships its own `vorbisfile.dll`, but those are 32-bit like `yso_win.exe`,
 so an x64 build cannot load them.)
 
+The archive reader inflates with miniz 3.0.2 (MIT): from
+`https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip`, copy the
+amalgamated `miniz.c`, `miniz.h` and `LICENSE` into `third_party/miniz/`.
+
 ```sh
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
@@ -119,25 +123,35 @@ cmake --build build --config Release
 
 ### Assets
 
-`<asset_root>` is a tree of extracted assets (the `MAP/`, `ENEMY/` … tree). Extract
-**both** archives — `data.ni` then `data_us.ni`, in that order: the US overlay
-overwrites 525 scripts and the English text.
+CleriaCore reads your own copy of Ys Origin. `cleria-gamedata` finds the install and
+unpacks its archives (`release/data.ni/.na`, then the English overlay `data_us.ni/.na`
+over it) into CleriaCore's data folder — `%LOCALAPPDATA%\CleriaCore\data`, or
+`$CLERIA_DATA` — natively, in ~20 s; no Python needed. The install is only read.
 
 ```sh
-python tools/extract_assets.py <install>/data.ni    assets
-python tools/extract_assets.py <install>/data_us.ni assets   # overlay, second
+build/Release/cleria-gamedata.exe --find                  # the Steam install(s) it sees
+build/Release/cleria-gamedata.exe --install               # unpack the first one found
+build/Release/cleria-gamedata.exe --install "D:\SteamLibrary\steamapps\common\Ys Origin" [--out <dir>]
+build/Release/cleria-gamedata.exe --status                # none / installing / ready
 ```
 
-**Music** is not in those archives — the tracks are loose `.ogg` files in the
-install's `release/music/`. Point CleriaCore at them with `CLERIA_MUSIC_DIR`, or put
-them where it already looks (`<asset_root>/music`, e.g. `mklink /J assets\music
-"<install>\release\music"`). Without it everything still runs, silently.
+That folder is an `<asset_root>` (the `MAP/`, `ENEMY/` … tree) plus a
+`cleria-gamedata.manifest`, written last, that records the install. `cleria-view` uses it
+when no asset root is given (after `$CLERIA_ASSETS`, before the legacy `assets/` next to
+the exe/repo), and so does `ctest` (`CLERIA_TEST_ASSETS`). Details:
+`build/shell_re/GAMEDATA.md`.
 
-**Movies** (the logo, prologue, opening, inserts, endings) are loose too: copy the
-install's `release/*.avi` and `release/yso_ins0[1-3].dat`, `yso_ed0[12].dat` into
-`<asset_root>/movie` (or set `CLERIA_MOVIE_DIR`). They decode through Windows Media
-Foundation; a missing file is skipped like the game's own open failure. `CLERIA_MOVIE=0`
-turns them off (see `build/event_re/MOVIES.md`).
+**Music, movies and the menu font** are loose files in the install's `release/` and are
+not copied: through the manifest, an unpacked data folder resolves them from
+`<install>/release/music`, `<install>/release/*.avi|*.dat` and
+`<install>/release/yso_ins04.dat`. The older routes still work — `CLERIA_MUSIC_DIR`,
+`CLERIA_MOVIE_DIR`, `CLERIA_FONT_FILE`, or copies under `<asset_root>/music`,
+`<asset_root>/movie`. Movies decode through Windows Media Foundation; a missing file is
+skipped like the game's own open failure. `CLERIA_MOVIE=0` turns them off (see
+`build/event_re/MOVIES.md`).
+
+(The old route, `tools/extract_assets.py` into `assets/`, still produces an equivalent
+tree; see GAMEDATA.md for its one known defect.)
 
 ## Play
 
@@ -146,8 +160,8 @@ build/Release/cleria-view.exe                      # no args -> title screen / S
 build/Release/cleria-view.exe <asset_root> <room.SOB>   # jump straight into a room
 ```
 
-With no room argument it finds the asset tree (`$CLERIA_ASSETS`, then next to the
-exe) and boots to the title screen.
+With no room argument it finds the asset tree (`$CLERIA_ASSETS`, then the unpacked data
+folder, then `assets/` next to the exe) and boots to the title screen.
 
 The game controls are retail's own bindings, read from CleriaCore's `yso_win.ini`
 (`%USERPROFILE%\Saved Games\CleriaCore\`, imported once from the retail game's file; see
@@ -202,6 +216,7 @@ grep `std::getenv` in `apps/cleria-view/main.cpp` for the current set.
 src/cleria/        asset core — ymo, sob, sen, scm (cameras), sfo (fog), sct
                    (actors), sef (effects), aia (sprites), aso/xso (VMs), world, physics
 apps/cleria-view/  the engine: real-time renderer + play mode + HUD
+apps/cleria-gamedata/  find / validate a Ys Origin install, unpack it into the data folder
 apps/cleria-dump/  load a room's SOB, export it to .obj
 apps/cleria-xso/   disassemble / run scripts; `--grants` scans the corpus
 docs/formats/      the reverse-engineering specs (YMO, AIA, ASO, XSO, SIDECARS)

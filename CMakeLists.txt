@@ -68,8 +68,29 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/save.cpp
   src/cleria/world.cpp
   src/cleria/input_map.cpp
-  src/cleria/settings.cpp)
+  src/cleria/settings.cpp
+  src/cleria/ni_archive.cpp
+  src/cleria/gamedata.cpp)
 target_include_directories(cleria PUBLIC src)
+
+# miniz 3.0.2 (richgel999/miniz, MIT), vendored verbatim in third_party/miniz: inflate + crc32
+# for the game's NI/NA archives (src/cleria/ni_archive). Own target so its warnings stay out of /W4.
+add_library(miniz STATIC "${TP}/miniz/miniz.c")
+target_include_directories(miniz PUBLIC "${TP}/miniz")
+if(MSVC)
+  target_compile_options(miniz PRIVATE /W0)
+else()
+  target_compile_options(miniz PRIVATE -w)
+endif()
+target_link_libraries(cleria PRIVATE miniz)
+
+# cleria-gamedata — find / validate a Ys Origin install and unpack it (src/cleria/gamedata).
+add_executable(cleria-gamedata apps/cleria-gamedata/main.cpp)
+target_link_libraries(cleria-gamedata PRIVATE cleria)
+
+# cleria-gamedatatest — the NI/NA reader vs the real install and assets/ (skips without them).
+add_executable(cleria-gamedatatest apps/cleria-gamedatatest/main.cpp)
+target_link_libraries(cleria-gamedatatest PRIVATE cleria)
 if(WIN32)
   # settings.cpp: SHGetKnownFolderPath(FOLDERID_SavedGames) / CoTaskMemFree / GetUserNameA.
   target_link_libraries(cleria PUBLIC shell32 ole32 advapi32)
@@ -270,11 +291,25 @@ add_custom_command(TARGET cleria-view POST_BUILD
 
 # ---- tests ------------------------------------------------------------------
 # The self-verifying test apps, registered so `ctest -C Release` runs the suite.
-# All take the extracted asset root (default `assets/`, resolved from the source
-# dir) and exit non-zero on any failed assert.
+# All take the extracted asset root and exit non-zero on any failed assert. The root is
+# CLERIA_TEST_ASSETS: by default CleriaCore's data folder when an unpack has completed there
+# ($CLERIA_DATA, else %LOCALAPPDATA%/CleriaCore/data; see src/cleria/gamedata.hpp), else the
+# legacy `assets/` in the source dir.
+if(DEFINED ENV{CLERIA_DATA})
+  set(_cleria_data "$ENV{CLERIA_DATA}")
+else()
+  set(_cleria_data "$ENV{LOCALAPPDATA}/CleriaCore/data")
+endif()
+file(TO_CMAKE_PATH "${_cleria_data}" _cleria_data)
+if(EXISTS "${_cleria_data}/cleria-gamedata.manifest" AND NOT EXISTS "${_cleria_data}/.cleria-installing")
+  set(_cleria_assets_default "${_cleria_data}")
+else()
+  set(_cleria_assets_default "${CMAKE_SOURCE_DIR}/assets")
+endif()
+set(CLERIA_TEST_ASSETS "${_cleria_assets_default}" CACHE PATH "Asset root the ctest suite runs on")
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest gamedatatest)
   add_test(NAME ${t}
-           COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
+           COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endforeach()

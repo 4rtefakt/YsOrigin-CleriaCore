@@ -1,5 +1,7 @@
 #include "cleria/movie.hpp"
 
+#include "cleria/gamedata.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -50,6 +52,7 @@ std::vector<const char*> movie_file_candidates(int idx) {
 fs::path find_movie(const fs::path& asset_root, int idx) {
     std::vector<fs::path> dirs;
     if (const char* e = std::getenv("CLERIA_MOVIE_DIR")) dirs.emplace_back(e);
+    dirs.push_back(gamedata::release_dir_for(asset_root));   // empty unless a data folder
     dirs.push_back(asset_root / "movie");
     dirs.push_back(asset_root.parent_path() / "release");
     for (const fs::path& d : dirs)

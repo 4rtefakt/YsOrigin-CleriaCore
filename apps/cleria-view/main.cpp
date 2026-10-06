@@ -58,6 +58,7 @@
 #include "cleria/surface.hpp"
 #include "cleria/audio.hpp"
 #include "cleria/bgmdef.hpp"
+#include "cleria/gamedata.hpp"
 #include "cleria/movie.hpp"
 #include "cleria/scenelist.hpp"
 #include "cleria/items.hpp"
@@ -334,12 +335,15 @@ static void build_indexes(Gpu& g, const fs::path& root) {
     std::printf("indexed %zu textures, %zu rooms\n", g.dds_index.size(), g.sob_index.size());
 }
 
-// Locate the extracted-asset tree when not given on the command line:
-// $CLERIA_ASSETS, then <exe>/../../assets and <exe>/assets, then the repo path.
+// Locate the extracted-asset tree when not given on the command line: $CLERIA_ASSETS, then
+// CleriaCore's data folder once an unpack there is complete (src/cleria/gamedata: $CLERIA_DATA,
+// else %LOCALAPPDATA%\CleriaCore\data), then the legacy <exe>/../../assets, <exe>/assets and
+// the repo path.
 static fs::path default_assets(const char* argv0) {
     std::error_code ec;
     if (const char* e = std::getenv("CLERIA_ASSETS"))
         if (fs::exists(fs::path(e) / "MAP", ec)) return e;
+    if (fs::path d = gamedata::ready_data_dir(); !d.empty()) return d;
     const fs::path exedir = fs::absolute(fs::path(argv0), ec).parent_path();
     for (const fs::path& c : {exedir / ".." / ".." / "assets", exedir / "assets",
                               fs::path("C:/Users/kores/repos/YsOrigin-CleriaCore/assets")})

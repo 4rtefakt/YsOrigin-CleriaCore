@@ -1398,7 +1398,9 @@ static fs::path find_felghana(const fs::path& asset_root) {
     if (const char* e = std::getenv("CLERIA_FONT_FILE")) {
         fs::path p = e; std::error_code ec; if (fs::exists(p, ec)) return p;
     }
+    const fs::path rel = cleria::gamedata::release_dir_for(asset_root);   // a data folder's install
     const fs::path cands[] = {
+        rel.empty() ? fs::path() : rel / "yso_ins04.dat",
         asset_root / "yso_ins04.dat",
         asset_root / "FONT" / "yso_ins04.dat",
         asset_root.parent_path() / "release" / "yso_ins04.dat",
