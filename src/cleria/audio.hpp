@@ -47,6 +47,10 @@ class Audio {
     // cap policy is not traced either].
     void play_at(int id, float pan, float dist, float volume = 1.0f);
 
+    // Se_Stop (op 0xbf -> FUN_0043a1c0, audio command 6 -> FUN_005d8970): every playing voice of
+    // `id` ramps linearly to silence over `ms` (0 = at once) and is then dropped.
+    void stop_se(int id, int ms);
+
     // Master SFX gain (0..1), applied on top of each voice's own volume. Driven by the
     // Option screen's "SFX Volume" setting. Retail applies a DirectSound centibel (log/dB) taper
     // rather than a linear one (FUN_005ce820): gain_cB = 3322*log10(norm) -> amplitude =
@@ -97,6 +101,7 @@ class Audio {
         std::size_t pos = 0;
         float volume = 1.0f;
         float gl = 1.0f, gr = 1.0f;  // per-channel pan gains (stereo interleave)
+        float fade = 0.0f;           // stop_se: volume lost per frame (0 = not fading)
     };
 
     // SDL types are kept out of this header so cleria-dump and friends need not

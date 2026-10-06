@@ -253,6 +253,10 @@ struct Actor {
     // The factory's flag words +0x12c / +0x130 (factory_flags.hpp, build/ai_spec/FACTORY.md).
     std::uint32_t flags12c = 0x00110010;
     std::uint32_t flags130 = 0;
+    // The sprite's render-state word +0x294 bit 0x400 (D3DRS_ZENABLE, FUN_005eb5b0 bit 10): set by the
+    // factory's 0x24541 (FUN_00459410), op 0x158 Chr_ZTest writes it. [not modelled] the sprite pass
+    // always depth-tests.
+    bool ztest = true;
     int aso_local15 = 0;   // engine: +0xa18 = ASO local int 15, applied when its script binds
     // engine: +0x504, a free-running per-actor tick counter: the actor tick FUN_0045c490 does
     // `inc [esi+0x504]` (0x45d32d) every tick (build/aitick_re/AITICK.md §1d). Read by M900's

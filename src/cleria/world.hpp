@@ -206,6 +206,9 @@ class ActorWorld : public XsoHost {
     void chr_shadow(int id, bool on) override {                        // 0x153 (FUN_00570a80)
         if (Actor* a = find(id)) a->flags12c = (a->flags12c & ~1u) | (on ? 0u : 1u);
     }
+    void chr_ztest(int id, bool on) override {                          // 0x158 (FUN_00571790)
+        if (Actor* a = find(id)) a->ztest = on;
+    }
     void chr_jump(int id, float v) override {                           // 0x141 (FUN_005709d0)
         if (Actor* a = find(id)) { a->vert.t = v; a->pos.y += v; a->vert.grounded = false; }
     }

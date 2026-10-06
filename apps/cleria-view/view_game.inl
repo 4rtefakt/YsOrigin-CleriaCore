@@ -1521,6 +1521,21 @@ title_again:
         void se_play(int se) override { if (se_fn) se_fn(se); }
         void bgm_volume(int v, int t) override { if (bgm_volume_fn) bgm_volume_fn(v, t); }
         void set_skill(int i) override { if (set_skill_fn) set_skill_fn(i); }
+        // 0xbf Se_Stop, 0x118 Eft_LocateChr, 0x11c Eft_SetAlphaTarget (the view's lambdas), 0x158
+        // Chr_ZTest (the world actor's flag), 0x10a GlareLevel: the byte 0x76c1c5 only [not modelled:
+        // there is no glare/bloom pass].
+        std::function<void(int, int)> se_stop_fn;
+        std::function<void(int, int, float, float, float, float, int, const std::string&)> locate_chr_fx;
+        std::function<void(const std::string&, float, int)> fx_alpha_fn;
+        int glare = 0;
+        void se_stop(int id, int ms) override { if (se_stop_fn) se_stop_fn(id, ms); }
+        void locate_effect_chr(int eff, int id, float dist, float deg, float dy, float scale, int mode,
+                               const std::string& n) override {
+            if (locate_chr_fx) locate_chr_fx(eff, rid(id), dist, deg, dy, scale, mode, n);
+        }
+        void effect_alpha_target(const std::string& n, float a, int frames) override { if (fx_alpha_fn) fx_alpha_fn(n, a, frames); }
+        void glare_level(int v) override { glare = v; }
+        void chr_ztest(int id, bool on) override { if (worldHost) worldHost->chr_ztest(rid(id), on); }
         // The look modes (CHR_OPS.md §6): the world writes the look block (the player's too, on
         // the world player actor) and the facing turns per tick. Without a world player the old
         // instant face is kept.
@@ -2106,6 +2121,20 @@ title_again:
     // 0xBC / 0xBB / 0x8F. [H] Se_Play's 2nd operand (1024 everywhere) is not read by
     // FUN_004396f0. Bgm_Volume's (volume /1024, time) read as a linear fade over `time` ms [H].
     csHost.se_fn = [&](int se) { audio.play(se, kSfxAnimVol); };
+    csHost.se_stop_fn = [&](int se, int ms) { audio.stop_se(se, ms); };
+    // 0x11c Eft_SetAlphaTarget (FUN_0056fba0): every effect not freed whose name matches (djb2-xor
+    // hash + _stricmp) gets +0x1e4 = alpha, +0x1e8 = 1/frames (1.0 for 0); FUN_00451e60 steps it.
+    csHost.fx_alpha_fn = [&](const std::string& n, float a, int frames) {
+        for (auto& f : fxsim.effects()) {
+            if (f->dead || f->name.size() != n.size()) continue;
+            bool same = true;
+            for (std::size_t k = 0; k < n.size() && same; ++k)
+                same = std::tolower((unsigned char)f->name[k]) == std::tolower((unsigned char)n[k]);
+            if (!same) continue;
+            f->alpha_target = a;
+            f->alpha_step = frames != 0 ? 1.0f / float(frames) : 1.0f;
+        }
+    };
     csHost.water_mode_p = &water_mode;
     csHost.water_wall_fn = [&](float x, float y, float z, float r, float st) {
         bullets.spawn_water_probe({x, y, z}, r, st);    // the falling splash probe (GoXx type 0x16)
@@ -2132,6 +2161,40 @@ title_again:
         if (id == 13 || id == 999) { *out = feet; return true; }
         if (const Actor* a = world.find(id)) { *out = a->pos; return true; }
         return false;
+    };
+    // 0x118 Eft_LocateChr (FUN_0056f600) [BYTES 0x56f600..0x56f873]: the actor's origin (+0x50..) and
+    // heading (+0x314); side (fx+0x1d7) 0 for class 0xd / 0x54..0xa5, else 1.
+    //   mode 0: FUN_00450410 at origin + (cos(h + deg) * dist, dy, sin(h + deg) * dist), rot
+    //           (0, deg - (h + pi/2), 0), scale (s, s, s): placed once, not attached.
+    //   mode m: FUN_00450410 at 0 with scale s, then FUN_00451c20: local = T(0, dy, -dist) *
+    //           RotYPR(deg, 0, 0) * S(s), parent = the actor's +0x20, attach mode m.
+    // [H] the actor's +0x20 is taken as its origin translation (actor_mats), as the other attaches.
+    csHost.locate_chr_fx = [&](int eff, int id, float dist, float deg, float dy, float s, int mode,
+                               const std::string& name) {
+        const bool pl = id == 13 || id == 999;
+        const Actor* a = pl ? world.player() : world.find(id);
+        if (!pl && !a) return;
+        const Vec3 org = pl ? Vec3{feet.x, feet.y + kOriginH, feet.z} : Vec3{a->pos.x, a->pos.y + a->height, a->pos.z};
+        const float h = pl ? std::atan2(face_dir.z, face_dir.x) : heading_of_yaw(a->yaw);
+        const int cls = pl ? 13 : a->cast_id;
+        ef2sim::SpawnParams sp;
+        sp.side = (cls == 0xd || (cls >= 0x54 && cls <= 0xa5)) ? 0 : 1;
+        const float d = deg * 0.017453292f;                     // 0x6bd0dc
+        ef2sim::Effect* fx = nullptr;
+        if (mode == 0) {
+            const float ang = h + d;
+            fx = spawn_sim_fx(eff, {org.x + std::cos(ang) * dist, org.y + dy, org.z + std::sin(ang) * dist},
+                              {0.0f, d - (h + 1.5707964f), 0.0f}, s, sp, 0, {});
+        } else if (a) {
+            fx = spawn_sim_fx(eff, {}, {}, s, sp, 0, {});
+            if (fx) {
+                fx->local = ef2sim::mul(ef2sim::mul(ef2sim::translation(0.0f, dy, -dist), ef2sim::rot_ypr(d, 0.0f, 0.0f)),
+                                        ef2sim::scaling(s, s, s));
+                fx->attach_parent = &actor_mats[a->instance_id];
+                fx->attach_mode = mode;
+            }
+        }
+        if (fx) fx->name = name;
     };
     csHost.emotion_fn = [&](int owner, int kind, float yoff) { spawn_emotion(emotions, owner, kind, yoff); };
     // 0x187 live: a mesh the room build does not have yet is added and the room rebuilt.
@@ -2294,6 +2357,7 @@ title_again:
     //   ok / esc / up / down  confirm / cancel / a cursor step: the pause book while it is up (its
     //                         frames count as ticks), else the windows and the game-over menu
     //   hp=n / sp=n           the player's HP (0 = die) / the SP wallet
+    //   fx                    the named (script-placed) effects and the glare byte
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
@@ -2467,15 +2531,22 @@ title_again:
                 else for (const EnemyRender& e : render)
                     if (e.actor == a && e.avm.ok()) { sec = e.avm.section(); tag = e.avm.anim_tag(); fr = e.avm.frame(); }
                 std::printf("  [chr] %d face %.1f cmd %.1f mode %d tgt %d dir %.1f mult %.2f run %d pin %d/%d motion %d "
-                            "aso %d/%d/%d tremble %d/%d/%d %.1f,%.1f%s foot %d fly %d%s pos (%.2f, %.2f, %.2f)\n",
+                            "aso %d/%d/%d tremble %d/%d/%d %.1f,%.1f%s foot %d fly %d%s z %d pos (%.2f, %.2f, %.2f)\n",
                             id, h * 57.29578f, a->look.cmd * 57.29578f, int(a->look.mode), a->look.target,
                             a->look.dir * 57.29578f, a->look.mult, int((a->flags12c & 0x20u) != 0),
                             a->pattern.tag, a->pattern.frame, a->anim_motion, sec, tag, fr,
                             a->tremble.ticks, a->tremble.period, a->tremble.cnt, a->tremble.dx, a->tremble.dy,
                             tremble_active(a->tremble) ? " ON" : "", int(a->footsteps), int(a->flyer),
-                            a->fly_r2 != 0.0f ? " flyto" : "",
+                            a->fly_r2 != 0.0f ? " flyto" : "", int(a->ztest),
                             pl ? feet.x : a->pos.x, pl ? feet.y : a->pos.y, pl ? feet.z : a->pos.z);
             }
+        } else if (cmd == "fx") {                      // the named (script-placed) effects, the glare byte
+            std::printf("  [fx] glare %d\n", csHost.glare);
+            for (const auto& f : fxsim.effects())
+                if (!f->name.empty() && !f->dead)
+                    std::printf("  [fx] '%s' id %d alpha %.3f -> %.3f attach %d at (%.2f, %.2f, %.2f)%s\n", f->name.c_str(),
+                                f->id, f->alpha_mul, f->alpha_target, f->attach_mode, f->M.m[3][0], f->M.m[3][1],
+                                f->M.m[3][2], f->kill ? " (killed)" : "");
         } else if (cmd.rfind("obj=", 0) == 0) {        // obj=<name>: stand 1.5 from that scene object, facing it
             std::string ln = cmd.substr(4);
             for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
@@ -5784,13 +5855,13 @@ title_again:
             hud.set_equip(g, items_tbl, asset_root, ids);
         }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
-        // The cutscene overlay, in descending draw key (WNDDIALOG_DRAW.md; the sort direction is
-        // [H], Uncertain #3): the busts (0x0a000000 + priority), the message box (0x08000000),
+        // The cutscene overlay, in descending draw key (WNDDIALOG_DRAW.md §8.1: pass 15 is qsorted
+        // descending [BYTES]): the busts (0x0a000000 + priority), the message box (0x08000000),
         // the caption card (0x06800000), the dialogs (0x03000000 + z).
         if (bookOk && (!csHost.bust_set.empty() || csHost.wtext.alive() || csHost.wdlg.alive() ||
                        csHost.caption_card.alive())) {
             DrawList wl;
-            csHost.bust_set.draw(wl);
+            csHost.bust_set.draw(wl, int(cw), int(ch));
             csHost.wtext.draw(wl, csHost.wdlg.alive());
             csHost.caption_card.draw(wl);
             csHost.wdlg.draw(wl);

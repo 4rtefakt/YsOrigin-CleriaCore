@@ -151,6 +151,19 @@ void Audio::play_at(int id, float pan, float dist, float volume) {
     SDL_UnlockMutex(mx(lock_));
 }
 
+void Audio::stop_se(int id, int ms) {
+    if (!stream_) return;
+    const auto it = clips_.find(id);
+    if (it == clips_.end() || !it->second) return;
+    const Clip* c = it->second.get();
+    // FUN_005d8970: target 0, step = -cur * 16 / ms per 16 ms tick (ms 0 -> 1), i.e. a linear ramp.
+    const float frames = std::max(1.0f, float(ms) * float(rate_) / 1000.0f);
+    SDL_LockMutex(mx(lock_));
+    for (Voice& v : voices_)
+        if (v.clip == c && v.volume > 0.0f) v.fade = v.volume / frames;
+    SDL_UnlockMutex(mx(lock_));
+}
+
 bool Audio::play_bgm(const fs::path& ogg) {
     if (!stream_) return false;
     if (ogg.empty()) {
@@ -270,14 +283,19 @@ void Audio::mix(std::int16_t* out, int frames) {
         if (!v.clip) continue;
         const std::size_t avail = v.clip->samples.size() - v.pos;
         const std::size_t take = std::min<std::size_t>(avail, std::size_t(n));
-        const float g = v.volume * master_;
+        float g = v.volume * master_;
         for (std::size_t k = 0; k < take; ++k) {
+            if (v.fade > 0.0f && ((v.pos + k) & 1) == 0) {    // stop_se: one step per stereo frame
+                v.volume = std::max(0.0f, v.volume - v.fade);
+                g = v.volume * master_;
+            }
             // interleaved stereo: even = L, odd = R (pan gains are 1/1 for 2D plays)
             const float pg = ((v.pos + k) & 1) ? v.gr : v.gl;
             const int mixed = out[k] + int(v.clip->samples[v.pos + k] * g * pg);
             out[k] = std::int16_t(std::clamp(mixed, -32768, 32767));
         }
         v.pos += take;
+        if (v.fade > 0.0f && v.volume <= 0.0f) v.clip = nullptr;   // faded out: dropped below
     }
     voices_.erase(std::remove_if(voices_.begin(), voices_.end(),
                                  [](const Voice& v) {

@@ -182,6 +182,22 @@ struct XsoHost {
     // op 0x119 Eft_Kill(name): remove the named located effect. The barrier break
     // (KEKKAIBREAK) calls `Eft_Kill("eft_barrier")`, so the ward vanishes on clear.
     virtual void kill_effect(const std::string& /*name*/) {}
+    // op 0x118 Eft_LocateChr(eff, id, dist, deg, dy, scale, mode, name) (FUN_0056f600, build/event_re/
+    // EVENTVM_HANDLERS_4.md §4.1): effect `eff` on actor `id` (998 = the script's own). mode 0 places it
+    // once at the actor's origin + (cos, sin)(heading + deg) * dist, dy up; mode != 0 attaches it to the
+    // actor's matrix at local (0, dy, -dist) turned by deg (FUN_00451c20, attach mode = `mode`).
+    virtual void locate_effect_chr(int /*eff*/, int /*id*/, float /*dist*/, float /*deg*/, float /*dy*/,
+                                   float /*scale*/, int /*mode*/, const std::string& /*name*/) {}
+    // op 0x11c Eft_SetAlphaTarget(name, alpha, frames) (FUN_0056fba0): every live effect so named
+    // (case-insensitive) fades its alpha (+0x1e0) to `alpha` at 1/frames a step (frames 0 = at once).
+    virtual void effect_alpha_target(const std::string& /*name*/, float /*alpha*/, int /*frames*/) {}
+    // op 0x10a GlareLevel(i): the bloom level byte 0x76c1c5 (EVENTVM_HANDLERS_4.md §2).
+    virtual void glare_level(int /*level*/) {}
+    // op 0x158 Chr_ZTest(id, on) (FUN_00571790): +0x294 bit 0x400, the actor's D3DRS_ZENABLE.
+    virtual void chr_ztest(int /*id*/, bool /*on*/) {}
+    // op 0xbf Se_Stop(id, ms) (FUN_0043a1c0): audio command 6, every voice of SE `id` fades to
+    // silence over `ms` and stops.
+    virtual void se_stop(int /*id*/, int /*ms*/) {}
     // op 0x112 WaterWallHitchk(x, y, z, radius, step) (handler 0x56ad63, build/ai_spec/BULLETS.md
     // §3.14): a GoXx type-0x16 falling probe (FUN_0058f9a0). The host spawns it with
     // bullet::Bullets::spawn_water_probe. S_2006's WATERWALL loops five of them, (34..38, 25, 97),

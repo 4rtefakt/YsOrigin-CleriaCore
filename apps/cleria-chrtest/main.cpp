@@ -292,6 +292,45 @@ int main(int, char**) {
         if (!ok) for (const std::string& s : h.log) std::printf("    got: %s\n", s.c_str());
         check(ok, "0x132/134/136/138/145/152/159/15d/144/162 reach their host hooks with the stub layouts");
     }
+    // ---- the opening ops: Chr_ZTest, GlareLevel, Se_Stop, Eft_LocateChr, Eft_SetAlphaTarget --------
+    {
+        struct Rec : XsoHost {
+            std::vector<std::string> log;
+            void spawn(int, int, float, float, float, float, int) override {}
+            bool is_alive(int) const override { return false; }
+            void put(const char* f, int a, double b = 0, double c = 0, double d = 0, double e = 0, double g = 0, double k = 0) {
+                char buf[200];
+                std::snprintf(buf, sizeof buf, "%s %d %g %g %g %g %g %g", f, a, b, c, d, e, g, k);
+                log.push_back(buf);
+            }
+            void chr_ztest(int id, bool on) override { put("ztest", id, on); }
+            void glare_level(int v) override { put("glare", v); }
+            void se_stop(int id, int ms) override { put("sestop", id, ms); }
+            void locate_effect_chr(int eff, int id, float dist, float deg, float dy, float s, int mode,
+                                   const std::string&) override { put("locchr", eff, id, dist, deg, dy, s, mode); }
+            void effect_alpha_target(const std::string&, float a, int frames) override { put("fxalpha", frames, a); }
+        } h;
+        Asm as;
+        as.op(0x158, {I_::I(13), I_::I(0)});
+        as.op(0x10a, {I_::I(60)});
+        as.op(0xbf, {I_::I(799), I_::I(1000)});
+        as.op(0x118, {I_::I(155), I_::I(13), I_::F(0.0f), I_::F(0.0f), I_::F(0.3f), I_::F(1.0f), I_::I(0), I_::I(0)});
+        as.op(0x11c, {I_::I(0), I_::F(0.0f), I_::I(50)});
+        XsoVm vm; vm.host = &h;
+        vm.run(Xso::parse(as.bytes()));
+        const std::vector<std::string> want = {
+            "ztest 13 0 0 0 0 0 0", "glare 60 0 0 0 0 0 0", "sestop 799 1000 0 0 0 0 0",
+            "locchr 155 13 0 0 0.3 1 0", "fxalpha 50 0 0 0 0 0 0"};
+        bool ok = h.log.size() == want.size();
+        for (std::size_t k = 0; ok && k < want.size(); ++k) ok = h.log[k] == want[k];
+        if (!ok) for (const std::string& s : h.log) std::printf("    got: %s\n", s.c_str());
+        check(ok, "0x158/10a/bf/118/11c reach their host hooks with the handlers' operand layouts");
+        ActorWorld w(WorldTables{});
+        Actor& a = add_actor(w, 90, {0, 0, 0}, 0.0f);
+        const bool fresh = a.ztest;
+        w.chr_ztest(90, false);
+        check(fresh && !a.ztest, "Chr_ZTest: +0x294 bit 0x400 set by the factory, cleared by (id, 0)");
+    }
 
     std::printf("[chr] %s (%d failed)\n", fails ? "FAIL" : "all OK", fails);
     return fails ? 1 : 0;

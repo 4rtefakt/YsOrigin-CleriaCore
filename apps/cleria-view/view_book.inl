@@ -684,7 +684,7 @@ static int render_wnd(Gpu& g, const fs::path& asset_root, const fs::path& out, s
     for (int i = 0; i < 240; ++i) { t.update({}, snd); d.update({}, snd); }
     DrawList dl;
     if (kind == "title") ts.draw(dl);
-    busts.draw(dl);
+    busts.draw(dl, int(W), int(H));
     cap.draw(dl);
     t.draw(dl, d.alive());
     d.draw(dl);

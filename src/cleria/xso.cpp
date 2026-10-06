@@ -328,6 +328,20 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     }
                     if (sub == 0xbc && nargs >= 1) { host->se_play(op(0)); return Step::Continue; }
                     if (sub == 0xbb && nargs >= 2) { host->bgm_volume(op(0), op(1)); return Step::Continue; }
+                    // 0xbf Se_Stop(id, ms) [BYTES 0x569ae7 -> FUN_0043a1c0(ecx = op0, edx = op1)].
+                    if (sub == 0xbf && nargs >= 2) { host->se_stop(op(0), op(1)); return Step::Continue; }
+                    // 0x10a GlareLevel(i) [BYTES 0x56a85a: byte 0x76c1c5 = op0].
+                    if (sub == 0x10a && nargs >= 1) { host->glare_level(op(0) & 0xff); return Step::Continue; }
+                    // 0x158 Chr_ZTest(id, on) [BYTES FUN_00571790: +0x294 bit 0x400 = (op1 != 0)].
+                    if (sub == 0x158 && nargs >= 2) { host->chr_ztest(op(0), op(1) != 0); return Step::Continue; }
+                    // 0x118 Eft_LocateChr(eff, id, f dist, f deg, f dy, f scale, mode, name)
+                    // [BYTES 0x56b112: FUN_0056f600(op0, op1, op3, op4, op5, op6, name), xmm3 = op2].
+                    if (sub == 0x118 && nargs >= 8) {
+                        host->locate_effect_chr(op(0), op(1), opf(2), opf(3), opf(4), opf(5), op(6), ops(7));
+                        return Step::Continue;
+                    }
+                    // 0x11c Eft_SetAlphaTarget(name, f alpha, frames) [BYTES 0x56b24e: FUN_0056fba0].
+                    if (sub == 0x11c && nargs >= 3) { host->effect_alpha_target(ops(0), opf(1), op(2)); return Step::Continue; }
                     if (sub == 0x8f && nargs >= 1) { host->set_skill(op(0)); return Step::Continue; }
                     if (sub == 0xd3 && nargs >= 4) {          // Window_Msg(speaker,voice,name,text)
                         host->window_msg(op(0), op(1), ops(2), ops(3));   // type-0 -1 -> ""

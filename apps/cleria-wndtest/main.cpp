@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "cleria/emotion.hpp"
+#include "cleria/eventsprites.hpp"
 #include "cleria/richtext.hpp"
 #include "cleria/wnddialog.hpp"
 #include "cleria/wndtext.hpp"
@@ -146,6 +147,44 @@ int main() {
         check(d[0].age == 61 && std::fabs(d[0].alpha - 0.96f) < 1e-4f, "... and it fades from the next tick");
         const EmotionQuad q = emotion_quad(e);
         check(q.x0 == 0.0f && q.x1 == 0.75f && q.y1 == 0.75f, "kind 0: the 0.75 quad offset 0.375 to the right");
+    }
+    {   // §8.1: FUN_005d3be0 and FUN_0058b410's V_ card paths.
+        check(map_coord(0, 2, 0.0, false, 1280, 800) == 107.0 && map_coord(0, 2, 1024.0, false, 1280, 800) == 1173.0,
+              "mapper mode 2 at 1280x800: the 4:3 field is 107..1173 (W43 = 1066)");
+        check(map_coord(0, 3, 1024.0, false, 1280, 800) == 1280.0, "mapper mode 3 of 1024 = W");
+        check(map_coord(0, 2, 37.5, false, 1024, 768) == 37.5, "4:3: the value comes back untouched");
+        check(map_coord(1, 2, 0.0, true, 1280, 720) == -120.0 && map_coord(1, 2, 768.0, true, 1280, 720) == 840.0,
+              "fit at 16:9: the field takes the width, y is cropped (-120..840)");
+        check(map_coord(0, 2, 1024.0, true, 1280, 720) == 1280.0, "fit at 16:9: x spans the full width");
+        check(card_path("V_109", 0).kind == CardPath::Stretch, "V_109 stretches (no mapping)");
+        check(card_path("v_301", 0).kind == CardPath::Cover, "V_30x covers");
+        check(card_path("V_160", 0).pillars == 2, "V_160 draws the HugoPillar art");
+        bool black = true;
+        for (const char* n : {"V_150", "V_171", "V_200", "V_213", "V_320", "V_400", "V_402", "V_451"})
+            black &= card_path(n, 0).pillars == 1 && card_path(n, 0).kind == CardPath::Field;
+        check(black, "V_15x/17x/2xx/32x/400-402/45x draw black pillars");
+        bool none = true;
+        for (const char* n : {"V_100", "V_119", "V_180", "V_310", "V_403", "V_003a", "fin_01", "t_840a"})
+            none &= card_path(n, 0).pillars == 0 && card_path(n, 0).kind == CardPath::Field && card_path(n, 0).mode == 2;
+        check(none, "other V_ cards, fin and t_ at 0 <= x <= 100 take field mode 2");
+        check(card_path("t_250a", -180).mode == 1 && card_path("t_280a", 280).mode == 3 &&
+              card_path("t_860a", 80).mode == 3 && card_path("t_880a", 80).mode == 1 &&
+              card_path("t_200a", 100).mode == 2, "t_ modes: x < 0 -> 1, x > 100 -> 3, t_860 / t_880");
+        Busts bs;
+        bs.size_of = [](const std::string&, int* w, int* h) { *w = 1024; *h = 1024; return true; };
+        bs.open("V_109", 0, 1024);
+        bs.open("V_200", 0, 1024);
+        for (int i = 0; i < 60; ++i) bs.step();
+        bs.priority("V_109", 3);
+        DrawList dl;
+        bs.draw(dl, 1280, 800);
+        check(dl.size() == 4 && dl[0].anchor_x == 0 && dl[1].anchor_x == 2, "the backdrop (prio 3) first, stretched; the card over it");
+        check(dl.size() == 4 && dl[2].anchor_x == 0x23D && dl[2].x == 0 && dl[2].w == 107 && dl[2].diffuse == 0 &&
+                  dl[2].flags == 0x20001 && dl[3].x == 1173 && dl[3].w == 107,
+              "V_200's pillars: opaque black 0..107 and 1173..1280");
+        dl.clear();
+        bs.draw(dl, 1024, 768);
+        check(dl.size() == 2, "4:3: no pillars");
     }
     std::printf("[wnd] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;

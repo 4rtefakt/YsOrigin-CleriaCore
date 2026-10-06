@@ -3,7 +3,7 @@
 //    (45 in / 60 hold / 45 out), drawn additively 1:1 at (16, 16), pinned to the left edge.
 //  - Busts (type 6): ops 0xe3 Portrait_Open, 0xe4 Close, 0xe5 Move, 0xe6 Color, 0xe7 Priority,
 //    0xe8 FadeSpeed; data\image\<s>.dds 1:1 with y the bottom edge, 50-frame fades, tweened moves.
-// [not modelled] the V_ full-screen illustrations' special anchoring and pillar fills (§8).
+//    The V_ story cards' per-name anchoring and side-pillar fills (FUN_0058b410, §8.1).
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -30,6 +30,27 @@ class CaptionCard {
     bool hold_ = false, alt_ = false;                // +0x124, +0x128
 };
 
+// FUN_005d3be0, the authored -> pixel mapper (build/menu_re/PAUSEBOOK_DRAW.md §0.4, WNDDIALOG_DRAW.md
+// §8.1) for a W x H backbuffer: `axis` 0 = x (1024 wide), 1 = y (768 tall); `mode` 1/2/3 = the 4:3
+// field pinned left / centred / right, else a plain stretch; `fit` (its byte argument) scales the
+// 4:3 field to the full width on a wide screen, cropping top and bottom. Returns `v` untouched
+// when the screen is 4:3 on that axis (A / B == 1.0) and `fit` is off. [BYTES 0x5d3be0..0x5d3e20]
+double map_coord(int axis, int mode, double v, bool fit, int W, int H);
+
+// How FUN_0058b410 draws a bust, chosen by its name (and x for `t_` busts) [BYTES 0x58b5f5..0x58ba67].
+struct CardPath {
+    enum Kind : std::uint8_t {
+        Field,      // x through the mapper in `mode` (1/2/3), y plain
+        Stretch,    // V_109: no mapping, x stretched to the full width like y
+        Cover,      // V_30x: both axes mapped with `fit` (full width, cropped vertically)
+    } kind = Field;
+    int mode = 2;
+    // The side-pillar fill drawn after the card on a wide screen: 1 = opaque black (V_15x, V_17x,
+    // V_2xx, V_32x, V_400..402, V_45x), 2 = HugoPillar art at the card's alpha (V_160).
+    int pillars = 0;
+};
+CardPath card_path(const std::string& name, float x);
+
 class Busts {
   public:
     // The texture size of a bust (the host loads data\image\<NAME>.DDS); false if missing.
@@ -41,7 +62,8 @@ class Busts {
     void priority(const std::string& name, int p);                              // 0xe7
     void fade_speed(const std::string& name, float s);                          // 0xe8
     void step();
-    void draw(DrawList& out) const;
+    // FUN_0058b410 for each bust on a W x H backbuffer (the V_ paths and pillars need the size).
+    void draw(DrawList& out, int W, int H) const;
     bool empty() const { return list_.empty(); }
     void clear() { list_.clear(); }
 
