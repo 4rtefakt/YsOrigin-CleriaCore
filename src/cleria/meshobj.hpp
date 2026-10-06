@@ -49,6 +49,11 @@ struct MeshObj {
     float fall_start = 0, fall_vel = 0, fall_e = 0;
     // Mesh_SetAlphaTarget 0x16E (FUN_00572b40): +0x418 alpha, +0x41c target, +0x420 step.
     float alpha = 1, alpha_target = 1, alpha_step = 0;
+    // A full placement a brain owns (boss02's pieces, obj+0x20): the re-bake uses it instead of
+    // pos / rot (pos is still kept as its row 3 for the platform carry).
+    bool has_world = false;
+    Mat4 world{};
+    bool no_collide = false;          // the host drops its collision this tick (boss02's one-way entries)
 };
 
 class MeshWorld {
@@ -71,8 +76,10 @@ class MeshWorld {
     void enable_event(const std::string& name, bool on);         // Mesh_EnableEvent 0x176
     void set_time_scale(const std::string& name, float s);       // Mesh_SetTimeScale 0x17b
     void fall(const std::string& name, float e, float h);        // Mesh_Fall 0x18a
-    // FUN_005f5c80 called by a brain: the clip switches now (not deferred like Mesh_SetMotion).
-    void set_clip_now(const std::string& name, const std::string& clip);
+    // FUN_005f5c80 called by a brain: the clip switches now (not deferred like Mesh_SetMotion),
+    // `start` frames into the section. set_clip_index takes the section index instead.
+    void set_clip_now(const std::string& name, const std::string& clip, std::int32_t start = 0);
+    void set_clip_index(const std::string& name, int idx, std::int32_t start = 0);
     void alpha_target(const std::string& name, float a, int frames);   // Mesh_SetAlphaTarget 0x16e
 
     // One live step of every object (FUN_00503ef0): the anim advance, then the move, then

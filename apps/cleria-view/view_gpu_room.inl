@@ -219,6 +219,7 @@ static void free_room(Room& r, WGPUBindGroup shared_white) {
 struct LiveObjState {
     std::unordered_map<std::string, bool> visible, collide;
     std::vector<ObjLocateArgs> located;     // 0x187 Mesh_Locate'd live (not by the load pass)
+    std::unordered_map<std::string, std::string> model;   // a located object's swapped YMO (boss02 §3.4)
 };
 // A 0x187 Mesh_Locate as a placed object. [H] the rotation operands as degrees (all 0 in S_10).
 static SobObject located_object(const std::string& ymo, const std::string& name, float x, float y, float z,
@@ -369,6 +370,10 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
             bool have = false;
             for (const SobObject& o : located) have |= o.name == ln;
             if (!have) located.push_back(located_object(l.ymo, ln, l.x, l.y, l.z, l.rx, l.ry, l.rz));
+        }
+        for (SobObject& o : located) {                   // a brain's model swap (boss02's BBOSS02*)
+            auto it = live->model.find(o.name);
+            if (it != live->model.end()) o.ymo_path = it->second;
         }
         for (const auto& [n, on] : live->visible) { if (on) hidden.erase(n); else hidden.insert(n); }
         for (const auto& [n, on] : live->collide) { if (on) no_collide.erase(n); else no_collide.insert(n); }

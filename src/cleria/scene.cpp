@@ -324,12 +324,15 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 local_model = Model::parse(read_file(ymo_file));
                 local_model.resolve_hierarchy();
                 std::error_code fec;
-                if (fs::file_size(ymo_file, fec) > (2u << 20)) {
+                const bool big = fs::file_size(ymo_file, fec) > (2u << 20);
+                // A brain-placed object (a world matrix: boss02's 36 pieces) is re-baked every
+                // tick, so its model is kept parsed too, whatever its size.
+                if (big || o.has_world) {
                     // A big collision twin (X_.YMO, BOSS01_: one DEFAULT clip, its own nodes)
                     // moves with its render model: take the render model's clips once,
                     // re-resolved against the twin's node names. [H] the engine poses the
                     // twin from the same anim cursor.
-                    if (collision) {
+                    if (collision && big) {
                         std::string stem = ymo_file.stem().string();
                         if (!stem.empty() && stem.back() == '_') stem.pop_back();
                         auto rit = big_models.find(model_key(ymo_file.parent_path() / (stem + ymo_file.extension().string())));
@@ -377,7 +380,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             if (it != states->pos.end())
                 po.position = {it->second[0], it->second[1], it->second[2]};
         }
-        const Mat4 place = po.world();
+        const Mat4 place = po.has_world ? po.world_mat : po.world();
         // Debug: CLERIA_MAT=1 dumps the fields the engine's render struct actually
         // reads (flags/blend/diffuse/scroll), plus all three texture slots.
         if (std::getenv("CLERIA_MAT"))
@@ -609,13 +612,15 @@ bool translate_object(RoomMesh& m, const std::string& lname, const Vec3& d) {
 }
 
 bool rebake_object(RoomMesh& m, const fs::path& asset_root, const std::string& lname,
-                   const char* clip, float frame, const Vec3* pos, bool collision, const Vec3* rot) {
+                   const char* clip, float frame, const Vec3* pos, bool collision, const Vec3* rot,
+                   const Mat4* world) {
     const RoomMesh::ObjRange* r = m.object_range(lname);
     if (!r) return false;
     Sob one;
     one.objects.push_back(r->obj);
     if (pos) one.objects.back().position = *pos;
     if (rot) one.objects.back().rotation = *rot;
+    if (world) { one.objects.back().has_world = true; one.objects.back().world_mat = *world; }
     const RoomMesh tmp = build_room_objects(asset_root, one, fs::path(), nullptr, nullptr,
                                             collision, clip, frame);
     if (tmp.vertices.size() != std::size_t(r->v1 - r->v0)) return false;

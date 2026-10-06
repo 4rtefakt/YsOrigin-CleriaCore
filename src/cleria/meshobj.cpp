@@ -117,12 +117,19 @@ void MeshWorld::fall(const std::string& name, float e, float h) {
     }
 }
 
-void MeshWorld::set_clip_now(const std::string& name, const std::string& clip) {
+void MeshWorld::set_clip_now(const std::string& name, const std::string& clip, std::int32_t start) {
     MeshObj* m = find(name);
     if (!m) return;
     const std::string want = lower(clip);
     for (std::size_t i = 0; i < m->clips.size(); ++i)
-        if (lower(m->clips[i].name) == want) { apply_clip(*m, int(i), 0); m->dirty_pose = true; return; }
+        if (lower(m->clips[i].name) == want) { apply_clip(*m, int(i), start); m->dirty_pose = true; return; }
+}
+
+void MeshWorld::set_clip_index(const std::string& name, int idx, std::int32_t start) {
+    MeshObj* m = find(name);
+    if (!m || idx < 0 || std::size_t(idx) >= m->clips.size()) return;
+    apply_clip(*m, idx, start);
+    m->dirty_pose = true;
 }
 
 void MeshWorld::alpha_target(const std::string& name, float a, int frames) {

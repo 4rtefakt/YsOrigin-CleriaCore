@@ -123,9 +123,10 @@ struct Model;
 Model* cached_big_model(const std::filesystem::path& ymo_file);
 std::filesystem::path resolve_ymo_path(const std::filesystem::path& root, const std::string& ymo);
 
+// `world` (non-null): place it with that full matrix instead (SobObject::world_mat).
 bool rebake_object(RoomMesh& m, const std::filesystem::path& asset_root, const std::string& lname,
                    const char* clip, float frame, const Vec3* pos, bool collision,
-                   const Vec3* rot = nullptr);
+                   const Vec3* rot = nullptr, const Mat4* world = nullptr);
 
 // If box_whitelist is non-null, chest objects ("box_NN") are included (geometry
 // and interactable) only when their lower-cased name is in the set — this gates

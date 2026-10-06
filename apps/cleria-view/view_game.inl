@@ -2067,7 +2067,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     //   act         the action key (the probe)                 ok     a confirm press
     //   shot        write the next frame to CLERIA_SHOT_DIR/t<tick>.ppm          quit
     //   flag=i,v    set a game flag      atk   the attack button      boss  face Velagunder
+    //   boss2[=o]   stand by a hittable Nygtilger piece (o = its object index)
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
+    std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     if (const char* dv = std::getenv("CLERIA_DRIVE")) {
@@ -2119,6 +2121,37 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 feet = {x, fl > kNoFloor ? fl : feet.y, z};
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+            }
+        } else if (cmd.rfind("boss2", 0) == 0) {       // boss2[=o]: stand by a hittable Nygtilger piece
+            // The target: `o` if given, else the head once exposed (DEF < 999), else the first
+            // live plate d01..d17, else the tail. The player is put 1.1 off it horizontally at
+            // the piece's height (the plates ride the segments' backs, so this is ON the worm:
+            // the segment is solid from above) and faces it.
+            if (boss2) {
+                int o = -1;
+                if (cmd.size() > 6 && cmd[5] == '=') o = std::atoi(cmd.c_str() + 6);
+                if (o < 0 && boss2->object(0).def < 999.0f && boss2->object(0).hp >= 1.0f) o = 0;
+                for (int j = boss02::kPieces; o < 0 && j < boss02::kObjects; ++j)
+                    if (boss2->mesh_hittable(j)) o = j;
+                if (o < 0 && boss2->part_hittable(boss02::kPieces - 1)) o = boss02::kPieces - 1;
+                if (o >= 0 && o < boss02::kObjects) {
+                    const Boss02Piece& bp = boss2->object(o);
+                    const Vec3 c = bp.has_part ? bp.part.pos : bp.pos();
+                    float dx = -c.x, dz = -c.z;                  // from the arena centre side
+                    const float l = std::sqrt(dx * dx + dz * dz);
+                    if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
+                    feet = {c.x + dx * 1.1f, c.y - kOriginH + 0.2f, c.z + dz * 1.1f};
+                    if (o == 0 || o == boss02::kPieces - 1) {    // the head / tail parts: from the floor
+                        const float fl = floor_at(phys_mesh(room), feet.x, feet.z, 1.0f);
+                        feet.y = fl > kNoFloor ? fl : 0.0f;
+                    }
+                    pv = VerticalState{}; pv.grounded = false;
+                    face_dir = {-dx, 0.0f, -dz};
+                    facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                    std::printf("  [drive] boss2 -> %s (%.2f,%.2f,%.2f) hp %.0f pool %.0f/%.0f phase %d mode %d\n",
+                                boss02::object_name(o), c.x, c.y, c.z, bp.hp, boss2->pool(), boss2->pool_max(),
+                                boss2->phase(), boss2->mode());
+                }
             }
         } else if (cmd == "atk") {                     // the attack button
             try_attack();
@@ -2502,6 +2535,304 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         player_hurt_this_tick = false;
     };
 
+    // ---- Nygtilger, boss02 (src/cleria/boss02, build/boss_re/NYGTILGER.md §11 / §15) --------
+    // The GoMesh "boss02_h" the room script Mesh_Locate's builds the whole worm (§2.1): the host
+    // locates the other 35 pieces (b01..b17, c18, d01..d17) and drives all 36 from the Boss02
+    // brain every live step, after the clip advance (FUN_00562990 case 6). Each piece is placed
+    // by its full matrix (MeshObj::world). No boss camera (N10).
+    // [not modelled] the stone shells SBOSS02* (§5.5: the statue look before the wake), the
+    // glows / arcs / debris (cosmetic; Boss02Input::cosmetic is not hooked, so after a debris
+    // call the shared RNG runs behind the engine's), the pad rumble, the option-byte sparks,
+    // the looped SE stop/start (216 / 217 play once), the touch's section-9 reaction (U2).
+    constexpr int kB2Owner = -0xB02;                       // fx owner tag for the slot effects
+    std::array<RehitBank, boss02::kObjects> boss2_banks{}; // FUN_004faac0 per piece (the mesh path)
+    std::array<RehitBank, 2> boss2_part_banks{};           // the head / tail kind-9 parts (+0x14c)
+    struct Boss2PlasmaHost { Boss02Plasma m; bullet::Bullet* b = nullptr; };
+    std::vector<Boss2PlasmaHost> boss2_plasma;             // one per live kind-0x24 marker
+    int boss2_se_counter = 0;                              // DAT_007de270 (the strike SE rotation)
+    ef2sim::M4 boss2_mouth, boss2_hoop, boss2_bone02;      // the attach parents G+0x80 / G+0x130 / Bone02
+    // The render models, posed per piece for the entry bones and Bone02 ([approx] the broken
+    // shells share the skeleton, so the base models stand in after a swap).
+    std::array<Model, 3> boss2_mdl;                        // head, b, c
+    std::array<std::array<int, 2>, 3> boss2_entry_node{};  // role -> "Bone01"/"Bone01(5)", "l_reg00"/"r_reg00"
+    int boss2_bone02_node = -1;
+    bool boss2_mdl_ok = false;
+    auto to_m4 = [](const Mat4& a) {
+        ef2sim::M4 r;
+        for (int i = 0; i < 4; ++i) for (int j = 0; j < 4; ++j) r.m[i][j] = a.m[std::size_t(i * 4 + j)];
+        return r;
+    };
+    // The posed node `ni` of piece o's model at its current clip frame, placed by the piece.
+    auto boss2_node_world = [&](int o, int ni) -> Mat4 {
+        const Boss02Piece& p = boss2->object(o);
+        const int mi = o == 0 ? 0 : (o == boss02::kPieces - 1 ? 2 : 1);
+        Model& mdl = boss2_mdl[std::size_t(mi)];
+        if (!boss2_mdl_ok || ni < 0 || std::size_t(ni) >= mdl.nodes.size()) return p.world;
+        const MeshObj* m = meshes.find(boss02::object_name(o));
+        bool posed = false;
+        if (m && m->sect >= 0 && std::size_t(m->sect) < m->clips.size())
+            for (const AnimClip& c : mdl.clips)
+                if (c.name == m->clips[std::size_t(m->sect)].name) { mdl.pose(c, m->time); posed = true; break; }
+        if (!posed) mdl.rest_pose();
+        return mdl.nodes[std::size_t(ni)].world * p.world;
+    };
+    // A Boss02Output (a tick's, or accept_hit's feedback), applied in order.
+    auto boss2_apply = [&](const Boss02Output& out) {
+        for (const Boss02ClipSet& c : out.clips) {
+            const char* nm = boss02::object_name(c.object);
+            if (c.by_index) meshes.set_clip_index(nm, c.clip, 0);       // [H] the shell swap's re-apply
+            else if (c.clip >= 0 && c.clip < 6) meshes.set_clip_now(nm, boss02::kClipNames[c.clip], std::int32_t(c.start));
+        }
+        for (const Boss02ModelSwap& s : out.swaps) {                    // live -> BBOSS02<s>: a room rebuild
+            live_obj.model[boss02::object_name(s.object)] =
+                std::string("data\\enemy\\boss02\\bboss02") + boss02::model_suffix(s.object) + ".ymo";
+            live_obj_dirty = true;
+        }
+        for (const Boss02Sound& sd : out.sounds) {
+            if (sd.kind == Boss02Sound::k3D) sfx_at(sd.id, sd.pos, kSfxAnimVol);
+            else if (sd.kind == Boss02Sound::k2D || sd.kind == Boss02Sound::kLoop) audio.play(sd.id, kSfxAnimVol);
+            // [not modelled] kStop (FUN_0043a0e0 fade) and the loop flag: the mixer has neither
+        }
+        for (const Boss02Effect& fe : out.effects) {
+            const ef2sim::M4* parent = nullptr;
+            switch (fe.attach) {
+                case Boss02Effect::kMouth: parent = &boss2_mouth; break;
+                case Boss02Effect::kHoop: parent = &boss2_hoop; break;
+                case Boss02Effect::kBone02: parent = &boss2_bone02; break;
+                default: break;
+            }
+            ef2sim::SpawnParams sp;
+            sp.side = fe.side; sp.power = fe.power; sp.knock = fe.knock; sp.rtype = fe.rtype;
+            sp.status = fe.status; sp.cls = fe.cls;
+            if (fe.stat == Boss02Effect::kPiece) sp.atk = boss2->object(fe.object).str;
+            else if (fe.stat == Boss02Effect::kPieceStr) sp.atk = fe.str;
+            Vec3 at = fe.pos;
+            const ef2sim::M4 local = ef2sim::translation(fe.attach_off.x, fe.attach_off.y, fe.attach_off.z);
+            if (parent) at = ef2sim::transform_coord(fe.attach_off, *parent);
+            ef2sim::Effect* fx = spawn_sim_fx(fe.id, at, fe.rot, fe.scale.x, sp, 0, {});
+            if (!fx) continue;
+            if (parent) {                                   // FUN_00451c20: +0x1d5 = 1, +0x1a0 = &matrix
+                fx->local = local;
+                fx->attach_parent = parent;
+                fx->attach_mode = 1;
+            }
+            if (fe.slot != Boss02Effect::kNoSlot) { fx->owner = kB2Owner; fx->tag = int(fe.slot); }
+        }
+        for (Boss02Effect::Slot s : out.kill_slots)
+            for (auto& f : fxsim.effects()) if (f->owner == kB2Owner && f->tag == int(s)) f->kill = true;
+        if (out.kill_all_effects)                           // every GoEffect of [0x730128] (§8)
+            for (auto& f : fxsim.effects()) f->kill = true;
+        for (const Boss02Bullet& b : out.bullets) {         // FUN_00593550, BULLETS.md §3.6 / §7.1
+            bullet::Spawn s = bullet::block_spawn(b.kind, b.effect, b.pos, b.dir, b.f.data());
+            s.owner = 0; s.owner_monster = true;
+            if (b.kind == 0x23) s.owner_atk = b.a4;         // +0xa4 = 0x7b91a4 (the kind-0x23 flies as the stand-in mover)
+            if (b.kind == 0x24) {
+                s.owner_atk = b.proxy_owner ? boss2->stats().proxy_str : 0.0f;
+                s.speed = s.accel = s.gravity = 0.0f;       // [approx U8] the host's marker places it
+            }
+            bullet::Bullet* bp = bullets.spawn(s);
+            if (b.kind == 0x24 && bp) {
+                Boss2PlasmaHost h;
+                h.b = bp;
+                h.m.carrier = b.carrier; h.m.local = b.local; h.m.target = b.target; h.m.pos = b.pos;
+                boss2_plasma.push_back(h);
+            }
+        }
+        for (const auto& [fi, fv] : out.flags) {
+            if (fi < 0 || fi >= 0x200) continue;
+            if (game.g_flags[fi] != fv) std::printf("  [boss02] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
+            game.g_flags[fi] = fv;
+        }
+        if (out.player_pos) feet = {out.player_pos->x, out.player_pos->y - kOriginH, out.player_pos->z};
+        if (out.player_iframes) player_iframes = std::max(player_iframes, 9999);   // [not modelled] FUN_00461120(2)
+        if (out.award_exp) {                                // [not modelled] the end block 0x76a828 / FUN_00461160
+            std::printf("  [boss02] t%llu EXP %.0f (lv %d)\n", (unsigned long long)tick_count, boss2->exp_b0(), boss2->level());
+            award_exp(boss2->exp_b0());
+        }
+        if (out.gauge) {                                    // §10: the pool, 393.8 px, strip 2
+            hud.set_boss_gauge(-6, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->strip);
+            gauge_owner = 0;
+        }
+        if (out.gauge_hide) hud.hide_boss_gauge();
+    };
+    auto boss2_live = [&](bullet::Bullet* b) {
+        for (auto& bp : bullets.list()) if (bp.get() == b) return !b->gone && !b->destroyed;
+        return false;
+    };
+    auto boss2_tick = [&] {
+        MeshObj* hm = meshes.find("boss02_h");
+        if (!hm) { boss2.reset(); boss2_plasma.clear(); return; }
+        if (!boss2) {
+            Boss02Setup su;                                // EEX record 1 (§2.1, N4)
+            if (eex.bosses.size() > 1) {
+                const BossStats& bs = eex.bosses[1];
+                su.eex_hp = bs.hp; su.eex_str = bs.atk; su.eex_def = bs.def; su.rec4 = bs.unk10; su.level = bs.level;
+            }
+            // [H] +0xb0 = the GAMEINFO enemy-EXP curve at the boss level, as boss01.
+            if (ginfo.ok()) su.exp_b0 = ginfo.curves[kEnemyExp].at(su.level);
+            su.character = character;
+            su.diff_index = game.g_flags[144];
+            su.diff_easy = game.g_flags[143] != 0;
+            su.diff_very_easy = game.g_flags[203] != 0;
+            su.time_attack = game.g_flags[193] != 0;
+            su.retries = game.g_flags[196];
+            su.pos = hm->pos;
+            boss2 = std::make_unique<Boss02>(su);
+            boss2_banks.fill(RehitBank{});
+            boss2_part_banks.fill(RehitBank{});
+            boss2_plasma.clear();
+            // The 35 pieces the ctor creates (§2.1), at their pre-rolled positions; one rebuild.
+            for (int o = 1; o < boss02::kObjects; ++o) {
+                ObjLocateArgs a;
+                a.ymo = std::string("data\\enemy\\boss02\\boss02") + boss02::model_suffix(o) + ".ymo";
+                a.name = boss02::object_name(o);
+                const Vec3 p = boss2->object(o).pos();
+                a.x = p.x; a.y = p.y; a.z = p.z;
+                live_obj.located.push_back(a);
+            }
+            live_obj_dirty = true;
+            if (!boss2_mdl_ok) {
+                try {
+                    const char* files[3] = {"BOSS02.YMO", "BOSS02B.YMO", "BOSS02C.YMO"};
+                    for (int k = 0; k < 3; ++k) {
+                        boss2_mdl[std::size_t(k)] = Model::parse(read_bytes(asset_root / "ENEMY" / "BOSS02" / files[k]));
+                        boss2_mdl[std::size_t(k)].resolve_hierarchy();
+                    }
+                    auto node = [&](int k, const char* nm) {
+                        const Model& md = boss2_mdl[std::size_t(k)];
+                        for (std::size_t i = 0; i < md.nodes.size(); ++i) if (md.nodes[i].name == nm) return int(i);
+                        return -1;
+                    };
+                    boss2_entry_node[1] = {node(1, "Bone01"), node(1, "Bone01(5)")};
+                    boss2_entry_node[2] = {node(2, "l_reg00"), node(2, "r_reg00")};
+                    boss2_bone02_node = node(0, "Bone02");
+                    boss2_mdl_ok = true;
+                } catch (const std::exception& e) {
+                    std::printf("  [boss02] model parse failed: %s\n", e.what());
+                }
+            }
+            std::printf("  [boss02] Nygtilger: pool %.0f (head %.0f, segments %.0f) lv %d\n",
+                        boss2->pool(), boss2->object(0).max_hp, boss2->object(1).max_hp, boss2->level());
+        }
+        for (RehitBank& b : boss2_banks) b.tick();
+        for (RehitBank& b : boss2_part_banks) b.tick();
+
+        Boss02Input in;
+        in.player_pos = {feet.x, feet.y + kOriginH, feet.z};
+        in.player_hp = float(player.hp);
+        in.fight = game.g_flags[156] != 0;
+        in.wake = game.g_flags[166];
+        in.stir = game.g_flags[167] != 0;
+        in.flag221 = game.g_flags[221];
+        in.rush_select = game.g_flags[165];
+        in.rush_room = room.name == "S_9113";
+        in.fx_option = false;                              // [not modelled] option byte 0x6d5d92
+        for (int o = 0; o < boss02::kObjects; ++o) {
+            const MeshObj* m = meshes.find(boss02::object_name(o));
+            in.clip_done[std::size_t(o)] = m && m->count != 0;
+        }
+        for (int o = 1; o < boss02::kPieces; ++o) {         // the entry bones, posed (before the brain)
+            const int role = o == boss02::kPieces - 1 ? 2 : 1;
+            for (int k = 0; k < 2; ++k)
+                in.entry_bone_y[std::size_t(o)][std::size_t(k)] =
+                    boss2_node_world(o, boss2_entry_node[std::size_t(role)][std::size_t(k)]).m[13];
+        }
+        std::vector<std::pair<bullet::Bullet*, Boss2PlasmaHost*>> in_bullets;   // DAT_00730248 order
+        for (auto& bp : bullets.list()) {
+            if (bp->gone || bp->destroyed) continue;
+            if (bp->s.kind != 0x23 && bp->s.kind != 0x24) continue;
+            Boss2PlasmaHost* ph = nullptr;
+            for (Boss2PlasmaHost& h : boss2_plasma) if (h.b == bp.get()) ph = &h;
+            in.bullets.push_back({bp->s.kind, ph ? ph->m.n : 0, bp->s.pos});
+            in_bullets.push_back({bp.get(), ph});
+        }
+        in.rng = [&] { return pick_rng.next(); };
+        // in.cosmetic: [not modelled] FUN_00587010 / FUN_0058a5f0 (their draws are not taken)
+        const Boss02Output out = boss2->tick(in);
+        // The attach frames this tick (before the requests that attach to them).
+        boss2_mouth = to_m4(boss2->mouth_frame());
+        boss2_hoop = to_m4(boss2->hoop_frame());
+        boss2_bone02 = to_m4(boss2_node_world(0, boss2_bone02_node));
+        // The tail's repulsion pass (§7.3) on the markers' T and A.
+        for (const Boss02BulletNudge& nd : out.nudges) {
+            if (nd.index < 0 || std::size_t(nd.index) >= in_bullets.size()) continue;
+            if (Boss2PlasmaHost* ph = in_bullets[std::size_t(nd.index)].second) {
+                ph->m.target = {ph->m.target.x + nd.delta.x, ph->m.target.y + nd.delta.y, ph->m.target.z + nd.delta.z};
+                ph->m.anchor = {ph->m.anchor.x + nd.delta.x, ph->m.anchor.y + nd.delta.y, ph->m.anchor.z + nd.delta.z};
+            }
+        }
+        boss2_apply(out);
+        // The pieces: placement, fade, collision.
+        for (int o = 0; o < boss02::kObjects; ++o) {
+            MeshObj* m = meshes.find(boss02::object_name(o));
+            if (!m) continue;
+            const Boss02Piece& p = boss2->object(o);
+            // [STAND-IN] as Mesh_SetAlphaTarget: alpha 0 collapses the object, anything else is opaque.
+            const float alpha = (!p.exists || p.hidden) ? 0.0f : p.alpha;
+            // The collision: gone with +0x298 & 0x40 / hidden, and a segment's one-way entries
+            // (+0x8c, §5.4) [approx] per object: dropped only while both entries are off.
+            const bool no_coll = alpha <= 0.0f || (p.f298 & 0x40u) != 0 ||
+                                 ((p.role == boss02::kBody || p.role == boss02::kTail) && p.entry_off[0] && p.entry_off[1]);
+            const bool moved = !m->has_world || m->world.m != p.world.m;
+            if (moved || m->alpha != alpha || m->no_collide != no_coll) m->dirty_pose = true;
+            m->has_world = true;
+            m->world = p.world;
+            m->pos = p.pos();
+            m->alpha = m->alpha_target = alpha;
+            m->alpha_step = 0.0f;
+            m->no_collide = no_coll;
+            m->frozen = p.frozen;                          // obj+0x28f: no clip advance while dormant
+        }
+        // The kind-0x24 markers (FUN_0059fa30), stepped by the host.
+        for (Boss2PlasmaHost& h : boss2_plasma) {
+            if (!boss2_live(h.b)) { h.b = nullptr; continue; }
+            const Mat4* cw = nullptr;
+            float chp = 0.0f;
+            if (h.m.carrier >= 0 && h.m.carrier < boss02::kObjects && boss2->object(h.m.carrier).exists) {
+                cw = &boss2->object(h.m.carrier).world;
+                chp = boss2->object(h.m.carrier).hp;
+            }
+            const int carrier = h.m.carrier;
+            const Boss02Plasma::Step st = h.m.step({feet.x, feet.y + kOriginH, feet.z}, cw, chp,
+                [&](const Vec3& from, float& t) {          // [U13] t read as the ground height
+                    Vec3 pt{}, nrm{};
+                    if (!segment_hit(phys_mesh(room), from, {from.x, from.y - 10.0f, from.z}, &pt, &nrm)) return false;
+                    t = pt.y;
+                    return true;
+                }, boss2_se_counter);
+            h.b->s.pos = h.m.pos;
+            if (st.strike) {                               // GoEffect 0x15b, the carrier's stat block
+                ef2sim::SpawnParams sp;
+                sp.atk = carrier >= 0 ? boss2->object(carrier).str : boss2->stats().body_str;
+                spawn_sim_fx(0x15b, st.strike_pos, {}, 1.0f, sp, 0, {});
+                sfx_at(st.strike_se, h.m.pos, kSfxAnimVol);
+            }
+            if (st.killed) {
+                if (h.b->fx) h.b->fx->kill = true;
+                h.b->gone = true;
+                h.b = nullptr;
+            }
+        }
+        boss2_plasma.erase(std::remove_if(boss2_plasma.begin(), boss2_plasma.end(),
+                                          [](const Boss2PlasmaHost& h) { return h.b == nullptr; }),
+                           boss2_plasma.end());
+        // The poison balls die once flag 221 is set ([0x76bc90], BULLETS.md §3.6).
+        if (game.g_flags[221] != 0)
+            for (auto& bp : bullets.list())
+                if (bp->s.kind == 0x23 && !bp->gone && !bp->destroyed) {
+                    if (bp->fx) bp->fx->kill = true;
+                    bp->gone = true;
+                }
+        static const bool boss_log = std::getenv("CLERIA_BOSSLOG") != nullptr;
+        if (boss_log && tick_count % 30 == 0) {
+            const Boss02Piece& h = boss2->object(0);
+            std::printf("  [boss02] t%llu mode %d phase %d pool %.0f/%.0f head (%.2f,%.2f,%.2f) hp %.0f def %.0f frozen %d awake %d f156 %d f166 %d f221 %d feet (%.2f,%.2f,%.2f)\n",
+                        (unsigned long long)tick_count, boss2->mode(), boss2->phase(), boss2->pool(), boss2->pool_max(),
+                        h.pos().x, h.pos().y, h.pos().z, h.hp, h.def, int(h.frozen), int(boss2->group().awake),
+                        game.g_flags[156], game.g_flags[166], game.g_flags[221], feet.x, feet.y, feet.z);
+        }
+    };
+
     g_tick_reset = true;   // the first room's load stall is not caught up either (DAT_0075aed5)
     while (running) {
         if (!csHost.pending_scene.empty()) {
@@ -2827,6 +3158,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         auto step_meshes = [&] {
             meshes.step();
             boss_tick();
+            boss2_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
                 if (!m.dirty_pos && !m.dirty_pose) continue;
@@ -2834,8 +3166,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (m.dirty_pose) {
                     const char* clip = (m.sect >= 0 && std::size_t(m.sect) < m.clips.size())
                                            ? m.clips[std::size_t(m.sect)].name.c_str() : nullptr;
-                    rebake_object(room.mesh, asset_root, nm, clip, m.time, &m.pos, false, &m.rot);
-                    rebake_object(room.coll, asset_root, nm, clip, m.time, &m.pos, true, &m.rot);
+                    const Mat4* wm = m.has_world ? &m.world : nullptr;
+                    rebake_object(room.mesh, asset_root, nm, clip, m.time, &m.pos, false, &m.rot, wm);
+                    rebake_object(room.coll, asset_root, nm, clip, m.time, &m.pos, true, &m.rot, wm);
+                    // A brain dropped its collision this tick (boss02): the hull collapses to a point.
+                    if (m.no_collide)
+                        if (const RoomMesh::ObjRange* cr = room.coll.object_range(nm))
+                            for (std::uint32_t k = cr->v0; k < cr->v1 && k < room.coll.vertices.size(); ++k) {
+                                room.coll.vertices[k].px = room.coll.vertices[cr->v0].px;
+                                room.coll.vertices[k].py = room.coll.vertices[cr->v0].py;
+                                room.coll.vertices[k].pz = room.coll.vertices[cr->v0].pz;
+                            }
                     // [STAND-IN] Mesh_SetAlphaTarget's alpha (the anim object's +0xc) is not drawn
                     // translucent: alpha 0 collapses the object, anything else draws it opaque.
                     if (m.alpha <= 0.0f)
@@ -3618,6 +3959,72 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                             std::printf("  hit boss part %d (DEF %.0f): %d dmg, HP %.0f stun %.0f\n",
                                         pi, bp.def, dmg, boss->hp(), boss->stun_gauge());
                     }
+                // Nygtilger (NYGTILGER.md §3.1 / §3.2). The mesh path FUN_004fecb0: [approx] one
+                // ray from the player's origin through the swing volume to its far side (the engine
+                // casts one per attack sub-volume) against each struck-able piece's collision hull;
+                // a struck piece asks its accept-hit callback, then its re-hit bank, then takes
+                // FUN_004faf20(1, 0) with its own DEF / resist. A segment's one-way entries (+0x8c)
+                // are skipped [approx] per object, while both are off (MeshObj::no_collide).
+                if (boss2) {
+                    const RoomMesh& b2m = phys_mesh(room);
+                    const Vec3 O{feet.x, feet.y + kOriginH, feet.z};
+                    Vec3 d{vol.centre.x - O.x, vol.centre.y - O.y, vol.centre.z - O.z};
+                    const float dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+                    if (dl > 1e-4f) { d.x /= dl; d.y /= dl; d.z /= dl; }
+                    const Vec3 E{vol.centre.x + d.x * vol.radius, vol.centre.y + d.y * vol.radius,
+                                 vol.centre.z + d.z * vol.radius};
+                    auto b2_damage = [&](float def, const float* resist) {
+                        AttackStats a;
+                        a.atk = player_stats().atk;
+                        a.bonus = atk_hb.power;
+                        EnemyDefense vd; vd.def = def;
+                        for (int k = 0; k < 4; ++k) vd.resist[k] = resist[k];
+                        PlayerDamageMods mods;
+                        mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
+                        return enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                            [&](float pct) { return float(rng_pct(rng)) < pct; });
+                    };
+                    for (int o = 0; o < boss02::kObjects && atk_window > 0; ++o) {
+                        if (!boss2->mesh_hittable(o)) continue;
+                        const char* nm = boss02::object_name(o);
+                        const MeshObj* mo = meshes.find(nm);
+                        const RoomMesh::ObjRange* rr = b2m.object_range(nm);
+                        if (!mo || !rr || mo->no_collide) continue;
+                        Vec3 hit{};
+                        if (!segment_hits_tris(b2m, O, E, rr->t0, rr->t1, &hit)) continue;
+                        Boss02Output fb;
+                        const bool ok = boss2->accept_hit(o, hit, std::uint32_t(SDL_GetTicks()), fb);
+                        boss2_apply(fb);
+                        if (!ok) continue;
+                        if (boss2_banks[std::size_t(o)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
+                        if (atk_hb.one_shot) atk_window = 0;
+                        const Boss02Piece& bp = boss2->object(o);
+                        const int dmg = b2_damage(bp.def, bp.resist);
+                        // [H] FUN_004faf20 skips a victim already below 1 HP: the dead tail stays
+                        // struck-able (its entries are re-armed every frame, §3.5), and without
+                        // this gate each further hit would "kill" it again (pool -350 a time).
+                        if (dmg > 0 && bp.hp >= 1.0f) boss2->add_damage(o, float(dmg));
+                        if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
+                        if (std::getenv("CLERIA_DMG"))
+                            std::printf("  hit %s (DEF %.0f): %d dmg, HP %.0f pool %.0f\n", nm, bp.def, dmg,
+                                        bp.hp, boss2->pool());
+                    }
+                    // The head / tail kind-9 parts: a sphere of r 0.85 (§3.1), their own banks.
+                    for (int k = 0; k < 2 && atk_window > 0; ++k) {
+                        const int o = k == 0 ? 0 : boss02::kPieces - 1;
+                        if (!boss2->part_hittable(o)) continue;
+                        const Boss02Part& pt = boss2->object(o).part;
+                        if (!overlap(vol, body_shape(pt.pos, pt.radius, 0.0f, 0, 0.0f))) continue;
+                        if (boss2_part_banks[std::size_t(k)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
+                        if (atk_hb.one_shot) atk_window = 0;
+                        const int dmg = b2_damage(pt.def, pt.resist);
+                        if (dmg > 0) boss2->add_part_damage(o, float(dmg));
+                        if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
+                        if (std::getenv("CLERIA_DMG"))
+                            std::printf("  hit %s part (DEF %.0f): %d dmg, part HP %.0f pool %.0f\n",
+                                        boss02::object_name(o), pt.def, dmg, pt.hp, boss2->pool());
+                    }
+                }
                 if (broke) reload_room(/*rerun_events*/false);   // drop the shattered mesh
                 if (killed) {
                     int left = 0;
@@ -3869,6 +4276,31 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     if (player_bank.check_and_record(0xB0550000u, 30)) break;
                     hurt_player(boss->str(), bp.power, bp.rtype, hang);
                     player_hurt_this_tick = true;
+                    break;
+                }
+            }
+            // Nygtilger's touch (LAB_00513390, §3.6): the player in contact with a piece's live
+            // collision hull [approx: a sphere of r 0.7 at the origin, not the mover's contact
+            // record], then the piece's verdict, the shared re-hit record (+0xf0/+0xf4 = 15, one
+            // for all pieces), the contact damage with the piece's STR [U2: power 0, rtype 0, as
+            // FUN_004fd350 is not traced], then touch_applied. [not modelled] its section-9 reaction.
+            if (boss2 && player_iframes == 0 && player.hp >= 1) {
+                const RoomMesh& b2m = phys_mesh(room);
+                const Vec3 O{feet.x, feet.y + kOriginH, feet.z};
+                for (int o = 0; o < boss02::kObjects; ++o) {
+                    const char* nm = boss02::object_name(o);
+                    const MeshObj* mo = meshes.find(nm);
+                    const RoomMesh::ObjRange* rr = b2m.object_range(nm);
+                    if (!mo || !rr || mo->no_collide) continue;
+                    if (!sphere_overlaps_tris(b2m, O, 0.7f, rr->t0, rr->t1)) continue;
+                    const Boss02Touch t = boss2->touch(o, float(player.hp));
+                    if (!t.damage) continue;
+                    if (player_bank.check_and_record(0xB0520000u, t.rehit)) break;
+                    const Vec3 pp = boss2->object(o).pos();
+                    hurt_player(t.str, 0.0f, 0, std::atan2(O.z - pp.z, O.x - pp.x));
+                    if (std::getenv("CLERIA_DMG"))
+                        std::printf("  touch %s (STR %.0f): player hp %d\n", nm, t.str, player.hp);
+                    boss2->touch_applied(o, float(player.hp));
                     break;
                 }
             }

@@ -49,6 +49,12 @@ struct SobObject {
     bool touch()      const { return (trigger & 4) != 0; }
     bool actionable() const { return (trigger & 8) != 0; }
 
+    // Not in the SOB: a full placement matrix a brain computed (boss02's pieces carry YPR,
+    // slerps and the death spin, which position/rotation/scale cannot express). When set, the
+    // room builder places the object with `world_mat` instead of world().
+    bool has_world = false;
+    Mat4 world_mat{};
+
     Mat4 world() const { return compose_trs(position, rotation, scale); }
 };
 

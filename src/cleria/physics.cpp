@@ -326,8 +326,12 @@ float nearest_crossing(const RoomMesh& m, const Vec3& a, const Vec3& b, std::siz
 }
 }  // namespace
 
-bool segment_hits_tris(const RoomMesh& m, const Vec3& a, const Vec3& b, std::uint32_t t0, std::uint32_t t1) {
-    return nearest_crossing(m, a, b, t0, t1, nullptr) <= 1.0f;
+bool segment_hits_tris(const RoomMesh& m, const Vec3& a, const Vec3& b, std::uint32_t t0, std::uint32_t t1,
+                       Vec3* point) {
+    const float t = nearest_crossing(m, a, b, t0, t1, nullptr);
+    if (t > 1.0f) return false;
+    if (point) *point = {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
+    return true;
 }
 
 bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, Vec3* normal) {
@@ -344,11 +348,15 @@ bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, V
 }
 
 bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r) {
+    return sphere_overlaps_tris(m, c, r, 0, std::uint32_t(m.indices.size() / 3));
+}
+
+bool sphere_overlaps_tris(const RoomMesh& m, const Vec3& c, float r, std::uint32_t t0, std::uint32_t t1) {
     // Closest point on each triangle (Ericson, Real-Time Collision Detection 5.1.5).
     const auto& idx = m.indices;
     const auto& vp = m.vertices;
     const float r2 = r * r;
-    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+    for (std::size_t i = std::size_t(t0) * 3; i + 2 < idx.size() && i < std::size_t(t1) * 3; i += 3) {
         if (water_tri(m, i / 3)) continue;
         const Vec3 A = v(vp[idx[i]]), B = v(vp[idx[i + 1]]), C = v(vp[idx[i + 2]]);
         const Vec3 ab = sub(B, A), ac = sub(C, A), ap = sub(c, A);

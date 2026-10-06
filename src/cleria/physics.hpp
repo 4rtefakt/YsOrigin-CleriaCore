@@ -46,10 +46,14 @@ bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b);
 // The nearest hit along a -> b (FUN_0041e420's "closest hit point" + the triangle's plane
 // normal). False when nothing is hit.
 bool segment_hit(const RoomMesh& m, const Vec3& a, const Vec3& b, Vec3* point, Vec3* normal);
-// The same test restricted to triangles [t0, t1) (one object's range, RoomMesh::ObjRange).
-bool segment_hits_tris(const RoomMesh& m, const Vec3& a, const Vec3& b, std::uint32_t t0, std::uint32_t t1);
+// The same test restricted to triangles [t0, t1) (one object's range, RoomMesh::ObjRange);
+// `point` (optional) receives the nearest crossing.
+bool segment_hits_tris(const RoomMesh& m, const Vec3& a, const Vec3& b, std::uint32_t t0, std::uint32_t t1,
+                       Vec3* point = nullptr);
 // True when any collision triangle comes within `r` of `c` (a zero-sweep sphere query).
 bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r);
+// The same query restricted to triangles [t0, t1).
+bool sphere_overlaps_tris(const RoomMesh& m, const Vec3& c, float r, std::uint32_t t0, std::uint32_t t1);
 // The water tree's surface straight above (x, y, z) within `reach` (FUN_0045c490's upward ray),
 // or kNoFloor. Only collision meshes carry water triangles (RoomMesh::tri_water).
 float water_above(const RoomMesh& m, float x, float y, float z, float reach = 50.0f);
