@@ -760,7 +760,13 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     ablend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_One};
     WGPUColorTargetState atarget = ctarget; atarget.blend = &ablend;
     WGPUFragmentState afs = cfs; afs.targets = &atarget;
-    WGPURenderPipelineDescriptor apd = cpd; apd.fragment = &afs;
+    // An overlay redraws a quad already drawn at the SAME depth (the barrier enemies' red glow
+    // over their own sprite): Less + write rejected every pixel, so the glow never showed.
+    // LessEqual, no write: it still hides behind walls but passes over its own sprite.
+    WGPUDepthStencilState ads = ds;
+    ads.depthCompare = WGPUCompareFunction_LessEqual;
+    ads.depthWriteEnabled = WGPUOptionalBool_False;
+    WGPURenderPipelineDescriptor apd = cpd; apd.fragment = &afs; apd.depthStencil = &ads;
     g.char_pipeline_add = wgpuDeviceCreateRenderPipeline(g.device, &apd);
 
     // Floor shadow decal: same alpha-over blend + fs_char, but a flat floor quad and
