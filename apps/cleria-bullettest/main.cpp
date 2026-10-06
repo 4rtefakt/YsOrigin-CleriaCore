@@ -1,7 +1,8 @@
 // cleria-bullettest — the GoXx bullet (src/cleria/bullet.hpp) against build/ai_spec/BULLETS.md:
 // the orientation / homing helpers, worked example A (M510's disc, §5), the kill-flag park, the
 // kind-2 homing window, the heal shot, the drip's bounce, the spawn's knock / side rules, the
-// trail, Velagunder's bubble (kind 0x1e) and drool drop (kind 0x1f), and Hugo's volley (kind 0x1b).
+// trail, Velagunder's bubble (kind 0x1e) and drool drop (kind 0x1f), Hugo's volley (kind 0x1b), the
+// aimed kind 0x16, and XSO op 0x112's falling water probe (GoXx type 0x16).
 // Usage: cleria-bullettest <assets dir>
 #include <cmath>
 #include <cstdio>
@@ -541,6 +542,139 @@ int main(int argc, char** argv) {
         check(cl2 == 43, "kind 1 with the same effect: no re-clock");
         check(line, "kind 0x1b: FUN_00597290, a straight line at 0.225 a tick");
         check(gone > 0 && cgone > 0 && gone - cgone >= 30, "kind 0x1b: outlives a kind-1 198 by 30+ updates (the 80-tick root)");
+    }
+
+    // ---- kind 0x16: the aimed effect (inline 0x594b51; effect 184 PC3_mazin_sitatuki, BULLETS.md §3.13) ----
+    const std::filesystem::path eft = std::filesystem::path(argv[1]) / "EFFECT" / "EFT";
+    efs[184] = Ef2::load(eft / "PC" / "PC03" / "PC3_MAZIN_SITATUKI.EF2");
+    efs[68] = Ef2::load(eft / "COMMON" / "Z_MIZU_SIBUKI_JYANPU.EF2");
+    if (!efs[184].ok() || !efs[68].ok()) { std::fprintf(stderr, "missing EF2 184 / 68\n"); return 2; }
+    {
+        // FUN_0059bbd0's block (0x59c151..0x59c1af): speed / accel / gravity 0, power 10, knock 1.
+        float f[13] = {0, 0, 0, 10.0f, 1.0f, 0, 0, 0, 0, 0, 0, 0, 0};
+        // `followed` = the leading updates in which dir aimed at the moving player; `gone` = the
+        // update at which the bullet was destroyed (its effect ended), or -1.
+        auto run = [&](int effect, int difficulty, bool* still, bool* holds, int* followed, int* gone) {
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            Spawn s = block_spawn(0x16, effect, {0, 2, 0}, {1, 0, 0}, f);
+            s.owner = 9; s.owner_atk = 12;
+            Bullet* b = bs.spawn(s);
+            Env env;
+            env.difficulty = difficulty;
+            *still = b && b->fx->power == 10.0f && b->side == 1;
+            *followed = 0;
+            *holds = true;
+            *gone = -1;
+            for (int k = 0; k < 120 && b; ++k) {
+                env.player = {std::cos(0.1f * float(k)) * 5.0f, 0.5f, std::sin(0.1f * float(k)) * 5.0f};
+                const Vec3 before = b->s.dir;
+                bs.update(env, nullptr);
+                if (bs.list().empty()) { *gone = k + 1; break; }
+                Vec3 t = env.player;
+                if (difficulty == 0) t.y = 1.0f;
+                const Vec3 to{t.x - 0.0f, t.y - 2.0f, t.z - 0.0f};
+                const float l = std::sqrt(to.x * to.x + to.y * to.y + to.z * to.z);
+                const bool aimed = near(b->s.dir.x, to.x / l, 1e-4f) && near(b->s.dir.y, to.y / l, 1e-4f) &&
+                                   near(b->s.dir.z, to.z / l, 1e-4f);
+                if (aimed && *followed == k) ++*followed;
+                if (k >= *followed && (b->s.dir.x != before.x || b->s.dir.z != before.z)) *holds = false;
+                *still = *still && b->s.pos.x == 0.0f && b->s.pos.y == 2.0f && b->s.pos.z == 0.0f &&
+                         b->mat.m[3][0] == 0.0f && b->mat.m[3][1] == 2.0f && b->mat.m[3][2] == 0.0f;
+                fx.step();
+                fx.sweep();
+            }
+        };
+        // The window, on a longer-lived effect (317, ~80 ticks): the handler never reads the id.
+        bool st0, ay0, st1, ay1, st2, ay2, sr, ar;
+        int n0, n1, n2, nr, g0, g1, g2, gr;
+        run(317, 0, &st0, &ay0, &n0, &g0);
+        run(317, 1, &st1, &ay1, &n1, &g1);
+        run(317, 2, &st2, &ay2, &n2, &g2);
+        std::printf("[bullet]   0x16: dir follows the player for %d / %d / %d updates (Normal / Hard / Nightmare)\n",
+                    n0, n1, n2);
+        check(n0 == 30 && n1 == 38 && n2 == 46,
+              "kind 0x16: one-step aim (2 pi; Normal at y 1.0) while age < 0x2e - {16,8,0}[dif]");
+        check(ay0 && ay1 && ay2, "kind 0x16: after the window dir holds (no tail homing)");
+        check(st0 && st1 && st2, "kind 0x16: power 10, side 1, never moves (kind 0's matrix reset)");
+        // The real effect 184 ends before the Hard / Nightmare windows close.
+        run(184, 2, &sr, &ar, &nr, &gr);
+        std::printf("[bullet]   0x16 + effect 184 (Nightmare): aims %d updates, gone at update %d\n", nr, gr);
+        check(sr && gr > 0 && nr == gr - 1, "kind 0x16 + 184: gone with its effect, aiming to the end on Nightmare");
+    }
+
+    // ---- GoXx type 0x16: XSO op 0x112 WaterWallHitchk's probe (FUN_0058fa00, BULLETS.md §3.14) ----
+    {
+        // A floor at y = 3.2: the terrain ray (set 2) hits when the segment reaches it.
+        auto floor_ray = [](const Vec3& from, const Vec3& d, int set) {
+            RayHit r;
+            r.hit = set == 2 && from.y + d.y <= 3.2f;
+            if (r.hit) { r.point = {from.x, 3.2f, from.z}; r.normal = {0, 1, 0}; }
+            return r;
+        };
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        Env env;
+        env.ray = floor_ray;
+        env.player = {50, 3, 50};                                  // out of reach
+        std::vector<Event> ev;
+        WaterProbe* w = bs.spawn_water_probe({34, 25, 97}, 0.8f, 0.4f);
+        float y = 25.0f;
+        bool fall = true;
+        int gone_at = -1;
+        for (int k = 1; k <= 200; ++k) {
+            const bool will_hit = y - 0.4f <= 3.2f;
+            bs.update(env, &ev);
+            if (bs.probes().empty()) { gone_at = k; break; }
+            y -= 0.4f;
+            fall = fall && !will_hit && w->pos.y == y && w->falls == std::uint32_t(k) && w->pos.x == 34.0f;
+        }
+        std::printf("[bullet]   probe: lands after %d falls (y %.2f)\n", gone_at - 1, y);
+        check(fall && gone_at == 55 && ev.empty(), "probe: falls 0.4 a tick until the terrain ray meets the floor, silently");
+
+        // The player under the column: SE 0x266 + effect 68 at the player, no push, the probe ends.
+        ev.clear();
+        env.player = {34.3f, 3.1f, 97.0f};
+        bs.spawn_water_probe({34, 25, 97}, 0.8f, 0.4f);
+        int touch_at = -1;
+        for (int k = 1; k <= 200; ++k) {
+            bs.update(env, &ev);
+            if (bs.probes().empty()) { touch_at = k; break; }
+        }
+        const ef2sim::Effect* splash = nullptr;
+        for (const auto& e : fx.effects()) if (e->id == 68) splash = e.get();
+        // y_k = 25 - 0.4k; in reach when (y - 3.1)^2 + 0.09 < 0.64, i.e. y < 3.84: k = 53 (y 3.8).
+        std::printf("[bullet]   probe: touches the player at update %d\n", touch_at);
+        check(touch_at == 54 && ev.size() == 1 && ev[0].type == Event::kSound && ev[0].id == 0x266 &&
+                  ev[0].pos.x == 34.3f && ev[0].pos.y == 3.1f,
+              "probe: in reach -> SE 0x266 at the player, no push event");
+        check(splash && splash->side == 0 && splash->power == 0.0f && splash->knock == 1.0f && splash->atk == 0.0f &&
+                  splash->cls == -1 && splash->rtype == 0,
+              "probe: effect 68 at the player: side 0, power 0, knock 1, ATK 0");
+        bool no_hit = true;
+        for (const auto& p : fx.particles()) if (p->fx == splash && p->hit.armed) no_hit = false;
+        check(no_hit, "probe: the splash has no armed hit particle (EF2 68 has no hit emitter)");
+
+        // No floor, out of reach: the 601st fall ends it.
+        env.ray = nullptr;
+        env.player = {50, 3, 50};
+        ev.clear();
+        bs.spawn_water_probe({34, 25, 97}, 0.8f, 0.4f);
+        int cap_at = -1;
+        for (int k = 1; k <= 700; ++k) {
+            bs.update(env, &ev);
+            if (bs.probes().empty()) { cap_at = k; break; }
+        }
+        check(cap_at == 601 && ev.empty(), "probe: no floor -> gone on the 601st fall (+0x134 > 0x258)");
+
+        // Born dead: radius 0 or step 0.
+        bs.spawn_water_probe({0, 0, 0}, 0.0f, 0.4f);
+        bs.spawn_water_probe({0, 0, 0}, 0.8f, 0.0f);
+        const bool dead = bs.probes().size() == 2 && bs.probes()[0]->gone && bs.probes()[1]->gone;
+        bs.update(env, &ev);
+        check(dead && bs.probes().empty() && ev.empty(), "probe: radius 0 or step 0 is born dead (FUN_0058f9a0)");
     }
 
     std::printf("[bullet] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);

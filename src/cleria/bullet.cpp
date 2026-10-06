@@ -160,6 +160,7 @@ void Bullets::clear() {
     for (auto& b : list_)
         if (b->fx) { b->fx->held = false; b->fx->attach_parent = nullptr; }
     list_.clear();
+    probes_.clear();
 }
 
 void Bullets::update(const Env& env, std::vector<Event>* events) {
@@ -169,6 +170,48 @@ void Bullets::update(const Env& env, std::vector<Event>* events) {
         if (list_[i]->destroyed) list_.erase(list_.begin() + std::ptrdiff_t(i));
         else ++i;
     }
+    const std::size_t m = probes_.size();
+    for (std::size_t i = 0; i < m; ++i)
+        if (!probes_[i]->gone) step_probe(*probes_[i], env, events);
+    for (std::size_t i = 0; i < probes_.size();) {
+        if (probes_[i]->gone) probes_.erase(probes_.begin() + std::ptrdiff_t(i));
+        else ++i;
+    }
+}
+
+WaterProbe* Bullets::spawn_water_probe(const Vec3& pos, float radius, float step) {
+    // FUN_0058f9a0 [BYTES 0x58f9a0..0x58f9f6]: +0x12 = 0x16; the 0x14-byte block -> +0x120..+0x130;
+    // +0x134 is 0 from the ctor. Born dead (+0x11 |= 2) when step == 0 or radius == 0 (a NaN
+    // compares unequal and lives).
+    auto w = std::make_unique<WaterProbe>();
+    w->pos = pos; w->radius = radius; w->step = step;
+    if (step == 0.0f || radius == 0.0f) w->gone = true;
+    probes_.push_back(std::move(w));
+    return probes_.back().get();
+}
+
+void Bullets::step_probe(WaterProbe& w, const Env& env, std::vector<Event>* events) {
+    // FUN_0058fa00 [BYTES 0x58fa00..0x58fca8], the live-step branch (the pause gates are the host's).
+    const Vec3& P = env.player;                                    // 0x74c09c +0x50
+    const float dy = P.y - w.pos.y, dx = P.x - w.pos.x, dz = P.z - w.pos.z;
+    const float d = float(std::sqrt(double(dy * dy + dx * dx + dz * dz)));   // FUN_0041f570
+    if (w.radius * w.radius > d * d) {                             // comiss; jbe 0x58fc2a
+        // SE 0x266 (614 env/v_fall_in) at the player (FUN_0043a080), then, if the effect pool has
+        // room, effect 0x44 (68 common/z_mizu_sibuki_jyanpu, no hit emitter) inlined at the
+        // player's origin: side 0 (+0x1d7), power 0, knock 1, rtype 0, status 0, cls 0xff, no
+        // stat copy (ATK 0), rot 0, scale 1. [not modelled] the pool-full gate.
+        if (events) events->push_back({Event::kSound, 0x266, P, 0, 0});
+        spawn_fx(0x44, P, {0, 0, 0}, 0, 0.0f, 0.0f, 1.0f, 0, 0, -1, 0);
+        w.gone = true;
+        return;
+    }
+    // Out of reach: the terrain ray (set 2) from pos along (0, -step, 0). A hit ends the probe;
+    // else it falls one step, and the 601st fall ends it (inc; cmp 0x258; jbe).
+    const RayHit r = env.ray ? env.ray(w.pos, {0.0f, -w.step, 0.0f}, 2) : RayHit{};
+    if (r.hit) { w.gone = true; return; }
+    w.falls += 1;
+    w.pos.y -= w.step;
+    if (w.falls > 0x258u) w.gone = true;
 }
 
 void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
@@ -387,6 +430,21 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             }
             b.u194 += 1;
             mover1();
+            break;
+        }
+        case 0x16: {                                               // inline 0x594b51: the aimed effect
+            // While age < 0x2e - {16, 8, 0}[difficulty] (0x6a2ba4; unsigned jae): dir re-aims at
+            // the player's origin in one step (max turn 2*pi, 0x40c90fdb); on Normal the target's
+            // y is 1.0 (absolute). No motion: jmp 0x5942c8, kind 0's matrix reset.
+            static const std::uint32_t kLead[3] = {16, 8, 0};
+            const int dif = env.difficulty;
+            const std::uint32_t win = 0x2eu - kLead[dif >= 0 && dif <= 2 ? dif : 0];   // [H] 0..2 only
+            if (b.age < win) {
+                Vec3 t = env.player;
+                if (dif == 0) t.y = 1.0f;                          // 0x594b88
+                s.dir = home(s.pos, s.dir, t, 6.2831855f);
+            }
+            reset_matrix(b);
             break;
         }
         case 0x14: case 0x19: case 0x2b:                           // none: the tail only

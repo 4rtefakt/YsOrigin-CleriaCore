@@ -679,6 +679,52 @@ int main(int argc, char** argv) {
                     rooms, frozen, soft_locked, locked_names.c_str(), ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // [0x112] WaterWallHitchk(x, y, z, radius, step) (handler 0x56ad63, BULLETS.md §3.14): the VM
+    //    decodes the vec3 + two floats and calls XsoHost::water_wall_hitchk.
+    {
+        struct WwHost : H {
+            struct Call { float x, y, z, r, s; int tick; };
+            std::vector<Call> calls;
+            int tick = 0;
+            void water_wall_hitchk(float x, float y, float z, float r, float s) override {
+                calls.push_back({x, y, z, r, s, tick});
+            }
+        };
+        Asm a;
+        a.op(0x112, {Asm::F(1.5f), Asm::F(-2.25f), Asm::F(3.0f), Asm::F(0.8f), Asm::F(0.4f)});
+        a.op(0x112, {Asm::F(7.0f), Asm::F(8.0f), Asm::F(9.0f), Asm::I(1), Asm::F(0.5f)});   // an int radius reads 0
+        a.raw(0x01000000);
+        const Xso syn = Xso::parse(a.bytes());
+        WwHost h; XsoVm vm; vm.host = &h; vm.run(syn);
+        const bool syn_ok = h.calls.size() == 2 && h.calls[0].x == 1.5f && h.calls[0].y == -2.25f &&
+                            h.calls[0].z == 3.0f && h.calls[0].r == 0.8f && h.calls[0].s == 0.4f &&
+                            h.calls[1].x == 7.0f && h.calls[1].r == 0.0f && h.calls[1].s == 0.5f;
+        std::printf("[0x112] synthetic: %zu calls %s\n", h.calls.size(), syn_ok ? "OK" : "FAIL");
+        fails += !syn_ok;
+        // The shipped S_2006 WATERWALL: five probes at (34..38, 25, 97), r 0.8, step 0.4, then
+        // Wait_Time(6) and a jump back to 0.
+        const auto bytes = rd(root + "/MAP/S_20/S_2006/WATERWALL.XSO");
+        bool real_ok = false;
+        if (bytes.size() >= 0x24) {
+            const Xso ww = Xso::parse(bytes);
+            WwHost hr; XsoVm v2; v2.host = &hr; v2.co_begin(ww);
+            for (hr.tick = 0; hr.tick < 12; ++hr.tick) v2.tick();
+            bool args = hr.calls.size() == 15;
+            for (std::size_t i = 0; args && i < hr.calls.size(); ++i) {
+                const WwHost::Call& c = hr.calls[i];
+                args = c.x == 34.0f + float(i % 5) && c.y == 25.0f && c.z == 97.0f && c.r == 0.8f && c.s == 0.4f &&
+                       c.tick == int(i / 5) * 5;
+            }
+            real_ok = args && v2.co_active();
+            std::printf("[0x112] S_2006 WATERWALL: %zu calls in 12 ticks, bursts at ticks %d/%d/%d %s\n",
+                        hr.calls.size(), hr.calls.empty() ? -1 : hr.calls[0].tick,
+                        hr.calls.size() > 5 ? hr.calls[5].tick : -1, hr.calls.size() > 10 ? hr.calls[10].tick : -1,
+                        real_ok ? "OK" : "FAIL");
+        } else {
+            std::printf("[0x112] S_2006 WATERWALL.XSO missing FAIL\n");
+        }
+        fails += !real_ok;
+    }
     // [unescape] FUN_0057ad90: the window text escapes (wndtext.hpp).
     { struct C { const char* in; const char* want; } cases[] = {
           {"Acquired\\n<color:0xfff2ea8c>Celcetan Panacea<color:> x 1.", "Acquired\n<color:0xfff2ea8c>Celcetan Panacea<color:> x 1."},

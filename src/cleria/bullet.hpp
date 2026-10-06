@@ -7,8 +7,11 @@
 // parks it. The 13 floats after the direction land at +0x144..+0x174 and mean different things
 // per kind, so they are kept here as the raw slots.
 //
-// [not modelled] kinds 3, 5, 6, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x1b / 0x1e / 0x1f / 0x29
-// (BULLETS.md §10.6) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
+// It also hosts XSO op 0x112's falling probe (GoXx type 0x16, not a bullet; §3.14), since it
+// shares the bullet's Env (the player origin, the terrain ray) and effect system.
+//
+// [not modelled] kinds 3, 5, 6, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x16 / 0x1b / 0x1e / 0x1f /
+// 0x29 (BULLETS.md §10.6) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
 // the kind-0x10/0x23 proxy victim (the player batting a drip); the struck test (§4.4, boss
 // effect ids); the effect-id special cases (0x82 rtype, 0x1e7 random scale, 0x20/0x15 Adol
 // fire, 0x178, 0x1c9/0x1df splashes); the kind-0x29 water ripple and impact burst; the
@@ -58,6 +61,18 @@ struct Bullet {
     Vec3 owner_pos{};             // the owner's last known origin (kinds 0xb / 0xe home on it)
     bool gone = false;            // +0x11 & 2: killed by its handler, the effect fades on
     bool destroyed = false;       // FUN_00594190: the record can go
+};
+
+// GoXx type 0x16 (FUN_0058f9a0 init, FUN_0058fa00 update; BULLETS.md §3.14): the probe XSO op
+// 0x112 WaterWallHitchk drops. It falls `step` a tick from its spawn point until the terrain
+// ray meets the floor (or its 601st fall); if the player's origin comes within `radius` first, it plays
+// SE 0x266 and effect 68 (a splash, no hit emitter) at the player and dies. No push, no damage.
+struct WaterProbe {
+    Vec3 pos{};                   // +0x120..+0x128
+    float radius = 0;             // +0x12c
+    float step = 0;               // +0x130: the fall per tick
+    std::uint32_t falls = 0;      // +0x134
+    bool gone = false;            // +0x11 & 2
 };
 
 struct RayHit {
@@ -110,15 +125,21 @@ class Bullets {
     void update(const Env& env, std::vector<Event>* events);
     void clear();
     std::vector<std::unique_ptr<Bullet>>& list() { return list_; }
+    // XSO op 0x112 WaterWallHitchk -> FUN_0058f9a0: a type-0x16 probe at `pos`. It is born dead
+    // when `radius` or `step` is 0. update() runs it after the bullets and drops it once gone.
+    WaterProbe* spawn_water_probe(const Vec3& pos, float radius, float step);
+    std::vector<std::unique_ptr<WaterProbe>>& probes() { return probes_; }
 
   private:
     ef2sim::Effect* spawn_fx(int id, const Vec3& pos, const Vec3& rot, int side, float atk,
                              float power, float knock, int rtype, int status, int cls, int owner,
                              const Vec3& scale = {1, 1, 1});
     void step(Bullet& b, const Env& env, std::vector<Event>* events);
+    void step_probe(WaterProbe& w, const Env& env, std::vector<Event>* events);
     ef2sim::System* fx_;
     Ef2Of ef2_of_;
     std::vector<std::unique_ptr<Bullet>> list_;
+    std::vector<std::unique_ptr<WaterProbe>> probes_;
 };
 
 }  // namespace cleria::bullet

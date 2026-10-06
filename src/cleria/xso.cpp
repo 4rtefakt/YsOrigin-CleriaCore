@@ -649,6 +649,19 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     } else if (sub == 0x119 && host && nargs >= 1) {
                         // Eft_Kill(name): remove the named located effect (barrier break).
                         host->kill_effect(ops(0));
+                    } else if (sub == 0x112 && host && nargs >= 5) {
+                        // WaterWallHitchk [BYTES 0x56ad63..0x56ae23]: FUN_00566340(0) is a pointer to
+                        // operand 0 read as three words (x, y, z), then FUN_00566250(3) radius and
+                        // (4) step, into a new GoXx's FUN_0058f9a0 (type 0x16, the falling probe).
+                        // [not modelled] a non-float operand 0: the engine then reads its scratch
+                        // float and the two words after it; here y = z = 0.
+                        float x = opf(0), y = 0.0f, z = 0.0f;
+                        if (op_type(script, old, 0) == 1) {
+                            const std::int32_t wy = raw_op(script, old, 1), wz = raw_op(script, old, 2);
+                            std::memcpy(&y, &wy, 4);
+                            std::memcpy(&z, &wz, 4);
+                        }
+                        host->water_wall_hitchk(x, y, z, opf(3), opf(4));
                     }
                     // all other sub-ops: no-op (skipped by length)
                 }

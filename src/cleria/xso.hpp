@@ -171,6 +171,11 @@ struct XsoHost {
     // op 0x119 Eft_Kill(name): remove the named located effect. The barrier break
     // (KEKKAIBREAK) calls `Eft_Kill("eft_barrier")`, so the ward vanishes on clear.
     virtual void kill_effect(const std::string& /*name*/) {}
+    // op 0x112 WaterWallHitchk(x, y, z, radius, step) (handler 0x56ad63, build/ai_spec/BULLETS.md
+    // §3.14): a GoXx type-0x16 falling probe (FUN_0058f9a0). The host spawns it with
+    // bullet::Bullets::spawn_water_probe. S_2006's WATERWALL loops five of them, (34..38, 25, 97),
+    // radius 0.8, step 0.4, between Wait_Time(6)s.
+    virtual void water_wall_hitchk(float /*x*/, float /*y*/, float /*z*/, float /*radius*/, float /*step*/) {}
 
     // --- cutscene condition-wait predicates (CUTSCENE_COROUTINE.md §4b) --------------
     // A condition-wait op re-tests its predicate every frame (the VM rewinds the PC to
