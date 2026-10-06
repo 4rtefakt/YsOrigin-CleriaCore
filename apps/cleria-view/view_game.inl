@@ -44,7 +44,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         WGPUSurfaceConfiguration sc = {};
         sc.device = g.device; sc.format = fmt; sc.usage = WGPUTextureUsage_RenderAttachment;
-        if (std::getenv("CLERIA_DRIVE")) sc.usage |= WGPUTextureUsage_CopySrc;   // its `shot`
+        // CopySrc: the CrossFade capture (and CLERIA_DRIVE's `shot`), where the surface allows it.
+        if ((caps.usages & WGPUTextureUsage_CopySrc) || std::getenv("CLERIA_DRIVE"))
+            sc.usage |= WGPUTextureUsage_CopySrc;
         sc.width = cw; sc.height = ch; sc.alphaMode = WGPUCompositeAlphaMode_Auto;
         sc.presentMode = WGPUPresentMode_Fifo;
         wgpuSurfaceConfigure(surface, &sc);
@@ -506,7 +508,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         game.g_flags[474] = num == 5080;
         water_mode = (num == 2008 || num == 2009 || num == 2010 || num == 2014 || num == 2015) ? 2 : 0;
     };
-    room_entry_flags(boot_sob.stem().string());
+    // FUN_00431840's per-scene flag writes (SCENEFLOW.md 6.2), on every scene entry: the first
+    // room too (a dev start into a room otherwise kept flag 185 = 0 and the HUD faded out).
+    auto scene_entry_flags = [&](const std::string& scene) {
+        game.g_flags[160] = 0;                                   // the sub-area (0 in the data)
+        for (int f : {161, 209, 156, 130, 132, 189, 190, 194, 197, 200, 135, 497, 506}) game.g_flags[f] = 0;
+        for (int f = 165; f <= 180; ++f) game.g_flags[f] = 0;    // the per-room scratch block
+        game.g_flags[185] = 1;
+        room_entry_flags(scene);
+    };
+    scene_entry_flags(boot_sob.stem().string());
     Room room = load_room(g, asset_root, boot_sob, game.g_flags, character);
     // Particles that die on world contact trace their last step against the room (set 2).
     fxsim.set_world([&](const Vec3& f, const Vec3& d, Vec3* at) {
@@ -781,6 +792,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         carry = {};
     };
 
+    // What this visit's live scripts did to the room's objects (0x16B / 0x16C): a change marks the
+    // room for a geometry rebuild at the end of the tick (STATUE_CLEANSE.md D2: the statue swap).
+    LiveObjState live_obj;
+    bool live_obj_dirty = false;
     load_meshes(false);
     float cooldown = 1.5f;
     auto transition = [&](const std::string& dest, const SenTrigger* via = nullptr) {
@@ -798,11 +813,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // Every scene entry, door or script (FUN_00431840; SCENEFLOW.md 6.2): a dead player is
         // revived, and the per-scene flags are reset before the room's scripts read them.
         if (player.hp < 1) { player.hp = player.max_hp; player.sp_cur = player.sp_max; }
-        game.g_flags[160] = 0;                                   // the sub-area (0 in the data)
-        for (int f : {161, 209, 156, 130, 132, 189, 190, 194, 197, 200, 135, 497, 506}) game.g_flags[f] = 0;
-        for (int f = 165; f <= 180; ++f) game.g_flags[f] = 0;    // the per-room scratch block
-        game.g_flags[185] = 1;
-        room_entry_flags(dest);
+        scene_entry_flags(dest);
+        live_obj = {};                                           // a new visit
+        live_obj_dirty = false;
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
@@ -874,7 +887,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         auto it = g.sob_index.find(room.name);
         if (it == g.sob_index.end()) return;
         Room next = load_room(g, asset_root, it->second, game.g_flags, character,
-                              broken_objects.empty() ? nullptr : &broken_objects);
+                              broken_objects.empty() ? nullptr : &broken_objects, &live_obj);
         free_room(room, g.white_bind);
         room = std::move(next);
         load_meshes(/*keep*/true);
@@ -903,9 +916,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // time a sealed statue (flag 300 == 0) is touched — see the cleanse wiring below;
     // blessings list real costs but effects are not implemented.
     int statue_ui = 0, statue_sel = 0, statue_reveal = 0;
-    bool cleanse_pending = false;   // a cleanse cutscene (SAVE.XSO) is playing on csMgr
-    std::int32_t prev_flag300 = 0;  // to detect the cleanse flag flipping (statue model swap)
-    bool statue_reload_pending = false;  // reload for the model swap once the cutscene thaws
     auto capture_save = [&]() -> SaveState {
         SaveState s;
         std::memcpy(s.flags, game.g_flags, sizeof s.flags);
@@ -1152,7 +1162,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const int i = mgr->vm.g_flags[137];
             if (i >= 0 && i < 22) change_scene(kWarpRooms[i]);
         }
-        // 0xcd CrossFade: [not modelled] the frozen-frame dissolve (purely visual in the corpus).
         // Scripted map objects (meshobj.hpp).
         MeshWorld* meshes = nullptr;
         const std::string* player_floor = nullptr;   // the object the player stands on
@@ -1191,7 +1200,19 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (char& c : l) c = char(std::tolower((unsigned char)c));
             return player_floor && *player_floor == l;
         }
-        bool wait_window(bool) override { return true; }
+        // 0xf5 / 0xf6 Wait_WindowOpen / Close: the message box exists / is gone (it fades out
+        // ~14 frames after Window_Close; STATUE_CLEANSE.md D7).
+        bool wait_window(bool want_open) override {
+            if (skipping) return true;
+            return want_open ? wtext.alive() : !wtext.alive();
+        }
+        // 0xcd CrossFade(start, rate): opacity `start`, += `rate` per step, a frame captured when
+        // start != 0 (0x76a548 / 0x76a54c / 0x7b2488; STATUE_CLEANSE.md §2).
+        float cf_alpha = 0, cf_rate = 0;
+        void crossfade(float start, float rate) override {
+            cf_alpha = std::clamp(start, 0.0f, 1.0f);
+            cf_rate = rate;
+        }
         bool wait_sound(int) override { return true; }
         // 0xf4 Wait_Script(name): a parent controller blocks until its spawned talk child
         // is gone. Answer from the live set (case-insensitive; script names vary in case).
@@ -1204,6 +1225,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 for (std::size_t k = 0; k < n.size(); ++k)
                     if (std::tolower((unsigned char)i.name[k]) != std::tolower((unsigned char)n[k])) { same = false; break; }
                 if (same) return false;   // still running -> keep waiting
+            }
+            // A child StartScript'ed in this burst is still queued (it runs in the drain after
+            // the burst; the engine runs it inside the burst): it counts as live
+            // (STATUE_CLEANSE.md W6 — `StartScript(X); Wait_Script(X)` must wait).
+            for (const auto& q : mgr->spawn_queue) {
+                if (q.name.size() != n.size()) continue;
+                bool same = true;
+                for (std::size_t k = 0; k < n.size(); ++k)
+                    if (std::tolower((unsigned char)q.name[k]) != std::tolower((unsigned char)n[k])) { same = false; break; }
+                if (same) return false;
             }
             return true;
         }
@@ -1277,6 +1308,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         void chr_set_status(int id, int lv, const float* f) override {
             if (worldHost) worldHost->chr_set_status(id, lv, f);
         }
+        std::function<void(const std::string&, bool, bool)> mesh_state_fn;   // (name, collision?, on)
+        void mesh_visible(const std::string& n, bool on) override { if (mesh_state_fn) mesh_state_fn(n, false, on); }
+        void mesh_collision(const std::string& n, bool on) override { if (mesh_state_fn) mesh_state_fn(n, true, on); }
         std::function<void(int)> se_fn, set_skill_fn;
         std::function<void(int, int)> bgm_volume_fn;
         void se_play(int se) override { if (se_fn) se_fn(se); }
@@ -1715,6 +1749,15 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // 0xBC / 0xBB / 0x8F. [H] Se_Play's 2nd operand (1024 everywhere) is not read by
     // FUN_004396f0. Bgm_Volume's (volume /1024, time) read as a linear fade over `time` ms [H].
     csHost.se_fn = [&](int se) { audio.play(se, kSfxAnimVol); };
+    // A live 0x16B / 0x16C: record it, and rebuild only when it changes what the room shows.
+    csHost.mesh_state_fn = [&](const std::string& n, bool coll, bool on) {
+        std::string ln = n;
+        for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
+        (coll ? live_obj.collide : live_obj.visible)[ln] = on;
+        const bool now = coll ? phys_mesh(room).object_range(ln) != nullptr
+                              : room.mesh.object_range(ln) != nullptr;
+        if (now != on) live_obj_dirty = true;
+    };
     csHost.set_skill_fn = [&](int i) { inv.magic = i; };
     csHost.bgm_volume_fn = [&](int v, int t) {
         bgm_gain_to = std::clamp(float(v) / 1024.0f, 0.0f, 1.0f);
@@ -1795,44 +1838,28 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 continue;
             }
             const Interactable* target = cd.obj;
-            // Goddess statue -> the SAVE dialog (the real game's save flow; the pause
-            // book's Save/Load page only LOADS).
+            // The object's own SOB script (+0x188) as authored; the loader resolves '@' to
+            // S_COMMON. A goddess statue is the same: "Save" on the sealed model runs the room's
+            // SAVE.XSO (the cleanse; its own gates decide, nothing shows when they fail), "@Save"
+            // on the cleansed one the common menu (STATUE_CLEANSE.md §1.1).
+            std::string name = target->script_name;
+            if (name.empty() && !target->script.empty()) name = fs::path(target->script).stem().string();
+            for (char& ch : name) ch = char(std::tolower((unsigned char)ch));
             std::string tl = target->name;
             for (char& ch : tl) ch = char(std::tolower((unsigned char)ch));
-            if (tl.rfind("save", 0) == 0) {
-                // A SEALED goddess statue (flag 300 == 0) must be CLEANSED first for Yunica/Hugo
-                // (Toal skips it). Play SAVE.XSO through the live cutscene manager — it self-gates
-                // on its prereqs (intro-done flag 165 + story flags), Fixes the world, spawns the
-                // goddess, sets flag 300 = 1, and Unfixes. When it ends we re-gate the room so the
-                // statue swaps to its cleansed model; if it didn't cleanse (prereqs unmet) we fall
-                // back to the save menu. Events-off / cleansed / Toal go straight to the menu.
-                const bool sealed = game.g_flags[300] == 0;
-                std::printf("  [statue] flag300(cleansed)=%d 165(intro)=%d 84=%d 86=%d events=%d char=%d\n",
-                            game.g_flags[300], game.g_flags[165], game.g_flags[84], game.g_flags[86],
-                            int(events_enabled), character);
-                if (events_enabled && sealed && (character == 1 || character == 2) &&
-                    fs::exists(room.dir / "SAVE.XSO")) {
-                    std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
-                    csMgr.vm.g_flags[150] = character;
-                    if (csMgr.start("save")) {
-                        cleanse_pending = true;
-                        std::printf("  [statue] started cleanse (SAVE.XSO); prereqs %s\n",
-                                    (game.g_flags[165] && (game.g_flags[84] || game.g_flags[86]))
-                                        ? "MET -> will cleanse" : "UNMET -> will fall back to menu");
-                        return;
-                    }
-                }
+            if (tl.rfind("save", 0) == 0 && (name.empty() || name == "@save")) {
+                // [STAND-IN] S_COMMON/SAVE.XSO's script-built menu (its 0x9A / 0xDC / 0xDD / 0xE0
+                // ops and @GrowMenu are not ported): the hand-made statue menu.
                 statue_ui = 1;            // "What will you do?" (STATUE_MENU.md flow)
                 statue_sel = 0; statue_reveal = 0;
                 return;
             }
-            if (target->script.empty()) continue;
-            std::string stem = fs::path(target->script).stem().string();
-            for (char& ch : stem) ch = char(std::tolower((unsigned char)ch));
+            if (name.empty() || target->script.empty()) continue;
             XsoVm::Vars ov;
             ov.s[0] = target->name;                                // the object's own name ($S0)
-            if (csMgr.start(stem, ov)) {
-                std::printf("  [probe] %s -> %s\n", target->name.c_str(), stem.c_str());
+            ov.i[0] = target->i0; ov.i[1] = target->i1; ov.f[0] = target->f0;
+            if (csMgr.start(name, ov)) {
+                std::printf("  [probe] %s -> %s\n", target->name.c_str(), name.c_str());
                 return;
             }
         }
@@ -1845,6 +1872,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     //   at=x,z,deg  place the player (floor y) facing deg      kill1  remove the group-1 actors
     //   act         the action key (the probe)                 ok     a confirm press
     //   shot        write the next frame to CLERIA_SHOT_DIR/t<tick>.ppm          quit
+    //   flag=i,v    set a game flag
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     if (const char* dv = std::getenv("CLERIA_DRIVE")) {
@@ -1860,6 +1888,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
     }
     std::string drive_shot;                 // a pending `shot` file
+    // The CrossFade capture (0xcd): the frozen frame and its bind group for the HUD overlay.
+    WGPUTexture cf_tex = nullptr; WGPUTextureView cf_view = nullptr; WGPUBindGroup cf_bind = nullptr;
+    std::uint32_t cf_w = 0, cf_h = 0;
     auto run_drive = [&](const std::string& cmd) {
         std::printf("  [drive] t%llu %s\n", (unsigned long long)tick_count, cmd.c_str());
         if (cmd.rfind("at=", 0) == 0) {
@@ -1876,6 +1907,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             for (const Actor& a : world.actors()) if (a.tag.in_group(1)) ids.push_back(a.instance_id);
             for (int id : ids) world.despawn(id);
             csHost.world_changed = true;
+        } else if (cmd.rfind("flag=", 0) == 0) {          // flag=index,value (game flags)
+            int fi = 0, fv = 0;
+            if (std::sscanf(cmd.c_str() + 5, "%d,%d", &fi, &fv) == 2 && fi >= 0 && fi < 0x200)
+                game.g_flags[fi] = fv;
         } else if (cmd == "act") {
             try_interact();
         } else if (cmd == "ok") {
@@ -2009,6 +2044,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         return g.sob_index.count(room_name) ? room_name : std::string();
     };
 
+    g_tick_reset = true;   // the first room's load stall is not caught up either (DAT_0075aed5)
     while (running) {
         if (!csHost.pending_scene.empty()) {
             const std::string req = csHost.pending_scene;
@@ -2249,6 +2285,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         const bool frozen_now = tick_events();
         world.tick_alpha_fades();                  // Chr_Alpha (runs under a Fix too, [H])
+        {   // FUN_004281c0: the HUD's alpha moves 0.1 per step toward 1 - the box's alpha (0 while
+            // flag 185 == 0) [BYTES 0x428638..86]; the CrossFade opacity steps by its rate.
+            const float box = csHost.wtext.alive() ? csHost.wtext.box_alpha() : 0.0f;
+            const float target = game.g_flags[185] != 0 ? 1.0f - box : 0.0f;
+            if (hud.gauge_alpha < target) hud.gauge_alpha = std::min(target, hud.gauge_alpha + 0.1f);
+            else hud.gauge_alpha = std::max(target, hud.gauge_alpha - 0.1f);
+            csHost.cf_alpha = std::clamp(csHost.cf_alpha + csHost.cf_rate, 0.0f, 1.0f);
+        }
         if (bgm_gain_step != 0.0f) {               // Bgm_Volume's fade
             bgm_gain += bgm_gain_step;
             if (bgm_gain_step < 0.0f ? bgm_gain <= bgm_gain_to : bgm_gain >= bgm_gain_to) {
@@ -2274,38 +2318,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     game.g_flags[gr.index] = gr.value;
             csMgr.vm.grants.clear();
         }
-        // Statue cleanse finished? SAVE.XSO has left csMgr.live. If it cleansed (flag 300
-        // now set — the drain above persisted it) re-gate the room so the statue swaps to
-        // its cleansed model; if it didn't (prereqs unmet, script exited early) fall back
-        // to the save menu so the statue is still usable.
-        if (cleanse_pending) {
-            bool live = false;
-            for (const auto& in : csMgr.live) if (!in.finished && in.name == "save") { live = true; break; }
-            if (!live) {
-                cleanse_pending = false;
-                if (game.g_flags[300] == 0) { statue_ui = 1; statue_sel = 0; statue_reveal = 0; }
-            }
-        }
-        // Statue MODEL swap timing (RE: SAVE.XSO 0xB4 spawns "s_SaveObjectChange", whose 0x16b
-        // ops flip save_01 -> save_03 at the cleanse-glow beat mid-cutscene). flag300 flips
-        // EARLIER (SAVE.XSO pc82), so we mark pending on the flip but do the mesh rebuild the
-        // instant that child script appears on csMgr — matching the beat instead of popping the
-        // model after the whole cutscene thaws. Mesh-only while frozen (no event re-run, which
-        // would restart BATTLESTART); a post-thaw full reload is the fallback if it never ran.
-        if (prev_flag300 == 0 && game.g_flags[300] != 0) statue_reload_pending = true;
-        prev_flag300 = game.g_flags[300];
-        if (statue_reload_pending) {
-            bool swap_beat = false;
-            for (const auto& in : csMgr.live) {
-                std::string n = in.name; for (char& c : n) c = char(std::tolower((unsigned char)c));
-                if (n == "s_saveobjectchange") { swap_beat = true; break; }
-            }
-            const bool thawed = !csMgr.world_frozen();
-            if (swap_beat || thawed) {
-                statue_reload_pending = false;
-                reload_room(/*rerun_events=*/thawed);
-                hud.message("The goddess statue is cleansed.");
-            }
+        // A live script showed / hid an object (or switched its collision): rebuild the room's
+        // geometry with the overrides, mesh only (the scripts keep running).
+        if (live_obj_dirty) {
+            live_obj_dirty = false;
+            reload_room(/*rerun_events*/false);
         }
         // A cutscene spawned/deleted an actor (op 0x12c/0x12d): load any new cast's
         // sprite and rebuild the render list so the NPC is drawn (or gone). Done here
@@ -3558,6 +3575,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // box/caption (drawn below) so a partial crossfade keeps text readable while a
         // full fade blacks the scene out. set_fade routes it into the HUD's alpha batch.
         hud.set_fade(csHost.fade_rgb, csHost.fade_cur);
+        hud.overlay_bind = cf_bind;
+        hud.overlay_alpha = cf_bind ? csHost.cf_alpha : 0.0f;
         // Bind the HUD's four equipment slots (FUN_0043fe00): weapon, armor, foot (flags
         // 151..153) and the accessory (0x76a628; 0xff = none). [not modelled] the dimming of a
         // used-up item and the Lv badges (INVENTORY.md §7).
@@ -3624,6 +3643,32 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                                    false, 72.0f);
             }
             wgpuTextureViewRelease(pdepth);
+        }
+        // CrossFade: every frame is kept in cf_tex until a fade starts; the op then dissolves the
+        // last frame the player saw (the op's "this frame") into the live view. [H] the engine
+        // captures at its own present; keeping the last frame avoids depending on tick order.
+        if (csHost.cf_alpha <= 0.0f) {
+            if (!cf_tex || cf_w != cw || cf_h != ch) {
+                if (cf_bind) wgpuBindGroupRelease(cf_bind);
+                if (cf_view) wgpuTextureViewRelease(cf_view);
+                if (cf_tex) wgpuTextureRelease(cf_tex);
+                WGPUTextureDescriptor td = {};
+                td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+                td.dimension = WGPUTextureDimension_2D; td.size = {cw, ch, 1};
+                td.format = fmt; td.mipLevelCount = 1; td.sampleCount = 1;
+                cf_tex = wgpuDeviceCreateTexture(g.device, &td);
+                cf_view = wgpuTextureCreateView(cf_tex, nullptr);
+                cf_bind = hud.make_bind(g, cf_view);
+                cf_w = cw; cf_h = ch;
+            }
+            WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+            WGPUTexelCopyTextureInfo src = {}; src.texture = st.texture; src.aspect = WGPUTextureAspect_All;
+            WGPUTexelCopyTextureInfo dst = {}; dst.texture = cf_tex; dst.aspect = WGPUTextureAspect_All;
+            WGPUExtent3D ext = {cw, ch, 1};
+            wgpuCommandEncoderCopyTextureToTexture(enc, &src, &dst, &ext);
+            WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+            wgpuQueueSubmit(g.queue, 1, &cmd);
+            wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
         }
         if (!drive_shot.empty()) {                       // CLERIA_DRIVE `shot`
             const std::uint32_t bpr = (cw * 4 + 255) & ~255u;

@@ -528,9 +528,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         // Mesh_SetVisible(name, on) (FUN_00572aa0: bit 0x20 = hidden).
                         // S_SAVEOBJECTCHANGE shows one of three statues stacked at one spot.
                         obj_visible[ops(0)] = (op(1) != 0);
+                        if (host) host->mesh_visible(ops(0), op(1) != 0);
                     } else if (sub == 0x16C && nargs >= 2) {
                         // Mesh_EnableCollision(name, on) (FUN_00572ae0: bit 0x40 = no collision).
                         obj_collide[ops(0)] = (op(1) != 0);
+                        if (host) host->mesh_collision(ops(0), op(1) != 0);
                     } else if (sub == 0x12c && host && nargs >= 7) {
                         // The SPAWN op. Operand layout [C-DIS][C-COR] over 1198 sites:
                         //   (entity_id, cast_type, x, y, z, yaw_deg, group)

@@ -214,9 +214,15 @@ static void free_room(Room& r, WGPUBindGroup shared_white) {
 }
 
 // Load a room's geometry, textures and SEN into fresh GPU resources.
+// What this visit's live scripts did to the room's objects (0x16B / 0x16C), by lower-case name:
+// applied over everything the load-time scripts decided.
+struct LiveObjState {
+    std::unordered_map<std::string, bool> visible, collide;
+};
 static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                       const std::int32_t* base_flags = nullptr, int character = 1,
-                      const std::unordered_set<std::string>* extra_hidden = nullptr) {
+                      const std::unordered_set<std::string>* extra_hidden = nullptr,
+                      const LiveObjState* live = nullptr) {
     Room r;
     r.name = sob.stem().string();
     r.dir = sob.parent_path();
@@ -340,6 +346,10 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     if (extra_hidden)
         for (const std::string& n : *extra_hidden) hidden.insert(n);
     for (const std::string& n : root_hidden) hidden.insert(n);
+    if (live) {
+        for (const auto& [n, on] : live->visible) { if (on) hidden.erase(n); else hidden.insert(n); }
+        for (const auto& [n, on] : live->collide) { if (on) no_collide.erase(n); else no_collide.insert(n); }
+    }
     r.load_effects = std::move(load_fx);
     r.mesh = build_room(asset_root, sob, nullptr,
                         hidden.empty() ? nullptr : &hidden, base_flags,

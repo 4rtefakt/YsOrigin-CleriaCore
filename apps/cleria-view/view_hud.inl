@@ -169,6 +169,9 @@ struct Hud {
         pd.primitive.topology = WGPUPrimitiveTopology_TriangleList;
         pd.multisample.count = 1; pd.multisample.mask = 0xFFFFFFFF; pd.fragment = &fs;
         pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+        fs.entryPoint = sv("fs_opaque");                 // the CrossFade overlay
+        overlay_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+        overlay_bgl = wgpuRenderPipelineGetBindGroupLayout(overlay_pipeline, 0);
 
         WGPUSamplerDescriptor sad = {};
         sad.magFilter = sad.minFilter = WGPUFilterMode_Linear; sad.maxAnisotropy = 1;
@@ -317,6 +320,22 @@ struct Hud {
     // FIRST in render() so it sits over the 3D scene but under the HUD/dialogue text.
     std::uint32_t fade_rgb = 0; float fade_alpha = 0;
     void set_fade(std::uint32_t rgb, float alpha) { fade_rgb = rgb; fade_alpha = alpha; }
+    // The global HUD tint 0x74e68c's alpha 0x74e688 (STATUE_CLEANSE.md §2): scales the gauges,
+    // the equipment slots and the boss bar (the bar is [H]); not the fader or the debug text.
+    float gauge_alpha = 1.0f;
+    // CrossFade 0xcd (STATUE_CLEANSE.md §2): the frozen frame, drawn fullscreen at `alpha`
+    // under everything else the HUD draws. [H] its order against the HUD.
+    WGPUBindGroup overlay_bind = nullptr; float overlay_alpha = 0;
+    WGPUBuffer ovbuf = nullptr;
+    WGPURenderPipeline overlay_pipeline = nullptr;
+    WGPUBindGroupLayout overlay_bgl = nullptr;
+    // A bind group for a texture view on the overlay pipeline's layout (the CrossFade frame).
+    WGPUBindGroup make_bind(Gpu& g, WGPUTextureView v) const {
+        WGPUBindGroupEntry e[2] = {};
+        e[0].binding = 0; e[0].textureView = v; e[1].binding = 1; e[1].sampler = samp;
+        WGPUBindGroupDescriptor bd = {}; bd.layout = overlay_bgl; bd.entryCount = 2; bd.entries = e;
+        return wgpuDeviceCreateBindGroup(g.device, &bd);
+    }
 
     // Append a string at screen pixel (px,py), scale, RGBA.
     void text(const std::string& s, float px, float py, float scale, float sw, float sh,
@@ -671,8 +690,16 @@ struct Hud {
             text(it->text, 12 * s, my, s * 1.15f, float(sw), float(sh), 255, 235, 120, a);
             my += 30 * s; ++it;
         }
+        const std::size_t g0 = verts.size(), g1 = sprites.size(), g2 = boss_sprites.size(), g3 = mini_verts.size();
         if (player) player_hud(*player, float(sw), float(sh));
         if (boss_frac >= 0.f) boss_bar(boss_frac, boss_name, float(sw), float(sh));
+        if (gauge_alpha < 1.0f) {
+            auto dim = [&](std::vector<HudVertex>& v, std::size_t from) {
+                for (std::size_t k = from; k < v.size(); ++k) v[k].a = std::uint8_t(float(v[k].a) * gauge_alpha);
+            };
+            dim(verts, g0); dim(sprites, g1); dim(boss_sprites, g2); dim(mini_verts, g3);
+            for (auto& v : equip_verts) dim(v, 0);
+        }
         const std::size_t nf = verts.size(), ns = sprites.size(), nb = boss_sprites.size();
         const std::size_t nm = mini_verts.size();
         std::size_t ne = 0;                       // equipped-item icon quads (one batch/slot)
@@ -708,6 +735,23 @@ struct Hud {
         WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
         wgpuRenderPassEncoderSetPipeline(pass, pipeline);
+        if (overlay_bind && overlay_alpha > 0.0f) {   // the CrossFade frame, first
+            const std::uint8_t a = std::uint8_t(std::min(1.0f, overlay_alpha) * 255.0f);
+            const HudVertex q[6] = {{-1, 1, 0, 0, 255, 255, 255, a}, {1, 1, 1, 0, 255, 255, 255, a},
+                                    {1, -1, 1, 1, 255, 255, 255, a}, {-1, 1, 0, 0, 255, 255, 255, a},
+                                    {1, -1, 1, 1, 255, 255, 255, a}, {-1, -1, 0, 1, 255, 255, 255, a}};
+            if (!ovbuf) {
+                WGPUBufferDescriptor bd = {};
+                bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst; bd.size = sizeof q;
+                ovbuf = wgpuDeviceCreateBuffer(g.device, &bd);
+            }
+            wgpuQueueWriteBuffer(g.queue, ovbuf, 0, q, sizeof q);
+            wgpuRenderPassEncoderSetPipeline(pass, overlay_pipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, overlay_bind, 0, nullptr);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, ovbuf, 0, sizeof q);
+            wgpuRenderPassEncoderDraw(pass, 6, 1, 0, 0);
+            wgpuRenderPassEncoderSetPipeline(pass, pipeline);
+        }
         if (nf) {  // font/solid batch
             wgpuRenderPassEncoderSetBindGroup(pass, 0, bind, 0, nullptr);
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, 0, nf * sizeof(HudVertex));

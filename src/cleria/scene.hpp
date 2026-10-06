@@ -53,6 +53,9 @@ struct Interactable {
     Vec3 position;                 // world-space
     std::string script;            // absolute path to its XSO ("" if none)
     int opened_flag = -1;          // g_flags index its guard tests (chest identity)
+    std::string script_name;       // SOB +0x188 as authored ("s_box01", "Save", "@Save")
+    int i0 = 0, i1 = 0;            // -> $I0 / $I1
+    float f0 = 0;                  // -> $F0
 };
 
 // A scene object that reacts to the world rather than to the action button: the SOB

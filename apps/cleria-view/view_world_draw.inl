@@ -18,6 +18,11 @@ struct VsOut { @builtin(position) pos : vec4<f32>, @location(0) uv : vec2<f32>,
   // the solid white cell (= col), and full-colour HUD sprites (col = white).
   return textureSample(tex, smp, i.uv) * i.col;
 }
+// A captured frame (the CrossFade): its alpha channel is whatever the 3D passes left there, so
+// only the vertex alpha counts.
+@fragment fn fs_opaque(i : VsOut) -> @location(0) vec4<f32> {
+  return vec4<f32>(textureSample(tex, smp, i.uv).rgb * i.col.rgb, i.col.a);
+}
 )WGSL";
 
 // ---- enemies ---------------------------------------------------------------

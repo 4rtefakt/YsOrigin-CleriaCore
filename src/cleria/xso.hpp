@@ -274,6 +274,9 @@ struct XsoHost {
     virtual void mesh_set_position(const std::string& /*name*/, float /*x*/, float /*y*/, float /*z*/) {}  // 0x173 (live)
     virtual void mesh_reset_position(const std::string& /*name*/) {}                // 0x178
     virtual void mesh_enable_event(const std::string& /*name*/, bool /*on*/) {}     // 0x176
+    // 0x16B Mesh_SetVisible / 0x16C Mesh_EnableCollision, live (+0x298 bits 0x20 / 0x40).
+    virtual void mesh_visible(const std::string& /*name*/, bool /*on*/) {}
+    virtual void mesh_collision(const std::string& /*name*/, bool /*on*/) {}
     virtual void mesh_time_scale(const std::string& /*name*/, float /*s*/) {}       // 0x17b
     // The waits. A missing object returns `found` = false; the original then rewinds forever
     // (0x104 / 0x105) or proceeds (0x101). Defaults: found and done, so no host never blocks.

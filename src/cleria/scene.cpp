@@ -198,6 +198,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             Interactable it;
             it.name = o.name;
             it.position = o.position;
+            it.script_name = o.script;
+            it.i0 = o.i0; it.i1 = o.i1; it.f0 = o.f0;
             fs::path script = script_dir / ("S_BOX" + lname.substr(4) + ".XSO");
             if (fs::exists(script)) {
                 it.script = script.string();
@@ -225,6 +227,18 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 Interactable it;
                 it.name = o.name;
                 it.position = o.position;
+                // The statue's own script (STATUE_CLEANSE.md §1.1): "Save" = the room's SAVE.XSO
+                // (the cleanse, on the sealed model), "@Save" = S_COMMON/SAVE.XSO (the menu).
+                it.script_name = o.script;
+                it.i0 = o.i0; it.i1 = o.i1; it.f0 = o.f0;
+                if (!o.script.empty()) {
+                    const bool shared = o.script[0] == '@';
+                    std::string stem = shared ? o.script.substr(1) : o.script;
+                    for (char& c : stem) c = char(std::toupper((unsigned char)c));
+                    const fs::path sp = shared ? (asset_root / "MAP" / "S_COMMON" / (stem + ".XSO"))
+                                               : (script_dir / (stem + ".XSO"));
+                    if (fs::exists(sp)) it.script = sp.string();
+                }
                 out.interactables.push_back(std::move(it));
             }
         }
