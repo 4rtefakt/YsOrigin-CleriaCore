@@ -35,6 +35,7 @@ enum : std::uint32_t {
     kDash = 18,            // anime_Dash=f  0x447665: knock channel 1 = (cos, sin)(heading) * d
     kFootSmoke = 19,       // anime_FootSmoke=
     kGenerateCollision = 0x23,  // anime_GenerateCollision — arms the melee hit-volume
+    kGenerateLocus = 0x24,      // anime_GenerateLocus=iiiiiiffii — a GoLocusSword sweep (FUN_00464960)
     kSePlay3D = 0x2a,      // anime_SePlay3D=ifffi  — plays EFFECTDEF sound arg0 at the actor
     kFireBullet = 41,      // anime_FireBullet=iifff… — spawns a projectile (FUN_00593550)
     kGenerateEffect = 0x25,  // anime_GenerateEffect=iffffiiiff — an EF2 effect (FUN_004496f0)
@@ -322,6 +323,18 @@ bool AsoVm::step(std::size_t& pc) {
             }
             break;
         }
+        case kGenerateLocus: {
+            // FUN_00464960 reads args[0..9] as dwords: [6],[7] as floats (0x464a4a/0x464a54), the
+            // rest as ints (build/ability_re/LOCUS.md).
+            if (loci_.size() < kMaxBulletsPerTick && argc >= 10) {
+                LocusEvent ev;
+                for (std::uint32_t k = 0; k < 10; ++k) ev.i[k] = ai(k);
+                std::uint32_t raw = std::uint32_t(ev.i[6]); std::memcpy(&ev.bonus, &raw, 4);
+                raw = std::uint32_t(ev.i[7]); std::memcpy(&ev.knock, &raw, 4);
+                loci_.push_back(ev);
+            }
+            break;
+        }
         case kSePlay3D: {
             // anime_SePlay3D (0x2a): arg0 is an EFFECTDEF id, args 1..3 a float xyz
             // offset from the actor, arg4 a flag. 1072 uses across the corpus — this
@@ -391,6 +404,7 @@ void AsoVm::tick() {
     sounds_.clear();
     bullets_.clear();
     effects_.clear();
+    loci_.clear();
     if (!ok()) return;
     if (wait_ > 0) { --wait_; return; }
 

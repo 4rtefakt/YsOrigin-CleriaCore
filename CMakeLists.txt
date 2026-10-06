@@ -60,6 +60,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/boss02.cpp
   src/cleria/boss03.cpp
   src/cleria/player_actions.cpp
+  src/cleria/locus.cpp
   src/cleria/emotion.cpp
   src/cleria/camrig.cpp
   src/cleria/skillmp.cpp
@@ -123,6 +124,10 @@ target_link_libraries(cleria-boss03test PRIVATE cleria)
 # cleria-actiontest — the player's action input (src/cleria/player_actions).
 add_executable(cleria-actiontest apps/cleria-actiontest/main.cpp)
 target_link_libraries(cleria-actiontest PRIVATE cleria)
+
+# cleria-locustest — the GoLocusSword hit arm (src/cleria/locus) vs build/ability_re/LOCUS.md.
+add_executable(cleria-locustest apps/cleria-locustest/main.cpp)
+target_link_libraries(cleria-locustest PRIVATE cleria)
 
 # cleria-picktest — world item pickups vs build/item_re/PICKUPS.md.
 add_executable(cleria-picktest apps/cleria-picktest/main.cpp)
@@ -221,7 +226,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

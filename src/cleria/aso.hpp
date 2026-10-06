@@ -243,6 +243,15 @@ class AsoVm {
     };
     const std::vector<EffectEvent>& effects() const { return effects_; }
 
+    // anime_GenerateLocus (funcid 0x24, `iiiiiiffii`) = FUN_00464960: a GoLocusSword sword sweep
+    // (src/cleria/locus.hpp, build/ability_re/LOCUS.md). Surfaced raw, in script order; the host
+    // spawns the LocusSword with the owner's token, facing and SL2 file.
+    struct LocusEvent {
+        std::int32_t i[10] = {};   // [0..5], [8], [9] as ints ([6],[7] hold the float bits)
+        float bonus = 0, knock = 0;   // [6], [7]
+    };
+    const std::vector<LocusEvent>& loci() const { return loci_; }
+
     // Actor capability fields the script drives (ASOVM.md §4, funcids 20..28). These are
     // STATE, not per-tick events: a swing lowers Movable/Turnable during the commit and
     // opens Cancelable/AttackReserve near the end, which is what gives each character its
@@ -342,6 +351,7 @@ private:
     std::vector<SoundEvent> sounds_;
     std::vector<BulletEvent> bullets_;
     std::vector<EffectEvent> effects_;
+    std::vector<LocusEvent> loci_;
     float movable_ = 1.0f;
     bool turnable_ = true, actable_ = true, cancelable_ = false, atk_reserve_ = false;
     bool durable_ = false, untouchable_ = false, jump_enable_ = true;

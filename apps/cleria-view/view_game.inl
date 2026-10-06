@@ -310,6 +310,12 @@ title_again:
     // once per swing (the engine's hit-dedup). Yunica's basic swing (verified in
     // cleria-asotest): radius 0.6, 30-tick window, power 8.0, box 0.6 ahead of the actor.
     int atk_window = 0;                  // ticks left in the active hitbox
+    // GenerateLocus sword sweeps (src/cleria/locus.hpp): the player's live GoLocusSwords, in pool
+    // order, with the damage class their record took at spawn (+0x109 = FUN_0046d5e0()).
+    struct PlayerLocus { LocusSword sword; int cls = 3; };
+    std::vector<PlayerLocus> loci;
+    Sl2Set sl2set;
+    if (!sl2set.load(asset_root)) std::printf("effects: EFFECT/SWORD*.SL2 missing — sword sweeps disabled\n");
     // Recovery-hold tracking. Many attack sections end by looping on their final
     // frame with Movable pinned to 0, and several (Yunica 257/258/261, and the
     // like for Hugo/Toal) never open a cancel window at all — so `cancelable()`
@@ -4485,38 +4491,29 @@ title_again:
             // (arg[7]; the engine's 10-slot victim bank) — so a box whose timer is shorter
             // than its lifetime multi-hits. Damage is FUN_004fa550 (hit.hpp), NOT
             // damage_real: elemental resist multiplier, a min-1 chip, Yunica's x1.1.
-            if (atk_window > 0) {
-                --atk_window;
-                // FUN_004fed50 mode 0 (build/ai_spec/HITVOLUME.md §2): the volume is placed
-                // from the player's ORIGIN and current facing every tick, then tested against
-                // each monster's hurt body; the victim's bank keys on this attack's serial.
-                const float pface = std::atan2(face_dir.z, face_dir.x);
-                const HitShape vol = volume_shape(atk_hb, {feet.x, feet.y + kOriginH, feet.z}, pface);
-                const Vec3 c = vol.centre;
-                int killed = 0, broke = 0;
-                for (Actor& en : world.actors()) {
-                    if (en.is_player() || !en.alive() || en.destroy_requested()) continue;
-                    const EnemyRender* vr = nullptr;
-                    for (const EnemyRender& er : render) if (er.actor == &en) { vr = &er; break; }
-                    if (vr && !vr->actor->ai.hittable) continue;            // +0x60 & 0x80 clear
-                    const HitShape body = body_shape({en.pos.x, en.pos.y + en.height, en.pos.z},
-                                                     en.hurt_radius, en.hurt_half_h, en.hurt_shape, en.hurt_off);
-                    if (!overlap(vol, body)) continue;
-                    if (en.bank.check_and_record(player_hit_serial, atk_hb.rehit)) continue;   // FUN_004faac0
-                    if (atk_hb.one_shot) atk_window = 0;                     // 0x4fd251
+            // One landed hit by an attacker the player owns — the swing's box or a GoLocusSword —
+            // on a monster (FUN_004fbb40). `power` / `knock` / `rtype` / `cls` are the attacker
+            // record's +0xfc / +0x104 / +0x108 / +0x109; `heading` is the attack direction the guard
+            // and the knockback read. Returns true on a kill.
+            auto player_hit_enemy = [&](Actor& en, const EnemyRender* vr, float power, float knock, int rtype,
+                                        int cls, float heading) {
+                    // 0x4fbcb2..0x4fbcd1: the first player-owned locus in the pool holds its frame one
+                    // tick (+0x180 += 1). [H] the victim's +0x12c bit 28 is taken as clear; the owner's
+                    // own +0x118 += 1 at the same site is [not modelled].
+                    if (!loci.empty()) loci.front().sword.freeze();
                     AttackStats a;
                     a.atk = player_stats().atk;
-                    a.bonus = atk_hb.power;          // per-attack power, from this section's script
+                    a.bonus = power;                 // per-attack power, from this section's script
                     EnemyDefense vd; vd.def = en.def;
                     for (int k = 0; k < 4; ++k) vd.resist[k] = en.resist[k];
                     PlayerDamageMods mods;
                     mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                    int dmg = enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                    int dmg = enemy_incoming_damage(a, cls, vd, mods,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     // The guard (FUN_004fbb40): a victim in section 6 facing the swing blocks it.
                     if (vr && vr->avm.ok() &&
-                        guard_blocks(en.cast_id, vr->avm.section() == 6 || en.guard399, vr->avm.durable(), atk_hb.rtype,
-                                     vr->facing, std::atan2(atk_dir.z, atk_dir.x)))
+                        guard_blocks(en.cast_id, vr->avm.section() == 6 || en.guard399, vr->avm.durable(), rtype,
+                                     vr->facing, heading))
                         dmg = 0;
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
                     // +300 per hit dealt (0x4fd0bf, DAT_006bdc44) when the kind is not 0 / 5 (skills).
@@ -4524,10 +4521,10 @@ title_again:
                     // Knockback: L = walk speed (CASTINFO+0x48) x1.7 [x run mult while running —
                     // the view has no run state yet] x the swing's arg[12], driven along the
                     // player's facing (hit.hpp player_knock_angle).
-                    const float kang = player_knock_angle(std::atan2(atk_dir.z, atk_dir.x),
+                    const float kang = player_knock_angle(heading,
                                                           feet.x, feet.z, feet.y, en.pos.x, en.pos.z, en.pos.y);
-                    react_enemy(en, dmg, r.died, atk_hb.rtype,
-                                knock_impulse(kang, player_knock_scale(pm.speed_base, false, 2.2f) * atk_hb.knock));
+                    react_enemy(en, dmg, r.died, rtype,
+                                knock_impulse(kang, player_knock_scale(pm.speed_base, false, 2.2f) * knock));
                     const std::string nm = casts.get(en.cast_id) && !casts.get(en.cast_id)->display.empty()
                                            ? casts.get(en.cast_id)->display : ("cast " + std::to_string(en.cast_id));
                     hud.message(r.died ? (nm + " defeated!")
@@ -4538,7 +4535,6 @@ title_again:
                         std::printf("  hit %s (lv%d DEF %.0f): %d dmg, %.0f/%.0f left\n",
                                     nm.c_str(), en.level, en.def, r.damage, en.hp, en.max_hp);
                     if (r.died) {
-                        ++killed;
                         award_exp(en.exp_reward);
                         if (const Enemy* er = etab.get(en.cast_id)) {     // FUN_00478510
                             DropContext dc;                 // [not modelled] launch count, combo, luck
@@ -4559,7 +4555,13 @@ title_again:
                         for (int id : enemy_death_sounds(asset_root, casts.sprite_stem(en.cast_id)))
                             sfx_at(id, en.pos, kSfxAnimVol);
                     }
-                }
+                    return r.died;
+            };
+            // The mode-0 scan's breakables pass for one attacker volume `vol` (keyed on `tok`, re-hit
+            // `rehit`); returns the number of @Break_* objects smashed.
+            auto smash_breakables = [&](const HitShape& vol, std::uint32_t tok, int rehit, bool one_shot) {
+                const Vec3 c = vol.centre;
+                int broke = 0;
                 // BREAKABLES (SOB trigger class 1 with a script): the same swing volume also
                 // tests the room's attackable scene objects. @Break_* is a one-hit break —
                 // no SOB field holds HP, and Mesh_SetHp is called by none of the shipped
@@ -4580,8 +4582,8 @@ title_again:
                         const Vec3 at = mo ? mo->pos : t.position;
                         const HitShape body = body_shape({at.x + h.off.x, at.y + h.off.y, at.z + h.off.z}, h.r, 0.0f, 0, 0.0f);
                         if (!overlap(vol, body)) continue;
-                        if (h.bank.check_and_record(player_hit_serial, atk_hb.rehit)) continue;
-                        if (atk_hb.one_shot) atk_window = 0;
+                        if (h.bank.check_and_record(tok, rehit)) continue;
+                        if (one_shot) atk_window = 0;
                         h.hp -= std::max(1.0f, player_stats().atk);   // [H] any damaging hit
                         if (h.hp >= 0.0f) continue;
                         h.ran = true;
@@ -4601,7 +4603,7 @@ title_again:
                     const float qy = std::max(t.aabb_min.y, std::min(c.y, t.aabb_max.y));
                     const float qz = std::max(t.aabb_min.z, std::min(c.z, t.aabb_max.z));
                     const float ddx = c.x - qx, ddy = c.y - qy, ddz = c.z - qz;
-                    if (ddx * ddx + ddy * ddy + ddz * ddz > atk_hb.radius * atk_hb.radius) continue;
+                    if (ddx * ddx + ddy * ddy + ddz * ddz > vol.radius * vol.radius) continue;
                     broken_objects.insert(room.name + "/" + t.name);
                     sfx_at(114, t.position, kSfxAnimVol);      // the shatter SE
                     int pct = 50;                               // @Break_30
@@ -4617,6 +4619,31 @@ title_again:
                     }
                     ++broke;
                 }
+                return broke;
+            };
+            int killed = 0, broke = 0;
+            if (atk_window > 0) {
+                --atk_window;
+                // FUN_004fed50 mode 0 (build/ai_spec/HITVOLUME.md §2): the volume is placed
+                // from the player's ORIGIN and current facing every tick, then tested against
+                // each monster's hurt body; the victim's bank keys on this attack's serial.
+                const float pface = std::atan2(face_dir.z, face_dir.x);
+                const HitShape vol = volume_shape(atk_hb, {feet.x, feet.y + kOriginH, feet.z}, pface);
+                for (Actor& en : world.actors()) {
+                    if (en.is_player() || !en.alive() || en.destroy_requested()) continue;
+                    const EnemyRender* vr = nullptr;
+                    for (const EnemyRender& er : render) if (er.actor == &en) { vr = &er; break; }
+                    if (vr && !vr->actor->ai.hittable) continue;            // +0x60 & 0x80 clear
+                    const HitShape body = body_shape({en.pos.x, en.pos.y + en.height, en.pos.z},
+                                                     en.hurt_radius, en.hurt_half_h, en.hurt_shape, en.hurt_off);
+                    if (!overlap(vol, body)) continue;
+                    if (en.bank.check_and_record(player_hit_serial, atk_hb.rehit)) continue;   // FUN_004faac0
+                    if (atk_hb.one_shot) atk_window = 0;                     // 0x4fd251
+                    if (player_hit_enemy(en, vr, atk_hb.power, atk_hb.knock, atk_hb.rtype,
+                                         player_damage_class(avm.section()), std::atan2(atk_dir.z, atk_dir.x)))
+                        ++killed;
+                }
+                broke += smash_breakables(vol, player_hit_serial, atk_hb.rehit, atk_hb.one_shot);
                 // FUN_004fed50's GoMesh pass (VELAGUNDER.md §3.3): each boss part's hurt sphere,
                 // its own re-hit bank, the damage with the part's DEF / resist into part +0x134.
                 // [not modelled] the armour's skipped elemental bonus, Toal's refused sections.
@@ -4734,13 +4761,51 @@ title_again:
                             std::printf("  hit gelaldy part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",
                                         pi, bp.def, dmg, bp.hp, boss3->hp());
                     }
-                if (broke) reload_room(/*rerun_events*/false);   // drop the shattered mesh
-                if (killed) {
-                    int left = 0;
-                    for (const Actor& en : world.actors())
-                        if (!en.is_player() && en.alive()) ++left;
-                    std::printf("  defeated %d (%d left)\n", killed, left);
+            }
+            // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
+            // sweeps. FUN_004281c0 updates the locus pool after the player and the actors; a locus with
+            // hit life left is scanned once a tick by the same mode-0 path as the swing (FUN_004fed50,
+            // origin NULL: its three r 0.45 spheres as placed), keyed on the swing's token.
+            // [not modelled] the boss parts, the wall clank (args [4],[5]: FUN_00500b30).
+            if (!loci.empty()) {
+                LocusSword::Owner lo;
+                lo.origin = {feet.x, feet.y + kOriginH, feet.z};   // +0x50
+                lo.floor_off = kOriginH;                             // +0x324
+                lo.facing = std::atan2(face_dir.z, face_dir.x);      // +0x314
+                lo.dead = player.hp < 1;                             // +0x98 < 1.0
+                for (std::size_t li = 0; li < loci.size(); ++li) {
+                    if (!loci[li].sword.tick(lo) || !loci[li].sword.armed()) continue;
+                    const std::array<HitShape, 3> sp = loci[li].sword.spheres();
+                    const std::uint32_t tok = loci[li].sword.token();
+                    const int rehit = loci[li].sword.rehit(), cls = loci[li].cls;
+                    const float bonus = loci[li].sword.bonus(), knock = loci[li].sword.knock();
+                    for (Actor& en : world.actors()) {
+                        if (en.is_player() || !en.alive() || en.destroy_requested()) continue;
+                        const EnemyRender* vr = nullptr;
+                        for (const EnemyRender& er : render) if (er.actor == &en) { vr = &er; break; }
+                        if (vr && !vr->actor->ai.hittable) continue;
+                        const HitShape body = body_shape({en.pos.x, en.pos.y + en.height, en.pos.z},
+                                                         en.hurt_radius, en.hurt_half_h, en.hurt_shape, en.hurt_off);
+                        if (!overlap(sp[0], body) && !overlap(sp[1], body) && !overlap(sp[2], body)) continue;
+                        if (en.bank.check_and_record(tok, rehit)) continue;          // FUN_004faac0
+                        if (std::getenv("CLERIA_DMG"))
+                            std::printf("  [locus] frame %.2f tip (%.2f, %.2f) reach %.2f\n", loci[li].sword.frame(),
+                                        loci[li].sword.tip().x, loci[li].sword.tip().z,
+                                        std::sqrt((en.pos.x - feet.x) * (en.pos.x - feet.x) + (en.pos.z - feet.z) * (en.pos.z - feet.z)));
+                        if (player_hit_enemy(en, vr, bonus, knock, /*rtype +0x108*/ 0, cls, lo.facing)) ++killed;
+                    }
+                    for (const HitShape& h : sp) broke += smash_breakables(h, tok, rehit, false);
                 }
+                loci.erase(std::remove_if(loci.begin(), loci.end(),
+                                          [](const PlayerLocus& l) { return !l.sword.alive(); }),
+                           loci.end());
+            }
+            if (broke) reload_room(/*rerun_events*/false);   // drop the shattered mesh
+            if (killed) {
+                int left = 0;
+                for (const Actor& en : world.actors())
+                    if (!en.is_player() && en.alive()) ++left;
+                std::printf("  defeated %d (%d left)\n", killed, left);
             }
 
             // Enemies hitting the player. Damage is the REAL player-incoming formula
@@ -5392,6 +5457,20 @@ title_again:
                 atk_window = atk_hb.life > 0 ? atk_hb.life : 1;
                 atk_dir = face_dir;
                 player_hit_serial = next_hit_serial(world.hit_serial_counter_);
+            }
+            // GenerateLocus fired: spawn a GoLocusSword (FUN_00464960) on the character's SWORD file,
+            // with the swing's token (+0x3c4) and the player-section damage class (FUN_0046d5e0).
+            for (const AsoVm::LocusEvent& ev : avm.loci()) {
+                LocusArgs la;
+                la.row = ev.i[0]; la.a1 = ev.i[1]; la.a2 = ev.i[2]; la.a3 = ev.i[3];
+                la.clank_lo = ev.i[4]; la.clank_hi = ev.i[5];
+                la.bonus = ev.bonus; la.knock = ev.knock; la.life = ev.i[8]; la.rehit = ev.i[9];
+                const int si = locus_sword_index(0xd, character, game.g_flags[149]);
+                PlayerLocus pl;
+                pl.cls = player_damage_class(avm.section());
+                if (pl.sword.spawn(sl2set.sword[std::size_t(si)], la, player_hit_serial,
+                                   game.g_flags[215], game.g_flags[217], character))
+                    loci.push_back(pl);
             }
             // anime_SePlay3D events (ASO funcid 0x2a): the animation names its own
             // sounds, so the swing lands on the right frame and is per-character for
