@@ -131,6 +131,12 @@ int main() {
     vel = {1.0f, 0.0f};
     step_knockback(vel, false, false, Mover::Player);
     check(near(vel.x, 1.0f - 0.0405f), "player mover airborne: friction x0.3");
+    vel = {1.0f, 0.0f};
+    step_knockback(vel, true, false, Mover::Player, /*step*/true);
+    check(near(vel.x, 1.0f - 0.0675f), "player step timer (+0x400): friction 0.0675");
+    vel = {0.01f, 0.0f};
+    step_knockback(vel, true, false, Mover::Player, /*step*/true);
+    check(near(vel.x, 0.01f * (1.0f - 0.0675f)), "player step timer: no low-speed zeroing");
 
     {   // Hit volumes (hit_volume.hpp, build/ai_spec/HITVOLUME.md).
         const float c010[13] = {0, 0.5f, 0.6f, 0, -0.5f, 0, 30, 10, 0, 0, 0, 8.0f, 1.0f};

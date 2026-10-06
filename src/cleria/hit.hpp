@@ -226,15 +226,17 @@ inline Impulse knock_impulse(float angle, float k) {
 
 // How a mover spends the impulse. Both movers cap THIS TICK's displacement at 0.36
 // (|v|^2 > 0.1296 -> scaled; the stored velocity is not capped), damp the velocity with
-// friction f = 0.135 (DAT_006bd1cc; 0.0675 when +0x400 is set, [UNKNOWN] flag — not
-// modelled), and zero it below |v|^2 0.000225 or on a dead actor. They differ in the
-// damping law:
+// friction f = 0.135 (DAT_006bd1cc), and zero it below |v|^2 0.000225 or on a dead actor.
+// The player's step timer +0x400 (the 0x112 tap-step, 13 ticks) halves f to 0.0675
+// (DAT_006bd164) and skips the low-speed zeroing (0x468e84 / 00465170.c L2002, L2406).
+// They differ in the damping law:
 //   2-D sprite mover FUN_0045f4d0 (enemies)  0x45fdd0..: v *= 1 - f*0.95, f x0.75 airborne
 //   player mover     FUN_00465170            0x468e84, 0x469cd4..: v *= 1 - f, f x0.3 airborne
 //     (an extra x0.95 when airborne with +0x4d4 set — [UNKNOWN] flag, not modelled)
 // Returns the displacement to apply this tick.
 enum class Mover { Sprite2D, Player };
-inline Impulse step_knockback(Impulse& v, bool grounded, bool dead, Mover m = Mover::Sprite2D) {
+inline Impulse step_knockback(Impulse& v, bool grounded, bool dead, Mover m = Mover::Sprite2D,
+                              bool step = false) {
     Impulse disp = v;
     const float m2 = v.x * v.x + v.z * v.z;
     if (m2 > 0.1296f) {
@@ -242,10 +244,10 @@ inline Impulse step_knockback(Impulse& v, bool grounded, bool dead, Mover m = Mo
         disp.x *= s; disp.z *= s;
     }
     const bool player = m == Mover::Player;
-    const float f = 0.135f * (grounded ? 1.0f : (player ? 0.3f : 0.75f));
+    const float f = (step ? 0.0675f : 0.135f) * (grounded ? 1.0f : (player ? 0.3f : 0.75f));
     const float damp = player ? 1.0f - f : 1.0f - f * 0.95f;
     v.x *= damp; v.z *= damp;
-    if (m2 < 0.000225f || dead) v = {};
+    if ((!step && m2 < 0.000225f) || dead) v = {};
     return disp;
 }
 
