@@ -375,6 +375,20 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             reset_matrix(b);                                       // jmp 0x5942c8
             break;
         }
+        case 0x1b: {                                               // inline 0x594bd3: Hugo's volley
+            // On the second update (+0x194 == 1) every particle in the pool whose effect has this
+            // bullet's effect id (fx+0x1d8, ANY such effect) and whose life (sub+0x20 = p+0x1c0)
+            // is 43 is re-clocked: remaining (p+0x1c4) = 79, life = 80. Then FUN_00597290.
+            if (b.u194 == 1) {
+                for (const auto& pp : fx_->particles()) {
+                    ef2sim::Particle& p = *pp;
+                    if (p.fx && p.fx->id == s.effect && p.life == 0x2b) { p.remaining = 0x4f; p.life = 0x50; }
+                }
+            }
+            b.u194 += 1;
+            mover1();
+            break;
+        }
         case 0x14: case 0x19: case 0x2b:                           // none: the tail only
             break;
         default:

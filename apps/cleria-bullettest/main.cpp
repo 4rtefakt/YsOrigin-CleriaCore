@@ -1,7 +1,7 @@
 // cleria-bullettest — the GoXx bullet (src/cleria/bullet.hpp) against build/ai_spec/BULLETS.md:
 // the orientation / homing helpers, worked example A (M510's disc, §5), the kill-flag park, the
 // kind-2 homing window, the heal shot, the drip's bounce, the spawn's knock / side rules, the
-// trail, and Velagunder's bubble (kind 0x1e) and drool drop (kind 0x1f).
+// trail, Velagunder's bubble (kind 0x1e) and drool drop (kind 0x1f), and Hugo's volley (kind 0x1b).
 // Usage: cleria-bullettest <assets dir>
 #include <cmath>
 #include <cstdio>
@@ -496,6 +496,51 @@ int main(int argc, char** argv) {
         for (int k = 0; k < 3; ++k) bs.update(env, nullptr);
         check(near(z->s.pos.y, 0.9994f, 1e-6f) && z->s.dir.y == 0.0f && z->s.speed == 0.0f,
               "kind 0x1f: at speed 0 the step zeroes dir (unlike INTEGRATE)");
+    }
+
+    // ---- kind 0x1b: Hugo's volley (inline 0x594bd3; effect 198 m_810_tama, BULLETS.md §3.12) ----
+    efs[198] = Ef2::load(enemy / "M_810_TAMA.EF2");
+    if (!efs[198].ok()) { std::fprintf(stderr, "missing EF2 198\n"); return 2; }
+    {
+        // M810's block at d 0: speed 0.225, knock 1.0, every other float 0.
+        float f[13] = {0.225f, 0, 0, 0, 1.0f, 0, 0, 0, 0, 0, 0, 0, 0};
+        auto run = [&](int kind, int* life2, int* rem2, int* bare2, int* gone, bool* line) {
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            Spawn s = block_spawn(kind, 198, {0, 1, 0}, {1, 0, 0}, f);
+            s.owner = 197; s.owner_atk = 40;
+            Bullet* b = bs.spawn(s);
+            ef2sim::SpawnParams sp;                                // a 198 that is not this bullet's
+            sp.pos = {0, 1, 5};
+            ef2sim::Effect* other = fx.spawn(198, efs[198], sp);
+            Env env;
+            env.player = {100, 0, 100};
+            *line = true;
+            for (int k = 1; k <= 200; ++k) {
+                bs.update(env, nullptr);
+                if (bs.list().empty()) { *gone = k; break; }
+                if (k == 2) {
+                    const ef2sim::Particle* p = fx.first_particle(b->fx);
+                    const ef2sim::Particle* q = fx.first_particle(other);
+                    *life2 = p ? p->life : -1; *rem2 = p ? p->remaining : -1; *bare2 = q ? q->life : -1;
+                }
+                *line = *line && near(b->s.pos.x, 0.225f * float(k), 1e-4f) && b->s.pos.y == 1.0f && b->s.pos.z == 0.0f;
+                fx.step();
+                fx.sweep();
+            }
+        };
+        int l2 = 0, r2 = 0, o2 = 0, gone = -1, cl2 = 0, cr2 = 0, co2 = 0, cgone = -1;
+        bool line = false, cline = false;
+        run(0x1b, &l2, &r2, &o2, &gone, &line);
+        run(1, &cl2, &cr2, &co2, &cgone, &cline);
+        std::printf("[bullet]   0x1b: second update root life %d remaining %d (the other 198: %d); gone at %d"
+                    " (kind 1: life %d, gone at %d)\n", l2, r2, o2, gone, cl2, cgone);
+        check(l2 == 80 && r2 == 79, "kind 0x1b: the second update re-clocks the life-43 root to 80 (remaining 79)");
+        check(o2 == 80 && co2 == 43, "kind 0x1b: ANY effect 198's life-43 particles are re-clocked (effect id, not fx)");
+        check(cl2 == 43, "kind 1 with the same effect: no re-clock");
+        check(line, "kind 0x1b: FUN_00597290, a straight line at 0.225 a tick");
+        check(gone > 0 && cgone > 0 && gone - cgone >= 30, "kind 0x1b: outlives a kind-1 198 by 30+ updates (the 80-tick root)");
     }
 
     std::printf("[bullet] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);

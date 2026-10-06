@@ -44,6 +44,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 78: return &brains::m850;   // M850 Epona (the duel)
         case 74: return &brains::m810;   // M810 Hugo (class-4 duel)
         case 76: return &brains::m830;   // M830 Galleon (class-4 duel)
+        case 83: return &brains::m900;   // M900 the Eyes of Fact (M810's)
         case 84: return &brains::m910;   // M910 Nooze
         case 85: return &brains::m920;   // M920 Nooze (Blue)
         case 86: return &brains::m930;   // M930 Nooze (Red)

@@ -17,14 +17,20 @@
 // When its HP falls below 1 with the player alive the handler (m810_dead) sets HP to 1,
 // clears flags 156 and 130 (ending the duel's Wait_FlagEqualInt(156, 0)), hides the gauge
 // and runs the generic first-death step (unhittable).
-// [not modelled] everything about the Eyes of Fact (cast 0xb0, M900, not ported): their
-// spawn (one per tick up to (231 ? 8 : 4) - (HP >= 50% ? 2 : 0)), roster, formation /
-// recall commands, their shots and 0x95 effects, the puppet path's ring upkeep; the live
-// 0xc7 count the 0x112 picks are capped by (taken as 0); the keep-out box restore; the
-// specular flash of sub 300; the barrier-expiry voice; sound preloads; +0x64 / +0x4be.
+// The Eyes of Fact (cast 0xb0, brain m900.cpp) are driven through their own fields: one is
+// spawned per tick up to (231 ? 8 : 4) - (HP >= 50% ? 2 : 0) (+0x72c = Hugo's +0x7a0, +0x730 =
+// a free slot); the eye command writes every Eye's +0x72c (the formation), launches one (3)
+// or sets the recall +0x7c0 (1000); each shot order fires from the Eyes too (fire % 10), or
+// sets their +0x7a4 / +0x7a8 shot timers. As the puppet with g_flags[214] clear he dismisses
+// them.
+// [not modelled] the roster's sweep of orphaned EF2 0x95 and the live 0xc7 count the 0x112
+// picks are capped by (taken as 0) — both read the effect pool; the puppet path's count test
+// and top-up (its Eyes run FUN_00470210); the keep-out box restore; the specular flash of sub
+// 300; the barrier-expiry voice; sound preloads; +0x64 / +0x4be.
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 #include "cleria/actor.hpp"
 #include "cleria/brains/brains.hpp"
@@ -92,7 +98,23 @@ AiOut m810(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     if (!e.actor) return {};
     Actor& A = *e.actor;
     // ---- the handler FUN_004da070
-    if (gflag(e, 130, 1) == 0) return still(a);                     // [not modelled] the eye upkeep
+    if (gflag(e, 130, 1) == 0) {                                    // the puppet: the eye upkeep
+        // g_flags[214] (DAT_0076bc74) == 0 dismisses every owned Eye (0x4da53d..0x4da5d4): HP 0,
+        // +0x12c |= 0x80000000, +0x130 |= 0x1008, and their EF2 0x95 is killed (outside section
+        // 5 [H: the Eye's section is not seen; killed always]). [not modelled] the rest: the count
+        // test against (211 ? 0 : 210 ? 6 : DAT_0076c198 & 0x20 ? 4 : 2) and the top-up spawn,
+        // whose Eyes run FUN_00470210's chain (+0x7e4..+0x804, +0x8a4).
+        if (e.world && gflag(e, 214, 1) == 0) {
+            e.world->for_each([&](Actor& o) {
+                if (o.cast_id != 0xb0 || o.ai.i(0x854) != A.instance_id) return;
+                o.hp = 0.0f;
+                o.flags12c |= 0x80000000u;
+                o.flags130 |= 0x1000u | 8u;
+                if (o.ai.i(0x88c) != 0) { o.ai.hook_kill_tags |= 1u; o.ai.i(0x88c) = 0; }
+            });
+        }
+        return still(a);
+    }
     if (gflag(e, 131, 0) != 0) return still(a);                     // FUN_0045f470 only
     AiOut out;
     AiWorld* w = e.world;
@@ -135,7 +157,9 @@ AiOut m810(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         out.sounds.push_back(0xb4);
         out.effects.push_back({50, e.self, 1.0f, true});            // [H] its -0.5 z offset not applied
     }
-    // [not modelled] the eye roster and the eyes' 0x95 effect cleanup (0x4d7a59..0x4d7c25)
+    // [not modelled] the roster (the first 8 live owned Eyes) and its sweep of EF2 0x95 effects
+    // not held by an Eye in recall, and the live 0xc7 count: both read the effect pool
+    // (0x4d7a59..0x4d7c25)
     if (a.i(0x7a4) != 0) a.i(0x7a4) -= 1;
     if (A.guard399 && e.was_hit && !e.took_damage) {                // a blocked hit shortens the barrier
         const int k = std::max(0, (d < 0 ? 25 * d * d : 0) - 30 * d + 15);
@@ -392,53 +416,87 @@ AiOut m810(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         }
         if (a.i(0x7c0) == 0 && A.max_hp * 0.25f > A.hp) { a.i(0x87c) = 0; sub = 600; }
     }
-    if (fire != 0) {                                                // Hugo's own shots (index 0)
-        const float h = a.heading;
-        const Vec3 base{e.self.x + float(std::cos(double(h))), e.self.y + 0.0f, e.self.z + float(std::sin(double(h)))};
-        const int mode = fire / 10;
-        if (mode == 1) {                                            // 0xc6, kind 0x1b
-            const int n = d > 1 ? 3 : 1;
-            for (int i = 0; i < n; ++i) {
-                float off = float((i + 1) >> 1) * 0.26179999113082886f;
-                if (i & 1) off *= -1.0f;
-                const double g = double(h + off);
-                AiBullet b;
-                b.kind = 0x1b; b.effect = 0xc6;
-                b.pos = base; b.dir = {float(std::cos(g)), 0.0f, float(std::sin(g))};
-                b.speed = fd * 0.019999999552965164f + (f231 ? 0.30000001192092896f : 0.22499999403953552f);
-                b.power = 0.0f; b.knock = 1.0f;
-                out.bullets.push_back(b);
+    if (fire != 0) {                                                // the shots (0x4d91c4)
+        // The shooters: Hugo (index 0), then every live Eye in the pool (any owner, +0x11 & 2
+        // clear, +0x72c != 2), at most 8. Hugo uses fire / 10, each Eye fire % 10.
+        std::vector<Actor*> pool;                                   // DAT_00730098, engine order
+        std::vector<Actor*> sh{&A};
+        if (w) w->for_each([&](Actor& o) {
+            pool.push_back(&o);
+            if (sh.size() < 9 && o.cast_id == 0xb0 && !o.destroy_requested() && o.ai.i(0x72c) != 2) sh.push_back(&o);
+        });
+        const int ns = int(sh.size());
+        for (int k = 0; k < ns; ++k) {
+            Actor& X = *sh[k];
+            const bool hugo = X.cast_id == 0xa7;
+            const float h = &X == &A ? a.heading : X.ai.heading;
+            Vec3 base = &X == &A ? e.self : Vec3{X.pos.x, X.pos.y + X.height, X.pos.z};
+            if (hugo) base = {float(std::cos(double(h))) + base.x, base.y + 0.0f, float(std::sin(double(h))) + base.z};
+            // The bytes test POOL entry k here, not Eye k (0x4d930f: [esp+0x88] is the pool array).
+            else if (k < int(pool.size()) && (pool[k]->ai.i(0x72c) == 3 || pool[k]->ai.i(0x7c0) != 0)) continue;
+            const int mode = k == 0 ? fire / 10 : fire % 10;
+            auto volley = [&] {                                     // 0xc6, kind 0x1b (0x4d9789)
+                const int n = d > 1 && hugo ? 3 : 1;
+                for (int i = 0; i < n; ++i) {
+                    float off = float((i + 1) >> 1) * 0.26179999113082886f;
+                    if (i & 1) off *= -1.0f;
+                    const double g = double(h + off);
+                    AiBullet b;
+                    b.kind = 0x1b; b.effect = 0xc6;
+                    b.pos = base; b.dir = {float(std::cos(g)), 0.0f, float(std::sin(g))};
+                    b.speed = fd * 0.019999999552965164f + (f231 ? 0.30000001192092896f : 0.22499999403953552f);
+                    b.power = 0.0f; b.knock = 1.0f;
+                    out.bullets.push_back(b);
+                }
+                out.sounds.push_back(0x94);                         // [H] at the actor, not the shooter
+            };
+            auto timers = [&] {                                     // the Eye fires later (0x4d96dd)
+                if (k == 0) return;
+                const float f = f231 ? 1.0f : 1.5f;
+                const int nshots = int(f * float(d + 5));
+                X.ai.i(0x7a4) = nshots < 1 ? 1 : nshots;
+                const int den = ns - 1 < 1 ? 1 : ns - 1;
+                X.ai.i(0x7a8) = int(15.0f / f) * k / den;            // staggered: k / (shooters - 1)
+            };
+            if (mode == 1) {
+                if (hugo) { volley(); continue; }
+                X.ai.i(0x7a0) = 5; X.ai.f(0x7cc) = 0.2f;            // hold the facing, recoil
+                if (X.ai.i(0x72c) != 4) volley();
+                else timers();
+            } else if (mode == 4) {
+                timers();
+            } else if (mode == 2) {                                 // 0xc7, kind 4 (homing)
+                if (!hugo) { X.ai.i(0x7a0) = 15; X.ai.f(0x7cc) = 0.5f; }
+                const int m = d < 1 ? 1 : d;
+                const int kk = f231 ? 2 : 1;
+                auto count = [&] { return (half() ? 2 * m : m) * kk; };
+                const int N0 = count();
+                const int q = (N0 & ~1) < 2 ? 1 : N0 >> 1;
+                const float step = float(N0) * 20.0f / float(q) * kDeg;
+                int hm = f231 ? 2 * d + 3 : d + 2;
+                if (hm < 1) hm = 1;
+                for (int i = 0; i < count(); ++i) {
+                    const float sgn = (i & 1) ? -1.0f : 1.0f;
+                    float g;
+                    if (count() & 1) g = float((i + 1) >> 1) * step * sgn + h;
+                    else g = float((i >> 1) + 1) * step * sgn + (step * 0.5f + h);
+                    AiBullet b;
+                    b.kind = 4; b.effect = 0xc7;
+                    b.pos = base; b.dir = {float(std::cos(double(g))), 0.0f, float(std::sin(double(g)))};
+                    b.speed = 0.18999999761581421f; b.accel = -0.0013749999925494194f;
+                    b.power = 5.0f; b.knock = 10.0f;
+                    b.home_period = 1; b.home_rate = float(hm) * kDeg;
+                    b.f16c = 10.0f; b.f170 = 60.0f;                 // homing from age 10 to 60
+                    out.bullets.push_back(b);
+                    // [not modelled] fx +0x1ec = 2, and the re-clock of the effect's first particle
+                    // (FUN_00564a20 = the first p with p+0x1a0 == fx): remaining p+0x1c4 and life
+                    // p+0x1c0 = (d + 15) * 30 - R % 200 each (the fields: BULLETS.md §3.12) [H: a
+                    // particle is found, so both draws happen]
+                    (void)r15(e); (void)r15(e);
+                }
+                out.sounds.push_back(0x95);                         // [H] at the actor, not the shooter
             }
-            out.sounds.push_back(0x94);
-        } else if (mode == 2) {                                     // 0xc7, kind 4 (homing)
-            const int m = d < 1 ? 1 : d;
-            const int k = f231 ? 2 : 1;
-            auto count = [&] { return (half() ? 2 * m : m) * k; };
-            const int N0 = count();
-            const int q = (N0 & ~1) < 2 ? 1 : N0 >> 1;
-            const float step = float(N0) * 20.0f / float(q) * kDeg;
-            int hm = f231 ? 2 * d + 3 : d + 2;
-            if (hm < 1) hm = 1;
-            for (int i = 0; i < count(); ++i) {
-                const float sgn = (i & 1) ? -1.0f : 1.0f;
-                float g;
-                if (count() & 1) g = float((i + 1) >> 1) * step * sgn + h;
-                else g = float((i >> 1) + 1) * step * sgn + (step * 0.5f + h);
-                AiBullet b;
-                b.kind = 4; b.effect = 0xc7;
-                b.pos = base; b.dir = {float(std::cos(double(g))), 0.0f, float(std::sin(double(g)))};
-                b.speed = 0.18999999761581421f; b.accel = -0.0013749999925494194f;
-                b.power = 5.0f; b.knock = 10.0f;
-                b.home_period = 1; b.home_rate = float(hm) * kDeg;
-                b.f16c = 10.0f; b.f170 = 60.0f;                     // homing from age 10 to 60
-                out.bullets.push_back(b);
-                // [not modelled] fx +0x1ec = 2, and FUN_00564a20's object +0x1c4 / +0x1c0 =
-                // (d + 15) * 30 - R % 200 [H: assumed found, so both draws happen]
-                (void)r15(e); (void)r15(e);
-            }
-            out.sounds.push_back(0x95);
         }
-        // [not modelled] the eyes' shots and timers (fire % 10)
     }
     if (warp) {                                                     // the eye formation (0x4d990e)
         int T[7] = {2, 2, 2, 8, 8, 4, 4};
@@ -457,8 +515,46 @@ AiOut m810(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         }
         a.i(0x7a4) = 300;
     }
-    if (cmd != 0 && cmd != 3 && cmd < 1000) a.i(0x7a0) = cmd - 1;   // [not modelled] the eyes' orders
-    // [not modelled] the eye top-up spawn (FUN_00476d70(0xb0), one per tick below eyes_want)
+    if (cmd != 0) {                                                 // the eye orders (0x4d9a16)
+        if (cmd != 3 && cmd < 1000) a.i(0x7a0) = cmd - 1;
+        // Every live Eye in the pool (any owner): 1000 = the recall, +0x7c0 = 30(d + 7); else
+        // the formation +0x72c = cmd - 1 (not for a dashing Eye) and +0x79c = 0; 3 = launch ONE
+        // Eye (mode 2), SE 0x9a.
+        if (w) {
+            bool done = false;
+            w->for_each([&](Actor& o) {
+                if (done || o.cast_id != 0xb0 || o.destroy_requested()) return;
+                if (cmd == 1000) { o.ai.i(0x7c0) = 30 * (d + 7); return; }
+                if (o.ai.i(0x72c) == 2) return;
+                o.ai.i(0x72c) = cmd - 1;
+                o.ai.i(0x79c) = 0;
+                if (cmd == 3) { out.sounds.push_back(0x9a); done = true; }
+            });
+        }
+    }
+    if (w) {                                                        // the top-up spawn (0x4d9ad6)
+        // Count every live Eye (any owner); the slot = the first free one above the slots seen.
+        int occ[8] = {};
+        int n = 0, slot = 0;
+        w->for_each([&](Actor& o) {
+            if (o.cast_id != 0xb0 || o.destroy_requested()) return;
+            const int s = o.ai.i(0x730);
+            ++n;
+            if (s >= 8 || s < 0) return;                            // [H] s < 0 never occurs
+            occ[s] = 1;
+            if (slot != s) return;
+            slot = 8;
+            for (int k = s + 1; k < 8; ++k)
+                if (occ[k] == 0) { slot = k; break; }
+        });
+        if (n < eyes_want) {                                        // one a tick
+            if (Actor* c = w->spawn_child(A, 0xb0, {0.0f, 0.0f, 0.0f}, A.level, true)) {   // FUN_00476d70
+                c->ai.i(0x72c) = a.i(0x7a0);
+                c->ai.i(0x730) = slot;
+                c->ai.i(0x854) = A.instance_id;
+            }
+        }
+    }
     if (f231 && a.i(0x7c4) == 0) {                                  // the 231 aura
         AiEffect au{0x21c, e.self, 1.0f, true};
         au.tag = 2;

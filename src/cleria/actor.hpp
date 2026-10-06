@@ -240,6 +240,10 @@ struct Actor {
     std::uint32_t flags12c = 0x00110010;
     std::uint32_t flags130 = 0;
     int aso_local15 = 0;   // engine: +0xa18 = ASO local int 15, applied when its script binds
+    // engine: +0x504, a free-running per-actor tick counter: the actor tick FUN_0045c490 does
+    // `inc [esi+0x504]` (0x45d32d) every tick (build/aitick_re/AITICK.md §1d). Read by M900's
+    // ring formation off its owner (M810). The host advances it.
+    std::uint32_t age_ticks = 0;
     bool no_min_damage = false;   // engine: byte +0xce — no min-1 chip (hit.hpp no_floor)
     bool guard399 = false;        // engine: byte +0x399 — guarding (hit.hpp guard_blocks); M810's barrier
     float tint_alpha = 1.0f;      // engine: the alpha byte of +0x290 (M460's crowding fade)

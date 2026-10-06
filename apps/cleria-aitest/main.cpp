@@ -2329,6 +2329,325 @@ int main() {
         }
     }
 
+    // ---- M900 the Eyes of Fact, and M810 commanding them (build/ai_spec/M900.md, M810.md) ----
+    {
+        // A pool in engine order (stable addresses), the game flags, FUN_00476d70.
+        struct EyeDuel : AiWorld {
+            std::list<Actor> pool;
+            std::unordered_map<int, int> flags;
+            int next_id = 300, spawns = 0;
+            void for_each(const std::function<void(Actor&)>& f) override { for (Actor& o : pool) f(o); }
+            Actor* find(int id) override {
+                for (Actor& o : pool) if (o.instance_id == id) return &o;
+                return nullptr;
+            }
+            Actor* spawn_child(Actor& p, int cast, const Vec3& d, int lv, bool keep0) override {
+                pool.emplace_back();
+                Actor& c = pool.back();
+                c.instance_id = next_id++; c.cast_id = cast; c.ai_index = 83; c.kind = 0x81; c.level = lv;
+                c.hp = c.max_hp = 10; c.height = 0.5f;
+                c.pos = {p.pos.x + d.x, p.pos.y + d.y, p.pos.z + d.z};
+                c.yaw = p.yaw; c.ai.heading = p.ai.heading;
+                c.ai.i(0x854) = p.instance_id; c.ai.phase() = keep0 ? 0 : 4;
+                ++spawns;
+                return &c;
+            }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3&, const Vec3&) override { return {}; }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+            void set_flag(int i, int v) override { flags[i] = v; }
+            int flag(int i, int unset) override { auto it = flags.find(i); return it == flags.end() ? unset : it->second; }
+        };
+        XorShift rng;
+        const EnemyAiParams gp = params(0.08f, 0.05f, 1.0f, 2.0f, 1.0f);
+        const Vec3 P{7.0f, 1.075f, 0.0f};                          // the player's origin
+        struct Tick { int section = 2, marker = 0, block = -1; Vec3 target{7.0f, 1.075f, 0.0f}; };
+        // One host tick of an actor: the visible facing +0x314 = pi/2 - yaw (the view's basis).
+        auto tick = [&](Actor& X, EyeDuel& w, Tick t = {}) {
+            AiEnv e;
+            e.actor = &X; e.world = &w;
+            e.self = {X.pos.x, X.pos.y + X.height, X.pos.z};
+            e.facing = 1.5707963f - X.yaw;
+            e.height = X.height; e.radius = X.radius;
+            e.target = t.target; e.target_floor = 0;
+            e.hp = X.hp; e.max_hp = X.max_hp; e.section = t.section;
+            e.aso_marker = t.marker; e.aso_marker_block = t.block;
+            e.rng = [&] { return rng(); };
+            const AiOut o = enemy_ai_tick(X.ai, gp, e, enemy_brain_for(X.ai_index));
+            if (o.snap_facing) X.yaw = 1.5707963f - X.ai.heading;
+            X.age_ticks += 1;
+            return o;
+        };
+        auto hugo = [](EyeDuel& w) -> Actor& {
+            w.pool.emplace_back();
+            Actor& H = w.pool.back();
+            H.instance_id = 197; H.cast_id = 0xa7; H.ai_index = 74; H.hp = H.max_hp = 1000; H.atk = 40;
+            H.kind = 0x84; H.height = 1.0f; H.yaw = 1.5707963f;    // facing 0: +x
+            return H;
+        };
+        auto origin = [](const Actor& X) { return Vec3{X.pos.x, X.pos.y + X.height, X.pos.z}; };
+        check(enemy_brain_for(83) != nullptr, "M900 brain registered (AI 83)");
+
+        {   // M810 spawns one Eye a tick up to the wanted count (2 at full HP, 231 clear).
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            tick(H, w);
+            const bool one = w.spawns == 1 && w.pool.back().cast_id == 0xb0 && w.pool.back().ai.i(0x730) == 0 &&
+                             w.pool.back().ai.i(0x854) == 197 && w.pool.back().ai.phase() == 0;
+            tick(H, w);
+            tick(H, w);
+            check(one && w.spawns == 2 && w.pool.back().ai.i(0x730) == 1,
+                  "M810: one Eye a tick (slot 0, then 1), +0x854 = Hugo, phase 0; stops at 2");
+            Actor& E = w.pool.back();
+            tick(E, w);
+            check(E.kind == 0x08 && !E.ai.hittable && E.atk == H.atk && H.atk == 43.5f && E.ai.phase() != 0 &&
+                      E.ai.i(0x720) == 2,
+                  "M900 INIT: +0x60 = (0x81 & ~0x81) | 8 (not hittable), ATK = Hugo's (43.5), hover mode 2");
+        }
+        {   // Mode 0: pairs 1.75 u behind Hugo, mirrored about his facing; half a unit a tick, then snap.
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            Actor& E0 = *w.spawn_child(H, 0xb0, {-5.0f, 0.0f, 5.0f}, 1, true);
+            Actor& E1 = *w.spawn_child(H, 0xb0, {0.0f, 0.0f, 0.0f}, 1, true);
+            E0.ai.i(0x730) = 0; E1.ai.i(0x730) = 1;
+            tick(E0, w); tick(E1, w);                              // INIT
+            const Vec3 o0 = origin(E0);
+            tick(E0, w); tick(E1, w);
+            const Vec3 a0 = E0.ai.v(0x894), a1 = E1.ai.v(0x894), HO = origin(H);
+            const float r0 = std::hypot(a0.x - HO.x, a0.z - HO.z), r1 = std::hypot(a1.x - HO.x, a1.z - HO.z);
+            check(std::fabs(r0 - 1.75f) < 1e-4f && std::fabs(r1 - 1.75f) < 1e-4f && a0.x < 0 && a1.x < 0 &&
+                  std::fabs(a0.z + a1.z) < 1e-5f && a0.y == HO.y,
+                  "M900 mode 0: slots 0 / 1 at 1.75 u behind Hugo, mirrored about his facing");
+            const Vec3 o1 = origin(E0);
+            const float stepd = std::sqrt((o1.x - o0.x) * (o1.x - o0.x) + (o1.y - o0.y) * (o1.y - o0.y) +
+                                          (o1.z - o0.z) * (o1.z - o0.z));
+            check(std::fabs(stepd - 0.5f) < 1e-4f, "M900 mode 0: a far Eye steps 0.5 u toward its anchor");
+            for (int t = 0; t < 30; ++t) tick(E0, w);
+            const Vec3 o2 = origin(E0);
+            check(o2.x == a0.x && o2.y == a0.y && o2.z == a0.z && E0.hp == 10, "M900 mode 0: arrives and snaps");
+        }
+        {   // Six or more wanted (231 set): the path bends round the player and the step is smoothed.
+            EyeDuel w; w.flags[130] = 1; w.flags[231] = 1;
+            Actor& H = hugo(w);
+            Actor& E = *w.spawn_child(H, 0xb0, {-6.0f, 0.0f, 6.0f}, 1, true);
+            tick(E, w);
+            bool smoothed = false;
+            int arrived = -1;
+            for (int t = 0; t < 300 && arrived < 0; ++t) {
+                tick(E, w);
+                const Vec3 m = E.ai.v(0x7f0), an = E.ai.v(0x894), o = origin(E);
+                smoothed |= m.x != 0.0f || m.z != 0.0f;
+                if (o.x == an.x && o.y == an.y && o.z == an.z) arrived = t;
+            }
+            std::printf("[ai]   M900 with 6 wanted: arrived @%d\n", arrived);
+            check(smoothed && arrived > 0 && E.hp == 10, "M900 with 6 wanted: a smoothed (+0x7f0) path, then the snap");
+        }
+        {   // Mode 1: the ring, r 2.25, turning with Hugo's tick counter; slot 1 opposite slot 0.
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            H.age_ticks = 100;
+            Actor& E0 = *w.spawn_child(H, 0xb0, {0, 0, 0}, 1, true);
+            Actor& E1 = *w.spawn_child(H, 0xb0, {0, 0, 0}, 1, true);
+            E0.ai.i(0x730) = 0; E1.ai.i(0x730) = 1;
+            tick(E0, w); tick(E1, w);
+            E0.ai.i(0x72c) = 1; E1.ai.i(0x72c) = 1;
+            tick(E0, w); tick(E1, w);
+            const Vec3 a0 = E0.ai.v(0x894), a1 = E1.ai.v(0x894), HO = origin(H);
+            const float g = 100.0f * 0.12f * 0.5f;                 // age * 0.12 * (0.2d + 0.5), d 0
+            float gw = g; while (gw > 3.14159274f) gw -= 6.28318548f;
+            check(std::fabs(std::hypot(a0.x - HO.x, a0.z - HO.z) - 2.25f) < 1e-4f &&
+                  std::fabs(std::atan2(a0.z - HO.z, a0.x - HO.x) - gw) < 1e-4f &&
+                  std::fabs(a0.x + a1.x - 2 * HO.x) < 1e-4f && std::fabs(a0.z + a1.z - 2 * HO.z) < 1e-4f,
+                  "M900 mode 1: the ring (r 2.25 at Hugo's +0x504 * 0.06 rad), slot 1 opposite");
+        }
+        {   // Mode 3: a point 2.5..4 u round the player; on arrival it waits, and 40 ticks on it
+            // fires one 0xc6 kind-0x1b shot, owned by Hugo.
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            Actor& E = *w.spawn_child(H, 0xb0, {0, 0, 0}, 1, true);
+            tick(E, w);
+            E.ai.i(0x72c) = 3;
+            tick(E, w);
+            const Vec3 an = E.ai.v(0x894);
+            const float r = std::hypot(an.x - P.x, an.z - P.z);
+            check(E.ai.i(0x79c) == 1 && r >= 2.5f && r <= 4.0f && an.y >= 1.0f && an.y <= 3.0f,
+                  "M900 mode 3: a point 2.5..4 u round the player, 1..3 u above its floor");
+            int arrive = -1, fired = -1;
+            AiBullet b;
+            for (int t = 0; t < 2000 && fired < 0; ++t) {
+                const AiOut o = tick(E, w);
+                if (arrive < 0 && E.ai.i(0x79c) == 2) arrive = t;
+                if (!o.bullets.empty()) { fired = t; b = o.bullets[0]; }
+            }
+            std::printf("[ai]   M900 mode 3: arrived @%d, fired @%d\n", arrive, fired);
+            check(arrive >= 0 && fired - arrive == 40 && b.kind == 0x1b && b.effect == 0xc6 && b.owner == 197 &&
+                  std::fabs(b.speed - 0.225f) < 1e-7f && std::fabs(std::sqrt(b.dir.x * b.dir.x + b.dir.y * b.dir.y +
+                  b.dir.z * b.dir.z) - 1.0f) < 1e-5f,
+                  "M900 mode 3: one 0xc6 kind-0x1b shot (Hugo's, 0.225/tick) 40 ticks after arriving");
+        }
+        {   // The timed shots M810 orders (+0x7a4 / +0x7a8), and the recall (+0x7c0): EF2 0x95.
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            H.ai.set_v(0x734, {0.0f, 0.0f, 5.0f});                // Hugo's target lies along +z
+            Actor& E = *w.spawn_child(H, 0xb0, {0, 0, 0}, 1, true);
+            tick(E, w);
+            E.ai.i(0x7a4) = 2; E.ai.i(0x7a8) = 1;
+            AiOut o = tick(E, w);
+            check(o.bullets.size() == 1 && o.bullets[0].kind == 0x1b && std::fabs(o.bullets[0].speed - 0.3f) < 1e-7f &&
+                  E.ai.i(0x7a4) == 1 && E.ai.i(0x7a8) == 10 && E.ai.i(0x7a0) == 3 &&
+                  std::fabs(E.ai.heading - 1.2566371f) < 1e-5f,
+                  "M900 timed shot: 0xc6 kind 0x1b at 0.3, next in 10, turned 72 deg toward Hugo's target");
+            E.ai.i(0x7a4) = 0; E.ai.i(0x7a8) = 0;
+            E.ai.i(0x7c0) = 210;
+            o = tick(E, w);
+            bool f95 = false, f96 = false;
+            for (const AiEffect& f : o.effects) {
+                f95 |= f.id == 0x95 && f.tag == 0 && f.attach && f.power == 5.0f && f.knock == 15.0f && f.rtype == 1;
+                f96 |= f.id == 0x96 && f.attach;
+            }
+            check(f95 && f96 && E.ai.i(0x88c) != 0 && E.ai.i(0x7c0) == 209,
+                  "M900 recall: EF2 0x95 (power 5, knock 15, rtype 1) and 0x96 attached; +0x7c0 counts down");
+            E.ai.i(0x7c0) = 1;
+            tick(E, w);
+            o = tick(E, w);
+            bool killed = false;
+            for (const AiEffect& f : o.effects) killed |= f.kill_tag == 0;
+            check(killed && E.ai.i(0x88c) == 0, "M900 recall over: the 0x95 is killed");
+        }
+        {   // Mode 2, the dash: section 271, EF2 0x92; it fades, reappears before Hugo, dies at 120.
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            H.pos = {1.0f, 0.0f, 2.0f}; H.ai.heading = 0.5f;
+            Actor& E = *w.spawn_child(H, 0xb0, {-3, 0, 0}, 1, true);
+            tick(E, w);
+            E.ai.i(0x72c) = 2;
+            const float atk0 = E.atk;
+            AiOut o = tick(E, w, Tick{2, 0, -1, {40.0f, 1.075f, 0.0f}});
+            bool f92 = false;
+            for (const AiEffect& f : o.effects) f92 |= f.id == 0x92 && f.power == 12.0f && f.knock == 5.0f && f.rtype == 2;
+            check(o.section == 0x10f && o.section_force && f92 && E.ai.i(0x7bc) == 120,
+                  "M900 dash: section 271 forced, EF2 0x92 (power 12, knock 5, rtype 2), 120 ticks");
+            int back = -1, died = -1, sec5 = 0;
+            Vec3 at{};
+            for (int t = 1; t <= 130 && died < 0; ++t) {
+                o = tick(E, w, Tick{2, 0, -1, {40.0f, 1.075f, 0.0f}});
+                if (back < 0 && E.ai.i(0x79c) == 1) { back = t; at = origin(E); }
+                if (E.hp == 0.0f) { died = t; sec5 = o.section; }
+            }
+            check(back == 5 && std::fabs(at.x - (std::cos(0.5f) + 1.0f)) < 1e-5f && at.y == 1.0f &&
+                  std::fabs(at.z - (std::sin(0.5f) + 2.0f)) < 1e-5f,
+                  "M900 dash: fades out (-0.25 a tick) and reappears 1 u in front of Hugo");
+            check(died == 120 && sec5 == 5 && E.atk == atk0 - 12.5f && (E.flags12c & 0x80000000u),
+                  "M900 dash: dies at 120 (HP 0, section 5, ATK - 12.5)");
+        }
+        {   // The self-kill: a slot >= the wanted count; and the FUN_00470210 path with 130 clear.
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            Actor& E = *w.spawn_child(H, 0xb0, {0, 0, 0}, 1, true);
+            E.ai.i(0x730) = 2;                                    // want = 2 at full HP
+            tick(E, w);
+            check(E.hp == 0.0f && (E.flags12c & 0x80000000u) && (E.flags130 & 0x1008u) == 0x1008u,
+                  "M900: a slot >= the wanted count kills it");
+            Actor& F = *w.spawn_child(H, 0xb0, {0, 0, 0}, 1, true);
+            w.flags[130] = 0;
+            tick(F, w);
+            check(F.ai.phase() == 0 && F.kind == 0x81 && F.hp == 10, "M900 with 130 clear: FUN_00470210 (not run)");
+        }
+        {   // M810's shots from the Eyes: the volley (fire 0xb) — an Eye in formation 4 gets timers instead.
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            tick(H, w); tick(H, w);                               // INIT, two Eyes
+            Actor& E1 = *std::next(w.pool.begin(), 1);
+            Actor& E2 = *std::next(w.pool.begin(), 2);
+            E1.ai.i(0x72c) = 0; E2.ai.i(0x72c) = 4;
+            H.ai.i(0x728) = 100; H.ai.i(0x7a4) = 300;
+            const AiOut o = tick(H, w, Tick{0x12e, 1, 1});
+            int from_e1 = 0;
+            for (const AiBullet& b : o.bullets) from_e1 += b.pos.x == E1.pos.x && b.pos.y == E1.pos.y + E1.height;
+            check(o.bullets.size() == 2 && from_e1 == 1 && E1.ai.i(0x7a0) == 5 && std::fabs(E1.ai.f(0x7cc) - 0.2f) < 1e-7f,
+                  "M810 volley: Hugo and the Eye fire one 0xc6 each; the Eye holds its facing (5), recoil 0.2");
+            check(E2.ai.i(0x7a4) == 7 && E2.ai.i(0x7a8) == 10, "M810 volley: the formation-4 Eye gets 7 shots, the first in 10*2/2");
+        }
+        {   // The gate reads POOL entry k, not Eye k (0x4d930f).
+            EyeDuel w; w.flags[130] = 1;
+            w.pool.emplace_back();                                // pool[0]: someone else
+            Actor& H = hugo(w);
+            tick(H, w); tick(H, w);
+            Actor& E1 = *std::next(w.pool.begin(), 2);
+            Actor& E2 = *std::next(w.pool.begin(), 3);
+            H.ai.i(0x7c0) = 1;                                    // pool[1] = Hugo, recall done
+            H.ai.i(0x728) = 100; H.ai.i(0x7a4) = 300;
+            const AiOut o = tick(H, w, Tick{0x12e, 1, 1});
+            check(o.bullets.size() == 2 && E1.ai.i(0x7a0) == 0 && E2.ai.i(0x7a0) == 5,
+                  "M810 shots: Eye 1 is gated by pool[1] (Hugo, +0x7c0 set), Eye 2 by pool[2]");
+        }
+        {   // The eye orders: 3 launches the first Eye (SE 0x9a); 1000 recalls all, +0x7c0 = 30(d + 7).
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            tick(H, w); tick(H, w);
+            Actor& E1 = *std::next(w.pool.begin(), 1);
+            Actor& E2 = *std::next(w.pool.begin(), 2);
+            H.ai.i(0x728) = 300; H.ai.i(0x87c) = 20; H.ai.i(0x7a4) = 300;
+            AiOut o = tick(H, w);
+            const bool se = std::find(o.sounds.begin(), o.sounds.end(), 0x9a) != o.sounds.end();
+            check(se && E1.ai.i(0x72c) == 2 && E2.ai.i(0x72c) == 0 && H.ai.i(0x7a0) == 0,
+                  "M810 order 3: the first Eye dashes (+0x72c = 2), SE 0x9a; Hugo's +0x7a0 kept");
+            H.ai.i(0x728) = 600; H.ai.i(0x87c) = 20; H.ai.i(0x7a4) = 300;
+            o = tick(H, w, Tick{0x139, 1, -1});
+            check(E1.ai.i(0x7c0) == 210 && E2.ai.i(0x7c0) == 210 && H.ai.i(0x7c0) == 1,
+                  "M810 recall (1000): every Eye +0x7c0 = 210 at d 0");
+            // The warp picks a formation: every Eye not dashing takes it (or one is launched).
+            EyeDuel w2; w2.flags[130] = 1;
+            Actor& H2 = hugo(w2);
+            tick(H2, w2); tick(H2, w2);
+            Actor& F1 = *std::next(w2.pool.begin(), 1);
+            Actor& F2 = *std::next(w2.pool.begin(), 2);
+            int warped = -1;
+            H2.ai.i(0x7a4) = 0;
+            for (int t = 0; t < 200 && warped < 0; ++t) {
+                o = tick(H2, w2);
+                if (o.section == 0x13d) warped = t;
+            }
+            const int f = H2.ai.i(0x7a0);
+            const bool took = (F1.ai.i(0x72c) == f && F2.ai.i(0x72c) == f) ||
+                              ((F1.ai.i(0x72c) == 2) != (F2.ai.i(0x72c) == 2));
+            check(warped >= 0 && took && H2.ai.i(0x7a4) == 300, "M810 warp: the Eyes take the formation it picks");
+        }
+        {   // The puppet: g_flags[214] clear dismisses the owned Eyes.
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            tick(H, w); tick(H, w);
+            w.flags[130] = 0; w.flags[214] = 1;
+            tick(H, w);
+            const bool kept = std::next(w.pool.begin(), 1)->hp == 10;
+            w.flags[214] = 0;
+            tick(H, w);
+            check(kept && std::next(w.pool.begin(), 1)->hp == 0 && std::next(w.pool.begin(), 2)->hp == 0,
+                  "M810 puppet: g_flags[214] = 0 dismisses the owned Eyes (HP 0)");
+        }
+        {   // Together: Hugo holds (cooldown), his two Eyes take their places behind him.
+            EyeDuel w; w.flags[130] = 1;
+            Actor& H = hugo(w);
+            for (int t = 0; t < 60; ++t) {
+                if (t == 1) { H.ai.cool() = 9999; H.ai.i(0x7a4) = 9999; }
+                tick(H, w);
+                for (auto it = std::next(w.pool.begin()); it != w.pool.end(); ++it) tick(*it, w);
+            }
+            const float fz = 1.5707963f - H.yaw;
+            bool placed = w.pool.size() == 3;
+            for (auto it = std::next(w.pool.begin()); it != w.pool.end(); ++it) {
+                const Vec3 o = origin(*it), HO = origin(H);
+                const std::uint32_t s = std::uint32_t(it->ai.i(0x730));
+                const float g = (s & 1) ? fz + 0.8975979f : fz - 0.8975979f;
+                placed = placed && it->hp == 10 && std::fabs(o.x - (HO.x + std::cos(g) * -1.75f)) < 1e-4f &&
+                         std::fabs(o.z - (HO.z + std::sin(g) * -1.75f)) < 1e-4f;
+            }
+            check(placed, "M810 + M900: two Eyes spawn and settle 1.75 u behind Hugo");
+        }
+    }
+
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

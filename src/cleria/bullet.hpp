@@ -7,7 +7,7 @@
 // parks it. The 13 floats after the direction land at +0x144..+0x174 and mean different things
 // per kind, so they are kept here as the raw slots.
 //
-// [not modelled] kinds 3, 5, 6, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x1e / 0x1f / 0x29
+// [not modelled] kinds 3, 5, 6, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x1b / 0x1e / 0x1f / 0x29
 // (BULLETS.md §10.6) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
 // the kind-0x10/0x23 proxy victim (the player batting a drip); the struck test (§4.4, boss
 // effect ids); the effect-id special cases (0x82 rtype, 0x1e7 random scale, 0x20/0x15 Adol
@@ -49,7 +49,7 @@ struct Bullet {
     Spawn s;
     std::uint32_t age = 0;        // +0x17c
     std::uint32_t u184 = 0;       // +0x184: kind 2 the saved period; kind 0x10 in water
-    std::uint32_t u194 = 0;       // +0x194: kind 0x1e the tick count; kind 0x1f the first-tick latch
+    std::uint32_t u194 = 0;       // +0x194: kinds 0x1b / 0x1e the tick count; kind 0x1f the first-tick latch
     float y190 = 0;               // +0x190
     int side = 1;                 // +0x188
     float atk = 0;                // the stat block the effect was armed with (the proxy's 0 for 0x10/0x23)

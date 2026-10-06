@@ -79,6 +79,7 @@ AiOut m850(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004cc3d0 Epon
 void m850_dead(Actor&, AiWorld&);                              // FUN_004d1c90's dead path (156 / 130)
 AiOut m810(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004da070 / FUN_004d7510 Hugo (duel)
 void m810_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4da5fe)
+AiOut m900(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004731d0 / FUN_004dab30 Eyes of Fact (M810's)
 AiOut m830(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004e9870 / FUN_004e8050 Galleon (duel)
 void m830_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4e98bd)
 AiOut m500(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00485050 Oggnome (teleporter)
