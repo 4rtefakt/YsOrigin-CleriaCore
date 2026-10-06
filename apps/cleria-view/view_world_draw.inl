@@ -86,9 +86,24 @@ struct EnemyFx {
         if (stem.empty() || kinds.count(stem)) return;
         Kind k;
         if (!k.aia.load(asset_root / "ANI" / (stem + ".AIA"))) return;
-        // Some enemy AIAs (e.g. S_1000's M_810) load with zero images -- skip them rather than
-        // index images[0] out of range (was a hard crash on any room that spawns such a cast).
-        if (k.aia.nImg == 0 || k.aia.images.empty()) return;
+        // Some enemy AIAs are 40-byte stubs with no images (M_810 / M_820: Hugo and Toal as
+        // duel opponents). Their ASO selects the real set with anime_File (the player's
+        // C_1xx), so follow it [H: the factory's ASO index picks the same file]; otherwise skip
+        // them rather than index images[0] out of range.
+        if (k.aia.nImg == 0 || k.aia.images.empty()) {
+            Aso a = Aso::load(asset_root / "ANI" / (stem + ".ASO"));
+            std::string alt;
+            if (a.ok() && !a.sections().empty()) {
+                AsoVm vm;
+                vm.bind(&a);
+                if (vm.set_section(a.find(2) ? 2 : a.sections().front().id, /*force*/true))
+                    for (int t = 0; t < 8 && vm.file_id() <= 0; ++t) vm.tick();
+                alt = aso_aia_name(vm.file_id());
+            }
+            if (alt.empty() || !k.aia.load(asset_root / "ANI" / (alt + ".AIA"))) return;
+            if (k.aia.nImg == 0 || k.aia.images.empty()) return;
+            std::printf("  [sprite] %s: stub AIA, anime_File -> %s\n", stem.c_str(), alt.c_str());
+        }
         int img = -1;
         for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
             if (k.aia.images[i].tag == 0x2) { img = int(i); break; }   // idle

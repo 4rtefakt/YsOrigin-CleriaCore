@@ -96,8 +96,12 @@ void CamRig::evaluate(Slot& s, const Vec3& look, const Vec3& scrolled) {
     const CameraRegion& r = s.rec;
     // A: mode 1 follows the (scrolled) look point; mode 0 / 3 = its fixed point [mode 3 not modelled].
     const Vec3 a = r.target.mode == 1 ? scrolled : r.target.fixed_pos;
-    // B: the orbit around A (scm_eye = FUN_0042b6e0; auto-yaw pivots on the scrolled look point).
-    const Vec3 eye = scm_eye(r.eye, a, scrolled);
+    // B: the orbit around A (scm_eye = FUN_0042b6e0). With B.flags != 0 the yaw comes from
+    // (scrolled L - A) and the PIVOT becomes the scrolled L [BYTES 0x42b84b..0x42b85d: the
+    // pivot words are overwritten with L's], so the eye sits `dist` beyond the player.
+    Vec3 eye = scm_eye(r.eye, a, scrolled);
+    if (r.eye.mode == 3 && r.eye.flags != 0)
+        eye = {eye.x - a.x + scrolled.x, eye.y - a.y + scrolled.y, eye.z - a.z + scrolled.z};
     // The target post-pass: B.flags >= 3 aims at the raw look point; the Y low-pass 0.35.
     Vec3 t = r.eye.flags >= 3 ? look : a;
     if (s.snap) { s.lp_y = t.y; s.snap = false; }

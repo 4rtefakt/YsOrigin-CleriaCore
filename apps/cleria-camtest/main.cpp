@@ -128,6 +128,20 @@ int main(int, char**) {
         for (int k = 0; k < 40; ++k) rig.step(player, look, rng);
         check(rig.current() == 0, "boss off: the volume pick returns to region 0");
     }
+    {   // B.flags != 0: the yaw from (L - A), and the orbit PIVOTS on L (S_3099's slot 5).
+        Scm scm;
+        CameraRegion r;
+        r.target.mode = 0; r.target.fixed_pos = {0, 0, 0};
+        r.eye.mode = 3; r.eye.flags = 3; r.eye.pitch = 0.0f; r.eye.dist = 18.0f;
+        r.fov = 0.5f; r.blend = 0.015f;
+        scm.regions.push_back(r);
+        CamRig rig; rig.reset(scm);
+        const Vec3 pl{0, 0, -17.5f}, lk{0, 1, -17.5f};
+        const CamRig::Out o = rig.step(pl, lk, rng);
+        check(near(o.eye.x, 0.0f, 1e-3f) && near(o.eye.z, -35.5f, 1e-3f) && near(o.eye.y, 1.0f, 1e-3f),
+              "flags 3: the eye sits 18 beyond the player, outward from A");
+        check(near(o.target.z, -17.5f, 1e-3f), "flags >= 3: the target is the raw look point");
+    }
     std::printf("[cam] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }

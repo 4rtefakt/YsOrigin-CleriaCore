@@ -2181,11 +2181,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 feet = {x, fl > kNoFloor ? fl : feet.y, z};
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
-                std::printf("  [drive] near cast %d id %d hp %.0f flags 156=%d 130=%d\n", cast, a.instance_id, a.hp,
-                            game.g_flags[156], game.g_flags[130]);
+                std::printf("  [drive] near cast %d id %d hp %.0f flags 156=%d 130=%d phase %d sub %d ai %d stem %s loaded %d pos (%.1f,%.1f,%.1f)\n", cast, a.instance_id, a.hp,
+                            game.g_flags[156], game.g_flags[130], a.ai.phase(), a.ai.i(0x72c), a.ai_index, casts.sprite_stem(a.cast_id).c_str(), int(efx.kinds.count(casts.sprite_stem(a.cast_id))), a.pos.x, a.pos.y, a.pos.z);
                 break;
             }
         } else if (cmd == "scripts") {                // the live scripts and their pcs
+            std::printf("  [drive]   frozen %d fix %d/%d\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1]);
             for (const auto& li : csMgr.live)
                 std::printf("  [drive]   script %s pc %u wait %d%s\n", li.name.c_str(), li.pc, li.wait, li.finished ? " (done)" : "");
         } else if (cmd == "pos") {                     // print the player's feet and O2
@@ -4265,7 +4266,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (dmg > 0) audio.play(kSfxPlayerHurt, kSfxAnimVol);
                 if (died) audio.play(kSfxDeathEntry, kSfxAnimVol);
                 hud.message("-" + std::to_string(dmg) + " HP");
-                if (died) {  // STAND-IN: the game-over / continue flow is not RE'd yet
+                if (died && game.g_flags[133] != 0) {
+                    // FUN_0046f810 with g_flags[133] (a losable duel): the fight ends instead of the
+                    // game: 156 = 0, 130 = 0 (174 stays 0, the scripts' "lost" branch), the boss gauge
+                    // hidden, HP 1, i-frames 9999. [not modelled] the stat recompute and the motion
+                    // fields it zeroes.
+                    game.g_flags[156] = 0; game.g_flags[130] = 0;
+                    hud.hide_boss_gauge();
+                    player.hp = 1;
+                    player_iframes = 9999;
+                } else if (died) {  // STAND-IN: the game-over / continue flow is not RE'd yet
                     player.hp = player.max_hp;
                     spawn_player();
                     player_kb = {};
