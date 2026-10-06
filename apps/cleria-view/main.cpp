@@ -87,6 +87,8 @@
 #include "cleria/player_actions.hpp"
 #include "cleria/locus.hpp"
 #include "cleria/ymo.hpp"
+#include "cleria/input_map.hpp"
+#include "cleria/settings.hpp"
 #include <ctime>
 #include <optional>
 // CLERIA_CULL=off|cw|ccw — probe. The exe sets D3DCULL_CCW, but D3D9's left-handed
@@ -303,6 +305,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_sprites.inl"
 #include "view_world_draw.inl"
 #include "view_hud.inl"
+#include "view_input.inl"
 #include "view_shell.inl"
 #include "view_headless.inl"
 #include "view_menus.inl"
@@ -352,13 +355,14 @@ int main(int argc, char** argv) {
 
     // Headless Option-persistence check: load yso_win.ini (CLERIA_INI), print, mutate, save, dump.
     if (argc >= 3 && std::strcmp(argv[2], "--config-test") == 0) {
+        if (!std::getenv("CLERIA_INI")) { std::fprintf(stderr, "--config-test needs CLERIA_INI=<file>\n"); return 1; }
         int sl[3]; bool ck[4];
         options_load(sl, ck);
         std::printf("LOADED bgm=%d sfx=%d bright=%d | analog=%d dash=%d holdatk=%d always=%d\n",
                     sl[0], sl[1], sl[2], ck[0], ck[1], ck[2], ck[3]);
         sl[0] = 333; ck[1] = !ck[1];   // mutate BGM + toggle Double-tap-to-Dash
         options_save(sl, ck);
-        std::ifstream f(options_ini_path()); std::string line;
+        std::ifstream f(settings().path()); std::string line;
         std::printf("--- yso_win.ini after save ---\n");
         while (std::getline(f, line)) std::printf("%s\n", line.c_str());
         return 0;

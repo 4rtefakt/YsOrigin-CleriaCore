@@ -7,7 +7,16 @@
 static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& first_sob,
                          bool show_title = false) {
     if (!SDL_Init(SDL_INIT_VIDEO)) { std::fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
-    SDL_Window* win = SDL_CreateWindow("CleriaCore - Ys Origin", 1280, 800, SDL_WINDOW_RESIZABLE);
+    // The settings (view_input.inl): the persistent file for a played session, memory defaults for a
+    // CLERIA_DRIVE run. The gamepad: SDL's gamepad layer, mapped into the retail pad codes.
+    settings_init(std::getenv("CLERIA_DRIVE") == nullptr);
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) std::fprintf(stderr, "SDL gamepad: %s\n", SDL_GetError());
+    else g_sdl_in.open_pad();
+    // A CLERIA_DRIVE run is headless: a hidden window (nothing on the user's desktop or taskbar) and an
+    // offscreen target, whatever the desktop offers. CLERIA_DRIVE_VISIBLE=1 shows and presents it.
+    const bool drive_hidden = std::getenv("CLERIA_DRIVE") && !std::getenv("CLERIA_DRIVE_VISIBLE");
+    SDL_Window* win = SDL_CreateWindow("CleriaCore - Ys Origin", 1280, 800,
+                                       SDL_WINDOW_RESIZABLE | (drive_hidden ? SDL_WINDOW_HIDDEN : 0));
     HWND hwnd = (HWND)SDL_GetPointerProperty(
         SDL_GetWindowProperties(win), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
     WGPUSurfaceSourceWindowsHWND srcw = {};
@@ -17,9 +26,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     WGPUSurface surface = wgpuInstanceCreateSurface(g.instance, &sd);
     WGPUSurfaceCapabilities caps = {};
     wgpuSurfaceGetCapabilities(surface, g.adapter, &caps);
-    // A CLERIA_DRIVE run with no presentable surface (a non-interactive desktop) renders into an
-    // offscreen target instead, so its `shot`s still work.
-    const bool offscreen = caps.formatCount == 0 && std::getenv("CLERIA_DRIVE");
+    // A CLERIA_DRIVE run renders into an offscreen target (always when hidden; otherwise when the desktop
+    // gives no presentable surface), so its `shot`s work and it never depends on the desktop.
+    const bool offscreen = std::getenv("CLERIA_DRIVE") && (drive_hidden || caps.formatCount == 0);
     if (caps.formatCount == 0 && !offscreen) { std::fprintf(stderr, "no presentable surface\n"); return 1; }
     // Prefer the LINEAR (non-sRGB) surface format. Our textures are already sRGB and the shaders
     // pass them straight through; if the surface is Rgba8UnormSrgb, presenting sRGB-encodes a
@@ -32,7 +41,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     }
     std::uint32_t cw = 1280, ch = 800;
     WGPUTexture off_tex = nullptr;
-    bool vsync = true;                                   // the shell's Video > VSync (Fifo vs Immediate)
+    bool vsync = settings().s.cleria.vsync;              // the shell's Video > VSync (Fifo vs Immediate)
     auto configure = [&] {
         if (offscreen) {
             if (off_tex) wgpuTextureRelease(off_tex);
@@ -58,7 +67,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     configure();
     build_pipeline(g, fmt);
     Hud hud; hud.init(g, res_file("hud_font.bin"), fmt);
-    hud.debug_text = std::getenv("CLERIA_DEBUG_HUD") != nullptr;
+    hud.debug_text = std::getenv("CLERIA_DEBUG_HUD") != nullptr || settings().s.cleria.debug_hud;   // F3 toggles
     Shell shell;                                         // F1: CleriaCore's overlay (view_shell.inl)
     bool shell_drive_close = false;                      // CLERIA_DRIVE `shell`: close after the shot
     int shell_shot_frames = 0;                           // frames left before that shot
@@ -112,9 +121,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // ---- the shell's settings pages (F1, and SETTINGS in the launcher) -------------------------
     // CleriaCore-only switches: QoL off by default (retail behaviour), cheats off. [not persisted
     // yet: the settings model lands with cleria.ini]
-    bool qol_skip_logo = false, qol_movie_skip = false;
     bool cheat_hp = false, cheat_mp = false, cheat_boost = false, cheat_o2 = false, cheat_ohko = false;
-    int window_mode = 0;                                  // 0 windowed, 1 borderless fullscreen
+    int window_mode = settings().s.cleria.borderless_fullscreen ? 1 : 0;   // 0 windowed, 1 borderless
+    if (window_mode == 1 && !offscreen) SDL_SetWindowFullscreen(win, true);
+    auto persist = [] { settings().touch(); settings().save(); };   // a shell edit, saved at once
     {
         auto vol = [&](ui::List& L, const char* label, int& v, const char* desc, bool bgm) {
             float pct = std::round(float(v) * 100.0f / 1024.0f);
@@ -133,20 +143,28 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             ui::button(L, "Locate Ys Origin...", "Pick your Ys Origin install folder. (Arrives with the game-data "
                        "installer: CleriaCore will read the game's own data.ni / data.na directly.)", false);
             ui::section(L, "Startup");
-            ui::toggle(L, "Skip logo movie", &qol_skip_logo,
-                       "Go straight to the title screen instead of playing the Falcom logo movie first.");
-            ui::toggle(L, "Unlock movie skipping", &qol_movie_skip,
+            if (ui::toggle(L, "Skip logo movie", &settings().s.cleria.skip_logo_movie,
+                       "Go straight to the title screen instead of playing the Falcom logo movie first."))
+                persist();
+            if (ui::toggle(L, "Unlock movie skipping", &settings().s.cleria.unlock_movie_skip,
                        "Lets you skip the prologue and opening movies at any time. In the original they become "
-                       "skippable only after you have cleared the game once.");
+                       "skippable only after you have cleared the game once."))
+                persist();
         });
         shell.panel.add("Video", [&](ui::List& L) {
             static const char* kModes[] = {"Windowed", "Borderless fullscreen"};
             ui::section(L, "Display");
             if (ui::choice(L, "Window mode", &window_mode, kModes, 2,
-                           "Windowed, or fullscreen at your desktop resolution."))
+                           "Windowed, or fullscreen at your desktop resolution.")) {
                 SDL_SetWindowFullscreen(win, window_mode == 1);
-            if (ui::toggle(L, "VSync", &vsync, "Synchronise frames with the display's refresh rate to avoid tearing."))
+                settings().s.cleria.borderless_fullscreen = window_mode == 1;
+                persist();
+            }
+            if (ui::toggle(L, "VSync", &vsync, "Synchronise frames with the display's refresh rate to avoid tearing.")) {
                 configure();
+                settings().s.cleria.vsync = vsync;
+                persist();
+            }
         });
         shell.panel.add("Input", [&](ui::List& L) {
             ui::section(L, "Inputs");
@@ -184,9 +202,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         });
         shell.panel.add("Interface", [&](ui::List& L) {
             ui::section(L, "Overlays");
-            ui::toggle(L, "Debug text", &hud.debug_text,
-                       "Shows CleriaCore's debug text: the room name, damage numbers and test notes. Not part of "
-                       "the original game. (F3)");
+            if (ui::toggle(L, "Debug text", &hud.debug_text,
+                           "Shows CleriaCore's debug text: the room name, damage numbers and test notes. Not part "
+                           "of the original game. (F3)")) {
+                settings().s.cleria.debug_hud = hud.debug_text;
+                persist();
+            }
         });
     }
 
@@ -207,6 +228,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int cur_bgm = -1;
     int default_bgm = 0;                 // 0x76c17c: Scene_SetDefaultBgm / Bgm_Play(-1)
     float bgm_gain = 1.0f, bgm_gain_to = 1.0f, bgm_gain_step = 0.0f;   // op 0xBB Bgm_Volume
+    // A settings edit from outside the Option page (the shell overlay: settings().s + touch()):
+    // re-read the page's copy and re-apply the live volumes (CONFIG.md §7.4).
+    std::uint64_t opt_rev = settings().revision();
+    auto sync_settings = [&] {
+        if (settings().revision() == opt_rev) return;
+        opt_rev = settings().revision();
+        options_load(oslider, ocheck);
+        audio.set_master_volume(oslider[1] / 1024.0f);
+        audio.set_bgm_volume(oslider[0] / 1024.0f * bgm_gain);
+    };
     auto apply_room_bgm = [&](const std::string& room_name) {
         const SceneRec* s = scenes.find_room(room_name);
         const int id = s ? int(s->bgm) : 0;
@@ -292,7 +323,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             mview = wgpuTextureCreateView(mtex, nullptr);
             mbind = hud.make_bind(g, mview);
         }
-        const bool skippable = qol_movie_skip || movie_skippable(demo, movie_seen);   // the shell's QoL unlock
+        // [cleria.qol] UnlockMovieSkip: any demo skips, seen or not (QoL, off = retail).
+        const bool skippable = movie_skippable(demo, movie_seen) || settings().s.cleria.unlock_movie_skip;
         MovieSkip skip;
         bool finished = file.empty();                  // FUN_005758f0 straight from Play
         float fcur = finished ? 0.0f : 1.0f, ftgt = finished ? 1.0f : 0.0f;
@@ -305,6 +337,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         while (!done) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
+                g_sdl_in.on_event(e);
                 if (e.type == SDL_EVENT_QUIT) quit = true;
                 else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
@@ -318,11 +351,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             last = now;
             while (acc >= kTickDt && !done) {
                 acc -= kTickDt;
-                // The skip buttons: the held mask & 0x1001 (bit 1 = attack) [H: our keys for it].
-                const bool* ks = SDL_GetKeyboardState(nullptr);
-                const bool held = ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_E] ||
-                                  ks[SDL_SCANCODE_Z] || ks[SDL_SCANCODE_ESCAPE] ||
-                                  (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
+                // The skip buttons: the held mask & 0x1001 (Attack | MOUSE_DIR) from the mapper.
+                const bool held = (input_tick().held & (input::kAttack | input::kMouseDir)) != 0;
                 if (!finished) {
                     const bool at_end = have ? dec.ended() : t >= length;
                     if (skip.step(held, skippable) || at_end) {
@@ -548,7 +578,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (choice_made == 2) { SDL_DestroyWindow(win); SDL_Quit(); return 0; }
     }
     // Boot (FUN_00442260): the first scene is demo6\, the logo, which then warps to title\.
-    if (show_title && !qol_skip_logo && !play_demo(6)) { SDL_DestroyWindow(win); SDL_Quit(); return 0; }
+    if (show_title && !settings().s.cleria.skip_logo_movie && !play_demo(6)) { SDL_DestroyWindow(win); SDL_Quit(); return 0; }
 
     // The game over's "Return to Title" comes back here (the jump at the end of this function):
     // everything declared below is destroyed and built again for the next game.
@@ -581,8 +611,6 @@ title_again:
             m.metrics = tr.metrics();
             return m;
         };
-        int hold[4] = {};
-        bool confirm_edge = false, cancel_edge = false;
         float taccum = 0;
         Uint64 tlast = SDL_GetTicks();
         auto teardown = [&] { SDL_DestroyWindow(win); SDL_Quit(); };
@@ -596,13 +624,10 @@ title_again:
         for (bool started = false; !started;) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
-                if (shell.event(e)) continue;
+                g_sdl_in.on_event(e);                // the mapper sees every event (gamepad hot-plug)
+                if (shell.event(e)) continue;        // the shell takes what it owns
                 if (e.type == SDL_EVENT_QUIT) { teardown(); return 0; }
-                else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
-                    const SDL_Keycode k = e.key.key;
-                    if (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E || k == SDLK_Z) confirm_edge = true;
-                    if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE) cancel_edge = true;
-                } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
+                else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                     cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
                     if (cw && ch) configure();
                 }
@@ -613,36 +638,31 @@ title_again:
             if (shell.open) taccum = 0;                     // the shell pauses the title too
             while (taccum >= kTickDt && !started) {
                 taccum -= kTickDt;
+                // The input record (FUN_005d2ba0, PAUSEBOOK_DRAW.md §0.7), one step per tick: OK 0x2000,
+                // Cancel 0x4000, the auto-repeat steps; the book's 4-way stick while it is up.
+                const input::Frame& inf = input_tick(tbook.is_open());
+                sync_settings();
                 {   // the fader, 0.05 a step
                     const float d = tf_tgt - tf_cur;
                     tf_cur = std::abs(d) <= 0.05f ? tf_tgt : tf_cur + (d > 0 ? 0.05f : -0.05f);
                 }
                 if (ng_commit) {                             // New Game: black, then the commit
                     if (tf_cur >= 1.0f) started = true;
-                    confirm_edge = cancel_edge = false;
                     continue;
                 }
-                if (tf_cur != tf_tgt) confirm_edge = cancel_edge = false;   // no input mid-fade
-                // The input record (§0.7): edges, and the held directions with the auto-repeat.
-                const bool* ks = SDL_GetKeyboardState(nullptr);
-                const bool live = tf_cur == tf_tgt;
-                const bool held[4] = {live && (ks[SDL_SCANCODE_LEFT] || ks[SDL_SCANCODE_A]),
-                                      live && (ks[SDL_SCANCODE_RIGHT] || ks[SDL_SCANCODE_D]),
-                                      live && (ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W]),
-                                      live && (ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S])};
-                bool fire[4];
-                for (int i = 0; i < 4; ++i) {
-                    hold[i] = held[i] ? hold[i] + 1 : 0;
-                    fire[i] = hold[i] == 1 || (hold[i] >= 28 && (hold[i] - 28) % 5 == 0);
-                }
-                const bool conf_held = live && (ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_E] || ks[SDL_SCANCODE_Z]);
+                const bool live = tf_cur == tf_tgt;          // no input mid-fade (FUN_005765c0)
+                const bool confirm_edge = live && (inf.pressed & input::kOk);
+                const bool cancel_edge = live && (inf.pressed & input::kCancel);
+                const bool conf_held = live && (inf.held & input::kOk);
+                const int hstep = live ? inf.dx : 0, vstep = live ? inf.dy : 0;
                 std::vector<int> snd;
                 if (tbook.is_open()) {
                     BookInput in;
-                    in.hstep = fire[0] ? -1 : fire[1] ? 1 : 0;
-                    in.vstep = fire[2] ? -1 : fire[3] ? 1 : 0;
+                    in.hstep = hstep;
+                    in.vstep = vstep;
                     in.confirm = confirm_edge; in.cancel = cancel_edge;
-                    in.held_left = held[0]; in.held_right = held[1];
+                    in.held_left = live && (inf.dir & input::kLeft);
+                    in.held_right = live && (inf.dir & input::kRight);
                     BookModel m = tmodel();
                     BookEvents ev;
                     tbook.update(in, m, ev);
@@ -671,7 +691,7 @@ title_again:
                     WndInput in;
                     in.confirm_held = conf_held; in.confirm_pressed = confirm_edge;
                     in.cancel_pressed = cancel_edge;
-                    in.vstep = fire[2] ? -1 : fire[3] ? 1 : 0;
+                    in.vstep = vstep;
                     switch (tscreen.update(in, false, tgates, tr.metrics(), snd)) {
                         case TitleAction::NewGame: tbook.open(tmodel(), 4); break;
                         case TitleAction::LoadGame: tbook.open(tmodel(), 2); break;
@@ -681,7 +701,6 @@ title_again:
                     }
                 }
                 for (int id : snd) audio.play(id, kSfxMenuVol);
-                confirm_edge = cancel_edge = false;
             }
             WGPUSurfaceTexture st = {};
             wgpuSurfaceGetCurrentTexture(surface, &st);
@@ -745,8 +764,8 @@ title_again:
     Sl2Set sl2set;
     if (!sl2set.load(asset_root)) std::printf("effects: EFFECT/SWORD*.SL2 missing — sword sweeps disabled\n");
     // The action input (src/cleria/player_actions): the attack request / combo, the air attacks,
-    // the 0x112 tap-step, the dash and the double jump. The press is latched by the input events
-    // and consumed by the next logic tick.
+    // the 0x112 tap-step, the dash and the double jump. The press (the mapper's +0x50c & 1 edge, or
+    // a drive's atk) is latched at the top of the logic tick and consumed by that tick's mover.
     PlayerActions pact;
     bool atk_press_pending = false;
     int jump_phase = 0;                    // +0x3a8: the jump section's marker phase
@@ -2176,7 +2195,6 @@ title_again:
 
     // One fixed tick of the room's event scripts. Returns whether the world is FROZEN (a Fix
     // is held) — the caller skips the player/enemy sim for that tick but the camera still runs.
-    int wnd_hold[2] = {};                         // the windows' held Up / Down (auto-repeat)
     auto tick_events = [&] {
         // Cutscene SKIP: drain every live script to completion this frame, collapsing
         // Wait_Time delays and auto-advancing dialogue prompts, until the world thaws
@@ -2204,22 +2222,18 @@ title_again:
             hud.debug_message("(skipped)");
         }
         csMgr.tick_all();
-        // The windows (FUN_0057a0e0 / FUN_005789a0): Confirm = Space / Return / E / Z; a menu's
-        // cursor = Up / Down (W / S) with the auto-repeat FUN_005d2ba0 (1st frame, 28th, then
-        // every 5th), its cancel = Esc / Backspace (the key handler's edge).
+        // The windows (FUN_0057a0e0 / FUN_005789a0) read this tick's input record (g_in, the mapper
+        // FUN_005d2ba0): Confirm held = +0x20 & 0x12000, Cancel held / auto-repeat = +0x20 / +0x28 &
+        // 0x4000, a menu's cursor = the repeat step +0x30 (WNDDIALOG_DRAW.md §3-§4). The Confirm /
+        // Cancel edges arrive through csHost.advance / wnd_cancel (the tick's input step, a drive).
         if (csHost.wtext.alive() || csHost.wdlg.alive()) {
-            const bool* ks = SDL_GetKeyboardState(nullptr);
             WndInput win;
-            win.confirm_held = ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_E] || ks[SDL_SCANCODE_Z];
+            win.confirm_held = (g_in.held & (input::kOk | input::kClick)) != 0;
             win.confirm_pressed = csHost.advance;
             csHost.advance = false;
-            const bool held[2] = {ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W], ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S]};
-            bool fire[2];
-            for (int i = 0; i < 2; ++i) {
-                wnd_hold[i] = held[i] ? wnd_hold[i] + 1 : 0;
-                fire[i] = wnd_hold[i] == 1 || (wnd_hold[i] >= 28 && (wnd_hold[i] - 28) % 5 == 0);
-            }
-            win.vstep = csHost.wnd_vstep != 0 ? csHost.wnd_vstep : fire[0] ? -1 : fire[1] ? 1 : 0;
+            win.cancel_held = (g_in.held & input::kCancel) != 0;
+            win.cancel_repeat = (g_in.repeat & input::kCancel) != 0;
+            win.vstep = csHost.wnd_vstep != 0 ? csHost.wnd_vstep : g_in.dy;
             win.cancel_pressed = csHost.wnd_cancel;
             csHost.wnd_vstep = 0;
             csHost.wnd_cancel = false;
@@ -2694,11 +2708,11 @@ title_again:
     // [approx] the probe's HP >= 1 gate is applied to enemies only: the factory gives every
     // cast HP from CASTINFO+0x74 (FACTORY.md 0x4595aa), ours gives it to enemies only. The
     // +0x60 & 4 kind gate is not modelled (only 0x130 gives an actor a script).
-    auto try_interact = [&] {
-        if (fly || csMgr.world_frozen()) return;
+    auto try_interact = [&]() -> bool {   // true = a script started (the press is used up)
+        if (fly || csMgr.world_frozen()) return false;
         const Vec3 o{feet.x, feet.y + kOriginH, feet.z};
         const float fl = std::sqrt(face_dir.x * face_dir.x + face_dir.z * face_dir.z);
-        if (fl < 1e-6f) return;
+        if (fl < 1e-6f) return false;
         const float c = face_dir.x / fl, sn = face_dir.z / fl;    // the facing, (cos, sin)
         struct Cand { float score; const Actor* actor; const Interactable* obj; };
         std::vector<Cand> cands;
@@ -2750,7 +2764,7 @@ title_again:
                 for (char& ch : sc) ch = char(std::tolower((unsigned char)ch));
                 if (csMgr.start(sc, {}, cd.actor->instance_id)) {        // bound to the actor [H]
                     std::printf("  [probe] actor %d -> %s\n", cd.actor->instance_id, sc.c_str());
-                    return;
+                    return true;
                 }
                 continue;
             }
@@ -2768,12 +2782,14 @@ title_again:
             ov.i[0] = target->i0; ov.i[1] = target->i1; ov.f[0] = target->f0;
             if (csMgr.start(name, ov, /*owner: the player*/ 13)) {
                 std::printf("  [probe] %s -> %s\n", target->name.c_str(), name.c_str());
-                return;
+                return true;
             }
         }
+        return false;
     };
 
-    std::printf("\nPLAY: WASD move Yunica (8-way, fixed camera), Space jump, E interact, Tab character | F free-fly debug | wheel speed | R respawn | 1-9 exit | ESC quit\n");
+    std::printf("\nPLAY: the retail bindings (yso_win.ini [input] Assign{}, the pad too); Attack also talks / opens | "
+                "debug: F free-fly, R respawn, T test cutscene, K/L/B, F3 overlay, Ctrl+Tab character, Ctrl+1-9 exit\n");
     bool running = true, looking = false;
     // CLERIA_DRIVE (debug): timed commands for unattended verification runs, keyed by the fixed
     // tick count, e.g. "30:at=-27,24,180;60:kill1;400:shot;700:act;800:ok;900:quit".
@@ -3096,7 +3112,6 @@ title_again:
         return t ? t->bind : nullptr;
     };
     BookInput bookIn;
-    int bookHold[4] = {};
     float bookAccum = 0;
     int bookSaveNo = 0;                                    // DAT_0074ac3e (ini SaveFileNo) [session only]
     auto book_model = [&]() {
@@ -3136,7 +3151,6 @@ title_again:
         paused = true;
         book.open(book_model(), page);
         bookIn = {};
-        for (int& h : bookHold) h = 0;
         bookAccum = 0;
     };
     int drive_book_v = 0;                                  // a CLERIA_DRIVE up / down for the book
@@ -3943,7 +3957,6 @@ title_again:
     int death_t = 0;                                     // +0x3fc
     CaptionCard gameover_card;
     WndDialog gameover_menu;
-    int gameover_hold[2] = {};
     bool return_to_title = false;
     auto game_over = [&] {                               // FUN_00427820
         std::printf("  [gameover] gameover.dds + Retry / Return to Title\n");
@@ -4059,45 +4072,19 @@ title_again:
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
-            if (shell.event(e)) continue;
+            g_sdl_in.on_event(e);                 // the mapper's latches and the gamepad (view_input.inl)
+            if (shell.event(e)) continue;         // the shell takes what it owns
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
-                // The game-over menu (FUN_00427820) takes the confirm; up / down are read held in
-                // the death step.
-                if (death_t > 0) {
-                    if (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_E || k == SDLK_Z)
-                        csHost.advance = true;
-                }
-                // While the world is frozen by a cutscene, a confirm key advances the dialogue
-                // and other gameplay input is swallowed (the sim is skipped anyway).
-                // ESC (or the dedicated skip key) SKIPS the whole cutscene — like retail's
-                // cancel-to-skip: tick_events drains it to the end, applying every flag /
-                // spawn / warp in order but collapsing the Wait_Time delays. Over a script menu
-                // (the statue's) it is the menu's cancel instead (Menu_AssignCancel).
-                else if (csMgr.world_frozen()) {
-                    if (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_E || k == SDLK_Z)
-                        csHost.advance = true;
-                    else if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE) {
-                        if (csHost.wdlg.alive() && csHost.wdlg.is_menu()) csHost.wnd_cancel = true;
-                        else skip_cutscene = true;
-                    }
-                }
-                else if (paused) {
-                    const bool ok = k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_E || k == SDLK_Z;
-                    const bool esc = k == SDLK_ESCAPE || k == SDLK_BACKSPACE;
-                    if (ok) bookIn.confirm = true;
-                    if (esc) bookIn.cancel = true;
-                }
+                // The game's own input (move, attack, jump, magic, boost, the book, the windows' OK /
+                // Cancel, the cutscene skip) goes through the mapper in the logic tick below. These
+                // are CleriaCore's FIXED debug keys, outside the mapper, never while a game-over, a
+                // cutscene or the book has the input. Ctrl+Tab / Ctrl+1..9: their plain keys are
+                // retail bindings (Preset 2's Camp Menu, the skills).
+                if (death_t > 0 || csMgr.world_frozen() || paused) {}
                 // T = trigger a test cutscene (S_1000's Roy/Ramona talk) — debug.
                 else if (k == SDLK_T) start_cutscene(asset_root / "MAP" / "S_10" / "S_1000" / "TALKC210.XSO", /*debug235*/true);
-                else if (k == SDLK_ESCAPE) {         // open the book; NEVER quit (X quits)
-                    paused = true;
-                    book.open(book_model());
-                    bookIn = {};
-                    for (int& h : bookHold) h = 0;
-                    bookAccum = 0;
-                }
                 else if (k == SDLK_F) {
                     fly = !fly;
                     if (!fly) {  // dropping into walk: keep XZ, snap to floor
@@ -4116,10 +4103,7 @@ title_again:
                 else if (k == SDLK_L) { player.hp = player.max_hp; hud.debug_message("(debug) full heal"); }
                 // Debug: B fills the EX/Boost gauge in ~4 presses (to eyeball the boost arc).
                 else if (k == SDLK_B) { player.boost = std::min(30000.f, player.boost + 7500.f); hud.debug_message("(debug) +Boost"); }
-                // Boost (engine: button bit 8) and skill/magic (button bit 4). The engine's
-                // pad bits have no keyboard mapping of their own, so these take free keys.
-                else if (k == SDLK_X && !fly && !paused) try_boost();
-                else if (k == SDLK_TAB) {
+                else if (k == SDLK_TAB && (e.key.mod & SDL_KMOD_CTRL)) {   // cycle the character (debug)
                     character = character % 3 + 1;
                     game.g_flags[150] = character;
                     hud.debug_message(std::string("Character: ") + kCharNames[character]);
@@ -4134,14 +4118,13 @@ title_again:
                     animFrame = 0; shownFrame = -1;
                     reload_room();  // re-gate this room's chests for the new character
                 }
-                else if (k == SDLK_E && !fly) try_interact();
-                else if (k >= SDLK_1 && k <= SDLK_9) {
+                else if (k >= SDLK_1 && k <= SDLK_9 && (e.key.mod & SDL_KMOD_CTRL)) {   // warp (debug)
                     std::size_t idx = std::size_t(k - SDLK_1);
                     if (idx < room.sen.triggers.size())
                         transition(room.sen.triggers[idx].dest_scene, &room.sen.triggers[idx]);
                 }
             } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
-                if (fly) looking = true; else try_attack();   // play mode: LMB = attack
+                if (fly) looking = true;              // fly mode: drag to look (play: the mapper's mouse slots)
             }
             else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) looking = false;
             else if (e.type == SDL_EVENT_MOUSE_MOTION && looking) {
@@ -4157,7 +4140,8 @@ title_again:
             }
         }
 
-        const bool* ks = SDL_GetKeyboardState(nullptr);
+        sync_settings();
+        const bool* ks = SDL_GetKeyboardState(nullptr);   // free-fly's raw keys (debug, outside the mapper)
         const float D = room_diag(room);
         // A newly (re)built room (re)starts its event scripts on the persistent manager.
         if (room_events_dirty) { room_events_dirty = false; start_room_events(); }
@@ -4175,26 +4159,19 @@ title_again:
                     ++tick_count;
                     for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
                 }
-                // Auto-repeat (FUN_005d2ba0): a held direction fires on its 1st frame, its
-                // 28th, then every 5th.
-                const bool* ks = SDL_GetKeyboardState(nullptr);
-                const bool held[4] = {ks[SDL_SCANCODE_LEFT] || ks[SDL_SCANCODE_A],
-                                      ks[SDL_SCANCODE_RIGHT] || ks[SDL_SCANCODE_D],
-                                      ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W],
-                                      ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S]};
-                bool fire[4];
-                for (int i = 0; i < 4; ++i) {
-                    bookHold[i] = held[i] ? bookHold[i] + 1 : 0;
-                    const int n = bookHold[i];
-                    fire[i] = n == 1 || (n >= 28 && (n - 28) % 5 == 0);
-                }
+                // The input record (FUN_005d2ba0, PAUSEBOOK_DRAW.md §0.7) with the book's 4-way stick:
+                // OK 0x2000 / Cancel 0x4000 edges, the auto-repeat steps (1st frame, 28th, every 5th),
+                // the held Left / Right bits for the Option sliders. A drive's ok / esc / up / down too.
+                const input::Frame& inf = input_tick(/*book_mode*/true);
                 BookInput in = bookIn;
                 bookIn = {};
-                in.hstep = fire[0] ? -1 : fire[1] ? 1 : 0;
-                in.vstep = fire[2] ? -1 : fire[3] ? 1 : 0;
+                in.confirm = in.confirm || (inf.pressed & input::kOk);
+                in.cancel = in.cancel || (inf.pressed & input::kCancel);
+                in.hstep = inf.dx;
+                in.vstep = inf.dy;
                 if (drive_book_v != 0) { in.vstep = drive_book_v; drive_book_v = 0; }
-                in.held_left = held[0];
-                in.held_right = held[1];
+                in.held_left = (inf.dir & input::kLeft) != 0;
+                in.held_right = (inf.dir & input::kRight) != 0;
                 BookModel bm = book_model();
                 BookEvents bev;
                 book.update(in, bm, bev);
@@ -4248,6 +4225,41 @@ title_again:
         ++game.g_flags[199];                       // 0x76bc38, the play time (FUN_004281c0 0x428274)
         for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
         ++ticks;
+        // ---- the input record: one mapper step per logic tick (FUN_005d2ba0 from FUN_00410440) ----
+        // g_in is read below by the windows (tick_events), the mover's move / walk / jump / attack /
+        // magic bits; its edges are dispatched here. A drive's commands land alongside (above).
+        {
+            const input::Frame& inf = input_tick();
+            if (death_t > 0) {
+                // The game-over menu (FUN_00427820) takes the OK edge; its cursor reads the repeat step.
+                if (inf.pressed & input::kOk) csHost.advance = true;
+            } else if (csMgr.world_frozen()) {
+                // A Fix holds the world: OK advances the window (0x12000 for the text, a dialog
+                // menu's OK is 0x2000 [not modelled: the mouse hover test]); over a script menu Cancel
+                // / Esc is its cancel (Menu_AssignCancel). Elsewhere Esc (the menu bit 0x10) SKIPS the
+                // whole cutscene [CleriaCore]: tick_events drains it to the end, applying every flag /
+                // spawn / warp in order but collapsing the Wait_Time delays. A text window's own
+                // Cancel (the auto-repeat 0x4000) is retail's fast-forward, read in tick_events.
+                const bool menu = csHost.wdlg.alive() && csHost.wdlg.is_menu();
+                if (inf.pressed & (menu ? input::kOk : input::kOk | input::kClick)) csHost.advance = true;
+                else if (menu && (inf.pressed & (input::kCancel | input::kMenu))) csHost.wnd_cancel = true;
+                else if (!menu && (inf.pressed & input::kMenu)) skip_cutscene = true;
+            } else if (!paused) {
+                if ((inf.pressed & input::kMenu) && (!fly || ks[SDL_SCANCODE_ESCAPE])) {
+                    // The book (FUN_00443150 on the menu bit's edge, PAUSEBOOK_DRAW.md §1): Esc or the
+                    // Camp Menu binding (only Esc in free-fly, whose raw keys may overlap it). The game
+                    // ticks stop with this one.
+                    open_book(0);
+                    accum = 0;
+                } else if (!fly) {
+                    // The attack press runs the action probe FUN_00460470 first (+0x50c & 1,
+                    // [BYTES 0x465abf]); only when it starts nothing is it a swing. [approx] the
+                    // probe's surrounding gates in FUN_00465170 are not modelled.
+                    if ((inf.pressed & input::kAttack) && !try_interact()) try_attack();
+                    if (inf.pressed & input::kBoost) try_boost();   // the mover 0x465b1d on +0x50c & 8
+                }
+            }
+        }
         // Tick the room's event scripts every frame (controllers poll here). If a Fix is held
         // (a talk / cutscene) the world is frozen: skip the player/enemy sim for this tick (the
         // camera still runs inside tick_events).
@@ -4457,16 +4469,10 @@ title_again:
             gameover_card.step();
             if (gameover_menu.alive()) {                     // FUN_005789a0 on the game-over menu
                 WndInput gin;
-                gin.confirm_held = ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_E] || ks[SDL_SCANCODE_Z];
+                gin.confirm_held = (g_in.held & (input::kOk | input::kClick)) != 0;   // this tick's record
                 gin.confirm_pressed = csHost.advance;
                 csHost.advance = false;
-                const bool held[2] = {ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W], ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S]};
-                bool fire[2];
-                for (int i = 0; i < 2; ++i) {
-                    gameover_hold[i] = held[i] ? gameover_hold[i] + 1 : 0;
-                    fire[i] = gameover_hold[i] == 1 || (gameover_hold[i] >= 28 && (gameover_hold[i] - 28) % 5 == 0);
-                }
-                gin.vstep = csHost.wnd_vstep != 0 ? csHost.wnd_vstep : fire[0] ? -1 : fire[1] ? 1 : 0;
+                gin.vstep = csHost.wnd_vstep != 0 ? csHost.wnd_vstep : g_in.dy;
                 csHost.wnd_vstep = 0;
                 std::vector<int> wsnd;
                 gameover_menu.update(gin, wsnd);
@@ -4543,17 +4549,30 @@ title_again:
             // is imperceptible and avoids a chicken-and-egg with the follow camera).
             const Vec3 fwd = normalize({std::cos(cam.yaw), 0, std::sin(cam.yaw)});  // screen-up
             const Vec3 rt = normalize(cross({0, 1, 0}, fwd));                       // screen-right
+            // The stick (+0x514 direction bits, +0x18 angle; FUN_005d2ba0): angle 0 = screen right,
+            // +pi/2 = screen up. A digital direction composes the basis vectors exactly as the keys
+            // always did; an analog stick takes its own angle.
             Vec3 wish{0, 0, 0};
-            if (ks[SDL_SCANCODE_W]) { wish.x += fwd.x; wish.z += fwd.z; }
-            if (ks[SDL_SCANCODE_S]) { wish.x -= fwd.x; wish.z -= fwd.z; }
-            if (ks[SDL_SCANCODE_D]) { wish.x += rt.x; wish.z += rt.z; }
-            if (ks[SDL_SCANCODE_A]) { wish.x -= rt.x; wish.z -= rt.z; }
+            if (g_in.analog) {
+                const float c = std::cos(g_in.angle), s = std::sin(g_in.angle);
+                wish.x = rt.x * c + fwd.x * s; wish.z = rt.z * c + fwd.z * s;
+            } else {
+                if (g_in.dir & input::kUp) { wish.x += fwd.x; wish.z += fwd.z; }
+                if (g_in.dir & input::kDown) { wish.x -= fwd.x; wish.z -= fwd.z; }
+                if (g_in.dir & input::kRight) { wish.x += rt.x; wish.z += rt.z; }
+                if (g_in.dir & input::kLeft) { wish.x -= rt.x; wish.z -= rt.z; }
+            }
             if (drive_wish_n > 0) { --drive_wish_n; wish.x += drive_wish.x; wish.z += drive_wish.z; }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
             const bool moving = wl > 1e-4f;
-            // The engine's locomotion (physics_player.hpp): a keyboard direction is a full
-            // stick, which is past the run threshold, so the player runs — the walk
-            // modifier (+0x510 & 0x20) is not mapped yet. speed_mult is the debug wheel.
+            // Run or walk (FUN_00465170 l.432, +0x4ca): magnitude (+0x508) >= RunWalkThreshold and the
+            // walk bit (+0x510 & 0x20) not held. A key is magnitude 1.0; retail's stick magnitude is
+            // >= ~125 past the deadzone, so only the Walk binding walks (LinearStickMagnitude: QoL).
+            // A drive's move= is a full stick. [not modelled] the actor flag 0x40000 forcing the walk
+            // bit. The speed itself is walk x run_mult (local_38 = 1.0 [EXPORT l.404]), not x stick.
+            // speed_mult is the debug wheel.
+            const bool run_gait = moving && !(g_in.held & input::kWalk) &&
+                                 (g_in.dir == 0 || g_in.magnitude >= settings().s.input.run_walk_threshold);
             {   // MOVER.md §3.3: the platform carry. Grounded on an object that moved last
                 // step: its displacement (clamped to 0.3); airborne: the carry decays x0.975.
                 auto it = mesh_delta.find(player_floor_obj);
@@ -4570,7 +4589,7 @@ title_again:
                 feet.x += carry.x; feet.y += carry.y; feet.z += carry.z;
             }
             // The jump press (+0x50c & 2), read once per tick.
-            const bool jump_down = ks[SDL_SCANCODE_SPACE] || drive_jump;
+            const bool jump_down = (g_in.held & input::kJump) || drive_jump;
             drive_jump = false;
             const bool jump_edge = jump_down && !jump_prev;
             jump_prev = jump_down;
@@ -4580,8 +4599,8 @@ title_again:
                 PlayerActions::In pi;
                 pi.character = character;
                 pi.attack_pressed = atk_press_pending && !paused;
-                pi.attack_held = !paused && (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
-                pi.skill_held = !paused && (ks[SDL_SCANCODE_C] || drive_skill);
+                pi.attack_held = !paused && (g_in.held & input::kAttack) != 0;   // +0x510 & 1
+                pi.skill_held = !paused && ((g_in.held & input::kMagic) || drive_skill);   // +0x510 & 4
                 pi.jump_pressed = jump_edge && !submerged;       // the water re-jump stays below
                 pi.stick_active = moving;
                 pi.stick_angle = std::atan2(wish.z, wish.x);
@@ -4618,7 +4637,7 @@ title_again:
             {   const int sec = avm.section();
                 const bool skill_sec = sec == 0x109 || (sec >= 0x10c && sec <= 0x111);
                 const bool blessing_run = (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 0x2000) != 0;
-                float spd = player_speed(pm, character, 1.0f, avm.movable(), /*running*/ moving,
+                float spd = player_speed(pm, character, 1.0f, avm.movable(), /*running*/ run_gait,
                                          pv.grounded || avm.actable(), skill_sec, blessing_run,
                                          shield_life != 0) * speed_mult;
                 if (moving && (sec == 0x10a || (sec == 3 && pact.dash)))   // the dash run (0x10a, or a dash jump)
@@ -4684,8 +4703,8 @@ title_again:
             }
             if (moving && avm.turnable()) {
                 // The heading +0x314 turns toward the stick at 0.35 rad/tick running (0.18 walking;
-                // 0x6bd2b0 / 0x6bd1fc, FUN_005eee60). A keyboard press is a full stick: running.
-                const float h = turn_facing(0.35f, std::atan2(face_dir.z, face_dir.x), std::atan2(wish.z, wish.x));
+                // 0x6bd2b0 / 0x6bd1fc, FUN_005eee60; +0x4ca picks [EXPORT 00465170.c l.2539]).
+                const float h = turn_facing(run_gait ? 0.35f : 0.18f, std::atan2(face_dir.z, face_dir.x), std::atan2(wish.z, wish.x));
                 face_dir = {std::cos(h), 0, std::sin(h)};
             }
             {   // Knockback (+0x338/+0x340), spent by the player mover's own law (hit.hpp).
@@ -5668,8 +5687,8 @@ title_again:
                                              difficulty >= 2 ? difficulty - 2 : 0, std::uint32_t(game.g_flags[217])));
             // The skill button, then MP regen with its lag (mover 0x467aff..0x467bfa).
             if (!fly) {
-                const bool held = !paused && (ks[SDL_SCANCODE_C] || drive_skill);
-                const bool atk = !paused && (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
+                const bool held = !paused && ((g_in.held & input::kMagic) || drive_skill);
+                const bool atk = !paused && (g_in.held & input::kAttack) != 0;
                 skill_tick(held, atk);
             }
             {
@@ -6070,8 +6089,8 @@ title_again:
             // attack, present in C_010/020/030) so the sprite actually swings instead of
             // sliding in the walk pose. Otherwise: jump / walk / idle.
             // The locomotion table 0x69bd0c = {2, 0, 1, 3}: idle 2, walk 0, run 1, air 3. A keyboard
-            // press is a full stick, so moving is RUNNING (section 1), as the speed already assumes.
-            const std::int32_t want_sec = !grounded ? 3 : (moving ? (pa_out.locomotion_dash ? 0x10a : 1) : 2);
+            // direction runs (section 1) unless the walk rule above says walk (section 0).
+            const std::int32_t want_sec = !grounded ? 3 : (moving ? (pa_out.locomotion_dash ? 0x10a : run_gait ? 1 : 0) : 2);
             // An attack section ends on its own: every player section >= 0x100 of C_010/C_020/C_030
             // reaches `end`, which chains to the queued follow-on (idle 2) through the ungated
             // FUN_00446620; the looping ones (the dash 0x10a, Toal's 0x10d/0x110) are ended by the

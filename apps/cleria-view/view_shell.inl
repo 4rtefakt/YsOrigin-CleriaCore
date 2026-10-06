@@ -81,6 +81,7 @@ struct Shell {
         if (!ready) return false;
         if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_F1 && !e.key.repeat) {
             open = !open;
+            g_shell_focus = open || launcher;
             return true;
         }
         if (!open && !launcher) return false;
@@ -109,6 +110,7 @@ struct Shell {
         panel.open = open;
         panel.draw(dl, float(w), float(h), nav);
         open = panel.open;
+        g_shell_focus = open || launcher;
         ImGui::Render();
 
         WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);

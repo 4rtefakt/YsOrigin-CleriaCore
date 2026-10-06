@@ -1,0 +1,185 @@
+#pragma once
+// CleriaCore's settings: retail's yso_win.ini in retail's own dialect, plus cleria.ini for the
+// CleriaCore-only / QoL keys. Spec: build/shell_re/CONFIG.md (§1.3 the dialect, §2 the key table,
+// §7 the recommendations). API notes for the shell: build/shell_re/SHELL_CORE.md.
+//
+//  - Ini: the line-preserving document (Falcom ini library 0x5ce9d0..0x5d0f70): case-insensitive section
+//    and key names, ints with 0x / 0b prefixes, "quoted" strings, %0.8f floats, CRLF. Lines the model
+//    does not know (retail-only keys, comments, unknown sections) round-trip untouched.
+//  - Settings: a typed struct for every retail key, defaulted to the GAME's missing-key defaults
+//    (FUN_0040bf50 locals / .data), plus the CleriaCore extras.
+//  - SettingsStore: load / import / save of both files, a revision counter for change notification.
+#include <array>
+#include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "cleria/input_map.hpp"
+
+namespace cleria {
+
+// ---- the dialect ---------------------------------------------------------------------------------
+// FUN_005d07f0's int parse: optional sign, then 0x/0X hex, 0b/0B binary, else decimal (strtol; the
+// value stops at the first non-digit). nullopt if no digit follows.
+std::optional<std::int32_t> parse_ini_int(std::string_view v);
+
+class Ini {
+  public:
+    void parse(std::string_view text);          // \r\n or \n line ends
+    bool load(const std::filesystem::path& p);  // false = absent / unreadable (the document is cleared)
+    std::string text() const;                   // every line + "\r\n"
+    bool save(const std::filesystem::path& p) const;   // creates the parent folders
+    bool empty() const { return lines.empty(); }
+
+    // `sec` "" = the root (before the first [section]). Names compare case-insensitively.
+    bool has(std::string_view sec, std::string_view key) const;
+    std::optional<std::string> raw(std::string_view sec, std::string_view key) const;   // after '=', trimmed
+    std::optional<std::int32_t> get_int(std::string_view sec, std::string_view key) const;
+    std::optional<float> get_float(std::string_view sec, std::string_view key) const;   // atof
+    std::optional<std::string> get_string(std::string_view sec, std::string_view key) const;   // quotes stripped
+
+    // Writes replace the value of an existing line in place (the key's spelling kept) or append the
+    // key at the end of its section (a new section goes at the end of the file after a blank line;
+    // a root key goes before the first section).
+    void set_raw(std::string_view sec, std::string_view key, std::string_view value);
+    void set_int(std::string_view sec, std::string_view key, std::int32_t v, bool hex = false);  // FUN_005d06f0
+    void set_float(std::string_view sec, std::string_view key, float v);          // "%0.8f"
+    void set_string(std::string_view sec, std::string_view key, std::string_view v);  // FUN_005d04d0
+    bool erase(std::string_view sec, std::string_view key);
+
+    std::vector<std::string> lines;   // without line ends
+};
+
+// ---- the typed model -----------------------------------------------------------------------------
+// Ints keep retail's int range even where retail stores a byte. Every default is the game's own
+// missing-key default (CONFIG.md §2) unless marked otherwise.
+struct Settings {
+    std::int32_t ini_version = 0x100;   // root IniVersion: must be 0x100 or the gated keys are skipped
+
+    struct Kernel {
+        std::int32_t window_pos_x = 64, window_pos_y = 64;
+        std::int32_t english_roonic = 0;
+        std::int32_t clamp_fr_min = 5, clamp_fr_max = 10000;   // ClampInternalFrameRateMin/Max
+        std::int32_t access_archive_mmf = 1;                    // AccessArchiveViaMemoryMappedFile
+        std::int32_t high_reso_text = 1;                        // HighResoText (0x6d606c init 1) [gated]
+    } kernel;
+    struct Game {   // [game]: every key but Language is gated on IniVersion (FUN_0040b8e0)
+        std::int32_t language = 1;          // 0 JP 1 EN 2 ES 3 FR 4 DE 5 IT
+        std::int32_t bloody_effect_level = 2;
+        std::int32_t save_file_no = 0, title_cursor_index = 0, title_game_difficulty = 0;
+        std::int32_t title_time_attack_index = 0;
+        std::int32_t game_first_play = 0;   // written only when != 0 (or already in the file)
+        std::int32_t game_sd = 0;
+        std::string player_name = "Adol Christin";   // <= 0x32 bytes
+        std::string alternate_name_separator = " ";   // <= 10 bytes
+    } game;
+    struct Graphics {
+        std::int32_t show_fps = 0;                   // [gated]
+        float gamma_value = 1.0f;                    // 0.5 .. 2.0
+        std::optional<std::string> device_identifier;   // round-trip only (written only if read)
+        std::int32_t device = -1, adapter = 0;
+        std::int32_t back_buffer_width = 800, back_buffer_height = 600;
+        std::int32_t back_buffer_format32 = 0, stretch_aspect = 0, refresh_rate = 0;
+        std::int32_t multi_sample_type = 0, texture_filter = 1, anisotropy = 1;
+        std::int32_t windowed = 0;                   // [gated] (bss default 0 = fullscreen)
+        std::int32_t wait_vsync = 0, force_software_vp = 0, disable_pixel_shader = 0;
+        std::int32_t triple_buffer = 0, low_reso_texture = 0, compressed_texture = 0;
+        std::int32_t other_light_weight_mode = 0, mipmap = 1, gamma_enable = 0;
+        std::int32_t mask_of_eyes = 0, water_caustics = 0, disable_qpc = 0, disable_movies = 0;
+        std::int32_t water_effect_level = 2, shadow_effect_level = 2, glare_effect_level = 2;
+    } graphics;
+    struct Sound {
+        std::int32_t bgm_volume = 512, effect_volume = 512;   // 0..1024
+        std::int32_t device = 0;
+        std::int32_t play_bgm = 1, play_effect = 1;           // [gated]
+        std::int32_t reverb = 0, force_software_sound_buffer = 0;
+    } sound;
+    struct Input {
+        std::int32_t pad_analog = 0, dash_control = 1, atk_btn_magic = 0, always_dash_ok = 0;
+        std::int32_t mouse_button_always_ok_cancel = 1;
+        std::int32_t force_feedback = 0, game_pad = 1;
+        std::int32_t game_pad_id = 1;       // 1-based; retail clamps < 1 to 1 (FUN_005d5b20)
+        // FileIndex: its PRESENCE makes an empty / missing Assign{} unbound (FUN_0040bf50).
+        std::optional<std::int32_t> file_index;
+        input::Bindings assign = input::preset1();   // the EN/default table (Language 1)
+        float dead_zone = 0.35f, run_walk_threshold = 0.5f, mouse_sensitivity = 1.0f;
+        std::int32_t double_click_frame = 12;
+    } input;
+    struct Debug {
+        std::optional<std::int32_t> no_initialize_game_ctrl;   // [debug] NoInitializeGameCtrl
+    } debug;
+
+    // ---- cleria.ini (CleriaCore-only). QoL defaults OFF = retail behaviour. ----
+    struct Cleria {
+        bool debug_hud = false;              // [cleria.video] DebugHud (start with the F3 overlay up)
+        bool unlock_movie_skip = false;      // [cleria.qol] UnlockMovieSkip (skip a demo never seen)
+        bool skip_logo_movie = false;        // [cleria.qol] SkipLogoMovie (boot straight to the title)
+        bool vsync = true;                   // [cleria.video] VSync (CleriaCore's own; retail WaitVSync round-trips)
+        bool borderless_fullscreen = false;  // [cleria.video] BorderlessFullscreen
+        bool linear_stick_magnitude = false; // [cleria.input] LinearStickMagnitude (analog walk)
+        bool native_pad_binds = false;       // [cleria.input] NativePadBinds: PAD_* slots from PadBind{}
+        std::array<std::string, 8> pad_bind = {   // [cleria.input] PadBind{PAD_ACTION..PAD_SWORD_REVU}
+            "a", "b", "x", "y", "start", "lefttrigger", "leftshoulder", "rightshoulder"};   // [H]
+    } cleria;
+};
+
+// The keys skipped when IniVersion != 0x100 (FUN_0040d1d0's gate around the early HighResoText /
+// Windowed reads and the FUN_0040b8e0 pass). [H] PadAnalog and Reverb are read again ungated by
+// FUN_0040bf50 (the mapper / sound-struct copies), so this model reads them ungated.
+bool gated_key(std::string_view sec, std::string_view key);
+
+void read_retail(const Ini& ini, Settings& s);    // FUN_0040bf50 + FUN_0040b8e0 semantics
+void write_retail(Ini& ini, const Settings& s);   // the full key set, retail spelling and order
+void read_cleria(const Ini& ini, Settings& s);
+void write_cleria(Ini& ini, const Settings& s);
+
+// The mapper's configuration from the settings (the PAD_* slots from cleria.ini when NativePadBinds).
+input::Config mapper_config(const Settings& s, bool book_mode = false);
+
+// ---- locations -----------------------------------------------------------------------------------
+// %USERPROFILE%\Saved Games\CleriaCore\yso_win.ini (FOLDERID_SavedGames); empty if unresolvable.
+std::filesystem::path default_ini_path();
+inline std::filesystem::path cleria_ini_path(const std::filesystem::path& ini) {
+    return ini.parent_path() / "cleria.ini";
+}
+// Retail's own yso_win.ini, resolved like FUN_005de1d0 / FUN_005ce950: common.ini in `install_dir`
+// (UserProfileHere / BaseDir); UserProfileHere=1 -> <BaseDir or install>\user\<user name>\, else (and
+// with no common.ini) FOLDERID_SavedGames\FALCOM\yso_win\. `install_dir` may be empty.
+std::filesystem::path retail_ini_path(const std::filesystem::path& install_dir);
+// The same rules on given inputs (for tests): `common_ini` the file's text ("" = none).
+std::filesystem::path retail_ini_path_from(std::string_view common_ini, const std::filesystem::path& install_dir,
+                                           const std::filesystem::path& saved_games, std::string_view user_name);
+
+// ---- the store -----------------------------------------------------------------------------------
+class SettingsStore {
+  public:
+    enum class Origin { Memory, Loaded, Imported, Defaults };
+    Settings s;   // edit, then touch() (and save() to persist)
+
+    // Read `ini` (and cleria.ini beside it). If `ini` is absent: import `import_from` once when it
+    // exists (its lines are copied verbatim, never written), else the defaults; the result is saved
+    // to `ini` so the import never repeats. Retail's file is only ever read.
+    Origin load(const std::filesystem::path& ini, const std::filesystem::path& import_from = {});
+    void use_memory_defaults();   // no file I/O at all (headless / CLERIA_DRIVE runs)
+    bool save();                  // read-modify-write both files; false on a write error / memory mode
+    void touch() { ++revision_; dirty_ = true; }   // the change notification
+    std::uint64_t revision() const { return revision_; }
+    bool dirty() const { return dirty_; }
+    bool memory_only() const { return memory_; }
+    Origin origin() const { return origin_; }
+    const std::filesystem::path& path() const { return path_; }
+    const Ini& retail_doc() const { return retail_; }
+    const Ini& cleria_doc() const { return cleria_; }
+
+  private:
+    Ini retail_, cleria_;
+    std::filesystem::path path_;
+    bool memory_ = true, dirty_ = false;
+    Origin origin_ = Origin::Memory;
+    std::uint64_t revision_ = 1;
+};
+
+}  // namespace cleria

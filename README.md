@@ -149,22 +149,35 @@ build/Release/cleria-view.exe <asset_root> <room.SOB>   # jump straight into a r
 With no room argument it finds the asset tree (`$CLERIA_ASSETS`, then next to the
 exe) and boots to the title screen.
 
-| Control | Action |
+The game controls are retail's own bindings, read from CleriaCore's `yso_win.ini`
+(`%USERPROFILE%\Saved Games\CleriaCore\`, imported once from the retail game's file; see
+`build/shell_re/SHELL_CORE.md`). A gamepad works too. Without a retail file the defaults are
+retail's **Preset 1**; retail's **Preset 2** (WASD / mouse) is shown for comparison.
+
+| Action | Preset 1 (default) | Preset 2 | Pad |
+|---|---|---|---|
+| move | numpad 1–9, arrows (always) | W A S D, Q E Z X diagonals, arrows | left stick / d-pad |
+| attack / talk / open; menu **OK** | **Z** | **.** · LMB | Button 1 (A) |
+| jump; menu **Cancel** | **X** · RMB | **/** · RMB | Button 2 (B) |
+| magic (skill) | C | _ · MMB | Button 3 (X) |
+| boost | V · MMB | Space | Button 4 (Y) |
+| pause book | Space · **Esc** (always) | Tab · **Esc** | Button 10 (RS click) |
+| walk (hold) | L-Shift | L-Shift | Button 9 (LS click) |
+
+The pause book closes with **Cancel**; **Esc** during a cutscene skips it (the window **X** quits).
+**F1** is reserved for the settings overlay.
+
+| Debug key | Action |
 |---|---|
-| **WASD** / arrows | move (8-way, camera-relative) |
-| **LMB** | attack (melee / combo) |
-| **Space** | jump |
-| **E** | interact / open chest |
-| **Tab** | switch character (Yunica / Hugo / Toal) |
-| **Escape** | open/close the pause book — or **skip a playing cutscene** (the window **X** quits) |
-| **Backspace** | skip a playing cutscene |
-| **Q / E** | previous / next page in the pause book |
-| **1–9** | take exit N |
-| **F** | free-fly debug camera |
-| mouse wheel | fly speed |
+| **Ctrl+Tab** | switch character (Yunica / Hugo / Toal) |
+| **Ctrl+1–9** | take exit N |
+| **F** | free-fly debug camera (WASD / E Q, drag to look) |
+| mouse wheel | fly / walk speed multiplier |
 | **R** | respawn at the room's spawn |
-| **K / L** | *(debug)* −60 HP / full heal |
-| **B** | *(debug)* +Boost |
+| **T** | test cutscene |
+| **F3** | debug overlay |
+| **K / L** | −60 HP / full heal |
+| **B** | +Boost |
 
 ### Headless render modes
 
