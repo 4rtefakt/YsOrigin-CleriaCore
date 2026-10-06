@@ -123,10 +123,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const int id = s ? int(s->bgm) : 0;
         if (id == cur_bgm) return;
         cur_bgm = id;
-        if (id == 0)
-            audio.stop_bgm();
-        else
+        if (id == 0) {
+            // [approx] Bgm_Play(0) re-queues a 3.5 s fade on a track a Bgm_Stop(ms) is already
+            // fading; the earlier, shorter stop still lands first. Keep that fade instead of a cut.
+            if (!audio.bgm_fading()) audio.stop_bgm();
+        } else {
             audio.play_bgm(bgmdefs.track(id));
+        }
     };
 
     // Save slots (PLAN.md Phase 2; src/cleria/save.hpp codec). One yso_NN.bin per slot
@@ -152,6 +155,200 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // A save picked on the title's Load Game screen; applied to the game state below
     // (flags/character before the first room load, stats/position after the world exists).
     std::optional<SaveState> pending_load;
+
+    // ---- the demo movies (build/event_re/MOVIES.md, src/cleria/movie) -------------------------
+    // A `demoN\` scene: FUN_005773e0 opens the movie and FUN_00431840 switches to the scene's
+    // SCENELIST BGM (the soundtrack: the AVI's own audio is never rendered); the tick
+    // FUN_00577750 ends it at the end of the stream or on a skip press; FUN_005758f0 then fades
+    // to black (current 0 -> target 1 at the scene-entry speed 0.05 / step) and the fade machine
+    // warps to the fixed next scene when black. Entry itself fades in from black (FUN_00439170).
+    // CLERIA_MOVIE=0 turns them off; a CLERIA_DRIVE run skips them unless CLERIA_MOVIE=1.
+    // CLERIA_MOVIE_SHOT=<seconds> writes the frame at that time to CLERIA_SHOT_DIR (evidence; a
+    // CLERIA_DRIVE run then ends the movie).
+    const char* movie_env = std::getenv("CLERIA_MOVIE");
+    const bool movies_off = movie_env ? std::atoi(movie_env) == 0 : std::getenv("CLERIA_DRIVE") != nullptr;
+    MovieSeen movie_seen;
+    movie_seen.first_play = ini_game_first_play();   // [not modelled] the clear bytes 0x74ab79..7b
+    // Plays demo `demo` (1..8) and returns false if the window was closed meanwhile.
+    auto play_demo = [&](int demo) -> bool {
+        const std::optional<DemoScene> ds = demo_scene(demo, character == 3);
+        if (!ds || movies_off) return true;
+        const fs::path file = find_movie(asset_root, ds->movie);
+        MovieDecoder dec;
+        const bool have = !file.empty() && dec.open(file);
+        double length = have ? dec.duration() : 0.0;
+        if (file.empty())
+            std::printf("  [movie] demo%d: %s not found -> finished at once (the open failure)\n", demo,
+                        movie_file(ds->movie));
+        else if (!have) {
+            length = avi_duration(file).value_or(0.0);
+            std::printf("  [movie] demo%d: %s does not decode -> black for %.1f s [stand-in]\n", demo,
+                        file.filename().string().c_str(), length);
+        } else {
+            std::printf("  [movie] demo%d: %s %ux%u %.1f s -> %s\n", demo, file.filename().string().c_str(),
+                        dec.width(), dec.height(), length, ds->next);
+        }
+        // The BGM: a successful Play first calls Bgm_Play(0x6a0590[idx] = 0) (curBgm = 0, the old
+        // track faded), then the scene entry's compare starts the demo scene's own track.
+        if (!file.empty()) { audio.stop_bgm(); cur_bgm = 0; }
+        apply_room_bgm("demo" + std::to_string(demo));
+
+        WGPUTexture mtex = nullptr; WGPUTextureView mview = nullptr; WGPUBindGroup mbind = nullptr;
+        if (have) {
+            WGPUTextureDescriptor td = {};
+            td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+            td.dimension = WGPUTextureDimension_2D; td.size = {dec.width(), dec.height(), 1};
+            td.format = WGPUTextureFormat_BGRA8Unorm; td.mipLevelCount = 1; td.sampleCount = 1;
+            mtex = wgpuDeviceCreateTexture(g.device, &td);
+            mview = wgpuTextureCreateView(mtex, nullptr);
+            mbind = hud.make_bind(g, mview);
+        }
+        const bool skippable = movie_skippable(demo, movie_seen);
+        MovieSkip skip;
+        bool finished = file.empty();                  // FUN_005758f0 straight from Play
+        float fcur = finished ? 0.0f : 1.0f, ftgt = finished ? 1.0f : 0.0f;
+        bool shown = false, quit = false, done = false;
+        const char* shot_env = std::getenv("CLERIA_MOVIE_SHOT");
+        double shot_at = shot_env ? std::atof(shot_env) : -1.0;
+        const Uint64 t0 = SDL_GetTicksNS();
+        Uint64 last = t0;
+        double acc = 0;
+        while (!done) {
+            SDL_Event e;
+            while (SDL_PollEvent(&e)) {
+                if (e.type == SDL_EVENT_QUIT) quit = true;
+                else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
+                    cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
+                    if (cw && ch) configure();
+                }
+            }
+            if (quit) break;
+            const Uint64 now = SDL_GetTicksNS();
+            const double t = double(now - t0) * 1e-9;
+            acc += double(now - last) * 1e-9;
+            last = now;
+            while (acc >= kTickDt && !done) {
+                acc -= kTickDt;
+                // The skip buttons: the held mask & 0x1001 (bit 1 = attack) [H: our keys for it].
+                const bool* ks = SDL_GetKeyboardState(nullptr);
+                const bool held = ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_E] ||
+                                  ks[SDL_SCANCODE_Z] || ks[SDL_SCANCODE_ESCAPE] ||
+                                  (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
+                if (!finished) {
+                    const bool at_end = have ? dec.ended() : t >= length;
+                    if (skip.step(held, skippable) || at_end) {
+                        finished = true;                   // FUN_005758f0
+                        fcur = 0.0f; ftgt = 1.0f;
+                        std::printf("  [movie] demo%d %s at %.2f s\n", demo, at_end ? "ended" : "skipped", t);
+                    }
+                }
+                const float d = ftgt - fcur;               // the fader, 0.05 a step
+                fcur = std::abs(d) <= 0.05f ? ftgt : fcur + (d > 0 ? 0.05f : -0.05f);
+                if (finished && fcur >= 1.0f) done = true; // black: the fade machine commits
+            }
+            if (done) break;
+            // FUN_0044a870: the next frame, until the movie finishes (the last one stays up).
+            if (have && !finished && dec.advance(t)) {
+                WGPUTexelCopyTextureInfo dst = {}; dst.texture = mtex; dst.aspect = WGPUTextureAspect_All;
+                WGPUTexelCopyBufferLayout lay = {}; lay.bytesPerRow = dec.width() * 4; lay.rowsPerImage = dec.height();
+                WGPUExtent3D ext = {dec.width(), dec.height(), 1};
+                wgpuQueueWriteTexture(g.queue, &dst, dec.bgra().data(), dec.bgra().size(), &lay, &ext);
+                shown = true;
+            }
+            WGPUSurfaceTexture st = {};
+            if (offscreen) {
+                st.texture = off_tex;
+                wgpuTextureAddRef(off_tex);
+                st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal;
+            } else {
+                wgpuSurfaceGetCurrentTexture(surface, &st);
+            }
+            if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+            WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
+            {   // black, then the movie quad and the fader over it (the HUD's first two layers)
+                WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+                WGPURenderPassColorAttachment ca = {};
+                ca.view = view; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+                ca.loadOp = WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store; ca.clearValue = {0, 0, 0, 1};
+                WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
+                WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+                wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
+                WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+                wgpuQueueSubmit(g.queue, 1, &cmd);
+                wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+            }
+            const MovieQuad q = movie_quad(cw, ch);
+            hud.movie_bind = shown ? mbind : nullptr;
+            hud.movie_rect[0] = q.x0; hud.movie_rect[1] = q.y0; hud.movie_rect[2] = q.x1; hud.movie_rect[3] = q.y1;
+            hud.set_fade(0, fcur);
+            {   // only the movie and the fader: the game's HUD layers (kept from its last frame) are
+                // set aside for this draw
+                std::vector<HudVertex> equip[4];
+                for (int i = 0; i < 4; ++i) equip[i].swap(hud.equip_verts[i]);
+                std::vector<Hud::Msg> msgs;
+                msgs.swap(hud.messages);
+                const float overlay = hud.overlay_alpha, boss = hud.boss_frac, arm = hud.arm_frac;
+                const bool dbg = hud.debug_text;
+                hud.overlay_alpha = 0.0f; hud.boss_frac = -1.0f; hud.arm_frac = -1.0f; hud.debug_text = false;
+                hud.render(g, view, cw, ch, "", 0.0f, nullptr);
+                hud.overlay_alpha = overlay; hud.boss_frac = boss; hud.arm_frac = arm; hud.debug_text = dbg;
+                msgs.swap(hud.messages);
+                for (int i = 0; i < 4; ++i) equip[i].swap(hud.equip_verts[i]);
+            }
+            if (shot_at >= 0.0 && t >= shot_at) {      // CLERIA_MOVIE_SHOT
+                shot_at = -1.0;
+                const char* sd = std::getenv("CLERIA_SHOT_DIR");
+                const fs::path out = fs::path(sd ? sd : ".") / ("movie_demo" + std::to_string(demo) + ".ppm");
+                const std::uint32_t bpr = (cw * 4 + 255) & ~255u;
+                WGPUBufferDescriptor rbd = {};
+                rbd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead; rbd.size = std::size_t(bpr) * ch;
+                WGPUBuffer rb = wgpuDeviceCreateBuffer(g.device, &rbd);
+                WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+                WGPUTexelCopyTextureInfo src = {}; src.texture = st.texture; src.aspect = WGPUTextureAspect_All;
+                WGPUTexelCopyBufferInfo dst = {}; dst.buffer = rb;
+                dst.layout.bytesPerRow = bpr; dst.layout.rowsPerImage = ch;
+                WGPUExtent3D ext = {cw, ch, 1};
+                wgpuCommandEncoderCopyTextureToBuffer(enc, &src, &dst, &ext);
+                WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+                wgpuQueueSubmit(g.queue, 1, &cmd);
+                wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+                MapReq mr;
+                WGPUBufferMapCallbackInfo mi = {};
+                mi.mode = WGPUCallbackMode_AllowProcessEvents; mi.callback = on_map; mi.userdata1 = &mr;
+                wgpuBufferMapAsync(rb, WGPUMapMode_Read, 0, rbd.size, mi);
+                while (!mr.done) wgpuDevicePoll(g.device, true, nullptr);
+                const auto* px = static_cast<const std::uint8_t*>(wgpuBufferGetConstMappedRange(rb, 0, rbd.size));
+                const bool bgra = fmt == WGPUTextureFormat_BGRA8Unorm || fmt == WGPUTextureFormat_BGRA8UnormSrgb;
+                std::ofstream f(out, std::ios::binary);
+                f << "P6\n" << cw << " " << ch << "\n255\n";
+                for (std::uint32_t y = 0; y < ch; ++y)
+                    for (std::uint32_t x = 0; x < cw; ++x) {
+                        const std::uint8_t* qx = px + std::size_t(y) * bpr + x * 4;
+                        const char rgb[3] = {char(qx[bgra ? 2 : 0]), char(qx[1]), char(qx[bgra ? 0 : 2])};
+                        f.write(rgb, 3);
+                    }
+                wgpuBufferUnmap(rb);
+                wgpuBufferRelease(rb);
+                std::printf("  [movie] wrote %s (t %.2f s, quad %.0f,%.0f..%.0f,%.0f)\n", out.string().c_str(), t,
+                            q.x0, q.y0, q.x1, q.y1);
+                // A CLERIA_DRIVE run plays a movie only for this shot: end it here (the fade follows).
+                if (std::getenv("CLERIA_DRIVE") && !finished) { finished = true; fcur = 0.0f; ftgt = 1.0f; }
+            }
+            if (!offscreen) wgpuSurfacePresent(surface);
+            else wgpuDevicePoll(g.device, true, nullptr);
+            wgpuTextureViewRelease(view);
+            wgpuTextureRelease(st.texture);
+        }
+        hud.movie_bind = nullptr;
+        hud.set_fade(0, 0.0f);
+        if (mbind) wgpuBindGroupRelease(mbind);
+        if (mview) wgpuTextureViewRelease(mview);
+        if (mtex) wgpuTextureRelease(mtex);
+        return !quit;
+    };
+    // Boot (FUN_00442260): the first scene is demo6\, the logo, which then warps to title\.
+    if (show_title && !play_demo(6)) { SDL_DestroyWindow(win); SDL_Quit(); return 0; }
 
     // The game over's "Return to Title" comes back here (the jump at the end of this function):
     // everything declared below is destroyed and built again for the next game.
@@ -189,6 +386,13 @@ title_again:
         float taccum = 0;
         Uint64 tlast = SDL_GetTicks();
         auto teardown = [&] { SDL_DestroyWindow(win); SDL_Quit(); };
+        // The title scene's fader. Its entry fades in from black like every scene (FUN_00431840 ->
+        // FUN_00439170: current 1 -> target 0, 0.05 / step), and the title takes input only once
+        // current == target (FUN_005765c0 [EXPORT]). New Game (FUN_00575970) runs FUN_005758f0 on
+        // the title object: current 0 -> target 1, the title's tick stops (obj+0x279), and the
+        // scene is committed when the screen is black.
+        float tf_cur = 1.0f, tf_tgt = 0.0f;
+        bool ng_commit = false;
         for (bool started = false; !started;) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
@@ -207,16 +411,29 @@ title_again:
             tlast = now;
             while (taccum >= kTickDt && !started) {
                 taccum -= kTickDt;
+                {   // the fader, 0.05 a step
+                    const float d = tf_tgt - tf_cur;
+                    tf_cur = std::abs(d) <= 0.05f ? tf_tgt : tf_cur + (d > 0 ? 0.05f : -0.05f);
+                }
+                if (ng_commit) {                             // New Game: black, then the commit
+                    if (tf_cur >= 1.0f) started = true;
+                    confirm_edge = cancel_edge = false;
+                    continue;
+                }
+                if (tf_cur != tf_tgt) confirm_edge = cancel_edge = false;   // no input mid-fade
                 // The input record (§0.7): edges, and the held directions with the auto-repeat.
                 const bool* ks = SDL_GetKeyboardState(nullptr);
-                const bool held[4] = {ks[SDL_SCANCODE_LEFT] || ks[SDL_SCANCODE_A], ks[SDL_SCANCODE_RIGHT] || ks[SDL_SCANCODE_D],
-                                      ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W], ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S]};
+                const bool live = tf_cur == tf_tgt;
+                const bool held[4] = {live && (ks[SDL_SCANCODE_LEFT] || ks[SDL_SCANCODE_A]),
+                                      live && (ks[SDL_SCANCODE_RIGHT] || ks[SDL_SCANCODE_D]),
+                                      live && (ks[SDL_SCANCODE_UP] || ks[SDL_SCANCODE_W]),
+                                      live && (ks[SDL_SCANCODE_DOWN] || ks[SDL_SCANCODE_S])};
                 bool fire[4];
                 for (int i = 0; i < 4; ++i) {
                     hold[i] = held[i] ? hold[i] + 1 : 0;
                     fire[i] = hold[i] == 1 || (hold[i] >= 28 && (hold[i] - 28) % 5 == 0);
                 }
-                const bool conf_held = ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_E] || ks[SDL_SCANCODE_Z];
+                const bool conf_held = live && (ks[SDL_SCANCODE_RETURN] || ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_E] || ks[SDL_SCANCODE_Z]);
                 std::vector<int> snd;
                 if (tbook.is_open()) {
                     BookInput in;
@@ -244,7 +461,9 @@ title_again:
                         character = std::clamp(ng.character, 1, 3);   // [not modelled] Adol (0)
                         skin = ng.type;
                         difficulty = ng.very_easy ? 0 : ng.easy ? 1 : 2 + ng.difficulty;
-                        started = true;
+                        ng_commit = true;                    // FUN_005758f0: fade, then commit
+                        tf_cur = 0.0f; tf_tgt = 1.0f;
+                        audio.fade_out_bgm(0x5dc);           // FUN_005cde10(1500) [BYTES 0x575985]
                     }
                 } else {
                     WndInput in;
@@ -283,6 +502,11 @@ title_again:
             tscreen.draw(dl);
             if (tbook.is_open()) tbook.draw(dl, tmodel());
             tr.render(g, view, cw, ch, dl);
+            if (tf_cur > 0.0f) {                             // the fader over the title
+                hud.set_fade(0, tf_cur);
+                hud.render(g, view, cw, ch, "", 0.0f, nullptr);
+                hud.set_fade(0, 0.0f);
+            }
             wgpuSurfacePresent(surface);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
         }
@@ -2212,7 +2436,8 @@ title_again:
         live_obj_dirty = true;
     };
     // 0xA4 / 0xB9 / 0xBA: the default (scene) BGM, play (-1 = the default), stop.
-    // [H] Bgm_Stop's operand (3500) read as a fade time; the stop is immediate here.
+    // Bgm_Stop(ms) = FUN_00432fc0: curBgm 0, then FUN_005cde10(ms), a linear volume ramp to 0
+    // over ms and the stop ms later [BYTES 0x432fc0, 0x5cde10, 0x5cd455] (Audio::fade_out_bgm).
     csHost.bgm_default_fn = [&](int id) { default_bgm = id; };
     csHost.bgm_play_fn = [&](int id) {
         if (id == -1) id = default_bgm;
@@ -2221,7 +2446,7 @@ title_again:
         cur_bgm = id;
         audio.play_bgm(bgmdefs.track(id));
     };
-    csHost.bgm_stop_fn = [&](int) { audio.stop_bgm(); cur_bgm = 0; };
+    csHost.bgm_stop_fn = [&](int ms) { audio.fade_out_bgm(ms); cur_bgm = 0; };
     // 0x85 HealHp (FUN_004fa0e0): HP to max; SE 0x75 (FUN_00430790). [not modelled] FUN_00420c40.
     csHost.heal_fn = [&] {
         if (player.hp >= 1) { player.hp = player.max_hp; player.hp_lag = float(player.hp); }
@@ -2759,23 +2984,13 @@ title_again:
     if (!fly) { update_camera(room, feet, 0.0f, /*snap=*/true); if (g_cam.on) apply_cam_state(cam, feet); }
 
     // A scene path ("s_10\s_1009\", "demo3\") -> the room to enter. A demo scene is a movie
-    // that then warps to a fixed next scene (SCENEFLOW.md 5.1); movies are [not modelled], so
-    // the demo is passed through at once. "" = no room (the title, an unknown name).
+    // that then warps to a fixed next scene (SCENEFLOW.md 5.1, src/cleria/movie demo_scene); the
+    // movie itself is played by the ChangeScene handler below. "" = no room (the title, an
+    // unknown name).
     auto scene_room = [&](std::string s) -> std::string {
+        if (const int n = demo_number(s)) s = demo_scene(n, character == 3)->next;   // demo6 -> title
         for (char& c : s) c = (c == '/') ? '\\' : char(std::tolower((unsigned char)c));
         while (!s.empty() && s.back() == '\\') s.pop_back();
-        if (s.rfind("demo", 0) == 0 && s.size() == 5) {
-            const bool toal = character == 3;
-            switch (s[4]) {
-                case '1': return toal ? "S_1000" : "S_0002";
-                case '2': return toal ? "S_7001" : "S_0002";
-                case '3': return "S_1000";
-                case '4': return "S_6080";
-                case '5': return "S_7002";
-                case '7': case '8': return "S_0003";
-                default: return "";                              // demo6 -> the title
-            }
-        }
         const std::size_t k = s.find_last_of('\\');
         std::string room_name = k == std::string::npos ? s : s.substr(k + 1);
         for (char& c : room_name) c = char(std::toupper((unsigned char)c));
@@ -3552,12 +3767,18 @@ title_again:
         facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
         csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
     };
+    // Every scene entry fades in from black over 20 steps (FUN_00431840 -> FUN_00439170,
+    // SCENEFLOW.md 1.5), the first room after the title too. Before the room's first script tick,
+    // so a root's own Fader_Target (S_0000's) still wins. [dev] a command-line room starts unfaded.
+    if (show_title) { csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f; }
     g_tick_reset = true;   // the first room's load stall is not caught up either (DAT_0075aed5)
     while (running) {
         if (!csHost.pending_scene.empty()) {
             const std::string req = csHost.pending_scene;
             csHost.pending_scene.clear();
             csMgr.paused = false;
+            // A demo scene: its movie runs to its end (or a skip) and the fade to black first.
+            if (const int demo = demo_number(req); demo && !play_demo(demo)) { running = false; continue; }
             const std::string dest = scene_room(req);
             std::printf("  [scene] ChangeScene '%s' -> %s\n", req.c_str(), dest.empty() ? "(none)" : dest.c_str());
             if (!dest.empty()) {

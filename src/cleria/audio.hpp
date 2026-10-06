@@ -65,9 +65,20 @@ class Audio {
     // them are one-shots and simply end.
     bool play_bgm(const std::filesystem::path& ogg);
     void stop_bgm();
+    // Bgm_Stop(ms) (FUN_00432fc0 -> FUN_005cde10 [BYTES]): queues audio command 3, a LINEAR
+    // ramp of the stream volume (0..0x400) from its current value to 0 over `ms`
+    // (FUN_005ce630 / FUN_005ce660), and command 2, the stop, delayed by `ms`. Each step's
+    // volume goes through the same centibel taper as the slider, on the product
+    // slider x volume (FUN_005ce6c0: norm = DAT_007035bc * vol / 2^20). `ms` <= 0 stops at
+    // once. play_bgm() of the same track during or after the fade restarts it (FUN_005cde80
+    // cancels the queued commands and reopens the stream).
+    void fade_out_bgm(int ms);
+    bool bgm_fading() const { return bgm_fade_ms_ > 0; }
+    // A decoder is live: false after stop_bgm(), or once a fade_out_bgm() has run its time.
+    bool bgm_streaming() const;
     // File name of the streaming track ("" = none), e.g. "YSO_004.ogg".
     const std::string& bgm_name() const { return bgm_name_; }
-    void set_bgm_volume(float v) { bgm_volume_ = log_gain(v); }   // same centibel taper as SFX
+    void set_bgm_volume(float v) { bgm_slider_ = clamp01(v); bgm_volume_ = log_gain(v); }   // same centibel taper as SFX
     // How many times the current track has wrapped at its loop point. Only of
     // interest to the test harness — a track normally loops after minutes, so
     // $CLERIA_BGM_SEEK exists to start near the loop end and exercise the wrap.
@@ -124,6 +135,12 @@ class Audio {
     std::uint32_t bgm_loop_end_ = 0;  // 0 = no loop points -> one-shot
     std::uint32_t bgm_loops_ = 0;
     float bgm_volume_ = 1.0f;
+    float bgm_slider_ = 1.0f;          // set_bgm_volume's raw value, for the fade's taper
+    // fade_out_bgm: the ramp, timed in output frames (the engine times it with timeGetTime).
+    std::uint64_t bgm_fade_ms_ = 0;    // 0 = no fade
+    std::uint64_t bgm_fade_done_ = 0;  // frames mixed since the fade began
+    float bgm_fade_from_ = 1.0f;       // the stream volume (/0x400) when it began
+    float bgm_fade_cur_ = 1.0f;        // the stream volume now
 };
 
 }  // namespace cleria

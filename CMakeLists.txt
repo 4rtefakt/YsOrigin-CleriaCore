@@ -212,9 +212,19 @@ target_link_libraries(cleria-audio PUBLIC cleria sdl3 PRIVATE stb_vorbis)
 
 target_link_libraries(cleria-audiotest PRIVATE cleria cleria-audio)
 
+# The demo movies (src/cleria/movie): the engine's tables + a Media Foundation video decoder
+# (Windows built-ins only; a stub elsewhere), split out like the audio for its system libs.
+add_library(cleria-movie STATIC src/cleria/movie.cpp)
+target_link_libraries(cleria-movie PUBLIC cleria)
+if(WIN32)
+  target_link_libraries(cleria-movie PRIVATE mfplat mfreadwrite mfuuid ole32)
+endif()
+add_executable(cleria-movietest apps/cleria-movietest/main.cpp)
+target_link_libraries(cleria-movietest PRIVATE cleria cleria-movie)
+
 # cleria-view — real-time WebGPU renderer.
 add_executable(cleria-view apps/cleria-view/main.cpp)
-target_link_libraries(cleria-view PRIVATE cleria cleria-audio wgpu_native sdl3)
+target_link_libraries(cleria-view PRIVATE cleria cleria-audio cleria-movie wgpu_native sdl3)
 
 # Copy the runtime DLLs next to the viewer so it runs from the build dir.
 add_custom_command(TARGET cleria-view POST_BUILD
@@ -230,7 +240,7 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # All take the extracted asset root (default `assets/`, resolved from the source
 # dir) and exit non-zero on any failed assert.
 enable_testing()
-foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest)
+foreach(t collisiontest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CMAKE_SOURCE_DIR}/assets"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

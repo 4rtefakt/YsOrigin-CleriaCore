@@ -128,6 +128,12 @@ install's `release/music/`. Point CleriaCore at them with `CLERIA_MUSIC_DIR`, or
 them where it already looks (`<asset_root>/music`, e.g. `mklink /J assets\music
 "<install>\release\music"`). Without it everything still runs, silently.
 
+**Movies** (the logo, prologue, opening, inserts, endings) are loose too: copy the
+install's `release/*.avi` and `release/yso_ins0[1-3].dat`, `yso_ed0[12].dat` into
+`<asset_root>/movie` (or set `CLERIA_MOVIE_DIR`). They decode through Windows Media
+Foundation; a missing file is skipped like the game's own open failure. `CLERIA_MOVIE=0`
+turns them off (see `build/event_re/MOVIES.md`).
+
 ## Play
 
 ```sh

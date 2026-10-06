@@ -58,6 +58,7 @@
 #include "cleria/surface.hpp"
 #include "cleria/audio.hpp"
 #include "cleria/bgmdef.hpp"
+#include "cleria/movie.hpp"
 #include "cleria/scenelist.hpp"
 #include "cleria/items.hpp"
 #include "cleria/scene.hpp"

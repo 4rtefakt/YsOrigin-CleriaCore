@@ -7,6 +7,7 @@
 //   cleria-audiotest <asset_root> [--surfaces]
 //   cleria-audiotest <asset_root> --walk <room.SOB>
 //   cleria-audiotest <asset_root> --bgm [ROOM [seconds]]
+//   cleria-audiotest <asset_root> --fade ROOM ms     (SDL_AUDIO_DRIVER=dummy for silence)
 //
 // `--walk` is the end-to-end footstep test with no GPU and no audio device: it
 // walks the player across the room's collision hulls from the SCT spawn and
@@ -156,6 +157,31 @@ int main(int argc, char** argv) {
         SDL_Delay(argc >= 5 ? Uint32(std::atof(argv[4]) * 1000) : 5000);
         std::printf("looped %u time(s)\n", a.bgm_loops());
         return 0;
+    }
+
+    // Bgm_Stop(ms): the room's track plays 0.5 s, fades over `ms`, and must still stream at
+    // half the fade and be stopped once its time has run out.
+    if (argc >= 5 && std::strcmp(argv[2], "--fade") == 0) {
+        SceneList scenes;
+        BgmDefs bgm;
+        const SceneRec* s = scenes.load(argv[1]) ? scenes.find_room(argv[3]) : nullptr;
+        const fs::path t = s && bgm.load(argv[1]) ? bgm.track(s->bgm) : fs::path();
+        if (t.empty()) { std::printf("fade: SKIP (no track for %s)\n", argv[3]); return 0; }
+        Audio a;
+        if (!a.init(argv[1]) || !a.play_bgm(t)) return 1;
+        const int ms = std::atoi(argv[4]);
+        SDL_Delay(500);
+        a.fade_out_bgm(ms);
+        SDL_Delay(Uint32(ms / 2));
+        const bool mid = a.bgm_streaming() && a.bgm_fading();
+        SDL_Delay(Uint32(ms / 2 + 300));
+        const bool after = a.bgm_streaming();
+        const bool restart = a.play_bgm(t) && a.bgm_streaming() && !a.bgm_fading();
+        std::printf("fade %d ms: streaming at half %s, after %s, same-track restart %s\n", ms,
+                    mid ? "yes" : "no", after ? "yes" : "no", restart ? "yes" : "no");
+        const bool ok = mid && !after && restart;
+        std::printf("fade: %s\n", ok ? "OK" : "FAIL");
+        return ok ? 0 : 1;
     }
 
     if (argc >= 3 && std::strcmp(argv[2], "--surfaces") == 0) {

@@ -356,6 +356,10 @@ struct Hud {
     // under everything else the HUD draws. [H] its order against the HUD.
     WGPUBindGroup overlay_bind = nullptr; float overlay_alpha = 0;
     WGPUBuffer ovbuf = nullptr;
+    // A demo movie's frame (src/cleria/movie, FUN_005779e0): drawn opaque into the pixel rect
+    // movie_rect = {x0, y0, x1, y1} before everything else, so the fader sits over it.
+    WGPUBindGroup movie_bind = nullptr; float movie_rect[4] = {};
+    WGPUBuffer mvbuf = nullptr;
     WGPURenderPipeline overlay_pipeline = nullptr;
     WGPUBindGroupLayout overlay_bgl = nullptr;
     // A bind group for a texture view on the overlay pipeline's layout (the CrossFade frame).
@@ -786,7 +790,7 @@ struct Hud {
         const std::size_t nm = mini_verts.size();
         std::size_t ne = 0;                       // equipped-item icon quads (one batch/slot)
         for (const auto& v : equip_verts) ne += v.size();
-        if (nf + ns + nb + nm + ne == 0) return;
+        if (nf + ns + nb + nm + ne == 0 && !movie_bind) return;
 
         // Concatenate the batches: font atlas verts, STATUS sprites, HP2, then F_MINI.
         const std::size_t bytes = (nf + ns + nb + nm + ne) * sizeof(HudVertex);
@@ -817,6 +821,24 @@ struct Hud {
         WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
         wgpuRenderPassEncoderSetPipeline(pass, pipeline);
+        if (movie_bind) {                             // the movie frame, under everything
+            const float x0 = movie_rect[0] / float(sw) * 2.f - 1.f, x1 = movie_rect[2] / float(sw) * 2.f - 1.f;
+            const float y0 = 1.f - movie_rect[1] / float(sh) * 2.f, y1 = 1.f - movie_rect[3] / float(sh) * 2.f;
+            const HudVertex q[6] = {{x0, y0, 0, 0, 255, 255, 255, 255}, {x1, y0, 1, 0, 255, 255, 255, 255},
+                                    {x1, y1, 1, 1, 255, 255, 255, 255}, {x0, y0, 0, 0, 255, 255, 255, 255},
+                                    {x1, y1, 1, 1, 255, 255, 255, 255}, {x0, y1, 0, 1, 255, 255, 255, 255}};
+            if (!mvbuf) {
+                WGPUBufferDescriptor bd = {};
+                bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst; bd.size = sizeof q;
+                mvbuf = wgpuDeviceCreateBuffer(g.device, &bd);
+            }
+            wgpuQueueWriteBuffer(g.queue, mvbuf, 0, q, sizeof q);
+            wgpuRenderPassEncoderSetPipeline(pass, overlay_pipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, movie_bind, 0, nullptr);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, mvbuf, 0, sizeof q);
+            wgpuRenderPassEncoderDraw(pass, 6, 1, 0, 0);
+            wgpuRenderPassEncoderSetPipeline(pass, pipeline);
+        }
         if (overlay_bind && overlay_alpha > 0.0f) {   // the CrossFade frame, first
             const std::uint8_t a = std::uint8_t(std::min(1.0f, overlay_alpha) * 255.0f);
             const HudVertex q[6] = {{-1, 1, 0, 0, 255, 255, 255, a}, {1, 1, 1, 0, 255, 255, 255, a},

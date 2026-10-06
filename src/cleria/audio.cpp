@@ -171,7 +171,8 @@ bool Audio::play_bgm(const fs::path& ogg) {
         return false;
     }
     const std::string name = ogg.filename().string();
-    if (name == bgm_name_) return true;  // already streaming this track — leave it alone
+    // already streaming this track — leave it alone (unless it is fading out: then restart it)
+    if (name == bgm_name_ && bgm_ && !bgm_fade_ms_) return true;
     stop_bgm();
 
     int err = 0;
@@ -234,9 +235,34 @@ void Audio::stop_bgm() {
     bgm_name_.clear();
     bgm_pos_ = 0;
     bgm_loop_start_ = bgm_loop_end_ = 0;
+    bgm_fade_ms_ = bgm_fade_done_ = 0;
+    bgm_fade_from_ = bgm_fade_cur_ = 1.0f;
     SDL_UnlockMutex(mx(lock_));
     // Closed outside the lock: the mixer can no longer reach it.
     if (v) stb_vorbis_close(v);
+}
+
+bool Audio::bgm_streaming() const {
+    if (!stream_) return false;
+    SDL_LockMutex(mx(lock_));
+    const bool on = bgm_ != nullptr;
+    SDL_UnlockMutex(mx(lock_));
+    return on;
+}
+
+void Audio::fade_out_bgm(int ms) {
+    if (!stream_) return;
+    if (ms <= 0) {                     // command 3 with no duration sets 0 at once; the stop follows
+        stop_bgm();
+        return;
+    }
+    SDL_LockMutex(mx(lock_));
+    if (bgm_) {
+        bgm_fade_from_ = bgm_fade_cur_;   // FUN_005cd455: from = the current volume (+0x44)
+        bgm_fade_ms_ = std::uint64_t(ms);
+        bgm_fade_done_ = 0;
+    }
+    SDL_UnlockMutex(mx(lock_));
 }
 
 void Audio::mix(std::int16_t* out, int frames) {
@@ -276,7 +302,22 @@ void Audio::mix(std::int16_t* out, int frames) {
             ++bgm_loops_;
         }
         const int got_n = filled * channels_;
-        for (int k = 0; k < got_n; ++k) out[k] = std::int16_t(bb[k] * bgm_volume_);
+        float g = bgm_volume_;
+        if (bgm_fade_ms_) {
+            // The ramp at this block's start: from + (0 - from) * elapsed / duration.
+            const std::uint64_t total = bgm_fade_ms_ * std::uint64_t(rate_) / 1000;
+            const float t = total ? std::min(1.0f, float(bgm_fade_done_) / float(total)) : 1.0f;
+            bgm_fade_cur_ = bgm_fade_from_ * (1.0f - t);
+            g = log_gain(bgm_slider_ * bgm_fade_cur_);
+            bgm_fade_done_ += std::uint64_t(frames);
+        }
+        for (int k = 0; k < got_n; ++k) out[k] = std::int16_t(bb[k] * g);
+        // The delayed command 2: the stop, once the fade's time has run out. Only the decoder is
+        // dropped here; bgm_name_ belongs to the game thread (play_bgm restarts a faded track).
+        if (bgm_fade_ms_ && bgm_fade_done_ >= bgm_fade_ms_ * std::uint64_t(rate_) / 1000) {
+            stb_vorbis_close(vb(bgm_));
+            bgm_ = nullptr;
+        }
     }
 
     for (Voice& v : voices_) {

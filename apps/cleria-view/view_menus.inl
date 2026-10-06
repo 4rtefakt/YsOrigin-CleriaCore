@@ -1635,3 +1635,9 @@ static void options_save(const int slider[3], const bool chk[4]) {
     f.save(p);
 }
 
+// [game] GameFirstPlay (FUN_0040b8e0 -> DAT_0074ab9b): the demo movies' skip gate
+// (src/cleria/movie). Read only: the ending that sets it (FUN_0058f210) is [not modelled].
+static bool ini_game_first_play() {
+    IniFile f; f.load(options_ini_path()); std::string v;
+    return f.get("game", "GameFirstPlay", v) && std::atoi(v.c_str()) != 0;
+}
