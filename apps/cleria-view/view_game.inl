@@ -317,19 +317,6 @@ title_again:
     std::vector<PlayerLocus> loci;
     Sl2Set sl2set;
     if (!sl2set.load(asset_root)) std::printf("effects: EFFECT/SWORD*.SL2 missing — sword sweeps disabled\n");
-    // Recovery-hold tracking. Many attack sections end by looping on their final
-    // frame with Movable pinned to 0, and several (Yunica 257/258/261, and the
-    // like for Hugo/Toal) never open a cancel window at all — so `cancelable()`
-    // alone would leave the player rooted there for good. The engine returns to
-    // neutral via an action state machine we have not RE'd; stand in for it by
-    // releasing control once the swing stops animating.
-    long atk_frame_key = -1;
-    int atk_stall = 0;
-    // The combo stage — the engine's `actor+0x6f0`, an index into the per-character
-    // attack-section table (build/combat_re/COMBO_CHAIN.md). `combo_idle` stands in for
-    // the engine's `+0x6fc` post-attack counter that drops the chain back to hit #1.
-    int combo_stage = 0;
-    int combo_idle = 0;
     // The action input (src/cleria/player_actions): the attack request / combo, the air attacks,
     // the 0x112 tap-step, the dash and the double jump. The press is latched by the input events
     // and consumed by the next logic tick.
@@ -5521,28 +5508,11 @@ title_again:
             // The locomotion table 0x69bd0c = {2, 0, 1, 3}: idle 2, walk 0, run 1, air 3. A keyboard
             // press is a full stick, so moving is RUNNING (section 1), as the speed already assumes.
             const std::int32_t want_sec = !grounded ? 3 : (moving ? (pa_out.locomotion_dash ? 0x10a : 1) : 2);
-            // Count how long the current animation frame has been held. Active swing
-            // frames advance every 1-6 ticks; a recovery hold sits on one frame for
-            // 40+, so a stall well past the former marks "the swing is over".
-            if (avm.section() >= 0x100) {
-                const long fk = (long(avm.anim_tag()) << 20) ^ avm.frame();
-                atk_stall = (fk == atk_frame_key) ? atk_stall + 1 : 0;
-                atk_frame_key = fk;
-                combo_idle = 0;
-            } else {
-                atk_stall = 0;
-                atk_frame_key = -1;
-                // Drop the chain back to hit #1 once the player has been out of an attack
-                // for the engine's post-attack window: FUN_00465170 increments +0x6fc each
-                // tick and, past 10, plays section 0x124 and clears the stage +0x6f0
-                // (COMBO_CHAIN.md §2b). The counter and the 10 are [C-DIS]; that this is
-                // THE combo window is [H-med].
-                if (combo_stage != 0 && ++combo_idle > 10) { combo_stage = 0; combo_idle = 0; }
-            }
-            // Attack sections hold on their last frame rather than falling off the end,
-            // so locomotion takes back over on the script's cancel window OR, for the
-            // sections that never open one, once the animation has clearly stalled into
-            // its recovery. Below 0x100 the priority rule inside set_section refuses.
+            // An attack section ends on its own: every player section >= 0x100 of C_010/C_020/C_030
+            // reaches `end`, which chains to the queued follow-on (idle 2) through the ungated
+            // FUN_00446620; the looping ones (the dash 0x10a, Toal's 0x10d/0x110) are ended by the
+            // mover. Some hold one frame for 10..100 ticks (0x10b, Hugo's 0x112 / 0x12b, 0x139,
+            // Toal's 0x12d), so no stall release may cut them short.
             // The jump section's phases (+0x3a8, 00465170.c:1964-1988): rising it holds at marker
             // 2; once the timer falls to <= 0.01 it fast-forwards to marker 2 and holds at 3; on the
             // ground it fast-forwards to 3 and releases, so the landing frames play out.
@@ -5564,10 +5534,6 @@ title_again:
                 avm.set_section(want_sec);
             else if (cur_sec == 3 && sec3_ground >= 60)
                 avm.set_section(want_sec, /*force*/true);         // [STAND-IN] a jump section that never ends
-            else if (cur_sec >= 0x100 && atk_stall >= 10)
-                // [STAND-IN] an attack that holds its last frame for 10 ticks is released. Cancelable
-                // only lets a buffered request fire (FUN_00465170:1880); it does not end the swing.
-                avm.set_section(want_sec, /*force*/true);
             avm.set_is_land(grounded);
             avm.tick();
             if (avm.dashed()) {                         // anime_Dash (0x447665): channel 1 = (cos, sin)(heading) * d
@@ -5735,7 +5701,8 @@ title_again:
                 draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos,
                                0.0f, 1.0f, 1.0f, 1.0f, false, palpha,
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,   // Chr_Tremble(13)
-                               wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f);
+                               wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f,
+                               wpl ? wpl->scale : 1.0f);
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());
