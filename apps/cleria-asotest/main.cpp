@@ -283,5 +283,31 @@ int main(int argc, char** argv) {
             if (!okc) chain_fail = 1;
         }
     }
-    return (ok == files && bad_tile == 0 && decode_err == 0 && !gencol_fail && !chain_fail) ? 0 : 1;
+    // The Flag_ family (FUN_004472e0 0x448468..0x4486d8): indices >= 0x200 are the VM's own registers
+    // (LocalInt idx-0x200). Yunica's jump section 3 counts Flag 512 to 128 in its falling hold before
+    // Marker(3); without Flag_SetInt / AddInt the landing skip never reached the marker (2026-10-06).
+    int flag_fail = 0;
+    {
+        Aso a = Aso::load(fs::path(argv[1]) / "ANI" / "C_010.ASO");
+        if (a.ok()) {
+            std::int32_t flags[0x200] = {};
+            flags[149] = 1;
+            AsoVm vm; vm.bind(&a); vm.set_flags(flags, 0x200); vm.set_section(3, /*force*/true);
+            vm.tick();
+            vm.fast_forward_to_marker(2);
+            vm.set_marker_block(3);
+            for (int t = 0; t < 20; ++t) vm.tick();                // in the falling hold
+            const bool held = vm.section() == 3 && vm.marker() == 2;
+            vm.fast_forward_to_marker(3);                            // the landing
+            vm.set_marker_block(-1);
+            const bool landed = vm.marker() == 3;
+            int back = -1;
+            for (int t = 1; t <= 30 && back < 0; ++t) { vm.tick(); if (vm.section() != 3) back = t; }
+            const bool okf = held && landed && back > 0 && back <= 12;
+            std::printf("jump hold -> Marker(3) via Flag 512 -> end: %s (held %d landed %d, out after %d)\n",
+                        okf ? "OK" : "FAIL", int(held), int(landed), back);
+            if (!okf) flag_fail = 1;
+        }
+    }
+    return (ok == files && bad_tile == 0 && decode_err == 0 && !gencol_fail && !chain_fail && !flag_fail) ? 0 : 1;
 }

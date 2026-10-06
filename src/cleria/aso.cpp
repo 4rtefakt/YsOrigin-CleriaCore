@@ -50,9 +50,35 @@ enum : std::uint32_t {
     kTurnable = 27,        // anime_Turnable=i
     kUntouchable = 28,     // anime_Untouchable=i    actor+0xe7 — i-frames
     kFlagIsEqualInt = 95,  // Flag_IsEqualInt=ii   — R = (g_flags[a0] == a1)
+    // The rest of the Flag_ family (FUN_004472e0 0x448468..0x4486d8 [BYTES]); F[i] is
+    // AsoVm::flag_get / flag_put, cmp is FUN_00570240.
+    kFlagIsEqualFlag = 0x60,   // R = (F[a0] == F[a1])
+    kFlagCmpInt = 0x61,        // R = cmp(F[a0], a1, a2)
+    kFlagCmpFlag = 0x62,       // R = cmp(F[a0], a1, F[a2])
+    kFlagCmpR = 0x63,          // R = cmp(F[a0], a1, R)
+    kFlagSetInt = 0x64,        // F[a0] = a1
+    kFlagCopy = 0x65,          // F[a0] = F[a1]
+    kFlagSetR = 0x66,          // F[a0] = R
+    kFlagAddInt = 0x67,        // F[a0] += a1
+    kFlagAddFlag = 0x68,       // F[a0] += F[a1]
 };
 
 }  // namespace
+
+// FUN_00570240(a, op, b) [EXPORT]: the Flag_Cmp* comparator. 0 false, 1 <, 2 ==, 3 <=, 4 >,
+// 5 !=, 6 >=, anything else true (a = the flag, b = the operand).
+static bool flag_compare(std::int32_t a, std::int32_t op, std::int32_t b) {
+    switch (op) {
+        case 0: return false;
+        case 1: return a < b;
+        case 2: return a == b;
+        case 3: return a <= b;
+        case 4: return a > b;
+        case 5: return a != b;
+        case 6: return a >= b;
+        default: return true;
+    }
+}
 
 const char* aso_aia_name(std::int32_t id) {
     switch (id) {
@@ -352,15 +378,20 @@ bool AsoVm::step(std::size_t& pc) {
                                    argc > 3 ? af(3) : 0.0f});
             break;
         }
-        case kFlagIsEqualInt: {
+        case kFlagIsEqualInt:
             // The variant selector. 541 uses — an animation section is a chain of
             // these, each guarding one File+Pattern block.
-            const std::int32_t i = ai(0);
-            const std::int32_t v =
-                (flags_ && i >= 0 && std::size_t(i) < flag_count_) ? flags_[i] : 0;
-            r_ = (v == ai(1)) ? 1 : 0;
+            r_ = (flag_get(ai(0)) == ai(1)) ? 1 : 0;
             break;
-        }
+        case kFlagIsEqualFlag: r_ = (flag_get(ai(0)) == flag_get(ai(1))) ? 1 : 0; break;
+        case kFlagCmpInt:      r_ = flag_compare(flag_get(ai(0)), ai(1), ai(2)) ? 1 : 0; break;
+        case kFlagCmpFlag:     r_ = flag_compare(flag_get(ai(0)), ai(1), flag_get(ai(2))) ? 1 : 0; break;
+        case kFlagCmpR:        r_ = flag_compare(flag_get(ai(0)), ai(1), r_) ? 1 : 0; break;
+        case kFlagSetInt:      flag_put(ai(0), ai(1)); break;
+        case kFlagCopy:        flag_put(ai(0), flag_get(ai(1))); break;
+        case kFlagSetR:        flag_put(ai(0), r_); break;
+        case kFlagAddInt:      flag_put(ai(0), flag_get(ai(0)) + ai(1)); break;
+        case kFlagAddFlag:     flag_put(ai(0), flag_get(ai(0)) + flag_get(ai(1))); break;
         default:
             break;  // unmodelled call: argCount still advances the pc correctly
     }
@@ -382,12 +413,30 @@ void AsoVm::reset_section_regs() {
     own_jump_ = false;
 }
 
+std::int32_t AsoVm::flag_get(std::int32_t i) const {
+    if (i >= 0 && i < 0x200) return (flags_ && std::size_t(i) < flag_count_) ? flags_[i] : 0;
+    const std::int32_t n = i - 0x200;
+    return (n >= 0 && n < 32) ? locals_[n] : 0;
+}
+
+void AsoVm::flag_put(std::int32_t i, std::int32_t v) {
+    if (i >= 0 && i < 0x200) {
+        if (wflags_ && std::size_t(i) < flag_count_) wflags_[i] = v;
+        return;
+    }
+    const std::int32_t n = i - 0x200;
+    if (n >= 0 && n < 32) locals_[n] = v;
+}
+
 void AsoVm::fast_forward_to_marker(std::int32_t m) {
     if (!cur_ || marker() == m) return;
     marker_wait_ = -1;
     const std::int32_t sec = section_;
     const std::size_t end = std::size_t(cur_->code_off) / 4 + std::size_t(cur_->code_len);
-    for (int guard = 0; guard < 1001; ++guard) {
+    // The jump section's falling hold is a 128-pass counter loop (Flag 512, 8 ops a pass), so the
+    // skip runs well past 1000 ops before it reaches Marker(3); the engine's has no cap. This bound
+    // is only a runaway guard.
+    for (int guard = 0; guard < (1 << 16); ++guard) {
         if (pc_ >= end || marker() == m || section_ != sec) break;
         wait_ = 0;
         if (pc_ == std::size_t(cur_->code_off) / 4) reset_section_regs();

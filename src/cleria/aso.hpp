@@ -300,8 +300,15 @@ class AsoVm {
     // cannot pass with no flags — so the sweep could not have seen them, and the file
     // I was editing said as much. **Executing a flag-guarded script proves nothing
     // about the branches your inputs exclude; scan the bytecode statically instead.**
+    // The game-flag table the Flag_ ops read (0x76b91c). A writable table also takes the
+    // Flag_SetInt / AddInt / ... writes; a const one (headless previews) is read-only.
+    void set_flags(std::int32_t* flags, std::size_t count) {
+        set_flags(static_cast<const std::int32_t*>(flags), count);
+        wflags_ = flags;
+    }
     void set_flags(const std::int32_t* flags, std::size_t count) {
         flags_ = flags;
+        wflags_ = nullptr;
         flag_count_ = count;
     }
 
@@ -339,6 +346,11 @@ private:
     std::int32_t r_ = 0;             // the comparison register
     std::int32_t locals_[32] = {};   // obj[0x3b + n]
     const std::int32_t* flags_ = nullptr;
+    std::int32_t* wflags_ = nullptr;
+    // FUN_004472e0's Flag_ operand: an index below 0x200 is the global table, anything above is
+    // the VM's own register obj[idx - 0x1c5] = locals_[idx - 0x200] (obj[0x3b + n]). [BYTES 0x448468..]
+    std::int32_t flag_get(std::int32_t i) const;
+    void flag_put(std::int32_t i, std::int32_t v);
     std::size_t flag_count_ = 0;
     bool is_land_ = true, is_stun_ = false;
     bool foot_smoke_ = false;
