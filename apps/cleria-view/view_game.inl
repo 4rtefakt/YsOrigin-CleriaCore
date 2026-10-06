@@ -675,6 +675,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         shell.under = nullptr;
         shell.launcher = false;
         shell.open = false;
+        g_shell_focus = false;            // hand the input back to the game (the mapper is no longer muted)
         wgpuTextureViewRelease(ldepth);
         free_room(bg, g.white_bind);
         g_fog.on = false;

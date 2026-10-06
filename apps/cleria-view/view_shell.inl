@@ -99,6 +99,7 @@ struct Shell {
 
     // Draw the shell over `view` (the finished frame) when the panel is open or the launcher is up.
     void frame(Gpu& g, WGPUTextureView view, std::uint32_t w, std::uint32_t h) {
+        g_shell_focus = ready && (open || launcher);       // every frame, so it can never stay stuck on
         if (!ready || (!open && !under) || w == 0 || h == 0) return;
         ui::S = float(h) / 1000.0f;                       // [H] the reference shots were 1125 px tall
         ImGui_ImplWGPU_NewFrame();
