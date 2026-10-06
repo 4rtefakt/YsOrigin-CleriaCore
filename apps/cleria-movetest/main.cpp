@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "cleria/enemy_mover.hpp"
+#include "cleria/oxygen.hpp"
 #include "cleria/physics_player.hpp"
 
 using namespace cleria;
@@ -134,6 +135,54 @@ int main() {
         const float r = turn_facing(0.18f, 0.0f, 1.0f);
         check(std::fabs(std::fmod(r, 6.2831853f) - 0.18f) < 1e-5f, "turn_facing steps +0.18 toward the target");
         check(std::fabs(turn_facing(0.18f, 0.0f, 0.1f) - 0.1f) < 1e-6f, "turn_facing snaps to a target within the rate");
+    }
+
+    {   // Submerged (build/physics_re/WATER.md §2): the dy clamp, the kick, the re-jump.
+        VerticalState vs; vs.grounded = true; vs.t = 0.285f;
+        check(near(vertical_dy(vs, true), 0.10f), "submerged: a grounded 0.285 launch is capped at +0.10");
+        vs.grounded = false; vs.t = -0.5f;
+        check(near(vertical_dy(vs, true), -0.05f) && near(vertical_dy(vs, true, true), -0.015f),
+              "submerged: the fall is capped at -0.05 (-0.015 on sand2)");
+        const CastMotion m{0.75f, 1.0f, 0.056f, 2.2f, 0.285f, -0.25f};
+        const float h = m.height();
+        VerticalState w; float y = h; float apex = 0; int apex_t = 0, land_t = 0;
+        begin_rejump(w, y, m);                                  // every jump kicks (0x468dc8)
+        for (int t = 1; t <= 120 && !land_t; ++t) {
+            y += vertical_dy(w, true);
+            const bool air = !w.grounded;
+            settle_vertical(w, y, 0.0f, h, true);
+            if (y - h > apex) { apex = y - h; apex_t = t; }
+            if (air && w.grounded) land_t = t;
+        }
+        std::printf("[move] water jump: apex %.4f @%d, lands @%d\n", apex, apex_t, land_t);
+        check(std::fabs(apex - 1.95f) < 0.06f, "one water jump peaks near 1.95 (WATER.md §2c)");
+        VerticalState c; float yc = h; int jumps = 0;
+        begin_rejump(c, yc, m);
+        for (int t = 1; t <= 200; ++t) {
+            if (can_rejump(c, true)) { begin_rejump(c, yc, m); ++jumps; }
+            yc += vertical_dy(c, true);
+            settle_vertical(c, yc, 0.0f, h, true);
+        }
+        std::printf("[move] water climb: %d re-jumps, feet %.2f after 200 ticks\n", jumps, yc - h);
+        check(yc - h > 15.0f && jumps >= 8, "re-jumping at t <= 0.05 climbs ~0.1/tick without limit");
+        VerticalState tr; tr.t = 0.285f; water_transition(tr);
+        check(near(tr.t, 0.1f), "a change of +0x38a caps the timer at 0.1");
+        check(near(surface_scale(0, true).xz, 0.8f) && near(surface_scale(0, true, true).xz, 0.9f) &&
+              near(surface_scale(0, true, false, true).xz, 1.0f), "submerged xz x0.8 / x0.9 blessing / x1 foot gear");
+    }
+    {   // Oxygen (WATER.md §3).
+        Oxygen o; int n = 0;
+        while (o.o2 > 0.0f && n < 10000) { o.tick(true, 0, false, false, 600.0f); ++n; }
+        check(n == 600, "600 ticks of air without the Scales");
+        check(near(o.tick(true, 0, false, false, 600.0f), 10.0f), "drowning: maxHP / 60 a tick");
+        Oxygen s; n = 0;
+        while (s.o2 > 0.0f && n < 10000) { s.tick(true, 0, false, true, 600.0f); ++n; }
+        check(n == 6000, "6000 ticks with the Scales held");
+        Oxygen r; r.tick(true, 0, false, false, 600.0f);
+        int fade = 0;
+        while (r.alpha != 0) { r.tick(false, 0, false, false, 600.0f); ++fade; }
+        r.o2 = 100.0f; r.tick(false, 0, false, false, 600.0f);
+        check(fade == 51 && r.o2 == Oxygen::kMax, "the gauge fades over 51 ticks, then snaps to full");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

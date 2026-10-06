@@ -745,6 +745,17 @@ struct Hud {
         }
         const std::size_t g0 = verts.size(), g1 = sprites.size(), g3 = mini_verts.size();
         if (player) player_hud(*player, float(sw), float(sh));
+        // The oxygen bar (0x43c914..0x43c98b, WATER.md §3): above the head while its alpha is
+        // non-zero, STATUS cell {288,24,84,12} cut to O2 / 6000 at {pX - 40, pY - 100}.
+        // [H] pX/pY = the projected origin, taken back into the 1024x768 layout.
+        if (player && player->o2_alpha > 0) {
+            const HudMap m{sw, sh};
+            const float ax = player->o2_px / m.sx, ay = player->o2_py / m.sy;
+            const float r = std::max(0.f, std::min(1.f, player->o2 / 6000.0f));
+            if (r > 0.0f)
+                sprite_a(m, Ar{ax - 40.0f, ay - 100.0f, ax - 40.0f + 84.0f * r, ay - 88.0f}, Rc{288, 24, 84.0f * r, 12},
+                         float(sw), float(sh), 255, 255, 255, std::uint8_t(std::min(255, player->o2_alpha)));
+        }
         if (boss_frac >= 0.f) {
             if (boss_max <= 0.0f) { boss_max = 1.0f; boss_cur = boss_lag = boss_frac; }   // a bare preview
             boss_bar(float(sw), float(sh));

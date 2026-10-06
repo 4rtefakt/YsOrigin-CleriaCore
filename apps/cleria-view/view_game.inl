@@ -506,6 +506,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // (S_3103, the Hammer's pillar), 474 (S_5080), and the whole-room water mode 0x76a544 = 2 in
     // five S_20 rooms. The room's own scripts may override them.
     int water_mode = 0;
+    // The player's water state (FUN_0045c490, build/physics_re/WATER.md §1a): +0x38a submerged.
+    // Mode 2 rooms are submerged throughout. [not modelled] mode 1 (the collision twin's water
+    // set: pools, wading +0x389, the depth ray — WATER.md G5/G6).
+    bool submerged = false;
+    Oxygen oxy;
+    float drown_acc = 0.0f;
+    bool jump_prev = false;                // the jump button last tick (+0x50c is the pressed mask)
     auto room_entry_flags = [&](const std::string& scene) {
         std::string up = scene;
         for (char& c : up) c = char(std::toupper(static_cast<unsigned char>(c)));
@@ -516,6 +523,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         game.g_flags[459] = num == 3103;
         game.g_flags[474] = num == 5080;
         water_mode = (num == 2008 || num == 2009 || num == 2010 || num == 2014 || num == 2015) ? 2 : 0;
+        submerged = water_mode == 2;          // the factory / warp placement sets it, no transition
     };
     // FUN_00431840's per-scene flag writes (SCENEFLOW.md 6.2), on every scene entry: the first
     // room too (a dev start into a room otherwise kept flag 185 = 0 and the HUD faded out).
@@ -1420,6 +1428,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // op 0xc1 IsFix(): the ScriptManager's ref-counted Fix/world-freeze state IS the
         // engine's 0x75ad90 fix counter (there is no separate pause counter here yet).
         bool is_fix() const override { return mgr && mgr->world_frozen(); }
+        const int* water_mode_p = nullptr;
+        bool is_underwater_world() const override { return water_mode_p && *water_mode_p == 2; }
     } csHost;
     // The cutscene runtime is the concurrent GoScript manager (CUTSCENE_COROUTINE.md §2/§5):
     // a triggered script can StartScript sub-talks / captions that tick alongside it. Its
@@ -1774,6 +1784,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // 121 held ticks with a Lv2+ bracelet the charged {0x110,0x10f,0x111}. Run once per tick.
     skillmp::Charge skill_charge;
     bool drive_skill = false;                             // CLERIA_DRIVE skill+ / skill-
+    bool drive_jump = false;                              // CLERIA_DRIVE jump: one press
     auto skill_tick = [&](bool skill_held, bool attack_held) {
         const int slot = skillmp::bracelet_slot(player.magic);
         skillmp::SkillIn si;
@@ -1851,6 +1862,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // 0xBC / 0xBB / 0x8F. [H] Se_Play's 2nd operand (1024 everywhere) is not read by
     // FUN_004396f0. Bgm_Volume's (volume /1024, time) read as a linear fade over `time` ms [H].
     csHost.se_fn = [&](int se) { audio.play(se, kSfxAnimVol); };
+    csHost.water_mode_p = &water_mode;
     // Facing in Falcom degrees maps to the view's yaw directly (memory: no 90-degree flip).
     csHost.player_face_fn = [&](float deg) {
         const float yaw = deg * 3.14159265358979323846f / 180.0f;
@@ -2075,6 +2087,30 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
         } else if (cmd == "atk") {                     // the attack button
             try_attack();
+        } else if (cmd.rfind("near=", 0) == 0) {       // near=cast: stand 2.0 from that actor, facing it
+            const int cast = std::atoi(cmd.c_str() + 5);
+            for (const Actor& a : world.actors()) {
+                if (a.cast_id != cast || a.is_player()) continue;
+                float dx = feet.x - a.pos.x, dz = feet.z - a.pos.z;
+                const float l = std::sqrt(dx * dx + dz * dz);
+                if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
+                const float x = a.pos.x + dx * 2.0f, z = a.pos.z + dz * 2.0f;
+                const float fl = floor_at(phys_mesh(room), x, z, feet.y + room_diag(room));
+                feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                face_dir = {-dx, 0.0f, -dz};
+                facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                std::printf("  [drive] near cast %d id %d hp %.0f flags 156=%d 130=%d\n", cast, a.instance_id, a.hp,
+                            game.g_flags[156], game.g_flags[130]);
+                break;
+            }
+        } else if (cmd == "scripts") {                // the live scripts and their pcs
+            for (const auto& li : csMgr.live)
+                std::printf("  [drive]   script %s pc %u wait %d%s\n", li.name.c_str(), li.pc, li.wait, li.finished ? " (done)" : "");
+        } else if (cmd == "pos") {                     // print the player's feet and O2
+            std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d\n", feet.x, feet.y, feet.z,
+                        oxy.o2, oxy.alpha, player.hp, int(submerged));
+        } else if (cmd == "jump") {
+            drive_jump = true;
         } else if (cmd == "skill+" || cmd == "skill-") {   // hold / release the skill button
             drive_skill = cmd == "skill+";
         } else if (cmd == "act") {
@@ -2840,7 +2876,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 const float spd = player_speed(pm, character, 1.0f, avm.movable(), /*running*/ moving,
                                                pv.grounded, skill_sec, blessing_run) * speed_mult;
                 step_planar(pvel, moving, std::atan2(wish.z, wish.x), spd, pv.grounded);
-                const SurfaceScale ss = surface_scale(cur_surface, /*in_water*/ false);
+                const SurfaceScale ss = surface_scale(cur_surface, submerged,
+                                                      (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 2) != 0,
+                                                      /*foot gear 0x76a624 & 0x1000000 [not modelled]*/ false);
                 feet.x += pvel.x * ss.xz; feet.z += pvel.z * ss.xz;
                 surface_up = ss.up;
             }
@@ -2865,7 +2903,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // airborne), the down-ray from the origin, then landing / coyote / fall with the
             // 0.65 settle lerp. `feet` is derived back for the rest of the view.
             float oy = feet.y + kOriginH;
-            {   float dy = vertical_dy(pv);
+            {   float dy = vertical_dy(pv, submerged, cur_surface == 0x12);
                 if (dy > 0.0f) dy *= surface_up;      // sand2/lava/blood slow a rise too
                 oy += dy; }
             int floor_tri = -1;
@@ -2875,7 +2913,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (oy - fl < 1.6f)                   // surface latch (0x45ba7e: hit t < 1.6)
                     cur_surface = surface_index_or_default(surface_of(phys_mesh(room), floor_tri));
             }
-            settle_vertical(pv, oy, last_floor, kOriginH);
+            settle_vertical(pv, oy, last_floor, kOriginH, submerged);
+            {   // The water test after the vertical step (FUN_0046fba0 0x46fd7c -> FUN_0045c490).
+                const bool sub = water_mode == 2;
+                if (sub != submerged) { water_transition(pv); submerged = sub; }
+            }
             grounded = pv.grounded;
             feet.y = oy - kOriginH;
             // The floor contact record (+0x540): the object under a grounded player whose floor
@@ -2962,6 +3004,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 aiw.sphere_fn = [&](const Vec3& c, float r) { return sphere_overlaps(phys_mesh(room), c, r); };
                 aiw.arena_fn = [&](float* r) { for (int k = 0; k < 4; ++k) r[k] = world.arena[k]; };
                 aiw.flag_fn = [&](int i, int v) { if (i >= 0 && i < 0x200) game.g_flags[i] = v; };
+                aiw.get_flag_fn = [&](int i) { return (i >= 0 && i < 0x200) ? game.g_flags[i] : 0; };
+                // [approx] the handlers' +0x734 write lands on the world player actor, not on the
+                // view's player_iframes.
+                aiw.player_fn = [&]() -> Actor* { return world.player(); };
+                aiw.hide_gauge_fn = [&] { hud.hide_boss_gauge(); };
                 aiw.raw_fn = [&](int cast) -> const float* {
                     const Enemy* er = etab.get(cast);
                     return er ? er->ai_raw : nullptr;
@@ -3108,10 +3155,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     }
                     if (o.gauge_hp >= 0) {                         // FUN_0043a460: the boss gauge
                         gauge_owner = en->instance_id;
-                        // M460: lenScale 3000, 4000 when the player is Hugo (ARENA_AND_BOSSBAR §3.1);
-                        // M460 never writes the emblem (0, the default).
+                        // The brain's own lenScale when it gives one (M850 / M810 / M830); else
+                        // M460's: 3000, 4000 when the player is Hugo (ARENA_AND_BOSSBAR §3.1).
+                        // None of them writes the emblem (0, the default).
                         hud.set_boss_gauge(en->instance_id, o.gauge_hp, en->max_hp,
-                                           character == 2 ? 4000.0f : 3000.0f, 0);
+                                           o.gauge_len > 0.0f ? o.gauge_len : (character == 2 ? 4000.0f : 3000.0f), 0);
                     }
                     // The mover (FUN_00478080 -> FUN_0045f4d0, build/ai_spec/MOVER.md): the
                     // locomotion section on an index change (gated), the ASO step (Jump/Dash/
@@ -3138,7 +3186,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
                     {                                                 // the handler-tail clamps
                         Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
-                        enemy_handler_clamp(en->ai_index, org, game.g_flags[190], game.g_flags[156] != 0, world.arena);
+                        enemy_handler_clamp(en->ai_index, org, game.g_flags[190], game.g_flags[156] != 0, world.arena,
+                                            game.g_flags[131]);
                         en->pos = {org.x, org.y - en->height, org.z};
                     }
                     if (o.durable_rule == 1) e.avm.set_durable(true);              // the handler's
@@ -3251,8 +3300,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 // FUN_0045c490 [BYTES 0x45d371]: a tagged actor's glow phase +1 per tick.
                 // [not modelled] +4/+5 in state +0x6f0 == 2 (its meaning for enemies is unknown).
                 if (a.tag.tagged()) a.glow_phase = std::uint8_t(a.glow_phase + 1);
-                if (a.is_player() || !a.alive()) continue;
+                // The cosmetic hit flash fades on the dead too (a duel puppet stays on screen).
                 if (a.hit_flash > 0) --a.hit_flash;
+                if (a.is_player() || !a.alive()) continue;
                 // The integrator FUN_0045a510 (MOVER.md §3): one swept sphere (radius +0x328,
                 // centred on the ORIGIN) through D = (displacement, dy), the floor ray from the
                 // pre-move origin, then the settle (land with a 0.65 lerp / coyote / fall).
@@ -3327,7 +3377,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
                     // The guard (FUN_004fbb40): a victim in section 6 facing the swing blocks it.
                     if (vr && vr->avm.ok() &&
-                        guard_blocks(en.cast_id, vr->avm.section() == 6, vr->avm.durable(), atk_hb.rtype,
+                        guard_blocks(en.cast_id, vr->avm.section() == 6 || en.guard399, vr->avm.durable(), atk_hb.rtype,
                                      vr->facing, std::atan2(atk_dir.z, atk_dir.x)))
                         dmg = 0;
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
@@ -3498,7 +3548,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     float hp = float(player.hp);
                     EffectEnv env;
                     env.flags = game.g_flags; env.hp = &hp; env.max_hp = float(player.max_hp);
-                    env.player_alive = player.hp > 0; env.boost = &player.boost;
+                    env.player_alive = player.hp > 0; env.boost = &player.boost; env.oxygen = &oxy.o2;
                     inv.sp = player.sp;
                     int pop = 0;
                     if (pickup(inv, inv_items, env, pk.id, &pop) != PickupResult::Taken) return false;
@@ -3560,6 +3610,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
                 mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0);
                 player.sp_cur = mp.mp; player.sp_lag = mp.lag;
+            }
+            {   // Oxygen (0x467d91..0x467f29, WATER.md §3): the held tool 0x61 = the Scales.
+                const float dmg = oxy.tick(submerged, cur_surface, /*+0x38c sand [not modelled]*/ false,
+                                           inv.held == 0x61, float(player.max_hp));
+                if (dmg > 0.0f && player.hp > 0) {               // drowning: maxHP / 60 a tick
+                    drown_acc += dmg;                            // [approx] the view's HP is an int
+                    const int d = int(drown_acc);
+                    drown_acc -= float(d);
+                    player.hp = std::max(0, player.hp - d);
+                }
+                game.g_flags[503] = oxy.alpha != 0;
+                player.o2 = oxy.o2; player.o2_alpha = oxy.alpha;
             }
             player.mp_pct = player.sp_max > 0 ? player.sp_cur / player.sp_max * 100.0f : 0.0f;
             // The statue heal: the heal-spot objects 0x94 registered (FUN_0058c290; SCENEFLOW.md
@@ -3791,7 +3853,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // The jump sets the TIMER, not a velocity — apex then lands at ~v0
             // seconds (0.285 -> tick 17), which is what makes it a time and not a
             // speed. No sqrt(2gh): the engine never solves for an apex.
-            if (grounded && !pv.jumping && ks[SDL_SCANCODE_SPACE]) begin_jump(pv, pm);
+            // The gate takes the PRESS (+0x50c & 2). Submerged, a press re-jumps once the timer
+            // is <= 0.05, and every jump kicks the origin up by v0 at once and restarts section 3
+            // (+0x3a0 = -1); in mode 2 it plays SE 780 (0x468ba7..0x468dc8, WATER.md §2b).
+            const bool jump_down = ks[SDL_SCANCODE_SPACE] || drive_jump;
+            drive_jump = false;
+            const bool jump_edge = jump_down && !jump_prev;
+            jump_prev = jump_down;
+            if (jump_edge && ((grounded && !pv.jumping) || can_rejump(pv, submerged))) {
+                if (submerged) {
+                    float oj = feet.y + kOriginH;
+                    begin_rejump(pv, oj, pm);
+                    feet.y = oj - kOriginH;
+                    avm.set_section(3, /*force*/true);
+                    if (water_mode == 2) sfx_at(0x30c, feet, kSfxAnimVol);
+                } else {
+                    begin_jump(pv, pm);
+                }
+            }
             if (feet.y < room.mesh.bmin.y - D) spawn_player();
 
             // Facing: map the world movement heading to one of the 8 sprite dirs
@@ -3985,6 +4064,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const float rad = room_diag(room);
         update_fog(room, fly ? cam.pos : feet, dt);
         last_vp = cam.view_proj(float(cw) / float(ch), rad * 0.01f, rad * 8.0f);
+        {   // The oxygen bar's anchor: the player's origin through the frame's view-projection.
+            const Vec3 o{feet.x, feet.y + kOriginH, feet.z};
+            const float* M = last_vp.m.data();
+            const float px = o.x * M[0] + o.y * M[4] + o.z * M[8] + M[12];
+            const float py = o.x * M[1] + o.y * M[5] + o.z * M[9] + M[13];
+            const float pw = o.x * M[3] + o.y * M[7] + o.z * M[11] + M[15];
+            if (pw > 1e-4f) {
+                player.o2_px = (px / pw * 0.5f + 0.5f) * float(cw);
+                player.o2_py = (0.5f - py / pw * 0.5f) * float(ch);
+            }
+        }
         have_vp = true;
         write_mvp(g, last_vp);
         draw(g, room, view, depth);

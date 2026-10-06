@@ -241,6 +241,7 @@ struct Actor {
     std::uint32_t flags130 = 0;
     int aso_local15 = 0;   // engine: +0xa18 = ASO local int 15, applied when its script binds
     bool no_min_damage = false;   // engine: byte +0xce — no min-1 chip (hit.hpp no_floor)
+    bool guard399 = false;        // engine: byte +0x399 — guarding (hit.hpp guard_blocks); M810's barrier
     float tint_alpha = 1.0f;      // engine: the alpha byte of +0x290 (M460's crowding fade)
     std::uint32_t tint = 0xffffffffu;  // engine: +0x148/+0x278 colour words (M110's enrage), ARGB [INFERRED order]
     // Hitstun: ticks an enemy is stunned after the player lands a hit, during which its

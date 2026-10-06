@@ -572,9 +572,22 @@ void arena_clamp(Vec3& o, int mode, const float r[4]) {
 }
 
 AiOut enemy_ai_tick(EnemyAi& a, const EnemyAiParams& p, const AiEnv& env, EnemyBrain brain) {
+    const int idx = env.actor ? env.actor->ai_index : -1;
+    // M850's handler tests g_flags[130] before anything else (0x4d1c99): a script puppet.
+    if (enemy_handler_puppet(idx, env)) return {};
     // The handler's first branch: an actor not yet engaged that is off-screen does nothing.
     if (a.phase() < 2 && env.culled) { ai::stop(a, 1); return {}; }
+    // ... then g_flags[131] (0x4d2146): the plain mover only, no brain, no action player.
+    if (enemy_handler_held(idx, env)) return {};
     AiOut out = brain ? brain(a, p, env) : AiOut{};
+    // What a death hook asked for last tick (EnemyAi::hook_section / hook_kill_tags).
+    if (a.hook_section >= 0) {
+        if (env.section != a.hook_section && out.section < 0) out.section = a.hook_section;
+        a.hook_section = -1;
+    }
+    for (int t = 0; a.hook_kill_tags != 0; ++t, a.hook_kill_tags >>= 1)
+        if (a.hook_kill_tags & 1u) { AiEffect k; k.kill_tag = t; out.effects.push_back(k); }
+    if (out.skip_action_player) return out;
     AiOut ap;
     ai::action_player(a, p, env, ap);
     // The action player's own requests come after the brain's in the engine; it wins a tie.

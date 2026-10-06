@@ -79,6 +79,7 @@
 #include "cleria/emotion.hpp"
 #include "cleria/camrig.hpp"
 #include "cleria/skillmp.hpp"
+#include "cleria/oxygen.hpp"
 #include "cleria/ymo.hpp"
 #include <ctime>
 #include <optional>
@@ -146,7 +147,10 @@ struct Player {
     // to actor+0xa0/+0x9c). NOT `sp` above, which is the shop currency. Regenerates while the
     // regen mode bit is live; a skill spends its per-character cost (ABILITY.md §1a/§2a).
     float sp_cur = 3000.0f, sp_max = 3000.0f;
-    float sp_lag = 3000.0f;   // DAT_0076c194: regen waits for it to drain after a spend (skillmp::Mp)
+    float sp_lag = 3000.0f;
+    // The oxygen bar (build/physics_re/WATER.md §3): O2 0x76c1b8, its alpha 0x76c1bc, and the
+    // player's projected origin in window pixels (the bar's anchor).
+    float o2 = 6000.0f; int o2_alpha = 0; float o2_px = 0, o2_py = 0;   // DAT_0076c194: regen waits for it to drain after a spend (skillmp::Mp)
     // Equipped magic (DAT_0076a630): 0x74/0x75/0x76 -> skill slot 0/1/2, anything else = none.
     int magic = 0x74;
     int character = 1;  // portrait: 1 Yunica / 2 Hugo / 3 Toal

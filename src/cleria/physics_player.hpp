@@ -98,19 +98,22 @@ inline void step_planar(PlanarVelocity& v, bool has_input, float angle, float sp
 // Ground-surface speed multipliers — FUN_0045a510 0x45a6fa..0x45a91b, keyed on the
 // latched surface id (+0x4b9, surface.hpp order). Base case (no blessing 0x76bc80&2, no
 // accessory 0x76a624 bits): sand2 (0x12) x0.25, lava/blood (0x0d/0x11) x0.6 — both also
-// scale a RISING dy — and in water (+0x38a) x0.8. Everything else 1.0.
+// scale a RISING dy — and submerged (+0x38a) x0.8, x0.9 with blessing 0x76bc80 & 2, none
+// with the foot-gear bit 0x76a624 & 0x1000000 (build/physics_re/WATER.md §2a [BYTES
+// 0x45a81a..0x45a875]). Everything else 1.0.
 struct SurfaceScale { float xz = 1.0f, up = 1.0f; };
-inline SurfaceScale surface_scale(int surface, bool in_water) {
+inline SurfaceScale surface_scale(int surface, bool in_water, bool blessing_2 = false,
+                                  bool foot_gear = false) {
     if (surface == 0x12) return {0.25f, 0.25f};
     if (surface == 0x0d || surface == 0x11) return {0.6f, 0.6f};
-    if (in_water) return {0.8f, 1.0f};
+    if (in_water && !foot_gear) return {blessing_2 ? 0.9f : 0.8f, 1.0f};   // 0x6bd3e0 / 0x6bd3a8
     return {};
 }
 
 // ---------------------------------------------------------------------------
 // VERTICAL — FUN_0045a510 0x45a5a8..0x45a6f4 (displacement) and 0x45be61..0x45c1ef
-// (timer, landing, snap). Not modelled: the +0x398 float flag, water's ±0.03/-0.015
-// clamps on sand2, and the +0x4d0 launch-state x0.985.
+// (timer, landing, snap). Not modelled: the +0x398 float flag, the sand2 lift while
+// +0x3b8, and the +0x4d0 launch-state x0.985.
 struct VerticalState {
     float t = 0;            // +0x330, signed timer (seconds)
     bool grounded = true;   // +0x388
@@ -123,13 +126,36 @@ inline constexpr float kTerminalFall = -0.65f;  // 0x006be020, per TICK
 inline constexpr float kTimerStep = 0.0168f;    // 0x006bd0d8 (0.0118 in water, 0x006bd098)
 inline constexpr float kTimerFloor = -0.5f;     // 0x006be014
 
-// This tick's Y displacement (computed BEFORE the move sweep).
-inline float vertical_dy(const VerticalState& s) {
+// This tick's Y displacement (computed BEFORE the move sweep). Submerged (+0x38a) it is
+// clamped to [-0.05, +0.10] — [-0.015, +0.03] on sand2 — instead of the -0.65 terminal:
+// the only buoyancy there is (WATER.md §2a [BYTES 0x45a5a8..0x45a6f4]).
+inline float vertical_dy(const VerticalState& s, bool submerged = false, bool sand2 = false) {
     const float dy = s.grounded ? s.t : 0.5f * kGravity * s.t * std::fabs(s.t);
+    if (submerged) {
+        const float lo = sand2 ? -0.015f : -0.05f, hi = sand2 ? 0.03f : 0.10f;   // 0x6bdfb4/0x6bd100, 0x6bdfc8/0x6bd19c
+        return std::fmin(std::fmax(dy, lo), hi);
+    }
     return std::fmax(dy, kTerminalFall);
 }
 
 inline void begin_jump(VerticalState& s, const CastMotion& m) { s.t = m.jump_v0; s.jumping = true; }
+
+// The mover's jump gate while already jumping or airborne (FUN_00465170 0x465388..0x46544a):
+// submerged, any press once the timer is <= 0.05 (no count, no cooldown). [not modelled]
+// the land double jump (flag 163, t <= 0.15).
+inline bool can_rejump(const VerticalState& s, bool submerged) {
+    return submerged && (s.jumping || !s.grounded) && s.t <= 0.05f;   // 0x6bd13c
+}
+// A submerged re-jump (0x468ba7..0x468dc8): the timer restarts at v0 and the origin is
+// kicked up by it at once (FUN_0040b2a0), outside the dy clamp. [H] the land jump's own
+// kick (WATER.md G4) is not applied here: the grounded launch tick already moves t.
+inline void begin_rejump(VerticalState& s, float& y, const CastMotion& m) {
+    s.t = m.jump_v0;
+    s.jumping = true;
+    y += s.t;
+}
+// FUN_0045c490's transition rule: when +0x38a changes (in or out), t is capped at 0.1.
+inline void water_transition(VerticalState& s) { if (s.t > 0.1f) s.t = 0.1f; }   // 0x6bd19c
 
 // After the sweep: advance the timer, then land, keep a coyote tick, or fall.
 // `y` is the ORIGIN height, `floor_y` the last floor the down-ray found (+0x318 — it is

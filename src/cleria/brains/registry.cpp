@@ -41,6 +41,9 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 53: return &brains::m600;   // M600 Titamonus
         case 69: return &brains::m760;   // M760 Raldisch
         case 70: return &brains::m770;   // M770 Hubamobrun
+        case 78: return &brains::m850;   // M850 Epona (the duel)
+        case 74: return &brains::m810;   // M810 Hugo (class-4 duel)
+        case 76: return &brains::m830;   // M830 Galleon (class-4 duel)
         case 84: return &brains::m910;   // M910 Nooze
         case 85: return &brains::m920;   // M920 Nooze (Blue)
         case 86: return &brains::m930;   // M930 Nooze (Red)
@@ -54,14 +57,42 @@ bool enemy_handler_clamps(int ai_index) {
     return ai_index == 3 || ai_index == 24;    // FUN_0047b7f0 (M100), FUN_00492f50 (M310)
 }
 
-void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_fight, const float rect[4]) {
+void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_fight, const float rect[4],
+                         int flag131) {
     if (enemy_handler_clamps(ai_index)) arena_clamp(origin, arena_mode, rect);
     if (ai_index == 46 && boss_fight && -2.75f > origin.z) origin.z = -2.75f;   // M530 Sepast
+    // The class-4 duel handlers clamp on their live path only (g_flags[130] != 0; boss_fight
+    // stands in for it [H]: the duel scripts set and the defeat clears 156 and 130 together).
+    if (ai_index == 76 && boss_fight) arena_clamp(origin, arena_mode, rect);   // M830: FUN_0047abf0
+    if (ai_index == 74 && boss_fight) {                // M810 (0x4daa88): mode-blind, a 0.01 inset
+        constexpr float kIn = 0.009999997913837433f;   // DAT_006bd080
+        float x = origin.x, z = origin.z;
+        bool moved = false;
+        if (rect[0] > x) { x = rect[0] + kIn; moved = true; }
+        if (x > rect[2]) { x = rect[2] - kIn; moved = true; }   // tests the updated x
+        if (rect[1] > z) { z = rect[1] + kIn; moved = true; }
+        if (z > rect[3]) { z = rect[3] - kIn; moved = true; }
+        if (moved) { origin.x = x; origin.z = z; }
+    }
+    // M850 Epona (FUN_004d1c90 0x4d25aa..0x4d25fd): the box clamp, mode 1 only, gated by 131.
+    if (ai_index == 78 && arena_mode == 1 && flag131 == 0) arena_clamp(origin, 1, rect);
+}
+
+// M850 FUN_004d1c90: `cmp [0x76bb24], 0` first (0x4d1c99), `cmp [0x76bb28], 0` after the
+// culled test (0x4d2146). build/ai_spec/M850.md §1.
+bool enemy_handler_puppet(int ai_index, const AiEnv& env) {
+    return ai_index == 78 && env.world && env.world->flag(130, 1) == 0;
+}
+bool enemy_handler_held(int ai_index, const AiEnv& env) {
+    return ai_index == 78 && env.world && env.world->flag(131, 0) != 0;
 }
 
 EnemyDeathHook enemy_death_hook_for(int ai_index) {
     switch (ai_index) {
         case 39: return &brains::m460_dead;
+        case 78: return &brains::m850_dead;
+        case 74: return &brains::m810_dead;
+        case 76: return &brains::m830_dead;
         default: return nullptr;
     }
 }

@@ -1973,6 +1973,362 @@ int main() {
         check(h == 0.0f && m == 0 && sp == 0.0f, "no +0x130 & 0x800: the ledge stops it");
     }
 
+    // ---- M850 Epona, the duel (build/ai_spec/M850.md) ----
+    {
+        struct Duel : AiWorld {         // open floor, the S_2080 arena rect, and the game flags
+            std::unordered_map<int, int> g;
+            void for_each(const std::function<void(Actor&)>&) override {}
+            Actor* find(int) override { return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3&, const Vec3&) override { return {}; }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = -13.437f; r[1] = 32.7f; r[2] = 13.587f; r[3] = 55.3f; }
+            const float* enemy_raw(int) override { return nullptr; }
+            void set_flag(int i, int v) override { g[i] = v; }
+            int flag(int i, int fb) override { const auto it = g.find(i); return it == g.end() ? fb : it->second; }
+        } w;
+        const EnemyBrain m850 = enemy_brain_for(78);
+        const EnemyDeathHook hk = enemy_death_hook_for(78);
+        check(m850 != nullptr && hk != nullptr, "Epona brain + dead hook registered (AI index 78)");
+        const EnemyAiParams ep = params(0.12f, 0.05f, 1.0f, 2.0f, 0.0f);
+        auto make = [](Actor& E) {
+            E.cast_id = 0xab; E.ai_index = 78; E.hp = E.max_hp = 500; E.atk = 70; E.def = 70;
+            E.height = 1.0f; E.vert.grounded = true;
+        };
+        Actor E; make(E);
+        Rig r; r.env.actor = &E; r.env.world = &w; r.env.character = 1;
+        r.env.self = {0, 1.0f, 48.0f}; r.env.target = {0, 1.075f, 44.0f};
+        // S_2080 Battle_0's order: she is placed under 130 = 0, then 156 = 1, 130 = 1, 131 = 0.
+        w.g[130] = 0; w.g[131] = 1;
+        for (int t = 0; t < 5; ++t) enemy_ai_tick(E.ai, ep, r.env, m850);
+        check(E.ai.phase() == 0 && E.hp == 500.0f, "flag 130 == 0: a script puppet (no INIT, no brain)");
+        w.g[156] = 1; w.g[130] = 1;
+        enemy_ai_tick(E.ai, ep, r.env, m850);
+        check(E.ai.phase() == 0, "flag 131 != 0: the plain mover only, still no brain");
+        w.g[131] = 0;
+        const AiOut o0 = enemy_ai_tick(E.ai, ep, r.env, m850);
+        check(E.ai.phase() == 4 && E.hp == 475.0f && E.max_hp == 475.0f && std::fabs(E.def - 68.95f) < 1e-3f &&
+              E.ai.cool() == 89, "INIT (231 = 0, Normal): phase 4, HP x0.95, DEF x0.985, cool 90 - 20d");
+        check(o0.gauge_hp == 475.0f && o0.gauge_len == 4000.0f, "the boss gauge: length 4000 (Yunica)");
+        int picked = -1, at = 0;
+        for (; at < 300 && picked < 0; ++at) {
+            enemy_ai_tick(E.ai, ep, r.env, m850);
+            if (E.ai.i(0x72c) != 0) picked = E.ai.i(0x72c);
+        }
+        const int moves[] = {10, 20, 30, 40, 50, 0x3c, 0x46, 0x50, 0x5a, 0x6e, 0x78, 0x8c, 0x96, 100};
+        std::printf("[ai]   M850 first pick 0x%x at tick %d\n", picked, at);
+        check(std::find(std::begin(moves), std::end(moves), picked) != std::end(moves) && at >= 89 &&
+              w.g[130] == 1, "after the cooldown the picker chooses a move / combo and writes 130 = 1");
+        // Combo 1: the starter, then its sequencer's step 0 (the slash), then section 7.
+        E.ai.i(0x72c) = 10; E.ai.i(0x7c8) = 0; E.ai.i(0x79c) = 0;
+        enemy_ai_tick(E.ai, ep, r.env, m850);
+        check(E.ai.i(0x79c) == 1 && E.ai.i(0x72c) == 0xb, "combo 1 starter: +0x79c = 1, on to its sequencer (0xb)");
+        enemy_ai_tick(E.ai, ep, r.env, m850);
+        check(E.ai.i(0x72c) == 0x50 && E.ai.i(0x7a0) == 1, "combo 1 step 0: the slash (0x50)");
+        AiOut o = enemy_ai_tick(E.ai, ep, r.env, m850);
+        check(o.section == 7 && o.section_force && E.ai.i(0x72c) == 0x51 && E.ai.i(0x7c4) == 1,
+              "0x50 within 11u: section 7 forced, one move into the combo");
+        // The jump attack 0x5a.
+        E.ai.i(0x79c) = 0; E.ai.i(0x7a0) = 0; E.ai.i(0x72c) = 0x5a;
+        o = enemy_ai_tick(E.ai, ep, r.env, m850);
+        check(o.section == 0x139 && o.section_force && o.vm_step && o.set_marker_block == 1 && E.ai.i(0x72c) == 0x5b &&
+              E.ai.f(0x7b0) == 0.275f && E.ai.f(0x7b4) == 1.5f && std::fabs(E.ai.f(0x7ac)) <= 0.2617994f,
+              "0x5a: section 0x139 + a VM step, block 1; jump 0.275, push 1.5 within +-15 deg");
+        r.env.section = 0x139; r.env.aso_marker = 1; r.env.aso_marker_block = 1;
+        E.vert.grounded = true; E.mover.k1 = {};
+        o = enemy_ai_tick(E.ai, ep, r.env, m850);
+        check(!E.vert.grounded && E.vert.t == 0.275f && o.set_marker_block == 2 && o.set_own_jump == 1 &&
+              std::fabs(std::hypot(E.mover.k1.x, E.mover.k1.z) - 1.5f) < 1e-4f,
+              "Marker(1) on the ground: the jump (+0x330 = 0.275) and the 1.5 push; block 2");
+        // The guard: section 6, a blocked hit restores the patience, then the release (0x138).
+        r.env.section = 0; r.env.aso_marker = 0; r.env.aso_marker_block = -1;
+        E.vert.grounded = true; E.vert.t = 0; E.mover.k1 = {};
+        E.ai.i(0x72c) = 0x82;
+        o = enemy_ai_tick(E.ai, ep, r.env, m850);
+        check(o.section == 6 && E.ai.i(0x72c) == 0x83 && E.ai.f(0x7b8) == 60.0f, "0x82: the guard (section 6), patience 60");
+        r.env.section = 6; r.env.was_hit = true;
+        enemy_ai_tick(E.ai, ep, r.env, m850);
+        r.env.was_hit = false;
+        check(E.ai.i(0x878) == 1 && E.ai.f(0x7b8) == 30.0f, "a blocked hit (+0x3bc & 6 == 4): one block, patience 30");
+        int rel = -1;
+        for (int k = 0; k < 40 && rel < 0; ++k) if (enemy_ai_tick(E.ai, ep, r.env, m850).section == 0x138) rel = k;
+        check(rel == 29, "the patience runs out a tick at a time: the release (section 0x138)");
+        // Death: 156 and 130 clear on the 6th dead tick (0x4d1f7a); then a pinned puppet.
+        E.hp = 0; w.g[156] = 1; w.g[130] = 1;
+        int cleared = -1;
+        for (int t = 1; t <= 8 && cleared < 0; ++t) { hk(E, w); if (w.g[156] == 0) cleared = t; }
+        check(cleared == 6 && w.g[130] == 0 && E.ai.dead_t == 1 && E.ai.alpha == 1.0f && !E.ai.hittable,
+              "dead: 156 and 130 clear on the 6th dead tick; the counter back to 1, no fade");
+        w.g[156] = 1;
+        for (int t = 0; t < 12; ++t) hk(E, w);
+        check(w.g[156] == 1 && E.ai.dead_t == 1, "then (130 == 0) the dead puppet stays pinned: no clear, no removal");
+        Actor C; make(C); C.hp = 0; C.ai.i(0x8a4) = 0x100;          // +0x8a5 = 1: a clone
+        w.g[231] = 1; w.g[130] = 1; w.g[156] = 1;
+        for (int t = 0; t < 12; ++t) hk(C, w);
+        check(w.g[156] == 1, "231 = 1: a clone's death does not end the fight");
+        w.g.erase(231);
+        // The arena clamp (0x4d25aa): the box, when 190 == 1 and 131 == 0 only.
+        const float rect[4] = {-13.437f, 32.7f, 13.587f, 55.3f};
+        Vec3 c1{20, 1, 60}, c2{20, 1, 60}, c3{20, 1, 60};
+        enemy_handler_clamp(78, c1, 1, true, rect);
+        enemy_handler_clamp(78, c2, 1, true, rect, 1);
+        enemy_handler_clamp(78, c3, 0, true, rect);
+        check(c1.x == 13.587f && c1.z == 55.3f && c2.x == 20.0f && c3.x == 20.0f,
+              "arena clamp: the S_2080 box when 190 == 1 and 131 == 0, else none");
+        // Hugo: the bar is 3000 long.
+        Actor H; make(H);
+        Rig rh; rh.env.actor = &H; rh.env.world = &w; rh.env.character = 2;
+        rh.env.self = {0, 1.0f, 48.0f}; rh.env.target = {0, 1.075f, 44.0f};
+        w.g[130] = 1; w.g[131] = 0;
+        const AiOut oh = enemy_ai_tick(H.ai, ep, rh.env, m850);
+        check(oh.gauge_len == 3000.0f && H.ai.phase() == 4, "Hugo: the gauge length is 3000");
+    }
+
+    // ---- the class-4 duel opponents M830 Galleon / M810 Hugo (build/ai_spec/M830.md, M810.md) ----
+    {
+        // Open ground, no walls; the game flags, the player and the gauge as the host shows them.
+        struct Duel : AiWorld {
+            std::unordered_map<int, int> flags;
+            Actor* P = nullptr;
+            int gauge_hidden = 0;
+            void for_each(const std::function<void(Actor&)>&) override {}
+            Actor* find(int) override { return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3&, const Vec3&) override { return {}; }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+            void set_flag(int i, int v) override { flags[i] = v; }
+            int flag(int i, int unset) override { auto it = flags.find(i); return it == flags.end() ? unset : it->second; }
+            Actor* player() override { return P; }
+            void hide_boss_gauge() override { ++gauge_hidden; }
+        };
+        XorShift rng;
+        auto env_for = [&](Actor& A, Duel& w, Vec3 target, int section) {
+            AiEnv e;
+            e.actor = &A; e.world = &w;
+            e.self = {A.pos.x, A.pos.y + A.height, A.pos.z};
+            e.height = A.height; e.radius = A.radius;
+            e.target = target; e.target_floor = 0;
+            e.hp = A.hp; e.max_hp = A.max_hp; e.section = section;
+            e.rng = [&] { return rng(); };
+            return e;
+        };
+        const EnemyBrain m830 = enemy_brain_for(76), m810 = enemy_brain_for(74);
+        check(m830 && m810 && enemy_death_hook_for(76) && enemy_death_hook_for(74),
+              "M830 / M810 brains and death hooks registered (AI 76 / 74)");
+        const EnemyAiParams gp = params(0.08f, 0.05f, 1.0f, 2.0f, 1.0f);
+
+        // ---- M830 Galleon
+        {   // g_flags[130] == 0: a script puppet — no INIT, no action player, HP floored at 1.
+            Duel w; w.flags[130] = 0;
+            Actor G; G.instance_id = 197; G.cast_id = 0xa9; G.hp = G.max_hp = 400; G.kind = 0x84; G.height = 1.0f;
+            AiEnv e = env_for(G, w, {3, 1.075f, 0}, 2);
+            const AiOut o = enemy_ai_tick(G.ai, gp, e, m830);
+            check(o.skip_action_player && G.ai.phase() == 0 && G.kind == 0x84 && o.gauge_hp < 0,
+                  "M830, flag 130 = 0: puppet (no INIT, no action player, no gauge)");
+            G.hp = 0.5f;
+            enemy_death_hook_for(76)(G, w);
+            check(G.hp == 1.0f && w.flags.count(156) == 0, "M830 puppet: HP below 1 is set back to 1, no flags touched");
+        }
+        {   // The duel: INIT, the gauge, then moves; three hits on the guard break it into the slam.
+            Duel w; w.flags[130] = 1; w.flags[156] = 1;
+            Actor Pl; Pl.hp = Pl.max_hp = 100;
+            w.P = &Pl;
+            Actor G; G.instance_id = 197; G.cast_id = 0xa9; G.hp = G.max_hp = 400; G.def = 20; G.kind = 0x84; G.height = 1.0f;
+            G.flags12c = 0x00100050u | 0x40u;
+            AiEnv e = env_for(G, w, {2.5f, 1.075f, 0}, 2);
+            AiOut o = enemy_ai_tick(G.ai, gp, e, m830);
+            check(G.ai.phase() == 4 && G.kind == 0x88 && (G.flags12c & 0x1090000u) == 0x1090000u &&
+                  !(G.flags12c & 0x40u) && G.ai.f(0x7b0) == 20.0f,
+                  "M830 INIT: phase 4, +0x60 = 0x88 (hittable monster), +0x12c |= 0x1090000 & ~0x40, DEF saved");
+            check(o.gauge_hp == 400.0f && o.gauge_len == 3000.0f, "M830: the gauge appears (lenScale 3000)");
+            int sec = 2, sec_t = 0, moves = 0, t_first = -1;
+            for (int t = 0; t < 400; ++t) {
+                AiEnv e2 = env_for(G, w, {2.5f, 1.075f, 0}, sec);
+                o = enemy_ai_tick(G.ai, gp, e2, m830);
+                if (o.section == 7 || o.section == 8 || o.section == 300 || o.section == 0x12d || o.section == 3) {
+                    ++moves; if (t_first < 0) t_first = t;
+                }
+                if (o.section >= 0) { sec = o.section; sec_t = 0; }
+                else if (++sec_t > 40 && sec != 2) sec = 2;        // a move's section lasts 40 ticks here
+            }
+            std::printf("[ai]   M830 first move @%d, %d move sections in 400 ticks\n", t_first, moves);
+            check(t_first >= 0 && t_first <= 60 && moves >= 3, "M830 at 2.5 u: moves begin within 60 ticks and repeat");
+
+            // The guard record (0x4e90c7): packed 0x006e5a03 = counter sub 0x6e, 90 ticks, 3 hits.
+            EnemyAi& a = G.ai;
+            a.i(0x72c) = 0x8c; a.i(0x7a0) = 0; a.i(0x7bc) = 0x006e5a03; a.i(0x7c0) = 0x101; a.i(0x79c) = 0x14;
+            AiEnv eg = env_for(G, w, {2.5f, 1.075f, 0}, 2);
+            o = enemy_ai_tick(a, gp, eg, m830);
+            check(o.section == 6 && o.section_force && a.i(0x72c) == 0x8d && std::uint32_t(a.i(0x7a0)) == 0x596e5a03u,
+                  "M830 guard: forced section 6, record [ticks 89 | sub 0x6e | reset 90 | hits 3]");
+            int hits = 0;
+            for (; hits < 3 && a.i(0x72c) == 0x8d; ++hits) {
+                AiEnv eh = env_for(G, w, {2.5f, 1.075f, 0}, 6);
+                eh.was_hit = true;
+                o = enemy_ai_tick(a, gp, eh, m830);
+            }
+            check(hits == 3 && a.i(0x72c) == 0x6e && a.i(0x7bc) == 0x101 && o.section == 2,
+                  "M830 guard: the third blocked hit breaks it (section 2) into the 0x6e slam");
+        }
+        {   // The defeat (0x4e98bd): HP < 1 with the player alive.
+            Duel w; w.flags[130] = 1; w.flags[156] = 1;
+            Actor Pl; Pl.hp = Pl.max_hp = 100;
+            w.P = &Pl;
+            Actor G; G.instance_id = 197; G.cast_id = 0xa9; G.hp = G.max_hp = 400; G.kind = 0x84; G.height = 1.0f;
+            AiEnv e = env_for(G, w, {2.5f, 1.075f, 0}, 2);
+            enemy_ai_tick(G.ai, gp, e, m830);
+            G.ai.i(0x88c) = 1;                                    // the charge-up aura is up
+            G.hp = 0.0f;
+            enemy_death_hook_for(76)(G, w);
+            check(w.flags[156] == 0 && w.flags[130] == 0 && w.flags[174] == 1 && G.hp == 1.0f && w.gauge_hidden == 1 &&
+                  Pl.i_frames == 9999 && (G.flags12c & 0x40u) && G.ai.f(0x880) < -7777777.0f,
+                  "M830 defeat: 156 = 0, 130 = 0, 174 = 1, HP 1, gauge hidden, player +0x734 = 9999");
+            AiEnv e2 = env_for(G, w, {2.5f, 1.075f, 0}, 2);
+            const AiOut o = enemy_ai_tick(G.ai, gp, e2, m830);
+            bool killed = false;
+            for (const AiEffect& f : o.effects) killed |= f.kill_tag == 0;
+            check(o.skip_action_player && o.section == 5 && killed,
+                  "M830 after the defeat: a puppet; the hook's section 5 and the aura kill ride the next tick");
+            G.hp = 0.0f; w.flags[130] = 1; w.flags[156] = 1;
+            enemy_death_hook_for(76)(G, w);
+            check(w.flags[156] == 1 && G.hp == 0.0f, "M830: the defeat resolves once (+0x880 below -7777777)");
+        }
+        {   // The player lost first: HP 1.1, unhittable, nothing cleared.
+            Duel w; w.flags[130] = 1; w.flags[156] = 1;
+            Actor Pl; Pl.hp = 0; Pl.max_hp = 100;
+            w.P = &Pl;
+            Actor G; G.hp = 0.0f; G.max_hp = 400;
+            enemy_death_hook_for(76)(G, w);
+            check(std::fabs(G.hp - 1.1f) < 1e-6f && !G.ai.hittable && G.def == 999.0f && w.flags[156] == 1,
+                  "M830 with the player dead: HP 1.1, FUN_0047aa80, the duel flags untouched");
+        }
+        {   // The handler-tail clamp: FUN_0047abf0 while the duel runs.
+            const float rect[4] = {-12.396f, -22.525f, 12.983f, -0.7f};
+            Vec3 o{20.0f, 1.0f, 5.0f};
+            enemy_handler_clamp(76, o, 1, true, rect);
+            Vec3 q{20.0f, 1.0f, 5.0f};
+            enemy_handler_clamp(76, q, 1, false, rect);
+            check(o.x == 12.983f && o.z == -0.7f && q.x == 20.0f, "M830 clamp: FUN_0047abf0 on the live path only");
+        }
+
+        // ---- M810 Hugo
+        {   // Puppet, then INIT (g_flags[231] = 0, d = 0).
+            Duel w; w.flags[130] = 0;
+            Actor H; H.instance_id = 197; H.cast_id = 0xa7; H.hp = H.max_hp = 1000; H.atk = 40; H.def = 30;
+            H.kind = 0x84; H.height = 1.0f; H.flags12c = 0x01180050u;
+            AiEnv e = env_for(H, w, {7, 1.075f, 0}, 2);
+            AiOut o = enemy_ai_tick(H.ai, gp, e, m810);
+            check(o.skip_action_player && H.ai.phase() == 0, "M810, flag 130 = 0: puppet");
+            w.flags[130] = 1;
+            o = enemy_ai_tick(H.ai, gp, e, m810);
+            check(H.ai.phase() == 4 && H.kind == 0x88 && H.flags12c == 0x1190000u && H.ai.cool() == 119 &&
+                  std::fabs(H.max_hp - 1050.0f) < 1e-3f && H.hp == H.max_hp && std::fabs(H.atk - 43.5f) < 1e-5f &&
+                  H.def == 34.0f && H.ai.i(0x7a4) == 320 && std::fabs(H.ai.f(0x814) - 0.05f) < 1e-7f,
+                  "M810 INIT: HP x1.05, ATK - 1.5 + 5, DEF + 4, +0x12c = 0x1190000, cool 120, warp timer 320");
+            check(o.gauge_hp == H.hp && o.gauge_len == 4000.0f, "M810: the gauge (lenScale 4000)");
+        }
+        {   // Spacing: close -> strafe (steer 5, 0x800); far -> close in (steer 4, 0x800).
+            Duel w; w.flags[130] = 1;
+            Actor H; H.instance_id = 197; H.cast_id = 0xa7; H.hp = H.max_hp = 1000; H.height = 1.0f;
+            AiEnv e = env_for(H, w, {4, 1.075f, 0}, 2);
+            enemy_ai_tick(H.ai, gp, e, m810);
+            enemy_ai_tick(H.ai, gp, e, m810);
+            check(H.ai.steer() == 5 && H.ai.action() == 0x800, "M810 at 4 u: strafes away (steer 5, action 0x800)");
+            AiEnv f = env_for(H, w, {12, 1.075f, 0}, 2);
+            enemy_ai_tick(H.ai, gp, f, m810);
+            check(H.ai.steer() == 4 && H.ai.action() == 0x800, "M810 at 12 u: closes in (steer 4, action 0x800)");
+        }
+        {   // The volley (sub 100): a 0xc6 kind-0x1b shot on Marker(1) with block 1.
+            Duel w; w.flags[130] = 1;
+            Actor H; H.instance_id = 197; H.cast_id = 0xa7; H.hp = H.max_hp = 1000; H.height = 1.0f;
+            AiEnv e = env_for(H, w, {7, 1.075f, 0}, 2);
+            enemy_ai_tick(H.ai, gp, e, m810);
+            H.ai.i(0x728) = 100; H.ai.i(0x7a4) = 300;
+            AiEnv v = env_for(H, w, {7, 1.075f, 0}, 0x12e);
+            v.aso_marker = 1; v.aso_marker_block = 1;
+            AiOut o = enemy_ai_tick(H.ai, gp, v, m810);
+            check(o.bullets.size() == 1 && o.bullets[0].kind == 0x1b && o.bullets[0].effect == 0xc6 &&
+                  std::fabs(o.bullets[0].speed - 0.225f) < 1e-7f && o.set_marker_block == 2,
+                  "M810 volley: Marker(1) fires one 0xc6 (kind 0x1b, 0.225/tick at d 0), block -> 2");
+            v.section = 2;                                        // the section ended
+            o = enemy_ai_tick(H.ai, gp, v, m810);
+            check(H.ai.i(0x728) == 0 && H.ai.cool() == 179, "M810 volley over: sub 0, cooldown 180 - 25d");
+            // The fan (sub 200) on Marker(1): one homing 0xc7 above half HP, two below.
+            H.ai.i(0x728) = 200;
+            AiEnv fe = env_for(H, w, {7, 1.075f, 0}, 0x112);
+            fe.aso_marker = 1;
+            o = enemy_ai_tick(H.ai, gp, fe, m810);
+            check(o.bullets.size() == 1 && o.bullets[0].kind == 4 && o.bullets[0].effect == 0xc7 &&
+                  o.bullets[0].home_period == 1 && o.set_marker == 2, "M810 fan: Marker(1) fires one homing 0xc7 (kind 4)");
+            H.hp = 400;
+            H.ai.i(0x728) = 200;
+            o = enemy_ai_tick(H.ai, gp, fe, m810);
+            check(o.bullets.size() == 2, "M810 fan below half HP: two shots");
+        }
+        {   // Hit too often -> the barrier (section 314); Marker(1) raises it: EF2 0x86, 240 ticks
+            // of the guard byte; a blocked hit takes 15 (d 0) off it.
+            Duel w; w.flags[130] = 1;
+            Actor H; H.instance_id = 197; H.cast_id = 0xa7; H.hp = H.max_hp = 1000; H.height = 1.0f;
+            AiEnv e = env_for(H, w, {7, 1.075f, 0}, 2);
+            enemy_ai_tick(H.ai, gp, e, m810);
+            H.ai.i(0x7a4) = 300;
+            H.ai.f(0x7ac) = 5.0f;
+            enemy_ai_tick(H.ai, gp, e, m810);
+            check(H.ai.i(0x728) == 500, "M810: +0x7ac > 4 - d/2 forces the barrier (sub 500)");
+            AiOut o = enemy_ai_tick(H.ai, gp, e, m810);
+            check(o.section == 0x13a && o.section_force && o.vm_step, "M810 barrier: section 314 forced, one extra VM step");
+            AiEnv b = env_for(H, w, {7, 1.075f, 0}, 0x13a);
+            b.aso_marker = 1;
+            o = enemy_ai_tick(H.ai, gp, b, m810);
+            bool bar = false;
+            for (const AiEffect& f : o.effects) bar |= f.id == 0x86 && f.tag == 0 && f.attach && f.power == -5.0f;
+            check(bar && H.ai.i(0x79c) == 240, "M810 barrier: EF2 0x86 (power -5, rtype 2) owned, 240 ticks");
+            b.aso_marker = 0;
+            enemy_ai_tick(H.ai, gp, b, m810);
+            check(H.guard399 && H.ai.i(0x79c) == 239, "M810 barrier: the guard byte +0x399 is up");
+            b.was_hit = true; b.took_damage = false;
+            enemy_ai_tick(H.ai, gp, b, m810);
+            check(H.ai.i(0x79c) == 239 - 15 - 1, "M810 barrier: a blocked hit takes 15 ticks off (d 0)");
+        }
+        {   // The defeat (0x4da5fe).
+            Duel w; w.flags[130] = 1; w.flags[156] = 1;
+            Actor Pl; Pl.hp = Pl.max_hp = 100;
+            w.P = &Pl;
+            Actor H; H.instance_id = 197; H.cast_id = 0xa7; H.hp = H.max_hp = 1000; H.height = 1.0f;
+            AiEnv e = env_for(H, w, {7, 1.075f, 0}, 2);
+            enemy_ai_tick(H.ai, gp, e, m810);
+            H.ai.i(0x88c) = 1; H.ai.i(0x7bc) = 2;                 // the barrier and the aura are up
+            H.hp = -3.0f;
+            enemy_death_hook_for(74)(H, w);
+            check(w.flags[156] == 0 && w.flags[130] == 0 && w.flags[174] == 1 && H.hp == 1.0f && !H.ai.hittable &&
+                  w.gauge_hidden == 1 && Pl.i_frames == 9999,
+                  "M810 defeat: 156 = 0, 130 = 0, 174 = 1, HP 1, unhittable, gauge hidden");
+            AiEnv e2 = env_for(H, w, {7, 1.075f, 0}, 2);
+            const AiOut o = enemy_ai_tick(H.ai, gp, e2, m810);
+            int kills = 0;
+            for (const AiEffect& f : o.effects) kills += f.kill_tag == 0 || f.kill_tag == 1;
+            check(o.skip_action_player && kills == 2, "M810 after the defeat: a puppet; the barrier and aura are killed");
+            Duel w2; w2.flags[130] = 0;
+            Actor H2; H2.hp = 0.0f;
+            enemy_death_hook_for(74)(H2, w2);
+            check(H2.hp == 0.0f && w2.flags.count(156) == 0, "M810 puppet: no dead branch at all");
+        }
+        {   // The handler-tail clamp (0x4daa9d): mode-blind, 0.01 inside the violated edge.
+            const float rect[4] = {-13.437f, 32.7f, 13.587f, 55.3f};
+            Vec3 o{-20.0f, 1.0f, 60.0f}, in{0.0f, 1.0f, 40.0f}, off{-20.0f, 1.0f, 60.0f};
+            enemy_handler_clamp(74, o, 0, true, rect);
+            enemy_handler_clamp(74, in, 0, true, rect);
+            enemy_handler_clamp(74, off, 0, false, rect);
+            check(o.x == -13.437f + 0.009999997913837433f && o.z == 55.3f - 0.009999997913837433f &&
+                  in.x == 0.0f && in.z == 40.0f && off.x == -20.0f,
+                  "M810 clamp: mode-blind, 0.01 inset, live path only");
+        }
+    }
+
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

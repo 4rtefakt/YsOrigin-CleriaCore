@@ -75,11 +75,18 @@ struct EnemyAi {
     float alpha = 1;       // +0x4d8: sprite opacity (brains that fade, e.g. M390)
     bool hit_cut = false;  // FUN_00475860 zeroed +0x118 (the armed hit record's life); the host clears it
     bool hittable = true;  // +0x60 & 0x80: hit tests and body push skip the actor when clear
+    std::uint32_t dead_t = 0;  // +0x3fc: FUN_004780e0's death counter (0 alive, 1 at death, +1 a tick)
     int w_type = 0;        // +0x424: wander type (0 wander, 1 stand)
     int w_phase = 1;       // +0x428
     int w_timer = 0;       // +0x42c
     Vec3 w_target{};       // +0x434
     bool initialised = false;
+    // A death hook (EnemyDeathHook) has no AiOut. What it asks of the world rides on the
+    // actor into the next tick's output (enemy_ai_tick): a FUN_00446550(id, 0) request
+    // made only if `id` is not the live section, and kills of the owned effects whose tags
+    // are set in the mask (bit n = tag n).
+    int hook_section = -1;
+    std::uint32_t hook_kill_tags = 0;
 };
 
 struct Actor;   // cleria/actor.hpp (which embeds an EnemyAi)
@@ -106,6 +113,15 @@ struct AiWorld {
     virtual const float* enemy_raw(int cast) = 0;
     // A game flag the brain writes (M460's dead path clears the boss-battle flags 156 / 130).
     virtual void set_flag(int /*index*/, int /*value*/) {}
+    // A game flag a handler reads (g_flags[index], DAT_0076b91c + 4*index: 130 "boss AI live",
+    // 131 the hold, 231 the rematch). A host that does not override it answers `fallback`, which
+    // each caller sets to the value its fight runs under [H] (build/ai_spec/M850.md §8).
+    virtual int flag(int /*index*/, int fallback) { return fallback; }
+    // The player actor (DAT_0074c09c), for handler dead paths that read its HP or write its
+    // +0x734 (i-frames); nullptr when the host does not expose it.
+    virtual Actor* player() { return nullptr; }
+    // DAT_006d5fd8 = 0: hide the boss HP gauge (the class-4 duel handlers' defeat paths).
+    virtual void hide_boss_gauge() {}
 };
 
 struct AiEnv {
@@ -220,6 +236,11 @@ struct AiOut {
     int set_marker_block = -1000;  // write +0x9c0 (the marker block value) when > -1000
     int set_durable = -1;        // write +0x9d8 (anime_Durable) when >= 0
     float gauge_hp = -1;         // FUN_0043a460: show the boss gauge at this HP when >= 0
+    float gauge_len = -1;        // its bar length / lenScale (M850 3000 Hugo / 4000 / 7500); <= 0 = the host's rule
+    // The handler skipped the action player (FUN_00479b00) this tick: the class-4 duel
+    // handlers' script-puppet path (g_flags[130] == 0 -> FUN_0045f250) and their g_flags[131]
+    // freeze (FUN_0045f470 only).
+    bool skip_action_player = false;
     bool snap_facing = false;    // the brain set +0x314 = +0x308 (visible facing = heading)
     bool launch_clear = false;   // the stun exit cleared +0x4d0
     int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
@@ -248,9 +269,20 @@ EnemyDeathHook enemy_death_hook_for(int ai_index);
 // {xmin, zmin, xmax, zmax}; 2 projects the ORIGIN onto the sphere {cx, cy, cz, radius}.
 bool enemy_handler_clamps(int ai_index);
 void arena_clamp(Vec3& origin, int mode, const float rect[4]);
-// The handler-tail position clamps per AI index: FUN_0047abf0 above for M100 / M310, and
-// M530's own (0x497b7a): while DAT_0076bb8c (g_flags[156]) != 0, z >= -2.75.
-void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_fight, const float rect[4]);
+// The handler-tail position clamps per AI index: FUN_0047abf0 above for M100 / M310,
+// M530's own (0x497b7a): while DAT_0076bb8c (g_flags[156]) != 0, z >= -2.75, and the class-4
+// duel handlers': M850's (0x4d25aa) box clamp when arena_mode == 1 and g_flags[131] == 0; M810's
+// own inset box (0x4daa9d, mode-blind) and M830's FUN_0047abf0, both only on their live path
+// (g_flags[130] != 0), which `boss_fight` stands in for [H]. A host that does not pass flag131
+// gets 0, the value the duel scripts set [H].
+void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_fight, const float rect[4],
+                         int flag131 = 0);
+// A boss handler's gates ahead of its brain (M850 FUN_004d1c90, build/ai_spec/M850.md §1), read
+// through env.world->flag: puppet = g_flags[130] == 0 (FUN_0045f250, the plain-actor tick: no
+// INIT, no brain, no action player); held = g_flags[131] != 0 (the plain mover only). Both are
+// consulted by enemy_ai_tick for env.actor's AI index.
+bool enemy_handler_puppet(int ai_index, const AiEnv& env);
+bool enemy_handler_held(int ai_index, const AiEnv& env);
 
 // The brain for an AI index (actor +0x120 = CASTINFO +0x64), or nullptr when not yet
 // ported (callers fall back to the M100 brain as a stand-in and say so).
@@ -259,7 +291,8 @@ EnemyBrain enemy_brain_for(int ai_index);
 EnemyBrain enemy_brain_or_standin(int ai_index);
 
 // One tick of the standard handler body (FUN_0047b7f0 shape): off-screen and unaware ->
-// nothing; else brain + action player.
+// nothing; else brain + action player. A boss handler's gates (enemy_handler_puppet /
+// enemy_handler_held) come first, in its own order.
 AiOut enemy_ai_tick(EnemyAi& ai, const EnemyAiParams& p, const AiEnv& env, EnemyBrain brain);
 AiOut enemy_ai_tick_m100(EnemyAi& ai, const EnemyAiParams& p, const AiEnv& env);
 

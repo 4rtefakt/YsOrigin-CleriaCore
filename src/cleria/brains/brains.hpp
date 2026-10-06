@@ -75,6 +75,12 @@ AiOut m490(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00481940 Sopu
 AiOut m970(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ca1a0 Vagully (lone bat)
 AiOut m460(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c7020 the bat-swarm boss
 void m460_dead(Actor&, AiWorld&);                              // its handler's dead path (#5)
+AiOut m850(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004cc3d0 Epona (the duel)
+void m850_dead(Actor&, AiWorld&);                              // FUN_004d1c90's dead path (156 / 130)
+AiOut m810(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004da070 / FUN_004d7510 Hugo (duel)
+void m810_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4da5fe)
+AiOut m830(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004e9870 / FUN_004e8050 Galleon (duel)
+void m830_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4e98bd)
 AiOut m500(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00485050 Oggnome (teleporter)
 AiOut m200(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047db90 Venueba
 AiOut m250(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048e190 Nipper (hops)
