@@ -5235,6 +5235,29 @@ title_again:
                                                   pc ? pc->hurt_radius : 0.45f, pc ? pc->hurt_half_h : 0.5f,
                                                   pc ? pc->hurt_shape : 1, pc ? pc->center_offset : -0.25f);
                 fxsim.step([&](ef2sim::Particle& p) {
+                    if (p.hit.side == 0) {
+                        // The player's own effect particles on the monsters (FUN_004fbb40 through the
+                        // mode-0 scan): the victim's bank keys on the particle token, 0 in practice
+                        // (EFFECTHIT.md §5.4). [H] every overlapping monster is hit in the one tick,
+                        // and the knockback heading is the particle -> victim direction.
+                        bool landed = false;
+                        const HitShape vol{p.hit.radius, p.hit.centre, p.hit.half_h, p.hit.half_h > 0.0f ? 1 : 0};
+                        for (Actor& en : world.actors()) {
+                            if (en.is_player() || !en.alive() || en.destroy_requested()) continue;
+                            const EnemyRender* vr = nullptr;
+                            for (const EnemyRender& er : render) if (er.actor == &en) { vr = &er; break; }
+                            if (vr && !vr->actor->ai.hittable) continue;            // +0x60 & 0x80 clear
+                            const HitShape body = body_shape({en.pos.x, en.pos.y + en.height, en.pos.z},
+                                                             en.hurt_radius, en.hurt_half_h, en.hurt_shape, en.hurt_off);
+                            if (!overlap(vol, body)) continue;
+                            if (en.bank.check_and_record(0u, p.hit.rehit)) continue;
+                            const float hd = std::atan2(en.pos.z - p.hit.centre.z, en.pos.x - p.hit.centre.x);
+                            player_hit_enemy(en, vr, p.hit.power, p.hit.knock, p.hit.rtype,
+                                             p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone, hd);
+                            landed = true;
+                        }
+                        return landed;
+                    }
                     if (p.hit.side != 1 || player_iframes > 0 || p_untouchable || player.hp < 1) return false;
                     const HitShape vol{p.hit.radius, p.hit.centre, p.hit.half_h, p.hit.half_h > 0.0f ? 1 : 0};
                     float ang = 0;
