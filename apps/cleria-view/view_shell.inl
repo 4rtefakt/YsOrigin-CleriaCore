@@ -111,8 +111,14 @@ struct Shell {
             if (e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) finish(input::kSdlRightTrigger);
             return true;
         }
-        return e.type == SDL_EVENT_KEY_UP || e.type == SDL_EVENT_MOUSE_BUTTON_UP ||
-               e.type == SDL_EVENT_GAMEPAD_BUTTON_UP || e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION;
+        // releases still reach ImGui, or the key that opened the prompt (OK) stays held there and its
+        // next press is lost
+        if (e.type == SDL_EVENT_KEY_UP || e.type == SDL_EVENT_MOUSE_BUTTON_UP ||
+            e.type == SDL_EVENT_GAMEPAD_BUTTON_UP || e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {
+            ImGui_ImplSDL3_ProcessEvent(&e);
+            return true;
+        }
+        return false;
     }
 
     bool event(const SDL_Event& e) {
@@ -146,10 +152,13 @@ struct Shell {
         ImGui::NewFrame();
         const ui::Nav nav = capture.active ? ui::Nav{} : ui::read_nav();   // a capture owns the keys
         ImDrawList* dl = ImGui::GetForegroundDrawList();
+        const bool was_open = open;
         if (under) under(dl, float(w), float(h), open ? ui::Nav{} : nav);
-        panel.open = open;
-        panel.draw(dl, float(w), float(h), nav);
-        open = panel.open;
+        if (was_open || !open) {      // opened by the launcher menu just now: the panel starts next frame,
+            panel.open = open;        // or the same OK / click would also act on its selected row
+            panel.draw(dl, float(w), float(h), nav);
+            open = panel.open;
+        }
         if (open && capture.active) {
             static const char* kWhat[] = {"Press a key", "Click a mouse button", "Press a gamepad button"};
             ui::prompt(dl, float(w), float(h), kWhat[int(capture.kind)], capture.label.c_str(),

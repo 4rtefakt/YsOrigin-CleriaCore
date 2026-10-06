@@ -65,6 +65,10 @@ struct Nav {
     bool up = false, down = false, left = false, right = false, ok = false, back = false;
     bool tab_prev = false, tab_next = false;
 };
+// The mouse over [a, b]. Unclipped: the kit draws on the foreground list outside any ImGui
+// window, and the clipped test would clip to the implicit 400x400 debug window.
+inline bool hovering(const ImVec2& a, const ImVec2& b) { return ImGui::IsMouseHoveringRect(a, b, false); }
+
 inline Nav read_nav() {
     Nav n;
     auto pr = [](ImGuiKey k) { return ImGui::IsKeyPressed(k, true); };
@@ -119,7 +123,7 @@ inline void list_begin(List& L, ImDrawList* dl, ImVec2 org, ImVec2 size, const N
             if (L.focusable_last[s]) { L.sel = s; break; }
         }
     }
-    if (focus && ImGui::IsMouseHoveringRect(org, {org.x + size.x, org.y + size.y}))
+    if (focus && hovering(org, {org.x + size.x, org.y + size.y}))
         L.scroll_to -= io.MouseWheel * 60.0f * S;
     dl->PushClipRect(org, {org.x + size.x, org.y + size.y}, true);
 }
@@ -169,8 +173,8 @@ inline RowIo row_frame(List& L, const char* desc, bool enabled, bool focusable =
     r.a = {L.org.x, L.org.y + L.y - L.scroll};
     r.b = {r.a.x + w, r.a.y + row_h()};
     L.y += row_h() + row_gap();
-    const bool hover = L.focus && ImGui::IsMouseHoveringRect(r.a, r.b) &&
-                       ImGui::IsMouseHoveringRect(L.org, {L.org.x + L.size.x, L.org.y + L.size.y});
+    const bool hover = L.focus && hovering(r.a, r.b) &&
+                       hovering(L.org, {L.org.x + L.size.x, L.org.y + L.size.y});
     if (hover && L.mouse_moved && focusable) L.sel = i;
     r.selected = i == L.sel;
     if (r.selected && desc) L.desc = desc;
@@ -303,7 +307,7 @@ struct Panel {
             const std::string t = upper(pages[i].name.c_str());
             const ImVec2 ts = text_size(F.cond, tpx, t.c_str());
             const ImVec2 ta{x - 10.0f * S, a.y}, tb{x + ts.x + 10.0f * S, a.y + tab_h};
-            if (ImGui::IsMouseHoveringRect(ta, tb) && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) tab = i;
+            if (hovering(ta, tb) && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) tab = i;
             const bool on = i == tab;
             text(dl, F.cond, tpx, {x, a.y + (tab_h - tpx) * 0.5f}, on ? kTabOn : kTabOff, t.c_str());
             if (on) dl->AddRectFilled({ta.x, tb.y - 3.0f * S}, {tb.x, tb.y}, kGold);
@@ -313,7 +317,7 @@ struct Panel {
         {
             const ImVec2 c{b.x - 26.0f * S, a.y + tab_h * 0.5f};
             const float r = 6.0f * S;
-            const bool hov = ImGui::IsMouseHoveringRect({c.x - 14 * S, c.y - 14 * S}, {c.x + 14 * S, c.y + 14 * S});
+            const bool hov = hovering({c.x - 14 * S, c.y - 14 * S}, {c.x + 14 * S, c.y + 14 * S});
             const ImU32 col = hov ? kTabOn : kTabOff;
             dl->AddLine({c.x - r, c.y - r}, {c.x + r, c.y + r}, col, 1.6f * S);
             dl->AddLine({c.x - r, c.y + r}, {c.x + r, c.y - r}, col, 1.6f * S);
@@ -371,7 +375,7 @@ struct MainMenu {
         const float ipx = 27.0f * S, ih = 44.0f * S, step = 54.0f * S;
         for (int i = 0; i < n; ++i) {
             const ImVec2 a{x0, 640.0f * S + step * float(i)}, b{a.x + 330.0f * S, a.y + ih};
-            if (focus && ImGui::IsMouseHoveringRect(a, b)) {
+            if (focus && hovering(a, b)) {
                 if (ImGui::GetIO().MouseDelta.x != 0.0f || ImGui::GetIO().MouseDelta.y != 0.0f) sel = i;
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { sel = i; hit = i; }
             }
