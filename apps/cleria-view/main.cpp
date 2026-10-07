@@ -390,7 +390,25 @@ static fs::path default_assets(const char* argv0) {
     return "C:/Users/kores/repos/YsOrigin-CleriaCore/assets";
 }
 
+#ifdef _WIN32
+// cleria-view links as a Windows (GUI) program, so Explorer, the Start menu and a .cleriamod
+// double-click open no console window. A parent that hands us pipes (tests, drive runs, a
+// capture) keeps them as stdout / stderr; started from a console we attach to it; and
+// CLERIA_CONSOLE=1 opens a console of our own for the logs.
+static void attach_console() {
+    const HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (out && out != INVALID_HANDLE_VALUE) return;
+    if (!AttachConsole(ATTACH_PARENT_PROCESS) && !(std::getenv("CLERIA_CONSOLE") && AllocConsole())) return;
+    FILE* f = nullptr;
+    freopen_s(&f, "CONOUT$", "w", stdout);
+    freopen_s(&f, "CONOUT$", "w", stderr);
+}
+#endif
+
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    attach_console();
+#endif
     std::setvbuf(stdout, nullptr, _IONBF, 0);   // unbuffered: breadcrumbs survive an assert/crash
     init_cull_env();
     modfile_take_args(argc, argv);   // <file>.cleriamod / --install-mod <file> (view_modfile.inl)

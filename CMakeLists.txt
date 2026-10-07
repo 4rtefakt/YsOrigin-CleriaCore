@@ -330,6 +330,9 @@ add_executable(cleria-view apps/cleria-view/main.cpp)
 # object-file section limit (C1128) without /bigobj.
 if(MSVC)
   target_compile_options(cleria-view PRIVATE /bigobj)
+  # A Windows program (no console window), keeping main(): see attach_console() in main.cpp.
+  set_target_properties(cleria-view PROPERTIES WIN32_EXECUTABLE TRUE)
+  target_link_options(cleria-view PRIVATE /ENTRY:mainCRTStartup)
 endif()
 target_link_libraries(cleria-view PRIVATE cleria cleria-audio cleria-movie imgui wgpu_native sdl3)
 
