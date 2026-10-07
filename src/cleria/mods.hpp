@@ -26,6 +26,10 @@ inline constexpr int kApiVersion = 3;                  // the manifest format / 
 inline constexpr const char* kManifestName = "mod.ini";
 inline constexpr const char* kFilesDir = "files";      // the overlay root inside a mod
 inline constexpr const char* kCacheDir = ".cache";     // extracted zips, inside the mods folder
+inline constexpr const char* kModFileExt = ".cleriamod"; // a zip mod under CleriaCore's own extension (MODFILE.md)
+
+// A zip entry name that stays inside the extraction folder: relative, no "..", no drive.
+bool safe_zip_entry(std::string_view name);
 
 // "id", "id>=1.2", "id = 2", "id<3"
 struct Dep {
@@ -84,7 +88,7 @@ std::string join_list(const std::vector<std::string>& v);  // {a, b} -> "a,b"
 // $CLERIA_MODS_DIR, else <the settings file's folder>/mods.
 std::filesystem::path default_dir(const std::filesystem::path& settings_ini);
 
-// Every mod in `dir`: each sub-folder with a mod.ini, each *.zip (extracted on demand). Mods that
+// Every mod in `dir`: each sub-folder with a mod.ini, each *.zip / *.cleriamod (extracted on demand). Mods that
 // fail to read come back in State::Error with the reason. Sorted by source name.
 std::vector<Mod> discover(const std::filesystem::path& dir);
 

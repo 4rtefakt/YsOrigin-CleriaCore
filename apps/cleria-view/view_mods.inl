@@ -38,6 +38,8 @@ static bool mods_pending(const ModsUi& u);
 static void mods_ui_script(ModsUi& u);
 static void content_page(ui::List& L);   // Mods > Content additions (view_content.inl)
 static std::string content_summary();    // its row's value (view_content.inl)
+static void modfile_rows(ui::List& L, ModsUi& u);                    // Install a mod file..., the association (view_modfile.inl)
+static void modfile_install_ui(ModsUi& u, const fs::path& file);     // CLERIA_MODS_UI install=<file>
 
 static mods::Prefs mods_prefs_from_settings() {
     const auto& c = settings().s.cleria;
@@ -133,6 +135,7 @@ static void mods_ui_script(ModsUi& u) {
         const std::size_t eq = it.find('=');
         if (eq == std::string::npos) continue;
         const std::string op = it.substr(0, eq), id = it.substr(eq + 1);
+        if (op == "install") { modfile_install_ui(u, fs::path(id)); continue; }   // the tab's Install a mod file...
         int i = -1;
         for (int k = 0; k < int(u.list.size()); ++k)
             if (u.list[std::size_t(k)].m.id == id) i = k;
@@ -418,6 +421,7 @@ static void mods_page(ui::List& L) {
 #endif
         }
     }
+    modfile_rows(L, u);
     if (ui::button(L, "Rescan", "Look for mods added or removed since CleriaCore started.")) {
         u.list = mods::discover(u.dir);
         mods::arrange(u.list, mods_prefs_from_settings());

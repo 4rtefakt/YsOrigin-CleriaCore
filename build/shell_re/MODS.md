@@ -47,6 +47,8 @@ A mod is a folder, or a `.zip` of one, in the **mods folder**:
   (nothing is written outside the cache). miniz 3.0.2 (already vendored) reads the zip from
   memory, so non-ASCII paths work. [H] Extraction rather than reading from the zip at every open:
   every loader takes a path (§3), and the cost is paid once.
+- **`.cleriamod` files**: a zip mod under CleriaCore's own extension, read exactly like a `*.zip` (extracted
+  to `<mods>/.cache/<name>.cleriamod/`). Double-clicking one installs and enables it: **MODFILE.md**.
 
 ### 1.1 `mod.ini`
 
@@ -166,12 +168,13 @@ top-level tab of their own (SHELL_CORE.md §9, the tab policy): the tab has sub-
 - **Content**: **Content additions** opens **Mods > Content additions** (CONTENT.md; once the F1
   "Content" tab): what the active content mods add, the mod items this save holds, recent events.
 - **Options**: Use mods (toggle), Open mods folder (`ShellExecuteW`; it creates the folder first;
-  a `CLERIA_DRIVE` run only prints), Rescan, and the folder path.
+  a `CLERIA_DRIVE` run only prints), Install a mod file... and Open .cleriamod files with CleriaCore
+  (MODFILE.md §4), Rescan, and the folder path.
 - A run without a settings file (headless tests) shows "Unavailable in this run" (and the Content row).
 - `CLERIA_SHELL_PAGE=Mods:<mod id>` / `Mods:content` (and the drive's `shell=Mods:<...>`, `shellback`)
   open a sub-page for headless captures (`drive_regress shell_subpages`).
-- `CLERIA_MODS_UI="toggle=<id>;up=<id>;down=<id>"`: the tab's own actions, applied once after the
-  startup load, for headless checks (they persist like clicks).
+- `CLERIA_MODS_UI="toggle=<id>;up=<id>;down=<id>;install=<file>"`: the tab's own actions, applied once after
+  the startup load, for headless checks (they persist like clicks).
 
 ## 5. API for other features
 
@@ -423,7 +426,7 @@ modder's guide is `samples/mods/README.md`.
   extraction to a cache, the 0x100.. range for new item ids, the sidecar save.
 - [not modelled] live re-mount without restart; mod-added room sidecar files (`fs::exists`
   sites, §3); a `font` mount for `yso_ins04.dat`; mod preview images in the tab; the Mods tab
-  cannot delete or install mods (by design: the folder is opened instead).
+  cannot delete mods (by design: the folder is opened instead; installing is MODFILE.md).
 - The retail game has no mod system; nothing here is RE'd behaviour, all of it is CleriaCore's.
 
 ## 12. Phase-2 task list (for the next agent)

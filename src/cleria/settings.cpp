@@ -444,6 +444,7 @@ void read_cleria(const Ini& ini, Settings& s) {
     rb("cleria.mods", "UseMods", c.use_mods);
     if (auto v = ini.get_string("cleria.mods", "Order")) c.mod_order = *v;
     if (auto v = ini.get_string("cleria.mods", "Active")) c.mod_active = *v;
+    rb("cleria.mods", "AssociateFiles", c.mod_associate);
     rb("cleria.video", "DebugHud", c.debug_hud);
     rb("cleria.qol", "UnlockMovieSkip", c.unlock_movie_skip);
     rb("cleria.qol", "SkipLogoMovie", c.skip_logo_movie);
@@ -480,6 +481,7 @@ void write_cleria(Ini& ini, const Settings& s) {
     ini.set_int("cleria.mods", "UseMods", c.use_mods);
     ini.set_string("cleria.mods", "Order", c.mod_order);
     ini.set_string("cleria.mods", "Active", c.mod_active);
+    ini.set_int("cleria.mods", "AssociateFiles", c.mod_associate);
     ini.set_int("cleria.video", "DebugHud", c.debug_hud);
     ini.set_int("cleria.qol", "UnlockMovieSkip", c.unlock_movie_skip);
     ini.set_int("cleria.qol", "SkipLogoMovie", c.skip_logo_movie);

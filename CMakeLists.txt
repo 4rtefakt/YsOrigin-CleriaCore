@@ -423,3 +423,11 @@ target_link_libraries(cleria-view PRIVATE cleria-script)
 add_executable(cleria-luatest apps/cleria-luatest/main.cpp)
 target_link_libraries(cleria-luatest PRIVATE cleria-script ws2_32)
 add_test(NAME luatest COMMAND cleria-luatest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# ---- Mod files (build/shell_re/MODFILE.md): .cleriamod install + the per-user file association ----------
+target_sources(cleria PRIVATE src/cleria/modinstall.cpp src/cleria/fileassoc.cpp)
+# cleria-modfiletest: package checks, installs into a scratch mods folder, the loader on .cleriamod, the
+# association on a FAKE registry (the real HKCU is never opened by a test).
+add_executable(cleria-modfiletest apps/cleria-modfiletest/main.cpp)
+target_link_libraries(cleria-modfiletest PRIVATE cleria miniz)
+add_test(NAME modfiletest COMMAND cleria-modfiletest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

@@ -204,6 +204,12 @@ int main() {
         check(!t.cleria.use_mods && t.cleria.mod_order == "a.one,b.two" && t.cleria.mod_active == "b.two" &&
               c.raw("cleria.mods", "Order") == std::optional<std::string>("\"a.one,b.two\""),
               "[cleria.mods] UseMods / Order / Active round trip (quoted strings)");
+        check(t.cleria.mod_associate, "[cleria.mods] AssociateFiles defaults on");
+        s.cleria.mod_associate = false;
+        Ini c2; write_cleria(c2, s);
+        Settings t2; read_cleria(c2, t2);
+        check(!t2.cleria.mod_associate && c2.raw("cleria.mods", "AssociateFiles") == std::optional<std::string>("0"),
+              "[cleria.mods] AssociateFiles round trip");
     }
 
     // ---- [cleria.pad] (the Controller page, build/shell_re/PAD.md) ----

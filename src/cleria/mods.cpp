@@ -145,6 +145,8 @@ std::vector<Info> g_active;
 
 }  // namespace
 
+bool safe_zip_entry(std::string_view name) { return safe_entry(name); }
+
 // ---- the manifest --------------------------------------------------------------------------------
 bool valid_id(std::string_view id) {
     if (id.empty() || id.size() > 64) return false;
@@ -273,10 +275,10 @@ std::vector<Mod> discover(const fs::path& dir) {
             if (!fs::exists(p / kManifestName, e2)) continue;   // not a mod folder
             m.root = p;
             read_manifest(m);
-        } else if (lower(u8(p.extension())) == ".zip") {
-            m.zip = true;
-            std::string err;
-            m.root = extract_zip(p, dir / kCacheDir / p.stem(), err);
+        } else if (const std::string ext = lower(u8(p.extension())); ext == ".zip" || ext == kModFileExt) {
+            m.zip = true;   // a .cleriamod is a zip mod (MODFILE.md); it unpacks to .cache/<name>.cleriamod/,
+            std::string err;   // never into the folder of a same-named .zip
+            m.root = extract_zip(p, dir / kCacheDir / (ext == ".zip" ? p.stem() : p.filename()), err);
             if (m.root.empty()) {
                 m.problems.push_back(err);
                 m.m.name = name;

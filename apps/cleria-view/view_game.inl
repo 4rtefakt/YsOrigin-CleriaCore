@@ -10,6 +10,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // The settings (view_input.inl): the persistent file for a played session, memory defaults for a
     // CLERIA_DRIVE run. The gamepad: SDL's gamepad layer, mapped into the retail pad codes.
     settings_init(std::getenv("CLERIA_DRIVE") == nullptr);
+    if (!modfile_startup()) { SDL_Quit(); return 0; }   // a .cleriamod to install (view_modfile.inl)
     mods_startup(g, asset_root);   // the vfs + the enabled mods, before any asset loads (view_mods.inl)
     content_startup(asset_root);   // the active mods' content/ patches (view_content.inl)
     lua_startup();                 // Lua mods (Script=): start each, events, grant filter (view_lua.inl)
@@ -77,6 +78,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int shell_shot_frames = 0;                           // frames left before that shot
     shell.init(win, g, fmt);
     shell.hud["pad"] = pad_hud;                          // controller hot-plug notice (view_pad.inl)
+    shell.hud["modfile"] = modfile_hud;                  // the mod-file install notice (view_modfile.inl)
     shell.hud["video"] = video_hud;                      // the FPS display / frame-time graph (view_video.inl)
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
     hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");

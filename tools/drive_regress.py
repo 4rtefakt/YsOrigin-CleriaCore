@@ -186,6 +186,9 @@ CASES = {
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aplua_regress  # noqa: E402
 CASES.update(aplua_regress.CASES)
+# The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
+import modfile_regress  # noqa: E402
+CASES.update(modfile_regress.CASES)
 
 
 def content_setup(case, env, tmp):
@@ -221,8 +224,9 @@ def run(name, case, exe, assets):
         if "mods" in case or "content" in case:
             content_setup(case, env, os.path.join(saves, "settings"))
         srv = aplua_regress.start(case, env, os.path.join(saves, "settings"))   # an `aplua` case: its server, the mod
+        extra = modfile_regress.start(case, env, os.path.join(saves, "settings"))   # a `modfile` case: the file
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
-        r = subprocess.run([exe, assets, sob], env=env, capture_output=True, text=True, timeout=300)
+        r = subprocess.run([exe, assets, sob] + extra, env=env, capture_output=True, text=True, timeout=300)
     out = r.stdout + r.stderr
     if not aplua_regress.finish(name, case, srv):
         return False

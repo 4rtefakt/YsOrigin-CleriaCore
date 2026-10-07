@@ -14,6 +14,13 @@ A short guide. The references: `build/shell_re/MODS.md` (packages, load order, t
 
 ## 1. Install and try one
 
+**A `.cleriamod` file**: double-click it. CleriaCore installs it (into the mods folder, replacing an older
+version of the same mod) and turns it on; if CleriaCore is already running, restart it to load the mod. F1 >
+Mods > *Install a mod file...* does the same from inside the game. (Double-click works once CleriaCore has
+been started once with F1 > Mods > *Open .cleriamod files with CleriaCore* On, the default.)
+
+**A folder or a `.zip`**:
+
 1. Copy the mod's folder (or a `.zip` of it) into the **mods folder**: `Saved Games\CleriaCore\mods`
    (next to `cleria.ini`; F1 > Mods > *Open mods folder* opens it).
 2. F1 > **Mods**: select it and press OK (or click it) to open its page, **Mods > <mod>**, and turn **Enabled**
@@ -99,7 +106,18 @@ Tips:
 - Sizes in overlays: multiply by `d.scale` so they follow the window.
 - Gameplay changes should default to the retail behaviour and say so ("Not a retail option.").
 
-## 7. Testing
+## 7. Sharing it: a `.cleriamod`
+
+```
+python tools/pack_mod.py samples/mods/my_mod -o dist
+```
+
+writes `dist/yourname.my_mod-1.0.0.cleriamod` (`<Id>-<Version>`): a zip with one folder named by the id, checked
+(the manifest, the Script file) and byte-for-byte reproducible. Players double-click it to install. A `.cleriamod`
+is a plain zip, so a `.zip` of the folder also works (dropped into the mods folder, or through *Install a mod
+file...*). See `build/shell_re/MODFILE.md`.
+
+## 8. Testing
 
 - Watch the console: every `cleria.log` / `print` line is `[lua:<id>] ...`, every error has file:line.
 - Scripted runs: `cleria.command("name", fn)` + `CLERIA_DRIVE="...;300:lua=name args"` drive a headless game

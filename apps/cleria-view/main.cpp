@@ -340,6 +340,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_input.inl"
 #include "view_shell.inl"
 #include "view_mods.inl"
+#include "view_modfile.inl"
 #include "view_content.inl"
 #include "view_access.inl"
 #include "view_pad.inl"
@@ -392,6 +393,7 @@ static fs::path default_assets(const char* argv0) {
 int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);   // unbuffered: breadcrumbs survive an assert/crash
     init_cull_env();
+    modfile_take_args(argc, argv);   // <file>.cleriamod / --install-mod <file> (view_modfile.inl)
     // No args -> free-fly the tower base (S_1000) with default assets.
     const fs::path asset_root = (argc >= 2) ? fs::path(argv[1]) : default_assets(argv[0]);
 
