@@ -359,3 +359,24 @@ if(WIN32)
   target_link_libraries(cleria-speedruntest PRIVATE ws2_32)
 endif()
 add_test(NAME speedruntest COMMAND cleria-speedruntest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# ---- Archipelago client library (build/shell_re/ARCHIPELAGO.md) ------------------------------
+# json is generic (src/cleria/json); the AP protocol, the WinHTTP WebSocket and the Ys Origin
+# location table live in cleria-ap, which the game links when it is wired.
+target_sources(cleria PRIVATE src/cleria/json.cpp)
+add_library(cleria-ap STATIC
+  src/cleria/ap/client.cpp
+  src/cleria/ap/text.cpp
+  src/cleria/ap/websocket.cpp
+  src/cleria/ap/session.cpp
+  src/cleria/ap/ys_data.cpp)
+target_link_libraries(cleria-ap PUBLIC cleria winhttp)
+# cleria-jsontest — the JSON parser / writer (src/cleria/json.hpp).
+add_executable(cleria-jsontest apps/cleria-jsontest/main.cpp)
+target_link_libraries(cleria-jsontest PRIVATE cleria)
+# cleria-aptest — the AP protocol state machine on recorded exchanges, PrintJSON text, the Ys Origin
+# table (res/ap), and a loopback WebSocket server (127.0.0.1 only; no internet).
+add_executable(cleria-aptest apps/cleria-aptest/main.cpp)
+target_link_libraries(cleria-aptest PRIVATE cleria-ap ws2_32)
+add_test(NAME jsontest COMMAND cleria-jsontest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME aptest COMMAND cleria-aptest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
