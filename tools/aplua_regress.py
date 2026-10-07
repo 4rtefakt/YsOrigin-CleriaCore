@@ -92,7 +92,10 @@ def start(case, env, settings_dir):
         port = srv.stdout.readline().strip().rsplit(":", 1)[1]
     mods = os.path.join(settings_dir, "mods")
     os.makedirs(mods, exist_ok=True)
-    shutil.copytree(os.path.join(ROOT, "samples", "mods", "archipelago_lua"), os.path.join(mods, "archipelago_lua"))
+    if os.environ.get("APLUA_MOD_ZIP"):           # test a release zip as players install it
+        shutil.copy(os.environ["APLUA_MOD_ZIP"], mods)
+    else:
+        shutil.copytree(os.path.join(ROOT, "samples", "mods", "archipelago_lua"), os.path.join(mods, "archipelago_lua"))
     with open(os.path.join(settings_dir, "cleria.ini"), "w") as f:
         f.write('[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n\n' % (MOD, MOD))
         f.write('[cleria.mod.%s]\nServer="127.0.0.1:%s"\nSlot="%s"\nAutoConnect=1\nDeathLink=%d\n'
