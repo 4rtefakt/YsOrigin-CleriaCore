@@ -456,6 +456,22 @@ void read_cleria(const Ini& ini, Settings& s) {
             c.pad_bind[std::size_t(i)] = *v;
     access::read(ini, s.access);
     read_pad(ini, s.pad);
+    // [cleria.speedrun] (SPEEDRUN.md)
+    auto& r = s.speedrun;
+    const char* sr = "cleria.speedrun";
+    rb(sr, "Enabled", r.enabled);
+    rb(sr, "ShowRTA", r.show_rta);
+    rb(sr, "ShowIGT", r.show_igt);
+    rb(sr, "ShowSplits", r.show_splits);
+    if (auto x = ini.get_int(sr, "Corner")) r.corner = std::clamp(*x, 0, 3);
+    if (auto x = ini.get_float(sr, "Scale")) r.scale = std::clamp(*x, 0.5f, 2.0f);
+    rb(sr, "AutoStart", r.auto_start);
+    rb(sr, "AutoSplit", r.auto_split);
+    if (auto x = ini.get_int(sr, "Timing")) r.timing = std::clamp(*x, 0, 1);
+    if (auto x = ini.get_int(sr, "Compare")) r.compare = std::clamp(*x, 0, 1);
+    rb(sr, "LiveSplit", r.livesplit);
+    if (auto x = ini.get_string(sr, "LiveSplitHost")) r.livesplit_host = *x;
+    if (auto x = ini.get_int(sr, "LiveSplitPort")) r.livesplit_port = std::clamp(*x, 1, 65535);
 }
 
 void write_cleria(Ini& ini, const Settings& s) {
@@ -474,6 +490,21 @@ void write_cleria(Ini& ini, const Settings& s) {
         ini.set_string("cleria.input", std::string("PadBind{") + kPadSlotNames[i] + "}", c.pad_bind[std::size_t(i)]);
     access::write(ini, s.access);
     write_pad(ini, s.pad);
+    const auto& r = s.speedrun;
+    const char* sr = "cleria.speedrun";
+    ini.set_int(sr, "Enabled", r.enabled);
+    ini.set_int(sr, "ShowRTA", r.show_rta);
+    ini.set_int(sr, "ShowIGT", r.show_igt);
+    ini.set_int(sr, "ShowSplits", r.show_splits);
+    ini.set_int(sr, "Corner", r.corner);
+    ini.set_float(sr, "Scale", r.scale);
+    ini.set_int(sr, "AutoStart", r.auto_start);
+    ini.set_int(sr, "AutoSplit", r.auto_split);
+    ini.set_int(sr, "Timing", r.timing);
+    ini.set_int(sr, "Compare", r.compare);
+    ini.set_int(sr, "LiveSplit", r.livesplit);
+    ini.set_string(sr, "LiveSplitHost", r.livesplit_host);
+    ini.set_int(sr, "LiveSplitPort", r.livesplit_port);
 }
 
 input::Config mapper_config(const Settings& s, bool book_mode) {

@@ -222,6 +222,25 @@ int main() {
               "[cleria.pad] round trip reaches the mapper config");
     }
 
+    // ---- [cleria.speedrun] (SPEEDRUN.md): off by default; a round trip; clamped ----
+    {
+        Settings s;
+        check(!s.speedrun.enabled && !s.speedrun.livesplit && s.speedrun.livesplit_port == 16834 &&
+              s.speedrun.auto_start && s.speedrun.auto_split && s.speedrun.timing == 0,
+              "[cleria.speedrun] defaults: off, LiveSplit off on port 16834, RTA");
+        s.speedrun.enabled = true; s.speedrun.corner = 2; s.speedrun.scale = 1.5f; s.speedrun.timing = 1;
+        s.speedrun.livesplit = true; s.speedrun.livesplit_host = "192.168.1.5"; s.speedrun.show_igt = false;
+        Ini c; write_cleria(c, s);
+        Settings t; read_cleria(c, t);
+        check(t.speedrun.enabled && t.speedrun.corner == 2 && std::fabs(t.speedrun.scale - 1.5f) < 1e-6f &&
+              t.speedrun.timing == 1 && t.speedrun.livesplit && t.speedrun.livesplit_host == "192.168.1.5" &&
+              !t.speedrun.show_igt && c.has("cleria.speedrun", "LiveSplitPort"), "[cleria.speedrun] round trip");
+        Ini bad; bad.parse("[cleria.speedrun]\r\nCorner=9\r\nScale=7\r\nLiveSplitPort=0\r\n");
+        Settings u; read_cleria(bad, u);
+        check(u.speedrun.corner == 3 && u.speedrun.scale == 2.0f && u.speedrun.livesplit_port == 1,
+              "[cleria.speedrun] out-of-range values are clamped");
+    }
+
     // ---- retail's location rules (FUN_005de1d0) ----
     {
         const fs::path sg = "C:/SG", inst = "D:/Game";

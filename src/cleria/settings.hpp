@@ -130,6 +130,20 @@ struct Settings {
     } cleria;
     access::Settings access;   // [cleria.access] / [cleria.cheats] (src/cleria/access.hpp)
     PadSettings pad;                         // cleria.ini [cleria.pad] (src/cleria/pad.hpp, PAD.md)
+
+    // ---- [cleria.speedrun] (build/shell_re/SPEEDRUN.md): a display layer, off by default. [H] ----
+    struct Speedrun {
+        bool enabled = false;                 // Enabled
+        bool show_rta = true, show_igt = true, show_splits = true;   // ShowRTA / ShowIGT / ShowSplits
+        std::int32_t corner = 1;              // Corner: 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
+        float scale = 1.0f;                   // Scale (0.5..2)
+        bool auto_start = true, auto_split = true;   // AutoStart / AutoSplit
+        std::int32_t timing = 0;              // Timing: 0 RTA, 1 IGT (decides PBs and deltas)
+        std::int32_t compare = 0;             // Compare: 0 personal best, 1 best segments
+        bool livesplit = false;               // LiveSplit (connect to LiveSplit Server)
+        std::string livesplit_host = "127.0.0.1";   // LiveSplitHost
+        std::int32_t livesplit_port = 16834;  // LiveSplitPort (LiveSplit's default)
+    } speedrun;
 };
 
 // The keys skipped when IniVersion != 0x100 (FUN_0040d1d0's gate around the early HighResoText /

@@ -344,3 +344,18 @@ foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest sav
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endforeach()
 add_test(NAME modstest COMMAND cleria-modstest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# ---- Speedrun mode (build/shell_re/SPEEDRUN.md): the timer, splits, LiveSplit Server client ----
+add_library(cleria-speedrun STATIC src/cleria/speedrun.cpp src/cleria/livesplit.cpp)
+target_link_libraries(cleria-speedrun PUBLIC cleria)
+if(WIN32)
+  target_link_libraries(cleria-speedrun PRIVATE ws2_32)
+endif()
+target_link_libraries(cleria-view PRIVATE cleria-speedrun)
+# cleria-speedruntest: the timer / split logic on a fake clock, the splits file, LiveSplit over loopback.
+add_executable(cleria-speedruntest apps/cleria-speedruntest/main.cpp)
+target_link_libraries(cleria-speedruntest PRIVATE cleria-speedrun)
+if(WIN32)
+  target_link_libraries(cleria-speedruntest PRIVATE ws2_32)
+endif()
+add_test(NAME speedruntest COMMAND cleria-speedruntest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

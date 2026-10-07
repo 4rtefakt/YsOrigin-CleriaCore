@@ -380,6 +380,24 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         shell.panel.add("Cheats", [&](ui::List& L) { access_cheats_page(L, persist); });
         shell.hud["access"] = access_hud;               // the cutscene-skip prompt
         shell.panel.add("Mods", [&](ui::List& L) { mods_page(L); });   // view_mods.inl
+        // Speedrun mode (view_speedrun.inl): its tab, its overlay, and the Cheats above as listed
+        // modifications. A new cheat adds its line here; other features use speedrun::set_provider.
+        speedrun_shell(shell, [&](std::vector<std::string>& out) {
+            if (cheat_hp) out.push_back("Infinite HP");
+            if (cheat_mp) out.push_back("Infinite MP");
+            if (cheat_boost) out.push_back("Infinite Boost");
+            if (cheat_o2) out.push_back("Infinite oxygen");
+            if (cheat_ohko) out.push_back("One-hit kills");
+            const access::Settings& ac = settings().s.access;
+            auto fmt_rate = [](float v) { char t[16]; std::snprintf(t, sizeof t, "%g", v); return std::string(t); };
+            if (ac.damage_dealt != 1.0f) out.push_back("Damage dealt x" + fmt_rate(ac.damage_dealt));
+            if (ac.damage_taken != 1.0f) out.push_back("Damage taken x" + fmt_rate(ac.damage_taken));
+            if (ac.exp_rate != 1.0f) out.push_back("EXP gained x" + fmt_rate(ac.exp_rate));
+            if (ac.sp_rate != 1.0f) out.push_back("SP gained x" + fmt_rate(ac.sp_rate));
+            if (ac.drop_rate != 1.0f) out.push_back("Drop rate x" + fmt_rate(ac.drop_rate));
+            if (ac.game_speed != 1.0f) out.push_back("Game speed " + std::to_string(int(ac.game_speed * 100.0f + 0.5f)) + "%");
+            if (ac.text_speed != int(access::TextSpeed::Retail)) out.push_back("Text speed (not original)");
+        });
         shell.panel.add("Interface", [&](ui::List& L) {
             ui::section(L, "Overlays");
             if (ui::toggle(L, "Debug text", &hud.debug_text,
@@ -892,6 +910,7 @@ title_again:
                         character = std::clamp(ng.character, 1, 3);   // [not modelled] Adol (0)
                         skin = ng.type;
                         difficulty = ng.very_easy ? 0 : ng.easy ? 1 : 2 + ng.difficulty;
+                        speedrun_new_game(character, skin);  // the speedrun start: the difficulty pick
                         ng_commit = true;                    // FUN_005758f0: fade, then commit
                         tf_cur = 0.0f; tf_tgt = 1.0f;
                         audio.fade_out_bgm(0x5dc);           // FUN_005cde10(1500) [BYTES 0x575985]
@@ -3154,6 +3173,7 @@ title_again:
     std::uint32_t cf_w = 0, cf_h = 0;
     auto run_drive = [&](const std::string& cmd) {
         std::printf("  [drive] t%llu %s\n", (unsigned long long)tick_count, cmd.c_str());
+        if (speedrun_drive(cmd, shell)) return;          // speedrun=... (view_speedrun.inl)
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
             if (std::sscanf(cmd.c_str() + 3, "%f,%f,%f", &x, &z, &deg) >= 2) {
@@ -4440,6 +4460,7 @@ title_again:
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
+                speedrun_debug_key(k, e.key.mod, death_t > 0 || csMgr.world_frozen() || paused);   // remembered by a run
                 // The game's own input (move, attack, jump, magic, boost, the book, the windows' OK /
                 // Cancel, the cutscene skip) goes through the mapper in the logic tick below. These
                 // are CleriaCore's FIXED debug keys, outside the mapper, never while a game-over, a
@@ -4598,6 +4619,7 @@ title_again:
         accum -= kTickDt;
         ++tick_count;
         ++game.g_flags[199];                       // 0x76bc38, the play time (FUN_004281c0 0x428274)
+        speedrun_tick(room.name, hud.boss_frac >= 0.0f, hud.boss_cur, game.g_flags, player.hp > 0);   // IGT, auto-splits
         for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
         access_tick();                             // a drive's held Esc, the shake scale (view_access.inl)
         ++ticks;

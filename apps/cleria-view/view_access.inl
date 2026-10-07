@@ -5,7 +5,9 @@
 // commands that test them. The game-code hooks themselves are one-liners at their sites in
 // view_game.inl, each citing the retail function it sits on.
 
-static access::SkipGate g_skip_gate;           // the cutscene skip (view_game's frozen branch steps it)
+#include "cleria/speedrun.hpp"
+
+static access::SkipGate g_skip_gate;          // the cutscene skip (view_game's frozen branch steps it)
 static access::FlashLimiter g_flash_limiter;   // the fader overlay under ReduceFlashes
 static int g_drive_esc_hold = 0;               // CLERIA_DRIVE `eschold=N`: ticks of Esc left to hold
 
@@ -26,8 +28,10 @@ static bool access_skip_step(bool pressed, bool held) {
     const access::SkipGate before = g_skip_gate;
     const bool skip = g_skip_gate.step(m, pressed, held);
     static const char* const kName[] = {"single", "double", "hold", "off"};
-    if (skip) std::printf("  [access] cutscene skip (%s)\n", kName[int(m)]);
-    else if (m == access::SkipMode::Double && pressed && before.window == 0)
+    if (skip) {
+        std::printf("  [access] cutscene skip (%s)\n", kName[int(m)]);
+        cleria::speedrun::note_modification("Cutscene skipped");   // retail has no skip (ACCESS.md §1)
+    } else if (m == access::SkipMode::Double && pressed && before.window == 0)
         std::printf("  [access] skip prompt: press again\n");
     else if (m == access::SkipMode::Hold && pressed) std::printf("  [access] skip prompt: hold\n");
     return skip;

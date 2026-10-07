@@ -74,13 +74,21 @@ CASES = {
         room="S_20/S_2004/S_2004",
         drive="20:exit=2;40:move=1,0,60;110:pos;120:quit",
         expect=[">> entering S_2006", "arrival @ (0.0,0.0,0.0) [SEN]", "feet (8.316, 0.000, 0.000)"]),
+    # Speedrun mode (build/shell_re/SPEEDRUN.md): the default Yunica route's first split
+    # (boss:S_1099) fires by itself when Velagunder's HP gauge empties (156 = the fight flag; Lv 60).
+    "speedrun_autosplit": dict(
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="60"),
+        drive="5:speedrun=on;10:speedrun=start;150:flag=156,1;"
+              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(200, 2400, 12)) + "2410:speedrun=status;2420:quit",
+        expect=["[speedrun] phase 1 split 0/8", "auto-split 0 'Velagunder' on boss gauge empty in S_1099",
+                "[speedrun] phase 1 split 1/8"]),
 }
 
 
 def run(name, case, exe, assets):
     with tempfile.TemporaryDirectory() as saves:
         env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR="1", CLERIA_DRIVE=case["drive"],
-                   CLERIA_SAVE_DIR=saves)
+                   CLERIA_SAVE_DIR=saves, **case.get("env", {}))
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
         r = subprocess.run([exe, assets, sob], env=env, capture_output=True, text=True, timeout=300)
     out = r.stdout + r.stderr
