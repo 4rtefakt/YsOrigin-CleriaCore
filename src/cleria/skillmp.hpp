@@ -92,6 +92,9 @@ SkillOut skill_tick(const SkillIn& in, const Mp& mp, Charge& ch);
 // ---- Boost (§1) ---------------------------------------------------------------------------
 // The passive fill added every logic tick: ((1 - hp/max) * B + 1) * M.
 // M = 2.0 / 1.66 / 1.33 / 1.0 for bc80 & 0x10000 / 0x8000 / 0x20 / none.
+// Unclamped, as in retail (0x467c43..0x467d89: +0x98 / +0x94 straight into the formula, and
+// FUN_0046cc10 adds it with no lower bound): HP above the max gives a negative fill.
+// B = the word tables 0x68b068 (30, difficulty 2) / 0x68b070 (25), the same for every character.
 float boost_passive(float hp, float hp_max, int difficulty, std::uint32_t bc80);
 // The drain per tick while boosting (FUN_00462c40): drain * (0.6 with accessory 0x3b).
 float boost_drain(int difficulty, bool bda4, bool acc_3b);

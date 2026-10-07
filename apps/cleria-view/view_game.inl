@@ -1055,6 +1055,7 @@ title_again:
     ef2sim::Rng pick_rng;
     pick_rng.bind(game.rs);
     g_cam_rng = [&] { return pick_rng.next(); };          // the camera shake's draws
+    weather::Weather wx;                                  // 0x125 / 0x122 / 0x123 (view_weather.inl)
     std::unordered_map<const bullet::Bullet*, int> gas_owner;
     // FUN_00450410 / the brains' inlined spawn. attach_owner != 0: FUN_00451c20 mode 2 — the
     // effect follows that actor's origin at (pos - origin); its spawn rotation / scale are
@@ -1529,6 +1530,7 @@ title_again:
         bullets.clear();                                      // before the effects they hold
         gas_owner.clear();
         fxsim.clear();
+        wx.clear();                                           // FUN_00428ec0 / 0x76a558 = 0 (WEATHER.md)
         apply_load_effects(room);                             // after the clear (the statue glow)
         pickups.clear();
         popups.clear();
@@ -2403,6 +2405,10 @@ title_again:
         }
         std::function<void(const FireBulletOp&)> fire_bullet_fn;            // 0x111 (view_duel.inl)
         void fire_bullet(const FireBulletOp& b) override { if (fire_bullet_fn) fire_bullet_fn(b); }
+        std::function<void(int, int, float, float, float)> weather_fn;      // 0x125 / 0x122 / 0x123 (view_weather.inl)
+        void fire_drop(int l) override { if (weather_fn) weather_fn(0x125, l, 0, 0, 0); }
+        void frame_smoke(int l) override { if (weather_fn) weather_fn(0x122, l, 0, 0, 0); }
+        void fire_blur(float a, float b, float c) override { if (weather_fn) weather_fn(0x123, 0, a, b, c); }
         bool is_underwater_world() const override { return water_mode_p && *water_mode_p == 2; }
         // ---- the floor 1..3 completion pass (build/event_re/FLOOR13_OPS.md; view_xso13.inl) ----
         const std::string* entry_label_p = nullptr;      // 0x76a474: the last committed door's label
@@ -3046,6 +3052,7 @@ title_again:
     };
     #include "view_xso13.inl"                  // the floor 1..3 op pass (FLOOR13_OPS.md)
     #include "view_duel.inl"                   // the story duels' script side (DUELS.md)
+    #include "view_weather.inl"                // the floor-3 weather ops (WEATHER.md)
     csHost.water_mode_p = &water_mode;
     csHost.water_wall_fn = [&](float x, float y, float z, float r, float st) {
         bullets.spawn_water_probe({x, y, z}, r, st);    // the falling splash probe (GoXx type 0x16)
@@ -3709,7 +3716,10 @@ title_again:
                 std::printf("  [drive] loaded %s feet (%.3f, %.3f, %.3f)\n", room.name.c_str(), feet.x, feet.y, feet.z);
             }
         } else if (cmd.rfind("hp=", 0) == 0) {         // hp=<n>: the player's HP (0 = the death)
-            player.hp = std::atoi(cmd.c_str() + 3);
+            // Capped at the max like the game's own heals: above it the passive Boost fill
+            // ((1 - hp/max) x B + 1) x M goes negative, and retail clamps neither the fill nor
+            // the gauge add (0x467c43..0x467d8c, FUN_0046cc10; ROUTE_F13 D8).
+            player.hp = std::clamp(std::atoi(cmd.c_str() + 3), 0, player.max_hp);
         } else if (cmd.rfind("sp=", 0) == 0) {         // sp=<n>: the SP wallet 0x76a75c
             player.sp = std::atoi(cmd.c_str() + 3);
         } else if (cmd == "stats") {                   // EXP / level / HP / SP (the access checks)
@@ -5310,6 +5320,7 @@ title_again:
             // and the real-step flags, not the fix counters (STATUE_CLEANSE.md §2 [BYTES
             // 0x5644c1..d5]). This is what fades the ward mid-pan after KEKKAIBREAK's Eft_Kill.
             // [H] no hit tick here: whether particle hits land under a Fix is not traced.
+            step_weather();                          // pool 9's weather runs under a Fix (view_weather.inl)
             step_bullets_frozen();                   // GoXx bullets fly on under a Fix (view_duel.inl)
             fxsim.step();
             fxsim.sweep();
@@ -5592,6 +5603,15 @@ title_again:
             }
             {   float dy = vertical_dy(pv, submerged, cur_surface == 0x12);
                 if (dy > 0.0f) dy *= surface_up;      // sand2/lava/blood slow a rise too
+                // The ceiling (FUN_0045a510, after dy is taken): while the timer is rising, a ray
+                // from the origin up +0x328 x 1.05 (0x6bd458) zeroes +0x330 / +0x420 on a hit
+                // [BYTES 0x45b219..0x45b29a]; then the move sweep, a sphere of +0x328 from the
+                // origin (0x45b2eb..0x45b32f), stops the rise at whatever is above (ROUTE_F13 D2).
+                const Vec3 org{feet.x, oy, feet.z};
+                if (pv.t > 0.0f && segment_hit(phys_mesh(room), org, {org.x, org.y + pm.radius() * 1.05f, org.z},
+                                               nullptr, nullptr))
+                    pv.t = 0.0f;
+                if (dy > 0.0f) dy = sweep_up(phys_mesh(room), org, pm.radius(), dy);
                 oy += dy; }
             int floor_tri = -1;
             const float fl = floor_at(phys_mesh(room), feet.x, feet.z, oy, &floor_tri);
@@ -6876,6 +6896,7 @@ title_again:
                     break;
                 }
             }
+            step_weather();                          // pool 9 (master update step 11): after the actors, before pools 2 / 6
             // The EF2 particles (EF2SIM.md §1.1: effects, then particles, after the actors). An
             // enemy effect's armed particle tests the player alone (EFFECTHIT.md §5): the
             // player's hit guard, the overlap, the re-hit bank keyed on token 0 (shared by every
@@ -7325,6 +7346,7 @@ title_again:
         draw_located_effects(g, world.effects(), asset_root, efl, eft, view, depth,
                              cam.forward(), fx_time);
         draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward());
+        draw_weather(view, depth, cam.forward());                 // view_weather.inl
         {   // The bubbles (FUN_004ffdb0): at the owner's origin + 0.75 + yoff, far-to-near.
             struct EmDraw { const Emotion* e; Vec3 base; float d2; };
             std::vector<EmDraw> ems;

@@ -222,6 +222,13 @@ struct XsoHost {
     // bullet from actor `actor` (0x3e6 already resolved to the script's own; 13 = the player)
     // through FUN_00593550 with the block below. Nothing happens when the actor does not exist.
     virtual void fire_bullet(const FireBulletOp& /*b*/) {}
+    // The floor-3 weather (build/effect_re/WEATHER.md, src/cleria/weather.hpp). 0x125 FireDrop
+    // [BYTES 0x56b771..0x56b80d] reads ONLY int operand 0 (the ember emitter's life, +0x12c;
+    // +0x130 = 0); 0x122 FrameSmoke(i) [0x56b59c..0x56b663] the smoke emitter's life; 0x123
+    // FireBlur(fff) [0x56b668..0x56b6c7] stores 0x76a558 / 0x76a55c / 0x76a560.
+    virtual void fire_drop(int /*life*/) {}
+    virtual void frame_smoke(int /*life*/) {}
+    virtual void fire_blur(float /*level*/, float /*delta*/, float /*strength*/) {}
 
     // --- the floor 1..3 completion pass (build/event_re/FLOOR13_OPS.md) ----------------
     // 0x80 Reg_EntryLabel(s): acc = _stricmp(s, the string at 0x76a474) [EXPORT 00566350 case

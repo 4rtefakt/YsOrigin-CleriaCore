@@ -131,6 +131,32 @@ CASES = {
         room="S_20/S_2008/S_2008",
         drive="2:held=97;700:pos;710:quit",
         expect=["O2 5292 a255 hp 60 sub 1"]),
+    # ROUTE_F13 D2, the ceiling while swimming (FUN_0045a510's ceiling ray 0x45b219 + the sphere sweep's
+    # push-out of an embedded contact). Mashing jump every 4 ticks under S_2010's y 13 slab: the top of
+    # the 0.675 sphere stays at 13 (feet 11.25); without it the player rose through the room to y 60.
+    "swim_ceiling": dict(
+        room="S_20/S_2010/S_2010",
+        drive="5:opt=InfiniteOxygen=1;6:held=97;20:every=4,620,jump;620:pos;621:quit",
+        expect=["feet (7.983, 11.2"]),
+    # ...and the open shaft still climbs: west to x 0, up the shaft, over to the S_2011 door (y 15.75+).
+    "swim_up_s2011": dict(
+        room="S_20/S_2010/S_2010",
+        drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;20:move=-1,-0.4,75;110:every=12,500,jump;"
+              "300:move=-1,0.3,150;460:move=-0.2,1,600;1100:quit",
+        expect=[">> entering S_2011"]),
+    # S_2015's tackle wall kabe_00 (flag 337) fills the S_2010 door (y 24..26.5 at z 53.75); the room's
+    # ceiling (34) and the lintel keep a swimmer from going over it. Swim up from the arrival, then press
+    # into the door; with the wall broken (s_Kabe00) the same door walks through.
+    "swim_kabe_s2015": dict(
+        room="S_20/S_2015/S_2015",
+        drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;20:every=10,1100,jump;330:move=0,1,800;"
+              "1100:obj=kabe_00;1110:every=6,1300,jump;1110:move=0,1,190;1300:mesh=kabe_00;1301:quit",
+        expect=["at object kabe_00", "mesh kabe_00 pos"], absent=[">> entering S_2010"]),
+    "swim_kabe_break": dict(
+        room="S_20/S_2015/S_2015",
+        drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;20:obj=kabe_00;30:atk;200:obj=kabe_00;"
+              "210:move=0,1,200;420:quit",
+        expect=["[hit] kabe_00 -> s_kabe00", ">> entering S_2010"]),
     # A load is the "load" warp to the snapshot (0x76c13c/140/144), placed by FUN_00459ff0: S_2014's
     # door at y 36 stays at 36 (the old re-ground put it on the y 48.5 roof).
     "saveload_floor": dict(
@@ -196,6 +222,20 @@ CASES = {
     "entry_label_b": dict(
         room="S_30/S_3008/S_3008", drive="10:flag=251,1;20:exit=1;40:scripts;41:quit",
         expect=[">> entering S_3015", "t40 scripts"], absent=["EV_3015_Yunica_1"]),
+    # WEATHER.md: S_3005's FIRE_DROP (FireDrop(220), Wait_Time(10) = a new ember emitter every 9 ticks)
+    # draws the shared xorshift 10 times on each 16th tick of every emitter's life. 330 / 1340 / 2790
+    # draws by t100 / t200 / t300 is the export's schedule for births on 1 + 9k.
+    "weather_embers": dict(
+        room="S_30/S_3005/S_3005", drive="300:quit", env=dict(CLERIA_WX_LOG="1"),
+        expect=["[weather] FireDrop(220)", "[weather] t100 steps 100 emitters 12 objects 45 draws 330 ",
+                "[weather] t200 steps 200 emitters 23 objects 157 draws 1340 ",
+                "[weather] t300 steps 300 emitters 25 objects 284 draws 2790 "]),
+    # WEATHER.md: S_3009's FRAME_SMOKE (0x122) and FIRE_BLUR (0x123) run on entry; the haze timer holds
+    # the strength the script rolled (0.3 / 0.25 / 0.2).
+    "weather_smoke": dict(
+        room="S_30/S_3009/S_3009", drive="300:quit", env=dict(CLERIA_WX_LOG="1"),
+        expect=["[weather] FrameSmoke(120)", "[weather] FireBlur(1.0000, -0.0025, 0.", "[weather] FireDrop(180)",
+                "[weather] t300 steps 300 emitters", "haze 0."]),
     # FLOOR13_OPS.md: a SOB trigger-4 touch volume (the S_1011 ward) runs Touch_kekkai -> 0x15c Chr_Damage.
     "ward_touch": dict(
         room="S_10/S_1011/S_1011", drive="30:obj=kekkai_01;32:hp=999;35:move=-1,1,40;80:quit",

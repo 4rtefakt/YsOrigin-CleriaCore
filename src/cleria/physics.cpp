@@ -211,14 +211,16 @@ void sweep_tri(const Vec3& p0, const Vec3& vel, float r, const Vec3& a, const Ve
             }
         };
         auto edge = [&](const Vec3& P, const Vec3& Q) {
+            // |(d + v t) x e|^2 = r^2 |e|^2 with d = p0 - P. (B and f had their d terms
+            // sign-flipped — Fauerby's baseToVertex is P - p0 — so no edge was ever hit.)
             const Vec3 e = sub(Q, P), d = sub(p0, P);
             const float e2 = dot(e, e), eV = dot(e, vel), eD = dot(e, d);
             const float A = e2 * (-vLen2) + eV * eV;
-            const float B = e2 * (2 * dot(vel, d)) - 2 * eV * eD;
+            const float B = -e2 * (2 * dot(vel, d)) + 2 * eV * eD;
             const float C = e2 * (r * r - dot(d, d)) + eD * eD;
             float t;
             if (lowest_root(A, B, C, bestT, t)) {
-                const float f = (eV * t - eD) / e2;
+                const float f = (eV * t + eD) / e2;
                 if (f >= 0.0f && f <= 1.0f) {
                     const Vec3 cen{p0.x + vel.x * t, p0.y + vel.y * t, p0.z + vel.z * t};
                     const Vec3 fp{P.x + e.x * f, P.y + e.y * f, P.z + e.z * f};
@@ -274,6 +276,43 @@ Vec3 collide_and_slide(const RoomMesh& m, Vec3 pos, Vec3 vel, float radius) {
         vel = {remain.x - best.n.x * pen, remain.y - best.n.y * pen, remain.z - best.n.z * pen};
     }
     return pos;
+}
+
+float sweep_up(const RoomMesh& m, const Vec3& c, float r, float dy) {
+    if (dy <= 0.0f) return dy;
+    const auto& idx = m.indices;
+    const auto& vp = m.vertices;
+    const float skin = 0.002f;   // collide_and_slide's gap
+    const Vec3 vel{0.0f, dy, 0.0f};
+    SweepHit best;
+    float push = 1.0f;           // > 0: no embedded contact above
+    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        if (water_tri(m, i / 3)) continue;
+        const Vec3 a = v(vp[idx[i]]), b = v(vp[idx[i + 1]]), d = v(vp[idx[i + 2]]);
+        if (std::max({a.x, b.x, d.x}) < c.x - r || std::min({a.x, b.x, d.x}) > c.x + r) continue;
+        if (std::max({a.z, b.z, d.z}) < c.z - r || std::min({a.z, b.z, d.z}) > c.z + r) continue;
+        if (std::max({a.y, b.y, d.y}) < c.y - r || std::min({a.y, b.y, d.y}) > c.y + dy + r) continue;
+        const Vec3 q = closest_on_tri(c, a, b, d);
+        const Vec3 cq = sub(q, c);
+        const float d2 = dot(cq, cq);
+        if (d2 < r * r) {
+            // Already embedded at the start: the engine's contact type 4 (FUN_005daa10, the
+            // sphere centre within the radius of the triangle) is pushed out along
+            // (centre - closest point) by the depth, before any slide (FUN_005dca20: pos -= n x
+            // depth) [EXPORT 005daa10.c:868-899, 005dca20.c:231-236]. That is what undoes the
+            // unclamped jump kick under a ceiling. Only the vertical part of a contact ABOVE the
+            // centre is kept here: CleriaCore's wall push-out keeps a 0.45 capsule, not the
+            // engine's 0.675 sphere, so walls beside the player overlap it and must not stop a
+            // rise. [H] the 0.6 split is resolve_walls' own floor/ceiling-vs-wall split.
+            const float dist = std::sqrt(d2);
+            if (dist > 1e-6f && cq.y / dist > 0.6f) push = std::min(push, -(r - dist) * (cq.y / dist));
+            continue;
+        }
+        sweep_tri(c, vel, r, a, b, d, best);
+    }
+    if (push <= 0.0f) return push;
+    if (!best.hit) return dy;
+    return std::max(0.0f, best.t * dy - skin);
 }
 
 bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b) {

@@ -96,6 +96,8 @@ int main(int, char**) {
         check(boost_passive(100, 100, 0, 0) == 1.0f, "passive fill at full HP: 1/tick");
         check(boost_passive(0, 100, 0, 0) == 26.0f, "passive fill at 0 HP: 26/tick");
         check(boost_passive(50, 100, 2, 0x10000) == 32.0f, "Nightmare B 30, blessing x2");
+        check(boost_passive(150, 100, 0, 0) == -11.5f,
+              "HP over the max: negative, unclamped as retail (0x467c43..; ROUTE_F13 D8)");
         check(boost_drain(0, false, false) == 30.0f && boost_drain(2, false, false) == 90.0f &&
               boost_drain(2, true, false) == 400.0f && boost_drain(0, false, true) == 18.0f,
               "drain 30 / 90 / 400, x0.6 with accessory 0x3b");

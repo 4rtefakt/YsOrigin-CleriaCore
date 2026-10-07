@@ -206,10 +206,12 @@ NOTES = {
     0x111: ("unhandled", "FUN_00571500 -> FUN_00593550 (EVENTVM_HANDLERS_4 §1); only after the S_3080 Shion duel "
                          "(M840 not ported) [not modelled]"),
     0x11d: ("unhandled", "FUN_00432e60 reflection-plane height [not modelled: no planar water reflection]"),
-    0x122: ("unhandled", "GoXx smoke emitter FUN_0058da80 [not modelled]"),
-    0x123: ("unhandled", "heat-haze post-fx globals 0x76a558..0x76a560 [not modelled]"),
-    0x125: ("unhandled", "GoXx type 0x12 ember emitter FUN_0058e790 / update FUN_0058e7c0, which draws the shared "
-                         "xorshift every 16 ticks [not modelled: RNG divergence on the fire floors]"),
+    0x122: ("implemented", "GoXx type 0x10 smoke emitter FUN_0058da80 / update FUN_0058daa0 (src/cleria/weather, "
+                           "WEATHER.md): its shared-xorshift draws and puffs"),
+    0x123: ("partial", "0x76a558..0x76a560 stepped as FUN_00427c90 does (weather::Blur); [not modelled] the "
+                       "distortion pass that reads 0x7b249c"),
+    0x125: ("implemented", "GoXx type 0x12 ember emitter FUN_0058e790 / update FUN_0058e7c0 (src/cleria/weather, "
+                           "WEATHER.md): 10 shared-xorshift draws every 16 ticks, the sparkle sprites"),
     0x13d: ("implemented", "the player (13) only, which is every corpus site"),
     0x15c: ("partial", "the player only (every floor 1..3 site is 998 on a player-bound touch script); "
                        "SOB trigger-4 touch volumes start via a [STAND-IN] side-contact sphere"),

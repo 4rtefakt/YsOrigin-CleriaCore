@@ -46,6 +46,14 @@ Vec3 resolve_walls(const RoomMesh& m, Vec3 pos, float radius, float height);
 // is the actor origin (feet), so max unassisted step-up ~= radius.
 Vec3 collide_and_slide(const RoomMesh& m, Vec3 pos, Vec3 vel, float radius);
 
+// The upward part of the engine's sphere sweep (FUN_005e92b0 + FUN_0041ea80 in FUN_0045a510,
+// the cast vector includes the tick's dy): how far a sphere of radius `r` centred at `c` may
+// rise of `dy` before it touches a triangle above. dy <= 0 is returned unchanged. When the
+// sphere already overlaps a triangle above its centre (the engine's embedded contact, type 4),
+// the result is <= 0: the push back down out of it. [approx] only the vertical component: no
+// slide along a sloped ceiling, no sideways push-out.
+float sweep_up(const RoomMesh& m, const Vec3& c, float r, float dy);
+
 // True if the segment a->b crosses any collision triangle (both faces). The engine's
 // line queries (FUN_005e9380 ray + FUN_0041e420 test) — used for enemy sight / line of
 // sight and the wall/ledge probes (src/cleria/enemy_ai.hpp).

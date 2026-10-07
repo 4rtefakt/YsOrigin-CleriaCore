@@ -44,6 +44,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/bgmdef.cpp
   src/cleria/ef2.cpp
   src/cleria/ef2_sim.cpp
+  src/cleria/weather.cpp
   src/cleria/bullet.cpp
   src/cleria/meshobj.cpp
   src/cleria/inventory.cpp
@@ -111,6 +112,9 @@ target_link_libraries(cleria-xso13test PRIVATE cleria)
 # cleria-dueltest — the story duels' script / engine side (build/event_re/DUELS.md).
 add_executable(cleria-dueltest apps/cleria-dueltest/main.cpp)
 target_link_libraries(cleria-dueltest PRIVATE cleria)
+# cleria-weathertest — the floor-3 script weather vs the retail bodies (build/effect_re/WEATHER.md).
+add_executable(cleria-weathertest apps/cleria-weathertest/main.cpp)
+target_link_libraries(cleria-weathertest PRIVATE cleria)
 # cleria-xsoops — the XSO VM op coverage probe for tools/xso_floor_ops.py (FLOOR13_OPS.md).
 add_executable(cleria-xsoops apps/cleria-xsoops/main.cpp)
 target_link_libraries(cleria-xsoops PRIVATE cleria)
@@ -378,6 +382,7 @@ add_test(NAME modstest COMMAND cleria-modstest "${CLERIA_TEST_ASSETS}" WORKING_D
 add_test(NAME contenttest COMMAND cleria-contenttest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME xso13test COMMAND cleria-xso13test "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME dueltest COMMAND cleria-dueltest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME weathertest COMMAND cleria-weathertest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ---- Speedrun mode (build/shell_re/SPEEDRUN.md): the timer, splits, LiveSplit Server client ----
 add_library(cleria-speedrun STATIC src/cleria/speedrun.cpp src/cleria/livesplit.cpp)

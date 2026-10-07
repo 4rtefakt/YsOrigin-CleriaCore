@@ -145,6 +145,50 @@ int main() {
         check(std::fabs(placement_floor(m, {50, 2, 50}) - 2.0f) < 1e-4f, "placement: no floor below keeps the placed y");
     }
 
+    // 11. The rise against a ceiling (sweep_up; FUN_0045a510's sphere sweep, ROUTE_F13 D2).
+    {
+        RoomMesh m = floor_y(13.0f);                       // a ceiling slab at 13 (either winding)
+        check(std::fabs(sweep_up(m, {0, 10, 0}, r, 0.1f) - 0.1f) < 1e-5f, "ceiling: free rise far below it");
+        const float d = sweep_up(m, {0, 12.3f, 0}, r, 0.1f);
+        check(d >= 0.0f && std::fabs(12.3f + d - (13.0f - r)) < 0.01f, "ceiling: the rise stops with the top at 13");
+        check(std::fabs(sweep_up(m, {0, 12.0f, 0}, r, -0.05f) + 0.05f) < 1e-6f, "ceiling: a sink is not touched");
+        // The jump kick (+0.285, unswept) can embed the sphere: the engine's type-4 contact pushes it
+        // back out along (centre - closest point), here straight down by the depth.
+        const float push = sweep_up(m, {0, 12.6f, 0}, r, 0.1f);
+        check(std::fabs(push - (13.0f - r - 12.6f)) < 1e-4f, "ceiling: embedded below it -> pushed down by the depth");
+        // Repeated kicks never carry the centre through the slab.
+        float y = 12.3f;
+        for (int i = 0; i < 40; ++i) { y += 0.285f; y += sweep_up(m, {0, y, 0}, r, 0.1f); }
+        check(y < 13.0f - r + 0.01f, "ceiling: mashed jump kicks stay under it");
+    }
+    {
+        RoomMesh m = wall_x(0.5f);                          // a wall 0.5 beside the centre (radius 0.675)
+        check(std::fabs(sweep_up(m, {0, 1, 0}, r, 0.1f) - 0.1f) < 1e-5f, "ceiling: an overlapped wall beside does not stop the rise");
+        RoomMesh f = floor_y(0.5f);                         // a floor overlapped below the centre
+        check(std::fabs(sweep_up(f, {0, 1, 0}, r, 0.1f) - 0.1f) < 1e-5f, "ceiling: an overlapped floor below does not stop it");
+        // An overhang whose edge passes 0.45 to the side: the sphere's rim catches it at 0.503 below.
+        RoomMesh o = mesh({{0.45f, 3, -10}, {0.45f, 3, 10}, {10, 3, 10},
+                           {0.45f, 3, -10}, {10, 3, 10}, {10, 3, -10}});
+        const float e = sweep_up(o, {0, 2.0f, 0}, r, 0.8f);
+        const float want = 3.0f - std::sqrt(r * r - 0.45f * 0.45f) - 2.0f;
+        check(std::fabs(e - want) < 0.01f, "ceiling: an overhang edge catches the sphere's rim");
+    }
+    // 12. The swept sphere against a triangle EDGE (the face point misses): a wall in x=2 whose
+    // side edge runs at z=0.3, 0.3 off the path, is touched at x = 2 - sqrt(r^2 - 0.09) and the
+    // rest of the move slides round it (deflected to -z), instead of passing straight through.
+    {
+        RoomMesh m = mesh({{2, -2, 0.3f}, {2, 4, 0.3f}, {2, 4, 10},
+                           {2, -2, 0.3f}, {2, 4, 10}, {2, -2, 10}});
+        Vec3 p = collide_and_slide(m, {0, 0, 0}, {1.39f, 0, 0}, r);
+        check(std::fabs(p.x - 1.39f) < 1e-3f && std::fabs(p.z) < 1e-6f, "edge: free up to the contact");
+        p = collide_and_slide(m, {0, 0, 0}, {3, 0, 0}, r);
+        check(p.z < -0.05f, "edge: the sphere's side clips a wall edge 0.3 off its path and slides round it");
+        RoomMesh far = mesh({{2, -2, 0.8f}, {2, 4, 0.8f}, {2, 4, 10},
+                             {2, -2, 0.8f}, {2, 4, 10}, {2, -2, 10}});
+        p = collide_and_slide(far, {0, 0, 0}, {3, 0, 0}, r);
+        check(std::fabs(p.x - 3.0f) < 1e-3f, "edge: an edge 0.8 off the path (> radius) is passed");
+    }
+
     std::printf("%s (%d failures)\n", g_fail ? "FAILED" : "ALL PASS", g_fail);
     return g_fail ? 1 : 0;
 }

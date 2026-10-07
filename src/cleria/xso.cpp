@@ -921,6 +921,12 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         }
                         for (std::uint32_t k = 0; k < 5; ++k) fb.f[8 + k] = opf(17 + k);   // +0x164..+0x174
                         host->fire_bullet(fb);
+                    } else if (sub == 0x125 && host && nargs >= 1) {
+                        host->fire_drop(op(0));           // FireDrop: operand 0 only (weather.hpp)
+                    } else if (sub == 0x122 && host && nargs >= 1) {
+                        host->frame_smoke(op(0));         // FrameSmoke(i)
+                    } else if (sub == 0x123 && host && nargs >= 3) {
+                        host->fire_blur(opf(0), opf(1), opf(2));   // FireBlur(fff)
                     } else if (on_unhandled) {
                         on_unhandled(sub);                 // all other sub-ops: skipped by length
                     }
