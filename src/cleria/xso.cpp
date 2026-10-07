@@ -720,6 +720,10 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     } else if (sub == 0x169) {   // Mesh_Delete(name): a destroy request
                         obj_deleted.push_back(ops(0));
                         obj_enable.push_back(ops(0));   // deprecated alias
+                        // Live too (FUN_00572a30 destroys the object): it stops drawing and colliding
+                        // now, as a load-time delete already does (the room's root_hidden). Without
+                        // this a ward deleted by a StepMove script stayed solid until a reload.
+                        if (host) { host->mesh_visible(ops(0), false); host->mesh_collision(ops(0), false); }
                     } else if (sub == 0x175) {
                         // Obj_SetState(objName, stateName, ?, ?) — BOTH operands are
                         // string-pool indices, and the second is a YMO ANIMATION CLIP name.

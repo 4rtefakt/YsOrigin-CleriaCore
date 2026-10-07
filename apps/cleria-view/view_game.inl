@@ -2514,7 +2514,10 @@ title_again:
         g_content.load_slot = [&](int s) {
             std::ifstream f(slot_path(s), std::ios::binary);
             std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
-            if (auto rec = SaveRecord::decode(raw)) { content_load(slot_path(s), s); apply_loaded(from_record(*rec)); }
+            if (auto rec = SaveRecord::decode(raw)) {
+                content_load(slot_path(s), s); apply_loaded(from_record(*rec), true);
+                csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+            }
         };
     }
     {   // Lua mods (view_lua.inl): the live game cleria.game / cleria.player reach
@@ -2624,6 +2627,11 @@ title_again:
     // One fixed tick of the room's event scripts. Returns whether the world is FROZEN (a Fix
     // is held) — the caller skips the player/enemy sim for that tick but the camera still runs.
     auto tick_events = [&] {
+        // A scene change ends the old room's scripts (they die with the scene, FUN_00431840); the new
+        // room's start next frame (start_room_events). Until then nothing runs: before this guard the
+        // old scripts got one more tick in the new room, where a KekkaiZako watcher saw no seeds alive
+        // and cleared its ward (leaving S_2008 set 336 without a fight).
+        if (room_events_dirty) return csMgr.world_frozen();
         // Cutscene SKIP: drain every live script to completion this frame, collapsing
         // Wait_Time delays and auto-advancing dialogue prompts, until the world thaws
         // (all Fixes released) or a bounded budget is hit. Side effects (flags, spawns,
@@ -2724,7 +2732,11 @@ title_again:
         for (Actor& a : world.actors()) {
             if (a.is_player() || a.is_enemy()) continue;
             if (a.flyer) continue;   // +0x398 (Chr_FlyOnOff / the factory): no floor clamp (FUN_0045a510)
-            const float fl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + room_diag(room));
+            // The floor below the origin first, as for the player above: the room's top surface put
+            // the medallion doors' Chr_LocateDummy talk targets on the closed doors' tops (S_3014's at
+            // y 15.6 for a script y of 8), out of reach of the action probe from the floor.
+            float fl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + kOriginH);
+            if (fl <= kNoFloor) fl = floor_at(phys_mesh(room), a.pos.x, a.pos.z, a.pos.y + room_diag(room));
             a.pos.y = (fl > kNoFloor) ? fl : feet.y;
         }
         const bool frozen = csMgr.world_frozen();
@@ -3127,8 +3139,10 @@ title_again:
         if (player.hp >= 1) { player.hp = player.max_hp; player.hp_lag = float(player.hp); }
         audio.play(0x75, kSfxMenuVol);
     };
-    // 0x14E Chr_Muteking: the player's i-frames +0x734 = max(+0x734, n).
-    csHost.muteking_fn = [&](int n) { player_iframes = std::max(player_iframes, n); };
+    // 0x14E Chr_Muteking: the player's i-frames +0x734 = max(+0x734, n), and n == 0 clears them
+    // (FUN_00571390: `uVar2 = param_3; if (param_3 != 0 && +0x734 < param_3) ...; +0x734 = uVar2`).
+    // @UseWing's Muteking(998, 6000) ... Muteking(998, 0) left 100 s of invulnerability after a warp.
+    csHost.muteking_fn = [&](int n) { player_iframes = n == 0 ? 0 : std::max(player_iframes, n); };
     // Chr_Jump on the player: the vertical timer +0x330 = v, the origin rises v, airborne.
     // [not modelled] +0x9d6 = 1.
     csHost.player_jump_fn = [&](float v) {
@@ -3208,7 +3222,12 @@ title_again:
         for (const Actor& a : world.actors()) {
             if (a.is_player() || a.talk_script.empty() || a.destroy_requested()) continue;
             if (a.is_enemy() && !a.alive()) continue;
-            const Vec3 ao{a.pos.x, a.pos.y + a.height, a.pos.z};
+            // The target's origin +0x54 (FUN_00460470 compares origins): floor + its +0x324. An actor
+            // with no sprite binding (a Chr_LocateDummy talk target, CAST_C000) never had its height
+            // set, so its "origin" sat on the floor, 1.075 below the player's: the medallion doors and
+            // the Blue Moon altar were out of reach from the floor in front of them.
+            const float ah = a.height > 0.0f ? a.height : cast_motion(casts, a.cast_id).height();
+            const Vec3 ao{a.pos.x, a.pos.y + ah, a.pos.z};
             const float dx = ao.x - ahead.x, dy = ao.y - ahead.y, dz = ao.z - ahead.z;
             const float d2 = dx * dx + dy * dy + dz * dz;
             const float r = a.hurt_radius + 0.95f;                // +0x68 + 0.95
@@ -3310,6 +3329,7 @@ title_again:
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
+    std::vector<DriveCmd> drive_more;       // `rep=` expansions, merged after the tick's commands (audit aid)
     if (const char* dv = std::getenv("CLERIA_DRIVE")) {
         std::string all = dv;
         std::size_t p0 = 0;
@@ -3352,6 +3372,20 @@ title_again:
             if (std::sscanf(cmd.c_str() + 3, "%f,%f,%f", &x, &z, &deg) >= 2) {
                 const float fl = floor_at(phys_mesh(room), x, z, feet.y + room_diag(room));
                 feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                const float yaw = deg * 3.14159265358979323846f / 180.0f;
+                face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
+                facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+            }
+        } else if (cmd.rfind("rep=", 0) == 0) {        // rep=every,count,cmd: cmd again every `every` ticks (audit aid)
+            int ev = 0, n = 0, off = 0;
+            if (std::sscanf(cmd.c_str() + 4, "%d,%d,%n", &ev, &n, &off) >= 2 && ev > 0 && off > 0)
+                for (int k = 1; k <= n; ++k)
+                    drive_more.push_back({tick_count + std::uint64_t(ev) * std::uint64_t(k), cmd.substr(4 + std::size_t(off))});
+        } else if (cmd.rfind("at3=", 0) == 0) {        // at3=x,y,z,deg: the floor below (x, y + 1, z) (audit aid)
+            float x = 0, y = 0, z = 0, deg = 0;
+            if (std::sscanf(cmd.c_str() + 4, "%f,%f,%f,%f", &x, &y, &z, &deg) >= 3) {
+                const float fl = floor_at(phys_mesh(room), x, z, y + 1.0f);
+                feet = {x, fl > kNoFloor ? fl : y, z};
                 const float yaw = deg * 3.14159265358979323846f / 180.0f;
                 face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
@@ -3458,16 +3492,24 @@ title_again:
         } else if (cmd == "atk") {                     // the attack button
             try_attack();
         } else if (cmd.rfind("near=", 0) == 0) {       // near=cast: stand 2.0 from that actor, facing it
-            const int cast = std::atoi(cmd.c_str() + 5);
-            bool live = false;                         // near=cast,live: prefer a living one (a wave after a wave)
-            if (cmd.find(",live") != std::string::npos)
-                for (const Actor& a : world.actors()) live |= a.cast_id == cast && !a.is_player() && a.hp > 0;
+            const bool by_id = cmd.size() > 5 && cmd[5] == '#';   // near=#id: by instance id (audit aid)
+            const int cast = std::atoi(cmd.c_str() + 5 + (by_id ? 1 : 0));
+            float nd = 2.0f;                                      // near=cast,dist: another distance (audit aid)
+            bool live = false;                                    // near=cast,live: prefer a living one (a wave after a wave)
+            if (const std::size_t cm = cmd.find(','); cm != std::string::npos) {
+                if (cmd.compare(cm + 1, std::string::npos, "live") == 0) {
+                    for (const Actor& a : world.actors())
+                        live |= (by_id ? a.instance_id : a.cast_id) == cast && !a.is_player() && a.hp > 0;
+                } else {
+                    nd = float(std::atof(cmd.c_str() + cm + 1));
+                }
+            }
             for (const Actor& a : world.actors()) {
-                if (a.cast_id != cast || a.is_player() || (live && a.hp <= 0)) continue;
+                if ((by_id ? a.instance_id : a.cast_id) != cast || a.is_player() || (live && a.hp <= 0)) continue;
                 float dx = feet.x - a.pos.x, dz = feet.z - a.pos.z;
                 const float l = std::sqrt(dx * dx + dz * dz);
                 if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
-                const float x = a.pos.x + dx * 2.0f, z = a.pos.z + dz * 2.0f;
+                const float x = a.pos.x + dx * nd, z = a.pos.z + dz * nd;
                 const float fl = floor_at(phys_mesh(room), x, z, feet.y + room_diag(room));
                 feet = {x, fl > kNoFloor ? fl : feet.y, z};
                 face_dir = {-dx, 0.0f, -dz};
@@ -3505,6 +3547,47 @@ title_again:
                 std::printf("  [bullet] kind %d effect %d age %u pos (%.2f, %.2f, %.2f) speed %.2f fx %d%s\n", bp->s.kind,
                             bp->s.effect, bp->age, bp->s.pos.x, bp->s.pos.y, bp->s.pos.z, bp->s.speed,
                             bp->fx ? bp->fx->live : -1, bp->gone ? " gone" : "");
+        } else if (cmd == "actors") {                 // the live actors (audit aid): id, cast, enemy, hp, groups, pos
+            for (const Actor& a : world.actors())
+                if (!a.is_player())
+                    std::printf("  [actor] id %d cast %d %s hp %.0f g1 %d pos (%.1f,%.1f,%.1f)\n", a.instance_id, a.cast_id,
+                                a.is_enemy() ? "enemy" : "npc", a.hp, int(a.tag.in_group(1)), a.pos.x, a.pos.y, a.pos.z);
+        } else if (cmd.rfind("level=", 0) == 0) {     // level=n: the Lua mods' set_level (audit aid; a cheat)
+            player.level = std::clamp(std::atoi(cmd.c_str() + 6), 1, 60);
+            if (ginfo.ok()) player.exp = float(ginfo.exp_to_level(player.level));
+            player.max_hp = int(player_stats().max_hp);
+            player.hp = player.max_hp;
+        } else if (cmd == "flagdump") {               // every nonzero game flag, "i=v" (audit aid)
+            std::string s;
+            for (int i = 0; i < 0x200; ++i)
+                if (game.g_flags[i]) s += " " + std::to_string(i) + "=" + std::to_string(game.g_flags[i]);
+            std::printf("  [flags]%s\n", s.c_str());
+        } else if (cmd == "nearest") {                // stand 2.0 from the nearest live enemy, facing it (audit aid)
+            const Actor* best = nullptr;
+            float bd = 1e30f;
+            for (const Actor& a : world.actors()) {
+                if (csMgr.world_frozen()) break;          // never during a cutscene
+                if (a.is_player() || !a.is_enemy() || a.hp < 1.0f) continue;
+                bool in_door = false;                     // and never next to a door (it would be taken)
+                for (const SenTrigger& t : room.sen.triggers)
+                    for (float r : {0.0f, 2.5f})
+                        if (t.contains({a.pos.x + r, a.pos.y + 1.0f, a.pos.z}) || t.contains({a.pos.x - r, a.pos.y + 1.0f, a.pos.z}) ||
+                            t.contains({a.pos.x, a.pos.y + 1.0f, a.pos.z + r}) || t.contains({a.pos.x, a.pos.y + 1.0f, a.pos.z - r}))
+                            in_door = true;
+                if (in_door) continue;
+                const float d = (a.pos.x - feet.x) * (a.pos.x - feet.x) + (a.pos.z - feet.z) * (a.pos.z - feet.z);
+                if (d < bd) { bd = d; best = &a; }
+            }
+            if (best) {
+                float dx = feet.x - best->pos.x, dz = feet.z - best->pos.z;
+                const float l = std::sqrt(dx * dx + dz * dz);
+                if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
+                const float x = best->pos.x + dx * 2.0f, z = best->pos.z + dz * 2.0f;
+                const float fl = floor_at(phys_mesh(room), x, z, best->pos.y + 3.0f);
+                feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                face_dir = {-dx, 0.0f, -dz};
+                facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+            }
         } else if (cmd == "scripts") {                // the live scripts and their pcs
             std::printf("  [drive]   frozen %d fix %d/%d\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1]);
             for (const auto& li : csMgr.live)
@@ -3572,6 +3655,8 @@ title_again:
             }
         } else if (cmd.rfind("obj=", 0) == 0) {        // obj=<name>: stand 1.5 from that scene object, facing it
             std::string ln = cmd.substr(4);
+            float od = 1.5f;                                      // obj=name,dist: another distance (audit aid)
+            if (const std::size_t cm = ln.find(','); cm != std::string::npos) { od = float(std::atof(ln.c_str() + cm + 1)); ln.resize(cm); }
             for (char& ch : ln) ch = char(std::tolower((unsigned char)ch));
             Vec3 at{};
             bool found = false;
@@ -3585,7 +3670,7 @@ title_again:
                 float dx = feet.x - at.x, dz = feet.z - at.z;
                 const float l = std::sqrt(dx * dx + dz * dz);
                 if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
-                const float x = at.x + dx * 1.5f, z = at.z + dz * 1.5f;
+                const float x = at.x + dx * od, z = at.z + dz * od;
                 const float fl = floor_at(phys_mesh(room), x, z, at.y + 3.0f);
                 feet = {x, fl > kNoFloor ? fl : at.y, z};
                 face_dir = {-dx, 0.0f, -dz};
@@ -3770,11 +3855,13 @@ title_again:
         bookAccum = 0;
     };
     int drive_book_v = 0;                                  // a CLERIA_DRIVE up / down for the book
+    int drive_book_h = 0;                                  // and left / right
     drive_book = [&](const std::string& c) {
         if (!(paused && book.is_open())) return false;
         if (c == "ok") bookIn.confirm = true;
         else if (c == "esc") bookIn.cancel = true;
         else if (c == "up" || c == "down") drive_book_v = c == "up" ? -1 : 1;
+        else if (c == "left" || c == "right") drive_book_h = c == "left" ? -1 : 1;   // (audit aid)
         else return false;
         return true;
     };
@@ -4800,6 +4887,7 @@ title_again:
                 in.hstep = inf.dx;
                 in.vstep = inf.dy;
                 if (drive_book_v != 0) { in.vstep = drive_book_v; drive_book_v = 0; }
+                if (drive_book_h != 0) { in.hstep = drive_book_h; drive_book_h = 0; }
                 in.held_left = (inf.dir & input::kLeft) != 0;
                 in.held_right = (inf.dir & input::kRight) != 0;
                 BookModel bm = book_model();
@@ -4836,7 +4924,12 @@ title_again:
                     std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
                     if (auto r = SaveRecord::decode(raw)) {
                         content_load(slot_path(bev.load_slot), bev.load_slot);   // mods: its sidecar
-                        apply_loaded(from_record(*r));
+                        // A load is the "load" warp (FUN_00431260): a full scene load even into the same
+                        // room, so the actors the room's scripts spawned before do not survive it.
+                        apply_loaded(from_record(*r), /*force_scene*/true);
+                        // and its scene entry fades in from black (FUN_00431840 -> FUN_00439170), whatever
+                        // fader a script of the room left behind
+                        csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
                         save_cont();                 // FUN_00431260 "load"
                         hud.message("Game loaded.");
                     }
@@ -4859,7 +4952,8 @@ title_again:
         ++game.g_flags[199];                       // 0x76bc38, the play time (FUN_004281c0 0x428274)
         speedrun_tick(room.name, hud.boss_frac >= 0.0f, hud.boss_cur, game.g_flags, player.hp > 0);   // IGT, auto-splits
         for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
-        access_tick();                             // a drive's held Esc, the shake scale (view_access.inl)
+        if (!drive_more.empty()) { drive.insert(drive.end(), drive_more.begin(), drive_more.end()); drive_more.clear(); }
+        access_tick();                            // a drive's held Esc, the shake scale (view_access.inl)
         ++ticks;
         // ---- the input record: one mapper step per logic tick (FUN_005d2ba0 from FUN_00410440) ----
         // g_in is read below by the windows (tick_events), the mover's move / walk / jump / attack /

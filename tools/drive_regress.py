@@ -279,6 +279,38 @@ CASES = {
               ";210:abil;220:quit",
         expect=["hit Selnarg (lv3 DEF 53): 2 dmg, 72/74 left", "hit Selnarg (lv3 DEF 53): 2 dmg, 70/74 left",
                 "[abil] t210", "combo 6/"]),
+    # build/audit/ROUTE_F13.md: leaving a ward room ends its scripts; the KekkaiZako watcher no longer gets a
+    # tick in the next room (no seeds there) and clears the ward (S_2008's 336) without a fight.
+    "ward_leave_kept": dict(
+        room="S_20/S_2007/S_2007", drive="20:exit=1;60:exit=0;100:flagdump;110:quit",
+        expect=[">> entering S_2008", ">> entering S_2007", "[flags]"], absent=[" 336=1"]),
+    # ROUTE_F13.md: a Chr_LocateDummy talk target stays at its script point (S_3014's door, y 8), not on the
+    # closed door's top, so the action probe from the floor reaches it.
+    "dummy_floor": dict(
+        room="S_30/S_3014/S_3014", drive="5:flag=374,1;10:exit=0;40:exit=4;100:chr=166;110:quit",
+        expect=[">> entering S_3014", "[chr] 166", "pos (-43.80, 8.00, 38.00)"]),
+    # ROUTE_F13.md: the action probe compares origins (FUN_00460470 +0x54): a talk target with no sprite
+    # (CAST_C000, the S_1009 Blue Moon altar's dummy 167) floats +0x324 above its floor like any actor, so
+    # the player on the dais in front of it reaches it.
+    "dummy_probe": dict(
+        room="S_10/S_1009/S_1009", drive="5:flag=111,1;30:at3=0,9,33.3,0;31:act;60:scripts;70:quit",
+        expect=["[probe] actor 167 -> s_bluemoon", "script s_bluemoon"]),
+    # ROUTE_F13.md: a live Mesh_Delete (0x169) drops the object's draw and collision at once. S_1015's
+    # trap: the chest raises kekkai_01, the seeds die, StepMove_01 deletes it; walking out of the cage
+    # used to stop on the deleted ward (and re-run Touch_kekkai) until the room was reloaded.
+    "mesh_delete_live": dict(
+        room="S_10/S_1015/S_1015",
+        drive="10:obj=box_01;11:act;" + ";".join(f"{t}:ok" for t in range(40, 900, 25)) + ";900:kill1;"
+              + ";".join(f"{t}:ok" for t in range(925, 1500, 25)) + ";1510:obj=box_01;1511:move=0.976,-0.22,250;"
+              "1800:pos;1810:quit",
+        expect=["[probe] box_01 -> s_box01", "t900 kill1", "t1800 pos"], absent=["[touch] kekkai_01"]),
+    # ROUTE_F13.md: Chr_Muteking(998, 0) clears the i-frames (FUN_00571390). @UseWing's 6000 i-frames
+    # (the Crystal warp) used to survive it, so a ward or a fire vent did no damage for 100 s after a warp.
+    "muteking_zero": dict(
+        room="S_10/S_1011/S_1011",
+        drive="10:flag=137,2;11:run=@UseWing;700:obj=kekkai_01;702:hp=999;705:move=-1,1,40;800:quit",
+        expect=["run @UseWing -> started", "ChangeScene 's_10\\s_1011' -> S_1011", "[touch] kekkai_01 -> touch_kekkai",
+                "Chr_Damage player atk 50 -> HP"]),
 }
 
 # The story duels on floors 1-3 (build/event_re/DUELS.md), each played from the room's event box through
