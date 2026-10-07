@@ -241,6 +241,24 @@ int main() {
               "[cleria.speedrun] out-of-range values are clamped");
     }
 
+    // ---- [cleria.archipelago] (AP_GAME.md): no slot, no auto-connect, DeathLink off by default; a round trip ----
+    {
+        Settings s;
+        check(s.archipelago.slot.empty() && !s.archipelago.auto_connect && !s.archipelago.death_link &&
+              s.archipelago.uuid.empty() && s.archipelago.show_feed && !s.archipelago.show_tracker,
+              "[cleria.archipelago] defaults: nothing set, nothing on");
+        s.archipelago.server = "wss://archipelago.gg:51234"; s.archipelago.slot = "Hugo \"the\" Doll";
+        s.archipelago.password = "p@ss word"; s.archipelago.uuid = "u-1"; s.archipelago.death_link = true;
+        s.archipelago.auto_connect = true; s.archipelago.show_feed = false; s.archipelago.show_tracker = true;
+        s.archipelago.export_state = false;
+        Ini c; write_cleria(c, s);
+        Settings t; read_cleria(c, t);
+        check(t.archipelago.server == s.archipelago.server && t.archipelago.slot == s.archipelago.slot &&
+              t.archipelago.password == "p@ss word" && t.archipelago.uuid == "u-1" && t.archipelago.death_link &&
+              t.archipelago.auto_connect && !t.archipelago.show_feed && t.archipelago.show_tracker &&
+              !t.archipelago.export_state, "[cleria.archipelago] round trip");
+    }
+
     // ---- retail's location rules (FUN_005de1d0) ----
     {
         const fs::path sg = "C:/SG", inst = "D:/Game";

@@ -21,10 +21,9 @@ CommonClient.py / NetUtils.py. **[MOD]** = the retail Ys Origin mod and apworld 
 | PrintJSON -> text model | `src/cleria/ap/text.{hpp,cpp}` | built |
 | session: reconnect, keep-alive, status line | `src/cleria/ap/session.{hpp,cpp}` | built, loopback-tested |
 | Ys Origin location / item table | `tools/ap_import.py` -> `res/ap/ys_origin.json`, loader `src/cleria/ap/ys_data.{hpp,cpp}` | built |
-| game glue, UI, sidecar save | — | **next agent** (§7) |
+| game glue, UI, sidecar save | `src/cleria/ap/ys_game`, `apps/cleria-view/view_archipelago.inl` | built: **AP_GAME.md** |
 
-Build: `cleria-ap` is a static library linking `cleria` and `winhttp`. `cleria-view` does not link
-it yet. Add `cleria-ap` to its `target_link_libraries` when it is wired.
+Build: `cleria-ap` is a static library linking `cleria` and `winhttp`; `cleria-view` links it (AP_GAME.md).
 
 ---
 

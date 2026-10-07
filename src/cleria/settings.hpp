@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "cleria/access.hpp"
+#include "cleria/ap_settings.hpp"
 #include "cleria/input_map.hpp"
 #include "cleria/pad.hpp"
 #include "cleria/video.hpp"
@@ -146,6 +147,7 @@ struct Settings {
         std::int32_t livesplit_port = 16834;  // LiveSplitPort (LiveSplit's default)
     } speedrun;
     video::Settings video;                   // cleria.ini [cleria.video] extras (src/cleria/video.hpp, VIDEO.md)
+    apcfg::Settings archipelago;             // cleria.ini [cleria.archipelago] (src/cleria/ap_settings.hpp, AP_GAME.md)
 };
 
 // The keys skipped when IniVersion != 0x100 (FUN_0040d1d0's gate around the early HighResoText /

@@ -12,6 +12,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     settings_init(std::getenv("CLERIA_DRIVE") == nullptr);
     mods_startup(g, asset_root);   // the vfs + the enabled mods, before any asset loads (view_mods.inl)
     content_startup(asset_root);   // the active mods' content/ patches (view_content.inl)
+    ap_startup();                  // Archipelago: table, settings, grant filter, auto-connect (view_archipelago.inl)
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) std::fprintf(stderr, "SDL gamepad: %s\n", SDL_GetError());
     else g_sdl_in.open_pad();
     // A CLERIA_DRIVE run is headless: a hidden window (nothing on the user's desktop or taskbar) and an
@@ -388,6 +389,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ac.text_speed != int(access::TextSpeed::Retail)) out.push_back("Text speed (not original)");
         });
         shell.panel.add("Content", [&](ui::List& L) { content_page(L); });   // view_content.inl
+        ap_shell(shell, persist);                       // the Archipelago tab + overlays (view_archipelago.inl)
         shell.panel.add("Interface", [&](ui::List& L) {
             ui::section(L, "Overlays");
             if (ui::toggle(L, "Debug text", &hud.debug_text,
@@ -1206,7 +1208,7 @@ title_again:
     auto award_exp = [&](float enemy_exp) {
         if (!ginfo.ok()) return;
         // always at least 1; the shell's EXP rate stands where retail's 0x76a5fc (1.0) multiplies it
-        player.exp += access::exp_gain(enemy_exp, settings().s.access.exp_rate);
+        player.exp += access::exp_gain(enemy_exp, settings().s.access.exp_rate * ap_exp_factor(player.level));   // + the AP seed's
         while (player.level < 60 &&
                player.exp >= float(ginfo.exp_to_level(player.level + 1))) {
             ++player.level;
@@ -2426,6 +2428,26 @@ title_again:
             if (auto rec = SaveRecord::decode(raw)) { content_load(slot_path(s), s); apply_loaded(from_record(*rec)); }
         };
     }
+    {   // Archipelago (view_archipelago.inl): the live game the AP layer reads and writes
+        ApBind b;
+        b.flags = game.g_flags; b.item_arr = game.item_arr; b.warp_on = warp_on; b.character = &character;
+        b.add_sp = [&](int n) { player.sp = std::clamp(player.sp + n, 0, 999999); };
+        b.weapon_tier = [&] { return int(game.g_flags[148]); };
+        b.set_weapon_tier = [&](int t) { game.g_flags[148] = t; for (std::int32_t& x : inv.tier) x = t; };   // 0x7f x4
+        b.level = [&] { return player.level; };
+        b.set_level = [&](int l) {                       // [H] after FUN_004200F0 [MOD]: level, EXP at its threshold, stats
+            player.level = std::clamp(l, 1, 60);
+            if (ginfo.ok()) player.exp = float(ginfo.exp_to_level(player.level));
+            player.max_hp = int(player_stats().max_hp);
+            player.hp = std::min(player.hp, player.max_hp);
+        };
+        b.refresh = [&] { player.max_hp = int(player_stats().max_hp); };
+        b.kill = [&] { player.hp = 0; };
+        b.alive = [&] { return player.hp > 0; };
+        b.frozen = [&] { return csMgr.world_frozen(); };
+        b.warp = [&](int i) { game.g_flags[137] = i; csMgr.vm.g_flags[137] = i; csHost.go_warp_point(); };   // 0xa6
+        ap_bind(std::move(b));
+    }
     csHost.warp_on = warp_on;
     csHost.manual_on = manual_on;
     csHost.topic_seen = topic_seen;
@@ -3201,6 +3223,7 @@ title_again:
     auto run_drive = [&](const std::string& cmd) {
         std::printf("  [drive] t%llu %s\n", (unsigned long long)tick_count, cmd.c_str());
         if (speedrun_drive(cmd, shell)) return;          // speedrun=... (view_speedrun.inl)
+        if (ap_drive(cmd)) return;                       // apconnect, apsay=, apstate ... (view_archipelago.inl)
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
             if (std::sscanf(cmd.c_str() + 3, "%f,%f,%f", &x, &z, &deg) >= 2) {
@@ -3524,6 +3547,8 @@ title_again:
         const SpriteTex* t = face_tex(face, frame);
         return t ? t->bind : nullptr;
     };
+    ap_seed_icons(g, asset_root, pauseUi.iconCache, bookR.icon_tex,   // the AP item icon (view_archipelago.inl)
+                  [&](const fs::path& p) { return bookR.load(g, p); });
     BookInput bookIn;
     float bookAccum = 0;
     int bookSaveNo = 0;                                    // DAT_0074ac3e (ini SaveFileNo) [session only]
@@ -4491,6 +4516,7 @@ title_again:
         // its own tick (a hidden offscreen run renders slower than 60 Hz and would skip it).
         static const bool lockstep = std::getenv("CLERIA_DRIVE") && std::getenv("CLERIA_DRIVE_LOCKSTEP");
         if (lockstep) accum = kTickDt;
+        ap_frame();                                      // the Archipelago session (view_archipelago.inl)
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -4812,6 +4838,7 @@ title_again:
             csMgr.vm.items.clear();
             apply_script_grants();
             content_tick(game.g_flags);            // mods: queued events + the g_flags diff (view_content.inl)
+            ap_tick();                             // Archipelago: checks, grants, DeathLink, goal (view_archipelago.inl)
         }
         // A live script showed / hid an object (or switched its collision): rebuild the room's
         // geometry with the overrides, mesh only (the scripts keep running).

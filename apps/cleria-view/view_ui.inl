@@ -74,9 +74,12 @@ inline bool hovering(const ImVec2& a, const ImVec2& b) { return ImGui::IsMouseHo
 // live test: only the d-pad moves and Start activates; the sticks, face buttons and bumpers just light up.
 inline bool pad_swap_ok = false;
 inline int pad_test_frame = -100;
+// While a text_field is being edited (its frame, below) the keys are typing, not navigation.
+inline int text_edit_frame = -100;
 
 inline Nav read_nav() {
     Nav n;
+    if (ImGui::GetFrameCount() - text_edit_frame <= 1) return n;   // a text_field owns the keys
     auto pr = [](ImGuiKey k) { return ImGui::IsKeyPressed(k, true); };
     const bool test = ImGui::GetFrameCount() - pad_test_frame <= 1;
     auto st = [&](ImGuiKey k) { return !test && pr(k); };   // a pad key the live test frees
@@ -313,7 +316,15 @@ struct Panel {
         // tabs
         if (nav.tab_prev) tab = (tab + int(pages.size()) - 1) % int(pages.size());
         if (nav.tab_next) tab = (tab + 1) % int(pages.size());
-        const float tpx = 16.0f * S, tab_h = 50.0f * S;
+        float tpx = 16.0f * S, gap = 37.0f * S;
+        const float tab_h = 50.0f * S;
+        {   // many tabs: narrow the gaps, then the type, so the row stays clear of the close cross
+            float sum = 0;
+            for (const Page& p : pages) sum += text_size(F.cond, tpx, upper(p.name.c_str()).c_str()).x;
+            const float avail = pw - 19.0f * S - 56.0f * S, n = float(pages.size());
+            if (sum + gap * n > avail) gap = std::max(14.0f * S, (avail - sum) / n);
+            if (sum + gap * n > avail) tpx *= std::max(0.6f, (avail - gap * n) / sum);
+        }
         float x = a.x + 19.0f * S;
         for (int i = 0; i < int(pages.size()); ++i) {
             const std::string t = upper(pages[i].name.c_str());
@@ -323,7 +334,7 @@ struct Panel {
             const bool on = i == tab;
             text(dl, F.cond, tpx, {x, a.y + (tab_h - tpx) * 0.5f}, on ? kTabOn : kTabOff, t.c_str());
             if (on) dl->AddRectFilled({ta.x, tb.y - 3.0f * S}, {tb.x, tb.y}, kGold);
-            x += ts.x + 37.0f * S;
+            x += ts.x + gap;
         }
         // the close cross
         {
@@ -449,6 +460,118 @@ inline void toast(ImDrawList* dl, float w, float h, const char* head, const char
     dl->AddRect(a, b, kPanelEdge, 6.0f * S, 0, 1.2f * S);
     text(dl, F.cond, 13.5f * S, {a.x + 19.0f * S, a.y + 15.0f * S}, kWarn, upper(head).c_str());
     text(dl, F.body, 16.0f * S, {a.x + 19.0f * S, a.y + 40.0f * S}, kDesc, body);
+}
+
+// ---- a one-line text field (the Archipelago tab's server / slot / password) -----------------------
+// OK / click on the row starts editing; typed text (SDL text input, so any keyboard layout), Ctrl+V
+// pastes, Backspace deletes (Ctrl+Backspace clears), Enter or a click elsewhere keeps the text, Esc
+// restores it. While editing, read_nav() yields nothing, so W/A/S/D/Q/E/Space type instead of
+// navigating. `secret` shows a bullet per character (the text itself is never drawn). Returns true
+// when an edit was kept and changed the value. The drive_text_* hooks stand in for the keyboard in a
+// CLERIA_DRIVE run.
+struct TextEdit {
+    const void* id = nullptr;       // the value being edited
+    std::string buf;
+    int frame = -100;               // the last frame it was drawn active
+};
+inline TextEdit text_edit;
+inline std::string drive_text_activate;    // the field with this label starts editing
+inline std::string drive_text_input;       // typed into the active field
+inline bool drive_text_commit = false;     // Enter on the active field
+
+inline void utf8_append(std::string& s, unsigned c) {
+    if (c < 0x80) s += char(c);
+    else if (c < 0x800) { s += char(0xC0 | (c >> 6)); s += char(0x80 | (c & 0x3F)); }
+    else if (c < 0x10000) { s += char(0xE0 | (c >> 12)); s += char(0x80 | ((c >> 6) & 0x3F)); s += char(0x80 | (c & 0x3F)); }
+    else {
+        s += char(0xF0 | (c >> 18)); s += char(0x80 | ((c >> 12) & 0x3F));
+        s += char(0x80 | ((c >> 6) & 0x3F)); s += char(0x80 | (c & 0x3F));
+    }
+}
+inline void utf8_pop(std::string& s) {
+    while (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0x80) s.pop_back();
+    if (!s.empty()) s.pop_back();
+}
+inline std::size_t utf8_count(const std::string& s) {
+    std::size_t n = 0;
+    for (unsigned char c : s) n += (c & 0xC0) != 0x80;
+    return n;
+}
+
+inline bool text_field(List& L, const char* label, std::string* v, const char* desc = nullptr, bool secret = false,
+                       const char* empty = "(not set)", std::size_t max_len = 128) {
+    const RowIo r = row_frame(L, desc, true);
+    TextEdit& e = text_edit;
+    const int now = ImGui::GetFrameCount();
+    bool active = e.id == v && now - e.frame <= 1, kept = false, started = false;
+    if (!active && (r.activate || drive_text_activate == label)) {
+        e.id = v;
+        e.buf = *v;
+        active = started = true;
+        drive_text_activate.clear();
+        L.sel = L.n - 1;
+    }
+    if (active) {
+        e.frame = text_edit_frame = now;
+        ImGui::GetCurrentContext()->PlatformImeData.WantTextInput = true;   // the backend's SDL_StartTextInput
+        ImGuiIO& io = ImGui::GetIO();
+        if (!started) {                                  // the key / click that opened it is not an edit
+            for (ImWchar c : io.InputQueueCharacters)
+                if (c >= 0x20 && c != 0x7F && e.buf.size() < max_len) utf8_append(e.buf, c);
+            for (char c : drive_text_input)
+                if (e.buf.size() < max_len && static_cast<unsigned char>(c) >= 0x20) e.buf += c;
+            drive_text_input.clear();
+            if (ImGui::IsKeyPressed(ImGuiKey_Backspace, true)) { if (io.KeyCtrl) e.buf.clear(); else utf8_pop(e.buf); }
+            if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false))
+                if (const char* clip = ImGui::GetClipboardText())
+                    for (const char* p = clip; *p && *p != '\r' && *p != '\n' && e.buf.size() < max_len; ++p) e.buf += *p;
+            const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+                               drive_text_commit;
+            const bool away = ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !hovering(r.a, r.b);
+            drive_text_commit = false;
+            if (enter || away) {
+                kept = e.buf != *v;
+                *v = e.buf;
+                e.id = nullptr;
+                active = false;
+            } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                e.id = nullptr;                          // the old text stays
+                active = false;
+            }
+        }
+    }
+    // the value, right-aligned like every row; while editing, the text and a caret in a dark well
+    const std::string& src = active ? e.buf : *v;
+    std::string shown;
+    if (secret) for (std::size_t i = utf8_count(src); i > 0; --i) shown += "\xE2\x80\xA2";
+    else shown = src;
+    const float lpx = 16.5f * S, vpx = 17.0f * S, cy = (r.a.y + r.b.y) * 0.5f;
+    text(L.dl, F.cond, lpx, {r.a.x + 13.0f * S, cy - lpx * 0.55f}, kLabel, upper(label).c_str());
+    const float maxw = (r.b.x - r.a.x) * 0.58f;
+    if (active) {
+        const ImVec2 wa{r.b.x - 10.0f * S - maxw, r.a.y + 5.0f * S}, wb{r.b.x - 8.0f * S, r.b.y - 5.0f * S};
+        L.dl->AddRectFilled(wa, wb, IM_COL32(14, 13, 10, 255), 3.0f * S);
+        L.dl->AddRect(wa, wb, kGold, 3.0f * S, 0, 1.0f * S);
+        std::string t = shown;                           // keep the caret end in view
+        while (!t.empty() && text_size(F.body, vpx, t.c_str()).x > maxw - 24.0f * S) t.erase(0, 1);
+        while (!t.empty() && (static_cast<unsigned char>(t.front()) & 0xC0) == 0x80) t.erase(0, 1);
+        const float tw = text_size(F.body, vpx, t.c_str()).x;
+        const float x = wb.x - 12.0f * S - tw;
+        text(L.dl, F.body, vpx, {x, cy - vpx * 0.55f}, kTabOn, t.c_str());
+        if ((now / 30) % 2 == 0)
+            L.dl->AddLine({x + tw + 2.0f * S, cy - vpx * 0.5f}, {x + tw + 2.0f * S, cy + vpx * 0.5f}, kGold, 1.5f * S);
+    } else {
+        std::string t = shown.empty() ? std::string(empty) : shown;
+        const ImU32 col = shown.empty() ? kMuted : (r.selected ? kTabOn : kValue);
+        if (text_size(F.body, vpx, t.c_str()).x > maxw) {
+            while (t.size() > 4 && text_size(F.body, vpx, (t + "...").c_str()).x > maxw) utf8_pop(t);
+            t += "...";
+        }
+        ImFont* f = r.selected ? F.medium : F.body;
+        const ImVec2 vs = text_size(f, vpx, t.c_str());
+        text(L.dl, f, vpx, {r.b.x - 13.0f * S - vs.x, cy - vpx * 0.55f}, col, t.c_str());
+    }
+    return kept;
 }
 
 }  // namespace ui

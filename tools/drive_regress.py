@@ -154,6 +154,11 @@ CASES = {
                 "cflags{ rule.flagrule=1 t.x=5 }", "t50 cstate", "cflags{ rule.flagrule=1 t.x=5 }"]),
 }
 
+# The Archipelago cases (tools/ap_regress.py, build/shell_re/AP_GAME.md): each runs a local scripted AP server.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ap_regress  # noqa: E402
+CASES.update(ap_regress.CASES)
+
 
 def content_setup(case, env, tmp):
     """Mod content cases (build/shell_re/CONTENT.md): a scratch settings folder with the case's mods
@@ -186,9 +191,12 @@ def run(name, case, exe, assets):
                    CLERIA_SAVE_DIR=saves, **case.get("env", {}))
         if "mods" in case or "content" in case:
             content_setup(case, env, os.path.join(saves, "settings"))
+        srv = ap_regress.start(case, env, os.path.join(saves, "settings"))   # an `ap` case: its local server
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
         r = subprocess.run([exe, assets, sob], env=env, capture_output=True, text=True, timeout=300)
     out = r.stdout + r.stderr
+    if not ap_regress.finish(name, case, srv):
+        return False
     for e in case.get("absent", []):
         if e in out:
             print(f"FAIL {name}: unexpected '{e}'")

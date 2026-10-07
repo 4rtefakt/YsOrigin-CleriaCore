@@ -473,6 +473,7 @@ void read_cleria(const Ini& ini, Settings& s) {
     if (auto x = ini.get_string(sr, "LiveSplitHost")) r.livesplit_host = *x;
     if (auto x = ini.get_int(sr, "LiveSplitPort")) r.livesplit_port = std::clamp(*x, 1, 65535);
     video::read(ini, s.video);
+    apcfg::read(ini, s.archipelago);
 }
 
 void write_cleria(Ini& ini, const Settings& s) {
@@ -507,6 +508,7 @@ void write_cleria(Ini& ini, const Settings& s) {
     ini.set_string(sr, "LiveSplitHost", r.livesplit_host);
     ini.set_int(sr, "LiveSplitPort", r.livesplit_port);
     video::write(ini, s.video);
+    apcfg::write(ini, s.archipelago);
 }
 
 input::Config mapper_config(const Settings& s, bool book_mode) {

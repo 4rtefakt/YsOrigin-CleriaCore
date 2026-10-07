@@ -400,3 +400,13 @@ add_executable(cleria-aptest apps/cleria-aptest/main.cpp)
 target_link_libraries(cleria-aptest PRIVATE cleria-ap ws2_32)
 add_test(NAME jsontest COMMAND cleria-jsontest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME aptest COMMAND cleria-aptest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# ---- Archipelago game wiring (build/shell_re/AP_GAME.md) ---------------------------------------------
+# [cleria.archipelago] in cleria; the Ys Origin game logic in cleria-ap; cleria-view owns the session.
+target_sources(cleria PRIVATE src/cleria/ap_settings.cpp)
+target_sources(cleria-ap PRIVATE src/cleria/ap/ys_game.cpp)
+target_link_libraries(cleria-view PRIVATE cleria-ap)
+# cleria-apgametest — slot_data, detection, suppression, every receipt kind, the save block, goal, EXP.
+add_executable(cleria-apgametest apps/cleria-apgametest/main.cpp)
+target_link_libraries(cleria-apgametest PRIVATE cleria-ap)
+add_test(NAME apgametest COMMAND cleria-apgametest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

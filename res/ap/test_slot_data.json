@@ -1,0 +1,3346 @@
+{
+ "blessing_costs": {},
+ "blessing_items": false,
+ "blessing_names": {
+  "5857317": "Bolster bad status resists LV1",
+  "5857318": "Bolster bad status resists LV2",
+  "5857319": "Extend drop item effects LV1",
+  "5857320": "Extend drop item effects LV2",
+  "5857321": "Hasten Skill recovery LV1",
+  "5857322": "Hasten Skill recovery LV2",
+  "5857323": "Hasten Skill recovery LV3",
+  "5857324": "Increase Boost recovery LV1",
+  "5857325": "Increase Boost recovery LV2",
+  "5857326": "Increase Boost recovery LV3",
+  "5857327": "Increase SP gain",
+  "5857328": "Increase effect of herbs LV1",
+  "5857329": "Increase effect of herbs LV2",
+  "5857330": "Increase item drop rate",
+  "5857331": "Increase movement speed",
+  "5857332": "Increase stationary heal rate",
+  "5857333": "Increase stun effect",
+  "5857334": "Reduce MP usage LV1",
+  "5857335": "Reduce MP usage LV2",
+  "5857336": "Reduce MP usage LV3",
+  "5857337": "Reduce bad status duration LV1",
+  "5857338": "Reduce bad status duration LV2",
+  "5857339": "Reduce damage from terrain",
+  "5857342": "Strengthen Battle Armor",
+  "5857343": "Strengthen Battle Guards",
+  "5857359": "Strengthen Half Plate",
+  "5857360": "Strengthen Hard Leggings",
+  "5857361": "Strengthen Leather Armor",
+  "5857362": "Strengthen Leather Boots",
+  "5857365": "Strengthen Leg Guards",
+  "5857369": "Strengthen Reflex",
+  "5857370": "Strengthen Ring Mail",
+  "5857374": "Strengthen Silver Dress",
+  "5857375": "Strengthen Silver Leggings",
+  "5857376": "Strengthen Sylphen Boots"
+ },
+ "blessing_shop_unlock": 0,
+ "blessing_vanilla_price_map": {},
+ "character": 0,
+ "death_link": false,
+ "exp_base_mult": 20,
+ "exp_catchup_margin": 5,
+ "exp_catchup_mult": 20,
+ "floor_locations": {
+  "1": [
+   5857603,
+   5857582,
+   5857392,
+   5857550
+  ],
+  "10": [
+   5857516,
+   5857596,
+   5857493,
+   5857377,
+   5857542,
+   5857378
+  ],
+  "11": [
+   5857518,
+   5857519,
+   5857597,
+   5857379,
+   5857543,
+   5857380,
+   5857494
+  ],
+  "12": [
+   5857598,
+   5857495
+  ],
+  "13": [
+   5857527,
+   5857526,
+   5857524,
+   5857525,
+   5857521,
+   5857522,
+   5857530,
+   5857528,
+   5857523,
+   5857593,
+   5857465,
+   5857459,
+   5857462,
+   5857456,
+   5857461,
+   5857453,
+   5857454,
+   5857503,
+   5857482,
+   5857444,
+   5857442,
+   5857443,
+   5857447,
+   5857287,
+   5857505,
+   5857448,
+   5857288,
+   5857479,
+   5857473,
+   5857500,
+   5857457,
+   5857491,
+   5857529,
+   5857520
+  ],
+  "14": [
+   5857563,
+   5857599,
+   5857496,
+   5857381,
+   5857544
+  ],
+  "15": [
+   5857564,
+   5857565,
+   5857382,
+   5857545
+  ],
+  "16": [
+   5857383,
+   5857546,
+   5857384,
+   5857385
+  ],
+  "17": [
+   5857567,
+   5857568,
+   5857569,
+   5857570,
+   5857571,
+   5857572,
+   5857579,
+   5857580,
+   5857581,
+   5857566,
+   5857573,
+   5857574,
+   5857575,
+   5857600,
+   5857458,
+   5857466,
+   5857490,
+   5857489,
+   5857502,
+   5857480,
+   5857452,
+   5857467,
+   5857483,
+   5857487,
+   5857484,
+   5857486,
+   5857508,
+   5857507,
+   5857497,
+   5857485,
+   5857386,
+   5857280,
+   5857547,
+   5857464,
+   5857449,
+   5857289,
+   5857470,
+   5857578,
+   5857577
+  ],
+  "18": [
+   5857594,
+   5857590,
+   5857488,
+   5857463,
+   5857387,
+   5857548,
+   5857388
+  ],
+  "19": [
+   5857292,
+   5857390,
+   5857549,
+   5857389,
+   5857391
+  ],
+  "2": [
+   5857605,
+   5857606,
+   5857607,
+   5857608,
+   5857416,
+   5857556,
+   5857417,
+   5857418,
+   5857415,
+   5857414,
+   5857604
+  ],
+  "20": [
+   5857295,
+   5857293,
+   5857294,
+   5857601,
+   5857393,
+   5857551,
+   5857498,
+   5857397,
+   5857394,
+   5857395,
+   5857396
+  ],
+  "21": [
+   5857297,
+   5857303,
+   5857296,
+   5857300,
+   5857299,
+   5857602,
+   5857455,
+   5857510,
+   5857499,
+   5857450,
+   5857290,
+   5857506,
+   5857451,
+   5857291,
+   5857471,
+   5857474,
+   5857475,
+   5857476,
+   5857477,
+   5857298,
+   5857301
+  ],
+  "22": [
+   5857305,
+   5857306,
+   5857307,
+   5857583,
+   5857402,
+   5857552,
+   5857399,
+   5857400,
+   5857398,
+   5857401,
+   5857304
+  ],
+  "23": [
+   5857309,
+   5857310,
+   5857311,
+   5857584,
+   5857405,
+   5857553,
+   5857404,
+   5857403,
+   5857281,
+   5857308
+  ],
+  "24": [
+   5857313,
+   5857314,
+   5857312,
+   5857585,
+   5857408,
+   5857554,
+   5857406,
+   5857407,
+   5857409,
+   5857410,
+   5857315
+  ],
+  "25": [
+   5857586,
+   5857412,
+   5857555,
+   5857413,
+   5857411,
+   5857282,
+   5857316
+  ],
+  "3": [
+   5857420,
+   5857557,
+   5857419,
+   5857283
+  ],
+  "4": [
+   5857610,
+   5857611,
+   5857615,
+   5857612,
+   5857614,
+   5857587,
+   5857421,
+   5857558,
+   5857422,
+   5857423,
+   5857428,
+   5857429,
+   5857427,
+   5857424,
+   5857425,
+   5857426,
+   5857613
+  ],
+  "5": [
+   5857588,
+   5857431,
+   5857559,
+   5857432,
+   5857433,
+   5857284,
+   5857468,
+   5857430
+  ],
+  "6": [
+   5857531,
+   5857589,
+   5857435,
+   5857560,
+   5857434,
+   5857436
+  ],
+  "7": [
+   5857532,
+   5857595,
+   5857437,
+   5857561,
+   5857438,
+   5857492
+  ],
+  "8": [
+   5857534,
+   5857535,
+   5857591,
+   5857440,
+   5857562,
+   5857441,
+   5857439,
+   5857469,
+   5857533
+  ],
+  "9": [
+   5857539,
+   5857541,
+   5857536,
+   5857537,
+   5857538,
+   5857592,
+   5857511,
+   5857512,
+   5857514,
+   5857501,
+   5857481,
+   5857460,
+   5857513,
+   5857515,
+   5857478,
+   5857445,
+   5857285,
+   5857504,
+   5857446,
+   5857286,
+   5857472
+  ]
+ },
+ "goal": 0,
+ "item_index": {
+  "1000G": 126,
+  "100G": 124,
+  "10G": 122,
+  "1G": 120,
+  "5000G": 127,
+  "500G": 125,
+  "50G": 123,
+  "5G": 121,
+  "Air Seed": 115,
+  "Amber Key": 101,
+  "Arthropod Medallion": 79,
+  "Axe/Lotusblade": 4,
+  "Banded Boots": 44,
+  "Banded Mail": 20,
+  "Banded Shield": 51,
+  "Battle Armor": 10,
+  "Battle Axe": 0,
+  "Battle Guards": 34,
+  "Battle Shield": 52,
+  "Beast Medallion": 78,
+  "Black Chain": 19,
+  "Black Leggings": 43,
+  "Black Pearl": 106,
+  "Blessing: Bolster bad status resists LV1": 521,
+  "Blessing: Bolster bad status resists LV2": 534,
+  "Blessing: Extend drop item effects LV1": 516,
+  "Blessing: Extend drop item effects LV2": 535,
+  "Blessing: Hasten Skill recovery LV1": 522,
+  "Blessing: Hasten Skill recovery LV2": 523,
+  "Blessing: Hasten Skill recovery LV3": 526,
+  "Blessing: Increase Boost recovery LV1": 517,
+  "Blessing: Increase Boost recovery LV2": 527,
+  "Blessing: Increase Boost recovery LV3": 528,
+  "Blessing: Increase SP gain": 520,
+  "Blessing: Increase effect of herbs LV1": 524,
+  "Blessing: Increase effect of herbs LV2": 529,
+  "Blessing: Increase item drop rate": 515,
+  "Blessing: Increase movement speed": 525,
+  "Blessing: Increase stationary heal rate": 512,
+  "Blessing: Increase stun effect": 519,
+  "Blessing: Reduce MP usage LV1": 518,
+  "Blessing: Reduce MP usage LV2": 530,
+  "Blessing: Reduce MP usage LV3": 531,
+  "Blessing: Reduce bad status duration LV1": 514,
+  "Blessing: Reduce bad status duration LV2": 532,
+  "Blessing: Reduce damage from terrain": 513,
+  "Blessing: Strengthen Eyes of Fact": 533,
+  "Blue Moon Crest": 111,
+  "Blue Necklace": 55,
+  "Brave Armor": 23,
+  "Brave Guards": 47,
+  "Bronze Key": 99,
+  "Celcetan Panacea": 89,
+  "Cerulean Flabellum": 107,
+  "Chain Cloak": 14,
+  "Chain Mail": 25,
+  "Claws": 2,
+  "Cleria Garb": 17,
+  "Cleria Ore": 88,
+  "Cleria Ring": 60,
+  "Construct Medallion": 80,
+  "Creeper Medallion": 81,
+  "Crimson Coat": 16,
+  "Crimson Key": 102,
+  "Crimson Lotusblade": 109,
+  "Crystal": 84,
+  "Dark Crystal": 86,
+  "Dark Falcon": 41,
+  "Daybreak Talisman": 63,
+  "Defense Drop 1": 74,
+  "Defense Drop 2": 75,
+  "Demon Greaves": 45,
+  "Devil Medallion": 83,
+  "Dragonbone Key": 103,
+  "Dreaming Idol": 104,
+  "Earth Dragon's Claws": 57,
+  "Ebony Robe": 13,
+  "Ebony Shoes": 37,
+  "Elder Robe": 15,
+  "Elder Shoes": 39,
+  "Emerald": 768,
+  "Evil Ring": 93,
+  "Falcon Idol": 112,
+  "Goddess Ring": 59,
+  "Gold Bracelet": 91,
+  "Gothic Suit": 21,
+  "Half Plate": 8,
+  "Hammer": 96,
+  "Hard Leggings": 31,
+  "Ignis Bracelet": 118,
+  "Large Shield": 50,
+  "Leather Armor": 6,
+  "Leather Boots": 30,
+  "Leather Greaves": 36,
+  "Leather Tunic": 12,
+  "Leg Guards": 32,
+  "Levinstrike Warhammer": 108,
+  "Lila Shell": 85,
+  "MP Drop 1": 76,
+  "MP Drop 2": 77,
+  "Mantid Medallion": 82,
+  "Marble Key": 100,
+  "Mask of Eyes": 54,
+  "Moon Greaves": 40,
+  "Obsidian Key": 110,
+  "Phantom Boots": 46,
+  "Phantom Mail": 22,
+  "Plate Mail": 26,
+  "Raval Armor": 29,
+  "Raval Shield": 53,
+  "Recovery Drop 1": 66,
+  "Recovery Drop 2": 67,
+  "Recovery Drop 3": 68,
+  "Recovery Drop 4": 69,
+  "Recovery Drop 5": 70,
+  "Recovery Drop 6": 71,
+  "Red Moon Crest": 92,
+  "Reflex": 9,
+  "Ring Mail": 7,
+  "Ring of Ease": 61,
+  "Riveted Boots": 42,
+  "Riveted Leather": 18,
+  "Rod": 98,
+  "Roda Fruit": 87,
+  "Ruby": 769,
+  "Shell Greaves": 38,
+  "Short Sword": 5,
+  "Silver Bracelet": 90,
+  "Silver Chimes": 56,
+  "Silver Dress": 11,
+  "Silver Harmonica": 95,
+  "Silver Leggings": 35,
+  "Small Shield": 49,
+  "Spirit Cape": 58,
+  "Spirit Necklace": 62,
+  "Strength Drop 1": 72,
+  "Strength Drop 2": 73,
+  "Sword": 3,
+  "Sylphen Boots": 33,
+  "Terra Bracelet": 117,
+  "Topaz": 770,
+  "Unequip magic.": 119,
+  "Ventus Bracelet": 116,
+  "Vitality Seed": 114,
+  "Wand": 1,
+  "Water Dragon's Scales": 97,
+  "Wooden Shield": 48
+ },
+ "item_tiers": {
+  "10F Warp": 2,
+  "11F Warp": 2,
+  "12F Warp": 2,
+  "13F Warp": 2,
+  "14F Warp": 2,
+  "17F Warp": 2,
+  "18F Warp": 2,
+  "1F Warp": 2,
+  "20F Warp": 2,
+  "21F Warp": 2,
+  "22F Warp": 2,
+  "23F Warp": 2,
+  "24F Warp": 2,
+  "25F Warp": 2,
+  "4F Warp": 2,
+  "5F Warp": 2,
+  "6F Warp": 2,
+  "7F Warp": 2,
+  "8F Warp": 2,
+  "9F Warp": 2,
+  "Amber Key": 1,
+  "Arthropod Medallion": 1,
+  "Banded Boots": 2,
+  "Banded Mail": 2,
+  "Battle Armor": 2,
+  "Battle Guards": 2,
+  "Battle Shield": 2,
+  "Beast Medallion": 1,
+  "Black Chain": 2,
+  "Black Leggings": 2,
+  "Black Pearl": 1,
+  "Blessing: Bolster bad status resists LV1": 2,
+  "Blessing: Bolster bad status resists LV2": 2,
+  "Blessing: Extend drop item effects LV1": 2,
+  "Blessing: Extend drop item effects LV2": 2,
+  "Blessing: Hasten Skill recovery LV1": 2,
+  "Blessing: Hasten Skill recovery LV2": 2,
+  "Blessing: Hasten Skill recovery LV3": 2,
+  "Blessing: Increase Boost recovery LV1": 2,
+  "Blessing: Increase Boost recovery LV2": 2,
+  "Blessing: Increase Boost recovery LV3": 2,
+  "Blessing: Increase SP gain": 2,
+  "Blessing: Increase effect of herbs LV1": 2,
+  "Blessing: Increase effect of herbs LV2": 2,
+  "Blessing: Increase item drop rate": 2,
+  "Blessing: Increase movement speed": 2,
+  "Blessing: Increase stationary heal rate": 2,
+  "Blessing: Increase stun effect": 2,
+  "Blessing: Reduce MP usage LV1": 2,
+  "Blessing: Reduce MP usage LV2": 2,
+  "Blessing: Reduce MP usage LV3": 2,
+  "Blessing: Reduce bad status duration LV1": 2,
+  "Blessing: Reduce bad status duration LV2": 2,
+  "Blessing: Reduce damage from terrain": 2,
+  "Blessing: Strengthen Eyes of Fact": 2,
+  "Blinding Fog": 4,
+  "Blue Moon Crest": 1,
+  "Blue Necklace": 1,
+  "Brave Armor": 2,
+  "Brave Guards": 2,
+  "Bronze Key": 1,
+  "Butterfingers": 4,
+  "Celcetan Panacea": 0,
+  "Cerulean Flabellum": 1,
+  "Chain Cloak": 2,
+  "Chain Mail": 2,
+  "Chaos Warp": 4,
+  "Cleria Garb": 2,
+  "Cleria Ore": 0,
+  "Cleria Ring": 1,
+  "Construct Medallion": 1,
+  "Creeper Medallion": 1,
+  "Crimson Coat": 2,
+  "Crimson Key": 1,
+  "Crimson Lotusblade": 1,
+  "Dark Falcon": 2,
+  "Demon Greaves": 2,
+  "Devil Medallion": 1,
+  "Dragonbone Key": 1,
+  "Dreaming Idol": 1,
+  "EXP Leech": 4,
+  "Earth Dragon's Claws": 1,
+  "Ebony Robe": 2,
+  "Ebony Shoes": 2,
+  "Elder Robe": 2,
+  "Elder Shoes": 2,
+  "Emerald": 2,
+  "Evil Ring": 1,
+  "Goddess Ring": 2,
+  "Gold Bracelet": 1,
+  "Gothic Suit": 2,
+  "Half Plate": 2,
+  "Hammer": 1,
+  "Hard Leggings": 2,
+  "Large Shield": 2,
+  "Leather Boots": 2,
+  "Leather Greaves": 2,
+  "Leg Guards": 2,
+  "Levinstrike Warhammer": 1,
+  "Lila Shell": 2,
+  "Mantid Medallion": 1,
+  "Marble Key": 1,
+  "Mask of Eyes": 1,
+  "Moon Greaves": 2,
+  "Obsidian Key": 1,
+  "Phantom Boots": 2,
+  "Phantom Mail": 2,
+  "Plate Mail": 2,
+  "Progressive Armor": 2,
+  "Progressive Bolster bad status resists": 0,
+  "Progressive Boots": 2,
+  "Progressive Extend drop item effects": 0,
+  "Progressive Fire Skill": 0,
+  "Progressive Hasten Skill recovery": 0,
+  "Progressive Increase Boost recovery": 0,
+  "Progressive Increase effect of herbs": 0,
+  "Progressive Lightning Skill": 0,
+  "Progressive Reduce MP usage": 0,
+  "Progressive Reduce bad status duration": 0,
+  "Progressive Wind Skill": 0,
+  "Rado Tower Warp": 2,
+  "Raval Armor": 2,
+  "Raval Shield": 2,
+  "Red Moon Crest": 1,
+  "Reflex": 2,
+  "Ring Mail": 2,
+  "Ring of Ease": 2,
+  "Riveted Boots": 2,
+  "Rod": 1,
+  "Roda Fruit": 1,
+  "Ruby": 2,
+  "SP: 150": 0,
+  "SP: 50": 0,
+  "SP: 500": 0,
+  "Shell Greaves": 2,
+  "Silver Bracelet": 1,
+  "Silver Chimes": 1,
+  "Silver Dress": 2,
+  "Silver Harmonica": 1,
+  "Silver Leggings": 2,
+  "Small Shield": 2,
+  "Spirit Cape": 2,
+  "Spirit Necklace": 2,
+  "Sylphen Boots": 2,
+  "Topaz": 2,
+  "Water Dragon's Scales": 1,
+  "Wooden Shield": 2
+ },
+ "level_margin": 0,
+ "level_scaling": 2,
+ "location_detect": {
+  "Boss: 17F Room (S_4080)": {
+   "method": "scene",
+   "scene": "S_4080"
+  },
+  "Boss: 23F Midboss 1 (S_6080)": {
+   "method": "scene",
+   "scene": "S_6080"
+  },
+  "Boss: 25F Midboss 2 (S_6099)": {
+   "method": "scene",
+   "scene": "S_6099"
+  },
+  "Boss: 3F Midboss (S_1080)": {
+   "method": "scene",
+   "scene": "S_1080"
+  },
+  "Boss: 5F Velagunder (S_1099)": {
+   "method": "scene",
+   "scene": "S_1099"
+  },
+  "Boss: Boss Room (S_2080)": {
+   "method": "scene",
+   "scene": "S_2080"
+  },
+  "Boss: Boss Room (S_2099)": {
+   "method": "scene",
+   "scene": "S_2099"
+  },
+  "Boss: Boss Room (S_3080)": {
+   "method": "scene",
+   "scene": "S_3080"
+  },
+  "Boss: Boss Room (S_3099)": {
+   "method": "scene",
+   "scene": "S_3099"
+  },
+  "Boss: Boss Room (S_4099)": {
+   "method": "scene",
+   "scene": "S_4099"
+  },
+  "Boss: Boss Room (S_5080)": {
+   "method": "scene",
+   "scene": "S_5080"
+  },
+  "Boss: Boss Room (S_5099)": {
+   "method": "scene",
+   "scene": "S_5099"
+  },
+  "Corrupted Blood: 19F Drop-Off": {
+   "method": "flag",
+   "offset": "0x36BFA0"
+  },
+  "Corrupted Blood: 20F Path 1": {
+   "method": "flag",
+   "offset": "0x36BFC0"
+  },
+  "Corrupted Blood: 20F Path 3": {
+   "method": "flag",
+   "offset": "0x36C03C"
+  },
+  "Corrupted Blood: 20F Small Room": {
+   "method": "flag",
+   "offset": "0x36BFAC"
+  },
+  "Corrupted Blood: Boss Room": {
+   "method": "flag",
+   "offset": "0x36BFBC"
+  },
+  "Corrupted Blood: Chest (Drop-Off)": {
+   "method": "flag",
+   "offset": "0x36BF90"
+  },
+  "Corrupted Blood: Outer Corridor 1 — Roo Trade": {
+   "method": "flag",
+   "offset": "0x36BF94"
+  },
+  "Corrupted Blood: Outer Corridor 3 — Black Pearl": {
+   "method": "flag",
+   "offset": "0x36BD50"
+  },
+  "Corrupted Blood: Outer Corridor 3 — Mantid Medallion": {
+   "method": "scene",
+   "scene": "S_5102"
+  },
+  "Corrupted Blood: Staircase — Lila Shell": {
+   "method": "scene",
+   "scene": "S_5097"
+  },
+  "Corrupted Blood: Vault": {
+   "method": "flag",
+   "offset": "0x36BF9C"
+  },
+  "Demonic Core: 22F Mirror Path — Roo Trade": {
+   "method": "flag",
+   "offset": "0x36C044"
+  },
+  "Demonic Core: 22F Path 2": {
+   "method": "flag",
+   "offset": "0x36BFD8"
+  },
+  "Demonic Core: 22F Path 3": {
+   "method": "flag",
+   "offset": "0x36BFE8"
+  },
+  "Demonic Core: 22F Path 3 #2": {
+   "method": "flag",
+   "offset": "0x36C040"
+  },
+  "Demonic Core: 23F Midboss 1 — Rod": {
+   "method": "scene",
+   "scene": "S_6080"
+  },
+  "Demonic Core: 23F Mirror Room": {
+   "method": "flag",
+   "offset": "0x36C050"
+  },
+  "Demonic Core: 23F Mirror Room #2": {
+   "method": "flag",
+   "offset": "0x36C054"
+  },
+  "Demonic Core: 23F Mirror Room #3": {
+   "method": "flag",
+   "offset": "0x36C0C4"
+  },
+  "Demonic Core: 24F Path 2": {
+   "method": "flag",
+   "offset": "0x36C058"
+  },
+  "Demonic Core: 24F Path 3": {
+   "method": "flag",
+   "offset": "0x36C05C"
+  },
+  "Demonic Core: 24F Path 3 #2": {
+   "method": "flag",
+   "offset": "0x36C060"
+  },
+  "Demonic Core: 24F Yog & Om — Spirit Necklace": {
+   "method": "scene",
+   "scene": "S_6082"
+  },
+  "Demonic Core: 25F Midboss 2 — Goddess Ring": {
+   "method": "scene",
+   "scene": "S_6099"
+  },
+  "Divine Blessing: Bolster bad status resists LV1": {
+   "bit": 9,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Bolster bad status resists LV2": {
+   "bit": 22,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Extend drop item effects LV1": {
+   "bit": 4,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Extend drop item effects LV2": {
+   "bit": 23,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Hasten Skill recovery LV1": {
+   "bit": 10,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Hasten Skill recovery LV2": {
+   "bit": 11,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Hasten Skill recovery LV3": {
+   "bit": 14,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase Boost recovery LV1": {
+   "bit": 5,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase Boost recovery LV2": {
+   "bit": 15,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase Boost recovery LV3": {
+   "bit": 16,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase SP gain": {
+   "bit": 8,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase effect of herbs LV1": {
+   "bit": 12,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase effect of herbs LV2": {
+   "bit": 17,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase item drop rate": {
+   "bit": 3,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase movement speed": {
+   "bit": 13,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase stationary heal rate": {
+   "bit": 0,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Increase stun effect": {
+   "bit": 7,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Reduce MP usage LV1": {
+   "bit": 6,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Reduce MP usage LV2": {
+   "bit": 18,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Reduce MP usage LV3": {
+   "bit": 19,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Reduce bad status duration LV1": {
+   "bit": 2,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Reduce bad status duration LV2": {
+   "bit": 20,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Reduce damage from terrain": {
+   "bit": 1,
+   "method": "bit",
+   "offset": "0x36BC80"
+  },
+  "Divine Blessing: Strengthen Battle Armor": {
+   "method": "flag",
+   "offset": "0x36A67C"
+  },
+  "Divine Blessing: Strengthen Battle Guards": {
+   "method": "flag",
+   "offset": "0x36A6DC"
+  },
+  "Divine Blessing: Strengthen Half Plate": {
+   "method": "flag",
+   "offset": "0x36A674"
+  },
+  "Divine Blessing: Strengthen Hard Leggings": {
+   "method": "flag",
+   "offset": "0x36A6D0"
+  },
+  "Divine Blessing: Strengthen Leather Armor": {
+   "method": "flag",
+   "offset": "0x36A66C"
+  },
+  "Divine Blessing: Strengthen Leather Boots": {
+   "method": "flag",
+   "offset": "0x36A6CC"
+  },
+  "Divine Blessing: Strengthen Leg Guards": {
+   "method": "flag",
+   "offset": "0x36A6D4"
+  },
+  "Divine Blessing: Strengthen Reflex": {
+   "method": "flag",
+   "offset": "0x36A678"
+  },
+  "Divine Blessing: Strengthen Ring Mail": {
+   "method": "flag",
+   "offset": "0x36A670"
+  },
+  "Divine Blessing: Strengthen Silver Dress": {
+   "method": "flag",
+   "offset": "0x36A680"
+  },
+  "Divine Blessing: Strengthen Silver Leggings": {
+   "method": "flag",
+   "offset": "0x36A6E0"
+  },
+  "Divine Blessing: Strengthen Sylphen Boots": {
+   "method": "flag",
+   "offset": "0x36A6D8"
+  },
+  "Explore: 10F Path 1 Furnace (S_3001)": {
+   "method": "scene",
+   "scene": "S_3001"
+  },
+  "Explore: 10F Path 2 (S_3003)": {
+   "method": "scene",
+   "scene": "S_3003"
+  },
+  "Explore: 11F Path 1 (S_3004)": {
+   "method": "scene",
+   "scene": "S_3004"
+  },
+  "Explore: 11F Path 2 (S_3005)": {
+   "method": "scene",
+   "scene": "S_3005"
+  },
+  "Explore: 14F Room (S_4001)": {
+   "method": "scene",
+   "scene": "S_4001"
+  },
+  "Explore: 15F Room (S_4015)": {
+   "method": "scene",
+   "scene": "S_4015"
+  },
+  "Explore: 16F Path 1 (S_4007)": {
+   "method": "scene",
+   "scene": "S_4007"
+  },
+  "Explore: 16F Path 2 (S_4008)": {
+   "method": "scene",
+   "scene": "S_4008"
+  },
+  "Explore: 16F Path 3 (S_4011)": {
+   "method": "scene",
+   "scene": "S_4011"
+  },
+  "Explore: 17F Room (S_4080)": {
+   "method": "scene",
+   "scene": "S_4080"
+  },
+  "Explore: 18F Path 1 (S_5001)": {
+   "method": "scene",
+   "scene": "S_5001"
+  },
+  "Explore: 18F Path 2 (S_5003)": {
+   "method": "scene",
+   "scene": "S_5003"
+  },
+  "Explore: 19F Drop-Off (S_5006)": {
+   "method": "scene",
+   "scene": "S_5006"
+  },
+  "Explore: 19F Path 1 (S_5005)": {
+   "method": "scene",
+   "scene": "S_5005"
+  },
+  "Explore: 19F Path 2 (S_5008)": {
+   "method": "scene",
+   "scene": "S_5008"
+  },
+  "Explore: 1F Save (S_1000)": {
+   "method": "scene",
+   "scene": "S_1000"
+  },
+  "Explore: 20F Drop-Off (S_5009)": {
+   "method": "scene",
+   "scene": "S_5009"
+  },
+  "Explore: 20F Path 1 (S_5012)": {
+   "method": "scene",
+   "scene": "S_5012"
+  },
+  "Explore: 20F Path 2 (S_5013)": {
+   "method": "scene",
+   "scene": "S_5013"
+  },
+  "Explore: 20F Path 3 (S_5015)": {
+   "method": "scene",
+   "scene": "S_5015"
+  },
+  "Explore: 20F Small Room (S_5011)": {
+   "method": "scene",
+   "scene": "S_5011"
+  },
+  "Explore: 22F Mirror Path (S_6009)": {
+   "method": "scene",
+   "scene": "S_6009"
+  },
+  "Explore: 22F Path 1 (S_6001)": {
+   "method": "scene",
+   "scene": "S_6001"
+  },
+  "Explore: 22F Path 2 (S_6002)": {
+   "method": "scene",
+   "scene": "S_6002"
+  },
+  "Explore: 22F Path 3 (S_6015)": {
+   "method": "scene",
+   "scene": "S_6015"
+  },
+  "Explore: 22F Save (S_6000)": {
+   "method": "scene",
+   "scene": "S_6000"
+  },
+  "Explore: 23F Midboss 1 (S_6080)": {
+   "method": "scene",
+   "scene": "S_6080"
+  },
+  "Explore: 23F Mirror Room (S_6014)": {
+   "method": "scene",
+   "scene": "S_6014"
+  },
+  "Explore: 23F Save (S_6010)": {
+   "method": "scene",
+   "scene": "S_6010"
+  },
+  "Explore: 24F Path 1 (S_6050)": {
+   "method": "scene",
+   "scene": "S_6050"
+  },
+  "Explore: 24F Path 2 (S_6051)": {
+   "method": "scene",
+   "scene": "S_6051"
+  },
+  "Explore: 24F Path 3 (S_6004)": {
+   "method": "scene",
+   "scene": "S_6004"
+  },
+  "Explore: 24F Path 4 (S_6052)": {
+   "method": "scene",
+   "scene": "S_6052"
+  },
+  "Explore: 24F Yog & Om (S_6082)": {
+   "method": "scene",
+   "scene": "S_6082"
+  },
+  "Explore: 25F Midboss 2 (S_6099)": {
+   "method": "scene",
+   "scene": "S_6099"
+  },
+  "Explore: 25F Save (S_6053)": {
+   "method": "scene",
+   "scene": "S_6053"
+  },
+  "Explore: 25F Staircase (S_6097)": {
+   "method": "scene",
+   "scene": "S_6097"
+  },
+  "Explore: 2F Gemma Room (S_1012)": {
+   "method": "scene",
+   "scene": "S_1012"
+  },
+  "Explore: 2F Hidden Entrance (S_1006)": {
+   "method": "scene",
+   "scene": "S_1006"
+  },
+  "Explore: 2F Path 1 (S_1001)": {
+   "method": "scene",
+   "scene": "S_1001"
+  },
+  "Explore: 2F Path 2 (Wind Skill) (S_1004)": {
+   "method": "scene",
+   "scene": "S_1004"
+  },
+  "Explore: 2F Path 3 (Fork) (S_1005)": {
+   "method": "scene",
+   "scene": "S_1005"
+  },
+  "Explore: 3F Midboss (S_1080)": {
+   "method": "scene",
+   "scene": "S_1080"
+  },
+  "Explore: 3F Transfer Room (S_1013)": {
+   "method": "scene",
+   "scene": "S_1013"
+  },
+  "Explore: 4F Forward Passage 1 (S_1002)": {
+   "method": "scene",
+   "scene": "S_1002"
+  },
+  "Explore: 4F Forward Passage 2 (S_1003)": {
+   "method": "scene",
+   "scene": "S_1003"
+  },
+  "Explore: 4F Forward Passage 3 (S_1007)": {
+   "method": "scene",
+   "scene": "S_1007"
+  },
+  "Explore: 4F Forward Room (S_1014)": {
+   "method": "scene",
+   "scene": "S_1014"
+  },
+  "Explore: 4F Lower (Medal) (S_1015)": {
+   "method": "scene",
+   "scene": "S_1015"
+  },
+  "Explore: 4F Outer Corridor 2-1 (S_1100)": {
+   "method": "scene",
+   "scene": "S_1100"
+  },
+  "Explore: 4F Path 4 (S_1010)": {
+   "method": "scene",
+   "scene": "S_1010"
+  },
+  "Explore: 4F Path 5 (Fork) (S_1008)": {
+   "method": "scene",
+   "scene": "S_1008"
+  },
+  "Explore: 4F Save (Forward) (S_1009)": {
+   "method": "scene",
+   "scene": "S_1009"
+  },
+  "Explore: 5F Outer Corridor 2-2 (S_1102)": {
+   "method": "scene",
+   "scene": "S_1102"
+  },
+  "Explore: 5F Save (S_1011)": {
+   "method": "scene",
+   "scene": "S_1011"
+  },
+  "Explore: 5F Stairs (S_1097)": {
+   "method": "scene",
+   "scene": "S_1097"
+  },
+  "Explore: 5F Velagunder (S_1099)": {
+   "method": "scene",
+   "scene": "S_1099"
+  },
+  "Explore: 6F Path (S_2001)": {
+   "method": "scene",
+   "scene": "S_2001"
+  },
+  "Explore: 6F Save (S_2000)": {
+   "method": "scene",
+   "scene": "S_2000"
+  },
+  "Explore: 6F Small Room (S_2002)": {
+   "method": "scene",
+   "scene": "S_2002"
+  },
+  "Explore: 7F Path 1 (S_2003)": {
+   "method": "scene",
+   "scene": "S_2003"
+  },
+  "Explore: 7F Path 2 (S_2004)": {
+   "method": "scene",
+   "scene": "S_2004"
+  },
+  "Explore: 8F Path 2 (S_2011)": {
+   "method": "scene",
+   "scene": "S_2011"
+  },
+  "Explore: 8F Waterway 1 (S_2008)": {
+   "method": "scene",
+   "scene": "S_2008"
+  },
+  "Explore: 8F Waterway 2 (S_2010)": {
+   "method": "scene",
+   "scene": "S_2010"
+  },
+  "Explore: Annex 1 (S_3017)": {
+   "method": "scene",
+   "scene": "S_3017"
+  },
+  "Explore: Annex 2 (S_3018)": {
+   "method": "scene",
+   "scene": "S_3018"
+  },
+  "Explore: Before Altar (S_3016)": {
+   "method": "scene",
+   "scene": "S_3016"
+  },
+  "Explore: Boss Room (S_2080)": {
+   "method": "scene",
+   "scene": "S_2080"
+  },
+  "Explore: Boss Room (S_2099)": {
+   "method": "scene",
+   "scene": "S_2099"
+  },
+  "Explore: Boss Room (S_3080)": {
+   "method": "scene",
+   "scene": "S_3080"
+  },
+  "Explore: Boss Room (S_3099)": {
+   "method": "scene",
+   "scene": "S_3099"
+  },
+  "Explore: Boss Room (S_4099)": {
+   "method": "scene",
+   "scene": "S_4099"
+  },
+  "Explore: Boss Room (S_5080)": {
+   "method": "scene",
+   "scene": "S_5080"
+  },
+  "Explore: Boss Room (S_5099)": {
+   "method": "scene",
+   "scene": "S_5099"
+  },
+  "Explore: Boss Room Key (S_4010)": {
+   "method": "scene",
+   "scene": "S_4010"
+  },
+  "Explore: Bridge Room 1 (S_3011)": {
+   "method": "scene",
+   "scene": "S_3011"
+  },
+  "Explore: Bridge Room 2 (S_3012)": {
+   "method": "scene",
+   "scene": "S_3012"
+  },
+  "Explore: Chest (Drop-Off) (S_5004)": {
+   "method": "scene",
+   "scene": "S_5004"
+  },
+  "Explore: Devil's Corridor (S_3009)": {
+   "method": "scene",
+   "scene": "S_3009"
+  },
+  "Explore: Devil's Corridor Pillar (S_3103)": {
+   "method": "scene",
+   "scene": "S_3103"
+  },
+  "Explore: Double Jump (S_4002)": {
+   "method": "scene",
+   "scene": "S_4002"
+  },
+  "Explore: Fire Altar (S_3007)": {
+   "method": "scene",
+   "scene": "S_3007"
+  },
+  "Explore: Horiz. Scroll Passage (S_2014)": {
+   "method": "scene",
+   "scene": "S_2014"
+  },
+  "Explore: Jump Room (S_3010)": {
+   "method": "scene",
+   "scene": "S_3010"
+  },
+  "Explore: Lava Rods (S_3008)": {
+   "method": "scene",
+   "scene": "S_3008"
+  },
+  "Explore: Layer 5 Save (S_5000)": {
+   "method": "scene",
+   "scene": "S_5000"
+  },
+  "Explore: Layer 5 Staircase (S_4097)": {
+   "method": "scene",
+   "scene": "S_4097"
+  },
+  "Explore: Mark Treasure (S_3002)": {
+   "method": "scene",
+   "scene": "S_3002"
+  },
+  "Explore: Mask of Eyes Path (S_4003)": {
+   "method": "scene",
+   "scene": "S_4003"
+  },
+  "Explore: Non-Slip Boots (S_4012)": {
+   "method": "scene",
+   "scene": "S_4012"
+  },
+  "Explore: Outer Corridor 1 (Forward) (S_1101)": {
+   "method": "scene",
+   "scene": "S_1101"
+  },
+  "Explore: Outer Corridor 1 (S_2100)": {
+   "method": "scene",
+   "scene": "S_2100"
+  },
+  "Explore: Outer Corridor 1 (S_4100)": {
+   "method": "scene",
+   "scene": "S_4100"
+  },
+  "Explore: Outer Corridor 1 (S_5100)": {
+   "method": "scene",
+   "scene": "S_5100"
+  },
+  "Explore: Outer Corridor 2 (S_2101)": {
+   "method": "scene",
+   "scene": "S_2101"
+  },
+  "Explore: Outer Corridor 2 (S_3101)": {
+   "method": "scene",
+   "scene": "S_3101"
+  },
+  "Explore: Outer Corridor 2 (S_5101)": {
+   "method": "scene",
+   "scene": "S_5101"
+  },
+  "Explore: Outer Corridor 3 (S_5102)": {
+   "method": "scene",
+   "scene": "S_5102"
+  },
+  "Explore: Outer Corridor 4 (S_5103)": {
+   "method": "scene",
+   "scene": "S_5103"
+  },
+  "Explore: Outer Corridor 5 (S_5104)": {
+   "method": "scene",
+   "scene": "S_5104"
+  },
+  "Explore: Outer Corridor Path (S_2017)": {
+   "method": "scene",
+   "scene": "S_2017"
+  },
+  "Explore: Outer Corridor Staircase (S_3100)": {
+   "method": "scene",
+   "scene": "S_3100"
+  },
+  "Explore: Pitfall Trap (S_4009)": {
+   "method": "scene",
+   "scene": "S_4009"
+  },
+  "Explore: Pre-Boss Room (S_2012)": {
+   "method": "scene",
+   "scene": "S_2012"
+  },
+  "Explore: Pre-Boss Room (S_3014)": {
+   "method": "scene",
+   "scene": "S_3014"
+  },
+  "Explore: Rado Inside 1 (Midboss) (S_4013)": {
+   "method": "scene",
+   "scene": "S_4013"
+  },
+  "Explore: Rado Inside 2 (Staircase) (S_4016)": {
+   "method": "scene",
+   "scene": "S_4016"
+  },
+  "Explore: Rado Inside 3 (Devil Mask) (S_4021)": {
+   "method": "scene",
+   "scene": "S_4021"
+  },
+  "Explore: Rado Inside 4 (Feena) (S_4017)": {
+   "method": "scene",
+   "scene": "S_4017"
+  },
+  "Explore: Rado Pre-Tower Room (S_4014)": {
+   "method": "scene",
+   "scene": "S_4014"
+  },
+  "Explore: Rado Tower (S_4104)": {
+   "method": "scene",
+   "scene": "S_4104"
+  },
+  "Explore: Rear Bend Room (S_4005)": {
+   "method": "scene",
+   "scene": "S_4005"
+  },
+  "Explore: Roo End (S_4004)": {
+   "method": "scene",
+   "scene": "S_4004"
+  },
+  "Explore: Roo Start (S_3104)": {
+   "method": "scene",
+   "scene": "S_3104"
+  },
+  "Explore: Save Point (S_2013)": {
+   "method": "scene",
+   "scene": "S_2013"
+  },
+  "Explore: Save Point (S_3000)": {
+   "method": "scene",
+   "scene": "S_3000"
+  },
+  "Explore: Save Point (S_3006)": {
+   "method": "scene",
+   "scene": "S_3006"
+  },
+  "Explore: Save Point (S_3015)": {
+   "method": "scene",
+   "scene": "S_3015"
+  },
+  "Explore: Save Point (S_4000)": {
+   "method": "scene",
+   "scene": "S_4000"
+  },
+  "Explore: Save Point (S_4020)": {
+   "method": "scene",
+   "scene": "S_4020"
+  },
+  "Explore: Save Point (S_5010)": {
+   "method": "scene",
+   "scene": "S_5010"
+  },
+  "Explore: Save Point (S_5014)": {
+   "method": "scene",
+   "scene": "S_5014"
+  },
+  "Explore: Silver Ore (S_3102)": {
+   "method": "scene",
+   "scene": "S_3102"
+  },
+  "Explore: Skill Room (S_2009)": {
+   "method": "scene",
+   "scene": "S_2009"
+  },
+  "Explore: Slippery Fork Path (S_4006)": {
+   "method": "scene",
+   "scene": "S_4006"
+  },
+  "Explore: Small Room (S_3013)": {
+   "method": "scene",
+   "scene": "S_3013"
+  },
+  "Explore: Staircase (S_2097)": {
+   "method": "scene",
+   "scene": "S_2097"
+  },
+  "Explore: Staircase (S_3097)": {
+   "method": "scene",
+   "scene": "S_3097"
+  },
+  "Explore: Staircase (S_5097)": {
+   "method": "scene",
+   "scene": "S_5097"
+  },
+  "Explore: Staircase Path Room (S_4019)": {
+   "method": "scene",
+   "scene": "S_4019"
+  },
+  "Explore: Switch Room (S_4018)": {
+   "method": "scene",
+   "scene": "S_4018"
+  },
+  "Explore: Vault (S_5007)": {
+   "method": "scene",
+   "scene": "S_5007"
+  },
+  "Explore: Water Dragon Protect (S_2005)": {
+   "method": "scene",
+   "scene": "S_2005"
+  },
+  "Explore: Waterfall Stopper (S_2006)": {
+   "method": "scene",
+   "scene": "S_2006"
+  },
+  "Explore: Waterway 3 (S_2015)": {
+   "method": "scene",
+   "scene": "S_2015"
+  },
+  "Explore: Waterway Entrance (S_2007)": {
+   "method": "scene",
+   "scene": "S_2007"
+  },
+  "Explore: Waterway Stopper (S_2016)": {
+   "method": "scene",
+   "scene": "S_2016"
+  },
+  "Flames of Guilt: 10F Path 2": {
+   "method": "flag",
+   "offset": "0x36BE9C"
+  },
+  "Flames of Guilt: 11F Path 1": {
+   "method": "flag",
+   "offset": "0x36BE88"
+  },
+  "Flames of Guilt: 11F Path 1 #2": {
+   "method": "flag",
+   "offset": "0x36BEAC"
+  },
+  "Flames of Guilt: Boss Room — Silver Harmonica": {
+   "method": "flag",
+   "offset": "0x36BCBC"
+  },
+  "Flames of Guilt: Bridge Room 1": {
+   "method": "flag",
+   "offset": "0x36C06C"
+  },
+  "Flames of Guilt: Bridge Room 2": {
+   "method": "flag",
+   "offset": "0x36BEF0"
+  },
+  "Flames of Guilt: Fire Altar — Crimson Lotusblade": {
+   "method": "flag",
+   "offset": "0x36BE94"
+  },
+  "Flames of Guilt: Jump Room": {
+   "method": "flag",
+   "offset": "0x36BED8"
+  },
+  "Flames of Guilt: Jump Room #2": {
+   "method": "flag",
+   "offset": "0x36BEDC"
+  },
+  "Flames of Guilt: Lava Rods": {
+   "method": "flag",
+   "offset": "0x36BEB4"
+  },
+  "Flames of Guilt: Mark Treasure": {
+   "method": "flag",
+   "offset": "0x36BE80"
+  },
+  "Flames of Guilt: Mark Treasure — Red Moon Crest": {
+   "method": "flag",
+   "offset": "0x36BE7C"
+  },
+  "Flames of Guilt: Roo Start — Roo Trade": {
+   "method": "flag",
+   "offset": "0x36BEC4"
+  },
+  "Flames of Guilt: Silver Ore": {
+   "method": "flag",
+   "offset": "0x36BED4"
+  },
+  "Flooded Prison: 6F Small Room": {
+   "method": "flag",
+   "offset": "0x36BE34"
+  },
+  "Flooded Prison: 7F Path 1": {
+   "method": "flag",
+   "offset": "0x36BE38"
+  },
+  "Flooded Prison: 8F Path 2 — Roo Trade": {
+   "method": "flag",
+   "offset": "0x36BE68"
+  },
+  "Flooded Prison: 8F Waterway 1": {
+   "method": "flag",
+   "offset": "0x36C034"
+  },
+  "Flooded Prison: 8F Waterway 2": {
+   "method": "flag",
+   "offset": "0x36BE64"
+  },
+  "Flooded Prison: Horiz. Scroll Passage": {
+   "method": "flag",
+   "offset": "0x36BE54"
+  },
+  "Flooded Prison: Horiz. Scroll Passage #2": {
+   "method": "flag",
+   "offset": "0x36C070"
+  },
+  "Flooded Prison: Skill Room — Levinstrike Warhammer": {
+   "method": "flag",
+   "offset": "0x36BE58"
+  },
+  "Flooded Prison: Water Dragon Protect": {
+   "method": "flag",
+   "offset": "0x36BE48"
+  },
+  "Flooded Prison: Waterfall Stopper": {
+   "method": "flag",
+   "offset": "0x36BE3C"
+  },
+  "Reach 10F": {
+   "floor": 10,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 11F": {
+   "floor": 11,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 14F": {
+   "floor": 14,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 15F": {
+   "floor": 15,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 16F": {
+   "floor": 16,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 17F": {
+   "floor": 17,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 18F": {
+   "floor": 18,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 19F": {
+   "floor": 19,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 1F": {
+   "floor": 1,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 20F": {
+   "floor": 20,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 22F": {
+   "floor": 22,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 23F": {
+   "floor": 23,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 24F": {
+   "floor": 24,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 25F": {
+   "floor": 25,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 2F": {
+   "floor": 2,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 3F": {
+   "floor": 3,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 4F": {
+   "floor": 4,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 5F": {
+   "floor": 5,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 6F": {
+   "floor": 6,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 7F": {
+   "floor": 7,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Reach 8F": {
+   "floor": 8,
+   "method": "floor",
+   "offset": "0x36BC58"
+  },
+  "Silent Sands: 14F Room": {
+   "method": "flag",
+   "offset": "0x36BF28"
+  },
+  "Silent Sands: 15F Room": {
+   "method": "flag",
+   "offset": "0x36BF38"
+  },
+  "Silent Sands: 15F Room #2": {
+   "method": "flag",
+   "offset": "0x36BF3C"
+  },
+  "Silent Sands: Boss Room Key": {
+   "method": "flag",
+   "offset": "0x36BF58"
+  },
+  "Silent Sands: Double Jump": {
+   "method": "flag",
+   "offset": "0x36BF20"
+  },
+  "Silent Sands: Double Jump #2": {
+   "method": "flag",
+   "offset": "0x36BF24"
+  },
+  "Silent Sands: Mask of Eyes Path": {
+   "method": "flag",
+   "offset": "0x36BF04"
+  },
+  "Silent Sands: Mask of Eyes Path #2": {
+   "method": "flag",
+   "offset": "0x36BF10"
+  },
+  "Silent Sands: Mask of Eyes Path #3": {
+   "method": "flag",
+   "offset": "0x36BF08"
+  },
+  "Silent Sands: Mask of Eyes Path #4": {
+   "method": "flag",
+   "offset": "0x36BF0C"
+  },
+  "Silent Sands: Non-Slip Boots": {
+   "method": "flag",
+   "offset": "0x36BF64"
+  },
+  "Silent Sands: Rado Inside 4 (Feena)": {
+   "method": "flag",
+   "offset": "0x36BF48"
+  },
+  "Silent Sands: Rado Inside 4 (Feena) — Dreaming Idol": {
+   "method": "flag",
+   "offset": "0x36BD54"
+  },
+  "Silent Sands: Rear Bend Room — Silver Chimes": {
+   "method": "scene",
+   "scene": "S_4005"
+  },
+  "Silent Sands: Roo End — Roo Trade": {
+   "method": "flag",
+   "offset": "0x36BF2C"
+  },
+  "Silent Sands: Slippery Fork Path": {
+   "method": "flag",
+   "offset": "0x36BF4C"
+  },
+  "Silent Sands: Slippery Fork Path #2": {
+   "method": "flag",
+   "offset": "0x36BF5C"
+  },
+  "Silent Sands: Slippery Fork Path #3": {
+   "method": "flag",
+   "offset": "0x36BF60"
+  },
+  "Statue: 1F Save (S_1000)": {
+   "method": "flag",
+   "offset": "0x36BDCC"
+  },
+  "Statue: 22F Save (S_6000)": {
+   "method": "flag",
+   "offset": "0x36BFD0"
+  },
+  "Statue: 23F Save (S_6010)": {
+   "method": "flag",
+   "offset": "0x36BFE0"
+  },
+  "Statue: 24F Yog & Om (S_6082)": {
+   "method": "flag",
+   "offset": "0x36BFF0"
+  },
+  "Statue: 25F Save (S_6053)": {
+   "method": "flag",
+   "offset": "0x36BFF8"
+  },
+  "Statue: 4F Save (Forward) (S_1009)": {
+   "method": "flag",
+   "offset": "0x36BDF8"
+  },
+  "Statue: 5F Save (S_1011)": {
+   "method": "flag",
+   "offset": "0x36BE24"
+  },
+  "Statue: 6F Save (S_2000)": {
+   "method": "flag",
+   "offset": "0x36BE2C"
+  },
+  "Statue: Layer 5 Save (S_5000)": {
+   "method": "flag",
+   "offset": "0x36BF74"
+  },
+  "Statue: Outer Corridor 1 (S_2100)": {
+   "method": "flag",
+   "offset": "0x36C098"
+  },
+  "Statue: Pre-Boss Room (S_2012)": {
+   "method": "flag",
+   "offset": "0x36BE70"
+  },
+  "Statue: Pre-Boss Room (S_3014)": {
+   "method": "flag",
+   "offset": "0x36BEF8"
+  },
+  "Statue: Rado Tower (S_4104)": {
+   "method": "flag",
+   "offset": "0x36C008"
+  },
+  "Statue: Save Point (S_2013)": {
+   "method": "flag",
+   "offset": "0x36BE44"
+  },
+  "Statue: Save Point (S_3000)": {
+   "method": "flag",
+   "offset": "0x36BE78"
+  },
+  "Statue: Save Point (S_3006)": {
+   "method": "flag",
+   "offset": "0x36BE90"
+  },
+  "Statue: Save Point (S_3015)": {
+   "method": "flag",
+   "offset": "0x36BEBC"
+  },
+  "Statue: Save Point (S_4000)": {
+   "method": "flag",
+   "offset": "0x36BF00"
+  },
+  "Statue: Save Point (S_4020)": {
+   "method": "flag",
+   "offset": "0x36BF6C"
+  },
+  "Statue: Save Point (S_5010)": {
+   "method": "flag",
+   "offset": "0x36BFB4"
+  },
+  "Statue: Save Point (S_5014)": {
+   "method": "flag",
+   "offset": "0x36BFC8"
+  },
+  "Wailing Blue: 1F Save — Dreaming Idol": {
+   "method": "flag",
+   "offset": "0x36BDBC"
+  },
+  "Wailing Blue: 2F Gemma Room — Blue Necklace": {
+   "method": "scene",
+   "scene": "S_1012"
+  },
+  "Wailing Blue: 2F Path 1": {
+   "method": "flag",
+   "offset": "0x36BDD4"
+  },
+  "Wailing Blue: 2F Path 1 #2": {
+   "method": "flag",
+   "offset": "0x36BE04"
+  },
+  "Wailing Blue: 2F Path 1 #3": {
+   "method": "flag",
+   "offset": "0x36C094"
+  },
+  "Wailing Blue: 2F Path 2 (Wind Skill) — Cerulean Flabellum": {
+   "method": "flag",
+   "offset": "0x36BDDC"
+  },
+  "Wailing Blue: 4F Forward Passage 2": {
+   "method": "flag",
+   "offset": "0x36BDE8"
+  },
+  "Wailing Blue: 4F Forward Passage 3": {
+   "method": "flag",
+   "offset": "0x36C038"
+  },
+  "Wailing Blue: 4F Forward Room": {
+   "method": "scene",
+   "scene": "S_1014/S_BOX01"
+  },
+  "Wailing Blue: 4F Forward Room — Roo Trade": {
+   "method": "flag",
+   "offset": "0x36BDFC"
+  },
+  "Wailing Blue: 4F Lower (Medal)": {
+   "method": "flag",
+   "offset": "0x36BE14"
+  },
+  "Wailing Blue: 4F Path 4": {
+   "method": "flag",
+   "offset": "0x36BE10"
+  }
+ },
+ "location_signals": {
+  "Boss: 17F Room (S_4080)": 5857280,
+  "Boss: 23F Midboss 1 (S_6080)": 5857281,
+  "Boss: 25F Midboss 2 (S_6099)": 5857282,
+  "Boss: 3F Midboss (S_1080)": 5857283,
+  "Boss: 5F Velagunder (S_1099)": 5857284,
+  "Boss: Boss Room (S_2080)": 5857285,
+  "Boss: Boss Room (S_2099)": 5857286,
+  "Boss: Boss Room (S_3080)": 5857287,
+  "Boss: Boss Room (S_3099)": 5857288,
+  "Boss: Boss Room (S_4099)": 5857289,
+  "Boss: Boss Room (S_5080)": 5857290,
+  "Boss: Boss Room (S_5099)": 5857291,
+  "Corrupted Blood: 19F Drop-Off": 5857292,
+  "Corrupted Blood: 20F Path 1": 5857293,
+  "Corrupted Blood: 20F Path 3": 5857294,
+  "Corrupted Blood: 20F Small Room": 5857295,
+  "Corrupted Blood: Boss Room": 5857296,
+  "Corrupted Blood: Chest (Drop-Off)": 5857297,
+  "Corrupted Blood: Outer Corridor 1 — Roo Trade": 5857298,
+  "Corrupted Blood: Outer Corridor 3 — Black Pearl": 5857299,
+  "Corrupted Blood: Outer Corridor 3 — Mantid Medallion": 5857300,
+  "Corrupted Blood: Staircase — Lila Shell": 5857301,
+  "Corrupted Blood: Vault": 5857303,
+  "Demonic Core: 22F Mirror Path — Roo Trade": 5857304,
+  "Demonic Core: 22F Path 2": 5857305,
+  "Demonic Core: 22F Path 3": 5857306,
+  "Demonic Core: 22F Path 3 #2": 5857307,
+  "Demonic Core: 23F Midboss 1 — Rod": 5857308,
+  "Demonic Core: 23F Mirror Room": 5857309,
+  "Demonic Core: 23F Mirror Room #2": 5857310,
+  "Demonic Core: 23F Mirror Room #3": 5857311,
+  "Demonic Core: 24F Path 2": 5857312,
+  "Demonic Core: 24F Path 3": 5857313,
+  "Demonic Core: 24F Path 3 #2": 5857314,
+  "Demonic Core: 24F Yog & Om — Spirit Necklace": 5857315,
+  "Demonic Core: 25F Midboss 2 — Goddess Ring": 5857316,
+  "Divine Blessing: Bolster bad status resists LV1": 5857317,
+  "Divine Blessing: Bolster bad status resists LV2": 5857318,
+  "Divine Blessing: Extend drop item effects LV1": 5857319,
+  "Divine Blessing: Extend drop item effects LV2": 5857320,
+  "Divine Blessing: Hasten Skill recovery LV1": 5857321,
+  "Divine Blessing: Hasten Skill recovery LV2": 5857322,
+  "Divine Blessing: Hasten Skill recovery LV3": 5857323,
+  "Divine Blessing: Increase Boost recovery LV1": 5857324,
+  "Divine Blessing: Increase Boost recovery LV2": 5857325,
+  "Divine Blessing: Increase Boost recovery LV3": 5857326,
+  "Divine Blessing: Increase SP gain": 5857327,
+  "Divine Blessing: Increase effect of herbs LV1": 5857328,
+  "Divine Blessing: Increase effect of herbs LV2": 5857329,
+  "Divine Blessing: Increase item drop rate": 5857330,
+  "Divine Blessing: Increase movement speed": 5857331,
+  "Divine Blessing: Increase stationary heal rate": 5857332,
+  "Divine Blessing: Increase stun effect": 5857333,
+  "Divine Blessing: Reduce MP usage LV1": 5857334,
+  "Divine Blessing: Reduce MP usage LV2": 5857335,
+  "Divine Blessing: Reduce MP usage LV3": 5857336,
+  "Divine Blessing: Reduce bad status duration LV1": 5857337,
+  "Divine Blessing: Reduce bad status duration LV2": 5857338,
+  "Divine Blessing: Reduce damage from terrain": 5857339,
+  "Divine Blessing: Strengthen Battle Armor": 5857342,
+  "Divine Blessing: Strengthen Battle Guards": 5857343,
+  "Divine Blessing: Strengthen Half Plate": 5857359,
+  "Divine Blessing: Strengthen Hard Leggings": 5857360,
+  "Divine Blessing: Strengthen Leather Armor": 5857361,
+  "Divine Blessing: Strengthen Leather Boots": 5857362,
+  "Divine Blessing: Strengthen Leg Guards": 5857365,
+  "Divine Blessing: Strengthen Reflex": 5857369,
+  "Divine Blessing: Strengthen Ring Mail": 5857370,
+  "Divine Blessing: Strengthen Silver Dress": 5857374,
+  "Divine Blessing: Strengthen Silver Leggings": 5857375,
+  "Divine Blessing: Strengthen Sylphen Boots": 5857376,
+  "Explore: 10F Path 1 Furnace (S_3001)": 5857377,
+  "Explore: 10F Path 2 (S_3003)": 5857378,
+  "Explore: 11F Path 1 (S_3004)": 5857379,
+  "Explore: 11F Path 2 (S_3005)": 5857380,
+  "Explore: 14F Room (S_4001)": 5857381,
+  "Explore: 15F Room (S_4015)": 5857382,
+  "Explore: 16F Path 1 (S_4007)": 5857383,
+  "Explore: 16F Path 2 (S_4008)": 5857384,
+  "Explore: 16F Path 3 (S_4011)": 5857385,
+  "Explore: 17F Room (S_4080)": 5857386,
+  "Explore: 18F Path 1 (S_5001)": 5857387,
+  "Explore: 18F Path 2 (S_5003)": 5857388,
+  "Explore: 19F Drop-Off (S_5006)": 5857389,
+  "Explore: 19F Path 1 (S_5005)": 5857390,
+  "Explore: 19F Path 2 (S_5008)": 5857391,
+  "Explore: 1F Save (S_1000)": 5857392,
+  "Explore: 20F Drop-Off (S_5009)": 5857393,
+  "Explore: 20F Path 1 (S_5012)": 5857394,
+  "Explore: 20F Path 2 (S_5013)": 5857395,
+  "Explore: 20F Path 3 (S_5015)": 5857396,
+  "Explore: 20F Small Room (S_5011)": 5857397,
+  "Explore: 22F Mirror Path (S_6009)": 5857398,
+  "Explore: 22F Path 1 (S_6001)": 5857399,
+  "Explore: 22F Path 2 (S_6002)": 5857400,
+  "Explore: 22F Path 3 (S_6015)": 5857401,
+  "Explore: 22F Save (S_6000)": 5857402,
+  "Explore: 23F Midboss 1 (S_6080)": 5857403,
+  "Explore: 23F Mirror Room (S_6014)": 5857404,
+  "Explore: 23F Save (S_6010)": 5857405,
+  "Explore: 24F Path 1 (S_6050)": 5857406,
+  "Explore: 24F Path 2 (S_6051)": 5857407,
+  "Explore: 24F Path 3 (S_6004)": 5857408,
+  "Explore: 24F Path 4 (S_6052)": 5857409,
+  "Explore: 24F Yog & Om (S_6082)": 5857410,
+  "Explore: 25F Midboss 2 (S_6099)": 5857411,
+  "Explore: 25F Save (S_6053)": 5857412,
+  "Explore: 25F Staircase (S_6097)": 5857413,
+  "Explore: 2F Gemma Room (S_1012)": 5857414,
+  "Explore: 2F Hidden Entrance (S_1006)": 5857415,
+  "Explore: 2F Path 1 (S_1001)": 5857416,
+  "Explore: 2F Path 2 (Wind Skill) (S_1004)": 5857417,
+  "Explore: 2F Path 3 (Fork) (S_1005)": 5857418,
+  "Explore: 3F Midboss (S_1080)": 5857419,
+  "Explore: 3F Transfer Room (S_1013)": 5857420,
+  "Explore: 4F Forward Passage 1 (S_1002)": 5857421,
+  "Explore: 4F Forward Passage 2 (S_1003)": 5857422,
+  "Explore: 4F Forward Passage 3 (S_1007)": 5857423,
+  "Explore: 4F Forward Room (S_1014)": 5857424,
+  "Explore: 4F Lower (Medal) (S_1015)": 5857425,
+  "Explore: 4F Outer Corridor 2-1 (S_1100)": 5857426,
+  "Explore: 4F Path 4 (S_1010)": 5857427,
+  "Explore: 4F Path 5 (Fork) (S_1008)": 5857428,
+  "Explore: 4F Save (Forward) (S_1009)": 5857429,
+  "Explore: 5F Outer Corridor 2-2 (S_1102)": 5857430,
+  "Explore: 5F Save (S_1011)": 5857431,
+  "Explore: 5F Stairs (S_1097)": 5857432,
+  "Explore: 5F Velagunder (S_1099)": 5857433,
+  "Explore: 6F Path (S_2001)": 5857434,
+  "Explore: 6F Save (S_2000)": 5857435,
+  "Explore: 6F Small Room (S_2002)": 5857436,
+  "Explore: 7F Path 1 (S_2003)": 5857437,
+  "Explore: 7F Path 2 (S_2004)": 5857438,
+  "Explore: 8F Path 2 (S_2011)": 5857439,
+  "Explore: 8F Waterway 1 (S_2008)": 5857440,
+  "Explore: 8F Waterway 2 (S_2010)": 5857441,
+  "Explore: Annex 1 (S_3017)": 5857442,
+  "Explore: Annex 2 (S_3018)": 5857443,
+  "Explore: Before Altar (S_3016)": 5857444,
+  "Explore: Boss Room (S_2080)": 5857445,
+  "Explore: Boss Room (S_2099)": 5857446,
+  "Explore: Boss Room (S_3080)": 5857447,
+  "Explore: Boss Room (S_3099)": 5857448,
+  "Explore: Boss Room (S_4099)": 5857449,
+  "Explore: Boss Room (S_5080)": 5857450,
+  "Explore: Boss Room (S_5099)": 5857451,
+  "Explore: Boss Room Key (S_4010)": 5857452,
+  "Explore: Bridge Room 1 (S_3011)": 5857453,
+  "Explore: Bridge Room 2 (S_3012)": 5857454,
+  "Explore: Chest (Drop-Off) (S_5004)": 5857455,
+  "Explore: Devil's Corridor (S_3009)": 5857456,
+  "Explore: Devil's Corridor Pillar (S_3103)": 5857457,
+  "Explore: Double Jump (S_4002)": 5857458,
+  "Explore: Fire Altar (S_3007)": 5857459,
+  "Explore: Horiz. Scroll Passage (S_2014)": 5857460,
+  "Explore: Jump Room (S_3010)": 5857461,
+  "Explore: Lava Rods (S_3008)": 5857462,
+  "Explore: Layer 5 Save (S_5000)": 5857463,
+  "Explore: Layer 5 Staircase (S_4097)": 5857464,
+  "Explore: Mark Treasure (S_3002)": 5857465,
+  "Explore: Mask of Eyes Path (S_4003)": 5857466,
+  "Explore: Non-Slip Boots (S_4012)": 5857467,
+  "Explore: Outer Corridor 1 (Forward) (S_1101)": 5857468,
+  "Explore: Outer Corridor 1 (S_2100)": 5857469,
+  "Explore: Outer Corridor 1 (S_4100)": 5857470,
+  "Explore: Outer Corridor 1 (S_5100)": 5857471,
+  "Explore: Outer Corridor 2 (S_2101)": 5857472,
+  "Explore: Outer Corridor 2 (S_3101)": 5857473,
+  "Explore: Outer Corridor 2 (S_5101)": 5857474,
+  "Explore: Outer Corridor 3 (S_5102)": 5857475,
+  "Explore: Outer Corridor 4 (S_5103)": 5857476,
+  "Explore: Outer Corridor 5 (S_5104)": 5857477,
+  "Explore: Outer Corridor Path (S_2017)": 5857478,
+  "Explore: Outer Corridor Staircase (S_3100)": 5857479,
+  "Explore: Pitfall Trap (S_4009)": 5857480,
+  "Explore: Pre-Boss Room (S_2012)": 5857481,
+  "Explore: Pre-Boss Room (S_3014)": 5857482,
+  "Explore: Rado Inside 1 (Midboss) (S_4013)": 5857483,
+  "Explore: Rado Inside 2 (Staircase) (S_4016)": 5857484,
+  "Explore: Rado Inside 3 (Devil Mask) (S_4021)": 5857485,
+  "Explore: Rado Inside 4 (Feena) (S_4017)": 5857486,
+  "Explore: Rado Pre-Tower Room (S_4014)": 5857487,
+  "Explore: Rado Tower (S_4104)": 5857488,
+  "Explore: Rear Bend Room (S_4005)": 5857489,
+  "Explore: Roo End (S_4004)": 5857490,
+  "Explore: Roo Start (S_3104)": 5857491,
+  "Explore: Save Point (S_2013)": 5857492,
+  "Explore: Save Point (S_3000)": 5857493,
+  "Explore: Save Point (S_3006)": 5857494,
+  "Explore: Save Point (S_3015)": 5857495,
+  "Explore: Save Point (S_4000)": 5857496,
+  "Explore: Save Point (S_4020)": 5857497,
+  "Explore: Save Point (S_5010)": 5857498,
+  "Explore: Save Point (S_5014)": 5857499,
+  "Explore: Silver Ore (S_3102)": 5857500,
+  "Explore: Skill Room (S_2009)": 5857501,
+  "Explore: Slippery Fork Path (S_4006)": 5857502,
+  "Explore: Small Room (S_3013)": 5857503,
+  "Explore: Staircase (S_2097)": 5857504,
+  "Explore: Staircase (S_3097)": 5857505,
+  "Explore: Staircase (S_5097)": 5857506,
+  "Explore: Staircase Path Room (S_4019)": 5857507,
+  "Explore: Switch Room (S_4018)": 5857508,
+  "Explore: Vault (S_5007)": 5857510,
+  "Explore: Water Dragon Protect (S_2005)": 5857511,
+  "Explore: Waterfall Stopper (S_2006)": 5857512,
+  "Explore: Waterway 3 (S_2015)": 5857513,
+  "Explore: Waterway Entrance (S_2007)": 5857514,
+  "Explore: Waterway Stopper (S_2016)": 5857515,
+  "Flames of Guilt: 10F Path 2": 5857516,
+  "Flames of Guilt: 11F Path 1": 5857518,
+  "Flames of Guilt: 11F Path 1 #2": 5857519,
+  "Flames of Guilt: Boss Room — Silver Harmonica": 5857520,
+  "Flames of Guilt: Bridge Room 1": 5857521,
+  "Flames of Guilt: Bridge Room 2": 5857522,
+  "Flames of Guilt: Fire Altar — Crimson Lotusblade": 5857523,
+  "Flames of Guilt: Jump Room": 5857524,
+  "Flames of Guilt: Jump Room #2": 5857525,
+  "Flames of Guilt: Lava Rods": 5857526,
+  "Flames of Guilt: Mark Treasure": 5857527,
+  "Flames of Guilt: Mark Treasure — Red Moon Crest": 5857528,
+  "Flames of Guilt: Roo Start — Roo Trade": 5857529,
+  "Flames of Guilt: Silver Ore": 5857530,
+  "Flooded Prison: 6F Small Room": 5857531,
+  "Flooded Prison: 7F Path 1": 5857532,
+  "Flooded Prison: 8F Path 2 — Roo Trade": 5857533,
+  "Flooded Prison: 8F Waterway 1": 5857534,
+  "Flooded Prison: 8F Waterway 2": 5857535,
+  "Flooded Prison: Horiz. Scroll Passage": 5857536,
+  "Flooded Prison: Horiz. Scroll Passage #2": 5857537,
+  "Flooded Prison: Skill Room — Levinstrike Warhammer": 5857538,
+  "Flooded Prison: Water Dragon Protect": 5857539,
+  "Flooded Prison: Waterfall Stopper": 5857541,
+  "Reach 10F": 5857542,
+  "Reach 11F": 5857543,
+  "Reach 14F": 5857544,
+  "Reach 15F": 5857545,
+  "Reach 16F": 5857546,
+  "Reach 17F": 5857547,
+  "Reach 18F": 5857548,
+  "Reach 19F": 5857549,
+  "Reach 1F": 5857550,
+  "Reach 20F": 5857551,
+  "Reach 22F": 5857552,
+  "Reach 23F": 5857553,
+  "Reach 24F": 5857554,
+  "Reach 25F": 5857555,
+  "Reach 2F": 5857556,
+  "Reach 3F": 5857557,
+  "Reach 4F": 5857558,
+  "Reach 5F": 5857559,
+  "Reach 6F": 5857560,
+  "Reach 7F": 5857561,
+  "Reach 8F": 5857562,
+  "Silent Sands: 14F Room": 5857563,
+  "Silent Sands: 15F Room": 5857564,
+  "Silent Sands: 15F Room #2": 5857565,
+  "Silent Sands: Boss Room Key": 5857566,
+  "Silent Sands: Double Jump": 5857567,
+  "Silent Sands: Double Jump #2": 5857568,
+  "Silent Sands: Mask of Eyes Path": 5857569,
+  "Silent Sands: Mask of Eyes Path #2": 5857570,
+  "Silent Sands: Mask of Eyes Path #3": 5857571,
+  "Silent Sands: Mask of Eyes Path #4": 5857572,
+  "Silent Sands: Non-Slip Boots": 5857573,
+  "Silent Sands: Rado Inside 4 (Feena)": 5857574,
+  "Silent Sands: Rado Inside 4 (Feena) — Dreaming Idol": 5857575,
+  "Silent Sands: Rear Bend Room — Silver Chimes": 5857577,
+  "Silent Sands: Roo End — Roo Trade": 5857578,
+  "Silent Sands: Slippery Fork Path": 5857579,
+  "Silent Sands: Slippery Fork Path #2": 5857580,
+  "Silent Sands: Slippery Fork Path #3": 5857581,
+  "Statue: 1F Save (S_1000)": 5857582,
+  "Statue: 22F Save (S_6000)": 5857583,
+  "Statue: 23F Save (S_6010)": 5857584,
+  "Statue: 24F Yog & Om (S_6082)": 5857585,
+  "Statue: 25F Save (S_6053)": 5857586,
+  "Statue: 4F Save (Forward) (S_1009)": 5857587,
+  "Statue: 5F Save (S_1011)": 5857588,
+  "Statue: 6F Save (S_2000)": 5857589,
+  "Statue: Layer 5 Save (S_5000)": 5857590,
+  "Statue: Outer Corridor 1 (S_2100)": 5857591,
+  "Statue: Pre-Boss Room (S_2012)": 5857592,
+  "Statue: Pre-Boss Room (S_3014)": 5857593,
+  "Statue: Rado Tower (S_4104)": 5857594,
+  "Statue: Save Point (S_2013)": 5857595,
+  "Statue: Save Point (S_3000)": 5857596,
+  "Statue: Save Point (S_3006)": 5857597,
+  "Statue: Save Point (S_3015)": 5857598,
+  "Statue: Save Point (S_4000)": 5857599,
+  "Statue: Save Point (S_4020)": 5857600,
+  "Statue: Save Point (S_5010)": 5857601,
+  "Statue: Save Point (S_5014)": 5857602,
+  "Wailing Blue: 1F Save — Dreaming Idol": 5857603,
+  "Wailing Blue: 2F Gemma Room — Blue Necklace": 5857604,
+  "Wailing Blue: 2F Path 1": 5857605,
+  "Wailing Blue: 2F Path 1 #2": 5857606,
+  "Wailing Blue: 2F Path 1 #3": 5857607,
+  "Wailing Blue: 2F Path 2 (Wind Skill) — Cerulean Flabellum": 5857608,
+  "Wailing Blue: 4F Forward Passage 2": 5857610,
+  "Wailing Blue: 4F Forward Passage 3": 5857611,
+  "Wailing Blue: 4F Forward Room": 5857612,
+  "Wailing Blue: 4F Forward Room — Roo Trade": 5857613,
+  "Wailing Blue: 4F Lower (Medal)": 5857614,
+  "Wailing Blue: 4F Path 4": 5857615
+ },
+ "progressive_blessings": {},
+ "progressive_gear": {
+  "Progressive Armor": [
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "Progressive Boots": [
+   30,
+   31,
+   32,
+   33,
+   34,
+   35
+  ]
+ },
+ "progressive_skills": {
+  "Progressive Fire Skill": {
+   "artifact": 109,
+   "level_cell": 184,
+   "power": 118
+  },
+  "Progressive Lightning Skill": {
+   "artifact": 108,
+   "level_cell": 183,
+   "power": 117
+  },
+  "Progressive Wind Skill": {
+   "artifact": 107,
+   "level_cell": 182,
+   "power": 116
+  }
+ },
+ "random_start": false,
+ "scene_floors": {
+  "1000": 1,
+  "1001": 2,
+  "1002": 4,
+  "1003": 4,
+  "1004": 2,
+  "1005": 2,
+  "1006": 2,
+  "1007": 4,
+  "1008": 4,
+  "1009": 4,
+  "1010": 4,
+  "1011": 5,
+  "1012": 2,
+  "1013": 3,
+  "1014": 4,
+  "1015": 4,
+  "1080": 3,
+  "1097": 5,
+  "1099": 5,
+  "1100": 4,
+  "1101": 5,
+  "1102": 5,
+  "2000": 6,
+  "2001": 6,
+  "2002": 6,
+  "2003": 7,
+  "2004": 7,
+  "2005": 9,
+  "2006": 9,
+  "2007": 9,
+  "2008": 8,
+  "2009": 9,
+  "2010": 8,
+  "2011": 8,
+  "2012": 9,
+  "2013": 7,
+  "2014": 9,
+  "2015": 9,
+  "2016": 9,
+  "2017": 9,
+  "2080": 9,
+  "2097": 9,
+  "2099": 9,
+  "2100": 8,
+  "2101": 9,
+  "3000": 10,
+  "3001": 10,
+  "3002": 13,
+  "3003": 10,
+  "3004": 11,
+  "3005": 11,
+  "3006": 11,
+  "3007": 13,
+  "3008": 13,
+  "3009": 13,
+  "3010": 13,
+  "3011": 13,
+  "3012": 13,
+  "3013": 13,
+  "3014": 13,
+  "3015": 12,
+  "3016": 13,
+  "3017": 13,
+  "3018": 13,
+  "3080": 13,
+  "3097": 13,
+  "3099": 13,
+  "3100": 13,
+  "3101": 13,
+  "3102": 13,
+  "3103": 13,
+  "3104": 13,
+  "4000": 14,
+  "4001": 14,
+  "4002": 17,
+  "4003": 17,
+  "4004": 17,
+  "4005": 17,
+  "4006": 17,
+  "4007": 16,
+  "4008": 16,
+  "4009": 17,
+  "4010": 17,
+  "4011": 16,
+  "4012": 17,
+  "4013": 17,
+  "4014": 17,
+  "4015": 15,
+  "4016": 17,
+  "4017": 17,
+  "4018": 17,
+  "4019": 17,
+  "4020": 17,
+  "4021": 17,
+  "4080": 17,
+  "4097": 17,
+  "4099": 17,
+  "4100": 17,
+  "4104": 18,
+  "5000": 18,
+  "5001": 18,
+  "5002": 21,
+  "5003": 18,
+  "5004": 21,
+  "5005": 19,
+  "5006": 19,
+  "5007": 21,
+  "5008": 19,
+  "5009": 20,
+  "5010": 20,
+  "5011": 20,
+  "5012": 20,
+  "5013": 20,
+  "5014": 21,
+  "5015": 20,
+  "5080": 21,
+  "5097": 21,
+  "5099": 21,
+  "5100": 21,
+  "5101": 21,
+  "5102": 21,
+  "5103": 21,
+  "5104": 21,
+  "6000": 22,
+  "6001": 22,
+  "6002": 22,
+  "6004": 24,
+  "6009": 22,
+  "6010": 23,
+  "6014": 23,
+  "6015": 22,
+  "6050": 24,
+  "6051": 24,
+  "6052": 24,
+  "6053": 25,
+  "6080": 23,
+  "6082": 24,
+  "6097": 25,
+  "6099": 25
+ },
+ "scene_levels": {
+  "1000": 1,
+  "1001": 2,
+  "1002": 4,
+  "1003": 4,
+  "1004": 2,
+  "1005": 2,
+  "1006": 2,
+  "1007": 4,
+  "1008": 4,
+  "1009": 4,
+  "1010": 4,
+  "1011": 6,
+  "1012": 2,
+  "1013": 3,
+  "1014": 4,
+  "1015": 4,
+  "1080": 3,
+  "1097": 6,
+  "1099": 6,
+  "1100": 4,
+  "1101": 6,
+  "1102": 6,
+  "2000": 9,
+  "2001": 9,
+  "2002": 9,
+  "2003": 12,
+  "2004": 12,
+  "2005": 17,
+  "2006": 17,
+  "2007": 17,
+  "2008": 15,
+  "2009": 17,
+  "2010": 15,
+  "2011": 15,
+  "2012": 17,
+  "2013": 12,
+  "2014": 17,
+  "2015": 17,
+  "2016": 17,
+  "2017": 17,
+  "2080": 17,
+  "2097": 17,
+  "2099": 17,
+  "2100": 15,
+  "2101": 17,
+  "3000": 18,
+  "3001": 18,
+  "3002": 21,
+  "3003": 18,
+  "3004": 19,
+  "3005": 19,
+  "3006": 19,
+  "3007": 21,
+  "3008": 21,
+  "3009": 21,
+  "3010": 21,
+  "3011": 21,
+  "3012": 21,
+  "3013": 21,
+  "3014": 21,
+  "3015": 20,
+  "3016": 21,
+  "3017": 21,
+  "3018": 21,
+  "3080": 21,
+  "3097": 21,
+  "3099": 21,
+  "3100": 21,
+  "3101": 21,
+  "3102": 21,
+  "3103": 21,
+  "3104": 21,
+  "4000": 22,
+  "4001": 22,
+  "4002": 25,
+  "4003": 25,
+  "4004": 25,
+  "4005": 25,
+  "4006": 25,
+  "4007": 24,
+  "4008": 24,
+  "4009": 25,
+  "4010": 25,
+  "4011": 24,
+  "4012": 25,
+  "4013": 25,
+  "4014": 25,
+  "4015": 23,
+  "4016": 25,
+  "4017": 25,
+  "4018": 25,
+  "4019": 25,
+  "4020": 25,
+  "4021": 25,
+  "4080": 25,
+  "4097": 25,
+  "4099": 25,
+  "4100": 25,
+  "4104": 27,
+  "5000": 27,
+  "5001": 27,
+  "5002": 41,
+  "5003": 27,
+  "5004": 41,
+  "5005": 32,
+  "5006": 32,
+  "5007": 41,
+  "5008": 32,
+  "5009": 36,
+  "5010": 36,
+  "5011": 36,
+  "5012": 36,
+  "5013": 36,
+  "5014": 41,
+  "5015": 36,
+  "5080": 41,
+  "5097": 41,
+  "5099": 41,
+  "5100": 41,
+  "5101": 41,
+  "5102": 41,
+  "5103": 41,
+  "5104": 41,
+  "6000": 44,
+  "6001": 44,
+  "6002": 44,
+  "6004": 49,
+  "6009": 44,
+  "6010": 47,
+  "6014": 47,
+  "6015": 44,
+  "6050": 49,
+  "6051": 49,
+  "6052": 49,
+  "6053": 51,
+  "6080": 47,
+  "6082": 49,
+  "6097": 51,
+  "6099": 51
+ },
+ "scene_locations": {
+  "1000": [
+   5857603,
+   5857582,
+   5857392
+  ],
+  "1001": [
+   5857605,
+   5857606,
+   5857607,
+   5857416
+  ],
+  "1002": [
+   5857421
+  ],
+  "1003": [
+   5857610,
+   5857422
+  ],
+  "1004": [
+   5857608,
+   5857417
+  ],
+  "1005": [
+   5857418
+  ],
+  "1006": [
+   5857415
+  ],
+  "1007": [
+   5857611,
+   5857423
+  ],
+  "1008": [
+   5857428
+  ],
+  "1009": [
+   5857587,
+   5857429
+  ],
+  "1010": [
+   5857615,
+   5857427
+  ],
+  "1011": [
+   5857588,
+   5857431
+  ],
+  "1012": [
+   5857414,
+   5857604
+  ],
+  "1013": [
+   5857420
+  ],
+  "1014": [
+   5857612,
+   5857424,
+   5857613
+  ],
+  "1015": [
+   5857614,
+   5857425
+  ],
+  "1080": [
+   5857419,
+   5857283
+  ],
+  "1097": [
+   5857432
+  ],
+  "1099": [
+   5857433,
+   5857284
+  ],
+  "1100": [
+   5857426
+  ],
+  "1101": [
+   5857468
+  ],
+  "1102": [
+   5857430
+  ],
+  "2000": [
+   5857589,
+   5857435
+  ],
+  "2001": [
+   5857434
+  ],
+  "2002": [
+   5857531,
+   5857436
+  ],
+  "2003": [
+   5857532,
+   5857437
+  ],
+  "2004": [
+   5857438
+  ],
+  "2005": [
+   5857539,
+   5857511
+  ],
+  "2006": [
+   5857541,
+   5857512
+  ],
+  "2007": [
+   5857514
+  ],
+  "2008": [
+   5857534,
+   5857440
+  ],
+  "2009": [
+   5857538,
+   5857501
+  ],
+  "2010": [
+   5857535,
+   5857441
+  ],
+  "2011": [
+   5857439,
+   5857533
+  ],
+  "2012": [
+   5857592,
+   5857481
+  ],
+  "2013": [
+   5857595,
+   5857492
+  ],
+  "2014": [
+   5857536,
+   5857537,
+   5857460
+  ],
+  "2015": [
+   5857513
+  ],
+  "2016": [
+   5857515
+  ],
+  "2017": [
+   5857478
+  ],
+  "2080": [
+   5857445,
+   5857285
+  ],
+  "2097": [
+   5857504
+  ],
+  "2099": [
+   5857446,
+   5857286
+  ],
+  "2100": [
+   5857591,
+   5857469
+  ],
+  "2101": [
+   5857472
+  ],
+  "3000": [
+   5857596,
+   5857493
+  ],
+  "3001": [
+   5857377
+  ],
+  "3002": [
+   5857527,
+   5857528,
+   5857465
+  ],
+  "3003": [
+   5857516,
+   5857378
+  ],
+  "3004": [
+   5857518,
+   5857519,
+   5857379
+  ],
+  "3005": [
+   5857380
+  ],
+  "3006": [
+   5857597,
+   5857494
+  ],
+  "3007": [
+   5857523,
+   5857459
+  ],
+  "3008": [
+   5857526,
+   5857462
+  ],
+  "3009": [
+   5857456
+  ],
+  "3010": [
+   5857524,
+   5857525,
+   5857461
+  ],
+  "3011": [
+   5857521,
+   5857453
+  ],
+  "3012": [
+   5857522,
+   5857454
+  ],
+  "3013": [
+   5857503
+  ],
+  "3014": [
+   5857593,
+   5857482
+  ],
+  "3015": [
+   5857598,
+   5857495
+  ],
+  "3016": [
+   5857444
+  ],
+  "3017": [
+   5857442
+  ],
+  "3018": [
+   5857443
+  ],
+  "3080": [
+   5857447,
+   5857287,
+   5857520
+  ],
+  "3097": [
+   5857505
+  ],
+  "3099": [
+   5857448,
+   5857288
+  ],
+  "3100": [
+   5857479
+  ],
+  "3101": [
+   5857473
+  ],
+  "3102": [
+   5857530,
+   5857500
+  ],
+  "3103": [
+   5857457
+  ],
+  "3104": [
+   5857491,
+   5857529
+  ],
+  "4000": [
+   5857599,
+   5857496
+  ],
+  "4001": [
+   5857563,
+   5857381
+  ],
+  "4002": [
+   5857567,
+   5857568,
+   5857458
+  ],
+  "4003": [
+   5857569,
+   5857570,
+   5857571,
+   5857572,
+   5857466
+  ],
+  "4004": [
+   5857490,
+   5857578
+  ],
+  "4005": [
+   5857489,
+   5857577
+  ],
+  "4006": [
+   5857579,
+   5857580,
+   5857581,
+   5857502
+  ],
+  "4007": [
+   5857383
+  ],
+  "4008": [
+   5857384
+  ],
+  "4009": [
+   5857480
+  ],
+  "4010": [
+   5857566,
+   5857452
+  ],
+  "4011": [
+   5857385
+  ],
+  "4012": [
+   5857573,
+   5857467
+  ],
+  "4013": [
+   5857483
+  ],
+  "4014": [
+   5857487
+  ],
+  "4015": [
+   5857564,
+   5857565,
+   5857382
+  ],
+  "4016": [
+   5857484
+  ],
+  "4017": [
+   5857574,
+   5857575,
+   5857486
+  ],
+  "4018": [
+   5857508
+  ],
+  "4019": [
+   5857507
+  ],
+  "4020": [
+   5857600,
+   5857497
+  ],
+  "4021": [
+   5857485
+  ],
+  "4080": [
+   5857386,
+   5857280
+  ],
+  "4097": [
+   5857464
+  ],
+  "4099": [
+   5857449,
+   5857289
+  ],
+  "4100": [
+   5857470
+  ],
+  "4104": [
+   5857594,
+   5857488
+  ],
+  "5000": [
+   5857590,
+   5857463
+  ],
+  "5001": [
+   5857387
+  ],
+  "5003": [
+   5857388
+  ],
+  "5004": [
+   5857297,
+   5857455
+  ],
+  "5005": [
+   5857390
+  ],
+  "5006": [
+   5857292,
+   5857389
+  ],
+  "5007": [
+   5857303,
+   5857510
+  ],
+  "5008": [
+   5857391
+  ],
+  "5009": [
+   5857393
+  ],
+  "5010": [
+   5857601,
+   5857498
+  ],
+  "5011": [
+   5857295,
+   5857397
+  ],
+  "5012": [
+   5857293,
+   5857394
+  ],
+  "5013": [
+   5857395
+  ],
+  "5014": [
+   5857602,
+   5857499
+  ],
+  "5015": [
+   5857294,
+   5857396
+  ],
+  "5080": [
+   5857296,
+   5857450,
+   5857290
+  ],
+  "5097": [
+   5857506,
+   5857301
+  ],
+  "5099": [
+   5857451,
+   5857291
+  ],
+  "5100": [
+   5857471,
+   5857298
+  ],
+  "5101": [
+   5857474
+  ],
+  "5102": [
+   5857300,
+   5857299,
+   5857475
+  ],
+  "5103": [
+   5857476
+  ],
+  "5104": [
+   5857477
+  ],
+  "6000": [
+   5857583,
+   5857402
+  ],
+  "6001": [
+   5857399
+  ],
+  "6002": [
+   5857305,
+   5857400
+  ],
+  "6004": [
+   5857313,
+   5857314,
+   5857408
+  ],
+  "6009": [
+   5857398,
+   5857304
+  ],
+  "6010": [
+   5857584,
+   5857405
+  ],
+  "6014": [
+   5857309,
+   5857310,
+   5857311,
+   5857404
+  ],
+  "6015": [
+   5857306,
+   5857307,
+   5857401
+  ],
+  "6050": [
+   5857406
+  ],
+  "6051": [
+   5857312,
+   5857407
+  ],
+  "6052": [
+   5857409
+  ],
+  "6053": [
+   5857586,
+   5857412
+  ],
+  "6080": [
+   5857403,
+   5857281,
+   5857308
+  ],
+  "6082": [
+   5857585,
+   5857410,
+   5857315
+  ],
+  "6097": [
+   5857413
+  ],
+  "6099": [
+   5857411,
+   5857282,
+   5857316
+  ]
+ },
+ "scene_names": {
+  "1000": "1F Save",
+  "1001": "2F Path 1",
+  "1002": "4F Forward Passage 1",
+  "1003": "4F Forward Passage 2",
+  "1004": "2F Path 2 (Wind Skill)",
+  "1005": "2F Path 3 (Fork)",
+  "1006": "2F Hidden Entrance",
+  "1007": "4F Forward Passage 3",
+  "1008": "4F Path 5 (Fork)",
+  "1009": "4F Save (Forward)",
+  "1010": "4F Path 4",
+  "1011": "5F Save",
+  "1012": "2F Gemma Room",
+  "1013": "3F Transfer Room",
+  "1014": "4F Forward Room",
+  "1015": "4F Lower (Medal)",
+  "1080": "3F Midboss",
+  "1097": "5F Stairs",
+  "1099": "5F Velagunder",
+  "1100": "4F Outer Corridor 2-1",
+  "1101": "Outer Corridor 1 (Forward)",
+  "1102": "5F Outer Corridor 2-2",
+  "2000": "6F Save",
+  "2001": "6F Path",
+  "2002": "6F Small Room",
+  "2003": "7F Path 1",
+  "2004": "7F Path 2",
+  "2005": "Water Dragon Protect",
+  "2006": "Waterfall Stopper",
+  "2007": "Waterway Entrance",
+  "2008": "8F Waterway 1",
+  "2009": "Skill Room",
+  "2010": "8F Waterway 2",
+  "2011": "8F Path 2",
+  "2012": "Pre-Boss Room",
+  "2013": "Save Point",
+  "2014": "Horiz. Scroll Passage",
+  "2015": "Waterway 3",
+  "2016": "Waterway Stopper",
+  "2017": "Outer Corridor Path",
+  "2080": "Boss Room",
+  "2097": "Staircase",
+  "2099": "Boss Room",
+  "2100": "Outer Corridor 1",
+  "2101": "Outer Corridor 2",
+  "3000": "Save Point",
+  "3001": "10F Path 1 Furnace",
+  "3002": "Mark Treasure",
+  "3003": "10F Path 2",
+  "3004": "11F Path 1",
+  "3005": "11F Path 2",
+  "3006": "Save Point",
+  "3007": "Fire Altar",
+  "3008": "Lava Rods",
+  "3009": "Devil's Corridor",
+  "3010": "Jump Room",
+  "3011": "Bridge Room 1",
+  "3012": "Bridge Room 2",
+  "3013": "Small Room",
+  "3014": "Pre-Boss Room",
+  "3015": "Save Point",
+  "3016": "Before Altar",
+  "3017": "Annex 1",
+  "3018": "Annex 2",
+  "3080": "Boss Room",
+  "3097": "Staircase",
+  "3099": "Boss Room",
+  "3100": "Outer Corridor Staircase",
+  "3101": "Outer Corridor 2",
+  "3102": "Silver Ore",
+  "3103": "Devil's Corridor Pillar",
+  "3104": "Roo Start",
+  "4000": "Save Point",
+  "4001": "14F Room",
+  "4002": "Double Jump",
+  "4003": "Mask of Eyes Path",
+  "4004": "Roo End",
+  "4005": "Rear Bend Room",
+  "4006": "Slippery Fork Path",
+  "4007": "16F Path 1",
+  "4008": "16F Path 2",
+  "4009": "Pitfall Trap",
+  "4010": "Boss Room Key",
+  "4011": "16F Path 3",
+  "4012": "Non-Slip Boots",
+  "4013": "Rado Inside 1 (Midboss)",
+  "4014": "Rado Pre-Tower Room",
+  "4015": "15F Room",
+  "4016": "Rado Inside 2 (Staircase)",
+  "4017": "Rado Inside 4 (Feena)",
+  "4018": "Switch Room",
+  "4019": "Staircase Path Room",
+  "4020": "Save Point",
+  "4021": "Rado Inside 3 (Devil Mask)",
+  "4080": "17F Room",
+  "4097": "Layer 5 Staircase",
+  "4099": "Boss Room",
+  "4100": "Outer Corridor 1",
+  "4104": "Rado Tower",
+  "5000": "Layer 5 Save",
+  "5001": "18F Path 1",
+  "5002": "Toal's Room",
+  "5003": "18F Path 2",
+  "5004": "Chest (Drop-Off)",
+  "5005": "19F Path 1",
+  "5006": "19F Drop-Off",
+  "5007": "Vault",
+  "5008": "19F Path 2",
+  "5009": "20F Drop-Off",
+  "5010": "Save Point",
+  "5011": "20F Small Room",
+  "5012": "20F Path 1",
+  "5013": "20F Path 2",
+  "5014": "Save Point",
+  "5015": "20F Path 3",
+  "5080": "Boss Room",
+  "5097": "Staircase",
+  "5099": "Boss Room",
+  "5100": "Outer Corridor 1",
+  "5101": "Outer Corridor 2",
+  "5102": "Outer Corridor 3",
+  "5103": "Outer Corridor 4",
+  "5104": "Outer Corridor 5",
+  "6000": "22F Save",
+  "6001": "22F Path 1",
+  "6002": "22F Path 2",
+  "6004": "24F Path 3",
+  "6009": "22F Mirror Path",
+  "6010": "23F Save",
+  "6014": "23F Mirror Room",
+  "6015": "22F Path 3",
+  "6050": "24F Path 1",
+  "6051": "24F Path 2",
+  "6052": "24F Path 4",
+  "6053": "25F Save",
+  "6080": "23F Midboss 1",
+  "6082": "24F Yog & Om",
+  "6097": "25F Staircase",
+  "6099": "25F Midboss 2"
+ },
+ "shop_hints": true,
+ "skill_grants": {
+  "Cerulean Flabellum": 116,
+  "Crimson Lotusblade": 118,
+  "Emerald": 182,
+  "Evil Ring": 94,
+  "Gold Bracelet": 163,
+  "Levinstrike Warhammer": 117,
+  "Ruby": 183,
+  "Silver Bracelet": 181,
+  "Topaz": 184
+ },
+ "sp_flag_idx": 216,
+ "sp_items": {
+  "SP: 150": 150,
+  "SP: 50": 50,
+  "SP: 500": 500
+ },
+ "start_items": [
+  84,
+  86
+ ],
+ "start_level": 1,
+ "start_statue_scene": 0,
+ "start_weapon": 0,
+ "statue_scenes": [
+  1000,
+  1009,
+  1011,
+  2000,
+  2012,
+  2013,
+  2100,
+  3000,
+  3006,
+  3014,
+  3015,
+  4000,
+  4020,
+  4104,
+  5000,
+  5010,
+  5014,
+  6000,
+  6010,
+  6053,
+  6082
+ ],
+ "statue_unlocks": {},
+ "statue_warp_locks": false,
+ "suppress_give_ids": [
+  94,
+  128,
+  129,
+  130
+ ],
+ "suppress_items": [
+  7,
+  8,
+  9,
+  10,
+  11,
+  30,
+  31,
+  32,
+  33,
+  34,
+  35,
+  54,
+  55,
+  56,
+  57,
+  58,
+  59,
+  62,
+  78,
+  79,
+  80,
+  81,
+  82,
+  83,
+  85,
+  87,
+  88,
+  89,
+  90,
+  91,
+  92,
+  93,
+  94,
+  95,
+  96,
+  97,
+  98,
+  99,
+  100,
+  101,
+  102,
+  103,
+  104,
+  106,
+  107,
+  108,
+  109,
+  110,
+  111,
+  116,
+  117,
+  118,
+  163,
+  181,
+  182,
+  183,
+  184
+ ],
+ "weapon_requirements": 1
+}
