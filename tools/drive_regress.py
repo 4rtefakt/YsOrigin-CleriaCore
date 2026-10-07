@@ -470,6 +470,16 @@ CASES.update({
         expect=["[sand] surf 11/11", "feet (-70.795, 7.605, 5.920)", "feet (-71.511, 7.247, 5.920)",
                 "feet (-71.564, 7.220, 5.969)", "feet (-71.573, 7.216, 6.049)", "feet (-71.627, 7.189, 6.780)",
                 "feet (-71.654, 7.176, 6.960)", "feet (-71.680, 7.162, 7.010)"]),
+    # The floor-4 boss (M360 Jenocres + its eight M980 crystals, build/ai_spec/M360.md / M980.md): S_4013's
+    # entry event (Yunica) runs to its end and starts Battle_Yunica; the boss lays out its crystals; a
+    # one-hit kill ends it, kills the crystals and (255 ticks later) clears flag 156 so the script goes on.
+    "jenocres_fight": dict(
+        room="S_40/S_4013/S_4013", char="1",
+        drive="4:opt=DamageTaken=0;20:every=20,4300,ok;4380:actors;4390:opt=OneHitKill=1;"
+              "4400:every=15,4700,near=40;4401:every=15,4700,atk;4700:actors;5000:dflags;5001:quit",
+        expect=["[actor] id 168 cast 40 enemy hp 202", "[actor] id 184 cast 184 enemy hp", "defeated 1",
+                "[actor] id 168 cast 40 enemy hp 0", "[actor] id 184 cast 184 enemy hp 0",
+                "flags 130=0 131=1 133=0 156=0"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

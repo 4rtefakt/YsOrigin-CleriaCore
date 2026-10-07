@@ -39,6 +39,8 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 51: return &brains::m580;   // M580 Sevnam
         case 52: return &brains::m590;   // M590 Sepaswait
         case 53: return &brains::m600;   // M600 Titamonus
+        case 29: return &brains::m360;   // M360 Jenocres (the floor-4 boss)
+        case 91: return &brains::m980;   // M980 Jenocres' crystals
         case 49: return &brains::m560;   // M560 Karon (handler: brains/revive.cpp)
         case 71: return &brains::m780;   // M780 Zelkaron (handler: brains/revive.cpp)
         case 50: return &brains::m570;   // M570 Zarue (handler: brains/revive.cpp)
@@ -107,6 +109,7 @@ bool enemy_handler_held(int ai_index, const AiEnv& env) {
 EnemyDeathHook enemy_death_hook_for(int ai_index) {
     switch (ai_index) {
         case 39: return &brains::m460_dead;
+        case 29: return &brains::m360_dead;
         case 78: return &brains::m850_dead;
         case 74: return &brains::m810_dead;
         case 76: return &brains::m830_dead;

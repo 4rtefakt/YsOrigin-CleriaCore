@@ -68,6 +68,9 @@ AiOut m550(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0049c130 Arte
 AiOut m350(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a56c0 Diphtheloyd (flying breath, swoop)
 AiOut m590(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a7030 Sepaswait (lasers, the ramp dash)
 AiOut m600(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a8ea0 Titamonus (M110 + the 312 dive)
+AiOut m360(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004d2620 Jenocres (the floor-4 boss)
+void m360_dead(Actor&, AiWorld&);                              // FUN_004d3f30's dead path (crystals, flags)
+AiOut m980(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004d4370 Jenocres' crystals
 AiOut m560(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a0260 Karon (buried, leaping spin; revives)
 AiOut m780(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004aa220 Zelkaron (Karon + combos; revives)
 AiOut m570(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f3730 Zarue (hover summoner; revives)

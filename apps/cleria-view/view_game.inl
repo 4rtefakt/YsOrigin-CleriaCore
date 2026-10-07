@@ -1494,6 +1494,9 @@ title_again:
             Aso* a = enemy_script(e.stem);
             if (!a) return;
             e.avm.bind(a);
+            // M980's morph loop reads and writes g_flags[179/180] (M980.md §5) [H: only this cast's VM
+            // is given the game flags here, so the other casts' scripts run as before].
+            if (e.actor && e.actor->cast_id == 0xb8) e.avm.set_flags(game.g_flags, 0x200);
             // Resting section: 2 (idle for most), else 0, else whatever exists first —
             // set_section is what makes AsoVm::ok() true, so it must land on a real one.
             int idle = a->find(2) ? 2 : (a->find(0) ? 0 : a->sections().front().id);
@@ -5975,6 +5978,10 @@ title_again:
                             bl->fx->scale_x = bl->fx->scale_y = bl->fx->scale_z = b.fx_scale;
                         }
                         if (b.gas) gas_owner[bl] = en->instance_id;
+                        if (b.root_life >= 0 && bl->fx)                     // the brain's root write (M980)
+                            if (ef2sim::Particle* rp = fxsim.first_particle(bl->fx)) {
+                                rp->remaining = b.root_remaining; rp->life = b.root_life;
+                            }
                     }
                     if (o.gauge_hp >= 0) {                         // FUN_0043a460: the boss gauge
                         gauge_owner = en->instance_id;
@@ -6005,6 +6012,7 @@ title_again:
                     if (e.avm.dashed()) apply_dash(en->mover, e.actor->ai.heading, e.avm.dash_d());
                     mover_post(en->mover, idx_pre, e.actor->ai.speed, e.actor->ai.heading, en->vert.grounded,
                                en->flyer, movable_pre, e.avm.movable(), en->hp, en->flags12c, en->ai.surf);
+                    if (o.add_dx != 0.0f || o.add_dz != 0.0f) { en->mover.dx += o.add_dx; en->mover.dz += o.add_dz; }   // M980 0x4d71c6
                     if (e.facing != e.actor->ai.heading)              // FUN_005eee60, x +0x36c (1.0)
                         e.facing = turn_facing(idx_pre == 2 ? 0.35f : 0.18f, e.facing, e.actor->ai.heading);
                     en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
@@ -7035,6 +7043,7 @@ title_again:
                 benv.difficulty = difficulty >= 2 ? difficulty - 2 : 0;
                 benv.rng = [&] { return pick_rng.next(); };
                 std::vector<bullet::Event> bev;
+                #include "view_crystal.inl"          // M980's bullet scan (M980.md §3.4a)
                 bullets.update(benv, &bev);
                 for (auto it = gas_owner.begin(); it != gas_owner.end();) {
                     bool live = false;

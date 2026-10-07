@@ -248,6 +248,9 @@ struct AiBullet {
     float f168 = 0, f16c = 0, f170 = 0, f174 = 0;   // per kind (BULLETS.md §1.1)
     float fx_scale = 0;                       // > 0: the brain then sets the effect's scale (+0x1ac..)
     bool gas = false;                         // its EF2 gets +0x1a8 = owner (the M460 gas floor)
+    // The brain's write into its EF2's first (root) particle after the spawn (M980: p+0x1c4 / +0x1c0);
+    // < 0 = untouched.
+    int root_remaining = -1, root_life = -1;
 };
 struct AiOut {
     int section = -1;            // FUN_00446550(section, 0): a priority-GATED request
@@ -271,6 +274,9 @@ struct AiOut {
     float gauge_hp = -1;         // FUN_0043a460: show the boss gauge at this HP when >= 0
     float gauge_len = -1;        // its bar length / lenScale (M850 3000 Hugo / 4000 / 7500); <= 0 = the host's rule
     int gauge_emblem = 0;        // FUN_0043a460's third argument (M360: 6)
+    // A handler's add to this tick's mover displacement (+0xa3c / +0xa44) before the integrator
+    // (M980's travel velocity +0x7f0 / +0x7f8, FUN_004d6ea0 0x4d71c6).
+    float add_dx = 0, add_dz = 0;
     // The handler skipped the action player (FUN_00479b00) this tick: the class-4 duel
     // handlers' script-puppet path (g_flags[130] == 0 -> FUN_0045f250) and their g_flags[131]
     // freeze (FUN_0045f470 only).

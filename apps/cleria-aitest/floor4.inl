@@ -299,4 +299,70 @@ static void floor4_tests() {
         check(player_ice(kSurfaceIce, 0) && !player_ice(kSurfaceIce, 0x4000u) && !player_ice(1, 0),
               "ice: the player slips on 0x0b unless the 0x4000 accessory bit is on");
     }
+    // ---- M360 Jenocres + M980 crystals (m360.cpp, m980.cpp; build/ai_spec/M360.md, M980.md) ----
+    {
+        struct BossPool : Pool {
+            int fl[512] = {};
+            int cam = -1;
+            int flag(int i, int) override { return fl[i]; }
+            void set_flag(int i, int v) override { fl[i] = v; }
+            void force_camera(int r, float) override { cam = r; }
+        };
+        const EnemyBrain m360 = enemy_brain_for(29), m980 = enemy_brain_for(91);
+        check(m360 && m980, "Jenocres / crystal brains registered (AI 29 / 91)");
+        BossPool w;
+        Actor& J = (w.actors.emplace_back(), w.actors.back());
+        J.instance_id = 168; J.cast_id = 40; J.ai_index = 29; J.hp = J.max_hp = 200; J.atk = 92; J.level = 29;
+        J.flyer = true; J.height = 1.976f;
+        EnemyAiParams jp = params(0.06f, 0.035f, 1.0f, 3.0f, 2.35f);
+        Rig r; r.env.actor = &J; r.env.world = &w; r.env.target = {0, 1.075f, -3.0f}; r.env.section = 2;
+        r.env.section_type = [](int s) { return s == 4 || s == 5 || s == 315 ? 4 : s >= 300 || s == 7 ? 3 : 2; };
+        enemy_ai_tick(J.ai, jp, r.env, m360);
+        check(J.ai.phase() == 4 && w.cam == 6 && J.ai.i(0x79c) == 10 && J.ai.i(0x7a4) == 1200 &&
+              J.ai.i(0x7a8) >= 120 && J.ai.i(0x7a8) <= 179 && std::fabs(J.hp - 200.0f * 1.03f * 0.98f) < 1e-3f,
+              "M360 INIT: camera region 6, formation 10, hold 1200, idle (8 - d)*15 + R%60, HP x1.03 x0.98");
+        int t300 = -1;
+        for (int t = 0; t < 60 && t300 < 0; ++t) {
+            const AiOut o = enemy_ai_tick(J.ai, jp, r.env, m360);
+            if (o.section == 300 && o.section_force) t300 = t;
+        }
+        check(t300 >= 28 && t300 <= 30 && J.ai.i(0x72c) == 1, "M360: the intro section 300 (ungated) 30 ticks in");
+        r.env.section = 300; r.env.aso_marker = 1;
+        enemy_ai_tick(J.ai, jp, r.env, m360);
+        r.env.aso_marker = 0;
+        check(w.actors.size() == 3, "M360: at 300's Marker 1 the first two crystals spawn");
+        Actor& c0 = *std::next(w.actors.begin(), 1);
+        Actor& c1 = *std::next(w.actors.begin(), 2);
+        check(c0.cast_id == 0xb8 && std::fabs(c0.pos.x - 9.0f) < 1e-6f && std::fabs(c0.pos.z - 4.0f) < 1e-6f &&
+              c0.ai.i(0x7a0) == 0 && c0.ai.f(0x7ac) == 180.0f && std::fabs(c1.pos.x + 9.0f) < 1e-6f &&
+              c1.ai.i(0x7a0) == 1 && c1.ai.f(0x7ac) == 0.0f && c0.ai.alpha == 0.0f && c0.ai.i(0x854) == 168,
+              "M360: crystals 0 / 1 at (+-9, 4), slots 0 / 1, facing 180 / 0, invisible, owned");
+        for (int t = 0; t < 80 && J.ai.i(0x72c) == 1; ++t) enemy_ai_tick(J.ai, jp, r.env, m360);
+        check(w.actors.size() == 9 && J.ai.i(0x72c) == 5, "M360: eight crystals, two every 20 ticks, then sub-state 5");
+        // The crystal.
+        EnemyAiParams cp = params(50.0f, 0.05f, 1.0f, 2.0f, 0.0f);
+        c0.ai_index = 91; c0.height = 1.476f; c0.hp = 1; c0.max_hp = 300;
+        Rig rc; rc.env.actor = &c0; rc.env.world = &w; rc.env.target = {0, 1.075f, -3.0f}; rc.env.section = 2;
+        auto ctick = [&] {
+            rc.env.self = {c0.pos.x, c0.pos.y + c0.height, c0.pos.z};
+            return enemy_ai_tick(c0.ai, cp, rc.env, m980);
+        };
+        AiOut o = ctick();
+        check(c0.ai.phase() == 4 && c0.ai.i(0x7a0) == 0 && c0.ai.f(0x7ac) == 180.0f && c0.ai.f(0x7b8) == 180.0f &&
+              o.section == 300 && o.section_force && c0.hp == 300 && c0.def == 999.0f,
+              "M980 INIT: slot / facing restored, the warp-in 300; HP refilled, DEF 999 every tick");
+        J.ai.i(0x7a4) = -1; J.ai.i(0x79c) = 20;                   // the boss orders the ring
+        c0.ai.i(0x72c) = 0x32; c0.ai.f(0x894) = 3.3333333f; c0.ai.f(0x89c) = 3.0f;
+        o = ctick();
+        const float l = std::sqrt(o.add_dx * o.add_dx + o.add_dz * o.add_dz);
+        check(std::fabs(l - 0.1f) < 1e-5f && o.add_dx < 0.0f && c0.ai.i(0x730) == 10,
+              "M980 travel: 0.1 a tick toward the slot (the handler's displacement); the gate is shut (RESET)");
+        c0.pos.x = 3.3333333f; c0.pos.z = 3.0f;
+        int t = 0;
+        const float f0 = c0.ai.f(0x7ac);
+        for (; t < 60 && c0.ai.i(0x72c) == 0x32; ++t) ctick();
+        std::printf("[ai]   M980 arrival: facing %.2f -> %.2f in %d ticks, sub %d\n", f0, c0.ai.f(0x7ac), t, c0.ai.i(0x72c));
+        check(c0.ai.i(0x72c) == 20 && c0.ai.f(0x7ac) == 90.0f && t >= 19 && t <= 22,
+              "M980 arrival: snapped, then turned at 5 deg/tick to the ring heading 90, sub-state = the formation");
+    }
 }
