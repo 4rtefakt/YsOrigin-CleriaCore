@@ -310,6 +310,30 @@ CASES = {
         room="S_10/S_1002/S_1002", env=dict(CLERIA_CHAR="2"),
         drive="20:flag=116,1;25:wheel=-120;45:hudskill;50:quit",
         expect=["hud skill 116 badge (360, 132)"]),
+    # build/audit/PLAYTEST_1_HUD.md item 1 (src/cleria/hudstate.hpp skill_ready): builder B lights the badge
+    # and the MP strip while Yunica's Ventus (700) is affordable, not at MP 300; charged (Lv2, held) it
+    # stays lit (the pale cell). A "Reduce MP usage" blessing (0x76bc80 & 0x40) skips the MP test (0x43e933).
+    "hud_skill_ready": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:hudstate;20:flag=116,1;21:flag=182,2;25:wheel=-120;45:hudstate;50:mp=300;52:hudstate;"
+              "60:mp=3000;61:skill+;200:hudstate;201:skill-;230:mp=300;231:flag=217,64;233:hudstate;240:quit",
+        expect=["[hud] ready 0 charge 0", "mp 3000 magic -1", "[hud] ready 1 charge 0", "mp 3000 magic 116",
+                "[hud] ready 0 charge 0", "mp 311 magic 116", "[hud] ready 1 charge 2", "[hud] ready 1 charge 0",
+                "mp 322 magic 116"]),
+    # Item 2 (hudstate.hpp tick_buffs; builder A 0x43d9a5 bars, builder D 0x440420 lines): the Strength /
+    # Defense / MP Drops touched at the feet start their 1800-tick timers, which count down once a tick
+    # (FUN_00462c40) and end the buffs at 0.
+    "hud_buffs": dict(
+        room="S_10/S_1002/S_1002",
+        drive="20:drop=72;21:drop=74;22:drop=76;80:hudstate;1900:hudstate;1901:quit",
+        expect=["str 0.5/1790 def 0.3/1791 mp 1.2/1792 full 1800", "str 0.0/0 def 0.0/0 mp 0.0/0 full 1800"]),
+    # Item 3 (FUN_004fae00): a landed swing pops the white number on the Selnarg (FUN_004fbb40 0x4fd241),
+    # the combo line's meter starts (0x76c1a8), and a hit on the player pops the red one (FUN_004fd350
+    # 0x4fe120).
+    "hud_damage_numbers": dict(
+        room="S_10/S_1002/S_1002",
+        drive="100:near=17;101:atk;140:hudstate;150:hurt=60;160:quit",
+        expect=["[popup] 2 ffffff", "combo 1/", "[popup] 21 ff0000"]),
     # Boost (ABILITIES_VERIFIED.md §1, audit combat.md #20-#22): a 21-damage hit adds 2100 to the gauge;
     # entering grants 60 i-frames (59 a tick later), so a hit 30 ticks in is refused (HP stays 39) and
     # one after the window lands halved (21 -> 10).
@@ -483,6 +507,89 @@ CASES.update({
         absent=["no continue snapshot"]),
 })
 
+# The first story playtest (build/audit/PLAYTEST_1_STORY.md).
+CASES.update({
+    # §1: S_1006's s10wall_00 (SOB word 0x1800 -> +0x298 bit 2) stops the walk north without the Mask of Eyes;
+    # with it (acc=54 -> 0x76bbac) the hull leaves the collision at once, the wall fades out over 60 updates
+    # (FUN_00503190) and the walk reaches the S_1012 door behind it.
+    "mask_of_eyes_wall": dict(
+        room="S_10/S_1006/S_1006",
+        drive="10:mask;20:at=24,0,1;25:move=0,1,120;150:pos;160:acc=54;161:mask;190:mask;230:mask;"
+              "231:at=24,0,1;235:move=0,1,120;400:quit",
+        expect=["maskobj 1 bits 2 hidden 0 alpha 1.0000 coll on", "feet (24.271, 0.000, 4.431)",
+                "maskobj 1 bits 2 hidden 1 alpha 0.9833 coll off", "maskobj 1 bits 2 hidden 1 alpha 0.5000 coll off",
+                "maskobj 1 bits 2 hidden 1 alpha 0.0000 coll off", "S_1006 -> S_1012 (fade out)", ">> entering S_1012"]),
+    # §2: S_1014's Roo (TalkC430): "<roo>My hunger knows no bounds..." lays out as extfont cells (M 24, y 36,
+    # h 19, u 32, n 25, g 18, e 16, r 29 — FUN_005f03f0's tag-15 map); the '.' stay letters.
+    "roo_alphabet": dict(
+        room="S_10/S_1014/S_1014",
+        drive="20:run=TalkC430;100:wndtext;101:quit",
+        expect=["run TalkC430 -> started", "wndtext alive 1", "glyphs 49 ext 44 cells 24 36 19 32 25 18 16 29"]),
+})
+# §3: the whole Yunica opening from the New-Game router (S_0000 -> S_0002 Prologue_Event_0/1 -> S_0001
+# Prologue_Event_2 -> S_1000 BattleStart1 / battle_0) skipped in each mode, pressing only inside a cutscene
+# (`skiptap` / `skiphold` act while a Fix holds; `killall` ends the intro's waves). Played out with OK mashed
+# it takes ~24,100 ticks (6.7 min), almost all of it the scripts' own Wait_Time (12,210 ticks in Prologue_Event_2
+# alone); skipped, under 900. Before 83a05fb the drain stopped at the first Wait_ChrMoving (BattleStart1 pc 155,
+# Prologue_Event_2 pc 670) and the rest played at normal speed.
+_OPEN = "40:every=50,{end},killall;{end}:scripts;{q}:quit"
+for _m, _v, _press, _end in (("double", 1, "20:every=20,{end},skiptap", 1200), ("single", 0, "20:every=20,{end},skiptap", 1200),
+                             ("hold", 2, "20:every=100,{end},skiphold=70", 1500)):
+    CASES["opening_skip_" + _m] = dict(
+        room="S_00/S_0000/S_0000",
+        drive=f"5:opt=CutsceneSkip={_v};" + _press.format(end=_end) + ";" + _OPEN.format(end=_end, q=_end + 1),
+        expect=[">> entering S_0002", ">> entering S_0001", "cutscene skip (" + _m + ")", ">> entering S_1000",
+                f"t{_end} scripts", "frozen 0 fix 0/0", "script s_Stop1000_03"],
+        absent=["script battle_0", "script BattleStart1", "script Prologue_Event"])
+# §3 (second report, Hugo, Hold mode): the skip button held from New Game on. Hold now counts any hold, so a
+# held button skips every scene of the chain one second in, and the shell's skip ends the three movies too
+# (they decode here: CLERIA_MOVIE=1). Before, only the first scene skipped and Prologue_Event_2 played out.
+for _c, _bs in (("1", "BattleStart1"), ("2", "BattleStart2")):
+    CASES["opening_hold_through_" + _c] = dict(
+        room="S_00/S_0000/S_0000", char=_c, env=dict(CLERIA_MOVIE="1"),
+        drive="1:opt=CutsceneSkip=2;1:eschold=1500;40:every=50,1600,killall;1600:scripts;1601:quit",
+        expect=["demo1 skipped", "cutscene skip (hold)", "demo2 skipped", ">> entering S_0002", "cutscene skip (hold)",
+                "demo3 skipped", ">> entering S_1000", "cutscene skip (hold)", "t1600 scripts", "frozen 0 fix 0/0",
+                "script s_Stop1000_03"],
+        absent=["script battle_", "script " + _bs, "script Prologue_Event", "ended at"])
+
+
+# Playtest 1, effects (build/audit/PLAYTEST_1_FX.md).
+CASES.update({
+    # 1. A damaging hit sets the monster's hurt timer +0x238 = 1.65 (FUN_00478510) on its next tick, the
+    # integrator runs it down by 0.075 (FUN_0045a3a0): 1.575 one tick later, 0 after 22 ticks. While it
+    # runs the sprite gets the 0x6b3713 specular add (no white flash).
+    "fx_hurt_tint": dict(
+        room="S_10/S_1002/S_1002", env=dict(_LOCK, CLERIA_SFXLOG="1"),
+        drive="20:near=17;21:atk;28:actors;60:actors;61:quit",
+        expect=["[hitfx] t27 spark 0x7f", "[actor] id 17 cast 17 enemy hp 72", "hurt 1.575",
+                "[actor] id 17 cast 17 enemy hp 72", "hurt 0.000"]),
+    # 5. Boost entry (0x465bea..0x465ca6): adol_S_mode_f attached half a unit toward the eye (camera yaw 0
+    # here: -z); the aura (FUN_00463f40) attached at the origin with its depth bias 2 (emitter 0 B2+0x0c).
+    "fx_boost_attach": dict(
+        room="S_10/S_1002/S_1002", env=_LOCK,
+        drive="10:flag=187,1;12:boost=30000;20:boostkey;21:fxall;30:quit",
+        expect=["[fxall] id 50 attach 2 at", "rel (0.00, 0.00, -0.50) bias 0.00 #boost_f",
+                "[fxall] id 39 attach 2 at", "rel (0.00, 0.00, 0.00) bias 2.00 #boost_aura"]),
+    # 2/3. Drops draw as camera-plane quads at pos + (0, 0.1, 0) - F 0.15 + V 0.075 (FUN_00586bf0), their
+    # shadow at the ground (hit y + 0.02) - F 0.15, not in the floor; collecting the recovery drop (0x42) puts
+    # cure.eft on the player at (0, -1, 0), attached, depth bias 5, and z_item.eft at each pickup.
+    "fx_pickup_place": dict(
+        room="S_10/S_1002/S_1002", env=_LOCK,
+        drive="8:opt=DamageDealt=10;9:opt=DropRate=10;20:near=17;21:atk;45:near=17;46:atk;70:near=17;71:atk;"
+              "95:near=17;96:atk;120:pickups;153:fxall;160:quit",
+        expect=["[pickup] id 66 pos (32.35, -4.10, -38.08) ground -4.078 rest 1", "sprite (32.35, -3.86, -38.18)",
+                "shadow y -4.007", "[fxall] id 63 attach 2 at", "rel (0.00, -1.00, 0.00) bias 5.00",
+                "[fxall] id 72 attach 0 at (32.35, -4.10, -38.08)"]),
+    # 4. Eft_LocateChr (0x118) under a Fix: the attach reads the actor's current +0x20, so the smith
+    # script's player light follows the player the opening moved (it sat at the world origin).
+    "fx_locate_under_fix": dict(
+        room="S_10/S_1000/S_1000", env=_LOCK,
+        drive="20:run=TalkC260_Weapon_Sub;60:rep=30,40,ok;699:pos;700:fx;710:quit",
+        expect=["feet (0.000, -2.997, -23.557)", "'Player_Light' id 50 alpha 1.000 -> 1.000 attach 1 at (0.00, -1.92, -23.56)",
+                "'Player_Light2' id 63 alpha 1.000 -> 1.000 attach 1 at (0.00, -1.92, -23.56)"]),
+})
+
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -542,6 +649,11 @@ def run(name, case, exe, assets):
         k = out.find(e, at)
         if k < 0:
             print(f"FAIL {name}: missing '{e}' (after offset {at})")
+            # Say how the run ended, so a flake shows its cause (a crash, a GPU loss, an early quit).
+            tail = [l for l in r.stderr.splitlines() if l.strip()][-3:]
+            print(f"     exit code {r.returncode}; last stdout line: {(r.stdout.splitlines() or [''])[-1][:160]!r}")
+            for l in tail:
+                print(f"     stderr: {l[:160]}")
             return False
         at = k + len(e)
     print(f"ok   {name}")

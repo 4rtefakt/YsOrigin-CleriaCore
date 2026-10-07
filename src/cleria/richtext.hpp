@@ -9,8 +9,8 @@
 // shows index < reveal fully and fades in index == reveal.
 //
 // Glyph metrics come from the host (GDI Felghana at a 32-unit cell), so the layout is exact
-// for whatever font the host rasterises. [not modelled] <rot>, <font>, ruby text and the
-// extfont icons of <ext> / <roo> (laid out as a box of the extfont cell width, not drawn).
+// for whatever font the host rasterises. [not modelled] <rot>, <font> and ruby text. The
+// extfont icons of <ext> / <roo> (extfont.hpp) are glyphs with `ext` set and `c` = the cell.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -25,6 +25,9 @@ struct RichMetrics {
     float ascent = 26;                       // tmAscent
     float space = 10;                        // the space advance at scale 1
     std::function<float(unsigned char)> advance;   // gmCellIncX at scale 1
+    // An extfont cell's advance (left + right at 0x746c00, never scaled); unset = the 32-unit cell.
+    std::function<float(int)> ext_advance;
+    bool english_roonic = false;             // [kernel] EnglishRoonic (0x76519d): <roo> keeps letters
 };
 
 struct RichGlyph {
@@ -33,7 +36,7 @@ struct RichGlyph {
     float scale = 1;
     std::uint32_t colour = 0xFFFFFFFF;
     int index = 0;                           // the counted index (uncounted glyphs share the next)
-    bool ext = false;                        // an extfont icon (<ext> / <roo>): [not drawn]
+    bool ext = false;                        // an extfont icon (<ext> / <roo>): `c` is its cell 0..51
 };
 
 struct RichLayout {

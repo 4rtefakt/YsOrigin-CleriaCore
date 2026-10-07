@@ -525,6 +525,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // [cleria.qol] UnlockMovieSkip: any demo skips, seen or not (QoL, off = retail).
         const bool skippable = movie_skippable(demo, movie_seen) || settings().s.cleria.unlock_movie_skip;
         MovieSkip skip;
+        access::SkipGate menu_gate;                    // the shell's skip on the menu button (below)
         bool finished = file.empty();                  // FUN_005758f0 straight from Play
         float fcur = finished ? 0.0f : 1.0f, ftgt = finished ? 1.0f : 0.0f;
         bool shown = false, quit = false, done = false;
@@ -552,10 +553,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             while (acc >= kTickDt && !done) {
                 acc -= kTickDt;
                 // The skip buttons: the held mask & 0x1001 (Attack | MOUSE_DIR) from the mapper.
-                const bool held = (input_tick().held & (input::kAttack | input::kMouseDir)) != 0;
+                access_tick();                         // a drive's held Esc reaches the movie too
+                const input::Frame& mf = input_tick();
+                const bool held = (mf.held & (input::kAttack | input::kMouseDir)) != 0;
+                // [CleriaCore] the shell's Cutscene skip ends a movie too, by the menu button in its mode
+                // (Esc / Camp Menu; single / double / hold), seen or not (ACCESS.md §1.4). Off = retail only.
+                const bool menu_skip = menu_gate.step(skip_mode(), (mf.pressed & input::kMenu) != 0,
+                                                      (mf.held & input::kMenu) != 0);
                 if (!finished) {
                     const bool at_end = have ? dec.ended() : t >= length;
-                    if (skip.step(held, skippable) || at_end) {
+                    if (skip.step(held, skippable) || menu_skip || at_end) {
                         finished = true;                   // FUN_005758f0
                         fcur = 0.0f; ftgt = 1.0f;
                         std::printf("  [movie] demo%d %s at %.2f s\n", demo, at_end ? "ended" : "skipped", t);
@@ -1234,7 +1241,7 @@ title_again:
             // FUN_00420c40 bit 0x01: each level-up is a full heal (FUN_004fa160(9999)) unless
             // the player is in the death state.
             if (player.hp >= 1) player.hp = player.max_hp;
-            hud.message("Level up! Lv " + std::to_string(player.level));
+            hud.debug_message("Level up! Lv " + std::to_string(player.level));
         }
     };
     // Hand the room-load script's placed effects (op 0x117) to the world so they render.
@@ -1828,7 +1835,7 @@ title_again:
         fs::create_directories(save_dir(), ec);
         std::ofstream f(slot_path(slot), std::ios::binary);
         f.write(reinterpret_cast<const char*>(raw.data()), std::streamsize(raw.size()));
-        hud.message(f ? ("Saved to slot " + std::to_string(slot + 1))
+        hud.debug_message(f ? ("Saved to slot " + std::to_string(slot + 1))
                       : "Save FAILED (disk?)");
         if (f) content_save(slot_path(slot), slot);      // mods: the sidecar beside it (view_content.inl)
     };
@@ -2866,9 +2873,33 @@ title_again:
         player.boost += amount;
         if (player.boost >= skillmp::kBoostFull) {    // READY (0x46cd4c..): EF2 42 on the player, SE 0x13
             player.boost = skillmp::kBoostFull;
-            spawn_sim_fx(42, {feet.x, feet.y + kOriginH, feet.z}, {}, 1.0f, {}, 13, {feet.x, feet.y + kOriginH, feet.z});
+            // FUN_00451c20(player+0x20, &(0, 0, -0.5) [0x7d9e94], rot 0, scale 1, 2): half a unit
+            // along world -z of the origin, following it (EXPORT 0046cc10.c).
+            if (ef2sim::Effect* r = spawn_sim_fx(42, {}, {}, 1.0f, {}, 0, {})) {
+                r->local = ef2sim::translation(0.0f, 0.0f, -0.5f);
+                r->attach_parent = &actor_mats[13];
+                r->attach_mode = 2;
+            }
             sfx_at(0x13, feet, kSfxAnimVol);          // [not modelled] the white tint flash
         }
+    };
+    // The yaw of the camera record (+0x48c: 0x7b343c + slot * 0x4a0), as FUN_005eca30 derives it
+    // [BYTES 0x5eca70..0x5ecaad]: atan2(-fwd.z, fwd.x) + pi/2 over the view's forward row, wrapped
+    // into (-pi, pi]. RotY of it turns local -z toward the eye (0 = the camera on -z).
+    auto camera_yaw = [&] {
+        const Vec3 f = cam.forward();
+        float y = std::atan2(-f.z, f.x) + 1.5707964f;
+        if (y > 3.1415927f) y -= 6.2831855f;
+        return y;
+    };
+    // An effect spawned at 0 then FUN_00451c20(player+0x20, &off, &(0, yaw, 0), &(1,1,1), 2):
+    // local = T(off) * RotYPR(yaw, 0, 0), following the player's origin.
+    auto attach_to_player = [&](ef2sim::Effect* f, const Vec3& off, float yaw) {
+        if (!f) return f;
+        f->local = ef2sim::mul(ef2sim::translation(off.x, off.y, off.z), ef2sim::rot_ypr(yaw, 0.0f, 0.0f));
+        f->attach_parent = &actor_mats[13];
+        f->attach_mode = 2;
+        return f;
     };
 
 
@@ -2896,12 +2927,18 @@ title_again:
             // mover 0x465b1d: g_flags[187], the gauge exactly full, not busy, no fix.
             if (player.boost < skillmp::kBoostFull || game.g_flags[187] == 0) return;
             if (game.g_flags[161] != 0 || game.g_flags[151] == -1 || csMgr.world_frozen()) return;
-            const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
-            spawn_sim_fx(50, at, {}, 1.0f, {}, 0, {});   // adol_S_mode_f [approx] offset (0,0,-0.5) not applied
+            // 0x465bea..0x465ca6: adol_S_mode_f at (0, 0, -0.5) rotated by the camera yaw, i.e. half
+            // a unit toward the eye, attached mode 2 (it used to sit unattached at the origin).
+            const float cyaw = camera_yaw();
+            if (ef2sim::Effect* f = attach_to_player(spawn_sim_fx(50, {}, {}, 1.0f, {}, 0, {}), {0.0f, 0.0f, -0.5f}, cyaw))
+                f->name = "#boost_f";                     // [CleriaCore] a name for the drive's `fx` listing
             player.boosting = true;
             game.g_flags[141] = 1;                        // FUN_00463f40(0x20): bb50 = 1
-            if (ef2sim::Effect* a = spawn_sim_fx(character == 3 ? 171 : 39, at, {}, 1.0f, {}, 13, at))
-                a->name = "#boost_aura";                  // +0x758: the aura, attached (39 / Toal 171)
+            // FUN_00463f40 0x46490d..: the aura (39 / Toal 171) at 0, then FUN_00451c20(player+0x20,
+            // &0, &(0, camera yaw, 0), &1, 2); kept in +0x758.
+            if (ef2sim::Effect* a = attach_to_player(spawn_sim_fx(character == 3 ? 171 : 39, {}, {}, 1.0f, {}, 0, {}),
+                                                     {}, cyaw))
+                a->name = "#boost_aura";
             sfx_at(0xb4, feet, kSfxAnimVol);
             player_iframes = std::max(player_iframes, 60);
             // FUN_00446550(2, 0) (0x465cc9): drops a locomotion section to idle; the priority gate
@@ -3389,11 +3426,13 @@ title_again:
     WGPUTexture cf_tex = nullptr; WGPUTextureView cf_view = nullptr; WGPUBindGroup cf_bind = nullptr;
     std::uint32_t cf_w = 0, cf_h = 0;
     #include "view_abilities.inl"                       // abil, boost=, boostkey, hurt= (abil_drive)
+    #include "view_hudstate.inl"                        // hudstate, drop=, mp= (hud_drive); PLAYTEST_1_HUD.md
     auto run_drive = [&](const std::string& cmd) {
         std::printf("  [drive] t%llu %s\n", (unsigned long long)tick_count, cmd.c_str());
         if (speedrun_drive(cmd, shell)) return;          // speedrun=... (view_speedrun.inl)
         if (lua_drive(cmd)) return;                      // lua=<command> <args> (view_lua.inl)
         if (abil_drive(cmd)) return;                     // view_abilities.inl
+        if (hud_drive(cmd)) return;                      // view_hudstate.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
             if (std::sscanf(cmd.c_str() + 3, "%f,%f,%f", &x, &z, &deg) >= 2) {
@@ -3578,11 +3617,30 @@ title_again:
                 std::printf("  [bullet] kind %d effect %d age %u pos (%.2f, %.2f, %.2f) speed %.2f fx %d%s\n", bp->s.kind,
                             bp->s.effect, bp->age, bp->s.pos.x, bp->s.pos.y, bp->s.pos.z, bp->s.speed,
                             bp->fx ? bp->fx->live : -1, bp->gone ? " gone" : "");
+        } else if (cmd == "pickups") {                // the world pickups and where they draw (audit aid)
+            const Vec3 cf = cam.forward();
+            const Vec3 cr = normalize(cross(Vec3{0, 1, 0}, cf)), cu = cross(cf, cr);
+            for (const Pickup& pk : pickups) {
+                const Vec3 sc = pk.sprite_centre(cu, cf);
+                std::printf("  [pickup] id %d pos (%.2f, %.2f, %.2f) ground %.3f rest %d age %.0f sprite (%.2f, %.2f, %.2f) "
+                            "lowest %.3f shadow y %.3f\n", pk.id, pk.pos.x, pk.pos.y, pk.pos.z, pk.ground_y,
+                            int(pk.resting), pk.age, sc.x, sc.y, sc.z, sc.y - pk.half * std::fabs(cu.y),
+                            pk.shadow_centre(cf).y);
+            }
+        } else if (cmd == "fxall") {                  // every live effect: id, attach, origin (and from the player's), depth bias
+            auto r2 = [](float v) { return std::fabs(v) < 0.005f ? 0.0f : v; };   // no "-0.00"
+            for (const auto& f : fxsim.effects())
+                if (!f->dead)
+                    std::printf("  [fxall] id %d attach %d at (%.2f, %.2f, %.2f) rel (%.2f, %.2f, %.2f) bias %.2f%s\n", f->id,
+                                f->attach_mode, f->M.m[3][0], f->M.m[3][1], f->M.m[3][2], r2(f->M.m[3][0] - feet.x),
+                                r2(f->M.m[3][1] - (feet.y + kOriginH)), r2(f->M.m[3][2] - feet.z), f->depth_bias,
+                                f->name.empty() ? "" : (" " + f->name).c_str());
         } else if (cmd == "actors") {                 // the live actors (audit aid): id, cast, enemy, hp, groups, pos
             for (const Actor& a : world.actors())
                 if (!a.is_player())
-                    std::printf("  [actor] id %d cast %d %s hp %.0f g1 %d pos (%.1f,%.1f,%.1f)\n", a.instance_id, a.cast_id,
-                                a.is_enemy() ? "enemy" : "npc", a.hp, int(a.tag.in_group(1)), a.pos.x, a.pos.y, a.pos.z);
+                    std::printf("  [actor] id %d cast %d %s hp %.0f g1 %d pos (%.1f,%.1f,%.1f) hurt %.3f\n", a.instance_id, a.cast_id,
+                                a.is_enemy() ? "enemy" : "npc", a.hp, int(a.tag.in_group(1)), a.pos.x, a.pos.y, a.pos.z,
+                                a.hit_flash);
         } else if (cmd.rfind("level=", 0) == 0) {     // level=n: the Lua mods' set_level (audit aid; a cheat)
             player.level = std::clamp(std::atoi(cmd.c_str() + 6), 1, 60);
             if (ginfo.ok()) player.exp = float(ginfo.exp_to_level(player.level));
@@ -3736,6 +3794,41 @@ title_again:
             inv.magic = std::atoi(cmd.c_str() + 9);
         } else if (cmd.rfind("held=", 0) == 0) {       // held=<item id>: the Item page's held tool 0x76a62c (97 = the Scales)
             inv.held = std::atoi(cmd.c_str() + 5);
+        } else if (cmd.rfind("acc=", 0) == 0) {        // acc=<item id>: the equipped accessory 0x76a628 (54 = the Mask of Eyes; -1 none)
+            inv.accessory = std::atoi(cmd.c_str() + 4);
+            (void)player_stats();                         // FUN_00420c40 -> FUN_004208f0: 0x76bbac
+        } else if (cmd == "skiptap" || cmd == "oktapf") {   // a player who only presses inside a cutscene (a Fix held):
+            if (csMgr.world_frozen())                        // Esc (the skip) / Attack-OK, through the mapper
+                access_drive(cmd == "skiptap" ? std::string("esctap") : std::string("oktap"));
+        } else if (cmd.rfind("skiphold=", 0) == 0) {   // skiphold=n: hold Esc n ticks, only from inside a cutscene
+            if (csMgr.world_frozen()) access_drive("eschold=" + cmd.substr(9));
+        } else if (cmd == "killall") {                 // every live enemy gone (the S_1000 intro's waves)
+            std::vector<int> ids;
+            for (const Actor& a : world.actors()) if (a.is_enemy() && a.alive()) ids.push_back(a.instance_id);
+            for (int id : ids) world.despawn(id);
+            csHost.world_changed = true;
+        } else if (cmd == "wndtext") {                 // the message window: reveal, glyphs, extfont cells
+            const RichLayout& wl = csHost.wtext.layout();
+            int next = 0;
+            std::string cells;
+            for (const RichGlyph& gl : wl.glyphs)
+                if (gl.ext && ++next <= 8) cells += " " + std::to_string(int(gl.c));
+            std::printf("  [drive] wndtext alive %d reveal 0x%x/%d glyphs %zu ext %d cells%s\n", int(csHost.wtext.alive()),
+                        unsigned(csHost.wtext.reveal()), wl.counted, wl.glyphs.size(), next, cells.c_str());
+        } else if (cmd == "mask") {                    // the Mask of Eyes objects (view_mask.inl)
+            std::printf("  [drive] mask %d objs %zu\n", int(mask_of_eyes_on(inv)), room.mask_objs.size());
+            for (const Room::MaskObj& m : room.mask_objs) {
+                Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};   // its drawn bounds
+                if (m.rr < room.mesh.object_ranges.size())
+                    for (std::uint32_t k = room.mesh.object_ranges[m.rr].v0; k < room.mesh.object_ranges[m.rr].v1; ++k) {
+                        const RoomVertex& v = room.mesh.vertices[k];
+                        lo = {std::min(lo.x, v.px), std::min(lo.y, v.py), std::min(lo.z, v.pz)};
+                        hi = {std::max(hi.x, v.px), std::max(hi.y, v.py), std::max(hi.z, v.pz)};
+                    }
+                std::printf("  [drive] maskobj %zu bits %u hidden %d alpha %.4f coll %s box (%.1f,%.1f,%.1f)-(%.1f,%.1f,%.1f)\n",
+                            m.rr, m.bits, int(m.hidden), m.alpha, m.cr < 0 ? "none" : (m.coll_off ? "off" : "on"),
+                            lo.x, lo.y, lo.z, hi.x, hi.y, hi.z);
+            }
         } else if (cmd == "saveload") {                // save here, encode + decode the record, load it
             const auto rec = SaveRecord::decode(to_record(capture_save(), "x", "01/01/2026", "00:00:00").encode(1u, 2u));
             if (rec) {
@@ -3939,7 +4032,7 @@ title_again:
         apply_loaded(*pending_load);
         pending_load.reset();
         save_cont();                              // FUN_00431260 "load": the continue snapshot
-        hud.message("Game loaded.");
+        hud.debug_message("Game loaded.");
     }
 
     // Establish the region camera for the INITIAL room before the first tick — a
@@ -4980,7 +5073,7 @@ title_again:
                         // fader a script of the room left behind
                         csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
                         save_cont();                 // FUN_00431260 "load"
-                        hud.message("Game loaded.");
+                        hud.debug_message("Game loaded.");
                     }
                 }
                 if (bev.options_changed) {
@@ -5249,6 +5342,7 @@ title_again:
         }
         // The GoMesh pool updates every live step, a Fix or not (WAITOPS.md §4.7).
         auto step_meshes = [&] {
+            mask_step(g, room, mask_of_eyes_on(inv));   // the Mask of Eyes objects (view_mask.inl)
             meshes.step();
             boss_tick();
             boss2_tick();
@@ -5376,6 +5470,12 @@ title_again:
             // [H] no hit tick here: whether particle hits land under a Fix is not traced.
             step_weather();                          // pool 9's weather runs under a Fix (view_weather.inl)
             step_bullets_frozen();                   // GoXx bullets fly on under a Fix (view_duel.inl)
+            // An attached effect reads its actor's +0x20 every step (FUN_00451e60), and scripts move
+            // actors under a Fix (Eft_LocateChr on the smith and the player runs inside one): keep
+            // the attach matrices current here too, as the unfrozen tick does.
+            for (Actor& a : world.actors())
+                actor_mats[a.instance_id] = ef2sim::translation(a.pos.x, a.pos.y + a.height, a.pos.z);
+            actor_mats[13] = ef2sim::translation(feet.x, feet.y + kOriginH, feet.z);
             fxsim.step();
             fxsim.sweep();
             // The chest item (0x116, kind 2) rises and fades under the opening script's own Fix:
@@ -5894,6 +5994,7 @@ title_again:
                     // (the scale), the character's hit spark one unit toward the camera; SE 92 is in
                     // o.sounds. [not modelled] its FUN_0058a5f0 particle burst (no particle system).
                     if (o.hit_spark) {
+                        en->hit_flash = hitfx::kHurtTimer;           // +0x238 = 1.65, before the 0x1a return
                         const float sc = hitfx::spark_scale(pick_rng.next(), hitfx::kAliveLo, hitfx::kAliveHi);
                         const int sid = hitfx::hit_spark_effect(character, game.g_flags[149], true, avm.section());
                         if (sid >= 0 && !hitfx::alive_spark_suppressed(en->cast_id, game.g_flags[156] != 0)) {
@@ -6161,8 +6262,9 @@ title_again:
                 // [not modelled] +4/+5 in state +0x6f0 == 2 (its meaning for enemies is unknown).
                 if (a.tag.tagged()) a.glow_phase = std::uint8_t(a.glow_phase + 1);
                 ++a.age_ticks;                          // +0x504, every actor every tick (0x45d32d; M900's ring reads Hugo's)
-                // The cosmetic hit flash fades on the dead too (a duel puppet stays on screen).
-                if (a.hit_flash > 0) --a.hit_flash;
+                // The hurt timer +0x238 (FUN_0045a3a0: -0.075 a tick, clamped at 0) runs on the dead
+                // too (a duel puppet stays on screen).
+                a.hit_flash = hitfx::step_hurt(a.hit_flash);
                 if (a.is_player() || !a.alive()) continue;
                 // The integrator FUN_0045a510 (MOVER.md §3): one swept sphere (radius +0x328,
                 // centred on the ORIGIN) through D = (displacement, dy), the floor ray from the
@@ -6190,7 +6292,6 @@ title_again:
             // while flinching restarts it) needs dmg >= 1 and is skipped for rtype 3 or a
             // durable victim (anime_Durable ~ +0x9d8).
             auto react_enemy = [&](Actor& en, int dmg, bool died, int rtype, const Impulse& k) {
-                en.hit_flash = 6;                       // our cosmetic tint (+0x4e8)
                 en.mover.k1.x += k.x; en.mover.k1.z += k.z;   // knock channel 1 (+0x338/+0x340)
                 if (died) return;                       // death is handled by the caller
                 for (EnemyRender& er : render) {
@@ -6240,6 +6341,10 @@ title_again:
                     if (dmg > 0) kill_combo.hit();   // 0x4fc835: the combo meter, before the kill's EXP
                     {   // FUN_004fbb40's own feedback (hit_feedback.hpp), at the victim's origin.
                         const Vec3 org{en.pos.x, en.pos.y + en.height, en.pos.z};
+                        // The tail 0x4fd241: FUN_004fae00(0xffffffff), the white damage number (a GoPopup,
+                        // scale 1.0, origin + 0.5 up; "0" for a guarded hit), every path included.
+                        // PLAYTEST_1_HUD.md item 3.
+                        damage_popup(hudstate::dealt_popup_value(dmg, cls, game.g_flags), 0xffffff, org);
                         if (dmg < 1) {
                             // 0x4fd1b5: a guarded / zero hit. [not modelled] the FUN_00589130 sparks
                             // (10; 25 more on a guard) and the guard's yellow tint.
@@ -6277,6 +6382,7 @@ title_again:
                             // draw (the scale), the puff (+ SE 862 with +0x130 & 0x2000) and the
                             // character's spark, from the victim's last vector to the player.
                             const std::uint32_t d0 = pick_rng.next();
+                            en.hit_flash = hitfx::kHurtTimer;            // +0x238 = 1.65 (whatever +0x130)
                             const hitfx::DeathPuff dp = hitfx::death_puff(en.flags130);
                             if (dp.spark) {
                                 const Vec3 tp = en.ai.v(0x734);
@@ -6696,8 +6802,11 @@ title_again:
                     else if (id == 0x48 || id == 0x49) pop_at("str +", 0xff6060, 1.0f, feet);
                     else if (id == 0x4a || id == 0x4b) pop_at("def +", 0x6060ff, 1.0f, feet);
                     else if (id == 0x4c || id == 0x4d) pop_at("mp +", 0xffff60, 1.0f, feet);
+                    // common\cure.eft attached to the player at (0, -1, 0) [0x7de1f4 / 0x7d9c34], mode 2
+                    // (FUN_00585ff0 for 0x48..0x4d, FUN_00443390 0x4434a3 for the heals and seeds);
+                    // its depth bias (5.0) draws it in front of her.
                     if ((pk.id >= 0x42 && pk.id <= 0x4d) || pk.id == 0x72 || pk.id == 0x73)
-                        spawn_sim_fx(63, feet, {}, 1.0f, {}, 0, {});    // common\cure.eft on the player
+                        attach_to_player(spawn_sim_fx(63, {}, {}, 1.0f, {}, 0, {}), {0.0f, -1.0f, 0.0f}, 0.0f);
                     spawn_sim_fx(72, pk.pos, {}, 1.0f, {}, 0, {});      // common\z_item.eft
                     sfx_at(88, pk.pos, kSfxAnimVol);                     // player\p_takeitem
                     return true;
@@ -6738,9 +6847,10 @@ title_again:
             {
                 const int slot = skillmp::bracelet_slot(inv.magic);
                 skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
-                mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0);
+                mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0, inv.mp_buff != 0.0f ? inv.mp_buff : 1.0f);   // b900 while c198 & 0x10
                 player.sp_cur = mp.mp; player.sp_lag = mp.lag;
             }
+            hud_state_tick();                                  // the buff timers, the HUD pulse (view_hudstate.inl)
             {   // Oxygen (0x467d91..0x467f29, WATER.md §3): the held tool 0x61 = the Scales.
                 const float dmg = oxy.tick(submerged, cur_surface, /*+0x38c sand [not modelled]*/ false,
                                            inv.held == 0x61, float(player.max_hp));
@@ -6828,6 +6938,8 @@ title_again:
                     if (popups.size() < 32)
                         popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
                                                     {feet.x, feet.y + kOriginH + 0.75f, feet.z}));
+                    // ...then on to the tail's red damage number with 0 (0x4fda7d -> 0x4fe120).
+                    damage_popup(0, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
                     const Impulse k = knock_impulse(angle, 0.1f);
                     player_kb.x += k.x; player_kb.z += k.z;
                     return;
@@ -6837,7 +6949,11 @@ title_again:
                 const int dmg = access::damage_taken(player_damage_after_boost(raw, player.boosting),
                                                      settings().s.access.damage_taken);   // the shell's Cheats
                 player.hp -= dmg;
+                if (player.hp < 1) player.hp = 0;             // FUN_004fd350: hp - dmg < 1.0 -> hp = 0 (no "-3/60")
                 if (dmg > 0) player_hurt_this_tick = true;    // +0x3bc |= 6 (FUN_004fd350 0x4fde3c)
+                // FUN_004fd350's tail 0x4fe10b..0x4fe120: FUN_004fae00(0xffff0000), the red number of
+                // the damage taken, at the player's origin + 0.5. PLAYTEST_1_HUD.md item 3.
+                damage_popup(dmg, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
                 const bool died = player.hp < 1;              // the engine's test is < 1.0
                 const PlayerReaction re = player_reaction(dmg, float(player.max_hp), rtype, died,
                                                           avm.durable(), avm.section());
@@ -7397,18 +7513,24 @@ title_again:
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());
+            const Vec3 cf = cam.forward();
+            const Vec3 cright = normalize(cross(Vec3{0, 1, 0}, cf)), cup = cross(cf, cright);   // 0x795f30 / 0x795f40
             for (const Pickup& pk : pickups) {
                 if (pk.delay > 0) continue;
                 const SpriteTex* ic = pauseUi.icon(g, items_tbl, asset_root, pk.id);
                 if (!ic) continue;
+                // FUN_00586e40: flat at (x, ground, z) - F * 0.15, ground = hit y + 0.02 (draw_shadow
+                // lifts its floorY by 0.05, so it gets ground - 0.05). It used to sit at the hit y
+                // itself and z-fought the floor it lies on.
                 const float sa = pk.shadow_alpha();
-                if (sa > 0) draw_shadow(g, view, depth, *ic, pk.pos, pk.ground_y - 0.07f, pk.half, 0, sa);
-                // The glint is a specular add (grey 0..70); fs_char's flash lerps toward white
-                // instead [approximation]. In water the RGB is halved.
+                const Vec3 sc = pk.shadow_centre(cf);
+                if (sa > 0) draw_shadow(g, view, depth, *ic, sc, sc.y - 0.05f, pk.half, 0, sa);
+                // FUN_00586bf0: a camera-plane quad at pk.sprite_centre (it used to stand upright
+                // with its bottom 0.18 under the floor, clipped as the camera moved); the glint is the
+                // vertex specular (+0x12c, grey 7k); in water the RGB is halved.
                 const float t = pk.in_water ? 0.5f : 1.0f;
-                draw_character(g, view, depth, {pk.pos.x, pk.pos.y + 0.1f - pk.half, pk.pos.z}, 2 * pk.half,
-                               *ic, cam.forward(), cam.pos, float(pk.glint(ms)) / 255.0f, t, t, t, false,
-                               pk.alpha());
+                draw_billboard(g, view, depth, *ic, pk.sprite_centre(cup, cf), pk.half, cright, cup,
+                               std::uint32_t(pk.glint(ms)) * 0x010101u, t, t, t, pk.alpha());
             }
             if (!popups.empty()) {                            // layer 0xf, after the world, no Z test
                 static SpriteTex geo20;
@@ -7429,7 +7551,7 @@ title_again:
         // the barrier breaks, so it renders only while the fight is unresolved.
         draw_located_effects(g, world.effects(), asset_root, efl, eft, view, depth,
                              cam.forward(), fx_time);
-        draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward());
+        draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward(), cam.pos);
         draw_weather(view, depth, cam.forward());                 // view_weather.inl
         {   // The bubbles (FUN_004ffdb0): at the owner's origin + 0.75 + yoff, far-to-near.
             struct EmDraw { const Emotion* e; Vec3 base; float d2; };
@@ -7453,9 +7575,12 @@ title_again:
         }
         draw_fireblur(g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr), view,
                       video_world_w(cw), video_world_h(ch), cw, ch);   // FireBlur after layer 14 (view_weather.inl)
+        draw_mask_of_eyes(g, mask_of_eyes_on(inv), g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr),
+                          view, video_world_w(cw), video_world_h(ch));   // then the mask pass (view_mask.inl)
         video_world_end(g, frame_view, frame_depth, view, depth);   // the world onto the frame (view_video.inl)
         player.character = character;
         player.magic = inv.magic;
+        hud_state_fill();                                     // view_hudstate.inl
         // EXP bar: progress from this level's threshold to the next (100% at the cap).
         if (ginfo.ok()) {
             const double e0 = ginfo.exp_to_level(player.level);

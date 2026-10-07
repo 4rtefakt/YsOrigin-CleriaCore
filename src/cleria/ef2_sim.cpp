@@ -131,6 +131,14 @@ Vec3 transform_coord(const Vec3& v, const M4& m) {
     return w != 0.0f && w != 1.0f ? Vec3{x / w, y / w, z / w} : Vec3{x, y, z};
 }
 
+Vec3 depth_bias_offset(const Vec3& fx_pos, const Vec3& eye, float bias) {
+    if (bias == 0.0f) return {};
+    const Vec3 d{fx_pos.x - eye.x, fx_pos.y - eye.y, fx_pos.z - eye.z};
+    const float l = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    if (l == 0.0f) return {};
+    return {d.x / l * bias, d.y / l * bias, d.z / l * bias};
+}
+
 Effect* System::spawn(int id, const Ef2& ef, const SpawnParams& sp) {
     if (!ef.ok()) return nullptr;
     auto fx = std::make_unique<Effect>();
@@ -140,6 +148,8 @@ Effect* System::spawn(int id, const Ef2& ef, const SpawnParams& sp) {
     fx->power = sp.power; fx->knock = sp.knock; fx->atk = sp.atk;
     fx->rtype = sp.rtype; fx->status = sp.status; fx->cls = sp.cls; fx->side = sp.side;
     fx->owner = sp.owner; fx->tag = sp.tag;
+    if (!ef.emitters().empty() && ef.emitters()[0].b2.size() >= 0x10)   // +0x1f0 = B2[0]+0x0c
+        fx->depth_bias = rd<float>(ef.emitters()[0].b2, 0x0c);
     Effect* e = fx.get();
     fx_.push_back(std::move(fx));
     for (const Ef2Root& a : ef.roots()) emit(*e, a.emitter, int(a.delay), nullptr);

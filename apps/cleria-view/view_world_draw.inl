@@ -358,14 +358,15 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         }
         const SpriteTex* t = &(*frames)[fi];
         if (!t->tex) continue;
-        // Flash white on a recent hit (hit_flash counts down 6..0 in the tick).
-        const float flash = e.actor->hit_flash > 0 ? 0.8f * float(e.actor->hit_flash) / 6.0f : 0.0f;
+        // The hurt tint (hit_feedback.hpp): while +0x238 runs, FUN_00473c60 sets the sprite's
+        // specular to 0x6b3713, added after the texture modulate. (It was a 6-tick lerp to white.)
         const std::uint32_t tc = e.actor->tint;
-        draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos, flash,
+        draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos, 0.0f,
                        float((tc >> 16) & 0xff) / 255.0f, float((tc >> 8) & 0xff) / 255.0f,
                        float(tc & 0xff) / 255.0f, false, e.actor->ai.alpha * e.actor->tint_alpha,
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,     // Chr_Tremble
-                       tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale);
+                       tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale,
+                       hitfx::hurt_specular(e.actor->hit_flash));
         // Event-bound (group-1..4) enemies GLOW their marker colour (FUN_00473c60 [BYTES 0x473ec8..f87],
         // BARRIER_OBJECTS.md §1a): A = marker alpha * |sin(2 pi phase / 255)|, no floor, the phase
         // stepped in the actor tick (so it holds still under a Fix). [H] the composition: the
@@ -832,6 +833,23 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
 // texture x vertex colour x c16, c16 = material diffuse (x the scene colour, [not modelled] as
 // on the room). Vertices are transformed on the CPU (the room uniform has no per-draw matrix).
 // [not modelled] the mesh's animation time (B2+0x1c..0x24, FUN_005f5e10): the rest pose is drawn.
+// CLERIA_FX_ONLY="id[:em],..." (audit aid): draw only those effects' particles (all emitters, or
+// only emitter `em`), to look at one emitter of a busy effect in a drive `shot`.
+static bool fx_debug_skip(int id, int em) {
+    static const std::string only = [] { const char* e = std::getenv("CLERIA_FX_ONLY"); return std::string(e ? e : ""); }();
+    if (only.empty()) return false;
+    std::size_t p = 0;
+    while (p < only.size()) {
+        std::size_t q = only.find(',', p);
+        if (q == std::string::npos) q = only.size();
+        const std::string t = only.substr(p, q - p);
+        const std::size_t c = t.find(':');
+        if (std::atoi(t.c_str()) == id && (c == std::string::npos || std::atoi(t.c_str() + c + 1) == em)) return false;
+        p = q + 1;
+    }
+    return true;
+}
+
 static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::path& asset_root,
                                    const std::function<const SpriteTex*(std::uint32_t)>& tex_of,
                                    WGPUTextureView color, WGPUTextureView depth) {
@@ -871,6 +889,7 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
         std::uint32_t flags = 0;
         std::memcpy(&flags, E.b2.data(), 4);
         if (!(flags & 0x200) || (flags & 0x400)) continue;
+        if (fx_debug_skip(p.fx->id, p.em)) continue;
         const Room* m = model_of(E.b2[0x18]);
         if (!m) continue;
         float a = float(p.diffuse >> 24) / 255.0f;
@@ -937,9 +956,19 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
         }
 }
 
+// FUN_0044f2e0's three quad kinds:
+//  - `& 0x100` billboards: the world matrix is 0x7961b0 — the camera's world rotation (FUN_005eca30
+//    copies the inverse view to camera+0x340 and zeroes its translation; 0x795e70 is the render
+//    camera block, so 0x7961b0 = its +0x340) — so the quad lies in the camera plane, tilted with the
+//    pitch, not stood upright. Translation p+0x150 - fx+0x1f4 (the depth bias) [0x44fb95..0x44fbe4].
+//  - world quads: p+0x120's rows with the translation p+0x150 - fx+0x1f4 [EXPORT 0044f2e0.c:204-219].
+//  - rings: p+0x120 as is, no bias [0x44f931]. Their mesh (FUN_0044c250 [BYTES 0x44c348..0x44c4e3]):
+//    x = (cos a - sin a) r, z = (sin a + cos a) r (FUN_0041c530 = cos: 0x66fd70 falls back to fcos);
+//    the top edge takes the frame's v0, the bottom v1, and u ALTERNATES u0, u1, u0, ... per step, so
+//    every segment shows the whole frame (it used to spread one frame once around the ring).
 static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& asset_root,
                            const EftTex& eft, WGPUTextureView color, WGPUTextureView depth,
-                           const Vec3& camFwd) {
+                           const Vec3& camFwd, const Vec3& camPos) {
     if (sim.particles().empty()) return;
     static std::unordered_map<std::uint32_t, SpriteTex> texs;   // tex_id -> texture (empty = failed)
     auto tex_of = [&](std::uint32_t id) -> const SpriteTex* {
@@ -958,6 +987,7 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
     draw_eftmesh_particles(g, sim, asset_root, tex_of, color, depth);
     const Vec3 up = {0, 1, 0};
     const Vec3 right = normalize(cross(up, camFwd));
+    const Vec3 cam_up = cross(camFwd, right);                // the camera's up (0x7961b0 row 1)
     struct Batch { std::vector<RoomVertex> v; std::vector<std::uint32_t> i; WGPUBindGroup bind{}; bool additive = true; };
     std::map<std::pair<std::uint32_t, bool>, Batch> batches;
     for (const auto& pp : sim.particles()) {
@@ -968,6 +998,7 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         std::memcpy(&flags, E.b2.data(), 2);
         if ((flags & 0x400) || !(flags & 7) || (flags & 0x200)) continue;
         if (E.frames.empty()) continue;
+        if (fx_debug_skip(p.fx->id, p.em)) continue;
         const Ef2Frame& fr = E.frames[std::min<std::size_t>(p.frame, E.frames.size() - 1)];
         const SpriteTex* t = tex_of(fr.tex_id);
         if (!t) continue;
@@ -994,9 +1025,9 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
             for (std::uint32_t i = 0; i <= N; ++i) {
                 const float an = float(i) * (6.2831855f / float(N));   // 0x6bd898
                 const float s = std::sin(an), cs = std::cos(an);
-                const Vec3 A = ef2sim::transform_coord({(s - cs) * rt, hh, (s + cs) * rt}, p.world);
-                const Vec3 Bv = ef2sim::transform_coord({(s - cs) * rb, -hh, (s + cs) * rb}, p.world);
-                const float u = fr.u0 + (fr.u1 - fr.u0) * float(i) / float(N);
+                const Vec3 A = ef2sim::transform_coord({(cs - s) * rt, hh, (s + cs) * rt}, p.world);
+                const Vec3 Bv = ef2sim::transform_coord({(cs - s) * rb, -hh, (s + cs) * rb}, p.world);
+                const float u = (i & 1) ? fr.u1 : fr.u0;       // 0x44c4af: u0, u1, u0, ...
                 b.v.push_back({A.x, A.y, A.z, nx, 1, 0, u, fr.v0, R, G, B, VA});
                 b.v.push_back({Bv.x, Bv.y, Bv.z, nx, 1, 0, u, fr.v1, R, G, B, VA});
             }
@@ -1008,17 +1039,24 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         }
         Vec3 c[4];
         const float uv[4][2] = {{fr.u0, fr.v0}, {fr.u0, fr.v1}, {fr.u1, fr.v0}, {fr.u1, fr.v1}};
+        // fx+0x1f4 (ef2_sim.hpp depth_bias): the quad is drawn that far toward the eye.
+        const Vec3 fxo{p.fx->M.m[3][0], p.fx->M.m[3][1], p.fx->M.m[3][2]};
+        const Vec3 bias = ef2sim::depth_bias_offset(fxo, camPos, p.fx->depth_bias);
         if (flags & 0x100) {
-            const Vec3 o = p.world_pos();
-            const float h = p.scale.x * p.mult.x * p.fx->scale_x * 0.5f;
-            const int ti = int(p.rot.z * 40.743664f) & 0xff;
+            const Vec3 wp = p.world_pos();
+            const Vec3 o{wp.x - bias.x, wp.y - bias.y, wp.z - bias.z};
+            const float h = p.scale.x * p.mult.x * p.fx->scale_x * 0.5f;            const int ti = int(p.rot.z * 40.743664f) & 0xff;
             const float cc = cos_table(ti) * h, ss = cos_table((ti - 64) & 0xff) * h;
             const float xy[4][2] = {{ss - cc, ss + cc}, {-ss - cc, ss - cc}, {ss + cc, cc - ss}, {cc - ss, -ss - cc}};
             for (int k = 0; k < 4; ++k)
-                c[k] = {o.x + right.x * xy[k][0], o.y + xy[k][1], o.z + right.z * xy[k][0]};
+                c[k] = {o.x + right.x * xy[k][0] + cam_up.x * xy[k][1], o.y + right.y * xy[k][0] + cam_up.y * xy[k][1],
+                        o.z + right.z * xy[k][0] + cam_up.z * xy[k][1]};
         } else {
             const float q[4][2] = {{-0.5f, 0.5f}, {-0.5f, -0.5f}, {0.5f, 0.5f}, {0.5f, -0.5f}};
-            for (int k = 0; k < 4; ++k) c[k] = ef2sim::transform_coord({q[k][0], q[k][1], 0.0f}, p.world);
+            for (int k = 0; k < 4; ++k) {
+                c[k] = ef2sim::transform_coord({q[k][0], q[k][1], 0.0f}, p.world);
+                c[k] = {c[k].x - bias.x, c[k].y - bias.y, c[k].z - bias.z};
+            }
         }
         for (int k = 0; k < 4; ++k)
             b.v.push_back({c[k].x, c[k].y, c[k].z, nx, 1, 0, uv[k][0], uv[k][1], R, G, B, VA});

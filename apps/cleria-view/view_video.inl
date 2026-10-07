@@ -532,6 +532,14 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             gr.disable_movies = dm;
             persist();
         }
+        bool me = gr.mask_of_eyes != 0;                  // 0x76519b, read by FUN_005fed30 (view_mask.inl)
+        if (ui::toggle(L, "Disable Mask of Eyes effect", &me,
+                       "Off: wearing the Mask of Eyes turns the world grey (the HUD and menus keep their colour). "
+                       "On: the screen keeps its colour; hidden walls and floors still react to the mask. (Original: "
+                       "Disable Mask of Eyes Effect.)")) {
+            gr.mask_of_eyes = me;
+            persist();
+        }
     }
 
     ui::section(L, "Overlay");
@@ -579,9 +587,6 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         row("Water caustics", "None",
             "The light patterns under water (Original: Disable Water Caustics). Not available yet.",
             gr.water_caustics ? "disabled" : "enabled");
-        row("Mask of Eyes effect", "None",
-            "The Mask of Eyes screen effect (Original: Disable Mask of Eyes Effect). Not available yet: the effect is "
-            "not drawn.", gr.mask_of_eyes ? "disabled" : "enabled");
         row("Blood", "Default",
             "Blood in enemy hits and deaths (Original: Blood). Not available yet: what each level changes is not traced.",
             lvl(settings().s.game.bloody_effect_level));

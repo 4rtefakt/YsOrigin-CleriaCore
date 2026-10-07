@@ -95,6 +95,57 @@ struct CharSprite {
     }
 };
 
+// A sprite vertex's D3D specular (0xRRGGBB, added after the texture modulate, before fog): fs_char
+// reads it from nrm.y encoded as -(1 + rgb) (main.cpp vs); 0 = none.
+static float spec_ny(std::uint32_t spec) {
+    spec &= 0xffffffu;
+    return spec ? -(1.0f + float(spec)) : 0.0f;
+}
+
+// A quad in the camera's own plane: centre +/- right * half +/- up * half, the whole texture, the
+// char pipeline (alpha-over). `right` / `up` are the camera's (inverse-view rows 0 / 1), i.e. the
+// engine's 0x7961b0 billboard (FUN_005eca30 copies the camera world matrix to camera+0x340 with
+// its translation zeroed; the render camera block at 0x795e70 holds that copy at 0x7961b0).
+static void draw_billboard(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& spr,
+                           const Vec3& centre, float half, const Vec3& right, const Vec3& up,
+                           std::uint32_t spec = 0, float tr = 1.0f, float tg = 1.0f, float tb = 1.0f,
+                           float opacity = 1.0f) {
+    if (!spr.tex) return;
+    const std::uint8_t cr = std::uint8_t(std::clamp(tr, 0.0f, 1.0f) * 255.0f);
+    const std::uint8_t cg = std::uint8_t(std::clamp(tg, 0.0f, 1.0f) * 255.0f);
+    const std::uint8_t cb = std::uint8_t(std::clamp(tb, 0.0f, 1.0f) * 255.0f);
+    const float nx = 1.0f - std::clamp(opacity, 0.0f, 1.0f), ny = spec_ny(spec);
+    auto V = [&](float sx, float sy, float u, float v) -> RoomVertex {
+        return {centre.x + (right.x * sx + up.x * sy) * half, centre.y + (right.y * sx + up.y * sy) * half,
+                centre.z + (right.z * sx + up.z * sy) * half, nx, ny, -1, u, v, cr, cg, cb, 0};
+    };
+    RoomVertex verts[4] = {V(-1, 1, 0, 0), V(1, 1, 1, 0), V(1, -1, 1, 1), V(-1, -1, 0, 1)};
+    std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
+    WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
+    WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPURenderPassColorAttachment ca = {};
+    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+    WGPURenderPassDepthStencilAttachment da = {};
+    da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+    WGPURenderPassDescriptor rp = {};
+    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+    wgpuRenderPassEncoderSetPipeline(pass, g.char_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(pass, 1, spr.bind, 0, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+}
+
 // Draw an upright, camera-facing billboard of `spr` standing at `feet`, in a
 // pass that keeps the already-rendered room colour + depth (so it occludes
 // correctly). worldH is the sprite's world height; camForward is the (fixed)
@@ -104,7 +155,8 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                            const Vec3& camForward, const Vec3& camPos, float flash = 0.0f,
                            float tr = 1.0f, float tg = 1.0f, float tb = 1.0f,
                            bool additive = false, float opacity = 1.0f,
-                           float px_dx = 0.0f, float px_dy = 0.0f, float actor_scale = 1.0f) {
+                           float px_dx = 0.0f, float px_dy = 0.0f, float actor_scale = 1.0f,
+                           std::uint32_t spec = 0) {
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
@@ -159,10 +211,11 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     const std::uint8_t cr = std::uint8_t(std::clamp(tr, 0.0f, 1.0f) * 255.0f);
     const std::uint8_t cg = std::uint8_t(std::clamp(tg, 0.0f, 1.0f) * 255.0f);
     const std::uint8_t cb = std::uint8_t(std::clamp(tb, 0.0f, 1.0f) * 255.0f);
+    const float ny = spec_ny(spec);
     auto V = [&](float lx, float ly, float u, float v) -> RoomVertex {
-        // nx carries 1 - opacity to fs_char (the actor's +0x4d8); 0 = fully opaque.
+        // nx carries 1 - opacity to fs_char (the actor's +0x4d8); 0 = fully opaque. ny: the specular.
         return {base.x + right.x * lx, base.y + ly, base.z + right.z * lx,
-                1.0f - std::clamp(opacity, 0.0f, 1.0f), 0, -1, u, v, cr, cg, cb, fa};
+                1.0f - std::clamp(opacity, 0.0f, 1.0f), ny, -1, u, v, cr, cg, cb, fa};
     };
     RoomVertex verts[4] = {V(lX, tY, 0, 0), V(rX, tY, 1, 0), V(rX, bY, 1, 1), V(lX, bY, 0, 1)};
     std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};

@@ -110,7 +110,17 @@ struct Effect {
     // water collision, so such particles never touch the world (Velagunder's laser beam).
     bool set1 = false;
     std::string name;             // fx+0x20c, set by the script placements (FUN_00451da0)
+    // fx+0x1f0: the draw depth bias, emitter 0's B2+0x0c, copied by every spawn path (FUN_00450410,
+    // FUN_00478510, FUN_00463f40: `+0x1f0 = *(*(slot + 8) + 0xc)`). FUN_00451e60 turns it into
+    // fx+0x1f4 = normalize(fx pos - camera eye) * (it + fx+0x204), and FUN_0044f2e0 draws a
+    // billboard / world quad at p+0x150 - fx+0x1f4 [EXPORT 0044f2e0.c:188-191, 217-219]: pulled
+    // that far toward the eye. Rings (p+0x120 as is, 0x44f931) and meshes do not take it.
+    float depth_bias = 0;
 };
+
+// The draw-time offset FUN_0044f2e0 subtracts (fx+0x1f4): `bias` along the unit vector from the
+// eye to the effect origin; zero when the bias is 0 or the two coincide. EF2SIM.md §1.5.
+Vec3 depth_bias_offset(const Vec3& fx_pos, const Vec3& eye, float bias);
 
 struct SpawnParams {
     Vec3 pos{}, rot{};            // rot = (pitch, yaw, roll) as FUN_00451a40 reads it

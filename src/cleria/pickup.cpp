@@ -73,6 +73,17 @@ int Pickup::glint(std::uint32_t ms) const {
     return k <= 10 ? 7 * k : 0;
 }
 
+Vec3 Pickup::sprite_centre(const Vec3& cam_up, const Vec3& cam_fwd) const {
+    Vec3 c{pos.x, pos.y + 0.1f, pos.z};                        // 0x6bd19c
+    if (!in_water) { c.x -= cam_fwd.x * 0.15f; c.y -= cam_fwd.y * 0.15f; c.z -= cam_fwd.z * 0.15f; }   // 0x6bd1d8
+    c.x += cam_up.x * 0.075f; c.y += cam_up.y * 0.075f; c.z += cam_up.z * 0.075f;                     // 0x6bd174
+    return c;
+}
+
+Vec3 Pickup::shadow_centre(const Vec3& cam_fwd) const {
+    return {pos.x - cam_fwd.x * 0.15f, ground_y - cam_fwd.y * 0.15f, pos.z - cam_fwd.z * 0.15f};
+}
+
 float Pickup::shadow_alpha() const {
     if (!ground || in_water) return 0.0f;
     return std::min(0.37647f, (0.4f - (pos.y - ground_y) * 0.14f) * alpha());

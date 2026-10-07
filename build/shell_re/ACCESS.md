@@ -60,7 +60,7 @@ checked in the live game.
 |---|---|---|
 | 0 | Single press | The menu press edge skips at once (the pre-existing behaviour). |
 | 1 (default) | Double press | The first press shows the prompt "Press again to skip" for **120 ticks (2 s)** [H] with a draining bar. A second press inside the window skips. |
-| 2 | Hold | Hold the button for **60 ticks (1 s)** [H]. A bar fills while held. A hold must **start** inside the cutscene, so a button already held when the cutscene began never skips. A release resets the fill and keeps the hint up for 120 ticks [H]. |
+| 2 | Hold | Hold the button for **60 ticks (1 s)** [H]. A bar fills while held. Any hold counts, including one carried in from before the cutscene or across a chain of scenes, so keeping the button held skips each scene one second in. Until 2026-10-07 a hold had to start inside the cutscene, which made a held button skip only the first scene of the opening chain (build/audit/PLAYTEST_1_STORY.md §3). A release resets the fill and keeps the hint up for 120 ticks [H]. |
 | 3 | Off | Never skips (retail). |
 
 - **Hook** (`view_game.inl`, the `csMgr.world_frozen()` branch of the input step):
@@ -72,6 +72,10 @@ checked in the live game.
 - **Prompt:** a `Shell::hud["access"]` layer. A top-right card (the message box owns the bottom): a
   small "SKIP CUTSCENE" head, the line, and a gold bar. It fades over the last 20 ticks of the window.
   Its look is [H] (the shell kit's palette).
+
+### 1.4 Movies
+
+Since 2026-10-07 the option also ends a movie (`play_demo`, view_game.inl): the menu button, in the same mode (its own gate per movie; no prompt is drawn over a movie), finishes it exactly as retail's skip does (`FUN_005758f0`). This works whether or not the movie has been seen. Off leaves only retail's skip: Attack / MOUSE_DIR held after a release, and only once the movie has been seen, or with the Prelaunch "Unlock movie skipping" setting.
 
 ## 2. Cheats (Cheats page, `[cleria.cheats]`)
 

@@ -83,9 +83,15 @@ int main() {
         check(!early && std::fabs(frac - 0.5f) < 1e-6f && hint && g.hold == 40,
               "Hold: a release resets the fill (hint stays), a new press starts over");
         g.reset();
-        bool carried = false;
-        for (int i = 0; i < 200; ++i) carried |= g.step(SkipMode::Hold, false, true);
-        check(!carried, "Hold: a button already held when the cutscene began never skips");
+        int carried = -1;                                  // no press edge: held from before the cutscene
+        for (int i = 0; i < 200 && carried < 0; ++i)
+            if (g.step(SkipMode::Hold, false, true)) carried = i + 1;
+        g.reset();                                         // the next scene of a chain, still held
+        int chained = -1;
+        for (int i = 0; i < 200 && chained < 0; ++i)
+            if (g.step(SkipMode::Hold, false, true)) chained = i + 1;
+        check(carried == access::kHoldTicks && chained == access::kHoldTicks,
+              "Hold: a hold carried in (or kept across a chain of scenes) skips each after 60 ticks");
     }
     {   // the flash limiter
         access::FlashLimiter f;

@@ -50,6 +50,13 @@ struct Pickup {
     int glint(std::uint32_t ms) const;
     // FUN_00586e40: the flat shadow's alpha (0 = not drawn).
     float shadow_alpha() const;
+    // FUN_00586bf0 [EXPORT, constants BYTES 0x6bd19c / 0x6bd1d8 / 0x6bd174]: the sprite is a quad in
+    // the camera plane (0x7961b0) centred at pos + (0, 0.1, 0) - F * 0.15 + V * 0.075, F = 0x795f50
+    // the camera forward, V = 0x795f40 the camera up (rows 2 / 1 of the camera's transposed view,
+    // FUN_005eca30); in water (+0x144) the F term is dropped.
+    Vec3 sprite_centre(const Vec3& cam_up, const Vec3& cam_fwd) const;
+    // FUN_00586e40: the flat shadow sits at (x, ground, z) - F * 0.15, ground = +0x158 = hit y + 0.02.
+    Vec3 shadow_centre(const Vec3& cam_fwd) const;
 };
 
 // FUN_00587010's arguments (PICKUPS.md §4.1); the defaults are an enemy drop's.

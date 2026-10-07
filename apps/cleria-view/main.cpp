@@ -53,6 +53,7 @@
 #include "cleria/combat.hpp"
 #include "cleria/hit.hpp"
 #include "cleria/hit_feedback.hpp"
+#include "cleria/hudstate.hpp"
 #include "cleria/body_push.hpp"
 #include "cleria/arena_player.hpp"
 #include "cleria/enemy_ai.hpp"
@@ -77,6 +78,7 @@
 #include "cleria/world.hpp"
 #include "cleria/xso.hpp"
 #include "cleria/wndtext.hpp"
+#include "cleria/extfont.hpp"
 #include "cleria/wnddialog.hpp"
 #include "cleria/titlescreen.hpp"
 #include "cleria/eventsprites.hpp"
@@ -184,6 +186,19 @@ struct Player {
     // mode bit DAT_0076c198 & 0x20). Entering requires a FULL gauge (== 30000 exactly) and
     // grants 16 i-frames; the gauge then drains ~30/tick (~1000 frames on Normal).
     bool boosting = false;
+    // build/audit/PLAYTEST_1_HUD.md (src/cleria/hudstate.hpp): builder B's ready test, its pulse
+    // counter (0x76c184, or 0x76c188 while charged: c138 == 2), the buff values / timers
+    // (0x76b904 / b908 / b900, 0x76c19c / 1a0 / 1a4) and their full length, the combo meter
+    // (0x76c1a8 / 0x76c1b0) and the Fix gate (0x75ad90 + 0x75ad94) of the bars and lines.
+    bool skill_ready = false;
+    int charge_level = 0;
+    std::int32_t pulse = 0;
+    float buff_val[3] = {0, 0, 0};
+    std::int32_t buff_timer[3] = {0, 0, 0};
+    float buff_full = 1800.0f;
+    int combo = 0;
+    std::int32_t combo_timer = 0;
+    bool hud_fix = false;
 };
 
 // Locate a bundled resource next to the exe, or in the repo res/ dir.
@@ -212,6 +227,7 @@ struct VsOut {
   @location(1) color : vec4<f32>,
   @location(2) depth : f32,     // view-space depth for fog
   @location(3) opacity : f32,   // characters only: 1 - nrm.x (sprites pass nx = 1 - opacity)
+  @location(4) spec : vec3<f32>,  // characters only: the D3D vertex SPECULAR, added (see fs_char)
 };
 
 @vertex
@@ -223,6 +239,13 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
   o.color = color;              // baked per-vertex lighting (D3D diffuse)
   o.depth = o.clip.w;           // LH perspective: w == view-space z
   o.opacity = 1.0 - nrm.x;      // read by fs_char only; every non-sprite user passes nx = 0
+  // A sprite's specular RGB (0xRRGGBB) rides in nrm.y as -(1 + rgb), exact in a float; a real
+  // normal (|y| <= 1) or the 0 / 1 dummies other users pass decode to no specular.
+  o.spec = vec3<f32>(0.0, 0.0, 0.0);
+  if (nrm.y < -1.5) {
+    let s = u32(-nrm.y - 1.0);
+    o.spec = vec3<f32>(f32((s >> 16u) & 255u), f32((s >> 8u) & 255u), f32(s & 255u)) / 255.0;
+  }
   return o;
 }
 
@@ -277,7 +300,11 @@ fn fs_mat_add(in : VsOut) -> @location(0) vec4<f32> {
 fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
   let tc = textureSample(tex, smp, in.uv);
   if (tc.a < 0.004) { discard; }
-  var c = tc.rgb * in.color.rgb;
+  // D3D fixed function with SPECULARENABLE on (FUN_005f1870 sets render state 0x1d = 1 at device
+  // init): texture x diffuse + the vertex specular, saturated, before the fog. The actor colour
+  // builder FUN_00473c60 writes the specular word (+0x14c): the hurt tint (0x6b3713), the pickup
+  // glint (grey), the marker glow.
+  var c = min(tc.rgb * in.color.rgb + in.spec, vec3<f32>(1.0, 1.0, 1.0));
   if (u.fogParams.z > 0.5) {
     let f = clamp((u.fogParams.y - in.depth) / max(u.fogParams.y - u.fogParams.x, 0.001),
                   0.0, 1.0);
@@ -351,6 +378,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_pad.inl"
 #include "view_speedrun.inl"
 #include "view_video.inl"
+#include "view_mask.inl"                 // the Mask of Eyes (PLAYTEST_1_STORY.md §1)
 #include "view_lua.inl"
 #include "view_headless.inl"
 #include "view_menus.inl"

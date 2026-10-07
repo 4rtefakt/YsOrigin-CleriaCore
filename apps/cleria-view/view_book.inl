@@ -39,6 +39,8 @@ struct BookRenderer {
     SpriteTex f_middle, f_mini, white;
     MenuFont gdi;                       // Felghana at a 32-px cell (lfHeight +32)
     WGPUBindGroup gdi_bind{};
+    ExtFont ext;                        // IMAGE\EXTFONT32.BMP: <ext> / <roo> glyphs (extfont.hpp)
+    SpriteTex ext_tex;                  // its cells, white with the coverage as alpha
     fs::path root;
     const ItemTable* items = nullptr;
     bool ok = false;
@@ -107,6 +109,18 @@ struct BookRenderer {
         if (gdi.init(g, color, find_felghana(asset_root), 32) && gdi.lineH > 0 && gdi.lineH != 32)
             gdi.build_atlas(g, int(std::lround(32.0 * 32.0 / gdi.lineH)));
         gdi_bind = gdi.atlas_view ? clamp_bind(g, gdi.atlas_view) : nullptr;
+        ext = ExtFont::load(asset_root / "IMAGE" / "EXTFONT32.BMP");
+        if (ext.ok()) {
+            // The raster (FUN_005ef7f0) turns a texel's coverage v into the run colour's alpha
+            // through a 16-entry ramp v x a / 15; [H] v = 16 (full cover, past the ramp) as 15.
+            const int n = ext.cell;
+            std::vector<std::uint8_t> px(std::size_t(n) * std::size_t(n) * ExtFont::kCells * 4, 255);
+            for (std::size_t k = 0; k < ext.cov.size(); ++k)
+                px[k * 4 + 3] = std::uint8_t(std::min(15, int(ext.cov[k])) * 17);
+            ext_tex = upload_rgba(g, std::uint32_t(n), std::uint32_t(n * ExtFont::kCells), px.data());
+            if (ext_tex.bind) wgpuBindGroupRelease(ext_tex.bind);
+            ext_tex.bind = clamp_bind(g, ext_tex.view);
+        }
 
         WGPUShaderSourceWGSL wgsl = {};
         wgsl.chain.sType = WGPUSType_ShaderSourceWGSL; wgsl.code = sv(kBookWGSL);
@@ -195,6 +209,11 @@ struct BookRenderer {
         m.space = float(gdi.gl[0].adv);
         const MenuFont* f = &gdi;
         m.advance = [f](unsigned char c) { return (c >= 32 && c <= 126) ? float(f->gl[c - 32].adv) : 16.0f; };
+        if (ext.ok()) {
+            const ExtFont* e = &ext;
+            m.ext_advance = [e](int i) { return e->advance(i); };
+        }
+        m.english_roonic = settings().s.kernel.english_roonic != 0;
         return m;
     }
 
@@ -319,7 +338,8 @@ struct BookRenderer {
         for (int pass = 0; pass < 2; ++pass) {
             const float ox = pass == 0 ? -1.0f : 0.0f, oy = pass == 0 ? 1.0f : 0.0f;
             for (const RichGlyph& gl : c.rich) {
-                if (gl.ext || gl.c < 33 || gl.c > 126) continue;
+                if (gl.ext) { text_ext(c, gl, ox, oy, ca, pass == 0); continue; }
+                if (gl.c < 33 || gl.c > 126) continue;
                 const float r = reveal_alpha(gl, c.reveal);
                 if (r <= 0) continue;
                 const MenuFont::Glyph& gp = gdi.gl[gl.c - 32];
@@ -338,6 +358,24 @@ struct BookRenderer {
                       gp.u0, gp.v0, gp.u1, gp.v1, col, 0, false);
             }
         }
+    }
+
+    // An extfont cell (<ext> / <roo>; FUN_005f03f0's ext branch): the whole N x N cell at (pen x +
+    // left, line top), unscaled, in the run colour, under the same (-1, +1) shadow as the letters.
+    void text_ext(const DrawCmd& c, const RichGlyph& gl, float ox, float oy, float ca, bool shadow) {
+        if (!ext.ok() || !ext_tex.bind || gl.c >= ExtFont::kCells) return;
+        const float r = reveal_alpha(gl, c.reveal);
+        if (r <= 0) return;
+        const float n = float(ext.cell);
+        const float gx = c.x + gl.x + ox + float(ext.left[gl.c]);
+        const float gy = c.y + 1.0f + gl.y + oy;
+        const std::uint32_t a = std::uint32_t(float(gl.colour >> 24) * ca * r);
+        auto ch = [&](int sh) {
+            return std::uint32_t(((gl.colour >> sh) & 0xFF) * ((c.diffuse >> sh) & 0xFF) / 255) << sh;
+        };
+        const std::uint32_t col = (a << 24) | (shadow ? 0u : (ch(16) | ch(8) | ch(0)));
+        const float v0 = float(gl.c) / float(ExtFont::kCells), v1 = float(gl.c + 1) / float(ExtFont::kCells);
+        aquad(ext_tex.bind, gx, gy, n, n, c.anchor_x, c.anchor_y, 0.0f, v0, 1.0f, v1, col, 0, false);
     }
 
     // Execute `list` over `view` (loadOp Load). The side pillars (§2.1, raw pixels, opaque)

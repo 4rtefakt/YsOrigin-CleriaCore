@@ -59,6 +59,18 @@ struct Room {
     RoomMesh coll;           // the `_.YMO` collision hulls — what physics collides against
     std::vector<std::uint8_t> base_a;  // each vertex's alpha after bake_material_alpha (apply_object_alpha)
     std::vector<float> batch_alpha;    // each batch's live object (model) alpha; empty / missing = 1
+    // The objects the Mask of Eyes gates (SOB +0x14c & 0x1000 / 0x2000; view_mask.inl).
+    struct MaskObj {
+        std::size_t rr = 0;              // index in mesh.object_ranges
+        long cr = -1;                    // index in coll.object_ranges (-1: no hull)
+        std::uint32_t bits = 0;          // +0x298 & 6: 2 = gone under the mask, 4 = only under it
+        float alpha = 1, target = 1, step = 0;   // +0x418 / +0x41c / +0x420
+        bool hidden = false;             // +0x474
+        bool coll_off = false;
+        std::vector<Vec3> coll_saved;    // the hull's vertices while it is collapsed
+    };
+    std::vector<MaskObj> mask_objs;
+    bool mask_seeded = false;
     Sen sen;
     Sfo fog;                 // per-region scene fog (SFO sidecar)
     Scm cam;                 // per-region cameras (SCM sidecar)
@@ -270,8 +282,7 @@ static void bake_material_alpha(RoomMesh& m) {
 // object draws as mode 1 the way FUN_005f92b0 switches it when a < 1, and a = 0 draws nothing
 // (FUN_005faca0). A subset drawn blended gets its vertex alpha = load-time value x d7 (unless
 // the load already baked d7 in) x this. Also restores the d7 bake after a re-bake.
-static void apply_object_alpha(Room& room, const std::string& lname, float a) {
-    const RoomMesh::ObjRange* r = room.mesh.object_range(lname);
+static void apply_object_alpha(Room& room, const RoomMesh::ObjRange* r, float a) {
     if (!r || room.base_a.size() != room.mesh.vertices.size()) return;
     const float k = std::clamp(a, 0.0f, 1.0f);
     room.batch_alpha.resize(room.mesh.batches.size(), 1.0f);
@@ -285,6 +296,9 @@ static void apply_object_alpha(Room& room, const std::string& lname, float a) {
         for (std::uint32_t v = b.first_vert; v < b.first_vert + b.vert_count && v < r->v1; ++v)
             room.mesh.vertices[v].a = std::uint8_t(float(room.base_a[v]) * f + 0.5f);
     }
+}
+static void apply_object_alpha(Room& room, const std::string& lname, float a) {
+    apply_object_alpha(room, room.mesh.object_range(lname), a);
 }
 
 // `shared_white` is owned by Gpu, not the room — missing-texture batches store

@@ -80,8 +80,8 @@ inline constexpr int kHintTicks = 120;      // [H] how long a Hold-mode tap show
 // script menu); reset() on every other tick. `pressed` / `held` are the mapper record's menu bit.
 struct SkipGate {
     int window = 0;          // Double: ticks left for the second press; Hold: ticks left of the hint
-    int hold = 0;            // Hold: ticks the button has been held (from a press in this cutscene)
-    bool holding = false;    // Hold: the current hold began with a press while the gate was stepping
+    int hold = 0;            // Hold: ticks the button has been held while the gate was stepping
+    bool holding = false;    // Hold: the button is held (the fill shows)
 
     bool step(SkipMode m, bool pressed, bool held);
     void reset() { *this = SkipGate{}; }

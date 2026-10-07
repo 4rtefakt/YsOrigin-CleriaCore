@@ -138,7 +138,7 @@ original option and the value saved for the original game.
 | `MultiSampleType` (MSAA) | Every world pipeline (room, characters, shadows, materials, effects) is built with 1 sample and each draw function opens its own pass on the frame; MSAA needs multisampled twins of all of them plus resolves. Render scale > 100% (supersampling) is the anti-aliasing offered instead. |
 | `Mipmap` | `upload_texture` / `upload_rgba` upload level 0 only. Mipmapping would also make Trilinear real. |
 | `ShadowEffectLevel` | The level's users (`FUN_00457a90`, `FUN_00459410`, `FUN_0045c490`, `FUN_00474870`, `FUN_00474cd0`, `FUN_005042e0`, `FUN_005043e0`) are not traced to what they drop. |
-| `WaterEffectLevel`, `GlareEffectLevel`, `WaterCaustics`, `MaskOfEyes` | No reflection, glare, caustics or Mask-of-Eyes pass exists yet. |
+| `WaterEffectLevel`, `GlareEffectLevel`, `WaterCaustics` | No reflection, glare or caustics pass exists yet. (`MaskOfEyes` is a live toggle since 2026-10-07: the grey pass is `view_mask.inl`, build/audit/PLAYTEST_1_STORY.md §1.) |
 | `[game] BloodyEffectLevel` | Its users (`FUN_00478510`, `FUN_004faf20`, `FUN_005130c0`) are not traced. |
 | `OtherLightWeightMode` | Users (`FUN_0044fdd0`, `FUN_00501a30`, `FUN_0055ddc0`) not traced. |
 | `CompressedTexture`, `LowResoTexture` | Loader variants, not ported (CleriaCore loads the full DDS). |
