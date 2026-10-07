@@ -1,0 +1,478 @@
+// cleria-view — mod content (phase 2a): the save sidecar, the event bus, the grant filter and the
+// content/*.ini patches wired into the live game (build/shell_re/CONTENT.md). Textual part of
+// main.cpp: #included after view_mods.inl; ONE translation unit, not standalone.
+//
+// None of this is retail. With no content mod active: the grant filter passes every query (it only
+// reports events), no item patch is installed, no pickup is placed, no sidecar file is written —
+// the game, its saves and its frames are what they were before this file existed.
+//
+// The hook lines in view_game.inl (each a single call into this file):
+//   render_window start   content_startup               after mods_startup: merge content/, patch items
+//   title Load            content_title_load            the chosen slot's sidecar, applied at session start
+//   session start         content_session_start         NewGame (fresh) or Load (title) -> the sidecar
+//   spawn_enemies end     content_on_room               RoomEnter, the room's chests, mod pickups
+//   csMgr built           content_bind / install        the grant filter on the live VM, the callbacks
+//   per tick              content_tick                  queued events, the g_flags diff (FlagChanged)
+//   [death]               content_on_death              PlayerDeath
+//   do_save / book load / delete   content_save / content_load / content_delete   the sidecar file
+//   pickup touch          content_touch_new / content_taken   new-item pickups, collected flags
+//   script loads          content_script                text.ini on the string pool
+//   drive commands        content_drive                 cstate / give= / csave= / cload=
+#include <deque>
+
+#include "cleria/content.hpp"
+#include "cleria/mod_events.hpp"
+#include "cleria/sidecar.hpp"
+
+struct ContentRt {
+    content::Content c;
+    bool on = false;                        // some active mod has content (c non-empty)
+    std::vector<std::string> stamp;         // "id version" of the mods that contributed content
+    ItemTable items;                        // the patched INVINFO (names for the treasure box)
+    Sidecar sc;                             // this game's sidecar (saved beside the slot)
+    std::string room, prev_room;            // upper-case
+    // the current room's chests: script instance name (lower) -> {box flag, object}
+    std::map<std::string, std::pair<int, std::string>> chests;
+    events::FlagWatch watch;
+    std::vector<events::Event> queued;      // emitted at the next content_tick
+    fs::path title_load;                    // a title Load's slot file (read at session start)
+    // bound to the live game (content_bind)
+    std::int32_t* flags = nullptr;
+    std::string toast, toast_head;          // a rule's text, shown by content_hud
+    int toast_t = 0;                        // ticks left
+    std::function<void(int)> add_sp, heal_hp;
+    std::function<void(int)> save_slot, load_slot;
+    std::deque<std::string> log;            // the last events, for the Content tab
+    int rules_sub = 0;
+};
+static ContentRt g_content;
+
+static void content_log(const std::string& s) {
+    std::printf("  [content] %s\n", s.c_str());
+    g_content.log.push_back(s);
+    while (g_content.log.size() > 12) g_content.log.pop_front();
+}
+
+static std::string content_hex(int v) {
+    char b[16];
+    std::snprintf(b, sizeof b, "0x%X", v);
+    return b;
+}
+
+static void content_item_patch(ItemTable& t) { content::patch_items(g_content.c, t); }
+
+static void content_emit(events::Event e) {
+    if (e.room.empty()) e.room = g_content.room;
+    events::bus().emit(e);
+}
+
+// Grant an item by the inventory's rules (retail ids: the count cell, gold -> SP; new ids: by Kind,
+// kept in the sidecar) and report it. `source` names who gave it ("rule", "chest", "pickup", "ap").
+static void content_give(int id, int count, const std::string& source, const std::string& script = {}) {
+    ContentRt& r = g_content;
+    if (id < 0 || count < 1) return;
+    if (id < content::kRetailItems) {
+        const Item* it = r.items.get(id);
+        if (id >= 0x78 && id <= 0x7f) {                     // the gold denominations: SP (FUN_00585ff0)
+            if (r.add_sp && it) r.add_sp(int(it->magnitude) * count);
+        } else if (r.flags) {
+            r.flags[id] = content::add_count(r.flags[id], count);
+        }
+    } else if (id >= content::kNewItemFirst && id <= content::kNewItemLast) {
+        const auto d = r.c.items.find(id);
+        const std::string kind = d == r.c.items.end() ? std::string() : d->second.kind;
+        const int amount = d == r.c.items.end() ? 0 : d->second.amount;
+        if (kind == "heal") { if (r.heal_hp) r.heal_hp(amount * count); }
+        else if (kind == "gold") { if (r.add_sp) r.add_sp(amount * count); }
+        else {
+            r.sc.add_item(id, count);
+            if (kind == "flag" && d != r.c.items.end() && !d->second.sets_flag.empty()) {
+                const std::optional<int> fi = content::parse_int(d->second.sets_flag);
+                if (fi && *fi >= 0 && *fi < 0x200) { if (r.flags) r.flags[*fi] = 1; }
+                else r.sc.set_flag(d->second.sets_flag, 1);
+            }
+        }
+    } else {
+        return;
+    }
+    content_log("item " + content_hex(id) + " x" + std::to_string(count) + " (" + r.items.name(id) + ") from " + source);
+    events::Event e;
+    e.kind = events::Kind::ItemObtained;
+    e.item = id;
+    e.count = count;
+    e.source = source;
+    e.script = script;
+    content_emit(e);
+}
+
+// The rules: one bus subscriber that runs every content rule whose trigger matches.
+static void content_rules_on(const events::Event& e) {
+    ContentRt& r = g_content;
+    for (const auto& [name, rule] : r.c.rules) {
+        if (!content::rule_fires(rule, e, r.sc)) continue;
+        content_log("rule " + name + " fires on " + events::kind_name(e.kind));
+        content::RuleEnv env;
+        env.flags = r.flags;
+        env.sc = &r.sc;
+        env.give = [](int item, int n) { content_give(item, n, "rule"); };
+        env.message = [&](const std::string& m) {
+            r.toast = m;
+            r.toast_head = rule.mod;
+            for (const mods::Mod& md : g_mods_ui.list)
+                if (md.m.id == rule.mod) r.toast_head = md.label();
+            r.toast_t = 300;                               // [H] 5 s
+            content_log("text \"" + m + "\"");
+        };
+        content::run_rule(rule, env);
+    }
+}
+
+// After mods_startup: every Active mod's content/ in load order.
+static void content_startup(const fs::path& asset_root) {
+    ContentRt& r = g_content;
+    set_item_patch(nullptr);
+    if (r.rules_sub) { events::bus().unsubscribe(r.rules_sub); r.rules_sub = 0; }
+    r.c = {};
+    r.stamp.clear();
+    for (mods::Mod& m : g_mods_ui.list) {
+        if (m.state != mods::State::Active) continue;
+        const fs::path dir = m.root / "content";
+        std::error_code ec;
+        if (!fs::is_directory(dir, ec)) continue;
+        if (m.m.api < 2) {
+            m.notes.push_back("content/ ignored: it needs ApiVersion=2");
+            continue;
+        }
+        const std::size_t e0 = r.c.errors.size();
+        const int n = content::merge_dir(r.c, m.m.id, dir);
+        r.stamp.push_back(m.m.id + " " + m.m.version);
+        std::printf("[content] %s: %d file(s)\n", m.label().c_str(), n);
+        for (std::size_t i = e0; i < r.c.errors.size(); ++i) m.notes.push_back("content error: " + r.c.errors[i].text);
+    }
+    for (const content::Note& n : r.c.notes)
+        for (mods::Mod& m : g_mods_ui.list)
+            if (m.m.id == n.mod) m.notes.push_back("content: " + n.text);
+    for (const content::Note& e : r.c.errors) std::printf("[content]   %s: %s\n", e.mod.c_str(), e.text.c_str());
+    for (const content::Note& n : r.c.notes) std::printf("[content]   %s: %s\n", n.mod.c_str(), n.text.c_str());
+    r.on = !r.c.empty();
+    if (r.on) set_item_patch(&content_item_patch);          // every ItemTable::load from here on
+    r.items = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");   // names (patched when on)
+    if (!r.on) return;
+    if (!r.c.rules.empty()) r.rules_sub = events::bus().subscribe(content_rules_on);
+    std::printf("[content] %zu item(s), %zu chest(s), %zu pickup(s), %zu rule(s), %zu text script(s)\n",
+                r.c.items.size(), r.c.chests.size(), r.c.pickups.size(), r.c.rules.size(), r.c.text.size());
+}
+
+// text.ini on a script being loaded for the live VM (`p` = the path the loader built).
+static std::shared_ptr<Xso> content_script(const fs::path& p) {
+    auto x = std::make_shared<Xso>(Xso::parse(read_bytes(p)));
+    if (g_content.on && !g_content.c.text.empty()) {
+        const std::string vn = vfs::virtual_name(p);
+        if (const int n = content::patch_script(g_content.c, vn, *x))
+            content_log("text: " + std::to_string(n) + " string(s) of " + vn);
+    }
+    return x;
+}
+
+// The title's Load: the slot whose sidecar the session starts with.
+static void content_title_load(const fs::path& slot_file) { g_content.title_load = slot_file; }
+
+// A game session starts (FUN_0041fd10 ran; a title Load's flags are applied).
+static void content_session_start(std::int32_t* flags, int character, bool loaded) {
+    ContentRt& r = g_content;
+    r.flags = flags;
+    r.sc.clear();
+    r.watch.primed = false;
+    r.queued.clear();
+    events::Event e;
+    if (loaded && !r.title_load.empty()) {
+        r.sc = read_sidecar(r.title_load);
+        e.kind = events::Kind::Load;
+    } else {
+        e.kind = events::Kind::NewGame;
+        e.character = character;
+    }
+    r.title_load.clear();
+    r.queued.push_back(e);
+}
+
+// Every room entry (the boot room, doors, script warps, loads): the event, the chests, the pickups.
+static void content_on_room(const Room& room, std::vector<Pickup>& pickups, bool water) {
+    ContentRt& r = g_content;
+    std::string up = room.name;
+    for (char& ch : up) ch = char(std::toupper((unsigned char)ch));
+    r.prev_room = r.room;
+    r.room = up;
+    r.chests.clear();
+    for (const Interactable& it : room.mesh.interactables) {
+        if (it.opened_flag < 0) continue;
+        std::string n = it.script_name.empty() ? fs::path(it.script).stem().string() : it.script_name;
+        for (char& ch : n) ch = char(std::tolower((unsigned char)ch));
+        r.chests[n] = {it.opened_flag, it.name};
+    }
+    events::Event e;
+    e.kind = events::Kind::RoomEnter;
+    e.prev_room = r.prev_room;
+    content_emit(e);
+    if (!r.on) return;
+    for (const auto& [id, pd] : r.c.pickups) {
+        if (pd.room != up || r.sc.flag(pd.flag) != 0) continue;
+        // [H] a resting, collectable, never-expiring pickup (flags 4 | 8 | 0x10) built without the spawner's
+        // RNG draws, so a mod pickup does not shift the room's random stream.
+        Pickup p;
+        p.id = pd.item;
+        p.flags = 0x1c;
+        p.pos = p.prev = p.base = {pd.pos[0], pd.pos[1], pd.pos[2]};
+        p.life = 990.0f;
+        p.half = 0.9f * 0.315f;
+        p.resting = true;
+        p.in_water = water;
+        p.content = int(std::distance(r.c.pickups.begin(), r.c.pickups.find(id)));
+        pickups.push_back(p);
+        content_log("pickup " + id + " (" + r.items.name(pd.item) + ") placed in " + up);
+    }
+}
+
+static const content::PickupDef* content_pickup_def(int idx) {
+    if (idx < 0 || idx >= int(g_content.c.pickups.size())) return nullptr;
+    return &std::next(g_content.c.pickups.begin(), idx)->second;
+}
+
+// The touch of a pickup holding a NEW item (id >= 0x100): no g_flags cell, the content grant.
+static bool content_touch_new(const Pickup& pk) {
+    const content::PickupDef* pd = content_pickup_def(pk.content);
+    content_give(pk.id, pd ? pd->count : 1, "pickup");
+    return true;
+}
+// Any pickup taken: a mod pickup is marked collected; every pickup is reported.
+static void content_taken(const Pickup& pk) {
+    if (const content::PickupDef* pd = content_pickup_def(pk.content)) {
+        g_content.sc.set_flag(pd->flag, 1);
+        content_log("pickup " + pd->id + " collected");
+        if (pk.id < content::kRetailItems && pd->count > 1 && g_content.flags)   // the touch gave one
+            g_content.flags[pk.id] = content::add_count(g_content.flags[pk.id], pd->count - 1);
+    }
+    if (pk.id >= content::kNewItemFirst) return;            // reported by content_give
+    events::Event e;
+    e.kind = events::Kind::ItemObtained;
+    e.item = pk.id;
+    e.count = 1;
+    e.source = "pickup";
+    content_emit(e);
+}
+
+// More grant filters for other CleriaCore layers (the Archipelago client): consulted in order BEFORE
+// chests.ini; the first decision that is not Pass is the one taken (and that layer grants / reports
+// what it substitutes itself, e.g. with content_give). `room` is the current room, upper-case.
+using ContentFilter = std::function<GrantDecision(const GrantQuery&, const std::string& room)>;
+static std::vector<ContentFilter> g_content_filters;
+[[maybe_unused]] static void content_add_filter(ContentFilter f) { g_content_filters.push_back(std::move(f)); }
+
+// The grant filter on the live VM (xso.hpp GrantQuery). Reports chests opened and items obtained;
+// applies the added filters, then chests.ini when content is on.
+static GrantDecision content_filter(const GrantQuery& q) {
+    ContentRt& r = g_content;
+    GrantDecision d;
+    std::vector<content::Obtained> got;
+    bool other = false;
+    for (const ContentFilter& f : g_content_filters) {
+        d = f(q, r.room);
+        if (d.action != GrantDecision::Action::Pass) { other = true; break; }
+    }
+    if (!other && r.on) d = content::decide(r.c, q, r.room, &r.items, &got);
+    if (q.kind == GrantQuery::Kind::Store) {
+        const auto ch = r.chests.find(q.script);
+        if (ch != r.chests.end() && ch->second.first == q.index && q.old_value == 0 && q.value != 0) {
+            events::Event e;
+            e.kind = events::Kind::ChestOpened;
+            e.index = q.index;
+            e.script = q.script;
+            e.object = ch->second.second;
+            std::string sn = q.script;
+            for (char& c : sn) c = char(std::toupper((unsigned char)c));
+            content_log("chest " + r.room + "/" + sn + " opened (flag " + std::to_string(q.index) + ")");
+            content_emit(e);
+        }
+        if (d.action == GrantDecision::Action::Pass && q.index >= 0 && q.index < content::kRetailItems &&
+            q.value > std::max(q.old_value, 0)) {
+            events::Event e;
+            e.kind = events::Kind::ItemObtained;
+            e.item = q.index;
+            e.count = q.value - std::max(q.old_value, 0);
+            e.source = r.chests.count(q.script) ? "chest" : "script";
+            e.script = q.script;
+            content_emit(e);
+        }
+        if (d.action != GrantDecision::Action::Pass) {
+            const content::ChestDef* cd = content::find_chest(r.c, r.room, q.script, q.index);
+            content_log("chest " + (cd ? cd->key : r.room + "/" + q.script) + ": grant of " + content_hex(q.index) +
+                        (d.action == GrantDecision::Action::Suppress ? " suppressed" : " redirected"));
+        }
+        for (const content::Obtained& o : got) {
+            if (o.apply) {
+                content_give(o.item, o.count, "chest", q.script);
+            } else {
+                content_log("item " + content_hex(o.item) + " x" + std::to_string(o.count) + " (" + r.items.name(o.item) +
+                            ") from chest");
+                events::Event e;
+                e.kind = events::Kind::ItemObtained;
+                e.item = o.item;
+                e.count = o.count;
+                e.source = "chest";
+                e.script = q.script;
+                content_emit(e);
+            }
+        }
+    } else if (d.action == GrantDecision::Action::Replace) {
+        content_log(std::string(q.kind == GrantQuery::Kind::Icon ? "icon " : "treasure box ") + content_hex(q.index) +
+                    " -> " + content_hex(d.index) + (q.kind == GrantQuery::Kind::Window ? " \"" + d.text + "\"" : ""));
+    }
+    return d;
+}
+
+static void content_install(XsoVm& vm) { vm.grant_filter = content_filter; }
+
+// Once a tick, after the scripts' grants reached the game flags.
+static void content_tick(const std::int32_t* flags) {
+    ContentRt& r = g_content;
+    if (!r.queued.empty()) {
+        std::vector<events::Event> q;
+        q.swap(r.queued);
+        for (const events::Event& e : q) {
+            content_log(std::string("event ") + events::kind_name(e.kind));
+            content_emit(e);
+        }
+    }
+    r.watch.diff(flags, events::bus(), r.room);
+    if (r.toast_t > 0) --r.toast_t;
+}
+
+// Shell::hud layer "content": a rule's text as a notice card, bottom centre, fading out.
+static void content_hud(ImDrawList* dl, float w, float h) {
+    const ContentRt& r = g_content;
+    if (r.toast_t <= 0 || r.toast.empty()) return;
+    const float fade = std::clamp(float(r.toast_t) / 30.0f, 0.0f, 1.0f);
+    auto A = [&](ImU32 c) { return (c & 0x00FFFFFFu) | (ImU32(float((c >> 24) & 0xFF) * fade) << 24); };
+    const float S = ui::S, hpx = 13.5f * S, bpx = 17.0f * S;
+    const std::string head = ui::upper(r.toast_head.c_str());
+    const ImVec2 ts = ui::text_size(ui::F.body, bpx, r.toast.c_str());
+    const float bw = std::max(340.0f * S, ts.x + 40.0f * S), bh = 76.0f * S;
+    const ImVec2 a{(w - bw) * 0.5f, h - 190.0f * S}, b{a.x + bw, a.y + bh};
+    dl->AddRectFilled(a, b, A(IM_COL32(26, 24, 16, 235)), 6.0f * S);
+    dl->AddRect(a, b, A(ui::kPanelEdge), 6.0f * S, 0, 1.2f * S);
+    ui::text(dl, ui::F.cond, hpx, {a.x + 20.0f * S, a.y + 15.0f * S}, A(ui::kSection), head.c_str());
+    ui::text(dl, ui::F.body, bpx, {a.x + 20.0f * S, a.y + 40.0f * S}, A(ui::kDesc), r.toast.c_str());
+}
+
+static void content_on_death() {
+    events::Event e;
+    e.kind = events::Kind::PlayerDeath;
+    content_emit(e);
+}
+
+// After a slot's retail record was written.
+static void content_save(const fs::path& slot_file, int slot) {
+    ContentRt& r = g_content;
+    r.sc.mods = r.stamp;
+    write_sidecar(slot_file, r.sc);
+    if (!r.sc.empty()) content_log("sidecar " + sidecar_path(slot_file).filename().string() + " written");
+    events::Event e;
+    e.kind = events::Kind::Save;
+    e.slot = slot;
+    content_emit(e);
+}
+
+// Before a slot's record is applied in game (the book's Load): the sidecar now, the Load event at the
+// next tick (the flag diff re-primes on the loaded flags).
+static void content_load(const fs::path& slot_file, int slot) {
+    ContentRt& r = g_content;
+    r.sc = read_sidecar(slot_file);
+    std::string now, was;
+    for (const std::string& s : r.stamp) now += (now.empty() ? "" : ", ") + s;
+    for (const std::string& s : r.sc.mods) was += (was.empty() ? "" : ", ") + s;
+    if (!r.sc.empty() && was != now) content_log("save made with content mods [" + was + "], active now [" + now + "]");
+    r.watch.primed = false;
+    events::Event e;
+    e.kind = events::Kind::Load;
+    e.slot = slot;
+    r.queued.push_back(e);
+}
+
+static void content_delete(const fs::path& slot_file) { remove_sidecar(slot_file); }
+
+// CLERIA_DRIVE: cstate | give=<id>[,<n>] | csave=<slot> | cload=<slot>
+static bool content_drive(const std::string& cmd) {
+    ContentRt& r = g_content;
+    if (cmd == "cstate") {
+        std::string items, flags;
+        for (const auto& [id, n] : r.sc.items) items += " " + content_hex(id) + "=" + std::to_string(n);
+        for (const auto& [k, v] : r.sc.flags) flags += " " + k + "=" + std::to_string(v);
+        std::printf("  [drive] cstate room %s content %d items{%s } cflags{%s }\n", r.room.c_str(), int(r.on),
+                    items.c_str(), flags.c_str());
+        return true;
+    }
+    if (cmd.rfind("give=", 0) == 0) {
+        int id = 0, n = 1;
+        if (std::sscanf(cmd.c_str() + 5, "%i,%d", &id, &n) >= 1) content_give(id, n, "drive");
+        return true;
+    }
+    if (cmd.rfind("csave=", 0) == 0) {
+        if (r.save_slot) r.save_slot(std::atoi(cmd.c_str() + 6));
+        return true;
+    }
+    if (cmd.rfind("cload=", 0) == 0) {
+        if (r.load_slot) r.load_slot(std::atoi(cmd.c_str() + 6));
+        return true;
+    }
+    return false;
+}
+
+// The F1 panel's "Content" tab: what the content mods add, this save's CleriaCore state, the events.
+static void content_page(ui::List& L) {
+    ContentRt& r = g_content;
+    ui::section(L, "Mod content");
+    if (!r.on) {
+        ui::info(L, "Status", "No content mod active", ui::kMuted,
+                 "A mod adds or changes game content with a content/ folder of INI files (items, chests, pickups, "
+                 "rules, text). Turn one on in the Mods tab and restart. Not a retail feature.");
+    } else {
+        std::string names;
+        for (const mods::Mod& m : g_mods_ui.list)
+            for (const std::string& s : r.stamp)
+                if (s.rfind(m.m.id + " ", 0) == 0) names += (names.empty() ? "" : ", ") + m.label() + " " + m.m.version;
+        const std::string from_desc =
+            "The active mods that add or change game content, in load order (a later mod wins an entry two mods "
+            "set; the Mods tab lists those notes). Saves made with them keep CleriaCore's extra state in a "
+            ".cleria file beside the save; the save itself stays a retail save. Not a retail feature.";
+        ui::info(L, "From", names.c_str(), ui::kGood, from_desc.c_str());
+        int n_new = 0;
+        for (const auto& [id, d] : r.c.items) n_new += id >= content::kNewItemFirst;
+        auto count_row = [&](const char* label, std::size_t n, const std::string& extra, const char* desc) {
+            const std::string v = std::to_string(n) + extra;
+            ui::info(L, label, v.c_str(), ui::kValue, desc);
+        };
+        count_row("Items", r.c.items.size(), n_new ? " (" + std::to_string(n_new) + " new)" : std::string(),
+                  "Item names, descriptions and icons changed (content/items.ini), and new items.");
+        count_row("Chests", r.c.chests.size(), "", "Chests that give something else (content/chests.ini).");
+        count_row("Pickups", r.c.pickups.size(), "", "Items placed in rooms, each collected once per save (content/pickups.ini).");
+        count_row("Rules", r.c.rules.size(), "", "Things that happen on a game event: a flag, a room, an item (content/rules.ini).");
+        count_row("Scripts", r.c.text.size(), "", "Event scripts whose text is changed (content/text.ini).");
+        if (!r.c.errors.empty())
+            ui::info(L, "Problems", (std::to_string(r.c.errors.size()) + " (see the Mods tab)").c_str(), ui::kWarn);
+    }
+    ui::section(L, "Mod items held");
+    int shown = 0;
+    for (const auto& [id, n] : r.sc.items) {
+        if (n < 1) continue;
+        ui::info(L, r.items.name(id).c_str(), ("x " + std::to_string(n)).c_str(), ui::kValue,
+                 r.items.get(id) ? r.items.get(id)->description.c_str() : nullptr);
+        ++shown;
+    }
+    if (!shown) ui::info(L, "None", "", ui::kMuted);
+    if (!r.log.empty()) {
+        ui::section(L, "Recent events");
+        int k = 0;
+        for (auto it = r.log.rbegin(); it != r.log.rend() && k < 6; ++it, ++k)
+            ui::info(L, "", it->c_str(), ui::kMuted, it->c_str());
+    }
+}

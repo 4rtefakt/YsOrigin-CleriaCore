@@ -42,6 +42,7 @@ struct Pickup {
     bool closing = false;             // +0x146
     float half = 0.2835f;             // +0x15c
     bool dead = false;
+    int content = -1;                 // CleriaCore mods: a content pickups.ini entry (-1 = the game's own)
 
     // FUN_00584f90 render prep: the sprite alpha 0..1 (the last 35 ticks fade).
     float alpha() const;

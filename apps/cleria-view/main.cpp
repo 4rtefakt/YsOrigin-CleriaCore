@@ -340,6 +340,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_input.inl"
 #include "view_shell.inl"
 #include "view_mods.inl"
+#include "view_content.inl"
 #include "view_access.inl"
 #include "view_pad.inl"
 #include "view_speedrun.inl"

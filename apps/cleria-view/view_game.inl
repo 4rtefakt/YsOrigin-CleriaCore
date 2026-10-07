@@ -11,6 +11,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // CLERIA_DRIVE run. The gamepad: SDL's gamepad layer, mapped into the retail pad codes.
     settings_init(std::getenv("CLERIA_DRIVE") == nullptr);
     mods_startup(g, asset_root);   // the vfs + the enabled mods, before any asset loads (view_mods.inl)
+    content_startup(asset_root);   // the active mods' content/ patches (view_content.inl)
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) std::fprintf(stderr, "SDL gamepad: %s\n", SDL_GetError());
     else g_sdl_in.open_pad();
     // A CLERIA_DRIVE run is headless: a hidden window (nothing on the user's desktop or taskbar) and an
@@ -366,6 +367,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         shell.panel.add("Gameplay", [&](ui::List& L) { access_gameplay_page(L, persist); });
         shell.panel.add("Cheats", [&](ui::List& L) { access_cheats_page(L, persist); });
         shell.hud["access"] = access_hud;               // the cutscene-skip prompt
+        shell.hud["content"] = content_hud;             // a mod rule's text (view_content.inl)
         shell.panel.add("Mods", [&](ui::List& L) { mods_page(L); });   // view_mods.inl
         // Speedrun mode (view_speedrun.inl): its tab, its overlay, and the Cheats above as listed
         // modifications. A new cheat adds its line here; other features use speedrun::set_provider.
@@ -385,6 +387,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ac.game_speed != 1.0f) out.push_back("Game speed " + std::to_string(int(ac.game_speed * 100.0f + 0.5f)) + "%");
             if (ac.text_speed != int(access::TextSpeed::Retail)) out.push_back("Text speed (not original)");
         });
+        shell.panel.add("Content", [&](ui::List& L) { content_page(L); });   // view_content.inl
         shell.panel.add("Interface", [&](ui::List& L) {
             ui::section(L, "Overlays");
             if (ui::toggle(L, "Debug text", &hud.debug_text,
@@ -894,6 +897,7 @@ title_again:
                         std::ifstream f(slot_path(ev.load_slot), std::ios::binary);
                         std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
                         if (auto r = SaveRecord::decode(raw)) { pending_load = from_record(*r); started = true; }
+                        content_title_load(slot_path(ev.load_slot));   // its mod sidecar (view_content.inl)
                     }
                     if (ev.new_game) {
                         const NewGameInfo& ng = ev.new_game_info;
@@ -1192,6 +1196,7 @@ title_again:
             if (it != g.sob_index.end()) boot_sob = it->second;
         }
     }
+    content_session_start(game.g_flags, character, pending_load.has_value());   // mods: sidecar, NewGame / Load
 
     // Award EXP for a kill and process level-ups (build/progress_re/LEVELING.md): the engine
     // credits the defeated enemy's EXP at the killing blow (FUN_004fbb40), then loops
@@ -1513,6 +1518,7 @@ title_again:
         efx.init_from_world(g, asset_root, world, casts);
         render = build_enemy_render(world, casts, efx);
         bind_enemy_aso();
+        content_on_room(room, pickups, water_mode == 2);    // mods: RoomEnter, chests, pickups (view_content.inl)
         if (!render.empty()) {
             int statted = 0;
             for (const EnemyRender& e : render) statted += (e.actor->max_hp > 0);
@@ -1796,6 +1802,7 @@ title_again:
         f.write(reinterpret_cast<const char*>(raw.data()), std::streamsize(raw.size()));
         hud.message(f ? ("Saved to slot " + std::to_string(slot + 1))
                       : "Save FAILED (disk?)");
+        if (f) content_save(slot_path(slot), slot);      // mods: the sidecar beside it (view_content.inl)
     };
     // force_scene: re-enter the scene even when it is the current one (the game over's Retry is a
     // ChangeScene to the current scene; a load of the same room only re-gates it).
@@ -2392,13 +2399,13 @@ title_again:
                 const fs::path p2 = common.parent_path() / rel;
                 std::error_code ec2;
                 if (!fs::exists(p2, ec2)) return nullptr;
-                try { return std::make_shared<Xso>(Xso::parse(read_bytes(p2))); }
+                try { return content_script(p2); }        // mods: text.ini (view_content.inl)
                 catch (const std::exception&) { return nullptr; }
             }
             const fs::path p = (at ? common : *dir) / (up + ".XSO");
             std::error_code ec;
             if (!fs::exists(p, ec)) return nullptr;    // engine would throw; we skip
-            try { return std::make_shared<Xso>(Xso::parse(read_bytes(p))); }
+            try { return content_script(p); }            // mods: text.ini (view_content.inl)
             catch (const std::exception&) { return nullptr; }
         }
     } csLoader;
@@ -2408,6 +2415,17 @@ title_again:
     csMgr.vm.host = &csHost;
     csMgr.loader = &csLoader;
     csHost.mgr = &csMgr;
+    {   // mods (view_content.inl): the grant filter on the live VM and the game callbacks it needs
+        content_install(csMgr.vm);
+        g_content.add_sp = [&](int n) { player.sp = std::clamp(player.sp + n, 0, 999999); };
+        g_content.heal_hp = [&](int n) { player.hp = std::min(player.max_hp, player.hp + n); };
+        g_content.save_slot = [&](int s) { do_save(s); };
+        g_content.load_slot = [&](int s) {
+            std::ifstream f(slot_path(s), std::ios::binary);
+            std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
+            if (auto rec = SaveRecord::decode(raw)) { content_load(slot_path(s), s); apply_loaded(from_record(*rec)); }
+        };
+    }
     csHost.warp_on = warp_on;
     csHost.manual_on = manual_on;
     csHost.topic_seen = topic_seen;
@@ -2469,7 +2487,7 @@ title_again:
         csMgr.vm.g_flags[150] = character;
         const fs::path xso = room.dir / (room.name + ".XSO");
         if (!fs::exists(xso)) return;
-        try { csMgr.start_root(std::make_shared<Xso>(Xso::parse(read_bytes(xso))), room.name); }
+        try { csMgr.start_root(content_script(xso), room.name); }   // mods: text.ini
         catch (const std::exception&) {}
         std::printf("  [events] room %s -> %zu live script(s)%s\n", room.name.c_str(),
                     csMgr.live.size(), csMgr.world_frozen() ? " (frozen)" : "");
@@ -2491,7 +2509,7 @@ title_again:
     };
     auto start_cutscene = [&](const fs::path& p, bool debug235) {
         std::shared_ptr<Xso> s;
-        try { s = std::make_shared<Xso>(Xso::parse(read_bytes(p))); }
+        try { s = content_script(p); }                     // mods: text.ini
         catch (const std::exception&) { hud.debug_message("cutscene: load failed"); return; }
         start_cutscene_xso(std::move(s), p.stem().string(), debug235);
     };
@@ -3311,8 +3329,10 @@ title_again:
             std::printf("  [drive]   frozen %d fix %d/%d\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1]);
             for (const auto& li : csMgr.live)
                 std::printf("  [drive]   script %s pc %u wait %d%s\n", li.name.c_str(), li.pc, li.wait, li.finished ? " (done)" : "");
-        } else if (cmd == "shell") {                   // open the F1 shell overlay, shoot it, close it
+        } else if (cmd == "shell" || cmd.rfind("shell=", 0) == 0) {   // open the F1 shell overlay (shell=<Tab>), shoot it, close it
             // (the shell pauses the logic ticks, so the drive closes it itself after the shot)
+            for (int i = 0; cmd.size() > 6 && i < int(shell.panel.pages.size()); ++i)
+                if (shell.panel.pages[i].name == cmd.substr(6)) shell.panel.tab = i;
             shell.open = true;
             shell_drive_close = true;
             shell_shot_frames = 3;                       // ImGui lays the tab bar out a frame late
@@ -3423,6 +3443,7 @@ title_again:
         } else if (cmd == "stats") {                   // EXP / level / HP / SP (the access checks)
             std::printf("  [drive] stats exp %.0f lv %d hp %d/%d sp %d\n", double(player.exp), player.level, player.hp,
                         player.max_hp, player.sp);
+        } else if (content_drive(cmd)) {               // cstate, give=, csave=, cload= (view_content.inl)
         } else if (access_drive(cmd)) {                // opt=Key=value, esctap, eschold=n (view_access.inl)
         } else if (video_drive(cmd)) {                 // vopt=Key=value, vstat (view_video.inl)
         } else if (cmd == "jump") {
@@ -4611,11 +4632,13 @@ title_again:
                 if (bev.delete_slot >= 0) {
                     std::error_code ec;
                     fs::remove(slot_path(bev.delete_slot), ec);
+                    content_delete(slot_path(bev.delete_slot));   // mods: its sidecar
                 }
                 if (bev.load_slot >= 0) {
                     std::ifstream f(slot_path(bev.load_slot), std::ios::binary);
                     std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
                     if (auto r = SaveRecord::decode(raw)) {
+                        content_load(slot_path(bev.load_slot), bev.load_slot);   // mods: its sidecar
                         apply_loaded(from_record(*r));
                         save_cont();                 // FUN_00431260 "load"
                         hud.message("Game loaded.");
@@ -4788,6 +4811,7 @@ title_again:
             csMgr.vm.acquires.clear();
             csMgr.vm.items.clear();
             apply_script_grants();
+            content_tick(game.g_flags);            // mods: queued events + the g_flags diff (view_content.inl)
         }
         // A live script showed / hid an object (or switched its collision): rebuild the room's
         // geometry with the overrides, mesh only (the scripts keep running).
@@ -6237,7 +6261,9 @@ title_again:
                     env.sp_rate = settings().s.access.sp_rate;    // SPrate 0x76a5f8 (the shell's Cheats)
                     inv.sp = player.sp;
                     int pop = 0;
-                    if (pickup(inv, inv_items, env, pk.id, &pop) != PickupResult::Taken) return false;
+                    if (pk.id >= content::kNewItemFirst) { if (!content_touch_new(pk)) return false; }   // mods
+                    else if (pickup(inv, inv_items, env, pk.id, &pop) != PickupResult::Taken) return false;
+                    content_taken(pk);                                // mods: collected flag, ItemObtained
                     player.sp = inv.sp;
                     player.hp = int(hp);
                     // The GoPopup (PICKUPS.md §7.3, §13.6); a full pool skips it, the grant stands.
@@ -6362,6 +6388,7 @@ title_again:
                     avm.set_section(5, /*force*/true);
                     std::printf("  [death] HP %d at (%.2f, %.2f, %.2f), section %d\n", player.hp, feet.x, feet.y,
                                 feet.z, avm.section());
+                    content_on_death();                      // mods: PlayerDeath (view_content.inl)
                 }
             };
             // The shell's Cheats (not retail): refilled before the death check.

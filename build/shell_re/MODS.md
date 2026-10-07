@@ -12,7 +12,7 @@ client built into the engine, in phases.
 | phase | what | state |
 |---|---|---|
 | 1 | package format, discovery, manifest, order + checks, persistence, the VFS (reskins), the Mods tab, `mods::active()`, a sample mod, tests | **built** (this document's §1-§6, §9) |
-| 2a | content patches: item text / stats, chest contents, new pickups, flag/event rules, text | designed (§7) |
+| 2a | content patches: item text / stats, chest contents, new pickups, flag/event rules, text; the save sidecar, the event bus, the grant filter | **built** (CONTENT.md; §7 is the design it follows) |
 | 2b | Archipelago: connection, location checks, item receipt, foreign-item icon, DeathLink, tracker, overlays | designed (§8) |
 | 3 | scripting runtime | a question for the user (§10) |
 
@@ -61,7 +61,7 @@ unquoted value is kept whole.
 | `Version` | | dotted, compared numerically per part (`1.10 > 1.9`, `1.0 == 1`); a non-numeric part compares as text. Default `0`. |
 | `Author`, `Description`, `Website` | | shown in the Mods tab |
 | `Priority` | | int, default 0: where a NEWLY found mod is first placed (lower loads first). Never reorders what the player ordered. |
-| `ApiVersion` | | the mod API it targets (`mods::kApiVersion`, now 1). A higher one is an error ("needs a newer CleriaCore"). Phase 2 raises it when `content/` lands. |
+| `ApiVersion` | | the mod API it targets (`mods::kApiVersion`, now 2: `content/`, CONTENT.md). A higher one is an error ("needs a newer CleriaCore"); a mod declaring 1 has its `content/` ignored. Default: the current version. |
 | `Requires` | | comma list of `id`, `id>=1.2`, `id=2`, `id<3` (`>= > = == <= <`) |
 | `Conflicts` | | same syntax; an enabled matching mod is an error on the declaring mod |
 
@@ -407,7 +407,10 @@ and randomizer logic that is not a lookup table. Options:
 
 ## 12. Phase-2 task list (for the next agent)
 
-In order; each step its own commit with tests.
+In order; each step its own commit with tests. **Items 2-7 are built: see CONTENT.md** (where the
+build differs from this plan it says why: the parsers' tests live in `cleria-contenttest`, the
+Item-page row became the F1 Content tab, new chests are not modelled, the json step (1) was not
+needed for the INI sidecar and is left to the AP client).
 
 1. **json**: `src/cleria/json.{hpp,cpp}` (parse to a value tree, serialize; UTF-8, numbers as
    double + int64), tests in a new `cleria-jsontest`.

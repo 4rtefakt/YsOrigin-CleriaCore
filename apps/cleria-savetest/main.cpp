@@ -4,7 +4,9 @@
 // truncated/garbage buffer is rejected. If CLERIA_REAL_SAVE points at a real
 // yso_NN.bin, it is decoded and its character/difficulty printed (read-compat proof).
 #include "cleria/save.hpp"
+#include "cleria/sidecar.hpp"
 #include <cstdio>
+#include <filesystem>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -64,6 +66,53 @@ int main() {
         if (rq) { const SaveState tq = from_record(*rq); hq = hq && tq.mp_max == 3000.0f && tq.mp_cur == 1234.9f; }
         std::printf("[save] slot-list header copies (level %u) %s\n", rq ? rq->hdr_u32(0x34) : 0u, hq ? "OK" : "FAIL");
         fails += !hq;
+    }
+
+    // The CleriaCore sidecar (src/cleria/sidecar.hpp, build/shell_re/CONTENT.md §2): yso_NN.cleria
+    // beside the retail record, never touching its bytes; empty = no file.
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir = fs::temp_directory_path() / "cleria_savetest_sidecar";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir, ec);
+        const fs::path bin = dir / "yso_03.bin";
+        { std::ofstream o(bin, std::ios::binary); o.write(reinterpret_cast<const char*>(raw.data()), std::streamsize(raw.size())); }
+        bool sc_ok = sidecar_path(bin) == dir / "yso_03.cleria";
+        Sidecar a;
+        sc_ok = sc_ok && a.empty() && a.item(0x100) == -1;
+        a.mods = {"sample.chest_swap 1.0.0", "x.y 2"};
+        a.set_flag("Chest_Swap.P1", 1);
+        a.set_flag("rule.lantern", 1);
+        a.add_item(0x100, 1);
+        a.add_item(0x100, 2);
+        a.add_item(0x1FF, 150);                       // capped at 99
+        a.ap["seed"] = "ABC \"quoted\" 123";
+        a.ap["received"] = "12";
+        sc_ok = sc_ok && a.item(0x100) == 3 && a.item(0x1FF) == 99 && a.flag("chest_swap.p1") == 1;
+        sc_ok = sc_ok && write_sidecar(bin, a) && fs::exists(sidecar_path(bin));
+        const Sidecar b = read_sidecar(bin);
+        sc_ok = sc_ok && b.mods == a.mods && b.flags == a.flags && b.items == a.items && b.ap == a.ap;
+        // The retail record beside it is byte-identical (the sidecar never writes into it).
+        { std::ifstream f(bin, std::ios::binary); std::vector<std::uint8_t> back{std::istreambuf_iterator<char>(f), {}};
+          sc_ok = sc_ok && back == raw && SaveRecord::decode(back).has_value(); }
+        std::printf("[save] sidecar round-trip (flags, new items, AP block, mod stamp) %s\n", sc_ok ? "OK" : "FAIL");
+        fails += !sc_ok;
+        // An empty sidecar removes a stale file; absent / foreign / newer files read as empty.
+        bool sc_empty = write_sidecar(bin, Sidecar{}) && !fs::exists(sidecar_path(bin)) && read_sidecar(bin).empty();
+        { std::ofstream o(sidecar_path(bin), std::ios::binary); o << "[cleria]\r\nVersion=99\r\n[flags]\r\nx=1\r\n"; }
+        sc_empty = sc_empty && read_sidecar(bin).empty();
+        { std::ofstream o(sidecar_path(bin), std::ios::binary); o << "not a sidecar"; }
+        sc_empty = sc_empty && read_sidecar(bin).empty() && !Sidecar::parse("[flags]\r\nx=1\r\n");
+        Sidecar c;
+        c.set_flag("z", 5);
+        c.set_flag("z", 0);                            // 0 erases
+        sc_empty = sc_empty && c.empty();
+        remove_sidecar(bin);
+        sc_empty = sc_empty && !fs::exists(sidecar_path(bin)) && fs::exists(bin);
+        std::printf("[save] sidecar empty = no file, stale / foreign / newer files ignored %s\n", sc_empty ? "OK" : "FAIL");
+        fails += !sc_empty;
+        fs::remove_all(dir, ec);
     }
 
     // Rejection: wrong size, wrong magic.

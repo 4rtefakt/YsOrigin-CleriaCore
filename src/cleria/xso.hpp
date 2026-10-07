@@ -50,6 +50,13 @@ class Xso {
         return (idx >= 0 && idx < int(strings_.size())) ? strings_[idx] : std::string();
     }
     int string_count() const { return int(strings_.size()); }
+    // CleriaCore mods (content text.ini, build/shell_re/CONTENT.md §6): replace a pool entry after
+    // parse. Not retail. False when idx is out of range.
+    bool set_string(int idx, std::string s) {
+        if (idx < 0 || idx >= int(strings_.size())) return false;
+        strings_[std::size_t(idx)] = std::move(s);
+        return true;
+    }
 
   private:
     std::vector<std::int32_t> code_;
@@ -382,6 +389,38 @@ struct XsoHost {
     virtual void spawn_placements() {}
 };
 
+// The grant filter (CleriaCore's own hook, NOT retail; build/shell_re/CONTENT.md §4): the twin of
+// the retail Archipelago mod's splices on the VM's grant store (0x567D17 / 0x567DB3, hook_vm.cpp)
+// and the get-item / treasure-box calls (0x573210 / 0x574410). Consulted, when set, at
+//   Store   every g_flags write of the store family 0x64..0x77 (index < 0x200), AFTER the op
+//           computed `value` and BEFORE it is kept / recorded as a Grant;
+//   Icon    0x116 Effect_GetItem(item, flag, mesh), before the host spawns the rising icon;
+//   Window  0xD5 Window_Treasure(x, y, item, text), before the host opens the "Acquired" box.
+// With no filter (the default) every path runs exactly as before.
+struct GrantQuery {
+    enum class Kind { Store, Icon, Window };
+    Kind kind = Kind::Store;
+    int sub = 0;                         // the sub-op (0x64 set, 0x67 add, ... / 0x116 / 0xD5)
+    int index = 0;                       // Store: the g_flags cell; Icon / Window: the item id
+    std::int32_t old_value = 0;          // Store: the cell before the op
+    std::int32_t value = 0;              // Store: the cell after the op (what would be kept)
+    std::string text;                    // Window: the box text (operand 3)
+    const std::int32_t* flags = nullptr; // the VM's g_flags (read-only)
+    std::string script;                  // the running script instance's name ("s_box01", "@growmenu")
+    std::string object;                  // its $S0: the map object that started it ("box_01"), or ""
+    int owner = 0;                       // its bound actor (13 = the player)
+};
+struct GrantDecision {
+    enum class Action { Pass, Suppress, Replace };
+    Action action = Action::Pass;
+    // Replace / Store: write `value` to cell `index` instead (an index outside 0..0x1FF writes no
+    // cell: the filter handled the grant itself, e.g. a new item kept in the save sidecar).
+    // Replace / Icon, Window: show item `index` (and, Window, `text`) instead.
+    int index = 0;
+    std::int32_t value = 0;
+    std::string text;
+};
+
 // Dynamic executor: runs control flow (jumps, accumulator conditionals) and the
 // flag-store / give-item sub-ops. Unimplemented sub-ops are skipped by length
 // (safe — the length is encoded), so a script always runs to its end op.
@@ -419,6 +458,10 @@ struct XsoVm {
     // => inert (run-to-completion).
     std::function<void(int slot)> on_fix;
     std::function<void()> on_unfix, on_window_fix;
+    // CleriaCore mods: the grant filter (GrantQuery above). Null = retail behaviour.
+    std::function<GrantDecision(const GrantQuery&)> grant_filter;
+    // The running instance's name, set by ScriptManager around each tick ("" in a bare run()).
+    std::string script_name;
     std::int32_t g_flags[0x200] = {0};
     // `itemArr` u32[54] @0x76a654 (EQUIP.md): per-item ownership/availability, 0 at new
     // game (the memset covers it), written by the scene dispatcher FUN_00431840. Read by
@@ -567,6 +610,8 @@ struct XsoVm {
     // A condition-wait predicate (0xf1/0xf3/0xf4/0xf5/0xf6/0xf7/0xf8): true => proceed.
     bool eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
                    std::uint32_t argoff, std::uint32_t nargs);
+    // A GrantQuery with this VM's context (flags, script name, $S0, owner) filled in.
+    GrantQuery filter_query(GrantQuery::Kind kind, int sub, int index) const;
 };
 
 // Resolves a StartScript child NAME to a parsed script. The host owns filesystem access

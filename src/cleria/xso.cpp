@@ -555,6 +555,7 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     const std::int32_t i0 = op(0);
                     const char* sn = store_name(sub);
                     if (sn && i0 >= 0) {
+                        const std::int32_t before = (grant_filter && i0 < 0x200) ? flag(i0) : 0;
                         switch (sub) {
                             case 0x64: flag(i0) = op(1); break;
                             case 0x65: flag(i0) = flag(op(1)); break;
@@ -567,20 +568,56 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                             case 0x75: flag(i0) ^= op(1); break;
                             case 0x77: flag(i0) = 0; break;
                         }
-                        if (i0 < 0x200) {
-                            Grant g; g.op = sn; g.index = i0;
-                            g.value = flag(i0); g.has_value = true;
+                        int gi = i0;   // the cell the grant is recorded on
+                        if (i0 < 0x200 && grant_filter) {   // CleriaCore mods (GrantQuery), not retail
+                            GrantQuery q = filter_query(GrantQuery::Kind::Store, int(sub), i0);
+                            q.old_value = before;
+                            q.value = flag(i0);
+                            const GrantDecision d = grant_filter(q);
+                            if (d.action != GrantDecision::Action::Pass) {
+                                flag(i0) = before;
+                                gi = -1;
+                                if (d.action == GrantDecision::Action::Replace && d.index >= 0 && d.index < 0x200) {
+                                    flag(d.index) = d.value;
+                                    gi = d.index;
+                                }
+                            }
+                        }
+                        if (gi >= 0 && gi < 0x200) {
+                            Grant g; g.op = sn; g.index = gi;
+                            g.value = flag(gi); g.has_value = true;
                             grants.push_back(std::move(g));
                         }
                     } else if (sub == 0x116) {
                         // Effect_GetItem(icon, flag, mesh): an item-icon sprite above the named mesh
                         // (FUN_00573210), visual only; the grant is the script's own Flag_SetInt
                         // (audit event_vm #28).
-                        items.push_back(i0);
-                        if (host) host->effect_get_item(i0, nargs >= 2 ? op(1) : 0, nargs >= 3 ? ops(2) : std::string());
+                        int item = i0;
+                        bool show = true;
+                        if (grant_filter) {                 // CleriaCore mods (GrantQuery), not retail
+                            const GrantDecision d = grant_filter(filter_query(GrantQuery::Kind::Icon, int(sub), i0));
+                            if (d.action == GrantDecision::Action::Suppress) show = false;
+                            else if (d.action == GrantDecision::Action::Replace) item = d.index;
+                        }
+                        if (show) {
+                            items.push_back(item);
+                            if (host) host->effect_get_item(item, nargs >= 2 ? op(1) : 0, nargs >= 3 ? ops(2) : std::string());
+                        }
                     } else if (sub == 0xD5 && nargs >= 3) {  // Window_Treasure(x,y,item,s)
-                        acquires.push_back(op(2));
-                        if (host) host->acquire_item(opf(0), opf(1), op(2), nargs >= 4 ? ops(3) : std::string());
+                        int item = op(2);
+                        std::string text = nargs >= 4 ? ops(3) : std::string();
+                        bool show = true;
+                        if (grant_filter) {                 // CleriaCore mods (GrantQuery), not retail
+                            GrantQuery q = filter_query(GrantQuery::Kind::Window, int(sub), item);
+                            q.text = text;
+                            const GrantDecision d = grant_filter(q);
+                            if (d.action == GrantDecision::Action::Suppress) show = false;
+                            else if (d.action == GrantDecision::Action::Replace) { item = d.index; text = d.text; }
+                        }
+                        if (show) {
+                            acquires.push_back(item);
+                            if (host) host->acquire_item(opf(0), opf(1), item, text);
+                        }
                     } else if (sub == 0x169) {   // Mesh_Delete(name): a destroy request
                         obj_deleted.push_back(ops(0));
                         obj_enable.push_back(ops(0));   // deprecated alias
@@ -770,6 +807,18 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
     return steps;
 }
 
+GrantQuery XsoVm::filter_query(GrantQuery::Kind kind, int sub, int index) const {
+    GrantQuery q;
+    q.kind = kind;
+    q.sub = sub;
+    q.index = index;
+    q.flags = g_flags;
+    q.script = script_name;
+    q.object = vars.s[0];
+    q.owner = owner;
+    return q;
+}
+
 // One frame of a resumable script (CUTSCENE_COROUTINE.md §3): if a wait counter is armed
 // count it down, else burst-execute until a Wait_* op parks or the script ends.
 XsoVm::Tick XsoVm::tick() {
@@ -887,7 +936,9 @@ void ScriptManager::tick_inst(Inst& in) {
     vm.locals = std::move(in.locals);
     vm.vars = in.vars;
     vm.owner = in.owner;
+    vm.script_name = in.name;          // the grant filter's context (CleriaCore mods)
     const XsoVm::Tick t = vm.tick();
+    vm.script_name.clear();
     in.pc = vm.co_pc;
     in.wait = vm.co_wait;
     in.acc = vm.acc;

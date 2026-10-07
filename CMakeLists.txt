@@ -179,6 +179,14 @@ target_link_libraries(cleria-wndtest PRIVATE cleria)
 add_executable(cleria-modstest apps/cleria-modstest/main.cpp)
 target_link_libraries(cleria-modstest PRIVATE cleria miniz)
 
+# Mod content (phase 2a, build/shell_re/CONTENT.md): the save sidecar, the event bus, content/*.ini.
+target_sources(cleria PRIVATE src/cleria/inidoc.cpp src/cleria/sidecar.cpp src/cleria/mod_events.cpp
+                              src/cleria/content.cpp)
+# cleria-contenttest — content/*.ini parsing + merging, the grant filter on real chest scripts, the
+# rules, text patches, the event bus and the sidecar (src/cleria/content, mod_events, sidecar).
+add_executable(cleria-contenttest apps/cleria-contenttest/main.cpp)
+target_link_libraries(cleria-contenttest PRIVATE cleria)
+
 # cleria-settingstest — the yso_win.ini dialect / cleria.ini / import vs build/shell_re/CONFIG.md §1-2.
 add_executable(cleria-settingstest apps/cleria-settingstest/main.cpp)
 target_link_libraries(cleria-settingstest PRIVATE cleria)
@@ -312,6 +320,11 @@ target_link_libraries(cleria-movietest PRIVATE cleria cleria-movie)
 
 # cleria-view — real-time WebGPU renderer.
 add_executable(cleria-view apps/cleria-view/main.cpp)
+# One translation unit (main.cpp #includes every view_*.inl): MSVC Debug exceeds the default
+# object-file section limit (C1128) without /bigobj.
+if(MSVC)
+  target_compile_options(cleria-view PRIVATE /bigobj)
+endif()
 target_link_libraries(cleria-view PRIVATE cleria cleria-audio cleria-movie imgui wgpu_native sdl3)
 
 # Copy the runtime DLLs next to the viewer so it runs from the build dir.
@@ -350,6 +363,7 @@ foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest sav
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endforeach()
 add_test(NAME modstest COMMAND cleria-modstest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME contenttest COMMAND cleria-contenttest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ---- Speedrun mode (build/shell_re/SPEEDRUN.md): the timer, splits, LiveSplit Server client ----
 add_library(cleria-speedrun STATIC src/cleria/speedrun.cpp src/cleria/livesplit.cpp)

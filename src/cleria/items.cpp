@@ -11,6 +11,8 @@ namespace cleria {
 namespace fs = std::filesystem;
 
 namespace {
+ItemPatchFn g_item_patch = nullptr;
+
 std::string cstr(const std::vector<std::uint8_t>& b, std::size_t at, std::size_t cap) {
     if (at >= b.size()) return {};
     cap = std::min(cap, b.size() - at);
@@ -45,8 +47,11 @@ ItemTable ItemTable::load(const fs::path& path) {
         std::memcpy(&it.f3c, b.data() + o + 0x3C, 4);
         std::memcpy(&it.f40, b.data() + o + 0x40, 4);
     }
+    if (g_item_patch) g_item_patch(t);   // CleriaCore mods (set_item_patch)
     return t;
 }
+
+void set_item_patch(ItemPatchFn fn) { g_item_patch = fn; }
 
 const Item* ItemTable::get(int id) const {
     if (id < 0 || std::size_t(id) >= items.size()) return nullptr;

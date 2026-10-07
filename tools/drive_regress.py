@@ -125,16 +125,74 @@ CASES = {
         room="S_10/S_1009/S_1009",
         drive="5:vopt=FpsCap=30;200:vstat;210:quit",
         expect=["[video] opt FpsCap=30", "cap 30 held"]),
+    # Mod content (build/shell_re/CONTENT.md), the samples/mods/chest_swap sample: the S_1001 chest behind the
+    # barrier (kill1 breaks it, ~6 s) gives the NEW item 0x100 instead of the Panacea: the rising icon and the
+    # treasure box are re-labelled, the rule fires, the box flag 302 still opens the chest. The sidecar
+    # round-trips: saved with 1 lantern, a second given, the load brings back 1.
+    "content_chest": dict(
+        room="S_10/S_1001/S_1001", mods=["chest_swap"],
+        drive="10:kill1;420:obj=box_01;430:act;740:ok;770:cstate;780:csave=2;790:give=0x100;795:cstate;800:cload=2;"
+              "810:cstate;820:quit",
+        expect=["[content] Chest Swap: 5 file(s)", "icon 0x59 -> 0x100", "[probe] box_01 -> s_box01",
+                "chest S_1001/S_BOX01: grant of 0x59 redirected", "item 0x100 x1 (Lantern of Solace) from chest",
+                "rule lantern_found fires on item", "chest S_1001/S_BOX01 opened (flag 302)",
+                'treasure box 0x59 -> 0x100 "Acquired\\n<color:0xfff2ea8c>Lantern of Solace<color:> x 1."',
+                "cstate room S_1001 content 1 items{ 0x100=1 }", "sidecar yso_02.cleria written",
+                "items{ 0x100=2 }", "event load", "items{ 0x100=1 }"]),
+    # The same chest with the mod installed but turned off: the retail Panacea, no content line at all.
+    "content_off": dict(
+        room="S_10/S_1001/S_1001", mods=["chest_swap"], mods_off=True,
+        drive="10:kill1;420:obj=box_01;430:act;740:ok;770:cstate;780:csave=2;790:quit",
+        expect=["[probe] box_01 -> s_box01", "chest S_1001/S_BOX01 opened (flag 302)", "content 0 items{ }"],
+        absent=["redirected", "icon 0x59", "treasure box", "sidecar"]),
+    # A rule on a flag (rules.ini of a generated test mod): flag 480 0 -> 1 fires it once (give, text, cflag).
+    "content_rule": dict(
+        room="S_10/S_1009/S_1009",
+        content={"rules.ini": '[rule.flagrule]\nOn=flag 480 >= 1\nDo=give 0x57 2; text "flag rule"; cflag t.x += 5\nOnce=1\n'},
+        drive="10:flag=480,1;20:cstate;30:flag=480,0;40:flag=480,1;50:cstate;60:quit",
+        expect=["rule flagrule fires on flag", "item 0x57 x2 (Roda Fruit) from rule", 'text "flag rule"',
+                "cflags{ rule.flagrule=1 t.x=5 }", "t50 cstate", "cflags{ rule.flagrule=1 t.x=5 }"]),
 }
+
+
+def content_setup(case, env, tmp):
+    """Mod content cases (build/shell_re/CONTENT.md): a scratch settings folder with the case's mods
+    installed and turned on. `mods`: sample folders under samples/mods; `content`: {file: text} of a
+    generated test mod "test.regress"; `mods_off`: installed but turned off."""
+    import shutil
+    mods = os.path.join(tmp, "mods")
+    os.makedirs(mods, exist_ok=True)
+    ids = []
+    for m in case.get("mods", []):
+        shutil.copytree(os.path.join(ROOT, "samples", "mods", m), os.path.join(mods, m))
+        ids.append("sample." + m)
+    if case.get("content"):
+        d = os.path.join(mods, "regress")
+        os.makedirs(os.path.join(d, "content"))
+        open(os.path.join(d, "mod.ini"), "w").write("[mod]\nId=test.regress\nApiVersion=2\n")
+        for f, t in case["content"].items():
+            open(os.path.join(d, "content", f), "w").write(t)
+        ids.append("test.regress")
+    on = [] if case.get("mods_off") else ids
+    open(os.path.join(tmp, "cleria.ini"), "w").write(
+        '[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n' % (",".join(ids), ",".join(on)))
+    open(os.path.join(tmp, "yso_win.ini"), "w").close()
+    env["CLERIA_INI"] = os.path.join(tmp, "yso_win.ini")
 
 
 def run(name, case, exe, assets):
     with tempfile.TemporaryDirectory() as saves:
         env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR="1", CLERIA_DRIVE=case["drive"],
                    CLERIA_SAVE_DIR=saves, **case.get("env", {}))
+        if "mods" in case or "content" in case:
+            content_setup(case, env, os.path.join(saves, "settings"))
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
         r = subprocess.run([exe, assets, sob], env=env, capture_output=True, text=True, timeout=300)
     out = r.stdout + r.stderr
+    for e in case.get("absent", []):
+        if e in out:
+            print(f"FAIL {name}: unexpected '{e}'")
+            return False
     at = 0
     for e in case["expect"]:
         k = out.find(e, at)

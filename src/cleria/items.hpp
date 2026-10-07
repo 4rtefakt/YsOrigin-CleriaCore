@@ -161,4 +161,10 @@ struct ItemTable {
                                     bool dim = false) const;
 };
 
+// CleriaCore mods (content items.ini, build/shell_re/CONTENT.md §5): a patch applied by every
+// ItemTable::load after the file is read, so every table in the process sees the same items. Null
+// (the default, and with no content mod) = the file as read. Not retail.
+using ItemPatchFn = void (*)(ItemTable&);
+void set_item_patch(ItemPatchFn fn);
+
 }  // namespace cleria
