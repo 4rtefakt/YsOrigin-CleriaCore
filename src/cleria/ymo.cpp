@@ -182,6 +182,9 @@ Model Model::parse(std::span<const std::uint8_t> bytes) {
         nd.scale = r.vec3(o + 0x260);
         nd.translation = r.vec3(o + 0x26C);
         for (int k = 0; k < 4; ++k) nd.quat[k] = r.f32(o + 0x278 + k * 4);
+        nd.kind = r.u32(o + 0x288);
+        nd.radius = r.f32(o + 0x28C);
+        nd.flags = r.u32(o + 0x290);
         mo.nodes.push_back(std::move(nd));
         o += kNode;
     }

@@ -1,12 +1,18 @@
 // Headless tests for src/cleria/boss01.hpp — Velagunder's object logic (build/boss_re/VELAGUNDER.md),
 // driven with a deterministic xorshift128, a stand-in clip clock and a scripted player.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <set>
 #include <string_view>
 #include <vector>
 
+#include "cleria/actor.hpp"
 #include "cleria/boss01.hpp"
+#include "cleria/enemy_ai.hpp"
+#include "cleria/ymo.hpp"
 
 using namespace cleria;
 using namespace cleria::boss01;
@@ -124,7 +130,8 @@ static bool has_sound(const Boss01Output& o, int id, Boss01Sound::Kind k = Boss0
     return false;
 }
 
-int main() {
+int main(int argc, char** argv) {
+    const char* assets = argc > 1 ? argv[1] : nullptr;   // optional: the asset root (the YMO checks)
     // ---------------------------------------------------------------- §2.2 stats
     {
         struct Row { const char* name; int diff; bool easy, vez; float hp, str, def; };
@@ -359,6 +366,8 @@ int main() {
         check(seen.count(1) && seen.count(3) && seen.count(5) && seen.count(7) && seen.count(9),
               "smoke: run, stun, laser, bubble spray and death all reached");
     }
+
+    #include "attacks.inl"
 
     std::printf("[boss] %s (%d failure%s)\n", fails ? "FAILED" : "ALL OK", fails, fails == 1 ? "" : "s");
     return fails ? 1 : 0;

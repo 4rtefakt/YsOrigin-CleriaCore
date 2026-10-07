@@ -54,6 +54,7 @@
 #include "cleria/hit.hpp"
 #include "cleria/hit_feedback.hpp"
 #include "cleria/body_push.hpp"
+#include "cleria/arena_player.hpp"
 #include "cleria/enemy_ai.hpp"
 #include "cleria/physics.hpp"
 #include "cleria/physics_player.hpp"
@@ -167,6 +168,7 @@ struct Player {
     // player's projected origin in window pixels (the bar's anchor).
     float o2 = 6000.0f; int o2_alpha = 0; float o2_px = 0, o2_py = 0;   // DAT_0076c194: regen waits for it to drain after a spend (skillmp::Mp)
     int character = 1;  // portrait: 1 Yunica / 2 Hugo / 3 Toal
+    int magic = -1;     // DAT_0076a630, the equipped bracelet 0x74..0x76 (the HUD's skill badge)
     // Red HP damage-lag "ghost" bar (build/hud_re/HUD_HP_BARS.md, H3). The HP widget is
     // {cur, lag, max}: on damage the lag holds the old value and decays toward cur, drawing
     // the red trail in the [cur, lag] segment. Decay = 0.2 * coeff * max per tick; the coeff

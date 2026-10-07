@@ -89,6 +89,7 @@ void m840_dead(Actor&, AiWorld&);                              // its handler's 
 AiOut m860(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004e7af0 / FUN_004e3070 Kishgal (duel)
 void m860_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4e7bac)
 AiOut m500(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00485050 Oggnome (teleporter)
+AiOut m890(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f6520 Velagunder Spawn (boss01)
 AiOut m200(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047db90 Venueba
 AiOut m250(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048e190 Nipper (hops)
 AiOut m510(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00488a90 Mobre (disc sweep)

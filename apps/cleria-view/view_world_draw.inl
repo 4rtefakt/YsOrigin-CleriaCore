@@ -811,8 +811,12 @@ static void draw_located_effects(Gpu& g, const std::vector<ActorWorld::LocatedEf
 // rolled by rot.z through the cosine table; otherwise the unit quad (+/-0.5) transformed by the
 // particle matrix (B1 pitch pi/2 lies it flat). Colour = the track diffuse ARGB: additive emitters
 // (B2+0x08 & 0x80) add rgb * alpha, the others blend alpha-over. EFTMESH (& 0x200) emitters:
-// draw_eftmesh_particles. [not modelled] the ring mesh (& 8) emitters, the specular add, the UV
-// scroll, render interpolation.
+// draw_eftmesh_particles. Ring (& 8) emitters: the band FUN_0044c250 builds (EF2_RENDER.md §A.2a
+// [C-DIS 0x44c3a8..0x44c4e3]): N = B2+0x8f8 segments, step i at a = 2 pi i / N, the top edge
+// ((s - c) R_top, +h/2, (s + c) R_top) and the bottom ((s - c) R_bot, -h/2, (s + c) R_bot) with
+// R_bot / R_top / h = B2+0x8fc / +0x900 / +0x904, one strip in the particle's frame (Velagunder's
+// laser beam streaks). [H] u runs across the frame's rect around the ring, v across the band.
+// [not modelled] the specular add, the UV scroll (the ring's +0x130 phase), render interpolation.
 //
 // EFTMESH emitters — FUN_0044f2e0's `B2 & 0x200` branch [EXPORT 0x44f2e0, EF2SIM.md §4]: the
 // YMO `DAT_0074e274[B2+0x18]` (EFTMESH.DAT: u32 0, u32 count, then {u32 id, char name[0xC0]}
@@ -962,7 +966,7 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         const Ef2Emitter& E = p.fx->ef->emitters()[std::size_t(p.em)];
         std::uint16_t flags = 0;
         std::memcpy(&flags, E.b2.data(), 2);
-        if ((flags & 0x400) || !(flags & 7) || (flags & 0x208)) continue;
+        if ((flags & 0x400) || !(flags & 7) || (flags & 0x200)) continue;
         if (E.frames.empty()) continue;
         const Ef2Frame& fr = E.frames[std::min<std::size_t>(p.frame, E.frames.size() - 1)];
         const SpriteTex* t = tex_of(fr.tex_id);
@@ -977,6 +981,31 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         const float nx = E.additive ? 0.0f : 1.0f - a;
         const std::uint8_t VA = E.additive ? 255 : 0;
         const std::uint32_t base = std::uint32_t(b.v.size());
+        if (flags & 8) {                                     // the ring band
+            if (E.b2.size() < 0x908) continue;
+            std::uint32_t N = 0;
+            float rb = 0, rt = 0, ht = 0;
+            std::memcpy(&N, E.b2.data() + 0x8f8, 4);
+            std::memcpy(&rb, E.b2.data() + 0x8fc, 4);
+            std::memcpy(&rt, E.b2.data() + 0x900, 4);
+            std::memcpy(&ht, E.b2.data() + 0x904, 4);
+            if (N == 0 || N > 256) continue;
+            const float hh = ht * 0.5f;                      // 0x6bd304
+            for (std::uint32_t i = 0; i <= N; ++i) {
+                const float an = float(i) * (6.2831855f / float(N));   // 0x6bd898
+                const float s = std::sin(an), cs = std::cos(an);
+                const Vec3 A = ef2sim::transform_coord({(s - cs) * rt, hh, (s + cs) * rt}, p.world);
+                const Vec3 Bv = ef2sim::transform_coord({(s - cs) * rb, -hh, (s + cs) * rb}, p.world);
+                const float u = fr.u0 + (fr.u1 - fr.u0) * float(i) / float(N);
+                b.v.push_back({A.x, A.y, A.z, nx, 1, 0, u, fr.v0, R, G, B, VA});
+                b.v.push_back({Bv.x, Bv.y, Bv.z, nx, 1, 0, u, fr.v1, R, G, B, VA});
+            }
+            for (std::uint32_t i = 0; i < N; ++i) {
+                const std::uint32_t k = base + 2 * i;
+                b.i.insert(b.i.end(), {k, k + 1, k + 2, k + 2, k + 1, k + 3});
+            }
+            continue;
+        }
         Vec3 c[4];
         const float uv[4][2] = {{fr.u0, fr.v0}, {fr.u0, fr.v1}, {fr.u1, fr.v0}, {fr.u1, fr.v1}};
         if (flags & 0x100) {

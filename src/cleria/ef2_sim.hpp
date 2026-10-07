@@ -105,6 +105,10 @@ struct Effect {
     int rtype = 0, status = 0, cls = -1, side = 1;
     int owner = 0;                // an actor instance id (bookkeeping only)
     int tag = -1;                 // a brain's private tag (M530 beams, M140 charge)
+    // fx+0x201: the world-contact trace of its particles runs on collision set 1 (the water list;
+    // FUN_005645b0 0x5645f9 passes it as FUN_0041e420's ecx) instead of set 0. CleriaCore has no
+    // water collision, so such particles never touch the world (Velagunder's laser beam).
+    bool set1 = false;
     std::string name;             // fx+0x20c, set by the script placements (FUN_00451da0)
 };
 

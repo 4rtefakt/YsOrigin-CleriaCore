@@ -472,6 +472,7 @@ bool System::impact(Particle& p, bool force) {
 void System::collide_tick(Particle& p) {
     const Vec3 w = p.world_pos();
     if (!p.latched) { p.latched = true; p.latch = w; return; }
+    if (p.fx && p.fx->set1) { p.latch = w; return; }              // [not modelled] the water set
     Vec3 at{};
     if (world_ && world_(p.latch, vsub(w, p.latch), &at)) {
         const bool died = impact(p, true);                        // the child at p+0x150 (pre-snap)

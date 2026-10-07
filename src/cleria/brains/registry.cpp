@@ -47,6 +47,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 75: return &brains::m820;   // M820 Toal (class-4 duel, Hugo's S_3080)
         case 77: return &brains::m840;   // M840 Shion (class-4 duel, Toal's S_3080)
         case 79: return &brains::m860;   // M860 Kishgal (class-4 duel, Yunica's S_3080)
+        case 82: return &brains::m890;   // M890 Velagunder Spawn (boss01's run drops it)
         case 83: return &brains::m900;   // M900 the Eyes of Fact (M810's)
         case 84: return &brains::m910;   // M910 Nooze
         case 85: return &brains::m920;   // M920 Nooze (Blue)

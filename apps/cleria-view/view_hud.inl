@@ -97,6 +97,25 @@ static const Rc kArcRed    = {74, 378, 66, 73};   // MP/boost arc gauge
 // Skill/item hotbar diamond slots (first row of the left icon block, cell 38).
 static const Rc kSkillSlot[4] = {{1,133,38,38}, {41,133,38,38}, {81,133,38,38}, {121,133,38,38}};
 
+// The equipped-skill badge's STATUS_512 cell, builder A FUN_0043c230 0x43e156..0x43e36d [BYTES]:
+// drawn only while DAT_0076a630 is a bracelet 0x74..0x76 (none / 0xff draws nothing). The row is
+// the bracelet: 0x74 Ventus +0, 0x75 Terra +1.0 (0x6bd438), 0x76 Ignis +2.0 (0x6bd580), times 40 px
+// (0x6bda34) from V 132 (0x6bd248). The column block is the character (jump table 0x43e7d4): Adol
+// U 0, Yunica U 120 (0x6bd240), Hugo U 360 (0x6bd370), Toal V +120 and, in Boost mode
+// (0x76c198 & 0x20), U 120. A 40x40 cell (0x6bd178).
+static bool skill_badge_cell(int magic, int character, bool boosting, Rc& out) {
+    if (magic < 0x74 || magic > 0x76) return false;
+    float u = 0.0f, v = 132.0f + 40.0f * float(magic - 0x74);
+    switch (character) {
+        case 1: u = 120.0f; break;
+        case 2: u = 360.0f; break;
+        case 3: v += 120.0f; if (boosting) u = 120.0f; break;
+        default: break;
+    }
+    out = Rc{u, v, 40.0f, 40.0f};
+    return true;
+}
+
 struct Hud {
     WGPURenderPipeline pipeline{};
     WGPUBindGroup bind{};                // font atlas bind group (group 0)
@@ -566,6 +585,11 @@ struct Hud {
         // Character portrait (drawn over the plate's left end, as the game does).
         const int ci = (p.character >= 0 && p.character < 4) ? p.character : 1;
         sprite_a(m, kAPortrait, kPortraitReal[ci], sw, sh);
+
+        // The equipped-skill badge (skill_badge_cell), to {66,716,106,756} (0x6bee70).
+        Rc badge{};
+        if (skill_badge_cell(p.magic, p.character, p.boosting, badge))
+            sprite_a(m, Ar{66, 716, 106, 756}, badge, sw, sh);
 
         // EX / Boost C-arc (H4, build/hud_re/HUD_BOOST_ARC.md): a pie-wedge fan that reveals the
         // arc graphic from STATUS_512 as the gauge fills. Center (44,719) authored, R63, sweeping

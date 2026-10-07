@@ -1172,6 +1172,7 @@ title_again:
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
     Impulse player_kb2{};              // knock channel 2, +0x344/+0x34c: body / bullet pushes
+    float arena_last_x = 0, arena_last_z = 0;   // +0x3e0/+0x3e8: last point inside the mode-2 ring ([H] start)
     Mat4 last_vp; bool have_vp = false;  // last frame's camera, for the AI's off-screen test
     const bool ai_debug = std::getenv("CLERIA_AI") != nullptr;
     std::uint64_t tick_count = 0;
@@ -3304,6 +3305,7 @@ title_again:
     //   duel=cast             near=cast + atk, only while a duel is live (156 = 1, world not frozen)
     //   dflags                print the duel flags (130 131 133 156 174 230 232 311)
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
+    int drive_boss_entry = -1;               // drive bossentry=k: stand on body entry k (view_boss01_touch.inl)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
@@ -3377,6 +3379,8 @@ title_again:
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
             }
+        } else if (cmd.rfind("bossentry=", 0) == 0) {  // bossentry=k: the player onto Velagunder's body entry k
+            drive_boss_entry = std::atoi(cmd.c_str() + 10);
         } else if (cmd.rfind("boss2", 0) == 0) {       // boss2[=o]: stand by a hittable Nygtilger piece
             // The target: `o` if given, else the head once exposed (DEF < 999), else the first
             // live plate d01..d17, else the tail. The player is put 1.1 off it horizontally at
@@ -3455,8 +3459,11 @@ title_again:
             try_attack();
         } else if (cmd.rfind("near=", 0) == 0) {       // near=cast: stand 2.0 from that actor, facing it
             const int cast = std::atoi(cmd.c_str() + 5);
+            bool live = false;                         // near=cast,live: prefer a living one (a wave after a wave)
+            if (cmd.find(",live") != std::string::npos)
+                for (const Actor& a : world.actors()) live |= a.cast_id == cast && !a.is_player() && a.hp > 0;
             for (const Actor& a : world.actors()) {
-                if (a.cast_id != cast || a.is_player()) continue;
+                if (a.cast_id != cast || a.is_player() || (live && a.hp <= 0)) continue;
                 float dx = feet.x - a.pos.x, dz = feet.z - a.pos.z;
                 const float l = std::sqrt(dx * dx + dz * dz);
                 if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
@@ -3623,6 +3630,15 @@ title_again:
         } else if (cmd == "stats") {                   // EXP / level / HP / SP (the access checks)
             std::printf("  [drive] stats exp %.0f lv %d hp %d/%d sp %d\n", double(player.exp), player.level, player.hp,
                         player.max_hp, player.sp);
+        } else if (cmd == "arena") {                   // the arena fence: mode (flag 190), rect, ring distance
+            std::printf("  [drive] arena mode %d rect (%g, %g, %g, %g) dist %.2f\n", game.g_flags[190], world.arena[0],
+                        world.arena[1], world.arena[2], world.arena[3],
+                        std::hypot(feet.x - world.arena[0], feet.z - world.arena[1]));
+        } else if (cmd == "hudskill") {                // the HUD's skill badge cell (view_hud.inl skill_badge_cell)
+            Rc c{};
+            if (skill_badge_cell(inv.magic, character, player.boosting, c))
+                std::printf("  [drive] hud skill %d badge (%.0f, %.0f)\n", inv.magic, c.x, c.y);
+            else std::printf("  [drive] hud skill %d badge none\n", inv.magic);
         } else if (content_drive(cmd)) {               // cstate, give=, csave=, cload= (view_content.inl)
         } else if (access_drive(cmd)) {                // opt=Key=value, esctap, eschold=n (view_access.inl)
         } else if (video_drive(cmd)) {                 // vopt=Key=value, vstat (view_video.inl)
@@ -3824,15 +3840,22 @@ title_again:
     // ---- Velagunder, boss01 (src/cleria/boss01, build/boss_re/VELAGUNDER.md) ----------------
     // The GoMesh "boss01" a room script Mesh_Locate'd is driven by the Boss01 brain every live
     // step (the mesh pool runs under a Fix too): the clip advance, then the brain (FUN_00562990
-    // switch +0x28d case 5), then its requests. [not modelled] the laser's terrain ray, the
-    // inhale's actor pull, the boss01_hit1/2 solid meshes, the mesh-contact damage (§3.4), the M890 brain.
+    // switch +0x28d case 5), then its requests (view_boss01.inl). [not modelled] the boss01_hit1/2
+    // solid meshes, the mesh-contact damage (§3.4).
     std::array<int, boss01::kBones> boss_node{};
+    // The attach frames (FUN_00451c20 parents) of the boss's effects: the 24 posed bones, Bone(114),
+    // the blk+0x1a0 Bone(115) copy, the laser beam blk+0x140 and part 0; refreshed every boss tick.
+    std::array<ef2sim::M4, boss01::kBones> boss_bone_m{};
+    ef2sim::M4 boss_b114_m, boss_b115_m, boss_beam_m, boss_part0_m;
+    struct BossEntry { std::uint32_t t0 = 0, t1 = 0, flags = 0; };   // obj+0x25c (view_boss01_touch.inl)
+    std::vector<BossEntry> boss_entries;
+    bool boss_entries_built = false;
     int boss_n114 = -1, boss_n115 = -1;
     std::vector<RehitBank> boss_banks;                    // the parts' own re-hit banks (+0x14c)
     bool player_hurt_this_tick = false;                   // +0x3bc & 2 (the boss reads it)
     auto boss_tick = [&] {
         MeshObj* bm = meshes.find("boss01");
-        if (!bm) { boss.reset(); g_rig.clear_boss(); return; }
+        if (!bm) { boss.reset(); g_rig.clear_boss(); boss_entries_built = false; return; }
         Model* mdl = cached_big_model(resolve_ymo_path(asset_root, "data\\enemy\\boss01\\boss01.ymo"));
         if (!mdl) return;
         auto lw = [](std::string t) { for (char& ch : t) ch = char(std::tolower((unsigned char)ch)); return t; };
@@ -3878,6 +3901,16 @@ title_again:
             const Mat4 w = mdl->nodes[std::size_t(ni)].world * place;
             return {w.m[12], w.m[13], w.m[14]};
         };
+        auto frame_of = [&](int ni) {
+            ef2sim::M4 r;
+            if (ni < 0 || std::size_t(ni) >= mdl->nodes.size()) { r.m[3][0] = bm->pos.x; r.m[3][1] = bm->pos.y; r.m[3][2] = bm->pos.z; return r; }
+            const Mat4 w = mdl->nodes[std::size_t(ni)].world * place;
+            for (int i = 0; i < 4; ++i) for (int j = 0; j < 4; ++j) r.m[i][j] = w.m[std::size_t(i * 4 + j)];
+            return r;
+        };
+        for (int k = 0; k < boss01::kBones; ++k) boss_bone_m[std::size_t(k)] = frame_of(boss_node[std::size_t(k)]);
+        boss_b114_m = frame_of(boss_n114);
+        boss_b115_m = frame_of(boss_n115);
         Boss01Input in;
         for (int k = 0; k < boss01::kBones; ++k) in.bones[std::size_t(k)] = world_of(boss_node[std::size_t(k)]);
         in.bone114 = world_of(boss_n114);
@@ -3886,6 +3919,7 @@ title_again:
         in.player_hp = float(player.hp);
         in.player_grounded = grounded;
         in.player_floor = last_floor;
+        in.player_surface = cur_surface;                  // +0x4b9: 5 (wood) high up -> the taunt (§4.3)
         in.player_section = avm.section();
         in.player_took_damage = player_hurt_this_tick;
         in.clip = boss01::kWait;
@@ -3950,46 +3984,12 @@ title_again:
             if (sd.kind == Boss01Sound::k3D) sfx_at(sd.id, sd.pos, kSfxAnimVol);
             else if (sd.kind == Boss01Sound::k2D) audio.play(sd.id, kSfxAnimVol);
         }
-        for (const Boss01Effect& fe : out.effects) {
-            Vec3 at = fe.pos;                              // [approx] an attached effect starts at its
-            switch (fe.attach) {                           // parent + offset and does not follow it
-                case Boss01Effect::kBone:
-                    if (fe.attach_bone >= 0 && fe.attach_bone < boss01::kBones) {
-                        const Vec3 b = in.bones[std::size_t(fe.attach_bone)];
-                        at = {b.x + fe.attach_off.x, b.y + fe.attach_off.y, b.z + fe.attach_off.z};
-                    }
-                    break;
-                case Boss01Effect::kBone114: at = {in.bone114.x + fe.attach_off.x, in.bone114.y + fe.attach_off.y, in.bone114.z + fe.attach_off.z}; break;
-                case Boss01Effect::kBone115: at = {in.bone115.x + fe.attach_off.x, in.bone115.y + fe.attach_off.y, in.bone115.z + fe.attach_off.z}; break;
-                case Boss01Effect::kPart0: { const Vec3 b = boss->part(0).pos; at = {b.x + fe.attach_off.x, b.y + fe.attach_off.y, b.z + fe.attach_off.z}; } break;
-                default: break;
-            }
-            ef2sim::SpawnParams sp;
-            sp.side = fe.side; sp.power = fe.power; sp.knock = fe.knock; sp.rtype = fe.rtype;
-            sp.status = fe.status; sp.cls = fe.cls;
-            sp.atk = fe.stat == Boss01Effect::kBoss ? boss->str() : 0.0f;
-            spawn_sim_fx(fe.id, at, fe.rot, fe.scale.x, sp, 0, {});
+        if (out.beam) {                                    // blk+0x140 (state 5), the beam's attach frame
+            const Mat4& bmx = *out.beam;
+            for (int i = 0; i < 4; ++i) for (int j = 0; j < 4; ++j) boss_beam_m.m[i][j] = bmx.m[std::size_t(i * 4 + j)];
         }
-        for (int id : out.kill_effects)
-            for (auto& f : fxsim.effects()) if (f->id == id) f->kill = true;
-        // FUN_00593550: the bubble (0x1e) and drool (0x1f) bullets, BULLETS.md §3.8 / §3.11.
-        for (const Boss01Bullet& b : out.bullets) {
-            bullet::Spawn s = bullet::block_spawn(b.kind, b.effect, b.pos, b.dir, b.f.data());
-            s.owner = 0; s.owner_monster = true; s.owner_atk = boss->str();   // [H] the boss is no world actor
-            bullets.spawn(s);
-        }
-        for (const Boss01BubbleEdit& e : out.bubble_edits) {   // the inhale pull / swallow
-            if (e.index < 0 || std::size_t(e.index) >= in_bullets.size()) continue;
-            bullet::Bullet* bp = in_bullets[std::size_t(e.index)];
-            bp->s.pos = e.pos;
-            if (e.kill && bp->fx) { bp->fx->kill = true; bp->gone = true; }   // [H] the eat = a handler kill
-        }
-        for (const Boss01Spawn& s : out.spawns) {          // M890 (its brain: the stand-in)
-            world.spawn(0, s.cast, s.pos.x, s.pos.y, s.pos.z, float(s.yaw_deg), 0);
-            csHost.world_changed = true;
-        }
-        if (out.kill_minions)
-            for (Actor& a : world.actors()) if (a.cast_id == 0x19 || a.cast_id == 0xaf) a.hp = 0.0f;
+        boss_part0_m = ef2sim::translation(boss->part(0).pos.x, boss->part(0).pos.y, boss->part(0).pos.z);
+        #include "view_boss01.inl"
         feet.x += out.player_push.x;                       // [approx] +0x338/+0x340 added as a shift
         feet.z += out.player_push.z;
         if (out.tilt) shake(out.tilt->amp.x, out.tilt->amp.y, out.tilt->amp.z, out.tilt->frames);
@@ -5466,12 +5466,18 @@ title_again:
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
               feet.x = body.x; feet.z = body.z; }
             // FUN_0046fba0 0x470049 (ARENA_AND_BOSSBAR.md §1.5c): in arena mode 1 (flag 190) the
-            // player is box-clamped to the EnclosePlayer rect, min then max. [not modelled] mode 2.
+            // player is box-clamped to the EnclosePlayer rect, min then max. Mode 2 (S_1000's
+            // opening fights) is the soft ring at 0x4700aa: knock channel 1 pushes back
+            // (arena_player.hpp).
             if (game.g_flags[190] == 1) {
                 if (feet.x < world.arena[0]) feet.x = world.arena[0];
                 if (feet.z < world.arena[1]) feet.z = world.arena[1];
                 if (feet.x > world.arena[2]) feet.x = world.arena[2];
                 if (feet.z > world.arena[3]) feet.z = world.arena[3];
+            }
+            if (game.g_flags[190] == 2) {
+                const ArenaPush ap = player_arena_ring(feet.x, feet.z, arena_last_x, arena_last_z, world.arena);
+                player_kb.x += ap.x; player_kb.z += ap.z;
             }
             // The engine's vertical model (physics_player.hpp), on the ORIGIN, which floats
             // at floor + 1.075: dy from the signed timer (linear while grounded, ½gt²
@@ -6649,12 +6655,16 @@ title_again:
                 const int dmg = access::damage_taken(player_damage_after_boost(raw, player.boosting),
                                                      settings().s.access.damage_taken);   // the shell's Cheats
                 player.hp -= dmg;
+                if (dmg > 0) player_hurt_this_tick = true;    // +0x3bc |= 6 (FUN_004fd350 0x4fde3c)
                 const bool died = player.hp < 1;              // the engine's test is < 1.0
                 const PlayerReaction re = player_reaction(dmg, float(player.max_hp), rtype, died,
                                                           avm.durable(), avm.section());
                 if (ai_debug)
                     std::printf("[hurt] dmg %d state %d grant %d pif %d psec 0x%x\n", dmg,
                                 re.motion_state, re.iframes, player_iframes, avm.section());
+                if (std::getenv("CLERIA_DMG"))
+                    std::printf("  [hurt] dmg %d (atk %.0f + %.1f vs DEF %.0f) reaction section %d i-frames %d knock %.2f at %.1f deg\n",
+                                dmg, atk, bonus, pdef, re.motion_state, re.iframes, re.knockback, angle * 57.29578f);
                 if (re.iframes > 0) player_iframes = std::max(player_iframes, re.iframes);
                 if (re.motion_state >= 0 && re.motion_state != 5) avm.set_section(re.motion_state);
                 pad_rumble(pad::hit_effect(re.motion_state));   // FUN_005d3500 0x4fde93..0x4fdfb5 (view_pad.inl)
@@ -6715,11 +6725,17 @@ title_again:
                     float hang = 0;
                     if (!overlap(vol, pbody, &hang)) continue;
                     if (player_bank.check_and_record(0xB0550000u, 30)) break;
+                    const int hp0 = player.hp;
                     hurt_player(boss->str(), bp.power, bp.rtype, hang);
+                    if (std::getenv("CLERIA_DMG"))
+                        std::printf("  [hurt] t%llu velagunder part %d (STR %.0f power %.1f rtype %d r %.2f) player hp %d -> %d\n",
+                                    (unsigned long long)tick_count, int(&bp - &boss->parts()[0]), boss->str(), bp.power,
+                                    bp.rtype, bp.radius, hp0, player.hp);
                     player_hurt_this_tick = true;
                     break;
                 }
             }
+            #include "view_boss01_touch.inl"        // Velagunder's body entries (VELAGUNDER.md §3.4)
             // Nygtilger's touch (LAB_00513390, §3.6): the player in contact with a piece's live
             // collision hull [approx: a sphere of r 0.7 at the origin, not the mover's contact
             // record], then the piece's verdict, the shared re-hit record (+0xf0/+0xf4 = 15, one
@@ -6860,6 +6876,32 @@ title_again:
                                              p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone, hd);
                             landed = true;
                         }
+                        // The same mode-0 scan's GoMesh pass (FUN_004fed50 [EXPORT 004fed50.c:296-345],
+                        // VELAGUNDER.md §3.3): Velagunder's parts, so magic / skill effects (Hugo's
+                        // shots) reach the stun part and the core as the swing does. Token 0, the
+                        // particle's re-hit; the damage with the part's DEF / resist and the particle's
+                        // power / class.
+                        if (boss && !boss->destroyed())
+                            for (int pi = 0; pi < boss01::kParts; ++pi) {
+                                if (!boss->part_hittable(pi)) continue;
+                                const Boss01Part& bp = boss->part(pi);
+                                if (!overlap(vol, body_shape(bp.hurt_centre, bp.hurt_radius, 0.0f, 0, 0.0f))) continue;
+                                if (boss_banks[std::size_t(pi)].check_and_record(0u, p.hit.rehit)) continue;
+                                AttackStats a;
+                                a.atk = player_stats().atk;
+                                a.bonus = p.hit.power;
+                                EnemyDefense vd; vd.def = bp.def;
+                                for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
+                                PlayerDamageMods mods;
+                                mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
+                                const int dmg = access::damage_dealt(enemy_incoming_damage(a, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone,
+                                    vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);
+                                if (dmg > 0) boss->add_part_damage(pi, float(dmg));
+                                if (std::getenv("CLERIA_DMG"))
+                                    std::printf("  fx %d hits boss part %d (DEF %.0f): %d dmg, HP %.0f stun %.0f\n",
+                                                p.fx ? p.fx->id : -1, pi, bp.def, dmg, boss->hp(), boss->stun_gauge());
+                                landed = true;
+                            }
                         return landed;
                     }
                     if (p.hit.side != 1 || player_iframes > 0 || p_untouchable || player.hp < 1) return false;
@@ -6867,7 +6909,12 @@ title_again:
                     float ang = 0;
                     if (!overlap(vol, pbody, &ang)) return false;
                     if (player_bank.check_and_record(0u, p.hit.rehit)) return false;
+                    const int hp0 = player.hp;
                     hurt_player(p.hit.atk, p.hit.power, p.hit.rtype, ang);
+                    if (std::getenv("CLERIA_DMG"))
+                        std::printf("  [hurt] t%llu fx %d (atk %.0f power %.1f knock %.2f rtype %d r %.2f) player hp %d -> %d\n",
+                                    (unsigned long long)tick_count, p.fx ? p.fx->id : -1, p.hit.atk, p.hit.power,
+                                    p.hit.knock, p.hit.rtype, p.hit.radius, hp0, player.hp);
                     return true;
                 });
                 fxsim.sweep();
@@ -7206,6 +7253,7 @@ title_again:
         }
         video_world_end(g, frame_view, frame_depth, view, depth);   // the world onto the frame (view_video.inl)
         player.character = character;
+        player.magic = inv.magic;
         // EXP bar: progress from this level's threshold to the next (100% at the cap).
         if (ginfo.ok()) {
             const double e0 = ginfo.exp_to_level(player.level);

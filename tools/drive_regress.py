@@ -86,6 +86,27 @@ CASES = {
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(200, 2400, 12)) + "2410:speedrun=status;2420:quit",
         expect=["[speedrun] phase 1 split 0/8", "auto-split 0 'Velagunder' on boss gauge empty in S_1099",
                 "[speedrun] phase 1 split 1/8"]),
+    # Velagunder's attacks (build/boss_re/VELAGUNDER.md §5, §7, §3.4), Yunica Lv 15: the intro by its event
+    # box, the stun part broken twice, then standing in the arena. The bubble spray hits (EF2 323), the player
+    # left standing on the (wood) body after a stun draws the taunt (state 8, ACTION_01), the run drops M890
+    # Spawns (the boss level, the chaser first), the laser's terrain-ray bursts hit (EF2 326), the inhale
+    # swallows Spawns and the bite (part 2) lands.
+    "velagunder_attacks": dict(
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
+        drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
+              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;5500:quit",
+        expect=["[boss] Velagunder: HP 700 STR 70 DEF 53 lv 8", "[boss] 31 body entries (820 tris)",
+                "fx 323 (atk 70 power 0.0 knock 5.00", "state 8 sub 1", "clip ACTION_01",
+                "M890 #175 spawned", "hp 58 lv 8 mode 1", "fx 326 (atk 70 power 0.0 knock 1.00 rtype 1", "eaten (1 so far)",
+                "velagunder part 2 (STR 70 power 14.0 rtype 2"]),
+    # ... and the kill (Lv 60): the death timeline's end block sets flag 220 and awards the EXP, which releases
+    # BATTLE_0.XSO into SENTOUGO.XSO (the stairs rise: stepup_se).
+    "velagunder_kill": dict(
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="60"),
+        drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
+              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3000, 12)) + "3000:at=0,22,180;3460:scripts;"
+              + "".join(f"{t}:ok;" for t in range(3500, 3661, 40)) + "3700:scripts;3710:quit",
+        expect=["flag 220 = 1", "EXP 86 (lv 8)", "script sentougo", "script stepup_se"]),
     # FUN_00561f40 queues a 0x8040-flag material (floor 2's water surfaces) on render layer 0xb,
     # flushed after the actor sprites (layers 6/9): S_2007's two water batches draw last, so a
     # submerged player shows through them.
@@ -214,6 +235,31 @@ CASES = {
         expect=["[abil] t42 sec 0x2 mp 3000 lag 3000 boost 0 boosting 0 iframes 0 magic -1",
                 "[abil] t75 sec 0x2 mp 3000 lag 3000 boost 0 boosting 0 iframes 0 magic 116",
                 "[abil] t102 sec 0x10d mp 2300"]),
+    # The opening Riffligan fight's fence (src/cleria/arena_player.hpp, FUN_0046fba0 0x4700aa): BattleStart1
+    # sets arena mode 2 (flag 190) and EnclosePlayer(0, 0, -1.3, 14); running north at the great staircase
+    # the ring's knock-channel push holds the player at radius ~14. With 190 = 0 (BATTLE_0's own write at
+    # pc 371 when the fight ends) the same run goes up the staircase.
+    "opening_arena": dict(
+        room="S_10/S_1000/S_1000",
+        drive="5:opt=DamageTaken=0;" + ";".join("%d:ok" % t for t in range(40, 3370, 40)) +
+              ";3400:scripts;3410:arena;3420:at=0,0;3422:move=0,1,260;3660:arena;3705:flag=190,0;3706:at=0,0;"
+              "3708:move=0,1,260;3990:arena;4000:quit",
+        expect=["script battle_0", "t3410 arena", "arena mode 2 rect (0, 0, -1.3, 14) dist 2.",
+                "t3660 arena", "arena mode 2 rect (0, 0, -1.3, 14) dist 14.", "t3990 arena",
+                "arena mode 0 rect (0, 0, -1.3, 14) dist 35."]),
+    # The HUD's equipped-skill badge (view_hud.inl skill_badge_cell, builder A 0x43e156): none on a fresh
+    # game; with all three bracelets owned the wheel cycles Ventus -> Ignis -> Terra and the badge follows
+    # (Yunica's column U 120, rows V 132 / 212 / 172).
+    "hud_skill_badge": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:hudskill;20:flag=116,1;21:flag=117,1;22:flag=118,1;25:wheel=-120;45:hudskill;60:wheel=-120;"
+              "80:hudskill;100:wheel=-120;120:hudskill;125:quit",
+        expect=["hud skill -1 badge none", "hud skill 116 badge (120, 132)", "hud skill 118 badge (120, 212)",
+                "hud skill 117 badge (120, 172)"]),
+    "hud_skill_badge_hugo": dict(
+        room="S_10/S_1002/S_1002", env=dict(CLERIA_CHAR="2"),
+        drive="20:flag=116,1;25:wheel=-120;45:hudskill;50:quit",
+        expect=["hud skill 116 badge (360, 132)"]),
     # Boost (ABILITIES_VERIFIED.md §1, audit combat.md #20-#22): a 21-damage hit adds 2100 to the gauge;
     # entering grants 60 i-frames (59 a tick later), so a hit 30 ticks in is refused (HP stays 39) and
     # one after the window lands halved (21 -> 10).

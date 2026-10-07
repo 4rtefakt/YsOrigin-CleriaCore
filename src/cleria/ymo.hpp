@@ -137,6 +137,12 @@ struct Node {
     Mat4 offset;
     Vec3 translation, scale;
     float quat[4] = {0, 0, 0, 1};
+    // @0x288 / 0x28C / 0x290 -> the runtime node's +0x44 / +0x48 / +0x50 (FUN_005f3c70): a kind
+    // (6 for BOSS01's bones: FUN_00504c10's death-spark nodes), a radius, and a flag word that
+    // FUN_005601e0 copies into a GoMesh collision entry's +0x84 (Velagunder's touch damage).
+    std::uint32_t kind = 0;
+    float radius = 0;
+    std::uint32_t flags = 0;
 
     Mat4 world = Mat4::identity();  // filled by Model::resolve_hierarchy()
     int parent_index = -1;
