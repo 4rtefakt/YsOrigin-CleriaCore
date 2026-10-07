@@ -20,6 +20,7 @@
 #include "cleria/access.hpp"
 #include "cleria/input_map.hpp"
 #include "cleria/pad.hpp"
+#include "cleria/video.hpp"
 
 namespace cleria {
 
@@ -144,6 +145,7 @@ struct Settings {
         std::string livesplit_host = "127.0.0.1";   // LiveSplitHost
         std::int32_t livesplit_port = 16834;  // LiveSplitPort (LiveSplit's default)
     } speedrun;
+    video::Settings video;                   // cleria.ini [cleria.video] extras (src/cleria/video.hpp, VIDEO.md)
 };
 
 // The keys skipped when IniVersion != 0x100 (FUN_0040d1d0's gate around the early HighResoText /

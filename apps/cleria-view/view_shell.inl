@@ -42,6 +42,8 @@ static void save_frame_ppm(Gpu& g, WGPUTexture tex, WGPUTextureFormat fmt, std::
     wgpuBufferRelease(rb);
 }
 
+static void video_cycle_show_fps();   // Shift+F1 (view_video.inl)
+
 struct Shell {
     bool ready = false;
     bool open = false;            // the settings panel (F1)
@@ -128,6 +130,10 @@ struct Shell {
     bool event(const SDL_Event& e) {
         if (!ready) return false;
         if (capture.active && (open || launcher) && capture_event(e)) return true;
+        if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_F1 && !e.key.repeat && (e.key.mod & SDL_KMOD_SHIFT)) {
+            video_cycle_show_fps();                       // retail's Shift+F1: the FPS display (FUN_0040e940)
+            return true;
+        }
         if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_F1 && !e.key.repeat) {
             open = !open;
             g_shell_focus = open || launcher;

@@ -112,6 +112,19 @@ CASES = {
         room="S_20/S_2008/S_2008",
         drive="2:held=97;20:exit=1;50:saveload;60:quit",
         expect=[">> entering S_2014", "arrival @ (1.0,36.0,0.0) [SEN]", "loaded S_2014 feet (1.000, 36.000, 0.000)"]),
+    # The Video page's passes (build/shell_re/VIDEO.md): none at the defaults; Render scale 200% draws the world
+    # at 2560x1600; GammaValue 1.5 runs the post pass; StretchAspect pins the projection to 4:3 (FUN_005e2670).
+    "video_passes": dict(
+        room="S_10/S_1009/S_1009",
+        drive="10:vstat;11:vopt=RenderScale=2;20:vstat;21:vopt=RenderScale=1;22:vopt=GammaValue=1.5;30:vstat;"
+              "31:vopt=GammaValue=1;32:vopt=StretchAspect=1;40:vstat;50:quit",
+        expect=["[video] world 1280x800 scale 1.00 gamma 1.00 post off aspect 1.6000",
+                "[video] world 2560x1600 scale 2.00", "gamma 1.50 post on", "aspect 1.3333"]),
+    # The frame limiter: FpsCap 30 holds the presented frames at <= 31 a second (the logic keeps 60 Hz).
+    "video_fpscap": dict(
+        room="S_10/S_1009/S_1009",
+        drive="5:vopt=FpsCap=30;200:vstat;210:quit",
+        expect=["[video] opt FpsCap=30", "cap 30 held"]),
 }
 
 

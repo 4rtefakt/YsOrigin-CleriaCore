@@ -74,6 +74,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/settings.cpp
   src/cleria/access.cpp
   src/cleria/pad.cpp
+  src/cleria/video.cpp
   src/cleria/ni_archive.cpp
   src/cleria/gamedata.cpp)
 target_include_directories(cleria PUBLIC src)
@@ -195,6 +196,11 @@ target_link_libraries(cleria-inputtest PRIVATE cleria)
 # swapped OK / Cancel and retail's force-feedback table (src/cleria/pad.hpp) vs build/shell_re/PAD.md.
 add_executable(cleria-padtest apps/cleria-padtest/main.cpp)
 target_link_libraries(cleria-padtest PRIVATE cleria)
+
+# cleria-videotest - the Video page's pure part: retail's gamma ramp / sampler table / aspect / FPS text,
+# cleria.ini [cleria.video], render scale, frame limiter, frame statistics (src/cleria/video, build/shell_re/VIDEO.md).
+add_executable(cleria-videotest apps/cleria-videotest/main.cpp)
+target_link_libraries(cleria-videotest PRIVATE cleria)
 
 # cleria-mousetest — the cursor transform, the cursor manager, the sprite, click-to-move, the skill
 # wheel and the menu hit tests (src/cleria/mouse.hpp) vs build/shell_re/MOUSE.md.
@@ -338,7 +344,7 @@ else()
 endif()
 set(CLERIA_TEST_ASSETS "${_cleria_assets_default}" CACHE PATH "Asset root the ctest suite runs on")
 enable_testing()
-foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest)
+foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest videotest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

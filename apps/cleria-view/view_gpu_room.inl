@@ -689,6 +689,10 @@ static Room load_model(Gpu& g, const fs::path& asset_root, const fs::path& ymo) 
     return r;
 }
 
+// The world sampler's filter: [graphics] TextureFilter / Anisotropy (FUN_005d4f00, src/cleria/video), set
+// by the Video page's video_init before build_pipeline. The default = bilinear, no anisotropy.
+static video::SamplerSpec g_world_sampler;
+
 static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     WGPUShaderSourceWGSL wgsl = {};
     wgsl.chain.sType = WGPUSType_ShaderSourceWGSL; wgsl.code = sv(kWGSL);
@@ -856,7 +860,9 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
 
     WGPUSamplerDescriptor sad = {};
     sad.addressModeU = sad.addressModeV = sad.addressModeW = WGPUAddressMode_Repeat;
-    sad.magFilter = sad.minFilter = WGPUFilterMode_Linear; sad.maxAnisotropy = 1;
+    sad.magFilter = sad.minFilter = g_world_sampler.linear ? WGPUFilterMode_Linear : WGPUFilterMode_Nearest;
+    if (g_world_sampler.mip_linear) sad.mipmapFilter = WGPUMipmapFilterMode_Linear;
+    sad.maxAnisotropy = g_world_sampler.anisotropy;
     g.sampler = wgpuDeviceCreateSampler(g.device, &sad);
 
     // Shared 1x1 white for a texture that FAILED to load (a real ref we couldn't

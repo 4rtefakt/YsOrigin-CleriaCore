@@ -289,6 +289,25 @@ int main() {
               st2.cleria_doc().has("cleria.cheats", "ExpRate") && !st2.retail_doc().has("cleria.cheats", "ExpRate"),
               "the cheats / assists persist in cleria.ini, never in yso_win.ini");
         check(slurp(retail) == retail_before, "retail's file still untouched");
+        {   // the Video page (src/cleria/video): retail keys in yso_win.ini, the extras in cleria.ini
+            st2.s.graphics.gamma_value = 1.4f;
+            st2.s.graphics.texture_filter = 0;
+            st2.s.graphics.windowed = video::retail_windowed(video::Exclusive);
+            st2.s.video.window_mode = video::Exclusive;
+            st2.s.video.render_scale = 1.5f;
+            st2.s.video.fps_cap = 120;
+            st2.touch();
+            SettingsStore st4;
+            check(st2.save() && st4.load(mine, retail) == SettingsStore::Origin::Loaded &&
+                  std::fabs(st4.s.graphics.gamma_value - 1.4f) < 1e-6f && st4.s.graphics.texture_filter == 0 &&
+                  st4.s.graphics.windowed == 0 && st4.s.video.window_mode == video::Exclusive &&
+                  st4.s.video.render_scale == 1.5f && st4.s.video.fps_cap == 120,
+                  "Video: GammaValue / TextureFilter / Windowed and [cleria.video] persist");
+            check(st4.retail_doc().has("graphics", "GammaValue") && !st4.retail_doc().has("cleria.video", "RenderScale") &&
+                  st4.cleria_doc().has("cleria.video", "RenderScale") && st4.cleria_doc().has("cleria.video", "WindowMode") &&
+                  !st4.cleria_doc().has("graphics", "GammaValue"),
+                  "Video: retail keys in yso_win.ini only, the extras in cleria.ini only");
+        }
         const fs::path other = root / "fresh" / "yso_win.ini";
         SettingsStore st3;
         check(st3.load(other) == SettingsStore::Origin::Defaults && fs::exists(other) &&

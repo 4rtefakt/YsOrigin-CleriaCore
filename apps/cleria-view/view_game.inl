@@ -66,6 +66,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         wgpuSurfaceConfigure(surface, &sc);
     };
     configure();
+    video_init(g, fmt, offscreen || (caps.usages & WGPUTextureUsage_CopySrc) || std::getenv("CLERIA_DRIVE"));   // view_video.inl
     build_pipeline(g, fmt);
     Hud hud; hud.init(g, res_file("hud_font.bin"), fmt);
     hud.debug_text = std::getenv("CLERIA_DEBUG_HUD") != nullptr || settings().s.cleria.debug_hud;   // F3 toggles
@@ -74,6 +75,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int shell_shot_frames = 0;                           // frames left before that shot
     shell.init(win, g, fmt);
     shell.hud["pad"] = pad_hud;                          // controller hot-plug notice (view_pad.inl)
+    shell.hud["video"] = video_hud;                      // the FPS display / frame-time graph (view_video.inl)
     hud.init_atlas(g, asset_root / "IMAGE" / "STATUS_512.DDS");
     hud.init_mini(g, asset_root / "IMAGE" / "F_MINI.DDS");
     hud.init_boss(g, asset_root / "IMAGE" / "HP2.DDS");    // the boss HP bar (it was never loaded live)
@@ -126,8 +128,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool &cheat_hp = settings().s.access.inf_hp, &cheat_mp = settings().s.access.inf_mp,
          &cheat_boost = settings().s.access.inf_boost, &cheat_o2 = settings().s.access.inf_o2,
          &cheat_ohko = settings().s.access.one_hit_kill;
-    int window_mode = settings().s.cleria.borderless_fullscreen ? 1 : 0;   // 0 windowed, 1 borderless
-    if (window_mode == 1 && !offscreen) SDL_SetWindowFullscreen(win, true);
+    int window_mode = video_boot_window(win, offscreen);   // 0 windowed, 1 borderless, 2 fullscreen (view_video.inl)
     auto persist = [] { settings().touch(); settings().save(); };   // a shell edit, saved at once
     bool input_bind_mode = false;                         // Input > Configure Inputs is showing
     // The pointer (view_input.inl): a CLERIA_DRIVE run uses a virtual pointer (the drive's mouse=,
@@ -255,21 +256,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                        "skippable only after you have cleared the game once."))
                 persist();
         });
-        shell.panel.add("Video", [&](ui::List& L) {
-            static const char* kModes[] = {"Windowed", "Borderless fullscreen"};
-            ui::section(L, "Display");
-            if (ui::choice(L, "Window mode", &window_mode, kModes, 2,
-                           "Windowed, or fullscreen at your desktop resolution.")) {
-                SDL_SetWindowFullscreen(win, window_mode == 1);
-                settings().s.cleria.borderless_fullscreen = window_mode == 1;
-                persist();
-            }
-            if (ui::toggle(L, "VSync", &vsync, "Synchronise frames with the display's refresh rate to avoid tearing.")) {
-                configure();
-                settings().s.cleria.vsync = vsync;
-                persist();
-            }
-        });
+        shell.panel.add("Video", [&](ui::List& L) { video_page(L, win, window_mode, vsync, configure, persist); });
         shell.panel.add("Input", [&](ui::List& L) {
             // Configure Inputs: the 34 retail binding slots ([input] Assign{...}, CONFIG.md §3.3), rebound
             // by capturing the next key / mouse button / pad button (Shell::Capture). With [cleria.input]
@@ -492,13 +479,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     auto play_demo = [&](int demo) -> bool {
         const std::optional<DemoScene> ds = demo_scene(demo, character == 3);
         if (!ds || movies_off) return true;
-        const fs::path file = find_movie(asset_root, ds->movie);
+        // [graphics] DisableMovies (0x765173): FUN_005773e0 finishes at once, as on an open failure.
+        const fs::path file = settings().s.graphics.disable_movies ? fs::path() : find_movie(asset_root, ds->movie);
         MovieDecoder dec;
         const bool have = !file.empty() && dec.open(file);
         double length = have ? dec.duration() : 0.0;
         if (file.empty())
-            std::printf("  [movie] demo%d: %s not found -> finished at once (the open failure)\n", demo,
-                        movie_file(ds->movie));
+            std::printf("  [movie] demo%d: %s %s -> finished at once (the open failure)\n", demo,
+                        movie_file(ds->movie), settings().s.graphics.disable_movies ? "disabled" : "not found");
         else if (!have) {
             length = avi_duration(file).value_or(0.0);
             std::printf("  [movie] demo%d: %s does not decode -> black for %.1f s [stand-in]\n", demo,
@@ -615,6 +603,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 msgs.swap(hud.messages);
                 for (int i = 0; i < 4; ++i) equip[i].swap(hud.equip_verts[i]);
             }
+            video_post(g, st.texture, view, cw, ch);   // Brightness (view_video.inl)
             if (shot_at >= 0.0 && t >= shot_at) {      // CLERIA_MOVIE_SHOT
                 shot_at = -1.0;
                 const char* sd = std::getenv("CLERIA_SHOT_DIR");
@@ -772,6 +761,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             }
             write_mvp(g, lcam.view_proj(float(cw) / float(ch), D * 0.002f, D * 6.0f));
             draw(g, bg, view, ldepth);
+            video_post(g, st.texture, view, cw, ch);   // Brightness (view_video.inl)
             shell.frame(g, view, cw, ch);
             if (std::getenv("CLERIA_DRIVE") && frame_no == 6) {     // a headless capture of the launcher
                 const char* sd = std::getenv("CLERIA_SHOT_DIR");
@@ -961,9 +951,11 @@ title_again:
                 hud.set_fade(0, 0.0f);
             }
             draw_cursor(g, tr, view, cw, ch, false);
+            video_post(g, st.texture, view, cw, ch);   // Brightness (view_video.inl)
             shell.frame(g, view, cw, ch);
             wgpuSurfacePresent(surface);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
+            video_frame_end(0);                        // the frame limiter / counters (view_video.inl)
         }
     }
     float fx_time = 0;
@@ -3430,6 +3422,7 @@ title_again:
             std::printf("  [drive] stats exp %.0f lv %d hp %d/%d sp %d\n", double(player.exp), player.level, player.hp,
                         player.max_hp, player.sp);
         } else if (access_drive(cmd)) {                // opt=Key=value, esctap, eschold=n (view_access.inl)
+        } else if (video_drive(cmd)) {                 // vopt=Key=value, vstat (view_video.inl)
         } else if (cmd == "jump") {
             drive_jump = true;
         } else if (cmd == "skill+" || cmd == "skill-") {   // hold / release the skill button
@@ -6851,7 +6844,7 @@ title_again:
         const float rad = room_diag(room);
         if (drive_cam) cam = *drive_cam;
         update_fog(room, fly ? cam.pos : feet, dt);
-        last_vp = cam.view_proj(float(cw) / float(ch), rad * 0.01f, rad * 8.0f);
+        last_vp = cam.view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f);   // StretchAspect (view_video.inl)
         {   // The oxygen bar's anchor: the player's origin through the frame's view-projection.
             const Vec3 o{feet.x, feet.y + kOriginH, feet.z};
             const float* M = last_vp.m.data();
@@ -6878,6 +6871,8 @@ title_again:
         }
         have_vp = true;
         write_mvp(g, last_vp);
+        const WGPUTextureView frame_view = view, frame_depth = depth;
+        video_world_begin(g, cw, ch, view, depth);       // Render scale: the world's own target (view_video.inl)
         draw(g, room, view, depth, 1);                     // render layers 3 / 5 (layer 0xb below)
         // Character billboard (play mode only; fly is a free debug camera). Draw the floor
         // shadow first, on the actual floor under the player (so it stays put during a jump).
@@ -6916,7 +6911,7 @@ title_again:
                     Dds dd = load_dds(asset_root / "IMAGE" / "F_GEO20.DDS");
                     if (dd.ok()) geo20 = upload_rgba(g, dd.width, dd.height, dd.data.data());
                 }
-                WGPUTextureView pdepth = make_depth(g, cw, ch);
+                WGPUTextureView pdepth = make_depth(g, video_world_w(cw), video_world_h(ch));
                 for (const Popup& pp : popups) draw_popup_glyphs(g, view, pdepth, geo20, pp, cam.forward());
                 wgpuTextureViewRelease(pdepth);
             }
@@ -6950,6 +6945,7 @@ title_again:
                                   q.u0, q.v0, q.u1, q.v1, cam.forward(), float(q.a8) / 255.0f);
             }
         }
+        video_world_end(g, frame_view, frame_depth, view, depth);   // the world onto the frame (view_video.inl)
         player.character = character;
         // EXP bar: progress from this level's threshold to the next (100% at the cap).
         if (ginfo.ok()) {
@@ -7029,6 +7025,7 @@ title_again:
             wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
         }
         if (cursor_now) draw_cursor(g, bookR, view, cw, ch, !fly);
+        video_post(g, st.texture, view, cw, ch);         // Brightness (view_video.inl)
         shell.frame(g, view, cw, ch);                    // after the crossfade capture; a drive `shot` sees it
         if (shell_shot_frames > 0 && --shell_shot_frames == 0) {
             const char* d = std::getenv("CLERIA_SHOT_DIR");
@@ -7073,6 +7070,7 @@ title_again:
         else wgpuDevicePoll(g.device, true, nullptr);    // no vsync: wait out each frame
         wgpuTextureViewRelease(view);
         wgpuTextureRelease(st.texture);
+        video_frame_end(ticks);                          // the frame limiter / counters (view_video.inl)
     }
     // LAB_00427750 -> FUN_0042f510: the game over's Return to Title. [approx] the old room's GPU
     // buffers are not freed (as on exit). A CLERIA_DRIVE run has no title to show (the title
