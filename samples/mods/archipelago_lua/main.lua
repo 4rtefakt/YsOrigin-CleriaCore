@@ -310,7 +310,13 @@ cleria.content.add_filter(function(q)
         local name = c:item_name(s.item, s.player)
         d.index = icon_of(s)
         if s.player == c.slot then d.text = cleria.content.treasure_text(q.text, name, 1)
-        else d.text = "Sent\\n" .. rgb_tag(class_rgb(s.flags)) .. name .. "<color:> to " .. c:player_name(s.player) .. "." end
+        else
+            -- One line when it fits (the box grows to its text; the renderer never wraps), else break
+            -- before "to <player>". [H] 48 characters ~ 530 of the 1024 layout units.
+            local who = c:player_name(s.player)
+            local to = (#("Sent " .. name .. " to " .. who .. ".") <= 48) and " to " or "\\nto "
+            d.text = "Sent " .. rgb_tag(class_rgb(s.flags)) .. name .. "<color:>" .. to .. who .. "."
+        end
     end
     if q.kind == "window" then log("box " .. key .. ": " .. (d.text:gsub("<color:[^>]*>", ""))) end
     return d

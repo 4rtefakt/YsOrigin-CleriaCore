@@ -27,7 +27,7 @@ CASES = {
         expect=["[lua] Archipelago: started (main.lua)", P + "connected as Yunica (slot 2) seed CLERIATEST, 305 locations",
                 P + "save stamped: seed CLERIATEST slot 2", "[content] icon 0x59 -> 0x2A1",
                 P + "suppressed g_flags[0x59] -1 -> 1 (S_1001/S_BOX01)", P + "check 5857605 Wailing Blue: 2F Path 1 (store)",
-                "[content] chest S_1001/S_BOX01 opened (flag 302)", P + "box S_1001/S_BOX01: Sent\\nButton Activation to Clicker.",
+                "[content] chest S_1001/S_BOX01 opened (flag 302)", P + "box S_1001/S_BOX01: Sent Button Activation to Clicker.",
                 P + "print ItemSend: Yunica sent Button Activation to Clicker (Wailing Blue: 2F Path 1)",
                 P + "flag 0x59 = -1", P + "flag 0x12E = 1", "checks 3 goal 0 active 1"],
         server_expect=['Connect {"cmd":"Connect","game":"Ys Origin","items_handling":7,"name":"Yunica","password":""',
