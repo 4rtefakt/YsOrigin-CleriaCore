@@ -7367,6 +7367,8 @@ title_again:
                                   q.u0, q.v0, q.u1, q.v1, cam.forward(), float(q.a8) / 255.0f);
             }
         }
+        draw_fireblur(g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr), view,
+                      video_world_w(cw), video_world_h(ch), cw, ch);   // FireBlur after layer 14 (view_weather.inl)
         video_world_end(g, frame_view, frame_depth, view, depth);   // the world onto the frame (view_video.inl)
         player.character = character;
         player.magic = inv.magic;

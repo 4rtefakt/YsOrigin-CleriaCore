@@ -9,7 +9,8 @@
 //     weather pass for 600 ticks; the shared state must equal the seed advanced by exactly the
 //     draw schedule read off the export (ember: 10 draws on each 16th tick of its life; smoke: 13
 //     on its first tick, then 3 per tick; flag 290 adds 1 / 2).
-//  4. FireBlur's timer (FUN_00427c90) and a sprite's key-frame fade (FUN_00584270).
+//  4. FireBlur's timer (FUN_00427c90) and a sprite's key-frame fade (FUN_00584270); FireBlur's wave
+//     grid vs the retail FUN_005e44c0 / FUN_00427c90 bytes (blur_oracle.inl, gen_blur.py).
 // Usage: cleria-weathertest <assets>
 #include <cmath>
 #include <cstdio>
@@ -27,6 +28,7 @@ using namespace cleria;
 using namespace cleria::weather;
 
 #include "oracle.inl"
+#include "blur_oracle.inl"
 
 static int fails = 0;
 static void check(bool ok, const char* what) {
@@ -311,6 +313,49 @@ int main(int argc, char** argv) {
         wx.fire_blur(1.0f, 0.5f, 0.2f);
         wx.step_blur();
         check(wx.blur.level == 1.0f && wx.blur.out == 0.2f, "FireBlur level clamps at 1");
+    }
+    // 4c) FireBlur's wave grid vs the retail bytes (blur_oracle.inl, tools/weather_oracle/gen_blur.py):
+    //     FUN_005e44c0's 36 vertices for three back-buffer / copy sizes, then FUN_00427c90 ticked 420
+    //     times with the draw flag 0x7b249c raised before most ticks: level, 0x7b249c, 0x7b2e1c and
+    //     every vertex x / y after each tick. cos is the CRT's in the exe and std::cos here: 1 ulp.
+    {
+        bool ok = true;
+        for (const BGrid& G : kBGrids) {
+            const BlurGrid grid;
+            for (int i = 0; i < BlurGrid::kN; ++i) {
+                const BlurGrid::V v = BlurGrid::base(i, G.w, G.h, G.tw, G.th);
+                const bool o = bits(v.x) == G.v[i][0] && bits(v.y) == G.v[i][1] && bits(v.u) == G.v[i][5] &&
+                               bits(v.v) == G.v[i][6] && grid.a[i] == G.a[i] && grid.b[i] == G.b[i];
+                if (!o && ok)
+                    std::printf("  %dx%d vertex %d: %08x %08x %08x %08x %d %d vs %08x %08x %08x %08x %d %d\n", G.w, G.h, i,
+                                bits(v.x), bits(v.y), bits(v.u), bits(v.v), grid.a[i], grid.b[i], G.v[i][0], G.v[i][1],
+                                G.v[i][5], G.v[i][6], G.a[i], G.b[i]);
+                ok = ok && o;
+            }
+        }
+        check(ok, "FireBlur grid: FUN_005e44c0's 36 strip vertices (x, y, u, v) and phases, bit for bit");
+        Blur bl;
+        bl.level = 1.0f; bl.delta = -0.0025f; bl.strength = 0.3f;
+        const BGrid& G = kBGrids[0];
+        auto ulp = [](float f, std::uint32_t b) { const std::int64_t d = std::int64_t(bits(f)) - std::int64_t(b); return d <= 1 && d >= -1; };
+        bool tk = true;
+        int bad = -1, drawn_on = 0;
+        for (int t = 0; t < int(std::size(kBTicks)); ++t) {
+            const BTick& T = kBTicks[t];
+            bl.grid.drawn = T.drawn_before != 0;
+            bl.step();
+            bool o = bits(bl.level) == T.level && bits(bl.out) == T.out && int(bl.grid.drawn) == T.drawn_after;
+            for (int i = 0; i < BlurGrid::kN; ++i) {
+                const BlurGrid::V v = bl.grid.vertex(i, G.w, G.h, G.tw, G.th);
+                o = o && ulp(v.x, T.xy[i][0]) && ulp(v.y, T.xy[i][1]);
+            }
+            drawn_on += bl.active();
+            if (!o && bad < 0) bad = t + 1;
+            tk = tk && o;
+        }
+        if (bad >= 0) std::printf("  first mismatch at tick %d\n", bad);
+        check(tk && drawn_on == 400 && !bl.active(),
+              "FireBlur step: FUN_00427c90 x420 (level, 0x7b249c, 0x7b2e1c, the 36 vertices; 400 ticks drawn)");
     }
     // 4b) an ember's fade: in over 0.1 life, held to 0.4 life, out to its end
     {

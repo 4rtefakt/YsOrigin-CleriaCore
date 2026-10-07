@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstring>
 
 #include "cleria/cos_table.hpp"
@@ -23,16 +24,71 @@ float unit12(std::uint32_t w) {
     return f;
 }
 
-void Blur::step() {                                  // FUN_00427c90 0x76a558 block
+void Blur::step() {                                  // FUN_00427c90 0x76a558 block (0x427ded..0x427f44)
     if (level == 0.0f) return;
     level = level + delta;
+    latch = true;                                    // 0x7b24a0 = byte 0x6d6071 (= 1)
     if (level <= 0.0f) {
         level = 0.0f;
         out = 0.0f;
     } else {
         if (1.0f < level) level = 1.0f;
         out = strength;
+        if (grid.drawn) { grid.drawn = false; grid.step(); }   // 0x7b2e1c
     }
+}
+
+// FUN_005e44c0's phase tables (.rdata 0x6be4b0 / 0x6be390 / 0x6be1c0 / 0x6be4c0 / 0x6be470 /
+// 0x6be1b0 / 0x6be480.., copied to 0x7b2cfc / 0x7b2d8c at 0x5e549b..): degrees, by strip vertex.
+static constexpr std::int32_t kPhaseA[BlurGrid::kN] = {
+    0, 120, 60, 360, 240, 180, 120, 60, 360, 240, 180, 0,
+    0, 180, 240, 360, 60, 120, 180, 240, 360, 60, 120, 0,
+    0, 120, 60, 360, 240, 180, 120, 60, 360, 240, 180, 0};
+static constexpr std::int32_t kPhaseB[BlurGrid::kN] = {
+    360, 240, 180, 0, 120, 60, 360, 240, 180, 0, 120, 60,
+    60, 120, 0, 180, 240, 360, 60, 120, 0, 180, 240, 360,
+    360, 240, 180, 0, 120, 60, 360, 240, 180, 0, 120, 60};
+// 0x6983d8: the amplitude in back-buffer pixels, by strip vertex (= by lattice row 7 / 5.25 / 4 /
+// 4 / 5.25 / 7; the middle band runs bottom-up).
+static constexpr float kAmp[BlurGrid::kN] = {
+    7, 7, 5.25f, 5.25f, 4, 4, 4, 4, 5.25f, 5.25f, 7, 7,
+    7, 7, 5.25f, 5.25f, 4, 4, 4, 4, 5.25f, 5.25f, 7, 7,
+    7, 7, 5.25f, 5.25f, 4, 4, 4, 4, 5.25f, 5.25f, 7, 7};
+constexpr float kDeg = std::bit_cast<float>(0x3c8efa35u);    // 0x6bd0dc = pi / 180
+constexpr float kThird = std::bit_cast<float>(0x3eaaab8au);  // 0x6bd2a4 "0.33334"
+
+BlurGrid::BlurGrid() {
+    std::memcpy(a, kPhaseA, sizeof a);
+    std::memcpy(b, kPhaseB, sizeof b);
+}
+
+void BlurGrid::step() {                              // FUN_00427c90 0x427e66..0x427f22
+    for (int i = 0; i < kN; ++i) {
+        a[i] += 1;
+        b[i] += 6;
+        const float ca = float(std::cos(double(float(a[i]) * kDeg)));   // FUN_0041c510 = cos
+        dx[i] = kAmp[i] * ca;
+        const float cb = float(std::cos(double(float(b[i]) * kDeg)));
+        dy[i] = cb * kAmp[i] * 1.25f;                // 0x6bd494
+    }
+}
+
+// FUN_005e44c0: column k at x1 * k (x1 = (W - 0.5) * 0.33334; column 0 at -0.5), row r at y1 * r
+// (y1 = (H - 0.5) * 0.2; row 0 at -0.5 in the first band but y1 * 0.0 = 0 in the other two), UV
+// u1 * k / v1 * r with u1 = W / TW * 0.33334, v1 = H / TH * 0.2. Strip order: band 0 (columns 0-1)
+// rows 0..5, band 1 (columns 1-2) rows 5..0, band 2 (columns 2-3) rows 0..5; each row left, right.
+BlurGrid::V BlurGrid::base(int i, int W, int H, float TW, float TH) {
+    const float fw = float(double(W)), fh = float(double(H));
+    const float x1 = (fw - 0.5f) * kThird, y1 = (fh - 0.5f) * 0.2f;
+    const float u1 = fw / TW * kThird, v1 = fh / TH * 0.2f;
+    const int band = i / 12, k = i % 12;
+    const int col = band + (k & 1);
+    const int row = band == 1 ? 5 - k / 2 : k / 2;
+    const float xs[4] = {-0.5f, x1, x1 + x1, x1 * 3.0f};
+    const float us[4] = {0.0f, u1, u1 + u1, u1 * 3.0f};
+    const float ys[6] = {band == 0 ? -0.5f : y1 * 0.0f, y1, y1 + y1, y1 * 3.0f, y1 * 4.0f, y1 * 5.0f};
+    const float vs[6] = {0.0f, v1, v1 + v1, v1 * 3.0f, v1 * 4.0f, v1 * 5.0f};
+    return {xs[col], ys[row], us[col], vs[row]};
 }
 
 Look look(const Sprite& s) {                         // FUN_00584270's key-frame lerp

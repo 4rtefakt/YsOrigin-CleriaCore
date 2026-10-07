@@ -71,6 +71,7 @@ class Emu:
             n = self.reg(op.reg)
             if n in self.r: return self.r[n]
             if n in ("cl", "al", "dl", "bl"): return self.r["e" + n[0] + "x"] & 0xff
+            if n in ("ch", "ah", "dh", "bh"): return (self.r["e" + n[0] + "x"] >> 8) & 0xff
             raise RuntimeError("reg " + n)
         if op.type == X.X86_OP_IMM: return op.imm & M32
         return self.rd(self.ea(op), op.size)
@@ -79,12 +80,15 @@ class Emu:
         if op.type == X.X86_OP_REG:
             n = self.reg(op.reg)
             if n in self.r: self.r[n] = v & M32; return
+            if n in ("cl", "al", "dl", "bl"):
+                k = "e" + n[0] + "x"; self.r[k] = (self.r[k] & 0xffffff00) | v; return
             raise RuntimeError("put reg " + n)
         self.wd(self.ea(op), v, op.size)
 
     def flags_logic(self, v, size=4):
         v &= (1 << (8 * size)) - 1
         self.zf = v == 0; self.sf = bool(v >> (8 * size - 1)); self.cf = self.of = False
+        self.pf = bin(v & 0xff).count("1") % 2 == 0      # even parity of the low byte
     def push(self, v): self.r["esp"] = (self.r["esp"] - 4) & M32; self.wd(self.r["esp"], v)
     def pop(self):
         v = self.rd(self.r["esp"]); self.r["esp"] = (self.r["esp"] + 4) & M32; return v
@@ -123,6 +127,8 @@ class Emu:
             mask = (1 << (8 * sz)) - 1
             self.cf = (r > mask) if m == "add" else (a < b)
             self.zf = (r & mask) == 0; self.sf = bool((r >> (8 * sz - 1)) & 1)
+            sb = 1 << (8 * sz - 1)
+            self.of = bool(((a ^ r) & (b ^ r) if m == "add" else (a ^ b) & (a ^ r)) & sb)
             if m != "cmp": self.put(ops[0], r)
         elif m in ("xor", "and", "or", "test"):
             a, b = self.get(ops[0]), self.get(ops[1])
@@ -223,6 +229,34 @@ class Emu:
         elif m == "unpcklps":
             j = self.xi(ops[0]); a = self.xmm[j]; b = self.xmm[self.xi(ops[1])] if self.isx(ops[1]) else [self.rd(self.ea(ops[1]) + 4 * k) for k in range(4)]
             self.xmm[j] = [a[0], b[0], a[1], b[1]]
+        # ---- added for FireBlur's grid (gen_blur.py: FUN_005e44c0, FUN_00427c90) ----
+        elif m == "divss":
+            j = self.xi(ops[0]); a = np.float32(f32(self.xmm[j][0])); b = self.xload_f(ops[1])
+            with np.errstate(all="ignore"): self.xset_f(j, a / b)
+        elif m in ("comiss", "ucomiss"):
+            a = np.float32(f32(self.xmm[self.xi(ops[0])][0])); b = self.xload_f(ops[1])
+            un = bool(np.isnan(a) or np.isnan(b))
+            self.zf = un or a == b; self.cf = un or a < b; self.pf = un
+            self.sf = self.of = False
+        elif m == "lahf":        # AH = SF ZF 0 AF 0 PF 1 CF
+            ah = (int(self.sf) << 7) | (int(self.zf) << 6) | (int(getattr(self, "pf", False)) << 2) | 2 | int(self.cf)
+            self.r["eax"] = (self.r["eax"] & 0xffff00ff) | (ah << 8)
+        elif m in ("jl", "jbe", "ja", "jae", "jnp", "jp", "jg", "jge", "jle", "js", "jns"):
+            pf = getattr(self, "pf", False)
+            take = {"jl": self.sf != self.of, "jge": self.sf == self.of, "jg": not self.zf and self.sf == self.of,
+                    "jle": self.zf or self.sf != self.of, "jbe": self.cf or self.zf, "ja": not self.cf and not self.zf,
+                    "jae": not self.cf, "jnp": not pf, "jp": pf, "js": self.sf, "jns": not self.sf}[m]
+            return ops[0].imm if take else nxt
+        elif m == "cvtdq2ps":
+            j = self.xi(ops[0])
+            s = self.xmm[self.xi(ops[1])] if self.isx(ops[1]) else [self.rd(self.ea(ops[1])), 0, 0, 0]
+            self.xmm[j] = [bits32(np.float32(np.int32(np.uint32(x)))) for x in s]
+        elif m == "cmovne":
+            if not self.zf: self.put(ops[0], self.get(ops[1]))
+        elif m == "cvtsi2ss":
+            self.xset_f(self.xi(ops[0]), np.float32(np.int32(np.uint32(self.get(ops[1])))))
+        elif m == "dec":
+            r = (self.get(ops[0]) - 1) & M32; self.zf = r == 0; self.sf = bool(r >> 31); self.put(ops[0], r)
         else:
             raise RuntimeError("unimplemented %s %s at %x" % (m, i.op_str, i.address))
         return nxt

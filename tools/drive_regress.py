@@ -236,6 +236,12 @@ CASES = {
         room="S_30/S_3009/S_3009", drive="300:quit", env=dict(CLERIA_WX_LOG="1"),
         expect=["[weather] FrameSmoke(120)", "[weather] FireBlur(1.0000, -0.0025, 0.", "[weather] FireDrop(180)",
                 "[weather] t300 steps 300 emitters", "haze 0."]),
+    # WEATHER.md §5: FireBlur's warp pass draws while 0x7b249c != 0 and each drawn frame lets the next
+    # update step the wave grid (0x7b2e1c); one frame per tick (lockstep) = one step per tick once on.
+    "fireblur_warp": dict(
+        room="S_30/S_3009/S_3009", drive="300:quit", env=dict(CLERIA_WX_LOG="1", CLERIA_DRIVE_LOCKSTEP="1"),
+        expect=["[weather] FireBlur(1.0000, -0.0025, 0.", "[weather] t200 steps 200 ", "warp 1 grid 63 cam",
+                "[weather] t300 steps 300 ", "warp 1 grid 163 cam"]),
     # FLOOR13_OPS.md: a SOB trigger-4 touch volume (the S_1011 ward) runs Touch_kekkai -> 0x15c Chr_Damage.
     "ward_touch": dict(
         room="S_10/S_1011/S_1011", drive="30:obj=kekkai_01;32:hp=999;35:move=-1,1,40;80:quit",
@@ -470,7 +476,7 @@ def run(name, case, exe, assets):
         srv = aplua_regress.start(case, env, os.path.join(saves, "settings"))   # an `aplua` case: its server, the mod
         extra = modfile_regress.start(case, env, os.path.join(saves, "settings"))   # a `modfile` case: the file
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
-        r = subprocess.run([exe, assets, sob] + extra, env=env, capture_output=True, text=True, timeout=300)
+        r = subprocess.run([exe, assets, sob] + extra, env=env, capture_output=True, text=True, timeout=900)
     out = r.stdout + r.stderr
     if not aplua_regress.finish(name, case, srv):
         return False

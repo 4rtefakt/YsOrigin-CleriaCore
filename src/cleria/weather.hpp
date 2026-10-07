@@ -85,14 +85,43 @@ struct Env {
     std::uint32_t map268 = 0;        // (*0x730224)+0x268
 };
 
+// FireBlur's wave grid (WEATHER.md §5): 36 pretransformed vertices at 0x7b251c (stride 0x1c: x, y,
+// z, rhw, colour, u, v), built once by FUN_005e44c0 (renderer init, from FUN_005e2670) over a
+// 4 x 6 lattice of the back buffer, as one triangle strip of three column bands (down, up, down;
+// the joins are degenerate). The draw pass FUN_005fed30 copies the back buffer into a texture
+// (StretchRect) and redraws it through this mesh; each vertex keeps its lattice UV, so moving the
+// vertex warps the picture. The step (FUN_00427c90, 0x427e66..0x427f22) restores the base copy
+// (0x7b290c) and adds  x += amp[i] cos(a[i] deg),  y += amp[i] cos(b[i] deg) * 1.25  after
+// a[i] += 1, b[i] += 6 (0x7b2cfc / 0x7b2d8c, never reset). amp = 0x6983d8: 7 / 5.25 / 4 / 4 /
+// 5.25 / 7 back-buffer pixels by lattice row.
+struct BlurGrid {
+    static constexpr int kN = 36;
+    std::int32_t a[kN], b[kN];       // 0x7b2cfc / 0x7b2d8c, degrees (FUN_005e44c0 0x5e549b.. tables)
+    float dx[kN] = {}, dy[kN] = {};  // the vertex's offset from its base (0 until the first step)
+    bool drawn = false;              // 0x7b2e1c: set by the draw pass, consumed by the next step
+    BlurGrid();
+    void step();
+    // Vertex i of the strip for a W x H back buffer copied into a TW x TH texture: the position in
+    // D3D9 pretransformed pixels (pixel centres on integers) and the copy's UV.
+    struct V { float x, y, u, v; };
+    static V base(int i, int W, int H, float TW, float TH);
+    V vertex(int i, int W, int H, float TW, float TH) const {
+        V v = base(i, W, H, TW, TH); v.x += dx[i]; v.y += dy[i]; return v;
+    }
+};
+
 // 0x123 FireBlur(level, delta, strength) -> 0x76a558 / 0x76a55c / 0x76a560, stepped by
-// FUN_00427c90 (master update step 9): while level != 0, level += delta; at <= 0 it stops and
-// the post-fx parameter 0x7b249c is 0, else level is clamped to 1 and 0x7b249c = strength.
-// [not modelled] the distortion pass that reads 0x7b249c (the 0x7b251c wave grid).
+// FUN_00427c90 (master update step 9): while level != 0, level += delta and 0x7b24a0 = 1; at <= 0
+// it stops and 0x7b249c is 0, else level is clamped to 1, 0x7b249c = strength and (when the pass
+// drew since the last step) the wave grid steps. The pass draws while 0x7b24a0 && 0x7b249c != 0:
+// the strength is only a gate (0x7b249c has no other reader [BYTES]).
 struct Blur {
     float level = 0, delta = 0, strength = 0;   // 0x76a558 / 0x76a55c / 0x76a560
     float out = 0;                              // 0x7b249c
+    bool latch = false;                         // 0x7b24a0 (= the .data byte 0x6d6071 = 1)
+    BlurGrid grid;                              // 0x7b251c..
     void step();
+    bool active() const { return latch && out != 0.0f; }   // FUN_005fed30's gate
 };
 
 class Weather {

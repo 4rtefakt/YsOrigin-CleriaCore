@@ -161,7 +161,8 @@ static void video_world_begin(Gpu& g, std::uint32_t cw, std::uint32_t ch, WGPUTe
         if (g_vgpu.wdepth) wgpuTextureViewRelease(g_vgpu.wdepth);
         if (g_vgpu.wtex) wgpuTextureRelease(g_vgpu.wtex);
         WGPUTextureDescriptor td = {};
-        td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+        td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding |
+                   WGPUTextureUsage_CopySrc;    // CopySrc: FireBlur's copy (view_weather.inl)
         td.dimension = WGPUTextureDimension_2D; td.size = {e.w, e.h, 1};
         td.format = g_vgpu.fmt; td.mipLevelCount = 1; td.sampleCount = 1;
         g_vgpu.wtex = wgpuDeviceCreateTexture(g.device, &td);
