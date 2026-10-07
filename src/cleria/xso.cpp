@@ -32,7 +32,10 @@ const char* store_name(std::uint32_t sub) {
         case 0x71: return "and";
         case 0x73: return "or";
         case 0x75: return "xor";
-        case 0x77: return "zero";
+        // Flag_Clr is 0x7a ([EXPORT 00566350 case 0x7a]: *flag = 0). 0x77 is Flag_AndFlagShl
+        // (flag[o0] &= FUN_004459d0(flag[o1], o2)); it was long listed here as "zero". Neither
+        // has a call site in the shipped corpus, so the correction changes no script's run.
+        case 0x7a: return "zero";
         default: return nullptr;
     }
 }
@@ -108,7 +111,7 @@ std::vector<Grant> Xso::grants() const {
         g.op = op;
         g.index = idx;
         const bool imm = (in.sub == 0x64 || in.sub == 0x67 || in.sub == 0x69 || in.sub == 0x6B);
-        if (in.sub == 0x77) { g.value = 0; g.has_value = true; }
+        if (in.sub == 0x7a) { g.value = 0; g.has_value = true; }
         else if (imm && in.ops.size() > 1) { g.value = in.ops[1]; g.has_value = true; }
         else { g.has_value = false; }
         out.push_back(std::move(g));
@@ -279,6 +282,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // holds no fix (audit event_vm #27).
                     if ((sub == 0xd3 || sub == 0xd4 || sub == 0xd5 || sub == 0xd7) && on_window_fix) on_window_fix();
                 }
+                // 0xb5 AllowMultiInstance(i) [EXPORT 00566350 case 0xb5]: GoScript+0x238 = (i != 0).
+                if (sub == 0xb5) {
+                    if (on_allow_multi && nargs >= 1) on_allow_multi(op(0) != 0);
+                    return Step::Continue;
+                }
                 // Dialogue / caption ops forward to the host. Handled here (not in the
                 // nargs>=1 store chain below) so 0xd2's zero-arg case isn't skipped. A host
                 // that doesn't render dialogue (ActorWorld) inherits the no-op defaults, so
@@ -343,6 +351,78 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // 0x11c Eft_SetAlphaTarget(name, f alpha, frames) [BYTES 0x56b24e: FUN_0056fba0].
                     if (sub == 0x11c && nargs >= 3) { host->effect_alpha_target(ops(0), opf(1), op(2)); return Step::Continue; }
                     if (sub == 0x8f && nargs >= 1) { host->set_skill(op(0)); return Step::Continue; }
+                    // ---- the floor 1..3 completion pass (build/event_re/FLOOR13_OPS.md) ----
+                    // 0x15c Chr_Damage(id, f atk, b, c) [EXPORT case 0x15c: op0 int, op1 float, op2
+                    // int (!= 0), op3 int -> FUN_00571b80]. @Touch_Toge passes "$I0" as the float.
+                    if (sub == 0x15c && nargs >= 4) { host->chr_damage(op(0), opf(1), op(2) != 0, op(3)); return Step::Continue; }
+                    // 0x14d Chr_CollisionVanish(id, on) [case 0x14d -> FUN_005712a0].
+                    if (sub == 0x14d && nargs >= 2) { host->chr_collision_vanish(op(0), op(1) != 0); return Step::Continue; }
+                    // 0x165 Chr_Stop(id, i) [case 0x165 -> FUN_00571e00; op1 is fetched, unused].
+                    if (sub == 0x165 && nargs >= 1) { host->chr_stop(op(0)); return Step::Continue; }
+                    // 0x163 Chr_NoForce / 0x164 Chr_AniDisable(id, on) [cases 0x163 / 0x164 ->
+                    // FUN_00571d60 / FUN_00571db0: +0x130 bit 0x10000 / 0x80000 = (on != 0)].
+                    if (sub == 0x163 && nargs >= 2) { host->chr_no_force(op(0), op(1) != 0); return Step::Continue; }
+                    if (sub == 0x164 && nargs >= 2) { host->chr_ani_disable(op(0), op(1) != 0); return Step::Continue; }
+                    // 0xd0 PadTilt(i) [case 0xd0 -> FUN_005d3500(op0)].
+                    if (sub == 0xd0 && nargs >= 1) { host->pad_tilt(op(0)); return Step::Continue; }
+                    // 0xbd Se_Play3DPos(se, x, y, z) [case 0xbd]: operand 1 is read as a POINTER to
+                    // three floats (thunk_FUN_00566250), the same shape as 0x112's operand 0.
+                    // [not modelled] a non-float operand 1 (the engine then reads its scratch float).
+                    if (sub == 0xbd && nargs >= 2) {
+                        float x = opf(1), y = 0.0f, z = 0.0f;
+                        if (op_type(script, old, 1) == 1) {
+                            const std::int32_t wy = raw_op(script, old, 2), wz = raw_op(script, old, 3);
+                            std::memcpy(&y, &wy, 4);
+                            std::memcpy(&z, &wz, 4);
+                        }
+                        host->se_play_pos(op(0), x, y, z);
+                        return Step::Continue;
+                    }
+                    // 0x15e ChrAllInEventBox_SetForce(box, vec, frames, grounded) [case 0x15e: op0
+                    // string, op1 a float POINTER (fx, fy, fz), op4 int, op5 int -> FUN_00571ef0].
+                    // 0x15f ChrAll_SetPointForce(point, strength, frames, rmin, rmax, grounded) [case
+                    // 0x15f: op0 a float pointer (x, y, z), op3 float (XMM2), op4 int, op5 / op6 float,
+                    // op7 int -> FUN_005720b0].
+                    auto fvec = [&](std::uint32_t i, float v[3]) {
+                        v[0] = opf(i); v[1] = v[2] = 0.0f;           // [not modelled] a non-float i
+                        if (op_type(script, old, i) == 1) {
+                            const std::int32_t w1 = raw_op(script, old, i + 1), w2 = raw_op(script, old, i + 2);
+                            std::memcpy(&v[1], &w1, 4);
+                            std::memcpy(&v[2], &w2, 4);
+                        }
+                    };
+                    if (sub == 0x15e && nargs >= 6) {
+                        float v[3]; fvec(1, v);
+                        host->force_in_box(ops(0), v[0], v[1], v[2], op(4), op(5) != 0);
+                        return Step::Continue;
+                    }
+                    if (sub == 0x15f && nargs >= 8) {
+                        float v[3]; fvec(0, v);
+                        host->force_to_point(v[0], v[1], v[2], opf(3), op(4), opf(5), opf(6), op(7) != 0);
+                        return Step::Continue;
+                    }
+                    // 0xbe Se_Play3DChr(se, id) [case 0xbe -> FUN_0043a150].
+                    if (sub == 0xbe && nargs >= 2) { host->se_play_chr(op(0), op(1)); return Step::Continue; }
+                    // 0x11f Eft_SetAlphaCurrent(name, f) [case 0x11f -> FUN_0056fc70].
+                    if (sub == 0x11f && nargs >= 2) { host->effect_alpha_current(ops(0), opf(1)); return Step::Continue; }
+                    // 0x16f Mesh_SetAlphaCurrent(name, f) [case 0x16f -> FUN_00572ba0].
+                    if (sub == 0x16f && nargs >= 2) { host->mesh_alpha_current(ops(0), opf(1)); return Step::Continue; }
+                    // 0x17c Mesh_AttachEffect(mesh, frame, eff) [case 0x17c -> FUN_00572bd0].
+                    if (sub == 0x17c && nargs >= 3) { host->mesh_attach_effect(ops(0), ops(1), op(2)); return Step::Continue; }
+                    // 0x95 SetTimeScale(f) [case 0x95: DAT_006d6078 = f].
+                    if (sub == 0x95 && nargs >= 1) { host->set_time_scale(opf(0)); return Step::Continue; }
+                    // 0x7f SetWeaponLevel(a, b, c, d) [BYTES 0x568582..0x5685ee].
+                    if (sub == 0x7f && nargs >= 4) {
+                        for (std::uint32_t k = 0; k < 4; ++k) host->weapon_level(int(k), op(k));
+                        return Step::Continue;
+                    }
+                    // 0xb2 AddPlayerSP(i) [case 0xb2 -> FUN_004fa290]: the SP wallet 0x76a75c += i,
+                    // clamped to 0..999999 (and mirrored into the player's +0xc4).
+                    if (sub == 0xb2 && nargs >= 1) {
+                        const long long v = (long long)host->gold() + op(0);
+                        host->set_gold(int(std::clamp(v, 0LL, 999999LL)));
+                        return Step::Continue;
+                    }
                     if (sub == 0xd3 && nargs >= 4) {          // Window_Msg(speaker,voice,name,text)
                         host->window_msg(op(0), op(1), ops(2), ops(3));   // type-0 -1 -> ""
                         return Step::Continue;
@@ -444,9 +524,28 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                 } else if (sub == 0x3c && nargs >= 1) {     // Reg_IsEqualInt(i)
                     // The Reg_* family head: compare on acc (EVENTVM.md §5a).
                     acc = (acc == op(0)) ? 1 : 0;
+                } else if (sub == 0x40 && nargs >= 1) {     // Reg_SetInt(i)
+                    // [EXPORT 00566350 case 0x40]: acc = the int operand. @Break_* loads "$I0" /
+                    // "$I1" (the SOB drop ids) with it before Reg_IsEqualInt(0) guards the roll.
+                    acc = op(0);
                 } else if (sub == 0x80) {
-                    // Reg_EntryLabel(s): the StartScript entry-label MARKER (EVENTVM.md).
-                    // No state change — recognized explicitly so acc is knowingly intact.
+                    // Reg_EntryLabel(s) [EXPORT case 0x80]: acc = __stricmp(s, 0x76a474), the label
+                    // of the door the player came in by (XsoHost::entry_label). S_3015's root picks
+                    // its hint events with it (S_3015A / S_3015B). It was long read as a no-op.
+                    const std::string a = ops(0), b = host ? host->entry_label() : std::string();
+                    acc = 0;
+                    for (std::size_t k = 0;; ++k) {
+                        const int ca = k < a.size() ? std::tolower((unsigned char)a[k]) : 0;
+                        const int cb = k < b.size() ? std::tolower((unsigned char)b[k]) : 0;
+                        if (ca != cb || ca == 0) { acc = ca - cb; break; }
+                    }
+                } else if (sub == 0x9b || sub == 0x9c || sub == 0x9d || sub == 0x9e || sub == 0x9f ||
+                           sub == 0xa1 || sub == 0xac || sub == 0xad || sub == 0xae) {
+                    // Recognized, no VM-side state. 0x9b..0xa1 Scene_LoadStatic* (ROOMLOAD.md §2):
+                    // load_room reads the room's own .SOB/.SEF/.SFO/.SCM/.SEN/.SEV/.SNF itself (504 of
+                    // the 505 floor 1..3 sites name the room; [not modelled] S_3099's Hard/Nightmare
+                    // pick of S_3099_1.SOB). 0xac Se_Load / 0xad Cast_Load / 0xae Portrait_Load are
+                    // preloads; CleriaCore loads SEs, casts and portraits on first use.
                 } else if (sub == 0x8c && nargs >= 1) {     // Flag_IsEquip(itemId)
                     // acc = FUN_00443ce0(itemId) "is item equipped" (EVENTVM_HANDLERS_2.md).
                     acc = (host && host->is_equipped(op(0))) ? 1 : 0;
@@ -566,7 +665,7 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                             case 0x71: flag(i0) &= op(1); break;
                             case 0x73: flag(i0) |= op(1); break;
                             case 0x75: flag(i0) ^= op(1); break;
-                            case 0x77: flag(i0) = 0; break;
+                            case 0x7a: flag(i0) = 0; break;
                         }
                         int gi = i0;   // the cell the grant is recorded on
                         if (i0 < 0x200 && grant_filter) {   // CleriaCore mods (GrantQuery), not retail
@@ -787,8 +886,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                             std::memcpy(&z, &wz, 4);
                         }
                         host->water_wall_hitchk(x, y, z, opf(3), opf(4));
+                    } else if (on_unhandled) {
+                        on_unhandled(sub);                 // all other sub-ops: skipped by length
                     }
-                    // all other sub-ops: no-op (skipped by length)
+                } else if (on_unhandled) {
+                    on_unhandled(sub);                     // an unmodelled zero-operand op
                 }
                 break;
             }
@@ -897,7 +999,7 @@ bool ScriptManager::start(const std::string& name, const XsoVm::Vars& vars, int 
     // Single-instance dedup: the engine refuses a second live spawn of the same name
     // (unless AllowMultiInstance, which no room controller in this corpus sets). §5a.
     for (const Inst& i : live)
-        if (!i.finished && iequal(i.name, name)) return false;
+        if (!i.finished && !i.multi && iequal(i.name, name)) return false;
     if (!loader) return false;
     std::shared_ptr<const Xso> s = loader->load_script(name);
     if (!s) return false;                 // target doesn't exist -> skip (engine would throw)

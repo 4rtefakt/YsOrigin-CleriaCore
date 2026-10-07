@@ -1584,7 +1584,15 @@ title_again:
     load_meshes(false);
     float cooldown = 1.5f;
     bool scene_objects_reset = false;   // a scene change destroys every object: the busts too
+    std::string door_label;             // 0x76a474: the last committed door's SEN label (0x80)
+    bool player_vanished = false;       // the player's +0x60 & 0x80 cleared by 0x14d (a new actor per scene)
     auto transition = [&](const std::string& dest, const SenTrigger* via = nullptr) {
+        // FLOOR13_OPS.md: the fade machine's commit strcpy's the door label to 0x76a474 (0x410907);
+        // a script ChangeScene leaves it. The room setup FUN_00431840 resets timeScale 0x6d6078 to
+        // 1.0 (0x431b62), and the arriving player is a new actor (+0x60 & 0x80 set again).
+        if (via) door_label = via->name;
+        g_time_scale = 1.0f;
+        player_vanished = false;
         auto it = g.sob_index.find(dest);
         if (it == g.sob_index.end()) { std::printf("  (no SOB for %s)\n", dest.c_str()); return; }
         std::printf(">> entering %s\n", dest.c_str());
@@ -2377,6 +2385,68 @@ title_again:
             if (water_wall_fn) water_wall_fn(x, y, z, r, st);
         }
         bool is_underwater_world() const override { return water_mode_p && *water_mode_p == 2; }
+        // ---- the floor 1..3 completion pass (build/event_re/FLOOR13_OPS.md; view_xso13.inl) ----
+        const std::string* entry_label_p = nullptr;      // 0x76a474: the last committed door's label
+        std::string entry_label() const override { return entry_label_p ? *entry_label_p : std::string(); }
+        struct PendingDamage { float atk; bool b; int c; };
+        std::vector<PendingDamage> player_damage;        // 0x15c on the player: applied in the hit pass
+        void chr_damage(int id, float atk, bool b, int c) override {
+            // [not modelled] a non-player target: every floor 1..3 site is 998 = the player that
+            // stepped on / touched the object (the plate path binds the script to the player).
+            if (p_isplayer(id) && !(mgr && mgr->world_frozen()))   // FUN_00571ae0: no fix held
+                player_damage.push_back({atk, b, c});
+        }
+        bool* player_vanished_p = nullptr;               // the player's +0x60 & 0x80 cleared (0x14d)
+        void chr_collision_vanish(int id, bool on) override {
+            if (p_isplayer(id)) { if (player_vanished_p) *player_vanished_p = on; }
+            else if (worldHost) worldHost->chr_collision_vanish(rid(id), on);
+        }
+        void chr_stop(int id) override {
+            if (p_isplayer(id)) p_moving = false;
+            else if (worldHost) worldHost->chr_stop(rid(id));
+        }
+        std::function<void(int)> pad_tilt_fn;
+        void pad_tilt(int i) override { if (pad_tilt_fn) pad_tilt_fn(i); }
+        std::function<void(int, const Vec3&)> se3d_fn;   // 3D SE at a point, 2D when not flagged 3D
+        void se_play_pos(int se, float x, float y, float z) override { if (se3d_fn) se3d_fn(se, Vec3{x, y, z}); }
+        void se_play_chr(int se, int id) override {      // FUN_0043a150: an absent actor plays nothing
+            Vec3 p{};
+            if (se3d_fn && actor_pos_fn && actor_pos_fn(rid(id), &p)) se3d_fn(se, p);
+        }
+        std::function<void(const std::string&, float)> fx_alpha_cur_fn;
+        void effect_alpha_current(const std::string& n, float a) override { if (fx_alpha_cur_fn) fx_alpha_cur_fn(n, a); }
+        void mesh_alpha_current(const std::string& n, float a) override {
+            if (meshes) { std::string ln = n; for (char& ch : ln) ch = char(std::tolower((unsigned char)ch)); meshes->alpha_current(ln, a); }
+        }
+        std::function<void(const std::string&, const std::string&, int)> mesh_fx_fn;
+        void mesh_attach_effect(const std::string& m, const std::string& f, int e) override { if (mesh_fx_fn) mesh_fx_fn(m, f, e); }
+        std::function<void(float)> time_scale_fn;
+        void set_time_scale(float s) override { if (time_scale_fn) time_scale_fn(s); }
+        std::function<void(int, int)> weapon_level_fn;
+        void weapon_level(int k, int v) override { if (weapon_level_fn) weapon_level_fn(k, v); }
+        // 0x163 / 0x164: the +0x130 bits on the world actor (the player's too: find(13)).
+        void chr_no_force(int id, bool on) override { if (worldHost) worldHost->chr_no_force(rid(id), on); }
+        void chr_ani_disable(int id, bool on) override { if (worldHost) worldHost->chr_ani_disable(rid(id), on); }
+        bool p_no_force() const { const Actor* wp = wplayer(); return wp && (wp->tag.bits & 0x10000u); }
+        // 0x15e / 0x15f on the player (+0x5d0 / +0x5d8, counter +0x5dc), applied by the player step
+        // (view_xso13_force.inl); an actor with NoForce (+0x130 & 0x10000) is skipped. [not modelled]
+        // world actors (no force channel in their mover).
+        struct PForce { float fx = 0, fz = 0; int n = 0; } pforce;
+        const bool* p_grounded = nullptr;
+        float origin_h = 0.0f;                           // +0x324: the origin above the feet
+        void force_in_box(const std::string& box, float fx, float, float fz, int frames, bool gonly) override {
+            if (!roomPtr || !playerPos || p_no_force() || (gonly && !(p_grounded && *p_grounded))) return;
+            const SceneBox* b = find_box(roomPtr->event_boxes, box);
+            if (b && b->contains(*playerPos)) pforce = {fx, fz, frames};
+        }
+        void force_to_point(float x, float y, float z, float s, int frames, float rmin, float rmax, bool gonly) override {
+            if (!playerPos || p_no_force() || (gonly && !(p_grounded && *p_grounded))) return;
+            const float dx = x - playerPos->x, dy = y - (playerPos->y + origin_h), dz = z - playerPos->z;
+            const float d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 > rmax * rmax || rmin * rmin > d2) return;
+            const float inv = d2 != 0.0f ? 1.0f / std::sqrt(d2) : 1.0f;
+            pforce = {dx * inv * s, dz * inv * s, frames};
+        }
     } csHost;
     // The cutscene runtime is the concurrent GoScript manager (CUTSCENE_COROUTINE.md §2/§5):
     // a triggered script can StartScript sub-talks / captions that tick alongside it. Its
@@ -2930,6 +3000,7 @@ title_again:
             f->alpha_step = frames != 0 ? 1.0f / float(frames) : 1.0f;
         }
     };
+    #include "view_xso13.inl"                  // the floor 1..3 op pass (FLOOR13_OPS.md)
     csHost.water_mode_p = &water_mode;
     csHost.water_wall_fn = [&](float x, float y, float z, float r, float st) {
         bullets.spawn_water_probe({x, y, z}, r, st);    // the falling splash probe (GoXx type 0x16)
@@ -3536,7 +3607,10 @@ title_again:
         spawn_pickups(pick_rng, &item, 1, {at.x, at.y + 0.5f, at.z}, a, water_mode == 2, pickups);
     };
     csHost.drop_item_fn = [&](const std::string& mesh, int item, int keep) {
-        if (const MeshObj* mo = meshes.find(mesh)) drop_at(mo->pos, item, keep != 0);
+        if (const MeshObj* mo = meshes.find(mesh)) {
+            drop_at(mo->pos, item, keep != 0);
+            std::printf("  [drop] item %d at %s\n", item, mesh.c_str());
+        }
     };
     csHost.get_item_fn = [&](int item, int flag, const std::string& mesh) {
         const MeshObj* mo = meshes.find(mesh);
@@ -4875,6 +4949,9 @@ title_again:
                         e.avm.set_section(A.anim_motion, /*force*/true);
                         e.motion_applied = A.anim_motion;
                     }
+                } else if (A.tag.bits & 0x80000u) {
+                    e.motion_applied = -1;                  // 0x164 Chr_AniDisable: FUN_0045f4d0 keeps
+                                                            // the current motion (FLOOR13_OPS.md)
                 } else {
                     e.motion_applied = -1;
                     if (A.cmoving || A.fly_r2 != 0.0f) {
@@ -5279,6 +5356,7 @@ title_again:
                 const Impulse kd = step_knockback_player(player_kb, player_kb2, grounded, player.hp < 1,
                                                          pact.step_t != 0);
                 feet.x += kd.x; feet.z += kd.z; }
+            #include "view_xso13_force.inl"          // 0x15e / 0x15f pushes (FLOOR13_OPS.md)
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
               body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
               feet.x = body.x; feet.z = body.z; }
@@ -5992,13 +6070,28 @@ title_again:
                     const float ddx = c.x - qx, ddy = c.y - qy, ddz = c.z - qz;
                     if (ddx * ddx + ddy * ddy + ddz * ddz > vol.radius * vol.radius) continue;
                     broken_objects.insert(room.name + "/" + t.name);
+                    {   // The object's own @Break_* script (FUN_00434970 on the mesh; FLOOR13_OPS.md):
+                        // $S0 = its name, $I0/$I1 = its SOB drop ids. It poses OPEN, plays SE 114 (under
+                        // water SE 779 + three effects 61 on the mesh), loads each drop id with Reg_SetInt
+                        // and rolls it (0x81, then 0x17e Mesh_DropItem), then turns the collision off
+                        // (the room rebuild drops the mesh), fades and hides it. AllowMultiInstance lets
+                        // several pots break at once. The stand-in below runs only when it cannot start.
+                        std::string bstem = t.script_stem;
+                        for (char& ch : bstem) ch = char(std::tolower((unsigned char)ch));
+                        XsoVm::Vars bv;
+                        bv.s[0] = t.name; bv.i[0] = t.i0; bv.i[1] = t.i1; bv.f[0] = t.f0;
+                        if (events_enabled && csMgr.start(bstem, bv, /*owner: the player*/ 13)) {
+                            std::printf("  [hit] %s -> %s\n", t.name.c_str(), bstem.c_str());
+                            continue;
+                        }
+                    }
                     sfx_at(114, t.position, kSfxAnimVol);      // the shatter SE
                     int pct = 50;                               // @Break_30
                     if (t.script_stem.find("_5") != std::string::npos) pct = 20;
                     if (t.script_stem.find("_100") != std::string::npos) pct = 100;
                     // The script's guard + 0x81 roll (one game-RNG draw: (xs() >> 17) % 100 < p),
                     // then 0x17e Mesh_DropItem($S0, $Ix, 1): a kept world pickup (PICKUPS.md §13.7).
-                    // [STAND-IN] the BREAK_* script itself is not run here yet.
+                    // [STAND-IN] only when the script did not start (CLERIA_EVENTS=0 / missing).
                     for (int slot : {t.i0, t.i1}) {
                         if (slot == 0) continue;
                         if (pct < 100 && int(pick_rng.next() >> 17) % 100 >= pct) continue;
@@ -6238,6 +6331,7 @@ title_again:
                             std::printf("  [plate] %s -> %s\n", t.name.c_str(), stem.c_str());
                     }
                 }
+            #include "view_xso13_touch.inl"          // SOB trigger 4 side contacts (FLOOR13_OPS.md)
             {   // FUN_00462550: lava / blood floors and the S_3009 noise drain (src/cleria/hazard.hpp).
                 SurfaceHazard::In hz;
                 hz.surface = cur_surface;
@@ -6398,7 +6492,8 @@ title_again:
             // Otherwise the player is dead: the death count and the game over (death_t above).
             // FUN_004fe9e0 L31-34: a hit needs the victim's +0x60 & 0x80 AND its Untouchable byte
             // (+0x9d7, ASO funcid 28) clear — the player's skill sections set it.
-            const bool p_untouchable = avm.untouchable() || gs_ramp < 1.0f;
+            const bool p_untouchable = avm.untouchable() || gs_ramp < 1.0f ||
+                                       player_vanished;          // 0x14d: +0x60 & 0x80 cleared
             auto player_death = [&] {
                 if (game.g_flags[133] != 0) {
                     game.g_flags[156] = 0; game.g_flags[130] = 0;
@@ -6467,6 +6562,7 @@ title_again:
                 hud.debug_message("-" + std::to_string(dmg) + " HP");
                 if (died) player_death();
             };
+            #include "view_xso13_damage.inl"     // 0x15c Chr_Damage on the player (FLOOR13_OPS.md)
             for (EnemyRender& e : render) {
                 Actor* en = e.actor;
                 // An enemy hurts only through an armed volume: the body pass (FUN_0045e460) only

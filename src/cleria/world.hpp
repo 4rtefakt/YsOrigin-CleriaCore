@@ -209,6 +209,26 @@ class ActorWorld : public XsoHost {
     void chr_ztest(int id, bool on) override {                          // 0x158 (FUN_00571790)
         if (Actor* a = find(id)) a->ztest = on;
     }
+    // 0x14D Chr_CollisionVanish (FUN_005712a0): +0x60 bit 0x80 = (on == 0), the bit the hit tests
+    // and the body push require (EnemyAI::hittable).
+    void chr_collision_vanish(int id, bool on) override {
+        if (Actor* a = find(id)) a->ai.hittable = !on;
+    }
+    // 0x163 Chr_NoForce / 0x164 Chr_AniDisable (FUN_00571d60 / FUN_00571db0): +0x130 (SpawnTag::bits,
+    // whose group field is bits 8..10) bit 0x10000 / 0x80000.
+    void chr_no_force(int id, bool on) override {
+        if (Actor* a = find(id)) a->tag.bits = (a->tag.bits & ~0x10000u) | (on ? 0x10000u : 0u);
+    }
+    void chr_ani_disable(int id, bool on) override {
+        if (Actor* a = find(id)) a->tag.bits = (a->tag.bits & ~0x80000u) | (on ? 0x80000u : 0u);
+    }
+    // 0x165 Chr_Stop (FUN_00571e00): both move targets = the position, radii and speed 0.
+    void chr_stop(int id) override {
+        if (Actor* a = find(id)) {
+            a->cmove_tgt = a->pos; a->cmoving = false; a->cmove_spd = 0.0f; a->cmove_r2 = 0.0f;
+            a->fly_tgt = a->pos; a->fly_r2 = 0.0f;
+        }
+    }
     void chr_jump(int id, float v) override {                           // 0x141 (FUN_005709d0)
         if (Actor* a = find(id)) { a->vert.t = v; a->pos.y += v; a->vert.grounded = false; }
     }

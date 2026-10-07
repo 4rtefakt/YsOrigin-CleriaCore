@@ -152,6 +152,22 @@ CASES = {
         drive="10:flag=480,1;20:cstate;30:flag=480,0;40:flag=480,1;50:cstate;60:quit",
         expect=["rule flagrule fires on flag", "item 0x57 x2 (Roda Fruit) from rule", 'text "flag rule"',
                 "cflags{ rule.flagrule=1 t.x=5 }", "t50 cstate", "cflags{ rule.flagrule=1 t.x=5 }"]),
+    # FLOOR13_OPS.md: 0x80 Reg_EntryLabel. Through S_3009's S_3015A door Yunica's hint plays; through
+    # S_3008's S_3015B door it does not.
+    "entry_label": dict(
+        room="S_30/S_3009/S_3009", drive="10:flag=251,1;20:exit=1;40:scripts;41:quit",
+        expect=[">> entering S_3015", "script EV_3015_Yunica_1"]),
+    "entry_label_b": dict(
+        room="S_30/S_3008/S_3008", drive="10:flag=251,1;20:exit=1;40:scripts;41:quit",
+        expect=[">> entering S_3015", "t40 scripts"], absent=["EV_3015_Yunica_1"]),
+    # FLOOR13_OPS.md: a SOB trigger-4 touch volume (the S_1011 ward) runs Touch_kekkai -> 0x15c Chr_Damage.
+    "ward_touch": dict(
+        room="S_10/S_1011/S_1011", drive="30:obj=kekkai_01;32:hp=999;35:move=-1,1,40;80:quit",
+        expect=["[touch] kekkai_01 -> touch_kekkai", "Chr_Damage player atk 50 -> HP"]),
+    # FLOOR13_OPS.md: a breakable runs its own @Break_30 (0x40 / 0xb5 / 0x17c) instead of the stand-in.
+    "break_script": dict(
+        room="S_10/S_1001/S_1001", drive="30:obj=break_01;45:atk;60:scripts;150:scripts;160:quit",
+        expect=["[hit] break_01 -> @break_30", "script @break_30", "t150 scripts"]),
 }
 
 # The Archipelago cases (tools/ap_regress.py, build/shell_re/AP_GAME.md): each runs a local scripted AP server.

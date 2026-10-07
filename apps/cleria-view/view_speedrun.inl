@@ -337,15 +337,9 @@ static void sr_page(ui::List& L) {
 // Other features add their own lines with speedrun::set_provider("<feature>", ...).
 static void speedrun_shell(Shell& shell, speedrun::Provider cheats) {
     speedrun::set_provider("cheats", std::move(cheats));
-    speedrun::set_provider("gameplay", [](std::vector<std::string>& out) {
-        // The game writes timeScale itself: 1.0, 0.875 and 0.8 (main.cpp's g_time_scale note; boss03's
-        // 0x6d6078 slow-mo). The Gameplay slider steps by 0.25, so any other value is the shell's.
-        if (g_time_scale != 1.0f && g_time_scale != 0.875f && g_time_scale != 0.8f) {
-            char b[48];
-            std::snprintf(b, sizeof b, "Game speed %.2fx", g_time_scale);
-            out.push_back(b);
-        }
-    });
+    // g_time_scale (0x6d6078) is the game's own: boss slow-mo and scripts (op 0x95 SetTimeScale, 0.3-1.0 in
+    // S_3080's victory scenes) write it, so it is not a modification. The shell's Game speed is
+    // access.game_speed (ticks per second), listed with the cheats.
     speedrun::set_provider("qol", [](std::vector<std::string>& out) {
         // Skips a movie the original only lets you skip after a clear: it saves time.
         if (settings().s.cleria.unlock_movie_skip) out.push_back("Movie skipping unlocked");

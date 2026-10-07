@@ -211,6 +211,61 @@ struct XsoHost {
     // radius 0.8, step 0.4, between Wait_Time(6)s.
     virtual void water_wall_hitchk(float /*x*/, float /*y*/, float /*z*/, float /*radius*/, float /*step*/) {}
 
+    // --- the floor 1..3 completion pass (build/event_re/FLOOR13_OPS.md) ----------------
+    // 0x80 Reg_EntryLabel(s): acc = _stricmp(s, the string at 0x76a474) [EXPORT 00566350 case
+    // 0x80]. 0x76a474 is the label of the last COMMITTED warp: the fade machine strcpy's the
+    // descriptor label +0x14 to +0xd4 at 0x410907 (WARP.md §3/§4), i.e. the SEN record's name
+    // (+0x00) of the door the player came through. A script ChangeScene leaves it unchanged.
+    virtual std::string entry_label() const { return {}; }
+    // 0x15C Chr_Damage(id, f atk, i b, i c) (FUN_00571b80 -> FUN_00571ae0): the script itself is
+    // the attacker. When no fix is held, the actor's +0x60 & 0x80 is set, its HP >= 1.0, its
+    // Untouchable byte +0x9d7 is clear and (not the player, or the player's i-frames +0x734 are
+    // 0), the GoScript's +0xa4 = atk, +0xce = b, +0xcc = c, and the general hit applier
+    // FUN_004fd350 runs with the angle = the actor's heading +0x314 + pi.
+    virtual void chr_damage(int /*id*/, float /*atk*/, bool /*b*/, int /*c*/) {}
+    // 0x14D Chr_CollisionVanish(id, on) (FUN_005712a0): +0x60 bit 0x80 = (on == 0).
+    virtual void chr_collision_vanish(int /*id*/, bool /*on*/) {}
+    // 0x163 Chr_NoForce(id, on) (FUN_00571d60): +0x130 bit 0x10000 = (on != 0); the 0x15e / 0x15f
+    // pushes skip such an actor and the integrator FUN_0045a510 drops its vertical push.
+    // 0x164 Chr_AniDisable(id, on) (FUN_00571db0): +0x130 bit 0x80000 = (on != 0); the NPC mover
+    // FUN_0045f4d0 then stops picking its idle / walk / run motion from the table 0x69ba48.
+    virtual void chr_no_force(int /*id*/, bool /*on*/) {}
+    virtual void chr_ani_disable(int /*id*/, bool /*on*/) {}
+    // 0x165 Chr_Stop(id) (FUN_00571e00): the walk and fly targets = the position, the arrival
+    // radii +0x364 / +0x380 and the speed +0x368 = 0, so Wait_ChrMoving passes.
+    virtual void chr_stop(int /*id*/) {}
+    // 0xD0 PadTilt(i): FUN_005d3500(i), the controller vibration pattern i.
+    virtual void pad_tilt(int /*pattern*/) {}
+    // 0xBD Se_Play3DPos(se, x, y, z): a 3D SE (EFFECTDEF flag 0x10) plays at the point
+    // (FUN_0043a080), any other one 2D (FUN_0043a040). 0xBE Se_Play3DChr(se, id) (FUN_0043a150):
+    // when actor `id` exists, a 3D SE follows it (FUN_0045d7a0), any other one plays 2D.
+    virtual void se_play_pos(int /*se*/, float /*x*/, float /*y*/, float /*z*/) {}
+    virtual void se_play_chr(int /*se*/, int /*id*/) {}
+    // 0x11F Eft_SetAlphaCurrent(name, a) (FUN_0056fc70): every live effect so named: +0x1e0 = a.
+    virtual void effect_alpha_current(const std::string& /*name*/, float /*a*/) {}
+    // 0x16F Mesh_SetAlphaCurrent(name, a) (FUN_00572ba0): the GoMesh's +0x418 = a.
+    virtual void mesh_alpha_current(const std::string& /*name*/, float /*a*/) {}
+    // 0x17C Mesh_AttachEffect(mesh, frame, eff) (FUN_00572bd0): effect `eff` attached (+0x1a0,
+    // mode +0x1d5 = 1) to the mesh's world matrix, or to its named frame when it has one.
+    virtual void mesh_attach_effect(const std::string& /*mesh*/, const std::string& /*frame*/, int /*eff*/) {}
+    // 0x95 SetTimeScale(f): the global 0x6d6078 the frame driver FUN_00410440 scales the sim
+    // clock by (the room setup FUN_00431840 resets it to 1.0 at 0x431b62).
+    virtual void set_time_scale(float /*s*/) {}
+    // 0x7F SetWeaponLevel(a, b, c, d) [BYTES 0x568582..0x5685ee]: FUN_004201d0(k, op_k) for
+    // k = 0..3, i.e. the weapon tier 0x76a634 + 8k = op_k, then the stat recompute.
+    virtual void weapon_level(int /*character*/, int /*tier*/) {}
+    // 0x15E ChrAllInEventBox_SetForce(box, fx, fy, fz, frames, grounded) (FUN_00571ef0) and 0x15F
+    // ChrAll_SetPointForce(x, y, z, strength, frames, rmin, rmax, grounded) (FUN_005720b0): every
+    // actor inside the named region box (FUN_0042dc20, the .SEV record) / at a distance in
+    // [rmin, rmax] of the point, grounded (+0x388) when the flag is set and without NoForce
+    // (+0x130 & 0x10000), gets the push +0x5d0..+0x5d8 and the counter +0x5dc = frames; the point
+    // force is the unit vector to the point x strength. The integrator FUN_0045a510 adds its x/z
+    // to the step while the counter is non-zero (a positive one counts down; HP >= 1 only).
+    virtual void force_in_box(const std::string& /*box*/, float /*fx*/, float /*fy*/, float /*fz*/, int /*frames*/,
+                              bool /*grounded_only*/) {}
+    virtual void force_to_point(float /*x*/, float /*y*/, float /*z*/, float /*strength*/, int /*frames*/,
+                                float /*rmin*/, float /*rmax*/, bool /*grounded_only*/) {}
+
     // --- cutscene condition-wait predicates (CUTSCENE_COROUTINE.md §4b) --------------
     // A condition-wait op re-tests its predicate every frame (the VM rewinds the PC to
     // the op until it passes). The host answers each; the DEFAULTS all return true so a
@@ -458,8 +513,18 @@ struct XsoVm {
     // => inert (run-to-completion).
     std::function<void(int slot)> on_fix;
     std::function<void()> on_unfix, on_window_fix;
+    // 0xB5 AllowMultiInstance(i) sink: GoScript+0x238 = (i != 0) [EXPORT 00566350 case 0xb5].
+    // StartScript's dedup (FUN_00434970) refuses a name only while a live instance of it has
+    // +0x238 == 0, so a script that sets it lets another copy of itself start. Null => inert.
+    std::function<void(bool)> on_allow_multi;
     // CleriaCore mods: the grant filter (GrantQuery above). Null = retail behaviour.
     std::function<GrantDecision(const GrantQuery&)> grant_filter;
+    // Coverage diagnostics (CleriaCore's own, not retail): called with the sub-op whenever a
+    // class-2 call reaches step_one's fallthrough, i.e. a sub-op this VM neither models nor
+    // knowingly ignores (it is then skipped by its encoded length). Null = silent. cleria-view
+    // logs it under CLERIA_XSO_LOG=1; `cleria-xso --op-status` classifies every sub-op with it
+    // (tools/xso_floor_ops.py, build/event_re/FLOOR13_OPS.md).
+    std::function<void(std::uint32_t sub)> on_unhandled;
     // The running instance's name, set by ScriptManager around each tick ("" in a bare run()).
     std::string script_name;
     std::int32_t g_flags[0x200] = {0};
@@ -647,6 +712,7 @@ struct ScriptManager {
         int fix_slot = -1;                 // +0x230: the fix slot this script holds (-1 none)
         XsoVm::Vars vars;                  // +0x244..: $I/$F/$S
         int owner = 0;                     // +0x240: the bound actor (13 = the player)
+        bool multi = false;                // +0x238: AllowMultiInstance (0xb5)
     };
     std::vector<Inst> live;
     struct Spawn { std::string name; XsoVm::Vars vars; int owner = 0; };
@@ -664,6 +730,7 @@ struct ScriptManager {
         vm.on_fix = [this](int slot) { if (cur_inst_) fix(*cur_inst_, slot); };
         vm.on_unfix = [this] { if (cur_inst_) unfix(*cur_inst_); };
         vm.on_window_fix = [this] { if (cur_inst_ && cur_inst_->fix_slot < 0) fix(*cur_inst_, 0); };
+        vm.on_allow_multi = [this](bool on) { if (cur_inst_) cur_inst_->multi = on; };
     }
 
     // The world is frozen while any live script holds a fix (IsFix = the two counters'
@@ -674,7 +741,8 @@ struct ScriptManager {
     // matching StartScript's immediate first tick (§5a). Returns the live-index.
     std::size_t start_root(std::shared_ptr<const Xso> s, std::string name);
     // Spawn a child by NAME via the loader (the StartScript path). Dedup: refuse if a live
-    // instance with the same name already exists (single-instance; §5a). Ticks the child
+    // instance with the same name already exists that has not run AllowMultiInstance(1)
+    // (FUN_00434970: +0x11 & 2 clear, _stricmp name, +0x238 == 0; §5a). Ticks the child
     // once immediately. Returns false if deduped or the loader can't find it.
     bool start(const std::string& name, const XsoVm::Vars& vars = {}, int owner = 0);
     // One engine frame: tick every live script once, drain StartScript spawns (children

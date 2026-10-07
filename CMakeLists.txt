@@ -105,6 +105,12 @@ endif()
 # cleria-dump — load a room and export it to .obj (no GPU).
 add_executable(cleria-cotest apps/cleria-cotest/main.cpp)
 target_link_libraries(cleria-cotest PRIVATE cleria)
+# cleria-xso13test — the floor 1..3 XSO op pass (build/event_re/FLOOR13_OPS.md).
+add_executable(cleria-xso13test apps/cleria-xso13test/main.cpp)
+target_link_libraries(cleria-xso13test PRIVATE cleria)
+# cleria-xsoops — the XSO VM op coverage probe for tools/xso_floor_ops.py (FLOOR13_OPS.md).
+add_executable(cleria-xsoops apps/cleria-xsoops/main.cpp)
+target_link_libraries(cleria-xsoops PRIVATE cleria)
 
 # cleria-combattest — hit resolution (src/cleria/hit.hpp) against the disassembly's rules.
 add_executable(cleria-combattest apps/cleria-combattest/main.cpp)
@@ -364,6 +370,7 @@ foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest sav
 endforeach()
 add_test(NAME modstest COMMAND cleria-modstest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME contenttest COMMAND cleria-contenttest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME xso13test COMMAND cleria-xso13test "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ---- Speedrun mode (build/shell_re/SPEEDRUN.md): the timer, splits, LiveSplit Server client ----
 add_library(cleria-speedrun STATIC src/cleria/speedrun.cpp src/cleria/livesplit.cpp)

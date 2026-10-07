@@ -140,6 +140,15 @@ void MeshWorld::alpha_target(const std::string& name, float a, int frames) {
     }
 }
 
+void MeshWorld::alpha_current(const std::string& name, float a) {
+    if (MeshObj* m = find(name)) {
+        const float was = m->alpha;
+        m->alpha = a;                                                     // FUN_00572ba0: +0x418 = a
+        if ((was > 0.0f) != (a > 0.0f)) m->dirty_pose = true;             // the alpha-0 collapse
+        if (a != was) m->dirty_alpha = true;
+    }
+}
+
 void MeshWorld::distance_to_alpha(const std::string& a, const std::string& b, float div, float k) {
     MeshObj* ma = find(a);
     if (!ma) return;

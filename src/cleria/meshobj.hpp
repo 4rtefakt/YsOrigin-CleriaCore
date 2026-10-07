@@ -90,6 +90,7 @@ class MeshWorld {
     void set_clip_now(const std::string& name, const std::string& clip, std::int32_t start = 0);
     void set_clip_index(const std::string& name, int idx, std::int32_t start = 0);
     void alpha_target(const std::string& name, float a, int frames);   // Mesh_SetAlphaTarget 0x16e
+    void alpha_current(const std::string& name, float a);              // Mesh_SetAlphaCurrent 0x16f
     // Mesh_DistanceToAlpha 0x188 (FUN_00573aa0): a's +0x418 = (b.fade + 1) x 0.5 x k x b.alpha x
     // clamp(1 - |b.frame_y - a.frame_y| / div, 0, 1) (div 0 = no divide). Both frame_y must be
     // filled. Missing objects: nothing happens.
