@@ -4,6 +4,7 @@
 #include "cleria/brains/brains.hpp"
 #include "cleria/brains/revive.hpp"
 #include "cleria/bullet.hpp"
+#include "cleria/sand.hpp"
 
 namespace floor4 {
 
@@ -267,5 +268,16 @@ static void floor4_tests() {
         check(bl.bombs()[0]->rest && std::fabs(bl.bombs()[0]->pos.x - 6.31854f) < 2e-3f, "... and it rests at x 6.31854");
         for (int n = 0; n < 200 && !bl.bombs().empty(); ++n) bl.update(env, nullptr);
         check(bl.bombs().empty(), "the bomb is gone at age 180");
+    }
+    {   // The player in quicksand (src/cleria/sand.hpp): the dy clamp and the walking lift, +0x38c.
+        check(sand2_dy(-0.3f, false, -2.0f, -1.5f) == -0.015f && sand2_dy(0.2f, false, -2.0f, -1.5f) == 0.03f,
+              "sand2: dy clamped to [-0.015, 0.03] (0x6bdfb4 / 0x6bd100)");
+        check(sand2_dy(-0.3f, true, -2.0f, -1.5f) == 0.01f && sand2_dy(-0.3f, true, -2.0f, -1.07f) == -0.015f,
+              "sand2: walking lifts 0.01 below the top + 0.925, not above it");
+        PlayerSand ps; ps.surf_ray = 0x12;
+        check(ps.probe_drop() == 0.95f && !sand2_buried(ps, -2.0f, -4.2f) && sand2_buried(ps, -2.0f, -4.3f),
+              "sand2: the probe starts 0.95 under the feet; buried past 2.25 (0x6bd5d0)");
+        ps.surf_ray = 1;
+        check(ps.probe_drop() == 0.25f && !sand2_buried(ps, 0.0f, -9.0f), "not sand2: 0.25, never buried");
     }
 }

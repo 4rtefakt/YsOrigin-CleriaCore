@@ -431,7 +431,7 @@ CASES.update({
     # dead ticks and revives in place with a new instance id (REVIVE.md §3.5, FUN_00434db0).
     "karon_revive": dict(
         room="S_40/S_4004/S_4004", env=_F4,
-        drive="8:opt=OneHitKill=1;9:opt=DamageTaken=0;20:at3=4.6,-1,12,90;100:every=12,300,near=#60;"
+        drive="7:opt=InfiniteOxygen=1;8:opt=OneHitKill=1;9:opt=DamageTaken=0;20:at3=4.6,-1,12,90;100:every=12,300,near=#60;"
               "101:every=12,300,atk;350:stats;800:stats;801:quit",
         expect=["[revive] #186 cast 60 hp 261 phase 1 7a0 0 gnd 1 t 0.000 y -4.00", "defeated 1", "stats exp 3 lv 1",
                 "cast 60 revived as #207 (section 10)"]),
@@ -453,6 +453,15 @@ CASES.update({
               "440:near=#187,2;441:atk;520:quit",
         expect=["cast 33 phase 2 sub 3", "[bomb] age", "M290 #187 death bomb (dead tick 15)",
                 "M290 #187 death bomb (dead tick 30)"]),
+    # The player in S_4004's quicksand (src/cleria/sand.hpp, WATER.md §1a/§2a): walking off the stone she
+    # falls into the selector-1 set over sand2 and stays "grounded" in it, walking lifts her 0.0025 a tick
+    # (0.01 x the sand2 rise x0.25), standing sinks her 0.015 a tick until she is buried (+0x38c) and the O2
+    # drains 100 a tick.
+    "sand_wade": dict(
+        room="S_40/S_4004/S_4004", env=_F4,
+        drive="8:opt=DamageTaken=0;20:move=0,1,200;150:sand;219:sand;300:sand;330:sand;331:quit",
+        expect=["[sand] surf 18/18 water -2.00", "sub 1 buried 0 grounded 1 feet y -2.4", "sub 1 buried 0 grounded 1 feet y -2.2",
+                "buried 1 grounded 1 feet y -3.45", "buried 1 grounded 1 feet y -3.90"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

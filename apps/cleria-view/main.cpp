@@ -57,6 +57,7 @@
 #include "cleria/arena_player.hpp"
 #include "cleria/enemy_ai.hpp"
 #include "cleria/brains/revive.hpp"
+#include "cleria/sand.hpp"
 #include "cleria/brains/brains.hpp"
 #include "cleria/physics.hpp"
 #include "cleria/physics_player.hpp"

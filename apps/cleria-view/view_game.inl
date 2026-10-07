@@ -1309,6 +1309,7 @@ title_again:
     PlanarVelocity pvel;         // +0x32c/+0x334
     float last_floor = 0;        // +0x318 — kept when the down-ray misses
     int cur_surface = 1;         // +0x4b9, latched surface id (surface.hpp order)
+    PlayerSand psand;            // +0x4ba / +0x320 / +0x38b / +0x38c: the sand2 state (src/cleria/sand.hpp)
     float surface_up = 1.0f;     // the latched surface's scale on a rising dy
 
     // Play mode. The camera comes from the room's SCM regions (see update_camera), and
@@ -3618,6 +3619,10 @@ title_again:
             shell.open = true;
             shell_drive_close = true;
             shell_shot_frames = 3;                       // ImGui lays the tab bar out a frame late
+        } else if (cmd == "sand") {                    // the player's sand2 state (src/cleria/sand.hpp)
+            std::printf("  [sand] surf %d/%d water %.2f sub %d buried %d grounded %d feet y %.3f O2 %.0f\n",
+                        cur_surface, psand.surf_ray, psand.water_y, int(submerged), int(psand.buried),
+                        int(pv.grounded), feet.y, oxy.o2);
         } else if (cmd == "pos") {                     // print the player's feet and O2
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d sp %.0f shield %d/%d/%d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage,
@@ -5607,6 +5612,11 @@ title_again:
                 if (character == 2 && shield_on && !pv.grounded && pv.t < 0.0f) pv.t *= 0.88f;
             }
             {   float dy = vertical_dy(pv, submerged, cur_surface == 0x12);
+                if (submerged && psand.on_sand2()) {   // the set over sand2 (src/cleria/sand.hpp, 0x45a652)
+                    dy = sand2_dy(vertical_dy(pv), moving, psand.water_y, oy);
+                    cur_surface = 0x12;                // 0x45a6b7: +0x4b9 = 0x12
+                    surface_up = 0.25f;
+                }
                 if (dy > 0.0f) dy *= surface_up;      // sand2/lava/blood slow a rise too
                 // The ceiling (FUN_0045a510, after dy is taken): while the timer is rising, a ray
                 // from the origin up +0x328 x 1.05 (0x6bd458) zeroes +0x330 / +0x420 on a hit
@@ -5624,22 +5634,32 @@ title_again:
                 last_floor = fl;                      // +0x318 persists when the ray misses
                 if (oy - fl < 1.6f)                   // surface latch (0x45ba7e: hit t < 1.6)
                     cur_surface = surface_index_or_default(surface_of(phys_mesh(room), floor_tri));
+                psand.surf_ray = surface_index_or_default(surface_of(phys_mesh(room), floor_tri));   // +0x4ba
             }
             p_landed = settle_vertical(pv, oy, last_floor, kOriginH, submerged);
+            if (submerged && psand.on_sand2() && !pv.grounded) {
+                // 0x45bf52 [EXPORT 0045a510.c:912]: in the set over sand2 +0x388 stays 1; a fall that
+                // entered it last tick in section 3 lands (the follow-on) [approx: the view's landing].
+                pv.grounded = true;
+                if (psand.entered && avm.section() == 3) p_landed = true;
+            }
             {   // The water test after the vertical step (FUN_0046fba0 0x46fd7c -> FUN_0045c490).
                 // Mode 2: submerged throughout. Mode 1: a ray up from feet - 0.25 into the water
                 // tree; submerged past a depth of 1.1, wading between 0.35 and 2.0; a change of
                 // +0x38a caps the timer at 0.1; a wading change or a surfacing splashes.
                 if (splash_cd > 0) --splash_cd;
+                psand.entered = psand.buried = false;                 // the word +0x38b = 0 (0x45c58c..)
                 if (water_mode == 2) {
                     if (!submerged) { water_transition(pv); submerged = true; }
                     wading = false;
                 } else if (phys_mesh(room).has_water()) {
-                    const float o0 = feet.y - 0.25f;                 // 0x6bd244 [not modelled] sand2's -0.7
+                    const float o0 = feet.y - psand.probe_drop();    // 0x6bd244, 0.7 more over sand2 (0x45c787)
                     const float surf = water_above(phys_mesh(room), feet.x, o0, feet.z);
                     if (surf <= kNoFloor) {
                         submerged = wading = false;                   // no hit: both cleared, no splash
                     } else {
+                        psand.water_y = surf;                         // +0x320 (0x45c85b)
+                        psand.buried = sand2_buried(psand, surf, o0); // +0x38c (0x45c840)
                         const float depth = surf - o0;
                         const bool sub = depth > 1.1f;                // 0x6bd464
                         bool surfaced = false;
@@ -5647,14 +5667,15 @@ title_again:
                             water_transition(pv);
                             surfaced = !sub;
                             submerged = sub;
+                            psand.entered = sub;                      // +0x38b (0x45c885)
                         }
                         const bool wade = depth > 0.35f && depth < 2.0f;   // 0x6bd2b0 / 0x6bd580
                         if (wade != wading || surfaced) {
                             wading = wade;
-                            if (splash_cd == 0) {                     // 0x45c90d..0x45ca04
+                            if (splash_cd == 0) {                     // 0x45c90d..0x45ca04 (sand2: fx 0x163, SE 0x28)
                                 splash_cd = 15;
-                                spawn_sim_fx(0x44, {feet.x, surf + 0.15f, feet.z}, {}, 1.0f, {}, 0, {});
-                                sfx_at(0x30, feet, kSfxAnimVol);
+                                spawn_sim_fx(psand.on_sand2() ? 0x163 : 0x44, {feet.x, surf + 0.15f, feet.z}, {}, 1.0f, {}, 0, {});
+                                sfx_at(psand.on_sand2() ? 0x28 : 0x30, feet, kSfxAnimVol);
                             }
                         }
                     }
@@ -6708,7 +6729,8 @@ title_again:
                 player.sp_cur = mp.mp; player.sp_lag = mp.lag;
             }
             {   // Oxygen (0x467d91..0x467f29, WATER.md §3): the held tool 0x61 = the Scales.
-                const float dmg = oxy.tick(submerged, cur_surface, /*+0x38c sand [not modelled]*/ false,
+                // surface = +0x4ba: over sand2 the ray's surface (elsewhere the latch, as before).
+                const float dmg = oxy.tick(submerged, psand.on_sand2() ? 0x12 : cur_surface, psand.buried,
                                            inv.held == 0x61, float(player.max_hp));
                 if (dmg > 0.0f && player.hp > 0) {               // drowning: maxHP / 60 a tick
                     drown_acc += dmg;                            // [approx] the view's HP is an int
