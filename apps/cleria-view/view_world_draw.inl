@@ -260,6 +260,8 @@ struct FnAiWorld : AiWorld {
     void hide_boss_gauge() override { if (hide_gauge_fn) hide_gauge_fn(); }
     std::function<bool(const char*)> in_room_fn;        // the scene record's path test (M860's S_3080 rule)
     bool in_room(const char* dir) override { return in_room_fn && in_room_fn(dir); }
+    std::function<void(const std::function<void(const Fx&)>&)> effects_fn;   // the GoEffect pool (view_duel.inl)
+    void for_each_effect(const std::function<void(const Fx&)>& f) override { if (effects_fn) effects_fn(f); }
     void for_each(const std::function<void(Actor&)>& f) override { each(f); }
     Actor* find(int id) override { return id ? find_fn(id) : nullptr; }
     Actor* spawn_child(Actor& p, int c, const Vec3& d, int lv, bool k) override { return spawn_fn(p, c, d, lv, k); }

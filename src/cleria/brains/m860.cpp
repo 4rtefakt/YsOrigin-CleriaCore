@@ -29,12 +29,12 @@
 //        section 4)
 // The decide state picks by HP band (> 80 / > 50 / > 33 / else), distance (5.0) and facing;
 // after K hits (4; Hugo 2, Toal 6) it guards (near) or chain-dodges (far).
-// [not modelled] the brain's effect-pool scan (0x4e33d8): the live EF2 0x122 count, the player
-// effects that steer the decide (ids 0x82/0x65/0x84/0x14, 0x70/0x15, 0x90), the shield break
-// (a player effect from a 13-id list overlapping an EF2 0x122 kills it: SE 424, EF2 0x123) and the
-// grab (a live EF2 0x123 with the player in section 4/0xb: EF2 0x11e at +0x88c, the player held
-// for 20 ticks in section 9) — AiWorld has no effect-pool query, so the count reads 0 and the
-// flags false; the keep-out restore (FUN_0042dc90); FUN_004202e0's stat recompute at INIT;
+// The effect-pool scan (0x4e33d8: the live EF2 0x122 count, the player effects that steer the
+// decide, ids 0x82/0x65/0x84/0x14, 0x70/0x15, 0x90) reads AiWorld::for_each_effect.
+// [not modelled] the shield break (a player effect from a 13-id list overlapping an EF2 0x122 kills
+// it: SE 424, EF2 0x123; it overlaps the hit records of pool 0x730128) and the grab (a live EF2
+// 0x123 with the player in section 4/0xb: EF2 0x11e at +0x88c, the player held for 20 ticks in
+// section 9); the keep-out restore (FUN_0042dc90); FUN_004202e0's stat recompute at INIT;
 // +0x64 / +0x4be / +0x3c0 writes; the camera shakes / zoom blurs (0x76a5ac.., 0x76a550..,
 // FUN_005e0590, FUN_005d3500); FUN_00451b50's rotation of the 0x121 bullet's effect.
 #include <cmath>
@@ -96,10 +96,30 @@ void half_hp_rule(Actor& A, bool room, AiWorld* w) {
 // What the brain's effect-pool scan (0x4e33d8..0x4e3537) reads: the live EF2 0x122 count (capped
 // at 0x40), a live EF2 0x123 with +0x1d5 != 0xff, and three "the player is using a skill" flags:
 // fA = a live effect id 0x82/0x65/0x84/0x14, fB = 0x70/0x15, fC = 0x90 (ids 0xbc/0x7d skipped).
-// [not modelled] AiWorld has no effect-pool query: the host would need the live EF2 ids (+0x1d8)
-// of the pool DAT_007300bc. Until then the count is 0 and the flags are false.
+// [BYTES 0x4e342e..0x4e352e] over AiWorld::for_each_effect (pool order): the 0x40th 0x122 ends the
+// whole scan (0x4e3475); a 0x123 with +0x1d5 == 0xff is not "live"; ids are word compares. The
+// 13-id list the shield break collects (0x6be3e0 / 0x6be450 / 0x6be4e0, 0x26f) is not gathered: the
+// break itself is [not modelled] (it overlaps the effects' hit records, pool 0x730128).
 struct PoolScan { int n122 = 0; bool live123 = false, fA = false, fB = false, fC = false; };
-PoolScan pool_scan(const AiEnv&) { return {}; }
+PoolScan pool_scan(const AiEnv& e) {
+    PoolScan r;
+    if (!e.world) return r;
+    bool full = false;
+    e.world->for_each_effect([&](const AiWorld::Fx& f) {
+        if (full) return;
+        const int id = f.id & 0xffff;
+        if (id == 0x122) {
+            if (++r.n122 >= 0x40) { full = true; return; }
+        } else if (id == 0x123) {
+            if ((f.attach & 0xff) != 0xff) r.live123 = true;
+        }
+        if (id == 0x82 || id == 0x65 || id == 0x84 || id == 0x14) r.fA = true;
+        else if (id == 0xbc || id == 0x7d) {}
+        else if (id == 0x70 || id == 0x15) r.fB = true;
+        else if (id == 0x90) r.fC = true;
+    });
+    return r;
+}
 
 // FUN_0047ad30(p) with the margin in xmm1: inside the arena (g_flags[190] = DAT_0076bc14 mode 1:
 // the rectangle {xmin, zmin, xmax, zmax} grown by m; mode 2: the sphere {cx, cy, cz, r} grown by

@@ -886,6 +886,37 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                             std::memcpy(&z, &wz, 4);
                         }
                         host->water_wall_hitchk(x, y, z, opf(3), opf(4));
+                    } else if (sub == 0x111 && host && nargs >= 22) {
+                        // FireBullet [BYTES 0x56aaa5..0x56ad5e -> FUN_00571500 0x571500..0x5715c9]:
+                        // ints 0 (actor), 1 (kind), 2 (effect); operands 3 and 6 through
+                        // FUN_00566340 = pointers to three words each (pos, dir; not normalised);
+                        // floats 9..13; ints 14..16 (the block's int slots +0x158..+0x160); floats
+                        // 17..21. FUN_00571500 resolves the actor (0x3e6 = the script's own) and,
+                        // when it exists, calls FUN_00593550(ecx = actor, edx = kind, effect, &pos,
+                        // &dir, 9..21, NULL) (build/event_re/DUELS.md §3). [not modelled] a
+                        // non-float operand 3 / 6 (the engine then reads its scratch float and the
+                        // words after it; here those words are the next operands' raw values).
+                        auto vec3 = [&](std::uint32_t i, float* v) {
+                            v[0] = opf(i);
+                            for (std::uint32_t k = 1; k < 3; ++k) {
+                                const std::int32_t w = op_type(script, old, i) == 1 ? raw_op(script, old, i + k) : 0;
+                                std::memcpy(&v[k], &w, 4);
+                            }
+                        };
+                        FireBulletOp fb;
+                        fb.actor = op(0);
+                        if (fb.actor == 0x3e6) fb.actor = owner;
+                        fb.kind = op(1);
+                        fb.effect = op(2);
+                        vec3(3, fb.pos);
+                        vec3(6, fb.dir);
+                        for (std::uint32_t k = 0; k < 5; ++k) fb.f[k] = opf(9 + k);         // +0x144..+0x154
+                        for (std::uint32_t k = 0; k < 3; ++k) {                             // +0x158..+0x160: the ints' bits
+                            const std::int32_t v = op(14 + k);
+                            std::memcpy(&fb.f[5 + k], &v, 4);
+                        }
+                        for (std::uint32_t k = 0; k < 5; ++k) fb.f[8 + k] = opf(17 + k);   // +0x164..+0x174
+                        host->fire_bullet(fb);
                     } else if (on_unhandled) {
                         on_unhandled(sub);                 // all other sub-ops: skipped by length
                     }

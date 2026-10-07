@@ -71,6 +71,14 @@ class Xso {
 // no-ops, which is exactly how every existing XSO test already runs.
 // 0x187 Mesh_Locate's operands (XsoHost::mesh_locate).
 struct ObjLocateArgs { std::string ymo, name; float x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0; };
+// op 0x111 FireBullet's operands as FUN_00571500 hands them to FUN_00593550: `f` is the stack
+// block f0..f12 (speed, accel, gravity, power, knock, the int slots +0x158/+0x15c/+0x160 as raw
+// bits, then +0x164..+0x174), i.e. bullet::block_spawn's 13 floats.
+struct FireBulletOp {
+    int actor = 0, kind = 0, effect = 0;
+    float pos[3] = {0, 0, 0}, dir[3] = {0, 0, 0};
+    float f[13] = {};
+};
 
 struct XsoHost {
     virtual ~XsoHost() = default;
@@ -210,6 +218,10 @@ struct XsoHost {
     // bullet::Bullets::spawn_water_probe. S_2006's WATERWALL loops five of them, (34..38, 25, 97),
     // radius 0.8, step 0.4, between Wait_Time(6)s.
     virtual void water_wall_hitchk(float /*x*/, float /*y*/, float /*z*/, float /*radius*/, float /*step*/) {}
+    // op 0x111 FireBullet (handler 0x56aaa5 -> FUN_00571500, build/event_re/DUELS.md §3): a GoXx
+    // bullet from actor `actor` (0x3e6 already resolved to the script's own; 13 = the player)
+    // through FUN_00593550 with the block below. Nothing happens when the actor does not exist.
+    virtual void fire_bullet(const FireBulletOp& /*b*/) {}
 
     // --- the floor 1..3 completion pass (build/event_re/FLOOR13_OPS.md) ----------------
     // 0x80 Reg_EntryLabel(s): acc = _stricmp(s, the string at 0x76a474) [EXPORT 00566350 case

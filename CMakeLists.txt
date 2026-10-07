@@ -108,6 +108,9 @@ target_link_libraries(cleria-cotest PRIVATE cleria)
 # cleria-xso13test — the floor 1..3 XSO op pass (build/event_re/FLOOR13_OPS.md).
 add_executable(cleria-xso13test apps/cleria-xso13test/main.cpp)
 target_link_libraries(cleria-xso13test PRIVATE cleria)
+# cleria-dueltest — the story duels' script / engine side (build/event_re/DUELS.md).
+add_executable(cleria-dueltest apps/cleria-dueltest/main.cpp)
+target_link_libraries(cleria-dueltest PRIVATE cleria)
 # cleria-xsoops — the XSO VM op coverage probe for tools/xso_floor_ops.py (FLOOR13_OPS.md).
 add_executable(cleria-xsoops apps/cleria-xsoops/main.cpp)
 target_link_libraries(cleria-xsoops PRIVATE cleria)
@@ -374,6 +377,7 @@ endforeach()
 add_test(NAME modstest COMMAND cleria-modstest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME contenttest COMMAND cleria-contenttest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME xso13test COMMAND cleria-xso13test "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME dueltest COMMAND cleria-dueltest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ---- Speedrun mode (build/shell_re/SPEEDRUN.md): the timer, splits, LiveSplit Server client ----
 add_library(cleria-speedrun STATIC src/cleria/speedrun.cpp src/cleria/livesplit.cpp)

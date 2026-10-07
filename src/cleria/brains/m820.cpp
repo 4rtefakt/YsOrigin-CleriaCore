@@ -30,9 +30,9 @@
 //   0x96  the charge-up super (section 0x13d, DEF + 15; only with g_flags[179], then 1500
 //         ticks of cooldown in +0x7c4).
 //   0xa0  the jump-dodge (section 3), M830's candidate tables.
-// [not modelled] the GoEffect-pool scan (no AiWorld query: Hugo's live effects 0x86 / 0x87 /
-// 0x82 / 0x89 / 0x90 drive his dodge reactions; the port assumes none are live); the keep-out
-// box restore (FUN_0042dc90); FUN_004202e0's stat recompute at INIT; +0x64 / +0x4be / +0x3c0
+// The GoEffect-pool scan reads Hugo's live effects 0x86 / 0x87 / 0x82 / 0x89 / 0x90 through
+// AiWorld::for_each_effect (they drive the dodge reactions; build/event_re/DUELS.md §7).
+// [not modelled] the keep-out box restore (FUN_0042dc90); FUN_004202e0's stat recompute at INIT; +0x64 / +0x4be / +0x3c0
 // writes; the zoom blur (0x76a550 / 0x76a554 / 0x7b2488 + FUN_005e0590 centre) on the big
 // slash and the super.
 #include <cmath>
@@ -81,12 +81,22 @@ void set_word(EnemyAi& a, int off, int v) {      // a 16-bit store inside one dw
 bool dash_sec(int s) { return s == 0x13c || s == 0x10d || s == 0x110; }
 
 // The GoEffect-pool scan (0x4dfbc3..0x4dfc44): over DAT_007300bc[0..DAT_007300c0), skipping
-// entries with byte +0x11 & 2, by EF2 id (+0x1d8): 0x86 / 0x87 -> `a`, 0x82 -> n += 1,
-// 0x89 -> n += 20, 0x90 -> `b`. [not modelled] AiWorld has no effect-pool query; the port
-// assumes none of these effects is live (what the scan returns in a pool without them). A host
-// would need "is a live effect of id X present / how many".
+// entries with byte +0x11 & 2, by EF2 id (+0x1d8, a word compare): 0x86 / 0x87 -> `a`, 0x82 ->
+// n += 1, 0x89 -> n += 20, 0x90 -> `b` (Hugo's live shots and skills) [BYTES 0x4dfbe0..0x4dfc37].
+// The pool comes from AiWorld::for_each_effect (none without a world: the scan's empty answer).
 struct PoolScan { bool a = false, b = false; int n = 0; };
-PoolScan scan_effects(const AiEnv&) { return {}; }
+PoolScan scan_effects(const AiEnv& e) {
+    PoolScan r;
+    if (!e.world) return r;
+    e.world->for_each_effect([&](const AiWorld::Fx& f) {
+        const int id = f.id & 0xffff;
+        if (id == 0x86 || id == 0x87) r.a = true;
+        else if (id == 0x82) r.n += 1;
+        else if (id == 0x89) r.n += 0x14;
+        else if (id == 0x90) r.b = true;
+    });
+    return r;
+}
 
 AiOut still(EnemyAi& a) {                          // puppet / frozen: see m830.cpp
     AiOut out;
@@ -114,7 +124,7 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
         if (tl > 0) { tx /= tl; tz /= tl; }
         if (0.2f > tx * hx + 0.0f + tz * hz) facing = false;
     }
-    const PoolScan fx = scan_effects(e);                            // [not modelled]: none live
+    const PoolScan fx = scan_effects(e);                            // Hugo's live effects
     if (kGone > a.f(0x880)) {                                       // defeated: stand still
         a.action() = 2; a.steer() = 0; a.hit_cut = true;
         return;

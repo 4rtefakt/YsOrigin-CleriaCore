@@ -2351,6 +2351,8 @@ int main() {
             Actor* player() override { return P; }
             void hide_boss_gauge() override { ++gauge_hidden; }
             bool in_room(const char* dir) override { return s3080 && std::strcmp(dir, "s_30\\s_3080\\") == 0; }
+            std::vector<Fx> fx;                         // the live GoEffect pool (the effect scans)
+            void for_each_effect(const std::function<void(const Fx&)>& f) override { for (const Fx& e : fx) f(e); }
         };
         XorShift rng;
         auto env_for = [&](Actor& A, Duel3080& w, int character, int section) {
@@ -2584,6 +2586,30 @@ int main() {
             enemy_death_hook_for(79)(K2, wo);
             check(wo.flags[174] == 1 && wo.flags[156] == 0 && wo.flags[130] == 0 && K2.hp == 1.0f,
                   "M860 KO outside S_3080: 174 = 1, 156 = 130 = 0, HP 1");
+        }
+        {   // The effect-pool scan (0x4e33d8): a live EF2 0x90 (a player effect) sends the decide (sub 0x14)
+            // to the guard 0xb4 with +0x7bc = 0xc85a09, +0x7c0 = 2 (0x4e403d); without it, not. The
+            // 0x40th EF2 0x122 ends the scan before a later 0x90 is seen (0x4e3475).
+            auto decide = [&](std::vector<AiWorld::Fx> fx) {
+                Duel3080 w; w.flags[130] = 1; w.flags[156] = 1;
+                Actor Pl; Pl.hp = Pl.max_hp = 100;
+                w.P = &Pl;
+                Actor K; make_duelist(K, 0xac, 79);
+                enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+                w.fx = std::move(fx);
+                K.ai.i(0x72c) = 0x14; K.ai.i(0x730) = 0; K.ai.i(0x7c4) = 0; K.ai.dur() = 0;
+                enemy_ai_tick(K.ai, gp, env_for(K, w, 1, 2), enemy_brain_for(79));
+                return std::make_pair(K.ai.i(0x7bc), K.ai.i(0x7c0));
+            };
+            AiWorld::Fx f90; f90.id = 0x90;
+            AiWorld::Fx f7d; f7d.id = 0x7d;
+            AiWorld::Fx f122; f122.id = 0x122;
+            const auto with = decide({f7d, f90}), without = decide({f7d});
+            std::vector<AiWorld::Fx> capped(0x40, f122);
+            capped.push_back(f90);
+            const auto cap = decide(capped);
+            check(with.first == 0x00c85a09 && with.second == 2 && without.first != 0x00c85a09 && cap.first != 0x00c85a09,
+                  "M860 decide: a live EF2 0x90 -> the guard (0xc85a09, 2); none, or past 0x40 0x122s -> not");
         }
         {   // The puppet in S_3080 kills every live EF2 0x122 each tick (0x4e7b31); elsewhere it does not.
             Duel3080 w; w.flags[130] = 0;

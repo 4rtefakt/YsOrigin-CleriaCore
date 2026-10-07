@@ -2400,6 +2400,8 @@ title_again:
         void water_wall_hitchk(float x, float y, float z, float r, float st) override {
             if (water_wall_fn) water_wall_fn(x, y, z, r, st);
         }
+        std::function<void(const FireBulletOp&)> fire_bullet_fn;            // 0x111 (view_duel.inl)
+        void fire_bullet(const FireBulletOp& b) override { if (fire_bullet_fn) fire_bullet_fn(b); }
         bool is_underwater_world() const override { return water_mode_p && *water_mode_p == 2; }
         // ---- the floor 1..3 completion pass (build/event_re/FLOOR13_OPS.md; view_xso13.inl) ----
         const std::string* entry_label_p = nullptr;      // 0x76a474: the last committed door's label
@@ -3030,6 +3032,7 @@ title_again:
         }
     };
     #include "view_xso13.inl"                  // the floor 1..3 op pass (FLOOR13_OPS.md)
+    #include "view_duel.inl"                   // the story duels' script side (DUELS.md)
     csHost.water_mode_p = &water_mode;
     csHost.water_wall_fn = [&](float x, float y, float z, float r, float st) {
         bullets.spawn_water_probe({x, y, z}, r, st);    // the falling splash probe (GoXx type 0x16)
@@ -3297,6 +3300,9 @@ title_again:
     //   exit=i                take SEN exit i (the door's own arrival + facing, as walking through it)
     //   held=id               the held tool 0x76a62c (97 = the Water Dragon's Scales: O2 drains 1, not 10)
     //   saveload              save here, round-trip the record, load it (apply_loaded) and print the feet
+    //   T:every=N,END,cmd     (parse time) cmd at T, T+N, ... below END
+    //   duel=cast             near=cast + atk, only while a duel is live (156 = 1, world not frozen)
+    //   dflags                print the duel flags (130 131 133 156 174 230 232 311)
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
@@ -3310,6 +3316,17 @@ title_again:
             if (p1 == std::string::npos) p1 = all.size();
             const std::string item = all.substr(p0, p1 - p0);
             const std::size_t c = item.find(':');
+            // `T:every=N,END,cmd` repeats cmd at T, T+N, ... below END (long fights / ok streams).
+            if (c != std::string::npos && item.compare(c + 1, 6, "every=") == 0) {
+                const std::string rest = item.substr(c + 7);
+                const std::size_t k1 = rest.find(','), k2 = k1 == std::string::npos ? k1 : rest.find(',', k1 + 1);
+                const std::uint64_t n = k1 == std::string::npos ? 0 : std::stoull(rest.substr(0, k1));
+                if (n > 0 && k2 != std::string::npos) {
+                    const std::uint64_t end = std::stoull(rest.substr(k1 + 1, k2 - k1 - 1));
+                    for (std::uint64_t t = std::stoull(item.substr(0, c)); t < end; t += n)
+                        drive.push_back({t, rest.substr(k2 + 1)});
+                }
+            } else
             if (c != std::string::npos) drive.push_back({std::stoull(item.substr(0, c)), item.substr(c + 1)});
             p0 = p1 + 1;
         }
@@ -3452,6 +3469,35 @@ title_again:
                             game.g_flags[156], game.g_flags[130], a.ai.phase(), a.ai.i(0x72c), a.ai_index, casts.sprite_stem(a.cast_id).c_str(), int(efx.kinds.count(casts.sprite_stem(a.cast_id))), a.pos.x, a.pos.y, a.pos.z);
                 break;
             }
+        } else if (cmd.rfind("duel=", 0) == 0) {       // duel=cast: as near= + atk, only while a duel is live
+            // (156 = 1 and the world not frozen), so a drive can fight through a whole duel script
+            // without moving the player during its cutscenes (build/event_re/DUELS.md §5).
+            const int cast = std::atoi(cmd.c_str() + 5);
+            if (game.g_flags[156] == 1 && !csMgr.world_frozen() && player.hp >= 1)
+                for (const Actor& a : world.actors()) {
+                    if (a.cast_id != cast || a.is_player() || !a.alive()) continue;
+                    float dx = feet.x - a.pos.x, dz = feet.z - a.pos.z;
+                    const float l = std::sqrt(dx * dx + dz * dz);
+                    if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
+                    const float x = a.pos.x + dx * 2.0f, z = a.pos.z + dz * 2.0f;
+                    const float fl = floor_at(phys_mesh(room), x, z, feet.y + room_diag(room));
+                    feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                    face_dir = {-dx, 0.0f, -dz};
+                    facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                    try_attack();
+                    std::printf("  [duel] t%llu cast %d hp %.0f/%.0f player hp %d\n", (unsigned long long)tick_count,
+                                cast, a.hp, a.max_hp, player.hp);
+                    break;
+                }
+        } else if (cmd == "dflags") {                  // the duel flags
+            std::printf("  [duel] flags 130=%d 131=%d 133=%d 156=%d 174=%d 230=%d 232=%d 311=%d player hp %d\n",
+                        game.g_flags[130], game.g_flags[131], game.g_flags[133], game.g_flags[156], game.g_flags[174],
+                        game.g_flags[230], game.g_flags[232], game.g_flags[311], player.hp);
+        } else if (cmd == "bullets") {                 // the live GoXx bullets
+            for (const auto& bp : bullets.list())
+                std::printf("  [bullet] kind %d effect %d age %u pos (%.2f, %.2f, %.2f) speed %.2f fx %d%s\n", bp->s.kind,
+                            bp->s.effect, bp->age, bp->s.pos.x, bp->s.pos.y, bp->s.pos.z, bp->s.speed,
+                            bp->fx ? bp->fx->live : -1, bp->gone ? " gone" : "");
         } else if (cmd == "scripts") {                // the live scripts and their pcs
             std::printf("  [drive]   frozen %d fix %d/%d\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1]);
             for (const auto& li : csMgr.live)
@@ -5170,6 +5216,7 @@ title_again:
             // and the real-step flags, not the fix counters (STATUE_CLEANSE.md §2 [BYTES
             // 0x5644c1..d5]). This is what fades the ward mid-pan after KEKKAIBREAK's Eft_Kill.
             // [H] no hit tick here: whether particle hits land under a Fix is not traced.
+            step_bullets_frozen();                   // GoXx bullets fly on under a Fix (view_duel.inl)
             fxsim.step();
             fxsim.sweep();
             // The chest item (0x116, kind 2) rises and fades under the opening script's own Fix:
@@ -5582,6 +5629,7 @@ title_again:
                 aiw.player_fn = [&]() -> Actor* { return world.player(); };
                 aiw.hide_gauge_fn = [&] { hud.hide_boss_gauge(); };
                 // The current scene's directory, e.g. "s_30\s_3080\", compared case-blind.
+                aiw.effects_fn = ai_effects;                   // the GoEffect pool scans (view_duel.inl)
                 aiw.in_room_fn = [&](const char* dir) {
                     std::string want = dir, have = (room.dir.parent_path().filename() / room.dir.filename()).string();
                     for (char& c : want) c = char(std::tolower((unsigned char)c) == '/' ? '\\' : std::tolower((unsigned char)c));
@@ -6555,11 +6603,10 @@ title_again:
             const bool p_untouchable = avm.untouchable() || gs_ramp < 1.0f ||
                                        player_vanished;          // 0x14d: +0x60 & 0x80 cleared
             auto player_death = [&] {
-                if (game.g_flags[133] != 0) {
-                    game.g_flags[156] = 0; game.g_flags[130] = 0;
+                if (duel::losable_death(game.g_flags, player.hp, player_iframes)) {   // src/cleria/duel.hpp
                     hud.hide_boss_gauge();
-                    player.hp = 1;
-                    player_iframes = 9999;
+                    player_kb = {}; pvel = {};               // +0x32c/+0x334/+0xa3c/+0xa44/+0x5d0.. zeroed
+                    std::printf("  [duel] lost: flag 133 set, HP 1, 156 / 130 cleared (FUN_0046f810)\n");
                     return;
                 }
                 if (death_t == 0) {                          // +0x3fc 0 -> 1: the first dead step

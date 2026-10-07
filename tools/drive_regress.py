@@ -235,6 +235,66 @@ CASES = {
                 "[abil] t210", "combo 6/"]),
 }
 
+# The story duels on floors 1-3 (build/event_re/DUELS.md), each played from the room's event box through
+# its cutscene (`ok` every 20 ticks), the fight (`duel=<cast>`: near + attack while 156 = 1 and the world
+# is not frozen) and the scripted outcome. Lockstep (one tick a frame) keeps the long runs short and
+# deterministic; CLERIA_LEVEL picks how the fight goes.
+_S1080 = "21:move=0,-1,300;320:every=20,{end},ok;321:every=7,{end},duel={cast};"
+_S3080 = "20:at=-12,36,0;30:move=0,1,30;80:every=20,{end},ok;81:every=7,{end},duel={cast};"
+_LOCK = dict(CLERIA_DRIVE_LOCKSTEP="1")
+CASES.update({
+    # S_1080 Yunica: Vagullion (M460) dies -> Battle_1's Wait_FlagEqualInt(156, 0) -> 230, 311, warp 1.
+    "duel_s1080_vagullion": dict(
+        room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="30"),
+        drive=_S1080.format(end=11000, cast=50) + "11000:dflags;11001:quit",
+        expect=["[duel] t", "cast 50 hp 200/200", "flags 130=0 131=0 133=0 156=0 174=0 230=1 232=0 311=1"]),
+    # S_1080 Hugo: Epona (M850, Battle_Hugo) -> the post-duel scene (Mask of Eyes) -> 230, 311.
+    "duel_s1080_epona": dict(
+        room="S_10/S_1080/S_1080", char="2", env=dict(_LOCK, CLERIA_LEVEL="30"),
+        drive=_S1080.format(end=12000, cast=171) + "12000:dflags;12001:quit",
+        expect=["[duel] t", "cast 171 hp 190/190", "156=0 174=0 230=1 232=0 311=1"]),
+    # S_1080 Toal: Galleon (M830, Battle2) stops at HP 1 (his low-HP chain) -> 174 = 1, 230, 311.
+    "duel_s1080_galleon": dict(
+        room="S_10/S_1080/S_1080", char="3", env=dict(_LOCK, CLERIA_LEVEL="30"),
+        drive=_S1080.format(end=12000, cast=169) + "12000:dflags;12001:quit",
+        expect=["[duel] t", "cast 169 hp 200/200", "156=0 174=1 230=1 232=0 311=1"]),
+    # S_1080 is not losable (no 133): a KO is the game over; Retry re-enters at Battle_1's SaveContData
+    # (205 = 1), whose root branch restarts the duel.
+    "duel_s1080_gameover": dict(
+        room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="1"),
+        drive=_S1080.format(end=4900, cast=50) + "4700:hp=0;4900:quit",
+        expect=["cast 50 hp 200/200", "[death] HP 0", "[gameover] chose retry", ">> entering S_1080",
+                "[gameover] Retry -> S_1080", "cast 50 hp 200/200"], absent=["[duel] lost"]),
+    # S_3080 Yunica: Kishgal (M860) ends the fight at half HP in this room -> 174 = 1 -> the Silver
+    # Harmonica scene -> 232 = 1 and ChangeScene to S_1000.
+    "duel_s3080_kishgal": dict(
+        room="S_30/S_3080/S_3080", char="1", env=dict(_LOCK, CLERIA_LEVEL="24"),
+        drive=_S3080.format(end=14000, cast=172) + "8100:dflags;14000:dflags;14001:quit",
+        expect=["cast 172 hp 300/300", "133=1 156=0 174=1", ">> entering S_1000", "232=1"]),
+    # S_3080 Hugo wins against Toal (M820): 174 = 1 -> Battle_Win (its 0.4 slow-mo) -> EV_Feena02_2, where
+    # FireBulletEvent fires Shion's six shots (op 0x111) -> S_1000.
+    "duel_s3080_toal_win": dict(
+        room="S_30/S_3080/S_3080", char="2", env=dict(_LOCK, CLERIA_LEVEL="40"),
+        drive=_S3080.format(end=16500, cast=168) + "9000:dflags;16500:dflags;16501:quit",
+        expect=["cast 168 hp 300/300", "156=0 174=1", "[xso] SetTimeScale 0.40", "[xso] SetTimeScale 1.00",
+                "[xso] FireBullet actor 200 kind 2 effect 308 pos (-12.00, -3.00, 33.00) dir (0.00, -0.19, 1.00) speed 0.30",
+                "[xso] FireBullet actor 200 kind 2 effect 308", "dir (0.15, -0.17, 1.00) speed 0.50",
+                ">> entering S_1000", "232=1"], absent=["[duel] lost"]),
+    # S_3080 Hugo loses (a KO under flag 133, FUN_0046f810): no game over, 174 stays 0 -> Battle_Lose ->
+    # EV_Feena02_2 -> S_1000.
+    "duel_s3080_toal_lose": dict(
+        room="S_30/S_3080/S_3080", char="2", env=dict(_LOCK, CLERIA_LEVEL="20"),
+        drive=_S3080.format(end=16500, cast=168) + "8400:hp=0;8500:dflags;16500:dflags;16501:quit",
+        expect=["cast 168 hp 300/300", "[duel] lost: flag 133 set", "133=1 156=0 174=0", "[xso] FireBullet actor 200",
+                ">> entering S_1000", "232=1"], absent=["[gameover]", "SetTimeScale 0.40"]),
+    # S_3080 Toal: Shion (M840, Battle2) -> 174 = 1 -> FireBulletEvent2 (Hugo's shots, one of Shion's) -> S_4104.
+    "duel_s3080_shion": dict(
+        room="S_30/S_3080/S_3080", char="3", env=dict(_LOCK, CLERIA_LEVEL="28"),
+        drive=_S3080.format(end=14000, cast=170) + "14001:quit",
+        expect=["cast 170 hp 300/300", "[xso] FireBullet actor 197 kind 2 effect 308", "[xso] FireBullet actor 200",
+                "[xso] FireBullet actor 197", ">> entering S_4104"]),
+})
+
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -272,7 +332,7 @@ def content_setup(case, env, tmp):
 
 def run(name, case, exe, assets):
     with tempfile.TemporaryDirectory() as saves:
-        env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR="1", CLERIA_DRIVE=case["drive"],
+        env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR=case.get("char", "1"), CLERIA_DRIVE=case["drive"],
                    CLERIA_SAVE_DIR=saves)
         env.update(case.get("env", {}))            # a case may override any of these (CLERIA_CHAR)
         env.setdefault("CLERIA_SHOT_DIR", saves)   # a case's `shot` / `shell` frames stay in its temp folder

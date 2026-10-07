@@ -95,6 +95,7 @@
 #include "cleria/mouse.hpp"
 #include "cleria/settings.hpp"
 #include "cleria/vfs.hpp"
+#include "cleria/duel.hpp"
 #include <ctime>
 #include <optional>
 // CLERIA_CULL=off|cw|ccw — probe. The exe sets D3DCULL_CCW, but D3D9's left-handed

@@ -126,6 +126,13 @@ struct AiWorld {
     // record named `dir` (case-insensitive, e.g. "s_30\\s_3080\\"; M860's story-duel rules). A
     // host that does not override it answers false, the engine's answer when no record matches.
     virtual bool in_room(const char* /*dir*/) { return false; }
+    // The GoEffect pool (DAT_007300bc[0 .. DAT_007300c0)) as the brains' effect scans walk it
+    // (M820 0x4dfbc3, M860 0x4e33d8): every effect whose object byte +0x11 & 2 is clear, in pool
+    // order. `id` = +0x1d8 (the EFTLIST id), `attach` = +0x1d5, `kill` = +0x1d4, `owner` = the
+    // spawning actor's instance id (0 = none; 13 = the player). A host that does not override it
+    // has no effects (the scans then read "none live").
+    struct Fx { int id = 0; int attach = 0; bool kill = false; int owner = 0; };
+    virtual void for_each_effect(const std::function<void(const Fx&)>& /*f*/) {}
 };
 
 struct AiEnv {
