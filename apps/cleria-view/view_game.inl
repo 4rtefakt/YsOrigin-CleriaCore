@@ -5816,6 +5816,7 @@ title_again:
                     env.turnable = e.avm.turnable();
                     env.target_surface = cur_surface;                                  // P+0x4b9
                     env.chimes = (inv.equip_flags & 0x8000u) != 0;                     // DAT_0076a624
+                    env.target_moving = moving;                                        // P+0x514
                     const Aso* escr = enemy_script(e.stem);
                     env.section_type = [escr](int id) {
                         const Aso::Section* s = escr ? escr->find(id) : nullptr;
@@ -6853,6 +6854,11 @@ title_again:
                 if (e.hb.one_shot) e.atk_win = 0;
                 e.atk_hit = true;
                 hurt_player(en->atk, e.hb.power, e.hb.rtype, hang);
+                if (en->ai_index == 21 && en->max_hp > en->hp) {   // M280's lifesteal (FUN_004a5300 0x4a55b7, M280.md §2)
+                    const int bb5c = difficulty >= 2 ? difficulty - 2 : 0;
+                    const int amt = std::max(1, int(std::floor(en->max_hp / (bb5c == 2 ? 7.5f : bb5c == 1 ? 14.0f : 20.0f))));
+                    en->hp = std::min(en->max_hp, en->hp + float(amt));   // [not modelled] the green popup
+                }
             }
             // The boss parts' armed volumes (GoXx kind 9, mode-0 scan; VELAGUNDER.md §3.2): all
             // share re-hit token 0 with re-hit 30 [H-med], the damage with the boss's STR.

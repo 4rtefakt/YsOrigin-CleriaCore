@@ -184,6 +184,7 @@ struct AiEnv {
     bool turnable = true;        // this actor's ASO anime_Turnable (+0x9d3)
     int target_surface = 1;      // the target's +0x4b9 (the surface under its feet; 0x12 = sand2)
     bool chimes = false;         // DAT_0076a624 & 0x8000: Silver Chimes (the revive family, REVIVE.md §4)
+    bool target_moving = false;  // the target's byte +0x514 (the player's movement input; M280's shake-off)
     std::uint32_t events = 0;    // +0x3bc this tick: 0x2000/0x4000 = the stun-rolling hits (REACT.md §1)
     bool stun_immune = false;    // +0x12c & 0x80000
     bool bless_stun = false;     // g_flags[217] & 0x80: the "Increase stun effect" blessing
