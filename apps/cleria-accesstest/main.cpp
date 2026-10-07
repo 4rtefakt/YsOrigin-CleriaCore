@@ -39,11 +39,6 @@ int main() {
               "assists default to retail; the skip defaults to Double press");
     }
     {   // the multipliers
-        check(access::exp_gain(10, 1) == 10 && access::exp_gain(10.4f, 1) == 10 && access::exp_gain(0.2f, 1) == 1,
-              "EXP x1 is the view's own max(1, round(exp))");
-        check(access::exp_gain(10, 2) == 20 && access::exp_gain(7, 10) == 70 && access::exp_gain(10, 0.5f) == 5 &&
-                  access::exp_gain(1, 0.25f) == 1,
-              "EXP x2 doubles, x10, x0.5 halves; never below 1");
         check(access::damage_dealt(0, 5) == 0 && access::damage_dealt(17, 1) == 17 && access::damage_dealt(17, 2) == 34 &&
                   access::damage_dealt(10, 0.25f) == 3 && access::damage_dealt(1, 0.25f) == 1,
               "damage dealt: a guarded 0 stays 0, x1 identity, x2, x0.25 rounds, min 1");

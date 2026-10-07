@@ -104,6 +104,7 @@ int main() {
         check(!s.cleria.debug_hud && !s.cleria.unlock_movie_skip && !s.cleria.linear_stick_magnitude,
               "every CleriaCore QoL key defaults OFF");
         check(s.cleria.native_pad_binds, "the pad binds by button name by default (A/B/X/Y layout)");
+        check(!s.cleria.dev_keys, "the developer debug keys default OFF (players never trip F / K / L / B ...)");
         Ini fresh;
         write_retail(fresh, s);
         const std::string t = fresh.text();
@@ -185,6 +186,11 @@ int main() {
               t.cleria.pad_bind[0] == "rightshoulder" && c.has("cleria.qol", "UnlockMovieSkip") &&
               c.has("cleria.video", "DebugHud") && c.has("cleria.input", "PadBind{PAD_ACTION}"),
               "cleria.ini round trip: [cleria.video] / [cleria.qol] / [cleria.input]");
+        Settings dv; dv.cleria.dev_keys = true;
+        Ini dc; write_cleria(dc, dv);
+        Settings dr; read_cleria(dc, dr);
+        check(dr.cleria.dev_keys && dc.get_int("cleria.dev", "DebugKeys") == 1 && !t.cleria.dev_keys,
+              "cleria.ini round trip: [cleria.dev] DebugKeys");
         const input::Config mc = mapper_config(t);
         check(mc.assign[input::PAD_ACTION] == input::kPadButton1 + 5 && mc.assign[input::KEY_ACTION] == 0x2c,
               "NativePadBinds: PAD_ACTION = rightshoulder = virtual Button 6; keyboard slots untouched");

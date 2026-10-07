@@ -95,10 +95,6 @@ bool set_by_key(Settings& s, std::string_view key, std::string_view value) {
     return false;
 }
 
-float exp_gain(float enemy_exp, float rate) {
-    return std::max(1.0f, std::round(enemy_exp * rate));   // rate 1: the view's own max(1, round(exp))
-}
-
 int damage_dealt(int dmg, float mult) {
     if (dmg <= 0 || mult == 1.0f) return dmg;
     return std::max(1, int(std::lround(float(dmg) * mult)));

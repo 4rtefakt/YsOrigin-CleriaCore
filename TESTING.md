@@ -60,8 +60,8 @@ That's all I need — I can read the game's code to find the rest.
 ## For me (not you): the controls cheat-sheet
 Retail bindings from `Saved Games\CleriaCore\yso_win.ini` (imported from retail; Preset 2 = WASD move ·
 **.**/LMB attack + talk/statue + OK · **/**/RMB jump + Cancel · Space boost · Tab book) · **Esc** book **or**
-skip cutscene · pad works · debug: Ctrl+Tab swap character · Ctrl+1-9 take exit N · T debug-talk ·
-F free-fly cam · F1 reserved (settings overlay)
+skip cutscene · pad works · debug (off until F1 > Debug > Debug keys): Ctrl+Tab swap character ·
+Ctrl+1-9 take exit N · T debug-talk · F free-fly cam · F1 settings overlay
 
 ---
 

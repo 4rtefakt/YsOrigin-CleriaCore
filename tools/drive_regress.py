@@ -57,12 +57,16 @@ CASES = {
         expect=["[access] skip prompt: press again", "t55 scripts", "frozen 1",
                 "[access] cutscene skip (double)", "t85 scripts", "frozen 0 fix 0/0"]),
     # The Cheats (ACCESS.md §2): Damage dealt x10 kills the Selnarg (74 HP) in 4 hits of 20/30, EXP x2
-    # credits 66 (retail 33), Damage taken 0 keeps the 60 HP it would otherwise lose some of.
+    # credits 102, Damage taken 0 keeps the 60 HP it would otherwise lose some of.
+    # 2026-10-07: was 66 (= the old max(1, round(33 x 2))). The kill award is now the engine's
+    # (src/cleria/exp_award, FUN_004fbb40 + FUN_004fa2f0): the lv3 Selnarg for a lv1 player is
+    # 33 x 1.5^2 x 0.6666 = 49.495, x2 (ExpRate, retail's rate slot) = 98.99 -> floor 98, x the
+    # 4-hit combo's chain bonus 1.04 = 101.92.
     "access_cheats": dict(
         room="S_10/S_1002/S_1002",
         drive="8:opt=DamageDealt=10;9:opt=ExpRate=2;10:opt=DamageTaken=0;15:stats;" +
               ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:stats;430:quit",
-        expect=["stats exp 0 lv 1 hp 60/60", "stats exp 66 lv 1 hp 60/60"]),
+        expect=["stats exp 0 lv 1 hp 60/60", "stats exp 102 lv 1 hp 60/60"]),
     # FUN_00459ff0: a SEN arrival stands on the floor below the arrival point, not on the room's
     # top surface at that x/z (S_2008's door mouth at y 0 was put on the y 14 slab above it).
     "arrival_floor": dict(
@@ -179,6 +183,56 @@ CASES = {
     "break_script": dict(
         room="S_10/S_1001/S_1001", drive="30:obj=break_01;45:atk;60:scripts;150:scripts;160:quit",
         expect=["[hit] break_01 -> @break_30", "script @break_30", "t150 scripts"]),
+    # The kill EXP (src/cleria/exp_award; FUN_004fbb40 0x4fcb45.., FUN_004fa2f0): the lv3 Selnarg
+    # (+0xb0 = 33) killed with Damage dealt x10 at three player levels. Award = max(1, floor(33 x
+    # level_scale x 0.6666)) x (1 + 0.01 combo); combo = the damaging hits it took.
+    #   lv1 (2 under): 33 x 1.5^2 x 0.6666 = 49.495 -> 49, 4 hits -> 49 x 1.04 = 50.96
+    #   lv3 (even):    33 x 0.6666 = 21.998 -> 21,         2 hits -> 21 x 1.02 = 21.42
+    #   lv5 (2 over):  33 / 1.5^2 x 0.6666 = 9.777 -> 9,   1 hit  -> 9 x 1.01  = 9.09
+    "exp_under": dict(
+        room="S_10/S_1002/S_1002", env=dict(CLERIA_LEVEL="1"),
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:abil;430:quit",
+        expect=["[abil] t420", "combo 4/", "exp 50.96 lv 1"]),
+    "exp_even": dict(
+        room="S_10/S_1002/S_1002", env=dict(CLERIA_LEVEL="3"),
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:abil;430:quit",
+        expect=["[abil] t420", "combo 2/", "exp 21.42 lv 3"]),
+    "exp_over": dict(
+        room="S_10/S_1002/S_1002", env=dict(CLERIA_LEVEL="5"),
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:abil;430:quit",
+        expect=["[abil] t420", "combo 1/", "exp 9.09 lv 5"]),
+    # Skills on a fresh game (ABILITIES_VERIFIED.md §2): no bracelet owned -> the wheel equips nothing and
+    # the skill button casts nothing; with Ventus (item 116) owned the wheel equips it and a tap casts
+    # Whirlwind, the normal section 0x10d (PTR_0068afe0), for 700 MP.
+    "skill_gate": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:wheel=-120;20:skill+;40:skill-;42:abil;50:flag=116,1;55:wheel=-120;75:abil;80:skill+;"
+              "100:skill-;102:abil;110:quit",
+        expect=["[abil] t42 sec 0x2 mp 3000 lag 3000 boost 0 boosting 0 iframes 0 magic -1",
+                "[abil] t75 sec 0x2 mp 3000 lag 3000 boost 0 boosting 0 iframes 0 magic 116",
+                "[abil] t102 sec 0x10d mp 2300"]),
+    # Boost (ABILITIES_VERIFIED.md §1, audit combat.md #20-#22): a 21-damage hit adds 2100 to the gauge;
+    # entering grants 60 i-frames (59 a tick later), so a hit 30 ticks in is refused (HP stays 39) and
+    # one after the window lands halved (21 -> 10).
+    "boost_iframes": dict(
+        room="S_10/S_1002/S_1002",
+        drive="3:flag=187,1;5:hurt=60;6:abil;41:boost=30000;45:boostkey;46:abil;75:hurt=60;76:abil;"
+              "105:hurt=60;106:abil;110:quit",
+        expect=["Chr_Damage player atk 60 -> HP 39", "[abil] t6 sec 0xb mp 3000 lag 3000 boost 2103",
+                "[abil] t46 sec 0x2 mp 3000 lag 3000 boost 29970 boosting 1 iframes 59",
+                "[drive] t75 hurt=60", "[abil] t76", "hp 39/60",
+                "Chr_Damage player atk 60 -> HP 29", "[abil] t106"]),
+    # Hugo's basic shot (FireBullet(2, 130): its EF2 particles, side 0) damages through FUN_004fa550
+    # like a swing, and each damaging hit counts on the combo meter.
+    "hugo_shot": dict(
+        room="S_10/S_1002/S_1002", env=dict(CLERIA_CHAR="2", CLERIA_DMG="1"),
+        drive="10:abil;" + ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 200, 25)) +
+              ";210:abil;220:quit",
+        expect=["hit Selnarg (lv3 DEF 53): 2 dmg, 72/74 left", "hit Selnarg (lv3 DEF 53): 2 dmg, 70/74 left",
+                "[abil] t210", "combo 6/"]),
 }
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
@@ -219,7 +273,8 @@ def content_setup(case, env, tmp):
 def run(name, case, exe, assets):
     with tempfile.TemporaryDirectory() as saves:
         env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR="1", CLERIA_DRIVE=case["drive"],
-                   CLERIA_SAVE_DIR=saves, **case.get("env", {}))
+                   CLERIA_SAVE_DIR=saves)
+        env.update(case.get("env", {}))            # a case may override any of these (CLERIA_CHAR)
         env.setdefault("CLERIA_SHOT_DIR", saves)   # a case's `shot` / `shell` frames stay in its temp folder
         if "mods" in case or "content" in case:
             content_setup(case, env, os.path.join(saves, "settings"))

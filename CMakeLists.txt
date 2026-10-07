@@ -434,3 +434,10 @@ target_sources(cleria PRIVATE src/cleria/modinstall.cpp src/cleria/fileassoc.cpp
 add_executable(cleria-modfiletest apps/cleria-modfiletest/main.cpp)
 target_link_libraries(cleria-modfiletest PRIVATE cleria miniz)
 add_test(NAME modfiletest COMMAND cleria-modfiletest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# ---- The kill / boss EXP award and the combo meter (build/progress_re/REWARDS.md, audit/combat.md #28-#36) ----
+target_sources(cleria PRIVATE src/cleria/exp_award.cpp)
+# cleria-exptest: FUN_004fa2f0's level scaler (x0.6666), the floor / max-1 / chain bonus, FUN_004fa4a0, the meter.
+add_executable(cleria-exptest apps/cleria-exptest/main.cpp)
+target_link_libraries(cleria-exptest PRIVATE cleria)
+add_test(NAME exptest COMMAND cleria-exptest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

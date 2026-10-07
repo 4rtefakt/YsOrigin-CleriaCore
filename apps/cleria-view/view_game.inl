@@ -1201,16 +1201,30 @@ title_again:
     }
     content_session_start(game.g_flags, character, pending_load.has_value());   // mods: sidecar, NewGame / Load
 
-    // Award EXP for a kill and process level-ups (build/progress_re/LEVELING.md): the engine
-    // credits the defeated enemy's EXP at the killing blow (FUN_004fbb40), then loops
+    // Award EXP and process level-ups (src/cleria/exp_award, build/progress_re/REWARDS.md §1,
+    // LEVELING.md). A kill (FUN_004fbb40 0x4fcb45..) credits max(1, floor(FUN_004fa2f0(+0xb0) x rate
+    // x diffMult)) x (1 + 0.01 combo): the level-difference scaler with its x0.6666, the Easy / Very
+    // Easy multiplier and the hit combo meter 0x76c1a8. A boss (FUN_004fa4a0) credits the same
+    // without the chain bonus, and nothing in time attack (g_flags[193]). Then the engine loops
     // level-up while total >= threshold(level+1) (= gameinfo exp_to_level, cumulative pair 10),
-    // capped at 60. Each level-up recomputes maxHP from the curve and heals curHP by the
-    // maxHP DELTA -- not a full refill. (Difficulty EXP bonus / rate mult are 1.0 here.)
-    auto award_exp = [&](float enemy_exp) {
+    // capped at 60.
+    expaward::Combo kill_combo;          // 0x76c1a8 / 0x76c1b0
+    auto award_exp = [&](float b0, int enemy_level, bool boss) {
         if (!ginfo.ok()) return;
-        // always at least 1; the shell's EXP rate stands where retail's 0x76a5fc (1.0) multiplies it
-        player.exp += access::exp_gain(enemy_exp, settings().s.access.exp_rate *
-                                                      lua_exp_factor(player.level));   // + the Lua mods' (an AP seed's)
+        // The shell's EXP rate and the Lua mods' (an AP seed's) factor stand where retail's
+        // 0x76a5fc (1.0 in every save) multiplies, before the floor.
+        const float rate = settings().s.access.exp_rate * lua_exp_factor(player.level);
+        const int diff = difficulty >= 2 ? difficulty - 2 : 0;                      // DAT_0076bb5c
+        const float dm = expaward::diff_mult(game.g_flags[143] != 0, game.g_flags[203] != 0);
+        if (boss) {
+            if (game.g_flags[193] != 0) return;
+            player.exp += expaward::boss_award(b0, player.level, enemy_level, diff, rate, dm);
+        } else {
+            expaward::KillIn k;
+            k.base = b0; k.player_level = player.level; k.enemy_level = enemy_level; k.difficulty = diff;
+            k.rate = rate; k.diff_mult = dm; k.combo = kill_combo.count;
+            player.exp += expaward::kill_award(k);
+        }
         while (player.level < 60 &&
                player.exp >= float(ginfo.exp_to_level(player.level + 1))) {
             ++player.level;
@@ -2805,9 +2819,8 @@ title_again:
     // ONLY counts while g_flags[187] is set (0x76bc08 — set by the floor-1 story scripts,
     // e.g. MAP/S_01/S_0100/S1004.XSO), so a fresh game cannot charge Boost before that beat.
     // Call-site amounts (audit combat.md #22): +300 per hit dealt (FUN_004fbb40 0x4fd0bf),
-    // +dmg*100 per hit taken (0x4fded0). [not yet modelled] the passive per-tick fill in the
-    // mover (0x467d8c: (1-hp/max)*word[0x68b070]+1) — the old per-hit formula here was that
-    // passive term misplaced.
+    // +dmg*100 per hit taken (0x4fded0), and the passive per-tick fill in the mover
+    // (0x467d8c: ((1-hp/max)*word[0x68b070]+1)*M, skillmp::boost_passive, in the fixed step).
     // The engine's fix (0x75ad90 + 0x75ad94) is taken as the script world freeze [approx].
     auto add_boost = [&](float amount) {
         if (!skillmp::boost_can_add(game.g_flags[187] != 0, game.g_flags[161] != 0, csMgr.world_frozen(),
@@ -2821,11 +2834,25 @@ title_again:
     };
 
 
-    // ---- Boost (build/ability_re/BOOST.md, ABILITY.md §4b) -------------------------------
-    // Entering needs a FULL gauge — the engine compares == 30000.0 exactly — and grants 16
-    // i-frames. A SECOND press spends the whole gauge on the character's EXTRA/super section.
-    // The RE is explicit that Boost carries NO damage or speed multiplier: its offence is the
-    // super section's own hitboxes. The drain (~30/tick) lives in the fixed-step block.
+    // ---- Boost (build/ability_re/ABILITIES_VERIFIED.md §1, audit combat.md #19-#22) ---------
+    // Entering needs a FULL gauge — the engine compares == 30000.0 exactly — and grants 60
+    // i-frames (FUN_00463f40(0x20): max(+0x734, 0x3c)). A SECOND press (only with g_flags[188],
+    // set late in the game) spends the whole gauge on the character's EXTRA/super section, 16
+    // i-frames. Boost carries no damage or speed multiplier; it halves incoming damage
+    // (hit.hpp player_damage_after_boost). The drain (~30/tick) lives in the fixed-step block.
+    // The end (FUN_00462c40 0x462c9f..): the mode bit off, gauge 0, the aura killed, bb50 = 0,
+    // SetSection(2, 0) (priority-gated), and Toal's PC3_mazin_hatudou (EF2 172).
+    auto end_boost = [&] {
+        player.boost = 0.0f;
+        player.boosting = false;
+        game.g_flags[141] = 0;                            // DAT_0076bb50
+        kill_named_fx("#boost_aura");                     // the aura's +0x1d4 = 1
+        if (character == 3) {                             // PC3_mazin_hatudou
+            const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
+            spawn_sim_fx(172, at, {}, 1.0f, {}, 13, at);
+        }
+        avm.set_section(2);                               // FUN_00446550(2, 0): refused under a higher-priority move
+    };
     auto try_boost = [&] {
         if (!player.boosting) {
             // mover 0x465b1d: g_flags[187], the gauge exactly full, not busy, no fix.
@@ -2839,7 +2866,9 @@ title_again:
                 a->name = "#boost_aura";                  // +0x758: the aura, attached (39 / Toal 171)
             sfx_at(0xb4, feet, kSfxAnimVol);
             player_iframes = std::max(player_iframes, 60);
-            avm.set_section(2, /*force*/true);            // SetSection(2, 0): entering cancels the move
+            // FUN_00446550(2, 0) (0x465cc9): drops a locomotion section to idle; the priority gate
+            // refuses it while a swing / skill / hurt section of a higher type plays.
+            avm.set_section(2);
             return;
         }
         // The super needs g_flags[188] (first set late, S_6009) and a section outside {9, 5}.
@@ -2973,9 +3002,11 @@ title_again:
         else if (n == 8) {                                // HealHp's body if alive; [not modelled] DAT_0076b914 |= 0x75
             if (player.hp >= 1) { player.hp = player.max_hp; player.hp_lag = float(player.hp); }
         }
-        else if (n == 0 || n == 12) {                     // Boost off (DAT_0076c1b4 = 0; FUN_00462c40)
-            if (player.boosting) { player.boosting = false; game.g_flags[141] = 0; kill_named_fx("#boost_aura"); }
+        else if (n == 0 || n == 12) {                     // DAT_0076c1b4 = 0, then FUN_00462c40 ends a Boost
+            player.boost = 0.0f;
+            if (player.boosting) end_boost();
         }
+        else if (n == 1) player.boost = skillmp::kBoostFull;   // DAT_0076c1b4 = 30000 (a direct write: no READY)
         // [not modelled] 11 (zero 0x76c160..16c; FUN_00462550) and the rest of 12.
     };
     csHost.start_label = [&](const std::string& l) {     // [not modelled] the owner actor
@@ -3242,7 +3273,9 @@ title_again:
     };
 
     std::printf("\nPLAY: the retail bindings (yso_win.ini [input] Assign{}, the pad too); Attack also talks / opens | "
-                "debug: F free-fly, R respawn, T test cutscene, K/L/B, F3 overlay, Ctrl+Tab character, Ctrl+1-9 exit\n");
+                "F3 overlay | debug keys %s: F free-fly, R respawn, T test cutscene, K/L/B, Ctrl+Tab character, "
+                "Ctrl+1-9 exit (Debug tab / cleria.ini [cleria.dev] DebugKeys)\n",
+                settings().s.cleria.dev_keys ? "ON" : "off");
     bool running = true, looking = false;
     // CLERIA_DRIVE (debug): timed commands for unattended verification runs, keyed by the fixed
     // tick count, e.g. "30:at=-27,24,180;60:kill1;400:shot;700:act;800:ok;900:quit".
@@ -3289,10 +3322,12 @@ title_again:
     // The CrossFade capture (0xcd): the frozen frame and its bind group for the HUD overlay.
     WGPUTexture cf_tex = nullptr; WGPUTextureView cf_view = nullptr; WGPUBindGroup cf_bind = nullptr;
     std::uint32_t cf_w = 0, cf_h = 0;
+    #include "view_abilities.inl"                       // abil, boost=, boostkey, hurt= (abil_drive)
     auto run_drive = [&](const std::string& cmd) {
         std::printf("  [drive] t%llu %s\n", (unsigned long long)tick_count, cmd.c_str());
         if (speedrun_drive(cmd, shell)) return;          // speedrun=... (view_speedrun.inl)
         if (lua_drive(cmd)) return;                      // lua=<command> <args> (view_lua.inl)
+        if (abil_drive(cmd)) return;                     // view_abilities.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
             if (std::sscanf(cmd.c_str() + 3, "%f,%f,%f", &x, &z, &deg) >= 2) {
@@ -3915,7 +3950,7 @@ title_again:
         if (out.alpha_target) bm->alpha_target = *out.alpha_target;
         if (out.alpha_step) bm->alpha_step = *out.alpha_step;
         for (const auto& [fi, fv] : out.flags) if (fi >= 0 && fi < 0x200) game.g_flags[fi] = fv;
-        if (out.award_exp) award_exp(boss->exp_b0());
+        if (out.award_exp) award_exp(boss->exp_b0(), boss->level(), /*boss*/true);
         if (out.destroy) { bm->alpha = bm->alpha_target = 0.0f; }
         if (out.gauge) {                                   // §6: the HP2 bar, 306 px, strip 1
             hud.set_boss_gauge(-5, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->strip);
@@ -4038,7 +4073,7 @@ title_again:
         if (out.player_iframes) player_iframes = std::max(player_iframes, 9999);   // [not modelled] FUN_00461120(2)
         if (out.award_exp) {                                // [not modelled] the end block 0x76a828 / FUN_00461160
             std::printf("  [boss02] t%llu EXP %.0f (lv %d)\n", (unsigned long long)tick_count, boss2->exp_b0(), boss2->level());
-            award_exp(boss2->exp_b0());
+            award_exp(boss2->exp_b0(), boss2->level(), /*boss*/true);
         }
         if (out.gauge) {                                    // §10: the pool, 393.8 px, strip 2
             hud.set_boss_gauge(-6, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->strip);
@@ -4343,7 +4378,7 @@ title_again:
         if (out.exp && out.exp->award) {                   // [H] b0 = the GAMEINFO curve at the level, as boss01/02
             std::printf("  [boss03] t%llu EXP %.0f x %.2f (lv %d)\n", (unsigned long long)tick_count, out.exp->b0,
                         out.exp->mult, out.exp->level);
-            award_exp(out.exp->b0 * out.exp->mult);
+            award_exp(out.exp->b0, out.exp->level, /*boss*/true);   // diffMult (out.exp->mult) applied inside
         }
         if (out.destroy) {                                  // obj+0x11 |= 2: gone, its collision too
             bm->alpha = bm->alpha_target = 0.0f;
@@ -4525,6 +4560,12 @@ title_again:
             static int warp_i = 0, flag_i = 0;
             static float flag_f = 0;
             char buf[160];
+            ui::section(L, "Developer");
+            if (ui::toggle(L, "Debug keys", &settings().s.cleria.dev_keys,
+                           "CleriaCore's fixed test keys during play: F free-fly, R respawn, T test cutscene, K -60 HP, "
+                           "L full heal, B +Boost, Ctrl+Tab character, Ctrl+1-9 take an exit. Off: those keys do "
+                           "nothing (they can be your own bindings). Not part of the original game."))
+                persist();
             ui::section(L, "Player");
             std::snprintf(buf, sizeof buf, "%s  (%s)", room.name.c_str(), kCharNames[character]);
             ui::info(L, "Room", buf);
@@ -4604,13 +4645,19 @@ title_again:
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
-                speedrun_debug_key(k, e.key.mod, death_t > 0 || csMgr.world_frozen() || paused);   // remembered by a run
                 // The game's own input (move, attack, jump, magic, boost, the book, the windows' OK /
                 // Cancel, the cutscene skip) goes through the mapper in the logic tick below. These
                 // are CleriaCore's FIXED debug keys, outside the mapper, never while a game-over, a
                 // cutscene or the book has the input. Ctrl+Tab / Ctrl+1..9: their plain keys are
-                // retail bindings (Preset 2's Camp Menu, the skills).
+                // retail bindings (Preset 2's Camp Menu, the skills). Off unless the Debug tab's
+                // "Debug keys" (cleria.ini [cleria.dev] DebugKeys) is on: a player's rebound key never
+                // trips them. F3 is the Interface tab's Debug text and always works.
+                const bool dev_keys = settings().s.cleria.dev_keys;
+                if (dev_keys)
+                    speedrun_debug_key(k, e.key.mod, death_t > 0 || csMgr.world_frozen() || paused);   // remembered by a run
                 if (death_t > 0 || csMgr.world_frozen() || paused) {}
+                else if (k == SDLK_F3) hud.debug_text = !hud.debug_text;   // our debug overlay
+                else if (!dev_keys) {}
                 // T = trigger a test cutscene (S_1000's Roy/Ramona talk) — debug.
                 else if (k == SDLK_T) start_cutscene(asset_root / "MAP" / "S_10" / "S_1000" / "TALKC210.XSO", /*debug235*/true);
                 else if (k == SDLK_F) {
@@ -4624,7 +4671,6 @@ title_again:
                     std::printf("mode: %s\n", fly ? "fly" : "walk");
                 }
                 else if (k == SDLK_R) { if (fly) spawn_in(cam, room); else spawn_player(); }
-                else if (k == SDLK_F3) hud.debug_text = !hud.debug_text;   // our debug overlay
                 // Debug HP for testing the red damage-lag trail (feat: HUD_HP_BARS.md H3):
                 // K = take 60 damage (watch the red ghost linger + drain), L = heal to full.
                 else if (k == SDLK_K) { player.hp = std::max(1, player.hp - 60); hud.debug_message("(debug) -60 HP"); }
@@ -4837,7 +4883,12 @@ title_again:
                     // The attack press runs the action probe FUN_00460470 first (+0x50c & 1,
                     // [BYTES 0x465abf]); only when it starts nothing is it a swing. [approx] the
                     // probe's surrounding gates in FUN_00465170 are not modelled.
-                    if (inf.pressed & input::kAttack) { probe_hit = try_interact(); if (!probe_hit) try_attack(); }
+                    // A started action also resets the combo (0x465b05: +0x6f0 = 0, +0x6f4 = 0).
+                    if (inf.pressed & input::kAttack) {
+                        probe_hit = try_interact();
+                        if (!probe_hit) try_attack();
+                        else { pact.stage = 0; pact.request = false; }
+                    }
                     if (inf.pressed & input::kBoost) try_boost();   // the mover 0x465b1d on +0x50c & 8
                 }
             }
@@ -5221,12 +5272,14 @@ title_again:
             if (!fly) {
                 // The bracelet switch lands (FUN_00465170 0x4652ca..0x465377): a pending request when the
                 // ASO is actable (+0x9d0), or a buffered attack meets an open cancel window (+0x9d2).
-                // [not modelled] the 0x76b914 |= 0x20 bit and the +0x6fc / +0x708 / 0x76c134 resets.
+                // The switch also clears the skill charge 0x76c134 / 0x76c138 (0x465323 / 0x465330) and
+                // the combo stage. [not modelled] the 0x76b914 |= 0x20 bit and Adol's +0x6fc reset.
                 if (skill_req != -1 && (avm.actable() || (pact.request && avm.cancelable()))) {
                     if (skill_req >= 0x74 && skill_req <= 0x77) {
                         inv.magic = skill_req == 0x77 ? 0xff : skill_req;
                         pact.stage = 0;
                         pact.request = false;
+                        skill_charge = {};
                         audio.play(0x0a, kSfxMenuVol);                    // FUN_0043a040(0xa)
                     }
                     skill_req = -1;
@@ -5952,6 +6005,7 @@ title_again:
                     dmg = access::damage_dealt(dmg, settings().s.access.damage_dealt);       // the shell's Cheats
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
                     const HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    if (dmg > 0) kill_combo.hit();   // 0x4fc835: the combo meter, before the kill's EXP
                     {   // FUN_004fbb40's own feedback (hit_feedback.hpp), at the victim's origin.
                         const Vec3 org{en.pos.x, en.pos.y + en.height, en.pos.z};
                         if (dmg < 1) {
@@ -5986,7 +6040,7 @@ title_again:
                         std::printf("  hit %s (lv%d DEF %.0f): %d dmg, %.0f/%.0f left\n",
                                     nm.c_str(), en.level, en.def, r.damage, en.hp, en.max_hp);
                     if (r.died) {
-                        award_exp(en.exp_reward);
+                        award_exp(en.exp_reward, en.level, /*boss*/false);
                         {   // FUN_004780e0 -> FUN_00478510's death path (hit_feedback.hpp): its entry
                             // draw (the scale), the puff (+ SE 862 with +0x130 & 0x2000) and the
                             // character's spark, from the victim's last vector to the player.
@@ -6006,7 +6060,8 @@ title_again:
                             }
                         }
                         if (const Enemy* er = etab.get(en.cast_id)) {     // FUN_00478510
-                            DropContext dc;                 // [not modelled] launch count, combo, luck
+                            DropContext dc;                 // [not modelled] launch count, luck
+                            dc.combo = kill_combo.count;    // 0x76c1a8 (FUN_00478510 0x479062)
                             dc.flag108 = game.g_flags[108] == 1;
                             dc.bless8 = (game.g_flags[217] & 8) != 0;
                             dc.no_drops = game.g_flags[146] != 0;
@@ -6301,6 +6356,7 @@ title_again:
             // touching it. player_def is the lv1 curve; no equipment model.
             // The countdown is frozen while a hurt section (4/9/0xb) plays (0x466cc1).
             tick_iframes(player_iframes, avm.section());
+            kill_combo.tick();                                      // 0x466b5d: the combo meter's timer
             for (Actor& a : world.actors()) a.bank.tick();          // FUN_0045c490: every actor
             player_bank.tick();
             // STEP PLATES (FUN_0045a4a0): while no script holds a fix, the player's contact with
@@ -6418,23 +6474,22 @@ title_again:
             popups.erase(std::remove_if(popups.begin(), popups.end(), [](const Popup& pp) { return pp.dead; }),
                          popups.end());
             // Boost drain (FUN_00462c40): the gauge falls ~30/tick on Normal, so a Boost runs
-            // ~1000 frames (~16.7 s). At zero the mode clears and the player drops to idle.
+            // ~1000 frames (~16.7 s). The end test comes FIRST (0x462c9f: gauge <= 0 -> end), so
+            // the Boost ends on the tick after the gauge reaches 0; otherwise drain and clamp at 0.
             if (player.boosting && !csMgr.world_frozen()) {
-                // Accessory 0x3b (DAT_0076a628) drains x0.6; flag 290 (DAT_0076bda4) is the 400 drain.
-                player.boost -= skillmp::boost_drain(difficulty >= 2 ? difficulty - 2 : 0,
-                                                     game.g_flags[290] != 0, inv.accessory == 0x3b);
                 if (player.boost <= 0.0f) {
-                    player.boost = 0.0f;
-                    player.boosting = false;
-                    game.g_flags[141] = 0;                // FUN_00462c40: the timer ran out
-                    kill_named_fx("#boost_aura");         // the aura's +0x1d4 = 1
-                    if (character == 3) {                 // PC3_mazin_hatudou
-                        const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
-                        spawn_sim_fx(172, at, {}, 1.0f, {}, 13, at);
-                    }
-                    avm.set_section(2, /*force*/true);      // FUN_00446550(2,0) -> idle
+                    end_boost();
+                } else {
+                    // Accessory 0x3b (DAT_0076a628) drains x0.6; flag 290 (DAT_0076bda4) is the 400 drain.
+                    player.boost -= skillmp::boost_drain(difficulty >= 2 ? difficulty - 2 : 0,
+                                                         game.g_flags[290] != 0, inv.accessory == 0x3b);
+                    if (player.boost <= 0.0f) player.boost = 0.0f;
                 }
             }
+            // anime_SMode(x) (ASO funcid 0x21, Toal's skill sections): while boosting, the gauge
+            // grows by x * 0.6 (0x6bd334), clamped at full — it extends a running Boost.
+            if (const float sm = avm.smode(); sm != 0.0f && player.boosting)
+                player.boost = std::min(skillmp::kBoostFull, player.boost + sm * 0.6f);
             // The passive Boost fill (mover 0x467c0a..0x467d8c): ((1 - hp/max) * 25 + 1) * M.
             add_boost(skillmp::boost_passive(float(player.hp), float(player.max_hp),
                                              difficulty >= 2 ? difficulty - 2 : 0, std::uint32_t(game.g_flags[217])));

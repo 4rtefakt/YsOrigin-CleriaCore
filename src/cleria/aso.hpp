@@ -189,6 +189,9 @@ class AsoVm {
     float jump_v() const { return jump_v_; }
     bool dashed() const { return dashed_; }
     float dash_d() const { return dash_d_; }
+    // anime_SMode(x) (funcid 0x21) this tick, summed: the host adds x * 0.6 to the Boost gauge
+    // while boosting (FUN_004472e0 case 0x21 reads the arg word as a float).
+    float smode() const { return smode_; }
     bool own_jump() const { return own_jump_; }   // +0x9d6: keeps the mover off the air section
     void set_own_jump(bool v) { own_jump_ = v; }
     // FUN_00446680(m): run the current section NOW, skipping waits, until its Marker(m), its
@@ -356,6 +359,7 @@ private:
     bool foot_smoke_ = false;
     bool jumped_ = false, dashed_ = false, own_jump_ = false;
     float jump_v_ = 0, dash_d_ = 0;
+    float smode_ = 0;
     bool hitbox_armed_ = false;
     Hitbox hitbox_;
     static constexpr std::size_t kMaxSoundsPerTick = 8;   // a script never issues near this many

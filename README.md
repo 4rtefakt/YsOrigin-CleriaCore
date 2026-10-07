@@ -181,6 +181,9 @@ retail's **Preset 1**; retail's **Preset 2** (WASD / mouse) is shown for compari
 The pause book closes with **Cancel**; **Esc** during a cutscene skips it (the window **X** quits).
 **F1** is reserved for the settings overlay.
 
+The debug keys are **off by default**: turn them on with F1 > Debug > **Debug keys** (cleria.ini
+`[cleria.dev] DebugKeys=1`). F3 always works.
+
 | Debug key | Action |
 |---|---|
 | **Ctrl+Tab** | switch character (Yunica / Hugo / Toal) |

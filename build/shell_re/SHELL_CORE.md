@@ -66,6 +66,7 @@ settings. `--config-test` requires `CLERIA_INI`.
 | Section / key | Default | Effect | Applies |
 |---|---|---|---|
 | `[cleria.video] DebugHud` | 0 | start with the debug overlay (today's `CLERIA_DEBUG_HUD`); **F3** still toggles it for the session | next start |
+| `[cleria.dev] DebugKeys` | 0 | the fixed debug keys F / R / T / K / L / B, Ctrl+Tab, Ctrl+1..9 (F1 > Debug > "Debug keys"); off, they do nothing, so a player's own binding on one of those keys never trips them. F3 always works. `CLERIA_DRIVE` commands are unaffected | live |
 | `[cleria.qol] UnlockMovieSkip` | 0 | any demo movie can be skipped, seen or not | next movie |
 | `[cleria.input] LinearStickMagnitude` | 0 | stick magnitude = \|v\|/1024 (a half tilt walks) instead of retail's `sqrt(x⁴+y⁴)/1024` | live |
 | `[cleria.input] NativePadBinds` | 0 | the 8 PAD_* slots come from `PadBind{}` instead of retail's `Assign{PAD_*}` | live |
@@ -137,7 +138,8 @@ The CLERIA_DRIVE commands are unchanged and land alongside the mapper. Drive run
 - The pause book closes with Cancel, as retail's navigator does ([EXPORT FUN_005a68f0] state 1). Esc
   opens it, and Esc during a cutscene still skips it.
 - Tab cycles the character only with **Ctrl**, and the exit hotkeys moved to **Ctrl+1..9**.
-- F / R / T / K / L / B / F3 are unchanged fixed debug keys.
+- F / R / T / K / L / B are fixed debug keys, **off by default** since 2026-10-07 (`[cleria.dev] DebugKeys`,
+  the Debug tab's "Debug keys"); F3 (the Interface tab's Debug text) always works.
 - Free-fly keeps its raw WASD / E / Q keys.
 
 ## 6. Apply classes (CleriaCore today)

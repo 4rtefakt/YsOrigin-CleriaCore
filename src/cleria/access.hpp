@@ -64,9 +64,6 @@ void write(Ini& ini, const Settings& s);
 bool set_by_key(Settings& s, std::string_view key, std::string_view value);
 
 // ---- the multipliers at the hook sites --------------------------------------------------------------
-// The EXP a kill credits: the view's max(1, round(exp)) (FUN_004fbb40 -> award) with the rate applied
-// to the enemy's EXP first, where retail's EXP rate 0x76a5fc (1.0 in every save) multiplies it.
-float exp_gain(float enemy_exp, float rate);
 // A hit the player lands (FUN_004fa550 / FUN_004faf20's result): 0 stays 0 (a guard, an immune
 // element); otherwise at least 1, like the engine's own min-1 chip.
 int damage_dealt(int dmg, float mult);

@@ -35,6 +35,7 @@ enum : std::uint32_t {
     kJump = 17,            // anime_Jump=f  FUN_00449460: if grounded, t = v (or +0x408 when 0)
     kDash = 18,            // anime_Dash=f  0x447665: knock channel 1 = (cos, sin)(heading) * d
     kFootSmoke = 19,       // anime_FootSmoke=
+    kSMode = 0x21,         // anime_SMode=f  — the Boost gauge add while boosting (Toal's skills)
     kGenerateCollision = 0x23,  // anime_GenerateCollision — arms the melee hit-volume
     kGenerateLocus = 0x24,      // anime_GenerateLocus=iiiiiiffii — a GoLocusSword sweep (FUN_00464960)
     kSePlay3D = 0x2a,      // anime_SePlay3D=ifffi  — plays EFFECTDEF sound arg0 at the actor
@@ -275,6 +276,11 @@ bool AsoVm::step(std::size_t& pc) {
             }
             break;
         }
+        case kSMode: {                                 // case 0x21: *(float*)args
+            float v; const std::uint32_t raw = std::uint32_t(ai(0)); std::memcpy(&v, &raw, 4);
+            smode_ += v;
+            break;
+        }
         case kDash: {                                  // 0x447665
             float v; const std::uint32_t raw = std::uint32_t(ai(0)); std::memcpy(&v, &raw, 4);
             dashed_ = true; dash_d_ = v;
@@ -449,6 +455,7 @@ void AsoVm::fast_forward_to_marker(std::int32_t m) {
 void AsoVm::tick() {
     foot_smoke_ = false;
     jumped_ = dashed_ = false;
+    smode_ = 0;
     hitbox_armed_ = false;
     section_ended_ = false;
     sounds_.clear();
