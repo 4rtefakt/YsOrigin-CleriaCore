@@ -36,6 +36,10 @@ const Row* row(int ai_index) {
 }
 
 void sand_clamp(const Row& r, EnemyAi& a, float& y, float hp, bool grounded, bool in_4005) {
+    if (r.ai_index == 50) {                                        // M570 only, the handler's end (0x4f4b7f)
+        if (a.surf == 0x12 && a.water_y > y) { y = a.water_y; a.surf = 1; }   // [approx] run at the next tick's start
+        return;
+    }
     if (!r.skeleton || a.surf_ray != 0x12) return;
     if (r.m560 && in_4005) a.i(0x7a0) = 1;
     const float s = a.water_y;
