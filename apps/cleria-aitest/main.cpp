@@ -1810,6 +1810,15 @@ int main() {
         check(scatters <= 2, "re-scatters at most twice per cycle (+0x7a0 < 2)");
         check(reform_at >= 0 && left == 0, "reform: section 21, the flock dissolves into the body");
         check(attack_sub > 0 && boss.ai.alpha == 1.0f, "visible again, it picks an attack (rush / shots / gas)");
+        {   // M970's handler tail (0x4cc375): a swarm bat (phase 4) stays in the box, whatever the mode.
+            const float rect[4] = {-12.396f, -22.525f, 12.983f, -0.7f};   // S_1080's EnclosePlayer
+            Vec3 o{-6.5f, -15.0f, -23.9f}, q{-6.5f, -15.0f, -23.9f}, m{-6.5f, -15.0f, -23.9f};
+            enemy_handler_clamp(90, o, 0, false, rect, 0, 4);
+            enemy_handler_clamp(90, q, 0, false, rect, 0, 0);
+            enemy_handler_clamp(90, m, 2, true, rect, 0, 4);
+            check(o.z == -22.525f && o.x == -6.5f && q.z == -23.9f && m.z == -22.525f,
+                  "M970 clamp: a phase-4 bat is held in the box (mode-blind); a lone bat is not");
+        }
     }
 
     // ---- M590 Sepaswait (build/ai_spec/M590.md) ----

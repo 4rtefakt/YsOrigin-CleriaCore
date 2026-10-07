@@ -63,8 +63,12 @@ bool enemy_handler_clamps(int ai_index) {
 }
 
 void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_fight, const float rect[4],
-                         int flag131) {
+                         int flag131, int phase) {
     if (enemy_handler_clamps(ai_index)) arena_clamp(origin, arena_mode, rect);
+    // M970 Vagully (FUN_004cc070 0x4cc375..0x4cc3bf, M970.md H4): a swarm bat (phase 4) is held in
+    // the rect's box reading whatever g_flags[190] is, x then z, each "min, else max". Without it
+    // a bat that strays over S_1080's railing never docks, and M460's recall waits forever (D1).
+    if (ai_index == 90 && phase == 4) arena_clamp(origin, 1, rect);
     if (ai_index == 46 && boss_fight && -2.75f > origin.z) origin.z = -2.75f;   // M530 Sepast
     // The class-4 duel handlers clamp on their live path only (g_flags[130] != 0; boss_fight
     // stands in for it [H]: the duel scripts set and the defeat clears 156 and 130 together).

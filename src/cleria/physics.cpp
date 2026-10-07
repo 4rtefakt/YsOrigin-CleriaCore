@@ -170,6 +170,16 @@ void sweep_tri(const Vec3& p0, const Vec3& vel, float r, const Vec3& a, const Ve
     const Vec3 N = normalize(cross(sub(b, a), sub(c, a)));
     const float nDotV = dot(N, vel);
     const float dist = dot(N, sub(p0, a));  // signed distance center -> plane
+    // A sphere already inside the face (the centre within r of the plane, projecting into the
+    // triangle) and moving out of it is never blocked by it. FUN_005daa10 records such a face
+    // as a type-4 contact (0x5dadba FUN_005da630: plane distance <= 0.99999 in unit-sphere space,
+    // the projection inside) and FUN_005dca20 (0x5dce51) moves the sphere out along the normal by
+    // the depth and keeps the velocity; here the sphere is only let go [approx: no push-out].
+    // Without this a body pushed into a wall (an arena clamp, M970's) cannot leave it.
+    if (std::fabs(dist) < r && dist * nDotV > 0.0f) {
+        const Vec3 onPlane{p0.x - N.x * dist, p0.y - N.y * dist, p0.z - N.z * dist};
+        if (point_in_tri(onPlane, a, b, c)) return;
+    }
     float t0;
     bool embedded = false;
     if (std::fabs(nDotV) < 1e-8f) {

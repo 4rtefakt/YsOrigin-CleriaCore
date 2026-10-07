@@ -291,9 +291,10 @@ void arena_clamp(Vec3& origin, int mode, const float rect[4]);
 // duel handlers': M850's (0x4d25aa) box clamp when arena_mode == 1 and g_flags[131] == 0; M810's
 // own inset box (0x4daa9d, mode-blind) and M830's FUN_0047abf0, both only on their live path
 // (g_flags[130] != 0), which `boss_fight` stands in for [H]. A host that does not pass flag131
-// gets 0, the value the duel scripts set [H].
+// gets 0, the value the duel scripts set [H]. M970's (0x4cc375): the box, mode-blind, in phase 4
+// (the actor's +0x6f0, passed as `phase`).
 void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_fight, const float rect[4],
-                         int flag131 = 0);
+                         int flag131 = 0, int phase = 0);
 // A boss handler's gates ahead of its brain (M850 FUN_004d1c90, build/ai_spec/M850.md §1), read
 // through env.world->flag: puppet = g_flags[130] == 0 (FUN_0045f250, the plain-actor tick: no
 // INIT, no brain, no action player); held = g_flags[131] != 0 (the plain mover only). Both are

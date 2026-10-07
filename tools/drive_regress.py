@@ -366,6 +366,17 @@ CASES.update({
         room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="30"),
         drive=_S1080.format(end=11000, cast=50) + "11000:dflags;11001:quit",
         expect=["[duel] t", "cast 50 hp 200/200", "flags 130=0 131=0 133=0 156=0 174=0 230=1 232=0 311=1"]),
+    # D1 (build/audit/ROUTE_F13.md): the long Vagullion fight, through phase 4's dissolve / recall /
+    # re-scatter cycles and the split below half HP, to its death at about t9200 (Lv 2; the shell's
+    # Damage taken 0 keeps Yunica up, no flag is forced). Before M970's phase-4 box clamp and the
+    # sweep's edge / embedded-face fixes a bat stuck over the railing or in a wall pillar never docked,
+    # M460's recall (sub 0x14) waited for it forever and 156 stayed 1 (a softlock).
+    "duel_s1080_vagullion_long": dict(
+        room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="2"),
+        drive=_S1080.format(end=10500, cast=50) + "330:opt=DamageTaken=0;7000:dflags;10500:dflags;10501:quit",
+        expect=["[access] opt DamageTaken=0", "cast 50 hp 200/200", "flags 130=0 131=0 133=0 156=1 174=0 230=0",
+                "flags 130=0 131=0 133=0 156=0 174=0 230=1 232=0 311=1"],
+        absent=["[death]"]),
     # S_1080 Hugo: Epona (M850, Battle_Hugo) -> the post-duel scene (Mask of Eyes) -> 230, 311.
     "duel_s1080_epona": dict(
         room="S_10/S_1080/S_1080", char="2", env=dict(_LOCK, CLERIA_LEVEL="30"),

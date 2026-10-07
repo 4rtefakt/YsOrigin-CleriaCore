@@ -107,6 +107,24 @@ int main() {
         check(p.x < 2.0f && p.z < 2.0f, "inside corner wedges (blocked on both walls)");
     }
 
+    // 6b. A box's vertical corner edge (S_1080's wall pillar, x <= -10.8, z in [-10, -8]): a sphere
+    //     grazing past the corner is stopped by the EDGE, not let into the box.
+    {
+        const float X = -10.8f, X0 = -12.4f, Z1 = -8.0f, Z0 = -10.0f, Y0 = -18.0f, Y1 = -14.0f;
+        RoomMesh m = mesh({{X, Y0, Z0}, {X, Y1, Z0}, {X, Y1, Z1},  {X, Y0, Z0}, {X, Y1, Z1}, {X, Y0, Z1},
+                           {X0, Y0, Z1}, {X, Y0, Z1}, {X, Y1, Z1},  {X0, Y0, Z1}, {X, Y1, Z1}, {X0, Y1, Z1},
+                           {X0, Y0, Z0}, {X0, Y1, Z0}, {X, Y1, Z0},  {X0, Y0, Z0}, {X, Y1, Z0}, {X, Y0, Z0}});
+        const Vec3 o{-10.123f, -16.932f, -7.993f};
+        const Vec3 p = collide_and_slide(m, o, {-0.098f, 0, 0.006f}, 0.67f);
+        check(!sphere_overlaps(m, o, 0.67f) && !sphere_overlaps(m, p, 0.67f) && p.x > -10.14f,
+              "a sphere grazing a box corner is stopped by the vertical edge");
+        // ... and one already 0.17 inside a face (an arena clamp put it there) moving out of it is let go.
+        const Vec3 q{-10.3f, -16.0f, -9.0f}, qv{0.116f, 0, 0.007f};
+        const Vec3 pq = collide_and_slide(m, q, qv, 0.67f);
+        check(sphere_overlaps(m, q, 0.67f) && std::fabs(pq.x - (q.x + qv.x)) < 1e-4f && std::fabs(pq.z - (q.z + qv.z)) < 1e-4f,
+              "a sphere inside a face moving out of it is not held (FUN_005dca20's type-4 contact)");
+    }
+
     // 7. Slide along a floor while moving horizontally on it (stays grounded, moves X).
     {
         RoomMesh m = floor_y(0.0f);

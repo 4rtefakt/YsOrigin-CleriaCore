@@ -5949,7 +5949,7 @@ title_again:
                     {                                                 // the handler-tail clamps
                         Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
                         enemy_handler_clamp(en->ai_index, org, game.g_flags[190], game.g_flags[156] != 0, world.arena,
-                                            game.g_flags[131]);
+                                            game.g_flags[131], e.actor->ai.phase());
                         en->pos = {org.x, org.y - en->height, org.z};
                     }
                     if (o.durable_rule == 1) e.avm.set_durable(true);              // the handler's
