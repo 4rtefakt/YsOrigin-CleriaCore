@@ -308,7 +308,9 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // Skip DEAD ENEMIES only. Cutscene NPCs (Shion/Roy/…) are non-enemy actors that
         // ActorWorld::spawn leaves at hp=0, so alive() is false for them though they are
         // very much present — gating on alive() alone made every intro NPC invisible.
-        if (!e.actor || (e.actor->is_enemy() && !e.actor->alive())) continue;
+        // The revive family's corpse lies on (REVIVE.md §3.4: opaque, never removed without the Chimes).
+        if (!e.actor || (e.actor->is_enemy() && !e.actor->alive() &&
+                         (e.actor->destroy_requested() || !revive::row(e.actor->ai_index)))) continue;
         if (!e.actor->visible) continue;   // Chr_Alpha faded it out (cutscene visibility)
         // A brain's opacity (+0x4d8, e.g. M390's warp fades): the render submit FUN_00473540
         // skips the actor at exactly 0; otherwise it is drawn at that opacity.

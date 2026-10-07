@@ -87,6 +87,14 @@ struct EnemyAi {
     // are set in the mask (bit n = tag n).
     int hook_section = -1;
     std::uint32_t hook_kill_tags = 0;
+    // The integrator's surface bytes and the selector-1 probe (MOVER.md §3, M560.md §0), kept by
+    // the host's enemy integrator: +0x4b9 the surface under the feet (latched within 1.6 of the
+    // floor ray), +0x4ba the last floor ray's surface (any distance), +0x320 the selector-1
+    // ("water" set; for a sand actor the sand top) surface above, +0x38a in it.
+    int surf = 1, surf_ray = 1;
+    float water_y = -1.0e30f;
+    bool in_water = false;
+    float exp_base = -1;   // the revive family's spawn EXP (+0xb0), restored under Silver Chimes
 };
 
 struct Actor;   // cleria/actor.hpp (which embeds an EnemyAi)
@@ -104,7 +112,8 @@ struct AiWorld {
     virtual Actor* spawn_child(Actor& parent, int cast, const Vec3& d, int level,
                                bool keep_phase0) = 0;
     virtual void remove(Actor& a) = 0;                       // FUN_004593c0
-    struct Ray { bool hit = false; Vec3 point{}, normal{}; };
+    // surface: the hit triangle's surface index (rec+0xaa), filled for straight-down rays; -1 unknown.
+    struct Ray { bool hit = false; Vec3 point{}, normal{}; int surface = -1; };
     virtual Ray ray(const Vec3& origin, const Vec3& delta) = 0;   // FUN_005e9380 + FUN_0041e420
     virtual bool sphere_hits(const Vec3& centre, float radius) = 0;  // FUN_005e92b0 + FUN_0041ea80
     // DAT_0076a5cc..d8 = {xmin, zmin, xmax, zmax}: the arena rectangle.
@@ -173,6 +182,8 @@ struct AiEnv {
     int target_section = -1;     // the player's ASO section (P+0x994)
     float target_heading = 0;    // the player's heading (P+0x308), engine basis (cos, sin)
     bool turnable = true;        // this actor's ASO anime_Turnable (+0x9d3)
+    int target_surface = 1;      // the target's +0x4b9 (the surface under its feet; 0x12 = sand2)
+    bool chimes = false;         // DAT_0076a624 & 0x8000: Silver Chimes (the revive family, REVIVE.md §4)
     std::uint32_t events = 0;    // +0x3bc this tick: 0x2000/0x4000 = the stun-rolling hits (REACT.md §1)
     bool stun_immune = false;    // +0x12c & 0x80000
     bool bless_stun = false;     // g_flags[217] & 0x80: the "Increase stun effect" blessing
@@ -301,6 +312,9 @@ void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_f
 // consulted by enemy_ai_tick for env.actor's AI index.
 bool enemy_handler_puppet(int ai_index, const AiEnv& env);
 bool enemy_handler_held(int ai_index, const AiEnv& env);
+// The handler code between the action player and the mover tail (src/cleria/brains/revive.cpp):
+// M560 / M780's acquisition veto (REVIVE.md §5.4), given the phase read right after the brain.
+void enemy_handler_post(int ai_index, EnemyAi& a, int phase_after_brain);
 
 // The brain for an AI index (actor +0x120 = CASTINFO +0x64), or nullptr when not yet
 // ported (callers fall back to the M100 brain as a stand-in and say so).

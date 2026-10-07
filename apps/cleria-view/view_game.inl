@@ -1211,7 +1211,7 @@ title_again:
     // level-up while total >= threshold(level+1) (= gameinfo exp_to_level, cumulative pair 10),
     // capped at 60.
     expaward::Combo kill_combo;          // 0x76c1a8 / 0x76c1b0
-    auto award_exp = [&](float b0, int enemy_level, bool boss) {
+    auto award_exp = [&](float b0, int enemy_level, bool boss, bool awarded = false) {
         if (!ginfo.ok()) return;
         // The shell's EXP rate and the Lua mods' (an AP seed's) factor stand where retail's
         // 0x76a5fc (1.0 in every save) multiplies, before the floor.
@@ -1224,7 +1224,7 @@ title_again:
         } else {
             expaward::KillIn k;
             k.base = b0; k.player_level = player.level; k.enemy_level = enemy_level; k.difficulty = diff;
-            k.rate = rate; k.diff_mult = dm; k.combo = kill_combo.count;
+            k.rate = rate; k.diff_mult = dm; k.combo = kill_combo.count; k.awarded = awarded;
             player.exp += expaward::kill_award(k);
         }
         while (player.level < 60 &&
@@ -5688,6 +5688,7 @@ title_again:
             // action player and move primitive; then the sprite mover moves it along its
             // heading at speed x anime_Movable. STAND-IN for non-M100 casts: every enemy
             // runs the M100 brain until its own is ported (build/audit/ai_bosses.md).
+            #include "view_revive.inl"                // the revive family's handler (REVIVE.md)
             {
                 const int d = game.g_flags[201] ? 3 : (difficulty - 2);   // -2 v.easy .. 2 nightmare
                 auto in_view = [&](const Vec3& q) {
@@ -5738,6 +5739,11 @@ title_again:
                 aiw.ray_fn = [&](const Vec3& o, const Vec3& dl) {
                     AiWorld::Ray r;
                     r.hit = segment_hit(phys_mesh(room), o, {o.x + dl.x, o.y + dl.y, o.z + dl.z}, &r.point, &r.normal);
+                    if (r.hit && dl.x == 0.0f && dl.z == 0.0f && dl.y < 0.0f) {   // rec+0xaa: a straight-down ray's surface
+                        int tri = -1;
+                        if (floor_at(phys_mesh(room), o.x, o.z, o.y, &tri) > kNoFloor && tri >= 0)
+                            r.surface = surface_index_or_default(surface_of(phys_mesh(room), tri));
+                    }
                     return r;
                 };
                 aiw.sphere_fn = [&](const Vec3& c, float r) { return sphere_overlaps(phys_mesh(room), c, r); };
@@ -5764,6 +5770,7 @@ title_again:
                 const Vec3 cam_fwd = cam.forward();
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
+                    if (revive_tick(e)) continue;                 // the revive family's dead path
                     // The dead path of a handler that has extra work there (M460: its flock).
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) hk(*en, aiw);
@@ -5807,6 +5814,8 @@ title_again:
                     env.target_section = avm.section();
                     env.target_heading = std::atan2(face_dir.z, face_dir.x);
                     env.turnable = e.avm.turnable();
+                    env.target_surface = cur_surface;                                  // P+0x4b9
+                    env.chimes = (inv.equip_flags & 0x8000u) != 0;                     // DAT_0076a624
                     const Aso* escr = enemy_script(e.stem);
                     env.section_type = [escr](int id) {
                         const Aso::Section* s = escr ? escr->find(id) : nullptr;
@@ -6099,18 +6108,29 @@ title_again:
                 ++a.age_ticks;                          // +0x504, every actor every tick (0x45d32d; M900's ring reads Hugo's)
                 // The cosmetic hit flash fades on the dead too (a duel puppet stays on screen).
                 if (a.hit_flash > 0) --a.hit_flash;
-                if (a.is_player() || !a.alive()) continue;
+                if (a.is_player() || (!a.alive() && !revive_corpse(a))) continue;   // a family corpse falls on
                 // The integrator FUN_0045a510 (MOVER.md §3): one swept sphere (radius +0x328,
                 // centred on the ORIGIN) through D = (displacement, dy), the floor ray from the
                 // pre-move origin, then the settle (land with a 0.65 lerp / coyote / fall).
                 // A flyer: dy = t (0 for the AI), no settle — the hover owns its altitude.
                 {
                     const Vec3 o0{a.pos.x, a.pos.y + a.height, a.pos.z};
-                    const float dy = a.flyer ? a.vert.t : vertical_dy(a.vert);
+                    float dy = a.flyer ? a.vert.t : vertical_dy(a.vert);
                     const float hitY = floor_at(phys_mesh(room), o0.x, o0.z, o0.y);
-                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {a.mover.dx, dy, a.mover.dz}, a.radius);
+                    // Sand2 (MOVER.md §3.1/§3.2, 0x45a63f / 0x45a6fa): in the selector-1 set over a
+                    // sand2 floor dy is clamped to [-0.015, 0.03]; on sand2 (+0x4b9) xz x0.25 and a
+                    // rising dy x0.25; the settle keeps such an actor grounded above its floor.
+                    enemy_surfaces(a);
+                    const bool in_sand = !a.flyer && a.ai.in_water && a.ai.surf_ray == 0x12;
+                    if (in_sand) { dy = std::clamp(dy, -0.015f, 0.03f); a.ai.surf = 0x12; }   // +0x4b9 = 0x12
+                    float mdx = a.mover.dx, mdz = a.mover.dz;
+                    if (a.ai.surf == 0x12) { mdx *= 0.25f; mdz *= 0.25f; if (dy > 0.0f) dy *= 0.25f; }
+                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, a.radius);
                     if (hitY > kNoFloor && o1.y > hitY) a.floor_y = hitY;     // +0x318
-                    if (!a.flyer) {
+                    if (!a.flyer && in_sand && o1.y - a.height >= a.floor_y + 0.01f) {
+                        a.vert.grounded = true;                               // 0x45bf52: +0x388 = 1 in sand
+                        a.vert.t = std::max(-0.5f, a.vert.t - 0.0118f);        // the in-water decrement
+                    } else if (!a.flyer) {
                         a.vert.jumping = a.mover.loco == 3;                  // the coyote keys on +0x3a0
                         settle_vertical(a.vert, o1.y, a.floor_y, a.height);
                     }
@@ -6208,12 +6228,19 @@ title_again:
                         std::printf("  hit %s (lv%d DEF %.0f): %d dmg, %.0f/%.0f left\n",
                                     nm.c_str(), en.level, en.def, r.damage, en.hp, en.max_hp);
                     if (r.died) {
-                        award_exp(en.exp_reward, en.level, /*boss*/false);
+                        // The kill credit (0x4fcaf5..0x4fcd42): nothing once +0x12c & 0x4000000 is set,
+                        // which this kill sets (a revived actor keeps it: REVIVE.md §3.10c).
+                        award_exp(en.exp_reward, en.level, /*boss*/false, (en.flags12c & 0x4000000u) != 0);
+                        en.flags12c |= 0x4000000u;
+                        // The revive family flips +0x130 ^= 9 on the first dead tick when the Chimes are
+                        // on, before FUN_004780e0's death effects and drops (REVIVE.md §3.1).
+                        const std::uint32_t f130 = en.flags130 ^
+                            ((revive::row(en.ai_index) && (inv.equip_flags & 0x8000u)) ? 9u : 0u);
                         {   // FUN_004780e0 -> FUN_00478510's death path (hit_feedback.hpp): its entry
                             // draw (the scale), the puff (+ SE 862 with +0x130 & 0x2000) and the
                             // character's spark, from the victim's last vector to the player.
                             const std::uint32_t d0 = pick_rng.next();
-                            const hitfx::DeathPuff dp = hitfx::death_puff(en.flags130);
+                            const hitfx::DeathPuff dp = hitfx::death_puff(f130);
                             if (dp.spark) {
                                 const Vec3 tp = en.ai.v(0x734);
                                 const hitfx::Spark sk = hitfx::place_spark({en.pos.x, en.pos.y + en.height, en.pos.z},
@@ -6227,7 +6254,8 @@ title_again:
                                                          (unsigned long long)tick_count, dp.effect, sid, sk.scale);
                             }
                         }
-                        if (const Enemy* er = etab.get(en.cast_id)) {     // FUN_00478510
+                        // FUN_00478510's drop loop is skipped while +0x130 & 1 (0x478b5c; factory 0x2009 / 0x6081 / 0x1).
+                        if (const Enemy* er = etab.get(en.cast_id); er && !(f130 & 1u)) {
                             DropContext dc;                 // [not modelled] launch count, luck
                             dc.combo = kill_combo.count;    // 0x76c1a8 (FUN_00478510 0x479062)
                             dc.flag108 = game.g_flags[108] == 1;

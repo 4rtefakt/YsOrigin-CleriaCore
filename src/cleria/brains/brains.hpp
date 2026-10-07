@@ -68,6 +68,8 @@ AiOut m550(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0049c130 Arte
 AiOut m350(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a56c0 Diphtheloyd (flying breath, swoop)
 AiOut m590(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a7030 Sepaswait (lasers, the ramp dash)
 AiOut m600(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a8ea0 Titamonus (M110 + the 312 dive)
+AiOut m560(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a0260 Karon (buried, leaping spin; revives)
+AiOut m780(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004aa220 Zelkaron (Karon + combos; revives)
 AiOut m170(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048a6c0 Vilvan (orbits)
 AiOut m180(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047cfd0 Wilewarer (guards)
 AiOut m390(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047f6a0 Baocar (warp mage)

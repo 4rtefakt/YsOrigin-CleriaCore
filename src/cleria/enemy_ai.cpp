@@ -596,8 +596,10 @@ AiOut enemy_ai_tick(EnemyAi& a, const EnemyAiParams& p, const AiEnv& env, EnemyB
     for (int t = 0; a.hook_kill_tags != 0; ++t, a.hook_kill_tags >>= 1)
         if (a.hook_kill_tags & 1u) { AiEffect k; k.kill_tag = t; out.effects.push_back(k); }
     if (out.skip_action_player) return out;
+    const int phase_after_brain = a.phase();
     AiOut ap;
     ai::action_player(a, p, env, ap);
+    enemy_handler_post(idx, a, phase_after_brain);
     // The action player's own requests come after the brain's in the engine; it wins a tie.
     if (ap.section >= 0) { out.section = ap.section; out.section_force = ap.section_force; }
     for (const AiEffect& f : ap.effects) out.effects.push_back(f);
