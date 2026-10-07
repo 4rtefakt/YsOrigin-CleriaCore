@@ -15,7 +15,7 @@ import hashlib, json, os, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build_diff", "Release", "cleria-view.exe")
-ASSETS = os.path.join(ROOT, "assets")
+ASSETS = os.environ.get("CLERIA_ASSETS") or os.path.join(ROOT, "assets")   # a worktree has no assets/
 OUT = os.path.join(ROOT, "build", "goldens")
 DB = os.path.join(ROOT, "tests", "goldens.json")
 
