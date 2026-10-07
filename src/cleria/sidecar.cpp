@@ -91,10 +91,6 @@ std::string Sidecar::serialize() const {
             o << b << '=' << v << "\r\n";
         }
     }
-    if (!ap.empty()) {
-        o << "\r\n[ap]\r\n";
-        for (const auto& [k, v] : ap) o << k << '=' << quote(v) << "\r\n";
-    }
     for (const auto& [id, kv] : mod) {
         if (kv.empty()) continue;
         o << "\r\n[mod." << id << "]\r\n";
@@ -129,8 +125,6 @@ std::optional<Sidecar> Sidecar::parse(std::string_view text) {
                 char* end = nullptr;
                 const long id = std::strtol(p.key.c_str(), &end, 0);
                 if (end && *end == 0) s.items[int(id)] = std::int32_t(std::strtol(p.value.c_str(), nullptr, 0));
-            } else if (n == "ap") {
-                s.ap[k] = p.value;
             } else if (n.size() > 4 && n.rfind("mod.", 0) == 0) {
                 s.mod[n.substr(4)][p.key] = pct_decode(p.value);   // the key as written
             }

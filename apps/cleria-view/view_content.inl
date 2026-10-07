@@ -42,7 +42,7 @@ struct ContentRt {
     int toast_t = 0;                        // ticks left
     std::function<void(int)> add_sp, heal_hp;
     std::function<void(int)> save_slot, load_slot;
-    std::deque<std::string> log;            // the last events, for the Content tab
+    std::deque<std::string> log;            // the last events, for Mods > Content additions
     int rules_sub = 0;
 };
 static ContentRt g_content;
@@ -196,6 +196,14 @@ static void content_session_start(std::int32_t* flags, int character, bool loade
     r.queued.push_back(e);
 }
 
+// A NewGame / Load is still queued (emitted at the next content_tick): the sidecar was just replaced,
+// and a layer that keeps per-save state must not write it yet (the Lua API's cleria.save.ready()).
+static bool content_session_pending() {
+    for (const events::Event& e : g_content.queued)
+        if (e.kind == events::Kind::NewGame || e.kind == events::Kind::Load) return true;
+    return false;
+}
+
 // Every room entry (the boot room, doors, script warps, loads): the event, the chests, the pickups.
 static void content_on_room(const Room& room, std::vector<Pickup>& pickups, bool water) {
     ContentRt& r = g_content;
@@ -261,7 +269,7 @@ static void content_taken(const Pickup& pk) {
     content_emit(e);
 }
 
-// More grant filters for other CleriaCore layers (the Archipelago client): consulted in order BEFORE
+// More grant filters for other CleriaCore layers (the Lua mods): consulted in order BEFORE
 // chests.ini; the first decision that is not Pass is the one taken (and that layer grants / reports
 // what it substitutes itself, e.g. with content_give). `room` is the current room, upper-case.
 using ContentFilter = std::function<GrantDecision(const GrantQuery&, const std::string& room)>;
@@ -427,7 +435,15 @@ static bool content_drive(const std::string& cmd) {
     return false;
 }
 
-// The F1 panel's "Content" tab: what the content mods add, this save's CleriaCore state, the events.
+// The Mods tab's "Content additions" row (view_mods.inl): how many active mods add content.
+static std::string content_summary() {
+    const ContentRt& r = g_content;
+    if (!r.on || r.stamp.empty()) return "None";
+    return std::to_string(r.stamp.size()) + (r.stamp.size() == 1 ? " mod" : " mods");
+}
+
+// Mods > Content additions (a sub-page of the Mods tab, view_mods.inl; once its own F1 tab): what the
+// content mods add, this save's CleriaCore state, the events.
 static void content_page(ui::List& L) {
     ContentRt& r = g_content;
     ui::section(L, "Mod content");

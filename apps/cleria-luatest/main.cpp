@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 
+#include "cleria/json.hpp"
 #include "cleria/modscript.hpp"
 #include "cleria/mods.hpp"
 #include "cleria/sidecar.hpp"
@@ -436,9 +437,15 @@ int main(int argc, char** argv) {
             mod.start(sm.script);
             check(e2.empty() && mod.ok(), std::string("samples: ") + s + " starts (" + mod.error() + ")");
             if (std::string(s) == "archipelago_lua") {
-                check(slurp(root / "data" / "ys_origin.json") == slurp(fs::path("res") / "ap" / "ys_origin.json"),
-                      "samples: archipelago_lua's data/ys_origin.json is res/ap/ys_origin.json");
-                check(mod.pages().size() == 1 && mod.has_filter() && mod.icons().size() == 1, "samples: archipelago_lua has its tab, filter and icon");
+                // its table is its own (tools/ap_import.py writes it there): the apworld's whole id space
+                const auto t = cleria::json::parse(slurp(root / "data" / "ys_origin.json"));
+                const cleria::json::Value* tv = t ? &*t : nullptr;
+                check(tv && (*tv)["locations"].size() == 336 && (*tv)["items"].size() == 147 && (*tv)["game"].as_string() == "Ys Origin",
+                      "samples: archipelago_lua's data/ys_origin.json: 336 locations, 147 items");
+                check(mod.pages().size() == 1 && mod.pages()[0] == "Archipelago" && mod.has_filter() && mod.icons().size() == 1,
+                      "samples: archipelago_lua has its page (Mods > Archipelago), filter and icon");
+                check(fs::exists(root / "README.md") && fs::exists(root / "icons" / "AP_ITEM.DDS"),
+                      "samples: archipelago_lua is self-contained (README.md, its icon)");
             }
         }
     }

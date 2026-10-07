@@ -1,6 +1,6 @@
--- The Archipelago (Lua) mod's UI: its F1 tab and its overlays (the connection line, the item feed, the
--- tracker, the Blinding Fog trap), drawn with cleria.ui / cleria.hud in the shell's look. The layout and
--- the [H] values (10 s feed, 6 lines, the sizes) follow CleriaCore's C++ view_archipelago.inl.
+-- The Archipelago mod's UI: its page (F1 > Mods > Archipelago) and its overlays (the connection line, the item
+-- feed, the tracker, the Blinding Fog trap), drawn with cleria.ui / cleria.hud in the shell's look. The layout
+-- and the [H] values (10 s feed, 6 lines, the sizes) follow CleriaCore's former C++ client.
 
 local text = require("ap.text")
 local ys = require("ap.ys")
@@ -74,7 +74,7 @@ function M.install(A, persist)
         if not cfg.show_status or (s == "idle" and A.logic.st.seed == "") then return end
         local S = d.scale
         local px = 14.5 * S
-        local t = "AP (Lua)  " .. (A.mismatch == "" and A.session:status_text(cleria.time()) or A.mismatch)
+        local t = "AP  " .. (A.mismatch == "" and A.session:status_text(cleria.time()) or A.mismatch)
         if s == "connected" and A.logic.configured then
             t = t .. "  \u{2022}  " .. ys.count(A.logic.st.checks) .. "/" .. #A.logic.regs .. " checks"
         end
@@ -126,15 +126,15 @@ function M.install(A, persist)
         d:rect(0, 0, d.w, d.h, {color = 0xC4C8CE, alpha = 205 / 255 * k})
     end)
 
-    -- the F1 tab
-    cleria.ui.page("Archipelago (Lua)", function(p)
+    -- the page: F1 > Mods > Archipelago
+    cleria.ui.page("Archipelago", function(p)
         local s = A.session.status
         local cl = A.session.client
         p:section("Connection")
         local st_text = A.mismatch == "" and A.session:status_text(cleria.time()) or A.mismatch
         p:info("Status", st_text, {color = (s == "connected" and A.mismatch == "") and "good" or s == "idle" and "muted" or "warn",
-            desc = "The connection to the Archipelago server, made by this Lua mod (samples/mods/archipelago_lua): the Ys Origin " ..
-                   "apworld client written on CleriaCore's mod API. Not a retail feature."})
+            desc = "The connection to the Archipelago server, made by this Lua mod: the client for the Ys Origin apworld, " ..
+                   "written on CleriaCore's mod API. Not a retail feature."})
         local changed
         cfg.server, changed = p:text_field("Server", cfg.server, "The room's address, e.g. archipelago.gg:38281. ws:// or wss:// " ..
                                            "may be given; without one the secure connection is tried first.")
@@ -177,7 +177,7 @@ function M.install(A, persist)
         cfg.show_tracker, changed = p:toggle("Tracker", cfg.show_tracker, "Checked / total locations per area, left.")
         if changed then persist("show_tracker") end
         cfg.export_state, changed = p:toggle("Tracker file", cfg.export_state,
-            "Keeps state.json in this mod's data folder (modsdata/sample.archipelago_lua beside cleria.ini) up to date.")
+            "Keeps state.json in this mod's data folder (modsdata/ysorigin.archipelago beside cleria.ini) up to date.")
         if changed then persist("export_state") end
         if #A.log > 0 then
             p:section("Recent events")

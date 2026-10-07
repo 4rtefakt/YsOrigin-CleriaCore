@@ -11,7 +11,7 @@ the game, its saves and its frames are what they were.
 | the runtime: state, sandbox, budget, errors, the game's calls into a mod | `src/cleria/modscript.{hpp,cpp}` (target `cleria-script`) |
 | the `cleria.*` API | `src/cleria/modscript_api.cpp` |
 | the game side (the `Host`): live game, content layer, ui kit, shell | `apps/cleria-view/view_lua.inl` + one-line hooks in `view_game.inl` |
-| tests | `apps/cleria-luatest` (ctest `luatest`, 54 checks), `tools/aplua_regress.py` (6 drive cases) |
+| tests | `apps/cleria-luatest` (ctest `luatest`, 56 checks), `tools/aplua_regress.py` (6 drive cases), `drive_regress shell_subpages` |
 | samples | `samples/mods/hello`, `samples/mods/archipelago_lua` (§9) |
 | the modder's guide | `samples/mods/README.md` |
 
@@ -30,7 +30,7 @@ Script=main.lua       ; the entry file, relative to the mod folder
 ```
 
 - The script runs once at startup (after the mods are mounted and `content/` is merged, before the first
-  room), when the mod is **Active** in the Mods tab. It registers handlers, pages, layers; then the game
+  room), when the mod is **Active** in the Mods tab. It registers handlers, its page, layers; then the game
   calls them. Changes apply on restart, like every mod change (MODS.md §2).
 - `Script=` with `ApiVersion` 1 or 2 is ignored with a note in the Mods tab ("needs ApiVersion=3").
 - One **lua_State per mod**: mods never see each other's globals.
@@ -134,8 +134,7 @@ end)
 - Return `nil` / `"pass"`, `"suppress"`, or `{action = "replace", index =, value =, text =}` (missing fields keep
   the query's). Store: `index` / `value` = the cell written instead. Icon / Window: the item shown (an icon id
   of §7 works too) and the box text.
-- Order: the built-in Archipelago client, then the Lua mods (load order), then `content/chests.ini`; the first
-  decision that is not "pass" wins.
+- Order: the Lua mods (load order), then `content/chests.ini`; the first decision that is not "pass" wins.
 - `content.give(id, count, source)`: the inventory's own rules (count + n, gold -> SP, mod items 0x100.. in the
   sidecar); emits `item_obtained`.
 - `content.treasure_text(text, name, count)`: the original box text with the item name (and ` x N`) replaced.
@@ -156,7 +155,7 @@ end)
   `get("On", false)` -> a boolean; stored `1` / `0`).
 - In a run without a settings file (headless tests) mods are off anyway (MODS.md §2).
 
-## 7. UI: hud layers, F1 pages, icons
+## 7. UI: hud layers, the mod's page, icons
 
 ```lua
 cleria.hud.layer("corner", function(d)           -- every frame, over the game (layers of a mod in name order)
@@ -165,7 +164,7 @@ cleria.hud.layer("corner", function(d)           -- every frame, over the game (
     d:text(26 * s, 20 * s, "Hello", {size = 15 * s, color = "gold", font = "medium"})
 end)
 
-cleria.ui.page("My Mod", function(p)              -- its own F1 tab, in the shell's look
+cleria.ui.page("My Mod", function(p)              -- its page: F1 > Mods > My Mod, in the shell's look
     p:section("Options")
     local changed
     MyOn, changed = p:toggle("Enabled", MyOn, "What this does. Not a retail option.")
@@ -186,10 +185,18 @@ cleria.notice("Something happened", "My Mod")     -- a notice card (5 s)
 - Colours: `color = 0xRRGGBB` or a kit name — `gold`, `label`, `value`, `muted`, `desc`, `good`, `warn`,
   `section`, `panel`, `edge`, `row`, `white`, `black` (also as numbers in `cleria.ui.colors`); `alpha` 0..1.
   Fonts: `body` (default), `medium`, `bold`, `cond`, `cond_medium` (Fira Sans / Condensed).
+- **Where a page shows** (since 2026-10-07): a mod never gets an F1 tab of its own (SHELL_CORE.md §9, the tab
+  policy). `cleria.ui.page(title, fn)` draws `fn` on the mod's own page, **F1 > Mods > <mod name>** (the Mods
+  list's row of the mod opens it: OK / a click; a gear on the row marks a mod with settings), above that page's
+  On / Off, load order and details. The page's first row is the way back ("<  MODS / <MOD NAME>"; Esc, Backspace
+  and the pad's Back also return). Start the page with your own `p:section(...)`. A mod that calls `cleria.ui.page`
+  more than once gets every page on that one page, each under a section titled with its `title`; with a single
+  page the title is not shown (the breadcrumb shows the mod's `Name`). The signature is unchanged.
+  `CLERIA_SHELL_PAGE=Mods:<mod id>` (or the drive's `shell=Mods:<mod id>`) opens it in a headless capture.
 - Page widgets return the new value and whether it changed (`button` returns whether it was pressed). The last
   argument is the description string or an options table (`desc`, `enabled`, `secret`, `empty`, `color`).
   Store the returned value yourself (the page is redrawn every frame).
-- Pages and icons must be registered by the main chunk (the shell and the icon caches are built after it);
+- Pages and icons must be registered by the main chunk (the Mods tab and the icon caches are built after it);
   layers may be added or removed any time (`cleria.hud.layer(name, nil)` removes).
 - Icon ids for mods: 0x200..0x3FF (outside every item id and flag). The DDS loader takes DXT1/DXT3 and
   uncompressed images (MODS.md §3). Images and icons come from the mod's own folder.
@@ -197,7 +204,7 @@ cleria.notice("Something happened", "My Mod")     -- a notice card (5 s)
 ## 8. Net, JSON, commands, speedrun
 
 ```lua
-local ws = cleria.net.websocket()                 -- the WinHTTP WebSocket (src/cleria/ap/websocket)
+local ws = cleria.net.websocket()                 -- the WinHTTP WebSocket (src/cleria/net/websocket)
 ws:open("wss://example.org:443/")                 -- or "host:port": tries wss://, then ws://
 cleria.events.on("frame", function()
     for _, e in ipairs(ws:poll()) do              -- never blocks: {kind = "open" | "message" | "close", text, error}
@@ -218,42 +225,44 @@ ws:send(cleria.json.encode({cmd = "Hello", tags = cleria.json.array()}))
 - Also: `cleria.api_version` (3), `cleria.mod` (`id`, `name`, `version`), `cleria.time()` (seconds, monotonic),
   `cleria.unix_time()`, `cleria.read(path)` / `cleria.exists(path)` (the mod's own files).
 
-## 9. The proof: Archipelago re-made as a Lua mod
+## 9. The proof: Archipelago as a Lua mod
 
-`samples/mods/archipelago_lua` is the Ys Origin Archipelago client written in Lua on the API above **only**
-(no AP-specific C++): `ap/client.lua` (the protocol state machine: RoomInfo, GetDataPackage / DataPackage
+`samples/mods/archipelago_lua` is **CleriaCore's Archipelago client** for the Ys Origin apworld, written in Lua
+on the API above **only** (no AP-specific C++). It replaced the built-in C++ client (AP_GAME.md, ARCHIPELAGO.md:
+both superseded), which was removed on 2026-10-07 once these cases proved the Lua mod equivalent. It is
+self-contained (its own `README.md` for players, its table and icon) so it can be published on its own.
+`ap/client.lua` (the protocol state machine: RoomInfo, GetDataPackage / DataPackage
 with a cache, Connect, Connected / ConnectionRefused, ReceivedItems with the index-0 reset, overlap and gap ->
 Sync + LocationChecks, LocationChecks kept and re-sent after each login, LocationScouts / LocationInfo,
 StatusUpdate with the final goal, Bounce / Bounced DeathLink with the echo filter, the keep-alive, Say,
 PrintJSON, RoomUpdate; the session with reconnect backoff and the status line), `ap/text.lua` (PrintJSON
 colours), `ap/ys.lua` (the Ys Origin rules: slot_data options, the registry from `location_signals` /
 `location_detect`, flag / item_arr / bit / scene / floor detection, claims, suppression, every receipt kind,
-the New Game loadout, warp locks, the goal, EXP scaling, the save block), `ap/ui.lua` (the F1 tab
-"Archipelago (Lua)", the overlays). Its table `data/ys_origin.json` is a copy of `res/ap/ys_origin.json`
-(`cleria-luatest` fails if they differ); its icon `icons/AP_ITEM.DDS` a copy of `res/ap/AP_ITEM.DDS`.
+the New Game loadout, warp locks, the goal, EXP scaling, the save block), `ap/ui.lua` (its page, **F1 > Mods >
+Archipelago**, and the overlays). Its table `data/ys_origin.json` is written there by `tools/ap_import.py` (from
+the unchanged apworld); its icon `icons/AP_ITEM.DDS` by `tools/make_ap_icon.py`. The location / item mapping and
+the slot_data contract it implements are ARCHIPELAGO.md §5 and AP_GAME.md §3-6 (kept as the reference).
 
-**Verified** with the built-in C++ client OFF (no `[cleria.archipelago]` slot) and the mod ON, against
-`tools/ap_mock_server.py`: `tools/aplua_regress.py` plays the six `ap_*` scenarios of `tools/ap_regress.py`
-(same rooms, same drive timing) as `aplua_chest`, `aplua_items_save`, `aplua_deathlink`, `aplua_goal_traps`,
-`aplua_seed_guard`, `aplua_off` — all pass. Beyond the cases' checks, the mod's whole event log (connect,
-stamp, loadout, room checks, scouts, suppression, the store check, the box text, every grant, DeathLink in
-and out, the traps, the goal, the seed guard) is **line-for-line identical** to the C++ client's `[ap]` log
-in all five connected scenarios, and the packets the server received are identical too (uuid and times
-masked).
+**Verified** against `tools/ap_mock_server.py` (slot_data fixture `tests/ap/test_slot_data.json`):
+`tools/aplua_regress.py` plays `aplua_chest`, `aplua_items_save`, `aplua_deathlink`, `aplua_goal_traps`,
+`aplua_seed_guard`, `aplua_off` — all pass. When the built-in C++ client still existed, these were the six
+`ap_*` scenarios of its `tools/ap_regress.py` (same rooms, same drive timing), and beyond the cases' checks the
+mod's whole event log (connect, stamp, loadout, room checks, scouts, suppression, the store check, the box text,
+every grant, DeathLink in and out, the traps, the goal, the seed guard) was **line-for-line identical** to the
+C++ client's `[ap]` log in all five connected scenarios, and the packets the server received were identical
+too (uuid and times masked).
 
-**Where it differs from the C++ integration** (all deliberate or cosmetic):
-- Its settings are `[cleria.mod.sample.archipelago_lua]` (same keys as `[cleria.archipelago]`); its save block
-  is the sidecar's `[mod.sample.archipelago_lua]` `state` (JSON), not `[ap]`: a save stamped by one client is
-  not seen by the other. Its caches (data packages, slot_data) and `state.json` live in
-  `modsdata/sample.archipelago_lua/`, not `archipelago/`; the data-package file names differ (no FNV hash).
-- Its foreign-item icon id is 0x2A1 (the built-in one's 0x2A0) and comes from the mod folder; the C++
-  client also honours an `IMAGE/AP_ITEM.DDS` reskin through the vfs, this one does not (replace the mod's
-  file instead).
-- The fog trap's haze sorts under the mod's own overlays only (the C++ `0ap.fog` sorts under every shell
-  overlay); the status line reads "AP (Lua)".
-- Chaos Warp picks its statue with its own LCG (the C++ uses `std::mt19937` seeded 0xA9): with several
-  statues unlocked the two pick differently. The uuid comes from `math.random` seeded by the clock.
-- Both clients run if both are configured: turn the built-in one off (no slot) while this mod is on.
+**What changed from the removed C++ client** (all deliberate or cosmetic; a player of the C++ client starts
+over in the mod's settings):
+- Its settings are `[cleria.mod.ysorigin.archipelago]` (the same keys as the old `[cleria.archipelago]`,
+  which is now ignored); its save block is the sidecar's `[mod.ysorigin.archipelago]` `state` (JSON), not
+  `[ap]` (an old sidecar's `[ap]` block is ignored and dropped at the next save). Its caches (data packages,
+  slot_data) and `state.json` live in `modsdata/ysorigin.archipelago/`, not `archipelago/`.
+- Its foreign-item icon id is 0x2A1 and comes from the mod folder (no `IMAGE/AP_ITEM.DDS` vfs reskin: replace
+  the mod's file instead).
+- The fog trap's haze sorts under the mod's own overlays only; the status line reads "AP".
+- Chaos Warp picks its statue with its own LCG (the C++ used `std::mt19937` seeded 0xA9). The uuid comes from
+  `math.random` seeded by the clock.
 
 **API gaps found and filled** while porting (each now generic API): per-save storage (the sidecar had only
 the `[ap]` block -> `[mod.<id>]` sections), per-mod settings (`SettingsStore::cleria_doc_mut`), a data folder
@@ -264,12 +273,14 @@ the `[ap]` block -> `[mod.<id>]` sections), per-mod settings (`SettingsStore::cl
 ## 10. Tests
 
 ```
-cmake --build build_diff --config Release --target cleria-luatest cleria-view
-ctest --test-dir build_diff -C Release -R luatest
-python tools/drive_regress.py --exe build_diff/Release/cleria-view.exe --assets <assets> aplua_chest aplua_items_save aplua_deathlink aplua_goal_traps aplua_seed_guard aplua_off
+cmake --build build_diff --config Release --target cleria-luatest cleria-nettest cleria-view
+ctest --test-dir build_diff -C Release -R "luatest|nettest"
+python tools/drive_regress.py --exe build_diff/Release/cleria-view.exe --assets <assets> aplua_chest aplua_items_save aplua_deathlink aplua_goal_traps aplua_seed_guard aplua_off shell_subpages
 ```
 
-`cleria-luatest` (54 checks): the sandbox (no io / package / debug / dofile / os.execute / getenv /
+`cleria-nettest`: the WebSocket under `cleria.net` (address parsing; a loopback echo server: wss -> ws fallback,
+echo, a 2 MB message, idle beyond the handshake timeout, a kick, a polite close, a close the server ignores,
+nothing listening, a bad address). `cleria-luatest` (56 checks): the sandbox (no io / package / debug / dofile / os.execute / getenv /
 string.dump, bytecode refused, `require` / `cleria.read` / `cleria.data` cannot leave their folders, print to
 the log); a runaway handler stopped in milliseconds, also through `pcall`, a runaway main chunk, a heap bomb,
 errors with file:line (main chunk, handler, syntax, a module), a disabled mod getting no calls, other mods
@@ -278,4 +289,5 @@ chests, treasure_text, save storage incl. quotes / backslashes / newlines / % th
 settings typing, data files, json incl. null / int64 / empty arrays, the filter's three decisions, icons,
 hud layers in order with colours / alpha / kit names / images, page widgets, exp_factor, speedrun,
 commands, draw calls refused outside a layer); websockets (the 4-socket limit, a bad address, a refused
-connection reported by `poll`); the manifest's `Script=`; both samples start.
+connection reported by `poll`); the manifest's `Script=`; both samples start; archipelago_lua's own table (336
+locations, 147 items), its page "Archipelago", its README and icon (self-contained).

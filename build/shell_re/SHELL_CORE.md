@@ -196,3 +196,25 @@ Skill 1–3 now switch the bracelet from the keyboard and the pad as well as the
 - **The attack press is the action probe's trigger** ([BYTES 0x465abf], `+0x50c & 1` = slot 0
   KEY_ACTION). This resolves BARRIER_OBJECTS.md's [UNKNOWN] "which physical button bit 0x1 is".
 - **`FUN_005d0590` drops the first byte unconditionally.** An unquoted string value loses its first character.
+
+## 9. The F1 panel's tabs: the tab policy
+
+The top level is fixed at ten tabs: **PRELAUNCH, VIDEO, INPUT, AUDIO, GAMEPLAY, CHEATS, SPEEDRUN, MODS,
+INTERFACE, DEBUG** (2026-10-07; the CONTENT and ARCHIPELAGO tabs and the one-tab-per-Lua-mod rule were
+folded into MODS).
+
+- **No new top-level tabs.** A new feature goes under an existing tab, as a section of its page or as a
+  sub-page of it.
+- **Mods never get a tab.** A Lua mod's `cleria.ui.page` is drawn on its own page, **Mods > <mod name>**
+  (with its On / Off, load order and details); content patches are **Mods > Content additions**
+  (`apps/cleria-view/view_mods.inl`).
+- **A sub-page** starts with a `ui::back_row` ("<  MODS / HELLO LUA": OK / click goes back) and sets the
+  tab's `ui::Page::back` hook, so Esc / Backspace / the pad's Back return to the tab's page instead of
+  closing the panel (a second Back closes it). A tab that can open a sub-page by name sets
+  `ui::Page::open_sub`; `CLERIA_SHELL_PAGE=<Tab>:<sub>` and the drive's `shell=<Tab>:<sub>` reach it
+  through `ui::Panel::select` (`Input:bind`, `Input:pad`, `Mods:<mod id>`, `Mods:content`). The drive's
+  `shellback` presses Back on the current tab (`drive_regress shell_subpages`).
+- `ui::Panel::add` replaces a tab of the same name in place (the Debug page is re-added after each Return
+  to Title; it no longer duplicates).
+- **If tabs must be trimmed later, PRELAUNCH is the first candidate to remove**: its few options (the game
+  data, the logo movie, movie skipping) would move to other tabs. Not done now.

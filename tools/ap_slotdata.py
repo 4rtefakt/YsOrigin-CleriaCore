@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A realistic Ys Origin `slot_data` fixture for the offline Archipelago tests (build/shell_re/AP_GAME.md).
+"""A realistic Ys Origin `slot_data` fixture for the offline Archipelago tests (tools/aplua_regress.py).
 
 The apworld's World.fill_slot_data (YsOrigin-Archipelago/ys_origin/__init__.py) needs Archipelago
 itself to run; this tool rebuilds the same dict from the apworld's own data_tables.py (pure Python,
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ap_import  # noqa: E402  (load_data_tables, read_json)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_OUT = os.path.join(ROOT, "res", "ap", "test_slot_data.json")
+DEFAULT_OUT = os.path.join(ROOT, "tests", "ap", "test_slot_data.json")
 
 
 class _Opt:

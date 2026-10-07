@@ -1,15 +1,14 @@
--- Archipelago (Lua): CleriaCore as a client for the Ys Origin apworld, written as an ordinary Lua mod on
--- the generic cleria.* API (build/shell_re/LUA_API.md) — the same game the built-in C++ integration
--- plays (build/shell_re/AP_GAME.md), re-made here to prove the API. Turn the built-in one off (no slot in
--- F1 > Archipelago) when this mod is on, or both will play the seed.
+-- Archipelago: CleriaCore as a client for the Ys Origin apworld (github.com/4rtefakt/ys-origin-archipelago),
+-- written as an ordinary Lua mod on CleriaCore's generic cleria.* API (CleriaCore's build/shell_re/LUA_API.md).
+-- It replaced CleriaCore's former built-in C++ client, whose drive tests it matched line for line (README.md).
 --
 --   ap/client.lua   the AP protocol (RoomInfo, DataPackage, Connect, ReceivedItems with index resync,
 --                   LocationChecks, LocationScouts, StatusUpdate, Bounce / DeathLink, PrintJSON) + the session
 --   ap/text.lua     PrintJSON -> coloured spans
 --   ap/ys.lua       the Ys Origin rules (detection, suppression, receipts, loadout, goal, EXP)
---   ap/ui.lua       the F1 tab and the overlays (status, item feed, tracker, the fog trap)
---   data/ys_origin.json   the location / item table (a copy of res/ap/ys_origin.json)
---   icons/AP_ITEM.DDS     the foreign-item icon (a copy of res/ap/AP_ITEM.DDS)
+--   ap/ui.lua       the page (F1 > Mods > Archipelago) and the overlays (status, item feed, tracker, the fog trap)
+--   data/ys_origin.json   the location / item table (CleriaCore's tools/ap_import.py, from the apworld's data)
+--   icons/AP_ITEM.DDS     the foreign-item icon (CleriaCore's tools/make_ap_icon.py)
 
 local client = require("ap.client")
 local text = require("ap.text")
@@ -17,9 +16,9 @@ local ys = require("ap.ys")
 local J = cleria.json
 local G = cleria.game
 
-local kApIcon = 0x2A1   -- this mod's icon id for "another world's item" (cleria.ui.icon; 0x2A0 is the built-in one's)
+local kApIcon = 0x2A1   -- this mod's icon id for "another world's item" (cleria.ui.icon: mod icons are 0x200..0x3FF)
 
--- ---- settings: cleria.ini [cleria.mod.sample.archipelago_lua] ----------------------------------------------
+-- ---- settings: cleria.ini [cleria.mod.ysorigin.archipelago] ----------------------------------------------
 local S = cleria.settings
 local cfg = {
     server = S.get("Server", "archipelago.gg:38281"), slot = S.get("Slot", ""), password = S.get("Password", ""),
@@ -377,7 +376,7 @@ end)
 
 cleria.game.exp_factor(function(level) return active() and A.logic:exp_factor(level) or 1 end)
 cleria.speedrun.modification(function()
-    if A.session.status ~= "idle" or A.logic.st.seed ~= "" then return "Archipelago session (Lua)" end
+    if A.session.status ~= "idle" or A.logic.st.seed ~= "" then return "Archipelago session" end
 end)
 
 -- ---- state.json for external trackers (in the mod's data folder) ----------------------------------------------
@@ -460,7 +459,7 @@ cleria.events.on("tick", function()
     write_state()
 end)
 
--- ---- the UI (the F1 tab, the overlays) and the icon --------------------------------------------------------------
+-- ---- the UI (F1 > Mods > Archipelago, the overlays) and the icon --------------------------------------------------------------
 cleria.ui.icon(kApIcon, "icons/AP_ITEM.DDS")
 require("ap.ui").install(A, persist)
 

@@ -1,8 +1,8 @@
--- The Ys Origin side of an Archipelago game, in Lua: the location / item table (data/ys_origin.json, a
--- copy of CleriaCore's res/ap/ys_origin.json made by tools/ap_import.py from the unchanged apworld), the
+-- The Ys Origin side of an Archipelago game, in Lua: the location / item table (data/ys_origin.json, made
+-- by CleriaCore's tools/ap_import.py from the unchanged apworld's data), the
 -- slot_data options, the location registry and its detection, vanilla suppression, every receipt kind,
--- the New Game loadout, the save block, the goal and the EXP scaling. A port of CleriaCore's C++
--- src/cleria/ap/ys_game.cpp (AP_GAME.md, ARCHIPELAGO.md §5) onto cleria.game / cleria.player.
+-- the New Game loadout, the save block, the goal and the EXP scaling. First written as CleriaCore's (since
+-- removed) C++ ys_game.cpp (CleriaCore's AP_GAME.md, ARCHIPELAGO.md §5), ported onto cleria.game / cleria.player.
 -- [MOD] = the retail mod YsOrigin-Archipelago/mod/src/hook_ap.cpp, as cited by the C++ original.
 
 local M = {}

@@ -387,36 +387,20 @@ if(WIN32)
 endif()
 add_test(NAME speedruntest COMMAND cleria-speedruntest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
-# ---- Archipelago client library (build/shell_re/ARCHIPELAGO.md) ------------------------------
-# json is generic (src/cleria/json); the AP protocol, the WinHTTP WebSocket and the Ys Origin
-# location table live in cleria-ap, which the game links when it is wired.
+# ---- JSON and the WebSocket (the Lua mods' cleria.json / cleria.net, build/shell_re/LUA_API.md §8) ------
+# json is generic (src/cleria/json); the WinHTTP WebSocket is cleria-net. Both were written for the
+# built-in Archipelago client (ARCHIPELAGO.md), removed in favour of the Lua mod samples/mods/archipelago_lua.
 target_sources(cleria PRIVATE src/cleria/json.cpp)
-add_library(cleria-ap STATIC
-  src/cleria/ap/client.cpp
-  src/cleria/ap/text.cpp
-  src/cleria/ap/websocket.cpp
-  src/cleria/ap/session.cpp
-  src/cleria/ap/ys_data.cpp)
-target_link_libraries(cleria-ap PUBLIC cleria winhttp)
+add_library(cleria-net STATIC src/cleria/net/websocket.cpp)
+target_link_libraries(cleria-net PUBLIC cleria winhttp)
 # cleria-jsontest — the JSON parser / writer (src/cleria/json.hpp).
 add_executable(cleria-jsontest apps/cleria-jsontest/main.cpp)
 target_link_libraries(cleria-jsontest PRIVATE cleria)
-# cleria-aptest — the AP protocol state machine on recorded exchanges, PrintJSON text, the Ys Origin
-# table (res/ap), and a loopback WebSocket server (127.0.0.1 only; no internet).
-add_executable(cleria-aptest apps/cleria-aptest/main.cpp)
-target_link_libraries(cleria-aptest PRIVATE cleria-ap ws2_32)
+# cleria-nettest — address parsing and a loopback WebSocket echo server (127.0.0.1 only; no internet).
+add_executable(cleria-nettest apps/cleria-nettest/main.cpp)
+target_link_libraries(cleria-nettest PRIVATE cleria-net ws2_32)
 add_test(NAME jsontest COMMAND cleria-jsontest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-add_test(NAME aptest COMMAND cleria-aptest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-
-# ---- Archipelago game wiring (build/shell_re/AP_GAME.md) ---------------------------------------------
-# [cleria.archipelago] in cleria; the Ys Origin game logic in cleria-ap; cleria-view owns the session.
-target_sources(cleria PRIVATE src/cleria/ap_settings.cpp)
-target_sources(cleria-ap PRIVATE src/cleria/ap/ys_game.cpp)
-target_link_libraries(cleria-view PRIVATE cleria-ap)
-# cleria-apgametest — slot_data, detection, suppression, every receipt kind, the save block, goal, EXP.
-add_executable(cleria-apgametest apps/cleria-apgametest/main.cpp)
-target_link_libraries(cleria-apgametest PRIVATE cleria-ap)
-add_test(NAME apgametest COMMAND cleria-apgametest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME nettest COMMAND cleria-nettest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ---- Lua scripting for mods (build/shell_re/LUA_API.md) ----------------------------------------------
 # Lua 5.4.9 (lua.org, MIT), vendored verbatim in third_party/lua (minus the lua / luac programs). Built AS C++,
@@ -433,7 +417,7 @@ else()
 endif()
 # cleria-script: one sandboxed lua_State per mod with Script=, and the cleria.* API over the C++ layers.
 add_library(cleria-script STATIC src/cleria/modscript.cpp src/cleria/modscript_api.cpp)
-target_link_libraries(cleria-script PUBLIC cleria cleria-ap lua54)
+target_link_libraries(cleria-script PUBLIC cleria cleria-net lua54)
 target_link_libraries(cleria-view PRIVATE cleria-script)
 # cleria-luatest: sandbox escapes refused, runaway loops stopped, errors disable the mod, API round trips.
 add_executable(cleria-luatest apps/cleria-luatest/main.cpp)

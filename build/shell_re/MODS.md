@@ -13,7 +13,7 @@ client built into the engine, in phases.
 |---|---|---|
 | 1 | package format, discovery, manifest, order + checks, persistence, the VFS (reskins), the Mods tab, `mods::active()`, a sample mod, tests | **built** (this document's §1-§6, §9) |
 | 2a | content patches: item text / stats, chest contents, new pickups, flag/event rules, text; the save sidecar, the event bus, the grant filter | **built** (CONTENT.md; §7 is the design it follows) |
-| 2b | Archipelago: connection, location checks, item receipt, foreign-item icon, DeathLink, tracker, overlays | designed (§8) |
+| 2b | Archipelago: connection, location checks, item receipt, foreign-item icon, DeathLink, tracker, overlays | **built** first in C++ (AP_GAME.md), now the Lua mod `samples/mods/archipelago_lua` (LUA_API.md §9); the C++ client was removed 2026-10-07 |
 | 3 | scripting runtime: Lua 5.4 (the user's choice, §10) | **built** (LUA_API.md; mod API 3, `Script=`) |
 
 Evidence tags as elsewhere: **[CODE]** = read in CleriaCore's code, **[DATA]** = checked on the
@@ -147,18 +147,29 @@ What a layer can do now:
 
 ## 4. The Mods tab (F1 panel, also from the launcher's SETTINGS)
 
-`apps/cleria-view/view_mods.inl`, registered with one line in `view_game.inl`:
+`apps/cleria-view/view_mods.inl`, registered with one line in `view_game.inl` (`mods_shell`). Mods never get a
+top-level tab of their own (SHELL_CORE.md §9, the tab policy): the tab has sub-pages instead.
 
 - **Status**: "N mods active" (what this session loaded), "Mods off", or "... restart to apply"
   (gold) when the saved choices differ from the loaded set.
-- **Installed mods**: one row per mod: its load-order number, name, version, and On / Off /
-  Error. OK or a click toggles it (turning one on also turns `UseMods` on). Left / Right, or the
-  two arrows on the row, move it up / down. The right pane shows name, version, author,
-  description, id, file count, source folder / zip, requirements, conflicts, every error and
-  file-conflict note, and the controls.
+- **Installed mods**: one row per mod: its load-order number, name, version, a gear when its Lua
+  script registered a page (settings), On / Off / Error / Stopped, and a chevron. **OK or a click
+  opens the mod's page**; a click on the On / Off value toggles it in place (turning one on also
+  turns `UseMods` on). Left / Right, or the two arrows on the row, move it up / down. The right pane
+  shows name, version, author, description, id, file count, source folder / zip, requirements,
+  conflicts, every error and file-conflict note, and the controls.
+- **Mods > <mod>** (the mod's page): a back row ("<  MODS / NAME"; Esc, Backspace and the pad's Back
+  return too), then the pages the mod's Lua script registered (`cleria.ui.page`, LUA_API.md §7), then
+  **Mod**: Enabled (toggle), State (Running / Off / on or off after a restart / Error / Stopped), Load
+  order (Left / Right move it), and **About**: version, author, website, id, source, files, script,
+  requirements, conflicts, errors, notes.
+- **Content**: **Content additions** opens **Mods > Content additions** (CONTENT.md; once the F1
+  "Content" tab): what the active content mods add, the mod items this save holds, recent events.
 - **Options**: Use mods (toggle), Open mods folder (`ShellExecuteW`; it creates the folder first;
   a `CLERIA_DRIVE` run only prints), Rescan, and the folder path.
-- A run without a settings file (headless tests) shows "Unavailable in this run".
+- A run without a settings file (headless tests) shows "Unavailable in this run" (and the Content row).
+- `CLERIA_SHELL_PAGE=Mods:<mod id>` / `Mods:content` (and the drive's `shell=Mods:<...>`, `shellback`)
+  open a sub-page for headless captures (`drive_regress shell_subpages`).
 - `CLERIA_MODS_UI="toggle=<id>;up=<id>;down=<id>"`: the tab's own actions, applied once after the
   startup load, for headless checks (they persist like clicks).
 
@@ -299,6 +310,10 @@ Once=1
 
 ## 8. Archipelago (phase 2b, design)
 
+> **Superseded (2026-10-07).** This design was built as a C++ client (ARCHIPELAGO.md, AP_GAME.md), then re-made
+> as the Lua mod `samples/mods/archipelago_lua` (LUA_API.md §9), and the C++ client was removed. Its settings
+> are under F1 > Mods > Archipelago, not an "Archipelago" tab.
+
 ### 8.1 Compatibility
 
 Use the existing apworld (`ys_origin`, game "Ys Origin") unchanged: CleriaCore is a client for
@@ -415,7 +430,7 @@ modder's guide is `samples/mods/README.md`.
 
 In order; each step its own commit with tests. **Items 2-7 are built: see CONTENT.md** (where the
 build differs from this plan it says why: the parsers' tests live in `cleria-contenttest`, the
-Item-page row became the F1 Content tab, new chests are not modelled, the json step (1) was not
+Item-page row became the F1 Content tab (now Mods > Content additions), new chests are not modelled, the json step (1) was not
 needed for the INI sidecar and is left to the AP client).
 
 1. **json**: `src/cleria/json.{hpp,cpp}` (parse to a value tree, serialize; UTF-8, numbers as

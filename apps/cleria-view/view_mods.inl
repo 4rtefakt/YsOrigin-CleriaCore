@@ -5,10 +5,21 @@
 // At startup (render_window, right after settings_init) the game's folders are mounted in the vfs
 // and the enabled mods laid over them; that set is fixed for the session (mods::active()). The tab
 // edits cleria.ini [cleria.mods] (the order and the enabled ids), which applies on the next start.
+//
+// The tab has sub-pages (SHELL_CORE.md's tab policy: no new top-level tabs): "Mods > <mod>" (each mod's
+// page: what a running Lua mod registered with cleria.ui.page, then its details, its On / Off and its load
+// order) and "Mods > Content additions" (view_content.inl's content_page). CLERIA_SHELL_PAGE=Mods:<mod id>
+// or Mods:content opens one (ui::Panel::select).
 #include "cleria/mods.hpp"
 #ifdef _WIN32
 #include <shellapi.h>   // ShellExecuteW: "Open mods folder" (WIN32_LEAN_AND_MEAN leaves it out)
 #endif
+
+// A page a running Lua mod registered (cleria.ui.page, view_lua.inl): drawn on its Mods > <mod> page.
+struct ModsPage {
+    std::string mod_id, title;
+    std::function<void(ui::List&)> draw;
+};
 
 struct ModsUi {
     bool on = false;                  // mods are possible this session (a settings file is in use)
@@ -16,10 +27,17 @@ struct ModsUi {
     std::vector<mods::Mod> list;      // the tab's view: what is installed + the pending choices
     bool use = true;                  // the pending UseMods
     std::string msg;                  // the last action's result
+    std::vector<ModsPage> pages;      // the Lua mods' pages
+    std::string sub;                  // the sub-page shown: "" = the list, "content", or a mod id
+    std::optional<std::string> next;  // a sub-page to switch to at the start of the next frame
+    int list_sel = 0;                 // the list's selection / scroll, kept while a sub-page is open
+    float list_scroll = 0;
 };
 static ModsUi g_mods_ui;
 static bool mods_pending(const ModsUi& u);
 static void mods_ui_script(ModsUi& u);
+static void content_page(ui::List& L);   // Mods > Content additions (view_content.inl)
+static std::string content_summary();    // its row's value (view_content.inl)
 
 static mods::Prefs mods_prefs_from_settings() {
     const auto& c = settings().s.cleria;
@@ -137,6 +155,12 @@ static bool mods_pending(const ModsUi& u) {
     return now != then;
 }
 
+static std::string mods_deps(const std::vector<mods::Dep>& v) {
+    std::string s;
+    for (const mods::Dep& x : v) s += (s.empty() ? "" : ", ") + x.id + (x.op.empty() ? "" : " " + x.op + " " + x.version);
+    return s;
+}
+
 static std::string mods_desc(const mods::Mod& m) {
     std::string d = m.label();
     if (!m.m.version.empty()) d += "  " + m.m.version;
@@ -144,28 +168,87 @@ static std::string mods_desc(const mods::Mod& m) {
     if (!m.m.description.empty()) d += "\n\n" + m.m.description;
     d += "\n\n" + (m.m.id.empty() ? std::string("(no id)") : m.m.id) + "  \xE2\x80\xA2  " + std::to_string(m.files) +
          " file(s)  \xE2\x80\xA2  " + m.source.filename().string() + (m.zip ? "" : "/");
-    auto deps = [](const std::vector<mods::Dep>& v) {
-        std::string s;
-        for (const mods::Dep& x : v) s += (s.empty() ? "" : ", ") + x.id + (x.op.empty() ? "" : " " + x.op + " " + x.version);
-        return s;
-    };
-    if (!m.m.requires_.empty()) d += "\nRequires: " + deps(m.m.requires_);
-    if (!m.m.conflicts.empty()) d += "\nConflicts with: " + deps(m.m.conflicts);
+    if (!m.m.requires_.empty()) d += "\nRequires: " + mods_deps(m.m.requires_);
+    if (!m.m.conflicts.empty()) d += "\nConflicts with: " + mods_deps(m.m.conflicts);
     for (const std::string& e : m.errors) d += "\nError: " + e;
     for (const std::string& n : m.notes) d += "\n" + n;
-    d += "\n\nOK / click turns it on or off. Left / Right or the arrows move it up / down the load order: when two "
-         "mods change the same file, the one lower in the list wins. Changes apply when CleriaCore restarts.";
     return d;
 }
 
-// One mod: "N  NAME  version" on the left, the state on the right, up / down arrows before it.
+// The Lua pages of a mod (empty: none, or its script does not run this session).
+static int mods_page_count(const ModsUi& u, const std::string& id) {
+    int n = 0;
+    for (const ModsPage& p : u.pages) n += p.mod_id == id;
+    return n;
+}
+
+// Register a running Lua mod's page (lua_shell): it shows on that mod's Mods > <mod> page.
+static void mods_add_page(const std::string& mod_id, const std::string& title, std::function<void(ui::List&)> draw) {
+    g_mods_ui.pages.push_back({mod_id, title, std::move(draw)});
+}
+
+// Show a sub-page ("" = back to the list): the list keeps its selection and scroll meanwhile.
+static void mods_switch(ModsUi& u, ui::List& L, const std::string& key) {
+    if (u.sub.empty() && !key.empty()) {
+        u.list_sel = L.sel;
+        u.list_scroll = L.scroll_to;
+        L.sel = 0;
+        L.scroll = L.scroll_to = 0;
+    } else if (!u.sub.empty() && key.empty()) {
+        L.sel = u.list_sel;
+        L.scroll = L.scroll_to = u.list_scroll;
+    } else {
+        L.sel = 0;
+        L.scroll = L.scroll_to = 0;
+    }
+    L.count_last = 0;                        // the other page's rows do not steer this frame's keys
+    u.sub = key;
+    if (std::getenv("CLERIA_DRIVE")) std::printf("[mods] page: Mods%s%s\n", key.empty() ? "" : " > ", key.c_str());
+}
+// Esc / Backspace / the pad's Back on the Mods tab (ui::Page::back): a sub-page returns to the list.
+static bool mods_back(ui::List& L) {
+    ModsUi& u = g_mods_ui;
+    if (u.sub.empty()) return false;
+    mods_switch(u, L, "");
+    u.next.reset();
+    return true;
+}
+// "content" or a mod id (ui::Page::open_sub: CLERIA_SHELL_PAGE=Mods:<key>, the drive's shell=Mods:<key>).
+static bool mods_open_sub(const std::string& key) {
+    ModsUi& u = g_mods_ui;
+    bool ok = key == "content";
+    for (const mods::Mod& m : u.list) ok |= !m.m.id.empty() && m.m.id == key;
+    if (ok) u.next = key;
+    else std::printf("[shell] Mods has no sub-page '%s'\n", key.c_str());
+    return ok;
+}
+
+// A small gear: the mod has settings of its own (a Lua page).
+static void mods_gear(ImDrawList* dl, ImVec2 c, ImU32 col) {
+    const float S = ui::S;
+    for (int k = 0; k < 8; ++k) {
+        const float a = float(k) * 0.785398f;
+        dl->AddLine({c.x + std::cos(a) * 4.0f * S, c.y + std::sin(a) * 4.0f * S},
+                    {c.x + std::cos(a) * 6.6f * S, c.y + std::sin(a) * 6.6f * S}, col, 2.0f * S);
+    }
+    dl->AddCircle(c, 4.0f * S, col, 16, 1.7f * S);
+}
+
+// One mod in the list: "N  NAME  version" on the left; the up / down arrows, a gear when it has settings,
+// its state and a chevron on the right. OK / a click opens its page; a click on the state turns it on / off;
+// Left / Right or the arrows move it in the load order.
 static void mods_row(ui::List& L, ModsUi& u, int i) {
     mods::Mod& m = u.list[std::size_t(i)];
-    const std::string desc = mods_desc(m);
+    const bool has_page = mods_page_count(u, m.m.id) > 0;
+    const std::string desc = mods_desc(m) +
+        "\n\nOK / click opens its page (Mods > " + m.label() + (has_page ? "): its settings, " : "): ") +
+        "On / Off, the load order and every detail. A click on On / Off turns it on or off here. Left / Right or the "
+        "arrows move it up / down the load order: when two mods change the same file, the one lower in the list "
+        "wins. Changes apply when CleriaCore restarts.";
     const bool rclick = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
     ui::RowIo r = ui::row_frame(L, desc.c_str(), true);
     const float S = ui::S, cy = (r.a.y + r.b.y) * 0.5f;
-    // the arrows (mouse); a click on one is not a toggle
+    // the arrows (mouse); a click on one does not open the page
     int move = 0;
     const float ax = r.b.x - 150.0f * S;
     for (int k = 0; k < 2; ++k) {
@@ -190,35 +273,133 @@ static void mods_row(ui::List& L, ModsUi& u, int i) {
     ui::text(L.dl, ui::F.cond, lpx, {x, cy - lpx * 0.55f}, ui::kLabel, name.c_str());
     x += ui::text_size(ui::F.cond, lpx, name.c_str()).x + 10.0f * S;
     ui::text(L.dl, ui::F.body, 15.0f * S, {x, cy - 15.0f * S * 0.55f}, ui::kMuted, m.m.version.c_str());
+    if (has_page) mods_gear(L.dl, {r.b.x - 100.0f * S, cy}, r.selected ? ui::kTabOn : ui::kMuted);
+    // the state: a click on it toggles
     const char* v = m.state == mods::State::Error ? "Error" : m.stopped ? "Stopped" : m.enabled ? "On" : "Off";
     const ImU32 vc = m.state == mods::State::Error || m.stopped ? ui::kWarn : m.enabled ? ui::kGood : ui::kMuted;
     ImFont* vf = r.selected ? ui::F.medium : ui::F.body;
     const ImVec2 vs = ui::text_size(vf, vpx, v);
-    ui::text(L.dl, vf, vpx, {r.b.x - 13.0f * S - vs.x, cy - vpx * 0.55f}, vc, v);
+    const float vx = r.b.x - 32.0f * S - vs.x;
+    const ImVec2 sa{vx - 8.0f * S, r.a.y + 3.0f * S}, sb{r.b.x - 26.0f * S, r.b.y - 3.0f * S};
+    bool toggle = false;
+    if (L.focus && ui::hovering(sa, sb)) {
+        L.dl->AddRect(sa, sb, ui::kRowEdge, 3.0f * S, 0, 1.0f * S);
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { toggle = true; r.activate = false; }
+    }
+    ui::text(L.dl, vf, vpx, {vx, cy - vpx * 0.55f}, vc, v);
+    {   // the chevron: OK opens the page
+        const float cx = r.b.x - 15.0f * S;
+        const ImU32 cc = r.selected ? ui::kGold : ui::kTabOff;
+        L.dl->AddLine({cx - 3.0f * S, cy - 5.0f * S}, {cx + 2.0f * S, cy}, cc, 1.6f * S);
+        L.dl->AddLine({cx + 2.0f * S, cy}, {cx - 3.0f * S, cy + 5.0f * S}, cc, 1.6f * S);
+    }
     // the actions
-    if (r.activate) mods_toggle(u, i);
+    if (toggle) mods_toggle(u, i);
+    else if (r.activate && !m.m.id.empty()) u.next = m.m.id;
     else if (move != 0 && mods_move(u, i, move)) L.sel += move;   // the selection follows the mod
+}
+
+// Mods > <mod>: its own settings (the pages its Lua script registered), then what the list's row and its
+// description held: On / Off, the load order, the manifest, the errors and notes.
+static void mods_mod_page(ui::List& L, ModsUi& u) {
+    int i = -1;
+    for (int k = 0; k < int(u.list.size()); ++k)
+        if (u.list[std::size_t(k)].m.id == u.sub) i = k;
+    if (i < 0) { u.next = ""; return; }              // gone (a rescan)
+    mods::Mod& m = u.list[std::size_t(i)];
+    if (ui::back_row(L, "Mods", m.label().c_str(), mods_desc(m).c_str())) u.next = "";
+    const int n_pages = mods_page_count(u, m.m.id);
+    for (ModsPage& p : u.pages) {
+        if (p.mod_id != m.m.id) continue;
+        if (n_pages > 1) ui::section(L, p.title.c_str());
+        p.draw(L);
+    }
+    bool running = false;
+    for (const mods::Info& a : mods::active()) running |= a.id == m.m.id;
+    if (n_pages == 0 && !m.m.script.empty()) {
+        ui::section(L, "Settings");
+        ui::info(L, "Settings", running ? "None" : "Turn it on and restart", ui::kMuted,
+                 running ? "This mod's script registered no page of settings."
+                         : "This mod runs a Lua script; its settings show here once it is on and CleriaCore has restarted.");
+    }
+    ui::section(L, "Mod");
+    bool on = m.enabled;
+    if (ui::toggle(L, "Enabled", &on, "Turns the mod on or off. New mods start off, so a dropped-in folder never changes "
+                   "the game by itself. Changes apply when CleriaCore restarts. Not a retail option."))
+        mods_toggle(u, i);
+    {
+        const bool pend = m.enabled != running && m.state != mods::State::Error;
+        const char* st = m.state == mods::State::Error ? "Error" : m.stopped ? "Stopped by an error"
+                       : pend ? (m.enabled ? "On after a restart" : "Off after a restart")
+                       : running ? "Running" : "Off";
+        ui::info(L, "State", st, m.state == mods::State::Error || m.stopped || pend ? ui::kWarn : running ? ui::kGood : ui::kMuted);
+    }
+    {   // the load order: Left / Right move it
+        char pos[32];
+        std::snprintf(pos, sizeof pos, "%d of %d", i + 1, int(u.list.size()));
+        const ui::RowIo r = ui::row_frame(L, "Its place in the load order. Left / Right move it up / down: when two mods "
+                                             "change the same file, the one lower in the list wins.", true);
+        ui::row_texts(L, r, "Load order", pos, true);
+        if (r.delta != 0) mods_move(u, i, r.delta);
+    }
+    ui::section(L, "About");
+    if (!m.m.version.empty()) ui::info(L, "Version", m.m.version.c_str());
+    if (!m.m.author.empty()) ui::info(L, "Author", m.m.author.c_str());
+    if (!m.m.website.empty()) ui::info(L, "Website", m.m.website.c_str());
+    ui::info(L, "Id", m.m.id.c_str());
+    {
+        const std::string src = m.source.filename().string() + (m.zip ? "" : "/");
+        ui::info(L, "Source", src.c_str(), ui::kValue, m.source.string().c_str());
+    }
+    ui::info(L, "Files", std::to_string(m.files).c_str(), ui::kValue, "Game files it replaces or adds (its files/ folder).");
+    if (!m.m.script.empty()) ui::info(L, "Script", m.m.script.c_str(), ui::kValue, "Its Lua entry file (LUA_API.md).");
+    if (!m.m.requires_.empty()) ui::info(L, "Requires", mods_deps(m.m.requires_).c_str());
+    if (!m.m.conflicts.empty()) ui::info(L, "Conflicts with", mods_deps(m.m.conflicts).c_str());
+    for (const std::string& e : m.errors) ui::info(L, "Error", e.c_str(), ui::kWarn, e.c_str());
+    for (const std::string& n : m.notes) ui::info(L, "Note", n.c_str(), ui::kMuted, n.c_str());
 }
 
 static void mods_page(ui::List& L) {
     ModsUi& u = g_mods_ui;
+    if (u.next) {                                     // a sub-page asked for last frame: switch now
+        mods_switch(u, L, *u.next);
+        u.next.reset();
+    }
+    if (u.sub == "content") {                         // Mods > Content additions (view_content.inl)
+        if (ui::back_row(L, "Mods", "Content additions",
+                         "What the active mods add to or change in the game, and the mod items this save holds. Not a "
+                         "retail feature.\n\nOK / click here, Esc, Backspace or the pad's Back return to the Mods list."))
+            u.next = "";
+        content_page(L);
+        return;
+    }
+    if (!u.sub.empty()) { mods_mod_page(L, u); return; }
     if (!u.on) {
         ui::section(L, "Mods");
         ui::info(L, "Status", "Unavailable in this run (no settings file)", ui::kWarn,
                  "Mods are read from the mods folder next to CleriaCore's settings. This run uses built-in "
                  "defaults (a test run), so it is always unmodded.");
-        return;
+    } else {
+        {   // the state of play first, so a pending restart is the first thing read
+            const std::size_t n_on = mods::active().size();
+            std::string s = !u.use ? "Mods off" : std::to_string(n_on) + (n_on == 1 ? " mod active" : " mods active");
+            const bool pend = mods_pending(u);
+            if (pend) s += "  \xE2\x80\xA2  restart to apply";
+            ui::info(L, "Status", s.c_str(), pend ? ui::kWarn : ui::kGood);
+        }
+        ui::section(L, "Installed mods");
+        if (u.list.empty()) ui::info(L, "None", "Put mods in the mods folder", ui::kMuted);
+        for (int i = 0; i < int(u.list.size()); ++i) mods_row(L, u, i);
     }
-    {   // the state of play first, so a pending restart is the first thing read
-        const std::size_t n_on = mods::active().size();
-        std::string s = !u.use ? "Mods off" : std::to_string(n_on) + (n_on == 1 ? " mod active" : " mods active");
-        const bool pend = mods_pending(u);
-        if (pend) s += "  \xE2\x80\xA2  restart to apply";
-        ui::info(L, "Status", s.c_str(), pend ? ui::kWarn : ui::kGood);
+    ui::section(L, "Content");
+    {
+        const std::string v = content_summary() + "  \xE2\x80\xBA";
+        if (ui::choice_label(L, "Content additions", v.c_str(),
+                             "What the active mods add to or change in the game: items, chests, pickups, rules, text, and "
+                             "the mod items you hold. Not a retail feature."))
+            u.next = "content";
     }
-    ui::section(L, "Installed mods");
-    if (u.list.empty()) ui::info(L, "None", "Put mods in the mods folder", ui::kMuted);
-    for (int i = 0; i < int(u.list.size()); ++i) mods_row(L, u, i);
+    if (!u.on) return;
     ui::section(L, "Options");
     if (ui::toggle(L, "Use mods", &u.use,
                    "Off runs the game exactly as shipped, whatever is installed or turned on. Applies when "
@@ -244,4 +425,11 @@ static void mods_page(ui::List& L) {
     }
     ui::info(L, "Mods folder", u.dir.string().c_str());
     if (!u.msg.empty()) ui::info(L, "", u.msg.c_str(), ui::kGood);
+}
+
+// The Mods tab with its sub-pages (view_game.inl registers it with this one line).
+static void mods_shell(Shell& shell) {
+    ui::Page& p = shell.panel.add("Mods", [](ui::List& L) { mods_page(L); });
+    p.back = mods_back;
+    p.open_sub = mods_open_sub;
 }

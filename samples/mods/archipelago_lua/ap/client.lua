@@ -1,6 +1,6 @@
 -- The Archipelago protocol in Lua: the client state machine and the session (reconnect, keep-alive,
--- status line). A port of CleriaCore's C++ src/cleria/ap/client.cpp + session.cpp (ARCHIPELAGO.md
--- §3-4) onto the generic cleria.net.websocket and cleria.json; nothing here is Ys Origin specific.
+-- status line). First written as CleriaCore's (since removed) C++ client, ARCHIPELAGO.md §3-4, and ported
+-- onto the generic cleria.net.websocket and cleria.json; nothing here is Ys Origin specific.
 --
 --   RoomInfo -> GetDataPackage (missing / stale games) -> DataPackage -> Connect -> Connected | ConnectionRefused
 --   ReceivedItems (index 0 = the whole list; a gap = Sync + LocationChecks), LocationChecks (kept, re-sent

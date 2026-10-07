@@ -87,16 +87,16 @@ int main() {
         a.add_item(0x100, 1);
         a.add_item(0x100, 2);
         a.add_item(0x1FF, 150);                       // capped at 99
-        a.ap["seed"] = "ABC \"quoted\" 123";
-        a.ap["received"] = "12";
+        a.mod["x.y"]["seed"] = "ABC \"quoted\" 123";
+        a.mod["x.y"]["received"] = "12";
         sc_ok = sc_ok && a.item(0x100) == 3 && a.item(0x1FF) == 99 && a.flag("chest_swap.p1") == 1;
         sc_ok = sc_ok && write_sidecar(bin, a) && fs::exists(sidecar_path(bin));
         const Sidecar b = read_sidecar(bin);
-        sc_ok = sc_ok && b.mods == a.mods && b.flags == a.flags && b.items == a.items && b.ap == a.ap;
+        sc_ok = sc_ok && b.mods == a.mods && b.flags == a.flags && b.items == a.items && b.mod == a.mod;
         // The retail record beside it is byte-identical (the sidecar never writes into it).
         { std::ifstream f(bin, std::ios::binary); std::vector<std::uint8_t> back{std::istreambuf_iterator<char>(f), {}};
           sc_ok = sc_ok && back == raw && SaveRecord::decode(back).has_value(); }
-        std::printf("[save] sidecar round-trip (flags, new items, AP block, mod stamp) %s\n", sc_ok ? "OK" : "FAIL");
+        std::printf("[save] sidecar round-trip (flags, new items, a mod's block, mod stamp) %s\n", sc_ok ? "OK" : "FAIL");
         fails += !sc_ok;
         // An empty sidecar removes a stale file; absent / foreign / newer files read as empty.
         bool sc_empty = write_sidecar(bin, Sidecar{}) && !fs::exists(sidecar_path(bin)) && read_sidecar(bin).empty();
@@ -104,6 +104,10 @@ int main() {
         sc_empty = sc_empty && read_sidecar(bin).empty();
         { std::ofstream o(sidecar_path(bin), std::ios::binary); o << "not a sidecar"; }
         sc_empty = sc_empty && read_sidecar(bin).empty() && !Sidecar::parse("[flags]\r\nx=1\r\n");
+        {   // an old file's [ap] block (the removed built-in Archipelago client's) loads harmlessly: ignored
+            const auto old = Sidecar::parse("[cleria]\r\nVersion=1\r\n[flags]\r\nx=1\r\n[ap]\r\nseed=\"S\"\r\napplied=3\r\n");
+            sc_empty = sc_empty && old && old->flag("x") == 1 && old->mod.empty() && old->serialize().find("[ap]") == std::string::npos;
+        }
         Sidecar c;
         c.set_flag("z", 5);
         c.set_flag("z", 0);                            // 0 erases

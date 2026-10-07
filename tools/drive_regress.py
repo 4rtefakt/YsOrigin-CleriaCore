@@ -145,6 +145,17 @@ CASES = {
         drive="10:kill1;420:obj=box_01;430:act;740:ok;770:cstate;780:csave=2;790:quit",
         expect=["[probe] box_01 -> s_box01", "chest S_1001/S_BOX01 opened (flag 302)", "content 0 items{ }"],
         absent=["redirected", "icon 0x59", "treasure box", "sidecar"]),
+    # The F1 Mods tab's sub-pages (SHELL_CORE.md tab policy): a Lua mod's page is Mods > <mod> (no tab of its own),
+    # Mods > Content additions, an unknown sub-page refused, Back (Esc / the pad's Back) returns to the list and
+    # only then would close the panel.
+    "shell_subpages": dict(
+        room="S_10/S_1009/S_1009", mods=["hello", "chest_swap"],
+        drive="60:shell=Mods:sample.hello;80:shellback;100:shell=Mods:content;120:shell=Mods:nope;140:shell=Mods;"
+              "160:shellback;180:shell=Hello Lua;200:quit",
+        expect=["[lua] Hello Lua: started", "[mods] page: Mods > sample.hello", "[mods] page: Mods\n",
+                "shell back on Mods: to the page", "[mods] page: Mods > content", "Mods has no sub-page 'nope'",
+                "shell: no page Mods:nope", "[mods] page: Mods\n", "shell back on Mods: would close the panel",
+                "shell: no page Hello Lua"]),
     # A rule on a flag (rules.ini of a generated test mod): flag 480 0 -> 1 fires it once (give, text, cflag).
     "content_rule": dict(
         room="S_10/S_1009/S_1009",
@@ -170,11 +181,9 @@ CASES = {
         expect=["[hit] break_01 -> @break_30", "script @break_30", "t150 scripts"]),
 }
 
-# The Archipelago cases (tools/ap_regress.py, build/shell_re/AP_GAME.md): each runs a local scripted AP server.
+# The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
+# server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import ap_regress  # noqa: E402
-CASES.update(ap_regress.CASES)
-# The same scenarios played by the Lua mod samples/mods/archipelago_lua (tools/aplua_regress.py, LUA_API.md).
 import aplua_regress  # noqa: E402
 CASES.update(aplua_regress.CASES)
 
@@ -208,14 +217,14 @@ def run(name, case, exe, assets):
     with tempfile.TemporaryDirectory() as saves:
         env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR="1", CLERIA_DRIVE=case["drive"],
                    CLERIA_SAVE_DIR=saves, **case.get("env", {}))
+        env.setdefault("CLERIA_SHOT_DIR", saves)   # a case's `shot` / `shell` frames stay in its temp folder
         if "mods" in case or "content" in case:
             content_setup(case, env, os.path.join(saves, "settings"))
-        srv = ap_regress.start(case, env, os.path.join(saves, "settings"))   # an `ap` case: its local server
-        srv = srv or aplua_regress.start(case, env, os.path.join(saves, "settings"))   # an `aplua` case: the Lua mod too
+        srv = aplua_regress.start(case, env, os.path.join(saves, "settings"))   # an `aplua` case: its server, the mod
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
         r = subprocess.run([exe, assets, sob], env=env, capture_output=True, text=True, timeout=300)
     out = r.stdout + r.stderr
-    if not ap_regress.finish(name, case, srv):
+    if not aplua_regress.finish(name, case, srv):
         return False
     for e in case.get("absent", []):
         if e in out:

@@ -12,7 +12,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     settings_init(std::getenv("CLERIA_DRIVE") == nullptr);
     mods_startup(g, asset_root);   // the vfs + the enabled mods, before any asset loads (view_mods.inl)
     content_startup(asset_root);   // the active mods' content/ patches (view_content.inl)
-    ap_startup();                  // Archipelago: table, settings, grant filter, auto-connect (view_archipelago.inl)
     lua_startup();                 // Lua mods (Script=): start each, events, grant filter (view_lua.inl)
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) std::fprintf(stderr, "SDL gamepad: %s\n", SDL_GetError());
     else g_sdl_in.open_pad();
@@ -359,7 +358,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             ch |= ui::toggle(L, "Always dash", &ocheck[3],
                              "Dash whenever you run, without holding a button. (In-game Options.)");
             if (ch) options_save(oslider, ocheck);
-        });
+        }).open_sub = [&](const std::string& s) {        // Input:bind = Configure Inputs, Input:pad = Controller
+            input_bind_mode = s == "bind";
+            g_pad_ui.open = s == "pad";
+            return input_bind_mode || g_pad_ui.open;
+        };
         shell.panel.add("Audio", [&](ui::List& L) {
             ui::section(L, "Volume");
             vol(L, "Music volume", oslider[0], "Background music volume. (The same setting as the in-game Options.)", true);
@@ -370,7 +373,6 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         shell.panel.add("Cheats", [&](ui::List& L) { access_cheats_page(L, persist); });
         shell.hud["access"] = access_hud;               // the cutscene-skip prompt
         shell.hud["content"] = content_hud;             // a mod rule's text (view_content.inl)
-        shell.panel.add("Mods", [&](ui::List& L) { mods_page(L); });   // view_mods.inl
         // Speedrun mode (view_speedrun.inl): its tab, its overlay, and the Cheats above as listed
         // modifications. A new cheat adds its line here; other features use speedrun::set_provider.
         speedrun_shell(shell, [&](std::vector<std::string>& out) {
@@ -389,9 +391,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ac.game_speed != 1.0f) out.push_back("Game speed " + std::to_string(int(ac.game_speed * 100.0f + 0.5f)) + "%");
             if (ac.text_speed != int(access::TextSpeed::Retail)) out.push_back("Text speed (not original)");
         });
-        shell.panel.add("Content", [&](ui::List& L) { content_page(L); });   // view_content.inl
-        ap_shell(shell, persist);                       // the Archipelago tab + overlays (view_archipelago.inl)
-        lua_shell(shell);                               // the Lua mods' tabs + hud layers (view_lua.inl)
+        // Mods (view_mods.inl), with its sub-pages: Mods > <mod> (a Lua mod's page, lua_shell) and Mods > Content
+        // additions (view_content.inl). No new top-level tabs: build/shell_re/SHELL_CORE.md's tab policy.
+        mods_shell(shell);
+        lua_shell(shell);                               // the Lua mods' Mods > <mod> pages + hud layers (view_lua.inl)
         shell.panel.add("Interface", [&](ui::List& L) {
             ui::section(L, "Overlays");
             if (ui::toggle(L, "Debug text", &hud.debug_text,
@@ -712,16 +715,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             else if (hit >= 0) choice_made = hit;
         };
         if (launcher_env && std::string(launcher_env) == "settings") shell.open = true;
-        // CLERIA_SHELL_PAGE=<tab name>[:bind|:pad] (headless captures): open the panel on that tab
-        // (:pad = Input > Controller, view_pad.inl).
+        // CLERIA_SHELL_PAGE=<tab name>[:<sub-page>] (headless captures): open the panel on that tab, and that
+        // sub-page (Input:bind, Input:pad = Input > Controller, Mods:<mod id>, Mods:content; ui::Panel::select).
         if (const char* pg = std::getenv("CLERIA_SHELL_PAGE")) {
-            std::string want = pg;
-            if (want.size() > 4 && want.substr(want.size() - 4) == ":pad") { want.resize(want.size() - 4); g_pad_ui.open = true; }
-            const bool bind = want.size() > 5 && want.substr(want.size() - 5) == ":bind";
-            if (bind) want.resize(want.size() - 5);
-            for (int i = 0; i < int(shell.panel.pages.size()); ++i)
-                if (shell.panel.pages[i].name == want) shell.panel.tab = i;
-            input_bind_mode = bind;
+            if (!shell.panel.select(pg)) std::printf("[shell] CLERIA_SHELL_PAGE=%s: no such page\n", pg);
             shell.open = true;
         }
         const Uint64 t0 = SDL_GetTicksNS();
@@ -1210,8 +1207,8 @@ title_again:
     auto award_exp = [&](float enemy_exp) {
         if (!ginfo.ok()) return;
         // always at least 1; the shell's EXP rate stands where retail's 0x76a5fc (1.0) multiplies it
-        player.exp += access::exp_gain(enemy_exp, settings().s.access.exp_rate * ap_exp_factor(player.level) *
-                                                      lua_exp_factor(player.level));   // + the AP seed's, the Lua mods'
+        player.exp += access::exp_gain(enemy_exp, settings().s.access.exp_rate *
+                                                      lua_exp_factor(player.level));   // + the Lua mods' (an AP seed's)
         while (player.level < 60 &&
                player.exp >= float(ginfo.exp_to_level(player.level + 1))) {
             ++player.level;
@@ -2501,31 +2498,11 @@ title_again:
             if (auto rec = SaveRecord::decode(raw)) { content_load(slot_path(s), s); apply_loaded(from_record(*rec)); }
         };
     }
-    {   // Archipelago (view_archipelago.inl): the live game the AP layer reads and writes
-        ApBind b;
-        b.flags = game.g_flags; b.item_arr = game.item_arr; b.warp_on = warp_on; b.character = &character;
-        b.add_sp = [&](int n) { player.sp = std::clamp(player.sp + n, 0, 999999); };
-        b.weapon_tier = [&] { return int(game.g_flags[148]); };
-        b.set_weapon_tier = [&](int t) { game.g_flags[148] = t; for (std::int32_t& x : inv.tier) x = t; };   // 0x7f x4
-        b.level = [&] { return player.level; };
-        b.set_level = [&](int l) {                       // [H] after FUN_004200F0 [MOD]: level, EXP at its threshold, stats
-            player.level = std::clamp(l, 1, 60);
-            if (ginfo.ok()) player.exp = float(ginfo.exp_to_level(player.level));
-            player.max_hp = int(player_stats().max_hp);
-            player.hp = std::min(player.hp, player.max_hp);
-        };
-        b.refresh = [&] { player.max_hp = int(player_stats().max_hp); };
-        b.kill = [&] { player.hp = 0; };
-        b.alive = [&] { return player.hp > 0; };
-        b.frozen = [&] { return csMgr.world_frozen(); };
-        b.warp = [&](int i) { game.g_flags[137] = i; csMgr.vm.g_flags[137] = i; csHost.go_warp_point(); };   // 0xa6
-        ap_bind(std::move(b));
-    }
     {   // Lua mods (view_lua.inl): the live game cleria.game / cleria.player reach
         LuaBind b;
         b.flags = game.g_flags; b.item_arr = game.item_arr; b.warp_on = warp_on; b.character = &character; b.player = &player;
         b.set_weapon_tier = [&](int t) { game.g_flags[148] = t; for (std::int32_t& x : inv.tier) x = t; };   // 0x7f x4
-        b.set_level = [&](int l) {                       // [H] as the AP bind: level, EXP at its threshold, stats
+        b.set_level = [&](int l) {                       // [H] after FUN_004200F0 [MOD]: level, EXP at its threshold, stats
             player.level = std::clamp(l, 1, 60);
             if (ginfo.ok()) player.exp = float(ginfo.exp_to_level(player.level));
             player.max_hp = int(player_stats().max_hp);
@@ -3313,7 +3290,6 @@ title_again:
     auto run_drive = [&](const std::string& cmd) {
         std::printf("  [drive] t%llu %s\n", (unsigned long long)tick_count, cmd.c_str());
         if (speedrun_drive(cmd, shell)) return;          // speedrun=... (view_speedrun.inl)
-        if (ap_drive(cmd)) return;                       // apconnect, apsay=, apstate ... (view_archipelago.inl)
         if (lua_drive(cmd)) return;                      // lua=<command> <args> (view_lua.inl)
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
@@ -3443,10 +3419,17 @@ title_again:
             std::printf("  [drive]   frozen %d fix %d/%d\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1]);
             for (const auto& li : csMgr.live)
                 std::printf("  [drive]   script %s pc %u wait %d%s\n", li.name.c_str(), li.pc, li.wait, li.finished ? " (done)" : "");
-        } else if (cmd == "shell" || cmd.rfind("shell=", 0) == 0) {   // open the F1 shell overlay (shell=<Tab>), shoot it, close it
+        } else if (cmd == "shell" || cmd.rfind("shell=", 0) == 0 || cmd == "shellback") {
+            // open the F1 shell overlay (shell=<Tab>[:<sub>]), shoot it, close it; shellback = Esc / the pad's
+            // Back on the current tab first (a sub-page returns to its page; ui::Page::back)
             // (the shell pauses the logic ticks, so the drive closes it itself after the shot)
-            for (int i = 0; cmd.size() > 6 && i < int(shell.panel.pages.size()); ++i)
-                if (shell.panel.pages[i].name == cmd.substr(6)) shell.panel.tab = i;
+            if (cmd == "shellback" && !shell.panel.pages.empty()) {
+                ui::Page& cur = shell.panel.pages[std::size_t(std::clamp(shell.panel.tab, 0, int(shell.panel.pages.size()) - 1))];
+                const bool went = cur.back && cur.back(cur.list);
+                std::printf("  [drive] shell back on %s: %s\n", cur.name.c_str(), went ? "to the page" : "would close the panel");
+            }
+            if (cmd.size() > 6 && cmd != "shellback" && !shell.panel.select(cmd.substr(6)))
+                std::printf("  [drive] shell: no page %s\n", cmd.c_str() + 6);
             shell.open = true;
             shell_drive_close = true;
             shell_shot_frames = 3;                       // ImGui lays the tab bar out a frame late
@@ -3641,8 +3624,6 @@ title_again:
         const SpriteTex* t = face_tex(face, frame);
         return t ? t->bind : nullptr;
     };
-    ap_seed_icons(g, asset_root, pauseUi.iconCache, bookR.icon_tex,   // the AP item icon (view_archipelago.inl)
-                  [&](const fs::path& p) { return bookR.load(g, p); });
     lua_seed_icons(g, pauseUi.iconCache, bookR.icon_tex,     // the Lua mods' icons (view_lua.inl)
                    [&](const fs::path& p) { return bookR.load(g, p); });
     BookInput bookIn;
@@ -4612,7 +4593,6 @@ title_again:
         // its own tick (a hidden offscreen run renders slower than 60 Hz and would skip it).
         static const bool lockstep = std::getenv("CLERIA_DRIVE") && std::getenv("CLERIA_DRIVE_LOCKSTEP");
         if (lockstep) accum = kTickDt;
-        ap_frame();                                      // the Archipelago session (view_archipelago.inl)
         lua_frame();                                     // the Lua mods' "frame" handlers (view_lua.inl)
 
         SDL_Event e;
@@ -4935,7 +4915,6 @@ title_again:
             csMgr.vm.items.clear();
             apply_script_grants();
             content_tick(game.g_flags);            // mods: queued events + the g_flags diff (view_content.inl)
-            ap_tick();                             // Archipelago: checks, grants, DeathLink, goal (view_archipelago.inl)
             lua_tick();                            // the Lua mods' "tick" handlers (view_lua.inl)
         }
         // A live script showed / hid an object (or switched its collision): rebuild the room's

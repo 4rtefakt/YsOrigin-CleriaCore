@@ -293,8 +293,36 @@ inline void info(List& L, const char* label, const char* value, ImU32 value_col 
     text(L.dl, F.body, vpx, {r.b.x - 13.0f * S - vs2.x, cy - vpx * 0.55f}, value_col, v.c_str());
 }
 
+// The first row of a sub-page (build/shell_re/SHELL_CORE.md, tab policy): "<  MODS / HELLO LUA". OK / click
+// returns true (go back), as Esc / Backspace / the pad's Back do through Page::back.
+inline bool back_row(List& L, const char* parent, const char* title, const char* desc = nullptr) {
+    const RowIo r = row_frame(L, desc ? desc : "Back. (Esc / Backspace / the pad's Back also return.)", true);
+    const float lpx = 16.5f * S, cy = (r.a.y + r.b.y) * 0.5f;
+    float x = r.a.x + 13.0f * S;
+    const ImU32 arrow = r.selected ? kGold : kTabOff;   // a chevron pointing back
+    L.dl->AddLine({x + 6.0f * S, cy - 6.0f * S}, {x, cy}, arrow, 1.8f * S);
+    L.dl->AddLine({x, cy}, {x + 6.0f * S, cy + 6.0f * S}, arrow, 1.8f * S);
+    x += 18.0f * S;
+    const std::string p = upper(parent), sep = "  /  ", t = upper(title);
+    text(L.dl, F.cond, lpx, {x, cy - lpx * 0.55f}, kTabOff, p.c_str());
+    x += text_size(F.cond, lpx, p.c_str()).x;
+    text(L.dl, F.cond, lpx, {x, cy - lpx * 0.55f}, kMuted, sep.c_str());
+    x += text_size(F.cond, lpx, sep.c_str()).x;
+    text(L.dl, F.cond, lpx, {x, cy - lpx * 0.55f}, kGold, t.c_str());
+    return r.activate;
+}
+
 // ---- the settings panel ------------------------------------------------------------------------
-struct Page { std::string name; std::function<void(List&)> draw; List list; };
+// A tab. `back` (optional): the page shows a sub-page and Esc / Back should return to the page instead of
+// closing the panel (returns true when it went back). `open_sub` (optional): open a named sub-page
+// ("Mods:sample.hello" -> "sample.hello"), for CLERIA_SHELL_PAGE / the drive's shell= (Panel::select).
+struct Page {
+    std::string name;
+    std::function<void(List&)> draw;
+    List list;
+    std::function<bool(List&)> back;
+    std::function<bool(const std::string&)> open_sub;
+};
 
 struct Panel {
     std::vector<Page> pages;
@@ -302,12 +330,37 @@ struct Panel {
     bool open = false;
     ImVec2 side_a{}, side_b{};   // this frame's right-hand pane (under the description), for a page's picture
 
-    void add(const std::string& name, std::function<void(List&)> draw) { pages.push_back({name, std::move(draw), {}}); }
+    // Adds a tab, or replaces the one of that name in place (the Debug page is re-added after each Return to Title).
+    Page& add(const std::string& name, std::function<void(List&)> draw) {
+        for (Page& p : pages)
+            if (p.name == name) { p.draw = std::move(draw); return p; }
+        pages.push_back({name, std::move(draw), {}, {}, {}});
+        return pages.back();
+    }
+    // "Tab" or "Tab:sub" (CLERIA_SHELL_PAGE, the drive's shell=): select that tab and open its sub-page.
+    bool select(const std::string& spec) {
+        const std::size_t c = spec.find(':');
+        const std::string tab_name = spec.substr(0, c), sub = c == std::string::npos ? std::string() : spec.substr(c + 1);
+        for (int i = 0; i < int(pages.size()); ++i) {
+            if (pages[std::size_t(i)].name != tab_name) continue;
+            tab = i;
+            Page& p = pages[std::size_t(i)];
+            if (sub.empty()) {                          // the tab itself: leave a sub-page it shows
+                if (p.back) p.back(p.list);
+                return true;
+            }
+            return p.open_sub && p.open_sub(sub);
+        }
+        return false;
+    }
 
     // Draw the panel centred in a w x h screen; returns false when it was closed this frame.
     bool draw(ImDrawList* dl, float w, float h, const Nav& nav) {
         if (!open || pages.empty()) return open;
-        if (nav.back) { open = false; return false; }
+        if (nav.back) {                              // a sub-page goes back to its page; a page closes the panel
+            Page& cur = pages[std::size_t(std::clamp(tab, 0, int(pages.size()) - 1))];
+            if (!(cur.back && cur.back(cur.list))) { open = false; return false; }
+        }
         dl->AddRectFilled({0, 0}, {w, h}, kDim);
         const float pw = std::min(w - 40.0f * S, 850.0f * S), ph = std::min(h - 40.0f * S, 600.0f * S);
         const ImVec2 a{(w - pw) * 0.5f, (h - ph) * 0.5f}, b{a.x + pw, a.y + ph};
@@ -462,7 +515,7 @@ inline void toast(ImDrawList* dl, float w, float h, const char* head, const char
     text(dl, F.body, 16.0f * S, {a.x + 19.0f * S, a.y + 40.0f * S}, kDesc, body);
 }
 
-// ---- a one-line text field (the Archipelago tab's server / slot / password) -----------------------
+// ---- a one-line text field (e.g. a Lua mod's server / slot / password) ----------------------------
 // OK / click on the row starts editing; typed text (SDL text input, so any keyboard layout), Ctrl+V
 // pastes, Backspace deletes (Ctrl+Backspace clears), Enter or a click elsewhere keeps the text, Esc
 // restores it. While editing, read_nav() yields nothing, so W/A/S/D/Q/E/Space type instead of

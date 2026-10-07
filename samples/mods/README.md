@@ -9,18 +9,21 @@ A short guide. The references: `build/shell_re/MODS.md` (packages, load order, t
 |---|---|
 | `checker_floor` | a reskin: two floor textures replaced (`files/`) |
 | `chest_swap` | content: a new item in a chest, a rule, a pickup, reworded text (`content/`) |
-| `hello` | the smallest Lua mod: an event, per-save storage, a setting, a corner overlay, its own F1 tab |
-| `archipelago_lua` | a big Lua mod: the Archipelago multiworld client for the Ys Origin apworld |
+| `hello` | the smallest Lua mod: an event, per-save storage, a setting, a corner overlay, its page under F1 > Mods |
+| `archipelago_lua` | a big Lua mod: CleriaCore's Archipelago multiworld client for the Ys Origin apworld (its own `README.md`) |
 
 ## 1. Install and try one
 
 1. Copy the mod's folder (or a `.zip` of it) into the **mods folder**: `Saved Games\CleriaCore\mods`
    (next to `cleria.ini`; F1 > Mods > *Open mods folder* opens it).
-2. F1 > **Mods**: select it, press OK (or click) to turn it **On**. Left / Right move it in the load order
-   (lower in the list wins when two mods change the same file).
+2. F1 > **Mods**: select it and press OK (or click it) to open its page, **Mods > <mod>**, and turn **Enabled**
+   On (a click on a row's On / Off also turns it on or off). Left / Right move it in the load order (lower in the
+   list wins when two mods change the same file). A gear on the row means the mod has settings: they are on its
+   page.
 3. Restart CleriaCore. New mods start Off, so a dropped-in folder never changes your game by itself.
 
-The Mods tab shows each mod's errors (a bad `mod.ini`, a missing dependency, a script that stopped).
+The Mods tab shows each mod's errors (a bad `mod.ini`, a missing dependency, a script that stopped); its page
+lists them all. **Mods > Content additions** shows what the active mods add (items, chests, pickups, rules, text).
 
 ## 2. Folder layout
 
@@ -74,7 +77,7 @@ and dialogue text: see CONTENT.md §5 and `chest_swap`.
 -- main.lua
 cleria.events.on("room_enter", function(e) cleria.log("entered " .. e.room) end)
 
-cleria.ui.page("My Mod", function(p)
+cleria.ui.page("My Mod", function(p)             -- F1 > Mods > My Mod (a mod never gets its own tab)
     p:section("My Mod")
     local changed
     Enabled, changed = p:toggle("Enabled", Enabled, "Turns the thing on.")
@@ -83,8 +86,8 @@ end)
 ```
 
 Everything a script can do is `cleria.*` (LUA_API.md): game events, flags and items, the player, the grant
-filter (change what chests give), per-save storage, settings, overlays and an F1 tab in the shell's look,
-websockets and JSON, speedrun notes. Scripts are sandboxed (no file or OS access outside the mod's own
+filter (change what chests give), per-save storage, settings, overlays and a settings page (F1 > Mods > your mod)
+in the shell's look, websockets and JSON, speedrun notes. Scripts are sandboxed (no file or OS access outside the mod's own
 folder and its data folder). If a script errors, that mod alone is stopped for the session and the Mods tab
 shows the file and line; the game goes on.
 
@@ -103,3 +106,5 @@ Tips:
   (see `tools/drive_regress.py`, `tools/aplua_regress.py` for examples), with `CLERIA_INI=<scratch>\yso_win.ini`
   so the run uses a scratch settings and mods folder.
 - `cleria-luatest` shows how to run a script against a fake game (apps/cleria-luatest).
+- Your page in a headless shot: `CLERIA_LAUNCHER=settings CLERIA_SHELL_PAGE=Mods:<your mod id>` with `CLERIA_DRIVE`
+  set (it writes `launcher.ppm` to `CLERIA_SHOT_DIR`), or the drive command `shell=Mods:<your mod id>` in a game.

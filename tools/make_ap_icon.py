@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""CleriaCore's foreign-item icon for Archipelago (build/shell_re/AP_GAME.md §5): res/ap/AP_ITEM.DDS.
+"""The Archipelago Lua mod's foreign-item icon (build/shell_re/AP_GAME.md §4):
+samples/mods/archipelago_lua/icons/AP_ITEM.DDS.
 
 Drawn from scratch here (nothing copied from any logo): a night-blue disc with a gold rim, five
 coloured "islands" in a ring - the colours the AP text model gives item classes (plum, slate blue,
 salmon, cyan) and locations (green) - linked to a pale centre, i.e. a small connected archipelago.
-The same geometry is drawn live by ap_draw_logo() in apps/cleria-view/view_archipelago.inl (the feed
-and the tab). 64 x 64 like the game's MENU/ICON/*.DDS, uncompressed A8R8G8B8, which load_dds reads.
+The same geometry is drawn live by logo() in samples/mods/archipelago_lua/ap/ui.lua (the feed). 64 x 64 like the game's MENU/ICON/*.DDS, uncompressed A8R8G8B8, which load_dds reads.
 
     python tools/make_ap_icon.py [--png preview.png]
 """
@@ -15,11 +15,11 @@ import os
 import struct
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "res", "ap", "AP_ITEM.DDS")
+OUT = os.path.join(ROOT, "samples", "mods", "archipelago_lua", "icons", "AP_ITEM.DDS")
 N = 64
 SS = 4   # supersampling per axis
 
-# Geometry in units of the icon size (1.0 = 64 px), centre (0.5, 0.5). Kept in step with ap_draw_logo.
+# Geometry in units of the icon size (1.0 = 64 px), centre (0.5, 0.5). Kept in step with ui.lua's logo().
 DISC_R, RIM_W = 0.47, 0.045
 RING_R, ISLAND_R, CORE_R, LINK_W = 0.265, 0.1, 0.075, 0.035
 NAVY, GOLD, CORE, LINK = (27, 34, 64), (214, 176, 62), (244, 240, 230), (196, 204, 232)

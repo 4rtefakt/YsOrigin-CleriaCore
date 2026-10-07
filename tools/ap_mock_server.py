@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""A scripted, deterministic Archipelago server on 127.0.0.1 for offline tests (build/shell_re/AP_GAME.md §8).
+"""A scripted, deterministic Archipelago server on 127.0.0.1 for offline tests (tools/aplua_regress.py).
 
 No internet and no Archipelago install: Python's standard library only (a minimal RFC 6455 WebSocket
 server). It speaks enough of the AP protocol (docs/network protocol.md, AP 0.6.x) for CleriaCore's
-client to log in to a two-player room:
+client (the Lua mod samples/mods/archipelago_lua) to log in to a two-player room:
 
     slot 1  "Clicker"   game "Clique"     (a stand-in other world; it owns "Button Activation")
-    slot 2  <--slot>    game "Ys Origin"  (CleriaCore), slot_data = res/ap/test_slot_data.json
+    slot 2  <--slot>    game "Ys Origin"  (CleriaCore), slot_data = tests/ap/test_slot_data.json
 
-The Ys Origin data package is res/ap/ys_origin.json's ids (the apworld's own). Placements are fixed
+The Ys Origin data package is the mod's data/ys_origin.json ids (the apworld's own). Placements are fixed
 (PLACEMENTS below; every other location holds the slot's own "SP: 50"). Scripted with chat (Say):
 
     !give <item name>   Clicker sends that Ys Origin item to the slot (ReceivedItems + PrintJSON)
@@ -52,8 +52,8 @@ def load(rel):
 class Room:
     def __init__(self, a):
         self.a = a
-        table = load("res/ap/ys_origin.json")
-        self.slot_data = load("res/ap/test_slot_data.json")
+        table = load("samples/mods/archipelago_lua/data/ys_origin.json")
+        self.slot_data = load("tests/ap/test_slot_data.json")
         self.slot_data["death_link"] = bool(a.death_link)
         self.items = {i["name"]: i["id"] for i in table["items"]}
         self.item_flags = {i["name"]: {"progression": 1, "useful": 2, "trap": 4}.get(i["class"], 0) for i in table["items"]}

@@ -1,5 +1,17 @@
 # Archipelago in the game: CleriaCore as a client for the Ys Origin apworld
 
+> **Superseded (2026-10-07): the built-in C++ client described here was removed.** CleriaCore's Archipelago
+> client is now the Lua mod **`samples/mods/archipelago_lua`** (players: its `README.md`; design and proof:
+> LUA_API.md §9), configured under **F1 > Mods > Archipelago**. The mod implements the same rules, so this
+> document stays the reference for them: the save block and seed guard (§2), detection (§3), suppression and
+> the treasure box (§4), receiving (§5), the goal / DeathLink / EXP and the **slot_data options table** (§6), and
+> playing a real multiworld (§9). What is gone: `src/cleria/ap/ys_game`, `src/cleria/ap_settings`
+> (`[cleria.archipelago]`, now ignored when an old cleria.ini has it), `apps/cleria-view/view_archipelago.inl`,
+> `cleria-apgametest`, the `ap_*` drive cases (`tools/ap_regress.py`; their `aplua_*` twins in
+> `tools/aplua_regress.py` remain), the sidecar's `[ap]` block (ignored when read), `res/ap/` (the table moved
+> to the mod's `data/ys_origin.json`, the icon to its `icons/AP_ITEM.DDS`, the slot_data fixture to
+> `tests/ap/test_slot_data.json`). File and function names below are historical.
+
 The game side of Archipelago (AP): ARCHIPELAGO.md §7 items 1-10, on top of the client library
 (ARCHIPELAGO.md §1-6) and the content hooks (CONTENT.md §6). CleriaCore plays a seed of the user's
 **unchanged** apworld (`C:\Users\kores\repos\YsOrigin-Archipelago`, game "Ys Origin").

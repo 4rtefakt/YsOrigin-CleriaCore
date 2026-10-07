@@ -1,5 +1,6 @@
-// A WebSocket client over WinHTTP (Windows 8+; TLS by SChannel and the OS certificate store), for
-// the Archipelago connection (build/shell_re/ARCHIPELAGO.md §2). No third-party code.
+// A WebSocket client over WinHTTP (Windows 8+; TLS by SChannel and the OS certificate store): the
+// transport of the Lua mods' cleria.net.websocket (LUA_API.md §8; first written for the Archipelago
+// connection, ARCHIPELAGO.md §2, now the Lua mod samples/mods/archipelago_lua). No third-party code.
 //
 // One worker thread per connection does the handshake and then blocks in WinHttpWebSocketReceive;
 // a second thread drains the send queue (WinHTTP allows one pending send and one pending receive).
@@ -29,7 +30,7 @@
 #include <thread>
 #include <vector>
 
-namespace cleria::ap {
+namespace cleria::net {
 
 struct WsUrl {
     bool secure = false;
@@ -91,4 +92,4 @@ private:
     std::string url_;
 };
 
-}  // namespace cleria::ap
+}  // namespace cleria::net

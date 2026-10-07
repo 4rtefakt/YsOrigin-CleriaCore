@@ -1,5 +1,16 @@
 # Archipelago: the client library and the Ys Origin apworld mapping
 
+> **Superseded (2026-10-07): the C++ client library was removed** with the built-in client (AP_GAME.md). The
+> Archipelago client is the Lua mod **`samples/mods/archipelago_lua`** (LUA_API.md §9): `ap/client.lua` is the
+> protocol state machine and session of §3-4, `ap/text.lua` the PrintJSON model of §3.5, `ap/ys.lua` the Ys
+> Origin rules. Still current: **§5, the apworld contract** (the id spaces, the location / item mapping and its
+> `detect` methods, the slot_data keys), which the mod implements, and the retail-mod bugs not to copy (§7.3).
+> Kept in C++ for the Lua API: `src/cleria/json` (§1, `cleria.json`) and the WebSocket of §2, moved to
+> `src/cleria/net/websocket` (`cleria.net.websocket`; test `cleria-nettest`, the loopback part of the former
+> `cleria-aptest`). The table is now written by `tools/ap_import.py` to
+> `samples/mods/archipelago_lua/data/ys_origin.json` (was `res/ap/ys_origin.json`). File names below are
+> historical.
+
 CleriaCore's Archipelago (AP) support: phase 2b of MODS.md §8, tasks §12.1 (json), §12.8 (transport),
 §12.9 (protocol client) and the data side of §12.10. This part is a **library only**: nothing in
 the game calls it yet. A later agent wires it to chests, items, the HUD and the F1 shell (§7).

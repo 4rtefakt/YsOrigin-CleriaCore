@@ -243,22 +243,17 @@ int main() {
               "[cleria.speedrun] out-of-range values are clamped");
     }
 
-    // ---- [cleria.archipelago] (AP_GAME.md): no slot, no auto-connect, DeathLink off by default; a round trip ----
+    // ---- [cleria.archipelago]: the removed built-in client's section (AP_GAME.md, superseded by the Lua mod).
+    // An old cleria.ini that has it still loads: the section is ignored, the rest reads as before. ----
     {
-        Settings s;
-        check(s.archipelago.slot.empty() && !s.archipelago.auto_connect && !s.archipelago.death_link &&
-              s.archipelago.uuid.empty() && s.archipelago.show_feed && !s.archipelago.show_tracker,
-              "[cleria.archipelago] defaults: nothing set, nothing on");
-        s.archipelago.server = "wss://archipelago.gg:51234"; s.archipelago.slot = "Hugo \"the\" Doll";
-        s.archipelago.password = "p@ss word"; s.archipelago.uuid = "u-1"; s.archipelago.death_link = true;
-        s.archipelago.auto_connect = true; s.archipelago.show_feed = false; s.archipelago.show_tracker = true;
-        s.archipelago.export_state = false;
-        Ini c; write_cleria(c, s);
+        Ini c;
+        c.parse("[cleria.archipelago]\r\nServer=\"archipelago.gg:38281\"\r\nSlot=\"Hugo\"\r\nAutoConnect=1\r\n"
+                "[cleria.mods]\r\nUseMods=0\r\n[cleria.qol]\r\nSkipLogoMovie=1\r\n");
         Settings t; read_cleria(c, t);
-        check(t.archipelago.server == s.archipelago.server && t.archipelago.slot == s.archipelago.slot &&
-              t.archipelago.password == "p@ss word" && t.archipelago.uuid == "u-1" && t.archipelago.death_link &&
-              t.archipelago.auto_connect && !t.archipelago.show_feed && t.archipelago.show_tracker &&
-              !t.archipelago.export_state, "[cleria.archipelago] round trip");
+        check(!t.cleria.use_mods && t.cleria.skip_logo_movie, "an old [cleria.archipelago] section is ignored; the rest loads");
+        Ini w; write_cleria(w, t);
+        check(!w.has("cleria.archipelago", "Slot") && !w.has("cleria.archipelago", "Server"),
+              "write_cleria writes no [cleria.archipelago]");
     }
 
     // ---- retail's location rules (FUN_005de1d0) ----

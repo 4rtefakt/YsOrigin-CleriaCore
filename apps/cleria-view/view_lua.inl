@@ -1,25 +1,25 @@
 // cleria-view — Lua scripting for mods (build/shell_re/LUA_API.md). Textual part of main.cpp: #included
-// after view_archipelago.inl; ONE translation unit, not standalone.
+// after view_video.inl; ONE translation unit, not standalone.
 //
 // CleriaCore's own layer, not retail. Every Active mod whose mod.ini says `Script=<file>` (ApiVersion 3)
 // gets a sandboxed Lua state (src/cleria/modscript); this file is its Host: the live game (flags, the
 // player, warps), the content layer (content_give, the grant filter, the save sidecar's [mod.<id>]),
-// cleria.ini [cleria.mod.<id>], the ui kit (an F1 tab per cleria.ui.page, a Shell::hud layer per mod) and
+// cleria.ini [cleria.mod.<id>], the ui kit (cleria.ui.page on the mod's F1 > Mods > <mod> page, a Shell::hud layer per mod) and
 // the event bus. A failing script is disabled and its error shown in the Mods tab; the game goes on.
 // With no scripted mod active nothing here runs: every hook returns at once.
 //
 // The hook lines in view_game.inl (each a single call into this file):
-//   render_window start   lua_startup             after ap_startup: start the scripted mods
-//   the shell's pages     lua_shell               their tabs and hud layers, the notice card
+//   render_window start   lua_startup             after content_startup: start the scripted mods
+//   the shell's pages     lua_shell               their Mods > <mod> pages and hud layers, the notice card
 //   csMgr built           lua_bind                the live game (LuaBind)
 //   icons loaded          lua_seed_icons          cleria.ui.icon ids in the two icon caches; the GPU for images
 //   each frame            lua_frame               "frame" handlers
-//   each tick             lua_tick                "tick" handlers (after ap_tick)
+//   each tick             lua_tick                "tick" handlers (after content_tick)
 //   award_exp             lua_exp_factor          cleria.game.exp_factor
 //   drive commands        lua_drive               lua=<command> <args> (cleria.command)
 #include "cleria/modscript.hpp"
 
-// What the view binds (lua_bind, the block after the AP one in view_game.inl).
+// What the view binds (lua_bind, the block after the content one in view_game.inl).
 struct LuaBind {
     std::int32_t* flags = nullptr;         // game.g_flags
     std::int32_t* item_arr = nullptr;      // game.item_arr (the 54 gear-upgrade cells)
@@ -47,7 +47,7 @@ struct LuaHost : script::Host {
     int character() override;
     std::string room() override { return g_content.room; }
     bool frozen() override;
-    bool save_ready() override { return !ap_save_pending(); }   // a New Game / Load still queued (view_archipelago.inl)
+    bool save_ready() override { return !content_session_pending(); }   // a New Game / Load still queued (view_content.inl)
     std::map<std::string, std::pair<int, std::string>> chests() override { return g_content.chests; }
     std::string item_name(int id) override { return g_content.items.name(id); }
     int new_item_count(int id) override { return g_content.sc.item(id); }
@@ -295,13 +295,14 @@ static void lua_shell(Shell& shell) {
     for (std::size_t i = 0; i < r.mods.size(); ++i) {
         script::Mod* m = r.mods[i].get();
         const std::vector<std::string> pages = m->pages();
-        for (std::size_t j = 0; j < pages.size(); ++j)
-            shell.panel.add(pages[j], [m, j](ui::List& L) {
+        for (std::size_t j = 0; j < pages.size(); ++j)       // on its Mods > <mod> page (view_mods.inl), not a tab
+            mods_add_page(m->id(), pages[j], [m, j](ui::List& L) {
                 if (!m->ok()) {
-                    ui::section(L, m->name().c_str());
+                    if (j > 0) return;
+                    ui::section(L, "Settings");
                     ui::info(L, "Status", "Stopped by an error", ui::kWarn,
-                             ("This mod's script failed and was turned off until CleriaCore restarts (the Mods tab lists "
-                              "the error).\n\n" + m->error()).c_str());
+                             ("This mod's script failed and was turned off until CleriaCore restarts (the error is "
+                              "listed below).\n\n" + m->error()).c_str());
                     return;
                 }
                 m->draw_page(j, &L);
@@ -326,7 +327,7 @@ struct LuaUnbind {
     }
 };
 
-// cleria.ui.icon ids into the two icon caches (the rising chest sprite, the treasure box), as ap_seed_icons.
+// cleria.ui.icon ids into the two icon caches (the rising chest sprite, the treasure box).
 static void lua_seed_icons(Gpu& g, std::unordered_map<int, SpriteTex>& sprite_cache, std::unordered_map<int, SpriteTex>& book_cache,
                            const std::function<SpriteTex(const fs::path&)>& book_load) {
     g_lua.gpu = &g;

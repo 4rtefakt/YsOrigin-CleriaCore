@@ -1,5 +1,5 @@
 // WinHTTP WebSocket client — see websocket.hpp.
-#include "cleria/ap/websocket.hpp"
+#include "cleria/net/websocket.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -13,7 +13,7 @@
 #include <windows.h>
 #include <winhttp.h>
 
-namespace cleria::ap {
+namespace cleria::net {
 
 // ---- URLs ----------------------------------------------------------------------------------
 
@@ -382,4 +382,4 @@ void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
     push({Event::Kind::Closed, close_reason, !c.by_user.load()});
 }
 
-}  // namespace cleria::ap
+}  // namespace cleria::net

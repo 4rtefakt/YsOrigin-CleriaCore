@@ -4,15 +4,16 @@
 // byte-compatible with the real exe. Everything CleriaCore-only that belongs to a save lives here:
 //   - named CleriaCore flags (a mod's "collected once" pickups, a rule's Once state, ...),
 //   - the counts of NEW items (ids 0x100..0x1FF, content.hpp), which have no g_flags cell,
-//   - the Archipelago block (seed, slot, received index, ...), opaque key / values for phase 2b,
+//   - a Lua mod's per-save storage ([mod.<id>], LUA_API.md §6; the Archipelago mod keeps its state there),
 //   - a stamp of the content mods that were active when it was written.
 // The format is the INI dialect of cleria.ini (CRLF, case-insensitive names):
 //     [cleria]  Version=1  Mods="sample.chest_swap 1.0.0"
 //     [flags]   chest_swap.p1=1
 //     [items]   0x100=1
-//     [ap]      seed="..."  received=12
+//     [mod.<id>] key="json text"
+// An old file's [ap] block (the removed built-in Archipelago client's) is read and ignored.
 // [H] An EMPTY sidecar is never written, and writing one removes a stale file: with no content
-// mod (and no AP) a save writes exactly the retail file and nothing else.
+// mod a save writes exactly the retail file and nothing else.
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -29,15 +30,14 @@ struct Sidecar {
     std::vector<std::string> mods;                 // "id version" of the content mods active at the save
     std::map<std::string, std::int32_t> flags;     // CleriaCore flags, by lower-case name
     std::map<int, std::int32_t> items;             // new-item id -> count (absent = never had)
-    std::map<std::string, std::string> ap;         // the Archipelago block (lower-case keys)
     // [mod.<id>]: a Lua mod's per-save storage (cleria.save, build/shell_re/LUA_API.md): key as written -> text
     std::map<std::string, std::map<std::string, std::string>> mod;
 
     bool empty() const {
         for (const auto& [id, kv] : mod) if (!kv.empty()) return false;
-        return flags.empty() && items.empty() && ap.empty();
+        return flags.empty() && items.empty();
     }
-    void clear() { mods.clear(); flags.clear(); items.clear(); ap.clear(); mod.clear(); }
+    void clear() { mods.clear(); flags.clear(); items.clear(); mod.clear(); }
 
     std::int32_t flag(std::string_view name) const;          // 0 when unset
     void set_flag(std::string_view name, std::int32_t v);    // 0 erases (absent == 0)

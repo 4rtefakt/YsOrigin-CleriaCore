@@ -30,8 +30,9 @@ cleria.hud.layer("corner", function(d)
     d:text(x + 12 * s, y + 6 * s, text, {size = 15 * s, color = "label"})
 end)
 
--- Its own tab in the F1 panel, in the shell's look.
-cleria.ui.page("Hello", function(p)
+-- Its page in the F1 panel, in the shell's look: F1 > Mods > Hello Lua (a mod's page lives under the Mods tab,
+-- never in a tab of its own).
+cleria.ui.page("Hello Lua", function(p)
     p:section("Hello Lua")
     p:info("Rooms entered", tostring(rooms), "Rooms entered in this save (kept in the save's .cleria file).")
     local changed

@@ -1,6 +1,6 @@
 // Lua scripting for CleriaCore mods: the sandbox and the cleria.* API (build/shell_re/LUA_API.md is
 // the reference for modders; keep the two in step). Every function reaches the game through Host;
-// nothing here duplicates a C++ layer: json is src/cleria/json, the socket src/cleria/ap/websocket,
+// nothing here duplicates a C++ layer: json is src/cleria/json, the socket src/cleria/net/websocket,
 // the treasure text src/cleria/content, the events src/cleria/mod_events.
 #include <algorithm>
 #include <cctype>
@@ -11,7 +11,7 @@
 #include <fstream>
 #include <new>
 
-#include "cleria/ap/websocket.hpp"
+#include "cleria/net/websocket.hpp"
 #include "cleria/content.hpp"
 #include "cleria/json.hpp"
 #include "cleria/modscript.hpp"
@@ -929,7 +929,7 @@ int l_p_info(lua_State* L) {
 // ---- cleria.net.websocket --------------------------------------------------------------------------------
 
 struct WsUd {
-    ap::WebSocket* ws = nullptr;
+    net::WebSocket* ws = nullptr;
     Mod* mod = nullptr;
 };
 
@@ -944,7 +944,7 @@ int l_ws_new(lua_State* L) {
         return luaL_error(L, "a mod may keep at most %d websockets", m.limits().websockets);
     WsUd* u = static_cast<WsUd*>(lua_newuserdatauv(L, sizeof(WsUd), 0));
     new (u) WsUd{};
-    u->ws = new ap::WebSocket();
+    u->ws = new net::WebSocket();
     u->mod = &m;
     m.sockets_.push_back(u);
     luaL_setmetatable(L, kWsMt);
@@ -964,7 +964,7 @@ int l_ws_gc(lua_State* L) {
 int l_ws_open(lua_State* L) {
     WsUd& u = ws_check(L);
     const std::string addr = str_arg(L, 2);
-    if (ap::candidate_urls(addr).empty()) {
+    if (net::candidate_urls(addr).empty()) {
         lua_pushboolean(L, 0);
         lua_pushstring(L, "not a websocket address");
         return 2;
@@ -986,9 +986,9 @@ int l_ws_poll(lua_State* L) {
     WsUd& u = ws_check(L);
     lua_newtable(L);
     lua_Integer i = 0;
-    for (const ap::WebSocket::Event& e : u.ws->poll()) {
+    for (const net::WebSocket::Event& e : u.ws->poll()) {
         lua_createtable(L, 0, 3);
-        using K = ap::WebSocket::Event::Kind;
+        using K = net::WebSocket::Event::Kind;
         lua_pushstring(L, e.kind == K::Opened ? "open" : e.kind == K::Message ? "message" : "close");
         lua_setfield(L, -2, "kind");
         lua_pushlstring(L, e.text.data(), e.text.size());
@@ -1000,7 +1000,7 @@ int l_ws_poll(lua_State* L) {
     return 1;
 }
 int l_ws_state(lua_State* L) {
-    using S = ap::WebSocket::State;
+    using S = net::WebSocket::State;
     static const char* kName[] = {"idle", "connecting", "open", "closing", "closed"};
     const S s = ws_check(L).ws->state();
     lua_pushstring(L, kName[int(s)]);

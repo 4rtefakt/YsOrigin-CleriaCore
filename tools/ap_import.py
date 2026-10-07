@@ -2,7 +2,8 @@
 """Import the Ys Origin apworld's data into CleriaCore (build/shell_re/ARCHIPELAGO.md §5).
 
 CleriaCore is a client for the EXISTING apworld (YsOrigin-Archipelago/ys_origin, game "Ys Origin");
-nothing there may change. This tool reads that repo READ-ONLY and writes res/ap/ys_origin.json:
+nothing there may change. This tool reads that repo READ-ONLY and writes the Archipelago Lua mod's table,
+samples/mods/archipelago_lua/data/ys_origin.json (the built-in C++ client that once read res/ap/ was removed):
 every AP location id -> its CleriaCore detection (g_flags index / item_arr slot / scene / blessing
 bit / floor), its room and chest (box flag + script), its vanilla item(s); every AP item id -> what
 receiving it does in CleriaCore terms (g_flags item index, SP amount, progressive ladder, statue
@@ -12,7 +13,7 @@ The ids are not copied by hand: the tool loads the apworld's own ys_origin/data_
 Python, no Archipelago import) and uses its location_name_to_id / item_name_to_id, so they are the
 ids the generator and server use. Bytecode writing is off so the repo is left untouched.
 
-    python tools/ap_import.py [--apworld C:/Users/kores/repos/YsOrigin-Archipelago] [--out res/ap/ys_origin.json]
+    python tools/ap_import.py [--apworld C:/Users/kores/repos/YsOrigin-Archipelago] [--out samples/mods/archipelago_lua/data/ys_origin.json]
     python tools/ap_import.py --check      # regenerate in memory and compare with the committed file
 
 Retail addresses in locations.json are module-relative (VA = 0x400000 + offset):
@@ -34,7 +35,7 @@ sys.dont_write_bytecode = True   # never write __pycache__ into the read-only ap
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_APWORLD = r"C:/Users/kores/repos/YsOrigin-Archipelago"
-DEFAULT_OUT = os.path.join(ROOT, "res", "ap", "ys_origin.json")
+DEFAULT_OUT = os.path.join(ROOT, "samples", "mods", "archipelago_lua", "data", "ys_origin.json")
 
 G_FLAGS_REL = 0x36B91C
 G_FLAGS_COUNT = 0x200
