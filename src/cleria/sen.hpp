@@ -1,6 +1,7 @@
 // SEN parser — scene exit / warp triggers. See docs/formats/SIDECARS.md.
 // Each record is a box that warps the player to another scene when entered.
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -47,11 +48,28 @@ struct SenTrigger {
         return arrival_facing_deg != 0 && arrival_facing_deg != -1 && arrival_facing_deg != 360;
     }
 
+    // The volume YAW (+0x23c, degrees in the file): FUN_00433a10 wraps it (fmod 360, then -360 at
+    // >= 180) and stores radians at RegionEntry+0x30. 27 of 367 records are turned boxes (S_2011's
+    // door 2 at 135, S_2017's at 45 ...). box_lo / box_hi stay the UNROTATED world bounds.
+    float yaw = 0.0f;
+
+    // FUN_0042cf00's test [EXPORT 0042cf00.c]: p - centre; when +0x30 != 0 the offset turns
+    // through the 256-entry cosine table 0x68f350 at i = (int)(yaw * 40.7437) (0x6bda38):
+    // x' = x cos[i] - z cos[i - 64], z' = z cos[i] + x cos[i - 64]; then lo <= p' <= hi, inclusive.
+    // [approx] the table is cos(2 pi i / 256), within a few ulps of the shipped floats.
     bool contains(const Vec3& p) const {
-        return p.x >= box_lo.x && p.x <= box_hi.x &&
-               p.y >= box_lo.y && p.y <= box_hi.y &&
-               p.z >= box_lo.z && p.z <= box_hi.z;
+        float dx = p.x - position.x, dz = p.z - position.z;
+        const float dy = p.y - position.y;
+        if (yaw != 0.0f) {
+            const int i = int(yaw * 40.7436637878418f);
+            const float c = std::cos(6.28318530717958647692f * float(i & 0xff) / 256.0f);
+            const float s = std::cos(6.28318530717958647692f * float((i - 0x40) & 0xff) / 256.0f);
+            const float rx = dx * c - dz * s, rz = dz * c + dx * s;
+            dx = rx; dz = rz;
+        }
+        return dx >= lo.x && dx <= hi.x && dy >= lo.y && dy <= hi.y && dz >= lo.z && dz <= hi.z;
     }
+    Vec3 lo, hi;            // the min / max corner relative to the centre (RegionEntry +0x08 / +0x14)
 };
 
 struct Sen {

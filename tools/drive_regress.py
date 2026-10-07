@@ -238,18 +238,22 @@ CASES = {
                 "[weather] t300 steps 300 emitters", "haze 0."]),
     # WEATHER.md §5: FireBlur's warp pass draws while 0x7b249c != 0 and each drawn frame lets the next
     # update step the wave grid (0x7b2e1c); one frame per tick (lockstep) = one step per tick once on.
+    # When it turns on depends on FIRE_BLUR.XSO's 0x81 rolls, which draw from the shared game RNG since
+    # TRANSIT.md §5 (was 63 / 163 on the old private script stream; the grid math is pinned by weathertest).
     "fireblur_warp": dict(
         room="S_30/S_3009/S_3009", drive="300:quit", env=dict(CLERIA_WX_LOG="1", CLERIA_DRIVE_LOCKSTEP="1"),
-        expect=["[weather] FireBlur(1.0000, -0.0025, 0.", "[weather] t200 steps 200 ", "warp 1 grid 63 cam",
-                "[weather] t300 steps 300 ", "warp 1 grid 163 cam"]),
+        expect=["[weather] FireBlur(1.0000, -0.0025, 0.", "[weather] t200 steps 200 ", "warp 1 grid 44 cam",
+                "[weather] t300 steps 300 ", "warp 1 grid 144 cam"]),
     # FLOOR13_OPS.md: a SOB trigger-4 touch volume (the S_1011 ward) runs Touch_kekkai -> 0x15c Chr_Damage.
     "ward_touch": dict(
         room="S_10/S_1011/S_1011", drive="30:obj=kekkai_01;32:hp=999;35:move=-1,1,40;80:quit",
         expect=["[touch] kekkai_01 -> touch_kekkai", "Chr_Damage player atk 50 -> HP"]),
     # FLOOR13_OPS.md: a breakable runs its own @Break_30 (0x40 / 0xb5 / 0x17c) instead of the stand-in.
+    # Its two 50 % rolls (0x81) draw the one game generator 0x74622c (build/warp_re/TRANSIT.md §5): 66 misses,
+    # 67 drops. (The script VM's private copy, fresh from the .data seed, rolled 48 then 85: 66 dropped.)
     "break_script": dict(
         room="S_10/S_1001/S_1001", drive="30:obj=break_01;45:atk;60:scripts;150:scripts;160:quit",
-        expect=["[hit] break_01 -> @break_30", "script @break_30", "t150 scripts"]),
+        expect=["[drop] item 67 at break_01", "[hit] break_01 -> @break_30", "script @break_30", "t150 scripts"]),
     # The kill EXP (src/cleria/exp_award; FUN_004fbb40 0x4fcb45.., FUN_004fa2f0): the lv3 Selnarg
     # (+0xb0 = 33) killed with Damage dealt x10 at three player levels. Award = max(1, floor(33 x
     # level_scale x 0.6666)) x (1 + 0.01 combo); combo = the damaging hits it took.
@@ -428,6 +432,55 @@ CASES.update({
         drive=_S3080.format(end=14000, cast=170) + "14001:quit",
         expect=["cast 170 hp 300/300", "[xso] FireBullet actor 197 kind 2 effect 308", "[xso] FireBullet actor 200",
                 "[xso] FireBullet actor 197", ">> entering S_4104"]),
+})
+
+# Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,
+# the cutscene skip's walks (ROUTE_F13.md D3), O2 through a load and a Retry (D5).
+CASES.update({
+    # S_1004 -> S_1005, then straight back into S_1005's door 1 (41 ticks after arriving: the old hand-set
+    # 1.5 s cooldown + edge trigger swallowed this and needed a walk out and back in). The trigger is level-
+    # triggered; it fades to black at 0.05 a step and commits on the 20th step (t61 -> t81), then the arrival
+    # fades in over 20 steps (1.00 at t82, 0.05 at t101, clear at t102).
+    "door_reenter": dict(
+        room="S_10/S_1004/S_1004",
+        drive="20:exit=0;40:move=-1,0,200;71:fader;82:fader;101:fader;102:fader;130:quit",
+        expect=[">> entering S_1005", "[door] t61 S_1005 -> S_1004 (fade out)", "t71 fader",
+                "fader 0.45 -> 1.00 at 0.050 (door pending) (latched)", "[door] t81 commit S_1004 (fade 1.00)",
+                ">> entering S_1004", "arrival @ (65.0,6.0,-19.0) [SEN]", "t82 fader", "fader 1.00 -> 0.00 at 0.050",
+                "t101 fader", "fader 0.05 -> 0.00", "t102 fader", "fader 0.00 -> 0.00"]),
+    # No door during a boss fight (flag 156 = 0x76bb8c, FUN_0042cf00's step gate): standing deep inside the
+    # volume does nothing; the tick the flag clears, the level trigger fires without leaving the box.
+    "door_boss_gate": dict(
+        room="S_10/S_1004/S_1004",
+        drive="20:exit=0;25:flag=156,1;30:move=-1,0,60;120:pos;140:flag=156,0;180:quit",
+        expect=[">> entering S_1005", "t120 pos", "[door] t140 S_1005 -> S_1004 (fade out)",
+                "[door] t160 commit S_1004", ">> entering S_1004"]),
+    # The Double-press skip across SwordTutorial1's Wait_ChrMoving (pc 617): the walks run in skip time,
+    # so the scene drains to its end (274 = 1, the world thaws) instead of stopping there.
+    "access_skip_walks": dict(
+        room="S_10/S_1001/S_1001",
+        drive="5:flag=331,1;8:opt=CutsceneSkip=1;10:exit=1;60:esctap;70:esctap;71:scripts;72:flagdump;80:quit",
+        expect=[">> entering S_1000", "[access] skip prompt: press again", "[access] cutscene skip (double)",
+                "t71 scripts", "frozen 0 fix 0/0", " 274=1 "]),
+    # OK keeps advancing the windows while the skip prompt is up: "Ah..." (Wait_Prompt pc 181) is accepted
+    # by a real OK press at t335.. inside the prompt's 120-tick window, and no skip happens.
+    "access_skip_ok": dict(
+        room="S_10/S_1001/S_1001",
+        drive="5:flag=331,1;8:opt=CutsceneSkip=1;10:exit=1;331:esctap;332:scripts;335:every=6,440,oktap;"
+              "400:scripts;401:quit",
+        expect=["[access] skip prompt: press again", "t332 scripts", "script SwordTutorial1 pc 181",
+                "t400 scripts", "script SwordTutorial1 pc 203"],
+        absent=["cutscene skip"]),
+    # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
+    # load tick's drain) and takes the continue snapshot, so a
+    # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn
+    # stand-in, and O2 was never touched).
+    "o2_load_retry": dict(
+        room="S_20/S_2008/S_2008",
+        drive="30:csave=3;150:pos;151:cload=3;152:pos;200:hp=0;360:ok;361:pos;400:quit",
+        expect=["t150 pos", "O2 4510", "[cont] snapshot S_2008", "t152 pos", "O2 5700", "[gameover] chose retry",
+                "Retry -> S_2008 (0.74, 0.00, -7.78)", "t361 pos", "O2 5710"],
+        absent=["no continue snapshot"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

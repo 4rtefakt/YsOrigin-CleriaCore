@@ -211,6 +211,13 @@ static bool access_drive(const std::string& cmd) {
         return true;
     }
     if (cmd == "esctap") { g_sdl_in.tapped[input::kDikEscape] = true; return true; }
+    // oktap: a real one-tick press of slot 0's key (Attack/OK) through the mapper: held AND pressed, so a
+    // revealing window fast-forwards as under a real key (the drive's `ok` only sets the window's press edge).
+    if (cmd == "oktap") {
+        const input::Code c = g_mapper.config().assign[0];
+        if (c > 0 && c < 256) g_sdl_in.tapped[std::size_t(c)] = true;
+        return true;
+    }
     if (cmd.rfind("eschold=", 0) == 0) { g_drive_esc_hold = std::atoi(cmd.c_str() + 8); return true; }
     return false;
 }

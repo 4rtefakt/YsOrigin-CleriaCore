@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 
 namespace cleria {
@@ -42,6 +43,16 @@ Sen Sen::parse(std::span<const std::uint8_t> b) {
         t.position = vec3(r + 0x104);
         const Vec3 a = vec3(r + 0x110);  // aabb max corner (mostly +)
         const Vec3 c = vec3(r + 0x11C);  // aabb min corner (has negatives)
+        t.lo = {std::min(a.x, c.x), std::min(a.y, c.y), std::min(a.z, c.z)};
+        t.hi = {std::max(a.x, c.x), std::max(a.y, c.y), std::max(a.z, c.z)};
+        {   // +0x23c, degrees -> FUN_00433a10: fmod(deg, 360) (FUN_00444660), -360 at >= 180 (0x6bdba0 /
+            // 0x6bdc74), x pi/180 (0x6bd0dc).
+            std::int32_t deg = 0;
+            std::memcpy(&deg, b.data() + r + 0x23C, 4);
+            float f = float(std::fmod(double(float(deg)), 360.0));
+            if (f >= 180.0f) f -= 360.0f;
+            t.yaw = f * 0.0174532925f;
+        }
         t.box_lo = {t.position.x + std::min(a.x, c.x),
                     t.position.y + std::min(a.y, c.y),
                     t.position.z + std::min(a.z, c.z)};

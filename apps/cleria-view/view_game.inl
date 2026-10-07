@@ -1394,11 +1394,6 @@ title_again:
     avm.tick();          // run to the first Pattern so file/tag/frame are populated
     sync_aia();
     int facing = 2;              // dir2 = back to camera (facing north, into the room)
-    // Edge-trigger state: the SEN trigger index the player is currently inside (-1 = none).
-    // A warp fires only on ENTERING a volume (the engine arms on entry), so arriving at a
-    // door-mouth coordinate -- which sits inside the return door's own volume -- does not
-    // instantly warp back. inside_trigger is primed to that door at spawn.
-    int inside_trigger = -1;
     std::uint32_t curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
     int animFrame = 0, shownFrame = -1;
     chr.set_anim(g, curAnim, 0);
@@ -1601,7 +1596,16 @@ title_again:
     LiveObjState live_obj;
     bool live_obj_dirty = false;
     load_meshes(false);
-    float cooldown = 1.5f;
+    // The door warp (build/warp_re/WARP.md §2/§4, build/warp_re/TRANSIT.md). FUN_0042cf00
+    // is LEVEL-triggered: no inside/outside memory and no cooldown. A hit stages the volume's
+    // descriptor (door_pending = 0x769fb8 + 0x769fbc), latches the scene (door_latched = 0x76a538, which
+    // blocks every further trigger until the next scene load), starts the fade to black and the walk-out.
+    // The fade machine FUN_004106e0 commits once current == target (door_commit = 0x74c120 |= 3); the
+    // swap itself happens at the next frame (FUN_00442dd0), like a script's ChangeScene.
+    std::optional<SenTrigger> door_pending, door_commit;
+    bool door_latched = false;
+    struct DoorWalk { bool on = false; Vec3 tgt{}; bool run = false; } door_walk;   // +0x358 / +0x364
+    bool door_running = false;          // the last player tick's run stage (+0x4ca), read by the trigger
     bool scene_objects_reset = false;   // a scene change destroys every object: the busts too
     std::string door_label;             // 0x76a474: the last committed door's SEN label (0x80)
     bool player_vanished = false;       // the player's +0x60 & 0x80 cleared by 0x14d (a new actor per scene)
@@ -1612,6 +1616,9 @@ title_again:
         if (via) door_label = via->name;
         g_time_scale = 1.0f;
         player_vanished = false;
+        // FUN_00431260 publishes the pending scene and clears 0x76a538; the old room's staged door and
+        // its walk-out die with the old player actor.
+        door_pending.reset(); door_commit.reset(); door_latched = false; door_walk = {};
         auto it = g.sob_index.find(dest);
         if (it == g.sob_index.end()) { std::printf("  (no SOB for %s)\n", dest.c_str()); return; }
         std::printf(">> entering %s\n", dest.c_str());
@@ -1686,16 +1693,7 @@ title_again:
                 g_cursor.move_angle = g_cursor.draw_angle = theta;
             }
         }
-        // Prime the edge-trigger: mark whatever door volume the player spawned inside, so
-        // a door-return that lands them in the doorway doesn't immediately warp back.
-        inside_trigger = -1;
-        if (!fly) {
-            const Vec3 pr = {feet.x, feet.y + kCharH * 0.5f, feet.z};
-            for (std::size_t i = 0; i < room.sen.triggers.size(); ++i)
-                if (room.sen.triggers[i].contains(pr)) { inside_trigger = int(i); break; }
-        }
         spawn_enemies();
-        cooldown = 1.5f;
         g_tick_reset = true;  // don't catch up on the load stall (the exe's DAT_0075aed5)
     };
     // Reload the current room (re-gates chests for the new character / state).
@@ -1765,6 +1763,7 @@ title_again:
         s.hp_bonus = inv.hp_bonus; s.atk_buff = inv.atk_buff; s.def_buff = inv.def_buff;
         s.luck_base = inv.luck_base; s.timer_atk = inv.timer_atk; s.timer_def = inv.timer_def;
         s.mp_buff = inv.mp_buff; s.timer_mp = inv.timer_mp;
+        s.o2 = oxy.o2; s.o2_alpha = oxy.alpha;                  // 0x76c1b8 / 0x76c1bc, in the block
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
@@ -1847,6 +1846,11 @@ title_again:
         inv.hp_bonus = s.hp_bonus; inv.atk_buff = s.atk_buff; inv.def_buff = s.def_buff;
         inv.luck_base = s.luck_base; inv.timer_atk = s.timer_atk; inv.timer_def = s.timer_def;
         inv.mp_buff = s.mp_buff; inv.timer_mp = s.timer_mp;
+        // O2 and its gauge come back with the block (a load, and the Retry's continue snapshot).
+        // [H] 0 / 0 is a CleriaCore save from before they were stored (retail never holds that pair past
+        // the new game's first tick: a drained gauge has alpha 255): treat it as a full gauge.
+        oxy.o2 = s.o2; oxy.alpha = s.o2_alpha;
+        if (s.o2 == 0.0f && s.o2_alpha == 0) oxy.o2 = Oxygen::kMax;
         std::memcpy(warp_on, s.warp_on, sizeof warp_on);
         std::memcpy(manual_on, s.manual_on, sizeof manual_on);
         inv_sanitize(game.g_flags, inv);                  // FUN_00431840's clamps after a load
@@ -2013,7 +2017,9 @@ title_again:
         }
         // Screen fader (EVENTVM_HANDLERS.md §4): a fullscreen colored overlay, alpha
         // ramping current->target at fade_rate/frame. fade_advance() steps it each tick.
-        float fade_cur = 0, fade_tgt = 0, fade_rate = 1;
+        // fade_rate boots at 0.05 (FUN_00442260 -> FUN_00439170: 0x769f28 = 0x3d4ccccd), as every scene
+        // entry re-arms it; the door warp's fade-out runs at whatever rate stands.
+        float fade_cur = 0, fade_tgt = 0, fade_rate = 0.05f;
         std::uint32_t fade_rgb = 0;   // 0xRRGGBB (default black)
         void fader_current(float a) override { fade_cur = std::clamp(a, 0.0f, 1.0f); }
         void fader_target(float a) override { fade_tgt = std::clamp(a, 0.0f, 1.0f); }
@@ -2510,6 +2516,7 @@ title_again:
     csLoader.common = asset_root / "MAP" / "S_COMMON";
     ScriptManager csMgr;
     csMgr.vm.host = &csHost;
+    csMgr.vm.rs_ext = game.rs;   // 0x81 Rand draws the one game generator 0x74622c (FUN_00439120), not a copy
     csMgr.loader = &csLoader;
     csHost.mgr = &csMgr;
     {   // mods (view_content.inl): the grant filter on the live VM and the game callbacks it needs
@@ -2523,6 +2530,9 @@ title_again:
             if (auto rec = SaveRecord::decode(raw)) {
                 content_load(slot_path(s), s); apply_loaded(from_record(*rec), true);
                 csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+                // FUN_00431260 "load": the continue snapshot, as the book's and the title's Load take it
+                // (ROUTE_F13.md D5: without it Retry fell back to the stand-in respawn).
+                if (csHost.save_cont_fn) csHost.save_cont_fn();
             }
         };
     }
@@ -2648,6 +2658,13 @@ title_again:
             for (int guard = 0; guard < 20000 && csMgr.world_frozen(); ++guard) {
                 csMgr.skip_waits();                // zero every live script's Wait_Time
                 csMgr.tick_all();
+                // Wait_ChrMoving (0x100) waits on the walk itself, which no predicate can wave through
+                // without leaving the walker short of its mark: run the walk-to / fly-to steps (and the
+                // turn) once per drained step instead, so a scripted walk finishes in skip time and
+                // every actor ends where the scene put it (ROUTE_F13.md D3: SwordTutorial1 pc 617).
+                csHost.advance_player_move();
+                world.advance_cutscene_moves();
+                world.tick_facing([](const Actor&) { return false; });
             }
             csHost.skipping = false;
             csHost.advance = false;
@@ -3330,6 +3347,9 @@ title_again:
     //   T:every=N,END,cmd     (parse time) cmd at T, T+N, ... below END
     //   duel=cast             near=cast + atk, only while a duel is live (156 = 1, world not frozen)
     //   dflags                print the duel flags (130 131 133 156 174 230 232 311)
+    //   fader                 print the fade machine (current -> target at rate) and a staged / latched door
+    //   oktap                 a real one-tick press of the Attack/OK key (view_access.inl)
+    // A drive run is lockstep (one tick a frame); CLERIA_DRIVE_REALTIME=1 paces it by the wall clock.
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     int drive_boss_entry = -1;               // drive bossentry=k: stand on body entry k (view_boss01_touch.inl)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
@@ -3495,7 +3515,11 @@ title_again:
             }
         } else if (cmd.rfind("exit=", 0) == 0) {       // exit=i: take the room's SEN exit i (arrival + facing)
             const std::size_t i = std::size_t(std::atoi(cmd.c_str() + 5));
-            if (i < room.sen.triggers.size()) transition(room.sen.triggers[i].dest_scene, &room.sen.triggers[i]);
+            if (i < room.sen.triggers.size()) {
+                const SenTrigger t = room.sen.triggers[i];   // a committed door: no fade-out, the entry fade-in
+                transition(t.dest_scene, &t);
+                csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+            }
         } else if (cmd == "atk") {                     // the attack button
             try_attack();
         } else if (cmd.rfind("near=", 0) == 0) {       // near=cast: stand 2.0 from that actor, facing it
@@ -3613,6 +3637,9 @@ title_again:
             shell.open = true;
             shell_drive_close = true;
             shell_shot_frames = 3;                       // ImGui lays the tab bar out a frame late
+        } else if (cmd == "fader") {                   // the fade machine 0x769f1c / 0x769f24 / 0x769f28
+            std::printf("  [drive] fader %.2f -> %.2f at %.3f%s%s\n", csHost.fade_cur, csHost.fade_tgt, csHost.fade_rate,
+                        door_pending ? " (door pending)" : "", door_latched ? " (latched)" : "");
         } else if (cmd == "pos") {                     // print the player's feet and O2
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d sp %.0f shield %d/%d/%d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage,
@@ -4767,6 +4794,15 @@ title_again:
                 csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
             }
         }
+        if (door_commit) {
+            // A committed door (0x74c120 bit 1): FUN_00442dd0 tears the room down at this frame and
+            // FUN_00431260 loads the destination with the staged descriptor -- the crossed volume's own
+            // arrival and facing (copied to 0x76a3a0 by the commit). The scene entry FUN_00431840 ->
+            // FUN_00439170 then fades in from black: current 1.0, target 0, 0.05 a step (20 steps).
+            const SenTrigger t = *door_commit;
+            transition(t.dest_scene, &t);
+            csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+        }
         const Uint64 now = SDL_GetTicks();
         const float real_dt = float(now - last) / 1000.0f; last = now;
         // The shell's Game speed scales how many fixed ticks run per real second (never the tick's dt).
@@ -4775,9 +4811,12 @@ title_again:
         // single tick with a zero delta rather than catching up on the stall. Room
         // transitions set this; without it a slow load bursts hundreds of ticks.
         if (g_tick_reset) { accum = kTickDt; g_tick_reset = false; }
-        // CLERIA_DRIVE_LOCKSTEP=1: one logic tick per rendered frame, so a drive `shot` lands on
-        // its own tick (a hidden offscreen run renders slower than 60 Hz and would skip it).
-        static const bool lockstep = std::getenv("CLERIA_DRIVE") && std::getenv("CLERIA_DRIVE_LOCKSTEP");
+        // A drive run is LOCKSTEP: one logic tick per rendered frame, so a drive `shot` lands on its own
+        // tick and the per-frame work (a ChangeScene / door swap, the room's script start, the shell's
+        // page draw) falls between the same ticks however loaded the machine is. Wall-clock pacing let a
+        // slow frame run 20 ticks at once (entry_label's `scripts` then landed before the new room's
+        // scripts started). CLERIA_DRIVE_REALTIME=1 restores wall-clock pacing for a drive run.
+        static const bool lockstep = std::getenv("CLERIA_DRIVE") && !std::getenv("CLERIA_DRIVE_REALTIME");
         if (lockstep) accum = kTickDt;
         lua_frame();                                     // the Lua mods' "frame" handlers (view_lua.inl)
 
@@ -4870,7 +4909,7 @@ title_again:
         if (paused) accum = 0;               // freeze while the pause book is open
         if (shell.open) accum = 0;           // and while the shell overlay is open
         if (paused && book.is_open()) {
-            bookAccum += real_dt;
+            bookAccum = lockstep ? kTickDt : bookAccum + real_dt;   // a drive run: one book frame a frame
             while (bookAccum >= kTickDt && book.is_open()) {
                 bookAccum -= kTickDt;
                 if (!drive.empty()) {                        // CLERIA_DRIVE runs on through the book
@@ -5023,7 +5062,9 @@ title_again:
                 else if (menu && (inf.pressed & (input::kCancel | input::kMenu))) csHost.wnd_cancel = true;
                 else if (skip_now) skip_cutscene = true;
             } else if (!paused) {
-                if ((inf.pressed & input::kMenu) && (!fly || ks[SDL_SCANCODE_ESCAPE])) {
+                // [EXPORT 004106e0.c L47-57] the book opens only while the fader is clear (0x769f1c == 0):
+                // never during a door's fade-out / fade-in. [not modelled] its other gates (0x76bc20, flag 156).
+                if ((inf.pressed & input::kMenu) && (!fly || ks[SDL_SCANCODE_ESCAPE]) && csHost.fade_cur == 0.0f) {
                     // The book (FUN_00443150 on the menu bit's edge, PAUSEBOOK_DRAW.md §1): Esc or the
                     // Camp Menu binding (only Esc in free-fly, whose raw keys may overlap it). The game
                     // ticks stop with this one.
@@ -5080,6 +5121,19 @@ title_again:
         std::copy(game.item_arr, game.item_arr + 54, csMgr.vm.item_arr);   // IsXXX 7 / 8 read it
         csMgr.vm.g_flags[150] = character;
         const bool frozen_now = tick_events();
+        // The door's fade machine (FUN_004106e0 0x4108a5..0x41094f, every real step, a Fix or not): once
+        // current == target with a door pending, commit when the player lives (HP 0x76a730 >= 1, no game
+        // over 0x74ab71) -- FUN_00430ef0 sets 0x74c120 |= 3 and the scene swaps at the next frame -- and
+        // drop the pending door either way. tick_events stepped the fader (fade_advance) above, so a
+        // trigger on tick T commits on T + 20, as in retail (the step after the trigger's 20th 0.05).
+        if (door_pending && csHost.fade_cur == csHost.fade_tgt) {
+            if (player.hp >= 1 && death_t == 0) {
+                door_commit = door_pending;
+                std::printf("  [door] t%llu commit %s (fade %.2f)\n", (unsigned long long)tick_count,
+                            door_commit->dest_scene.c_str(), csHost.fade_cur);
+            }
+            door_pending.reset();
+        }
         world.tick_alpha_fades();                  // Chr_Alpha (runs under a Fix too, [H])
         world.tick_tremble();                      // Chr_Tremble (the anim tick's head, 0x447306)
         for (Emotion& em : emotions) {             // FUN_004ffab0 (not frozen by a Fix)
@@ -5342,7 +5396,6 @@ title_again:
             continue;
         }
         const float dt = kTickDt;
-        if (cooldown > 0) cooldown -= dt;
 
         if (fly) {
             const Vec3 f = cam.forward();
@@ -5389,6 +5442,14 @@ title_again:
                 if (pin.dir & input::kLeft) { wish.x -= rt.x; wish.z -= rt.z; }
             }
             if (drive_wish_n > 0) { --drive_wish_n; wish.x += drive_wish.x; wish.z += drive_wish.z; }
+            // The door walk-out (FUN_0042cf00 0x42d246..0x42d29d -> the mover FUN_00465170 l.405-420): while
+            // +0x364 != 0 the mover replaces the stick with a full one (+0x508 = 1.0) toward +0x358 / +0x35c,
+            // until within sqrt(+0x364) = 0.35 of it. The goal is 100 ahead, so she walks on through the fade.
+            if (door_walk.on) {
+                const float dx = door_walk.tgt.x - feet.x, dz = door_walk.tgt.z - feet.z;
+                if (dx * dx + dz * dz > 0.1225f) wish = {dx, 0.0f, dz};
+                else door_walk.on = false;
+            }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
             const bool moving = wl > 1e-4f;
             // Run or walk (FUN_00465170 l.432, +0x4ca): magnitude (+0x508) >= RunWalkThreshold and the
@@ -5397,8 +5458,11 @@ title_again:
             // A drive's move= is a full stick. [not modelled] the actor flag 0x40000 forcing the walk
             // bit. The speed itself is walk x run_mult (local_38 = 1.0 [EXPORT l.404]), not x stick.
             // speed_mult is the debug wheel.
-            const bool run_gait = moving && !(pin.held & input::kWalk) &&
-                                 (pin.dir == 0 || pin.magnitude >= settings().s.input.run_walk_threshold);
+            // The walk-out sets the walk bit unless the trigger saw the run stage (+0x12c & 0x20 = +0x4ca).
+            const bool run_gait = door_walk.on ? door_walk.run
+                                : moving && !(pin.held & input::kWalk) &&
+                                  (pin.dir == 0 || pin.magnitude >= settings().s.input.run_walk_threshold);
+            door_running = run_gait;
             {   // MOVER.md §3.3: the platform carry. Grounded on an object that moved last
                 // step: its displacement (clamped to 0.3); airborne: the carry decays x0.975.
                 auto it = mesh_delta.find(player_floor_obj);
@@ -6412,7 +6476,11 @@ title_again:
                         Vec3 hit{};
                         if (!segment_hits_tris(b2m, O, E, rr->t0, rr->t1, &hit)) continue;
                         Boss02Output fb;
-                        const bool ok = boss2->accept_hit(o, hit, std::uint32_t(SDL_GetTicks()), fb);
+                        // The throttle's clock is real time; a (lockstep) drive run reads the tick clock so
+                        // the run does not depend on the machine's speed.
+                        const std::uint32_t now_ms = lockstep ? std::uint32_t(tick_count * 1000 / 60)
+                                                              : std::uint32_t(SDL_GetTicks());
+                        const bool ok = boss2->accept_hit(o, hit, now_ms, fb);
                         boss2_apply(fb);
                         if (!ok) continue;
                         if (boss2_banks[std::size_t(o)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
@@ -7067,9 +7135,8 @@ title_again:
                 --step_timer;
             } else if (grounded && (avm.section() == 0 || avm.section() == 1)) {
                 const bool is_running = avm.section() == 1;
-                // The exe's jitter uses xorshift128 (FUN_00439120) — the same
-                // generator XsoVm implements, though the exe keeps it in a separate
-                // state block (DAT_0074622c) from the script RNG.
+                // The exe's jitter uses xorshift128 (FUN_00439120) — the one
+                // generator (DAT_0074622c) the script's 0x81 roll draws too.
                 step_timer = play_footstep(audio, phys_mesh(room), floor_tri, step_n++,
                                            is_running, game.rng_next());
             } else if (!moving) {
@@ -7205,24 +7272,41 @@ title_again:
             if (g_cam.on) apply_cam_state(cam, feet);
         }
 
-        // SEN trigger: move into a doorway volume to warp. Test the PLAYER only, exactly
-        // as the engine does (FUN_0042cf00 tests actor+0x50) -- the old code also tested
-        // the camera, and the follow camera sits ~24u behind and above the player, so it
-        // entered the door volume well before the player did and warped too early. In fly
-        // mode there is no player, so the probe is the camera itself. EDGE-triggered: the
-        // warp fires only on ENTERING a volume (the engine arms on entry), which is also
-        // what lets a door-return spawn the player standing in the doorway without an
-        // instant re-warp -- inside_trigger is primed to that door at spawn.
-        {
-            const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kCharH * 0.5f, feet.z};
-            int now_in = -1;
-            for (std::size_t i = 0; i < room.sen.triggers.size(); ++i)
-                if (room.sen.triggers[i].contains(probe)) { now_in = int(i); break; }
-            if (now_in >= 0 && now_in != inside_trigger && cooldown <= 0) {
-                const SenTrigger& t = room.sen.triggers[std::size_t(now_in)];
-                transition(t.dest_scene, &t);   // re-primes inside_trigger for the new room
-            } else {
-                inside_trigger = now_in;
+        // SEN trigger FUN_0042cf00 (every real step, from FUN_004281c0 -> FUN_00429450). It tests the
+        // player's ORIGIN actor+0x50/54/58 (feet + kOriginH; in fly mode the camera) against each volume,
+        // the box turned by its yaw (SenTrigger::contains). LEVEL-triggered: no inside/outside memory, no
+        // cooldown [EXPORT 0042cf00.c]. Gates: the step gate (no 0x74ab8f, flag 156 0x76bb8c = 0: no door
+        // during a boss fight), and per hit: no game over (0x74ab71), no Fix (0x75ad90 + 0x75ad94; this
+        // block only runs unfrozen), no pending scene (0x76a538: a staged door or a ChangeScene), flag 129
+        // (0x76bb20) = 0. Retail data never puts an arrival inside the destination's own volumes (0 of 367
+        // records with the yaw applied, build/warp_re/TRANSIT.md §1), so arriving never re-triggers.
+        if (!door_latched && !door_commit && csHost.pending_scene.empty() && death_t == 0 &&
+            game.g_flags[156] == 0 && game.g_flags[129] == 0) {
+            const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kOriginH, feet.z};
+            for (const SenTrigger& t : room.sen.triggers) {
+                if (!t.contains(probe)) continue;
+                // 0x42d0fc..0x42d1be: fade target 1.0, current 0, hold 0 (the speed is left as it is);
+                // stage this volume's descriptor and latch its scene.
+                csHost.fade_cur = 0.0f;
+                csHost.fade_tgt = 1.0f;
+                door_pending = t;
+                door_latched = true;
+                std::printf("  [door] t%llu %s -> %s (fade out)\n", (unsigned long long)tick_count,
+                            room.name.c_str(), t.dest_scene.c_str());
+                if (!fly) {
+                    // 0x42d1cb: i-frames +0x734 = max(+0x734, 255). 0x42d246..0x42d29d: the walk-out goal
+                    // +0x358 / +0x35c = origin + 100 (0x6bdafc) along +0x308, reach +0x364 = 0.1225, speed
+                    // +0x368 = 1.0, run bit +0x12c & 0x20 = the run stage +0x4ca. [approx] +0x308 is taken
+                    // as her facing (free play keeps the command heading on it).
+                    player_iframes = std::max(player_iframes, 255);
+                    const float fl = std::sqrt(face_dir.x * face_dir.x + face_dir.z * face_dir.z);
+                    if (fl > 1e-6f) {
+                        door_walk.on = true;
+                        door_walk.tgt = {feet.x + face_dir.x / fl * 100.0f, feet.y, feet.z + face_dir.z / fl * 100.0f};
+                        door_walk.run = door_running;
+                    }
+                }
+                break;   // 0x76a538 is set: the rest of the pool fails the gate
             }
         }
         }  // ---- end fixed-step logic ----------------------------------------

@@ -609,11 +609,16 @@ struct XsoVm {
     // xorshift128, as the game implements it (FUN_00439120). Sub-op 0x81 rolls a
     // percentage from it, so scripts using it are non-deterministic by design.
     std::uint32_t rs[4] = {123456789u, 362436069u, 521288629u, 916191069u};   // .data 0x74622c (read)
+    // The engine has ONE generator: FUN_00439120 advances 0x74622c..0x746238 for the 0x81 roll
+    // (0x56849e) as for the brains, effects and pickups. A host VM that is not the game state binds
+    // rs_ext to the game's words, so its rolls draw from (and advance) that one stream.
+    std::uint32_t* rs_ext = nullptr;
     std::uint32_t rng_next() {
-        const std::uint32_t t = rs[0] ^ (rs[0] << 11);
-        rs[0] = rs[1]; rs[1] = rs[2]; rs[2] = rs[3];
-        rs[3] = (rs[3] ^ (rs[3] >> 19)) ^ (t ^ (t >> 8));
-        return rs[3];
+        std::uint32_t* s = rs_ext ? rs_ext : rs;
+        const std::uint32_t t = s[0] ^ (s[0] << 11);
+        s[0] = s[1]; s[1] = s[2]; s[2] = s[3];
+        s[3] = (s[3] ^ (s[3] >> 19)) ^ (t ^ (t >> 8));
+        return s[3];
     }
 
     // Clear per-run state (accumulator, locals, outputs) but keep g_flags, so one
