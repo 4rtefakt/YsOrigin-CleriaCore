@@ -424,6 +424,37 @@ CASES.update({
                 "[xso] FireBullet actor 197", ">> entering S_4104"]),
 })
 
+# The floor-4 brains (build/ai_spec/M560.md .. M290.md, REVIVE.md, BOMB.md; build/audit/FLOOR4_TOUR.md).
+_F4 = dict(CLERIA_AI="1")
+CASES.update({
+    # M560 Karon: buried in S_4004's sand, surfaces, is killed (one-hit kills), lies opaque for 600
+    # dead ticks and revives in place with a new instance id (REVIVE.md §3.5, FUN_00434db0).
+    "karon_revive": dict(
+        room="S_40/S_4004/S_4004", env=_F4,
+        drive="8:opt=OneHitKill=1;9:opt=DamageTaken=0;20:at3=4.6,-1,12,90;100:every=12,300,near=#60;"
+              "101:every=12,300,atk;350:stats;800:stats;801:quit",
+        expect=["[revive] #186 cast 60 hp 261 phase 1 7a0 0 gnd 1 t 0.000 y -4.00", "defeated 1", "stats exp 3 lv 1",
+                "cast 60 revived as #207 (section 10)"]),
+    # M570 Zarue summons its hands (M410) next to the player in S_4006; they appear and are removed.
+    "zarue_summon": dict(
+        room="S_40/S_4006/S_4006", env=_F4,
+        drive="9:opt=DamageTaken=0;10:at=-3.2,28,90;200:actors;400:actors;401:quit",
+        expect=["cast 61 phase 2", "sec 7 ", "[actor] id 45 cast 45 enemy hp 351", "cast 45 phase 2",
+                "[actor] id 45 cast 45 enemy hp 0"]),
+    # M280 Chups in S_4012 latches on the player from behind (sub 1, section 7).
+    "chups_latch": dict(
+        room="S_40/S_4012/S_4012", env=_F4,
+        drive="9:opt=DamageTaken=0;10:at=0,13,90;400:quit",
+        expect=["cast 32 phase 2 sub 1 act 0x2", "sec 7 "]),
+    # M290 Bicmobre in S_4019 throws its kind-0xf bombs; killed, it throws its death bombs.
+    "bicmobre_bombs": dict(
+        room="S_40/S_4019/S_4019", env=_F4,
+        drive="9:opt=DamageTaken=0;10:near=#187,7;150:bullets;420:opt=OneHitKill=1;421:near=#187,2;422:atk;"
+              "440:near=#187,2;441:atk;520:quit",
+        expect=["cast 33 phase 2 sub 3", "[bomb] age", "M290 #187 death bomb (dead tick 15)",
+                "M290 #187 death bomb (dead tick 30)"]),
+})
+
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
