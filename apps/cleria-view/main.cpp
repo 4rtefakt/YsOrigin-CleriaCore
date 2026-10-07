@@ -346,6 +346,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_speedrun.inl"
 #include "view_video.inl"
 #include "view_archipelago.inl"
+#include "view_lua.inl"
 #include "view_headless.inl"
 #include "view_menus.inl"
 #include "view_book.inl"

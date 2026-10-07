@@ -22,7 +22,7 @@
 
 namespace cleria::mods {
 
-inline constexpr int kApiVersion = 2;                  // the manifest format / content API level (2: content/, CONTENT.md)
+inline constexpr int kApiVersion = 3;                  // the manifest format / content API level (2: content/, CONTENT.md; 3: Script=, LUA_API.md)
 inline constexpr const char* kManifestName = "mod.ini";
 inline constexpr const char* kFilesDir = "files";      // the overlay root inside a mod
 inline constexpr const char* kCacheDir = ".cache";     // extracted zips, inside the mods folder
@@ -41,6 +41,7 @@ struct Manifest {
     std::string author, description, website;
     int priority = 0;         // the default slot for a newly found mod: lower loads first
     int api = kApiVersion;    // ApiVersion: the CleriaCore mod API the mod was written for
+    std::string script;       // Script: the Lua entry file (ApiVersion >= 3, build/shell_re/LUA_API.md); "" = none
     std::vector<Dep> requires_, conflicts;
 };
 
@@ -66,6 +67,7 @@ struct Mod {
     std::vector<std::string> errors;   // why it cannot load: problems + the checks (arrange)
     std::vector<std::string> notes;    // warnings: shared files, order hints
     std::size_t files = 0;             // files under files/
+    bool stopped = false;              // its Lua script failed this session (LUA_API.md): still loaded, script disabled
     std::filesystem::path files_dir() const { return root / kFilesDir; }
     const std::string& label() const { return m.name.empty() ? m.id : m.name; }
 };

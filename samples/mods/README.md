@@ -1,0 +1,105 @@
+# Making mods for CleriaCore
+
+A short guide. The references: `build/shell_re/MODS.md` (packages, load order, the file overrides),
+`build/shell_re/CONTENT.md` (`content/*.ini`), `build/shell_re/LUA_API.md` (Lua scripts).
+
+## The samples here
+
+| folder | shows |
+|---|---|
+| `checker_floor` | a reskin: two floor textures replaced (`files/`) |
+| `chest_swap` | content: a new item in a chest, a rule, a pickup, reworded text (`content/`) |
+| `hello` | the smallest Lua mod: an event, per-save storage, a setting, a corner overlay, its own F1 tab |
+| `archipelago_lua` | a big Lua mod: the Archipelago multiworld client for the Ys Origin apworld |
+
+## 1. Install and try one
+
+1. Copy the mod's folder (or a `.zip` of it) into the **mods folder**: `Saved Games\CleriaCore\mods`
+   (next to `cleria.ini`; F1 > Mods > *Open mods folder* opens it).
+2. F1 > **Mods**: select it, press OK (or click) to turn it **On**. Left / Right move it in the load order
+   (lower in the list wins when two mods change the same file).
+3. Restart CleriaCore. New mods start Off, so a dropped-in folder never changes your game by itself.
+
+The Mods tab shows each mod's errors (a bad `mod.ini`, a missing dependency, a script that stopped).
+
+## 2. Folder layout
+
+```
+my_mod/
+    mod.ini                         the manifest (required)
+    files/IMAGE/STATUS_512.DDS      replacement game files, by their game path (reskins, music, scripts)
+    files/music/YSO_005.ogg         ... also the loose music / movie folders
+    content/items.ini               data patches: items.ini, chests.ini, pickups.ini, rules.ini, text.ini
+    main.lua                        a Lua script (Script=main.lua), and any modules it requires
+    lib/util.lua                    require("lib.util")
+    icons/MY_ICON.DDS               your own images (cleria.ui.icon, d:image)
+```
+
+## 3. mod.ini
+
+```ini
+[mod]
+Id=yourname.my_mod                ; required: a-z 0-9 . _ - ; unique
+Name="My Mod"
+Version=1.0.0
+Author="You"
+Description="What it does, shown in the Mods tab."
+ApiVersion=3                      ; 1: files/ only, 2: + content/, 3: + Script=
+Script=main.lua                   ; optional: the Lua entry file
+Requires=other.mod>=1.2           ; optional, comma list
+Conflicts=some.other              ; optional
+```
+
+## 4. Replacing files (`files/`)
+
+Put a file at its game path under `files/`: `files/MAP/S_10/COMMON/H/10YUKA04.DDS` replaces that texture.
+Textures must be DDS (DXT1, DXT3 or uncompressed); replace the `H/` (high-resolution) copy. Sounds are WAV,
+music Ogg Vorbis, scripts and tables in the game's own formats. Nothing else to declare.
+
+## 5. Content patches (`content/*.ini`, ApiVersion 2)
+
+```ini
+; content/chests.ini — the first chest of 2F gives a Roda Fruit x2
+[S_1001/S_BOX01]
+Item=0x57
+Count=2
+```
+
+Items (names, icons, new items 0x100..0x1FF), chests, pickups, rules ("when flag X, give Y and show a text")
+and dialogue text: see CONTENT.md §5 and `chest_swap`.
+
+## 6. Lua scripts (`Script=`, ApiVersion 3)
+
+```lua
+-- main.lua
+cleria.events.on("room_enter", function(e) cleria.log("entered " .. e.room) end)
+
+cleria.ui.page("My Mod", function(p)
+    p:section("My Mod")
+    local changed
+    Enabled, changed = p:toggle("Enabled", Enabled, "Turns the thing on.")
+    if changed then cleria.settings.set("Enabled", Enabled) end
+end)
+```
+
+Everything a script can do is `cleria.*` (LUA_API.md): game events, flags and items, the player, the grant
+filter (change what chests give), per-save storage, settings, overlays and an F1 tab in the shell's look,
+websockets and JSON, speedrun notes. Scripts are sandboxed (no file or OS access outside the mod's own
+folder and its data folder). If a script errors, that mod alone is stopped for the session and the Mods tab
+shows the file and line; the game goes on.
+
+Tips:
+- Keep state in locals; save what must survive a reload with `cleria.save.set` (it is written with the game's
+  own save, and a load brings it back).
+- Do work in `tick` (the game's 60 Hz) and network polling in `frame`; grant items when
+  `not cleria.game.frozen()` (no cutscene or box on screen).
+- Sizes in overlays: multiply by `d.scale` so they follow the window.
+- Gameplay changes should default to the retail behaviour and say so ("Not a retail option.").
+
+## 7. Testing
+
+- Watch the console: every `cleria.log` / `print` line is `[lua:<id>] ...`, every error has file:line.
+- Scripted runs: `cleria.command("name", fn)` + `CLERIA_DRIVE="...;300:lua=name args"` drive a headless game
+  (see `tools/drive_regress.py`, `tools/aplua_regress.py` for examples), with `CLERIA_INI=<scratch>\yso_win.ini`
+  so the run uses a scratch settings and mods folder.
+- `cleria-luatest` shows how to run a script against a fake game (apps/cleria-luatest).

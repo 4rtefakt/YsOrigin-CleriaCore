@@ -14,7 +14,7 @@ client built into the engine, in phases.
 | 1 | package format, discovery, manifest, order + checks, persistence, the VFS (reskins), the Mods tab, `mods::active()`, a sample mod, tests | **built** (this document's §1-§6, §9) |
 | 2a | content patches: item text / stats, chest contents, new pickups, flag/event rules, text; the save sidecar, the event bus, the grant filter | **built** (CONTENT.md; §7 is the design it follows) |
 | 2b | Archipelago: connection, location checks, item receipt, foreign-item icon, DeathLink, tracker, overlays | designed (§8) |
-| 3 | scripting runtime | a question for the user (§10) |
+| 3 | scripting runtime: Lua 5.4 (the user's choice, §10) | **built** (LUA_API.md; mod API 3, `Script=`) |
 
 Evidence tags as elsewhere: **[CODE]** = read in CleriaCore's code, **[DATA]** = checked on the
 files, **[H]** = a choice or inference of this design.
@@ -61,7 +61,8 @@ unquoted value is kept whole.
 | `Version` | | dotted, compared numerically per part (`1.10 > 1.9`, `1.0 == 1`); a non-numeric part compares as text. Default `0`. |
 | `Author`, `Description`, `Website` | | shown in the Mods tab |
 | `Priority` | | int, default 0: where a NEWLY found mod is first placed (lower loads first). Never reorders what the player ordered. |
-| `ApiVersion` | | the mod API it targets (`mods::kApiVersion`, now 2: `content/`, CONTENT.md). A higher one is an error ("needs a newer CleriaCore"); a mod declaring 1 has its `content/` ignored. Default: the current version. |
+| `ApiVersion` | | the mod API it targets (`mods::kApiVersion`, now 3: 2 = `content/`, CONTENT.md; 3 = `Script=`, LUA_API.md). A higher one is an error ("needs a newer CleriaCore"); a mod declaring 1 has its `content/` ignored, one declaring 1 or 2 its `Script=`. Default: the current version. |
+| `Script` | | a Lua entry file (`main.lua`), API 3 (LUA_API.md) |
 | `Requires` | | comma list of `id`, `id>=1.2`, `id=2`, `id<3` (`>= > = == <= <`) |
 | `Conflicts` | | same syntax; an enabled matching mod is an error on the declaring mod |
 
@@ -395,6 +396,11 @@ and randomizer logic that is not a lookup table. Options:
 - A tiny own expression language for `rules.ini`: no dependency, limited.
 
 **Question for the user**: add Lua (vendored like miniz / stb), plugin DLLs, or stay data-only?
+
+**Answered (2026-10-07): Lua.** Lua 5.4.9 is vendored in `third_party/lua`; a mod opts in with
+`Script=main.lua` and `ApiVersion=3`. The sandbox, the `cleria.*` API, the tests and the proof (the
+Archipelago client re-made as a Lua mod, `samples/mods/archipelago_lua`) are in **LUA_API.md**; the
+modder's guide is `samples/mods/README.md`.
 
 ## 11. Limits and open points
 

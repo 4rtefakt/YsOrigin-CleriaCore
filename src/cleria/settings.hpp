@@ -197,6 +197,7 @@ class SettingsStore {
     const std::filesystem::path& path() const { return path_; }
     const Ini& retail_doc() const { return retail_; }
     const Ini& cleria_doc() const { return cleria_; }
+    Ini& cleria_doc_mut() { return cleria_; }   // sections the typed model does not know ([cleria.mod.<id>], LUA_API.md)
 
   private:
     Ini retail_, cleria_;

@@ -1,0 +1,8201 @@
+{
+ "format": 1,
+ "game": "Ys Origin",
+ "item_base_id": 5853184,
+ "items": [
+  {
+   "class": "useful",
+   "flag": 343,
+   "id": 5853184,
+   "kind": "statue_unlock",
+   "name": "10F Warp",
+   "scene": 3000
+  },
+  {
+   "class": "useful",
+   "flag": 349,
+   "id": 5853185,
+   "kind": "statue_unlock",
+   "name": "11F Warp",
+   "scene": 3006
+  },
+  {
+   "class": "useful",
+   "flag": 360,
+   "id": 5853186,
+   "kind": "statue_unlock",
+   "name": "12F Warp",
+   "scene": 3015
+  },
+  {
+   "class": "useful",
+   "flag": 375,
+   "id": 5853187,
+   "kind": "statue_unlock",
+   "name": "13F Warp",
+   "scene": 3014
+  },
+  {
+   "class": "useful",
+   "flag": 377,
+   "id": 5853188,
+   "kind": "statue_unlock",
+   "name": "14F Warp",
+   "scene": 4000
+  },
+  {
+   "class": "useful",
+   "flag": 404,
+   "id": 5853189,
+   "kind": "statue_unlock",
+   "name": "17F Warp",
+   "scene": 4020
+  },
+  {
+   "class": "useful",
+   "flag": 406,
+   "id": 5853190,
+   "kind": "statue_unlock",
+   "name": "18F Warp",
+   "scene": 5000
+  },
+  {
+   "class": "useful",
+   "flag": 300,
+   "id": 5853191,
+   "kind": "statue_unlock",
+   "name": "1F Warp",
+   "scene": 1000
+  },
+  {
+   "class": "useful",
+   "flag": 422,
+   "id": 5853192,
+   "kind": "statue_unlock",
+   "name": "20F Warp",
+   "scene": 5010
+  },
+  {
+   "class": "useful",
+   "flag": 427,
+   "id": 5853193,
+   "kind": "statue_unlock",
+   "name": "21F Warp",
+   "scene": 5014
+  },
+  {
+   "class": "useful",
+   "flag": 429,
+   "id": 5853194,
+   "kind": "statue_unlock",
+   "name": "22F Warp",
+   "scene": 6000
+  },
+  {
+   "class": "useful",
+   "flag": 433,
+   "id": 5853195,
+   "kind": "statue_unlock",
+   "name": "23F Warp",
+   "scene": 6010
+  },
+  {
+   "class": "useful",
+   "flag": 437,
+   "id": 5853196,
+   "kind": "statue_unlock",
+   "name": "24F Warp",
+   "scene": 6082
+  },
+  {
+   "class": "useful",
+   "flag": 439,
+   "id": 5853197,
+   "kind": "statue_unlock",
+   "name": "25F Warp",
+   "scene": 6053
+  },
+  {
+   "class": "useful",
+   "flag": 311,
+   "id": 5853198,
+   "kind": "statue_unlock",
+   "name": "4F Warp",
+   "scene": 1009
+  },
+  {
+   "class": "useful",
+   "flag": 322,
+   "id": 5853199,
+   "kind": "statue_unlock",
+   "name": "5F Warp",
+   "scene": 1011
+  },
+  {
+   "class": "useful",
+   "flag": 324,
+   "id": 5853200,
+   "kind": "statue_unlock",
+   "name": "6F Warp",
+   "scene": 2000
+  },
+  {
+   "class": "useful",
+   "flag": 330,
+   "id": 5853201,
+   "kind": "statue_unlock",
+   "name": "7F Warp",
+   "scene": 2013
+  },
+  {
+   "class": "useful",
+   "flag": 479,
+   "id": 5853202,
+   "kind": "statue_unlock",
+   "name": "8F Warp",
+   "scene": 2100
+  },
+  {
+   "class": "useful",
+   "flag": 341,
+   "id": 5853203,
+   "kind": "statue_unlock",
+   "name": "9F Warp",
+   "scene": 2012
+  },
+  {
+   "class": "progression",
+   "flag": 101,
+   "id": 5853204,
+   "kind": "item",
+   "name": "Amber Key"
+  },
+  {
+   "class": "progression",
+   "flag": 79,
+   "id": 5853205,
+   "kind": "item",
+   "name": "Arthropod Medallion"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 44,
+   "id": 5853206,
+   "kind": "item",
+   "name": "Banded Boots"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 20,
+   "id": 5853207,
+   "kind": "item",
+   "name": "Banded Mail"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 10,
+   "id": 5853208,
+   "kind": "item",
+   "name": "Battle Armor"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 34,
+   "id": 5853209,
+   "kind": "item",
+   "name": "Battle Guards"
+  },
+  {
+   "class": "useful",
+   "flag": 52,
+   "id": 5853210,
+   "kind": "item",
+   "name": "Battle Shield"
+  },
+  {
+   "class": "progression",
+   "flag": 78,
+   "id": 5853211,
+   "kind": "item",
+   "name": "Beast Medallion"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 19,
+   "id": 5853212,
+   "kind": "item",
+   "name": "Black Chain"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 43,
+   "id": 5853213,
+   "kind": "item",
+   "name": "Black Leggings"
+  },
+  {
+   "chars": [
+    "yunica",
+    "hugo"
+   ],
+   "class": "progression",
+   "flag": 106,
+   "id": 5853214,
+   "kind": "item",
+   "name": "Black Pearl"
+  },
+  {
+   "bit": 9,
+   "class": "useful",
+   "id": 5853215,
+   "kind": "blessing",
+   "name": "Blessing: Bolster bad status resists LV1"
+  },
+  {
+   "bit": 22,
+   "class": "useful",
+   "id": 5853216,
+   "kind": "blessing",
+   "name": "Blessing: Bolster bad status resists LV2"
+  },
+  {
+   "bit": 4,
+   "class": "useful",
+   "id": 5853217,
+   "kind": "blessing",
+   "name": "Blessing: Extend drop item effects LV1"
+  },
+  {
+   "bit": 23,
+   "class": "useful",
+   "id": 5853218,
+   "kind": "blessing",
+   "name": "Blessing: Extend drop item effects LV2"
+  },
+  {
+   "bit": 10,
+   "class": "useful",
+   "id": 5853219,
+   "kind": "blessing",
+   "name": "Blessing: Hasten Skill recovery LV1"
+  },
+  {
+   "bit": 11,
+   "class": "useful",
+   "id": 5853220,
+   "kind": "blessing",
+   "name": "Blessing: Hasten Skill recovery LV2"
+  },
+  {
+   "bit": 14,
+   "class": "useful",
+   "id": 5853221,
+   "kind": "blessing",
+   "name": "Blessing: Hasten Skill recovery LV3"
+  },
+  {
+   "bit": 5,
+   "class": "useful",
+   "id": 5853222,
+   "kind": "blessing",
+   "name": "Blessing: Increase Boost recovery LV1"
+  },
+  {
+   "bit": 15,
+   "class": "useful",
+   "id": 5853223,
+   "kind": "blessing",
+   "name": "Blessing: Increase Boost recovery LV2"
+  },
+  {
+   "bit": 16,
+   "class": "useful",
+   "id": 5853224,
+   "kind": "blessing",
+   "name": "Blessing: Increase Boost recovery LV3"
+  },
+  {
+   "bit": 8,
+   "class": "useful",
+   "id": 5853225,
+   "kind": "blessing",
+   "name": "Blessing: Increase SP gain"
+  },
+  {
+   "bit": 12,
+   "class": "useful",
+   "id": 5853226,
+   "kind": "blessing",
+   "name": "Blessing: Increase effect of herbs LV1"
+  },
+  {
+   "bit": 17,
+   "class": "useful",
+   "id": 5853227,
+   "kind": "blessing",
+   "name": "Blessing: Increase effect of herbs LV2"
+  },
+  {
+   "bit": 3,
+   "class": "useful",
+   "id": 5853228,
+   "kind": "blessing",
+   "name": "Blessing: Increase item drop rate"
+  },
+  {
+   "bit": 13,
+   "class": "useful",
+   "id": 5853229,
+   "kind": "blessing",
+   "name": "Blessing: Increase movement speed"
+  },
+  {
+   "bit": 0,
+   "class": "useful",
+   "id": 5853230,
+   "kind": "blessing",
+   "name": "Blessing: Increase stationary heal rate"
+  },
+  {
+   "bit": 7,
+   "class": "useful",
+   "id": 5853231,
+   "kind": "blessing",
+   "name": "Blessing: Increase stun effect"
+  },
+  {
+   "bit": 6,
+   "class": "useful",
+   "id": 5853232,
+   "kind": "blessing",
+   "name": "Blessing: Reduce MP usage LV1"
+  },
+  {
+   "bit": 18,
+   "class": "useful",
+   "id": 5853233,
+   "kind": "blessing",
+   "name": "Blessing: Reduce MP usage LV2"
+  },
+  {
+   "bit": 19,
+   "class": "useful",
+   "id": 5853234,
+   "kind": "blessing",
+   "name": "Blessing: Reduce MP usage LV3"
+  },
+  {
+   "bit": 2,
+   "class": "useful",
+   "id": 5853235,
+   "kind": "blessing",
+   "name": "Blessing: Reduce bad status duration LV1"
+  },
+  {
+   "bit": 20,
+   "class": "useful",
+   "id": 5853236,
+   "kind": "blessing",
+   "name": "Blessing: Reduce bad status duration LV2"
+  },
+  {
+   "bit": 1,
+   "class": "useful",
+   "id": 5853237,
+   "kind": "blessing",
+   "name": "Blessing: Reduce damage from terrain"
+  },
+  {
+   "bit": 21,
+   "class": "useful",
+   "id": 5853238,
+   "kind": "blessing",
+   "name": "Blessing: Strengthen Eyes of Fact"
+  },
+  {
+   "class": "trap",
+   "id": 5853239,
+   "kind": "trap",
+   "name": "Blinding Fog"
+  },
+  {
+   "class": "progression",
+   "flag": 111,
+   "id": 5853240,
+   "kind": "item",
+   "name": "Blue Moon Crest"
+  },
+  {
+   "chars": [
+    "yunica",
+    "hugo"
+   ],
+   "class": "progression",
+   "flag": 55,
+   "id": 5853241,
+   "kind": "item",
+   "name": "Blue Necklace"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 23,
+   "id": 5853242,
+   "kind": "item",
+   "name": "Brave Armor"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 47,
+   "id": 5853243,
+   "kind": "item",
+   "name": "Brave Guards"
+  },
+  {
+   "class": "progression",
+   "flag": 99,
+   "id": 5853244,
+   "kind": "item",
+   "name": "Bronze Key"
+  },
+  {
+   "class": "trap",
+   "id": 5853245,
+   "kind": "trap",
+   "name": "Butterfingers"
+  },
+  {
+   "class": "filler",
+   "flag": 89,
+   "id": 5853246,
+   "kind": "item",
+   "name": "Celcetan Panacea"
+  },
+  {
+   "class": "progression",
+   "companion_flag": 116,
+   "flag": 107,
+   "id": 5853247,
+   "kind": "item",
+   "name": "Cerulean Flabellum"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 14,
+   "id": 5853248,
+   "kind": "item",
+   "name": "Chain Cloak"
+  },
+  {
+   "class": "useful",
+   "flag": 25,
+   "id": 5853249,
+   "kind": "item",
+   "name": "Chain Mail"
+  },
+  {
+   "class": "trap",
+   "id": 5853250,
+   "kind": "trap",
+   "name": "Chaos Warp"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 17,
+   "id": 5853251,
+   "kind": "item",
+   "name": "Cleria Garb"
+  },
+  {
+   "class": "filler",
+   "flag": 88,
+   "id": 5853252,
+   "kind": "cleria_ore",
+   "name": "Cleria Ore"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "progression",
+   "flag": 60,
+   "id": 5853253,
+   "kind": "item",
+   "name": "Cleria Ring"
+  },
+  {
+   "class": "progression",
+   "flag": 80,
+   "id": 5853254,
+   "kind": "item",
+   "name": "Construct Medallion"
+  },
+  {
+   "class": "progression",
+   "flag": 81,
+   "id": 5853255,
+   "kind": "item",
+   "name": "Creeper Medallion"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 16,
+   "id": 5853256,
+   "kind": "item",
+   "name": "Crimson Coat"
+  },
+  {
+   "class": "progression",
+   "flag": 102,
+   "id": 5853257,
+   "kind": "item",
+   "name": "Crimson Key"
+  },
+  {
+   "class": "progression",
+   "companion_flag": 118,
+   "flag": 109,
+   "id": 5853258,
+   "kind": "item",
+   "name": "Crimson Lotusblade"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 41,
+   "id": 5853259,
+   "kind": "item",
+   "name": "Dark Falcon"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 45,
+   "id": 5853260,
+   "kind": "item",
+   "name": "Demon Greaves"
+  },
+  {
+   "class": "progression",
+   "flag": 83,
+   "goal_item": true,
+   "id": 5853261,
+   "kind": "item",
+   "name": "Devil Medallion"
+  },
+  {
+   "class": "progression",
+   "flag": 103,
+   "id": 5853262,
+   "kind": "item",
+   "name": "Dragonbone Key"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "progression",
+   "flag": 104,
+   "id": 5853263,
+   "kind": "item",
+   "name": "Dreaming Idol"
+  },
+  {
+   "class": "trap",
+   "id": 5853264,
+   "kind": "trap",
+   "name": "EXP Leech"
+  },
+  {
+   "class": "progression",
+   "flag": 57,
+   "id": 5853265,
+   "kind": "item",
+   "name": "Earth Dragon's Claws"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 13,
+   "id": 5853266,
+   "kind": "item",
+   "name": "Ebony Robe"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 37,
+   "id": 5853267,
+   "kind": "item",
+   "name": "Ebony Shoes"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 15,
+   "id": 5853268,
+   "kind": "item",
+   "name": "Elder Robe"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 39,
+   "id": 5853269,
+   "kind": "item",
+   "name": "Elder Shoes"
+  },
+  {
+   "class": "useful",
+   "id": 5853270,
+   "index": 768,
+   "kind": "gem",
+   "level_cell": 182,
+   "name": "Emerald"
+  },
+  {
+   "chars": [
+    "yunica",
+    "hugo"
+   ],
+   "class": "progression",
+   "companion_flag": 94,
+   "flag": 93,
+   "id": 5853271,
+   "kind": "item",
+   "name": "Evil Ring"
+  },
+  {
+   "class": "useful",
+   "flag": 59,
+   "id": 5853272,
+   "kind": "item",
+   "name": "Goddess Ring"
+  },
+  {
+   "class": "progression",
+   "companion_flag": 163,
+   "flag": 91,
+   "id": 5853273,
+   "kind": "item",
+   "name": "Gold Bracelet"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 21,
+   "id": 5853274,
+   "kind": "item",
+   "name": "Gothic Suit"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 8,
+   "id": 5853275,
+   "kind": "item",
+   "name": "Half Plate"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "progression",
+   "flag": 96,
+   "id": 5853276,
+   "kind": "item",
+   "name": "Hammer"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 31,
+   "id": 5853277,
+   "kind": "item",
+   "name": "Hard Leggings"
+  },
+  {
+   "class": "useful",
+   "flag": 50,
+   "id": 5853278,
+   "kind": "item",
+   "name": "Large Shield"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 30,
+   "id": 5853279,
+   "kind": "item",
+   "name": "Leather Boots"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 36,
+   "id": 5853280,
+   "kind": "item",
+   "name": "Leather Greaves"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 32,
+   "id": 5853281,
+   "kind": "item",
+   "name": "Leg Guards"
+  },
+  {
+   "class": "progression",
+   "companion_flag": 117,
+   "flag": 108,
+   "id": 5853282,
+   "kind": "item",
+   "name": "Levinstrike Warhammer"
+  },
+  {
+   "class": "useful",
+   "flag": 85,
+   "id": 5853283,
+   "kind": "item",
+   "name": "Lila Shell"
+  },
+  {
+   "class": "progression",
+   "flag": 82,
+   "id": 5853284,
+   "kind": "item",
+   "name": "Mantid Medallion"
+  },
+  {
+   "class": "progression",
+   "flag": 100,
+   "id": 5853285,
+   "kind": "item",
+   "name": "Marble Key"
+  },
+  {
+   "chars": [
+    "yunica",
+    "hugo"
+   ],
+   "class": "progression",
+   "flag": 54,
+   "id": 5853286,
+   "kind": "item",
+   "name": "Mask of Eyes"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 40,
+   "id": 5853287,
+   "kind": "item",
+   "name": "Moon Greaves"
+  },
+  {
+   "class": "progression",
+   "flag": 110,
+   "id": 5853288,
+   "kind": "item",
+   "name": "Obsidian Key"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 46,
+   "id": 5853289,
+   "kind": "item",
+   "name": "Phantom Boots"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 22,
+   "id": 5853290,
+   "kind": "item",
+   "name": "Phantom Mail"
+  },
+  {
+   "class": "useful",
+   "flag": 26,
+   "id": 5853291,
+   "kind": "item",
+   "name": "Plate Mail"
+  },
+  {
+   "class": "useful",
+   "id": 5853292,
+   "kind": "progressive_gear",
+   "ladder": {
+    "hugo": [
+     13,
+     14,
+     15,
+     16,
+     17
+    ],
+    "toal": [
+     19,
+     20,
+     21,
+     22,
+     23
+    ],
+    "yunica": [
+     7,
+     8,
+     9,
+     10,
+     11
+    ]
+   },
+   "name": "Progressive Armor"
+  },
+  {
+   "bits": [
+    9,
+    22
+   ],
+   "class": "filler",
+   "id": 5853293,
+   "kind": "progressive_blessing",
+   "name": "Progressive Bolster bad status resists"
+  },
+  {
+   "class": "useful",
+   "id": 5853294,
+   "kind": "progressive_gear",
+   "ladder": {
+    "hugo": [
+     36,
+     37,
+     38,
+     39,
+     40,
+     41
+    ],
+    "toal": [
+     42,
+     43,
+     44,
+     45,
+     46,
+     47
+    ],
+    "yunica": [
+     30,
+     31,
+     32,
+     33,
+     34,
+     35
+    ]
+   },
+   "name": "Progressive Boots"
+  },
+  {
+   "bits": [
+    4,
+    23
+   ],
+   "class": "filler",
+   "id": 5853295,
+   "kind": "progressive_blessing",
+   "name": "Progressive Extend drop item effects"
+  },
+  {
+   "artifact": 109,
+   "class": "filler",
+   "id": 5853296,
+   "kind": "progressive_skill",
+   "level_cell": 184,
+   "name": "Progressive Fire Skill",
+   "power": 118
+  },
+  {
+   "bits": [
+    10,
+    11,
+    14
+   ],
+   "class": "filler",
+   "id": 5853297,
+   "kind": "progressive_blessing",
+   "name": "Progressive Hasten Skill recovery"
+  },
+  {
+   "bits": [
+    5,
+    15,
+    16
+   ],
+   "class": "filler",
+   "id": 5853298,
+   "kind": "progressive_blessing",
+   "name": "Progressive Increase Boost recovery"
+  },
+  {
+   "bits": [
+    12,
+    17
+   ],
+   "class": "filler",
+   "id": 5853299,
+   "kind": "progressive_blessing",
+   "name": "Progressive Increase effect of herbs"
+  },
+  {
+   "artifact": 108,
+   "class": "filler",
+   "id": 5853300,
+   "kind": "progressive_skill",
+   "level_cell": 183,
+   "name": "Progressive Lightning Skill",
+   "power": 117
+  },
+  {
+   "bits": [
+    6,
+    18,
+    19
+   ],
+   "class": "filler",
+   "id": 5853301,
+   "kind": "progressive_blessing",
+   "name": "Progressive Reduce MP usage"
+  },
+  {
+   "bits": [
+    2,
+    20
+   ],
+   "class": "filler",
+   "id": 5853302,
+   "kind": "progressive_blessing",
+   "name": "Progressive Reduce bad status duration"
+  },
+  {
+   "artifact": 107,
+   "class": "filler",
+   "id": 5853303,
+   "kind": "progressive_skill",
+   "level_cell": 182,
+   "name": "Progressive Wind Skill",
+   "power": 116
+  },
+  {
+   "class": "useful",
+   "flag": 443,
+   "id": 5853304,
+   "kind": "statue_unlock",
+   "name": "Rado Tower Warp",
+   "scene": 4104
+  },
+  {
+   "class": "useful",
+   "flag": 29,
+   "id": 5853305,
+   "kind": "item",
+   "name": "Raval Armor"
+  },
+  {
+   "class": "useful",
+   "flag": 53,
+   "id": 5853306,
+   "kind": "item",
+   "name": "Raval Shield"
+  },
+  {
+   "class": "progression",
+   "flag": 92,
+   "id": 5853307,
+   "kind": "item",
+   "name": "Red Moon Crest"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 9,
+   "id": 5853308,
+   "kind": "item",
+   "name": "Reflex"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 7,
+   "id": 5853309,
+   "kind": "item",
+   "name": "Ring Mail"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 61,
+   "id": 5853310,
+   "kind": "item",
+   "name": "Ring of Ease"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "class": "useful",
+   "flag": 42,
+   "id": 5853311,
+   "kind": "item",
+   "name": "Riveted Boots"
+  },
+  {
+   "class": "progression",
+   "flag": 98,
+   "id": 5853312,
+   "kind": "item",
+   "name": "Rod"
+  },
+  {
+   "class": "progression",
+   "flag": 87,
+   "id": 5853313,
+   "kind": "item",
+   "name": "Roda Fruit"
+  },
+  {
+   "class": "useful",
+   "id": 5853314,
+   "index": 769,
+   "kind": "gem",
+   "level_cell": 183,
+   "name": "Ruby"
+  },
+  {
+   "amount": 150,
+   "class": "filler",
+   "id": 5853315,
+   "kind": "sp",
+   "name": "SP: 150"
+  },
+  {
+   "amount": 50,
+   "class": "filler",
+   "id": 5853316,
+   "kind": "sp",
+   "name": "SP: 50"
+  },
+  {
+   "amount": 500,
+   "class": "filler",
+   "id": 5853317,
+   "kind": "sp",
+   "name": "SP: 500"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "class": "useful",
+   "flag": 38,
+   "id": 5853318,
+   "kind": "item",
+   "name": "Shell Greaves"
+  },
+  {
+   "class": "progression",
+   "companion_flag": 181,
+   "flag": 90,
+   "id": 5853319,
+   "kind": "item",
+   "name": "Silver Bracelet"
+  },
+  {
+   "class": "progression",
+   "flag": 56,
+   "id": 5853320,
+   "kind": "item",
+   "name": "Silver Chimes"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 11,
+   "id": 5853321,
+   "kind": "item",
+   "name": "Silver Dress"
+  },
+  {
+   "class": "progression",
+   "flag": 95,
+   "id": 5853322,
+   "kind": "item",
+   "name": "Silver Harmonica"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 35,
+   "id": 5853323,
+   "kind": "item",
+   "name": "Silver Leggings"
+  },
+  {
+   "class": "useful",
+   "flag": 49,
+   "id": 5853324,
+   "kind": "item",
+   "name": "Small Shield"
+  },
+  {
+   "class": "useful",
+   "flag": 58,
+   "id": 5853325,
+   "kind": "item",
+   "name": "Spirit Cape"
+  },
+  {
+   "class": "useful",
+   "flag": 62,
+   "id": 5853326,
+   "kind": "item",
+   "name": "Spirit Necklace"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "class": "useful",
+   "flag": 33,
+   "id": 5853327,
+   "kind": "item",
+   "name": "Sylphen Boots"
+  },
+  {
+   "class": "useful",
+   "id": 5853328,
+   "index": 770,
+   "kind": "gem",
+   "level_cell": 184,
+   "name": "Topaz"
+  },
+  {
+   "class": "progression",
+   "flag": 97,
+   "id": 5853329,
+   "kind": "item",
+   "name": "Water Dragon's Scales"
+  },
+  {
+   "class": "useful",
+   "flag": 48,
+   "id": 5853330,
+   "kind": "item",
+   "name": "Wooden Shield"
+  }
+ ],
+ "location_base_id": 5857280,
+ "locations": [
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4080
+   },
+   "excluded": true,
+   "floor": "17F",
+   "id": 5857280,
+   "key": "S_4080/boss",
+   "name": "Boss: 17F Room (S_4080)",
+   "room": "17F Room",
+   "scene": 4080,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6080
+   },
+   "excluded": true,
+   "floor": "23F",
+   "id": 5857281,
+   "key": "S_6080/boss",
+   "name": "Boss: 23F Midboss 1 (S_6080)",
+   "room": "23F Midboss 1",
+   "scene": 6080,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6099
+   },
+   "excluded": true,
+   "floor": "25F",
+   "id": 5857282,
+   "key": "S_6099/boss",
+   "name": "Boss: 25F Midboss 2 (S_6099)",
+   "room": "25F Midboss 2",
+   "scene": 6099,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1080
+   },
+   "excluded": true,
+   "floor": "3F",
+   "id": 5857283,
+   "key": "S_1080/boss",
+   "name": "Boss: 3F Midboss (S_1080)",
+   "room": "3F Midboss",
+   "scene": 1080,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1099
+   },
+   "excluded": true,
+   "floor": "5F",
+   "id": 5857284,
+   "key": "S_1099/boss",
+   "name": "Boss: 5F Velagunder (S_1099)",
+   "room": "5F Velagunder",
+   "scene": 1099,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2080
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857285,
+   "key": "S_2080/boss",
+   "name": "Boss: Boss Room (S_2080)",
+   "room": "Boss Room",
+   "scene": 2080,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2099
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857286,
+   "key": "S_2099/boss",
+   "name": "Boss: Boss Room (S_2099)",
+   "room": "Boss Room",
+   "scene": 2099,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3080
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857287,
+   "key": "S_3080/boss",
+   "name": "Boss: Boss Room (S_3080)",
+   "room": "Boss Room",
+   "scene": 3080,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3099
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857288,
+   "key": "S_3099/boss",
+   "name": "Boss: Boss Room (S_3099)",
+   "room": "Boss Room",
+   "scene": 3099,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4099
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857289,
+   "key": "S_4099/boss",
+   "name": "Boss: Boss Room (S_4099)",
+   "room": "Boss Room",
+   "scene": 4099,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5080
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857290,
+   "key": "S_5080/boss",
+   "name": "Boss: Boss Room (S_5080)",
+   "room": "Boss Room",
+   "scene": 5080,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5099
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857291,
+   "key": "S_5099/boss",
+   "name": "Boss: Boss Room (S_5099)",
+   "room": "Boss Room",
+   "scene": 5099,
+   "type": "boss",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "chest": {
+    "box_flag": 417,
+    "script": "MAP/S_50/S_5006/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 417,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "19F",
+   "id": 5857292,
+   "key": "S_5006/S_BOX01",
+   "name": "Corrupted Blood: 19F Drop-Off",
+   "room": "19F Drop-Off",
+   "scene": 5006,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 769,
+     "name": "Ruby"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "chest": {
+    "box_flag": 425,
+    "script": "MAP/S_50/S_5012/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 425,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "20F",
+   "id": 5857293,
+   "key": "S_5012/S_BOX01",
+   "name": "Corrupted Blood: 20F Path 1",
+   "room": "20F Path 1",
+   "scene": 5012,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 34,
+     "name": "Battle Guards"
+    },
+    {
+     "class": "useful",
+     "item": 40,
+     "name": "Moon Greaves"
+    },
+    {
+     "class": "useful",
+     "item": 46,
+     "name": "Phantom Boots"
+    },
+    {
+     "class": "useful",
+     "item": 52,
+     "name": "Battle Shield"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "chest": {
+    "box_flag": 456,
+    "script": "MAP/S_50/S_5015/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 456,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "20F",
+   "id": 5857294,
+   "key": "S_5015/S_BOX01",
+   "name": "Corrupted Blood: 20F Path 3",
+   "room": "20F Path 3",
+   "scene": 5015,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 770,
+     "name": "Topaz"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "chest": {
+    "box_flag": 420,
+    "script": "MAP/S_50/S_5011/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 420,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "20F",
+   "id": 5857295,
+   "key": "S_5011/S_BOX01",
+   "name": "Corrupted Blood: 20F Small Room",
+   "room": "20F Small Room",
+   "scene": 5011,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 88,
+     "name": "Cleria Ore"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "chest": {
+    "box_flag": 424,
+    "script": "MAP/S_50/S_5080/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 424,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857296,
+   "key": "S_5080/S_BOX01",
+   "name": "Corrupted Blood: Boss Room",
+   "room": "Boss Room",
+   "scene": 5080,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 103,
+     "name": "Dragonbone Key"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "chest": {
+    "box_flag": 413,
+    "script": "MAP/S_50/S_5004/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 413,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857297,
+   "key": "S_5004/S_BOX01",
+   "name": "Corrupted Blood: Chest (Drop-Off)",
+   "room": "Chest (Drop-Off)",
+   "scene": 5004,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 87,
+     "name": "Roda Fruit"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "flag": 414,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857298,
+   "key": "S_5100/AGERU/0x19E",
+   "name": "Corrupted Blood: Outer Corridor 1 — Roo Trade",
+   "room": "Outer Corridor 1",
+   "scene": 5100,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 10,
+     "name": "Battle Armor"
+    },
+    {
+     "class": "useful",
+     "item": 16,
+     "name": "Crimson Coat"
+    },
+    {
+     "class": "useful",
+     "item": 22,
+     "name": "Phantom Mail"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "flag": 269,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857299,
+   "key": "S_5102/TALK_M810/0x6A",
+   "name": "Corrupted Blood: Outer Corridor 3 — Black Pearl",
+   "room": "Outer Corridor 3",
+   "scene": 5102,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 106,
+     "name": "Black Pearl"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5102
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857300,
+   "key": "S_5102/EV_5102_THOR_1/0x52",
+   "name": "Corrupted Blood: Outer Corridor 3 — Mantid Medallion",
+   "room": "Outer Corridor 3",
+   "scene": 5102,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 82,
+     "name": "Mantid Medallion"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5097
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857301,
+   "key": "S_5097/EV5097/0x55",
+   "name": "Corrupted Blood: Staircase — Lila Shell",
+   "room": "Staircase",
+   "scene": 5097,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 85,
+     "name": "Lila Shell"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "chest": {
+    "box_flag": 447,
+    "script": "MAP/S_50/S_5002/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 447,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857302,
+   "key": "S_5002/S_BOX01",
+   "name": "Corrupted Blood: Toal's Room",
+   "room": "Toal's Room",
+   "scene": 5002,
+   "type": "chest",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "chest": {
+    "box_flag": 416,
+    "script": "MAP/S_50/S_5007/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 416,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857303,
+   "key": "S_5007/S_BOX01",
+   "name": "Corrupted Blood: Vault",
+   "room": "Vault",
+   "scene": 5007,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 102,
+     "name": "Crimson Key"
+    }
+   ],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "flag": 458,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857304,
+   "key": "S_6009/AGERU/0x1CA",
+   "name": "Demonic Core: 22F Mirror Path — Roo Trade",
+   "room": "22F Mirror Path",
+   "scene": 6009,
+   "type": "event",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "chest": {
+    "box_flag": 431,
+    "script": "MAP/S_60/S_6002/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 431,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "22F",
+   "id": 5857305,
+   "key": "S_6002/S_BOX01",
+   "name": "Demonic Core: 22F Path 2",
+   "room": "22F Path 2",
+   "scene": 6002,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 87,
+     "name": "Roda Fruit"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "chest": {
+    "box_flag": 435,
+    "script": "MAP/S_60/S_6015/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 435,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "22F",
+   "id": 5857306,
+   "key": "S_6015/S_BOX01",
+   "name": "Demonic Core: 22F Path 3",
+   "room": "22F Path 3",
+   "scene": 6015,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 11,
+     "name": "Silver Dress"
+    },
+    {
+     "class": "useful",
+     "item": 17,
+     "name": "Cleria Garb"
+    },
+    {
+     "class": "useful",
+     "item": 23,
+     "name": "Brave Armor"
+    },
+    {
+     "class": "useful",
+     "item": 29,
+     "name": "Raval Armor"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "chest": {
+    "box_flag": 457,
+    "script": "MAP/S_60/S_6015/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 457,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "22F",
+   "id": 5857307,
+   "key": "S_6015/S_BOX02",
+   "name": "Demonic Core: 22F Path 3 #2",
+   "room": "22F Path 3",
+   "scene": 6015,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 110,
+     "name": "Obsidian Key"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6080
+   },
+   "excluded": true,
+   "floor": "23F",
+   "id": 5857308,
+   "key": "S_6080/EV_6080/0x62",
+   "name": "Demonic Core: 23F Midboss 1 — Rod",
+   "room": "23F Midboss 1",
+   "scene": 6080,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 98,
+     "name": "Rod"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "chest": {
+    "box_flag": 461,
+    "script": "MAP/S_60/S_6014/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 461,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "23F",
+   "id": 5857309,
+   "key": "S_6014/S_BOX01",
+   "name": "Demonic Core: 23F Mirror Room",
+   "room": "23F Mirror Room",
+   "scene": 6014,
+   "type": "chest",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "chest": {
+    "box_flag": 462,
+    "script": "MAP/S_60/S_6014/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 462,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "23F",
+   "id": 5857310,
+   "key": "S_6014/S_BOX02",
+   "name": "Demonic Core: 23F Mirror Room #2",
+   "room": "23F Mirror Room",
+   "scene": 6014,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 89,
+     "name": "Celcetan Panacea"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "chest": {
+    "box_flag": 490,
+    "script": "MAP/S_60/S_6014/S_BOX03.XSO"
+   },
+   "detect": {
+    "flag": 490,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "23F",
+   "id": 5857311,
+   "key": "S_6014/S_BOX03",
+   "name": "Demonic Core: 23F Mirror Room #3",
+   "room": "23F Mirror Room",
+   "scene": 6014,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 88,
+     "name": "Cleria Ore"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "chest": {
+    "box_flag": 463,
+    "script": "MAP/S_60/S_6051/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 463,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "24F",
+   "id": 5857312,
+   "key": "S_6051/S_BOX01",
+   "name": "Demonic Core: 24F Path 2",
+   "room": "24F Path 2",
+   "scene": 6051,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 35,
+     "name": "Silver Leggings"
+    },
+    {
+     "class": "useful",
+     "item": 41,
+     "name": "Dark Falcon"
+    },
+    {
+     "class": "useful",
+     "item": 47,
+     "name": "Brave Guards"
+    },
+    {
+     "class": "useful",
+     "item": 53,
+     "name": "Raval Shield"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "chest": {
+    "box_flag": 464,
+    "script": "MAP/S_60/S_6004/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 464,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "24F",
+   "id": 5857313,
+   "key": "S_6004/S_BOX01",
+   "name": "Demonic Core: 24F Path 3",
+   "room": "24F Path 3",
+   "scene": 6004,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 83,
+     "name": "Devil Medallion"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "chest": {
+    "box_flag": 465,
+    "script": "MAP/S_60/S_6004/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 465,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "24F",
+   "id": 5857314,
+   "key": "S_6004/S_BOX02",
+   "name": "Demonic Core: 24F Path 3 #2",
+   "room": "24F Path 3",
+   "scene": 6004,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 89,
+     "name": "Celcetan Panacea"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6082
+   },
+   "excluded": true,
+   "floor": "24F",
+   "id": 5857315,
+   "key": "S_6082/EV_6082/0x3E",
+   "name": "Demonic Core: 24F Yog & Om — Spirit Necklace",
+   "room": "24F Yog & Om",
+   "scene": 6082,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 62,
+     "name": "Spirit Necklace"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6099
+   },
+   "excluded": true,
+   "floor": "25F",
+   "id": 5857316,
+   "key": "S_6099/EV_6099/0x3B",
+   "name": "Demonic Core: 25F Midboss 2 — Goddess Ring",
+   "room": "25F Midboss 2",
+   "scene": 6099,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 59,
+     "name": "Goddess Ring"
+    }
+   ],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "bit": 9,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857317,
+   "key": "blessing/bit9",
+   "name": "Divine Blessing: Bolster bad status resists LV1",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 521,
+     "name": "Blessing: Bolster bad status resists LV1"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 22,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857318,
+   "key": "blessing/bit22",
+   "name": "Divine Blessing: Bolster bad status resists LV2",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 534,
+     "name": "Blessing: Bolster bad status resists LV2"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 4,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857319,
+   "key": "blessing/bit4",
+   "name": "Divine Blessing: Extend drop item effects LV1",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 516,
+     "name": "Blessing: Extend drop item effects LV1"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 23,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857320,
+   "key": "blessing/bit23",
+   "name": "Divine Blessing: Extend drop item effects LV2",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 535,
+     "name": "Blessing: Extend drop item effects LV2"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 10,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857321,
+   "key": "blessing/bit10",
+   "name": "Divine Blessing: Hasten Skill recovery LV1",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 522,
+     "name": "Blessing: Hasten Skill recovery LV1"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 11,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857322,
+   "key": "blessing/bit11",
+   "name": "Divine Blessing: Hasten Skill recovery LV2",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 523,
+     "name": "Blessing: Hasten Skill recovery LV2"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 14,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857323,
+   "key": "blessing/bit14",
+   "name": "Divine Blessing: Hasten Skill recovery LV3",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 526,
+     "name": "Blessing: Hasten Skill recovery LV3"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 5,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857324,
+   "key": "blessing/bit5",
+   "name": "Divine Blessing: Increase Boost recovery LV1",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 517,
+     "name": "Blessing: Increase Boost recovery LV1"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 15,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857325,
+   "key": "blessing/bit15",
+   "name": "Divine Blessing: Increase Boost recovery LV2",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 527,
+     "name": "Blessing: Increase Boost recovery LV2"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 16,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857326,
+   "key": "blessing/bit16",
+   "name": "Divine Blessing: Increase Boost recovery LV3",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 528,
+     "name": "Blessing: Increase Boost recovery LV3"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 8,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857327,
+   "key": "blessing/bit8",
+   "name": "Divine Blessing: Increase SP gain",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 520,
+     "name": "Blessing: Increase SP gain"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 12,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857328,
+   "key": "blessing/bit12",
+   "name": "Divine Blessing: Increase effect of herbs LV1",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 524,
+     "name": "Blessing: Increase effect of herbs LV1"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 17,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857329,
+   "key": "blessing/bit17",
+   "name": "Divine Blessing: Increase effect of herbs LV2",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 529,
+     "name": "Blessing: Increase effect of herbs LV2"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 3,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857330,
+   "key": "blessing/bit3",
+   "name": "Divine Blessing: Increase item drop rate",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 515,
+     "name": "Blessing: Increase item drop rate"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 13,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857331,
+   "key": "blessing/bit13",
+   "name": "Divine Blessing: Increase movement speed",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 525,
+     "name": "Blessing: Increase movement speed"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 0,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857332,
+   "key": "blessing/bit0",
+   "name": "Divine Blessing: Increase stationary heal rate",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 512,
+     "name": "Blessing: Increase stationary heal rate"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica",
+    "toal"
+   ],
+   "detect": {
+    "bit": 7,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857333,
+   "key": "blessing/bit7",
+   "name": "Divine Blessing: Increase stun effect",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 519,
+     "name": "Blessing: Increase stun effect"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 6,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857334,
+   "key": "blessing/bit6",
+   "name": "Divine Blessing: Reduce MP usage LV1",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 518,
+     "name": "Blessing: Reduce MP usage LV1"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 18,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857335,
+   "key": "blessing/bit18",
+   "name": "Divine Blessing: Reduce MP usage LV2",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 530,
+     "name": "Blessing: Reduce MP usage LV2"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 19,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857336,
+   "key": "blessing/bit19",
+   "name": "Divine Blessing: Reduce MP usage LV3",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 531,
+     "name": "Blessing: Reduce MP usage LV3"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 2,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857337,
+   "key": "blessing/bit2",
+   "name": "Divine Blessing: Reduce bad status duration LV1",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 514,
+     "name": "Blessing: Reduce bad status duration LV1"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 20,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857338,
+   "key": "blessing/bit20",
+   "name": "Divine Blessing: Reduce bad status duration LV2",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 532,
+     "name": "Blessing: Reduce bad status duration LV2"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "bit": 1,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857339,
+   "key": "blessing/bit1",
+   "name": "Divine Blessing: Reduce damage from terrain",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 513,
+     "name": "Blessing: Reduce damage from terrain"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 44,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857340,
+   "key": "blessing/gear/toal/0x2C",
+   "name": "Divine Blessing: Strengthen Banded Boots",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 20,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857341,
+   "key": "blessing/gear/toal/0x14",
+   "name": "Divine Blessing: Strengthen Banded Mail",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 10,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857342,
+   "key": "blessing/gear/yunica/0x0A",
+   "name": "Divine Blessing: Strengthen Battle Armor",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 34,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857343,
+   "key": "blessing/gear/yunica/0x22",
+   "name": "Divine Blessing: Strengthen Battle Guards",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 19,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857344,
+   "key": "blessing/gear/toal/0x13",
+   "name": "Divine Blessing: Strengthen Black Chain",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 43,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857345,
+   "key": "blessing/gear/toal/0x2B",
+   "name": "Divine Blessing: Strengthen Black Leggings",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 23,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857346,
+   "key": "blessing/gear/toal/0x17",
+   "name": "Divine Blessing: Strengthen Brave Armor",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 47,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857347,
+   "key": "blessing/gear/toal/0x2F",
+   "name": "Divine Blessing: Strengthen Brave Guards",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 14,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857348,
+   "key": "blessing/gear/hugo/0x0E",
+   "name": "Divine Blessing: Strengthen Chain Cloak",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 17,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857349,
+   "key": "blessing/gear/hugo/0x11",
+   "name": "Divine Blessing: Strengthen Cleria Garb",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 16,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857350,
+   "key": "blessing/gear/hugo/0x10",
+   "name": "Divine Blessing: Strengthen Crimson Coat",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 41,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857351,
+   "key": "blessing/gear/hugo/0x29",
+   "name": "Divine Blessing: Strengthen Dark Falcon",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 45,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857352,
+   "key": "blessing/gear/toal/0x2D",
+   "name": "Divine Blessing: Strengthen Demon Greaves",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 13,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857353,
+   "key": "blessing/gear/hugo/0x0D",
+   "name": "Divine Blessing: Strengthen Ebony Robe",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 37,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857354,
+   "key": "blessing/gear/hugo/0x25",
+   "name": "Divine Blessing: Strengthen Ebony Shoes",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 15,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857355,
+   "key": "blessing/gear/hugo/0x0F",
+   "name": "Divine Blessing: Strengthen Elder Robe",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 39,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857356,
+   "key": "blessing/gear/hugo/0x27",
+   "name": "Divine Blessing: Strengthen Elder Shoes",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "bit": 21,
+    "flag": 217,
+    "method": "bit"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857357,
+   "key": "blessing/bit21",
+   "name": "Divine Blessing: Strengthen Eyes of Fact",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 533,
+     "name": "Blessing: Strengthen Eyes of Fact"
+    }
+   ],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 21,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857358,
+   "key": "blessing/gear/toal/0x15",
+   "name": "Divine Blessing: Strengthen Gothic Suit",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 8,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857359,
+   "key": "blessing/gear/yunica/0x08",
+   "name": "Divine Blessing: Strengthen Half Plate",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 31,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857360,
+   "key": "blessing/gear/yunica/0x1F",
+   "name": "Divine Blessing: Strengthen Hard Leggings",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 6,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857361,
+   "key": "blessing/gear/yunica/0x06",
+   "name": "Divine Blessing: Strengthen Leather Armor",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 30,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857362,
+   "key": "blessing/gear/yunica/0x1E",
+   "name": "Divine Blessing: Strengthen Leather Boots",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 36,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857363,
+   "key": "blessing/gear/hugo/0x24",
+   "name": "Divine Blessing: Strengthen Leather Greaves",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 12,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857364,
+   "key": "blessing/gear/hugo/0x0C",
+   "name": "Divine Blessing: Strengthen Leather Tunic",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 32,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857365,
+   "key": "blessing/gear/yunica/0x20",
+   "name": "Divine Blessing: Strengthen Leg Guards",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 40,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857366,
+   "key": "blessing/gear/hugo/0x28",
+   "name": "Divine Blessing: Strengthen Moon Greaves",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 46,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857367,
+   "key": "blessing/gear/toal/0x2E",
+   "name": "Divine Blessing: Strengthen Phantom Boots",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 22,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857368,
+   "key": "blessing/gear/toal/0x16",
+   "name": "Divine Blessing: Strengthen Phantom Mail",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 9,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857369,
+   "key": "blessing/gear/yunica/0x09",
+   "name": "Divine Blessing: Strengthen Reflex",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 7,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857370,
+   "key": "blessing/gear/yunica/0x07",
+   "name": "Divine Blessing: Strengthen Ring Mail",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 42,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857371,
+   "key": "blessing/gear/toal/0x2A",
+   "name": "Divine Blessing: Strengthen Riveted Boots",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "index": 18,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857372,
+   "key": "blessing/gear/toal/0x12",
+   "name": "Divine Blessing: Strengthen Riveted Leather",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "detect": {
+    "index": 38,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857373,
+   "key": "blessing/gear/hugo/0x26",
+   "name": "Divine Blessing: Strengthen Shell Greaves",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 11,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857374,
+   "key": "blessing/gear/yunica/0x0B",
+   "name": "Divine Blessing: Strengthen Silver Dress",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 35,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857375,
+   "key": "blessing/gear/yunica/0x23",
+   "name": "Divine Blessing: Strengthen Silver Leggings",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "index": 33,
+    "method": "item_arr"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857376,
+   "key": "blessing/gear/yunica/0x21",
+   "name": "Divine Blessing: Strengthen Sylphen Boots",
+   "room": "Goddess Statue",
+   "scene": 0,
+   "type": "blessing",
+   "vanilla": [],
+   "zone": "Blessings"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3001
+   },
+   "excluded": true,
+   "floor": "10F",
+   "id": 5857377,
+   "key": "S_3001/room",
+   "name": "Explore: 10F Path 1 Furnace (S_3001)",
+   "room": "10F Path 1 Furnace",
+   "scene": 3001,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3003
+   },
+   "excluded": true,
+   "floor": "10F",
+   "id": 5857378,
+   "key": "S_3003/room",
+   "name": "Explore: 10F Path 2 (S_3003)",
+   "room": "10F Path 2",
+   "scene": 3003,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3004
+   },
+   "excluded": true,
+   "floor": "11F",
+   "id": 5857379,
+   "key": "S_3004/room",
+   "name": "Explore: 11F Path 1 (S_3004)",
+   "room": "11F Path 1",
+   "scene": 3004,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3005
+   },
+   "excluded": true,
+   "floor": "11F",
+   "id": 5857380,
+   "key": "S_3005/room",
+   "name": "Explore: 11F Path 2 (S_3005)",
+   "room": "11F Path 2",
+   "scene": 3005,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4001
+   },
+   "excluded": true,
+   "floor": "14F",
+   "id": 5857381,
+   "key": "S_4001/room",
+   "name": "Explore: 14F Room (S_4001)",
+   "room": "14F Room",
+   "scene": 4001,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4015
+   },
+   "excluded": true,
+   "floor": "15F",
+   "id": 5857382,
+   "key": "S_4015/room",
+   "name": "Explore: 15F Room (S_4015)",
+   "room": "15F Room",
+   "scene": 4015,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4007
+   },
+   "excluded": true,
+   "floor": "16F",
+   "id": 5857383,
+   "key": "S_4007/room",
+   "name": "Explore: 16F Path 1 (S_4007)",
+   "room": "16F Path 1",
+   "scene": 4007,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4008
+   },
+   "excluded": true,
+   "floor": "16F",
+   "id": 5857384,
+   "key": "S_4008/room",
+   "name": "Explore: 16F Path 2 (S_4008)",
+   "room": "16F Path 2",
+   "scene": 4008,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4011
+   },
+   "excluded": true,
+   "floor": "16F",
+   "id": 5857385,
+   "key": "S_4011/room",
+   "name": "Explore: 16F Path 3 (S_4011)",
+   "room": "16F Path 3",
+   "scene": 4011,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4080
+   },
+   "excluded": true,
+   "floor": "17F",
+   "id": 5857386,
+   "key": "S_4080/room",
+   "name": "Explore: 17F Room (S_4080)",
+   "room": "17F Room",
+   "scene": 4080,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5001
+   },
+   "excluded": true,
+   "floor": "18F",
+   "id": 5857387,
+   "key": "S_5001/room",
+   "name": "Explore: 18F Path 1 (S_5001)",
+   "room": "18F Path 1",
+   "scene": 5001,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5003
+   },
+   "excluded": true,
+   "floor": "18F",
+   "id": 5857388,
+   "key": "S_5003/room",
+   "name": "Explore: 18F Path 2 (S_5003)",
+   "room": "18F Path 2",
+   "scene": 5003,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5006
+   },
+   "excluded": true,
+   "floor": "19F",
+   "id": 5857389,
+   "key": "S_5006/room",
+   "name": "Explore: 19F Drop-Off (S_5006)",
+   "room": "19F Drop-Off",
+   "scene": 5006,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5005
+   },
+   "excluded": true,
+   "floor": "19F",
+   "id": 5857390,
+   "key": "S_5005/room",
+   "name": "Explore: 19F Path 1 (S_5005)",
+   "room": "19F Path 1",
+   "scene": 5005,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5008
+   },
+   "excluded": true,
+   "floor": "19F",
+   "id": 5857391,
+   "key": "S_5008/room",
+   "name": "Explore: 19F Path 2 (S_5008)",
+   "room": "19F Path 2",
+   "scene": 5008,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1000
+   },
+   "excluded": true,
+   "floor": "1F",
+   "id": 5857392,
+   "key": "S_1000/room",
+   "name": "Explore: 1F Save (S_1000)",
+   "room": "1F Save",
+   "scene": 1000,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5009
+   },
+   "excluded": true,
+   "floor": "20F",
+   "id": 5857393,
+   "key": "S_5009/room",
+   "name": "Explore: 20F Drop-Off (S_5009)",
+   "room": "20F Drop-Off",
+   "scene": 5009,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5012
+   },
+   "excluded": true,
+   "floor": "20F",
+   "id": 5857394,
+   "key": "S_5012/room",
+   "name": "Explore: 20F Path 1 (S_5012)",
+   "room": "20F Path 1",
+   "scene": 5012,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5013
+   },
+   "excluded": true,
+   "floor": "20F",
+   "id": 5857395,
+   "key": "S_5013/room",
+   "name": "Explore: 20F Path 2 (S_5013)",
+   "room": "20F Path 2",
+   "scene": 5013,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5015
+   },
+   "excluded": true,
+   "floor": "20F",
+   "id": 5857396,
+   "key": "S_5015/room",
+   "name": "Explore: 20F Path 3 (S_5015)",
+   "room": "20F Path 3",
+   "scene": 5015,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5011
+   },
+   "excluded": true,
+   "floor": "20F",
+   "id": 5857397,
+   "key": "S_5011/room",
+   "name": "Explore: 20F Small Room (S_5011)",
+   "room": "20F Small Room",
+   "scene": 5011,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6009
+   },
+   "excluded": true,
+   "floor": "22F",
+   "id": 5857398,
+   "key": "S_6009/room",
+   "name": "Explore: 22F Mirror Path (S_6009)",
+   "room": "22F Mirror Path",
+   "scene": 6009,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6001
+   },
+   "excluded": true,
+   "floor": "22F",
+   "id": 5857399,
+   "key": "S_6001/room",
+   "name": "Explore: 22F Path 1 (S_6001)",
+   "room": "22F Path 1",
+   "scene": 6001,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6002
+   },
+   "excluded": true,
+   "floor": "22F",
+   "id": 5857400,
+   "key": "S_6002/room",
+   "name": "Explore: 22F Path 2 (S_6002)",
+   "room": "22F Path 2",
+   "scene": 6002,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6015
+   },
+   "excluded": true,
+   "floor": "22F",
+   "id": 5857401,
+   "key": "S_6015/room",
+   "name": "Explore: 22F Path 3 (S_6015)",
+   "room": "22F Path 3",
+   "scene": 6015,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6000
+   },
+   "excluded": true,
+   "floor": "22F",
+   "id": 5857402,
+   "key": "S_6000/room",
+   "name": "Explore: 22F Save (S_6000)",
+   "room": "22F Save",
+   "scene": 6000,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6080
+   },
+   "excluded": true,
+   "floor": "23F",
+   "id": 5857403,
+   "key": "S_6080/room",
+   "name": "Explore: 23F Midboss 1 (S_6080)",
+   "room": "23F Midboss 1",
+   "scene": 6080,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6014
+   },
+   "excluded": true,
+   "floor": "23F",
+   "id": 5857404,
+   "key": "S_6014/room",
+   "name": "Explore: 23F Mirror Room (S_6014)",
+   "room": "23F Mirror Room",
+   "scene": 6014,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6010
+   },
+   "excluded": true,
+   "floor": "23F",
+   "id": 5857405,
+   "key": "S_6010/room",
+   "name": "Explore: 23F Save (S_6010)",
+   "room": "23F Save",
+   "scene": 6010,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6050
+   },
+   "excluded": true,
+   "floor": "24F",
+   "id": 5857406,
+   "key": "S_6050/room",
+   "name": "Explore: 24F Path 1 (S_6050)",
+   "room": "24F Path 1",
+   "scene": 6050,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6051
+   },
+   "excluded": true,
+   "floor": "24F",
+   "id": 5857407,
+   "key": "S_6051/room",
+   "name": "Explore: 24F Path 2 (S_6051)",
+   "room": "24F Path 2",
+   "scene": 6051,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6004
+   },
+   "excluded": true,
+   "floor": "24F",
+   "id": 5857408,
+   "key": "S_6004/room",
+   "name": "Explore: 24F Path 3 (S_6004)",
+   "room": "24F Path 3",
+   "scene": 6004,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6052
+   },
+   "excluded": true,
+   "floor": "24F",
+   "id": 5857409,
+   "key": "S_6052/room",
+   "name": "Explore: 24F Path 4 (S_6052)",
+   "room": "24F Path 4",
+   "scene": 6052,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6082
+   },
+   "excluded": true,
+   "floor": "24F",
+   "id": 5857410,
+   "key": "S_6082/room",
+   "name": "Explore: 24F Yog & Om (S_6082)",
+   "room": "24F Yog & Om",
+   "scene": 6082,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6099
+   },
+   "excluded": true,
+   "floor": "25F",
+   "id": 5857411,
+   "key": "S_6099/room",
+   "name": "Explore: 25F Midboss 2 (S_6099)",
+   "room": "25F Midboss 2",
+   "scene": 6099,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6053
+   },
+   "excluded": true,
+   "floor": "25F",
+   "id": 5857412,
+   "key": "S_6053/room",
+   "name": "Explore: 25F Save (S_6053)",
+   "room": "25F Save",
+   "scene": 6053,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 6097
+   },
+   "excluded": true,
+   "floor": "25F",
+   "id": 5857413,
+   "key": "S_6097/room",
+   "name": "Explore: 25F Staircase (S_6097)",
+   "room": "25F Staircase",
+   "scene": 6097,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1012
+   },
+   "excluded": true,
+   "floor": "2F",
+   "id": 5857414,
+   "key": "S_1012/room",
+   "name": "Explore: 2F Gemma Room (S_1012)",
+   "room": "2F Gemma Room",
+   "scene": 1012,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1006
+   },
+   "excluded": true,
+   "floor": "2F",
+   "id": 5857415,
+   "key": "S_1006/room",
+   "name": "Explore: 2F Hidden Entrance (S_1006)",
+   "room": "2F Hidden Entrance",
+   "scene": 1006,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1001
+   },
+   "excluded": true,
+   "floor": "2F",
+   "id": 5857416,
+   "key": "S_1001/room",
+   "name": "Explore: 2F Path 1 (S_1001)",
+   "room": "2F Path 1",
+   "scene": 1001,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1004
+   },
+   "excluded": true,
+   "floor": "2F",
+   "id": 5857417,
+   "key": "S_1004/room",
+   "name": "Explore: 2F Path 2 (Wind Skill) (S_1004)",
+   "room": "2F Path 2 (Wind Skill)",
+   "scene": 1004,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1005
+   },
+   "excluded": true,
+   "floor": "2F",
+   "id": 5857418,
+   "key": "S_1005/room",
+   "name": "Explore: 2F Path 3 (Fork) (S_1005)",
+   "room": "2F Path 3 (Fork)",
+   "scene": 1005,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1080
+   },
+   "excluded": true,
+   "floor": "3F",
+   "id": 5857419,
+   "key": "S_1080/room",
+   "name": "Explore: 3F Midboss (S_1080)",
+   "room": "3F Midboss",
+   "scene": 1080,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1013
+   },
+   "excluded": true,
+   "floor": "3F",
+   "id": 5857420,
+   "key": "S_1013/room",
+   "name": "Explore: 3F Transfer Room (S_1013)",
+   "room": "3F Transfer Room",
+   "scene": 1013,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1002
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857421,
+   "key": "S_1002/room",
+   "name": "Explore: 4F Forward Passage 1 (S_1002)",
+   "room": "4F Forward Passage 1",
+   "scene": 1002,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1003
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857422,
+   "key": "S_1003/room",
+   "name": "Explore: 4F Forward Passage 2 (S_1003)",
+   "room": "4F Forward Passage 2",
+   "scene": 1003,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1007
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857423,
+   "key": "S_1007/room",
+   "name": "Explore: 4F Forward Passage 3 (S_1007)",
+   "room": "4F Forward Passage 3",
+   "scene": 1007,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1014
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857424,
+   "key": "S_1014/room",
+   "name": "Explore: 4F Forward Room (S_1014)",
+   "room": "4F Forward Room",
+   "scene": 1014,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1015
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857425,
+   "key": "S_1015/room",
+   "name": "Explore: 4F Lower (Medal) (S_1015)",
+   "room": "4F Lower (Medal)",
+   "scene": 1015,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1100
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857426,
+   "key": "S_1100/room",
+   "name": "Explore: 4F Outer Corridor 2-1 (S_1100)",
+   "room": "4F Outer Corridor 2-1",
+   "scene": 1100,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1010
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857427,
+   "key": "S_1010/room",
+   "name": "Explore: 4F Path 4 (S_1010)",
+   "room": "4F Path 4",
+   "scene": 1010,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1008
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857428,
+   "key": "S_1008/room",
+   "name": "Explore: 4F Path 5 (Fork) (S_1008)",
+   "room": "4F Path 5 (Fork)",
+   "scene": 1008,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1009
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857429,
+   "key": "S_1009/room",
+   "name": "Explore: 4F Save (Forward) (S_1009)",
+   "room": "4F Save (Forward)",
+   "scene": 1009,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1102
+   },
+   "excluded": true,
+   "floor": "5F",
+   "id": 5857430,
+   "key": "S_1102/room",
+   "name": "Explore: 5F Outer Corridor 2-2 (S_1102)",
+   "room": "5F Outer Corridor 2-2",
+   "scene": 1102,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1011
+   },
+   "excluded": true,
+   "floor": "5F",
+   "id": 5857431,
+   "key": "S_1011/room",
+   "name": "Explore: 5F Save (S_1011)",
+   "room": "5F Save",
+   "scene": 1011,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1097
+   },
+   "excluded": true,
+   "floor": "5F",
+   "id": 5857432,
+   "key": "S_1097/room",
+   "name": "Explore: 5F Stairs (S_1097)",
+   "room": "5F Stairs",
+   "scene": 1097,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1099
+   },
+   "excluded": true,
+   "floor": "5F",
+   "id": 5857433,
+   "key": "S_1099/room",
+   "name": "Explore: 5F Velagunder (S_1099)",
+   "room": "5F Velagunder",
+   "scene": 1099,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2001
+   },
+   "excluded": true,
+   "floor": "6F",
+   "id": 5857434,
+   "key": "S_2001/room",
+   "name": "Explore: 6F Path (S_2001)",
+   "room": "6F Path",
+   "scene": 2001,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2000
+   },
+   "excluded": true,
+   "floor": "6F",
+   "id": 5857435,
+   "key": "S_2000/room",
+   "name": "Explore: 6F Save (S_2000)",
+   "room": "6F Save",
+   "scene": 2000,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2002
+   },
+   "excluded": true,
+   "floor": "6F",
+   "id": 5857436,
+   "key": "S_2002/room",
+   "name": "Explore: 6F Small Room (S_2002)",
+   "room": "6F Small Room",
+   "scene": 2002,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2003
+   },
+   "excluded": true,
+   "floor": "7F",
+   "id": 5857437,
+   "key": "S_2003/room",
+   "name": "Explore: 7F Path 1 (S_2003)",
+   "room": "7F Path 1",
+   "scene": 2003,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2004
+   },
+   "excluded": true,
+   "floor": "7F",
+   "id": 5857438,
+   "key": "S_2004/room",
+   "name": "Explore: 7F Path 2 (S_2004)",
+   "room": "7F Path 2",
+   "scene": 2004,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2011
+   },
+   "excluded": true,
+   "floor": "8F",
+   "id": 5857439,
+   "key": "S_2011/room",
+   "name": "Explore: 8F Path 2 (S_2011)",
+   "room": "8F Path 2",
+   "scene": 2011,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2008
+   },
+   "excluded": true,
+   "floor": "8F",
+   "id": 5857440,
+   "key": "S_2008/room",
+   "name": "Explore: 8F Waterway 1 (S_2008)",
+   "room": "8F Waterway 1",
+   "scene": 2008,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2010
+   },
+   "excluded": true,
+   "floor": "8F",
+   "id": 5857441,
+   "key": "S_2010/room",
+   "name": "Explore: 8F Waterway 2 (S_2010)",
+   "room": "8F Waterway 2",
+   "scene": 2010,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3017
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857442,
+   "key": "S_3017/room",
+   "name": "Explore: Annex 1 (S_3017)",
+   "room": "Annex 1",
+   "scene": 3017,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3018
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857443,
+   "key": "S_3018/room",
+   "name": "Explore: Annex 2 (S_3018)",
+   "room": "Annex 2",
+   "scene": 3018,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3016
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857444,
+   "key": "S_3016/room",
+   "name": "Explore: Before Altar (S_3016)",
+   "room": "Before Altar",
+   "scene": 3016,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2080
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857445,
+   "key": "S_2080/room",
+   "name": "Explore: Boss Room (S_2080)",
+   "room": "Boss Room",
+   "scene": 2080,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2099
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857446,
+   "key": "S_2099/room",
+   "name": "Explore: Boss Room (S_2099)",
+   "room": "Boss Room",
+   "scene": 2099,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3080
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857447,
+   "key": "S_3080/room",
+   "name": "Explore: Boss Room (S_3080)",
+   "room": "Boss Room",
+   "scene": 3080,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3099
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857448,
+   "key": "S_3099/room",
+   "name": "Explore: Boss Room (S_3099)",
+   "room": "Boss Room",
+   "scene": 3099,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4099
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857449,
+   "key": "S_4099/room",
+   "name": "Explore: Boss Room (S_4099)",
+   "room": "Boss Room",
+   "scene": 4099,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5080
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857450,
+   "key": "S_5080/room",
+   "name": "Explore: Boss Room (S_5080)",
+   "room": "Boss Room",
+   "scene": 5080,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5099
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857451,
+   "key": "S_5099/room",
+   "name": "Explore: Boss Room (S_5099)",
+   "room": "Boss Room",
+   "scene": 5099,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4010
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857452,
+   "key": "S_4010/room",
+   "name": "Explore: Boss Room Key (S_4010)",
+   "room": "Boss Room Key",
+   "scene": 4010,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3011
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857453,
+   "key": "S_3011/room",
+   "name": "Explore: Bridge Room 1 (S_3011)",
+   "room": "Bridge Room 1",
+   "scene": 3011,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3012
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857454,
+   "key": "S_3012/room",
+   "name": "Explore: Bridge Room 2 (S_3012)",
+   "room": "Bridge Room 2",
+   "scene": 3012,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5004
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857455,
+   "key": "S_5004/room",
+   "name": "Explore: Chest (Drop-Off) (S_5004)",
+   "room": "Chest (Drop-Off)",
+   "scene": 5004,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3009
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857456,
+   "key": "S_3009/room",
+   "name": "Explore: Devil's Corridor (S_3009)",
+   "room": "Devil's Corridor",
+   "scene": 3009,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3103
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857457,
+   "key": "S_3103/room",
+   "name": "Explore: Devil's Corridor Pillar (S_3103)",
+   "room": "Devil's Corridor Pillar",
+   "scene": 3103,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4002
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857458,
+   "key": "S_4002/room",
+   "name": "Explore: Double Jump (S_4002)",
+   "room": "Double Jump",
+   "scene": 4002,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3007
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857459,
+   "key": "S_3007/room",
+   "name": "Explore: Fire Altar (S_3007)",
+   "room": "Fire Altar",
+   "scene": 3007,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2014
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857460,
+   "key": "S_2014/room",
+   "name": "Explore: Horiz. Scroll Passage (S_2014)",
+   "room": "Horiz. Scroll Passage",
+   "scene": 2014,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3010
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857461,
+   "key": "S_3010/room",
+   "name": "Explore: Jump Room (S_3010)",
+   "room": "Jump Room",
+   "scene": 3010,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3008
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857462,
+   "key": "S_3008/room",
+   "name": "Explore: Lava Rods (S_3008)",
+   "room": "Lava Rods",
+   "scene": 3008,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5000
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857463,
+   "key": "S_5000/room",
+   "name": "Explore: Layer 5 Save (S_5000)",
+   "room": "Layer 5 Save",
+   "scene": 5000,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4097
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857464,
+   "key": "S_4097/room",
+   "name": "Explore: Layer 5 Staircase (S_4097)",
+   "room": "Layer 5 Staircase",
+   "scene": 4097,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3002
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857465,
+   "key": "S_3002/room",
+   "name": "Explore: Mark Treasure (S_3002)",
+   "room": "Mark Treasure",
+   "scene": 3002,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4003
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857466,
+   "key": "S_4003/room",
+   "name": "Explore: Mask of Eyes Path (S_4003)",
+   "room": "Mask of Eyes Path",
+   "scene": 4003,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4012
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857467,
+   "key": "S_4012/room",
+   "name": "Explore: Non-Slip Boots (S_4012)",
+   "room": "Non-Slip Boots",
+   "scene": 4012,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1101
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857468,
+   "key": "S_1101/room",
+   "name": "Explore: Outer Corridor 1 (Forward) (S_1101)",
+   "room": "Outer Corridor 1 (Forward)",
+   "scene": 1101,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2100
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857469,
+   "key": "S_2100/room",
+   "name": "Explore: Outer Corridor 1 (S_2100)",
+   "room": "Outer Corridor 1",
+   "scene": 2100,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4100
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857470,
+   "key": "S_4100/room",
+   "name": "Explore: Outer Corridor 1 (S_4100)",
+   "room": "Outer Corridor 1",
+   "scene": 4100,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5100
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857471,
+   "key": "S_5100/room",
+   "name": "Explore: Outer Corridor 1 (S_5100)",
+   "room": "Outer Corridor 1",
+   "scene": 5100,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2101
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857472,
+   "key": "S_2101/room",
+   "name": "Explore: Outer Corridor 2 (S_2101)",
+   "room": "Outer Corridor 2",
+   "scene": 2101,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3101
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857473,
+   "key": "S_3101/room",
+   "name": "Explore: Outer Corridor 2 (S_3101)",
+   "room": "Outer Corridor 2",
+   "scene": 3101,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5101
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857474,
+   "key": "S_5101/room",
+   "name": "Explore: Outer Corridor 2 (S_5101)",
+   "room": "Outer Corridor 2",
+   "scene": 5101,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5102
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857475,
+   "key": "S_5102/room",
+   "name": "Explore: Outer Corridor 3 (S_5102)",
+   "room": "Outer Corridor 3",
+   "scene": 5102,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5103
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857476,
+   "key": "S_5103/room",
+   "name": "Explore: Outer Corridor 4 (S_5103)",
+   "room": "Outer Corridor 4",
+   "scene": 5103,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5104
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857477,
+   "key": "S_5104/room",
+   "name": "Explore: Outer Corridor 5 (S_5104)",
+   "room": "Outer Corridor 5",
+   "scene": 5104,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2017
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857478,
+   "key": "S_2017/room",
+   "name": "Explore: Outer Corridor Path (S_2017)",
+   "room": "Outer Corridor Path",
+   "scene": 2017,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3100
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857479,
+   "key": "S_3100/room",
+   "name": "Explore: Outer Corridor Staircase (S_3100)",
+   "room": "Outer Corridor Staircase",
+   "scene": 3100,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4009
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857480,
+   "key": "S_4009/room",
+   "name": "Explore: Pitfall Trap (S_4009)",
+   "room": "Pitfall Trap",
+   "scene": 4009,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2012
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857481,
+   "key": "S_2012/room",
+   "name": "Explore: Pre-Boss Room (S_2012)",
+   "room": "Pre-Boss Room",
+   "scene": 2012,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3014
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857482,
+   "key": "S_3014/room",
+   "name": "Explore: Pre-Boss Room (S_3014)",
+   "room": "Pre-Boss Room",
+   "scene": 3014,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4013
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857483,
+   "key": "S_4013/room",
+   "name": "Explore: Rado Inside 1 (Midboss) (S_4013)",
+   "room": "Rado Inside 1 (Midboss)",
+   "scene": 4013,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4016
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857484,
+   "key": "S_4016/room",
+   "name": "Explore: Rado Inside 2 (Staircase) (S_4016)",
+   "room": "Rado Inside 2 (Staircase)",
+   "scene": 4016,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4021
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857485,
+   "key": "S_4021/room",
+   "name": "Explore: Rado Inside 3 (Devil Mask) (S_4021)",
+   "room": "Rado Inside 3 (Devil Mask)",
+   "scene": 4021,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4017
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857486,
+   "key": "S_4017/room",
+   "name": "Explore: Rado Inside 4 (Feena) (S_4017)",
+   "room": "Rado Inside 4 (Feena)",
+   "scene": 4017,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4014
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857487,
+   "key": "S_4014/room",
+   "name": "Explore: Rado Pre-Tower Room (S_4014)",
+   "room": "Rado Pre-Tower Room",
+   "scene": 4014,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4104
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857488,
+   "key": "S_4104/room",
+   "name": "Explore: Rado Tower (S_4104)",
+   "room": "Rado Tower",
+   "scene": 4104,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4005
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857489,
+   "key": "S_4005/room",
+   "name": "Explore: Rear Bend Room (S_4005)",
+   "room": "Rear Bend Room",
+   "scene": 4005,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4004
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857490,
+   "key": "S_4004/room",
+   "name": "Explore: Roo End (S_4004)",
+   "room": "Roo End",
+   "scene": 4004,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3104
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857491,
+   "key": "S_3104/room",
+   "name": "Explore: Roo Start (S_3104)",
+   "room": "Roo Start",
+   "scene": 3104,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2013
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857492,
+   "key": "S_2013/room",
+   "name": "Explore: Save Point (S_2013)",
+   "room": "Save Point",
+   "scene": 2013,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3000
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857493,
+   "key": "S_3000/room",
+   "name": "Explore: Save Point (S_3000)",
+   "room": "Save Point",
+   "scene": 3000,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3006
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857494,
+   "key": "S_3006/room",
+   "name": "Explore: Save Point (S_3006)",
+   "room": "Save Point",
+   "scene": 3006,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3015
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857495,
+   "key": "S_3015/room",
+   "name": "Explore: Save Point (S_3015)",
+   "room": "Save Point",
+   "scene": 3015,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4000
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857496,
+   "key": "S_4000/room",
+   "name": "Explore: Save Point (S_4000)",
+   "room": "Save Point",
+   "scene": 4000,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4020
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857497,
+   "key": "S_4020/room",
+   "name": "Explore: Save Point (S_4020)",
+   "room": "Save Point",
+   "scene": 4020,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5010
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857498,
+   "key": "S_5010/room",
+   "name": "Explore: Save Point (S_5010)",
+   "room": "Save Point",
+   "scene": 5010,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5014
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857499,
+   "key": "S_5014/room",
+   "name": "Explore: Save Point (S_5014)",
+   "room": "Save Point",
+   "scene": 5014,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3102
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857500,
+   "key": "S_3102/room",
+   "name": "Explore: Silver Ore (S_3102)",
+   "room": "Silver Ore",
+   "scene": 3102,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2009
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857501,
+   "key": "S_2009/room",
+   "name": "Explore: Skill Room (S_2009)",
+   "room": "Skill Room",
+   "scene": 2009,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4006
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857502,
+   "key": "S_4006/room",
+   "name": "Explore: Slippery Fork Path (S_4006)",
+   "room": "Slippery Fork Path",
+   "scene": 4006,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3013
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857503,
+   "key": "S_3013/room",
+   "name": "Explore: Small Room (S_3013)",
+   "room": "Small Room",
+   "scene": 3013,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2097
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857504,
+   "key": "S_2097/room",
+   "name": "Explore: Staircase (S_2097)",
+   "room": "Staircase",
+   "scene": 2097,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 3097
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857505,
+   "key": "S_3097/room",
+   "name": "Explore: Staircase (S_3097)",
+   "room": "Staircase",
+   "scene": 3097,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5097
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857506,
+   "key": "S_5097/room",
+   "name": "Explore: Staircase (S_5097)",
+   "room": "Staircase",
+   "scene": 5097,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4019
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857507,
+   "key": "S_4019/room",
+   "name": "Explore: Staircase Path Room (S_4019)",
+   "room": "Staircase Path Room",
+   "scene": 4019,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4018
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857508,
+   "key": "S_4018/room",
+   "name": "Explore: Switch Room (S_4018)",
+   "room": "Switch Room",
+   "scene": 4018,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "detect": {
+    "method": "scene",
+    "scene": 5002
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857509,
+   "key": "S_5002/room",
+   "name": "Explore: Toal's Room (S_5002)",
+   "room": "Toal's Room",
+   "scene": 5002,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 5007
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857510,
+   "key": "S_5007/room",
+   "name": "Explore: Vault (S_5007)",
+   "room": "Vault",
+   "scene": 5007,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2005
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857511,
+   "key": "S_2005/room",
+   "name": "Explore: Water Dragon Protect (S_2005)",
+   "room": "Water Dragon Protect",
+   "scene": 2005,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2006
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857512,
+   "key": "S_2006/room",
+   "name": "Explore: Waterfall Stopper (S_2006)",
+   "room": "Waterfall Stopper",
+   "scene": 2006,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2015
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857513,
+   "key": "S_2015/room",
+   "name": "Explore: Waterway 3 (S_2015)",
+   "room": "Waterway 3",
+   "scene": 2015,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2007
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857514,
+   "key": "S_2007/room",
+   "name": "Explore: Waterway Entrance (S_2007)",
+   "room": "Waterway Entrance",
+   "scene": 2007,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 2016
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857515,
+   "key": "S_2016/room",
+   "name": "Explore: Waterway Stopper (S_2016)",
+   "room": "Waterway Stopper",
+   "scene": 2016,
+   "type": "room",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chest": {
+    "box_flag": 352,
+    "script": "MAP/S_30/S_3003/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 352,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "10F",
+   "id": 5857516,
+   "key": "S_3003/S_BOX01",
+   "name": "Flames of Guilt: 10F Path 2",
+   "room": "10F Path 2",
+   "scene": 3003,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 87,
+     "name": "Roda Fruit"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "chest": {
+    "box_flag": 470,
+    "script": "MAP/S_30/S_3003/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 470,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "10F",
+   "id": 5857517,
+   "key": "S_3003/S_BOX02",
+   "name": "Flames of Guilt: 10F Path 2 #2",
+   "room": "10F Path 2",
+   "scene": 3003,
+   "type": "chest",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 347,
+    "script": "MAP/S_30/S_3004/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 347,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "11F",
+   "id": 5857518,
+   "key": "S_3004/S_BOX01",
+   "name": "Flames of Guilt: 11F Path 1",
+   "room": "11F Path 1",
+   "scene": 3004,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 8,
+     "name": "Half Plate"
+    },
+    {
+     "class": "useful",
+     "item": 14,
+     "name": "Chain Cloak"
+    },
+    {
+     "class": "useful",
+     "item": 20,
+     "name": "Banded Mail"
+    },
+    {
+     "class": "useful",
+     "item": 26,
+     "name": "Plate Mail"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 356,
+    "script": "MAP/S_30/S_3004/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 356,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "11F",
+   "id": 5857519,
+   "key": "S_3004/S_BOX02",
+   "name": "Flames of Guilt: 11F Path 1 #2",
+   "room": "11F Path 1",
+   "scene": 3004,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 769,
+     "name": "Ruby"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "flag": 232,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857520,
+   "key": "S_3080/BATTLE_0/0x5F",
+   "name": "Flames of Guilt: Boss Room — Silver Harmonica",
+   "room": "Boss Room",
+   "scene": 3080,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 95,
+     "name": "Silver Harmonica"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 468,
+    "script": "MAP/S_30/S_3011/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 468,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857521,
+   "key": "S_3011/S_BOX01",
+   "name": "Flames of Guilt: Bridge Room 1",
+   "room": "Bridge Room 1",
+   "scene": 3011,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 89,
+     "name": "Celcetan Panacea"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 373,
+    "script": "MAP/S_30/S_3012/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 373,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857522,
+   "key": "S_3012/S_BOX01",
+   "name": "Flames of Guilt: Bridge Room 2",
+   "room": "Bridge Room 2",
+   "scene": 3012,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 80,
+     "name": "Construct Medallion"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "flag": 350,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857523,
+   "key": "S_3007/TALKSAUL/0x6D",
+   "name": "Flames of Guilt: Fire Altar — Crimson Lotusblade",
+   "room": "Fire Altar",
+   "scene": 3007,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 109,
+     "name": "Crimson Lotusblade"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 367,
+    "script": "MAP/S_30/S_3010/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 367,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857524,
+   "key": "S_3010/S_BOX01",
+   "name": "Flames of Guilt: Jump Room",
+   "room": "Jump Room",
+   "scene": 3010,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 32,
+     "name": "Leg Guards"
+    },
+    {
+     "class": "useful",
+     "item": 38,
+     "name": "Shell Greaves"
+    },
+    {
+     "class": "useful",
+     "item": 44,
+     "name": "Banded Boots"
+    },
+    {
+     "class": "useful",
+     "item": 50,
+     "name": "Large Shield"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 368,
+    "script": "MAP/S_30/S_3010/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 368,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857525,
+   "key": "S_3010/S_BOX02",
+   "name": "Flames of Guilt: Jump Room #2",
+   "room": "Jump Room",
+   "scene": 3010,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 58,
+     "name": "Spirit Cape"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 358,
+    "script": "MAP/S_30/S_3008/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 358,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857526,
+   "key": "S_3008/S_BOX01",
+   "name": "Flames of Guilt: Lava Rods",
+   "room": "Lava Rods",
+   "scene": 3008,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 770,
+     "name": "Topaz"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 345,
+    "script": "MAP/S_30/S_3002/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 345,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857527,
+   "key": "S_3002/S_BOX01",
+   "name": "Flames of Guilt: Mark Treasure",
+   "room": "Mark Treasure",
+   "scene": 3002,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 92,
+     "name": "Red Moon Crest"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "flag": 344,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857528,
+   "key": "S_3002/EVNT_3002_HUGO02/0x5C",
+   "name": "Flames of Guilt: Mark Treasure — Red Moon Crest",
+   "room": "Mark Treasure",
+   "scene": 3002,
+   "type": "event",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "flag": 362,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857529,
+   "key": "S_3104/AGERU/0x16A",
+   "name": "Flames of Guilt: Roo Start — Roo Trade",
+   "room": "Roo Start",
+   "scene": 3104,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 96,
+     "name": "Hammer"
+    },
+    {
+     "class": "useful",
+     "item": 61,
+     "name": "Ring of Ease"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 366,
+    "script": "MAP/S_31/S_3102/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 366,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857530,
+   "key": "S_3102/S_BOX01",
+   "name": "Flames of Guilt: Silver Ore",
+   "room": "Silver Ore",
+   "scene": 3102,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 88,
+     "name": "Cleria Ore"
+    }
+   ],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "chest": {
+    "box_flag": 326,
+    "script": "MAP/S_20/S_2002/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 326,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "6F",
+   "id": 5857531,
+   "key": "S_2002/S_BOX01",
+   "name": "Flooded Prison: 6F Small Room",
+   "room": "6F Small Room",
+   "scene": 2002,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 90,
+     "name": "Silver Bracelet"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chest": {
+    "box_flag": 327,
+    "script": "MAP/S_20/S_2003/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 327,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "7F",
+   "id": 5857532,
+   "key": "S_2003/S_BOX01",
+   "name": "Flooded Prison: 7F Path 1",
+   "room": "7F Path 1",
+   "scene": 2003,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 7,
+     "name": "Ring Mail"
+    },
+    {
+     "class": "useful",
+     "item": 13,
+     "name": "Ebony Robe"
+    },
+    {
+     "class": "useful",
+     "item": 19,
+     "name": "Black Chain"
+    },
+    {
+     "class": "useful",
+     "item": 25,
+     "name": "Chain Mail"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "flag": 339,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857533,
+   "key": "S_2011/AGERU/0x153",
+   "name": "Flooded Prison: 8F Path 2 — Roo Trade",
+   "room": "8F Path 2",
+   "scene": 2011,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 769,
+     "name": "Ruby"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chest": {
+    "box_flag": 454,
+    "script": "MAP/S_20/S_2008/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 454,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "8F",
+   "id": 5857534,
+   "key": "S_2008/S_BOX01",
+   "name": "Flooded Prison: 8F Waterway 1",
+   "room": "8F Waterway 1",
+   "scene": 2008,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 79,
+     "name": "Arthropod Medallion"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chest": {
+    "box_flag": 338,
+    "script": "MAP/S_20/S_2010/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 338,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "8F",
+   "id": 5857535,
+   "key": "S_2010/S_BOX01",
+   "name": "Flooded Prison: 8F Waterway 2",
+   "room": "8F Waterway 2",
+   "scene": 2010,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 89,
+     "name": "Celcetan Panacea"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chest": {
+    "box_flag": 334,
+    "script": "MAP/S_20/S_2014/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 334,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857536,
+   "key": "S_2014/S_BOX01",
+   "name": "Flooded Prison: Horiz. Scroll Passage",
+   "room": "Horiz. Scroll Passage",
+   "scene": 2014,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 31,
+     "name": "Hard Leggings"
+    },
+    {
+     "class": "useful",
+     "item": 37,
+     "name": "Ebony Shoes"
+    },
+    {
+     "class": "useful",
+     "item": 43,
+     "name": "Black Leggings"
+    },
+    {
+     "class": "useful",
+     "item": 49,
+     "name": "Small Shield"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chest": {
+    "box_flag": 469,
+    "script": "MAP/S_20/S_2014/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 469,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857537,
+   "key": "S_2014/S_BOX02",
+   "name": "Flooded Prison: Horiz. Scroll Passage #2",
+   "room": "Horiz. Scroll Passage",
+   "scene": 2014,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 87,
+     "name": "Roda Fruit"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "flag": 335,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857538,
+   "key": "S_2009/TALKC940/0x6C",
+   "name": "Flooded Prison: Skill Room — Levinstrike Warhammer",
+   "room": "Skill Room",
+   "scene": 2009,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 108,
+     "name": "Levinstrike Warhammer"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chest": {
+    "box_flag": 331,
+    "script": "MAP/S_20/S_2005/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 331,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857539,
+   "key": "S_2005/S_BOX01",
+   "name": "Flooded Prison: Water Dragon Protect",
+   "room": "Water Dragon Protect",
+   "scene": 2005,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 97,
+     "name": "Water Dragon's Scales"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chars": [
+    "toal"
+   ],
+   "chest": {
+    "box_flag": 332,
+    "script": "MAP/S_20/S_2005/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 332,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857540,
+   "key": "S_2005/S_BOX02",
+   "name": "Flooded Prison: Water Dragon Protect #2",
+   "room": "Water Dragon Protect",
+   "scene": 2005,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 88,
+     "name": "Cleria Ore"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chest": {
+    "box_flag": 328,
+    "script": "MAP/S_20/S_2006/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 328,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857541,
+   "key": "S_2006/S_BOX01",
+   "name": "Flooded Prison: Waterfall Stopper",
+   "room": "Waterfall Stopper",
+   "scene": 2006,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 768,
+     "name": "Emerald"
+    }
+   ],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 10,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "10F",
+   "id": 5857542,
+   "key": "floor/10F",
+   "name": "Reach 10F",
+   "room": "10F Path 1 Furnace",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 11,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "11F",
+   "id": 5857543,
+   "key": "floor/11F",
+   "name": "Reach 11F",
+   "room": "11F Path 1",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 14,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "14F",
+   "id": 5857544,
+   "key": "floor/14F",
+   "name": "Reach 14F",
+   "room": "14F Room",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 15,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "15F",
+   "id": 5857545,
+   "key": "floor/15F",
+   "name": "Reach 15F",
+   "room": "15F Room",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 16,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "16F",
+   "id": 5857546,
+   "key": "floor/16F",
+   "name": "Reach 16F",
+   "room": "16F Path 1",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 17,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "17F",
+   "id": 5857547,
+   "key": "floor/17F",
+   "name": "Reach 17F",
+   "room": "17F Room",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 18,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "18F",
+   "id": 5857548,
+   "key": "floor/18F",
+   "name": "Reach 18F",
+   "room": "18F Path 1",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 19,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "19F",
+   "id": 5857549,
+   "key": "floor/19F",
+   "name": "Reach 19F",
+   "room": "19F Path 1",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 1,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "1F",
+   "id": 5857550,
+   "key": "floor/1F",
+   "name": "Reach 1F",
+   "room": "1F Save",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 20,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "20F",
+   "id": 5857551,
+   "key": "floor/20F",
+   "name": "Reach 20F",
+   "room": "20F Drop-Off",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 22,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "22F",
+   "id": 5857552,
+   "key": "floor/22F",
+   "name": "Reach 22F",
+   "room": "22F Save",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 23,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "23F",
+   "id": 5857553,
+   "key": "floor/23F",
+   "name": "Reach 23F",
+   "room": "23F Save",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 24,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "24F",
+   "id": 5857554,
+   "key": "floor/24F",
+   "name": "Reach 24F",
+   "room": "24F Path 3",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 25,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "25F",
+   "id": 5857555,
+   "key": "floor/25F",
+   "name": "Reach 25F",
+   "room": "25F Save",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 2,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "2F",
+   "id": 5857556,
+   "key": "floor/2F",
+   "name": "Reach 2F",
+   "room": "2F Path 1",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 3,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "3F",
+   "id": 5857557,
+   "key": "floor/3F",
+   "name": "Reach 3F",
+   "room": "3F Transfer Room",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 4,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "4F",
+   "id": 5857558,
+   "key": "floor/4F",
+   "name": "Reach 4F",
+   "room": "4F Forward Passage 1",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 5,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "5F",
+   "id": 5857559,
+   "key": "floor/5F",
+   "name": "Reach 5F",
+   "room": "5F Save",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 6,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "6F",
+   "id": 5857560,
+   "key": "floor/6F",
+   "name": "Reach 6F",
+   "room": "6F Save",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 7,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "7F",
+   "id": 5857561,
+   "key": "floor/7F",
+   "name": "Reach 7F",
+   "room": "7F Path 1",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "flag": 207,
+    "floor": 8,
+    "method": "floor"
+   },
+   "excluded": false,
+   "floor": "8F",
+   "id": 5857562,
+   "key": "floor/8F",
+   "name": "Reach 8F",
+   "room": "8F Waterway 1",
+   "scene": 0,
+   "type": "floor",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "chest": {
+    "box_flag": 387,
+    "script": "MAP/S_40/S_4001/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 387,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "14F",
+   "id": 5857563,
+   "key": "S_4001/S_BOX01",
+   "name": "Silent Sands: 14F Room",
+   "room": "14F Room",
+   "scene": 4001,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 89,
+     "name": "Celcetan Panacea"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 391,
+    "script": "MAP/S_40/S_4015/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 391,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "15F",
+   "id": 5857564,
+   "key": "S_4015/S_BOX01",
+   "name": "Silent Sands: 15F Room",
+   "room": "15F Room",
+   "scene": 4015,
+   "type": "chest",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 392,
+    "script": "MAP/S_40/S_4015/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 392,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "15F",
+   "id": 5857565,
+   "key": "S_4015/S_BOX02",
+   "name": "Silent Sands: 15F Room #2",
+   "room": "15F Room",
+   "scene": 4015,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 89,
+     "name": "Celcetan Panacea"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 399,
+    "script": "MAP/S_40/S_4010/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 399,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857566,
+   "key": "S_4010/S_BOX01",
+   "name": "Silent Sands: Boss Room Key",
+   "room": "Boss Room Key",
+   "scene": 4010,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 81,
+     "name": "Creeper Medallion"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 385,
+    "script": "MAP/S_40/S_4002/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 385,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857567,
+   "key": "S_4002/S_BOX01",
+   "name": "Silent Sands: Double Jump",
+   "room": "Double Jump",
+   "scene": 4002,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 91,
+     "name": "Gold Bracelet"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 386,
+    "script": "MAP/S_40/S_4002/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 386,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857568,
+   "key": "S_4002/S_BOX02",
+   "name": "Silent Sands: Double Jump #2",
+   "room": "Double Jump",
+   "scene": 4002,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 770,
+     "name": "Topaz"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chars": [
+    "yunica",
+    "hugo"
+   ],
+   "chest": {
+    "box_flag": 378,
+    "script": "MAP/S_40/S_4003/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 378,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857569,
+   "key": "S_4003/S_BOX01",
+   "name": "Silent Sands: Mask of Eyes Path",
+   "room": "Mask of Eyes Path",
+   "scene": 4003,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 94,
+     "name": "Evil Ring"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 381,
+    "script": "MAP/S_40/S_4003/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 381,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857570,
+   "key": "S_4003/S_BOX02",
+   "name": "Silent Sands: Mask of Eyes Path #2",
+   "room": "Mask of Eyes Path",
+   "scene": 4003,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 87,
+     "name": "Roda Fruit"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 379,
+    "script": "MAP/S_40/S_4003/S_BOX03.XSO"
+   },
+   "detect": {
+    "flag": 379,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857571,
+   "key": "S_4003/S_BOX03",
+   "name": "Silent Sands: Mask of Eyes Path #3",
+   "room": "Mask of Eyes Path",
+   "scene": 4003,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 100,
+     "name": "Marble Key"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 380,
+    "script": "MAP/S_40/S_4003/S_BOX04.XSO"
+   },
+   "detect": {
+    "flag": 380,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857572,
+   "key": "S_4003/S_BOX04",
+   "name": "Silent Sands: Mask of Eyes Path #4",
+   "room": "Mask of Eyes Path",
+   "scene": 4003,
+   "type": "chest",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 402,
+    "script": "MAP/S_40/S_4012/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 402,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857573,
+   "key": "S_4012/S_BOX01",
+   "name": "Silent Sands: Non-Slip Boots",
+   "room": "Non-Slip Boots",
+   "scene": 4012,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 57,
+     "name": "Earth Dragon's Claws"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 395,
+    "script": "MAP/S_40/S_4017/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 395,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857574,
+   "key": "S_4017/S_BOX01",
+   "name": "Silent Sands: Rado Inside 4 (Feena)",
+   "room": "Rado Inside 4 (Feena)",
+   "scene": 4017,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 101,
+     "name": "Amber Key"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chars": [
+    "yunica",
+    "hugo"
+   ],
+   "detect": {
+    "flag": 270,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857575,
+   "key": "S_4017/EV_4017_YUNICA_3/0x68",
+   "name": "Silent Sands: Rado Inside 4 (Feena) — Dreaming Idol",
+   "room": "Rado Inside 4 (Feena)",
+   "scene": 4017,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 104,
+     "name": "Dreaming Idol"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chars": [
+    "hugo",
+    "toal"
+   ],
+   "detect": {
+    "method": "scene",
+    "scene": 4017
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857576,
+   "key": "S_4017/EV_4017_HARMONICA/0x5F",
+   "name": "Silent Sands: Rado Inside 4 (Feena) — Silver Harmonica",
+   "room": "Rado Inside 4 (Feena)",
+   "scene": 4017,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 95,
+     "name": "Silver Harmonica"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 4005
+   },
+   "excluded": true,
+   "floor": "",
+   "id": 5857577,
+   "key": "S_4005/EV_4005/0x38",
+   "name": "Silent Sands: Rear Bend Room — Silver Chimes",
+   "room": "Rear Bend Room",
+   "scene": 4005,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 56,
+     "name": "Silver Chimes"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "flag": 388,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857578,
+   "key": "S_4004/AGERU/0x184",
+   "name": "Silent Sands: Roo End — Roo Trade",
+   "room": "Roo End",
+   "scene": 4004,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 33,
+     "name": "Sylphen Boots"
+    },
+    {
+     "class": "useful",
+     "item": 39,
+     "name": "Elder Shoes"
+    },
+    {
+     "class": "useful",
+     "item": 45,
+     "name": "Demon Greaves"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 396,
+    "script": "MAP/S_40/S_4006/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 396,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857579,
+   "key": "S_4006/S_BOX01",
+   "name": "Silent Sands: Slippery Fork Path",
+   "room": "Slippery Fork Path",
+   "scene": 4006,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 9,
+     "name": "Reflex"
+    },
+    {
+     "class": "useful",
+     "item": 15,
+     "name": "Elder Robe"
+    },
+    {
+     "class": "useful",
+     "item": 21,
+     "name": "Gothic Suit"
+    },
+    {
+     "class": "useful",
+     "item": 27,
+     "name": "Banded Mail"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 400,
+    "script": "MAP/S_40/S_4006/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 400,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857580,
+   "key": "S_4006/S_BOX02",
+   "name": "Silent Sands: Slippery Fork Path #2",
+   "room": "Slippery Fork Path",
+   "scene": 4006,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 768,
+     "name": "Emerald"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "chest": {
+    "box_flag": 401,
+    "script": "MAP/S_40/S_4006/S_BOX03.XSO"
+   },
+   "detect": {
+    "flag": 401,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857581,
+   "key": "S_4006/S_BOX03",
+   "name": "Silent Sands: Slippery Fork Path #3",
+   "room": "Slippery Fork Path",
+   "scene": 4006,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 88,
+     "name": "Cleria Ore"
+    }
+   ],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "flag": 300,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "1F",
+   "id": 5857582,
+   "key": "S_1000/statue",
+   "name": "Statue: 1F Save (S_1000)",
+   "room": "1F Save",
+   "scene": 1000,
+   "statue_scene": 1000,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 429,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "22F",
+   "id": 5857583,
+   "key": "S_6000/statue",
+   "name": "Statue: 22F Save (S_6000)",
+   "room": "22F Save",
+   "scene": 6000,
+   "statue_scene": 6000,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "flag": 433,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "23F",
+   "id": 5857584,
+   "key": "S_6010/statue",
+   "name": "Statue: 23F Save (S_6010)",
+   "room": "23F Save",
+   "scene": 6010,
+   "statue_scene": 6010,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "flag": 437,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "24F",
+   "id": 5857585,
+   "key": "S_6082/statue",
+   "name": "Statue: 24F Yog & Om (S_6082)",
+   "room": "24F Yog & Om",
+   "scene": 6082,
+   "statue_scene": 6082,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "flag": 439,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "25F",
+   "id": 5857586,
+   "key": "S_6053/statue",
+   "name": "Statue: 25F Save (S_6053)",
+   "room": "25F Save",
+   "scene": 6053,
+   "statue_scene": 6053,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Demonic Core"
+  },
+  {
+   "detect": {
+    "flag": 311,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "4F",
+   "id": 5857587,
+   "key": "S_1009/statue",
+   "name": "Statue: 4F Save (Forward) (S_1009)",
+   "room": "4F Save (Forward)",
+   "scene": 1009,
+   "statue_scene": 1009,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 322,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "5F",
+   "id": 5857588,
+   "key": "S_1011/statue",
+   "name": "Statue: 5F Save (S_1011)",
+   "room": "5F Save",
+   "scene": 1011,
+   "statue_scene": 1011,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 324,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "6F",
+   "id": 5857589,
+   "key": "S_2000/statue",
+   "name": "Statue: 6F Save (S_2000)",
+   "room": "6F Save",
+   "scene": 2000,
+   "statue_scene": 2000,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "flag": 406,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857590,
+   "key": "S_5000/statue",
+   "name": "Statue: Layer 5 Save (S_5000)",
+   "room": "Layer 5 Save",
+   "scene": 5000,
+   "statue_scene": 5000,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "flag": 479,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857591,
+   "key": "S_2100/statue",
+   "name": "Statue: Outer Corridor 1 (S_2100)",
+   "room": "Outer Corridor 1",
+   "scene": 2100,
+   "statue_scene": 2100,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "flag": 341,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857592,
+   "key": "S_2012/statue",
+   "name": "Statue: Pre-Boss Room (S_2012)",
+   "room": "Pre-Boss Room",
+   "scene": 2012,
+   "statue_scene": 2012,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "flag": 375,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857593,
+   "key": "S_3014/statue",
+   "name": "Statue: Pre-Boss Room (S_3014)",
+   "room": "Pre-Boss Room",
+   "scene": 3014,
+   "statue_scene": 3014,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "flag": 443,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857594,
+   "key": "S_4104/statue",
+   "name": "Statue: Rado Tower (S_4104)",
+   "room": "Rado Tower",
+   "scene": 4104,
+   "statue_scene": 4104,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "flag": 330,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857595,
+   "key": "S_2013/statue",
+   "name": "Statue: Save Point (S_2013)",
+   "room": "Save Point",
+   "scene": 2013,
+   "statue_scene": 2013,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Flooded Prison"
+  },
+  {
+   "detect": {
+    "flag": 343,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857596,
+   "key": "S_3000/statue",
+   "name": "Statue: Save Point (S_3000)",
+   "room": "Save Point",
+   "scene": 3000,
+   "statue_scene": 3000,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "flag": 349,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857597,
+   "key": "S_3006/statue",
+   "name": "Statue: Save Point (S_3006)",
+   "room": "Save Point",
+   "scene": 3006,
+   "statue_scene": 3006,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "flag": 360,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857598,
+   "key": "S_3015/statue",
+   "name": "Statue: Save Point (S_3015)",
+   "room": "Save Point",
+   "scene": 3015,
+   "statue_scene": 3015,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Flames of Guilt"
+  },
+  {
+   "detect": {
+    "flag": 377,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857599,
+   "key": "S_4000/statue",
+   "name": "Statue: Save Point (S_4000)",
+   "room": "Save Point",
+   "scene": 4000,
+   "statue_scene": 4000,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "flag": 404,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857600,
+   "key": "S_4020/statue",
+   "name": "Statue: Save Point (S_4020)",
+   "room": "Save Point",
+   "scene": 4020,
+   "statue_scene": 4020,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Silent Sands"
+  },
+  {
+   "detect": {
+    "flag": 422,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857601,
+   "key": "S_5010/statue",
+   "name": "Statue: Save Point (S_5010)",
+   "room": "Save Point",
+   "scene": 5010,
+   "statue_scene": 5010,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "detect": {
+    "flag": 427,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857602,
+   "key": "S_5014/statue",
+   "name": "Statue: Save Point (S_5014)",
+   "room": "Save Point",
+   "scene": 5014,
+   "statue_scene": 5014,
+   "type": "statue",
+   "vanilla": [],
+   "zone": "Corrupted Blood"
+  },
+  {
+   "chars": [
+    "yunica"
+   ],
+   "detect": {
+    "flag": 296,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "1F",
+   "id": 5857603,
+   "key": "S_1000/TALKC280/0x69",
+   "name": "Wailing Blue: 1F Save — Dreaming Idol",
+   "room": "1F Save",
+   "scene": 1000,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 105,
+     "name": "Dreaming Idol"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "method": "scene",
+    "scene": 1012
+   },
+   "excluded": true,
+   "floor": "2F",
+   "id": 5857604,
+   "key": "S_1012/blue_necklace",
+   "name": "Wailing Blue: 2F Gemma Room — Blue Necklace",
+   "room": "2F Gemma Room",
+   "scene": 1012,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 55,
+     "name": "Blue Necklace"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "chest": {
+    "box_flag": 302,
+    "script": "MAP/S_10/S_1001/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 302,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "2F",
+   "id": 5857605,
+   "key": "S_1001/S_BOX01",
+   "name": "Wailing Blue: 2F Path 1",
+   "room": "2F Path 1",
+   "scene": 1001,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 89,
+     "name": "Celcetan Panacea"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "chest": {
+    "box_flag": 314,
+    "script": "MAP/S_10/S_1001/S_BOX02.XSO"
+   },
+   "detect": {
+    "flag": 314,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "2F",
+   "id": 5857606,
+   "key": "S_1001/S_BOX02",
+   "name": "Wailing Blue: 2F Path 1 #2",
+   "room": "2F Path 1",
+   "scene": 1001,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 99,
+     "name": "Bronze Key"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "chars": [
+    "yunica",
+    "toal"
+   ],
+   "chest": {
+    "box_flag": 478,
+    "script": "MAP/S_10/S_1001/S_BOX03.XSO"
+   },
+   "detect": {
+    "flag": 478,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "2F",
+   "id": 5857607,
+   "key": "S_1001/S_BOX03",
+   "name": "Wailing Blue: 2F Path 1 #3",
+   "room": "2F Path 1",
+   "scene": 1001,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 54,
+     "name": "Mask of Eyes"
+    },
+    {
+     "class": "useful",
+     "item": 60,
+     "name": "Cleria Ring"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 304,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "2F",
+   "id": 5857608,
+   "key": "S_1004/TALKITEM/0x6B",
+   "name": "Wailing Blue: 2F Path 2 (Wind Skill) — Cerulean Flabellum",
+   "room": "2F Path 2 (Wind Skill)",
+   "scene": 1004,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 107,
+     "name": "Cerulean Flabellum"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "chars": [
+    "hugo"
+   ],
+   "chest": {
+    "box_flag": 313,
+    "script": "MAP/S_10/S_1080/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 313,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "3F",
+   "id": 5857609,
+   "key": "S_1080/S_BOX01",
+   "name": "Wailing Blue: 3F Midboss",
+   "room": "3F Midboss",
+   "scene": 1080,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 60,
+     "name": "Cleria Ring"
+    },
+    {
+     "class": "useful",
+     "item": 54,
+     "name": "Mask of Eyes"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "chest": {
+    "box_flag": 307,
+    "script": "MAP/S_10/S_1003/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 307,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "4F",
+   "id": 5857610,
+   "key": "S_1003/S_BOX01",
+   "name": "Wailing Blue: 4F Forward Passage 2",
+   "room": "4F Forward Passage 2",
+   "scene": 1003,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 87,
+     "name": "Roda Fruit"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "chest": {
+    "box_flag": 455,
+    "script": "MAP/S_10/S_1007/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 455,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "4F",
+   "id": 5857611,
+   "key": "S_1007/S_BOX01",
+   "name": "Wailing Blue: 4F Forward Passage 3",
+   "room": "4F Forward Passage 3",
+   "scene": 1007,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 768,
+     "name": "Emerald"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "chest": {
+    "box_flag": null,
+    "script": "MAP/S_10/S_1014/S_BOX01.XSO"
+   },
+   "detect": {
+    "method": "scene",
+    "scene": 1014
+   },
+   "excluded": true,
+   "floor": "4F",
+   "id": 5857612,
+   "key": "S_1014/S_BOX01",
+   "name": "Wailing Blue: 4F Forward Room",
+   "room": "4F Forward Room",
+   "scene": 1014,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 111,
+     "name": "Blue Moon Crest"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "detect": {
+    "flag": 312,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "",
+   "id": 5857613,
+   "key": "S_1014/AGERU/0x138",
+   "name": "Wailing Blue: 4F Forward Room — Roo Trade",
+   "room": "4F Forward Room",
+   "scene": 1014,
+   "type": "event",
+   "vanilla": [
+    {
+     "class": "filler",
+     "item": 88,
+     "name": "Cleria Ore"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "chest": {
+    "box_flag": 318,
+    "script": "MAP/S_10/S_1015/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 318,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "4F",
+   "id": 5857614,
+   "key": "S_1015/S_BOX01",
+   "name": "Wailing Blue: 4F Lower (Medal)",
+   "room": "4F Lower (Medal)",
+   "scene": 1015,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "progression",
+     "item": 78,
+     "name": "Beast Medallion"
+    }
+   ],
+   "zone": "Wailing Blue"
+  },
+  {
+   "chest": {
+    "box_flag": 317,
+    "script": "MAP/S_10/S_1010/S_BOX01.XSO"
+   },
+   "detect": {
+    "flag": 317,
+    "method": "flag"
+   },
+   "excluded": false,
+   "floor": "4F",
+   "id": 5857615,
+   "key": "S_1010/S_BOX01",
+   "name": "Wailing Blue: 4F Path 4",
+   "room": "4F Path 4",
+   "scene": 1010,
+   "type": "chest",
+   "vanilla": [
+    {
+     "class": "useful",
+     "item": 30,
+     "name": "Leather Boots"
+    },
+    {
+     "class": "useful",
+     "item": 36,
+     "name": "Leather Greaves"
+    },
+    {
+     "class": "useful",
+     "item": 42,
+     "name": "Riveted Boots"
+    },
+    {
+     "class": "useful",
+     "item": 48,
+     "name": "Wooden Shield"
+    }
+   ],
+   "zone": "Wailing Blue"
+  }
+ ],
+ "retail": {
+  "g_flags": "0x36b91c",
+  "item_arr": "0x36a654",
+  "module_base": "0x400000"
+ },
+ "scene_floors": {
+  "1000": 1,
+  "1001": 2,
+  "1002": 4,
+  "1003": 4,
+  "1004": 2,
+  "1005": 2,
+  "1006": 2,
+  "1007": 4,
+  "1008": 4,
+  "1009": 4,
+  "1010": 4,
+  "1011": 5,
+  "1012": 2,
+  "1013": 3,
+  "1014": 4,
+  "1015": 4,
+  "1080": 3,
+  "1097": 5,
+  "1099": 5,
+  "1100": 4,
+  "1101": 5,
+  "1102": 5,
+  "2000": 6,
+  "2001": 6,
+  "2002": 6,
+  "2003": 7,
+  "2004": 7,
+  "2005": 9,
+  "2006": 9,
+  "2007": 9,
+  "2008": 8,
+  "2009": 9,
+  "2010": 8,
+  "2011": 8,
+  "2012": 9,
+  "2013": 7,
+  "2014": 9,
+  "2015": 9,
+  "2016": 9,
+  "2017": 9,
+  "2080": 9,
+  "2097": 9,
+  "2099": 9,
+  "2100": 8,
+  "2101": 9,
+  "3000": 10,
+  "3001": 10,
+  "3002": 13,
+  "3003": 10,
+  "3004": 11,
+  "3005": 11,
+  "3006": 11,
+  "3007": 13,
+  "3008": 13,
+  "3009": 13,
+  "3010": 13,
+  "3011": 13,
+  "3012": 13,
+  "3013": 13,
+  "3014": 13,
+  "3015": 12,
+  "3016": 13,
+  "3017": 13,
+  "3018": 13,
+  "3080": 13,
+  "3097": 13,
+  "3099": 13,
+  "3100": 13,
+  "3101": 13,
+  "3102": 13,
+  "3103": 13,
+  "3104": 13,
+  "4000": 14,
+  "4001": 14,
+  "4002": 17,
+  "4003": 17,
+  "4004": 17,
+  "4005": 17,
+  "4006": 17,
+  "4007": 16,
+  "4008": 16,
+  "4009": 17,
+  "4010": 17,
+  "4011": 16,
+  "4012": 17,
+  "4013": 17,
+  "4014": 17,
+  "4015": 15,
+  "4016": 17,
+  "4017": 17,
+  "4018": 17,
+  "4019": 17,
+  "4020": 17,
+  "4021": 17,
+  "4080": 17,
+  "4097": 17,
+  "4099": 17,
+  "4100": 17,
+  "4104": 18,
+  "5000": 18,
+  "5001": 18,
+  "5002": 21,
+  "5003": 18,
+  "5004": 21,
+  "5005": 19,
+  "5006": 19,
+  "5007": 21,
+  "5008": 19,
+  "5009": 20,
+  "5010": 20,
+  "5011": 20,
+  "5012": 20,
+  "5013": 20,
+  "5014": 21,
+  "5015": 20,
+  "5080": 21,
+  "5097": 21,
+  "5099": 21,
+  "5100": 21,
+  "5101": 21,
+  "5102": 21,
+  "5103": 21,
+  "5104": 21,
+  "6000": 22,
+  "6001": 22,
+  "6002": 22,
+  "6004": 24,
+  "6009": 22,
+  "6010": 23,
+  "6014": 23,
+  "6015": 22,
+  "6050": 24,
+  "6051": 24,
+  "6052": 24,
+  "6053": 25,
+  "6080": 23,
+  "6082": 24,
+  "6097": 25,
+  "6099": 25
+ },
+ "scene_names": {
+  "1000": "1F Save",
+  "1001": "2F Path 1",
+  "1002": "4F Forward Passage 1",
+  "1003": "4F Forward Passage 2",
+  "1004": "2F Path 2 (Wind Skill)",
+  "1005": "2F Path 3 (Fork)",
+  "1006": "2F Hidden Entrance",
+  "1007": "4F Forward Passage 3",
+  "1008": "4F Path 5 (Fork)",
+  "1009": "4F Save (Forward)",
+  "1010": "4F Path 4",
+  "1011": "5F Save",
+  "1012": "2F Gemma Room",
+  "1013": "3F Transfer Room",
+  "1014": "4F Forward Room",
+  "1015": "4F Lower (Medal)",
+  "1080": "3F Midboss",
+  "1097": "5F Stairs",
+  "1099": "5F Velagunder",
+  "1100": "4F Outer Corridor 2-1",
+  "1101": "Outer Corridor 1 (Forward)",
+  "1102": "5F Outer Corridor 2-2",
+  "2000": "6F Save",
+  "2001": "6F Path",
+  "2002": "6F Small Room",
+  "2003": "7F Path 1",
+  "2004": "7F Path 2",
+  "2005": "Water Dragon Protect",
+  "2006": "Waterfall Stopper",
+  "2007": "Waterway Entrance",
+  "2008": "8F Waterway 1",
+  "2009": "Skill Room",
+  "2010": "8F Waterway 2",
+  "2011": "8F Path 2",
+  "2012": "Pre-Boss Room",
+  "2013": "Save Point",
+  "2014": "Horiz. Scroll Passage",
+  "2015": "Waterway 3",
+  "2016": "Waterway Stopper",
+  "2017": "Outer Corridor Path",
+  "2080": "Boss Room",
+  "2097": "Staircase",
+  "2099": "Boss Room",
+  "2100": "Outer Corridor 1",
+  "2101": "Outer Corridor 2",
+  "3000": "Save Point",
+  "3001": "10F Path 1 Furnace",
+  "3002": "Mark Treasure",
+  "3003": "10F Path 2",
+  "3004": "11F Path 1",
+  "3005": "11F Path 2",
+  "3006": "Save Point",
+  "3007": "Fire Altar",
+  "3008": "Lava Rods",
+  "3009": "Devil's Corridor",
+  "3010": "Jump Room",
+  "3011": "Bridge Room 1",
+  "3012": "Bridge Room 2",
+  "3013": "Small Room",
+  "3014": "Pre-Boss Room",
+  "3015": "Save Point",
+  "3016": "Before Altar",
+  "3017": "Annex 1",
+  "3018": "Annex 2",
+  "3080": "Boss Room",
+  "3097": "Staircase",
+  "3099": "Boss Room",
+  "3100": "Outer Corridor Staircase",
+  "3101": "Outer Corridor 2",
+  "3102": "Silver Ore",
+  "3103": "Devil's Corridor Pillar",
+  "3104": "Roo Start",
+  "4000": "Save Point",
+  "4001": "14F Room",
+  "4002": "Double Jump",
+  "4003": "Mask of Eyes Path",
+  "4004": "Roo End",
+  "4005": "Rear Bend Room",
+  "4006": "Slippery Fork Path",
+  "4007": "16F Path 1",
+  "4008": "16F Path 2",
+  "4009": "Pitfall Trap",
+  "4010": "Boss Room Key",
+  "4011": "16F Path 3",
+  "4012": "Non-Slip Boots",
+  "4013": "Rado Inside 1 (Midboss)",
+  "4014": "Rado Pre-Tower Room",
+  "4015": "15F Room",
+  "4016": "Rado Inside 2 (Staircase)",
+  "4017": "Rado Inside 4 (Feena)",
+  "4018": "Switch Room",
+  "4019": "Staircase Path Room",
+  "4020": "Save Point",
+  "4021": "Rado Inside 3 (Devil Mask)",
+  "4080": "17F Room",
+  "4097": "Layer 5 Staircase",
+  "4099": "Boss Room",
+  "4100": "Outer Corridor 1",
+  "4104": "Rado Tower",
+  "5000": "Layer 5 Save",
+  "5001": "18F Path 1",
+  "5002": "Toal's Room",
+  "5003": "18F Path 2",
+  "5004": "Chest (Drop-Off)",
+  "5005": "19F Path 1",
+  "5006": "19F Drop-Off",
+  "5007": "Vault",
+  "5008": "19F Path 2",
+  "5009": "20F Drop-Off",
+  "5010": "Save Point",
+  "5011": "20F Small Room",
+  "5012": "20F Path 1",
+  "5013": "20F Path 2",
+  "5014": "Save Point",
+  "5015": "20F Path 3",
+  "5080": "Boss Room",
+  "5097": "Staircase",
+  "5099": "Boss Room",
+  "5100": "Outer Corridor 1",
+  "5101": "Outer Corridor 2",
+  "5102": "Outer Corridor 3",
+  "5103": "Outer Corridor 4",
+  "5104": "Outer Corridor 5",
+  "6000": "22F Save",
+  "6001": "22F Path 1",
+  "6002": "22F Path 2",
+  "6004": "24F Path 3",
+  "6009": "22F Mirror Path",
+  "6010": "23F Save",
+  "6014": "23F Mirror Room",
+  "6015": "22F Path 3",
+  "6050": "24F Path 1",
+  "6051": "24F Path 2",
+  "6052": "24F Path 4",
+  "6053": "25F Save",
+  "6080": "23F Midboss 1",
+  "6082": "24F Yog & Om",
+  "6097": "25F Staircase",
+  "6099": "25F Midboss 2"
+ },
+ "source": {
+  "commit": "eda11d2b5f9aa13fb99002964c2b3ff95925cab9",
+  "repo": "YsOrigin-Archipelago",
+  "sha256": {
+   "ys_origin/data/character_items.json": "0e370297588998a08f7e1ba295446ec64a54907dcf0be740365cb59bf34088d4",
+   "ys_origin/data/chests.json": "9c78a1eb7f0105eebec54280dbc361be9c88f031aeb8aa7ef477d2ab7185d9d6",
+   "ys_origin/data/items.json": "89b8308ceafb9c5e8064ee4450841992affc566194aaa5b9b35c8ac65108b574",
+   "ys_origin/data/locations.json": "b0255b45d1859225c845fd0b26805c41f44a9ebe41c305a607b4a9793984b381",
+   "ys_origin/data_tables.py": "7af0b8de209d58ec38c37dc780912e7f74c75d82d1f71a75d6ab9c8aa6e5a1b8"
+  },
+  "tool": "tools/ap_import.py"
+ },
+ "sp_flag": 216,
+ "statue_scenes": [
+  1000,
+  1009,
+  1011,
+  2000,
+  2012,
+  2013,
+  2100,
+  3000,
+  3006,
+  3014,
+  3015,
+  4000,
+  4020,
+  4104,
+  5000,
+  5010,
+  5014,
+  6000,
+  6010,
+  6053,
+  6082
+ ]
+}

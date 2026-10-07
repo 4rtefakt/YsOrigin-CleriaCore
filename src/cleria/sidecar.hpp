@@ -30,9 +30,14 @@ struct Sidecar {
     std::map<std::string, std::int32_t> flags;     // CleriaCore flags, by lower-case name
     std::map<int, std::int32_t> items;             // new-item id -> count (absent = never had)
     std::map<std::string, std::string> ap;         // the Archipelago block (lower-case keys)
+    // [mod.<id>]: a Lua mod's per-save storage (cleria.save, build/shell_re/LUA_API.md): key as written -> text
+    std::map<std::string, std::map<std::string, std::string>> mod;
 
-    bool empty() const { return flags.empty() && items.empty() && ap.empty(); }
-    void clear() { mods.clear(); flags.clear(); items.clear(); ap.clear(); }
+    bool empty() const {
+        for (const auto& [id, kv] : mod) if (!kv.empty()) return false;
+        return flags.empty() && items.empty() && ap.empty();
+    }
+    void clear() { mods.clear(); flags.clear(); items.clear(); ap.clear(); mod.clear(); }
 
     std::int32_t flag(std::string_view name) const;          // 0 when unset
     void set_flag(std::string_view name, std::int32_t v);    // 0 erases (absent == 0)

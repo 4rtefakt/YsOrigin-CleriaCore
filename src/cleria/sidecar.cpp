@@ -41,6 +41,33 @@ std::string quote(const std::string& s) {
     }
     return r + "\"";
 }
+// [mod.<id>] values: '%', '"', '\' and control bytes as %XX, so any text (a script's JSON) survives the
+// INI quoting, which only knows \".
+std::string pct_encode(const std::string& s) {
+    std::string r;
+    for (unsigned char c : s) {
+        if (c == '%' || c == '"' || c == '\\' || c < 0x20 || c == 0x7F) {
+            char b[4];
+            std::snprintf(b, sizeof b, "%%%02X", unsigned(c));
+            r += b;
+        } else {
+            r += char(c);
+        }
+    }
+    return r;
+}
+std::string pct_decode(const std::string& s) {
+    std::string r;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '%' && i + 2 < s.size()) {
+            r += char(std::strtol(s.substr(i + 1, 2).c_str(), nullptr, 16));
+            i += 2;
+        } else {
+            r += s[i];
+        }
+    }
+    return r;
+}
 }  // namespace
 
 std::string Sidecar::serialize() const {
@@ -67,6 +94,11 @@ std::string Sidecar::serialize() const {
     if (!ap.empty()) {
         o << "\r\n[ap]\r\n";
         for (const auto& [k, v] : ap) o << k << '=' << quote(v) << "\r\n";
+    }
+    for (const auto& [id, kv] : mod) {
+        if (kv.empty()) continue;
+        o << "\r\n[mod." << id << "]\r\n";
+        for (const auto& [k, v] : kv) o << k << '=' << quote(pct_encode(v)) << "\r\n";
     }
     return o.str();
 }
@@ -99,6 +131,8 @@ std::optional<Sidecar> Sidecar::parse(std::string_view text) {
                 if (end && *end == 0) s.items[int(id)] = std::int32_t(std::strtol(p.value.c_str(), nullptr, 0));
             } else if (n == "ap") {
                 s.ap[k] = p.value;
+            } else if (n.size() > 4 && n.rfind("mod.", 0) == 0) {
+                s.mod[n.substr(4)][p.key] = pct_decode(p.value);   // the key as written
             }
         }
     }

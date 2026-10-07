@@ -47,6 +47,8 @@ rule.lantern_found=1
 [items]                             ; new-item counts (ids 0x100..0x1FF; no g_flags cell)
 0x100=1
 [ap]                                ; the Archipelago block: opaque key / values for phase 2b
+[mod.sample.hello]                  ; a Lua mod's cleria.save storage (LUA_API.md §6): JSON values, %-escaped
+rooms="3"
 ```
 
 - **Written** by `do_save` right after the retail file (`content_save`), **read** by the title's Load

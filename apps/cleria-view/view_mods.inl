@@ -190,8 +190,8 @@ static void mods_row(ui::List& L, ModsUi& u, int i) {
     ui::text(L.dl, ui::F.cond, lpx, {x, cy - lpx * 0.55f}, ui::kLabel, name.c_str());
     x += ui::text_size(ui::F.cond, lpx, name.c_str()).x + 10.0f * S;
     ui::text(L.dl, ui::F.body, 15.0f * S, {x, cy - 15.0f * S * 0.55f}, ui::kMuted, m.m.version.c_str());
-    const char* v = m.state == mods::State::Error ? "Error" : m.enabled ? "On" : "Off";
-    const ImU32 vc = m.state == mods::State::Error ? ui::kWarn : m.enabled ? ui::kGood : ui::kMuted;
+    const char* v = m.state == mods::State::Error ? "Error" : m.stopped ? "Stopped" : m.enabled ? "On" : "Off";
+    const ImU32 vc = m.state == mods::State::Error || m.stopped ? ui::kWarn : m.enabled ? ui::kGood : ui::kMuted;
     ImFont* vf = r.selected ? ui::F.medium : ui::F.body;
     const ImVec2 vs = ui::text_size(vf, vpx, v);
     ui::text(L.dl, vf, vpx, {r.b.x - 13.0f * S - vs.x, cy - vpx * 0.55f}, vc, v);

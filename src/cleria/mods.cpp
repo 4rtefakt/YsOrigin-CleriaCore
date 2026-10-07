@@ -186,6 +186,7 @@ Manifest parse_manifest(std::string_view text, std::vector<std::string>& errors)
     m.website = value(ini, "Website");
     if (auto p = ini.get_int("mod", "Priority")) m.priority = *p;
     if (auto a = ini.get_int("mod", "ApiVersion")) m.api = *a;
+    m.script = value(ini, "Script");
     for (const char* k : {"Requires", "Conflicts"}) {
         for (const std::string& s : split_list(value(ini, k))) {
             const Dep d = parse_dep(s);

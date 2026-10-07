@@ -417,3 +417,25 @@ target_link_libraries(cleria-view PRIVATE cleria-ap)
 add_executable(cleria-apgametest apps/cleria-apgametest/main.cpp)
 target_link_libraries(cleria-apgametest PRIVATE cleria-ap)
 add_test(NAME apgametest COMMAND cleria-apgametest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# ---- Lua scripting for mods (build/shell_re/LUA_API.md) ----------------------------------------------
+# Lua 5.4.9 (lua.org, MIT), vendored verbatim in third_party/lua (minus the lua / luac programs). Built AS C++,
+# so a Lua error is a C++ throw (ldo.c LUAI_THROW) that unwinds the C++ frames of the cleria.* API functions.
+file(GLOB LUA_SRC CONFIGURE_DEPENDS "${TP}/lua/src/*.c")
+list(FILTER LUA_SRC EXCLUDE REGEX "/(lua|luac)\.c$")
+set_source_files_properties(${LUA_SRC} PROPERTIES LANGUAGE CXX)
+add_library(lua54 STATIC ${LUA_SRC})
+target_include_directories(lua54 PUBLIC "${TP}/lua/src")
+if(MSVC)
+  target_compile_options(lua54 PRIVATE /W0 /TP)
+else()
+  target_compile_options(lua54 PRIVATE -w -x c++)
+endif()
+# cleria-script: one sandboxed lua_State per mod with Script=, and the cleria.* API over the C++ layers.
+add_library(cleria-script STATIC src/cleria/modscript.cpp src/cleria/modscript_api.cpp)
+target_link_libraries(cleria-script PUBLIC cleria cleria-ap lua54)
+target_link_libraries(cleria-view PRIVATE cleria-script)
+# cleria-luatest: sandbox escapes refused, runaway loops stopped, errors disable the mod, API round trips.
+add_executable(cleria-luatest apps/cleria-luatest/main.cpp)
+target_link_libraries(cleria-luatest PRIVATE cleria-script ws2_32)
+add_test(NAME luatest COMMAND cleria-luatest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

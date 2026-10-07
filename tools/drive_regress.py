@@ -174,6 +174,9 @@ CASES = {
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ap_regress  # noqa: E402
 CASES.update(ap_regress.CASES)
+# The same scenarios played by the Lua mod samples/mods/archipelago_lua (tools/aplua_regress.py, LUA_API.md).
+import aplua_regress  # noqa: E402
+CASES.update(aplua_regress.CASES)
 
 
 def content_setup(case, env, tmp):
@@ -208,6 +211,7 @@ def run(name, case, exe, assets):
         if "mods" in case or "content" in case:
             content_setup(case, env, os.path.join(saves, "settings"))
         srv = ap_regress.start(case, env, os.path.join(saves, "settings"))   # an `ap` case: its local server
+        srv = srv or aplua_regress.start(case, env, os.path.join(saves, "settings"))   # an `aplua` case: the Lua mod too
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
         r = subprocess.run([exe, assets, sob], env=env, capture_output=True, text=True, timeout=300)
     out = r.stdout + r.stderr
