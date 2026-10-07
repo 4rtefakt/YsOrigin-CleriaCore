@@ -1054,6 +1054,7 @@ title_again:
     std::vector<Popup> popups;                            // GoPopup (pool 7, 32 at most)
     ef2sim::Rng pick_rng;
     pick_rng.bind(game.rs);
+    bullets.set_rng([&] { return pick_rng.next(); });       // the kind-0xf bombs' draws (BOMB.md)
     g_cam_rng = [&] { return pick_rng.next(); };          // the camera shake's draws
     weather::Weather wx;                                  // 0x125 / 0x122 / 0x123 (view_weather.inl)
     std::unordered_map<const bullet::Bullet*, int> gas_owner;
@@ -3554,6 +3555,10 @@ title_again:
                 std::printf("  [bullet] kind %d effect %d age %u pos (%.2f, %.2f, %.2f) speed %.2f fx %d%s\n", bp->s.kind,
                             bp->s.effect, bp->age, bp->s.pos.x, bp->s.pos.y, bp->s.pos.z, bp->s.speed,
                             bp->fx ? bp->fx->live : -1, bp->gone ? " gone" : "");
+            for (const auto& bb : bullets.bombs())                // the kind-0xf bombs (BOMB.md)
+                std::printf("  [bomb] age %.0f pos (%.2f, %.2f, %.2f) vel (%.3f, %.3f, %.3f)%s fx %d\n", bb->age,
+                            bb->pos.x, bb->pos.y, bb->pos.z, bb->vel.x, bb->vel.y, bb->vel.z, bb->rest ? " rest" : "",
+                            bb->fx ? bb->fx->live : -1);
         } else if (cmd == "actors") {                 // the live actors (audit aid): id, cast, enemy, hp, groups, pos
             for (const Actor& a : world.actors())
                 if (!a.is_player())

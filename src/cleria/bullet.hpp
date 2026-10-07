@@ -75,6 +75,23 @@ struct WaterProbe {
     bool gone = false;            // +0x11 & 2
 };
 
+// The kind-0xf bomb (build/ai_spec/BOMB.md, M290.md §3.7): FUN_00593550 with EDX = 0xf builds a GoXx
+// physical object (FUN_00584c90) that carries the effect: it flies with gravity 0.0075, bounces with
+// a random restitution, rests on a slow floor bounce, re-arms its carried particle every tick from
+// age 10 (a contact detonates it through the particle's impact child 267), and at age 180 spawns
+// EF2 267 (m_bom01) + SE 437 and dies. Not a bullet: no owner tracking, no pickup.
+struct Bomb {
+    Vec3 pos{}, prev{}, vel{};    // +0x50.., +0x184.., +0x220..+0x228
+    float spin = 0, spin_rate = 0;   // +0x148 / +0x14c
+    float age = 0, life = 180;    // +0x150 / +0x154
+    bool rest = false;            // +0x142
+    int owner = 0;
+    float atk = 0;                // the owner's stat block, copied at the throw
+    ef2sim::Effect* fx = nullptr; // +0x214
+    ef2sim::M4 mat;               // +0x210: RotZ(spin), translation pos + (0, 0.25, 0)
+    bool gone = false;            // +0x11 & 2
+};
+
 struct RayHit {
     bool hit = false;
     Vec3 point{}, normal{};
@@ -129,6 +146,11 @@ class Bullets {
     // when `radius` or `step` is 0. update() runs it after the bullets and drops it once gone.
     WaterProbe* spawn_water_probe(const Vec3& pos, float radius, float step);
     std::vector<std::unique_ptr<WaterProbe>>& probes() { return probes_; }
+    // FUN_00593550 with kind 0xf (spawn() routes it here; it returns no Bullet): the bomb. `rng` is the
+    // game's xorshift (set_rng), drawn once for the spin sign. update() steps the bombs after the bullets.
+    Bomb* spawn_bomb(const Spawn& s);
+    std::vector<std::unique_ptr<Bomb>>& bombs() { return bombs_; }
+    void set_rng(std::function<std::uint32_t()> r) { rng_ = std::move(r); }
 
   private:
     ef2sim::Effect* spawn_fx(int id, const Vec3& pos, const Vec3& rot, int side, float atk,
@@ -136,10 +158,13 @@ class Bullets {
                              const Vec3& scale = {1, 1, 1});
     void step(Bullet& b, const Env& env, std::vector<Event>* events);
     void step_probe(WaterProbe& w, const Env& env, std::vector<Event>* events);
+    void step_bomb(Bomb& b, const Env& env, std::vector<Event>* events);
     ef2sim::System* fx_;
     Ef2Of ef2_of_;
     std::vector<std::unique_ptr<Bullet>> list_;
     std::vector<std::unique_ptr<WaterProbe>> probes_;
+    std::vector<std::unique_ptr<Bomb>> bombs_;
+    std::function<std::uint32_t()> rng_;
 };
 
 }  // namespace cleria::bullet

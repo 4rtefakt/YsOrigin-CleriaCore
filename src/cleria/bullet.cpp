@@ -1,5 +1,6 @@
 // The GoXx bullet: build/ai_spec/BULLETS.md. See bullet.hpp.
 #include "cleria/bullet.hpp"
+#include "cleria/cos_table.hpp"
 
 #include <cmath>
 #include <cstring>
@@ -117,7 +118,97 @@ ef2sim::Effect* Bullets::spawn_fx(int id, const Vec3& pos, const Vec3& rot, int 
     return fx_->spawn(id, *ef, sp);
 }
 
+Bomb* Bullets::spawn_bomb(const Spawn& s) {
+    // FUN_00593550 kind 0xf [BYTES 0x593593..0x593653] -> FUN_00584c90 (BOMB.md §0, M290.md §3.7).
+    auto b = std::make_unique<Bomb>();
+    b->pos = b->prev = s.pos;
+    const float yaw = float(std::atan2(double(s.dir.z), double(s.dir.x)));   // FUN_00427410(z, x)
+    const int i = int(yaw * 40.7437f);                             // 0x6bda38, cvttss2si
+    b->vel = {cos_table(i) * s.speed, s.dir.y * s.speed, cos_table((i - 0x40) & 0xff) * s.speed};
+    b->spin_rate = 0.1875f;
+    if (rng_ && (rng_() & 0x80000000u)) b->spin_rate = -b->spin_rate;   // one draw: the spin sign
+    b->owner = s.owner; b->atk = s.owner_atk;
+    b->mat = ef2sim::translation(s.pos.x, s.pos.y + 0.25f, s.pos.z);
+    // FUN_00450410(effect, pos, rot 0, scale 1, side 1, the owner's stats, power 0, knock 1, rtype 0,
+    // status 0, cls 0xff), attached to the carrier matrix; its first particle is disarmed.
+    b->fx = spawn_fx(s.effect, s.pos, {0, 0, 0}, 1, b->atk, 0.0f, 1.0f, 0, 0, -1, s.owner);
+    if (b->fx) {
+        b->fx->held = true;
+        b->fx->local = ef2sim::M4{};
+        b->fx->attach_parent = &b->mat;
+        b->fx->attach_mode = 1;
+        if (ef2sim::Particle* p = fx_->first_particle(b->fx)) p->hit.armed = false;
+    }
+    bombs_.push_back(std::move(b));
+    return bombs_.back().get();
+}
+
+void Bullets::step_bomb(Bomb& b, const Env& env, std::vector<Event>* events) {
+    // FUN_00584f90 (BOMB.md §1) with FUN_005856c0 / FUN_00585cb0 (§2); out of water only.
+    auto kill = [&] {
+        if (b.fx) { b.fx->held = false; b.fx->attach_parent = nullptr; b.fx->kill = true; b.fx = nullptr; }
+        b.gone = true;
+    };
+    const Vec3 at{b.mat.m[3][0], b.mat.m[3][1], b.mat.m[3][2]};
+    b.age += 1.0f;
+    if (b.age >= b.life) {                                         // 180: the explosion, no motion
+        if (b.fx && !b.fx->kill) {
+            spawn_fx(267, at, {0, 0, 0}, 1, b.atk, 0.0f, 1.0f, 0, 0, -1, b.owner);   // enemy\m_bom01.eft
+            if (events) events->push_back({Event::kSound, 437, at, 0, 0});        // zako\z_bomb
+            b.fx->kill = true;
+        }
+        kill();
+        return;
+    }
+    if (!b.rest) {
+        const Vec3 mv{b.pos.x - b.prev.x, b.pos.y - b.prev.y, b.pos.z - b.prev.z};   // last tick's move
+        const RayHit r = env.ray && (mv.x != 0 || mv.y != 0 || mv.z != 0) ? env.ray(b.prev, mv, 2) : RayHit{};
+        if (r.hit) {                                               // FUN_00585cb0: the bounce
+            const Vec3& n = r.normal;
+            const float vn = b.vel.x * n.x + b.vel.y * n.y + b.vel.z * n.z;
+            if (vn < 0.0f) {
+                b.pos = {b.prev.x + (r.point.x - b.prev.x) * 0.995f, b.prev.y + (r.point.y - b.prev.y) * 0.995f,
+                         b.prev.z + (r.point.z - b.prev.z) * 0.995f};
+                b.vel = {b.vel.x + n.x * (vn * -2.0f), b.vel.y + n.y * (vn * -2.0f), b.vel.z + n.z * (vn * -2.0f)};
+                std::uint32_t w = rng_ ? rng_() : 0u;
+                std::uint32_t bits = (w & 0x7fffffu) | 0x3f800000u;
+                float u; std::memcpy(&u, &bits, 4);
+                const float rr = (u - 1.0f) * 0.2f + 0.55f;        // [0.55, 0.75)
+                float hf, vf, sf;
+                if (n.y >= 0.5f) { hf = rr; vf = rr; sf = 0.5f; } else { hf = 0.8f; vf = rr; sf = 0.8f; }
+                b.vel.y *= vf; b.vel.x *= hf; b.vel.z *= hf;
+                if (n.y >= 0.75f && b.vel.y < 0.035f) b.rest = true;   // [approx] every collider static
+                if (n.y < 0.75f) {
+                    w = rng_ ? rng_() : 0u;
+                    if (w & 0x80000000u) sf = -sf;
+                }
+                b.spin_rate *= sf;
+            }
+        }
+        b.prev = b.pos;
+    }
+    if (!b.rest) {
+        b.pos = {b.pos.x + b.vel.x, b.pos.y + b.vel.y, b.pos.z + b.vel.z};
+        b.spin += b.spin_rate;
+        b.vel.y -= 0.0075f;                                        // 0x6bd064
+    }
+    const float c = float(std::cos(double(b.spin))), sn = float(std::sin(double(b.spin)));
+    ef2sim::M4 rz;                                                 // RotZ(spin), translation pos + (0, 0.25, 0)
+    rz.m[0][0] = c; rz.m[0][1] = sn; rz.m[1][0] = -sn; rz.m[1][1] = c;
+    rz.m[3][0] = b.pos.x; rz.m[3][1] = b.pos.y + 0.25f; rz.m[3][2] = b.pos.z;
+    b.mat = rz;
+    if (b.fx) {
+        if (b.age >= 10.0f)                                        // re-armed every tick from age 10
+            if (ef2sim::Particle* p = fx_->first_particle(b.fx)) p->hit.armed = true;
+        if (b.fx->kill) {                                          // a contact detonated it (impact 267)
+            if (events) events->push_back({Event::kSound, 437, at, 0, 0});
+            kill();
+        }
+    }
+}
+
 Bullet* Bullets::spawn(const Spawn& in) {
+    if (in.kind == 0xf) { spawn_bomb(in); return nullptr; }      // 0x59358a: not a bullet
     auto b = std::make_unique<Bullet>();
     b->s = in;
     Spawn& s = b->s;
@@ -163,6 +254,9 @@ void Bullets::clear() {
         if (b->fx) { b->fx->held = false; b->fx->attach_parent = nullptr; }
     list_.clear();
     probes_.clear();
+    for (auto& b : bombs_)
+        if (b->fx) { b->fx->held = false; b->fx->attach_parent = nullptr; }
+    bombs_.clear();
 }
 
 void Bullets::update(const Env& env, std::vector<Event>* events) {
@@ -170,6 +264,12 @@ void Bullets::update(const Env& env, std::vector<Event>* events) {
     for (std::size_t i = 0; i < n; ++i) step(*list_[i], env, events);
     for (std::size_t i = 0; i < list_.size();) {
         if (list_[i]->destroyed) list_.erase(list_.begin() + std::ptrdiff_t(i));
+        else ++i;
+    }
+    const std::size_t nb = bombs_.size();                          // the kind-0xf bombs (BOMB.md)
+    for (std::size_t i = 0; i < nb; ++i) if (!bombs_[i]->gone) step_bomb(*bombs_[i], env, events);
+    for (std::size_t i = 0; i < bombs_.size();) {
+        if (bombs_[i]->gone) bombs_.erase(bombs_.begin() + std::ptrdiff_t(i));
         else ++i;
     }
     const std::size_t m = probes_.size();

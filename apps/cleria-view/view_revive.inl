@@ -35,9 +35,29 @@ auto revive_world = [&]() {
     w.flag265 = &game.g_flags[265];
     return w;
 };
+// M290 Bicmobre's handler death helper FUN_004a2f90 (M290.md §2.1): on each of the dead ticks the
+// engine runs before FUN_004780e0 removes the actor (dead tick 44; +0x3fc counts them here), the
+// bombs it throws, as kind-0xf objects (bullet.cpp).
+auto m290_dead_tick = [&](EnemyRender& e) {
+    Actor* en = e.actor;
+    if (!en || en->ai_index != 22 || en->alive() || en->destroy_requested() || en->ai.dead_t >= 44u) return;
+    en->ai.dead_t += 1;
+    const int bb5c = difficulty >= 2 ? difficulty - 2 : 0;
+    for (const AiBullet& b : brains::m290_dead(*en, bb5c, [&] { return std::uint32_t(rng()); })) {
+        bullet::Spawn s;
+        s.kind = b.kind; s.effect = b.effect;
+        s.owner = en->instance_id; s.owner_monster = true; s.owner_atk = float(en->atk);
+        s.pos = b.pos; s.dir = b.dir; s.speed = b.speed; s.accel = b.accel; s.gravity = b.gravity;
+        s.power = b.power; s.knock = b.knock;
+        bullets.spawn(s);
+        if (ai_debug) std::printf("[ai] t%llu M290 #%d death bomb (dead tick %u)\n",
+                                  (unsigned long long)tick_count, en->instance_id, en->ai.dead_t);
+    }
+};
 // The handler's pre-brain part for one enemy of the family (alive or dead): the fresh surfaces, the
 // sand clamp, the EXP block; on a dead tick the whole dead path (true = handled, skip the brain).
 auto revive_tick = [&](EnemyRender& e) -> bool {
+    m290_dead_tick(e);
     Actor* en = e.actor;
     const revive::Row* rr = en ? revive::row(en->ai_index) : nullptr;
     if (!rr || en->destroy_requested() || !e.avm.ok()) return false;
