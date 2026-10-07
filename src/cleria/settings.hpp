@@ -126,7 +126,7 @@ struct Settings {
         bool vsync = true;                   // [cleria.video] VSync (CleriaCore's own; retail WaitVSync round-trips)
         bool borderless_fullscreen = false;  // [cleria.video] BorderlessFullscreen
         bool linear_stick_magnitude = false; // [cleria.input] LinearStickMagnitude (analog walk)
-        bool native_pad_binds = false;       // [cleria.input] NativePadBinds: PAD_* slots from PadBind{}
+        bool native_pad_binds = true;        // [cleria.input] NativePadBinds: PAD_* slots from PadBind{} (default since 2026-10-07)
         std::array<std::string, 8> pad_bind = {   // [cleria.input] PadBind{PAD_ACTION..PAD_SWORD_REVU}
             "a", "b", "x", "y", "start", "lefttrigger", "leftshoulder", "rightshoulder"};   // [H]
     } cleria;

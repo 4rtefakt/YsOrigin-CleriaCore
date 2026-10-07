@@ -33,7 +33,7 @@ enum class TextSpeed : int {
 
 struct Settings {
     // [cleria.access]
-    int cutscene_skip = int(SkipMode::Single);   // CutsceneSkip
+    int cutscene_skip = int(SkipMode::Double);   // CutsceneSkip (the user's choice, 2026-10-07)
     int text_speed = int(TextSpeed::Retail);     // TextSpeed
     bool reduce_flashes = false;                 // ReduceFlashes
     float shake = 1.0f;                          // ScreenShake: 0..1 of the camera shake's offset

@@ -97,7 +97,7 @@ Retail keys the page edits, where retail keeps them:
 | Run threshold | `[input] RunWalkThreshold` | 0.5 | only matters with Analog walk (§1.1) |
 | Vibration | `[input] ForceFeedback` | 0 | |
 | Analog walk | `[cleria.input] LinearStickMagnitude` | 0 | existing QoL key: magnitude `|v|/1024` |
-| Bind by button name | `[cleria.input] NativePadBinds` (+ `PadBind{}`) | 0 | existing key |
+| Bind by button name | `[cleria.input] NativePadBinds` (+ `PadBind{}`) | 1 (since 2026-10-07: the numbered DInput layout read badly on real pads) | existing key |
 
 CleriaCore's own `[cleria.pad]` (all defaults = retail behaviour):
 

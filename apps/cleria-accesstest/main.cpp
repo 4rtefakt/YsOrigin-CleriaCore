@@ -35,8 +35,8 @@ int main() {
                   !s.inf_hp && !s.inf_mp && !s.inf_boost && !s.inf_o2 && !s.one_hit_kill && !s.cheats_active(),
               "every cheat defaults to retail (1x / off)");
         check(s.game_speed == 1 && s.shake == 1 && !s.reduce_flashes && s.text_speed == 0 &&
-                  s.cutscene_skip == int(SkipMode::Single),
-              "assists default to retail; the skip keeps CleriaCore's single press");
+                  s.cutscene_skip == int(SkipMode::Double),
+              "assists default to retail; the skip defaults to Double press");
     }
     {   // the multipliers
         check(access::exp_gain(10, 1) == 10 && access::exp_gain(10.4f, 1) == 10 && access::exp_gain(0.2f, 1) == 1,

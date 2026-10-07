@@ -57,6 +57,7 @@ int main() {
     // ---- bindings ----
     {
         Settings s;   // retail Preset 1: Button 1 2 3 4 10 9 5 8
+        s.cleria.native_pad_binds = false;   // the retail numbered storage (no longer the default)
         const pad::PadButtons b = pad::pad_buttons(s);
         const pad::PadButtons want = {pad::kSouth, pad::kEast, pad::kWest, pad::kNorth, pad::kRightStick,
                                       pad::kLeftStick, pad::kLeftShoulder, pad::kStart};
@@ -85,6 +86,7 @@ int main() {
     }
     {
         Settings s;
+        s.cleria.native_pad_binds = false;
         pad::PadButtons b = pad::pad_buttons(s);
         pad::bind_swap(b, 5, pad::kLeftTrigger);   // Walk -> LT
         b[7] = -1;                                  // Next Skill unbound

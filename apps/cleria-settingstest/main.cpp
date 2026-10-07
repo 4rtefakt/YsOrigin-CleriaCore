@@ -101,8 +101,9 @@ int main() {
               std::fabs(s.input.run_walk_threshold - 0.5f) < 1e-6f && s.input.double_click_frame == 12,
               "[input] defaults: AOC 1, DashControl 1, DeadZone 0.35, RunWalk 0.5, DoubleClick 12");
         check(s.input.assign == input::preset1(), "bindings default to Preset 1 (the EN table)");
-        check(!s.cleria.debug_hud && !s.cleria.unlock_movie_skip && !s.cleria.linear_stick_magnitude &&
-              !s.cleria.native_pad_binds, "every CleriaCore QoL key defaults OFF");
+        check(!s.cleria.debug_hud && !s.cleria.unlock_movie_skip && !s.cleria.linear_stick_magnitude,
+              "every CleriaCore QoL key defaults OFF");
+        check(s.cleria.native_pad_binds, "the pad binds by button name by default (A/B/X/Y layout)");
         Ini fresh;
         write_retail(fresh, s);
         const std::string t = fresh.text();
@@ -188,6 +189,7 @@ int main() {
         check(mc.assign[input::PAD_ACTION] == input::kPadButton1 + 5 && mc.assign[input::KEY_ACTION] == 0x2c,
               "NativePadBinds: PAD_ACTION = rightshoulder = virtual Button 6; keyboard slots untouched");
         Settings r;
+        r.cleria.native_pad_binds = false;
         check(mapper_config(r).assign == r.input.assign, "NativePadBinds off: the retail Assign{} codes");
     }
     {   // [cleria.mods] (src/cleria/mods): the load order and the enabled ids

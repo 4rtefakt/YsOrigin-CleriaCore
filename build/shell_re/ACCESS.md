@@ -11,7 +11,7 @@ hand-chosen by CleriaCore, **[not modelled]**.
 
 Rule: every option defaults to retail behaviour (1x / off), and every gameplay-changing option says
 "Not a retail option." in its description. The one exception is the cutscene skip (§1), whose default
-keeps CleriaCore's existing single-press skip.
+is Double press (the user's choice, 2026-10-07): retail has no skip at all.
 
 ## 1. Cutscene skip (Gameplay > Cutscenes)
 
@@ -40,12 +40,12 @@ What retail offers instead is the message box's fast-forward (WNDDIALOG_DRAW.md 
 Movies are a separate thing: retail makes the prologue / opening movies skippable only after one clear.
 CleriaCore's existing Prelaunch toggle "Unlock movie skipping" covers that and is not changed here.
 
-### 1.2 What CleriaCore did before (unchanged as the default)
+### 1.2 What CleriaCore did before
 
 Since 2026-07-23 (PLAN.md, user-requested), Esc during a frozen cutscene **skips the whole cutscene**.
 `view_game.inl` frozen branch sets `skip_cutscene`, and `tick_events` drains every live script with its
 waits collapsed. **This differs from retail** (§1.1); the code comment already marks it `[CleriaCore]`.
-It stays the default, as **Single press**.
+It survives as **Single press**; since 2026-10-07 the default is **Double press**, against accidental skips.
 
 A second, smaller divergence was found but not changed. Over a script menu, CleriaCore treats Esc as the
 menu's cancel (`menu && (kCancel | kMenu)`). In retail the menu-to-Cancel conversion only runs while no
@@ -58,8 +58,8 @@ checked in the live game.
 
 | Value | Name | Behaviour |
 |---|---|---|
-| 0 (default) | Single press | The menu press edge skips at once (the pre-existing behaviour). |
-| 1 | Double press | The first press shows the prompt "Press again to skip" for **120 ticks (2 s)** [H] with a draining bar. A second press inside the window skips. |
+| 0 | Single press | The menu press edge skips at once (the pre-existing behaviour). |
+| 1 (default) | Double press | The first press shows the prompt "Press again to skip" for **120 ticks (2 s)** [H] with a draining bar. A second press inside the window skips. |
 | 2 | Hold | Hold the button for **60 ticks (1 s)** [H]. A bar fills while held. A hold must **start** inside the cutscene, so a button already held when the cutscene began never skips. A release resets the fill and keeps the hint up for 120 ticks [H]. |
 | 3 | Off | Never skips (retail). |
 
