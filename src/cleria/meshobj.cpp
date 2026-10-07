@@ -67,6 +67,12 @@ void MeshWorld::set_position(const std::string& name, const Vec3& p) {
 void MeshWorld::reset_position(const std::string& name) {
     if (MeshObj* m = find(name)) { m->pos = m->spawn; m->dirty_pos = true; }
 }
+void MeshWorld::set_rotation(const std::string& name, const Vec3& rad) {
+    if (MeshObj* m = find(name)) { m->rot = rad; m->dirty_pose = true; }
+}
+void MeshWorld::reset_rotation(const std::string& name) {
+    if (MeshObj* m = find(name)) { m->rot = m->spawn_rot; m->dirty_pose = true; }
+}
 void MeshWorld::enable_event(const std::string& name, bool on) {
     if (MeshObj* m = find(name)) m->event_on = on;
 }

@@ -491,6 +491,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0x16d && nargs >= 2) { host->mesh_stop_motion(ops(0), op(1)); return Step::Continue; }
                     if (sub == 0x16a && nargs >= 2) { host->mesh_sleep(ops(0), op(1) != 0); return Step::Continue; }
                     if (sub == 0x178 && nargs >= 1) { host->mesh_reset_position(ops(0)); return Step::Continue; }
+                    // 0x174 Mesh_SetRotation(name, deg x3) / 0x179 Mesh_ResetRotation(name) [BYTES FUN_00572f10 /
+                    // FUN_005730b0]; 0x12a Eft_Die(id, i) [BYTES 0x56b8b3].
+                    if (sub == 0x174 && nargs >= 4) { host->mesh_set_rotation(ops(0), opf(1), opf(2), opf(3)); return Step::Continue; }
+                    if (sub == 0x179 && nargs >= 1) { host->mesh_reset_rotation(ops(0)); return Step::Continue; }
+                    if (sub == 0x12a && nargs >= 1) { host->eft_die(op(0)); return Step::Continue; }
                     if (sub == 0x176 && nargs >= 2) { host->mesh_enable_event(ops(0), op(1) != 0); return Step::Continue; }
                     if (sub == 0x17b && nargs >= 2) { host->mesh_time_scale(ops(0), opf(1)); return Step::Continue; }
                     if (sub == 0x175 && nargs >= 2)

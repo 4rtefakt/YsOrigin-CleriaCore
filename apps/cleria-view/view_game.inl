@@ -1586,6 +1586,7 @@ title_again:
             for (const auto& c : r.clips) clips.push_back({c.name, c.start, c.end, c.next, c.rate});
             MeshObj& m = meshes.add(r.name, r.obj.position, std::move(clips));
             m.rot = r.obj.rotation;              // the re-bake passes &m.rot: keep the placement's turn
+            m.spawn_rot = m.rot;                 // +0x3dc (Mesh_ResetRotation)
             baked_pos[r.name] = r.obj.position;
             for (std::size_t i = 0; i < m.clips.size(); ++i)        // built posed at a clip's end
                 if (!r.posed_clip.empty() && m.clips[i].name == r.posed_clip) {
@@ -2080,6 +2081,12 @@ title_again:
             if (meshes) meshes->set_position(n, {x, y, z});
         }
         void mesh_reset_position(const std::string& n) override { if (meshes) meshes->reset_position(n); }
+        void mesh_set_rotation(const std::string& n, float x, float y, float z) override {
+            if (meshes) meshes->set_rotation(n, {x * 0.0174533f, y * 0.0174533f, z * 0.0174533f});
+        }
+        void mesh_reset_rotation(const std::string& n) override { if (meshes) meshes->reset_rotation(n); }
+        std::function<void(int)> eft_die_fn;
+        void eft_die(int id) override { if (eft_die_fn) eft_die_fn(id); }
         void mesh_enable_event(const std::string& n, bool on) override { if (meshes) meshes->enable_event(n, on); }
         void mesh_time_scale(const std::string& n, float s) override { if (meshes) meshes->set_time_scale(n, s); }
         bool mesh_moving(const std::string& n, bool* found) const override {
@@ -3044,6 +3051,11 @@ title_again:
     csHost.se_stop_fn = [&](int se, int ms) { audio.stop_se(se, ms); };
     // 0x11c Eft_SetAlphaTarget (FUN_0056fba0): every effect not freed whose name matches (djb2-xor
     // hash + _stricmp) gets +0x1e4 = alpha, +0x1e8 = 1/frames (1.0 for 0); FUN_00451e60 steps it.
+    // 0x12a Eft_Die (FUN_00451730): the kill flag on every live effect of that id. [not modelled] its
+    // particles' +0x1b4 byte (meaning untraced).
+    csHost.eft_die_fn = [&](int id) {
+        for (auto& f : fxsim.effects()) if (!f->dead && f->id == id) f->kill = true;
+    };
     csHost.fx_alpha_fn = [&](const std::string& n, float a, int frames) {
         for (auto& f : fxsim.effects()) {
             if (f->dead || f->name.size() != n.size()) continue;

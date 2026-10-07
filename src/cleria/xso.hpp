@@ -440,6 +440,11 @@ struct XsoHost {
     virtual void mesh_sleep(const std::string& /*name*/, bool /*on*/) {}            // 0x16a
     virtual void mesh_set_position(const std::string& /*name*/, float /*x*/, float /*y*/, float /*z*/) {}  // 0x173 (live)
     virtual void mesh_reset_position(const std::string& /*name*/) {}                // 0x178
+    virtual void mesh_set_rotation(const std::string& /*name*/, float /*x*/, float /*y*/, float /*z*/) {}  // 0x174 (deg)
+    virtual void mesh_reset_rotation(const std::string& /*name*/) {}                // 0x179
+    // 0x12a Eft_Die(id, i) [BYTES 0x56b8b3 -> FUN_0056fd10 -> FUN_00451730(op0); op1 is fetched, unused]:
+    // every live effect of EFTLIST id op0 gets its kill flag (+0x1d4).
+    virtual void eft_die(int /*id*/) {}
     virtual void mesh_enable_event(const std::string& /*name*/, bool /*on*/) {}     // 0x176
     // 0x16B Mesh_SetVisible / 0x16C Mesh_EnableCollision, live (+0x298 bits 0x20 / 0x40).
     virtual void mesh_visible(const std::string& /*name*/, bool /*on*/) {}
