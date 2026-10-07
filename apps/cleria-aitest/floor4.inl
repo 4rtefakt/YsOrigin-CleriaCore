@@ -5,6 +5,7 @@
 #include "cleria/brains/revive.hpp"
 #include "cleria/bullet.hpp"
 #include "cleria/sand.hpp"
+#include "cleria/ice.hpp"
 
 namespace floor4 {
 
@@ -279,5 +280,23 @@ static void floor4_tests() {
               "sand2: the probe starts 0.95 under the feet; buried past 2.25 (0x6bd5d0)");
         ps.surf_ray = 1;
         check(ps.probe_drop() == 0.25f && !sand2_buried(ps, 0.0f, -9.0f), "not sand2: 0.25, never buried");
+    }
+    {   // Ice (src/cleria/ice.hpp): the monster mover's 0.35 blend and its 60-tick tail; the slope push.
+        MoverState m;
+        mover_post(m, 1, 0.1f, 0.0f, true, false, true, 1.0f, 10.0f, 0x00110010u, kSurfaceIce);
+        const bool b1 = std::fabs(m.vx - 0.035f) < 1e-6f && m.ice_tail == 60;
+        mover_post(m, 1, 0.1f, 0.0f, true, false, true, 1.0f, 10.0f, 0x00110010u, kSurfaceIce);
+        const bool b2 = std::fabs(m.vx - (0.035f * 0.65f + 0.035f)) < 1e-6f;
+        mover_post(m, 0, 0.1f, 0.0f, true, false, false, 1.0f, 10.0f, 0x00110010u, 1);   // off the ice, Movable 0
+        check(b1 && b2 && m.ice_tail == 59 && m.vx == 0.0f, "ice: k 0.35 on 0x0b (+0x4f0 = 60); the tail writes past THE GATE at k 1");
+        MoverState n;
+        mover_post(n, 1, 0.1f, 0.0f, true, false, true, 1.0f, 10.0f, 0x2041c012u, kSurfaceIce);    // Nooze: +0x12c & 0x20000000
+        check(n.vx == 0.1f && n.ice_tail == 0, "ice: +0x12c & 0x20000000 casts do not slip");
+        const Vec3 pz = ice_slope_push({0.0f, 1.0f, 0.0f});
+        const Vec3 ps = ice_slope_push({0.6f, 0.8f, 0.0f});
+        check(pz.x == 0.0f && pz.z == 0.0f && std::fabs(ps.x - 0.012f) < 1e-6f && std::fabs(ps.y - (1.8f * 0.1f - 0.8f) * 0.02f) < 1e-6f,
+              "ice: a flat floor pushes nothing; a slope pushes 0.02 x normalize(n.x, -n.y, n.z) down it");
+        check(player_ice(kSurfaceIce, 0) && !player_ice(kSurfaceIce, 0x4000u) && !player_ice(1, 0),
+              "ice: the player slips on 0x0b unless the 0x4000 accessory bit is on");
     }
 }

@@ -3619,6 +3619,16 @@ title_again:
             shell.open = true;
             shell_drive_close = true;
             shell_shot_frames = 3;                       // ImGui lays the tab bar out a frame late
+        } else if (cmd.rfind("surfat=", 0) == 0) {     // surfat=<surface index>: where that surface is (audit aid)
+            const int want = std::atoi(cmd.c_str() + 7);
+            const RoomMesh& sm = phys_mesh(room);
+            int shown = 0;
+            for (std::size_t t = 0; t * 3 + 2 < sm.indices.size() && shown < 6; ++t) {
+                if (surface_index_or_default(surface_of(sm, int(t))) != want) continue;
+                Vec3 c{};
+                for (int k = 0; k < 3; ++k) { const RoomVertex& v = sm.vertices[sm.indices[t * 3 + k]]; c = {c.x + v.px / 3, c.y + v.py / 3, c.z + v.pz / 3}; }
+                if (t % 7 == 0 || shown == 0) { std::printf("  [surfat] %d tri %zu at (%.2f, %.2f, %.2f)\n", want, t, c.x, c.y, c.z); ++shown; }
+            }
         } else if (cmd == "sand") {                    // the player's sand2 state (src/cleria/sand.hpp)
             std::printf("  [sand] surf %d/%d water %.2f sub %d buried %d grounded %d feet y %.3f O2 %.0f\n",
                         cur_surface, psand.surf_ray, psand.water_y, int(submerged), int(psand.buried),
@@ -5507,7 +5517,13 @@ title_again:
                 if (moving && (sec == 0x10a || (sec == 3 && pact.dash)))   // the dash run (0x10a, or a dash jump)
                     spd = pm.speed_base * avm.movable() * pm.run_mult *
                           dash_char_const(character, blessing_run, shield_life != 0) * speed_mult;
+                const PlanarVelocity pvel0 = pvel;
                 step_planar(pvel, moving, std::atan2(wish.z, wish.x), spd, pv.grounded);
+                if (pv.grounded && player_ice(cur_surface, inv.equip_flags)) {   // ice: the 0.35 blend (ice.hpp)
+                    pvel.x = pvel0.x * (1.0f - kIceBlend) + pvel.x * kIceBlend;
+                    pvel.z = pvel0.z * (1.0f - kIceBlend) + pvel.z * kIceBlend;
+                    if (std::fabs(pvel.x) < 0.005f && std::fabs(pvel.z) < 0.005f) pvel = {};
+                }
                 // Godspeed: each tick in 0x10d / 0x110 past Marker 1 the C++ drives the dash and
                 // ends the endless ASO loop with SetSection(0x105).
                 if (character == 3 && (sec == 0x10d || sec == 0x110)) {
@@ -5635,6 +5651,12 @@ title_again:
                 if (oy - fl < 1.6f)                   // surface latch (0x45ba7e: hit t < 1.6)
                     cur_surface = surface_index_or_default(surface_of(phys_mesh(room), floor_tri));
                 psand.surf_ray = surface_index_or_default(surface_of(phys_mesh(room), floor_tri));   // +0x4ba
+                Vec3 ihit, in_n;                      // the ice slope slide (0x45b053, ice.hpp)
+                if (pv.grounded && psand.surf_ray == kSurfaceIce &&
+                    segment_hit(phys_mesh(room), {feet.x, oy, feet.z}, {feet.x, oy - 510.0f, feet.z}, &ihit, &in_n)) {
+                    const Vec3 ip = ice_slope_push(in_n);
+                    player_kb.x += ip.x; player_kb.z += ip.z;
+                }
             }
             p_landed = settle_vertical(pv, oy, last_floor, kOriginH, submerged);
             if (submerged && psand.on_sand2() && !pv.grounded) {
@@ -5782,6 +5804,9 @@ title_again:
                 aiw.hide_gauge_fn = [&] { hud.hide_boss_gauge(); };
                 // The current scene's directory, e.g. "s_30\s_3080\", compared case-blind.
                 aiw.effects_fn = ai_effects;                   // the GoEffect pool scans (view_duel.inl)
+                // [approx] the region's blend rate (0x76a1fc) is the rig's own.
+                aiw.camera_fn = [&](int r, float) { g_rig.write_forced(r); };
+                aiw.sound_fn = [&](int id, const Vec3& p) { sfx_at(id, p, kSfxAnimVol); };
                 aiw.in_room_fn = [&](const char* dir) {
                     std::string want = dir, have = (room.dir.parent_path().filename() / room.dir.filename()).string();
                     for (char& c : want) c = char(std::tolower((unsigned char)c) == '/' ? '\\' : std::tolower((unsigned char)c));
@@ -5957,7 +5982,8 @@ title_again:
                         // M460's: 3000, 4000 when the player is Hugo (ARENA_AND_BOSSBAR §3.1).
                         // None of them writes the emblem (0, the default).
                         hud.set_boss_gauge(en->instance_id, o.gauge_hp, en->max_hp,
-                                           o.gauge_len > 0.0f ? o.gauge_len : (character == 2 ? 4000.0f : 3000.0f), 0);
+                                           o.gauge_len > 0.0f ? o.gauge_len : (character == 2 ? 4000.0f : 3000.0f),
+                                           o.gauge_emblem);
                     }
                     // The mover (FUN_00478080 -> FUN_0045f4d0, build/ai_spec/MOVER.md): the
                     // locomotion section on an index change (gated), the ASO step (Jump/Dash/
@@ -5978,7 +6004,7 @@ title_again:
                     }
                     if (e.avm.dashed()) apply_dash(en->mover, e.actor->ai.heading, e.avm.dash_d());
                     mover_post(en->mover, idx_pre, e.actor->ai.speed, e.actor->ai.heading, en->vert.grounded,
-                               en->flyer, movable_pre, e.avm.movable(), en->hp, en->flags12c);
+                               en->flyer, movable_pre, e.avm.movable(), en->hp, en->flags12c, en->ai.surf);
                     if (e.facing != e.actor->ai.heading)              // FUN_005eee60, x +0x36c (1.0)
                         e.facing = turn_facing(idx_pre == 2 ? 0.35f : 0.18f, e.facing, e.actor->ai.heading);
                     en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
@@ -6148,6 +6174,14 @@ title_again:
                     // sand2 floor dy is clamped to [-0.015, 0.03]; on sand2 (+0x4b9) xz x0.25 and a
                     // rising dy x0.25; the settle keeps such an actor grounded above its floor.
                     enemy_surfaces(a);
+                    if (a.vert.grounded && a.ai.surf != kSurfaceIce) a.mover.ice_tail = 0;   // 0x45d139
+                    if (a.vert.grounded && !a.flyer && a.ai.surf_ray == kSurfaceIce && !(a.flags12c & 0x20000000u)) {
+                        Vec3 ihit, in_n;                                        // the ice slope slide (0x45b053)
+                        if (segment_hit(phys_mesh(room), o0, {o0.x, o0.y - 510.0f, o0.z}, &ihit, &in_n)) {
+                            const Vec3 ip = ice_slope_push(in_n);
+                            a.mover.k1.x += ip.x; a.mover.k1.y += ip.y; a.mover.k1.z += ip.z;
+                        }
+                    }
                     const bool in_sand = !a.flyer && a.ai.in_water && a.ai.surf_ray == 0x12;
                     if (in_sand) { dy = std::clamp(dy, -0.015f, 0.03f); a.ai.surf = 0x12; }   // +0x4b9 = 0x12
                     float mdx = a.mover.dx, mdz = a.mover.dz;
@@ -6281,8 +6315,9 @@ title_again:
                                                          (unsigned long long)tick_count, dp.effect, sid, sk.scale);
                             }
                         }
-                        // FUN_00478510's drop loop is skipped while +0x130 & 1 (0x478b5c; factory 0x2009 / 0x6081 / 0x1).
-                        if (const Enemy* er = etab.get(en.cast_id); er && !(f130 & 1u)) {
+                        // FUN_00478510's drop loop is skipped while +0x130 & 1 (0x478b5c; factory 0x2009 / 0x6081 / 0x1);
+                        // casts 0xaf (M890) / 0xb0 (M900) branch away before it (0x478b39..0x478b49 -> 0x479348: no drops).
+                        if (const Enemy* er = etab.get(en.cast_id); er && !(f130 & 1u) && en.cast_id != 0xaf && en.cast_id != 0xb0) {
                             DropContext dc;                 // [not modelled] launch count, luck
                             dc.combo = kill_combo.count;    // 0x76c1a8 (FUN_00478510 0x479062)
                             dc.flag108 = game.g_flags[108] == 1;

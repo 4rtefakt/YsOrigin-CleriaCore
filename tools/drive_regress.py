@@ -462,6 +462,14 @@ CASES.update({
         drive="8:opt=DamageTaken=0;20:move=0,1,200;150:sand;219:sand;300:sand;330:sand;331:quit",
         expect=["[sand] surf 18/18 water -2.00", "sub 1 buried 0 grounded 1 feet y -2.4", "sub 1 buried 0 grounded 1 feet y -2.2",
                 "buried 1 grounded 1 feet y -3.45", "buried 1 grounded 1 feet y -3.90"]),
+    # Ice (src/cleria/ice.hpp): standing on S_4002's ice ramp the player slides down it (FUN_0045a510
+    # 0x45b053: knock channel 1 += 0.02 x the slope); walking off it she glides to a stop (k 0.35).
+    "ice_slide": dict(
+        room="S_40/S_4002/S_4002",
+        drive="8:opt=DamageTaken=0;20:at3=-70.67,10,5.92,0;21:sand;35:pos;115:pos;120:move=0,1,8;121:pos;122:pos;128:pos;131:pos;134:pos;135:quit",
+        expect=["[sand] surf 11/11", "feet (-70.795, 7.605, 5.920)", "feet (-71.511, 7.247, 5.920)",
+                "feet (-71.564, 7.220, 5.969)", "feet (-71.573, 7.216, 6.049)", "feet (-71.627, 7.189, 6.780)",
+                "feet (-71.654, 7.176, 6.960)", "feet (-71.680, 7.162, 7.010)"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

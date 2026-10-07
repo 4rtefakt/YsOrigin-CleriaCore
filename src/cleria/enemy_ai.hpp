@@ -142,6 +142,10 @@ struct AiWorld {
     // has no effects (the scans then read "none live").
     struct Fx { int id = 0; int attach = 0; bool kill = false; int owner = 0; };
     virtual void for_each_effect(const std::function<void(const Fx&)>& /*f*/) {}
+    // DAT_0076a1f8 / DAT_0076a1fc: the forced camera region and its blend rate (M360's INIT / death).
+    virtual void force_camera(int /*region*/, float /*rate*/) {}
+    // FUN_0043a080(id, &pos): a positional sound a handler plays at another actor (M360's crystal kills).
+    virtual void sound_at(int /*id*/, const Vec3& /*pos*/) {}
 };
 
 struct AiEnv {
@@ -266,6 +270,7 @@ struct AiOut {
     int set_durable = -1;        // write +0x9d8 (anime_Durable) when >= 0
     float gauge_hp = -1;         // FUN_0043a460: show the boss gauge at this HP when >= 0
     float gauge_len = -1;        // its bar length / lenScale (M850 3000 Hugo / 4000 / 7500); <= 0 = the host's rule
+    int gauge_emblem = 0;        // FUN_0043a460's third argument (M360: 6)
     // The handler skipped the action player (FUN_00479b00) this tick: the class-4 duel
     // handlers' script-puppet path (g_flags[130] == 0 -> FUN_0045f250) and their g_flags[131]
     // freeze (FUN_0045f470 only).

@@ -21,6 +21,7 @@ struct MoverState {
     Vec3 k1{}, k2{};         // knock channel 1 (+0x338..; hits, Dash) and 2 (+0x344..; pushes, brains)
     float dx = 0, dz = 0;    // +0xa3c / +0xa44: this tick's displacement
     int loco = 0;            // +0x3a0: the locomotion index (0 idle, 1 walk, 2 run, 3 air)
+    int ice_tail = 0;        // +0x4f0: 60 on ice, then counts down off it (src/cleria/ice.hpp)
 };
 
 // The locomotion section table 0x69ba48 {idle 2, walk 0, run 1, air 3}.
@@ -82,12 +83,17 @@ inline float turn_facing(float rate, float cur, float tgt) {
 // +0x12c (factory_flags.hpp): 0x40 sums channel 2 only, 0x40 | 0x2000000 none at all.
 inline void mover_post(MoverState& m, int idx_pre, float speed, float heading, bool grounded,
                        bool flyer, bool movable_pre, float movable, float hp,
-                       std::uint32_t flags12c = 0x00110010) {
+                       std::uint32_t flags12c = 0x00110010, int surf_4b9 = 1) {
     m.dx = m.dz = 0;
     float f = 0.135f;
     if (!grounded) f *= 0.75f;
-    if (!(grounded && !flyer && !movable_pre)) {   // THE GATE: no velocity write
-        float k = 1.0f, tx, tz;
+    // Ice (0x45faef, ice.hpp): k 0.35 on surface 0x0b, the +0x4f0 tail at k 1; either skips THE GATE.
+    float k = 1.0f;
+    bool ice = false;
+    if (surf_4b9 == 0x0b && !(flags12c & 0x20000000u)) { k = 0.35f; ice = true; m.ice_tail = 60; }
+    else if (m.ice_tail != 0) { --m.ice_tail; ice = true; }
+    if (ice || !(grounded && !flyer && !movable_pre)) {   // THE GATE: no velocity write
+        float tx, tz;
         if (idx_pre != 0) {
             const float s = speed * movable;
             tx = std::cos(heading) * s; tz = std::sin(heading) * s;
