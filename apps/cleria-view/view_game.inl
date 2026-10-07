@@ -1734,7 +1734,9 @@ title_again:
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
         s.pos_x = feet.x; s.pos_y = feet.y; s.pos_z = feet.z;   // FUN_00443d70 [not modelled] the +0x414 term
-        s.yaw = std::atan2(face_dir.x, face_dir.z) * 180.0f / 3.14159265f;  // SEN-style degrees
+        // 0x76c148 is the actor heading +0x314 in RADIANS, engine basis (0 = +X): our yaw (0 = +Z,
+        // forward = (sin, cos)) is pi/2 - it (FUN_00443d70; ARRIVAL_AUDIT.md "A load is the load warp").
+        s.yaw = 1.5707963f - std::atan2(face_dir.x, face_dir.z);
         return s;
     };
     // FUN_00574970 (SaveMenu_Enter): the slot's area line 0x74c0ac (31 chars, header +0x90). A
@@ -1837,7 +1839,7 @@ title_again:
             if (fl > kNoFloor) feet.y = fl;
         }
         pv = VerticalState{}; pvel = {}; last_floor = feet.y;
-        const float rad = s.yaw * 3.14159265f / 180.0f;
+        const float rad = 1.5707963f - s.yaw;              // the engine heading (radians) -> our yaw
         face_dir = {std::sin(rad), 0, std::cos(rad)};
     };
 

@@ -55,7 +55,7 @@ struct SaveRecord {
 //   EQUIP.md), maxHP 0x76a72c / curHP 0x76a730 / EXP 0x76a748 / SP 0x76a75c /
 //   level 0x76a760 (HUD_RE stat block), scene-name buffer 0x76a3b4 (DOORRETURN),
 //   continue snapshot x/z/yaw 0x76c13c/0x76c144/0x76c148 (EVENTVM_HANDLERS_2 §…,
-//   layout of the triple [H-med] — the engine saves pos x/z + facing, not y).
+//   ARRIVAL_AUDIT.md: y 0x76c140 is saved too; yaw = the heading +0x314 in radians, engine basis).
 struct SaveState {
     std::int32_t flags[0x200] = {0};
     std::int32_t item_arr[54] = {0};
@@ -63,7 +63,7 @@ struct SaveState {
     float mp_max = 0, mp_cur = 0;         // the skill gauge 0x76a734 / 0x76a738 (0 in older CleriaCore saves)
     std::int32_t level = 1, sp = 0;
     std::string scene;                    // room to re-enter on load (e.g. "s_1000")
-    float pos_x = 0, pos_z = 0, yaw = 0;  // continue-snapshot position
+    float pos_x = 0, pos_z = 0, yaw = 0;  // continue-snapshot position; yaw in radians (engine basis, 0 = +X)
     // The snapshot's y, 0x76c140: FUN_00443d70 stores origin.y - (+0x414 + +0x324) = the feet,
     // and the loader FUN_0042f5e0 hands (0x76c13c, 0x76c140, 0x76c144) to the "load" warp
     // [BYTES 0x42f95b..0x42f9cb]. Retail saves carry it (2.0, 4.0, 21.25, -4.0 ...).
