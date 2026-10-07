@@ -369,6 +369,10 @@ struct XsoHost {
     virtual void bgm_default(int /*id*/) {}
     virtual void bgm_play(int /*id*/) {}
     virtual void bgm_stop(int /*time*/) {}
+    // 0xA2 Scene_SetClipPlain(f near, f far) [EXPORT FUN_004348a0, called at 0x569431]: the
+    // projection's near / far (DAT_007b2f50 / DAT_007b2f54, and their scene copies 0x74c0fc /
+    // 0x74c0f8). 13 sites, all (1, 4000) or (1, 7000), in the skybox rooms (S_x1xx).
+    virtual void scene_clip(float /*near*/, float /*far*/) {}
     // 0x85 HealHp() (FUN_004fa0e0: HP to max), 0x14E Chr_Muteking(id, n) (player +0x734 =
     // max(+0x734, n)), 0x96 SaveContData() (the continue checkpoint, FUN_00443d70).
     virtual void heal_hp() {}

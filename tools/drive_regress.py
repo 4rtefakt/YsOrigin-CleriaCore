@@ -47,7 +47,34 @@ CASES = {
     "gameover_title": dict(
         room="S_10/S_1009/S_1009",
         drive="70:hp=0;200:down;210:ok;400:quit",
-        expect=["[gameover] gameover.dds", "[gameover] chose title", "Return to Title"]),
+        expect=["[gameover] gameover.dds", "[gameover] chose title", "Return to Title",
+                "[title] t60 fader 0.00 list 1 book 0"]),
+    # PLAYTEST_1_MISC.md #3: the pause book's Option > Return to Title > Yes (FUN_005b8d40, box 0xf) leaves
+    # the game for the title: its list is up once the entry fade-in is over (the drive shot, title.ppm).
+    "book_return_title": dict(
+        room="S_10/S_1009/S_1009",
+        drive="20:esctap;70:right;80:right;90:right;120:ok;160:up;200:up;230:ok;260:left;290:ok;400:quit",
+        expect=["[book] Return to Title", "[game] Return to Title: back to the title",
+                "[title] t60 fader 0.00 list 1 book 0"]),
+    # PLAYTEST_1_MISC.md #1: the book's Crystal map starts @UseWing with the player bound (FUN_005abd10
+    # 0x5accea), so its Eft_LocateChr(51, 998, .., 'warp') rides the player. The cleanse unlocks warp 1.
+    "crystal_warp_book": dict(
+        room="S_10/S_1009/S_1009",
+        drive=CLEANSE + ";240:esctap;290:right;330:ok;360:up;370:up;380:left;390:left;400:left;410:left;"
+              "430:ok;470:ok;510:up;530:ok;570:fx;900:quit",
+        expect=["t570 fx", "'warp' id 51 alpha 1.000 -> 1.000 attach 1", ">> entering S_1009"]),
+    # PLAYTEST_1_MISC.md #2: a Yunica / Hugo cleanse places eft_clear 221 (SAVE.XSO pc 69) and the aura 84
+    # (s_SaveObjectChange pc 111), never Toal's aura 85; Toal's places 85 alone.
+    "cleanse_fx_hugo": dict(
+        room="S_10/S_1009/S_1009", char="2",
+        drive=CLEANSE + ";90:fx;300:fx;320:quit",
+        expect=["t90 fx", "'eft_clear' id 221", "'eft_heal' id 84", "t300 fx", "'eft_heal' id 84"],
+        absent=["'eft_heal' id 85"]),
+    "cleanse_fx_toal": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="5:flag=310,1;6:flag=86,1;10:at=-0.036,8.2,0;20:act;90:fx;300:fx;320:quit",
+        expect=["t90 fx", "'eft_heal' id 85", "t300 fx", "'eft_heal' id 85"],
+        absent=["'eft_heal' id 84", "'eft_clear' id 221"]),
     # The shell's Cutscene skip = Double press (build/shell_re/ACCESS.md §1): during the cleanse the first
     # Esc only shows the prompt (the world stays frozen), the second skips to the end.
     "access_skip_double": dict(
@@ -114,6 +141,20 @@ CASES = {
         room="S_20/S_2008/S_2008",
         drive="20:exit=0;40:quit",
         expect=[">> entering S_2007", "layer 0xb: 2 batches (drawn after the actors)"]),
+    # FUN_005f8de0's cutout depth pre-pass (MATERIAL.md §6.4): S_0002's Roda-tree foliage (00znuki00,
+    # flags 0x10, z-write off) lays down its solid texels' depth, so the mountain band 00znuki10
+    # (0x20000: no pre-pass) drawn after it no longer paints over the tree in Hugo's prologue.
+    "cutout_prepass": dict(
+        room="S_00/S_0002/S_0002",
+        drive="20:quit",
+        expect=["depth pre-pass: 1 batches (FUN_005f8de0)"]),
+    # op 0xa2 Scene_SetClipPlain (FUN_004348a0): S_1101's root sets the projection to (1, 4000). The
+    # frame used a near plane of room diag x 0.01 = 60 units here (the B_100 skybox is ~6000 across),
+    # which clipped the corridor and the player away, leaving only the skybox.
+    "skybox_clip": dict(
+        room="S_11/S_1101/S_1101",
+        drive="20:quit",
+        expect=["[scene] clip planes 1.0 / 4000.0 (op 0xa2)"]),
     # Leaving S_2099 mid-intro (a frozen world) used to snap the arrival to the highest surface
     # at that x/z: S_2012's closed door_01 top, y 10.5. The snap is now the floor below the origin.
     "frozen_arrival_floor": dict(
@@ -157,6 +198,84 @@ CASES = {
         drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;20:obj=kabe_00;30:atk;200:obj=kabe_00;"
               "210:move=0,1,200;420:quit",
         expect=["[hit] kabe_00 -> s_kabe00", ">> entering S_2010"]),
+    # PLAYTEST_1 §1: a jump beside a wall rises as high as on open floor (2.63). The ceiling sweep ran
+    # from the 0.45 capsule's spot, so the 0.675 sphere's rim caught the wall top / a ledge / a wall's
+    # inner seam: S_1002's east wall cut it to 2.43, S_1001's corner (x -16, z 20.7 / 22) to 0.30.
+    "jump_wall_s1002": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:move=1,0,200;100:jump;118:pos;119:quit",
+        expect=["feet (2.536, 2.530, -0.640)"]),   # z: §6 (no more slide along the wall)
+    "jump_corner_s1001": dict(
+        room="S_10/S_1001/S_1001",
+        drive="10:at=-18.5,21,90;40:move=1,0,59;100:jump;118:pos;119:quit",
+        expect=["feet (-16.450, -1.383, 21.150)"]),   # z: §6
+    # PLAYTEST_1 §4: Hugo through a wall on the way down. A tick's move past the 0.45 radius (a knock's 0.36
+    # cap + the run into the wall) put the centre beyond S_1002's one-plane east wall (x ~2.99) and the push-out
+    # finished the crossing (t58 x 2.54 -> 3.85, landing at x 17.9). The move is now pushed out in sub-steps.
+    "kb_wall_s1002": dict(
+        room="S_10/S_1002/S_1002", char="2",
+        drive="10:at=2.0,0.6,90;12:move=1,0,100;40:jump;58:kb=2,0;90:pos;91:quit",
+        expect=["feet (2.536, -0.098, 0.600)"]),   # z: §6
+    # PLAYTEST_1 §5: the B (pad Button 2 = Jump/Cancel) that closes the pause book, still held, is not a jump:
+    # the player reads the mapper's pressed edge (+0x24 -> +0x50c), whose history ran through the book ticks.
+    # The view's own last-tick latch had gone stale and jumped (feet y 2.489 at t75). X (DIK 45) the same.
+    "book_close_b": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:pos;20:esctap;60:padhold=1,40;75:pos;76:quit",
+        expect=["[book] t60 closed (cancel)", "feet (-0.005, -0.098, -0.640) O2 6000 a0 hp 60 sub 0 sec 0x2"]),
+    "book_close_x": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:pos;20:esctap;60:keyhold=45,40;75:pos;76:quit",
+        expect=["[book] t60 closed (cancel)", "feet (-0.005, -0.098, -0.640) O2 6000 a0 hp 60 sub 0 sec 0x2"]),
+    # ...and a tap with no menu open still jumps; B held across the F1 shell's close does not (the re-latch).
+    "jump_tap_b": dict(
+        room="S_10/S_1002/S_1002",
+        drive="20:padhold=1,1;30:pos;31:quit",
+        expect=["feet (-0.005, 2.251, -0.640)"]),
+    "shell_close_b": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:pos;20:shell;21:padhold=1,80;40:pos;41:quit",
+        expect=["[drive] t40 pos", "feet (-0.005, -0.098, -0.640) O2 6000 a0 hp 60 sub 0 sec 0x2"]),
+    # PLAYTEST_1 §6: an idle player against a wall stays put (retail sweeps a zero move: FUN_0045a510), and
+    # one pushing into it holds a steady contact. S_1006's mask wall (z 5, stacked quads), enemies removed:
+    # walk north until t145, then nothing; the same feet at t146 (pushing just ended), t200 and t300.
+    "idle_wall_s1006": dict(
+        room="S_10/S_1006/S_1006", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="15:killall;20:at=24,0,1;25:move=0,1,120;140:pos;141:pos;146:pos;200:pos;300:pos;301:quit",
+        expect=["feet (24.275, 0.000, 4.550)"] * 5),
+    # PLAYTEST_1 §2: the cutscene-start facing. S_3015's EV_3015_Yunica_1 runs at entry: Fix, Chr_Pos(13)
+    # (snaps +0x314 to +0x308), Chr_Dir(13, 315). The world player's +0x308 was the SCT's (heading 90), so
+    # she snapped round and turned back (t22 face 100.3); now +0x308 is the arrival heading (135).
+    "facing_arrival_s3015": dict(
+        room="S_30/S_3009/S_3009",
+        drive="10:flag=251,1;20:exit=1;22:chr=13;30:quit",
+        expect=["arrival facing 315 deg", "[chr] 13 face 135.0 cmd 135.0", "pos (155.55, 1.50, -7.72)"]),
+    # A SEN arrival facing of 0 is Falcom 0 (+Z), not "unset": S_1097 -> S_2000 kept S_1097's facing (-90).
+    "facing_arrival_zero": dict(
+        room="S_10/S_1097/S_1097",
+        drive="5:at=-0.06,0.1,180;20:exit=0;22:chr=13;30:quit",
+        expect=[">> entering S_2000", "arrival facing 0 deg", "[chr] 13 face 90.0 cmd 90.0"]),
+    # S_3002's soldiers turn under Evnt_3002_Yunica's Fix (LookAtChr, then Chr_Dir); on the thaw #167 used
+    # to pop back to its pre-cutscene heading (t1160 face 439.7). +0x314 is one field: it stays at -45.
+    "facing_thaw_s3002": dict(
+        room="S_30/S_3002/S_3002",
+        drive="5:opt=InfiniteHP=1;10:every=30,1170,ok;1160:chr=167;1161:quit",
+        expect=["[drive] t1160 chr=167", "[chr] 167 face -45.0 cmd -45.0"]),
+    # The SCT yaw +0x108 is an int (0x4342e1 `mov ecx,[edi]` -> FUN_00443a80): S_1004's 180-degree M100
+    # (#189) faces heading -90; read as a float it was a denormal and faced 90 like its neighbour #187.
+    "sct_yaw_s1004": dict(
+        room="S_10/S_1004/S_1004",
+        drive="1:chr=189,187;2:quit",
+        expect=["[chr] 189 face -90.0 cmd -90.0", "[chr] 187 face 90.0 cmd 90.0"]),
+    # PLAYTEST_1 §3: the brains wake on FUN_0045d3c0's 2.5 sphere round the origin, not on the feet point.
+    # S_2001's Oggnome #54 begins its 0x12e vanish on tick 1 and freezes off screen at alpha 1; a camera
+    # panning so it rises in from the bottom edge used to show that opaque frozen pose until the feet
+    # crossed in (t120: culled 1 alpha 1.00); now it wakes first and has vanished (culled 0 alpha 0.00).
+    "oggnome_wake_s2001": dict(
+        room="S_20/S_2001/S_2001", env=dict(CLERIA_AI="1"),
+        drive=";".join("%d:cam=33.1,14,%.2f,90,-45" % (40 + i, 34 - i * 0.12) for i in range(120)) + ";125:quit",
+        expect=["[ai] #54 cast 54", "culled 1 sec 302", "alpha 1.00",
+                "[ai] #54 cast 54", "culled 0 sec 302 mov 1.00 hp 180.0 mk 0 at (33.1,29.8) alpha 0.00"]),
     # A load is the "load" warp to the snapshot (0x76c13c/140/144), placed by FUN_00459ff0: S_2014's
     # door at y 36 stays at 36 (the old re-ground put it on the y 48.5 roof).
     "saveload_floor": dict(
@@ -512,11 +631,14 @@ CASES.update({
     # §1: S_1006's s10wall_00 (SOB word 0x1800 -> +0x298 bit 2) stops the walk north without the Mask of Eyes;
     # with it (acc=54 -> 0x76bbac) the hull leaves the collision at once, the wall fades out over 60 updates
     # (FUN_00503190) and the walk reaches the S_1012 door behind it.
+    # PLAYTEST_1.md §6: the room's enemies go first (15:killall): S_1006's cast-183 #174 walks up and hits
+    # her around t147, so t150 measured its knock, not the wall. Was 4.431 / 4.530 alternating each tick
+    # (resolve_walls double-pushed the wall's stacked quads); the contact is now a steady 4.550 (5 - 0.45).
     "mask_of_eyes_wall": dict(
         room="S_10/S_1006/S_1006",
-        drive="10:mask;20:at=24,0,1;25:move=0,1,120;150:pos;160:acc=54;161:mask;190:mask;230:mask;"
+        drive="10:mask;15:killall;20:at=24,0,1;25:move=0,1,120;150:pos;160:acc=54;161:mask;190:mask;230:mask;"
               "231:at=24,0,1;235:move=0,1,120;400:quit",
-        expect=["maskobj 1 bits 2 hidden 0 alpha 1.0000 coll on", "feet (24.271, 0.000, 4.431)",
+        expect=["maskobj 1 bits 2 hidden 0 alpha 1.0000 coll on", "feet (24.275, 0.000, 4.550)",
                 "maskobj 1 bits 2 hidden 1 alpha 0.9833 coll off", "maskobj 1 bits 2 hidden 1 alpha 0.5000 coll off",
                 "maskobj 1 bits 2 hidden 1 alpha 0.0000 coll off", "S_1006 -> S_1012 (fade out)", ">> entering S_1012"]),
     # §2: S_1014's Roo (TalkC430): "<roo>My hunger knows no bounds..." lays out as extfont cells (M 24, y 36,

@@ -43,6 +43,10 @@ struct SenTrigger {
     // (keep the default heading), as do the sentinels -1 and 360; has_facing() gates on
     // that. The engine converts via FUN_00443a80 = deg2rad(normalize360(90 - deg)) and
     // writes the radian to the arriving player; the view maps it to a sprite direction.
+    // 2026-10-07 (PLAYTEST_1.md §2): the engine does NOT treat 0 as unset -- the SEN load
+    // converts it unconditionally (0x433b80) and a labelled warp always places with it
+    // (0x4340ad..0x4340e8); the view applies every arrival's facing. has_facing() is only
+    // "a non-default value" now.
     int arrival_facing_deg = 0;
     bool has_facing() const {
         return arrival_facing_deg != 0 && arrival_facing_deg != -1 && arrival_facing_deg != 360;

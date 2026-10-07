@@ -284,6 +284,14 @@ fn fs_mat(in : VsOut) -> @location(0) vec4<f32> {
   if (u.fogParams.z > 0.5) { c = vec4<f32>(mix(u.fogColor.rgb, c.rgb, fog_f(in.depth)), c.a); }
   return c;
 }
+// FUN_005f8de0's depth pre-pass (material_zprepass): ALPHAOP SELECTARG1(TEXTURE), ALPHAREF
+// 0xbf, ALPHAFUNC GREATEREQUAL — the texture's own alpha, no vertex alpha. Depth only.
+@fragment
+fn fs_zpre(in : VsOut) -> @location(0) vec4<f32> {
+  let a = textureSample(tex, smp, in.uv).a;
+  if (round(a * 255.0) < 191.0) { discard; }
+  return vec4<f32>(0.0, 0.0, 0.0, a);
+}
 @fragment
 fn fs_mat_add(in : VsOut) -> @location(0) vec4<f32> {
   var c = mat_lit(in);

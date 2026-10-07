@@ -425,6 +425,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     bgmdefs.dir().string().c_str());
     int cur_bgm = -1;
     int default_bgm = 0;                 // 0x76c17c: Scene_SetDefaultBgm / Bgm_Play(-1)
+    // The projection's near / far: DAT_007b2f50 / DAT_007b2f54, the 4th / 5th args of
+    // D3DXMatrixPerspectiveFovLH (FUN_005eca30 0x5ecc0f). Every scene entry resets the scene copies
+    // 0x74c0fc / 0x74c0f8 to 1.0 / 2000.0 (FUN_00431840) and the room's op 0xa2 Scene_SetClipPlain
+    // (FUN_004348a0) overrides them: the skybox rooms ask for (1, 4000) or (1, 7000).
+    float clip_near = 1.0f, clip_far = 2000.0f;
     float bgm_gain = 1.0f, bgm_gain_to = 1.0f, bgm_gain_step = 0.0f;   // op 0xBB Bgm_Volume
     // A settings edit from outside the Option page (the shell overlay: settings().s + touch()):
     // re-read the page's copy and re-apply the live volumes (CONFIG.md §7.4).
@@ -811,6 +816,7 @@ title_again:
         // [not modelled] the clear / system data behind the gates (Bonus Modes, Toal, the
         // Extra types) — a fresh install's title; Time Attack / Arena / the Bonus Shop.
         apply_room_bgm("title");   // "title\" is a scene record like any room (BGM id 1)
+        pending_load.reset();      // a Return to Title: the last game's Load must not outlive it
         const ItemTable titems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
         BookRenderer tr;
         tr.init(g, fmt, asset_root, titems);
@@ -839,6 +845,7 @@ title_again:
         // the title object: current 0 -> target 1, the title's tick stops (obj+0x279), and the
         // scene is committed when the screen is black.
         float tf_cur = 1.0f, tf_tgt = 0.0f;
+        int ttick = 0;                                   // logic ticks on the title (the drive shot)
         bool ng_commit = false;
         mouse::Point tbook_pt;                           // the book's open-time cursor (this+0x128)
         for (bool started = false; !started;) {
@@ -859,6 +866,7 @@ title_again:
             if (shell.open) taccum = 0;                     // the shell pauses the title too
             while (taccum >= kTickDt && !started) {
                 taccum -= kTickDt;
+                ++ttick;
                 // The input record (FUN_005d2ba0, PAUSEBOOK_DRAW.md §0.7), one step per tick: OK 0x2000,
                 // Cancel 0x4000, the auto-repeat steps; the book's 4-way stick while it is up.
                 const input::Frame& inf = input_tick(tbook.is_open());
@@ -939,7 +947,8 @@ title_again:
                 for (int id : snd) audio.play(id, kSfxMenuVol);
             }
             WGPUSurfaceTexture st = {};
-            wgpuSurfaceGetCurrentTexture(surface, &st);
+            if (offscreen) { st.texture = off_tex; wgpuTextureAddRef(off_tex); st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal; }
+            else wgpuSurfaceGetCurrentTexture(surface, &st);
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
                 st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
@@ -967,7 +976,20 @@ title_again:
             draw_cursor(g, tr, view, cw, ch, false);
             video_post(g, st.texture, view, cw, ch);   // Brightness (view_video.inl)
             shell.frame(g, view, cw, ch);
-            wgpuSurfacePresent(surface);
+            // A CLERIA_DRIVE run reaches the title only through a Return to Title: one shot once the
+            // entry fade-in is over (60 ticks > its 20), CLERIA_SHOT_DIR/title.ppm, then it quits.
+            if (offscreen && ttick >= 60) {
+                const char* shd = std::getenv("CLERIA_SHOT_DIR");
+                const fs::path out = fs::path(shd ? shd : ".") / "title.ppm";
+                save_frame_ppm(g, st.texture, fmt, cw, ch, out);
+                std::printf("  [title] t%d fader %.2f list %d book %d, wrote %s\n", ttick, tf_cur,
+                            int(tscreen.list_alive()), int(tbook.is_open()), out.string().c_str());
+                wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
+                teardown();
+                return 0;
+            }
+            if (!offscreen) wgpuSurfacePresent(surface);
+            else wgpuDevicePoll(g.device, true, nullptr);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
             video_frame_end(0);                        // the frame limiter / counters (view_video.inl)
         }
@@ -1266,7 +1288,6 @@ title_again:
     float drown_acc = 0.0f;
     SurfaceHazard hazard;                  // FUN_00462550's floor / noise counters (+0x4c8 / +0x810)
     float hazard_acc = 0.0f;
-    bool jump_prev = false;                // the jump button last tick (+0x50c is the pressed mask)
     // Toal's Godspeed (ABILITIES_VERIFIED.md §3.3, mover 0x4693ed..0x469a97): the dash counter
     // +0x7a4, the lock-on (+0x7a8 / target point +0x790), and the body-collision ramp +0x4d8 that
     // restores +0x60 |= 0x80 once it is back to 1.0.
@@ -1635,13 +1656,13 @@ title_again:
         // at the SCT default = the wrong entrance on every return). Copy by value first.
         const bool has_arr = via && via->has_arrival();
         const Vec3 arr = via ? via->arrival_pos : Vec3{};
-        const bool has_fac = via && via->has_facing();
         const int fac_deg = via ? via->arrival_facing_deg : 0;
         // Every scene entry, door or script (FUN_00431840; SCENEFLOW.md 6.2): a dead player is
         // revived, and the per-scene flags are reset before the room's scripts read them.
         if (player.hp < 1) { player.hp = player.max_hp; player.sp_cur = player.sp_max; }
         scene_entry_flags(dest);
-        scene_objects_reset = true;                              // busts / caption card (start_room_events)
+        clip_near = 1.0f; clip_far = 2000.0f;                    // FUN_00431840 (0x74c0fc / 0x74c0f8)
+        scene_objects_reset = true;                             // busts / caption card (start_room_events)
         live_obj = {};                                           // a new visit
         emotions.clear();
         live_obj_dirty = false;
@@ -1684,9 +1705,14 @@ title_again:
             // alignment 0.81), where the un-cancelled (cos deg, sin deg) scores -0.03 and
             // aims at the wall you arrived through. heading_to_facing then maps it exactly
             // as walking that way would, so the warped-in player faces the right way.
-            if (has_fac) {
-                const float yaw = float(fac_deg) * 3.14159265358979323846f / 180.0f;
-                face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
+            // Every labelled arrival carries one, 0 / -1 / 360 included: the SEN load converts +0x238
+            // unconditionally (0x433b80 -> FUN_00443a80) into the region entry the warp copies to
+            // 0x769fbc -> 0x76a3a0 (0x42d140, 0x4108fa), and FUN_00434020 places with 0x76a3ac
+            // whenever the label byte 0x76a3b4 is set (0x4340ad..0x4340e8). 0 = Falcom 0 (+Z); the
+            // sentinels = heading 0 (+X). Skipping them kept the last room's facing (PLAYTEST_1.md §2).
+            if (has_arr) {
+                const float h = falcom_heading(fac_deg);
+                face_dir = {std::cos(h), 0.0f, std::sin(h)};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
                 std::printf("  arrival facing %d deg -> dir %d\n", fac_deg, facing);
             }
@@ -2310,6 +2336,8 @@ title_again:
             if (mesh_sync_bits_fn) mesh_sync_bits_fn(a, b);
         }
         void bgm_default(int id) override { if (bgm_default_fn) bgm_default_fn(id); }
+        std::function<void(float, float)> scene_clip_fn;
+        void scene_clip(float n, float f) override { if (scene_clip_fn) scene_clip_fn(n, f); }
         void bgm_play(int id) override { if (bgm_play_fn) bgm_play_fn(id); }
         void bgm_stop(int t) override { if (bgm_stop_fn) bgm_stop_fn(t); }
         void heal_hp() override { if (heal_fn) heal_fn(); }
@@ -3187,6 +3215,10 @@ title_again:
     // Bgm_Stop(ms) = FUN_00432fc0: curBgm 0, then FUN_005cde10(ms), a linear volume ramp to 0
     // over ms and the stop ms later [BYTES 0x432fc0, 0x5cde10, 0x5cd455] (Audio::fade_out_bgm).
     csHost.bgm_default_fn = [&](int id) { default_bgm = id; };
+    csHost.scene_clip_fn = [&](float n, float f) {                       // op 0xa2
+        clip_near = n; clip_far = f;
+        std::printf("  [scene] clip planes %.1f / %.1f (op 0xa2)\n", n, f);
+    };
     csHost.bgm_play_fn = [&](int id) {
         if (id == -1) id = default_bgm;
         if (id <= 0) { audio.stop_bgm(); cur_bgm = 0; return; }
@@ -3969,7 +4001,12 @@ title_again:
         m.start_script = [&](const std::string& name) {   // FUN_00434970: start + first burst
             std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
             csMgr.vm.g_flags[150] = character;
-            if (!csMgr.start(name)) std::printf("  [book] %s did not start\n", name.c_str());
+            // The bound actor (+0x240, what 998 resolves to): FUN_005abd10 starts @CheckWing, @CheckWing2
+            // and @UseWing with the player *0x74c09c [BYTES 0x5ac53e, 0x5ac59f, 0x5accea], the other Use
+            // scripts with none [BYTES 0x5ac411]. Without it @UseWing's Eft_LocateChr(51, 998, .., 'warp'),
+            // Chr_Dir / Chr_Alpha(998) found no actor: the warp's rising rings and fade-out never drew.
+            const int owner = (name == "@UseWing" || name == "@CheckWing" || name == "@CheckWing2") ? 13 : 0;
+            if (!csMgr.start(name, {}, owner)) std::printf("  [book] %s did not start\n", name.c_str());
             std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);
         };
         return m;
@@ -4994,7 +5031,20 @@ title_again:
         const bool* ks = SDL_GetKeyboardState(nullptr);   // free-fly's raw keys (debug, outside the mapper)
         const float D = room_diag(room);
         // A newly (re)built room (re)starts its event scripts on the persistent manager.
-        if (room_events_dirty) { room_events_dirty = false; start_room_events(); }
+        if (room_events_dirty) {
+            room_events_dirty = false;
+            // The placement wrote the arrival / loaded heading to +0x308, +0x314 and +0x360 at
+            // once (FUN_00459ff0 from FUN_00434020 0x4340ad..0x4340e8), before the room's
+            // scripts run; Chr_Pos then snaps +0x314 to +0x308 (0x570a63). The world player was
+            // rebuilt from the SCT (yaw 0) by populate_room, so a cutscene's first Chr_Pos(13)
+            // snapped her to heading 90 and turned her back (PLAYTEST_1.md §2).
+            if (Actor* wp = world.player(); wp && !fly) {
+                const float h = std::atan2(face_dir.z, face_dir.x);
+                wp->look.cmd = wp->look.dir = h;
+                wp->yaw = yaw_of_heading(h);
+            }
+            start_room_events();
+        }
         // ---- fixed 60 Hz logic, 0..N ticks per rendered frame --------------
         // The catch-up loop in the exe has NO cap; a long stall really does emit a
         // burst of ticks. We reproduce that, relying on the load-time reset above
@@ -5038,6 +5088,9 @@ title_again:
                 for (int id : bev.sounds) audio.play(id, kSfxMenuVol);
                 if (bev.warp) cursor_warp(bev.warp_x, bev.warp_y, bev.warp_mode);
                 if (bev.closed) cursor_warp(book_pt.x, book_pt.y, 2);   // the dtors' warp back (mode 2)
+                if (bev.closed && !drive.empty())
+                    std::printf("  [book] t%llu closed (%s)\n", (unsigned long long)tick_count,
+                                (inf.pressed & input::kCancel) ? "cancel" : "other");
                 if (bev.clamp_hp) player.hp = std::min(player.hp, int(player_stats().max_hp));
                 if (bev.use_item >= 0) {                     // the Panacea (FUN_00443390, count - 1)
                     float hp = float(player.hp);
@@ -5082,8 +5135,20 @@ title_again:
                     options_save(oslider, ocheck);
                 }
                 if (bev.option_quit == 1) running = false;  // Exit: WM_CLOSE
-                if (bev.option_quit == 0)                    // [not modelled] Return to Title
-                    hud.message("Return to Title is not implemented yet.");
+                if (bev.option_quit == 0) {                  // Return to Title (FUN_005b8d40, box 0xf, Yes)
+                    // [BYTES 0x5b90ce..0x5b9182] the playing BGM id 0x74c0f4 = 0 (cur_bgm: the title's
+                    // entry Bgm_Play(1) at 0x4323d2 then starts its track), the BGM fades over 3000 ms
+                    // (FUN_005cde10(0xbb8), when the sound is on), the fader jumps to black (0x769f1c =
+                    // 0x769f24 = 1.0) with the title record 0x74e678 pending (0x769fb8): FUN_004106e0
+                    // changes scene on the next step. The same route as the game over's (LAB_00427750, which fades instead of
+                    // jumping): leave this game, back to the title (its entry fades in from black).
+                    // [not modelled] FUN_0042f510 deletes the crash backup (CleriaCore keeps none).
+                    std::printf("  [book] Return to Title\n");
+                    audio.fade_out_bgm(0xbb8);
+                    cur_bgm = 0;
+                    csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 1.0f;
+                    return_to_title = true; running = false; accum = 0;
+                }
                 if (bev.closed) paused = false;
             }
         }
@@ -5578,11 +5643,13 @@ title_again:
                 }
                 feet.x += carry.x; feet.y += carry.y; feet.z += carry.z;
             }
-            // The jump press (+0x50c & 2), read once per tick.
-            const bool jump_down = (g_in.held & input::kJump) || drive_jump;
+            // The jump press (+0x50c & 2), read once per tick: the record's pressed edge +0x24, which
+            // FUN_0045f250 copies to +0x50c. The mapper (FUN_005d2ba0) keeps its held history through
+            // the book's and a Fix's frames, so a B / X / right-click that closed a menu and is still
+            // down reads as held, not pressed. The view's own last-tick latch went stale while no
+            // player tick ran and jumped on that press (PLAYTEST_1.md §5).
+            const bool jump_edge = (g_in.pressed & input::kJump) || drive_jump;
             drive_jump = false;
-            const bool jump_edge = jump_down && !jump_prev;
-            jump_prev = jump_down;
             // The action input (FUN_00465170 / FUN_0046ea00 via src/cleria/player_actions).
             PlayerActions::Out pa_out;
             if (!fly) {
@@ -5652,6 +5719,7 @@ title_again:
                 if (shield_life == 0 || shield_hits == 0) remove_shield(shield_hits == 0);
                 else if (!fx_live(shield_fx)) remove_shield(false);   // [guard, not retail] the effect is gone
             }
+            const float hx0 = feet.x, hz0 = feet.z;   // the tick's horizontal start (the wall push below)
             {   const int sec = avm.section();
                 const bool skill_sec = sec == 0x109 || (sec >= 0x10c && sec <= 0x111);
                 const bool blessing_run = (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 0x2000) != 0;
@@ -5732,7 +5800,19 @@ title_again:
                 feet.x += kd.x; feet.z += kd.z; }
             #include "view_xso13_force.inl"          // 0x15e / 0x15f pushes (FLOOR13_OPS.md)
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
-              body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
+              // The engine sweeps the tick's whole move with its sphere (FUN_0045a510 0x45b2eb), so no
+              // move crosses a wall. resolve_walls only resolves an overlap: a step past the radius (a
+              // knock's 0.36 cap plus the run) took the centre beyond a one-plane wall, which then
+              // pushed it out of its FAR side (Hugo through S_1002's east wall; PLAYTEST_1.md §4).
+              // The move is pushed out in sub-steps of at most half the radius [H]; one step (the
+              // old single push) whenever the tick moves less.
+              {   const float mx = body.x - hx0, mz = body.z - hz0;
+                  const int n = std::clamp(int(std::ceil(std::sqrt(mx * mx + mz * mz) / (radius * 0.5f))), 1, 16);
+                  if (n > 1) { body.x = hx0; body.z = hz0; }
+                  for (int k = 0; k < n; ++k) {
+                      if (n > 1) { body.x += mx / float(n); body.z += mz / float(n); }
+                      body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
+                  } }
               feet.x = body.x; feet.z = body.z; }
             // FUN_0046fba0 0x470049 (ARENA_AND_BOSSBAR.md §1.5c): in arena mode 1 (flag 190) the
             // player is box-clamped to the EnclosePlayer rect, min then max. Mode 2 (S_1000's
@@ -5771,7 +5851,10 @@ title_again:
                 // from the origin up +0x328 x 1.05 (0x6bd458) zeroes +0x330 / +0x420 on a hit
                 // [BYTES 0x45b219..0x45b29a]; then the move sweep, a sphere of +0x328 from the
                 // origin (0x45b2eb..0x45b32f), stops the rise at whatever is above (ROUTE_F13 D2).
-                const Vec3 org{feet.x, oy, feet.z};
+                // Both from where the engine's 0.675 sphere would stand, clear of the walls beside
+                // it: from the 0.45 capsule's spot its rim caught a step / ledge / wall top and cut
+                // the jump short (PLAYTEST_1.md §1, physics.hpp sphere_wall_clear). [approx]
+                const Vec3 org = sphere_wall_clear(phys_mesh(room), {feet.x, oy, feet.z}, pm.radius());
                 if (pv.t > 0.0f && segment_hit(phys_mesh(room), org, {org.x, org.y + pm.radius() * 1.05f, org.z},
                                                nullptr, nullptr))
                     pv.t = 0.0f;
@@ -5854,14 +5937,24 @@ title_again:
             // runs the M100 brain until its own is ported (build/audit/ai_bosses.md).
             {
                 const int d = game.g_flags[201] ? 3 : (difficulty - 2);   // -2 v.easy .. 2 nightmare
-                auto in_view = [&](const Vec3& q) {
+                // The handlers' off-screen test FUN_0045d3c0: a SPHERE of 5.0 (0x6bd868) x 0.5
+                // (0x6bd304, FUN_005f5b00) = 2.5 round the origin +0x50, outside when it lies wholly
+                // behind any frustum plane (dist <= -r). Not a point on the feet: that let a body that
+                // was already on screen stay frozen at alpha 1 (Oggnome's vanish, PLAYTEST_1.md §3).
+                auto in_view = [&](const Vec3& q, float r) {
                     if (!have_vp) return true;
                     const auto& m = last_vp.m;
-                    const float cx = q.x * m[0] + q.y * m[4] + q.z * m[8] + m[12];
-                    const float cy = q.x * m[1] + q.y * m[5] + q.z * m[9] + m[13];
-                    const float cz = q.x * m[2] + q.y * m[6] + q.z * m[10] + m[14];
-                    const float cw = q.x * m[3] + q.y * m[7] + q.z * m[11] + m[15];
-                    return cw > 0 && std::fabs(cx) <= cw && std::fabs(cy) <= cw && cz >= 0 && cz <= cw;
+                    const float row[4][4] = {{m[0], m[4], m[8], m[12]}, {m[1], m[5], m[9], m[13]},
+                                             {m[2], m[6], m[10], m[14]}, {m[3], m[7], m[11], m[15]}};
+                    for (int k = 0; k < 6; ++k) {         // l r b t (|x|,|y| <= w), near z >= 0, far z <= w
+                        float p[4];
+                        for (int j = 0; j < 4; ++j)
+                            p[j] = k == 4 ? row[2][j] : k == 5 ? row[3][j] - row[2][j]
+                                 : row[3][j] + (k & 1 ? -1.0f : 1.0f) * row[k >> 1][j];
+                        const float n = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+                        if (n > 0.0f && (p[0] * q.x + p[1] * q.y + p[2] * q.z + p[3]) / n <= -r) return false;
+                    }
+                    return true;
                 };
                 int pool = 0;
                 for (const Actor& a : world.actors()) pool += a.alive();
@@ -5932,6 +6025,13 @@ title_again:
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) hk(*en, aiw);
                     if (!en || !en->alive() || en->destroy_requested() || !e.avm.ok()) continue;
+                    // +0x314 is ONE field: a Fix's turns (world.tick_facing) and Chr_Pos write it
+                    // through en->yaw, and the brain carries on from there. e.facing kept the
+                    // pre-cutscene heading and snapped a script-turned enemy back (PLAYTEST_1.md §2).
+                    // [approx] the brain's +0x308 copy (ai.heading; the Chr ops write look.cmd) is
+                    // set to it too, so an idle brain does not turn back before it re-aims.
+                    if (std::fabs(std::remainder(heading_of_yaw(en->yaw) - e.facing, 6.28318531f)) > 1e-4f)
+                        e.facing = en->ai.heading = heading_of_yaw(en->yaw);
                     const bool hurt = e.avm.section() == 4;
                     const bool attacking = e.atk_section >= 0 && e.avm.section() == e.atk_section;
                     AiEnv env;
@@ -5959,7 +6059,8 @@ title_again:
                     env.group_tag = en->tag.tagged();
                     env.aso_marker = e.avm.marker();
                     env.aso_marker_block = e.avm.marker_block();
-                    env.culled = !(en->flags12c & 0x1000000u) && !in_view(en->pos);   // never-cull bit
+                    env.culled = !(en->flags12c & 0x1000000u) &&                     // never-cull bit
+                                 !in_view({en->pos.x, en->pos.y + en->height, en->pos.z}, 2.5f);   // 0x480cb8..0x480cdc
                     env.stun_immune = (en->flags12c & 0x80000u) != 0;                  // FACTORY.md
                     env.bless_stun = (game.g_flags[217] & 0x80) != 0;                  // GROW09
                     env.boss_fight = game.g_flags[156] == 1;                           // DAT_0076bb8c
@@ -6021,11 +6122,11 @@ title_again:
                     pool += int(o.spawns.size());
                     if (ai_debug && (tick_count % 60) == 0)
                         std::printf("[ai] #%d cast %d phase %d sub %d act 0x%x steer %d mode %d spd %.4f "
-                                    "dist %.2f head %.2f culled %d sec %d mov %.2f hp %.1f mk %d at (%.1f,%.1f)\n",
+                                    "dist %.2f head %.2f culled %d sec %d mov %.2f hp %.1f mk %d at (%.1f,%.1f) alpha %.2f\n",
                                     en->instance_id, en->cast_id, e.actor->ai.phase(), e.actor->ai.i(0x728), e.actor->ai.action(),
                                     e.actor->ai.i(0x708), e.actor->ai.mode(), e.actor->ai.speed, e.actor->ai.dist(), e.actor->ai.heading,
                                     int(env.culled), e.avm.section(), e.avm.movable(), en->hp, env.aso_marker,
-                                    en->pos.x, en->pos.z);
+                                    en->pos.x, en->pos.z, e.actor->ai.alpha);
                     // Strike: the brain's FUN_00446550(sec,0) — a priority-gated request. A
                     // ported brain names its section literally; the M100 stand-in's 7 maps to
                     // this kind's guessed attack section.
@@ -7465,7 +7566,11 @@ title_again:
         const float rad = room_diag(room);
         if (drive_cam) cam = *drive_cam;
         update_fog(room, fly ? cam.pos : feet, dt);
-        last_vp = cam.view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f);   // StretchAspect (view_video.inl)
+        // The game's near / far (clip_near / clip_far); free-fly keeps a room-sized pair. The old
+        // rad * 0.01 near put the near plane 60 units out in a skybox room (B_100 is ~6000 across),
+        // clipping the whole corridor and the player away (S_1101).
+        last_vp = fly ? cam.view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f)
+                      : cam.view_proj(video_aspect(cw, ch), clip_near, clip_far);   // StretchAspect (view_video.inl)
         {   // The oxygen bar's anchor: the player's origin through the frame's view-projection.
             const Vec3 o{feet.x, feet.y + kOriginH, feet.z};
             const float* M = last_vp.m.data();
@@ -7706,17 +7811,15 @@ title_again:
         wgpuTextureRelease(st.texture);
         video_frame_end(ticks);                          // the frame limiter / counters (view_video.inl)
     }
-    // LAB_00427750 -> FUN_0042f510: the game over's Return to Title. [approx] the old room's GPU
-    // buffers are not freed (as on exit). A CLERIA_DRIVE run has no title to show (the title
-    // loop needs a presentable surface), so it ends here instead.
+    // LAB_00427750 -> FUN_0042f510: the game over's Return to Title, and the pause book's
+    // (FUN_005b8d40). [approx] the old room's GPU buffers are not freed (as on exit). A
+    // CLERIA_DRIVE run shoots the title once and quits there (title.ppm).
     if (return_to_title) {
-        std::printf("  [gameover] Return to Title%s\n", offscreen ? " (CLERIA_DRIVE: exit)" : "");
-        if (!offscreen) {
-            show_title = true;
-            g_rig_room.clear();                          // the camera rig re-reads the next room
-            emotions.clear();
-            goto title_again;
-        }
+        std::printf("  [game] Return to Title: back to the title\n");
+        show_title = true;
+        g_rig_room.clear();                              // the camera rig re-reads the next room
+        emotions.clear();
+        goto title_again;
     }
     SDL_DestroyWindow(win); SDL_Quit();
     return 0;

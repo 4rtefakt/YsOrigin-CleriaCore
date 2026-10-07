@@ -156,7 +156,7 @@ void ActorWorld::spawn_placements() {
         const Cast* c = tables_.casts->find(p.name);
         if (!c) continue;  // CAST_ADOL etc. that aren't in CASTINFO stay unspawned here
         spawn(SpawnRequest{0, c->cast_id, p.position,
-                           p.random_yaw ? 0.0f : p.yaw * 180.0f / 3.14159265358979323846f,
+                           p.yaw * 180.0f / 3.14159265358979323846f,   // the -1 / 360 sentinel included (sct.cpp)
                            0});
     }
 }

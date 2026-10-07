@@ -209,6 +209,8 @@ static void access_interface_rows(ui::List& L, const std::function<void()>& pers
 // opt=<Key>=<value>  one [cleria.access] / [cleria.cheats] key by its cleria.ini name (opt=ExpRate=2)
 // esctap             Esc for one tick (through the real mapper: the menu bit 0x10)
 // eschold=<n>        Esc held for n ticks
+// padhold=<i>,<n>    pad button i (0 = Button 1; 1 = Button 2, PAD_JUMP) held for n mapper steps
+// keyhold=<dik>,<n>  a DIK key held for n mapper steps (45 = X, Preset 1's Jump)
 static bool access_drive(const std::string& cmd) {
     if (cmd.rfind("opt=", 0) == 0) {
         const std::string kv = cmd.substr(4);
@@ -227,5 +229,12 @@ static bool access_drive(const std::string& cmd) {
     }
     if (cmd.rfind("eschold=", 0) == 0) { g_drive_esc_hold = std::atoi(cmd.c_str() + 8); return true; }
     if (cmd.rfind("cxlhold=", 0) == 0) { g_drive_cxl_hold = std::atoi(cmd.c_str() + 8); return true; }
+    if (cmd.rfind("padhold=", 0) == 0 || cmd.rfind("keyhold=", 0) == 0) {
+        int i = -1, n = 0;
+        const bool pad = cmd[0] == 'p';
+        if (std::sscanf(cmd.c_str() + 8, "%d,%d", &i, &n) == 2 && i >= 0 && i < (pad ? 32 : 256))
+            (pad ? g_sdl_in.vpad_hold[std::size_t(i)] : g_sdl_in.vkey_hold[std::size_t(i)]) = n;
+        return true;
+    }
     return false;
 }

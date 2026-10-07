@@ -80,13 +80,13 @@ struct CharSprite {
     }
     // (Re)decode `frame` for every facing into the dir textures.
     void set_frame(Gpu& g, std::uint32_t frame) {
-        for (std::uint32_t d = 0; d < 8 && d < ndir; ++d) {
+        for (std::uint32_t d = 0; d < 8 && ndir > 0; ++d) {      // dir %= nDir (FUN_00444dc0)
             AiaFrame fr;
             // Body + the second layer, composited ADDITIVELY — the engine's own blend
             // (SRCALPHA/ONE, read out of FUN_004745a0). The layer is a real overlay:
             // Yunica's fire-sword, Toal's Boost aura, projectile orbs. ~90% of frames
             // have none and this is then identical to decode_frame.
-            if (!aia.decode_frame_composited(image, d, frame % std::max(1u, nframe), fr))
+            if (!aia.decode_frame_composited(image, d % ndir, frame % std::max(1u, nframe), fr))
                 continue;
             if (dirs[d].tex) { wgpuBindGroupRelease(dirs[d].bind); wgpuTextureViewRelease(dirs[d].view); wgpuTextureRelease(dirs[d].tex); }
             dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());

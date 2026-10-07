@@ -61,10 +61,12 @@ struct EnemyFx {
             if (img >= 0) {
                 const std::uint32_t nd = k.aia.images[img].nDir;
                 const std::uint32_t nf = k.aia.images[img].nFrame;
-                for (std::uint32_t d = 0; d < 8 && d < nd; ++d)
+                // FUN_00444dc0: a direction past the record's nDir is taken modulo it (C_101's
+                // 2-direction tags; PLAYTEST_1.md §2).
+                for (std::uint32_t d = 0; d < 8 && nd > 0; ++d)
                     for (std::uint32_t f = 0; f < nf; ++f) {
                         AiaFrame fr;
-                        if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
+                        if (!k.aia.decode_frame_composited(std::uint32_t(img), d % nd, f, fr)) continue;
                         SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
                         st.set_placement(fr, k.aia.canvasW, k.aia.scaleA);
                         st.footFix = k.footFix;   // same per-file foot correction as idle
@@ -76,7 +78,7 @@ struct EnemyFx {
         const std::vector<SpriteTex>& v = it->second[dir];
         if (!v.empty()) return v;
         if (!it->second[0].empty()) return it->second[0];   // fewer facings shipped
-        return k.anim[dir < k.ndir ? dir : 0];              // tag absent -> idle
+        return k.anim[k.ndir ? dir % k.ndir : 0];           // tag absent -> idle (FUN_00444dc0 dir %= nDir)
     }
 
     // Decode ALL frames of one enemy type's idle animation for EVERY facing, so
@@ -350,7 +352,8 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             }
         }
         if (!frames) {  // scriptless enemy: cycle idle, offset per instance
-            if (dir >= int(k.ndir) || k.anim[dir].empty()) dir = 0;
+            if (k.ndir && dir >= int(k.ndir)) dir %= int(k.ndir);   // FUN_00444dc0 dir %= nDir
+            if (k.anim[dir].empty()) dir = 0;
             if (k.anim[dir].empty()) continue;
             frames = &k.anim[dir];
             const int n = int(frames->size());

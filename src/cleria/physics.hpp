@@ -54,6 +54,16 @@ Vec3 collide_and_slide(const RoomMesh& m, Vec3 pos, Vec3 vel, float radius);
 // slide along a sloped ceiling, no sideways push-out.
 float sweep_up(const RoomMesh& m, const Vec3& c, float r, float dy);
 
+// Where the engine's sphere (radius `r`, centre `c`) would stand horizontally: `c` pushed out
+// of the wall triangles (resolve_walls' |n.y| <= 0.6 set) to the full radius over the sphere's
+// own height [c.y - r, c.y + r]; y unchanged. The engine sweeps that one sphere for every move
+// (FUN_0045a510 0x45b2eb), so it never stands closer than r to a wall; CleriaCore's horizontal
+// push-out keeps only a 0.45 capsule, which leaves the sphere 0.225 into a wall beside it and
+// lets its rim catch the top of that wall (a step, a ledge, a wall's own upper triangles) on
+// the way up. The player's ceiling ray and sweep_up start from this point. [approx]
+// (PLAYTEST_1.md §1)
+Vec3 sphere_wall_clear(const RoomMesh& m, const Vec3& c, float r);
+
 // True if the segment a->b crosses any collision triangle (both faces). The engine's
 // line queries (FUN_005e9380 ray + FUN_0041e420 test) — used for enemy sight / line of
 // sight and the wall/ledge probes (src/cleria/enemy_ai.hpp).

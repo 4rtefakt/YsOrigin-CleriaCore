@@ -323,6 +323,7 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0x18a && nargs >= 3) { host->mesh_fall(ops(0), opf(1), opf(2)); return Step::Continue; }
                     if (sub == 0x16e && nargs >= 3) { host->mesh_alpha_target(ops(0), opf(1), op(2)); return Step::Continue; }
                     if (sub == 0xa4 && nargs >= 1) { host->bgm_default(op(0)); return Step::Continue; }
+                    if (sub == 0xa2 && nargs >= 2) { host->scene_clip(opf(0), opf(1)); return Step::Continue; }
                     if (sub == 0xb9 && nargs >= 1) { host->bgm_play(op(0)); return Step::Continue; }
                     if (sub == 0xba) { host->bgm_stop(nargs >= 1 ? op(0) : 0); return Step::Continue; }
                     if (sub == 0x85) { host->heal_hp(); return Step::Continue; }
