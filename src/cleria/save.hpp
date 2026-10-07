@@ -63,7 +63,11 @@ struct SaveState {
     float mp_max = 0, mp_cur = 0;         // the skill gauge 0x76a734 / 0x76a738 (0 in older CleriaCore saves)
     std::int32_t level = 1, sp = 0;
     std::string scene;                    // room to re-enter on load (e.g. "s_1000")
-    float pos_x = 0, pos_z = 0, yaw = 0;  // continue-snapshot position (no y saved)
+    float pos_x = 0, pos_z = 0, yaw = 0;  // continue-snapshot position
+    // The snapshot's y, 0x76c140: FUN_00443d70 stores origin.y - (+0x414 + +0x324) = the feet,
+    // and the loader FUN_0042f5e0 hands (0x76c13c, 0x76c140, 0x76c144) to the "load" warp
+    // [BYTES 0x42f95b..0x42f9cb]. Retail saves carry it (2.0, 4.0, 21.25, -4.0 ...).
+    float pos_y = 0;
     // The inventory fields outside g_flags (build/progress_re/INVENTORY.md §0): accessory /
     // held item / magic 0x76a628/62c/630, weapon tier 0x76a634 + 8ch, the Panacea HP bonus
     // 0x76b8fc, the drop buffs 0x76b904/908, luck 0x76b90c, the buff timers 0x76c19c/1a0.

@@ -235,6 +235,16 @@ static int material_blend_mode(const DrawBatch& b) { return material_blend_mode(
 static bool material_zwrite(const DrawBatch& b) {
     return (b.mat_flags & 0x20000) == 0 && (b.mat_flags & 0x10) == 0;
 }
+// FUN_005faca0's pass byte 3 (subset bit 8): a material with flags 0x8040 (and not
+// 0x8000000, which goes to byte 4 first). A static GoMesh (type 0, FUN_00561f40 — the room
+// and its scene objects) queues that pass on render layer 0xb (0x5621eb..0x5621f7), which
+// FUN_005dfea0 flushes AFTER the actor sprite bodies (FUN_00473540: layer 6, or 9 with
+// +0x2a8) and the shadows (layer 8). Floor 2's water surfaces (20zwater3 0x104e, 20zzmizu3
+// 0x40104e) are such materials, so a submerged player shows through them.
+static bool room_late_layer(const DrawBatch& b) {
+    return (b.mat_flags & 0x8000000u) == 0 && (b.mat_flags & 0x8040u) != 0;
+}
+
 // oD0 = c16 * v2 (b_ndst1_trn / b_ndst2_trn, `mul oD0, c16, v2`) and c16.w is the per-draw
 // alpha, so a blended material's alpha reaches the pixel through the vertex alpha. Fold it
 // in once at load (the room uniform has no per-draw slot). Opaque materials never read it.
@@ -487,6 +497,11 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
         for (const ScrollBatch& sb : r.scrolls)
             std::printf("  [%u verts %+.4f,%+.4f/tick]", sb.vert_count, sb.vel_u, sb.vel_v);
         std::printf("\n");
+    }
+    {
+        std::size_t late = 0;
+        for (const DrawBatch& b : r.mesh.batches) late += room_late_layer(b) && b.index_count;
+        if (late) std::printf("    layer 0xb: %zu batches (drawn after the actors)\n", late);
     }
     // CopyDst: the UV-scroll integrator rewrites scrolling materials' vertices in
     // place each frame via wgpuQueueWriteBuffer, which requires it.
@@ -908,14 +923,18 @@ static void advance_scroll(Gpu& g, Room& room, int ticks) {
     }
 }
 
-static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureView depth) {
+// part 0: the whole room (headless / backgrounds). part 1: the room's layers 3 and 5 (the
+// frame's first pass, it clears). part 2: layer 0xb only, loaded over the actors drawn
+// between (room_late_layer).
+static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureView depth, int part = 0) {
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPURenderPassColorAttachment ca = {};
     ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    ca.loadOp = WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
+    ca.loadOp = part == 2 ? WGPULoadOp_Load : WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
     ca.clearValue = {0.055, 0.067, 0.086, 1.0};
     WGPURenderPassDepthStencilAttachment da = {};
-    da.view = depth; da.depthLoadOp = WGPULoadOp_Clear; da.depthStoreOp = WGPUStoreOp_Store;
+    da.view = depth; da.depthLoadOp = part == 2 ? WGPULoadOp_Load : WGPULoadOp_Clear;
+    da.depthStoreOp = WGPUStoreOp_Store;
     da.depthClearValue = 1.0f;
     WGPURenderPassDescriptor rp = {};
     rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
@@ -933,6 +952,7 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
         for (std::size_t bi = 0; bi < room.mesh.batches.size(); ++bi) {
             const DrawBatch& b = room.mesh.batches[bi];
             if (b.index_count == 0) continue;
+            if (part != 0 && room_late_layer(b) != (part == 2)) continue;
             const float ka = bi < room.batch_alpha.size() ? room.batch_alpha[bi] : 1.0f;   // the object's alpha
             if (ka <= 0.0f) continue;                       // FUN_005faca0: nothing at a = 0
             const int mode = material_blend_mode(b, b.mat_alpha * ka);

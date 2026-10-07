@@ -24,7 +24,7 @@ int main() {
     s.item_arr[6] = 1;
     s.hp_max = 78; s.hp_cur = 55.5f; s.exp = 1234.0f; s.level = 9; s.sp = 4321;
     s.scene = "s_1004";
-    s.pos_x = -12.25f; s.pos_z = 44.5f; s.yaw = 180.0f;
+    s.pos_x = -12.25f; s.pos_y = 2.0f; s.pos_z = 44.5f; s.yaw = 180.0f;
 
     const SaveRecord rec = to_record(s, "Water Prison 1F", "07/23/2026", "13:37:00");
     const std::vector<std::uint8_t> raw = rec.encode(0xDEADBEEFu, 0x1234ABCDu);
@@ -41,7 +41,8 @@ int main() {
          std::memcmp(t.item_arr, s.item_arr, sizeof s.item_arr) == 0 &&
          t.hp_max == s.hp_max && t.hp_cur == s.hp_cur && t.exp == s.exp &&
          t.level == s.level && t.sp == s.sp && t.scene == s.scene &&
-         t.pos_x == s.pos_x && t.pos_z == s.pos_z && t.yaw == s.yaw;
+         t.pos_x == s.pos_x && t.pos_y == s.pos_y && t.pos_z == s.pos_z && t.yaw == s.yaw &&
+         dec->f32(0x0076C140) == 2.0f;           // the snapshot y FUN_00443d70 stores
     const SaveMeta m = meta_of(*dec);
     ok = ok && m.character == 1 && m.difficulty == 2 && m.area == "Water Prison 1F" &&
          m.date == "07/23/2026" && m.time == "13:37:00";

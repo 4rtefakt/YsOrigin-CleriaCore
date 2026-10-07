@@ -1259,6 +1259,9 @@ title_again:
         game.g_flags[290] = num == 3009;
         game.g_flags[459] = num == 3103;
         game.g_flags[474] = num == 5080;
+        // Retail's own rule is this hard-coded list: 0x76a544 = 0, then a __stricmp of the map
+        // path against the 5 pointers at 0x68a20c ("s_20\s_2008\" .. "s_20\s_2015\", 0x6988e0..
+        // 0x698920) sets 2 [BYTES 0x43190e..0x431956]. No scene data marks a room underwater.
         water_mode = (num == 2008 || num == 2009 || num == 2010 || num == 2014 || num == 2015) ? 2 : 0;
         submerged = water_mode == 2;          // the factory / warp placement sets it, no transition
         wading = false;
@@ -1738,7 +1741,7 @@ title_again:
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
-        s.pos_x = feet.x; s.pos_z = feet.z;
+        s.pos_x = feet.x; s.pos_y = feet.y; s.pos_z = feet.z;   // FUN_00443d70 [not modelled] the +0x414 term
         s.yaw = std::atan2(face_dir.x, face_dir.z) * 180.0f / 3.14159265f;  // SEN-style degrees
         return s;
     };
@@ -1831,11 +1834,16 @@ title_again:
         animFrame = 0; shownFrame = -1;
         if (!s.scene.empty() && (force_scene || s.scene != room.name)) transition(s.scene);
         else reload_room();
-        // Position: the save's continue-snapshot x/z + facing; y re-grounds via the
-        // floor raycast (the engine does not save y either).
-        feet.x = s.pos_x; feet.z = s.pos_z;
-        const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
-        if (fl > kNoFloor) feet.y = fl;
+        // Position: the continue snapshot (0x76c13c/140/144) is the "load" warp's arrival
+        // (FUN_0042f5e0 0x42f95b..0x42f9cb -> 0x769fbc), placed by FUN_00434020 -> FUN_00459ff0
+        // like every arrival: the floor below the saved point, snapped within 1.5.
+        feet = {s.pos_x, placed_floor({s.pos_x, s.pos_y, s.pos_z}), s.pos_z};
+        // [H] not retail: CleriaCore saves written before y was stored hold 0 at 0x76c140; with no
+        // floor under (x, 0, z) re-ground them on the room's top surface as before.
+        if (s.pos_y == 0.0f && floor_at(phys_mesh(room), feet.x, feet.z, 0.0f) < -1.5f) {
+            const float fl = floor_at(phys_mesh(room), feet.x, feet.z, room.mesh.bmax.y + room_diag(room));
+            if (fl > kNoFloor) feet.y = fl;
+        }
         pv = VerticalState{}; pvel = {}; last_floor = feet.y;
         const float rad = s.yaw * 3.14159265f / 180.0f;
         face_dir = {std::sin(rad), 0, std::cos(rad)};
@@ -2581,8 +2589,13 @@ title_again:
         // Keep the player on the floor for the WHOLE cutscene, not just mid-step: Chr_Pos
         // teleports her to authored Y (sometimes below the floor) and she never falls while
         // the sim is frozen, so snap every frozen frame.
+        // The floor below her origin (the integrator's own floor ray, FUN_0045a510 / the step at
+        // `oy` below), not the room's top surface at that x/z: in a stacked room that is a roof
+        // or a closed door's top (S_2012's door_01 lifted a frozen arrival from y 2 to 10.5).
+        // Only a point with no floor under it at all falls back to the highest surface. [H]
         if (csMgr.world_frozen() || csHost.p_moving) {
-            const float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
+            float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + kOriginH);
+            if (fl <= kNoFloor) fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
             if (fl > kNoFloor) feet.y = fl;
         }
         // Cutscene NPCs spawn at authored heights (Shion at y~2) and never fall — keep
@@ -3146,6 +3159,8 @@ title_again:
     //   wheel=n               one tick of raw wheel delta (+-120 a notch)
     //   cursor                print the cursor manager's state
     //   exit=i                take SEN exit i (the door's own arrival + facing, as walking through it)
+    //   held=id               the held tool 0x76a62c (97 = the Water Dragon's Scales: O2 drains 1, not 10)
+    //   saveload              save here, round-trip the record, load it (apply_loaded) and print the feet
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
@@ -3399,6 +3414,14 @@ title_again:
             if (std::sscanf(cmd.c_str() + 5, "%f,%f,%d", &dx, &dz, &nn) == 3) { drive_wish = {dx, 0, dz}; drive_wish_n = nn; }
         } else if (cmd.rfind("bracelet=", 0) == 0) {   // bracelet=<item id>: the equipped bracelet 0x76a630
             inv.magic = std::atoi(cmd.c_str() + 9);
+        } else if (cmd.rfind("held=", 0) == 0) {       // held=<item id>: the Item page's held tool 0x76a62c (97 = the Scales)
+            inv.held = std::atoi(cmd.c_str() + 5);
+        } else if (cmd == "saveload") {                // save here, encode + decode the record, load it
+            const auto rec = SaveRecord::decode(to_record(capture_save(), "x", "01/01/2026", "00:00:00").encode(1u, 2u));
+            if (rec) {
+                apply_loaded(from_record(*rec), /*force_scene*/true);
+                std::printf("  [drive] loaded %s feet (%.3f, %.3f, %.3f)\n", room.name.c_str(), feet.x, feet.y, feet.z);
+            }
         } else if (cmd.rfind("hp=", 0) == 0) {         // hp=<n>: the player's HP (0 = the death)
             player.hp = std::atoi(cmd.c_str() + 3);
         } else if (cmd.rfind("sp=", 0) == 0) {         // sp=<n>: the SP wallet 0x76a75c
@@ -6855,7 +6878,7 @@ title_again:
         }
         have_vp = true;
         write_mvp(g, last_vp);
-        draw(g, room, view, depth);
+        draw(g, room, view, depth, 1);                     // render layers 3 / 5 (layer 0xb below)
         // Character billboard (play mode only; fly is a free debug camera). Draw the floor
         // shadow first, on the actual floor under the player (so it stays put during a jump).
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex) {
@@ -6899,6 +6922,7 @@ title_again:
             }
         }
         draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
+        draw(g, room, view, depth, 2);   // layer 0xb (the water surfaces) after the actors' layers 6/8/9
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         // Script-placed persistent effects (the barrier ward). Killed by op 0x119 when

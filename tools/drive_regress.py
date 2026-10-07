@@ -82,6 +82,36 @@ CASES = {
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(200, 2400, 12)) + "2410:speedrun=status;2420:quit",
         expect=["[speedrun] phase 1 split 0/8", "auto-split 0 'Velagunder' on boss gauge empty in S_1099",
                 "[speedrun] phase 1 split 1/8"]),
+    # FUN_00561f40 queues a 0x8040-flag material (floor 2's water surfaces) on render layer 0xb,
+    # flushed after the actor sprites (layers 6/9): S_2007's two water batches draw last, so a
+    # submerged player shows through them.
+    "water_layer": dict(
+        room="S_20/S_2008/S_2008",
+        drive="20:exit=0;40:quit",
+        expect=[">> entering S_2007", "layer 0xb: 2 batches (drawn after the actors)"]),
+    # Leaving S_2099 mid-intro (a frozen world) used to snap the arrival to the highest surface
+    # at that x/z: S_2012's closed door_01 top, y 10.5. The snap is now the floor below the origin.
+    "frozen_arrival_floor": dict(
+        room="S_20/S_2099/S_2099",
+        drive="20:exit=0;40:pos;50:quit",
+        expect=[">> entering S_2012", "arrival @ (28.0,2.0,21.0) [SEN]", "[cont] snapshot S_2012 (28.00, 2.00, 21.00)",
+                "feet (28.000, 2.000, 21.000)"]),
+    # Water mode 2 (the 0x68a20c room list): without the Scales held O2 drains 10 a step and the
+    # player drowns at maxHP/60 a step; holding them (0x76a62c == 0x61) drains 1 (WATER.md §3).
+    "drown_no_scales": dict(
+        room="S_20/S_2008/S_2008",
+        drive="600:pos;620:pos;700:quit",
+        expect=["O2 10 a255 hp 60 sub 1", "O2 0 a255 hp 41 sub 1", "[death] HP 0"]),
+    "scales_air": dict(
+        room="S_20/S_2008/S_2008",
+        drive="2:held=97;700:pos;710:quit",
+        expect=["O2 5292 a255 hp 60 sub 1"]),
+    # A load is the "load" warp to the snapshot (0x76c13c/140/144), placed by FUN_00459ff0: S_2014's
+    # door at y 36 stays at 36 (the old re-ground put it on the y 48.5 roof).
+    "saveload_floor": dict(
+        room="S_20/S_2008/S_2008",
+        drive="2:held=97;20:exit=1;50:saveload;60:quit",
+        expect=[">> entering S_2014", "arrival @ (1.0,36.0,0.0) [SEN]", "loaded S_2014 feet (1.000, 36.000, 0.000)"]),
 }
 
 

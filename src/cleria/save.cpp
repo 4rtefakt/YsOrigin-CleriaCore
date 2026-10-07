@@ -114,6 +114,7 @@ SaveRecord to_record(const SaveState& s, const std::string& area_line,
     r.set_i32(0x0076A760, s.level);
     r.set_str(0x0076A3B4, s.scene, 0x20);
     r.set_f32(0x0076C13C, s.pos_x);
+    r.set_f32(0x0076C140, s.pos_y);
     r.set_f32(0x0076C144, s.pos_z);
     r.set_f32(0x0076C148, s.yaw);
     r.set_i32(0x0076A628, s.accessory);
@@ -172,6 +173,7 @@ SaveState from_record(const SaveRecord& r) {
     s.level = r.i32(0x0076A760);
     s.scene = r.str(0x0076A3B4, 0x20);
     s.pos_x = r.f32(0x0076C13C);
+    s.pos_y = r.f32(0x0076C140);
     s.pos_z = r.f32(0x0076C144);
     s.yaw = r.f32(0x0076C148);
     s.accessory = r.i32(0x0076A628);
