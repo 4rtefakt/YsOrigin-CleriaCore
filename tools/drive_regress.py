@@ -751,6 +751,37 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=70,6;60:every=60,1500,near=70,6;"
               "61:every=60,1500,bullets;1500:quit",
         expect=["[bullet] kind 1 effect 494 age 4"]),
+    # Issue #59: an engaged monster keeps the player on S_1004's slope (feet y 7 -> -2 over the run). The
+    # player is re-placed only where the monster can see it (seen=), walks off, and the M170 Vilvan
+    # never drops to phase 1 (CLERIA_LOS reports any engaged -> phase-1 drop with its blocking tris).
+    "los_keep_slope": dict(
+        room="S_10/S_1004/S_1004",
+        env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#17,4;60:every=200,1300,seen=#17,5;"
+              "100:every=200,1300,move=1,0.5,40;160:every=200,1300,move=-0.5,1,40;1300:quit",
+        expect=["seen #17 placed", "[ai] #17 cast 17 phase 2", "seen #17 placed feet (9.58, 0.00",
+                "[ai] #17 cast 17 phase 2"],
+        absent=["[los]"]),
+    # Khonsclard (boss04, build/boss_re/KHONSCLARD.md): the intro (START), flag 156, two pods rise; breaking
+    # them downs the boss and opens the core (jump attacks); every 20 % adds a pod; the kill writes 223 and
+    # the EXP, and the 1/340 fade destroys the boss ~339 frames later. Level 50 and Damage x10 keep it short.
+    "khonsclard_fight": dict(
+        room="S_40/S_4099/S_4099",
+        env={"CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=10;20:at=-2.8,23.3,0;"
+              "40:every=20,700,ok;720:every=40,3700,boss4;728:every=40,3700,atk;3700:quit",
+        expect=["[boss04] Khonsclard: body 3000, pods 600", "clip START fr", "f156 1", "states 00", "down 1 ",
+                "band 2", "band 5", "flag 223 = 1", "EXP 328", "destroyed"]),
+    # Pictimos (PICTIMOS.md): walk into BATTLE.XSO's event box, the 700-frame intro (RAKKATYUU / TYAKUTI), the
+    # fight from BATTLE_START, ZOROMEKA's 27 Chryolos below half HP (m220_boss), the guts at HP 0 with live
+    # summons (survives at 1, absorbs them), the death: EXP, flag 224 at b4 500 and the destroy.
+    "pictimos_fight": dict(
+        room="S_50/S_5099/S_5099",
+        env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
+              "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;4100:quit",
+        expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
+                "sect ZOROMEKA", "/27 |", "sect DEAD", "guts 1 waves", "EXP (lv 40)", "flag 224 = 1", "destroyed"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,

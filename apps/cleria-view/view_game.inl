@@ -3468,6 +3468,10 @@ title_again:
     int drive_boss_entry = -1;               // drive bossentry=k: stand on body entry k (view_boss01_touch.inl)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
+    std::unique_ptr<Boss04> boss4;           // Khonsclard's brain (view_boss04.inl)
+    std::function<bool(const std::string&)> boss4_drive;   // drive boss4[=i] (view_boss04.inl)
+    std::unique_ptr<Boss05> boss5;           // Pictimos's brain (view_boss05.inl)
+    std::function<bool(const std::string&)> boss5_drive;   // drive boss5[=i] (view_boss05.inl)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     std::vector<DriveCmd> drive_more;       // `rep=` expansions, merged after the tick's commands (audit aid)
@@ -3509,6 +3513,8 @@ title_again:
         if (speedrun_drive(cmd, shell)) return;          // speedrun=... (view_speedrun.inl)
         if (lua_drive(cmd)) return;                      // lua=<command> <args> (view_lua.inl)
         if (abil_drive(cmd)) return;                     // view_abilities.inl
+        if (boss4_drive && boss4_drive(cmd)) return;     // view_boss04.inl
+        if (boss5_drive && boss5_drive(cmd)) return;     // view_boss05.inl
         if (hud_drive(cmd)) return;                      // view_hudstate.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
@@ -3662,6 +3668,31 @@ title_again:
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
                 std::printf("  [drive] near cast %d id %d hp %.0f flags 156=%d 130=%d phase %d sub %d ai %d stem %s loaded %d pos (%.1f,%.1f,%.1f)\n", cast, a.instance_id, a.hp,
                             game.g_flags[156], game.g_flags[130], a.ai.phase(), a.ai.i(0x72c), a.ai_index, casts.sprite_stem(a.cast_id).c_str(), int(efx.kinds.count(casts.sprite_stem(a.cast_id))), a.pos.x, a.pos.y, a.pos.z);
+                break;
+            }
+        } else if (cmd.rfind("seen=", 0) == 0) {       // seen=#id[,dist]: as near=, but only to a spot the actor
+            // can see (its origin -> the player's origin clear, the floor within 2.5 of its own): near= puts the
+            // player on the TOP floor at (x, z), which can be past a wall or up a cliff (issue #59's drops). Audit aid.
+            const int id = std::atoi(cmd.c_str() + 5 + (cmd.size() > 5 && cmd[5] == '#'));
+            float nd = 3.0f;
+            if (const std::size_t cm = cmd.find(','); cm != std::string::npos) nd = float(std::atof(cmd.c_str() + cm + 1));
+            for (const Actor& a : world.actors()) {
+                if (a.instance_id != id || a.is_player()) continue;
+                const Vec3 ao{a.pos.x, a.pos.y + a.height, a.pos.z};
+                bool placed = false;
+                for (int k = 0; k < 16 && !placed; ++k) {
+                    const float an = float(k) * 0.3926991f + std::atan2(feet.z - a.pos.z, feet.x - a.pos.x);
+                    const float x = a.pos.x + std::cos(an) * nd, z = a.pos.z + std::sin(an) * nd;
+                    const float fl = floor_at(phys_mesh(room), x, z, a.pos.y + 2.5f);
+                    if (fl <= kNoFloor || std::fabs(fl - a.pos.y) > 2.5f) continue;
+                    if (segment_blocked(phys_mesh(room), ao, {x, fl + kOriginH, z})) continue;
+                    feet = {x, fl, z};
+                    face_dir = {-std::cos(an), 0.0f, -std::sin(an)};
+                    facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                    placed = true;
+                }
+                std::printf("  [drive] seen #%d %s feet (%.2f, %.2f, %.2f)\n", id, placed ? "placed" : "no clear spot",
+                            feet.x, feet.y, feet.z);
                 break;
             }
         } else if (cmd.rfind("duel=", 0) == 0) {       // duel=cast: as near= + atk, only while a duel is live
@@ -3894,6 +3925,8 @@ title_again:
             inv.magic = std::atoi(cmd.c_str() + 9);
         } else if (cmd.rfind("held=", 0) == 0) {       // held=<item id>: the Item page's held tool 0x76a62c (97 = the Scales)
             inv.held = std::atoi(cmd.c_str() + 5);
+        } else if (cmd.rfind("tier=", 0) == 0) {       // tier=n: the character's weapon tier inv.tier[ch] (audit aid; a cheat)
+            inv.tier[std::clamp(character, 0, 3)] = std::clamp(std::atoi(cmd.c_str() + 5), 0, 10);
         } else if (cmd.rfind("acc=", 0) == 0) {        // acc=<item id>: the equipped accessory 0x76a628 (54 = the Mask of Eyes; -1 none)
             inv.accessory = std::atoi(cmd.c_str() + 4);
             (void)player_stats();                         // FUN_00420c40 -> FUN_004208f0: 0x76bbac
@@ -4867,6 +4900,8 @@ title_again:
                         g_cam_out.eye.y, g_cam_out.eye.z, g_cam_out.target.x, g_cam_out.target.y, g_cam_out.target.z);
         }
     };
+    #include "view_boss04.inl"                // Khonsclard's host (KHONSCLARD.md)
+    #include "view_boss05.inl"                // Pictimos's host (PICTIMOS.md)
 
     // ---- the player's death and the game over (build/gameflow_re/GAMEFLOW.md §3.4) ---------
     // FUN_0046fba0 (and FUN_0046f810) on HP < 1 without flag 133: the first dead step sets
@@ -5480,6 +5515,8 @@ title_again:
             boss_tick();
             boss2_tick();
             boss3_tick();
+            boss4_tick();
+            boss5_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
                 if (!m.dirty_pos && !m.dirty_pose && !m.dirty_alpha) continue;
@@ -6034,6 +6071,7 @@ title_again:
             // heading at speed x anime_Movable. STAND-IN for non-M100 casts: every enemy
             // runs the M100 brain until its own is ported (build/audit/ai_bosses.md).
             #include "view_revive.inl"                // the revive family's handler (REVIVE.md)
+            #include "view_los.inl"                   // CLERIA_LOS: engaged -> phase 1 reports (issue #59)
             {
                 const int d = game.g_flags[201] ? 3 : (difficulty - 2);   // -2 v.easy .. 2 nightmare
                 // The handlers' off-screen test FUN_0045d3c0: a SPHERE of 5.0 (0x6bd868) x 0.5
@@ -6171,6 +6209,7 @@ title_again:
                     env.target_vel = {pvel.x, 0, pvel.z};
                     env.target_alive = player.hp >= 1;
                     env.target_grounded = pv.grounded;
+                    boss5_target(*en, env);                          // the +0x888 override (view_boss05.inl)
                     env.was_hit = e.hit;
                     env.took_damage = e.dmg_hit;
                     env.group_tag = en->tag.tagged();
@@ -6212,7 +6251,9 @@ title_again:
                     e.dmg_hit = false;
                     env.hp = en->hp; env.max_hp = en->max_hp; env.section = e.avm.section();
                     const EnemyBrain own = enemy_brain_for(en->ai_index);
+                    const int phase_before = e.actor->ai.phase();
                     const AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
+                    if (phase_before == 2 && e.actor->ai.phase() == 1 && los_log) los_report(*en, env);   // view_los.inl
                     // The brain's own writes to its HP (+0x98) / EXP (+0xb0), and its spawns.
                     if (o.set_hp >= 0) en->hp = o.set_hp;
                     en->exp_reward *= o.exp_scale;
@@ -6930,6 +6971,8 @@ title_again:
                             std::printf("  hit gelaldy part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",
                                         pi, bp.def, dmg, bp.hp, boss3->hp());
                     }
+                #include "view_boss04_hit.inl"     // Khonsclard's parts (KHONSCLARD.md §A.2.3)
+                #include "view_boss05_hit.inl"     // Pictimos's parts (PICTIMOS.md §P1.4.1)
             }
             // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
             // sweeps. FUN_004281c0 updates the locus pool after the player and the actors; a locus with

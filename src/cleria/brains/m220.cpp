@@ -8,9 +8,8 @@
 // 1 / max(4 - d, 2). Only while the target faces it (and not every (15 - 3d)-th tick): inside 2.55 a backstep
 // (within 50 ticks of a forward hop) or a forward hop, and inside 5 a strafe — standing, turning to face it and
 // backpedalling on knock channel 2 at walk speed, with 10% side hops.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the boss-fight brain FUN_004ab840 and the handler's
-// boss death burst (SE 11 + EF2 67 when +0x130 & 0x2000) — [STAND-IN] the normal brain runs in a boss fight
-// until boss05 (Pictimos) lands. [approx] the side hop's unreachable "stale" side takes the target vector.
+// [not modelled] the keep-out box restore (FUN_0042dc90); the handler's boss death burst (SE 11 + EF2 67 when
+// +0x130 & 0x2000). The boss-fight brain FUN_004ab840 is m220b.cpp (m220_boss). [approx] the side hop's unreachable "stale" side takes the target vector.
 #include <algorithm>
 #include <cmath>
 
@@ -20,6 +19,7 @@
 namespace cleria::brains {
 
 AiOut m220(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+    if (e.boss_fight) return m220_boss(a, p, e);                   // 0x4ac8cc: g_flags[156] != 0 (m220b.cpp)
     using ai::r15;
     AiOut out;
     if (e.launched) return out;

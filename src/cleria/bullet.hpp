@@ -10,7 +10,7 @@
 // It also hosts XSO op 0x112's falling probe (GoXx type 0x16, not a bullet; §3.14), since it
 // shares the bullet's Env (the player origin, the terrain ray) and effect system.
 //
-// [not modelled] kinds 3, 5, 6, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x16 / 0x1b / 0x1e / 0x1f /
+// [not modelled] kinds 3, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x16 / 0x1b / 0x1e / 0x1f /
 // 0x29 / 0x2a (BULLETS.md §10.6; 0x2a the boomerang, M640.md §7) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
 // the kind-0x10/0x23 proxy victim (the player batting a drip); the struck test (§4.4, boss
 // effect ids); the effect-id special cases (0x82 rtype, 0x1e7 random scale, 0x20/0x15 Adol
