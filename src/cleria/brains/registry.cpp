@@ -56,6 +56,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 15: return &brains::m220;   // M220 Chryolos (the normal brain)
         case 55: return &brains::m620;   // M620 Ogacha
         case 56: return &brains::m630;   // M630 Kelmarel
+        case 59: return &brains::m660;   // M660 Urobass
         case 21: return &brains::m280;   // M280 Chups (lifesteal: the host's hit site)
         case 22: return &brains::m290;   // M290 Bicmobre (death bombs: view_revive.inl)
         case 69: return &brains::m760;   // M760 Raldisch
