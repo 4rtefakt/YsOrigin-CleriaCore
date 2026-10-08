@@ -3865,7 +3865,7 @@ title_again:
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
             }
         } else if (cmd == "scripts") {                // the live scripts and their pcs
-            std::printf("  [drive]   frozen %d fix %d/%d\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1]);
+            std::printf("  [drive]   frozen %d fix %d/%d popups %zu\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1], popups.size());
             for (const auto& li : csMgr.live)
                 std::printf("  [drive]   script %s pc %u wait %d%s\n", li.name.c_str(), li.pc, li.wait, li.finished ? " (done)" : "");
         } else if (cmd == "shell" || cmd.rfind("shell=", 0) == 0 || cmd == "shellback") {
@@ -5592,6 +5592,19 @@ title_again:
                 } else if (avm.section() == 0 || avm.section() == 1 || p_motion_applied >= 0) {
                     p_motion_applied = -1;
                     avm.set_section(2, /*force*/true); avm.tick();
+                } else {
+                    // A Fix does not stop her motion (issue #74): FUN_0046fba0 still calls FUN_0046f980 on
+                    // every real step, which under a Fix (0x75ad90 + 0x75ad94 != 0) zeroes the input record
+                    // (+0x508..+0x514) and runs the mover FUN_00465170 as usual [EXPORT 0046f980.c L24-51].
+                    // So the section in progress (a swing, a shot, a hurt) plays to its `end` and chains
+                    // to idle, the dash 0x10a falls back to locomotion (00465170.c:1935-1943: idle with
+                    // no input) and idle keeps animating. Its sounds and bullets fire as the ASO issues
+                    // them. [approx] GenerateCollision / GenerateEffect / GenerateLocus of a section
+                    // caught by a Fix are not spawned, and an airborne player still hangs (no mover here).
+                    if (avm.section() == 0x10a) avm.set_section(2, /*force*/true);
+                    avm.tick();
+                    spawn_player_bullets();
+                    for (const AsoVm::SoundEvent& se : avm.sounds()) audio.play(se.id, kSfxAnimVol);
                 }
             }
             // Her sprite under a Fix: the pinned pattern, else what the ASO shows.
@@ -5741,6 +5754,12 @@ title_again:
             actor_mats[13] = ef2sim::translation(feet.x, feet.y + kOriginH, feet.z);
             fxsim.step();
             fxsim.sweep();
+            // The GoPopup step (damage numbers, GUARD, pickup texts) gates on the menu byte 0x74ab8f and
+            // the real-step byte 0x74c0f0 only, never on the fix counters [BYTES 0x565170..0x56517a;
+            // EXPORT 00565170.c L17, L24]: a number on screen rises and fades through a cutscene (#74).
+            for (Popup& pp : popups) step_popup(pp);
+            popups.erase(std::remove_if(popups.begin(), popups.end(), [](const Popup& pp) { return pp.dead; }),
+                         popups.end());
             // The chest item (0x116, kind 2) rises and fades under the opening script's own Fix:
             // S_BOXnn places it, then Wait_Time(60) / Wait_Time(210) inside Fix(1), across exactly
             // its rise (30..90) and fade (176..210). [H-high] from that timing; its pool's own

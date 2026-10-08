@@ -1180,6 +1180,18 @@ CASES.update({
                 "'Player_Light2' id 63 alpha 1.000 -> 1.000 attach 1 at (0.00, -1.92, -23.56)"]),
 })
 
+# The Hugo playtest batch of 2026-10-08 (issues #69..#75).
+CASES.update({
+    # #74: a Fix does not stop the player's motion or the GoPopups (FUN_0046f980 zeroes the input and still
+    # runs the mover; FUN_00565170 has no fix gate). Hugo's second shot (0x103) and the first shot's damage
+    # number are live when @ItemCannotUse takes its Fix: the section plays out to idle, the number ages out.
+    "fix_motion_popups": dict(
+        room="S_10/S_1002/S_1002", char="2", env=_LOCK,
+        drive="20:near=17;21:atk;36:atk;39:run=@itemcannotuse;40:scripts;41:pos;150:scripts;151:pos;160:quit",
+        expect=["t40 scripts", "frozen 1 fix 0/1 popups 1", "sec 0x103", "t150 scripts", "frozen 1 fix 0/1 popups 0",
+                "sec 0x2"]),
+})
+
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
