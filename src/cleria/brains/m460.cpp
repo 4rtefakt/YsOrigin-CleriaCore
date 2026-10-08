@@ -12,8 +12,7 @@
 // The handler's extras live here too: the partner HP link, the hit counter, the bats'
 // crowding fade, the unconditional arena clamp, Durable after lim(d) hits, and (via the
 // death hook) killing the flock when it dies.
-// [not modelled] the keep-out box restore (FUN_0042dc90); FUN_004202e0's stat recompute at
-// INIT (the spawn already computed this cast's stats); effect attachment (FUN_00451c20 —
+// [not modelled] the keep-out box restore (FUN_0042dc90); effect attachment (FUN_00451c20 —
 // the claw slashes are placed, not parented); the player-dead helper's forced section 2;
 // the R() draw FUN_00459410 may make inside a child spawn.
 #include <algorithm>
@@ -103,6 +102,8 @@ AiOut m460(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     };
 
     if (a.phase() == 0) {                                          // ---- INIT
+        // 0x4c71a1..0x4c71b7: FUN_004202e0(CI[50]+0x60 - 0xe, level = +0xc8): the script's Chr_SetStatus level.
+        w->restat(A, 50, A.level);
         if (ch == 2) {
             A.def *= 1.05f; A.hp *= 1.05f; A.atk += 5.0f;
             if (d > 0) { A.atk *= 0.98f; A.def *= 0.965f; A.hp *= 0.965f; }

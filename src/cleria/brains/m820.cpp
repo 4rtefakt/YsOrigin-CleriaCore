@@ -32,7 +32,7 @@
 //   0xa0  the jump-dodge (section 3), M830's candidate tables.
 // The GoEffect-pool scan reads Hugo's live effects 0x86 / 0x87 / 0x82 / 0x89 / 0x90 through
 // AiWorld::for_each_effect (they drive the dodge reactions; build/event_re/DUELS.md §7).
-// [not modelled] the keep-out box restore (FUN_0042dc90); FUN_004202e0's stat recompute at INIT; +0x64 / +0x4be / +0x3c0
+// [not modelled] the keep-out box restore (FUN_0042dc90); +0x64 / +0x4be / +0x3c0
 // writes; the zoom blur (0x76a550 / 0x76a554 / 0x7b2488 + FUN_005e0590 centre) on the big
 // slash and the super.
 #include <cmath>
@@ -132,7 +132,8 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
     switch (a.phase()) {
         case 0: {                                                   // ---- INIT (0x4dfc98)
             ai::init(a, p, e);                                      // FUN_004782f0 + EI[72] +0x90..
-            // [not modelled] FUN_004202e0(level): the spawn already computed this cast's stats.
+            // 0x4dfcbc: FUN_004202e0(CI[+0x124]+0x60 - 0xe, level = +0xc8): the script's Chr_SetStatus level.
+            if (e.world) e.world->restat(A, A.cast_id, A.level);
             a.i(0x70c) = 0;
             a.i(0x728) = 0;
             a.set_v(0x808, e.self);

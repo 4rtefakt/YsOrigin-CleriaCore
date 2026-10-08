@@ -207,4 +207,16 @@ struct GameInfo;
 EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e);
 EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e, int level);   // FUN_004202e0 at a level
 
+// The game flags FUN_004202e0's tail reads (0x42060e..0x420865).
+struct StatMode {
+    int hard = 0;            // g_flags[144] (0x76bb5c): 1 Hard, 2 Nightmare
+    bool easy = false;       // g_flags[143] (0x76bb58)
+    bool very_easy = false;  // g_flags[203] (0x76bc48)
+    bool boss_rush = false;  // g_flags[193] (0x76bc20)
+    int retries = 0;         // g_flags[196] (0x76bc2c)
+};
+// The whole of FUN_004202e0 for `cast_id` (edx = cast_id - 14) at `level` (0 = the record's own): the curve
+// stats, then the difficulty tail. [not modelled] +0xac (level * EI+0x20 + EI+0x24), +0xc4, byte +0xcc.
+EnemyStats enemy_restat(const GameInfo& gi, const Enemy& e, int cast_id, int level, const StatMode& m);
+
 }  // namespace cleria

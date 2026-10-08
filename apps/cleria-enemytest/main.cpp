@@ -314,6 +314,79 @@ int main(int argc, char** argv) {
                   std::to_string(ws.def));
     }
 
+    // ---- FUN_004202e0 whole (enemy_restat): the rival duels' INIT re-stat --------
+    // build/audit/S6099_DUELS.md §2: the floor-6 rematches at the scripts' level 48, and the tail
+    // (0x42060e..0x420865). Kishgal's and Toal's Normal HP / STR / DEF are also build/wiki_re/wiki.json's.
+    {
+        const Enemy *k = et.get(172), *t = et.get(168), *h = et.get(167), *rif = et.get(14);
+        check(k && t && h && rif, "the duel casts 172 / 168 / 167 have ENEMYINFO records", "");
+        if (k && t && h && rif) {
+            auto is = [](const EnemyStats& s, float hp, float atk, float def, float exp) {
+                return s.max_hp == hp && s.atk == atk && s.def == def && s.exp == exp;
+            };
+            auto str = [](const EnemyStats& s) {
+                return std::to_string(s.max_hp) + " / " + std::to_string(s.atk) + " / " + std::to_string(s.def) +
+                       " / " + std::to_string(s.exp);
+            };
+            const StatMode normal;
+            const EnemyStats ks = enemy_restat(gi, *k, 172, 48, normal), ts = enemy_restat(gi, *t, 168, 48, normal),
+                             hs = enemy_restat(gi, *h, 167, 48, normal);
+            check(is(ks, 6249, 251, 222, 14348), "M860 Kishgal lv 48 Normal: 6249 / 251 / 222 / 14348", str(ks));
+            check(is(ts, 7431, 247, 248, 5532), "M820 Toal lv 48 Normal: 7431 / 247 / 248 / 5532", str(ts));
+            check(is(hs, 3349, 217, 240, 5532), "M810 Hugo lv 48 Normal: 3349 / 217 / 240 / 5532", str(hs));
+            // M810's INIT under flag 231 (0x4d7ec2..0x4d7f6c, d = 0) and its aura tick (0x4d9bc6): the fought values.
+            check(hs.max_hp * 1.25f == 4186.25f && hs.atk - 1.5f + 31.0f + 2.5f == 249.0f && hs.def + 19.0f == 259.0f &&
+                      hs.exp * 4.0f == 22128.0f,
+                  "M810's INIT on top: 4186.25 / 249 / 259 / 22128", str(hs));
+            check(ks.exp + 7500.0f == 21848.0f && ts.exp + 16000.0f == 21532.0f,
+                  "M860 / M820 EXP after their INIT's 179 bonus: 21848 / 21532", "");
+            StatMode hard, night; hard.hard = 1; night.hard = 2;
+            const EnemyStats kh = enemy_restat(gi, *k, 172, 48, hard), kn = enemy_restat(gi, *k, 172, 48, night);
+            check(kh.max_hp == 6249.0f * 1.2f && kn.max_hp == 9373.5f && kh.atk == 251 && kn.def == 222,
+                  "Hard / Nightmare: max HP x1.2 / x1.5 only (Kishgal 7498.8 / 9373.5)", str(kh) + " ; " + str(kn));
+            check(enemy_restat(gi, *t, 168, 48, hard).max_hp == 7431.0f * 1.2f &&
+                      enemy_restat(gi, *t, 168, 48, night).max_hp == 11146.5f &&
+                      enemy_restat(gi, *h, 167, 48, hard).max_hp == 3349.0f * 1.2f &&
+                      enemy_restat(gi, *h, 167, 48, night).max_hp == 5023.5f,
+                  "Hard / Nightmare: Toal 8917.2 / 11146.5, Hugo 4018.8 / 5023.5 before his x1.25", "");
+            // The duel casts' own Easy / Very Easy branch, with the retry count (flag 196) outside boss rush.
+            StatMode easy; easy.easy = true; easy.retries = 7;
+            EnemyStats s = enemy_restat(gi, *k, 172, 48, easy);
+            check(is(s, 6249, 251 - 3, 222 - 1 - 3, 14348), "duel cast, Easy, 7 retries: ATK - 3, DEF - 1 - 3", str(s));
+            easy.retries = 25;
+            s = enemy_restat(gi, *k, 172, 48, easy);
+            check(is(s, 6249, 251 - 15, 222 - 1 - 15, 14348), "duel cast, Easy, 25 retries: ATK - 15, DEF - 1 - 15", str(s));
+            easy.boss_rush = true;
+            s = enemy_restat(gi, *k, 172, 48, easy);
+            check(is(s, 6249, 251, 221, 14348), "duel cast, Easy, boss rush: DEF - 1 only", str(s));
+            StatMode ve; ve.very_easy = true; ve.easy = true; ve.retries = 16;      // 16^1.25 = 32
+            s = enemy_restat(gi, *k, 172, 48, ve);
+            check(is(s, 6249 * 0.75f, 251 - 1 - 32, 222 - 2 - 32, 14348),
+                  "duel cast, Very Easy, 16 retries: ATK - 1 - 32, DEF - 2 - 32, HP x0.75", str(s));
+            ve.boss_rush = true;
+            s = enemy_restat(gi, *k, 172, 48, ve);
+            check(is(s, 6249 * 0.75f, 250, 220, 14348), "duel cast, Very Easy, boss rush: ATK - 1, DEF - 2, HP x0.75", str(s));
+            // Every other cast: Very Easy ATK - 10, DEF - 10, HP x0.75; Easy ATK - 5, DEF - 10; the floors at 1.
+            const EnemyStats r0 = enemy_restat(gi, *rif, 14, 0, normal);
+            StatMode e2; e2.easy = true; e2.retries = 30;
+            StatMode v2; v2.very_easy = true; v2.easy = true;
+            const EnemyStats re = enemy_restat(gi, *rif, 14, 0, e2), rv = enemy_restat(gi, *rif, 14, 0, v2);
+            check(r0.max_hp == enemy_stats(gi, *rif).max_hp && r0.atk == enemy_stats(gi, *rif).atk &&
+                      re.atk == std::max(1.0f, r0.atk - 5.0f) && re.def == std::max(1.0f, r0.def - 10.0f) &&
+                      re.max_hp == r0.max_hp && rv.atk == std::max(1.0f, r0.atk - 10.0f) &&
+                      rv.def == std::max(1.0f, r0.def - 10.0f) && rv.max_hp == r0.max_hp * 0.75f,
+                  "a plain cast (M100): Easy ATK - 5 / DEF - 10, Very Easy - 10 / - 10 and HP x0.75, floors at 1",
+                  str(r0) + " ; " + str(re) + " ; " + str(rv));
+            // M360 (raw 0x1a) and M460 (raw 0x24) are in the duel list; cast 166 (raw 0x98) is not.
+            const Enemy *j = et.get(40), *v = et.get(50), *y = et.get(166);
+            StatMode e0; e0.easy = true;
+            check(j && v && y && enemy_restat(gi, *j, 40, 29, e0).atk == enemy_restat(gi, *j, 40, 29, normal).atk &&
+                      enemy_restat(gi, *v, 50, 5, e0).atk == enemy_restat(gi, *v, 50, 5, normal).atk &&
+                      enemy_restat(gi, *y, 166, 48, e0).atk == enemy_restat(gi, *y, 166, 48, normal).atk - 5.0f,
+                  "the duel list is casts 167..172, 40 and 50", "");
+        }
+    }
+
     // ---- the game's own MONSTER JOURNAL: the only EXTERNAL check we have ------
     //
     // Every other test here validates our C++ against our Python -- both reading the

@@ -607,7 +607,9 @@ CASES = {
 # The story duels on floors 1-3 (build/event_re/DUELS.md), each played from the room's event box through
 # its cutscene (`ok` every 20 ticks), the fight (`duel=<cast>`: near + attack while 156 = 1 and the world
 # is not frozen) and the scripted outcome. Lockstep (one tick a frame) keeps the long runs short and
-# deterministic; CLERIA_LEVEL picks how the fight goes.
+# deterministic; CLERIA_LEVEL picks how the fight goes. The opponents' stats are FUN_004202e0's at the script's
+# level (each brain's INIT re-stat, build/audit/S6099_DUELS.md §2), not Chr_SetStatus's 200 / 300 HP: the first
+# `[duel]` line of a case pins them (HP, and `| lv .. max .. atk .. def .. exp ..`).
 _S1080 = "21:move=0,-1,300;320:every=20,{end},ok;321:every=7,{end},duel={cast};"
 _S3080 = "20:at=-12,36,0;30:move=0,1,30;80:every=20,{end},ok;81:every=7,{end},duel={cast};"
 _LOCK = dict(CLERIA_DRIVE_LOCKSTEP="1")
@@ -616,63 +618,93 @@ CASES.update({
     "duel_s1080_vagullion": dict(
         room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="30"),
         drive=_S1080.format(end=11000, cast=50) + "11000:dflags;11001:quit",
-        expect=["[duel] t", "cast 50 hp 200/200", "flags 130=0 131=0 133=0 156=0 174=0 230=1 232=0 311=1"]),
+        expect=["[duel] t", "cast 50 hp 1860/1860 player hp 227 | lv 5 max 1860 atk 56 def 43 exp 526",
+                "flags 130=0 131=0 133=0 156=0 174=0 230=1 232=0 311=1"]),
     # D1 (build/audit/ROUTE_F13.md): the long Vagullion fight, through phase 4's dissolve / recall /
-    # re-scatter cycles and the split below half HP, to its death at about t9200 (Lv 2; the shell's
-    # Damage taken 0 keeps Yunica up, no flag is forced). Before M970's phase-4 box clamp and the
+    # re-scatter cycles and the split below half HP, to its death at about t10900 (Lv 5, his own level, against
+    # his retail HP 1860; the shell's Damage taken 0 keeps Yunica up, no flag is forced). Before M970's phase-4 box clamp and the
     # sweep's edge / embedded-face fixes a bat stuck over the railing or in a wall pillar never docked,
     # M460's recall (sub 0x14) waited for it forever and 156 stayed 1 (a softlock).
     "duel_s1080_vagullion_long": dict(
-        room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="2"),
-        drive=_S1080.format(end=10500, cast=50) + "330:opt=DamageTaken=0;7000:dflags;10500:dflags;10501:quit",
-        expect=["[access] opt DamageTaken=0", "cast 50 hp 200/200", "flags 130=0 131=0 133=0 156=1 174=0 230=0",
+        room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="5"),
+        drive=_S1080.format(end=12000, cast=50) + "330:opt=DamageTaken=0;7000:dflags;12000:dflags;12001:quit",
+        expect=["[access] opt DamageTaken=0", "cast 50 hp 1860/1860", "flags 130=0 131=0 133=0 156=1 174=0 230=0",
                 "flags 130=0 131=0 133=0 156=0 174=0 230=1 232=0 311=1"],
         absent=["[death]"]),
     # S_1080 Hugo: Epona (M850, Battle_Hugo) -> the post-duel scene (Mask of Eyes) -> 230, 311.
     "duel_s1080_epona": dict(
         room="S_10/S_1080/S_1080", char="2", env=dict(_LOCK, CLERIA_LEVEL="30"),
         drive=_S1080.format(end=12000, cast=171) + "12000:dflags;12001:quit",
-        expect=["[duel] t", "cast 171 hp 190/190", "156=0 174=0 230=1 232=0 311=1"]),
+        expect=["[duel] t", "cast 171 hp 796/796", "| lv 5 max 796.1 atk", "156=0 174=0 230=1 232=0 311=1"]),
     # S_1080 Toal: Galleon (M830, Battle2) stops at HP 1 (his low-HP chain) -> 174 = 1, 230, 311.
     "duel_s1080_galleon": dict(
         room="S_10/S_1080/S_1080", char="3", env=dict(_LOCK, CLERIA_LEVEL="30"),
         drive=_S1080.format(end=12000, cast=169) + "12000:dflags;12001:quit",
-        expect=["[duel] t", "cast 169 hp 200/200", "156=0 174=1 230=1 232=0 311=1"]),
+        expect=["[duel] t", "cast 169 hp 592/592", "| lv 5 max 592 atk 58 def 57 exp 744", "156=0 174=1 230=1 232=0 311=1"]),
     # S_1080 is not losable (no 133): a KO is the game over; Retry re-enters at Battle_1's SaveContData
-    # (205 = 1), whose root branch restarts the duel.
+    # (205 = 1), whose root branch restarts the duel: Chr_SetStatus's 200 again, then the INIT re-stat again.
     "duel_s1080_gameover": dict(
         room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="1"),
         drive=_S1080.format(end=4900, cast=50) + "4700:hp=0;4900:quit",
-        expect=["cast 50 hp 200/200", "[death] HP 0", "[gameover] chose retry", ">> entering S_1080",
-                "[gameover] Retry -> S_1080", "cast 50 hp 200/200"], absent=["[duel] lost"]),
+        expect=["cast 50 hp 1860/1860", "[death] HP 0", "[gameover] chose retry", ">> entering S_1080",
+                "[gameover] Retry -> S_1080", "cast 50 hp 200/200", "| lv 5 max 1860 atk 56"], absent=["[duel] lost"]),
     # S_3080 Yunica: Kishgal (M860) ends the fight at half HP in this room -> 174 = 1 -> the Silver
     # Harmonica scene -> 232 = 1 and ChangeScene to S_1000.
     "duel_s3080_kishgal": dict(
-        room="S_30/S_3080/S_3080", char="1", env=dict(_LOCK, CLERIA_LEVEL="24"),
-        drive=_S3080.format(end=14000, cast=172) + "8100:dflags;14000:dflags;14001:quit",
-        expect=["cast 172 hp 300/300", "133=1 156=0 174=1", ">> entering S_1000", "232=1"]),
+        room="S_30/S_3080/S_3080", char="1", env=dict(_LOCK, CLERIA_LEVEL="28"),
+        drive=_S3080.format(end=15000, cast=172) + "8850:dflags;15000:dflags;15001:quit",
+        expect=["cast 172 hp 2985/2985", "| lv 19 max 2985 atk 121 def 108 exp 5766", "133=1 156=0 174=1",
+                ">> entering S_1000", "232=1"], absent=["[duel] lost"]),
     # S_3080 Hugo wins against Toal (M820): 174 = 1 -> Battle_Win (its 0.4 slow-mo) -> EV_Feena02_2, where
     # FireBulletEvent fires Shion's six shots (op 0x111) -> S_1000.
     "duel_s3080_toal_win": dict(
         room="S_30/S_3080/S_3080", char="2", env=dict(_LOCK, CLERIA_LEVEL="40"),
-        drive=_S3080.format(end=16500, cast=168) + "9000:dflags;16500:dflags;16501:quit",
-        expect=["cast 168 hp 300/300", "156=0 174=1", "[xso] SetTimeScale 0.40", "[xso] SetTimeScale 1.00",
+        drive=_S3080.format(end=18000, cast=168) + "9400:dflags;18000:dflags;18001:quit",
+        expect=["cast 168 hp 3550/3550", "| lv 19 max 3550 atk 119 def 120 exp 2223", "156=0 174=1", "[xso] SetTimeScale 0.40", "[xso] SetTimeScale 1.00",
                 "[xso] FireBullet actor 200 kind 2 effect 308 pos (-12.00, -3.00, 33.00) dir (0.00, -0.19, 1.00) speed 0.30",
                 "[xso] FireBullet actor 200 kind 2 effect 308", "dir (0.15, -0.17, 1.00) speed 0.50",
                 ">> entering S_1000", "232=1"], absent=["[duel] lost"]),
     # S_3080 Hugo loses (a KO under flag 133, FUN_0046f810): no game over, 174 stays 0 -> Battle_Lose ->
-    # EV_Feena02_2 -> S_1000.
+    # EV_Feena02_2 -> S_1000. At Lv 20 Toal (ATK 119) knocks him out by himself at about t8360; nothing is forced.
     "duel_s3080_toal_lose": dict(
         room="S_30/S_3080/S_3080", char="2", env=dict(_LOCK, CLERIA_LEVEL="20"),
-        drive=_S3080.format(end=16500, cast=168) + "8400:hp=0;8500:dflags;16500:dflags;16501:quit",
-        expect=["cast 168 hp 300/300", "[duel] lost: flag 133 set", "133=1 156=0 174=0", "[xso] FireBullet actor 200",
+        drive=_S3080.format(end=16500, cast=168) + "8500:dflags;16500:dflags;16501:quit",
+        expect=["cast 168 hp 3550/3550", "[duel] lost: flag 133 set", "133=1 156=0 174=0", "[xso] FireBullet actor 200",
                 ">> entering S_1000", "232=1"], absent=["[gameover]", "SetTimeScale 0.40"]),
     # S_3080 Toal: Shion (M840, Battle2) -> 174 = 1 -> FireBulletEvent2 (Hugo's shots, one of Shion's) -> S_4104.
     "duel_s3080_shion": dict(
-        room="S_30/S_3080/S_3080", char="3", env=dict(_LOCK, CLERIA_LEVEL="28"),
+        room="S_30/S_3080/S_3080", char="3", env=dict(_LOCK, CLERIA_LEVEL="32"),
         drive=_S3080.format(end=14000, cast=170) + "14001:quit",
-        expect=["cast 170 hp 300/300", "[xso] FireBullet actor 197 kind 2 effect 308", "[xso] FireBullet actor 200",
-                "[xso] FireBullet actor 197", ">> entering S_4104"]),
+        expect=["cast 170 hp 1492/1492", "| lv 19 max 1492 atk 121 def 118 exp 2223", "[xso] FireBullet actor 197 kind 2 effect 308", "[xso] FireBullet actor 200",
+                "[xso] FireBullet actor 197", ">> entering S_4104"], absent=["[gameover]"]),
+})
+
+# The floor-6 rival duels, S_6099 (build/audit/S6099_DUELS.md): from the room's event box through Evt_6099_N, the
+# fight to the KO (the handler's 174 = 1 / 156 = 0) and Battle_*'s post-scene to 236 = 1. The opponent's stats are
+# retail's at the script's level 48. Lv 50, the last weapon tier and the shell's Damage taken 0 (the drive has no
+# armour or shield to give; 342 HP does not last against ATK 250); 231 = 1 is the story state after floor 2.
+_S6099 = ("5:flag=231,1;8:tier=10;9:opt=DamageTaken=0;40:move=0,1,300;80:every=20,{end},ok;81:every=7,{end},duel={cast};"
+          "{end}:dflags;{end2}:flagdump;{end3}:quit")
+_F6 = dict(_LOCK, CLERIA_LEVEL="50")
+CASES.update({
+    # Yunica vs Kishgal (M860): not S_3080, so his INIT sets 179 (EXP + 7500) and he is fought to the KO.
+    "duel_s6099_kishgal": dict(
+        room="S_60/S_6099/S_6099", char="1", env=_F6,
+        drive=_S6099.format(end=10200, end2=10201, end3=10202, cast=172),
+        expect=["cast 172 hp 6249/6249 player hp 342 | lv 48 max 6249 atk 251 def 222 exp 21848",
+                "flags 130=0 131=0 133=0 156=0 174=1", " 179=1", " 236=1"], absent=["[death]"]),
+    # Hugo vs Demon Toal (M820): the scripts set 179 (EXP + 16000); Battle_Hugo clears it again in the post-scene.
+    "duel_s6099_toal": dict(
+        room="S_60/S_6099/S_6099", char="2", env=_F6,
+        drive=_S6099.format(end=8800, end2=8801, end3=8802, cast=168),
+        expect=["cast 168 hp 7431/7431 player hp 342 | lv 48 max 7431 atk 247 def 248 exp 21532",
+                "flags 130=0 131=0 133=0 156=0 174=1", " 236=1"], absent=["[death]"]),
+    # Toal vs Hugo (M810) and his Eyes (M900) under 231: HP x1.25, DEF + 19, ATK - 1.5 + 31 + the aura's 2.5, EXP x4.
+    "duel_s6099_hugo": dict(
+        room="S_60/S_6099/S_6099", char="3", env=_F6,
+        drive=_S6099.format(end=14200, end2=14201, end3=14202, cast=167),
+        expect=["cast 167 hp 4186/4186 player hp 342 | lv 48 max 4186.25 atk 249 def 259 exp 22128",
+                "flags 130=0 131=0 133=0 156=0 174=1", " 231=1", " 236=1"], absent=["[death]"]),
 })
 
 # The floor-4 brains (build/ai_spec/M560.md .. M290.md, REVIVE.md, BOMB.md; build/audit/FLOOR4_TOUR.md).

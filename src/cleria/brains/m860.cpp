@@ -34,7 +34,7 @@
 // [not modelled] the shield break (a player effect from a 13-id list overlapping an EF2 0x122 kills
 // it: SE 424, EF2 0x123; it overlaps the hit records of pool 0x730128) and the grab (a live EF2
 // 0x123 with the player in section 4/0xb: EF2 0x11e at +0x88c, the player held for 20 ticks in
-// section 9); the keep-out restore (FUN_0042dc90); FUN_004202e0's stat recompute at INIT;
+// section 9); the keep-out restore (FUN_0042dc90);
 // +0x64 / +0x4be / +0x3c0 writes; the camera shakes / zoom blurs (0x76a5ac.., 0x76a550..,
 // FUN_005e0590, FUN_005d3500); FUN_00451b50's rotation of the 0x121 bullet's effect.
 #include <cmath>
@@ -174,7 +174,9 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
                 au.tag = kTagAura;
                 out.effects.push_back(au);
             }
-            // [not modelled] FUN_004202e0(level): the spawn already computed this cast's stats.
+            // 0x4e3cd3: FUN_004202e0(CI[+0x124]+0x60 - 0xe, level = +0xc8 as read at 0x4e3c12). The duel scripts'
+            // Chr_SetStatus lands before 130 = 1 lets INIT run, so only its level survives.
+            if (e.world) e.world->restat(A, A.cast_id, A.level);
             if (room) {                                             // the story duel's floor on ATK
                 const Actor* P = e.world ? e.world->player() : nullptr;   // T (+0x888 is 0 after INIT)
                 if (P && P->def + 15.0f > A.atk) A.atk = P->def + 15.0f;  // DAT_006bd964

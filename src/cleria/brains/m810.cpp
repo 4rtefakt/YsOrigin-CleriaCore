@@ -187,7 +187,8 @@ AiOut m810(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             ai::init(a, p, e);                                      // FUN_004782f0 + EI[71] +0x90..
             a.f(0x814) = 0.05f;
             a.set_v(0x808, e.self);
-            // FUN_004202e0(level) [not modelled: the spawn computed it]; then:
+            // 0x4d7ebd: FUN_004202e0(CI[167]+0x60 - 0xe, level = +0xc8): the script's Chr_SetStatus level; then:
+            if (w) w->restat(A, 167, A.level);
             A.atk -= 1.5f;
             if (f231) {
                 A.max_hp *= 1.25f; A.hp = A.max_hp;

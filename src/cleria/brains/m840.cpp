@@ -21,7 +21,7 @@
 // and a 4-hit barrier (+0x7a4) that burns on contact (a 1.25 sphere hit), adds an orb every 530
 // ticks and sparks (EF2 0x15a) on each hit; the 4th hit breaks it (EF2 0x15a, power 10) and
 // starts the rest; else DEF comes back when the charge drops under 20 and he lands.
-// [not modelled] the keep-out box restore (FUN_0042dc90); FUN_004202e0 at INIT; +0x64 / +0x4be /
+// [not modelled] the keep-out box restore (FUN_0042dc90); +0x64 / +0x4be /
 // +0x3c0 writes; the barrier hit's tint block (+0x264..+0x274); the orb disown at Marker 1
 // (+0x1d5 = 0, +0x1a8 = 0 on every owned orb: AiEffect cannot disown, so a stale orb that is
 // still alive keeps its tag); the copied rotation of the orb re-placement (only the position is
@@ -89,7 +89,8 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
     switch (a.phase()) {
         case 0: {                                                   // ---- INIT (0x4dd043)
             ai::init(a, p, e);                                      // FUN_004782f0 + EI[74] +0x90..
-            // [not modelled] FUN_004202e0(level): the spawn already computed this cast's stats.
+            // 0x4dd067: FUN_004202e0(CI[+0x124]+0x60 - 0xe, level = +0xc8): the script's Chr_SetStatus level.
+            if (e.world) e.world->restat(A, A.cast_id, A.level);
             a.i(0x70c) = 0;
             a.i(0x728) = 0;
             a.set_v(0x808, e.self);

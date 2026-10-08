@@ -3741,8 +3741,9 @@ title_again:
                     face_dir = {-dx, 0.0f, -dz};
                     facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
                     try_attack();
-                    std::printf("  [duel] t%llu cast %d hp %.0f/%.0f player hp %d\n", (unsigned long long)tick_count,
-                                cast, a.hp, a.max_hp, player.hp);
+                    std::printf("  [duel] t%llu cast %d hp %.0f/%.0f player hp %d | lv %d max %g atk %g def %g exp %g\n",
+                                (unsigned long long)tick_count, cast, a.hp, a.max_hp, player.hp, a.level, a.max_hp, a.atk,
+                                a.def, a.exp_reward);
                     break;
                 }
         } else if (cmd == "dflags") {                  // the duel flags
@@ -6214,10 +6215,13 @@ title_again:
                 // [approx] the region's blend rate (0x76a1fc) is the rig's own.
                 aiw.camera_fn = [&](int r, float) { g_rig.write_forced(r); };
                 aiw.sound_fn = [&](int id, const Vec3& p) { sfx_at(id, p, kSfxAnimVol); };
-                aiw.restat_fn = [&](Actor& a, int c, int lv) {           // FUN_004202e0 [not modelled] its difficulty branch
+                aiw.restat_fn = [&](Actor& a, int c, int lv) {           // FUN_004202e0
                     const Enemy* er = etab.get(c);
                     if (!er) return;
-                    const EnemyStats st = enemy_stats(ginfo, *er, lv);
+                    StatMode sm;
+                    sm.hard = game.g_flags[144]; sm.easy = game.g_flags[143] != 0; sm.very_easy = game.g_flags[203] != 0;
+                    sm.boss_rush = game.g_flags[193] != 0; sm.retries = game.g_flags[196];
+                    const EnemyStats st = enemy_restat(ginfo, *er, c, lv, sm);
                     a.max_hp = a.hp = st.max_hp; a.atk = st.atk; a.def = st.def; a.exp_reward = st.exp;
                     for (int k = 0; k < 4; ++k) a.resist[k] = er->resist[k];
                     a.level = lv ? lv : er->level;

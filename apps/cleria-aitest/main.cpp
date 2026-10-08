@@ -2637,6 +2637,117 @@ int main() {
         }
     }
 
+    // ---- the duel brains' INIT re-stat, FUN_004202e0(cast, level = +0xc8) (build/audit/S6099_DUELS.md §2) ----
+    {
+        // A host whose restat writes the retail stats of that cast at that level (the audit's / the game's tables;
+        // cleria-enemytest checks enemy_restat against the same numbers) and records the call.
+        struct Stat : AiWorld {
+            std::unordered_map<int, int> flags;
+            Actor pl;
+            bool s3080 = false;
+            std::vector<std::pair<int, int>> calls;
+            void for_each(const std::function<void(Actor&)>&) override {}
+            Actor* find(int) override { return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3&, const Vec3&) override { return {}; }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+            void set_flag(int i, int v) override { flags[i] = v; }
+            int flag(int i, int unset) override { auto it = flags.find(i); return it == flags.end() ? unset : it->second; }
+            Actor* player() override { return &pl; }
+            bool in_room(const char* dir) override { return s3080 && std::strcmp(dir, "s_30\\s_3080\\") == 0; }
+            void restat(Actor& a, int cast, int level) override {
+                calls.push_back({cast, level});
+                struct Row { int cast, level; float hp, atk, def, exp; };
+                static const Row rows[] = {
+                    {172, 48, 6249, 251, 222, 14348}, {168, 48, 7431, 247, 248, 5532}, {167, 48, 3349, 217, 240, 5532},
+                    {172, 19, 2985, 121, 108, 5766},  {169, 5, 592, 58, 57, 744},      {170, 19, 1492, 121, 118, 2223},
+                    {171, 5, 838, 58, 57, 744},       {50, 5, 1860, 56, 43, 526},
+                };
+                for (const Row& r : rows)
+                    if (r.cast == cast && r.level == level) {
+                        a.max_hp = a.hp = r.hp; a.atk = r.atk; a.def = r.def; a.exp_reward = r.exp; a.level = level;
+                    }
+            }
+        };
+        XorShift rng;
+        const EnemyAiParams gp = params(0.08f, 0.05f, 1.0f, 2.0f, 1.0f);
+        // The script's Chr_SetStatus(id, level, 200, 70, 70, 5, 6, ...) has landed; then 130 = 1 lets INIT run.
+        auto init = [&](Stat& w, Actor& A, int cast, int ai_index, int level, int character) {
+            A.instance_id = 198; A.cast_id = cast; A.ai_index = ai_index; A.level = level;
+            A.hp = A.max_hp = 200; A.atk = 70; A.def = 70; A.exp_reward = 6;
+            A.kind = 0x84; A.height = 1.0f; A.vert.grounded = true;
+            w.pl.hp = w.pl.max_hp = 100; w.pl.def = 10;
+            w.flags[130] = 1; w.flags[131] = 0; w.flags[156] = 1;
+            AiEnv e;
+            e.actor = &A; e.world = &w; e.character = character;
+            e.self = {A.pos.x, A.pos.y + A.height, A.pos.z};
+            e.height = A.height; e.radius = A.radius;
+            e.target = {3.0f, 1.075f, 0.0f}; e.target_floor = 0;
+            e.hp = A.hp; e.max_hp = A.max_hp; e.section = 2;
+            e.rng = [&] { return rng(); };
+            enemy_ai_tick(A.ai, gp, e, enemy_brain_for(ai_index));
+            return w.calls.size() == 1 && w.calls[0] == std::pair<int, int>{cast, level};
+        };
+        {   // M860 Kishgal in S_6099 (not S_3080), Yunica: 0x4e3cd3, then resist / EXP + 7500 under 179.
+            Stat w; Actor A;
+            const bool called = init(w, A, 172, 79, 48, 1);
+            check(called && A.max_hp == 6249.0f && A.hp == 6249.0f && A.atk == 251.0f && A.def == 222.0f &&
+                  A.exp_reward == 21848.0f && A.ai.f(0x7d8) == 222.0f && w.flags[179] == 1,
+                  "M860 INIT re-stats at the script's level 48: 6249 / 251 / 222, EXP 14348 + 7500, +0x7d8 = the new DEF");
+        }
+        {   // M860 in S_3080 (level 19), Yunica: the ATK floor (player DEF + 15) applies to the re-stat ATK.
+            Stat w; w.s3080 = true; w.pl.def = 10; Actor A;
+            const bool called = init(w, A, 172, 79, 19, 1);
+            check(called && A.max_hp == 2985.0f && A.atk == 121.0f && A.def == 108.0f && A.exp_reward == 5766.0f,
+                  "M860 INIT in S_3080 at level 19: 2985 / 121 / 108 / 5766");
+        }
+        {   // M820 Toal under 179: 0x4dfcbc, first thing after FUN_004782f0; +0x7b0 reads the new DEF; EXP + 16000.
+            Stat w; w.flags[179] = 1; Actor A;
+            const bool called = init(w, A, 168, 75, 48, 2);
+            check(called && A.max_hp == 7431.0f && A.atk == 247.0f && A.def == 248.0f && A.exp_reward == 21532.0f &&
+                  A.ai.f(0x7b0) == 248.0f,
+                  "M820 INIT re-stats at level 48: 7431 / 247 / 248, EXP 5532 + 16000, +0x7b0 = the new DEF");
+        }
+        {   // M810 Hugo under 231: 0x4d7ebd, then ATK - 1.5, HP x1.25, DEF + 19, ATK + 31, EXP x4, and the aura's + 2.5.
+            Stat w; w.flags[231] = 1; Actor A;
+            const bool called = init(w, A, 167, 74, 48, 3);
+            check(called && A.max_hp == 4186.25f && A.hp == 4186.25f && A.atk == 249.0f && A.def == 259.0f &&
+                  A.exp_reward == 22128.0f,
+                  "M810 INIT re-stats at level 48, then its own scaling: 4186.25 / 249 / 259 / 22128");
+        }
+        {   // M830 Galleon (S_1080, level 5): 0x4e8335; +0x7b0 = the new DEF.
+            Stat w; Actor A;
+            const bool called = init(w, A, 169, 76, 5, 3);
+            check(called && A.max_hp == 592.0f && A.atk == 58.0f && A.def == 57.0f && A.ai.f(0x7b0) == 57.0f,
+                  "M830 INIT re-stats at level 5: 592 / 58 / 57, +0x7b0 = the new DEF");
+        }
+        {   // M840 Shion (S_3080, level 19): 0x4dd067; +0x7ac = the new DEF.
+            Stat w; w.s3080 = true; Actor A;
+            const bool called = init(w, A, 170, 77, 19, 3);
+            check(called && A.max_hp == 1492.0f && A.atk == 121.0f && A.def == 118.0f && A.ai.f(0x7ac) == 118.0f,
+                  "M840 INIT re-stats at level 19: 1492 / 121 / 118, +0x7ac = the new DEF");
+        }
+        {   // M850 Epona (S_1080, level 5): the handler's call 0x4d226d, then the brain's HP x0.95 / DEF x0.985.
+            Stat w; Actor A;
+            const bool called = init(w, A, 171, 78, 5, 2);
+            check(called && A.max_hp == 838.0f * 0.95f && A.hp == A.max_hp && A.def == 57.0f * 0.985f && A.atk == 58.0f,
+                  "M850 INIT re-stats at level 5 (838 / 58 / 57), then HP x0.95 = 796.1, DEF x0.985");
+        }
+        {   // M460 Vagullion (S_1080, level 5): 0x4c71b7, before Hugo's scaling (HP x1.05, DEF x1.05, ATK + 5).
+            Stat w; Actor A;
+            const bool called = init(w, A, 50, 39, 5, 1);
+            check(called && A.max_hp == 1860.0f && A.atk == 56.0f && A.def == 43.0f && A.ai.f(0x7d8) == 43.0f,
+                  "M460 INIT re-stats at level 5: 1860 / 56 / 43, +0x7d8 = the new DEF");
+            Stat w2; Actor B;
+            const bool called2 = init(w2, B, 50, 39, 5, 2);
+            check(called2 && B.max_hp == 1860.0f * 1.05f && B.hp == B.max_hp && B.def == 43.0f * 1.05f && B.atk == 61.0f,
+                  "M460 INIT, Hugo: the re-stat first, then HP x1.05, DEF x1.05, ATK + 5");
+        }
+    }
+
     // ---- M900 the Eyes of Fact, and M810 commanding them (build/ai_spec/M900.md, M810.md) ----
     {
         // A pool in engine order (stable addresses), the game flags, FUN_00476d70.

@@ -13,8 +13,7 @@
 // When its HP falls below 1 with the player alive the handler (m830_dead) restores HP to
 // 1, clears flags 156 and 130 (which ends the duel's Wait_FlagEqualInt(156, 0)), hides the
 // gauge and asks for section 5.
-// [not modelled] the keep-out box restore (FUN_0042dc90); FUN_004202e0's stat recompute at
-// INIT (the spawn already computed this cast's stats); +0x64 / +0x4be / +0x3c0 writes; the
+// [not modelled] the keep-out box restore (FUN_0042dc90); +0x64 / +0x4be / +0x3c0 writes; the
 // slam's camera shake (0x76a5ac = 12, 0x76a598 = 0.25); the player-dead helper's forced
 // section 5 -> 2.
 #include <cmath>
@@ -82,6 +81,8 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
     switch (a.phase()) {
         case 0: {                                                   // ---- INIT
             ai::init(a, p, e);                                      // FUN_004782f0 + EI[73] +0x90..
+            // 0x4e8335: FUN_004202e0(CI[+0x124]+0x60 - 0xe, level = +0xc8): the script's Chr_SetStatus level.
+            if (e.world) e.world->restat(A, A.cast_id, A.level);
             a.i(0x70c) = 0;
             a.i(0x728) = 0;
             a.set_v(0x808, e.self);

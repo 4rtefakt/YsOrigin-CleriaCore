@@ -14,8 +14,8 @@
 // Wait_FlagEqualInt(156, 0)).
 // [not modelled] the 231 = 1 rematch mode beyond its stats and HP link (the clone summons, the
 // joint attack 0x44c.., the death swap, the aura); the lunge's after-images, its d > 0 bullets
-// 0x12e and its Marker(298) slash effects; the guard's aura; FUN_004202e0's stat recompute at
-// INIT; the keep-out restore (FUN_0042dc90); the handler's knock cap in the attack sections;
+// 0x12e and its Marker(298) slash effects; the guard's aura;
+// the keep-out restore (FUN_0042dc90); the handler's knock cap in the attack sections;
 // the dead path's player i-frames (9999) and double-KO revive.
 #include <algorithm>
 #include <cmath>
@@ -115,6 +115,9 @@ AiOut m850(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
 
     switch (a.phase()) {
     case 0: {                                                      // ---- INIT
+        // The handler, phase 0, before the brain (0x4d2253..0x4d226d): FUN_004202e0(CI[171]+0x60 - 0xe,
+        // level = +0xc8): the script's Chr_SetStatus level.
+        w->restat(A, 171, A.level);
         ai::init(a, p, e);                                         // +0x814.. = EI[75] = p.raw
         a.set_v(0x808, pos);
         A.flags12c &= 0xfbffffbfu;

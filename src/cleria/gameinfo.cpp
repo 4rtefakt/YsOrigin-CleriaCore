@@ -71,4 +71,36 @@ EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e, int level) {
     return s;
 }
 
+// FUN_004202e0 whole: the curve stats above, then its tail (0x42060e..0x420865).
+EnemyStats enemy_restat(const GameInfo& gi, const Enemy& e, int cast_id, int level, const StatMode& m) {
+    EnemyStats s = enemy_stats(gi, e, level);
+    if (!gi.ok()) return s;
+    // 0x42060e: g_flags[144] > 0 -> max HP *= the float table at 0x689f80 [flag] (1.2, 1.5).
+    if (m.hard == 1) s.max_hp *= 1.2f;
+    else if (m.hard == 2) s.max_hp *= 1.5f;
+    // 0x420638..0x420674: ebx (the raw index, cast - 14) in 0x99..0x9e (casts 167..172), 0x1a (M360), 0x24 (M460).
+    const unsigned raw = unsigned(cast_id) - 14u;
+    const bool duel = (raw >= 0x99u && raw <= 0x9eu) || raw == 0x1au || raw == 0x24u;
+    if (!duel) {
+        if (m.very_easy) { s.atk -= 10.0f; s.def -= 10.0f; }        // 0x42067f
+        else if (m.easy) { s.atk -= 5.0f; s.def -= 10.0f; }         // 0x4206a9
+    } else if (m.very_easy) {                                       // 0x4206cf
+        s.def -= 2.0f; s.atk -= 1.0f;
+        if (!m.boss_rush) {                                         // 0x420735: pow((double)(float)n, 1.25), twice
+            const float pw = float(std::pow(double(float(m.retries)), 1.25));
+            s.atk -= pw; s.def -= pw;
+        }
+    } else if (m.easy) {                                            // 0x4206fb
+        s.def -= 1.0f;
+        if (!m.boss_rush) {                                         // 0x4207c9: n < 20 ? n >> 1 : n - 10
+            const float n = float(m.retries < 20 ? m.retries >> 1 : m.retries - 10);
+            s.atk -= n; s.def -= n;
+        }
+    }
+    if (m.very_easy) s.max_hp *= 0.75f;                             // 0x420822
+    if (1.0f >= s.atk) s.atk = 1.0f;                                // 0x420845
+    if (1.0f >= s.def) s.def = 1.0f;                                // 0x420854
+    return s;
+}
+
 }  // namespace cleria
