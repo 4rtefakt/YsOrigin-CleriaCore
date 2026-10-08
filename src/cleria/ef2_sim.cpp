@@ -281,7 +281,7 @@ bool System::update_particle(Particle& p, bool moving) {
     const std::uint16_t flags = rd<std::uint16_t>(E.b2, 0);
     if (flags & 3) full_step(p, moving);
     else if (flags & 4) simple_step(p, moving);
-    if (moving && (flags & 0x800) && p.remaining == 0) p.remaining = p.life;
+    if (moving && (flags & 0x800) && !p.unloop && p.remaining == 0) p.remaining = p.life;
     return true;
 }
 
@@ -544,6 +544,22 @@ void System::set_remaining_owned(int owner, int tag, int n) {
     for (auto& f : fx_) {
         if (f->owner != owner || f->tag != tag) continue;
         for (auto& p : parts_) if (p->fx == f.get() && !p->dead) p->remaining = n;
+        f->tag = -1;
+    }
+}
+
+void System::release_owned(int owner, int tag) {
+    for (auto& f : fx_) {
+        if (f->owner != owner || f->tag != tag) continue;
+        for (auto& p : parts_) if (p->fx == f.get() && !p->dead) p->unloop = true;
+        f->tag = -1;
+    }
+}
+
+void System::dying_owned(int owner, int tag) {
+    for (auto& f : fx_) {
+        if (f->owner != owner || f->tag != tag) continue;
+        kill_effect(f.get());
         f->tag = -1;
     }
 }

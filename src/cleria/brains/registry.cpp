@@ -50,6 +50,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 60: return &brains::m670;   // M670 Bazeraena (handler: brains/revive.cpp)
         case 67: return &brains::m740;   // M740 Drefflum (handler far freeze)
         case 68: return &brains::m750;   // M750 Liliborad (its dead path in the view)
+        case 63: return &brains::m700;   // M700 Fliogan (its dead path in the view)
         case 64: return &brains::m710;   // M710 Astyle (handler far freeze; the dead-path cull in the view)
         case 61: return &brains::m680;   // M680 Hekat-Baocar (handler far freeze: enemy_handler_far_freeze)
         case 37: return &brains::m440;   // M440 Zeruena's hand

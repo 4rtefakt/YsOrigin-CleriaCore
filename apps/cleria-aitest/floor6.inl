@@ -215,6 +215,92 @@ static void floor6_tests() {
         check(!end.effects.empty() && end.effects[0].remain_tag == 1 && end.effects[0].remaining == 15 &&
               L.ai.i(0x79c) == 0, "M750 END: the orb's particles get 15 ticks, state 0");
     }
+    // ---- M700 Fliogan: the hops, the dash effect, the restarting slash (build/ai_spec/M700.md §7 test) ----
+    {
+        const EnemyBrain m700 = enemy_brain_for(63);
+        check(m700 != nullptr, "Fliogan registered (AI 63)");
+        EnemyAiParams fp = params(0.12f, 0.03f, 1.8f, 2.0f, 0.0f);   // EI[60]
+        auto engaged = [&](Rig& r, Actor& F, float pd) {
+            F.instance_id = 74; F.cast_id = 74; F.ai_index = 63;
+            r.env.actor = &F; r.env.target = {pd, 1.075f, 0.0f};
+            m700(F.ai, fp, r.env);                                   // INIT
+            F.ai.phase() = 2; F.ai.heading = 0.0f;
+            F.ai.f(0x734) = pd; F.ai.f(0x73c) = 0.0f; F.ai.dist() = pd;
+        };
+        int n8 = 0, n7 = 0; bool ok8 = true, ok7 = true;
+        for (int s = 0; s < 200; ++s) {
+            Rig r; Actor F; for (int i = 0; i < s; ++i) r.rng();
+            engaged(r, F, 3.0f); r.env.section = 2; r.env.difficulty = 1;
+            F.ai.i(0x87c) = 21;                                      // off the hop gate
+            const AiOut o = m700(F.ai, fp, r.env);
+            const int cool = F.ai.cool();
+            if (o.section == 8) {
+                ++n8;                                                // the lockout was set, then the TAIL took 1
+                ok8 = ok8 && o.section_force && F.ai.dur() == 90 && cool >= 240 && cool <= 299 &&
+                      F.ai.i(0x7a0) == cool / 3 - 1 && F.ai.action() == 1 && F.ai.i(0x72c) == 10;
+            } else if (o.section == 7) {
+                ++n7;
+                ok7 = ok7 && o.section_force && F.ai.dur() == 170 && cool >= 385 && cool <= 444 &&
+                      F.ai.i(0x7a0) == cool / 3 - 1 && F.ai.i(0x72c) == 20 && F.ai.i(0x79c) == 0;
+            } else ok8 = ok8 && F.ai.action() == 2 && F.ai.dur() >= 15 && F.ai.dur() <= 44;
+        }
+        std::printf("[aitest]   M700 at 3 u (Hard): section 8 x%d, section 7 x%d of 200\n", n8, n7);
+        check(ok8 && n8 > 80 && n8 < 140, "M700 inside 4.5 u: 55 % force(8), action 90, cooldown 270 - 30d + R%60, lockout a third");
+        check(ok7 && n7 > 15 && n7 < 55, "M700: else 35 % force(7), action 150 + 20d, cooldown 410 - 25d + R%60");
+        {   // COMBO7: the restart at Pattern frame 5, d + 2 times
+            Rig r; Actor F; engaged(r, F, 3.0f);
+            F.ai.i(0x72c) = 20; r.env.section = 7; r.env.aso_frame = 5;
+            const AiOut a1 = m700(F.ai, fp, r.env);
+            const bool restart = a1.section == 7 && a1.section_force && F.ai.i(0x79c) == 1;
+            r.env.aso_frame = 4;
+            const bool early = m700(F.ai, fp, r.env).section < 0;
+            r.env.aso_frame = 5; F.ai.i(0x79c) = 2;
+            const bool spent = m700(F.ai, fp, r.env).section < 0 && F.ai.i(0x79c) == 2;
+            r.env.section = 2; F.ai.cool() = 300; F.ai.i(0x7a0) = 0;
+            m700(F.ai, fp, r.env);
+            check(restart && early && spent && F.ai.i(0x72c) == 0 && F.ai.i(0x7a0) == 99,
+                  "M700 COMBO7 (Normal): force(7) at frame 5 while the count < d + 2; the section's end re-arms the lockout");
+        }
+        {   // COMBO8: Marker(496) spawns the attached effect, Marker(1) releases it
+            Rig r; Actor F; engaged(r, F, 3.0f);
+            F.ai.i(0x72c) = 10; r.env.section = 8; r.env.aso_marker = 496;
+            const AiOut s1 = m700(F.ai, fp, r.env);
+            const bool spawn = s1.effects.size() == 1 && s1.effects[0].id == 496 && s1.effects[0].attach &&
+                               s1.effects[0].attach_full && s1.effects[0].power == 5.0f && s1.effects[0].knock == 10.0f &&
+                               s1.effects[0].rtype == 2 && s1.effects[0].status == 0x10 && s1.effects[0].tag == 1 &&
+                               s1.set_marker == 0 && F.ai.i(0x88c) != 0;
+            r.env.aso_marker = 0;
+            const bool held = m700(F.ai, fp, r.env).effects.empty();
+            r.env.aso_marker = 1;
+            const AiOut s2 = m700(F.ai, fp, r.env);
+            const bool rel = s2.effects.size() == 1 && s2.effects[0].release_tag == 1 && s2.set_marker == 0 &&
+                             F.ai.i(0x88c) == 0;
+            F.ai.i(0x88c) = 1; r.env.aso_marker = 0; r.env.section = 4;   // knocked out of the dash
+            const AiOut s3 = m700(F.ai, fp, r.env);
+            check(spawn && held && rel && s3.effects.size() == 1 && s3.effects[0].release_tag == 1,
+                  "M700 COMBO8: Marker(496) -> EF2 496 attached (mode 1, power 5, rtype 2, status 0x10); released at Marker(1) / outside section 8");
+        }
+        {   // the hops: forward beyond 6 u (0.6 on channel 1), back inside 3.5 u (-0.2)
+            int fwd = 0, back = 0; bool fok = true, bok = true;
+            for (int s = 0; s < 300; ++s) {
+                for (float pd : {8.0f, 3.0f}) {
+                    Rig r; Actor F; for (int i = 0; i < s; ++i) r.rng();
+                    engaged(r, F, pd); r.env.section = 1;
+                    F.ai.i(0x87c) = 20; F.ai.dur() = 5; F.vert.grounded = true;
+                    const float y0 = F.pos.y;
+                    m700(F.ai, fp, r.env);
+                    const float k = std::sqrt(F.mover.k1.x * F.mover.k1.x + F.mover.k1.z * F.mover.k1.z);
+                    if (k == 0.0f) continue;
+                    const bool up = !F.vert.grounded && std::fabs(F.pos.y - y0 - 0.2f) < 1e-6f;
+                    if (pd > 6.0f) { ++fwd; fok = fok && up && std::fabs(k - 0.6f) < 1e-5f && F.mover.k1.x > 0.35f; }
+                    else { ++back; bok = bok && up && std::fabs(k - 0.2f) < 1e-5f && F.mover.k1.x < -0.16f; }
+                }
+            }
+            std::printf("[aitest]   M700 hops: forward %d, back %d of 300\n", fwd, back);
+            check(fok && bok && fwd > 50 && fwd < 100 && back > 15 && back < 50,
+                  "M700 hops every 10th tick: 25 % forward beyond 6 u (0.6, +-54 deg), 10 % back inside 3.5 u (-0.2, +-36 deg)");
+        }
+    }
     // ---- M680 Hekat-Baocar: M650 + the hover-height roll + long-homing shots (build/ai_spec/M680.md) ----
     {
         const EnemyBrain m680 = enemy_brain_for(61);

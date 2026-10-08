@@ -6218,6 +6218,8 @@ title_again:
                     if (en && en->ai_index == 68 && !en->alive() && !en->destroy_requested())
                         for (auto& f : fxsim.effects())
                             if (!f->dead && f->owner == en->instance_id && f->tag >= 0) { fxsim.kill_effect(f.get()); f->tag = -1; }
+                    // M700's dead path (FUN_004bce40 0x4bce72): FUN_0047a880 on its attached dash effect (+0x88c).
+                    if (en && en->ai_index == 63 && !en->alive() && !en->destroy_requested()) fxsim.release_owned(en->instance_id, 1);
                     // The dead path of a handler that has extra work there (M460: its flock).
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) { hk(*en, aiw); boss_corpse(e); }
@@ -6324,12 +6326,20 @@ title_again:
                         const Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
                         if (fx.kill_tag >= 0) { fxsim.kill_owned(en->instance_id, fx.kill_tag); continue; }
                         if (fx.remain_tag >= 0) { fxsim.set_remaining_owned(en->instance_id, fx.remain_tag, fx.remaining); continue; }
+                        if (fx.release_tag >= 0) { fxsim.release_owned(en->instance_id, fx.release_tag); continue; }
+                        if (fx.dying_tag >= 0) { fxsim.dying_owned(en->instance_id, fx.dying_tag); continue; }
                         if (fx.move_tag >= 0) { fxsim.move_owned(en->instance_id, fx.move_tag, fx.pos, fx.rot, {1, 1, 1}); continue; }
                         ef2sim::SpawnParams sp;
                         sp.power = fx.power; sp.knock = fx.knock; sp.rtype = fx.rtype; sp.status = fx.status;
                         sp.atk = en->atk; sp.side = 1; sp.owner = en->instance_id; sp.tag = fx.tag;
                         if (hugo_eye(*en)) hugo_eye_brain_fx(*en, sp, fx.id);   // the player's side
-                        spawn_sim_fx(fx.id, fx.pos, fx.rot, fx.scale, sp, fx.attach ? en->instance_id : 0, org);
+                        ef2sim::Effect* sfx = spawn_sim_fx(fx.id, fx.pos, fx.rot, fx.scale, sp, fx.attach ? en->instance_id : 0, org);
+                        // FUN_00451c20 mode 1 (M700's dash effect): fx = local x the actor's full matrix. [H] as
+                        // spawn_generate_effect: actor_mats carry the translation only, so the yaw is baked here.
+                        if (sfx && fx.attach && fx.attach_full) {
+                            sfx->local = ef2sim::mul(sfx->local, ef2sim::rot_ypr(-(e.facing + 1.5707963f), 0.0f, 0.0f));
+                            sfx->attach_mode = 1;
+                        }
                     }
                     pool += int(o.spawns.size());
                     if (ai_debug && (tick_count % 60) == 0)

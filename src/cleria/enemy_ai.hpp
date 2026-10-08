@@ -230,6 +230,10 @@ struct AiEffect {
     // remain_tag >= 0: no spawn; every particle of this actor's effects with that tag gets p+0x1c4 = remaining
     // and the effect is let go (its tag dropped: the owner's +0x88c = 0; M750's END).
     int remain_tag = -1, remaining = 0;
+    // release_tag >= 0: no spawn; FUN_0047a880 on this actor's effects with that tag (their looping particles are
+    // not renewed) and the effect is let go. dying_tag >= 0: no spawn; FUN_0047a7c0 on them (M700).
+    int release_tag = -1, dying_tag = -1;
+    bool attach_full = false;    // with attach: FUN_00451c20 mode 1 (the actor's full matrix), not mode 2
     Vec3 rot{};
     float power = 0, knock = 1;
     int rtype = 0, status = 0;

@@ -68,6 +68,7 @@ struct Particle {
     int em = 0;                   // emitter index
     Particle* parent = nullptr;
     bool dead = false, dying = false;
+    bool unloop = false;          // FUN_0047a880 cleared its emitter's loop flag (B2[0] & 0x800) [this instance only]
     // sub (= the B1 copy), the fields the step uses
     std::uint8_t attach = 0, frame_counter = 0, frame = 0;
     bool colour_lock = false;
@@ -148,6 +149,11 @@ class System {
     void kill_owned(int owner, int tag);
     // Every particle of the owner's effects with `tag` gets `remaining = n` (p+0x1c4); the effect's tag is dropped.
     void set_remaining_owned(int owner, int tag, int n);
+    // FUN_0047a880 over the owner's effects with `tag` (M700.md §2.1): their looping particles are no longer renewed;
+    // the tag is dropped. [approx] the engine clears the bit in the shared emitter descriptor.
+    void release_owned(int owner, int tag);
+    // FUN_0047a7c0 (kill_effect) over the owner's effects with `tag`; the tag is dropped.
+    void dying_owned(int owner, int tag);
     // FUN_0047a7c0 (M640.md §7, M620.md): every live particle of `fx` starts dying (p+0x1b4 = 1) and its
     // kill flag fx+0x1d4 rises. Unlike kill_owned, hits and clocks are left alone.
     void kill_effect(Effect* fx);
