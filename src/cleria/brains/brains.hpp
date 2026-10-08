@@ -85,6 +85,7 @@ AiOut m640(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b74c0 Sama
 AiOut m160(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b9120 Xomack (drill shot, charge, combos, dodges)
 AiOut m220(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b5650 Chryolos (slash, hops, strafe)
 AiOut m620(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ad980 Ogacha (the bulb, the pounce)
+AiOut m630(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b0d60 Kelmarel (bite, shots, dive, blood-water escape)
 AiOut m280(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a34b0 Chups (the latch)
 AiOut m290(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a2120 Bicmobre (kind-0xf bombs)
 // FUN_004a2f90, M290's handler death helper: one dead tick (bb5c = DAT_0076bb5c); the bombs it throws.
