@@ -58,6 +58,12 @@ static std::string g_rig_room;                      // the scene whose SCM the r
 static CamRig::Out g_cam_out;
 static std::function<std::uint32_t()> g_cam_rng;   // the game's xorshift128 (the shake's draws)
 
+// FUN_0042bb10's boss06 path (build/boss_re/ZAVA_CG.md §G.2), run before each rig step: while a fight is on and the
+// GoMesh "boss06a" has its block, the hook FUN_005453d0 rewrites the current slot (2..6) from the fight and the step
+// is claimed (the region pick is skipped; also with slot 0 current). The game installs it (view_boss06.inl); true =
+// claimed.
+static std::function<bool()> g_boss06_cam_hook;
+
 // The look point L: [H] feet + 1.0 stands in for player+0x230 + player+0x324 (CAMERA_OPS §5.1).
 static constexpr float kLookHeight = 1.0f;
 
@@ -67,6 +73,7 @@ static void update_camera(const Room& room, const Vec3& feet, float /*dt*/, bool
     if (!room.cam.ok()) { g_cam.on = false; return; }
     if (g_rig_room != room.name || !g_rig.ok()) { g_rig.reset(room.cam); g_rig_room = room.name; }
     if (snap) g_rig.hard_cut();
+    if (g_boss06_cam_hook && g_boss06_cam_hook()) g_rig.claim();
     g_cam_out = g_rig.step(feet, {feet.x, feet.y + kLookHeight, feet.z}, g_cam_rng);
     g_cam.fov = g_cam_out.fov;
     g_cam.on = true;
@@ -112,6 +119,14 @@ static void fog_script(int idx, float speed) {
     if (speed != 3.4028235e38f) g_fog_speed = speed;               // FLT_MAX (0x6bdf90) keeps the speed
 }
 static void fog_script_reset() { g_fog_sel = -1; g_fog_speed = 0.02f; }
+// fogCur as update_fog below picks it: the zone holding the player, else the script's record, else record 0 (-1 =
+// the room has no fog). Zava's heads read and tint that record's colour (ZAVA_CG.md §G.3).
+static int fog_current(const Room& room, const Vec3& player) {
+    const FogRegion* f = room.fog.pick(player);
+    if (!f) return -1;
+    if (g_fog_sel > 0 && std::size_t(g_fog_sel) < room.fog.regions.size() && f == &room.fog.regions[0]) return g_fog_sel;
+    return int(f - room.fog.regions.data());
+}
 static void update_fog(const Room& room, const Vec3& player, float dt, bool snap = false) {
     const FogRegion* f = room.fog.pick(player);
     if (!f) { g_fog.on = false; return; }

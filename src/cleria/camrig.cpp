@@ -127,7 +127,8 @@ CamRig::Out CamRig::step(const Vec3& player, const Vec3& look, const std::functi
         if (sc_t_ == sc_dest_) sc_rate_ = 0.0f;
     }
     // 2b. FUN_0042bb10's boss path: the current slot is refreshed from the presets and claimed.
-    bool claimed = false;
+    bool claimed = claim_;                             // a host hook's claim (boss06)
+    claim_ = false;
     if (boss_on_) {
         constexpr float kDist = 27.0f, kPitch = 0.24434610f, kFov = 0.61086524f, kFov2 = 0.78539819f;
         if (cur_ >= 1 && cur_ <= 6) {

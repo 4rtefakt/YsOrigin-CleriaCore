@@ -631,6 +631,15 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             (void)integrate(b);
             break;
         }
+        case 0x21: {                                               // 0x594e1e..0x594f9a: the breath (ZAVA_EF.md §F.2)
+            const Vec3 v = integrate(b);                           // the gravity bends the heading, cumulatively
+            // f9 (+0x168) != 0 and age > f10 (+0x16c): the terrain ray (FUN_0041e420 set 2) along this step's move;
+            // a hit sets fx+0x1d4 (the tail parks the bullet). Any hit: no normal test.
+            if (s.f168 != 0.0f && float(b.age) > s.f16c && ray(s.pos, v).hit) b.fx->kill = true;
+            s.pos = {s.pos.x + v.x, s.pos.y + v.y, s.pos.z + v.z};
+            reset_matrix(b);                                       // jmp 0x5942c8: kind 0's matrix reset
+            break;
+        }
         case 0x14: case 0x19: case 0x2b:                           // none: the tail only
             break;
         default:

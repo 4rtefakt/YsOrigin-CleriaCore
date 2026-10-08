@@ -53,6 +53,9 @@ class CamRig {
     };
     void set_boss(const BossPresets& p) { boss_ = p; boss_on_ = true; }
     void clear_boss() { boss_on_ = false; }
+    // FUN_0042bb10's other boss paths (boss06: build/boss_re/ZAVA_CG.md §G.2): the host's hook rewrote the current
+    // slot itself (edit_slot) and claims the next step: its region pick is skipped. One step only.
+    void claim() { claim_ = true; }
     // A brain's direct writes into a slot record (boss03: the current slot's pitch +0x270, eye
     // dist +0x274, up offset +0x410, and the death's target / eye points), and the shake globals
     // 0x76a5ac (frames) / 0x76a594..59c (amplitude) it reads and writes one by one.
@@ -108,6 +111,7 @@ class CamRig {
     // the boss hook
     BossPresets boss_{};
     bool boss_on_ = false;
+    bool claim_ = false;
 };
 
 }  // namespace cleria

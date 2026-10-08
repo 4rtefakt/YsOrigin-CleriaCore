@@ -812,6 +812,25 @@ CASES.update({
               "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;4100:quit",
         expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
                 "sect ZOROMEKA", "/27 |", "sect DEAD", "guts 1 waves", "EXP (lv 40)", "flag 224 = 1", "destroyed"]),
+    # Zava (build/boss_re/ZAVA*.md; the heads src/cleria/boss06, herself brains/m870). The room's own retry start:
+    # flag 205 = 1 and a reload make the root script place the player, Zava and the heads and run Battle_Yunica
+    # (flags 130 / 156, then it waits for 225); the first-visit intro before SUMMON is some 7,000 frames of dialogue.
+    # Phase 1 (a head's breath = move 2, her knock-downs), phase 2 under 70 % (the flight onto a head: BossCam 3 /
+    # 4, moves 9 / 10; the ridden head's bite holds the player; four lives, the fusion break = move 8), the big
+    # attack under 25 % (action 20, both heads dive = move 17, the blast's direct hit at the centre), the kill
+    # (flag 225, the EXP) and the heads' death (move 15). `boss6=big` is the aid: stand by her and swing, held
+    # under 25 % until the big attack has started.
+    "zava_fight": dict(
+        room="S_60/S_6082/S_6082",
+        env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1;8:tier=10;9:flag=205,1;10:saveload;"
+              "60:every=20,4700,boss6=big;4700:quit",
+        expect=["[boss06] Zava's heads: a (-39.46,6.10,30.00) b (-28.82,6.10,30.00), HP 5000 STR 232 DEF 320",
+                "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "head a move 2",
+                "Zava phase 2 action 0", "BossCam 3", "move 9", "BossCam 4", "move 10", "holds the player",
+                "lets the player go", "move 8", "Zava is thrown off head", "Zava phase 2 action 20", "move 17",
+                "direct damage ATK 267 (Zava's blast)", "BossCam 6", "EXP (lv 45)", "flag 225 = 1", "move 15",
+                "head b destroyed", "head a destroyed"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,

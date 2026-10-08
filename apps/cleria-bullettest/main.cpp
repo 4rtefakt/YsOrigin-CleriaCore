@@ -727,6 +727,69 @@ int main(int argc, char** argv) {
               "kind 7: base at 0.15 a tick, the matrix 5.0 to the side at age 30 ((int)3.5 deg x age)");
     }
 
+    // ---- kind 0x21: the boss06 breath (build/boss_re/ZAVA_EF.md §F.2 case 385, handler 0x594e1e) ----
+    {
+        const std::filesystem::path bos = std::filesystem::path(argv[1]) / "EFFECT" / "EFT" / "BOS";
+        efs[385] = Ef2::load(bos / "BS_06_FIRE.EF2");
+        check(efs[385].ok(), "kind 0x21: EF2 385 bos\\bs_06_fire loads");
+        // The block the heads push: speed 0.18, accel -0.001, gravity 0.0005, power 3.0, knock 3.0, f9 1.0, f10 15.0.
+        const float f[13] = {0.18f, -0.001f, 0.0005f, 3.0f, 3.0f, 0, 0, 0, 0.0f, 1.0f, 15.0f, 0.0f, 0.0f};
+        auto fire = [&](Bullets& bs) {
+            Spawn s = block_spawn(0x21, 385, {0, 5, 0}, {1, 0, 0}, f);
+            s.owner_atk = 232.0f;
+            return bs.spawn(s);
+        };
+        {   // free flight: v = dir * speed - (0, g, 0), dir re-derived, then speed += accel
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            Bullet* b = fire(bs);
+            Env env;
+            env.player = {100, 0, 100};
+            int rays = 0;
+            env.ray = [&](const Vec3&, const Vec3&, int set) { rays += set == 2; return RayHit{}; };
+            Vec3 pos{0, 5, 0}, dir{1, 0, 0};
+            float speed = 0.18f;
+            bool ok = b != nullptr;
+            int rays16 = -1;
+            for (int k = 0; k < 20 && b; ++k) {
+                bs.update(env, nullptr);
+                const Vec3 v{dir.x * speed, dir.y * speed - 0.0005f, dir.z * speed};
+                const float l = float(std::sqrt(double(v.y * v.y + v.x * v.x + v.z * v.z)));
+                dir = {v.x / l, v.y / l, v.z / l};
+                pos = {pos.x + v.x, pos.y + v.y, pos.z + v.z};
+                speed = l + -0.001f;
+                ok = ok && near(b->s.pos.x, pos.x, 1e-5f) && near(b->s.pos.y, pos.y, 1e-6f) && near(b->s.speed, speed, 1e-6f);
+                if (k == 15) rays16 = rays;                    // ages 0..15 stepped: none probes (age > 15.0 is false)
+            }
+            check(ok && b && b->s.dir.y < 0.0f && b->age == 20, "kind 0x21: gravity 0.0005 bends the heading down each tick; speed += -0.001");
+            check(rays16 == 0 && rays == 4, "kind 0x21: the terrain probe (set 2) runs only once age > f10 = 15 (ages 16..19)");
+            check(b && b->atk == 232.0f && b->fx && b->fx->power == 3.0f && b->side == 1 && !b->fx->kill,
+                  "kind 0x21: the effect is armed with the owner's ATK 232, power 3.0, side 1; no wall, no kill");
+        }
+        {   // a wall after age 15 kills the effect (fx+0x1d4 = 1) and the tail parks the bullet; f9 = 0 never probes
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            Bullet* b = fire(bs);
+            Spawn s0 = block_spawn(0x21, 385, {0, 5, 0}, {1, 0, 0}, f);
+            s0.f168 = 0.0f;
+            Bullet* nb = bs.spawn(s0);
+            Env env;
+            env.player = {100, 0, 100};
+            env.ray = [&](const Vec3& from, const Vec3& d, int) {   // a wall at x = 1.0: in reach from the first tick
+                RayHit r; r.hit = from.x + d.x >= 1.0f; r.point = from; r.normal = {-1, 0, 0}; return r;
+            };
+            int killed = -1;
+            for (int k = 0; k < 30 && b && nb && killed < 0; ++k) {
+                bs.update(env, nullptr);
+                if (b->fx && b->fx->kill) killed = int(b->age);
+            }
+            check(killed == 17 && b && b->s.speed == 0.0f, "kind 0x21: a wall is ignored until age 16, then the effect is killed and the bullet parks");
+            check(nb && nb->fx && !nb->fx->kill, "kind 0x21: f9 (+0x168) == 0 never probes the terrain");
+        }
+    }
+
     std::printf("[bullet] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }

@@ -127,6 +127,15 @@ int main(int, char**) {
         rig.clear_boss();
         for (int k = 0; k < 40; ++k) rig.step(player, look, rng);
         check(rig.current() == 0, "boss off: the volume pick returns to region 0");
+        // boss06 (ZAVA_CG.md §G.2): the host's hook edits the slot and claims one step at a time
+        rig.write_sel(2, 0, 0.0f, 0.01f);
+        rig.edit_slot(2).eye.dist = 35.0f;
+        rig.claim();
+        rig.step(player, look, rng);
+        check(rig.current() == 2 && rig.from() == 0 && near(rig.blend_t(), 0.01f) && near(rig.slot(2).eye.dist, 35.0f),
+              "claim(): the step keeps the written slot 2 (no volume pick), blending at the written 0.01");
+        rig.step(player, look, rng);
+        check(rig.current() == 0, "claim() lasts one step: the pick returns to region 0");
     }
     {   // B.flags != 0: the yaw from (L - A), and the orbit PIVOTS on L (S_3099's slot 5).
         Scm scm;

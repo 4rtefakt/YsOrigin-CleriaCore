@@ -3469,6 +3469,7 @@ title_again:
     //   flag=i,v    set a game flag      atk   the attack button      boss  face Velagunder
     //   boss2[=o]   stand by a hittable Nygtilger piece (o = its object index)
     //   boss3[=i]   stand by a hittable Gelaldy part (i = 0 core, 1 right arm, 3 left arm)
+    //   boss6[=big] stand by Zava and swing while her fight is live (=big: hold under 25 % HP until the big attack)
     //   cam=x,y,z,yaw,pitch   draw from that fixed pose (degrees) from now on, for shots (the game runs on)
     //   ok / esc / up / down  confirm / cancel / a cursor step: the pause book while it is up (its
     //                         frames count as ticks), else the windows and the game-over menu
@@ -3496,6 +3497,8 @@ title_again:
     std::function<bool(const std::string&)> boss4_drive;   // drive boss4[=i] (view_boss04.inl)
     std::unique_ptr<Boss05> boss5;           // Pictimos's brain (view_boss05.inl)
     std::function<bool(const std::string&)> boss5_drive;   // drive boss5[=i] (view_boss05.inl)
+    std::unique_ptr<Boss06> boss6;           // Zava's two heads (view_boss06.inl)
+    std::function<bool(const std::string&)> boss6_drive;   // drive boss6 (view_boss06.inl)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     std::vector<DriveCmd> drive_more;       // `rep=` expansions, merged after the tick's commands (audit aid)
@@ -3539,6 +3542,7 @@ title_again:
         if (abil_drive(cmd)) return;                     // view_abilities.inl
         if (boss4_drive && boss4_drive(cmd)) return;     // view_boss04.inl
         if (boss5_drive && boss5_drive(cmd)) return;     // view_boss05.inl
+        if (boss6_drive && boss6_drive(cmd)) return;     // view_boss06.inl
         if (hud_drive(cmd)) return;                      // view_hudstate.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
@@ -4926,6 +4930,7 @@ title_again:
     };
     #include "view_boss04.inl"                // Khonsclard's host (KHONSCLARD.md)
     #include "view_boss05.inl"                // Pictimos's host (PICTIMOS.md)
+    #include "view_boss06.inl"                // Zava's heads and her link (ZAVA*.md)
 
     // ---- the player's death and the game over (build/gameflow_re/GAMEFLOW.md §3.4) ---------
     // FUN_0046fba0 (and FUN_0046f810) on HP < 1 without flag 133: the first dead step sets
@@ -5542,6 +5547,7 @@ title_again:
             boss3_tick();
             boss4_tick();
             boss5_tick();
+            boss6_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
                 if (!m.dirty_pos && !m.dirty_pose && !m.dirty_alpha) continue;
@@ -6220,7 +6226,7 @@ title_again:
                     return er ? er->ai_raw : nullptr;
                 };
                 const Vec3 cam_fwd = cam.forward();
-                player_hold = false;                           // re-asserted by a holding Levenueba's brain tick
+                player_hold = boss6_grab;                      // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl)
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
                     // M450's handler, every path (FUN_004c0ee0 0x4c1231): the Mask of Eyes tint +0x148 / +0x278.
@@ -6247,7 +6253,7 @@ title_again:
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) { hk(*en, aiw); boss_corpse(e); }
                     if (hugo_eye_dead(e)) continue;                  // a familiar's death tick (view_hugo_eyes.inl)
-                    if (!en || !en->alive() || en->destroy_requested() || !e.avm.ok()) continue;
+                    if (!en || (!en->alive() && !boss6_zava_undying(*en)) || en->destroy_requested() || !e.avm.ok()) continue;
                     // +0x314 is ONE field: a Fix's turns (world.tick_facing) and Chr_Pos write it
                     // through en->yaw, and the brain carries on from there. e.facing kept the
                     // pre-cutscene heading and snapped a script-turned enemy back (PLAYTEST_1.md §2).
@@ -6278,6 +6284,7 @@ title_again:
                     env.target_alive = player.hp >= 1;
                     env.target_grounded = pv.grounded;
                     boss5_target(*en, env);                          // the +0x888 override (view_boss05.inl)
+                    boss6_zava_env(*en, env);                        // Zava's link to her heads (view_boss06.inl)
                     env.was_hit = e.hit;
                     env.took_damage = e.dmg_hit;
                     env.group_tag = en->tag.tagged();
@@ -6323,7 +6330,8 @@ title_again:
                     env.cam_back = {-cam_fwd.x, 0.0f, -cam_fwd.z};   // [H] M470.md §7 #3
                     const EnemyBrain own = enemy_brain_for(en->ai_index);
                     const int phase_before = e.actor->ai.phase();
-                    const AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
+                    AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
+                    boss6_zava_post(*en, env, o);                    // Zava's handler past the action player (view_boss06.inl)
                     if (phase_before == 2 && e.actor->ai.phase() == 1 && los_log) los_report(*en, env);   // view_los.inl
                     // The brain's own writes to its HP (+0x98) / EXP (+0xb0), and its spawns.
                     if (o.set_hp >= 0) en->hp = o.set_hp;
@@ -6675,6 +6683,7 @@ title_again:
                 self_body.shape.centre = {a.pos.x, a.pos.y + a.height + a.hurt_off, a.pos.z};
                 bodypush::pass(self_body, body_list.data(), body_list.size(), character);
             }
+            boss6_zava_tail();                           // Zava's handler tail: the ride, the clamps (view_boss06.inl)
 
             // The enemy's reaction to the player's hit (FUN_004fbb40, src/cleria/hit.hpp).
             // No i-frames and no hit-stop exist for enemies. The knockback impulse `k` is
@@ -6727,7 +6736,8 @@ title_again:
                         dmg = 0;
                     dmg = access::damage_dealt(dmg, settings().s.access.damage_dealt);       // the shell's Cheats
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
-                    const HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    if (r.died && boss6_zava_undying(en)) { en.flags &= ~kActorDead; r.died = false; }   // her handler floors it (view_boss06.inl)
                     if (dmg > 0) kill_combo.hit();   // 0x4fc835: the combo meter, before the kill's EXP
                     {   // FUN_004fbb40's own feedback (hit_feedback.hpp), at the victim's origin.
                         const Vec3 org{en.pos.x, en.pos.y + en.height, en.pos.z};
@@ -7066,6 +7076,7 @@ title_again:
                     }
                 #include "view_boss04_hit.inl"     // Khonsclard's parts (KHONSCLARD.md §A.2.3)
                 #include "view_boss05_hit.inl"     // Pictimos's parts (PICTIMOS.md §P1.4.1)
+                #include "view_boss06_hit.inl"     // Zava's heads: the accept-hit callback (ZAVA_D.md §7.1)
             }
             // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
             // sweeps. FUN_004281c0 updates the locus pool after the player and the actors; a locus with
@@ -7323,7 +7334,8 @@ title_again:
             // FUN_004fe9e0 L31-34: a hit needs the victim's +0x60 & 0x80 AND its Untouchable byte
             // (+0x9d7, ASO funcid 28) clear — the player's skill sections set it.
             const bool p_untouchable = avm.untouchable() || gs_ramp < 1.0f ||
-                                       player_vanished;          // 0x14d: +0x60 & 0x80 cleared
+                                       player_vanished ||        // 0x14d: +0x60 & 0x80 cleared
+                                       boss6_grab;               // ... and by a boss06 head's grab (view_boss06.inl)
             auto player_death = [&] {
                 if (duel::losable_death(game.g_flags, player.hp, player_iframes)) {   // src/cleria/duel.hpp
                     hud.hide_boss_gauge();
@@ -7348,8 +7360,9 @@ title_again:
             if (cheat_boost && !player.boosting) player.boost = skillmp::kBoostFull;
             if (cheat_o2) oxy.o2 = 6000.0f;
             if (player.hp < 1) player_death();                // lava / noise / drowning this tick
+            bool hurt_direct = false;                         // a brain's own FUN_004fd350 call: no FUN_004fe9e0 gate
             auto hurt_player = [&](float atk, float bonus, int rtype, float angle) {
-                if (p_untouchable) return;
+                if (p_untouchable && !hurt_direct) return;
                 // Hugo's Force Shield (FUN_004fd350 0x4fd9d4 -> 0x4fd90e): a charge left blocks the
                 // hit: damage 0, i-frames at least 16, SE 121, the "GUARD" popup (0xffaa00, scale
                 // 0.75, origin + 0.75; English 0x69bf04), knockback 0.1 [ABILITIES_VERIFIED §3.2].
@@ -7468,6 +7481,7 @@ title_again:
                 }
             }
             #include "view_boss01_touch.inl"        // Velagunder's body entries (VELAGUNDER.md §3.4)
+            #include "view_boss06_touch.inl"        // Zava's heads: the touch push, the direct damage calls (ZAVA_D.md §7.2)
             // Nygtilger's touch (LAB_00513390, §3.6): the player in contact with a piece's live
             // collision hull [approx: a sphere of r 0.7 at the origin, not the mover's contact
             // record], then the piece's verdict, the shared re-hit record (+0xf0/+0xf4 = 15, one
