@@ -4219,11 +4219,12 @@ title_again:
     // player's x / foot y / z / heading +0x314, with the scene. Taken by 0x96 SaveContData, by
     // every save write (FUN_0042e9a0) and after a load (FUN_00431260's "load" label); the game
     // over's Retry restores it. In memory only, like the engine's.
-    struct ContSnap { SaveState s; Vec3 feet{}; bool valid = false; } cont;
+    struct ContSnap { SaveState s; Vec3 feet{}; Sidecar sc; bool valid = false; } cont;   // sc: the mods' sidecar (not retail)
     auto save_cont = [&] {
         apply_script_grants();                    // a script's writes this burst are in the block
         cont.s = capture_save();
         cont.feet = feet;
+        cont.sc = g_content.sc;
         cont.valid = true;
         std::printf("  [cont] snapshot %s (%.2f, %.2f, %.2f) hp %d\n", cont.s.scene.c_str(),
                     feet.x, feet.y, feet.z, player.hp);
@@ -5029,6 +5030,7 @@ title_again:
             scene_entry_fader();                         // Retry is a scene load: it fades in (#51)
             return;
         }
+        content_retry(cont.sc);                          // mods: the sidecar rolls back with the flags, then Load
         apply_loaded(cont.s, /*force_scene*/true);
         game.g_flags[196] += 1;                          // DAT_0076bc2c, the retry count
         std::printf("  [gameover] Retry -> %s (%.2f, %.2f, %.2f), retries %d\n", cont.s.scene.c_str(),

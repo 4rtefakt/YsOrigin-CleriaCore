@@ -406,6 +406,17 @@ static void content_load(const fs::path& slot_file, int slot) {
     r.queued.push_back(e);
 }
 
+// A Retry restores the continue snapshot (view_game.inl ContSnap): the sidecar taken with it comes back
+// with the flags, and the mods get the Load a slot load raises (AP_FULLGAME.md B1).
+static void content_retry(const Sidecar& snap) {
+    ContentRt& r = g_content;
+    r.sc = snap;
+    r.watch.primed = false;
+    events::Event e;
+    e.kind = events::Kind::Load;
+    r.queued.push_back(e);
+}
+
 static void content_delete(const fs::path& slot_file) { remove_sidecar(slot_file); }
 
 // CLERIA_DRIVE: cstate | give=<id>[,<n>] | csave=<slot> | cload=<slot>

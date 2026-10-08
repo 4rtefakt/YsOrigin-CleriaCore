@@ -42,6 +42,16 @@ CASES = {
                 P + "loaded save: seed CLERIATEST applied 3", "Celcetan Panacea: g_flags[0x59] 1 -> 2 (from Clicker)",
                 P + "flag 0x59 = 2", "applied 4/4"],
         server_expect=['Say {"cmd":"Say","text":"!give Celcetan Panacea"}']),
+    # AP_FULLGAME.md B1: an item received after the continue snapshot (S_1009's root takes one), then a death
+    # and Retry. The flags roll back to the snapshot (no Panacea); the sidecar rolls back with them and the mod
+    # gets `load`, so it grants the Panacea again. It used to read -1 with the mod's counter still advanced.
+    "aplua_retry": dict(
+        room="S_10/S_1009/S_1009", aplua={},
+        drive="150:lua=apsay !give Celcetan Panacea;190:lua=apflag 0x59;200:hp=0;360:ok;420:lua=apflag 0x59;"
+              "425:lua=apstate;430:quit",
+        expect=["[cont] snapshot S_1009", "Celcetan Panacea: g_flags[0x59] -1 -> 1 (from Clicker)", P + "flag 0x59 = 1",
+                "[gameover] chose retry", "event load", "Celcetan Panacea: g_flags[0x59] -1 -> 1 (from Clicker)",
+                P + "flag 0x59 = 1", "applied 3/3"]),
     # DeathLink both ways (ap_deathlink).
     "aplua_deathlink": dict(
         room="S_10/S_1009/S_1009", aplua=dict(death_link=True),
