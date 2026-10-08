@@ -582,6 +582,41 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             }
             break;
         }
+        case 5: {                                                  // FUN_005988e0: the ricochet (KHONSCLARD.md §B.1.6)
+            if (b.u184 == 2) { s.speed = 0.0f; s.dir = {0.0f, 0.0f, -1.0f}; reset_matrix(b); break; }   // parked
+            Vec3 v = integrate(b);
+            const RayHit r = ray(s.pos, v);
+            const float d = r.hit ? vdot(v, r.normal) : 0.0f;
+            if (r.hit && d < 0.0f) {
+                v = {v.x - 2.0f * d * r.normal.x, v.y - 2.0f * d * r.normal.y, v.z - 2.0f * d * r.normal.z};   // -2.0 0x6be098
+                s.pos = {s.pos.x + (r.point.x - s.pos.x) * 0.995f, s.pos.y + (r.point.y - s.pos.y) * 0.995f,
+                         s.pos.z + (r.point.z - s.pos.z) * 0.995f};                          // 0x6bd424
+                s.dir = vnorm(v);
+                s.speed *= 0.6f;                                   // 0x6bd334 (0.4 needs +0x184 != 0: never)
+                v = {s.dir.x * s.speed, s.dir.y * s.speed, s.dir.z * s.speed};
+                if (s.speed < 0.0667f && r.normal.y > 0.866f) {    // 0x6bd160 / 0x6bd3c0: rests on a floor
+                    b.u184 = 2; s.speed = 0.0f; s.dir = {0.0f, 0.0f, -1.0f};
+                    reset_matrix(b);
+                    break;
+                }
+            }
+            s.pos = {s.pos.x + v.x, s.pos.y + v.y, s.pos.z + v.z};
+            reset_matrix(b);
+            break;
+        }
+        case 6: {                                                  // 0x59439f..0x5944e6: the snaking mover (§B.1.5)
+            // psi = f10 * sin(phi), phi = ((int)f9 * age + 90) mod 360, through the 256-entry cosine table;
+            // v = dir turned by psi about y (D3D row vector); dir itself changes only by homing.
+            const std::uint32_t phi = (std::uint32_t(int(s.f168)) * b.age + 90u) % 360u;
+            // [H] the sign: the spec's reading is f10 * sin(phi) (= 0.7 cos(5 deg age), +40 deg at age 0).
+            const int k = int(float(phi) * 0.017453292f * 40.7437f);
+            const float psi = s.f16c * float(std::cos(double((k - 64) & 255) * (6.28318531 / 256.0)));
+            const float c = float(std::cos(double(psi))), sn = float(std::sin(double(psi)));
+            const Vec3 d{s.dir.x * c - s.dir.z * sn, s.dir.y, s.dir.x * sn + s.dir.z * c};
+            s.pos = {s.pos.x + d.x * s.speed, s.pos.y + d.y * s.speed, s.pos.z + d.z * s.speed};
+            reset_matrix(b);
+            break;
+        }
         case 0x14: case 0x19: case 0x2b:                           // none: the tail only
             break;
         default:

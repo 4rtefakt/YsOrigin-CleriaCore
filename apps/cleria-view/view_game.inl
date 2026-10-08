@@ -3468,6 +3468,8 @@ title_again:
     int drive_boss_entry = -1;               // drive bossentry=k: stand on body entry k (view_boss01_touch.inl)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
+    std::unique_ptr<Boss04> boss4;           // Khonsclard's brain (view_boss04.inl)
+    std::function<bool(const std::string&)> boss4_drive;   // drive boss4[=i] (view_boss04.inl)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     std::vector<DriveCmd> drive_more;       // `rep=` expansions, merged after the tick's commands (audit aid)
@@ -3509,6 +3511,7 @@ title_again:
         if (speedrun_drive(cmd, shell)) return;          // speedrun=... (view_speedrun.inl)
         if (lua_drive(cmd)) return;                      // lua=<command> <args> (view_lua.inl)
         if (abil_drive(cmd)) return;                     // view_abilities.inl
+        if (boss4_drive && boss4_drive(cmd)) return;     // view_boss04.inl
         if (hud_drive(cmd)) return;                      // view_hudstate.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
@@ -4892,6 +4895,7 @@ title_again:
                         g_cam_out.eye.y, g_cam_out.eye.z, g_cam_out.target.x, g_cam_out.target.y, g_cam_out.target.z);
         }
     };
+    #include "view_boss04.inl"                // Khonsclard's host (KHONSCLARD.md)
 
     // ---- the player's death and the game over (build/gameflow_re/GAMEFLOW.md §3.4) ---------
     // FUN_0046fba0 (and FUN_0046f810) on HP < 1 without flag 133: the first dead step sets
@@ -5505,6 +5509,7 @@ title_again:
             boss_tick();
             boss2_tick();
             boss3_tick();
+            boss4_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
                 if (!m.dirty_pos && !m.dirty_pose && !m.dirty_alpha) continue;
@@ -6958,6 +6963,7 @@ title_again:
                             std::printf("  hit gelaldy part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",
                                         pi, bp.def, dmg, bp.hp, boss3->hp());
                     }
+                #include "view_boss04_hit.inl"     // Khonsclard's parts (KHONSCLARD.md §A.2.3)
             }
             // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
             // sweeps. FUN_004281c0 updates the locus pool after the player and the actors; a locus with

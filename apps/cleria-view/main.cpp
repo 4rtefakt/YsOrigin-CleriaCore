@@ -89,6 +89,7 @@
 #include "cleria/boss01.hpp"
 #include "cleria/boss02.hpp"
 #include "cleria/boss03.hpp"
+#include "cleria/boss04.hpp"
 #include "cleria/emotion.hpp"
 #include "cleria/camrig.hpp"
 #include "cleria/skillmp.hpp"

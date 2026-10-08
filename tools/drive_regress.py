@@ -762,6 +762,16 @@ CASES.update({
         expect=["seen #17 placed", "[ai] #17 cast 17 phase 2", "seen #17 placed feet (9.58, 0.00",
                 "[ai] #17 cast 17 phase 2"],
         absent=["[los]"]),
+    # Khonsclard (boss04, build/boss_re/KHONSCLARD.md): the intro (START), flag 156, two pods rise; breaking
+    # them downs the boss and opens the core (jump attacks); every 20 % adds a pod; the kill writes 223 and
+    # the EXP, and the 1/340 fade destroys the boss ~339 frames later. Level 50 and Damage x10 keep it short.
+    "khonsclard_fight": dict(
+        room="S_40/S_4099/S_4099",
+        env={"CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=10;20:at=-2.8,23.3,0;"
+              "40:every=20,700,ok;720:every=40,3700,boss4;728:every=40,3700,atk;3700:quit",
+        expect=["[boss04] Khonsclard: body 3000, pods 600", "clip START fr", "f156 1", "states 00", "down 1 ",
+                "band 2", "band 5", "flag 223 = 1", "EXP 328", "destroyed"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,

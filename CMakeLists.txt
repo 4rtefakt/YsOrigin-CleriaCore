@@ -64,6 +64,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/boss01.cpp
   src/cleria/boss02.cpp
   src/cleria/boss03.cpp
+  src/cleria/boss04.cpp
   src/cleria/player_actions.cpp
   src/cleria/locus.cpp
   src/cleria/emotion.cpp
@@ -170,6 +171,9 @@ target_link_libraries(cleria-boss02test PRIVATE cleria)
 # cleria-boss03test — Gelaldy's brain (src/cleria/boss03) vs build/boss_re/GELALDY.md.
 add_executable(cleria-boss03test apps/cleria-boss03test/main.cpp)
 target_link_libraries(cleria-boss03test PRIVATE cleria)
+# cleria-boss04test — Khonsclard's brain (src/cleria/boss04) vs build/boss_re/KHONSCLARD.md.
+add_executable(cleria-boss04test apps/cleria-boss04test/main.cpp)
+target_link_libraries(cleria-boss04test PRIVATE cleria)
 
 # cleria-chrtest — the cutscene actor ops (build/event_re/CHR_OPS.md): facing, pattern, tremble, fly.
 add_executable(cleria-chrtest apps/cleria-chrtest/main.cpp)
@@ -440,7 +444,7 @@ else()
 endif()
 set(CLERIA_TEST_ASSETS "${_cleria_assets_default}" CACHE PATH "Asset root the ctest suite runs on")
 enable_testing()
-foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest videotest)
+foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test boss04test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest videotest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
