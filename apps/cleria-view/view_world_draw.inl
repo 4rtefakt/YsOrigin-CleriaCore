@@ -190,6 +190,7 @@ struct EnemyRender {
     float facing = 0;       // +0x314, the visible facing, ENGINE basis (cos, sin)
     int loco = -1;          // last locomotion section requested (table 0x69ba48)
     int motion_applied = -1;  // the Chr_Animate motion (+0x994) last set on avm (CHR_OPS.md §4)
+    int fix_loco = 2;         // the script puppet's locomotion state +0x3a0, as its section (idle 2 / walk 0 / run 1)
     bool hit = false;       // landed hit this tick (+0x3bc & 4), read by the next AI tick
     bool dmg_hit = false;   // ...and it did >= 1 damage (+0x3bc & 2)
     float origin_h = 1.075f;  // +0x324: this cast's origin height above its floor

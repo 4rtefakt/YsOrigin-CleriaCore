@@ -5554,6 +5554,17 @@ title_again:
                 if (!e.actor || !e.avm.ok()) continue;
                 const Actor& A = *e.actor;
                 if (A.pattern.pinned()) continue;
+                // The locomotion state +0x3a0 (idle / walk / run) is kept apart from the motion +0x994: when
+                // it changes, FUN_0045f4d0 sets the table's motion over whatever plays, a Chr_Animate motion
+                // included, unless that motion is 3 or AniDisable is on [EXPORT 0045f4d0.c L168-176]. So an
+                // actor left on a Chr_Animate motion runs when the script next moves it (issue #72: Epona
+                // glided out of S_1080 in her idle, still held by the Chr_Animate(201, 3) of her leap).
+                {
+                    const int loco = (A.cmoving || A.fly_r2 != 0.0f) ? ((A.flags12c & 0x20u) ? 1 : 0) : 2;
+                    if (loco != e.fix_loco && A.anim_motion >= 0 && !(A.tag.bits & 0x80000u) && e.avm.section() != 3)
+                        e.actor->anim_motion = -1;
+                    e.fix_loco = loco;
+                }
                 if (A.anim_motion >= 0) {
                     if (e.motion_applied != A.anim_motion) {
                         e.avm.set_section(A.anim_motion, /*force*/true);
@@ -5749,8 +5760,15 @@ title_again:
             // An attached effect reads its actor's +0x20 every step (FUN_00451e60), and scripts move
             // actors under a Fix (Eft_LocateChr on the smith and the player runs inside one): keep
             // the attach matrices current here too, as the unfrozen tick does.
-            for (Actor& a : world.actors())
+            for (Actor& a : world.actors()) {
                 actor_mats[a.instance_id] = ef2sim::translation(a.pos.x, a.pos.y + a.height, a.pos.z);
+                // The hurt timer +0x238 runs out under a Fix too: the puppet FUN_0045f250 (and every
+                // handler) calls the integrator FUN_0045a510 on each real step, whose first call is
+                // FUN_0045a3a0 with no fix gate [EXPORT 0045f250.c L20-49, 0045a510.c L144]. It stood
+                // still here, so a duel opponent hit just before the ending Fix kept the hurt specular
+                // for the whole scene (issue #72: Epona stayed red after the S_1080 duel).
+                a.hit_flash = hitfx::step_hurt(a.hit_flash);
+            }
             actor_mats[13] = ef2sim::translation(feet.x, feet.y + kOriginH, feet.z);
             fxsim.step();
             fxsim.sweep();

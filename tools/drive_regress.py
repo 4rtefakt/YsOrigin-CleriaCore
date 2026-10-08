@@ -1190,6 +1190,14 @@ CASES.update({
         drive="20:near=17;21:atk;36:atk;39:run=@itemcannotuse;40:scripts;41:pos;150:scripts;151:pos;160:quit",
         expect=["t40 scripts", "frozen 1 fix 0/1 popups 1", "sec 0x103", "t150 scripts", "frozen 1 fix 0/1 popups 0",
                 "sec 0x2"]),
+    # #72: after the S_1080 Hugo duel Epona's hurt timer (+0x238) runs out under the scene's Fix (it stood at
+    # 1.2: the hurt specular stayed on, a red Epona), and her exit run plays the run section 1 (tag 302): the
+    # locomotion change takes the motion back from the Chr_Animate(201, 3) of her leap (FUN_0045f4d0).
+    "duel_s1080_epona_exit": dict(
+        room="S_10/S_1080/S_1080", char="2", env=dict(_LOCK, CLERIA_LEVEL="30"),
+        drive=_S1080.format(end=7400, cast=171) + "4701:actors;7221:chr=201;7421:quit",
+        expect=["t4701 actors", "[actor] id 201 cast 171 npc hp 0 g1 0 pos (0.2,-18.0,-9.7) hurt 0.000",
+                "[chr] 201", "run 1 pin -1/0 motion -1 aso 1/302/"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
