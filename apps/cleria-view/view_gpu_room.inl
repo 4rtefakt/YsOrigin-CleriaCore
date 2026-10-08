@@ -60,6 +60,9 @@ struct Room {
     RoomMesh coll;           // the `_.YMO` collision hulls — what physics collides against
     std::vector<std::uint8_t> base_a;  // each vertex's alpha after bake_material_alpha (apply_object_alpha)
     std::vector<float> batch_alpha;    // each batch's live object (model) alpha; empty / missing = 1
+    // A brain's per-material alpha (the instance material record's +0x20) of one object, by its YMO material index:
+    // multiplied into that object's batch alphas by apply_object_alpha (Darm's limb groups, view_boss08.inl).
+    std::unordered_map<std::string, std::vector<float>> mat_alpha;
     // The objects the Mask of Eyes gates (SOB +0x14c & 0x1000 / 0x2000; view_mask.inl).
     struct MaskObj {
         std::size_t rr = 0;              // index in mesh.object_ranges
@@ -299,11 +302,15 @@ static void bake_material_alpha(RoomMesh& m) {
 // the load already baked d7 in) x this. Also restores the d7 bake after a re-bake.
 static void apply_object_alpha(Room& room, const RoomMesh::ObjRange* r, float a) {
     if (!r || room.base_a.size() != room.mesh.vertices.size()) return;
-    const float k = std::clamp(a, 0.0f, 1.0f);
+    const float ko = std::clamp(a, 0.0f, 1.0f);
     room.batch_alpha.resize(room.mesh.batches.size(), 1.0f);
+    const auto ma = room.mat_alpha.find(r->name);
     for (std::size_t i = 0; i < room.mesh.batches.size(); ++i) {
         const DrawBatch& b = room.mesh.batches[i];
         if (b.first_vert < r->v0 || b.first_vert >= r->v1) continue;
+        float k = ko;
+        if (ma != room.mat_alpha.end() && b.material >= 0 && std::size_t(b.material) < ma->second.size())
+            k = ko * std::clamp(ma->second[std::size_t(b.material)], 0.0f, 1.0f);
         room.batch_alpha[i] = k;
         const bool baked = material_blend_mode(b) != 0 && b.mat_alpha < 1.0f;   // bake_material_alpha
         const float f = material_blend_mode(b, b.mat_alpha * k) == 0 ? 1.0f
@@ -499,6 +506,23 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
         }
         for (const auto& [n, on] : live->visible) { if (on) hidden.erase(n); else hidden.insert(n); }
         for (const auto& [n, on] : live->collide) { if (on) no_collide.erase(n); else no_collide.insert(n); }
+    }
+    // boss08's ctor FUN_00550aa0 runs where the body is located and builds its family there (DARM.md §3.3 item 10
+    // [BYTES 0x5514b2..0x551bc8]): the tail and the arms at (B.x, B.y - 999, B.z), the core (moved to (10, 2, -10) by
+    // its own run of the ctor) and the arena floor s7099yuka at the origin. Darm's host (view_boss08.inl) drives them.
+    // [not modelled] the floor's factory flags 0x8000.
+    for (std::size_t i = 0; i < located.size(); ++i) {
+        if (located[i].name != "boss08") continue;
+        const Vec3 p = located[i].position;
+        auto add = [&](const char* ymo, const char* nm, float x, float y, float z) {
+            for (const SobObject& o : located) if (o.name == nm) return;
+            located.push_back(located_object(ymo, nm, x, y, z, 0.0f, 0.0f, 0.0f));
+        };
+        add("data\\enemy\\boss08\\boss08t.ymo", "boss08t", p.x, p.y - 999.0f, p.z);
+        add("data\\enemy\\boss08\\boss08w.ymo", "boss08w", 10.0f, 2.0f, -10.0f);
+        add("data\\enemy\\boss08\\boss08Arm.ymo", "boss08arm", p.x, p.y - 999.0f, p.z);
+        add("DATA\\map\\Mapobj\\s7099yuka\\s7099yuka.ymo", "s7099yuka", 0.0f, 0.0f, 0.0f);
+        break;
     }
     r.load_effects = std::move(load_fx);
     r.mesh = build_room(asset_root, sob, nullptr,

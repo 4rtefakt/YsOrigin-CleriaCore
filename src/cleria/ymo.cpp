@@ -406,6 +406,124 @@ void Model::pose(const AnimClip& clip, float frame) {
     resolve_hierarchy();
 }
 
+namespace {
+
+// The key lookup of FUN_005f6490 (the same code for S, R and T) [BYTES 0x5f6629..0x5f66c5; DARM_TRACKS §3.1]: one
+// key = it; else a binary search for the last key with frame <= f (key 0 when none), its successor j — key 0 after
+// the LAST key, with the last interval's length as the denominator (sic) — and u, not clamped.
+template <class K>
+bool key_span(const std::vector<K>& keys, float f, std::size_t& i, std::size_t& j, float& u) {
+    if (keys.empty()) return false;
+    i = j = 0; u = 0.0f;
+    if (keys.size() == 1) return true;
+    std::size_t lo = 0, hi = keys.size();
+    do {
+        const std::size_t mid = (lo + hi) / 2;
+        if (f < float(keys[mid].frame)) hi = mid; else lo = mid;
+    } while (lo + 1 < hi);
+    i = lo;
+    float den;
+    if (i == keys.size() - 1) { j = 0; den = float(keys[i].frame) - float(keys[i - 1].frame); }
+    else { j = i + 1; den = float(keys[j].frame) - float(keys[i].frame); }
+    u = (f - float(keys[i].frame)) / den;
+    return true;
+}
+
+// D3DXQuaternionSlerp [DOC D3DX9; DARM_TRACKS O2]: the shortest arc (the second quaternion negated when the dot is
+// negative), linear below a 0.001 gap.
+void quat_slerp(float out[4], const float a[4], const float b[4], float t) {
+    float dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    float eps = 1.0f, ka = 1.0f - t, kb = t;
+    if (dot < 0.0f) { eps = -1.0f; dot = -dot; }
+    if (1.0f - dot > 0.001f) {
+        const float th = std::acos(dot), sn = std::sin(th);
+        ka = std::sin(th * (1.0f - t)) / sn;
+        kb = std::sin(th * t) / sn;
+    }
+    for (int k = 0; k < 4; ++k) out[k] = ka * a[k] + eps * kb * b[k];
+}
+
+}  // namespace
+
+void PoseTracks::reset(const Model& m) {
+    recs.assign(m.nodes.size(), Rec{});
+    for (std::size_t i = 0; i < m.nodes.size(); ++i) {
+        const Node& n = m.nodes[i];
+        Rec& r = recs[i];
+        r.cur_s = r.snap_s = n.scale;
+        r.cur_t = r.snap_t = n.translation;
+        for (int k = 0; k < 4; ++k) r.cur_q[k] = r.snap_q[k] = n.quat[k];
+    }
+}
+
+void PoseTracks::snapshot(int owner) {
+    for (Rec& r : recs) {
+        if (r.owner != owner) continue;
+        r.snap_s = r.cur_s; r.snap_t = r.cur_t;
+        for (int k = 0; k < 4; ++k) r.snap_q[k] = r.cur_q[k];
+    }
+}
+
+void PoseTracks::paint(const Model& m, int root, int owner) {
+    if (root < 0 || std::size_t(root) >= recs.size() || recs.size() != m.nodes.size()) return;
+    for (std::size_t i = 0; i < m.nodes.size(); ++i) {
+        int a = int(i);
+        for (int guard = 0; a >= 0 && a != root && guard < 256; ++guard) a = m.nodes[std::size_t(a)].parent_index;
+        if (a == root) recs[i].owner = owner;
+    }
+}
+
+void PoseTracks::evaluate(Model& m, const AnimClip& main, float frame, float weight, std::span<const Track> tracks) {
+    if (recs.size() != m.nodes.size()) reset(m);
+    for (std::size_t ti = 0; ti < main.tracks.size(); ++ti) {
+        const AnimTrack& mt = main.tracks[ti];
+        if (mt.node_index < 0 || std::size_t(mt.node_index) >= m.nodes.size()) continue;
+        Rec& r = recs[std::size_t(mt.node_index)];
+        const AnimTrack* tr = &mt;
+        float f = frame, w = weight;
+        if (r.owner >= 0) {
+            if (std::size_t(r.owner) >= tracks.size()) continue;       // (An+0x54 == 0: the node is not evaluated)
+            const Track& k = tracks[std::size_t(r.owner)];
+            w = k.weight;
+            if (!k.releasing) {                                        // the SAME index of the override clip's array
+                if (!k.clip || ti >= k.clip->tracks.size()) continue;
+                tr = &k.clip->tracks[ti];
+                f = k.frame;
+            }
+        }
+        std::size_t i, j;
+        float u;
+        // The raw samples, stored before any blend.
+        if (key_span(tr->scale, f, i, j, u)) {
+            const Vec3 &a = tr->scale[i].v, &b = tr->scale[j].v;
+            r.cur_s = {a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u};
+        }
+        if (key_span(tr->rotation, f, i, j, u)) {
+            if (i == j) for (int k = 0; k < 4; ++k) r.cur_q[k] = tr->rotation[i].q[k];
+            else quat_slerp(r.cur_q, tr->rotation[i].q, tr->rotation[j].q, u);
+        }
+        if (key_span(tr->translation, f, i, j, u)) {
+            const Vec3 &a = tr->translation[i].v, &b = tr->translation[j].v;
+            r.cur_t = {a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u};
+        }
+        // The blend toward the snapshot, on copies (cur stays raw); skipped altogether at w == 0.
+        Vec3 s = r.cur_s, t = r.cur_t;
+        float q[4] = {r.cur_q[0], r.cur_q[1], r.cur_q[2], r.cur_q[3]};
+        if (w != 0.0f) {
+            if (!tr->scale.empty())
+                s = {s.x + (r.snap_s.x - s.x) * w, s.y + (r.snap_s.y - s.y) * w, s.z + (r.snap_s.z - s.z) * w};
+            if (!tr->rotation.empty()) quat_slerp(q, r.cur_q, r.snap_q, w);
+            if (!tr->translation.empty())
+                t = {t.x + (r.snap_t.x - t.x) * w, t.y + (r.snap_t.y - t.y) * w, t.z + (r.snap_t.z - t.z) * w};
+        }
+        // local = S . R . T; no scale keys: R . T; no rotation keys: the identity (sic), not the rest quaternion.
+        const float qi[4] = {0, 0, 0, 1};
+        m.nodes[std::size_t(mt.node_index)].local =
+            compose_srt(tr->scale.empty() ? Vec3{1, 1, 1} : s, tr->rotation.empty() ? qi : q, t);
+    }
+    m.resolve_hierarchy();
+}
+
 bool Model::skin_point(const Mesh& mesh, int submesh, std::uint32_t k, const Vec3& v,
                        bool is_dir, Vec3& out) const {
     if (!mesh.skinned() || submesh < 0 || submesh >= int(mesh.submeshes.size())) return false;

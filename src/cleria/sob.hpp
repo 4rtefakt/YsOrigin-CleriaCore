@@ -56,6 +56,9 @@ struct SobObject {
     // room builder places the object with `world_mat` instead of world().
     bool has_world = false;
     Mat4 world_mat{};
+    // Its collision twin takes the render model's clips, so the hull's bones are posed with it (the engine rebuilds
+    // each collision entry from its render node, FUN_00502fe0). Opt-in for a brain-placed object (Darm's four).
+    bool twin_clips = false;
 
     Mat4 world() const { return compose_trs(position, rotation, scale); }
 };

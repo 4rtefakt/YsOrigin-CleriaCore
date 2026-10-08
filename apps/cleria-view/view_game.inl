@@ -1688,6 +1688,10 @@ title_again:
         live_obj = {};                                           // a new visit
         emotions.clear();
         live_obj_dirty = false;
+        // A scene load installs the room's SCM again — also when it is the same room (a Retry, a load): the slots'
+        // edits, the forced slot and the scroll do not outlive it (FUN_0042b1a0; CAMERA_OPS.md: "the edits last
+        // until the room reloads its camera file"). Without this a retried boss room kept the intro's scroll.
+        g_rig_room.clear();
         Room next = load_room(g, asset_root, it->second, game.g_flags, character);
         free_room(room, g.white_bind);
         room = std::move(next);
@@ -3483,6 +3487,8 @@ title_again:
     //               (opts lightning, thunder, cast; boss6=off ends it; view_boss06.inl)
     //   boss7[=opts] fight Dalles as a player does, every tick from then on: floor placement + real inputs only, the
     //               Skill 1-3 key of the barrier that is up (opts evade, skill; boss7=off ends it; view_boss07.inl)
+    //   boss8[=opts] fight Darm as a player does, every tick from then on: floor placement + real inputs only
+    //               (boss8=off ends it; view_boss08.inl)
     //   diff=n      the difficulty 0 Very Easy .. 4 Nightmare (flags 143 / 144 / 203; Zava's heads are built again)
     //   cam=x,y,z,yaw,pitch   draw from that fixed pose (degrees) from now on, for shots (the game runs on)
     //   ok / esc / up / down  confirm / cancel / a cursor step: the pause book while it is up (its
@@ -3515,6 +3521,8 @@ title_again:
     std::function<bool(const std::string&)> boss6_drive;   // drive boss6 (view_boss06.inl)
     std::unique_ptr<Boss07> boss7;           // Dalles (view_boss07.inl)
     std::function<bool(const std::string&)> boss7_drive;   // drive boss7 (view_boss07.inl)
+    std::unique_ptr<Boss08> boss8;           // Darm (view_boss08.inl)
+    std::function<bool(const std::string&)> boss8_drive;   // drive boss8 (view_boss08.inl)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     std::vector<DriveCmd> drive_more;       // `rep=` expansions, merged after the tick's commands (audit aid)
@@ -3560,6 +3568,7 @@ title_again:
         if (boss5_drive && boss5_drive(cmd)) return;     // view_boss05.inl
         if (boss6_drive && boss6_drive(cmd)) return;     // view_boss06.inl
         if (boss7_drive && boss7_drive(cmd)) return;     // view_boss07.inl
+        if (boss8_drive && boss8_drive(cmd)) return;     // view_boss08.inl
         if (hud_drive(cmd)) return;                      // view_hudstate.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
@@ -3810,6 +3819,7 @@ title_again:
             game.g_flags[203] = difficulty == 0 ? 1 : 0;
             boss6.reset();                              // Zava's heads latch it in their ctor: built again next step
             boss7.reset();                              // ... and Dalles (view_boss07.inl)
+            boss8.reset();                              // ... and Darm (view_boss08.inl)
         } else if (cmd == "flagdump") {               // every nonzero game flag, "i=v" (audit aid)
             std::string s;
             for (int i = 0; i < 0x200; ++i)
@@ -4957,6 +4967,7 @@ title_again:
     #include "view_boss05.inl"                // Pictimos's host (PICTIMOS.md)
     #include "view_boss06.inl"                // Zava's heads and her link (ZAVA*.md)
     #include "view_boss07.inl"                // Dalles's host (DALLES*.md)
+    #include "view_boss08.inl"                // Darm's host (DARM*.md)
 
     // ---- the player's death and the game over (build/gameflow_re/GAMEFLOW.md §3.4) ---------
     // FUN_0046fba0 (and FUN_0046f810) on HP < 1 without flag 133: the first dead step sets
@@ -5575,6 +5586,7 @@ title_again:
             boss5_tick();
             boss6_tick();
             boss7_tick();
+            boss8_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
                 if (!m.dirty_pos && !m.dirty_pose && !m.dirty_alpha) continue;
@@ -5595,7 +5607,7 @@ title_again:
                                            ? m.clips[std::size_t(m.sect)].name.c_str() : nullptr;
                     const Mat4* wm = m.has_world ? &m.world : nullptr;
                     rebake_object(room.mesh, asset_root, nm, clip, m.time, &m.pos, false, &m.rot, wm);
-                    rebake_object(room.coll, asset_root, nm, clip, m.time, &m.pos, true, &m.rot, wm);
+                    rebake_object(room.coll, asset_root, nm, clip, m.time, &m.pos, true, &m.rot, wm, m.twin_clips);
                     // A brain dropped its collision this tick (boss02): the hull collapses to a point.
                     if (m.no_collide)
                         if (const RoomMesh::ObjRange* cr = room.coll.object_range(nm))
@@ -6256,7 +6268,7 @@ title_again:
                     return er ? er->ai_raw : nullptr;
                 };
                 const Vec3 cam_fwd = cam.forward();
-                player_hold = boss6_grab || boss7_pin;         // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl); Dalles's pin (view_boss07.inl)
+                player_hold = boss6_grab || boss7_pin || boss8_pin;   // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl); Dalles's pin (view_boss07.inl); Darm's dead fall (view_boss08.inl)
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
                     // M450's handler, every path (FUN_004c0ee0 0x4c1231): the Mask of Eyes tint +0x148 / +0x278.
@@ -7108,6 +7120,7 @@ title_again:
                 #include "view_boss05_hit.inl"     // Pictimos's parts (PICTIMOS.md §P1.4.1)
                 #include "view_boss06_hit.inl"     // Zava's heads: the accept-hit callback (ZAVA_D.md §7.1)
                 #include "view_boss07_hit.inl"     // Dalles's parts (DALLES_AB.md §B.2)
+                #include "view_boss08_hit.inl"     // Darm's parts (DARM_D.md §4.3)
             }
             // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
             // sweeps. FUN_004281c0 updates the locus pool after the player and the actors; a locus with
@@ -7977,6 +7990,7 @@ title_again:
             }
         }
         boss7_gauges(last_vp, cw, ch);                     // Dalles's three mini gauges (view_boss07.inl)
+        boss8_gauges(last_vp, cw, ch);                     // Darm's (view_boss08.inl)
         hud.arm_frac = -1.0f;                              // Gelaldy's arm mini-gauge, at the arm
         if (boss3 && boss3->hp() > 0.0f && boss3_arm.timer > 0 && boss3_arm.max > 0.0f) {
             const Vec3 o = boss3_arm.pos;

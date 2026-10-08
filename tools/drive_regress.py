@@ -958,6 +958,47 @@ CASES.update({
                 "every particle removed", "mode 0 -> 4", "clip KIAI_START", "the player is pinned at (0.0,495.0,-5.0)",
                 "clip METEOR", "the player is returned to (0.0,7.5,-15.0)", "mode 4 -> 0", "barrier D broken (window 699)",
                 "flag 226 = 1", "EXP (lv 49)", "the death starts", "[boss07] t", "destroyed", ">> entering S_7000"]),
+    # Darm (build/boss_re/DARM*.md; src/cleria/boss08, apps/cleria-view/view_boss08.inl). Toal's last fight, from the
+    # room's own retry start: flag 205 = 1 and a reload make the root script Mesh_Locate boss08 (its ctor builds the
+    # tail, the core, the arms and the floor s7099yuka), place the player at (0, 0, -10) and run Battle (flag 156 at
+    # once; it then waits for 227) — the first-visit intro Event_7099 is some 1,300 frames. The fight is played the
+    # way a player plays it: drive `boss8` only ever stands the player on a resting floor tile beside its target and
+    # presses Attack / Jump / the stick, so every hit goes through the input path and the engine's damage formula
+    # against the nine GoXx parts. What a save at this point has and the direct room start lacks is set by hand: the
+    # level / weapon tier and the double jump (flag 163); DamageTaken=0 + InfiniteHP keep the run alive (the swings
+    # still knock the player about and off the floor: the 220-frame fall sequence), DamageDealt=2 lets one 600-frame
+    # exposure cross its 20 % band (a limb hit is 1 by the min-1 rule either way: 34 part-frames empty a limb).
+    # Forms Normal / Low / High: the limbs are struck until the group that holds the core has faded -> DOWN, the
+    # core sinks to y 1.5 and takes the real damage for 600 frames; the band is capped (the refill), the floor
+    # re-arranges into the next form (640 frames). Four bands, then OnBack: the core on the tail's eye behind the
+    # barrier (60 hits of 1), the tentacles' override tracks (Stab / Pull / Beat), the 900-frame window, the kill:
+    # flag 227 = 1, Battle's flag 156 = 0 and Battle_End (its windows confirmed by `oktapf`), 227 = 2 releases the
+    # death timeline: the body fades out, ChangeScene to S_7000.
+    "darm_fight": dict(
+        room="S_70/S_7099/S_7099",
+        env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss8;61:every=15,17000,oktapf;17000:quit",
+        expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
+                "the fight starts, the body at (0.00,0.00,8.50)", "target part 5 from the floor",
+                "the swing hits part 5 (DEF 998, class 3): 2 dmg", "clip 36_DoubleLariat", "effect 512",
+                "target part 7 from the floor", "CamSlot 5 (1.000)", "the player fell off the floor", "effect 517",
+                "the player is put back at (0.0,19.0,-6.0)", "bullet(s) kind 0x25 effect 467", "target part 2 from the floor",
+                "MatMode 1: black (Down)", "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
+                "target the core 0", "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
+                "band 1 (the refill starts", "CamSlot 6 (0.020)", "MatMode 2: the outline (form change)",
+                "form Normal -> Low", "motion s7099yuka f", "the floor moves: over to", "the refill ends at hp",
+                "motion s7099yuka c", "CamSlot 2 (0.025)", "MatMode 0: lit", "settled in Low", "clip 38_LowDown",
+                "band 2 (the refill starts", "form Low -> Normal", "settled in Normal", "clip 04_RightHandSwing",
+                "effect 451", "effect 490", "band 3 (the refill starts", "form Normal -> High", "motion s7099yuka e",
+                "CamSlot 3 (0.025)", "settled in High", "with a jump", "clip 39_HighDown", "band 4 (the refill starts",
+                "form High -> OnBack", "the barrier is up", "motion s7099yuka j", "settled in OnBack",
+                "(24_StabInTheGround)", "CamSlot 4 (", "the swing hits the core 0 (DEF 998, class 3): 2 dmg",
+                "bullet(s) kind 0x25 effect 484", "(25_PullFromTheGround)", "released from Bone_", "barrier 59",
+                "the barrier breaks (window 900)", "the swing hits the core 0 (DEF 295, class 3)",
+                "the window closed: the barrier is back", "the barrier is up", "(20_Beat)", "flag 215 = 0",
+                "the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1", "the death timeline starts",
+                "the body is gone (alpha 0)", ">> entering S_7000"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,

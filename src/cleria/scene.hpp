@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -50,6 +51,8 @@ struct DrawBatch {
     // The vertex range this batch owns, so a scrolling batch's UVs can be rewritten
     // in place rather than needing a per-draw uniform.
     std::uint32_t first_vert = 0, vert_count = 0;
+    // The subset's material index in its object's YMO (-1 = none): a brain's per-material alpha (Darm's limbs).
+    int material = -1;
 };
 
 // A scripted object the player can interact with (currently: treasure chests).
@@ -154,7 +157,10 @@ bool object_frame(const std::filesystem::path& asset_root, const SobObject& o, c
 // `world` (non-null): place it with that full matrix instead (SobObject::world_mat).
 bool rebake_object(RoomMesh& m, const std::filesystem::path& asset_root, const std::string& lname,
                    const char* clip, float frame, const Vec3* pos, bool collision,
-                   const Vec3* rot = nullptr, const Mat4* world = nullptr);
+                   const Vec3* rot = nullptr, const Mat4* world = nullptr, bool twin_clips = false);
+// A host's own pose for one object's kept (big) render model, in place of the builder's clip pose: called with the
+// model at rest; true = the host posed it (Darm's tail: the override tracks, PoseTracks). Empty = none.
+void set_object_pose_hook(std::function<bool(const std::string& lname, Model& m)> hook);
 
 // If box_whitelist is non-null, chest objects ("box_NN") are included (geometry
 // and interactable) only when their lower-cased name is in the set — this gates

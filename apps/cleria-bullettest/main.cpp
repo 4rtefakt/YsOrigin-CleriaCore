@@ -1022,6 +1022,170 @@ int main(int argc, char** argv) {
         }
     }
 
+    // ---- boss08 (Darm): the Bit (kind 0x25 effect 467 -> kind 0x28), kind 0x25's terrain burst 485, the mover's
+    //      effect cases 0x1c9 / 0x1df, effect 0x1e7's scale (build/boss_re/DARM_B1.md §6, DARM_B23.md §9.2) ----
+    {
+        const std::filesystem::path bos = std::filesystem::path(argv[1]) / "EFFECT" / "EFT" / "BOS";
+        efs[467] = Ef2::load(bos / "BS_08_BIT.EF2");
+        efs[487] = Ef2::load(bos / "BS_08_KUROKEMURI.EF2");
+        efs[515] = Ef2::load(bos / "BS_08_BITBULLET2.EF2");
+        efs[513] = Ef2::load(bos / "BS_08_BITBRAKE.EF2");
+        efs[484] = Ef2::load(bos / "BS_08_HORMINGTOP.EF2");
+        efs[483] = Ef2::load(bos / "BS_08_HORMINGBODY.EF2");
+        efs[485] = Ef2::load(bos / "BS_08_HORMINGHIT.EF2");
+        efs[457] = Ef2::load(bos / "BS_08_TUKIBULLET.EF2");
+        efs[520] = Ef2::load(bos / "BS_08_JIRAI.EF2");
+        efs[479] = Ef2::load(bos / "BS_08_ROLLINGSPEARBULLET.EF2");
+        efs[480] = Ef2::load(bos / "BS_08_ROLLINGSPEARHIT.EF2");
+        bool loaded = true;
+        for (int id : {467, 487, 515, 513, 484, 483, 485, 457, 520, 479, 480}) loaded = loaded && efs[id].ok();
+        check(loaded, "boss08: the EF2s 457 / 467 / 479 / 480 / 483..485 / 487 / 513 / 515 / 520 load");
+        auto ib = [](std::uint32_t v) { float f; std::memcpy(&f, &v, 4); return f; };
+        auto count_fx = [](ef2sim::System& fx, int id) {
+            int n = 0;
+            for (const auto& f : fx.effects()) n += f->id == id;
+            return n;
+        };
+        auto pack = [&](float x, float y, float z) {
+            return ib((std::uint32_t(std::uint8_t(int(x + 128.0f))) << 16) | (std::uint32_t(std::uint8_t(int(y + 128.0f))) << 8) |
+                      std::uint32_t(std::uint8_t(int(z + 128.0f))));
+        };
+        {   // the Bit, FUN_00552730's block: falls from (15, 20, 0) toward its grid point, deploys under y 1.5
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            const float f[13] = {0.3f, ib(0xba83126fu), 0.0f, -6.0f, 1.0f, ib(487), ib(3), ib(4), ib(0x3e97e9d8u), 1.0f, 2.0f, 60.0f,
+                                 pack(7.5f, 1.5f, -5.0f)};
+            Spawn s = block_spawn(0x25, 467, {15, 20, 0}, {0, -1, 0}, f);
+            s.owner_atk = 259.0f;
+            Bullet* b = bs.spawn(s);
+            Env env;
+            env.player = {0, 1, -10};
+            bool swing = false;
+            env.swing = [&](const HitShape& v) { return swing && v.radius == 1.25f; };
+            env.ray_no_boss = [&](const Vec3&, const Vec3&, int) { return RayHit{}; };   // no floor under it: it deploys
+            std::vector<Event> ev;
+            int deploy_age = -1, trails = 0;
+            bool trail3 = true;
+            for (int k = 0; k < 200 && b && b->s.kind == 0x25; ++k) {
+                const std::uint32_t age = b->age;
+                const int before = count_fx(fx, 487);
+                bs.update(env, &ev);
+                if (b->s.kind == 0x28) { deploy_age = int(age); break; }
+                if (count_fx(fx, 487) > before) { ++trails; trail3 = trail3 && b->age % 3 == 0; }
+                fx.step(); fx.sweep();
+            }
+            check(b && b->s.kind == 0x28 && deploy_age >= 70 && deploy_age < 100,
+                  "Bit: effect 467 under y 1.5 becomes kind 0x28 (after age 70: 18.5 of descent)");
+            check(b && b->age == 1 && b->s.speed == 0.0f && b->s.accel == 0.0f && b->s.f158 == 0 && b->s.f15c == 0 && b->s.f174 == 0.0f,
+                  "Bit: the deploy zeroes speed / accel / the aim / the trail; age restarts (1 after the tail)");
+            check(trails > 15 && trail3, "Bit: the smoke trail 487 every 3rd tick while it falls");
+            // (15 turns of <= 17 deg while it sinks: it comes down between its column and the grid point, (9.46, -3.46))
+            check(b && b->s.pos.x > 7.5f && b->s.pos.x < 11.0f && b->s.pos.z < -2.0f && b->s.pos.z > -5.0f,
+                  "Bit: it steers from its column toward its grid point (7.5, -5)");
+            // deployed: no strike before age 10; a shot at age 90 (kind 4, effect 515, 0.24, power -5, level, no_boss)
+            swing = true;
+            for (int k = 0; k < 9 && b; ++k) { bs.update(env, &ev); fx.step(); fx.sweep(); }
+            check(b && !b->fx->kill && !b->f17a, "Bit: not struck before age 10 (+0x17a is set past it)");
+            swing = false;
+            ev.clear();
+            const Vec3 at = b ? b->s.pos : Vec3{};
+            const Bullet* shot = nullptr;
+            for (int k = 0; k < 100 && b && !shot; ++k) {
+                const std::uint32_t age = b->age;
+                bs.update(env, &ev);
+                for (const auto& o : bs.list()) if (o->s.effect == 515) { shot = o.get(); check(age == 90, "Bit: the first shot at deployed age 90"); }
+                fx.step(); fx.sweep();
+            }
+            bool se337 = false;
+            for (const Event& e : ev) se337 = se337 || (e.type == Event::kSound && e.id == 337);
+            const Vec3 want = [&] { const float dx = env.player.x - at.x, dz = env.player.z - at.z, l = std::sqrt(dx * dx + dz * dz); return Vec3{dx / l, 0, dz / l}; }();
+            check(shot && se337 && shot->s.kind == 4 && shot->fx && shot->fx->no_boss && shot->fx->power == -5.0f && shot->atk == 259.0f,
+                  "Bit: SE 337 and a kind-4 bullet 515, power -5, the owner's ATK, fx+0x201");
+            // the shot has run its first update: dir is unchanged (no homing period), the speed is the block's
+            check(shot && near(shot->s.dir.x, want.x, 1e-4f) && shot->s.dir.y == 0.0f && near(shot->s.dir.z, want.z, 1e-4f) && near(shot->s.speed, 0.24f, 1e-6f),
+                  "Bit: the shot is level, at the player, 0.24 a tick");
+            check(b && near(b->s.pos.x, at.x, 1e-6f) && near(b->s.pos.z, at.z, 1e-6f), "Bit: it stays put before age 480");
+            // the creep: from age 481, 0.025 a tick toward the player in x / z
+            if (b) b->age = 481;
+            const Vec3 p0 = b ? b->s.pos : Vec3{};
+            bs.update(env, &ev);
+            const float moved = b ? std::sqrt((b->s.pos.x - p0.x) * (b->s.pos.x - p0.x) + (b->s.pos.z - p0.z) * (b->s.pos.z - p0.z)) : 0.0f;
+            check(b && near(moved, 0.025f, 1e-5f) && b->s.pos.y == p0.y, "Bit: past age 480 it creeps 0.025 a tick toward the player, level");
+            // struck: the kill flag, SE 0xb9 at the player, the burst 513
+            swing = true;
+            ev.clear();
+            bs.update(env, &ev);
+            bool se185 = false;
+            for (const Event& e : ev) se185 = se185 || (e.type == Event::kSound && e.id == 0xb9 && e.pos.z == env.player.z);
+            check(b && b->fx->kill && se185 && count_fx(fx, 513) == 1, "Bit: struck by the swing: killed, SE 185 at the player, effect 513");
+        }
+        {   // kind 0x25 with another effect (484, the homing volley) on terrain: the burst 485, no SE, the shake
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            const float f[13] = {1.2f, ib(0xba83126fu), 0.0f, -6.0f, 1.0f, ib(483), ib(2), ib(2), ib(0x3e97e9d8u), 1.0f, 2.0f, 60.0f,
+                                 pack(0.0f, 1.0f, 0.0f)};
+            Spawn s = block_spawn(0x25, 484, {0, 0.3f, 0}, {0, -1, 0}, f);
+            s.owner_atk = 259.0f;
+            Bullet* b = bs.spawn(s);
+            Env env;
+            env.ray_no_boss = [&](const Vec3& from, const Vec3&, int) { RayHit r; r.hit = true; r.point = from; return r; };
+            std::vector<Event> ev;
+            bs.update(env, &ev);
+            const ef2sim::Effect* burst = nullptr;
+            for (const auto& fe : fx.effects()) if (fe->id == 485) burst = fe.get();
+            bool se = false, shake = false;
+            for (const Event& e : ev) { se = se || e.type == Event::kSound; shake = shake || (e.type == Event::kShake && e.id == 10); }
+            check(b && b->fx->kill && burst && burst->power == -6.0f && burst->knock == 1.0f && burst->rtype == 0 && burst->status == 0 &&
+                  burst->atk == 259.0f && near(burst->M.m[3][1], 0.5f) && !se && shake,
+                  "kind 0x25, effect 484 on terrain: the burst 485 (power -6, rtype 0, status 0) at y 0.5, the shake, no SE");
+        }
+        {   // the mover's splash cases: 457 (0x1c9) -> SE 349 + the mine 520; 479 (0x1df) -> 480, no SE
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            const float f[13] = {ib(0x3dc8b439u), 0.02f, 0.01f, 20.0f, 1.0f, 0, 0, 0, 0.0f, 1.0f, 0, 0, 0};
+            Spawn s = block_spawn(2, 457, {3, -0.1f, 4}, {1, 0, 0}, f);
+            s.owner_atk = 259.0f;
+            Bullet* b = bs.spawn(s);
+            const float g[13] = {ib(0x3d48b439u), 0.01f, 0.002f, 0.0f, 1.0f, 0, 0, 0, 0, 0, 0, 0, 0};
+            Bullet* c = bs.spawn(block_spawn(2, 479, {-3, -0.1f, 4}, {0, -1, 0}, g));
+            Env env;
+            int rays = 0;
+            env.ray = [&](const Vec3&, const Vec3&, int) { ++rays; return RayHit{}; };
+            std::vector<Event> ev;
+            bs.update(env, &ev);
+            const ef2sim::Effect *mine = nullptr, *hit = nullptr;
+            for (const auto& fe : fx.effects()) { if (fe->id == 520) mine = fe.get(); if (fe->id == 480) hit = fe.get(); }
+            int se349 = 0, other = 0;
+            for (const Event& e : ev) { if (e.type == Event::kSound && e.id == 349) ++se349; else ++other; }
+            check(b && b->fx->kill && b->s.pos.y < -900.0f && mine && mine->power == 20.0f && mine->rtype == 2 && mine->status == 0x10 &&
+                  mine->atk == 259.0f && near(mine->M.m[3][1], 0.5f) && near(mine->M.m[3][0], 3.0f, 0.2f),
+                  "effect 0x1c9 under y 0: killed, the mine 520 at y 0.5 (power 20, rtype 2, status 0x10), y = -999");
+            check(c && c->fx->kill && c->s.pos.y < -900.0f && hit && hit->rtype == 2 && hit->status == 0x10,
+                  "effect 0x1df under y 0: killed, effect 480 (rtype 2, status 0x10), y = -999");
+            check(se349 == 1 && other == 0, "the splash: SE 349 for 0x1c9 only");
+            check(rays == 0, "kind 2 with f9 = 1 (TukiBullet): no terrain probe");
+            bs.update(env, &ev);
+            check(count_fx(fx, 520) == 1 && count_fx(fx, 480) == 1, "the splash happens once (the kill flag)");
+        }
+        {   // effect 0x1e7 (487 as a bullet: the limb smoke): three draws -> the scale, kept as the effect's own
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            int draws = 0;
+            const std::uint32_t words[3] = {0x00400000u, 0x00200000u, 0x00600000u};   // mantissas: u = 1.5, 1.25, 1.75
+            bs.set_rng([&] { return words[draws++ % 3]; });
+            const float f[13] = {0.02f, 0.002f, 0.0f, 0.0f, 1.0f, 0, 0, 0, 0, 0, 0, 0, 0};
+            Bullet* b = bs.spawn(block_spawn(2, 487, {0, 5, 0}, {0, 1, 0}, f));
+            check(b && draws == 3 && near(b->fx->scale_x, 1.0f + 1.5f * 0.75f) && near(b->fx->scale_y, 1.25f) && near(b->fx->scale_z, 1.0f + 1.5f * 0.5f),
+                  "effect 0x1e7: 3 draws, scale (1 + 1.5 (u3 - 1), u2, 1 + 1.5 (u1 - 1))");
+            Bullet* o = bs.spawn(block_spawn(2, 479, {0, 5, 0}, {0, 1, 0}, f));
+            check(o && draws == 3 && o->fx->scale_x == 1.0f, "another effect draws nothing");
+        }
+    }
+
     std::printf("[bullet] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }

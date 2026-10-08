@@ -66,6 +66,9 @@ static std::function<bool()> g_boss06_cam_hook;
 // ... and its boss07 path (build/boss_re/DALLES_CD1.md §3.2): while flag 156 and the GoMesh "boss07" has its block,
 // the hook FUN_0042c4f0 rewrites the current slot (1..5) and claims slots 0..4 (view_boss07.inl).
 static std::function<bool()> g_boss07_cam_hook;
+// ... and its boss08 path (build/boss_re/DARM_CE.md §4.7): while the GoMesh "boss08" has its block, the hook
+// FUN_0055f800 rewrites the current slot (1..5) and claims every step (view_boss08.inl).
+static std::function<bool()> g_boss08_cam_hook;
 
 // The look point L: [H] feet + 1.0 stands in for player+0x230 + player+0x324 (CAMERA_OPS §5.1).
 static constexpr float kLookHeight = 1.0f;
@@ -78,6 +81,7 @@ static void update_camera(const Room& room, const Vec3& feet, float /*dt*/, bool
     if (snap) g_rig.hard_cut();
     if (g_boss06_cam_hook && g_boss06_cam_hook()) g_rig.claim();
     if (g_boss07_cam_hook && g_boss07_cam_hook()) g_rig.claim();
+    if (g_boss08_cam_hook && g_boss08_cam_hook()) g_rig.claim();
     g_cam_out = g_rig.step(feet, {feet.x, feet.y + kLookHeight, feet.z}, g_cam_rng);
     g_cam.fov = g_cam_out.fov;
     g_cam.on = true;

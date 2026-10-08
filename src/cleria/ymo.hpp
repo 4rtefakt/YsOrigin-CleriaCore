@@ -219,4 +219,42 @@ struct Model {
                     bool is_dir, Vec3& out) const;
 };
 
+// The engine's pose evaluation with per-node animation override tracks (build/boss_re/DARM_TRACKS.md; Darm's
+// tentacles): the node-record state of one model instance and the evaluation FUN_005f5e10 / FUN_005f6490 over it.
+// Each node keeps its owner (NR+0x108: -1 = the main clip, t = track t), the last RAW clip sample cur{s, q, t}
+// (NR+0x10c / +0x13c / +0x124) and the blend-from snapshot snap{s, q, t} (NR+0x118 / +0x14c / +0x130). One
+// evaluation samples exactly one clip per node and blends it toward the node's snapshot by a weight, S and T
+// linearly, R by slerp, in the node's local S / R / T space: weight 1 = the snapshot, 0 = the clip sample.
+// The track records themselves (cursor, weight, releasing; DARM_CE §2.1) are the caller's, as is their per-tick step.
+// [DOC D3DX9, not bytes] D3DXQuaternionSlerp's shortest-arc / small-angle rules (DARM_TRACKS O2).
+// [not modelled] matrix-key tracks (§3.0: none in the corpus user), the extra rotation NR+0x104 / +0x15c (O4).
+struct PoseTracks {
+    struct Rec {
+        int owner = -1;
+        Vec3 cur_s{1, 1, 1}, snap_s{1, 1, 1};
+        Vec3 cur_t{}, snap_t{};
+        float cur_q[4] = {0, 0, 0, 1}, snap_q[4] = {0, 0, 0, 1};
+    };
+    std::vector<Rec> recs;                       // parallel to Model::nodes
+    // What the evaluation reads of one track record: trk+0x04's clip, +0x0c, +0x00, +0x18.
+    struct Track {
+        const AnimClip* clip = nullptr;
+        float frame = 0, weight = 0;
+        bool releasing = false;
+    };
+
+    // FUN_005f3c70 [BYTES 0x5f3eee..0x5f3f8c]: cur = snap = the node's rest scale / quaternion / translation, owner -1.
+    void reset(const Model& m);
+    // FUN_005f6400 [BYTES 0x5f6400..0x5f6485]: snap = cur on every node of that owner (-1 = the main clip's nodes).
+    void snapshot(int owner);
+    // The bind's paint and the hand-back (FUN_005f4f10 / FUN_005f4ec0): `root` and its whole sub-tree get `owner`;
+    // the last write wins.
+    void paint(const Model& m, int root, int owner);
+    // FUN_005f5e10's pass over the MAIN clip's tracks (DARM_TRACKS §2.5, §3) and the hierarchy: a main-owned node
+    // takes (its main track, frame, weight); a node owned by track t that is playing takes the SAME track index of
+    // tracks[t].clip at tracks[t].frame with tracks[t].weight; releasing: the main track at `frame` with
+    // tracks[t].weight. A node without a track in the main clip is not touched. Writes Node::local / world.
+    void evaluate(Model& m, const AnimClip& main, float frame, float weight, std::span<const Track> tracks);
+};
+
 }  // namespace cleria

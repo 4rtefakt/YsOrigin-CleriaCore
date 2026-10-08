@@ -54,18 +54,27 @@ auto boss7_child_m = [&](int i) {                         // SetRot(child, &rot)
 };
 // The terrain segment with the boss meshes left out (FUN_0041e420's option bit 0 = the ray's byte +0x49: every mesh
 // whose type byte +0x28d is 5..0xc is skipped; DALLES_CD1 §4.2 / §6, DALLES_D23 §16.4). In S_7080 that is "boss07"
-// alone (the options and the wing are not type 0xb and still block).
+// alone (the options and the wing are not type 0xb and still block); in S_7099 Darm's four type-0xc meshes (the
+// 6-character name test: boss08, boss08t, boss08w, boss08Arm; DARM.md §3.1) — not the floor, not bs08_mgcra.
 auto boss7_seg_nb = [&](const Vec3& a, const Vec3& b, Vec3* at) {
     const RoomMesh& cm = phys_mesh(room);
-    const RoomMesh::ObjRange* r = cm.object_range("boss07");
-    if (!r) { Vec3 n{}; return segment_hit(cm, a, b, at, &n); }
-    const std::uint32_t nt = std::uint32_t(cm.indices.size() / 3);
-    Vec3 h0{}, h1{};
-    const bool k0 = segment_hits_tris(cm, a, b, 0, r->t0, &h0), k1 = segment_hits_tris(cm, a, b, r->t1, nt, &h1);
-    if (!k0 && !k1) return false;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> skip;
+    for (const char* nm : {"boss07", "boss08", "boss08t", "boss08w", "boss08arm"})
+        if (const RoomMesh::ObjRange* r = cm.object_range(nm)) skip.push_back({r->t0, r->t1});
+    if (skip.empty()) { Vec3 n{}; return segment_hit(cm, a, b, at, &n); }
+    std::sort(skip.begin(), skip.end());
+    skip.push_back({std::uint32_t(cm.indices.size() / 3), 0u});   // the tail run [last t1, nt)
     auto d2 = [&](const Vec3& h) { return (h.x - a.x) * (h.x - a.x) + (h.y - a.y) * (h.y - a.y) + (h.z - a.z) * (h.z - a.z); };
-    if (at) *at = k0 && (!k1 || d2(h0) <= d2(h1)) ? h0 : h1;
-    return true;
+    bool any = false;
+    Vec3 best{};
+    std::uint32_t t = 0;
+    for (const auto& [s0, s1] : skip) {
+        Vec3 h{};
+        if (s0 > t && segment_hits_tris(cm, a, b, t, s0, &h) && (!any || d2(h) < d2(best))) { best = h; any = true; }
+        t = s1;
+    }
+    if (any && at) *at = best;
+    return any;
 };
 fxsim.set_world_no_boss([&](const Vec3& f, const Vec3& d, Vec3* at) { return boss7_seg_nb(f, {f.x + d.x, f.y + d.y, f.z + d.z}, at); });
 // FUN_0044ebb0's id specials (DALLES_D23 §16.1 / §16.2), raised by the EF2 simulation where an impact child would

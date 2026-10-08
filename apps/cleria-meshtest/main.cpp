@@ -12,6 +12,7 @@
 #include "cleria/meshobj.hpp"
 #include "cleria/scene.hpp"
 #include "cleria/sob.hpp"
+#include "cleria/ymo.hpp"
 
 using namespace cleria;
 
@@ -232,6 +233,149 @@ int main(int argc, char** argv) {
         check(inv.hp == 9999.0f && inv.def == 999.0f, "an SOB HP of 0: 9999 / DEF 999 (FUN_00501a30 0x5024ec)");
     } else {
         std::printf("[mesh]   (no assets: S_1004 checks skipped)\n");
+    }
+    {   // PoseTracks: the override-track pose evaluation (build/boss_re/DARM_TRACKS.md §2..§5, §7).
+        Model m;
+        auto node = [&](const char* nm, const char* parent, Vec3 t) {
+            Node n; n.name = nm; n.parent = parent; n.scale = {1, 1, 1}; n.translation = t;
+            m.nodes.push_back(n);
+        };
+        node("root", "", {0, 0, 0}); node("a", "root", {1, 0, 0}); node("b", "a", {0, 1, 0}); node("c", "root", {0, 0, 5});
+        const float s45 = 0.70710678f;
+        m.nodes[3].quat[1] = s45; m.nodes[3].quat[3] = s45;          // c rests turned 90 deg about Y
+        auto clip = [&](const char* nm, float base, bool turn) {
+            AnimClip c; c.name = nm;
+            for (const char* n : {"a", "b", "c"}) {
+                AnimTrack t; t.node = n;
+                t.translation = {{{base, 0, 0}, 0}, {{base + 1, 0, 0}, 10}, {{base + 2, 0, 0}, 20}};
+                t.scale = {{{1, 1, 1}, 0}};
+                if (n[0] != 'c') {                                   // c: no rotation keys
+                    KeyQuat q; q.frame = 0;
+                    if (turn) { q.q[1] = s45; q.q[3] = s45; }
+                    t.rotation = {q};
+                }
+                c.tracks.push_back(t);
+            }
+            return c;
+        };
+        m.clips.push_back(clip("main", 0.0f, false));
+        m.clips.push_back(clip("over", 100.0f, true));
+        m.resolve_hierarchy();
+        m.rest_pose();
+        const AnimClip &mainc = m.clips[0], &over = m.clips[1];
+        auto near = [](float a, float b) { return std::fabs(a - b) < 1e-4f; };
+        auto lx = [&](int i) { return m.nodes[std::size_t(i)].local.m[12]; };
+        PoseTracks pt;
+        pt.reset(m);
+        check(pt.recs.size() == 4 && pt.recs[1].owner == -1 && pt.recs[1].cur_t.x == 1.0f && pt.recs[1].snap_t.x == 1.0f &&
+              pt.recs[3].snap_q[1] == s45, "tracks: reset: cur = snap = the rest S / R / T, every owner -1");
+        pt.evaluate(m, mainc, 5.0f, 0.0f, {});
+        check(near(lx(1), 0.5f) && near(m.nodes[2].world.m[12], 1.0f) && near(lx(0), 0.0f),
+              "tracks: no track: the main clip's sample (a 0.5; b under it); a node without a track is not touched");
+        check(near(m.nodes[3].local.m[0], 1.0f) && near(m.nodes[3].local.m[2], 0.0f),
+              "tracks: no rotation keys: the identity, not the rest quaternion");
+        pt.evaluate(m, mainc, 25.0f, 0.0f, {});
+        const float past = lx(1);
+        pt.evaluate(m, mainc, -5.0f, 0.0f, {});
+        check(near(past, 1.0f) && near(lx(1), -0.5f),
+              "tracks: key lookup: past the last key it runs back to key 0 over the last interval; u is not clamped");
+        // bind: paint the sub-tree, then the snapshot (the main clip's last sample)
+        pt.evaluate(m, mainc, 5.0f, 0.0f, {});
+        pt.paint(m, 1, 0);
+        pt.snapshot(0);
+        check(pt.recs[1].owner == 0 && pt.recs[2].owner == 0 && pt.recs[0].owner == -1 && pt.recs[3].owner == -1 &&
+              near(pt.recs[1].snap_t.x, 0.5f), "tracks: bind paints the node and its sub-tree; the snapshot is their last raw sample");
+        PoseTracks::Track tk[2];
+        tk[0].clip = &over; tk[0].frame = 10.0f; tk[0].weight = 1.0f;
+        pt.evaluate(m, mainc, 5.0f, 0.0f, tk);
+        const bool w1 = near(lx(1), 0.5f) && near(m.nodes[1].local.m[0], 1.0f) && near(pt.recs[1].cur_t.x, 101.0f);
+        tk[0].weight = 0.5f;
+        pt.evaluate(m, mainc, 5.0f, 0.0f, tk);
+        const bool wh = near(lx(1), 50.75f) && near(m.nodes[1].local.m[0], s45) && near(lx(3), 0.5f) && near(pt.recs[1].snap_t.x, 0.5f);
+        tk[0].weight = 0.0f;
+        pt.evaluate(m, mainc, 5.0f, 0.0f, tk);
+        check(w1, "tracks: weight 1 = the snapshot pose exactly; cur stays the raw override sample");
+        check(wh, "tracks: weight 0.5: S / T half way, R by slerp (45 of 90 deg); a main-owned node is unaffected");
+        check(near(lx(1), 101.0f) && near(m.nodes[1].local.m[0], 0.0f) && near(m.nodes[1].local.m[2], -1.0f) && near(lx(2), 101.0f),
+              "tracks: weight 0 = the override clip's sample (the same track index), the whole sub-tree");
+        // release: the snapshot of the override sample; the main clip's keys fade in
+        pt.snapshot(0);
+        tk[0].releasing = true; tk[0].weight = 1.0f;
+        pt.evaluate(m, mainc, 5.0f, 0.0f, tk);
+        const bool r1 = near(lx(1), 101.0f) && pt.recs[1].owner == 0;
+        tk[0].weight = 0.5f;
+        pt.evaluate(m, mainc, 5.0f, 0.0f, tk);
+        const bool rh = near(lx(1), 50.75f);
+        tk[0].weight = 0.0f;
+        pt.evaluate(m, mainc, 5.0f, 0.0f, tk);
+        check(r1 && rh && near(lx(1), 0.5f), "tracks: release: the main clip at the track's weight, from the override's last sample; owners unchanged");
+        pt.paint(m, 1, -1);
+        check(pt.recs[1].owner == -1 && pt.recs[2].owner == -1, "tracks: the hand-back paints the sub-tree -1");
+        pt.paint(m, 1, 0); pt.paint(m, 2, 1);
+        check(pt.recs[1].owner == 0 && pt.recs[2].owner == 1, "tracks: the last bind wins: a nested bind takes the inner sub-tree");
+        PoseTracks pm;
+        pm.reset(m);
+        pm.snapshot(-1);
+        pm.evaluate(m, mainc, 10.0f, 0.25f, {});
+        check(near(lx(1), 1.0f + (1.0f - 1.0f) * 0.25f) && near(lx(2), 1.0f + (0.0f - 1.0f) * 0.25f),
+              "tracks: the main weight blends main-owned nodes toward their snapshot (the rest pose here)");
+    }
+    if (argc > 1) {   // Darm's tail: every clip lists the same 68 node tracks; a bound tentacle plays 20_Beat
+        const std::filesystem::path assets = argv[1];
+        Model m = Model::parse(read_bytes_for_test(assets / "ENEMY" / "BOSS08" / "BOSS08T.YMO"));
+        m.resolve_hierarchy();
+        bool same = m.clips.size() == 27;
+        for (const AnimClip& c : m.clips) {
+            same = same && c.tracks.size() == m.clips[0].tracks.size();
+            for (std::size_t i = 0; same && i < c.tracks.size(); ++i)
+                same = c.tracks[i].node == m.clips[0].tracks[i].node && !c.tracks[i].scale.empty() && !c.tracks[i].rotation.empty() &&
+                       !c.tracks[i].translation.empty();
+        }
+        check(same && !m.clips.empty() && m.clips[0].tracks.size() == 68,
+              "BOSS08T: 27 clips, 68 tracks each in one node order, all with S / R / T keys (DARM_TRACKS §2.6)");
+        const AnimClip *wait = nullptr, *beat = nullptr;
+        for (const AnimClip& c : m.clips) { if (c.name == "19_OnBackWait") wait = &c; if (c.name == "20_Beat") beat = &c; }
+        int root = -1;
+        for (std::size_t i = 0; i < m.nodes.size(); ++i) if (m.nodes[i].name == "Bone_LeftTentacle1-1") root = int(i);
+        if (same && wait && beat && root >= 0) {
+            auto maxd = [](const Mat4& a, const Mat4& b) { float d = 0; for (int k = 0; k < 16; ++k) d = std::max(d, std::fabs(a.m[std::size_t(k)] - b.m[std::size_t(k)])); return d; };
+            m.rest_pose(); m.pose(*wait, 1400.0f);
+            std::vector<Mat4> lw, ww;
+            for (const Node& n : m.nodes) { lw.push_back(n.local); ww.push_back(n.world); }
+            m.rest_pose(); m.pose(*beat, 1520.0f);
+            std::vector<Mat4> lb;
+            for (const Node& n : m.nodes) lb.push_back(n.local);
+            m.rest_pose();
+            PoseTracks pt;
+            pt.reset(m);
+            pt.evaluate(m, *wait, 1400.0f, 0.0f, {});
+            float d0 = 0;
+            for (std::size_t i = 0; i < m.nodes.size(); ++i) d0 = std::max(d0, maxd(m.nodes[i].world, ww[i]));
+            check(d0 < 1e-3f, "BOSS08T: without a track the evaluation is Model::pose at a key frame");
+            pt.paint(m, root, 4);                            // k 0 = Bone_LeftTentacle1-1 -> track 4 (DARM_CE §0)
+            pt.snapshot(4);
+            int owned = 0;
+            for (const PoseTracks::Rec& r : pt.recs) owned += r.owner == 4;
+            PoseTracks::Track tk[8];
+            tk[4].clip = beat; tk[4].frame = 1520.0f; tk[4].weight = 1.0f;
+            pt.evaluate(m, *wait, 1400.0f, 0.0f, tk);
+            float d1 = 0;
+            for (std::size_t i = 0; i < m.nodes.size(); ++i) d1 = std::max(d1, maxd(m.nodes[i].world, ww[i]));
+            tk[4].weight = 0.0f;
+            pt.evaluate(m, *wait, 1400.0f, 0.0f, tk);
+            float din = 0, dout = 0, moved = 0;
+            for (std::size_t i = 0; i < m.nodes.size(); ++i) {
+                if (pt.recs[i].owner == 4) { din = std::max(din, maxd(m.nodes[i].local, lb[i])); moved = std::max(moved, maxd(lb[i], lw[i])); }
+                else dout = std::max(dout, maxd(m.nodes[i].local, lw[i]));
+            }
+            std::printf("[mesh]   tentacle sub-tree %d nodes; weight 1 vs the main pose %.2g; weight 0: in %.2g, out %.2g (the clips differ by %.2g)\n",
+                        owned, double(d1), double(din), double(dout), double(moved));
+            check(owned == 5, "BOSS08T: Bone_LeftTentacle1-1's sub-tree is its five bones");
+            check(d1 < 1e-3f, "BOSS08T: a fresh bind (weight 1) still shows the main clip's pose");
+            check(din < 1e-3f && dout < 1e-3f && moved > 0.01f, "BOSS08T: weight 0: the tentacle is 20_Beat's pose, the rest the main clip's");
+        } else {
+            check(false, "BOSS08T: 19_OnBackWait, 20_Beat and Bone_LeftTentacle1-1 exist");
+        }
     }
     std::printf("[mesh] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;

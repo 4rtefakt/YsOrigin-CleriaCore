@@ -129,6 +129,29 @@ RoomMesh build_collision(const fs::path& asset_root, const fs::path& sob_path,
 }
 
 std::unordered_map<std::string, Model>& big_model_cache();
+static std::function<bool(const std::string&, Model&)>& object_pose_hook() {
+    static std::function<bool(const std::string&, Model&)> hook;
+    return hook;
+}
+void set_object_pose_hook(std::function<bool(const std::string& lname, Model& m)> hook) { object_pose_hook() = std::move(hook); }
+// A model parsed and resolved. `keep`: a clip-driven re-bake (an animated map object — Darm's floor re-poses every
+// tick) keeps the parsed model and hands out a copy, which is what a parse would give.
+static Model parsed_model(const fs::path& file, bool keep) {
+    if (!keep) {
+        Model m = Model::parse(read_file(file));
+        m.resolve_hierarchy();
+        return m;
+    }
+    static std::unordered_map<std::string, Model> cache;
+    const std::string key = model_key(file);
+    auto it = cache.find(key);
+    if (it == cache.end()) {
+        Model m = Model::parse(read_file(file));
+        m.resolve_hierarchy();
+        it = cache.emplace(key, std::move(m)).first;
+    }
+    return it->second;
+}
 RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                             const fs::path& script_dir,
                             const std::unordered_set<std::string>* box_whitelist,
@@ -150,7 +173,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
     // byte-distinct, so whichever the walk saw last wins. That is what made S_1000
     // draw S_61/COMMON's 00yuka32.dds — an atlas with a solid black 48x48 cell that
     // S_1000's own copy fills with stonework — and paint black slabs over its stairs.
-    auto resolve_tex = [](const fs::path& ymo_dir, std::string ref) -> fs::path {
+    auto resolve_tex_fs = [](const fs::path& ymo_dir, std::string ref) -> fs::path {
         if (ref.empty()) return {};
         for (char& c : ref) {
             if (c == '\\') c = '/';
@@ -182,6 +205,15 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             break;
         }
         return fs::path{};
+    };
+    // ... once per (directory, reference) of this build: a model names one texture from many subsets, and an
+    // animated object is re-baked every tick.
+    std::unordered_map<std::string, fs::path> tex_memo;
+    auto resolve_tex = [&](const fs::path& ymo_dir, const std::string& ref) -> fs::path {
+        const std::string key = ymo_dir.string() + '|' + ref;
+        auto it = tex_memo.find(key);
+        if (it == tex_memo.end()) it = tex_memo.emplace(key, resolve_tex_fs(ymo_dir, ref)).first;
+        return it->second;
     };
 
     // Interned by RESOLVED PATH, not basename: two YMOs in one room may legitimately
@@ -339,8 +371,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 model_ptr = &bit->second;
                 model_ptr->rest_pose();
             } else {
-                local_model = Model::parse(read_file(ymo_file));
-                local_model.resolve_hierarchy();
+                local_model = parsed_model(ymo_file, clip_name != nullptr);
                 std::error_code fec;
                 const bool big = fs::file_size(vfs::resolve(ymo_file), fec) > (2u << 20);
                 // A brain-placed object (a world matrix: boss02's 36 pieces) is re-baked every
@@ -349,8 +380,9 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                     // A big collision twin (X_.YMO, BOSS01_: one DEFAULT clip, its own nodes)
                     // moves with its render model: take the render model's clips once,
                     // re-resolved against the twin's node names. [H] the engine poses the
-                    // twin from the same anim cursor.
-                    if (collision && big) {
+                    // twin from the same anim cursor. A small twin does the same when its object
+                    // asks for it (SobObject::twin_clips: Darm's hulls carry the whole bone tree).
+                    if (collision && (big || o.twin_clips)) {
                         std::string stem = ymo_file.stem().string();
                         if (!stem.empty() && stem.back() == '_') stem.pop_back();
                         auto rit = big_models.find(model_key(ymo_file.parent_path() / (stem + ymo_file.extension().string())));
@@ -389,7 +421,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                         if (c.name == clip_name) { pm.pose(c, frame); break; }
                 }
             };
-            pose_as_asked(model);
+            if (!(!collision && model_ptr != &local_model && object_pose_hook() && object_pose_hook()(lname, model)))
+                pose_as_asked(model);
             // A collision twin is not posed by its own clips. FUN_005601e0 binds each twin
             // mesh's node BY NAME (FUN_005f4e10) to the GoMesh's RENDER model node (entry
             // +0x80 = its index), and every update FUN_00502fe0 rebuilds the entry matrix as
@@ -402,8 +435,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 const fs::path rfile = resolve_ymo(asset_root, o.ymo_path);
                 Model* rp = cached_big_model(rfile);
                 if (!rp && fs::exists(rfile)) {
-                    render_twin = Model::parse(read_file(rfile));
-                    render_twin.resolve_hierarchy();
+                    render_twin = parsed_model(rfile, clip_name != nullptr);
                     rp = &render_twin;
                 }
                 if (rp) { if (rp != &render_twin) rp->rest_pose(); pose_as_asked(*rp); twin_src = rp; }
@@ -585,6 +617,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                                 (q(mat->diffuse[2]) << 16) | (q(mat->diffuse[3]) << 24);
                     b.mat_flags = mat->flags; b.blend = mat->blend;
                     b.alpha_ref = mat->alpha_ref; b.mat_alpha = mat->diffuse[3];
+                    b.material = int(mat - model.materials.data());
                 }
                 b.first_vert = base + fv;
                 b.vert_count = vc ? vc : nvert;
@@ -686,7 +719,7 @@ bool object_frame(const fs::path& asset_root, const SobObject& o, const char* cl
 
 bool rebake_object(RoomMesh& m, const fs::path& asset_root, const std::string& lname,
                    const char* clip, float frame, const Vec3* pos, bool collision, const Vec3* rot,
-                   const Mat4* world) {
+                   const Mat4* world, bool twin_clips) {
     const RoomMesh::ObjRange* r = m.object_range(lname);
     if (!r) return false;
     Sob one;
@@ -694,6 +727,7 @@ bool rebake_object(RoomMesh& m, const fs::path& asset_root, const std::string& l
     if (pos) one.objects.back().position = *pos;
     if (rot) one.objects.back().rotation = *rot;
     if (world) { one.objects.back().has_world = true; one.objects.back().world_mat = *world; }
+    one.objects.back().twin_clips = twin_clips;
     const RoomMesh tmp = build_room_objects(asset_root, one, fs::path(), nullptr, nullptr,
                                             collision, clip, frame);
     if (tmp.vertices.size() != std::size_t(r->v1 - r->v0)) return false;

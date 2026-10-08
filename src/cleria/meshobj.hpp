@@ -71,6 +71,7 @@ struct MeshObj {
     bool has_world = false;
     Mat4 world{};
     bool no_collide = false;          // the host drops its collision this tick (boss02's one-way entries)
+    bool twin_clips = false;          // its hull is re-posed with its render model's clips (SobObject::twin_clips)
 };
 
 class MeshWorld {

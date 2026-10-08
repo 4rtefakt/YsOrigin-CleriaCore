@@ -220,6 +220,18 @@ Bullet* Bullets::spawn(const Spawn& in) {
     int rtype = 0;
     // Hugo's shot (effect 0x82): rtype 3. [not modelled] its x1.35 speed under DAT_0074c0d8 (Extra mode).
     if (s.effect == 0x82) rtype = 3;
+    // Effect 0x1e7 (487, boss08's black smoke; §1.3, DARM_B23.md §7): three draws u1..u3 in [1, 2) from the raw
+    // word's mantissa, scale = (1 + 1.5 (u3 - 1), u2, 1 + 1.5 (u1 - 1)), spawned through FUN_00450880 (the scale is
+    // kept as the effect's own).
+    Vec3 scale{1, 1, 1};
+    if (s.effect == 0x1e7) {
+        float u[3];
+        for (float& x : u) {
+            const std::uint32_t bits = ((rng_ ? rng_() : 0u) & 0x7fffffu) | 0x3f800000u;
+            std::memcpy(&x, &bits, 4);
+        }
+        scale = {1.0f + 1.5f * (u[2] - 1.0f), u[1], 1.0f + 1.5f * (u[0] - 1.0f)};
+    }
     const int status = s.effect == 0x36 ? 8 : 0;
     if (s.knock < 0.0f) {                                          // an rtype code
         switch (int(s.knock)) {                                    // cvttss2si
@@ -236,11 +248,15 @@ Bullet* Bullets::spawn(const Spawn& in) {
     int cls = -1;
     if (!monster) { b->y190 = s.pos.y; b->side = 0; cls = s.cls; }
     b->fx = spawn_fx(s.effect, s.pos, {0, 0, 0}, b->side, b->atk, s.power + 0.0f, s.knock, rtype, status,
-                     cls, s.owner);
+                     cls, s.owner, scale);
     if (!b->fx) return nullptr;                                    // FUN_00594190
     b->fx->held = true;
-    // FUN_00451c20(fx, &bullet+0x20, ofs 0, rot 0, scale 1, mode 1): the effect follows the bullet.
+    // FUN_00451c20(fx, &bullet+0x20, ofs 0, rot 0, scale, mode 1): the effect follows the bullet.
     b->fx->local = ef2sim::M4{};
+    if (s.effect == 0x1e7) {
+        b->fx->scale_x = scale.x; b->fx->scale_y = scale.y; b->fx->scale_z = scale.z;
+        b->fx->local = ef2sim::scaling(scale.x, scale.y, scale.z);
+    }
     b->fx->attach_parent = &b->mat;
     b->fx->attach_mode = 1;
     b->mat = ef2sim::mul(look_rotation(s.dir), ef2sim::translation(s.pos.x, s.pos.y, s.pos.z));
@@ -337,19 +353,34 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
     // ---- the handler (jump table 0x596950)
     auto mover1 = [&] {                                            // FUN_00597290
         const Vec3 v = integrate(b);
-        // The terrain probe, kind 0x25 only (or effect 0x1df: [not modelled]) [BYTES 0x597860..0x59788e;
-        // DALLES_CD1.md §4.2]: the ray along this step's move with its byte +0x49 = 1 (the boss meshes are
-        // skipped). A hit with effect 54 [0x5978be..0x597d1d]: SE 327, the kill flag, y = 0.5, the inline burst 55
-        // (the bullet's power / knock, rtype 3, status 8, cls 0xff, the bullet's side, the owner's stats; its
-        // fx+0x1dc |= 0x100 is [not modelled]) and, only while no shake runs, Shake(10, 0.15, 0.15, 0).
-        // [not modelled] the effect-pool-full gate of the burst.
-        if (s.kind == 0x25 && s.f168 != 0.0f) {
-            const RayHit r = env.ray_no_boss ? env.ray_no_boss(s.pos, v, 2) : ray(s.pos, v);
-            if (r.hit && s.effect == 0x36) {
-                sound(327);
+        // The splash below y 0 [BYTES 0x59739f..0x597827; DARM_B23.md §9.2]: effect 0x1c9 (457, boss08's
+        // TukiBullet): SE 349, the kill flag, the inline effect 0x208 (520, the mine) at (x, 0.5, z) with the bullet's
+        // power / knock, rtype 2, status 0x10, then y = -999. Effect 0x1df (479, the spear rain) the same without the
+        // SE, spawning 0x1e0 (480). [not modelled] the effect-pool-full gate, fx+0x1dc |= 0x100.
+        if ((s.effect == 0x1c9 || s.effect == 0x1df) && s.pos.y < 0.0f && !b.fx->kill) {
+            if (s.effect == 0x1c9) sound(349);
+            b.fx->kill = true;
+            s.pos.y = 0.5f;
+            spawn_fx(s.effect == 0x1c9 ? 0x208 : 0x1e0, s.pos, {0, 0, 0}, b.side, b.atk, s.power, s.knock, 2, 0x10, -1, s.owner);
+            s.pos.y = -999.0f;
+        }
+        // The terrain probe (+0x168 != 0) [BYTES 0x597834..0x597d1d; DALLES_CD1.md §4.2, DARM_B23.md §9.2]: the ray
+        // along this step's move; for kind 0x25 its byte +0x49 = 1 (the boss meshes are skipped). A hit: effect 0x1df
+        // -> the kill flag; kind 0x25 -> the kill flag, y = 0.5 and an inline burst with the bullet's power / knock,
+        // cls 0xff, the bullet's side, the owner's stats — effect 54: SE 327 and the burst 55 (rtype 3, status 8);
+        // any other effect: the burst 485 (boss08's HormingHit; rtype 0, status 0, no SE) — and, only while no shake
+        // runs, Shake(10, 0.15, 0.15, 0). Other kinds ignore the contact (their ray is not cast here).
+        // [not modelled] the effect-pool-full gate of the burst, its fx+0x1dc |= 0x100.
+        if (s.f168 != 0.0f && (s.kind == 0x25 || s.effect == 0x1df)) {
+            const RayHit r = s.kind == 0x25 && env.ray_no_boss ? env.ray_no_boss(s.pos, v, 2) : ray(s.pos, v);
+            if (r.hit && s.effect == 0x1df) b.fx->kill = true;
+            if (r.hit && s.kind == 0x25) {
+                const bool dalles = s.effect == 0x36;
+                if (dalles) sound(327);
                 b.fx->kill = true;
                 s.pos.y = 0.5f;
-                spawn_fx(55, {s.pos.x, 0.5f, s.pos.z}, {0, 0, 0}, b.side, b.atk, s.power, s.knock, 3, 8, -1, s.owner);
+                spawn_fx(dalles ? 55 : 0x1e5, {s.pos.x, 0.5f, s.pos.z}, {0, 0, 0}, b.side, b.atk, s.power, s.knock,
+                         dalles ? 3 : 0, dalles ? 8 : 0, -1, s.owner);
                 if (env.shake_frames == 0 && events) {
                     Event e{Event::kShake, 10, s.pos, 0, 0};
                     e.push = {0.15f, 0.15f, 0.0f};
@@ -377,12 +408,44 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             break;
         }
         case 0x25: {                                               // 0x595028: the homing shot (DALLES_CD1.md §4.2)
-            // The homing window, the same code as kind 2. [not modelled] effect 0x1d3 below y 1.5 becomes kind 0x28.
+            // The homing window, the same code as kind 2.
             if (s.f160 != 0) b.u184 = s.f160;
             const float a = float(b.age);
             s.f160 = s.f16c > a ? 0u : b.u184;
             if (a > s.f170) { s.f160 = 0; b.u184 = 0; }
+            // The deploy [BYTES 0x595090..0x595108; DARM_B1.md §6.1]: effect 0x1d3 (467, boss08's Bit) under y 1.5
+            // stops, loses its aim and trail and becomes kind 0x28 at age 0; the mover is skipped on this tick.
+            if (s.effect == 0x1d3 && 1.5f > s.pos.y) {
+                s.speed = 0.0f; s.accel = 0.0f; s.f174 = 0.0f; s.f158 = 0; s.f15c = 0;
+                s.kind = 0x28; b.age = 0;
+                break;
+            }
             mover1();
+            break;
+        }
+        case 0x28: {                                               // FUN_005a02e0: the deployed Bit (DARM_B1.md §6.2)
+            if (s.f160 != 0) b.u184 = s.f160;                      // the window code again (inert: both are 0 by now)
+            const float a = float(b.age);
+            s.f160 = s.f16c > a ? 0u : b.u184;
+            if (a > s.f170) { s.f160 = 0; b.u184 = 0; }
+            if (b.age > 480) {                                     // the creep toward the player, level
+                const Vec3 u = flat({env.player.x - s.pos.x, 0.0f, env.player.z - s.pos.z});
+                s.pos.x += u.x * 0.025f; s.pos.z += u.z * 0.025f;  // 0x6bd0f8
+            }
+            if (b.age > 10) b.f17a = true;                         // destroyed when struck
+            if (b.fx && !b.fx->kill && b.age % 90 == 0) {          // the shot: SE 337, a level kind-4 bullet 515
+                sound(337);
+                Spawn g;
+                g.kind = 4; g.effect = 515; g.pos = s.pos;
+                g.dir = flat({env.player.x - s.pos.x, 0.0f, env.player.z - s.pos.z});
+                const std::uint32_t sp = 0x3e75c28fu;              // 0.24
+                std::memcpy(&g.speed, &sp, 4);
+                g.power = -5.0f; g.knock = 1.0f;
+                // The owner (+0x120 = the Bit's): [approx] its stat block as copied at the Bit's spawn, not re-read.
+                g.owner = s.owner; g.owner_monster = b.side == 1; g.owner_atk = b.atk;
+                if (Bullet* nb = spawn(g)) nb->fx->no_boss = true; // byte g+0x201 = 1
+            }
+            mover1();                                              // speed 0: the matrix reset, the rtype store
             break;
         }
         case 0x26: {                                               // 0x59510d: the curving meteor (DALLES_CD1.md §5.5)
@@ -743,7 +806,10 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
     // bullet; the player's live swing, else any side-0 particle (FUN_004faf20(particle, fx, 0, 1): [H] the armed
     // ones' hit records, as the kind-0x1e pop). Struck and not yet killed: the kill flag, SE 0xb9 at the player,
     // the burst 0x41 and SE 0x5c. [not modelled] FUN_0058a5f0's particles, +0x19c / +0x198, the other ids.
-    if (s.effect == 0x193 && b.fx) {
+    // The same test for a bullet whose +0x17a was set later — boss08's deployed Bit (effect 0x1d3, kind 0x28 past
+    // age 10; DARM_B1.md §6.2 [BYTES 0x5958b9..0x595bd6]): the kill flag, SE 0xb9 at the player and the inline
+    // burst 0x201 (513, BitBrake: power 0, knock 0, no hit emitter).
+    if ((s.effect == 0x193 || b.f17a) && b.fx) {
         const HitShape me{1.25f, s.pos, 0.0f, 0};
         bool hit = env.swing && env.swing(me);
         if (!hit && !b.fx->kill)
@@ -755,8 +821,12 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
         if (hit && !b.fx->kill) {
             b.fx->kill = true;
             if (events) events->push_back({Event::kSound, 0xb9, env.player, 0, 0});
-            spawn_fx(0x41, s.pos, {0, 0, 0}, b.side, b.atk, 0.0f, 1.0f, 0, 0, -1, s.owner);   // [H] the burst's hit fields
-            sound(0x5c);
+            if (s.effect == 0x193) {
+                spawn_fx(0x41, s.pos, {0, 0, 0}, b.side, b.atk, 0.0f, 1.0f, 0, 0, -1, s.owner);   // [H] the burst's hit fields
+                sound(0x5c);
+            } else if (s.effect == 0x1d3) {
+                spawn_fx(0x201, s.pos, {0, 0, 0}, b.side, b.atk, 0.0f, 0.0f, 0, 0, -1, s.owner);
+            }
         }
     }
 }

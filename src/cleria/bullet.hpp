@@ -11,13 +11,12 @@
 // shares the bullet's Env (the player origin, the terrain ray) and effect system.
 //
 // [not modelled] kinds 3, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x16 / 0x1b / 0x1e / 0x1f /
-// 0x21 / 0x25 / 0x26 / 0x27 / 0x29 / 0x2a (BULLETS.md §10.6; 0x21 the boss06 breath, ZAVA_EF.md §F.2; 0x2a the
-// boomerang, M640.md §7; 0x25 / 0x26 / 0x27 boss07's homing shot and meteors, DALLES_CD1.md §4.2 / §5.5) — they fly
-// as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
+// 0x21 / 0x25 / 0x26 / 0x27 / 0x28 / 0x29 / 0x2a (BULLETS.md §10.6; 0x21 the boss06 breath, ZAVA_EF.md §F.2; 0x2a the
+// boomerang, M640.md §7; 0x25 / 0x26 / 0x27 boss07's homing shot and meteors, DALLES_CD1.md §4.2 / §5.5; 0x25 with
+// effect 467 and 0x28 boss08's Bit, DARM_B1.md §6) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
 // the kind-0x10/0x23 proxy victim (the player batting a drip); the struck test (§4.4) for every boss effect id
-// but 0x193 (boss07's F shot, DALLES_D23.md §10); kind 0x25's turn into kind 0x28 (effect 0x1d3) and its terrain
-// contact for effects other than 54; the effect-id special cases (0x82 rtype, 0x1e7 random scale, 0x20/0x15 Adol
-// fire, 0x178, 0x1c9/0x1df splashes); the kind-0x29 water ripple and impact burst; the
+// but 0x193 (boss07's F shot, DALLES_D23.md §10) and 0x1d3 (boss08's deployed Bit); the effect-id special cases
+// (0x82 rtype, 0x20/0x15 Adol fire, 0x178); the kind-0x29 water ripple and impact burst; the
 // kind-0x10 spawn-actor branch; flash sprites and shadow decals (visual).
 #pragma once
 #include <cstdint>
@@ -57,6 +56,7 @@ struct Bullet {
     std::uint32_t u184 = 0;       // +0x184: kind 2 the saved period; kind 0x10 in water
     std::uint32_t u194 = 0;       // +0x194: kinds 0x1b / 0x1e the tick count; kind 0x1f the first-tick latch
     float y190 = 0;               // +0x190
+    bool f17a = false;            // +0x17a: destroyed when struck (the deployed Bit sets it past age 10, DARM_B1.md §6.2)
     int side = 1;                 // +0x188
     float atk = 0;                // the stat block the effect was armed with (the proxy's 0 for 0x10/0x23)
     ef2sim::Effect* fx = nullptr; // +0x180 (held while the bullet exists)
