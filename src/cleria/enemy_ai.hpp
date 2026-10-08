@@ -87,6 +87,14 @@ struct EnemyAi {
     // are set in the mask (bit n = tag n).
     int hook_section = -1;
     std::uint32_t hook_kill_tags = 0;
+    // The integrator's surface bytes and the selector-1 probe (MOVER.md §3, M560.md §0), kept by
+    // the host's enemy integrator: +0x4b9 the surface under the feet (latched within 1.6 of the
+    // floor ray), +0x4ba the last floor ray's surface (any distance), +0x320 the selector-1
+    // ("water" set; for a sand actor the sand top) surface above, +0x38a in it.
+    int surf = 1, surf_ray = 1;
+    float water_y = -1.0e30f;
+    bool in_water = false;
+    float exp_base = -1;   // the revive family's spawn EXP (+0xb0), restored under Silver Chimes
 };
 
 struct Actor;   // cleria/actor.hpp (which embeds an EnemyAi)
@@ -104,7 +112,8 @@ struct AiWorld {
     virtual Actor* spawn_child(Actor& parent, int cast, const Vec3& d, int level,
                                bool keep_phase0) = 0;
     virtual void remove(Actor& a) = 0;                       // FUN_004593c0
-    struct Ray { bool hit = false; Vec3 point{}, normal{}; };
+    // surface: the hit triangle's surface index (rec+0xaa), filled for straight-down rays; -1 unknown.
+    struct Ray { bool hit = false; Vec3 point{}, normal{}; int surface = -1; };
     virtual Ray ray(const Vec3& origin, const Vec3& delta) = 0;   // FUN_005e9380 + FUN_0041e420
     virtual bool sphere_hits(const Vec3& centre, float radius) = 0;  // FUN_005e92b0 + FUN_0041ea80
     // DAT_0076a5cc..d8 = {xmin, zmin, xmax, zmax}: the arena rectangle.
@@ -133,6 +142,14 @@ struct AiWorld {
     // has no effects (the scans then read "none live").
     struct Fx { int id = 0; int attach = 0; bool kill = false; int owner = 0; };
     virtual void for_each_effect(const std::function<void(const Fx&)>& /*f*/) {}
+    // DAT_0076a1f8 / DAT_0076a1fc: the forced camera region and its blend rate (M360's INIT / death).
+    virtual void force_camera(int /*region*/, float /*rate*/) {}
+    // FUN_004202e0(ecx = a, edx = cast's ENEMYINFO record, level): +0x94 max HP, +0x98 = +0x94, +0xa4 STR,
+    // +0xa8 DEF, +0xb0 EXP, +0xb4..+0xc0 resists, +0xc8 = level (0 = the record's default level).
+    // A host that does not override it leaves the stats alone.
+    virtual void restat(Actor& /*a*/, int /*cast*/, int /*level*/) {}
+    // FUN_0043a080(id, &pos): a positional sound a handler plays at another actor (M360's crystal kills).
+    virtual void sound_at(int /*id*/, const Vec3& /*pos*/) {}
 };
 
 struct AiEnv {
@@ -173,6 +190,9 @@ struct AiEnv {
     int target_section = -1;     // the player's ASO section (P+0x994)
     float target_heading = 0;    // the player's heading (P+0x308), engine basis (cos, sin)
     bool turnable = true;        // this actor's ASO anime_Turnable (+0x9d3)
+    int target_surface = 1;      // the target's +0x4b9 (the surface under its feet; 0x12 = sand2)
+    bool chimes = false;         // DAT_0076a624 & 0x8000: Silver Chimes (the revive family, REVIVE.md §4)
+    bool target_moving = false;  // the target's byte +0x514 (the player's movement input; M280's shake-off)
     std::uint32_t events = 0;    // +0x3bc this tick: 0x2000/0x4000 = the stun-rolling hits (REACT.md §1)
     bool stun_immune = false;    // +0x12c & 0x80000
     bool bless_stun = false;     // g_flags[217] & 0x80: the "Increase stun effect" blessing
@@ -232,6 +252,9 @@ struct AiBullet {
     float f168 = 0, f16c = 0, f170 = 0, f174 = 0;   // per kind (BULLETS.md §1.1)
     float fx_scale = 0;                       // > 0: the brain then sets the effect's scale (+0x1ac..)
     bool gas = false;                         // its EF2 gets +0x1a8 = owner (the M460 gas floor)
+    // The brain's write into its EF2's first (root) particle after the spawn (M980: p+0x1c4 / +0x1c0);
+    // < 0 = untouched.
+    int root_remaining = -1, root_life = -1;
 };
 struct AiOut {
     int section = -1;            // FUN_00446550(section, 0): a priority-GATED request
@@ -254,6 +277,10 @@ struct AiOut {
     int set_durable = -1;        // write +0x9d8 (anime_Durable) when >= 0
     float gauge_hp = -1;         // FUN_0043a460: show the boss gauge at this HP when >= 0
     float gauge_len = -1;        // its bar length / lenScale (M850 3000 Hugo / 4000 / 7500); <= 0 = the host's rule
+    int gauge_emblem = 0;        // FUN_0043a460's third argument (M360: 6)
+    // A handler's add to this tick's mover displacement (+0xa3c / +0xa44) before the integrator
+    // (M980's travel velocity +0x7f0 / +0x7f8, FUN_004d6ea0 0x4d71c6).
+    float add_dx = 0, add_dz = 0;
     // The handler skipped the action player (FUN_00479b00) this tick: the class-4 duel
     // handlers' script-puppet path (g_flags[130] == 0 -> FUN_0045f250) and their g_flags[131]
     // freeze (FUN_0045f470 only).
@@ -301,6 +328,9 @@ void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_f
 // consulted by enemy_ai_tick for env.actor's AI index.
 bool enemy_handler_puppet(int ai_index, const AiEnv& env);
 bool enemy_handler_held(int ai_index, const AiEnv& env);
+// The handler code between the action player and the mover tail (src/cleria/brains/revive.cpp):
+// M560 / M780's acquisition veto (REVIVE.md §5.4), given the phase read right after the brain.
+void enemy_handler_post(int ai_index, EnemyAi& a, int phase_after_brain);
 
 // The brain for an AI index (actor +0x120 = CASTINFO +0x64), or nullptr when not yet
 // ported (callers fall back to the M100 brain as a stand-in and say so).

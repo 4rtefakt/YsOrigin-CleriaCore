@@ -44,6 +44,7 @@ struct MeshObj {
     bool event_on = true;             // Mesh_EnableEvent: its touch script may start
     bool dirty_pos = false, dirty_pose = false;   // the host must re-bake this tick
     Vec3 rot{};                       // the placement rotation (radians, as SobObject): boss facing
+    Vec3 spawn_rot{};                 // +0x3dc: the placement rotation Mesh_ResetRotation restores
     // Mesh_Fall 0x18A (FUN_00573be0 -> FUN_00503190): +0x44c start y, +0x450 velocity,
     // +0x454 restitution (0 = not falling).
     float fall_start = 0, fall_vel = 0, fall_e = 0;
@@ -82,6 +83,12 @@ class MeshWorld {
     void sleep(const std::string& name, bool on);                // Mesh_Sleep 0x16a
     void set_position(const std::string& name, const Vec3& p);   // Mesh_SetPosition 0x173
     void reset_position(const std::string& name);                // Mesh_ResetPosition 0x178
+    // Mesh_SetRotation 0x174 (FUN_00572f10: degrees x 0.0174533 -> FUN_00503990, the rotation rows
+    // only) / Mesh_ResetRotation 0x179 (FUN_005730b0: the same from +0x3dc). [H] FUN_00503990 is
+    // D3DXMatrixRotationYawPitchRoll(a[1], a[0], a[2]); the re-bake composes rot X*Y*Z (compose_trs),
+    // the same for one-axis turns (the shipped calls are all (0, 0, 0)).
+    void set_rotation(const std::string& name, const Vec3& rad);
+    void reset_rotation(const std::string& name);
     void enable_event(const std::string& name, bool on);         // Mesh_EnableEvent 0x176
     void set_time_scale(const std::string& name, float s);       // Mesh_SetTimeScale 0x17b
     void fall(const std::string& name, float e, float h);        // Mesh_Fall 0x18a

@@ -264,6 +264,12 @@ struct FnAiWorld : AiWorld {
     bool in_room(const char* dir) override { return in_room_fn && in_room_fn(dir); }
     std::function<void(const std::function<void(const Fx&)>&)> effects_fn;   // the GoEffect pool (view_duel.inl)
     void for_each_effect(const std::function<void(const Fx&)>& f) override { if (effects_fn) effects_fn(f); }
+    std::function<void(int, float)> camera_fn;          // the forced camera region (M360)
+    void force_camera(int r, float rate) override { if (camera_fn) camera_fn(r, rate); }
+    std::function<void(int, const Vec3&)> sound_fn;     // a positional SE (M360's crystal kills)
+    void sound_at(int id, const Vec3& p) override { if (sound_fn) sound_fn(id, p); }
+    std::function<void(Actor&, int, int)> restat_fn;    // FUN_004202e0 (M360's INIT)
+    void restat(Actor& a, int c, int lv) override { if (restat_fn) restat_fn(a, c, lv); }
     void for_each(const std::function<void(Actor&)>& f) override { each(f); }
     Actor* find(int id) override { return id ? find_fn(id) : nullptr; }
     Actor* spawn_child(Actor& p, int c, const Vec3& d, int lv, bool k) override { return spawn_fn(p, c, d, lv, k); }
@@ -310,7 +316,9 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // Skip DEAD ENEMIES only. Cutscene NPCs (Shion/Roy/…) are non-enemy actors that
         // ActorWorld::spawn leaves at hp=0, so alive() is false for them though they are
         // very much present — gating on alive() alone made every intro NPC invisible.
-        if (!e.actor || (e.actor->is_enemy() && !e.actor->alive())) continue;
+        // The revive family's corpse lies on (REVIVE.md §3.4: opaque, never removed without the Chimes).
+        if (!e.actor || (e.actor->is_enemy() && !e.actor->alive() &&
+                         (e.actor->destroy_requested() || !revive::corpse_drawn(*e.actor)))) continue;
         if (!e.actor->visible) continue;   // Chr_Alpha faded it out (cutscene visibility)
         // A brain's opacity (+0x4d8, e.g. M390's warp fades): the render submit FUN_00473540
         // skips the actor at exactly 0; otherwise it is drawn at that opacity.

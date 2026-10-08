@@ -1087,6 +1087,7 @@ title_again:
     std::vector<Popup> popups;                            // GoPopup (pool 7, 32 at most)
     ef2sim::Rng pick_rng;
     pick_rng.bind(game.rs);
+    bullets.set_rng([&] { return pick_rng.next(); });       // the kind-0xf bombs' draws (BOMB.md)
     g_cam_rng = [&] { return pick_rng.next(); };          // the camera shake's draws
     weather::Weather wx;                                  // 0x125 / 0x122 / 0x123 (view_weather.inl)
     std::unordered_map<const bullet::Bullet*, int> gas_owner;
@@ -1244,7 +1245,7 @@ title_again:
     // level-up while total >= threshold(level+1) (= gameinfo exp_to_level, cumulative pair 10),
     // capped at 60.
     expaward::Combo kill_combo;          // 0x76c1a8 / 0x76c1b0
-    auto award_exp = [&](float b0, int enemy_level, bool boss) {
+    auto award_exp = [&](float b0, int enemy_level, bool boss, bool awarded = false) {
         if (!ginfo.ok()) return;
         // The shell's EXP rate and the Lua mods' (an AP seed's) factor stand where retail's
         // 0x76a5fc (1.0 in every save) multiplies, before the floor.
@@ -1257,7 +1258,7 @@ title_again:
         } else {
             expaward::KillIn k;
             k.base = b0; k.player_level = player.level; k.enemy_level = enemy_level; k.difficulty = diff;
-            k.rate = rate; k.diff_mult = dm; k.combo = kill_combo.count;
+            k.rate = rate; k.diff_mult = dm; k.combo = kill_combo.count; k.awarded = awarded;
             player.exp += expaward::kill_award(k);
         }
         while (player.level < 60 &&
@@ -1340,6 +1341,7 @@ title_again:
     PlanarVelocity pvel;         // +0x32c/+0x334
     float last_floor = 0;        // +0x318 — kept when the down-ray misses
     int cur_surface = 1;         // +0x4b9, latched surface id (surface.hpp order)
+    PlayerSand psand;            // +0x4ba / +0x320 / +0x38b / +0x38c: the sand2 state (src/cleria/sand.hpp)
     float surface_up = 1.0f;     // the latched surface's scale on a rising dy
 
     // Play mode. The camera comes from the room's SCM regions (see update_camera), and
@@ -1519,6 +1521,10 @@ title_again:
             Aso* a = enemy_script(e.stem);
             if (!a) return;
             e.avm.bind(a);
+            // M980's morph loop reads and writes g_flags[179/180] (M980.md §5) [H: only this cast's VM
+            // is given the game flags here, so the other casts' scripts run as before].
+            // M360's death section 5 counts its effect loop in g_flags[178] (M360.md §5).
+            if (e.actor && (e.actor->cast_id == 0xb8 || e.actor->cast_id == 0x28)) e.avm.set_flags(game.g_flags, 0x200);
             // Resting section: 2 (idle for most), else 0, else whatever exists first —
             // set_section is what makes AsoVm::ok() true, so it must land on a real one.
             int idle = a->find(2) ? 2 : (a->find(0) ? 0 : a->sections().front().id);
@@ -1608,6 +1614,7 @@ title_again:
             for (const auto& c : r.clips) clips.push_back({c.name, c.start, c.end, c.next, c.rate});
             MeshObj& m = meshes.add(r.name, r.obj.position, std::move(clips));
             m.rot = r.obj.rotation;              // the re-bake passes &m.rot: keep the placement's turn
+            m.spawn_rot = m.rot;                 // +0x3dc (Mesh_ResetRotation)
             baked_pos[r.name] = r.obj.position;
             for (std::size_t i = 0; i < m.clips.size(); ++i)        // built posed at a clip's end
                 if (!r.posed_clip.empty() && m.clips[i].name == r.posed_clip) {
@@ -2132,6 +2139,12 @@ title_again:
             if (meshes) meshes->set_position(n, {x, y, z});
         }
         void mesh_reset_position(const std::string& n) override { if (meshes) meshes->reset_position(n); }
+        void mesh_set_rotation(const std::string& n, float x, float y, float z) override {
+            if (meshes) meshes->set_rotation(n, {x * 0.0174533f, y * 0.0174533f, z * 0.0174533f});
+        }
+        void mesh_reset_rotation(const std::string& n) override { if (meshes) meshes->reset_rotation(n); }
+        std::function<void(int)> eft_die_fn;
+        void eft_die(int id) override { if (eft_die_fn) eft_die_fn(id); }
         void mesh_enable_event(const std::string& n, bool on) override { if (meshes) meshes->enable_event(n, on); }
         void mesh_time_scale(const std::string& n, float s) override { if (meshes) meshes->set_time_scale(n, s); }
         bool mesh_moving(const std::string& n, bool* found) const override {
@@ -3146,6 +3159,11 @@ title_again:
     csHost.se_stop_fn = [&](int se, int ms) { audio.stop_se(se, ms); };
     // 0x11c Eft_SetAlphaTarget (FUN_0056fba0): every effect not freed whose name matches (djb2-xor
     // hash + _stricmp) gets +0x1e4 = alpha, +0x1e8 = 1/frames (1.0 for 0); FUN_00451e60 steps it.
+    // 0x12a Eft_Die (FUN_00451730): the kill flag on every live effect of that id. [not modelled] its
+    // particles' +0x1b4 byte (meaning untraced).
+    csHost.eft_die_fn = [&](int id) {
+        for (auto& f : fxsim.effects()) if (!f->dead && f->id == id) f->kill = true;
+    };
     csHost.fx_alpha_fn = [&](const std::string& n, float a, int frames) {
         for (auto& f : fxsim.effects()) {
             if (f->dead || f->name.size() != n.size()) continue;
@@ -3674,6 +3692,10 @@ title_again:
                 std::printf("  [bullet] kind %d effect %d age %u pos (%.2f, %.2f, %.2f) speed %.2f fx %d%s\n", bp->s.kind,
                             bp->s.effect, bp->age, bp->s.pos.x, bp->s.pos.y, bp->s.pos.z, bp->s.speed,
                             bp->fx ? bp->fx->live : -1, bp->gone ? " gone" : "");
+            for (const auto& bb : bullets.bombs())                // the kind-0xf bombs (BOMB.md)
+                std::printf("  [bomb] age %.0f pos (%.2f, %.2f, %.2f) vel (%.3f, %.3f, %.3f)%s fx %d\n", bb->age,
+                            bb->pos.x, bb->pos.y, bb->pos.z, bb->vel.x, bb->vel.y, bb->vel.z, bb->rest ? " rest" : "",
+                            bb->fx ? bb->fx->live : -1);
         } else if (cmd == "pickups") {                // the world pickups and where they draw (audit aid)
             const Vec3 cf = cam.forward();
             const Vec3 cr = normalize(cross(Vec3{0, 1, 0}, cf)), cu = cross(cf, cr);
@@ -3758,6 +3780,20 @@ title_again:
             csHost.fade_cur = csHost.fade_tgt = 1.0f;  // Fader_Current/Target(1) left behind), Fader_Color rgb
             csHost.fade_rgb = cmd.size() > 9 ? std::uint32_t(std::stoul(cmd.substr(9), nullptr, 16)) & 0xffffffu : 0u;
             csHost.fade_rate = 1.0f;
+        } else if (cmd.rfind("surfat=", 0) == 0) {     // surfat=<surface index>: where that surface is (audit aid)
+            const int want = std::atoi(cmd.c_str() + 7);
+            const RoomMesh& sm = phys_mesh(room);
+            int shown = 0;
+            for (std::size_t t = 0; t * 3 + 2 < sm.indices.size() && shown < 6; ++t) {
+                if (surface_index_or_default(surface_of(sm, int(t))) != want) continue;
+                Vec3 c{};
+                for (int k = 0; k < 3; ++k) { const RoomVertex& v = sm.vertices[sm.indices[t * 3 + k]]; c = {c.x + v.px / 3, c.y + v.py / 3, c.z + v.pz / 3}; }
+                if (t % 7 == 0 || shown == 0) { std::printf("  [surfat] %d tri %zu at (%.2f, %.2f, %.2f)\n", want, t, c.x, c.y, c.z); ++shown; }
+            }
+        } else if (cmd == "sand") {                    // the player's sand2 state (src/cleria/sand.hpp)
+            std::printf("  [sand] surf %d/%d water %.2f sub %d buried %d grounded %d feet y %.3f O2 %.0f\n",
+                        cur_surface, psand.surf_ray, psand.water_y, int(submerged), int(psand.buried),
+                        int(pv.grounded), feet.y, oxy.o2);
         } else if (cmd == "fader") {                   // the fade machine 0x769f1c / 0x769f24 / 0x769f28
             std::printf("  [drive] fader %.2f -> %.2f at %.3f%s%s rgb %06x\n", csHost.fade_cur, csHost.fade_tgt, csHost.fade_rate,
                         door_pending ? " (door pending)" : "", door_latched ? " (latched)" : "", unsigned(csHost.fade_rgb));
@@ -5760,7 +5796,13 @@ title_again:
                 if (moving && (sec == 0x10a || (sec == 3 && pact.dash)))   // the dash run (0x10a, or a dash jump)
                     spd = pm.speed_base * avm.movable() * pm.run_mult *
                           dash_char_const(character, blessing_run, shield_life != 0) * speed_mult;
+                const PlanarVelocity pvel0 = pvel;
                 step_planar(pvel, moving, std::atan2(wish.z, wish.x), spd, pv.grounded);
+                if (pv.grounded && player_ice(cur_surface, inv.equip_flags)) {   // ice: the 0.35 blend (ice.hpp)
+                    pvel.x = pvel0.x * (1.0f - kIceBlend) + pvel.x * kIceBlend;
+                    pvel.z = pvel0.z * (1.0f - kIceBlend) + pvel.z * kIceBlend;
+                    if (std::fabs(pvel.x) < 0.005f && std::fabs(pvel.z) < 0.005f) pvel = {};
+                }
                 // Godspeed: each tick in 0x10d / 0x110 past Marker 1 the C++ drives the dash and
                 // ends the endless ASO loop with SetSection(0x105).
                 if (character == 3 && (sec == 0x10d || sec == 0x110)) {
@@ -5877,6 +5919,11 @@ title_again:
                 if (character == 2 && shield_on && !pv.grounded && pv.t < 0.0f) pv.t *= 0.88f;
             }
             {   float dy = vertical_dy(pv, submerged, cur_surface == 0x12);
+                if (submerged && psand.on_sand2()) {   // the set over sand2 (src/cleria/sand.hpp, 0x45a652)
+                    dy = sand2_dy(vertical_dy(pv), moving, psand.water_y, oy);
+                    cur_surface = 0x12;                // 0x45a6b7: +0x4b9 = 0x12
+                    surface_up = 0.25f;
+                }
                 if (dy > 0.0f) dy *= surface_up;      // sand2/lava/blood slow a rise too
                 // The ceiling (FUN_0045a510, after dy is taken): while the timer is rising, a ray
                 // from the origin up +0x328 x 1.05 (0x6bd458) zeroes +0x330 / +0x420 on a hit
@@ -5897,22 +5944,38 @@ title_again:
                 last_floor = fl;                      // +0x318 persists when the ray misses
                 if (oy - fl < 1.6f)                   // surface latch (0x45ba7e: hit t < 1.6)
                     cur_surface = surface_index_or_default(surface_of(phys_mesh(room), floor_tri));
+                psand.surf_ray = surface_index_or_default(surface_of(phys_mesh(room), floor_tri));   // +0x4ba
+                Vec3 ihit, in_n;                      // the ice slope slide (0x45b053, ice.hpp)
+                if (pv.grounded && psand.surf_ray == kSurfaceIce &&
+                    segment_hit(phys_mesh(room), {feet.x, oy, feet.z}, {feet.x, oy - 510.0f, feet.z}, &ihit, &in_n)) {
+                    const Vec3 ip = ice_slope_push(in_n);
+                    player_kb.x += ip.x; player_kb.z += ip.z;
+                }
             }
             p_landed = settle_vertical(pv, oy, last_floor, kOriginH, submerged);
+            if (submerged && psand.on_sand2() && !pv.grounded) {
+                // 0x45bf52 [EXPORT 0045a510.c:912]: in the set over sand2 +0x388 stays 1; a fall that
+                // entered it last tick in section 3 lands (the follow-on) [approx: the view's landing].
+                pv.grounded = true;
+                if (psand.entered && avm.section() == 3) p_landed = true;
+            }
             {   // The water test after the vertical step (FUN_0046fba0 0x46fd7c -> FUN_0045c490).
                 // Mode 2: submerged throughout. Mode 1: a ray up from feet - 0.25 into the water
                 // tree; submerged past a depth of 1.1, wading between 0.35 and 2.0; a change of
                 // +0x38a caps the timer at 0.1; a wading change or a surfacing splashes.
                 if (splash_cd > 0) --splash_cd;
+                psand.entered = psand.buried = false;                 // the word +0x38b = 0 (0x45c58c..)
                 if (water_mode == 2) {
                     if (!submerged) { water_transition(pv); submerged = true; }
                     wading = false;
                 } else if (phys_mesh(room).has_water()) {
-                    const float o0 = feet.y - 0.25f;                 // 0x6bd244 [not modelled] sand2's -0.7
+                    const float o0 = feet.y - psand.probe_drop();    // 0x6bd244, 0.7 more over sand2 (0x45c787)
                     const float surf = water_above(phys_mesh(room), feet.x, o0, feet.z);
                     if (surf <= kNoFloor) {
                         submerged = wading = false;                   // no hit: both cleared, no splash
                     } else {
+                        psand.water_y = surf;                         // +0x320 (0x45c85b)
+                        psand.buried = sand2_buried(psand, surf, o0); // +0x38c (0x45c840)
                         const float depth = surf - o0;
                         const bool sub = depth > 1.1f;                // 0x6bd464
                         bool surfaced = false;
@@ -5920,14 +5983,15 @@ title_again:
                             water_transition(pv);
                             surfaced = !sub;
                             submerged = sub;
+                            psand.entered = sub;                      // +0x38b (0x45c885)
                         }
                         const bool wade = depth > 0.35f && depth < 2.0f;   // 0x6bd2b0 / 0x6bd580
                         if (wade != wading || surfaced) {
                             wading = wade;
-                            if (splash_cd == 0) {                     // 0x45c90d..0x45ca04
+                            if (splash_cd == 0) {                     // 0x45c90d..0x45ca04 (sand2: fx 0x163, SE 0x28)
                                 splash_cd = 15;
-                                spawn_sim_fx(0x44, {feet.x, surf + 0.15f, feet.z}, {}, 1.0f, {}, 0, {});
-                                sfx_at(0x30, feet, kSfxAnimVol);
+                                spawn_sim_fx(psand.on_sand2() ? 0x163 : 0x44, {feet.x, surf + 0.15f, feet.z}, {}, 1.0f, {}, 0, {});
+                                sfx_at(psand.on_sand2() ? 0x28 : 0x30, feet, kSfxAnimVol);
                             }
                         }
                     }
@@ -5966,6 +6030,7 @@ title_again:
             // action player and move primitive; then the sprite mover moves it along its
             // heading at speed x anime_Movable. STAND-IN for non-M100 casts: every enemy
             // runs the M100 brain until its own is ported (build/audit/ai_bosses.md).
+            #include "view_revive.inl"                // the revive family's handler (REVIVE.md)
             {
                 const int d = game.g_flags[201] ? 3 : (difficulty - 2);   // -2 v.easy .. 2 nightmare
                 // The handlers' off-screen test FUN_0045d3c0: a SPHERE of 5.0 (0x6bd868) x 0.5
@@ -6026,6 +6091,11 @@ title_again:
                 aiw.ray_fn = [&](const Vec3& o, const Vec3& dl) {
                     AiWorld::Ray r;
                     r.hit = segment_hit(phys_mesh(room), o, {o.x + dl.x, o.y + dl.y, o.z + dl.z}, &r.point, &r.normal);
+                    if (r.hit && dl.x == 0.0f && dl.z == 0.0f && dl.y < 0.0f) {   // rec+0xaa: a straight-down ray's surface
+                        int tri = -1;
+                        if (floor_at(phys_mesh(room), o.x, o.z, o.y, &tri) > kNoFloor && tri >= 0)
+                            r.surface = surface_index_or_default(surface_of(phys_mesh(room), tri));
+                    }
                     return r;
                 };
                 aiw.sphere_fn = [&](const Vec3& c, float r) { return sphere_overlaps(phys_mesh(room), c, r); };
@@ -6038,6 +6108,17 @@ title_again:
                 aiw.hide_gauge_fn = [&] { hud.hide_boss_gauge(); };
                 // The current scene's directory, e.g. "s_30\s_3080\", compared case-blind.
                 aiw.effects_fn = ai_effects;                   // the GoEffect pool scans (view_duel.inl)
+                // [approx] the region's blend rate (0x76a1fc) is the rig's own.
+                aiw.camera_fn = [&](int r, float) { g_rig.write_forced(r); };
+                aiw.sound_fn = [&](int id, const Vec3& p) { sfx_at(id, p, kSfxAnimVol); };
+                aiw.restat_fn = [&](Actor& a, int c, int lv) {           // FUN_004202e0 [not modelled] its difficulty branch
+                    const Enemy* er = etab.get(c);
+                    if (!er) return;
+                    const EnemyStats st = enemy_stats(ginfo, *er, lv);
+                    a.max_hp = a.hp = st.max_hp; a.atk = st.atk; a.def = st.def; a.exp_reward = st.exp;
+                    for (int k = 0; k < 4; ++k) a.resist[k] = er->resist[k];
+                    a.level = lv ? lv : er->level;
+                };
                 aiw.in_room_fn = [&](const char* dir) {
                     std::string want = dir, have = (room.dir.parent_path().filename() / room.dir.filename()).string();
                     for (char& c : want) c = char(std::tolower((unsigned char)c) == '/' ? '\\' : std::tolower((unsigned char)c));
@@ -6052,9 +6133,10 @@ title_again:
                 const Vec3 cam_fwd = cam.forward();
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
+                    if (revive_tick(e)) continue;                 // the revive family's dead path
                     // The dead path of a handler that has extra work there (M460: its flock).
                     if (en && !en->alive() && !en->destroy_requested())
-                        if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) hk(*en, aiw);
+                        if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) { hk(*en, aiw); boss_corpse(e); }
                     if (!en || !en->alive() || en->destroy_requested() || !e.avm.ok()) continue;
                     // +0x314 is ONE field: a Fix's turns (world.tick_facing) and Chr_Pos write it
                     // through en->yaw, and the brain carries on from there. e.facing kept the
@@ -6103,6 +6185,9 @@ title_again:
                     env.target_section = avm.section();
                     env.target_heading = std::atan2(face_dir.z, face_dir.x);
                     env.turnable = e.avm.turnable();
+                    env.target_surface = cur_surface;                                  // P+0x4b9
+                    env.chimes = (inv.equip_flags & 0x8000u) != 0;                     // DAT_0076a624
+                    env.target_moving = moving;                                        // P+0x514
                     const Aso* escr = enemy_script(e.stem);
                     env.section_type = [escr](int id) {
                         const Aso::Section* s = escr ? escr->find(id) : nullptr;
@@ -6211,6 +6296,10 @@ title_again:
                             bl->fx->scale_x = bl->fx->scale_y = bl->fx->scale_z = b.fx_scale;
                         }
                         if (b.gas) gas_owner[bl] = en->instance_id;
+                        if (b.root_life >= 0 && bl->fx)                     // the brain's root write (M980)
+                            if (ef2sim::Particle* rp = fxsim.first_particle(bl->fx)) {
+                                rp->remaining = b.root_remaining; rp->life = b.root_life;
+                            }
                     }
                     if (o.gauge_hp >= 0) {                         // FUN_0043a460: the boss gauge
                         gauge_owner = en->instance_id;
@@ -6218,7 +6307,8 @@ title_again:
                         // M460's: 3000, 4000 when the player is Hugo (ARENA_AND_BOSSBAR §3.1).
                         // None of them writes the emblem (0, the default).
                         hud.set_boss_gauge(en->instance_id, o.gauge_hp, en->max_hp,
-                                           o.gauge_len > 0.0f ? o.gauge_len : (character == 2 ? 4000.0f : 3000.0f), 0);
+                                           o.gauge_len > 0.0f ? o.gauge_len : (character == 2 ? 4000.0f : 3000.0f),
+                                           o.gauge_emblem);
                     }
                     // The mover (FUN_00478080 -> FUN_0045f4d0, build/ai_spec/MOVER.md): the
                     // locomotion section on an index change (gated), the ASO step (Jump/Dash/
@@ -6239,7 +6329,8 @@ title_again:
                     }
                     if (e.avm.dashed()) apply_dash(en->mover, e.actor->ai.heading, e.avm.dash_d());
                     mover_post(en->mover, idx_pre, e.actor->ai.speed, e.actor->ai.heading, en->vert.grounded,
-                               en->flyer, movable_pre, e.avm.movable(), en->hp, en->flags12c);
+                               en->flyer, movable_pre, e.avm.movable(), en->hp, en->flags12c, en->ai.surf);
+                    if (o.add_dx != 0.0f || o.add_dz != 0.0f) { en->mover.dx += o.add_dx; en->mover.dz += o.add_dz; }   // M980 0x4d71c6
                     if (e.facing != e.actor->ai.heading)              // FUN_005eee60, x +0x36c (1.0)
                         e.facing = turn_facing(idx_pre == 2 ? 0.35f : 0.18f, e.facing, e.actor->ai.heading);
                     en->yaw = 1.5707963f - e.facing;   // view basis (sin, cos)
@@ -6380,6 +6471,7 @@ title_again:
                         for (const EnemyRender& er : render)
                             if (er.actor == &a && er.avm.ok()) { b.section = er.avm.section(); break; }
                         b.token = 0x02000000u | std::uint32_t(a.instance_id);   // [H] +0x80 = actor+0x14
+                        if (a.cast_id == 0xb8 && a.ai.phase() != 0) b.mask_clear = 8;   // M980 INIT 0x4d45f0: +0x64 &= ~8
                         b.bank = &a.bank;
                         b.push = bodypush::Push::of(a.mover.k2);
                     }
@@ -6397,18 +6489,37 @@ title_again:
                 // The hurt timer +0x238 (FUN_0045a3a0: -0.075 a tick, clamped at 0) runs on the dead
                 // too (a duel puppet stays on screen).
                 a.hit_flash = hitfx::step_hurt(a.hit_flash);
-                if (a.is_player() || !a.alive()) continue;
+                if (a.is_player() || (!a.alive() && !revive_corpse(a))) continue;   // a family corpse falls on
                 // The integrator FUN_0045a510 (MOVER.md §3): one swept sphere (radius +0x328,
                 // centred on the ORIGIN) through D = (displacement, dy), the floor ray from the
                 // pre-move origin, then the settle (land with a 0.65 lerp / coyote / fall).
                 // A flyer: dy = t (0 for the AI), no settle — the hover owns its altitude.
                 {
                     const Vec3 o0{a.pos.x, a.pos.y + a.height, a.pos.z};
-                    const float dy = a.flyer ? a.vert.t : vertical_dy(a.vert);
+                    float dy = a.flyer ? a.vert.t : vertical_dy(a.vert);
                     const float hitY = floor_at(phys_mesh(room), o0.x, o0.z, o0.y);
-                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {a.mover.dx, dy, a.mover.dz}, a.radius);
+                    // Sand2 (MOVER.md §3.1/§3.2, 0x45a63f / 0x45a6fa): in the selector-1 set over a
+                    // sand2 floor dy is clamped to [-0.015, 0.03]; on sand2 (+0x4b9) xz x0.25 and a
+                    // rising dy x0.25; the settle keeps such an actor grounded above its floor.
+                    enemy_surfaces(a);
+                    if (a.vert.grounded && a.ai.surf != kSurfaceIce) a.mover.ice_tail = 0;   // 0x45d139
+                    if (a.vert.grounded && !a.flyer && a.ai.surf_ray == kSurfaceIce && !(a.flags12c & 0x20000000u)) {
+                        Vec3 ihit, in_n;                                        // the ice slope slide (0x45b053)
+                        if (segment_hit(phys_mesh(room), o0, {o0.x, o0.y - 510.0f, o0.z}, &ihit, &in_n)) {
+                            const Vec3 ip = ice_slope_push(in_n);
+                            a.mover.k1.x += ip.x; a.mover.k1.y += ip.y; a.mover.k1.z += ip.z;
+                        }
+                    }
+                    const bool in_sand = !a.flyer && a.ai.in_water && a.ai.surf_ray == 0x12;
+                    if (in_sand) { dy = std::clamp(dy, -0.015f, 0.03f); a.ai.surf = 0x12; }   // +0x4b9 = 0x12
+                    float mdx = a.mover.dx, mdz = a.mover.dz;
+                    if (a.ai.surf == 0x12) { mdx *= 0.25f; mdz *= 0.25f; if (dy > 0.0f) dy *= 0.25f; }
+                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, a.radius);
                     if (hitY > kNoFloor && o1.y > hitY) a.floor_y = hitY;     // +0x318
-                    if (!a.flyer) {
+                    if (!a.flyer && in_sand && o1.y - a.height >= a.floor_y + 0.01f) {
+                        a.vert.grounded = true;                               // 0x45bf52: +0x388 = 1 in sand
+                        a.vert.t = std::max(-0.5f, a.vert.t - 0.0118f);        // the in-water decrement
+                    } else if (!a.flyer) {
                         a.vert.jumping = a.mover.loco == 3;                  // the coyote keys on +0x3a0
                         settle_vertical(a.vert, o1.y, a.floor_y, a.height);
                     }
@@ -6509,13 +6620,20 @@ title_again:
                         std::printf("  hit %s (lv%d DEF %.0f): %d dmg, %.0f/%.0f left\n",
                                     nm.c_str(), en.level, en.def, r.damage, en.hp, en.max_hp);
                     if (r.died) {
-                        award_exp(en.exp_reward, en.level, /*boss*/false);
+                        // The kill credit (0x4fcaf5..0x4fcd42): nothing once +0x12c & 0x4000000 is set,
+                        // which this kill sets (a revived actor keeps it: REVIVE.md §3.10c).
+                        award_exp(en.exp_reward, en.level, /*boss*/false, (en.flags12c & 0x4000000u) != 0);
+                        en.flags12c |= 0x4000000u;
+                        // The revive family flips +0x130 ^= 9 on the first dead tick when the Chimes are
+                        // on, before FUN_004780e0's death effects and drops (REVIVE.md §3.1).
+                        const std::uint32_t f130 = en.flags130 ^
+                            ((revive::row(en.ai_index) && (inv.equip_flags & 0x8000u)) ? 9u : 0u);
                         {   // FUN_004780e0 -> FUN_00478510's death path (hit_feedback.hpp): its entry
                             // draw (the scale), the puff (+ SE 862 with +0x130 & 0x2000) and the
                             // character's spark, from the victim's last vector to the player.
                             const std::uint32_t d0 = pick_rng.next();
                             en.hit_flash = hitfx::kHurtTimer;            // +0x238 = 1.65 (whatever +0x130)
-                            const hitfx::DeathPuff dp = hitfx::death_puff(en.flags130);
+                            const hitfx::DeathPuff dp = hitfx::death_puff(f130);
                             if (dp.spark) {
                                 const Vec3 tp = en.ai.v(0x734);
                                 const hitfx::Spark sk = hitfx::place_spark({en.pos.x, en.pos.y + en.height, en.pos.z},
@@ -6529,7 +6647,9 @@ title_again:
                                                          (unsigned long long)tick_count, dp.effect, sid, sk.scale);
                             }
                         }
-                        if (const Enemy* er = etab.get(en.cast_id)) {     // FUN_00478510
+                        // FUN_00478510's drop loop is skipped while +0x130 & 1 (0x478b5c; factory 0x2009 / 0x6081 / 0x1);
+                        // casts 0xaf (M890) / 0xb0 (M900) branch away before it (0x478b39..0x478b49 -> 0x479348: no drops).
+                        if (const Enemy* er = etab.get(en.cast_id); er && !(f130 & 1u) && en.cast_id != 0xaf && en.cast_id != 0xb0) {
                             DropContext dc;                 // [not modelled] launch count, luck
                             dc.combo = kill_combo.count;    // 0x76c1a8 (FUN_00478510 0x479062)
                             dc.flag108 = game.g_flags[108] == 1;
@@ -7006,7 +7126,8 @@ title_again:
             }
             hud_state_tick();                                  // the buff timers, the HUD pulse (view_hudstate.inl)
             {   // Oxygen (0x467d91..0x467f29, WATER.md §3): the held tool 0x61 = the Scales.
-                const float dmg = oxy.tick(submerged, cur_surface, /*+0x38c sand [not modelled]*/ false,
+                // surface = +0x4ba: over sand2 the ray's surface (elsewhere the latch, as before).
+                const float dmg = oxy.tick(submerged, psand.on_sand2() ? 0x12 : cur_surface, psand.buried,
                                            inv.held == 0x61, float(player.max_hp));
                 if (dmg > 0.0f && player.hp > 0) {               // drowning: maxHP / 60 a tick
                     drown_acc += dmg;                            // [approx] the view's HP is an int
@@ -7163,6 +7284,11 @@ title_again:
                 if (e.hb.one_shot) e.atk_win = 0;
                 e.atk_hit = true;
                 hurt_player(en->atk, e.hb.power, e.hb.rtype, hang);
+                if (en->ai_index == 21 && en->max_hp > en->hp) {   // M280's lifesteal (FUN_004a5300 0x4a55b7, M280.md §2)
+                    const int bb5c = difficulty >= 2 ? difficulty - 2 : 0;
+                    const int amt = std::max(1, int(std::floor(en->max_hp / (bb5c == 2 ? 7.5f : bb5c == 1 ? 14.0f : 20.0f))));
+                    en->hp = std::min(en->max_hp, en->hp + float(amt));   // [not modelled] the green popup
+                }
             }
             // The boss parts' armed volumes (GoXx kind 9, mode-0 scan; VELAGUNDER.md §3.2): all
             // share re-hit token 0 with re-hit 30 [H-med], the damage with the boss's STR.
@@ -7277,6 +7403,7 @@ title_again:
                 benv.difficulty = difficulty >= 2 ? difficulty - 2 : 0;
                 benv.rng = [&] { return pick_rng.next(); };
                 std::vector<bullet::Event> bev;
+                #include "view_crystal.inl"          // M980's bullet scan (M980.md §3.4a)
                 bullets.update(benv, &bev);
                 for (auto it = gas_owner.begin(); it != gas_owner.end();) {
                     bool live = false;

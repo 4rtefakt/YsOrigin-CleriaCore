@@ -205,5 +205,6 @@ struct EnemyTable {
 // Defined in gameinfo.cpp, where the curves live: stats(e) = K(column) * curve(level).
 struct GameInfo;
 EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e);
+EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e, int level);   // FUN_004202e0 at a level
 
 }  // namespace cleria

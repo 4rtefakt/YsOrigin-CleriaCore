@@ -54,6 +54,8 @@ struct Rig {
     }
 };
 
+#include "floor4.inl"   // the floor-4 brains (S_40)
+
 int main() {
     const EnemyAiParams p = m100();
 
@@ -2950,6 +2952,8 @@ int main() {
             check(placed, "M810 + M900: two Eyes spawn and settle 1.75 u behind Hugo");
         }
     }
+
+    floor4_tests();
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;

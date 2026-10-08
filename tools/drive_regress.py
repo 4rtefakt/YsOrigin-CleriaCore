@@ -648,6 +648,64 @@ CASES.update({
                 "[xso] FireBullet actor 197", ">> entering S_4104"]),
 })
 
+# The floor-4 brains (build/ai_spec/M560.md .. M290.md, REVIVE.md, BOMB.md; build/audit/FLOOR4_TOUR.md).
+_F4 = dict(CLERIA_AI="1")
+CASES.update({
+    # M560 Karon: buried in S_4004's sand, surfaces, is killed (one-hit kills), lies opaque for 600
+    # dead ticks and revives in place with a new instance id (REVIVE.md §3.5, FUN_00434db0).
+    "karon_revive": dict(
+        room="S_40/S_4004/S_4004", env=_F4,
+        drive="7:opt=InfiniteOxygen=1;8:opt=OneHitKill=1;9:opt=DamageTaken=0;20:at3=4.6,-1,12,90;100:every=12,300,near=#60;"
+              "101:every=12,300,atk;350:stats;800:stats;801:quit",
+        expect=["[revive] #186 cast 60 hp 261 phase 1 7a0 0 gnd 1 t 0.000 y -4.00", "defeated 1", "stats exp 3 lv 1",
+                "cast 60 revived as #207 (section 10)"]),
+    # M570 Zarue summons its hands (M410) next to the player in S_4006; they appear and are removed.
+    "zarue_summon": dict(
+        room="S_40/S_4006/S_4006", env=_F4,
+        drive="9:opt=DamageTaken=0;10:at=-3.2,28,90;200:actors;400:actors;401:quit",
+        expect=["cast 61 phase 2", "sec 7 ", "[actor] id 45 cast 45 enemy hp 351", "cast 45 phase 2",
+                "[actor] id 45 cast 45 enemy hp 0"]),
+    # M280 Chups in S_4012 latches on the player from behind (sub 1, section 7).
+    "chups_latch": dict(
+        room="S_40/S_4012/S_4012", env=_F4,
+        drive="9:opt=DamageTaken=0;10:at=0,13,90;400:quit",
+        expect=["cast 32 phase 2 sub 1 act 0x2", "sec 7 "]),
+    # M290 Bicmobre in S_4019 throws its kind-0xf bombs; killed, it throws its death bombs.
+    "bicmobre_bombs": dict(
+        room="S_40/S_4019/S_4019", env=_F4,
+        drive="9:opt=DamageTaken=0;10:near=#187,7;150:bullets;420:opt=OneHitKill=1;421:near=#187,2;422:atk;"
+              "440:near=#187,2;441:atk;520:quit",
+        expect=["cast 33 phase 2 sub 3", "[bomb] age", "M290 #187 death bomb (dead tick 15)",
+                "M290 #187 death bomb (dead tick 30)"]),
+    # The player in S_4004's quicksand (src/cleria/sand.hpp, WATER.md §1a/§2a): walking off the stone she
+    # falls into the selector-1 set over sand2 and stays "grounded" in it, walking lifts her 0.0025 a tick
+    # (0.01 x the sand2 rise x0.25), standing sinks her 0.015 a tick until she is buried (+0x38c) and the O2
+    # drains 100 a tick.
+    "sand_wade": dict(
+        room="S_40/S_4004/S_4004", env=_F4,
+        drive="8:opt=DamageTaken=0;20:move=0,1,200;150:sand;219:sand;300:sand;330:sand;331:quit",
+        expect=["[sand] surf 18/18 water -2.00", "sub 1 buried 0 grounded 1 feet y -2.4", "sub 1 buried 0 grounded 1 feet y -2.2",
+                "buried 1 grounded 1 feet y -3.45", "buried 1 grounded 1 feet y -3.90"]),
+    # Ice (src/cleria/ice.hpp): standing on S_4002's ice ramp the player slides down it (FUN_0045a510
+    # 0x45b053: knock channel 1 += 0.02 x the slope); walking off it she glides to a stop (k 0.35).
+    "ice_slide": dict(
+        room="S_40/S_4002/S_4002",
+        drive="8:opt=DamageTaken=0;20:at3=-70.67,10,5.92,0;21:sand;35:pos;115:pos;120:move=0,1,8;121:pos;122:pos;128:pos;131:pos;134:pos;135:quit",
+        expect=["[sand] surf 11/11", "feet (-70.795, 7.605, 5.920)", "feet (-71.511, 7.247, 5.920)",
+                "feet (-71.564, 7.220, 5.969)", "feet (-71.573, 7.216, 6.049)", "feet (-71.627, 7.189, 6.780)",
+                "feet (-71.654, 7.176, 6.960)", "feet (-71.680, 7.162, 7.010)"]),
+    # The floor-4 boss (M360 Jenocres + its eight M980 crystals, build/ai_spec/M360.md / M980.md): S_4013's
+    # entry event (Yunica) runs to its end and starts Battle_Yunica; the boss lays out its crystals; a
+    # one-hit kill ends it, kills the crystals and (255 ticks later) clears flag 156 so the script goes on.
+    "jenocres_fight": dict(
+        room="S_40/S_4013/S_4013", char="1",
+        drive="4:opt=DamageTaken=0;20:every=20,4300,ok;4380:actors;4390:opt=OneHitKill=1;"
+              "4400:every=15,4700,near=40;4401:every=15,4700,atk;4700:actors;5000:dflags;5001:quit",
+        expect=["[actor] id 168 cast 40 enemy hp 5869", "[actor] id 184 cast 184 enemy hp", "defeated 1",
+                "M360 death section 5", "[actor] id 168 cast 40 enemy hp 0", "[actor] id 184 cast 184 enemy hp 0",
+                "flags 130=0 131=1 133=0 156=0"]),
+})
+
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,
 # the cutscene skip's walks (ROUTE_F13.md D3), O2 through a load and a Retry (D5).
 CASES.update({

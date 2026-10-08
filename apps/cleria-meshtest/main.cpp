@@ -31,6 +31,16 @@ static void check(bool ok, const char* what) {
 }
 
 int main(int argc, char** argv) {
+    {   // Mesh_SetRotation 0x174 / Mesh_ResetRotation 0x179 (FUN_00572f10 / FUN_005730b0).
+        MeshWorld w;
+        MeshObj& b = w.add("boss04", {0, 0, 0}, {});
+        b.rot = b.spawn_rot = {0.0f, 1.5f, 0.0f};
+        w.set_rotation("BOSS04", {0.0f, 0.0f, 0.0f});
+        const bool set = b.rot.y == 0.0f && b.dirty_pose;
+        b.dirty_pose = false;
+        w.reset_rotation("boss04");
+        check(set && b.rot.y == 1.5f && b.dirty_pose, "Mesh_SetRotation re-poses; Mesh_ResetRotation restores +0x3dc");
+    }
     {   // Mesh_MoveTo(asiba, 0,0,10, r 0.16, speed 0.15): stops within the radius, not snapped.
         MeshWorld w;
         w.add("asiba_00", {0, 0, 0}, {});

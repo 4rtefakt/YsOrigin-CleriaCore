@@ -57,13 +57,17 @@ double GameInfo::exp_to_level(int level) const {
 // 0<x<1) while the stat pass's pseudocode said "round(...)" and nobody reconciled
 // the two. The game's own monster journal settles it: with floor, 67 of 68 published
 // enemies match exactly on HP, level, STR and DEF; with round, 9.
-EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e) {
+EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e) { return enemy_stats(gi, e, e.level); }
+
+// FUN_004202e0's level argument (non-zero: that level; 0 = the record's own, EI+0xe8).
+EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e, int level) {
     EnemyStats s;
     if (!gi.ok()) return s;
-    s.max_hp = std::floor(stat_k(e.k_maxhp) * gi.curves[kEnemyMaxHp].at(e.level));
-    s.atk = std::floor(stat_k(e.k_atk) * gi.curves[kEnemyAtk].at(e.level));
-    s.def = std::floor(stat_k(e.k_def) * gi.curves[kEnemyDef].at(e.level));
-    s.exp = std::floor(stat_k(e.k_exp) * gi.curves[kEnemyExp].at(e.level));
+    if (level == 0) level = e.level;
+    s.max_hp = std::floor(stat_k(e.k_maxhp) * gi.curves[kEnemyMaxHp].at(level));
+    s.atk = std::floor(stat_k(e.k_atk) * gi.curves[kEnemyAtk].at(level));
+    s.def = std::floor(stat_k(e.k_def) * gi.curves[kEnemyDef].at(level));
+    s.exp = std::floor(stat_k(e.k_exp) * gi.curves[kEnemyExp].at(level));
     return s;
 }
 
