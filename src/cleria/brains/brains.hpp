@@ -78,6 +78,7 @@ AiOut m410(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f4bb0 Zaru
 AiOut m750(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004bae90 Liliborad (the hand-flown orb)
 AiOut m470(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048c300 Levenueba (the glob fan, the grab)
 AiOut m690(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c5d20 Glaregrave (combo + lightning chain, the guard; far freeze)
+AiOut m720(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004bd150 Heketie (heals allies, the disguised shot; far freeze)
 AiOut m700(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004bbf90 Fliogan (hops, the dash effect, the slash volleys)
 AiOut m710(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c3300 Astyle (rooted; the suction)
 AiOut m740(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c5140 Drefflum (stationary; needles / bubble fan)

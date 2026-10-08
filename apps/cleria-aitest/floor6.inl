@@ -393,6 +393,98 @@ static void floor6_tests() {
                   "M470 hit: the was-hit bit is consumed, EF2 255 at the midpoint +-0.5");
         }
     }
+    // ---- M720 Heketie: the ally scan, the run and cast, the heal / disguised shot, the flee, the fan (build/ai_spec/M720.md §8 test) ----
+    {
+        const EnemyBrain m720 = enemy_brain_for(65);
+        check(m720 != nullptr && enemy_handler_far_freeze(65), "Heketie registered (AI 65), in the 25-u far freeze");
+        EnemyAiParams hp = params(0.12f, 0.06f, 1.0f, 2.0f, 0.0f);   // EI[62]
+        struct W : floor4::Pool {
+            Actor P; bool wall = false;
+            Actor* player() override { return &P; }
+            Ray ray(const Vec3&, const Vec3&) override { Ray r; r.hit = wall; return r; }
+        };
+        auto setup = [&](Rig& r, W& w, Actor& H, float pdist) {
+            H.instance_id = 76; H.cast_id = 76; H.ai_index = 65;
+            w.P.cast_id = 13; w.P.pos = {pdist, 0.0f, 0.0f}; w.P.height = 1.075f; w.P.hp = w.P.max_hp = 100;
+            r.env.actor = &H; r.env.world = &w; r.env.target = {pdist, 1.075f, 0.0f};
+            m720(H.ai, hp, r.env);                                   // INIT
+            H.ai.phase() = 2; H.ai.heading = 0.0f; r.env.facing = 0.0f;
+        };
+        auto wounded = [](W& w, int id, float x, float hpv) -> Actor& {
+            w.actors.emplace_back();
+            Actor& o = w.actors.back();
+            o.instance_id = id; o.cast_id = 72; o.kind = 8; o.max_hp = 400; o.hp = hpv; o.pos = {x, 0.0f, 3.0f}; o.height = 1.075f;
+            return o;
+        };
+        {   // the scan picks the nearest wounded monster with a clear line; the run, the cast, the shot
+            Rig r; W w; Actor H; setup(r, w, H, 9.0f); r.env.section = 2;
+            wounded(w, 301, 8.0f, 200.0f); wounded(w, 302, 2.0f, 400.0f);   // 302 is unhurt
+            Actor& near = wounded(w, 303, 0.0f, 399.5f);                    // less than 1 HP missing
+            wounded(w, 304, 4.0f, 100.0f);
+            (void)near;
+            H.ai.dur() = 7;
+            m720(H.ai, hp, r.env);
+            const bool picked = H.ai.i(0x888) == 304 && H.ai.i(0x79c) == 2 && H.ai.dur() == 0 && H.ai.i(0x7a0) == 0;
+            const AiOut g = m720(H.ai, hp, r.env);                   // GOTO_ALLY: 5 u away (3-D) -> not yet (25 > 25 fails)
+            const bool run = g.section < 0 && H.ai.action() == 0x800 && H.ai.steer() == 4 && H.ai.f(0x894) == 4.0f && H.ai.f(0x89c) == 3.0f;
+            w.actors.back().pos.x = 3.0f;
+            const AiOut c = m720(H.ai, hp, r.env);
+            const bool cast = c.section == 7 && !c.section_force && H.ai.i(0x79c) == 3;
+            r.env.section = 7; r.env.aso_marker = 5080314;
+            int heals = 0, attacks = 0; bool shot_ok = true;
+            for (int s = 0; s < 300; ++s) {
+                Rig r2 = r; for (int i = 0; i < s; ++i) r2.rng();
+                r2.env.rng = [&r2] { return r2.rng(); };
+                Actor H2 = H; r2.env.actor = &H2;
+                const AiOut o = m720(H2.ai, hp, r2.env);
+                shot_ok = shot_ok && o.bullets.size() == 1 && o.set_marker == 0;
+                if (!shot_ok) break;
+                const AiBullet& b = o.bullets[0];
+                shot_ok = shot_ok && b.owner == 304 && b.speed == 0.075f && b.accel == 0.0001f && b.home_period == 2 &&
+                          b.home_rate == 0.15707964f && std::fabs(b.pos.x - 1.0f) < 1e-6f && std::fabs(b.pos.y - 1.575f) < 1e-6f;
+                if (b.kind == 0xb) { ++heals; shot_ok = shot_ok && b.effect == 314 && b.power == 20.0f && b.knock == 5.0f && b.f168 == 1.0f && b.f16c == 150.0f && b.f170 == 30.0f; }
+                else { ++attacks; shot_ok = shot_ok && b.kind == 1 && b.effect == 508 && b.power == 5.0f && b.knock == 2.0f; }
+            }
+            std::printf("[aitest]   M720 shots (Normal) of 300: %d heals (kind 0xb, 314), %d attacks (kind 1, 508)\n", heals, attacks);
+            check(picked && run && cast, "M720 scan: the nearest monster missing 1 HP or more within 15 u with a clear line -> +0x888, "
+                                         "sub 2 (run, steer 4); within 5 u request(7), sub 3");
+            check(shot_ok && attacks > 35 && attacks < 85, "M720 Marker(5080314): one shot owned by the ally, 1 u ahead and 0.5 up — the "
+                                                           "kind-0xb heal (150) or, 20 % on Normal, the kind-1 attack (power 5)");
+            r.env.section = 2; r.env.aso_marker = 0;
+            m720(H.ai, hp, r.env);
+            check(H.ai.i(0x79c) == 0 && H.ai.i(0x888) == 0 && H.ai.cool() >= 60 && H.ai.cool() <= 119,
+                  "M720 cast over: sub 0, the ally dropped, +0x700 = R%60 + 60");
+        }
+        {   // a wall hides every candidate: no ally
+            Rig r; W w; Actor H; setup(r, w, H, 9.0f); r.env.section = 2; w.wall = true;
+            wounded(w, 304, 4.0f, 100.0f);
+            H.ai.dur() = 7;
+            m720(H.ai, hp, r.env);
+            check(H.ai.i(0x888) == 0 && H.ai.i(0x79c) == 0, "M720 scan: no clear line, no ally");
+        }
+        {   // the flee inside 4 u, the fan inside 12 u and 60 deg
+            int flee = 0, fan = 0, fan_far = 0; bool ok = true;
+            for (int s = 0; s < 400; ++s) {
+                for (float pd : {3.0f, 9.0f, 13.0f}) {
+                    Rig r; W w; Actor H; for (int i = 0; i < s; ++i) r.rng();
+                    setup(r, w, H, pd); r.env.section = 2;
+                    const AiOut o = m720(H.ai, hp, r.env);
+                    if (pd < 4.0f) flee += H.ai.i(0x79c) == 1;
+                    else if (pd < 12.0f) {
+                        if (o.section == 8) { ++fan; ok = ok && H.ai.i(0x79c) == 5 && !o.section_force; }
+                        else ok = ok && H.ai.dur() >= 10 && H.ai.dur() <= 19 && (H.ai.i(0x7a0) ? H.ai.action() == 0x20 && H.ai.steer() == 5 : H.ai.action() == 2);
+                    } else fan_far += o.section == 8;
+                }
+            }
+            std::printf("[aitest]   M720 of 400: flee at 3 u x%d, the fan at 9 u x%d, at 13 u x%d\n", flee, fan, fan_far);
+            Rig r; W w; Actor H; setup(r, w, H, 9.0f);
+            H.ai.i(0x79c) = 5; r.env.section = 2; r.env.difficulty = 1;
+            m720(H.ai, hp, r.env);
+            check(ok && flee > 80 && fan > 150 && fan < 235 && fan_far == 0 && H.ai.i(0x79c) == 0 && H.ai.i(0x7a4) >= 74 && H.ai.i(0x7a4) <= 133,
+                  "M720 idle: inside 4 u 40 % a tick flees; inside 12 u and 60 deg 48 % request(8) (sub 5), else a walk on a coin; "
+                  "the fan over -> cooldown R%60 - 15d + 90");
+        }
+    }
     // ---- M690 Glaregrave: the combo and its chain, the guard, the hops, STR / tint (build/ai_spec/M690.md §8 test) ----
     {
         const EnemyBrain m690 = enemy_brain_for(62);
