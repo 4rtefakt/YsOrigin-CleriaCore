@@ -116,6 +116,7 @@ struct Effect {
     // billboard / world quad at p+0x150 - fx+0x1f4 [EXPORT 0044f2e0.c:188-191, 217-219]: pulled
     // that far toward the eye. Rings (p+0x120 as is, 0x44f931) and meshes do not take it.
     float depth_bias = 0;
+    float bias_extra = 0;         // fx+0x204: op 0x11b EftAll_AddCameraOffset's addition to the bias
 };
 
 // The draw-time offset FUN_0044f2e0 subtracts (fx+0x1f4): `bias` along the unit vector from the

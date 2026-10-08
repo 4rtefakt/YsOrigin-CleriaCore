@@ -497,6 +497,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0x174 && nargs >= 4) { host->mesh_set_rotation(ops(0), opf(1), opf(2), opf(3)); return Step::Continue; }
                     if (sub == 0x179 && nargs >= 1) { host->mesh_reset_rotation(ops(0)); return Step::Continue; }
                     if (sub == 0x12a && nargs >= 1) { host->eft_die(op(0)); return Step::Continue; }
+                    // 0x11b EftAll_AddCameraOffset(i, f) [BYTES 0x56b3cf]; 0x126 MirrorFloor(i) [BYTES 0x56b812];
+                    // 0x127 SetDefaultCubeMapTexture(s) [BYTES 0x56b832].
+                    if (sub == 0x11b && nargs >= 2) { host->effect_camera_offset(op(0), opf(1)); return Step::Continue; }
+                    if (sub == 0x126 && nargs >= 1) { host->mirror_floor(op(0) != 0); return Step::Continue; }
+                    if (sub == 0x127 && nargs >= 1) { host->cube_map(ops(0)); return Step::Continue; }
                     if (sub == 0x176 && nargs >= 2) { host->mesh_enable_event(ops(0), op(1) != 0); return Step::Continue; }
                     if (sub == 0x17b && nargs >= 2) { host->mesh_time_scale(ops(0), opf(1)); return Step::Continue; }
                     if (sub == 0x175 && nargs >= 2)

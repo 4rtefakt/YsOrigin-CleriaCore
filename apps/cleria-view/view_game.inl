@@ -2392,6 +2392,14 @@ title_again:
             if (locate_chr_fx) locate_chr_fx(eff, rid(id), dist, deg, dy, scale, mode, n);
         }
         void effect_alpha_target(const std::string& n, float a, int frames) override { if (fx_alpha_fn) fx_alpha_fn(n, a, frames); }
+        // 0x11b (the view's lambda); 0x126 / 0x127 kept as state only [not modelled: the mirrored actor draw
+        // pass of FUN_00473540 and the reflection cube map belong to the renderer].
+        std::function<void(int, float)> fx_camoff_fn;
+        bool mirror = false;
+        std::string cubemap;
+        void effect_camera_offset(int id, float off) override { if (fx_camoff_fn) fx_camoff_fn(id, off); }
+        void mirror_floor(bool on) override { mirror = on; }
+        void cube_map(const std::string& n) override { cubemap = n; }
         void glare_level(int v) override { glare = v; }
         void chr_ztest(int id, bool on) override { if (worldHost) worldHost->chr_ztest(rid(id), on); }
         // The look modes (CHR_OPS.md §6): the world writes the look block (the player's too, on
@@ -2677,6 +2685,7 @@ title_again:
         }
         csMgr.paused = false;
         csHost.heal_spots.clear();
+        csHost.mirror = false; csHost.cubemap.clear();   // FUN_00431260 clears 0x74c104 with the scene [M]
         csHost.box_active = false; csHost.advance = false;
         camera_return();                            // no forced camera carries across rooms
         after_cutscene = nullptr; prev_frozen = false;
@@ -3164,6 +3173,11 @@ title_again:
     // particles' +0x1b4 byte (meaning untraced).
     csHost.eft_die_fn = [&](int id) {
         for (auto& f : fxsim.effects()) if (!f->dead && f->id == id) f->kill = true;
+    };
+    csHost.fx_camoff_fn = [&](int id, float off) {         // FUN_0056fa00: fx+0x204 on every effect of the id
+        int n = 0;
+        for (auto& f : fxsim.effects()) if (!f->dead && f->id == id) { f->bias_extra = off; ++n; }
+        if (std::getenv("CLERIA_XSO_LOG")) std::printf("  [xso] 0x11b effect %d camera offset %.2f -> %d live\n", id, off, n);
     };
     csHost.fx_alpha_fn = [&](const std::string& n, float a, int frames) {
         for (auto& f : fxsim.effects()) {

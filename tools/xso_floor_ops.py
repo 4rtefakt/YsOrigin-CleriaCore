@@ -212,6 +212,11 @@ NOTES = {
                        "distortion pass that reads 0x7b249c"),
     0x125: ("implemented", "GoXx type 0x12 ember emitter FUN_0058e790 / update FUN_0058e7c0 (src/cleria/weather, "
                            "WEATHER.md): 10 shared-xorshift draws every 16 ticks, the sparkle sprites"),
+    0x11b: ("implemented", "FUN_0056fa00: fx+0x204 on every live effect of the id, added to the draw bias "
+                           "(ef2_sim.hpp bias_extra; the room roots of S_60)"),
+    0x126: ("partial", "byte 0x74c104 kept (csHost.mirror); its only reader is the actor draw registration "
+                       "FUN_00473540's mirrored pass [not modelled: renderer extras]"),
+    0x127: ("partial", "the cube map name kept (csHost.cubemap) [not modelled: renderer extras, FUN_004442c0]"),
     0x13d: ("implemented", "the player (13) only, which is every corpus site"),
     0x15c: ("partial", "the player only (every floor 1..3 site is 998 on a player-bound touch script); "
                        "SOB trigger-4 touch volumes start via a [STAND-IN] side-contact sphere"),

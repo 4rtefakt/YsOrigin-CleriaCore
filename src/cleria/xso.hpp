@@ -449,6 +449,17 @@ struct XsoHost {
     // 0x12a Eft_Die(id, i) [BYTES 0x56b8b3 -> FUN_0056fd10 -> FUN_00451730(op0); op1 is fetched, unused]:
     // every live effect of EFTLIST id op0 gets its kill flag (+0x1d4).
     virtual void eft_die(int /*id*/) {}
+    // 0x11b EftAll_AddCameraOffset(i id, f off) [BYTES 0x56b3cf..0x56b407 -> FUN_0056fa00(op0), xmm2 = op1]:
+    // every live effect of EFTLIST id op0 gets fx+0x204 = op1, so its draw pull toward the eye (fx+0x1f4)
+    // becomes (fx+0x1f0 + op1) (ef2_sim.hpp depth_bias / bias_extra).
+    virtual void effect_camera_offset(int /*id*/, float /*off*/) {}
+    // 0x126 MirrorFloor(i) [BYTES 0x56b812..0x56b82d: byte 0x74c104 = (op0 != 0)]. Its reader is the actor draw
+    // registration FUN_00473540 (a second, mirrored draw of each actor) [EXPORT map: the only other xref is
+    // FUN_00431260's clear]. Render-only: no gameplay reads it.
+    virtual void mirror_floor(bool /*on*/) {}
+    // 0x127 SetDefaultCubeMapTexture(s) [BYTES 0x56b832..0x56b845 -> FUN_004442c0(name)]: the reflection cube map
+    // (render-only).
+    virtual void cube_map(const std::string& /*name*/) {}
     virtual void mesh_enable_event(const std::string& /*name*/, bool /*on*/) {}     // 0x176
     // 0x16B Mesh_SetVisible / 0x16C Mesh_EnableCollision, live (+0x298 bits 0x20 / 0x40).
     virtual void mesh_visible(const std::string& /*name*/, bool /*on*/) {}

@@ -1052,7 +1052,7 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         const float uv[4][2] = {{fr.u0, fr.v0}, {fr.u0, fr.v1}, {fr.u1, fr.v0}, {fr.u1, fr.v1}};
         // fx+0x1f4 (ef2_sim.hpp depth_bias): the quad is drawn that far toward the eye.
         const Vec3 fxo{p.fx->M.m[3][0], p.fx->M.m[3][1], p.fx->M.m[3][2]};
-        const Vec3 bias = ef2sim::depth_bias_offset(fxo, camPos, p.fx->depth_bias);
+        const Vec3 bias = ef2sim::depth_bias_offset(fxo, camPos, p.fx->depth_bias + p.fx->bias_extra);   // + fx+0x204
         if (flags & 0x100) {
             const Vec3 wp = p.world_pos();
             const Vec3 o{wp.x - bias.x, wp.y - bias.y, wp.z - bias.z};
