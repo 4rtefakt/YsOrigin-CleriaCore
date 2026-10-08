@@ -316,6 +316,10 @@ EnemyDeathHook enemy_death_hook_for(int ai_index);
 // build/ai_spec/ARENA_AND_BOSSBAR.md §(a)). mode = g_flags[190]: 1 clamps x/z into the rect
 // {xmin, zmin, xmax, zmax}; 2 projects the ORIGIN onto the sphere {cx, cy, cz, radius}.
 bool enemy_handler_clamps(int ai_index);
+// The far freeze of the M680 / M740 handlers (FUN_004c4df0 0x4c4e18..0x4c4e59, FUN_004c59d0; build/ai_spec/M680.md
+// §2.1): while the actor's origin is 25 u or more (3-D, or NaN) from the player's, the handler runs only the ASO
+// step (FUN_004472e0) and FUN_00473540 — no HP test, brain, action player, mover, integrator or hit test.
+bool enemy_handler_far_freeze(int ai_index);
 void arena_clamp(Vec3& origin, int mode, const float rect[4]);
 // The handler-tail position clamps per AI index: FUN_0047abf0 above for M100 / M310,
 // M530's own (0x497b7a): while DAT_0076bb8c (g_flags[156]) != 0, z >= -2.75, and the class-4

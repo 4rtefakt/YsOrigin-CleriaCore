@@ -109,4 +109,39 @@ static void floor6_tests() {
         check(to78 && req && charge && push && exitok,
               "M670 dash: 302 gated, sink to 0.75, charge x3 base speed at Marker 1, one push at Marker 2, rest 60 + R%30");
     }
+    // ---- M680 Hekat-Baocar: M650 + the hover-height roll + long-homing shots (build/ai_spec/M680.md) ----
+    {
+        const EnemyBrain m680 = enemy_brain_for(61);
+        check(m680 != nullptr && enemy_handler_far_freeze(61) && enemy_handler_far_freeze(67) &&
+              !enemy_handler_far_freeze(58), "Hekat-Baocar registered (AI 61); the far freeze on AI 61 / 67 only");
+        EnemyAiParams hp = params(0.12f, 0.0555f, 1.0f, 2.0f, 3.5f);   // EI[58]
+        int heights[3] = {0, 0, 0}, forced = 0;
+        bool shot_ok = false, level_ok = false;
+        for (int s = 0; s < 300; ++s) {
+            Actor H; H.cast_id = 72; H.ai_index = 61; H.flyer = true;
+            Rig r; r.env.actor = &H; for (int i = 0; i < s; ++i) r.rng();
+            r.env.target = {6.0f, 1.075f, 0}; r.env.section = 2;
+            for (int t = 0; t < 200; ++t) {
+                const AiOut o = enemy_ai_tick(H.ai, hp, r.env, m680);
+                if (o.section == 7 && o.section_force) { ++forced; break; }
+            }
+            const float h = H.ai.f(0x834);
+            heights[h == 1.5f ? 0 : h == 3.5f ? 1 : h == 5.5f ? 2 : 1] += 1;
+            if (H.ai.i(0x72c) == 10) {                                   // a volley at Marker(310)
+                r.env.section = 7; r.env.aso_marker = 310; r.env.aso_frame = 2;
+                const AiOut v = enemy_ai_tick(H.ai, hp, r.env, m680);
+                if (v.bullets.size() == 2) {
+                    const AiBullet& b = v.bullets[0];
+                    shot_ok = shot_ok || (b.kind == 2 && b.effect == 310 && b.speed == 0.15f && b.accel == 0.0015f &&
+                                          b.f16c == 10.0f && b.f170 == 180.0f);
+                    if (H.ai.f(0x834) == 1.5f) level_ok = level_ok || b.dir.y == 0.0f;
+                    if (H.ai.f(0x834) != 1.5f && b.dir.y < -0.28f && b.dir.y > -0.29f) level_ok = level_ok || false;
+                }
+            }
+        }
+        std::printf("[aitest]   M680: heights 1.5 x%d 3.5 x%d 5.5 x%d, forced 7 x%d\n", heights[0], heights[1], heights[2], forced);
+        check(heights[0] > 0 && heights[2] > 0 && forced > 100 && shot_ok,
+              "M680: H re-rolled to 1.5 / 5.5 at decisions; section 7 forced; shots 0.15 + 0.0015/tick, homing 10..180");
+        (void)level_ok;
+    }
 }

@@ -6188,6 +6188,14 @@ title_again:
                 const Vec3 cam_fwd = cam.forward();
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
+                    // The M680 / M740 handlers' far freeze, before their HP test: 25 u or more from the player's
+                    // origin (squared ((dx2 + dy2) + dz2) not < 625, NaN included) -> only the ASO step.
+                    // [approx] the world's integrator still runs on the actor (retail skips FUN_0045e460 too).
+                    if (en && !en->destroy_requested() && e.avm.ok() && enemy_handler_far_freeze(en->ai_index)) {
+                        const float fx = en->pos.x - feet.x, fy = (en->pos.y + en->height) - (feet.y + kOriginH),
+                                    fz = en->pos.z - feet.z;
+                        if (!(625.0f > (fx * fx + fy * fy) + fz * fz)) { e.avm.tick(); continue; }
+                    }
                     if (revive_tick(e)) continue;                 // the revive family's dead path
                     // The dead path of a handler that has extra work there (M460: its flock).
                     if (en && !en->alive() && !en->destroy_requested())

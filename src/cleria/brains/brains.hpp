@@ -75,6 +75,7 @@ AiOut m560(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a0260 Karo
 AiOut m780(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004aa220 Zelkaron (Karon + combos; revives)
 AiOut m570(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f3730 Zarue (hover summoner; revives)
 AiOut m410(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f4bb0 Zarue's hand
+AiOut m680(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c4100 Hekat-Baocar (M650 + height roll; far freeze)
 AiOut m670(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f1050 Bazeraena (M430 + M260 hands + a dash; revives)
 AiOut m430(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b27e0 Zeruena (M570's template + the barrier; revives)
 AiOut m440(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b3e70 Zeruena's hand (M410 minus DEF 999 / the clamp)

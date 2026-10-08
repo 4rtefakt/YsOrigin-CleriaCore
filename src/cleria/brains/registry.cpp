@@ -47,6 +47,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 34: return &brains::m410;   // M410 Zarue's hand
         case 36: return &brains::m430;   // M430 Zeruena (handler: brains/revive.cpp)
         case 60: return &brains::m670;   // M670 Bazeraena (handler: brains/revive.cpp)
+        case 61: return &brains::m680;   // M680 Hekat-Baocar (handler far freeze: enemy_handler_far_freeze)
         case 37: return &brains::m440;   // M440 Zeruena's hand
         case 88: return &brains::m950;   // M950 Nooze (Green)
         case 89: return &brains::m960;   // M960 Nooze (Purple)
@@ -78,6 +79,10 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 90: return &brains::m970;   // M970 Vagully
         default: return nullptr;
     }
+}
+
+bool enemy_handler_far_freeze(int ai_index) {
+    return ai_index == 61 || ai_index == 67;   // M680 FUN_004c4df0, M740 FUN_004c59d0 (625.0 at 0x6bdd7c)
 }
 
 bool enemy_handler_clamps(int ai_index) {
