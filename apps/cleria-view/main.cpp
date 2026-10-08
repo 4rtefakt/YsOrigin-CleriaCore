@@ -151,6 +151,8 @@ static fs::path exe_dir() {
     char buf[MAX_PATH];
     DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
     if (n > 0 && n < MAX_PATH) return fs::path(buf).parent_path();
+#else
+    if (const char* b = SDL_GetBasePath()) return fs::path(b);   // the exe's folder, cached by SDL
 #endif
     return fs::current_path();
 }
@@ -376,6 +378,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 // ---- the engine, in fixed include order (see PLAN.md Phase 0) ----------------
 // Each part is a textual slice of the former 6,381-line main.cpp: one TU, split
 // for editability. Order matters; nothing here is standalone.
+#include "view_platform.inl"             // the window surface + OS calls per platform (issue #46)
 #include "view_gpu_room.inl"
 #include "view_camera.inl"
 #include "view_sprites.inl"

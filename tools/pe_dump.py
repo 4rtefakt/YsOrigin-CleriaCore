@@ -6,10 +6,11 @@ usage:
   pe_dump.py find <u32>               find every LE u32 occurrence, report VA
   pe_dump.py str  <va>                read a C string at VA
 """
+import os
 import struct
 import sys
 
-EXE = r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe"
+EXE = os.environ.get("YSO_EXE", r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe")
 
 
 def pe(data):

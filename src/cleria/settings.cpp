@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -19,6 +20,11 @@
 #include <windows.h>
 #include <knownfolders.h>
 #include <shlobj.h>
+#else
+#include <pwd.h>
+#include <unistd.h>
+
+#include "cleria/gamedata.hpp"   // kSteamAppId: the Proton prefix of retail's settings
 #endif
 
 namespace fs = std::filesystem;
@@ -536,31 +542,58 @@ input::Config mapper_config(const Settings& s, bool book_mode) {
 
 // ---- locations -----------------------------------------------------------------------------------
 namespace {
-fs::path saved_games_dir() {
 #ifdef _WIN32
+fs::path saved_games_dir() {
     PWSTR w = nullptr;
     fs::path out;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_SavedGames, 0, nullptr, &w)) && w) out = fs::path(w);
     if (w) CoTaskMemFree(w);
     return out;
-#else
-    const char* h = std::getenv("HOME");
-    return h ? fs::path(h) / "Saved Games" : fs::path();
-#endif
 }
+#else
+// Retail runs under Proton here: its Saved Games is in the game's prefix, next to its library's
+// steamapps/common (or ~/.steam/steam's when the install is not known). [H] Proton's layout.
+fs::path home_dir() {
+    if (const char* h = std::getenv("HOME"); h && *h) return fs::path(h);
+    if (const passwd* pw = getpwuid(getuid()); pw && pw->pw_dir) return fs::path(pw->pw_dir);
+    return {};
+}
+// The Proton prefix's Saved Games for `install_dir` (<lib>/steamapps/common/<game>).
+fs::path proton_saved_games(const fs::path& install_dir) {
+    const fs::path tail = fs::path("compatdata") / std::to_string(gamedata::kSteamAppId) / "pfx" / "drive_c" / "users" /
+                          "steamuser" / "Saved Games";
+    if (!install_dir.empty()) return install_dir.parent_path().parent_path() / tail;
+    const fs::path h = home_dir();
+    return h.empty() ? fs::path() : h / ".steam" / "steam" / "steamapps" / tail;
+}
+#endif
 std::string user_name() {
 #ifdef _WIN32
     char b[257] = {};
     DWORD n = sizeof b;
     if (GetUserNameA(b, &n)) return b;
+#else
+    return "steamuser";   // GetUserNameA under Proton (retail's user\<name>\ when UserProfileHere=1) [H]
 #endif
     return {};
 }
 }  // namespace
 
 fs::path default_ini_path() {
+#ifdef _WIN32
     const fs::path sg = saved_games_dir();
     return sg.empty() ? fs::path() : sg / "CleriaCore" / "yso_win.ini";
+#else
+    // Linux: $XDG_CONFIG_HOME/CleriaCore (default ~/.config); macOS: ~/Library/Application Support/CleriaCore.
+    fs::path base;
+#ifdef __APPLE__
+    if (const fs::path h = home_dir(); !h.empty()) base = h / "Library" / "Application Support";
+#else
+    if (const char* x = std::getenv("XDG_CONFIG_HOME"); x && *x == '/') base = fs::path(x);
+    else if (const fs::path h = home_dir(); !h.empty()) base = h / ".config";
+#endif
+    return base.empty() ? fs::path() : base / "CleriaCore" / "yso_win.ini";
+#endif
 }
 
 fs::path retail_ini_path_from(std::string_view common_ini, const fs::path& install_dir, const fs::path& saved_games,
@@ -586,7 +619,11 @@ fs::path retail_ini_path(const fs::path& install_dir) {
         std::ifstream f(install_dir / "common.ini", std::ios::binary);
         if (f) { std::stringstream ss; ss << f.rdbuf(); common = ss.str(); }
     }
+#ifdef _WIN32
     return retail_ini_path_from(common, install_dir, saved_games_dir(), user_name());
+#else
+    return retail_ini_path_from(common, install_dir, proton_saved_games(install_dir), user_name());
+#endif
 }
 
 // ---- the store -----------------------------------------------------------------------------------

@@ -144,6 +144,11 @@ int main(int argc, char** argv) {
         check(std::string(rd.begin(), rd.end()) == "l2-a", "vfs: read() goes through resolve()");
         vfs::reset();
         check(vfs::resolve(a) == a, "vfs: reset() -> identity again");
+        // The game's names ignore case: a file is found whatever the case it is asked for in (Windows by its
+        // file system; Linux / macOS by vfs's case-insensitive lookup), '\' separators too.
+        check(slurp(vfs::resolve(base / "map" / "s_10" / "a.dds")) == "base-a" &&
+                  slurp(vfs::resolve(fs::path(base.string() + "\\image\\b.dds"))) == "base-b",
+              "vfs: no layers -> a base file in another case / with '\\' still opens");
     }
 
     // ---- discovery ----

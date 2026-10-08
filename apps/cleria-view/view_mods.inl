@@ -418,6 +418,9 @@ static void mods_page(ui::List& L) {
         } else {
 #ifdef _WIN32
             ShellExecuteW(nullptr, L"open", u.dir.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+            const std::u8string d8 = fs::absolute(u.dir, ec).u8string();
+            SDL_OpenURL(("file://" + std::string(d8.begin(), d8.end())).c_str());   // the file manager
 #endif
         }
     }

@@ -51,7 +51,9 @@ std::size_t set_layers(std::vector<Layer> layers);
 void reset();
 
 // The file to open for `p`: a layer's file when `p` lies under a mount and a layer provides its
-// virtual name, else `p` unchanged. Never touches the disk.
+// virtual name, else `p` unchanged. Never touches the disk on Windows; on Linux / macOS a path that
+// does not exist as spelled is looked up ignoring case (the game's names are case-insensitive, those
+// file systems are not).
 std::filesystem::path resolve(const std::filesystem::path& p);
 
 // The virtual name of `p` if it lies under a mount ("" prefix => "MAP/..."), else empty.

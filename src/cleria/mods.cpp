@@ -93,7 +93,8 @@ bool safe_entry(std::string_view n) {
 fs::path extract_zip(const fs::path& zip, const fs::path& dest, std::string& err) {
     std::error_code ec;
     const auto size = fs::file_size(zip, ec);
-    const auto when = fs::last_write_time(zip, ec).time_since_epoch().count();
+    // (long long: libc++'s file clock counts in __int128, which std::to_string has no overload for)
+    const auto when = static_cast<long long>(fs::last_write_time(zip, ec).time_since_epoch().count());
     const std::string stamp = std::to_string(size) + " " + std::to_string(when) + " api" + std::to_string(kApiVersion);
     auto find_root = [&]() -> fs::path {
         std::error_code e2;

@@ -1,7 +1,8 @@
 # usage: python tools/exe_peek.py <hexva> [nbytes=256]   -- capstone disassembly of yso_win.exe at a VA
 #        python tools/exe_peek.py --f32 <hexva> [n] / --f64 <hexva> [n] / --u32 <hexva> [n]  -- read constants
+import os
 import sys, struct, pefile, capstone
-EXE = r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe"
+EXE = os.environ.get("YSO_EXE", r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe")
 pe = pefile.PE(EXE, fast_load=True); base = pe.OPTIONAL_HEADER.ImageBase
 def read(va, n):
     rva = va - base

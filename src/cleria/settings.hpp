@@ -165,6 +165,8 @@ input::Config mapper_config(const Settings& s, bool book_mode = false);
 
 // ---- locations -----------------------------------------------------------------------------------
 // %USERPROFILE%\Saved Games\CleriaCore\yso_win.ini (FOLDERID_SavedGames); empty if unresolvable.
+// Linux: $XDG_CONFIG_HOME/CleriaCore/yso_win.ini (~/.config); macOS: ~/Library/Application Support/CleriaCore.
+// Off Windows retail's own file is looked for in its Proton prefix (compatdata/207350/pfx/.../Saved Games).
 std::filesystem::path default_ini_path();
 inline std::filesystem::path cleria_ini_path(const std::filesystem::path& ini) {
     return ini.parent_path() / "cleria.ini";

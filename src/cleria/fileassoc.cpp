@@ -3,6 +3,8 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -165,5 +167,150 @@ void notify_shell() {
 std::unique_ptr<Registry> user_registry() { return nullptr; }
 void notify_shell() {}
 #endif
+
+// ---- freedesktop (Linux) -------------------------------------------------------------------------
+namespace xdg {
+namespace fs = std::filesystem;
+namespace {
+
+fs::path desktop_path(const fs::path& home) { return home / "applications" / kDesktopName; }
+fs::path mime_path(const fs::path& home) { return home / "mime" / "packages" / kMimeName; }
+
+fs::path u8path(const std::string& s) { return fs::path(std::u8string(s.begin(), s.end())); }
+std::string u8str(const fs::path& p) {
+    const std::u8string s = p.u8string();
+    return std::string(s.begin(), s.end());
+}
+
+std::optional<std::string> slurp(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return std::nullopt;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+bool spit(const fs::path& p, const std::string& d) {
+    std::error_code ec;
+    fs::create_directories(p.parent_path(), ec);
+    std::ofstream f(p, std::ios::binary | std::ios::trunc);
+    return f && f.write(d.data(), std::streamsize(d.size())) && f.flush();
+}
+
+// The Exec key's quoting (Desktop Entry Specification, "The Exec key"): a double-quoted argument with
+// " ` $ \ escaped by a backslash, then the string-value escaping that doubles every backslash.
+std::string exec_arg(const std::string& exe) {
+    std::string q = "\"";
+    for (char c : exe) {
+        if (c == '"' || c == '`' || c == '$' || c == '\\') q += '\\';
+        q += c;
+    }
+    q += '"';
+    std::string out;
+    for (char c : q) {
+        if (c == '\\') out += '\\';
+        out += c;
+    }
+    return out;
+}
+std::string exec_line(const std::string& exe) { return "Exec=" + exec_arg(exe) + " %f"; }
+
+std::string sh_quote(const std::string& s) {   // a POSIX shell word
+    std::string out = "'";
+    for (char c : s) {
+        if (c == '\'') out += "'\\''";
+        else out += c;
+    }
+    return out + "'";
+}
+
+}  // namespace
+
+std::string mime_xml() {
+    return std::string("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                       "<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n"
+                       "  <mime-type type=\"") + kMime + "\">\n"
+           "    <comment>" + kTypeName + "</comment>\n"
+           "    <glob pattern=\"*" + kExt + "\"/>\n"
+           "  </mime-type>\n"
+           "</mime-info>\n";
+}
+
+std::string desktop_entry(const std::string& exe) {
+    return std::string("[Desktop Entry]\n"
+                       "Type=Application\n"
+                       "Name=CleriaCore mod installer\n"
+                       "Comment=Install a CleriaCore mod (.cleriamod)\n") +
+           exec_line(exe) + "\n"
+           "MimeType=" + kMime + ";\n"
+           "NoDisplay=true\n"
+           "Terminal=false\n";
+}
+
+bool is_current(const fs::path& home, const std::string& exe) {
+    return slurp(desktop_path(home)) == desktop_entry(exe) && slurp(mime_path(home)) == mime_xml();
+}
+
+bool owned(const fs::path& home, const std::string& exe) {
+    const std::optional<std::string> d = slurp(desktop_path(home));
+    if (!d) return false;
+    std::istringstream ss(*d);
+    std::string line;
+    while (std::getline(ss, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.rfind("Exec=", 0) == 0) return line == exec_line(exe);
+    }
+    return false;
+}
+
+Action decide(const fs::path& home, const std::string& exe, bool want) {
+    if (want) return is_current(home, exe) ? Action::None : Action::Register;
+    return owned(home, exe) ? Action::Unregister : Action::None;
+}
+
+bool do_register(const fs::path& home, const std::string& exe) {
+    const bool a = spit(mime_path(home), mime_xml());
+    const bool b = spit(desktop_path(home), desktop_entry(exe));
+    return a && b;
+}
+
+bool do_unregister(const fs::path& home, const std::string& exe) {
+    if (!owned(home, exe)) return false;
+    std::error_code ec1, ec2;
+    fs::remove(desktop_path(home), ec1);
+    fs::remove(mime_path(home), ec2);   // the type is ours alone (another install's .desktop is not)
+    return !ec1 && !ec2;
+}
+
+Action sync(const fs::path& home, const std::string& exe, bool want, bool* ok) {
+    const Action a = decide(home, exe, want);
+    bool good = true;
+    if (a == Action::Register) good = do_register(home, exe);
+    else if (a == Action::Unregister) good = do_unregister(home, exe);
+    if (ok) *ok = good;
+    return good ? a : Action::None;
+}
+
+fs::path user_data_home() {
+    if (std::getenv("CLERIA_DRIVE")) return {};   // a headless / test run never touches the desktop
+    if (const char* x = std::getenv("XDG_DATA_HOME"); x && *x == '/') return u8path(x);
+    if (const char* h = std::getenv("HOME"); h && *h) return u8path(h) / ".local" / "share";
+    return {};
+}
+
+void notify(const fs::path& home) {
+#if !defined(_WIN32) && !defined(__APPLE__)
+    if (std::getenv("CLERIA_DRIVE")) return;
+    const std::string quiet = " >/dev/null 2>&1";
+    int rc = std::system(("update-mime-database " + sh_quote(u8str(home / "mime")) + quiet).c_str());
+    rc = std::system(("update-desktop-database " + sh_quote(u8str(home / "applications")) + quiet).c_str());
+    rc = std::system((std::string("xdg-mime default ") + kDesktopName + " " + kMime + quiet).c_str());
+    (void)rc;   // best effort: the files are in place either way
+#else
+    (void)home;
+    (void)&sh_quote;
+#endif
+}
+
+}  // namespace xdg
 
 }  // namespace cleria::fileassoc

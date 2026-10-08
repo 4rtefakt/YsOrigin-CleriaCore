@@ -1,11 +1,12 @@
 # A tiny x86-32 interpreter for straight-line game-logic functions of yso_win.exe: the integer ALU,
 # SSE scalar float, a few SSE2 double ops. Enough to execute the weather emitters' update bodies
 # (FUN_0058e7c0, FUN_0058daa0) on the REAL bytes with stubbed calls, as an oracle for the port.
+import os
 import struct, pefile, capstone
 from capstone import x86 as X
 import numpy as np
 
-EXE = r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe"
+EXE = os.environ.get("YSO_EXE", r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe")
 _pe = pefile.PE(EXE, fast_load=True)
 _base = _pe.OPTIONAL_HEADER.ImageBase
 

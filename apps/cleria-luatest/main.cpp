@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cassert>
 
 #include "cleria/json.hpp"
 #include "cleria/modscript.hpp"

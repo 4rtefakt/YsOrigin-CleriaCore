@@ -326,6 +326,35 @@ int main() {
               "assoc: unregister keeps a .cleriamod default that names another ProgID");
     }
 
+    // ---- the freedesktop association (Linux) on a scratch XDG_DATA_HOME ----
+    {
+        namespace xdg = fileassoc::xdg;
+        const fs::path home = tmp / "xdg-data";
+        const std::string exe = "/opt/Cleria Core/cleria-view", other = "/home/x/cleria-view";
+        const std::string de = xdg::desktop_entry(exe);
+        check(de.find("Exec=\"/opt/Cleria Core/cleria-view\" %f\n") != std::string::npos &&
+                  de.find("MimeType=application/x-cleriamod;\n") != std::string::npos,
+              "xdg: the .desktop entry runs \"<exe>\" %f for application/x-cleriamod");
+        check(xdg::desktop_entry("/a/$b\\c").find("Exec=\"/a/\\\\$b\\\\\\\\c\" %f") != std::string::npos,
+              "xdg: Exec quoting escapes $ and \\ (spec: argument quoting, then string escaping)");
+        check(xdg::mime_xml().find("<glob pattern=\"*.cleriamod\"/>") != std::string::npos, "xdg: the mime type globs *.cleriamod");
+        check(xdg::decide(home, exe, true) == fileassoc::Action::Register && xdg::decide(home, exe, false) == fileassoc::Action::None,
+              "xdg: missing -> register when on, nothing when off");
+        bool ok = false;
+        check(xdg::sync(home, exe, true, &ok) == fileassoc::Action::Register && ok && xdg::is_current(home, exe) &&
+                  fs::exists(home / "applications" / xdg::kDesktopName) &&
+                  fs::exists(home / "mime" / "packages" / xdg::kMimeName),
+              "xdg: register writes applications/cleriacore-mod.desktop + mime/packages/cleriacore-mod.xml");
+        check(xdg::sync(home, exe, true) == fileassoc::Action::None, "xdg: already current -> nothing");
+        check(xdg::decide(home, other, true) == fileassoc::Action::Register && !xdg::do_unregister(home, other) &&
+                  xdg::is_current(home, exe),
+              "xdg: another exe's entry is not removed by this one");
+        check(xdg::sync(home, exe, false, &ok) == fileassoc::Action::Unregister && ok &&
+                  !fs::exists(home / "applications" / xdg::kDesktopName) &&
+                  !fs::exists(home / "mime" / "packages" / xdg::kMimeName),
+              "xdg: off -> both files removed");
+    }
+
     fs::remove_all(tmp, ec);
     std::printf("%s (%d failure%s)\n", fails ? "FAILED" : "all passed", fails, fails == 1 ? "" : "s");
     return fails ? 1 : 0;

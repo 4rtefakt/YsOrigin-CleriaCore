@@ -18,6 +18,16 @@
 #define NOMINMAX
 #include <winsock2.h>
 #include <ws2tcpip.h>
+static void nap_ms(int ms) { Sleep(DWORD(ms)); }
+#else   // BSD sockets under the winsock names the loopback check uses
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+using SOCKET = int;
+static int closesocket(SOCKET s) { return ::close(s); }
+static void nap_ms(int ms) { usleep(useconds_t(ms) * 1000); }
 #endif
 
 using namespace cleria::speedrun;
@@ -290,25 +300,26 @@ int main(int, char**) {
         check(b.split_index == 1 && b.split_seq != seq0, "the ASL block: split index and sequence");
     }
 
-#ifdef _WIN32
     // ---- the LiveSplit client over loopback ----
     {
+#ifdef _WIN32
         WSADATA wd;
         WSAStartup(MAKEWORD(2, 2), &wd);
+#endif
         SOCKET ls = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         sockaddr_in a = {};
         a.sin_family = AF_INET;
         a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         a.sin_port = 0;
         bind(ls, reinterpret_cast<sockaddr*>(&a), sizeof a);
-        int al = sizeof a;
+        socklen_t al = sizeof a;
         getsockname(ls, reinterpret_cast<sockaddr*>(&a), &al);
         listen(ls, 1);
         const int port = ntohs(a.sin_port);
         LiveSplitClient c;
         c.configure(true, "127.0.0.1", port);
         double t = 0;
-        for (int i = 0; i < 200 && !c.connected(); ++i) { c.poll(t); t += 10; Sleep(5); }
+        for (int i = 0; i < 200 && !c.connected(); ++i) { c.poll(t); t += 10; nap_ms(5); }
         check(c.connected(), "the client connects to a listening server");
         SOCKET srv = accept(ls, nullptr, nullptr);
         c.send("starttimer");
@@ -316,26 +327,38 @@ int main(int, char**) {
         c.send("split");
         std::string got;
         char buf[256];
+#ifdef _WIN32
         u_long nb = 0;
         ioctlsocket(srv, FIONBIO, &nb);
         DWORD to = 2000;
+#else
+        timeval to{2, 0};   // an accepted BSD socket blocks already
+#endif
         setsockopt(srv, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&to), sizeof to);
         while (got.find("split\r\n") == std::string::npos) {
-            const int n = recv(srv, buf, sizeof buf, 0);
+            const int n = int(recv(srv, buf, sizeof buf, 0));
             if (n <= 0) break;
             got.append(buf, std::size_t(n));
         }
         check(got == "starttimer\r\nsetgametime 0:00:01.500\r\nsplit\r\n", "the server reads the exact command lines");
         closesocket(srv);
-        for (int i = 0; i < 50 && c.connected(); ++i) { c.poll(t); t += 10; Sleep(5); }
+        for (int i = 0; i < 50 && c.connected(); ++i) { c.poll(t); t += 10; nap_ms(5); }
         check(!c.connected() && c.status().find("Not connected") == 0, "a closed connection is noticed");
         check(!c.send("split"), "nothing is sent while disconnected");
         c.configure(false, "127.0.0.1", port);
         check(c.status() == "Off", "configure(false) turns it off");
         closesocket(ls);
+        // nothing listening any more: the connect fails and the status says why
+        LiveSplitClient d;
+        d.configure(true, "127.0.0.1", port);
+        double t2 = 0;
+        for (int i = 0; i < 400 && d.status().find("not running") == std::string::npos; ++i) { d.poll(t2); t2 += 10; nap_ms(5); }
+        check(!d.connected() && d.status().find("not running") != std::string::npos,
+              "nothing listening: \"LiveSplit's TCP server is not running\"");
+#ifdef _WIN32
         WSACleanup();
-    }
 #endif
+    }
 
     std::printf("%s (%d failed)\n", fails ? "FAILED" : "all passed", fails);
     return fails ? 1 : 0;

@@ -11,6 +11,7 @@ so StartRegister is the 3rd-from-last push before the call. We only report it
 when it is a `push imm8` (6A xx) or `push imm32` (68 xx xx xx xx), which is the
 common case for a hard-coded register index.
 """
+import os
 import struct, sys, re
 from collections import Counter
 
@@ -53,7 +54,7 @@ def pushes_before(d, o, n=40):
 
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else \
-        "D:/SteamLibrary/steamapps/common/Ys Origin/yso_win.exe"
+        os.environ.get("YSO_EXE", "D:/SteamLibrary/steamapps/common/Ys Origin/yso_win.exe")
     d, base, secs = load(path)
     tname, tva, tvs, tra, trs = [s for s in secs if s[0] == ".text"][0]
     text = d[tra:tra + trs]

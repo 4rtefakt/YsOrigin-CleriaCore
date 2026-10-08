@@ -20,16 +20,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // offscreen target, whatever the desktop offers. CLERIA_DRIVE_VISIBLE=1 shows and presents it.
     const bool drive_hidden = std::getenv("CLERIA_DRIVE") && !std::getenv("CLERIA_DRIVE_VISIBLE");
     SDL_Window* win = SDL_CreateWindow("CleriaCore - Ys Origin", 1280, 800,
-                                       SDL_WINDOW_RESIZABLE | (drive_hidden ? SDL_WINDOW_HIDDEN : 0));
-    HWND hwnd = (HWND)SDL_GetPointerProperty(
-        SDL_GetWindowProperties(win), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
-    WGPUSurfaceSourceWindowsHWND srcw = {};
-    srcw.chain.sType = WGPUSType_SurfaceSourceWindowsHWND;
-    srcw.hinstance = GetModuleHandle(nullptr); srcw.hwnd = hwnd;
-    WGPUSurfaceDescriptor sd = {}; sd.nextInChain = &srcw.chain;
-    WGPUSurface surface = wgpuInstanceCreateSurface(g.instance, &sd);
+                                       SDL_WINDOW_RESIZABLE | kWindowGpuFlag | (drive_hidden ? SDL_WINDOW_HIDDEN : 0));
+    WGPUSurface surface = create_window_surface(g.instance, win);   // view_platform.inl
     WGPUSurfaceCapabilities caps = {};
-    wgpuSurfaceGetCapabilities(surface, g.adapter, &caps);
+    if (surface) wgpuSurfaceGetCapabilities(surface, g.adapter, &caps);
     // A CLERIA_DRIVE run renders into an offscreen target (always when hidden; otherwise when the desktop
     // gives no presentable surface), so its `shot`s work and it never depends on the desktop.
     const bool offscreen = std::getenv("CLERIA_DRIVE") && (drive_hidden || caps.formatCount == 0);
@@ -497,13 +491,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const std::optional<DemoScene> ds = demo_scene(demo, character == 3);
         if (!ds || movies_off) return true;
         // [graphics] DisableMovies (0x765173): FUN_005773e0 finishes at once, as on an open failure.
-        const fs::path file = settings().s.graphics.disable_movies ? fs::path() : find_movie(asset_root, ds->movie);
+        // A build without a decoder (off Windows without CLERIA_FFMPEG) does the same: skipped, not black.
+        const bool no_decoder = !MovieDecoder::available();
+        const fs::path file = settings().s.graphics.disable_movies || no_decoder ? fs::path() : find_movie(asset_root, ds->movie);
         MovieDecoder dec;
         const bool have = !file.empty() && dec.open(file);
         double length = have ? dec.duration() : 0.0;
         if (file.empty())
             std::printf("  [movie] demo%d: %s %s -> finished at once (the open failure)\n", demo,
-                        movie_file(ds->movie), settings().s.graphics.disable_movies ? "disabled" : "not found");
+                        movie_file(ds->movie), settings().s.graphics.disable_movies ? "disabled"
+                                               : no_decoder ? "skipped [not available on this platform]" : "not found");
         else if (!have) {
             length = avi_duration(file).value_or(0.0);
             std::printf("  [movie] demo%d: %s does not decode -> black for %.1f s [stand-in]\n", demo,
@@ -863,6 +860,8 @@ title_again:
             const Uint64 now = SDL_GetTicks();
             taccum += float(now - tlast) / 1000.0f;
             tlast = now;
+            // A drive run is lockstep here too (one tick a frame), so its title shot lands on t60 exactly.
+            if (std::getenv("CLERIA_DRIVE") && !std::getenv("CLERIA_DRIVE_REALTIME")) taccum = kTickDt;
             if (shell.open) taccum = 0;                     // the shell pauses the title too
             while (taccum >= kTickDt && !started) {
                 taccum -= kTickDt;

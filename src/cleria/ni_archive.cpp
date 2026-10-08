@@ -14,6 +14,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <iconv.h>
 #endif
 
 namespace cleria::ni {
@@ -72,19 +74,26 @@ std::string convert(std::string_view s, UINT from, UINT to) {
 std::string cp932_to_utf8(std::string_view s) { return convert(s, 932, CP_UTF8); }
 std::string utf8_to_cp932(std::string_view s) { return convert(s, CP_UTF8, 932); }
 #else
-// Off Windows only ASCII is mapped (every name in the shipped archives is ASCII [DATA]).
-std::string cp932_to_utf8(std::string_view s) {
-    std::string out;
-    for (unsigned char c : s) out += c < 0x80 ? std::string(1, char(c)) : std::string("\xEF\xBF\xBD");
+// Off Windows: iconv's CP932 (glibc and macOS libiconv both have it). Like the Windows path, an input
+// it cannot convert comes back unchanged.
+namespace {
+std::string convert(std::string_view s, const char* from, const char* to) {
+    if (s.empty()) return {};
+    iconv_t cd = iconv_open(to, from);
+    if (cd == iconv_t(-1)) return std::string(s);
+    std::string in(s), out(s.size() * 4 + 16, '\0');
+    char* ip = in.data();
+    char* op = out.data();
+    std::size_t il = in.size(), ol = out.size();
+    const std::size_t r = iconv(cd, &ip, &il, &op, &ol);
+    iconv_close(cd);
+    if (r == std::size_t(-1)) return std::string(s);
+    out.resize(out.size() - ol);
     return out;
 }
-std::string utf8_to_cp932(std::string_view s) {
-    std::string out;
-    for (unsigned char c : s)
-        if (c < 0x80) out += char(c);
-        else if ((c & 0xC0) != 0x80) out += '?';
-    return out;
-}
+}  // namespace
+std::string cp932_to_utf8(std::string_view s) { return convert(s, "CP932", "UTF-8"); }
+std::string utf8_to_cp932(std::string_view s) { return convert(s, "UTF-8", "CP932"); }
 #endif
 
 std::string clean_name(std::string_view p) {

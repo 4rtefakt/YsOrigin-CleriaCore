@@ -3,6 +3,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <algorithm>
 
 namespace cleria {
 namespace fs = std::filesystem;

@@ -8,6 +8,8 @@
 #include <cmath>
 #include <fstream>
 #include <unordered_map>
+#include <algorithm>
+#include <stdexcept>
 
 #include "cleria/sob.hpp"
 #include "cleria/xso.hpp"

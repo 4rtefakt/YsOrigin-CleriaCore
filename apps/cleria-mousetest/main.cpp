@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <set>
 #include <vector>
+#include <algorithm>
 
 #include "cleria/input_map.hpp"
 #include "cleria/mouse.hpp"

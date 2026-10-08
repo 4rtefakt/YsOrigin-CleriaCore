@@ -277,8 +277,13 @@ int main() {
                   sg / "FALCOM" / "yso_win" / "yso_win.ini", "UserProfileHere=0: Saved Games");
         check(retail_ini_path_from("BaseDir=\"\"\r\nUserProfileHere=1\r\n", inst, sg, "bob") ==
                   inst / "user" / "bob" / "yso_win.ini", "UserProfileHere=1: <exe dir>\\user\\<name>");
-        check(retail_ini_path_from("BaseDir=\"E:/Data\"\r\nUserProfileHere=1\r\n", inst, sg, "bob") ==
-                  fs::path("E:/Data") / "user" / "bob" / "yso_win.ini", "UserProfileHere=1 + BaseDir");
+#ifdef _WIN32
+        const char* const abs_base = "E:/Data";
+#else
+        const char* const abs_base = "/data";   // an absolute BaseDir in this OS's terms
+#endif
+        check(retail_ini_path_from("BaseDir=\"" + std::string(abs_base) + "\"\r\nUserProfileHere=1\r\n", inst, sg, "bob") ==
+                  fs::path(abs_base) / "user" / "bob" / "yso_win.ini", "UserProfileHere=1 + BaseDir");
         const fs::path d = default_ini_path();
         check(!d.empty() && d.filename() == "yso_win.ini" && d.parent_path().filename() == "CleriaCore",
               "the default location: <Saved Games>\\CleriaCore\\yso_win.ini");

@@ -22,6 +22,9 @@ struct MenuFont {
     std::size_t vbuf_cap = 0;
     std::vector<HudVertex> verts;
     bool ok = false;
+#ifndef _WIN32
+    std::vector<std::uint8_t> ttf_;   // the font file stb_truetype reads (kept for the next build_atlas)
+#endif
 
     bool init(Gpu& g, WGPUTextureFormat color, const fs::path& fontFile = {}, int emPx = 46,
               int weight = FW_NORMAL) {
@@ -29,6 +32,7 @@ struct MenuFont {
         // (build/menu_re/MENU_LAYOUT.md). Load it as a private, process-local font; if it isn't
         // available fall back to a system serif. The engine's LOGFONT: weight 400, DEFAULT_CHARSET.
         face_name = "Constantia";
+#ifdef _WIN32
         if (!fontFile.empty()) {
             std::vector<std::uint8_t> bytes = read_bytes(fontFile);
             DWORD n = 0;
@@ -36,6 +40,12 @@ struct MenuFont {
                 AddFontMemResourceEx(bytes.data(), DWORD(bytes.size()), nullptr, &n) && n)
                 face_name = "Felghana";
         }
+#else
+        // No GDI: stb_truetype rasterises the file itself; without it, the shell's Fira Sans [H].
+        ttf_ = fontFile.empty() ? std::vector<std::uint8_t>() : read_bytes(fontFile);
+        face_name = "Felghana";
+        if (ttf_.empty()) { ttf_ = read_bytes(exe_dir() / "fonts" / "FiraSans-Regular.ttf"); face_name = "Fira Sans"; }
+#endif
         // CLERIA_FONT / CLERIA_FONT_W override the face / weight (off-window font comparison).
         if (const char* f = std::getenv("CLERIA_FONT")) face_name = f;
         if (const char* w = std::getenv("CLERIA_FONT_W")) weight = std::atoi(w);
@@ -76,6 +86,44 @@ struct MenuFont {
     // downscale of a fixed-size atlas. Call again on window resize; releases the previous atlas.
     bool build_atlas(Gpu& g, int emPx) {
         base = std::max(8, emPx);
+        struct Raw { std::vector<std::uint8_t> cov; int w = 0, h = 0; };
+        std::vector<Raw> raws(95);
+        const int atlasW = 1024;
+        int x = 1, y = 1, rowH = 0;
+#ifndef _WIN32
+        // stb_truetype in GDI's terms: lfHeight -base = an em of `base` px; tmAscent / tmHeight from the
+        // hhea metrics; the coverage quantised to GGO_GRAY4's 0..16 and mapped as below. [H] not GDI's
+        // hinting, so glyph shapes differ by a pixel here and there from the Windows build.
+        stbtt_fontinfo fi;
+        if (ttf_.empty() || !stbtt_InitFont(&fi, ttf_.data(), stbtt_GetFontOffsetForIndex(ttf_.data(), 0))) return false;
+        const float scale = stbtt_ScaleForMappingEmToPixels(&fi, float(base));
+        int asc = 0, desc = 0, gap = 0;
+        stbtt_GetFontVMetrics(&fi, &asc, &desc, &gap);
+        ascent = int(std::ceil(asc * scale)); lineH = ascent + int(std::ceil(-desc * scale));
+        for (int i = 0; i < 95; ++i) {
+            const int ch = 32 + i;
+            int adv = 0, lsb = 0, x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            stbtt_GetCodepointHMetrics(&fi, ch, &adv, &lsb);
+            stbtt_GetCodepointBitmapBox(&fi, ch, scale, scale, &x0, &y0, &x1, &y1);
+            gl[i].adv = int(std::lround(adv * scale)); gl[i].bx = x0; gl[i].by = -y0;
+            Raw r;
+            if (x1 > x0 && y1 > y0) {
+                r.w = x1 - x0; r.h = y1 - y0;
+                std::vector<std::uint8_t> buf(std::size_t(r.w) * r.h);
+                stbtt_MakeCodepointBitmap(&fi, buf.data(), r.w, r.h, r.w, scale, scale, ch);
+                r.cov.assign(buf.size(), 0);
+                for (std::size_t k = 0; k < buf.size(); ++k) {
+                    const int v = (buf[k] * 16 + 127) / 255;   // 0..16, as GGO_GRAY4
+                    r.cov[k] = std::uint8_t(v <= 1 ? 0 : (v - 1) * 255 / 15);
+                }
+            }
+            gl[i].w = r.w; gl[i].h = r.h;
+            if (x + r.w + 1 > atlasW) { x = 1; y += rowH + 1; rowH = 0; }
+            gl[i].u0 = float(x); gl[i].v0 = float(y);
+            x += r.w + 1; rowH = std::max(rowH, r.h);
+            raws[i] = std::move(r);
+        }
+#else
         HDC hdc = CreateCompatibleDC(nullptr);
         if (!hdc) return false;
         // Match the engine's LOGFONT (build/menu_re/FONT_RASTER.md): weight 400, OUT_TT_PRECIS,
@@ -87,10 +135,6 @@ struct MenuFont {
         TEXTMETRICA tm; GetTextMetricsA(hdc, &tm);
         ascent = tm.tmAscent; lineH = tm.tmHeight;
         MAT2 mat = {{0, 1}, {0, 0}, {0, 0}, {0, 1}};
-        struct Raw { std::vector<std::uint8_t> cov; int w = 0, h = 0; };
-        std::vector<Raw> raws(95);
-        const int atlasW = 1024;
-        int x = 1, y = 1, rowH = 0;
         for (int i = 0; i < 95; ++i) {
             const UINT ch = 32 + i;
             GLYPHMETRICS gm = {};
@@ -117,6 +161,8 @@ struct MenuFont {
             x += r.w + 1; rowH = std::max(rowH, r.h);
             raws[i] = std::move(r);
         }
+        SelectObject(hdc, oldf); DeleteObject(font); DeleteDC(hdc);
+#endif
         const int atlasH = y + rowH + 1;
         std::vector<std::uint8_t> atlas(std::size_t(atlasW) * atlasH * 4, 0);
         for (int i = 0; i < 95; ++i) {
@@ -131,7 +177,6 @@ struct MenuFont {
             gl[i].u0 = px / float(atlasW);          gl[i].v0 = py / float(atlasH);
             gl[i].u1 = (px + r.w) / float(atlasW);  gl[i].v1 = (py + r.h) / float(atlasH);
         }
-        SelectObject(hdc, oldf); DeleteObject(font); DeleteDC(hdc);
 
         WGPUTextureDescriptor td = {};
         td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;

@@ -1,6 +1,8 @@
 // A WebSocket client over WinHTTP (Windows 8+; TLS by SChannel and the OS certificate store): the
 // transport of the Lua mods' cleria.net.websocket (LUA_API.md §8; first written for the Archipelago
 // connection, ARCHIPELAGO.md §2, now the Lua mod samples/mods/archipelago_lua). No third-party code.
+// Linux / macOS: the same class over libcurl's WebSocket API (CMake CLERIA_CURL, websocket_curl.inl: one
+// worker thread does the handshake, the sends and the receives); without it, a stub (supported() false).
 //
 // One worker thread per connection does the handshake and then blocks in WinHttpWebSocketReceive;
 // a second thread drains the send queue (WinHTTP allows one pending send and one pending receive).
@@ -61,6 +63,10 @@ public:
         std::string text;      // Opened: the URL that worked; Message: the frame; Closed: the reason
         bool error = false;    // Closed: true when not closed by close()
     };
+
+    // False when this build has no transport (off Windows without CLERIA_CURL, or a libcurl built
+    // without WebSockets): open() then ends in Closed at once with the reason.
+    static bool supported();
 
     WebSocket();
     ~WebSocket();              // closes and joins

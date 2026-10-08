@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <system_error>
 
 namespace fs = std::filesystem;
@@ -32,8 +33,50 @@ std::string u8(const fs::path& p) {
     return std::string(s.begin(), s.end());
 }
 
+#ifndef _WIN32
+// A path with the game's '\' separators made real ones ('\' is an ordinary character off Windows).
+fs::path slashes(const fs::path& p) {
+    std::string s = p.string();
+    if (s.find('\\') == std::string::npos) return p;
+    std::replace(s.begin(), s.end(), '\\', '/');
+    return fs::path(s);
+}
+
+// Off Windows the file system is case-sensitive and the game's names are not: a path that does not
+// exist as spelled is matched one component at a time, ignoring ASCII case (each folder's listing
+// cached on first use). Unchanged when nothing matches.
+fs::path case_fold(const fs::path& in) {
+    const fs::path p = slashes(in);
+    std::error_code ec;
+    if (p.empty() || fs::exists(p, ec)) return p;
+    static std::mutex mu;
+    static std::unordered_map<std::string, std::unordered_map<std::string, std::string>> listings;
+    std::lock_guard<std::mutex> l(mu);
+    fs::path cur = p.root_path();
+    for (const fs::path& part : p.relative_path()) {
+        const std::string name = part.string();
+        fs::path next = cur / part;
+        if (name == "." || name == ".." || fs::exists(next, ec)) { cur = std::move(next); continue; }
+        const std::string dir = cur.empty() ? std::string(".") : cur.string();
+        auto [it, fresh] = listings.try_emplace(dir);
+        if (fresh)
+            for (fs::directory_iterator d(dir, ec), end; !ec && d != end; d.increment(ec))
+                it->second.emplace(lower(d->path().filename().string()), d->path().filename().string());
+        const auto hit = it->second.find(lower(name));
+        if (hit == it->second.end()) return p;
+        cur /= hit->second;
+    }
+    return cur;
+}
+#endif
+
 // The absolute, normal, '/'-separated UTF-8 form of a path.
-std::string norm(const fs::path& p) {
+std::string norm(const fs::path& p_in) {
+#ifndef _WIN32
+    const fs::path p = slashes(p_in);
+#else
+    const fs::path& p = p_in;
+#endif
     std::error_code ec;
     fs::path a = fs::absolute(p, ec);
     if (ec) a = p;
@@ -109,11 +152,19 @@ std::string virtual_name(const fs::path& p) {
 }
 
 fs::path resolve(const fs::path& p) {
+#ifndef _WIN32
+    if (g_table.empty()) return case_fold(p);   // no mods: the base path, its case found on disk
+    const std::string vn = virtual_name(p);
+    if (vn.empty()) return case_fold(p);
+    const auto it = g_table.find(key(vn));
+    return it == g_table.end() ? case_fold(p) : it->second.file;
+#else
     if (g_table.empty()) return p;   // no mods: the base path, untouched
     const std::string vn = virtual_name(p);
     if (vn.empty()) return p;
     const auto it = g_table.find(key(vn));
     return it == g_table.end() ? p : it->second.file;
+#endif
 }
 
 fs::path locate(std::string_view vname) {

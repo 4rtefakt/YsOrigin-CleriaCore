@@ -9,6 +9,7 @@
 //      nothing listening, an invalid address. No internet is used.
 // Usage: cleria-nettest            (ctest `nettest`)
 //        cleria-nettest --live <address>   (manual, never run by ctest: opens a socket for 10 s, prints)
+#ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -17,10 +18,24 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else   // BSD sockets under the winsock names this test uses
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <unistd.h>
+using SOCKET = int;
+constexpr SOCKET INVALID_SOCKET = -1;
+static int closesocket(SOCKET s) { return ::close(s); }
+#endif
 
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <string>
@@ -127,7 +142,7 @@ struct MiniServer {
         a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         a.sin_port = 0;
         if (bind(listener, reinterpret_cast<sockaddr*>(&a), sizeof a) || listen(listener, 4)) return false;
-        int len = sizeof a;
+        socklen_t len = sizeof a;
         getsockname(listener, reinterpret_cast<sockaddr*>(&a), &len);
         port = ntohs(a.sin_port);
         th = std::thread([this] { run(); });
@@ -164,7 +179,7 @@ struct MiniServer {
             FD_ZERO(&rs);
             FD_SET(listener, &rs);
             timeval tv{0, 50000};
-            if (select(0, &rs, nullptr, nullptr, &tv) <= 0) continue;
+            if (select(int(listener) + 1, &rs, nullptr, nullptr, &tv) <= 0) continue;
             SOCKET s = accept(listener, nullptr, nullptr);
             if (s == INVALID_SOCKET) continue;
             serve(s);
@@ -204,7 +219,7 @@ struct MiniServer {
             FD_ZERO(&rs);
             FD_SET(s, &rs);
             timeval tv{0, 20000};
-            if (select(0, &rs, nullptr, nullptr, &tv) < 0) return;
+            if (select(int(s) + 1, &rs, nullptr, nullptr, &tv) < 0) return;
             if (FD_ISSET(s, &rs)) {
                 const int n = recv(s, buf, sizeof buf, 0);
                 if (n <= 0) return;
@@ -263,8 +278,23 @@ static const WebSocket::Event* find(const std::vector<WebSocket::Event>& ev, Web
 
 static void loopback_tests() {
     using K = WebSocket::Event::Kind;
+    if (!WebSocket::supported()) {   // a build without a transport (off Windows without CLERIA_CURL)
+        WebSocket ws;
+        ws.open("127.0.0.1:1");
+        std::vector<WebSocket::Event> ev;
+        pump(ws, ev, [&] { return find(ev, K::Closed) != nullptr; }, 5);   // a worker thread may report it
+        std::printf("      \"%s\"\n", ev.empty() ? "-" : ev[0].text.c_str());
+        check(ev.size() == 1 && ev[0].kind == K::Closed && ev[0].error && ev[0].text.find("unsupported") != std::string::npos,
+              "no WebSocket transport in this build: open() ends in Closed, \"unsupported\"");
+        std::printf("[net] (no WebSocket transport in this build: the loopback checks are skipped)\n");
+        return;
+    }
+#ifdef _WIN32
     WSADATA wd;
     WSAStartup(MAKEWORD(2, 2), &wd);
+#else
+    signal(SIGPIPE, SIG_IGN);   // the server writes to clients that may have gone
+#endif
     check(base64(sha1("dGhlIHNhbXBsZSBub25jZQ==258EAFA5-E914-47DA-95CA-C5AB0DC85B11")) == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=",
           "test server's Sec-WebSocket-Accept (RFC 6455 §1.3 example)");
     MiniServer srv;
@@ -355,7 +385,9 @@ static void loopback_tests() {
           "an invalid address fails at once");
 
     srv.stop();
+#ifdef _WIN32
     WSACleanup();
+#endif
 }
 
 // Manual check, never run by ctest: `cleria-nettest --live <address>` opens a socket and prints what

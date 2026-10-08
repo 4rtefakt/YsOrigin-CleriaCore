@@ -50,6 +50,14 @@ Blessings (**E** at statue → "Accept divine blessing") just say "not implement
 
 ---
 
+## Automated tests (CI)
+
+Every push builds on Windows, Linux (gcc + clang) and macOS (GitHub Actions,
+`.github/workflows/build.yml`) and runs `ctest -LE assets`: the tests that need no game data. The
+ones labelled `assets` (cotest, worldtest, enemytest, asotest, animtest, ef2simtest, bullettest,
+invtest, booktest, bosstest, locustest, xso13test, dueltest, weathertest) run only here, on a PC
+with the game unpacked: `ctest --test-dir build_diff -C Release`. Game data never goes to CI.
+
 ## If something looks wrong
 
 Tell me: **which room**, **what you did**, **what you saw** (a screenshot is perfect).

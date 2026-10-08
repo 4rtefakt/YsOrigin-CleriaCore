@@ -10,6 +10,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <stdexcept>
 
 #include "cleria/sob.hpp"
 #include "cleria/ymo.hpp"
