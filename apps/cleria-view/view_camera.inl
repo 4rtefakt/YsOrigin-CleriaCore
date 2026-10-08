@@ -99,10 +99,25 @@ static void apply_cam_state(Camera& cam, const Vec3& /*feet*/) {
 // Pick the fog region the player is standing in and ease `g_fog` toward it. The
 // game cross-fades region changes at 0.02/frame (~0.83s at 60fps) instead of
 // popping; `snap` jumps straight there (room entry / headless shots).
+// 0x129 ChangeFog (FUN_0042e8f0, ZAVA.md §2.1): the script-selected record and its blend speed (fogT += speed a
+// frame). It holds while the player stands in no fog zone (the updater FUN_0042e040's `cand`). The record count is
+// checked in update_fog (an index past it is ignored there, as the op ignores it).
+// [approx] the blend is this file's ease toward the record at that speed, not the engine's eased fogT lerp from
+// fogPrev; a zone's own blend speed (+0x50) is not modelled.
+static int g_fog_sel = -1;
+static float g_fog_speed = 0.02f;
+static void fog_script(int idx, float speed) {
+    if (idx < 0) return;
+    g_fog_sel = idx;
+    if (speed != 3.4028235e38f) g_fog_speed = speed;               // FLT_MAX (0x6bdf90) keeps the speed
+}
+static void fog_script_reset() { g_fog_sel = -1; g_fog_speed = 0.02f; }
 static void update_fog(const Room& room, const Vec3& player, float dt, bool snap = false) {
     const FogRegion* f = room.fog.pick(player);
     if (!f) { g_fog.on = false; return; }
-    const float t = snap ? 1.0f : std::min(1.0f, dt * 60.0f * 0.02f);
+    if (g_fog_sel > 0 && std::size_t(g_fog_sel) < room.fog.regions.size() && f == &room.fog.regions[0])
+        f = &room.fog.regions[std::size_t(g_fog_sel)];              // no zone holds the player: the script's record
+    const float t = snap ? 1.0f : std::min(1.0f, dt * 60.0f * (g_fog_sel >= 0 ? g_fog_speed : 0.02f));
     auto ease = [&](float cur, float tgt) { return cur + (tgt - cur) * t; };
     if (!g_fog.on) {  // first sight of fog: start there rather than fading from black
         g_fog = {f->r, f->g, f->b, f->fog_near, f->fog_far, true};

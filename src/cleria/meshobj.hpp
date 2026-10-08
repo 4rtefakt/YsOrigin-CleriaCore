@@ -50,6 +50,9 @@ struct MeshObj {
     float fall_start = 0, fall_vel = 0, fall_e = 0;
     // Mesh_SetAlphaTarget 0x16E (FUN_00572b40): +0x418 alpha, +0x41c target, +0x420 step.
     float alpha = 1, alpha_target = 1, alpha_step = 0;
+    // Mesh_SetMaterialColor 0x182 (FUN_005737e0): the instance's per-material colour multiplier (+0x14..+0x1c of its
+    // material record), by material name (lower case). Absent = 1, 1, 1. [not modelled] the draw does not read it yet.
+    std::unordered_map<std::string, Vec3> mat_color;
     // +0x468: the second fade an object with +0x298 & 0x200 steps toward +0x46c (FUN_00503190);
     // 1.0 from the ctor (FUN_00501a30) otherwise. [not modelled] the 0x200 fade itself.
     float fade = 1;
@@ -114,6 +117,7 @@ class MeshWorld {
     // then rewinds forever).
     bool moving(const std::string& name, bool* found) const;                          // 0x104
     bool motion_finished(const std::string& name, std::uint32_t n, bool* found) const;  // 0x105
+    void set_material_color(const std::string& name, const std::string& material, const Vec3& rgb);   // 0x182
 
   private:
     static void apply_clip(MeshObj& m, int idx, std::int32_t start);   // FUN_005f5c80

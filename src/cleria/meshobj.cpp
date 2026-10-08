@@ -70,6 +70,13 @@ void MeshWorld::reset_position(const std::string& name) {
 void MeshWorld::set_rotation(const std::string& name, const Vec3& rad) {
     if (MeshObj* m = find(name)) { m->rot = rad; m->dirty_pose = true; }
 }
+void MeshWorld::set_material_color(const std::string& name, const std::string& material, const Vec3& rgb) {
+    MeshObj* m = find(name);
+    if (!m || m->clips.empty()) return;                            // no object / no model (m+0x268)
+    std::string k = material;
+    for (char& c : k) c = char(std::tolower(static_cast<unsigned char>(c)));
+    m->mat_color[k] = rgb;
+}
 void MeshWorld::reset_rotation(const std::string& name) {
     if (MeshObj* m = find(name)) { m->rot = m->spawn_rot; m->dirty_pose = true; }
 }

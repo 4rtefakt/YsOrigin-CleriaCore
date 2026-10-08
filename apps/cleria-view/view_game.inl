@@ -2400,6 +2400,14 @@ title_again:
         void effect_camera_offset(int id, float off) override { if (fx_camoff_fn) fx_camoff_fn(id, off); }
         void mirror_floor(bool on) override { mirror = on; }
         void cube_map(const std::string& n) override { cubemap = n; }
+        void change_fog(int idx, float speed) override { fog_script(idx, speed); }                       // 0x129
+        bool mesh_is_motion_finish(const std::string& n, std::uint32_t k) const override {              // 0x17a
+            bool found = false;
+            return meshes && meshes->motion_finished(n, k, &found);
+        }
+        void mesh_material_color(const std::string& n, const std::string& mat, int r, int g, int b) override {   // 0x182
+            if (meshes) meshes->set_material_color(n, mat, {float(r) / 255.0f, float(g) / 255.0f, float(b) / 255.0f});
+        }
         void glare_level(int v) override { glare = v; }
         void chr_ztest(int id, bool on) override { if (worldHost) worldHost->chr_ztest(rid(id), on); }
         // The look modes (CHR_OPS.md §6): the world writes the look block (the player's too, on
@@ -2686,6 +2694,7 @@ title_again:
         csMgr.paused = false;
         csHost.heal_spots.clear();
         csHost.mirror = false; csHost.cubemap.clear();   // FUN_00431260 clears 0x74c104 with the scene [M]
+        fog_script_reset();                              // a new room: no script-selected fog record
         csHost.box_active = false; csHost.advance = false;
         camera_return();                            // no forced camera carries across rooms
         after_cutscene = nullptr; prev_frozen = false;

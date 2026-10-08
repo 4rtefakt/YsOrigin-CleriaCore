@@ -461,6 +461,17 @@ struct XsoHost {
     // (render-only).
     virtual void cube_map(const std::string& /*name*/) {}
     virtual void mesh_enable_event(const std::string& /*name*/, bool /*on*/) {}     // 0x176
+    // 0x129 ChangeFog(i idx, f speed) [BYTES 0x56b86c -> FUN_0042e8f0; build/boss_re/ZAVA.md §2.1]: ignored when
+    // idx >= the fog record count; else fogSpeed = speed (unless FLT_MAX), fogPrev = fogCur, fogCur = idx, fogT = 0
+    // and the record is flagged script-selected (+5): it then holds while the player stands in no fog zone.
+    virtual void change_fog(int /*idx*/, float /*speed*/) {}
+    // 0x17a Mesh_IsMotionFinish(s mesh, i n) [BYTES 0x56d346 -> FUN_005730e0]: acc = the object exists, has a model
+    // and its clip completion count (A+0x1c) >= n. No wait, no rewind.
+    virtual bool mesh_is_motion_finish(const std::string& /*name*/, std::uint32_t /*n*/) const { return false; }
+    // 0x182 Mesh_SetMaterialColor(s mesh, s material, i r, i g, i b) [BYTES 0x56d656 -> FUN_005737e0]: every
+    // material of that name gets its instance colour multiplier (+0x14..+0x1c) = rgb / 255; alpha untouched.
+    virtual void mesh_material_color(const std::string& /*name*/, const std::string& /*material*/, int /*r*/, int /*g*/,
+                                     int /*b*/) {}
     // 0x16B Mesh_SetVisible / 0x16C Mesh_EnableCollision, live (+0x298 bits 0x20 / 0x40).
     virtual void mesh_visible(const std::string& /*name*/, bool /*on*/) {}
     virtual void mesh_collision(const std::string& /*name*/, bool /*on*/) {}
