@@ -32,6 +32,20 @@ int main(int argc, char** argv) {
     const ItemTable items = ItemTable::load(root / "MISC" / "INVINFO.DAT");
     if (!gi.ok() || items.items.size() < 128) { std::fprintf(stderr, "tables missing\n"); return 2; }
 
+    {   // FUN_00442260: every icon a chest or a Window_Treasure can name (floors 1-3: INVINFO ids and
+        // the gems 128..130, PLAYTEST_1_FX.md §6) resolves to a file; 128..131 past INVINFO by name.
+        bool all = true;
+        for (int id = 0; id < 132; ++id) {
+            const std::filesystem::path p = items.icon_path(root, id, false);
+            if (p.empty() || !std::filesystem::exists(p)) { all = false; std::printf("[inv]   icon %d: missing\n", id); }
+        }
+        check(all, "icons 0..131 all resolve (INVINFO stems, then jewel_00..02, silversword)");
+        check(items.icon_path(root, 128, false).filename() == "JEWEL_00.DDS" &&
+              items.icon_path(root, 131, false).filename() == "SILVERSWORD.DDS" &&
+              items.icon_path(root, 128, true).empty() && items.icon_path(root, 132, false).empty(),
+              "128 = jewel_00 (the Emerald), 131 = silversword; no greyed variant; 132 none");
+    }
+
     {   // yso_40: Yunica L1, Battle Axe tier 0, Leather Armor 6 -> ATK 46, DEF 38, HP 60.
         std::int32_t f[0x200]; for (int& v : f) v = -1;
         f[151] = 0; f[152] = 6; f[153] = -1; f[0] = 1; f[6] = 1;

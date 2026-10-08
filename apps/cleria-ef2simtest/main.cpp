@@ -100,6 +100,29 @@ int main(int argc, char** argv) {
         check(puffs == 16, "16 hit puffs (em12..15) per effect");
     }
 
+    // ---- the draw depth bias fx+0x1f0 (emitter 0's B2+0x0c) and FUN_00451e60's fx+0x1f4 ----
+    {
+        struct Want { const char* file; float bias; };
+        const Want ws[] = {{"PC/ADOL/ADOL_S_MODE.EF2", 2.0f},     // 39, the Boost aura
+                           {"PC/ADOL/ADOL_S_MODE_F.EF2", 0.0f},   // 50, the Boost entry
+                           {"COMMON/CURE.EF2", 5.0f},             // 63, the heal / buff pickup
+                           {"COMMON/Z_YARARE01.EF2", 1.0f},       // 0x41, the hit spark
+                           {"COMMON/M_ZAKOYARARE.EF2", 2.0f}};    // 0x56, the death puff
+        for (const Want& w : ws) {
+            const Ef2 ef = Ef2::load(root / "EFFECT" / "EFT" / w.file);
+            Rng rng;
+            System sys(&rng);
+            const Effect* fx = ef.ok() ? sys.spawn(1, ef, SpawnParams{}) : nullptr;
+            char what[128];
+            std::snprintf(what, sizeof what, "%s: depth bias %.1f", w.file, w.bias);
+            check(fx && fx->depth_bias == w.bias, what);
+        }
+        const Vec3 o = depth_bias_offset({0, 0, 10}, {0, 0, 0}, 2.0f);
+        check(near3(o, 0, 0, 2.0f), "fx+0x1f4 = normalize(fx - eye) x bias (drawn at p - it: toward the eye)");
+        check(near3(depth_bias_offset({3, 4, 0}, {0, 0, 0}, 0.0f), 0, 0, 0) &&
+              near3(depth_bias_offset({1, 1, 1}, {1, 1, 1}, 5.0f), 0, 0, 0), "no bias, or the eye at the effect: none");
+    }
+
     std::printf(fails ? "SOME TESTS FAILED\n" : "ALL PASS\n");
     return fails ? 1 : 0;
 }

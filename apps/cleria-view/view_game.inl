@@ -425,6 +425,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     bgmdefs.dir().string().c_str());
     int cur_bgm = -1;
     int default_bgm = 0;                 // 0x76c17c: Scene_SetDefaultBgm / Bgm_Play(-1)
+    // The projection's near / far: DAT_007b2f50 / DAT_007b2f54, the 4th / 5th args of
+    // D3DXMatrixPerspectiveFovLH (FUN_005eca30 0x5ecc0f). Every scene entry resets the scene copies
+    // 0x74c0fc / 0x74c0f8 to 1.0 / 2000.0 (FUN_00431840) and the room's op 0xa2 Scene_SetClipPlain
+    // (FUN_004348a0) overrides them: the skybox rooms ask for (1, 4000) or (1, 7000).
+    float clip_near = 1.0f, clip_far = 2000.0f;
     float bgm_gain = 1.0f, bgm_gain_to = 1.0f, bgm_gain_step = 0.0f;   // op 0xBB Bgm_Volume
     // A settings edit from outside the Option page (the shell overlay: settings().s + touch()):
     // re-read the page's copy and re-apply the live volumes (CONFIG.md §7.4).
@@ -525,6 +530,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         // [cleria.qol] UnlockMovieSkip: any demo skips, seen or not (QoL, off = retail).
         const bool skippable = movie_skippable(demo, movie_seen) || settings().s.cleria.unlock_movie_skip;
         MovieSkip skip;
+        access::SkipGate menu_gate;                    // the shell's skip on the menu button (below)
         bool finished = file.empty();                  // FUN_005758f0 straight from Play
         float fcur = finished ? 0.0f : 1.0f, ftgt = finished ? 1.0f : 0.0f;
         bool shown = false, quit = false, done = false;
@@ -552,10 +558,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             while (acc >= kTickDt && !done) {
                 acc -= kTickDt;
                 // The skip buttons: the held mask & 0x1001 (Attack | MOUSE_DIR) from the mapper.
-                const bool held = (input_tick().held & (input::kAttack | input::kMouseDir)) != 0;
+                access_tick();                         // a drive's held Esc reaches the movie too
+                const input::Frame& mf = input_tick();
+                const bool held = (mf.held & (input::kAttack | input::kMouseDir)) != 0;
+                // [CleriaCore] the shell's Cutscene skip ends a movie too, by the menu button in its mode
+                // (Esc / Camp Menu; single / double / hold), seen or not (ACCESS.md §1.4). Off = retail only.
+                const bool menu_skip = menu_gate.step(skip_mode(), (mf.pressed & input::kMenu) != 0,
+                                                      (mf.held & input::kMenu) != 0);
                 if (!finished) {
                     const bool at_end = have ? dec.ended() : t >= length;
-                    if (skip.step(held, skippable) || at_end) {
+                    if (skip.step(held, skippable) || menu_skip || at_end) {
                         finished = true;                   // FUN_005758f0
                         fcur = 0.0f; ftgt = 1.0f;
                         std::printf("  [movie] demo%d %s at %.2f s\n", demo, at_end ? "ended" : "skipped", t);
@@ -804,6 +816,7 @@ title_again:
         // [not modelled] the clear / system data behind the gates (Bonus Modes, Toal, the
         // Extra types) — a fresh install's title; Time Attack / Arena / the Bonus Shop.
         apply_room_bgm("title");   // "title\" is a scene record like any room (BGM id 1)
+        pending_load.reset();      // a Return to Title: the last game's Load must not outlive it
         const ItemTable titems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
         BookRenderer tr;
         tr.init(g, fmt, asset_root, titems);
@@ -832,6 +845,7 @@ title_again:
         // the title object: current 0 -> target 1, the title's tick stops (obj+0x279), and the
         // scene is committed when the screen is black.
         float tf_cur = 1.0f, tf_tgt = 0.0f;
+        int ttick = 0;                                   // logic ticks on the title (the drive shot)
         bool ng_commit = false;
         mouse::Point tbook_pt;                           // the book's open-time cursor (this+0x128)
         for (bool started = false; !started;) {
@@ -852,6 +866,7 @@ title_again:
             if (shell.open) taccum = 0;                     // the shell pauses the title too
             while (taccum >= kTickDt && !started) {
                 taccum -= kTickDt;
+                ++ttick;
                 // The input record (FUN_005d2ba0, PAUSEBOOK_DRAW.md §0.7), one step per tick: OK 0x2000,
                 // Cancel 0x4000, the auto-repeat steps; the book's 4-way stick while it is up.
                 const input::Frame& inf = input_tick(tbook.is_open());
@@ -932,7 +947,8 @@ title_again:
                 for (int id : snd) audio.play(id, kSfxMenuVol);
             }
             WGPUSurfaceTexture st = {};
-            wgpuSurfaceGetCurrentTexture(surface, &st);
+            if (offscreen) { st.texture = off_tex; wgpuTextureAddRef(off_tex); st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal; }
+            else wgpuSurfaceGetCurrentTexture(surface, &st);
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
                 st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
@@ -960,7 +976,20 @@ title_again:
             draw_cursor(g, tr, view, cw, ch, false);
             video_post(g, st.texture, view, cw, ch);   // Brightness (view_video.inl)
             shell.frame(g, view, cw, ch);
-            wgpuSurfacePresent(surface);
+            // A CLERIA_DRIVE run reaches the title only through a Return to Title: one shot once the
+            // entry fade-in is over (60 ticks > its 20), CLERIA_SHOT_DIR/title.ppm, then it quits.
+            if (offscreen && ttick >= 60) {
+                const char* shd = std::getenv("CLERIA_SHOT_DIR");
+                const fs::path out = fs::path(shd ? shd : ".") / "title.ppm";
+                save_frame_ppm(g, st.texture, fmt, cw, ch, out);
+                std::printf("  [title] t%d fader %.2f list %d book %d, wrote %s\n", ttick, tf_cur,
+                            int(tscreen.list_alive()), int(tbook.is_open()), out.string().c_str());
+                wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
+                teardown();
+                return 0;
+            }
+            if (!offscreen) wgpuSurfacePresent(surface);
+            else wgpuDevicePoll(g.device, true, nullptr);
             wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture);
             video_frame_end(0);                        // the frame limiter / counters (view_video.inl)
         }
@@ -1235,7 +1264,7 @@ title_again:
             // FUN_00420c40 bit 0x01: each level-up is a full heal (FUN_004fa160(9999)) unless
             // the player is in the death state.
             if (player.hp >= 1) player.hp = player.max_hp;
-            hud.message("Level up! Lv " + std::to_string(player.level));
+            hud.debug_message("Level up! Lv " + std::to_string(player.level));
         }
     };
     // Hand the room-load script's placed effects (op 0x117) to the world so they render.
@@ -1260,7 +1289,6 @@ title_again:
     float drown_acc = 0.0f;
     SurfaceHazard hazard;                  // FUN_00462550's floor / noise counters (+0x4c8 / +0x810)
     float hazard_acc = 0.0f;
-    bool jump_prev = false;                // the jump button last tick (+0x50c is the pressed mask)
     // Toal's Godspeed (ABILITIES_VERIFIED.md §3.3, mover 0x4693ed..0x469a97): the dash counter
     // +0x7a4, the lock-on (+0x7a8 / target point +0x790), and the body-collision ramp +0x4d8 that
     // restores +0x60 |= 0x80 once it is back to 1.0.
@@ -1396,11 +1424,6 @@ title_again:
     avm.tick();          // run to the first Pattern so file/tag/frame are populated
     sync_aia();
     int facing = 2;              // dir2 = back to camera (facing north, into the room)
-    // Edge-trigger state: the SEN trigger index the player is currently inside (-1 = none).
-    // A warp fires only on ENTERING a volume (the engine arms on entry), so arriving at a
-    // door-mouth coordinate -- which sits inside the return door's own volume -- does not
-    // instantly warp back. inside_trigger is primed to that door at spawn.
-    int inside_trigger = -1;
     std::uint32_t curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
     int animFrame = 0, shownFrame = -1;
     chr.set_anim(g, curAnim, 0);
@@ -1607,7 +1630,16 @@ title_again:
     LiveObjState live_obj;
     bool live_obj_dirty = false;
     load_meshes(false);
-    float cooldown = 1.5f;
+    // The door warp (build/warp_re/WARP.md §2/§4, build/warp_re/TRANSIT.md). FUN_0042cf00
+    // is LEVEL-triggered: no inside/outside memory and no cooldown. A hit stages the volume's
+    // descriptor (door_pending = 0x769fb8 + 0x769fbc), latches the scene (door_latched = 0x76a538, which
+    // blocks every further trigger until the next scene load), starts the fade to black and the walk-out.
+    // The fade machine FUN_004106e0 commits once current == target (door_commit = 0x74c120 |= 3); the
+    // swap itself happens at the next frame (FUN_00442dd0), like a script's ChangeScene.
+    std::optional<SenTrigger> door_pending, door_commit;
+    bool door_latched = false;
+    struct DoorWalk { bool on = false; Vec3 tgt{}; bool run = false; } door_walk;   // +0x358 / +0x364
+    bool door_running = false;          // the last player tick's run stage (+0x4ca), read by the trigger
     bool scene_objects_reset = false;   // a scene change destroys every object: the busts too
     std::string door_label;             // 0x76a474: the last committed door's SEN label (0x80)
     bool player_vanished = false;       // the player's +0x60 & 0x80 cleared by 0x14d (a new actor per scene)
@@ -1618,6 +1650,9 @@ title_again:
         if (via) door_label = via->name;
         g_time_scale = 1.0f;
         player_vanished = false;
+        // FUN_00431260 publishes the pending scene and clears 0x76a538; the old room's staged door and
+        // its walk-out die with the old player actor.
+        door_pending.reset(); door_commit.reset(); door_latched = false; door_walk = {};
         auto it = g.sob_index.find(dest);
         if (it == g.sob_index.end()) { std::printf("  (no SOB for %s)\n", dest.c_str()); return; }
         std::printf(">> entering %s\n", dest.c_str());
@@ -1627,13 +1662,13 @@ title_again:
         // at the SCT default = the wrong entrance on every return). Copy by value first.
         const bool has_arr = via && via->has_arrival();
         const Vec3 arr = via ? via->arrival_pos : Vec3{};
-        const bool has_fac = via && via->has_facing();
         const int fac_deg = via ? via->arrival_facing_deg : 0;
         // Every scene entry, door or script (FUN_00431840; SCENEFLOW.md 6.2): a dead player is
         // revived, and the per-scene flags are reset before the room's scripts read them.
         if (player.hp < 1) { player.hp = player.max_hp; player.sp_cur = player.sp_max; }
         scene_entry_flags(dest);
-        scene_objects_reset = true;                              // busts / caption card (start_room_events)
+        clip_near = 1.0f; clip_far = 2000.0f;                    // FUN_00431840 (0x74c0fc / 0x74c0f8)
+        scene_objects_reset = true;                             // busts / caption card (start_room_events)
         live_obj = {};                                           // a new visit
         emotions.clear();
         live_obj_dirty = false;
@@ -1676,9 +1711,14 @@ title_again:
             // alignment 0.81), where the un-cancelled (cos deg, sin deg) scores -0.03 and
             // aims at the wall you arrived through. heading_to_facing then maps it exactly
             // as walking that way would, so the warped-in player faces the right way.
-            if (has_fac) {
-                const float yaw = float(fac_deg) * 3.14159265358979323846f / 180.0f;
-                face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
+            // Every labelled arrival carries one, 0 / -1 / 360 included: the SEN load converts +0x238
+            // unconditionally (0x433b80 -> FUN_00443a80) into the region entry the warp copies to
+            // 0x769fbc -> 0x76a3a0 (0x42d140, 0x4108fa), and FUN_00434020 places with 0x76a3ac
+            // whenever the label byte 0x76a3b4 is set (0x4340ad..0x4340e8). 0 = Falcom 0 (+Z); the
+            // sentinels = heading 0 (+X). Skipping them kept the last room's facing (PLAYTEST_1.md §2).
+            if (has_arr) {
+                const float h = falcom_heading(fac_deg);
+                face_dir = {std::cos(h), 0.0f, std::sin(h)};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
                 std::printf("  arrival facing %d deg -> dir %d\n", fac_deg, facing);
             }
@@ -1692,16 +1732,7 @@ title_again:
                 g_cursor.move_angle = g_cursor.draw_angle = theta;
             }
         }
-        // Prime the edge-trigger: mark whatever door volume the player spawned inside, so
-        // a door-return that lands them in the doorway doesn't immediately warp back.
-        inside_trigger = -1;
-        if (!fly) {
-            const Vec3 pr = {feet.x, feet.y + kCharH * 0.5f, feet.z};
-            for (std::size_t i = 0; i < room.sen.triggers.size(); ++i)
-                if (room.sen.triggers[i].contains(pr)) { inside_trigger = int(i); break; }
-        }
         spawn_enemies();
-        cooldown = 1.5f;
         g_tick_reset = true;  // don't catch up on the load stall (the exe's DAT_0075aed5)
     };
     // Reload the current room (re-gates chests for the new character / state).
@@ -1771,6 +1802,7 @@ title_again:
         s.hp_bonus = inv.hp_bonus; s.atk_buff = inv.atk_buff; s.def_buff = inv.def_buff;
         s.luck_base = inv.luck_base; s.timer_atk = inv.timer_atk; s.timer_def = inv.timer_def;
         s.mp_buff = inv.mp_buff; s.timer_mp = inv.timer_mp;
+        s.o2 = oxy.o2; s.o2_alpha = oxy.alpha;                  // 0x76c1b8 / 0x76c1bc, in the block
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
@@ -1835,7 +1867,7 @@ title_again:
         fs::create_directories(save_dir(), ec);
         std::ofstream f(slot_path(slot), std::ios::binary);
         f.write(reinterpret_cast<const char*>(raw.data()), std::streamsize(raw.size()));
-        hud.message(f ? ("Saved to slot " + std::to_string(slot + 1))
+        hud.debug_message(f ? ("Saved to slot " + std::to_string(slot + 1))
                       : "Save FAILED (disk?)");
         if (f) content_save(slot_path(slot), slot);      // mods: the sidecar beside it (view_content.inl)
     };
@@ -1853,6 +1885,11 @@ title_again:
         inv.hp_bonus = s.hp_bonus; inv.atk_buff = s.atk_buff; inv.def_buff = s.def_buff;
         inv.luck_base = s.luck_base; inv.timer_atk = s.timer_atk; inv.timer_def = s.timer_def;
         inv.mp_buff = s.mp_buff; inv.timer_mp = s.timer_mp;
+        // O2 and its gauge come back with the block (a load, and the Retry's continue snapshot).
+        // [H] 0 / 0 is a CleriaCore save from before they were stored (retail never holds that pair past
+        // the new game's first tick: a drained gauge has alpha 255): treat it as a full gauge.
+        oxy.o2 = s.o2; oxy.alpha = s.o2_alpha;
+        if (s.o2 == 0.0f && s.o2_alpha == 0) oxy.o2 = Oxygen::kMax;
         std::memcpy(warp_on, s.warp_on, sizeof warp_on);
         std::memcpy(manual_on, s.manual_on, sizeof manual_on);
         inv_sanitize(game.g_flags, inv);                  // FUN_00431840's clamps after a load
@@ -2019,7 +2056,9 @@ title_again:
         }
         // Screen fader (EVENTVM_HANDLERS.md §4): a fullscreen colored overlay, alpha
         // ramping current->target at fade_rate/frame. fade_advance() steps it each tick.
-        float fade_cur = 0, fade_tgt = 0, fade_rate = 1;
+        // fade_rate boots at 0.05 (FUN_00442260 -> FUN_00439170: 0x769f28 = 0x3d4ccccd), as every scene
+        // entry re-arms it; the door warp's fade-out runs at whatever rate stands.
+        float fade_cur = 0, fade_tgt = 0, fade_rate = 0.05f;
         std::uint32_t fade_rgb = 0;   // 0xRRGGBB (default black)
         void fader_current(float a) override { fade_cur = std::clamp(a, 0.0f, 1.0f); }
         void fader_target(float a) override { fade_tgt = std::clamp(a, 0.0f, 1.0f); }
@@ -2309,6 +2348,8 @@ title_again:
             if (mesh_sync_bits_fn) mesh_sync_bits_fn(a, b);
         }
         void bgm_default(int id) override { if (bgm_default_fn) bgm_default_fn(id); }
+        std::function<void(float, float)> scene_clip_fn;
+        void scene_clip(float n, float f) override { if (scene_clip_fn) scene_clip_fn(n, f); }
         void bgm_play(int id) override { if (bgm_play_fn) bgm_play_fn(id); }
         void bgm_stop(int t) override { if (bgm_stop_fn) bgm_stop_fn(t); }
         void heal_hp() override { if (heal_fn) heal_fn(); }
@@ -2522,6 +2563,7 @@ title_again:
     csLoader.common = asset_root / "MAP" / "S_COMMON";
     ScriptManager csMgr;
     csMgr.vm.host = &csHost;
+    csMgr.vm.rs_ext = game.rs;   // 0x81 Rand draws the one game generator 0x74622c (FUN_00439120), not a copy
     csMgr.loader = &csLoader;
     csHost.mgr = &csMgr;
     {   // mods (view_content.inl): the grant filter on the live VM and the game callbacks it needs
@@ -2535,6 +2577,9 @@ title_again:
             if (auto rec = SaveRecord::decode(raw)) {
                 content_load(slot_path(s), s); apply_loaded(from_record(*rec), true);
                 csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+                // FUN_00431260 "load": the continue snapshot, as the book's and the title's Load take it
+                // (ROUTE_F13.md D5: without it Retry fell back to the stand-in respawn).
+                if (csHost.save_cont_fn) csHost.save_cont_fn();
             }
         };
     }
@@ -2660,6 +2705,13 @@ title_again:
             for (int guard = 0; guard < 20000 && csMgr.world_frozen(); ++guard) {
                 csMgr.skip_waits();                // zero every live script's Wait_Time
                 csMgr.tick_all();
+                // Wait_ChrMoving (0x100) waits on the walk itself, which no predicate can wave through
+                // without leaving the walker short of its mark: run the walk-to / fly-to steps (and the
+                // turn) once per drained step instead, so a scripted walk finishes in skip time and
+                // every actor ends where the scene put it (ROUTE_F13.md D3: SwordTutorial1 pc 617).
+                csHost.advance_player_move();
+                world.advance_cutscene_moves();
+                world.tick_facing([](const Actor&) { return false; });
             }
             csHost.skipping = false;
             csHost.advance = false;
@@ -2861,9 +2913,33 @@ title_again:
         player.boost += amount;
         if (player.boost >= skillmp::kBoostFull) {    // READY (0x46cd4c..): EF2 42 on the player, SE 0x13
             player.boost = skillmp::kBoostFull;
-            spawn_sim_fx(42, {feet.x, feet.y + kOriginH, feet.z}, {}, 1.0f, {}, 13, {feet.x, feet.y + kOriginH, feet.z});
+            // FUN_00451c20(player+0x20, &(0, 0, -0.5) [0x7d9e94], rot 0, scale 1, 2): half a unit
+            // along world -z of the origin, following it (EXPORT 0046cc10.c).
+            if (ef2sim::Effect* r = spawn_sim_fx(42, {}, {}, 1.0f, {}, 0, {})) {
+                r->local = ef2sim::translation(0.0f, 0.0f, -0.5f);
+                r->attach_parent = &actor_mats[13];
+                r->attach_mode = 2;
+            }
             sfx_at(0x13, feet, kSfxAnimVol);          // [not modelled] the white tint flash
         }
+    };
+    // The yaw of the camera record (+0x48c: 0x7b343c + slot * 0x4a0), as FUN_005eca30 derives it
+    // [BYTES 0x5eca70..0x5ecaad]: atan2(-fwd.z, fwd.x) + pi/2 over the view's forward row, wrapped
+    // into (-pi, pi]. RotY of it turns local -z toward the eye (0 = the camera on -z).
+    auto camera_yaw = [&] {
+        const Vec3 f = cam.forward();
+        float y = std::atan2(-f.z, f.x) + 1.5707964f;
+        if (y > 3.1415927f) y -= 6.2831855f;
+        return y;
+    };
+    // An effect spawned at 0 then FUN_00451c20(player+0x20, &off, &(0, yaw, 0), &(1,1,1), 2):
+    // local = T(off) * RotYPR(yaw, 0, 0), following the player's origin.
+    auto attach_to_player = [&](ef2sim::Effect* f, const Vec3& off, float yaw) {
+        if (!f) return f;
+        f->local = ef2sim::mul(ef2sim::translation(off.x, off.y, off.z), ef2sim::rot_ypr(yaw, 0.0f, 0.0f));
+        f->attach_parent = &actor_mats[13];
+        f->attach_mode = 2;
+        return f;
     };
 
 
@@ -2891,12 +2967,18 @@ title_again:
             // mover 0x465b1d: g_flags[187], the gauge exactly full, not busy, no fix.
             if (player.boost < skillmp::kBoostFull || game.g_flags[187] == 0) return;
             if (game.g_flags[161] != 0 || game.g_flags[151] == -1 || csMgr.world_frozen()) return;
-            const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
-            spawn_sim_fx(50, at, {}, 1.0f, {}, 0, {});   // adol_S_mode_f [approx] offset (0,0,-0.5) not applied
+            // 0x465bea..0x465ca6: adol_S_mode_f at (0, 0, -0.5) rotated by the camera yaw, i.e. half
+            // a unit toward the eye, attached mode 2 (it used to sit unattached at the origin).
+            const float cyaw = camera_yaw();
+            if (ef2sim::Effect* f = attach_to_player(spawn_sim_fx(50, {}, {}, 1.0f, {}, 0, {}), {0.0f, 0.0f, -0.5f}, cyaw))
+                f->name = "#boost_f";                     // [CleriaCore] a name for the drive's `fx` listing
             player.boosting = true;
             game.g_flags[141] = 1;                        // FUN_00463f40(0x20): bb50 = 1
-            if (ef2sim::Effect* a = spawn_sim_fx(character == 3 ? 171 : 39, at, {}, 1.0f, {}, 13, at))
-                a->name = "#boost_aura";                  // +0x758: the aura, attached (39 / Toal 171)
+            // FUN_00463f40 0x46490d..: the aura (39 / Toal 171) at 0, then FUN_00451c20(player+0x20,
+            // &0, &(0, camera yaw, 0), &1, 2); kept in +0x758.
+            if (ef2sim::Effect* a = attach_to_player(spawn_sim_fx(character == 3 ? 171 : 39, {}, {}, 1.0f, {}, 0, {}),
+                                                     {}, cyaw))
+                a->name = "#boost_aura";
             sfx_at(0xb4, feet, kSfxAnimVol);
             player_iframes = std::max(player_iframes, 60);
             // FUN_00446550(2, 0) (0x465cc9): drops a locomotion section to idle; the priority gate
@@ -3150,6 +3232,10 @@ title_again:
     // Bgm_Stop(ms) = FUN_00432fc0: curBgm 0, then FUN_005cde10(ms), a linear volume ramp to 0
     // over ms and the stop ms later [BYTES 0x432fc0, 0x5cde10, 0x5cd455] (Audio::fade_out_bgm).
     csHost.bgm_default_fn = [&](int id) { default_bgm = id; };
+    csHost.scene_clip_fn = [&](float n, float f) {                       // op 0xa2
+        clip_near = n; clip_far = f;
+        std::printf("  [scene] clip planes %.1f / %.1f (op 0xa2)\n", n, f);
+    };
     csHost.bgm_play_fn = [&](int id) {
         if (id == -1) id = default_bgm;
         if (id <= 0) { audio.stop_bgm(); cur_bgm = 0; return; }
@@ -3347,6 +3433,9 @@ title_again:
     //   T:every=N,END,cmd     (parse time) cmd at T, T+N, ... below END
     //   duel=cast             near=cast + atk, only while a duel is live (156 = 1, world not frozen)
     //   dflags                print the duel flags (130 131 133 156 174 230 232 311)
+    //   fader                 print the fade machine (current -> target at rate) and a staged / latched door
+    //   oktap                 a real one-tick press of the Attack/OK key (view_access.inl)
+    // A drive run is lockstep (one tick a frame); CLERIA_DRIVE_REALTIME=1 paces it by the wall clock.
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     int drive_boss_entry = -1;               // drive bossentry=k: stand on body entry k (view_boss01_touch.inl)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
@@ -3386,11 +3475,13 @@ title_again:
     WGPUTexture cf_tex = nullptr; WGPUTextureView cf_view = nullptr; WGPUBindGroup cf_bind = nullptr;
     std::uint32_t cf_w = 0, cf_h = 0;
     #include "view_abilities.inl"                       // abil, boost=, boostkey, hurt= (abil_drive)
+    #include "view_hudstate.inl"                        // hudstate, drop=, mp= (hud_drive); PLAYTEST_1_HUD.md
     auto run_drive = [&](const std::string& cmd) {
         std::printf("  [drive] t%llu %s\n", (unsigned long long)tick_count, cmd.c_str());
         if (speedrun_drive(cmd, shell)) return;          // speedrun=... (view_speedrun.inl)
         if (lua_drive(cmd)) return;                      // lua=<command> <args> (view_lua.inl)
         if (abil_drive(cmd)) return;                     // view_abilities.inl
+        if (hud_drive(cmd)) return;                      // view_hudstate.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
             if (std::sscanf(cmd.c_str() + 3, "%f,%f,%f", &x, &z, &deg) >= 2) {
@@ -3512,7 +3603,11 @@ title_again:
             }
         } else if (cmd.rfind("exit=", 0) == 0) {       // exit=i: take the room's SEN exit i (arrival + facing)
             const std::size_t i = std::size_t(std::atoi(cmd.c_str() + 5));
-            if (i < room.sen.triggers.size()) transition(room.sen.triggers[i].dest_scene, &room.sen.triggers[i]);
+            if (i < room.sen.triggers.size()) {
+                const SenTrigger t = room.sen.triggers[i];   // a committed door: no fade-out, the entry fade-in
+                transition(t.dest_scene, &t);
+                csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+            }
         } else if (cmd == "atk") {                     // the attack button
             try_attack();
         } else if (cmd.rfind("near=", 0) == 0) {       // near=cast: stand 2.0 from that actor, facing it
@@ -3575,11 +3670,30 @@ title_again:
                 std::printf("  [bomb] age %.0f pos (%.2f, %.2f, %.2f) vel (%.3f, %.3f, %.3f)%s fx %d\n", bb->age,
                             bb->pos.x, bb->pos.y, bb->pos.z, bb->vel.x, bb->vel.y, bb->vel.z, bb->rest ? " rest" : "",
                             bb->fx ? bb->fx->live : -1);
+        } else if (cmd == "pickups") {                // the world pickups and where they draw (audit aid)
+            const Vec3 cf = cam.forward();
+            const Vec3 cr = normalize(cross(Vec3{0, 1, 0}, cf)), cu = cross(cf, cr);
+            for (const Pickup& pk : pickups) {
+                const Vec3 sc = pk.sprite_centre(cu, cf);
+                std::printf("  [pickup] id %d pos (%.2f, %.2f, %.2f) ground %.3f rest %d age %.0f sprite (%.2f, %.2f, %.2f) "
+                            "lowest %.3f shadow y %.3f\n", pk.id, pk.pos.x, pk.pos.y, pk.pos.z, pk.ground_y,
+                            int(pk.resting), pk.age, sc.x, sc.y, sc.z, sc.y - pk.half * std::fabs(cu.y),
+                            pk.shadow_centre(cf).y);
+            }
+        } else if (cmd == "fxall") {                  // every live effect: id, attach, origin (and from the player's), depth bias
+            auto r2 = [](float v) { return std::fabs(v) < 0.005f ? 0.0f : v; };   // no "-0.00"
+            for (const auto& f : fxsim.effects())
+                if (!f->dead)
+                    std::printf("  [fxall] id %d attach %d at (%.2f, %.2f, %.2f) rel (%.2f, %.2f, %.2f) bias %.2f%s\n", f->id,
+                                f->attach_mode, f->M.m[3][0], f->M.m[3][1], f->M.m[3][2], r2(f->M.m[3][0] - feet.x),
+                                r2(f->M.m[3][1] - (feet.y + kOriginH)), r2(f->M.m[3][2] - feet.z), f->depth_bias,
+                                f->name.empty() ? "" : (" " + f->name).c_str());
         } else if (cmd == "actors") {                 // the live actors (audit aid): id, cast, enemy, hp, groups, pos
             for (const Actor& a : world.actors())
                 if (!a.is_player())
-                    std::printf("  [actor] id %d cast %d %s hp %.0f g1 %d pos (%.1f,%.1f,%.1f)\n", a.instance_id, a.cast_id,
-                                a.is_enemy() ? "enemy" : "npc", a.hp, int(a.tag.in_group(1)), a.pos.x, a.pos.y, a.pos.z);
+                    std::printf("  [actor] id %d cast %d %s hp %.0f g1 %d pos (%.1f,%.1f,%.1f) hurt %.3f\n", a.instance_id, a.cast_id,
+                                a.is_enemy() ? "enemy" : "npc", a.hp, int(a.tag.in_group(1)), a.pos.x, a.pos.y, a.pos.z,
+                                a.hit_flash);
         } else if (cmd.rfind("level=", 0) == 0) {     // level=n: the Lua mods' set_level (audit aid; a cheat)
             player.level = std::clamp(std::atoi(cmd.c_str() + 6), 1, 60);
             if (ginfo.ok()) player.exp = float(ginfo.exp_to_level(player.level));
@@ -3648,6 +3762,9 @@ title_again:
             std::printf("  [sand] surf %d/%d water %.2f sub %d buried %d grounded %d feet y %.3f O2 %.0f\n",
                         cur_surface, psand.surf_ray, psand.water_y, int(submerged), int(psand.buried),
                         int(pv.grounded), feet.y, oxy.o2);
+        } else if (cmd == "fader") {                   // the fade machine 0x769f1c / 0x769f24 / 0x769f28
+            std::printf("  [drive] fader %.2f -> %.2f at %.3f%s%s\n", csHost.fade_cur, csHost.fade_tgt, csHost.fade_rate,
+                        door_pending ? " (door pending)" : "", door_latched ? " (latched)" : "");
         } else if (cmd == "pos") {                     // print the player's feet and O2
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d sp %.0f shield %d/%d/%d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage,
@@ -3744,6 +3861,41 @@ title_again:
             inv.magic = std::atoi(cmd.c_str() + 9);
         } else if (cmd.rfind("held=", 0) == 0) {       // held=<item id>: the Item page's held tool 0x76a62c (97 = the Scales)
             inv.held = std::atoi(cmd.c_str() + 5);
+        } else if (cmd.rfind("acc=", 0) == 0) {        // acc=<item id>: the equipped accessory 0x76a628 (54 = the Mask of Eyes; -1 none)
+            inv.accessory = std::atoi(cmd.c_str() + 4);
+            (void)player_stats();                         // FUN_00420c40 -> FUN_004208f0: 0x76bbac
+        } else if (cmd == "skiptap" || cmd == "oktapf") {   // a player who only presses inside a cutscene (a Fix held):
+            if (csMgr.world_frozen())                        // Esc (the skip) / Attack-OK, through the mapper
+                access_drive(cmd == "skiptap" ? std::string("esctap") : std::string("oktap"));
+        } else if (cmd.rfind("skiphold=", 0) == 0) {   // skiphold=n: hold Esc n ticks, only from inside a cutscene
+            if (csMgr.world_frozen()) access_drive("eschold=" + cmd.substr(9));
+        } else if (cmd == "killall") {                 // every live enemy gone (the S_1000 intro's waves)
+            std::vector<int> ids;
+            for (const Actor& a : world.actors()) if (a.is_enemy() && a.alive()) ids.push_back(a.instance_id);
+            for (int id : ids) world.despawn(id);
+            csHost.world_changed = true;
+        } else if (cmd == "wndtext") {                 // the message window: reveal, glyphs, extfont cells
+            const RichLayout& wl = csHost.wtext.layout();
+            int next = 0;
+            std::string cells;
+            for (const RichGlyph& gl : wl.glyphs)
+                if (gl.ext && ++next <= 8) cells += " " + std::to_string(int(gl.c));
+            std::printf("  [drive] wndtext alive %d reveal 0x%x/%d glyphs %zu ext %d cells%s\n", int(csHost.wtext.alive()),
+                        unsigned(csHost.wtext.reveal()), wl.counted, wl.glyphs.size(), next, cells.c_str());
+        } else if (cmd == "mask") {                    // the Mask of Eyes objects (view_mask.inl)
+            std::printf("  [drive] mask %d objs %zu\n", int(mask_of_eyes_on(inv)), room.mask_objs.size());
+            for (const Room::MaskObj& m : room.mask_objs) {
+                Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};   // its drawn bounds
+                if (m.rr < room.mesh.object_ranges.size())
+                    for (std::uint32_t k = room.mesh.object_ranges[m.rr].v0; k < room.mesh.object_ranges[m.rr].v1; ++k) {
+                        const RoomVertex& v = room.mesh.vertices[k];
+                        lo = {std::min(lo.x, v.px), std::min(lo.y, v.py), std::min(lo.z, v.pz)};
+                        hi = {std::max(hi.x, v.px), std::max(hi.y, v.py), std::max(hi.z, v.pz)};
+                    }
+                std::printf("  [drive] maskobj %zu bits %u hidden %d alpha %.4f coll %s box (%.1f,%.1f,%.1f)-(%.1f,%.1f,%.1f)\n",
+                            m.rr, m.bits, int(m.hidden), m.alpha, m.cr < 0 ? "none" : (m.coll_off ? "off" : "on"),
+                            lo.x, lo.y, lo.z, hi.x, hi.y, hi.z);
+            }
         } else if (cmd == "saveload") {                // save here, encode + decode the record, load it
             const auto rec = SaveRecord::decode(to_record(capture_save(), "x", "01/01/2026", "00:00:00").encode(1u, 2u));
             if (rec) {
@@ -3884,7 +4036,12 @@ title_again:
         m.start_script = [&](const std::string& name) {   // FUN_00434970: start + first burst
             std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
             csMgr.vm.g_flags[150] = character;
-            if (!csMgr.start(name)) std::printf("  [book] %s did not start\n", name.c_str());
+            // The bound actor (+0x240, what 998 resolves to): FUN_005abd10 starts @CheckWing, @CheckWing2
+            // and @UseWing with the player *0x74c09c [BYTES 0x5ac53e, 0x5ac59f, 0x5accea], the other Use
+            // scripts with none [BYTES 0x5ac411]. Without it @UseWing's Eft_LocateChr(51, 998, .., 'warp'),
+            // Chr_Dir / Chr_Alpha(998) found no actor: the warp's rising rings and fade-out never drew.
+            const int owner = (name == "@UseWing" || name == "@CheckWing" || name == "@CheckWing2") ? 13 : 0;
+            if (!csMgr.start(name, {}, owner)) std::printf("  [book] %s did not start\n", name.c_str());
             std::copy(csMgr.vm.g_flags, csMgr.vm.g_flags + 0x200, game.g_flags);
         };
         return m;
@@ -3947,7 +4104,7 @@ title_again:
         apply_loaded(*pending_load);
         pending_load.reset();
         save_cont();                              // FUN_00431260 "load": the continue snapshot
-        hud.message("Game loaded.");
+        hud.debug_message("Game loaded.");
     }
 
     // Establish the region camera for the INITIAL room before the first tick — a
@@ -4802,6 +4959,15 @@ title_again:
                 csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
             }
         }
+        if (door_commit) {
+            // A committed door (0x74c120 bit 1): FUN_00442dd0 tears the room down at this frame and
+            // FUN_00431260 loads the destination with the staged descriptor -- the crossed volume's own
+            // arrival and facing (copied to 0x76a3a0 by the commit). The scene entry FUN_00431840 ->
+            // FUN_00439170 then fades in from black: current 1.0, target 0, 0.05 a step (20 steps).
+            const SenTrigger t = *door_commit;
+            transition(t.dest_scene, &t);
+            csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+        }
         const Uint64 now = SDL_GetTicks();
         const float real_dt = float(now - last) / 1000.0f; last = now;
         // The shell's Game speed scales how many fixed ticks run per real second (never the tick's dt).
@@ -4810,9 +4976,12 @@ title_again:
         // single tick with a zero delta rather than catching up on the stall. Room
         // transitions set this; without it a slow load bursts hundreds of ticks.
         if (g_tick_reset) { accum = kTickDt; g_tick_reset = false; }
-        // CLERIA_DRIVE_LOCKSTEP=1: one logic tick per rendered frame, so a drive `shot` lands on
-        // its own tick (a hidden offscreen run renders slower than 60 Hz and would skip it).
-        static const bool lockstep = std::getenv("CLERIA_DRIVE") && std::getenv("CLERIA_DRIVE_LOCKSTEP");
+        // A drive run is LOCKSTEP: one logic tick per rendered frame, so a drive `shot` lands on its own
+        // tick and the per-frame work (a ChangeScene / door swap, the room's script start, the shell's
+        // page draw) falls between the same ticks however loaded the machine is. Wall-clock pacing let a
+        // slow frame run 20 ticks at once (entry_label's `scripts` then landed before the new room's
+        // scripts started). CLERIA_DRIVE_REALTIME=1 restores wall-clock pacing for a drive run.
+        static const bool lockstep = std::getenv("CLERIA_DRIVE") && !std::getenv("CLERIA_DRIVE_REALTIME");
         if (lockstep) accum = kTickDt;
         lua_frame();                                     // the Lua mods' "frame" handlers (view_lua.inl)
 
@@ -4897,7 +5066,20 @@ title_again:
         const bool* ks = SDL_GetKeyboardState(nullptr);   // free-fly's raw keys (debug, outside the mapper)
         const float D = room_diag(room);
         // A newly (re)built room (re)starts its event scripts on the persistent manager.
-        if (room_events_dirty) { room_events_dirty = false; start_room_events(); }
+        if (room_events_dirty) {
+            room_events_dirty = false;
+            // The placement wrote the arrival / loaded heading to +0x308, +0x314 and +0x360 at
+            // once (FUN_00459ff0 from FUN_00434020 0x4340ad..0x4340e8), before the room's
+            // scripts run; Chr_Pos then snaps +0x314 to +0x308 (0x570a63). The world player was
+            // rebuilt from the SCT (yaw 0) by populate_room, so a cutscene's first Chr_Pos(13)
+            // snapped her to heading 90 and turned her back (PLAYTEST_1.md §2).
+            if (Actor* wp = world.player(); wp && !fly) {
+                const float h = std::atan2(face_dir.z, face_dir.x);
+                wp->look.cmd = wp->look.dir = h;
+                wp->yaw = yaw_of_heading(h);
+            }
+            start_room_events();
+        }
         // ---- fixed 60 Hz logic, 0..N ticks per rendered frame --------------
         // The catch-up loop in the exe has NO cap; a long stall really does emit a
         // burst of ticks. We reproduce that, relying on the load-time reset above
@@ -4905,7 +5087,7 @@ title_again:
         if (paused) accum = 0;               // freeze while the pause book is open
         if (shell.open) accum = 0;           // and while the shell overlay is open
         if (paused && book.is_open()) {
-            bookAccum += real_dt;
+            bookAccum = lockstep ? kTickDt : bookAccum + real_dt;   // a drive run: one book frame a frame
             while (bookAccum >= kTickDt && book.is_open()) {
                 bookAccum -= kTickDt;
                 if (!drive.empty()) {                        // CLERIA_DRIVE runs on through the book
@@ -4941,6 +5123,9 @@ title_again:
                 for (int id : bev.sounds) audio.play(id, kSfxMenuVol);
                 if (bev.warp) cursor_warp(bev.warp_x, bev.warp_y, bev.warp_mode);
                 if (bev.closed) cursor_warp(book_pt.x, book_pt.y, 2);   // the dtors' warp back (mode 2)
+                if (bev.closed && !drive.empty())
+                    std::printf("  [book] t%llu closed (%s)\n", (unsigned long long)tick_count,
+                                (inf.pressed & input::kCancel) ? "cancel" : "other");
                 if (bev.clamp_hp) player.hp = std::min(player.hp, int(player_stats().max_hp));
                 if (bev.use_item >= 0) {                     // the Panacea (FUN_00443390, count - 1)
                     float hp = float(player.hp);
@@ -4976,7 +5161,7 @@ title_again:
                         // fader a script of the room left behind
                         csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
                         save_cont();                 // FUN_00431260 "load"
-                        hud.message("Game loaded.");
+                        hud.debug_message("Game loaded.");
                     }
                 }
                 if (bev.options_changed) {
@@ -4985,8 +5170,20 @@ title_again:
                     options_save(oslider, ocheck);
                 }
                 if (bev.option_quit == 1) running = false;  // Exit: WM_CLOSE
-                if (bev.option_quit == 0)                    // [not modelled] Return to Title
-                    hud.message("Return to Title is not implemented yet.");
+                if (bev.option_quit == 0) {                  // Return to Title (FUN_005b8d40, box 0xf, Yes)
+                    // [BYTES 0x5b90ce..0x5b9182] the playing BGM id 0x74c0f4 = 0 (cur_bgm: the title's
+                    // entry Bgm_Play(1) at 0x4323d2 then starts its track), the BGM fades over 3000 ms
+                    // (FUN_005cde10(0xbb8), when the sound is on), the fader jumps to black (0x769f1c =
+                    // 0x769f24 = 1.0) with the title record 0x74e678 pending (0x769fb8): FUN_004106e0
+                    // changes scene on the next step. The same route as the game over's (LAB_00427750, which fades instead of
+                    // jumping): leave this game, back to the title (its entry fades in from black).
+                    // [not modelled] FUN_0042f510 deletes the crash backup (CleriaCore keeps none).
+                    std::printf("  [book] Return to Title\n");
+                    audio.fade_out_bgm(0xbb8);
+                    cur_bgm = 0;
+                    csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 1.0f;
+                    return_to_title = true; running = false; accum = 0;
+                }
                 if (bev.closed) paused = false;
             }
         }
@@ -5058,7 +5255,9 @@ title_again:
                 else if (menu && (inf.pressed & (input::kCancel | input::kMenu))) csHost.wnd_cancel = true;
                 else if (skip_now) skip_cutscene = true;
             } else if (!paused) {
-                if ((inf.pressed & input::kMenu) && (!fly || ks[SDL_SCANCODE_ESCAPE])) {
+                // [EXPORT 004106e0.c L47-57] the book opens only while the fader is clear (0x769f1c == 0):
+                // never during a door's fade-out / fade-in. [not modelled] its other gates (0x76bc20, flag 156).
+                if ((inf.pressed & input::kMenu) && (!fly || ks[SDL_SCANCODE_ESCAPE]) && csHost.fade_cur == 0.0f) {
                     // The book (FUN_00443150 on the menu bit's edge, PAUSEBOOK_DRAW.md §1): Esc or the
                     // Camp Menu binding (only Esc in free-fly, whose raw keys may overlap it). The game
                     // ticks stop with this one.
@@ -5115,6 +5314,19 @@ title_again:
         std::copy(game.item_arr, game.item_arr + 54, csMgr.vm.item_arr);   // IsXXX 7 / 8 read it
         csMgr.vm.g_flags[150] = character;
         const bool frozen_now = tick_events();
+        // The door's fade machine (FUN_004106e0 0x4108a5..0x41094f, every real step, a Fix or not): once
+        // current == target with a door pending, commit when the player lives (HP 0x76a730 >= 1, no game
+        // over 0x74ab71) -- FUN_00430ef0 sets 0x74c120 |= 3 and the scene swaps at the next frame -- and
+        // drop the pending door either way. tick_events stepped the fader (fade_advance) above, so a
+        // trigger on tick T commits on T + 20, as in retail (the step after the trigger's 20th 0.05).
+        if (door_pending && csHost.fade_cur == csHost.fade_tgt) {
+            if (player.hp >= 1 && death_t == 0) {
+                door_commit = door_pending;
+                std::printf("  [door] t%llu commit %s (fade %.2f)\n", (unsigned long long)tick_count,
+                            door_commit->dest_scene.c_str(), csHost.fade_cur);
+            }
+            door_pending.reset();
+        }
         world.tick_alpha_fades();                  // Chr_Alpha (runs under a Fix too, [H])
         world.tick_tremble();                      // Chr_Tremble (the anim tick's head, 0x447306)
         for (Emotion& em : emotions) {             // FUN_004ffab0 (not frozen by a Fix)
@@ -5230,6 +5442,7 @@ title_again:
         }
         // The GoMesh pool updates every live step, a Fix or not (WAITOPS.md §4.7).
         auto step_meshes = [&] {
+            mask_step(g, room, mask_of_eyes_on(inv));   // the Mask of Eyes objects (view_mask.inl)
             meshes.step();
             boss_tick();
             boss2_tick();
@@ -5357,6 +5570,12 @@ title_again:
             // [H] no hit tick here: whether particle hits land under a Fix is not traced.
             step_weather();                          // pool 9's weather runs under a Fix (view_weather.inl)
             step_bullets_frozen();                   // GoXx bullets fly on under a Fix (view_duel.inl)
+            // An attached effect reads its actor's +0x20 every step (FUN_00451e60), and scripts move
+            // actors under a Fix (Eft_LocateChr on the smith and the player runs inside one): keep
+            // the attach matrices current here too, as the unfrozen tick does.
+            for (Actor& a : world.actors())
+                actor_mats[a.instance_id] = ef2sim::translation(a.pos.x, a.pos.y + a.height, a.pos.z);
+            actor_mats[13] = ef2sim::translation(feet.x, feet.y + kOriginH, feet.z);
             fxsim.step();
             fxsim.sweep();
             // The chest item (0x116, kind 2) rises and fades under the opening script's own Fix:
@@ -5377,7 +5596,6 @@ title_again:
             continue;
         }
         const float dt = kTickDt;
-        if (cooldown > 0) cooldown -= dt;
 
         if (fly) {
             const Vec3 f = cam.forward();
@@ -5424,6 +5642,14 @@ title_again:
                 if (pin.dir & input::kLeft) { wish.x -= rt.x; wish.z -= rt.z; }
             }
             if (drive_wish_n > 0) { --drive_wish_n; wish.x += drive_wish.x; wish.z += drive_wish.z; }
+            // The door walk-out (FUN_0042cf00 0x42d246..0x42d29d -> the mover FUN_00465170 l.405-420): while
+            // +0x364 != 0 the mover replaces the stick with a full one (+0x508 = 1.0) toward +0x358 / +0x35c,
+            // until within sqrt(+0x364) = 0.35 of it. The goal is 100 ahead, so she walks on through the fade.
+            if (door_walk.on) {
+                const float dx = door_walk.tgt.x - feet.x, dz = door_walk.tgt.z - feet.z;
+                if (dx * dx + dz * dz > 0.1225f) wish = {dx, 0.0f, dz};
+                else door_walk.on = false;
+            }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
             const bool moving = wl > 1e-4f;
             // Run or walk (FUN_00465170 l.432, +0x4ca): magnitude (+0x508) >= RunWalkThreshold and the
@@ -5432,8 +5658,11 @@ title_again:
             // A drive's move= is a full stick. [not modelled] the actor flag 0x40000 forcing the walk
             // bit. The speed itself is walk x run_mult (local_38 = 1.0 [EXPORT l.404]), not x stick.
             // speed_mult is the debug wheel.
-            const bool run_gait = moving && !(pin.held & input::kWalk) &&
-                                 (pin.dir == 0 || pin.magnitude >= settings().s.input.run_walk_threshold);
+            // The walk-out sets the walk bit unless the trigger saw the run stage (+0x12c & 0x20 = +0x4ca).
+            const bool run_gait = door_walk.on ? door_walk.run
+                                : moving && !(pin.held & input::kWalk) &&
+                                  (pin.dir == 0 || pin.magnitude >= settings().s.input.run_walk_threshold);
+            door_running = run_gait;
             {   // MOVER.md §3.3: the platform carry. Grounded on an object that moved last
                 // step: its displacement (clamped to 0.3); airborne: the carry decays x0.975.
                 auto it = mesh_delta.find(player_floor_obj);
@@ -5449,11 +5678,13 @@ title_again:
                 }
                 feet.x += carry.x; feet.y += carry.y; feet.z += carry.z;
             }
-            // The jump press (+0x50c & 2), read once per tick.
-            const bool jump_down = (g_in.held & input::kJump) || drive_jump;
+            // The jump press (+0x50c & 2), read once per tick: the record's pressed edge +0x24, which
+            // FUN_0045f250 copies to +0x50c. The mapper (FUN_005d2ba0) keeps its held history through
+            // the book's and a Fix's frames, so a B / X / right-click that closed a menu and is still
+            // down reads as held, not pressed. The view's own last-tick latch went stale while no
+            // player tick ran and jumped on that press (PLAYTEST_1.md §5).
+            const bool jump_edge = (g_in.pressed & input::kJump) || drive_jump;
             drive_jump = false;
-            const bool jump_edge = jump_down && !jump_prev;
-            jump_prev = jump_down;
             // The action input (FUN_00465170 / FUN_0046ea00 via src/cleria/player_actions).
             PlayerActions::Out pa_out;
             if (!fly) {
@@ -5523,6 +5754,7 @@ title_again:
                 if (shield_life == 0 || shield_hits == 0) remove_shield(shield_hits == 0);
                 else if (!fx_live(shield_fx)) remove_shield(false);   // [guard, not retail] the effect is gone
             }
+            const float hx0 = feet.x, hz0 = feet.z;   // the tick's horizontal start (the wall push below)
             {   const int sec = avm.section();
                 const bool skill_sec = sec == 0x109 || (sec >= 0x10c && sec <= 0x111);
                 const bool blessing_run = (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 0x2000) != 0;
@@ -5609,7 +5841,19 @@ title_again:
                 feet.x += kd.x; feet.z += kd.z; }
             #include "view_xso13_force.inl"          // 0x15e / 0x15f pushes (FLOOR13_OPS.md)
             { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
-              body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
+              // The engine sweeps the tick's whole move with its sphere (FUN_0045a510 0x45b2eb), so no
+              // move crosses a wall. resolve_walls only resolves an overlap: a step past the radius (a
+              // knock's 0.36 cap plus the run) took the centre beyond a one-plane wall, which then
+              // pushed it out of its FAR side (Hugo through S_1002's east wall; PLAYTEST_1.md §4).
+              // The move is pushed out in sub-steps of at most half the radius [H]; one step (the
+              // old single push) whenever the tick moves less.
+              {   const float mx = body.x - hx0, mz = body.z - hz0;
+                  const int n = std::clamp(int(std::ceil(std::sqrt(mx * mx + mz * mz) / (radius * 0.5f))), 1, 16);
+                  if (n > 1) { body.x = hx0; body.z = hz0; }
+                  for (int k = 0; k < n; ++k) {
+                      if (n > 1) { body.x += mx / float(n); body.z += mz / float(n); }
+                      body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
+                  } }
               feet.x = body.x; feet.z = body.z; }
             // FUN_0046fba0 0x470049 (ARENA_AND_BOSSBAR.md §1.5c): in arena mode 1 (flag 190) the
             // player is box-clamped to the EnclosePlayer rect, min then max. Mode 2 (S_1000's
@@ -5653,7 +5897,10 @@ title_again:
                 // from the origin up +0x328 x 1.05 (0x6bd458) zeroes +0x330 / +0x420 on a hit
                 // [BYTES 0x45b219..0x45b29a]; then the move sweep, a sphere of +0x328 from the
                 // origin (0x45b2eb..0x45b32f), stops the rise at whatever is above (ROUTE_F13 D2).
-                const Vec3 org{feet.x, oy, feet.z};
+                // Both from where the engine's 0.675 sphere would stand, clear of the walls beside
+                // it: from the 0.45 capsule's spot its rim caught a step / ledge / wall top and cut
+                // the jump short (PLAYTEST_1.md §1, physics.hpp sphere_wall_clear). [approx]
+                const Vec3 org = sphere_wall_clear(phys_mesh(room), {feet.x, oy, feet.z}, pm.radius());
                 if (pv.t > 0.0f && segment_hit(phys_mesh(room), org, {org.x, org.y + pm.radius() * 1.05f, org.z},
                                                nullptr, nullptr))
                     pv.t = 0.0f;
@@ -5754,14 +6001,24 @@ title_again:
             #include "view_revive.inl"                // the revive family's handler (REVIVE.md)
             {
                 const int d = game.g_flags[201] ? 3 : (difficulty - 2);   // -2 v.easy .. 2 nightmare
-                auto in_view = [&](const Vec3& q) {
+                // The handlers' off-screen test FUN_0045d3c0: a SPHERE of 5.0 (0x6bd868) x 0.5
+                // (0x6bd304, FUN_005f5b00) = 2.5 round the origin +0x50, outside when it lies wholly
+                // behind any frustum plane (dist <= -r). Not a point on the feet: that let a body that
+                // was already on screen stay frozen at alpha 1 (Oggnome's vanish, PLAYTEST_1.md §3).
+                auto in_view = [&](const Vec3& q, float r) {
                     if (!have_vp) return true;
                     const auto& m = last_vp.m;
-                    const float cx = q.x * m[0] + q.y * m[4] + q.z * m[8] + m[12];
-                    const float cy = q.x * m[1] + q.y * m[5] + q.z * m[9] + m[13];
-                    const float cz = q.x * m[2] + q.y * m[6] + q.z * m[10] + m[14];
-                    const float cw = q.x * m[3] + q.y * m[7] + q.z * m[11] + m[15];
-                    return cw > 0 && std::fabs(cx) <= cw && std::fabs(cy) <= cw && cz >= 0 && cz <= cw;
+                    const float row[4][4] = {{m[0], m[4], m[8], m[12]}, {m[1], m[5], m[9], m[13]},
+                                             {m[2], m[6], m[10], m[14]}, {m[3], m[7], m[11], m[15]}};
+                    for (int k = 0; k < 6; ++k) {         // l r b t (|x|,|y| <= w), near z >= 0, far z <= w
+                        float p[4];
+                        for (int j = 0; j < 4; ++j)
+                            p[j] = k == 4 ? row[2][j] : k == 5 ? row[3][j] - row[2][j]
+                                 : row[3][j] + (k & 1 ? -1.0f : 1.0f) * row[k >> 1][j];
+                        const float n = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+                        if (n > 0.0f && (p[0] * q.x + p[1] * q.y + p[2] * q.z + p[3]) / n <= -r) return false;
+                    }
+                    return true;
                 };
                 int pool = 0;
                 for (const Actor& a : world.actors()) pool += a.alive();
@@ -5841,6 +6098,13 @@ title_again:
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) hk(*en, aiw);
                     if (!en || !en->alive() || en->destroy_requested() || !e.avm.ok()) continue;
+                    // +0x314 is ONE field: a Fix's turns (world.tick_facing) and Chr_Pos write it
+                    // through en->yaw, and the brain carries on from there. e.facing kept the
+                    // pre-cutscene heading and snapped a script-turned enemy back (PLAYTEST_1.md §2).
+                    // [approx] the brain's +0x308 copy (ai.heading; the Chr ops write look.cmd) is
+                    // set to it too, so an idle brain does not turn back before it re-aims.
+                    if (std::fabs(std::remainder(heading_of_yaw(en->yaw) - e.facing, 6.28318531f)) > 1e-4f)
+                        e.facing = en->ai.heading = heading_of_yaw(en->yaw);
                     const bool hurt = e.avm.section() == 4;
                     const bool attacking = e.atk_section >= 0 && e.avm.section() == e.atk_section;
                     AiEnv env;
@@ -5868,7 +6132,8 @@ title_again:
                     env.group_tag = en->tag.tagged();
                     env.aso_marker = e.avm.marker();
                     env.aso_marker_block = e.avm.marker_block();
-                    env.culled = !(en->flags12c & 0x1000000u) && !in_view(en->pos);   // never-cull bit
+                    env.culled = !(en->flags12c & 0x1000000u) &&                     // never-cull bit
+                                 !in_view({en->pos.x, en->pos.y + en->height, en->pos.z}, 2.5f);   // 0x480cb8..0x480cdc
                     env.stun_immune = (en->flags12c & 0x80000u) != 0;                  // FACTORY.md
                     env.bless_stun = (game.g_flags[217] & 0x80) != 0;                  // GROW09
                     env.boss_fight = game.g_flags[156] == 1;                           // DAT_0076bb8c
@@ -5906,6 +6171,7 @@ title_again:
                     // (the scale), the character's hit spark one unit toward the camera; SE 92 is in
                     // o.sounds. [not modelled] its FUN_0058a5f0 particle burst (no particle system).
                     if (o.hit_spark) {
+                        en->hit_flash = hitfx::kHurtTimer;           // +0x238 = 1.65, before the 0x1a return
                         const float sc = hitfx::spark_scale(pick_rng.next(), hitfx::kAliveLo, hitfx::kAliveHi);
                         const int sid = hitfx::hit_spark_effect(character, game.g_flags[149], true, avm.section());
                         if (sid >= 0 && !hitfx::alive_spark_suppressed(en->cast_id, game.g_flags[156] != 0)) {
@@ -5932,11 +6198,11 @@ title_again:
                     pool += int(o.spawns.size());
                     if (ai_debug && (tick_count % 60) == 0)
                         std::printf("[ai] #%d cast %d phase %d sub %d act 0x%x steer %d mode %d spd %.4f "
-                                    "dist %.2f head %.2f culled %d sec %d mov %.2f hp %.1f mk %d at (%.1f,%.1f)\n",
+                                    "dist %.2f head %.2f culled %d sec %d mov %.2f hp %.1f mk %d at (%.1f,%.1f) alpha %.2f\n",
                                     en->instance_id, en->cast_id, e.actor->ai.phase(), e.actor->ai.i(0x728), e.actor->ai.action(),
                                     e.actor->ai.i(0x708), e.actor->ai.mode(), e.actor->ai.speed, e.actor->ai.dist(), e.actor->ai.heading,
                                     int(env.culled), e.avm.section(), e.avm.movable(), en->hp, env.aso_marker,
-                                    en->pos.x, en->pos.z);
+                                    en->pos.x, en->pos.z, e.actor->ai.alpha);
                     // Strike: the brain's FUN_00446550(sec,0) — a priority-gated request. A
                     // ported brain names its section literally; the M100 stand-in's 7 maps to
                     // this kind's guessed attack section.
@@ -6179,8 +6445,9 @@ title_again:
                 // [not modelled] +4/+5 in state +0x6f0 == 2 (its meaning for enemies is unknown).
                 if (a.tag.tagged()) a.glow_phase = std::uint8_t(a.glow_phase + 1);
                 ++a.age_ticks;                          // +0x504, every actor every tick (0x45d32d; M900's ring reads Hugo's)
-                // The cosmetic hit flash fades on the dead too (a duel puppet stays on screen).
-                if (a.hit_flash > 0) --a.hit_flash;
+                // The hurt timer +0x238 (FUN_0045a3a0: -0.075 a tick, clamped at 0) runs on the dead
+                // too (a duel puppet stays on screen).
+                a.hit_flash = hitfx::step_hurt(a.hit_flash);
                 if (a.is_player() || (!a.alive() && !revive_corpse(a))) continue;   // a family corpse falls on
                 // The integrator FUN_0045a510 (MOVER.md §3): one swept sphere (radius +0x328,
                 // centred on the ORIGIN) through D = (displacement, dy), the floor ray from the
@@ -6227,7 +6494,6 @@ title_again:
             // while flinching restarts it) needs dmg >= 1 and is skipped for rtype 3 or a
             // durable victim (anime_Durable ~ +0x9d8).
             auto react_enemy = [&](Actor& en, int dmg, bool died, int rtype, const Impulse& k) {
-                en.hit_flash = 6;                       // our cosmetic tint (+0x4e8)
                 en.mover.k1.x += k.x; en.mover.k1.z += k.z;   // knock channel 1 (+0x338/+0x340)
                 if (died) return;                       // death is handled by the caller
                 for (EnemyRender& er : render) {
@@ -6277,6 +6543,10 @@ title_again:
                     if (dmg > 0) kill_combo.hit();   // 0x4fc835: the combo meter, before the kill's EXP
                     {   // FUN_004fbb40's own feedback (hit_feedback.hpp), at the victim's origin.
                         const Vec3 org{en.pos.x, en.pos.y + en.height, en.pos.z};
+                        // The tail 0x4fd241: FUN_004fae00(0xffffffff), the white damage number (a GoPopup,
+                        // scale 1.0, origin + 0.5 up; "0" for a guarded hit), every path included.
+                        // PLAYTEST_1_HUD.md item 3.
+                        damage_popup(hudstate::dealt_popup_value(dmg, cls, game.g_flags), 0xffffff, org);
                         if (dmg < 1) {
                             // 0x4fd1b5: a guarded / zero hit. [not modelled] the FUN_00589130 sparks
                             // (10; 25 more on a guard) and the guard's yellow tint.
@@ -6321,6 +6591,7 @@ title_again:
                             // draw (the scale), the puff (+ SE 862 with +0x130 & 0x2000) and the
                             // character's spark, from the victim's last vector to the player.
                             const std::uint32_t d0 = pick_rng.next();
+                            en.hit_flash = hitfx::kHurtTimer;            // +0x238 = 1.65 (whatever +0x130)
                             const hitfx::DeathPuff dp = hitfx::death_puff(f130);
                             if (dp.spark) {
                                 const Vec3 tp = en.ai.v(0x734);
@@ -6522,7 +6793,11 @@ title_again:
                         Vec3 hit{};
                         if (!segment_hits_tris(b2m, O, E, rr->t0, rr->t1, &hit)) continue;
                         Boss02Output fb;
-                        const bool ok = boss2->accept_hit(o, hit, std::uint32_t(SDL_GetTicks()), fb);
+                        // The throttle's clock is real time; a (lockstep) drive run reads the tick clock so
+                        // the run does not depend on the machine's speed.
+                        const std::uint32_t now_ms = lockstep ? std::uint32_t(tick_count * 1000 / 60)
+                                                              : std::uint32_t(SDL_GetTicks());
+                        const bool ok = boss2->accept_hit(o, hit, now_ms, fb);
                         boss2_apply(fb);
                         if (!ok) continue;
                         if (boss2_banks[std::size_t(o)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
@@ -6738,8 +7013,11 @@ title_again:
                     else if (id == 0x48 || id == 0x49) pop_at("str +", 0xff6060, 1.0f, feet);
                     else if (id == 0x4a || id == 0x4b) pop_at("def +", 0x6060ff, 1.0f, feet);
                     else if (id == 0x4c || id == 0x4d) pop_at("mp +", 0xffff60, 1.0f, feet);
+                    // common\cure.eft attached to the player at (0, -1, 0) [0x7de1f4 / 0x7d9c34], mode 2
+                    // (FUN_00585ff0 for 0x48..0x4d, FUN_00443390 0x4434a3 for the heals and seeds);
+                    // its depth bias (5.0) draws it in front of her.
                     if ((pk.id >= 0x42 && pk.id <= 0x4d) || pk.id == 0x72 || pk.id == 0x73)
-                        spawn_sim_fx(63, feet, {}, 1.0f, {}, 0, {});    // common\cure.eft on the player
+                        attach_to_player(spawn_sim_fx(63, {}, {}, 1.0f, {}, 0, {}), {0.0f, -1.0f, 0.0f}, 0.0f);
                     spawn_sim_fx(72, pk.pos, {}, 1.0f, {}, 0, {});      // common\z_item.eft
                     sfx_at(88, pk.pos, kSfxAnimVol);                     // player\p_takeitem
                     return true;
@@ -6780,9 +7058,10 @@ title_again:
             {
                 const int slot = skillmp::bracelet_slot(inv.magic);
                 skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
-                mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0);
+                mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0, inv.mp_buff != 0.0f ? inv.mp_buff : 1.0f);   // b900 while c198 & 0x10
                 player.sp_cur = mp.mp; player.sp_lag = mp.lag;
             }
+            hud_state_tick();                                  // the buff timers, the HUD pulse (view_hudstate.inl)
             {   // Oxygen (0x467d91..0x467f29, WATER.md §3): the held tool 0x61 = the Scales.
                 // surface = +0x4ba: over sand2 the ray's surface (elsewhere the latch, as before).
                 const float dmg = oxy.tick(submerged, psand.on_sand2() ? 0x12 : cur_surface, psand.buried,
@@ -6871,6 +7150,8 @@ title_again:
                     if (popups.size() < 32)
                         popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
                                                     {feet.x, feet.y + kOriginH + 0.75f, feet.z}));
+                    // ...then on to the tail's red damage number with 0 (0x4fda7d -> 0x4fe120).
+                    damage_popup(0, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
                     const Impulse k = knock_impulse(angle, 0.1f);
                     player_kb.x += k.x; player_kb.z += k.z;
                     return;
@@ -6880,7 +7161,11 @@ title_again:
                 const int dmg = access::damage_taken(player_damage_after_boost(raw, player.boosting),
                                                      settings().s.access.damage_taken);   // the shell's Cheats
                 player.hp -= dmg;
+                if (player.hp < 1) player.hp = 0;             // FUN_004fd350: hp - dmg < 1.0 -> hp = 0 (no "-3/60")
                 if (dmg > 0) player_hurt_this_tick = true;    // +0x3bc |= 6 (FUN_004fd350 0x4fde3c)
+                // FUN_004fd350's tail 0x4fe10b..0x4fe120: FUN_004fae00(0xffff0000), the red number of
+                // the damage taken, at the player's origin + 0.5. PLAYTEST_1_HUD.md item 3.
+                damage_popup(dmg, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
                 const bool died = player.hp < 1;              // the engine's test is < 1.0
                 const PlayerReaction re = player_reaction(dmg, float(player.max_hp), rtype, died,
                                                           avm.durable(), avm.section());
@@ -7184,9 +7469,8 @@ title_again:
                 --step_timer;
             } else if (grounded && (avm.section() == 0 || avm.section() == 1)) {
                 const bool is_running = avm.section() == 1;
-                // The exe's jitter uses xorshift128 (FUN_00439120) — the same
-                // generator XsoVm implements, though the exe keeps it in a separate
-                // state block (DAT_0074622c) from the script RNG.
+                // The exe's jitter uses xorshift128 (FUN_00439120) — the one
+                // generator (DAT_0074622c) the script's 0x81 roll draws too.
                 step_timer = play_footstep(audio, phys_mesh(room), floor_tri, step_n++,
                                            is_running, game.rng_next());
             } else if (!moving) {
@@ -7322,24 +7606,41 @@ title_again:
             if (g_cam.on) apply_cam_state(cam, feet);
         }
 
-        // SEN trigger: move into a doorway volume to warp. Test the PLAYER only, exactly
-        // as the engine does (FUN_0042cf00 tests actor+0x50) -- the old code also tested
-        // the camera, and the follow camera sits ~24u behind and above the player, so it
-        // entered the door volume well before the player did and warped too early. In fly
-        // mode there is no player, so the probe is the camera itself. EDGE-triggered: the
-        // warp fires only on ENTERING a volume (the engine arms on entry), which is also
-        // what lets a door-return spawn the player standing in the doorway without an
-        // instant re-warp -- inside_trigger is primed to that door at spawn.
-        {
-            const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kCharH * 0.5f, feet.z};
-            int now_in = -1;
-            for (std::size_t i = 0; i < room.sen.triggers.size(); ++i)
-                if (room.sen.triggers[i].contains(probe)) { now_in = int(i); break; }
-            if (now_in >= 0 && now_in != inside_trigger && cooldown <= 0) {
-                const SenTrigger& t = room.sen.triggers[std::size_t(now_in)];
-                transition(t.dest_scene, &t);   // re-primes inside_trigger for the new room
-            } else {
-                inside_trigger = now_in;
+        // SEN trigger FUN_0042cf00 (every real step, from FUN_004281c0 -> FUN_00429450). It tests the
+        // player's ORIGIN actor+0x50/54/58 (feet + kOriginH; in fly mode the camera) against each volume,
+        // the box turned by its yaw (SenTrigger::contains). LEVEL-triggered: no inside/outside memory, no
+        // cooldown [EXPORT 0042cf00.c]. Gates: the step gate (no 0x74ab8f, flag 156 0x76bb8c = 0: no door
+        // during a boss fight), and per hit: no game over (0x74ab71), no Fix (0x75ad90 + 0x75ad94; this
+        // block only runs unfrozen), no pending scene (0x76a538: a staged door or a ChangeScene), flag 129
+        // (0x76bb20) = 0. Retail data never puts an arrival inside the destination's own volumes (0 of 367
+        // records with the yaw applied, build/warp_re/TRANSIT.md §1), so arriving never re-triggers.
+        if (!door_latched && !door_commit && csHost.pending_scene.empty() && death_t == 0 &&
+            game.g_flags[156] == 0 && game.g_flags[129] == 0) {
+            const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kOriginH, feet.z};
+            for (const SenTrigger& t : room.sen.triggers) {
+                if (!t.contains(probe)) continue;
+                // 0x42d0fc..0x42d1be: fade target 1.0, current 0, hold 0 (the speed is left as it is);
+                // stage this volume's descriptor and latch its scene.
+                csHost.fade_cur = 0.0f;
+                csHost.fade_tgt = 1.0f;
+                door_pending = t;
+                door_latched = true;
+                std::printf("  [door] t%llu %s -> %s (fade out)\n", (unsigned long long)tick_count,
+                            room.name.c_str(), t.dest_scene.c_str());
+                if (!fly) {
+                    // 0x42d1cb: i-frames +0x734 = max(+0x734, 255). 0x42d246..0x42d29d: the walk-out goal
+                    // +0x358 / +0x35c = origin + 100 (0x6bdafc) along +0x308, reach +0x364 = 0.1225, speed
+                    // +0x368 = 1.0, run bit +0x12c & 0x20 = the run stage +0x4ca. [approx] +0x308 is taken
+                    // as her facing (free play keeps the command heading on it).
+                    player_iframes = std::max(player_iframes, 255);
+                    const float fl = std::sqrt(face_dir.x * face_dir.x + face_dir.z * face_dir.z);
+                    if (fl > 1e-6f) {
+                        door_walk.on = true;
+                        door_walk.tgt = {feet.x + face_dir.x / fl * 100.0f, feet.y, feet.z + face_dir.z / fl * 100.0f};
+                        door_walk.run = door_running;
+                    }
+                }
+                break;   // 0x76a538 is set: the rest of the pool fails the gate
             }
         }
         }  // ---- end fixed-step logic ----------------------------------------
@@ -7382,7 +7683,11 @@ title_again:
         const float rad = room_diag(room);
         if (drive_cam) cam = *drive_cam;
         update_fog(room, fly ? cam.pos : feet, dt);
-        last_vp = cam.view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f);   // StretchAspect (view_video.inl)
+        // The game's near / far (clip_near / clip_far); free-fly keeps a room-sized pair. The old
+        // rad * 0.01 near put the near plane 60 units out in a skybox room (B_100 is ~6000 across),
+        // clipping the whole corridor and the player away (S_1101).
+        last_vp = fly ? cam.view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f)
+                      : cam.view_proj(video_aspect(cw, ch), clip_near, clip_far);   // StretchAspect (view_video.inl)
         {   // The oxygen bar's anchor: the player's origin through the frame's view-projection.
             const Vec3 o{feet.x, feet.y + kOriginH, feet.z};
             const float* M = last_vp.m.data();
@@ -7430,18 +7735,24 @@ title_again:
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());
+            const Vec3 cf = cam.forward();
+            const Vec3 cright = normalize(cross(Vec3{0, 1, 0}, cf)), cup = cross(cf, cright);   // 0x795f30 / 0x795f40
             for (const Pickup& pk : pickups) {
                 if (pk.delay > 0) continue;
                 const SpriteTex* ic = pauseUi.icon(g, items_tbl, asset_root, pk.id);
                 if (!ic) continue;
+                // FUN_00586e40: flat at (x, ground, z) - F * 0.15, ground = hit y + 0.02 (draw_shadow
+                // lifts its floorY by 0.05, so it gets ground - 0.05). It used to sit at the hit y
+                // itself and z-fought the floor it lies on.
                 const float sa = pk.shadow_alpha();
-                if (sa > 0) draw_shadow(g, view, depth, *ic, pk.pos, pk.ground_y - 0.07f, pk.half, 0, sa);
-                // The glint is a specular add (grey 0..70); fs_char's flash lerps toward white
-                // instead [approximation]. In water the RGB is halved.
+                const Vec3 sc = pk.shadow_centre(cf);
+                if (sa > 0) draw_shadow(g, view, depth, *ic, sc, sc.y - 0.05f, pk.half, 0, sa);
+                // FUN_00586bf0: a camera-plane quad at pk.sprite_centre (it used to stand upright
+                // with its bottom 0.18 under the floor, clipped as the camera moved); the glint is the
+                // vertex specular (+0x12c, grey 7k); in water the RGB is halved.
                 const float t = pk.in_water ? 0.5f : 1.0f;
-                draw_character(g, view, depth, {pk.pos.x, pk.pos.y + 0.1f - pk.half, pk.pos.z}, 2 * pk.half,
-                               *ic, cam.forward(), cam.pos, float(pk.glint(ms)) / 255.0f, t, t, t, false,
-                               pk.alpha());
+                draw_billboard(g, view, depth, *ic, pk.sprite_centre(cup, cf), pk.half, cright, cup,
+                               std::uint32_t(pk.glint(ms)) * 0x010101u, t, t, t, pk.alpha());
             }
             if (!popups.empty()) {                            // layer 0xf, after the world, no Z test
                 static SpriteTex geo20;
@@ -7462,7 +7773,7 @@ title_again:
         // the barrier breaks, so it renders only while the fight is unresolved.
         draw_located_effects(g, world.effects(), asset_root, efl, eft, view, depth,
                              cam.forward(), fx_time);
-        draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward());
+        draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward(), cam.pos);
         draw_weather(view, depth, cam.forward());                 // view_weather.inl
         {   // The bubbles (FUN_004ffdb0): at the owner's origin + 0.75 + yoff, far-to-near.
             struct EmDraw { const Emotion* e; Vec3 base; float d2; };
@@ -7484,9 +7795,14 @@ title_again:
                                   q.u0, q.v0, q.u1, q.v1, cam.forward(), float(q.a8) / 255.0f);
             }
         }
+        draw_fireblur(g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr), view,
+                      video_world_w(cw), video_world_h(ch), cw, ch);   // FireBlur after layer 14 (view_weather.inl)
+        draw_mask_of_eyes(g, mask_of_eyes_on(inv), g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr),
+                          view, video_world_w(cw), video_world_h(ch));   // then the mask pass (view_mask.inl)
         video_world_end(g, frame_view, frame_depth, view, depth);   // the world onto the frame (view_video.inl)
         player.character = character;
         player.magic = inv.magic;
+        hud_state_fill();                                     // view_hudstate.inl
         // EXP bar: progress from this level's threshold to the next (100% at the cap).
         if (ginfo.ok()) {
             const double e0 = ginfo.exp_to_level(player.level);
@@ -7612,17 +7928,15 @@ title_again:
         wgpuTextureRelease(st.texture);
         video_frame_end(ticks);                          // the frame limiter / counters (view_video.inl)
     }
-    // LAB_00427750 -> FUN_0042f510: the game over's Return to Title. [approx] the old room's GPU
-    // buffers are not freed (as on exit). A CLERIA_DRIVE run has no title to show (the title
-    // loop needs a presentable surface), so it ends here instead.
+    // LAB_00427750 -> FUN_0042f510: the game over's Return to Title, and the pause book's
+    // (FUN_005b8d40). [approx] the old room's GPU buffers are not freed (as on exit). A
+    // CLERIA_DRIVE run shoots the title once and quits there (title.ppm).
     if (return_to_title) {
-        std::printf("  [gameover] Return to Title%s\n", offscreen ? " (CLERIA_DRIVE: exit)" : "");
-        if (!offscreen) {
-            show_title = true;
-            g_rig_room.clear();                          // the camera rig re-reads the next room
-            emotions.clear();
-            goto title_again;
-        }
+        std::printf("  [game] Return to Title: back to the title\n");
+        show_title = true;
+        g_rig_room.clear();                              // the camera rig re-reads the next room
+        emotions.clear();
+        goto title_again;
     }
     SDL_DestroyWindow(win); SDL_Quit();
     return 0;

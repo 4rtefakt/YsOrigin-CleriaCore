@@ -190,6 +190,23 @@ int main() {
         const float e = sweep_up(o, {0, 2.0f, 0}, r, 0.8f);
         const float want = 3.0f - std::sqrt(r * r - 0.45f * 0.45f) - 2.0f;
         check(std::fabs(e - want) < 0.01f, "ceiling: an overhang edge catches the sphere's rim");
+        // ... but a LEDGE (that top with its riser wall below, x = 0.45) keeps the engine's sphere a
+        // full radius out: from sphere_wall_clear's spot the rim passes the edge (PLAYTEST_1.md §1).
+        RoomMesh l = o;
+        const RoomMesh riser = mesh({{0.45f, -1, -10}, {0.45f, 3, -10}, {0.45f, 3, 10},
+                                     {0.45f, -1, -10}, {0.45f, 3, 10}, {0.45f, -1, 10}});
+        const std::uint32_t lb = std::uint32_t(l.vertices.size());
+        for (const RoomVertex& v : riser.vertices) l.vertices.push_back(v);
+        for (std::uint32_t k : riser.indices) l.indices.push_back(lb + k);
+        const Vec3 cl = sphere_wall_clear(l, {0, 2.0f, 0}, r);
+        check(std::fabs(cl.x - (0.45f - r - 0.01f)) < 1e-3f && cl.y == 2.0f, "ledge: the sphere stands a radius off the riser");
+        check(std::fabs(sweep_up(l, cl, r, 0.8f) - 0.8f) < 1e-3f, "ledge: the rise beside a ledge is not caught");
+        check(std::fabs(sphere_wall_clear(o, {0, 2.0f, 0}, r).x) < 1e-6f, "ledge: no riser, no move (the overhang still catches)");
+        // A wall built of stacked quads (a seam at y 2) that the sphere overlaps (a corridor too
+        // narrow to clear): its inner edges never stop a rise.
+        RoomMesh s = mesh({{0.5f, -2, -10}, {0.5f, 2, -10}, {0.5f, 2, 10}, {0.5f, -2, -10}, {0.5f, 2, 10}, {0.5f, -2, 10},
+                           {0.5f, 2, -10}, {0.5f, 6, -10}, {0.5f, 6, 10}, {0.5f, 2, -10}, {0.5f, 6, 10}, {0.5f, 2, 10}});
+        check(std::fabs(sweep_up(s, {0, 1.5f, 0}, r, 0.8f) - 0.8f) < 1e-3f, "wall seam: an overlapped wall's inner edge does not stop the rise");
     }
     // 12. The swept sphere against a triangle EDGE (the face point misses): a wall in x=2 whose
     // side edge runs at z=0.3, 0.3 off the path, is touched at x = 2 - sqrt(r^2 - 0.09) and the

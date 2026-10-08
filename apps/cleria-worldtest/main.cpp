@@ -485,6 +485,32 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- SEN volume yaw (+0x23c; FUN_0042cf00's turned box, build/warp_re/TRANSIT.md §1) -------
+    // S_2011's door 2 (to S_2017) is a box turned 135 deg (centre (-22.16, 18.9, 61.23), x -3..3,
+    // z -8..2). A point 7 back along the turned box's -z axis is inside it but outside the unturned
+    // bounds; a point near the unturned box's corner is the reverse.
+    {
+        const std::vector<std::uint8_t> b = read(root / "MAP" / "S_20" / "S_2011" / "S_2011.SEN");
+        check(!b.empty(), "loaded S_2011.SEN");
+        if (!b.empty()) {
+            const Sen sen = Sen::parse(std::span<const std::uint8_t>(b.data(), b.size()));
+            check(sen.triggers.size() == 3, "S_2011 has 3 exits");
+            if (sen.triggers.size() == 3) {
+                const SenTrigger& d = sen.triggers[2];
+                check(d.dest_scene == "S_2017" && std::fabs(d.yaw - 135.0f * 0.0174532925f) < 1e-4f,
+                      "door 2 -> S_2017 is turned 135 deg (+0x23c)", std::to_string(d.yaw));
+                auto in_aabb = [&](const Vec3& p) {
+                    return p.x >= d.box_lo.x && p.x <= d.box_hi.x && p.y >= d.box_lo.y && p.y <= d.box_hi.y &&
+                           p.z >= d.box_lo.z && p.z <= d.box_hi.z;
+                };
+                const Vec3 a{-27.105f, 19.9f, 66.177f}, c{-19.5f, 19.9f, 54.0f};
+                check(d.contains(a) && !in_aabb(a), "a point of the turned volume outside the unturned bounds");
+                check(!d.contains(c) && in_aabb(c), "a point of the unturned bounds outside the turned volume");
+                check(d.contains(d.position), "the turned volume contains its centre");
+            }
+        }
+    }
+
     // The SEN facing degree maps to our Actor.yaw (vx=sin, vz=cos, 0 -> +Z) DIRECTLY,
     // no flip -- the engine's deg2rad(90-deg) (build/warp_re/FACING.md) is measured from
     // its own 0 -> +X heading basis, and our yaw basis is 90 off, so the flip cancels.

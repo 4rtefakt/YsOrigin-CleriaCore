@@ -55,6 +55,8 @@ class WndText {
     int face() const { return face_; }                    // +0x258: f_(200 + 10*face) (-1 none)
     int face_frame() const { return frame_; }             // +0x25c
     float box_alpha() const { return box_; }              // +0x248
+    const RichLayout& layout() const { return layout_; }  // the body as laid out (drive / tests)
+    std::uint32_t reveal() const { return reveal_; }      // +0x250 (16.16 glyphs)
     // CleriaCore's text-speed assist (access::TextSpeed): 0 retail, 1 always the fast rate, 2 the
     // whole message at once. The host sets it; 0 is the faithful window.
     int text_speed = 0;

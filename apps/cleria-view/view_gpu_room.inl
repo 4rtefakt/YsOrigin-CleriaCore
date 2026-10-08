@@ -33,6 +33,7 @@ struct Gpu {
     WGPURenderPipeline char_pipeline_add{}; // additive variant, for glow overlays (Topic selection wash)
     WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
     WGPURenderPipeline mat_pipe[4][2]{};  // blended YMO materials: [blend mode 1..3][z-write]
+    WGPURenderPipeline zpre_pipe{};       // FUN_005f8de0's depth pre-pass (material_zprepass)
     WGPUBuffer ubuf{};
     WGPUBindGroup ubind{};
     WGPUSampler sampler{};
@@ -59,6 +60,18 @@ struct Room {
     RoomMesh coll;           // the `_.YMO` collision hulls — what physics collides against
     std::vector<std::uint8_t> base_a;  // each vertex's alpha after bake_material_alpha (apply_object_alpha)
     std::vector<float> batch_alpha;    // each batch's live object (model) alpha; empty / missing = 1
+    // The objects the Mask of Eyes gates (SOB +0x14c & 0x1000 / 0x2000; view_mask.inl).
+    struct MaskObj {
+        std::size_t rr = 0;              // index in mesh.object_ranges
+        long cr = -1;                    // index in coll.object_ranges (-1: no hull)
+        std::uint32_t bits = 0;          // +0x298 & 6: 2 = gone under the mask, 4 = only under it
+        float alpha = 1, target = 1, step = 0;   // +0x418 / +0x41c / +0x420
+        bool hidden = false;             // +0x474
+        bool coll_off = false;
+        std::vector<Vec3> coll_saved;    // the hull's vertices while it is collapsed
+    };
+    std::vector<MaskObj> mask_objs;
+    bool mask_seeded = false;
     Sen sen;
     Sfo fog;                 // per-region scene fog (SFO sidecar)
     Scm cam;                 // per-region cameras (SCM sidecar)
@@ -235,6 +248,20 @@ static int material_blend_mode(const DrawBatch& b) { return material_blend_mode(
 static bool material_zwrite(const DrawBatch& b) {
     return (b.mat_flags & 0x20000) == 0 && (b.mat_flags & 0x10) == 0;
 }
+// The depth pre-pass FUN_005fb0e0 issues right before a subset's FUN_005f92b0 draw
+// (0x5fb418..0x5fb45a): draw flags & 0x1014 == 0 (a static GoMesh passes 0 or 0x400,
+// FUN_00561f40), a material with flags 0x10, no 0x20000 and d3 <= 1, and
+// !(DAT_00765553 & 0x20 && model flags & 1) [H: that byte taken as clear, as for local_70].
+// FUN_005f8de0(.., 0xbf) then draws the subset once with ZENABLE 1, ZWRITEENABLE 1,
+// ALPHABLENDENABLE 0, ALPHATESTENABLE 1, ALPHAREF 0xbf (ALPHAFUNC stays GREATEREQUAL, set
+// only by the state reset FUN_005f1870), stage 0 ALPHAOP SELECTARG1(TEXTURE) on the
+// material's own texture (rt+0x58, as FUN_005f6e50 binds it) and COLORWRITEENABLE 8 (alpha
+// only). So a "force blend, z-write off" cutout — 00znuki00, S_0002's Roda-tree foliage —
+// still puts the depth of its solid texels (tex alpha >= 0xbf) down, and whatever the layer
+// draws later behind it (00znuki10, the mountain band, flags 0x20000: no pre-pass) is hidden.
+static bool material_zprepass(const DrawBatch& b) {
+    return (b.mat_flags & 0x20000) == 0 && (b.mat_flags & 0x10) != 0 && b.blend <= 1;
+}
 // FUN_005faca0's pass byte 3 (subset bit 8): a material with flags 0x8040 (and not
 // 0x8000000, which goes to byte 4 first). A static GoMesh (type 0, FUN_00561f40 — the room
 // and its scene objects) queues that pass on render layer 0xb (0x5621eb..0x5621f7), which
@@ -270,8 +297,7 @@ static void bake_material_alpha(RoomMesh& m) {
 // object draws as mode 1 the way FUN_005f92b0 switches it when a < 1, and a = 0 draws nothing
 // (FUN_005faca0). A subset drawn blended gets its vertex alpha = load-time value x d7 (unless
 // the load already baked d7 in) x this. Also restores the d7 bake after a re-bake.
-static void apply_object_alpha(Room& room, const std::string& lname, float a) {
-    const RoomMesh::ObjRange* r = room.mesh.object_range(lname);
+static void apply_object_alpha(Room& room, const RoomMesh::ObjRange* r, float a) {
     if (!r || room.base_a.size() != room.mesh.vertices.size()) return;
     const float k = std::clamp(a, 0.0f, 1.0f);
     room.batch_alpha.resize(room.mesh.batches.size(), 1.0f);
@@ -285,6 +311,9 @@ static void apply_object_alpha(Room& room, const std::string& lname, float a) {
         for (std::uint32_t v = b.first_vert; v < b.first_vert + b.vert_count && v < r->v1; ++v)
             room.mesh.vertices[v].a = std::uint8_t(float(room.base_a[v]) * f + 0.5f);
     }
+}
+static void apply_object_alpha(Room& room, const std::string& lname, float a) {
+    apply_object_alpha(room, room.mesh.object_range(lname), a);
 }
 
 // `shared_white` is owned by Gpu, not the room — missing-texture batches store
@@ -502,6 +531,9 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
         std::size_t late = 0;
         for (const DrawBatch& b : r.mesh.batches) late += room_late_layer(b) && b.index_count;
         if (late) std::printf("    layer 0xb: %zu batches (drawn after the actors)\n", late);
+        std::size_t pre = 0;
+        for (const DrawBatch& b : r.mesh.batches) pre += material_zprepass(b) && b.index_count;
+        if (pre) std::printf("    depth pre-pass: %zu batches (FUN_005f8de0)\n", pre);
     }
     // CopyDst: the UV-scroll integrator rewrites scrolling materials' vertices in
     // place each frame via wgpuQueueWriteBuffer, which requires it.
@@ -801,7 +833,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
 
     // Blended YMO materials: FUN_005f92b0's jump table 0x5fa768 (MATERIAL.md §4) — mode 1
     // SRCALPHA/INVSRCALPHA, 2 SRCALPHA/ONE, 3 SRCALPHA/ONE REVSUBTRACT; COLORWRITEENABLE 7
-    // (RGB only: `|8` is set on the opaque path alone). Same depth test as the world, z-write
+    // (RGB only: `|8` is set on the opaque path alone). Depth test LessEqual (below), z-write
     // per material (material_zwrite). Modes 2/3 set FOGCOLOR 0 (local_60), so fs_mat_add
     // fogs toward black.
     for (int mode = 1; mode <= 3; ++mode)
@@ -817,9 +849,23 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
             mfs.entryPoint = sv(mode == 1 ? "fs_mat" : "fs_mat_add");
             WGPUDepthStencilState mds = ds;
             mds.depthWriteEnabled = zw ? WGPUOptionalBool_True : WGPUOptionalBool_False;
+            // D3DRS_ZFUNC is LESSEQUAL (4): its only writer is the state reset FUN_005f1870
+            // (0x5f196b). It matters here: a blended subset must pass where its own depth
+            // pre-pass (material_zprepass) has just written the same depth.
+            mds.depthCompare = WGPUCompareFunction_LessEqual;
             WGPURenderPipelineDescriptor mpd = pd; mpd.fragment = &mfs; mpd.depthStencil = &mds;
             g.mat_pipe[mode][zw] = wgpuDeviceCreateRenderPipeline(g.device, &mpd);
         }
+    // FUN_005f8de0's pre-pass (material_zprepass): alpha test texture alpha >= 0xbf, depth
+    // LESSEQUAL + write, no blending. It writes destination alpha only (COLORWRITEENABLE 8);
+    // nothing in CleriaCore reads destination alpha, so no colour channel is written.
+    {
+        WGPUColorTargetState zt = target; zt.blend = nullptr; zt.writeMask = WGPUColorWriteMask_None;
+        WGPUFragmentState zfs = fs; zfs.targets = &zt; zfs.entryPoint = sv("fs_zpre");
+        WGPUDepthStencilState zds = ds; zds.depthCompare = WGPUCompareFunction_LessEqual;
+        WGPURenderPipelineDescriptor zpd = pd; zpd.fragment = &zfs; zpd.depthStencil = &zds;
+        g.zpre_pipe = wgpuDeviceCreateRenderPipeline(g.device, &zpd);
+    }
 
     WGPUBufferDescriptor ud = {};
     ud.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst; ud.size = 112;
@@ -963,13 +1009,20 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
             if (ka <= 0.0f) continue;                       // FUN_005faca0: nothing at a = 0
             const int mode = material_blend_mode(b, b.mat_alpha * ka);
             if ((mode != 0) != (blended != 0)) continue;
-            if (blended)
-                wgpuRenderPassEncoderSetPipeline(pass, g.mat_pipe[mode][material_zwrite(b) ? 1 : 0]);
             // A resolved (or failed-load) texture is in room.binds; a genuinely untextured
             // material (index -1) renders its dark diffuse via black_bind, not white.
             WGPUBindGroup tb = (b.texture >= 0 && b.texture < int(room.binds.size()))
                                    ? room.binds[b.texture] : g.black_bind;
             wgpuRenderPassEncoderSetBindGroup(pass, 1, tb, 0, nullptr);
+            // The depth pre-pass, right before the subset's own draw (FUN_005fb0e0 0x5fb45a).
+            // Only for a blended draw: an opaque one (the d13 override) writes a superset of
+            // that depth itself.
+            if (blended && material_zprepass(b)) {
+                wgpuRenderPassEncoderSetPipeline(pass, g.zpre_pipe);
+                wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
+            }
+            if (blended)
+                wgpuRenderPassEncoderSetPipeline(pass, g.mat_pipe[mode][material_zwrite(b) ? 1 : 0]);
             wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
         }
     }

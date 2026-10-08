@@ -92,6 +92,23 @@ inline Spark place_spark(const Vec3& origin, const Vec3& cam_fwd, float to_playe
     return s;
 }
 
+// The hurt tint. FUN_00478510 writes +0x238 = 1.65 (0x3fd33333) first thing, on both paths and
+// before the cast-0x1a return; FUN_0045a3a0 (the integrator FUN_0045a510's helper, every tick)
+// steps a non-zero +0x238 by -0.075 (0x6bd174) clamped at 0 [C-DIS, AITICK.md §8]; and while it is
+// not 0.0, FUN_00473c60 forces the specular RGB to (0x6b, 0x37, 0x13) before the marker glow is
+// added [BYTES 0x473ea8..0x473ec5]. The specular is the vertex colour D3D adds after the texture
+// modulate (SPECULARENABLE is on), so a hit monster brightens dim orange for 22 ticks; there is
+// no white flash, and a guarded / zero hit sets nothing (it never reaches FUN_00478510).
+inline constexpr float kHurtTimer = 1.65f;
+inline constexpr float kHurtStep = 0.075f;
+inline constexpr std::uint32_t kHurtSpecular = 0x6b3713;
+inline float step_hurt(float t) {
+    if (t == 0.0f) return 0.0f;
+    t -= kHurtStep;
+    return t < 0.0f ? 0.0f : t;
+}
+inline std::uint32_t hurt_specular(float t) { return t != 0.0f ? kHurtSpecular : 0u; }
+
 // FUN_00478510's alive path also returns at once, its draw taken, for cast 0x1a while
 // g_flags[156] (0x76bb8c, a boss fight) is set (0x4793f9..0x479405).
 inline bool alive_spark_suppressed(int cast, bool boss_fight) { return boss_fight && cast == 0x1a; }

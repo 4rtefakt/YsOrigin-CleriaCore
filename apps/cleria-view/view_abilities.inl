@@ -6,6 +6,7 @@
 //   boostkey     one Boost press (+0x50c & 8): the mover 0x465b1d's entry / super
 //   hurt=atk     an atk-power hit on the player through the Chr_Damage path (view_xso13_damage.inl):
 //                refused while the i-frames +0x734 run, priced by FUN_004fa740, halved in Boost
+//   kb=x,z       add (x, z) to the player's knock channel 1 +0x338/+0x340 (PLAYTEST_1.md item 4)
 auto abil_drive = [&](const std::string& cmd) -> bool {
     if (cmd == "abil") {
         std::printf("  [abil] t%llu sec 0x%x mp %.0f lag %.0f boost %.0f boosting %d iframes %d magic %d "
@@ -20,6 +21,11 @@ auto abil_drive = [&](const std::string& cmd) -> bool {
         return true;
     }
     if (cmd == "boostkey") { try_boost(); return true; }
+    if (cmd.rfind("kb=", 0) == 0) {          // kb=x,z: add to the player's knock channel 1 (+0x338/+0x340)
+        float x = 0, z = 0;
+        if (std::sscanf(cmd.c_str() + 3, "%f,%f", &x, &z) == 2) { player_kb.x += x; player_kb.z += z; }
+        return true;
+    }
     if (cmd.rfind("hurt=", 0) == 0) {
         csHost.player_damage.push_back({float(std::atof(cmd.c_str() + 5)), false, 0});
         return true;

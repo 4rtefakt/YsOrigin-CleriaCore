@@ -155,6 +155,7 @@ struct Shell {
     // Draw the shell over `view` (the finished frame) when the panel is open or the launcher is up.
     void frame(Gpu& g, WGPUTextureView view, std::uint32_t w, std::uint32_t h) {
         g_shell_focus = ready && (open || launcher);       // every frame, so it can never stay stuck on
+        if (g_shell_focus) g_input_relatch = true;        // re-latch the mapper on hand-back (view_input.inl)
         if (!ready || (!open && !under && hud.empty()) || w == 0 || h == 0) return;
         ui::S = float(h) / 1000.0f;                       // [H] the reference shots were 1125 px tall
         // ImGui shows / shapes the OS pointer only while the shell owns the input: under hud layers

@@ -91,10 +91,12 @@ float placement_floor(const RoomMesh& m, Vec3 p, bool enemy) {
 Vec3 resolve_walls(const RoomMesh& m, Vec3 pos, float radius, float height) {
     const auto& idx = m.indices;
     const auto& vp = m.vertices;
-    // Query point at mid-capsule height.
+    // Query point at mid-capsule height. It follows each push within a pass: measured from the
+    // pass's start, two triangles of one wall (a wall's stacked quads) both pushed by the full
+    // depth, so a player walking into it bounced 0.1 every tick (S_1006's mask wall; PLAYTEST_1.md §6).
     for (int iter = 0; iter < 4; ++iter) {
         bool moved = false;
-        const Vec3 q = {pos.x, pos.y + height * 0.5f, pos.z};
+        Vec3 q = {pos.x, pos.y + height * 0.5f, pos.z};
         for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
         if (water_tri(m, i / 3)) continue;
             const Vec3 a = v(vp[idx[i]]), b = v(vp[idx[i + 1]]), c = v(vp[idx[i + 2]]);
@@ -116,6 +118,7 @@ Vec3 resolve_walls(const RoomMesh& m, Vec3 pos, float radius, float height) {
                 const float push = (radius - d);
                 pos.x += (dx / d) * push;
                 pos.z += (dz / d) * push;
+                q.x = pos.x; q.z = pos.z;
                 moved = true;
             }
         }
@@ -302,6 +305,11 @@ float sweep_up(const RoomMesh& m, const Vec3& c, float r, float dy) {
         if (std::max({a.x, b.x, d.x}) < c.x - r || std::min({a.x, b.x, d.x}) > c.x + r) continue;
         if (std::max({a.z, b.z, d.z}) < c.z - r || std::min({a.z, b.z, d.z}) > c.z + r) continue;
         if (std::max({a.y, b.y, d.y}) < c.y - r || std::min({a.y, b.y, d.y}) > c.y + dy + r) continue;
+        // Walls (resolve_walls' |n.y| <= 0.6 set) are the horizontal push-out's: a rise runs
+        // parallel to them, and the engine's sphere never stands inside one to catch its inner
+        // edges (a wall's own diagonal / stacked seams stopped jumps in narrow spots;
+        // PLAYTEST_1.md §1). [approx] a steep overhanging slant does not stop a rise.
+        if (std::fabs(normalize(cross(sub(b, a), sub(d, a))).y) <= 0.6f) continue;
         const Vec3 q = closest_on_tri(c, a, b, d);
         const Vec3 cq = sub(q, c);
         const float d2 = dot(cq, cq);
@@ -323,6 +331,39 @@ float sweep_up(const RoomMesh& m, const Vec3& c, float r, float dy) {
     if (push <= 0.0f) return push;
     if (!best.hit) return dy;
     return std::max(0.0f, best.t * dy - skin);
+}
+
+Vec3 sphere_wall_clear(const RoomMesh& m, const Vec3& c, float r) {
+    // resolve_walls' wall set and horizontal push over [c.y - r, c.y + r], but each push is
+    // measured from the already-moved centre (resolve_walls keeps its query point for a whole
+    // pass, so two coplanar triangles of one wall push twice).
+    const auto& idx = m.indices;
+    const auto& vp = m.vertices;
+    const float rw = r + 0.01f;     // [H] a margin, so an edge flush with the wall face is not grazed
+    Vec3 q = c;
+    for (int iter = 0; iter < 4; ++iter) {
+        bool moved = false;
+        for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+            if (water_tri(m, i / 3)) continue;
+            const Vec3 a = v(vp[idx[i]]), b = v(vp[idx[i + 1]]), d = v(vp[idx[i + 2]]);
+            if (std::max({a.y, b.y, d.y}) < q.y - r || std::min({a.y, b.y, d.y}) > q.y + r) continue;
+            if (q.x + rw < std::min({a.x, b.x, d.x}) || q.x - rw > std::max({a.x, b.x, d.x}) ||
+                q.z + rw < std::min({a.z, b.z, d.z}) || q.z - rw > std::max({a.z, b.z, d.z})) continue;
+            const Vec3 nn = normalize(cross(sub(b, a), sub(d, a)));
+            if (std::fabs(nn.y) > 0.6f) continue;   // floors / ceilings: the sweep's business
+            const Vec3 cp = closest_on_tri(q, a, b, d);
+            const float dx = q.x - cp.x, dz = q.z - cp.z;
+            const float d2 = dx * dx + dz * dz;
+            if (d2 < rw * rw - 1e-6f && d2 > 1e-9f) {
+                const float dd = std::sqrt(d2);
+                q.x += dx / dd * (rw - dd);
+                q.z += dz / dd * (rw - dd);
+                moved = true;
+            }
+        }
+        if (!moved) break;
+    }
+    return q;
 }
 
 bool segment_blocked(const RoomMesh& m, const Vec3& a, const Vec3& b) {

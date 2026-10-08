@@ -47,7 +47,34 @@ CASES = {
     "gameover_title": dict(
         room="S_10/S_1009/S_1009",
         drive="70:hp=0;200:down;210:ok;400:quit",
-        expect=["[gameover] gameover.dds", "[gameover] chose title", "Return to Title"]),
+        expect=["[gameover] gameover.dds", "[gameover] chose title", "Return to Title",
+                "[title] t60 fader 0.00 list 1 book 0"]),
+    # PLAYTEST_1_MISC.md #3: the pause book's Option > Return to Title > Yes (FUN_005b8d40, box 0xf) leaves
+    # the game for the title: its list is up once the entry fade-in is over (the drive shot, title.ppm).
+    "book_return_title": dict(
+        room="S_10/S_1009/S_1009",
+        drive="20:esctap;70:right;80:right;90:right;120:ok;160:up;200:up;230:ok;260:left;290:ok;400:quit",
+        expect=["[book] Return to Title", "[game] Return to Title: back to the title",
+                "[title] t60 fader 0.00 list 1 book 0"]),
+    # PLAYTEST_1_MISC.md #1: the book's Crystal map starts @UseWing with the player bound (FUN_005abd10
+    # 0x5accea), so its Eft_LocateChr(51, 998, .., 'warp') rides the player. The cleanse unlocks warp 1.
+    "crystal_warp_book": dict(
+        room="S_10/S_1009/S_1009",
+        drive=CLEANSE + ";240:esctap;290:right;330:ok;360:up;370:up;380:left;390:left;400:left;410:left;"
+              "430:ok;470:ok;510:up;530:ok;570:fx;900:quit",
+        expect=["t570 fx", "'warp' id 51 alpha 1.000 -> 1.000 attach 1", ">> entering S_1009"]),
+    # PLAYTEST_1_MISC.md #2: a Yunica / Hugo cleanse places eft_clear 221 (SAVE.XSO pc 69) and the aura 84
+    # (s_SaveObjectChange pc 111), never Toal's aura 85; Toal's places 85 alone.
+    "cleanse_fx_hugo": dict(
+        room="S_10/S_1009/S_1009", char="2",
+        drive=CLEANSE + ";90:fx;300:fx;320:quit",
+        expect=["t90 fx", "'eft_clear' id 221", "'eft_heal' id 84", "t300 fx", "'eft_heal' id 84"],
+        absent=["'eft_heal' id 85"]),
+    "cleanse_fx_toal": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="5:flag=310,1;6:flag=86,1;10:at=-0.036,8.2,0;20:act;90:fx;300:fx;320:quit",
+        expect=["t90 fx", "'eft_heal' id 85", "t300 fx", "'eft_heal' id 85"],
+        absent=["'eft_heal' id 84", "'eft_clear' id 221"]),
     # The shell's Cutscene skip = Double press (build/shell_re/ACCESS.md §1): during the cleanse the first
     # Esc only shows the prompt (the world stays frozen), the second skips to the end.
     "access_skip_double": dict(
@@ -114,6 +141,20 @@ CASES = {
         room="S_20/S_2008/S_2008",
         drive="20:exit=0;40:quit",
         expect=[">> entering S_2007", "layer 0xb: 2 batches (drawn after the actors)"]),
+    # FUN_005f8de0's cutout depth pre-pass (MATERIAL.md §6.4): S_0002's Roda-tree foliage (00znuki00,
+    # flags 0x10, z-write off) lays down its solid texels' depth, so the mountain band 00znuki10
+    # (0x20000: no pre-pass) drawn after it no longer paints over the tree in Hugo's prologue.
+    "cutout_prepass": dict(
+        room="S_00/S_0002/S_0002",
+        drive="20:quit",
+        expect=["depth pre-pass: 1 batches (FUN_005f8de0)"]),
+    # op 0xa2 Scene_SetClipPlain (FUN_004348a0): S_1101's root sets the projection to (1, 4000). The
+    # frame used a near plane of room diag x 0.01 = 60 units here (the B_100 skybox is ~6000 across),
+    # which clipped the corridor and the player away, leaving only the skybox.
+    "skybox_clip": dict(
+        room="S_11/S_1101/S_1101",
+        drive="20:quit",
+        expect=["[scene] clip planes 1.0 / 4000.0 (op 0xa2)"]),
     # Leaving S_2099 mid-intro (a frozen world) used to snap the arrival to the highest surface
     # at that x/z: S_2012's closed door_01 top, y 10.5. The snap is now the floor below the origin.
     "frozen_arrival_floor": dict(
@@ -157,6 +198,84 @@ CASES = {
         drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;20:obj=kabe_00;30:atk;200:obj=kabe_00;"
               "210:move=0,1,200;420:quit",
         expect=["[hit] kabe_00 -> s_kabe00", ">> entering S_2010"]),
+    # PLAYTEST_1 §1: a jump beside a wall rises as high as on open floor (2.63). The ceiling sweep ran
+    # from the 0.45 capsule's spot, so the 0.675 sphere's rim caught the wall top / a ledge / a wall's
+    # inner seam: S_1002's east wall cut it to 2.43, S_1001's corner (x -16, z 20.7 / 22) to 0.30.
+    "jump_wall_s1002": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:move=1,0,200;100:jump;118:pos;119:quit",
+        expect=["feet (2.536, 2.530, -0.640)"]),   # z: §6 (no more slide along the wall)
+    "jump_corner_s1001": dict(
+        room="S_10/S_1001/S_1001",
+        drive="10:at=-18.5,21,90;40:move=1,0,59;100:jump;118:pos;119:quit",
+        expect=["feet (-16.450, -1.383, 21.150)"]),   # z: §6
+    # PLAYTEST_1 §4: Hugo through a wall on the way down. A tick's move past the 0.45 radius (a knock's 0.36
+    # cap + the run into the wall) put the centre beyond S_1002's one-plane east wall (x ~2.99) and the push-out
+    # finished the crossing (t58 x 2.54 -> 3.85, landing at x 17.9). The move is now pushed out in sub-steps.
+    "kb_wall_s1002": dict(
+        room="S_10/S_1002/S_1002", char="2",
+        drive="10:at=2.0,0.6,90;12:move=1,0,100;40:jump;58:kb=2,0;90:pos;91:quit",
+        expect=["feet (2.536, -0.098, 0.600)"]),   # z: §6
+    # PLAYTEST_1 §5: the B (pad Button 2 = Jump/Cancel) that closes the pause book, still held, is not a jump:
+    # the player reads the mapper's pressed edge (+0x24 -> +0x50c), whose history ran through the book ticks.
+    # The view's own last-tick latch had gone stale and jumped (feet y 2.489 at t75). X (DIK 45) the same.
+    "book_close_b": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:pos;20:esctap;60:padhold=1,40;75:pos;76:quit",
+        expect=["[book] t60 closed (cancel)", "feet (-0.005, -0.098, -0.640) O2 6000 a0 hp 60 sub 0 sec 0x2"]),
+    "book_close_x": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:pos;20:esctap;60:keyhold=45,40;75:pos;76:quit",
+        expect=["[book] t60 closed (cancel)", "feet (-0.005, -0.098, -0.640) O2 6000 a0 hp 60 sub 0 sec 0x2"]),
+    # ...and a tap with no menu open still jumps; B held across the F1 shell's close does not (the re-latch).
+    "jump_tap_b": dict(
+        room="S_10/S_1002/S_1002",
+        drive="20:padhold=1,1;30:pos;31:quit",
+        expect=["feet (-0.005, 2.251, -0.640)"]),
+    "shell_close_b": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:pos;20:shell;21:padhold=1,80;40:pos;41:quit",
+        expect=["[drive] t40 pos", "feet (-0.005, -0.098, -0.640) O2 6000 a0 hp 60 sub 0 sec 0x2"]),
+    # PLAYTEST_1 §6: an idle player against a wall stays put (retail sweeps a zero move: FUN_0045a510), and
+    # one pushing into it holds a steady contact. S_1006's mask wall (z 5, stacked quads), enemies removed:
+    # walk north until t145, then nothing; the same feet at t146 (pushing just ended), t200 and t300.
+    "idle_wall_s1006": dict(
+        room="S_10/S_1006/S_1006", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="15:killall;20:at=24,0,1;25:move=0,1,120;140:pos;141:pos;146:pos;200:pos;300:pos;301:quit",
+        expect=["feet (24.275, 0.000, 4.550)"] * 5),
+    # PLAYTEST_1 §2: the cutscene-start facing. S_3015's EV_3015_Yunica_1 runs at entry: Fix, Chr_Pos(13)
+    # (snaps +0x314 to +0x308), Chr_Dir(13, 315). The world player's +0x308 was the SCT's (heading 90), so
+    # she snapped round and turned back (t22 face 100.3); now +0x308 is the arrival heading (135).
+    "facing_arrival_s3015": dict(
+        room="S_30/S_3009/S_3009",
+        drive="10:flag=251,1;20:exit=1;22:chr=13;30:quit",
+        expect=["arrival facing 315 deg", "[chr] 13 face 135.0 cmd 135.0", "pos (155.55, 1.50, -7.72)"]),
+    # A SEN arrival facing of 0 is Falcom 0 (+Z), not "unset": S_1097 -> S_2000 kept S_1097's facing (-90).
+    "facing_arrival_zero": dict(
+        room="S_10/S_1097/S_1097",
+        drive="5:at=-0.06,0.1,180;20:exit=0;22:chr=13;30:quit",
+        expect=[">> entering S_2000", "arrival facing 0 deg", "[chr] 13 face 90.0 cmd 90.0"]),
+    # S_3002's soldiers turn under Evnt_3002_Yunica's Fix (LookAtChr, then Chr_Dir); on the thaw #167 used
+    # to pop back to its pre-cutscene heading (t1160 face 439.7). +0x314 is one field: it stays at -45.
+    "facing_thaw_s3002": dict(
+        room="S_30/S_3002/S_3002",
+        drive="5:opt=InfiniteHP=1;10:every=30,1170,ok;1160:chr=167;1161:quit",
+        expect=["[drive] t1160 chr=167", "[chr] 167 face -45.0 cmd -45.0"]),
+    # The SCT yaw +0x108 is an int (0x4342e1 `mov ecx,[edi]` -> FUN_00443a80): S_1004's 180-degree M100
+    # (#189) faces heading -90; read as a float it was a denormal and faced 90 like its neighbour #187.
+    "sct_yaw_s1004": dict(
+        room="S_10/S_1004/S_1004",
+        drive="1:chr=189,187;2:quit",
+        expect=["[chr] 189 face -90.0 cmd -90.0", "[chr] 187 face 90.0 cmd 90.0"]),
+    # PLAYTEST_1 §3: the brains wake on FUN_0045d3c0's 2.5 sphere round the origin, not on the feet point.
+    # S_2001's Oggnome #54 begins its 0x12e vanish on tick 1 and freezes off screen at alpha 1; a camera
+    # panning so it rises in from the bottom edge used to show that opaque frozen pose until the feet
+    # crossed in (t120: culled 1 alpha 1.00); now it wakes first and has vanished (culled 0 alpha 0.00).
+    "oggnome_wake_s2001": dict(
+        room="S_20/S_2001/S_2001", env=dict(CLERIA_AI="1"),
+        drive=";".join("%d:cam=33.1,14,%.2f,90,-45" % (40 + i, 34 - i * 0.12) for i in range(120)) + ";125:quit",
+        expect=["[ai] #54 cast 54", "culled 1 sec 302", "alpha 1.00",
+                "[ai] #54 cast 54", "culled 0 sec 302 mov 1.00 hp 180.0 mk 0 at (33.1,29.8) alpha 0.00"]),
     # A load is the "load" warp to the snapshot (0x76c13c/140/144), placed by FUN_00459ff0: S_2014's
     # door at y 36 stays at 36 (the old re-ground put it on the y 48.5 roof).
     "saveload_floor": dict(
@@ -236,14 +355,24 @@ CASES = {
         room="S_30/S_3009/S_3009", drive="300:quit", env=dict(CLERIA_WX_LOG="1"),
         expect=["[weather] FrameSmoke(120)", "[weather] FireBlur(1.0000, -0.0025, 0.", "[weather] FireDrop(180)",
                 "[weather] t300 steps 300 emitters", "haze 0."]),
+    # WEATHER.md §5: FireBlur's warp pass draws while 0x7b249c != 0 and each drawn frame lets the next
+    # update step the wave grid (0x7b2e1c); one frame per tick (lockstep) = one step per tick once on.
+    # When it turns on depends on FIRE_BLUR.XSO's 0x81 rolls, which draw from the shared game RNG since
+    # TRANSIT.md §5 (was 63 / 163 on the old private script stream; the grid math is pinned by weathertest).
+    "fireblur_warp": dict(
+        room="S_30/S_3009/S_3009", drive="300:quit", env=dict(CLERIA_WX_LOG="1", CLERIA_DRIVE_LOCKSTEP="1"),
+        expect=["[weather] FireBlur(1.0000, -0.0025, 0.", "[weather] t200 steps 200 ", "warp 1 grid 44 cam",
+                "[weather] t300 steps 300 ", "warp 1 grid 144 cam"]),
     # FLOOR13_OPS.md: a SOB trigger-4 touch volume (the S_1011 ward) runs Touch_kekkai -> 0x15c Chr_Damage.
     "ward_touch": dict(
         room="S_10/S_1011/S_1011", drive="30:obj=kekkai_01;32:hp=999;35:move=-1,1,40;80:quit",
         expect=["[touch] kekkai_01 -> touch_kekkai", "Chr_Damage player atk 50 -> HP"]),
     # FLOOR13_OPS.md: a breakable runs its own @Break_30 (0x40 / 0xb5 / 0x17c) instead of the stand-in.
+    # Its two 50 % rolls (0x81) draw the one game generator 0x74622c (build/warp_re/TRANSIT.md §5): 66 misses,
+    # 67 drops. (The script VM's private copy, fresh from the .data seed, rolled 48 then 85: 66 dropped.)
     "break_script": dict(
         room="S_10/S_1001/S_1001", drive="30:obj=break_01;45:atk;60:scripts;150:scripts;160:quit",
-        expect=["[hit] break_01 -> @break_30", "script @break_30", "t150 scripts"]),
+        expect=["[drop] item 67 at break_01", "[hit] break_01 -> @break_30", "script @break_30", "t150 scripts"]),
     # The kill EXP (src/cleria/exp_award; FUN_004fbb40 0x4fcb45.., FUN_004fa2f0): the lv3 Selnarg
     # (+0xb0 = 33) killed with Damage dealt x10 at three player levels. Award = max(1, floor(33 x
     # level_scale x 0.6666)) x (1 + 0.01 combo); combo = the damaging hits it took.
@@ -300,6 +429,30 @@ CASES = {
         room="S_10/S_1002/S_1002", env=dict(CLERIA_CHAR="2"),
         drive="20:flag=116,1;25:wheel=-120;45:hudskill;50:quit",
         expect=["hud skill 116 badge (360, 132)"]),
+    # build/audit/PLAYTEST_1_HUD.md item 1 (src/cleria/hudstate.hpp skill_ready): builder B lights the badge
+    # and the MP strip while Yunica's Ventus (700) is affordable, not at MP 300; charged (Lv2, held) it
+    # stays lit (the pale cell). A "Reduce MP usage" blessing (0x76bc80 & 0x40) skips the MP test (0x43e933).
+    "hud_skill_ready": dict(
+        room="S_10/S_1002/S_1002",
+        drive="10:hudstate;20:flag=116,1;21:flag=182,2;25:wheel=-120;45:hudstate;50:mp=300;52:hudstate;"
+              "60:mp=3000;61:skill+;200:hudstate;201:skill-;230:mp=300;231:flag=217,64;233:hudstate;240:quit",
+        expect=["[hud] ready 0 charge 0", "mp 3000 magic -1", "[hud] ready 1 charge 0", "mp 3000 magic 116",
+                "[hud] ready 0 charge 0", "mp 311 magic 116", "[hud] ready 1 charge 2", "[hud] ready 1 charge 0",
+                "mp 322 magic 116"]),
+    # Item 2 (hudstate.hpp tick_buffs; builder A 0x43d9a5 bars, builder D 0x440420 lines): the Strength /
+    # Defense / MP Drops touched at the feet start their 1800-tick timers, which count down once a tick
+    # (FUN_00462c40) and end the buffs at 0.
+    "hud_buffs": dict(
+        room="S_10/S_1002/S_1002",
+        drive="20:drop=72;21:drop=74;22:drop=76;80:hudstate;1900:hudstate;1901:quit",
+        expect=["str 0.5/1790 def 0.3/1791 mp 1.2/1792 full 1800", "str 0.0/0 def 0.0/0 mp 0.0/0 full 1800"]),
+    # Item 3 (FUN_004fae00): a landed swing pops the white number on the Selnarg (FUN_004fbb40 0x4fd241),
+    # the combo line's meter starts (0x76c1a8), and a hit on the player pops the red one (FUN_004fd350
+    # 0x4fe120).
+    "hud_damage_numbers": dict(
+        room="S_10/S_1002/S_1002",
+        drive="100:near=17;101:atk;140:hudstate;150:hurt=60;160:quit",
+        expect=["[popup] 2 ffffff", "combo 1/", "[popup] 21 ff0000"]),
     # Boost (ABILITIES_VERIFIED.md §1, audit combat.md #20-#22): a 21-damage hit adds 2100 to the gauge;
     # entering grants 60 i-frames (59 a tick later), so a hit 30 ticks in is refused (HP stays 39) and
     # one after the window lands halved (21 -> 10).
@@ -482,6 +635,141 @@ CASES.update({
                 "flags 130=0 131=1 133=0 156=0"]),
 })
 
+# Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,
+# the cutscene skip's walks (ROUTE_F13.md D3), O2 through a load and a Retry (D5).
+CASES.update({
+    # S_1004 -> S_1005, then straight back into S_1005's door 1 (41 ticks after arriving: the old hand-set
+    # 1.5 s cooldown + edge trigger swallowed this and needed a walk out and back in). The trigger is level-
+    # triggered; it fades to black at 0.05 a step and commits on the 20th step (t61 -> t81), then the arrival
+    # fades in over 20 steps (1.00 at t82, 0.05 at t101, clear at t102).
+    "door_reenter": dict(
+        room="S_10/S_1004/S_1004",
+        drive="20:exit=0;40:move=-1,0,200;71:fader;82:fader;101:fader;102:fader;130:quit",
+        expect=[">> entering S_1005", "[door] t61 S_1005 -> S_1004 (fade out)", "t71 fader",
+                "fader 0.45 -> 1.00 at 0.050 (door pending) (latched)", "[door] t81 commit S_1004 (fade 1.00)",
+                ">> entering S_1004", "arrival @ (65.0,6.0,-19.0) [SEN]", "t82 fader", "fader 1.00 -> 0.00 at 0.050",
+                "t101 fader", "fader 0.05 -> 0.00", "t102 fader", "fader 0.00 -> 0.00"]),
+    # No door during a boss fight (flag 156 = 0x76bb8c, FUN_0042cf00's step gate): standing deep inside the
+    # volume does nothing; the tick the flag clears, the level trigger fires without leaving the box.
+    "door_boss_gate": dict(
+        room="S_10/S_1004/S_1004",
+        drive="20:exit=0;25:flag=156,1;30:move=-1,0,60;120:pos;140:flag=156,0;180:quit",
+        expect=[">> entering S_1005", "t120 pos", "[door] t140 S_1005 -> S_1004 (fade out)",
+                "[door] t160 commit S_1004", ">> entering S_1004"]),
+    # The Double-press skip across SwordTutorial1's Wait_ChrMoving (pc 617): the walks run in skip time,
+    # so the scene drains to its end (274 = 1, the world thaws) instead of stopping there.
+    "access_skip_walks": dict(
+        room="S_10/S_1001/S_1001",
+        drive="5:flag=331,1;8:opt=CutsceneSkip=1;10:exit=1;60:esctap;70:esctap;71:scripts;72:flagdump;80:quit",
+        expect=[">> entering S_1000", "[access] skip prompt: press again", "[access] cutscene skip (double)",
+                "t71 scripts", "frozen 0 fix 0/0", " 274=1 "]),
+    # OK keeps advancing the windows while the skip prompt is up: "Ah..." (Wait_Prompt pc 181) is accepted
+    # by a real OK press at t335.. inside the prompt's 120-tick window, and no skip happens.
+    "access_skip_ok": dict(
+        room="S_10/S_1001/S_1001",
+        drive="5:flag=331,1;8:opt=CutsceneSkip=1;10:exit=1;331:esctap;332:scripts;335:every=6,440,oktap;"
+              "400:scripts;401:quit",
+        expect=["[access] skip prompt: press again", "t332 scripts", "script SwordTutorial1 pc 181",
+                "t400 scripts", "script SwordTutorial1 pc 203"],
+        absent=["cutscene skip"]),
+    # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
+    # load tick's drain) and takes the continue snapshot, so a
+    # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn
+    # stand-in, and O2 was never touched).
+    "o2_load_retry": dict(
+        room="S_20/S_2008/S_2008",
+        drive="30:csave=3;150:pos;151:cload=3;152:pos;200:hp=0;360:ok;361:pos;400:quit",
+        expect=["t150 pos", "O2 4510", "[cont] snapshot S_2008", "t152 pos", "O2 5700", "[gameover] chose retry",
+                "Retry -> S_2008 (0.74, 0.00, -7.78)", "t361 pos", "O2 5710"],
+        absent=["no continue snapshot"]),
+})
+
+# The first story playtest (build/audit/PLAYTEST_1_STORY.md).
+CASES.update({
+    # §1: S_1006's s10wall_00 (SOB word 0x1800 -> +0x298 bit 2) stops the walk north without the Mask of Eyes;
+    # with it (acc=54 -> 0x76bbac) the hull leaves the collision at once, the wall fades out over 60 updates
+    # (FUN_00503190) and the walk reaches the S_1012 door behind it.
+    # PLAYTEST_1.md §6: the room's enemies go first (15:killall): S_1006's cast-183 #174 walks up and hits
+    # her around t147, so t150 measured its knock, not the wall. Was 4.431 / 4.530 alternating each tick
+    # (resolve_walls double-pushed the wall's stacked quads); the contact is now a steady 4.550 (5 - 0.45).
+    "mask_of_eyes_wall": dict(
+        room="S_10/S_1006/S_1006",
+        drive="10:mask;15:killall;20:at=24,0,1;25:move=0,1,120;150:pos;160:acc=54;161:mask;190:mask;230:mask;"
+              "231:at=24,0,1;235:move=0,1,120;400:quit",
+        expect=["maskobj 1 bits 2 hidden 0 alpha 1.0000 coll on", "feet (24.275, 0.000, 4.550)",
+                "maskobj 1 bits 2 hidden 1 alpha 0.9833 coll off", "maskobj 1 bits 2 hidden 1 alpha 0.5000 coll off",
+                "maskobj 1 bits 2 hidden 1 alpha 0.0000 coll off", "S_1006 -> S_1012 (fade out)", ">> entering S_1012"]),
+    # §2: S_1014's Roo (TalkC430): "<roo>My hunger knows no bounds..." lays out as extfont cells (M 24, y 36,
+    # h 19, u 32, n 25, g 18, e 16, r 29 — FUN_005f03f0's tag-15 map); the '.' stay letters.
+    "roo_alphabet": dict(
+        room="S_10/S_1014/S_1014",
+        drive="20:run=TalkC430;100:wndtext;101:quit",
+        expect=["run TalkC430 -> started", "wndtext alive 1", "glyphs 49 ext 44 cells 24 36 19 32 25 18 16 29"]),
+})
+# §3: the whole Yunica opening from the New-Game router (S_0000 -> S_0002 Prologue_Event_0/1 -> S_0001
+# Prologue_Event_2 -> S_1000 BattleStart1 / battle_0) skipped in each mode, pressing only inside a cutscene
+# (`skiptap` / `skiphold` act while a Fix holds; `killall` ends the intro's waves). Played out with OK mashed
+# it takes ~24,100 ticks (6.7 min), almost all of it the scripts' own Wait_Time (12,210 ticks in Prologue_Event_2
+# alone); skipped, under 900. Before 83a05fb the drain stopped at the first Wait_ChrMoving (BattleStart1 pc 155,
+# Prologue_Event_2 pc 670) and the rest played at normal speed.
+_OPEN = "40:every=50,{end},killall;{end}:scripts;{q}:quit"
+for _m, _v, _press, _end in (("double", 1, "20:every=20,{end},skiptap", 1200), ("single", 0, "20:every=20,{end},skiptap", 1200),
+                             ("hold", 2, "20:every=100,{end},skiphold=70", 1500)):
+    CASES["opening_skip_" + _m] = dict(
+        room="S_00/S_0000/S_0000",
+        drive=f"5:opt=CutsceneSkip={_v};" + _press.format(end=_end) + ";" + _OPEN.format(end=_end, q=_end + 1),
+        expect=[">> entering S_0002", ">> entering S_0001", "cutscene skip (" + _m + ")", ">> entering S_1000",
+                f"t{_end} scripts", "frozen 0 fix 0/0", "script s_Stop1000_03"],
+        absent=["script battle_0", "script BattleStart1", "script Prologue_Event"])
+# §3 (second report, Hugo, Hold mode): the skip button held from New Game on. Hold now counts any hold, so a
+# held button skips every scene of the chain one second in, and the shell's skip ends the three movies too
+# (they decode here: CLERIA_MOVIE=1). Before, only the first scene skipped and Prologue_Event_2 played out.
+for _c, _bs in (("1", "BattleStart1"), ("2", "BattleStart2")):
+    CASES["opening_hold_through_" + _c] = dict(
+        room="S_00/S_0000/S_0000", char=_c, env=dict(CLERIA_MOVIE="1"),
+        drive="1:opt=CutsceneSkip=2;1:eschold=1500;40:every=50,1600,killall;1600:scripts;1601:quit",
+        expect=["demo1 skipped", "cutscene skip (hold)", "demo2 skipped", ">> entering S_0002", "cutscene skip (hold)",
+                "demo3 skipped", ">> entering S_1000", "cutscene skip (hold)", "t1600 scripts", "frozen 0 fix 0/0",
+                "script s_Stop1000_03"],
+        absent=["script battle_", "script " + _bs, "script Prologue_Event", "ended at"])
+
+
+# Playtest 1, effects (build/audit/PLAYTEST_1_FX.md).
+CASES.update({
+    # 1. A damaging hit sets the monster's hurt timer +0x238 = 1.65 (FUN_00478510) on its next tick, the
+    # integrator runs it down by 0.075 (FUN_0045a3a0): 1.575 one tick later, 0 after 22 ticks. While it
+    # runs the sprite gets the 0x6b3713 specular add (no white flash).
+    "fx_hurt_tint": dict(
+        room="S_10/S_1002/S_1002", env=dict(_LOCK, CLERIA_SFXLOG="1"),
+        drive="20:near=17;21:atk;28:actors;60:actors;61:quit",
+        expect=["[hitfx] t27 spark 0x7f", "[actor] id 17 cast 17 enemy hp 72", "hurt 1.575",
+                "[actor] id 17 cast 17 enemy hp 72", "hurt 0.000"]),
+    # 5. Boost entry (0x465bea..0x465ca6): adol_S_mode_f attached half a unit toward the eye (camera yaw 0
+    # here: -z); the aura (FUN_00463f40) attached at the origin with its depth bias 2 (emitter 0 B2+0x0c).
+    "fx_boost_attach": dict(
+        room="S_10/S_1002/S_1002", env=_LOCK,
+        drive="10:flag=187,1;12:boost=30000;20:boostkey;21:fxall;30:quit",
+        expect=["[fxall] id 50 attach 2 at", "rel (0.00, 0.00, -0.50) bias 0.00 #boost_f",
+                "[fxall] id 39 attach 2 at", "rel (0.00, 0.00, 0.00) bias 2.00 #boost_aura"]),
+    # 2/3. Drops draw as camera-plane quads at pos + (0, 0.1, 0) - F 0.15 + V 0.075 (FUN_00586bf0), their
+    # shadow at the ground (hit y + 0.02) - F 0.15, not in the floor; collecting the recovery drop (0x42) puts
+    # cure.eft on the player at (0, -1, 0), attached, depth bias 5, and z_item.eft at each pickup.
+    "fx_pickup_place": dict(
+        room="S_10/S_1002/S_1002", env=_LOCK,
+        drive="8:opt=DamageDealt=10;9:opt=DropRate=10;20:near=17;21:atk;45:near=17;46:atk;70:near=17;71:atk;"
+              "95:near=17;96:atk;120:pickups;153:fxall;160:quit",
+        expect=["[pickup] id 66 pos (32.35, -4.10, -38.08) ground -4.078 rest 1", "sprite (32.35, -3.86, -38.18)",
+                "shadow y -4.007", "[fxall] id 63 attach 2 at", "rel (0.00, -1.00, 0.00) bias 5.00",
+                "[fxall] id 72 attach 0 at (32.35, -4.10, -38.08)"]),
+    # 4. Eft_LocateChr (0x118) under a Fix: the attach reads the actor's current +0x20, so the smith
+    # script's player light follows the player the opening moved (it sat at the world origin).
+    "fx_locate_under_fix": dict(
+        room="S_10/S_1000/S_1000", env=_LOCK,
+        drive="20:run=TalkC260_Weapon_Sub;60:rep=30,40,ok;699:pos;700:fx;710:quit",
+        expect=["feet (0.000, -2.997, -23.557)", "'Player_Light' id 50 alpha 1.000 -> 1.000 attach 1 at (0.00, -1.92, -23.56)",
+                "'Player_Light2' id 63 alpha 1.000 -> 1.000 attach 1 at (0.00, -1.92, -23.56)"]),
+})
+
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -528,7 +816,7 @@ def run(name, case, exe, assets):
         srv = aplua_regress.start(case, env, os.path.join(saves, "settings"))   # an `aplua` case: its server, the mod
         extra = modfile_regress.start(case, env, os.path.join(saves, "settings"))   # a `modfile` case: the file
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
-        r = subprocess.run([exe, assets, sob] + extra, env=env, capture_output=True, text=True, timeout=300)
+        r = subprocess.run([exe, assets, sob] + extra, env=env, capture_output=True, text=True, timeout=900)
     out = r.stdout + r.stderr
     if not aplua_regress.finish(name, case, srv):
         return False
@@ -541,6 +829,11 @@ def run(name, case, exe, assets):
         k = out.find(e, at)
         if k < 0:
             print(f"FAIL {name}: missing '{e}' (after offset {at})")
+            # Say how the run ended, so a flake shows its cause (a crash, a GPU loss, an early quit).
+            tail = [l for l in r.stderr.splitlines() if l.strip()][-3:]
+            print(f"     exit code {r.returncode}; last stdout line: {(r.stdout.splitlines() or [''])[-1][:160]!r}")
+            for l in tail:
+                print(f"     stderr: {l[:160]}")
             return False
         at = k + len(e)
     print(f"ok   {name}")

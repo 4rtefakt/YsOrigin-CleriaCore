@@ -27,6 +27,7 @@ int main() {
     s.hp_max = 78; s.hp_cur = 55.5f; s.exp = 1234.0f; s.level = 9; s.sp = 4321;
     s.scene = "s_1004";
     s.pos_x = -12.25f; s.pos_y = 2.0f; s.pos_z = 44.5f; s.yaw = 180.0f;
+    s.o2 = 1234.5f; s.o2_alpha = 255;           // O2 0x76c1b8 + its gauge 0x76c1bc (in the block)
 
     const SaveRecord rec = to_record(s, "Water Prison 1F", "07/23/2026", "13:37:00");
     const std::vector<std::uint8_t> raw = rec.encode(0xDEADBEEFu, 0x1234ABCDu);
@@ -44,7 +45,8 @@ int main() {
          t.hp_max == s.hp_max && t.hp_cur == s.hp_cur && t.exp == s.exp &&
          t.level == s.level && t.sp == s.sp && t.scene == s.scene &&
          t.pos_x == s.pos_x && t.pos_y == s.pos_y && t.pos_z == s.pos_z && t.yaw == s.yaw &&
-         dec->f32(0x0076C140) == 2.0f;           // the snapshot y FUN_00443d70 stores
+         dec->f32(0x0076C140) == 2.0f &&         // the snapshot y FUN_00443d70 stores
+         t.o2 == 1234.5f && t.o2_alpha == 255 && dec->f32(0x0076C1B8) == 1234.5f && dec->i32(0x0076C1BC) == 255;
     const SaveMeta m = meta_of(*dec);
     ok = ok && m.character == 1 && m.difficulty == 2 && m.area == "Water Prison 1F" &&
          m.date == "07/23/2026" && m.time == "13:37:00";

@@ -102,6 +102,9 @@ def start(case, env, settings_dir):
                 % (MOD, port, slot, int(bool(a.get("death_link")))))
     open(os.path.join(settings_dir, "yso_win.ini"), "w").close()
     env["CLERIA_INI"] = os.path.join(settings_dir, "yso_win.ini")
+    # The server talks in real time: pace these runs by the wall clock (a drive run is lockstep by default,
+    # which can quit before a reply or a send has crossed the socket).
+    env.setdefault("CLERIA_DRIVE_REALTIME", "1")
     return srv
 
 

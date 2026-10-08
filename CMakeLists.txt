@@ -53,6 +53,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/wndtext.cpp
   src/cleria/pickup.cpp
   src/cleria/richtext.cpp
+  src/cleria/extfont.cpp
   src/cleria/wnddialog.cpp
   src/cleria/titlescreen.cpp
   src/cleria/popup.cpp

@@ -181,6 +181,15 @@ int main(int argc, char** argv) {
         check(death_puff(0x2009).effect == -1 && !death_puff(0x2009).spark, "death: +0x130 & 8 skips the puff and spark");
         check(death_puff(0x2000).effect == 0x43 && death_puff(0x2000).se == 862, "death: & 0x2000 -> 0x43 + SE 862");
         check(alive_spark_suppressed(0x1a, true) && !alive_spark_suppressed(0x1a, false), "cast 0x1a in a boss fight");
+        // The hurt tint (+0x238, FUN_0045a3a0 / FUN_00473c60), run down in float as the exe does.
+        float t = kHurtTimer;
+        int ticks = 0;
+        while (t != 0.0f && ticks < 100) { t = step_hurt(t); ++ticks; }
+        check(ticks == 22 || ticks == 23, "hurt timer: 1.65 runs out in 22 (or 23, float residue) steps of 0.075");
+        check(hurt_specular(kHurtTimer) == 0x6b3713u && hurt_specular(0.0f) == 0u,
+              "hurt specular: (0x6b, 0x37, 0x13) while running, none after");
+        check(step_hurt(0.0f) == 0.0f && step_hurt(0.05f) == 0.0f, "a stopped timer stays 0; it clamps at 0");
+        std::printf("    hurt tint lasts %d ticks\n", ticks);
     }
 
     // The effects themselves, with an asset root: do any of them carry a hit emitter (B2+0x894)?

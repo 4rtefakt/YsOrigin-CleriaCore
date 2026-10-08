@@ -239,9 +239,12 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                 if (!dd.ok() || pk.dead) continue;
                 const SpriteTex ic = upload_rgba(g, dd.width, dd.height, dd.data.data());
                 const float sa = pk.shadow_alpha();
-                if (sa > 0) draw_shadow(g, cview, dview, ic, pk.pos, pk.ground_y - 0.07f, pk.half, 0, sa);
-                draw_character(g, cview, dview, {pk.pos.x, pk.pos.y + 0.1f - pk.half, pk.pos.z}, 2 * pk.half,
-                               ic, cam.forward(), cam.pos, 0, 1, 1, 1, false, pk.alpha());
+                const Vec3 cf = cam.forward();
+                const Vec3 cright = normalize(cross(Vec3{0, 1, 0}, cf)), cup = cross(cf, cright);
+                const Vec3 sc = pk.shadow_centre(cf);           // the same placement as the live view
+                if (sa > 0) draw_shadow(g, cview, dview, ic, sc, sc.y - 0.05f, pk.half, 0, sa);
+                draw_billboard(g, cview, dview, ic, pk.sprite_centre(cup, cf), pk.half, cright, cup, 0,
+                               1, 1, 1, pk.alpha());
                 std::printf("  pickup %d at (%.2f, %.2f, %.2f) resting %d age %.0f\n", pk.id, pk.pos.x,
                             pk.pos.y, pk.pos.z, int(pk.resting), pk.age);
             }
@@ -319,7 +322,7 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                 if (std::getenv("CLERIA_BARRIER"))
                     std::printf("barrier: fx sim at tick %d: %zu effect(s), %zu particle(s)\n",
                                 fx_ticks, sim.effects().size(), sim.particles().size());
-                draw_particles(g, sim, asset_root, eft2, cview, dview, cam.forward());
+                draw_particles(g, sim, asset_root, eft2, cview, dview, cam.forward(), cam.pos);
                 // CLERIA_BULLET_PREVIEW=<effectId>[,age] — park one projectile in front of
                 // the player and draw it. Bullet art was otherwise only reachable by firing
                 // in the live loop, so its orientation and size could never be checked

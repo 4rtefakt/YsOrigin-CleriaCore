@@ -57,6 +57,21 @@ int main() {
         while (!p.resting && t < 300) { step_pickup(rng, p, w); ++t; }
         check(p.resting && t < 90 && std::fabs(p.pos.y) < 0.12f, "a drop bounces to rest on the floor within 90 ticks");
         check(p.ground && p.shadow_alpha() > 0.3f, "a resting drop has ground under it (the shadow)");
+        // §8.2 / §8.3 (FUN_00586bf0 / FUN_00586e40): where it draws, for a camera 30 deg down
+        // looking along +z (F = (0, -0.5, 0.866), V = (0, 0.866, 0.5)).
+        const Vec3 F{0.0f, -0.5f, 0.8660254f}, V{0.0f, 0.8660254f, 0.5f};
+        const Vec3 c = p.sprite_centre(V, F);
+        check(std::fabs(c.y - (p.pos.y + 0.1f + 0.075f + 0.075f * 0.8660254f)) < 1e-4f &&
+              std::fabs(c.z - (p.pos.z - 0.15f * 0.8660254f + 0.075f * 0.5f)) < 1e-4f,
+              "sprite centre = pos + (0, 0.1, 0) - F x 0.15 + V x 0.075");
+        check(c.y - p.half * V.y > p.pos.y - 0.02f,
+              "a resting drop's camera-plane quad stays (within 2 cm) above the floor it lies on");
+        const Vec3 s = p.shadow_centre(F);
+        check(std::fabs(s.y - (p.ground_y + 0.075f)) < 1e-4f && std::fabs(p.ground_y - 0.02f) < 1e-4f,
+              "shadow at (x, ground = hit y + 0.02, z) - F x 0.15: above the floor, not in it");
+        Pickup wet = p;
+        wet.in_water = true;
+        check(std::fabs(wet.sprite_centre(V, F).z - (p.pos.z + 0.075f * 0.5f)) < 1e-4f, "in water the -F x 0.15 term is dropped");
     }
     {   // §6.2 / §7.2: not collectable before age 50; collected after; refused stays.
         std::vector<Pickup> out;

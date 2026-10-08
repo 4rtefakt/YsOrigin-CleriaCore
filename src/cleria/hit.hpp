@@ -2,7 +2,7 @@
 //
 // Re-derived 2026-10-05 from the disassembly (build/audit/combat.md, then re-read
 // instruction by instruction; the audit's own "x(1+0.1*g_flags[182..184])" term turned
-// out to be a dead store, see enemy_incoming_damage). Every function here is pure: the
+// out to scale only the damage popup, see enemy_incoming_damage). Every function here is pure: the
 // caller owns the actors and the RNG, so the whole module is unit-testable
 // (apps/cleria-combattest).
 //
@@ -89,7 +89,8 @@ inline int enemy_incoming_damage(const AttackStats& a, int dmg_class, const Enem
     // FUN_004fbb40 then: guard/deflect (victim +0x399 or state 6, facing test) zeroes it;
     // the special launch states (+0x4d0/+0x398/+0x724) scale it by DAT_0068b218[diff];
     // HP -= dmg at 0x4fc805. The x(1+0.1*g_flags[0xb6..0xb8]) at 0x4fd064 runs AFTER the
-    // subtraction and its result (0x4fd0a0) is never read again — a dead store, not a term.
+    // subtraction and its result (0x4fd0a0) only feeds the white damage popup at 0x4fd241 — not
+    // a term of the HP damage (hudstate::dealt_popup_value, build/audit/PLAYTEST_1_HUD.md §3).
 }
 
 // ---------------------------------------------------------------------------

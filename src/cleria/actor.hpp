@@ -233,12 +233,14 @@ struct Actor {
     float move_scale = 1.0f;
 
     // Combat reaction, on being hit. The engine writes a knockback impulse into the
-    // cosmetic offset +0x338/+0x340 and runs a hit-flash tint countdown at +0x4e8
-    // (forcing the sprite white). We keep the impulse in world XZ and decay it; hit_flash
-    // is a tick countdown the renderer tints on.
+    // cosmetic offset +0x338/+0x340, and FUN_00478510 sets the hurt timer +0x238 = 1.65, which
+    // the integrator's FUN_0045a3a0 runs down by 0.075 a tick; while it is non-zero the colour
+    // builder FUN_00473c60 forces the sprite's SPECULAR to (0x6b, 0x37, 0x13) — a dim orange
+    // add, not a white flash (hit_feedback.hpp). (+0x4e8 is not a hit flash: it is the
+    // resist-all timer a kind-0xe homing orb sets, FUN_0059a6a0.)
     Vec3 knockback{};      // (legacy; enemies use mover.k1/k2 — the player keeps its own)
     MoverState mover;      // engine: +0x32c velocity, +0x338/+0x344 knock channels, +0xa3c disp
-    int hit_flash = 0;     // engine: +0x4e8 (ticks of white tint after a hit)
+    float hit_flash = 0.0f;  // engine: +0x238, the hurt timer (1.65 -> 0 by 0.075 a tick)
     float scale = 1.0f;    // engine: +0x248, the model/sprite scale (M460 shrinks on a split)
     float height = 0.0f;   // engine: +0x324, collision height: the origin floats this far above pos
     bool flyer = false;    // engine: byte +0x398 (CASTINFO+0x44 > 0 or EI+0xb0 != 0): hovers via

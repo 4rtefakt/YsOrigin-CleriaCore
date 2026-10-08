@@ -103,6 +103,10 @@ struct SdlInput {
     int ptr_x = 0, ptr_y = 0;         // the virtual pointer, client px in back-buffer space
     bool vbtn[3] = {}, vtap[3] = {};  // the virtual L / R / M (held, one-tick tap)
     int vwheel = 0;
+    // CLERIA_DRIVE padhold= / keyhold=: a pad button / DIK key held for n more mapper steps (book
+    // ticks included), so a drive can close a menu through the real mapper.
+    std::array<int, 32> vpad_hold{};
+    std::array<int, 256> vkey_hold{};
     int last_cx = 0, last_cy = 0;     // the last real pointer (kept while the shell owns the input)
 
     // The display the cursor maps through: the swapchain, and in windowed mode the client origin on
@@ -256,6 +260,10 @@ struct SdlInput {
             static constexpr std::int32_t kPov[3][3] = {{31500, 0, 4500}, {27000, -1, 9000}, {22500, 18000, 13500}};
             s.pov = kPov[vy + 1][vx + 1];
         }
+        for (std::size_t i = 0; i < vpad_hold.size(); ++i)
+            if (vpad_hold[i] > 0) { --vpad_hold[i]; s.pad[i] = true; }
+        for (std::size_t i = 0; i < vkey_hold.size(); ++i)
+            if (vkey_hold[i] > 0) { --vkey_hold[i]; s.key[i] = true; }
         tapped = {};
         for (bool& m : mouse_tapped) m = false;
         wheel = 0;
@@ -272,6 +280,12 @@ static int g_mapper_book = -1;
 // settings' revision re-configures it live (bindings, deadzone, PadAnalog, ...). `book_mode`: the
 // pause book's 0.8 deadzone and 4-way stick while it is up (FUN_005a4ab0).
 static bool g_shell_focus = false;   // the shell (view_shell.inl) owns the input: the game sees none
+// [CleriaCore] The shell held the input since the last step (set by view_shell.inl's frame): the
+// mapper saw nothing held while it did, so a button still down when it lets go (the B / Esc that
+// closed it) would read as a fresh press -- a jump, or a Cancel to the book underneath. One
+// discarded step re-latches the held history first, as retail's never-muted mapper would have it
+// (PLAYTEST_1.md §5).
+static bool g_input_relatch = false;
 static const input::Frame& input_tick(bool book_mode = false) {
     g_sdl_in.suppressed = g_shell_focus;
     const SettingsStore& st = settings();
@@ -280,6 +294,8 @@ static const input::Frame& input_tick(bool book_mode = false) {
         g_mapper_rev = st.revision();
         g_mapper_book = int(book_mode);
     }
+    if (g_shell_focus) g_input_relatch = true;
+    else if (g_input_relatch) { g_input_relatch = false; (void)g_mapper.step(g_sdl_in.snapshot()); }
     g_in = g_mapper.step(g_sdl_in.snapshot());
     return g_in;
 }

@@ -1,6 +1,8 @@
 // Window text markup and layout. See richtext.hpp.
 #include "cleria/richtext.hpp"
 
+#include "cleria/extfont.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -52,6 +54,10 @@ RichLayout layout_rich(std::string_view text, const RichMetrics& m, float line_e
         x += adv;
         out.width = std::max(out.width, x);
     };
+    // An extfont cell: drawn at its own size, advanced by left + right (FUN_005f03f0 ext branch).
+    auto put_ext = [&](int cell) {
+        put(static_cast<unsigned char>(cell & 0xff), true, m.ext_advance ? m.ext_advance(cell) : 32.0f);
+    };
     for (std::size_t i = 0; i < text.size(); ++i) {
         const unsigned char c = static_cast<unsigned char>(text[i]);
         if (c == '<') {
@@ -78,7 +84,7 @@ RichLayout layout_rich(std::string_view text, const RichMetrics& m, float line_e
                     put(cc, false, (m.advance ? m.advance(cc) : 16.0f) * scale);
                 } else if (prefix_ci(name, "nocount")) counting = false;
                 else if (prefix_ci(name, "count")) counting = true;
-                else if (prefix_ci(name, "ext")) put(static_cast<unsigned char>(int(rich_value(v1))), true, 32.0f * scale);
+                else if (prefix_ci(name, "ext")) put_ext(int(rich_value(v1)));
                 else if (prefix_ci(name, "roo")) roo = true;
                 // rot, font, ruby, endruby, unknown: swallowed
                 i = e;
@@ -98,9 +104,8 @@ RichLayout layout_rich(std::string_view text, const RichMetrics& m, float line_e
             out.width = std::max(out.width, x);
             continue;
         }
-        const bool roo_glyph = roo && (std::isalpha(c) || c == '*' || c == '@' || c == '$' || c == '^' ||
-                                       c == '{' || c == '}' || c == '#');
-        if (roo_glyph) put(c, true, 32.0f * scale);
+        const int rg = roo ? roo_glyph(c, m.english_roonic) : -1;    // tag 15's letter map
+        if (rg >= 0) put_ext(rg);
         else put(c, false, (m.advance ? m.advance(c) : 16.0f) * scale);
     }
     out.counted = counted;

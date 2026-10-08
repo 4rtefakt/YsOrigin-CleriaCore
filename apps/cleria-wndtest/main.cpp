@@ -7,6 +7,7 @@
 
 #include "cleria/emotion.hpp"
 #include "cleria/eventsprites.hpp"
+#include "cleria/extfont.hpp"
 #include "cleria/richtext.hpp"
 #include "cleria/wnddialog.hpp"
 #include "cleria/wndtext.hpp"
@@ -45,6 +46,29 @@ int main() {
         check(near(l.glyphs[3].x, 16 + 10), "a space advances by the space width");
         const RichLayout s = layout_rich(" x", m, 12);
         check(near(s.glyphs[0].x, 10), "a space at the line start puts the pen at 10");
+    }
+    {   // PLAYTEST_1_STORY.md §2: the Roo alphabet (tag 15) and the extfont cells (FUN_005f03f0 ext branch).
+        check(roo_glyph('A', false) == 12 && roo_glyph('z', false) == 37 && roo_glyph('*', false) == 1 &&
+              roo_glyph('#', false) == 7 && roo_glyph('!', false) == -1 && roo_glyph(' ', false) == -1,
+              "roo: A-Z / a-z -> cells 12..37, * @ $ ^ { } # -> 1..7, '!' stays a letter");
+        check(roo_glyph('A', true) == -1 && roo_glyph('$', true) == 3, "EnglishRoonic keeps the letters, not the symbols");
+        RichMetrics e = m;
+        e.ext_advance = [](int i) { return float(20 + i); };
+        const RichLayout l = layout_rich("<roo>Hi! <ext:9>x", e, 12);
+        check(l.glyphs.size() == 5 && l.glyphs[0].ext && l.glyphs[0].c == 19 && l.glyphs[1].ext && l.glyphs[1].c == 20 &&
+              !l.glyphs[2].ext && l.glyphs[2].c == '!' && l.glyphs[3].ext && l.glyphs[3].c == 9 && l.glyphs[4].ext,
+              "<roo>Hi! -> cells 19, 20, a '!', then <ext:9>");
+        check(near(l.glyphs[1].x, 39) && near(l.glyphs[2].x, 79) && near(l.glyphs[3].x, 105) && l.counted == 5,
+              "an extfont cell advances by left + right, unscaled; counted like a letter");
+        // A 2 x 104 font (two-pixel cells): cell 0 lit in column 1 only, cell 1 empty.
+        std::vector<std::uint8_t> bmp(54 + 1024 + 4 * 104, 0);
+        auto put32 = [&](std::size_t o, std::uint32_t v) { for (int k = 0; k < 4; ++k) bmp[o + std::size_t(k)] = std::uint8_t(v >> (8 * k)); };
+        bmp[0] = 'B'; bmp[1] = 'M'; put32(10, 54 + 1024); put32(14, 40); put32(18, 2); put32(22, 104);
+        bmp[26] = 1; bmp[28] = 8;
+        bmp[54 + 1024 + 4 * 103 + 1] = 16;                 // the top row (stored last), column 1
+        const ExtFont f = ExtFont::parse(bmp);
+        check(f.ok() && f.cell == 2 && f.cov[1] == 16 && f.left[0] == 0 && f.right[0] == 2 && f.left[1] == 1 &&
+              f.right[1] == 2 && near(f.advance(0), 2), "extfont: bottom-up rows, left = 1 - first lit column, right = last + 1");
     }
     {   // §6.4: the reveal.
         RichGlyph g; g.index = 3;

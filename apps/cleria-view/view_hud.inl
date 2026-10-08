@@ -44,8 +44,6 @@ static const Rc kBarHousing  = {0, 468, 271, 44};  // confirmed from quad 2's UV
 static const Rc kHpBlue      = {0,   0, 252, 8};   // HP fill      (ink is {2,1,248,7})
 static const Rc kHpTrail     = {0,   8, 252, 8};   // HP damage trail
 static const Rc kExpOrange   = {0,  16, 240, 8};   // EXP fill — 240 art -> 230 screen
-static const Rc kMpGreen     = {0,  44, 252, 8};   // green mana/skill fill (measured: the
-                                                   // pointed green bar stacked under HP/red/pink)
 static const Rc kBarTick     = {302, 1,   3, 14};  // segment-divider tick; the atlas holds a
                                                    // strip of these at x277+25k (stride 25)
 static const Rc kSlotFrame   = {472, 472, 40, 40}; // the 40x40 equipment slot frame
@@ -129,6 +127,12 @@ struct Hud {
     WGPUBindGroup atlas_bind{};
     std::uint32_t atlas_w = 0, atlas_h = 0;
     std::vector<HudVertex> sprites;      // quads sampling the STATUS atlas
+    // HUD batch 2's additive quads (builder B FUN_0043e800: the skill-ready glow), drawn after
+    // `sprites` with the atlas bound to the additive pipeline's own layout.
+    WGPURenderPipeline add_pipeline{};
+    WGPUBindGroupLayout add_bgl{};
+    WGPUBindGroup atlas_bind_add{};
+    std::vector<HudVertex> sprites_add;
     // Boss health bar (HP2 atlas). Shown when boss_frac >= 0.
     WGPUBindGroup boss_bind{};
     std::uint32_t boss_w = 0, boss_h = 0;
@@ -219,6 +223,16 @@ struct Hud {
         fs.entryPoint = sv("fs_opaque");                 // the CrossFade overlay
         overlay_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
         overlay_bgl = wgpuRenderPipelineGetBindGroupLayout(overlay_pipeline, 0);
+        {   // HUD batch 2 (render state 0xc1 = SRCALPHA / ONE, UI_BLEND_FONT.md §1): builder B's quads
+            WGPUBlendState add = {};
+            add.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_One};
+            add.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_Zero, WGPUBlendFactor_One};
+            tgt.blend = &add;
+            fs.entryPoint = sv("fs");
+            add_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+            add_bgl = wgpuRenderPipelineGetBindGroupLayout(add_pipeline, 0);
+            tgt.blend = &blend;
+        }
 
         WGPUSamplerDescriptor sad = {};
         sad.magFilter = sad.minFilter = WGPUFilterMode_Linear; sad.maxAnisotropy = 1;
@@ -234,7 +248,9 @@ struct Hud {
     }
 
     // Upload a DDS (RGBA/BC1/BC2) as a group-0 bind group; returns it and its size.
-    WGPUBindGroup upload_atlas(Gpu& g, const fs::path& dds_path, std::uint32_t& ow, std::uint32_t& oh) {
+    // `add_out`: also a bind group on the additive pipeline's layout (the STATUS atlas only).
+    WGPUBindGroup upload_atlas(Gpu& g, const fs::path& dds_path, std::uint32_t& ow, std::uint32_t& oh,
+                               WGPUBindGroup* add_out = nullptr) {
         Dds d = load_dds(dds_path);
         if (!d.ok()) { std::fprintf(stderr, "hud atlas: %s failed\n", dds_path.string().c_str()); return nullptr; }
         ow = d.width; oh = d.height;
@@ -258,12 +274,16 @@ struct Hud {
         WGPUBindGroupEntry e[2] = {};
         e[0].binding = 0; e[0].textureView = v; e[1].binding = 1; e[1].sampler = samp;
         WGPUBindGroupDescriptor bd = {}; bd.layout = bgl; bd.entryCount = 2; bd.entries = e;
+        if (add_out && add_bgl) {
+            WGPUBindGroupDescriptor ad = bd; ad.layout = add_bgl;
+            *add_out = wgpuDeviceCreateBindGroup(g.device, &ad);
+        }
         return wgpuDeviceCreateBindGroup(g.device, &bd);
     }
 
     // Load the game's STATUS_512 HUD atlas (player status graphics).
     void init_atlas(Gpu& g, const fs::path& dds_path) {
-        atlas_bind = upload_atlas(g, dds_path, atlas_w, atlas_h);
+        atlas_bind = upload_atlas(g, dds_path, atlas_w, atlas_h, &atlas_bind_add);
     }
     // Bind the four HUD slots to the currently equipped item ids (-1 = empty). Each item's
     // icon is its own MENU/ICON/<STEM>.DDS, cached by id so this is cheap to call per frame.
@@ -499,6 +519,13 @@ struct Hud {
         sprite(x0, y0, m.x(d.x1) - x0, m.y(d.y1) - y0,
                src.x, src.y, src.w, src.h, sw, sh, r, gg, b, a);
     }
+    // The same into HUD batch 2 (additive).
+    void sprite_add_a(const HudMap& m, const Ar& d, const Rc& src, float sw, float sh, std::uint8_t a) {
+        const std::size_t n = sprites.size();
+        sprite_a(m, d, src, sw, sh, 255, 255, 255, a);
+        sprites_add.insert(sprites_add.end(), sprites.begin() + std::ptrdiff_t(n), sprites.end());
+        sprites.resize(n);
+    }
 
     // The player status HUD, at the game's REAL authored coordinates (recovered from
     // the status-HUD builder FUN_0043c230 — see build/source_map/HUD_COORDS.md).
@@ -519,12 +546,8 @@ struct Hud {
             if (p.hp_lag < float(p.hp)) p.hp_lag = float(p.hp);
         }
 
-        // NOT DRAWN: the four stacked 12px rows at x0=0 (y 620/632/644/656). Their
-        // geometry is recovered, but their identity is not — an earlier pass called them
-        // "equipment slots", yet they sit flush left with RUNTIME-COMPUTED widths, which
-        // reads as four stacked bars, and the real game shows equipment as a horizontal
-        // row beside the portrait. Drawing skill diamonds there was visibly wrong, so we
-        // draw nothing until we know what they are.
+        // The four stacked 12px rows at x0=0 (y 620/632/644/656) are the buff / combo timer
+        // bars (PLAYTEST_1_HUD.md item 2), drawn after the skill badge below.
 
         // The housing, then HP as the blue pointed bar in the UPPER channel. The
         // segmented MP channel below stays empty — that is what the real HUD shows,
@@ -564,17 +587,32 @@ struct Hud {
         ex.x1 = ex.x0 + 230.0f * std::max(0.f, std::min(1.f, p.exp_pct / 100.0f));
         sprite_a(m, ex, kExpOrange, sw, sh);
 
-        // MP / mana bar (H1). The green fill is the REAL STATUS_512 art at {0,44,252,8}
-        // — the pointed green bar stacked below the blue HP / red-trail / pink rows in
-        // the atlas's bar column (measured off the pixels; the earlier {252,36,...}
-        // rainbow was just the wrong cell). Over it go the SEGMENT DIVIDERS the user
-        // asked for: the atlas carries beveled tick sprites at x277+25k (stride 25), and
-        // a 252px bar / 25 ≈ 10 cells, so 9 interior ticks split it into ~10 blocks.
+        // MP / mana bar (H1). Over it go the SEGMENT DIVIDERS the user asked for [H]: the
+        // atlas carries beveled tick sprites at x277+25k (stride 25), and a 252px bar / 25
+        // ≈ 10 cells, so 9 interior ticks split it into ~10 blocks.
+        // The fill itself is builder A's (FUN_0043c230 0x43d214..0x43d660, replacing the
+        // measured {0,44} green cell used before):
+        // only with a bracelet on, from STATUS_512 U 252 (0x3efc0000) in the bracelet's colour row
+        // V 36 + 8e (0x6bd16c + e x 8 / 512: green / yellow / red), after the darker lag strip
+        // V 60 + 8e (0x6bd1ac) over [MP, lag] while the lag 0x76c194 differs. Builder B (batch 2,
+        // additive) lays the same strip again at the pulsing alpha while the skill is affordable
+        // (hudstate.hpp skill_ready / pulse_scaled). build/audit/PLAYTEST_1_HUD.md item 1.
+        const int brow = (p.magic >= 0x74 && p.magic <= 0x76) ? p.magic - 0x74 : -1;
+        const std::uint8_t glow = hudstate::pulse_scaled(255, p.pulse);
         {
             const float mp = std::max(0.f, std::min(1.f, p.mp_pct / 100.0f));
             Ar mpf = kAMpFill;
             mpf.x1 = mpf.x0 + 252.0f * mp;
-            sprite_a(m, mpf, kMpGreen, sw, sh);                 // green fill (real art)
+            if (brow >= 0) {
+                const float lag = p.sp_max > 0 ? std::max(0.f, std::min(1.f, p.sp_lag / p.sp_max)) : 0.f;
+                if (lag > mp) {
+                    const Ar lq{kAMpFill.x0 + 252.0f * mp, kAMpFill.y0, kAMpFill.x0 + 252.0f * lag, kAMpFill.y1};
+                    sprite_a(m, lq, Rc{252.0f + 252.0f * mp, 60.0f + 8.0f * brow, 252.0f * (lag - mp), 8.0f}, sw, sh);
+                }
+                const Rc strip{252.0f, 36.0f + 8.0f * brow, 252.0f * mp, 8.0f};
+                sprite_a(m, mpf, strip, sw, sh);
+                if (p.skill_ready) sprite_add_a(m, mpf, strip, sw, sh, glow);
+            }
             for (int k = 1; k < 10; ++k) {                      // 9 dividers -> ~10 cells
                 const float cx = kAMpFill.x0 + 25.2f * float(k);
                 Ar tick = {cx - 1.0f, kAMpFill.y0, cx + 1.0f, kAMpFill.y1};
@@ -587,9 +625,32 @@ struct Hud {
         sprite_a(m, kAPortrait, kPortraitReal[ci], sw, sh);
 
         // The equipped-skill badge (skill_badge_cell), to {66,716,106,756} (0x6bee70).
+        // That cell is the DIM one of a dim / lit / pale triple (U +0 / +40 / +80). Builder B
+        // FUN_0043e800 0x43f3b3..0x43f4d3 adds the lit cell (U +40, 0x6bd178), or the pale one
+        // (+40 more while charged, c138 == 2) additively at the pulsing alpha while the skill is
+        // affordable — the "dark when I have the MP" report (PLAYTEST_1_HUD.md item 1).
         Rc badge{};
-        if (skill_badge_cell(p.magic, p.character, p.boosting, badge))
+        if (skill_badge_cell(p.magic, p.character, p.boosting, badge)) {
             sprite_a(m, Ar{66, 716, 106, 756}, badge, sw, sh);
+            if (p.skill_ready) {
+                Rc lit = badge;
+                lit.x += 40.0f + (p.charge_level == 2 ? 40.0f : 0.0f);
+                sprite_add_a(m, Ar{66, 716, 106, 756}, lit, sw, sh, glow);
+            }
+        }
+        // Builder A 0x43d9a5..0x43e14e: the buff timer bars (str / def / mp, then the combo meter),
+        // 12 px rows at x 0, y 620 / 632 / 644 / 656, cut to timer / full x 168 from STATUS_512
+        // U 272, V 464 / 476 / 488 / 500 (hudstate.hpp bar_width). Skipped while a Fix holds.
+        // Builder D's lines over them follow with the font_A readouts below. Item 2.
+        if (!p.hud_fix) {
+            for (int i = 0; i < 4; ++i) {
+                const float w = i < 3 ? hudstate::bar_width(p.buff_timer[i], p.buff_full)
+                                      : hudstate::bar_width(p.combo_timer, 720.0f);
+                if (w <= 0.0f) continue;
+                const float y = 620.0f + 12.0f * float(i);
+                sprite_a(m, Ar{0.0f, y, w, y + 12.0f}, Rc{272.0f, 464.0f + 12.0f * float(i), w, 12.0f}, sw, sh);
+            }
+        }
 
         // EX / Boost C-arc (H4, build/hud_re/HUD_BOOST_ARC.md): a pie-wedge fan that reveals the
         // arc graphic from STATUS_512 as the gauge fills. Center (44,719) authored, R63, sweeping
@@ -689,7 +750,44 @@ struct Hud {
         std::snprintf(rbuf, sizeof rbuf, "%3d/%3d", p.hp, p.max_hp);
         mini_text(m, rbuf, 288, 694, sw, sh, 0xa1, 0xe4, 0xc9);
         mini_text(m, "[SP]", 248, 752, sw, sh, 0xbb, 0xbb, 0xbb);
+
+        // Builder D 0x440420..0x4407a0 and 0x440a25..0x440d42 (hudstate.hpp): the active buffs'
+        // lines over their bars (x 0, y 618 / 630 / 642) and the combo line (y 654), font_A, fading
+        // with their timers. Skipped while a Fix holds. PLAYTEST_1_HUD.md items 2 and 3.
+        if (!p.hud_fix) {
+            static const std::uint8_t kBuffRgb[3][3] = {{0xff, 0x60, 0x60}, {0x60, 0x60, 0xff}, {0xff, 0xff, 0x60}};
+            for (int i = 0; i < 3; ++i) {
+                if (p.buff_val[i] == 0.0f) continue;          // the c198 bit (hudstate.hpp tick_buffs)
+                const std::uint8_t a = std::uint8_t((255u * hudstate::buff_line_alpha(p.buff_timer[i])) >> 8);
+                mini_text(m, hudstate::buff_line(i, p.buff_val[i]), 0.0f, 618.0f + 12.0f * float(i), sw, sh,
+                          kBuffRgb[i][0], kBuffRgb[i][1], kBuffRgb[i][2], a);
+            }
+            if (p.combo != 0) {
+                const std::uint8_t a = std::uint8_t((255u * hudstate::combo_line_alpha(p.combo_timer)) >> 8);
+                std::uint8_t r = 0xf1, gg = 0x90, b = 0x40;
+                if (p.combo == 99) {
+                    // DAT_007d9b74 += 6 mod 360 each draw, through FUN_005cebc0 (s = v = 1). [approx]
+                    // FUN_005cebc0 taken as the plain HSV -> RGB; not traced.
+                    combo_hue += 6.0f;
+                    if (combo_hue >= 360.0f) combo_hue -= 360.0f;
+                    const float h6 = combo_hue / 60.0f, f = h6 - std::floor(h6);
+                    const float q = 1.0f - f;
+                    float cr = 1, cg = 1, cb = 1;
+                    switch (int(h6) % 6) {
+                        case 0: cr = 1; cg = f; cb = 0; break;
+                        case 1: cr = q; cg = 1; cb = 0; break;
+                        case 2: cr = 0; cg = 1; cb = f; break;
+                        case 3: cr = 0; cg = q; cb = 1; break;
+                        case 4: cr = f; cg = 0; cb = 1; break;
+                        default: cr = 1; cg = 0; cb = q; break;
+                    }
+                    r = std::uint8_t(cr * 255.0f); gg = std::uint8_t(cg * 255.0f); b = std::uint8_t(cb * 255.0f);
+                }
+                mini_text(m, hudstate::combo_line(p.combo), 0.0f, 654.0f, sw, sh, r, gg, b, a);
+            }
+        }
     }
+    float combo_hue = 0.0f;   // DAT_007d9b74
 
     // Draw a quad of the HP2 (boss) atlas: dst screen rect (px), src atlas rect (px).
     void boss_sprite(float dx, float dy, float dw, float dh,
@@ -763,6 +861,7 @@ struct Hud {
                 const std::string& room_name, float dt, const Player* player = nullptr) {
         verts.clear();
         sprites.clear();
+        sprites_add.clear();
         boss_sprites.clear();
         mini_verts.clear();
         // Fader FIRST (under everything else the HUD draws): a fullscreen solid quad.
@@ -781,7 +880,7 @@ struct Hud {
             text(it->text, 12 * s, my, s * 1.15f, float(sw), float(sh), 255, 235, 120, a);
             my += 30 * s; ++it;
         }
-        const std::size_t g0 = verts.size(), g1 = sprites.size(), g3 = mini_verts.size();
+        const std::size_t g0 = verts.size(), g1 = sprites.size(), g3 = mini_verts.size(), g4 = sprites_add.size();
         if (player) player_hud(*player, float(sw), float(sh));
         // The oxygen bar (0x43c914..0x43c98b, WATER.md §3): above the head while its alpha is
         // non-zero, STATUS cell {288,24,84,12} cut to O2 / 6000 at {pX - 40, pY - 100}.
@@ -807,17 +906,17 @@ struct Hud {
             auto dim = [&](std::vector<HudVertex>& v, std::size_t from) {
                 for (std::size_t k = from; k < v.size(); ++k) v[k].a = std::uint8_t(float(v[k].a) * gauge_alpha);
             };
-            dim(verts, g0); dim(sprites, g1); dim(mini_verts, g3);   // the boss gauge dims itself (red trail unfaded)
+            dim(verts, g0); dim(sprites, g1); dim(mini_verts, g3); dim(sprites_add, g4);   // the boss gauge dims itself (red trail unfaded)
             for (auto& v : equip_verts) dim(v, 0);
         }
         const std::size_t nf = verts.size(), ns = sprites.size(), nb = boss_sprites.size();
-        const std::size_t nm = mini_verts.size();
+        const std::size_t nm = mini_verts.size(), na = sprites_add.size();
         std::size_t ne = 0;                       // equipped-item icon quads (one batch/slot)
         for (const auto& v : equip_verts) ne += v.size();
-        if (nf + ns + nb + nm + ne == 0 && !movie_bind) return;
+        if (nf + ns + nb + nm + ne + na == 0 && !movie_bind) return;
 
         // Concatenate the batches: font atlas verts, STATUS sprites, HP2, then F_MINI.
-        const std::size_t bytes = (nf + ns + nb + nm + ne) * sizeof(HudVertex);
+        const std::size_t bytes = (nf + ns + nb + nm + ne + na) * sizeof(HudVertex);
         if (bytes > vbuf_cap) {
             if (vbuf) wgpuBufferRelease(vbuf);
             WGPUBufferDescriptor bd = {};
@@ -836,6 +935,7 @@ struct Hud {
                 if (!v.empty()) wgpuQueueWriteBuffer(g.queue, vbuf, off, v.data(), v.size() * sizeof(HudVertex));
                 off += v.size() * sizeof(HudVertex);
             }
+            if (na) wgpuQueueWriteBuffer(g.queue, vbuf, off, sprites_add.data(), na * sizeof(HudVertex));
         }
 
         WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -889,6 +989,14 @@ struct Hud {
             wgpuRenderPassEncoderSetBindGroup(pass, 0, atlas_bind, 0, nullptr);
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, nf * sizeof(HudVertex), ns * sizeof(HudVertex));
             wgpuRenderPassEncoderDraw(pass, std::uint32_t(ns), 1, 0, 0);
+        }
+        if (na && atlas_bind_add && add_pipeline) {  // HUD batch 2: builder B's additive quads
+            wgpuRenderPassEncoderSetPipeline(pass, add_pipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, atlas_bind_add, 0, nullptr);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, (nf + ns + nb + nm + ne) * sizeof(HudVertex),
+                                                 na * sizeof(HudVertex));
+            wgpuRenderPassEncoderDraw(pass, std::uint32_t(na), 1, 0, 0);
+            wgpuRenderPassEncoderSetPipeline(pass, pipeline);
         }
         if (nb && boss_bind) {  // HP2 (boss bar) batch
             wgpuRenderPassEncoderSetBindGroup(pass, 0, boss_bind, 0, nullptr);

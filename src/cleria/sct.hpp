@@ -46,7 +46,7 @@ namespace cleria {
 struct CastPlacement {
     std::string name;   // "CAST_M100", "CAST_ADOL", ...
     Vec3 position{};    // world
-    float yaw = 0;      // radians; the file stores degrees (360 or -1 = random facing)
+    float yaw = 0;      // radians; the file stores int degrees (360 or -1: the "random" path = 90)
     bool random_yaw = false;
 
     bool is_player() const { return name == "CAST_ADOL"; }

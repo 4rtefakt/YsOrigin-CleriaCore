@@ -81,6 +81,13 @@ struct SaveState {
     // (op 0xa7) (build/menu_re/PAUSEBOOK_DRAW_TOPIC_MAP.md §5.1, §6.4).
     std::uint8_t manual_on[13] = {};
     std::uint8_t warp_on[24] = {};
+    // Oxygen 0x76c1b8 (f32, max 6000) and its gauge alpha 0x76c1bc (i32): both sit inside the
+    // 0x1fc8 block (+0x1ee8 / +0x1eec), so every save, the continue snapshot 0x767f50 and the
+    // game over's Retry carry them (FUN_0042e9a0 / FUN_00443d70 copy the block whole). 51 of 51
+    // retail saves: 6000.0 / 0. No load or scene entry writes either (globals.tsv: only the item
+    // FUN_00443390 and the player tick FUN_00465170).
+    float o2 = 0.0f;
+    std::int32_t o2_alpha = 0;
 
     int character() const { return flags[150]; }
     int difficulty() const { return flags[144]; }  // DAT_0076bb5c; header +0x50 = this+1

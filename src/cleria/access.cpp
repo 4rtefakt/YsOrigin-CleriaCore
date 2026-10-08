@@ -119,8 +119,12 @@ bool SkipGate::step(SkipMode m, bool pressed, bool held) {
             else if (window > 0) --window;
             return false;
         case SkipMode::Hold:
-            if (pressed) { holding = true; hold = 0; }
-            if (holding && held) {
+            // Any hold counts, also one carried in from before the cutscene or from the scene just
+            // skipped: holding the button skips scene after scene, one second each (PLAYTEST_1_STORY.md
+            // §3; the edge rule made a held button skip only the first scene of a chain).
+            (void)pressed;
+            if (held) {
+                holding = true;
                 if (++hold >= kHoldTicks) { reset(); return true; }
                 window = kHintTicks;               // the hint stays up a while after a release
                 return false;

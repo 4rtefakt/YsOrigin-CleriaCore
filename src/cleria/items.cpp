@@ -68,7 +68,15 @@ std::string ItemTable::name(int id) const {
 
 fs::path ItemTable::icon_path(const fs::path& root, int id, bool dim) const {
     const Item* it = get(id);
-    if (!it || it->icon.empty()) return {};
+    if (!it || it->icon.empty()) {
+        // FUN_00442260 [EXPORT 00442260.c:189-222]: the icon path table (0x6fb1e4, 0xc4 a slot,
+        // texture slot 0x304 + id) holds INVINFO's 128 stems, then four slots it fills by name —
+        // the chest-only items past INVINFO: 128..130 the gems (Emerald, ...), 131 the silver sword.
+        // There is no ICON2 (greyed) file for them.
+        static const char* const kExtra[] = {"JEWEL_00", "JEWEL_01", "JEWEL_02", "SILVERSWORD"};
+        if (dim || id < 128 || id > 131) return {};
+        return root / "MENU" / "ICON" / (std::string(kExtra[id - 128]) + ".DDS");
+    }
     // The stem is stored lower-case ("sw_00"); the extracted tree is upper-case.
     std::string stem = it->icon;
     for (char& c : stem) c = char(std::toupper((unsigned char)c));
