@@ -97,6 +97,30 @@ auto revive_tick = [&](EnemyRender& e) -> bool {
     }
     return true;
 };
+// M360 Jenocres' dead path in the view (M360.md §2 #1/#3/#4, after brains::m360_dead advanced +0x3fc):
+// while the player lives, P+0x734 = 9999 every dead tick (0x4d3f8e); the death section 5 plays (its
+// GenerateEffect 87 / 86 loops, counted in g_flags[178]) under the 255-tick linear fade; FUN_004780e0
+// removes it on the call after +0x3fc reaches 0x100. The section's SEs were played at the kill
+// (enemy_death_sounds), so its sound events are not replayed here.
+auto boss_corpse = [&](EnemyRender& e) {
+    Actor* en = e.actor;
+    if (!en || en->ai_index != 29 || en->alive() || en->destroy_requested() || !e.avm.ok()) return;
+    if (player.hp < 1) return;                                     // the 1.1-HP comeback (m360_dead)
+    player_iframes = 9999;
+    if (en->ai.dead_t >= 0x100u) { world.request_destroy(*en); en->visible = false; return; }
+    if (en->ai.dead_t == 1u) {
+        e.avm.set_section(5, /*force*/true);
+        std::printf("  [boss] t%llu M360 death section %d, the 255-tick fade\n", (unsigned long long)tick_count, e.avm.section());
+    }
+    e.avm.tick();
+    for (const AsoVm::EffectEvent& fe : e.avm.effects()) {
+        const Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
+        ef2sim::SpawnParams sp;
+        sp.power = fe.power; sp.knock = fe.knock; sp.rtype = fe.rtype; sp.status = fe.status;
+        sp.atk = en->atk; sp.side = 1; sp.owner = en->instance_id;
+        spawn_generate_effect(fe, org, e.facing, sp, en->instance_id);
+    }
+};
 // Drawn while it lies there: a family corpse that has not been removed (view_world_draw.inl).
 auto revive_corpse = [&](const Actor& a) {
     return !a.alive() && !a.destroy_requested() && revive::row(a.ai_index) != nullptr;

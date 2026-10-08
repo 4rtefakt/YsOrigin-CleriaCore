@@ -1519,7 +1519,8 @@ title_again:
             e.avm.bind(a);
             // M980's morph loop reads and writes g_flags[179/180] (M980.md §5) [H: only this cast's VM
             // is given the game flags here, so the other casts' scripts run as before].
-            if (e.actor && e.actor->cast_id == 0xb8) e.avm.set_flags(game.g_flags, 0x200);
+            // M360's death section 5 counts its effect loop in g_flags[178] (M360.md §5).
+            if (e.actor && (e.actor->cast_id == 0xb8 || e.actor->cast_id == 0x28)) e.avm.set_flags(game.g_flags, 0x200);
             // Resting section: 2 (idle for most), else 0, else whatever exists first —
             // set_section is what makes AsoVm::ok() true, so it must land on a real one.
             int idle = a->find(2) ? 2 : (a->find(0) ? 0 : a->sections().front().id);
@@ -6104,7 +6105,7 @@ title_again:
                     if (revive_tick(e)) continue;                 // the revive family's dead path
                     // The dead path of a handler that has extra work there (M460: its flock).
                     if (en && !en->alive() && !en->destroy_requested())
-                        if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) hk(*en, aiw);
+                        if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) { hk(*en, aiw); boss_corpse(e); }
                     if (!en || !en->alive() || en->destroy_requested() || !e.avm.ok()) continue;
                     // +0x314 is ONE field: a Fix's turns (world.tick_facing) and Chr_Pos write it
                     // through en->yaw, and the brain carries on from there. e.facing kept the
@@ -6439,6 +6440,7 @@ title_again:
                         for (const EnemyRender& er : render)
                             if (er.actor == &a && er.avm.ok()) { b.section = er.avm.section(); break; }
                         b.token = 0x02000000u | std::uint32_t(a.instance_id);   // [H] +0x80 = actor+0x14
+                        if (a.cast_id == 0xb8 && a.ai.phase() != 0) b.mask_clear = 8;   // M980 INIT 0x4d45f0: +0x64 &= ~8
                         b.bank = &a.bank;
                         b.push = bodypush::Push::of(a.mover.k2);
                     }

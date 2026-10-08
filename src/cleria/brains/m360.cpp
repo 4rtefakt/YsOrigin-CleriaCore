@@ -10,9 +10,9 @@
 // tick 450 on whenever the player is more than 11 from (0, 13). In the background it re-rolls the
 // crystals' attack mode g_flags[180] every 400..1199 ticks and switches their formation (columns,
 // ring, tight ring, plus) 5% a tick once a hold is over. The boss gauge (6000, emblem 6).
-// [not modelled] the keep-out box restore (FUN_0042dc90); the forced region's blend rate 0.02; the
-// death section 5's effect loops and the 255-tick linear fade (the view does not draw a dead
-// monster); P+0x734 = 9999 while the boss is dead (the view's own i-frames). [H] the pending bolts
+// The view's side of the dead path (section 5's effect loops under the linear fade, P+0x734 = 9999,
+// the removal) is boss_corpse in apps/cleria-view/view_revive.inl.
+// [not modelled] the keep-out box restore (FUN_0042dc90); the forced region's blend rate 0.02. [H] the pending bolts
 // live in spare AI dwords (+0x7cc..+0x7f8) instead of on the warning effect's +0x1a4 countdown.
 #include <algorithm>
 #include <cmath>

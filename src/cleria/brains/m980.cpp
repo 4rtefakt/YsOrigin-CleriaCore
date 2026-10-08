@@ -12,7 +12,7 @@
 // effect ids come from section 7's marker. An aim offset +0x7cc turns toward the player within a
 // difficulty cap (unbounded in mode 1). The handler snaps the drawn yaw to 45-degree steps compensated
 // for the pattern frame.
-// [not modelled] the keep-out box restore; the push mask +0x64 &= ~8 (crystals push monsters here);
+// [not modelled] the keep-out box restore;
 // byte +0x399. [approx] the yaw snap runs at the end of the brain with this tick's pre-step pattern
 // frame (the engine's runs after the integrator); the root-life draws of the ball are made before
 // the bullet's EF2 spawn draws (the engine draws them after); the host's bullet scan

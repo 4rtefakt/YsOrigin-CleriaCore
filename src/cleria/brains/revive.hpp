@@ -21,6 +21,9 @@ struct Row {
 };
 // The family member for an AI index (REVIVE.md §1), or nullptr.
 const Row* row(int ai_index);
+// A dead monster the view still draws: a family corpse (REVIVE.md §3.4), or M360 Jenocres during its
+// 255-tick linear fade (+0x3fc 1..0xff, M360.md §2 #4).
+bool corpse_drawn(const Actor& a);
 
 // REVIVE.md §5.3 (M560 0x4a12c0, M780 0x4ab2a0): the sand clamp on the ORIGIN y, every gated tick
 // before the HP test. Reads +0x4ba (surf_ray), +0x320 (water_y), +0x7a0, +0x7a4, HP, +0x388.

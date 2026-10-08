@@ -69,6 +69,7 @@ struct Body {
     RehitBank* bank = nullptr;  // this actor's 10-slot bank (+0x8c/+0x90)
     Push push;                  // knock channel 2 (+0x344/+0x34c); empty = not pushed by anyone
     bool touched = false;       // +0x3bc & 8
+    std::uint8_t mask_clear = 0;  // bits a brain cleared from its +0x64 (M980 INIT: &= ~8, pushes no monsters)
 };
 
 inline constexpr float kMinPush = 0.1f;     // 0x6bd19c
@@ -85,7 +86,7 @@ inline bool player_holds(int character, int section) {
 // the engine's list order). Returns true when a push was applied.
 inline bool pass(Body& self, Body* const* all, std::size_t n, int character) {
     if (!(self.kind & 0x80)) return false;
-    const std::uint8_t mask = mask_of_kind(self.kind);
+    const std::uint8_t mask = std::uint8_t(mask_of_kind(self.kind) & ~self.mask_clear);
     bool pushed = false;
     for (std::size_t i = 0; i < n; ++i) {
         Body& o = *all[i];
