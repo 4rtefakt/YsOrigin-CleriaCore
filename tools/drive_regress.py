@@ -1198,6 +1198,13 @@ CASES.update({
         drive=_S1080.format(end=7400, cast=171) + "4701:actors;7221:chr=201;7421:quit",
         expect=["t4701 actors", "[actor] id 201 cast 171 npc hp 0 g1 0 pos (0.2,-18.0,-9.7) hurt 0.000",
                 "[chr] 201", "run 1 pin -1/0 motion -1 aso 1/302/"]),
+    # #75: S_1013 without the Blue Necklace (Hugo). s_Evt1013_2 holds Fix(0) while EvtWindArizigo's
+    # ChrAll_SetPointForce (0x15f) pulls the player to the pit centre (0, 0, 8): the push is applied under
+    # the Fix (FUN_0045a510 has no fix gate on +0x5d0). He stood at z -1.27 for the whole scene.
+    "pull_s1013_no_necklace": dict(
+        room="S_10/S_1013/S_1013", char="2", env=_LOCK,
+        drive="20:move=0,1,200;100:every=20,700,ok;300:pos;595:pos;700:quit",
+        expect=["t300 pos", "-1.269) O2", "t595 pos", "8.000) O2", ">> entering S_1009"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

@@ -5750,6 +5750,19 @@ title_again:
         }
         if (frozen_now) {
             if (shield_on) remove_shield(true);      // FUN_0046af60 L411-536 [H-med: 0x75ad90/94 = the fix counters]
+            {   // The script pushes 0x15e / 0x15f move the player under a Fix too (issue #75): the integrator
+                // FUN_0045a510 adds +0x5d0 / +0x5d8 while the counter +0x5dc runs with no fix gate [EXPORT
+                // 0045a510.c L263-273], and the player's tick calls it on every real step, a Fix or not
+                // [EXPORT 0046fba0.c L113]. S_1013's s_Evt1013_2 holds Fix(0) while EvtWindArizigo pulls
+                // toward (0, 0, 8). [approx] the walls by one resolve_walls of the pushed spot, not the sweep.
+                const float px0 = feet.x, pz0 = feet.z;
+                #include "view_xso13_force.inl"
+                if (feet.x != px0 || feet.z != pz0) {
+                    const Vec3 body = resolve_walls(phys_mesh(room), {feet.x, feet.y + kStepUp, feet.z}, kCharRadius,
+                                                    std::max(kCharH - kStepUp, 0.5f));
+                    feet.x = body.x; feet.z = body.z;
+                }
+            }
             step_meshes();
             // Effects run on under a Fix: the GoParticle step (0x5644c0) gates only on the menu
             // and the real-step flags, not the fix counters (STATUE_CLEANSE.md §2 [BYTES
