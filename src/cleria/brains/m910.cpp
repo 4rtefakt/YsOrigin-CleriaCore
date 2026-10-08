@@ -160,6 +160,13 @@ AiOut m930(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
 }
 // M940 Nooze (Yellow), FUN_004eec20 (AI 87): the same routine (build/ai_spec/M940.md); it
 // splits almost only from the hit reaction (35%; 0.1% otherwise); its ASO lunge is Durable.
+// M950 Nooze (Green) — brain FUN_004ef840 (AI index 88, handler FUN_004f0180 = M910's): M910 with 15
+// one-for-one constant swaps (build/ai_spec/M950.md): lunge 5.5 u / 300 per mille, cooldown R%30 +
+// 10(d + 3) + 60, splits 60 / 250 per mille, pool cap 30, split cast 0xb5, HP chunk 0.4·HP.
+AiOut m950(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+    return nooze(a, p, e, {5.5f, 300u, 10, 3, 30u, 60, 250, 30u, 0xb5, 0.6f});
+}
+
 AiOut m940(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     return nooze(a, p, e, {4.5f, 250u, 15, 3, 30u, 1, 350, 24u, 0xb4, 0.575f});
 }

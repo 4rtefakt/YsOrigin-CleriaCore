@@ -13,6 +13,7 @@
 #include "cleria/enemy_ai.hpp"
 #include "cleria/enemy_mover.hpp"
 #include "cleria/factory_flags.hpp"
+#include "cleria/hugo_eyes.hpp"
 
 using namespace cleria;
 
@@ -55,6 +56,7 @@ struct Rig {
 };
 
 #include "floor4.inl"   // the floor-4 brains (S_40)
+#include "floor5.inl"   // the floor-5 brains (S_50)
 
 int main() {
     const EnemyAiParams p = m100();
@@ -2954,6 +2956,89 @@ int main() {
     }
 
     floor4_tests();
+    // ---- Hugo's Eyes of Fact as the player's familiars (#57, build/ability_re/EYE_FAMILIARS.md §7..§12)
+    {
+        check(hugo::eye_count(0, 0, false) == 2 && hugo::eye_count(0, 0, true) == 4 && hugo::eye_count(0, 1, false) == 6 &&
+              hugo::eye_count(1, 1, true) == 0, "eyes: 2 / 4 in Boost / 6 with flag 210 / 0 with flag 211");
+        check(hugo::eye_effect_class(0x88) == 2 && hugo::eye_effect_class(0x89) == 1 && hugo::eye_effect_class(0x82) == 3 &&
+              hugo::eye_effect_class(0x93) == 6 && hugo::eye_effect_class(0x84) == 5 && hugo::eye_effect_class(0x85) == -1,
+              "FUN_0046d650: 0x88 thunder, 0x89 fire, 0x82 melee, 0x93 class 6, 0x84 class 5, 0x85 none");
+        struct Eyes : AiWorld {          // the player's eyes in a list; flags 157 / 158 as set
+            std::list<Actor> pool;
+            int f157 = 0, f158 = 0;
+            void for_each(const std::function<void(Actor&)>& f) override { for (Actor& a : pool) f(a); }
+            Actor* find(int id) override { for (Actor& a : pool) if (a.instance_id == id) return &a; return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3&, const Vec3&) override { return {}; }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = -3.4e38f; r[2] = r[3] = 3.4e38f; }
+            const float* enemy_raw(int) override { return nullptr; }
+            int flag(int i, int fb) override { return i == 157 ? f157 : i == 158 ? f158 : fb == 1 ? 0 : fb; }
+        } w;
+        FamiliarHost h;
+        h.player_id = 13; h.origin = {0, 1.075f, 0}; h.heading = h.facing = 0; h.hp = 60; h.level = 5;
+        for (int s = 1; s <= 2; ++s) {
+            Actor& E = w.pool.emplace_back();
+            E.instance_id = 100 + s; E.cast_id = 0xb0; E.height = 0.5f; E.level = 5; E.hp = 1;
+            E.pos = {0, 0.575f, 0};
+            E.ai.i(0x854) = 13; E.ai.i(0x730) = s; E.ai.phase() = 2; E.ai.i(0x710) = -1;
+            E.ai.i(0x7bc) = 2; E.ai.i(0x7c0) = 2;
+            E.ai.f(0x818) = 0.02f; E.ai.f(0x81c) = 1.4f; E.ai.f(0x820) = 3.2f;
+        }
+        auto env_of = [&](Actor& E) {
+            AiEnv e; e.actor = &E; e.world = &w; e.character = 2; e.familiar = &h;
+            e.self = {E.pos.x, E.pos.y + E.height, E.pos.z}; e.section = 2;
+            return e;
+        };
+        const EnemyAiParams ep{};
+        // The Fire Wheel: flag 157 = 1 -> mode 2, +0x7ac += 0.16, the 0x89 fire attached (power -2).
+        w.f157 = 1; w.f158 = 150;
+        Actor& e1 = w.pool.front();
+        AiOut o = hugo::familiar(e1.ai, ep, env_of(e1));
+        bool fire = false;
+        for (const AiEffect& f : o.effects) fire = fire || (f.id == 0x89 && f.attach && f.power == -2.0f && f.tag == 0);
+        check(e1.ai.i(0x72c) == 2 && std::fabs(e1.ai.f(0x7ac) - 0.16f) < 1e-6f && fire,
+              "Fire Wheel: mode 2, the wheel turns 0.16 a tick, EF2 0x89 attached (power -2)");
+        // The wheel's target for slot 1: theta = (+0x7b0 + pi/2) + 0.16, T = O - (cos, sin)(theta) x 1.5; the
+        // step (|D| / 10 + 0.064 along D) goes into knock channel 2.
+        {
+            const float th = 1.5707963705062866f + 0.16f;
+            const Vec3 T{-std::cos(th) * 1.5f, 1.075f, -std::sin(th) * 1.5f};
+            const Vec3 D{T.x, 0.0f, T.z};
+            const float dl = std::sqrt(D.x * D.x + D.z * D.z);
+            const float k = (0.064f + dl / 10.0f) / dl;
+            check(std::fabs(e1.mover.k2.x - D.x * k) < 1e-4f && std::fabs(e1.mover.k2.z - D.z * k) < 1e-4f,
+                  "Fire Wheel: slot 1 steps toward its place on the 1.5 ring");
+        }
+        // Trap Mine, normal: the free eye whose slot is the free count (2) is laid on Hugo's spot, fuse 60.
+        w.f157 = 0; w.f158 = 0;
+        std::vector<hugo::DeployEvent> ev;
+        auto sec2 = [](const Actor&) { return 2; };
+        int n = hugo::deploy_mines(false, h, w, sec2, ev);
+        Actor& e2 = w.pool.back();
+        check(n == 1 && hugo::b8a4(e2.ai) && !hugo::b8a5(e2.ai) && e2.ai.i(0x7c8) == 0x3c && !hugo::b8a4(e1.ai) &&
+              std::fabs(e2.pos.y + e2.height - 1.075f) < 1e-6f, "Trap Mine: slot 2 laid at Hugo, fuse 60, slot 1 stays");
+        check(ev.size() == 2 && ev[0].id == 0x92 && ev[1].kind == hugo::DeployEvent::kSection && ev[1].id == 0x10f,
+              "Trap Mine: EF2 0x92 at the eye's old spot, section 0x10f on the eye");
+        // The fuse runs out: section 5 (the FireBullet 0x88), HP 0.
+        e2.ai.i(0x7c8) = 1;
+        o = hugo::familiar(e2.ai, ep, env_of(e2));
+        check(o.section == 5 && o.section_force && o.set_hp == 0.0f, "Trap Mine: at 0 the eye plays section 5 and dies");
+        // Charged: every free eye laid on the saved mine point, fuse 180, +0x8a5; 0x94 at the point.
+        hugo::set_b8a4(e2.ai, false);
+        ev.clear();
+        h.origin = {3, 1.075f, 4};
+        n = hugo::deploy_mines(true, h, w, sec2, ev);
+        bool all = n == 2;
+        for (Actor& E : w.pool) all = all && hugo::b8a4(E.ai) && hugo::b8a5(E.ai) && E.ai.i(0x7c8) == 0xb4 && E.pos.x == 3;
+        check(all && h.fx_7d8 && ev[0].id == 0x94 && h.mine_point.z == 4, "Trap Mine charged: both laid at the mine point, fuse 180");
+        // The charged fuse: no section 5; the player's latch (FUN_0046a3e0's blast).
+        e1.ai.i(0x7c8) = 1;
+        o = hugo::familiar(e1.ai, ep, env_of(e1));
+        check(o.section < 0 && o.set_hp == 0.0f && h.latch_7d4 == 1, "Trap Mine charged: at 0 no explosion of its own, P+0x7d4 = 1");
+    }
+    floor5_tests();
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;

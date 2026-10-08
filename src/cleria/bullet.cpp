@@ -549,6 +549,39 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             reset_matrix(b);
             break;
         }
+        case 0x2a: {                                               // FUN_005985e0: the boomerang (M640.md §7)
+            const Vec3 v{s.dir.x * s.speed, s.dir.y * s.speed, s.dir.z * s.speed};
+            s.pos = {s.pos.x + v.x, s.pos.y + v.y, s.pos.z + v.z};
+            reset_matrix(b);
+            if (b.u184 == 0) {                                     // outbound
+                if (!(0.0f < s.speed)) {
+                    s.accel = s.accel * -1.0f; b.u184 = 1; s.speed = s.speed * -1.0f;
+                    s.f16c = float(double(b.age)) + s.f16c;
+                }
+                if (ray(s.pos, v).hit) {                           // the one-step look-ahead (set 2)
+                    s.speed = s.speed * -0.25f; b.u184 = 1; s.accel = s.accel * -1.0f;
+                    s.f16c = float(double(b.age)) + s.f16c;
+                }
+                break;
+            }
+            if (b.u184 != 1) break;
+            if (s.accel > s.f168) s.accel = s.f168;                // the max accel
+            const float a = float(double(b.age));
+            float k = s.f16c;
+            Vec3 op{}; float ohp = 0.0f;
+            const bool owner = s.owner != 0 && env.actor && env.actor(s.owner, &op, &ohp);
+            if (a >= k) {
+                if (!owner || 1.0f > ohp) { k = 999999.0f; s.f16c = 999999.0f; }
+                const float t = ((s.f170 * a) * k) * 0.001f;       // 0x6bcff0
+                s.dir = home(s.pos, s.dir, owner ? op : b.owner_pos, t);
+                k = s.f16c;
+            }
+            if (999999.0f > k && owner) {                          // 0x6bdf84
+                const float dx = op.x - s.pos.x, dz = op.z - s.pos.z;
+                if (0.25f > (dx * dx + 0.0f) + dz * dz) fx_->kill_effect(b.fx);   // caught: FUN_0047a7c0
+            }
+            break;
+        }
         case 0x14: case 0x19: case 0x2b:                           // none: the tail only
             break;
         default:

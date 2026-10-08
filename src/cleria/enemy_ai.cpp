@@ -598,7 +598,13 @@ AiOut enemy_ai_tick(EnemyAi& a, const EnemyAiParams& p, const AiEnv& env, EnemyB
     if (out.skip_action_player) return out;
     const int phase_after_brain = a.phase();
     AiOut ap;
-    ai::action_player(a, p, env, ap);
+    if (out.consume_hit) {                             // M160: +0x3bc &= ~4 before FUN_00479b00
+        AiEnv e2 = env;
+        e2.was_hit = false;
+        ai::action_player(a, p, e2, ap);
+    } else {
+        ai::action_player(a, p, env, ap);
+    }
     enemy_handler_post(idx, a, phase_after_brain);
     // The action player's own requests come after the brain's in the engine; it wins a tie.
     if (ap.section >= 0) { out.section = ap.section; out.section_force = ap.section_force; }

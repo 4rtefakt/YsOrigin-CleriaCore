@@ -11,7 +11,7 @@
 // shares the bullet's Env (the player origin, the terrain ray) and effect system.
 //
 // [not modelled] kinds 3, 5, 6, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x16 / 0x1b / 0x1e / 0x1f /
-// 0x29 (BULLETS.md §10.6) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
+// 0x29 / 0x2a (BULLETS.md §10.6; 0x2a the boomerang, M640.md §7) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
 // the kind-0x10/0x23 proxy victim (the player batting a drip); the struck test (§4.4, boss
 // effect ids); the effect-id special cases (0x82 rtype, 0x1e7 random scale, 0x20/0x15 Adol
 // fire, 0x178, 0x1c9/0x1df splashes); the kind-0x29 water ripple and impact burst; the

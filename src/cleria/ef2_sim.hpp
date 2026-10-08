@@ -145,6 +145,9 @@ class System {
     // M140's KILLFX over every effect an owner tagged: each particle loses its hit and fades
     // over 16 steps with its clock reset to 16 (FUN_00564480 -> FUN_0044ebb0 force 1).
     void kill_owned(int owner, int tag);
+    // FUN_0047a7c0 (M640.md §7, M620.md): every live particle of `fx` starts dying (p+0x1b4 = 1) and its
+    // kill flag fx+0x1d4 rises. Unlike kill_owned, hits and clocks are left alone.
+    void kill_effect(Effect* fx);
     // Re-place every effect an owner tagged (FUN_00451a40 on M530's beams).
     void move_owned(int owner, int tag, const Vec3& pos, const Vec3& rot, const Vec3& scale);
     // FUN_00451a40: the world matrix S * RotYPR * T, and the effect scale +0x1ac.. = scale.

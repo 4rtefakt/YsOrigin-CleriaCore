@@ -75,6 +75,18 @@ AiOut m560(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a0260 Karo
 AiOut m780(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004aa220 Zelkaron (Karon + combos; revives)
 AiOut m570(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f3730 Zarue (hover summoner; revives)
 AiOut m410(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f4bb0 Zarue's hand
+AiOut m430(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b27e0 Zeruena (M570's template + the barrier; revives)
+AiOut m440(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b3e70 Zeruena's hand (M410 minus DEF 999 / the clamp)
+AiOut m950(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ef840 Nooze (Green)
+AiOut m610(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ac940 Gunghogan (M190's charge + leap)
+AiOut m400(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ae8c0 Tolpi (the pollen spray)
+AiOut m650(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b4890 Tenat-Baocar (drifting caster, homing shots)
+AiOut m640(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b74c0 Samachryce (lunge, boomerangs, dodges)
+AiOut m160(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b9120 Xomack (drill shot, charge, combos, dodges)
+AiOut m220(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b5650 Chryolos (slash, hops, strafe)
+AiOut m620(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ad980 Ogacha (the bulb, the pounce)
+AiOut m630(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b0d60 Kelmarel (bite, shots, dive, blood-water escape)
+AiOut m660(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004af610 Urobass (+ its handler's strikes and teleport)
 AiOut m280(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a34b0 Chups (the latch)
 AiOut m290(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a2120 Bicmobre (kind-0xf bombs)
 // FUN_004a2f90, M290's handler death helper: one dead tick (bb5c = DAT_0076bb5c); the bombs it throws.

@@ -3062,6 +3062,7 @@ title_again:
     bool drive_jump = false;                              // CLERIA_DRIVE jump: one press
     Vec3 drive_wish{};                                    // CLERIA_DRIVE move=dx,dz,n: a held stick
     int drive_wish_n = 0;
+    #include "view_hugo_eyes.inl"                         // Hugo's Eyes of Fact (the player's familiars)
     auto skill_tick = [&](bool skill_held, bool attack_held) {
         const int slot = skillmp::bracelet_slot(inv.magic);
         skillmp::SkillIn si;
@@ -3091,6 +3092,7 @@ title_again:
         // FUN_0046ea00(1): refused in the super sections; [not modelled] the ASO re-cast lock.
         const int sec = avm.section();
         if (sec == 0x139 || sec == 300 || sec == 0x13d) return;
+        if (character == 2 && !hugo_eyes_cast(inv.magic, so.level == 2)) return;   // Trap Mine: nothing to lay
         player_iframes = std::max(player_iframes, 3);
         // FUN_0046ea00 L77-112: Hugo's Ventus (0x74) frees the old shield and arms the new one,
         // 1 hit / 360 ticks (charged, c138 == 2: 2 / 380); in Boost (0x76c198 & 0x20) 480 ticks
@@ -5774,7 +5776,9 @@ title_again:
             if (pa_out.new_attack) {
                 atk_dir = face_dir;                                    // the swing points where you face
                 player_hit_serial = next_hit_serial(world.hit_serial_counter_);
+                if (pa_out.section != 0x112) hugo_eyes_fire();         // FUN_0046d6e0: the eyes shoot too
             }
+            hugo_eyes_tick();                                          // FUN_0046af60's eyes, FUN_0046a3e0's blast
             if (pa_out.t_add != 0.0f) pv.t += pa_out.t_add;            // the air combo's hang time
             if (pa_out.impulse) { player_kb.x += pa_out.impulse_x; player_kb.z += pa_out.impulse_z; }
             if (pa_out.lunge) { player_kb.x = pa_out.lunge_x; player_kb.z = pa_out.lunge_z; }
@@ -6136,6 +6140,7 @@ title_again:
                     // The dead path of a handler that has extra work there (M460: its flock).
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) { hk(*en, aiw); boss_corpse(e); }
+                    if (hugo_eye_dead(e)) continue;                  // a familiar's death tick (view_hugo_eyes.inl)
                     if (!en || !en->alive() || en->destroy_requested() || !e.avm.ok()) continue;
                     // +0x314 is ONE field: a Fix's turns (world.tick_facing) and Chr_Pos write it
                     // through en->yaw, and the brain carries on from there. e.facing kept the
@@ -6197,6 +6202,12 @@ title_again:
                         const float f = floor_at(phys_mesh(room), x, z, from_y);
                         return f > kNoFloor && from_y - f <= depth; };
                     env.rng = [&] { return std::uint32_t(rng()); };
+                    if (hugo_eye(*en)) {                             // a familiar: FUN_00470210 reads the player
+                        fam_refresh();
+                        fam.culled = !in_view(env.self, 2.5f);       // FUN_0045d3c0 (the sphere above)
+                        env.culled = false;                          // the familiar handler has no cull gate
+                        env.familiar = &fam;
+                    }
                     e.hit = false;
                     e.dmg_hit = false;
                     env.hp = en->hp; env.max_hp = en->max_hp; env.section = e.avm.section();
@@ -6232,6 +6243,7 @@ title_again:
                         ef2sim::SpawnParams sp;
                         sp.power = fx.power; sp.knock = fx.knock; sp.rtype = fx.rtype; sp.status = fx.status;
                         sp.atk = en->atk; sp.side = 1; sp.owner = en->instance_id; sp.tag = fx.tag;
+                        if (hugo_eye(*en)) hugo_eye_brain_fx(*en, sp, fx.id);   // the player's side
                         spawn_sim_fx(fx.id, fx.pos, fx.rot, fx.scale, sp, fx.attach ? en->instance_id : 0, org);
                     }
                     pool += int(o.spawns.size());
@@ -6352,6 +6364,7 @@ title_again:
                         bullet::Spawn s;
                         s.kind = fb.kind; s.effect = fb.id;
                         s.owner = en->instance_id; s.owner_atk = float(en->atk);
+                        if (hugo_eye(*en)) hugo_eye_bullet(*en, s);       // side 0, FUN_0046d650's class
                         s.pos = {en->pos.x + c * fb.f[0], en->pos.y + en->height + fb.f[1], en->pos.z + sn * fb.f[0]};
                         Vec3 d{fb.f[3], fb.f[4], fb.f[5]};
                         if (d.x * d.x + d.y * d.y + d.z * d.z == 0.0f) d = {c, 0.0f, sn};
@@ -6374,6 +6387,7 @@ title_again:
                         ef2sim::SpawnParams sp;
                         sp.power = fe.power; sp.knock = fe.knock; sp.rtype = fe.rtype; sp.status = fe.status;
                         sp.atk = en->atk; sp.side = 1; sp.owner = en->instance_id;
+                        if (hugo_eye(*en)) hugo_eye_effect(*en, sp, fe.id);  // side 0, rtype 3, kept in +0x890
                         spawn_generate_effect(fe, org, e.facing, sp, en->instance_id);
                     }
                     // Its GenerateCollision arms the enemy's hit-volume, with the section's own

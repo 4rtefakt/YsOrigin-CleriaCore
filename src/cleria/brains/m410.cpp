@@ -18,7 +18,11 @@
 
 namespace cleria::brains {
 
-AiOut m410(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+namespace {
+
+// M410 and M440 (Zeruena's hand, brain FUN_004b3e70, AI index 37; build/ai_spec/M440.md): the same
+// brain minus M410's DEF 999 and its surface-0x12 clamp; M440's ASO adds a FireBullet at t 109.
+AiOut hand(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, bool m410) {
     using ai::r15;
     AiOut out;
     if (e.launched) return out;                                    // 0x4f4cc2 (the TAIL too)
@@ -34,7 +38,7 @@ AiOut m410(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             a.hittable = false;
             a.alpha = 0.0f;
             a.i(0x72c) = 0; a.i(0x730) = 0;
-            if (A) { A->def = 999.0f; A->flags12c |= 0x1000000u; }
+            if (A) { if (m410) A->def = 999.0f; A->flags12c |= 0x1000000u; }
             std::memcpy(&a.blk[(0x79c - EnemyAi::kBase) / 4], save, sizeof save);
             break;
         }
@@ -113,11 +117,16 @@ AiOut m410(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             if (P->ai.phase() == 3) e.world->remove(*A);           // the parent is stunned: gone
         }
     }
-    if (A && a.surf == 0x12 && a.water_y + 0.1f > A->pos.y + A->height) {   // 0x4f525e
+    if (m410 && A && a.surf == 0x12 && a.water_y + 0.1f > A->pos.y + A->height) {   // 0x4f525e
         A->pos.y = (a.water_y + 0.1f) - A->height;
         a.surf = 1;
     }
     return out;
 }
+
+}  // namespace
+
+AiOut m410(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) { return hand(a, p, e, true); }
+AiOut m440(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) { return hand(a, p, e, false); }
 
 }  // namespace cleria::brains

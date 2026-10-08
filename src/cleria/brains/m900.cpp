@@ -26,6 +26,7 @@
 
 #include "cleria/actor.hpp"
 #include "cleria/brains/brains.hpp"
+#include "cleria/hugo_eyes.hpp"
 
 namespace cleria::brains {
 namespace {
@@ -92,7 +93,13 @@ AiOut m900(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         }
     };
     // ---- the handler FUN_004731d0: the duel brain only while 130 is set and the player is not Hugo
-    if (gflag(e, 130, 1) == 0 || e.character == 2) { ramp(); return out; }   // FUN_00470210 [not modelled]
+    // 3c: FUN_00470210. The player's own eyes (owner +0x854 = the player) run hugo_eyes.cpp; an
+    // M810-owned eye outside the duel stays [not modelled].
+    if (gflag(e, 130, 1) == 0 || e.character == 2) {
+        if (e.familiar) out = hugo::familiar(a, p, e);
+        ramp();
+        return out;
+    }
     // ---- the brain FUN_004dab30
     if (e.launched) { ramp(); return out; }                         // +0x4d0
     Actor* Ow = (w && a.i(0x854) != 0) ? w->find(a.i(0x854)) : nullptr;
