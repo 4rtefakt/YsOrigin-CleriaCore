@@ -1082,6 +1082,13 @@ CASES.update({
         expect=["[access] skip prompt: press again", "t332 scripts", "script SwordTutorial1 pc 181",
                 "t400 scripts", "script SwordTutorial1 pc 203"],
         absent=["cutscene skip"]),
+    # ROUTE_F47.md B1: the floor-6 mirrors are hidden by their room roots (Mesh_SetVisible 0) and keep their
+    # touch volume. Toal with the Rod (98) walks into S_6009's mirror_01 -> S_6014, then into mirror_09 -> S_6082.
+    "mirror_chain": dict(
+        room="S_60/S_6009/S_6009", char="3",
+        drive="5:flag=98,1;20:at3=-10,22,143,0;40:move=0,1,120;420:at3=-0.1,4,106,0;440:move=0,1,120;800:quit",
+        expect=["[touch] mirror_01 -> s_mirror01", ">> entering S_6014", "[touch] mirror_09 -> s_mirror09",
+                ">> entering S_6082"]),
     # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
     # load tick's drain) and takes the continue snapshot, so a
     # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn

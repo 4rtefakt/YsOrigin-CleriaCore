@@ -347,6 +347,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             if (fs::exists(sp)) t.script = sp.string();
             out.triggers.push_back(std::move(t));
         }
+        if (!collision && states && states->undrawn.count(lname)) continue;   // hidden: the trigger only
         const std::size_t trig_v0 = out.vertices.size();
         const std::size_t obj_i0 = out.indices.size();
 

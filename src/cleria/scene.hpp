@@ -173,6 +173,9 @@ void set_object_pose_hook(std::function<bool(const std::string& lname, Model& m)
 struct ObjStates {
     std::unordered_map<std::string, std::string> clip;   // 0x175 name -> clip
     std::unordered_map<std::string, std::array<float, 3>> pos;  // 0x173 name -> world pos
+    // 0x16b-hidden touch objects (the floor-6 mirrors): not drawn, but their trigger record is kept
+    // and the collision build still takes them (hidden is +0x298 bit 0x20 only, [EXPORT 00572aa0.c]).
+    std::unordered_set<std::string> undrawn;
 };
 
 // `extra`: objects a script placed with 0x187 Mesh_Locate (the boss), appended to the SOB's.

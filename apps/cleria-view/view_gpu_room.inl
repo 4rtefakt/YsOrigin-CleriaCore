@@ -375,6 +375,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     std::vector<SobObject> located;                  // 0x187 Mesh_Locate (render + its X_.YMO collision twin)
     std::unordered_set<std::string> root_hidden;     // deleted or hidden: no model, no collision
     std::unordered_set<std::string> no_collide;      // 0x16c off: drawn, not solid
+    std::unordered_set<std::string> gone;            // 0x169 deleted (never a kept touch volume, below)
     {
         fs::path scene_main = sob; scene_main.replace_extension(".XSO");
         if (fs::exists(scene_main)) {
@@ -407,7 +408,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                     try { tmp.run(Xso::parse(read_bytes(cp))); } catch (const std::exception&) {}
                 }
                 auto low = [](std::string s) { for (char& c : s) c = char(std::tolower((unsigned char)c)); return s; };
-                for (const std::string& s : tmp.obj_deleted) root_hidden.insert(low(s));
+                for (const std::string& s : tmp.obj_deleted) { root_hidden.insert(low(s)); gone.insert(low(s)); }
                 for (const auto& [nm, on] : tmp.obj_collide)
                     if (!on) no_collide.insert(low(nm));
                 for (const auto& [nm, clip] : tmp.obj_state) obj_states.clip[low(nm)] = clip;
@@ -525,9 +526,28 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
         break;
     }
     r.load_effects = std::move(load_fx);
+    // A hidden TOUCH object keeps its volume and its trigger (the floor-6 mirrors of S_6009 / S_6014 / S_6082,
+    // hidden by their room roots and never 0x16c'd; ROUTE_F47.md B1). The engine: 0x16b sets +0x298 bit 0x20
+    // only [EXPORT 00572aa0.c], the draw skips +0x298 & 0x30 [EXPORT 00562990.c:195], and the side-contact
+    // trigger asks +0x28c & 8 and +0x298 & 0x80 [EXPORT 0045a510.c:560, 0045a4a0.c] - not the hidden bit.
+    // [approx] narrow on purpose: every other hidden object still loses its collision here (S_6080's `kabe`,
+    // the medallion doors' `medaru_00`), although the engine keeps bit 0x40 apart for them too.
+    if (!hidden.empty()) {
+        const Sob so = Sob::parse(read_bytes(sob));
+        for (const SobObject& o : so.objects) {
+            std::string ln = o.name;
+            for (char& c : ln) c = char(std::tolower((unsigned char)c));
+            if (!o.touch() || o.script.empty() || !hidden.count(ln) || gone.count(ln) || no_collide.count(ln) ||
+                (extra_hidden && extra_hidden->count(ln)))
+                continue;
+            hidden.erase(ln);
+            obj_states.undrawn.insert(ln);
+        }
+    }
+    const bool no_states = obj_states.clip.empty() && obj_states.pos.empty() && obj_states.undrawn.empty();
     r.mesh = build_room(asset_root, sob, nullptr,
                         hidden.empty() ? nullptr : &hidden, base_flags,
-                        (obj_states.clip.empty() && obj_states.pos.empty()) ? nullptr : &obj_states,
+                        no_states ? nullptr : &obj_states,
                         located.empty() ? nullptr : &located);
     bake_material_alpha(r.mesh);
     r.base_a.resize(r.mesh.vertices.size());
@@ -539,7 +559,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     r.coll = build_collision(asset_root, sob, nullptr,
                              coll_hidden.empty() ? nullptr : &coll_hidden,
                              located.empty() ? nullptr : &located,
-                             (obj_states.clip.empty() && obj_states.pos.empty()) ? nullptr : &obj_states);
+                             no_states ? nullptr : &obj_states);
     // Materials that scroll their UVs. Only 397 of 6642 corpus-wide do, and the disk
     // phase is 0.0 in every one — it is pure runtime state, so we start at zero too.
     for (const DrawBatch& b : r.mesh.batches)
