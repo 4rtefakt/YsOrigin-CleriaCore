@@ -88,6 +88,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 86: return &brains::m930;   // M930 Nooze (Red)
         case 87: return &brains::m940;   // M940 Nooze (Yellow)
         case 90: return &brains::m970;   // M970 Vagully
+        case 80: return &brains::m870;   // M870 Zava (the floor-6 boss actor; boss06_zava.hpp)
         default: return nullptr;
     }
 }
@@ -135,6 +136,8 @@ void enemy_handler_clamp(int ai_index, Vec3& origin, int arena_mode, bool boss_f
 // M850 FUN_004d1c90: `cmp [0x76bb24], 0` first (0x4d1c99), `cmp [0x76bb28], 0` after the
 // culled test (0x4d2146). build/ai_spec/M850.md §1.
 bool enemy_handler_puppet(int ai_index, const AiEnv& env) {
+    // M870 Zava FUN_0053af10: `cmp [0x76bb8c], 0` first (0x53af3f, g_flags[156]). build/boss_re/ZAVA_AB.md §A.1.
+    if (ai_index == 80) return env.world && env.world->flag(156, 1) == 0;
     return ai_index == 78 && env.world && env.world->flag(130, 1) == 0;
 }
 bool enemy_handler_held(int ai_index, const AiEnv& env) {

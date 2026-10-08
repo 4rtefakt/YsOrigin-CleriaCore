@@ -115,12 +115,14 @@ struct Boss06Input {
 };
 
 enum class Boss06Call { kFx, kFx2, kInline };          // FUN_00450410 / FUN_00450880 (keeps the scale) / brain-inlined
-enum class Boss06Parent { kNone, kNode, kSlot, kOrbit };   // attach parent: a node matrix, slot_matrix, orbit_matrix
+// Attach parent: a node matrix, slot_matrix, orbit_matrix; for Zava's own effects (head = -1, boss06_zava.hpp) her
+// actor matrix Z+0x20 (kZava) or the static copy 0x7ddcd0 of it with y forced to 6.05 (kZavaFloor, ZAVA_AB §A.1).
+enum class Boss06Parent { kNone, kNode, kSlot, kOrbit, kZava, kZavaFloor };
 
 struct Boss06Clip { int head = 0, slot = 0, section = 0, blend = 1; };   // SetClip: restart, A+0x24 = 1.0
 struct Boss06Sound { int id = 0; Vec3 pos{}; };                           // FUN_0043a080
 struct Boss06Effect {
-    int head = 0;
+    int head = 0;                             // -1: Zava's (stat = &Z+0x94, her STR)
     Boss06Call call = Boss06Call::kFx2;
     int id = 0;
     Vec3 pos{}, rot{}, scale{1, 1, 1};

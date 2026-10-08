@@ -8,7 +8,13 @@
 #include <optional>
 #include <vector>
 
+#include <functional>
+#include <map>
+
+#include "cleria/actor.hpp"
 #include "cleria/boss06.hpp"
+#include "cleria/boss06_zava.hpp"
+#include "cleria/brains/brains.hpp"
 
 using namespace cleria;
 using namespace cleria::boss06;
@@ -1214,6 +1220,8 @@ static void test_orbiters() {
           "EF §F.4: speed = min(3.0, (4 - n + 1) * factor) deg/f, angle = trunc(spd * fc) + phase; dead orbiters are skipped");
 }
 
+#include "zava.inl"   // Zava herself (brains/m870.cpp)
+
 int main() {
     test_ctor();
     test_pattern0_and_queue();
@@ -1233,6 +1241,7 @@ int main() {
     test_suction_and_bomb();
     test_death();
     test_orbiters();
+    zava_tests();
     std::printf("%d checks, %d failed\n%s\n", total, fails, fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

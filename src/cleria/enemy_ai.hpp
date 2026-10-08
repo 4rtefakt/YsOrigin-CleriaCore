@@ -218,6 +218,9 @@ struct AiEnv {
     std::function<bool(float x, float z, float from_y, float depth)> has_floor;
     std::function<std::uint32_t()> rng;  // one xorshift128 advance; returns the new word
     struct FamiliarHost* familiar = nullptr;  // the player side of Hugo's Eyes of Fact (hugo_eyes.hpp)
+    // Zava (AI index 80, FUN_0053af10): her link to the two boss06 heads and the handler's extra inputs / outputs
+    // (boss06_zava.hpp). Null for every other actor; with it null her brain is inert.
+    struct Boss06Link* boss06 = nullptr;
 };
 
 // A request a brain makes of the world this tick.

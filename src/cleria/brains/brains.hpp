@@ -126,6 +126,7 @@ AiOut m840(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004df410 / FU
 void m840_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4df45d)
 AiOut m860(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004e7af0 / FUN_004e3070 Kishgal (duel)
 void m860_dead(Actor&, AiWorld&);                              // its handler's defeat (0x4e7bac)
+AiOut m870(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0053af10 / FUN_0053ab20 Zava (boss06_zava.hpp)
 AiOut m500(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00485050 Oggnome (teleporter)
 AiOut m890(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f6520 Velagunder Spawn (boss01)
 AiOut m200(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047db90 Venueba
