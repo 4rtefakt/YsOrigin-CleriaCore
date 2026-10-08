@@ -5920,6 +5920,11 @@ title_again:
                 const float h = turn_facing(run_gait ? 0.35f : 0.18f, std::atan2(face_dir.z, face_dir.x), std::atan2(wish.z, wish.x));
                 face_dir = {std::cos(h), 0, std::sin(h)};
             }
+            if (Actor* wp = world.player()) {             // a brain's write to P+0x344 / +0x34c (M710's suction,
+                player_kb2.x += wp->mover.k2.x;          // M820's 0x10f pull): the world player is a mirror,
+                player_kb2.z += wp->mover.k2.z;          // the view's player_kb2 is the channel the mover reads
+                wp->mover.k2 = {};
+            }
             {   // Knockback, both channels (+0x338/+0x340 and +0x344/+0x34c), by the player
                 // mover's own law (hit.hpp step_knockback_player).
                 const Impulse kd = step_knockback_player(player_kb, player_kb2, grounded, player.hp < 1,
@@ -6163,6 +6168,15 @@ title_again:
                 aiw.hide_gauge_fn = [&] { hud.hide_boss_gauge(); };
                 // The current scene's directory, e.g. "s_30\s_3080\", compared case-blind.
                 aiw.effects_fn = ai_effects;                   // the GoEffect pool scans (view_duel.inl)
+                aiw.cull_fx_fn = [&](Actor& a, int id, int keep) {   // M710: e+0x1a4 == self+0x20 -> the actor matrix
+                    const ef2sim::M4* parent = &actor_mats[a.instance_id];
+                    int n = 0;
+                    for (auto& f : fxsim.effects()) {
+                        if (f->dead || f->id != id || f->attach_parent != parent) continue;
+                        if (++n <= keep) continue;
+                        if (ef2sim::Particle* pr = fxsim.first_particle(f.get())) pr->remaining = 0;   // p+0x1c4 = 0
+                    }
+                };
                 // [approx] the region's blend rate (0x76a1fc) is the rig's own.
                 aiw.camera_fn = [&](int r, float) { g_rig.write_forced(r); };
                 aiw.sound_fn = [&](int id, const Vec3& p) { sfx_at(id, p, kSfxAnimVol); };
@@ -6197,6 +6211,9 @@ title_again:
                         if (!(625.0f > (fx * fx + fy * fy) + fz * fz)) { e.avm.tick(); continue; }
                     }
                     if (revive_tick(e)) continue;                 // the revive family's dead path
+                    // M710's handler, the first dead tick (+0x3fc == 0, 0x4c3dd4): end its attached suction effects. The
+                    // pool holds no new ones after that, so the view repeats it each dead tick to the same effect.
+                    if (en && en->ai_index == 64 && !en->alive() && !en->destroy_requested()) aiw.cull_attached_fx(*en, 246, 0);
                     // The dead path of a handler that has extra work there (M460: its flock).
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) { hk(*en, aiw); boss_corpse(e); }

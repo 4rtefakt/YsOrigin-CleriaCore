@@ -49,6 +49,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 19: return &brains::m260;   // M260 Hand (Bazeraena's)
         case 60: return &brains::m670;   // M670 Bazeraena (handler: brains/revive.cpp)
         case 67: return &brains::m740;   // M740 Drefflum (handler far freeze)
+        case 64: return &brains::m710;   // M710 Astyle (handler far freeze; the dead-path cull in the view)
         case 61: return &brains::m680;   // M680 Hekat-Baocar (handler far freeze: enemy_handler_far_freeze)
         case 37: return &brains::m440;   // M440 Zeruena's hand
         case 88: return &brains::m950;   // M950 Nooze (Green)
@@ -84,7 +85,8 @@ EnemyBrain enemy_brain_for(int ai_index) {
 }
 
 bool enemy_handler_far_freeze(int ai_index) {
-    return ai_index == 61 || ai_index == 67;   // M680 FUN_004c4df0, M740 FUN_004c59d0 (625.0 at 0x6bdd7c)
+    return ai_index == 61 || ai_index == 67    // M680 FUN_004c4df0, M740 FUN_004c59d0 (625.0 at 0x6bdd7c)
+        || ai_index == 64;                     // M710 FUN_004c3d50 0x4c3d79
 }
 
 bool enemy_handler_clamps(int ai_index) {

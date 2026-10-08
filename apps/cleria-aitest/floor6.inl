@@ -136,6 +136,45 @@ static void floor6_tests() {
               timer <= 194 && H->ai.i(0x72c) == 0x70,
               "M260: DEF 999; after 15..59 ticks it appears 6.5 u out at heading + 0.4, section 8, life R%20 + 175 - 10d");
     }
+    // ---- M710 Astyle: the rooted suction (build/ai_spec/M710.md §8 tests) ----
+    {
+        struct PW : floor4::Pool {
+            Actor P;
+            Actor* player() override { return &P; }
+        };
+        const EnemyBrain m710 = enemy_brain_for(64);
+        check(m710 != nullptr && enemy_handler_far_freeze(64), "Astyle registered (AI 64); far freeze");
+        EnemyAiParams ap = params(0.08f, 0.03f, 1.25f, 2.0f, 0.0f);    // EI[61]
+        int forced = -1;
+        for (int s = 0; s < 200 && forced < 0; ++s) {                 // (a) engaged, 10 u: a forced 7 at a decision
+            PW w; Actor A; A.cast_id = 75; A.ai_index = 64;
+            Rig r; r.env.actor = &A; r.env.world = &w; for (int i = 0; i < s; ++i) r.rng();
+            r.env.target = {10.0f, 1.075f, 0}; r.env.section = 2; r.env.character = 1; r.env.target_grounded = true;
+            enemy_ai_tick(A.ai, ap, r.env, m710);
+            A.ai.phase() = 2;
+            for (int t = 0; t < 60 && forced < 0; ++t) {
+                const AiOut o = enemy_ai_tick(A.ai, ap, r.env, m710);
+                if (o.section == 7 && o.section_force) forced = t;
+            }
+        }
+        check(forced >= 0, "M710: a forced section 7 at a decision (35 %, inside d + 20)");
+        auto pulled = [&](int psec, int frame) {                       // (b) / (c): one suction tick at 5 u
+            PW w; Actor A; A.cast_id = 75; A.ai_index = 64;
+            Rig r; r.env.actor = &A; r.env.world = &w;
+            r.env.target = {5.0f, 1.075f, 0}; r.env.character = 1; r.env.target_grounded = true;
+            r.env.target_section = psec;
+            enemy_ai_tick(A.ai, ap, r.env, m710);                      // INIT
+            A.ai.phase() = 2; A.ai.cool() = 50; A.ai.dur() = 50;       // no decision this tick
+            A.ai.set_v(0x734, {5.0f, 0.0f, 0.0f});
+            r.env.section = 7; r.env.aso_frame = frame; r.env.aso_marker = 0;
+            enemy_ai_tick(A.ai, ap, r.env, m710);
+            return w.P.mover.k2.x;
+        };
+        const float k = pulled(0, 6), k_burst = pulled(0x139, 6), k_frame = pulled(0, 2);
+        std::printf("[aitest]   M710 pull: %.5f (burst %.5f, frame 2 %.5f)\n", k, k_burst, k_frame);
+        check(std::fabs(k + 0.085f) < 1e-6f && k_burst == 0.0f && k_frame == 0.0f,
+              "M710: the pull toward it on P+0x344, 0.085 for Yunica at 5 u; none in a burst section or off frames 5..8");
+    }
     // ---- M680 Hekat-Baocar: M650 + the hover-height roll + long-homing shots (build/ai_spec/M680.md) ----
     {
         const EnemyBrain m680 = enemy_brain_for(61);

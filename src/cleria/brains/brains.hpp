@@ -75,6 +75,7 @@ AiOut m560(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a0260 Karo
 AiOut m780(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004aa220 Zelkaron (Karon + combos; revives)
 AiOut m570(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f3730 Zarue (hover summoner; revives)
 AiOut m410(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f4bb0 Zarue's hand
+AiOut m710(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c3300 Astyle (rooted; the suction)
 AiOut m740(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c5140 Drefflum (stationary; needles / bubble fan)
 AiOut m680(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c4100 Hekat-Baocar (M650 + height roll; far freeze)
 AiOut m260(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f29e0 Hand (M670's; M440 + DEF 999 + the far branch)

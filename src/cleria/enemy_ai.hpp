@@ -142,6 +142,10 @@ struct AiWorld {
     // has no effects (the scans then read "none live").
     struct Fx { int id = 0; int attach = 0; bool kill = false; int owner = 0; };
     virtual void for_each_effect(const std::function<void(const Fx&)>& /*f*/) {}
+    // M710's cull (FUN_004c3300 0x4c3c98, its handler's dead path 0x4c3dd4): over the GoEffect pool in order, the
+    // effects of EFTLIST id `id` attached to `self` (e+0x1a4 == self+0x20); every one past the first `keep` has its
+    // root particle (FUN_00564a20) ended, p+0x1c4 = 0.
+    virtual void cull_attached_fx(Actor& /*self*/, int /*id*/, int /*keep*/) {}
     // DAT_0076a1f8 / DAT_0076a1fc: the forced camera region and its blend rate (M360's INIT / death).
     virtual void force_camera(int /*region*/, float /*rate*/) {}
     // FUN_004202e0(ecx = a, edx = cast's ENEMYINFO record, level): +0x94 max HP, +0x98 = +0x94, +0xa4 STR,
