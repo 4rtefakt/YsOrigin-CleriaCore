@@ -109,6 +109,33 @@ static void floor6_tests() {
         check(to78 && req && charge && push && exitok,
               "M670 dash: 302 gated, sink to 0.75, charge x3 base speed at Marker 1, one push at Marker 2, rest 60 + R%30");
     }
+    // ---- M260 Hand: the far branch 0x6e -> 0x6f -> 0x70 (build/ai_spec/M260.md) ----
+    {
+        using floor4::Pool;
+        const EnemyBrain m260 = enemy_brain_for(19);
+        check(m260 != nullptr, "Hand registered (AI 19)");
+        Pool w; Actor& Z = (w.actors.emplace_back(), w.actors.back());
+        Z.instance_id = 71; Z.cast_id = 0x47; Z.hp = Z.max_hp = 300;
+        Actor* H = w.spawn_child(Z, 0x1e, {8.5f, 0, 0}, 41, true);
+        H->ai.i(0x854) = 71; H->ai.i(0x7a0) = 0; H->ai.f(0x7ac) = 0.0f; H->ai.i(0x7a4) = 0x6e; H->ai.f(0x7b0) = 7.0f;
+        H->height = 0.5251f;
+        Rig r; r.env.actor = H; r.env.world = &w; r.env.target = {0.0f, 1.075f, 0}; r.env.target_heading = 0.0f;
+        r.env.target_floor = 0.0f;
+        int t8 = -1, timer = 0; bool def999 = false;
+        for (int t = 0; t < 200 && t8 < 0; ++t) {
+            const AiOut o = enemy_ai_tick(H->ai, params(0.16f, 0.0525f, 1.0f, 2.0f, 0.0f), r.env, m260);
+            if (t == 0) def999 = H->def == 999.0f;
+            if (o.section == 8) { t8 = t; timer = H->ai.i(0x71c); }
+        }
+        const float dx = H->pos.x - 0.0f, dz = H->pos.z - 0.0f;
+        const float dist = std::sqrt(dx * dx + dz * dz);
+        const float ang = std::atan2(dz, dx);
+        std::printf("[aitest]   M260: section 8 at t %d, %.3f u at %.3f rad, timer %d, sub 0x%x\n", t8, dist, ang, timer,
+                    H->ai.i(0x72c));
+        check(def999 && t8 >= 15 && std::fabs(dist - 6.5f) < 1e-4f && std::fabs(ang - 0.4f) < 1e-4f && timer >= 174 &&
+              timer <= 194 && H->ai.i(0x72c) == 0x70,
+              "M260: DEF 999; after 15..59 ticks it appears 6.5 u out at heading + 0.4, section 8, life R%20 + 175 - 10d");
+    }
     // ---- M680 Hekat-Baocar: M650 + the hover-height roll + long-homing shots (build/ai_spec/M680.md) ----
     {
         const EnemyBrain m680 = enemy_brain_for(61);
