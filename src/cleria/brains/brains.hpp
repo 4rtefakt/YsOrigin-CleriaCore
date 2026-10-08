@@ -76,6 +76,7 @@ AiOut m780(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004aa220 Zelk
 AiOut m570(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f3730 Zarue (hover summoner; revives)
 AiOut m410(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f4bb0 Zarue's hand
 AiOut m750(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004bae90 Liliborad (the hand-flown orb)
+AiOut m690(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c5d20 Glaregrave (combo + lightning chain, the guard; far freeze)
 AiOut m700(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004bbf90 Fliogan (hops, the dash effect, the slash volleys)
 AiOut m710(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c3300 Astyle (rooted; the suction)
 AiOut m740(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c5140 Drefflum (stationary; needles / bubble fan)

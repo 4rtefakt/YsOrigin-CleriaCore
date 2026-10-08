@@ -50,6 +50,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 60: return &brains::m670;   // M670 Bazeraena (handler: brains/revive.cpp)
         case 67: return &brains::m740;   // M740 Drefflum (handler far freeze)
         case 68: return &brains::m750;   // M750 Liliborad (its dead path in the view)
+        case 62: return &brains::m690;   // M690 Glaregrave (handler far freeze)
         case 63: return &brains::m700;   // M700 Fliogan (its dead path in the view)
         case 64: return &brains::m710;   // M710 Astyle (handler far freeze; the dead-path cull in the view)
         case 61: return &brains::m680;   // M680 Hekat-Baocar (handler far freeze: enemy_handler_far_freeze)
@@ -88,7 +89,8 @@ EnemyBrain enemy_brain_for(int ai_index) {
 
 bool enemy_handler_far_freeze(int ai_index) {
     return ai_index == 61 || ai_index == 67    // M680 FUN_004c4df0, M740 FUN_004c59d0 (625.0 at 0x6bdd7c)
-        || ai_index == 64;                     // M710 FUN_004c3d50 0x4c3d79
+        || ai_index == 64                      // M710 FUN_004c3d50 0x4c3d79
+        || ai_index == 62;                     // M690 FUN_004c6cd0 0x4c6cf8
 }
 
 bool enemy_handler_clamps(int ai_index) {

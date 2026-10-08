@@ -301,6 +301,80 @@ static void floor6_tests() {
                   "M700 hops every 10th tick: 25 % forward beyond 6 u (0.6, +-54 deg), 10 % back inside 3.5 u (-0.2, +-36 deg)");
         }
     }
+    // ---- M690 Glaregrave: the combo and its chain, the guard, the hops, STR / tint (build/ai_spec/M690.md §8 test) ----
+    {
+        const EnemyBrain m690 = enemy_brain_for(62);
+        check(m690 != nullptr && enemy_handler_far_freeze(62), "Glaregrave registered (AI 62), in the 25-u far freeze");
+        EnemyAiParams gp = params(0.14f, 0.0777f, 1.0f, 2.0f, 0.0f);   // EI[59]
+        auto engaged = [&](Rig& r, Actor& G, float dist) {
+            G.instance_id = 73; G.cast_id = 73; G.ai_index = 62; G.atk = 100.0f;
+            r.env.actor = &G; r.env.target = {dist, 1.075f, 0.0f}; r.env.hp = 400; r.env.max_hp = 400;
+            m690(G.ai, gp, r.env);                                   // INIT (its HP change: +0x7b4 = 2 - 0.075)
+            G.ai.phase() = 2; G.ai.heading = 0.0f; G.ai.f(0x7b4) = 0.0f;
+            G.ai.f(0x734) = dist; G.ai.f(0x73c) = 0.0f; G.ai.dist() = dist;
+            G.ai.i(0x87c) = 21;
+        };
+        int n7 = 0, hops = 0; bool ok = true;
+        for (int s = 0; s < 300; ++s) {
+            Rig r; Actor G; for (int i = 0; i < s; ++i) r.rng();
+            engaged(r, G, 3.0f); r.env.section = 2;
+            const AiOut o = m690(G.ai, gp, r.env);
+            if (o.section == 7) { ++n7; ok = ok && o.section_force && G.ai.i(0x72c) == 1 && G.ai.action() == 2; }
+            else if (!G.vert.grounded) ++hops;
+            else ok = ok && o.section < 0 && G.ai.action() == 2;
+        }
+        std::printf("[aitest]   M690 at 3 u: force(7) x%d, idle hops x%d of 300\n", n7, hops);
+        check(ok && n7 > 65 && n7 < 115 && hops < 10, "M690 inside 4.5 u and 72 deg: 30 % a tick force(7); it stands (action 2)");
+        {   // ATTACKING: the lunge at Marker 1, the cooldown each tick, the chain below half HP
+            Rig r; Actor G; engaged(r, G, 3.0f);
+            r.env.section = 7; r.env.aso_frame = 2; r.env.aso_marker = 1;
+            const AiOut o = m690(G.ai, gp, r.env);
+            const int c = G.ai.cool();
+            const bool lunge = o.set_marker == 0 && std::fabs(G.ai.f(0x7ac) - 0.36f) < 1e-6f &&
+                               std::fabs(G.mover.k2.x - 0.4f) < 1e-6f && G.mover.k2.z == 0.0f &&
+                               c >= 90 && c <= 149 && G.ai.dur() == (c >> 2) + (c >> 1) && G.ai.action() == 1;
+            r.env.aso_marker = 11;
+            const bool no_chain = m690(G.ai, gp, r.env).section < 0;         // full HP
+            r.env.hp = 199; r.env.target = {0.0f, 1.075f, -3.0f};
+            G.ai.f(0x734) = 0.0f; G.ai.f(0x73c) = -3.0f; G.ai.turn_hold() = 1;
+            const AiOut ch = m690(G.ai, gp, r.env);
+            check(lunge && no_chain && ch.section == 8 && ch.section_force && std::fabs(G.ai.heading + 1.5707964f) < 1e-5f,
+                  "M690 section 7: Marker 1 -> +0x7ac 0.4 on channel 2 (x0.9), cooldown R%60 - 20d + 90 with 3/4 locked; "
+                  "below half HP Marker(11) snap-turns and forces 8");
+        }
+        {   // the guard: the damage accumulator starts it, blocked hits refresh and break it
+            int guards = 0, back = 0, fwd = 0;
+            for (int s = 0; s < 300; ++s) {
+                Rig r; Actor G; for (int i = 0; i < s; ++i) r.rng();
+                engaged(r, G, 9.0f); r.env.section = 1; G.ai.dur() = 5;
+                r.env.hp = 380; m690(G.ai, gp, r.env);                // +2
+                r.env.hp = 360;                                       // +2 again: 3.925 > 3
+                const AiOut o = m690(G.ai, gp, r.env);
+                if (o.section == 6) { ++guards; if (!(G.ai.dur() >= 60 && G.ai.dur() <= 119 && G.ai.f(0x7b4) == 0.0f)) guards = -1000; }
+                else if (!G.vert.grounded) (G.ai.f(0x7ac) < 0.0f ? back : fwd) += 1;
+            }
+            std::printf("[aitest]   M690 after two damaged ticks: guard x%d, backstep x%d, leap x%d of 300\n", guards, back, fwd);
+            Rig r; Actor G; engaged(r, G, 3.0f);
+            r.env.section = 6; G.ai.dur() = 3; r.env.was_hit = true; r.env.took_damage = false;
+            bool counted = true;
+            for (int n = 1; n <= 9; ++n) {
+                const AiOut o = m690(G.ai, gp, r.env);
+                counted = counted && o.section < 0 && G.ai.i(0x878) == n && G.ai.dur() >= 60 && G.ai.dur() <= 119;
+            }
+            const AiOut br = m690(G.ai, gp, r.env);                   // the 10th tick: +0x878 = 9 > d + 8
+            check(guards > 170 && guards < 230 && back > 25 && fwd > 25 && counted && br.section == 2 && br.section_force &&
+                  G.ai.i(0x878) == 0 && G.ai.dur() == 0,
+                  "M690 guard: accumulator over 3 - d -> 4 in 6 force(6) for 60..119, else a backstep / leap; a blocked hit "
+                  "refreshes it, d + 9 blocks -> force(2)");
+        }
+        {   // STR and the tint from the HP fraction
+            Rig r; Actor G; engaged(r, G, 9.0f); r.env.section = 1; G.ai.dur() = 5;
+            r.env.hp = 200;                                           // r = 0.5: k1 = 0.75
+            m690(G.ai, gp, r.env);
+            check(std::fabs(G.atk - 101.875f) < 1e-4f && G.tint == 0xFFBDBDEFu,
+                  "M690 every tick: STR = base (1 + 0.025 (1 - r^2)), tint 0xFF(255-k)(255-k)(255-k/4), k = 66 at half HP");
+        }
+    }
     // ---- M680 Hekat-Baocar: M650 + the hover-height roll + long-homing shots (build/ai_spec/M680.md) ----
     {
         const EnemyBrain m680 = enemy_brain_for(61);
