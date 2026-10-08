@@ -37,7 +37,9 @@ struct SobObject {
     // @Touch_Toge the same field is damage instead — $I0's meaning is per-script.
     std::int32_t trigger = 0;   // +0x150
     std::int32_t rflags = 0;    // +0x14c render/behaviour bits
-    std::int32_t enabled = 0;   // +0x154
+    std::int32_t enabled = 0;   // +0x154: the object's HP (FUN_00501a30 0x5024b9; 0 -> 9999 / 999 / 999)
+    std::int32_t atk = 0;       // +0x158 -> +0xa4 (FUN_00501a30 0x5024d2)
+    std::int32_t def = 0;       // +0x15c -> +0xa8 (0x5024e2)
     std::int32_t i0 = 0;        // +0x160 -> $I0
     std::int32_t i1 = 0;        // +0x164 -> $I1
     float f0 = 0;               // +0x1c8 -> $F0
