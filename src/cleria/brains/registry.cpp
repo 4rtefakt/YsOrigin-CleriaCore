@@ -50,6 +50,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 60: return &brains::m670;   // M670 Bazeraena (handler: brains/revive.cpp)
         case 67: return &brains::m740;   // M740 Drefflum (handler far freeze)
         case 68: return &brains::m750;   // M750 Liliborad (its dead path in the view)
+        case 16: return &brains::m230;   // M230 Euchreas (handler far freeze)
         case 35: return &brains::m420;   // M420 Sinn-Piache (handler far freeze; the +0x64 alpha bit in the view)
         case 38: return &brains::m450;   // M450 Maka-Piache (the same, and the Mask of Eyes tint)
         case 40: return &brains::m470;   // M470 Levenueba (the lifesteal and the hold in the view)
@@ -96,7 +97,8 @@ bool enemy_handler_far_freeze(int ai_index) {
         || ai_index == 64                      // M710 FUN_004c3d50 0x4c3d79
         || ai_index == 62                      // M690 FUN_004c6cd0 0x4c6cf8
         || ai_index == 65                      // M720 FUN_004be0a0 0x4be0c8
-        || ai_index == 35 || ai_index == 38;   // M420 FUN_004bfdd0 0x4bfdf8, M450 FUN_004c0ee0 0x4c0f08
+        || ai_index == 35 || ai_index == 38    // M420 FUN_004bfdd0 0x4bfdf8, M450 FUN_004c0ee0 0x4c0f08
+        || ai_index == 16;                     // M230 FUN_004c2fb0 0x4c2fd8
 }
 
 bool enemy_handler_clamps(int ai_index) {

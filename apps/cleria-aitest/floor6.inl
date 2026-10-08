@@ -393,6 +393,121 @@ static void floor6_tests() {
                   "M470 hit: the was-hit bit is consumed, EF2 255 at the midpoint +-0.5");
         }
     }
+    // ---- M230 Euchreas: the staff shot / lob / teleport rolls, the chant, the lob bolts, the fades (build/ai_spec/M230.md §8 test) ----
+    {
+        const EnemyBrain m230 = enemy_brain_for(16);
+        check(m230 != nullptr && enemy_handler_far_freeze(16), "Euchreas registered (AI 16), in the 25-u far freeze");
+        EnemyAiParams ep = params(0.1f, 0.0525f, 1.0f, 2.0f, 0.0f);   // EI[13]
+        ep.raw[14] = 64.0f; ep.raw[15] = 52.75f;
+        struct W : floor4::Pool {
+            Actor P; bool wall = false;
+            Actor* player() override { return &P; }
+            Ray ray(const Vec3&, const Vec3&) override { Ray r; r.hit = wall; return r; }
+        };
+        auto setup = [&](Rig& r, W& w, Actor& E, float pdist) {
+            E.instance_id = 27; E.cast_id = 27; E.ai_index = 16;
+            w.P.cast_id = 13; w.P.pos = {pdist, 0.0f, 0.0f}; w.P.height = 1.726f; w.P.hp = w.P.max_hp = 100;
+            r.env.actor = &E; r.env.world = &w; r.env.self = {0, 1.726f, 0}; r.env.target = {pdist, 1.726f, 0.0f};
+            m230(E.ai, ep, r.env);                                   // INIT
+            E.ai.phase() = 2; E.ai.heading = 0.0f; E.ai.dist() = pdist; E.ai.f(0x734) = pdist; E.ai.f(0x73c) = 0.0f;
+        };
+        {
+            Rig r; W w; Actor E; setup(r, w, E, 6.0f);
+            check(E.ai.f(0x84c) == 0.0f && E.ai.f(0x850) == 0.0f && E.ai.f(0x7ac) == 2.0f && E.ai.f(0x7b0) == 0.1f &&
+                  E.ai.i(0x72c) == 1 && E.ai.i(0x730) == 1 && E.ai.alpha == 1.0f && (E.flags12c & 0x80000u) == 0,
+                  "M230 INIT: only EI+0x90..+0xaf copied, the run multiplier and turn rate saved, visible");
+        }
+        {   // MAIN at 6 u: 9 % the staff shot, 9 % the lob, ~9.6 % the teleport, each tick
+            int shot = 0, lob = 0, tele = 0, stand = 0; bool ok = true;
+            for (int s = 0; s < 600; ++s) {
+                Rig r; W w; Actor E; for (int i = 0; i < s; ++i) r.rng();
+                setup(r, w, E, 6.0f); r.env.section = 2; r.env.target_grounded = true;
+                const AiOut o = m230(E.ai, ep, r.env);
+                ok = ok && o.set_durable == 1 && (E.flags12c & 0x80000u) != 0;
+                if (o.section == 7) { ++shot; ok = ok && E.ai.dur() == 87 && E.ai.cool() == 87 && E.ai.i(0x72c) == 0 && E.ai.i(0x728) == 0; }
+                else if (o.section == 305) { ++lob; ok = ok && E.ai.dur() == 180 && E.ai.cool() == 300 && E.ai.i(0x728) == 6 && E.ai.i(0x7a0) == 3; }
+                else if (E.ai.i(0x728) == 1) {
+                    ++tele;                                          // the fade started this tick: warp effects, alpha 1
+                    ok = ok && E.ai.action() == 0x800 && E.ai.cool() == 60 && E.ai.i(0x730) == 0 && o.effects.size() == 2 &&
+                         o.effects[0].id == 0x10e && o.effects[1].id == 0x10d && o.effects[1].scale == 1.3f && o.effects[0].attach_full &&
+                         o.sounds.size() == 1 && o.sounds[0] == 0x1d0 && E.ai.alpha == 1.0f;
+                } else { stand += E.ai.action() == 2; ok = ok && (E.ai.action() == 0x10 ? E.ai.dur() <= 39 : E.ai.dur() >= 30 && E.ai.dur() <= 59); }
+            }
+            std::printf("[aitest]   M230 MAIN at 6 u of 600: staff shot x%d, lob x%d, teleport x%d, stand x%d\n", shot, lob, tele, stand);
+            Rig r; W w; Actor E; setup(r, w, E, 6.0f); r.env.section = 2; r.env.target_grounded = true;
+            r.env.target.y = 4.3f;                                    // 2.574 above: not level
+            bool level = true;
+            for (int t = 0; t < 200; ++t) { E.ai.action() = 0; level = level && m230(E.ai, ep, r.env).section < 0 && E.ai.i(0x728) == 0; }
+            check(ok && shot > 30 && shot < 80 && lob > 25 && lob < 75 && tele > 25 && tele < 80 && stand > 15 && level,
+                  "M230 MAIN (within 11.5 u, grounded, level, off cooldown), each tick: 9 % request(7) (87 ticks), then 9 % "
+                  "request(305) (the lob, state 6), then (7..20) % the fade-out; never when the target stands 2.5 higher");
+        }
+        {   // after an attack: the chant (300), then 301 back to MAIN; beyond 20 u at once
+            Rig r; W w; Actor E; setup(r, w, E, 6.0f); r.env.section = 2; r.env.target_grounded = true;
+            E.ai.i(0x72c) = 0; E.ai.cool() = 50; E.ai.dur() = 0;
+            const AiOut c1 = m230(E.ai, ep, r.env);
+            const bool chant = c1.section == 300 && !c1.section_force && E.ai.i(0x728) == 4 && E.ai.action() == 2;
+            r.env.section = 300; E.ai.cool() = 0; E.ai.dist() = 21.0f; E.ai.f(0x734) = 21.0f;
+            const AiOut c2 = m230(E.ai, ep, r.env);
+            const bool wind = c2.section == 301 && E.ai.action() == 1 && E.ai.dur() == 90 && E.ai.cool() == 90 && E.ai.i(0x72c) == 1;
+            r.env.section = 301; m230(E.ai, ep, r.env);
+            const bool still = E.ai.i(0x728) == 4;
+            r.env.section = 2; m230(E.ai, ep, r.env);
+            check(chant && wind && still && E.ai.i(0x728) == 0,
+                  "M230: an attack spent -> request(300), state 4; off cooldown beyond 20 u request(301) whatever the roll; 301 over -> MAIN");
+        }
+        {   // the lob: Marker(272) k = 1, heading 0
+            Rig r; W w; Actor E; setup(r, w, E, 6.0f);
+            E.ai.i(0x728) = 6; E.ai.i(0x7a4) = 1; r.env.section = 305; r.env.aso_marker = 272;
+            const AiOut o = m230(E.ai, ep, r.env);
+            const float c70 = std::cos(70.0f * 0.0174533f), s70 = std::sin(70.0f * 0.0174533f);
+            bool ok = o.bullets.size() == 1 && o.set_marker == 0 && E.ai.i(0x7a4) == 2;
+            if (ok) {
+                const AiBullet& b = o.bullets[0];
+                ok = b.kind == 2 && b.effect == 272 && std::fabs(b.pos.x - 2.0f * c70) < 1e-5f && std::fabs(b.pos.y - (1.726f + s70 - 0.5f)) < 1e-5f &&
+                     b.pos.z == 0.0f && std::fabs(b.dir.x - c70) < 1e-5f && std::fabs(b.dir.y - s70) < 1e-5f && b.speed == 0.4f &&
+                     b.gravity == 0.02f && b.knock == 0.0f && b.trail_effect == 78 && b.trail_period == 1 && b.home_period == 1 &&
+                     b.home_rate == 0.0174533f;
+            }
+            r.env.aso_marker = 1;
+            const bool quiet = m230(E.ai, ep, r.env).bullets.empty();
+            r.env.section = 2; m230(E.ai, ep, r.env);
+            check(ok && quiet && E.ai.i(0x728) == 0,
+                  "M230 lob: each Marker(272) fires a kind-2 bolt 2 u out at 85 / 70 / 55 deg (speed 0.4, gravity 0.015 / 0.02 / "
+                  "0.0175, trail 78); the cast over -> MAIN");
+        }
+        {   // the teleport: fade-out, the point search, the unseen run, the fade-in and its cooldown
+            Rig r; W w; Actor E; setup(r, w, E, 6.0f); r.env.section = 2; w.wall = true;   // every candidate blocked
+            E.ai.i(0x728) = 1; E.ai.dur() = 30; E.ai.action() = 0x800;
+            m230(E.ai, ep, r.env);
+            const bool half = std::fabs(E.ai.alpha - 0.5f) < 1e-6f && E.ai.hittable && E.ai.f(0x820) == 0.0f && E.ai.steer() == 1;
+            E.ai.dur() = 29; m230(E.ai, ep, r.env);
+            const bool ghost = !E.ai.hittable;
+            XorShift probe = r.rng; std::uint32_t w1 = 0, w2 = 0;
+            for (int k = 0; k < 5; ++k) { w1 = probe(); w2 = probe(); }
+            const float rr = brains::unit(w1) * 1.5f + 4.5f, an = float((w2 >> 17) % 360u) * 0.0174533f;
+            E.ai.dur() = 0;
+            m230(E.ai, ep, r.env);
+            const bool gone = E.ai.i(0x728) == 2 && E.ai.alpha == 0.0f && E.ai.dur() >= 30 && E.ai.dur() <= 149 &&
+                              std::fabs(E.ai.f(0x808) - std::cos(an) * rr) < 1e-4f && std::fabs(E.ai.f(0x810) - std::sin(an) * rr) < 1e-4f &&
+                              std::fabs(E.ai.f(0x894) - (E.ai.f(0x808) + 6.0f)) < 1e-5f;
+            r.env.target = {8.0f, 1.726f, 1.0f}; E.ai.dur() = 12;
+            m230(E.ai, ep, r.env);
+            const bool track = E.ai.action() == 0x800 && E.ai.steer() == 4 && E.ai.f(0x820) == 4.0f && E.ai.f(0x814) == 1.0f &&
+                               std::fabs(E.ai.f(0x894) - (E.ai.f(0x808) + 8.0f)) < 1e-5f && std::fabs(E.ai.f(0x89c) - (E.ai.f(0x810) + 1.0f)) < 1e-5f;
+            E.ai.dur() = 0; E.ai.f(0x734) = 0.0f; E.ai.f(0x73c) = 3.0f;
+            const AiOut in0 = m230(E.ai, ep, r.env);                 // arrival: fade-in starts this tick
+            const bool arrive = E.ai.i(0x728) == 3 && E.ai.dur() == 60 && std::fabs(E.ai.heading - 1.5707964f) < 1e-6f &&
+                                in0.effects.size() == 2 && E.ai.alpha == 0.0f;
+            E.ai.dur() = 0; E.ai.i(0x72c) = 0;
+            const AiOut in1 = m230(E.ai, ep, r.env);
+            check(half && ghost && gone && track && arrive && in1.section == 300 && E.ai.i(0x728) == 4 && E.ai.alpha == 1.0f &&
+                  E.ai.hittable && E.ai.cool() >= 30 && E.ai.cool() <= 59,
+                  "M230 teleport: alpha = t / 60 (unhittable under 0.5); at 0 up to 5 tries for a point 4.5..6 u from the target "
+                  "(the 5th kept), 30..149 ticks at x2 run / x10 turn toward it as it follows the target; arrival faces the "
+                  "target and fades in; the end -> request(300), cooldown R%30 + 30 (Normal)");
+        }
+    }
     // ---- The Piache pair: M450 Maka-Piache (the ring, the summon) and M420 Sinn-Piache (the orb batter)
     //      (build/ai_spec/M450.md §8, M420.md §8 tests) ----
     {
