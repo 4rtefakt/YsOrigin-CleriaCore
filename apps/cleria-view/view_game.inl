@@ -3481,6 +3481,7 @@ title_again:
     //   act         the action key (the probe)                 ok     a confirm press
     //   shot        write the next frame to CLERIA_SHOT_DIR/t<tick>.ppm          quit
     //   flag=i,v    set a game flag      atk   the attack button      boss  face Velagunder
+    //   bossaim     turn to Velagunder's part 1 (the core while stunned) from where the player stands
     //   boss2[=o]   stand by a hittable Nygtilger piece (o = its object index)
     //   boss3[=i]   stand by a hittable Gelaldy part (i = 0 core, 1 right arm, 3 left arm)
     //   boss6[=opts] fight Zava as a player does, every tick from then on: floor placement + real inputs only
@@ -3615,6 +3616,16 @@ title_again:
                 feet = {x, fl > kNoFloor ? fl : feet.y, z};
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+            }
+        } else if (cmd == "bossaim") {                 // turn to Velagunder's part 1 (the core while stunned); no move
+            if (boss) {
+                const Vec3 c = boss->part(boss->stunned() ? 0 : 1).pos;
+                const float dx = c.x - feet.x, dz = c.z - feet.z;
+                const float l = std::sqrt(dx * dx + dz * dz);
+                if (l > 1e-3f) {
+                    face_dir = {dx / l, 0.0f, dz / l};
+                    facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                }
             }
         } else if (cmd.rfind("bossentry=", 0) == 0) {  // bossentry=k: the player onto Velagunder's body entry k
             drive_boss_entry = std::atoi(cmd.c_str() + 10);
@@ -4271,6 +4282,18 @@ title_again:
     int boss_n114 = -1, boss_n115 = -1;
     std::vector<RehitBank> boss_banks;                    // the parts' own re-hit banks (+0x14c)
     bool player_hurt_this_tick = false;                   // +0x3bc & 2 (the boss reads it)
+    // FUN_004faf20's tail for a hit on one of the boss's GoXx parts [EXPORT 004faf20.c:239-246, 434-448]: SE 0x5c
+    // (0x5d when the damage is 0; one per 51 ms, 0x74e7e4 [approx: 4 ticks]) and, on a part without armour
+    // (+0x138 clear: part 1 outside the stun, the core in the stun loop), the white damage number
+    // FUN_004fae00(0xffffffff). [H] both at the part's +0x50. [not modelled] the hit spark FUN_00450410.
+    std::uint64_t boss_part_se_tick = 0;
+    auto boss_part_feedback = [&](const Boss01Part& bp, int dmg, int cls) {
+        if (tick_count - boss_part_se_tick >= 4) {
+            boss_part_se_tick = tick_count;
+            sfx_at(dmg > 0 ? hitfx::kSeHit : hitfx::kSeNoDamage, bp.pos, kSfxAnimVol);
+        }
+        if (!bp.armor) damage_popup(hudstate::dealt_popup_value(dmg, cls, game.g_flags), 0xffffff, bp.pos);
+    };
     auto boss_tick = [&] {
         MeshObj* bm = meshes.find("boss01");
         if (!bm) { boss.reset(); g_rig.clear_boss(); boss_entries_built = false; return; }
@@ -7016,6 +7039,7 @@ title_again:
                         const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
                             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
                         if (dmg > 0) boss->add_part_damage(pi, float(dmg));
+                        boss_part_feedback(bp, dmg, atk_cls);
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                         if (std::getenv("CLERIA_DMG"))
                             std::printf("  hit boss part %d (DEF %.0f): %d dmg, HP %.0f stun %.0f\n",
@@ -7701,6 +7725,7 @@ title_again:
                                 const int dmg = access::damage_dealt(enemy_incoming_damage(a, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone,
                                     vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);
                                 if (dmg > 0) boss->add_part_damage(pi, float(dmg));
+                                boss_part_feedback(bp, dmg, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone);
                                 if (std::getenv("CLERIA_DMG"))
                                     std::printf("  fx %d hits boss part %d (DEF %.0f): %d dmg, HP %.0f stun %.0f\n",
                                                 p.fx ? p.fx->id : -1, pi, bp.def, dmg, boss->hp(), boss->stun_gauge());

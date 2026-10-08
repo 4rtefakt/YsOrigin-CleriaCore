@@ -94,6 +94,36 @@
             landed = true;
         }
     }
+    // Khonsclard's eight parts and Pictimos's thirteen (+0x27c sub-parts; KHONSCLARD.md §A.2.3 / §A.3, PICTIMOS.md
+    // §P1.4.1): the same sub-part pass [EXPORT 004fed50.c:296-345 -> FUN_004faf20(0, 0)] runs for a particle as for
+    // the swing (view_boss04_hit.inl / view_boss05_hit.inl) — the part's hurt volume, its own bank on token 0, its
+    // DEF (999 = no damage) / resist. Without it Hugo's shots passed through both bosses.
+    if (boss4 && !boss4->destroyed())
+        for (int pi = 0; pi < boss04::kParts; ++pi) {
+            if (!boss4->part_hittable(pi)) continue;
+            const Boss04Part& bp = boss4->part(pi);
+            if (!overlap(vol, body_shape(bp.centre, bp.hurt_radius, bp.half_h, bp.shape, 0.0f))) continue;
+            if (boss4_banks[std::size_t(pi)].check_and_record(0u, p.hit.rehit)) continue;
+            const int dmg = fx_part_damage(bp.def, bp.resist);
+            if (dmg > 0) boss4->add_part_damage(pi, float(dmg));
+            if (std::getenv("CLERIA_DMG"))
+                std::printf("  fx %d hits khonsclard part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",
+                            p.fx ? p.fx->id : -1, pi, bp.def, dmg, bp.hp, boss4->hp());
+            landed = true;
+        }
+    if (boss5 && !boss5->destroyed())
+        for (int pi = 0; pi < boss05::kParts; ++pi) {
+            if (!boss5->part_hittable(pi)) continue;
+            const Boss05Part& bp = boss5->part(pi);
+            if (!overlap(vol, body_shape(bp.centre, bp.radius, 0.0f, 0, 0.0f))) continue;
+            if (boss5_banks[std::size_t(pi)].check_and_record(0u, p.hit.rehit)) continue;
+            const int dmg = fx_part_damage(bp.def, bp.resist);
+            if (dmg > 0) boss5->add_part_damage(pi, float(dmg));
+            if (std::getenv("CLERIA_DMG"))
+                std::printf("  fx %d hits pictimos part %d (DEF %.0f): %d dmg, body %.0f\n", p.fx ? p.fx->id : -1, pi,
+                            bp.def, dmg, boss5->hp());
+            landed = true;
+        }
     // Dalles's parts (+0x27c sub-parts; DALLES_AB.md §B.2, view_boss07.inl): the element barriers are broken by the
     // skills' particles as by their swings — the particle's own class, power and re-hit, token 0.
     if (boss7_hit(vol, 0u, p.hit.rehit, p.hit.power, cls_p, /*swing*/false, nullptr)) landed = true;

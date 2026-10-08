@@ -138,6 +138,20 @@ CASES = {
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3000, 12)) + "3000:at=0,22,180;3460:scripts;"
               + "".join(f"{t}:ok;" for t in range(3500, 3661, 40)) + "3700:scripts;3710:quit",
         expect=["flag 220 = 1", "EXP 86 (lv 8)", "script sentougo", "script stepup_se"]),
+    # Hugo against Velagunder (VELAGUNDER.md §3.1 / §3.3, EFFECTHIT.md §5.1). His intro S_EVT1099_2 has more pages
+    # than Yunica's: the `ok` presses run to t2200 (with the cases' 1800 above a page stays open, the world stays
+    # frozen and no shot leaves). From the arena floor at (0, 21), turning to the head (`bossaim`: no move), his
+    # shots (EF2 130, side 0) drain the stun part through FUN_004faf20 — with its white number, FUN_004fae00 —
+    # until the gauge breaks (t3000). Then from the top of the body (`at3`: the floor below (2.5, 13, 33), 2.6
+    # from the core; a player gets there over the right hand's thumb, the arm and the shoulder) they damage the
+    # core. A shot dies on any part it touches (the armoured ones for 0), on the hull and in a bubble.
+    "velagunder_hugo": dict(
+        room="S_10/S_1099/S_1099", char="2", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
+        drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 2200, 40)) + "2300:at=0,21,0;"
+              + "".join(f"{t}:bossaim;{t + 1}:atk;" for t in range(2302, 3100, 6)) + "3200:at3=2.5,13,33,0;"
+              + "".join(f"{t}:bossaim;{t + 1}:atk;" for t in range(3205, 3500, 6)) + "3500:quit",
+        expect=["[boss] Velagunder: HP 700 STR 70 DEF 53 lv 8", " ffffff\n  fx 130 hits boss part 1 (DEF 53)",
+                "stun 0 STUNNED", "t3200 at3=2.5,13,33,0", " ffffff\n  fx 130 hits boss part 0 (DEF 53)"]),
     # FUN_00561f40 queues a 0x8040-flag material (floor 2's water surfaces) on render layer 0xb,
     # flushed after the actor sprites (layers 6/9): S_2007's two water batches draw last, so a
     # submerged player shows through them.
@@ -834,6 +848,15 @@ CASES.update({
               "40:every=20,700,ok;720:every=40,3700,boss4;728:every=40,3700,atk;3700:quit",
         expect=["[boss04] Khonsclard: body 3000, pods 600", "clip START fr", "f156 1", "states 00", "down 1 ",
                 "band 2", "band 5", "flag 223 = 1", "EXP 328", "destroyed"]),
+    # ... and as Hugo: the mode-0 scan's sub-part pass runs for his shots' particles too (view_fx_mode0.inl), so the
+    # pods and the core take them (they passed through the boss before).
+    "khonsclard_hugo": dict(
+        room="S_40/S_4099/S_4099", char="2",
+        env={"CLERIA_BOSSLOG": "1", "CLERIA_DMG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=10;20:at=-2.8,23.3,0;"
+              "40:every=20,700,ok;720:every=40,3700,boss4;728:every=40,3700,atk;3700:quit",
+        expect=["[boss04] Khonsclard: body 3000, pods 600", "f156 1", "fx 130 hits khonsclard part", "states 00",
+                "fx 130 hits khonsclard part 0 (DEF 175)", "flag 223 = 1", "destroyed"]),
     # Pictimos (PICTIMOS.md): walk into BATTLE.XSO's event box, the 700-frame intro (RAKKATYUU / TYAKUTI), the
     # fight from BATTLE_START, ZOROMEKA's 27 Chryolos below half HP (m220_boss), the guts at HP 0 with live
     # summons (survives at 1, absorbs them), the death: EXP, flag 224 at b4 500 and the destroy.
@@ -844,6 +867,14 @@ CASES.update({
               "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;4100:quit",
         expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
                 "sect ZOROMEKA", "/27 |", "sect DEAD", "guts 1 waves", "EXP (lv 40)", "flag 224 = 1", "destroyed"]),
+    # ... and as Hugo: his shots' particles reach Pictimos's parts (part 1 takes the damage, the DEF-999 ones none).
+    "pictimos_hugo": dict(
+        room="S_50/S_5099/S_5099", char="2",
+        env={"CLERIA_BOSSLOG": "1", "CLERIA_DMG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
+              "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;4100:quit",
+        expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "f156 1", "fx 130 hits pictimos part 1 (DEF 230)",
+                "EXP (lv 40)", "flag 224 = 1"]),
     # Zava (build/boss_re/ZAVA*.md; the heads src/cleria/boss06, herself brains/m870). The room's own retry start:
     # flag 205 = 1 and a reload make the root script place the player, Zava and the heads and run Battle_Yunica
     # (flags 130 / 156, then it waits for 225); the first-visit intro before SUMMON is some 7,000 frames of dialogue.
