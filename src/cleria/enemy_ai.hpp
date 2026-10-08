@@ -140,7 +140,7 @@ struct AiWorld {
     // order. `id` = +0x1d8 (the EFTLIST id), `attach` = +0x1d5, `kill` = +0x1d4, `owner` = the
     // spawning actor's instance id (0 = none; 13 = the player). A host that does not override it
     // has no effects (the scans then read "none live").
-    struct Fx { int id = 0; int attach = 0; bool kill = false; int owner = 0; };
+    struct Fx { int id = 0; int attach = 0; bool kill = false; int owner = 0; int tag = -1; };
     virtual void for_each_effect(const std::function<void(const Fx&)>& /*f*/) {}
     // M710's cull (FUN_004c3300 0x4c3c98, its handler's dead path 0x4c3dd4): over the GoEffect pool in order, the
     // effects of EFTLIST id `id` attached to `self` (e+0x1a4 == self+0x20); every one past the first `keep` has its
@@ -227,6 +227,9 @@ struct AiSpawn {
 struct AiEffect {
     int id = 0; Vec3 pos{}; float scale = 1; bool attach = false;
     int tag = -1, move_tag = -1, kill_tag = -1;
+    // remain_tag >= 0: no spawn; every particle of this actor's effects with that tag gets p+0x1c4 = remaining
+    // and the effect is let go (its tag dropped: the owner's +0x88c = 0; M750's END).
+    int remain_tag = -1, remaining = 0;
     Vec3 rot{};
     float power = 0, knock = 1;
     int rtype = 0, status = 0;

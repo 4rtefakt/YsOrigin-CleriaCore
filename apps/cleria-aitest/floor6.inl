@@ -175,6 +175,46 @@ static void floor6_tests() {
         check(std::fabs(k + 0.085f) < 1e-6f && k_burst == 0.0f && k_frame == 0.0f,
               "M710: the pull toward it on P+0x344, 0.085 for Yunica at 5 u; none in a burst section or off frames 5..8");
     }
+    // ---- M750 Liliborad: the hand-flown orb (build/ai_spec/M750.md §7 test) ----
+    {
+        struct FW : floor4::Pool {
+            bool orb = true;
+            void for_each_effect(const std::function<void(const Fx&)>& f) override {
+                if (!orb) return;
+                Fx x; x.id = 319; x.owner = 79; x.tag = 1; f(x);
+            }
+        };
+        const EnemyBrain m750 = enemy_brain_for(68);
+        check(m750 != nullptr, "Liliborad registered (AI 68)");
+        EnemyAiParams lp = params(0.1685f, 0.0225f, 11.0f, 6.0f, 0.0f);   // EI[65]
+        FW w; Actor L; L.instance_id = 79; L.cast_id = 79; L.ai_index = 68;
+        Rig r; r.env.actor = &L; r.env.world = &w; r.env.target = {0.0f, 1.075f, 20.0f};
+        enemy_ai_tick(L.ai, lp, r.env, m750);                          // INIT
+        L.ai.phase() = 2; L.ai.heading = 0.0f;
+        r.env.section = 7; r.env.aso_marker = 319;                     // the throw at Marker(319)
+        const AiOut t0 = enemy_ai_tick(L.ai, lp, r.env, m750);
+        const bool thrown = !t0.effects.empty() && t0.effects[0].id == 319 && t0.effects[0].knock == 1.5f &&
+                            t0.effects[0].rtype == 1 && L.ai.i(0x79c) == 1 &&
+                            std::fabs(L.ai.f(0x7b0) - 8.5f / 33.0f) < 1e-6f && L.ai.f(0x7fc) == 8.5f;
+        r.env.aso_marker = 0;
+        bool straight = true;
+        for (int t = 1; t < 33; ++t) { enemy_ai_tick(L.ai, lp, r.env, m750); straight = straight && L.ai.f(0x7ec) == 0.0f; }
+        enemy_ai_tick(L.ai, lp, r.env, m750);                          // c = 33: the homing leg toward T (0, 20)
+        const Vec3 E1 = L.ai.v(0x7fc);
+        const bool homing = E1.z > 7.5f && E1.x < 6.0f;                // 8.5 from (8.24, 0) toward T (0, 20)
+        int caught = -1; AiOut last;
+        for (int t = 34; t < 400 && caught < 0; ++t) {
+            last = enemy_ai_tick(L.ai, lp, r.env, m750);
+            if (last.section == 20) caught = t;
+        }
+        std::printf("[aitest]   M750: thrown %d straight %d homing %d (end %.2f,%.2f) caught at c %d cool %d\n", thrown,
+                    straight, homing, E1.x, E1.z, caught, L.ai.cool());
+        check(thrown && straight && homing && caught > 66 && L.ai.i(0x79c) == 2 && L.ai.cool() >= 29 && L.ai.cool() <= 59,
+              "M750 (Normal, N 33): 8.5 u straight, a leg at the target, back, caught -> section 20, cooldown 30..59");
+        const AiOut end = enemy_ai_tick(L.ai, lp, r.env, m750);
+        check(!end.effects.empty() && end.effects[0].remain_tag == 1 && end.effects[0].remaining == 15 &&
+              L.ai.i(0x79c) == 0, "M750 END: the orb's particles get 15 ticks, state 0");
+    }
     // ---- M680 Hekat-Baocar: M650 + the hover-height roll + long-homing shots (build/ai_spec/M680.md) ----
     {
         const EnemyBrain m680 = enemy_brain_for(61);

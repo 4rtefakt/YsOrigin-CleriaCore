@@ -540,6 +540,14 @@ void System::kill_owned(int owner, int tag) {
     }
 }
 
+void System::set_remaining_owned(int owner, int tag, int n) {
+    for (auto& f : fx_) {
+        if (f->owner != owner || f->tag != tag) continue;
+        for (auto& p : parts_) if (p->fx == f.get() && !p->dead) p->remaining = n;
+        f->tag = -1;
+    }
+}
+
 void System::kill_effect(Effect* fx) {
     if (!fx) return;
     bool listed = false;

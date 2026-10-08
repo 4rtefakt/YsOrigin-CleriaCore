@@ -146,6 +146,8 @@ class System {
     // M140's KILLFX over every effect an owner tagged: each particle loses its hit and fades
     // over 16 steps with its clock reset to 16 (FUN_00564480 -> FUN_0044ebb0 force 1).
     void kill_owned(int owner, int tag);
+    // Every particle of the owner's effects with `tag` gets `remaining = n` (p+0x1c4); the effect's tag is dropped.
+    void set_remaining_owned(int owner, int tag, int n);
     // FUN_0047a7c0 (M640.md §7, M620.md): every live particle of `fx` starts dying (p+0x1b4 = 1) and its
     // kill flag fx+0x1d4 rises. Unlike kill_owned, hits and clocks are left alone.
     void kill_effect(Effect* fx);

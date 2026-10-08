@@ -6214,6 +6214,10 @@ title_again:
                     // M710's handler, the first dead tick (+0x3fc == 0, 0x4c3dd4): end its attached suction effects. The
                     // pool holds no new ones after that, so the view repeats it each dead tick to the same effect.
                     if (en && en->ai_index == 64 && !en->alive() && !en->destroy_requested()) aiw.cull_attached_fx(*en, 246, 0);
+                    // M750's dead path (FUN_004bbc30 0x4bbc78): FUN_0047a7c0 on every effect it owns (fx+0x1a8 = self: its orb).
+                    if (en && en->ai_index == 68 && !en->alive() && !en->destroy_requested())
+                        for (auto& f : fxsim.effects())
+                            if (!f->dead && f->owner == en->instance_id && f->tag >= 0) { fxsim.kill_effect(f.get()); f->tag = -1; }
                     // The dead path of a handler that has extra work there (M460: its flock).
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) { hk(*en, aiw); boss_corpse(e); }
@@ -6319,6 +6323,7 @@ title_again:
                     for (const AiEffect& fx : o.effects) {
                         const Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
                         if (fx.kill_tag >= 0) { fxsim.kill_owned(en->instance_id, fx.kill_tag); continue; }
+                        if (fx.remain_tag >= 0) { fxsim.set_remaining_owned(en->instance_id, fx.remain_tag, fx.remaining); continue; }
                         if (fx.move_tag >= 0) { fxsim.move_owned(en->instance_id, fx.move_tag, fx.pos, fx.rot, {1, 1, 1}); continue; }
                         ef2sim::SpawnParams sp;
                         sp.power = fx.power; sp.knock = fx.knock; sp.rtype = fx.rtype; sp.status = fx.status;

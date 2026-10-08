@@ -34,7 +34,7 @@ auto ai_effects = [&](const std::function<void(const AiWorld::Fx&)>& f) {
     for (const auto& fx : fxsim.effects()) {
         if (fx->dead) continue;
         AiWorld::Fx e;
-        e.id = fx->id; e.attach = fx->attach_mode; e.kill = fx->kill; e.owner = fx->owner;
+        e.id = fx->id; e.attach = fx->attach_mode; e.kill = fx->kill; e.owner = fx->owner; e.tag = fx->tag;
         f(e);
     }
 };
