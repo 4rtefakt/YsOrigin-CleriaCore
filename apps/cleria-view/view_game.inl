@@ -1520,10 +1520,10 @@ title_again:
             Aso* a = enemy_script(e.stem);
             if (!a) return;
             e.avm.bind(a);
-            // M980's morph loop reads and writes g_flags[179/180] (M980.md §5) [H: only this cast's VM
-            // is given the game flags here, so the other casts' scripts run as before].
-            // M360's death section 5 counts its effect loop in g_flags[178] (M360.md §5).
-            if (e.actor && (e.actor->cast_id == 0xb8 || e.actor->cast_id == 0x28)) e.avm.set_flags(game.g_flags, 0x200);
+            // Every cast's script reads the game-flag table (0x76b91c): M980's morph loop reads and writes
+            // g_flags[179/180] (M980.md §5), M360's death counts in g_flags[178], and the Flag_CmpInt(143 / 144 /
+            // 164, ..) branches hold the Easy / Hard+ / Nightmare shot counts and the Mask of Eyes timings (#62).
+            e.avm.set_flags(game.g_flags, 0x200);
             // Resting section: 2 (idle for most), else 0, else whatever exists first —
             // set_section is what makes AsoVm::ok() true, so it must land on a real one.
             int idle = a->find(2) ? 2 : (a->find(0) ? 0 : a->sections().front().id);
@@ -5526,6 +5526,7 @@ title_again:
         // The GoMesh pool updates every live step, a Fix or not (WAITOPS.md §4.7).
         auto step_meshes = [&] {
             mask_step(g, room, mask_of_eyes_on(inv));   // the Mask of Eyes objects (view_mask.inl)
+            game.g_flags[164] = mask_of_eyes_on(inv) ? 1 : 0;   // DAT_0076bbac, refreshed every game step (M450.md §2)
             meshes.step();
             boss_tick();
             boss2_tick();
@@ -6651,11 +6652,13 @@ title_again:
                     if (in_sand) { dy = std::clamp(dy, -0.015f, 0.03f); a.ai.surf = 0x12; }   // +0x4b9 = 0x12
                     float mdx = a.mover.dx, mdz = a.mover.dz;
                     if (a.ai.surf == 0x12) { mdx *= 0.25f; mdz *= 0.25f; if (dy > 0.0f) dy *= 0.25f; }
-                    // [approx] Two casts have +0x328 > +0x324 (M470 1.8 / 1.575, M270 0.225 / 0.125): their sphere
-                    // starts every sweep inside the floor, which the engine answers with its type-4 push-out
-                    // (FUN_005dca20, issue #14) and this sweep with no motion at all. Until that is ported the
-                    // sweep radius of such a cast stops 0.01 short of its origin height (0.01 is ours).
-                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, std::min(a.radius, a.height - 0.01f));
+                    // [approx] M470's sphere (+0x328 1.8) is larger than its origin height (+0x324 1.575): it starts
+                    // every sweep inside the floor, which the engine answers with its type-4 push-out (FUN_005dca20,
+                    // issues #14 / #64) and this sweep with no motion at all. Until that is ported its sweep radius
+                    // stops 0.01 short of the origin height (0.01 is ours). Only this cast: script dummies and the
+                    // flyers also have radius > height and must keep their sphere.
+                    const float sweep_r = a.ai_index == 40 ? std::min(a.radius, a.height - 0.01f) : a.radius;
+                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, sweep_r);
                     if (hitY > kNoFloor && o1.y > hitY) a.floor_y = hitY;     // +0x318
                     if (!a.flyer && in_sand && o1.y - a.height >= a.floor_y + 0.01f) {
                         a.vert.grounded = true;                               // 0x45bf52: +0x388 = 1 in sand
