@@ -3470,6 +3470,8 @@ title_again:
     std::unique_ptr<Boss03> boss3;           // Gelaldy's brain (the boss03 host below)
     std::unique_ptr<Boss04> boss4;           // Khonsclard's brain (view_boss04.inl)
     std::function<bool(const std::string&)> boss4_drive;   // drive boss4[=i] (view_boss04.inl)
+    std::unique_ptr<Boss05> boss5;           // Pictimos's brain (view_boss05.inl)
+    std::function<bool(const std::string&)> boss5_drive;   // drive boss5[=i] (view_boss05.inl)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     std::vector<DriveCmd> drive_more;       // `rep=` expansions, merged after the tick's commands (audit aid)
@@ -3512,6 +3514,7 @@ title_again:
         if (lua_drive(cmd)) return;                      // lua=<command> <args> (view_lua.inl)
         if (abil_drive(cmd)) return;                     // view_abilities.inl
         if (boss4_drive && boss4_drive(cmd)) return;     // view_boss04.inl
+        if (boss5_drive && boss5_drive(cmd)) return;     // view_boss05.inl
         if (hud_drive(cmd)) return;                      // view_hudstate.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
@@ -3922,6 +3925,8 @@ title_again:
             inv.magic = std::atoi(cmd.c_str() + 9);
         } else if (cmd.rfind("held=", 0) == 0) {       // held=<item id>: the Item page's held tool 0x76a62c (97 = the Scales)
             inv.held = std::atoi(cmd.c_str() + 5);
+        } else if (cmd.rfind("tier=", 0) == 0) {       // tier=n: the character's weapon tier inv.tier[ch] (audit aid; a cheat)
+            inv.tier[std::clamp(character, 0, 3)] = std::clamp(std::atoi(cmd.c_str() + 5), 0, 10);
         } else if (cmd.rfind("acc=", 0) == 0) {        // acc=<item id>: the equipped accessory 0x76a628 (54 = the Mask of Eyes; -1 none)
             inv.accessory = std::atoi(cmd.c_str() + 4);
             (void)player_stats();                         // FUN_00420c40 -> FUN_004208f0: 0x76bbac
@@ -4896,6 +4901,7 @@ title_again:
         }
     };
     #include "view_boss04.inl"                // Khonsclard's host (KHONSCLARD.md)
+    #include "view_boss05.inl"                // Pictimos's host (PICTIMOS.md)
 
     // ---- the player's death and the game over (build/gameflow_re/GAMEFLOW.md §3.4) ---------
     // FUN_0046fba0 (and FUN_0046f810) on HP < 1 without flag 133: the first dead step sets
@@ -5510,6 +5516,7 @@ title_again:
             boss2_tick();
             boss3_tick();
             boss4_tick();
+            boss5_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
                 if (!m.dirty_pos && !m.dirty_pose && !m.dirty_alpha) continue;
@@ -6202,6 +6209,7 @@ title_again:
                     env.target_vel = {pvel.x, 0, pvel.z};
                     env.target_alive = player.hp >= 1;
                     env.target_grounded = pv.grounded;
+                    boss5_target(*en, env);                          // the +0x888 override (view_boss05.inl)
                     env.was_hit = e.hit;
                     env.took_damage = e.dmg_hit;
                     env.group_tag = en->tag.tagged();
@@ -6964,6 +6972,7 @@ title_again:
                                         pi, bp.def, dmg, bp.hp, boss3->hp());
                     }
                 #include "view_boss04_hit.inl"     // Khonsclard's parts (KHONSCLARD.md §A.2.3)
+                #include "view_boss05_hit.inl"     // Pictimos's parts (PICTIMOS.md §P1.4.1)
             }
             // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
             // sweeps. FUN_004281c0 updates the locus pool after the player and the actors; a locus with

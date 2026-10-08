@@ -772,6 +772,16 @@ CASES.update({
               "40:every=20,700,ok;720:every=40,3700,boss4;728:every=40,3700,atk;3700:quit",
         expect=["[boss04] Khonsclard: body 3000, pods 600", "clip START fr", "f156 1", "states 00", "down 1 ",
                 "band 2", "band 5", "flag 223 = 1", "EXP 328", "destroyed"]),
+    # Pictimos (PICTIMOS.md): walk into BATTLE.XSO's event box, the 700-frame intro (RAKKATYUU / TYAKUTI), the
+    # fight from BATTLE_START, ZOROMEKA's 27 Chryolos below half HP (m220_boss), the guts at HP 0 with live
+    # summons (survives at 1, absorbs them), the death: EXP, flag 224 at b4 500 and the destroy.
+    "pictimos_fight": dict(
+        room="S_50/S_5099/S_5099",
+        env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
+              "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;4100:quit",
+        expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
+                "sect ZOROMEKA", "/27 |", "sect DEAD", "guts 1 waves", "EXP (lv 40)", "flag 224 = 1", "destroyed"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,

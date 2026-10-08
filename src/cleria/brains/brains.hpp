@@ -84,6 +84,7 @@ AiOut m650(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b4890 Tena
 AiOut m640(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b74c0 Samachryce (lunge, boomerangs, dodges)
 AiOut m160(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b9120 Xomack (drill shot, charge, combos, dodges)
 AiOut m220(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b5650 Chryolos (slash, hops, strafe)
+AiOut m220_boss(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ab840 Chryolos in a boss fight (Pictimos's summons)
 AiOut m620(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ad980 Ogacha (the bulb, the pounce)
 AiOut m630(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b0d60 Kelmarel (bite, shots, dive, blood-water escape)
 AiOut m660(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004af610 Urobass (+ its handler's strikes and teleport)
