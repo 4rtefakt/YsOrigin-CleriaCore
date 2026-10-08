@@ -61,6 +61,49 @@ static void floor5_tests() {
                   "M440 init: invisible and unhittable, but its DEF is its own (no 999, unlike M410)");
         }
     }
+    // ---- M400 Tolpi: the spray — a kind-1 pollen bullet every 2nd tick while Marker 1 ----
+    {
+        const EnemyBrain m400 = enemy_brain_for(33);
+        check(m400 != nullptr, "Tolpi brain registered (AI 33)");
+        EnemyAiParams tp = params(0.1f, 0.0075f, 1.0f, 2.0f, 0.0f);
+        Actor T; T.cast_id = 44; T.ai_index = 33;
+        Rig r; r.env.actor = &T; r.env.target = {6.0f, 1.075f, 0};
+        int s7 = -1;
+        for (int t = 0; t < 400 && s7 < 0; ++t) if (enemy_ai_tick(T.ai, tp, r.env, m400).section == 7) s7 = t;
+        const int cool = T.ai.cool();
+        r.env.section = 7; r.env.aso_marker = 1;
+        int shots = 0; bool ok = true;
+        for (int t = 0; t < 20; ++t) {
+            const AiOut o = enemy_ai_tick(T.ai, tp, r.env, m400);
+            for (const AiBullet& b : o.bullets) {
+                ++shots;
+                ok &= b.kind == 1 && b.effect == 303 && std::fabs(b.speed - 0.16f) < 1e-6f &&
+                      std::fabs(b.accel + 0.0016f) < 1e-6f && b.f168 == 1.0f;
+            }
+        }
+        check(s7 >= 0 && cool >= 208 && cool <= 237 && shots == 10 && ok,
+              "M400: spray at 6 u, cooldown 209 + R%30; one pollen shot (EF2 303, 0.16, -1%/tick) every 2nd tick");
+    }
+    // ---- M660 Urobass: the strikes on Normal — 4 (the centre + a ring of 3 at 3 u) ----
+    {
+        const EnemyBrain m660 = enemy_brain_for(59);
+        check(m660 != nullptr, "Urobass brain registered (AI 59)");
+        EnemyAiParams up = params(0.08f, 0.02f, 1.0f, 2.0f, 0.0f);
+        Pool w; Actor& U = (w.actors.emplace_back(), w.actors.back());
+        U.instance_id = 70; U.cast_id = 70; U.ai_index = 59; U.height = 1.3251f;
+        Rig r; r.env.actor = &U; r.env.world = &w; r.env.target = {5.0f, 1.075f, 0};
+        enemy_ai_tick(U.ai, up, r.env, m660);
+        enemy_ai_tick(U.ai, up, r.env, m660);
+        r.env.section = 7; r.env.aso_marker = 1;
+        const AiOut o = enemy_ai_tick(U.ai, up, r.env, m660);
+        bool ring = o.bullets.size() == 4 && o.section == 8 && o.section_force;
+        for (std::size_t i = 1; ring && i < o.bullets.size(); ++i) {
+            const Vec3 q = o.bullets[i].pos, c = o.bullets[0].pos;
+            ring = std::fabs(std::hypot(q.x - c.x, q.z - c.z) - 3.0f) < 1e-4f && o.bullets[i].effect == 494 &&
+                   o.bullets[i].trail_effect == 495 && o.bullets[i].trail_period == 45;
+        }
+        check(ring && U.ai.i(0x79c) == 45, "M660 cast at Marker 1: force 8, 4 strikes (EF2 494, trail 495 at 45) in a 3-u ring; SE in 45");
+    }
     // ---- M950 Nooze (Green): M910 with other constants (build/ai_spec/M950.md) ----
     {
         const EnemyBrain m950 = enemy_brain_for(88);

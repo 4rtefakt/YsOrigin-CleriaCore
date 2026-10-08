@@ -713,6 +713,17 @@ CASES.update({
         expect=["near cast 47 id 47 hp 413 flags 156=0 130=0 phase 2 sub 112", "phase 2 sub 102",
                 "[actor] id 48 cast 48 enemy hp 0", "[actor] id 199 cast 48", "[actor] id 200 cast 48",
                 "[actor] id 201 cast 48"]),
+    # Floor 5 bullets: M640 Samachryce's kind-0x2a boomerangs (M640.md §7) and M660 Urobass's strike carriers.
+    "floor5_shots": dict(
+        room="S_50/S_5015/S_5015",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=68,5;60:every=50,1200,near=68,5;"
+              "61:every=50,1200,bullets;1200:quit",
+        expect=["[bullet] kind 42 effect 260"]),
+    "urobass_strikes": dict(
+        room="S_50/S_5010/S_5010",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=70,6;60:every=60,1500,near=70,6;"
+              "61:every=60,1500,bullets;1500:quit",
+        expect=["[bullet] kind 1 effect 494 age 4"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,
