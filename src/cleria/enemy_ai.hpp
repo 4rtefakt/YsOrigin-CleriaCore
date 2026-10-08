@@ -144,6 +144,10 @@ struct AiWorld {
     virtual void for_each_effect(const std::function<void(const Fx&)>& /*f*/) {}
     // DAT_0076a1f8 / DAT_0076a1fc: the forced camera region and its blend rate (M360's INIT / death).
     virtual void force_camera(int /*region*/, float /*rate*/) {}
+    // FUN_004202e0(ecx = a, edx = cast's ENEMYINFO record, level): +0x94 max HP, +0x98 = +0x94, +0xa4 STR,
+    // +0xa8 DEF, +0xb0 EXP, +0xb4..+0xc0 resists, +0xc8 = level (0 = the record's default level).
+    // A host that does not override it leaves the stats alone.
+    virtual void restat(Actor& /*a*/, int /*cast*/, int /*level*/) {}
     // FUN_0043a080(id, &pos): a positional sound a handler plays at another actor (M360's crystal kills).
     virtual void sound_at(int /*id*/, const Vec3& /*pos*/) {}
 };

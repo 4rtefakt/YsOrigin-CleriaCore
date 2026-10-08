@@ -6079,6 +6079,14 @@ title_again:
                 // [approx] the region's blend rate (0x76a1fc) is the rig's own.
                 aiw.camera_fn = [&](int r, float) { g_rig.write_forced(r); };
                 aiw.sound_fn = [&](int id, const Vec3& p) { sfx_at(id, p, kSfxAnimVol); };
+                aiw.restat_fn = [&](Actor& a, int c, int lv) {           // FUN_004202e0 [not modelled] its difficulty branch
+                    const Enemy* er = etab.get(c);
+                    if (!er) return;
+                    const EnemyStats st = enemy_stats(ginfo, *er, lv);
+                    a.max_hp = a.hp = st.max_hp; a.atk = st.atk; a.def = st.def; a.exp_reward = st.exp;
+                    for (int k = 0; k < 4; ++k) a.resist[k] = er->resist[k];
+                    a.level = lv ? lv : er->level;
+                };
                 aiw.in_room_fn = [&](const char* dir) {
                     std::string want = dir, have = (room.dir.parent_path().filename() / room.dir.filename()).string();
                     for (char& c : want) c = char(std::tolower((unsigned char)c) == '/' ? '\\' : std::tolower((unsigned char)c));

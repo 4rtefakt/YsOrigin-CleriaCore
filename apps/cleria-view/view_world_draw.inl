@@ -268,6 +268,8 @@ struct FnAiWorld : AiWorld {
     void force_camera(int r, float rate) override { if (camera_fn) camera_fn(r, rate); }
     std::function<void(int, const Vec3&)> sound_fn;     // a positional SE (M360's crystal kills)
     void sound_at(int id, const Vec3& p) override { if (sound_fn) sound_fn(id, p); }
+    std::function<void(Actor&, int, int)> restat_fn;    // FUN_004202e0 (M360's INIT)
+    void restat(Actor& a, int c, int lv) override { if (restat_fn) restat_fn(a, c, lv); }
     void for_each(const std::function<void(Actor&)>& f) override { each(f); }
     Actor* find(int id) override { return id ? find_fn(id) : nullptr; }
     Actor* spawn_child(Actor& p, int c, const Vec3& d, int lv, bool k) override { return spawn_fn(p, c, d, lv, k); }

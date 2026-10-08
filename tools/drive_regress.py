@@ -630,7 +630,7 @@ CASES.update({
         room="S_40/S_4013/S_4013", char="1",
         drive="4:opt=DamageTaken=0;20:every=20,4300,ok;4380:actors;4390:opt=OneHitKill=1;"
               "4400:every=15,4700,near=40;4401:every=15,4700,atk;4700:actors;5000:dflags;5001:quit",
-        expect=["[actor] id 168 cast 40 enemy hp 202", "[actor] id 184 cast 184 enemy hp", "defeated 1",
+        expect=["[actor] id 168 cast 40 enemy hp 5869", "[actor] id 184 cast 184 enemy hp", "defeated 1",
                 "[actor] id 168 cast 40 enemy hp 0", "[actor] id 184 cast 184 enemy hp 0",
                 "flags 130=0 131=1 133=0 156=0"]),
 })

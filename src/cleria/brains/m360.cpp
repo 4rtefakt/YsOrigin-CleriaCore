@@ -116,6 +116,10 @@ AiOut m360(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         case 0: {                                                  // INIT (0x4d27b8)
             ai::init(a, p, e);
             w->force_camera(6, 0.02f);
+            // 0x4d282d: FUN_004202e0(EI[26], level +0xc8). The battle scripts' 0x160 Chr_SetStatus(168, 29,
+            // 200, 70, 70, 5, 6, ...) lands first (g_flags[131] holds the brain until BATTLE_* clears it at
+            // pc 47), so its HP / STR / DEF / EXP are overwritten here; only its level 29 survives.
+            w->restat(A, A.cast_id, A.level);
             A.atk += 1.5f;
             A.hp *= 1.03f;
             if (ch == 2) {
