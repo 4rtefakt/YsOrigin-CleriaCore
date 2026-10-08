@@ -2408,6 +2408,16 @@ title_again:
         void mesh_material_color(const std::string& n, const std::string& mat, int r, int g, int b) override {   // 0x182
             if (meshes) meshes->set_material_color(n, mat, {float(r) / 255.0f, float(g) / 255.0f, float(b) / 255.0f});
         }
+        // 0xaa Light_Directional (DALLES.md §2.2): the colour 0x76a570..78 and the direction 0x76a564..6c, kept as
+        // state only [not modelled: the view has no scene light; the readers of the two records are not traced].
+        Vec3 light_rgb{1.0f, 1.0f, 1.0f}, light_dir{};
+        void light_directional(std::uint32_t argb, float x, float y, float z) override {
+            light_rgb = {float((argb >> 16) & 0xffu) / 255.0f, float((argb >> 8) & 0xffu) / 255.0f, float(argb & 0xffu) / 255.0f};
+            light_dir = {x, y, z};
+        }
+        void mesh_rotate(const std::string& n, float x, float y, float z, int frames) override {        // 0x172
+            if (meshes) meshes->rotate(n, {x, y, z}, frames);
+        }
         void glare_level(int v) override { glare = v; }
         void chr_ztest(int id, bool on) override { if (worldHost) worldHost->chr_ztest(rid(id), on); }
         // The look modes (CHR_OPS.md §6): the world writes the look block (the player's too, on
@@ -3471,6 +3481,8 @@ title_again:
     //   boss3[=i]   stand by a hittable Gelaldy part (i = 0 core, 1 right arm, 3 left arm)
     //   boss6[=opts] fight Zava as a player does, every tick from then on: floor placement + real inputs only
     //               (opts lightning, thunder, cast; boss6=off ends it; view_boss06.inl)
+    //   boss7[=opts] fight Dalles as a player does, every tick from then on: floor placement + real inputs only, the
+    //               Skill 1-3 key of the barrier that is up (opts evade, skill; boss7=off ends it; view_boss07.inl)
     //   diff=n      the difficulty 0 Very Easy .. 4 Nightmare (flags 143 / 144 / 203; Zava's heads are built again)
     //   cam=x,y,z,yaw,pitch   draw from that fixed pose (degrees) from now on, for shots (the game runs on)
     //   ok / esc / up / down  confirm / cancel / a cursor step: the pause book while it is up (its
@@ -3501,6 +3513,8 @@ title_again:
     std::function<bool(const std::string&)> boss5_drive;   // drive boss5[=i] (view_boss05.inl)
     std::unique_ptr<Boss06> boss6;           // Zava's two heads (view_boss06.inl)
     std::function<bool(const std::string&)> boss6_drive;   // drive boss6 (view_boss06.inl)
+    std::unique_ptr<Boss07> boss7;           // Dalles (view_boss07.inl)
+    std::function<bool(const std::string&)> boss7_drive;   // drive boss7 (view_boss07.inl)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
     std::vector<DriveCmd> drive_more;       // `rep=` expansions, merged after the tick's commands (audit aid)
@@ -3545,6 +3559,7 @@ title_again:
         if (boss4_drive && boss4_drive(cmd)) return;     // view_boss04.inl
         if (boss5_drive && boss5_drive(cmd)) return;     // view_boss05.inl
         if (boss6_drive && boss6_drive(cmd)) return;     // view_boss06.inl
+        if (boss7_drive && boss7_drive(cmd)) return;     // view_boss07.inl
         if (hud_drive(cmd)) return;                      // view_hudstate.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
@@ -3794,6 +3809,7 @@ title_again:
             game.g_flags[143] = difficulty == 1 ? 1 : 0;
             game.g_flags[203] = difficulty == 0 ? 1 : 0;
             boss6.reset();                              // Zava's heads latch it in their ctor: built again next step
+            boss7.reset();                              // ... and Dalles (view_boss07.inl)
         } else if (cmd == "flagdump") {               // every nonzero game flag, "i=v" (audit aid)
             std::string s;
             for (int i = 0; i < 0x200; ++i)
@@ -4940,6 +4956,7 @@ title_again:
     #include "view_boss04.inl"                // Khonsclard's host (KHONSCLARD.md)
     #include "view_boss05.inl"                // Pictimos's host (PICTIMOS.md)
     #include "view_boss06.inl"                // Zava's heads and her link (ZAVA*.md)
+    #include "view_boss07.inl"                // Dalles's host (DALLES*.md)
 
     // ---- the player's death and the game over (build/gameflow_re/GAMEFLOW.md §3.4) ---------
     // FUN_0046fba0 (and FUN_0046f810) on HP < 1 without flag 133: the first dead step sets
@@ -5557,6 +5574,7 @@ title_again:
             boss4_tick();
             boss5_tick();
             boss6_tick();
+            boss7_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
                 if (!m.dirty_pos && !m.dirty_pose && !m.dirty_alpha) continue;
@@ -6238,7 +6256,7 @@ title_again:
                     return er ? er->ai_raw : nullptr;
                 };
                 const Vec3 cam_fwd = cam.forward();
-                player_hold = boss6_grab;                      // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl)
+                player_hold = boss6_grab || boss7_pin;         // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl); Dalles's pin (view_boss07.inl)
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
                     // M450's handler, every path (FUN_004c0ee0 0x4c1231): the Mask of Eyes tint +0x148 / +0x278.
@@ -7089,6 +7107,7 @@ title_again:
                 #include "view_boss04_hit.inl"     // Khonsclard's parts (KHONSCLARD.md §A.2.3)
                 #include "view_boss05_hit.inl"     // Pictimos's parts (PICTIMOS.md §P1.4.1)
                 #include "view_boss06_hit.inl"     // Zava's heads: the accept-hit callback (ZAVA_D.md §7.1)
+                #include "view_boss07_hit.inl"     // Dalles's parts (DALLES_AB.md §B.2)
             }
             // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
             // sweeps. FUN_004281c0 updates the locus pool after the player and the actors; a locus with
@@ -7582,6 +7601,13 @@ title_again:
                 benv.character = character;
                 benv.difficulty = difficulty >= 2 ? difficulty - 2 : 0;
                 benv.rng = [&] { return pick_rng.next(); };
+                // Kind 0x25's probe: the terrain without the boss meshes; a shake already running (view_boss07.inl).
+                benv.ray_no_boss = [&](const Vec3& o, const Vec3& dl, int set) {
+                    bullet::RayHit r;
+                    if (set == 2) r.hit = boss7_seg_nb(o, {o.x + dl.x, o.y + dl.y, o.z + dl.z}, &r.point);
+                    return r;
+                };
+                benv.shake_frames = std::uint32_t(std::max(0, g_rig.shake_frames()));
                 std::vector<bullet::Event> bev;
                 #include "view_crystal.inl"          // M980's bullet scan (M980.md §3.4a)
                 bullets.update(benv, &bev);
@@ -7592,6 +7618,10 @@ title_again:
                 }
                 for (const bullet::Event& ev : bev) {
                     if (ev.type == bullet::Event::kSound) { sfx_at(ev.id, ev.pos, kSfxAnimVol); continue; }
+                    if (ev.type == bullet::Event::kShake) {         // 0x76a5ac / 0x76a594.. (kind 0x25's burst)
+                        g_rig.set_shake_frames(ev.id); g_rig.set_shake_amp(ev.push);
+                        continue;
+                    }
                     if (ev.type == bullet::Event::kPush) {          // knock channel 2 (+0x344/+0x34c)
                         player_kb2.x += ev.push.x; player_kb2.z += ev.push.z;
                         continue;
@@ -7946,6 +7976,7 @@ title_again:
                 player.o2_py = (0.5f - py / pw * 0.5f) * float(ch);
             }
         }
+        boss7_gauges(last_vp, cw, ch);                     // Dalles's three mini gauges (view_boss07.inl)
         hud.arm_frac = -1.0f;                              // Gelaldy's arm mini-gauge, at the arm
         if (boss3 && boss3->hp() > 0.0f && boss3_arm.timer > 0 && boss3_arm.max > 0.0f) {
             const Vec3 o = boss3_arm.pos;

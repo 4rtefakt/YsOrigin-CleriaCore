@@ -917,6 +917,47 @@ CASES.update({
         expect=["jump under Zava (act 4)", "air skill", "Zava phase 1 action 7", "Zava phase 1 action 1", "air skill",
                 "y 13.00, falling, hits left 0", "Zava phase 1 action 11"],
         absent=["air attack"]),
+    # Dalles (build/boss_re/DALLES*.md; src/cleria/boss07, apps/cleria-view/view_boss07.inl). The room's own retry
+    # start: flag 205 = 1 and a reload make the root script place the player at (0, 0, -14.5), Mesh_Locate boss07 and
+    # run Battle (flag 156 at once; it then waits for 226) — the first-visit intro EV_7080 is some 1,700 frames. The
+    # fight is played the way a player plays it: drive `boss7` only ever stands the player on the arena floor and
+    # presses Attack / the Skill button / the Skill 1-3 keys, so every hit goes through the input path and the
+    # engine's damage formula against the three GoXx parts. What a save at this point has and the direct room start
+    # lacks is set by hand: the three bracelets (flags 116..118) at level 3 (flags 182..184), Skill 1 equipped, the
+    # level / weapon tier; DamageTaken=0 + InfiniteHP keep the run alive, InfiniteMP removes the wait for MP between
+    # casts (a barrier needs 25 hit frames of its skill), DamageDealt=1.5 scales the length.
+    # Phase 0: the bare body (every class x 0.6), the hand attacks, the first bar ends: max HP +1250, the refill.
+    # Phase 1: the barriers W -> F -> E -> W, each broken by 25 hit frames of its own skill class (Yunica: Skill 1 =
+    # bracelet 0x74 = class 0 passes W, Skill 3 = 0x76 = class 1 passes F, Skill 2 = 0x75 = class 2 passes E; a plain
+    # swing is refused: the clank), the 599-frame windows (closed early by the 34 % damage cap), the second bar ends.
+    # Phase 2: the wing, the dark barrier (nothing passes), both options destroyed -> it falls (window 699), the
+    # options revive, the capture circle (SIS_LAZER) takes the player, the other dimension (pinned at y 495, KIAI ->
+    # METEOR) and the return, the options again, the death: flag 226, the EXP, the destroy 600 frames later, and
+    # Battle's ChangeScene to S_7000.
+    "dalles_fight": dict(
+        room="S_70/S_7080/S_7080",
+        env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
+        drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.5;8:tier=10;"
+              "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
+              "16:flag=184,3;17:bracelet=116;60:boss7;6700:quit",
+        expect=["[boss07] Dalles: HP 2500 STR 255, parts DEF 255 pool 25000, options 1000",
+                "the fight starts at (0.00,4.00,0.00)", "target the core with the sword", "clip N_SHOOT_R (variant 0)",
+                "bullet kind 0x2 effect 409", "the swing hits part 0 (class 3)", "clip N_SHOOT_L (variant 0)",
+                "bullet kind 0x2 effect 398", "mode 0 -> 1", "clip N2W_CHANGE", "barrier W up",
+                "(class 3): 0 dmg (clank), barrier 1", "the Skill button (bracelet 0x74", "(class 0): ",
+                "phase 1 (max HP 3750)", "impact 404", "a pillar bullet", "barrier W broken (window 599)",
+                "target the core with the sword", "the window closed", "barrier F up",
+                "the Skill 3 key (bracelet 0x76 for barrier 3)", "(class 1): ", "bullet kind 0x2 effect 403",
+                "barrier F broken (window 599)", "barrier E up", "the Skill 2 key (bracelet 0x75 for barrier 2)",
+                "(class 2): ", "bullet kind 0x4 effect 400", "barrier E broken (window 599)", "barrier W up",
+                "the Skill 1 key (bracelet 0x74 for barrier 1)", "barrier W broken (window 599)", "CamSlot 4",
+                "barrier D up", "phase 2 (max HP 4250)", "target option", "option R destroyed", "CamSlot 3",
+                "barrier D broken (window 699)", "option L destroyed", "target the core with the sword",
+                "barrier D up", "option R revived (1000)", "option L revived (1000)", "clip SIS_LAZER_START",
+                "bullet kind 0x25 effect 54", "the capture circle at", "the player is captured", "CamSlot 5",
+                "every particle removed", "mode 0 -> 4", "clip KIAI_START", "the player is pinned at (0.0,495.0,-5.0)",
+                "clip METEOR", "the player is returned to (0.0,7.5,-15.0)", "mode 4 -> 0", "barrier D broken (window 699)",
+                "flag 226 = 1", "EXP (lv 49)", "the death starts", "[boss07] t", "destroyed", ">> entering S_7000"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,

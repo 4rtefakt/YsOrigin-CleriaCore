@@ -448,7 +448,9 @@ void System::hit_tick(Particle& p, const std::function<bool(Particle&)>& on_hit)
 // FUN_0044ebb0 (EFFECTHIT §5.5): mode 2 or a forced (world-contact) call kills the particle and
 // raises the effect's kill flag; both modes then spawn the impact child B2+0x16 at the particle
 // with the effect's hit fields (power 8.0 for impact id 0x8b). The child gate's "culled by the
-// last draw" byte is taken as 0. [not modelled] impact id 0x194's bullet; the SEs of §5.5.
+// last draw" byte is taken as 0. Impact id 0x194 spawns no child: SE 323 and a bullet instead, and impact id
+// 0x18d plays SE 316 (DALLES_D23.md §16.1 / §16.2 [BYTES 0x44eccb..0x44ee3c, 0x44ec62..0x44ec74]) — both through
+// set_impact_special. [not modelled] the other SEs of §5.5 (impact 0x145, effect 0x110 + impact 4, 0x83, 0x1f7).
 bool System::impact(Particle& p, bool force) {
     const Ef2Emitter& E = emitter(p);
     bool ret = false;
@@ -462,6 +464,11 @@ bool System::impact(Particle& p, bool force) {
         p.fx->fade_rate = p.fade_rate;
     }
     const int id = rd<std::uint16_t>(E.b2, 0x16);
+    if (id == 0x194) {                                             // 0x44eccb: the bullet, never effect 404
+        if (special_) special_(id, p.world_pos());
+        return ret;
+    }
+    if (id == 0x18d && special_) special_(id, p.world_pos());      // 0x44ec62: SE(id - 0x51)
     if (id != 0 && lookup_) {
         if (const Ef2* ef = lookup_(id)) {
             const Effect& fx = *p.fx;
@@ -484,7 +491,8 @@ void System::collide_tick(Particle& p) {
     if (!p.latched) { p.latched = true; p.latch = w; return; }
     if (p.fx && p.fx->set1) { p.latch = w; return; }              // [not modelled] the water set
     Vec3 at{};
-    if (world_ && world_(p.latch, vsub(w, p.latch), &at)) {
+    const auto& trace = p.fx && p.fx->no_boss && world_nb_ ? world_nb_ : world_;   // fx+0x201 (DALLES_D23.md §16.4)
+    if (trace && trace(p.latch, vsub(w, p.latch), &at)) {
         const bool died = impact(p, true);                        // the child at p+0x150 (pre-snap)
         p.world.m[3][0] = at.x; p.world.m[3][1] = at.y; p.world.m[3][2] = at.z;
         if (died) { p.collide = false; p.hit.armed = false; return; }

@@ -472,6 +472,13 @@ struct XsoHost {
     // material of that name gets its instance colour multiplier (+0x14..+0x1c) = rgb / 255; alpha untouched.
     virtual void mesh_material_color(const std::string& /*name*/, const std::string& /*material*/, int /*r*/, int /*g*/,
                                      int /*b*/) {}
+    // 0xaa Light_Directional(i argb, f x, f y, f z) [BYTES 0x5695c9..0x569603 -> FUN_00443ea0; build/boss_re/
+    // DALLES.md §2.2]: the scene light's colour 0x76a570..78 = the argb's r, g, b bytes / 255 (alpha ignored) and
+    // its direction 0x76a564..6c = (x, y, z) as given (not normalised).
+    virtual void light_directional(std::uint32_t /*argb*/, float /*x*/, float /*y*/, float /*z*/) {}
+    // 0x172 Mesh_Rotate(s mesh, f x, f y, f z, i frames) [BYTES 0x56d179..0x56d1bf -> FUN_00572e70; DALLES.md
+    // §2.3]: the object's per-step rotation delta = deg x pi / 180 for `frames` steps (<= 0: forever).
+    virtual void mesh_rotate(const std::string& /*name*/, float /*x*/, float /*y*/, float /*z*/, int /*frames*/) {}
     // 0x16B Mesh_SetVisible / 0x16C Mesh_EnableCollision, live (+0x298 bits 0x20 / 0x40).
     virtual void mesh_visible(const std::string& /*name*/, bool /*on*/) {}
     virtual void mesh_collision(const std::string& /*name*/, bool /*on*/) {}

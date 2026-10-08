@@ -11,9 +11,12 @@
 // shares the bullet's Env (the player origin, the terrain ray) and effect system.
 //
 // [not modelled] kinds 3, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x16 / 0x1b / 0x1e / 0x1f /
-// 0x21 / 0x29 / 0x2a (BULLETS.md §10.6; 0x21 the boss06 breath, ZAVA_EF.md §F.2; 0x2a the boomerang, M640.md §7) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
-// the kind-0x10/0x23 proxy victim (the player batting a drip); the struck test (§4.4, boss
-// effect ids); the effect-id special cases (0x82 rtype, 0x1e7 random scale, 0x20/0x15 Adol
+// 0x21 / 0x25 / 0x26 / 0x27 / 0x29 / 0x2a (BULLETS.md §10.6; 0x21 the boss06 breath, ZAVA_EF.md §F.2; 0x2a the
+// boomerang, M640.md §7; 0x25 / 0x26 / 0x27 boss07's homing shot and meteors, DALLES_CD1.md §4.2 / §5.5) — they fly
+// as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
+// the kind-0x10/0x23 proxy victim (the player batting a drip); the struck test (§4.4) for every boss effect id
+// but 0x193 (boss07's F shot, DALLES_D23.md §10); kind 0x25's turn into kind 0x28 (effect 0x1d3) and its terrain
+// contact for effects other than 54; the effect-id special cases (0x82 rtype, 0x1e7 random scale, 0x20/0x15 Adol
 // fire, 0x178, 0x1c9/0x1df splashes); the kind-0x29 water ripple and impact burst; the
 // kind-0x10 spawn-actor branch; flash sprites and shadow decals (visual).
 #pragma once
@@ -103,6 +106,10 @@ struct Env {
     float player_hp = 0;          // DAT_0076a730
     // FUN_0041e420 over a segment from `from` along `d`; set 1 = water, 2 = terrain.
     std::function<RayHit(const Vec3& from, const Vec3& d, int set)> ray;
+    // The same with the ray's byte +0x49 = 1 (option bit 0): every mesh whose type byte +0x28d is 5..0xc — the
+    // boss meshes — is skipped [BYTES 0x41e4d2..0x41e4f4; DALLES_CD1.md §4.2]. None = `ray`.
+    std::function<RayHit(const Vec3& from, const Vec3& d, int set)> ray_no_boss;
+    std::uint32_t shake_frames = 0;   // 0x76a5ac: a camera shake is running (kind 0x25's burst starts one only at 0)
     // An actor's origin and HP by instance id; false when it no longer exists.
     std::function<bool(int id, Vec3* pos, float* hp)> actor;
     // The player's live swing (P+0x118 != 0) against a victim record: FUN_004f9e90 on the
@@ -117,8 +124,8 @@ struct Env {
 
 // What an update asks the host to do.
 struct Event {
-    enum Type { kSound, kHeal, kPush } type = kSound;
-    int id = 0;                   // kSound: the EFFECTDEF id
+    enum Type { kSound, kHeal, kPush, kShake } type = kSound;
+    int id = 0;                   // kSound: the EFFECTDEF id; kShake: the frames (0x76a5ac), `push` the amplitude
     Vec3 pos{};
     int target = 0;               // kHeal: an actor instance id, or 0 = the player
     float amount = 0;             // kHeal: HP to add (the host clamps to the max)

@@ -41,6 +41,20 @@ int main(int argc, char** argv) {
         w.reset_rotation("boss04");
         check(set && b.rot.y == 1.5f && b.dirty_pose, "Mesh_SetRotation re-poses; Mesh_ResetRotation restores +0x3dc");
     }
+    {   // Mesh_Rotate 0x172 (FUN_00572e70; DALLES.md §2.3): the per-step delta in radians; frames <= 0 = forever.
+        MeshWorld w;
+        MeshObj& a = w.add("s70part1", {0, 0, 0}, {});
+        MeshObj& b = w.add("s70part2", {0, 0, 0}, {});
+        w.rotate("S70PART1", {0.0f, 0.05f, 0.0f}, 0);              // OBJ_ROTATE's call: forever
+        w.rotate("s70part2", {0.0f, -0.05f, 0.0f}, 3);             // three steps
+        w.rotate("nothing", {1.0f, 1.0f, 1.0f}, 0);                // a missing object: nothing
+        const bool armed = a.rot_steps == -1 && b.rot_steps == 3 && a.rot.y == 0.0f;
+        for (int k = 0; k < 10; ++k) w.step();
+        const float d = 0.05f * 0.017453292f;
+        check(armed && std::fabs(a.rot.y - 10.0f * d) < 1e-6f && a.rot_steps == -1 && a.dirty_pose,
+              "Mesh_Rotate(.., 0): +0.05 deg a step, forever");
+        check(std::fabs(b.rot.y + 3.0f * d) < 1e-7f && b.rot_steps == 0, "Mesh_Rotate(.., 3): exactly three steps");
+    }
     {   // Mesh_MoveTo(asiba, 0,0,10, r 0.16, speed 0.15): stops within the radius, not snapped.
         MeshWorld w;
         w.add("asiba_00", {0, 0, 0}, {});

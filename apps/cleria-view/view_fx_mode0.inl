@@ -94,4 +94,7 @@
             landed = true;
         }
     }
+    // Dalles's parts (+0x27c sub-parts; DALLES_AB.md §B.2, view_boss07.inl): the element barriers are broken by the
+    // skills' particles as by their swings — the particle's own class, power and re-hit, token 0.
+    if (boss7_hit(vol, 0u, p.hit.rehit, p.hit.power, cls_p, /*swing*/false, nullptr)) landed = true;
 }

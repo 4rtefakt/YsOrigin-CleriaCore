@@ -110,6 +110,12 @@ struct Effect {
     // FUN_005645b0 0x5645f9 passes it as FUN_0041e420's ecx) instead of set 0. CleriaCore has no
     // water collision, so such particles never touch the world (Velagunder's laser beam).
     bool set1 = false;
+    // fx+0x201 as DALLES_D23.md §16.4 / DALLES_CD1.md §6 read it [BYTES 0x56461f..0x56470b, 0x41e4d2..0x41e4f4]: the
+    // byte goes into the ray's +0x49 and bit 0 of FUN_0041e420's option argument, where it makes the terrain scan
+    // (still set 2) skip every mesh whose type byte +0x28d is 5..0xc — the boss meshes. Its particles' world trace
+    // then runs on the host's set_world_no_boss test. boss07's host sets this one; `set1` above is the older reading
+    // the boss01 / boss06 hosts were built on (left as it is).
+    bool no_boss = false;
     std::string name;             // fx+0x20c, set by the script placements (FUN_00451da0)
     // fx+0x1f0: the draw depth bias, emitter 0's B2+0x0c, copied by every spawn path (FUN_00450410,
     // FUN_00478510, FUN_00463f40: `+0x1f0 = *(*(slot + 8) + 0xc)`). FUN_00451e60 turns it into
@@ -171,6 +177,14 @@ class System {
     // The terrain segment test (FUN_0041e420, set 2) for particles that die on world contact:
     // true on a hit, with the contact point. None = no world contact.
     void set_world(std::function<bool(const Vec3& from, const Vec3& d, Vec3* at)> f) { world_ = std::move(f); }
+    // The same test with the boss meshes left out (FUN_0041e420's option bit 0), for effects with `no_boss`.
+    // None = set_world's.
+    void set_world_no_boss(std::function<bool(const Vec3& from, const Vec3& d, Vec3* at)> f) { world_nb_ = std::move(f); }
+    // FUN_0044ebb0's two id specials (DALLES_D23.md §16.1 / §16.2), raised where an impact child would spawn, with
+    // the particle's position p+0x150: impact id 0x18d (397) plays SE 0x18d - 0x51 = 316 and spawns its child as
+    // usual; impact id 0x194 (404) spawns NO child — the engine plays SE 323 and fires a kind-4 bullet owned by the
+    // GoMesh "boss07" (the host's part: it owns the bullets and the boss). None = the sounds / the bullet are skipped.
+    void set_impact_special(std::function<void(int id, const Vec3& at)> f) { special_ = std::move(f); }
     const std::vector<std::unique_ptr<Particle>>& particles() const { return parts_; }
     const std::vector<std::unique_ptr<Effect>>& effects() const { return fx_; }
     std::vector<std::unique_ptr<Effect>>& effects() { return fx_; }
@@ -187,6 +201,8 @@ class System {
     Rng* rng_;
     std::function<const Ef2*(int)> lookup_;
     std::function<bool(const Vec3&, const Vec3&, Vec3*)> world_;
+    std::function<bool(const Vec3&, const Vec3&, Vec3*)> world_nb_;
+    std::function<void(int, const Vec3&)> special_;
     std::vector<std::unique_ptr<Effect>> fx_;
     std::vector<std::unique_ptr<Particle>> parts_;
 };

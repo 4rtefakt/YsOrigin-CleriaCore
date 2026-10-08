@@ -45,6 +45,10 @@ struct MeshObj {
     bool dirty_pos = false, dirty_pose = false;   // the host must re-bake this tick
     Vec3 rot{};                       // the placement rotation (radians, as SobObject): boss facing
     Vec3 spawn_rot{};                 // +0x3dc: the placement rotation Mesh_ResetRotation restores
+    // Mesh_Rotate 0x172 (FUN_00572e70): +0x408..0x410 the per-step delta (radians), +0x414 the steps left
+    // (-1 = forever, 0 = idle).
+    Vec3 rot_delta{};
+    std::int32_t rot_steps = 0;
     // Mesh_Fall 0x18A (FUN_00573be0 -> FUN_00503190): +0x44c start y, +0x450 velocity,
     // +0x454 restitution (0 = not falling).
     float fall_start = 0, fall_vel = 0, fall_e = 0;
@@ -92,6 +96,9 @@ class MeshWorld {
     // the same for one-axis turns (the shipped calls are all (0, 0, 0)).
     void set_rotation(const std::string& name, const Vec3& rad);
     void reset_rotation(const std::string& name);
+    // Mesh_Rotate 0x172 (FUN_00572e70 [BYTES 0x572e70..0x572ed8]; DALLES.md §2.3, WAITOPS.md §4.2): the per-step
+    // delta = deg x pi / 180, for `frames` steps (frames <= 0: forever). A missing object: nothing.
+    void rotate(const std::string& name, const Vec3& deg, std::int32_t frames);
     void enable_event(const std::string& name, bool on);         // Mesh_EnableEvent 0x176
     void set_time_scale(const std::string& name, float s);       // Mesh_SetTimeScale 0x17b
     void fall(const std::string& name, float e, float h);        // Mesh_Fall 0x18a

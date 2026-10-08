@@ -507,6 +507,17 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         host->mesh_material_color(ops(0), ops(1), op(2), op(3), op(4));
                         return Step::Continue;
                     }
+                    // 0xaa Light_Directional(i argb, f x, f y, f z) [BYTES 0x5695c9 -> FUN_00443ea0] / 0x172
+                    // Mesh_Rotate(s mesh, f x, f y, f z, i frames) [BYTES 0x56d179 -> FUN_00572e70] (DALLES.md §2):
+                    // neither yields.
+                    if (sub == 0xaa && nargs >= 4) {
+                        host->light_directional(std::uint32_t(op(0)), opf(1), opf(2), opf(3));
+                        return Step::Continue;
+                    }
+                    if (sub == 0x172 && nargs >= 5) {
+                        host->mesh_rotate(ops(0), opf(1), opf(2), opf(3), op(4));
+                        return Step::Continue;
+                    }
                     // 0x11b EftAll_AddCameraOffset(i, f) [BYTES 0x56b3cf]; 0x126 MirrorFloor(i) [BYTES 0x56b812];
                     // 0x127 SetDefaultCubeMapTexture(s) [BYTES 0x56b832].
                     if (sub == 0x11b && nargs >= 2) { host->effect_camera_offset(op(0), opf(1)); return Step::Continue; }

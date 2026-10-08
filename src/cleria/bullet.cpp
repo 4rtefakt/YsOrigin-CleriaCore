@@ -337,6 +337,26 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
     // ---- the handler (jump table 0x596950)
     auto mover1 = [&] {                                            // FUN_00597290
         const Vec3 v = integrate(b);
+        // The terrain probe, kind 0x25 only (or effect 0x1df: [not modelled]) [BYTES 0x597860..0x59788e;
+        // DALLES_CD1.md §4.2]: the ray along this step's move with its byte +0x49 = 1 (the boss meshes are
+        // skipped). A hit with effect 54 [0x5978be..0x597d1d]: SE 327, the kill flag, y = 0.5, the inline burst 55
+        // (the bullet's power / knock, rtype 3, status 8, cls 0xff, the bullet's side, the owner's stats; its
+        // fx+0x1dc |= 0x100 is [not modelled]) and, only while no shake runs, Shake(10, 0.15, 0.15, 0).
+        // [not modelled] the effect-pool-full gate of the burst.
+        if (s.kind == 0x25 && s.f168 != 0.0f) {
+            const RayHit r = env.ray_no_boss ? env.ray_no_boss(s.pos, v, 2) : ray(s.pos, v);
+            if (r.hit && s.effect == 0x36) {
+                sound(327);
+                b.fx->kill = true;
+                s.pos.y = 0.5f;
+                spawn_fx(55, {s.pos.x, 0.5f, s.pos.z}, {0, 0, 0}, b.side, b.atk, s.power, s.knock, 3, 8, -1, s.owner);
+                if (env.shake_frames == 0 && events) {
+                    Event e{Event::kShake, 10, s.pos, 0, 0};
+                    e.push = {0.15f, 0.15f, 0.0f};
+                    events->push_back(e);
+                }
+            }
+        }
         if (s.f16c != 0.0f) {                                      // the first live particle's rtype
             if (ef2sim::Particle* p = fx_->first_particle(b.fx)) p->hit.rtype = int(s.f16c);
         }
@@ -353,6 +373,46 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             const float a = float(b.age);
             s.f160 = s.f16c > a ? 0u : b.u184;
             if (a > s.f170) { s.f160 = 0; b.u184 = 0; }
+            mover1();
+            break;
+        }
+        case 0x25: {                                               // 0x595028: the homing shot (DALLES_CD1.md §4.2)
+            // The homing window, the same code as kind 2. [not modelled] effect 0x1d3 below y 1.5 becomes kind 0x28.
+            if (s.f160 != 0) b.u184 = s.f160;
+            const float a = float(b.age);
+            s.f160 = s.f16c > a ? 0u : b.u184;
+            if (a > s.f170) { s.f160 = 0; b.u184 = 0; }
+            mover1();
+            break;
+        }
+        case 0x26: {                                               // 0x59510d: the curving meteor (DALLES_CD1.md §5.5)
+            if (s.f160 != 0) b.u184 = s.f160;
+            const float a = float(b.age);
+            s.f160 = s.f16c > a ? 0u : b.u184;
+            if (a > s.f170) { s.f160 = 0; b.u184 = 0; }
+            if (b.age == 60) s.f164 = 0.20943952f;                 // 0x3e567750: 12 deg a tick
+            else if (b.age > 60 && 0.62831855f > s.f164) s.f164 += 0.017453292f;   // + 1 deg up to 36 (0x6bd344)
+            const float qx = env.player.x - s.pos.x, qz = env.player.z - s.pos.z;
+            const float ql = float(std::sqrt(double((qx * qx + 0.0f) + qz * qz)));
+            if (0.09f > ql * ql || b.age > 220) {                  // 0x6bd190: the dive, homing off
+                s.dir = {0.0f, -1.0f, 0.0f};
+                s.f160 = 0; s.f170 = 0.0f; s.f16c = 0.0f;
+            }
+            mover1();
+            break;
+        }
+        case 0x27: {                                               // 0x595253: the re-aimed shot (DALLES_CD1.md §5.5)
+            if (s.f160 != 0) b.u184 = s.f160;
+            const float a = float(b.age);
+            s.f160 = s.f16c > a ? 0u : b.u184;
+            if (a > s.f170) { s.f160 = 0; b.u184 = 0; }
+            if (b.age == 70) {                                     // at the player, level; the decel becomes 3x accel
+                const Vec3 t{env.player.x - s.pos.x, 0.0f, env.player.z - s.pos.z};
+                const float l = float(std::sqrt(double((t.x * t.x + 0.0f) + t.z * t.z)));
+                s.dir = l == 0.0f ? Vec3{} : Vec3{t.x / l, 0.0f, t.z / l};
+                s.speed *= 0.75f;                                  // 0x6bd390
+                s.accel *= -3.0f;                                  // 0x6be0a8
+            }
             mover1();
             break;
         }
@@ -652,6 +712,12 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
     if (s.f160 != 0 && b.age % s.f160 == 0) {                      // homing
         Vec3 target = env.player;
         if (s.kind == 4 || s.kind == 0x26 || s.kind == 0x27) target.y = s.pos.y;
+        else if (s.kind == 0x25) {                                 // the packed aim +0x174..0x176, sinking with age^2
+            std::uint32_t pk; std::memcpy(&pk, &s.f174, 4);        // [BYTES tail; DALLES_CD1.md §4.2]
+            target = {float((pk >> 16) & 0xffu) - 128.0f,
+                      float((pk >> 8) & 0xffu) - 128.0f - float(b.age * b.age) / 300.0f,   // 0x6bdc44
+                      float(pk & 0xffu) - 128.0f};
+        }
         else if (s.kind == 0xd) target.y = 0.0f;
         else if (s.kind == 0xb || s.kind == 0xe) target = b.owner_pos;
         s.dir = home(s.pos, s.dir, target, s.f164);
@@ -663,12 +729,36 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
     if (parked) s.speed = 0.0f;
     if (!parked && s.kind != 0x29 && s.f15c != 0 && b.age % s.f15c == 0) {   // the trail puff
         const float yaw = -1.5707964f - float(std::atan2(double(s.dir.z), double(s.dir.x)));
+        // The pitch, kind 0x25 only: 1.5707964 - atan2(|dir.xz|, dir.y) (DALLES_CD1.md §4.2).
+        const float pitch = s.kind != 0x25 ? 0.0f
+            : 1.5707964f - float(std::atan2(std::sqrt(double(s.dir.x * s.dir.x + s.dir.z * s.dir.z)), double(s.dir.y)));
         if (s.f158 == 0x18c) sound(0x145);
         const Vec3 at{b.mat.m[3][0], b.mat.m[3][1], b.mat.m[3][2]};
-        spawn_fx(int(s.f158), at, {0.0f, yaw, 0.0f}, b.side, b.atk, 0.0f, 0.0f, 0, 0, -1, s.owner);
+        spawn_fx(int(s.f158), at, {pitch, yaw, 0.0f}, b.side, b.atk, 0.0f, 0.0f, 0, 0, -1, s.owner);
     }
     if (s.kind != 0x10 && s.kind != 0x23 && s.kind != 0xd)        // the render orientation
         b.mat = ef2sim::mul(look_rotation(s.dir), b.mat);
+    // ---- the STRUCK test (BULLETS.md §4.4 [BYTES 0x5958b9..0x596852]) for effect 0x193 (boss07's F shot,
+    // DALLES_D23.md §10: byte +0x17a "destroyed when struck"): the effect as a victim sphere of r 1.25 at the
+    // bullet; the player's live swing, else any side-0 particle (FUN_004faf20(particle, fx, 0, 1): [H] the armed
+    // ones' hit records, as the kind-0x1e pop). Struck and not yet killed: the kill flag, SE 0xb9 at the player,
+    // the burst 0x41 and SE 0x5c. [not modelled] FUN_0058a5f0's particles, +0x19c / +0x198, the other ids.
+    if (s.effect == 0x193 && b.fx) {
+        const HitShape me{1.25f, s.pos, 0.0f, 0};
+        bool hit = env.swing && env.swing(me);
+        if (!hit && !b.fx->kill)
+            for (const auto& pp : fx_->particles()) {
+                const ef2sim::Particle& p = *pp;
+                if (!p.fx || p.fx->side != 0 || !p.hit.armed) continue;
+                if (overlap(HitShape{p.hit.radius, p.hit.centre, p.hit.half_h, p.hit.half_h > 0.0f ? 1 : 0}, me)) { hit = true; break; }
+            }
+        if (hit && !b.fx->kill) {
+            b.fx->kill = true;
+            if (events) events->push_back({Event::kSound, 0xb9, env.player, 0, 0});
+            spawn_fx(0x41, s.pos, {0, 0, 0}, b.side, b.atk, 0.0f, 1.0f, 0, 0, -1, s.owner);   // [H] the burst's hit fields
+            sound(0x5c);
+        }
+    }
 }
 
 }  // namespace cleria::bullet

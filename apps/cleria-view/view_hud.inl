@@ -167,6 +167,10 @@ struct Hud {
     // of the arm last hit, at its projected position (screen px). < 0 = hidden. [approx] a plain
     // two-rect bar: the widget's own art and layout are not RE'd.
     float arm_frac = -1.f, arm_px = 0, arm_py = 0;
+    // Dalles's three world-anchored mini gauges 0x76c1cc / 0x76c1e4 / 0x76c1fc (DALLES_AB.md §B.3 / §B.7): the
+    // barrier strength (or both options' HP) and one per option, drawn as the arm's [approx] bar.
+    struct MiniBar { float frac = -1.f, px = 0, py = 0; };
+    MiniBar mini_bar[3];
     // FUN_0043a540, every 60 Hz step: the lag moves toward cur by w+0x2c (0.02) x max x 0.2.
     void tick_boss_gauge() {
         if (boss_frac < 0.0f) return;
@@ -901,6 +905,12 @@ struct Hud {
             const float w = 60.0f * s, h = 6.0f * s;
             rect(arm_px - w * 0.5f - s, arm_py - h - s, w + 2.0f * s, h + 2.0f * s, float(sw), float(sh), 0, 0, 0, 170);
             rect(arm_px - w * 0.5f, arm_py - h, w * std::min(1.0f, arm_frac), h, float(sw), float(sh), 230, 50, 30, 230);
+        }
+        for (const MiniBar& mb : mini_bar) {
+            if (mb.frac < 0.f) continue;
+            const float w = 60.0f * s, h = 6.0f * s;
+            rect(mb.px - w * 0.5f - s, mb.py - h - s, w + 2.0f * s, h + 2.0f * s, float(sw), float(sh), 0, 0, 0, 170);
+            rect(mb.px - w * 0.5f, mb.py - h, w * std::min(1.0f, mb.frac), h, float(sw), float(sh), 230, 50, 30, 230);
         }
         if (gauge_alpha < 1.0f) {
             auto dim = [&](std::vector<HudVertex>& v, std::size_t from) {

@@ -80,6 +80,13 @@ void MeshWorld::set_material_color(const std::string& name, const std::string& m
 void MeshWorld::reset_rotation(const std::string& name) {
     if (MeshObj* m = find(name)) { m->rot = m->spawn_rot; m->dirty_pose = true; }
 }
+void MeshWorld::rotate(const std::string& name, const Vec3& deg, std::int32_t frames) {
+    MeshObj* m = find(name);
+    if (!m) return;
+    const float k = 0.017453292f;                                  // 0x6bd0dc
+    m->rot_delta = {deg.x * k, deg.y * k, deg.z * k};
+    m->rot_steps = frames > 0 ? frames : -1;                       // cmovle
+}
 void MeshWorld::enable_event(const std::string& name, bool on) {
     if (MeshObj* m = find(name)) m->event_on = on;
 }
@@ -241,6 +248,12 @@ void MeshWorld::step() {
                 if (m.fall_vel < 0.025f) { m.fall_e = 0.0f; m.pos.y = m.fall_start; }   // 0x6bd0f8
             }
             m.dirty_pos = true;
+        }
+        // 2c. Mesh_Rotate (0x5034fa): while +0x414 != 0 (counting down when > 0) rot += delta, FUN_00503990(&rot).
+        if (m.rot_steps != 0) {
+            if (m.rot_steps > 0) --m.rot_steps;
+            m.rot = {m.rot.x + m.rot_delta.x, m.rot.y + m.rot_delta.y, m.rot.z + m.rot_delta.z};
+            m.dirty_pose = true;
         }
         // 3. the deferred clip (0x50354f): a case-insensitive section search; an unknown name
         //    leaves the old clip playing.

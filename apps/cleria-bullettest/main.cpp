@@ -4,11 +4,14 @@
 // trail, Velagunder's bubble (kind 0x1e) and drool drop (kind 0x1f), Hugo's volley (kind 0x1b), the
 // aimed kind 0x16, and XSO op 0x112's falling water probe (GoXx type 0x16).
 // Usage: cleria-bullettest <assets dir>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <utility>
+#include <vector>
 
 #include "cleria/bullet.hpp"
 #include "cleria/ef2.hpp"
@@ -787,6 +790,235 @@ int main(int argc, char** argv) {
             }
             check(killed == 17 && b && b->s.speed == 0.0f, "kind 0x21: a wall is ignored until age 16, then the effect is killed and the bullet parks");
             check(nb && nb->fx && !nb->fx->kill, "kind 0x21: f9 (+0x168) == 0 never probes the terrain");
+        }
+    }
+
+    // ---- boss07 (Dalles): kinds 0x25 / 0x26 / 0x27, the F shot's struck test, the impact specials
+    //      (build/boss_re/DALLES_CD1.md §4.2 / §5.5, DALLES_D23.md §10 / §16.1 / §16.2) ----
+    {
+        const std::filesystem::path bos = std::filesystem::path(argv[1]) / "EFFECT" / "EFT" / "BOS";
+        efs[54] = Ef2::load(bos / "BS_07_HORMINGTOP.EF2");
+        efs[53] = Ef2::load(bos / "BS_07_HORMINGBODY.EF2");
+        efs[55] = Ef2::load(bos / "BS_07_HORMINGHIT.EF2");
+        efs[398] = Ef2::load(bos / "BS_07_INSEKI.EF2");
+        efs[397] = Ef2::load(bos / "BS_07_INSEKI_HIT.EF2");
+        efs[399] = Ef2::load(bos / "BS_07_INSEKI_OBI.EF2");
+        efs[409] = Ef2::load(bos / "BS_07_BARAMAKI_B.EF2");
+        efs[403] = Ef2::load(bos / "BS_07_TAMA_C.EF2");
+        efs[402] = Ef2::load(bos / "BS_07_TAMA_B.EF2");
+        efs[404] = Ef2::load(bos / "BS_07_TAMA_B_HIT.EF2");
+        bool loaded = true;
+        for (int id : {54, 53, 55, 398, 397, 399, 409, 403, 402, 404}) loaded = loaded && efs[id].ok();
+        check(loaded, "boss07: the EF2s 53 / 54 / 55 / 397..399 / 402..404 / 409 load");
+        auto ib = [](std::uint32_t v) { float f; std::memcpy(&f, &v, 4); return f; };
+        auto count_fx = [](ef2sim::System& fx, int id) {
+            int n = 0;
+            for (const auto& f : fx.effects()) n += f->id == id;
+            return n;
+        };
+        {   // kind 0x25, the option's block (FUN_00546900): straight up, homing ages 2..60 every 2nd tick at <= 17 deg
+            // toward the packed point sunk by age^2 / 300, the trail 53 every 2nd tick with its pitch, rtype 2.
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            const std::uint32_t packed = (std::uint32_t(std::uint8_t(int(20.0f + 128.0f))) << 16) |
+                                         (std::uint32_t(std::uint8_t(int(1.0f + 128.0f))) << 8) |
+                                         std::uint32_t(std::uint8_t(int(-6.0f + 128.0f)));
+            const float f[13] = {0.8f, -1e-5f, 0.0f, -5.0f, 1.0f, ib(53), ib(2), ib(2), 0.29670596f, 1.0f, 2.0f, 60.0f, ib(packed)};
+            Spawn s = block_spawn(0x25, 54, {0, 3, 0}, {0, 1, 0}, f);
+            s.owner_atk = 255.0f;
+            Bullet* b = bs.spawn(s);
+            check(b && b->fx && b->fx->status == 8 && b->fx->power == -5.0f, "kind 0x25: effect 54 is armed with status 8 (heavy), power -5");
+            Env env;
+            env.player = {-50, 0, -50};                            // not the target: the aim is the packed point
+            int noboss = 0, plain = 0;
+            bool wall = false;
+            env.ray = [&](const Vec3&, const Vec3&, int) { ++plain; return RayHit{}; };
+            env.ray_no_boss = [&](const Vec3& from, const Vec3& d, int set) {
+                noboss += set == 2;
+                RayHit r; r.hit = wall && from.y + d.y <= 0.0f; r.point = from; r.normal = {0, 1, 0}; return r;
+            };
+            std::vector<Event> ev;
+            bool straight = true, turned = true, rt = true;
+            Vec3 dir{0, 1, 0}, pos{0, 3, 0};
+            float speed = 0.8f;
+            int trails = 0;
+            for (int k = 0; k < 30 && b; ++k) {
+                const std::uint32_t age = b->age;
+                const int before = count_fx(fx, 53);
+                bs.update(env, &ev);
+                // the reference: move with the old dir / speed, then the tail's homing at even ages 2..60
+                pos = {pos.x + dir.x * speed, pos.y + dir.y * speed, pos.z + dir.z * speed};
+                if (age >= 2 && age <= 60 && age % 2 == 0) {
+                    const Vec3 t{20.0f, 1.0f - float(age * age) / 300.0f, -6.0f};
+                    const Vec3 nd = home(pos, dir, t, 0.29670596f);
+                    const float turn = std::acos(std::min(1.0f, nd.x * dir.x + nd.y * dir.y + nd.z * dir.z));
+                    turned = turned && turn <= 0.29670596f + 1e-4f;
+                    dir = nd;
+                } else if (age < 2) {
+                    straight = straight && b->s.dir.x == 0.0f && b->s.dir.y == 1.0f && b->s.dir.z == 0.0f;
+                }
+                speed += -1e-5f;
+                turned = turned && near(b->s.pos.x, pos.x, 2e-3f) && near(b->s.pos.y, pos.y, 2e-3f) && near(b->s.pos.z, pos.z, 2e-3f);
+                if (count_fx(fx, 53) > before) {
+                    ++trails;
+                    turned = turned && b->age % 2 == 0;            // the age after the ++
+                }
+                if (const ef2sim::Particle* p = fx.first_particle(b->fx)) rt = rt && p->hit.rtype == 2;
+                fx.step(); fx.sweep();
+            }
+            check(straight, "kind 0x25: no homing before age 2 (f10): straight up");
+            check(turned && b && b->s.dir.x > 0.5f, "kind 0x25: homes on the packed point (y sinking by age^2 / 300), <= 17 deg every 2nd tick");
+            check(trails == 15, "kind 0x25: a trail 53 every 2nd tick (f6 = 2)");
+            check(rt, "kind 0x25: the first particle's rtype is forced to (int)f10 = 2 every tick");
+            check(noboss == 30 && plain == 0 && ev.empty(), "kind 0x25: the terrain probe runs every tick with the boss meshes skipped (f9 != 0)");
+            // the ground: SE 327, the kill flag, y 0.5, the burst 55 (power -5, rtype 3, status 8), the shake
+            wall = true;
+            if (b) { b->s.pos.y = 0.3f; b->s.dir = {0, -1, 0}; }
+            bs.update(env, &ev);
+            const ef2sim::Effect* burst = nullptr;
+            for (const auto& fe : fx.effects()) if (fe->id == 55) burst = fe.get();
+            bool se = false, shake = false;
+            for (const Event& e : ev) {
+                se = se || (e.type == Event::kSound && e.id == 327);
+                shake = shake || (e.type == Event::kShake && e.id == 10 && e.push.x == 0.15f && e.push.y == 0.15f && e.push.z == 0.0f);
+            }
+            check(b && b->fx && b->fx->kill && b->s.speed == 0.0f && se, "kind 0x25: the floor: SE 327, the kill flag, the bullet parks");
+            check(burst && burst->power == -5.0f && burst->knock == 1.0f && burst->rtype == 3 && burst->status == 8 &&
+                  burst->atk == 255.0f && burst->side == 1 && near(burst->M.m[3][1], 0.5f),
+                  "kind 0x25: the burst 55 at y 0.5: power -5, knock 1, rtype 3, status 8, the owner's ATK");
+            check(shake, "kind 0x25: Shake(10, 0.15, 0.15, 0) when no shake runs");
+            // ... and none while one runs
+            ef2sim::System fx2(&rng);
+            Bullets bs2(&fx2, ef2_of);
+            Bullet* b2 = bs2.spawn(s);
+            env.shake_frames = 5;
+            ev.clear();
+            if (b2) { b2->s.pos.y = 0.3f; b2->s.dir = {0, -1, 0}; }
+            bs2.update(env, &ev);
+            bool shake2 = false;
+            for (const Event& e : ev) shake2 = shake2 || e.type == Event::kShake;
+            check(b2 && b2->fx->kill && !shake2, "kind 0x25: no new shake while 0x76a5ac != 0");
+        }
+        {   // kind 0x26, N_SHOOT_L pattern B: homing from age 40 at f8, level; 12 deg at age 60 then + 1 deg to 36;
+            // the dive within 0.3 of the player in XZ.
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            const float turn0 = 6.0f * 0.017453292f;
+            const float f[13] = {0.045f, 0.004f, 0.0f, -2.0f, 1.0f, ib(399), ib(10), ib(1), turn0, 1.0f, 40.0f, 999.0f, 0.0f};
+            Bullet* b = bs.spawn(block_spawn(0x26, 398, {0, 6, 0}, {1, 0, 0}, f));
+            Env env;
+            env.player = {0, 0, 40};
+            int rays = 0;
+            env.ray = [&](const Vec3&, const Vec3&, int) { ++rays; return RayHit{}; };
+            bool pre = true, level = true, ramp = true;
+            float t60 = 0, t61 = 0, t90 = 0;
+            for (int k = 0; k < 91 && b; ++k) {
+                bs.update(env, nullptr);
+                if (b->age <= 40) pre = pre && near(b->s.dir.x, 1.0f, 1e-6f) && b->s.dir.z == 0.0f;   // ages 0..39 stepped
+                level = level && b->s.dir.y == 0.0f;
+                if (b->age == 60) t60 = b->s.f164;
+                if (b->age == 61) t61 = b->s.f164;
+                if (b->age == 62) ramp = ramp && near(b->s.f164, 0.20943952f + 0.017453292f, 1e-6f);
+                if (b->age == 91) t90 = b->s.f164;
+                fx.step(); fx.sweep();
+            }
+            check(pre && b && b->s.dir.z > 0.9f, "kind 0x26: flies along the hand until age 40 (f10), then curves onto the player");
+            check(level, "kind 0x26: the homing target's y is the bullet's (level)");
+            check(near(t60, turn0, 1e-6f) && near(t61, 0.20943952f, 1e-6f) && ramp && t90 >= 0.62831855f && t90 < 0.62831855f + 0.0175f,
+                  "kind 0x26: max turn f8 until age 59, 12 deg at age 60, + 1 deg a tick up to 36 deg");
+            check(rays == 0, "kind 0x26: f9 = 1 but no terrain probe (kind 0x25 only)");
+            if (b) { b->s.pos = {0.1f, 6.0f, 39.9f}; }
+            bs.update(env, nullptr);
+            check(b && b->s.dir.x == 0.0f && b->s.dir.y == -1.0f && b->s.dir.z == 0.0f && b->s.f160 == 0 && b->s.f170 == 0.0f &&
+                  b->s.f16c == 0.0f, "kind 0x26: within 0.3 of the player in XZ: the dive (0, -1, 0), homing off");
+            // too old: the same dive
+            ef2sim::System fx2(&rng);
+            Bullets bs2(&fx2, ef2_of);
+            Bullet* o = bs2.spawn(block_spawn(0x26, 398, {0, 6, 0}, {1, 0, 0}, f));
+            if (o) { o->age = 220; o->s.accel = 0.0f; }
+            env.player = {500, 0, 500};
+            bs2.update(env, nullptr);
+            const bool not220 = o && o->s.dir.y == 0.0f;
+            bs2.update(env, nullptr);
+            check(not220 && o && o->s.dir.y == -1.0f, "kind 0x26: the dive at age 221 (age > 220), not at 220");
+        }
+        {   // kind 0x27, N_SHOOT_R pattern B: no homing; at age 70 re-aimed level at the player, speed x 0.75,
+            // accel x -3.
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            const float f[13] = {0.25f, -0.002f, 0.0f, -10.0f, 1.0f, 0, 0, 0, 0, 0, 0, 0, 0};
+            Bullet* b = bs.spawn(block_spawn(0x27, 409, {0, 3.2f, 0}, {1, 0, 0}, f));
+            Env env;
+            env.player = {7, 0, 30};
+            bool pre = true;
+            float sp69 = 0;
+            Vec3 at70{};
+            for (int k = 0; k < 70 && b; ++k) {                    // ages 0..69
+                bs.update(env, nullptr);
+                pre = pre && near(b->s.dir.x, 1.0f, 1e-6f) && b->s.dir.z == 0.0f && b->s.accel == -0.002f;
+                fx.step(); fx.sweep();
+            }
+            if (b) { sp69 = b->s.speed; at70 = b->s.pos; }
+            bs.update(env, nullptr);                               // age 70
+            const float dx = 7.0f - at70.x, dz = 30.0f - at70.z, dl = std::sqrt(dx * dx + dz * dz);
+            check(pre && near(sp69, 0.25f - 70 * 0.002f, 1e-4f), "kind 0x27: straight and decelerating until age 70");
+            check(b && near(b->s.dir.x, dx / dl, 1e-4f) && b->s.dir.y == 0.0f && near(b->s.dir.z, dz / dl, 1e-4f),
+                  "kind 0x27: at age 70 the direction is re-aimed at the player, level");
+            check(b && near(b->s.accel, 0.006f, 1e-7f) && near(b->s.speed, sp69 * 0.75f + 0.006f, 1e-5f) &&
+                  near(b->s.pos.x, at70.x + dx / dl * sp69 * 0.75f, 1e-4f),
+                  "kind 0x27: speed x 0.75 and accel x -3 before that tick's move");
+        }
+        {   // the F shot (kind 2, effect 0x193): destroyed when struck by the player's swing
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            const float f[13] = {0.12f, 1.5e-4f, 0.0f, 0.0f, 1.0f, ib(399), ib(8), ib(1), 0.035f, 0.0f, 50.0f, 300.0f, 0.0f};
+            Bullet* b = bs.spawn(block_spawn(2, 403, {0, 3, 0}, {0, 1, 0}, f));
+            Bullet* c = bs.spawn(block_spawn(2, 398, {0, 3, 0}, {0, 1, 0}, f));
+            Env env;
+            env.player = {3, 0, 0};
+            bool swing = false;
+            float r_seen = 0;
+            env.swing = [&](const HitShape& v) { r_seen = v.radius; return swing; };
+            std::vector<Event> ev;
+            for (int k = 0; k < 5; ++k) bs.update(env, &ev);
+            if (const ef2sim::Particle* p = b ? fx.first_particle(b->fx) : nullptr)
+                check(p->hit.rtype == 50, "F shot: the first particle's rtype is (int)f10 (the kind-1 mover's overwrite)");
+            check(b && !b->fx->kill && r_seen == 1.25f && ev.empty(), "F shot: the struck test's victim sphere is r 1.25; no swing, no kill");
+            swing = true;
+            bs.update(env, &ev);
+            bool s1 = false, s2 = false;
+            for (const Event& e : ev) { s1 = s1 || (e.type == Event::kSound && e.id == 0xb9); s2 = s2 || (e.type == Event::kSound && e.id == 0x5c); }
+            check(b && b->fx->kill && s1 && s2, "F shot: struck by the swing: killed, SE 0xb9 and SE 0x5c");
+            bs.update(env, &ev);
+            check(b && b->s.speed == 0.0f, "F shot: parked by the next tail");
+            check(c && !c->fx->kill, "the struck test is effect 0x193's: a meteor (398) in the same swing flies on");
+        }
+        {   // FUN_0044ebb0's specials: impact 0x194 spawns no effect 404 (the host's bullet), impact 0x18d plays SE 316
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            fx.set_lookup(ef2_of);
+            std::vector<std::pair<int, Vec3>> sp;
+            fx.set_impact_special([&](int id, const Vec3& at) { sp.push_back({id, at}); });
+            ef2sim::SpawnParams p0;
+            p0.pos = {1, 2, 3};
+            ef2sim::Effect* w = fx.spawn(402, efs[402], p0);
+            int struck404 = 0;
+            for (int k = 0; k < 200 && w && struck404 == 0; ++k) {
+                for (const auto& pp : fx.particles())
+                    if (pp->fx == w && !pp->dying && pp->hit.armed && pp->hit.mode == 2) { fx.strike(*pp); ++struck404; break; }
+                if (!struck404) { fx.step(); fx.sweep(); }
+            }
+            check(struck404 == 1 && sp.size() == 1 && sp[0].first == 0x194 && count_fx(fx, 404) == 0,
+                  "impact id 0x194 (402's armed mode-2 emitter): the special, no effect 404");
+            sp.clear();
+            ef2sim::Effect* m = fx.spawn(398, efs[398], p0);
+            if (ef2sim::Particle* p = m ? fx.first_particle(m) : nullptr) fx.strike(*p);
+            check(sp.size() == 1 && sp[0].first == 0x18d && count_fx(fx, 397) == 1,
+                  "impact id 0x18d (the meteor 398): the special (SE 316) and the child 397");
         }
     }
 

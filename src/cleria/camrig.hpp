@@ -44,6 +44,8 @@ class CamRig {
     // The selection globals a brain writes directly (0x76a158 / 15c / 1bc / 1b8, 0x76a1f8).
     void write_sel(int cur, int from, float t, float rate) { cur_ = cur; from_ = from; t_ = t; rate_ = rate; }
     void write_forced(int f) { forced_ = f; }
+    // ... with its morph speed 0x76a1fc (boss07's CamSlot(n, v): build/boss_re/DALLES.md conventions).
+    void write_forced(int f, float rate) { forced_ = f; forced_rate_ = rate; }
     // FUN_0042bf80's slot write: both points fixed (mode 0), the eye's dist / pitch, the fov.
     void write_fixed(int k, const Vec3& eye, const Vec3& target, float dist, float pitch, float fov);
     // The boss presets (eye/target per slot 1..6; [0] unused) and the slot-0xb snapshot.

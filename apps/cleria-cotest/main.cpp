@@ -771,6 +771,30 @@ int main(int argc, char** argv) {
                     vm.g_flags[300], h.wallet, h.raval, std::uint32_t(vm.g_flags[217]), ok ? "OK" : "FAIL");
         fails += !ok;
     }
+    // [dalles ops] 0xaa Light_Directional(i argb, f x, f y, f z) and 0x172 Mesh_Rotate(s mesh, f x, f y, f z, i frames)
+    // (build/boss_re/DALLES.md §2.2 / §2.3): the operands reach the host as given; neither yields.
+    {
+        struct LH : XsoHost {
+            std::uint32_t argb = 0; float lx = 0, ly = 0, lz = 0; int lights = 0;
+            std::string mesh; float rx = 0, ry = 0, rz = 0; int frames = -99, rots = 0;
+            void spawn(int, int, float, float, float, float, int) override {}
+            bool is_alive(int) const override { return false; }
+            void light_directional(std::uint32_t c, float x, float y, float z) override { argb = c; lx = x; ly = y; lz = z; ++lights; }
+            void mesh_rotate(const std::string& n, float x, float y, float z, int f) override { mesh = n; rx = x; ry = y; rz = z; frames = f; ++rots; }
+        };
+        Asm a;
+        a.op(0xaa, {Asm::I(std::int32_t(0xffcf68cfu)), Asm::F(-0.193041f), Asm::F(0.780869f), Asm::F(-0.59412f)});   // EV_7080's
+        a.op(0x172, {a.S("s70part2"), Asm::F(0.0f), Asm::F(-0.05f), Asm::F(0.0f), Asm::I(0)});                      // OBJ_ROTATE's
+        a.op(0x64, {Asm::I(300), Asm::I(7)});            // reached: neither op yields
+        a.raw(0x01000000);
+        LH h; XsoVm vm; vm.host = &h; vm.run(Xso::parse(a.bytes()));
+        const bool ok = h.lights == 1 && h.argb == 0xffcf68cfu && h.lx == -0.193041f && h.ly == 0.780869f && h.lz == -0.59412f &&
+                        h.rots == 1 && h.mesh == "s70part2" && h.rx == 0.0f && h.ry == -0.05f && h.rz == 0.0f && h.frames == 0 &&
+                        vm.g_flags[300] == 7;
+        std::printf("[dalles ops] Light_Directional %08x (%.4f, %.4f, %.4f); Mesh_Rotate %s (%.2f, %.2f, %.2f) %d %s\n", h.argb,
+                    h.lx, h.ly, h.lz, h.mesh.c_str(), h.rx, h.ry, h.rz, h.frames, ok ? "OK" : "FAIL");
+        fails += !ok;
+    }
     // [unescape] FUN_0057ad90: the window text escapes (wndtext.hpp).
     { struct C { const char* in; const char* want; } cases[] = {
           {"Acquired\\n<color:0xfff2ea8c>Celcetan Panacea<color:> x 1.", "Acquired\n<color:0xfff2ea8c>Celcetan Panacea<color:> x 1."},
