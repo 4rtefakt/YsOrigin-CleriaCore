@@ -57,6 +57,7 @@ struct Rig {
 
 #include "floor4.inl"   // the floor-4 brains (S_40)
 #include "floor5.inl"   // the floor-5 brains (S_50)
+#include "floor6.inl"   // the floor-6 brains (S_60)
 
 int main() {
     const EnemyAiParams p = m100();
@@ -3039,6 +3040,7 @@ int main() {
         check(o.section < 0 && o.set_hp == 0.0f && h.latch_7d4 == 1, "Trap Mine charged: at 0 no explosion of its own, P+0x7d4 = 1");
     }
     floor5_tests();
+    floor6_tests();
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;

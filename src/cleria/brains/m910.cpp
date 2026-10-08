@@ -170,5 +170,11 @@ AiOut m950(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
 AiOut m940(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     return nooze(a, p, e, {4.5f, 250u, 15, 3, 30u, 1, 350, 24u, 0xb4, 0.575f});
 }
+// M960 Nooze (Purple), FUN_004f0470 (AI 89, handler FUN_004f0d60 = M950's): build/ai_spec/M960.md. The brain has
+// no difficulty block, so the cooldown is R%60 + 60 on any difficulty (cool_per_d 0). It lunges from 6.0 u at
+// 400 per mille, splits 100 / 300 per mille under a pool cap of 36 into 0xb6, and keeps a 0.375 h chunk.
+AiOut m960(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+    return nooze(a, p, e, {6.0f, 400u, 0, 0, 60u, 100, 300, 36u, 0xb6, 0.625f});
+}
 
 }  // namespace cleria::brains

@@ -78,6 +78,7 @@ AiOut m410(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f4bb0 Zaru
 AiOut m430(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b27e0 Zeruena (M570's template + the barrier; revives)
 AiOut m440(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b3e70 Zeruena's hand (M410 minus DEF 999 / the clamp)
 AiOut m950(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ef840 Nooze (Green)
+AiOut m960(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f0470 Nooze (Purple)
 AiOut m610(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ac940 Gunghogan (M190's charge + leap)
 AiOut m400(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ae8c0 Tolpi (the pollen spray)
 AiOut m650(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b4890 Tenat-Baocar (drifting caster, homing shots)

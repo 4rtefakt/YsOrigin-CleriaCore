@@ -48,6 +48,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 36: return &brains::m430;   // M430 Zeruena (handler: brains/revive.cpp)
         case 37: return &brains::m440;   // M440 Zeruena's hand
         case 88: return &brains::m950;   // M950 Nooze (Green)
+        case 89: return &brains::m960;   // M960 Nooze (Purple)
         case 54: return &brains::m610;   // M610 Gunghogan
         case 33: return &brains::m400;   // M400 Tolpi
         case 58: return &brains::m650;   // M650 Tenat-Baocar
