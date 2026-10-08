@@ -6661,13 +6661,7 @@ title_again:
                     if (in_sand) { dy = std::clamp(dy, -0.015f, 0.03f); a.ai.surf = 0x12; }   // +0x4b9 = 0x12
                     float mdx = a.mover.dx, mdz = a.mover.dz;
                     if (a.ai.surf == 0x12) { mdx *= 0.25f; mdz *= 0.25f; if (dy > 0.0f) dy *= 0.25f; }
-                    // [approx] M470's sphere (+0x328 1.8) is larger than its origin height (+0x324 1.575): it starts
-                    // every sweep inside the floor, which the engine answers with its type-4 push-out (FUN_005dca20,
-                    // issues #14 / #64) and this sweep with no motion at all. Until that is ported its sweep radius
-                    // stops 0.01 short of the origin height (0.01 is ours). Only this cast: script dummies and the
-                    // flyers also have radius > height and must keep their sphere.
-                    const float sweep_r = a.ai_index == 40 ? std::min(a.radius, a.height - 0.01f) : a.radius;
-                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, sweep_r);
+                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, a.radius);
                     if (hitY > kNoFloor && o1.y > hitY) a.floor_y = hitY;     // +0x318
                     if (!a.flyer && in_sand && o1.y - a.height >= a.floor_y + 0.01f) {
                         a.vert.grounded = true;                               // 0x45bf52: +0x388 = 1 in sand

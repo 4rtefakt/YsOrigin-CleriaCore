@@ -172,6 +172,12 @@ void sweep_tri(const Vec3& p0, const Vec3& vel, float r, const Vec3& a, const Ve
                const Vec3& c, SweepHit& out) {
     const Vec3 N = normalize(cross(sub(b, a), sub(c, a)));
     const float nDotV = dot(N, vel);
+    // A triangle whose plane is EXACTLY parallel to the motion is not tested at all: no embedded
+    // contact, no face, no edge, no vertex [BYTES 0x5dad68..0x5dad6f, dir.N == 0.0f; an exact
+    // compare, not an epsilon] (build/physics_re/SWEEP_PUSHOUT.md §2, §5). This is what lets a
+    // sphere larger than its origin height (M470, 1.8 over 1.575) walk a flat floor it stands
+    // inside. [approx] the embedded contact and its push-out themselves are not ported (below).
+    if (nDotV == 0.0f) return;
     const float dist = dot(N, sub(p0, a));  // signed distance center -> plane
     // A sphere already inside the face (the centre within r of the plane, projecting into the
     // triangle) and moving out of it is never blocked by it. FUN_005daa10 records such a face

@@ -125,6 +125,24 @@ int main() {
               "a sphere inside a face moving out of it is not held (FUN_005dca20's type-4 contact)");
     }
 
+    // 6c. The parallel skip (build/physics_re/SWEEP_PUSHOUT.md §6.3, cases 1, 3 and 6; the others
+    //     need the type-4 push-out, not ported). floor_y's diagonal runs along x = z: start off it.
+    {
+        const auto near3 = [](Vec3 p, Vec3 e, float tol) {
+            return std::fabs(p.x - e.x) < tol && std::fabs(p.y - e.y) < tol && std::fabs(p.z - e.z) < tol;
+        };
+        const RoomMesh f = floor_y(0.0f);
+        // 1. M470 (radius 1.8, origin 1.575 over the floor): exactly parallel, the floor is skipped.
+        Vec3 p = collide_and_slide(f, {2, 1.575f, -3}, {0.1125f, 0, 0}, 1.8f);
+        check(near3(p, {2.1125f, 1.575f, -3}, 1e-4f), "parallel: a flat floor the sphere stands inside is skipped (M470)");
+        // 3. At rest: nothing is tested, so nothing is pushed.
+        p = collide_and_slide(f, {2, 1.575f, -3}, {0, 0, 0}, 1.8f);
+        check(near3(p, {2, 1.575f, -3}, 1e-6f), "parallel: a resting sphere is not moved");
+        // 6. 0.175 inside a wall and moving exactly along it: skipped, stays embedded.
+        p = collide_and_slide(wall_x(2.0f), {1.5f, 0, 0}, {0, 0, 0.1f}, r);
+        check(near3(p, {1.5f, 0, 0.1f}, 1e-4f), "parallel: a wall the sphere is inside is skipped and it stays there");
+    }
+
     // 7. Slide along a floor while moving horizontally on it (stays grounded, moves X).
     {
         RoomMesh m = floor_y(0.0f);
