@@ -724,6 +724,17 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=70,6;60:every=60,1500,near=70,6;"
               "61:every=60,1500,bullets;1500:quit",
         expect=["[bullet] kind 1 effect 494 age 4"]),
+    # Issue #59: an engaged monster keeps the player on S_1004's slope (feet y 7 -> -2 over the run). The
+    # player is re-placed only where the monster can see it (seen=), walks off, and the M170 Vilvan
+    # never drops to phase 1 (CLERIA_LOS reports any engaged -> phase-1 drop with its blocking tris).
+    "los_keep_slope": dict(
+        room="S_10/S_1004/S_1004",
+        env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#17,4;60:every=200,1300,seen=#17,5;"
+              "100:every=200,1300,move=1,0.5,40;160:every=200,1300,move=-0.5,1,40;1300:quit",
+        expect=["seen #17 placed", "[ai] #17 cast 17 phase 2", "seen #17 placed feet (9.58, 0.00",
+                "[ai] #17 cast 17 phase 2"],
+        absent=["[los]"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,

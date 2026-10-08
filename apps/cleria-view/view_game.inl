@@ -3663,6 +3663,31 @@ title_again:
                             game.g_flags[156], game.g_flags[130], a.ai.phase(), a.ai.i(0x72c), a.ai_index, casts.sprite_stem(a.cast_id).c_str(), int(efx.kinds.count(casts.sprite_stem(a.cast_id))), a.pos.x, a.pos.y, a.pos.z);
                 break;
             }
+        } else if (cmd.rfind("seen=", 0) == 0) {       // seen=#id[,dist]: as near=, but only to a spot the actor
+            // can see (its origin -> the player's origin clear, the floor within 2.5 of its own): near= puts the
+            // player on the TOP floor at (x, z), which can be past a wall or up a cliff (issue #59's drops). Audit aid.
+            const int id = std::atoi(cmd.c_str() + 5 + (cmd.size() > 5 && cmd[5] == '#'));
+            float nd = 3.0f;
+            if (const std::size_t cm = cmd.find(','); cm != std::string::npos) nd = float(std::atof(cmd.c_str() + cm + 1));
+            for (const Actor& a : world.actors()) {
+                if (a.instance_id != id || a.is_player()) continue;
+                const Vec3 ao{a.pos.x, a.pos.y + a.height, a.pos.z};
+                bool placed = false;
+                for (int k = 0; k < 16 && !placed; ++k) {
+                    const float an = float(k) * 0.3926991f + std::atan2(feet.z - a.pos.z, feet.x - a.pos.x);
+                    const float x = a.pos.x + std::cos(an) * nd, z = a.pos.z + std::sin(an) * nd;
+                    const float fl = floor_at(phys_mesh(room), x, z, a.pos.y + 2.5f);
+                    if (fl <= kNoFloor || std::fabs(fl - a.pos.y) > 2.5f) continue;
+                    if (segment_blocked(phys_mesh(room), ao, {x, fl + kOriginH, z})) continue;
+                    feet = {x, fl, z};
+                    face_dir = {-std::cos(an), 0.0f, -std::sin(an)};
+                    facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                    placed = true;
+                }
+                std::printf("  [drive] seen #%d %s feet (%.2f, %.2f, %.2f)\n", id, placed ? "placed" : "no clear spot",
+                            feet.x, feet.y, feet.z);
+                break;
+            }
         } else if (cmd.rfind("duel=", 0) == 0) {       // duel=cast: as near= + atk, only while a duel is live
             // (156 = 1 and the world not frozen), so a drive can fight through a whole duel script
             // without moving the player during its cutscenes (build/event_re/DUELS.md §5).
@@ -6031,6 +6056,7 @@ title_again:
             // heading at speed x anime_Movable. STAND-IN for non-M100 casts: every enemy
             // runs the M100 brain until its own is ported (build/audit/ai_bosses.md).
             #include "view_revive.inl"                // the revive family's handler (REVIVE.md)
+            #include "view_los.inl"                   // CLERIA_LOS: engaged -> phase 1 reports (issue #59)
             {
                 const int d = game.g_flags[201] ? 3 : (difficulty - 2);   // -2 v.easy .. 2 nightmare
                 // The handlers' off-screen test FUN_0045d3c0: a SPHERE of 5.0 (0x6bd868) x 0.5
@@ -6202,7 +6228,9 @@ title_again:
                     e.dmg_hit = false;
                     env.hp = en->hp; env.max_hp = en->max_hp; env.section = e.avm.section();
                     const EnemyBrain own = enemy_brain_for(en->ai_index);
+                    const int phase_before = e.actor->ai.phase();
                     const AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
+                    if (phase_before == 2 && e.actor->ai.phase() == 1 && los_log) los_report(*en, env);   // view_los.inl
                     // The brain's own writes to its HP (+0x98) / EXP (+0xb0), and its spawns.
                     if (o.set_hp >= 0) en->hp = o.set_hp;
                     en->exp_reward *= o.exp_scale;
