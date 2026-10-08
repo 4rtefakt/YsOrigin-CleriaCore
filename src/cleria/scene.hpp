@@ -76,7 +76,23 @@ struct SceneTrigger {
     std::string script_stem;       // as authored ('@' = MAP/S_COMMON)
     int i0 = 0, i1 = 0;            // -> the script's $I0/$I1 (break drops, spike damage)
     float f0 = 0;                  // -> $F0
+    // The battle block FUN_00501a30 gives the GoMesh (and FUN_005735b0 copies to its 0x186 hit
+    // child): HP +0x98, DEF +0xa8, the four resist slots +0xb4..+0xc0, the no-floor byte +0xce.
+    float hp = 1.0f, def = 0.0f;
+    float resist[4] = {0, 0, 0, 0};
+    bool no_floor = false;
 };
+
+// FUN_00501a30 0x5024b0..0x502569 [BYTES]: the SOB record's HP +0x154 / ATK +0x158 / DEF +0x15c (an HP
+// of 0 means 9999 / 999 / 999), and the +0x14c flags: 0x20 / 0x40 / 0x80 / 0x200 set resist slot 0 / 1 /
+// 2 / 3 to 1.0 (immune to that damage class), 0x400 sets the no-floor byte +0xce (no min-1 chip).
+inline void sob_battle_block(const SobObject& o, SceneTrigger& t) {
+    if (o.enabled == 0) { t.hp = 9999.0f; t.def = 999.0f; }
+    else { t.hp = float(o.enabled); t.def = float(o.def); }
+    const int bits[4] = {0x20, 0x40, 0x80, 0x200};
+    for (int k = 0; k < 4; ++k) t.resist[k] = (o.rflags & bits[k]) ? 1.0f : 0.0f;
+    t.no_floor = (o.rflags & 0x400) != 0;
+}
 
 struct RoomMesh {
     std::vector<RoomVertex> vertices;

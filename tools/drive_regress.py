@@ -20,6 +20,10 @@ ASSETS = os.path.join(ROOT, "assets")
 # the narration box: SAVE.XSO's 311 = 1 must reach its s_SaveObjectChange child.
 CLEANSE = "5:flag=310,1;6:flag=84,1;10:at=-0.036,8.2,0;20:act;60:ok;80:ok;100:ok;120:ok;140:ok;160:ok"
 
+# S_2015 -> S_2010 by its door, then the swim to the S_2011 door (issue #47).
+_S2010_ENTRY = ("5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;10:exit=1;40:move=0,1,75;120:move=-1,-0.4,75;"
+                "210:every=12,600,jump;400:move=-1,0.3,150;560:move=-0.2,1,600;1240:quit")
+
 CASES = {
     # STATUE_CLEANSE.md D2: the touch cleanse swaps save_01 for save_03 at once, and the
     # cleansed statue's @Save menu -> Save opens the book (0xe0), which writes slot 1.
@@ -185,6 +189,18 @@ CASES = {
         drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;20:move=-1,-0.4,75;110:every=12,500,jump;"
               "300:move=-1,0.3,150;460:move=-0.2,1,600;1100:quit",
         expect=[">> entering S_2011"]),
+    # Issue #47 (ROUTE_F13_HUGO HD2): S_2010 swum from its real entry, the S_2015 door's arrival (8, -2, -2)
+    # on the stairs, for Yunica and Hugo: up the stairs to the landing, west to the open column at x ~0
+    # (the only clear rise; the landing's north side is under the y 3 overhang and the y 13 slab), straight
+    # up, then west and north into the S_2011 door. A straight diagonal from the stairs sticks under them.
+    "swim_s2010_entry_y": dict(
+        room="S_20/S_2015/S_2015", char="1",
+        drive=_S2010_ENTRY,
+        expect=[">> entering S_2010", "arrival @ (8.0,-2.0,-2.0)", ">> entering S_2011"]),
+    "swim_s2010_entry_h": dict(
+        room="S_20/S_2015/S_2015", char="2",
+        drive=_S2010_ENTRY,
+        expect=[">> entering S_2010", "arrival @ (8.0,-2.0,-2.0)", ">> entering S_2011"]),
     # S_2015's tackle wall kabe_00 (flag 337) fills the S_2010 door (y 24..26.5 at z 53.75); the room's
     # ceiling (34) and the lintel keep a swimmer from going over it. Swim up from the arrival, then press
     # into the door; with the wall broken (s_Kabe00) the same door walks through.
@@ -195,8 +211,8 @@ CASES = {
         expect=["at object kabe_00", "mesh kabe_00 pos"], absent=[">> entering S_2010"]),
     "swim_kabe_break": dict(
         room="S_20/S_2015/S_2015",
-        drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;20:obj=kabe_00;30:atk;200:obj=kabe_00;"
-              "210:move=0,1,200;420:quit",
+        drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;8:bracelet=117;20:obj=kabe_00;30:skill+;32:skill-;"
+              "200:obj=kabe_00;210:move=0,1,200;420:quit",
         expect=["[hit] kabe_00 -> s_kabe00", ">> entering S_2010"]),
     # PLAYTEST_1 §1: a jump beside a wall rises as high as on open floor (2.63). The ceiling sweep ran
     # from the 0.45 capsule's spot, so the 0.675 sphere's rim caught the wall top / a ledge / a wall's
@@ -472,6 +488,18 @@ CASES = {
               ";210:abil;220:quit",
         expect=["hit Selnarg (lv3 DEF 53): 2 dmg, 72/74 left", "hit Selnarg (lv3 DEF 53): 2 dmg, 70/74 left",
                 "[abil] t210", "combo 6/"]),
+    # build/audit/ROUTE_F13_HUGO.md: a player particle runs the rest of FUN_004fed50's mode-0 scan
+    # (EFFECTHIT.md §5.1): Hugo's shot smashes a pot (@Break_30) and breaks the S_2008 wall (0x186 child
+    # sphere -> s_Kabe00, 471), which only a swing could do before. The S_2015 wall is the way to S_2010.
+    "hugo_shot_breaks_pot": dict(
+        room="S_10/S_1001/S_1001", env=dict(CLERIA_CHAR="2"),
+        drive="30:obj=break_01;31:atk;55:atk;80:atk;105:atk;160:quit",
+        expect=["[hit] break_01 -> @break_30"]),
+    # #53: Hugo's normal shot is class 3 (FUN_0046d5e0, his attack sections); the wall resists it (thunder only).
+    "hugo_shot_wall_immune": dict(
+        room="S_20/S_2008/S_2008", env=dict(CLERIA_CHAR="2"),
+        drive="5:opt=InfiniteHP=1;20:at3=-48,-2,-0.5,0;21:atk;41:atk;61:atk;81:atk;101:atk;140:flagdump;150:quit",
+        expect=["t140 flagdump"], absent=["[hit] kabe_00", " 471=1"]),
     # build/audit/ROUTE_F13.md: leaving a ward room ends its scripts; the KekkaiZako watcher no longer gets a
     # tick in the next room (no seeds there) and clears the ward (S_2008's 336) without a fight.
     "ward_leave_kept": dict(
@@ -504,6 +532,49 @@ CASES = {
         drive="10:flag=137,2;11:run=@UseWing;700:obj=kekkai_01;702:hp=999;705:move=-1,1,40;800:quit",
         expect=["run @UseWing -> started", "ChangeScene 's_10\\s_1011' -> S_1011", "[touch] kekkai_01 -> touch_kekkai",
                 "Chr_Damage player atk 50 -> HP"]),
+    # ROUTE_F13_TOAL.md F-T1: 0x13d Chr_IsInEventBox tests the actor's ORIGIN (+0x54 = floor + 1.075,
+    # FUN_00570df0), not the feet. Toal's S_2080 box EVT2_2080 starts 0.05 above the floor, so with the feet
+    # it never fired and his floor-2 duel (s_Evt2080_4 -> Battle_2, M810 Hugo) could not start.
+    "evtbox_origin_toal": dict(
+        room="S_20/S_2080/S_2080", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="20:at3=0,2,50,0;80:scripts;81:quit",
+        expect=["script s_Evt2080_4"]),
+    # ROUTE_F13_TOAL.md F-T2: a scene change spawns a new player actor (FUN_00431260 0x74c09c = 0,
+    # FUN_00434020 -> FUN_004590b0 zeroes +0x734), so i-frames do not carry over. Boost's 60 here; a
+    # boss's 9999 (FUN_00461120(2)) used to last ~166 s into the next floor.
+    "iframes_scene_reset": dict(
+        room="S_10/S_1004/S_1004", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="15:flag=187,1;20:boost=30000;21:boostkey;22:abil;23:exit=0;30:abil;31:quit",
+        expect=["boosting 1 iframes 59", ">> entering S_1005", "boosting 1 iframes 0 magic"]),
+    # #52: a hit's damage class is the record's +0x109, stamped at arm time from FUN_0046d5e0 (the player's
+    # section). Menoak (ENEMYINFO resist 1 / -1 / -5 / 1) takes nothing from melee (class 3) and the minimum
+    # from Toal's Thunder Claw (item 117, section 0x10c -> class 2) at Lv 1.
+    "menoak_class_toal": dict(
+        room="S_20/S_2008/S_2008", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1", CLERIA_DMG="1"),
+        drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;8:bracelet=117;20:nearest;21:atk;33:atk;45:atk;"
+              "100:nearest;101:skill+;103:skill-;104:abil;200:quit",
+        expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "sec 0x10c", "hit Menoak (lv14 DEF 91): 1 dmg, 145/146 left"]),
+    # #53: a torch's 0x186 child (FUN_005735b0) carries its SOB block (FUN_00501a30): resists 1 / 0 / 1 / 1 and no
+    # min-1 chip, so only class 1 (the fire skill, item 118) lights it. 33 melee swings do nothing; Inferno does.
+    "torch_fire_toal": dict(
+        room="S_30/S_3004/S_3004", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:opt=InfiniteHP=1;20:at3=66.6,3,38,90;22:every=12,420,atk;430:flagdump;450:bracelet=118;"
+              "460:at3=66.6,3,38,90;462:skill+;464:skill-;600:flagdump;601:quit",
+        expect=["t430 flagdump", "[hit] fire_01 -> s_syokudai01", " 354=1"]),
+    # ... and Yunica's Phoenix Flame from a jump under it (the torch stands 3 above the floor).
+    "torch_fire_yunica": dict(
+        room="S_30/S_3004/S_3004", char="1", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:opt=InfiniteHP=1;8:bracelet=118;20:at3=68,3,38,90;22:skill+;24:skill-;200:at3=67.3,3,38,90;"
+              "202:skill+;204:skill-;400:jump;402:skill+;404:skill-;600:flagdump;601:quit",
+        expect=["[hit] fire_01 -> s_syokudai01", " 354=1"]),
+    # The crumbling walls (S_2008 / S_2015 / S_4006 kabe_00, flags 0x670): resists 1 / 1 / 0 / 1, only class 2 (the
+    # thunder skill, item 117). Yunica's five swings leave S_2008's wall; her Bolt Crash breaks it.
+    "kabe_thunder_yunica": dict(
+        room="S_20/S_2008/S_2008", char="1", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:opt=InfiniteHP=1;6:opt=InfiniteOxygen=1;7:held=97;20:at3=-48,-2,-0.5,0;21:atk;41:atk;61:atk;81:atk;"
+              "101:atk;140:flagdump;150:bracelet=117;160:at3=-48,-2,-0.5,0;162:skill+;164:skill-;300:at3=-48,-2,-0.5,0;"
+              "302:skill+;304:skill-;450:flagdump;451:quit",
+        expect=["t140 flagdump", "[hit] kabe_00 -> s_kabe00", " 471=1"]),
 }
 
 # The story duels on floors 1-3 (build/event_re/DUELS.md), each played from the room's event box through
@@ -658,6 +729,19 @@ CASES.update({
                 "fader 0.45 -> 1.00 at 0.050 (door pending) (latched)", "[door] t81 commit S_1004 (fade 1.00)",
                 ">> entering S_1004", "arrival @ (65.0,6.0,-19.0) [SEN]", "t82 fader", "fader 1.00 -> 0.00 at 0.050",
                 "t101 fader", "fader 0.05 -> 0.00", "t102 fader", "fader 0.00 -> 0.00"]),
+    # #51: every scene entry resets the fader and fades in from black (FUN_00431260 -> FUN_00431840 ->
+    # FUN_00439170), whatever fader (colour, rate) the old room left. Held white, then a door (exit=), a
+    # same-room load (saveload: the "load" scene load) and a script ChangeScene (@UseWing -> S_1009) each
+    # arrive at 1.00 -> 0.00, 0.05 a step, black, and clear 20 steps later.
+    "fader_scene_entry": dict(
+        room="S_10/S_1004/S_1004",
+        drive="20:blackout=ffffff;21:fader;30:exit=0;31:fader;52:fader;60:blackout=ffffff;61:saveload;62:fader;"
+              "83:fader;90:blackout=ffffff;91:flag=137,1;92:run=@UseWing;330:fader;340:quit",
+        expect=["t21 fader", "fader 1.00 -> 1.00 at 1.000 rgb ffffff", ">> entering S_1005", "t31 fader",
+                "fader 1.00 -> 0.00 at 0.050 rgb 000000", "t52 fader", "fader 0.00 -> 0.00", "[drive] loaded S_1005",
+                "t62 fader", "fader 1.00 -> 0.00 at 0.050 rgb 000000", "t83 fader", "fader 0.00 -> 0.00",
+                "ChangeScene 's_10\\s_1009' -> S_1009", ">> entering S_1009", "t330 fader",
+                "fader 0.00 -> 0.00 at 0.050 rgb 000000"]),
     # No door during a boss fight (flag 156 = 0x76bb8c, FUN_0042cf00's step gate): standing deep inside the
     # volume does nothing; the tick the flag clears, the level trigger fires without leaving the box.
     "door_boss_gate": dict(

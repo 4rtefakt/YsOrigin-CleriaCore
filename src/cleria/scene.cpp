@@ -303,6 +303,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             t.trigger = o.trigger;
             t.script_stem = o.script;
             t.i0 = o.i0; t.i1 = o.i1; t.f0 = o.f0;
+            sob_battle_block(o, t);
             // '@' prefix = the shared script pool in MAP/S_COMMON, else beside the room.
             const bool shared = o.script[0] == '@';
             std::string stem = shared ? o.script.substr(1) : o.script;

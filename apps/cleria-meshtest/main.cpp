@@ -194,6 +194,28 @@ int main(int argc, char** argv) {
                         object_frame(assets, shadow, nullptr, 0, &fh);
         check(ok && fs.y == -2.0f && fu.y == 5.0f && fh.y == -2.0f && fu.x == step.position.x,
               "object_frame: step -2 at STOP, 5 at UP's end; the shadow -2");
+        // FUN_00501a30's battle block (#53): the torches take only class 1 (fire), the walls only class 2
+        // (thunder); both drop the min-1 chip; HP 1, DEF 0. An HP of 0 means 9999 / DEF 999.
+        auto block = [&](const char* rel, const char* name) {
+            SceneTrigger t;
+            for (const SobObject& o : Sob::parse(read_bytes_for_test(assets / rel)).objects)
+                if (o.name == name) sob_battle_block(o, t);
+            return t;
+        };
+        const SceneTrigger torch = block("MAP/S_30/S_3004/S_3004.SOB", "fire_01");
+        const SceneTrigger wall = block("MAP/S_20/S_2015/S_2015.SOB", "kabe_00");
+        std::printf("[mesh]   fire_01 HP %.0f DEF %.0f resist %.0f %.0f %.0f %.0f nofloor %d; kabe_00 resist %.0f %.0f %.0f %.0f\n",
+                    torch.hp, torch.def, torch.resist[0], torch.resist[1], torch.resist[2], torch.resist[3],
+                    int(torch.no_floor), wall.resist[0], wall.resist[1], wall.resist[2], wall.resist[3]);
+        check(torch.hp == 1.0f && torch.def == 0.0f && torch.resist[0] == 1.0f && torch.resist[1] == 0.0f &&
+              torch.resist[2] == 1.0f && torch.resist[3] == 1.0f && torch.no_floor,
+              "S_3004 fire_01: HP 1, DEF 0, only class 1 (fire) unresisted, no min-1 chip");
+        check(wall.resist[0] == 1.0f && wall.resist[1] == 1.0f && wall.resist[2] == 0.0f && wall.resist[3] == 1.0f &&
+              wall.no_floor, "S_2015 kabe_00: only class 2 (thunder) unresisted, no min-1 chip");
+        SobObject none;
+        SceneTrigger inv;
+        sob_battle_block(none, inv);
+        check(inv.hp == 9999.0f && inv.def == 999.0f, "an SOB HP of 0: 9999 / DEF 999 (FUN_00501a30 0x5024ec)");
     } else {
         std::printf("[mesh]   (no assets: S_1004 checks skipped)\n");
     }

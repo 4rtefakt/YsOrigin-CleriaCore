@@ -1047,6 +1047,10 @@ title_again:
     // The live hit-volume, copied from the script when GenerateCollision arms it.
     // Defaults are Yunica's combo #1 so a script that never arms behaves as before.
     AsoVm::Hitbox atk_hb;
+    // The swing's damage class, stamped when GenerateCollision arms it: FUN_004494e0 0x449518 writes
+    // FUN_0046d5e0() (the player's section +0x994 at that moment) into the record's +0x109, and the hit
+    // reads the record, not the section (ROUTE_F13_TOAL D3, issue #52).
+    int atk_cls = kDamageClassMelee;
     Vec3 atk_dir{0, 0, 1};               // the swing's facing (captured at swing start)
     Vec3 face_dir{0, 0, 1};              // world dir the player faces (from movement)
     WGPUTextureView depth = make_depth(g, cw, ch);
@@ -1641,6 +1645,7 @@ title_again:
     bool door_latched = false;
     struct DoorWalk { bool on = false; Vec3 tgt{}; bool run = false; } door_walk;   // +0x358 / +0x364
     bool door_running = false;          // the last player tick's run stage (+0x4ca), read by the trigger
+    std::function<void()> scene_entry_fader;   // FUN_00431840's fader reset (bound once the fader exists)
     bool scene_objects_reset = false;   // a scene change destroys every object: the busts too
     std::string door_label;             // 0x76a474: the last committed door's SEN label (0x80)
     bool player_vanished = false;       // the player's +0x60 & 0x80 cleared by 0x14d (a new actor per scene)
@@ -1667,6 +1672,17 @@ title_again:
         // Every scene entry, door or script (FUN_00431840; SCENEFLOW.md 6.2): a dead player is
         // revived, and the per-scene flags are reset before the room's scripts read them.
         if (player.hp < 1) { player.hp = player.max_hp; player.sp_cur = player.sp_max; }
+        // ... and the screen fader is reset to fade in from black (#51): FUN_00431260 calls FUN_00431840
+        // (0x43176f) on every scene load, and from the second load on (0x74ac3f, set once at 0x431805 and
+        // never cleared) that calls FUN_00439170 (0x43187c: the fader object 0x769f18 memset -- colour
+        // 0x769f30 black -- speed 0x769f28 = 0.05) and sets current 0x769f1c = 1.0, target 0x769f24 = 0,
+        // hold 0x769f2c = 0. Doors, warps, ChangeScene, a load and Retry all come through here, so a
+        // fader a script of the old room left black never survives the scene change.
+        if (scene_entry_fader) scene_entry_fader();
+        // FUN_00431260 drops the player (0x74c09c = 0) and FUN_00434020 spawns a new GoActor
+        // (FUN_004590b0 zeroes +0x120..+0x8f0), so the i-frames +0x734 do not cross a scene: a boss's
+        // 9999 (FUN_00461120(2)) used to last ~166 s into the next floor (ROUTE_F13_TOAL F-T2).
+        player_iframes = 0;
         scene_entry_flags(dest);
         clip_near = 1.0f; clip_far = 2000.0f;                    // FUN_00431840 (0x74c0fc / 0x74c0f8)
         scene_objects_reset = true;                             // busts / caption card (start_room_events)
@@ -1756,7 +1772,9 @@ title_again:
     // name: the child sphere (radius, offset from the mesh), its HP (the mesh's +0x98 copy) and
     // whether its death already ran the script. [H] HP 0: no shipped script sets a mesh HP, so
     // the first damaging hit kills the child.
-    struct HitMesh { float r = 1.0f; Vec3 off{}; float hp = 0.0f; bool ran = false; RehitBank bank; };
+    // hp: the GoMesh's own +0x98, from the SOB record (FUN_00501a30; SceneTrigger::hp), taken on the first hit.
+    // The 0x186 child (FUN_005735b0) copies +0x94..+0xcc: HP x10 (DAT_006bd928), DEF, resists, +0xce.
+    struct HitMesh { float r = 1.0f; Vec3 off{}; float hp = 1.0f; bool hp_set = false; bool ran = false; RehitBank bank; };
     std::unordered_map<std::string, HitMesh> hit_meshes;
     auto reload_room = [&](bool rerun_events = true) {
         auto it = g.sob_index.find(room.name);
@@ -2440,13 +2458,17 @@ title_again:
         bool chr_in_event_box(int entityId, const std::string& name) const override {
             if (entityId != 13 || !roomPtr || !playerPos) return false;
             const SceneBox* b = find_box(roomPtr->event_boxes, name);
-            return b && b->contains(*playerPos);
+            return b && b->contains(p_origin());
         }
+        // The engine tests the actor's position +0x50/+0x54/+0x58 (FUN_00570df0, FUN_00570c10/c80/cf0,
+        // FUN_00571ef0), and +0x54 is the ORIGIN height, floor + +0x324 (1.075 for the player), not the
+        // feet the view keeps (ROUTE_F13_TOAL.md F-T1: S_2080's EVT2_2080 box starts 0.05 above the floor).
+        Vec3 p_origin() const { return {playerPos->x, playerPos->y + origin_h, playerPos->z}; }
         // ops 0x139/0x13a/0x13b position source: like 0x13d, only the player (13) is
         // positioned in cutscene context; other ids -> no actor -> false.
         bool actor_pos(int entityId, float out[3]) const override {
             if (entityId != 13 || !playerPos) return false;
-            out[0] = playerPos->x; out[1] = playerPos->y; out[2] = playerPos->z;
+            out[0] = playerPos->x; out[1] = playerPos->y + origin_h; out[2] = playerPos->z;   // +0x54: the origin
             return true;
         }
         // op 0xc1 IsFix(): the ScriptManager's ref-counted Fix/world-freeze state IS the
@@ -2516,7 +2538,7 @@ title_again:
         void force_in_box(const std::string& box, float fx, float, float fz, int frames, bool gonly) override {
             if (!roomPtr || !playerPos || p_no_force() || (gonly && !(p_grounded && *p_grounded))) return;
             const SceneBox* b = find_box(roomPtr->event_boxes, box);
-            if (b && b->contains(*playerPos)) pforce = {fx, fz, frames};
+            if (b && b->contains(p_origin())) pforce = {fx, fz, frames};   // FUN_00571ef0: actor +0x54
         }
         void force_to_point(float x, float y, float z, float s, int frames, float rmin, float rmax, bool gonly) override {
             if (!playerPos || p_no_force() || (gonly && !(p_grounded && *p_grounded))) return;
@@ -2567,6 +2589,9 @@ title_again:
     csMgr.vm.rs_ext = game.rs;   // 0x81 Rand draws the one game generator 0x74622c (FUN_00439120), not a copy
     csMgr.loader = &csLoader;
     csHost.mgr = &csMgr;
+    scene_entry_fader = [&] {   // FUN_00439170 + 0x431881..0x4318a7 (transition() calls it on every entry)
+        csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+    };
     {   // mods (view_content.inl): the grant filter on the live VM and the game callbacks it needs
         content_install(csMgr.vm);
         g_content.add_sp = [&](int n) { player.sp = std::clamp(player.sp + n, 0, 999999); };
@@ -3435,6 +3460,7 @@ title_again:
     //   duel=cast             near=cast + atk, only while a duel is live (156 = 1, world not frozen)
     //   dflags                print the duel flags (130 131 133 156 174 230 232 311)
     //   fader                 print the fade machine (current -> target at rate) and a staged / latched door
+    //   blackout[=rrggbb]     hold the fader at full (as a script's Fader_Target(1) left behind), colour rgb
     //   oktap                 a real one-tick press of the Attack/OK key (view_access.inl)
     // A drive run is lockstep (one tick a frame); CLERIA_DRIVE_REALTIME=1 paces it by the wall clock.
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
@@ -3607,7 +3633,6 @@ title_again:
             if (i < room.sen.triggers.size()) {
                 const SenTrigger t = room.sen.triggers[i];   // a committed door: no fade-out, the entry fade-in
                 transition(t.dest_scene, &t);
-                csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
             }
         } else if (cmd == "atk") {                     // the attack button
             try_attack();
@@ -3705,7 +3730,8 @@ title_again:
             for (int i = 0; i < 0x200; ++i)
                 if (game.g_flags[i]) s += " " + std::to_string(i) + "=" + std::to_string(game.g_flags[i]);
             std::printf("  [flags]%s\n", s.c_str());
-        } else if (cmd == "nearest") {                // stand 2.0 from the nearest live enemy, facing it (audit aid)
+        } else if (cmd == "nearest" || cmd.rfind("nearest=", 0) == 0) {   // stand 2.0 (or =d) from the nearest live enemy, facing it (audit aid)
+            const float stand = cmd.size() > 8 ? float(std::atof(cmd.c_str() + 8)) : 2.0f;   // Hugo's shots: =4 [H]
             const Actor* best = nullptr;
             float bd = 1e30f;
             for (const Actor& a : world.actors()) {
@@ -3725,8 +3751,9 @@ title_again:
                 float dx = feet.x - best->pos.x, dz = feet.z - best->pos.z;
                 const float l = std::sqrt(dx * dx + dz * dz);
                 if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
-                const float x = best->pos.x + dx * 2.0f, z = best->pos.z + dz * 2.0f;
-                const float fl = floor_at(phys_mesh(room), x, z, best->pos.y + 3.0f);
+                const float x = best->pos.x + dx * stand, z = best->pos.z + dz * stand;
+                // nearest=d probes from just above the enemy's feet, so a shooter lands on its level, not a ledge above
+                const float fl = floor_at(phys_mesh(room), x, z, best->pos.y + (cmd.size() > 8 ? 1.0f : 3.0f));
                 feet = {x, fl > kNoFloor ? fl : feet.y, z};
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
@@ -3749,6 +3776,10 @@ title_again:
             shell.open = true;
             shell_drive_close = true;
             shell_shot_frames = 3;                       // ImGui lays the tab bar out a frame late
+        } else if (cmd.rfind("blackout", 0) == 0) {    // blackout[=rgb]: hold the fader at full (a script's
+            csHost.fade_cur = csHost.fade_tgt = 1.0f;  // Fader_Current/Target(1) left behind), Fader_Color rgb
+            csHost.fade_rgb = cmd.size() > 9 ? std::uint32_t(std::stoul(cmd.substr(9), nullptr, 16)) & 0xffffffu : 0u;
+            csHost.fade_rate = 1.0f;
         } else if (cmd.rfind("surfat=", 0) == 0) {     // surfat=<surface index>: where that surface is (audit aid)
             const int want = std::atoi(cmd.c_str() + 7);
             const RoomMesh& sm = phys_mesh(room);
@@ -3764,8 +3795,8 @@ title_again:
                         cur_surface, psand.surf_ray, psand.water_y, int(submerged), int(psand.buried),
                         int(pv.grounded), feet.y, oxy.o2);
         } else if (cmd == "fader") {                   // the fade machine 0x769f1c / 0x769f24 / 0x769f28
-            std::printf("  [drive] fader %.2f -> %.2f at %.3f%s%s\n", csHost.fade_cur, csHost.fade_tgt, csHost.fade_rate,
-                        door_pending ? " (door pending)" : "", door_latched ? " (latched)" : "");
+            std::printf("  [drive] fader %.2f -> %.2f at %.3f%s%s rgb %06x\n", csHost.fade_cur, csHost.fade_tgt, csHost.fade_rate,
+                        door_pending ? " (door pending)" : "", door_latched ? " (latched)" : "", unsigned(csHost.fade_rgb));
         } else if (cmd == "pos") {                     // print the player's feet and O2
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d sp %.0f shield %d/%d/%d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage,
@@ -4870,6 +4901,7 @@ title_again:
             std::printf("  [gameover] Retry: no continue snapshot, respawn\n");
             player.hp = player.max_hp;
             spawn_player();
+            scene_entry_fader();                         // Retry is a scene load: it fades in (#51)
             return;
         }
         apply_loaded(cont.s, /*force_scene*/true);
@@ -4956,18 +4988,17 @@ title_again:
             std::printf("  [scene] ChangeScene '%s' -> %s\n", req.c_str(), dest.empty() ? "(none)" : dest.c_str());
             if (!dest.empty()) {
                 transition(dest);                                // SCT default arrival, no label
-                // Every arrival fades in from black over 20 steps (SCENEFLOW.md 1.5).
-                csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
+                // (and fades in from black over 20 steps: transition's scene-entry fader reset)
             }
         }
         if (door_commit) {
             // A committed door (0x74c120 bit 1): FUN_00442dd0 tears the room down at this frame and
             // FUN_00431260 loads the destination with the staged descriptor -- the crossed volume's own
             // arrival and facing (copied to 0x76a3a0 by the commit). The scene entry FUN_00431840 ->
-            // FUN_00439170 then fades in from black: current 1.0, target 0, 0.05 a step (20 steps).
+            // FUN_00439170 then fades in from black: current 1.0, target 0, 0.05 a step (20 steps) --
+            // transition()'s scene-entry fader reset.
             const SenTrigger t = *door_commit;
             transition(t.dest_scene, &t);
-            csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
         }
         const Uint64 now = SDL_GetTicks();
         const float real_dt = float(now - last) / 1000.0f; last = now;
@@ -6643,7 +6674,9 @@ title_again:
             };
             // The mode-0 scan's breakables pass for one attacker volume `vol` (keyed on `tok`, re-hit
             // `rehit`); returns the number of @Break_* objects smashed.
-            auto smash_breakables = [&](const HitShape& vol, std::uint32_t tok, int rehit, bool one_shot) {
+            int mesh_struck = 0;                 // 0x186 child spheres struck (the particle pass reads it)
+            auto smash_breakables = [&](const HitShape& vol, std::uint32_t tok, int rehit, bool one_shot,
+                                        float power, int cls) {
                 const Vec3 c = vol.centre;
                 int broke = 0;
                 // BREAKABLES (SOB trigger class 1 with a script): the same swing volume also
@@ -6657,9 +6690,15 @@ title_again:
                     std::string lname = t.name;
                     for (char& ch : lname) ch = char(std::tolower((unsigned char)ch));
                     if (auto hm = hit_meshes.find(lname); hm != hit_meshes.end()) {
-                        // FUN_004fed50's GoMesh pass: the swing vs the 0x186 child sphere (at the
-                        // mesh + offset); the child's re-hit bank; HP -= dmg; at HP < 0 the mesh's
-                        // script runs (FUN_00434970) and the object STAYS (FLOOR3 B1).
+                        // FUN_004fed50's GoMesh pass [EXPORT 004fed50 l.297-340]: the swing vs the 0x186
+                        // child sphere (at the mesh + offset); FUN_004faf20(0, 0) on the child: its re-hit
+                        // bank (FUN_004faac0), then FUN_004fa550 with the attacker's class +0x109 against the
+                        // child's copied block (the SOB record's DEF, resist bits and no-floor byte) into
+                        // child +0x134 (0x4fb489); the mesh's +0x98 -= it (0x4ff6b1), and below 1.0 (0x4ff6c9) the
+                        // mesh's script runs (FUN_00434970); the object STAYS (FLOOR3 B1). The torches
+                        // (flags 0x6b0) take only class 1 / 5 (the fire skill), the walls and S_3103's pole
+                        // (0x670) only class 2 / 6 (thunder); 0x400 drops the min-1 chip, so a melee or
+                        // wind hit deals 0 (#53).
                         HitMesh& h = hm->second;
                         if (h.ran) continue;
                         const MeshObj* mo = meshes.find(lname);
@@ -6668,8 +6707,22 @@ title_again:
                         if (!overlap(vol, body)) continue;
                         if (h.bank.check_and_record(tok, rehit)) continue;
                         if (one_shot) atk_window = 0;
-                        h.hp -= std::max(1.0f, player_stats().atk);   // [H] any damaging hit
-                        if (h.hp >= 0.0f) continue;
+                        ++mesh_struck;                                 // a landed hit (FUN_004fed50's return)
+                        {
+                            AttackStats a;
+                            a.atk = player_stats().atk;
+                            a.bonus = power;
+                            EnemyDefense vd;                             // the child: the SOB battle block
+                            vd.def = t.def;
+                            for (int k = 0; k < 4; ++k) vd.resist[k] = t.resist[k];
+                            vd.no_floor = t.no_floor;
+                            if (!h.hp_set) { h.hp = t.hp; h.hp_set = true; }   // the mesh's +0x98
+                            PlayerDamageMods mods;
+                            mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;   // FUN_004faf20 uVar9
+                            h.hp -= float(enemy_incoming_damage(a, cls, vd, mods,
+                                [&](float pct) { return float(rng_pct(rng)) < pct; }));
+                        }
+                        if (!(h.hp < 1.0f)) continue;                    // +0x98 <= 1.0 && != 1.0
                         h.ran = true;
                         std::string stem = t.script_stem;
                         for (char& ch : stem) ch = char(std::tolower((unsigned char)ch));
@@ -6739,10 +6792,10 @@ title_again:
                     if (en.bank.check_and_record(player_hit_serial, atk_hb.rehit)) continue;   // FUN_004faac0
                     if (atk_hb.one_shot) atk_window = 0;                     // 0x4fd251
                     if (player_hit_enemy(en, vr, atk_hb.power, atk_hb.knock, atk_hb.rtype,
-                                         player_damage_class(avm.section()), std::atan2(atk_dir.z, atk_dir.x)))
+                                         atk_cls, std::atan2(atk_dir.z, atk_dir.x)))
                         ++killed;
                 }
-                broke += smash_breakables(vol, player_hit_serial, atk_hb.rehit, atk_hb.one_shot);
+                broke += smash_breakables(vol, player_hit_serial, atk_hb.rehit, atk_hb.one_shot, atk_hb.power, atk_cls);
                 // FUN_004fed50's GoMesh pass (VELAGUNDER.md §3.3): each boss part's hurt sphere,
                 // its own re-hit bank, the damage with the part's DEF / resist into part +0x134.
                 // [not modelled] the armour's skipped elemental bonus, Toal's refused sections.
@@ -6761,7 +6814,7 @@ title_again:
                         for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
                         PlayerDamageMods mods;
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        const int dmg = access::damage_dealt(enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                        const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
                             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
                         if (dmg > 0) boss->add_part_damage(pi, float(dmg));
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
@@ -6791,7 +6844,7 @@ title_again:
                         for (int k = 0; k < 4; ++k) vd.resist[k] = resist[k];
                         PlayerDamageMods mods;
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        return access::damage_dealt(enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                        return access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
                             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
                     };
                     for (int o = 0; o < boss02::kObjects && atk_window > 0; ++o) {
@@ -6856,7 +6909,7 @@ title_again:
                         for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
                         PlayerDamageMods mods;
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        const int dmg = access::damage_dealt(enemy_incoming_damage(a, player_damage_class(avm.section()), vd, mods,
+                        const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
                             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
                         if (dmg > 0) boss3->add_part_damage(pi, float(dmg));   // [not modelled] the element bonus on HP
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
@@ -6897,7 +6950,7 @@ title_again:
                                         std::sqrt((en.pos.x - feet.x) * (en.pos.x - feet.x) + (en.pos.z - feet.z) * (en.pos.z - feet.z)));
                         if (player_hit_enemy(en, vr, bonus, knock, /*rtype +0x108*/ 0, cls, lo.facing)) ++killed;
                     }
-                    for (const HitShape& h : sp) broke += smash_breakables(h, tok, rehit, false);
+                    for (const HitShape& h : sp) broke += smash_breakables(h, tok, rehit, false, bonus, cls);
                 }
                 loci.erase(std::remove_if(loci.begin(), loci.end(),
                                           [](const PlayerLocus& l) { return !l.sword.alive(); }),
@@ -7381,6 +7434,7 @@ title_again:
                 const HitShape pbody = body_shape({feet.x, feet.y + kOriginH, feet.z},
                                                   pc ? pc->hurt_radius : 0.45f, pc ? pc->hurt_half_h : 0.5f,
                                                   pc ? pc->hurt_shape : 1, pc ? pc->center_offset : -0.25f);
+                int fx_broke = 0;                        // @Break_* objects the player's particles smashed
                 fxsim.step([&](ef2sim::Particle& p) {
                     if (p.hit.side == 0) {
                         // The player's own effect particles on the monsters (FUN_004fbb40 through the
@@ -7429,6 +7483,7 @@ title_again:
                                                 p.fx ? p.fx->id : -1, pi, bp.def, dmg, boss->hp(), boss->stun_gauge());
                                 landed = true;
                             }
+                        #include "view_fx_mode0.inl"     // the rest of the mode-0 scan for a particle (Hugo's shots)
                         return landed;
                     }
                     if (p.hit.side != 1 || player_iframes > 0 || p_untouchable || player.hp < 1) return false;
@@ -7444,6 +7499,7 @@ title_again:
                                     p.hit.knock, p.hit.rtype, p.hit.radius, hp0, player.hp);
                     return true;
                 });
+                if (fx_broke) reload_room(/*rerun_events*/false);   // drop a mesh a particle shattered
                 fxsim.sweep();
                 if (ai_debug && (tick_count % 60) == 0 && !fxsim.effects().empty())
                 {
@@ -7582,6 +7638,7 @@ title_again:
             // GenerateCollision fired: adopt this section's own box for its own lifetime.
             if (avm.armed_hitbox()) {
                 atk_hb = avm.hitbox();
+                atk_cls = player_damage_class(avm.section());   // FUN_004494e0: cls at arm time
                 atk_window = atk_hb.life > 0 ? atk_hb.life : 1;
                 atk_dir = face_dir;
                 player_hit_serial = next_hit_serial(world.hit_serial_counter_);

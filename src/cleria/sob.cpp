@@ -48,6 +48,8 @@ Sob Sob::parse(std::span<const std::uint8_t> b) {
         o.rflags = i32(r + 0x14C);
         o.trigger = i32(r + 0x150);
         o.enabled = i32(r + 0x154);
+        o.atk = i32(r + 0x158);
+        o.def = i32(r + 0x15C);
         o.i0 = i32(r + 0x160);
         o.i1 = i32(r + 0x164);
         std::memcpy(&o.f0, b.data() + r + 0x1C8, 4);
