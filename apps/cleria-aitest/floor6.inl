@@ -393,6 +393,174 @@ static void floor6_tests() {
                   "M470 hit: the was-hit bit is consumed, EF2 255 at the midpoint +-0.5");
         }
     }
+    // ---- The Piache pair: M450 Maka-Piache (the ring, the summon) and M420 Sinn-Piache (the orb batter)
+    //      (build/ai_spec/M450.md §8, M420.md §8 tests) ----
+    {
+        const EnemyBrain m450 = enemy_brain_for(38), m420 = enemy_brain_for(35);
+        check(m450 != nullptr && m420 != nullptr && enemy_handler_far_freeze(38) && enemy_handler_far_freeze(35),
+              "Maka-Piache (AI 38) and Sinn-Piache (AI 35) registered, both in the 25-u far freeze");
+        EnemyAiParams mp = params(1.5f, 0.0425f, 1.0f, 2.0f, 0.0f);   // EI[35]
+        EnemyAiParams sp = params(1.5f, 0.0425f, 1.0f, 8.0f, 0.0f);   // EI[32]
+        struct Orb { int handle, kind, owner; Vec3 pos, dir; float speed, f168, f16c, f170; };
+        struct W : floor4::Pool {
+            Actor P; std::vector<Orb> orbs; bool wall = false;
+            Actor* player() override { return &P; }
+            Ray ray(const Vec3&, const Vec3& dl) override { Ray r; r.hit = wall || dl.y < 0.0f; return r; }   // a floor below, open around
+            void for_each_bullet(const std::function<void(const BulletRef&)>& f) override {
+                for (Orb& o : orbs) {
+                    BulletRef r; r.handle = o.handle; r.kind = o.kind; r.owner = &o.owner; r.pos = o.pos; r.dir = &o.dir;
+                    r.speed = &o.speed; r.f168 = &o.f168; r.f16c = &o.f16c; r.f170 = &o.f170;
+                    f(r);
+                }
+            }
+        };
+        auto setup = [&](Rig& r, W& w, Actor& X, EnemyBrain br, const EnemyAiParams& pp, int cast, float pdist) {
+            X.instance_id = 300 + cast; X.cast_id = cast; X.ai_index = cast == 0x31 ? 38 : 35; X.level = 43;
+            w.P.cast_id = 13; w.P.pos = {pdist, 0.0f, 0.0f}; w.P.height = 1.025f; w.P.hp = w.P.max_hp = 100;
+            r.env.actor = &X; r.env.world = &w; r.env.self = {0, 1.025f, 0}; r.env.target = {pdist, 1.025f, 0.0f};
+            br(X.ai, pp, r.env);                                     // INIT
+            X.ai.phase() = 2; X.ai.heading = 0.0f; X.ai.dist() = pdist; X.ai.f(0x734) = pdist; X.ai.f(0x73c) = 0.0f;
+        };
+        {   // the visibility cycle (Normal): 240 shown, 210 hidden, 45 shown; alpha +-0.01; the mask shows it always
+            Rig r; W w; Actor M; r.env.actor = &M; r.env.world = &w;
+            int shown0 = 0, hidden = 0, shown1 = 0; float amin = 1.0f, aend = 0.0f; bool phases = true;
+            for (int t = 1; t <= 495; ++t) {
+                m450(M.ai, mp, r.env);
+                if (t == 1) M.ai.phase() = 3;                        // INIT ran; from here only the tail
+                const bool s = M.ai.i(0x79c) != 0;
+                if (t <= 240) { shown0 += s; phases = phases && s; }
+                else if (t <= 450) { hidden += !s; amin = std::min(amin, M.ai.alpha); }
+                else { shown1 += s; aend = M.ai.alpha; }
+            }
+            Rig r2; W w2; Actor M2; r2.env.actor = &M2; r2.env.world = &w2; r2.env.mask_of_eyes = true;
+            bool masked = true;
+            for (int t = 1; t <= 495; ++t) { m450(M2.ai, mp, r2.env); if (t == 1) M2.ai.phase() = 3; masked = masked && M2.ai.i(0x79c) == 1 && M2.ai.alpha == 1.0f; }
+            Rig r3; W w3; Actor M3; r3.env.actor = &M3; r3.env.world = &w3; M3.ai.i(0x854) = 77;   // summoned
+            m450(M3.ai, mp, r3.env);
+            std::printf("[aitest]   Piache visibility: shown %d, hidden %d (alpha min %.2f), shown %d (alpha %.2f)\n", shown0, hidden, amin, shown1, aend);
+            check(phases && shown0 == 240 && hidden == 210 && shown1 == 45 && amin == 0.0f && std::fabs(aend - 0.45f) < 1e-4f && masked &&
+                  M3.ai.phase() == 2 && std::fabs(M3.ai.alpha - 0.01f) < 1e-6f,
+                  "Piache visibility: 240 shown after INIT, then 210 + 30d hidden / 15 (3 - d) shown, alpha +-0.01; always shown "
+                  "under the Mask of Eyes; a summoned one starts engaged at alpha 0");
+        }
+        {   // M450 STAND: the ring inside 11 u, else the summon unless crowded; the orphaned request at +0x714 = 0
+            int ring = 0, sum = 0, sum_crowd = 0, orphan = 0; bool ok = true;
+            for (int s = 0; s < 400; ++s) {
+                for (int mode = 0; mode < 3; ++mode) {
+                    Rig r; W w; Actor M; for (int i = 0; i < s; ++i) r.rng();
+                    setup(r, w, M, m450, mp, 0x31, 5.0f); r.env.section = 2;
+                    if (mode == 1) for (int k = 0; k < 2; ++k) { w.actors.emplace_back(); Actor& o = w.actors.back(); o.cast_id = 0x2e; o.hp = o.max_hp = 50; o.pos = {3.0f + k, 0, 0}; }
+                    M.ai.dur() = mode == 2 ? 0 : 30;
+                    const AiOut o = m450(M.ai, mp, r.env);
+                    if (mode == 0) {
+                        if (o.section == 8) { ++ring; ok = ok && M.ai.i(0x7a4) == 2 && !o.section_force; }
+                        else if (o.section == 0x139) { ++sum; ok = ok && M.ai.i(0x7a4) == 3; }
+                        else ok = ok && M.ai.i(0x7a4) == 0 && M.ai.action() == 2;
+                    } else if (mode == 1) sum_crowd += o.section == 0x139;
+                    else if (o.section >= 0) { ++orphan; ok = ok && M.ai.i(0x7a4) == 1 && M.ai.steer() == 5 && M.ai.dur() >= 15 && M.ai.dur() <= 59; }
+                }
+            }
+            std::printf("[aitest]   M450 STAND of 400 (+0x714 = 30, 5 u): ring x%d, summon x%d (x%d with two Sinn-Piaches near); orphaned at 0: x%d\n",
+                        ring, sum, sum_crowd, orphan);
+            Rig r; W w; Actor M; setup(r, w, M, m450, mp, 0x31, 5.0f);
+            M.ai.i(0x7a4) = 2; r.env.section = 2; r.env.difficulty = 1;
+            m450(M.ai, mp, r.env);
+            check(ok && ring > 120 && ring < 190 && sum > 20 && sum < 65 && sum_crowd == 0 && orphan > 250 &&
+                  M.ai.cool() == 75 && M.ai.i(0x7a4) == 1 && M.ai.steer() == 5,
+                  "M450: standing off cooldown every 10th tick under a 15..59 roll — inside 11 u 60 % request(8), else 40 % "
+                  "request(0x139) unless 2 Sinn-Piaches stand within 15 u; a request at +0x714 = 0 is orphaned by the walk; "
+                  "the ring over -> cooldown 90 - 15d and a walk");
+        }
+        {   // the summon at Marker(269): the other cast 1..5 u away, alpha 0, parent set, section 2 requested
+            Rig r; W w; Actor M; setup(r, w, M, m450, mp, 0x31, 5.0f);
+            M.ai.i(0x7a4) = 3; r.env.section = 0x139; r.env.aso_marker = 269;
+            const AiOut o = m450(M.ai, mp, r.env);
+            const bool one = w.actors.size() == 1 && o.effects.size() == 1 && o.effects[0].id == 269 && o.set_marker == 0;
+            bool child = false;
+            if (one) {
+                const Actor& c = w.actors.back();
+                const float rr = std::sqrt(o.effects[0].pos.x * o.effects[0].pos.x + o.effects[0].pos.z * o.effects[0].pos.z);
+                child = c.cast_id == 0x2e && c.ai.alpha == 0.0f && c.ai.i(0x854) == M.instance_id && c.ai.hook_section == 2 &&
+                        rr >= 1.0f && rr < 5.0f && std::fabs(c.pos.x - o.effects[0].pos.x) < 1e-6f &&
+                        std::fabs(c.pos.y + c.height - 1.025f) < 1e-6f && c.ai.phase() == 0;
+            }
+            Rig r2; W w2; Actor S2; setup(r2, w2, S2, m420, sp, 0x2e, 5.0f);
+            S2.ai.i(0x7a4) = 3; r2.env.section = 0x139; r2.env.aso_marker = 269;
+            m420(S2.ai, sp, r2.env);
+            Rig r3; W w3; Actor M3; setup(r3, w3, M3, m450, mp, 0x31, 5.0f); w3.wall = true;
+            M3.ai.i(0x7a4) = 3; r3.env.section = 0x139; r3.env.aso_marker = 269;
+            const AiOut o3 = m450(M3.ai, mp, r3.env);
+            check(one && child && w2.actors.size() == 1 && w2.actors.back().cast_id == 0x31 && w3.actors.empty() && o3.set_marker != 0,
+                  "Piache summon at Marker(269): each spawns the OTHER cast 1..5 u away (alpha 0, +0x854 = the parent, section 2), "
+                  "effect 269 there; ten blocked probes keep the marker");
+        }
+        {   // M420: the claim, its exclusions, the run's arrival, the bat
+            auto orb = [](float x, float z, const Vec3& dir) { return Orb{7, 1, 555, {x, 1.025f, z}, dir, 0.05f, 1000.0f, 1000.0f, 1000.0f}; };
+            Rig r; W w; Actor S; setup(r, w, S, m420, sp, 0x2e, 9.0f); r.env.section = 2;
+            w.orbs.push_back(orb(0.0f, 6.0f, {0, 0, 1}));            // 6 u away, moving perpendicular to the player
+            S.ai.dur() = 21; m420(S.ai, sp, r.env);
+            const bool no_scan = S.ai.i(0x7bc) == 0;                 // +0x714 % 10 != 0
+            S.ai.dur() = 20; S.ai.cool() = 5; m420(S.ai, sp, r.env);
+            // waypoint = pos + 2 dir + dir max(L / 3 - 1, 0): (0, 1.025, 8), L = 8 -> k = 1.6667 -> z 9.6667
+            const bool claim = S.ai.i(0x7a4) == 2 && S.ai.i(0x7bc) == 7 && w.orbs[0].owner == S.instance_id && w.orbs[0].f168 == 0.0f &&
+                               w.orbs[0].f16c == 0.0f && w.orbs[0].f170 == 0.0f && std::fabs(S.ai.f(0x89c) - (8.0f + (8.0f / 3.0f - 1.0f))) < 1e-4f;
+            const AiOut run = m420(S.ai, sp, r.env);
+            const bool running = S.ai.action() == 0x800 && S.ai.steer() == 4 && run.section < 0 && S.ai.i(0x79c) == 1;
+            int excluded = 0;
+            for (int c = 0; c < 5; ++c) {
+                Rig rx; W wx; Actor Sx; setup(rx, wx, Sx, m420, sp, 0x2e, 9.0f); rx.env.section = 2;
+                Orb o = orb(0.0f, 6.0f, {0, 0, 1});
+                if (c == 0) o.dir = normalize(Vec3{9.0f, 0, -6.0f});         // heading at the player
+                if (c == 1) { o.pos = {8.0f, 1.025f, 1.0f}; }        // within 2 of the player
+                if (c == 2) o.pos.y = 2.1f;                          // more than 1 above
+                if (c == 3) { wx.actors.emplace_back(); Actor& ot = wx.actors.back(); ot.cast_id = 0x2e; ot.hp = ot.max_hp = 50; ot.ai.i(0x7bc) = 7; }
+                if (c == 4) o.pos.z = 12.5f;                         // beyond 12
+                wx.orbs.push_back(o);
+                Sx.ai.dur() = 20; Sx.ai.cool() = 5; m420(Sx.ai, sp, rx.env);
+                excluded += Sx.ai.i(0x7bc) == 0 && wx.orbs[0].f168 == 1000.0f;
+            }
+            // arrival: within 0.22 of last tick's waypoint -> the stance
+            Rig ra; W wa; Actor Sa; setup(ra, wa, Sa, m420, sp, 0x2e, 9.0f); ra.env.section = 1;
+            wa.orbs.push_back(orb(0.3f, -2.0f, {0, 0, 1})); wa.orbs[0].owner = Sa.instance_id;
+            Sa.ai.i(0x7a4) = 2; Sa.ai.i(0x7bc) = 7; Sa.ai.set_v(0x894, {0.1f, 1.025f, 0.1f});
+            const AiOut arr = m420(Sa.ai, sp, ra.env);
+            const bool arrived = arr.section == 7 && !arr.section_force && Sa.ai.i(0x7a4) == 5 && Sa.ai.action() == 1 && Sa.ai.steer() == 1;
+            // the bat: the orb 0.2 away in section 7
+            ra.env.section = 7; wa.orbs[0].pos = {0.0f, 1.025f, 0.2f};
+            const AiOut bat = m420(Sa.ai, sp, ra.env);
+            const bool hit = bat.section == 0x14 && bat.effects.size() == 1 && bat.effects[0].id == 0x41 &&
+                             std::fabs(bat.effects[0].pos.z - 0.1f) < 1e-6f && std::fabs(wa.orbs[0].speed - 0.35f) < 1e-6f &&
+                             std::fabs(wa.orbs[0].dir.x - 9.0f / std::sqrt(81.04f)) < 1e-5f && wa.orbs[0].dir.y == 0.0f &&
+                             Sa.mover.k2.z > 0.0f && std::fabs(Sa.mover.k2.z - 0.01f) < 1e-6f;
+            ra.env.section = 0x14; m420(Sa.ai, sp, ra.env);
+            const bool waits = Sa.ai.i(0x7a4) == 5;
+            ra.env.section = 2; m420(Sa.ai, sp, ra.env);
+            check(no_scan && claim && running && excluded == 5,
+                  "M420 orb scan (every 10th tick): the nearest tagged kind-1 orb within 12 u is claimed (owner, tags 0, the lead "
+                  "point) -> the run; not one heading at the player, within 2 u of it, 1 u off its height, held by another, or beyond 12 u");
+            if (!(arrived && hit && waits)) std::printf("[aitest]   M420 bat: arrived %d hit %d waits %d\n", arrived, hit, waits);
+            check(arrived && hit && waits && std::uint32_t(Sa.ai.i(0x7a4)) <= 1u && Sa.ai.i(0x7bc) == 0,   // FLAG's 1-in-5 roll: walk or stand
+                  "M420 bat: within 0.22 of the lead point request(7); the orb within 0.32 -> flat at the player at 0.35 + 0.3d, "
+                  "effect 65 at the midpoint, request(0x14); the swing over -> back to the loop");
+        }
+        {   // M420 DECIDE: 75 % the summon alone; with a Maka-Piache within 15 u it follows it instead
+            int sum = 0, follow = 0, sum_near = 0;
+            for (int s = 0; s < 400; ++s) {
+                for (int mode = 0; mode < 2; ++mode) {
+                    Rig r; W w; Actor S; for (int i = 0; i < s; ++i) r.rng();
+                    setup(r, w, S, m420, sp, 0x2e, 9.0f); r.env.section = 2;
+                    if (mode == 1) { w.actors.emplace_back(); Actor& o = w.actors.back(); o.instance_id = 412; o.cast_id = 0x31; o.hp = o.max_hp = 50; o.pos = {0, 0, 10.0f}; }
+                    S.ai.dur() = 30;
+                    const AiOut o = m420(S.ai, sp, r.env);
+                    if (mode == 0) sum += o.section == 0x139 && S.ai.i(0x7a4) == 3;
+                    else { follow += S.ai.i(0x888) == 412; sum_near += o.section == 0x139; }
+                }
+            }
+            std::printf("[aitest]   M420 DECIDE of 400 (+0x714 = 30): summon x%d alone; with a Maka-Piache at 10 u follow x%d, summon x%d\n", sum, follow, sum_near);
+            check(sum > 155 && sum < 235 && follow == sum && sum_near == 0,
+                  "M420: standing, 75 % under the 15..59 roll request(0x139); a Maka-Piache within 15 u -> +0x888 = it, no summon");
+        }
+    }
     // ---- M720 Heketie: the ally scan, the run and cast, the heal / disguised shot, the flee, the fan (build/ai_spec/M720.md §8 test) ----
     {
         const EnemyBrain m720 = enemy_brain_for(65);

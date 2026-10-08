@@ -146,6 +146,14 @@ struct AiWorld {
     // effects of EFTLIST id `id` attached to `self` (e+0x1a4 == self+0x20); every one past the first `keep` has its
     // root particle (FUN_00564a20) ended, p+0x1c4 = 0.
     virtual void cull_attached_fx(Actor& /*self*/, int /*id*/, int /*keep*/) {}
+    // The GoXx pool's live bullets in pool order (DAT_00730248; BULLETS.md §1.1), for M420's orb hunt: `handle` is
+    // a stable id (the engine keeps the pointer), `owner` an actor instance id (+0x120), then +0x124, +0x12c.., 
+    // +0x138.., +0x144 and the per-kind floats +0x168 / +0x16c / +0x170. The pointers are writable.
+    struct BulletRef {
+        int handle = 0, kind = 0; int* owner = nullptr; Vec3 pos{}; Vec3* dir = nullptr; float* speed = nullptr;
+        float* f168 = nullptr; float* f16c = nullptr; float* f170 = nullptr;
+    };
+    virtual void for_each_bullet(const std::function<void(const BulletRef&)>& /*f*/) {}
     // DAT_0076a1f8 / DAT_0076a1fc: the forced camera region and its blend rate (M360's INIT / death).
     virtual void force_camera(int /*region*/, float /*rate*/) {}
     // FUN_004202e0(ecx = a, edx = cast's ENEMYINFO record, level): +0x94 max HP, +0x98 = +0x94, +0xa4 STR,
@@ -200,6 +208,7 @@ struct AiEnv {
     std::uint32_t events = 0;    // +0x3bc this tick: 0x2000/0x4000 = the stun-rolling hits (REACT.md §1)
     bool stun_immune = false;    // +0x12c & 0x80000
     bool bless_stun = false;     // g_flags[217] & 0x80: the "Increase stun effect" blessing
+    bool mask_of_eyes = false;   // DAT_0076bbac = g_flags[164]: the Mask of Eyes is worn (the Piaches' visibility)
     Vec3 cam_back{};             // [H] the camera region's eye - look-at (C+0x38.. - C+0x44.., M470's held-player nudge)
     bool boss_fight = false;     // DAT_0076bb8c = g_flags[156] == 1 (M540's handler picks its boss brain)
     // This actor's ASO section priority ("type") by id, or -1 if it has no such section —

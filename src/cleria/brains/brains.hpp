@@ -76,6 +76,8 @@ AiOut m780(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004aa220 Zelk
 AiOut m570(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f3730 Zarue (hover summoner; revives)
 AiOut m410(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f4bb0 Zarue's hand
 AiOut m750(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004bae90 Liliborad (the hand-flown orb)
+AiOut m420(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004be3f0 Sinn-Piache (piache.cpp: fades, summons M450, bats its orbs)
+AiOut m450(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c0140 Maka-Piache (piache.cpp: fades, the orb ring, summons M420)
 AiOut m470(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0048c300 Levenueba (the glob fan, the grab)
 AiOut m690(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004c5d20 Glaregrave (combo + lightning chain, the guard; far freeze)
 AiOut m720(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004bd150 Heketie (heals allies, the disguised shot; far freeze)

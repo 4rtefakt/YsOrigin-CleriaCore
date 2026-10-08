@@ -6169,6 +6169,15 @@ title_again:
                 aiw.hide_gauge_fn = [&] { hud.hide_boss_gauge(); };
                 // The current scene's directory, e.g. "s_30\s_3080\", compared case-blind.
                 aiw.effects_fn = ai_effects;                   // the GoEffect pool scans (view_duel.inl)
+                aiw.bullets_fn = [&](const std::function<void(const AiWorld::BulletRef&)>& f) {   // M420's orb hunt
+                    for (auto& b : bullets.list()) {
+                        if (b->gone || b->destroyed) continue;
+                        AiWorld::BulletRef r;
+                        r.handle = b->serial; r.kind = b->s.kind; r.owner = &b->s.owner; r.pos = b->s.pos; r.dir = &b->s.dir;
+                        r.speed = &b->s.speed; r.f168 = &b->s.f168; r.f16c = &b->s.f16c; r.f170 = &b->s.f170;
+                        f(r);
+                    }
+                };
                 aiw.cull_fx_fn = [&](Actor& a, int id, int keep) {   // M710: e+0x1a4 == self+0x20 -> the actor matrix
                     const ef2sim::M4* parent = &actor_mats[a.instance_id];
                     int n = 0;
@@ -6204,6 +6213,8 @@ title_again:
                 player_hold = false;                           // re-asserted by a holding Levenueba's brain tick
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
+                    // M450's handler, every path (FUN_004c0ee0 0x4c1231): the Mask of Eyes tint +0x148 / +0x278.
+                    if (en && en->ai_index == 38) en->tint = mask_of_eyes_on(inv) ? 0xff999999u : 0xffffffffu;
                     // The M680 / M740 handlers' far freeze, before their HP test: 25 u or more from the player's
                     // origin (squared ((dx2 + dy2) + dz2) not < 625, NaN included) -> only the ASO step.
                     // [approx] the world's integrator still runs on the actor (retail skips FUN_0045e460 too).
@@ -6278,6 +6289,7 @@ title_again:
                     env.target_surface = cur_surface;                                  // P+0x4b9
                     env.chimes = (inv.equip_flags & 0x8000u) != 0;                     // DAT_0076a624
                     env.target_moving = moving;                                        // P+0x514
+                    env.mask_of_eyes = mask_of_eyes_on(inv);                           // DAT_0076bbac
                     const Aso* escr = enemy_script(e.stem);
                     env.section_type = [escr](int id) {
                         const Aso::Section* s = escr ? escr->find(id) : nullptr;
@@ -6594,6 +6606,9 @@ title_again:
                             if (er.actor == &a && er.avm.ok()) { b.section = er.avm.section(); break; }
                         b.token = 0x02000000u | std::uint32_t(a.instance_id);   // [H] +0x80 = actor+0x14
                         if (a.cast_id == 0xb8 && a.ai.phase() != 0) b.mask_clear = 8;   // M980 INIT 0x4d45f0: +0x64 &= ~8
+                        // The Piache handlers (M420 0x4c00c0, M450 0x4c11d0): +0x64 bit 0 follows alpha > 0.35 — a faded
+                        // one neither pushes nor is pushed by the player. [approx] the dead path keeps the last value there.
+                        if ((a.cast_id == 0x2e || a.cast_id == 0x31) && !(a.ai.alpha > 0.35f)) b.mask_clear |= 1;
                         b.bank = &a.bank;
                         b.push = bodypush::Push::of(a.mover.k2);
                     }

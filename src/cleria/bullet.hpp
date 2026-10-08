@@ -61,6 +61,7 @@ struct Bullet {
     Vec3 owner_pos{};             // the owner's last known origin (kinds 0xb / 0xe home on it)
     bool gone = false;            // +0x11 & 2: killed by its handler, the effect fades on
     bool destroyed = false;       // FUN_00594190: the record can go
+    int serial = 0;               // ours: a stable handle (the engine's users keep the pointer; M420's +0x7bc)
 };
 
 // GoXx type 0x16 (FUN_0058f9a0 init, FUN_0058fa00 update; BULLETS.md §3.14): the probe XSO op
@@ -162,6 +163,7 @@ class Bullets {
     ef2sim::System* fx_;
     Ef2Of ef2_of_;
     std::vector<std::unique_ptr<Bullet>> list_;
+    int serial_ = 0;
     std::vector<std::unique_ptr<WaterProbe>> probes_;
     std::vector<std::unique_ptr<Bomb>> bombs_;
     std::function<std::uint32_t()> rng_;

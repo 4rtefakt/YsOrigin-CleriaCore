@@ -272,6 +272,8 @@ struct FnAiWorld : AiWorld {
     void sound_at(int id, const Vec3& p) override { if (sound_fn) sound_fn(id, p); }
     std::function<void(Actor&, int, int)> restat_fn;    // FUN_004202e0 (M360's INIT)
     void restat(Actor& a, int c, int lv) override { if (restat_fn) restat_fn(a, c, lv); }
+    std::function<void(const std::function<void(const BulletRef&)>&)> bullets_fn;   // the GoXx bullets (M420)
+    void for_each_bullet(const std::function<void(const BulletRef&)>& f) override { if (bullets_fn) bullets_fn(f); }
     void for_each(const std::function<void(Actor&)>& f) override { each(f); }
     Actor* find(int id) override { return id ? find_fn(id) : nullptr; }
     Actor* spawn_child(Actor& p, int c, const Vec3& d, int lv, bool k) override { return spawn_fn(p, c, d, lv, k); }

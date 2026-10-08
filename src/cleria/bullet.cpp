@@ -245,6 +245,7 @@ Bullet* Bullets::spawn(const Spawn& in) {
     b->fx->attach_mode = 1;
     b->mat = ef2sim::mul(look_rotation(s.dir), ef2sim::translation(s.pos.x, s.pos.y, s.pos.z));
     b->owner_pos = s.pos;
+    b->serial = ++serial_;
     list_.push_back(std::move(b));
     return list_.back().get();
 }
