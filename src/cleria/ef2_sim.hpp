@@ -68,6 +68,10 @@ struct Particle {
     int em = 0;                   // emitter index
     Particle* parent = nullptr;
     bool dead = false, dying = false;
+    // Its last step's update returned 1, which is what enqueues the draw (FUN_005644c0: `test al, al`
+    // after FUN_0044ea30, then FUN_0044ef00) [BYTES 0x56450a..0x564565]. False until its first motion
+    // step: a child fired inside the particle loop is first stepped, and first drawn, a step later.
+    bool drawn = false;
     bool unloop = false;          // FUN_0047a880 cleared its emitter's loop flag (B2[0] & 0x800) [this instance only]
     // sub (= the B1 copy), the fields the step uses
     std::uint8_t attach = 0, frame_counter = 0, frame = 0;

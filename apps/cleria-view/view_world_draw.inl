@@ -900,7 +900,7 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
     std::vector<Bucket> opaque, blended;
     for (const auto& pp : sim.particles()) {
         const ef2sim::Particle& p = *pp;
-        if (p.dead || p.delay != 0 || p.remaining == 0) continue;
+        if (p.dead || p.delay != 0 || p.remaining == 0 || !p.drawn) continue;
         const Ef2Emitter& E = p.fx->ef->emitters()[std::size_t(p.em)];
         std::uint32_t flags = 0;
         std::memcpy(&flags, E.b2.data(), 4);
@@ -1008,7 +1008,10 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
     std::map<std::pair<std::uint32_t, bool>, Batch> batches;
     for (const auto& pp : sim.particles()) {
         const ef2sim::Particle& p = *pp;
-        if (p.dead || p.delay != 0 || p.remaining == 0) continue;
+        // Not stepped yet (a child fired inside this step's particle loop): the engine has not enqueued it.
+        // It drew here once with its spawn state, a unit quad of the B1 colour at the effect origin: the
+        // white disc flashing at a goddess statue's base, SAVE_MEGAMIZOU01's em 4 every 15 ticks (issue #69).
+        if (p.dead || p.delay != 0 || p.remaining == 0 || !p.drawn) continue;
         const Ef2Emitter& E = p.fx->ef->emitters()[std::size_t(p.em)];
         std::uint16_t flags = 0;
         std::memcpy(&flags, E.b2.data(), 2);

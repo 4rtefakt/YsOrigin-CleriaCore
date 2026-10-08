@@ -525,7 +525,7 @@ void System::step(const std::function<bool(Particle&)>& on_hit) {
         Particle& p = *parts_[i];
         if (p.dead) continue;
         p.prev_world = p.world_pos();
-        update_particle(p, true);
+        p.drawn = update_particle(p, true);
         if (p.remaining == 0) { p.dead = true; continue; }
         if (p.delay != 0) continue;
         if (p.collide) collide_tick(p);
