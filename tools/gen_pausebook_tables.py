@@ -2,10 +2,11 @@
 # tables, the manual page paths, the EN boss-description overrides, and the map overlay's
 # record table and cloud mesh (build/menu_re/PAUSEBOOK_DRAW_TOPIC_MAP.md §2.2, §4.2, §5.1, §6).
 # usage: python tools/gen_pausebook_tables.py
+import os
 import struct
 import pefile
 
-EXE = r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe"
+EXE = os.environ.get("YSO_EXE", r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe")
 OUT = "src/cleria/pausebook_tables.inc"
 pe = pefile.PE(EXE, fast_load=True)
 base = pe.OPTIONAL_HEADER.ImageBase

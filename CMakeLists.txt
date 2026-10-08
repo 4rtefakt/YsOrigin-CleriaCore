@@ -4,6 +4,9 @@ project(CleriaCore LANGUAGES C CXX)  # C is only for the vendored stb_vorbis dec
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(NOT WIN32 AND NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)   # single-config generators: optimised
+endif()
 
 if(MSVC)
   add_compile_options(/W4 /permissive- /utf-8 /EHsc)
@@ -276,6 +279,7 @@ target_link_libraries(cleria-animtest PRIVATE cleria)
 add_executable(cleria-audiotest apps/cleria-audiotest/main.cpp)
 
 # ---- third-party prebuilt: wgpu-native + SDL3 -------------------------------
+if(WIN32)
 add_library(wgpu_native SHARED IMPORTED)
 set_target_properties(wgpu_native PROPERTIES
   IMPORTED_LOCATION "${TP}/wgpu/lib/wgpu_native.dll"
@@ -287,6 +291,46 @@ set_target_properties(sdl3 PROPERTIES
   IMPORTED_LOCATION "${TP}/sdl3/lib/x64/SDL3.dll"
   IMPORTED_IMPLIB   "${TP}/sdl3/lib/x64/SDL3.lib"
   INTERFACE_INCLUDE_DIRECTORIES "${TP}/sdl3/include")
+else()
+  # Linux / macOS (build/PORTING.md, issue #46). SDL3 through its CMake package: an install prefix in
+  # SDL3_DIR / CMAKE_PREFIX_PATH, else third_party/sdl3 (tools/fetch_deps.py builds 3.4.12 into it).
+  find_package(SDL3 3.4 CONFIG REQUIRED HINTS "${TP}/sdl3")
+  add_library(sdl3 INTERFACE)
+  target_link_libraries(sdl3 INTERFACE SDL3::SDL3)
+  # wgpu-native: a release zip unpacked as include/ + lib/ (the Windows layout), default third_party/wgpu.
+  set(WGPU_NATIVE_DIR "${TP}/wgpu" CACHE PATH "wgpu-native release folder (include/, lib/)")
+  find_library(WGPU_NATIVE_LIB NAMES wgpu_native PATHS "${WGPU_NATIVE_DIR}/lib" NO_DEFAULT_PATH REQUIRED)
+  if(APPLE)
+    # The release dylib may carry an absolute install name: use a copy whose id is @rpath-relative, so
+    # cleria-view finds the one copied next to it (the post-build step below).
+    execute_process(COMMAND otool -D "${WGPU_NATIVE_LIB}" OUTPUT_VARIABLE _wgpu_id OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT _wgpu_id MATCHES "@rpath/")
+      set(_wgpu_copy "${CMAKE_BINARY_DIR}/wgpu-native/libwgpu_native.dylib")
+      file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/wgpu-native")
+      file(COPY_FILE "${WGPU_NATIVE_LIB}" "${_wgpu_copy}")
+      execute_process(COMMAND install_name_tool -id "@rpath/libwgpu_native.dylib" "${_wgpu_copy}")
+      execute_process(COMMAND codesign --force --sign - "${_wgpu_copy}")
+      set(WGPU_NATIVE_LIB "${_wgpu_copy}")
+    endif()
+  endif()
+  find_package(Threads REQUIRED)
+  add_library(wgpu_native SHARED IMPORTED)
+  set_target_properties(wgpu_native PROPERTIES
+    IMPORTED_LOCATION "${WGPU_NATIVE_LIB}"
+    IMPORTED_NO_SONAME TRUE
+    INTERFACE_INCLUDE_DIRECTORIES "${WGPU_NATIVE_DIR}/include"
+    INTERFACE_LINK_LIBRARIES "Threads::Threads;${CMAKE_DL_LIBS}")
+  # The runtime libraries are copied next to cleria-view (below); find them there.
+  if(APPLE)
+    set(CMAKE_BUILD_RPATH "@loader_path")
+  else()
+    set(CMAKE_BUILD_RPATH "$ORIGIN")
+  endif()
+  target_link_libraries(cleria PUBLIC Threads::Threads)
+  # iconv: the archives' CP932 names (src/cleria/ni_archive.cpp); in glibc, a library on macOS.
+  find_package(Iconv REQUIRED)
+  target_link_libraries(cleria PRIVATE Iconv::Iconv)
+endif()
 
 # Dear ImGui (ocornut/imgui v1.92.9b, MIT), vendored verbatim in third_party/imgui: the shell
 # overlay (apps/cleria-view/view_shell.inl). Built on its own so its warnings stay out of /W4.
@@ -299,6 +343,11 @@ target_include_directories(imgui PUBLIC "${TP}/imgui")
 # attributes) that the backend's DAWN path targets; its WGPU path is for older wgpu-native.
 target_compile_definitions(imgui PUBLIC IMGUI_IMPL_WEBGPU_BACKEND_DAWN)
 target_link_libraries(imgui PUBLIC wgpu_native sdl3)
+if(APPLE)
+  # The backend's surface helper is Objective-C on macOS (Cocoa / CAMetalLayer).
+  set_source_files_properties("${TP}/imgui/backends/imgui_impl_wgpu.cpp" PROPERTIES COMPILE_OPTIONS "-xobjective-c++")
+  target_link_libraries(imgui PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework Metal")
+endif()
 if(MSVC)
   target_compile_options(imgui PRIVATE /W0)
 else()
@@ -328,6 +377,16 @@ add_library(cleria-movie STATIC src/cleria/movie.cpp)
 target_link_libraries(cleria-movie PUBLIC cleria)
 if(WIN32)
   target_link_libraries(cleria-movie PRIVATE mfplat mfreadwrite mfuuid ole32)
+else()
+  # Off Windows the movies decode through FFmpeg (libavformat / libavcodec / libswscale) when this is
+  # on; off, the decoder is a stub and every movie ends at once, as on retail's open failure.
+  option(CLERIA_FFMPEG "Decode the demo movies with FFmpeg (Linux / macOS)" OFF)
+  if(CLERIA_FFMPEG)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat libavcodec libswscale libavutil)
+    target_compile_definitions(cleria-movie PRIVATE CLERIA_FFMPEG)
+    target_link_libraries(cleria-movie PRIVATE PkgConfig::FFMPEG)
+  endif()
 endif()
 add_executable(cleria-movietest apps/cleria-movietest/main.cpp)
 target_link_libraries(cleria-movietest PRIVATE cleria cleria-movie)
@@ -345,11 +404,18 @@ endif()
 target_link_libraries(cleria-view PRIVATE cleria cleria-audio cleria-movie imgui wgpu_native sdl3)
 
 # Copy the runtime DLLs next to the viewer so it runs from the build dir.
+if(WIN32)
 add_custom_command(TARGET cleria-view POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${TP}/wgpu/lib/wgpu_native.dll" "$<TARGET_FILE_DIR:cleria-view>"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${TP}/sdl3/lib/x64/SDL3.dll" "$<TARGET_FILE_DIR:cleria-view>"
+    "${TP}/sdl3/lib/x64/SDL3.dll" "$<TARGET_FILE_DIR:cleria-view>")
+else()
+add_custom_command(TARGET cleria-view POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${WGPU_NATIVE_LIB}" "$<TARGET_SONAME_FILE:SDL3::SDL3-shared>" "$<TARGET_FILE_DIR:cleria-view>")
+endif()
+add_custom_command(TARGET cleria-view POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_SOURCE_DIR}/res/hud_font.bin" "$<TARGET_FILE_DIR:cleria-view>"
   # the shell's fonts (Fira Sans / Fira Sans Condensed, SIL OFL; third_party/fonts)
@@ -384,6 +450,10 @@ add_test(NAME contenttest COMMAND cleria-contenttest "${CLERIA_TEST_ASSETS}" WOR
 add_test(NAME xso13test COMMAND cleria-xso13test "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME dueltest COMMAND cleria-dueltest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME weathertest COMMAND cleria-weathertest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+# The tests that read game data (they fail without an unpacked game). CI runs `ctest -LE assets`
+# (.github/workflows/build.yml); every other test passes with no asset root (measured 2026-10-08).
+set_tests_properties(cotest worldtest enemytest asotest animtest ef2simtest bullettest invtest booktest bosstest
+                     locustest xso13test dueltest weathertest PROPERTIES LABELS assets)
 
 # ---- Speedrun mode (build/shell_re/SPEEDRUN.md): the timer, splits, LiveSplit Server client ----
 add_library(cleria-speedrun STATIC src/cleria/speedrun.cpp src/cleria/livesplit.cpp)
@@ -405,13 +475,28 @@ add_test(NAME speedruntest COMMAND cleria-speedruntest "${CLERIA_TEST_ASSETS}" W
 # built-in Archipelago client (ARCHIPELAGO.md), removed in favour of the Lua mod samples/mods/archipelago_lua.
 target_sources(cleria PRIVATE src/cleria/json.cpp)
 add_library(cleria-net STATIC src/cleria/net/websocket.cpp)
+if(WIN32)
 target_link_libraries(cleria-net PUBLIC cleria winhttp)
+else()
+  # Off Windows the WebSocket is libcurl's (7.86+, built with WebSockets) when this is on; off, opening
+  # one reports "unsupported on this platform" through the Closed event.
+  option(CLERIA_CURL "WebSocket transport (cleria.net) over libcurl (Linux / macOS)" OFF)
+  target_link_libraries(cleria-net PUBLIC cleria)
+  if(CLERIA_CURL)
+    find_package(CURL REQUIRED)
+    target_compile_definitions(cleria-net PUBLIC CLERIA_CURL)
+    target_link_libraries(cleria-net PRIVATE CURL::libcurl)
+  endif()
+endif()
 # cleria-jsontest — the JSON parser / writer (src/cleria/json.hpp).
 add_executable(cleria-jsontest apps/cleria-jsontest/main.cpp)
 target_link_libraries(cleria-jsontest PRIVATE cleria)
 # cleria-nettest — address parsing and a loopback WebSocket echo server (127.0.0.1 only; no internet).
 add_executable(cleria-nettest apps/cleria-nettest/main.cpp)
-target_link_libraries(cleria-nettest PRIVATE cleria-net ws2_32)
+target_link_libraries(cleria-nettest PRIVATE cleria-net)
+if(WIN32)
+  target_link_libraries(cleria-nettest PRIVATE ws2_32)
+endif()
 add_test(NAME jsontest COMMAND cleria-jsontest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME nettest COMMAND cleria-nettest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
@@ -434,7 +519,10 @@ target_link_libraries(cleria-script PUBLIC cleria cleria-net lua54)
 target_link_libraries(cleria-view PRIVATE cleria-script)
 # cleria-luatest: sandbox escapes refused, runaway loops stopped, errors disable the mod, API round trips.
 add_executable(cleria-luatest apps/cleria-luatest/main.cpp)
-target_link_libraries(cleria-luatest PRIVATE cleria-script ws2_32)
+target_link_libraries(cleria-luatest PRIVATE cleria-script)
+if(WIN32)
+  target_link_libraries(cleria-luatest PRIVATE ws2_32)
+endif()
 add_test(NAME luatest COMMAND cleria-luatest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ---- Mod files (build/shell_re/MODFILE.md): .cleriamod install + the per-user file association ----------

@@ -11,8 +11,9 @@
 // This header holds the engine's tables and laws as pure functions (tested by
 // cleria-movietest), plus a small video decoder. The decoder is Windows Media Foundation
 // (built into Windows: the AVI source + the MPEG-4 Part 2 decoder for the XviD stream, NV12 out,
-// converted to BGRA here). Elsewhere it compiles to a stub whose open() fails, which the view
-// treats like a decoder failure.
+// converted to BGRA here). Linux / macOS: FFmpeg (libavformat's AVI demuxer + libavcodec's MPEG-4
+// Part 2 decoder, CMake CLERIA_FFMPEG); without it a stub (available() false) and the view ends each
+// movie at once, like retail's open failure.
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -110,6 +111,10 @@ class MovieDecoder {
     ~MovieDecoder();
     MovieDecoder(const MovieDecoder&) = delete;
     MovieDecoder& operator=(const MovieDecoder&) = delete;
+
+    // False when this build has no decoder (off Windows without CLERIA_FFMPEG): the view then ends
+    // every movie at once, as retail does when FUN_005773e0's open fails.
+    static bool available();
 
     // False if the platform has no decoder, the file is missing or Media Foundation cannot
     // decode it. The audio streams are deselected (see the header comment).

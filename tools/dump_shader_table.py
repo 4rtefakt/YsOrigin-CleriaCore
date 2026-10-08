@@ -11,6 +11,7 @@ The table is located by scanning outward from a known-good entry
 
     python tools/dump_shader_table.py [path-to-yso_win.exe]
 """
+import os
 import struct, sys
 from collections import Counter, defaultdict
 
@@ -57,7 +58,7 @@ def entry(d, v2f, va):
 
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else \
-        "D:/SteamLibrary/steamapps/common/Ys Origin/yso_win.exe"
+        os.environ.get("YSO_EXE", "D:/SteamLibrary/steamapps/common/Ys Origin/yso_win.exe")
     d, v2f = load(path)
     assert entry(d, v2f, SEED_VA), "seed entry did not validate"
 

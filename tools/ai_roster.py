@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sct_enemies as se       # noqa: E402
 import xso_spawns as xs        # noqa: E402
 
-EXE = r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe"
+EXE = os.environ.get("YSO_EXE", r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe")
 ROOT = se.ROOT
 pe = pefile.PE(EXE, fast_load=True)
 BASE = pe.OPTIONAL_HEADER.ImageBase

@@ -399,6 +399,10 @@ bool AsoVm::step(std::size_t& pc) {
         case kFlagSetR:        flag_put(ai(0), r_); break;
         case kFlagAddInt:      flag_put(ai(0), flag_get(ai(0)) + ai(1)); break;
         case kFlagAddFlag:     flag_put(ai(0), flag_get(ai(0)) + flag_get(ai(1))); break;
+        // Flag_IsEquip(i) (0x8c, FUN_00443ce0) / Flag_SetMagicHolder() (0x8e: flag 208 = FUN_0046d560, the
+        // bracelet's slot) [EXPORT 004472e0.c:1390-1406]. Only M_900.ASO calls them (Hugo's eyes' shot).
+        case 0x8c:             r_ = (equip_fn && equip_fn(ai(0))) ? 1 : 0; break;
+        case 0x8e:             if (magic_slot_fn) flag_put(208, magic_slot_fn()); break;
         default:
             break;  // unmodelled call: argCount still advances the pc correctly
     }

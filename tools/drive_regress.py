@@ -487,7 +487,7 @@ CASES = {
         drive="10:abil;" + ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 200, 25)) +
               ";210:abil;220:quit",
         expect=["hit Selnarg (lv3 DEF 53): 2 dmg, 72/74 left", "hit Selnarg (lv3 DEF 53): 2 dmg, 70/74 left",
-                "[abil] t210", "combo 6/"]),
+                "[abil] t210", "combo 16/"]),   # #57: his two eyes' section-7 shots (0x82) land too
     # build/audit/ROUTE_F13_HUGO.md: a player particle runs the rest of FUN_004fed50's mode-0 scan
     # (EFFECTHIT.md §5.1): Hugo's shot smashes a pot (@Break_30) and breaks the S_2008 wall (0x186 child
     # sphere -> s_Kabe00, 471), which only a swing could do before. The S_2015 wall is the way to S_2010.
@@ -500,6 +500,33 @@ CASES = {
         room="S_20/S_2008/S_2008", env=dict(CLERIA_CHAR="2"),
         drive="5:opt=InfiniteHP=1;20:at3=-48,-2,-0.5,0;21:atk;41:atk;61:atk;81:atk;101:atk;140:flagdump;150:quit",
         expect=["t140 flagdump"], absent=["[hit] kabe_00", " 471=1"]),
+    # #57: Hugo's skills act through his Eyes of Fact (cast 0xb0, build/ability_re/EYE_FAMILIARS.md §7..§12).
+    # Trap Mine (117): FUN_0046d8c0 lays the free eye whose slot is the free count at Hugo's spot, fuse 60;
+    # at 0 it plays M_900 section 5, whose FireBullet(0, 0x88) is thunder (FUN_0046d650) and breaks the
+    # S_2015 wall (the way to S_2010).
+    "kabe_thunder_hugo": dict(
+        room="S_20/S_2015/S_2015", char="2", env=dict(CLERIA_DRIVE_LOCKSTEP="1", CLERIA_DMG="1"),
+        drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;8:bracelet=117;20:obj=kabe_00;30:skill+;32:skill-;"
+              "33:abil;200:obj=kabe_00;210:move=0,1,200;420:quit",
+        expect=["[abil] t33 sec 0x10c", "fires 0x88 (class 2)", "[hit] kabe_00 -> s_kabe00", ">> entering S_2010"]),
+    # ... the charged Trap Mine (Lv2, c138 == 2): every free eye laid on Hugo's spot, fuse 180; the expiry
+    # latches P+0x7d4 and FUN_0046a3e0 sets off EF2 0x93 (class 6 = thunder) there.
+    "hugo_mine_charged": dict(
+        room="S_20/S_2008/S_2008", char="2", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:opt=InfiniteHP=1;6:opt=InfiniteOxygen=1;7:held=97;8:bracelet=117;9:flag=183,1;"
+              "20:at3=-48,-2,-0.5,0;100:skill+;240:skill-;241:abil;400:flagdump;460:flagdump;470:quit",
+        expect=["[abil] t241 sec 0x10f", "t400 flagdump", "[hit] kabe_00 -> s_kabe00", " 471=1"]),
+    # Fire Wheel (118): flags 157 / 158 = 1 / 150, the eyes circle Hugo at 1.5 (mode 2) carrying EF2 0x89
+    # (class 1, fire), which lights the S_3004 torch from the floor.
+    "torch_fire_hugo": dict(
+        room="S_30/S_3004/S_3004", char="2", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:opt=InfiniteHP=1;8:bracelet=118;20:at3=66.6,3,38,90;60:skill+;62:skill-;63:abil;250:flagdump;251:quit",
+        expect=["[abil] t63 sec 0x10e", "[hit] fire_01 -> s_syokudai01", " 354=1"]),
+    # FUN_0046d6e0: each of Hugo's attacks asks his free eyes for section 7, the eye's own shot (0x82).
+    "hugo_eyes_shoot": dict(
+        room="S_10/S_1002/S_1002", char="2", env=dict(CLERIA_DRIVE_LOCKSTEP="1", CLERIA_DMG="1"),
+        drive="5:opt=InfiniteHP=1;200:near=17;201:atk;225:near=17;226:atk;260:quit",
+        expect=["section 7 on", "fires 0x82 (class 3)"]),
     # build/audit/ROUTE_F13.md: leaving a ward room ends its scripts; the KekkaiZako watcher no longer gets a
     # tick in the next room (no seeds there) and clears the ward (S_2008's 336) without a fight.
     "ward_leave_kept": dict(

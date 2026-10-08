@@ -1,4 +1,5 @@
-// The LiveSplit Server client (livesplit.hpp). Windows sockets only (CleriaCore is a Windows build).
+// The LiveSplit Server client (livesplit.hpp). Winsock on Windows; BSD sockets on Linux / macOS under the
+// winsock names (the shim below), so both run the same code.
 #include "cleria/livesplit.hpp"
 
 #include <cmath>
@@ -13,6 +14,15 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #endif
 
 namespace cleria::speedrun {
@@ -27,13 +37,31 @@ std::string ls_time(double ms) {
     return b;
 }
 
-#ifdef _WIN32
+#ifndef _WIN32
+namespace {
+using SOCKET = int;
+constexpr SOCKET INVALID_SOCKET = -1;
+using BOOL = int;
+#ifndef TRUE
+#define TRUE 1
+#endif
+int closesocket(SOCKET s) { return ::close(s); }
+bool would_block() { return errno == EWOULDBLOCK || errno == EAGAIN; }
+#ifdef MSG_NOSIGNAL
+constexpr int kSendFlags = MSG_NOSIGNAL;   // LiveSplit gone: an error, not a SIGPIPE
+#else
+constexpr int kSendFlags = 0;              // macOS: SO_NOSIGPIPE on the socket instead
+#endif
+}  // namespace
+#endif
 
 LiveSplitClient::LiveSplitClient() : sock_(std::uintptr_t(INVALID_SOCKET)) {}
 
 LiveSplitClient::~LiveSplitClient() {
     close_socket();
+#ifdef _WIN32
     if (wsa_) WSACleanup();
+#endif
 }
 
 void LiveSplitClient::close_socket() {
@@ -59,11 +87,13 @@ void LiveSplitClient::configure(bool enabled, const std::string& host, int port)
 
 void LiveSplitClient::begin_connect(double now_ms) {
     next_try_ = now_ms + kRetryMs;
+#ifdef _WIN32
     if (!wsa_) {
         WSADATA wd;
         if (WSAStartup(MAKEWORD(2, 2), &wd) != 0) { last_error_ = "winsock unavailable"; return; }
         wsa_ = true;
     }
+#endif
     addrinfo hints = {};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -76,8 +106,16 @@ void LiveSplitClient::begin_connect(double now_ms) {
     }
     SOCKET s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
     if (s == INVALID_SOCKET) { freeaddrinfo(ai); last_error_ = "no socket"; return; }
+#ifdef _WIN32
     u_long nb = 1;
     ioctlsocket(s, FIONBIO, &nb);
+#else
+    fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK);
+#ifdef SO_NOSIGPIPE
+    const int one = 1;
+    setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
+#endif
     BOOL nodelay = TRUE;                          // small commands, sent as they happen
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&nodelay), sizeof nodelay);
     const int r = connect(s, ai->ai_addr, int(ai->ai_addrlen));
@@ -87,7 +125,11 @@ void LiveSplitClient::begin_connect(double now_ms) {
         state_ = State::Connected;
         return;
     }
+#ifdef _WIN32
     if (WSAGetLastError() != WSAEWOULDBLOCK) { closesocket(s); last_error_ = "refused"; return; }
+#else
+    if (errno != EINPROGRESS) { closesocket(s); last_error_ = "refused"; return; }
+#endif
     sock_ = std::uintptr_t(s);
     state_ = State::Connecting;
 }
@@ -104,7 +146,13 @@ void LiveSplitClient::poll(double now_ms) {
         FD_ZERO(&w); FD_ZERO(&e);
         FD_SET(s, &w); FD_SET(s, &e);
         timeval tv = {0, 0};
-        if (select(0, nullptr, &w, &e, &tv) > 0) {
+        if (select(int(s) + 1, nullptr, &w, &e, &tv) > 0) {
+#ifndef _WIN32
+            // BSD sockets report a failed connect as writable with SO_ERROR set (winsock: in `e`).
+            int so = 0;
+            socklen_t sl = sizeof so;
+            if (FD_ISSET(s, &w) && (getsockopt(s, SOL_SOCKET, SO_ERROR, &so, &sl) != 0 || so != 0)) FD_SET(s, &e);
+#endif
             if (FD_ISSET(s, &e)) {                // the connect failed (nothing listening)
                 close_socket();
                 state_ = State::Idle;
@@ -125,7 +173,11 @@ void LiveSplitClient::poll(double now_ms) {
     for (;;) {
         const int n = recv(s, buf, sizeof buf, 0);
         if (n > 0) continue;
+#ifdef _WIN32
         if (n == 0 || WSAGetLastError() != WSAEWOULDBLOCK) {
+#else
+        if (n == 0 || !would_block()) {
+#endif
             close_socket();
             state_ = State::Idle;
             next_try_ = now_ms + kRetryMs;
@@ -138,7 +190,11 @@ void LiveSplitClient::poll(double now_ms) {
 bool LiveSplitClient::send(std::string_view cmd) {
     if (state_ != State::Connected) return false;
     const std::string line = std::string(cmd) + "\r\n";
+#ifdef _WIN32
     const int n = ::send(SOCKET(sock_), line.data(), int(line.size()), 0);
+#else
+    const int n = int(::send(SOCKET(sock_), line.data(), line.size(), kSendFlags));
+#endif
     if (n != int(line.size())) {                  // a short write never happens for a line this size
         close_socket();
         state_ = State::Idle;
@@ -159,17 +215,5 @@ std::string LiveSplitClient::status() const {
     return "Not connected" + (last_error_.empty() ? std::string() : " (" + last_error_ + ")");
 }
 
-#else   // no sockets off Windows: the client stays off
-
-LiveSplitClient::LiveSplitClient() : sock_(0) {}
-LiveSplitClient::~LiveSplitClient() = default;
-void LiveSplitClient::close_socket() {}
-void LiveSplitClient::configure(bool, const std::string&, int) {}
-void LiveSplitClient::begin_connect(double) {}
-void LiveSplitClient::poll(double) {}
-bool LiveSplitClient::send(std::string_view) { return false; }
-std::string LiveSplitClient::status() const { return "Unavailable"; }
-
-#endif
 
 }  // namespace cleria::speedrun

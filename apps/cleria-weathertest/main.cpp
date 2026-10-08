@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #include "cleria/weather.hpp"
 #include "cleria/xso.hpp"

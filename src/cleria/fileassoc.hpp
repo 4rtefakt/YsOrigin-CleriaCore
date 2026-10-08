@@ -11,6 +11,7 @@
 // Every registry access goes through `Registry`, so the logic is tested against a fake; the real HKCU
 // (user_registry) is never opened by tests, and refuses in a CLERIA_DRIVE run.
 #pragma once
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -57,5 +58,30 @@ Action sync(Registry& r, const std::string& exe, bool want, bool* ok = nullptr);
 std::unique_ptr<Registry> user_registry();
 // Tell Explorer the associations changed (SHChangeNotify SHCNE_ASSOCCHANGED).
 void notify_shell();
+
+// ---- Linux: the freedesktop equivalent (issue #46) -----------------------------------------------
+// Per user, under $XDG_DATA_HOME (default ~/.local/share), no root:
+//   mime/packages/cleriacore-mod.xml      the application/x-cleriamod type, glob *.cleriamod
+//   applications/cleriacore-mod.desktop   Exec="<exe>" %f, MimeType=application/x-cleriamod;
+// then update-mime-database / update-desktop-database / xdg-mime default (notify; best effort). The
+// files are plain text, so the logic is tested on any OS against a scratch folder. macOS has no
+// per-user equivalent without an app bundle: the view says so and does nothing there.
+namespace xdg {
+inline constexpr const char* kMime = "application/x-cleriamod";
+inline constexpr const char* kDesktopName = "cleriacore-mod.desktop";
+inline constexpr const char* kMimeName = "cleriacore-mod.xml";
+std::string mime_xml();
+std::string desktop_entry(const std::string& exe);   // exe: full path, UTF-8
+bool is_current(const std::filesystem::path& data_home, const std::string& exe);
+bool owned(const std::filesystem::path& data_home, const std::string& exe);   // our .desktop runs this exe
+Action decide(const std::filesystem::path& data_home, const std::string& exe, bool want);
+bool do_register(const std::filesystem::path& data_home, const std::string& exe);
+bool do_unregister(const std::filesystem::path& data_home, const std::string& exe);
+Action sync(const std::filesystem::path& data_home, const std::string& exe, bool want, bool* ok = nullptr);
+// $XDG_DATA_HOME, else $HOME/.local/share; empty when neither is set or in a CLERIA_DRIVE run.
+std::filesystem::path user_data_home();
+// Refresh the desktop's caches (Linux only; never in a CLERIA_DRIVE run).
+void notify(const std::filesystem::path& data_home);
+}  // namespace xdg
 
 }  // namespace cleria::fileassoc

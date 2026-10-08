@@ -121,6 +121,45 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
+`python tools/fetch_deps.py` fetches all of the above (and Lua 5.4.9, the Fira Sans fonts) at those
+versions into `third_party/`; it keeps any component already there (`--force` replaces it).
+
+#### Linux / macOS
+
+Experimental (issue #46): it builds and passes the asset-free tests in CI
+(`.github/workflows/build.yml`: Windows MSVC and Ubuntu gcc + clang on every push; macOS clang on
+demand, `gh workflow run build.yml -f macos=true`). Prerequisites:
+CMake ≥ 3.24, Ninja, a C++20 gcc / clang, Python 3, and for SDL3 (built from source by the fetch
+script) on Ubuntu / Debian:
+
+```sh
+sudo apt install ninja-build pkg-config libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+  libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev \
+  libdrm-dev libgbm-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
+# optional: movies (FFmpeg) and the Lua mods' WebSocket (libcurl with WebSockets)
+sudo apt install libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libcurl4-openssl-dev
+```
+
+On macOS: `brew install cmake ninja pkgconf` (+ `ffmpeg curl` for the options). Then:
+
+```sh
+python3 tools/fetch_deps.py                 # SDL3 3.4.12 built into third_party/sdl3, wgpu-native .so / .dylib
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCLERIA_FFMPEG=ON -DCLERIA_CURL=ON
+cmake --build build
+ctest --test-dir build -LE assets           # the tests that need no game data
+build/cleria-view                           # SDL3 + wgpu-native are copied next to it
+```
+
+`SDL3_DIR` / `CMAKE_PREFIX_PATH` point at another SDL3 3.4 install, `-DWGPU_NATIVE_DIR=<dir>` at
+another wgpu-native release folder (`include/`, `lib/`). Without `CLERIA_FFMPEG` the demo movies are
+skipped (as when retail cannot open one); without `CLERIA_CURL` `cleria.net.websocket` reports
+"unsupported on this platform" (so does a libcurl built without WebSockets, e.g. Ubuntu 24.04's 8.5;
+curl 8.11+ enables them by default, as Homebrew's does). The `.cleriamod` association is a freedesktop `.desktop` + mime type
+under `$XDG_DATA_HOME` on Linux and unavailable on macOS (use `--install-mod <file>`). Settings live in
+`$XDG_CONFIG_HOME/CleriaCore` (macOS: `~/Library/Application Support/CleriaCore`), the unpacked data in
+`$XDG_DATA_HOME/CleriaCore/data`; `cleria-gamedata` finds the Steam (Proton) install under
+`~/.steam/steam`, `~/.local/share/Steam`, Flatpak Steam, or `~/Library/Application Support/Steam`.
+
 ### Assets
 
 CleriaCore reads your own copy of Ys Origin. `cleria-gamedata` finds the install and

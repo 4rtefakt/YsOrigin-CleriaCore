@@ -7,6 +7,7 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #include "cleria/aso.hpp"
 #include "cleria/hit_volume.hpp"

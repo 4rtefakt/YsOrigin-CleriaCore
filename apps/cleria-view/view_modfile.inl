@@ -14,6 +14,10 @@
 #include "cleria/modinstall.hpp"
 #ifdef _WIN32
 #include <commdlg.h>   // GetOpenFileNameW: "Install a mod file..."
+#else
+#include <fcntl.h>      // the single-instance lock file
+#include <sys/file.h>   // flock
+#include <unistd.h>
 #endif
 
 struct ModFile {
@@ -25,6 +29,8 @@ struct ModFile {
     bool tab_err = false;
 #ifdef _WIN32
     HANDLE instance = nullptr;    // the single-instance mutex, held for the process's life
+#else
+    int instance_fd = -1;         // the single-instance lock file (flock), held for the process's life
 #endif
 };
 static ModFile g_modfile;
@@ -75,16 +81,7 @@ static void modfile_take_args(int& argc, char** argv) {
 }
 
 // This exe's full path (the association's open command and icon).
-static fs::path modfile_exe() {
-#ifdef _WIN32
-    std::wstring buf(32768, L'\0');
-    const DWORD n = GetModuleFileNameW(nullptr, buf.data(), DWORD(buf.size()));
-    buf.resize(n);
-    return fs::path(buf);
-#else
-    return {};
-#endif
-}
+static fs::path modfile_exe() { return platform_exe_path(); }   // view_platform.inl
 
 static void modfile_store_prefs(const mods::Prefs& p) {
     auto& c = settings().s.cleria;
@@ -100,6 +97,7 @@ static void modfile_store_prefs(const mods::Prefs& p) {
 static void modfile_associate(bool want) {
     if (std::getenv("CLERIA_DRIVE")) { std::printf("[modfile] file association: skipped (drive run)\n"); return; }
     if (settings().memory_only() || settings().path().empty()) return;
+#if defined(_WIN32)
     const std::unique_ptr<fileassoc::Registry> reg = fileassoc::user_registry();
     const std::string exe = modfile_u8(modfile_exe());
     if (!reg || exe.empty()) return;
@@ -110,6 +108,22 @@ static void modfile_associate(bool want) {
         std::printf("[modfile] file association: %s (%s)\n", a == fileassoc::Action::Register ? "registered" : "removed", exe.c_str());
     }
     if (!ok) std::printf("[modfile] file association: the registry could not be updated\n");
+#elif defined(__APPLE__)
+    // No per-user association without an app bundle: `cleria-view --install-mod <file>` installs one.
+    if (want) std::printf("[modfile] file association: not available on macOS (use --install-mod <file>)\n");
+#else
+    // The freedesktop .desktop entry + mime type under $XDG_DATA_HOME (src/cleria/fileassoc, xdg::).
+    const fs::path home = fileassoc::xdg::user_data_home();
+    const std::string exe = modfile_u8(modfile_exe());
+    if (home.empty() || exe.empty()) return;
+    bool ok = true;
+    const fileassoc::Action a = fileassoc::xdg::sync(home, exe, want, &ok);
+    if (a != fileassoc::Action::None) {
+        fileassoc::xdg::notify(home);
+        std::printf("[modfile] file association: %s (%s)\n", a == fileassoc::Action::Register ? "registered" : "removed", exe.c_str());
+    }
+    if (!ok) std::printf("[modfile] file association: the desktop entry could not be written\n");
+#endif
 }
 
 // A message for the player outside the game window (another CleriaCore is running): a native box, or
@@ -121,6 +135,8 @@ static void modfile_say(const std::string& text, bool error) {
     std::wstring w(std::size_t(n > 0 ? n : 1), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, w.data(), n);
     MessageBoxW(nullptr, w.c_str(), L"CleriaCore", MB_OK | MB_SETFOREGROUND | (error ? MB_ICONWARNING : MB_ICONINFORMATION));
+#else
+    SDL_ShowSimpleMessageBox(error ? SDL_MESSAGEBOX_WARNING : SDL_MESSAGEBOX_INFORMATION, "CleriaCore", text.c_str(), nullptr);
 #endif
 }
 
@@ -144,6 +160,13 @@ static bool modfile_startup() {
     HANDLE h = CreateMutexA(nullptr, FALSE, key.c_str());
     if (h && GetLastError() == ERROR_ALREADY_EXISTS) { other = true; CloseHandle(h); }
     else f.instance = h;
+#else
+    // The same key as an advisory lock file in the temp folder, held for the process's life.
+    std::error_code tec;
+    const fs::path lock = fs::temp_directory_path(tec) / (mods::instance_key(dir) + ".lock");
+    const int fd = tec ? -1 : ::open(lock.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd >= 0 && ::flock(fd, LOCK_EX | LOCK_NB) != 0) { other = true; ::close(fd); }
+    else f.instance_fd = fd;
 #endif
     if (!other) {   // mods installed while the last CleriaCore ran: on now (it may have rewritten cleria.ini)
         const std::vector<std::string> q = mods::take_enable_queue(dir);

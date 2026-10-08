@@ -2,6 +2,7 @@
 #include "cleria/titlescreen.hpp"
 
 #include <string>
+#include <algorithm>
 
 namespace cleria {
 

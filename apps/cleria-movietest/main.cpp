@@ -16,6 +16,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #include "cleria/movie.hpp"
 
@@ -83,7 +84,34 @@ static bool write_png(const fs::path& path, std::uint32_t w, std::uint32_t h,
     return bool(f);
 }
 
+// `--file <avi> [out.png]`: the decoder alone on any MPEG-4 Part 2 AVI (CI makes one with the ffmpeg
+// tool, as no game data may go there): it opens, reports its size and length, shows a frame on every
+// 60 Hz tick it is due, has picture content, and ends after its last frame.
+static int decode_file(const fs::path& file, const fs::path& out) {
+    check(MovieDecoder::available(), "this build has a movie decoder");
+    MovieDecoder dec;
+    const bool opened = dec.open(file);
+    check(opened, "the decoder opens the file");
+    if (!opened) return 1;
+    std::printf("[movie] %s: %ux%u, %.2f s\n", file.filename().string().c_str(), dec.width(), dec.height(), dec.duration());
+    check(dec.width() > 0 && dec.height() > 0 && dec.duration() > 0, "size and length known");
+    int changes = 0;
+    double t = 0;
+    for (; t < dec.duration() + 1.0 && !dec.ended(); t += 1.0 / 60.0) changes += dec.advance(t);
+    std::printf("[movie] %d frames shown, ended at %.2f s\n", changes, t);
+    check(dec.ended(), "the stream ends after its last frame");
+    check(changes > 0, "frames were shown");
+    std::size_t lit = 0;
+    const auto& px = dec.bgra();
+    for (std::size_t i = 0; i < px.size(); i += 4) lit += (px[i] + px[i + 1] + px[i + 2]) > 48;
+    check(lit > 0, "the last frame has picture content");
+    if (!out.empty()) check(write_png(out, dec.width(), dec.height(), px), "frame written");
+    std::printf(fails ? "[movie] %d FAILED\n" : "[movie] all passed\n", fails);
+    return fails ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 2 && std::strcmp(argv[1], "--file") == 0) return decode_file(argv[2], argc > 3 ? fs::path(argv[3]) : fs::path());
     const fs::path assets = argc > 1 ? fs::path(argv[1]) : fs::path("assets");
     const fs::path out = argc > 2 ? fs::path(argv[2]) : fs::path("build") / "movie_frame.png";
     const int pick = argc > 3 ? std::atoi(argv[3]) : 1;

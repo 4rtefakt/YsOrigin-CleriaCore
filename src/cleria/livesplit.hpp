@@ -1,6 +1,6 @@
 // A LiveSplit Server client (build/shell_re/SPEEDRUN.md §5): CleriaCore's run mirrored into
-// LiveSplit over its TCP server (Control > Start TCP Server; default port 16834). Plain winsock,
-// non-blocking, no new dependency. The protocol (LiveSplit README "The LiveSplit Server",
+// LiveSplit over its TCP server (Control > Start TCP Server; default port 16834). Plain sockets (winsock on
+// Windows, BSD sockets on Linux / macOS), non-blocking, no new dependency. The protocol (LiveSplit README "The LiveSplit Server",
 // src/LiveSplit.Core/Server/CommandServer.cs + Connection.cs): one command per line,
 // `<command>[ <args>]\n` (a ReadLine, so "\r\n" works too); times as `[-][[[d.]hh:]mm:]ss[.fffffff]`.
 #pragma once

@@ -1,9 +1,11 @@
-// WinHTTP WebSocket client — see websocket.hpp.
+// WinHTTP WebSocket client — see websocket.hpp. Off Windows: libcurl (CLERIA_CURL, websocket_curl.inl)
+// or a stub whose open() reports "unsupported on this platform".
 #include "cleria/net/websocket.hpp"
 
 #include <chrono>
 #include <cstdio>
 
+#ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -12,6 +14,13 @@
 #endif
 #include <windows.h>
 #include <winhttp.h>
+#elif defined(CLERIA_CURL)
+#include <curl/curl.h>
+#include <poll.h>
+
+#include <algorithm>
+#include <cstring>
+#endif
 
 namespace cleria::net {
 
@@ -75,6 +84,9 @@ std::vector<WsUrl> candidate_urls(std::string_view address) {
     if (scheme == 1 || scheme == 0) { u.secure = false; out.push_back(u); }
     return out;
 }
+
+#ifdef _WIN32
+bool WebSocket::supported() { return true; }
 
 // ---- helpers -------------------------------------------------------------------------------
 
@@ -146,7 +158,11 @@ struct WebSocket::Conn {
             if (*h) { WinHttpCloseHandle(*h); *h = nullptr; }
     }
 };
+#elif defined(CLERIA_CURL)
+#include "websocket_curl.inl"   // WebSocket::supported, WebSocket::Conn, WebSocket::worker over libcurl
+#endif
 
+#if defined(_WIN32) || defined(CLERIA_CURL)
 WebSocket::WebSocket() = default;
 
 WebSocket::~WebSocket() { stop_and_join(); }
@@ -231,7 +247,9 @@ void WebSocket::stop_and_join() {
     thread_.join();
     state_ = State::Closed;
 }
+#endif
 
+#ifdef _WIN32
 // ---- the worker ----------------------------------------------------------------------------
 
 void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
@@ -381,5 +399,42 @@ void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
     c.dcv.notify_all();
     push({Event::Kind::Closed, close_reason, !c.by_user.load()});
 }
+#elif !defined(CLERIA_CURL)
+// ---- no transport on this platform (a build without CLERIA_CURL off Windows) ----------------
+
+struct WebSocket::Conn {};
+bool WebSocket::supported() { return false; }
+WebSocket::WebSocket() = default;
+WebSocket::~WebSocket() = default;
+void WebSocket::push(Event e) {
+    std::lock_guard<std::mutex> l(mu_);
+    events_.push_back(std::move(e));
+}
+void WebSocket::open(std::string_view address, WsOptions) {
+    {
+        std::lock_guard<std::mutex> l(mu_);
+        events_.clear();
+    }
+    const std::vector<WsUrl> urls = candidate_urls(address);
+    state_ = State::Closed;
+    if (urls.empty()) {
+        push({Event::Kind::Closed, "invalid server address \"" + std::string(address) + "\"", true});
+        return;
+    }
+    url_ = urls.front().str();
+    push({Event::Kind::Closed, "could not connect: WebSockets are unsupported on this platform (a build without CLERIA_CURL)",
+          true});
+}
+bool WebSocket::send(std::string) { return false; }
+void WebSocket::close() {}
+std::vector<WebSocket::Event> WebSocket::poll() {
+    std::vector<Event> ev;
+    std::lock_guard<std::mutex> l(mu_);
+    ev.swap(events_);
+    return ev;
+}
+void WebSocket::stop_and_join() {}
+void WebSocket::worker(std::shared_ptr<Conn>, std::vector<WsUrl>) {}
+#endif
 
 }  // namespace cleria::net

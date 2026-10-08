@@ -5,13 +5,14 @@
 
 Optional first/last are 1-based line numbers to keep. f64 is used for *sd instructions.
 """
+import os
 import re
 import struct
 import sys
 
 import pefile
 
-EXE = r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe"
+EXE = os.environ.get("YSO_EXE", r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe")
 pe = pefile.PE(EXE, fast_load=True)
 base = pe.OPTIONAL_HEADER.ImageBase
 

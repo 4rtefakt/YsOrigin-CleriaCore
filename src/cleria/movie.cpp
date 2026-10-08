@@ -24,6 +24,13 @@
 #include <mferror.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
+#elif defined(CLERIA_FFMPEG)
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/mem.h>
+#include <libswscale/swscale.h>
+}
 #endif
 
 namespace cleria {
@@ -252,6 +259,7 @@ struct MovieDecoder::Impl {
 MovieDecoder::MovieDecoder() = default;
 MovieDecoder::~MovieDecoder() { close(); }
 
+bool MovieDecoder::available() { return true; }
 bool MovieDecoder::is_open() const { return impl_ && impl_->reader; }
 
 void MovieDecoder::close() {
@@ -403,11 +411,14 @@ bool MovieDecoder::advance(double t) {
     return changed;
 }
 
-#else   // no decoder on this platform: open() fails and the view uses its stand-in
+#elif defined(CLERIA_FFMPEG)
+#include "movie_ffmpeg.inl"   // MovieDecoder over libavformat / libavcodec / libswscale (Linux / macOS)
+#else   // no decoder on this platform: available() is false and the view skips every movie
 
 struct MovieDecoder::Impl {};
 MovieDecoder::MovieDecoder() = default;
 MovieDecoder::~MovieDecoder() = default;
+bool MovieDecoder::available() { return false; }
 bool MovieDecoder::is_open() const { return false; }
 void MovieDecoder::close() {}
 bool MovieDecoder::open(const fs::path&) { return false; }

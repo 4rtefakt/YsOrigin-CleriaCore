@@ -3,11 +3,12 @@
 Prints: imported DLL names + selected import symbols, and any ASCII string
 matching an audio keyword, with its virtual address.
 """
+import os
 import struct
 import re
 import sys
 
-EXE = r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe"
+EXE = os.environ.get("YSO_EXE", r"D:\SteamLibrary\steamapps\common\Ys Origin\yso_win.exe")
 
 KEYWORDS = [
     b'EFFECTDEF', b'effectdef', b'bgmdef', b'BGMDEF', b'.ogg', b'.OGG',

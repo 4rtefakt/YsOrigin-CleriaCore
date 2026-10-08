@@ -203,6 +203,7 @@ struct AiEnv {
     std::function<bool(const Vec3&, const Vec3&)> blocked;   // segment hits collision
     std::function<bool(float x, float z, float from_y, float depth)> has_floor;
     std::function<std::uint32_t()> rng;  // one xorshift128 advance; returns the new word
+    struct FamiliarHost* familiar = nullptr;  // the player side of Hugo's Eyes of Fact (hugo_eyes.hpp)
 };
 
 // A request a brain makes of the world this tick.

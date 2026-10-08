@@ -14,6 +14,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -316,6 +317,12 @@ class AsoVm {
     }
 
     bool ok() const { return aso_ && aso_->ok() && cur_ != nullptr; }
+
+    // The two player-state queries of the Flag_ family (M_900.ASO, Hugo's eyes): Flag_IsEquip(item)
+    // (FUN_00443ce0: the item is worn / held) and Flag_SetMagicHolder (flag 208 = FUN_0046d560). A VM
+    // without them answers 0 and writes nothing.
+    std::function<bool(int)> equip_fn;
+    std::function<int()> magic_slot_fn;
 
   private:
     // Returns false when the section ends.

@@ -186,8 +186,13 @@ std::vector<Validation> find_installs() {
     if (fs::path pf = env_path("ProgramFiles(x86)"); !pf.empty()) steam_roots.push_back(pf / "Steam");
 #else
     if (fs::path h = env_path("HOME"); !h.empty()) {
+#ifdef __APPLE__
+        steam_roots.push_back(h / "Library" / "Application Support" / "Steam");
+#else
         steam_roots.push_back(h / ".steam" / "steam");
         steam_roots.push_back(h / ".local" / "share" / "Steam");
+        steam_roots.push_back(h / ".var" / "app" / "com.valvesoftware.Steam" / ".local" / "share" / "Steam");   // Flatpak
+#endif
     }
 #endif
     std::vector<fs::path> libs;
@@ -257,6 +262,8 @@ fs::path data_dir() {
     if (fs::path e = env_path("CLERIA_DATA"); !e.empty()) return e;
 #ifdef _WIN32
     if (fs::path l = env_path("LOCALAPPDATA"); !l.empty()) return l / "CleriaCore" / "data";
+#elif defined(__APPLE__)
+    if (fs::path h = env_path("HOME"); !h.empty()) return h / "Library" / "Application Support" / "CleriaCore" / "data";
 #else
     if (fs::path x = env_path("XDG_DATA_HOME"); !x.empty()) return x / "CleriaCore" / "data";
     if (fs::path h = env_path("HOME"); !h.empty()) return h / ".local" / "share" / "CleriaCore" / "data";

@@ -1,0 +1,135 @@
+# Build CleriaCore and run the tests that need no game data (ctest -LE assets). Game data never enters
+# CI or the repo: the asset-reading tests carry the `assets` label (CMakeLists.txt) and run only on a
+# machine with an unpacked game (TESTING.md). Third-party code is fetched inside the runner by
+# tools/fetch_deps.py at the versions the Windows build uses (SDL3 3.4.12, wgpu-native v29.0.1.1, ...).
+# Issue #46.
+#
+# Kept cheap: a push / pull request builds Windows (MSVC) and Linux (gcc, clang) only, and a newer push
+# cancels the older run. macOS (billed at 10x) runs only by hand:
+#   gh workflow run build.yml --ref <branch> -f macos=true      (then ONLY the macOS job runs)
+name: build
+
+on:
+  push:
+    paths-ignore: ['**/*.md', 'build/**']
+  pull_request:
+    paths-ignore: ['**/*.md', 'build/**']
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: Run only the macOS (clang) job
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    if: github.event_name != 'workflow_dispatch' || !inputs.macos
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-msvc
+            os: windows-latest
+            cmake_args: -A x64
+          - name: linux-gcc
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            cmake_args: -G Ninja -DCLERIA_FFMPEG=ON -DCLERIA_CURL=ON
+          - name: linux-clang
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+            cmake_args: -G Ninja
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
+            libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libcurl4-openssl-dev ffmpeg
+
+      - name: Cache third_party
+        uses: actions/cache@v4
+        with:
+          path: third_party
+          key: third-party-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/fetch_deps.py') }}
+
+      - name: Fetch dependencies
+        run: python tools/fetch_deps.py
+
+      - name: Configure
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.cc }}" ]; then export CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}; fi
+          cmake -S . -B build ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release "-DCLERIA_TEST_ASSETS=${{ github.workspace }}/no-assets"
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then cmake --build build --config Release --parallel
+          else cmake --build build --parallel -- -k 0; fi   # Ninja: report every failing file at once
+
+      - name: Test (no game data)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: ctest --test-dir build -C Release -LE assets --output-on-failure --timeout 600
+
+      # The FFmpeg movie decoder on a generated XviD-tagged MPEG-4 AVI (the retail movies' codec).
+      - name: Movie decoder (FFmpeg)
+        if: ${{ !cancelled() && contains(matrix.cmake_args, 'CLERIA_FFMPEG=ON') }}
+        shell: bash
+        run: |
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=320x160:rate=60 -t 2 -c:v mpeg4 -vtag XVID -an test_movie.avi
+          ./build/cleria-movietest --file test_movie.avi movie_frame.png
+
+  macos:
+    name: macos-clang
+    if: github.event_name == 'workflow_dispatch' && inputs.macos
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: macOS packages
+        run: |
+          brew install ninja pkgconf ffmpeg curl
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl)" >> "$GITHUB_ENV"
+
+      - name: Cache third_party
+        uses: actions/cache@v4
+        with:
+          path: third_party
+          key: third-party-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/fetch_deps.py') }}
+
+      - name: Fetch dependencies
+        run: python3 tools/fetch_deps.py
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCLERIA_FFMPEG=ON -DCLERIA_CURL=ON "-DCLERIA_TEST_ASSETS=${{ github.workspace }}/no-assets"
+
+      - name: Build
+        run: cmake --build build --parallel -- -k 0
+
+      - name: Test (no game data)
+        if: ${{ !cancelled() }}
+        run: ctest --test-dir build -LE assets --output-on-failure --timeout 600
+
+      - name: Movie decoder (FFmpeg)
+        if: ${{ !cancelled() }}
+        run: |
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=320x160:rate=60 -t 2 -c:v mpeg4 -vtag XVID -an test_movie.avi
+          ./build/cleria-movietest --file test_movie.avi movie_frame.png

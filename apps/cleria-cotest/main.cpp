@@ -16,6 +16,7 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <cstring>
 using namespace cleria;
 static std::vector<std::uint8_t> rd(const std::string& p) {
     std::ifstream f(p, std::ios::binary);
