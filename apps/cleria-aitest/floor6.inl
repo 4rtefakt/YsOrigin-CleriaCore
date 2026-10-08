@@ -301,6 +301,98 @@ static void floor6_tests() {
                   "M700 hops every 10th tick: 25 % forward beyond 6 u (0.6, +-54 deg), 10 % back inside 3.5 u (-0.2, +-36 deg)");
         }
     }
+    // ---- M470 Levenueba: the glob fan, the grab and its hold, the bite and spit (build/ai_spec/M470.md §8 test) ----
+    {
+        const EnemyBrain m470 = enemy_brain_for(40);
+        check(m470 != nullptr, "Levenueba registered (AI 40)");
+        EnemyAiParams vp = params(0.08f, 0.05f, 1.0f, 2.25f, 0.0f);   // EI[37]
+        auto engaged = [&](Rig& r, Actor& L, const Vec3& target) {
+            L.instance_id = 51; L.cast_id = 0x33; L.ai_index = 40; L.def = 30.0f;
+            r.env.actor = &L; r.env.target = target;
+            m470(L.ai, vp, r.env);                                   // INIT
+            L.ai.phase() = 2; L.ai.heading = 0.0f; r.env.facing = 0.0f;
+            L.ai.f(0x734) = target.x; L.ai.f(0x73c) = target.z; L.ai.dist() = std::sqrt(target.x * target.x + target.z * target.z);
+        };
+        {   // the fan: 3 / 7 / 11 globs, slots 3..6 twice on d >= 2 with the second always kind 1
+            bool ok = true; int lobs = 0, shots = 0;
+            for (int diff : {-1, 0, 2}) {
+                Rig r; Actor L; engaged(r, L, {4.0f, 1.075f, 0.0f});
+                r.env.difficulty = diff; r.env.section = 7; r.env.aso_marker = 315;
+                const AiOut o = m470(L.ai, vp, r.env);
+                const std::size_t want = diff < 0 ? 3u : diff > 1 ? 11u : 7u;
+                ok = ok && o.bullets.size() == want && o.set_marker == 0 && L.ai.action() == 2 &&
+                     L.ai.cool() >= 30 && L.ai.cool() <= 59;
+                static const int slot11[11] = {0, 1, 2, 3, 3, 4, 4, 5, 5, 6, 6};
+                static const float sx[7] = {0.4f, 0.4f, 0.5f, 0.8f, 0.8f, 0.7f, 0.7f};   // heading 0: x = the slot's z
+                for (std::size_t i = 0; i < o.bullets.size() && ok; ++i) {
+                    const AiBullet& b = o.bullets[i];
+                    const int slot = diff > 1 ? slot11[i] : int(i);
+                    const bool second = diff > 1 && i >= 4 && ((i - 3) % 2 == 1);
+                    ok = ok && b.effect == 315 && b.gravity == 0.004f && b.knock == 1.0f && std::fabs(b.pos.x - sx[slot]) < 1e-6f &&
+                         (b.kind == 1 || b.kind == 0x29) && !(second && b.kind != 1) &&
+                         std::fabs(b.dir.x * b.dir.x + b.dir.y * b.dir.y + b.dir.z * b.dir.z - 1.0f) < 1e-4f;
+                    if (b.kind == 0x29) { ++lobs; ok = ok && b.f168 == 65636.0f && b.f16c == 1.2f && b.f170 == 2.5f && b.f174 == 4.0f; }
+                    else { ++shots; ok = ok && b.home_period == 1 && b.home_rate == (diff > 1 ? 0.0174533f : 0.0f) && b.f170 == 360.0f; }
+                }
+            }
+            std::printf("[aitest]   M470 fans: %d lobs (kind 0x29), %d shots (kind 1)\n", lobs, shots);
+            check(ok && lobs > 3 && shots > 7, "M470 section 7 at Marker(315): 3 / 7 / 11 globs from the slot table, a coin flip between "
+                                               "the kind-0x29 lob and the kind-1 shot (1 deg homing on d >= 2); cooldown R%30 + 30");
+        }
+        {   // DECIDE: 30 % section 7 inside 5 u; else 15 % section 8 inside 7.5 u unless another Levenueba grabs
+            struct W : floor4::Pool { Actor* other = nullptr; void for_each(const std::function<void(Actor&)>& f) override { if (other) f(*other); } };
+            int n7 = 0, n8 = 0, n8far = 0, n8busy = 0;
+            for (int s = 0; s < 400; ++s) {
+                for (int mode = 0; mode < 3; ++mode) {
+                    Rig r; Actor L, O; W w; for (int i = 0; i < s; ++i) r.rng();
+                    engaged(r, L, {mode == 0 ? 4.0f : 6.5f, 1.075f, 0.0f}); r.env.section = 1; r.env.world = &w;
+                    if (mode == 2) { O.cast_id = 0x33; O.hp = 50; O.live_section = 8; w.other = &O; }
+                    const AiOut o = m470(L.ai, vp, r.env);
+                    if (mode == 0) { n7 += o.section == 7; n8 += o.section == 8; }
+                    else if (mode == 1) n8far += o.section == 8;
+                    else n8busy += o.section == 8;
+                }
+            }
+            std::printf("[aitest]   M470 decisions of 400: at 4 u section 7 x%d / 8 x%d; at 6.5 u section 8 x%d, x%d while another grabs\n",
+                        n7, n8, n8far, n8busy);
+            check(n7 > 90 && n7 < 150 && n8 > 20 && n8 < 65 && n8far > 35 && n8far < 85 && n8busy == 0,
+                  "M470 DECIDE: 30 % request(7) inside 5 u, else 15 % request(8) inside 7.5 u, never while another live Levenueba is in section 8");
+        }
+        {   // the grab: hold at marker 1..13, the bite at marker 2 fast-forwards to 14, then the release and the spit
+            Rig r; Actor L; engaged(r, L, {1.75f, 0.575f, 0.0f});       // 1 u ahead of the mouth (0.75, y - 0.5)
+            r.env.section = 8; r.env.aso_marker = 1; r.env.target_section = 3;
+            const AiOut h1 = m470(L.ai, vp, r.env);
+            const bool hold = h1.hold_target && std::fabs(h1.hold_origin.x - 0.75f) < 1e-6f && std::fabs(h1.hold_origin.y - 1.075f) < 1e-6f &&
+                              h1.hold_origin.z == 0.0f && L.ai.action() == 1 && L.def == 55.0f && (L.flags12c & 0x40u) != 0 &&
+                              L.ai.i(0x79c) == 1 && h1.effects.empty() && h1.fast_forward < 0;
+            r.env.aso_marker = 2;
+            const std::uint32_t before = XorShift(r.rng)();
+            const AiOut h2 = m470(L.ai, vp, r.env);
+            const bool bite = h2.hold_target && h2.effects.size() == 1 && h2.effects[0].id == 0xff && h2.effects[0].scale == 1.3f &&
+                              std::fabs(h2.effects[0].pos.x - 0.75f) < 1e-6f && h2.fast_forward == 14 && XorShift(r.rng)() == before;
+            r.env.aso_marker = 14;
+            const AiOut h3 = m470(L.ai, vp, r.env);
+            const bool spit = !h3.hold_target && h3.effects.size() == 4 && h3.fast_forward == 14 && L.def == 30.0f &&
+                              (L.flags12c & 0x40u) == 0 && L.ai.i(0x79c) == 0 && h3.effects[1].scale >= 1.0f && h3.effects[1].scale < 1.5f;
+            check(hold && bite && spit, "M470 section 8: the target within 1.4 + 0.15d of the mouth is held there (DEF + 25, channel 2 only); "
+                                        "marker 2 -> EF2 255 and the skip to Marker(14); there the release and 3 more a tick");
+            // the escape meter: +3 a held tick outside sections 3 / 0xb, tripped past (d + 5) x 10
+            Rig r2; Actor L2; engaged(r2, L2, {1.75f, 0.575f, 0.0f});
+            r2.env.section = 8; r2.env.aso_marker = 1; r2.env.target_section = 2;
+            int held = 0;
+            for (int t = 0; t < 40; ++t) held += m470(L2.ai, vp, r2.env).hold_target;
+            Rig r3; Actor L3; engaged(r3, L3, {1.75f, 0.575f, 0.0f});
+            r3.env.section = 8; r3.env.aso_marker = 1; r3.env.character = 1; r3.env.target_section = 0x139;
+            check(held == 17 && !m470(L3.ai, vp, r3.env).hold_target,
+                  "M470 hold: a struggling target breaks free after 17 held ticks (Normal); Yunica in section 0x139 is never held");
+        }
+        {   // a hit taken: consumed before the action player, a splash between the two
+            Rig r; Actor L; engaged(r, L, {4.0f, 1.075f, 0.0f}); r.env.section = 1; L.ai.dur() = 5; r.env.was_hit = true;
+            const AiOut o = m470(L.ai, vp, r.env);
+            check(o.consume_hit && o.effects.size() == 1 && o.effects[0].id == 0xff && std::fabs(o.effects[0].pos.x - 2.0f) <= 0.5f,
+                  "M470 hit: the was-hit bit is consumed, EF2 255 at the midpoint +-0.5");
+        }
+    }
     // ---- M690 Glaregrave: the combo and its chain, the guard, the hops, STR / tint (build/ai_spec/M690.md §8 test) ----
     {
         const EnemyBrain m690 = enemy_brain_for(62);

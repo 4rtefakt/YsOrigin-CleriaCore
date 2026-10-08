@@ -3046,6 +3046,7 @@ title_again:
     // still blocks, +0x7bc its life in ticks.
     ef2sim::Effect* shield_fx = nullptr;
     bool shield_on = false;
+    bool player_hold = false;    // P+0x398 set by M470's grab: no vertical integration (view_game.inl, the brain loop)
     int shield_hits = 0, shield_life = 0;
     auto fx_live = [&](const ef2sim::Effect* p) {
         if (!p) return false;
@@ -5977,7 +5978,7 @@ title_again:
                 // t *= 0.88 (0x6bd3d8) — a sink of ~0.074 u/tick.
                 if (character == 2 && shield_on && !pv.grounded && pv.t < 0.0f) pv.t *= 0.88f;
             }
-            {   float dy = vertical_dy(pv, submerged, cur_surface == 0x12);
+            {   float dy = player_hold ? 0.0f : vertical_dy(pv, submerged, cur_surface == 0x12);   // P+0x398 (M470's hold)
                 if (submerged && psand.on_sand2()) {   // the set over sand2 (src/cleria/sand.hpp, 0x45a652)
                     dy = sand2_dy(vertical_dy(pv), moving, psand.water_y, oy);
                     cur_surface = 0x12;                // 0x45a6b7: +0x4b9 = 0x12
@@ -6011,7 +6012,7 @@ title_again:
                     player_kb.x += ip.x; player_kb.z += ip.z;
                 }
             }
-            p_landed = settle_vertical(pv, oy, last_floor, kOriginH, submerged);
+            p_landed = !player_hold && settle_vertical(pv, oy, last_floor, kOriginH, submerged);
             if (submerged && psand.on_sand2() && !pv.grounded) {
                 // 0x45bf52 [EXPORT 0045a510.c:912]: in the set over sand2 +0x388 stays 1; a fall that
                 // entered it last tick in section 3 lands (the follow-on) [approx: the view's landing].
@@ -6200,6 +6201,7 @@ title_again:
                     return er ? er->ai_raw : nullptr;
                 };
                 const Vec3 cam_fwd = cam.forward();
+                player_hold = false;                           // re-asserted by a holding Levenueba's brain tick
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
                     // The M680 / M740 handlers' far freeze, before their HP test: 25 u or more from the player's
@@ -6295,6 +6297,8 @@ title_again:
                     e.hit = false;
                     e.dmg_hit = false;
                     env.hp = en->hp; env.max_hp = en->max_hp; env.section = e.avm.section();
+                    en->live_section = env.section;
+                    env.cam_back = {-cam_fwd.x, 0.0f, -cam_fwd.z};   // [H] M470.md §7 #3
                     const EnemyBrain own = enemy_brain_for(en->ai_index);
                     const int phase_before = e.actor->ai.phase();
                     const AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
@@ -6319,6 +6323,16 @@ title_again:
                         }
                     }
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
+                    // M470's hold (0x48ce69): the player's origin at the mouth, +0x330 = 0, +0x398 = 1 until a brain
+                    // tick of that Levenueba passes without it (its release, its death, a room change).
+                    // [not modelled] FUN_00459ff0's floor / facing writes.
+                    if (o.hold_target) {
+                        feet = {o.hold_origin.x, o.hold_origin.y - kOriginH, o.hold_origin.z};
+                        pv.t = 0.0f;
+                        player_hold = true;
+                        if (ai_debug) std::printf("[hold] #%d holds the player at (%.2f, %.2f, %.2f)\n", en->instance_id,
+                                                  o.hold_origin.x, o.hold_origin.y, o.hold_origin.z);
+                    }
                     // [not modelled] attachment to the actor (FUN_00451c20) and the scale.
                     // The brain's effects, through the particle simulation (their hit fields arm
                     // the EF2's hit emitters; EFFECTHIT.md). Owned ones are killed / re-placed by tag.
@@ -6622,7 +6636,11 @@ title_again:
                     if (in_sand) { dy = std::clamp(dy, -0.015f, 0.03f); a.ai.surf = 0x12; }   // +0x4b9 = 0x12
                     float mdx = a.mover.dx, mdz = a.mover.dz;
                     if (a.ai.surf == 0x12) { mdx *= 0.25f; mdz *= 0.25f; if (dy > 0.0f) dy *= 0.25f; }
-                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, a.radius);
+                    // [approx] Two casts have +0x328 > +0x324 (M470 1.8 / 1.575, M270 0.225 / 0.125): their sphere
+                    // starts every sweep inside the floor, which the engine answers with its type-4 push-out
+                    // (FUN_005dca20, issue #14) and this sweep with no motion at all. Until that is ported the
+                    // sweep radius of such a cast stops 0.01 short of its origin height (0.01 is ours).
+                    Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, std::min(a.radius, a.height - 0.01f));
                     if (hitY > kNoFloor && o1.y > hitY) a.floor_y = hitY;     // +0x318
                     if (!a.flyer && in_sand && o1.y - a.height >= a.floor_y + 0.01f) {
                         a.vert.grounded = true;                               // 0x45bf52: +0x388 = 1 in sand
@@ -7393,7 +7411,12 @@ title_again:
                 if (player_bank.check_and_record(en->hit_serial, e.hb.rehit)) continue;
                 if (e.hb.one_shot) e.atk_win = 0;
                 e.atk_hit = true;
+                const float php_before = player.hp;
                 hurt_player(en->atk, e.hb.power, e.hb.rtype, hang);
+                // M470's lifesteal (FUN_0048de00 0x48e103, M470.md §2): a hit landed in section 8 heals it by the HP the
+                // player lost (at least 1) when it is down by 1 HP or more. [not modelled] the green popup.
+                if (en->ai_index == 40 && e.avm.section() == 8 && en->max_hp - 1.0f >= en->hp)
+                    en->hp = std::min(en->max_hp, float(int(std::max(1.0f, php_before - player.hp))) + en->hp);
                 if (en->ai_index == 21 && en->max_hp > en->hp) {   // M280's lifesteal (FUN_004a5300 0x4a55b7, M280.md §2)
                     const int bb5c = difficulty >= 2 ? difficulty - 2 : 0;
                     const int amt = std::max(1, int(std::floor(en->max_hp / (bb5c == 2 ? 7.5f : bb5c == 1 ? 14.0f : 20.0f))));

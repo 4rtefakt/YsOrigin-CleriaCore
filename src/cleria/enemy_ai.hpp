@@ -200,6 +200,7 @@ struct AiEnv {
     std::uint32_t events = 0;    // +0x3bc this tick: 0x2000/0x4000 = the stun-rolling hits (REACT.md §1)
     bool stun_immune = false;    // +0x12c & 0x80000
     bool bless_stun = false;     // g_flags[217] & 0x80: the "Increase stun effect" blessing
+    Vec3 cam_back{};             // [H] the camera region's eye - look-at (C+0x38.. - C+0x44.., M470's held-player nudge)
     bool boss_fight = false;     // DAT_0076bb8c = g_flags[156] == 1 (M540's handler picks its boss brain)
     // This actor's ASO section priority ("type") by id, or -1 if it has no such section —
     // what FUN_00446550 compares, so a brain can tell whether its request is accepted.
@@ -301,6 +302,11 @@ struct AiOut {
     // the action player then does not see the hit (no acquisition through it).
     bool consume_hit = false;
     bool snap_facing = false;    // the brain set +0x314 = +0x308 (visible facing = heading)
+    // M470's hold (FUN_0048c300 0x48ce69): this tick the target's origin (+0x50, +0x3d4, +0x134, +0x6c) is placed at
+    // hold_origin, its vertical timer +0x330 zeroed and its vertical-integration guard +0x398 set. A tick without
+    // it is the release (+0x398 = 0).
+    bool hold_target = false;
+    Vec3 hold_origin{};
     bool launch_clear = false;   // the stun exit cleared +0x4d0
     int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
     int set_frame = -1;          // write +0x9b8 (the current pattern frame) when >= 0

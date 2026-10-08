@@ -254,6 +254,7 @@ struct Actor {
     std::uint32_t hit_serial = 0;   // +0x3c4: drawn at spawn; the player redraws per attack
     // The factory's flag words +0x12c / +0x130 (factory_flags.hpp, build/ai_spec/FACTORY.md).
     std::uint32_t flags12c = 0x00110010;
+    int live_section = -1; // engine: +0x994, the live ASO section, mirrored by the host (M470 reads the other Levenuebas')
     std::uint32_t flags130 = 0;
     // The sprite's render-state word +0x294 bit 0x400 (D3DRS_ZENABLE, FUN_005eb5b0 bit 10): set by the
     // factory's 0x24541 (FUN_00459410), op 0x158 Chr_ZTest writes it. [not modelled] the sprite pass
