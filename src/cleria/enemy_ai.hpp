@@ -285,6 +285,9 @@ struct AiOut {
     // handlers' script-puppet path (g_flags[130] == 0 -> FUN_0045f250) and their g_flags[131]
     // freeze (FUN_0045f470 only).
     bool skip_action_player = false;
+    // The brain cleared +0x3bc & 4 (the landed-hit bit) before the action player ran (M160 0x4ba9fc):
+    // the action player then does not see the hit (no acquisition through it).
+    bool consume_hit = false;
     bool snap_facing = false;    // the brain set +0x314 = +0x308 (visible facing = heading)
     bool launch_clear = false;   // the stun exit cleared +0x4d0
     int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
