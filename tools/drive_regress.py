@@ -1089,6 +1089,12 @@ CASES.update({
         drive="5:flag=98,1;20:at3=-10,22,143,0;40:move=0,1,120;420:at3=-0.1,4,106,0;440:move=0,1,120;800:quit",
         expect=["[touch] mirror_01 -> s_mirror01", ">> entering S_6014", "[touch] mirror_09 -> s_mirror09",
                 ">> entering S_6082"]),
+    # ROUTE_F47.md B2: S_6009's updraft EVT_UP2 (ChrAllInEventBox_SetForce with fy 0.2, run by the root once
+    # the ward flag 475 is set) lifts the player from the y 8 floor; walking on lands on the y 16 ledge.
+    "updraft_s6009": dict(
+        room="S_60/S_6009/S_6009", char="3",
+        drive="5:flag=475,1;10:saveload;40:at3=-10,8,96,0;150:move=0,1,60;260:pos;270:quit",
+        expect=["t260 pos", "16.000, 103."]),
     # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
     # load tick's drain) and takes the continue snapshot, so a
     # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn

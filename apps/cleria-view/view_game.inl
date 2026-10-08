@@ -2561,13 +2561,13 @@ title_again:
         // 0x15e / 0x15f on the player (+0x5d0 / +0x5d8, counter +0x5dc), applied by the player step
         // (view_xso13_force.inl); an actor with NoForce (+0x130 & 0x10000) is skipped. [not modelled]
         // world actors (no force channel in their mover).
-        struct PForce { float fx = 0, fz = 0; int n = 0; } pforce;
+        struct PForce { float fx = 0, fz = 0; int n = 0; float fy = 0; } pforce;   // fy: +0x5d4 (the box force only)
         const bool* p_grounded = nullptr;
         float origin_h = 0.0f;                           // +0x324: the origin above the feet
-        void force_in_box(const std::string& box, float fx, float, float fz, int frames, bool gonly) override {
+        void force_in_box(const std::string& box, float fx, float fy, float fz, int frames, bool gonly) override {
             if (!roomPtr || !playerPos || p_no_force() || (gonly && !(p_grounded && *p_grounded))) return;
             const SceneBox* b = find_box(roomPtr->event_boxes, box);
-            if (b && b->contains(p_origin())) pforce = {fx, fz, frames};   // FUN_00571ef0: actor +0x54
+            if (b && b->contains(p_origin())) pforce = {fx, fz, frames, fy};   // FUN_00571ef0: actor +0x54; +0x5d0 / d4 / d8 [EXPORT 00571ef0.c:45-48]
         }
         void force_to_point(float x, float y, float z, float s, int frames, float rmin, float rmax, bool gonly) override {
             if (!playerPos || p_no_force() || (gonly && !(p_grounded && *p_grounded))) return;
