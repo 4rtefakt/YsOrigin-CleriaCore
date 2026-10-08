@@ -144,4 +144,37 @@ static void floor6_tests() {
               "M680: H re-rolled to 1.5 / 5.5 at decisions; section 7 forced; shots 0.15 + 0.0015/tick, homing 10..180");
         (void)level_ok;
     }
+    // ---- M740 Drefflum: stationary, a 30-tick decision gate, needles inside 7 u, the bubble fan (M740.md) ----
+    {
+        const EnemyBrain m740 = enemy_brain_for(67);
+        check(m740 != nullptr, "Drefflum registered (AI 67)");
+        EnemyAiParams dp = params(0.16f, 0.09f, 1.0f, 2.0f, 0.0f);     // EI[64]
+        int s7 = 0, s8 = 0, offgate = 0, fan5 = 0, moved = 0;
+        for (int s = 0; s < 120; ++s) {
+            Actor D; D.cast_id = 78; D.ai_index = 67;
+            Rig r; r.env.actor = &D; for (int i = 0; i < s; ++i) r.rng();
+            r.env.target = {s % 2 ? 5.0f : 10.0f, 1.075f, 0}; r.env.section = 2;
+            enemy_ai_tick(D.ai, dp, r.env, m740);                          // INIT: the random facing
+            const float h0 = D.ai.heading;
+            D.ai.phase() = 2; D.ai.turn_hold() = 1;                        // engaged (phase 1's stop(1) hold)
+            for (int t = 0; t < 200; ++t) {
+                const AiOut o = enemy_ai_tick(D.ai, dp, r.env, m740);
+                moved += D.ai.heading != h0;
+                if (o.section == 7 || o.section == 8) {
+                    (o.section == 7 ? s7 : s8) += 1;
+                    offgate += std::uint32_t(D.ai.i(0x87c) - 1) % 30u != 0u;   // the counter ticked after the brain
+                    if (o.section == 8) {                                  // Marker 1 -> the fan
+                        r.env.section = 8; r.env.aso_marker = 1;
+                        const AiOut f = enemy_ai_tick(D.ai, dp, r.env, m740);
+                        fan5 += f.bullets.size() == 5 && f.bullets[0].kind == 7 && f.bullets[0].effect == 0x1eb &&
+                                std::fabs(f.bullets[1].dir.z - float(std::sin(-0.4))) < 1e-4f;
+                    }
+                    break;
+                }
+            }
+        }
+        std::printf("[aitest]   M740: s7 %d s8 %d off-gate %d fans %d turned %d\n", s7, s8, offgate, fan5, moved);
+        check(s7 > 0 && s8 > 0 && offgate == 0 && fan5 == s8 && moved == 0,
+              "M740: forced 7 / 8 only on the 30-tick gate, a 5-bubble kind-7 fan at Marker 1, never turns");
+    }
 }

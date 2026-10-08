@@ -47,6 +47,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 34: return &brains::m410;   // M410 Zarue's hand
         case 36: return &brains::m430;   // M430 Zeruena (handler: brains/revive.cpp)
         case 60: return &brains::m670;   // M670 Bazeraena (handler: brains/revive.cpp)
+        case 67: return &brains::m740;   // M740 Drefflum (handler far freeze)
         case 61: return &brains::m680;   // M680 Hekat-Baocar (handler far freeze: enemy_handler_far_freeze)
         case 37: return &brains::m440;   // M440 Zeruena's hand
         case 88: return &brains::m950;   // M950 Nooze (Green)

@@ -39,6 +39,7 @@ int main(int argc, char** argv) {
     efs[314] = Ef2::load(enemy / "M_720_HEAL01.EF2");
     efs[500] = Ef2::load(enemy / "M_380_02.EF2");
     efs[260] = Ef2::load(enemy / "M_640_ATTACK01.EF2");
+    efs[0x1eb] = Ef2::load(enemy / "M_580_AWA2.EF2");
     for (auto& [id, ef] : efs) if (!ef.ok()) { std::fprintf(stderr, "missing EF2 %d\n", id); return 2; }
     auto ef2_of = [&](int id) -> const Ef2* {
         auto it = efs.find(id);
@@ -702,6 +703,28 @@ int main(int argc, char** argv) {
         check(b && turned >= 100 && turned <= 101 && std::fabs(far_x - 17.67f) < 0.1f,
               "kind 0x2a: out at 0.35 - 0.0035/tick, turns at age 100 after 17.67 u");
         check(caught >= 190 && caught <= 205, "kind 0x2a: snaps home, caught within 0.5 of its owner near age 199 (FUN_0047a7c0)");
+    }
+
+    // ---- kind 7: the weave (M740's bubbles; BULLETS.md §3.7, M740.md §3.6) ----
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        Spawn s;
+        s.kind = 7; s.effect = 0x1eb; s.pos = {0, 0.5f, 0}; s.dir = {1, 0, 0}; s.speed = 0.15f; s.power = 1.5f;
+        s.knock = 20.0f; s.f168 = 3.5f; s.f16c = 5.0f;
+        Bullet* b = bs.spawn(s);
+        Env env;
+        env.player = {100, 0, 100};
+        float side30 = 0, base30 = 0;
+        for (int k = 0; k < 31 && b; ++k) {
+            bs.update(env, nullptr);
+            if (b->age == 31) { side30 = b->mat.m[3][2]; base30 = b->s.pos.x; }
+        }
+        std::printf("[bullet]   weave: age 30 base x %.3f, side z %.3f\n", base30, side30);
+        // age 30: phi = 3 * 30 = 90 deg -> off 5.0 along side = (dir.z, 0, -dir.x) = (0, 0, -1)
+        check(b && std::fabs(base30 - 0.15f * 31.0f) < 1e-3f && std::fabs(side30 + 5.0f) < 1e-3f,
+              "kind 7: base at 0.15 a tick, the matrix 5.0 to the side at age 30 ((int)3.5 deg x age)");
     }
 
     std::printf("[bullet] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);

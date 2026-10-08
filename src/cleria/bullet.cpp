@@ -617,6 +617,19 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             reset_matrix(b);
             break;
         }
+        case 7: {                                                  // FUN_00598ef0: the weave (BULLETS.md §3.7, M740.md §3.6)
+            // base (+0x12c) += dir * speed; the matrix sits at base + side * f10 * sin(((int)f9 * age) mod 360 deg),
+            // side = normalize(UP x dir) = normalize(dir.z, 0, -dir.x); then INTEGRATE.
+            s.pos = {s.pos.x + s.dir.x * s.speed, s.pos.y + s.dir.y * s.speed, s.pos.z + s.dir.z * s.speed};
+            Vec3 side{s.dir.z, 0.0f, -s.dir.x};
+            const float l = float(std::sqrt(double(side.x * side.x + side.z * side.z)));
+            side = l != 0.0f ? Vec3{side.x / l, 0.0f, side.z / l} : Vec3{};
+            const std::uint32_t phi = std::uint32_t(int(s.f168) * int(b.age)) % 360u;
+            const float off = float(std::sin(double(float(phi) * 3.1415927f / 180.0f))) * s.f16c;
+            b.mat = ef2sim::translation(s.pos.x + side.x * off, s.pos.y, s.pos.z + side.z * off);
+            (void)integrate(b);
+            break;
+        }
         case 0x14: case 0x19: case 0x2b:                           // none: the tail only
             break;
         default:
