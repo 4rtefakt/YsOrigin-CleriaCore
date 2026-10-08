@@ -216,7 +216,7 @@ void finish(AiaFrame& body, Canvas& c) {
 }  // namespace
 
 // [C-DIS] the engine's blend for the layer pass: SRCALPHA/ONE. Saturating add of the
-// layer's colour modulated by its own alpha, destination alpha maxed. Pure black is
+// layer's colour modulated by its own alpha (the alpha: see the loop). Pure black is
 // the identity here, which is why ~22% of a layer's opaque pixels can be black
 // without punching holes — the observation that predicted this before we found it.
 void composite_add(AiaFrame& body, const AiaFrame& layer) {
@@ -230,12 +230,26 @@ void composite_add(AiaFrame& body, const AiaFrame& layer) {
             if (sa == 0) continue;
             const std::size_t di =
                 ((std::size_t(layer.y0 - c.y0 + y)) * c.w + (layer.x0 - c.x0 + x)) * 4;
+            // SRCALPHA/ONE — the layer is modulated by its own alpha, then added to the FRAMEBUFFER.
+            // The composite is one straight-alpha texture drawn alpha-over, so its alpha must be
+            // the coverage the add needs, not the layer's alpha: with alpha = max(body, layer) a
+            // dark opaque layer pixel outside the body's silhouette drew as opaque black (issue
+            // #71: the black ball round the glow at Hugo's wand tip). alpha' = max(body alpha,
+            // the brightest added channel), colour' = (body x alpha + add) / alpha': exact where
+            // the body is opaque, and black stays the identity. [approx] elsewhere the screen
+            // behind is dimmed by (alpha' - body alpha) where the engine's add leaves it whole;
+            // the exact form is the layer as its own additive quad.
+            std::uint32_t add[3], m = 0;
             for (int k = 0; k < 3; ++k) {
-                // SRCALPHA/ONE — the layer is modulated by its own alpha, then added.
-                const std::uint32_t add = layer.rgba[si + k] * sa / 255;
-                c.px[di + k] = std::uint8_t(std::min<std::uint32_t>(255, c.px[di + k] + add));
+                add[k] = layer.rgba[si + k] * sa / 255;
+                m = std::max(m, add[k]);
             }
-            c.px[di + 3] = std::uint8_t(std::max<std::uint32_t>(c.px[di + 3], sa));
+            const std::uint32_t da = c.px[di + 3];
+            const std::uint32_t na = std::max(da, m);
+            if (na == 0) continue;
+            for (int k = 0; k < 3; ++k)
+                c.px[di + k] = std::uint8_t(std::min<std::uint32_t>(255, (c.px[di + k] * da + add[k] * 255) / na));
+            c.px[di + 3] = std::uint8_t(na);
         }
     }
     finish(body, c);
