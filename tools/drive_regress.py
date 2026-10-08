@@ -1095,6 +1095,13 @@ CASES.update({
         room="S_60/S_6009/S_6009", char="3",
         drive="5:flag=475,1;10:saveload;40:at3=-10,8,96,0;150:move=0,1,60;260:pos;270:quit",
         expect=["t260 pos", "16.000, 103."]),
+    # ROUTE_F47.md B3: the last script of the game. S_0003 with 206 == 1 runs Toal's Clear_Event_2, whose
+    # ChangeScene('Title\') is the title itself (it used to resolve to "(none)" and leave a black screen).
+    "ending_to_title": dict(
+        room="S_00/S_0003/S_0003", char="3",
+        drive="5:flag=206,1;10:saveload;40:every=15,6000,ok;6000:quit",
+        expect=[">> entering S_0003", "ChangeScene 'Title\\' -> the title", "Return to Title: back to the title",
+                "[title] t60 fader 0.00 list 1 book 0"]),
     # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
     # load tick's drain) and takes the continue snapshot, so a
     # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn

@@ -5111,6 +5111,20 @@ title_again:
             csMgr.paused = false;
             // A demo scene: its movie runs to its end (or a skip) and the fade to black first.
             if (const int demo = demo_number(req); demo && !play_demo(demo)) { running = false; continue; }
+            // ChangeScene('Title\'): the scene name "title\" (0x698a1c, read by FUN_00431840 / FUN_00442260
+            // [EXPORT strings.tsv]) is the title itself. S_0003's Clear_Event_1/2 end the game with it
+            // (ROUTE_F47.md B3). [approx] by the book's Return to Title route.
+            {   std::string lr = req;
+                for (char& c : lr) c = (c == '/') ? '\\' : char(std::tolower((unsigned char)c));
+                while (!lr.empty() && lr.back() == '\\') lr.pop_back();
+                if (lr == "title") {
+                    std::printf("  [scene] ChangeScene '%s' -> the title\n", req.c_str());
+                    audio.fade_out_bgm(0xbb8);
+                    cur_bgm = 0;
+                    return_to_title = true; running = false; accum = 0;
+                    continue;
+                }
+            }
             const std::string dest = scene_room(req);
             std::printf("  [scene] ChangeScene '%s' -> %s\n", req.c_str(), dest.empty() ? "(none)" : dest.c_str());
             if (!dest.empty()) {
