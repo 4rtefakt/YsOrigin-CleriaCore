@@ -221,8 +221,7 @@ NOTES = {
     0x164: ("partial", "+0x130 bit 0x80000 (FUN_00571db0): the mover FUN_0045f4d0 keeps the current motion; "
                        "honoured by the view's cutscene (frozen) locomotion pick only"),
     0x167: ("unhandled", "+0x97c = op1 (FUN_00571ec0); reader not traced [not modelled]"),
-    0x179: ("unhandled", "FUN_00503990 rebuilds the matrix from the placement rotation; no floor 1..3 script "
-                         "rotates a mesh (0x172/0x174: 0 sites), so it would be a no-op [not modelled]"),
+    0x179: ("implemented", "FUN_005730b0: the placement rotation +0x3dc re-baked (meshobj.cpp; floor 4 2026-10-08)"),
     0x17c: ("partial", "[approx] spawned once at the mesh position, not attached; frame names not resolved"),
     0x8b: ("partial", "kinds 0/2/7/8/10/12 modelled; [not modelled] 11 and part of 12"),
 }
