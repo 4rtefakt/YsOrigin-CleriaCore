@@ -38,6 +38,7 @@ int main(int argc, char** argv) {
     efs[302] = Ef2::load(enemy / "M_300_FIRE01.EF2");
     efs[314] = Ef2::load(enemy / "M_720_HEAL01.EF2");
     efs[500] = Ef2::load(enemy / "M_380_02.EF2");
+    efs[260] = Ef2::load(enemy / "M_640_ATTACK01.EF2");
     for (auto& [id, ef] : efs) if (!ef.ok()) { std::fprintf(stderr, "missing EF2 %d\n", id); return 2; }
     auto ef2_of = [&](int id) -> const Ef2* {
         auto it = efs.find(id);
@@ -675,6 +676,32 @@ int main(int argc, char** argv) {
         const bool dead = bs.probes().size() == 2 && bs.probes()[0]->gone && bs.probes()[1]->gone;
         bs.update(env, &ev);
         check(dead && bs.probes().empty() && ev.empty(), "probe: radius 0 or step 0 is born dead (FUN_0058f9a0)");
+    }
+
+    // ---- kind 0x2a: the boomerang (build/ai_spec/M640.md §7 worked example) ----
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        Spawn s;
+        s.kind = 0x2a; s.effect = 260; s.owner = 68; s.pos = {0, 0, 0}; s.dir = {1, 0, 0};
+        s.speed = 0.35f; s.accel = -0.0035f; s.knock = 1.0f; s.f168 = 0.3f; s.f16c = 0.1f; s.f170 = 15.0f;
+        Bullet* b = bs.spawn(s);
+        Env env;
+        env.player = {50, 0, 50};
+        env.actor = [](int id, Vec3* p, float* hp) { if (id != 68) return false; *p = {0, 0, 0}; *hp = 40; return true; };
+        int turned = -1, caught = -1;
+        float far_x = 0.0f;
+        for (int k = 0; k < 260 && caught < 0 && b; ++k) {
+            bs.update(env, nullptr);
+            far_x = std::max(far_x, b->s.pos.x);
+            if (turned < 0 && b->u184 == 1) turned = int(b->age);
+            if (b->fx && b->fx->kill) caught = int(b->age);
+        }
+        std::printf("[bullet]   boomerang: turned at age %d after %.2f u, caught at age %d\n", turned, far_x, caught);
+        check(b && turned >= 100 && turned <= 101 && std::fabs(far_x - 17.67f) < 0.1f,
+              "kind 0x2a: out at 0.35 - 0.0035/tick, turns at age 100 after 17.67 u");
+        check(caught >= 190 && caught <= 205, "kind 0x2a: snaps home, caught within 0.5 of its owner near age 199 (FUN_0047a7c0)");
     }
 
     std::printf("[bullet] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);

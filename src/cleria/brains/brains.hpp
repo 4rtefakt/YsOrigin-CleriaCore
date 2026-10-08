@@ -81,6 +81,7 @@ AiOut m950(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ef840 Nooz
 AiOut m610(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ac940 Gunghogan (M190's charge + leap)
 AiOut m400(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ae8c0 Tolpi (the pollen spray)
 AiOut m650(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b4890 Tenat-Baocar (drifting caster, homing shots)
+AiOut m640(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b74c0 Samachryce (lunge, boomerangs, dodges)
 AiOut m280(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a34b0 Chups (the latch)
 AiOut m290(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a2120 Bicmobre (kind-0xf bombs)
 // FUN_004a2f90, M290's handler death helper: one dead tick (bb5c = DAT_0076bb5c); the bombs it throws.

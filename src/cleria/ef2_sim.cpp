@@ -540,6 +540,15 @@ void System::kill_owned(int owner, int tag) {
     }
 }
 
+void System::kill_effect(Effect* fx) {
+    if (!fx) return;
+    bool listed = false;
+    for (auto& f : fx_) listed |= f.get() == fx;
+    if (!listed) return;
+    for (auto& p : parts_) if (p->fx == fx && !p->dead) p->dying = true;
+    fx->kill = true;
+}
+
 void System::move_owned(int owner, int tag, const Vec3& pos, const Vec3& rot, const Vec3& scale) {
     for (auto& f : fx_)
         if (f->owner == owner && f->tag == tag) place(*f, pos, rot, scale);

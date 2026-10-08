@@ -51,6 +51,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 54: return &brains::m610;   // M610 Gunghogan
         case 33: return &brains::m400;   // M400 Tolpi
         case 58: return &brains::m650;   // M650 Tenat-Baocar
+        case 57: return &brains::m640;   // M640 Samachryce
         case 21: return &brains::m280;   // M280 Chups (lifesteal: the host's hit site)
         case 22: return &brains::m290;   // M290 Bicmobre (death bombs: view_revive.inl)
         case 69: return &brains::m760;   // M760 Raldisch
