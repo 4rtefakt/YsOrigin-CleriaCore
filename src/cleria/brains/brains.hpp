@@ -75,6 +75,9 @@ AiOut m560(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a0260 Karo
 AiOut m780(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004aa220 Zelkaron (Karon + combos; revives)
 AiOut m570(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f3730 Zarue (hover summoner; revives)
 AiOut m410(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004f4bb0 Zarue's hand
+AiOut m430(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b27e0 Zeruena (M570's template + the barrier; revives)
+AiOut m440(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004b3e70 Zeruena's hand (M410 minus DEF 999 / the clamp)
+AiOut m950(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ef840 Nooze (Green)
 AiOut m280(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a34b0 Chups (the latch)
 AiOut m290(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a2120 Bicmobre (kind-0xf bombs)
 // FUN_004a2f90, M290's handler death helper: one dead tick (bb5c = DAT_0076bb5c); the bombs it throws.

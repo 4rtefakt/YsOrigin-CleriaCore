@@ -633,6 +633,15 @@ CASES.update({
         expect=["[actor] id 168 cast 40 enemy hp 5869", "[actor] id 184 cast 184 enemy hp", "defeated 1",
                 "M360 death section 5", "[actor] id 168 cast 40 enemy hp 0", "[actor] id 184 cast 184 enemy hp 0",
                 "flags 130=0 131=1 133=0 156=0"]),
+    # Floor 5: M430 Zeruena (build/ai_spec/M430.md) — inside 7 u the barrier (sub 0x70), at 8 u the summon:
+    # 4 hands of cast 0x30 (M440) on Normal, which appear by the player and are gone again by t700.
+    "zeruena_summon": dict(
+        room="S_50/S_5009/S_5009",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=47,5;80:near=47,5;120:every=40,1000,near=47,8;"
+              "700:actors;1000:quit",
+        expect=["near cast 47 id 47 hp 413 flags 156=0 130=0 phase 2 sub 112", "phase 2 sub 102",
+                "[actor] id 48 cast 48 enemy hp 0", "[actor] id 199 cast 48", "[actor] id 200 cast 48",
+                "[actor] id 201 cast 48"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,

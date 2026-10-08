@@ -55,6 +55,7 @@ struct Rig {
 };
 
 #include "floor4.inl"   // the floor-4 brains (S_40)
+#include "floor5.inl"   // the floor-5 brains (S_50)
 
 int main() {
     const EnemyAiParams p = m100();
@@ -2954,6 +2955,7 @@ int main() {
     }
 
     floor4_tests();
+    floor5_tests();
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;

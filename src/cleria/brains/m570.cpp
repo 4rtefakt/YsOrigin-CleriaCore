@@ -1,5 +1,9 @@
 // M570 Zarue — brain FUN_004f3730 (AI index 50; its revive handler FUN_004f4690 is
 // src/cleria/brains/revive.cpp). Spec: build/ai_spec/M570.md, REVIVE.md; its hands: M410.md.
+// M430 Zeruena (brain FUN_004b27e0, AI index 36, handler FUN_004b3970) is the same template:
+// build/ai_spec/M430.md (inside 7 u it raises a barrier — section 6 for 120 ticks, the turn rate x
+// (0.1d + 0.3), a cooldown of 165 - 15d + R%30 — and flees only when high with room behind it; its
+// hands are cast 0x30, M440).
 //
 // A hovering summoner (hover 1.0, "high" 3.2). Engaged it decides when its action runs out: beyond
 // 9 u (horizontal) it runs in for 15 ticks; inside 4 it flees for 60 (or, already high over a
@@ -20,8 +24,14 @@
 
 namespace cleria::brains {
 
-AiOut m570(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
+namespace {
+
+// M570 and M430 Zeruena (brain FUN_004b27e0, build/ai_spec/M430.md: the same template with the near
+// branch inverted at 7 u, a barrier (section 6, sub 0x6e..0x70), cast-0x30 children 2/4/6 at
+// heading - (a + 0.3)·pi).
+AiOut summoner(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, bool z430) {
     using ai::r15;
+    const int kChild = z430 ? 0x30 : 0x2d;
     AiOut out;
     if (e.launched) return out;                                    // 0x4f385b
     Actor* A = e.actor;
@@ -34,7 +44,7 @@ AiOut m570(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     bool child0 = false, child1 = false;                           // the last match of each side
     if (e.world && A) {
         e.world->for_each([&](Actor& c) {
-            if (c.cast_id != 0x2d || c.ai.i(0x854) != A->instance_id) return;
+            if (c.cast_id != kChild || c.ai.i(0x854) != A->instance_id) return;
             (c.ai.i(0x7a0) == 0 ? child0 : child1) = true;
         });
     }
@@ -89,7 +99,7 @@ AiOut m570(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         if (A) A->flyer = false;
     }
     if (a.i(0x7bc) != 0 && --a.i(0x7bc) == 0 && A) A->flyer = true;
-    if (std::uint32_t(a.i(0x72c)) > 0x6du) return out;
+    if (std::uint32_t(a.i(0x72c)) > (z430 ? 0x70u : 0x6du)) return out;
     switch (a.i(0x72c)) {
         case 0:
             a.f(0x814) = a.f(0x7b0);
@@ -103,7 +113,21 @@ AiOut m570(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 a.f(0x834) = a.f(0x7ac);
                 return out;
             }
-            if (4.0f > pd) {                                       // NEAR (NaN goes to MID)
+            if (z430 && 7.0f > pd) {                               // M430 NEAR (0x4b2d45): the barrier
+                bool flee = false;                                 // 0x6bd8b8
+                if (a.f(0x834) > a.f(0x7ac) + 0.1f && e.target_grounded && e.world) {
+                    Vec3 v{e.self.x - e.target.x, 0.0f, e.self.z - e.target.z};
+                    const float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+                    v = l == 0.0f ? Vec3{} : Vec3{v.x * (1.0f / l), 0.0f, v.z * (1.0f / l)};
+                    flee = !e.world->ray(e.self, v).hit;           // room behind it: flee
+                }
+                if (flee) { a.action() = 0x400; a.steer() = 3; a.dur() = 60; }
+                else { a.i(0x72c) = 0x6e; a.i(0x730) = 0; a.i(0x79c) = 0; }   // +0x7a0 not written
+                const int r = int(r15(e) % 100u);                  // ROLL (0x4b2e2b)
+                if (r < (d + 2) * 15 || tagged) a.f(0x834) = a.f(0x7ac) + 2.2f;
+                return out;
+            }
+            if (!z430 && 4.0f > pd) {                              // NEAR (NaN goes to MID)
                 bool cornered = false;
                 if (a.f(0x834) > a.f(0x7ac) + 0.1f && e.target_grounded && e.world) {
                     Vec3 v{e.self.x - e.target.x, 0.0f, e.self.z - e.target.z};   // FUN_0042cc50
@@ -153,15 +177,17 @@ AiOut m570(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 fx.power = 10.0f; fx.knock = 1.0f;
                 out.effects.push_back(fx);
                 if (e.world) {
-                    const int n = 1 + (d >= 1 ? 1 : 0);
+                    const int n = z430 ? (d + 2) / 2 + 1 : 1 + (d >= 1 ? 1 : 0);   // M430 0x4b32ad
                     const float step = 6.28318f / float(n);        // 0x6bd894
                     float an = 0.0f;
                     for (int k = 0; k < n; ++k) {
                         for (int side = 0; side < 2; ++side) {
-                            const float th = side == 0 ? (an + 0.942477f) + a.heading : (an - 0.942477f) + a.heading;
+                            // M430: both of a pair at heading - (a + 0.3)·pi (0x6bd27c, 0x6bd6a8), literal.
+                            const float th = z430 ? a.heading - (an + 0.3f) * 3.14159f
+                                           : side == 0 ? (an + 0.942477f) + a.heading : (an - 0.942477f) + a.heading;
                             const Vec3 dd{float(std::cos(double(th))) * 2.5f + 0.0f, 0.0f,
                                           float(std::sin(double(th))) * 2.5f + 0.0f};
-                            Actor* c = e.world->spawn_child(*A, 0x2d, dd, A->level, /*keep_phase0*/true);
+                            Actor* c = e.world->spawn_child(*A, kChild, dd, A->level, /*keep_phase0*/true);
                             if (!c) continue;                      // (the engine does not check)
                             c->ai.i(0x854) = A->instance_id;
                             c->ai.i(0x7a0) = side;
@@ -203,8 +229,34 @@ AiOut m570(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             if (std::uint32_t(n) >= 23u) { force(300); a.i(0x72c) = 0x67; }
             return out;
         }
+        case 0x6e:                                                 // the barrier (M430 0x4b36f5)
+            a.action() = 2; a.steer() = 0; a.dur() = 0;
+            a.i(0x72c) = 0x6f;
+            [[fallthrough]];
+        case 0x6f:                                                 // 0x4b371d
+            if (a.dur() != 0) return out;
+            gated(6);                                              // result ignored
+            a.action() = 2; a.dur() = 120;
+            {
+                const int r = int(r15(e) % 30u);
+                a.cool() = r + (-d + 3) * 15 + a.dur();            // r + 165 - 15d
+            }
+            a.f(0x814) = (float(d) * 0.1f + 0.3f) * a.f(0x7b0);    // 0x6bd19c, 0x6bd27c
+            a.i(0x72c) += 1;
+            [[fallthrough]];
+        case 0x70:                                                 // 0x4b3860
+            if (a.dur() == 0) { a.action() = 1; a.dur() = a.cool(); }
+            if (a.cool() != 0) return out;
+            a.i(0x72c) = a.i(0x79c);
+            a.f(0x814) = a.f(0x7b0);
+            return out;
         default: return out;
     }
 }
+
+}  // namespace
+
+AiOut m570(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) { return summoner(a, p, e, false); }
+AiOut m430(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) { return summoner(a, p, e, true); }
 
 }  // namespace cleria::brains

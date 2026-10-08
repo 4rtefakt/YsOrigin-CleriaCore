@@ -45,6 +45,9 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 71: return &brains::m780;   // M780 Zelkaron (handler: brains/revive.cpp)
         case 50: return &brains::m570;   // M570 Zarue (handler: brains/revive.cpp)
         case 34: return &brains::m410;   // M410 Zarue's hand
+        case 36: return &brains::m430;   // M430 Zeruena (handler: brains/revive.cpp)
+        case 37: return &brains::m440;   // M440 Zeruena's hand
+        case 88: return &brains::m950;   // M950 Nooze (Green)
         case 21: return &brains::m280;   // M280 Chups (lifesteal: the host's hit site)
         case 22: return &brains::m290;   // M290 Bicmobre (death bombs: view_revive.inl)
         case 69: return &brains::m760;   // M760 Raldisch
