@@ -46,6 +46,7 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 50: return &brains::m570;   // M570 Zarue (handler: brains/revive.cpp)
         case 34: return &brains::m410;   // M410 Zarue's hand
         case 36: return &brains::m430;   // M430 Zeruena (handler: brains/revive.cpp)
+        case 60: return &brains::m670;   // M670 Bazeraena (handler: brains/revive.cpp)
         case 37: return &brains::m440;   // M440 Zeruena's hand
         case 88: return &brains::m950;   // M950 Nooze (Green)
         case 89: return &brains::m960;   // M960 Nooze (Purple)
