@@ -48,7 +48,7 @@ int boss6_zava_id = 0;                                     // her instance id (0
 bool boss6_zava_ran = false;                               // her handler ran this frame (the tail consumes it)
 float boss6_zava_face = 0;                                 // her facing before this frame's mover
 int boss6_zava_log = -1;                                   // CLERIA_BOSSLOG: phase * 100 + action last printed
-bool boss6_zava_big = false;                               // she has started the big attack (drive boss6=big)
+std::function<void()> boss6_pilot;                         // drive boss6: the per-tick player pilot (below)
 float boss6_cam_t = 0, boss6_cam_step = 0.005f, boss6_cam_from = 0;   // hbA+0x11c / +0x120 / +0x124 (ZAVA_CG §G.1)
 static const bool boss6_log = std::getenv("CLERIA_BOSSLOG") != nullptr;
 auto boss6_m4 = [](const ef2sim::M4& a) {
@@ -513,6 +513,7 @@ auto boss6_tick = [&] {
                     zv ? zv->pos.y + zv->height : 0.0f, zv ? zv->pos.z : 0.0f, game.g_flags[156], feet.x, feet.y, feet.z,
                     player_floor_obj.c_str(), player.hp);
     }
+    if (boss6_pilot) boss6_pilot();
 };
 // Zava in the enemy loop, before her enemy_ai_tick: the link (ZAVA_AB §A.1; boss06_zava.hpp).
 auto boss6_zava_env = [&](Actor& en, AiEnv& env) {
@@ -520,7 +521,7 @@ auto boss6_zava_env = [&](Actor& en, AiEnv& env) {
     if (boss6_zava_id != en.instance_id || en.ai.phase() == 0) {   // a new actor (INIT pending): the statics start over
         boss6_link = Boss06Link{};
         if (boss6_zava_id != en.instance_id) boss6_zava_log = -1;
-        boss6_zava_id = en.instance_id; boss6_zava_big = false;
+        boss6_zava_id = en.instance_id;
         boss6_z.hits = 0;
     }
     if (!boss6) boss6_player_in(boss6_in);                 // no heads: the player snapshot only (the fight does not start)
@@ -576,7 +577,12 @@ auto boss6_zava_post = [&](Actor& en, const AiEnv& env, AiOut& o) {
         award_exp(en.exp_reward, en.level, /*boss*/true);
     }
     const int st = en.ai.i(0x79c) * 100 + en.ai.i(0x728);
-    if (st == 220) boss6_zava_big = true;
+    if (boss6_log && env.took_damage)                      // Z+0x3bc & 2 as her brain read it this frame
+        std::printf("  [boss06] t%llu Zava took a hit: hp %.0f, y %.2f, %s, hits left %d, ride count %u, lives %d/%d\n",
+                    (unsigned long long)tick_count, en.hp, en.pos.y + en.height,
+                    (en.ai.i(0x7a0) & 2) ? "riding" : en.flyer ? "flying" : en.vert.grounded ? "grounded" : "falling",
+                    en.ai.i(0x8a8), unsigned(boss6_z.hits), boss6 ? int(boss6->head(0).lives) : 0,
+                    boss6 ? int(boss6->head(1).lives) : 0);
     if (boss6_log && st != boss6_zava_log) {
         boss6_zava_log = st;
         std::printf("  [boss06] t%llu Zava phase %d action %d hp %.0f/%.0f\n", (unsigned long long)tick_count, en.ai.i(0x79c),
@@ -607,33 +613,140 @@ auto boss6_zava_tail = [&] {
     boss6_apply(boss6_zbo);
     boss6_zbo = Boss06Output{};
 };
-// drive `boss6`: while the fight is live, stand 0.8 off Zava's hurt body, face her and swing (lifted level with her while she
-// hovers). `boss6=big`: the same, but once she is under 25 % HP and off the heads (a ridden head's lives still
-// need her hit) the aid holds its swing until she has started the big attack (phase 2 action 20), so a run sees it
-// before the kill.
+// drive `boss6[=opts]`: the fight as a player fights it, from then on every tick (`boss6=off` ends it). The pilot only
+// ever (a) puts the player ON THE ARENA FLOOR (y 6.0), while grounded, at a spot a player would run to, and faces the
+// target, and (b) presses Jump / Attack / the stick / the Skill button through the normal input path. It never lifts
+// the player and never touches Zava or the heads; what it knows is what a player sees (where she is, whether she
+// flies, casts, lies or rides).
+//   phase 1   she flies at origin y 13 (ZAVA_AB B.3), out of a grounded swing's and a single jump's reach: stand under
+//             her while she holds her place (action 4 the hover, 8 the lightning cast), jump, jump again near the
+//             top (flag 163, the double jump), then the air combo (the stick toward her + Attack). Knocked down
+//             (A.8): stand by her and swing.
+//   phase 2   riding (Z+0x7a0 & 2): stand on the floor beside the ridden (orbited) head, toward her, and swing: each
+//             tick she takes damage counts Z+0x7a8 (ZAVA_CG C.2 step 4). Thrown off (step 5): stand by her and
+//             swing. The mount and the floor cast: wait. The big attack (C.6): run to the arena's edge while she
+//             casts, then hold the stick away from the centre and keep jumping. A head's bite (ZAVA_EF E1.1): mash
+//             Attack (each press tick counts toward the escape).
+// Options (comma list): `lightning` = phase 1 jumps only while she casts lightning (action 8), not in the plain hover;
+// `thunder` = phase 1 taps the Skill button from the second jump in place of the air combo (Yunica's Thunder 0x10c
+// is a rising slash, C_010.ASO anime_Jump(0.14); cast in her hover it sets off her dodge, B.1 (3)); `cast` = also
+// jump at her while she casts the floor attack (phase 2 action 8: her "hits left", C.4).
+bool b6p_on = false, b6p_thunder = false, b6p_lightning = false, b6p_cast = false;
+int b6p_air = -1;                                          // ticks since the pilot's jump press (-1 = not its jump)
+bool b6p_second = false;                                   // its second jump is spent
+int b6p_cool = 0;                                          // ticks until its next press on the ground
+int b6p_skill = 0;                                         // ticks of the Skill button left to hold
+boss6_pilot = [&] {
+    if (!b6p_on) return;
+    if (b6p_skill > 0 && --b6p_skill == 0) drive_skill = false;
+    const Actor* zv = boss6_zava();
+    if (boss6_grab && player.hp >= 1 && !csMgr.world_frozen()) {   // in a head's mouth: mash (a press every other tick)
+        if (tick_count % 2 == 0) access_drive("oktap");
+        b6p_air = -1;
+        return;
+    }
+    if (!zv || game.g_flags[156] != 1 || csMgr.world_frozen() || player.hp < 1 || !boss6) { b6p_air = -1; return; }
+    if (!zv->alive() || !zv->ai.hittable) return;          // dying
+    const Vec3 c{zv->pos.x, zv->pos.y + zv->height, zv->pos.z};
+    const int ph = zv->ai.i(0x79c), act = zv->ai.i(0x728), zf = zv->ai.i(0x7a0);
+    const bool riding = (zf & 2) != 0, open = zv->def < 999.0f;
+    const bool lying = !zv->flyer && zv->vert.grounded && !riding;   // knocked down / thrown off
+    auto toward = [&](float& dx, float& dz) {              // unit xz from the player to her (+z right under her); the distance
+        dx = c.x - feet.x; dz = c.z - feet.z;
+        const float l = std::sqrt(dx * dx + dz * dz);
+        if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = 1; }
+        return l;
+    };
+    auto face = [&](float dx, float dz) {
+        face_dir = {dx, 0.0f, dz};
+        facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+    };
+    // Stand on the arena floor `d` from (x, z) on the player's side of it, facing it. Only while grounded.
+    auto stand = [&](float x, float z, float d) {
+        float dx = feet.x - x, dz = feet.z - z;
+        const float l = std::sqrt(dx * dx + dz * dz);
+        if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
+        const float px = std::clamp(x + dx * d, -49.0f, -19.0f), pz = std::clamp(z + dz * d, 15.5f, 38.0f);
+        const float fl = floor_at(phys_mesh(room), px, pz, 6.0f + 0.5f);   // the floor, never a head's back
+        if (fl <= kNoFloor || std::fabs(fl - 6.0f) > 0.3f) return false;
+        feet = {px, fl, pz};
+        face(-dx, -dz);
+        return true;
+    };
+    // The big attack (ZAVA_CG §C.6): run to the arena's edge while she flies to her spot and casts (steps 0..2, some
+    // 200 frames), then hold the stick away from the centre and keep jumping (the pull is 0.3 a frame on the ground,
+    // 0.1 in the air).
+    if (ph == 2 && act == 20 && !open) {
+        const int stp = zv->ai.i(0x72c);
+        float ox = feet.x + 34.0f, oz = feet.z - 29.0f;
+        const float ol = std::sqrt(ox * ox + oz * oz);
+        if (ol > 1e-3f) { ox /= ol; oz /= ol; } else { ox = 0; oz = -1; }
+        if (stp < 4) { if (pv.grounded && ol < 12.0f) stand(-34.0f, 29.0f, 40.0f); }
+        else if (stp == 4) {
+            drive_wish = {ox, 0.0f, oz}; drive_wish_n = 1;
+            if (pv.grounded) drive_jump = true;
+        }
+        b6p_air = -1;
+        return;
+    }
+    if (!pv.grounded) {                                    // in the air: only its own jump is steered
+        if (b6p_air < 0) return;
+        ++b6p_air;
+        float dx, dz;
+        const float l = toward(dx, dz);
+        // The stick, held toward her from the lift-off on: the air combo needs it (COMBO_CHAIN: a neutral stick gives
+        // the single jump attack 0x109), and a stick let go inside 10 ticks would open the tap window, which
+        // refuses the jump press.
+        drive_wish = {dx, 0.0f, dz}; drive_wish_n = 1;
+        if (!b6p_second && pv.t <= 0.12f) {                // near the first jump's top (the engine's gate is t <= 0.15): the second
+            drive_jump = true; b6p_second = true;
+            if (boss6_log) std::printf("  [pilot] t%llu second jump, feet y %.2f\n", (unsigned long long)tick_count, feet.y);
+        }
+        const float need = c.y - (feet.y + kOriginH);     // her origin above the player's
+        if (b6p_thunder && ph == 1) {                      // the skill from the second jump's rise (a 2-tick tap, every 24)
+            if (b6p_second && need < 4.0f && l < 2.5f && open && b6p_skill == 0 && b6p_air % 24 == 0) {
+                drive_skill = true; b6p_skill = 2;
+                if (boss6_log) std::printf("  [pilot] t%llu air skill, feet y %.2f, Zava %.2f above, %.2f away\n",
+                                           (unsigned long long)tick_count, feet.y, need, l);
+            }
+        } else if (b6p_second && need < 2.2f && l < 2.5f && open && b6p_air % 5 == 0) {
+            try_attack();
+            if (boss6_log) std::printf("  [pilot] t%llu air attack, feet y %.2f, Zava %.2f above, %.2f away\n",
+                                       (unsigned long long)tick_count, feet.y, need, l);
+        }
+        return;
+    }
+    if (b6p_air >= 0 && b6p_air < 4) { ++b6p_air; return; }   // its press is taking off
+    b6p_air = -1;
+    if (b6p_cool > 0) { --b6p_cool; return; }
+    if (!open) return;                                     // behind her barrier (the mount): wait
+    if (lying) {                                           // on the ground: stand by her and swing
+        float dx, dz;
+        if (toward(dx, dz) > zv->hurt_radius + 1.0f) stand(c.x, c.z, zv->hurt_radius + 0.5f);
+        else face(dx, dz);
+        try_attack(); b6p_cool = 6;
+        return;
+    }
+    if (riding) {                                          // on a head (her origin ~1.5 above the player's): from the floor beside it
+        float dx, dz;
+        if (toward(dx, dz) > zv->hurt_radius + 1.5f) stand(c.x, c.z, zv->hurt_radius + 0.9f);
+        else face(dx, dz);
+        try_attack(); b6p_cool = 6;
+        return;
+    }
+    const float up = c.y - (6.0f + kOriginH);              // her origin above a grounded player's
+    const bool holds = ph == 1 ? ((act == 4 && !b6p_lightning) || act == 8) : (b6p_cast && ph == 2 && act == 8);
+    if (!zv->flyer || !holds) return;                      // she is moving: wait for her to stop
+    if (!stand(c.x, c.z, 0.4f)) return;
+    drive_jump = true; b6p_air = 0; b6p_second = false;
+    if (boss6_log) std::printf("  [pilot] t%llu jump under Zava (act %d), %.2f above\n", (unsigned long long)tick_count, act, up);
+};
 boss6_drive = [&](const std::string& cmd) {
     if (cmd.rfind("boss6", 0) != 0) return false;
-    const Actor* zv = boss6_zava();
-    if (!zv || game.g_flags[156] != 1 || csMgr.world_frozen() || player.hp < 1 || boss6_grab) return true;
-    if (!zv->alive() || !zv->ai.hittable) return true;     // dying: nothing to stand by
-    if (zv->def >= 999.0f) return true;                    // behind her barrier (the mount, the big attack): nothing to hit
-    if (cmd == "boss6=big" && zv->max_hp * 0.25f > zv->hp && !boss6_zava_big && !(zv->ai.i(0x7a0) & 2)) return true;
-    const Vec3 c{zv->pos.x, zv->pos.y + zv->height, zv->pos.z};
-    float dx = feet.x - c.x, dz = feet.z - c.z;
-    const float l = std::sqrt(dx * dx + dz * dz);
-    if (l > 1e-3f) { dx /= l; dz /= l; } else { dx = 0; dz = -1; }
-    const float reach = zv->hurt_radius + 0.8f;
-    const float x = c.x + dx * reach, z = c.z + dz * reach;
-    // She hovers out of a grounded swing's reach (floor 6.0 + H, ZAVA_AB §B.3): the aid lifts the player level with
-    // her and swings there (an air attack), as `duel=` places and attacks.
-    const float fl = floor_at(phys_mesh(room), x, z, 6.0f + 3.0f);
-    const float base = fl > kNoFloor ? fl : 6.0f;
-    feet = {x, std::max(base, c.y - kOriginH), z};
-    if (feet.y > base + 0.5f) { pv.grounded = false; grounded = false; pv.t = 0.0f; }
-    face_dir = {-dx, 0.0f, -dz};
-    facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
-    try_attack();
-    std::printf("  [drive] boss6 -> Zava (%.2f,%.2f,%.2f) hp %.0f/%.0f phase %d act %d feet (%.2f,%.2f,%.2f)\n", c.x, c.y, c.z,
-                zv->hp, zv->max_hp, zv->ai.i(0x79c), zv->ai.i(0x728), feet.x, feet.y, feet.z);
+    b6p_on = cmd != "boss6=off";
+    b6p_thunder = cmd.find("thunder") != std::string::npos;
+    b6p_lightning = cmd.find("lightning") != std::string::npos;
+    b6p_cast = cmd.find("cast") != std::string::npos;
+    if (!b6p_on) { drive_skill = false; b6p_skill = 0; b6p_air = -1; }
     return true;
 };

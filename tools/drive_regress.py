@@ -815,22 +815,76 @@ CASES.update({
     # Zava (build/boss_re/ZAVA*.md; the heads src/cleria/boss06, herself brains/m870). The room's own retry start:
     # flag 205 = 1 and a reload make the root script place the player, Zava and the heads and run Battle_Yunica
     # (flags 130 / 156, then it waits for 225); the first-visit intro before SUMMON is some 7,000 frames of dialogue.
-    # Phase 1 (a head's breath = move 2, her knock-downs), phase 2 under 70 % (the flight onto a head: BossCam 3 /
-    # 4, moves 9 / 10; the ridden head's bite holds the player; four lives, the fusion break = move 8), the big
-    # attack under 25 % (action 20, both heads dive = move 17, the blast's direct hit at the centre), the kill
-    # (flag 225, the EXP) and the heads' death (move 15). `boss6=big` is the aid: stand by her and swing, held
-    # under 25 % until the big attack has started.
+    # The fight is played the way a player plays it: drive `boss6` (view_boss06.inl) only ever stands the player on
+    # the arena floor and presses Jump / Attack / the stick / Skill, so every hit goes through the input path. What
+    # a save at this point has and the direct room start lacks is set by hand: flag 163 (the double jump), the
+    # level / weapon tier; DamageTaken=0 + InfiniteHP keep the run alive, DamageDealt scales the length.
+    # Phase 1: she hovers at origin y 13 (out of a single jump's reach); under her in the hover, jump, the second
+    # jump, the air combo: the first damaging hit in the air knocks her down (Normal), she lies and is hit, gets up.
+    # Phase 2 under 70 %: the flight onto a head (BossCam 3 / 4, moves 9 / 10), four orbs; her hit ticks while riding
+    # count (Z+0x7a8), each threshold kills an orb and swaps the heads (move 12), the last breaks the fusion (move
+    # 8): she is thrown off and lies hittable. Then the floor cast (action 8): the other head dives (move 11, the
+    # ice floor of head a) for 600 frames; the next mount, the second fusion break, the kill (flag 225, the EXP) and
+    # the heads' death (move 15).
     "zava_fight": dict(
         room="S_60/S_6082/S_6082",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1;8:tier=10;9:flag=205,1;10:saveload;"
-              "60:every=20,4700,boss6=big;4700:quit",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.5;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;4400:quit",
         expect=["[boss06] Zava's heads: a (-39.46,6.10,30.00) b (-28.82,6.10,30.00), HP 5000 STR 232 DEF 320",
-                "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "head a move 2",
-                "Zava phase 2 action 0", "BossCam 3", "move 9", "BossCam 4", "move 10", "holds the player",
-                "lets the player go", "move 8", "Zava is thrown off head", "Zava phase 2 action 20", "move 17",
-                "direct damage ATK 267 (Zava's blast)", "BossCam 6", "EXP (lv 45)", "flag 225 = 1", "move 15",
-                "head b destroyed", "head a destroyed"]),
+                "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "jump under Zava (act 4)", "second jump",
+                "air attack", "y 13.00, falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded",
+                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 3878/6000", "BossCam 3", "move 9", "BossCam 4",
+                "move 10", "riding, hits left 0, ride count 1, lives 0/4", "head b move 12 (pattern 2, lives 3)",
+                "lives 0/2", "lives 0/1", "head b move 8 (pattern 2, lives 0)", "Zava is thrown off head b",
+                "grounded, hits left 0, ride count 1, lives 0/0", "Zava phase 2 action 7", "Zava phase 2 action 8",
+                "head a move 11", "Zava phase 2 action 12", "Zava phase 2 action 0", "head a move 9",
+                "riding, hits left 4, ride count 1, lives 4/0", "Zava is thrown off head a", "BossCam 6", "EXP (lv 45)",
+                "flag 225 = 1", "move 15", "head b destroyed", "head a destroyed"],
+        absent=["direct damage ATK 267"]),
+    # ... under 25 % at her re-position the big attack instead (action 20, both heads dive = move 17, the pull to
+    # the centre, the rings, the blast at frame 360): the pilot runs to the arena's edge while she casts, then holds
+    # the stick outward and keeps jumping (the pull is 0.3 grounded, 0.1 airborne), and the blast's direct hit (within
+    # 2.0 of the centre) does not land. A head's bite on the way: mashing Attack ends the hold (8 press ticks).
+    "zava_big_attack": dict(
+        room="S_60/S_6082/S_6082",
+        env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.6;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;3800:quit",
+        expect=["Zava phase 2 action 0", "Zava is thrown off head b", "Zava phase 2 action 7", "Zava phase 2 action 20",
+                "head a move 17", "head b move 17", "Zava phase 2 action 12", "Zava phase 2 action 0", "head a move 9",
+                "holds the player", "lets the player go", "Zava is thrown off head a", "flag 225 = 1"],
+        absent=["direct damage ATK 267"]),
+    # Nightmare (drive diff=4: Zava 7500 HP, the heads' DEF 325): the fourth damaging hit in the air knocks her down
+    # (Z+0x8a8 = 4, ZAVA_AB B.3), here inside the lightning cast (action 8, she holds her place); knocked out of the
+    # cast before its end the forcing timer Z+0x7c4 is still 0, so her next choice is lightning again (B.4).
+    "zava_nightmare_knockdown": dict(
+        room="S_60/S_6082/S_6082",
+        env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
+        drive="4:diff=4;5:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.8;8:tier=10;9:flag=205,1;"
+              "10:saveload;11:flag=163,1;60:boss6=lightning;360:quit",
+        expect=["HP 5000 STR 232 DEF 325, level 4", "Zava phase 1 action 1 hp 7500/7500", "Zava phase 1 action 8",
+                "jump under Zava (act 8)", "flying, hits left 3", "flying, hits left 2", "flying, hits left 1",
+                "falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded", "Zava phase 1 action 0",
+                "flying, hits left 4", "Zava phase 1 action 4", "Zava phase 1 action 8"]),
+    # Without the double jump (flag 163 unset) no jump attack reaches her: a single jump tops at feet y 8.62.
+    "zava_single_jump": dict(
+        room="S_60/S_6082/S_6082",
+        env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:tier=10;9:flag=205,1;10:saveload;60:boss6;300:quit",
+        expect=["jump under Zava (act 4)", "second jump", "Zava phase 1 action 8", "jump under Zava (act 8)"],
+        absent=["Zava took a hit", "air attack"]),
+    # Yunica's Thunder (bracelet 117, section 0x10c: a rising slash) from the second jump. Cast within 4.0 of her
+    # while her dodge is armed it sets off the dash (action 7, B.1 (3)); the next cast finds her cornered at the
+    # arena's z edge (the dash's probe fails, B.6: back to action 1 each frame) and knocks her down.
+    "zava_thunder": dict(
+        room="S_60/S_6082/S_6082",
+        env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.5;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;12:bracelet=117;13:flag=183,1;60:boss6=thunder;300:quit",
+        expect=["jump under Zava (act 4)", "air skill", "Zava phase 1 action 7", "Zava phase 1 action 1", "air skill",
+                "y 13.00, falling, hits left 0", "Zava phase 1 action 11"],
+        absent=["air attack"]),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,

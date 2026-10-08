@@ -3469,7 +3469,9 @@ title_again:
     //   flag=i,v    set a game flag      atk   the attack button      boss  face Velagunder
     //   boss2[=o]   stand by a hittable Nygtilger piece (o = its object index)
     //   boss3[=i]   stand by a hittable Gelaldy part (i = 0 core, 1 right arm, 3 left arm)
-    //   boss6[=big] stand by Zava and swing while her fight is live (=big: hold under 25 % HP until the big attack)
+    //   boss6[=opts] fight Zava as a player does, every tick from then on: floor placement + real inputs only
+    //               (opts lightning, thunder, cast; boss6=off ends it; view_boss06.inl)
+    //   diff=n      the difficulty 0 Very Easy .. 4 Nightmare (flags 143 / 144 / 203; Zava's heads are built again)
     //   cam=x,y,z,yaw,pitch   draw from that fixed pose (degrees) from now on, for shots (the game runs on)
     //   ok / esc / up / down  confirm / cancel / a cursor step: the pause book while it is up (its
     //                         frames count as ticks), else the windows and the game-over menu
@@ -3785,6 +3787,12 @@ title_again:
             if (ginfo.ok()) player.exp = float(ginfo.exp_to_level(player.level));
             player.max_hp = int(player_stats().max_hp);
             player.hp = player.max_hp;
+        } else if (cmd.rfind("diff=", 0) == 0) {      // diff=n: the difficulty, 0 Very Easy .. 4 Nightmare, with its flags as FUN_0041fd10 (audit aid)
+            difficulty = std::clamp(std::atoi(cmd.c_str() + 5), 0, 4);
+            game.g_flags[144] = difficulty >= 2 ? difficulty - 2 : 0;
+            game.g_flags[143] = difficulty == 1 ? 1 : 0;
+            game.g_flags[203] = difficulty == 0 ? 1 : 0;
+            boss6.reset();                              // Zava's heads latch it in their ctor: built again next step
         } else if (cmd == "flagdump") {               // every nonzero game flag, "i=v" (audit aid)
             std::string s;
             for (int i = 0; i < 0x200; ++i)
