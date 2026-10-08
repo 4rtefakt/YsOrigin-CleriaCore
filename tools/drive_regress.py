@@ -762,6 +762,36 @@ CASES.update({
         expect=["seen #17 placed", "[ai] #17 cast 17 phase 2", "seen #17 placed feet (9.58, 0.00",
                 "[ai] #17 cast 17 phase 2"],
         absent=["[los]"]),
+    # Floor 6 (build/audit/FLOOR6_TOUR.md). M700 Fliogan: the brain-spawned dash effect 496 it owns and the
+    # slash's 299 shots (M700.md).
+    "floor6_fliogan": dict(
+        room="S_60/S_6009/S_6009",
+        env={"CLERIA_AI": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#74,4;60:every=200,1800,seen=#74,4;"
+              "61:every=60,1800,bullets;1800:quit",
+        expect=["496(owner 74", "[bullet] kind 2 effect 299"]),
+    # M470 Levenueba: it moves at all (its 1.8 sphere over a 1.575 origin height), fans its 315 globs as
+    # kind-0x29 lobs and kind-1 shots, and its grab holds the player in the mouth (M470.md §3.5.2).
+    "floor6_levenueba": dict(
+        room="S_60/S_6051/S_6051",
+        env={"CLERIA_AI": "1"},
+        drive="5:opt=InfiniteHP=1;20:seen=#193,6;900:quit",
+        expect=["[hold] #193 holds the player"]),
+    "floor6_levenueba_globs": dict(
+        room="S_60/S_6051/S_6051",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#193,6;61:every=30,1500,bullets;1500:quit",
+        expect=["[bullet] kind 41 effect 315"]),
+    # S_6014, the mirror-floor room: M450's ring of tagged 252 orbs, M720's fan of 310s; M230's lobbed 272s.
+    "floor6_piache_ring": dict(
+        room="S_60/S_6014/S_6014",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#49,6;60:every=400,2000,seen=#49,6;"
+              "61:every=30,2000,bullets;2000:quit",
+        expect=["[bullet] kind 1 effect 252", "[bullet] kind 2 effect 310"]),
+    "floor6_euchreas": dict(
+        room="S_60/S_6014/S_6014",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#27,7;60:every=500,2000,seen=#27,7;"
+              "61:every=30,2000,bullets;2000:quit",
+        expect=["[bullet] kind 2 effect 272"]),
     # Khonsclard (boss04, build/boss_re/KHONSCLARD.md): the intro (START), flag 156, two pods rise; breaking
     # them downs the boss and opens the core (jump attacks); every 20 % adds a pod; the kill writes 223 and
     # the EXP, and the 1/340 fade destroys the boss ~339 frames later. Level 50 and Damage x10 keep it short.
