@@ -44,13 +44,25 @@ CASES = {
         expect=["[probe] save_03 -> @save", "script @GrowMenu", "script @GrowYes", "t830 scripts",
                 "frozen 0 fix 0/0"]),
     # The game over: HP 0 -> 100 frames -> gameover.dds + Retry / Return to Title; Retry
-    # re-enters the snapshot's room at its pose (the room root's SaveContData).
+    # re-enters the snapshot's room at its pose (the room root's SaveContData). Issue #77: the death section 5
+    # plays to its last frame and stays there (anime_Wait(-1)) — Yunica's fall is tag 307 (her form flag 149),
+    # frames 0..9.
     "gameover_retry": dict(
         room="S_10/S_1009/S_1009",
         drive="10:move=1,0,40;70:hp=0;220:ok;260:pos;300:quit",
-        expect=["[cont] snapshot S_1009 (0.05, 2.00, 7.80)", "[death] HP 0", "[gameover] gameover.dds",
+        expect=["[cont] snapshot S_1009 (0.05, 2.00, 7.80)", "[death] HP 0", "[death] t+30 section 5 tag 307 frame 4",
+                "[death] t+90 section 5 tag 307 frame 9", "[gameover] gameover.dds",
                 "[gameover] chose retry", "Retry -> S_1009 (0.05, 2.00, 7.80), retries 1",
                 "feet (0.055, 2.000, 7.800)"]),
+    # ... Hugo's (Pattern(5, 0..11)) and Toal's (Pattern(5, 0..9)): lying on the last frame when the card comes.
+    "death_fall_hugo": dict(
+        room="S_10/S_1009/S_1009", char="2", drive="70:hp=0;180:quit",
+        expect=["[death] HP 0", "[death] t+30 section 5 tag 5 frame 5", "[death] t+90 section 5 tag 5 frame 11",
+                "[gameover] gameover.dds"]),
+    "death_fall_toal": dict(
+        room="S_10/S_1009/S_1009", char="3", drive="70:hp=0;180:quit",
+        expect=["[death] HP 0", "[death] t+30 section 5 tag 5 frame 4", "[death] t+90 section 5 tag 5 frame 9",
+                "[gameover] gameover.dds"]),
     "gameover_title": dict(
         room="S_10/S_1009/S_1009",
         drive="70:hp=0;200:down;210:ok;400:quit",

@@ -6023,6 +6023,16 @@ title_again:
         if (death_t > 0) {
             if (death_t < 0x65 && ++death_t == 100) game_over();
             avm.tick();
+            // The death section's frames reach the sprite and its sounds play (issue #77: the VM ran on but
+            // nothing showed its Pattern(5, n), so the player stood on the fall's first frame): the dead step
+            // is FUN_004472e0 alone and the draw reads the actor's +0xc0 / +0xc8 as on any other step
+            // [EXPORT 0046f810.c, 0046fba0.c]. Section 5 of C_010 / C_020 / C_030.ASO: SePlay3D(90), the
+            // fall Pattern(5, 0..9) (Hugo 0..11; tag 307 in Yunica's / Toal's other form), SePlay3D(91) at
+            // the landing, then Wait(-1) on the last frame. [approx] its sounds play 2-D here.
+            show_player_frame(nullptr);
+            for (const AsoVm::SoundEvent& se : avm.sounds()) audio.play(se.id, kSfxAnimVol);
+            if (std::getenv("CLERIA_DRIVE") && (death_t == 30 || death_t == 90))
+                std::printf("  [death] t+%d section %d tag %d frame %d\n", death_t, avm.section(), avm.anim_tag(), avm.frame());
             step_meshes();
             fxsim.step();
             fxsim.sweep();

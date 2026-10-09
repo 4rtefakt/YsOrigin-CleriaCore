@@ -467,6 +467,10 @@ void AsoVm::tick() {
     effects_.clear();
     loci_.clear();
     if (!ok()) return;
+    // The wait gate `[0x2e] == 0 || --[0x2e] == 0` [EXPORT 004472e0.c:118]: a negative count never reaches 0
+    // in a session, so anime_Wait(-1) holds its frame for good (the last frame of the player's death
+    // section 5, issue #77) instead of running on to the section's end and chaining to idle.
+    if (wait_ < 0) return;
     if (wait_ > 0) { --wait_; return; }
 
     // FUN_004472e0 (0x447470..): a pc at or past the section's length chains to the
@@ -487,6 +491,7 @@ void AsoVm::tick() {
     for (int guard = 0; guard < 4096; ++guard) {
         const std::size_t before = pc_;
         if (!step(pc_)) {
+            if (wait_ < 0) return;               // anime_Wait(-1): held for good (the gate above)
             if (wait_ > 0) { --wait_; return; }  // consumed by anime_Wait
             if (end_yield_) { end_yield_ = false; return; }   // `end`: chain next tick
             if (pc_ == before) return;           // blocked (marker)
