@@ -1242,6 +1242,13 @@ CASES.update({
         drive="10:ail=1;11:ail=0x20;12:ailstate;20:saveload;21:ailstate;60:ailstate;70:quit",
         expect=["mask 0x21 timers 898 0 0 1199 fx 1001 hp 60", "[drive] loaded S_1009",
                 "mask 0x21 timers 889 0 0 1190 fx 1001 hp 60", "mask 0x21 timers 850 0 0 1151 fx 1001 hp 60"]),
+    # The Boost gauge 0x76c1b4 is in the block too: a load brings back the saved 12486 (it kept the 14878 of the
+    # moment of the load).
+    "boost_saveload": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="10:boost=12486;11:abil;12:csave=0;20:boost=14878;21:abil;30:cload=0;60:abil;70:quit",
+        expect=["[abil] t11 sec 0x2 mp 3000 lag 3000 boost 12486", "[abil] t21 sec 0x2 mp 3000 lag 3000 boost 14878",
+                "[abil] t60 sec 0x2 mp 3000 lag 3000 boost 12486"]),
     # BOOST_SKILLS.md F10: Toal's Boost-end effect 172 is the player's (side 0). It used to spawn on the enemy
     # side and take 2 HP off Toal himself (hp 60 -> 58 by t127).
     "toal_boost_end_fx": dict(

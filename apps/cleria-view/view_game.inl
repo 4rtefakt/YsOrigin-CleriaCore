@@ -1873,6 +1873,7 @@ title_again:
         s.o2 = oxy.o2; s.o2_alpha = oxy.alpha;                  // 0x76c1b8 / 0x76c1bc, in the block
         s.ail[0] = std::int32_t(ail.mask);                      // g_flags 528..532, in the block
         for (int i = 0; i < 4; ++i) s.ail[i + 1] = ail.t[i];
+        s.boost = player.boost;                                 // 0x76c1b4, in the block
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
@@ -1948,6 +1949,9 @@ title_again:
         ail.mask = std::uint32_t(s.ail[0]);            // the record's g_flags 528..532 (STATUS_AILMENTS.md §7)
         for (int i = 0; i < 4; ++i) ail.t[i] = s.ail[i + 1];
         ail_reload = true;                             // ail_tick: the effects follow the loaded mask
+        // The Boost gauge 0x76c1b4 comes back with the block (it kept the value of the moment of the load).
+        // [not modelled] the mode word 0x76c198 (a Boost running at the snapshot).
+        player.boost = s.boost;
         std::memcpy(game.g_flags, s.flags, sizeof s.flags);
         std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
         character = std::clamp(s.character(), 1, 3);
