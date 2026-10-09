@@ -8511,6 +8511,17 @@ title_again:
                 avm.set_section(want_sec, /*force*/true);         // [STAND-IN] a jump section that never ends
             avm.set_is_land(grounded);
             avm.tick();
+            // anime_Jump (FUN_00449460 [BYTES 0x449464..0x4494af], MOVER.md §4.1), as the enemies' below: grounded
+            // only, t = +0x420 = v (0.0 = the cast's +0x408), y += v at once, +0x388 = 0. Toal's Ignis hops by it
+            // (C_030.ASO 0x10e Jump(0.27) / 0x111 Jump(0.31) at tick 12, BOOST_SKILLS.md §3.5); the player's VM
+            // dropped the op. [scoped, not retail] those two sections only: honoured in every section it changes
+            // zava_fight's log (Yunica's sections with a Jump, not checked against the view's own stand-ins yet).
+            if (avm.jumped() && character == 3 && (avm.section() == 0x10e || avm.section() == 0x111)) {
+                float oy = feet.y + kOriginH;
+                apply_jump(pv, oy, avm.jump_v(), pm.jump_v0);
+                feet.y = oy - kOriginH;
+                grounded = false;
+            }
             if (avm.dashed()) {                         // anime_Dash (0x447665): channel 1 = (cos, sin)(heading) * d
                 const float h = std::atan2(face_dir.z, face_dir.x);
                 player_kb.x = std::cos(h) * avm.dash_d();
