@@ -7,8 +7,9 @@ server with AutoConnect=1, drives the game with the mod's commands (`lua=apsay .
 checks the game's output (`expect`, in order; `absent`) and the server's log of what the game sent
 (`server_expect`, in order). Every run is deterministic: the server's room, placements and slot_data are fixed
 (tests/ap/test_slot_data.json), and its replies only follow the game's own packets and the drive's commands.
-These six cases once ran line for line beside the built-in C++ client's ap_* cases (removed with that client).
+The first six cases once ran line for line beside the built-in C++ client's ap_* cases (removed with that client).
 """
+import json
 import os
 import shutil
 import subprocess
@@ -83,6 +84,59 @@ CASES = {
         expect=["[lua] Archipelago: started (main.lua)", "[probe] box_01 -> s_box01", "chest S_1001/S_BOX01 opened (flag 302)",
                 P + "flag 0x59 = 1"],
         absent=[P + "connecting", P + "new game", "suppressed", "icon 0x59"]),
+    # ---- what mod 0.2.0 added (the mod repo's .dev/port_cases.py). `slot_data`: keys laid over the fixture;
+    # `settings`: more lines of the mod's settings section.
+    # Roda Fruit derived from roo_flags: 2 received -> 2; the first Roo fed -> 1; a Roo beyond the count fed
+    # (flag 414, the 5th) costs nothing: the script's -1 is refunded.
+    "aplua_roda": dict(
+        room="S_10/S_1001/S_1001", aplua=dict(slot_data=dict(roo_flags=[312, 339, 362, 388, 414, 458])),
+        drive="60:lua=apsay !give Roda Fruit;100:lua=apsay !give Roda Fruit;160:lua=apflag 0x57;"
+              "170:flag=312,1;200:lua=apflag 0x57;210:flag=87,0;215:flag=414,1;240:lua=apflag 0x57;260:quit",
+        expect=["Roda Fruit: Roda Fruit #1", "Roda Fruit: Roda Fruit #2", P + "flag 0x57 = 2",
+                P + "flag 0x57 = 1", P + "flag 0x57 = 1"]),
+    # Random start: a new game in S_1001 is warped to the seed's start statue once.
+    "aplua_random_start": dict(
+        room="S_10/S_1001/S_1001", aplua=dict(slot_data=dict(random_start=True, start_statue_scene=1009)),
+        drive="300:lua=apstate;320:quit",
+        expect=[P + "random start: warp to S_1009 (warp 1)", ">> entering S_1009"],
+        absent=["not supported: Random start"]),
+    # A vanilla weapon upgrade with no item behind it is clamped to what the seed granted; an ore raises it.
+    "aplua_weapon_clamp": dict(
+        room="S_10/S_1001/S_1001", aplua={},
+        drive="60:flag=148,4;120:lua=apflag 148;130:lua=apsay !give Cleria Ore;200:lua=apflag 148;"
+              "210:flag=148,8;260:lua=apflag 148;280:quit",
+        expect=[P + "flag 0x94 = 0", "Cleria Ore #1: weapon tier 1", P + "flag 0x94 = 1", P + "flag 0x94 = 1"]),
+    # Boss checks on defeat: nothing at the door, the check when the fight's flag is set.
+    "aplua_boss_on_kill": dict(
+        room="S_10/S_1099/S_1099",
+        aplua=dict(settings="BossOnKill=1\nShowRoom=1\nRoomSpoilers=1\nShowTracker=1\nTrackerMode=2\n"),
+        drive="120:lua=apstate;130:flag=220,1;200:lua=apstate;220:quit",
+        expect=["goal 0 active 1", "Boss: 5F Velagunder (S_1099) (sweep)", "goal 0 active 1"],
+        absent=["Boss: 5F Velagunder (S_1099) (room)"]),
+    # The same room with the option off: the check at the door (and the overlays drawn every frame).
+    "aplua_boss_on_entry": dict(
+        room="S_10/S_1099/S_1099", aplua=dict(settings="ShowRoom=1\nShowTracker=1\n"),
+        drive="120:lua=apstate;140:quit",
+        expect=["Boss: 5F Velagunder (S_1099) (room)", "goal 0 active 1"],
+        absent=["script stopped", "Mod stopped"]),
+    # The mod's page drawn (every section, connected and in game) without a script error.
+    "aplua_page": dict(
+        room="S_10/S_1001/S_1001", aplua=dict(slot_data=dict(goal=1)),
+        drive="120:shell=Mods:ysorigin.archipelago;200:lua=apstate;220:quit",
+        expect=["goal 0 active 1"],
+        absent=["script stopped", "Mod stopped", "attempt to"]),
+    # An SP chest that is a location: the script's AddPlayerSP (not a grant the filter sees) is taken back.
+    "aplua_sp_chest": dict(
+        room="S_40/S_4015/S_4015", aplua={},
+        drive="10:kill1;300:lua=apsp;420:obj=box_01;430:act;740:ok;760:lua=apsp;780:quit",
+        expect=[P + "sp = ", P + "SP chest: took back the vanilla 5000 SP (S_4015/S_BOX01)",
+                "Silent Sands: 15F Room (store)", P + "sp = "],
+        absent=["sp = 5", "sp = 6"]),          # the wallet never shows the chest's 5000
+    # The key-item clamp and the skill-level cap.
+    "aplua_invariants": dict(
+        room="S_10/S_1001/S_1001", aplua={},
+        drive="60:flag=99,3;70:flag=184,5;120:lua=apflag 99;130:lua=apflag 184;150:quit",
+        expect=[P + "flag 0x63 = 1", P + "flag 0xB8 = 3"]),
 }
 
 
@@ -98,6 +152,8 @@ def start(case, env, settings_dir):
         args = [sys.executable, os.path.join(ROOT, "tools", "ap_mock_server.py"), "--port", "0"]
         if a.get("death_link"):
             args.append("--death-link")
+        if a.get("slot_data"):
+            args += ["--slot-data", json.dumps(a["slot_data"])]
         srv = subprocess.Popen(args, stdout=subprocess.PIPE, text=True)
         port = srv.stdout.readline().strip().rsplit(":", 1)[1]
     mods = os.path.join(settings_dir, "mods")
@@ -110,6 +166,7 @@ def start(case, env, settings_dir):
         f.write('[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n\n' % (MOD, MOD))
         f.write('[cleria.mod.%s]\nServer="127.0.0.1:%s"\nSlot="%s"\nAutoConnect=1\nDeathLink=%d\n'
                 % (MOD, port, slot, int(bool(a.get("death_link")))))
+        f.write(a.get("settings", ""))
     open(os.path.join(settings_dir, "yso_win.ini"), "w").close()
     env["CLERIA_INI"] = os.path.join(settings_dir, "yso_win.ini")
     # The server talks in real time: pace these runs by the wall clock (a drive run is lockstep by default,

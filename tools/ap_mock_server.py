@@ -21,6 +21,7 @@ Every client command is printed as one "[apserver] <cmd> <json>" line (the passw
 so a test can assert on what the game sent.
 
     python tools/ap_mock_server.py [--port 0] [--slot Yunica] [--password ""] [--seed CLERIATEST]
+                                   [--slot-data '{"random_start": true}']   (keys laid over the fixture)
 """
 import argparse
 import base64
@@ -54,6 +55,7 @@ class Room:
         self.a = a
         table = load("samples/mods/archipelago_lua/data/ys_origin.json")
         self.slot_data = load("tests/ap/test_slot_data.json")
+        self.slot_data.update(json.loads(a.slot_data))
         self.slot_data["death_link"] = bool(a.death_link)
         self.items = {i["name"]: i["id"] for i in table["items"]}
         self.item_flags = {i["name"]: {"progression": 1, "useful": 2, "trap": 4}.get(i["class"], 0) for i in table["items"]}
@@ -295,6 +297,7 @@ def main():
     ap.add_argument("--password", default="")
     ap.add_argument("--seed", default="CLERIATEST")
     ap.add_argument("--death-link", action="store_true")
+    ap.add_argument("--slot-data", default="{}", help="a JSON object laid over the slot_data fixture")
     ap.add_argument("--give", action="append", default=[], help="an item the slot already received at login")
     a = ap.parse_args()
     room = Room(a)

@@ -90,10 +90,12 @@ function M.install(A, persist)
     cleria.hud.layer("tracker", function(d)
         if not cfg.show_tracker or not A.logic.configured then return end
         local zones, lowest, order = {}, {}, {}
+        local floors = cfg.tracker_mode == 2
         for _, r in ipairs(A.logic.regs) do
             local l = A.table.loc[r.id]
             local z = (l and l.zone ~= "") and l.zone or "Other"
             local fl = l and tonumber(l.floor:match("^(%d+)")) or 0
+            if floors then z = (l and l.floor ~= "") and l.floor or (z == "Other" and "Shop" or z) end
             if not zones[z] then zones[z] = {0, 0} lowest[z] = 999 order[#order + 1] = z end
             if fl > 0 then lowest[z] = math.min(lowest[z], fl) end
             zones[z][2] = zones[z][2] + 1
@@ -101,8 +103,8 @@ function M.install(A, persist)
         end
         table.sort(order, function(x, y) if lowest[x] ~= lowest[y] then return lowest[x] < lowest[y] end return x < y end)
         local S = d.scale
-        local px, lh = 14 * S, 19 * S
-        local x0, y0, w = 14 * S, d.h * 0.30, 250 * S
+        local px, lh = (floors and 12.5 or 14) * S, (floors and 16 or 19) * S
+        local x0, y0, w = 14 * S, d.h * (floors and 0.22 or 0.30), 250 * S
         local h = 34 * S + lh * #order
         d:rect(x0, y0, w, h, {color = 0x100F0B, alpha = 185 / 255, rounding = 5 * S})
         d:rect(x0, y0, w, h, {color = 0x9C8442, alpha = 150 / 255, rounding = 5 * S, fill = false, thickness = S})
@@ -116,6 +118,40 @@ function M.install(A, persist)
             d:text(x0 + w - 12 * S - d:text_size(n, {size = px}), y, n, {size = px, color = col})
             y = y + lh
         end
+    end)
+
+    -- "left in this room", bottom left: the room's locations still to find; with spoilers, what each holds
+    cleria.hud.layer("room", function(d)
+        if not cfg.show_room or not A.active() then return end
+        local left = A.logic:left_in_room(A.logic.scene)
+        if #left == 0 then return end
+        local cl = A.session.client
+        local hinted = {}
+        for _, h in ipairs(A.hints) do if not h.found and h.finder == cl.slot then hinted[h.location] = h end end
+        local S = d.scale
+        local px, lh, w = 13.5 * S, 18 * S, 360 * S
+        local n = math.min(#left, 8)
+        local h = 30 * S + lh * n + (#left > n and lh or 0)
+        local x0, y0 = 14 * S, d.h - h - 150 * S
+        d:rect(x0, y0, w, h, {color = 0x100F0B, alpha = 185 / 255, rounding = 5 * S})
+        d:rect(x0, y0, w, h, {color = 0x9C8442, alpha = 150 / 255, rounding = 5 * S, fill = false, thickness = S})
+        d:text(x0 + 12 * S, y0 + 7 * S, "LEFT IN THIS ROOM  " .. #left, {size = 13 * S, font = "cond", color = "section"})
+        local y = y0 + 27 * S
+        for i = 1, n do
+            local r = left[i]
+            local name = r.name:gsub("^[^:]+: ", ""):gsub(" %(S_%d+%)$", "")
+            local col = "value"
+            local s = cl.scouted[r.id]
+            if hinted[r.id] then
+                name, col = name .. "  >  " .. hinted[r.id].item_name, "gold"
+            elseif cfg.room_spoil and s then
+                name = name .. "  >  " .. cl:item_name(s.item, s.player) .. (s.player ~= cl.slot and " (" .. cl:player_name(s.player) .. ")" or "")
+            end
+            while #name > 4 and d:text_size(name, {size = px}) > w - 24 * S do name = name:sub(1, #name - 4) .. "..." end
+            d:text(x0 + 12 * S, y, name, {size = px, color = col})
+            y = y + lh
+        end
+        if #left > n then d:text(x0 + 12 * S, y, "and " .. (#left - n) .. " more", {size = px, color = "muted"}) end
     end)
 
     -- the Blinding Fog trap: a grey haze fading in and out ("0" sorts it under this mod's other layers)
@@ -168,14 +204,89 @@ function M.install(A, persist)
         p:info("Locations checked", ys.count(st.checks) .. " / " .. #A.logic.regs, "Locations this save has found, of the seed's active ones.")
         p:info("Goal", st.goal_sent and "Complete" or "Not yet", {color = st.goal_sent and "good" or "muted",
                desc = A.logic.opt.goal == 1 and "Defeat every floor boss and the final boss." or "Defeat the final boss."})
+        if A.active() then
+            local G = cleria.game
+            local names, have, n = {"Wind", "Thunder", "Fire"}, {}, 0
+            for i = 1, 3 do
+                local on = (G.flag(0x73 + i) or 0) >= 1
+                have[i] = names[i] .. (on and " yes" or " no")
+                if on then n = n + 1 end
+            end
+            p:info("Elemental skills", table.concat(have, "   "), {color = n == 3 and "good" or "warn",
+                   desc = "The final fight's barriers each fall to one element only: all three skills are needed to finish."})
+            if A.logic.opt.goal == 1 then
+                local b = 0
+                for f = 220, 225 do if (G.flag(f) or 0) >= 1 then b = b + 1 end end
+                p:info("Floor bosses", b .. " / 6", {color = b == 6 and "good" or "value",
+                       desc = "This seed's goal needs every floor boss beaten before the final boss."})
+            end
+            p:info("Left in this room", tostring(#A.logic:left_in_room(A.logic.scene)), "Locations of the current room still to find.")
+        end
         for _, u in ipairs(A.logic.opt.unsupported) do p:info("Not supported", u, {color = "warn"}) end
+        -- hints
+        p:section("Hints")
+        p:info("Hint points", tostring(cl.hint_points or 0), "What the server says you can spend on hints.")
+        A.hint_text, changed = p:text_field("Hint for", A.hint_text, {desc = "An item name (or part of one) to ask the server about.",
+                                            empty = "(an item name)"})
+        if p:button("Ask for a hint", {desc = "Sends !hint <the name above> to the server. The answer shows in the feed and below.",
+                                       enabled = A.connected() and A.hint_text ~= ""}) then
+            cl:say("!hint " .. A.hint_text)
+        end
+        local shown = 0
+        for _, h in ipairs(A.hints) do
+            if not h.found and shown < 30 then
+                shown = shown + 1
+                local mine = h.finder == cl.slot
+                p:info(h.item_name .. (h.receiver ~= cl.slot and " (" .. h.receiver_name .. ")" or ""),
+                       h.location_name .. (mine and "" or "  -  " .. h.finder_name .. "'s world"),
+                       {color = mine and "gold" or "value", desc = mine and "In your world: go and find it." or
+                        "In " .. h.finder_name .. "'s world: they have to find it."})
+            end
+        end
+        if shown == 0 then p:info("", "No open hints.", {color = "muted"}) end
+        -- chat and commands
+        p:section("Chat and commands")
+        A.chat_text, changed = p:text_field("Message", A.chat_text, {desc = "A chat line or a server command (!help lists them).",
+                                            empty = "(type here)"})
+        if p:button("Send", {desc = "Sends the message above to the room.", enabled = A.connected() and A.chat_text ~= ""}) then
+            cl:say(A.chat_text)
+            A.chat_text = ""
+        end
+        if p:button("Release my items", {desc = "Sends !release: everything still in your world goes out to its owners. " ..
+                                         "Rooms usually allow it once your goal is complete.", enabled = A.connected() and st.goal_sent}) then
+            cl:say("!release")
+        end
+        if p:button("Collect my items", {desc = "Sends !collect: your items still in other worlds come to you. " ..
+                                         "Rooms usually allow it once your goal is complete.", enabled = A.connected() and st.goal_sent}) then
+            cl:say("!collect")
+        end
+        -- quality of life
+        p:section("Quality of life")
+        cfg.boss_on_kill, changed = p:toggle("Boss checks on defeat", cfg.boss_on_kill, "A boss room's check is sent when the fight " ..
+            "is won, not when you walk in (the six floor bosses and the duels; the 17F and 20F rooms stay on entry). Not a retail option.")
+        if changed then persist("boss_on_kill") end
+        cfg.notice_prog, changed = p:toggle("Progression notices", cfg.notice_prog, "A notice card when a progression item arrives.")
+        if changed then persist("notice_prog") end
+        cfg.hint_alerts, changed = p:toggle("Hint alerts", cfg.hint_alerts, "A feed line when you enter a room that holds a hinted item.")
+        if changed then persist("hint_alerts") end
+        cfg.exp_mult, changed = p:slider("EXP multiplier", cfg.exp_mult, 0, 100, 1, "%.0f", "Your own EXP multiplier for every kill. " ..
+            "0 = the seed's setting. Not a retail option.")
+        if changed then cfg.exp_mult = math.tointeger(math.floor(cfg.exp_mult + 0.5)) or 0 persist("exp_mult") end
         p:section("Overlays")
         cfg.show_status, changed = p:toggle("Connection line", cfg.show_status, "The connection status, top left.")
         if changed then persist("show_status") end
         cfg.show_feed, changed = p:toggle("Item feed", cfg.show_feed, "Items sent and received, chat and DeathLinks, top right.")
         if changed then persist("show_feed") end
-        cfg.show_tracker, changed = p:toggle("Tracker", cfg.show_tracker, "Checked / total locations per area, left.")
+        cfg.show_tracker, changed = p:toggle("Tracker", cfg.show_tracker, "Checked / total locations, left.")
         if changed then persist("show_tracker") end
+        cfg.tracker_mode, changed = p:choice("Tracker detail", cfg.tracker_mode, {"Areas", "Floors"}, "Count per area of the tower, or per floor.")
+        if changed then persist("tracker_mode") end
+        cfg.show_room, changed = p:toggle("Left in this room", cfg.show_room, "The current room's locations still to find, bottom left. " ..
+                                         "A hinted one shows its item.")
+        if changed then persist("show_room") end
+        cfg.room_spoil, changed = p:toggle("...with what they hold", cfg.room_spoil, {desc = "Also show the item at each location " ..
+                                          "(a spoiler: the server tells the client what every location holds).", enabled = cfg.show_room})
+        if changed then persist("room_spoil") end
         cfg.export_state, changed = p:toggle("Tracker file", cfg.export_state,
             "Keeps state.json in this mod's data folder (modsdata/ysorigin.archipelago beside cleria.ini) up to date.")
         if changed then persist("export_state") end

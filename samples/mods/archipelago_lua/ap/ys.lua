@@ -8,10 +8,21 @@
 local M = {}
 
 local kGFlagsRel, kItemArrRel = 0x36B91C, 0x36A654   -- retail g_flags / item_arr, module-relative
-local kBlessFlag, kWeaponFlag = 217, 148
+local kBlessFlag, kWeaponFlag, kRodaFruit = 217, 148, 0x57
 -- the retail warp registry's statue order (table 0x68c190) [MOD hook_ap.cpp:1661-1664]
 local kWarpScenes = {1000, 1009, 1011, 2000, 2013, 2100, 2012, 3000, 3006, 3015, 3014,
                      4000, 4104, 4020, 5000, 5010, 5014, 6000, 6010, 6082, 6053, 7000}
+
+-- the flag each boss room's fight sets when it is won (the shipped scripts: the six floor bosses' brains set
+-- 220..224, the duels' BATTLE_* scripts 230 / 231 / 232 / 235 / 236). S_4080 and S_5080 have none: their
+-- checks stay on entry.
+local kBossFlag = {[1099] = 220, [2099] = 221, [3099] = 222, [4099] = 223, [5099] = 224,
+                   [1080] = 230, [2080] = 231, [3080] = 232, [6080] = 235, [6099] = 236}
+
+-- the five SP chests: their script pays the SP with 0xB2 AddPlayerSP (pc 32) and then sets the box flag
+-- (pc 35). The grant filter never sees that command, so the vanilla SP came on top of the seed's item:
+-- box flag -> SP paid. S_3003/S_BOX02, S_4003/S_BOX04, S_4015/S_BOX01, S_5002/S_BOX01, S_6014/S_BOX01.
+M.sp_chest = {[470] = 2000, [380] = 5000, [391] = 5000, [447] = 10000, [461] = 20000}
 
 local G, P = cleria.game, cleria.player
 
@@ -152,7 +163,10 @@ local function parse_slot_options(sd)
     for k, v in pairs(obj(sd.scene_floors)) do o.scene_floors[tonumber(k)] = to_int(v, 0) end
     for k, v in pairs(obj(sd.scene_names)) do o.scene_names[tonumber(k)] = v end
     o.blessing_items = sd.blessing_items == true
-    if sd.random_start == true then o.unsupported[#o.unsupported + 1] = "Random start (the start-statue warp)" end
+    o.random_start = sd.random_start == true
+    -- the flag each Roo sets when fed, in the apworld's logic order (2.0: the k-th Roo needs k fruits)
+    o.roo_flags = {}
+    for _, f in ipairs(ints(sd.roo_flags)) do if f >= 0 and f < 0x200 then o.roo_flags[#o.roo_flags + 1] = f end end
     if o.blessing_items then o.unsupported[#o.unsupported + 1] = "Blessing items (the shop purchase is not intercepted)" end
     if type(sd.blessing_costs) == "table" and next(sd.blessing_costs) then o.unsupported[#o.unsupported + 1] = "Shuffled blessing prices" end
     if to_int(sd.blessing_shop_unlock, 0) ~= 0 then o.unsupported[#o.unsupported + 1] = "Blessing shop pacing (one per floor)" end
@@ -160,8 +174,11 @@ local function parse_slot_options(sd)
 end
 
 -- ---- the save block --------------------------------------------------------------------------------------
+-- roda: Roda Fruits received so far (-1 = a save from before 0.2, whose fruits were counted into the cell);
+-- spawned: the random-start warp was done (or is not owed: a save that had already started)
 function M.new_state() return {seed = "", slot_name = "", slot = 0, applied = 0, checks = {}, claimed = {}, goal_sent = false,
-                               started = false, saw_gameplay = false, ore = 0, prog = {}, statues = {}} end
+                               started = false, saw_gameplay = false, ore = 0, prog = {}, statues = {}, roda = 0,
+                               spawned = false} end
 
 local function set_list(s)
     local t = {}
@@ -178,7 +195,7 @@ function M.state_to_table(st)
     if st.seed == "" then return nil end
     return {seed = st.seed, slot = st.slot, slot_name = st.slot_name, applied = st.applied, checks = set_list(st.checks),
             claimed = set_list(st.claimed), goal = st.goal_sent, started = st.started, gameplay = st.saw_gameplay, ore = st.ore,
-            prog = st.prog, statues = set_list(st.statues)}
+            prog = st.prog, statues = set_list(st.statues), roda = st.roda, spawned = st.spawned}
 end
 function M.state_from_table(t)
     local st = M.new_state()
@@ -188,6 +205,8 @@ function M.state_from_table(t)
     st.checks, st.claimed, st.statues = list_set(t.checks), list_set(t.claimed), list_set(t.statues)
     st.goal_sent, st.started, st.saw_gameplay = t.goal == true, t.started == true, t.gameplay == true
     st.ore = math.max(0, to_int(t.ore, 0))
+    st.roda = t.roda == nil and -1 or math.max(-1, to_int(t.roda, -1))
+    st.spawned = t.spawned == true or (t.spawned == nil and st.started)
     for k, v in pairs(type(t.prog) == "table" and t.prog or {}) do st.prog[k] = to_int(v, 0) end
     return st
 end
@@ -203,11 +222,13 @@ function M.logic() return setmetatable({st = M.new_state(), configured = false, 
 function Logic:configure(sd, table_)
     self.tbl = table_
     self.opt = parse_slot_options(sd)
-    self.regs, self.by_id, self.by_scene, self.by_floor = {}, {}, {}, {}
+    self.regs, self.by_id, self.by_scene, self.by_floor, self.by_room = {}, {}, {}, {}, {}
     local function add(r)
         if self.by_id[r.id] then return end
         self.regs[#self.regs + 1] = r
         self.by_id[r.id] = r
+        local l = table_.loc[r.id]   -- the room a location is in, for the "left in this room" list
+        if l and l.scene > 0 then local t = self.by_room[l.scene] or {} t[#t + 1] = r self.by_room[l.scene] = t end
         if r.detect == "scene" then local l = self.by_scene[r.scene] or {} l[#l + 1] = r self.by_scene[r.scene] = l end
         if r.detect == "floor" then local l = self.by_floor[r.floor] or {} l[#l + 1] = r self.by_floor[r.floor] = l end
     end
@@ -240,6 +261,24 @@ end
 
 function Logic:reg(id) return self.by_id[id] end
 
+-- "Boss checks on defeat" (the mod's option): a boss room's check waits for the fight's flag instead of
+-- firing at the door. Boss locations are excluded from progression in the apworld, so this is never out
+-- of logic.
+function Logic:boss_flag(r)
+    if not self.boss_on_kill or r.detect ~= "scene" then return nil end
+    local l = self.tbl and self.tbl.loc[r.id]
+    return (l and l.type == "boss") and kBossFlag[r.scene] or nil
+end
+
+-- the active locations of a room that are still to find
+function Logic:left_in_room(sc)
+    local out = {}
+    for _, r in ipairs(self.by_room[sc] or {}) do
+        if not self.st.checks[r.id] then out[#out + 1] = r end
+    end
+    return out
+end
+
 function Logic:fire(id, out)
     self.st.claimed[id] = nil
     if self.st.checks[id] then return end
@@ -261,6 +300,15 @@ function Logic:sweep()
             if on then st.checks[r.id] = true out[#out + 1] = r.id end
         end
     end
+    if self.boss_on_kill then
+        for sc, flag in pairs(kBossFlag) do
+            if G.flag(flag) >= 1 then
+                for _, r in ipairs(self.by_scene[sc] or {}) do
+                    if self:boss_flag(r) and not st.checks[r.id] then st.checks[r.id] = true out[#out + 1] = r.id end
+                end
+            end
+        end
+    end
     return out
 end
 
@@ -268,10 +316,14 @@ end
 function Logic:on_scene(sc)
     local out = {}
     self.scene = sc
-    if sc >= 1000 and sc <= 6999 then self.st.saw_gameplay = true end   -- the 7002 goal guard [MOD 461-469]
+    -- the 7002 goal guard [MOD 461-469]. The summit (S_7000..) is 7xxx as well: it is gameplay unless it is
+    -- Toal's intro, which runs there at level 1 (the retail mod's 2.0.1 fix).
+    if (sc >= 1000 and sc <= 6999) or (sc >= 7000 and sc <= 7999 and (P.level() or 0) >= 2) then self.st.saw_gameplay = true end
     local lv = self.opt.scene_levels[sc]
     if lv then self.expected_hi = math.max(self.expected_hi, lv) end
-    for _, r in ipairs(self.by_scene[sc] or {}) do self:fire(r.id, out) end
+    for _, r in ipairs(self.by_scene[sc] or {}) do
+        if not self:boss_flag(r) then self:fire(r.id, out) end   -- else: the sweep, once the fight is won
+    end
     local f = self.opt.scene_floors[sc]
     if f then for _, r in ipairs(self.by_floor[f] or {}) do self:fire(r.id, out) end end
     return out
@@ -343,7 +395,13 @@ function Logic:grant(item, flags)
         local i = it.flag
         local stack
         if i >= 0x40 and i <= 0x76 then stack = counted_item_cell(i) else stack = (flags & 3) == 0 end
-        self:give(i, stack, log)
+        if i == kRodaFruit and self:roda_derived() then
+            -- the cell is derived from this count (Logic:enforce), never added to
+            self.st.roda = self.st.roda + 1
+            log[1] = "Roda Fruit #" .. self.st.roda
+        else
+            self:give(i, stack, log)
+        end
         if it.companion_flag >= 0 then self:give(it.companion_flag, false, log) end   -- [MOD 1855-1878]
     elseif k == "sp" then   -- the live wallet, not g_flags[0xD8] [MOD 1784-1790]
         P.add_sp(it.amount)
@@ -424,11 +482,94 @@ function Logic:start_loadout()
     return #log == 0 and "nothing to give" or table.concat(log, ", ")
 end
 
--- per tick: the ore's weapon tier, the statue warp locks [MOD 2510-2590]
+-- Random start (slot_data random_start + start_statue_scene): once per save, a New Game is warped to the
+-- seed's start statue. Returns the warp index and the scene while that warp is still owed [MOD force_spawn].
+function Logic:spawn_warp()
+    local o, st = self.opt, self.st
+    if st.spawned or not self.configured then return nil end
+    local sc = o.start_statue_scene
+    local w = M.warp_index_of_scene(sc)
+    if not o.random_start or sc <= 0 or w < 0 or self.scene == sc then st.spawned = true return nil end
+    return w, sc
+end
+function Logic:spawn_done(sc)
+    self.st.spawned = true
+    local f = self.opt.statue_unlock_flag[sc]
+    if f and G.flag(f) ~= 1 then G.set_flag(f, 1) self:claim_cell(f) end   -- the statue is lit: save and warp work
+end
+
+-- Roda Fruit is derived when the seed publishes roo_flags (apworld 2.0) and the save counted its fruits
+-- from the start. Logic says the k-th Roo (tower order) needs k fruits, but the Roos can be fed in any
+-- order, and a fruit spent on a later one starved an earlier one that logic had promised. So with N fruits
+-- received the cell holds the unfed Roos among the first N: a Roo beyond N is fed for free, one within N
+-- always finds its fruit [MOD reconcile_roda_fruit].
+function Logic:roda_derived() return #self.opt.roo_flags > 0 and self.st.roda >= 0 end
+
+-- per tick: repairs of story states a randomized seed can strand [MOD repair_1f_burden_softlock,
+-- repair_dreaming_idol_chain]. Both are Yunica's and both follow from the shipped scripts.
+function Logic:repair(scene, ticks)
+    if G.flag(150) ~= 1 then return nil end
+    -- After the Kishgal duel she is sent to 1F ("I'm just a burden", 242 == 1 and 243 == 0): the stairs and
+    -- the Crystal refuse until the Roy scene, which needs the four 1F talks (278 == 4). Each talk sits under
+    -- newer story lines, so a later flag (or an early Lotusblade) hides it and 278 never gets there.
+    if scene == 1000 and G.flag(242) == 1 and G.flag(243) == 0 then
+        if G.flag(278) ~= 4 then
+            G.set_flag(278, 4)
+            for f = 284, 287 do G.set_flag(f, 1) end
+            self.burden_since = ticks
+            return "post-Kishgal 1F state: the four 1F talks marked done (278 = 4); the south slope plays the Roy scene"
+        end
+        self.burden_since = self.burden_since or ticks
+        if ticks - self.burden_since >= 60 * 60 then   -- still stuck a minute later: the scene's own result
+            G.set_flag(243, 1) G.set_flag(185, 1) G.set_flag(180, 1)
+            self.burden_since = nil
+            return "post-Kishgal 1F state held for a minute: 243 / 185 / 180 set, the stairs and the Crystal work again"
+        end
+    else
+        self.burden_since = nil
+    end
+    -- The Dreaming Idol: Dino's gift is skipped once a later story flag is set, and a charged idol can be
+    -- left with no usable copy.
+    local feena = G.flag(293) == 1 or G.flag(294) == 1
+    local blocked = G.flag(225) == 1 or G.flag(235) == 1 or G.flag(237) == 1
+    if feena and G.flag(296) == 0 and blocked then
+        if G.flag(105) < 1 then G.set_flag(105, 1) end
+        G.set_flag(296, 1)
+        return "Dreaming Idol: Dino's gift was blocked by a later story flag, granted (105 = 1, 296 = 1)"
+    end
+    if G.flag(104) == 1 and G.flag(270) == 1 and G.flag(271) == 0 and G.flag(105) < 1 then
+        G.set_flag(105, 1)
+        return "Dreaming Idol: the charged idol had no usable copy, set 105 = 1"
+    end
+    return nil
+end
+
+-- per tick: the ore's weapon tier, the item-cell invariants, the fruit count, the statue warp locks
+-- [MOD 2510-2590, enforce_item_cell_invariant]
 function Logic:enforce()
     if not self.configured or not G.in_game() then return end
     local tier = ore_tier(self.st.ore)
     if tier > 0 and G.flag(kWeaponFlag) < tier then P.set_weapon_tier(tier) end
+    -- ...and never above what Archipelago granted: some vanilla scripts raise the weapon with no item at
+    -- all (the 4F Roo's reward calls 0x7F SetWeaponLevel), so swallowing the ore does not stop them and
+    -- the player got a free tier on top of the seed's item. Every Cleria Ore source is a randomized
+    -- location, so any excess is that [MOD the clamp in exp_scaling_on_frame].
+    local allowed = math.max(tier, self.st.started and self.opt.start_weapon or 0)
+    if self.st.started and G.flag(kWeaponFlag) > allowed then P.set_weapon_tier(allowed) end
+    -- a key item above 1 fails every script that tests it with ==; a skill level above 3 breaks MP regen
+    for i = 0x40, 0x76 do
+        if not counted_item_cell(i) and G.flag(i) > 1 then G.set_flag(i, 1) end
+    end
+    for i = 0xB6, 0xB8 do if G.flag(i) > 3 then G.set_flag(i, 3) end end
+    if self:roda_derived() then
+        local want = 0
+        for k, f in ipairs(self.opt.roo_flags) do
+            if k > self.st.roda then break end
+            if G.flag(f) < 1 then want = want + 1 end
+        end
+        local cur = G.flag(kRodaFruit)
+        if cur ~= want and not (want == 0 and cur < 1) then G.set_flag(kRodaFruit, want) end   -- -1 = never held
+    end
     if not self.opt.statue_warp_locks then return end
     for sc, flag in pairs(self.opt.statue_unlock_flag) do
         local w = M.warp_index_of_scene(sc)

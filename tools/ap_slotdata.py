@@ -66,6 +66,7 @@ def build(apworld, character):
         "weapon_requirements": 1,
         "scene_levels": dt.scene_levels(),
         "scene_floors": dt.scene_floors(),
+        "roo_flags": dt.roo_flag_indices(),
         "location_signals": {n: i for n, i in loc_ids.items() if n in active},
         "location_detect": {n: meta[n]["detect"] for n in sorted(active)},
         "item_index": dt.item_index,

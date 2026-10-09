@@ -11,7 +11,7 @@ the game, its saves and its frames are what they were.
 | the runtime: state, sandbox, budget, errors, the game's calls into a mod | `src/cleria/modscript.{hpp,cpp}` (target `cleria-script`) |
 | the `cleria.*` API | `src/cleria/modscript_api.cpp` |
 | the game side (the `Host`): live game, content layer, ui kit, shell | `apps/cleria-view/view_lua.inl` + one-line hooks in `view_game.inl` |
-| tests | `apps/cleria-luatest` (ctest `luatest`, 56 checks), `tools/aplua_regress.py` (6 drive cases), `drive_regress shell_subpages` |
+| tests | `apps/cleria-luatest` (ctest `luatest`, 56 checks), `tools/aplua_regress.py` (15 drive cases), `drive_regress shell_subpages` |
 | samples | `samples/mods/hello`, `samples/mods/archipelago_lua` (§9) |
 | the modder's guide | `samples/mods/README.md` |
 
@@ -282,6 +282,13 @@ mod's whole event log (connect, stamp, loadout, room checks, scouts, suppression
 every grant, DeathLink in and out, the traps, the goal, the seed guard) was **line-for-line identical** to the
 C++ client's `[ap]` log in all five connected scenarios, and the packets the server received were identical
 too (uuid and times masked).
+
+**Mod 0.2.0** (2026-10-09; the mod's repository, branch `apworld-2.0`, synced here): the apworld 2.0.1 table
+(`tools/ap_import.py --check` passes against the apworld at db8273f; the fixture carries `roo_flags`) and the
+retail mod's 2.0 rules. Its eight cases joined `tools/aplua_regress.py`: `aplua_roda`, `aplua_random_start`,
+`aplua_weapon_clamp`, `aplua_boss_on_kill`, `aplua_boss_on_entry`, `aplua_page`, `aplua_sp_chest`,
+`aplua_invariants` (a case's `aplua=dict(slot_data=..., settings=...)` lays keys over the fixture and adds
+lines to the mod's settings section), beside `aplua_retry`.
 
 **What changed from the removed C++ client** (all deliberate or cosmetic; a player of the C++ client starts
 over in the mod's settings):

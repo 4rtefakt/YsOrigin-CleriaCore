@@ -1132,9 +1132,9 @@
   {
    "class": "useful",
    "id": 5853314,
-   "index": 769,
+   "index": 770,
    "kind": "gem",
-   "level_cell": 183,
+   "level_cell": 184,
    "name": "Ruby"
   },
   {
@@ -1244,9 +1244,9 @@
   {
    "class": "useful",
    "id": 5853328,
-   "index": 770,
+   "index": 769,
    "kind": "gem",
-   "level_cell": 184,
+   "level_cell": 183,
    "name": "Topaz"
   },
   {
@@ -1479,7 +1479,7 @@
     {
      "class": "useful",
      "item": 769,
-     "name": "Ruby"
+     "name": "Topaz"
     }
    ],
    "zone": "Corrupted Blood"
@@ -1546,7 +1546,7 @@
     {
      "class": "useful",
      "item": 770,
-     "name": "Topaz"
+     "name": "Ruby"
     }
    ],
    "zone": "Corrupted Blood"
@@ -5697,7 +5697,7 @@
     {
      "class": "useful",
      "item": 769,
-     "name": "Ruby"
+     "name": "Topaz"
     }
    ],
    "zone": "Flames of Guilt"
@@ -5889,7 +5889,7 @@
     {
      "class": "useful",
      "item": 770,
-     "name": "Topaz"
+     "name": "Ruby"
     }
    ],
    "zone": "Flames of Guilt"
@@ -6073,7 +6073,7 @@
     {
      "class": "useful",
      "item": 769,
-     "name": "Ruby"
+     "name": "Topaz"
     }
    ],
    "zone": "Flooded Prison"
@@ -6802,7 +6802,7 @@
     {
      "class": "useful",
      "item": 770,
-     "name": "Topaz"
+     "name": "Ruby"
     }
    ],
    "zone": "Silent Sands"
@@ -8163,14 +8163,14 @@
   "6099": "25F Midboss 2"
  },
  "source": {
-  "commit": "eda11d2b5f9aa13fb99002964c2b3ff95925cab9",
+  "commit": "7b9283551b270b7c01a68c1e63bbe80a650125f9",
   "repo": "YsOrigin-Archipelago",
   "sha256": {
    "ys_origin/data/character_items.json": "0e370297588998a08f7e1ba295446ec64a54907dcf0be740365cb59bf34088d4",
    "ys_origin/data/chests.json": "9c78a1eb7f0105eebec54280dbc361be9c88f031aeb8aa7ef477d2ab7185d9d6",
-   "ys_origin/data/items.json": "89b8308ceafb9c5e8064ee4450841992affc566194aaa5b9b35c8ac65108b574",
-   "ys_origin/data/locations.json": "b0255b45d1859225c845fd0b26805c41f44a9ebe41c305a607b4a9793984b381",
-   "ys_origin/data_tables.py": "7af0b8de209d58ec38c37dc780912e7f74c75d82d1f71a75d6ab9c8aa6e5a1b8"
+   "ys_origin/data/items.json": "1f9401d863cc93fa3ef1ee25a77c77837c6ab357313122e6d317c58626a6dc6e",
+   "ys_origin/data/locations.json": "b3e14b9d09a0cb1e2cc3fdf48be398e67ee828de67b4c045b4798b55922abc1a",
+   "ys_origin/data_tables.py": "a0cbefb75c4f9e461bdf1eb58133303fd5716c4040d879746948422c5d8d15e8"
   },
   "tool": "tools/ap_import.py"
  },

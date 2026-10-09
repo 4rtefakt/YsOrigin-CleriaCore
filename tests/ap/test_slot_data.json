@@ -493,7 +493,7 @@
   "Riveted Leather": 18,
   "Rod": 98,
   "Roda Fruit": 87,
-  "Ruby": 769,
+  "Ruby": 770,
   "Shell Greaves": 38,
   "Short Sword": 5,
   "Silver Bracelet": 90,
@@ -509,7 +509,7 @@
   "Sword": 3,
   "Sylphen Boots": 33,
   "Terra Bracelet": 117,
-  "Topaz": 770,
+  "Topaz": 769,
   "Unequip magic.": 119,
   "Ventus Bracelet": 116,
   "Vitality Seed": 114,
@@ -2277,6 +2277,14 @@
   }
  },
  "random_start": false,
+ "roo_flags": [
+  312,
+  339,
+  362,
+  388,
+  414,
+  458
+ ],
  "scene_floors": {
   "1000": 1,
   "1001": 2,
@@ -3235,9 +3243,9 @@
   "Evil Ring": 94,
   "Gold Bracelet": 163,
   "Levinstrike Warhammer": 117,
-  "Ruby": 183,
+  "Ruby": 184,
   "Silver Bracelet": 181,
-  "Topaz": 184
+  "Topaz": 183
  },
  "sp_flag_idx": 216,
  "sp_items": {
