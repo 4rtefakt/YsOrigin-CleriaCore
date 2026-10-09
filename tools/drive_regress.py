@@ -474,6 +474,14 @@ CASES = {
         drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;" +
               ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:abil;430:quit",
         expect=["[abil] t420", "combo 2/", "exp 21.42 lv 3"]),
+    # Issue #76: a level gained shows the green "Level Up" popup, plays SE 5 and attaches EF2 62 (FUN_00420c40's
+    # loop), once per level: Toal's first kills at EXP x50.
+    "levelup_popup": dict(
+        room="S_10/S_1002/S_1002", char="3",
+        drive="8:opt=DamageDealt=10;9:opt=ExpRate=50;10:opt=DamageTaken=0;15:stats;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 100, 25)) + ";120:stats;130:quit",
+        expect=["stats exp 0 lv 1", "[levelup] lv 2: popup 'Level Up' 00ff00 x0.65, SE 5, EF2 62",
+                "t120 stats", " lv 2 hp 65/65"], count={"[levelup]": 1}),
     "exp_over": dict(
         room="S_10/S_1002/S_1002", env=dict(CLERIA_LEVEL="5"),
         drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;" +

@@ -1318,6 +1318,7 @@ title_again:
     // `boss_eex`: the boss's EEX record, whose +0x10 is the award block's +0x30, the SP FUN_004fa4a0 credits
     // after the EXP [EXPORT 004fa4a0.c:38-43; 00443b80.c: param_2[0xc] = (int)EEX+0x10] (140 for the first
     // six bosses, 0 for Dalles and Darm [DATA EEX.DAT]).
+    std::function<void()> level_up_fx;   // a level gained: the popup, the SE, the effect (set below, FUN_00420c40)
     auto award_exp = [&](float b0, int enemy_level, bool boss, bool awarded = false, int boss_eex = -1) {
         if (boss && game.g_flags[193] == 0 && boss_eex >= 0 && std::size_t(boss_eex) < eex.bosses.size())
             credit_sp(int(eex.bosses[std::size_t(boss_eex)].unk10));
@@ -1344,6 +1345,7 @@ title_again:
             // the player is in the death state.
             if (player.hp >= 1) player.hp = player.max_hp;
             hud.debug_message("Level up! Lv " + std::to_string(player.level));
+            if (level_up_fx) level_up_fx();
         }
     };
     // Hand the room-load script's placed effects (op 0x117) to the world so they render.
@@ -3117,6 +3119,20 @@ title_again:
         f->attach_parent = &actor_mats[13];
         f->attach_mode = 2;
         return f;
+    };
+    // A level gained (issue #76), once per level in FUN_00420c40's loop [EXPORT 00420c40.c:144-282]:
+    // - the popup "Level Up" (s_Level_Up_006981a0, the English string) at the player's origin + 0.5
+    //   (DAT_006bd304), FUN_00564da0(popup, text, 0xff00, 0.65) [BYTES 0x42127e..0x4212bb]: green, scale 0.65;
+    // - FUN_0043a040(5, 0x400) [BYTES 0x4212c0]: SE 5 = sys/s_levelup, 2-D, played whether or not a popup
+    //   slot was free;
+    // - EF2 0x3e (62, common/Lvup.eft) placed at 0 and attached to the player, yaw = the camera's, mode 2
+    //   (FUN_00451c20) [BYTES 0x421152]. [approx] its +0x1da / +0x1dc |= 0x100 fields are not modelled.
+    level_up_fx = [&] {
+        if (std::getenv("CLERIA_DRIVE")) std::printf("  [levelup] lv %d: popup 'Level Up' 00ff00 x0.65, SE 5, EF2 62\n", player.level);
+        if (popups.size() < 32)
+            popups.push_back(make_popup("Level Up", 0x00ff00, 0.65f, {feet.x, feet.y + kOriginH + 0.5f, feet.z}));
+        audio.play(5, kSfxMenuVol);
+        attach_to_player(spawn_sim_fx(62, {}, {}, 1.0f, {}, 0, {}), {}, camera_yaw());
     };
 
 
