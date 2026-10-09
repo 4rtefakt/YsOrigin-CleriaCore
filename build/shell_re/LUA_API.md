@@ -97,7 +97,8 @@ diff as `flag_changed`, just before it, so it never fires on a load, a Retry or 
 diff), and never on a lost fight. `e.room` is the room of the fight. Two rules:
 - **A floor boss**: its flag 220..227 goes 0 -> 1. `e.flag` is that flag. S_1099 220, S_2099 221, S_3099 222,
   S_4099 223, S_5099 224, S_6082 225 (Zava's module, or Toal's `BATTLE_THOR` store), S_7080 226, S_7099 227
-  (Darm's later 227 = 2 is not a second event). Not in boss rush (the modules write no flag there).
+  (Darm's later 227 = 2 is not a second event). Not in boss rush: the modules write no flag there and clear
+  156 themselves, so a rush fight would end by the second rule in its own room [H: not driven].
 - **A duel / mid-boss**: `g_flags[156]` ("a boss fight runs", retail 0x76bb8c) goes 1 -> 0 in the room where
   it went 0 -> 1, the room is not one of the eight above, and the clear was not the player's KO in a losable
   duel (flag 133: Hugo's and Yunica's S_3080). No `e.flag`. Every such fight's script sets 156 = 1 and waits
