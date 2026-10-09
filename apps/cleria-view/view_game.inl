@@ -3,6 +3,23 @@
 // main.cpp in a fixed order; ONE translation unit, not standalone. Keep it that way
 // until a real TU split is warranted.
 
+// The launcher's backdrops with a framed camera (position, yaw / pitch in degrees) [HAND-TUNED: picked by eye
+// from headless captures], and their names in the shell's Audio page. Any other room id gets spawn_in's overview.
+// A CleriaCore addition: retail has no launcher.
+struct LaunchRoom { const char* room; const char* name; float x, y, z, yaw, pitch; };
+static const LaunchRoom kLaunchRooms[] = {
+    {"S_3005", "Fire floor - lava stairs", 0.0f, 4.0f, -26.0f, 90.0f, -5.0f},
+    {"S_1009", "Floor 1 - goddess statue", -3.0f, 6.0f, -8.0f, 90.0f, -5.0f},
+    {"S_7000", "Summit - the fence against the sky", -31.0f, 5.0f, -34.0f, 90.0f, 4.0f},
+    {"S_2007", "Water floor - pools", -63.5f, 2.0f, -0.5f, 45.0f, -10.0f},
+    {"S_0002", "Prologue - the Roda tree", 0.0f, 6.0f, -34.0f, 90.0f, 10.0f},
+    {"S_6014", "Floor 6 - mirrors", 0.0f, 4.0f, -32.0f, 90.0f, -5.0f},
+    {"S_1000", "Tower entrance hall - stairs", -10.0f, 4.0f, -40.0f, 90.0f, 5.0f},
+    {"S_6000", "Floor 6 - statue and violet lamps", 0.0f, 25.0f, 40.0f, 90.0f, -5.0f},
+    {"S_4000", "Sand floor - entrance stairs", -6.0f, 7.0f, -10.0f, 80.0f, -8.0f},
+    {"S_5005", "Floor 5 - stone arch", -5.0f, 5.0f, -16.0f, 80.0f, -3.0f},
+};
+
 // ---- interactive walkthrough ------------------------------------------------
 static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& first_sob,
                          bool show_title = false) {
@@ -371,6 +388,22 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                            "Plays the title theme on this launcher screen. A CleriaCore addition: the original "
                            "game has no launcher."))
                 persist();
+            // The launcher's backdrop ([cleria.shell] LauncherRoom): "auto" or one of kLaunchRooms.
+            {
+                const char* names[1 + std::size(kLaunchRooms)] = {"Follow my last save"};
+                std::string& lr = settings().s.cleria.launcher_room;
+                int idx = 0;
+                for (int i = 0; i < int(std::size(kLaunchRooms)); ++i) {
+                    names[i + 1] = kLaunchRooms[i].name;
+                    if (lr == kLaunchRooms[i].room) idx = i + 1;
+                }
+                if (ui::choice(L, "Launcher backdrop", &idx, names, int(std::size(names)),
+                               "The room behind this launcher screen. Follow my last save shows the floor of your most "
+                               "recent save. Takes effect the next time CleriaCore starts. A CleriaCore addition.")) {
+                    lr = idx ? kLaunchRooms[idx - 1].room : "auto";
+                    persist();
+                }
+            }
         });
         // Gameplay (the cutscene skip, the game speed) and Cheats: view_access.inl.
         shell.panel.add("Gameplay", [&](ui::List& L) { access_gameplay_page(L, persist); });
@@ -690,30 +723,42 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // it unless CLERIA_LAUNCHER is set (=settings also opens the panel); they then shoot one frame
     // to CLERIA_SHOT_DIR/launcher.ppm and quit. CLERIA_LAUNCH_ROOM / CLERIA_LAUNCH_CAM
     // ("x,y,z,yaw_deg,pitch_deg") pick the backdrop; else cleria.ini [cleria.shell] LauncherRoom="S_1009" (a room id, quoted),
-    // else kLaunchRooms' first. Its music: the original's title theme ([cleria.shell] LauncherMusic, on by
-    // default). Both are CleriaCore additions: retail has no launcher.
+    // else (LauncherRoom="auto", the default) the floor of the most recently written save in the save folder
+    // (launcher_backdrop, settings.hpp). Its music: the original's title theme ([cleria.shell] LauncherMusic, on by
+    // default). All are CleriaCore additions: retail has no launcher.
     static bool s_launcher_shown = false;
     const char* launcher_env = std::getenv("CLERIA_LAUNCHER");
     if (show_title && !s_launcher_shown && (!std::getenv("CLERIA_DRIVE") || launcher_env)) {
         s_launcher_shown = true;
         const char* rn = std::getenv("CLERIA_LAUNCH_ROOM");
-        // The backdrops with a framed camera (position, yaw / pitch in degrees) [HAND-TUNED: picked by eye from
-        // headless captures]; the first is the default. Any other room id gets spawn_in's overview.
-        struct LaunchRoom { const char* room; float x, y, z, yaw, pitch; };
-        static const LaunchRoom kLaunchRooms[] = {
-            {"S_3005", 0.0f, 4.0f, -26.0f, 90.0f, -5.0f},       // the fire floor: the stairs over the lava
-            {"S_1009", -3.0f, 6.0f, -8.0f, 90.0f, -5.0f},       // floor 1's goddess statue
-            {"S_7000", -31.0f, 5.0f, -34.0f, 90.0f, 4.0f},      // the summit: the fence against the sky
-            {"S_2007", -63.5f, 2.0f, -0.5f, 45.0f, -10.0f},     // floor 2: the pools
-            {"S_0002", 0.0f, 6.0f, -34.0f, 90.0f, 10.0f},       // the prologue's Roda tree
-            {"S_6014", 0.0f, 4.0f, -32.0f, 90.0f, -5.0f},       // floor 6: the mirrors
-            {"S_1000", -10.0f, 4.0f, -40.0f, 90.0f, 5.0f},      // the tower's entrance hall: the stairs
-            {"S_6000", 0.0f, 25.0f, 40.0f, 90.0f, -5.0f},       // floor 6's entrance: the statue, the violet lamps
-        };
         const std::string& lr = settings().s.cleria.launcher_room;
-        const std::string bg_name = rn ? rn : g.sob_index.count(lr) ? lr : kLaunchRooms[0].room;
+        std::string bg_name = rn ? rn : lr, why = "fixed";
+        if (!rn && !g.sob_index.count(lr)) {
+            // "auto": the newest save file (by its write time; a manual save or a mod's autosave alike) names
+            // the floor, launcher_backdrop the room. Not retail.
+            int newest = -1;
+            fs::file_time_type nt{};
+            std::string scene;
+            for (int i = 0; i < 100; ++i) {
+                std::error_code ec;
+                const fs::file_time_type t = fs::last_write_time(slot_path(i), ec);
+                if (ec || (newest >= 0 && t <= nt)) continue;
+                std::ifstream f(slot_path(i), std::ios::binary);
+                const std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
+                if (const auto r = SaveRecord::decode(raw)) { newest = i; nt = t; scene = from_record(*r).scene; }
+            }
+            bg_name = launcher_backdrop(scene);
+            char b[80] = "auto: no save";
+            if (newest >= 0) std::snprintf(b, sizeof b, "auto: newest save yso_%02d in %s", newest, scene.c_str());
+            why = b;
+        }
         Room bg;
         if (auto it = g.sob_index.find(bg_name); it != g.sob_index.end()) bg = load_room(g, asset_root, it->second);
+        if (bg.mesh.vertices.empty()) {                    // a room that is missing or does not load: the entrance hall
+            bg_name = "S_1000";
+            if (auto it = g.sob_index.find(bg_name); it != g.sob_index.end()) bg = load_room(g, asset_root, it->second);
+        }
+        std::printf("[launcher] backdrop %s (%s)\n", bg_name.c_str(), why.c_str());
         Camera lcam;
         spawn_in(lcam, bg);
         for (const LaunchRoom& p : kLaunchRooms)

@@ -268,6 +268,22 @@ int main() {
               "write_cleria writes no [cleria.archipelago]");
     }
 
+    // ---- the launcher's backdrop by the newest save's floor (LauncherRoom="auto", a CleriaCore addition) ----
+    {
+        check(Settings{}.cleria.launcher_room == "auto", "LauncherRoom defaults to auto");
+        const auto bd = [](const char* scene) { return std::string(launcher_backdrop(scene)); };
+        check(bd("") == "S_0002", "no save: the Roda tree");
+        check(bd("s_1000") == "S_1009" && bd("S_1104") == "S_1009", "floor 1 (S_10xx / S_11xx)");
+        check(bd("s_2012") == "S_2007", "floor 2");
+        check(bd("s_3099") == "S_3005", "floor 3");
+        check(bd("s_4013") == "S_4000" && bd("s_4100") == "S_4000", "floor 4");
+        check(bd("s_5001") == "S_5005", "floor 5");
+        check(bd("s_6014") == "S_6000", "floor 6");
+        check(bd("s_7000") == "S_7000", "the summit");
+        check(bd("s_0002") == "S_0002" && bd("s_9105") == "S_0002" && bd("title") == "S_0002" && bd("s_1") == "S_0002",
+              "the prologue, another scene, a malformed name: the Roda tree");
+    }
+
     // ---- retail's location rules (FUN_005de1d0) ----
     {
         const fs::path sg = "C:/SG", inst = "D:/Game";

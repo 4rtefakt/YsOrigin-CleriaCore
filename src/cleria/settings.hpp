@@ -126,7 +126,8 @@ struct Settings {
         bool unlock_characters = false;      // [cleria.qol] UnlockCharacters (Toal selectable before a clear)
         bool skip_logo_movie = false;        // [cleria.qol] SkipLogoMovie (boot straight to the title)
         bool launcher_music = true;          // [cleria.shell] LauncherMusic (the title theme on CleriaCore's launcher)
-        std::string launcher_room;           // [cleria.shell] LauncherRoom (the launcher's backdrop; empty = the default)
+        std::string launcher_room = "auto";  // [cleria.shell] LauncherRoom (the launcher's backdrop: "auto" (or empty) =
+                                             // by the newest save's floor, launcher_backdrop; else a room id)
         bool vsync = true;                   // [cleria.video] VSync (CleriaCore's own; retail WaitVSync round-trips)
         bool borderless_fullscreen = false;  // [cleria.video] BorderlessFullscreen
         bool linear_stick_magnitude = false; // [cleria.input] LinearStickMagnitude (analog walk)
@@ -162,6 +163,12 @@ void read_retail(const Ini& ini, Settings& s);    // FUN_0040bf50 + FUN_0040b8e0
 void write_retail(Ini& ini, const Settings& s);   // the full key set, retail spelling and order
 void read_cleria(const Ini& ini, Settings& s);
 void write_cleria(Ini& ini, const Settings& s);
+
+// The launcher's backdrop for LauncherRoom="auto" (a CleriaCore addition: retail has no launcher): the room
+// shown for a save whose scene is `scene` ("s_3012"; empty = no save). The floor is the scene id's first digit,
+// the game's own grouping (S_10xx / S_11xx = the first tower floor group, ... S_70xx = the summit); the
+// prologue / interlude scenes (S_0xxx), anything else and no save get the Roda tree.
+const char* launcher_backdrop(std::string_view scene);
 
 // The mapper's configuration from the settings (the PAD_* slots from cleria.ini when NativePadBinds).
 input::Config mapper_config(const Settings& s, bool book_mode = false);

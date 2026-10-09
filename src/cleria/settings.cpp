@@ -525,6 +525,20 @@ void write_cleria(Ini& ini, const Settings& s) {
     video::write(ini, s.video);
 }
 
+const char* launcher_backdrop(std::string_view scene) {
+    if (scene.size() == 6 && (scene[0] == 's' || scene[0] == 'S') && scene[1] == '_') switch (scene[2]) {
+        case '1': return "S_1009";   // the goddess statue
+        case '2': return "S_2007";   // the pools
+        case '3': return "S_3005";   // the stairs over the lava
+        case '4': return "S_4000";   // the sand floor's entrance
+        case '5': return "S_5005";   // floor 5: the arch
+        case '6': return "S_6000";   // the entrance: the statue, the violet lamps
+        case '7': return "S_7000";   // the summit
+        default: break;
+    }
+    return "S_0002";                 // the prologue's Roda tree
+}
+
 input::Config mapper_config(const Settings& s, bool book_mode) {
     input::Config c;
     c.assign = s.input.assign;
