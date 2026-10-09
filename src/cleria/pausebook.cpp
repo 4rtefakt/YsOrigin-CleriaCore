@@ -2015,7 +2015,7 @@ bool PauseBook::cs_locked(const BookModel& m, int bar) const {
         const bool cleared[4] = {g.clear_yunica, g.clear_hugo, g.clear_toal, true};
         return !cleared[std::clamp(bar, 0, 3)];
     }
-    return csn_ == 3 && bar == 2 && !(g.clear_yunica || g.clear_hugo);
+    return csn_ == 3 && bar == 2 && !(g.clear_yunica || g.clear_hugo || g.open_toal);
 }
 
 // FUN_005c2110
@@ -2172,7 +2172,7 @@ void PauseBook::update_charsel(const BookInput& in0, BookModel& m, BookEvents& e
         case 1: {
             if (in.cancel) { sub_ = -1; ev.sounds.push_back(1); break; }
             const CharSelectGates& g = m.charsel;
-            const int mm = (csn_ == 3 && !(g.clear_yunica || g.clear_hugo)) ? 2 : csn_;
+            const int mm = (csn_ == 3 && !(g.clear_yunica || g.clear_hugo || g.open_toal)) ? 2 : csn_;
             // The mouse [EXPORT FUN_005c3790]: no wheel -> hover the bars on motion; a wheel tick ->
             // (n + cur - sign) % n (up = the upper bar). [H] the bars past CleriaCore's row limit `mm`
             // (Toal still locked) do not take the hover.

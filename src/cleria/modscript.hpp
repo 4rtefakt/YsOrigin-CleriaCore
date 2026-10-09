@@ -70,6 +70,7 @@ struct Host {
     virtual void refresh() {}                               // the stat recompute after a grant
     virtual void warp(int index) { (void)index; }           // 0xa6 GoWarpPoint to a statue of the registry
     virtual bool save(int slot) { (void)slot; return false; }   // the statue save into slot 0..63; false = refused
+    virtual void unlock_character(int c) { (void)c; }       // Character Select offers character c (3 = Toal) this session
     // ---- storage ----
     virtual std::map<std::string, std::string>* save_storage(const std::string& mod) { (void)mod; return nullptr; }
     virtual std::optional<std::string> setting(const std::string& mod, const std::string& key) { (void)mod; (void)key; return std::nullopt; }

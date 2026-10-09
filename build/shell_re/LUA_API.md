@@ -133,6 +133,7 @@ consumed and raise no `item_used`.
 | `game.frozen()` | a cutscene or a box holds the world (grant things later) |
 | `game.chests()` | the current room's chests: `{s_box01 = {flag = 302, object = "box_01"}, ...}` |
 | `game.save(slot)` (API 4) | save the game now into slot 0..63, as a goddess statue does; `true` if it saved, `false` if not (below) |
+| `game.unlock_character(c)` (2026-10-09; test `cleria.game.unlock_character ~= nil`) | Character Select offers character `c` for the rest of this session whatever the clear data says (1 Yunica, 2 Hugo, 3 Toal; only Toal is ever locked on a New Game). Not saved; callable on the title — "frame" handlers run there too. The player's own switch is `[cleria.qol] UnlockCharacters`. |
 | `game.exp_factor(fn)` | `fn(level) -> factor` multiplies the EXP of every kill (with the Cheats rate, the AP seed's) |
 | `player.hp()`, `max_hp()`, `set_hp(n)` | `set_hp(0)` kills (the game-over flow follows) |
 | `player.sp()`, `add_sp(n)` | the SP wallet (the shop currency), 0..999999 |

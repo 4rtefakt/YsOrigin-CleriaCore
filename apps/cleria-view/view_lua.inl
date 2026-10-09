@@ -59,6 +59,7 @@ struct LuaHost : script::Host {
     void refresh() override;
     void warp(int index) override;
     bool save(int slot) override;
+    void unlock_character(int c) override;
     std::map<std::string, std::string>* save_storage(const std::string& mod) override { return &g_content.sc.mod[mod]; }
     std::optional<std::string> setting(const std::string& mod, const std::string& key) override;
     bool set_setting(const std::string& mod, const std::string& key, const std::string& value) override;
@@ -165,6 +166,8 @@ void LuaHost::set_stat(Stat s, double v) {
 void LuaHost::refresh() { if (g_lua.b.refresh) g_lua.b.refresh(); }
 void LuaHost::warp(int index) { if (g_lua.b.warp && g_lua.b.warp_on) g_lua.b.warp(index); }
 bool LuaHost::save(int slot) { return in_game() && g_lua.b.save && g_lua.b.save(slot); }
+static bool g_lua_open_toal = false;   // cleria.game.unlock_character(3): read by the title's Character Select
+void LuaHost::unlock_character(int c) { if (c == 3) g_lua_open_toal = true; }
 
 static std::string lua_setting_sec(const std::string& mod) { return "cleria.mod." + mod; }
 std::optional<std::string> LuaHost::setting(const std::string& mod, const std::string& key) {

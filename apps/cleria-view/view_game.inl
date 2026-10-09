@@ -249,6 +249,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (ui::toggle(L, "Skip logo movie", &settings().s.cleria.skip_logo_movie,
                        "Go straight to the title screen instead of playing the Falcom logo movie first."))
                 persist();
+            if (ui::toggle(L, "Unlock all characters", &settings().s.cleria.unlock_characters,
+                       "Lets you pick Toal on a New Game right away. In the original he becomes available only "
+                       "after you have cleared the game with Yunica or Hugo."))
+                persist();
             if (ui::toggle(L, "Unlock movie skipping", &settings().s.cleria.unlock_movie_skip,
                        "Lets you skip the prologue and opening movies at any time. In the original they become "
                        "skippable only after you have cleared the game once."))
@@ -833,6 +837,7 @@ title_again:
             m.save_file_no = &tsave_no;
             m.sliders = oslider; m.checks = ocheck;
             m.metrics = tr.metrics();
+            m.charsel.open_toal = settings().s.cleria.unlock_characters || g_lua_open_toal;   // CleriaCore's, not retail's
             return m;
         };
         float taccum = 0;

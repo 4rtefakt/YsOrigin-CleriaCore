@@ -48,6 +48,9 @@ struct CharSelectGates {
     bool nya = false;
     bool extra_yunica = false, extra_hugo = false, extra_toal = false;
     bool adol_felghana = false, adol_napishtim = false, yunica_outfit = false;
+    // CleriaCore's (not retail's): Toal's bar is open whatever the clear bytes say -- [cleria.qol]
+    // UnlockCharacters, or a mod's cleria.game.unlock_character(3) (build/shell_re/LUA_API.md).
+    bool open_toal = false;
     int mode = 0;
 };
 // What Character Select and Difficulty chose (the callbacks' writes).

@@ -531,6 +531,9 @@ int l_game_save(lua_State* L) {
     lua_pushboolean(L, s >= 0 && s < 64 && M(L).host().save(int(s)));
     return 1;
 }
+// unlock_character(c): Character Select offers character c for the rest of this session, whatever the clear
+// data says (1 Yunica, 2 Hugo, 3 Toal; only Toal is ever locked on a New Game). Not saved.
+int l_unlock_character(lua_State* L) { M(L).host().unlock_character(int(luaL_checkinteger(L, 1))); return 0; }
 int l_room(lua_State* L) { lua_pushstring(L, M(L).host().room().c_str()); return 1; }
 int l_scene(lua_State* L) {
     const std::string r = M(L).host().room();
@@ -1118,7 +1121,7 @@ void open_api(lua_State* L, Mod& m) {
                                     {"set_warp_unlocked", l_set_warp_unlocked}, {"warp_to", l_warp_to}, {"room", l_room},
                                     {"scene", l_scene}, {"character", l_character}, {"frozen", l_frozen},
                                     {"in_game", l_in_game}, {"chests", l_chests}, {"exp_factor", l_exp_factor},
-                                    {"save", l_game_save},
+                                    {"save", l_game_save}, {"unlock_character", l_unlock_character},
                                     {nullptr, nullptr}};
     lua_newtable(L);
     set_funcs(L, game);

@@ -123,6 +123,7 @@ struct Settings {
         bool debug_hud = false;             // [cleria.video] DebugHud (start with the F3 overlay up)
         bool dev_keys = false;               // [cleria.dev] DebugKeys: the fixed debug keys (F/R/T/K/L/B, Ctrl+Tab, Ctrl+1-9)
         bool unlock_movie_skip = false;      // [cleria.qol] UnlockMovieSkip (skip a demo never seen)
+        bool unlock_characters = false;      // [cleria.qol] UnlockCharacters (Toal selectable before a clear)
         bool skip_logo_movie = false;        // [cleria.qol] SkipLogoMovie (boot straight to the title)
         bool vsync = true;                   // [cleria.video] VSync (CleriaCore's own; retail WaitVSync round-trips)
         bool borderless_fullscreen = false;  // [cleria.video] BorderlessFullscreen

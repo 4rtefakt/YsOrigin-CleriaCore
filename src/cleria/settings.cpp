@@ -454,6 +454,7 @@ void read_cleria(const Ini& ini, Settings& s) {
     rb("cleria.video", "DebugHud", c.debug_hud);
     rb("cleria.dev", "DebugKeys", c.dev_keys);
     rb("cleria.qol", "UnlockMovieSkip", c.unlock_movie_skip);
+    rb("cleria.qol", "UnlockCharacters", c.unlock_characters);
     rb("cleria.qol", "SkipLogoMovie", c.skip_logo_movie);
     rb("cleria.video", "VSync", c.vsync);
     rb("cleria.video", "BorderlessFullscreen", c.borderless_fullscreen);
@@ -492,6 +493,7 @@ void write_cleria(Ini& ini, const Settings& s) {
     ini.set_int("cleria.video", "DebugHud", c.debug_hud);
     ini.set_int("cleria.dev", "DebugKeys", c.dev_keys);
     ini.set_int("cleria.qol", "UnlockMovieSkip", c.unlock_movie_skip);
+    ini.set_int("cleria.qol", "UnlockCharacters", c.unlock_characters);
     ini.set_int("cleria.qol", "SkipLogoMovie", c.skip_logo_movie);
     ini.set_int("cleria.video", "VSync", c.vsync);
     ini.set_int("cleria.video", "BorderlessFullscreen", c.borderless_fullscreen);
