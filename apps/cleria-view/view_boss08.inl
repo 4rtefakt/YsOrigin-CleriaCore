@@ -37,10 +37,6 @@
 // g_flags), FUN_00461160(0) / P+0x9fc / Toal's two burst effects at the fall, the armor bit of a closed part (no
 // elemental bonus), dmg' of the pool drain (GELALDY G9), W's +0x298 & 0x8000 heal (DARM_D U-D3), the radius-14
 // ground shadow of the draw case, the SE preload, boss rush's end-of-room (DARM_D §6).
-// Seen, not fixed here: a camera eye farther than ~53 from the arena's centre shows a flat purple frame (probed:
-// an eye at (0, 26, -45) is clear, at (0, 30, -45) veiled) — always so with the High form's slot 3 (46 beyond the
-// player, 25 up, 5.55 offset). [H] the room's sky sphere, an effect mesh (sky_ball) the view's effect draw does not
-// cull; not traced.
 constexpr int kB8Owner = -0xB08;                           // fx owner tag: the module's effect handles
 const char* const boss8_name[5] = {"boss08", "boss08t", "boss08w", "boss08arm", "s7099yuka"};
 const char* const boss8_ymo[4] = {"data\\enemy\\boss08\\boss08.ymo", "data\\enemy\\boss08\\boss08t.ymo",

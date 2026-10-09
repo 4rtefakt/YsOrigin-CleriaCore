@@ -34,6 +34,8 @@ struct Gpu {
     WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
     WGPURenderPipeline mat_pipe[4][2]{};  // blended YMO materials: [blend mode 1..3][z-write]
     WGPURenderPipeline zpre_pipe{};       // FUN_005f8de0's depth pre-pass (material_zprepass)
+    // The same three with D3DCULL_CCW, for a material without flags 0x400 (material_cull).
+    WGPURenderPipeline cull_pipeline{}, cull_mat_pipe[4][2]{}, cull_zpre_pipe{};
     WGPUBuffer ubuf{};
     WGPUBindGroup ubind{};
     WGPUSampler sampler{};
@@ -251,6 +253,11 @@ static int material_blend_mode(const DrawBatch& b) { return material_blend_mode(
 static bool material_zwrite(const DrawBatch& b) {
     return (b.mat_flags & 0x20000) == 0 && (b.mat_flags & 0x10) == 0;
 }
+// D3DRS_CULLMODE [C-DIS FUN_005f92b0, MATERIAL.md §3 / §6]: D3DCULL_CCW (3), or D3DCULL_NONE (1) for a material with
+// flags 0x400. So a one-sided shell is not drawn from behind: S_7099's cloud dome (01kumo / 03kumo, flags 0xc, about
+// 53 around the arena) hid the whole frame from the High form's camera, whose eye is outside it.
+// [not modelled] the CW flip while DAT_007b38f0 != 0 (the reflection view).
+static bool material_cull(const DrawBatch& b) { return (b.mat_flags & 0x400) == 0; }
 // The depth pre-pass FUN_005fb0e0 issues right before a subset's FUN_005f92b0 draw
 // (0x5fb418..0x5fb45a): draw flags & 0x1014 == 0 (a static GoMesh passes 0 or 0x400,
 // FUN_00561f40), a material with flags 0x10, no 0x20000 and d3 <= 1, and
@@ -899,6 +906,8 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
             mds.depthCompare = WGPUCompareFunction_LessEqual;
             WGPURenderPipelineDescriptor mpd = pd; mpd.fragment = &mfs; mpd.depthStencil = &mds;
             g.mat_pipe[mode][zw] = wgpuDeviceCreateRenderPipeline(g.device, &mpd);
+            mpd.primitive.frontFace = WGPUFrontFace_CW; mpd.primitive.cullMode = WGPUCullMode_Back;
+            g.cull_mat_pipe[mode][zw] = wgpuDeviceCreateRenderPipeline(g.device, &mpd);
         }
     // FUN_005f8de0's pre-pass (material_zprepass): alpha test texture alpha >= 0xbf, depth
     // LESSEQUAL + write, no blending. It writes destination alpha only (COLORWRITEENABLE 8);
@@ -909,6 +918,12 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
         WGPUDepthStencilState zds = ds; zds.depthCompare = WGPUCompareFunction_LessEqual;
         WGPURenderPipelineDescriptor zpd = pd; zpd.fragment = &zfs; zpd.depthStencil = &zds;
         g.zpre_pipe = wgpuDeviceCreateRenderPipeline(g.device, &zpd);
+        zpd.primitive.frontFace = WGPUFrontFace_CW; zpd.primitive.cullMode = WGPUCullMode_Back;
+        g.cull_zpre_pipe = wgpuDeviceCreateRenderPipeline(g.device, &zpd);
+        // material_cull: D3D's clockwise front face is WebGPU's (both rasterise y-down), so CCW culling is Back here.
+        WGPURenderPipelineDescriptor kpd = pd;
+        kpd.primitive.frontFace = WGPUFrontFace_CW; kpd.primitive.cullMode = WGPUCullMode_Back;
+        g.cull_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &kpd);
     }
 
     WGPUBufferDescriptor ud = {};
@@ -1036,7 +1051,6 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
     rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
 
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, g.pipeline);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, room.vbuf, 0, WGPU_WHOLE_SIZE);
     wgpuRenderPassEncoderSetIndexBuffer(pass, room.ibuf, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
@@ -1061,12 +1075,15 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
             // The depth pre-pass, right before the subset's own draw (FUN_005fb0e0 0x5fb45a).
             // Only for a blended draw: an opaque one (the d13 override) writes a superset of
             // that depth itself.
+            const bool cull = material_cull(b);
             if (blended && material_zprepass(b)) {
-                wgpuRenderPassEncoderSetPipeline(pass, g.zpre_pipe);
+                wgpuRenderPassEncoderSetPipeline(pass, cull ? g.cull_zpre_pipe : g.zpre_pipe);
                 wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
             }
             if (blended)
-                wgpuRenderPassEncoderSetPipeline(pass, g.mat_pipe[mode][material_zwrite(b) ? 1 : 0]);
+                wgpuRenderPassEncoderSetPipeline(pass, (cull ? g.cull_mat_pipe : g.mat_pipe)[mode][material_zwrite(b) ? 1 : 0]);
+            else
+                wgpuRenderPassEncoderSetPipeline(pass, cull ? g.cull_pipeline : g.pipeline);
             wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
         }
     }

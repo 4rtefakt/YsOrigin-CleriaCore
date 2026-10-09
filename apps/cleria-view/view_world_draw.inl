@@ -927,7 +927,9 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
             WGPUBindGroup bind = (bt.texture >= 0 && bt.texture < int(m->binds.size())) ? m->binds[bt.texture] : g.black_bind;
             if (over && mat_i < 8) bind = over->bind;
             ++mat_i;
-            const WGPURenderPipeline pipe = mode == 0 ? g.pipeline : g.mat_pipe[mode][material_zwrite(bt) ? 1 : 0];
+            const bool cull = material_cull(bt);
+            const WGPURenderPipeline pipe = mode == 0 ? (cull ? g.cull_pipeline : g.pipeline)
+                                                      : (cull ? g.cull_mat_pipe : g.mat_pipe)[mode][material_zwrite(bt) ? 1 : 0];
             std::vector<Bucket>& list = mode == 0 ? opaque : blended;
             if (list.empty() || list.back().pipe != pipe || list.back().bind != bind) list.push_back({{}, pipe, bind});
             std::vector<RoomVertex>& out = list.back().v;
