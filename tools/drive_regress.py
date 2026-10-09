@@ -558,6 +558,17 @@ CASES = {
     "dummy_probe": dict(
         room="S_10/S_1009/S_1009", drive="5:flag=111,1;30:at3=0,9,33.3,0;31:act;60:scripts;70:quit",
         expect=["[probe] actor 167 -> s_bluemoon", "script s_bluemoon"]),
+    # S_5005's Crimson Key door (Toal, Hard): its talk marker (Chr_LocateDummy 166 at (84, -8, 0.35)) stands inside the
+    # closed door's hull and stays on the floor there (it was pushed onto the door's top, y -1.2, out of the probe's
+    # reach: the door never opened). Walking into the door and pressing Action: sealed without the key (102), then
+    # UseKey with it -> 448.
+    "door_dummy_s5005": dict(
+        room="S_50/S_5005/S_5005", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="2:diff=3;5:saveload;6:opt=DamageTaken=0;30:killall;35:actors;40:at3=84,-7.8,-3.5,0;41:move=0,1,40;"
+              "91:act;110:every=20,200,ok;200:flagdump;210:flag=102,1;220:act;240:every=20,600,ok;600:flagdump;601:quit",
+        expect=["id 166 cast 1 npc hp 25 g1 0 pos (84.0,-8.0,0.3)", "[probe] actor 166 -> open_the_door",
+                "t200 flagdump", "[probe] actor 166 -> open_the_door", "t600 flagdump", " 448=1"],
+        count={" 448=1": 1}),
     # ROUTE_F13.md: a live Mesh_Delete (0x169) drops the object's draw and collision at once. S_1015's
     # trap: the chest raises kekkai_01, the seeds die, StepMove_01 deletes it; walking out of the cage
     # used to stop on the deleted ward (and re-run Touch_kekkai) until the room was reloaded.

@@ -6924,7 +6924,12 @@ title_again:
                 // centred on the ORIGIN) through D = (displacement, dy), the floor ray from the
                 // pre-move origin, then the settle (land with a 0.65 lerp / coyote / fall).
                 // A flyer: dy = t (0 for the AI), no settle — the hover owns its altitude.
-                {
+                // Not a Chr_LocateDummy marker (CASTINFO record 1, CAST_C000: no sprite, it never moves; FUN_00570350
+                // places it with FUN_00459ff0 at the script's point): [approx] the sweep's push-out lifted a marker
+                // standing inside a closed door's hull onto the door's top (S_5005's (84, -8, 0.35): 6.8 above the
+                // floor), out of the action probe's reach, so the Crimson Key door never opened. [H] the engine's
+                // step for it has a zero displacement and leaves it where the script put it.
+                if (!(a.cast_id == 1 && !a.is_enemy())) {
                     const Vec3 o0{a.pos.x, a.pos.y + a.height, a.pos.z};
                     float dy = a.flyer ? a.vert.t : vertical_dy(a.vert);
                     const float hitY = floor_at(phys_mesh(room), o0.x, o0.z, o0.y);
