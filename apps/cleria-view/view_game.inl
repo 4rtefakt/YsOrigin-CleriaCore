@@ -6245,7 +6245,21 @@ title_again:
             // ray starts at the origin). [approx] the capsule stand-in passes such a top at once instead of over
             // the push-outs' ticks; with the grounded 0.6 [INVENTED] a double jump (apex 5.37) stopped 0.03 short
             // of a 6-unit face: no way out of S_6004's box_02 platform (drive case ledge_s6004).
-            const float wallStep = pv.grounded ? stepUp : kOriginH;
+            // Only for a top of the room's own mesh (its unnamed first record), found a radius ahead of the move:
+            // the hulls of scene objects (a boss's parts, steps) keep the old stand-in.
+            float wallStep = stepUp;
+            if (!pv.grounded) {
+                const float ax = feet.x - hx0, az = feet.z - hz0, al = std::sqrt(ax * ax + az * az);
+                int lt = -1;
+                if (al > 1e-4f &&
+                    floor_at(phys_mesh(room), feet.x + ax / al * (radius + 0.25f), feet.z + az / al * (radius + 0.25f),
+                             feet.y + kOriginH, &lt) > feet.y + stepUp && lt >= 0)
+                    for (const RoomMesh::ObjRange& r : phys_mesh(room).object_ranges)
+                        if (std::uint32_t(lt) >= r.t0 && std::uint32_t(lt) < r.t1) {
+                            if (r.name.empty()) wallStep = kOriginH;
+                            break;
+                        }
+            }
             { Vec3 body = {feet.x, feet.y + wallStep, feet.z};
               // The engine sweeps the tick's whole move with its sphere (FUN_0045a510 0x45b2eb), so no
               // move crosses a wall. resolve_walls only resolves an overlap: a step past the radius (a

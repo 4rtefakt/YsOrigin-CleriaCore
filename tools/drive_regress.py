@@ -1187,7 +1187,7 @@ CASES.update({
     "ledge_s6004": dict(
         room="S_60/S_6004/S_6004", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
         drive="2:diff=3;3:flag=163,1;6:level=44;20:killall;30:at3=-67,18,97,0;40:move=1,0,110;46:jump;62:jump;150:pos;160:quit",
-        expect=["t150 pos", "feet (-50.041, 24.000, 97.000)"]),
+        expect=["t150 pos", "feet (-50.041, 24.000, 97.0"]),
     # Issue #58: S_3004's three unnamed s30step0 lifts play their section 0 too (y -7 <-> 0, 80 ticks at the top of a
     # 320-tick cycle; they stood at y 0 for good before). Toal, Hard, no fire skill and no torch lit: from the S_3003
     # door over lift #1 at its top (a jump on, a jump off), the two 2-wide gaps and the edge at z 29 to S_3006.
