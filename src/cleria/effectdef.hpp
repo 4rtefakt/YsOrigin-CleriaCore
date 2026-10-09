@@ -25,6 +25,8 @@ struct EffectDef {
     std::string name;      // e.g. "foot\\f_stone0" — relative to WAVE/EFFECT, no extension
     bool is3d = false;
     bool loop = false;
+    bool nega = false;     // rec+8 & 4: never steals a playing buffer (FUN_005d87a0)
+    bool manual = false;   // rec+8 & 8: survives the scene entry's stop-all (FUN_005ce430)
     int dup = 0;           // max simultaneous voices
     int cancel = 0;
     float mindist = 0, maxdist = 0;

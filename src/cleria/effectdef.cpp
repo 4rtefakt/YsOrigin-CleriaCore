@@ -47,6 +47,8 @@ void assign(std::unordered_map<int, EffectDef>& recs, int id, int col, const std
         case kName:    r.name = tok; break;
         case k3d:      r.is3d = c_atoi(tok) != 0; break;
         case kLoop:    r.loop = c_atoi(tok) != 0; break;
+        case kNega:    r.nega = c_atoi(tok) != 0; break;
+        case kManual:  r.manual = c_atoi(tok) != 0; break;
         case kDup:     r.dup = c_atoi(tok); break;
         case kCancel:  r.cancel = c_atoi(tok); break;
         case kMindist: r.mindist = c_atof(tok); break;

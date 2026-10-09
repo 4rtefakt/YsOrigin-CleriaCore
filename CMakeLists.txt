@@ -479,6 +479,9 @@ add_test(NAME contenttest COMMAND cleria-contenttest "${CLERIA_TEST_ASSETS}" WOR
 add_test(NAME xso13test COMMAND cleria-xso13test "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME dueltest COMMAND cleria-dueltest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME weathertest COMMAND cleria-weathertest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+# The SE voices (loop, the dup buffer pick, Se_Stop / Se_Volume, the scene entry's stop-all), no device.
+add_test(NAME audiotest COMMAND cleria-audiotest "${CLERIA_TEST_ASSETS}" --voices WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(audiotest PROPERTIES LABELS assets)
 # The tests that read game data (they fail without an unpacked game). CI runs `ctest -LE assets`
 # (.github/workflows/build.yml); every other test passes with no asset root (measured 2026-10-08).
 set_tests_properties(worldtest enemytest asotest animtest ef2simtest bullettest invtest booktest bosstest

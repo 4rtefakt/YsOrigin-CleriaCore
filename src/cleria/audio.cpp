@@ -17,7 +17,9 @@ namespace cleria {
 namespace fs = std::filesystem;
 
 namespace {
-constexpr int kMaxVoices = 24;  // well past what footsteps need; cheap insurance
+// The engine has no total: each record owns `dup` DirectSound buffers (FUN_005d7f50). This bound
+// only keeps a runaway caller from growing the list without end.
+constexpr int kMaxVoices = 128;
 
 SDL_AudioStream* as(void* p) { return static_cast<SDL_AudioStream*>(p); }
 SDL_Mutex* mx(void* p) { return static_cast<SDL_Mutex*>(p); }
@@ -44,13 +46,18 @@ Audio::~Audio() {
     if (lock_) SDL_DestroyMutex(mx(lock_));
 }
 
-bool Audio::init(const fs::path& asset_root) {
+bool Audio::init(const fs::path& asset_root, bool device) {
     root_ = asset_root;
     defs_ = EffectDefs::load(asset_root);
     if (defs_.size() == 0) {
         std::fprintf(stderr, "audio: no EFFECTDEF.TXT under %s — silent\n",
                      asset_root.string().c_str());
         return false;
+    }
+    if (!device) {
+        lock_ = SDL_CreateMutex();
+        voices_.reserve(kMaxVoices);
+        return true;
     }
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
         std::fprintf(stderr, "audio: SDL_InitSubSystem: %s\n", SDL_GetError());
@@ -121,17 +128,52 @@ const Audio::Clip* Audio::clip(int id) {
     return raw->samples.empty() ? nullptr : raw;
 }
 
-void Audio::play(int id, float volume) {
-    if (!stream_ || id < 0) return;
+void Audio::start(int id, const EffectDef* def, const Clip* c, float volume, float level, float gl,
+                  float gr) {
+    Voice nv;
+    nv.clip = c; nv.volume = volume; nv.gl = gl; nv.gr = gr; nv.id = id;
+    nv.loop = def && def->loop;
+    nv.level = nv.target = level;
+    const int dup = def ? def->dup : 0;
+    int same = 0;
+    Voice* pending = nullptr;   // requested since the mixer last ran: not yet "playing" to GetStatus
+    Voice* oldest = nullptr;
+    for (Voice& v : voices_) {
+        if (v.id != id || !v.clip) continue;
+        ++same;
+        if (v.age == 0 && !pending) pending = &v;
+        if (!oldest || v.age > oldest->age) oldest = &v;
+    }
+    // dup 1, playing and mid-ramp: the ramp is retargeted to the new volume (reached on the next
+    // 16 ms tick) and the stop is cancelled; the buffer is not restarted [EXPORT 005d87a0.c:28-37].
+    if (dup == 1 && same == 1 && oldest->age > 0 && oldest->level != oldest->target) {
+        oldest->stop = false;
+        oldest->target = level;
+        oldest->step = (level - oldest->level) / (0.016f * float(rate_));
+        return;
+    }
+    if (pending) { *pending = nv; return; }          // the first non-playing buffer is the same one
+    if (dup <= 0 || same < dup) {
+        if (voices_.size() < kMaxVoices) voices_.push_back(nv);
+        return;
+    }
+    // Every buffer playing: stop and reuse the one with the largest age, if that is >= `cancel` ms;
+    // records with `nega` (rec+8 & 4) never do [EXPORT 005d87a0.c:55-75].
+    if (def->nega || oldest->age * 1000 < std::uint64_t(def->cancel) * std::uint64_t(rate_)) return;
+    *oldest = nv;
+}
+
+void Audio::play(int id, float volume, float level) {
+    if (!lock_ || id < 0) return;
     const Clip* c = clip(id);
     if (!c) return;
     SDL_LockMutex(mx(lock_));
-    if (voices_.size() < kMaxVoices) voices_.push_back({c, 0, volume});
+    start(id, defs_.find(id), c, volume, level, 1.0f, 1.0f);
     SDL_UnlockMutex(mx(lock_));
 }
 
 void Audio::play_at(int id, float pan, float dist, float volume) {
-    if (!stream_ || id < 0) return;
+    if (!lock_ || id < 0) return;
     const EffectDef* def = defs_.find(id);
     float att = 1.0f;
     if (def && def->maxdist > def->mindist) {
@@ -144,25 +186,71 @@ void Audio::play_at(int id, float pan, float dist, float volume) {
     pan = std::clamp(pan, -1.0f, 1.0f);
     const float th = (pan + 1.0f) * 0.25f * 3.14159265f;       // equal-power
     SDL_LockMutex(mx(lock_));
-    int same = 0;
-    for (const Voice& v : voices_) same += (v.clip == c);
-    const bool capped = def && def->dup > 0 && same >= def->dup;
-    if (!capped && voices_.size() < kMaxVoices)
-        voices_.push_back({c, 0, volume * att, std::cos(th), std::sin(th)});
+    start(id, def, c, volume * att, 1.0f, std::cos(th), std::sin(th));   // command 5: volume 0x400
     SDL_UnlockMutex(mx(lock_));
 }
 
-void Audio::stop_se(int id, int ms) {
-    if (!stream_) return;
-    const auto it = clips_.find(id);
-    if (it == clips_.end() || !it->second) return;
-    const Clip* c = it->second.get();
-    // FUN_005d8970: target 0, step = -cur * 16 / ms per 16 ms tick (ms 0 -> 1), i.e. a linear ramp.
+// FUN_005d8970: target, step = (target - cur) * 16 / ms per 16 ms tick (ms 0 -> 1), i.e. a linear
+// ramp; the stop flag +0x5d is written on the playing buffers. Call with lock_ held.
+void Audio::ramp(int id, float level, int ms, bool stop) {
     const float frames = std::max(1.0f, float(ms) * float(rate_) / 1000.0f);
+    for (Voice& v : voices_) {
+        if (v.id != id || !v.clip) continue;
+        v.target = level;
+        v.step = (level - v.level) / frames;
+        v.stop = stop;
+    }
+}
+
+void Audio::stop_se(int id, int ms) {
+    if (!lock_) return;
     SDL_LockMutex(mx(lock_));
-    for (Voice& v : voices_)
-        if (v.clip == c && v.volume > 0.0f) v.fade = v.volume / frames;
+    ramp(id, 0.0f, ms, true);
     SDL_UnlockMutex(mx(lock_));
+}
+
+void Audio::set_se_volume(int id, float level, int ms) {
+    if (!lock_) return;
+    SDL_LockMutex(mx(lock_));
+    ramp(id, clamp01(level), ms, false);
+    SDL_UnlockMutex(mx(lock_));
+}
+
+void Audio::stop_all(bool force) {
+    if (!lock_) return;
+    SDL_LockMutex(mx(lock_));
+    for (std::size_t i = 0; i < voices_.size(); ++i) {
+        const int id = voices_[i].id;
+        const EffectDef* def = defs_.find(id);
+        if (force || !def || !def->manual) ramp(id, 0.0f, 0x5dc, true);
+    }
+    SDL_UnlockMutex(mx(lock_));
+}
+
+int Audio::voices_of(int id) const {
+    if (!lock_) return 0;
+    SDL_LockMutex(mx(lock_));
+    int n = 0;
+    for (const Voice& v : voices_) n += (v.id == id && v.clip);
+    SDL_UnlockMutex(mx(lock_));
+    return n;
+}
+
+std::vector<int> Audio::looping() const {
+    std::vector<int> ids;
+    if (!lock_) return ids;
+    SDL_LockMutex(mx(lock_));
+    for (const Voice& v : voices_)
+        if (v.clip && v.loop && std::find(ids.begin(), ids.end(), v.id) == ids.end()) ids.push_back(v.id);
+    SDL_UnlockMutex(mx(lock_));
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+void Audio::advance(int frames) {
+    if (!lock_ || stream_ || frames <= 0) return;
+    std::vector<std::int16_t> buf(std::size_t(frames) * std::size_t(channels_));
+    mix(buf.data(), frames);
 }
 
 bool Audio::play_bgm(const fs::path& ogg) {
@@ -323,25 +411,31 @@ void Audio::mix(std::int16_t* out, int frames) {
 
     for (Voice& v : voices_) {
         if (!v.clip) continue;
-        const std::size_t avail = v.clip->samples.size() - v.pos;
-        const std::size_t take = std::min<std::size_t>(avail, std::size_t(n));
-        float g = v.volume * master_;
-        for (std::size_t k = 0; k < take; ++k) {
-            if (v.fade > 0.0f && ((v.pos + k) & 1) == 0) {    // stop_se: one step per stereo frame
-                v.volume = std::max(0.0f, v.volume - v.fade);
-                g = v.volume * master_;
+        const std::size_t len = v.clip->samples.size();
+        float g = v.volume * log_gain(master_ * v.level);
+        for (int k = 0; k < n; ++k) {
+            if (v.pos >= len) {                               // the loop flag: round again
+                if (!v.loop) break;
+                v.pos = 0;
+            }
+            if (v.level != v.target && (k & 1) == 0) {        // FUN_005d8ab0: one step per stereo frame
+                const bool up = v.target > v.level;
+                v.level += v.step;
+                if (v.step == 0.0f || (up ? v.level >= v.target : v.level <= v.target)) v.level = v.target;
+                g = v.volume * log_gain(master_ * v.level);
             }
             // interleaved stereo: even = L, odd = R (pan gains are 1/1 for 2D plays)
-            const float pg = ((v.pos + k) & 1) ? v.gr : v.gl;
-            const int mixed = out[k] + int(v.clip->samples[v.pos + k] * g * pg);
+            const float pg = (k & 1) ? v.gr : v.gl;
+            const int mixed = out[k] + int(v.clip->samples[v.pos] * g * pg);
             out[k] = std::int16_t(std::clamp(mixed, -32768, 32767));
+            ++v.pos;
         }
-        v.pos += take;
-        if (v.fade > 0.0f && v.volume <= 0.0f) v.clip = nullptr;   // faded out: dropped below
+        v.age += std::uint64_t(frames);
+        if (v.stop && v.level == v.target) v.clip = nullptr;       // ramp done: Stop(), dropped below
     }
     voices_.erase(std::remove_if(voices_.begin(), voices_.end(),
                                  [](const Voice& v) {
-                                     return !v.clip || v.pos >= v.clip->samples.size();
+                                     return !v.clip || (!v.loop && v.pos >= v.clip->samples.size());
                                  }),
                   voices_.end());
     SDL_UnlockMutex(mx(lock_));

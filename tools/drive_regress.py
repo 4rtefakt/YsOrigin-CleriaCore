@@ -1595,6 +1595,23 @@ for _c, _bs in (("1", "BattleStart1"), ("2", "BattleStart2")):
         absent=["script battle_", "script " + _bs, "script Prologue_Event", "ended at"])
 
 
+# Looping SEs (build/audit/SOUNDS.md root cause 2). A record with the EFFECTDEF `loop` flag plays until it is
+# stopped; the scene entry FUN_00431840 fades every SE but the `manual` records out over 1.5 s (FUN_005ce430(0),
+# 0x431ca6). The `[sfx] loops:` line lists the looping ids whenever the set changes (CLERIA_SFXLOG).
+CASES.update({
+    # S_4004's script plays 618 env/v_sand_stream and never stops it: the door to S_4001 does, 90 ticks on,
+    # while S_4001's own 751 event/e_l4_07 starts.
+    "sfx_loop_scene_stop": dict(
+        room="S_40/S_4004/S_4004", env=dict(_LOCK, CLERIA_SFXLOG="1"),
+        drive="200:exit=0;320:quit",
+        expect=["[sfx] t1 loops: 618\n", ">> entering S_4001", "[sfx] t201 loops: 618 751\n", " loops: 751\n"]),
+    # 603 env/v_cave is a manual record: it plays on through the door, and S_2000's script stops it (Se_Stop).
+    "sfx_loop_manual_bed": dict(
+        room="S_20/S_2001/S_2001", env=dict(_LOCK, CLERIA_SFXLOG="1"),
+        drive="200:exit=0;290:loops;420:quit",
+        expect=["[sfx] t1 loops: 603\n", ">> entering S_2000", "[drive] t290 loops: 603\n", " loops:\n"]),
+})
+
 # Playtest 1, effects (build/audit/PLAYTEST_1_FX.md).
 CASES.update({
     # 1. A damaging hit sets the monster's hurt timer +0x238 = 1.65 (FUN_00478510) on its next tick, the
@@ -1832,6 +1849,7 @@ SMOKE = [
     "duel_s1080_gameover",                                                   # a duel's start
     "book_return_title", "shell_subpages", "hud_damage_numbers",             # the book, the shell, the HUD
     "weather_embers", "video_passes", "video_looks",                         # weather, the Video page
+    "sfx_loop_scene_stop",                                                   # audio: a looping SE, the scene stop
     "content_chest", "lua_save", "modfile_install",                          # mods: content, Lua, a .cleriamod
     "aplua_items_save",                                                      # Archipelago (its mock server)
 ]

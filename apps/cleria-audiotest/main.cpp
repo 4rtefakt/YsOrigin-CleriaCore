@@ -8,6 +8,7 @@
 //   cleria-audiotest <asset_root> --walk <room.SOB>
 //   cleria-audiotest <asset_root> --bgm [ROOM [seconds]]
 //   cleria-audiotest <asset_root> --fade ROOM ms     (SDL_AUDIO_DRIVER=dummy for silence)
+//   cleria-audiotest <asset_root> --voices           (the SE voices: loop, dup pick, stops; no device)
 //
 // `--walk` is the end-to-end footstep test with no GPU and no audio device: it
 // walks the player across the room's collision hulls from the SCT spawn and
@@ -182,6 +183,69 @@ int main(int argc, char** argv) {
         const bool ok = mid && !after && restart;
         std::printf("fade: %s\n", ok ? "OK" : "FAIL");
         return ok ? 0 : 1;
+    }
+
+    // The SE voice rules of FUN_005d87a0 / FUN_005d8970 / FUN_005d8ab0 / FUN_005ce430, on a device-less
+    // mixer run by hand. 604 env/v_wind: loop, dup 1, manual (12.1 s). 609 env/v_earth: loop, dup 1
+    // (2.2 s). 214 boss/b_02_se04: loop, dup 3 (5.7 s). 0 sys/s_ok: a one-shot (1.0 s).
+    if (argc >= 3 && std::strcmp(argv[2], "--voices") == 0) {
+        Audio a;
+        if (!a.init(argv[1], /*device*/false)) return 1;
+        int fails = 0;
+        auto check = [&](const char* what, bool ok) {
+            std::printf("voices: %-58s %s\n", what, ok ? "ok" : "FAIL");
+            fails += !ok;
+        };
+        auto run = [&](double s) { for (int n = int(s * 44100.0); n > 0; n -= 735) a.advance(735); };
+        for (int id : {604, 609, 214, 0})
+            if (!a.defs().find(id)) { std::printf("voices: SKIP (no record %d)\n", id); return 0; }
+        a.play(0); a.play(609);
+        run(0.5);
+        check("both play", a.voices_of(0) == 1 && a.voices_of(609) == 1);
+        run(5.0);
+        check("the one-shot ended, the loop wrapped (2.2 s clip, 5.5 s)", a.voices_of(0) == 0 && a.voices_of(609) == 1);
+        check("looping() lists it", a.looping() == std::vector<int>{609});
+        a.play(609);
+        check("dup 1, older than 200 ms: restarted, still one voice", a.voices_of(609) == 1);
+        a.stop_se(609, 1000);
+        run(0.5);
+        check("Se_Stop(1000): still fading at 0.5 s", a.voices_of(609) == 1);
+        a.play(609);                                   // dup 1 + mid-ramp: the fade is cancelled
+        run(2.0);
+        check("a play during the fade cancels the stop", a.voices_of(609) == 1);
+        a.stop_se(609, 1000);
+        run(1.1);
+        check("Se_Stop(1000): stopped after 1.1 s", a.voices_of(609) == 0);
+        a.play(609);
+        run(0.1);
+        a.set_se_volume(609, 0.0f, 100);
+        run(1.0);
+        check("Se_Volume to 0 does not stop the voice", a.voices_of(609) == 1);
+        a.stop_se(609, 0);
+        run(0.1);
+        check("Se_Stop(0) stops at once", a.voices_of(609) == 0);
+        // the dup pick
+        a.play(214); a.play(214);
+        check("two requests before the mixer runs take the same buffer", a.voices_of(214) == 1);
+        run(0.05); a.play(214); run(0.05); a.play(214); run(0.05);
+        check("dup 3: three voices", a.voices_of(214) == 3);
+        a.play(214);
+        check("all playing, none 200 ms old: the new play is dropped", a.voices_of(214) == 3);
+        run(0.3);
+        a.play(214);
+        check("all playing, the oldest restarted: still three", a.voices_of(214) == 3);
+        // the scene entry's stop-all
+        a.play(604); a.play(609);
+        run(0.1);
+        a.stop_all(false);
+        run(1.6);
+        check("stop_all(0): 609 and 214 stopped after 1.5 s", a.voices_of(609) == 0 && a.voices_of(214) == 0);
+        check("stop_all(0): the manual bed 604 plays on", a.voices_of(604) == 1);
+        a.stop_all(true);
+        run(1.6);
+        check("stop_all(1): 604 stopped too", a.voices_of(604) == 0 && a.looping().empty());
+        std::printf("voices: %s\n", fails ? "FAIL" : "OK");
+        return fails ? 1 : 0;
     }
 
     if (argc >= 3 && std::strcmp(argv[2], "--surfaces") == 0) {

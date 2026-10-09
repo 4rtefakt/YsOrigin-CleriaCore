@@ -132,8 +132,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // right (SCENELIST record "title\", BGM id 1), and `transition` far below
     // captures this to switch tracks on room entry.
     Audio audio;
-    if (!std::getenv("CLERIA_MUTE"))   // CLERIA_MUTE=1: no audio device at all (quiet test runs)
-        audio.init(asset_root);  // silent (and harmless) if the device or EFFECTDEF is missing
+    // CLERIA_MUTE=1: no audio device at all (quiet test runs); the SE voices are still tracked, on the
+    // game's clock (Audio::advance in the tick loop).
+    audio.init(asset_root, !std::getenv("CLERIA_MUTE"));  // silent (and harmless) if the device or EFFECTDEF is missing
     audio.set_master_volume(oslider[1] / 1024.0f);  // Option "SFX Volume"
     audio.set_bgm_volume(oslider[0] / 1024.0f);     // Option "BGM Volume"
 
@@ -1864,6 +1865,10 @@ title_again:
         // FUN_00431260 writes DAT_006d5fd8 = 0, the gauge widget's owner [EXPORT 00431260.c:211, 0x431735];
         // the fight's own setter (FUN_0043a460) shows it again when the boss registers.
         hud.hide_boss_gauge(); gauge_owner = 0;
+        // ... and neither do the sounds: FUN_00431840 calls FUN_005ce430(0) [BYTES 0x431ca6], a 1.5 s fade
+        // and stop of every SE but the `manual` records (the env beds 600..606, which the next room's
+        // script stops or plays on). This is what ends a loop its script never stops (618, 680, 751).
+        audio.stop_all(false);
         scene_entry_flags(dest);
         clip_near = 1.0f; clip_far = 2000.0f;                    // FUN_00431840 (0x74c0fc / 0x74c0f8)
         scene_objects_reset = true;                             // busts / caption card (start_room_events)
@@ -1978,6 +1983,7 @@ title_again:
     // (the engine's listener object; its emitter->listener lerp tames the pan the
     // same direction). Curve/pan-law caveats live on Audio::play_at.
     const bool sfx_log = std::getenv("CLERIA_SFXLOG") != nullptr;   // debug: the SE / hit-effect ids
+    std::vector<int> sfx_loops;                                     // ... and the looping ids, on a change
     auto sfx_at = [&](int id, const Vec3& p, float vol) {
         const Vec3 f = cam.forward();
         const float rl = std::sqrt(f.x * f.x + f.z * f.z);
@@ -2825,6 +2831,7 @@ title_again:
             std::ifstream f(slot_path(s), std::ios::binary);
             std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
             if (auto rec = SaveRecord::decode(raw)) {
+                audio.stop_all(true);                    // FUN_00431260 "load": FUN_005ce430(1) [BYTES 0x43136a]
                 content_load(slot_path(s), s); apply_loaded(from_record(*rec), true);
                 csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
                 // FUN_00431260 "load": the continue snapshot, as the book's and the title's Load take it
@@ -3764,6 +3771,7 @@ title_again:
     //   duel=cast             near=cast + atk, only while a duel is live (156 = 1, world not frozen)
     //   dflags                print the duel flags (130 131 133 156 174 230 232 311)
     //   fader                 print the fade machine (current -> target at rate) and a staged / latched door
+    //   loops                 print the ids of the looping SE voices (Audio::looping)
     //   blackout[=rrggbb]     hold the fader at full (as a script's Fader_Target(1) left behind), colour rgb
     //   oktap                 a real one-tick press of the Attack/OK key (view_access.inl)
     // A drive run is lockstep (one tick a frame); CLERIA_DRIVE_REALTIME=1 paces it by the wall clock.
@@ -4184,6 +4192,10 @@ title_again:
         } else if (cmd == "fader") {                   // the fade machine 0x769f1c / 0x769f24 / 0x769f28
             std::printf("  [drive] fader %.2f -> %.2f at %.3f%s%s rgb %06x\n", csHost.fade_cur, csHost.fade_tgt, csHost.fade_rate,
                         door_pending ? " (door pending)" : "", door_latched ? " (latched)" : "", unsigned(csHost.fade_rgb));
+        } else if (cmd == "loops") {                   // the looping SE voices
+            std::printf("  [drive] t%llu loops:", (unsigned long long)tick_count);
+            for (int id : audio.looping()) std::printf(" %d", id);
+            std::printf("\n");
         } else if (cmd == "gauge") {                   // the boss HP gauge: shown (DAT_006d5fd8 != 0) or hidden
             std::printf("  [drive] gauge %d id %d hp %.0f/%.0f\n", int(hud.boss_frac >= 0.0f), hud.boss_id,
                         double(hud.boss_cur), double(hud.boss_max));
@@ -4804,7 +4816,7 @@ title_again:
         for (const Boss02Sound& sd : out.sounds) {
             if (sd.kind == Boss02Sound::k3D) sfx_at(sd.id, sd.pos, kSfxAnimVol);
             else if (sd.kind == Boss02Sound::k2D || sd.kind == Boss02Sound::kLoop) audio.play(sd.id, kSfxAnimVol);
-            // [not modelled] kStop (FUN_0043a0e0 fade) and the loop flag: the mixer has neither
+            else if (sd.kind == Boss02Sound::kStop) audio.stop_se(sd.id, sd.param);   // command 6; 216 / 217 loop by their record
         }
         for (const Boss02Effect& fe : out.effects) {
             const ef2sim::M4* parent = nullptr;
@@ -5081,7 +5093,7 @@ title_again:
         for (const Boss03Sound& sd : out.sounds) {
             if (sd.kind == Boss03Sound::k3D) sfx_at(sd.id, sd.pos, kSfxAnimVol);
             else if (sd.kind == Boss03Sound::k2D) audio.play(sd.id, kSfxAnimVol);
-            // [not modelled] kStop / kFade: the mixer has neither
+            else audio.stop_se(sd.id, sd.param);                 // kStop / kFade: both audio command 6 (FUN_005d8970)
         }
         // The effects, with the kills interleaved where the brain issued them.
         std::size_t ki = 0;
@@ -5654,6 +5666,7 @@ title_again:
                         content_load(slot_path(bev.load_slot), bev.load_slot);   // mods: its sidecar
                         // A load is the "load" warp (FUN_00431260): a full scene load even into the same
                         // room, so the actors the room's scripts spawned before do not survive it.
+                        audio.stop_all(true);            // FUN_005ce430(1) [BYTES 0x43136a]: the manual beds too
                         apply_loaded(from_record(*r), /*force_scene*/true);
                         // and its scene entry fades in from black (FUN_00431840 -> FUN_00439170), whatever
                         // fader a script of the room left behind
@@ -5689,6 +5702,16 @@ title_again:
         while (accum >= kTickDt) {
         accum -= kTickDt;
         ++tick_count;
+        audio.advance(735);                        // no device (CLERIA_MUTE): 44100 / 60 frames a tick
+        if (sfx_log) {
+            std::vector<int> lp = audio.looping();
+            if (lp != sfx_loops) {
+                std::printf("  [sfx] t%llu loops:", (unsigned long long)tick_count);
+                for (int id : lp) std::printf(" %d", id);
+                std::printf("\n");
+                sfx_loops = std::move(lp);
+            }
+        }
         ++game.g_flags[199];                       // 0x76bc38, the play time (FUN_004281c0 0x428274)
         speedrun_tick(room.name, hud.boss_frac >= 0.0f, hud.boss_cur, game.g_flags, player.hp > 0);   // IGT, auto-splits
         for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
@@ -9050,6 +9073,7 @@ title_again:
     if (return_to_title) {
         std::printf("  [game] Return to Title: back to the title\n");
         show_title = true;
+        audio.stop_all(true);                            // [H] forced as a load's is (0x43136a): no room loop on the title
         hud.hide_boss_gauge();                           // `hud` outlives the game: no gauge into the next one (#78)
         g_rig_room.clear();                              // the camera rig re-reads the next room
         emotions.clear();
