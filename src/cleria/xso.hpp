@@ -396,6 +396,9 @@ struct XsoHost {
     // the camera basis is jittered by a fresh random per-axis offset in [-amp,+amp]. The three
     // floats are per-axis amplitudes, the int a frame duration (CUTSCENE_CAMERA.md §6).
     virtual void shake(float /*ampX*/, float /*ampY*/, float /*ampZ*/, int /*frames*/) {}
+    // op 0xce ZoomBlur(s, r) [BYTES 0x569f43..0x569f81]: f32 0x76a550 = s, 0x76a554 = r, nothing else. The
+    // strength s is stepped by r every update and is the blur's opacity (build/render_re/SCREEN_EFFECTS.md §7).
+    virtual void zoom_blur(float /*s*/, float /*r*/) {}
     // Screen FADER (EVENTVM_HANDLERS.md §4, fader obj 0x769f18): a fullscreen colored
     // overlay whose alpha ramps `current`→`target` at `1/frames` per frame. 0xc8 sets
     // current instantly, 0xc9 the target, 0xca the RGB(A), 0xcc the frame count.

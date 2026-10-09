@@ -114,6 +114,7 @@
 #include "cleria/vfs.hpp"
 #include "cleria/duel.hpp"
 #include "cleria/weather.hpp"
+#include "cleria/screenfx.hpp"
 #include <ctime>
 #include <optional>
 // CLERIA_CULL=off|cw|ccw — probe. The exe sets D3DCULL_CCW, but D3D9's left-handed
@@ -405,6 +406,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_speedrun.inl"
 #include "view_video.inl"
 #include "view_mask.inl"                 // the Mask of Eyes (PLAYTEST_1_STORY.md §1)
+#include "view_screenfx.inl"            // ZoomBlur (SCREEN_EFFECTS.md §7)
 #include "view_lua.inl"
 #include "view_headless.inl"
 #include "view_menus.inl"

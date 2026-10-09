@@ -31,7 +31,7 @@
 // Room::mat_alpha; a limb at alpha 0 is not drawn.
 // MatMode's RGB (DARM_A §A.6: Down = black, form change = the outline silhouette) multiplies the vertex colours of
 // the body's and the tail's materials (boss8_set_matmode, Room::mat_rgb).
-// [not modelled] the "damaged limb" material bit 0x20000 and the chest flag word (§A.1.3), ZoomBlur, the scene light (state kept, no
+// [not modelled] the "damaged limb" material bit 0x20000 and the chest flag word (§A.1.3), the scene light (state kept, no
 // consumer: csHost.light_rgb / light_dir), the player tints (the ctor's grey P+0x290, the fall's P+0x148), the hit
 // flash +0x2a0, fx+0x1dc |= 0x100 / 0x108 of the inline effects and their pool-full gate (never full here), the `src`
 // argument of FX / FX2 (fx+0x1da), the kill record FUN_00403cd0, flags 518 / 519 / 529..532 / 544..546 (dwords past
@@ -251,7 +251,7 @@ auto boss8_apply = [&](const Boss08Output& out, MeshObj** mo) {
         std::printf("  [boss08] t%llu %d bullet(s) kind 0x%x effect %d\n", (unsigned long long)tick_count, nb, out.bullets.front().kind,
                     out.bullets.front().effect);
     if (out.shake) { g_rig.set_shake_frames(out.shake->frames); g_rig.set_shake_amp({out.shake->ax, out.shake->ay, 0.0f}); }
-    // [not modelled] out.zoom (ZoomBlur).
+    if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)
     for (const Boss08Fader& fd : out.fader) {              // 0x769f34 / 1c / 28 / 24 ([approx] one colour)
         if (fd.colour) csHost.fade_rgb = *fd.colour & 0xffffffu;
         if (fd.current) csHost.fade_cur = *fd.current;

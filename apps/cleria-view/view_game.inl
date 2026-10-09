@@ -1221,6 +1221,30 @@ title_again:
     Mat4 last_vp; bool have_vp = false;  // last frame's camera, for the AI's off-screen test
     const bool ai_debug = std::getenv("CLERIA_AI") != nullptr;
     std::uint64_t tick_count = 0;
+    // ZoomBlur (SCREEN_EFFECTS.md §7; the pass is view_screenfx.inl). zoom_blur = the two writes 0x76a550 /
+    // 0x76a554 (XSO 0xce, the bosses, the brains). zoom_centre = FUN_005e0590 [EXPORT 005e0590.c]: a world point
+    // to frame pixels, each axis clamped to the frame ([approx] through the last DRAWN frame's view-projection).
+    // CLERIA_SCRFX_LOG=1 (CleriaCore diagnostics, not retail): each write, and each blur's first drawn frame
+    // (with the centre it has then).
+    screenfx::ZoomBlur zb;
+    static const bool scrfx_log = [] { const char* v = std::getenv("CLERIA_SCRFX_LOG"); return v && *v && *v != '0'; }();
+    bool zb_draw_logged = false;
+    auto zoom_blur = [&](float s, float r) {
+        if (scrfx_log && (s != zb.s || r != zb.r))         // a brain's every-tick rewrite prints once
+            std::printf("  [zoomblur] t%llu ZoomBlur(%.4f, %.4f)\n", (unsigned long long)tick_count, s, r);
+        if (!zb.running()) zb_draw_logged = false;
+        zb.set(s, r);
+    };
+    auto zoom_centre = [&](const Vec3& p) {
+        if (!have_vp) return;
+        const float* M = last_vp.m.data();
+        const float px = p.x * M[0] + p.y * M[4] + p.z * M[8] + M[12];
+        const float py = p.x * M[1] + p.y * M[5] + p.z * M[9] + M[13];
+        const float pw = p.x * M[3] + p.y * M[7] + p.z * M[11] + M[15];
+        if (pw == 0.0f) return;
+        zb.cx = std::clamp(px / pw * 0.5f + 0.5f, 0.0f, 1.0f);
+        zb.cy = std::clamp(0.5f - py / pw * 0.5f, 0.0f, 1.0f);
+    };
     // The player's hit serial (+0x3c4): redrawn at every attack start (FUN_0046ea00); it is
     // the token each victim's re-hit bank keys on (hit_volume.hpp RehitBank).
     std::uint32_t player_hit_serial = 0;
@@ -2571,6 +2595,8 @@ title_again:
         void fire_drop(int l) override { if (weather_fn) weather_fn(0x125, l, 0, 0, 0); }
         void frame_smoke(int l) override { if (weather_fn) weather_fn(0x122, l, 0, 0, 0); }
         void fire_blur(float a, float b, float c) override { if (weather_fn) weather_fn(0x123, 0, a, b, c); }
+        std::function<void(float, float)> zoom_blur_fn;                     // 0xce (view_screenfx.inl)
+        void zoom_blur(float s, float r) override { if (zoom_blur_fn) zoom_blur_fn(s, r); }
         bool is_underwater_world() const override { return water_mode_p && *water_mode_p == 2; }
         // ---- the floor 1..3 completion pass (build/event_re/FLOOR13_OPS.md; view_xso13.inl) ----
         const std::string* entry_label_p = nullptr;      // 0x76a474: the last committed door's label
@@ -4551,6 +4577,9 @@ title_again:
         feet.x += out.player_push.x;                       // [approx] +0x338/+0x340 added as a shift
         feet.z += out.player_push.z;
         if (out.tilt) shake(out.tilt->amp.x, out.tilt->amp.y, out.tilt->amp.z, out.tilt->frames);
+        if (out.zoom.strength || out.zoom.rate)            // ZoomBlur: either word alone keeps the other
+            zoom_blur(out.zoom.strength.value_or(zb.s), out.zoom.rate.value_or(zb.r));
+        if (out.blur_centre) zoom_centre(*out.blur_centre);   // FUN_005e0590 / 0x50fcca
         if (out.alpha_target) bm->alpha_target = *out.alpha_target;
         if (out.alpha_step) bm->alpha_step = *out.alpha_step;
         for (const auto& [fi, fv] : out.flags) if (fi >= 0 && fi < 0x200) game.g_flags[fi] = fv;
@@ -4876,8 +4905,8 @@ title_again:
     // The camera writes go into the region camera's current slot, the shake into the rig's
     // shake globals (its step IS FUN_00427c90: 3 shared-RNG draws per frame while it runs).
     // [not modelled] the node overrides (Neji / ForeArm2 / Neck4 / the Head bug: the baked model
-    // has no per-node override, so a broken forearm is not thrown away visibly), the zoom blur
-    // and the screen flash, the SE stop / fade, the buff clear and the
+    // has no per-node override, so a broken forearm is not thrown away visibly),
+    // the screen flash, the SE stop / fade, the buff clear and the
     // achievement, the drop (obj+0xc4), the element bonus on the arm HP (dmg_hp = dmg), the
     // lava floor (surface 13, §6.5), the S_3099_1.SOB ring set on Hard / Nightmare (FLOOR3 B8:
     // the root script's Scene_LoadStaticObjects pick is not honoured by the room load).
@@ -4961,6 +4990,8 @@ title_again:
             if (MeshObj* m = meshes.find(boss03::atari_name(k))) { m->pos.y = -1.8f; m->dirty_pos = true; }
         if (out.shake.frames) g_rig.set_shake_frames(*out.shake.frames);
         if (out.shake.amp) g_rig.set_shake_amp(*out.shake.amp);
+        if (out.zoom.strength || out.zoom.rate)            // ZoomBlur (0x76a550 / 0x76a554)
+            zoom_blur(out.zoom.strength.value_or(zb.s), out.zoom.rate.value_or(zb.r));
         if (out.time_scale) g_time_scale = *out.time_scale;   // 0x6d6078
         {
             const Boss03Camera& c = out.camera;             // the current slot (BOSS_CAMERA.md §1b)
@@ -6748,6 +6779,8 @@ title_again:
                         }
                     }
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
+                    if (o.zoom_s || o.zoom_r) zoom_blur(o.zoom_s.value_or(zb.s), o.zoom_r.value_or(zb.r));   // ZoomBlur
+                    if (o.zoom_centre) zoom_centre(*o.zoom_centre);                                         // FUN_005e0590
                     // M470's hold (0x48ce69): the player's origin at the mouth, +0x330 = 0, +0x398 = 1 until a brain
                     // tick of that Levenueba passes without it (its release, its death, a room change).
                     // [not modelled] FUN_00459ff0's floor / facing writes.
@@ -8564,6 +8597,13 @@ title_again:
                       video_world_w(cw), video_world_h(ch), cw, ch);   // FireBlur after layer 14 (view_weather.inl)
         draw_mask_of_eyes(g, mask_of_eyes_on(inv), g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr),
                           view, video_world_w(cw), video_world_h(ch));   // then the mask pass (view_mask.inl)
+        draw_zoom_blur(g, zb, g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr), view,
+                       video_world_w(cw), video_world_h(ch), cw, ch);   // then ZoomBlur (view_screenfx.inl)
+        if (scrfx_log && zb.draws() && !zb_draw_logged) {
+            zb_draw_logged = true;
+            std::printf("  [zoomblur] t%llu draw strength %.4f alpha %d taps %d centre (%.3f, %.3f)\n",
+                        (unsigned long long)tick_count, zb.strength, zb.alpha8(), kZoomBlurTaps, zb.cx, zb.cy);
+        }
         video_world_end(g, frame_view, frame_depth, view, depth);   // the world onto the frame (view_video.inl)
         player.character = character;
         player.magic = inv.magic;

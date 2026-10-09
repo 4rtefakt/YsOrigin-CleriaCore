@@ -447,7 +447,11 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
         b.home_period = 1; b.home_rate = hr;
         b.f16c = 10.0f; b.f170 = 200.0f;                            // homing from age 10 to 200
         out.bullets.push_back(b);
-        // [not modelled] the zoom blur (0x76a550 = 0.1, 0x76a554 = -0.0075, 0x7b2488 = 1, FUN_005e0590)
+        // The zoom blur (0x76a550 = 0.1, 0x76a554 = -0.0075, 0x7b2488 = 1), centred (FUN_005e0590) on origin +
+        // 2 (0x6bd580) (cos h, 0, sin h), h = +0x308 without the shot's offset.
+        out.zoom_s = 0.1f; out.zoom_r = -0.0075f;
+        out.zoom_centre = Vec3{float(std::cos(double(a.heading))) * 2.0f + e.self.x, e.self.y + 0.0f,
+                               float(std::sin(double(a.heading))) * 2.0f + e.self.z};
         a.i(0x7c0) -= 1;
     };
     // The rain record +0x7a0 = [count0, timer0, count1, timer1]: sub 0x83 arms a slot with
@@ -786,7 +790,13 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
                 A.def = a.f(0x7d8);
                 break;
             }
-            a.i(0x7c0) += 1;                                        // [not modelled] the shake at 20, the blur to 50
+            a.i(0x7c0) += 1;                                        // [not modelled] the shake at 20
+            // The zoom blur [BYTES 0x4e6b7a..0x4e6bf7]: 0.4 / -0.0075 (0x7b2488 = 1) when the count reaches 20;
+            // its centre (FUN_005e0590) at origin + 2 (0x6bd580) (cos h, 0, sin h) while the count is below 50.
+            if (a.i(0x7c0) == 0x14) { out.zoom_s = 0.4f; out.zoom_r = -0.0075f; }
+            if (u32(a.i(0x7c0)) < 0x32u)
+                out.zoom_centre = Vec3{float(std::cos(double(a.heading))) * 2.0f + e.self.x, e.self.y + 0.0f,
+                                       float(std::sin(double(a.heading))) * 2.0f + e.self.z};
             break;
         case 0xb0:
             if (a.dur() != 0) break;

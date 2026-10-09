@@ -13,7 +13,7 @@
 // their 255 timers are not counted down (DALLES_AB C11 / G4: the counter is the HUD's, not traced).
 // [approx] FUN_00462c40(cl 1) (DALLES_D23 §16.5) is run as "Boost ends"; its buff-timer half is not.
 // [not modelled] the re-skins (DALLES_AB §B.6.2 / §B.6.4: Boss07_00 / _01 ver2 / ver3, Boss07op01 — the view has no
-// per-object texture swap), ZoomBlur (0x76a550), the glare feedback pulse (the byte is carried, nothing reads it), the
+// per-object texture swap), the glare feedback pulse (the byte is carried, nothing reads it), the
 // hit-flash tints (D+0x2a0, child +0x2a0 / +0x2a4; DALLES_CD1 §3.3), the wing's translucent draw flag (+0x294 &
 // 0x1000), fx+0x1dc |= 0x100 of the inline effects, the death's dust sprites (FUN_00584550, DALLES_D23 §8), the kill
 // record FUN_00403cd0, flags 529..532 / 544..546 (dwords past g_flags), Hugo's P+0x7e0 effect, the "heavy" status 8
@@ -189,7 +189,8 @@ auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
         if (boss7_log && bl) std::printf("  [boss07] t%llu bullet kind 0x%x effect %d\n", (unsigned long long)tick_count, bb.kind, bb.effect);
     }
     if (out.shake) { g_rig.set_shake_frames(out.shake->first); g_rig.set_shake_amp(out.shake->second); }
-    // [not modelled] out.zoom (ZoomBlur), out.sprites (FUN_00584550), out.kill_record (FUN_00403cd0).
+    if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)
+    // [not modelled] out.sprites (FUN_00584550), out.kill_record (FUN_00403cd0).
     for (const Boss07Fader& fd : out.fader) {              // 0x769f34 / 1c / 28 / 24 ([approx] one colour; zero_30 dropped)
         if (fd.colour) csHost.fade_rgb = *fd.colour & 0xffffffu;
         if (fd.current) csHost.fade_cur = *fd.current;

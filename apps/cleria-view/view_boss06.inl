@@ -8,7 +8,7 @@
 // and the direct damage calls).
 // [H] the heads tick before Zava within a frame (the engine's order between the GoMesh pool and the actor pool is
 // not in the spec); what a head's move asks of her (the throw, the re-seat) reaches her after her own handler.
-// [not modelled] ZoomBlur and the radial blur (no post effect: zoom_active stays false), FUN_0058a5f0's particle
+// [not modelled] FUN_0058a5f0's particle
 // burst, FUN_00540600 (the player's fire against the ice pillars), the flash tint (ZAVA_CG §G.5), byte P+0x399 (taken as 0), the
 // keep-out box FUN_0042dc90, FUN_00403cd0 (the kill record), f32 [0x6d6078] = 0.8 and byte [0x76a888] (ZAVA_AB G5),
 // the touch on actors other than the player, the ground shadow quad (P1 §3.1).
@@ -87,7 +87,7 @@ auto boss6_player_in = [&](Boss06Input& in) {
     in.pad_pressed = g_in.pressed != 0;                    // rec+0x24
     in.pad_x = g_in.dx; in.pad_y = g_in.dy;                // rec+0x2c / rec+0x30
     in.cam_eye = g_cam_out.eye; in.cam_target = g_cam_out.target;
-    in.zoom_active = false;                                // [not modelled] [0x76a550]: no ZoomBlur in the view
+    in.zoom_active = zb.running();                         // [0x76a550] != 0.0
     in.fog_colour.reset();
     if (const FogRegion* fr = boss6_fog_rec()) in.fog_colour = Vec3{fr->r, fr->g, fr->b};
     in.rng = [&] { return pick_rng.next(); };
@@ -280,8 +280,8 @@ auto boss6_apply = [&](const Boss06Output& out) {
         if (bl && bl->fx && bb.flag201) bl->fx->set1 = true;
     }
     if (out.shake) { g_rig.set_shake_frames(out.shake->first); g_rig.set_shake_amp(out.shake->second); }
-    // [not modelled] out.zoom (ZoomBlur 0x76a550 / 0x76a554), out.bursts (FUN_0058a5f0), out.pillar_break_test
-    // (FUN_00540600, ZAVA_E2 §3.4).
+    if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)
+    // [not modelled] out.bursts (FUN_0058a5f0), out.pillar_break_test (FUN_00540600, ZAVA_E2 §3.4).
     for (const auto& [fi, fv] : out.flags) {
         if (fi < 0 || fi >= 0x200) continue;               // 544..546 (dwords 0x76c19c..) lie past g_flags: [not modelled]
         if (game.g_flags[fi] != fv) std::printf("  [boss06] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);

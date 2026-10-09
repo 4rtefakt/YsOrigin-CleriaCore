@@ -18,7 +18,7 @@
 // = 30(d+7): the Eye carries EF2 0x95 (power 5, knock 15) and turns toward the player. An Eye
 // whose slot is >= the wanted count, or that is 200 u from Hugo, or with g_flags[130] clear,
 // kills itself.
-// [not modelled] FUN_00470210; the zoom blur (DAT_0076a550/554, DAT_007b2488, FUN_005e0590);
+// [not modelled] FUN_00470210;
 // FUN_004202e0(level) (the spawn computed it); the handler's dead path (FUN_004780e0, the VM
 // step) and its alpha ramp there; the sound positions (played at the actor).
 #include <cmath>
@@ -377,7 +377,10 @@ AiOut m900(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     }
     // ---- the recall (+0x7c0, set by M810): EF2 0x95 on, turn toward the player
     if (a.i(0x7c0) != 0) {
-        // [not modelled] the zoom blur: DAT_0076a550 = 0.1, DAT_007b2488 = 1, FUN_005e0590(Hugo)
+        // The zoom blur [BYTES 0x4dc816..0x4dc833]: DAT_0076a550 = 0.1 every tick of the recall (the rate is left
+        // as it is), DAT_007b2488 = 1, centred (FUN_005e0590) on Hugo's origin (+0x854 -> +0x50).
+        out.zoom_s = 0.1f;
+        out.zoom_centre = HO;
         if (std::uint32_t(a.i(0x7c0)) < std::uint32_t(30 * d + 165)) {
             if (mode != 5) {
                 float g = wrap(fatan2(a.f(0x73c), a.f(0x734)) - face);
@@ -405,7 +408,8 @@ AiOut m900(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         a.i(0x7c0) -= 1;
         if (mode == 5) mode = 0;
     } else {
-        kill_fx();                                                  // [not modelled] else DAT_0076a554 = -0.025
+        if (a.i(0x88c) == 0) out.zoom_r = -0.025f;                  // 0x4dcc8c: DAT_0076a554 = 0xbccccccd
+        kill_fx();
     }
     // ---- the self-kill (0x4dcc96)
     {

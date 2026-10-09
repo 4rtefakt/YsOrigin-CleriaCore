@@ -1621,6 +1621,20 @@ CASES.update({
         count={"-> true": 1, "[cont] snapshot S_1009": 4}),      # the room root's, the save's, the load's and its root's
 })
 
+# The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
+_VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
+         + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")
+CASES.update({
+    # ZoomBlur (§7): Velagunder's intro ramps it up by XSO 0xce (0.01, +0.005: the first drawn frame has TFACTOR
+    # alpha floor(0.015 x 256) = 3, screen centre), then (0.38, -0.0012); the bite is the native write
+    # (0.4, -0.02) with FUN_005e0590's centre at the projected mouth (alpha floor(0.38 x 256) = 97).
+    "zoom_blur": dict(
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_SCRFX_LOG="1"),
+        drive=_VELA + "4600:quit",
+        expect=["[zoomblur] t1051 ZoomBlur(0.0100, 0.0050)", "draw strength 0.0150 alpha 3 taps 3 centre (0.500, 0.500)",
+                "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.4"]),
+})
+
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

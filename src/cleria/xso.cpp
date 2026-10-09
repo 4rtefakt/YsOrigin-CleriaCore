@@ -486,6 +486,7 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         auto f = [&](std::uint32_t i) { return opf(i); };
                         host->shake(f(0), f(1), f(2), op(3)); return Step::Continue;
                     }
+                    if (sub == 0xce && nargs >= 2) { host->zoom_blur(opf(0), opf(1)); return Step::Continue; }   // ZoomBlur(s, r)
                     // Screen fader ops (float args are bit patterns like scroll/shake).
                     auto fb = [&](std::uint32_t i) { return opf(i); };
                     if (sub == 0xc8 && nargs >= 1) { host->fader_current(fb(0)); return Step::Continue; }

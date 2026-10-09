@@ -50,6 +50,7 @@ auto boss5_apply = [&](const Boss05Output& out, MeshObj* bm) {
     for (const Boss05Spawned& sp : out.spawned)              // the throw (ch1) on the new summon
         if (Actor* a = world.find(sp.id)) a->mover.k1 = sp.ch1;
     if (out.shake) { g_rig.set_shake_frames(out.shake->first); g_rig.set_shake_amp(out.shake->second); }
+    if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)
     for (const auto& [fi, fv] : out.flags) {
         if (fi < 0 || fi >= 0x200) continue;
         if (game.g_flags[fi] != fv) std::printf("  [boss05] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);

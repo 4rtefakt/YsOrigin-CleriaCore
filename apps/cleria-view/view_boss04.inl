@@ -4,7 +4,7 @@
 // [H the names: the engine keeps them by pointer]. Included after boss3_tick; boss4_tick runs in
 // step_meshes, view_boss04_hit.inl at the player's swing.
 // [not modelled] the pit's `40jigoku005` UV scroll and its drag of GoXx type-4 objects; the pull on actors
-// other than the player; the zoom blur; the two world-anchored mini gauges (0x76c1cc / 0x76c1e4); the dust
+// other than the player; the two world-anchored mini gauges (0x76c1cc / 0x76c1e4); the dust
 // sprites (FUN_00584550); the buff clear, the achievement and the drop (obj+0xc4); the boss-rush i-frames.
 constexpr int kB4Owner = -0xB04;                           // fx owner tag for the heal aura (blk+0x350)
 std::array<int, boss04::kNodes> boss4_node{};              // node table -> the model's node index
@@ -43,6 +43,7 @@ auto boss4_apply = [&](const Boss04Output& out) {
     }
     for (const Boss04PodClip& pc : out.pod_clips) meshes.set_clip_now(boss4_pod_name(pc.pod), pc.clip, 0);
     if (out.shake) { g_rig.set_shake_frames(out.shake->first); g_rig.set_shake_amp(out.shake->second); }
+    if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)
     for (const auto& [fi, fv] : out.flags) {
         if (fi >= 529 && fi <= 532) { ail.t[fi - 529] = fv; continue; }   // the status timers 0x76c160..0x76c16c
         if (fi < 0 || fi >= 0x200) continue;

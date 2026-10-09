@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <optional>
 #include <vector>
 
 #include "cleria/mathx.hpp"
@@ -336,7 +337,11 @@ struct AiOut {
     int target_wait_add = 0;     // T+0x9a8 += n: the target VM's wait counter
     bool heavy_hold = false;     // M280 latched on its target: the player's status bit 0x8 with timer 1 (0x4a40bb)
     bool launch_clear = false;   // the stun exit cleared +0x4d0
-    int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
+    // ZoomBlur (build/render_re/SCREEN_EFFECTS.md §7.1): the brain wrote 0x76a550 (strength) and / or 0x76a554
+    // (rate) — each alone keeps the other — and / or called FUN_005e0590 with a world point (the blur's centre).
+    std::optional<float> zoom_s, zoom_r;
+    std::optional<Vec3> zoom_centre;
+    int set_own_jump = -1;      // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
     int set_frame = -1;          // write +0x9b8 (the current pattern frame) when >= 0
     int fast_forward = -1;       // FUN_00446680(m) right after this tick's section request
     // A handler that overrides +0x9d8 (Durable) AFTER the VM step (M110): 1 = force on,

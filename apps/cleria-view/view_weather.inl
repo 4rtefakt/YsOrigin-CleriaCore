@@ -24,8 +24,10 @@ csHost.weather_fn = [&](int op, int life, float a, float b, float c) {
 // (step 9; it draws nothing, so its place relative to the emitters does not matter). The camera
 // is the last LookAt the rig produced: eye 0x7b33f4, look-at 0x7b3400 (FUN_005ec270) [approx: the
 // engine reads the values the last RENDERED frame left]. *0x730224 != 0 = a room is loaded.
+csHost.zoom_blur_fn = [&](float s, float r) { zoom_blur(s, r); };   // 0xce ZoomBlur(ff)
 auto step_weather = [&] {
     ++wx_steps;
+    zb.step();                                           // FUN_00427c90's ZoomBlur block, ahead of the haze timer's
     wx.step_blur();
     weather::Env e;
     if (g_cam.on) { e.eye = g_cam_out.eye; e.at = g_cam_out.target; }

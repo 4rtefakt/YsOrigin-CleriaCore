@@ -33,8 +33,8 @@
 // The GoEffect-pool scan reads Hugo's live effects 0x86 / 0x87 / 0x82 / 0x89 / 0x90 through
 // AiWorld::for_each_effect (they drive the dodge reactions; build/event_re/DUELS.md §7).
 // [not modelled] the keep-out box restore (FUN_0042dc90); +0x64 / +0x4be / +0x3c0
-// writes; the zoom blur (0x76a550 / 0x76a554 / 0x7b2488 + FUN_005e0590 centre) on the big
-// slash and the super.
+// writes. The zoom blur (0x76a550 / 0x76a554 / 0x7b2488 + FUN_005e0590 centre) on the big
+// slash and the super leaves as AiOut::zoom_s / zoom_r / zoom_centre.
 #include <cmath>
 #include <cstdint>
 
@@ -514,8 +514,11 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
         }
         case 0x83:                                                  // 0x4e180e (0x10f only)
             if (e.aso_marker == 1) {
-                // [not modelled] zoom blur 0.4 / rate -0.0075 (0x76a550 / 0x76a554 / 0x7b2488 = 1),
+                // The zoom blur 0.4 / rate -0.0075 (0x76a550 = 0x3ecccccd / 0x76a554 = 0xbbf5c28f / 0x7b2488 = 1),
                 // centred (FUN_005e0590) on origin + 2 (cos h, 0, sin h).
+                const float c = float(std::cos(double(a.heading))), sn = float(std::sin(double(a.heading)));
+                out.zoom_s = 0.4f; out.zoom_r = -0.0075f;
+                out.zoom_centre = Vec3{c + c + e.self.x, e.self.y + 0.0f, sn + sn + e.self.z};
                 sub += 1;
             }
             if (S == 0x10f || S == 0x10c) break;
@@ -541,7 +544,7 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
                         }
                     });
                 }
-                // [not modelled] the zoom-blur centre (FUN_005e0590) follows C.
+                out.zoom_centre = C;                                // FUN_005e0590: the blur's centre follows C
             }
             if (S == 0x10c || S == 0x10f) break;
             sub += 1; a.action() = 1; a.dur() = byte_at(a, 0x7a0);
@@ -614,7 +617,11 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
             if (m == 2 || m == 3) a.f(0x814) = 0.0f;
             if (m == 4) {
                 a.f(0x814) = (fd * 0.015f + 0.07f) * a.f(0x7ac);
-                // [not modelled] zoom blur 0.3 / -0.0075, centred on origin + 1.3 (cos h, 0, sin h).
+                // The zoom blur 0.3 / -0.0075 (0x3e99999a / 0xbbf5c28f, 0x7b2488 = 1), centred on origin +
+                // 1.3 (0x6bd4a4) (cos h, 0, sin h).
+                out.zoom_s = 0.3f; out.zoom_r = -0.0075f;
+                out.zoom_centre = Vec3{float(std::cos(double(a.heading))) * 1.3f + e.self.x, e.self.y + 0.0f,
+                                       float(std::sin(double(a.heading))) * 1.3f + e.self.z};
                 sub += 1;
             }
             if (S == 0x13d) break;
@@ -625,7 +632,12 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
             break;
         }
         case 0x98:                                                  // 0x4e21b3
-            if (e.aso_marker == 4) break;                           // [not modelled] the blur, again
+            if (e.aso_marker == 4) {                                // the blur held at 0.3 (the strength word alone)
+                out.zoom_s = 0.3f;
+                out.zoom_centre = Vec3{float(std::cos(double(a.heading))) * 1.3f + e.self.x, e.self.y + 0.0f,
+                                       float(std::sin(double(a.heading))) * 1.3f + e.self.z};
+                break;
+            }
             if (S == 0x13d) break;
             sub = 0x99;
             A.def = a.f(0x7b0);
