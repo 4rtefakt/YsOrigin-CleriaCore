@@ -202,7 +202,7 @@ def start(case, env, settings_dir):
     return srv
 
 
-def finish(name, case, srv):
+def finish(name, case, srv, say=print):
     """Stop the server and check its log; True when every server_expect is there in order."""
     if srv is None:
         return True
@@ -212,7 +212,7 @@ def finish(name, case, srv):
     for e in case.get("server_expect", []):
         k = log.find(e, at)
         if k < 0:
-            print(f"FAIL {name}: the server never got '{e}' (after offset {at})")
+            say(f"FAIL {name}: the server never got '{e}' (after offset {at})")
             return False
         at = k + len(e)
     return True

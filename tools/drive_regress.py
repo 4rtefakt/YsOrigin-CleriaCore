@@ -8,9 +8,12 @@ substring to appear in the output, in order. Saves go to a scratch directory
 
     python tools/drive_regress.py                 # all cases
     python tools/drive_regress.py statue_swap     # one case
+    python tools/drive_regress.py --jobs 8        # cases side by side (the default: half the CPUs, at most 8;
+                                                  # --jobs 1 = one after the other)
+    python tools/drive_regress.py --smoke         # the quick tier (SMOKE below), for a per-commit check
     python tools/drive_regress.py --exe build_diff/Release/cleria-view.exe --assets <dir>
 """
-import os, subprocess, sys, tempfile
+import concurrent.futures, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build", "Release", "cleria-view.exe")
@@ -1739,6 +1742,30 @@ CASES.update(aplua_regress.CASES)
 import modfile_regress  # noqa: E402
 CASES.update(modfile_regress.CASES)
 
+# --smoke: the quick tier for a per-commit check (under a minute with --jobs 8; the whole list is the
+# pre-push check). One or two short cases per subsystem, picked by their measured time (2026-10-09, each
+# under 16 s): a change that breaks a subsystem outright fails here; the long fights and routes do not run.
+SMOKE = [
+    "jump_wall_s1002", "arrival_floor", "swim_ceiling",                      # movement, a door, water
+    "exp_even", "hugo_shot", "boost_iframes",                                # combat: a kill's EXP, a shot, Boost
+    "reacq_teleport", "oggnome_wake_s2001", "keep_dy_limit", "chups_latch",  # an enemy brain on floors 1-4,
+    "urobass_strikes", "far_freeze_keeps_phase",                             # 5 and 6
+    "statue_swap", "break_script", "access_skip_double",                     # scripts: the cleanse, a breakable, a skip
+    "saveload_floor", "gameover_retry",                                      # save / load, the continue snapshot
+    "zava_single_jump", "boss_part_feedback",                                # a boss's start (Zava, Khonsclard)
+    "duel_s1080_gameover",                                                   # a duel's start
+    "book_return_title", "shell_subpages", "hud_damage_numbers",             # the book, the shell, the HUD
+    "weather_embers", "video_passes", "video_looks",                         # weather, the Video page
+    "content_chest", "lua_save", "modfile_install",                          # mods: content, Lua, a .cleriamod
+    "aplua_items_save",                                                      # Archipelago (its mock server)
+]
+
+
+# The cases of a minute or more (measured 2026-10-09): with --jobs they start first, so the longest one
+# (darm_fight, ~7 minutes) does not start last and run on alone.
+LONG = ["darm_fight", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
+        "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light"]
+
 
 def content_setup(case, env, tmp):
     """Mod content cases (build/shell_re/CONTENT.md): a scratch settings folder with the case's mods
@@ -1773,6 +1800,10 @@ def content_setup(case, env, tmp):
 
 
 def run(name, case, exe, assets):
+    """One case, in its own temp folder (saves, shots, settings, an aplua case's server on a free port):
+    cases share nothing, so they run side by side. Returns (passed, its report lines, seconds)."""
+    t0 = time.time()
+    msg = []
     with tempfile.TemporaryDirectory() as saves:
         env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR=case.get("char", "1"), CLERIA_DRIVE=case["drive"],
                    CLERIA_SAVE_DIR=saves)
@@ -1785,44 +1816,69 @@ def run(name, case, exe, assets):
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
         r = subprocess.run([exe, assets, sob] + extra, env=env, capture_output=True, text=True, timeout=900)
     out = r.stdout + r.stderr
-    if not aplua_regress.finish(name, case, srv):
-        return False
+    ok = aplua_regress.finish(name, case, srv, msg.append) and check(name, case, r, out, msg.append)
+    return ok, msg, time.time() - t0
+
+
+def check(name, case, r, out, say):
     for e in case.get("absent", []):
         if e in out:
-            print(f"FAIL {name}: unexpected '{e}'")
+            say(f"FAIL {name}: unexpected '{e}'")
             return False
     for e, n in case.get("count", {}).items():      # exactly n times in the whole output
         if out.count(e) != n:
-            print(f"FAIL {name}: '{e}' appears {out.count(e)} times, not {n}")
+            say(f"FAIL {name}: '{e}' appears {out.count(e)} times, not {n}")
             return False
     at = 0
     for e in case["expect"]:
         k = out.find(e, at)
         if k < 0:
-            print(f"FAIL {name}: missing '{e}' (after offset {at})")
+            say(f"FAIL {name}: missing '{e}' (after offset {at})")
             # Say how the run ended, so a flake shows its cause (a crash, a GPU loss, an early quit).
             tail = [l for l in r.stderr.splitlines() if l.strip()][-3:]
-            print(f"     exit code {r.returncode}; last stdout line: {(r.stdout.splitlines() or [''])[-1][:160]!r}")
+            say(f"     exit code {r.returncode}; last stdout line: {(r.stdout.splitlines() or [''])[-1][:160]!r}")
             for l in tail:
-                print(f"     stderr: {l[:160]}")
+                say(f"     stderr: {l[:160]}")
             return False
         at = k + len(e)
-    print(f"ok   {name}")
     return True
 
 
 def main():
     args = sys.argv[1:]
-    opt = {"--exe": EXE, "--assets": ASSETS}
+    opt = {"--exe": EXE, "--assets": ASSETS, "--jobs": str(min(8, max(1, (os.cpu_count() or 2) // 2)))}
     for k in opt:
         if k in args:
             i = args.index(k)
-            opt[k] = os.path.abspath(args[i + 1])
+            opt[k] = args[i + 1] if k == "--jobs" else os.path.abspath(args[i + 1])
             del args[i:i + 2]
-    names = args or list(CASES)
-    fails = sum(not run(n, CASES[n], opt["--exe"], opt["--assets"]) for n in names)
-    print(f"{len(names) - fails}/{len(names)} passed")
-    sys.exit(1 if fails else 0)
+    smoke = "--smoke" in args
+    if smoke:
+        args.remove("--smoke")
+    names = args or (SMOKE if smoke else list(CASES))
+    workers = max(1, int(opt["--jobs"]))
+    t0 = time.time()
+    failed = []
+    # Each worker thread waits on one cleria-view process; a case's lines are printed together when it ends.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        order = sorted(names, key=lambda n: n not in LONG) if workers > 1 else names
+        jobs = {pool.submit(run, n, CASES[n], opt["--exe"], opt["--assets"]): n for n in order}
+        for j in concurrent.futures.as_completed(jobs):
+            n = jobs[j]
+            try:
+                ok, msg, secs = j.result()
+            except Exception as e:                 # the 900 s timeout, a missing exe
+                ok, msg, secs = False, [f"FAIL {n}: {e}"], 0.0
+            if ok:
+                msg.append(f"ok   {n}")
+            else:
+                failed.append(n)
+            msg[0] += f"  ({secs:.1f}s)"
+            print("\n".join(msg), flush=True)
+    if failed:
+        print("failed: " + " ".join(sorted(failed, key=names.index)))
+    print(f"{len(names) - len(failed)}/{len(names)} passed  ({time.time() - t0:.0f}s, --jobs {opt['--jobs']})")
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":
