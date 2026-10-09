@@ -137,7 +137,8 @@ CASES = {
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3000, 12)) + "3000:at=0,22,180;3460:scripts;"
               + "".join(f"{t}:ok;" for t in range(3500, 3661, 40)) + "3700:scripts;3710:quit",
-        expect=["flag 220 = 1", "EXP 86 (lv 8)", "script sentougo", "script stepup_se"]),
+        expect=["flag 220 = 1", "EXP 86 (lv 8)", "[content] boss_defeated S_1099 flag 220", "script sentougo", "script stepup_se"],
+        count={"boss_defeated": 1}),
     # Hugo against Velagunder (VELAGUNDER.md §3.1 / §3.3, EFFECTHIT.md §5.1). His intro S_EVT1099_2 has more pages
     # than Yunica's: the `ok` presses run to t2200 (with the cases' 1800 above a page stays open, the world stays
     # frozen and no shot leaves). From the arena floor at (0, 21), turning to the head (`bossaim`: no move), his
@@ -633,7 +634,8 @@ CASES.update({
         room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="30"),
         drive=_S1080.format(end=11000, cast=50) + "11000:dflags;11001:quit",
         expect=["[duel] t", "cast 50 hp 1860/1860 player hp 227 | lv 5 max 1860 atk 56 def 43 exp 526",
-                "flags 130=0 131=0 133=0 156=0 174=0 230=1 232=0 311=1"]),
+                "[content] boss_defeated S_1080", "flags 130=0 131=0 133=0 156=0 174=0 230=1 232=0 311=1"],
+        count={"boss_defeated": 1}),
     # D1 (build/audit/ROUTE_F13.md): the long Vagullion fight, through phase 4's dissolve / recall /
     # re-scatter cycles and the split below half HP, to its death at about t10900 (Lv 5, his own level, against
     # his retail HP 1860; the shell's Damage taken 0 keeps Yunica up, no flag is forced). Before M970's phase-4 box clamp and the
@@ -649,32 +651,34 @@ CASES.update({
     "duel_s1080_epona": dict(
         room="S_10/S_1080/S_1080", char="2", env=dict(_LOCK, CLERIA_LEVEL="30"),
         drive=_S1080.format(end=12000, cast=171) + "12000:dflags;12001:quit",
-        expect=["[duel] t", "cast 171 hp 796/796", "| lv 5 max 796.1 atk", "156=0 174=0 230=1 232=0 311=1"]),
+        expect=["[duel] t", "cast 171 hp 796/796", "| lv 5 max 796.1 atk", "[content] boss_defeated S_1080", "156=0 174=0 230=1 232=0 311=1"],
+        count={"boss_defeated": 1}),
     # S_1080 Toal: Galleon (M830, Battle2) stops at HP 1 (his low-HP chain) -> 174 = 1, 230, 311.
     "duel_s1080_galleon": dict(
         room="S_10/S_1080/S_1080", char="3", env=dict(_LOCK, CLERIA_LEVEL="30"),
         drive=_S1080.format(end=12000, cast=169) + "12000:dflags;12001:quit",
-        expect=["[duel] t", "cast 169 hp 592/592", "| lv 5 max 592 atk 58 def 57 exp 744", "156=0 174=1 230=1 232=0 311=1"]),
+        expect=["[duel] t", "cast 169 hp 592/592", "| lv 5 max 592 atk 58 def 57 exp 744", "[content] boss_defeated S_1080",
+                "156=0 174=1 230=1 232=0 311=1"], count={"boss_defeated": 1}),
     # S_1080 is not losable (no 133): a KO is the game over; Retry re-enters at Battle_1's SaveContData
     # (205 = 1), whose root branch restarts the duel: Chr_SetStatus's 200 again, then the INIT re-stat again.
     "duel_s1080_gameover": dict(
         room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="1"),
         drive=_S1080.format(end=4900, cast=50) + "4700:hp=0;4900:quit",
         expect=["cast 50 hp 1860/1860", "[death] HP 0", "[gameover] chose retry", ">> entering S_1080",
-                "[gameover] Retry -> S_1080", "cast 50 hp 200/200", "| lv 5 max 1860 atk 56"], absent=["[duel] lost"]),
+                "[gameover] Retry -> S_1080", "cast 50 hp 200/200", "| lv 5 max 1860 atk 56"], absent=["[duel] lost", "boss_defeated"]),
     # S_3080 Yunica: Kishgal (M860) ends the fight at half HP in this room -> 174 = 1 -> the Silver
     # Harmonica scene -> 232 = 1 and ChangeScene to S_1000.
     "duel_s3080_kishgal": dict(
         room="S_30/S_3080/S_3080", char="1", env=dict(_LOCK, CLERIA_LEVEL="28"),
         drive=_S3080.format(end=15000, cast=172) + "8850:dflags;15000:dflags;15001:quit",
-        expect=["cast 172 hp 2985/2985", "| lv 19 max 2985 atk 121 def 108 exp 5766", "133=1 156=0 174=1",
-                ">> entering S_1000", "232=1"], absent=["[duel] lost"]),
+        expect=["cast 172 hp 2985/2985", "| lv 19 max 2985 atk 121 def 108 exp 5766", "[content] boss_defeated S_3080",
+                "133=1 156=0 174=1", ">> entering S_1000", "232=1"], absent=["[duel] lost"], count={"boss_defeated": 1}),
     # S_3080 Hugo wins against Toal (M820): 174 = 1 -> Battle_Win (its 0.4 slow-mo) -> EV_Feena02_2, where
     # FireBulletEvent fires Shion's six shots (op 0x111) -> S_1000.
     "duel_s3080_toal_win": dict(
         room="S_30/S_3080/S_3080", char="2", env=dict(_LOCK, CLERIA_LEVEL="40"),
         drive=_S3080.format(end=18000, cast=168) + "9400:dflags;18000:dflags;18001:quit",
-        expect=["cast 168 hp 3550/3550", "| lv 19 max 3550 atk 119 def 120 exp 2223", "156=0 174=1", "[xso] SetTimeScale 0.40", "[xso] SetTimeScale 1.00",
+        expect=["cast 168 hp 3550/3550", "| lv 19 max 3550 atk 119 def 120 exp 2223", "[content] boss_defeated S_3080", "156=0 174=1", "[xso] SetTimeScale 0.40", "[xso] SetTimeScale 1.00",
                 "[xso] FireBullet actor 200 kind 2 effect 308 pos (-12.00, -3.00, 33.00) dir (0.00, -0.19, 1.00) speed 0.30",
                 "[xso] FireBullet actor 200 kind 2 effect 308", "dir (0.15, -0.17, 1.00) speed 0.50",
                 ">> entering S_1000", "232=1"], absent=["[duel] lost"]),
@@ -684,12 +688,12 @@ CASES.update({
         room="S_30/S_3080/S_3080", char="2", env=dict(_LOCK, CLERIA_LEVEL="20"),
         drive=_S3080.format(end=16500, cast=168) + "8500:dflags;16500:dflags;16501:quit",
         expect=["cast 168 hp 3550/3550", "[duel] lost: flag 133 set", "133=1 156=0 174=0", "[xso] FireBullet actor 200",
-                ">> entering S_1000", "232=1"], absent=["[gameover]", "SetTimeScale 0.40"]),
+                ">> entering S_1000", "232=1"], absent=["[gameover]", "SetTimeScale 0.40", "boss_defeated"]),
     # S_3080 Toal: Shion (M840, Battle2) -> 174 = 1 -> FireBulletEvent2 (Hugo's shots, one of Shion's) -> S_4104.
     "duel_s3080_shion": dict(
         room="S_30/S_3080/S_3080", char="3", env=dict(_LOCK, CLERIA_LEVEL="32"),
         drive=_S3080.format(end=14000, cast=170) + "14001:quit",
-        expect=["cast 170 hp 1492/1492", "| lv 19 max 1492 atk 121 def 118 exp 2223", "[xso] FireBullet actor 197 kind 2 effect 308", "[xso] FireBullet actor 200",
+        expect=["cast 170 hp 1492/1492", "| lv 19 max 1492 atk 121 def 118 exp 2223", "[content] boss_defeated S_3080", "[xso] FireBullet actor 197 kind 2 effect 308", "[xso] FireBullet actor 200",
                 "[xso] FireBullet actor 197", ">> entering S_4104"], absent=["[gameover]"]),
 })
 
@@ -718,7 +722,8 @@ CASES.update({
         room="S_60/S_6099/S_6099", char="3", env=_F6,
         drive=_S6099.format(end=14200, end2=14201, end3=14202, cast=167),
         expect=["cast 167 hp 4186/4186 player hp 342 | lv 48 max 4186.25 atk 249 def 259 exp 22128",
-                "flags 130=0 131=0 133=0 156=0 174=1", " 231=1", " 236=1"], absent=["[death]"]),
+                "[content] boss_defeated S_6099", "flags 130=0 131=0 133=0 156=0 174=1", " 231=1", " 236=1"], absent=["[death]"],
+        count={"boss_defeated": 1}),
 })
 
 # The floor-4 brains (build/ai_spec/M560.md .. M290.md, REVIVE.md, BOMB.md; build/audit/FLOOR4_TOUR.md).
@@ -776,7 +781,7 @@ CASES.update({
               "4400:every=15,4700,near=40;4401:every=15,4700,atk;4700:actors;5000:dflags;5001:quit",
         expect=["[actor] id 168 cast 40 enemy hp 5869", "[actor] id 184 cast 184 enemy hp", "defeated 1",
                 "M360 death section 5", "[actor] id 168 cast 40 enemy hp 0", "[actor] id 184 cast 184 enemy hp 0",
-                "flags 130=0 131=1 133=0 156=0"]),
+                "[content] boss_defeated S_4013", "flags 130=0 131=1 133=0 156=0"], count={"boss_defeated": 1}),
     # Floor 5: M430 Zeruena (build/ai_spec/M430.md) — inside 7 u the barrier (sub 0x70), at 8 u the summon:
     # 4 hands of cast 0x30 (M440) on Normal, which appear by the player and are gone again by t700.
     "zeruena_summon": dict(
@@ -991,7 +996,8 @@ CASES.update({
                 "clip METEOR", "the player is returned to (0.0,7.5,-15.0)", "mode 4 -> 0", "CamSlot 3",
                 "barrier D broken (window 699)", "option R destroyed", "target the core with the sword", "barrier D up",
                 "option R revived (1000)", "option L revived (1000)", "barrier D broken (window 699)",
-                "flag 226 = 1", "EXP (lv 49)", "the death starts", "[boss07] t", "destroyed", ">> entering S_7000"]),
+                "flag 226 = 1", "EXP (lv 49)", "the death starts", "[content] boss_defeated S_7080 flag 226", "[boss07] t",
+                "destroyed", ">> entering S_7000"], count={"boss_defeated": 1}),
     # Darm (build/boss_re/DARM*.md; src/cleria/boss08, apps/cleria-view/view_boss08.inl). Toal's last fight, from the
     # room's own retry start: flag 205 = 1 and a reload make the root script Mesh_Locate boss08 (its ctor builds the
     # tail, the core, the arms and the floor s7099yuka), place the player at (0, 0, -10) and run Battle (flag 156 at
@@ -1031,8 +1037,9 @@ CASES.update({
                 "bullet(s) kind 0x25 effect 484", "(25_PullFromTheGround)", "released from Bone_", "barrier 59",
                 "the barrier breaks (window 900)", "the swing hits the core 0 (DEF 295, class 3)",
                 "the window closed: the barrier is back", "the barrier is up", "(20_Beat)", "flag 215 = 0",
-                "the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1", "the death timeline starts",
-                "the body is gone (alpha 0)", ">> entering S_7000"]),
+                "the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1", "[content] boss_defeated S_7099 flag 227",
+                "the death timeline starts", "the body is gone (alpha 0)", ">> entering S_7000"],
+        count={"boss_defeated": 1}),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,
@@ -1319,6 +1326,21 @@ CASES.update({
         expect=["t300 pos", "-1.269) O2", "t595 pos", "8.000) O2", ">> entering S_1009"]),
 })
 
+# The mod API added at level 4 (LUA_API.md §11), each proven through a generated Lua mod (`lua`: its main.lua,
+# manifest ApiVersion 3: an older mod keeps running and sees the new calls).
+_LUA_EV = ('for _, k in ipairs({"boss_defeated"}) do cleria.events.on(k, function(e) '
+           'cleria.log(k .. " room " .. e.room .. " flag " .. tostring(e.flag)) end) end\n')
+CASES.update({
+    # boss_defeated as a script gets it: a floor boss's flag 0 -> 1 carries the flag (S_1099, 220); a fight
+    # that ends by flag 156 going 1 -> 0 has none; 156 cleared in another room than it was set is not a win.
+    "lua_boss_defeated": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_EV,
+        drive="60:flag=220,1;80:flag=156,1;100:flag=156,0;120:flag=156,1;130:exit=0;400:flag=156,0;460:quit",
+        expect=["[lua] test.lua: started (main.lua)", "[lua:test.lua] boss_defeated room S_1009 flag 220",
+                "[lua:test.lua] boss_defeated room S_1009 flag nil", ">> entering S_10"],
+        count={"[lua:test.lua] boss_defeated": 2}),
+})
+
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -1332,7 +1354,8 @@ CASES.update(modfile_regress.CASES)
 def content_setup(case, env, tmp):
     """Mod content cases (build/shell_re/CONTENT.md): a scratch settings folder with the case's mods
     installed and turned on. `mods`: sample folders under samples/mods; `content`: {file: text} of a
-    generated test mod "test.regress"; `mods_off`: installed but turned off."""
+    generated test mod "test.regress"; `lua`: the main.lua of a generated scripted mod "test.lua";
+    `mods_off`: installed but turned off."""
     import shutil
     mods = os.path.join(tmp, "mods")
     os.makedirs(mods, exist_ok=True)
@@ -1347,6 +1370,12 @@ def content_setup(case, env, tmp):
         for f, t in case["content"].items():
             open(os.path.join(d, "content", f), "w").write(t)
         ids.append("test.regress")
+    if case.get("lua"):
+        d = os.path.join(mods, "regress_lua")
+        os.makedirs(d)
+        open(os.path.join(d, "mod.ini"), "w").write("[mod]\nId=test.lua\nApiVersion=3\nScript=main.lua\n")
+        open(os.path.join(d, "main.lua"), "w").write(case["lua"])
+        ids.append("test.lua")
     on = [] if case.get("mods_off") else ids
     open(os.path.join(tmp, "cleria.ini"), "w").write(
         '[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n' % (",".join(ids), ",".join(on)))
@@ -1360,7 +1389,7 @@ def run(name, case, exe, assets):
                    CLERIA_SAVE_DIR=saves)
         env.update(case.get("env", {}))            # a case may override any of these (CLERIA_CHAR)
         env.setdefault("CLERIA_SHOT_DIR", saves)   # a case's `shot` / `shell` frames stay in its temp folder
-        if "mods" in case or "content" in case:
+        if "mods" in case or "content" in case or "lua" in case:
             content_setup(case, env, os.path.join(saves, "settings"))
         srv = aplua_regress.start(case, env, os.path.join(saves, "settings"))   # an `aplua` case: its server, the mod
         extra = modfile_regress.start(case, env, os.path.join(saves, "settings"))   # a `modfile` case: the file
@@ -1372,6 +1401,10 @@ def run(name, case, exe, assets):
     for e in case.get("absent", []):
         if e in out:
             print(f"FAIL {name}: unexpected '{e}'")
+            return False
+    for e, n in case.get("count", {}).items():      # exactly n times in the whole output
+        if out.count(e) != n:
+            print(f"FAIL {name}: '{e}' appears {out.count(e)} times, not {n}")
             return False
     at = 0
     for e in case["expect"]:

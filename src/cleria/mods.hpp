@@ -22,7 +22,7 @@
 
 namespace cleria::mods {
 
-inline constexpr int kApiVersion = 3;                  // the manifest format / content API level (2: content/, CONTENT.md; 3: Script=, LUA_API.md)
+inline constexpr int kApiVersion = 4;                  // the manifest format / content API level (2: content/, CONTENT.md; 3: Script=, LUA_API.md; 4: more cleria.* API, LUA_API.md §11)
 inline constexpr const char* kManifestName = "mod.ini";
 inline constexpr const char* kFilesDir = "files";      // the overlay root inside a mod
 inline constexpr const char* kCacheDir = ".cache";     // extracted zips, inside the mods folder

@@ -404,7 +404,7 @@ int l_command(lua_State* L) {
 // ---- cleria.events ---------------------------------------------------------------------------------
 
 const char* const kKinds[] = {"room_enter", "flag_changed", "chest_opened", "item_obtained", "death",
-                              "new_game", "save", "load", "tick", "frame"};
+                              "new_game", "save", "load", "tick", "frame", "boss_defeated"};
 
 int l_on(lua_State* L) {
     Mod& m = M(L);
@@ -412,7 +412,7 @@ int l_on(lua_State* L) {
     bool known = false;
     for (const char* k : kKinds) known = known || kind == k;
     if (!known) return luaL_argerror(L, 1, ("unknown event '" + kind + "' (see LUA_API.md: room_enter, flag_changed, chest_opened, "
-                                             "item_obtained, death, new_game, save, load, tick, frame)").c_str());
+                                             "item_obtained, death, new_game, save, load, tick, frame, boss_defeated)").c_str());
     luaL_checktype(L, 2, LUA_TFUNCTION);
     lua_pushvalue(L, 2);
     const int ref = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -1204,6 +1204,7 @@ const char* event_name(events::Kind k) {
         case events::Kind::NewGame: return "new_game";
         case events::Kind::Save: return "save";
         case events::Kind::Load: return "load";
+        case events::Kind::BossDefeated: return "boss_defeated";
     }
     return "?";
 }
@@ -1222,6 +1223,7 @@ void push_event(lua_State* L, const events::Event& e) {
         case events::Kind::NewGame: n("character", e.character); break;
         case events::Kind::Save: case events::Kind::Load: n("slot", e.slot); break;
         case events::Kind::PlayerDeath: break;
+        case events::Kind::BossDefeated: if (e.index >= 0) n("flag", e.index); break;
     }
 }
 

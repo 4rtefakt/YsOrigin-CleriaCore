@@ -9,6 +9,7 @@
 //   ChestOpened   a chest's box flag (Interactable::opened_flag) went 0 -> set          room, script, object, index
 //   ItemObtained  an item was granted: chest / event script, pickup, mod rule, AP       item, count, source
 //   PlayerDeath   the player's HP reached 0 (the [death] site)                          room
+//   BossDefeated  a boss fight was won (content_boss_watch, view_content.inl)             room, index (220..227 or -1)
 //   NewGame       a new game started                                                    character
 //   Save / Load   a save slot was written / read (after the sidecar was handled)        slot
 //
@@ -22,14 +23,14 @@
 
 namespace cleria::events {
 
-enum class Kind { RoomEnter, FlagChanged, ChestOpened, ItemObtained, PlayerDeath, NewGame, Save, Load };
+enum class Kind { RoomEnter, FlagChanged, ChestOpened, ItemObtained, PlayerDeath, NewGame, Save, Load, BossDefeated };
 const char* kind_name(Kind k);
 
 struct Event {
     Kind kind = Kind::RoomEnter;
     std::string room;                 // upper-case room name ("S_1001"); every kind carries the current room
     std::string prev_room;            // RoomEnter
-    int index = -1;                   // FlagChanged / ChestOpened: the g_flags cell
+    int index = -1;                   // FlagChanged / ChestOpened: the g_flags cell; BossDefeated: the boss flag or -1
     std::int32_t old_value = 0, new_value = 0;   // FlagChanged
     std::string script, object;       // ChestOpened / ItemObtained from a script: "S_BOX01", "box_01"
     int item = -1, count = 0;         // ItemObtained (item may be a new id >= 0x100)

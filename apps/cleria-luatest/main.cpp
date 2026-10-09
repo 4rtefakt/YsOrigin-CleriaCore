@@ -247,6 +247,7 @@ int main(int argc, char** argv) {
             seen = {}
             cleria.events.on("flag_changed", function(e) seen[#seen + 1] = e.kind .. " " .. e.index .. " " .. e.old .. "->" .. e.new .. " " .. e.room end)
             cleria.events.on("chest_opened", function(e) seen[#seen + 1] = "chest " .. e.script .. " " .. e.object .. " " .. e.index end)
+            cleria.events.on("boss_defeated", function(e) cleria.log("boss " .. e.room .. " " .. tostring(e.flag) .. " api " .. cleria.api_version) end)
             local tid = cleria.events.on("tick", function() TICKS = (TICKS or 0) + 1 end)
             cleria.events.on("frame", function(dt) DT = dt end)
             cleria.command("probe", function(args)
@@ -318,6 +319,12 @@ int main(int argc, char** argv) {
         ce.kind = events::Kind::ChestOpened;
         ce.index = 302; ce.script = "s_box01"; ce.object = "box_01"; ce.room = "S_1001";
         m->on_event(ce);
+        events::Event be;
+        be.kind = events::Kind::BossDefeated;
+        be.index = 226; be.room = "S_7080";
+        m->on_event(be);
+        be.index = -1; be.room = "S_1080";
+        m->on_event(be);
         m->on_tick();
         m->on_frame(0.016);
         m->command("probe", "hello");
@@ -327,6 +334,8 @@ int main(int argc, char** argv) {
         m->command("json", "");
         check(m->ok(), "api: every call ran (" + m->error() + ")");
         check(has(h.logs, "probe hello flag -1 room S_1001 scene 1001"), "api: game.flag / room / scene, commands with arguments");
+        check(has(h.logs, "boss S_7080 226 api 4") && has(h.logs, "boss S_1080 nil api 4"),
+              "api: boss_defeated carries the room and the boss flag (nil for a duel); api_version 4");
         check(h.fl[0x63] == 1 && h.sp == 75 && h.level == 7 && h.wp[3] == 1 && h.warped == 3,
               "api: set_flag, player.add_sp / set_level, warps");
         check(h.given.size() == 1 && h.given[0] == std::make_pair(0x59, 2), "api: content.give goes to the host");
@@ -426,7 +435,7 @@ int main(int argc, char** argv) {
     {
         std::vector<std::string> errs;
         const mods::Manifest mf = mods::parse_manifest("[mod]\r\nId=a.b\r\nApiVersion=3\r\nScript=main.lua\r\n", errs);
-        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 3, "manifest: Script= and ApiVersion 3");
+        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 4, "manifest: Script= and ApiVersion 3");
         for (const char* s : {"hello", "archipelago_lua"}) {
             const fs::path root = fs::path("samples") / "mods" / s;
             std::vector<std::string> e2;

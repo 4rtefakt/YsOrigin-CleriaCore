@@ -1,4 +1,4 @@
-# Lua scripting for mods: the `cleria.*` API (mod API 3)
+# Lua scripting for mods: the `cleria.*` API (mod API 3, extended at 4: §11)
 
 CleriaCore mods can carry a Lua script (MODS.md §10: the user chose Lua). This is the reference for modders
 and the design record. None of it is retail: the game stays a faithful port; scripts are CleriaCore's own
@@ -25,7 +25,7 @@ Tags: **[CODE]** read in CleriaCore's code, **[H]** a choice of this design.
 Id=me.my_mod
 Name="My Mod"
 Version=1.0
-ApiVersion=3          ; mods::kApiVersion is now 3 (2 = content/, 3 = Script=)
+ApiVersion=3          ; 2 = content/, 3 = Script=; mods::kApiVersion is now 4 (§11), 3 still runs unchanged
 Script=main.lua       ; the entry file, relative to the mod folder
 ```
 
@@ -77,6 +77,7 @@ cleria.events.off(id)
 | `chest_opened` | a chest's box flag went 0 -> set | `index`, `script` ("s_box01"), `object` ("box_01") |
 | `item_obtained` | an item was granted (chest, script, pickup, rule, a mod...) | `item`, `count`, `source`, `script` |
 | `death` | the player's HP reached 0 | |
+| `boss_defeated` (API 4) | a boss fight was won, at the tick its flag is written (below) | `flag` (220..227, absent for a duel / mid-boss) |
 | `new_game` / `load` | a session started / a save was loaded | `character` / `slot` |
 | `save` | a slot was written (the save sidecar too) | `slot` |
 | `tick` | every fixed game tick (60 a second, not while the F1 panel holds the game) | (no argument) |
@@ -88,6 +89,23 @@ new session's when that `room_enter` runs (see `samples/mods/hello`).
 
 `cleria.events.emit("item_obtained", {item = 0x59, count = 1, source = "mymod"})` reports a grant the mod
 made itself (only `item_obtained` may be emitted).
+
+**`boss_defeated`** (`view_content.inl` `content_boss_watch`) [CODE] is raised from the same per-tick flag
+diff as `flag_changed`, just before it, so it never fires on a load, a Retry or a new game (they re-prime the
+diff), and never on a lost fight. `e.room` is the room of the fight. Two rules:
+- **A floor boss**: its flag 220..227 goes 0 -> 1. `e.flag` is that flag. S_1099 220, S_2099 221, S_3099 222,
+  S_4099 223, S_5099 224, S_6082 225 (Zava's module, or Toal's `BATTLE_THOR` store), S_7080 226, S_7099 227
+  (Darm's later 227 = 2 is not a second event). Not in boss rush (the modules write no flag there).
+- **A duel / mid-boss**: `g_flags[156]` ("a boss fight runs", retail 0x76bb8c) goes 1 -> 0 in the room where
+  it went 0 -> 1, the room is not one of the eight above, and the clear was not the player's KO in a losable
+  duel (flag 133: Hugo's and Yunica's S_3080). No `e.flag`. Every such fight's script sets 156 = 1 and waits
+  for the opponent: S_1080 (Vagullion / Epona / Galleon), S_2080 (the three `BATTLE_n`), S_3080 (Kishgal at
+  half HP / Toal / Shion), S_4005 (the three `BATTLE_*`), S_4013 (Jenocres: Hugo, Yunica), S_6080, S_6099,
+  and the smaller fights that use the same flag (S_1000's `BATTLE_n`, S_3002's `KEKKAIZAKO_02`).
+- No event, because there is no 156 fight: Toal's S_4013 (two talks with Epona, flags 244 and 281; Jenocres
+  is Hugo's and Yunica's), S_5080 (its only fight is the ward `KEKKAIZAKO_01`, which stores 423 = 1: watch
+  that flag) and S_4080 (no fight in its scripts: the room script starts two `roll_edge` traps only).
+- A mod that writes these flags itself raises the event too (the diff does not know who wrote).
 
 ## 4. The game: `cleria.game` and `cleria.player`
 
@@ -291,3 +309,14 @@ hud layers in order with colours / alpha / kit names / images, page widgets, exp
 commands, draw calls refused outside a layer); websockets (the 4-socket limit, a bad address, a refused
 connection reported by `poll`); the manifest's `Script=`; both samples start; archipelago_lua's own table (336
 locations, 147 items), its page "Archipelago", its README and icon (self-contained).
+
+## 11. API levels
+
+`cleria.api_version` is the level of the running CleriaCore. A mod's `ApiVersion` is the level it needs: a
+higher one than the build's is refused ("needs a newer CleriaCore"); 3 is enough for a script, and a level-3
+mod can test `cleria.api_version >= 4` (or the function for `nil`) before it uses what a later level added.
+
+| level | added |
+|---|---|
+| 3 | everything above not marked otherwise |
+| 4 (2026-10-09) | the event `boss_defeated` (§3) |

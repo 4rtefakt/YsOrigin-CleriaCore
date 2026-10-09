@@ -54,7 +54,7 @@ Name="My Mod"
 Version=1.0.0
 Author="You"
 Description="What it does, shown in the Mods tab."
-ApiVersion=3                      ; 1: files/ only, 2: + content/, 3: + Script=
+ApiVersion=3                      ; 1: files/ only, 2: + content/, 3: + Script=, 4: + the newer cleria.* calls (LUA_API.md §11)
 Script=main.lua                   ; optional: the Lua entry file
 Requires=other.mod>=1.2           ; optional, comma list
 Conflicts=some.other              ; optional

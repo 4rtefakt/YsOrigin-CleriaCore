@@ -241,7 +241,7 @@ static void lua_startup() {
     LuaRt& r = g_lua;
     for (mods::Mod& m : g_mods_ui.list) {
         if (m.state != mods::State::Active || m.m.script.empty()) continue;
-        if (m.m.api < script::kApiVersion) {
+        if (m.m.api < script::kScriptApi) {
             m.notes.push_back("Script= ignored: a Lua script needs ApiVersion=3");
             continue;
         }

@@ -31,7 +31,8 @@ struct lua_State;
 
 namespace cleria::script {
 
-inline constexpr int kApiVersion = 3;   // = mods::kApiVersion when the Lua API arrived
+inline constexpr int kApiVersion = 4;   // cleria.api_version (= mods::kApiVersion; LUA_API.md §11 lists what each level added)
+inline constexpr int kScriptApi = 3;    // the manifest ApiVersion a Script= needs (when the Lua API arrived)
 
 struct Limits {
     std::uint64_t instructions = 20'000'000;        // [H] per call into the mod (an event, a frame, a filter)

@@ -14,6 +14,7 @@
 //   csMgr built           content_bind / install        the grant filter on the live VM, the callbacks
 //   per tick              content_tick                  queued events, the g_flags diff (FlagChanged)
 //   [death]               content_on_death              PlayerDeath
+//   [duel] lost           content_duel_lost             a losable duel's KO: its 156 = 0 is not a win
 //   do_save / book load / delete   content_save / content_load / content_delete   the sidecar file
 //   pickup touch          content_touch_new / content_taken   new-item pickups, collected flags
 //   script loads          content_script                text.ini on the string pool
@@ -44,6 +45,8 @@ struct ContentRt {
     std::function<void(int)> save_slot, load_slot;
     std::deque<std::string> log;            // the last events, for Mods > Content additions
     int rules_sub = 0;
+    bool duel_lost = false;                 // FUN_0046f810's losable branch cleared 156 since the last tick
+    std::string fight_room;                 // the room in which 156 last went 0 -> 1 (content_boss_watch)
 };
 static ContentRt g_content;
 
@@ -340,6 +343,37 @@ static GrantDecision content_filter(const GrantQuery& q) {
 
 static void content_install(XsoVm& vm) { vm.grant_filter = content_filter; }
 
+// BossDefeated, from the flags the tick diff is about to report (so: never on a load, a Retry or a new
+// game, which re-prime the diff). Two rules, both read off the shipped scripts and the boss modules:
+//  - a floor boss: its flag 220..227 goes 0 -> 1 (boss01..08 / M870 write it on the death frame; Toal's
+//    S_6082 `BATTLE_THOR` stores 225 itself; Darm's later 227 = 2 is not a second defeat);
+//  - a duel / mid-boss: g_flags[156] (DAT_0076bb8c, "a boss fight runs") goes 1 -> 0. Every such fight's
+//    script sets 156 = 1 and then waits on the opponent (Wait_FlagEqualInt(156, 0), or a kill count and its
+//    own store); the duel brains clear it on their defeat frame (m810/820/830/840/850/860, m360, m460).
+//    Not in the eight floor-boss rooms (their scripts clear 156 between phases and after the flag), not
+//    when the clear was the player's KO in a losable duel (duel::losable_death, flag 133), and not in
+//    another room than the fight's (S_7080's 156 is cleared after the ChangeScene to S_7000).
+static void content_boss_watch(const std::int32_t* flags) {
+    ContentRt& r = g_content;
+    const bool lost = r.duel_lost;
+    r.duel_lost = false;
+    if (!r.watch.primed) { r.fight_room = r.room; return; }
+    if (r.watch.prev[156] == 0 && flags[156] == 1) r.fight_room = r.room;
+    static const char* const kFlagged[] = {"S_1099", "S_2099", "S_3099", "S_4099", "S_5099", "S_6082", "S_7080", "S_7099"};
+    auto raise = [&](int flag) {
+        content_log("boss_defeated " + r.room + (flag >= 0 ? " flag " + std::to_string(flag) : ""));
+        events::Event e;
+        e.kind = events::Kind::BossDefeated;
+        e.index = flag;
+        content_emit(e);
+    };
+    for (int f = 220; f <= 227; ++f)
+        if (r.watch.prev[std::size_t(f)] == 0 && flags[f] == 1) raise(f);
+    if (r.watch.prev[156] == 1 && flags[156] == 0 && !lost && r.fight_room == r.room &&
+        std::find(std::begin(kFlagged), std::end(kFlagged), r.room) == std::end(kFlagged))
+        raise(-1);
+}
+
 // Once a tick, after the scripts' grants reached the game flags.
 static void content_tick(const std::int32_t* flags) {
     ContentRt& r = g_content;
@@ -351,6 +385,7 @@ static void content_tick(const std::int32_t* flags) {
             content_emit(e);
         }
     }
+    content_boss_watch(flags);
     r.watch.diff(flags, events::bus(), r.room);
     if (r.toast_t > 0) --r.toast_t;
 }
@@ -371,6 +406,9 @@ static void content_hud(ImDrawList* dl, float w, float h) {
     ui::text(dl, ui::F.cond, hpx, {a.x + 20.0f * S, a.y + 15.0f * S}, A(ui::kSection), head.c_str());
     ui::text(dl, ui::F.body, bpx, {a.x + 20.0f * S, a.y + 40.0f * S}, A(ui::kDesc), r.toast.c_str());
 }
+
+// The player's KO ended a losable duel (view_game.inl, duel::losable_death): it cleared 156 without a win.
+static void content_duel_lost() { g_content.duel_lost = true; }
 
 static void content_on_death() {
     events::Event e;

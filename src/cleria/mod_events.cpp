@@ -14,6 +14,7 @@ const char* kind_name(Kind k) {
         case Kind::NewGame: return "new_game";
         case Kind::Save: return "save";
         case Kind::Load: return "load";
+        case Kind::BossDefeated: return "boss_defeated";
     }
     return "?";
 }

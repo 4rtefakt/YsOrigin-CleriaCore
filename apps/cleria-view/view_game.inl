@@ -7611,6 +7611,7 @@ title_again:
                 if (duel::losable_death(game.g_flags, player.hp, player_iframes)) {   // src/cleria/duel.hpp
                     hud.hide_boss_gauge();
                     player_kb = {}; pvel = {};               // +0x32c/+0x334/+0xa3c/+0xa44/+0x5d0.. zeroed
+                    content_duel_lost();                     // mods: this 156 = 0 is not a BossDefeated (view_content.inl)
                     std::printf("  [duel] lost: flag 133 set, HP 1, 156 / 130 cleared (FUN_0046f810)\n");
                     return;
                 }
