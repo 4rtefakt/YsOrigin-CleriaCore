@@ -1747,10 +1747,11 @@ CASES.update({
                 "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.4"]),
     # The boss hit flash (§3.2, FUN_00504140): the stun part's damage sets obj+0x2a0 = 1.65, the brain's tail decays
     # it once (1.575) before the draw, whose additive colour is (107, 55, 19) / 255 x 0.5 x (1.575 - 0.65).
+    # (t2040, was t2034: since e44f09f the first hit on the re-bound hull lands 6 ticks later; the values are the same.)
     "boss_hit_flash": dict(
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_SCRFX_LOG="1"),
         drive=_VELA + "2050:quit",
-        expect=["[hitflash] t2034 boss01 +0x2a0 1.57 -> +(0.194, 0.100, 0.034)"]),
+        expect=["[hitflash] t2040 boss01 +0x2a0 1.57 -> +(0.194, 0.100, 0.034)"]),
     # The GUARD white flash (§3.1): the specular tint struct +0x260 set to white -> 0 at 0.05 a tick by FUN_004fd350's
     # guard branches — here Toal's Ignis MP armour (toal_ignis_armor's hit at t48) and Hugo's super barrier.
     "guard_white_flash": dict(
