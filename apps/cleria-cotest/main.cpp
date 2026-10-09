@@ -1,6 +1,6 @@
 // Headless test for the XSO coroutine VM (CUTSCENE_COROUTINE.md): verifies run()
 // is unchanged, tick() parks/advances on Wait_Prompt, and the ScriptManager spawns +
-// ticks concurrent StartScript children. Usage: cleria-cotest <assets>
+// ticks concurrent StartScript children. Usage: cleria-cotest <assets> [--shard i/n]
 #include "cleria/sev.hpp"
 #include "cleria/wndtext.hpp"
 #include "cleria/xso.hpp"
@@ -76,6 +76,15 @@ struct H : XsoHost {
 int main(int argc, char** argv) {
     std::string root = argc >= 2 ? argv[1] : "assets";
     int fails = 0;
+    // --shard i/n (CTest's cotest_0 .. cotest_{n-1}): the room-root sweep below ([rootsweep], nearly all of
+    // this test's time) takes only the rooms whose index % n == i, so n processes cover the corpus side by
+    // side, every room in exactly one. Every other check runs in each shard. No --shard = every room.
+    int shard_i = 0, shard_n = 1, swept = 0;
+    if (argc >= 4 && !std::strcmp(argv[2], "--shard") &&
+        (std::sscanf(argv[3], "%d/%d", &shard_i, &shard_n) != 2 || shard_n < 1 || shard_i < 0 || shard_i >= shard_n)) {
+        std::fprintf(stderr, "bad --shard %s (want i/n, 0 <= i < n)\n", argv[3]);
+        return 2;
+    }
     // 1) run() unchanged: S_1001 barrier script still extracts grants.
     { Xso s = Xso::parse(rd(root + "/MAP/S_10/S_1001/S_1001.XSO"));
       XsoVm vm; H h; vm.host = &h; vm.g_flags[150] = 1; vm.run(s);
@@ -632,6 +641,7 @@ int main(int argc, char** argv) {
                 const fs::path xso = rm.path() / (name + ".XSO");
                 std::error_code ec;
                 if (!fs::exists(xso, ec)) continue;
+                if (swept++ % shard_n != shard_i) continue;   // another shard's room
                 std::ifstream f(xso, std::ios::binary);
                 std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f), {}};
                 loader.dir = rm.path();
@@ -675,9 +685,10 @@ int main(int argc, char** argv) {
         // non-player-advanceable op). `frozen` alone counts cutscenes-in-progress and
         // is informational. Established 2026-07-23: all 33 headless "freezes" are
         // finite Fix->animate->Unfix sequences or player-advance dialogues; none lock.
-        const bool ok = rooms > 50 && soft_locked == 0;
+        const bool ok = rooms * shard_n > 50 && soft_locked == 0;
         std::printf("[rootsweep] %d roots; %d in-cutscene at 300t; %d SOFT-LOCK%s %s\n",
                     rooms, frozen, soft_locked, locked_names.c_str(), ok ? "OK" : "FAIL");
+        if (shard_n > 1) std::printf("[rootsweep] shard %d/%d of %d rooms with a root\n", shard_i, shard_n, swept);
         fails += !ok;
     }
     // [0x112] WaterWallHitchk(x, y, z, radius, step) (handler 0x56ad63, BULLETS.md §3.14): the VM

@@ -460,10 +460,19 @@ else()
 endif()
 set(CLERIA_TEST_ASSETS "${_cleria_assets_default}" CACHE PATH "Asset root the ctest suite runs on")
 enable_testing()
-foreach(t collisiontest bodytest cotest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test boss04test boss05test boss06test boss07test boss08test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest videotest)
+foreach(t collisiontest bodytest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test boss04test boss05test boss06test boss07test boss08test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest videotest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+endforeach()
+# cotest's room-root sweep takes ~17 minutes in one process: CTest runs it as 10 shards, every room in
+# exactly one (`ctest -R cotest` = all of it; by hand, `cleria-cotest <assets>` is still the whole sweep).
+# 10: measured 2026-10-09, no shard is then longer than the slowest single room (S_4003, ~4 minutes).
+foreach(i RANGE 9)
+  add_test(NAME cotest_${i}
+           COMMAND cleria-cotest "${CLERIA_TEST_ASSETS}" --shard ${i}/10
+           WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(cotest_${i} PROPERTIES LABELS assets)
 endforeach()
 add_test(NAME modstest COMMAND cleria-modstest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME contenttest COMMAND cleria-contenttest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -472,7 +481,7 @@ add_test(NAME dueltest COMMAND cleria-dueltest "${CLERIA_TEST_ASSETS}" WORKING_D
 add_test(NAME weathertest COMMAND cleria-weathertest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 # The tests that read game data (they fail without an unpacked game). CI runs `ctest -LE assets`
 # (.github/workflows/build.yml); every other test passes with no asset root (measured 2026-10-08).
-set_tests_properties(cotest worldtest enemytest asotest animtest ef2simtest bullettest invtest booktest bosstest
+set_tests_properties(worldtest enemytest asotest animtest ef2simtest bullettest invtest booktest bosstest
                      locustest xso13test dueltest weathertest PROPERTIES LABELS assets)
 
 # ---- Speedrun mode (build/shell_re/SPEEDRUN.md): the timer, splits, LiveSplit Server client ----
