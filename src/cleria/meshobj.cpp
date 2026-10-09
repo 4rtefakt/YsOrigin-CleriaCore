@@ -76,6 +76,7 @@ void MeshWorld::set_material_color(const std::string& name, const std::string& m
     std::string k = material;
     for (char& c : k) c = char(std::tolower(static_cast<unsigned char>(c)));
     m->mat_color[k] = rgb;
+    m->dirty_color = true;
 }
 void MeshWorld::reset_rotation(const std::string& name) {
     if (MeshObj* m = find(name)) { m->rot = m->spawn_rot; m->dirty_pose = true; }

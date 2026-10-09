@@ -29,8 +29,9 @@
 // (DARM_D U-D7: the counter is the HUD's, not traced).
 // [approx] per-material alpha (DARM_A §A.1.1 block 3) is applied to every YMO material of the id table's name through
 // Room::mat_alpha; a limb at alpha 0 is not drawn.
-// [not modelled] MatMode's RGB (DARM_A §A.6: Down = black, form change = the outline silhouette; logged), the
-// "damaged limb" material bit 0x20000 and the chest flag word (§A.1.3), ZoomBlur, the scene light (state kept, no
+// MatMode's RGB (DARM_A §A.6: Down = black, form change = the outline silhouette) multiplies the vertex colours of
+// the body's and the tail's materials (boss8_set_matmode, Room::mat_rgb).
+// [not modelled] the "damaged limb" material bit 0x20000 and the chest flag word (§A.1.3), ZoomBlur, the scene light (state kept, no
 // consumer: csHost.light_rgb / light_dir), the player tints (the ctor's grey P+0x290, the fall's P+0x148), the hit
 // flash +0x2a0, fx+0x1dc |= 0x100 / 0x108 of the inline effects and their pool-full gate (never full here), the `src`
 // argument of FX / FX2 (fx+0x1da), the kill record FUN_00403cd0, flags 518 / 519 / 529..532 / 544..546 (dwords past
@@ -75,7 +76,9 @@ std::vector<float> boss8_mat;                              // the body's per-mat
 bool boss8_owned = false;                                  // the module placed the meshes (MeshObj::has_world is ours)
 bool boss8_pin = false;                                    // byte P+0x398 = 1 (the dead player under the rim)
 bool boss8_mgcra = false;                                  // the sixth mesh is in the scene
-int boss8_matmode = 0;                                     // the last MatMode [not modelled]
+int boss8_matmode = 0;                                     // the last MatMode
+std::array<std::vector<Vec3>, 2> boss8_rgb;                // the body's and the tail's material RGB (MatMode), per YMO material
+bool boss8_rgb_dirty = false;
 std::uint32_t boss8_ptint = 0xffffffffu;                   // P+0x148 / +0x278 as last written [not modelled]
 bool boss8_started = false, boss8_over = false;            // flag 156 was seen; the kill record was written
 bool boss8_cam_scripted = false;                           // a script forced a camera slot before the fight
@@ -87,6 +90,30 @@ auto boss8_m4 = [](const ef2sim::M4& a) {
     return r;
 };
 auto boss8_lw = [](std::string t) { for (char& ch : t) ch = char(std::tolower((unsigned char)ch)); return t; };
+// MatMode FUN_005507a0 (DARM_A §A.6) [BYTES 0x5507a0..0x550a91]: the instance material records' RGB (+0x14..+0x1c).
+// m 0 / 1: every material of the body and of the tail = 1 - m (lit / black). m 2: the body's 41 id-table materials
+// = 1 for the 16 of the set below (the outlines and the three _add layers), else 0 — the other materials keep their
+// RGB — and the tail's material 4 = 1, the others 0 ([H] the record index is the YMO material order). boss8_tick
+// hands them to the draw (Room::mat_rgb).
+auto boss8_set_matmode = [&](int m) {
+    boss8_matmode = m;
+    const Model* md[2] = {cached_big_model(resolve_ymo_path(asset_root, boss8_ymo[0])),
+                          cached_big_model(resolve_ymo_path(asset_root, boss8_ymo[1]))};
+    for (int i = 0; i < 2; ++i) if (md[i]) boss8_rgb[std::size_t(i)].resize(md[i]->materials.size(), Vec3{1.0f, 1.0f, 1.0f});
+    if (m != 2) {
+        const float v = float(1 - m);
+        for (std::vector<Vec3>& l : boss8_rgb) for (Vec3& c : l) c = {v, v, v};
+    } else {
+        static const int kOn[16] = {0, 3, 7, 8, 10, 12, 18, 19, 26, 29, 32, 35, 37, 38, 39, 40};
+        for (int k = 0; k < boss08::kBodyMats; ++k) {
+            const int id = boss8_mat_id[std::size_t(k)];
+            const float v = std::find(std::begin(kOn), std::end(kOn), k) != std::end(kOn) ? 1.0f : 0.0f;
+            if (id >= 0 && std::size_t(id) < boss8_rgb[0].size()) boss8_rgb[0][std::size_t(id)] = {v, v, v};
+        }
+        for (std::size_t n = 0; n < boss8_rgb[1].size(); ++n) { const float v = n == 4 ? 1.0f : 0.0f; boss8_rgb[1][n] = {v, v, v}; }
+    }
+    boss8_rgb_dirty = true;
+};
 // FUN_0042bb10's boss08 path (DARM.md §3.1, DARM_CE.md §4.7): once per camera step while the object "boss08" has its
 // block, the hook FUN_0055f800 rewrites the CURRENT slot (1 Normal, 2 Low, 3 High, 4 OnBack, 5 the fall) and returns
 // 1 for every k: the region pick is skipped (the forced slot 0x76a1f8 applies after it either way).
@@ -272,8 +299,8 @@ auto boss8_apply = [&](const Boss08Output& out, MeshObj** mo) {
     }
     if (out.death_light) { csHost.light_rgb = {0.376471f, 0.376471f, 0.376471f}; csHost.light_dir = {-0.182574f, -0.912871f, 0.365148f}; }
     static const char* const kMode[3] = {"lit", "black (Down)", "the outline (form change)"};
-    for (int m : out.mat_mode) {                           // [not modelled] the RGB of the body + tail materials
-        boss8_matmode = m;
+    for (int m : out.mat_mode) {
+        boss8_set_matmode(m);
         std::printf("  [boss08] t%llu MatMode %d: %s\n", (unsigned long long)tick_count, m, kMode[std::clamp(m, 0, 2)]);
     }
     // The sixth mesh (DARM_B23 §4.6): a live-located map object at the origin with the step + touch bits and the
@@ -424,7 +451,7 @@ auto boss8_tick = [&] {
         meshes.set_motion(boss8_name[1], "01_NormalWait", false, 0);
         meshes.set_motion(boss8_name[2], "03_Wait", false, 0);
         for (int i : {3, 4}) if (mo[i]->sect < 0 && !mo[i]->clips.empty()) meshes.set_clip_index(boss8_name[i], 0, 0);
-        boss8_matmode = 0;
+        boss8_set_matmode(0);
         tmdl->rest_pose();
         boss8_tpose.reset(*tmdl);                          // FUN_005f3c70's node records; the eight records are the module's
         boss8_trk_root.fill(-1);
@@ -584,6 +611,13 @@ auto boss8_tick = [&] {
             bm->dirty_alpha = true;
         }
     }
+    // ... and the body's and the tail's material RGB (MatMode; a scene reload drops the room's copy).
+    for (int i = 0; i < 2; ++i)
+        if (!boss8_rgb[std::size_t(i)].empty() && (boss8_rgb_dirty || !room.mat_rgb.count(boss8_name[i]))) {
+            room.mat_rgb[boss8_name[i]] = boss8_rgb[std::size_t(i)];
+            mo[i]->dirty_alpha = true;
+        }
+    boss8_rgb_dirty = false;
     // The touch scripts: the body's and the tail's "Touch on", the sixth mesh's from its creation.
     if (on) {
         if (B.touch) boss8_touch(boss8_name[0]);

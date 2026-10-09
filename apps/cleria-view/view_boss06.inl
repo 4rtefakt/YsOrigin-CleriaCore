@@ -9,8 +9,7 @@
 // [H] the heads tick before Zava within a frame (the engine's order between the GoMesh pool and the actor pool is
 // not in the spec); what a head's move asks of her (the throw, the re-seat) reaches her after her own handler.
 // [not modelled] ZoomBlur and the radial blur (no post effect: zoom_active stays false), FUN_0058a5f0's particle
-// burst, FUN_00540600 (the player's fire against the ice pillars), the flash tint (ZAVA_CG §G.5), the draw of the
-// per-material colour (MeshObj::mat_color is written, the draw does not read it), byte P+0x399 (taken as 0), the
+// burst, FUN_00540600 (the player's fire against the ice pillars), the flash tint (ZAVA_CG §G.5), byte P+0x399 (taken as 0), the
 // keep-out box FUN_0042dc90, FUN_00403cd0 (the kill record), f32 [0x6d6078] = 0.8 and byte [0x76a888] (ZAVA_AB G5),
 // the touch on actors other than the player, the ground shadow quad (P1 §3.1).
 constexpr int kB6Owner = -0xB06;                           // fx owner tag: the modules' effect handles

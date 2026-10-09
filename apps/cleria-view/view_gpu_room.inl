@@ -65,6 +65,10 @@ struct Room {
     // A brain's per-material alpha (the instance material record's +0x20) of one object, by its YMO material index:
     // multiplied into that object's batch alphas by apply_object_alpha (Darm's limb groups, view_boss08.inl).
     std::unordered_map<std::string, std::vector<float>> mat_alpha;
+    // ... and its per-material colour multiplier (the record's +0x14..+0x1c: Mesh_SetMaterialColor 0x182, Darm's
+    // MatMode), multiplied into the vertex colours from base_rgb (each vertex's r, g, b as loaded).
+    std::unordered_map<std::string, std::vector<Vec3>> mat_rgb;
+    std::vector<std::uint8_t> base_rgb;
     // The objects the Mask of Eyes gates (SOB +0x14c & 0x1000 / 0x2000; view_mask.inl).
     struct MaskObj {
         std::size_t rr = 0;              // index in mesh.object_ranges
@@ -312,6 +316,8 @@ static void apply_object_alpha(Room& room, const RoomMesh::ObjRange* r, float a)
     const float ko = std::clamp(a, 0.0f, 1.0f);
     room.batch_alpha.resize(room.mesh.batches.size(), 1.0f);
     const auto ma = room.mat_alpha.find(r->name);
+    const auto mc = room.mat_rgb.find(r->name);
+    const bool rgb = mc != room.mat_rgb.end() && room.base_rgb.size() == room.mesh.vertices.size() * 3;
     for (std::size_t i = 0; i < room.mesh.batches.size(); ++i) {
         const DrawBatch& b = room.mesh.batches[i];
         if (b.first_vert < r->v0 || b.first_vert >= r->v1) continue;
@@ -324,6 +330,17 @@ static void apply_object_alpha(Room& room, const RoomMesh::ObjRange* r, float a)
                         : k * (baked ? 1.0f : std::clamp(b.mat_alpha, 0.0f, 1.0f));
         for (std::uint32_t v = b.first_vert; v < b.first_vert + b.vert_count && v < r->v1; ++v)
             room.mesh.vertices[v].a = std::uint8_t(float(room.base_a[v]) * f + 0.5f);
+        // oD0 = c16 * v2 (above): c16.rgb is the material's colour, here the instance record's multiplier.
+        if (!rgb) continue;
+        Vec3 c{1.0f, 1.0f, 1.0f};
+        if (b.material >= 0 && std::size_t(b.material) < mc->second.size()) c = mc->second[std::size_t(b.material)];
+        for (std::uint32_t v = b.first_vert; v < b.first_vert + b.vert_count && v < r->v1; ++v) {
+            const std::uint8_t* s = &room.base_rgb[std::size_t(v) * 3];
+            RoomVertex& o = room.mesh.vertices[v];
+            o.r = std::uint8_t(float(s[0]) * std::clamp(c.x, 0.0f, 1.0f) + 0.5f);
+            o.g = std::uint8_t(float(s[1]) * std::clamp(c.y, 0.0f, 1.0f) + 0.5f);
+            o.b = std::uint8_t(float(s[2]) * std::clamp(c.z, 0.0f, 1.0f) + 0.5f);
+        }
     }
 }
 static void apply_object_alpha(Room& room, const std::string& lname, float a) {
@@ -559,6 +576,10 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     bake_material_alpha(r.mesh);
     r.base_a.resize(r.mesh.vertices.size());
     for (std::size_t k = 0; k < r.base_a.size(); ++k) r.base_a[k] = r.mesh.vertices[k].a;
+    r.base_rgb.resize(r.mesh.vertices.size() * 3);
+    for (std::size_t k = 0; k < r.mesh.vertices.size(); ++k) {
+        r.base_rgb[k * 3] = r.mesh.vertices[k].r; r.base_rgb[k * 3 + 1] = r.mesh.vertices[k].g; r.base_rgb[k * 3 + 2] = r.mesh.vertices[k].b;
+    }
     std::unordered_set<std::string> coll_hidden = hidden;
     coll_hidden.insert(no_collide.begin(), no_collide.end());
     // The hulls take the same load-time poses / placements as the render objects: a twin sits

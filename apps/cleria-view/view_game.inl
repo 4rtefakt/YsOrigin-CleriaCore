@@ -5755,6 +5755,20 @@ title_again:
             boss8_tick();
             mesh_delta.clear();
             for (auto& [nm, m] : meshes.all()) {
+                // 0x182 Mesh_SetMaterialColor: every material of that name, by the object's YMO material index.
+                if (!m.mat_color.empty() && (m.dirty_color || !room.mat_rgb.count(nm)))
+                    if (const RoomMesh::ObjRange* rr = room.mesh.object_range(nm))
+                        if (const Model* md = cached_big_model(resolve_ymo_path(asset_root, rr->obj.ymo_path))) {
+                            std::vector<Vec3> v(md->materials.size(), Vec3{1.0f, 1.0f, 1.0f});
+                            for (std::size_t k = 0; k < v.size(); ++k) {
+                                std::string mn = md->materials[k].name;
+                                for (char& ch : mn) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+                                const auto it = m.mat_color.find(mn);
+                                if (it != m.mat_color.end()) v[k] = it->second;
+                            }
+                            room.mat_rgb[nm] = std::move(v);
+                            m.dirty_color = false; m.dirty_alpha = true;
+                        }
                 if (!m.dirty_pos && !m.dirty_pose && !m.dirty_alpha) continue;
                 if (!m.dirty_pos && !m.dirty_pose) {         // 0x16e / 0x188 alpha only
                     apply_object_alpha(room, nm, m.alpha);
