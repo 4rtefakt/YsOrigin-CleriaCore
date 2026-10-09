@@ -359,7 +359,9 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         host->chr_set_status(op(0), op(1), f);
                         return Step::Continue;
                     }
+                    if (sub == 0xbc && nargs >= 2) { host->se_play_vol(op(0), op(1)); return Step::Continue; }
                     if (sub == 0xbc && nargs >= 1) { host->se_play(op(0)); return Step::Continue; }
+                    if (sub == 0xc0 && nargs >= 3) { host->se_volume(op(0), op(1), op(2)); return Step::Continue; }
                     if (sub == 0xbb && nargs >= 2) { host->bgm_volume(op(0), op(1)); return Step::Continue; }
                     // 0xbf Se_Stop(id, ms) [BYTES 0x569ae7 -> FUN_0043a1c0(ecx = op0, edx = op1)].
                     if (sub == 0xbf && nargs >= 2) { host->se_stop(op(0), op(1)); return Step::Continue; }

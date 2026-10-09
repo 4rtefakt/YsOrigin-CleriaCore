@@ -1605,6 +1605,20 @@ CASES.update({
         room="S_40/S_4004/S_4004", env=dict(_LOCK, CLERIA_SFXLOG="1"),
         drive="200:exit=0;320:quit",
         expect=["[sfx] t1 loops: 618\n", ">> entering S_4001", "[sfx] t201 loops: 618 751\n", " loops: 751\n"]),
+    # The charge level-up SEs (FUN_0046cf20's tail, 0x46d2c4..0x46d308): level 1 plays 11 s_chargemax, level 2
+    # the character's own (Toal: 793 s_thor_max). `[se]` = a 2-D play request (CLERIA_SFXLOG).
+    "sfx_charge_levels": dict(
+        room="S_10/S_1002/S_1002", char="3", env=dict(_LOCK, CLERIA_SFXLOG="1"),
+        drive="8:bracelet=118;9:flag=118,1;10:flag=184,1;30:skill+;200:skill-;230:quit",
+        expect=["t30 skill+", "[se] play 11 level 1.000", "[se] play 793 level 1.000", "t200 skill-"],
+        count={"[se] play 11 ": 1, "[se] play 793 ": 1}),
+    # Surface footsteps of a scripted actor with Chr_FootSound on (FUN_0045c490's countdown, FUN_0045d600): the
+    # S_1080 duel's opponent walks in on stone, one step every 21 ticks, the four variants 44..47 in turn, at her.
+    "sfx_npc_footsteps": dict(
+        room="S_10/S_1080/S_1080", char="2", env=dict(_LOCK, CLERIA_LEVEL="30", CLERIA_SFXLOG="1"),
+        drive="21:move=0,-1,300;320:every=20,1200,ok;1210:quit",
+        expect=["[sfx] t1040 44 at (-0.00, -18.00, -27.44)", "[sfx] t1061 45 at", "[sfx] t1082 46 at",
+                "[sfx] t1103 47 at", "[sfx] t1124 44 at"]),
     # 603 env/v_cave is a manual record: it plays on through the door, and S_2000's script stops it (Se_Stop).
     "sfx_loop_manual_bed": dict(
         room="S_20/S_2001/S_2001", env=dict(_LOCK, CLERIA_SFXLOG="1"),

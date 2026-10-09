@@ -450,7 +450,8 @@ void System::hit_tick(Particle& p, const std::function<bool(Particle&)>& on_hit)
 // with the effect's hit fields (power 8.0 for impact id 0x8b). The child gate's "culled by the
 // last draw" byte is taken as 0. Impact id 0x194 spawns no child: SE 323 and a bullet instead, and impact id
 // 0x18d plays SE 316 (DALLES_D23.md §16.1 / §16.2 [BYTES 0x44eccb..0x44ee3c, 0x44ec62..0x44ec74]) — both through
-// set_impact_special. [not modelled] the other SEs of §5.5 (impact 0x145, effect 0x110 + impact 4, 0x83, 0x1f7).
+// set_impact_special. The SEs of the effect ids 0x83 / 0x1f7 go through set_impact_se. [not modelled] the other
+// SEs of §5.5 (impact 0x145 -> 197, effect 0x110 + impact 4 -> 437) and the child gate (B2+0x14 < 2 || !p+0x15).
 bool System::impact(Particle& p, bool force) {
     const Ef2Emitter& E = emitter(p);
     bool ret = false;
@@ -464,6 +465,8 @@ bool System::impact(Particle& p, bool force) {
         p.fx->fade_rate = p.fade_rate;
     }
     const int id = rd<std::uint16_t>(E.b2, 0x16);
+    if (id != 0 && impact_se_ && p.fx->id == 0x83) impact_se_(150, p.world_pos());    // 0x44ecc6
+    if (id != 0 && id != 0x194 && impact_se_ && p.fx->id == 0x1f7) impact_se_(539, p.world_pos());   // 0x44ee73
     if (id == 0x194) {                                             // 0x44eccb: the bullet, never effect 404
         if (special_) special_(id, p.world_pos());
         return ret;

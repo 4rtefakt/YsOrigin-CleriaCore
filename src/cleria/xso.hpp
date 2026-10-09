@@ -345,6 +345,12 @@ struct XsoHost {
     // 0xBC Se_Play(se, vol): FUN_004396f0(se). 0xBB Bgm_Volume(volume, time): FUN_00432fe0,
     // the BGM stream's +0x10 / +0x14 (BARRIER_OBJECTS.md §1).
     virtual void se_play(int /*se*/) {}
+    // ... with its second operand: a record that is not 3-D plays through FUN_0043a040(se, vol), and
+    // vol is the buffer's volume, 0x400 = unity [BYTES 0x569a13, 0x43a06b..0x43a074, 0x5cd4c5..0x5cd4ea].
+    virtual void se_play_vol(int se, int /*vol*/) { se_play(se); }
+    // 0xC0 Se_Volume(se, vol, ms) [BYTES 0x569b26 -> FUN_0043a230(ecx = op0, edx = op1, push op2)]: audio
+    // command 7, every voice of `se` ramps to vol / 0x400 over ms and plays on.
+    virtual void se_volume(int /*se*/, int /*vol*/, int /*ms*/) {}
     virtual void bgm_volume(int /*volume*/, int /*time*/) {}
     // 0x8F Set_Skill(i): *0x76a630 = i, the equipped magic (EVENTVM_HANDLERS_2).
     virtual void set_skill(int /*i*/) {}

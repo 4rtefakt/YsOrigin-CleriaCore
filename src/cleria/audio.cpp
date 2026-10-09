@@ -165,6 +165,7 @@ void Audio::start(int id, const EffectDef* def, const Clip* c, float volume, flo
 
 void Audio::play(int id, float volume, float level) {
     if (!lock_ || id < 0) return;
+    if (trace_) std::printf("  [se] play %d level %.3f\n", id, level);
     const Clip* c = clip(id);
     if (!c) return;
     SDL_LockMutex(mx(lock_));
@@ -204,6 +205,7 @@ void Audio::ramp(int id, float level, int ms, bool stop) {
 
 void Audio::stop_se(int id, int ms) {
     if (!lock_) return;
+    if (trace_) std::printf("  [se] stop %d over %d ms\n", id, ms);
     SDL_LockMutex(mx(lock_));
     ramp(id, 0.0f, ms, true);
     SDL_UnlockMutex(mx(lock_));
@@ -211,6 +213,7 @@ void Audio::stop_se(int id, int ms) {
 
 void Audio::set_se_volume(int id, float level, int ms) {
     if (!lock_) return;
+    if (trace_) std::printf("  [se] volume %d -> %.3f over %d ms\n", id, level, ms);
     SDL_LockMutex(mx(lock_));
     ramp(id, clamp01(level), ms, false);
     SDL_UnlockMutex(mx(lock_));

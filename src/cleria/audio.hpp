@@ -68,6 +68,8 @@ class Audio {
     // stops itself). The scene entry FUN_00431840 calls it with 0 [BYTES 0x431ca6], a load with 1
     // [BYTES 0x43136a].
     void stop_all(bool force);
+    // CLERIA_SFXLOG: print each 2-D play request and Se_Volume / Se_Stop (`  [se] ...`).
+    void set_trace(bool on) { trace_ = on; }
     // How many voices of `id` are live, and the ids of the looping voices (tests, CLERIA_SFXLOG).
     int voices_of(int id) const;
     std::vector<int> looping() const;
@@ -159,6 +161,7 @@ class Audio {
     std::vector<Voice> voices_;
     int rate_ = 44100, channels_ = 2;
     float master_ = 1.0f;   // SFX slider 0..1 (Option screen), before the taper
+    bool trace_ = false;
 
     // BGM stream state. Decoded on the audio thread; every field below is
     // guarded by lock_.

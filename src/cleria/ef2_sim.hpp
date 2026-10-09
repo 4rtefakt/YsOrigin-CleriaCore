@@ -193,6 +193,9 @@ class System {
     // usual; impact id 0x194 (404) spawns NO child — the engine plays SE 323 and fires a kind-4 bullet owned by the
     // GoMesh "boss07" (the host's part: it owns the bullets and the boss). None = the sounds / the bullet are skipped.
     void set_impact_special(std::function<void(int id, const Vec3& at)> f) { special_ = std::move(f); }
+    // FUN_0044ebb0's SEs keyed on the EFFECT's own id fx+0x1d8, 3-D at the particle (FUN_0043a080(se, p+0x150)):
+    // effect 0x83 -> SE 150 [BYTES 0x44ecad..0x44ecc6], effect 0x1f7 -> SE 539 [BYTES 0x44ee58..0x44ee73].
+    void set_impact_se(std::function<void(int se, const Vec3& at)> f) { impact_se_ = std::move(f); }
     const std::vector<std::unique_ptr<Particle>>& particles() const { return parts_; }
     const std::vector<std::unique_ptr<Effect>>& effects() const { return fx_; }
     std::vector<std::unique_ptr<Effect>>& effects() { return fx_; }
@@ -211,6 +214,7 @@ class System {
     std::function<bool(const Vec3&, const Vec3&, Vec3*)> world_;
     std::function<bool(const Vec3&, const Vec3&, Vec3*)> world_nb_;
     std::function<void(int, const Vec3&)> special_;
+    std::function<void(int, const Vec3&)> impact_se_;
     std::vector<std::unique_ptr<Effect>> fx_;
     std::vector<std::unique_ptr<Particle>> parts_;
 };

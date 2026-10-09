@@ -1984,6 +1984,7 @@ title_again:
     // same direction). Curve/pan-law caveats live on Audio::play_at.
     const bool sfx_log = std::getenv("CLERIA_SFXLOG") != nullptr;   // debug: the SE / hit-effect ids
     std::vector<int> sfx_loops;                                     // ... and the looping ids, on a change
+    audio.set_trace(sfx_log);                                       // ... and the 2-D requests (`[se]`)
     auto sfx_at = [&](int id, const Vec3& p, float vol) {
         const Vec3 f = cam.forward();
         const float rl = std::sqrt(f.x * f.x + f.z * f.z);
@@ -2003,6 +2004,8 @@ title_again:
         if (d && d->is3d) sfx_at(id, p, kSfxAnimVol);
         else audio.play(id, kSfxAnimVol);
     };
+    // FUN_0044ebb0's SEs of the effects 0x83 (150) and 0x1f7 (539), at the struck particle (FUN_0043a080).
+    fxsim.set_impact_se([&](int se, const Vec3& at) { aso_se_at(se, at); });
 
     // ---- save / load (PLAN.md Phase 2; codec src/cleria/save.*) -------------------
     // The goddess statue is all script: the sealed model runs the room's SAVE.XSO (the
@@ -2587,6 +2590,10 @@ title_again:
         std::function<void(int)> se_fn, set_skill_fn;
         std::function<void(int, int)> bgm_volume_fn;
         void se_play(int se) override { if (se_fn) se_fn(se); }
+        std::function<void(int, int)> se_vol_fn;
+        std::function<void(int, int, int)> se_volume_fn;
+        void se_play_vol(int se, int vol) override { if (se_vol_fn) se_vol_fn(se, vol); }
+        void se_volume(int se, int vol, int ms) override { if (se_volume_fn) se_volume_fn(se, vol, ms); }
         void bgm_volume(int v, int t) override { if (bgm_volume_fn) bgm_volume_fn(v, t); }
         void set_skill(int i) override { if (set_skill_fn) set_skill_fn(i); }
         // 0xbf Se_Stop, 0x118 Eft_LocateChr, 0x11c Eft_SetAlphaTarget (the view's lambdas), 0x158
@@ -3356,7 +3363,28 @@ title_again:
         si.cost.acc_mp = (inv.equip_flags & 0x200000u) != 0;   // the Ring of Ease (x0.80)
         // [not modelled] Adol's DAT_0074c0cc table.
         skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
+        const int charge_lv0 = skill_charge.level;
         const skillmp::SkillOut so = skillmp::skill_tick(si, mp, skill_charge);
+        // FUN_0046cf20's tail, on the tick the charge level rises [BYTES 0x46d1f4..0x46d308, table 0x46d548]:
+        // level 1 plays SE 11 s_chargemax (not in sections 9 / 5); level 2 plays 791 / 792 / 793
+        // (s_yunica_max / s_hugo_max / s_thor_max) by character, 11 for character 0. All 2-D at 0x400.
+        // Nothing in the supers: Yunica's 0x139, Hugo's 300, 0x13d for Toal and character 0; nor for Hugo's
+        // second bracelet with no live eye of his own. [not modelled] the white flash +0x268 that follows.
+        if (skill_charge.level > charge_lv0) {
+            bool ok = true;
+            if (character == 1) ok = si.section != 0x139;
+            else if (character == 2) {
+                if (slot == 1) {
+                    ok = false;
+                    const Actor* pa = world.player();
+                    for (const Actor& a : world.actors())
+                        if (pa && hugo::owned_eye(a, pa->instance_id) && !hugo::b8a4(a.ai) && eye_section(a) != 5) ok = true;
+                }
+                if (si.section == 300) ok = false;
+            } else ok = si.section != 0x13d;
+            if (ok && skill_charge.level == 2) audio.play(character == 0 ? 11 : 790 + character, kSfxAnimVol);
+            else if (ok && si.section != 9 && si.section != 5) audio.play(11, kSfxAnimVol);
+        }
         if (so.charged_ready) {                           // the charge-ready effect, attached
             static const int kReadyFx[3] = {7, 6, 5};     // 0x69bcfc[slot] (Adol)
             const int id = character == 1 ? 0x80 : character == 2 ? 0x8d : character == 3 ? 0xb9 : kReadyFx[slot];
@@ -3457,6 +3485,13 @@ title_again:
     // FUN_004396f0. Bgm_Volume's (volume /1024, time) read as a linear fade over `time` ms [H].
     csHost.se_fn = [&](int se) { audio.play(se, kSfxAnimVol); };
     csHost.se_stop_fn = [&](int se, int ms) { audio.stop_se(se, ms); };
+    // Se_Play's second operand is the volume of a record that is not 3-D (FUN_0043a040(se, vol), 0x400 = unity;
+    // 35 of the 1663 calls differ: 900, 614, 512, 500, 400). A 3-D record takes the 3-D path, which has none.
+    csHost.se_vol_fn = [&](int se, int vol) {
+        const EffectDef* d = audio.defs().find(se);
+        audio.play(se, kSfxAnimVol, d && d->is3d ? 1.0f : float(vol) / 1024.0f);
+    };
+    csHost.se_volume_fn = [&](int se, int vol, int ms) { audio.set_se_volume(se, float(vol) / 1024.0f, ms); };
     // 0x11c Eft_SetAlphaTarget (FUN_0056fba0): every effect not freed whose name matches (djb2-xor
     // hash + _stricmp) gets +0x1e4 = alpha, +0x1e8 = 1/frames (1.0 for 0); FUN_00451e60 steps it.
     // 0x12a Eft_Die (FUN_00451730): the kill flag on every live effect of that id. [not modelled] its
@@ -5957,6 +5992,29 @@ title_again:
                 e.avm.tick();
                 // The same VM step as in play: a scripted actor's section sounds (a walk's steps, a swing).
                 if (!hugo_eye(A)) for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, A.pos);
+                // Surface footsteps of any actor with the enable byte +0x4be (Chr_FootSound; cast 0x7e): the
+                // countdown the player runs, FUN_0045c490's tail [EXPORT 0045c490.c:374-397] and FUN_0045d600
+                // [EXPORT 0045d600.c]: sections 0 / 1 only, the step at the actor (FUN_0045d7a0), the reload
+                // from the surface record, the jitter (rng >> 26) % n drawn only where the record has one.
+                // [H] the moving byte +0x514 = the script mover's cmoving; [approx] IsLand +0x388 is not tested
+                // (a scripted actor's ground state is not kept under a Fix), nor +0x250 / +0x398 / the water rows.
+                if (A.footsteps) {
+                    if (e.step_timer > 0) --e.step_timer;
+                    else if (!(A.cmoving || A.fly_r2 != 0.0f)) e.step_n = 0;
+                    else if (e.avm.section() == 0 || e.avm.section() == 1) {
+                        int tri = -1;
+                        floor_at(phys_mesh(room), A.pos.x, A.pos.z, A.pos.y + A.height, &tri);
+                        const std::string_view surf = surface_of(phys_mesh(room), tri);
+                        const int idx = surf.empty() ? -1 : surface_index_or_default(surf);
+                        const int id = idx < 0 ? -1 : footstep_sound(idx, e.step_n);
+                        if (id >= 0) {                                 // a silent surface: no count, no reload
+                            ++e.step_n;
+                            sfx_at(id, A.pos, 0.55f);                  // the player's step volume [HAND-TUNED]
+                            e.step_timer = footstep_interval(idx, e.avm.section() == 1,
+                                                             kSurfaceTable[idx].jitter ? game.rng_next() >> 26 : 0u);
+                        }
+                    }
+                }
             }
             // [H] the scripted walk keeps playing its section (a forced re-set every frame froze it on
             // frame 0) and settles to idle on arrival, as the generic mover's table does. The run

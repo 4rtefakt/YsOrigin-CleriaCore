@@ -157,13 +157,15 @@ auto hugo_eyes_tick = [&] {
     }
     // FUN_0046a3e0: a charged mine has gone off (P+0x7d4 == 1): the blast at the mine point. EF2 0x93
     // PC2_S_C2 (0x9c PC2_S_C3 in Boost): power 5, knock 1, rtype 2, class 6, side 0, not attached.
-    // [not modelled] FUN_0043a1c0(0x9e, 10) and SE 763.
+    // Then Se_Stop(0x9e, 10) and SE 763 p2_slashex21b, 2-D at 0x400 [BYTES 0x46aaa6..0x46aaf6].
     if (character == 2 && fam.latch_7d4 == 1) {
         fam.latch_7d4 = 2;
         ef2sim::SpawnParams sp;
         sp.power = 5.0f; sp.knock = 1.0f; sp.rtype = 2; sp.status = 0; sp.cls = 6;
         sp.atk = player_stats().atk; sp.side = 0; sp.owner = 13;
         spawn_sim_fx(player.boosting ? 0x9c : 0x93, fam.mine_point, {}, 1.0f, sp, 0, {});
+        audio.stop_se(0x9e, 10);
+        audio.play(763, kSfxAnimVol);
     }
 };
 // FUN_0046ea00's Hugo branches for 0x75 / 0x76 [BYTES 0x46f022..0x46f278, 0x46f391..0x46f45x].
