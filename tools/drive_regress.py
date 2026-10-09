@@ -262,6 +262,7 @@ CASES = {
     "jump_tap_b": dict(
         room="S_10/S_1002/S_1002",
         drive="20:padhold=1,1;30:pos;31:quit",
+        absent=["input: gamepad"],   # a drive run opens no physical pad (issue #67); padhold= is the mapper's
         expect=["feet (-0.005, 2.251, -0.640)"]),
     "shell_close_b": dict(
         room="S_10/S_1002/S_1002",

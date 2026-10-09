@@ -173,6 +173,9 @@ struct SdlInput {
     // The GamePadID-th gamepad (1-based, clamped like FUN_005d5b20) unless [debug] NoInitializeGameCtrl.
     void open_pad() {
         if (pad) return;
+        // A CLERIA_DRIVE run is scripted: a pad that happens to be plugged in must not steer it
+        // (issue #67). CLERIA_DRIVE_PAD=1 opens one all the same, for a test of a real pad.
+        if (std::getenv("CLERIA_DRIVE") && !std::getenv("CLERIA_DRIVE_PAD")) return;
         const Settings& s = settings().s;
         if (s.debug.no_initialize_game_ctrl.value_or(0) != 0) return;
         int n = 0;
