@@ -1132,19 +1132,22 @@ CASES.update({
                 "target the core with the sword", "the window closed", "barrier F up",
                 "the Skill 3 key (bracelet 0x76 for barrier 3)", "(class 1): ", "bullet kind 0x2 effect 403",
                 "barrier F broken (window 599)", "barrier E up", "the Skill 2 key (bracelet 0x75 for barrier 2)",
-                "(class 2): ", "bullet kind 0x4 effect 400", "barrier E broken (window 599)", "barrier W up",
-                "the Skill 1 key (bracelet 0x74 for barrier 1)", "barrier W broken (window 599)", "CamSlot 4",
-                # From here the order follows the run since Yunica's Terra has its MP armour (BOOST_SKILLS.md §3.3:
-                # a hit she takes inside 0x10c / 0x10f is a GUARD with 16 i-frames): the same events, but the
-                # capture now comes after the first option falls, before the first fall of the dark barrier.
-                "barrier D up", "phase 2 (max HP 4250)", "target option", "option L destroyed",
-                "bullet kind 0x25 effect 54", "clip SIS_LAZER_START", "the capture circle at", "the player is captured", "CamSlot 5",
+                "(class 2): ", "bullet kind 0x4 effect 400", "barrier E broken (window 599)", "CamSlot 4",
+                # Re-pinned with the W attack's fix (issue #66): effect 402's delayed root em9 no longer fires an
+                # impact-404 pillar bullet in mid-air at each option (its world-contact latch is the FX call's
+                # origin, view_boss07.inl) — two bullets and two RNG draws fewer, so the run after it differs: the
+                # second bar now ends inside the E window (no second W barrier), the dark barrier falls twice
+                # before the capture and a third time after the return. `count` pins what is left of the W attack:
+                # one landing per option, two world-colliding particles each (em11 and em12, both impact 404).
+                "barrier D up", "phase 2 (max HP 4250)", "target option", "option L destroyed", "CamSlot 3",
+                "barrier D broken (window 699)", "option R destroyed", "target the core with the sword",
+                "bullet kind 0x25 effect 54", "barrier D up", "option R revived (1000)", "option L revived (1000)",
+                "clip SIS_LAZER_START", "the capture circle at", "the player is captured", "CamSlot 5",
                 "every particle removed", "mode 0 -> 4", "clip KIAI_START", "the player is pinned at (0.0,495.0,-5.0)",
-                "clip METEOR", "the player is returned to (0.0,7.5,-15.0)", "mode 4 -> 0", "CamSlot 3",
-                "barrier D broken (window 699)", "option R destroyed", "target the core with the sword", "barrier D up",
-                "option R revived (1000)", "option L revived (1000)", "barrier D broken (window 699)",
+                "clip METEOR", "the player is returned to (0.0,7.5,-15.0)", "mode 4 -> 0",
+                "barrier D broken (window 699)",
                 "flag 226 = 1", "EXP (lv 49)", "the death starts", "[content] boss_defeated S_7080 flag 226", "[boss07] t",
-                "destroyed", ">> entering S_7000"], count={"boss_defeated": 1}),
+                "destroyed", ">> entering S_7000"], count={"boss_defeated": 1, "impact 404 at": 4}),
     # Darm (build/boss_re/DARM*.md; src/cleria/boss08, apps/cleria-view/view_boss08.inl). Toal's last fight, from the
     # room's own retry start: flag 205 = 1 and a reload make the root script Mesh_Locate boss08 (its ctor builds the
     # tail, the core, the arms and the floor s7099yuka), place the player at (0, 0, -10) and run Battle (flag 156 at

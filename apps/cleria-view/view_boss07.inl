@@ -179,6 +179,17 @@ auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
         if (fe.call == Boss07Call::kFx2) { fx->scale_x = fe.scale.x; fx->scale_y = fe.scale.y; fx->scale_z = fe.scale.z; }   // FUN_00450880 keeps it
         if (parent) { fx->local = local; fx->attach_parent = parent; fx->attach_mode = fe.at_mode == 1 ? 1 : 2; }
         if (fe.flag201) fx->no_boss = true;                // fx+0x201: its world rays skip the boss meshes
+        // A root particle is born at the effect's origin of the FX call (p+0x150 = fx+0x50..58 [C-DIS, EF2SIM.md
+        // §3.2]) — fe.pos, the attach comes after it — and one still in its start delay keeps that point: its
+        // world-contact latch is taken there on the step the delay ends (0x564582..0x5645a4, EF2SIM.md §3.5.1).
+        // The pre-placed spawn above had 402's em9 (delay 75, world-colliding, impact 404) latch the option's
+        // 75-tick-old position, under the floor while the options rise: a pillar bullet in mid-air at each option.
+        if (parent && fe.local_scale == 0.0f)
+            for (const auto& q : fxsim.particles())
+                if (q->fx == fx && q->delay != 0) {
+                    q->world = ef2sim::translation(fe.pos.x, fe.pos.y, fe.pos.z);
+                    q->prev_world = fe.pos;
+                }
         if (fe.handle) { fx->owner = kB7Owner; fx->tag = fe.handle; }
     }
     for (const Boss07Bullet& bb : out.bullets) {            // FUN_00593550 / the inline GoXx + FUN_00593b90, owner D
