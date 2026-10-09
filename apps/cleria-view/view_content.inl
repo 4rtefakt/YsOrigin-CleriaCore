@@ -14,6 +14,7 @@
 //   csMgr built           content_bind / install        the grant filter on the live VM, the callbacks
 //   per tick              content_tick                  queued events, the g_flags diff (FlagChanged)
 //   [death]               content_on_death              PlayerDeath
+//   the book's use        content_item_used             ItemUsed (the Panacea)
 //   [duel] lost           content_duel_lost             a losable duel's KO: its 156 = 0 is not a win
 //   do_save / book load / delete   content_save / content_load / content_delete   the sidecar file
 //   pickup touch          content_touch_new / content_taken   new-item pickups, collected flags
@@ -306,6 +307,19 @@ static GrantDecision content_filter(const GrantQuery& q) {
             content_log("chest " + r.room + "/" + sn + " opened (flag " + std::to_string(q.index) + ")");
             content_emit(e);
         }
+        // A locked door opened with its key or medallion: the room's `UseKey` script stores the door's flag
+        // (then the key's cell = 0) [DATA: the twelve UseKey.XSO, S_1005 315 .. S_6053 472].
+        std::string usekey = q.script;                      // "UseKey" as its starter spells it
+        for (char& c : usekey) c = char(std::tolower((unsigned char)c));
+        if (d.action == GrantDecision::Action::Pass && usekey == "usekey" && q.index >= content::kRetailItems &&
+            q.old_value == 0 && q.value != 0) {
+            events::Event e;
+            e.kind = events::Kind::DoorOpened;
+            e.index = q.index;
+            e.script = usekey;
+            content_log("door_opened " + r.room + " flag " + std::to_string(q.index));
+            content_emit(e);
+        }
         if (d.action == GrantDecision::Action::Pass && q.index >= 0 && q.index < content::kRetailItems &&
             q.value > std::max(q.old_value, 0)) {
             events::Event e;
@@ -412,6 +426,15 @@ static void content_hud(ImDrawList* dl, float w, float h) {
 
 // The player's KO ended a losable duel (view_game.inl, duel::losable_death): it cleared 156 without a win.
 static void content_duel_lost() { g_content.duel_lost = true; }
+
+// The book used an item up (view_game.inl, BookEvents::use_item: the Panacea, FUN_00443390).
+static void content_item_used(int id) {
+    content_log("item_used " + content_hex(id) + " (" + g_content.items.name(id) + ")");
+    events::Event e;
+    e.kind = events::Kind::ItemUsed;
+    e.item = id;
+    content_emit(e);
+}
 
 static void content_on_death() {
     events::Event e;

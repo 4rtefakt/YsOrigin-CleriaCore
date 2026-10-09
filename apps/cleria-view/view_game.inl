@@ -5367,8 +5367,9 @@ title_again:
                     float hp = float(player.hp);
                     EffectEnv env;
                     env.flags = game.g_flags; env.hp = &hp; env.max_hp = player_stats().max_hp;
-                    use_item(inv, inv_items, env, bev.use_item, nullptr);
+                    const UseResult used = use_item(inv, inv_items, env, bev.use_item, nullptr);
                     player.hp = int(hp);
+                    if (used == UseResult::Consumed) content_item_used(bev.use_item);   // mods: ItemUsed (view_content.inl)
                 }
                 if (!bev.script.empty()) {                   // S_COMMON "@UseHammer" ...
                     std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);

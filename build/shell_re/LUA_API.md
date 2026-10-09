@@ -11,7 +11,7 @@ the game, its saves and its frames are what they were.
 | the runtime: state, sandbox, budget, errors, the game's calls into a mod | `src/cleria/modscript.{hpp,cpp}` (target `cleria-script`) |
 | the `cleria.*` API | `src/cleria/modscript_api.cpp` |
 | the game side (the `Host`): live game, content layer, ui kit, shell | `apps/cleria-view/view_lua.inl` + one-line hooks in `view_game.inl` |
-| tests | `apps/cleria-luatest` (ctest `luatest`, 56 checks), `tools/aplua_regress.py` (15 drive cases), `drive_regress shell_subpages` |
+| tests | `apps/cleria-luatest` (ctest `luatest`, 57 checks), `tools/aplua_regress.py` (15 drive cases), `drive_regress shell_subpages` |
 | samples | `samples/mods/hello`, `samples/mods/archipelago_lua` (§9) |
 | the modder's guide | `samples/mods/README.md` |
 
@@ -78,6 +78,8 @@ cleria.events.off(id)
 | `item_obtained` | an item was granted (chest, script, pickup, rule, a mod...) | `item`, `count`, `source`, `script` |
 | `death` | the player's HP reached 0 | |
 | `boss_defeated` (API 4) | a boss fight was won, at the tick its flag is written (below) | `flag` (220..227, absent for a duel / mid-boss) |
+| `item_used` (API 4) | an item was used from the book and used up: the Celcetan Panacea (0x59), the only item the book consumes | `item` |
+| `door_opened` (API 4) | a locked door was opened with its key or medallion: the room's `UseKey` script stored the door's flag (0 -> set), and no filter changed that store | `flag` (the door's flag), `script` ("usekey") |
 | `new_game` / `load` | a session started / a save was loaded | `character` / `slot` |
 | `save` | a slot was written (the save sidecar too) | `slot` |
 | `tick` | every fixed game tick (60 a second, not while the F1 panel holds the game) | (no argument) |
@@ -106,6 +108,13 @@ diff), and never on a lost fight. `e.room` is the room of the fight. Two rules:
   is Hugo's and Yunica's), S_5080 (its only fight is the ward `KEKKAIZAKO_01`, which stores 423 = 1: watch
   that flag) and S_4080 (no fight in its scripts: the room script starts two `roll_edge` traps only).
 - A mod that writes these flags itself raises the event too (the diff does not know who wrote).
+
+**`door_opened`** covers the twelve doors that have a `UseKey.XSO` [DATA]: S_1005 315 (Bronze Key), S_1011 323,
+S_2012 342, S_3014 376, S_4001 383, S_4014 440, S_4020 405, S_5005 448, S_5009 449 (Dragonbone Key), S_5014 428
+(Mantid Medallion), S_6010 473, S_6053 472. The key's own cell is set to 0 by the same script right after (a
+`store` query and a `flag_changed`). Switch doors, wards and the evil door are other scripts: no event.
+The tools the book starts as scripts (`@UseHammer`, `@UseHarmonica`, the Dreaming Idol, the wing) are not
+consumed and raise no `item_used`.
 
 ## 4. The game: `cleria.game` and `cleria.player`
 
@@ -318,7 +327,7 @@ python tools/drive_regress.py --exe build_diff/Release/cleria-view.exe --assets 
 
 `cleria-nettest`: the WebSocket under `cleria.net` (address parsing; a loopback echo server: wss -> ws fallback,
 echo, a 2 MB message, idle beyond the handshake timeout, a kick, a polite close, a close the server ignores,
-nothing listening, a bad address). `cleria-luatest` (56 checks): the sandbox (no io / package / debug / dofile / os.execute / getenv /
+nothing listening, a bad address). `cleria-luatest` (57 checks): the sandbox (no io / package / debug / dofile / os.execute / getenv /
 string.dump, bytecode refused, `require` / `cleria.read` / `cleria.data` cannot leave their folders, print to
 the log); a runaway handler stopped in milliseconds, also through `pcall`, a runaway main chunk, a heap bomb,
 errors with file:line (main chunk, handler, syntax, a module), a disabled mod getting no calls, other mods
@@ -339,4 +348,4 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | level | added |
 |---|---|
 | 3 | everything above not marked otherwise |
-| 4 (2026-10-09) | the event `boss_defeated` (§3); `game.save(slot)` (§4) |
+| 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |

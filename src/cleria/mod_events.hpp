@@ -10,6 +10,8 @@
 //   ItemObtained  an item was granted: chest / event script, pickup, mod rule, AP       item, count, source
 //   PlayerDeath   the player's HP reached 0 (the [death] site)                          room
 //   BossDefeated  a boss fight was won (content_boss_watch, view_content.inl)             room, index (220..227 or -1)
+//   ItemUsed      an item was used from the book and consumed (the Panacea)             item
+//   DoorOpened    a locked door's UseKey script stored its door flag                    room, index, script
 //   NewGame       a new game started                                                    character
 //   Save / Load   a save slot was written / read (after the sidecar was handled)        slot
 //
@@ -23,17 +25,17 @@
 
 namespace cleria::events {
 
-enum class Kind { RoomEnter, FlagChanged, ChestOpened, ItemObtained, PlayerDeath, NewGame, Save, Load, BossDefeated };
+enum class Kind { RoomEnter, FlagChanged, ChestOpened, ItemObtained, PlayerDeath, NewGame, Save, Load, BossDefeated, ItemUsed, DoorOpened };
 const char* kind_name(Kind k);
 
 struct Event {
     Kind kind = Kind::RoomEnter;
     std::string room;                 // upper-case room name ("S_1001"); every kind carries the current room
     std::string prev_room;            // RoomEnter
-    int index = -1;                   // FlagChanged / ChestOpened: the g_flags cell; BossDefeated: the boss flag or -1
+    int index = -1;                   // FlagChanged / ChestOpened / DoorOpened: the g_flags cell; BossDefeated: the boss flag or -1
     std::int32_t old_value = 0, new_value = 0;   // FlagChanged
     std::string script, object;       // ChestOpened / ItemObtained from a script: "S_BOX01", "box_01"
-    int item = -1, count = 0;         // ItemObtained (item may be a new id >= 0x100)
+    int item = -1, count = 0;         // ItemObtained (item may be a new id >= 0x100); ItemUsed: item
     std::string source;               // ItemObtained: "chest", "script", "pickup", "rule", "ap", ...
     int slot = -1;                    // Save / Load
     int character = 0;                // NewGame

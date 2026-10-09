@@ -249,6 +249,8 @@ int main(int argc, char** argv) {
             cleria.events.on("flag_changed", function(e) seen[#seen + 1] = e.kind .. " " .. e.index .. " " .. e.old .. "->" .. e.new .. " " .. e.room end)
             cleria.events.on("chest_opened", function(e) seen[#seen + 1] = "chest " .. e.script .. " " .. e.object .. " " .. e.index end)
             cleria.events.on("boss_defeated", function(e) cleria.log("boss " .. e.room .. " " .. tostring(e.flag) .. " api " .. cleria.api_version) end)
+            cleria.events.on("item_used", function(e) cleria.log("used " .. e.item .. " in " .. e.room) end)
+            cleria.events.on("door_opened", function(e) cleria.log("door " .. e.room .. " " .. e.flag .. " " .. e.script) end)
             local tid = cleria.events.on("tick", function() TICKS = (TICKS or 0) + 1 end)
             cleria.events.on("frame", function(dt) DT = dt end)
             cleria.command("probe", function(args)
@@ -328,6 +330,14 @@ int main(int argc, char** argv) {
         m->on_event(be);
         be.index = -1; be.room = "S_1080";
         m->on_event(be);
+        events::Event ue;
+        ue.kind = events::Kind::ItemUsed;
+        ue.item = 0x59; ue.room = "S_1001";
+        m->on_event(ue);
+        events::Event de;
+        de.kind = events::Kind::DoorOpened;
+        de.index = 315; de.script = "usekey"; de.room = "S_1005";
+        m->on_event(de);
         m->on_tick();
         m->on_frame(0.016);
         m->command("probe", "hello");
@@ -339,6 +349,7 @@ int main(int argc, char** argv) {
         check(has(h.logs, "probe hello flag -1 room S_1001 scene 1001"), "api: game.flag / room / scene, commands with arguments");
         check(has(h.logs, "boss S_7080 226 api 4") && has(h.logs, "boss S_1080 nil api 4"),
               "api: boss_defeated carries the room and the boss flag (nil for a duel); api_version 4");
+        check(has(h.logs, "used 89 in S_1001") && has(h.logs, "door S_1005 315 usekey"), "api: item_used (item), door_opened (flag, script)");
         check(h.fl[0x63] == 1 && h.sp == 75 && h.level == 7 && h.wp[3] == 1 && h.warped == 3,
               "api: set_flag, player.add_sp / set_level, warps");
         check(has(h.logs, "save true false false false") && h.saved == 8,

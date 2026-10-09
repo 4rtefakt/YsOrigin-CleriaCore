@@ -1328,8 +1328,9 @@ CASES.update({
 
 # The mod API added at level 4 (LUA_API.md §11), each proven through a generated Lua mod (`lua`: its main.lua,
 # manifest ApiVersion 3: an older mod keeps running and sees the new calls).
-_LUA_EV = ('for _, k in ipairs({"boss_defeated"}) do cleria.events.on(k, function(e) '
-           'cleria.log(k .. " room " .. e.room .. " flag " .. tostring(e.flag)) end) end\n')
+_LUA_EV = ('for _, k in ipairs({"boss_defeated", "item_used", "door_opened"}) do cleria.events.on(k, function(e) '
+           'cleria.log(k .. " room " .. e.room .. " flag " .. tostring(e.flag) .. " item " .. tostring(e.item) .. '
+           '" script " .. tostring(e.script)) end) end\n')
 _LP = "[lua:test.lua] "
 _LUA_SAVE = ('cleria.command("sv", function(a) cleria.log("save " .. a .. " -> " .. tostring(cleria.game.save(tonumber(a)))) end)\n'
              'cleria.command("put", function(a) cleria.save.set("n", tonumber(a)) end)\n'
@@ -1345,6 +1346,21 @@ CASES.update({
         expect=["[lua] test.lua: started (main.lua)", "[lua:test.lua] boss_defeated room S_1009 flag 220",
                 "[lua:test.lua] boss_defeated room S_1009 flag nil", ">> entering S_10"],
         count={"[lua:test.lua] boss_defeated": 2}),
+    # item_used: the Panacea used from the book's Item page (flag 228 = the page's cursor, cell 2 = item 0x59;
+    # OK on the tile, OK on the Use popup's Yes).
+    "lua_item_used": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_EV,
+        drive="5:flag=89,2;6:flag=228,2;20:esctap;70:right;130:ok;190:ok;260:ok;330:quit",
+        expect=["[content] item_used 0x59 (Celcetan Panacea)",
+                _LP + "item_used room S_1009 flag nil item 89 script nil"],
+        count={_LP + "item_used": 1}),
+    # door_opened: S_1005's UseKey (the Bronze Key door) stores the door's flag 315; a second run of the script
+    # on the open door is not an opening.
+    "lua_door_opened": dict(
+        room="S_10/S_1005/S_1005", lua=_LUA_EV,
+        drive="60:flag=99,1;80:run=UseKey;200:run=UseKey;300:quit",
+        expect=["[content] door_opened S_1005 flag 315", _LP + "door_opened room S_1005 flag 315 item nil script usekey"],
+        count={_LP + "door_opened": 1}),
     # cleria.game.save(slot): refused in the room's first second, without the controls (185 = 0), for a slot
     # outside 0..63 and when dead; else the statue save (the continue snapshot, the slot, the sidecar, `save`).
     # A load of that slot brings back the flags and the mod's storage of the moment of the save.
