@@ -367,6 +367,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             ui::section(L, "Volume");
             vol(L, "Music volume", oslider[0], "Background music volume. (The same setting as the in-game Options.)", true);
             vol(L, "Sound effects volume", oslider[1], "Sound effect volume. (The same setting as the in-game Options.)", false);
+            if (ui::toggle(L, "Launcher music", &settings().s.cleria.launcher_music,
+                           "Plays the title theme on this launcher screen. A CleriaCore addition: the original "
+                           "game has no launcher."))
+                persist();
         });
         // Gameplay (the cutscene skip, the game speed) and Cheats: view_access.inl.
         shell.panel.add("Gameplay", [&](ui::List& L) { access_gameplay_page(L, persist); });
@@ -685,18 +689,35 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // title boot (Return to Title goes straight back to the game's title). CLERIA_DRIVE runs skip
     // it unless CLERIA_LAUNCHER is set (=settings also opens the panel); they then shoot one frame
     // to CLERIA_SHOT_DIR/launcher.ppm and quit. CLERIA_LAUNCH_ROOM / CLERIA_LAUNCH_CAM
-    // ("x,y,z,yaw_deg,pitch_deg") pick the backdrop.
+    // ("x,y,z,yaw_deg,pitch_deg") pick the backdrop; else cleria.ini [cleria.shell] LauncherRoom="S_1009" (a room id, quoted),
+    // else kLaunchRooms' first. Its music: the original's title theme ([cleria.shell] LauncherMusic, on by
+    // default). Both are CleriaCore additions: retail has no launcher.
     static bool s_launcher_shown = false;
     const char* launcher_env = std::getenv("CLERIA_LAUNCHER");
     if (show_title && !s_launcher_shown && (!std::getenv("CLERIA_DRIVE") || launcher_env)) {
         s_launcher_shown = true;
         const char* rn = std::getenv("CLERIA_LAUNCH_ROOM");
-        const std::string bg_name = rn ? rn : "S_1000";        // the tower's entrance hall
+        // The backdrops with a framed camera (position, yaw / pitch in degrees) [HAND-TUNED: picked by eye from
+        // headless captures]; the first is the default. Any other room id gets spawn_in's overview.
+        struct LaunchRoom { const char* room; float x, y, z, yaw, pitch; };
+        static const LaunchRoom kLaunchRooms[] = {
+            {"S_3005", 0.0f, 4.0f, -26.0f, 90.0f, -5.0f},       // the fire floor: the stairs over the lava
+            {"S_1009", -3.0f, 6.0f, -8.0f, 90.0f, -5.0f},       // floor 1's goddess statue
+            {"S_7000", -31.0f, 5.0f, -34.0f, 90.0f, 4.0f},      // the summit: the fence against the sky
+            {"S_2007", -63.5f, 2.0f, -0.5f, 45.0f, -10.0f},     // floor 2: the pools
+            {"S_0002", 0.0f, 6.0f, -34.0f, 90.0f, 10.0f},       // the prologue's Roda tree
+            {"S_6014", 0.0f, 4.0f, -32.0f, 90.0f, -5.0f},       // floor 6: the mirrors
+            {"S_1000", -10.0f, 4.0f, -40.0f, 90.0f, 5.0f},      // the tower's entrance hall: the stairs
+            {"S_6000", 0.0f, 25.0f, 40.0f, 90.0f, -5.0f},       // floor 6's entrance: the statue, the violet lamps
+        };
+        const std::string& lr = settings().s.cleria.launcher_room;
+        const std::string bg_name = rn ? rn : g.sob_index.count(lr) ? lr : kLaunchRooms[0].room;
         Room bg;
         if (auto it = g.sob_index.find(bg_name); it != g.sob_index.end()) bg = load_room(g, asset_root, it->second);
         Camera lcam;
         spawn_in(lcam, bg);
-        if (!rn) { lcam.pos = {-10.0f, 4.0f, -40.0f}; lcam.yaw = 1.5707963f; lcam.pitch = 0.087f; }   // the stairs
+        for (const LaunchRoom& p : kLaunchRooms)
+            if (bg_name == p.room) { lcam.pos = {p.x, p.y, p.z}; lcam.yaw = p.yaw * 0.0174533f; lcam.pitch = p.pitch * 0.0174533f; }
         if (const char* c = std::getenv("CLERIA_LAUNCH_CAM")) {
             float x, y, z, yw, pt;
             if (std::sscanf(c, "%f,%f,%f,%f,%f", &x, &y, &z, &yw, &pt) == 5) {
@@ -738,7 +759,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         }
         const Uint64 t0 = SDL_GetTicksNS();
         Uint64 last = t0;
+        bool lmusic = false;
         for (int frame_no = 0; choice_made < 0; ++frame_no) {
+            // The launcher's music (a CleriaCore addition): the original's title theme, the SCENELIST "title"
+            // record's BGM as the title itself plays it, at the Music volume (no device under CLERIA_MUTE). The
+            // game's title then finds its own track playing and lets it run on; a logo movie or a room starts
+            // its music as usual. Audio > Launcher music turns it off at once.
+            if (settings().s.cleria.launcher_music != lmusic) {
+                lmusic = !lmusic;
+                if (lmusic) apply_room_bgm("title");
+                else { audio.stop_bgm(); cur_bgm = -1; }
+                if (std::getenv("CLERIA_DRIVE")) std::printf("  [launcher] music %d (bgm %d)\n", int(lmusic), cur_bgm);
+            }
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
                 if (shell.event(e)) continue;

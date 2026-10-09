@@ -456,6 +456,8 @@ void read_cleria(const Ini& ini, Settings& s) {
     rb("cleria.qol", "UnlockMovieSkip", c.unlock_movie_skip);
     rb("cleria.qol", "UnlockCharacters", c.unlock_characters);
     rb("cleria.qol", "SkipLogoMovie", c.skip_logo_movie);
+    rb("cleria.shell", "LauncherMusic", c.launcher_music);
+    if (auto v = ini.get_string("cleria.shell", "LauncherRoom")) c.launcher_room = *v;
     rb("cleria.video", "VSync", c.vsync);
     rb("cleria.video", "BorderlessFullscreen", c.borderless_fullscreen);
     rb("cleria.input", "LinearStickMagnitude", c.linear_stick_magnitude);
@@ -495,6 +497,8 @@ void write_cleria(Ini& ini, const Settings& s) {
     ini.set_int("cleria.qol", "UnlockMovieSkip", c.unlock_movie_skip);
     ini.set_int("cleria.qol", "UnlockCharacters", c.unlock_characters);
     ini.set_int("cleria.qol", "SkipLogoMovie", c.skip_logo_movie);
+    ini.set_int("cleria.shell", "LauncherMusic", c.launcher_music);
+    ini.set_string("cleria.shell", "LauncherRoom", c.launcher_room);
     ini.set_int("cleria.video", "VSync", c.vsync);
     ini.set_int("cleria.video", "BorderlessFullscreen", c.borderless_fullscreen);
     ini.set_int("cleria.input", "LinearStickMagnitude", c.linear_stick_magnitude);

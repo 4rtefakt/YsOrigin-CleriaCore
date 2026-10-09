@@ -125,6 +125,8 @@ struct Settings {
         bool unlock_movie_skip = false;      // [cleria.qol] UnlockMovieSkip (skip a demo never seen)
         bool unlock_characters = false;      // [cleria.qol] UnlockCharacters (Toal selectable before a clear)
         bool skip_logo_movie = false;        // [cleria.qol] SkipLogoMovie (boot straight to the title)
+        bool launcher_music = true;          // [cleria.shell] LauncherMusic (the title theme on CleriaCore's launcher)
+        std::string launcher_room;           // [cleria.shell] LauncherRoom (the launcher's backdrop; empty = the default)
         bool vsync = true;                   // [cleria.video] VSync (CleriaCore's own; retail WaitVSync round-trips)
         bool borderless_fullscreen = false;  // [cleria.video] BorderlessFullscreen
         bool linear_stick_magnitude = false; // [cleria.input] LinearStickMagnitude (analog walk)
