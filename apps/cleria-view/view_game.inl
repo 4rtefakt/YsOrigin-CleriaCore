@@ -1245,8 +1245,6 @@ title_again:
         zb.cx = std::clamp(px / pw * 0.5f + 0.5f, 0.0f, 1.0f);
         zb.cy = std::clamp(0.5f - py / pw * 0.5f, 0.0f, 1.0f);
     };
-    // The player's specular tint struct (+0x260; hit_feedback.hpp): the GUARD and Boost-ready white flashes.
-    // [not modelled] the diffuse struct +0x278 and the other writers of both (SCREEN_EFFECTS.md U14).
     // The frame hold (SCREEN_EFFECTS.md §7.3): 0x76a548 / 0x76a54c, and 0x7b2488 = "copy this frame" (the writers
     // set it; the frame clears it, 0x5e0563).
     screenfx::FrameHold fhold;
@@ -1257,6 +1255,8 @@ title_again:
         fx_snapshot = true;
     };
     Vec3 light_drawn{1.0f, 1.0f, 1.0f};                    // the scene light's colour of the last frame (the log)
+    // The player's specular tint struct (+0x260; hit_feedback.hpp): the GUARD and Boost-ready white flashes.
+    // [not modelled] the diffuse struct +0x278 and the other writers of both (SCREEN_EFFECTS.md U14).
     hitfx::Tint player_spec;
     auto player_white_flash = [&](float step) {
         hitfx::white_flash(player_spec, step);
