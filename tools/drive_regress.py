@@ -1105,6 +1105,39 @@ CASES.update({
         room="S_60/S_6009/S_6009", char="3",
         drive="5:flag=475,1;10:saveload;40:at3=-10,8,96,0;150:move=0,1,60;260:pos;270:quit",
         expect=["t260 pos", "16.000, 103."]),
+    # ROUTE_F47.md R6: S_4015's two unnamed s40step_02 platforms play their section 0 ('Default') from the load
+    # (the YMO loader's section 0, FUN_005f31d0) — the only way across the y 26 gaps to switch_01. Object #6
+    # (SOB index 6) slides from x -68.8 to -55.2 and carries Toal standing on it (-68.0 -> -67.3 in 40 ticks).
+    "platform_s4015": dict(
+        room="S_40/S_4015/S_4015", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:opt=DamageTaken=0;20:at3=-68,26.2,38,0;21:mesh=#6;60:pos;240:mesh=#6;250:quit",
+        expect=["mesh #6 frame (-68.80, 25.00, 39.00)", "feet (-67.312, 26.000, 38.000)",
+                "mesh #6 frame (-55.18, 25.00, 39.00)"]),
+    # ... and the whole way on foot (Toal, Hard, the double jump): from the y 26 ledge onto the platform at its east
+    # end, a double jump over each spiked rod as it rides west under them (toge_01 / toge_02, @Touch_Toge), the jump
+    # north onto the narrow path, the slope down to switch_01 (451, StepMove_02), back the same way (a single jump
+    # over the last rod), the lift step_01 at its top (flag 450 set by hand: switch_00 and the ride up are the
+    # same mechanism), the east ledge, step_00 from 27 up to 48, the hop onto the y 49 curb and the stairs to S_4019.
+    "route_s4015": dict(
+        room="S_40/S_4015/S_4015", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive=("2:flag=450,1;3:diff=3;4:saveload;5:flag=163,1;6:level=27;7:opt=DamageTaken=0;200:at3=-51.6,26,38,180;"
+               "234:move=-1,0,16;252:move=-1,0,16;252:jump;266:jump;315:move=1,0,10;345:move=-1,0,5;345:jump;"
+               "359:jump;432:move=0,1,38;432:jump;480:move=-1,0,138;620:move=0,-1,112;741:move=-1,0,7;755:move=0,1,6;"
+               "1300:move=0,1,109;1415:move=1,0,137;1440:every=22,1500,jump;1560:move=1,0,6;1630:move=0,-1,34;"
+               "1630:jump;1685:move=1,0,6;1685:jump;1699:jump;1748:move=-1,0,20;1769:move=1,0,2;1769:jump;"
+               "1852:move=1,0,22;1852:jump;1902:move=0,1,10;1915:move=1,0,34;1988:move=1,0,75;2030:jump;"
+               "2075:move=1,1,12;2541:move=0,1,24;2541:jump;2895:move=0,1,170;2955:jump;2995:jump;"
+               "3100:quit"),
+        expect=["[plate] switch_01 -> turnswitch01", ">> entering S_4019", "arrival @ (0.0,-1.5,-3.0) [SEN]"],
+        absent=["@touch_toge"]),
+    # Issue #58: S_3004's three unnamed s30step0 lifts play their section 0 too (y -7 <-> 0, 80 ticks at the top of a
+    # 320-tick cycle; they stood at y 0 for good before). Toal, Hard, no fire skill and no torch lit: from the S_3003
+    # door over lift #1 at its top (a jump on, a jump off), the two 2-wide gaps and the edge at z 29 to S_3006.
+    "lift_s3004": dict(
+        room="S_30/S_3003/S_3003", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="2:diff=3;5:opt=DamageTaken=0;6:level=22;10:exit=0;40:move=0.2,1,90;200:move=1,0,3;262:move=1,0,100;275:jump;"
+              "322:jump;370:move=1,-0.3,66;445:move=0,1,230;461:jump;563:jump;620:jump;690:move=1,0.1,42;740:move=0,1,80;840:quit",
+        expect=[">> entering S_3004", "arrival @ (0.0,0.0,-10.0) [SEN]", ">> entering S_3006"]),
     # ROUTE_F47.md B3: the last script of the game. S_0003 with 206 == 1 runs Toal's Clear_Event_2, whose
     # ChangeScene('Title\') is the title itself (it used to resolve to "(none)" and leave a black screen).
     "ending_to_title": dict(

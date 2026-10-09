@@ -664,6 +664,11 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         if (out.vertices.size() > trig_v0) {
             RoomMesh::ObjRange r;
             r.name = lname;
+            // An unnamed object after the room's own record gets a key of its own ("#<SOB index>"; no script
+            // can name it), so the mesh runtime can play its section 0 (view_game.inl load_meshes: S_4015's
+            // two s40step_02 platforms shared the key "" before).
+            if (lname.empty() && &o != sob.objects.data())
+                r.name = "#" + std::to_string(&o - sob.objects.data());
             r.v0 = std::uint32_t(trig_v0); r.v1 = std::uint32_t(out.vertices.size());
             r.t0 = std::uint32_t(obj_i0 / 3); r.t1 = std::uint32_t(out.indices.size() / 3);
             r.obj = po;

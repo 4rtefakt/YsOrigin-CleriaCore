@@ -1644,6 +1644,23 @@ title_again:
                 if (!r.posed_clip.empty() && m.clips[i].name == r.posed_clip) {
                     m.sect = int(i); m.time = float(m.clips[i].end); m.count = 1;
                 }
+            // An unnamed animated object plays its section 0 from the load: the YMO loader leaves the model's
+            // cursor on section 0 [EXPORT 005f31d0.c:400-426], the instance's cursor copies it [EXPORT
+            // 005f5260.c:99-101] and the mesh update advances it every step [EXPORT 00503ef0.c:63-67]. No
+            // script can name it to stop it: S_4015's two s40step_02 platforms (the only way to switch_01),
+            // S_3004's three s30step0 lifts. [H] the start time = the section's first frame.
+            // [approx] only a section 0 named 'Default' (those five, and S_3004's unnamed s30swit0). Left at
+            // rest, as before: a NAMED object (it waits for its script's Mesh_SetMotion); the exporter's whole-
+            // range 'ALL' sections (S_1006's Mask of Eyes wall s10wall_00, whose re-bake would undo view_mask's
+            // collision switch; s30kaid0; s7099kumo, whose update kind is 3 [EXPORT 00501a30.c:208-211]); the
+            // three large spinning floors s50_yuka_00 / 01 / 02 ('LOOP'; S_5005, S_5012), which need the mover's
+            // carry by the sub-mesh's whole matrix (MOVER.md §3.3 [BYTES 0x45a9a4..]) — the host carries by a
+            // translation only, so a turning floor's gaps swept under a standing player. Open work.
+            if (!r.name.empty() && r.name[0] == '#' && !m.clips.empty() &&
+                (m.clips[0].name == "Default" || m.clips[0].name == "DEFAULT")) {
+                m.sect = 0; m.time = float(m.clips[0].start); m.count = 0;
+                m.dirty_pose = true;
+            }
             auto it = old.find(r.name);
             if (it != old.end()) {
                 const Vec3 sp = m.spawn;
@@ -3996,6 +4013,9 @@ title_again:
                 std::printf("  [drive] mesh %s pos (%.2f, %.2f, %.2f) clip %d t %.1f alpha %.4f frame_y %.3f%s max a %d\n",
                             mo->name.c_str(), mo->pos.x, mo->pos.y, mo->pos.z, mo->sect, mo->time, mo->alpha,
                             mo->frame_y, mo->frame_y_ok ? "" : " (stale)", va);
+                Vec3 fr{};                              // where its posed frame is now (a moving platform)
+                if (mesh_frame(*mo, &fr))
+                    std::printf("  [drive] mesh %s frame (%.2f, %.2f, %.2f)\n", mo->name.c_str(), fr.x, fr.y, fr.z);
             }
         } else if (cmd.rfind("obj=", 0) == 0) {        // obj=<name>: stand 1.5 from that scene object, facing it
             std::string ln = cmd.substr(4);
