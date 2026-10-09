@@ -8,8 +8,8 @@
 // one xorshift128 (ef2sim::Rng bound to the shared state), in the engine's order.
 //
 // [not modelled] the water-surface probe (rooms with water mode 1), the probe modes' collider
-// filters, the sword-trail collect point (GoLocusSword), the sparkle particles (the host is told
-// when one is emitted), the bounce effect (never enabled for items).
+// filters, the sparkle particles (the host is told when one is emitted), the bounce effect (never
+// enabled for items).
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -103,12 +103,19 @@ struct PickupWorld {
     std::function<bool(Pickup&)> touch;
     std::function<void(const Pickup&, float angle)> sparkle;
     Vec3 player;                      // the player's origin P+0x50 (FUN_00585ff0 0x58606d..0x586080)
+    // Out of the player's reach, the first GoLocusSword of the player in pool 4 (0x730104) collects: its
+    // +0xdc..+0xe4, the centre of its first hit record +0xd0 (the trail's TIP sphere), within 0.45 of the
+    // pickup (squared < 0.2025, 0x6bd214) [BYTES 0x5860bf..0x586139].
+    bool sword = false;               // the player has a live sword trail
+    Vec3 sword_tip;                   // its +0xdc..+0xe4
     bool window_open = false;
 };
 void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w);
 
 // The touch test (§7.2): within 1.9 of the player's origin (P+0x50), height weighted by 2/3.
 bool pickup_in_reach(const Pickup& p, const Vec3& player);
+// ... or, failing that, within 0.45 of the sword trail's tip sphere.
+bool pickup_in_sword_reach(const Pickup& p, const Vec3& tip);
 
 // The sound FUN_00585ff0's tail plays at the pickup (FUN_0043a080 at 0x5868cb with [ebp-0x14]): 0x58
 // player\p_takeitem (0x58614d), but 7 / 0xd / 0xe for the Strength / Defense / MP Drops 0x48..0x4d

@@ -172,6 +172,26 @@ int main() {
         q.age = 16;
         check(std::fabs(q.rise(0) - 1.0f) < 1e-5f && q.rise(1) < 1.0f, "glyph 0 has risen 1.0 at t 16; glyph 1 is 2 ticks behind");
     }
+    {   // The sword trail's tip sphere collects out of the player's reach (0x5860bf..0x586139): 0.45.
+        ef2sim::Rng r2;
+        Pickup q;
+        q.flags = 0x1c; q.resting = true; q.age = 60; q.life = 990; q.pos = {5.0f, 0.0f, 0.0f};
+        int taken = 0;
+        PickupWorld w;
+        w.player = {0.0f, 1.075f, 0.0f};
+        w.touch = [&](Pickup&) { ++taken; return true; };
+        step_pickup(r2, q, w);
+        const bool far_stays = taken == 0 && !q.dead;
+        w.sword = true; w.sword_tip = {5.0f, 0.46f, 0.0f};
+        step_pickup(r2, q, w);
+        const bool miss = taken == 0 && !q.dead;
+        w.sword_tip = {5.3f, 0.3f, 0.0f};
+        step_pickup(r2, q, w);
+        check(far_stays && miss && taken == 1 && q.dead,
+              "collect: the sword trail's tip within 0.45 takes a pickup the player cannot reach");
+        check(pickup_in_sword_reach(q, {5.0f, 0.44f, 0.0f}) && !pickup_in_sword_reach(q, {5.0f, 0.46f, 0.0f}),
+              "collect: the sword reach is 0.45 (squared < 0.2025)");
+    }
     // FUN_00585ff0's [ebp-0x14]: the sound the tail plays at the pickup.
     check(pickup_collect_se(0x48) == 7 && pickup_collect_se(0x49) == 7 && pickup_collect_se(0x4a) == 13 &&
           pickup_collect_se(0x4b) == 13 && pickup_collect_se(0x4c) == 14 && pickup_collect_se(0x4d) == 14 &&

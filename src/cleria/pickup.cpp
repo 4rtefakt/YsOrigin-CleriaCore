@@ -172,6 +172,11 @@ bool pickup_in_reach(const Pickup& p, const Vec3& P) {
     return dx * dx + dy * dy + dz * dz < 3.61f;
 }
 
+bool pickup_in_sword_reach(const Pickup& p, const Vec3& tip) {
+    const float dx = tip.x - p.pos.x, dy = tip.y - p.pos.y, dz = tip.z - p.pos.z;
+    return dx * dx + dy * dy + dz * dz < 0.2025f;
+}
+
 int pickup_collect_se(int id) {
     if (id == 0x48 || id == 0x49) return 7;
     if (id == 0x4a || id == 0x4b) return 0xd;
@@ -228,7 +233,8 @@ void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w) {
             if (w.sparkle) w.sparkle(p, a);
         }
     }
-    if (p.age > 50.0f && (p.flags & 4) && pickup_in_reach(p, w.player) && w.touch && w.touch(p)) {
+    if (p.age > 50.0f && (p.flags & 4) &&
+        (pickup_in_reach(p, w.player) || (w.sword && pickup_in_sword_reach(p, w.sword_tip))) && w.touch && w.touch(p)) {
         p.dead = true;
         return;
     }

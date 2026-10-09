@@ -484,6 +484,19 @@ CASES = {
         room="S_10/S_1009/S_1009", env=dict(CLERIA_DRIVE_LOCKSTEP="1", CLERIA_SFXLOG="1"),
         drive="20:drop=72;21:drop=74;22:drop=76;23:drop=66;24:drop=120;200:quit",
         expect=["[sfx] t70 7 at", "[sfx] t71 13 at", "[sfx] t72 14 at", "[sfx] t73 88 at", "[sfx] t74 88 at"]),
+    # Issue #68: a pickup out of the player's reach (1.9 from his origin) is collected by his sword trail: the tip
+    # sphere of the first GoLocusSword within 0.45 of it [BYTES 0x5860bf..0x586139]. Toal stands 2.42 from a
+    # resting drop, facing it (270), and swings at t110: collected at t122. Facing away (90) it stays.
+    "pickup_sword_collect": dict(
+        room="S_10/S_1009/S_1009", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1", CLERIA_SFXLOG="1"),
+        drive="20:drop=120;21:at=3.0,7.87,270;101:pickups;110:atk;150:pickups;151:quit",
+        expect=["[pickup] id 120 pos (0.58, 2.00, 7.86) ground 2.020 rest 1 age 81", "[sfx] t122 88 at (0.58, 2.00, 7.86)"],
+        count={"[pickup] id 120": 1}),
+    "pickup_sword_miss": dict(
+        room="S_10/S_1009/S_1009", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1", CLERIA_SFXLOG="1"),
+        drive="20:drop=120;21:at=3.0,7.87,90;101:pickups;110:atk;150:pickups;151:quit",
+        expect=["[pickup] id 120 pos (0.58, 2.00, 7.86) ground 2.020 rest 1 age 81",
+                "[pickup] id 120 pos (0.58, 2.00, 7.86) ground 2.020 rest 1 age 130"], absent=["] 88 at"]),
     # Item 3 (FUN_004fae00): a landed swing pops the white number on the Selnarg (FUN_004fbb40 0x4fd241),
     # the combo line's meter starts (0x76c1a8), and a hit on the player pops the red one (FUN_004fd350
     # 0x4fe120).

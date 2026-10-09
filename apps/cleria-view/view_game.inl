@@ -7671,6 +7671,15 @@ title_again:
                     return segment_hit(phys_mesh(room), a, b, pt, n);
                 };
                 pw.player = {feet.x, feet.y + kOriginH, feet.z};       // P+0x50, the origin (0x58606d..0x586080)
+                // The player's first sword trail (pool 4's first object with +0x120 == the player [H: `loci` keeps
+                // the pool's order]): its tip sphere, as placed by its last armed tick (a trail not yet placed has
+                // none: radius 0).
+                for (const PlayerLocus& pl : loci)
+                    if (pl.sword.alive()) {
+                        pw.sword = pl.sword.spheres()[0].radius > 0.0f;
+                        pw.sword_tip = pl.sword.spheres()[0].centre;
+                        break;
+                    }
                 pw.touch = [&](Pickup& pk) {
                     if (fly || player.hp <= 0) return false;
                     float hp = float(player.hp);
