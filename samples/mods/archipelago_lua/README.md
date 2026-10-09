@@ -21,7 +21,8 @@ is the one in `data/ys_origin.json`), then connect with this mod.
 
 ## Requirements
 
-- CleriaCore with mod API 3 (Lua scripts), on Windows (the connection uses Windows' own WebSocket and
+- CleriaCore with mod API 3 or newer (Lua scripts; API 4 adds the autosave and the boss-defeat event, which
+  the mod uses when they are there), on Windows (the connection uses Windows' own WebSocket and
   TLS; no other download).
 - Your Ys Origin game data set up in CleriaCore (F1 > Prelaunch).
 - A room made with the Ys Origin apworld (archipelago.gg or your own MultiServer).
@@ -88,7 +89,9 @@ beside `cleria.ini`.
 | **Left in this room** | off | An overlay, bottom left: the current room's locations still to find. A hinted one shows its item. |
 | ...with what they hold | off | The same list with the item at each location (a spoiler). |
 | **Tracker detail** | Areas | The tracker overlay counts per area of the tower, or per floor. |
-| **Boss checks on defeat** | off | A boss room's check is sent when the fight is won, not when you walk in (the floor bosses and the duels; the 17F and 20F rooms stay on entry). |
+| **Autosave** | on | Saves the game by itself after a check, a received item, a door opened with a key or medallion and a Panacea used, at the next safe moment (not in a cutscene, a boss fight or an arena). Needs a CleriaCore with mod API 4; older builds show it greyed. |
+| **Autosave slot** | No.08 | The slot the autosave writes, as numbered in the book. It is overwritten without asking. |
+| **Boss checks on defeat** | off | A boss room's check is sent when the fight is won, not when you walk in (the floor bosses, the duels and the 20F ward; the 17F room has no fight and stays on entry). |
 | **Progression notices** | on | A notice card when a progression item arrives. |
 | **Hint alerts** | on | A feed line when you enter a room that holds a hinted item. |
 | **EXP multiplier** | 0 | Your own multiplier for every kill; 0 keeps the seed's. |
@@ -109,8 +112,6 @@ complete; and under *This game*, whether you hold the three **elemental skills**
 
 For now, generate with `blessing_items` and shuffled blessing costs off.
 
-Not here yet: the retail mod's autosave after a check or a received item (CleriaCore's mod API has
-no "save now" call yet).
 
 ## Files
 

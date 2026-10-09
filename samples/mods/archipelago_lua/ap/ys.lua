@@ -13,11 +13,12 @@ local kBlessFlag, kWeaponFlag, kRodaFruit = 217, 148, 0x57
 local kWarpScenes = {1000, 1009, 1011, 2000, 2013, 2100, 2012, 3000, 3006, 3015, 3014,
                      4000, 4104, 4020, 5000, 5010, 5014, 6000, 6010, 6082, 6053, 7000}
 
--- the flag each boss room's fight sets when it is won (the shipped scripts: the six floor bosses' brains set
--- 220..224, the duels' BATTLE_* scripts 230 / 231 / 232 / 235 / 236). S_4080 and S_5080 have none: their
--- checks stay on entry.
+-- the flag each boss room's fight sets when it is won (the shipped scripts: the floor bosses' brains set
+-- 220..224, the duels' BATTLE_* scripts 230 / 231 / 232 / 235 / 236, and S_5080's only fight, the ward of
+-- four Zeruena, 423). S_4080 has no fight at all (two trap scripts): its check stays on entry. With mod
+-- API 4 the engine's boss_defeated event says the same thing sooner (Logic:boss_defeated).
 local kBossFlag = {[1099] = 220, [2099] = 221, [3099] = 222, [4099] = 223, [5099] = 224,
-                   [1080] = 230, [2080] = 231, [3080] = 232, [6080] = 235, [6099] = 236}
+                   [1080] = 230, [2080] = 231, [3080] = 232, [6080] = 235, [6099] = 236, [5080] = 423}
 
 -- the five SP chests: their script pays the SP with 0xB2 AddPlayerSP (pc 32) and then sets the box flag
 -- (pc 35). The grant filter never sees that command, so the vanilla SP came on top of the seed's item:
@@ -268,6 +269,16 @@ function Logic:boss_flag(r)
     if not self.boss_on_kill or r.detect ~= "scene" then return nil end
     local l = self.tbl and self.tbl.loc[r.id]
     return (l and l.type == "boss") and kBossFlag[r.scene] or nil
+end
+
+-- the engine's boss_defeated event (mod API 4): the boss checks of that room, when they wait for the win.
+-- A fight won, rolled back by a Retry and won again raises it twice: Logic:fire dedupes on the save's checks.
+function Logic:boss_defeated(sc)
+    local out = {}
+    for _, r in ipairs(self.by_scene[sc] or {}) do
+        if self:boss_flag(r) then self:fire(r.id, out) end
+    end
+    return out
 end
 
 -- the active locations of a room that are still to find

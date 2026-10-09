@@ -29,12 +29,14 @@ local cfg = {
     show_room = S.get("ShowRoom", false), room_spoil = S.get("RoomSpoilers", false), tracker_mode = S.get("TrackerMode", 1),
     boss_on_kill = S.get("BossOnKill", false), notice_prog = S.get("NoticeProgression", true),
     hint_alerts = S.get("HintAlerts", true), exp_mult = S.get("ExpMultiplier", 0),
+    autosave = S.get("Autosave", true), autosave_slot = S.get("AutosaveSlot", 8),
 }
 local cfg_keys = {server = "Server", slot = "Slot", password = "Password", uuid = "Uuid", death_link = "DeathLink",
                   auto_connect = "AutoConnect", show_status = "ShowStatus", show_feed = "ShowFeed",
                   show_tracker = "ShowTracker", export_state = "ExportState", show_room = "ShowRoom",
                   room_spoil = "RoomSpoilers", tracker_mode = "TrackerMode", boss_on_kill = "BossOnKill",
-                  notice_prog = "NoticeProgression", hint_alerts = "HintAlerts", exp_mult = "ExpMultiplier"}
+                  notice_prog = "NoticeProgression", hint_alerts = "HintAlerts", exp_mult = "ExpMultiplier",
+                  autosave = "Autosave", autosave_slot = "AutosaveSlot"}
 local function persist(k) S.set(cfg_keys[k], cfg[k]) end
 
 -- ---- the runtime state ---------------------------------------------------------------------------------------
@@ -95,9 +97,19 @@ local function slot_cache(seed, slot)
     return "slot_" .. seed:gsub("[^%w]", "_") .. "_" .. slot .. ".json"
 end
 
+-- ---- autosave (mod API 4: cleria.game.save) --------------------------------------------------------------
+-- After anything worth keeping (a check, a received item, a key door, a Panacea) the game is saved to the
+-- player's autosave slot. A request only marks the tick; the tick handler saves 1.5 s later and keeps
+-- asking until the engine agrees (it refuses in a cutscene, a boss fight, an arena, a room just entered).
+A.can_save = type(G.save) == "function"
+local function autosave_request()
+    if cfg.autosave and A.can_save then A.autosave_at = A.ticks end
+end
+
 -- ---- checks -------------------------------------------------------------------------------------------------
 local function report(ids, how)
     if #ids == 0 then return end
+    autosave_request()
     for _, id in ipairs(ids) do
         local r = A.logic:reg(id)
         log("check " .. id .. " " .. (r and r.name or "?") .. " (" .. how .. ")")
@@ -423,6 +435,7 @@ local function grant_pending()
         end
     end
     if any then store_state() end
+    if any and st.applied > A.live_from then autosave_request() end   -- not for the login list of a loaded save
 end
 
 -- A story beat that hands over a pool item (the Zelkarons "charging" the Evil Ring) still plays its dialogue
@@ -449,6 +462,15 @@ cleria.events.on("room_enter", function(e)
     report(A.logic:on_scene(ys.scene_number(e.room)), "room")
     hint_alert(ys.scene_number(e.room))
 end)
+
+if (cleria.api_version or 3) >= 4 then
+    cleria.events.on("boss_defeated", function(e)
+        if not active() or not cfg.boss_on_kill then return end
+        report(A.logic:boss_defeated(ys.scene_number(e.room)), "boss defeated")
+    end)
+    cleria.events.on("item_used", function() if active() then autosave_request() end end)     -- a Panacea
+    cleria.events.on("door_opened", function() if active() then autosave_request() end end)   -- a key / medallion door
+end
 
 cleria.events.on("death", function()
     local ours = A.death_ours and A.ticks - A.death_ours_tick < 120
@@ -515,6 +537,15 @@ cleria.events.on("tick", function()
         report(A.logic:sweep(), "sweep")                    -- flags set behind the VM (a safety net)
         if connected() and not frozen then grant_pending() end   -- never into a cutscene
         if A.butter_t <= 0 then A.logic:enforce() end
+        if A.autosave_at and A.ticks - A.autosave_at >= 90 and A.ticks % 15 == 0 then
+            local slot = math.max(1, math.min(64, math.floor(cfg.autosave_slot)))
+            store_state()
+            if G.save(slot - 1) then   -- the file number is the book's "No.NN" minus one
+                A.autosave_at = nil
+                log(string.format("autosave: wrote No.%02d", slot))
+                feed_text(string.format("Autosaved to No.%02d", slot), 0x9FD0A0)
+            end
+        end
         local fixed = A.logic:repair(A.logic.scene, A.ticks)
         if fixed then log("repair: " .. fixed) end
         withheld_notice()

@@ -262,8 +262,19 @@ function M.install(A, persist)
         end
         -- quality of life
         p:section("Quality of life")
+        if A.can_save then
+            cfg.autosave, changed = p:toggle("Autosave", cfg.autosave, "Save the game by itself after a check, a received item, " ..
+                "a door opened with a key or medallion and a Panacea used, at the next safe moment. Not a retail option.")
+            if changed then persist("autosave") end
+            cfg.autosave_slot, changed = p:slider("Autosave slot", cfg.autosave_slot, 1, 64, 1, "No.%02.0f", {desc = "The save slot " ..
+                "the autosave writes, as numbered in the book. It is overwritten without asking.", enabled = cfg.autosave})
+            if changed then cfg.autosave_slot = math.tointeger(math.floor(cfg.autosave_slot + 0.5)) or 8 persist("autosave_slot") end
+        else
+            p:info("Autosave", "needs a newer CleriaCore", {color = "muted", desc = "The autosave uses cleria.game.save, which came with mod API 4."})
+        end
         cfg.boss_on_kill, changed = p:toggle("Boss checks on defeat", cfg.boss_on_kill, "A boss room's check is sent when the fight " ..
-            "is won, not when you walk in (the six floor bosses and the duels; the 17F and 20F rooms stay on entry). Not a retail option.")
+            "is won, not when you walk in (the floor bosses, the duels and the 20F ward; the 17F room has no fight and stays on entry). " ..
+            "Not a retail option.")
         if changed then persist("boss_on_kill") end
         cfg.notice_prog, changed = p:toggle("Progression notices", cfg.notice_prog, "A notice card when a progression item arrives.")
         if changed then persist("notice_prog") end

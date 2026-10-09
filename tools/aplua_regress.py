@@ -111,7 +111,7 @@ CASES = {
         room="S_10/S_1099/S_1099",
         aplua=dict(settings="BossOnKill=1\nShowRoom=1\nRoomSpoilers=1\nShowTracker=1\nTrackerMode=2\n"),
         drive="120:lua=apstate;130:flag=220,1;200:lua=apstate;220:quit",
-        expect=["goal 0 active 1", "Boss: 5F Velagunder (S_1099) (sweep)", "goal 0 active 1"],
+        expect=["goal 0 active 1", "Boss: 5F Velagunder (S_1099) (", "goal 0 active 1"],   # (sweep), or (boss defeated) with API 4
         absent=["Boss: 5F Velagunder (S_1099) (room)"]),
     # The same room with the option off: the check at the door (and the overlays drawn every frame).
     "aplua_boss_on_entry": dict(
@@ -132,6 +132,24 @@ CASES = {
         expect=[P + "sp = ", P + "SP chest: took back the vanilla 5000 SP (S_4015/S_BOX01)",
                 "Silent Sands: 15F Room (store)", P + "sp = "],
         absent=["sp = 5", "sp = 6"]),          # the wallet never shows the chest's 5000
+    # Mod API 4. Autosave: a chest check, then the save to the book's No.08 (file 7) at the next safe tick.
+    "aplua_autosave": dict(
+        room="S_10/S_1001/S_1001", aplua={},
+        drive=CHEST + ";740:ok;1000:lua=apstate;1020:quit",
+        expect=[P + "check 5857605 Wailing Blue: 2F Path 1 (store)", "sidecar yso_07.cleria written",
+                P + "autosave: wrote No.08"]),
+    # Mod API 4. The boss_defeated event sends the boss check when "Boss checks on defeat" is on.
+    "aplua_boss_event": dict(
+        room="S_10/S_1099/S_1099", aplua=dict(settings="BossOnKill=1\n"),
+        drive="130:flag=220,1;200:lua=apstate;220:quit",
+        expect=["Boss: 5F Velagunder (S_1099) (boss defeated)"],
+        absent=["Boss: 5F Velagunder (S_1099) (room)"]),
+    # The 20F room's fight is its ward, flag 423.
+    "aplua_ward_5080": dict(
+        room="S_50/S_5080/S_5080", aplua=dict(settings="BossOnKill=1\n"),
+        drive="130:flag=423,1;200:lua=apstate;220:quit",
+        expect=["(S_5080) (sweep)"],
+        absent=["Boss: Boss Room (S_5080) (room)"]),
     # The key-item clamp and the skill-level cap.
     "aplua_invariants": dict(
         room="S_10/S_1001/S_1001", aplua={},
