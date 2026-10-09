@@ -69,6 +69,7 @@ struct Host {
     virtual void set_stat(Stat s, double v) { (void)s; (void)v; }
     virtual void refresh() {}                               // the stat recompute after a grant
     virtual void warp(int index) { (void)index; }           // 0xa6 GoWarpPoint to a statue of the registry
+    virtual bool save(int slot) { (void)slot; return false; }   // the statue save into slot 0..63; false = refused
     // ---- storage ----
     virtual std::map<std::string, std::string>* save_storage(const std::string& mod) { (void)mod; return nullptr; }
     virtual std::optional<std::string> setting(const std::string& mod, const std::string& key) { (void)mod; (void)key; return std::nullopt; }

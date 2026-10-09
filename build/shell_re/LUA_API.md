@@ -121,6 +121,7 @@ diff), and never on a lost fight. `e.room` is the room of the fight. Two rules:
 | `game.character()` | 1 Yunica, 2 Hugo, 3 Toal (g_flags[150]) |
 | `game.frozen()` | a cutscene or a box holds the world (grant things later) |
 | `game.chests()` | the current room's chests: `{s_box01 = {flag = 302, object = "box_01"}, ...}` |
+| `game.save(slot)` (API 4) | save the game now into slot 0..63, as a goddess statue does; `true` if it saved, `false` if not (below) |
 | `game.exp_factor(fn)` | `fn(level) -> factor` multiplies the EXP of every kill (with the Cheats rate, the AP seed's) |
 | `player.hp()`, `max_hp()`, `set_hp(n)` | `set_hp(0)` kills (the game-over flow follows) |
 | `player.sp()`, `add_sp(n)` | the SP wallet (the shop currency), 0..999999 |
@@ -131,6 +132,18 @@ diff), and never on a lost fight. `e.room` is the room of the fight. Two rules:
 Writes go through the same paths the game and the C++ Archipelago glue use (`game.g_flags`, `player`, the
 bind lambdas in `view_game.inl`). [H] Nothing checks that a write makes sense for the story: a mod that sets
 flag 226 has beaten the final boss.
+
+**`game.save(slot)`** [CODE `view_game.inl` `g_lua.b.save`] writes what the book's Save writes: the continue
+snapshot, then the slot's record `yso_NN.bin` and the mods' sidecar `yso_NN.cleria`, and it raises `save`
+(`e.slot`). `slot` is the file number: 0..63, the book's "No.01".."No.64" minus one (the same number `save` /
+`load` events carry). It never raises an error; it returns `false` and writes nothing unless all of these hold:
+- a session runs and its `new_game` / `load` was delivered (`game.in_game()`, `save.ready()`);
+- `flag(185) == 1`, `flag(156) == 0`, `flag(190) == 0` and the room was entered at least 60 ticks ago (the
+  retail Archipelago mod's autosave conditions: the player has the controls, no boss fight, no arena);
+- no cutscene or box holds the world (`not game.frozen()`), the player is alive, and no door or scene change
+  is staged;
+- `slot` is 0..63 and the file could be written.
+A load of that slot (the title's or the book's) arrives where the player stood, on the floor below that point.
 
 ## 5. Content: the grant filter and gifts
 
@@ -319,4 +332,4 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | level | added |
 |---|---|
 | 3 | everything above not marked otherwise |
-| 4 (2026-10-09) | the event `boss_defeated` (§3) |
+| 4 (2026-10-09) | the event `boss_defeated` (§3); `game.save(slot)` (§4) |

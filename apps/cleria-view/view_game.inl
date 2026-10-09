@@ -1917,6 +1917,7 @@ title_again:
         hud.debug_message(f ? ("Saved to slot " + std::to_string(slot + 1))
                       : "Save FAILED (disk?)");
         if (f) content_save(slot_path(slot), slot);      // mods: the sidecar beside it (view_content.inl)
+        return bool(f);
     };
     // force_scene: re-enter the scene even when it is the current one (the game over's Retry is a
     // ChangeScene to the current scene; a load of the same room only re-gates it).
@@ -5055,6 +5056,18 @@ title_again:
     // [not modelled] the fader pair 0x769f24 = 1/3, 0x769f28 = 0.01; Hugo's scene-0x93 achievement;
     // the death count's own gate 0x74ab8f (the menu) and the actor fields beyond the motion.
     int death_t = 0;                                     // +0x3fc
+    // cleria.game.save(slot) (LUA_API.md §4; not retail): the statue save's two steps (FUN_0042e9a0: the continue
+    // snapshot, then the slot and its sidecar) when the game can be saved. [MOD] the retail Archipelago mod's
+    // autosave gate: 185 == 1 (the player has the controls), 156 == 0 (no boss fight), 190 == 0 (no arena),
+    // a second in the room. [H] the rest is this port's: a session that started, no Fix, alive, no staged
+    // door or ChangeScene.
+    g_lua.b.save = [&](int slot) {
+        if (game.g_flags[185] != 1 || game.g_flags[156] != 0 || game.g_flags[190] != 0 || g_content.room_age < 60) return false;
+        if (content_session_pending() || csMgr.world_frozen() || player.hp < 1 || death_t > 0) return false;
+        if (door_pending || door_commit || door_latched || !csHost.pending_scene.empty()) return false;
+        save_cont();
+        return do_save(slot);
+    };
     CaptionCard gameover_card;
     WndDialog gameover_menu;
     bool return_to_title = false;

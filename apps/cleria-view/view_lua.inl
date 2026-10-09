@@ -29,6 +29,7 @@ struct LuaBind {
     std::function<void(int)> set_level, set_weapon_tier, warp;
     std::function<void()> refresh;
     std::function<bool()> frozen;
+    std::function<bool(int)> save;         // cleria.game.save (set where the game's save state is in scope)
 };
 
 struct LuaNotice {
@@ -57,6 +58,7 @@ struct LuaHost : script::Host {
     void set_stat(Stat s, double v) override;
     void refresh() override;
     void warp(int index) override;
+    bool save(int slot) override;
     std::map<std::string, std::string>* save_storage(const std::string& mod) override { return &g_content.sc.mod[mod]; }
     std::optional<std::string> setting(const std::string& mod, const std::string& key) override;
     bool set_setting(const std::string& mod, const std::string& key, const std::string& value) override;
@@ -162,6 +164,7 @@ void LuaHost::set_stat(Stat s, double v) {
 }
 void LuaHost::refresh() { if (g_lua.b.refresh) g_lua.b.refresh(); }
 void LuaHost::warp(int index) { if (g_lua.b.warp && g_lua.b.warp_on) g_lua.b.warp(index); }
+bool LuaHost::save(int slot) { return in_game() && g_lua.b.save && g_lua.b.save(slot); }
 
 static std::string lua_setting_sec(const std::string& mod) { return "cleria.mod." + mod; }
 std::optional<std::string> LuaHost::setting(const std::string& mod, const std::string& key) {

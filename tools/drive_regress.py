@@ -1330,6 +1330,12 @@ CASES.update({
 # manifest ApiVersion 3: an older mod keeps running and sees the new calls).
 _LUA_EV = ('for _, k in ipairs({"boss_defeated"}) do cleria.events.on(k, function(e) '
            'cleria.log(k .. " room " .. e.room .. " flag " .. tostring(e.flag)) end) end\n')
+_LP = "[lua:test.lua] "
+_LUA_SAVE = ('cleria.command("sv", function(a) cleria.log("save " .. a .. " -> " .. tostring(cleria.game.save(tonumber(a)))) end)\n'
+             'cleria.command("put", function(a) cleria.save.set("n", tonumber(a)) end)\n'
+             'cleria.command("fl", function(a) cleria.log("flag " .. a .. " = " .. cleria.game.flag(tonumber(a)) .. " n " .. '
+             'tostring(cleria.save.get("n"))) end)\n'
+             'cleria.events.on("save", function(e) cleria.log("saved slot " .. e.slot) end)\n')
 CASES.update({
     # boss_defeated as a script gets it: a floor boss's flag 0 -> 1 carries the flag (S_1099, 220); a fight
     # that ends by flag 156 going 1 -> 0 has none; 156 cleared in another room than it was set is not a win.
@@ -1339,6 +1345,17 @@ CASES.update({
         expect=["[lua] test.lua: started (main.lua)", "[lua:test.lua] boss_defeated room S_1009 flag 220",
                 "[lua:test.lua] boss_defeated room S_1009 flag nil", ">> entering S_10"],
         count={"[lua:test.lua] boss_defeated": 2}),
+    # cleria.game.save(slot): refused in the room's first second, without the controls (185 = 0), for a slot
+    # outside 0..63 and when dead; else the statue save (the continue snapshot, the slot, the sidecar, `save`).
+    # A load of that slot brings back the flags and the mod's storage of the moment of the save.
+    "lua_save": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_SAVE,
+        drive="20:lua=sv 8;100:flag=185,0;105:lua=sv 8;110:flag=185,1;120:flag=89,3;125:lua=put 7;130:lua=sv 8;"
+              "140:lua=sv 64;150:flag=89,5;155:lua=put 9;160:cload=8;230:lua=fl 89;240:hp=0;300:lua=sv 8;310:quit",
+        expect=[_LP + "save 8 -> false", _LP + "save 8 -> false", "sidecar yso_08.cleria written", _LP + "saved slot 8",
+                _LP + "save 8 -> true", _LP + "save 64 -> false", "event load", _LP + "flag 89 = 3 n 7", "[death] HP 0",
+                _LP + "save 8 -> false"],
+        count={"-> true": 1, "[cont] snapshot S_1009": 4}),      # the room root's, the save's, the load's and its root's
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

@@ -47,6 +47,7 @@ struct ContentRt {
     int rules_sub = 0;
     bool duel_lost = false;                 // FUN_0046f810's losable branch cleared 156 since the last tick
     std::string fight_room;                 // the room in which 156 last went 0 -> 1 (content_boss_watch)
+    int room_age = 0;                       // ticks since the last room entry (cleria.game.save's gate)
 };
 static ContentRt g_content;
 
@@ -214,6 +215,7 @@ static void content_on_room(const Room& room, std::vector<Pickup>& pickups, bool
     for (char& ch : up) ch = char(std::toupper((unsigned char)ch));
     r.prev_room = r.room;
     r.room = up;
+    r.room_age = 0;
     r.chests.clear();
     for (const Interactable& it : room.mesh.interactables) {
         if (it.opened_flag < 0) continue;
@@ -385,6 +387,7 @@ static void content_tick(const std::int32_t* flags) {
             content_emit(e);
         }
     }
+    ++r.room_age;
     content_boss_watch(flags);
     r.watch.diff(flags, events::bus(), r.room);
     if (r.toast_t > 0) --r.toast_t;

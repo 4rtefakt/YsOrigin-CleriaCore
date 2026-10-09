@@ -51,7 +51,7 @@ struct FakeHost : script::Host {
     std::vector<std::pair<int, int>> given;
     double hp = 100, max_hp = 100, sp = 50, level = 3, tier = 1;
     bool game = true;
-    int warped = -1;
+    int warped = -1, saved = -1;
     bool toggle_flip = false, press = false;
 
     void log(const std::string& mod, const std::string& text) override {
@@ -86,6 +86,7 @@ struct FakeHost : script::Host {
         if (s == Stat::WeaponTier) tier = v;
     }
     void warp(int i) override { warped = i; }
+    bool save(int slot) override { if (slot == 9) return false; saved = slot; return true; }   // 9: "not now"
     std::map<std::string, std::string>* save_storage(const std::string& mod) override { return &store[mod]; }
     std::optional<std::string> setting(const std::string& mod, const std::string& key) override {
         const auto it = settings.find(mod + "/" + key);
@@ -257,6 +258,8 @@ int main(int argc, char** argv) {
                 cleria.player.set_level(7)
                 cleria.game.set_warp_unlocked(3, true)
                 cleria.game.warp_to(3)
+                cleria.log("save " .. tostring(cleria.game.save(8)) .. " " .. tostring(cleria.game.save(9)) .. " " ..
+                           tostring(cleria.game.save(64)) .. " " .. tostring(cleria.game.save(-1)))
                 cleria.content.give(0x59, 2, "test")
                 cleria.events.emit("item_obtained", {item = 0x59, count = 1, source = "test"})
                 cleria.log("chests " .. cleria.game.chests().s_box01.flag .. " name " .. cleria.game.item_name(0x59))
@@ -338,6 +341,8 @@ int main(int argc, char** argv) {
               "api: boss_defeated carries the room and the boss flag (nil for a duel); api_version 4");
         check(h.fl[0x63] == 1 && h.sp == 75 && h.level == 7 && h.wp[3] == 1 && h.warped == 3,
               "api: set_flag, player.add_sp / set_level, warps");
+        check(has(h.logs, "save true false false false") && h.saved == 8,
+              "api: game.save returns the host's answer; a slot outside 0..63 is false without asking");
         check(h.given.size() == 1 && h.given[0] == std::make_pair(0x59, 2), "api: content.give goes to the host");
         check(h.emitted.size() == 1 && h.emitted[0].kind == events::Kind::ItemObtained && h.emitted[0].source == "test",
               "api: events.emit item_obtained");

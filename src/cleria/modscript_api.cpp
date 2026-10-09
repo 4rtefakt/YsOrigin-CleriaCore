@@ -524,6 +524,12 @@ int l_warp_to(lua_State* L) {
     M(L).host().warp(i);
     return 0;
 }
+// save(slot) -> boolean: the goddess statue's save into slot 0..63, when the game can be saved now.
+int l_game_save(lua_State* L) {
+    const lua_Integer s = luaL_checkinteger(L, 1);
+    lua_pushboolean(L, s >= 0 && s < 64 && M(L).host().save(int(s)));
+    return 1;
+}
 int l_room(lua_State* L) { lua_pushstring(L, M(L).host().room().c_str()); return 1; }
 int l_scene(lua_State* L) {
     const std::string r = M(L).host().room();
@@ -1104,6 +1110,7 @@ void open_api(lua_State* L, Mod& m) {
                                     {"set_warp_unlocked", l_set_warp_unlocked}, {"warp_to", l_warp_to}, {"room", l_room},
                                     {"scene", l_scene}, {"character", l_character}, {"frozen", l_frozen},
                                     {"in_game", l_in_game}, {"chests", l_chests}, {"exp_factor", l_exp_factor},
+                                    {"save", l_game_save},
                                     {nullptr, nullptr}};
     lua_newtable(L);
     set_funcs(L, game);
