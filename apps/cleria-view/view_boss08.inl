@@ -32,8 +32,8 @@
 // MatMode's RGB (DARM_A §A.6: Down = black, form change = the outline silhouette) multiplies the vertex colours of
 // the body's and the tail's materials (boss8_set_matmode, Room::mat_rgb).
 // [not modelled] the "damaged limb" material bit 0x20000 and the chest flag word (§A.1.3), the scene light (state kept, no
-// consumer: csHost.light_rgb / light_dir), the player tints (the ctor's grey P+0x290, the fall's P+0x148), the hit
-// flash +0x2a0, fx+0x1dc |= 0x100 / 0x108 of the inline effects and their pool-full gate (never full here), the `src`
+// consumer: csHost.light_rgb / light_dir), the player tints (the ctor's grey P+0x290, the fall's P+0x148),
+// fx+0x1dc |= 0x100 / 0x108 of the inline effects and their pool-full gate (never full here), the `src`
 // argument of FX / FX2 (fx+0x1da), the kill record FUN_00403cd0, flags 518 / 519 / 529..532 / 544..546 (dwords past
 // g_flags), FUN_00461160(0) / P+0x9fc / Toal's two burst effects at the fall, the armor bit of a closed part (no
 // elemental bonus), dmg' of the pool drain (GELALDY G9), W's +0x298 & 0x8000 heal (DARM_D U-D3), the radius-14

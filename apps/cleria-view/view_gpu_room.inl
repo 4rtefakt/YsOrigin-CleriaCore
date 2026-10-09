@@ -71,6 +71,11 @@ struct Room {
     // MatMode), multiplied into the vertex colours from base_rgb (each vertex's r, g, b as loaded).
     std::unordered_map<std::string, std::vector<Vec3>> mat_rgb;
     std::vector<std::uint8_t> base_rgb;
+    // ... and an object's additive colour (every material record's +0x24..+0x2c, loaded into c17 and added to oD1
+    // on the specular path only: material flag 0x2): the boss hit flash FUN_00504140 writes around the draw. It
+    // rides in the vertices' ny as a sprite's specular does (main.cpp vs); add_ny keeps the normals it replaces.
+    std::unordered_map<std::string, Vec3> mat_add;
+    std::unordered_map<std::string, std::vector<float>> add_ny;
     // The objects the Mask of Eyes gates (SOB +0x14c & 0x1000 / 0x2000; view_mask.inl).
     struct MaskObj {
         std::size_t rr = 0;              // index in mesh.object_ranges
@@ -334,6 +339,27 @@ static void apply_object_alpha(Room& room, const RoomMesh::ObjRange* r, float a)
     const auto ma = room.mat_alpha.find(r->name);
     const auto mc = room.mat_rgb.find(r->name);
     const bool rgb = mc != room.mat_rgb.end() && room.base_rgb.size() == room.mesh.vertices.size() * 3;
+    // c17 = the record's +0x24..+0x2c when the material has flag 0x2, else 0 [EXPORT 005f92b0.c:123-145]; the
+    // fixed-function stage adds oD1 after the texture modulate. FUN_00504140 skips render layers >= 10 ([approx]
+    // only the layer-0xb class is told apart here). The colour is quantised to the 8-bit specular ([approx]).
+    const auto mad = room.mat_add.find(r->name);
+    if (mad != room.mat_add.end()) {
+        const Vec3 c = mad->second;
+        const std::uint32_t s = (std::uint32_t(std::clamp(c.x, 0.0f, 1.0f) * 255.0f + 0.5f) << 16) |
+                                (std::uint32_t(std::clamp(c.y, 0.0f, 1.0f) * 255.0f + 0.5f) << 8) |
+                                std::uint32_t(std::clamp(c.z, 0.0f, 1.0f) * 255.0f + 0.5f);
+        std::vector<float>& keep = room.add_ny[r->name];
+        keep.resize(std::size_t(r->v1 - r->v0), 0.0f);
+        for (const DrawBatch& b : room.mesh.batches) {
+            if (b.first_vert < r->v0 || b.first_vert >= r->v1 || !(b.mat_flags & 0x2u) || room_late_layer(b)) continue;
+            for (std::uint32_t v = b.first_vert; v < b.first_vert + b.vert_count && v < r->v1; ++v) {
+                float& ny = room.mesh.vertices[v].ny;
+                if (ny >= -1.5f) keep[v - r->v0] = ny;       // a real normal (a re-bake wrote it again)
+                ny = s ? -(1.0f + float(s)) : keep[v - r->v0];
+            }
+        }
+        if (!s) { room.mat_add.erase(mad); room.add_ny.erase(r->name); }
+    }
     for (std::size_t i = 0; i < room.mesh.batches.size(); ++i) {
         const DrawBatch& b = room.mesh.batches[i];
         if (b.first_vert < r->v0 || b.first_vert >= r->v1) continue;

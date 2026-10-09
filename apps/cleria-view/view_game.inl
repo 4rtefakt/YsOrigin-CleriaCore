@@ -5818,6 +5818,44 @@ title_again:
             boss6_tick();
             boss7_tick();
             boss8_tick();
+            {   // The hit flash obj+0x2a0 of the boss GoMeshes at their draw (SCREEN_EFFECTS.md §3.2). FUN_00504140
+                // [EXPORT 00504140.c]: f > 1.0 -> f -= 0.65 (0x6bd34c); every material record's +0x24..+0x2c =
+                // (107, 55, 19) / 255 x 0.5 x f (0x6bdb0c, 0x6bda74, 0x6bd988, 0x6bdc20, 0x6bd304), zeroed after
+                // the draw. The models' draws that call it: Room::mat_add (apply_object_alpha).
+                auto flash = [&](const std::string& nm, float f) {
+                    const float f0 = f;
+                    if (f > 1.0f) f -= 0.65f;
+                    const Vec3 c{107.0f / 255.0f * 0.5f * f, 55.0f / 255.0f * 0.5f * f, 19.0f / 255.0f * 0.5f * f};
+                    const auto it = room.mat_add.find(nm);
+                    const float was = it == room.mat_add.end() ? 0.0f : it->second.x;
+                    if (c.x == was) return;
+                    MeshObj* m = meshes.find(nm);
+                    if (!m || !room.mesh.object_range(nm)) return;
+                    room.mat_add[nm] = c;
+                    m->dirty_alpha = true;
+                    if (scrfx_log && c.x > was && f0 > 1.0f)   // a new flash (not the curve's own step up at 1.0)
+                        std::printf("  [hitflash] t%llu %s +0x2a0 %.2f -> +(%.3f, %.3f, %.3f)\n", (unsigned long long)tick_count,
+                                    nm.c_str(), f0, c.x, c.y, c.z);
+                };
+                if (boss) flash("boss01", boss->flash());
+                if (boss2) for (int o = 0; o < boss02::kObjects; ++o) flash(boss02::object_name(o), boss2->object(o).flash);
+                if (boss3) flash("boss03", boss3->flash());
+                if (boss4) flash("boss04", boss4->flash());
+                if (boss5) flash("boss05", boss5->flash());
+                if (boss6) for (int i = 0; i < boss06::kHeads; ++i) flash(boss6_name[i], boss6->head(i).flash);
+                if (boss7) {
+                    flash("boss07", boss7->body().flash);
+                    for (int i : {boss07::kOptR, boss07::kOptL}) {
+                        // An option's own +0x2a0 (1.65 when its part is hit, DALLES_AB §B.7) decays in the GoMesh
+                        // update's case 1 / 3 [EXPORT 00562990.c:83-88]: -= 0.075 (0x6bd174), floor 0.
+                        // [H] that the options' type byte +0x28d is 1 or 3 (it is not in the spec).
+                        float& cf = boss7->child(i).flash_2a0;
+                        if (cf != 0.0f) { cf -= 0.075f; if (cf < 0.0f) cf = 0.0f; }
+                        flash(boss7_child_name[i], cf);
+                    }
+                }
+                if (boss8) for (int i : {boss08::kB, boss08::kT, boss08::kW, boss08::kA}) flash(boss8_name[i], boss8->mesh(i).flash);
+            }
             mesh_delta.clear();
             floor_moved = false;
             for (auto& [nm, m] : meshes.all()) {

@@ -14,7 +14,7 @@
 // [approx] FUN_00462c40(cl 1) (DALLES_D23 §16.5) is run as "Boost ends"; its buff-timer half is not.
 // [not modelled] the re-skins (DALLES_AB §B.6.2 / §B.6.4: Boss07_00 / _01 ver2 / ver3, Boss07op01 — the view has no
 // per-object texture swap), the glare feedback pulse (the byte is carried, nothing reads it), the
-// hit-flash tints (D+0x2a0, child +0x2a0 / +0x2a4; DALLES_CD1 §3.3), the wing's translucent draw flag (+0x294 &
+// children's +0x2a4 tint (DALLES_CD1 §3.3; the +0x2a0 hit flash is drawn: step_meshes), the wing's translucent draw flag (+0x294 &
 // 0x1000), fx+0x1dc |= 0x100 of the inline effects, the death's dust sprites (FUN_00584550, DALLES_D23 §8), the kill
 // record FUN_00403cd0, flags 529..532 / 544..546 (dwords past g_flags), Hugo's P+0x7e0 effect, the "heavy" status 8
 // of the homing shot's hits, dmg' of the pool drain (GELALDY G9), the skybox alpha when the room has no object "skybox", the scene light (0xaa).
