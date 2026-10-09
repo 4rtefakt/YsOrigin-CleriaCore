@@ -778,6 +778,35 @@ CASES.update({
         room="S_50/S_5012/S_5012", char="3", env=dict(_LOCK),
         drive="5:opt=InfiniteHP=1;6:killall;20:at3=73,-4,20,0;140:pos;540:pos;541:quit",
         expect=["feet (70.203, -6.000, 25.598)", "feet (61.797, -6.000, 14.402)"], absent=[">> entering"]),
+    # The way across both rooms with NO skill (no bracelet equipped), the double jump alone (flag 163, the Gold
+    # Bracelet). The gaps are the meshes' [BYTES of S_5012.YMO / S_5005.YMO / s50_yuka_0x.YMO]: S_5012's entry
+    # platform's edge is 21.21 from the upper floor's hub (44, 42) and an arm reaches 12.73 (its corners 13.42), so
+    # the gap is 7.8..8.5 whatever the turn; S_5005's south platform is 15.56 from the hub (84, -28) of a floor
+    # reaching 8.49 / 8.94: 6.6..7.1 (and that platform stands 4 above its own approach). A plain running jump
+    # carries 5.65 (apex 2.63), the double jump up to ~9.5 (apex 5.37): the double jump is the way on, as in the
+    # original's own order (the Gold Bracelet is S_4002's). The ways OFF are 5.0..5.7. [H] not timed against the
+    # original. Toal, Hard: on at t300 (the windows are ~70 of every 133 ticks), half a turn, off to the north-east
+    # platform and up the steps to the S_5102 door; S_5005: on, most of a turn, off north and through door_01
+    # (448 set: the Crimson Key used) to S_5008. No ledge recovery fires on these jumps.
+    "yuka_cross_s5012": dict(
+        room="S_50/S_5012/S_5012", char="3", env=dict(_LOCK),
+        drive="2:diff=3;5:opt=InfiniteHP=1;6:killall;7:flag=163,1;241:at3=23,2,21,45;246:move=0.7071,0.7071,100;300:jump;"
+              "330:jump;400:pos;560:pos;628:move=0.7071,0.7071,170;634:jump;660:jump;700:pos;720:every=20,790,jump;"
+              "800:move=-0.033,0.9995,500;801:every=20,1290,jump;1300:quit",
+        expect=["feet (33.636, 2.000, 36.923)", "feet (41.689, 2.000, 53.298)", "feet (62.963, 2.476, 55.832)",
+                ">> entering S_5102"], absent=[">> entering S_5009", "[ledge]"]),
+    "yuka_cross_s5005": dict(
+        room="S_50/S_5005/S_5005", char="3", env=dict(_LOCK),
+        drive="2:diff=3;3:flag=448,1;4:saveload;5:opt=InfiniteHP=1;6:killall;7:flag=163,1;275:at3=68.5,-10,-43.5,45;"
+              "280:move=0.7071,0.7071,80;320:jump;350:jump;420:pos;700:pos;712:move=0,1,52;720:jump;732:jump;790:pos;"
+              "800:move=0.2,1,200;806:jump;1010:quit",
+        expect=["feet (80.990, -10.000, -34.331)", "feet (86.272, -10.000, -21.375)", "feet (81.618, -10.000, -11.591)",
+                ">> entering S_5008"], absent=[">> entering S_5006", "[ledge]"]),
+    # ... and without it: the same run and a plain jump fall short of the arm, into the pit ('naraku' -> S_5009).
+    "yuka_gap_s5012": dict(
+        room="S_50/S_5012/S_5012", char="3", env=dict(_LOCK),
+        drive="2:diff=3;5:opt=InfiniteHP=1;6:killall;241:at3=23,2,21,45;246:move=0.7071,0.7071,100;300:jump;330:jump;520:quit",
+        expect=[">> entering S_5009"], absent=["[ledge]"]),
     # The integrator's ledge recovery (ledge.hpp, MOVER.md §3.5, FUN_0045a510 0x45b607): Toal runs to S_1009's east
     # wall (x 10.337), is then put outside the room mesh (nothing within 510 under him) and is back on his last
     # safe spot in the same tick; he used to stand in the void at his last floor height.
