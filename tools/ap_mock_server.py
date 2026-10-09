@@ -15,6 +15,8 @@ The Ys Origin data package is the mod's data/ys_origin.json ids (the apworld's o
     !death              a DeathLink from Clicker (Bounced)
     !kick               drop the TCP connection (no close frame)
     !reseed <name>      later connections see another seed_name (the save guard)
+    !hint <location>    the server hints that location of the slot: its data-storage key _read_hints_0_2
+                        gains the hint (Get reads it; a SetNotify on the key gets the SetReply)
     anything else       echoed as a Chat line
 
 Every client command is printed as one "[apserver] <cmd> <json>" line (the password masked), flushed,
@@ -73,6 +75,7 @@ class Room:
         self.active = list(self.slot_data["location_signals"].values())
         self.received = []        # the slot's ReceivedItems list (kept across reconnects)
         self.checked = set()
+        self.store = {}           # the data storage (Get / SetNotify): the slot's hint list
         self.lock = threading.Lock()
 
     def placement(self, loc_id):
@@ -95,6 +98,7 @@ class Conn:
     def __init__(self, room, sock):
         self.room, self.s = room, sock
         self.tags = []
+        self.notify = set()       # SetNotify keys
 
     # ---- frames ----
     def send(self, packets):
@@ -277,13 +281,25 @@ class Conn:
                             "data": {"time": time.time(), "source": "Clicker", "cause": "Clicker pressed the button too hard."}}])
             elif t == "!kick":
                 return "kick"
+            elif t.startswith("!hint "):
+                loc = r.locs.get(t[6:].strip())
+                if loc is not None:
+                    p = r.placement(loc)
+                    key, old = "_read_hints_0_2", r.store.get("_read_hints_0_2")
+                    r.store[key] = (old or []) + [{"receiving_player": p["player"], "finding_player": 2, "location": loc,
+                                                   "item": p["item"], "found": loc in r.checked, "entrance": "",
+                                                   "item_flags": p["flags"], "status": 0, "class": "Hint"}]
+                    if key in self.notify:
+                        self.send([{"cmd": "SetReply", "key": key, "value": r.store[key], "original_value": old, "slot": 0}])
             elif t.startswith("!reseed "):
                 r.a.seed = t[8:].strip()          # the next connection's RoomInfo
             else:
                 self.send([{"cmd": "PrintJSON", "type": "Chat", "data": [{"text": "%s: %s" % (r.a.slot, t)}],
                             "team": 0, "slot": 2, "message": t}])
         elif cmd == "Get":
-            self.send([{"cmd": "Retrieved", "keys": {k: None for k in c.get("keys", [])}}])
+            self.send([{"cmd": "Retrieved", "keys": {k: r.store.get(k) for k in c.get("keys", [])}}])
+        elif cmd == "SetNotify":
+            self.notify.update(c.get("keys", []))
         elif cmd == "Set":
             if c.get("want_reply"):
                 self.send([{"cmd": "SetReply", "key": c.get("key"), "value": c.get("default"), "original_value": None}])

@@ -11,7 +11,7 @@ the game, its saves and its frames are what they were.
 | the runtime: state, sandbox, budget, errors, the game's calls into a mod | `src/cleria/modscript.{hpp,cpp}` (target `cleria-script`) |
 | the `cleria.*` API | `src/cleria/modscript_api.cpp` |
 | the game side (the `Host`): live game, content layer, ui kit, shell | `apps/cleria-view/view_lua.inl` + one-line hooks in `view_game.inl` |
-| tests | `apps/cleria-luatest` (ctest `luatest`, 57 checks), `tools/aplua_regress.py` (15 drive cases), `drive_regress shell_subpages` |
+| tests | `apps/cleria-luatest` (ctest `luatest`, 57 checks), `tools/aplua_regress.py` (16 drive cases), `drive_regress shell_subpages` |
 | samples | `samples/mods/hello`, `samples/mods/archipelago_lua` (§9) |
 | the modder's guide | `samples/mods/README.md` |
 
@@ -297,7 +297,8 @@ too (uuid and times masked).
 retail mod's 2.0 rules. Its eight cases joined `tools/aplua_regress.py`: `aplua_roda`, `aplua_random_start`,
 `aplua_weapon_clamp`, `aplua_boss_on_kill`, `aplua_boss_on_entry`, `aplua_page`, `aplua_sp_chest`,
 `aplua_invariants` (a case's `aplua=dict(slot_data=..., settings=...)` lays keys over the fixture and adds
-lines to the mod's settings section), beside `aplua_retry`.
+lines to the mod's settings section), beside `aplua_retry`, and `aplua_hints` (the mock server keeps the slot's
+hint list under `_read_hints_0_2`: `Get`, `SetNotify` -> `SetReply`, the chat command `!hint <location>`).
 
 **What changed from the removed C++ client** (all deliberate or cosmetic; a player of the C++ client starts
 over in the mod's settings):

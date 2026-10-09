@@ -137,6 +137,15 @@ CASES = {
         room="S_10/S_1001/S_1001", aplua={},
         drive="60:flag=99,3;70:flag=184,5;120:lua=apflag 99;130:lua=apflag 184;150:quit",
         expect=[P + "flag 0x63 = 1", P + "flag 0xB8 = 3"]),
+    # Hints: the slot's list is read at login (Get: empty) and followed (SetNotify): the server hints the
+    # S_1001 chest, the SetReply brings the list; the mod's page then draws it without a script error.
+    "aplua_hints": dict(
+        room="S_10/S_1001/S_1001", aplua={},
+        drive="100:lua=apsay !hint Wailing Blue: 2F Path 1;200:shell=Mods:ysorigin.archipelago;260:lua=apstate;280:quit",
+        expect=[P + "hints: 0", P + "hints: 1", "goal 0 active 1"],
+        absent=["script stopped", "Mod stopped", "attempt to"],
+        server_expect=['Get {"cmd":"Get","keys":["_read_hints_0_2"]}', 'SetNotify {"cmd":"SetNotify","keys":["_read_hints_0_2"]}',
+                       'Say {"cmd":"Say","text":"!hint Wailing Blue: 2F Path 1"}']),
 }
 
 
