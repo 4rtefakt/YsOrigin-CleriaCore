@@ -1259,7 +1259,9 @@ CASES.update({
     "ending_to_title": dict(
         room="S_00/S_0003/S_0003", char="3",
         drive="5:flag=206,1;10:saveload;40:every=15,6000,ok;6000:quit",
-        expect=[">> entering S_0003", "ChangeScene 'Title\\' -> the title", "Return to Title: back to the title",
+        # On the way its EventXX(4) sets the system ini's GameFirstPlay and Toal's clear flag 299 (FUN_0058f210 case 4).
+        expect=[">> entering S_0003", "[clear] EventXX(4): GameFirstPlay = 1, clear flag 299 = 1",
+                "ChangeScene 'Title\\' -> the title", "Return to Title: back to the title",
                 "[title] t60 fader 0.00 list 1 book 0"]),
     # DIFFICULTY.md G2 / G8 on Hard (diff=3, then a reload so the room spawns under it): a regular Rif's 60 HP
     # is 72 and the Normal 112 is 134 (FUN_004202e0's x1.2); the hit that takes 22 on Normal takes

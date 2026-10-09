@@ -3256,6 +3256,22 @@ title_again:
             if (player.boosting) end_boost();
         }
         else if (n == 1) player.boost = skillmp::kBoostFull;   // DAT_0076c1b4 = 30000 (a direct write: no READY)
+        else if (n == 4) {
+            // The clear (case 4 [EXPORT 0058f210.c:94-129; BYTES 0x58f3b0..0x58f41c]): byte 0x74ab9b = 1
+            // ("GameFirstPlay" of the system ini) and the character's clear flag 297 / 298 / 299
+            // (0x76bdc0 / c4 / c8, by g_flags[150] = 1 / 2 / 3) = 1.
+            // [not modelled] the rest of the case: the clear bytes 0x74ab7b / 7a / 79 (max(old, 1), or 0xd5 / 0x8e /
+            // 0x89 when FUN_00583960 answers 1), the cleared-difficulty byte 0x74ab88 + 4 * tier + character - 1, the
+            // clear-time test (0x76bc38 against 75 / 80 / 90 / 120 minutes -> 0x74e258), FUN_005a22e0 and the config /
+            // clear-data writes that follow (FUN_00436fa0..FUN_005cf580). CleriaCore keeps no record of those bytes,
+            // so the title's cleared-game entries (TitleGates) stay shut after a clear.
+            settings().s.game.game_first_play = 1;
+            settings().touch(); settings().save();
+            movie_seen.first_play = true;
+            const int ch = game.g_flags[150];
+            if (ch >= 1 && ch <= 3) game.g_flags[296 + ch] = 1;
+            std::printf("  [clear] EventXX(4): GameFirstPlay = 1, clear flag %d = 1\n", ch >= 1 && ch <= 3 ? 296 + ch : -1);
+        }
         // 11 and 12 zero the four status timers 0x76c160..0x76c16c [EXPORT 0058f210.c:288-311]; the bits and
         // the effects go on the next FUN_00462550 (ail_tick: the engine's own call here returns under a Fix).
         if (n == 11 || n == 12) ailments::clear_timers(ail);
