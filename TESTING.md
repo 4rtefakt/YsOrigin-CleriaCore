@@ -54,9 +54,43 @@ Blessings (**E** at statue → "Accept divine blessing") just say "not implement
 
 Every push builds on Windows, Linux (gcc + clang) and macOS (GitHub Actions,
 `.github/workflows/build.yml`) and runs `ctest -LE assets`: the tests that need no game data. The
-ones labelled `assets` (cotest, worldtest, enemytest, asotest, animtest, ef2simtest, bullettest,
+ones labelled `assets` (cotest_0 .. cotest_9, worldtest, enemytest, asotest, animtest, ef2simtest, bullettest,
 invtest, booktest, bosstest, locustest, xso13test, dueltest, weathertest) run only here, on a PC
-with the game unpacked: `ctest --test-dir build_diff -C Release`. Game data never goes to CI.
+with the game unpacked: `ctest --test-dir build_diff -C Release -j8`. Game data never goes to CI.
+
+## Local verification (the fast commands, 2026-10-09)
+
+From the repo root, on the `build_diff` tree. In a worktree (no `assets/`), set `CLERIA_ASSETS=<the unpacked game>`.
+
+**Per commit** (about 2 minutes after the build):
+
+```
+python tools/verify.py --smoke
+```
+
+= the Release build, `ctest --test-dir build_diff -C Release -j8 -E cotest` (every test but the script
+sweep: seconds), `python tools/goldens.py compare`, and `python tools/drive_regress.py --smoke` (30 short
+drive cases, one or two per subsystem: the `SMOKE` list in the tool).
+
+**Before a push** (about 20 minutes after the build):
+
+```
+python tools/verify.py
+```
+
+= the Release build, `ctest --test-dir build_diff -C Release -j8` (all 59 tests), the goldens, and
+`python tools/drive_regress.py` (all 219 drive cases, 8 at a time by default; `--jobs N` to change it,
+`--jobs 1` = one after the other, about 35 minutes).
+
+- **cotest runs as 10 shards** (`cotest_0` .. `cotest_9` = `cleria-cotest <assets> --shard i/10`, every room's
+  root script in exactly one). `ctest -R cotest` runs all of them; one process (`cleria-cotest <assets>`)
+  is still the whole sweep, about 17 minutes. Without `-j` the shards run one after the other: always pass `-j8`
+  (or `-j4`).
+- **drive_regress prints each case's time** and lists the failed cases again at the end. Every case has its own
+  temp folder (saves, shots, settings, mods) and an Archipelago case's mock server takes a free port, so no
+  case has to run alone. A case is about twice as slow with 8 running as alone: a new case that checks
+  wall-clock time would not be safe (none does; the Archipelago cases wait on their socket by design).
+- Do not rebuild a test exe while ctest or drive_regress runs.
 
 ## If something looks wrong
 
