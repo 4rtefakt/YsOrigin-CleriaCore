@@ -967,15 +967,20 @@ CASES.update({
         expect=["[boss04] Khonsclard: body 3750, pods 900", "[death] HP 0", "[gameover] Retry -> S_4099",
                 "[boss04] Khonsclard: body 3750, pods 900", "states 00", "band 2", "flag 223 = 1"]),
     # Pictimos (PICTIMOS.md): walk into BATTLE.XSO's event box, the 700-frame intro (RAKKATYUU / TYAKUTI), the
-    # fight from BATTLE_START, ZOROMEKA's 27 Chryolos below half HP (m220_boss), the guts at HP 0 with live
+    # fight from BATTLE_START, ZOROMEKA's Chryolos below half HP (m220_boss), the guts at HP 0 with live
     # summons (survives at 1, absorbs them), the death: EXP, flag 224 at b4 500 and the destroy.
+    # Re-pinned 2026-10-09: the guts used to come from one Chryolos happening to outlive him. The pickup fixes
+    # (the drops leave the enemy's origin: other RNG draws) moved the fight to a path where all 27 were dead by
+    # then (no guts, a plain death). The drive now raises Damage dealt at t2180, in the middle of ZOROMEKA, so he
+    # falls with 12 of 20 alive: the guts (body 1 -> 481 absorbed), then the kill.
     "pictimos_fight": dict(
         room="S_50/S_5099/S_5099",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
-              "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;4100:quit",
+              "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;2180:opt=DamageDealt=20;4100:quit",
         expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
-                "sect ZOROMEKA", "/27 |", "sect DEAD", "guts 1 waves", "EXP (lv 40)", "flag 224 = 1", "destroyed"]),
+                "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 12/20", "body 481/4000 guts 1",
+                "EXP (lv 40)", "flag 224 = 1", "destroyed"]),
     # ... and as Hugo: his shots' particles reach Pictimos's parts (part 1 takes the damage, the DEF-999 ones none).
     "pictimos_hugo": dict(
         room="S_50/S_5099/S_5099", char="2",
