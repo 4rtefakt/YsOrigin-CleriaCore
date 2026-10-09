@@ -153,6 +153,9 @@ std::filesystem::path resolve_ymo_path(const std::filesystem::path& root, const 
 // FUN_00573aa0) reads. False when the model cannot be read or has no mesh.
 bool object_frame(const std::filesystem::path& asset_root, const SobObject& o, const char* clip,
                   float frame, Vec3* t);
+// The same node's whole matrix (the platform carry reads its turn too, MOVER.md §3.3).
+bool object_frame_mat(const std::filesystem::path& asset_root, const SobObject& o, const char* clip,
+                      float frame, Mat4* f);
 
 // `world` (non-null): place it with that full matrix instead (SobObject::world_mat).
 bool rebake_object(RoomMesh& m, const std::filesystem::path& asset_root, const std::string& lname,

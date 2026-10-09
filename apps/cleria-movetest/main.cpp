@@ -7,6 +7,7 @@
 #include "cleria/hazard.hpp"
 #include "cleria/oxygen.hpp"
 #include "cleria/physics_player.hpp"
+#include "cleria/rider.hpp"
 
 using namespace cleria;
 
@@ -250,6 +251,39 @@ int main() {
         SurfaceHazard tl; ni.character = 3; ni.boosting = true;
         int th = 0; float tv = 0; for (int k = 0; k < 900; ++k) { const float d = tl.tick(ni); th += d > 0; tv = d > 0 ? d : tv; }
         check(th == 3 && near(tv, 1.0f), "noise, Toal boosting: 1 HP every 300 ticks");
+    }
+
+    {   // The platform carry by the floor sub-mesh's whole matrix (FUN_0045a510 0x45a9a4.., src/cleria/rider.hpp).
+        auto yaw_at = [](float deg, const Vec3& at) {             // a turn about the vertical axis through `at`
+            const float a = deg * 0.017453292f, c = std::cos(a), s = std::sin(a);
+            Mat4 m;
+            m.m = {c, 0, s, 0, 0, 1, 0, 0, -s, 0, c, 0, 0, 0, 0, 1};
+            const Vec3 r = m.transform_point({-at.x, -at.y, -at.z});
+            m.m[12] = r.x + at.x; m.m[13] = r.y + at.y; m.m[14] = r.z + at.z;
+            return m;
+        };
+        const Vec3 hub{44.0f, 2.0f, 42.0f};
+        const Mat4 a = yaw_at(30.0f, hub), b = yaw_at(30.675f, hub);   // S_5012's floor: 0.675 degrees a tick
+        const Vec3 p{51.0f, 3.075f, 42.0f};
+        const RiderCarry rc = rider_carry(a, b, p);
+        const Vec3 q{p.x + rc.d.x, p.y + rc.d.y, p.z + rc.d.z};
+        const float r0 = std::hypot(p.x - hub.x, p.z - hub.z), r1 = std::hypot(q.x - hub.x, q.z - hub.z);
+        check(near(r0, r1) && near(rc.d.y, 0.0f) && near(std::hypot(rc.d.x, rc.d.z), 7.0f * 0.675f * 0.017453292f, 1e-3f),
+              "rider carry: a floor turning about its hub moves the rider along the circle (radius kept)");
+        check(near(rc.yaw, 0.675f * 0.017453292f, 1e-5f), "rider carry: the floor's turn is added to the heading");
+        Mat4 t0, t1;
+        t1.m[12] = 0.1f; t1.m[13] = 0.05f;
+        const RiderCarry tr = rider_carry(t0, t1, p);
+        check(near(tr.d.x, 0.1f) && near(tr.d.y, 0.05f) && near(tr.d.z, 0.0f) && tr.yaw == 0.0f,
+              "rider carry: a translating floor carries by its move, no turn");
+        t1.m[12] = 3.0f; t1.m[13] = 4.0f;
+        const RiderCarry big = rider_carry(t0, t1, p);
+        check(near(std::sqrt(big.d.x * big.d.x + big.d.y * big.d.y + big.d.z * big.d.z), 0.3f) && near(big.d.x, 0.18f),
+              "rider carry: scaled to length 0.3 when its square exceeds 0.09");
+        const Mat4 inv = affine_inverse(a) * a;
+        bool id = true;
+        for (int i = 0; i < 16; ++i) id = id && near(inv.m[std::size_t(i)], (i % 5 == 0) ? 1.0f : 0.0f, 1e-4f);
+        check(id, "affine_inverse(M) x M = identity");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

@@ -71,6 +71,7 @@
 #include "cleria/movie.hpp"
 #include "cleria/scenelist.hpp"
 #include "cleria/items.hpp"
+#include "cleria/rider.hpp"
 #include "cleria/scene.hpp"
 #include "cleria/sev.hpp"
 #include "cleria/scm.hpp"

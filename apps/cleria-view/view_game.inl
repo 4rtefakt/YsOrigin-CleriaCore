@@ -1627,7 +1627,9 @@ title_again:
     int mesh_load_serial = 0;                // the scene loads so far (load_meshes(false)): a boss brain built under
                                              // an earlier one is stale (boss_tick .. boss5_tick)
     std::unordered_map<std::string, Vec3> baked_pos, mesh_delta;
-    std::unordered_map<std::string, Vec3> baked_frame;   // the floor object's frame at its last bake (the carry)
+    std::unordered_map<std::string, Mat4> baked_frame;   // the floor object's frame at its last bake (the carry)
+    Mat4 floor_was, floor_now;               // the floor object's frame before / after the last mesh step
+    bool floor_moved = false;                // ... which changed it (the rider carry reads the pair next tick)
     std::string player_floor_obj;            // the object the player stands on (+0x540)
     Vec3 carry{};                            // +0x5b0..: the platform carry
     // (Re)seed the mesh runtime from the room's objects. keep = a reload of the same room:
@@ -1656,12 +1658,11 @@ title_again:
             // [approx] only a section 0 named 'Default' (those five, and S_3004's unnamed s30swit0). Left at
             // rest, as before: a NAMED object (it waits for its script's Mesh_SetMotion); the exporter's whole-
             // range 'ALL' sections (S_1006's Mask of Eyes wall s10wall_00, whose re-bake would undo view_mask's
-            // collision switch; s30kaid0; s7099kumo, whose update kind is 3 [EXPORT 00501a30.c:208-211]); the
-            // three large spinning floors s50_yuka_00 / 01 / 02 ('LOOP'; S_5005, S_5012), which need the mover's
-            // carry by the sub-mesh's whole matrix (MOVER.md §3.3 [BYTES 0x45a9a4..]) — the host carries by a
-            // translation only, so a turning floor's gaps swept under a standing player. Open work.
+            // collision switch; s30kaid0; s7099kumo, whose update kind is 3 [EXPORT 00501a30.c:208-211]).
+            // 'LOOP' is the three large spinning floors s50_yuka_00 / 01 / 02 (S_5005, S_5012): a standing player
+            // rides them by the frame's whole matrix (rider.hpp, MOVER.md §3.3 [BYTES 0x45a9a4..]).
             if (!r.name.empty() && r.name[0] == '#' && !m.clips.empty() &&
-                (m.clips[0].name == "Default" || m.clips[0].name == "DEFAULT")) {
+                (m.clips[0].name == "Default" || m.clips[0].name == "DEFAULT" || m.clips[0].name == "LOOP")) {
                 m.sect = 0; m.time = float(m.clips[0].start); m.count = 0;
                 m.dirty_pose = true;
             }
@@ -3410,7 +3411,7 @@ title_again:
     };
     // A scene object's frame (its render node of mesh 0, posed, placed): scene.hpp object_frame.
     // False when it is hidden (no render range) or its model cannot be read.
-    auto mesh_frame = [&](const MeshObj& m, Vec3* t) {
+    auto mesh_frame_mat = [&](const MeshObj& m, Mat4* f) {
         const RoomMesh::ObjRange* r = room.mesh.object_range(m.name);
         if (!r) return false;
         SobObject o = r->obj;
@@ -3418,7 +3419,13 @@ title_again:
         if (m.has_world) { o.has_world = true; o.world_mat = m.world; }
         const char* clip = (m.sect >= 0 && std::size_t(m.sect) < m.clips.size())
                                ? m.clips[std::size_t(m.sect)].name.c_str() : nullptr;
-        return object_frame(asset_root, o, clip, m.time, t);
+        return object_frame_mat(asset_root, o, clip, m.time, f);
+    };
+    auto mesh_frame = [&](const MeshObj& m, Vec3* t) {
+        Mat4 f;
+        if (!mesh_frame_mat(m, &f)) return false;
+        *t = {f.m[12], f.m[13], f.m[14]};
+        return true;
     };
     // Mesh_DistanceToAlpha's frame height, cached until the object moves or re-poses
     // (step_meshes clears frame_y_ok). A hidden object keeps its last height.
@@ -5763,6 +5770,7 @@ title_again:
             boss7_tick();
             boss8_tick();
             mesh_delta.clear();
+            floor_moved = false;
             for (auto& [nm, m] : meshes.all()) {
                 // 0x182 Mesh_SetMaterialColor: every material of that name, by the object's YMO material index.
                 if (!m.mat_color.empty() && (m.dirty_color || !room.mat_rgb.count(nm)))
@@ -5828,11 +5836,13 @@ title_again:
                 // object carries by its frame's move (S_1004's rising steps), not just +0x50.
                 // [approx] the frame of mesh 0 stands in for the sub-mesh stood on.
                 if (nm == player_floor_obj) {
-                    Vec3 f{};
-                    if (mesh_frame(m, &f)) {
+                    Mat4 f;
+                    if (mesh_frame_mat(m, &f)) {
                         auto bf = baked_frame.find(nm);
-                        if (bf != baked_frame.end())
-                            mesh_delta[nm] = {f.x - bf->second.x, f.y - bf->second.y, f.z - bf->second.z};
+                        if (bf != baked_frame.end()) {
+                            mesh_delta[nm] = {f.m[12] - bf->second.m[12], f.m[13] - bf->second.m[13], f.m[14] - bf->second.m[14]};
+                            floor_was = bf->second; floor_now = f; floor_moved = true;
+                        }
                         baked_frame[nm] = f;
                     }
                 } else {
@@ -6031,7 +6041,17 @@ title_again:
             {   // MOVER.md §3.3: the platform carry. Grounded on an object that moved last
                 // step: its displacement (clamped to 0.3); airborne: the carry decays x0.975.
                 auto it = mesh_delta.find(player_floor_obj);
-                if (pv.grounded && it != mesh_delta.end()) {
+                if (pv.grounded && it != mesh_delta.end() && floor_moved) {
+                    // The whole matrix (0x45aa95..0x45ac14): the origin through inverse(cached) x current, and
+                    // the platform's turn onto the heading +0x308 and the facing +0x314 (rider.hpp).
+                    const RiderCarry rc = rider_carry(floor_was, floor_now, {feet.x, feet.y + kOriginH, feet.z});
+                    carry = rc.d;
+                    if (rc.yaw != 0.0f) {
+                        const float h = std::atan2(face_dir.z, face_dir.x) + rc.yaw;
+                        face_dir = {std::cos(h), 0.0f, std::sin(h)};
+                        facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
+                    }
+                } else if (pv.grounded && it != mesh_delta.end()) {
                     Vec3 cd = it->second;
                     const float q = cd.x * cd.x + cd.y * cd.y + cd.z * cd.z;
                     if (q > 0.09f) { const float k = 0.3f / std::sqrt(q); cd = {cd.x * k, cd.y * k, cd.z * k}; }

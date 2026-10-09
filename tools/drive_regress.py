@@ -736,6 +736,28 @@ CASES.update({
         expect=["cast 167 hp 4186/4186 player hp 342 | lv 48 max 4186.25 atk 249 def 259 exp 22128",
                 "[content] boss_defeated S_6099", "flags 130=0 131=0 133=0 156=0 174=1", " 231=1", " 236=1"], absent=["[death]"],
         count={"boss_defeated": 1}),
+    # S_5012's spinning floors (s50_yuka_01 / 02, 'LOOP' from the load) carry a rider by their whole matrix
+    # (rider.hpp, MOVER.md §3.3). Toal glides from the entry platform onto an arm of the upper floor (the fire
+    # skill's air jump and slow fall), stands on it for half a turn (t320..t560: y stays 2.000 while x / z go
+    # round its hub (44, 42)), glides off to the far platform, climbs the steps and leaves by the S_5102 door.
+    # The floors used to stand still: a rider was carried by translation only and their gaps swept under him.
+    "yuka_ride": dict(
+        room="S_50/S_5012/S_5012", char="3", env=dict(_LOCK),
+        drive="5:opt=InfiniteHP=1;6:killall;7:bracelet=118;8:flag=184,1;20:at3=25,4,27.5,0;240:move=0.81,0.59,70;"
+              "241:jump;242:jump;258:skill+;260:skill-;320:pos;440:pos;560:pos;570:move=0.645,0.764,170;571:jump;"
+              "572:jump;588:skill+;590:skill-;648:jump;649:jump;745:move=0,1,500;760:every=20,1240,jump;1250:quit",
+        expect=["feet (34.798, 2.000, 36.664)", "feet (37.291, 2.000, 50.254)", "feet (50.625, 2.000, 50.311)",
+                ">> entering S_5102"], absent=[">> entering S_5009"]),
+    # The same carry on S_5005's floor (s50_yuka_00, hub (84, -28)) and S_5012's lower one (hub (66, 20), the
+    # other way round): a standing player stays on for more than a full turn.
+    "yuka_stand_s5005": dict(
+        room="S_50/S_5005/S_5005", char="3", env=dict(_LOCK),
+        drive="5:opt=InfiniteHP=1;6:killall;20:at3=86,-8,-28,0;140:pos;540:pos;541:quit",
+        expect=["feet (84.359, -10.000, -26.033)", "feet (85.968, -10.000, -28.359)"], absent=[">> entering"]),
+    "yuka_stand_s5012_low": dict(
+        room="S_50/S_5012/S_5012", char="3", env=dict(_LOCK),
+        drive="5:opt=InfiniteHP=1;6:killall;20:at3=73,-4,20,0;140:pos;540:pos;541:quit",
+        expect=["feet (70.203, -6.000, 25.598)", "feet (61.797, -6.000, 14.402)"], absent=[">> entering"]),
     # Issue #5 (build/mech_re/KISHGAL_SHIELD.md §3): Toal vs Kishgal (M860) in S_6080. Toal's Ignis (the fire
     # bracelet 118: EF2 162, one of the brain's 13 breaker ids) overlapping an ice pillar (EF2 0x122) breaks it:
     # SE 424, the pillar killed, EF2 0x123. The fight still ends in the KO.
