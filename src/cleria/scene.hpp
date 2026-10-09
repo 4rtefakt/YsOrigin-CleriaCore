@@ -134,6 +134,13 @@ struct RoomMesh {
         for (const ObjRange& r : object_ranges) if (r.name == lname) return &r;
         return nullptr;
     }
+    // Collision meshes only: triangles [climb_t0, climb_t1) are a body the engine's mover lets a
+    // player walk up at any slope (physics.cpp floor_at / resolve_walls). The view sets it to
+    // Velagunder's entries while he is stunned (their +0x89 clear); empty otherwise. climb_reach is
+    // the mover's sphere radius while the player who stands on that body moves (0 otherwise: its
+    // steep faces are walls, as everywhere).
+    std::uint32_t climb_t0 = 0, climb_t1 = 0;
+    float climb_reach = 0.0f;
 };
 
 // Shift one object's vertices by `d` (a scripted translation). False if it is not in `m`.

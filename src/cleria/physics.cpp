@@ -68,7 +68,10 @@ float floor_at(const RoomMesh& m, float x, float z, float ceiling, int* out_tri)
         const Vec3 n = cross(sub(b, a), sub(c, a));
         if (n.y <= 0 && -n.y <= 0) continue;
         const Vec3 nn = normalize(n);
-        if (std::fabs(nn.y) < 0.5f) continue;  // not floor-like
+        // The engine's floor is a plain down-ray: no slope test (COLLISION.md §4). A climb range's
+        // upward faces are taken as it takes them; elsewhere the 0.5 stand-in stays.
+        const bool climb = i / 3 >= m.climb_t0 && i / 3 < m.climb_t1 && nn.y > 0.0f;
+        if (std::fabs(nn.y) < 0.5f && !climb) continue;  // not floor-like
         // Barycentric in XZ.
         const float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
         if (std::fabs(d) < 1e-8f) continue;
@@ -77,7 +80,8 @@ float floor_at(const RoomMesh& m, float x, float z, float ceiling, int* out_tri)
         const float wc = 1.0f - wa - wb;
         if (wa < -1e-3f || wb < -1e-3f || wc < -1e-3f) continue;
         const float y = wa * a.y + wb * b.y + wc * c.y;
-        if (y <= ceiling && y > best) { best = y; if (out_tri) *out_tri = int(i / 3); }
+        // ... and what the sphere about that origin meets from below lifts it (climb_reach, its radius).
+        if (y <= ceiling + (climb ? m.climb_reach : 0.0f) && y > best) { best = y; if (out_tri) *out_tri = int(i / 3); }
     }
     return best;
 }
@@ -110,6 +114,11 @@ Vec3 resolve_walls(const RoomMesh& m, Vec3 pos, float radius, float height) {
                 q.z - radius > std::max({a.z, b.z, c.z})) continue;
             const Vec3 nn = normalize(cross(sub(b, a), sub(c, a)));
             if (std::fabs(nn.y) > 0.6f) continue;  // floors/ceilings don't block
+            // A climb range's faces are no walls for the player who stands on that body: the engine's
+            // sweep slides up its upward faces (floor_at and the caller's plane slide take them) and
+            // does not meet the faces inside it, where its entries overlap (their undersides stopped
+            // this two-sided capsule at every joint). [approx] an overhang of the body does not stop him.
+            if (m.climb_reach > 0.0f && i / 3 >= m.climb_t0 && i / 3 < m.climb_t1) continue;
             const Vec3 cp = closest_on_tri(q, a, b, c);
             const float dx = q.x - cp.x, dz = q.z - cp.z;
             const float d2 = dx * dx + dz * dz;

@@ -1681,6 +1681,8 @@ title_again:
     Mat4 floor_was, floor_now;               // the floor object's frame before / after the last mesh step
     bool floor_moved = false;                // ... which changed it (the rider carry reads the pair next tick)
     std::string player_floor_obj;            // the object the player stands on (+0x540)
+    int ride_tri = -1;                       // ... and, on the stunned Velagunder, the face under him and his
+    Vec3 ride_uvw{};                         // place in its frame (a + u (b - a) + v (c - a) + w n): the carry
     Vec3 carry{};                            // +0x5b0..: the platform carry
     // (Re)seed the mesh runtime from the room's objects. keep = a reload of the same room:
     // objects keep their runtime state and are re-baked from it.
@@ -3221,6 +3223,8 @@ title_again:
     bool drive_jump = false;                              // CLERIA_DRIVE jump: one press
     Vec3 drive_wish{};                                    // CLERIA_DRIVE move=dx,dz,n: a held stick
     int drive_wish_n = 0;
+    Vec3 drive_goto{};                                    // CLERIA_DRIVE goto=x,z,n: the stick held toward a point
+    int drive_goto_n = 0;
     #include "view_hugo_eyes.inl"                         // Hugo's Eyes of Fact (the player's familiars)
     auto skill_tick = [&](bool skill_held, bool attack_held) {
         const int slot = skillmp::bracelet_slot(inv.magic);
@@ -4006,6 +4010,7 @@ title_again:
             game.g_flags[144] = difficulty >= 2 ? difficulty - 2 : 0;
             game.g_flags[143] = difficulty <= 1 ? 1 : 0;
             game.g_flags[203] = difficulty == 0 ? 1 : 0;
+            if (boss) { boss.reset(); g_rig.clear_boss(); }   // Velagunder's stats too (Boss01Setup)
             boss6.reset();                              // Zava's heads latch it in their ctor: built again next step
             boss7.reset();                              // ... and Dalles (view_boss07.inl)
             boss8.reset();                              // ... and Darm (view_boss08.inl)
@@ -4177,6 +4182,9 @@ title_again:
         } else if (cmd.rfind("move=", 0) == 0) {       // move=dx,dz,n: hold a world direction n ticks
             float dx = 0, dz = 0; int nn = 0;
             if (std::sscanf(cmd.c_str() + 5, "%f,%f,%d", &dx, &dz, &nn) == 3) { drive_wish = {dx, 0, dz}; drive_wish_n = nn; }
+        } else if (cmd.rfind("goto=", 0) == 0) {       // goto=x,z,n: hold the stick toward the world point (x, z) for n ticks, or until 0.2 from it
+            float x = 0, z = 0; int nn = 0;
+            if (std::sscanf(cmd.c_str() + 5, "%f,%f,%d", &x, &z, &nn) == 3) { drive_goto = {x, 0, z}; drive_goto_n = nn; }
         } else if (cmd.rfind("bracelet=", 0) == 0) {   // bracelet=<item id>: the equipped bracelet 0x76a630
             inv.magic = std::atoi(cmd.c_str() + 9);
         } else if (cmd.rfind("held=", 0) == 0) {       // held=<item id>: the Item page's held tool 0x76a62c (97 = the Scales)
@@ -6129,6 +6137,12 @@ title_again:
             // through the commit), Hugo keeps a full 1.0, Toal goes 0.80 -> 0.05 so he
             // keeps drifting through his. anime_Turnable locks facing over the same span.
             const float stepUp = kStepUp;
+            {   // Velagunder's entries while he is stunned: no slope limit under the player (below).
+                const RoomMesh::ObjRange* br = boss && boss->stunned() ? room.coll.object_range("boss01") : nullptr;
+                room.coll.climb_t0 = br ? br->t0 : 0;
+                room.coll.climb_t1 = br ? br->t1 : 0;
+                room.coll.climb_reach = br && player_floor_obj == "boss01" ? pm.radius() : 0.0f;
+            }
             // Movement is relative to the live camera (last frame's — the 1-frame lag
             // is imperceptible and avoids a chicken-and-egg with the follow camera).
             const Vec3 fwd = normalize({std::cos(cam.yaw), 0, std::sin(cam.yaw)});  // screen-up
@@ -6153,6 +6167,13 @@ title_again:
                 if (pin.dir & input::kLeft) { wish.x -= rt.x; wish.z -= rt.z; }
             }
             if (drive_wish_n > 0) { --drive_wish_n; wish.x += drive_wish.x; wish.z += drive_wish.z; }
+            if (drive_goto_n > 0) {
+                const float gx = drive_goto.x - feet.x, gz = drive_goto.z - feet.z;
+                if (--drive_goto_n == 0 || gx * gx + gz * gz < 0.04f) {
+                    drive_goto_n = 0;
+                    std::printf("  [drive] t%llu goto ends at (%.2f,%.2f,%.2f)\n", (unsigned long long)tick_count, feet.x, feet.y, feet.z);
+                } else { wish.x += gx; wish.z += gz; }
+            }
             // The door walk-out (FUN_0042cf00 0x42d246..0x42d29d -> the mover FUN_00465170 l.405-420): while
             // +0x364 != 0 the mover replaces the stick with a full one (+0x508 = 1.0) toward +0x358 / +0x35c,
             // until within sqrt(+0x364) = 0.35 of it. The goal is 100 ahead, so she walks on through the fade.
@@ -6182,7 +6203,24 @@ title_again:
             {   // MOVER.md §3.3: the platform carry. Grounded on an object that moved last
                 // step: its displacement (clamped to 0.3); airborne: the carry decays x0.975.
                 auto it = mesh_delta.find(player_floor_obj);
-                if (pv.grounded && it != mesh_delta.end() && floor_moved) {
+                const RoomMesh& rcm = phys_mesh(room);
+                if (pv.grounded && ride_tri >= 0 && std::size_t(ride_tri) * 3 + 2 < rcm.indices.size()) {
+                    // The stunned Velagunder: the carry is the change of the entry's matrix under the player
+                    // (+0x570 cache, 0x45aa95..), clamped to 0.3 [BYTES 0x6bd27c]. An entry is rigid, so the
+                    // face he stood on, re-posed by step_meshes, gives his point's move. [approx] no turn of
+                    // the heading; the other bodies keep the frame's translation (below).
+                    const RoomVertex& A = rcm.vertices[rcm.indices[std::size_t(ride_tri) * 3]];
+                    const RoomVertex& B = rcm.vertices[rcm.indices[std::size_t(ride_tri) * 3 + 1]];
+                    const RoomVertex& C = rcm.vertices[rcm.indices[std::size_t(ride_tri) * 3 + 2]];
+                    const Vec3 e1{B.px - A.px, B.py - A.py, B.pz - A.pz}, e2{C.px - A.px, C.py - A.py, C.pz - A.pz};
+                    const Vec3 n = cross(e1, e2);
+                    Vec3 cd{A.px + ride_uvw.x * e1.x + ride_uvw.y * e2.x + ride_uvw.z * n.x - feet.x,
+                            A.py + ride_uvw.x * e1.y + ride_uvw.y * e2.y + ride_uvw.z * n.y - feet.y,
+                            A.pz + ride_uvw.x * e1.z + ride_uvw.y * e2.z + ride_uvw.z * n.z - feet.z};
+                    const float q = cd.x * cd.x + cd.y * cd.y + cd.z * cd.z;
+                    if (q > 0.09f) { const float k = 0.3f / std::sqrt(q); cd = {cd.x * k, cd.y * k, cd.z * k}; }
+                    carry = cd;
+                } else if (pv.grounded && it != mesh_delta.end() && floor_moved) {
                     // The whole matrix (0x45aa95..0x45ac14): the origin through inverse(cached) x current, and
                     // the platform's turn onto the heading +0x308 and the facing +0x314 (rider.hpp).
                     const RiderCarry rc = rider_carry(floor_was, floor_now, {feet.x, feet.y + kOriginH, feet.z});
@@ -6454,6 +6492,25 @@ title_again:
             // at floor + 1.075: dy from the signed timer (linear while grounded, ½gt²
             // airborne), the down-ray from the origin, then landing / coyote / fall with the
             // 0.65 settle lerp. `feet` is derived back for the rest of the view.
+            // The stunned Velagunder's body (VELAGUNDER.md §3.4): its entries' +0x89 is clear, so the mover's
+            // slope push [EXPORT 0045a510.c:426-447] is off and the player walks up the arms. The engine has
+            // no slope limit: the floor is a plain down-ray and the move sweep slides along the plane it
+            // meets (FUN_005dca20, MOVER.md §3.5), D - (D.n)n. Its sphere (+0x328 = 0.675 about the origin,
+            // +0x324 = 1.075 over the feet) meets a face under the feet when 1.075 n.y <= 0.675.
+            // [approx] the capsule stand-in: the face under the moved feet stands for the swept contact,
+            // within the settle's 0.4 of the feet.
+            if (const RoomMesh& cm = phys_mesh(room); cm.climb_t1 > cm.climb_t0) {
+                int ct = -1;
+                const float cf = floor_at(cm, feet.x, feet.z, feet.y + kOriginH, &ct);
+                if (ct >= 0 && std::uint32_t(ct) >= cm.climb_t0 && std::uint32_t(ct) < cm.climb_t1 && feet.y < cf + 0.4f) {
+                    const RoomVertex& A = cm.vertices[cm.indices[std::size_t(ct) * 3]];
+                    const RoomVertex& B = cm.vertices[cm.indices[std::size_t(ct) * 3 + 1]];
+                    const RoomVertex& C = cm.vertices[cm.indices[std::size_t(ct) * 3 + 2]];
+                    const Vec3 n = normalize(cross({B.px - A.px, B.py - A.py, B.pz - A.pz}, {C.px - A.px, C.py - A.py, C.pz - A.pz}));
+                    const float into = (feet.x - hx0) * n.x + (feet.z - hz0) * n.z;
+                    if (n.y > 0.0f && pm.height() * n.y <= pm.radius() && into < 0.0f) { feet.x -= into * n.x; feet.z -= into * n.z; }
+                }
+            }
             float oy = feet.y + kOriginH;
             const float oy0 = oy;                     // the origin before this tick's vertical move
             {   // The Ventus glide: Yunica (and Adol), airborne in 0x10d / 0x110 with the timer at or
@@ -6519,6 +6576,7 @@ title_again:
             }
             int floor_tri = -1;
             const float fl = floor_at(phys_mesh(room), feet.x, feet.z, oy, &floor_tri);
+            room.coll.climb_reach = 0.0f;
             if (fl > kNoFloor && oy - fl <= 510.0f && pv.grounded) ledge.safe = {feet.x, oy, feet.z};   // +0x3c8 (0x45b99b)
             if (fl > kNoFloor) {
                 last_floor = fl;                      // +0x318 persists when the ray misses
@@ -6589,6 +6647,23 @@ title_again:
                     if (std::uint32_t(floor_tri) >= r.t0 && std::uint32_t(floor_tri) < r.t1) {
                         player_floor_obj = r.name; break;
                     }
+            ride_tri = -1;
+            if (player_floor_obj == "boss01" && phys_mesh(room).climb_t1 > phys_mesh(room).climb_t0) {
+                const RoomMesh& cm = phys_mesh(room);
+                const RoomVertex& A = cm.vertices[cm.indices[std::size_t(floor_tri) * 3]];
+                const RoomVertex& B = cm.vertices[cm.indices[std::size_t(floor_tri) * 3 + 1]];
+                const RoomVertex& C = cm.vertices[cm.indices[std::size_t(floor_tri) * 3 + 2]];
+                const Vec3 e1{B.px - A.px, B.py - A.py, B.pz - A.pz}, e2{C.px - A.px, C.py - A.py, C.pz - A.pz};
+                const Vec3 n = cross(e1, e2), d{feet.x - A.px, feet.y - A.py, feet.z - A.pz};
+                const float nn = n.x * n.x + n.y * n.y + n.z * n.z;
+                const float a11 = e1.x * e1.x + e1.y * e1.y + e1.z * e1.z, a22 = e2.x * e2.x + e2.y * e2.y + e2.z * e2.z;
+                const float a12 = e1.x * e2.x + e1.y * e2.y + e1.z * e2.z, det = a11 * a22 - a12 * a12;
+                if (nn > 1e-12f && det > 1e-12f) {
+                    const float d1 = d.x * e1.x + d.y * e1.y + d.z * e1.z, d2 = d.x * e2.x + d.y * e2.y + d.z * e2.z;
+                    ride_uvw = {(d1 * a22 - d2 * a12) / det, (d2 * a11 - d1 * a12) / det, (d.x * n.x + d.y * n.y + d.z * n.z) / nn};
+                    ride_tri = floor_tri;
+                }
+            }
             step_meshes();
             // The region camera runs inside the player's update (FUN_00473540 -> FUN_00429450),
             // once per step: after this tick's move (CAMERA_OPS.md §5).

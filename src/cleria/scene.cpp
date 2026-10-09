@@ -365,6 +365,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         Model* model_ptr = &local_model;
         Model render_twin;                 // a collision twin's render model, posed (below)
         const Model* twin_src = nullptr;
+        bool by_parent = false;            // ... bound by its mesh nodes' parent names (below)
         try {
             const std::string key = model_key(ymo_file);
             auto bit = big_models.find(key);
@@ -431,8 +432,10 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             // So the twin follows the render model's animation: S_1004's s10step_00_.YMO has only
             // a DEFAULT clip, yet its hull rises with the render model's UP (COLLISION.md §1c).
             // Only needed when a pose was asked for (at rest the twin's own rest nodes are used,
-            // as before); the big-model twins keep their clip-copy path above.
-            if (collision && model_ptr == &local_model && (want || box_pose_open || clip_name)) {
+            // as before); the big-model twins keep their clip-copy path above, except one with the
+            // model flag 0x20 (bound by parent name, below).
+            by_parent = collision && model_ptr != &local_model && (model.flags & 0x20u) != 0 && lname == "boss01";
+            if (collision && (model_ptr == &local_model || by_parent) && (want || box_pose_open || clip_name)) {
                 const fs::path rfile = resolve_ymo(asset_root, o.ymo_path);
                 Model* rp = cached_big_model(rfile);
                 if (!rp && fs::exists(rfile)) {
@@ -468,9 +471,17 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             const Mesh& mesh = model.meshes[node.mesh_index];
             if (mesh.vbs.empty() || mesh.ibs.empty()) continue;
             Mat4 xf = node.world * place;  // local -> node -> room
-            if (twin_src)                  // the same-named render node, posed (see above)
+            // With the twin's model flag 0x20 the entry is bound by its mesh node's PARENT name (runtime
+            // node +0x184) instead [EXPORT 005601e0.c:178-189]: BOSS01_.YMO's 31 meshes hang under the
+            // render model's bones. Posed by its own tree (the clip copy above) that hull sat ~1.2 over
+            // the drawn arms in Velagunder's stun clips and opened a hole at the shoulder.
+            // [scoped] Velagunder's twin only: the other bosses' big 0x20 twins keep the clip copy
+            // until their fights are checked against it (zava_fight / dalles_fight moved with it).
+            if (twin_src) {                // the bound render node, posed (see above)
+                const std::string& bind = by_parent ? node.parent : node.name;
                 for (const Node& rn : twin_src->nodes)
-                    if (rn.name == node.name) { xf = rn.offset * rn.world * place; break; }
+                    if (rn.name == bind) { xf = rn.offset * rn.world * place; break; }
+            }
 
             // Append the primary vertex buffer (submeshes index into vbs[0]).
             const VertexBuffer& vb = mesh.vbs[0];
