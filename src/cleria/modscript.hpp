@@ -31,7 +31,7 @@ struct lua_State;
 
 namespace cleria::script {
 
-inline constexpr int kApiVersion = 4;   // cleria.api_version (= mods::kApiVersion; LUA_API.md §11 lists what each level added)
+inline constexpr int kApiVersion = 5;   // cleria.api_version (= mods::kApiVersion; LUA_API.md §11 lists what each level added)
 inline constexpr int kScriptApi = 3;    // the manifest ApiVersion a Script= needs (when the Lua API arrived)
 
 struct Limits {
@@ -121,6 +121,8 @@ public:
     void on_frame(double dt);
     bool has_filter() const { return !filters_.empty(); }
     GrantDecision filter(const GrantQuery& q, const std::string& room);
+    bool has_shop_filter() const { return !shop_filters_.empty(); }
+    GrantDecision shop_filter(const ShopQuery& q, const std::string& room);   // cleria.shop.add_filter
     void draw_hud(float w, float h, float scale);
     std::vector<std::string> pages() const;                    // titles, in registration order
     void draw_page(std::size_t i, void* list);
@@ -138,6 +140,7 @@ public:
     std::vector<Handler> handlers_;
     int next_handler_ = 1;
     std::vector<int> filters_;                                  // registry refs
+    std::vector<int> shop_filters_;                             // cleria.shop.add_filter
     std::map<std::string, int> layers_;                         // hud layer name -> ref (drawn in name order)
     std::vector<std::pair<std::string, int>> pages_;            // title -> ref
     std::map<std::string, int> commands_;

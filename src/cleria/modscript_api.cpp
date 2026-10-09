@@ -405,7 +405,7 @@ int l_command(lua_State* L) {
 
 const char* const kKinds[] = {"room_enter", "flag_changed", "chest_opened", "item_obtained", "death",
                               "new_game", "save", "load", "tick", "frame", "boss_defeated", "item_used",
-                              "door_opened"};
+                              "door_opened", "blessing_bought"};
 
 int l_on(lua_State* L) {
     Mod& m = M(L);
@@ -413,7 +413,7 @@ int l_on(lua_State* L) {
     bool known = false;
     for (const char* k : kKinds) known = known || kind == k;
     if (!known) return luaL_argerror(L, 1, ("unknown event '" + kind + "' (see LUA_API.md: room_enter, flag_changed, chest_opened, "
-                                             "item_obtained, death, new_game, save, load, tick, frame, boss_defeated, item_used, door_opened)").c_str());
+                                             "item_obtained, death, new_game, save, load, tick, frame, boss_defeated, item_used, door_opened, blessing_bought)").c_str());
     luaL_checktype(L, 2, LUA_TFUNCTION);
     lua_pushvalue(L, 2);
     const int ref = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -595,6 +595,13 @@ int l_add_filter(lua_State* L) {
     luaL_checktype(L, 1, LUA_TFUNCTION);
     lua_pushvalue(L, 1);
     M(L).filters_.push_back(luaL_ref(L, LUA_REGISTRYINDEX));
+    return 0;
+}
+// cleria.shop.add_filter(fn): the blessing shop's queries (xso.hpp ShopQuery; LUA_API.md §5.1).
+int l_shop_add_filter(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+    lua_pushvalue(L, 1);
+    M(L).shop_filters_.push_back(luaL_ref(L, LUA_REGISTRYINDEX));
     return 0;
 }
 int l_give(lua_State* L) {
@@ -1131,6 +1138,11 @@ void open_api(lua_State* L, Mod& m) {
     set_funcs(L, cont);
     lua_setfield(L, -2, "content");
 
+    static const luaL_Reg shop[] = {{"add_filter", l_shop_add_filter}, {nullptr, nullptr}};
+    lua_newtable(L);
+    set_funcs(L, shop);
+    lua_setfield(L, -2, "shop");
+
     static const luaL_Reg save[] = {{"get", l_save_get}, {"set", l_save_set}, {"keys", l_save_keys}, {"ready", l_save_ready},
                                     {nullptr, nullptr}};
     lua_newtable(L);
@@ -1215,6 +1227,7 @@ const char* event_name(events::Kind k) {
         case events::Kind::BossDefeated: return "boss_defeated";
         case events::Kind::ItemUsed: return "item_used";
         case events::Kind::DoorOpened: return "door_opened";
+        case events::Kind::BlessingBought: return "blessing_bought";
     }
     return "?";
 }
@@ -1236,6 +1249,10 @@ void push_event(lua_State* L, const events::Event& e) {
         case events::Kind::BossDefeated: if (e.index >= 0) n("flag", e.index); break;
         case events::Kind::ItemUsed: n("item", e.item); break;
         case events::Kind::DoorOpened: n("flag", e.index); s("script", e.script); break;
+        case events::Kind::BlessingBought:
+            n("index", e.index); n("price", e.new_value);
+            lua_pushboolean(L, e.old_value != 0); lua_setfield(L, -2, "suppressed");
+            break;
     }
 }
 
@@ -1270,6 +1287,46 @@ GrantDecision Mod::filter(const GrantQuery& q, const std::string& room) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, filters_[i]);
         lua_insert(L, -2);
         if (!pcall(1, 1, "filter")) return GrantDecision{};
+        std::string action;
+        if (lua_type(L, -1) == LUA_TSTRING) action = lua_tostring(L, -1);
+        else if (lua_istable(L, -1)) action = opt_field_s(L, -1, "action", "pass");
+        if (action == "suppress") {
+            d.action = GrantDecision::Action::Suppress;
+        } else if (action == "replace") {
+            d.action = GrantDecision::Action::Replace;
+            d.index = int(opt_field_n(L, -1, "index", q.index));
+            d.value = std::int32_t(opt_field_n(L, -1, "value", q.value));
+            d.text = opt_field_s(L, -1, "text", q.text);
+        }
+        lua_pop(L, 1);
+        if (d.action != GrantDecision::Action::Pass) return d;
+    }
+    return d;
+}
+
+GrantDecision Mod::shop_filter(const ShopQuery& q, const std::string& room) {
+    GrantDecision d;
+    for (std::size_t i = 0; i < shop_filters_.size() && ok(); ++i) {
+        lua_State* L = state();
+        lua_createtable(L, 0, 8);
+        static const char* kKind[] = {"price", "row", "owned", "buy"};
+        lua_pushstring(L, kKind[int(q.kind)]);
+        lua_setfield(L, -2, "kind");
+        lua_pushinteger(L, q.sub);
+        lua_setfield(L, -2, "sub");
+        lua_pushinteger(L, q.index);
+        lua_setfield(L, -2, "index");
+        lua_pushinteger(L, q.value);
+        lua_setfield(L, -2, "value");
+        lua_pushlstring(L, q.text.data(), q.text.size());
+        lua_setfield(L, -2, "text");
+        lua_pushstring(L, q.script.c_str());
+        lua_setfield(L, -2, "script");
+        lua_pushstring(L, room.c_str());
+        lua_setfield(L, -2, "room");
+        lua_rawgeti(L, LUA_REGISTRYINDEX, shop_filters_[i]);
+        lua_insert(L, -2);
+        if (!pcall(1, 1, "shop filter")) return GrantDecision{};
         std::string action;
         if (lua_type(L, -1) == LUA_TSTRING) action = lua_tostring(L, -1);
         else if (lua_istable(L, -1)) action = opt_field_s(L, -1, "action", "pass");

@@ -251,6 +251,15 @@ int main(int argc, char** argv) {
             cleria.events.on("boss_defeated", function(e) cleria.log("boss " .. e.room .. " " .. tostring(e.flag) .. " api " .. cleria.api_version) end)
             cleria.events.on("item_used", function(e) cleria.log("used " .. e.item .. " in " .. e.room) end)
             cleria.events.on("door_opened", function(e) cleria.log("door " .. e.room .. " " .. e.flag .. " " .. e.script) end)
+            cleria.events.on("blessing_bought", function(e)
+                cleria.log("bought " .. e.index .. " for " .. e.price .. " suppressed " .. tostring(e.suppressed) .. " in " .. e.room)
+            end)
+            cleria.shop.add_filter(function(q)
+                if q.kind == "price" and q.index == 3 then return {action = "replace", value = 777} end
+                if q.kind == "row" and q.index == 3 then return {action = "replace", text = "Mystery - [SP:]" .. q.value .. " (" .. q.script .. "/" .. q.room .. ")"} end
+                if q.kind == "owned" and q.index == 3 then return {action = "replace", value = 1} end
+                if q.kind == "buy" and q.index == 3 then return "suppress" end
+            end)
             local tid = cleria.events.on("tick", function() TICKS = (TICKS or 0) + 1 end)
             cleria.events.on("frame", function(dt) DT = dt end)
             cleria.command("probe", function(args)
@@ -347,8 +356,8 @@ int main(int argc, char** argv) {
         m->command("json", "");
         check(m->ok(), "api: every call ran (" + m->error() + ")");
         check(has(h.logs, "probe hello flag -1 room S_1001 scene 1001"), "api: game.flag / room / scene, commands with arguments");
-        check(has(h.logs, "boss S_7080 226 api 4") && has(h.logs, "boss S_1080 nil api 4"),
-              "api: boss_defeated carries the room and the boss flag (nil for a duel); api_version 4");
+        check(has(h.logs, "boss S_7080 226 api 5") && has(h.logs, "boss S_1080 nil api 5"),
+              "api: boss_defeated carries the room and the boss flag (nil for a duel); api_version 5");
         check(has(h.logs, "used 89 in S_1001") && has(h.logs, "door S_1005 315 usekey"), "api: item_used (item), door_opened (flag, script)");
         check(h.fl[0x63] == 1 && h.sp == 75 && h.level == 7 && h.wp[3] == 1 && h.warped == 3,
               "api: set_flag, player.add_sp / set_level, warps");
@@ -398,6 +407,35 @@ int main(int argc, char** argv) {
         check(d.action == GrantDecision::Action::Replace && d.index == 0x2A1 && d.text == "Sent X to Y. (s_box01/S_1001)",
               "api: filter -> replace (the treasure box: icon + text)");
         check(m->icons().size() == 1 && m->icons()[0].id == 0x2A1, "api: ui.icon registers a mod icon id");
+        {   // the blessing shop (API 5): cleria.shop.add_filter and blessing_bought
+            ShopQuery s;
+            s.kind = ShopQuery::Kind::Price; s.sub = 0x61; s.index = 3; s.value = 24000; s.script = "@grow03";
+            const GrantDecision p = m->shop_filter(s, "S_1009");
+            s.index = 4;
+            const GrantDecision p4 = m->shop_filter(s, "S_1009");
+            ShopQuery r;
+            r.kind = ShopQuery::Kind::Row; r.sub = 0xdd; r.index = 3; r.value = 777; r.text = "Increase item drop rate - [SP:]777";
+            r.script = "@growmenu";
+            const GrantDecision rd = m->shop_filter(r, "S_1009");
+            ShopQuery o;
+            o.kind = ShopQuery::Kind::Owned; o.sub = 0x9a; o.index = 3; o.value = 0;
+            const GrantDecision od = m->shop_filter(o, "S_1009");
+            ShopQuery b;
+            b.kind = ShopQuery::Kind::Buy; b.sub = 0xaf; b.index = 3; b.value = 777;
+            const GrantDecision bd = m->shop_filter(b, "S_1009");
+            b.index = 5;
+            const GrantDecision b5 = m->shop_filter(b, "S_1009");
+            check(m->has_shop_filter() && p.action == GrantDecision::Action::Replace && p.value == 777 &&
+                  p4.action == GrantDecision::Action::Pass && rd.action == GrantDecision::Action::Replace &&
+                  rd.text == "Mystery - [SP:]777 (@growmenu/S_1009)" && od.action == GrantDecision::Action::Replace &&
+                  od.value == 1 && bd.action == GrantDecision::Action::Suppress && b5.action == GrantDecision::Action::Pass,
+                  "api: shop.add_filter answers price / row / owned / buy (replace, suppress, pass)");
+            events::Event se;
+            se.kind = events::Kind::BlessingBought;
+            se.index = 3; se.new_value = 777; se.old_value = 1; se.room = "S_1009";
+            m->on_event(se);
+            check(has(h.logs, "bought 3 for 777 suppressed true in S_1009"), "api: blessing_bought (index, price, suppressed)");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&
@@ -451,7 +489,7 @@ int main(int argc, char** argv) {
     {
         std::vector<std::string> errs;
         const mods::Manifest mf = mods::parse_manifest("[mod]\r\nId=a.b\r\nApiVersion=3\r\nScript=main.lua\r\n", errs);
-        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 4, "manifest: Script= and ApiVersion 3");
+        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 5, "manifest: Script= and ApiVersion 3");
         for (const char* s : {"hello", "archipelago_lua"}) {
             const fs::path root = fs::path("samples") / "mods" / s;
             std::vector<std::string> e2;

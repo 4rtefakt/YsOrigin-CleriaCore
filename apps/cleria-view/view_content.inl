@@ -357,7 +357,39 @@ static GrantDecision content_filter(const GrantQuery& q) {
     return d;
 }
 
-static void content_install(XsoVm& vm) { vm.grant_filter = content_filter; }
+// The blessing shop's filters (xso.hpp ShopQuery; the Lua mods' cleria.shop.add_filter): consulted in order,
+// the first decision that is not Pass is the one taken. With none the VM keeps no shop filter at all.
+using ShopFilter = std::function<GrantDecision(const ShopQuery&, const std::string& room)>;
+static std::vector<ShopFilter> g_shop_filters;
+[[maybe_unused]] static void content_add_shop_filter(ShopFilter f) { g_shop_filters.push_back(std::move(f)); }
+
+// ... and BlessingBought, raised when a purchase reaches its effect (op 0xAF), whatever the filters said.
+static GrantDecision content_shop_filter(const ShopQuery& q) {
+    GrantDecision d;
+    for (const ShopFilter& f : g_shop_filters) {
+        d = f(q, g_content.room);
+        if (d.action != GrantDecision::Action::Pass) break;
+    }
+    if (q.kind == ShopQuery::Kind::Buy) {
+        const bool off = d.action == GrantDecision::Action::Suppress;
+        content_log("blessing_bought " + std::to_string(q.index) + " for " + std::to_string(q.value) + " SP" +
+                    (off ? " (effect suppressed)" : d.action == GrantDecision::Action::Replace
+                                                         ? " (effect -> " + std::to_string(d.index) + ")" : ""));
+        events::Event e;
+        e.kind = events::Kind::BlessingBought;
+        e.index = q.index;
+        e.new_value = q.value;
+        e.old_value = off ? 1 : 0;
+        e.script = q.script;
+        content_emit(e);
+    }
+    return d;
+}
+
+static void content_install(XsoVm& vm) {
+    vm.grant_filter = content_filter;
+    vm.shop_filter = content_shop_filter;
+}
 
 // BossDefeated, from the flags the tick diff is about to report (so: never on a load, a Retry or a new
 // game, which re-prime the diff). Two rules, both read off the shipped scripts and the boss modules:

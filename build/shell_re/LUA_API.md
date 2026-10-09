@@ -1,4 +1,4 @@
-# Lua scripting for mods: the `cleria.*` API (mod API 3, extended at 4: §11)
+# Lua scripting for mods: the `cleria.*` API (mod API 3, extended at 4 and 5: §11)
 
 CleriaCore mods can carry a Lua script (MODS.md §10: the user chose Lua). This is the reference for modders
 and the design record. None of it is retail: the game stays a faithful port; scripts are CleriaCore's own
@@ -25,7 +25,7 @@ Tags: **[CODE]** read in CleriaCore's code, **[H]** a choice of this design.
 Id=me.my_mod
 Name="My Mod"
 Version=1.0
-ApiVersion=3          ; 2 = content/, 3 = Script=; mods::kApiVersion is now 4 (§11), 3 still runs unchanged
+ApiVersion=3          ; 2 = content/, 3 = Script=; mods::kApiVersion is now 5 (§11), 3 and 4 still run unchanged
 Script=main.lua       ; the entry file, relative to the mod folder
 ```
 
@@ -80,6 +80,7 @@ cleria.events.off(id)
 | `boss_defeated` (API 4) | a boss fight was won, at the tick its flag is written (below) | `flag` (220..227, absent for a duel / mid-boss) |
 | `item_used` (API 4) | an item was used from the book and used up: the Celcetan Panacea (0x59), the only item the book consumes | `item` |
 | `door_opened` (API 4) | a locked door was opened with its key or medallion: the room's `UseKey` script stored the door's flag (0 -> set), and no filter changed that store | `flag` (the door's flag), `script` ("usekey") |
+| `blessing_bought` (API 5) | a purchase at the blessing shop reached its effect (op 0xAF), after the shop filters answered (§5.1) | `index` (the blessing, §5.1), `price` (the SP the script deducted), `suppressed` (a filter kept the effect from being applied) |
 | `new_game` / `load` | a session started / a save was loaded | `character` / `slot` |
 | `save` | a slot was written (the save sidecar too) | `slot` |
 | `tick` | every fixed game tick (60 a second, not while the F1 panel holds the game) | (no argument) |
@@ -180,6 +181,56 @@ end)
   sidecar); emits `item_obtained`.
 - `content.treasure_text(text, name, count)`: the original box text with the item name (and ` x N`) replaced.
 
+### 5.1 The blessing shop: `cleria.shop` (API 5)
+
+The goddess statues' blessing menu is three kinds of script [DATA `assets/MAP/S_COMMON`; BLESSINGS.md §2]:
+`@GrowMenu` builds the rows (op 0xDD `Menu_AddSpShop(text, script, price)` for a row on sale, op 0xD8 for a
+"[Done]" row), and the chosen row's script (`@Grow00`..`@Grow25`, `@GrowAr`, `@GrowLe`) asks "already applied?"
+(op 0x9A), tests the wallet (op 0x61 `flag 216 >= price`), deducts (op 0x69 `flag 216 -= price`) and applies the
+effect (op 0xAF). A mod can answer each of those:
+
+```lua
+cleria.shop.add_filter(function(q)
+    -- q = {kind = "price" | "row" | "owned" | "buy", index, value, sub, text, script, room}
+    if q.kind == "price" then return {action = "replace", value = 500} end           -- every blessing costs 500 SP
+    if q.kind == "row" and q.value >= 0 then                                          -- a row on sale
+        return {action = "replace", text = "Mystery blessing - [SP:]" .. q.value}
+    end
+    if q.kind == "owned" then return {action = "replace", value = MyBought[q.index] and 1 or 0} end
+    if q.kind == "buy" then MyBought[q.index] = true; return "suppress" end           -- grant something else
+    return nil                                                                        -- pass
+end)
+cleria.events.on("blessing_bought", function(e)       -- e.index, e.price, e.suppressed, e.room
+    if e.suppressed then cleria.content.give(0x59, 1, "mymod") end
+end)
+```
+
+`q.index` is the blessing as the scripts number it: `nn` of `@Grownn`, **0..6 and 9..25** (the bit of flag 217 is
+`nn` for 0..6 and `nn - 2` for 9..25; the list with names and vanilla prices is BLESSINGS.md §2), **7** = "Strengthen
+current armor" (`@GrowAr`) and **8** = "Strengthen current leggings" (`@GrowLe`).
+
+| `q.kind` | when | `q.value` | `q.sub` | what a decision does |
+|---|---|---|---|---|
+| `"price"` | a script reads a blessing's price | the script's (vanilla) price | 0xDD (221) the menu row, 0x61 (97) the "enough SP?" test, 0x69 (105) the deduction; for the armor / leggings 0xB0 (176), the cost their test and deduction then read from flag 218 | `{action = "replace", value = n}`: the price is `n` at that step. Answer the same number at every step (key it on `q.index`), or the row shows one price and the script charges another |
+| `"row"` | a row is added to the menu | the price shown (after `"price"`), or -1 for a "[Done]" row | 0xDD / 0xD8 (216) | `{action = "replace", text = s}`: the row reads `s`. `q.text` is the vanilla text, e.g. `"Increase item drop rate - [SP:]24000"` or `"... - [Done]"` |
+| `"owned"` | an `@Grow*` script asks whether blessing `q.index` is applied: the menu (which tier's row to show, "[Done]") and the row's script ("already applied") | the game's answer, 0 or 1 | 0x9A (154) | `{action = "replace", value = 0 | 1}`: the answer the script gets. The game's own readers of the blessing bits (the effects) are not asked |
+| `"buy"` | the purchase's effect is about to be applied, after the SP was deducted | the SP deducted | 0xAF (175) | `"suppress"`: flag 217's bit (or the armor / leggings level) is not written; `{action = "replace", index = n}`: blessing `n` is applied instead |
+
+- Return `nil` / `"pass"` to keep the game's own value. `"suppress"` means something for `"buy"` only.
+- `q.script` is the script instance (`"@GrowMenu"`, `"@Grow03"`: the case its starter used), `q.room` the room;
+  `q.text` is empty except for `"row"`.
+- Order: the Lua mods in load order; the first decision that is not "pass" wins.
+- **`blessing_bought`** is raised right after the `"buy"` decision, also when no mod has a shop filter.
+  `e.index` is the blessing the script bought (not a replaced one), `e.price` the SP deducted, `e.suppressed`
+  whether a filter suppressed the effect.
+- A suppressed blessing leaves no trace in the game's state: keep what was bought in `cleria.save` and answer
+  `"owned"` from it, or the row stays on sale and can be bought again. With tiers (LV1 -> LV2 -> LV3) the menu
+  shows the first tier whose `"owned"` answer is 0.
+- These queries do **not** pass through `cleria.content.add_filter` (a filter written for API 3 / 4 never sees
+  them). The deduction is still an ordinary store of flag 216 for the grant filter (`sub` 0x69, the new value).
+- [H] The wallet test and the deduction are the script's own: a price above the wallet answers "You don't have
+  enough SP." like any other.
+
 ## 6. Storage
 
 | API | where | lifetime |
@@ -263,7 +314,7 @@ ws:send(cleria.json.encode({cmd = "Hello", tags = cleria.json.array()}))
 - `cleria.command(name, fn(args))`: a command for tests and tools: `CLERIA_DRIVE="...;300:lua=<name> <args>"`.
 - `cleria.speedrun.modification(fn | "text")`: a line (or a list) for speedrun mode's "modified run" list,
   e.g. "Archipelago session (Lua)". Every active mod already marks a run as modded (MODS.md §5).
-- Also: `cleria.api_version` (3), `cleria.mod` (`id`, `name`, `version`), `cleria.time()` (seconds, monotonic),
+- Also: `cleria.api_version` (5: §11), `cleria.mod` (`id`, `name`, `version`), `cleria.time()` (seconds, monotonic),
   `cleria.unix_time()`, `cleria.read(path)` / `cleria.exists(path)` (the mod's own files).
 
 ## 9. The proof: Archipelago as a Lua mod
@@ -351,3 +402,4 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 |---|---|
 | 3 | everything above not marked otherwise |
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
+| 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |

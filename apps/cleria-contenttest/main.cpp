@@ -369,6 +369,109 @@ int main(int argc, char** argv) {
             pass = v2.grants[i].index == v0.grants[i].index && v2.grants[i].value == v0.grants[i].value;
         for (int i = 0; i < 0x200; ++i) pass = pass && v2.g_flags[i] == v0.g_flags[i];
         check(pass, "real S_1001/S_BOX01: a pass-through filter = the unfiltered run (grants, flags, box)");
+        // The blessing shop's filter (xso.hpp ShopQuery) on the real @Grow03 / @GrowAr / @GrowMenu scripts.
+        if (fs::exists(root / "MAP" / "S_COMMON" / "GROW03.XSO")) {
+            struct ShopHost : ChestHost {
+                int sp = 0;
+                std::vector<std::string> rows;
+                int gold() const override { return sp; }
+                void set_gold(int v) override { sp = v; }
+                void menu_add(const std::string& t, const std::string&) override { rows.push_back(t); }
+            };
+            const Xso grow03 = Xso::parse(slurp(root / "MAP" / "S_COMMON" / "GROW03.XSO"));
+            const Xso growar = Xso::parse(slurp(root / "MAP" / "S_COMMON" / "GROWAR.XSO"));
+            const Xso menu = Xso::parse(slurp(root / "MAP" / "S_COMMON" / "GROWMENU.XSO"));
+            auto buy = [&](const Xso& x, const char* name, int sp, std::function<GrantDecision(const ShopQuery&)> f,
+                           ShopHost& sh, XsoVm& vm) {
+                vm.new_game(1);
+                sh.sp = sp;
+                vm.host = &sh;
+                vm.script_name = name;
+                vm.shop_filter = std::move(f);
+                vm.run(x);
+            };
+            check(blessing_index("@Grow03") == 3 && blessing_index("@grow25") == 25 && blessing_index("@GrowAr") == 7 &&
+                  blessing_index("growle") == 8 && blessing_index("@GrowMenu") == -1 && blessing_index("@Grow_YesNo") == -1 &&
+                  blessing_index("s_box01") == -1, "shop: blessing_index of the @Grow* script names");
+            // Vanilla: 24 000 SP for bit 3; with 23 999 the script says "not enough" and nothing changes.
+            ShopHost a0, a1;
+            XsoVm s0, s1;
+            buy(grow03, "@grow03", 30000, nullptr, a0, s0);
+            buy(grow03, "@grow03", 23999, nullptr, a1, s1);
+            check(a0.sp == 6000 && (s0.g_flags[217] & 8) != 0 && a1.sp == 23999 && s1.g_flags[217] == 0,
+                  "real @Grow03 unfiltered: 24000 SP for blessing bit 3; one SP short buys nothing");
+            // A filter prices it at 500, hears the purchase with the SP paid, and suppresses the bit.
+            std::vector<std::string> seen;
+            auto f = [&](const ShopQuery& q) {
+                GrantDecision d;
+                static const char* kK[] = {"price", "row", "owned", "buy"};
+                seen.push_back(std::string(kK[int(q.kind)]) + " " + std::to_string(q.sub) + " " + std::to_string(q.index) + " " +
+                               std::to_string(q.value));
+                if (q.kind == ShopQuery::Kind::Price) { d.action = GrantDecision::Action::Replace; d.value = 500; }
+                if (q.kind == ShopQuery::Kind::Buy) d.action = GrantDecision::Action::Suppress;
+                return d;
+            };
+            ShopHost a2;
+            XsoVm s2;
+            buy(grow03, "@grow03", 600, f, a2, s2);
+            check(a2.sp == 100 && s2.g_flags[217] == 0 &&
+                  seen == std::vector<std::string>{"owned 154 3 0", "price 97 3 24000", "price 105 3 24000", "buy 175 3 500"},
+                  "real @Grow03 filtered: owned?, the 0x61 and 0x69 prices answered 500, the purchase heard, the bit suppressed");
+            // An "owned" answer of 1 ends the script at "already applied": no SP moves.
+            ShopHost a3;
+            XsoVm s3;
+            buy(grow03, "@grow03", 30000, [](const ShopQuery& q) {
+                GrantDecision d;
+                if (q.kind == ShopQuery::Kind::Owned) { d.action = GrantDecision::Action::Replace; d.value = 1; }
+                return d; }, a3, s3);
+            check(a3.sp == 30000 && s3.g_flags[217] == 0, "real @Grow03: owned answered 1 -> 'already applied', nothing bought");
+            // @GrowAr: the Raval cost of flag 218 (0xB0) is the price both its compare and its deduction read.
+            ShopHost a4;
+            XsoVm s4;
+            s4.new_game(1);
+            int paid = -1;
+            a4.sp = 1000;
+            s4.host = &a4;
+            s4.script_name = "@growar";
+            s4.g_flags[152] = 6;                                   // the first armor: cost 100
+            s4.shop_filter = [&](const ShopQuery& q) {
+                GrantDecision d;
+                if (q.kind == ShopQuery::Kind::Price && q.sub == 0xb0 && q.index == 7 && q.value == 100) {
+                    d.action = GrantDecision::Action::Replace; d.value = 250;
+                }
+                if (q.kind == ShopQuery::Kind::Buy) paid = q.value;
+                return d;
+            };
+            s4.run(growar);
+            check(a4.sp == 750 && paid == 250 && s4.item_arr[6] == 1, "real @GrowAr filtered: the 0xB0 cost 100 -> 250, paid, the armor's Raval set");
+            // @GrowMenu: every row of a blessing passes by (price, then the row's text); other rows do not. (A bare
+            // run re-enters the menu until its step cap, so the same 15 rows repeat.)
+            ShopHost a5;
+            XsoVm s5;
+            int rows = 0, prices = 0;
+            buy(menu, "@growmenu", 0, [&](const ShopQuery& q) {
+                GrantDecision d;
+                if (q.kind == ShopQuery::Kind::Price) { ++prices; if (q.index == 3) { d.action = GrantDecision::Action::Replace; d.value = 42; } }
+                if (q.kind == ShopQuery::Kind::Row) {
+                    ++rows;
+                    if (q.index == 3) { d.action = GrantDecision::Action::Replace; d.text = "AP location - [SP:]" + std::to_string(q.value); }
+                }
+                return d; }, a5, s5);
+            bool relabel = false, vanilla = false, nothing = false, old = false, plain = false;
+            for (const std::string& t : a5.rows) {
+                relabel = relabel || t == "AP location - [SP:]42";
+                vanilla = vanilla || t == "Increase SP gain - [SP:]16000";
+                nothing = nothing || t.find("Nothing") != std::string::npos;
+                old = old || t == "Increase item drop rate - [SP:]24000";
+            }
+            ShopHost a6;
+            XsoVm s6;
+            buy(menu, "@growmenu", 0, nullptr, a6, s6);
+            for (const std::string& t : a6.rows) plain = plain || t == "Increase item drop rate - [SP:]24000";
+            check(relabel && vanilla && nothing && !old && plain && rows == prices && rows > 0 && a5.rows.size() == a6.rows.size() &&
+                  a5.rows.size() >= 15 && a5.rows[0] == "Strengthen current armor - [SP:]100" && a5.rows[14] == "Nothing right now",
+                  "real @GrowMenu filtered: a blessing row re-priced and re-labelled, the others and the row count unchanged");
+        }
         // A retail redirect through the ScriptManager (the live path: the instance name is the key).
         {
             names.items[0x57].name = "Roda Fruit";

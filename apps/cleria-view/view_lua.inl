@@ -266,6 +266,14 @@ static void lua_startup() {
             }
         return GrantDecision{};
     });
+    content_add_shop_filter([](const ShopQuery& q, const std::string& room) -> GrantDecision {
+        for (auto& m : g_lua.mods)
+            if (m->has_shop_filter() && m->ok()) {
+                const GrantDecision d = m->shop_filter(q, room);
+                if (d.action != GrantDecision::Action::Pass) return d;
+            }
+        return GrantDecision{};
+    });
     speedrun::set_provider("lua", [](std::vector<std::string>& out) {
         for (auto& m : g_lua.mods)
             for (std::string& s : m->modifications()) out.push_back(std::move(s));

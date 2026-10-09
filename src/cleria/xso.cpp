@@ -301,7 +301,18 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     }
                     if (sub == 0xd6 && nargs >= 1) { host->set_msg_speed(op(0)); return Step::Continue; }
                     if (sub == 0xd7) { host->menu_init(); return Step::Continue; }
-                    if (sub == 0xd8 && nargs >= 2) { host->menu_add(ops(0), ops(1)); return Step::Continue; }
+                    if (sub == 0xd8 && nargs >= 2) {
+                        std::string text = ops(0);
+                        if (const int bi = shop_filter ? blessing_index(ops(1)) : -1; bi >= 0) {   // mods: a [Done] row
+                            ShopQuery q;
+                            q.kind = ShopQuery::Kind::Row; q.sub = 0xd8; q.index = bi; q.value = -1; q.text = text;
+                            q.script = script_name;
+                            const GrantDecision d = shop_filter(q);
+                            if (d.action == GrantDecision::Action::Replace) text = d.text;
+                        }
+                        host->menu_add(text, ops(1));
+                        return Step::Continue;
+                    }
                     if (sub == 0xd9) { host->menu_select(nargs >= 1 ? ops(0) : std::string()); return Step::Continue; }
                     if (sub == 0xda && nargs >= 1) { host->menu_assign_cancel(ops(0)); return Step::Continue; }
                     if (sub == 0xdb) { host->menu_cursor_last(); return Step::Continue; }
@@ -309,7 +320,20 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // 0xdd Menu_AddSpShop(text, label, price) [BYTES 0x56a149..0x56a1c9]: the record
                     // text is op0 with sprintf("%d", op2) appended (fmt 0x69f63c), then Menu_Add.
                     if (sub == 0xdd && nargs >= 3) {
-                        host->menu_add(ops(0) + std::to_string(op(2)), ops(1));
+                        std::int32_t price = op(2);
+                        std::string text;
+                        if (const int bi = shop_filter ? blessing_index(ops(1)) : -1; bi >= 0) {   // mods: the row
+                            price = shop_value(ShopQuery::Kind::Price, 0xdd, bi, price);
+                            text = ops(0) + std::to_string(price);
+                            ShopQuery q;
+                            q.kind = ShopQuery::Kind::Row; q.sub = 0xdd; q.index = bi; q.value = price; q.text = text;
+                            q.script = script_name;
+                            const GrantDecision d = shop_filter(q);
+                            if (d.action == GrantDecision::Action::Replace) text = d.text;
+                        } else {
+                            text = ops(0) + std::to_string(price);
+                        }
+                        host->menu_add(text, ops(1));
                         return Step::Continue;
                     }
                     if (sub == 0xe0) { host->save_menu_enter(); return Step::Continue; }
@@ -544,9 +568,13 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // 0x63's right-hand side is the OLD accumulator, so it must be read
                     // before acc is assigned.
                     const std::int32_t a = flag(op(0));
-                    const std::int32_t b = (sub == 0x61) ? op(2)
-                                         : (sub == 0x62) ? flag(op(2))
-                                                         : acc;
+                    std::int32_t b = (sub == 0x61) ? op(2)
+                                   : (sub == 0x62) ? flag(op(2))
+                                                   : acc;
+                    // CleriaCore mods (ShopQuery): @GrowNN's "enough SP?" test 0x61 (216, 6, price).
+                    if (shop_filter && sub == 0x61 && op(0) == 216)
+                        if (const int bi = blessing_index(script_name); bi >= 0)
+                            b = shop_value(ShopQuery::Kind::Price, 0x61, bi, b);
                     acc = compare(a, op(1), b);
                 } else if (sub == 0x90 && nargs >= 2) {     // bit test
                     acc = ((flag(op(0)) & op(1)) != 0) ? 1 : 0;
@@ -598,9 +626,16 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     } else {
                         acc = (flag(217) >> ((o <= 6) ? o : o - 2)) & 1;
                     }
+                    // CleriaCore mods (ShopQuery): the shop's own scripts ask "already applied?".
+                    if (shop_filter && script_name.size() >= 5) {
+                        std::string sn = script_name.substr(0, 5);
+                        for (char& ch : sn) ch = char(std::tolower((unsigned char)ch));
+                        if (sn == "@grow") acc = shop_value(ShopQuery::Kind::Owned, 0x9a, o, acc) != 0 ? 1 : 0;
+                    }
                 } else if (sub == 0x6a && nargs >= 2) {     // Flag_SubFlag: flag[op0] -= flag[op1]
                     // [BYTES 0x567e4c..0x567e97] (the GROWAR / GROWLE price deduction).
                     const std::int32_t i0 = op(0);
+                    if (i0 == 216 && blessing_index(script_name) >= 0) shop_paid = flag(op(1));
                     flag(i0) -= flag(op(1));
                     if (i0 >= 0 && i0 < 0x200) grants.push_back({"sub", i0, flag(i0), true});
                 } else if (sub == 0x84 && nargs >= 1) {     // SetGoldflagNowZenny(i) [BYTES 0x56876d]
@@ -615,8 +650,19 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // Jump table 0x56e6f0 (BLESSING_SHOP.md §2): idx 0..6 set bit idx of flag 217
                     // (0x76bc80), 7 / 8 FUN_00420200(flag 152 / 153, 1) (the armor / boots Raval),
                     // 9..33 bit idx - 2. [not modelled] idx > 0x21 throws in the engine.
-                    const std::int32_t o = op(0);
-                    if (o == 7 || o == 8) {
+                    std::int32_t o = op(0);
+                    bool apply = true;
+                    if (shop_filter) {                      // CleriaCore mods (ShopQuery), not retail
+                        ShopQuery q;
+                        q.kind = ShopQuery::Kind::Buy; q.sub = 0xaf; q.index = o; q.value = shop_paid;
+                        q.script = script_name;
+                        const GrantDecision d = shop_filter(q);
+                        if (d.action == GrantDecision::Action::Suppress) apply = false;
+                        else if (d.action == GrantDecision::Action::Replace) o = d.index;
+                    }
+                    shop_paid = 0;
+                    if (!apply) {
+                    } else if (o == 7 || o == 8) {
                         const std::int32_t id = flag(o == 7 ? 152 : 153);
                         if (id >= 0 && id < 54) {
                             item_arr[id] = 1;
@@ -635,6 +681,10 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     const std::int32_t k = op(0) == 0 ? flag(152) - 6 : flag(153) - 0x1e;
                     if (k >= 0 && k <= 0x17) {
                         flag(218) = kCost[k % 6];
+                        // CleriaCore mods (ShopQuery): @GrowAr / @GrowLe's price, which their 0x62 compare and
+                        // 0x6A deduction then read from flag 218.
+                        if (const int bi = shop_filter ? blessing_index(script_name) : -1; bi == 7 || bi == 8)
+                            flag(218) = shop_value(ShopQuery::Kind::Price, 0xb0, bi, flag(218));
                         grants.push_back({"set", 218, flag(218), true});
                     }
                 } else if (sub == 0xc1) {                   // IsFix()
@@ -692,7 +742,16 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                             case 0x65: flag(i0) = flag(op(1)); break;
                             case 0x66: flag(i0) = acc; break;
                             case 0x67: flag(i0) += op(1); break;
-                            case 0x69: flag(i0) -= op(1); break;
+                            case 0x69: {
+                                std::int32_t v = op(1);
+                                // CleriaCore mods (ShopQuery): @GrowNN's deduction 0x69 (216, price).
+                                if (const int bi = i0 == 216 ? blessing_index(script_name) : -1; bi >= 0) {
+                                    v = shop_value(ShopQuery::Kind::Price, 0x69, bi, v);
+                                    shop_paid = v;
+                                }
+                                flag(i0) -= v;
+                                break;
+                            }
                             case 0x6B: flag(i0) *= op(1); break;
                             case 0x71: flag(i0) &= op(1); break;
                             case 0x73: flag(i0) |= op(1); break;
@@ -980,6 +1039,25 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
         if (s == Step::End || s == Step::Unknown) return steps;
     }
     return steps;
+}
+
+int blessing_index(const std::string& script) {
+    std::string s = script;
+    for (char& c : s) c = char(std::tolower((unsigned char)c));
+    if (!s.empty() && s[0] == '@') s.erase(0, 1);
+    if (s.size() != 6 || s.compare(0, 4, "grow") != 0) return -1;
+    if (s.compare(4, 2, "ar") == 0) return 7;
+    if (s.compare(4, 2, "le") == 0) return 8;
+    if (!std::isdigit((unsigned char)s[4]) || !std::isdigit((unsigned char)s[5])) return -1;
+    return (s[4] - '0') * 10 + (s[5] - '0');
+}
+
+std::int32_t XsoVm::shop_value(ShopQuery::Kind kind, int sub, int index, std::int32_t value) const {
+    if (!shop_filter) return value;
+    ShopQuery q;
+    q.kind = kind; q.sub = sub; q.index = index; q.value = value; q.script = script_name;
+    const GrantDecision d = shop_filter(q);
+    return d.action == GrantDecision::Action::Replace ? d.value : value;
 }
 
 GrantQuery XsoVm::filter_query(GrantQuery::Kind kind, int sub, int index) const {

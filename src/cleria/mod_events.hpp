@@ -12,6 +12,8 @@
 //   BossDefeated  a boss fight was won (content_boss_watch, view_content.inl)             room, index (220..227 or -1)
 //   ItemUsed      an item was used from the book and consumed (the Panacea)             item
 //   DoorOpened    a locked door's UseKey script stored its door flag                    room, index, script
+//   BlessingBought a blessing-shop purchase reached its effect (op 0xAF SetXXX)          room, index (the blessing),
+//                                                                                        new_value (SP paid), old_value (1 = a mod suppressed the effect)
 //   NewGame       a new game started                                                    character
 //   Save / Load   a save slot was written / read (after the sidecar was handled)        slot
 //
@@ -25,7 +27,8 @@
 
 namespace cleria::events {
 
-enum class Kind { RoomEnter, FlagChanged, ChestOpened, ItemObtained, PlayerDeath, NewGame, Save, Load, BossDefeated, ItemUsed, DoorOpened };
+enum class Kind { RoomEnter, FlagChanged, ChestOpened, ItemObtained, PlayerDeath, NewGame, Save, Load, BossDefeated, ItemUsed, DoorOpened,
+                  BlessingBought };
 const char* kind_name(Kind k);
 
 struct Event {

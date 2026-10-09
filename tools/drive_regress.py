@@ -1504,7 +1504,32 @@ _LUA_SAVE = ('cleria.command("sv", function(a) cleria.log("save " .. a .. " -> "
              'cleria.command("fl", function(a) cleria.log("flag " .. a .. " = " .. cleria.game.flag(tonumber(a)) .. " n " .. '
              'tostring(cleria.save.get("n"))) end)\n'
              'cleria.events.on("save", function(e) cleria.log("saved slot " .. e.slot) end)\n')
+# The blessing shop's hooks (API 5, LUA_API.md §5.1): every price answered 7, the rows re-labelled, the effect
+# suppressed, and the purchase reported.
+_LUA_SHOP = ('cleria.log("api " .. cleria.api_version)\n'
+             'cleria.shop.add_filter(function(q)\n'
+             '  if q.kind == "price" then cleria.log("price " .. q.index .. " sub " .. q.sub .. " was " .. q.value .. " in " .. '
+             'q.script) return {action = "replace", value = 7} end\n'
+             '  if q.kind == "row" and q.value >= 0 then return {action = "replace", text = "Check #" .. q.index .. '
+             '" - [SP:]" .. q.value} end\n'
+             '  if q.kind == "buy" then return "suppress" end\n'
+             'end)\n'
+             'cleria.events.on("blessing_bought", function(e) cleria.log("bought " .. e.index .. " price " .. e.price .. '
+             '" suppressed " .. tostring(e.suppressed) .. " flag217 " .. cleria.game.flag(217) .. " sp " .. cleria.player.sp() '
+             '.. " room " .. e.room) end)\n')
 CASES.update({
+    # The `blessing` case's walk to the cleansed statue's @GrowMenu, one row further down: "Increase stationary
+    # heal rate" (@Grow00, 1000 SP), with 250 SP in the wallet. The mod prices it at 7 (the row, the script's
+    # 0x61 test and its 0x69 deduction), so it is bought: 243 SP left, blessing_bought (index 0, price 7), and
+    # the bit of flag 217 stays clear because the mod suppressed op 0xAF.
+    "lua_blessing_shop": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_SHOP,
+        drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;820:esc;"
+              "835:stats;836:flagdump;840:quit",
+        expect=[_LP + "api 5", _LP + "price 0 sub 221 was 1000 in @GrowMenu", _LP + "price 0 sub 97 was 1000 in @Grow00",
+                _LP + "price 0 sub 105 was 1000 in @Grow00", "[content] blessing_bought 0 for 7 SP (effect suppressed)",
+                _LP + "bought 0 price 7 suppressed true flag217 0 sp 243 room S_1009", "sp 243"],
+        absent=[" 217="], count={_LP + "bought": 1}),
     # boss_defeated as a script gets it: a floor boss's flag 0 -> 1 carries the flag (S_1099, 220); a fight
     # that ends by flag 156 going 1 -> 0 has none; 156 cleared in another room than it was set is not a win.
     "lua_boss_defeated": dict(

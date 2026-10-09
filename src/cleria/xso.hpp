@@ -533,6 +533,33 @@ struct GrantDecision {
     std::string text;
 };
 
+// The blessing-shop filter (CleriaCore's own hook, NOT retail; build/shell_re/LUA_API.md §5.1): what a mod
+// may answer for the goddess statues' @GrowMenu and its @GrowNN / @GrowAr / @GrowLe scripts. Consulted, when
+// set, at
+//   Price   a blessing's SP price as a script reads it: 0xDD Menu_AddSpShop's operand (the menu row), the
+//           0x61 compare "flag 216 >= price" and the 0x69 deduction "flag 216 -= price" of @GrowNN, and
+//           0xB0 SetRavalCostToFlag's cost (flag 218) of @GrowAr / @GrowLe. Replace: `value` = the price.
+//   Row     a row added to the menu (0xD8 Menu_Add: a "[Done]" row, value -1; 0xDD: text + price, value =
+//           the price after Price). Replace: `text` = the row's text.
+//   Owned   0x9A IsXXX(index) inside an @Grow* script ("already applied" / which tier's row to show);
+//           value = the game's answer 0 / 1. Replace: `value` = the answer.
+//   Buy     0xAF SetXXX(index), the purchase's effect; value = the SP the script just deducted. Suppress:
+//           the blessing bit / the Raval level is not written. Replace: `index` = the blessing applied.
+// `index` is the script's own number: GROWnn's nn (0..6, 9..25), 7 = the armor, 8 = the leggings.
+// With no filter (the default) every path runs exactly as before.
+struct ShopQuery {
+    enum class Kind { Price, Row, Owned, Buy };
+    Kind kind = Kind::Price;
+    int sub = 0;                         // the sub-op that asks (0xDD, 0x61, 0x69, 0xB0, 0xD8, 0x9A, 0xAF)
+    int index = -1;
+    std::int32_t value = 0;
+    std::string text;                    // Row: the text as the script built it
+    std::string script;                  // the running script instance's name ("@growmenu", "@grow03")
+};
+// The blessing an @Grow* script name stands for: "@Grow03" -> 3, "@GrowAr" -> 7, "@GrowLe" -> 8 (any case,
+// with or without the '@'); -1 for anything else ("@GrowMenu", "@Grow_YesNo").
+int blessing_index(const std::string& script);
+
 // Dynamic executor: runs control flow (jumps, accumulator conditionals) and the
 // flag-store / give-item sub-ops. Unimplemented sub-ops are skipped by length
 // (safe — the length is encoded), so a script always runs to its end op.
@@ -576,6 +603,9 @@ struct XsoVm {
     std::function<void(bool)> on_allow_multi;
     // CleriaCore mods: the grant filter (GrantQuery above). Null = retail behaviour.
     std::function<GrantDecision(const GrantQuery&)> grant_filter;
+    // CleriaCore mods: the blessing-shop filter (ShopQuery above). Null = retail behaviour.
+    std::function<GrantDecision(const ShopQuery&)> shop_filter;
+    std::int32_t shop_paid = 0;          // the SP the running @Grow* script deducted (its Buy query's value)
     // Coverage diagnostics (CleriaCore's own, not retail): called with the sub-op whenever a
     // class-2 call reaches step_one's fallthrough, i.e. a sub-op this VM neither models nor
     // knowingly ignores (it is then skipped by its encoded length). Null = silent. cleria-view
@@ -739,6 +769,8 @@ struct XsoVm {
                    std::uint32_t argoff, std::uint32_t nargs);
     // A GrantQuery with this VM's context (flags, script name, $S0, owner) filled in.
     GrantQuery filter_query(GrantQuery::Kind kind, int sub, int index) const;
+    // shop_filter's answer for a price / an owned state: `value`, or the Replace decision's.
+    std::int32_t shop_value(ShopQuery::Kind kind, int sub, int index, std::int32_t value) const;
 };
 
 // Resolves a StartScript child NAME to a parsed script. The host owns filesystem access
