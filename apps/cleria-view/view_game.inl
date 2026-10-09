@@ -491,11 +491,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     };
 
     // Save slots (PLAN.md Phase 2; src/cleria/save.hpp codec). One yso_NN.bin per slot
-    // under CLERIA_SAVE_DIR (default ./saves), mirroring the game's own file naming.
-    auto save_dir = [] {
-        const char* e = std::getenv("CLERIA_SAVE_DIR");
-        return fs::path(e ? e : "saves");
-    };
+    // under CLERIA_SAVE_DIR (default ./saves), mirroring the game's own file naming. A save profile
+    // (cleria.save.set_profile, CLERIA_SAVE_PROFILE; view_content.inl) moves them to its profiles/<name>/.
+    if (const char* e = std::getenv("CLERIA_SAVE_PROFILE"))
+        if (!save_set_profile(e)) std::printf("[save] CLERIA_SAVE_PROFILE refused (not a usable name)\n");
+    auto save_dir = [] { return save_folder(); };
     auto slot_path = [&](int i) {
         char n[16]; std::snprintf(n, sizeof n, "yso_%02d.bin", i);
         return save_dir() / n;

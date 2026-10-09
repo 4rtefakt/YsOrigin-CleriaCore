@@ -71,6 +71,9 @@ struct Host {
     virtual void warp(int index) { (void)index; }           // 0xa6 GoWarpPoint to a statue of the registry
     virtual bool save(int slot) { (void)slot; return false; }   // the statue save into slot 0..63; false = refused
     virtual void unlock_character(int c) { (void)c; }       // Character Select offers character c (3 = Toal) this session
+    // The save folder becomes <save dir>/profiles/<name>/ ("" = the normal one); false = refused (a game runs, a bad name).
+    virtual bool set_save_profile(const std::string& name) { (void)name; return false; }
+    virtual std::string save_profile() { return {}; }
     // ---- storage ----
     virtual std::map<std::string, std::string>* save_storage(const std::string& mod) { (void)mod; return nullptr; }
     virtual std::optional<std::string> setting(const std::string& mod, const std::string& key) { (void)mod; (void)key; return std::nullopt; }

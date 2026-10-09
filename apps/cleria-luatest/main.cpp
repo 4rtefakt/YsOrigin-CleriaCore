@@ -87,6 +87,9 @@ struct FakeHost : script::Host {
     }
     void warp(int i) override { warped = i; }
     bool save(int slot) override { if (slot == 9) return false; saved = slot; return true; }   // 9: "not now"
+    std::string profile;
+    bool set_save_profile(const std::string& n) override { if (n == "no") return false; profile = n; return true; }   // "no": refused
+    std::string save_profile() override { return profile; }
     std::map<std::string, std::string>* save_storage(const std::string& mod) override { return &store[mod]; }
     std::optional<std::string> setting(const std::string& mod, const std::string& key) override {
         const auto it = settings.find(mod + "/" + key);
@@ -271,6 +274,9 @@ int main(int argc, char** argv) {
                 cleria.game.warp_to(3)
                 cleria.log("save " .. tostring(cleria.game.save(8)) .. " " .. tostring(cleria.game.save(9)) .. " " ..
                            tostring(cleria.game.save(64)) .. " " .. tostring(cleria.game.save(-1)))
+                local sp = cleria.save.set_profile
+                cleria.log("profile " .. tostring(sp("AP_1")) .. " " .. cleria.save.profile() .. " " .. tostring(sp("no")) .. " " ..
+                           cleria.save.profile() .. " " .. tostring(sp(nil)) .. " [" .. cleria.save.profile() .. "] " .. tostring(sp("x")) .. " " .. tostring(sp()))
                 cleria.content.give(0x59, 2, "test")
                 cleria.events.emit("item_obtained", {item = 0x59, count = 1, source = "test"})
                 cleria.log("chests " .. cleria.game.chests().s_box01.flag .. " name " .. cleria.game.item_name(0x59))
@@ -363,6 +369,8 @@ int main(int argc, char** argv) {
               "api: set_flag, player.add_sp / set_level, warps");
         check(has(h.logs, "save true false false false") && h.saved == 8,
               "api: game.save returns the host's answer; a slot outside 0..63 is false without asking");
+        check(has(h.logs, "profile true AP_1 false AP_1 true [] true true") && h.profile.empty(),
+              "api: save.set_profile returns the host's answer (nil / nothing = \"\"), save.profile reads it back");
         check(h.given.size() == 1 && h.given[0] == std::make_pair(0x59, 2), "api: content.give goes to the host");
         check(h.emitted.size() == 1 && h.emitted[0].kind == events::Kind::ItemObtained && h.emitted[0].source == "test",
               "api: events.emit item_obtained");

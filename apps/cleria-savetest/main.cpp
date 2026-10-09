@@ -123,6 +123,26 @@ int main() {
         std::printf("[save] sidecar empty = no file, stale / foreign / newer files ignored %s\n", sc_empty ? "OK" : "FAIL");
         fails += !sc_empty;
         fs::remove_all(dir, ec);
+
+        // Save profiles (LUA_API.md §6.1): the folder name a mod's text becomes, and where it lands.
+        bool pf = save_profile_name("AP_12345_Yunica-1.b") == "AP_12345_Yunica-1.b";
+        pf = pf && save_profile_name("../x") == ".._x" && save_profile_name("a/b") == "a_b" && save_profile_name("a\\b") == "a_b";
+        pf = pf && save_profile_name("C:\\Windows") == "C__Windows" && save_profile_name("/etc") == "_etc";
+        pf = pf && save_profile_name("").empty() && save_profile_name(".").empty() && save_profile_name("..").empty();
+        pf = pf && save_profile_name("....").empty() && save_profile_name("a.") == "a_" && save_profile_name(" ") == "_";
+        pf = pf && save_profile_name(std::string(300, 'a')) == std::string(64, 'a');
+        pf = pf && save_profile_name(std::string(70, '.')).empty();              // dots only, also once cut to 64
+        pf = pf && save_profile_name("s\xC3\xA9" "ed\xE2\x98\x83") == "s__ed___";  // UTF-8: every byte
+        pf = pf && save_profile_name(std::string("a\0b\n", 4)) == "a_b_";
+        for (const char* h : {"../x", "a/b", "a\\b", "..\\..\\x", "x/../../y", "\xE2\x98\x83", "CON:", "a\tb"}) {
+            const std::string n = save_profile_name(h);
+            pf = pf && !n.empty() && n.size() <= 64 && n.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") == std::string::npos;
+            const fs::path d = save_profile_dir(dir, n);
+            pf = pf && d.parent_path() == dir / "profiles" && d.filename().string() == n;   // one plain level down
+        }
+        pf = pf && save_profile_dir(dir, "") == dir && save_profile_dir(dir, "AP_1") == dir / "profiles" / "AP_1";
+        std::printf("[save] profile names: hostile text ('../x', 'a/b', '..', 300 chars, UTF-8) stays one folder under profiles/ %s\n", pf ? "OK" : "FAIL");
+        fails += !pf;
     }
 
     // Rejection: wrong size, wrong magic.

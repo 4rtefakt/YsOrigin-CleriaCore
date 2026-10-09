@@ -166,4 +166,17 @@ void remove_sidecar(const fs::path& save_file) {
     fs::remove(sidecar_path(save_file), ec);
 }
 
+std::string save_profile_name(std::string_view raw) {
+    std::string n(raw.substr(0, 64));
+    for (char& c : n)
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-')) c = '_';
+    if (n.find_first_not_of('.') == std::string::npos) return {};
+    if (n.back() == '.') n.back() = '_';
+    return n;
+}
+
+fs::path save_profile_dir(const fs::path& save_dir, const std::string& name) {
+    return name.empty() ? save_dir : save_dir / "profiles" / name;
+}
+
 }  // namespace cleria

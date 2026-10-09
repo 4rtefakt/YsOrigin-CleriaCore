@@ -515,9 +515,42 @@ static void content_retry(const Sidecar& snap) {
 
 static void content_delete(const fs::path& slot_file) { remove_sidecar(slot_file); }
 
-// CLERIA_DRIVE: cstate | give=<id>[,<n>] | csave=<slot> | cload=<slot>
+// The save profile (CleriaCore's, not retail's; LUA_API.md §6.1): "" = the save folder itself (CLERIA_SAVE_DIR,
+// default ./saves), else its profiles/<name>/. Set by cleria.save.set_profile or CLERIA_SAVE_PROFILE; lasts for
+// the process. The folder is made by the first save (do_save's create_directories).
+static std::string g_save_profile;
+static fs::path save_folder() {
+    const char* e = std::getenv("CLERIA_SAVE_DIR");
+    return save_profile_dir(e ? e : "saves", g_save_profile);
+}
+// False (and no change) for a name save_profile_name refuses; "" returns to the normal folder.
+static bool save_set_profile(const std::string& raw) {
+    const std::string n = save_profile_name(raw);
+    if (n.empty() && !raw.empty()) return false;
+    if (n == g_save_profile) return true;
+    g_save_profile = n;
+    std::error_code ec;
+    if (n.empty()) std::printf("[save] profile cleared\n");
+    else std::printf("[save] profile \"%s\" -> %s\n", n.c_str(), fs::absolute(save_folder(), ec).string().c_str());
+    return true;
+}
+
+// CLERIA_DRIVE: cstate | give=<id>[,<n>] | csave=<slot> | cload=<slot> | cprofile
 static bool content_drive(const std::string& cmd) {
     ContentRt& r = g_content;
+    if (cmd == "cprofile") {                       // the profile, and the slot files in the normal folder / in the active one
+        const char* e = std::getenv("CLERIA_SAVE_DIR");
+        auto count = [](const fs::path& d) {
+            int n = 0;
+            std::error_code ec;
+            for (fs::directory_iterator it(d, ec), end; !ec && it != end; it.increment(ec))
+                n += it->path().extension() == ".bin" || it->path().extension() == ".cleria";
+            return n;
+        };
+        std::printf("  [drive] cprofile \"%s\" normal %d active %d\n", g_save_profile.c_str(), count(e ? e : "saves"),
+                    count(save_folder()));
+        return true;
+    }
     if (cmd == "cstate") {
         std::string items, flags;
         for (const auto& [id, n] : r.sc.items) items += " " + content_hex(id) + "=" + std::to_string(n);

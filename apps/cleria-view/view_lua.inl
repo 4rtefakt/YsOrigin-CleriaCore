@@ -60,6 +60,8 @@ struct LuaHost : script::Host {
     void warp(int index) override;
     bool save(int slot) override;
     void unlock_character(int c) override;
+    bool set_save_profile(const std::string& name) override;
+    std::string save_profile() override { return g_save_profile; }
     std::map<std::string, std::string>* save_storage(const std::string& mod) override { return &g_content.sc.mod[mod]; }
     std::optional<std::string> setting(const std::string& mod, const std::string& key) override;
     bool set_setting(const std::string& mod, const std::string& key, const std::string& value) override;
@@ -168,6 +170,15 @@ void LuaHost::warp(int index) { if (g_lua.b.warp && g_lua.b.warp_on) g_lua.b.war
 bool LuaHost::save(int slot) { return in_game() && g_lua.b.save && g_lua.b.save(slot); }
 static bool g_lua_open_toal = false;   // cleria.game.unlock_character(3): read by the title's Character Select
 void LuaHost::unlock_character(int c) { if (c == 3) g_lua_open_toal = true; }
+// cleria.save.set_profile: only with no game bound (the launcher, the title), so a running game's saves never
+// change folder; the notice card tells the player where the saves now go.
+bool LuaHost::set_save_profile(const std::string& name) {
+    const std::string was = g_save_profile;
+    if (g_lua.b.flags || !save_set_profile(name)) return false;
+    if (g_save_profile != was)
+        g_lua.notices.push_back({"Save profile", g_save_profile.empty() ? "The normal saves" : g_save_profile, now()});
+    return true;
+}
 
 static std::string lua_setting_sec(const std::string& mod) { return "cleria.mod." + mod; }
 std::optional<std::string> LuaHost::setting(const std::string& mod, const std::string& key) {

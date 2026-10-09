@@ -58,4 +58,12 @@ Sidecar read_sidecar(const std::filesystem::path& save_file);
 // Remove the sidecar of a deleted save (no error when absent).
 void remove_sidecar(const std::filesystem::path& save_file);
 
+// Save profiles (CleriaCore's, not retail's; build/shell_re/LUA_API.md §6.1): a run's saves in
+// <save dir>/profiles/<name>/. The folder name of a profile: every byte outside [A-Za-z0-9._-] becomes '_',
+// at most 64 characters, a trailing '.' becomes '_' (Windows drops it); "" = refused (an empty name, or dots
+// only: "." / ".."). The result never holds a path separator.
+std::string save_profile_name(std::string_view raw);
+// The folder of profile `name` (already a save_profile_name) under `save_dir`; `save_dir` itself for "".
+std::filesystem::path save_profile_dir(const std::filesystem::path& save_dir, const std::string& name);
+
 }  // namespace cleria

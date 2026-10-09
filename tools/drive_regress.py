@@ -1671,6 +1671,9 @@ _LUA_SAVE = ('cleria.command("sv", function(a) cleria.log("save " .. a .. " -> "
              'cleria.command("fl", function(a) cleria.log("flag " .. a .. " = " .. cleria.game.flag(tonumber(a)) .. " n " .. '
              'tostring(cleria.save.get("n"))) end)\n'
              'cleria.events.on("save", function(e) cleria.log("saved slot " .. e.slot) end)\n')
+_LUA_PROFILE = ('cleria.log("boot " .. tostring(cleria.save.set_profile("../run 7")) .. " " .. cleria.save.profile())\n'
+                'cleria.command("sp", function(a) cleria.log("set [" .. a .. "] -> " .. tostring(cleria.save.set_profile(a)) .. '
+                '" is " .. cleria.save.profile()) end)\n')
 # The blessing shop's hooks (API 5, LUA_API.md §5.1): every price answered 7, the rows re-labelled, the effect
 # suppressed, and the purchase reported.
 _LUA_SHOP = ('cleria.log("api " .. cleria.api_version)\n'
@@ -1731,6 +1734,25 @@ CASES.update({
                 _LP + "save 8 -> true", _LP + "save 64 -> false", "event load", _LP + "flag 89 = 3 n 7", "[death] HP 0",
                 _LP + "save 8 -> false"],
         count={"-> true": 1, "[cont] snapshot S_1009": 4}),      # the room root's, the save's, the load's and its root's
+    # Save profiles (LUA_API.md §6.1). The mod's main chunk runs before a game is bound, so its set_profile is
+    # taken (the hostile name becomes one folder name); in the room every set_profile is refused and changes
+    # nothing. The save lands in profiles/<name>/ (`cprofile`: files in the normal folder / in the active one)
+    # and loads back from there.
+    "lua_save_profile": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_SAVE + _LUA_PROFILE,
+        drive="20:lua=sp other;25:lua=sp;30:cprofile;120:flag=89,3;125:lua=put 7;130:lua=sv 8;135:cprofile;"
+              "150:flag=89,5;160:cload=8;230:lua=fl 89;240:quit",
+        expect=['[save] profile ".._run_7" -> ', _LP + "boot true .._run_7", _LP + "set [other] -> false is .._run_7",
+                _LP + "set [] -> false is .._run_7", 'cprofile ".._run_7" normal 0 active 0', _LP + "save 8 -> true",
+                'cprofile ".._run_7" normal 0 active 2', "event load", _LP + "flag 89 = 3 n 7"],
+        count={"[save] profile": 1}),
+    # The same without a mod: CLERIA_SAVE_PROFILE names the profile for the whole run.
+    "save_profile_env": dict(
+        room="S_10/S_1009/S_1009", env=dict(CLERIA_SAVE_PROFILE="AP seed/1"),
+        drive="20:cprofile;120:flag=89,3;130:csave=3;135:cprofile;150:flag=89,5;160:cload=3;240:quit",
+        expect=['[save] profile "AP_seed_1" -> ', os.path.join("profiles", "AP_seed_1"), 'cprofile "AP_seed_1" normal 0 active 0',
+                'cprofile "AP_seed_1" normal 0 active 1', "event load"],
+        count={"[save] profile": 1}),
 })
 
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).

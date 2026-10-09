@@ -667,6 +667,12 @@ int l_save_ready(lua_State* L) {
     lua_pushboolean(L, h.in_game() && h.save_ready());
     return 1;
 }
+// set_profile(name): this run's saves go to <save dir>/profiles/<name>/ ("" / nil = the normal folder).
+int l_save_set_profile(lua_State* L) {
+    lua_pushboolean(L, M(L).host().set_save_profile(lua_isnoneornil(L, 1) ? std::string() : str_arg(L, 1)));
+    return 1;
+}
+int l_save_profile(lua_State* L) { lua_pushstring(L, M(L).host().save_profile().c_str()); return 1; }
 
 int l_setting_get(lua_State* L) {
     Mod& m = M(L);
@@ -1147,6 +1153,7 @@ void open_api(lua_State* L, Mod& m) {
     lua_setfield(L, -2, "shop");
 
     static const luaL_Reg save[] = {{"get", l_save_get}, {"set", l_save_set}, {"keys", l_save_keys}, {"ready", l_save_ready},
+                                    {"set_profile", l_save_set_profile}, {"profile", l_save_profile},
                                     {nullptr, nullptr}};
     lua_newtable(L);
     set_funcs(L, save);

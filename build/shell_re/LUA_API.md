@@ -11,7 +11,7 @@ the game, its saves and its frames are what they were.
 | the runtime: state, sandbox, budget, errors, the game's calls into a mod | `src/cleria/modscript.{hpp,cpp}` (target `cleria-script`) |
 | the `cleria.*` API | `src/cleria/modscript_api.cpp` |
 | the game side (the `Host`): live game, content layer, ui kit, shell | `apps/cleria-view/view_lua.inl` + one-line hooks in `view_game.inl` |
-| tests | `apps/cleria-luatest` (ctest `luatest`, 57 checks), `tools/aplua_regress.py` (16 drive cases), `drive_regress shell_subpages` |
+| tests | `apps/cleria-luatest` (ctest `luatest`, 58 checks), `tools/aplua_regress.py` (16 drive cases), `drive_regress shell_subpages` |
 | samples | `samples/mods/hello`, `samples/mods/archipelago_lua` (§9) |
 | the modder's guide | `samples/mods/README.md` |
 
@@ -248,6 +248,43 @@ current armor" (`@GrowAr`) and **8** = "Strengthen current leggings" (`@GrowLe`)
   `get("On", false)` -> a boolean; stored `1` / `0`).
 - In a run without a settings file (headless tests) mods are off anyway (MODS.md §2).
 
+### 6.1 Save profiles: `cleria.save.set_profile` (2026-10-09; test `cleria.save.set_profile ~= nil`)
+
+CleriaCore's, not retail's. A mod keeps a run's saves apart from the player's own (the Archipelago mod: one
+folder per seed and slot).
+
+| call | |
+|---|---|
+| `cleria.save.set_profile(name)` -> boolean | the save folder becomes `<save dir>/profiles/<folder>/`; `""` or `nil` returns to `<save dir>` itself. `true` = the profile is now that one (also when it already was), `false` = refused, nothing changed |
+| `cleria.save.profile()` -> string | the active profile's folder name, `""` = the normal saves |
+
+- `<save dir>` is `CLERIA_SAVE_DIR`, else `./saves` (the folder of `yso_NN.bin`). Everything that reads or
+  writes a slot follows the profile: the statue / book save, `game.save`, the Load lists of the title and of
+  the book (they list the profile's saves only), the book's delete, the sidecars `yso_NN.cleria`, and the
+  launcher's "auto" backdrop when a profile is already set as it opens. The continue snapshot (Retry) is in
+  memory, not a file. `cleria.ini`, `cleria.settings` and `cleria.data` do not move.
+- The folder name [CODE `save_profile_name`, `src/cleria/sidecar.cpp`]: the first 64 bytes of `name`, every
+  byte outside `A-Z a-z 0-9 . _ -` replaced by `_` (so a `/`, a `\`, a `:`, a space and each byte of a
+  non-ASCII character become `_`), a trailing `.` replaced by `_`. `"AP_" .. seed` stays as it is;
+  `"../x"` becomes `.._x`. Two names that differ only in replaced characters share a folder.
+- Refused (`false`, no change): a name that is only dots (`"."`, `".."`), and any call while a game is bound —
+  from the moment a New Game / Load leaves the title until Return to Title. A profile changes only on the
+  launcher and the title ("frame" handlers run there), so a running game's saves never change folder.
+  A non-string, non-nil `name` raises a Lua error.
+- The folder is created by the first save, not by `set_profile`. The profile lasts for the process (it stays
+  through Return to Title) and is not stored: set it at each start. The log gets
+  `[save] profile "<folder>" -> <full path>` (or `[save] profile cleared`) and the player a notice card.
+- Without a mod: the environment variable `CLERIA_SAVE_PROFILE=<name>` (same rule) sets the profile at start.
+- [H] A Load page that is already open keeps the cards it scanned; set the profile before the player opens it.
+
+```lua
+-- on the title, once the server has answered (seed and slot are known)
+cleria.events.on("frame", function()
+  if not want_profile or cleria.save.set_profile == nil or cleria.game.in_game() then return end
+  if cleria.save.set_profile("AP_" .. seed .. "_" .. slot) then want_profile = nil end
+end)
+```
+
 ## 7. UI: hud layers, the mod's page, icons
 
 ```lua
@@ -381,7 +418,7 @@ python tools/drive_regress.py --exe build_diff/Release/cleria-view.exe --assets 
 
 `cleria-nettest`: the WebSocket under `cleria.net` (address parsing; a loopback echo server: wss -> ws fallback,
 echo, a 2 MB message, idle beyond the handshake timeout, a kick, a polite close, a close the server ignores,
-nothing listening, a bad address). `cleria-luatest` (57 checks): the sandbox (no io / package / debug / dofile / os.execute / getenv /
+nothing listening, a bad address). `cleria-luatest` (58 checks): the sandbox (no io / package / debug / dofile / os.execute / getenv /
 string.dump, bytecode refused, `require` / `cleria.read` / `cleria.data` cannot leave their folders, print to
 the log); a runaway handler stopped in milliseconds, also through `pcall`, a runaway main chunk, a heap bomb,
 errors with file:line (main chunk, handler, syntax, a module), a disabled mod getting no calls, other mods
@@ -404,3 +441,4 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 3 | everything above not marked otherwise |
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
+| no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |
