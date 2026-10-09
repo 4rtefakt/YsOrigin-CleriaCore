@@ -1207,6 +1207,11 @@ title_again:
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     ailments::State ail;               // poison / heavy / confuse / curse: 0x76c15c..0x76c16c (view_ailments.inl)
     bool toal_air_cast = false;        // +0x7b0: Toal's last 0x76 (Ignis) cast started in the air
+    // Hugo's super barrier (BOOST_SKILLS.md §2.5): +0x7dc, 420 ticks from the press; +0x7e0, the handle of
+    // effect 0x90 (PC2_B_B_b) his section 300 spawns at tick 25. While the effect stands every hit on him
+    // is a GUARD; the tick that finds the timer 0 kills it.
+    int barrier_t = 0;
+    ef2sim::Effect* barrier_fx = nullptr;
     StandingRegen regen;               // +0x760: the standing HP regeneration (hazard.hpp)
     float regen_acc = 0.0f;
     Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
@@ -3079,6 +3084,7 @@ title_again:
         // armed_hitbox() path already resolves.
         const int extra = character == 1 ? 313 : character == 2 ? 300 : 317;
         if (!avm.set_section(extra, /*force*/true)) return;
+        if (character == 2) barrier_t = 420;              // +0x7dc = 0x1a4 (0x465d39)
         avm.set_local(8, 0);                              // +0x9fc = 0, the re-cast window (0x465d9b)
         pad_rumble(5);                                    // FUN_005d3500(5) at 0x465dc0 (view_pad.inl)
         atk_dir = face_dir;
@@ -3211,6 +3217,8 @@ title_again:
             if (player.hp >= 1) { player.hp = player.max_hp; player.hp_lag = float(player.hp); }
         }
         else if (n == 0 || n == 12) {                     // DAT_0076c1b4 = 0, then FUN_00462c40 ends a Boost
+            if (fx_live(barrier_fx)) barrier_fx->kill = true;   // kill P+0x7e0, P+0x7dc = 0 (0x58f298 / 0x58f74b)
+            barrier_fx = nullptr; barrier_t = 0;
             player.boost = 0.0f;
             if (player.boosting) end_boost();
         }
@@ -5807,7 +5815,12 @@ title_again:
             if (game.g_flags[149] != was) avm.set_section(2, /*force*/true);
         }
         if (frozen_now) {
+            ail_tick();                              // a Fix kills the four status effects (view_ailments.inl)
             if (shield_on) remove_shield(true);      // FUN_0046af60 L411-536 [H-med: 0x75ad90/94 = the fix counters]
+            if (barrier_fx || barrier_t) {           // ... and the super barrier [EXPORT 0046af60.c:538-648]; [not modelled] SE 761's fade
+                if (fx_live(barrier_fx)) barrier_fx->kill = true;
+                barrier_fx = nullptr; barrier_t = 0;
+            }
             {   // The script pushes 0x15e / 0x15f move the player under a Fix too (issue #75): the integrator
                 // FUN_0045a510 adds +0x5d0 / +0x5d8 while the counter +0x5dc runs with no fix gate [EXPORT
                 // 0045a510.c L263-273], and the player's tick calls it on every real step, a Fix or not
@@ -6032,6 +6045,11 @@ title_again:
                 if (shield_life == 0 || shield_hits == 0) remove_shield(shield_hits == 0);
                 else if (!fx_live(shield_fx)) remove_shield(false);   // [guard, not retail] the effect is gone
             }
+            // The barrier's tick [EXPORT 0046a3e0.c:378-387]: at 0 the effect +0x7e0 is killed, else the timer
+            // counts down.
+            if (barrier_t == 0) {
+                if (barrier_fx) { if (fx_live(barrier_fx)) barrier_fx->kill = true; barrier_fx = nullptr; }
+            } else --barrier_t;
             // Toal's pull (the tail of FUN_0046a3e0, every logic tick in 0x10c / 0x10f, no Marker test [EXPORT
             // 0046a3e0.c:388-476]; BOOST_SKILLS.md §3.5): every live monster (kind +0x60 & 0x18, +0x130 & 0x4000
             // clear) within 10 with a clear line to him is drawn on its knock channel 2 toward the point 2.0
@@ -7634,6 +7652,19 @@ title_again:
                     player_kb.x += k.x; player_kb.z += k.z;
                     return;
                 }
+                // Hugo's super barrier: while +0x7e0 stands and the Force Shield did not take the hit, a GUARD
+                // with no counter and no MP [BYTES 0x4fd9fc..0x4fda7d]. [not modelled] the white flash.
+                if (character == 2 && fx_live(barrier_fx)) {
+                    player_iframes = std::max(player_iframes, 16);
+                    audio.play(0x79, kSfxAnimVol);
+                    if (popups.size() < 32)
+                        popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
+                                                    {feet.x, feet.y + kOriginH + 0.75f, feet.z}));
+                    damage_popup(0, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
+                    const Impulse k = knock_impulse(angle, 0.1f);
+                    player_kb.x += k.x; player_kb.z += k.z;
+                    return;
+                }
                 const int raw = player_incoming_damage(AttackStats{atk, bonus, 0}, pdef,
                     [&](float p) { return float(rng_pct(rng)) < p; },
                     IncomingMode{game.g_flags[144], game.g_flags[143] != 0, game.g_flags[201] != 0});   // DIFFICULTY.md G8
@@ -8091,6 +8122,7 @@ title_again:
                 sp.atk = player_stats().atk; sp.side = 0; sp.owner = 13;
                 ef2sim::Effect* fx = spawn_generate_effect(fe, org, pf, sp, 13);
                 if (shield_id) { shield_fx = fx; shield_on = fx != nullptr; }
+                if (character == 2 && fe.id == 0x90) barrier_fx = fx;   // +0x7e0 [EXPORT 004496f0.c:113-115]
             }
             // GenerateCollision fired: adopt this section's own box for its own lifetime.
             if (avm.armed_hitbox()) {

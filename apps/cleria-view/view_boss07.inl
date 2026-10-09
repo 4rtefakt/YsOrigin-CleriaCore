@@ -201,6 +201,10 @@ auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
         g_rig.write_forced(out.cam_slot->first, out.cam_slot->second);
         if (boss7_log) std::printf("  [boss07] t%llu CamSlot %d (%.3f)\n", (unsigned long long)tick_count, out.cam_slot->first, out.cam_slot->second);
     }
+    if (out.player.kill_7e0) {                             // Kill(P+0x7e0); P+0x7e0 = P+0x7dc = 0 (0x54c948)
+        if (fx_live(barrier_fx)) barrier_fx->kill = true;
+        barrier_fx = nullptr; barrier_t = 0;
+    }
     for (const auto& [fi, fv] : out.flags) {
         if (fi >= 529 && fi <= 532) { ail.t[fi - 529] = fv; continue; }   // the status timers 0x76c160..0x76c16c
         if (fi == 550) { player.boost = float(fv); continue; }   // 0x76c1b4: the Boost gauge

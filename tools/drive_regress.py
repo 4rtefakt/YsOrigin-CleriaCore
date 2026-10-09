@@ -970,7 +970,7 @@ CASES.update({
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.5;8:tier=10;"
               "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
-              "16:flag=184,3;17:bracelet=116;60:boss7;6700:quit",
+              "16:flag=184,3;17:bracelet=116;60:boss7;7800:quit",
         expect=["[boss07] Dalles: HP 2500 STR 255, parts DEF 255 pool 25000, options 1000",
                 "the fight starts at (0.00,4.00,0.00)", "target the core with the sword", "clip N_SHOOT_R (variant 0)",
                 "bullet kind 0x2 effect 409", "the swing hits part 0 (class 3)", "clip N_SHOOT_L (variant 0)",
@@ -982,12 +982,15 @@ CASES.update({
                 "barrier F broken (window 599)", "barrier E up", "the Skill 2 key (bracelet 0x75 for barrier 2)",
                 "(class 2): ", "bullet kind 0x4 effect 400", "barrier E broken (window 599)", "barrier W up",
                 "the Skill 1 key (bracelet 0x74 for barrier 1)", "barrier W broken (window 599)", "CamSlot 4",
-                "barrier D up", "phase 2 (max HP 4250)", "target option", "option R destroyed", "CamSlot 3",
-                "barrier D broken (window 699)", "option L destroyed", "target the core with the sword",
-                "barrier D up", "option R revived (1000)", "option L revived (1000)", "clip SIS_LAZER_START",
-                "bullet kind 0x25 effect 54", "the capture circle at", "the player is captured", "CamSlot 5",
+                # From here the order follows the run since Yunica's Terra has its MP armour (BOOST_SKILLS.md §3.3:
+                # a hit she takes inside 0x10c / 0x10f is a GUARD with 16 i-frames): the same events, but the
+                # capture now comes after the first option falls, before the first fall of the dark barrier.
+                "barrier D up", "phase 2 (max HP 4250)", "target option", "option L destroyed",
+                "bullet kind 0x25 effect 54", "clip SIS_LAZER_START", "the capture circle at", "the player is captured", "CamSlot 5",
                 "every particle removed", "mode 0 -> 4", "clip KIAI_START", "the player is pinned at (0.0,495.0,-5.0)",
-                "clip METEOR", "the player is returned to (0.0,7.5,-15.0)", "mode 4 -> 0", "barrier D broken (window 699)",
+                "clip METEOR", "the player is returned to (0.0,7.5,-15.0)", "mode 4 -> 0", "CamSlot 3",
+                "barrier D broken (window 699)", "option R destroyed", "target the core with the sword", "barrier D up",
+                "option R revived (1000)", "option L revived (1000)", "barrier D broken (window 699)",
                 "flag 226 = 1", "EXP (lv 49)", "the death starts", "[boss07] t", "destroyed", ">> entering S_7000"]),
     # Darm (build/boss_re/DARM*.md; src/cleria/boss08, apps/cleria-view/view_boss08.inl). Toal's last fight, from the
     # room's own retry start: flag 205 = 1 and a reload make the root script Mesh_Locate boss08 (its ctor builds the
@@ -1183,6 +1186,14 @@ CASES.update({
         room="S_10/S_1009/S_1009", char="3",
         drive="10:hp=30;400:stats;410:quit",
         expect=["hp 30/60"]),
+    # BOOST_SKILLS.md §2.5: Hugo's super (the second Boost press with flag 188) arms a 420-tick barrier: a hit
+    # 100 ticks after the press is a GUARD (0 damage), a hit past the timer takes HP.
+    "hugo_super_barrier": dict(
+        room="S_10/S_1009/S_1009", char="2",
+        drive="3:flag=187,1;4:flag=188,1;12:boost=30000;20:boostkey;90:boostkey;91:abil;190:hurt=60;191:stats;"
+              "520:hurt=60;521:stats;530:quit",
+        expect=["[abil] t91 sec 0x12c", "[popup] 0 ff0000", "Chr_Damage player atk 60 -> HP 60", "t191 stats",
+                "Chr_Damage player atk 60 -> HP 38", "t521 stats"]),
     # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
     # load tick's drain) and takes the continue snapshot, so a
     # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn
