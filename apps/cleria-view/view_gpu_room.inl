@@ -39,6 +39,8 @@ struct Gpu {
     WGPUBuffer ubuf{};
     WGPUBindGroup ubind{};
     WGPUSampler sampler{};
+    WGPUSampler sampler_mip{};    // "Smooth distant textures": the world sampler over the mip chain
+    WGPUSampler sampler_point{};  // "Character sprites: Crisp": nearest
     WGPUBindGroupLayout tex_layout{};
     WGPUBindGroup white_bind{};   // failed-to-load texture (missing-ref marker)
     WGPUBindGroup black_bind{};   // genuinely untextured material (renders its dark diffuse)
@@ -191,6 +193,11 @@ static WGPUBuffer make_buffer(WGPUDevice dev, WGPUQueue q, const void* data,
     return b;
 }
 
+// CleriaCore enhancements (the Video page, view_video.inl; both off by default, neither is a port):
+// g_world_mips -- a room loaded while it is set uploads its textures' mip chains and samples them
+// through g.sampler_mip; g_sprite_point -- a character sprite uploaded while it is set samples nearest.
+static bool g_world_mips = false, g_sprite_point = false;
+
 static WGPUTextureView upload_texture(Gpu& g, Room& room, const Dds& dds) {
     WGPUTextureFormat fmt; std::uint32_t block = 1, blk_bytes = 4;
     switch (dds.format) {
@@ -202,7 +209,7 @@ static WGPUTextureView upload_texture(Gpu& g, Room& room, const Dds& dds) {
     td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
     td.dimension = WGPUTextureDimension_2D;
     td.size = {dds.width, dds.height, 1};
-    td.format = fmt; td.mipLevelCount = 1; td.sampleCount = 1;
+    td.format = fmt; td.mipLevelCount = 1 + std::uint32_t(dds.mips.size()); td.sampleCount = 1;
     WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
 
     WGPUTexelCopyTextureInfo dst = {}; dst.texture = t; dst.aspect = WGPUTextureAspect_All;
@@ -211,6 +218,15 @@ static WGPUTextureView upload_texture(Gpu& g, Room& room, const Dds& dds) {
     layout.rowsPerImage = (dds.height + block - 1) / block;
     WGPUExtent3D ext = {dds.width, dds.height, 1};
     wgpuQueueWriteTexture(g.queue, &dst, dds.data.data(), dds.data.size(), &layout, &ext);
+    std::uint32_t mw = dds.width, mh = dds.height;
+    for (std::size_t l = 0; l < dds.mips.size(); ++l) {      // a block format's level is written in whole blocks
+        mw = std::max(1u, mw / 2); mh = std::max(1u, mh / 2);
+        dst.mipLevel = std::uint32_t(l + 1);
+        layout.bytesPerRow = ((mw + block - 1) / block) * blk_bytes;
+        layout.rowsPerImage = (mh + block - 1) / block;
+        ext = {(mw + block - 1) / block * block, (mh + block - 1) / block * block, 1};
+        wgpuQueueWriteTexture(g.queue, &dst, dds.mips[l].data(), dds.mips[l].size(), &layout, &ext);
+    }
 
     WGPUTextureView view = wgpuTextureCreateView(t, nullptr);
     room.textures.push_back(t);
@@ -218,10 +234,10 @@ static WGPUTextureView upload_texture(Gpu& g, Room& room, const Dds& dds) {
     return view;
 }
 
-static WGPUBindGroup tex_bindgroup(Gpu& g, WGPUTextureView view) {
+static WGPUBindGroup tex_bindgroup(Gpu& g, WGPUTextureView view, WGPUSampler sampler = nullptr) {
     WGPUBindGroupEntry e[2] = {};
     e[0].binding = 0; e[0].textureView = view;
-    e[1].binding = 1; e[1].sampler = g.sampler;
+    e[1].binding = 1; e[1].sampler = sampler ? sampler : g.sampler;
     WGPUBindGroupDescriptor d = {};
     d.layout = g.tex_layout; d.entryCount = 2; d.entries = e;
     return wgpuDeviceCreateBindGroup(g.device, &d);
@@ -621,8 +637,11 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     // ref against its own YMO's directory. Do not reduce to a basename and look it
     // up game-wide: 532 basenames are ambiguous and 530 of those differ in content.
     for (const std::string& path : r.mesh.textures) {
-        Dds dds = load_dds(path);
-        if (dds.ok()) { r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds))); ++loaded; }
+        Dds dds = load_dds(path, g_world_mips);
+        if (dds.ok()) {
+            r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds), g_world_mips ? g.sampler_mip : nullptr));
+            ++loaded;
+        }
         else {
             std::printf("    [tex] FAILED to load: %s\n", path.c_str());
             r.binds.push_back(g.white_bind);
@@ -779,8 +798,11 @@ static Room load_model(Gpu& g, const fs::path& asset_root, const fs::path& ymo) 
     // ref against its own YMO's directory. Do not reduce to a basename and look it
     // up game-wide: 532 basenames are ambiguous and 530 of those differ in content.
     for (const std::string& path : r.mesh.textures) {
-        Dds dds = load_dds(path);
-        if (dds.ok()) { r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds))); ++loaded; }
+        Dds dds = load_dds(path, g_world_mips);
+        if (dds.ok()) {
+            r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds), g_world_mips ? g.sampler_mip : nullptr));
+            ++loaded;
+        }
         else {
             std::printf("    [tex] FAILED to load: %s\n", path.c_str());
             r.binds.push_back(g.white_bind);
@@ -990,6 +1012,18 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     if (g_world_sampler.mip_linear) sad.mipmapFilter = WGPUMipmapFilterMode_Linear;
     sad.maxAnisotropy = g_world_sampler.anisotropy;
     g.sampler = wgpuDeviceCreateSampler(g.device, &sad);
+    {   // The two enhancement samplers (g_world_mips / g_sprite_point above). The mip one blends the levels
+        // (trilinear) and, on a linear filter, takes at least 8x anisotropy: trilinear alone blurs a floor seen
+        // at a steep angle more than no mips at all. [H] 8.
+        WGPUSamplerDescriptor md = sad;
+        md.mipmapFilter = WGPUMipmapFilterMode_Linear; md.lodMaxClamp = 32.0f;
+        if (g_world_sampler.linear) md.maxAnisotropy = std::max<std::uint16_t>(g_world_sampler.anisotropy, 8);
+        g.sampler_mip = wgpuDeviceCreateSampler(g.device, &md);
+        WGPUSamplerDescriptor nd = {};
+        nd.addressModeU = nd.addressModeV = nd.addressModeW = WGPUAddressMode_Repeat;
+        nd.magFilter = nd.minFilter = WGPUFilterMode_Nearest; nd.maxAnisotropy = 1;
+        g.sampler_point = wgpuDeviceCreateSampler(g.device, &nd);
+    }
 
     // Shared 1x1 white for a texture that FAILED to load (a real ref we couldn't
     // resolve) — kept white so it reads as a "missing texture" marker while debugging.

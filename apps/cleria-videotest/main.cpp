@@ -88,6 +88,15 @@ int main() {
               out.has("cleria.video", "WindowMode") && out.has("cleria.video", "RenderScale") &&
               out.has("cleria.video", "FpsCap") && out.has("cleria.video", "PerfGraph"),
               "round trip: WindowMode / RenderScale / FpsCap / PerfGraph");
+        {   // the looks switches (CleriaCore's own): off by default, off in an ini without them, round trip
+            Settings z; z.video.smooth_textures = z.video.smooth_edges = z.video.crisp_sprites = true;
+            Ini o2; write_cleria(o2, z);
+            Settings z2; read_cleria(o2, z2);
+            check(!s.video.smooth_textures && !s.video.smooth_edges && !s.video.crisp_sprites &&
+                  !t.video.smooth_textures && !t.video.smooth_edges && !t.video.crisp_sprites &&
+                  !y.video.smooth_textures && z2.video.smooth_textures && z2.video.smooth_edges && z2.video.crisp_sprites,
+                  "SmoothTextures / SmoothEdges / CrispSprites: default off, round trip");
+        }
         check(video::retail_windowed(video::Windowed) == 1 && video::retail_windowed(video::Borderless) == 0 &&
               video::retail_windowed(video::Exclusive) == 0,
               "retail Windowed mirror: windowed 1, borderless / exclusive 0");

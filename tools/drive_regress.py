@@ -321,6 +321,14 @@ CASES = {
               "31:vopt=GammaValue=1;32:vopt=StretchAspect=1;40:vstat;50:quit",
         expect=["[video] world 1280x800 scale 1.00 gamma 1.00 post off aspect 1.6000",
                 "[video] world 2560x1600 scale 2.00", "gamma 1.50 post on", "aspect 1.3333"]),
+    # The "looks better" switches (CleriaCore's own, off by default): CLERIA_VOPT sets them from the start, so the
+    # room loads its textures' mip chains and the sprites sample nearest; Smooth edges draws the world into its
+    # own target at 100% and FXAAs it onto the frame. No GPU validation error ("device: ...").
+    "video_looks": dict(
+        room="S_10/S_1009/S_1009", env=dict(CLERIA_VOPT="SmoothTextures=1;SmoothEdges=1;CrispSprites=1"),
+        drive="10:move=1,0,30;60:vstat;61:vopt=SmoothEdges=0;70:vstat;80:quit",
+        expect=["[video] opt SmoothTextures=1", "scale 1.00", "looks: textures 1 edges 1 (target on) crisp 1",
+                "looks: textures 1 edges 0"], absent=["device:"]),
     # The frame limiter: FpsCap 30 holds the presented frames at <= 31 a second (the logic keeps 60 Hz).
     "video_fpscap": dict(
         room="S_10/S_1009/S_1009",

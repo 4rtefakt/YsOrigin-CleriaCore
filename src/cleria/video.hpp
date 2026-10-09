@@ -25,6 +25,10 @@ struct Settings {
     float render_scale = 1.0f;   // RenderScale: the 3D world's resolution x the window's (1 = native)
     int fps_cap = 0;             // FpsCap: frames per second, 0 = unlimited (presentation only)
     bool perf_graph = false;     // PerfGraph: the frame-time graph overlay
+    // CleriaCore's own "looks better" switches (not ports; all off = the frame as before):
+    bool smooth_textures = false;   // SmoothTextures: the world textures' mip chains, trilinear + anisotropic
+    bool smooth_edges = false;      // SmoothEdges: an FXAA pass over the 3D world (not the HUD / menus)
+    bool crisp_sprites = false;     // CrispSprites: character sprites sampled nearest instead of bilinear
 };
 
 inline constexpr float kScaleMin = 0.5f, kScaleMax = 2.0f, kScaleStep = 0.25f;   // [H]

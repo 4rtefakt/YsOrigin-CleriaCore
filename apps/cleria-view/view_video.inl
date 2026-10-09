@@ -30,6 +30,30 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
     let c = textureSample(src, smp, v.uv);
     return vec4f(pow(max(c.rgb, vec3f(0.0)), vec3f(u.x)), c.a);
 }
+// "Smooth edges" (a CleriaCore enhancement, not a port): FXAA over the world target -- where the
+// brightness steps sharply, blend along the edge. u.yz = one world texel.
+fn luma(c: vec3f) -> f32 { return dot(c, vec3f(0.299, 0.587, 0.114)); }
+fn tap(uv: vec2f) -> vec4f { return textureSampleLevel(src, smp, uv, 0.0); }
+@fragment fn fs_fxaa(v: VO) -> @location(0) vec4f {
+    let r = u.yz;
+    let cm = tap(v.uv);
+    let nw = luma(tap(v.uv + vec2f(-1.0, -1.0) * r).rgb);
+    let ne = luma(tap(v.uv + vec2f(1.0, -1.0) * r).rgb);
+    let sw = luma(tap(v.uv + vec2f(-1.0, 1.0) * r).rgb);
+    let se = luma(tap(v.uv + vec2f(1.0, 1.0) * r).rgb);
+    let m = luma(cm.rgb);
+    let lo = min(m, min(min(nw, ne), min(sw, se)));
+    let hi = max(m, max(max(nw, ne), max(sw, se)));
+    if (hi - lo < max(0.0833, hi * 0.166)) { return cm; }   // [H] FXAA's default edge thresholds: texture grain stays
+    var dir = vec2f(-((nw + ne) - (sw + se)), (nw + sw) - (ne + se));
+    let reduce = max((nw + ne + sw + se) * 0.03125, 0.0078125);
+    dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), vec2f(-8.0), vec2f(8.0)) * r;
+    let a = 0.5 * (tap(v.uv + dir * (1.0 / 3.0 - 0.5)) + tap(v.uv + dir * (2.0 / 3.0 - 0.5)));
+    let b = a * 0.5 + 0.25 * (tap(v.uv - dir * 0.5) + tap(v.uv + dir * 0.5));
+    let lb = luma(b.rgb);
+    if (lb < lo || lb > hi) { return vec4f(a.rgb, cm.a); }
+    return vec4f(b.rgb, cm.a);
+}
 )WGSL";
 
 struct VideoGpu {
@@ -37,7 +61,7 @@ struct VideoGpu {
     WGPUTextureFormat fmt = WGPUTextureFormat_Undefined;
     std::uint32_t max_dim = 8192;
     WGPUBindGroupLayout bgl{};
-    WGPURenderPipeline copy{}, gamma{};
+    WGPURenderPipeline copy{}, gamma{}, fxaa{};
     WGPUSampler linear{}, nearest{};
     WGPUBuffer ubuf{};
     // the world target (Render scale != 100%)
@@ -69,7 +93,16 @@ static WGPUBindGroup video_bind(Gpu& g, WGPUTextureView v, WGPUSampler s) {
 
 // Before build_pipeline: the world sampler from [graphics] TextureFilter / Anisotropy, and the passes.
 // `copy_ok`: the frame can be copied (the gamma pass reads a copy of it).
+static bool video_drive(const std::string& cmd);
 static void video_init(Gpu& g, WGPUTextureFormat fmt, bool copy_ok) {
+    // CLERIA_VOPT="Key=value;Key=value": vopt settings from the start (a headless run's settings are
+    // memory-only, and SmoothTextures / CrispSprites are read when a room / a sprite loads).
+    if (const char* e = std::getenv("CLERIA_VOPT")) {
+        std::stringstream ss(e);
+        for (std::string kv; std::getline(ss, kv, ';');) if (!kv.empty()) video_drive("vopt=" + kv);
+    }
+    g_world_mips = vid().smooth_textures;
+    g_sprite_point = vid().crisp_sprites;
     const auto& gr = settings().s.graphics;
     g_world_sampler = video::sampler_spec(gr.texture_filter, gr.anisotropy);
     g_vgpu.boot_sampler = g_world_sampler;
@@ -108,6 +141,8 @@ static void video_init(Gpu& g, WGPUTextureFormat fmt, bool copy_ok) {
     g_vgpu.copy = wgpuDeviceCreateRenderPipeline(g.device, &pd);
     fs.entryPoint = sv("fs_gamma");
     g_vgpu.gamma = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+    fs.entryPoint = sv("fs_fxaa");
+    g_vgpu.fxaa = wgpuDeviceCreateRenderPipeline(g.device, &pd);
     wgpuPipelineLayoutRelease(pl);
     wgpuShaderModuleRelease(sm);
 
@@ -147,13 +182,14 @@ static void video_submit(Gpu& g, WGPUCommandEncoder enc) {
 // Render scale (a CleriaCore extra): the 3D world -- the room, the characters, the effects -- draws into
 // its own target at RenderScale x the frame, which is then filtered onto the frame; the HUD, the
 // windows and the menus draw over it at the native size. Swaps `view` / `depth` for the world's and
-// back. At 100% it does nothing.
+// back. At 100% it does nothing. "Smooth edges" uses the same target (at 100% too): its FXAA pass is the
+// copy onto the frame, so the HUD and the menus are never filtered.
 static void video_world_begin(Gpu& g, std::uint32_t cw, std::uint32_t ch, WGPUTextureView& view,
                               WGPUTextureView& depth) {
     g_vgpu.world_on = false;
     g_vgpu.world_w = cw; g_vgpu.world_h = ch;
     const float s = vid().render_scale;
-    if (!g_vgpu.ready || video::scale_is_native(s) || cw == 0 || ch == 0) return;
+    if (!g_vgpu.ready || (video::scale_is_native(s) && !vid().smooth_edges) || cw == 0 || ch == 0) return;
     const video::Extent e = video::scaled_extent(cw, ch, s, g_vgpu.max_dim);
     if (!g_vgpu.wtex || g_vgpu.ww != e.w || g_vgpu.wh != e.h) {
         if (g_vgpu.wbind) wgpuBindGroupRelease(g_vgpu.wbind);
@@ -179,8 +215,13 @@ static void video_world_begin(Gpu& g, std::uint32_t cw, std::uint32_t ch, WGPUTe
 static void video_world_end(Gpu& g, WGPUTextureView frame_view, WGPUTextureView frame_depth,
                             WGPUTextureView& view, WGPUTextureView& depth) {
     if (!g_vgpu.world_on) return;
+    const bool fxaa = vid().smooth_edges && g_vgpu.fxaa;
+    if (fxaa) {
+        const float u[4] = {1.0f, 1.0f / float(g_vgpu.world_w), 1.0f / float(g_vgpu.world_h), 0};
+        wgpuQueueWriteBuffer(g.queue, g_vgpu.ubuf, 0, u, sizeof u);
+    }
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
-    video_fullscreen_pass(g, g_vgpu.copy, g_vgpu.wbind, frame_view, enc);
+    video_fullscreen_pass(g, fxaa ? g_vgpu.fxaa : g_vgpu.copy, g_vgpu.wbind, frame_view, enc);
     video_submit(g, enc);
     view = frame_view;
     depth = frame_depth;
@@ -492,13 +533,33 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             persist();
         }
     }
+    {   // CleriaCore's own "looks better" switches: none is a retail option, all are off by default.
+        if (ui::toggle(L, "Smooth distant textures", &v.smooth_textures,
+                       "Floors and walls far from the camera look cleaner and shimmer less when you move. Takes "
+                       "effect in the next area you enter. A CleriaCore extra, not a retail option.")) {
+            g_world_mips = v.smooth_textures;
+            persist();
+        }
+        if (ui::toggle(L, "Smooth edges", &v.smooth_edges,
+                       "Softens the jagged, stair-stepped edges of the scenery and the characters. The HUD and the "
+                       "menus stay sharp. A CleriaCore extra, not a retail option."))
+            persist();
+        static const char* kSprites[] = {"Soft", "Crisp"};
+        int sp = v.crisp_sprites ? 1 : 0;
+        if (ui::choice(L, "Character sprites", &sp, kSprites, 2,
+                       "Soft blends the pixels of the characters and monsters (the default). Crisp keeps every pixel "
+                       "sharp, like pixel art. Takes effect after a restart. A CleriaCore extra, not a retail option.")) {
+            v.crisp_sprites = sp == 1;
+            persist();
+        }
+    }
     {
         static const char* kFilters[] = {"Point", "Bilinear", "Trilinear"};
         int f = std::clamp(int(gr.texture_filter), 0, 2);
         if (ui::choice(L, "Texture filtering", &f, kFilters, 3,
                        "Point keeps texels sharp and blocky; bilinear smooths them (the original's default). "
-                       "Trilinear also blends mipmap levels, which CleriaCore does not build yet, so it looks like "
-                       "bilinear. Applies on restart. (Original: Texture Filter.)")) {
+                       "Trilinear also blends mipmap levels, which CleriaCore only loads with Smooth distant textures "
+                       "on, so here it looks like bilinear. Applies on restart. (Original: Texture Filter.)")) {
             gr.texture_filter = f;
             persist();
         }
@@ -571,11 +632,11 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         };
         row("Anti-aliasing (MSAA)", "Off",
             "Multisample anti-aliasing (Original: FSAA Type). Not available yet: every world pipeline would need a "
-            "multisampled twin. Render scale above 100% smooths edges instead.",
+            "multisampled twin. Smooth edges, or Render scale above 100%, smooths edges instead.",
             gr.multi_sample_type >= 2 ? std::to_string(gr.multi_sample_type) + " samples" : std::string("none"));
         row("Mipmapping", "Off",
-            "Smaller copies of each texture for distant surfaces (Original: Mipmapping). Not available yet: CleriaCore "
-            "uploads each texture's full size only.", onoff(gr.mipmap != 0));
+            "Smaller copies of each texture for distant surfaces (Original: Mipmapping). The retail switch is not "
+            "read: Smooth distant textures above is CleriaCore's own.", onoff(gr.mipmap != 0));
         row("Shadows", "Full",
             "Shadow detail (Original: Shadows). Not available yet: what each level removes is not traced, so CleriaCore "
             "always draws its shadows.", lvl(gr.shadow_effect_level));
@@ -608,7 +669,8 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
 }
 
 // ---- CLERIA_DRIVE ------------------------------------------------------------------------------------
-// vopt=Key=value: a Video setting for this run -- RenderScale, FpsCap, PerfGraph ([cleria.video]) or retail's
+// vopt=Key=value: a Video setting for this run -- RenderScale, FpsCap, PerfGraph, SmoothTextures, SmoothEdges,
+// CrispSprites ([cleria.video]; CLERIA_VOPT sets them from the start) or retail's
 // GammaValue, ShowFPS, StretchAspect, DisableMovies ([graphics]). vstat: what the passes did last frame.
 static bool video_drive(const std::string& cmd) {
     if (cmd.rfind("vopt=", 0) == 0) {
@@ -621,6 +683,9 @@ static bool video_drive(const std::string& cmd) {
         if (k == "RenderScale") vid().render_scale = video::clamp_scale(x);
         else if (k == "FpsCap") vid().fps_cap = x <= 0 ? 0 : std::clamp(int(x), video::kFpsCapMin, video::kFpsCapMax);
         else if (k == "PerfGraph") vid().perf_graph = x != 0;
+        else if (k == "SmoothTextures") g_world_mips = vid().smooth_textures = x != 0;   // from the next room load
+        else if (k == "SmoothEdges") vid().smooth_edges = x != 0;
+        else if (k == "CrispSprites") g_sprite_point = vid().crisp_sprites = x != 0;     // sprites uploaded from now
         else if (k == "GammaValue") gr.gamma_value = x;
         else if (k == "ShowFPS") gr.show_fps = std::clamp(int(x), 0, 2);
         else if (k == "StretchAspect") gr.stretch_aspect = x != 0;
@@ -632,11 +697,13 @@ static bool video_drive(const std::string& cmd) {
     if (cmd == "vstat") {
         const float gv = settings().s.graphics.gamma_value;
         const int cap = vid().fps_cap;
-        std::printf("  [video] world %ux%u scale %.2f gamma %.2f post %s aspect %.4f fps %d tps %d cap %d %s\n",
+        std::printf("  [video] world %ux%u scale %.2f gamma %.2f post %s aspect %.4f fps %d tps %d cap %d %s | looks: "
+                    "textures %d edges %d (target %s) crisp %d\n",
                     g_vgpu.world_w, g_vgpu.world_h, double(vid().render_scale), double(gv),
                     g_vgpu.copy_ok && !video::gamma_is_identity(gv) ? "on" : "off",
                     double(video_aspect(g_vgpu.world_w, g_vgpu.world_h)), g_vstats.fps, g_vstats.tps, cap,
-                    cap <= 0 ? "uncapped" : g_vstats.fps <= cap + 1 ? "held" : "over");
+                    cap <= 0 ? "uncapped" : g_vstats.fps <= cap + 1 ? "held" : "over",
+                    int(g_world_mips), int(vid().smooth_edges), g_vgpu.wtex ? "on" : "off", int(g_sprite_point));
         return true;
     }
     return false;

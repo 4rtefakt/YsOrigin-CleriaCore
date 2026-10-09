@@ -67,7 +67,7 @@ struct EnemyFx {
                     for (std::uint32_t f = 0; f < nf; ++f) {
                         AiaFrame fr;
                         if (!k.aia.decode_frame_composited(std::uint32_t(img), d % nd, f, fr)) continue;
-                        SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
+                        SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
                         st.set_placement(fr, k.aia.canvasW, k.aia.scaleA);
                         st.footFix = k.footFix;   // same per-file foot correction as idle
                         a[d].push_back(std::move(st));
@@ -125,7 +125,7 @@ struct EnemyFx {
             for (std::uint32_t f = 0; f < nfr; ++f) {
                 AiaFrame fr;
                 if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
-                SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
+                SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
                 st.set_placement(fr, k.aia.canvasW, k.aia.scaleA);   // canvas anchor, like the player
                 st.footFix = k.footFix;
                 k.anim[d].push_back(st);

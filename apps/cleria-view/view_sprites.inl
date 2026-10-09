@@ -27,7 +27,8 @@ struct SpriteTex {
     }
 };
 
-static SpriteTex upload_rgba(Gpu& g, std::uint32_t w, std::uint32_t h, const std::uint8_t* rgba) {
+static SpriteTex upload_rgba(Gpu& g, std::uint32_t w, std::uint32_t h, const std::uint8_t* rgba,
+                             WGPUSampler sampler = nullptr) {
     SpriteTex s; s.w = w; s.h = h;
     WGPUTextureDescriptor td = {};
     td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
@@ -39,7 +40,7 @@ static SpriteTex upload_rgba(Gpu& g, std::uint32_t w, std::uint32_t h, const std
     WGPUExtent3D ext = {w, h, 1};
     wgpuQueueWriteTexture(g.queue, &dst, rgba, std::size_t(w) * h * 4, &lay, &ext);
     s.view = wgpuTextureCreateView(s.tex, nullptr);
-    s.bind = tex_bindgroup(g, s.view);
+    s.bind = tex_bindgroup(g, s.view, sampler);
     return s;
 }
 
@@ -89,7 +90,7 @@ struct CharSprite {
             if (!aia.decode_frame_composited(image, d % ndir, frame % std::max(1u, nframe), fr))
                 continue;
             if (dirs[d].tex) { wgpuBindGroupRelease(dirs[d].bind); wgpuTextureViewRelease(dirs[d].view); wgpuTextureRelease(dirs[d].tex); }
-            dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data());
+            dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
             dirs[d].set_placement(fr, aia.canvasW, aia.scaleA);   // canvas anchor -> no animation slide
         }
     }

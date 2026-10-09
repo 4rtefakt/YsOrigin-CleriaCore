@@ -21,6 +21,9 @@ void read(const Ini& ini, Settings& s) {
     if (auto v = ini.get_float(kSec, "RenderScale")) s.render_scale = clamp_scale(*v);
     if (auto v = ini.get_int(kSec, "FpsCap")) s.fps_cap = *v <= 0 ? 0 : std::clamp(int(*v), kFpsCapMin, kFpsCapMax);
     if (auto v = ini.get_int(kSec, "PerfGraph")) s.perf_graph = *v != 0;
+    if (auto v = ini.get_int(kSec, "SmoothTextures")) s.smooth_textures = *v != 0;
+    if (auto v = ini.get_int(kSec, "SmoothEdges")) s.smooth_edges = *v != 0;
+    if (auto v = ini.get_int(kSec, "CrispSprites")) s.crisp_sprites = *v != 0;
 }
 
 void write(Ini& ini, const Settings& s) {
@@ -28,6 +31,9 @@ void write(Ini& ini, const Settings& s) {
     ini.set_float(kSec, "RenderScale", s.render_scale);
     ini.set_int(kSec, "FpsCap", s.fps_cap);
     ini.set_int(kSec, "PerfGraph", s.perf_graph ? 1 : 0);
+    ini.set_int(kSec, "SmoothTextures", s.smooth_textures ? 1 : 0);
+    ini.set_int(kSec, "SmoothEdges", s.smooth_edges ? 1 : 0);
+    ini.set_int(kSec, "CrispSprites", s.crisp_sprites ? 1 : 0);
 }
 
 // ---- gamma ----------------------------------------------------------------------------------------
