@@ -1701,6 +1701,14 @@ CASES.update({
         room="S_10/S_1009/S_1009", char="3", env=dict(CLERIA_SCRFX_LOG="1"),
         drive="8:bracelet=118;9:flag=118,1;10:flag=184,1;43:skill+;45:skill-;48:hurt=60;80:quit",
         expect=["[tint] t48 player specular 0xffffff -> 0, step 0.050", "[popup] 0 ff0000"]),
+    # Boost READY's white flash (FUN_0046cc10, step 0.075): `boost+=` adds through the real gate (add_boost), so the
+    # gauge reaching 30000 is the READY event — the flash, once; a second add on the full gauge is refused.
+    "boost_ready_flash": dict(
+        room="S_10/S_1009/S_1009", char="1", env=dict(CLERIA_SCRFX_LOG="1"),
+        drive="3:flag=187,1;12:boost=29900;13:abil;20:boost+=300;21:abil;25:boost+=300;40:quit",
+        expect=["[abil] t13 sec 0x2 mp 3000 lag 3000 boost 29901", "[tint] t20 player specular 0xffffff -> 0, step 0.075",
+                "[abil] t21 sec 0x2 mp 3000 lag 3000 boost 30000"],
+        count={"[tint] t": 1}),
     "guard_white_flash_barrier": dict(
         room="S_10/S_1009/S_1009", char="2", env=dict(CLERIA_SCRFX_LOG="1"),
         drive="3:flag=187,1;4:flag=188,1;12:boost=30000;20:boostkey;90:boostkey;190:hurt=60;200:quit",

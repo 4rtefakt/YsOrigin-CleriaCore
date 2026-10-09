@@ -3,6 +3,7 @@
 //   abil         print the ability state: section, MP + its lag, the Boost gauge / mode, i-frames,
 //                the equipped bracelet, the skill charge, the combo meter, EXP / level
 //   boost=n      set the Boost gauge DAT_0076c1b4 (a direct write, like FUN_0058f210 case 1)
+//   boost+=n     add n to the gauge the way a hit does (add_boost: FUN_0046cc10's gate, READY at full)
 //   boostkey     one Boost press (+0x50c & 8): the mover 0x465b1d's entry / super
 //   hurt=atk     an atk-power hit on the player through the Chr_Damage path (view_xso13_damage.inl):
 //                refused while the i-frames +0x734 run, priced by FUN_004fa740, halved in Boost
@@ -18,6 +19,10 @@ auto abil_drive = [&](const std::string& cmd) -> bool {
     }
     if (cmd.rfind("boost=", 0) == 0) {
         player.boost = std::clamp(float(std::atof(cmd.c_str() + 6)), 0.0f, skillmp::kBoostFull);
+        return true;
+    }
+    if (cmd.rfind("boost+=", 0) == 0) {      // boost+=n: a gauge add through FUN_0046cc10's gate (READY at full); boost= only writes
+        add_boost(float(std::atof(cmd.c_str() + 7)));
         return true;
     }
     if (cmd == "boostkey") { try_boost(); return true; }
