@@ -1623,6 +1623,8 @@ title_again:
     // when they change. `mesh_delta` is each object's displacement in the last mesh step (the
     // platform carry reads it next tick, MOVER.md §3.3).
     MeshWorld meshes;
+    int mesh_load_serial = 0;                // the scene loads so far (load_meshes(false)): a boss brain built under
+                                             // an earlier one is stale (boss_tick .. boss5_tick)
     std::unordered_map<std::string, Vec3> baked_pos, mesh_delta;
     std::unordered_map<std::string, Vec3> baked_frame;   // the floor object's frame at its last bake (the carry)
     std::string player_floor_obj;            // the object the player stands on (+0x540)
@@ -1632,6 +1634,7 @@ title_again:
     auto load_meshes = [&](bool keep) {
         std::unordered_map<std::string, MeshObj> old;
         if (keep) old = meshes.all();
+        else ++mesh_load_serial;
         meshes.clear(); baked_pos.clear(); mesh_delta.clear(); baked_frame.clear();
         for (const RoomMesh::ObjRange& r : room.mesh.object_ranges) {
             std::vector<MeshClip> clips;
@@ -3572,6 +3575,12 @@ title_again:
     //   blackout[=rrggbb]     hold the fader at full (as a script's Fader_Target(1) left behind), colour rgb
     //   oktap                 a real one-tick press of the Attack/OK key (view_access.inl)
     // A drive run is lockstep (one tick a frame); CLERIA_DRIVE_REALTIME=1 paces it by the wall clock.
+    // A scene load builds every object anew (FUN_00431260 / FUN_00434020, SCENEFLOW.md �6.2): a Retry or a load
+    // into a boss room constructs the boss again (full HP, its first state, FUN_0041fd10's retry count). Bosses
+    // 1-5 kept their brain across the reload: the fight went on from the HP it had, and Khonsclard's six pods
+    // (located by the brain's ctor, dropped by the new visit) never rose again � the fight could not be won.
+    // boss_load[k]: the load serial boss k+1's brain was built under.
+    int boss_load[5] = {-1, -1, -1, -1, -1};
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     int drive_boss_entry = -1;               // drive bossentry=k: stand on body entry k (view_boss01_touch.inl)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
@@ -4372,7 +4381,9 @@ title_again:
             for (std::size_t k = 0; k < mdl->nodes.size(); ++k) if (mdl->nodes[k].name == nm) return int(k);
             return -1;
         };
+        if (boss && boss_load[0] != mesh_load_serial) { boss.reset(); g_rig.clear_boss(); boss_entries_built = false; }
         if (!boss) {
+            boss_load[0] = mesh_load_serial;
             Boss01Setup su;                                // EEX record 0 (§2.2)
             if (!eex.bosses.empty()) {
                 const BossStats& bs = eex.bosses[0];
@@ -4646,7 +4657,9 @@ title_again:
     auto boss2_tick = [&] {
         MeshObj* hm = meshes.find("boss02_h");
         if (!hm) { boss2.reset(); boss2_plasma.clear(); return; }
+        if (boss2 && boss_load[1] != mesh_load_serial) { boss2.reset(); boss2_plasma.clear(); }
         if (!boss2) {
+            boss_load[1] = mesh_load_serial;
             Boss02Setup su;                                // EEX record 1 (§2.1, N4)
             if (eex.bosses.size() > 1) {
                 const BossStats& bs = eex.bosses[1];
@@ -4958,7 +4971,9 @@ title_again:
         Model* mdl = cached_big_model(resolve_ymo_path(asset_root, "data\\enemy\\boss03\\boss03.ymo"));
         if (!mdl) return;
         auto lw = [](std::string t) { for (char& ch : t) ch = char(std::tolower((unsigned char)ch)); return t; };
+        if (boss3 && boss_load[2] != mesh_load_serial) { boss3.reset(); boss3_arm = {}; }
         if (!boss3) {
+            boss_load[2] = mesh_load_serial;
             Boss03Setup su;                                // EEX record 2 (§2.1)
             if (eex.bosses.size() > 2) {
                 const BossStats& bs = eex.bosses[2];

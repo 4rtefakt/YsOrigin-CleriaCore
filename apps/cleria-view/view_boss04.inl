@@ -68,7 +68,9 @@ auto boss4_tick = [&] {
     Model* mdl = cached_big_model(resolve_ymo_path(asset_root, "data\\enemy\\boss04\\boss04.ymo"));
     if (!mdl) return;
     auto lw = [](std::string t) { for (char& ch : t) ch = char(std::tolower((unsigned char)ch)); return t; };
+    if (boss4 && boss_load[3] != mesh_load_serial) boss4.reset();   // a scene load: built again (view_game.inl boss_load)
     if (!boss4) {
+        boss_load[3] = mesh_load_serial;
         Boss04Setup su;                                    // EEX record 3 (§A.2.1)
         if (eex.bosses.size() > 3) {
             const BossStats& bs = eex.bosses[3];

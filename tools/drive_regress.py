@@ -862,6 +862,19 @@ CASES.update({
               "40:every=20,700,ok;720:every=40,3700,boss4;728:every=40,3700,atk;3700:quit",
         expect=["[boss04] Khonsclard: body 3000, pods 600", "f156 1", "fx 130 hits khonsclard part", "states 00",
                 "fx 130 hits khonsclard part 0 (DEF 175)", "flag 223 = 1", "destroyed"]),
+    # A Retry inside the fight (Toal, Hard): the scene load builds the boss again (boss_load, view_game.inl) — Hard's
+    # body 3750 / pods 900 once more, the pods located and rising again, and the fight can be won (223). The brain
+    # used to outlive the reload: its six pods were gone with the old visit and never rose, so nothing could be
+    # damaged after a Retry (states 004444 for good); bosses 1-3 and 5 went on from the HP they had.
+    "khonsclard_retry": dict(
+        room="S_40/S_4099/S_4099", char="3",
+        env={"CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="2:diff=3;3:saveload;6:level=50;7:opt=DamageDealt=10;8:opt=DamageTaken=0;20:at=-2.8,23.3,0;"
+              "40:every=20,700,ok;720:every=40,1000,boss4;728:every=40,1000,atk;1000:opt=DamageTaken=1;1001:hp=0;"
+              "1160:ok;1170:opt=DamageTaken=0;1180:every=20,1500,ok;1500:every=40,5200,boss4;"
+              "1508:every=40,5200,atk;5200:quit",
+        expect=["[boss04] Khonsclard: body 3750, pods 900", "[death] HP 0", "[gameover] Retry -> S_4099",
+                "[boss04] Khonsclard: body 3750, pods 900", "states 00", "band 2", "flag 223 = 1"]),
     # Pictimos (PICTIMOS.md): walk into BATTLE.XSO's event box, the 700-frame intro (RAKKATYUU / TYAKUTI), the
     # fight from BATTLE_START, ZOROMEKA's 27 Chryolos below half HP (m220_boss), the guts at HP 0 with live
     # summons (survives at 1, absorbs them), the death: EXP, flag 224 at b4 500 and the destroy.
