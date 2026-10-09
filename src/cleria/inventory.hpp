@@ -67,6 +67,9 @@ struct EffectEnv {
     bool player_alive = true;
     float* boost = nullptr, * oxygen = nullptr;
     float sp_rate = 1.0f;   // the SP rate 0x76a5f8 (1.0 in retail; CleriaCore's SP cheat, access.hpp)
+    // FUN_00585ff0's gold scale [BYTES 0x58618d..0x5861eb]: 0.01 in the story (byte 0x74e25e == 0) when
+    // g_flags[144] == 2 (Nightmare), else 1.0. [not modelled] mode 2's 1 + (2 * index + 2).
+    float gold_scale = 1.0f;
 };
 int apply_item_effect(InvState& inv, const ItemTable& items, EffectEnv& env, int id);
 

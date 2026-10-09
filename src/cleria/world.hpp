@@ -80,6 +80,9 @@ struct WorldTables {
 class ActorWorld : public XsoHost {
   public:
     explicit ActorWorld(WorldTables t) : tables_(t) {}
+    // The game flags (g_flags, 0x76b91c) the spawn's stat pass FUN_004202e0 reads for its difficulty tail:
+    // 144 / 143 / 203 / 193 / 196 (DIFFICULTY.md §3.1). Null = Normal (the tools).
+    const std::int32_t* stat_flags = nullptr;
     // The game's xorshift128 state (XsoVm::rs), for the draws the spawn op makes (the glow phase
     // seed). Null = no draw (headless tools).
     std::uint32_t* rng = nullptr;

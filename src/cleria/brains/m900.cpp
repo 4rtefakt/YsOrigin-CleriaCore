@@ -144,7 +144,9 @@ AiOut m900(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         ai::init(a, p, e);                                          // FUN_004782f0 + EI[80] +0x90..
         a.set_v(0x808, O);
         a.i(0x720) = 2;
-        // FUN_004202e0(level) [not modelled: the spawn computed it]
+        // FUN_004202e0(self, cast - 14, self+0xc8) [BYTES 0x4dc4dd..0x4dc4ec]; the cast operand is read through
+        // [0x74c11c]+0x16060 (0x4dc4e3), 176 for the Eye [DOC DIFFICULTY.md G4, M900.md] = its own cast.
+        if (w) w->restat(A, A.cast_id, A.level);
         A.atk = H.atk;                                              // +0xa4 = the owner's
         a.i(0x79c) = 0; a.i(0x7a4) = 0; a.i(0x7a8) = 0; a.i(0x7bc) = 0; a.i(0x7c0) = 0;
         a.steer() = 1; a.action() = 2;

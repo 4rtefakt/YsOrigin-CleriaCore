@@ -77,6 +77,24 @@ int main(int, char**) {
         for (int i = 0; i < 150; ++i) m.hit();
         check(m.count == 99, "the count caps at 99");
     }
+    {   // FUN_004fa390: the SP scale of a kill
+        SpIn n;
+        check(sp_award(110, n) == 110, "kill SP, Normal: x 1");
+        SpIn hard = n; hard.index = 1;
+        check(sp_award(110, hard) == 110, "kill SP, Hard: x 1");
+        SpIn ez = n; ez.easy = true;
+        check(sp_award(110, ez) == 165, "kill SP, Easy: x 1.5");
+        SpIn ve = ez; ve.very_easy = true;
+        check(sp_award(110, ve) == 220, "kill SP, Very Easy: x 2");
+        SpIn nm = n; nm.index = 2;
+        check(sp_award(110, nm) == 1 && sp_award(99, nm) == 0, "kill SP, Nightmare: x 0.01, floored");
+        SpIn bl = hard; bl.bless_sp = true;
+        check(sp_award(110, bl) == 137, "kill SP, blessing bit 0x100: x 1.25, floored");
+        SpIn ta = hard; ta.mode = 2;
+        check(sp_award(10, ta) == 50, "kill SP, mode 2 on Hard: x (1 + 4)");
+        SpIn rt = n; rt.rate = 2.0f;
+        check(sp_award(7, rt) == 14, "kill SP: the SP rate 0x76a5f8 multiplies");
+    }
     std::printf("%s (%d failed)\n", fails ? "FAILED" : "all passed", fails);
     return fails ? 1 : 0;
 }

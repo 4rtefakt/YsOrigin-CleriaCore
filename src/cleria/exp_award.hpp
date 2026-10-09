@@ -59,6 +59,22 @@ float boss_award(float base, int player_level, int boss_level, int difficulty, f
                  float under_base = kUnderBase);
 
 // The hit combo meter: `count` 0x76c1a8 (0..99), `timer` 0x76c1b0 (ticks).
+// The SP a kill or a boss credits: FUN_004fa390(ECX = amount) [BYTES 0x4fa390..0x4fa435], whose result
+// FUN_004fa290 adds to the wallet 0x76a75c (clamped 0..999999). A kill passes the victim's +0xc4
+// (FUN_004fbb40 0x4fcd1d..0x4fcd3d, skipped when it is 0); `rate` is the SP rate 0x76a5f8.
+//   mode 0 (the story, byte 0x74e25e): s = 1.0; 1.5 on the easy side (g_flags[143]); 2.0 on Very Easy
+//       (g_flags[203]); x 0.01 when the index g_flags[144] == 2 (Nightmare); x 1.25 with blessing bit 0x100
+//   mode 2, not the easy side: s = 1.0 + (2 * index + 2)
+//   mode 1: s = 1.0
+struct SpIn {
+    int mode = 0;             // byte 0x74e25e
+    int index = 0;            // g_flags[144]
+    bool easy = false, very_easy = false;   // g_flags[143] / [203]
+    bool bless_sp = false;    // 0x76bc80 & 0x100
+    float rate = 1.0f;        // 0x76a5f8
+};
+int sp_award(int amount, const SpIn& in);
+
 struct Combo {
     int count = 0;
     int timer = 0;

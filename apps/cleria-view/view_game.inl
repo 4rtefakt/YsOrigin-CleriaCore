@@ -1170,8 +1170,9 @@ title_again:
     // Easy (0x74e685), 203 = Very Easy (0x74e684). [not modelled] 201 (0x74e25f) and the clear
     // bytes 297..299.
     game.g_flags[144] = difficulty >= 2 ? difficulty - 2 : 0;
-    game.g_flags[143] = difficulty == 1 ? 1 : 0;
+    game.g_flags[143] = difficulty <= 1 ? 1 : 0;      // Very Easy sets 143 AND 203 [BYTES 0x5759ed + 0x5759f4]
     game.g_flags[203] = difficulty == 0 ? 1 : 0;
+    world.stat_flags = game.g_flags;                  // the spawns' FUN_004202e0 tail (DIFFICULTY.md G2)
     Player player;                     // stat block (HP/SP/level/EXP)
     // A fresh level-1 player: HP from the GAMEINFO player curve at level 1. There is no save
     // model, so a new run always starts at level 1 with 0 EXP -- the faithful new-game state.
@@ -3826,7 +3827,7 @@ title_again:
         } else if (cmd.rfind("diff=", 0) == 0) {      // diff=n: the difficulty, 0 Very Easy .. 4 Nightmare, with its flags as FUN_0041fd10 (audit aid)
             difficulty = std::clamp(std::atoi(cmd.c_str() + 5), 0, 4);
             game.g_flags[144] = difficulty >= 2 ? difficulty - 2 : 0;
-            game.g_flags[143] = difficulty == 1 ? 1 : 0;
+            game.g_flags[143] = difficulty <= 1 ? 1 : 0;
             game.g_flags[203] = difficulty == 0 ? 1 : 0;
             boss6.reset();                              // Zava's heads latch it in their ctor: built again next step
             boss7.reset();                              // ... and Dalles (view_boss07.inl)
@@ -6342,6 +6343,7 @@ title_again:
                     sm.boss_rush = game.g_flags[193] != 0; sm.retries = game.g_flags[196];
                     const EnemyStats st = enemy_restat(ginfo, *er, c, lv, sm);
                     a.max_hp = a.hp = st.max_hp; a.atk = st.atk; a.def = st.def; a.exp_reward = st.exp;
+                    a.sp_reward = st.sp;
                     for (int k = 0; k < 4; ++k) a.resist[k] = er->resist[k];
                     a.level = lv ? lv : er->level;
                 };
@@ -6911,6 +6913,16 @@ title_again:
                         // The kill credit (0x4fcaf5..0x4fcd42): nothing once +0x12c & 0x4000000 is set,
                         // which this kill sets (a revived actor keeps it: REVIVE.md §3.10c).
                         award_exp(en.exp_reward, en.level, /*boss*/false, (en.flags12c & 0x4000000u) != 0);
+                        // The kill SP in the same block [BYTES 0x4fcd1d..0x4fcd3d]: the victim's +0xc4 through
+                        // FUN_004fa390 into the wallet (FUN_004fa290), when it is not 0. [not modelled] the
+                        // mode byte 0x74e25e (time attack / arena: 0 here).
+                        if (!(en.flags12c & 0x4000000u) && en.sp_reward != 0) {
+                            expaward::SpIn si;
+                            si.index = game.g_flags[144]; si.easy = game.g_flags[143] != 0;
+                            si.very_easy = game.g_flags[203] != 0; si.bless_sp = (game.g_flags[217] & 0x100) != 0;
+                            si.rate = settings().s.access.sp_rate;
+                            player.sp = std::clamp(player.sp + expaward::sp_award(en.sp_reward, si), 0, 999999);
+                        }
                         en.flags12c |= 0x4000000u;
                         // The revive family flips +0x130 ^= 9 on the first dead tick when the Chimes are
                         // on, before FUN_004780e0's death effects and drops (REVIVE.md §3.1).
@@ -7351,6 +7363,7 @@ title_again:
                     env.flags = game.g_flags; env.hp = &hp; env.max_hp = float(player.max_hp);
                     env.player_alive = player.hp > 0; env.boost = &player.boost; env.oxygen = &oxy.o2;
                     env.sp_rate = settings().s.access.sp_rate;    // SPrate 0x76a5f8 (the shell's Cheats)
+                    if (game.g_flags[144] == 2) env.gold_scale = 0.01f;   // DIFFICULTY.md G13 (0x6bd084)
                     inv.sp = player.sp;
                     int pop = 0;
                     if (pk.id >= content::kNewItemFirst) { if (!content_touch_new(pk)) return false; }   // mods
@@ -7516,7 +7529,8 @@ title_again:
                     return;
                 }
                 const int raw = player_incoming_damage(AttackStats{atk, bonus, 0}, pdef,
-                    [&](float p) { return float(rng_pct(rng)) < p; });
+                    [&](float p) { return float(rng_pct(rng)) < p; },
+                    IncomingMode{game.g_flags[144], game.g_flags[143] != 0, game.g_flags[201] != 0});   // DIFFICULTY.md G8
                 const int dmg = access::damage_taken(player_damage_after_boost(raw, player.boosting),
                                                      settings().s.access.damage_taken);   // the shell's Cheats
                 player.hp -= dmg;

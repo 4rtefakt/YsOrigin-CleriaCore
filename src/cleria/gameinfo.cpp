@@ -68,6 +68,11 @@ EnemyStats enemy_stats(const GameInfo& gi, const Enemy& e, int level) {
     s.atk = std::floor(stat_k(e.k_atk) * gi.curves[kEnemyAtk].at(level));
     s.def = std::floor(stat_k(e.k_def) * gi.curves[kEnemyDef].at(level));
     s.exp = std::floor(stat_k(e.k_exp) * gi.curves[kEnemyExp].at(level));
+    // +0xc4 [BYTES 0x420505..0x4205cb]: level <= 30: pow(5.0, level / 15) * 4.0 (an unsigned integer division,
+    // 0x42050a..0x420519; 0x6bd5f0, 0x6bd7c0); else level * 10 - 200; times pow(2, (EI+0xd8 - 50) / 20); floor.
+    const float sp_base = level <= 30 ? float(std::pow(5.0, double(float(unsigned(level) / 15u)))) * 4.0f
+                                      : float(level * 10 - 200);
+    s.sp = int(std::floor(stat_k(e.k_unk_0xd8) * sp_base));
     return s;
 }
 

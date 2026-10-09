@@ -199,6 +199,31 @@ int main(int argc, char** argv) {
         check(a->hp == 0.0f, "hp is clamped to 0 on death (it went sub-1, not sub-0)");
     }
 
+    // --- the spawn's difficulty tail (FUN_004202e0, DIFFICULTY.md G2) ---------------
+    {
+        const Enemy* e = et.get(monster_cast);
+        const EnemyStats s = enemy_stats(gi, *e);
+        std::int32_t flags[0x200] = {};
+        auto spawn_hp = [&](int f144, int f143, int f203) {
+            flags[144] = f144; flags[143] = f143; flags[203] = f203;
+            ActorWorld w(tables);
+            w.stat_flags = flags;
+            const Actor* a = w.spawn({0, monster_cast, {1, 2, 3}, 90.0f, 1});
+            return a ? *a : Actor{};
+        };
+        const Actor n = spawn_hp(0, 0, 0), h = spawn_hp(1, 0, 0), nm = spawn_hp(2, 0, 0), ez = spawn_hp(0, 1, 0),
+                    ve = spawn_hp(0, 1, 1);
+        check(n.max_hp == s.max_hp && ez.max_hp == s.max_hp, "Normal / Easy spawn: the curve HP");
+        check(h.max_hp == s.max_hp * 1.2f && h.hp == h.max_hp, "Hard spawn: max HP x 1.2",
+              std::to_string(h.max_hp) + " vs " + std::to_string(s.max_hp));
+        check(nm.max_hp == s.max_hp * 1.5f, "Nightmare spawn: max HP x 1.5");
+        check(ve.max_hp == s.max_hp * 0.75f, "Very Easy spawn: max HP x 0.75");
+        check(ez.atk == std::max(1.0f, s.atk - 5.0f) && ez.def == std::max(1.0f, s.def - 10.0f),
+              "Easy spawn: ATK - 5, DEF - 10, floors 1");
+        check(ve.atk == std::max(1.0f, s.atk - 10.0f) && ve.def == std::max(1.0f, s.def - 10.0f),
+              "Very Easy spawn: ATK - 10, DEF - 10, floors 1");
+    }
+
     // --- outclassed deals ZERO, and that is the formula, not a bug ----------------
     // The same level-1 attacker against a HIGH-level enemy: the linear term goes
     // negative and min_dmg floors it at 0. This is why the kill test above had to seek
@@ -612,6 +637,21 @@ int main(int argc, char** argv) {
               std::to_string(d) + " (DEF " + std::to_string(int(player_def)) + ")");
         // The soft floor + max(1): even a near-zero attacker deals at least 1.
         const int floor_d = player_incoming_damage(AttackStats{5.0f, 0, 0}, 300.0f, roll);
+        // FUN_004fa740's difficulty tail (DIFFICULTY.md G8): Hard n * 1.5 + 1, Nightmare n * 2 + 1, the easy side
+        // x 0.5, flag 201 x 1.25, floor 1, truncated once.
+        auto never = [](float) { return false; };
+        const int base = player_incoming_damage(AttackStats{40.0f, 0, 0}, player_def, never);
+        auto with = [&](int idx, bool easy, bool f201) {
+            return player_incoming_damage(AttackStats{40.0f, 0, 0}, player_def, never, IncomingMode{idx, easy, f201});
+        };
+        check(with(0, false, false) == base, "damage taken, Normal: unchanged");
+        check(with(1, false, false) == int(float(base) * 1.5f + 1.0f), "damage taken, Hard: n * 1.5 + 1",
+              std::to_string(base) + " -> " + std::to_string(with(1, false, false)));
+        check(with(2, false, false) == int(float(base) * 2.0f + 1.0f), "damage taken, Nightmare: n * 2 + 1");
+        check(with(0, true, false) == std::max(1, int(float(base) * 0.5f)), "damage taken, the easy side: n * 0.5");
+        check(with(0, false, true) == int(float(base) * 1.25f), "damage taken, flag 201: n * 1.25");
+        check(player_incoming_damage(AttackStats{5.0f, 0, 0}, 300.0f, never, IncomingMode{0, true, false}) == 1,
+              "damage taken never drops under 1 (the easy side of a 1)");
         check(floor_d >= 1, "and a wildly-outclassed hit still deals >= 1 (the max(1))",
               std::to_string(floor_d));
     }

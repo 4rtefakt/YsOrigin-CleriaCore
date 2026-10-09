@@ -99,13 +99,22 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
     if (a->is_enemy()) {
         const Enemy* e = tables_.enemies->get(c->cast_id);
         if (e) {
-            const EnemyStats s = enemy_stats(*tables_.game, *e);
+            // FUN_004341a0 / FUN_00570400 -> FUN_004202e0(actor, cast - 14, 0) [BYTES 0x434472, 0x570501]: the
+            // curve stats and the difficulty tail (Hard HP x1.2, Nightmare x1.5, Very Easy x0.75, the easy-side
+            // ATK / DEF cuts), for every enemy (DIFFICULTY.md G2).
+            StatMode sm;
+            if (stat_flags) {
+                sm.hard = stat_flags[144]; sm.easy = stat_flags[143] != 0; sm.very_easy = stat_flags[203] != 0;
+                sm.boss_rush = stat_flags[193] != 0; sm.retries = stat_flags[196];
+            }
+            const EnemyStats s = enemy_restat(*tables_.game, *e, c->cast_id, 0, sm);
             a->max_hp = s.max_hp;
             a->hp = s.max_hp;
             a->atk = s.atk;
             a->def = s.def;
             for (int k = 0; k < 4; ++k) a->resist[k] = e->resist[k];
             a->exp_reward = s.exp;
+            a->sp_reward = s.sp;
             if (e->ai_sight != 0.0f) a->flyer = true;   // EI+0xb0 (0x45967a)
             a->level = e->level;
             a->move_speed = e->move_speed;

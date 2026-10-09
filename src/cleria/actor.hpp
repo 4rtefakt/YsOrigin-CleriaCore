@@ -152,6 +152,7 @@ struct Actor {
     // engine: +0xb0. The EXP this actor awards when killed:
     // FLOOR(K(ENEMYINFO+0xDC) * GAMEINFO's curve 4). Validated 67/67.
     float exp_reward = 0;
+    int sp_reward = 0;   // engine: +0xc4, the SP a kill credits (FUN_004202e0; FUN_004fbb40 0x4fcd1d)
 
     // engine: +0x734, a DWORD (not a byte — +0x4bf, the footstep counter, is the byte
     // idiom and they are not the same). ** Gates damage FOR THE PLAYER ONLY: ** the

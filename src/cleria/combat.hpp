@@ -309,15 +309,26 @@ inline float player_incoming_real(float attacker_atk, float bonus, float player_
     return std::fmax(0.5f, std::fmax(0.0f, raw));    // 0.5 minimum
 }
 
+// The game flags FUN_004fa740's tail reads [BYTES 0x4fa8f4..0x4fa938; EXPORT 004fa740.c:62-74].
+struct IncomingMode {
+    int index = 0;         // g_flags[144] (0x76bb5c): 1 Hard, 2 Nightmare
+    bool easy = false;     // g_flags[143] (0x76bb58): Easy and Very Easy
+    bool flag201 = false;  // g_flags[201] (0x76bc40): never set by the retail menus (DIFFICULTY.md §1.4)
+};
+
 // The integer damage a hit deals to the PLAYER. Same probabilistic rounding as
-// damage_int (P(round up) == frac*100 %), then the engine's `max(1, ...)`.
+// damage_int (P(round up) == frac*100 %), then the tail, in float: index > 0 -> n * {1.5, 2.0} + 1.0
+// (the cached 0x76c190); the easy side x0.5; flag 201 x1.25; max(1.0, n); truncated once.
 template <typename RollPercent>
 inline int player_incoming_damage(const AttackStats& attacker, float player_def,
-                                  RollPercent&& roll) {
+                                  RollPercent&& roll, const IncomingMode& m = {}) {
     const float d = player_incoming_real(attacker.atk, attacker.bonus, player_def);
-    const float n = std::floor(d);
-    const bool up = (d - n) != 0.0f && roll((d - n) * 100.0f);
-    return std::max(1, int(n) + (up ? 1 : 0));
+    float n = std::floor(d);
+    if ((d - n) != 0.0f && roll((d - n) * 100.0f)) n += 1.0f;
+    if (m.index > 0) n = n * kDifficultyFactor[std::min(m.index, 2)] + 1.0f;
+    if (m.easy) n *= 0.5f;
+    if (m.flag201) n *= 1.25f;
+    return int(std::fmax(1.0f, n));
 }
 // ---------------------------------------------------------------------------
 

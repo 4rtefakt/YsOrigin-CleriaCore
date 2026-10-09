@@ -193,6 +193,7 @@ struct Enemy {
 // evaluated at this enemy's own level — see gameinfo.hpp. The engine rounds.
 struct EnemyStats {
     float max_hp = 0, atk = 0, def = 0, exp = 0;
+    int sp = 0;   // +0xc4, the SP a kill credits (FUN_004202e0 0x420505..0x4205cb)
 };
 
 struct EnemyTable {

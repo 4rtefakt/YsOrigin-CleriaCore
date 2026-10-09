@@ -1102,6 +1102,26 @@ CASES.update({
         drive="5:flag=206,1;10:saveload;40:every=15,6000,ok;6000:quit",
         expect=[">> entering S_0003", "ChangeScene 'Title\\' -> the title", "Return to Title: back to the title",
                 "[title] t60 fader 0.00 list 1 book 0"]),
+    # DIFFICULTY.md G2 / G8 on Hard (diff=3, then a reload so the room spawns under it): a regular Rif's 60 HP
+    # is 72 and the Normal 112 is 134 (FUN_004202e0's x1.2); the hit that takes 22 on Normal takes
+    # 22 * 1.5 + 1 = 34 (FUN_004fa740's tail).
+    "diff_hard": dict(
+        room="S_10/S_1001/S_1001",
+        drive="3:diff=3;4:saveload;20:actors;30:hurt=60;40:quit",
+        expect=["id 14 cast 14 enemy hp 72", "id 19 cast 19 enemy hp 134", "Chr_Damage player atk 60 -> HP 26"]),
+    # ... and Very Easy (G1: flags 143 AND 203): HP x0.75 = 45, the same hit halved to 11.
+    "diff_very_easy": dict(
+        room="S_10/S_1001/S_1001",
+        drive="3:diff=0;4:saveload;20:actors;30:hurt=60;35:flagdump;40:quit",
+        expect=["id 14 cast 14 enemy hp 45", "Chr_Damage player atk 60 -> HP 49", " 143=1 ", " 203=1"]),
+    # ... and Normal stays: 60 HP, the hit takes 22. A kill credits the victim's +0xc4 SP (4 for a level-1
+    # Rif, FUN_004202e0 0x420505..) through FUN_004fa390: four kills, +16.
+    "diff_normal_kill_sp": dict(
+        room="S_10/S_1001/S_1001",
+        drive="4:saveload;8:opt=OneHitKill=1;20:actors;21:stats;30:hurt=60;31:opt=DamageTaken=0;"
+              "41:every=12,300,nearest=;42:every=12,300,atk;400:stats;410:quit",
+        expect=["id 14 cast 14 enemy hp 60", "id 19 cast 19 enemy hp 112", "hp 60/60 sp 59",
+                "Chr_Damage player atk 60 -> HP 38", "defeated 1 (6 left)", "hp 38/60 sp 75"]),
     # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
     # load tick's drain) and takes the continue snapshot, so a
     # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn

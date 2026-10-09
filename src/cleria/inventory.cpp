@@ -181,7 +181,7 @@ PickupResult pickup(InvState& inv, const ItemTable& items, EffectEnv& env, int i
     if (popup) *popup = 0;
     if (id >= 0x78 && id <= 0x7f) {                      // gold -> the SP wallet
         const Item* it = items.get(id);
-        const int n = std::max(1, int(std::floor(float(it ? it->magnitude : 0) * env.sp_rate * 1.0f)));
+        const int n = std::max(1, int(std::floor(float(it ? it->magnitude : 0) * env.sp_rate * env.gold_scale)));
         if (inv.sp >= 999999) return PickupResult::LeftInWorld;
         inv.sp = std::min(999999, inv.sp + n);
         if (popup) *popup = n;

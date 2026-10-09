@@ -40,6 +40,20 @@ float kill_award(const KillIn& in) {
     return chain_bonus(in.combo) * amt;                    // 0x4fcbff..0x4fcc03
 }
 
+int sp_award(int amount, const SpIn& in) {
+    float s = 1.0f;                                        // 0x6bd438
+    if (in.mode == 0) {
+        if (in.easy) s = 1.5f;                             // 0x4fa3ab (0x6bd4d4)
+        if (in.very_easy) s = 2.0f;                        // 0x4fa3bc (0x6bd580)
+        if (in.index == 2) s *= 0.01f;                     // 0x4fa3cd (0x6bd084)
+        if (in.bless_sp) s *= 1.25f;                       // 0x4fa3e1 (0x6bd494)
+    } else if (in.mode == 2 && !in.easy && !in.very_easy) {
+        s += float(in.index * 2 + 2);                      // 0x4fa401..0x4fa414
+    }
+    const float x = float(amount) * in.rate * s;           // 0x4fa418..0x4fa427
+    return int(float(std::floor(double(x))));              // FUN_004217f0, cvttss2si
+}
+
 float boss_award(float base, int player_level, int boss_level, int difficulty, float rate, float dm,
                  float under_base) {
     if (base == 0.0f) return 0.0f;                         // 0x4fa4b5..0x4fa4c0
