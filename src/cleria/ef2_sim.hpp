@@ -167,6 +167,10 @@ class System {
     // FUN_0047a7c0 (M640.md §7, M620.md): every live particle of `fx` starts dying (p+0x1b4 = 1) and its
     // kill flag fx+0x1d4 rises. Unlike kill_owned, hits and clocks are left alone.
     void kill_effect(Effect* fx);
+    // M860's pillar break (KISHGAL_SHIELD.md §3): every live `shield_id` effect whose hit particle overlaps a
+    // hit particle of a live effect with one of the `n` ids is marked (+0x1d5 = 0xff) and killed
+    // (FUN_0047a7c0); returns the broken pillars' particle positions, in the engine's order.
+    std::vector<Vec3> break_overlapping(int shield_id, const int* ids, int n);
     // Re-place every effect an owner tagged (FUN_00451a40 on M530's beams).
     void move_owned(int owner, int tag, const Vec3& pos, const Vec3& rot, const Vec3& scale);
     // FUN_00451a40: the world matrix S * RotYPR * T, and the effect scale +0x1ac.. = scale.

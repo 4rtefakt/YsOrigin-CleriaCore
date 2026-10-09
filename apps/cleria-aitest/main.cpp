@@ -2635,6 +2635,66 @@ int main() {
             check(o.skip_action_player && killed(o, 1) && !killed(o, 0) && o2.effects.empty(),
                   "M860 puppet: kills the EF2 0x122 in S_3080 only");
         }
+        {   // The pillar break and the freeze (0x4e3540..0x4e3bae; build/mech_re/KISHGAL_SHIELD.md §3, §4).
+            struct Ice : Duel3080 {
+                int breaks = 0, n_ids = 0, shield = 0, impact = 0, se = 0;
+                bool toal = false;
+                int break_shields(Actor&, int s, const int* ids, int n, int imp, int snd) override {
+                    ++breaks; shield = s; n_ids = n; impact = imp; se = snd;
+                    int t = 0;
+                    for (int i = 0; i < n; ++i) t += ids[i] == 162 || ids[i] == 175 || ids[i] == 179 || ids[i] == 180;
+                    toal = t == 4;
+                    return 0;
+                }
+            };
+            Ice w; w.flags[130] = 1; w.flags[156] = 1; w.s3080 = false;
+            Actor Pl; Pl.hp = Pl.max_hp = 100;
+            w.P = &Pl;
+            Actor K; make_duelist(K, 0xac, 79);
+            const EnemyBrain b = enemy_brain_for(79);
+            enemy_ai_tick(K.ai, gp, env_for(K, w, 3, 2), b);                 // INIT
+            check(w.breaks == 1 && w.shield == 0x122 && w.n_ids == 13 && w.impact == 0x123 && w.se == 424 && w.toal,
+                  "M860: the pillar break runs every live tick (0x122, 13 ids with Toal's 162/175/179/180, 0x123, SE 424)");
+            auto tick = [&](int psec, bool durable, bool alive = true) {
+                AiEnv e = env_for(K, w, 3, 2);
+                e.target = {3.0f, 1.075f, 2.0f}; e.target_section = psec; e.target_durable = durable;
+                e.target_alive = alive; e.target_heading = 0.0f;
+                return enemy_ai_tick(K.ai, gp, e, b);
+            };
+            AiWorld::Fx f123; f123.id = 0x123;
+            AiWorld::Fx marked = f123; marked.attach = 0xff;
+            // No freeze: a 0x123 the break spawned (0xff); the player in section 9; a Durable player.
+            w.fx = {marked};
+            AiOut o = tick(4, false);
+            bool none = !o.hold_target && o.target_section < 0 && K.ai.f(0x7d4) == 0.0f;
+            w.fx = {f123};
+            o = tick(9, false);
+            none = none && !o.hold_target && K.ai.f(0x7d4) == 0.0f;
+            o = tick(4, true);
+            none = none && !o.hold_target && K.ai.f(0x7d4) == 0.0f;
+            check(none, "M860 freeze: not from a marked 0x123, not in section 9, not on a Durable player");
+            // The start (section 0xb): EF2 0x11e x2 at the target, section 9 asked, the pin point, and the hold at once.
+            o = tick(0xb, false);
+            bool ice = false, mv = false;
+            for (const AiEffect& f : o.effects) {
+                ice |= f.id == 0x11e && f.scale == 2.0f && f.tag == 2 && f.pos.x == 3.0f && f.pos.z == 2.0f && f.power == 0.0f;
+                mv |= f.move_tag == 2 && f.move_scale == 2.5f && f.pos.x == 2.5f && f.pos.z == 2.0f;
+            }
+            check(ice && mv && o.target_section == 9 && o.hold_target && o.hold_xz_only && o.hold_origin.x == 3.0f &&
+                  o.hold_origin.z == 2.0f && o.target_wait_add == 1 && K.ai.f(0x7d4) == 19.0f,
+                  "M860 freeze start: EF2 0x11e x2, section 9, pinned at the target's x / z, the block at x - cos * 0.5, 20 -> 19");
+            // 19 more held ticks (the player now in section 9: no restart), then free; a Durable / dead tick skips the pin.
+            int held = 1, restarts = 0;
+            for (int i = 0; i < 25; ++i) {
+                const bool skip = i == 3 || i == 4;
+                o = i == 4 ? tick(9, false, false) : tick(9, skip, true);
+                held += o.hold_target ? 1 : 0;
+                restarts += o.target_section >= 0;
+                if (skip && o.hold_target) restarts += 100;
+            }
+            check(held == 18 && restarts == 0 && K.ai.f(0x7d4) == 0.0f,
+                  "M860 freeze: 20 brain ticks by the timer alone; a Durable or dead tick is not pinned; no re-trigger from section 9");
+        }
     }
 
     // ---- the duel brains' INIT re-stat, FUN_004202e0(cast, level = +0xc8) (build/audit/S6099_DUELS.md §2) ----

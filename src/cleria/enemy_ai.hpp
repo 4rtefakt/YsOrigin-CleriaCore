@@ -162,6 +162,12 @@ struct AiWorld {
     virtual void restat(Actor& /*a*/, int /*cast*/, int /*level*/) {}
     // FUN_0043a080(id, &pos): a positional sound a handler plays at another actor (M360's crystal kills).
     virtual void sound_at(int /*id*/, const Vec3& /*pos*/) {}
+    // M860's pillar break (FUN_004e3070 0x4e3540..0x4e3879; KISHGAL_SHIELD.md §3): every live, unmarked EF2
+    // `shield_id` whose hit particle overlaps a hit particle of a live effect with one of the `n` ids is marked
+    // (+0x1d5 = 0xff) and killed (FUN_0047a7c0); per pillar the 2-D SE `se` (FUN_0043a040) plays and EF2 `impact_id`
+    // spawns at the pillar particle (power 0, knock 1, self's stats), itself marked 0xff. Returns the pillars broken.
+    virtual int break_shields(Actor& /*self*/, int /*shield_id*/, const int* /*ids*/, int /*n*/, int /*impact_id*/,
+                              int /*se*/) { return 0; }
 };
 
 struct AiEnv {
@@ -185,6 +191,7 @@ struct AiEnv {
     bool target_rehit_clear = true;  // no attacker holds a re-hit timer on the player (P+0x90 bank)
     Vec3 target_vel{};           // the target's +0xa3c..+0xa44 (per tick)
     bool target_alive = true;    // HP >= 1.0 (or the scene keeps it targetable)
+    bool target_durable = false; // the target's byte +0x9d8 (anime_Durable; M860's freeze tests it)
     bool target_grounded = true;
     bool was_hit = false;        // +0x3bc & 4 this tick (any landed hit)
     bool culled = false;         // outside the camera frustum (+0x250 && FUN_0045d3c0)
@@ -231,7 +238,8 @@ struct AiSpawn {
 };
 // An EF2 effect a brain spawns at a point (the inlined pool-pop + FUN_00451a40 pattern).
 // tag >= 0: the brain owns it (M530's beams); move_tag >= 0: no spawn, re-place every live
-// effect this actor owns with that tag at pos; kill_tag >= 0: no spawn, kill them (M140's
+// effect this actor owns with that tag at pos (move_scale > 0: with that uniform scale, else 1);
+// kill_tag >= 0: no spawn, kill them (M140's
 // KILLFX — the engine fades them over 16 steps; [not modelled] the fade).
 // rot = (pitch, yaw, roll) for FUN_00451a40; power / knock / rtype / status = the GoEffect hit
 // fields (+0x1c4 / +0x1c8 / +0x1ec / +0x1c0) its hit emitters arm (EFFECTHIT.md); the defaults
@@ -240,6 +248,7 @@ struct AiSpawn {
 struct AiEffect {
     int id = 0; Vec3 pos{}; float scale = 1; bool attach = false;
     int tag = -1, move_tag = -1, kill_tag = -1;
+    float move_scale = 0;
     // remain_tag >= 0: no spawn; every particle of this actor's effects with that tag gets p+0x1c4 = remaining
     // and the effect is let go (its tag dropped: the owner's +0x88c = 0; M750's END).
     int remain_tag = -1, remaining = 0;
@@ -319,6 +328,12 @@ struct AiOut {
     // it is the release (+0x398 = 0).
     bool hold_target = false;
     Vec3 hold_origin{};
+    // M860's freeze (FUN_004e3070 0x4e39d1..0x4e3a35; KISHGAL_SHIELD.md §4.3): with hold_target, only the
+    // target's x and z (+0x50 / +0x58) are placed at hold_origin and its knock channels 1 and 2
+    // (+0x338..+0x34c) are zeroed; y, the vertical timer and +0x398 are left alone.
+    bool hold_xz_only = false;
+    int target_section = -1;     // FUN_00446550(ecx = T+0x8f0, id, 0): a GATED section request on the target's VM
+    int target_wait_add = 0;     // T+0x9a8 += n: the target VM's wait counter
     bool heavy_hold = false;     // M280 latched on its target: the player's status bit 0x8 with timer 1 (0x4a40bb)
     bool launch_clear = false;   // the stun exit cleared +0x4d0
     int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0

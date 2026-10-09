@@ -265,6 +265,10 @@ struct FnAiWorld : AiWorld {
     bool in_room(const char* dir) override { return in_room_fn && in_room_fn(dir); }
     std::function<void(const std::function<void(const Fx&)>&)> effects_fn;   // the GoEffect pool (view_duel.inl)
     void for_each_effect(const std::function<void(const Fx&)>& f) override { if (effects_fn) effects_fn(f); }
+    std::function<int(Actor&, int, const int*, int, int, int)> break_fn;   // M860's pillar break (view_duel.inl)
+    int break_shields(Actor& a, int shield, const int* ids, int n, int impact, int se) override {
+        return break_fn ? break_fn(a, shield, ids, n, impact, se) : 0;
+    }
     std::function<void(Actor&, int, int)> cull_fx_fn;   // M710's attached-effect cull
     void cull_attached_fx(Actor& a, int id, int keep) override { if (cull_fx_fn) cull_fx_fn(a, id, keep); }
     std::function<void(int, float)> camera_fn;          // the forced camera region (M360)

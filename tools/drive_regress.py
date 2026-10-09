@@ -678,10 +678,11 @@ CASES.update({
         expect=["cast 50 hp 1860/1860", "[death] HP 0", "[gameover] chose retry", ">> entering S_1080",
                 "[gameover] Retry -> S_1080", "cast 50 hp 200/200", "| lv 5 max 1860 atk 56"], absent=["[duel] lost", "boss_defeated"]),
     # S_3080 Yunica: Kishgal (M860) ends the fight at half HP in this room -> 174 = 1 -> the Silver
-    # Harmonica scene -> 232 = 1 and ChangeScene to S_1000.
+    # Harmonica scene -> 232 = 1 and ChangeScene to S_1000. The half-HP end is read at t8900 (was t8850): a pillar
+    # now freezes Yunica once on the way (t8669, KISHGAL_SHIELD.md §4), so the fight ends at t8859, not before t8850.
     "duel_s3080_kishgal": dict(
         room="S_30/S_3080/S_3080", char="1", env=dict(_LOCK, CLERIA_LEVEL="28"),
-        drive=_S3080.format(end=15000, cast=172) + "8850:dflags;15000:dflags;15001:quit",
+        drive=_S3080.format(end=15000, cast=172) + "8900:dflags;15000:dflags;15001:quit",
         expect=["cast 172 hp 2985/2985", "| lv 19 max 2985 atk 121 def 108 exp 5766", "[content] boss_defeated S_3080",
                 "133=1 156=0 174=1", ">> entering S_1000", "232=1"], absent=["[duel] lost"], count={"boss_defeated": 1}),
     # S_3080 Hugo wins against Toal (M820): 174 = 1 -> Battle_Win (its 0.4 slow-mo) -> EV_Feena02_2, where
@@ -735,6 +736,26 @@ CASES.update({
         expect=["cast 167 hp 4186/4186 player hp 342 | lv 48 max 4186.25 atk 249 def 259 exp 22128",
                 "[content] boss_defeated S_6099", "flags 130=0 131=0 133=0 156=0 174=1", " 231=1", " 236=1"], absent=["[death]"],
         count={"boss_defeated": 1}),
+    # Issue #5 (build/mech_re/KISHGAL_SHIELD.md §3): Toal vs Kishgal (M860) in S_6080. Toal's Ignis (the fire
+    # bracelet 118: EF2 162, one of the brain's 13 breaker ids) overlapping an ice pillar (EF2 0x122) breaks it:
+    # SE 424, the pillar killed, EF2 0x123. The fight still ends in the KO.
+    "kishgal_pillar_break": dict(
+        room="S_60/S_6080/S_6080", char="3", env=_F6,
+        drive="5:flag=231,1;6:opt=InfiniteHP=1;7:bracelet=118;8:tier=10;9:flag=184,1;40:move=0,1,300;80:every=20,6000,ok;"
+              "81:every=7,6000,duel=172;400:every=50,6000,skill+;403:every=50,6000,skill-;6000:dflags;6001:quit",
+        expect=["cast 172 hp 5686/5686", "[m860] t", "pillar broken at (", "[content] boss_defeated S_6080",
+                "flags 130=0 131=0 133=0 156=0"]),
+    # Issue #5 (§4): the freeze. Toal stands still; a pillar (EF2 0x122, impact 0x123) hits him for a medium
+    # reaction (section 0xb; Damage taken x0.3 keeps the hit under half his HP, which would be section 9 and no
+    # freeze) -> on Kishgal's next brain tick section 9 through the gated request, EF2 0x11e (286) on him and his
+    # x / z pinned for 20 brain ticks.
+    "kishgal_freeze": dict(
+        room="S_60/S_6080/S_6080", char="3", env=dict(_LOCK, CLERIA_LEVEL="30", CLERIA_DMG="1"),
+        drive="5:flag=231,1;6:opt=InfiniteHP=1;7:opt=DamageTaken=0.3;40:move=0,1,300;80:every=20,2600,ok;"
+              "81:every=7,2600,duel=172;2816:pos;2823:fxall;2834:pos;2835:quit",
+        expect=["reaction section 11", "fx 290 (atk 231 power -2.0", "[freeze] t2814 #202: section 9 taken, pinned at (-0.48, 47.51)",
+                "feet (-0.478, 2.000, 47.512)", "sec 0x9", "[fxall] id 286 attach 0 at (-0.48, 3.08, 47.51)",
+                "feet (-0.478, 2.000, 47.512)"], count={"[freeze] t": 1}),
 })
 
 # The floor-4 brains (build/ai_spec/M560.md .. M290.md, REVIVE.md, BOMB.md; build/audit/FLOOR4_TOUR.md).

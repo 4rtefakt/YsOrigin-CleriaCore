@@ -345,6 +345,7 @@ public:
     void set_marker(std::int32_t v) { marker_ = v; }
     void set_marker_block(std::int32_t v) { marker_wait_ = v; }
     void set_durable(bool v) { durable_ = v; }                 // brains write +0x9d8 too
+    void add_wait(std::int32_t n) { wait_ += n; }              // vm[0x2e] += n (M860's freeze: T+0x9a8 += 1)
     void set_frame(std::int32_t f) { frame_ = f; }             // a brain forcing +0x9b8 (M760)
     void set_local(int n, std::int32_t v) { if (n >= 0 && n < 32) locals_[n] = v; }   // obj[0x3b+n]
     std::int32_t marker_block() const { return marker_wait_; }

@@ -581,6 +581,58 @@ void System::kill_effect(Effect* fx) {
     fx->kill = true;
 }
 
+// M860's pillar break, the test of 0x4e3540..0x4e37d8 (KISHGAL_SHIELD.md §3.1 / §3.2) [BYTES]: the pool scan
+// collects the live `shield_id` effects (it stops at the 0x40th) and up to 13 live effects of the listed ids;
+// then, per collected skill effect, per pillar not yet marked (+0x1d5 != 0xff): the pillar's FIRST live
+// particle with an emitter radius B2+0x884 > 0 against EVERY such particle of the skill effect, as two
+// upright cylinders — the raw emitter radius x the particle's own (x + z) / 2 scale, the half-height
+// B2+0x88c (the radius when 0) and the offset B2+0x888 x its y scale. Not the hit records (p.hit folds in
+// the effect scale and a 3-axis mean).
+std::vector<Vec3> System::break_overlapping(int shield_id, const int* ids, int n) {
+    std::vector<Effect*> S, E;
+    for (auto& f : fx_) {
+        if (f->dead) continue;
+        if (f->id == shield_id) {
+            S.push_back(f.get());
+            if (S.size() >= 0x40) break;                           // 0x4e3472
+            continue;
+        }
+        if (E.size() >= 13) continue;
+        for (int i = 0; i < n; ++i)
+            if (f->id == ids[i]) { E.push_back(f.get()); break; }
+    }
+    auto radius = [](const Particle& p) { return rd<float>(emitter(p).b2, 0x884); };
+    auto half_h = [&](const Particle& p) {
+        const float h = rd<float>(emitter(p).b2, 0x88c);
+        return p.scale.y * (h != 0.0f ? h : radius(p));
+    };
+    auto centre_y = [](const Particle& p) { return p.world_pos().y + rd<float>(emitter(p).b2, 0x888) * p.scale.y; };
+    std::vector<Vec3> broke;
+    for (Effect* e : E)
+        for (Effect* s : S) {
+            if ((s->attach_mode & 0xff) == 0xff) continue;         // 0x4e358d
+            const Particle* ps = nullptr;
+            for (auto& p : parts_)
+                if (p->fx == s && !p->dead && radius(*p) > 0.0f) { ps = p.get(); break; }
+            if (!ps) continue;
+            const Vec3 a = ps->world_pos();
+            const float rs = radius(*ps) * ((ps->scale.z + ps->scale.x) * 0.5f);   // 0x6bd304
+            for (auto& p : parts_) {
+                if (p->fx != e || p->dead || !(radius(*p) > 0.0f)) continue;
+                const Vec3 b = p->world_pos();
+                const float re = radius(*p) * ((p->scale.z + p->scale.x) * 0.5f);
+                const float dx = b.x - a.x, dz = b.z - a.z;
+                if (rs + re < std::sqrt(dx * dx + dz * dz)) continue;
+                if (half_h(*p) + half_h(*ps) < std::fabs(centre_y(*p) - centre_y(*ps))) continue;
+                s->attach_mode = 0xff;                             // 0x4e37d1: marked broken
+                kill_effect(s);                                    // FUN_0047a7c0
+                broke.push_back(a);
+                break;
+            }
+        }
+    return broke;
+}
+
 void System::move_owned(int owner, int tag, const Vec3& pos, const Vec3& rot, const Vec3& scale) {
     for (auto& f : fx_)
         if (f->owner == owner && f->tag == tag) place(*f, pos, rot, scale);

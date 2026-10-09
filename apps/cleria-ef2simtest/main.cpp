@@ -123,6 +123,43 @@ int main(int argc, char** argv) {
               near3(depth_bias_offset({1, 1, 1}, {1, 1, 1}, 5.0f), 0, 0, 0), "no bias, or the eye at the effect: none");
     }
 
+    // ---- M860's pillar break (build/mech_re/KISHGAL_SHIELD.md §3.2): EF2 290 against Toal's Ignis 162 ----
+    {
+        const Ef2 pillar = Ef2::load(root / "EFFECT" / "EFT" / "ENEMY" / "M_860_HYOUTYUU.EF2");
+        const Ef2 ignis = Ef2::load(root / "EFFECT" / "EFT" / "PC" / "PC03" / "PC3_S_B.EF2");
+        check(pillar.ok() && ignis.ok(), "M_860_HYOUTYUU.EF2 (290) and PC3_S_B.EF2 (162) load");
+        static const int kIds[2] = {101, 162};
+        // The first tick (of 40) on which a 162 at `dist` along x breaks a pillar at the origin; -1 = never.
+        auto broke_at = [&](float dist, int skill_id, bool marked, int* mode, bool* kill) {
+            Rng rng;
+            System sys(&rng);
+            Effect* s = sys.spawn(290, pillar, SpawnParams{});
+            for (int i = 0; i < 5; ++i) { sys.step(); sys.sweep(); }
+            if (marked) s->attach_mode = 0xff;
+            SpawnParams sp; sp.pos = {dist, 0.0f, 0.0f}; sp.side = 0;
+            sys.spawn(skill_id, ignis, sp);
+            int at = -1;
+            for (int i = 0; i < 40 && at < 0; ++i) {
+                sys.step(); sys.sweep();
+                const std::vector<Vec3> b = sys.break_overlapping(290, kIds, 2);
+                if (!b.empty()) at = i;
+            }
+            if (mode) *mode = s->attach_mode;
+            if (kill) *kill = s->kill;
+            return at;
+        };
+        int mode = 0; bool kill = false;
+        const int near_t = broke_at(1.0f, 162, false, &mode, &kill);
+        std::printf("[ef2]   162 at 1.0 from a 290: broken on step %d (attach %d kill %d)\n", near_t, mode, int(kill));
+        check(near_t >= 0 && mode == 0xff && kill, "a 162 hit particle 1.0 from a pillar breaks it: +0x1d5 = 0xff, kill flag");
+        check(broke_at(12.0f, 162, false, &mode, &kill) < 0 && mode == 0 && !kill, "12.0 away: no break, the pillar untouched");
+        check(broke_at(1.0f, 162, true, &mode, nullptr) < 0, "a pillar already marked 0xff is skipped");
+        check(broke_at(1.0f, 163, false, &mode, &kill) < 0 && mode == 0, "an effect id outside the list breaks nothing");
+        float edge = 0.0f;
+        for (float d = 0.5f; d < 8.0f; d += 0.25f) if (broke_at(d, 162, false, nullptr, nullptr) >= 0) edge = d;
+        std::printf("[ef2]   162 breaks a 290 out to %.2f along x (the sum of the two scaled radii)\n", edge);
+    }
+
     std::printf(fails ? "SOME TESTS FAILED\n" : "ALL PASS\n");
     return fails ? 1 : 0;
 }

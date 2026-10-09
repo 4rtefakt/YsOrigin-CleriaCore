@@ -39,6 +39,22 @@ auto ai_effects = [&](const std::function<void(const AiWorld::Fx&)>& f) {
     }
 };
 
+// M860's pillar break (AiWorld::break_shields; KISHGAL_SHIELD.md §3.2): the overlap test over the particle pool
+// (ef2sim::System::break_overlapping), then per broken pillar FUN_0043a040(se, 0x400) — a 2-D sound — and the
+// impact effect at the pillar particle with rot 0, scale 1, power 0, knock 1 and the brain's stat block, its
+// byte +0x1d5 = 0xff (0x4e37bc..0x4e3872).
+auto ai_break_shields = [&](Actor& self, int shield, const int* ids, int n, int impact, int se) {
+    const std::vector<Vec3> broke = fxsim.break_overlapping(shield, ids, n);
+    for (const Vec3& at : broke) {
+        audio.play(se, kSfxAnimVol);
+        ef2sim::SpawnParams sp;
+        sp.power = 0.0f; sp.knock = 1.0f; sp.atk = self.atk; sp.side = 1; sp.owner = self.instance_id;
+        if (ef2sim::Effect* fx = spawn_sim_fx(impact, at, {}, 1.0f, sp, 0, {})) fx->attach_mode = 0xff;
+        std::printf("  [m860] t%llu pillar broken at (%.2f, %.2f, %.2f)\n", (unsigned long long)tick_count, at.x, at.y, at.z);
+    }
+    return int(broke.size());
+};
+
 // op 0x95 SetTimeScale (view_xso13.inl: 0x6d6078) logged: S_3080's Battle_Win / EV_Feena01 slow the
 // victory cutscene to 0.4 around Toal's dashes (the drive regressions read it).
 if (auto prev = csHost.time_scale_fn) {

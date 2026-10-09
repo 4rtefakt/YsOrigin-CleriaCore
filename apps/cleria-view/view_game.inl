@@ -6501,6 +6501,7 @@ title_again:
                 aiw.hide_gauge_fn = [&] { hud.hide_boss_gauge(); };
                 // The current scene's directory, e.g. "s_30\s_3080\", compared case-blind.
                 aiw.effects_fn = ai_effects;                   // the GoEffect pool scans (view_duel.inl)
+                aiw.break_fn = ai_break_shields;               // M860's pillar break (view_duel.inl)
                 aiw.bullets_fn = [&](const std::function<void(const AiWorld::BulletRef&)>& f) {   // M420's orb hunt
                     for (auto& b : bullets.list()) {
                         if (b->gone || b->destroyed) continue;
@@ -6602,6 +6603,7 @@ title_again:
                     env.target = {feet.x, feet.y + kOriginH, feet.z};
                     env.target_vel = {pvel.x, 0, pvel.z};
                     env.target_alive = player.hp >= 1;
+                    env.target_durable = avm.durable();              // byte P+0x9d8
                     env.target_grounded = pv.grounded;
                     boss5_target(*en, env);                          // the +0x888 override (view_boss05.inl)
                     boss6_zava_env(*en, env);                        // Zava's link to her heads (view_boss06.inl)
@@ -6679,7 +6681,19 @@ title_again:
                     // M470's hold (0x48ce69): the player's origin at the mouth, +0x330 = 0, +0x398 = 1 until a brain
                     // tick of that Levenueba passes without it (its release, its death, a room change).
                     // [not modelled] FUN_00459ff0's floor / facing writes.
-                    if (o.hold_target) {
+                    // M860's freeze (0x4e39eb..0x4e3a35): x / z only, the knock channels 1 and 2 zeroed, the VM's wait
+                    // counter + 1; y, +0x330 and +0x398 untouched. Its start asks the player's VM for section 9 through
+                    // the gated FUN_00446550 (0x4e397e).
+                    if (o.target_section >= 0) {
+                        const bool took = avm.set_section(o.target_section);
+                        std::printf("  [freeze] t%llu #%d: section %d %s, pinned at (%.2f, %.2f)\n", (unsigned long long)tick_count,
+                                    en->instance_id, o.target_section, took ? "taken" : "refused", feet.x, feet.z);
+                    }
+                    if (o.hold_target && o.hold_xz_only) {
+                        feet.x = o.hold_origin.x; feet.z = o.hold_origin.z;
+                        player_kb = {}; player_kb2 = {};
+                        avm.add_wait(o.target_wait_add);
+                    } else if (o.hold_target) {
                         feet = {o.hold_origin.x, o.hold_origin.y - kOriginH, o.hold_origin.z};
                         pv.t = 0.0f;
                         player_hold = true;
@@ -6695,7 +6709,11 @@ title_again:
                         if (fx.remain_tag >= 0) { fxsim.set_remaining_owned(en->instance_id, fx.remain_tag, fx.remaining); continue; }
                         if (fx.release_tag >= 0) { fxsim.release_owned(en->instance_id, fx.release_tag); continue; }
                         if (fx.dying_tag >= 0) { fxsim.dying_owned(en->instance_id, fx.dying_tag); continue; }
-                        if (fx.move_tag >= 0) { fxsim.move_owned(en->instance_id, fx.move_tag, fx.pos, fx.rot, {1, 1, 1}); continue; }
+                        if (fx.move_tag >= 0) {
+                            const float ms = fx.move_scale > 0.0f ? fx.move_scale : 1.0f;
+                            fxsim.move_owned(en->instance_id, fx.move_tag, fx.pos, fx.rot, {ms, ms, ms});
+                            continue;
+                        }
                         ef2sim::SpawnParams sp;
                         sp.power = fx.power; sp.knock = fx.knock; sp.rtype = fx.rtype; sp.status = fx.status;
                         sp.atk = en->atk; sp.side = 1; sp.owner = en->instance_id; sp.tag = fx.tag;

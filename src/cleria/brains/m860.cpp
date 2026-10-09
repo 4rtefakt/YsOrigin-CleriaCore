@@ -31,10 +31,11 @@
 // after K hits (4; Hugo 2, Toal 6) it guards (near) or chain-dodges (far).
 // The effect-pool scan (0x4e33d8: the live EF2 0x122 count, the player effects that steer the
 // decide, ids 0x82/0x65/0x84/0x14, 0x70/0x15, 0x90) reads AiWorld::for_each_effect.
-// [not modelled] the shield break (a player effect from a 13-id list overlapping an EF2 0x122 kills
-// it: SE 424, EF2 0x123; it overlaps the hit records of pool 0x730128) and the grab (a live EF2
-// 0x123 with the player in section 4/0xb: EF2 0x11e at +0x88c, the player held for 20 ticks in
-// section 9); the keep-out restore (FUN_0042dc90);
+// The shield break (a player skill effect from a 13-id list overlapping an EF2 0x122 kills it: SE 424,
+// EF2 0x123) and the freeze (a live unmarked EF2 0x123 with the player in section 4 / 0xb: EF2 0x11e
+// at +0x88c, the player pinned in x / z for 20 ticks in section 9) follow the pool scan
+// (build/mech_re/KISHGAL_SHIELD.md §3, §4).
+// [not modelled] the keep-out restore (FUN_0042dc90);
 // +0x64 / +0x4be / +0x3c0 writes; the camera shakes / zoom blurs (0x76a5ac.., 0x76a550..,
 // FUN_005e0590, FUN_005d3500); FUN_00451b50's rotation of the 0x121 bullet's effect.
 #include <cmath>
@@ -55,9 +56,13 @@ constexpr float k60 = 1.046149492263794f;         // 0x3f85e83a
 constexpr float k30 = 0.5235983729362488f;        // 0x3f060a8b
 
 // The effects the handler kills by EF2 id (FUN_0047a7c0 over the pool; Kishgal is the only
-// spawner of both [H]): tag 0 = the EF2 0xab aura (INIT), tag 1 = every EF2 0x122. Tag 2 is kept
-// for the EF2 0x11e at +0x88c (the grab, not modelled).
-constexpr int kTagAura = 0, kTag122 = 1;
+// spawner of both [H]): tag 0 = the EF2 0xab aura (INIT), tag 1 = every EF2 0x122. Tag 2 is the
+// EF2 0x11e at +0x88c (the freeze's ice block).
+constexpr int kTagAura = 0, kTag122 = 1, kTagIce = 2;
+// The 13 player skill effects that break an EF2 0x122 [BYTES 0x6be3e0, 0x6be450, 0x6be4e0, the immediate
+// 0x26f at 0x4e3421]: Yunica's 101 / 112, Hugo's 132 / 137, Toal's 162 / 175 (Ignis, human / demon) and
+// 180 / 179 (charged Ignis), Adol's 20 / 21 / 627 / 624 / 623.
+constexpr int kBreakers[13] = {101, 112, 132, 137, 162, 175, 179, 180, 20, 21, 627, 624, 623};
 
 int gflag(const AiEnv& e, int i, int unset) { return e.world ? e.world->flag(i, unset) : unset; }
 bool in_s3080(const AiEnv& e) { return e.world && e.world->in_room(kRoom); }
@@ -98,8 +103,7 @@ void half_hp_rule(Actor& A, bool room, AiWorld* w) {
 // fA = a live effect id 0x82/0x65/0x84/0x14, fB = 0x70/0x15, fC = 0x90 (ids 0xbc/0x7d skipped).
 // [BYTES 0x4e342e..0x4e352e] over AiWorld::for_each_effect (pool order): the 0x40th 0x122 ends the
 // whole scan (0x4e3475); a 0x123 with +0x1d5 == 0xff is not "live"; ids are word compares. The
-// 13-id list the shield break collects (0x6be3e0 / 0x6be450 / 0x6be4e0, 0x26f) is not gathered: the
-// break itself is [not modelled] (it overlaps the effects' hit records, pool 0x730128).
+// 13-id list the shield break collects is gathered by the host's break (AiWorld::break_shields).
 struct PoolScan { int n122 = 0; bool live123 = false, fA = false, fB = false, fC = false; };
 PoolScan pool_scan(const AiEnv& e) {
     PoolScan r;
@@ -163,8 +167,37 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
     }
     const PoolScan pool = pool_scan(e);
     int n122 = pool.n122;
-    // The grab (0x4e38a9..0x4e3bae) [not modelled]: needs pool.live123 (and the player's Durable
-    // byte); +0x7d4 (20.0 while holding) is never set here, so its countdown is skipped too.
+    // The pillar break (0x4e3540..0x4e3879) [BYTES]: particle against particle, so the host runs it
+    // over its pools — 2-D SE 424 (0x1a8), the pillar marked and killed, EF2 0x123 (marked 0xff: it
+    // never freezes). No write to Kishgal: n122 keeps this tick's count.
+    if (e.world) e.world->break_shields(A, 0x122, kBreakers, 13, 0x123, 0x1a8);
+    // The freeze (0x4e38a9..0x4e3bae) [BYTES]. T = the player (+0x888 is never set by this brain).
+    if (pool.live123 && a.f(0x7d4) == 0.0f && !e.target_durable &&
+        (e.target_section == 4 || e.target_section == 0xb)) {
+        AiEffect ice{0x11e, e.target, 2.0f, false};                 // power 0, knock 1; +0x88c, fx+0x1a8 = this
+        ice.tag = kTagIce;
+        out.effects.push_back(ice);
+        a.f(0x7d4) = 20.0f;                                         // 0x41a00000
+        out.target_section = 9;                                     // FUN_00446550(T+0x8f0, 9, 0)
+        a.f(0x7b4) = e.target.x; a.f(0x7b8) = e.target.z;           // the pin point
+    }
+    if (a.f(0x7d4) > 0.0f) {                                        // 0x4e399d: the hold, the start tick included
+        a.f(0x7d4) -= 1.0f;
+        if (0.0f > a.f(0x7d4)) a.f(0x7d4) = 0.0f;
+        float tx = e.target.x, tz = e.target.z;
+        if (e.target_alive && !e.target_durable) {                  // T+0x98 >= 1.0, byte T+0x9d8 == 0
+            tx = a.f(0x7b4); tz = a.f(0x7b8);
+            out.hold_target = true; out.hold_xz_only = true;        // x / z only, knock channels 1 / 2 zeroed
+            out.hold_origin = {tx, e.target.y, tz};
+            out.target_wait_add = 1;                                // T+0x9a8 += 1
+        }
+        // FUN_0047a830(+0x88c, this): while the 0x11e lives, its matrix = diag(2.5) at
+        // (T.x - cos(T+0x308) * 0.5, T.y, T.z) (0x4e3a40..0x4e3ba8; FUN_0066fd70 taken as cos [H]).
+        AiEffect mv;
+        mv.move_tag = kTagIce; mv.move_scale = 2.5f;
+        mv.pos = {tx - float(std::cos(double(e.target_heading))) * 0.5f, e.target.y, tz};
+        out.effects.push_back(mv);
+    }
     switch (a.phase()) {
         case 0: {                                                   // ---- INIT (0x4e3c08)
             ai::init(a, p, e);                                      // FUN_004782f0 + EI[76] +0x90..
