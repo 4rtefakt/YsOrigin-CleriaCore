@@ -1995,6 +1995,14 @@ title_again:
         if (sfx_log) std::printf("  [sfx] t%llu %d at (%.2f, %.2f, %.2f)\n", (unsigned long long)tick_count, id, p.x, p.y, p.z);
         audio.play_at(id, pan, dist, vol);
     };
+    // anime_SePlay3D (funcid 42) of an actor other than the player, FUN_004472e0 case 0x2a [BYTES 0x447d72..
+    // 0x447dd5]: a 3-D record (rec+0 & 0x10) plays at the actor (FUN_0045d7a0), any other one as a plain 2-D SE
+    // (FUN_005ce2a0, volume 0x400).
+    auto aso_se_at = [&](int id, const Vec3& p) {
+        const EffectDef* d = audio.defs().find(id);
+        if (d && d->is3d) sfx_at(id, p, kSfxAnimVol);
+        else audio.play(id, kSfxAnimVol);
+    };
 
     // ---- save / load (PLAN.md Phase 2; codec src/cleria/save.*) -------------------
     // The goddess statue is all script: the sealed model runs the room's SAVE.XSO (the
@@ -5947,6 +5955,8 @@ title_again:
                     else if (e.avm.section() != e.idle_section) e.avm.set_section(e.idle_section, true);
                 }
                 e.avm.tick();
+                // The same VM step as in play: a scripted actor's section sounds (a walk's steps, a swing).
+                if (!hugo_eye(A)) for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, A.pos);
             }
             // [H] the scripted walk keeps playing its section (a forced re-set every frame froze it on
             // frame 0) and settles to idle on arrival, as the generic mover's table does. The run
@@ -6959,7 +6969,9 @@ title_again:
                             if (ai_debug && (tick_count % 60) == 0)   // no handler ran: say so (REACQUIRE.md §1.3)
                                 std::printf("[ai] #%d cast %d phase %d frozen (25 u or more) t%llu\n", en->instance_id,
                                             en->cast_id, en->ai.phase(), (unsigned long long)tick_count);
-                            e.avm.tick(); continue;
+                            e.avm.tick();                         // the ASO step is all a frozen handler runs: its sounds too
+                            for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, en->pos);
+                            continue;
                         }
                     }
                     if (revive_tick(e)) continue;                 // the revive family's dead path
@@ -7152,7 +7164,7 @@ title_again:
                     }
                     if (o.vm_step) {                                  // the brain's FUN_004472e0
                         e.avm.tick();
-                        if (!hugo_eye(*en) && e.avm.section() != 5) for (const AsoVm::SoundEvent& se : e.avm.sounds()) sfx_at(se.id, en->pos, kSfxAnimVol);
+                        if (!hugo_eye(*en) && e.avm.section() != 5) for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, en->pos);
                     }
                     // The brain writes its ASO registers directly (+0x9bc / +0x9c0 / +0x9d8);
                     // a section that restarts at pc 0 this tick clears the first two again.
@@ -7225,7 +7237,7 @@ title_again:
                     // cries (build/audit/SOUNDS.md root cause 1 -- the loop read bullets, effects and the hit
                     // volume but never the sounds). Not a familiar (view_hugo_eyes.inl plays its own) and not the
                     // death section, whose sounds the kill path plays from its cache (enemy_death_sounds).
-                    if (!hugo_eye(*en) && e.avm.section() != 5) for (const AsoVm::SoundEvent& se : e.avm.sounds()) sfx_at(se.id, en->pos, kSfxAnimVol);
+                    if (!hugo_eye(*en) && e.avm.section() != 5) for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, en->pos);
                     if (e.avm.jumped()) {                             // anime_Jump (FUN_00449460)
                         float oy = en->pos.y + en->height;
                         apply_jump(en->vert, oy, e.avm.jump_v(), cast_motion(casts, en->cast_id).jump_v0);
