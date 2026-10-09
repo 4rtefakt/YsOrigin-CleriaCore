@@ -1206,6 +1206,7 @@ title_again:
         player.max_hp = player.hp = int(player_stats().max_hp);
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     ailments::State ail;               // poison / heavy / confuse / curse: 0x76c15c..0x76c16c (view_ailments.inl)
+    bool ail_reload = false;           // a record was loaded: its effects are re-created / dropped (ail_tick)
     bool toal_air_cast = false;        // +0x7b0: Toal's last 0x76 (Ignis) cast started in the air
     // Hugo's super barrier (BOOST_SKILLS.md §2.5): +0x7dc, 420 ticks from the press; +0x7e0, the handle of
     // effect 0x90 (PC2_B_B_b) his section 300 spawns at tick 25. While the effect stands every hit on him
@@ -1870,6 +1871,8 @@ title_again:
         s.luck_base = inv.luck_base; s.timer_atk = inv.timer_atk; s.timer_def = inv.timer_def;
         s.mp_buff = inv.mp_buff; s.timer_mp = inv.timer_mp;
         s.o2 = oxy.o2; s.o2_alpha = oxy.alpha;                  // 0x76c1b8 / 0x76c1bc, in the block
+        s.ail[0] = std::int32_t(ail.mask);                      // g_flags 528..532, in the block
+        for (int i = 0; i < 4; ++i) s.ail[i + 1] = ail.t[i];
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
@@ -1942,7 +1945,9 @@ title_again:
     // force_scene: re-enter the scene even when it is the current one (the game over's Retry is a
     // ChangeScene to the current scene; a load of the same room only re-gates it).
     auto apply_loaded = [&](const SaveState& s, bool force_scene = false) {
-        ail = ailments::State{};       // [not modelled] the record's g_flags 528..532 (view_ailments.inl)
+        ail.mask = std::uint32_t(s.ail[0]);            // the record's g_flags 528..532 (STATUS_AILMENTS.md §7)
+        for (int i = 0; i < 4; ++i) ail.t[i] = s.ail[i + 1];
+        ail_reload = true;                             // ail_tick: the effects follow the loaded mask
         std::memcpy(game.g_flags, s.flags, sizeof s.flags);
         std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
         character = std::clamp(s.character(), 1, 3);

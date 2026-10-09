@@ -9,8 +9,8 @@
 //   ail_drive()           CLERIA_DRIVE: ail=<bit> (apply), ailhit=<status> (a 1-damage hit's roll), ailstate
 // The readers are where the engine has them: the mover (heavy: no run stage, the lift-off x 2/3; confuse:
 // the heading + pi), the two damage formulas (curse), the HUD lines (view_hud.inl).
-// [not modelled] the state in the save record (g_flags 528..532 lie past the 0x200 flags kept here: a
-// load starts clean); path B (FUN_004fe1a0, the hit flag +0x11c & 8: no hit record carries the flag
+// The state rides the save record (SaveState::ail = g_flags 528..532: capture_save / apply_loaded).
+// [not modelled] path B (FUN_004fe1a0, the hit flag +0x11c & 8: no hit record carries the flag
 // here); the sound environment 0x19 (§6.5); the stick-tap offset (§6.3 item 2); the popups' other
 // languages. [H] the effect's attach offset (0, 0, 0).
 ef2sim::Effect* ail_fx[4] = {nullptr, nullptr, nullptr, nullptr};   // P+0x73c / +0x740 / +0x744 / +0x748
@@ -51,8 +51,9 @@ auto ail_tick = [&]() {
         ail_was_frozen = true;
         return;                                                      // 0x462550: nothing counts under a Fix
     }
-    const bool recreate = ail_was_frozen || ail_room != room.name;   // FUN_004612e0: the Unfix, a room load
+    const bool recreate = ail_was_frozen || ail_reload || ail_room != room.name;   // FUN_004612e0: the Unfix, a room load
     ail_was_frozen = false;
+    ail_reload = false;
     ail_room = room.name;
     const ailments::Ticked r = ailments::tick(ail, float(player.max_hp), float(player.hp),
                                               (inv.equip_flags & 0x20048u) != 0);   // the Blue Necklace's 0x20000
@@ -68,6 +69,9 @@ auto ail_tick = [&]() {
             ail_fx[i] = nullptr;
         } else if (recreate && ail.has(ailments::kBits[i]) && !fx_live(ail_fx[i])) {
             ail_fx[i] = ail_attach(i);
+        } else if (recreate && !ail.has(ailments::kBits[i]) && fx_live(ail_fx[i])) {   // a load without it
+            ail_fx[i]->kill = true;
+            ail_fx[i] = nullptr;
         }
     }
 };

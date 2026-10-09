@@ -1235,6 +1235,13 @@ CASES.update({
                 "feet (3.415, 2.000, 7.800)", "confuse for 600 ticks", "feet (0.055, 2.000, 7.800)",
                 "curse for 1200 ticks", "mask 0x39 timers 639 169 533 1199 fx 1111", "curse ends",
                 "mask 0x19 timers 636 166 530 0 fx 1110"]),
+    # ... and they ride the save record (0x76c15c..0x76c16c = g_flags 528..532, inside the 0x1fc8 block): poison
+    # and curse are still on, with their timers and effects, after a save + load (they were cleared: mask 0x00).
+    "ailments_saveload": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="10:ail=1;11:ail=0x20;12:ailstate;20:saveload;21:ailstate;60:ailstate;70:quit",
+        expect=["mask 0x21 timers 898 0 0 1199 fx 1001 hp 60", "[drive] loaded S_1009",
+                "mask 0x21 timers 889 0 0 1190 fx 1001 hp 60", "mask 0x21 timers 850 0 0 1151 fx 1001 hp 60"]),
     # BOOST_SKILLS.md F10: Toal's Boost-end effect 172 is the player's (side 0). It used to spawn on the enemy
     # side and take 2 HP off Toal himself (hp 60 -> 58 by t127).
     "toal_boost_end_fx": dict(

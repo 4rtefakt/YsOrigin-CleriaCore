@@ -88,6 +88,10 @@ struct SaveState {
     // FUN_00443390 and the player tick FUN_00465170).
     float o2 = 0.0f;
     std::int32_t o2_alpha = 0;
+    // The status ailments 0x76c15c..0x76c16c = g_flags 528..532 (the mask, then the poison / heavy / confuse /
+    // curse timers): past the 0x200 flags above but inside the block (+0x1e8c..+0x1e9c), so a save, the continue
+    // snapshot and the Retry carry them (build/mech_re/STATUS_AILMENTS.md §7). 0 in older CleriaCore saves.
+    std::int32_t ail[5] = {0, 0, 0, 0, 0};
 
     int character() const { return flags[150]; }
     int difficulty() const { return flags[144]; }  // DAT_0076bb5c; header +0x50 = this+1
