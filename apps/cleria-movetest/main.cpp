@@ -5,6 +5,7 @@
 
 #include "cleria/enemy_mover.hpp"
 #include "cleria/hazard.hpp"
+#include "cleria/ledge.hpp"
 #include "cleria/oxygen.hpp"
 #include "cleria/physics_player.hpp"
 #include "cleria/rider.hpp"
@@ -284,6 +285,40 @@ int main() {
         bool id = true;
         for (int i = 0; i < 16; ++i) id = id && near(inv.m[std::size_t(i)], (i % 5 == 0) ? 1.0f : 0.0f, 1e-4f);
         check(id, "affine_inverse(M) x M = identity");
+    }
+
+    {   // The integrator's ledge recovery (FUN_0045a510 0x45b607.., src/cleria/ledge.hpp). Floor: x <= 10.
+        const auto floor25 = [](const Vec3& p) { return p.x <= 10.0f; };
+        LedgeState s;
+        s.entry = {1.0f, 1.0f, 1.0f}; s.safe = {9.9f, 1.0f, 0.0f};
+        Vec3 p = ledge_recover(s, true, true, {10.05f, 1.0f, 0.0f}, {0.15f, 0.0f, 0.0f}, floor25);
+        check(near(p.x, 10.05f) && s.misses == 0 && near(s.good.x, 9.9f),
+              "ledge: a floor under the old origin -> nothing; +0x4f4 = position - D");
+        // Stepped out to 10.2: the probe beside it has no floor; the five points 0.1..0.3 toward +0x3c8, the
+        // farthest with a floor wins (0.3 -> 9.9).
+        p = ledge_recover(s, true, false, {10.2f, 1.0f, 0.0f}, {0.15f, 0.0f, 0.0f}, floor25);
+        check(near(p.x, 9.9f) && near(p.z, 0.0f) && s.misses == 1, "ledge: pulled back along the last safe spot (0.3)");
+        // Too far for the five points: straight onto the last safe x / z (the y kept).
+        p = ledge_recover(s, true, false, {12.0f, 3.0f, 0.0f}, {}, floor25);
+        check(near(p.x, 9.9f) && near(p.y, 3.0f) && s.misses == 2, "ledge: no point has a floor -> (+0x3c8, y, +0x3d0)");
+        // No floor anywhere near: nothing moves until the player's 5th miss, which restores +0x4f4 (then = +0x51c).
+        const auto none = [](const Vec3&) { return false; };
+        for (int k = 0; k < 2; ++k) p = ledge_recover(s, true, false, {12.0f, 3.0f, 0.0f}, {}, none);
+        check(near(p.x, 12.0f) && s.misses == 4, "ledge: no floor to go back to -> left where it is");
+        p = ledge_recover(s, true, false, {12.0f, 3.0f, 0.0f}, {}, none);
+        check(near(p.x, 9.9f) && near(p.y, 1.0f) && s.misses == 0 && near(s.good.x, 1.0f),
+              "ledge: the player's 5th miss -> +0x4f4, which becomes +0x51c");
+        LedgeState e; e.safe = {9.9f, 1.0f, 0.0f}; e.good = {5.0f, 1.0f, 0.0f};
+        for (int k = 0; k < 8; ++k) p = ledge_recover(e, false, false, {12.0f, 3.0f, 0.0f}, {}, none);
+        check(near(p.x, 12.0f) && e.misses == 8, "ledge: an enemy has no 5-miss restore");
+        // The probe's crossed axes [BYTES 0x45b6fa..0x45b772]: Q = (x + d.z * 0.05, y, z + d.x * 0.05).
+        Vec3 seen{};
+        LedgeState q; q.safe = {0.0f, 0.0f, 10.0f};
+        ledge_recover(q, true, false, {0.0f, 2.0f, 0.0f}, {}, [&](const Vec3& v) { seen = v; return true; });
+        check(near(seen.x, 0.05f) && near(seen.z, 0.0f) && near(seen.y, 2.0f), "ledge: the first probe is at (x + d.z * 0.05, y, z + d.x * 0.05)");
+        check(ledge_exempt(5012, 44.0f, 42.0f) && !ledge_exempt(5012, 25.0f, 27.5f) && ledge_exempt(5005, 84.0f, -28.0f) &&
+              ledge_exempt(5005, 100.0f, -60.0f) && !ledge_exempt(5005, 100.0f, -50.0f) && ledge_exempt(5007, 30.0f, 0.0f) &&
+              !ledge_exempt(5009, 44.0f, 42.0f), "ledge: byte +0x500 inside the floor-5 rectangles (S_5005 x2, S_5007, S_5012)");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

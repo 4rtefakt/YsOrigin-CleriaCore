@@ -3137,6 +3137,8 @@ title_again:
     ef2sim::Effect* shield_fx = nullptr;
     bool shield_on = false;
     bool player_hold = false;    // P+0x398 set by M470's grab: no vertical integration (view_game.inl, the brain loop)
+    LedgeState ledge;            // P+0x4f1 / +0x4f4 / +0x51c / +0x3c8: the integrator's ledge recovery (ledge.hpp)
+    int ledge_serial = -1;       // the scene load `ledge` was seeded for
     int shield_hits = 0, shield_life = 0;
     auto fx_live = [&](const ef2sim::Effect* p) {
         if (!p) return false;
@@ -6319,6 +6321,7 @@ title_again:
             // airborne), the down-ray from the origin, then landing / coyote / fall with the
             // 0.65 settle lerp. `feet` is derived back for the rest of the view.
             float oy = feet.y + kOriginH;
+            const float oy0 = oy;                     // the origin before this tick's vertical move
             {   // The Ventus glide: Yunica (and Adol), airborne in 0x10d / 0x110 with the timer at or
                 // under 0.05: a falling timer is damped x0.95, then lifted 0.01 (Adol 0.015).
                 const int ss = avm.section();
@@ -6355,8 +6358,34 @@ title_again:
                     pv.t = 0.0f;
                 if (dy > 0.0f) dy = sweep_up(phys_mesh(room), org, pm.radius(), dy);
                 oy += dy; }
+            // The ledge recovery (FUN_0045a510 0x45b607.., ledge.hpp): with nothing within 510 under where the
+            // player stood, he is pulled back toward the last safe spot, and after 5 such ticks put back on the
+            // last position reached from over a floor. Off under a Fix and in floor 5's +0x500 rectangles.
+            // [approx] the view's move is not one swept displacement: D is taken as this tick's actual move, so
+            // +0x4f4 is the pre-move origin. A new scene (a new actor) starts from its entry placement +0x51c;
+            // [not modelled] FUN_00459ff0's later rewrites of +0x51c (script placements).
+            if (ledge_serial != mesh_load_serial) {
+                ledge_serial = mesh_load_serial;
+                ledge = LedgeState{};
+                ledge.good = ledge.entry = ledge.safe = {hx0, oy0, hz0};
+            }
+            if (csMgr.fix_counts[0] + csMgr.fix_counts[1] == 0 &&
+                !ledge_exempt(std::atoi(room.name.c_str() + (room.name.size() > 2 ? 2 : 0)), hx0, hz0)) {
+                const float f0 = floor_at(phys_mesh(room), hx0, hz0, oy0);
+                const Vec3 now{feet.x, oy, feet.z};
+                const Vec3 kept = ledge_recover(ledge, true, f0 > kNoFloor && oy0 - f0 <= 510.0f, now,
+                                                {feet.x - hx0, oy - oy0, feet.z - hz0}, [&](const Vec3& q) {
+                    const float f = floor_at(phys_mesh(room), q.x, q.z, q.y);
+                    return f > kNoFloor && q.y - f <= 25.0f; });
+                if (kept.x != now.x || kept.y != now.y || kept.z != now.z) {
+                    std::printf("  [ledge] t%llu no floor under (%.2f, %.2f, %.2f): back to (%.2f, %.2f, %.2f)\n",
+                                (unsigned long long)tick_count, hx0, oy0 - kOriginH, hz0, kept.x, kept.y - kOriginH, kept.z);
+                    feet.x = kept.x; feet.z = kept.z; oy = kept.y;
+                }
+            }
             int floor_tri = -1;
             const float fl = floor_at(phys_mesh(room), feet.x, feet.z, oy, &floor_tri);
+            if (fl > kNoFloor && oy - fl <= 510.0f && pv.grounded) ledge.safe = {feet.x, oy, feet.z};   // +0x3c8 (0x45b99b)
             if (fl > kNoFloor) {
                 last_floor = fl;                      // +0x318 persists when the ray misses
                 if (oy - fl < 1.6f)                   // surface latch (0x45ba7e: hit t < 1.6)

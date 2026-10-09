@@ -758,6 +758,14 @@ CASES.update({
         room="S_50/S_5012/S_5012", char="3", env=dict(_LOCK),
         drive="5:opt=InfiniteHP=1;6:killall;20:at3=73,-4,20,0;140:pos;540:pos;541:quit",
         expect=["feet (70.203, -6.000, 25.598)", "feet (61.797, -6.000, 14.402)"], absent=[">> entering"]),
+    # The integrator's ledge recovery (ledge.hpp, MOVER.md §3.5, FUN_0045a510 0x45b607): Toal runs to S_1009's east
+    # wall (x 10.337), is then put outside the room mesh (nothing within 510 under him) and is back on his last
+    # safe spot in the same tick; he used to stand in the void at his last floor height.
+    "ledge_recover": dict(
+        room="S_10/S_1009/S_1009", char="3", env=dict(_LOCK),
+        drive="20:move=1,0,100;130:pos;140:at=12.5,7.667,0;141:pos;150:pos;151:quit",
+        expect=["feet (10.337, 0.000, 7.667)", "[ledge] t140 no floor under (12.50, 0.00, 7.67): back to (10.34, 0.00, 7.67)",
+                "feet (10.337, 0.000, 7.667)", "feet (10.337, 0.000, 7.667)"], count={"[ledge] t": 1}),
     # Issue #5 (build/mech_re/KISHGAL_SHIELD.md §3): Toal vs Kishgal (M860) in S_6080. Toal's Ignis (the fire
     # bracelet 118: EF2 162, one of the brain's 13 breaker ids) overlapping an ice pillar (EF2 0x122) breaks it:
     # SE 424, the pillar killed, EF2 0x123. The fight still ends in the KO.
