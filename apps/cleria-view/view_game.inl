@@ -7127,7 +7127,10 @@ title_again:
                         e.atk_hit = false; e.atk_stall = 0; e.atk_fkey = -1;
                         e.atk_armed = false; e.atk_age = 0;
                     }
-                    if (o.vm_step) e.avm.tick();                      // the brain's FUN_004472e0
+                    if (o.vm_step) {                                  // the brain's FUN_004472e0
+                        e.avm.tick();
+                        if (!hugo_eye(*en) && e.avm.section() != 5) for (const AsoVm::SoundEvent& se : e.avm.sounds()) sfx_at(se.id, en->pos, kSfxAnimVol);
+                    }
                     // The brain writes its ASO registers directly (+0x9bc / +0x9c0 / +0x9d8);
                     // a section that restarts at pc 0 this tick clears the first two again.
                     if (o.set_marker > -1000) e.avm.set_marker(o.set_marker);
@@ -7195,6 +7198,11 @@ title_again:
                     if (lsec >= 0) e.avm.set_section(lsec);          // FUN_00446550: priority-gated
                     e.avm.set_is_land(grounded_now);
                     e.avm.tick();
+                    // anime_SePlay3D (funcid 42) of a monster's own sections: its steps, wing beats and attack
+                    // cries (build/audit/SOUNDS.md root cause 1 -- the loop read bullets, effects and the hit
+                    // volume but never the sounds). Not a familiar (view_hugo_eyes.inl plays its own) and not the
+                    // death section, whose sounds the kill path plays from its cache (enemy_death_sounds).
+                    if (!hugo_eye(*en) && e.avm.section() != 5) for (const AsoVm::SoundEvent& se : e.avm.sounds()) sfx_at(se.id, en->pos, kSfxAnimVol);
                     if (e.avm.jumped()) {                             // anime_Jump (FUN_00449460)
                         float oy = en->pos.y + en->height;
                         apply_jump(en->vert, oy, e.avm.jump_v(), cast_motion(casts, en->cast_id).jump_v0);
