@@ -766,6 +766,13 @@ struct Hud {
                 mini_text(m, hudstate::buff_line(i, p.buff_val[i]), 0.0f, 618.0f + 12.0f * float(i), sw, sh,
                           kBuffRgb[i][0], kBuffRgb[i][1], kBuffRgb[i][2], a);
             }
+            // The status lines (FUN_0043fe00 [BYTES 0x4407a0..0x440a25]): one lowercase line per active bit at
+            // x 62, y 666 / 678 / 690 / 702, fixed colours, no fade (STATUS_AILMENTS.md §6.6).
+            for (int i = 0; i < 4; ++i)
+                if (p.ail_mask & ailments::kBits[i])
+                    mini_text(m, ailments::kHudName[i], ailments::kHudX, ailments::kHudY[i], sw, sh,
+                              std::uint8_t(ailments::kColour[i] >> 16), std::uint8_t(ailments::kColour[i] >> 8),
+                              std::uint8_t(ailments::kColour[i]));
             if (p.combo != 0) {
                 const std::uint8_t a = std::uint8_t((255u * hudstate::combo_line_alpha(p.combo_timer)) >> 8);
                 std::uint8_t r = 0xf1, gg = 0x90, b = 0x40;

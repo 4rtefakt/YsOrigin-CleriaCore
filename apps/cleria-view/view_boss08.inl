@@ -240,6 +240,7 @@ auto boss8_apply = [&](const Boss08Output& out, MeshObj** mo) {
         std::printf("  [boss08] t%llu CamSlot %d (%.3f)\n", (unsigned long long)tick_count, out.cam_slot->first, out.cam_slot->second);
     }
     for (const auto& [fi, fv] : out.flags) {
+        if (fi >= 529 && fi <= 532) { ail.t[fi - 529] = fv; continue; }   // the status timers 0x76c160..0x76c16c
         if (fi < 0 || fi >= 0x200) continue;               // 518 / 519, 529..532, 544..546 lie past g_flags: [not modelled]
         if (game.g_flags[fi] != fv) std::printf("  [boss08] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
         game.g_flags[fi] = fv;
@@ -331,6 +332,7 @@ auto boss8_hit = [&](const HitShape& vol, std::uint32_t token, int rehit, float 
         a.bonus = power;
         EnemyDefense vd; vd.def = bp.def;
         PlayerDamageMods mods;
+        mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
         const int dmg = access::damage_dealt(enemy_incoming_damage(a, cls, vd, mods,
             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats

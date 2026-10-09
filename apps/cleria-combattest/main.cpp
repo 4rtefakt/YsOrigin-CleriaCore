@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "cleria/ailments.hpp"
 #include "cleria/hit.hpp"
 #include "cleria/hit_volume.hpp"
 
@@ -184,6 +185,74 @@ int main() {
         check(!guard_blocks(22, true, false, 2, pi, 0.0f), "guard: rtype 2 is never blocked");
         check(!guard_blocks(22, false, false, 1, pi, 0.0f), "not guarding: no block");
         check(guard_blocks(0xa7, true, false, 3, 0.1f, 0.0f), "cast 0xa7: blocks any rtype from (nearly) behind (arc 360)");
+    }
+
+    // --- the status ailments (src/cleria/ailments.hpp, STATUS_AILMENTS.md) -------------------
+    {
+        using namespace ailments;
+        State s;
+        Applied r = apply(s, kPoison, 0, false);
+        check(r.index == 0 && r.announce && s.mask == kPoison && s.t[0] == 900, "poison: 900 ticks, announced");
+        r = apply(s, kPoison, 0x4, false);
+        check(r.index == 0 && !r.announce && s.t[0] == 675, "a re-hit refreshes the timer (blessing bit 2: x 0.75), no popup");
+        check(duration(1, 0x100004) == 150 && duration(2, 0x100000) == 300 && duration(3, 0) == 1200,
+              "durations: bit 20 halves and wins over bit 2");
+        State z;
+        check(apply(z, kHeavy, 0, true).index < 0 && z.mask == 0, "inside a heal zone (flag 191) nothing lands");
+        apply(z, 0x02, 0, false);
+        check(z.mask == 0x02, "a bit without a handler sticks in the mask (retail quirk)");
+        check(chance(0, 0) == 50 && chance(1, 0) == 75 && chance(2, 0) == 100 && chance(1, 0x200) == 65 &&
+              chance(1, 0x400200) == 55, "chance: 50 / 75 / 100, -10 with bit 9, -20 with bit 22");
+        // the poison tick: 900 -> 8 hits of max(1, floor(maxHP / 150)), never the last HP
+        State p; apply(p, kPoison, 0, false);
+        float hp = 300.0f; int hits = 0, ticks = 0;
+        while (p.mask & kPoison) {
+            const Ticked t = tick(p, 300.0f, hp, false);
+            if (t.poison) { hp -= float(t.poison); ++hits; }
+            ++ticks;
+        }
+        check(hits == 8 && hp == 284.0f && ticks == 901, "poison 900: 8 hits of 2 at max HP 300, active 901 ticks");
+        State q; apply(q, kPoison, 0, false);
+        float lo = 1.0f; int qh = 0;
+        for (int k = 0; k < 901; ++k) qh += tick(q, 60.0f, lo, false).poison;
+        check(qh == 0, "poison never takes the last HP");
+        State c; apply(c, kCurse, 0, false);
+        const Ticked c1 = tick(c, 60.0f, 60.0f, true);
+        check(c.t[3] == 0 && c1.cleared == kCurse && c.mask == 0, "the Blue Necklace ends a curse on the next tick");
+        State h; apply(h, kHeavy, 0, false); apply(h, kConfuse, 0, false);
+        clear_timers(h, 0);
+        check(h.t[1] == 300 && h.t[2] == 600, "FUN_00461120(0) is the poison timer only");
+        clear_timers(h);
+        const Ticked h1 = tick(h, 60.0f, 60.0f, false);
+        check(h1.cleared == (kHeavy | kConfuse) && h.mask == 0, "a clear zeroes the timers; the bits go on the next tick");
+        // the appliers
+        int rolls = 0, applied = 0;
+        auto roll60 = [&] { ++rolls; return 60; };
+        auto on = [&](std::uint32_t) { ++applied; };
+        on_hit(kPoison | kHeavy, 5, 10.0f, false, false, 0, 0, roll60, on);
+        check(rolls == 2 && applied == 0, "path A, Normal: one draw per bit, 60 misses 50");
+        rolls = applied = 0;
+        on_hit(kPoison | kHeavy, 5, 10.0f, false, false, 1, 0, roll60, on);
+        check(rolls == 2 && applied == 2, "path A, Hard: 60 lands under 75");
+        rolls = applied = 0;
+        on_hit(kPoison, 5, 10.0f, false, false, 1, 0x400000, roll60, on);
+        check(applied == 0, "path A, Hard with blessing bit 22: 60 misses 55");
+        rolls = applied = 0;
+        on_hit(kPoison, 0, 10.0f, false, false, 2, 0, roll60, on);
+        on_hit(kPoison, 5, 0.0f, false, false, 2, 0, roll60, on);
+        check(rolls == 0 && applied == 0, "path A: nothing on a 0-damage hit or a kill");
+        rolls = applied = 0;
+        on_hit(kConfuse, 5, 10.0f, true, false, 0, 0, roll60, on);
+        check(rolls == 0 && applied == 1, "path A, boss battle with flag 221 clear: lands, no roll");
+        applied = 0;
+        on_hit(kConfuse, 5, 10.0f, true, true, 2, 0, roll60, on);
+        check(applied == 0, "path A, boss battle with flag 221 set: never");
+        rolls = applied = 0;
+        on_hit_flag8(kHeavy, 10.0f, 0, roll60, on);
+        check(rolls == 2 && applied == 0, "path B, Normal: two passes, each R(100) < 50");
+        rolls = applied = 0;
+        on_hit_flag8(kHeavy, 0.0f, 1, roll60, on);
+        check(rolls == 0 && applied == 1, "path B, Hard: lands; a dead player gets one pass");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

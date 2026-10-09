@@ -44,6 +44,7 @@ auto boss4_apply = [&](const Boss04Output& out) {
     for (const Boss04PodClip& pc : out.pod_clips) meshes.set_clip_now(boss4_pod_name(pc.pod), pc.clip, 0);
     if (out.shake) { g_rig.set_shake_frames(out.shake->first); g_rig.set_shake_amp(out.shake->second); }
     for (const auto& [fi, fv] : out.flags) {
+        if (fi >= 529 && fi <= 532) { ail.t[fi - 529] = fv; continue; }   // the status timers 0x76c160..0x76c16c
         if (fi < 0 || fi >= 0x200) continue;
         if (game.g_flags[fi] != fv) std::printf("  [boss04] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
         game.g_flags[fi] = fv;

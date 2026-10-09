@@ -1122,6 +1122,18 @@ CASES.update({
               "41:every=12,300,nearest=;42:every=12,300,atk;400:stats;410:quit",
         expect=["id 14 cast 14 enemy hp 60", "id 19 cast 19 enemy hp 112", "hp 60/60 sp 59",
                 "Chr_Damage player atk 60 -> HP 38", "defeated 1 (6 left)", "hp 38/60 sp 75"]),
+    # STATUS_AILMENTS.md (issue #60): poison 900 ticks, a 1-HP tick each 120 (max(1, 60 / 150)) with the magenta
+    # number; heavy walks (3.36 in 60 ticks, a run does 9.4); confuse reverses the stick (back to the start);
+    # curse lands and the Blue Necklace (accessory 55) ends it on the next tick.
+    "ailments": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="10:ail=1;11:ailstate;135:ailstate;140:ail=8;141:pos;142:move=1,0,60;203:pos;204:ail=0x10;"
+              "205:move=1,0,60;266:pos;270:ail=0x20;271:ailstate;272:acc=55;274:ailstate;300:quit",
+        expect=["[ail] t10 poison for 900 ticks", "mask 0x01 timers 899 0 0 0 fx 1000 hp 60", "[popup] 1 ff00ff",
+                "mask 0x01 timers 775 0 0 0 fx 1000 hp 59", "heavy for 300 ticks", "feet (0.055, 2.000, 7.800)",
+                "feet (3.415, 2.000, 7.800)", "confuse for 600 ticks", "feet (0.055, 2.000, 7.800)",
+                "curse for 1200 ticks", "mask 0x39 timers 639 169 533 1199 fx 1111", "curse ends",
+                "mask 0x19 timers 636 166 530 0 fx 1110"]),
     # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
     # load tick's drain) and takes the continue snapshot, so a
     # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn

@@ -11,8 +11,7 @@
 // 400 / 9999) runs out, or at once in the player's sections 0x10d / 0x110: a 5-u shove behind the
 // target on knock channel 2, a forced section 1, a 300..399 cooldown. On an ally it heals 25 / 40 /
 // 55 / 70 every 24 ticks (EF2 325 every 32) until a 200 / 300 / 400 budget is spent.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the player's status bit 0x8 it holds on
-// (DAT_0076c15c / DAT_0076c164: the player-side slow is not modelled); Hugo's +0x7c4 release; the
+// [not modelled] the keep-out box restore (FUN_0042dc90); Hugo's +0x7c4 release; the
 // green heal popups (FUN_004fae00); the effects' attachment to the target (spawned at its origin);
 // FUN_00451730 kills every live effect of the id (here only this Chups's own); the pool sampling's
 // order and count (the non-player actors in list order behind a player slot 0) [H].
@@ -185,6 +184,7 @@ AiOut m280(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             a.hittable = false;                                    // +0x60 = 0xffffff7f
             set_pos({(Tpos.x + o.x + 2.0f * P0.x) * 0.333333f, (Tpos.y + o.y + 2.0f * P0.y) * 0.333333f,
                      (Tpos.z + o.z + 2.0f * P0.z) * 0.333333f});
+            out.heavy_hold = true;                                 // DAT_0076c15c |= 8; DAT_0076c164 = 1 (0x4a40bb)
             if ((a.dur() & 7) == 0) {                              // every 8th tick
                 fx_at(33, Tpos);
                 AiHitbox hb;                                       // FUN_0047a730 -> FUN_004494e0

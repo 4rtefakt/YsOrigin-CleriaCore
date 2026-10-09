@@ -28,6 +28,7 @@ auto hud_state_fill = [&]() {
     player.combo = kill_combo.count;
     player.combo_timer = kill_combo.timer;
     player.hud_fix = csMgr.world_frozen();
+    player.ail_mask = ail.mask;
 };
 auto damage_popup = [&](int value, std::uint32_t colour, const Vec3& origin) {
     static const bool log = std::getenv("CLERIA_DRIVE") != nullptr;

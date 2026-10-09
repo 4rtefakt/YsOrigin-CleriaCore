@@ -319,6 +319,7 @@ struct AiOut {
     // it is the release (+0x398 = 0).
     bool hold_target = false;
     Vec3 hold_origin{};
+    bool heavy_hold = false;     // M280 latched on its target: the player's status bit 0x8 with timer 1 (0x4a40bb)
     bool launch_clear = false;   // the stun exit cleared +0x4d0
     int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
     int set_frame = -1;          // write +0x9b8 (the current pattern frame) when >= 0

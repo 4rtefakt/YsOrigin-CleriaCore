@@ -51,6 +51,7 @@
 #include "cleria/eex.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/combat.hpp"
+#include "cleria/ailments.hpp"
 #include "cleria/hit.hpp"
 #include "cleria/hit_feedback.hpp"
 #include "cleria/hudstate.hpp"
@@ -212,6 +213,7 @@ struct Player {
     int combo = 0;
     std::int32_t combo_timer = 0;
     bool hud_fix = false;
+    std::uint32_t ail_mask = 0;        // the status mask 0x76c15c (ailments.hpp): the HUD's four lines
 };
 
 // Locate a bundled resource next to the exe, or in the repo res/ dir.

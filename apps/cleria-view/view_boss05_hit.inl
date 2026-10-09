@@ -13,6 +13,7 @@ if (boss5 && !boss5->destroyed())
         EnemyDefense vd; vd.def = bp.def;
         for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
         PlayerDamageMods mods;
+        mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
         const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);

@@ -1205,6 +1205,7 @@ title_again:
     if (ginfo.ok())
         player.max_hp = player.hp = int(player_stats().max_hp);
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
+    ailments::State ail;               // poison / heavy / confuse / curse: 0x76c15c..0x76c16c (view_ailments.inl)
     Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
     Impulse player_kb2{};              // knock channel 2, +0x344/+0x34c: body / bullet pushes
     float arena_last_x = 0, arena_last_z = 0;   // +0x3e0/+0x3e8: last point inside the mode-2 ring ([H] start)
@@ -1897,6 +1898,7 @@ title_again:
     // force_scene: re-enter the scene even when it is the current one (the game over's Retry is a
     // ChangeScene to the current scene; a load of the same room only re-gates it).
     auto apply_loaded = [&](const SaveState& s, bool force_scene = false) {
+        ail = ailments::State{};       // [not modelled] the record's g_flags 528..532 (view_ailments.inl)
         std::memcpy(game.g_flags, s.flags, sizeof s.flags);
         std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
         character = std::clamp(s.character(), 1, 3);
@@ -3183,7 +3185,10 @@ title_again:
             if (player.boosting) end_boost();
         }
         else if (n == 1) player.boost = skillmp::kBoostFull;   // DAT_0076c1b4 = 30000 (a direct write: no READY)
-        // [not modelled] 11 (zero 0x76c160..16c; FUN_00462550) and the rest of 12.
+        // 11 and 12 zero the four status timers 0x76c160..0x76c16c [EXPORT 0058f210.c:288-311]; the bits and
+        // the effects go on the next FUN_00462550 (ail_tick: the engine's own call here returns under a Fix).
+        if (n == 11 || n == 12) ailments::clear_timers(ail);
+        // [not modelled] the three buff timers of 12.
     };
     csHost.start_label = [&](const std::string& l) {     // [not modelled] the owner actor
         if (!csMgr.start(l)) std::printf("  [menu] %s did not start\n", l.c_str());
@@ -3561,6 +3566,7 @@ title_again:
     std::uint32_t cf_w = 0, cf_h = 0;
     #include "view_abilities.inl"                       // abil, boost=, boostkey, hurt= (abil_drive)
     #include "view_hudstate.inl"                        // hudstate, drop=, mp= (hud_drive); PLAYTEST_1_HUD.md
+    #include "view_ailments.inl"                        // ail=, ailhit=, ailstate (ail_drive); STATUS_AILMENTS.md
     auto run_drive = [&](const std::string& cmd) {
         std::printf("  [drive] t%llu %s\n", (unsigned long long)tick_count, cmd.c_str());
         if (speedrun_drive(cmd, shell)) return;          // speedrun=... (view_speedrun.inl)
@@ -3572,6 +3578,7 @@ title_again:
         if (boss7_drive && boss7_drive(cmd)) return;     // view_boss07.inl
         if (boss8_drive && boss8_drive(cmd)) return;     // view_boss08.inl
         if (hud_drive(cmd)) return;                      // view_hudstate.inl
+        if (ail_drive(cmd)) return;                      // view_ailments.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;
             if (std::sscanf(cmd.c_str() + 3, "%f,%f,%f", &x, &z, &deg) >= 2) {
@@ -4559,7 +4566,10 @@ title_again:
             game.g_flags[fi] = fv;
         }
         if (out.player_pos) feet = {out.player_pos->x, out.player_pos->y - kOriginH, out.player_pos->z};
-        if (out.player_iframes) player_iframes = std::max(player_iframes, 9999);   // [not modelled] FUN_00461120(2)
+        if (out.player_iframes) {
+            player_iframes = std::max(player_iframes, 9999);
+            ailments::clear_timers(ail);                    // FUN_00461120(2) [BYTES 0x518fda] (STATUS_AILMENTS.md §5)
+        }
         if (out.award_exp) {                                // [not modelled] the end block 0x76a828 / FUN_00461160
             std::printf("  [boss02] t%llu EXP %.0f (lv %d)\n", (unsigned long long)tick_count, boss2->exp_b0(), boss2->level());
             award_exp(boss2->exp_b0(), boss2->level(), /*boss*/true);
@@ -5880,6 +5890,9 @@ title_again:
                 if (dx * dx + dz * dz > 0.1225f) wish = {dx, 0.0f, dz};
                 else door_walk.on = false;
             }
+            // Confuse (FUN_00465170 [BYTES 0x465a7e..0x465aa9]): the input heading + pi while no scripted MoveTo
+            // (+0x364 == 0) runs. STATUS_AILMENTS.md §6.3.
+            if (ail.has(ailments::kConfuse) && !door_walk.on) { wish.x = -wish.x; wish.z = -wish.z; }
             const float wl = std::sqrt(wish.x * wish.x + wish.z * wish.z);
             const bool moving = wl > 1e-4f;
             // Run or walk (FUN_00465170 l.432, +0x4ca): magnitude (+0x508) >= RunWalkThreshold and the
@@ -5889,7 +5902,9 @@ title_again:
             // bit. The speed itself is walk x run_mult (local_38 = 1.0 [EXPORT l.404]), not x stick.
             // speed_mult is the debug wheel.
             // The walk-out sets the walk bit unless the trigger saw the run stage (+0x12c & 0x20 = +0x4ca).
-            const bool run_gait = door_walk.on ? door_walk.run
+            // Heavy clears the run stage +0x4ca [BYTES 0x465a6e..0x465a77]: the player walks (§6.2).
+            const bool run_gait = ail.has(ailments::kHeavy) ? false
+                                : door_walk.on ? door_walk.run
                                 : moving && !(pin.held & input::kWalk) &&
                                   (pin.dir == 0 || pin.magnitude >= settings().s.input.run_walk_threshold);
             door_running = run_gait;
@@ -6468,6 +6483,9 @@ title_again:
                     if (phase_before == 2 && e.actor->ai.phase() == 1 && los_log) los_report(*en, env);   // view_los.inl
                     // The brain's own writes to its HP (+0x98) / EXP (+0xb0), and its spawns.
                     if (o.set_hp >= 0) en->hp = o.set_hp;
+                    // M280's latch on the player: DAT_0076c15c |= 8, DAT_0076c164 = 1, a direct write (no
+                    // effect, SE or popup) [BYTES 0x4a40bb, 0x4a40c2].
+                    if (o.heavy_hold) { ail.mask |= ailments::kHeavy; ail.t[1] = 1; }
                     en->exp_reward *= o.exp_scale;
                     for (const AiSpawn& s : o.spawns) brain_spawns.push_back({en, s});
                     // FUN_00479b00 -> FUN_00478510's alive path (hit_feedback.hpp): one game-RNG draw
@@ -6859,6 +6877,7 @@ title_again:
                     EnemyDefense vd; vd.def = en.def;
                     for (int k = 0; k < 4; ++k) vd.resist[k] = en.resist[k];
                     PlayerDamageMods mods;
+                    mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                     mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                     int dmg = enemy_incoming_damage(a, cls, vd, mods,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
@@ -7018,6 +7037,7 @@ title_again:
                             vd.no_floor = t.no_floor;
                             if (!h.hp_set) { h.hp = t.hp; h.hp_set = true; }   // the mesh's +0x98
                             PlayerDamageMods mods;
+                            mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                             mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;   // FUN_004faf20 uVar9
                             h.hp -= float(enemy_incoming_damage(a, cls, vd, mods,
                                 [&](float pct) { return float(rng_pct(rng)) < pct; }));
@@ -7113,6 +7133,7 @@ title_again:
                         EnemyDefense vd; vd.def = bp.def;
                         for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
                         PlayerDamageMods mods;
+                        mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                         const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
                             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
@@ -7144,6 +7165,7 @@ title_again:
                         EnemyDefense vd; vd.def = def;
                         for (int k = 0; k < 4; ++k) vd.resist[k] = resist[k];
                         PlayerDamageMods mods;
+                        mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                         return access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
                             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
@@ -7209,6 +7231,7 @@ title_again:
                         EnemyDefense vd; vd.def = bp.def;
                         for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
                         PlayerDamageMods mods;
+                        mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                         const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
                             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
@@ -7431,6 +7454,7 @@ title_again:
                 mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0, inv.mp_buff != 0.0f ? inv.mp_buff : 1.0f);   // b900 while c198 & 0x10
                 player.sp_cur = mp.mp; player.sp_lag = mp.lag;
             }
+            ail_tick();                                        // FUN_00462550, before FUN_00462c40 (view_ailments.inl)
             hud_state_tick();                                  // the buff timers, the HUD pulse (view_hudstate.inl)
             {   // Oxygen (0x467d91..0x467f29, WATER.md §3): the held tool 0x61 = the Scales.
                 // surface = +0x4ba: over sand2 the ray's surface (elsewhere the latch, as before).
@@ -7459,6 +7483,7 @@ title_again:
                     if (game.g_flags[191] == 0) { game.g_flags[191] = 1; sfx_at(0x12, feet, kSfxAnimVol); }
                     hs.cooldown = 15;
                     if (player.hp < 1) continue;
+                    ailments::clear_timers(ail);   // every 15 ticks, healed or not [BYTES 0x58c5e9..0x58c607]
                     // [H-med] the second gauge 0x76a738 is taken as the SP/mana bar.
                     player.sp_cur = std::min(player.sp_max, player.sp_cur + 3000.0f);
                     if (player.hp < player.max_hp) {
@@ -7466,7 +7491,8 @@ title_again:
                         sfx_at(0xad, feet, kSfxAnimVol);
                     }
                 }
-            const float pdef = player_stats().def;
+            // Curse: FUN_004fa740 reads DEF - 5.0, no floor [EXPORT 004fa740.c:20-23] (STATUS_AILMENTS.md §6.4).
+            const float pdef = player_stats().def - (ail.has(ailments::kCurse) ? ailments::kCurseStat : 0.0f);
             // A hit landing on the player: FUN_004fd350's player branch (src/cleria/hit.hpp).
             // Damage is FUN_004fa740 with the swing's own power as the bonus (attacker +0xfc
             // = GenerateCollision arg[11]), halved during Boost; then the severity reaction —
@@ -7508,7 +7534,7 @@ title_again:
             if (cheat_o2) oxy.o2 = 6000.0f;
             if (player.hp < 1) player_death();                // lava / noise / drowning this tick
             bool hurt_direct = false;                         // a brain's own FUN_004fd350 call: no FUN_004fe9e0 gate
-            auto hurt_player = [&](float atk, float bonus, int rtype, float angle) {
+            auto hurt_player = [&](float atk, float bonus, int rtype, float angle, int status = 0) {
                 if (p_untouchable && !hurt_direct) return;
                 // Hugo's Force Shield (FUN_004fd350 0x4fd9d4 -> 0x4fd90e): a charge left blocks the
                 // hit: damage 0, i-frames at least 16, SE 121, the "GUARD" popup (0xffaa00, scale
@@ -7540,6 +7566,7 @@ title_again:
                 // the damage taken, at the player's origin + 0.5. PLAYTEST_1_HUD.md item 3.
                 damage_popup(dmg, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
                 const bool died = player.hp < 1;              // the engine's test is < 1.0
+                ail_on_hit(status, dmg);                      // the record's +0x10b (0x4fdc58..0x4fde0c; none on a kill / 0)
                 const PlayerReaction re = player_reaction(dmg, float(player.max_hp), rtype, died,
                                                           avm.durable(), avm.section());
                 if (ai_debug)
@@ -7594,7 +7621,7 @@ title_again:
                 if (e.hb.one_shot) e.atk_win = 0;
                 e.atk_hit = true;
                 const float php_before = player.hp;
-                hurt_player(en->atk, e.hb.power, e.hb.rtype, hang);
+                hurt_player(en->atk, e.hb.power, e.hb.rtype, hang, e.hb.status);
                 // M470's lifesteal (FUN_0048de00 0x48e103, M470.md §2): a hit landed in section 8 heals it by the HP the
                 // player lost (at least 1) when it is down by 1 HP or more. [not modelled] the green popup.
                 if (en->ai_index == 40 && e.avm.section() == 8 && en->max_hp - 1.0f >= en->hp)
@@ -7801,6 +7828,7 @@ title_again:
                                 EnemyDefense vd; vd.def = bp.def;
                                 for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
                                 PlayerDamageMods mods;
+                                mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                                 mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                                 const int dmg = access::damage_dealt(enemy_incoming_damage(a, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone,
                                     vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);
@@ -7820,7 +7848,7 @@ title_again:
                     if (!overlap(vol, pbody, &ang)) return false;
                     if (player_bank.check_and_record(0u, p.hit.rehit)) return false;
                     const int hp0 = player.hp;
-                    hurt_player(p.hit.atk, p.hit.power, p.hit.rtype, ang);
+                    hurt_player(p.hit.atk, p.hit.power, p.hit.rtype, ang, p.hit.status);
                     if (std::getenv("CLERIA_DMG"))
                         std::printf("  [hurt] t%llu fx %d (atk %.0f power %.1f knock %.2f rtype %d r %.2f) player hp %d -> %d\n",
                                     (unsigned long long)tick_count, p.fx ? p.fx->id : -1, p.hit.atk, p.hit.power,
@@ -7882,7 +7910,9 @@ title_again:
                                     ((grounded && !pv.jumping) || can_rejump(pv, true));
             if (water_jump || pa_out.jump || pa_out.double_jump) {
                 float oj = feet.y + kOriginH;
-                begin_rejump(pv, oj, pm);
+                CastMotion jm = pm;                              // Heavy: the lift-off v0 x 0.6666666 [BYTES 0x468d50..0x468d84]
+                if (ail.has(ailments::kHeavy)) jm.jump_v0 *= ailments::kHeavyJump;
+                begin_rejump(pv, oj, jm);
                 feet.y = oj - kOriginH;
                 if (water_jump || pa_out.double_jump) avm.set_section(3, /*force*/true);   // +0x3a0 = -1
                 if (water_jump && water_mode == 2) sfx_at(0x30c, feet, kSfxAnimVol);
