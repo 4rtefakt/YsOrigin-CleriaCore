@@ -6230,7 +6230,14 @@ title_again:
                                                          pact.step_t != 0);
                 feet.x += kd.x; feet.z += kd.z; }
             #include "view_xso13_force.inl"          // 0x15e / 0x15f pushes (FLOOR13_OPS.md)
-            { Vec3 body = {feet.x, feet.y + stepUp, feet.z};
+            // Airborne, the engine's sphere (radius +0x328 about the origin, +0x324 above the feet) is not stopped
+            // by a wall top below its centre: the edge is an embedded contact pushed out along centre - closest
+            // point (SWEEP_PUSHOUT.md §0.2..0.4), so the sphere rides over it and the settle lands it (the floor
+            // ray starts at the origin). [approx] the capsule stand-in passes such a top at once instead of over
+            // the push-outs' ticks; with the grounded 0.6 [INVENTED] a double jump (apex 5.37) stopped 0.03 short
+            // of a 6-unit face: no way out of S_6004's box_02 platform (drive case ledge_s6004).
+            const float wallStep = pv.grounded ? stepUp : kOriginH;
+            { Vec3 body = {feet.x, feet.y + wallStep, feet.z};
               // The engine sweeps the tick's whole move with its sphere (FUN_0045a510 0x45b2eb), so no
               // move crosses a wall. resolve_walls only resolves an overlap: a step past the radius (a
               // knock's 0.36 cap plus the run) took the centre beyond a one-plane wall, which then
@@ -6242,7 +6249,7 @@ title_again:
                   if (n > 1) { body.x = hx0; body.z = hz0; }
                   for (int k = 0; k < n; ++k) {
                       if (n > 1) { body.x += mx / float(n); body.z += mz / float(n); }
-                      body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - stepUp, 0.5f));
+                      body = resolve_walls(phys_mesh(room), body, radius, std::max(eye - wallStep, 0.5f));
                   } }
               feet.x = body.x; feet.z = body.z; }
             // FUN_0046fba0 0x470049 (ARENA_AND_BOSSBAR.md §1.5c): in arena mode 1 (flag 190) the

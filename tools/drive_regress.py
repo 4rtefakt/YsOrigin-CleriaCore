@@ -1163,6 +1163,31 @@ CASES.update({
                "3100:quit"),
         expect=["[plate] switch_01 -> turnswitch01", ">> entering S_4019", "arrival @ (0.0,-1.5,-3.0) [SEN]"],
         absent=["@touch_toge"]),
+    # ROUTE_F47.md R6: S_6004's way up to the S_6052 door (Toal, Hard, the double jump). Both plates (466 / 467: the
+    # four falling steps appear), then on foot from the y 6 terrace: the 8 diamond, the 12 and 16 terraces, step_01
+    # and step_02 over to the inner 18, down to the west 14, the leap over the hub to the east 14, 18, 22, step_04
+    # and step_03 onto the y 24 ledge, the ramp to the door.
+    "route_s6004": dict(
+        room="S_60/S_6004/S_6004", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive=("2:diff=3;3:flag=163,1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=44;20:killall;"
+               "30:obj=switch02,0;370:killall;371:obj=switch01,0;710:killall;715:at3=-66,6,72,0;725:pos;"
+               "727:move=0.7071,0.7071,80;752:jump;819:pos;820:move=-0.8717,0.4900,87;832:jump;848:jump;919:pos;"
+               "920:move=0.9983,-0.0578,124;968:jump;984:jump;1056:pos;1057:move=1.0000,0.0083,223;1076:jump;"
+               "1092:jump;1140:jump;1190:jump;1206:jump;1292:pos;1293:move=0.6197,-0.7848,66;1371:pos;"
+               "1372:move=1.0000,0.0062,137;1406:jump;1422:jump;1521:pos;1522:move=0.5789,0.8154,101;1541:jump;"
+               "1557:jump;1635:pos;1636:move=-0.1725,0.9850,90;1653:jump;1669:jump;1738:pos;"
+               "1739:move=-0.9996,-0.0285,248;1770:jump;1786:jump;1834:jump;1885:jump;1901:jump;1999:pos;"
+               "2000:move=-1.0000,0.0036,92;2104:pos;2105:move=0.0023,1.0000,440;2557:pos;2578:quit"),
+        expect=["[plate] switch02 -> turnswitch02", "[plate] switch01 -> turnswitch01", "[plate] step_01 -> @fall_001",
+                "[plate] step_02 -> @fall_001", "[plate] step_04 -> @fall_001", "[plate] step_03 -> @fall_001",
+                ">> entering S_6052"]),
+    # ... and its box_02 platform (y 18, walled 6 high on three sides; the fourth is the y 24 ledge's face): a double
+    # jump at the face gets out. The engine's sphere rides over an edge below its centre; the view's capsule stood
+    # 0.6 above the feet in the air too and stopped the jump (apex 5.37) 0.03 short: there was no way out.
+    "ledge_s6004": dict(
+        room="S_60/S_6004/S_6004", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="2:diff=3;3:flag=163,1;6:level=44;20:killall;30:at3=-67,18,97,0;40:move=1,0,110;46:jump;62:jump;150:pos;160:quit",
+        expect=["t150 pos", "feet (-50.041, 24.000, 97.000)"]),
     # Issue #58: S_3004's three unnamed s30step0 lifts play their section 0 too (y -7 <-> 0, 80 ticks at the top of a
     # 320-tick cycle; they stood at y 0 for good before). Toal, Hard, no fire skill and no torch lit: from the S_3003
     # door over lift #1 at its top (a jump on, a jump off), the two 2-wide gaps and the edge at z 29 to S_3006.
