@@ -11,6 +11,11 @@
 // degenerate joins, so the 4th quad (0.92) is cut off; a retail frame capture would settle it.
 // [H] the copy's alpha is taken as 1 (retail: the glare mask in the back buffer's alpha; there is no
 // glare pass here). [H-med] the sampler: linear (not set by the draw; as FireBlur's, view_weather.inl).
+//
+// The frame hold [BYTES 0x5ff04c..0x5ff0fa] takes ZoomBlur's place while its opacity 0x7b248c is not 0: ONE
+// full-frame quad of the same copy, preset 0x1041 (the same blend, no alpha test), TFACTOR.a from 0x7b248c. The
+// copy [EXPORT 005fed30.c:110-126] is made only on a frame with 0x7b2488 set or a ZoomBlur strength, so the quad
+// is the frame its writer froze (Gelaldy's death, Zava's), fading out over the live scene.
 static const char* kZoomBlurWGSL = R"WGSL(
 @group(0) @binding(0) var src: texture_2d<f32>;
 @group(0) @binding(1) var smp: sampler;
@@ -31,13 +36,18 @@ struct ScreenFxGpu {
     WGPUTextureView view{};
     WGPUBindGroup bind{};
     std::uint32_t w = 0, h = 0;
+    bool have = false;                                    // the copy holds a frame
 };
 static ScreenFxGpu sfx_gpu;
 static const int kZoomBlurTaps = 3;                       // [H] U1: of the 4 built, the 3 the fan reaches
 // src: the texture the world was drawn into (CopySrc), dst its view; tw x th its size; fw x fh the frame.
-static void draw_zoom_blur(Gpu& g, const screenfx::ZoomBlur& zb, WGPUTexture src, WGPUTextureView dst,
+// snapshot: 0x7b2488 (a writer asked for the copy this frame).
+static void draw_zoom_blur(Gpu& g, const screenfx::ZoomBlur& zb, const screenfx::FrameHold& hold, bool snapshot,
+                           WGPUTexture src, WGPUTextureView dst,
                            std::uint32_t tw, std::uint32_t th, std::uint32_t fw, std::uint32_t fh) {
-    if (!zb.draws()) return;
+    const bool copy = snapshot || zb.strength != 0.0f;    // 0x7b2488 != 0 || 0x7b2490 != 0.0
+    const bool held = hold.strength != 0.0f;              // 0x7b248c != 0.0: its quad, else ZoomBlur's
+    if (!copy && !held) return;
     if (!g_vgpu.ready || !src || !dst || tw == 0 || th == 0 || fw == 0 || fh == 0) return;
     ScreenFxGpu& F = sfx_gpu;
     if (!F.tried) {
@@ -86,19 +96,21 @@ static void draw_zoom_blur(Gpu& g, const screenfx::ZoomBlur& zb, WGPUTexture src
         F.view = wgpuTextureCreateView(F.tex, nullptr);
         F.bind = video_bind(g, F.view, g_vgpu.linear);
         F.w = tw; F.h = th;
+        F.have = false;
     }
+    const int quads = held ? (F.have || copy ? 1 : 0) : (zb.draws() ? kZoomBlurTaps : 0);
     // The quads in frame pixels as retail builds them — the template 0x7b2e90's corners (-0.5, -0.5) ..
     // (W - 0.5, H - 0.5) pulled toward the centre by (1 - 0.02 k) — then to NDC as FireBlur's strip
     // (x = -0.5 is the left edge). The same at any render scale: the copy is the whole target.
     const float W = float(fw), H = float(fh);
     const float cx = zb.cx * W, cy = zb.cy * H;
-    const float a = float(zb.alpha8()) / 255.0f;
+    const float a = float(held ? hold.alpha8() : zb.alpha8()) / 255.0f;
     const float corner[4][2] = {{-0.5f, -0.5f}, {W - 0.5f, -0.5f}, {-0.5f, H - 0.5f}, {W - 0.5f, H - 0.5f}};
     const float uv[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
     const int order[6] = {0, 1, 2, 2, 1, 3};
     float vtx[kZoomBlurTaps * 6][5];
     for (int k = 1; k <= kZoomBlurTaps; ++k) {
-        const float sc = 1.0f - zb.step_k * float(k);
+        const float sc = held ? 1.0f : 1.0f - zb.step_k * float(k);   // the hold: the template quad itself
         for (int j = 0; j < 6; ++j) {
             const int c = order[j];
             float* v = vtx[(k - 1) * 6 + j];
@@ -114,7 +126,7 @@ static void draw_zoom_blur(Gpu& g, const screenfx::ZoomBlur& zb, WGPUTexture src
     WGPUTexelCopyTextureInfo cs = {}; cs.texture = src; cs.aspect = WGPUTextureAspect_All;
     WGPUTexelCopyTextureInfo cd = {}; cd.texture = F.tex; cd.aspect = WGPUTextureAspect_All;
     WGPUExtent3D ext = {tw, th, 1};
-    wgpuCommandEncoderCopyTextureToTexture(enc, &cs, &cd, &ext);
+    if (copy) { wgpuCommandEncoderCopyTextureToTexture(enc, &cs, &cd, &ext); F.have = true; }
     WGPURenderPassColorAttachment ca = {};
     ca.view = dst; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
     ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;   // the ring outside the largest quad stays unblurred
@@ -123,7 +135,7 @@ static void draw_zoom_blur(Gpu& g, const screenfx::ZoomBlur& zb, WGPUTexture src
     wgpuRenderPassEncoderSetPipeline(pass, F.pipe);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, F.bind, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderDraw(pass, kZoomBlurTaps * 6, 1, 0, 0);
+    if (quads) wgpuRenderPassEncoderDraw(pass, std::uint32_t(quads) * 6, 1, 0, 0);
     wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
     video_submit(g, enc);
     wgpuBufferRelease(vb);

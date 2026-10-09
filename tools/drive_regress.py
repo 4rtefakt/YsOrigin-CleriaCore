@@ -1657,6 +1657,13 @@ CASES.update({
               "11:flag=163,1;60:boss8;61:every=15,2900,oktapf;2900:quit",
         expect=["[light] t11 the scene light's colour (0.667, 0.502, 0.502)",
                 "[light] t2838 the scene light's colour (0.667, 0.667, 0.502)"]),
+    # The frame hold (§7.3): Zava's death (zava_fight's run) writes 0x76a548 / 0x76a54c = 1.0 / -0.025 with
+    # 0x7b2488 = 1: that frame is copied and drawn over the live scene, first at floor(0.975 x 256) = 249.
+    "frame_hold": dict(
+        room="S_60/S_6082/S_6082", env={"CLERIA_CHAR": "1", "CLERIA_SCRFX_LOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.5;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;3900:quit",
+        expect=["FrameHold(1.0000, -0.0250)", "[framehold] t", "frame copied, drawn at alpha 249"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

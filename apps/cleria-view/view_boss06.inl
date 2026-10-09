@@ -569,7 +569,8 @@ auto boss6_zava_post = [&](Actor& en, const AiEnv& env, AiOut& o) {
     // FUN_004fd350(Z, P) with STR 267: the ordinary applier (its reaction runs). [H] her +0xfc / +0x108 are 0.
     if (zo.strike_atk) boss6_dmg.push_back({*zo.strike_atk, false, -1});
     if (zo.fog && zo.fog->first < int(room.fog.regions.size())) fog_script(zo.fog->first, zo.fog->second);   // ChangeFog
-    // [not modelled] zo.radial (0x76a548 / 0x76a54c), zo.f6d6078, zo.byte_76a888, zo.kill_record (FUN_00403cd0).
+    if (zo.radial) frame_hold(zo.radial->first, zo.radial->second);   // the death's frame hold (0x76a548 / 0x76a54c, 0x7b2488 = 1)
+    // [not modelled] zo.f6d6078, zo.byte_76a888, zo.kill_record (FUN_00403cd0).
     if (zo.gauge_zero || zo.gauge_hide) { hud.hide_boss_gauge(); gauge_owner = 0; }   // HP 0.0 drawn, then [0x6d5fd8] = 0
     if (zo.award_exp) {                                    // FUN_004fa4a0(Z+0x94)
         std::printf("  [boss06] t%llu EXP (lv %d)\n", (unsigned long long)tick_count, en.level);

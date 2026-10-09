@@ -1247,6 +1247,15 @@ title_again:
     };
     // The player's specular tint struct (+0x260; hit_feedback.hpp): the GUARD and Boost-ready white flashes.
     // [not modelled] the diffuse struct +0x278 and the other writers of both (SCREEN_EFFECTS.md U14).
+    // The frame hold (SCREEN_EFFECTS.md §7.3): 0x76a548 / 0x76a54c, and 0x7b2488 = "copy this frame" (the writers
+    // set it; the frame clears it, 0x5e0563).
+    screenfx::FrameHold fhold;
+    bool fx_snapshot = false;
+    auto frame_hold = [&](float s, float r) {
+        if (scrfx_log) std::printf("  [framehold] t%llu FrameHold(%.4f, %.4f)\n", (unsigned long long)tick_count, s, r);
+        fhold.set(s, r);
+        fx_snapshot = true;
+    };
     Vec3 light_drawn{1.0f, 1.0f, 1.0f};                    // the scene light's colour of the last frame (the log)
     hitfx::Tint player_spec;
     auto player_white_flash = [&](float step) {
@@ -4919,7 +4928,7 @@ title_again:
     // shake globals (its step IS FUN_00427c90: 3 shared-RNG draws per frame while it runs).
     // [not modelled] the node overrides (Neji / ForeArm2 / Neck4 / the Head bug: the baked model
     // has no per-node override, so a broken forearm is not thrown away visibly),
-    // the screen flash, the SE stop / fade, the buff clear and the
+    // the SE stop / fade, the buff clear and the
     // achievement, the drop (obj+0xc4), the element bonus on the arm HP (dmg_hp = dmg), the
     // lava floor (surface 13, §6.5), the S_3099_1.SOB ring set on Hard / Nightmare (FLOOR3 B8:
     // the root script's Scene_LoadStaticObjects pick is not honoured by the room load).
@@ -5005,6 +5014,8 @@ title_again:
         if (out.shake.amp) g_rig.set_shake_amp(*out.shake.amp);
         if (out.zoom.strength || out.zoom.rate)            // ZoomBlur (0x76a550 / 0x76a554)
             zoom_blur(out.zoom.strength.value_or(zb.s), out.zoom.rate.value_or(zb.r));
+        if (out.zoom.snapshot) fx_snapshot = true;         // 0x7b2488 = 1
+        if (out.flash) frame_hold(out.flash->first, out.flash->second);   // the death's frame hold (0x76a548 / 0x76a54c)
         if (out.time_scale) g_time_scale = *out.time_scale;   // 0x6d6078
         {
             const Boss03Camera& c = out.camera;             // the current slot (BOSS_CAMERA.md §1b)
@@ -8656,8 +8667,11 @@ title_again:
                       video_world_w(cw), video_world_h(ch), cw, ch);   // FireBlur after layer 14 (view_weather.inl)
         draw_mask_of_eyes(g, mask_of_eyes_on(inv), g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr),
                           view, video_world_w(cw), video_world_h(ch));   // then the mask pass (view_mask.inl)
-        draw_zoom_blur(g, zb, g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr), view,
-                       video_world_w(cw), video_world_h(ch), cw, ch);   // then ZoomBlur (view_screenfx.inl)
+        draw_zoom_blur(g, zb, fhold, fx_snapshot, g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr), view,
+                       video_world_w(cw), video_world_h(ch), cw, ch);   // then ZoomBlur / the frame hold (view_screenfx.inl)
+        if (scrfx_log && fhold.strength != 0.0f && fx_snapshot)
+            std::printf("  [framehold] t%llu frame copied, drawn at alpha %d\n", (unsigned long long)tick_count, fhold.alpha8());
+        fx_snapshot = false;                                  // 0x7b2488 = 0 at the end of the frame (0x5e0563)
         if (scrfx_log && zb.draws() && !zb_draw_logged) {
             zb_draw_logged = true;
             std::printf("  [zoomblur] t%llu draw strength %.4f alpha %d taps %d centre (%.3f, %.3f)\n",

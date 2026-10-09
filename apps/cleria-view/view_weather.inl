@@ -28,6 +28,7 @@ csHost.zoom_blur_fn = [&](float s, float r) { zoom_blur(s, r); };   // 0xce Zoom
 auto step_weather = [&] {
     ++wx_steps;
     zb.step();                                           // FUN_00427c90's ZoomBlur block, ahead of the haze timer's
+    fhold.step();                                        // ... and the frame hold's, between the two
     wx.step_blur();
     weather::Env e;
     if (g_cam.on) { e.eye = g_cam_out.eye; e.at = g_cam_out.target; }

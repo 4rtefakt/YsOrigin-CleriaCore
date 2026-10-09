@@ -36,4 +36,21 @@ struct ZoomBlur {
     bool draws() const { return strength != 0.0f && taps != 0; }
 };
 
+// The frame hold (SCREEN_EFFECTS.md §7.3): s (0x76a548) and r (0x76a54c), stepped as ZoomBlur's pair into the
+// opacity 0x7b248c [EXPORT 00427c90.c:45-57]. While it is not 0 the ZoomBlur draw is replaced by ONE full-frame
+// quad of the frame copy at that opacity; the copy is only made on a frame with 0x7b2488 set (the writer's) or
+// with a ZoomBlur strength, so the quad is that frozen frame fading out over the live scene.
+struct FrameHold {
+    float s = 0.0f, r = 0.0f;            // 0x76a548 / 0x76a54c
+    float strength = 0.0f;               // 0x7b248c
+    void set(float s_, float r_) { s = s_; r = r_; }
+    void step() {
+        if (s == 0.0f) return;
+        s += r;
+        if (s <= 0.0f) { s = 0.0f; strength = 0.0f; }
+        else { strength = s; if (s > 1.0f) { s = 1.0f; strength = 1.0f; } }   // 0x6bd438
+    }
+    int alpha8() const { return strength >= 1.0f ? 255 : int(strength * 256.0f); }   // as ZoomBlur's TFACTOR
+};
+
 }  // namespace cleria::screenfx
