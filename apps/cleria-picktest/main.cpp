@@ -172,6 +172,12 @@ int main() {
         q.age = 16;
         check(std::fabs(q.rise(0) - 1.0f) < 1e-5f && q.rise(1) < 1.0f, "glyph 0 has risen 1.0 at t 16; glyph 1 is 2 ticks behind");
     }
+    // FUN_00585ff0's [ebp-0x14]: the sound the tail plays at the pickup.
+    check(pickup_collect_se(0x48) == 7 && pickup_collect_se(0x49) == 7 && pickup_collect_se(0x4a) == 13 &&
+          pickup_collect_se(0x4b) == 13 && pickup_collect_se(0x4c) == 14 && pickup_collect_se(0x4d) == 14 &&
+          pickup_collect_se(0x42) == 88 && pickup_collect_se(0x78) == 88 && pickup_collect_se(0x72) == 88 &&
+          pickup_collect_se(0x59) == 88,
+          "collect SE: 7 / 13 / 14 for the Strength / Defense / MP Drops, 88 (p_takeitem) for the rest");
     std::printf("[pick] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }

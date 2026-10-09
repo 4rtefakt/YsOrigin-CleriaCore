@@ -477,6 +477,13 @@ CASES = {
         room="S_10/S_1002/S_1002",
         drive="20:drop=72;21:drop=74;22:drop=76;80:hudstate;1900:hudstate;1901:quit",
         expect=["str 0.5/1790 def 0.3/1791 mp 1.2/1792 full 1800", "str 0.0/0 def 0.0/0 mp 0.0/0 full 1800"]),
+    # Issue #68: the sound FUN_00585ff0's tail plays at the pickup is p_takeitem (88) except for the Strength /
+    # Defense / MP Drops, which play s_growup0 / 1 / 2 (7 / 13 / 14) [BYTES 0x586591, 0x5865f1, 0x586672]. All
+    # are collected on their 51st tick (age > 50), at the pickup's own position.
+    "pickup_collect_se": dict(
+        room="S_10/S_1009/S_1009", env=dict(CLERIA_DRIVE_LOCKSTEP="1", CLERIA_SFXLOG="1"),
+        drive="20:drop=72;21:drop=74;22:drop=76;23:drop=66;24:drop=120;200:quit",
+        expect=["[sfx] t70 7 at", "[sfx] t71 13 at", "[sfx] t72 14 at", "[sfx] t73 88 at", "[sfx] t74 88 at"]),
     # Item 3 (FUN_004fae00): a landed swing pops the white number on the Selnarg (FUN_004fbb40 0x4fd241),
     # the combo line's meter starts (0x76c1a8), and a hit on the player pops the red one (FUN_004fd350
     # 0x4fe120).
@@ -1443,9 +1450,11 @@ CASES.update({
         room="S_10/S_1002/S_1002", env=_LOCK,
         drive="8:opt=DamageDealt=10;9:opt=DropRate=10;20:near=17;21:atk;45:near=17;46:atk;70:near=17;71:atk;"
               "95:near=17;96:atk;120:pickups;153:fxall;160:quit",
-        expect=["[pickup] id 66 pos (32.35, -4.10, -38.08) ground -4.078 rest 1", "sprite (32.35, -3.86, -38.18)",
+        # Re-pinned 2026-10-09: the drops leave the enemy's ORIGIN (enemy+0x50, 0x4785b5), not its feet, so at t120
+        # the recovery drop is still in the air (it rested on the floor by then) and is collected there.
+        expect=["[pickup] id 66 pos (32.30, -3.39, -37.96) ground -4.078 rest 0", "sprite (32.30, -3.16, -38.06)",
                 "shadow y -4.007", "[fxall] id 63 attach 2 at", "rel (0.00, -1.00, 0.00) bias 5.00",
-                "[fxall] id 72 attach 0 at (32.35, -4.10, -38.08)"]),
+                "[fxall] id 72 attach 0 at (32.13, -3.59, -37.54)"]),
     # 4. Eft_LocateChr (0x118) under a Fix: the attach reads the actor's current +0x20, so the smith
     # script's player light follows the player the opening moved (it sat at the world origin).
     "fx_locate_under_fix": dict(

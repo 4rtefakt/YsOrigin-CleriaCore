@@ -102,12 +102,17 @@ struct PickupWorld {
     std::function<bool(const Vec3&, const Vec3&, Vec3*, Vec3*)> hit;
     std::function<bool(Pickup&)> touch;
     std::function<void(const Pickup&, float angle)> sparkle;
-    Vec3 player;
+    Vec3 player;                      // the player's origin P+0x50 (FUN_00585ff0 0x58606d..0x586080)
     bool window_open = false;
 };
 void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w);
 
-// The touch test (§7.2): within 1.9 of the player, height weighted by 2/3.
+// The touch test (§7.2): within 1.9 of the player's origin (P+0x50), height weighted by 2/3.
 bool pickup_in_reach(const Pickup& p, const Vec3& player);
+
+// The sound FUN_00585ff0's tail plays at the pickup (FUN_0043a080 at 0x5868cb with [ebp-0x14]): 0x58
+// player\p_takeitem (0x58614d), but 7 / 0xd / 0xe for the Strength / Defense / MP Drops 0x48..0x4d
+// [BYTES 0x586591, 0x5865f1 / 0x586614, 0x586672].
+int pickup_collect_se(int id);
 
 }  // namespace cleria

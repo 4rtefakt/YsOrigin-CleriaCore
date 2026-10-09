@@ -7230,7 +7230,9 @@ title_again:
                             dc.no_drops = game.g_flags[146] != 0;
                             dc.boss_lock = game.g_flags[156] != 0;
                             dc.rate = settings().s.access.drop_rate;   // the shell's Cheats
-                            roll_enemy_drops(pick_rng, *er, en.cast_id, en.pos, dc, pickups, /*entry_draw*/ false);
+                            // The drop position is enemy+0x50..+0x58 exactly, its ORIGIN (0x4785b5), not its feet.
+                            roll_enemy_drops(pick_rng, *er, en.cast_id, {en.pos.x, en.pos.y + en.height, en.pos.z}, dc,
+                                             pickups, /*entry_draw*/ false);
                         }
                         if (en.cast_id >= 0 && en.cast_id < 256) {   // FUN_004fbb40: the Topic record
                             topic_seen[en.cast_id] = 1;
@@ -7652,7 +7654,7 @@ title_again:
                 pw.hit = [&](const Vec3& a, const Vec3& b, Vec3* pt, Vec3* n) {
                     return segment_hit(phys_mesh(room), a, b, pt, n);
                 };
-                pw.player = feet;
+                pw.player = {feet.x, feet.y + kOriginH, feet.z};       // P+0x50, the origin (0x58606d..0x586080)
                 pw.touch = [&](Pickup& pk) {
                     if (fly || player.hp <= 0) return false;
                     float hp = float(player.hp);
@@ -7673,20 +7675,23 @@ title_again:
                         if (popups.size() < 32) popups.push_back(make_popup(t, col, sc, {at.x, at.y + 0.5f, at.z}));
                     };
                     const int id = pk.id;
+                    // The player-anchored ones stand at P+0x50 + (0, 0.5, 0), the ORIGIN [BYTES 0x5866a3..0x5866d1,
+                    // 0x443a20..0x443a52], not the feet.
+                    const Vec3 porg{feet.x, feet.y + kOriginH, feet.z};
                     if (id >= 0x78 && id <= 0x7f) pop_at(std::to_string(pop), 0xcdacd0, 0.75f, pk.pos);
-                    else if (id >= 0x42 && id <= 0x47) { if (pop > 0) pop_at(std::to_string(pop), 0x00ff00, 1.0f, feet); }
-                    else if (id == 0x72) pop_at("BOOST MAX", 0x00ff00, 0.65f, feet);
-                    else if (id == 0x73) pop_at("OXYGEN MAX", 0x00ff00, 0.65f, feet);
-                    else if (id == 0x48 || id == 0x49) pop_at("str +", 0xff6060, 1.0f, feet);
-                    else if (id == 0x4a || id == 0x4b) pop_at("def +", 0x6060ff, 1.0f, feet);
-                    else if (id == 0x4c || id == 0x4d) pop_at("mp +", 0xffff60, 1.0f, feet);
+                    else if (id >= 0x42 && id <= 0x47) { if (pop > 0) pop_at(std::to_string(pop), 0x00ff00, 1.0f, porg); }
+                    else if (id == 0x72) pop_at("BOOST MAX", 0x00ff00, 0.65f, porg);
+                    else if (id == 0x73) pop_at("OXYGEN MAX", 0x00ff00, 0.65f, porg);
+                    else if (id == 0x48 || id == 0x49) pop_at("str +", 0xff6060, 1.0f, porg);
+                    else if (id == 0x4a || id == 0x4b) pop_at("def +", 0x6060ff, 1.0f, porg);
+                    else if (id == 0x4c || id == 0x4d) pop_at("mp +", 0xffff60, 1.0f, porg);
                     // common\cure.eft attached to the player at (0, -1, 0) [0x7de1f4 / 0x7d9c34], mode 2
                     // (FUN_00585ff0 for 0x48..0x4d, FUN_00443390 0x4434a3 for the heals and seeds);
                     // its depth bias (5.0) draws it in front of her.
                     if ((pk.id >= 0x42 && pk.id <= 0x4d) || pk.id == 0x72 || pk.id == 0x73)
                         attach_to_player(spawn_sim_fx(63, {}, {}, 1.0f, {}, 0, {}), {0.0f, -1.0f, 0.0f}, 0.0f);
                     spawn_sim_fx(72, pk.pos, {}, 1.0f, {}, 0, {});      // common\z_item.eft
-                    sfx_at(88, pk.pos, kSfxAnimVol);                     // player\p_takeitem
+                    sfx_at(pickup_collect_se(pk.id), pk.pos, kSfxAnimVol);   // p_takeitem; s_growup0..2 for the buff drops
                     return true;
                 };
                 for (Pickup& pk : pickups) step_pickup(pick_rng, pk, pw);

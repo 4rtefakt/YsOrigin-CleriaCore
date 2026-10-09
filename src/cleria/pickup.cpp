@@ -172,6 +172,13 @@ bool pickup_in_reach(const Pickup& p, const Vec3& P) {
     return dx * dx + dy * dy + dz * dz < 3.61f;
 }
 
+int pickup_collect_se(int id) {
+    if (id == 0x48 || id == 0x49) return 7;
+    if (id == 0x4a || id == 0x4b) return 0xd;
+    if (id == 0x4c || id == 0x4d) return 0xe;
+    return 0x58;
+}
+
 void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w) {
     if (p.dead) return;
     if (p.delay > 0) { --p.delay; return; }                   // FUN_00584f90
