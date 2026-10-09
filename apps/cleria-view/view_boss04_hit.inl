@@ -19,6 +19,7 @@ if (boss4 && !boss4->destroyed())
         const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);
         if (dmg > 0) boss4->add_part_damage(pi, float(dmg));
+        part_hit_feedback(bp.centre, bp.broken, dmg, atk_cls);   // FUN_004faf20's tail (view_game.inl)
         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
         if (std::getenv("CLERIA_DMG"))
             std::printf("  hit khonsclard part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n", pi, bp.def, dmg, bp.hp,

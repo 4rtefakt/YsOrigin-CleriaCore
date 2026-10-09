@@ -338,7 +338,7 @@ auto boss8_hit = [&](const HitShape& vol, std::uint32_t token, int rehit, float 
             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
         const bool core = pi == boss08::kBodyParts;
         const Boss08Hit r = boss8->hit_part(core ? boss08::kW : boss08::kB, core ? 0 : pi, dmg);
-        if (r != Boss08Hit::kRefused) any = true;
+        if (r != Boss08Hit::kRefused) { any = true; part_hit_feedback(bp.pos, bp.armor, dmg, cls); }   // FUN_004faf20's tail
         if (boss8_log || std::getenv("CLERIA_DMG"))
             std::printf("  [boss08] t%llu %s hits %s %d (DEF %.0f, class %d): %d dmg%s | limbs %.3f/%.3f/%.3f core hp %.0f barrier %u\n",
                         (unsigned long long)tick_count, swing ? "the swing" : "a particle", core ? "the core" : "part", core ? 0 : pi,

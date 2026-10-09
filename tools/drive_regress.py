@@ -873,6 +873,15 @@ CASES.update({
               "40:every=20,700,ok;720:every=40,3700,boss4;728:every=40,3700,atk;3700:quit",
         expect=["[boss04] Khonsclard: body 3000, pods 600", "f156 1", "fx 130 hits khonsclard part", "states 00",
                 "fx 130 hits khonsclard part 0 (DEF 175)", "flag 223 = 1", "destroyed"]),
+    # FUN_004faf20's tail on the other bosses' parts (part_hit_feedback, view_game.inl): Toal's swing on a risen pod
+    # (part 1, +0x138 clear) draws the white damage number, as on Velagunder's parts (the SE is not audible here).
+    "boss_part_feedback": dict(
+        room="S_40/S_4099/S_4099", char="3",
+        env={"CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="2:diff=3;3:saveload;4:opt=DamageTaken=0;6:level=45;7:tier=8;20:at=-2.8,23.3,0;40:every=20,700,ok;"
+              "720:every=12,1100,boss4;721:every=12,1100,atk;1100:quit",
+        expect=["[boss04] Khonsclard: body 3750, pods 900", "boss4 -> part 1", " ffffff",
+                "hit khonsclard part 1 (DEF 175)"]),
     # A Retry inside the fight (Toal, Hard): the scene load builds the boss again (boss_load, view_game.inl) — Hard's
     # body 3750 / pods 900 once more, the pods located and rising again, and the fight can be won (223). The brain
     # used to outlive the reload: its six pods were gone with the old visit and never rose, so nothing could be

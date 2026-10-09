@@ -4364,13 +4364,17 @@ title_again:
     // (+0x138 clear: part 1 outside the stun, the core in the stun loop), the white damage number
     // FUN_004fae00(0xffffffff). [H] both at the part's +0x50. [not modelled] the hit spark FUN_00450410.
     std::uint64_t boss_part_se_tick = 0;
-    auto boss_part_feedback = [&](const Boss01Part& bp, int dmg, int cls) {
+    // The same tail for every boss's parts that take FUN_004faf20(0, 0) (Nygtilger's head / tail, Gelaldy,
+    // Khonsclard, Pictimos, Darm): `armor` = the part's +0x138. Where a brain does not model +0x138 the caller
+    // passes true: the SE only, no number [not modelled].
+    auto part_hit_feedback = [&](const Vec3& pos, bool armor, int dmg, int cls) {
         if (tick_count - boss_part_se_tick >= 4) {
             boss_part_se_tick = tick_count;
-            sfx_at(dmg > 0 ? hitfx::kSeHit : hitfx::kSeNoDamage, bp.pos, kSfxAnimVol);
+            sfx_at(dmg > 0 ? hitfx::kSeHit : hitfx::kSeNoDamage, pos, kSfxAnimVol);
         }
-        if (!bp.armor) damage_popup(hudstate::dealt_popup_value(dmg, cls, game.g_flags), 0xffffff, bp.pos);
+        if (!armor) damage_popup(hudstate::dealt_popup_value(dmg, cls, game.g_flags), 0xffffff, pos);
     };
+    auto boss_part_feedback = [&](const Boss01Part& bp, int dmg, int cls) { part_hit_feedback(bp.pos, bp.armor, dmg, cls); };
     auto boss_tick = [&] {
         MeshObj* bm = meshes.find("boss01");
         if (!bm) { boss.reset(); g_rig.clear_boss(); boss_entries_built = false; return; }
@@ -7343,6 +7347,7 @@ title_again:
                         if (atk_hb.one_shot) atk_window = 0;
                         const int dmg = b2_damage(pt.def, pt.resist);
                         if (dmg > 0) boss2->add_part_damage(o, float(dmg));
+                        part_hit_feedback(pt.pos, true, dmg, atk_cls);
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                         if (std::getenv("CLERIA_DMG"))
                             std::printf("  hit %s part (DEF %.0f): %d dmg, part HP %.0f pool %.0f\n",
@@ -7370,6 +7375,7 @@ title_again:
                         const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
                             [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
                         if (dmg > 0) boss3->add_part_damage(pi, float(dmg));   // [not modelled] the element bonus on HP
+                        part_hit_feedback(bp.pos, true, dmg, atk_cls);
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                         if (std::getenv("CLERIA_DMG"))
                             std::printf("  hit gelaldy part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",

@@ -48,6 +48,7 @@
             if (boss3_banks[std::size_t(pi)].check_and_record(0u, p.hit.rehit)) continue;
             const int dmg = fx_part_damage(bp.def, bp.resist);
             if (dmg > 0) boss3->add_part_damage(pi, float(dmg));   // [not modelled] the element bonus on HP
+            part_hit_feedback(bp.pos, true, dmg, cls_p);
             if (std::getenv("CLERIA_DMG"))
                 std::printf("  fx %d hits gelaldy part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",
                             p.fx ? p.fx->id : -1, pi, bp.def, dmg, bp.hp, boss3->hp());
@@ -63,6 +64,7 @@
             if (boss2_part_banks[std::size_t(k)].check_and_record(0u, p.hit.rehit)) continue;
             const int dmg = fx_part_damage(pt.def, pt.resist);
             if (dmg > 0) boss2->add_part_damage(o, float(dmg));
+            part_hit_feedback(pt.pos, true, dmg, cls_p);
             if (std::getenv("CLERIA_DMG"))
                 std::printf("  fx %d hits %s part (DEF %.0f): %d dmg, part HP %.0f pool %.0f\n", p.fx ? p.fx->id : -1,
                             boss02::object_name(o), pt.def, dmg, pt.hp, boss2->pool());
@@ -107,6 +109,7 @@
             if (boss4_banks[std::size_t(pi)].check_and_record(0u, p.hit.rehit)) continue;
             const int dmg = fx_part_damage(bp.def, bp.resist);
             if (dmg > 0) boss4->add_part_damage(pi, float(dmg));
+            part_hit_feedback(bp.centre, bp.broken, dmg, cls_p);
             if (std::getenv("CLERIA_DMG"))
                 std::printf("  fx %d hits khonsclard part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",
                             p.fx ? p.fx->id : -1, pi, bp.def, dmg, bp.hp, boss4->hp());
@@ -120,6 +123,7 @@
             if (boss5_banks[std::size_t(pi)].check_and_record(0u, p.hit.rehit)) continue;
             const int dmg = fx_part_damage(bp.def, bp.resist);
             if (dmg > 0) boss5->add_part_damage(pi, float(dmg));
+            part_hit_feedback(bp.centre, true, dmg, cls_p);
             if (std::getenv("CLERIA_DMG"))
                 std::printf("  fx %d hits pictimos part %d (DEF %.0f): %d dmg, body %.0f\n", p.fx ? p.fx->id : -1, pi,
                             bp.def, dmg, boss5->hp());
