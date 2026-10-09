@@ -386,6 +386,16 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
   let tc = textureSample(tex, smp, in.uv);
   return vec4<f32>(tc.rgb * in.color.rgb, 1.0);
 }
+
+// The EF2 particles' additive state (render word B2+0x08 & 0x80, FUN_005eb5b0 [EXPORT 005eb5b0.c]): SRCBLEND =
+// SRCALPHA (0x13 <- 5), DESTBLEND = ONE (0x14 <- 2), and the stage's alpha = TEXTURE x DIFFUSE (ALPHAOP MODULATE,
+// args 2 and [0x6b8e84][0] = 0) — so the texture's own alpha scales what is added. (The diffuse alpha is already
+// in in.color.rgb.) [not modelled] its alpha test (ref [0x6b8e74][0] = 1) and the fog toward black.
+@fragment
+fn fs_sa(in : VsOut) -> @location(0) vec4<f32> {
+  let tc = textureSample(tex, smp, in.uv);
+  return vec4<f32>(tc.rgb * in.color.rgb * tc.a, 1.0);
+}
 )WGSL";
 
 

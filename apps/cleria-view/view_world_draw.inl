@@ -1101,7 +1101,7 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         WGPURenderPassDescriptor rp = {};
         rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-        wgpuRenderPassEncoderSetPipeline(pass, b.additive ? g.fx_pipeline : g.char_pipeline);
+        wgpuRenderPassEncoderSetPipeline(pass, b.additive ? g.fx_pipeline_sa : g.char_pipeline);
         wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
         wgpuRenderPassEncoderSetBindGroup(pass, 1, b.bind, 0, nullptr);
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
