@@ -121,25 +121,36 @@ CASES = {
         expect=["[speedrun] phase 1 split 0/8", "auto-split 0 'Velagunder' on boss gauge empty in S_1099",
                 "[speedrun] phase 1 split 1/8"]),
     # Velagunder's attacks (build/boss_re/VELAGUNDER.md §5, §7, §3.4), Yunica Lv 15: the intro by its event
-    # box, the stun part broken twice, then standing in the arena. The bubble spray hits (EF2 323), the player
-    # left standing on the (wood) body after a stun draws the taunt (state 8, ACTION_01), the run drops M890
-    # Spawns (the boss level, the chaser first), the laser's terrain-ray bursts hit (EF2 326), the inhale
-    # swallows Spawns and the bite (part 2) lands.
+    # box, the stun part broken twice, then standing in the arena. The bubble spray hits (EF2 323), the run drops
+    # M890 Spawns (the boss level, the chaser first), the laser's terrain-ray bursts hit (EF2 326), the inhale
+    # swallows Spawns and the bite (part 2) lands. (The taunt is velagunder_taunt below: since e44f09f the end of
+    # a stun no longer leaves her standing on the body.)
     "velagunder_attacks": dict(
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;5500:quit",
         expect=["[boss] Velagunder: HP 700 STR 70 DEF 53 lv 8", "[boss] 31 body entries (820 tris)",
-                "fx 323 (atk 70 power 0.0 knock 5.00", "state 8 sub 1", "clip ACTION_01",
+                "fx 323 (atk 70 power 0.0 knock 5.00",
                 "M890 #175 spawned", "hp 58 lv 8 mode 1", "fx 326 (atk 70 power 0.0 knock 1.00 rtype 1", "eaten (1 so far)",
                 "velagunder part 2 (STR 70 power 14.0 rtype 2"]),
+    # The taunt (VELAGUNDER.md C10, §5.8: state 8, ACTION_01 — the player grounded on surface 5 (his wood body)
+    # with the floor above 4.0, out of his reach). After the first stun is over (t2610: state 0, WAIT) Yunica is
+    # put on the top of his right shoulder, on the hull as it is posed now (`at3`: the floor below (2.5, 14, 33),
+    # y 11.8), and stays there: the taunt starts within 60 ticks and repeats while she stands on him.
+    "velagunder_taunt": dict(
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
+        drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
+              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 2541, 12))
+              + "2620:at3=2.5,13,33,0;2625:pos;2800:pos;2900:quit",
+        expect=["stun 0 STUNNED", "state 0 sub 1", "t2620 at3=2.5,13,33,0", "feet (3.643, 11.783, 33.000)",
+                "state 8 sub 1", "clip ACTION_01", "feet (4.910, 10.521, 32.095)", "state 8 sub 1"]),
     # ... and the kill (Lv 60): the death timeline's end block sets flag 220 and awards the EXP, which releases
     # BATTLE_0.XSO into SENTOUGO.XSO (the stairs rise: stepup_se).
     "velagunder_kill": dict(
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="60"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
-              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3000, 12)) + "3000:at=0,22,180;3460:scripts;"
-              + "".join(f"{t}:ok;" for t in range(3500, 3661, 40)) + "3700:scripts;3710:quit",
+              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3000, 12)) + "3000:at=0,22,180;3500:scripts;"
+              + "".join(f"{t}:ok;" for t in range(3540, 3701, 40)) + "3740:scripts;3750:quit",
         expect=["flag 220 = 1", "EXP 86 (lv 8)", "[content] boss_defeated S_1099 flag 220", "script sentougo", "script stepup_se"],
         count={"boss_defeated": 1}),
     # Hugo against Velagunder (VELAGUNDER.md §3.1 / §3.3, EFFECTHIT.md §5.1). His intro S_EVT1099_2 has more pages
@@ -156,6 +167,25 @@ CASES = {
               + "".join(f"{t}:bossaim;{t + 1}:atk;" for t in range(3205, 3500, 6)) + "3500:quit",
         expect=["[boss] Velagunder: HP 700 STR 70 DEF 53 lv 8", " ffffff\n  fx 130 hits boss part 1 (DEF 53)",
                 "stun 0 STUNNED", "t3200 at3=2.5,13,33,0", " ffffff\n  fx 130 hits boss part 0 (DEF 53)"]),
+    # The stunned Velagunder is climbed on foot (e44f09f: his collision twin is bound to the render bones, and
+    # his body has no slope limit while stunned), Toal on Hard: the stun part broken from the floor, then the
+    # walk (`goto`) up the hand, the arm and the shoulder to the core, where the sword hits part 0.
+    "velagunder_climb_toal": dict(
+        room="S_10/S_1099/S_1099", char="3", env=dict(CLERIA_LEVEL="60", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
+        drive="5:diff=3;10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 2200, 40))
+              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2300, 2398, 12)) + "2402:level=9;2405:pos;"
+              "2410:goto=-6.6,23.3,80;2560:goto=-6.8,28.5,130;2600:jump;2700:goto=-6.2,30.6,40;2745:goto=-5.6,31.6,40;"
+              "2790:goto=-2.0,32.8,300;2860:pos;2861:goto=-1.2,31.5,60;2900:goto=0.3,30.6,4;"
+              + "".join(f"{t}:atk;" for t in range(2930, 3100, 14)) + "3110:pos;3200:quit",
+        expect=["[boss] Velagunder: HP 875 STR 63 DEF 54 lv 8", "feet (-0.169, 2.000, 27.233)", "stun 0 STUNNED",
+                "goto ends at (-6.72,4.97,28.37)", "goto ends at (-2.14,10.52,32.79)", "feet (-2.204, 10.514, 32.650)",
+                "hit boss part 0 (DEF 54): 11 dmg, HP 875", "hit boss part 0 (DEF 54): 11 dmg, HP 864"]),
+    # Toal's fire skill from the ground (d05cfa5: the player's VM honours anime_Jump in 0x10e / 0x111): section
+    # 0x10e lifts him off the floor (y 2 -> 4.368 at t74) and he lands again.
+    "toal_ignis_hop": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="8:bracelet=118;9:flag=118,1;10:flag=184,1;40:pos;43:skill+;45:skill-;47:abil;74:pos;100:pos;130:quit",
+        expect=[", 2.000, ", "[abil] t47 sec 0x10e mp 2400", ", 4.368, ", ", 2.000, "]),
     # FUN_00561f40 queues a 0x8040-flag material (floor 2's water surfaces) on render layer 0xb,
     # flushed after the actor sprites (layers 6/9): S_2007's two water batches draw last, so a
     # submerged player shows through them.
