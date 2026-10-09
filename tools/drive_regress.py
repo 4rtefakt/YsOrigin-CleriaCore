@@ -501,6 +501,17 @@ CASES = {
         drive="20:drop=120;21:at=3.0,7.87,270;101:pickups;110:atk;150:pickups;151:quit",
         expect=["[pickup] id 120 pos (0.58, 2.00, 7.86) ground 2.020 rest 1 age 81", "[sfx] t122 88 at (0.58, 2.00, 7.86)"],
         count={"[pickup] id 120": 1}),
+    # Issue #68: a pickup's sparkles are drawn (FUN_00584860's type-0 sprites, PICKUPS.md §6.4): one every 2nd
+    # tick while it is not resting, 18 ticks each — 7 live at t34 from the gold dropped at t20, the oldest at
+    # age 14 in its third key segment (half-size 0.27 -> 0.18, alpha 127.5 -> 0), pale yellow; none once the
+    # last ones of the resting pickup have died (t140).
+    "pickup_sparkle": dict(
+        room="S_10/S_1009/S_1009", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="20:drop=120;21:at=3.0,7.87,270;26:pickups;34:pickups;140:pickups;141:quit",
+        expect=["[pickup] sparkles 3, the oldest: age 6 at (0.14, 2.80, 7.85) half 0.347 alpha 236.8 tint ffff80",
+                "[pickup] sparkles 7, the oldest: age 14 at (0.25, 2.80, 7.91) half 0.240 alpha 85.0 tint ffff80",
+                "[pickup] id 120 pos (0.58, 2.00, 7.86) ground 2.020 rest 1 age 120"],
+        count={"[pickup] sparkles": 2}),
     "pickup_sword_miss": dict(
         room="S_10/S_1009/S_1009", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1", CLERIA_SFXLOG="1"),
         drive="20:drop=120;21:at=3.0,7.87,90;101:pickups;110:atk;150:pickups;151:quit",

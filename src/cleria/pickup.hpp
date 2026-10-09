@@ -96,12 +96,13 @@ Pickup make_chest_item(ef2sim::Rng& rng, int id, const Vec3& mesh_pos, bool flag
 // One simulation tick. `hit(a, b, point, normal)` is the room's nearest segment hit;
 // `touch(p)` is called when a collectable pickup is within reach of the player and returns
 // true when the grant took it (false leaves it on the ground: a full wallet / count).
-// `sparkle(p)` is called when the engine would emit a sparkle particle (2 RNG draws are taken
-// here, in order). `window_open` is for the chest item's close-on-window form.
+// `sparkle(p, angle, rot)` is called when the engine emits a sparkle particle (FUN_00584860; its 2 RNG
+// draws are taken here, in order): `angle` the velocity's heading, `rot` the quad's rotation
+// ((u - 1) * 2 pi [0x6bd898]). `window_open` is for the chest item's close-on-window form.
 struct PickupWorld {
     std::function<bool(const Vec3&, const Vec3&, Vec3*, Vec3*)> hit;
     std::function<bool(Pickup&)> touch;
-    std::function<void(const Pickup&, float angle)> sparkle;
+    std::function<void(const Pickup&, float angle, float rot)> sparkle;
     Vec3 player;                      // the player's origin P+0x50 (FUN_00585ff0 0x58606d..0x586080)
     // Out of the player's reach, the first GoLocusSword of the player in pool 4 (0x730104) collects: its
     // +0xdc..+0xe4, the centre of its first hit record +0xd0 (the trail's TIP sphere), within 0.45 of the

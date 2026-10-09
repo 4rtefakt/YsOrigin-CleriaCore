@@ -210,8 +210,8 @@ void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w) {
         p.prev = p.pos;
         if (!p.closing && (p.sparkle++ & 1) == 0) {
             const float a = unit(rng.next()) * 2.0f * kPi - kPi / 2.0f;
-            rng.next();                                       // FUN_00584860's rotation draw
-            if (w.sparkle) w.sparkle(p, a);
+            const float rot = unit(rng.next()) * 2.0f * kPi;  // FUN_00584860's rotation draw
+            if (w.sparkle) w.sparkle(p, a, rot);
         }
         return;
     }
@@ -229,8 +229,8 @@ void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w) {
         p.prev = p.pos;
         if ((p.flags & 4) && (p.sparkle++ & 1) == 0) {
             const float a = unit(rng.next()) * 2.0f * kPi - kPi / 2.0f;
-            rng.next();
-            if (w.sparkle) w.sparkle(p, a);
+            const float rot = unit(rng.next()) * 2.0f * kPi;
+            if (w.sparkle) w.sparkle(p, a, rot);
         }
     }
     if (p.age > 50.0f && (p.flags & 4) &&

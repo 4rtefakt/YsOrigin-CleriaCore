@@ -3964,6 +3964,15 @@ title_again:
                             int(pk.resting), pk.age, sc.x, sc.y, sc.z, sc.y - pk.half * std::fabs(cu.y),
                             pk.shadow_centre(cf).y);
             }
+            int ns = 0;                               // the live sparkles (FUN_00584860's sprites) and the oldest's look
+            const weather::Sprite* s0 = nullptr;
+            for (const auto& o : wx.objects())
+                if (!o->dead && o->kind == weather::Obj::Child && o->s.d.tex == weather::Tex::EftTex96) { if (!ns++) s0 = &o->s; }
+            if (s0) {
+                const weather::Look lk = weather::look(*s0);
+                std::printf("  [pickup] sparkles %d, the oldest: age %.0f at (%.2f, %.2f, %.2f) half %.3f alpha %.1f tint %06x\n", ns,
+                            s0->age, s0->pos.x, s0->pos.y, s0->pos.z, lk.half, lk.alpha, s0->d.argb & 0xffffffu);
+            }
         } else if (cmd == "fxall") {                  // every live effect: id, attach, origin (and from the player's), depth bias
             auto r2 = [](float v) { return std::fabs(v) < 0.005f ? 0.0f : v; };   // no "-0.00"
             for (const auto& f : fxsim.effects())
@@ -6081,6 +6090,7 @@ title_again:
                 };
                 pw.player = feet;
                 pw.touch = [](Pickup&) { return false; };
+                pw.sparkle = pickup_sparkle;              // view_weather.inl
                 for (Pickup& pk : pickups) if (pk.kind == 2) step_pickup(pick_rng, pk, pw);
                 pickups.erase(std::remove_if(pickups.begin(), pickups.end(),
                                              [](const Pickup& pk) { return pk.dead; }), pickups.end());
@@ -7788,6 +7798,7 @@ title_again:
                         pw.sword_tip = pl.sword.spheres()[0].centre;
                         break;
                     }
+                pw.sparkle = pickup_sparkle;              // view_weather.inl
                 pw.touch = [&](Pickup& pk) {
                     if (fly || player.hp <= 0) return false;
                     float hp = float(player.hp);

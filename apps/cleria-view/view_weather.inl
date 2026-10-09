@@ -61,6 +61,7 @@ auto draw_weather = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec
             if (t == weather::Tex::Sparkle) p = asset_root / "IMAGE" / "SPARKLE.DDS";
             else if (t == weather::Tex::Sparkle2) p = asset_root / "IMAGE" / "SPARKLE2.DDS";
             else if (t == weather::Tex::Kao00) p = asset_root / "IMAGE" / "KAO_00.DDS";
+            else if (t == weather::Tex::EftTex96) p = eft.path(asset_root, 96);   // 0x74a6d8 [H] which of H / L
             else p = eft.path(asset_root, 34);           // 0x74a5e0 = EFTTEX[34]
             SpriteTex s{};
             if (!p.empty()) {
@@ -113,7 +114,9 @@ auto draw_weather = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec
         WGPURenderPassDescriptor rp = {};
         rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-        wgpuRenderPassEncoderSetPipeline(pass, g.fx_pipeline);
+        // The pickup sparkles take the texture's alpha (SRCALPHA, FUN_005eb5b0 on 0x46c1; main.cpp fs_sa). The
+        // floor-3 embers and smoke are the same draw and state; left on the old pipeline, not re-checked here.
+        wgpuRenderPassEncoderSetPipeline(pass, key == int(weather::Tex::EftTex96) ? g.fx_pipeline_sa : g.fx_pipeline);
         wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
         wgpuRenderPassEncoderSetBindGroup(pass, 1, b.bind, 0, nullptr);
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
@@ -125,6 +128,28 @@ auto draw_weather = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec
         wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
         wgpuBufferRelease(vb); wgpuBufferRelease(ib);
     }
+};
+
+// A pickup's sparkle (FUN_00584860 [EXPORT 00584860.c; PICKUPS.md §6.4]): one type-0 sprite — the weather's
+// (FUN_00583d90 / FUN_00584030 / FUN_00584270) — 0.3 [0x6bd27c] above the pickup, drifting at 0.016 [0x6bd0d0]
+// along `angle`, drag 0.001, 18 ticks with keys at 5 and 12: half-size 0.18 / 0.36 / 0.27 / 0.18 [0x6be600],
+// alpha 0.5 / 1 / 0.5 / 0 of the tint's 0xff, drawn 0.09 toward the camera, additive (0x46c1), EFTTEX[96].
+// The tint by item id: Recovery Drops green, buff drops cyan, seeds blue, the rest pale yellow.
+// [not modelled] layer 9 instead of 0xc in water (the draw order only).
+auto pickup_sparkle = [&](const Pickup& p, float angle, float rot) {
+    weather::Desc d;
+    d.tex = weather::Tex::EftTex96;
+    d.argb = p.id >= 0x42 && p.id <= 0x47 ? 0xff96e164u : p.id >= 0x48 && p.id <= 0x4d ? 0xff78ffffu
+           : p.id == 0x72 || p.id == 0x73 ? 0xff0000ffu : 0xffffff80u;
+    d.pos = {p.pos.x, p.pos.y + 0.3f, p.pos.z};
+    d.vel = {std::cos(angle) * 0.016f, 0.0f, std::sin(angle) * 0.016f};
+    d.angle = rot;
+    d.drag = 0.001f;                                      // 0x3a83126f
+    d.depth_k = -0.09f;                                   // 0xbdb851ec
+    d.life = 18.0f; d.t1 = 5.0f; d.t2 = 12.0f;
+    d.alpha[0] = 0.5f; d.alpha[1] = 1.0f; d.alpha[2] = 0.5f; d.alpha[3] = 0.0f;
+    d.size[0] = 0.18f; d.size[1] = 0.36f; d.size[2] = 0.27f; d.size[3] = 0.18f;
+    wx.sprite(d);
 };
 
 // FireBlur's distortion pass (FUN_005fed30, WEATHER.md §5): FUN_005dfea0 runs it after render layer

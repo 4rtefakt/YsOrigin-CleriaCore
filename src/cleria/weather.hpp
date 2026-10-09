@@ -29,6 +29,7 @@ enum class Tex : std::uint32_t {
     Sparkle2,      // 0x749dc8 = entry 31, sparkle2.dds (the ember emitter's +0x130 != 0; 0x125 writes 0)
     Kao00,         // 0x749e3c = entry 60, kao_00.dds (the smoke under flag 290)
     EftTex34,      // 0x74a5e0 = the EFTTEX table 0x74a558 [34] (the smoke)
+    EftTex96,      // 0x74a6d8 = EFTTEX [96], YsF_used/naga_g/ring_l.dds (a pickup's sparkle, FUN_00584860)
 };
 
 // FUN_00583d90's argument: the 27-dword child descriptor, field for field [EXPORT 00583d90].
@@ -137,6 +138,9 @@ class Weather {
     // caller's: a logic tick, under a Fix too).
     void step(const Env& e);
     void step_blur() { blur.step(); }
+    // One type-0 sprite from a descriptor (FUN_0040f700 + FUN_00583d90), for the other emitters of the same
+    // sprite: a pickup's sparkle (FUN_00584860). [approx] it shares this pool's cap; nullptr when full.
+    Obj* sprite(const Desc& d) { return alloc(Obj::Child) ? emit(d) : nullptr; }
     // The per-frame sweep FUN_00428b10: destroyed objects leave the pool.
     void sweep();
     // Room teardown FUN_00428ec0 (every GoXx goes) and the scene entry's 0x76a558 = 0 (FUN_00431260).
