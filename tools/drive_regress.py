@@ -745,11 +745,14 @@ CASES.update({
                 "156=0 174=1 230=1 232=0 311=1"], count={"boss_defeated": 1}),
     # S_1080 is not losable (no 133): a KO is the game over; Retry re-enters at Battle_1's SaveContData
     # (205 = 1), whose root branch restarts the duel: Chr_SetStatus's 200 again, then the INIT re-stat again.
+    # Issue #78: the Retry's scene load hides the boss HP gauge (`gauge`: 0 two ticks after it), and the
+    # restarted duel's brain shows it again.
     "duel_s1080_gameover": dict(
         room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="1"),
-        drive=_S1080.format(end=4900, cast=50) + "4700:hp=0;4900:quit",
-        expect=["cast 50 hp 1860/1860", "[death] HP 0", "[gameover] chose retry", ">> entering S_1080",
-                "[gameover] Retry -> S_1080", "cast 50 hp 200/200", "| lv 5 max 1860 atk 56"], absent=["[duel] lost", "boss_defeated"]),
+        drive=_S1080.format(end=4900, cast=50) + "4699:gauge;4700:hp=0;4822:gauge;4894:gauge;4900:quit",
+        expect=["cast 50 hp 1860/1860", "gauge 1 id 167", "[death] HP 0", "[gameover] chose retry", ">> entering S_1080",
+                "[gameover] Retry -> S_1080", "cast 50 hp 200/200", "gauge 0 id 0", "| lv 5 max 1860 atk 56",
+                "gauge 1 id 167"], absent=["[duel] lost", "boss_defeated"]),
     # S_3080 Yunica: Kishgal (M860) ends the fight at half HP in this room -> 174 = 1 -> the Silver
     # Harmonica scene -> 232 = 1 and ChangeScene to S_1000. The half-HP end is read at t8900 (was t8850): a pillar
     # now freezes Yunica once on the way (t8669, KISHGAL_SHIELD.md §4), so the fight ends at t8859, not before t8850.

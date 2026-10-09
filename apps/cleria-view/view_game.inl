@@ -1781,6 +1781,10 @@ title_again:
         // (FUN_004590b0 zeroes +0x120..+0x8f0), so the i-frames +0x734 do not cross a scene: a boss's
         // 9999 (FUN_00461120(2)) used to last ~166 s into the next floor (ROUTE_F13_TOAL F-T2).
         player_iframes = 0;
+        // The boss HP gauge does not cross a scene load either (issue #78: it stayed up after a Retry):
+        // FUN_00431260 writes DAT_006d5fd8 = 0, the gauge widget's owner [EXPORT 00431260.c:211, 0x431735];
+        // the fight's own setter (FUN_0043a460) shows it again when the boss registers.
+        hud.hide_boss_gauge(); gauge_owner = 0;
         scene_entry_flags(dest);
         clip_near = 1.0f; clip_far = 2000.0f;                    // FUN_00431840 (0x74c0fc / 0x74c0f8)
         scene_objects_reset = true;                             // busts / caption card (start_room_events)
@@ -4087,6 +4091,9 @@ title_again:
         } else if (cmd == "fader") {                   // the fade machine 0x769f1c / 0x769f24 / 0x769f28
             std::printf("  [drive] fader %.2f -> %.2f at %.3f%s%s rgb %06x\n", csHost.fade_cur, csHost.fade_tgt, csHost.fade_rate,
                         door_pending ? " (door pending)" : "", door_latched ? " (latched)" : "", unsigned(csHost.fade_rgb));
+        } else if (cmd == "gauge") {                   // the boss HP gauge: shown (DAT_006d5fd8 != 0) or hidden
+            std::printf("  [drive] gauge %d id %d hp %.0f/%.0f\n", int(hud.boss_frac >= 0.0f), hud.boss_id,
+                        double(hud.boss_cur), double(hud.boss_max));
         } else if (cmd == "pos") {                     // print the player's feet and O2
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d sp %.0f shield %d/%d/%d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage,
@@ -5250,6 +5257,7 @@ title_again:
             std::printf("  [gameover] Retry: no continue snapshot, respawn\n");
             player.hp = player.max_hp;
             spawn_player();
+            hud.hide_boss_gauge(); gauge_owner = 0;      // as the scene load does (transition)
             scene_entry_fader();                         // Retry is a scene load: it fades in (#51)
             return;
         }
@@ -8931,6 +8939,7 @@ title_again:
     if (return_to_title) {
         std::printf("  [game] Return to Title: back to the title\n");
         show_title = true;
+        hud.hide_boss_gauge();                           // `hud` outlives the game: no gauge into the next one (#78)
         g_rig_room.clear();                              // the camera rig re-reads the next room
         emotions.clear();
         goto title_again;
