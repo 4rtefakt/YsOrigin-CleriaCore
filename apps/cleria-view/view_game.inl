@@ -3411,7 +3411,7 @@ title_again:
     };
     // A scene object's frame (its render node of mesh 0, posed, placed): scene.hpp object_frame.
     // False when it is hidden (no render range) or its model cannot be read.
-    auto mesh_frame_mat = [&](const MeshObj& m, Mat4* f) {
+    auto mesh_frame_mat = [&](const MeshObj& m, Mat4* f, bool* sole = nullptr) {
         const RoomMesh::ObjRange* r = room.mesh.object_range(m.name);
         if (!r) return false;
         SobObject o = r->obj;
@@ -3419,7 +3419,7 @@ title_again:
         if (m.has_world) { o.has_world = true; o.world_mat = m.world; }
         const char* clip = (m.sect >= 0 && std::size_t(m.sect) < m.clips.size())
                                ? m.clips[std::size_t(m.sect)].name.c_str() : nullptr;
-        return object_frame_mat(asset_root, o, clip, m.time, f);
+        return object_frame_mat(asset_root, o, clip, m.time, f, sole);
     };
     auto mesh_frame = [&](const MeshObj& m, Vec3* t) {
         Mat4 f;
@@ -5834,14 +5834,19 @@ title_again:
                 // MOVER.md §3.3: the carry is the change of the floor sub-mesh's matrix, and a
                 // twin sub-mesh rides its render node (COLLISION.md §1c), so a re-posed floor
                 // object carries by its frame's move (S_1004's rising steps), not just +0x50.
-                // [approx] the frame of mesh 0 stands in for the sub-mesh stood on.
+                // [approx] the frame of mesh 0 stands in for the sub-mesh stood on: its whole matrix (the
+                // rider carry) only for a one-mesh model that plays by itself (the unnamed '#' objects: the
+                // spinning floors, the lifts), where that frame IS the sub-mesh's. A boss's body, posed by
+                // its brain (its hull is not that frame), keeps the old carry by the frame's translation:
+                // with the whole matrix five boss fights and Velagunder's taunt changed (drive cases).
                 if (nm == player_floor_obj) {
                     Mat4 f;
-                    if (mesh_frame_mat(m, &f)) {
+                    bool sole = false;
+                    if (mesh_frame_mat(m, &f, &sole)) {
                         auto bf = baked_frame.find(nm);
                         if (bf != baked_frame.end()) {
                             mesh_delta[nm] = {f.m[12] - bf->second.m[12], f.m[13] - bf->second.m[13], f.m[14] - bf->second.m[14]};
-                            floor_was = bf->second; floor_now = f; floor_moved = true;
+                            floor_was = bf->second; floor_now = f; floor_moved = sole && nm[0] == '#';
                         }
                         baked_frame[nm] = f;
                     }

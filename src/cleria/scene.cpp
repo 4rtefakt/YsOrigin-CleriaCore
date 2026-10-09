@@ -697,13 +697,13 @@ bool translate_object(RoomMesh& m, const std::string& lname, const Vec3& d) {
 bool object_frame(const fs::path& asset_root, const SobObject& o, const char* clip, float frame,
                   Vec3* t) {
     Mat4 f;
-    if (!object_frame_mat(asset_root, o, clip, frame, &f)) return false;
+    if (!object_frame_mat(asset_root, o, clip, frame, &f, nullptr)) return false;
     *t = {f.m[12], f.m[13], f.m[14]};
     return true;
 }
 
 bool object_frame_mat(const fs::path& asset_root, const SobObject& o, const char* clip, float frame,
-                      Mat4* out) {
+                      Mat4* out, bool* sole) {
     // FUN_00573aa0: *(state+4 + mesh[0]+0x2c * 0x170 + 0x34), i.e. row 3 y of that node's
     // instance matrix (state +0x00; B x world, with B identity in ~98.5% of nodes).
     const fs::path file = resolve_ymo(asset_root, o.ymo_path);
@@ -725,6 +725,7 @@ bool object_frame_mat(const fs::path& asset_root, const SobObject& o, const char
     for (const Node& n : mp->nodes)
         if (n.mesh_index == 0) {
             *out = n.offset * n.world * place;
+            if (sole) *sole = mp->meshes.size() == 1;
             return true;
         }
     return false;
