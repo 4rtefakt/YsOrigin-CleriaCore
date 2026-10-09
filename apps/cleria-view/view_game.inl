@@ -1247,6 +1247,7 @@ title_again:
     };
     // The player's specular tint struct (+0x260; hit_feedback.hpp): the GUARD and Boost-ready white flashes.
     // [not modelled] the diffuse struct +0x278 and the other writers of both (SCREEN_EFFECTS.md U14).
+    Vec3 light_drawn{1.0f, 1.0f, 1.0f};                    // the scene light's colour of the last frame (the log)
     hitfx::Tint player_spec;
     auto player_white_flash = [&](float step) {
         hitfx::white_flash(player_spec, step);
@@ -2500,8 +2501,9 @@ title_again:
         void mesh_material_color(const std::string& n, const std::string& mat, int r, int g, int b) override {   // 0x182
             if (meshes) meshes->set_material_color(n, mat, {float(r) / 255.0f, float(g) / 255.0f, float(b) / 255.0f});
         }
-        // 0xaa Light_Directional (DALLES.md §2.2): the colour 0x76a570..78 and the direction 0x76a564..6c, kept as
-        // state only [not modelled: the view has no scene light; the readers of the two records are not traced].
+        // 0xaa Light_Directional (DALLES.md §2.2): the colour 0x76a570..78 multiplies the world's materials and the
+        // actor sprites (g_scene_light, SCREEN_EFFECTS.md §4.3); the direction 0x76a564..6c is kept as state only
+        // [not modelled: the lit models' N.L / hemisphere term].
         Vec3 light_rgb{1.0f, 1.0f, 1.0f}, light_dir{};
         void light_directional(std::uint32_t argb, float x, float y, float z) override {
             light_rgb = {float((argb >> 16) & 0xffu) / 255.0f, float((argb >> 8) & 0xffu) / 255.0f, float(argb & 0xffu) / 255.0f};
@@ -2798,6 +2800,9 @@ title_again:
         csMgr.paused = false;
         csHost.heal_spots.clear();
         csHost.mirror = false; csHost.cubemap.clear();   // FUN_00431260 clears 0x74c104 with the scene [M]
+        // ... and sets the scene light back to (1, 1, 1) [EXPORT 00431260.c:113-133]; the room's SNF block then
+        // gives its colour (Room::snf_light), the root script's Light_Directional after it.
+        csHost.light_rgb = room.snf_light;
         fog_script_reset();                              // a new room: no script-selected fog record
         csHost.box_active = false; csHost.advance = false;
         camera_return();                            // no forced camera carries across rooms
@@ -8560,6 +8565,11 @@ title_again:
             }
         }
         have_vp = true;
+        if (scrfx_log && (csHost.light_rgb.x != light_drawn.x || csHost.light_rgb.y != light_drawn.y ||
+                          csHost.light_rgb.z != light_drawn.z))
+            std::printf("  [light] t%llu the scene light's colour (%.3f, %.3f, %.3f)\n", (unsigned long long)tick_count,
+                        csHost.light_rgb.x, csHost.light_rgb.y, csHost.light_rgb.z);
+        g_scene_light = light_drawn = csHost.light_rgb;    // 0x76a570..78 -> 0x7b2f14..1c: the world draws below
         write_mvp(g, last_vp);
         const WGPUTextureView frame_view = view, frame_depth = depth;
         video_world_begin(g, cw, ch, view, depth);       // Render scale: the world's own target (view_video.inl)
@@ -8575,7 +8585,7 @@ title_again:
             const float palpha = wpl ? wpl->ai.alpha : 1.0f;   // Chr_Alpha(13, ...) (+0x4d8)
             if (palpha > 0.0f)
                 draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos,
-                               0.0f, 1.0f, 1.0f, 1.0f, false, palpha,
+                               0.0f, g_scene_light.x, g_scene_light.y, g_scene_light.z, false, palpha,   // diffuse x the scene light
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,   // Chr_Tremble(13)
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f,
                                wpl ? wpl->scale : 1.0f, player_spec.colour());   // +0x14c from the tint struct +0x260
@@ -8654,6 +8664,7 @@ title_again:
                         (unsigned long long)tick_count, zb.strength, zb.alpha8(), kZoomBlurTaps, zb.cx, zb.cy);
         }
         video_world_end(g, frame_view, frame_depth, view, depth);   // the world onto the frame (view_video.inl)
+        g_scene_light = {1.0f, 1.0f, 1.0f};                   // the HUD / menu draws that share write_mvp stay white
         player.character = character;
         player.magic = inv.magic;
         hud_state_fill();                                     // view_hudstate.inl

@@ -380,10 +380,11 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (!t->tex) continue;
         // The hurt tint (hit_feedback.hpp): while +0x238 runs, FUN_00473c60 sets the sprite's
         // specular to 0x6b3713, added after the texture modulate. (It was a 6-tick lerp to white.)
+        // The diffuse word's R, G, B x the scene light's colour [BYTES 0x473a16..0x473a6d]; the specular is not.
         const std::uint32_t tc = e.actor->tint;
         draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos, 0.0f,
-                       float((tc >> 16) & 0xff) / 255.0f, float((tc >> 8) & 0xff) / 255.0f,
-                       float(tc & 0xff) / 255.0f, false, e.actor->ai.alpha * e.actor->tint_alpha,
+                       float((tc >> 16) & 0xff) / 255.0f * g_scene_light.x, float((tc >> 8) & 0xff) / 255.0f * g_scene_light.y,
+                       float(tc & 0xff) / 255.0f * g_scene_light.z, false, e.actor->ai.alpha * e.actor->tint_alpha,
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,     // Chr_Tremble
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale,
                        hitfx::hurt_specular(e.actor->hit_flash));

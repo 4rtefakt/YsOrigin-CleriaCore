@@ -59,6 +59,7 @@ struct ScrollBatch {
 };
 
 struct Room {
+    Vec3 snf_light{1.0f, 1.0f, 1.0f};  // the SNF block's light colour (white without the file: FUN_00431260's default)
     RoomMesh mesh;
     std::vector<ScrollBatch> scrolls;  // materials with flag 0x4 / nonzero velocity
     RoomMesh coll;           // the `_.YMO` collision hulls — what physics collides against
@@ -695,6 +696,15 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     // SFO sidecar: the room's fog regions.
     fs::path sfo = sob; sfo.replace_extension(".SFO");
     if (fs::exists(sfo)) r.fog = Sfo::parse(read_bytes(sfo));
+    // SNF sidecar: the scene light. Only its colour is read here (Scene_LoadStaticScnInf FUN_00434560 [EXPORT
+    // 00434560.c:44-88]: the 'SNF\0' block's +0x0c, a D3DCOLOR / 255 -> 0x76a570..78); the block follows the
+    // 16-byte file header. [DATA] 0xFFFFFFFF in every shipped room but S_TEST0 (0xFF000000).
+    fs::path snf = sob; snf.replace_extension(".SNF");
+    if (fs::exists(snf)) {
+        const std::vector<std::uint8_t> b = read_bytes(snf);
+        if (b.size() >= 0x20 && b[0] == 'S' && b[1] == 'N' && b[2] == 'F')
+            r.snf_light = {float(b[0x1e]) / 255.0f, float(b[0x1d]) / 255.0f, float(b[0x1c]) / 255.0f};
+    }
     // SCM sidecar: the room's camera regions (the game's authored cameras).
     fs::path scm = sob; scm.replace_extension(".SCM");
     if (fs::exists(scm)) r.cam = Scm::parse(read_bytes(scm));
@@ -1079,12 +1089,16 @@ struct FogState {
     bool on = false;
 };
 static FogState g_fog;
+// The scene light's colour (0x7b2f14..1c, copied from 0x76a570..78 every frame by FUN_00427c90): c16.rgb =
+// lightColour x the material's diffuse for EVERY material, lit or not [EXPORT 005f92b0.c:123-145], and the actor
+// sprites' vertex colours take it too (FUN_00473c60's callers; build/render_re/SCREEN_EFFECTS.md §4.3). The game
+// frame sets it; white (the scene reset's default) everywhere else. [not modelled] the lit models' N.L / hemisphere.
+static Vec3 g_scene_light{1.0f, 1.0f, 1.0f};
 
 static void write_mvp(Gpu& g, const Mat4& mvp) {
     float u[28];
     std::memcpy(u, mvp.m.data(), 64);
-    const Vec3 L = normalize({0.4f, 1.0f, 0.35f});
-    u[16] = L.x; u[17] = L.y; u[18] = L.z; u[19] = 1.0f;
+    u[16] = g_scene_light.x; u[17] = g_scene_light.y; u[18] = g_scene_light.z; u[19] = 1.0f;
     u[20] = g_fog.r; u[21] = g_fog.g; u[22] = g_fog.b; u[23] = 1.0f;
     u[24] = g_fog.near_; u[25] = g_fog.far_; u[26] = g_fog.on ? 1.0f : 0.0f; u[27] = 0.0f;
     wgpuQueueWriteBuffer(g.queue, g.ubuf, 0, u, sizeof(u));

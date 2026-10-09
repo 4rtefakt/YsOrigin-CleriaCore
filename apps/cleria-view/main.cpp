@@ -273,7 +273,8 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
   if (tc.a < 0.5) { discard; }
   // Fixed-function MODULATE: texture * baked vertex colour, + the specular oD1 (0 but for a model's
   // additive colour c17: the boss hit flash, Room::mat_add), saturated.
-  var c = min(tc.rgb * in.color.rgb + in.spec, vec3<f32>(1.0, 1.0, 1.0));
+  // u.light: the scene light's colour, in every material's c16 (white but for Dalles's / Darm's rooms).
+  var c = min(tc.rgb * in.color.rgb * u.light.rgb + in.spec, vec3<f32>(1.0, 1.0, 1.0));
   // D3D9 linear fog, driven by the room's real SFO region data:
   //   f = (far - d) / (far - near), clamped;  colour = lerp(fog, lit, f)
   if (u.fogParams.z > 0.5) {
@@ -291,7 +292,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
 // room's fog colour; modes 2/3 set FOGCOLOR 0 (FUN_005f92b0 local_60), so they fog to black.
 fn mat_lit(in : VsOut) -> vec4<f32> {
   let tc = textureSample(tex, smp, in.uv);
-  return vec4<f32>(min(tc.rgb * in.color.rgb + in.spec, vec3<f32>(1.0, 1.0, 1.0)), tc.a * in.color.a);
+  return vec4<f32>(min(tc.rgb * in.color.rgb * u.light.rgb + in.spec, vec3<f32>(1.0, 1.0, 1.0)), tc.a * in.color.a);
 }
 fn fog_f(depth : f32) -> f32 {
   return clamp((u.fogParams.y - depth) / max(u.fogParams.y - u.fogParams.x, 0.001), 0.0, 1.0);

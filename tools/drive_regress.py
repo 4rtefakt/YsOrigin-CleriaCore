@@ -1649,6 +1649,14 @@ CASES.update({
         room="S_10/S_1009/S_1009", char="2", env=dict(CLERIA_SCRFX_LOG="1"),
         drive="3:flag=187,1;4:flag=188,1;12:boost=30000;20:boostkey;90:boostkey;190:hurt=60;200:quit",
         expect=["[tint] t190 player specular 0xffffff -> 0, step 0.050", "[popup] 0 ff0000"]),
+    # The scene light's colour (§4.3) multiplies every material's diffuse and the actor sprites: Darm's state
+    # machine sets it by FUN_00443ea0 — 0xffaa8080 in the normal stance (the fight's first frames), 0xffaaaa80 next.
+    "scene_light": dict(
+        room="S_70/S_7099/S_7099", env={"CLERIA_CHAR": "3", "CLERIA_SCRFX_LOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss8;61:every=15,2900,oktapf;2900:quit",
+        expect=["[light] t11 the scene light's colour (0.667, 0.502, 0.502)",
+                "[light] t2838 the scene light's colour (0.667, 0.667, 0.502)"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

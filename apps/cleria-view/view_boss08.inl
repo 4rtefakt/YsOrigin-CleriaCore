@@ -31,8 +31,8 @@
 // Room::mat_alpha; a limb at alpha 0 is not drawn.
 // MatMode's RGB (DARM_A §A.6: Down = black, form change = the outline silhouette) multiplies the vertex colours of
 // the body's and the tail's materials (boss8_set_matmode, Room::mat_rgb).
-// [not modelled] the "damaged limb" material bit 0x20000 and the chest flag word (§A.1.3), the scene light (state kept, no
-// consumer: csHost.light_rgb / light_dir), the player tints (the ctor's grey P+0x290, the fall's P+0x148),
+// [not modelled] the "damaged limb" material bit 0x20000 and the chest flag word (§A.1.3), the scene light's direction
+// (its colour is drawn: g_scene_light), the player tints (the ctor's grey P+0x290, the fall's P+0x148),
 // fx+0x1dc |= 0x100 / 0x108 of the inline effects and their pool-full gate (never full here), the `src`
 // argument of FX / FX2 (fx+0x1da), the kill record FUN_00403cd0, flags 518 / 519 / 529..532 / 544..546 (dwords past
 // g_flags), FUN_00461160(0) / P+0x9fc / Toal's two burst effects at the fall, the armor bit of a closed part (no
@@ -292,7 +292,7 @@ auto boss8_apply = [&](const Boss08Output& out, MeshObj** mo) {
     if (pw.iframes) player_iframes = int(*pw.iframes);     // P+0x734 = n
     if (pw.iframes_min) player_iframes = std::max(player_iframes, int(*pw.iframes_min));
     for (int sct : pw.sections) avm.set_section(sct, /*force*/true);   // FUN_00446620: ungated
-    if (out.light) {                                       // FUN_00443ea0(colour, &dir): state only [not modelled]
+    if (out.light) {                                       // FUN_00443ea0(colour, &dir): the colour is drawn, the dir kept
         csHost.light_rgb = {float((*out.light >> 16) & 0xffu) / 255.0f, float((*out.light >> 8) & 0xffu) / 255.0f,
                             float(*out.light & 0xffu) / 255.0f};
         csHost.light_dir = {-0.182574f, -0.912871f, 0.365148f};
