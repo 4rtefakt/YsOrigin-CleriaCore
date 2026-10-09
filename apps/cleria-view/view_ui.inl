@@ -68,6 +68,10 @@ struct Nav {
 // The mouse over [a, b]. Unclipped: the kit draws on the foreground list outside any ImGui
 // window, and the clipped test would clip to the implicit 400x400 debug window.
 inline bool hovering(const ImVec2& a, const ImVec2& b) { return ImGui::IsMouseHoveringRect(a, b, false); }
+// The pointer is over something clickable: the system hand cursor for this frame (a CleriaCore addition, not
+// retail; the shell only — the game's own cursor sprite is not touched). ImGui_ImplSDL3 owns the SDL system
+// cursors (made once at its init, freed at its shutdown) and falls back to the arrow on a frame without a call.
+inline void hand() { ImGui::SetMouseCursor(ImGuiMouseCursor_Hand); }
 
 // The pad's share of the navigation (view_pad.inl): [cleria.pad] SwapConfirmCancel swaps its OK and
 // Back, and while the Controller page is drawn (pad_test_frame = that frame) the pad is free for the
@@ -193,6 +197,7 @@ inline RowIo row_frame(List& L, const char* desc, bool enabled, bool focusable =
     r.selected = i == L.sel;
     if (r.selected && desc) L.desc = desc;
     if (enabled && L.focus) {
+        if (hover && focusable) hand();
         if (r.selected) {
             if (L.nav.ok) r.activate = true;
             if (L.nav.left) r.delta = -1;
@@ -383,6 +388,7 @@ struct Panel {
             const std::string t = upper(pages[i].name.c_str());
             const ImVec2 ts = text_size(F.cond, tpx, t.c_str());
             const ImVec2 ta{x - 10.0f * S, a.y}, tb{x + ts.x + 10.0f * S, a.y + tab_h};
+            if (hovering(ta, tb)) hand();
             if (hovering(ta, tb) && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) tab = i;
             const bool on = i == tab;
             text(dl, F.cond, tpx, {x, a.y + (tab_h - tpx) * 0.5f}, on ? kTabOn : kTabOff, t.c_str());
@@ -395,6 +401,7 @@ struct Panel {
             const float r = 6.0f * S;
             const bool hov = hovering({c.x - 14 * S, c.y - 14 * S}, {c.x + 14 * S, c.y + 14 * S});
             const ImU32 col = hov ? kTabOn : kTabOff;
+            if (hov) hand();
             dl->AddLine({c.x - r, c.y - r}, {c.x + r, c.y + r}, col, 1.6f * S);
             dl->AddLine({c.x - r, c.y + r}, {c.x + r, c.y - r}, col, 1.6f * S);
             if (hov && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { open = false; return false; }
@@ -453,6 +460,7 @@ struct MainMenu {
         for (int i = 0; i < n; ++i) {
             const ImVec2 a{x0, 640.0f * S + step * float(i)}, b{a.x + 330.0f * S, a.y + ih};
             if (focus && hovering(a, b)) {
+                hand();
                 if (ImGui::GetIO().MouseDelta.x != 0.0f || ImGui::GetIO().MouseDelta.y != 0.0f) sel = i;
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { sel = i; hit = i; }
             }

@@ -258,6 +258,7 @@ static void mods_row(ui::List& L, ModsUi& u, int i) {
         const ImVec2 c{ax + float(k) * 24.0f * S, cy};
         const ImVec2 a{c.x - 10.0f * S, r.a.y + 2.0f * S}, b{c.x + 10.0f * S, r.b.y - 2.0f * S};
         const bool hov = L.focus && ui::hovering(a, b);
+        if (hov) ui::hand();
         if (hov && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { move = k == 0 ? -1 : 1; r.activate = false; }
         const ImU32 col = hov ? ui::kTabOn : (r.selected ? ui::kTabOff : ui::kRowEdge);
         const float h = 5.0f * S, w = 6.0f * S;
@@ -286,6 +287,7 @@ static void mods_row(ui::List& L, ModsUi& u, int i) {
     const ImVec2 sa{vx - 8.0f * S, r.a.y + 3.0f * S}, sb{r.b.x - 26.0f * S, r.b.y - 3.0f * S};
     bool toggle = false;
     if (L.focus && ui::hovering(sa, sb)) {
+        ui::hand();
         L.dl->AddRect(sa, sb, ui::kRowEdge, 3.0f * S, 0, 1.0f * S);
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { toggle = true; r.activate = false; }
     }

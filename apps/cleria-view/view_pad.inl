@@ -651,6 +651,7 @@ static void pad_page(ui::List& L, Shell& shell) {
     if (in_pane)
         for (auto it = parts.rbegin(); it != parts.rend(); ++it)
             if (it->button >= 0 && it->hit(mouse)) { hover = it->button; break; }
+    if (hover >= 0) ui::hand();
     if (hover >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         if (sel_action >= 0) bind(sel_action, hover);
         else if (const int a = pad::action_on(binds, hover); a >= 0) L.sel = first_action_row + a;
