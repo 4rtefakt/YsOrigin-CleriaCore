@@ -1206,6 +1206,7 @@ title_again:
         player.max_hp = player.hp = int(player_stats().max_hp);
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     ailments::State ail;               // poison / heavy / confuse / curse: 0x76c15c..0x76c16c (view_ailments.inl)
+    bool toal_air_cast = false;        // +0x7b0: Toal's last 0x76 (Ignis) cast started in the air
     Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
     Impulse player_kb2{};              // knock channel 2, +0x344/+0x34c: body / bullet pushes
     float arena_last_x = 0, arena_last_z = 0;   // +0x3e0/+0x3e8: last point inside the mode-2 ring ([H] start)
@@ -3016,9 +3017,15 @@ title_again:
         player.boosting = false;
         game.g_flags[141] = 0;                            // DAT_0076bb50
         kill_named_fx("#boost_aura");                     // the aura's +0x1d4 = 1
-        if (character == 3) {                             // PC3_mazin_hatudou
-            const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
-            spawn_sim_fx(172, at, {}, 1.0f, {}, 13, at);
+        if (character == 3) {
+            // PC3_mazin_hatudou, inline in FUN_00462c40 [EXPORT 00462c40.c:122-190]: power 0, knock 1, rtype 0,
+            // class 0xff, SIDE 0 (the player's: its three hit emitters strike the monsters), then
+            // FUN_00451c20(player+0x20, 0, (0, camera yaw, 0), 1, mode 2). It used to spawn with the default
+            // side 1 and hurt Toal himself (BOOST_SKILLS.md F10).
+            ef2sim::SpawnParams sp;
+            sp.side = 0; sp.power = 0.0f; sp.knock = 1.0f; sp.cls = -1; sp.owner = 13;
+            sp.atk = player_stats().atk;
+            attach_to_player(spawn_sim_fx(172, {}, {}, 1.0f, sp, 0, {}), {}, camera_yaw());
         }
         avm.set_section(2);                               // FUN_00446550(2, 0): refused under a higher-priority move
     };
@@ -3048,11 +3055,14 @@ title_again:
         }
         // The super needs g_flags[188] (first set late, S_6009) and a section outside {9, 5}.
         if (game.g_flags[188] == 0 || avm.section() == 9 || avm.section() == 5) return;
+        // ... and not busy, no fix: the block's own tests [BYTES 0x465b1d..0x465cdd] (BOOST_SKILLS.md §2.1).
+        if (game.g_flags[161] != 0 || game.g_flags[151] == -1 || csMgr.world_frozen()) return;
         // Second press: the EXTRA section. These live outside the 0x100..0x10f combo range,
         // so they are requested directly; they carry their own hitboxes, which the existing
         // armed_hitbox() path already resolves.
         const int extra = character == 1 ? 313 : character == 2 ? 300 : 317;
         if (!avm.set_section(extra, /*force*/true)) return;
+        avm.set_local(8, 0);                              // +0x9fc = 0, the re-cast window (0x465d9b)
         pad_rumble(5);                                    // FUN_005d3500(5) at 0x465dc0 (view_pad.inl)
         atk_dir = face_dir;
         player_hit_serial = next_hit_serial(world.hit_serial_counter_);
@@ -3142,6 +3152,9 @@ title_again:
             shield_life = charged ? 0x17c : 0x168;
             if (player.boosting) { shield_life = 0x1e0; shield_hits += 1; }
         }
+        // Toal's 0x76 cast: +0x7b0 = (+0x388 == 0), "cast in the air" [EXPORT 0046ea00.c:171-173]; only the
+        // next 0x76 cast rewrites it. The slow fall reads it (BOOST_SKILLS.md §3.6).
+        if (character == 3 && inv.magic == 0x76) toal_air_cast = !pv.grounded;
         pad_rumble(so.level == 2 ? 2 : 0);               // FUN_005d3500: 0x46f19b charged (2) / 0x46f27a (0)
         avm.set_section(so.section, /*force*/true);
         avm.set_local(12, so.level);                      // LocalInt 12 = c138
@@ -6001,6 +6014,27 @@ title_again:
                 if (shield_life == 0 || shield_hits == 0) remove_shield(shield_hits == 0);
                 else if (!fx_live(shield_fx)) remove_shield(false);   // [guard, not retail] the effect is gone
             }
+            // Toal's pull (the tail of FUN_0046a3e0, every logic tick in 0x10c / 0x10f, no Marker test [EXPORT
+            // 0046a3e0.c:388-476]; BOOST_SKILLS.md §3.5): every live monster (kind +0x60 & 0x18, +0x130 & 0x4000
+            // clear) within 10 with a clear line to him is drawn on its knock channel 2 toward the point 2.0
+            // ahead of him, 0.1695 x w a tick. [H] not under a Fix (this block is the unfrozen step).
+            if (character == 3 && (avm.section() == 0x10c || avm.section() == 0x10f)) {
+                const float h = std::atan2(face_dir.z, face_dir.x);            // +0x308
+                const Vec3 P{feet.x, feet.y + kOriginH, feet.z};
+                const Vec3 Q{P.x + skillmp::kPullAhead * std::cos(h), P.y, P.z + skillmp::kPullAhead * std::sin(h)};
+                for (Actor& en : world.actors()) {
+                    if (en.is_player() || en.hp < 1.0f || !(en.kind & 0x18u) || (en.flags130 & 0x4000u)) continue;
+                    const Vec3 E{en.pos.x, en.pos.y + en.height, en.pos.z};
+                    const float dx = E.x - P.x, dy = E.y - P.y, dz = E.z - P.z;
+                    const float w = skillmp::pull_weight(std::sqrt(dx * dx + dy * dy + dz * dz), player.boosting);
+                    if (w == 0.0f || segment_blocked(phys_mesh(room), P, E)) continue;
+                    const Vec3 v{E.x - Q.x, E.y - Q.y, E.z - Q.z};
+                    const float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+                    if (l < 1e-6f) continue;
+                    en.mover.k2.x -= v.x / l * skillmp::kPullStep * w;
+                    en.mover.k2.z -= v.z / l * skillmp::kPullStep * w;
+                }
+            }
             const float hx0 = feet.x, hz0 = feet.z;   // the tick's horizontal start (the wall push below)
             {   const int sec = avm.section();
                 const bool skill_sec = sec == 0x109 || (sec >= 0x10c && sec <= 0x111);
@@ -6134,6 +6168,10 @@ title_again:
                     if (pv.t < 0.0f) pv.t *= 0.95f;
                     pv.t += character == 0 ? 0.015f : 0.01f;
                 }
+                // Toal's slow fall: 0x10e / 0x111 cast in the air (+0x7b0), the timer negative
+                // [EXPORT 00465170.c:2491-2502].
+                if (character == 3 && toal_air_cast && (ss == 0x10e || ss == 0x111) && pv.t < 0.0f)
+                    pv.t = skillmp::slow_fall(pv.t, ss == 0x111);
                 // Hugo's: while the shield effect stands (any section), airborne and falling,
                 // t *= 0.88 (0x6bd3d8) — a sink of ~0.074 u/tick.
                 if (character == 2 && shield_on && !pv.grounded && pv.t < 0.0f) pv.t *= 0.88f;
@@ -6891,6 +6929,15 @@ title_again:
                     HitResult r = apply_damage(en.hp, en.flags, dmg);
                     if (r.died && boss6_zava_undying(en)) { en.flags &= ~kActorDead; r.died = false; }   // her handler floors it (view_boss06.inl)
                     if (dmg > 0) kill_combo.hit();   // 0x4fc835: the combo meter, before the kill's EXP
+                    // ... and in the same block, Toal in 0x10c / 0x10f: FUN_0046cc10(500.0) (refused while
+                    // boosting, like every add) and the effect 0x9d at the victim, side 0, power 0, knock 1
+                    // [BYTES 0x4fc873..0x4fc8a0; EXPORT 004fbb40.c:508-552].
+                    if (dmg > 0 && character == 3 && (avm.section() == 0x10c || avm.section() == 0x10f)) {
+                        add_boost(500.0f);
+                        ef2sim::SpawnParams sp;
+                        sp.side = 0; sp.power = 0.0f; sp.knock = 1.0f; sp.cls = -1; sp.owner = 13;
+                        spawn_sim_fx(0x9d, {en.pos.x, en.pos.y + en.height, en.pos.z}, {}, 1.0f, sp, 0, {});
+                    }
                     {   // FUN_004fbb40's own feedback (hit_feedback.hpp), at the victim's origin.
                         const Vec3 org{en.pos.x, en.pos.y + en.height, en.pos.z};
                         // The tail 0x4fd241: FUN_004fae00(0xffffffff), the white damage number (a GoPopup,
@@ -7557,8 +7604,27 @@ title_again:
                 const int raw = player_incoming_damage(AttackStats{atk, bonus, 0}, pdef,
                     [&](float p) { return float(rng_pct(rng)) < p; },
                     IncomingMode{game.g_flags[144], game.g_flags[143] != 0, game.g_flags[201] != 0});   // DIFFICULTY.md G8
-                const int dmg = access::damage_taken(player_damage_after_boost(raw, player.boosting),
-                                                     settings().s.access.damage_taken);   // the shell's Cheats
+                int dmg = access::damage_taken(player_damage_after_boost(raw, player.boosting),
+                                               settings().s.access.damage_taken);   // the shell's Cheats
+                // The MP super-armour of Yunica's 0x10c / 0x10f and Toal's 0x10e / 0x111 (Marker 0): with the MP
+                // it is spent and the hit is the GUARD above (0x4fd90e); without, 16 i-frames and x 0.75
+                // (skillmp::armor, BOOST_SKILLS.md §3.3). [not modelled] the guard's white flash.
+                if (const skillmp::Armor ar = skillmp::armor(character, avm.section(), avm.marker(), player.sp_cur);
+                    ar.active) {
+                    player_iframes = std::max(player_iframes, skillmp::kArmorIframes);
+                    if (ar.guard) {
+                        player.sp_cur -= ar.spend;
+                        audio.play(0x79, kSfxAnimVol);
+                        if (popups.size() < 32)
+                            popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
+                                                        {feet.x, feet.y + kOriginH + 0.75f, feet.z}));
+                        damage_popup(0, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
+                        const Impulse k = knock_impulse(angle, 0.1f);
+                        player_kb.x += k.x; player_kb.z += k.z;
+                        return;
+                    }
+                    dmg = int(float(dmg) * skillmp::kArmorScale);
+                }
                 player.hp -= dmg;
                 if (player.hp < 1) player.hp = 0;             // FUN_004fd350: hp - dmg < 1.0 -> hp = 0 (no "-3/60")
                 if (dmg > 0) player_hurt_this_tick = true;    // +0x3bc |= 6 (FUN_004fd350 0x4fde3c)

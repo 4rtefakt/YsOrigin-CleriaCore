@@ -108,6 +108,27 @@ int main(int, char**) {
               attack_kind(0x112) == 4 && attack_kind(2) == 0, "attack kinds from 0x69bc14");
         check(!boost_hit_counts(5) && boost_hit_counts(1), "skill hits build no Boost");
     }
+    {   // BOOST_SKILLS.md §2.6 / §3.3 / §3.5 / §3.6
+        check(attack_kind(0x12c) == 14 && attack_kind(0x139) == 0 && attack_kind(0x13a) == 8 &&
+              attack_kind(0x13d) == 0 && attack_kind(0x134) == 13 && attack_kind(0x12b) == 0,
+              "attack kinds past 0x12a (Hugo's super 300 = 14)");
+        Armor a = armor(1, 0x10c, 0, 500.0f);
+        check(a.active && a.guard && a.spend == 500.0f, "Yunica 0x10c with 500 MP: guard, 500 spent");
+        a = armor(1, 0x10f, 0, 499.0f);
+        check(a.active && !a.guard, "Yunica 0x10f under 500 MP: x 0.75 and 16 i-frames");
+        a = armor(3, 0x10e, 0, 200.0f);
+        check(a.active && a.guard && a.spend == 200.0f, "Toal 0x10e, Marker 0, 200 MP: guard");
+        check(!armor(3, 0x10e, 1, 3000.0f).active, "Toal 0x10e past Marker 1: no armour");
+        check(!armor(3, 0x10c, 0, 3000.0f).active && !armor(1, 0x10d, 0, 3000.0f).active && !armor(2, 0x10c, 0, 3000.0f).active,
+              "no armour in the other sections / for Hugo");
+        check(armor(3, 0x111, 0, 100.0f).active && !armor(3, 0x111, 0, 100.0f).guard, "Toal 0x111 under 200 MP: x 0.75");
+        check(pull_weight(10.0f, false) == 0.0f && pull_weight(9.5f, false) == 0.1f && pull_weight(0.5f, false) == 1.0f,
+              "pull weight: nothing at 10, 0.1 at 9.5, 1.0 inside 1");
+        check(pull_weight(4.5f, false) == 0.6f && pull_weight(1.2f, true) == 1.0f && pull_weight(9.9f, true) == 0.4f,
+              "pull weight: 0.6 at 4.5; boosting scales the thresholds x 1.5");
+        check(slow_fall(-0.2f, false) == -0.2f * 0.94f + 0.006f && slow_fall(-0.2f, true) == -0.2f * 0.925f + 0.009f,
+              "Toal's slow fall: t x 0.94 + 0.006, charged t x 0.925 + 0.009");
+    }
     std::printf("[skill] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }

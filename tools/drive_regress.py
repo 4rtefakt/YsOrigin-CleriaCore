@@ -1134,6 +1134,40 @@ CASES.update({
                 "feet (3.415, 2.000, 7.800)", "confuse for 600 ticks", "feet (0.055, 2.000, 7.800)",
                 "curse for 1200 ticks", "mask 0x39 timers 639 169 533 1199 fx 1111", "curse ends",
                 "mask 0x19 timers 636 166 530 0 fx 1110"]),
+    # BOOST_SKILLS.md F10: Toal's Boost-end effect 172 is the player's (side 0). It used to spawn on the enemy
+    # side and take 2 HP off Toal himself (hp 60 -> 58 by t127).
+    "toal_boost_end_fx": dict(
+        room="S_10/S_1009/S_1009", char="3", env={"CLERIA_DMG": "1"},
+        drive="3:flag=187,1;12:boost=30000;20:boostkey;21:abil;100:boost=30;110:abil;180:stats;190:quit",
+        expect=["boosting 1 iframes 59", "[abil] t110", "boosting 0", "t180 stats", "hp 60/60"],
+        absent=["fx 172 ("]),
+    # BOOST_SKILLS.md §3.5: Toal's Terra (bracelet 117, section 0x10c) pulls the Riffligan 6 units away to the
+    # point 2.0 in front of him (from (-36.5, 6.6) to (-40.4, 5.5); Toal stands at (-42.26, 4.98)), where the
+    # skill's two hits land; each landed hit gives +500 Boost (1089 = 2 x 500 + the passive fill).
+    "toal_terra_pull": dict(
+        room="S_10/S_1001/S_1001", char="3",
+        drive="5:opt=InfiniteHP=1;6:flag=187,1;8:bracelet=117;9:flag=117,1;10:flag=183,1;40:nearest=6;42:actors;"
+              "43:skill+;45:skill-;47:abil;95:abil;96:actors;120:quit",
+        expect=["id 187 cast 14 enemy hp 60 g1 0 pos (-36.5,-4.0,6.6)", "[abil] t47 sec 0x10c mp 2300",
+                "[abil] t95 sec 0x2 mp 2300 lag 2400 boost 1089", "combo 2/",
+                "id 187 cast 14 enemy hp 39 g1 0 pos (-40.4,-4.0,5.5)"]),
+    # BOOST_SKILLS.md §3.3: a hit inside Toal's Ignis (bracelet 118, 0x10e) while its Marker is 0 costs 200 MP
+    # and is a GUARD (0 damage); with under 200 MP the hit is x 0.75 (the 21 becomes 15) and gives 16 i-frames.
+    "toal_ignis_armor": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="8:bracelet=118;9:flag=118,1;10:flag=184,1;43:skill+;45:skill-;47:abil;48:hurt=60;50:abil;130:mp=700;"
+              "131:skill+;133:skill-;135:mp=100;136:hurt=60;138:abil;200:quit",
+        expect=["[abil] t47 sec 0x10e mp 2400", "[popup] 0 ff0000", "Chr_Damage player atk 60 -> HP 60",
+                "[abil] t50 sec 0x10e mp 2200", "iframes 15", "[popup] 15 ff0000", "Chr_Damage player atk 60 -> HP 45",
+                "[abil] t138 sec 0x10e", "iframes 15"]),
+    # BOOST_SKILLS.md §3.6: Ignis cast in the air (after a double jump) falls slowly: 40 ticks after the cast
+    # Toal is still 3 units above the floor (y 2.0) he would have reached in ~25.
+    "toal_ignis_slow_fall": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="8:bracelet=118;9:flag=118,1;10:flag=184,1;11:flag=163,1;40:jump;52:jump;60:pos;61:skill+;63:skill-;"
+              "64:abil;80:pos;100:pos;130:quit",
+        expect=["feet (0.055, 6.766, 7.800)", "[abil] t64 sec 0x10e mp 2400", "feet (0.055, 7.213, 7.800)",
+                "feet (0.055, 6.003, 7.800)"]),
     # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
     # load tick's drain) and takes the continue snapshot, so a
     # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn

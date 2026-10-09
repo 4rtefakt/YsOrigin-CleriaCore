@@ -9,9 +9,11 @@ const short kCost[4][3] = {{1000, 600, 300}, {700, 700, 400}, {2000, 600, 900}, 
 const short kCostNm[4][3] = {{0, 0, 0}, {300, 300, 300}, {0, 300, 300}, {300, 300, 300}};
 const short kCostAdolAlt[3] = {1500, 1800, 1200};
 const short kRegen[4] = {2, 4, 6, 8};
-// 0x69bc14[0x100 .. 0x12a]
-const unsigned char kKind[0x2b] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 7, 2, 5, 5, 5, 5, 5, 5, 4, 1, 1, 1,
-                                   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+// 0x69bc14[0x100 .. 0x13d]; the engine reads it with no upper bound [BYTES 0x465999..0x4659b3]. 0x12b.. from
+// the bytes at 0x69bd3f..0x69bd51: Hugo's super 300 (0x12c) is kind 14, Yunica's 0x139 and Toal's 0x13d are 0.
+const unsigned char kKind[0x3e] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 7, 2, 5, 5, 5, 5, 5, 5, 4, 1, 1, 1,
+                                   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                   0, 14, 0, 15, 0, 16, 0, 17, 0, 13, 0, 6, 0, 7, 0, 8, 0, 0, 0};
 }  // namespace
 
 int bracelet_slot(int magic) {
@@ -29,8 +31,28 @@ int damage_class(int magic) {
 }
 
 int attack_kind(int section) {
-    if (section < 0x100 || section >= 0x100 + int(sizeof kKind)) return 0;
+    if (section < 0x100 || section >= 0x100 + int(sizeof kKind)) return 0;   // [not modelled] past 0x13d
     return kKind[section - 0x100];
+}
+
+Armor armor(int chr, int section, int marker, float mp) {
+    Armor r;
+    float cost = 0.0f;
+    if (chr == 1 && (section == 0x10c || section == 0x10f)) cost = 500.0f;                       // 0x4fd8e9 (0x6bdcf4)
+    else if (chr == 3 && (section == 0x10e || section == 0x111) && marker < 1) cost = 200.0f;    // 0x4fdaab (0x6bdbc0)
+    else return r;
+    r.active = true;
+    if (mp >= cost) { r.guard = true; r.spend = cost; }      // comiss / jb 0x4fd8f9: MP -= cost, the GUARD
+    return r;                                                // else 0x4fd732: 16 i-frames, damage x 0.75
+}
+
+float pull_weight(float d, bool boosting) {
+    if (d >= 10.0f) return 0.0f;                             // 0x6bd928
+    const float k = boosting ? 1.5f : 1.0f;                  // 0x6bd4d4
+    float w = 0.0f;
+    for (int i = 0; i < 10; ++i)
+        if (d < k * float(10 - i)) w = 0.1f * float(i + 1);  // the last threshold passed wins
+    return w;
 }
 
 float cost_f(const CostIn& in) {

@@ -103,4 +103,31 @@ bool boost_can_add(bool enabled187, bool busy161, bool fix, bool boosting, float
 // +300 per landed hit only for attack kinds outside {0, 5}.
 inline bool boost_hit_counts(int kind) { return kind != 0 && kind != 5; }
 
+// The MP super-armour of a hit taken inside a skill section (FUN_004fd350 [BYTES 0x4fd8c3..0x4fd928,
+// 0x4fda82..0x4fdab3, 0x4fd732..0x4fd75a]; BOOST_SKILLS.md §3.3): Yunica in 0x10c / 0x10f (500 MP), Toal in
+// 0x10e / 0x111 while the Marker is below 1 (200 MP). With the MP: it is spent and the hit is a GUARD
+// (damage 0, 16 i-frames). Without: 16 i-frames and the damage x 0.75, truncated. [not modelled] Adol.
+struct Armor {
+    bool active = false;   // the rule applies to this hit
+    bool guard = false;    // MP >= cost: spend it, damage 0
+    float spend = 0;
+};
+Armor armor(int chr, int section, int marker, float mp);
+inline constexpr float kArmorScale = 0.75f;   // 0x6bd390
+inline constexpr int kArmorIframes = 16;
+
+// Toal's pull in 0x10c / 0x10f (the tail of FUN_0046a3e0 [EXPORT 0046a3e0.c:388-476]; BOOST_SKILLS.md
+// §3.5): the weight of a monster at 3-D distance d. Nothing at d >= 10; else 0.1 .. 1.0 by the thresholds
+// k x {10, 9, .. 1} (k = 1.5 while boosting), the last one passed winning. Each tick the monster's knock
+// channel 2 loses normalize(e - P') x 15 x 0.0113 x w, P' = the point 2.0 ahead of Toal.
+float pull_weight(float d, bool boosting);
+inline constexpr float kPullAhead = 2.0f;                 // the point in front of him
+inline constexpr float kPullStep = 15.0f * 0.0113f;       // 0x6bd964 x 0.6bd090
+// Toal's slow fall in 0x10e / 0x111 cast in the air (FUN_00465170 [EXPORT 00465170.c:2491-2502]): while the
+// vertical timer is negative, t = t x a + b.
+inline float slow_fall(float t, bool charged) {
+    return charged ? t * 0.925f + 0.009f                   // 0x6bd3e8, 0x6bd074
+                   : t * 0.94f + 0.006f;                   // 0x6bd3ec, 0x6bd04c
+}
+
 }  // namespace cleria::skillmp
