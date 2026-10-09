@@ -186,6 +186,47 @@ int main() {
         check(fade == 51 && r.o2 == Oxygen::kMax, "the gauge fades over 51 ticks, then snaps to full");
     }
 
+    {   // Blessing bit 1 and the sand gear on the bad floors (BLESSINGS.md §3.2b).
+        const SurfaceScale s1 = surface_scale(0x12, false, true), s2 = surface_scale(0x12, false, false, false, true),
+                           s3 = surface_scale(0x12, false, true, false, true), l1 = surface_scale(0x0d, false, true),
+                           b1 = surface_scale(0x11, false, true);
+        check(near(s1.xz, 0.5f) && near(s1.up, 0.25f), "sand2 with the blessing: xz 0.5, the rise stays 0.25");
+        check(near(s2.xz, 0.5f) && near(s2.up, 0.5f) && near(s3.xz, 0.75f) && near(s3.up, 0.5f),
+              "sand2 with the sand gear: 0.5 / 0.5; gear + blessing 0.75 / 0.5");
+        check(near(l1.xz, 0.8f) && near(l1.up, 0.6f) && near(b1.xz, 0.8f), "lava / blood with the blessing: xz 0.8, the rise 0.6");
+    }
+    {   // The standing HP regeneration (FUN_00465170 0x466b7f..0x466c77, src/cleria/hazard.hpp).
+        StandingRegen::In in; in.flag209 = true; in.section = 2; in.hp = 30; in.max_hp = 120;
+        StandingRegen r; int first = 0, n = 0; float got = 0;
+        for (int k = 1; k <= 400; ++k) { const float a = r.tick(in); if (a > 0) { if (!first) first = k; ++n; got = a; } }
+        check(first == 312 && n == 4 && near(got, 2.0f), "flag-209 room: after 300 ticks, max HP / 60 every 24");
+        StandingRegen b; in.blessing1 = true; first = 0;
+        for (int k = 1; k <= 200; ++k) if (b.tick(in) > 0 && !first) first = k;
+        check(first == 156, "blessing bit 0: the delay 150 and the period 12");
+        StandingRegen nm; in.difficulty = 2; first = 0;
+        for (int k = 1; k <= 400; ++k) if (nm.tick(in) > 0 && !first) first = k;
+        check(first == 312, "Nightmare doubles both (600 / 48), halved again by the blessing");
+        in.difficulty = 0; in.blessing1 = false;
+        StandingRegen acc; in.acc_regen = true; got = 0;
+        for (int k = 1; k <= 312; ++k) { const float a = acc.tick(in); if (a > 0) got = a; }
+        check(near(got, 4.0f), "the regen accessory in a flag-209 room doubles the amount");
+        StandingRegen acc2; in.flag209 = false; in.blessing1 = true; first = 0; got = 0;
+        for (int k = 1; k <= 312; ++k) { const float a = acc2.tick(in); if (a > 0) { got = a; if (!first) first = k; } }
+        check(first == 312 && near(got, 2.0f), "the accessory alone: the unblessed rate (the blessing needs flag 209)");
+        StandingRegen none; in.acc_regen = false;
+        for (int k = 0; k < 400; ++k) none.tick(in);
+        check(none.n == 0, "no accessory and no flag 209: nothing counts");
+        StandingRegen mv; in.flag209 = true;
+        for (int k = 0; k < 200; ++k) mv.tick(in);
+        in.stick = true; mv.tick(in);
+        check(mv.n == 0, "a stick input restarts the count");
+        in.stick = false; in.section = 0x100; mv.tick(in); mv.tick(in);
+        check(mv.n == 0, "any section but the idle one restarts it");
+        StandingRegen bb; in.section = 2; in.boss_battle = true;
+        float s = 0; for (int k = 0; k < 400; ++k) s += bb.tick(in);
+        check(s == 0.0f, "no regen in a boss battle (flag 156)");
+    }
+
     {   // Floor hazards and the noise drain (FUN_00462550, src/cleria/hazard.hpp).
         SurfaceHazard h;
         SurfaceHazard::In in; in.surface = 0x0d; in.grounded = true; in.max_hp = 100;

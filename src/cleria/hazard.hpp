@@ -69,4 +69,40 @@ struct SurfaceHazard {
     }
 };
 
+// The standing HP regeneration — the mover FUN_00465170 [BYTES 0x466b7f..0x466c77] (BLESSINGS.md §3.1,
+// DIFFICULTY.md G17). It runs with the regen accessory (0x76a624 & 0x400) or in a room whose script set
+// flag 209 (0x76bc60: S_1100..S_5104, zeroed at every scene entry), never in a boss battle (flag 156).
+// While no stick is held (byte +0x514) and the ASO plays section 2 (FUN_0040b230 == 2, the idle stance
+// [H]) the counter +0x760 runs; past the delay, every `period` ticks and with HP >= 1, HP += max HP / 60
+// (doubled with the accessory inside a flag-209 room). Delay / period 300 / 24, Nightmare 600 / 48; the
+// blessing bit 0 (0x76bc80 & 1) halves both, in a flag-209 room only.
+struct StandingRegen {
+    std::uint32_t n = 0;          // +0x760
+
+    struct In {
+        bool boss_battle = false; // flag 156 (0x76bb8c)
+        bool acc_regen = false;   // 0x76a624 & 0x400
+        bool flag209 = false;     // 0x76bc60
+        bool stick = false;       // byte +0x514
+        int section = 2;          // FUN_0040b230(+0x8f0)
+        int difficulty = 0;       // DAT_0076bb5c
+        bool blessing1 = false;   // 0x76bc80 & 1
+        float hp = 0, max_hp = 0; // 0x76a730, +0x94
+    };
+
+    // One player-mover tick: the HP to add (0 = none; the caller clamps at max HP as FUN_004fa160).
+    float tick(const In& in) {
+        if (in.boss_battle) return 0.0f;
+        if (!in.acc_regen && !in.flag209) return 0.0f;
+        if (in.stick || in.section != 2) { n = 0; return 0.0f; }
+        ++n;
+        std::uint32_t delay = in.difficulty == 2 ? 600u : 300u, period = in.difficulty == 2 ? 48u : 24u;
+        if (in.flag209 && in.blessing1) { delay >>= 1; period >>= 1; }
+        if (n <= delay || n % period != 0 || in.hp < 1.0f) return 0.0f;
+        float amt = in.max_hp / 60.0f;                          // 0x6bda94
+        if (in.acc_regen && in.flag209) amt += amt;
+        return amt;
+    }
+};
+
 }  // namespace cleria

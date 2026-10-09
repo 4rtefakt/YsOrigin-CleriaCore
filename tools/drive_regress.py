@@ -1168,6 +1168,21 @@ CASES.update({
               "64:abil;80:pos;100:pos;130:quit",
         expect=["feet (0.055, 6.766, 7.800)", "[abil] t64 sec 0x10e mp 2400", "feet (0.055, 7.213, 7.800)",
                 "feet (0.055, 6.003, 7.800)"]),
+    # BLESSINGS.md §3.1 (issue #45): the standing HP regeneration of a flag-209 room (S_1100): after 300 idle
+    # ticks, max HP / 60 every 24 (30 -> 32 by t340, 34 by t400); nothing in S_1009 (no flag 209, no accessory).
+    "standing_regen": dict(
+        room="S_11/S_1100/S_1100", char="3",
+        drive="10:hp=30;340:stats;400:stats;410:quit",
+        expect=["hp 32/60", "hp 34/60"]),
+    # ... with the blessing bit 0 (flag 217 = 1): the delay 150 and the period 12 (34 by t200, 51 by t400).
+    "standing_regen_blessed": dict(
+        room="S_11/S_1100/S_1100", char="3",
+        drive="5:flag=217,1;10:hp=30;200:stats;400:stats;410:quit",
+        expect=["hp 34/60", "hp 51/60"]),
+    "standing_regen_none": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="10:hp=30;400:stats;410:quit",
+        expect=["hp 30/60"]),
     # A content load (cload) restores O2 0x76c1b8 from the record (5710, saved at t30; 5700 after the
     # load tick's drain) and takes the continue snapshot, so a
     # Retry under water returns to the loaded point with the loaded O2 (it used to fall back to the respawn

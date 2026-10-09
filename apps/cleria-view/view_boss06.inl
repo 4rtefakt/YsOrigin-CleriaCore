@@ -574,7 +574,7 @@ auto boss6_zava_post = [&](Actor& en, const AiEnv& env, AiOut& o) {
     if (zo.gauge_zero || zo.gauge_hide) { hud.hide_boss_gauge(); gauge_owner = 0; }   // HP 0.0 drawn, then [0x6d5fd8] = 0
     if (zo.award_exp) {                                    // FUN_004fa4a0(Z+0x94)
         std::printf("  [boss06] t%llu EXP (lv %d)\n", (unsigned long long)tick_count, en.level);
-        award_exp(en.exp_reward, en.level, /*boss*/true);
+        award_exp(en.exp_reward, en.level, /*boss*/true, false, 5);
     }
     const int st = en.ai.i(0x79c) * 100 + en.ai.i(0x728);
     if (boss6_log && env.took_damage)                      // Z+0x3bc & 2 as her brain read it this frame

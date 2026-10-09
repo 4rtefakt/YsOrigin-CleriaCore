@@ -1207,6 +1207,8 @@ title_again:
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     ailments::State ail;               // poison / heavy / confuse / curse: 0x76c15c..0x76c16c (view_ailments.inl)
     bool toal_air_cast = false;        // +0x7b0: Toal's last 0x76 (Ignis) cast started in the air
+    StandingRegen regen;               // +0x760: the standing HP regeneration (hazard.hpp)
+    float regen_acc = 0.0f;
     Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
     Impulse player_kb2{};              // knock channel 2, +0x344/+0x34c: body / bullet pushes
     float arena_last_x = 0, arena_last_z = 0;   // +0x3e0/+0x3e8: last point inside the mode-2 ring ([H] start)
@@ -1247,7 +1249,22 @@ title_again:
     // level-up while total >= threshold(level+1) (= gameinfo exp_to_level, cumulative pair 10),
     // capped at 60.
     expaward::Combo kill_combo;          // 0x76c1a8 / 0x76c1b0
-    auto award_exp = [&](float b0, int enemy_level, bool boss, bool awarded = false) {
+    // The SP credit of a kill or a boss: FUN_004fa390(base) into the wallet 0x76a75c (FUN_004fa290, clamped
+    // 0..999999), skipped when the base is 0. [not modelled] the mode byte 0x74e25e (time attack / arena: 0).
+    auto credit_sp = [&](int base) {
+        if (base == 0) return;
+        expaward::SpIn si;
+        si.index = game.g_flags[144]; si.easy = game.g_flags[143] != 0;
+        si.very_easy = game.g_flags[203] != 0; si.bless_sp = (game.g_flags[217] & 0x100) != 0;
+        si.rate = settings().s.access.sp_rate;
+        player.sp = std::clamp(player.sp + expaward::sp_award(base, si), 0, 999999);
+    };
+    // `boss_eex`: the boss's EEX record, whose +0x10 is the award block's +0x30, the SP FUN_004fa4a0 credits
+    // after the EXP [EXPORT 004fa4a0.c:38-43; 00443b80.c: param_2[0xc] = (int)EEX+0x10] (140 for the first
+    // six bosses, 0 for Dalles and Darm [DATA EEX.DAT]).
+    auto award_exp = [&](float b0, int enemy_level, bool boss, bool awarded = false, int boss_eex = -1) {
+        if (boss && game.g_flags[193] == 0 && boss_eex >= 0 && std::size_t(boss_eex) < eex.bosses.size())
+            credit_sp(int(eex.bosses[std::size_t(boss_eex)].unk10));
         if (!ginfo.ok()) return;
         // The shell's EXP rate and the Lua mods' (an AP seed's) factor stand where retail's
         // 0x76a5fc (1.0 in every save) multiplies, before the floor.
@@ -4459,7 +4476,7 @@ title_again:
         if (out.alpha_target) bm->alpha_target = *out.alpha_target;
         if (out.alpha_step) bm->alpha_step = *out.alpha_step;
         for (const auto& [fi, fv] : out.flags) if (fi >= 0 && fi < 0x200) game.g_flags[fi] = fv;
-        if (out.award_exp) award_exp(boss->exp_b0(), boss->level(), /*boss*/true);
+        if (out.award_exp) award_exp(boss->exp_b0(), boss->level(), /*boss*/true, false, 0);
         if (out.destroy) { bm->alpha = bm->alpha_target = 0.0f; }
         if (out.gauge) {                                   // §6: the HP2 bar, 306 px, strip 1
             hud.set_boss_gauge(-5, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->strip);
@@ -4585,7 +4602,7 @@ title_again:
         }
         if (out.award_exp) {                                // [not modelled] the end block 0x76a828 / FUN_00461160
             std::printf("  [boss02] t%llu EXP %.0f (lv %d)\n", (unsigned long long)tick_count, boss2->exp_b0(), boss2->level());
-            award_exp(boss2->exp_b0(), boss2->level(), /*boss*/true);
+            award_exp(boss2->exp_b0(), boss2->level(), /*boss*/true, false, 1);
         }
         if (out.gauge) {                                    // §10: the pool, 393.8 px, strip 2
             hud.set_boss_gauge(-6, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->strip);
@@ -4890,7 +4907,8 @@ title_again:
         if (out.exp && out.exp->award) {                   // [H] b0 = the GAMEINFO curve at the level, as boss01/02
             std::printf("  [boss03] t%llu EXP %.0f x %.2f (lv %d)\n", (unsigned long long)tick_count, out.exp->b0,
                         out.exp->mult, out.exp->level);
-            award_exp(out.exp->b0, out.exp->level, /*boss*/true);   // diffMult (out.exp->mult) applied inside
+            // [H] the SP of Gelaldy's own award FUN_005215e0 (obj+0xc4) taken as its EEX record's, like the others.
+            award_exp(out.exp->b0, out.exp->level, /*boss*/true, false, 2);   // diffMult (out.exp->mult) applied inside
         }
         if (out.destroy) {                                  // obj+0x11 |= 2: gone, its collision too
             bm->alpha = bm->alpha_target = 0.0f;
@@ -6105,7 +6123,8 @@ title_again:
                 }
                 const SurfaceScale ss = surface_scale(cur_surface, submerged,
                                                       (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 2) != 0,
-                                                      /*foot gear 0x76a624 & 0x1000000 [not modelled]*/ false);
+                                                      /*foot gear 0x76a624 & 0x1000000 [not modelled]*/ false,
+                                                      (inv.equip_flags & 0x2000000u) != 0);   // the sand gear
                 feet.x += pvel.x * ss.xz; feet.z += pvel.z * ss.xz;
                 surface_up = ss.up;
             }
@@ -6857,7 +6876,10 @@ title_again:
                     const bool in_sand = !a.flyer && a.ai.in_water && a.ai.surf_ray == 0x12;
                     if (in_sand) { dy = std::clamp(dy, -0.015f, 0.03f); a.ai.surf = 0x12; }   // +0x4b9 = 0x12
                     float mdx = a.mover.dx, mdz = a.mover.dz;
-                    if (a.ai.surf == 0x12) { mdx *= 0.25f; mdz *= 0.25f; if (dy > 0.0f) dy *= 0.25f; }
+                    if (a.ai.surf == 0x12) {      // sand2: 0.25, xz 0.5 with blessing bit 1 (no cast test, 0x45a762)
+                        const SurfaceScale ss = surface_scale(0x12, false, (game.g_flags[217] & 2) != 0);
+                        mdx *= ss.xz; mdz *= ss.xz; if (dy > 0.0f) dy *= ss.up;
+                    }
                     Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, a.radius);
                     if (hitY > kNoFloor && o1.y > hitY) a.floor_y = hitY;     // +0x318
                     if (!a.flyer && in_sand && o1.y - a.height >= a.floor_y + 0.01f) {
@@ -6980,15 +7002,8 @@ title_again:
                         // which this kill sets (a revived actor keeps it: REVIVE.md §3.10c).
                         award_exp(en.exp_reward, en.level, /*boss*/false, (en.flags12c & 0x4000000u) != 0);
                         // The kill SP in the same block [BYTES 0x4fcd1d..0x4fcd3d]: the victim's +0xc4 through
-                        // FUN_004fa390 into the wallet (FUN_004fa290), when it is not 0. [not modelled] the
-                        // mode byte 0x74e25e (time attack / arena: 0 here).
-                        if (!(en.flags12c & 0x4000000u) && en.sp_reward != 0) {
-                            expaward::SpIn si;
-                            si.index = game.g_flags[144]; si.easy = game.g_flags[143] != 0;
-                            si.very_easy = game.g_flags[203] != 0; si.bless_sp = (game.g_flags[217] & 0x100) != 0;
-                            si.rate = settings().s.access.sp_rate;
-                            player.sp = std::clamp(player.sp + expaward::sp_award(en.sp_reward, si), 0, 999999);
-                        }
+                        // FUN_004fa390 into the wallet (FUN_004fa290), when it is not 0.
+                        if (!(en.flags12c & 0x4000000u)) credit_sp(en.sp_reward);
                         en.flags12c |= 0x4000000u;
                         // The revive family flips +0x130 ^= 9 on the first dead tick when the Chimes are
                         // on, before FUN_004780e0's death effects and drops (REVIVE.md §3.1).
@@ -7349,6 +7364,24 @@ title_again:
             // The countdown is frozen while a hurt section (4/9/0xb) plays (0x466cc1).
             tick_iframes(player_iframes, avm.section());
             kill_combo.tick();                                      // 0x466b5d: the combo meter's timer
+            {   // The standing HP regeneration, next in the mover (0x466b7f..0x466c77; src/cleria/hazard.hpp).
+                StandingRegen::In ri;
+                ri.boss_battle = game.g_flags[156] != 0;
+                ri.acc_regen = (inv.equip_flags & 0x400u) != 0;
+                ri.flag209 = game.g_flags[209] != 0;
+                ri.stick = moving;
+                ri.section = avm.section();
+                ri.difficulty = game.g_flags[144];
+                ri.blessing1 = (game.g_flags[217] & 1) != 0;
+                ri.hp = float(player.hp); ri.max_hp = float(player.max_hp);
+                const float add = regen.tick(ri);
+                if (add > 0.0f) {
+                    regen_acc += add;                                // [approx] the view's HP is an int
+                    const int n = int(regen_acc);
+                    regen_acc -= float(n);
+                    player.hp = std::min(player.max_hp, player.hp + n);   // FUN_004fa160 clamps; [not modelled] DAT_0076b914 |= 4
+                }
+            }
             for (Actor& a : world.actors()) a.bank.tick();          // FUN_0045c490: every actor
             player_bank.tick();
             // STEP PLATES (FUN_0045a4a0): while no script holds a fix, the player's contact with

@@ -101,11 +101,21 @@ inline void step_planar(PlanarVelocity& v, bool has_input, float angle, float sp
 // scale a RISING dy — and submerged (+0x38a) x0.8, x0.9 with blessing 0x76bc80 & 2, none
 // with the foot-gear bit 0x76a624 & 0x1000000 (build/physics_re/WATER.md §2a [BYTES
 // 0x45a81a..0x45a875]). Everything else 1.0.
+// The blessing bit 1 (0x76bc80 & 2, "Reduce damage from terrain") and the sand foot gear
+// (0x76a624 & 0x2000000, the player cast only) on the bad floors (BLESSINGS.md §3.2b):
+//   sand2: xz 0.25 -> 0.5 with the blessing, the rise stays 0.25 [BYTES 0x45a762..0x45a78f];
+//          with the gear xz 0.5 / up 0.5 [0x45a791..0x45a7bc], gear + blessing xz 0.75 / up 0.5
+//          [0x45a717..0x45a75d]
+//   lava / blood: xz 0.6 -> 0.8 with the blessing, the rise stays 0.6 [BYTES 0x45a8b0..0x45a8ee]
+// The sand2 (no gear) and lava / blood rows do not test the cast: they hold for monsters too.
 struct SurfaceScale { float xz = 1.0f, up = 1.0f; };
 inline SurfaceScale surface_scale(int surface, bool in_water, bool blessing_2 = false,
-                                  bool foot_gear = false) {
-    if (surface == 0x12) return {0.25f, 0.25f};
-    if (surface == 0x0d || surface == 0x11) return {0.6f, 0.6f};
+                                  bool foot_gear = false, bool sand_gear = false) {
+    if (surface == 0x12) {
+        if (sand_gear) return {blessing_2 ? 0.75f : 0.5f, 0.5f};          // 0x6bd390 / 0x6bd304
+        return {blessing_2 ? 0.5f : 0.25f, 0.25f};                        // 0x6bd304 / 0x6bd244
+    }
+    if (surface == 0x0d || surface == 0x11) return {blessing_2 ? 0.8f : 0.6f, 0.6f};   // 0x6bd3a8 / 0x6bd334
     if (in_water && !foot_gear) return {blessing_2 ? 0.9f : 0.8f, 1.0f};   // 0x6bd3e0 / 0x6bd3a8
     return {};
 }

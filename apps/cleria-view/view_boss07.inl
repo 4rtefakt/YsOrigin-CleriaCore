@@ -238,7 +238,7 @@ auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
     if (out.exp) {                                         // FUN_004fa4a0(&D+0x94) [H] b0 as boss01..05
         const int lv = eex.bosses.size() > 6 ? eex.bosses[6].level : 49;
         std::printf("  [boss07] t%llu EXP (lv %d)\n", (unsigned long long)tick_count, lv);
-        if (ginfo.ok()) award_exp(ginfo.curves[kEnemyExp].at(lv), lv, /*boss*/true);
+        if (ginfo.ok()) award_exp(ginfo.curves[kEnemyExp].at(lv), lv, /*boss*/true, false, 6);
     }
     if (out.gauge_hide) hud.hide_boss_gauge();
     if (out.destroy && !boss7_gone) {                      // opR, opL, wing, D: +0x11 |= 2, +0x60 &= ~0x80

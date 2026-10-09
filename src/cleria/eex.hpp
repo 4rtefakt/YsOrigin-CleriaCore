@@ -160,7 +160,7 @@ struct BossStats {
     float hp = 0;    // +0x00
     float atk = 0;   // +0x04
     float def = 0;   // +0x08
-    float unk10 = 0; // +0x10 [UNKNOWN]
+    float unk10 = 0; // +0x10: the SP the boss award credits (FUN_00443b80: block +0x30 = (int)this; FUN_004fa4a0)
     float unk14 = 0; // +0x14 [UNKNOWN]
     std::int32_t level = 0;  // +0x18 — i32, NOT f32 (it reads as a denormal)
 

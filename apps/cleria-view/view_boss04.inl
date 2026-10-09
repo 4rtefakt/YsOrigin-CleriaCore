@@ -53,7 +53,7 @@ auto boss4_apply = [&](const Boss04Output& out) {
     if (out.exp) {
         std::printf("  [boss04] t%llu EXP %.0f x %.2f (lv %d)\n", (unsigned long long)tick_count, out.exp->b0,
                     out.exp->mult, out.exp->level);
-        award_exp(out.exp->b0, out.exp->level, /*boss*/true);
+        award_exp(out.exp->b0, out.exp->level, /*boss*/true, false, 3);
     }
     if (out.gauge) { hud.set_boss_gauge(-8, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->emblem); gauge_owner = 0; }
     if (out.gauge_hide) hud.hide_boss_gauge();

@@ -60,7 +60,7 @@ auto boss5_apply = [&](const Boss05Output& out, MeshObj* bm) {
     if (out.player_iframes) player_iframes = std::max(player_iframes, int(*out.player_iframes));
     if (out.exp) {
         std::printf("  [boss05] t%llu EXP (lv %d)\n", (unsigned long long)tick_count, boss5->level());
-        if (ginfo.ok()) award_exp(ginfo.curves[kEnemyExp].at(boss5->level()), boss5->level(), /*boss*/true);   // [H] b0 as boss01..04
+        if (ginfo.ok()) award_exp(ginfo.curves[kEnemyExp].at(boss5->level()), boss5->level(), /*boss*/true, false, 4);   // [H] b0 as boss01..04
     }
     if (out.gauge) { hud.set_boss_gauge(-9, out.gauge->first, out.gauge->second, 7000.0f, 5); gauge_owner = 0; }
     if (out.gauge_hide) hud.hide_boss_gauge();
