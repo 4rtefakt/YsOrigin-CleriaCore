@@ -777,6 +777,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             write_mvp(g, lcam.view_proj(float(cw) / float(ch), D * 0.002f, D * 6.0f));
             draw(g, bg, view, ldepth);
             video_post(g, st.texture, view, cw, ch);   // Brightness (view_video.inl)
+            lua_frame();                               // the Lua mods' "frame" handlers here too: a socket opened from
+                                                       // the Mods page before a game starts is polled (view_lua.inl)
             shell.frame(g, view, cw, ch);
             if (std::getenv("CLERIA_DRIVE") && frame_no == 6) {     // a headless capture of the launcher
                 const char* sd = std::getenv("CLERIA_SHOT_DIR");
@@ -974,6 +976,8 @@ title_again:
             }
             draw_cursor(g, tr, view, cw, ch, false);
             video_post(g, st.texture, view, cw, ch);   // Brightness (view_video.inl)
+            lua_frame();                               // the Lua mods' "frame" handlers here too: a socket opened from
+                                                       // the Mods page before a game starts is polled (view_lua.inl)
             shell.frame(g, view, cw, ch);
             // A CLERIA_DRIVE run reaches the title only through a Return to Title: one shot once the
             // entry fade-in is over (60 ticks > its 20), CLERIA_SHOT_DIR/title.ppm, then it quits.
