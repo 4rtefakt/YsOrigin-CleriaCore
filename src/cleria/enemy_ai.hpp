@@ -74,7 +74,8 @@ struct EnemyAi {
     float speed = 0;       // +0x30c
     float speed310 = 0;    // +0x310: the last speed FUN_00477720 wrote (M170's sidestep weight)
     float alpha = 1;       // +0x4d8: sprite opacity (brains that fade, e.g. M390)
-    bool hit_cut = false;  // FUN_00475860 zeroed +0x118 (the armed hit record's life); the host clears it
+    bool hit_cut = false;  // FUN_00475860 / FUN_004758a0 zeroed +0x118 (the armed hit record's life); the host clears it
+    Vec3 anchor{};         // +0x51c: the origin at the last phase change (the leash's centre; +0x744 its distance)
     bool hittable = true;  // +0x60 & 0x80: hit tests and body push skip the actor when clear
     std::uint32_t dead_t = 0;  // +0x3fc: FUN_004780e0's death counter (0 alive, 1 at death, +1 a tick)
     int w_type = 0;        // +0x424: wander type (0 wander, 1 stand)
@@ -192,6 +193,7 @@ struct AiEnv {
     bool target_rehit_clear = true;  // no attacker holds a re-hit timer on the player (P+0x90 bank)
     Vec3 target_vel{};           // the target's +0xa3c..+0xa44 (per tick)
     bool target_alive = true;    // HP >= 1.0 (or the scene keeps it targetable)
+    bool bloody = false;         // byte [0x6d5d92] > 1 (BloodyEffectLevel): the action player hunts a dead target too
     bool target_durable = false; // the target's byte +0x9d8 (anime_Durable; M860's freeze tests it)
     bool target_grounded = true;
     bool was_hit = false;        // +0x3bc & 4 this tick (any landed hit)

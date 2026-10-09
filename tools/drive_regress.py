@@ -933,6 +933,47 @@ CASES.update({
         expect=["seen #17 placed", "[ai] #17 cast 17 phase 2", "seen #17 placed feet (9.58, 0.00",
                 "[ai] #17 cast 17 phase 2"],
         absent=["[los]"]),
+    # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
+    # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
+    # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.
+    "reacq_teleport": dict(
+        room="S_10/S_1004/S_1004",
+        env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#189,4;230:at=0.05,-0.35,0;530:seen=#189,3;"
+              "770:seen=#189,6;1010:quit",
+        expect=["seen #189 placed", "[ai] #189 cast 14 phase 2", "t230 at=", "[los] t231 #189 cast 14 2->1",
+                "[ai] #189 cast 14 phase 1", "seen #189 placed", "[ai] #189 cast 14 phase 2", "t540",
+                "seen #189 placed", "[ai] #189 cast 14 phase 2", "t780"],
+        absent=["[ledge]"]),
+    # C1: the Riffligan below S_1004's 2-high platform loses a player 5.8 u away on the platform's side wall (the
+    # keep, FUN_00475c00), wanders, and sees the player again from further out. The second drop of the run is the
+    # leash of its neighbour #187 (D3, 0x47a39e): 12.5 from its anchor, more than 4 from the target, a clear line.
+    "keep_ledge": dict(
+        room="S_10/S_1004/S_1004",
+        env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#189,4;150:move=-1.000,0.023,420;"
+              "580:move=1.000,-0.023,480;1290:quit",
+        expect=["[los] t167 #189 cast 14 2->1", "dist 5.84 blocked 1", "[ai] #189 cast 14 phase 1",
+                "[ai] #189 cast 14 phase 2", "[los] t971 #187 cast 14 2->1", "dist 9.98 blocked 0"]),
+    # C2: a Jiamobre at the top of its jump is 10.03 above a player in S_3003's pit: over the vertical limit of
+    # 10 + H/2, dropped with a clear line (blocked 0).
+    "keep_dy_limit": dict(
+        room="S_30/S_3003/S_3003",
+        env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#35,4;150:move=0.988,0.152,420;"
+              "580:move=-0.988,-0.152,480;1290:quit",
+        expect=["[los] t798 #35 cast 35 2->1", "blocked 1", "[los] t894 #195 cast 35 2->1", "dist 10.92 blocked 0"]),
+    # C4: a far-frozen Hekat-Baocar (25 u or more: the ASO step only) keeps phase 2 across the absence and attacks
+    # at once on the return; the [ai] log says "frozen" for it instead of printing nothing.
+    "far_freeze_keeps_phase": dict(
+        room="S_60/S_6050/S_6050",
+        env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#75,4;230:at=0,-32,0;530:seen=#75,3;770:seen=#75,6;"
+              "1010:quit",
+        expect=["[ai] #75 cast 75 phase 2", "t230 at=", "[ai] #75 cast 75 phase 2 frozen (25 u or more) t240",
+                "frozen (25 u or more) t480", "seen #75 placed", "[ai] #75 cast 75 phase 2 sub 0 act 0x1", "sec 7",
+                "t540"],
+        absent=["[los] t", "[ai] #75 cast 75 phase 1"]),
     # Floor 6 (build/audit/FLOOR6_TOUR.md). M700 Fliogan: the brain-spawned dash effect 496 it owns and the
     # slash's 299 shots (M700.md).
     "floor6_fliogan": dict(

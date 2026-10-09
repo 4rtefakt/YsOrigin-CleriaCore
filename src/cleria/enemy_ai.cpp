@@ -299,6 +299,7 @@ void act(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut* out) {
 void acquire(EnemyAi& a) {   // FUN_004758a0
     if (a.leash() != 0) return;
     a.i(0x6fc) = 0; a.phase() = 2; a.action() = 0; a.dur() = 0; a.cool() = 0; a.ncrumb() = 0;
+    a.hit_cut = true;        // +0x118 = 0, as FUN_00475860 [EXPORT 004758a0.c]
 }
 void disengage(EnemyAi& a) {   // FUN_00475860 (it also zeroes +0x118, the hit record's life)
     a.phase() = 1; a.i(0x6fc) = 0; a.dur() = 0; a.cool() = 0; a.ncrumb() = 0;
@@ -462,13 +463,16 @@ void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut& ou
     a.set_v(0x734, e.target - e.self);
     const Vec3 to = a.v(0x734);
     a.dist() = std::sqrt(dot(to, to));
-    if (a.seen_phase() != a.phase()) { a.set_v(0x790, e.self); a.leash() >>= 2; }
+    // +0x744: the 3-D distance to the anchor +0x51c, taken before the anchor moves [EXPORT 00479b00.c:98-104].
+    const Vec3 from_anchor = e.self - a.anchor;
+    a.f(0x744) = std::sqrt(dot(from_anchor, from_anchor));
+    if (a.seen_phase() != a.phase()) { a.anchor = e.self; a.set_v(0x790, e.self); a.leash() >>= 2; }
     a.seen_phase() = a.phase();
     const float max_dy = a.f(0x834) * 0.5f + 10.0f;
     if (a.phase() == 1) {
         // The "every 16 / 32 ticks" gates test +0x6fc & 0xf / 0x1f, and nothing
         // increments +0x6fc for an enemy — so in practice they run every tick.
-        if (e.target_alive) {
+        if (e.bloody || e.target_alive) {                                   // 0x47a472: [0x6d5d92] > 1 || T HP >= 1
             if (sees(a, e, max_dy, 225.0f, 0.785398f)) acquire(a);          // 15 u, +/-45 deg
             if (e.was_hit) acquire(a);
             if (a.dist() < 8.0f && sees(a, e, max_dy, 64.0f, kPi)) acquire(a); // 8 u, all round
@@ -501,9 +505,13 @@ void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut& ou
                     out.sounds.push_back(0xb8);
                 }
             }
-            // [not modelled] the home leash (+0x12c & 0x800000: the per-class flag table is
-            // not enumerated). The body below ALSO runs on the stun tick (literal).
-            if (e.target_alive) {
+            // The body below ALSO runs on the stun tick (literal). 0x47a353: a cast with +0x12c & 0x2000, or
+            // BloodyEffectLevel > 1, keeps hunting a target whose HP is below 1 [EXPORT 00479b00.c:374-376].
+            const std::uint32_t f12c = e.actor ? e.actor->flags12c : 0u;
+            if ((f12c & 0x2000u) || e.bloody || e.target_alive) {
+                // 0x47a39e, the home leash (+0x12c & 0x800000, M100 only): more than 12.5 [0x6bd950] from the
+                // anchor and more than 4.0 [0x6bd7c0] from the target -> disengage, +0x884 = 20.
+                if ((f12c & 0x800000u) && a.f(0x744) > 12.5f && a.dist() > 4.0f) { disengage(a); a.leash() = 20; }
                 if (a.steer() == 0 && !los_keep(a, e, max_dy, a.f(0x834))) disengage(a);
                 steer(a, e);
                 turn(a, a.f(0x814));

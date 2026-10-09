@@ -204,6 +204,58 @@ int main() {
         for (int k = 0; k < 20; ++k) { h.env.events = 0x4000; enemy_ai_tick_m100(ai, p, h.env); any |= ai.phase() == 3; }
         check(!any, "Hugo never stuns");
     }
+    {   // build/audit/REACQUIRE.md §3.2: D4 (acquire), D7 (a dead target), D3 (M100's leash).
+        {   // D4: FUN_004758a0 zeroes +0x118 as FUN_00475860 does; nothing while +0x884 runs.
+            EnemyAi ai; ai.phase() = 1; ai::acquire(ai);
+            check(ai.phase() == 2 && ai.hit_cut, "acquire: phase 2, the armed hit cut (+0x118 = 0)");
+            EnemyAi held; held.phase() = 1; held.leash() = 5; ai::acquire(held);
+            check(held.phase() == 1 && !held.hit_cut, "acquire while +0x884 != 0: nothing");
+        }
+        // D7 (0x47a472 / 0x47a353): `bloody` = byte 0x6d5d92 > 1; a cast with +0x12c & 0x2000.
+        auto dead_run = [&](bool bloody, std::uint32_t f12c, bool engaged_first) {
+            Actor act; act.flags12c |= f12c;
+            Rig r; EnemyAi& ai = act.ai; r.env.actor = &act; r.env.bloody = bloody;
+            r.env.target = {3.0f, 1.075f, 0};
+            r.env.target_alive = engaged_first;
+            for (int i = 0; i < 3; ++i) enemy_ai_tick_m100(ai, p, r.env);
+            const int before = ai.phase();
+            r.env.target_alive = false;
+            int low = ai.phase();
+            for (int t = 0; t < 400; ++t) { enemy_ai_tick_m100(ai, p, r.env); low = std::min(low, int(ai.phase())); }
+            return std::pair<int, int>(before, low);
+        };
+        check(dead_run(false, 0, true) == std::pair<int, int>(2, 1), "a dead target, BloodyEffectLevel <= 1: phase 2 -> 1");
+        check(dead_run(true, 0, true) == std::pair<int, int>(2, 2), "a dead target, BloodyEffectLevel > 1: still hunted");
+        check(dead_run(false, 0x2000u, true) == std::pair<int, int>(2, 2), "a dead target, a +0x12c & 0x2000 cast: still hunted");
+        check(dead_run(false, 0, false).first == 1, "unaware and the target dead: not acquired");
+        check(dead_run(true, 0, false).first == 2, "...acquired with BloodyEffectLevel > 1");
+        {   // D3 (0x47a39e): +0x12c & 0x800000, > 12.5 from the anchor +0x51c and > 4.0 from the target.
+            Actor act; act.flags12c = 0x00910010;                  // factory_flags.hpp, cast 0x0e M100
+            Rig r; EnemyAi& ai = act.ai; r.env.actor = &act;
+            r.env.target = {6.0f, 1.075f, 0};
+            for (int i = 0; i < 4; ++i) enemy_ai_tick_m100(ai, p, r.env);
+            check(ai.phase() == 2 && ai.anchor.x == 0.0f, "leash: engaged, the anchor is the origin of the phase change");
+            r.env.self = {12.0f, 1.075f, 0}; r.env.target = {18.0f, 1.075f, 0};
+            enemy_ai_tick_m100(ai, p, r.env);
+            check(ai.phase() == 2, "leash: 12.0 from the anchor holds");
+            r.env.self = {13.0f, 1.075f, 0}; r.env.target = {16.5f, 1.075f, 0};
+            enemy_ai_tick_m100(ai, p, r.env);
+            check(ai.phase() == 2, "leash: 13 from the anchor but 3.5 from the target holds");
+            r.env.target = {19.0f, 1.075f, 0};
+            enemy_ai_tick_m100(ai, p, r.env);
+            check(ai.phase() == 1 && ai.leash() == 19, "leash: > 12.5 and > 4.0 -> disengage, +0x884 = 20 (- the tick)");
+            int back = -1;
+            for (int t = 1; t <= 20 && back < 0; ++t) { enemy_ai_tick_m100(ai, p, r.env); if (ai.phase() == 2) back = t; }
+            std::printf("[ai]   leash: re-acquired %d ticks after the drop\n", back);
+            check(back >= 4 && back <= 6 && ai.anchor.x == 13.0f, "leash: +0x884 >> 2, then re-acquired from the new anchor");
+            Actor other;                                           // no 0x800000: no leash
+            Rig q; EnemyAi& bi = other.ai; q.env.actor = &other; q.env.target = {6.0f, 1.075f, 0};
+            for (int i = 0; i < 4; ++i) enemy_ai_tick_m100(bi, p, q.env);
+            q.env.self = {13.0f, 1.075f, 0}; q.env.target = {19.0f, 1.075f, 0};
+            enemy_ai_tick_m100(bi, p, q.env);
+            check(bi.phase() == 2, "no +0x12c & 0x800000: no leash");
+        }
+    }
 
     // ---- M150 Normous / M480 Nustarl: the turrets (build/ai_spec/M150.md, M480.md) ----
     {

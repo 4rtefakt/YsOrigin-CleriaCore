@@ -3731,6 +3731,7 @@ title_again:
             if (std::sscanf(cmd.c_str() + 3, "%f,%f,%f", &x, &z, &deg) >= 2) {
                 const float fl = floor_at(phys_mesh(room), x, z, feet.y + room_diag(room));
                 feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                if (fl > kNoFloor) ledge_serial = -1;   // a placement onto a floor re-seeds the ledge guard: its last good point is the old spot (REACQUIRE.md §1.3)
                 const float yaw = deg * 3.14159265358979323846f / 180.0f;
                 face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
@@ -3745,6 +3746,7 @@ title_again:
             if (std::sscanf(cmd.c_str() + 4, "%f,%f,%f,%f", &x, &y, &z, &deg) >= 3) {
                 const float fl = floor_at(phys_mesh(room), x, z, y + 1.0f);
                 feet = {x, fl > kNoFloor ? fl : y, z};
+                if (fl > kNoFloor) ledge_serial = -1;
                 const float yaw = deg * 3.14159265358979323846f / 180.0f;
                 face_dir = {std::sin(yaw), 0.0f, std::cos(yaw)};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
@@ -3884,6 +3886,7 @@ title_again:
                 const float x = a.pos.x + dx * nd, z = a.pos.z + dz * nd;
                 const float fl = floor_at(phys_mesh(room), x, z, feet.y + room_diag(room));
                 feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                if (fl > kNoFloor) ledge_serial = -1;
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
                 std::printf("  [drive] near cast %d id %d hp %.0f flags 156=%d 130=%d phase %d sub %d ai %d stem %s loaded %d pos (%.1f,%.1f,%.1f)\n", cast, a.instance_id, a.hp,
@@ -3907,6 +3910,7 @@ title_again:
                     if (fl <= kNoFloor || std::fabs(fl - a.pos.y) > 2.5f) continue;
                     if (segment_blocked(phys_mesh(room), ao, {x, fl + kOriginH, z})) continue;
                     feet = {x, fl, z};
+                    if (fl > kNoFloor) ledge_serial = -1;
                     face_dir = {-std::cos(an), 0.0f, -std::sin(an)};
                     facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
                     placed = true;
@@ -3928,6 +3932,7 @@ title_again:
                     const float x = a.pos.x + dx * 2.0f, z = a.pos.z + dz * 2.0f;
                     const float fl = floor_at(phys_mesh(room), x, z, feet.y + room_diag(room));
                     feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                    if (fl > kNoFloor) ledge_serial = -1;
                     face_dir = {-dx, 0.0f, -dz};
                     facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
                     try_attack();
@@ -4016,6 +4021,7 @@ title_again:
                 // nearest=d probes from just above the enemy's feet, so a shooter lands on its level, not a ledge above
                 const float fl = floor_at(phys_mesh(room), x, z, best->pos.y + (cmd.size() > 8 ? 1.0f : 3.0f));
                 feet = {x, fl > kNoFloor ? fl : feet.y, z};
+                if (fl > kNoFloor) ledge_serial = -1;
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
             }
@@ -6721,7 +6727,12 @@ title_again:
                     if (en && !en->destroy_requested() && e.avm.ok() && enemy_handler_far_freeze(en->ai_index)) {
                         const float fx = en->pos.x - feet.x, fy = (en->pos.y + en->height) - (feet.y + kOriginH),
                                     fz = en->pos.z - feet.z;
-                        if (!(625.0f > (fx * fx + fy * fy) + fz * fz)) { e.avm.tick(); continue; }
+                        if (!(625.0f > (fx * fx + fy * fy) + fz * fz)) {
+                            if (ai_debug && (tick_count % 60) == 0)   // no handler ran: say so (REACQUIRE.md §1.3)
+                                std::printf("[ai] #%d cast %d phase %d frozen (25 u or more) t%llu\n", en->instance_id,
+                                            en->cast_id, en->ai.phase(), (unsigned long long)tick_count);
+                            e.avm.tick(); continue;
+                        }
                     }
                     if (revive_tick(e)) continue;                 // the revive family's dead path
                     // M710's handler, the first dead tick (+0x3fc == 0, 0x4c3dd4): end its attached suction effects. The
@@ -6766,6 +6777,7 @@ title_again:
                     env.target = {feet.x, feet.y + kOriginH, feet.z};
                     env.target_vel = {pvel.x, 0, pvel.z};
                     env.target_alive = player.hp >= 1;
+                    env.bloody = settings().s.game.bloody_effect_level > 1;   // byte 0x6d5d92 (FUN_0040b8e0)
                     env.target_durable = avm.durable();              // byte P+0x9d8
                     env.target_grounded = pv.grounded;
                     boss5_target(*en, env);                          // the +0x888 override (view_boss05.inl)
@@ -6894,11 +6906,11 @@ title_again:
                     pool += int(o.spawns.size());
                     if (ai_debug && (tick_count % 60) == 0)
                         std::printf("[ai] #%d cast %d phase %d sub %d act 0x%x steer %d mode %d spd %.4f "
-                                    "dist %.2f head %.2f culled %d sec %d mov %.2f hp %.1f mk %d at (%.1f,%.1f) alpha %.2f\n",
+                                    "dist %.2f head %.2f culled %d sec %d mov %.2f hp %.1f mk %d at (%.1f,%.1f) alpha %.2f t%llu\n",
                                     en->instance_id, en->cast_id, e.actor->ai.phase(), e.actor->ai.i(0x728), e.actor->ai.action(),
                                     e.actor->ai.i(0x708), e.actor->ai.mode(), e.actor->ai.speed, e.actor->ai.dist(), e.actor->ai.heading,
                                     int(env.culled), e.avm.section(), e.avm.movable(), en->hp, env.aso_marker,
-                                    en->pos.x, en->pos.z, e.actor->ai.alpha);
+                                    en->pos.x, en->pos.z, e.actor->ai.alpha, (unsigned long long)tick_count);
                     // Strike: the brain's FUN_00446550(sec,0) — a priority-gated request. A
                     // ported brain names its section literally; the M100 stand-in's 7 maps to
                     // this kind's guessed attack section.
