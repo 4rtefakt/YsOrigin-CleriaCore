@@ -1245,6 +1245,13 @@ title_again:
         zb.cx = std::clamp(px / pw * 0.5f + 0.5f, 0.0f, 1.0f);
         zb.cy = std::clamp(0.5f - py / pw * 0.5f, 0.0f, 1.0f);
     };
+    // The player's specular tint struct (+0x260; hit_feedback.hpp): the GUARD and Boost-ready white flashes.
+    // [not modelled] the diffuse struct +0x278 and the other writers of both (SCREEN_EFFECTS.md U14).
+    hitfx::Tint player_spec;
+    auto player_white_flash = [&](float step) {
+        hitfx::white_flash(player_spec, step);
+        if (scrfx_log) std::printf("  [tint] t%llu player specular 0xffffff -> 0, step %.3f\n", (unsigned long long)tick_count, step);
+    };
     // The player's hit serial (+0x3c4): redrawn at every attack start (FUN_0046ea00); it is
     // the token each victim's re-hit bank keys on (hit_volume.hpp RehitBank).
     std::uint32_t player_hit_serial = 0;
@@ -3060,7 +3067,8 @@ title_again:
                 r->attach_parent = &actor_mats[13];
                 r->attach_mode = 2;
             }
-            sfx_at(0x13, feet, kSfxAnimVol);          // [not modelled] the white tint flash
+            player_white_flash(hitfx::kBoostReadyFlashStep);   // +0x264..+0x274
+            sfx_at(0x13, feet, kSfxAnimVol);
         }
     };
     // The yaw of the camera record (+0x48c: 0x7b343c + slot * 0x4a0), as FUN_005eca30 derives it
@@ -7646,6 +7654,7 @@ title_again:
             // touching it. player_def is the lv1 curve; no equipment model.
             // The countdown is frozen while a hurt section (4/9/0xb) plays (0x466cc1).
             tick_iframes(player_iframes, avm.section());
+            player_spec.tick();                                     // FUN_0045a3a0 (the integrator's helper)
             kill_combo.tick();                                      // 0x466b5d: the combo meter's timer
             {   // The standing HP regeneration, next in the mover (0x466b7f..0x466c77; src/cleria/hazard.hpp).
                 StandingRegen::In ri;
@@ -7915,11 +7924,11 @@ title_again:
                 // Hugo's Force Shield (FUN_004fd350 0x4fd9d4 -> 0x4fd90e): a charge left blocks the
                 // hit: damage 0, i-frames at least 16, SE 121, the "GUARD" popup (0xffaa00, scale
                 // 0.75, origin + 0.75; English 0x69bf04), knockback 0.1 [ABILITIES_VERIFIED §3.2].
-                // The break follows on the next shield tick. [not modelled] the white flash
-                // (+0x268..+0x274) and the +0x7e0 guard (effect 0x90).
+                // The break follows on the next shield tick. [not modelled] the +0x7e0 guard (effect 0x90).
                 if (character == 2 && shield_on && shield_hits > 0) {
                     --shield_hits;
                     player_iframes = std::max(player_iframes, 16);
+                    player_white_flash(hitfx::kGuardFlashStep);   // +0x264..+0x274
                     audio.play(0x79, kSfxAnimVol);
                     if (popups.size() < 32)
                         popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
@@ -7931,9 +7940,10 @@ title_again:
                     return;
                 }
                 // Hugo's super barrier: while +0x7e0 stands and the Force Shield did not take the hit, a GUARD
-                // with no counter and no MP [BYTES 0x4fd9fc..0x4fda7d]. [not modelled] the white flash.
+                // with no counter and no MP [BYTES 0x4fd9fc..0x4fda7d].
                 if (character == 2 && fx_live(barrier_fx)) {
                     player_iframes = std::max(player_iframes, 16);
+                    player_white_flash(hitfx::kGuardFlashStep);
                     audio.play(0x79, kSfxAnimVol);
                     if (popups.size() < 32)
                         popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
@@ -7950,12 +7960,13 @@ title_again:
                                                settings().s.access.damage_taken);   // the shell's Cheats
                 // The MP super-armour of Yunica's 0x10c / 0x10f and Toal's 0x10e / 0x111 (Marker 0): with the MP
                 // it is spent and the hit is the GUARD above (0x4fd90e); without, 16 i-frames and x 0.75
-                // (skillmp::armor, BOOST_SKILLS.md §3.3). [not modelled] the guard's white flash.
+                // (skillmp::armor, BOOST_SKILLS.md §3.3).
                 if (const skillmp::Armor ar = skillmp::armor(character, avm.section(), avm.marker(), player.sp_cur);
                     ar.active) {
                     player_iframes = std::max(player_iframes, skillmp::kArmorIframes);
                     if (ar.guard) {
                         player.sp_cur -= ar.spend;
+                        player_white_flash(hitfx::kGuardFlashStep);
                         audio.play(0x79, kSfxAnimVol);
                         if (popups.size() < 32)
                             popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
@@ -8567,7 +8578,7 @@ title_again:
                                0.0f, 1.0f, 1.0f, 1.0f, false, palpha,
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,   // Chr_Tremble(13)
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f,
-                               wpl ? wpl->scale : 1.0f);
+                               wpl ? wpl->scale : 1.0f, player_spec.colour());   // +0x14c from the tint struct +0x260
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());

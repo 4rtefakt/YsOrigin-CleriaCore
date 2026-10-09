@@ -109,6 +109,42 @@ inline float step_hurt(float t) {
 }
 inline std::uint32_t hurt_specular(float t) { return t != 0.0f ? kHurtSpecular : 0u; }
 
+// The actor tint struct T (0x18 bytes; build/render_re/SCREEN_EFFECTS.md §3.1). Two per actor: +0x260 is where
+// FUN_00473c60 starts the SPECULAR from, +0x278 the diffuse. FUN_00473b70 [EXPORT 00473b70.c] gives the colour,
+// per channel and truncated: step != 0 ? B + (A - B) * t : base. FUN_0045a3a0 [EXPORT 0045a3a0.c:14-45] steps
+// it every tick: t += step; on reaching 1.0 it stays there, then count -1 holds, count != 0 counts down, and
+// count == 0 switches the struct off (t = step = 0). The hurt timer +0x238 REPLACES the specular while it runs.
+struct Tint {
+    std::uint32_t base = 0, a = 0, b = 0;   // T+0x00 / +0x04 / +0x08, 0xRRGGBB (bytes b, g, r)
+    float t = 0, step = 0;                  // T+0x0c / +0x10
+    int count = 0;                          // T+0x14
+    void tick() {
+        if (step != 0.0f) {
+            t += step;
+            if (t < 1.0f) return;
+            t = 1.0f;
+            if (count == -1) return;
+            if (count != 0) { --count; return; }
+        }
+        t = 0.0f; step = 0.0f;
+    }
+    std::uint32_t colour() const {
+        if (step == 0.0f) return base & 0xffffffu;
+        auto ch = [&](int sh) {
+            const float fa = float((a >> sh) & 0xffu), fb = float((b >> sh) & 0xffu);
+            return std::uint32_t(int((fa - fb) * t + fb)) & 0xffu;
+        };
+        return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+    }
+};
+// The white flashes: the specular struct with A = 0, B = 0xffffff, t = 0, count = 1 — full white, back to 0
+// linearly in 1 / step ticks, one more tick at 0. The step: 0.05 (0x3d4ccccd) on the three GUARD branches of
+// FUN_004fd350 [EXPORT 004fd350.c:155-159, 197-201, 263-267], 0.075 (0x3d99999a) when the Boost gauge fills
+// (FUN_0046cc10 [EXPORT 0046cc10.c:120-124]). The base word is not written.
+inline constexpr float kGuardFlashStep = 0.05f;
+inline constexpr float kBoostReadyFlashStep = 0.075f;
+inline void white_flash(Tint& s, float step) { s.a = 0; s.b = 0xffffffu; s.t = 0.0f; s.step = step; s.count = 1; }
+
 // FUN_00478510's alive path also returns at once, its draw taken, for cast 0x1a while
 // g_flags[156] (0x76bb8c, a boss fight) is set (0x4793f9..0x479405).
 inline bool alive_spark_suppressed(int cast, bool boss_fight) { return boss_fight && cast == 0x1a; }

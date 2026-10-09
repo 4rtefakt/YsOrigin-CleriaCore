@@ -341,7 +341,7 @@ struct AiOut {
     // (rate) — each alone keeps the other — and / or called FUN_005e0590 with a world point (the blur's centre).
     std::optional<float> zoom_s, zoom_r;
     std::optional<Vec3> zoom_centre;
-    int set_own_jump = -1;      // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
+    int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
     int set_frame = -1;          // write +0x9b8 (the current pattern frame) when >= 0
     int fast_forward = -1;       // FUN_00446680(m) right after this tick's section request
     // A handler that overrides +0x9d8 (Durable) AFTER the VM step (M110): 1 = force on,

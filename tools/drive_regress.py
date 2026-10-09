@@ -1639,6 +1639,16 @@ CASES.update({
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_SCRFX_LOG="1"),
         drive=_VELA + "2050:quit",
         expect=["[hitflash] t2034 boss01 +0x2a0 1.57 -> +(0.194, 0.100, 0.034)"]),
+    # The GUARD white flash (§3.1): the specular tint struct +0x260 set to white -> 0 at 0.05 a tick by FUN_004fd350's
+    # guard branches — here Toal's Ignis MP armour (toal_ignis_armor's hit at t48) and Hugo's super barrier.
+    "guard_white_flash": dict(
+        room="S_10/S_1009/S_1009", char="3", env=dict(CLERIA_SCRFX_LOG="1"),
+        drive="8:bracelet=118;9:flag=118,1;10:flag=184,1;43:skill+;45:skill-;48:hurt=60;80:quit",
+        expect=["[tint] t48 player specular 0xffffff -> 0, step 0.050", "[popup] 0 ff0000"]),
+    "guard_white_flash_barrier": dict(
+        room="S_10/S_1009/S_1009", char="2", env=dict(CLERIA_SCRFX_LOG="1"),
+        drive="3:flag=187,1;4:flag=188,1;12:boost=30000;20:boostkey;90:boostkey;190:hurt=60;200:quit",
+        expect=["[tint] t190 player specular 0xffffff -> 0, step 0.050", "[popup] 0 ff0000"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
