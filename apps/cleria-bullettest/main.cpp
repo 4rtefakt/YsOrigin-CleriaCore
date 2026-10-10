@@ -660,6 +660,107 @@ int main(int argc, char** argv) {
         check(d->d1d4, "kind 0x24: within 8.05 of the arena's centre it ends");
     }
 
+    // ---- kind 0x23: Nygtilger's poison ball (FUN_0059e860; effect 343 bs_02_doku_ball, BULLET_KINDS.md §3) ----
+    efs[0x157] = Ef2::load(bos / "BS_02_DOKU_BALL.EF2");
+    efs[0x1ff] = Ef2::load(bos / "BS_02_DOKU.EF2");            // (the test only needs the poof to spawn; any EF2 does)
+    if (!efs[0x157].ok() || !efs[0x1ff].ok()) { std::fprintf(stderr, "missing EF2 343 / the poof\n"); return 2; }
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        float f[13] = {0.0166666675f, 0, 0.0163333323f, 10.0f, 2.0f, 0, 0, 0, 0, 1.0f, 0, 0, 0};   // FUN_0051c8c0's block
+        Spawn sp = block_spawn(0x23, 0x157, {15, 3, 0}, {0, 1, 0}, f);
+        sp.owner_monster = true; sp.owner_atk = 98.0f;
+        Bullet* b = bs.spawn(sp);
+        b->carrier = 5;
+        int draws = 0;
+        bool swing = false;
+        std::vector<Event> ev;
+        Env env;
+        env.player = {100, 1.075f, 100};
+        env.rng = [&] { ++draws; return 0x00020000u; };                    // U = 1 / 64, I = 1: v = (-0.2421875, 1, -0.2421875)
+        env.carrier = [&](int id, ef2sim::M4* w, float* hp, float* atk) {
+            if (id != 5) return false;
+            *w = ef2sim::translation(15, 2, 0); *hp = 0.0f; *atk = 77.0f;
+            return true;
+        };
+        env.ray = [&](const Vec3& from, const Vec3& d, int set) {         // the room's floor mesh
+            RayHit r;
+            if (set == 2 && from.y >= -0.02f && from.y + d.y < -0.02f) {   // (2 cm under the plane y = 0 the ball rests on)
+                const float t = (from.y + 0.02f) / -d.y;
+                r.hit = true; r.point = {from.x + d.x * t, -0.02f, from.z + d.z * t}; r.normal = {0, 1, 0};
+            }
+            return r;
+        };
+        env.swing = [&](const HitShape&) { return swing; };
+        for (int i = 0; i < 60; ++i) bs.update(env, &ev);
+        const float l = std::sqrt(0.2421875f * 0.2421875f * 2 + 1.0f);
+        check(draws == 180 && b->age == 60 && near(b->s.pos.x, 15) && near(b->s.pos.y, 3) && near(b->s.dir.y, 1.0f / l) &&
+              near(b->s.dir.x, -0.2421875f / l) && near(b->s.speed, 21.0f / 60.0f) && !b->f17b,
+              "kind 0x23: carried 60 ticks 1 above its segment, 3 draws a tick (180); leaves along the drawn cone at (I % 6 + 20) / 60");
+        bs.update(env, &ev);
+        check(draws == 180 && b->f17b && b->s.pos.y > 3.0f && b->u184 == 0, "kind 0x23: from age 60 it flies (no draw), the struck test on");
+        int bounces = 0, rest = -1;
+        float vy0 = b->s.dir.y;
+        for (int i = 0; i < 500 && rest < 0; ++i) {
+            bs.update(env, &ev);
+            if (vy0 < 0.0f && b->s.dir.y > 0.0f) ++bounces;
+            vy0 = b->s.dir.y;
+            if (b->u184 == 2) rest = int(b->age);
+        }
+        check(bounces >= 2 && rest > 0 && b->s.pos.y == 0.65f && b->s.speed == 0.0f && draws == 180,
+              "kind 0x23: it bounces off the floor (x 0.6 a bounce) and rests on y 0.65 inside the arena, no draw");
+        // The player's body pushes a resting ball: knock channel 2 for the player (channel 1 zeroed), the ball wakes.
+        env.player = {b->s.pos.x + 0.5f, 1.075f, b->s.pos.z};
+        ev.clear();
+        bs.update(env, &ev);
+        bool pushed = false;
+        for (const Event& e : ev) pushed |= e.type == Event::kPush && e.id == 1 && e.push.x > 0.024f && near(e.push.z, 0.0f, 1e-3f);
+        check(pushed && b->u184 == 1 && near(b->s.speed, 0.075f) && b->s.dir.x < 0.0f && b->cd198 == 1,
+              "kind 0x23: the player's body pushes it (k = max(0.025, 1.05 v)): it rolls away at 0.075, cooldown 2");
+        env.player = {100, 1.075f, 100};
+        for (int i = 0; i < 3; ++i) bs.update(env, &ev);
+        // The player bats it: two draws, away from the player with a lift, 31..34 / 60, cooldown 12.
+        env.player = {b->s.pos.x - 1.0f, 1.075f, b->s.pos.z};
+        swing = true;
+        ev.clear();
+        const int d0 = draws;
+        bs.update(env, &ev);
+        swing = false;
+        bool se = false;
+        for (const Event& e : ev) se |= e.type == Event::kSound && e.id == 0xb9;
+        check(draws - d0 == 2 && se && b->n19c == 1 && b->cd198 == 12 && b->s.dir.x > 0.0f && b->s.dir.y > 0.0f &&
+              b->s.speed > 0.5f && b->s.gravity == 0.0113333f,
+              "kind 0x23: batted = SE 185, 2 draws, relaunched away with a lift at 31-34 / 60, gravity 0.0113333, cooldown 12");
+        // Age 590: the poof 0x1ff and SE 219; past it the ball is frozen.
+        env.player = {100, 1.075f, 100};
+        while (b->age < 590) bs.update(env, &ev);
+        ev.clear();
+        bs.update(env, &ev);
+        int poof = 0;
+        bool se219 = false;
+        for (const auto& e : fx.effects()) poof += e->id == 0x1ff;
+        for (const Event& e : ev) se219 |= e.type == Event::kSound && e.id == 0xdb;
+        const Vec3 at590 = b->s.pos;
+        bs.update(env, &ev);
+        check(poof == 1 && se219 && !b->f17b && b->s.pos.x == at590.x && b->s.pos.y == at590.y,
+              "kind 0x23: at age 590 the poof (effect 0x1ff) and SE 219; after it the ball is frozen, the struck test off");
+        // Flag 221 (the boss is dead) kills a ball; the pillar pushes one out to r 8.65.
+        Bullet* c = bs.spawn(sp);
+        c->carrier = -1;
+        for (int i = 0; i < 61; ++i) bs.update(env, &ev);
+        env.flag221 = true;
+        bs.update(env, &ev);
+        check(c->fx && c->fx->kill, "kind 0x23: flag 221 kills the ball");
+        env.flag221 = false;
+        Spawn sq = sp; sq.pos = {3, 5, 0};
+        Bullet* q = bs.spawn(sq);
+        q->carrier = -1;
+        for (int i = 0; i < 61; ++i) bs.update(env, &ev);
+        check(near(std::sqrt(q->s.pos.x * q->s.pos.x + q->s.pos.z * q->s.pos.z), 8.65f, 1e-3f),
+              "kind 0x23: inside the pillar it is put out on the rim (r 8.65)");
+    }
+
     // ---- kind 0x16: the aimed effect (inline 0x594b51; effect 184 PC3_mazin_sitatuki, BULLETS.md §3.13) ----
     const std::filesystem::path eft = std::filesystem::path(argv[1]) / "EFFECT" / "EFT";
     efs[184] = Ef2::load(eft / "PC" / "PC03" / "PC3_MAZIN_SITATUKI.EF2");

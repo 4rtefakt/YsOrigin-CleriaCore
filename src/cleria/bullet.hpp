@@ -65,6 +65,12 @@ struct Bullet {
     int n1d0 = 0;                 // +0x1d0: the handler's frame count
     bool d1d4 = false;            // +0x1d4: done
     bool f17a = false;            // +0x17a: destroyed when struck (the deployed Bit sets it past age 10, DARM_B1.md §6.2)
+    // Kind 0x23 (FUN_0059e860, Nygtilger's poison ball; BULLET_KINDS.md §3). Its state is u184 (0 / 1 flying, 2
+    // resting) and its carrier (+0x194, the dead segment) is `carrier`, written by the caster after the spawn.
+    bool f17b = false;            // +0x17b: the struck test is on (age 60..590)
+    std::uint32_t cd198 = 0;      // +0x198: the push cooldown (the tail counts it down)
+    int n19c = 0;                 // +0x19c: times the player batted it
+    float y1a0 = 0;               // +0x1a0: the shadow's height
     int side = 1;                 // +0x188
     float atk = 0;                // the stat block the effect was armed with (the proxy's 0 for 0x10/0x23)
     ef2sim::Effect* fx = nullptr; // +0x180 (held while the bullet exists)
@@ -134,12 +140,20 @@ struct Env {
     // FUN_00584550(ecx 7, argb, 0, .., &pos, 0.35, 0.32, 0.012, 0, 0): seven dust puffs at the bullet, called
     // in place (28 draws of the shared xorshift; GOXX_PARTICLES.md §3.1). None = not drawn, no draws.
     std::function<void(std::uint32_t argb, const Vec3& pos)> dust;
+    // Kind 0x23 (the poison ball): flag 221 [0x76bc90] (the boss is dead: every ball goes), the player's body
+    // radius P+0x68 and speed P+0x310, and the boss point the balls bounce off (*[0x76a2c4]: the head, or the
+    // hoop centre +0x108 in mode 4).
+    bool flag221 = false;
+    float player_r = 0.45f, player_speed = 0;
+    bool boss_point_on = false;
+    Vec3 boss_point{};
 };
 
 // What an update asks the host to do.
 struct Event {
     enum Type { kSound, kHeal, kPush, kShake } type = kSound;
-    int id = 0;                   // kSound: the EFFECTDEF id; kShake: the frames (0x76a5ac), `push` the amplitude
+    int id = 0;                   // kSound: the EFFECTDEF id; kShake: the frames (0x76a5ac), `push` the amplitude;
+                                  // kPush: 1 = zero the knock channel 1 (+0x338 / +0x340) first (kind 0x23)
     Vec3 pos{};
     int target = 0;               // kHeal: an actor instance id, or 0 = the player
     float amount = 0;             // kHeal: HP to add (the host clamps to the max)

@@ -838,6 +838,139 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             }
             break;
         }
+        case 0x23: {                                               // FUN_0059e860: Nygtilger's poison ball
+            // BULLET_KINDS.md §3 [BYTES 0x59e860..0x59fa23]: carried by its dead segment for 60 ticks (three draws of
+            // the shared xorshift a tick: only the last tick's direction and speed survive), then it flies under
+            // gravity, bounces off the room, the pillar (r 8.65) and the arena floor (y 0.65 inside r 20), comes to
+            // rest, is pushed by the player's body, the other bullets and the boss point, and poofs at age 590.
+            // [not modelled] the struck boss piece's own motion (the ray's mesh callback 0x59e820: dir.xz += the
+            // piece's step at a bounce; a resting ball rides the piece under it), the poof's pool-full gate, the
+            // shadow decal (+0x1a0 is kept).
+            auto draw = [&] { return env.rng ? env.rng() : 0u; };
+            auto U = [](std::uint32_t w) {
+                const std::uint32_t bits = (w & 0x7fffffu) | 0x3f800000u;
+                float f; std::memcpy(&f, &bits, 4); return f - 1.0f;
+            };
+            auto place = [&] { b.mat = ef2sim::M4{}; b.mat.m[3][0] = s.pos.x; b.mat.m[3][1] = s.pos.y; b.mat.m[3][2] = s.pos.z; };
+            const std::uint32_t a = b.age;                         // before the tail's ++
+            if (a == 590) {
+                if (env.flag221) { b.fx->kill = true; break; }
+                if (s.pos.y > -0.05f) {                            // 0x6bdfc8: the poof 0x1ff, side 1, the ball's own stat block
+                    spawn_fx(0x1ff, s.pos, {0, 0, 0}, 1, s.owner_atk, 0.0f, 1.0f, 2, 1, -1, s.owner);
+                    sound(0xdb);                                   // SE 219
+                }
+            } else if (a > 590) { b.f17b = false; break; }         // frozen; the tail still runs
+            if (env.flag221) { b.fx->kill = true; break; }
+            if (a < 60) {                                          // CARRIED [BYTES 0x59eb0a..0x59edd2]
+                ef2sim::M4 seg;
+                float seg_hp = 0.0f, seg_atk = 0.0f;
+                if (b.carrier >= 0 && env.carrier && env.carrier(b.carrier, &seg, &seg_hp, &seg_atk)) {
+                    ef2sim::M4 up1;                                // Translation(0, 1, 0) * the carrier's matrix
+                    up1.m[3][1] = 1.0f;
+                    b.mat = ef2sim::mul(up1, seg);
+                }
+                const std::uint32_t w1 = draw(), w2 = draw();      // x from the SECOND draw, z from the first
+                const Vec3 v = vnorm({U(w2) * 0.5f - 0.25f, 1.0f, U(w1) * 0.5f - 0.25f});
+                const auto& m = b.mat.m;
+                s.dir = {v.x * m[0][0] + v.y * m[1][0] + v.z * m[2][0], v.x * m[0][1] + v.y * m[1][1] + v.z * m[2][1],
+                         v.x * m[0][2] + v.y * m[1][2] + v.z * m[2][2]};
+                s.pos = {m[3][0], m[3][1], m[3][2]};
+                const std::uint32_t w3 = draw();
+                s.speed = s.dir.y > 0.5f ? float(int(w3 >> 17) % 6 + 20) / 60.0f : float(int(w3 >> 17) % 3 + 3) / 60.0f;
+                break;
+            }
+            b.f17b = true;
+            if (-15.0f > s.pos.y) { b.fx->kill = true; break; }    // 0x6be0e4: fell off the arena
+            if (b.u184 <= 1) {                                     // FLY [BYTES 0x59efc1..0x59f50a]
+                const Vec3 v{s.dir.x * s.speed, s.dir.y * s.speed - s.gravity, s.dir.z * s.speed};
+                const float l = std::sqrt(v.y * v.y + v.x * v.x + v.z * v.z);
+                s.speed = l;
+                s.dir = l == 0.0f ? Vec3{} : Vec3{v.x / l, v.y / l, v.z / l};
+                if (l > 0.75f) s.speed = 0.75f;                    // the cap; this tick's move is not capped
+                Vec3 move = v;
+                const RayHit r = ray({s.pos.x, s.pos.y - 0.65f, s.pos.z}, v);
+                if (r.hit) {
+                    const float d = v.y * r.normal.y + v.x * r.normal.x + v.z * r.normal.z;
+                    if (0.0f > d) {                                // head-on: snap, mirror, damp
+                        s.pos.x += (r.point.x - s.pos.x) * 0.995f;
+                        s.pos.y += (r.point.y + 0.65f - s.pos.y) * 0.995f;
+                        s.pos.z += (r.point.z - s.pos.z) * 0.995f;
+                        const float k = d * -2.0f;
+                        s.dir = vnorm({v.x + r.normal.x * k, v.y + r.normal.y * k, v.z + r.normal.z * k});
+                        s.speed *= r.normal.y > 0.5f ? 0.6f : 0.8f;
+                        move = {s.dir.x * s.speed, s.dir.y * s.speed, s.dir.z * s.speed};
+                    }
+                }
+                s.pos = {s.pos.x + move.x, s.pos.y + move.y, s.pos.z + move.z};
+                const RayHit fl = ray(s.pos, {0.0f, -5.0f, 0.0f});
+                b.y1a0 = fl.hit ? fl.point.y + 0.216667f : -20.0f;
+                const float r2 = s.pos.x * s.pos.x + 0.0f + s.pos.z * s.pos.z;
+                if (400.0f >= r2) {                                // inside the arena disc
+                    if (74.8225f > r2) {                           // inside the pillar: out to its rim, pushed outward
+                        const float rr = float(std::sqrt(double(r2)));
+                        if (rr > 0.0f) {
+                            const float ux = s.pos.x / rr, uz = s.pos.z / rr;
+                            s.pos.x = ux * 8.65f; s.pos.z = uz * 8.65f;
+                            s.dir = vnorm({s.dir.x + ux, s.dir.y, s.dir.z + uz});
+                        }
+                    }
+                    if (0.65f >= s.pos.y) {                        // the floor plane y = 0 under the ball's radius
+                        s.pos.y = 0.65f;
+                        if (0.01f > s.speed) { b.u184 = 2; s.speed = 0.0f; }
+                    }
+                }
+                place();
+            } else if (b.u184 == 2) {                              // REST [BYTES 0x59ee16..0x59efbc]
+                s.dir = {0.0f, 0.0f, -1.0f}; s.speed = 0.0f; s.f174 = 0.0f;
+                place();
+                if (s.pos.x * s.pos.x + 0.0f + s.pos.z * s.pos.z > 400.0f) {      // off the disc: it rolls outward
+                    s.dir = vnorm({s.pos.x, 0.0f, s.pos.z});
+                    s.speed = 0.0166666675f;                       // 0x3c888889
+                    b.u184 = 1;
+                }
+            }
+            if (b.cd198 != 0) break;                               // the cooldown: none of the three pushes
+            {   // (1) the player's body
+                const Vec3 d{env.player.x - s.pos.x, env.player.y - s.pos.y, env.player.z - s.pos.z};
+                const float reach = 2.0f * env.player_r;
+                if (reach * reach > d.x * d.x + d.y * d.y + d.z * d.z) {
+                    const float k = std::max(0.025f, env.player_speed * 1.05f);
+                    const int i = int(float(std::atan2(double(d.z), double(d.x))) * 40.7437f);
+                    const float cx = cos_table(i & 0xff) * k, cz = cos_table((i - 0x40) & 0xff) * k;
+                    if (events) { Event e{Event::kPush, 1, s.pos, 0, 0}; e.push = {cx, 0.0f, cz}; events->push_back(e); }
+                    s.dir.x -= cx; s.dir.z -= cz;
+                    if (k >= s.dir.y) s.dir.y += k;
+                    s.dir = vnorm(s.dir);
+                    if (0.075f > s.speed) s.speed = 0.075f;
+                    b.u184 = 1; b.cd198 = 2;
+                }
+            }
+            for (auto& op : list_) {                               // (2) every other bullet, whatever its kind
+                Bullet& o = *op;
+                if (&o == &b || o.destroyed) continue;
+                Vec3 d{o.s.pos.x - s.pos.x, o.s.pos.y - s.pos.y, o.s.pos.z - s.pos.z};
+                if (!(0.7225f > d.x * d.x + d.y * d.y + d.z * d.z)) continue;
+                d = vnorm(d);
+                const Vec3 od = o.s.dir, td = s.dir;
+                o.s.dir = vnorm({td.x * 1.5f + d.x + od.x, td.y * 1.5f + d.y + od.y, td.z * 1.5f + d.z + od.z});
+                s.dir = vnorm({od.x * 1.5f - d.x + td.x, od.y * 1.5f - d.y + td.y, od.z * 1.5f - d.z + td.z});
+                if (o.u184 == 2) { o.u184 = 1; if (0.175f > o.s.speed) o.s.speed = 0.175f; }
+                if (b.u184 == 2) { b.u184 = 1; if (0.175f > s.speed) s.speed = 0.175f; }
+                o.s.speed += s.speed * 0.75f;
+                s.dir = {-s.dir.x, -s.dir.y, -s.dir.z};
+                s.speed *= 0.25f;
+                o.cd198 = 2;
+            }
+            if (env.boss_point_on) {                               // (3) the boss
+                const Vec3 d{s.pos.x - env.boss_point.x, s.pos.y - env.boss_point.y, s.pos.z - env.boss_point.z};
+                if (4.0f > d.x * d.x + d.y * d.y + d.z * d.z) {
+                    s.dir = vnorm({d.x, 0.35f, d.z});
+                    s.speed = 0.13333334f;                         // 0x3e088889
+                    b.u184 = 1; b.cd198 = 5;
+                }
+            }
+            break;
+        }
         case 0x14: case 0x19: case 0x2b:                           // none: the tail only
             break;
         default:
@@ -879,6 +1012,39 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
         env.dust(0xc0ffffffu, s.pos);
     if (s.kind != 0x10 && s.kind != 0x23 && s.kind != 0xd)        // the render orientation
         b.mat = ef2sim::mul(look_rotation(s.dir), b.mat);
+    if (b.cd198 != 0) --b.cd198;                                   // 0x5958a8: after the handler
+    // ---- the STRUCK test of the poison ball (kind 0x23 with +0x17b; BULLET_KINDS.md §3.5 [BYTES 0x5958b9..
+    // 0x5959bc, 0x5963e3..0x59669e]): the player's live swing, else a side-0 armed particle, against r 1.25 at the
+    // ball. Struck with the cooldown at 0: SE 0xb9 at the player and the relaunch — away from the player with a
+    // drawn lift toward UP, a drawn speed 31..34 / 60, gravity 0.0113333 — two draws, 12 ticks of cooldown.
+    if (s.kind == 0x23 && b.f17b && b.fx) {
+        const HitShape me{1.25f, s.pos, 0.0f, 0};
+        bool hit = env.swing && env.swing(me);
+        if (!hit && !b.fx->kill)
+            for (const auto& pp : fx_->particles()) {
+                const ef2sim::Particle& p = *pp;
+                if (!p.fx || p.fx->side != 0 || !p.hit.armed) continue;
+                if (overlap(HitShape{p.hit.radius, p.hit.centre, p.hit.half_h, p.hit.half_h > 0.0f ? 1 : 0}, me)) { hit = true; break; }
+            }
+        if (hit && b.cd198 == 0) {
+            if (events) events->push_back({Event::kSound, 0xb9, env.player, 0, 0});
+            b.u184 = 1;
+            Vec3 d = flat({s.pos.x - env.player.x, 0.0f, s.pos.z - env.player.z});
+            const std::uint32_t w1 = env.rng ? env.rng() : 0u;
+            const float t = float(int(w1 >> 17) % 10) * 0.01f + 0.22f;
+            d = vnorm({d.x + (0.0f - d.x) * t, d.y + (1.0f - d.y) * t, d.z + (0.0f - d.z) * t});
+            const std::uint32_t w2 = env.rng ? env.rng() : 0u;
+            const float sp = (float(int(w2 >> 17) & 3) + 31.0f) / 60.0f;
+            s.gravity = 0.0113333f;                                // 0x3c39af72
+            const Vec3 v{d.x * sp, d.y * sp - 0.0113333f, d.z * sp};
+            const float l = std::sqrt(v.y * v.y + v.x * v.x + v.z * v.z);
+            s.speed = l;
+            s.dir = l == 0.0f ? Vec3{} : Vec3{v.x / l, v.y / l, v.z / l};
+            s.pos = {s.pos.x + v.x, s.pos.y + v.y, s.pos.z + v.z};
+            b.mat = ef2sim::M4{}; b.mat.m[3][0] = s.pos.x; b.mat.m[3][1] = s.pos.y; b.mat.m[3][2] = s.pos.z;
+            b.n19c += 1; b.cd198 = 12;
+        }
+    }
     // ---- the STRUCK test (BULLETS.md §4.4 [BYTES 0x5958b9..0x596852]) for effect 0x193 (boss07's F shot,
     // DALLES_D23.md §10: byte +0x17a "destroyed when struck"): the effect as a victim sphere of r 1.25 at the
     // bullet; the player's live swing, else any side-0 particle (FUN_004faf20(particle, fx, 0, 1): [H] the armed

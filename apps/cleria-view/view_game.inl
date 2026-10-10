@@ -4217,7 +4217,8 @@ title_again:
             for (const auto& bp : bullets.list())
                 std::printf("  [bullet] kind %d effect %d age %u pos (%.2f, %.2f, %.2f) speed %.2f fx %d%s\n", bp->s.kind,
                             bp->s.effect, bp->age, bp->s.pos.x, bp->s.pos.y, bp->s.pos.z, bp->s.speed,
-                            bp->fx ? bp->fx->live : -1, bp->gone ? " gone" : "");
+                            bp->fx ? bp->fx->live : -1,
+                            bp->gone ? " gone" : bp->s.kind != 0x23 ? "" : bp->u184 == 2 ? " resting" : bp->age < 60 ? " carried" : " flying");
             for (const auto& bb : bullets.bombs())                // the kind-0xf bombs (BOMB.md)
                 std::printf("  [bomb] age %.0f pos (%.2f, %.2f, %.2f) vel (%.3f, %.3f, %.3f)%s fx %d\n", bb->age,
                             bb->pos.x, bb->pos.y, bb->pos.z, bb->vel.x, bb->vel.y, bb->vel.z, bb->rest ? " rest" : "",
@@ -5006,9 +5007,10 @@ title_again:
         for (const Boss02Bullet& b : out.bullets) {         // FUN_00593550, BULLETS.md §3.6 / §7.1
             bullet::Spawn s = bullet::block_spawn(b.kind, b.effect, b.pos, b.dir, b.f.data());
             s.owner = 0; s.owner_monster = true;
-            if (b.kind == 0x23) s.owner_atk = b.a4;         // +0xa4 = 0x7b91a4 (the kind-0x23 flies as the stand-in mover)
+            if (b.kind == 0x23) s.owner_atk = b.a4;         // +0xa4 = 0x7b91a4 (the poof's stat block)
             if (b.kind == 0x24) s.owner_atk = b.proxy_owner ? boss2->stats().proxy_str : 0.0f;
             bullet::Bullet* bp = bullets.spawn(s);
+            if (b.kind == 0x23 && bp) bp->carrier = b.carrier;   // +0x194: the dead segment that carries it 60 ticks
             if (b.kind == 0x24 && bp) {                     // the caster's writes after the spawn (FUN_0051c8c0)
                 bp->carrier = b.carrier; bp->v1ac = b.local; bp->t1b8 = b.target; bp->n1d0 = 0;
             }
@@ -8276,6 +8278,15 @@ title_again:
                 benv.character = character;
                 benv.difficulty = difficulty >= 2 ? difficulty - 2 : 0;
                 benv.rng = [&] { return pick_rng.next(); };
+                // Kind 0x23, the poison ball (BULLET_KINDS.md §3): flag 221, the player's body radius +0x68 and
+                // speed +0x310 ([approx] this tick's horizontal move), the boss point (the head; the hoop centre in mode 4).
+                benv.flag221 = game.g_flags[221] != 0;
+                if (const Cast* bc = casts.get(13)) benv.player_r = bc->hurt_radius;
+                benv.player_speed = std::sqrt(pvel.x * pvel.x + pvel.z * pvel.z);
+                if (boss2) {
+                    benv.boss_point_on = true;
+                    benv.boss_point = boss2->mode() == 4 ? boss2->group().hp_at : boss2->object(0).pos();
+                }
                 benv.dust = [&](std::uint32_t argb, const Vec3& at) {   // FUN_00584550: the flash, the drip's bounce
                     dust_at("bullet", 7, argb, false, at, 0.35f, 0.32f, 0.012f, false);
                 };
@@ -8298,12 +8309,19 @@ title_again:
                 for (const bullet::Event& ev : bev) {
                     if (ev.type == bullet::Event::kSound && ev.id >= 221 && ev.id <= 223 && boss2 && std::getenv("CLERIA_BOSSLOG"))
                         std::printf("  [boss02] t%llu a plasma ball strikes (SE %d)\n", (unsigned long long)tick_count, ev.id);
+                    if (ev.type == bullet::Event::kSound && ev.id == 0xdb && boss2 && std::getenv("CLERIA_BOSSLOG"))
+                        std::printf("  [boss02] t%llu a poison ball poofs at (%.2f, %.2f, %.2f) (SE 219)\n",
+                                    (unsigned long long)tick_count, ev.pos.x, ev.pos.y, ev.pos.z);
+                    if (ev.type == bullet::Event::kPush && ev.id == 1 && boss2 && std::getenv("CLERIA_BOSSLOG"))
+                        std::printf("  [boss02] t%llu a poison ball is pushed by the player (%.3f, %.3f)\n",
+                                    (unsigned long long)tick_count, ev.push.x, ev.push.z);
                     if (ev.type == bullet::Event::kSound) { sfx_at(ev.id, ev.pos, kSfxAnimVol); continue; }
                     if (ev.type == bullet::Event::kShake) {         // 0x76a5ac / 0x76a594.. (kind 0x25's burst)
                         g_rig.set_shake_frames(ev.id); g_rig.set_shake_amp(ev.push);
                         continue;
                     }
                     if (ev.type == bullet::Event::kPush) {          // knock channel 2 (+0x344/+0x34c)
+                        if (ev.id == 1) player_kb = {};              // the poison ball: +0x338 = +0x340 = 0 first
                         player_kb2.x += ev.push.x; player_kb2.z += ev.push.z;
                         continue;
                     }

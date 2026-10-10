@@ -1200,6 +1200,9 @@ CASES.update({
     # balls are bullet kind 0x24 (36), moved by FUN_0059fa30 in bullet.cpp (build/mech_re/BULLET_KINDS.md §5): glued to
     # a segment for 60 calls, drifting to a point that homes on the player until 300, then the strike (SE 221 / 222 /
     # 223 in turn, effect 347) — or ended early with the carrier or inside 8.05 of the pillar.
+    # His poison balls are kind 0x23 (35), moved by FUN_0059e860 (BULLET_KINDS.md §3) since 2026-10-10: carried by the
+    # dead segment for 60 ticks (3 draws a tick each), then flying, bouncing, lying on the arena floor until the
+    # poof at age 590 (SE 219); the player's body pushes one that lies in his way.
     "nygtilger_fight": dict(
         room="S_20/S_2099/S_2099",
         env={"CLERIA_BOSSLOG": "1"},
@@ -1207,7 +1210,9 @@ CASES.update({
               "720:every=30,5000,boss2;726:every=30,5000,atk;800:every=50,4200,bullets;5000:quit",
         expect=["[boss02] Nygtilger: pool 7000 (head 700, segments 350) lv 16", "[bullet] kind 36 effect 348",
                 "a plasma ball strikes (SE 221)", "a plasma ball strikes (SE 222)", "a plasma ball strikes (SE 223)",
-                "flag 221 = 1", "[content] boss_defeated S_2099 flag 221"]),
+                "[bullet] kind 35 effect 343", " carried", "[bullet] kind 35 effect 343", " flying",
+                "a poison ball poofs at", "a poison ball is pushed by the player", "flag 221 = 1",
+                "[content] boss_defeated S_2099 flag 221"]),
     # Khonsclard (boss04, build/boss_re/KHONSCLARD.md): the intro (START), flag 156, two pods rise; breaking
     # them downs the boss and opens the core (jump attacks); every 20 % adds a pod; the kill writes 223 and
     # the EXP, and the 1/340 fade destroys the boss ~339 frames later. Level 50 and Damage x10 keep it short.
