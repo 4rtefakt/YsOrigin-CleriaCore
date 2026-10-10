@@ -1081,6 +1081,19 @@ CASES.update({
               "40:every=20,700,ok;720:every=40,3700,boss4;728:every=40,3700,atk;3700:quit",
         expect=["[boss04] Khonsclard: body 3000, pods 600", "clip START fr", "f156 1", "states 00", "down 1 ",
                 "band 2", "band 5", "flag 223 = 1", "EXP 328", "destroyed"]),
+    # The world-anchored mini gauges (build/mech_re/MINI_GAUGE.md; the shared store 0x76c1cc.., worldgauge.hpp): a hit
+    # pod writes gauge 0 on Normal (the host used to drop it), and the HUD tick's 255 countdown turns it off after
+    # the last hit. Gelaldy's arm (S_3099 from its retry start) writes the same record.
+    "mini_gauge_khonsclard": dict(
+        room="S_40/S_4099/S_4099",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=30;20:at=-2.8,23.3,0;40:every=20,700,ok;"
+              "720:every=40,900,boss4;728:every=40,900,atk;1200:quit",
+        expect=["[boss04] Khonsclard: body 3000, pods 600", "mini gauge 0 on: 599 / 600", "mini gauge 0 off"]),
+    "mini_gauge_gelaldy": dict(
+        room="S_30/S_3099/S_3099",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=30;9:flag=205,1;10:saveload;40:every=20,700,ok;"
+              "720:every=40,800,boss3;728:every=40,800,atk;1100:quit",
+        expect=["[boss03] Gelaldy: body 1500, arms 800", "mini gauge 0 on: ", " / 800", "mini gauge 0 off"]),
     # ... and as Hugo: the mode-0 scan's sub-part pass runs for his shots' particles too (view_fx_mode0.inl), so the
     # pods and the core take them (they passed through the boss before).
     "khonsclard_hugo": dict(

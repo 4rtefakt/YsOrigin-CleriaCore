@@ -4,7 +4,7 @@
 // wing "boss07w"), which this host keeps as live-located scene objects. Specs: build/boss_re/DALLES.md (P1),
 // DALLES_AB.md, DALLES_CD1.md, DALLES_D23.md. Included after view_boss06.inl. Per frame: boss7_tick in step_meshes,
 // the camera hook in update_camera (view_camera.inl), view_boss07_hit.inl at the player's swing and in the mode-0
-// scan of the player's particles (view_fx_mode0.inl), boss7_gauges before the HUD draw. Everything that hurts is an
+// scan of the player's particles (view_fx_mode0.inl). Everything that hurts is an
 // EF2 hit particle of side 1 with Dalles' STR (DALLES_CD1 §7, DALLES_D23 §18): the view's ordinary particle path.
 // [approx] the ctor runs here on the first step after the room load, not at Mesh_Locate: see boss7_tick.
 // [approx] the full-screen fader has one colour in the view: the module's 0x769f34 is taken as it; [0x769f30] = 0 is
@@ -128,10 +128,11 @@ g_boss07_cam_hook = [&]() -> bool {
 struct Boss7HookGuard { ~Boss7HookGuard() { g_boss07_cam_hook = nullptr; } } boss7_hook_guard;   // the hook captures this scope
 auto boss7_reset = [&] {
     if (boss7) boss7_statics = boss7->statics();           // no writer but the band: they outlive the object
+    const bool had = boss7 != nullptr;
     boss7.reset();
     if (boss7_pin) { boss7_pin = false; player_hold = false; }
     boss7_owned = false; boss7_gone = false; boss7_kids = false;
-    for (auto& mb : hud.mini_bar) mb.frac = -1.0f;
+    if (had) hud.clear_world_gauges();
 };
 auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
     for (int id : out.rumble) pad_rumble(id);
@@ -347,7 +348,8 @@ auto boss7_tick = [&] {
         boss7_banks.fill(RehitBank{});
         boss7_owned = false; boss7_gone = false; boss7_kids = false;
         if (boss7_pin) { boss7_pin = false; player_hold = false; }
-        for (auto& mb : hud.mini_bar) mb.frac = -1.0f;
+        hud.clear_world_gauges();
+        boss7->bind_gauges(hud.gauge);                     // the engine's globals 0x76c1cc..
         for (int k = 0; k < boss07::kNodes; ++k) {
             boss7_node[std::size_t(k)] = -1;
             for (std::size_t n = 0; n < mdl->nodes.size(); ++n)
@@ -518,25 +520,6 @@ auto boss7_tick = [&] {
                     bd.pos.y, bd.pos.z, b.rot.y, boss7->part(0).pos.x, boss7->part(0).pos.y, boss7->part(0).pos.z,
                     game.g_flags[156], feet.x, feet.y, feet.z, unsigned(avm.section()), player.hp, double(player.sp_cur), g_rig.current());
     if (boss7_pilot) boss7_pilot();
-};
-// The three world-anchored mini gauges (0x76c1cc / 0x76c1e4 / 0x76c1fc; DALLES_AB §B.3 / §B.7): projected for the
-// HUD before its draw. [approx] see the header.
-auto boss7_gauges = [&](const Mat4& vp, std::uint32_t cw, std::uint32_t ch) {
-    for (int i = 0; i < 3; ++i) {
-        hud.mini_bar[i].frac = -1.0f;
-        if (!boss7 || boss7_gone || game.g_flags[156] == 0) continue;
-        const Boss07MiniGauge& mg = boss7->mini(i);
-        if (mg.timer <= 0 || !(mg.max > 0.0f)) continue;
-        const Vec3 o = mg.anchor;
-        const float* M = vp.m.data();
-        const float px = o.x * M[0] + o.y * M[4] + o.z * M[8] + M[12];
-        const float py = o.x * M[1] + o.y * M[5] + o.z * M[9] + M[13];
-        const float pw = o.x * M[3] + o.y * M[7] + o.z * M[11] + M[15];
-        if (!(pw > 1e-4f)) continue;
-        hud.mini_bar[i].frac = std::clamp(mg.value / mg.max, 0.0f, 1.0f);
-        hud.mini_bar[i].px = (px / pw * 0.5f + 0.5f) * float(cw);
-        hud.mini_bar[i].py = (0.5f - py / pw * 0.5f) * float(ch);
-    }
 };
 // drive `boss7[=opts]`: the fight as a player fights it, from then on every tick (`boss7=off` ends it). The pilot only
 // ever (a) puts the player ON THE ARENA FLOOR, while grounded, at a spot a player would run to, facing the target,

@@ -39,6 +39,7 @@
 #include <vector>
 
 #include "cleria/mathx.hpp"
+#include "cleria/worldgauge.hpp"
 
 namespace cleria {
 
@@ -359,6 +360,9 @@ public:
     float alpha() const { return alpha_; }            // obj+0x418
     bool contact_alt() const { return (obj11c_ & 8u) != 0; }   // obj+0x11c ^= 8 every driver frame
     const Boss03ArmGauge& arm_gauge() const { return arm_gauge_; }
+    // Gauge 0 of the engine's shared records (MINI_GAUGE.md §2, §4): bound by the host, the driver's timer IS
+    // that word, so the HUD tick's -1 and the driver's own -1 both land on it (U3).
+    void bind_gauge(WorldGauge* g) { gauge0_ = g; }
     bool destroyed() const { return destroyed_; }
     const Boss03Statics& statics() const { return *st_; }
 
@@ -496,6 +500,7 @@ private:
     float neck_ = 0;              // 0x594
     int intro_ = 0;               // 0x598
     Boss03ArmGauge arm_gauge_;    // 0x76c1cc..0x76c1e0 (engine globals, mirrored)
+    WorldGauge* gauge0_ = nullptr;
     std::array<Boss03Quat, 2> neji_q_{};   // the Neji records' +0x15c (persist across frames)
 
     Boss03Output ctor_;

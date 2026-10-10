@@ -1094,9 +1094,9 @@ void Boss08::damage_body() {
     Boss08Mesh& B = mesh_[kB];
     if (1.0f > in_->player_hp_mirror) return;
     if (b.form != kOnBack) {                                       // sub-gauge anchors
-        if (mini_[0].timer != 0) { mini_[0].anchor = node(kSkirt1); mini_[0].anchor.y = (mini_[0].anchor.y - 4.0f) - 3.0f; }
-        if (mini_[1].timer != 0) { mini_[1].anchor = node(kLeftFoot); mini_[1].anchor.y -= 4.0f; }
-        if (mini_[2].timer != 0) { mini_[2].anchor = node(kRightFoot); mini_[2].anchor.y -= 4.0f; }
+        if (mini(0).timer != 0) { mini(0).anchor = node(kSkirt1); mini(0).anchor.y = (mini(0).anchor.y - 4.0f) - 3.0f; }
+        if (mini(1).timer != 0) { mini(1).anchor = node(kLeftFoot); mini(1).anchor.y -= 4.0f; }
+        if (mini(2).timer != 0) { mini(2).anchor = node(kRightFoot); mini(2).anchor.y -= 4.0f; }
     }
     static const int kBase[8] = {kHead, kHead, kSkirt1, kSkirt1, kLeftLeg, kLeftLeg, kRightLeg, kRightLeg};   // u32 0x69edf0
     static const int kGaugeNode[3] = {kSkirt1, kLeftFoot, kRightFoot};                                        // u32 0x69ede4
@@ -1143,7 +1143,7 @@ void Boss08::damage_body() {
         if (0.0f >= v) { *tgt[g] = 0.0f; v = 0.0f; }
         b.smoke[g] = 1; b.last_group = g;
         if (diff_ != 0) continue;                                  // sub-gauges on Normal and below only
-        Boss08MiniGauge& m = mini_[std::size_t(g)];
+        Boss08MiniGauge& m = mini(g);
         m.timer = 255; m.value = v; m.max = 1.0f;
         m.anchor = node(kGaugeNode[b.last_group]);
         m.anchor.y -= 4.0f;
@@ -1183,7 +1183,7 @@ void Boss08::damage_core() {
         if (b.barrier_hits < limit) {
             ++b.barrier_hits;
             if (burst()) { b.barrier_hits += 14; if (b.barrier_hits > limit) b.barrier_hits = limit; }
-            Boss08MiniGauge& m = mini_[0];
+            Boss08MiniGauge& m = mini(0);
             m.timer = 255; m.value = float(limit - b.barrier_hits); m.max = float(limit);
             m.anchor = in_->w_ora; m.anchor.y -= 7.0f;
         } else {                                                   // BREAK [D §4.2.1]
@@ -1253,7 +1253,7 @@ void Boss08::death() {
     Boss08Mesh &B = mesh_[kB], &T = mesh_[kT], &Wm = mesh_[kW];
     if (!b.dead) return;
     b.thunder_l_t = 0.0f; b.thunder_r_t = 0.0f;
-    mini_[0].timer = 0;
+    mini(0).timer = 0;
     if (wb_.h_barrier != 0) {                                      // the barrier was up at the kill
         kill(wb_.h_barrier);
         barrier_break(Boss08Stat::kBody);

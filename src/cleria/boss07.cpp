@@ -391,7 +391,7 @@ void Boss07::parts() {
             {1.0f, 0.99f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f},  // bare, W, E, F, D (table 0x548ff8)
         };
         if (b.barrier >= 0 && b.barrier <= 4) for (int k = 0; k < 4; ++k) p.resist[k] = kResist[b.barrier][k];
-        mini_[0].anchor = {c.x, c.y - 5.25f, c.z};                 // 0x76c1d8.., every frame
+        mini(0).anchor = {c.x, c.y - 5.25f, c.z};                 // 0x76c1d8.., every frame
         const float dmg = p.dmg;                                   // (+0x19c = +0x138 = 0)
         if (dmg != 0.0f) {
             body_.flash = 1.65f; p.dmg = 0.0f;
@@ -399,7 +399,7 @@ void Boss07::parts() {
                 if (b.hit_pause == 0 && b.barrier >= 1 && b.barrier <= 4) ++b.hits;   // once per frame with damage
                 if (b.barrier >= 1 && b.barrier <= 3) {            // gauge 0 = barrier strength
                     const std::uint32_t T = std::uint32_t(barrier_threshold(char_, b.barrier, diff_));
-                    mini_[0].timer = 255; mini_[0].value = float(std::uint32_t(T - b.hits)); mini_[0].max = float(T);
+                    mini(0).timer = 255; mini(0).value = float(std::uint32_t(T - b.hits)); mini(0).max = float(T);
                     if (b.hits >= T) {                             // BARRIER BREAK 0x547697
                         se(320);
                         b.hits = 0; b.barrier = 0;
@@ -421,7 +421,7 @@ void Boss07::parts() {
         Boss07Part& p = parts_[std::size_t(i)];
         Boss07ChildMesh& o = child_[std::size_t(i - 1)];
         float& hp = b.opt_hp[i - 1];
-        mini_[std::size_t(i)].anchor = i == 1 ? Vec3{o.pos.x, float(double(o.pos.y) - 0.5), o.pos.z}
+        mini(i).anchor = i == 1 ? Vec3{o.pos.x, float(double(o.pos.y) - 0.5), o.pos.z}
                                               : Vec3{o.pos.x, o.pos.y - 0.5f, o.pos.z};
         Vec3 pos = o.pos;
         if (hp == 0.0f) pos.y -= 999.0f;                           // destroyed
@@ -438,12 +438,12 @@ void Boss07::parts() {
             se(369);
         }
         if (diff_ == 0) {                                          // the Normal row only
-            Boss07MiniGauge& g = mini_[std::size_t(i)];
+            Boss07MiniGauge& g = mini(i);
             g.timer = 255; g.value = hp; g.max = 1000.0f;
         }
         if (b.barrier == kBarD) {                                  // gauge 0 = both options' HP
-            mini_[0].timer = 255; mini_[0].value = b.opt_hp[1] + b.opt_hp[0];
-            mini_[0].max = float(2 * kOptionHp[diff_]);
+            mini(0).timer = 255; mini(0).value = b.opt_hp[1] + b.opt_hp[0];
+            mini(0).max = float(2 * kOptionHp[diff_]);
         }
         if (!(b.opt_hp[0] == 0.0f && b.opt_hp[1] == 0.0f)) continue;
         dark_break();
@@ -489,7 +489,7 @@ void Boss07::phase_end() {
         b.turn_scale = 1.5f; b.turn_timer = 60; b.drift_scale = 0.0f; b.drift_timer = 9999;
         b.mode = 0; b.next_barrier = 0;
         if (b.barrier >= 1 && b.barrier <= 3) { b.hits = 0; b.barrier = 0; spark_fx(); }
-        b.barrier = kBarD; mini_[0].timer = 0;
+        b.barrier = kBarD; mini(0).timer = 0;
         se(319);
         out_->fog = std::make_pair(2, 0.0025f);
         out_->skin_options = true;
@@ -1018,7 +1018,7 @@ void Boss07::exec_super() {
             }
             fx(11, {0.0f, 495.0f, -5.0f});                         // bs_07_hobaku; handle not kept
             out_->skybox_alpha = 0.0f;
-            mini_[0].timer = 0;
+            mini(0).timer = 0;
             out_->flags.push_back({211, 1});
             b.shot = 0;
             player_section(char_ == 0 ? 2 : 318);

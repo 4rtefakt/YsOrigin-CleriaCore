@@ -601,6 +601,7 @@ void Boss03::driver() {
         }
     }
     // The arm mini-gauge 0x76c1cc.. [BYTES 0x5232f6..0x523401]: the right one wins a tie.
+    if (gauge0_) arm_gauge_.timer = gauge0_->timer;        // the word the HUD tick (FUN_0043a540) also counts down
     if (hit[0] || hit[1]) {
         const int a = hit[0] ? 0 : 1;
         const Boss03Part& p = parts_[a == 0 ? 1 : 3];
@@ -611,9 +612,11 @@ void Boss03::driver() {
         if (p.hp <= 0.0f) arm_gauge_.timer = 0;            // (both tests are ordered: NaN keeps 255)
     }
     if (arm_gauge_.timer != 0) {
-        --arm_gauge_.timer;
+        --arm_gauge_.timer;                                // the driver's own -1 [EXPORT 005227e0.c:431-432]
         arm_gauge_.pos = parts_[arm_gauge_.right ? 1 : 3].pos;
     }
+    if (gauge0_ && (hit[0] || hit[1] || gauge0_->timer != 0))
+        *gauge0_ = WorldGauge{arm_gauge_.timer, arm_gauge_.hp, arm_gauge_.max, arm_gauge_.pos};
     out_->arm_gauge = arm_gauge_;
 }
 

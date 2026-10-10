@@ -5,7 +5,7 @@
 // the three sub-gauges and the eight tentacle override tracks. Specs: build/boss_re/DARM.md (P1), DARM_A.md,
 // DARM_B1.md, DARM_B23.md, DARM_CE.md, DARM_D.md, DARM_TRACKS.md. Included after view_boss07.inl. Per frame:
 // boss8_tick in step_meshes, the camera hook in update_camera (view_camera.inl), view_boss08_hit.inl at the player's
-// swing and in the mode-0 scan of the player's particles (view_fx_mode0.inl), boss8_gauges before the HUD draw.
+// swing and in the mode-0 scan of the player's particles (view_fx_mode0.inl).
 // What hurts: EF2 hit particles of side 1 with the body's STR (DARM_B23 §9.1) and the bullets (bullet.cpp kinds 2 / 4
 // / 6 / 7 / 0x25 / 0x28) through the view's ordinary paths, and the touch script TOUCH_TAIL (Chr_Damage(998, 250)) of
 // the body, the tail and the sixth mesh bs08_mgcra (boss8_touch).
@@ -170,7 +170,7 @@ auto boss8_reset = [&] {
     if (boss8_pin) { boss8_pin = false; player_hold = false; }
     boss8_owned = false; boss8_mgcra = false; boss8_started = false; boss8_over = false;
     boss8_mat.clear();
-    if (had) for (auto& mb : hud.mini_bar) mb.frac = -1.0f;
+    if (had) hud.clear_world_gauges();
 };
 // One contact of the player with a touch-flagged mesh ("Touch on": +0x28c |= 0x0c, +0x2e4 = "Touch_Tail"; DARM_CE §0):
 // a side or a floor contact starts the object's script TOUCH_TAIL = Chr_Damage(998, 250.0, 0, 0) (DARM.md §1.5), when
@@ -407,6 +407,7 @@ auto boss8_tick = [&] {
         su.pos = bm->pos;
         su.statics = boss8_statics;
         boss8 = std::make_unique<Boss08>(su);
+        boss8->bind_gauges(hud.gauge);                     // the engine's globals 0x76c1cc..
         boss8_banks.fill(RehitBank{});
         boss8_owned = false; boss8_mgcra = false; boss8_started = false; boss8_over = false;
         if (boss8_pin) { boss8_pin = false; player_hold = false; }
@@ -669,24 +670,6 @@ auto boss8_tick = [&] {
                     Wm.pos.x, Wm.pos.y, Wm.pos.z, w.alpha, unsigned(b.window), unsigned(b.barrier_hits), B.pos.x, B.pos.y, B.pos.z, b.yaw,
                     feet.x, feet.y, feet.z, unsigned(avm.section()), player.hp, g_rig.current());
     if (boss8_pilot) boss8_pilot();
-};
-// The three world-anchored mini gauges (0x76c1cc / 0x76c1e4 / 0x76c1fc; DARM_D §2.1, §4.1, §4.2): the chest group or
-// the barrier, the left leg, the right leg. Run after boss7_gauges (it clears the bars). [approx] see the header.
-auto boss8_gauges = [&](const Mat4& vp, std::uint32_t cw, std::uint32_t ch) {
-    if (!boss8 || game.g_flags[156] == 0) return;
-    for (int i = 0; i < 3; ++i) {
-        const Boss08MiniGauge& mg = boss8->mini(i);
-        if (mg.timer <= 0 || !(mg.max > 0.0f)) continue;
-        const Vec3 o = mg.anchor;
-        const float* M = vp.m.data();
-        const float px = o.x * M[0] + o.y * M[4] + o.z * M[8] + M[12];
-        const float py = o.x * M[1] + o.y * M[5] + o.z * M[9] + M[13];
-        const float pw = o.x * M[3] + o.y * M[7] + o.z * M[11] + M[15];
-        if (!(pw > 1e-4f)) continue;
-        hud.mini_bar[i].frac = std::clamp(mg.value / mg.max, 0.0f, 1.0f);
-        hud.mini_bar[i].px = (px / pw * 0.5f + 0.5f) * float(cw);
-        hud.mini_bar[i].py = (0.5f - py / pw * 0.5f) * float(ch);
-    }
 };
 // drive `boss8`: the fight as a player fights it, from then on every tick (`boss8=off` ends it). The pilot only ever
 // (a) puts the player ON THE ARENA FLOOR, while grounded, at a spot beside its target a player would run to — on a

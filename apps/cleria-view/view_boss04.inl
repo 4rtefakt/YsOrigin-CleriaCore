@@ -4,7 +4,7 @@
 // [H the names: the engine keeps them by pointer]. Included after boss3_tick; boss4_tick runs in
 // step_meshes, view_boss04_hit.inl at the player's swing.
 // [not modelled] the pit's `40jigoku005` UV scroll and its drag of GoXx type-4 objects; the pull on actors
-// other than the player; the two world-anchored mini gauges (0x76c1cc / 0x76c1e4); the dust
+// other than the player; the dust
 // sprites (FUN_00584550); the buff clear, the achievement and the drop (obj+0xc4); the boss-rush i-frames.
 constexpr int kB4Owner = -0xB04;                           // fx owner tag for the heal aura (blk+0x350)
 std::array<int, boss04::kNodes> boss4_node{};              // node table -> the model's node index
@@ -58,6 +58,10 @@ auto boss4_apply = [&](const Boss04Output& out) {
     }
     if (out.gauge) { hud.set_boss_gauge(-8, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->emblem); gauge_owner = 0; }
     if (out.gauge_hide) hud.hide_boss_gauge();
+    // The two mini gauges (FUN_00528570, MINI_GAUGE.md §4; Normal and easier): gauge 0 = the pod last hit,
+    // gauge 1 = part 7. The anchor is written at the hit only.
+    if (out.pod_gauge) hud.gauge[0] = WorldGauge{out.pod_gauge->timer, out.pod_gauge->hp, out.pod_gauge->max, out.pod_gauge->pos};
+    if (out.body_gauge) hud.gauge[1] = WorldGauge{out.body_gauge->timer, out.body_gauge->hp, out.body_gauge->max, out.body_gauge->pos};
     if (out.destroy) {
         if (MeshObj* bm = meshes.find("boss04")) { bm->alpha = bm->alpha_target = 0.0f; bm->no_collide = true; bm->dirty_alpha = true; }
         std::printf("  [boss04] t%llu destroyed\n", (unsigned long long)tick_count);

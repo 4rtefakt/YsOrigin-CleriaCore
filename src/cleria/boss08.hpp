@@ -36,6 +36,7 @@
 
 #include "cleria/ef2_sim.hpp"   // ef2sim::M4 and the D3DX matrix helpers
 #include "cleria/mathx.hpp"
+#include "cleria/worldgauge.hpp"
 
 namespace cleria {
 
@@ -270,7 +271,7 @@ struct Boss08Output {
 
 // A world-anchored sub-gauge (0x76c1cc / 0x76c1e4 / 0x76c1fc: timer, value, max, anchor). Nothing in the band
 // counts the 255 timers down [D U-D7] — that is the HUD's.
-struct Boss08MiniGauge { int timer = 0; float value = 0, max = 0; Vec3 anchor{}; };
+using Boss08MiniGauge = WorldGauge;   // the shared records 0x76c1cc.. (worldgauge.hpp)
 
 // One GoXx hurt part (type 7, sphere) [D §0, §2].
 struct Boss08Part {
@@ -420,8 +421,11 @@ public:
     const Boss08ArmBlock& arms() const { return ab_; }
     Boss08Part& part(int i) { return parts_[std::size_t(i)]; }          // 0..7 the body's, 8 the core's
     const Boss08Part& part(int i) const { return parts_[std::size_t(i)]; }
-    Boss08MiniGauge& mini(int i) { return mini_[std::size_t(i)]; }
-    const Boss08MiniGauge& mini(int i) const { return mini_[std::size_t(i)]; }
+    Boss08MiniGauge& mini(int i) { return (gauges_ ? gauges_ : mini_.data())[i]; }
+    const Boss08MiniGauge& mini(int i) const { return (gauges_ ? gauges_ : mini_.data())[i]; }
+    // The engine's three records are globals the HUD tick counts down (MINI_GAUGE.md §2): the host hands
+    // its store in; unbound (the unit tests) the object's own array stands for them.
+    void bind_gauges(WorldGauge* g) { gauges_ = g; }
     boss08::Track& track(int i) { return trk_[std::size_t(i)]; }
     const boss08::Track& track(int i) const { return trk_[std::size_t(i)]; }
     Boss08Statics& statics() { return st_; }
@@ -508,6 +512,7 @@ private:
     Boss08ArmBlock ab_{};
     std::array<Boss08Part, boss08::kBodyParts + 1> parts_{};
     std::array<Boss08MiniGauge, 3> mini_{};
+    WorldGauge* gauges_ = nullptr;
     std::array<boss08::Track, boss08::kTracks> trk_{};
     std::array<float, boss08::kBodyMats> mat_alpha_{};
     std::array<bool, boss08::kBodyMats> mat_damaged_{};

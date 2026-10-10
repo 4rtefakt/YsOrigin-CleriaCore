@@ -33,6 +33,7 @@
 
 #include "cleria/ef2_sim.hpp"   // ef2sim::M4 and the D3DX matrix helpers
 #include "cleria/mathx.hpp"
+#include "cleria/worldgauge.hpp"
 
 namespace cleria {
 
@@ -221,7 +222,7 @@ struct Boss07Output {
 
 // A world-anchored mini gauge record (0x76c1cc / 0x76c1e4 / 0x76c1fc: timer, value, max, anchor). The band only
 // writes them; nothing in it counts the 255 timers down [AB C11, G4] — that is the HUD's.
-struct Boss07MiniGauge { int timer = 0; float value = 0, max = 0; Vec3 anchor{}; };
+using Boss07MiniGauge = WorldGauge;   // the shared records 0x76c1cc.. (worldgauge.hpp)
 
 // One GoXx hurt part (type 6, owner D) [P1 §3.3 item 7; AB §B.2].
 struct Boss07Part {
@@ -353,8 +354,11 @@ public:
     const Boss07Part& part(int i) const { return parts_[std::size_t(i)]; }
     Boss07ChildMesh& child(int i) { return child_[std::size_t(i)]; }
     const Boss07ChildMesh& child(int i) const { return child_[std::size_t(i)]; }
-    Boss07MiniGauge& mini(int i) { return mini_[std::size_t(i)]; }
-    const Boss07MiniGauge& mini(int i) const { return mini_[std::size_t(i)]; }
+    Boss07MiniGauge& mini(int i) { return (gauges_ ? gauges_ : mini_.data())[i]; }
+    const Boss07MiniGauge& mini(int i) const { return (gauges_ ? gauges_ : mini_.data())[i]; }
+    // The engine's three records are globals the HUD tick counts down (MINI_GAUGE.md §2): the host hands
+    // its store in; unbound (the unit tests) the object's own array stands for them.
+    void bind_gauges(WorldGauge* g) { gauges_ = g; }
     Boss07Statics& statics() { return st_; }
     const Boss07Statics& statics() const { return st_; }
     ef2sim::M4 matrix() const;                // FUN_00503990's rows (YawPitchRoll of blk.rot) + the position row
@@ -406,6 +410,7 @@ private:
     std::array<Boss07Part, boss07::kParts> parts_{};
     std::array<Boss07ChildMesh, 3> child_{};
     std::array<Boss07MiniGauge, 3> mini_{};
+    WorldGauge* gauges_ = nullptr;
     Boss07Statics st_{};
     int char_ = 1, diff_ = 0;
     bool easy_ = false, very_easy_ = false, rush_ = false;

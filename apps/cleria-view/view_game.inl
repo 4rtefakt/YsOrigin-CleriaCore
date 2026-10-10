@@ -658,11 +658,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 for (int i = 0; i < 4; ++i) equip[i].swap(hud.equip_verts[i]);
                 std::vector<Hud::Msg> msgs;
                 msgs.swap(hud.messages);
-                const float overlay = hud.overlay_alpha, boss = hud.boss_frac, arm = hud.arm_frac;
-                const bool dbg = hud.debug_text;
-                hud.overlay_alpha = 0.0f; hud.boss_frac = -1.0f; hud.arm_frac = -1.0f; hud.debug_text = false;
+                const float overlay = hud.overlay_alpha, boss = hud.boss_frac;
+                const bool dbg = hud.debug_text, wg[3] = {hud.gauge_proj[0], hud.gauge_proj[1], hud.gauge_proj[2]};
+                hud.overlay_alpha = 0.0f; hud.boss_frac = -1.0f; hud.debug_text = false;
+                for (bool& b : hud.gauge_proj) b = false;
                 hud.render(g, view, cw, ch, "", 0.0f, nullptr);
-                hud.overlay_alpha = overlay; hud.boss_frac = boss; hud.arm_frac = arm; hud.debug_text = dbg;
+                hud.overlay_alpha = overlay; hud.boss_frac = boss; hud.debug_text = dbg;
+                for (int i = 0; i < 3; ++i) hud.gauge_proj[i] = wg[i];
                 msgs.swap(hud.messages);
                 for (int i = 0; i < 4; ++i) equip[i].swap(hud.equip_verts[i]);
             }
@@ -1865,6 +1867,7 @@ title_again:
         // FUN_00431260 writes DAT_006d5fd8 = 0, the gauge widget's owner [EXPORT 00431260.c:211, 0x431735];
         // the fight's own setter (FUN_0043a460) shows it again when the boss registers.
         hud.hide_boss_gauge(); gauge_owner = 0;
+        hud.clear_world_gauges();                  // the mini gauges: FUN_00431840 [EXPORT 00431840.c:672-687]
         // ... and neither do the sounds: FUN_00431840 calls FUN_005ce430(0) [BYTES 0x431ca6], a 1.5 s fade
         // and stop of every SE but the `manual` records (the env beds 600..606, which the next room's
         // script stops or plays on). This is what ends a loop its script never stops (618, 680, 751).
@@ -5128,7 +5131,6 @@ title_again:
     std::array<ef2sim::M4, boss03::kNodes> boss3_node_m{}; // the posed node frames (attach parents)
     std::array<RehitBank, boss03::kParts> boss3_banks{};   // the parts' own re-hit banks (+0x14c)
     std::array<int, boss03::kClips> boss3_sect{};          // clip id -> the mesh's section index
-    Boss03ArmGauge boss3_arm{};                            // the mini-gauge globals 0x76c1cc..
     auto boss3_apply = [&](const Boss03Output& out, MeshObj* bm) {
         for (int id : out.rumble) pad_rumble(id);        // FUN_005d3500 (view_pad.inl)
         for (const Boss03ClipSet& c : out.clips) {             // FUN_005f5c80 (+ the death's hard re-set)
@@ -5247,15 +5249,14 @@ title_again:
             gauge_owner = 0;
         }
         if (out.gauge_hide) hud.hide_boss_gauge();
-        if (out.arm_gauge) boss3_arm = *out.arm_gauge;
     };
     auto boss3_tick = [&] {
         MeshObj* bm = meshes.find("boss03");
-        if (!bm) { boss3.reset(); boss3_arm = {}; return; }
+        if (!bm) { boss3.reset(); return; }
         Model* mdl = cached_big_model(resolve_ymo_path(asset_root, "data\\enemy\\boss03\\boss03.ymo"));
         if (!mdl) return;
         auto lw = [](std::string t) { for (char& ch : t) ch = char(std::tolower((unsigned char)ch)); return t; };
-        if (boss3 && boss_load[2] != mesh_load_serial) { boss3.reset(); boss3_arm = {}; }
+        if (boss3 && boss_load[2] != mesh_load_serial) boss3.reset();
         if (!boss3) {
             boss_load[2] = mesh_load_serial;
             Boss03Setup su;                                // EEX record 2 (§2.1)
@@ -5281,7 +5282,8 @@ title_again:
             if (const MeshObj* r0 = meshes.find(boss03::ring_name(0))) su.ring_y0 = r0->pos.y;
             boss3 = std::make_unique<Boss03>(su);
             boss3_banks.fill(RehitBank{});
-            boss3_arm = {};
+            hud.gauge[0] = WorldGauge{};
+            boss3->bind_gauge(&hud.gauge[0]);              // the arm mini gauge 0x76c1cc..
             for (int k = 0; k < boss03::kNodes; ++k) {
                 boss3_node[std::size_t(k)] = -1;
                 for (std::size_t n = 0; n < mdl->nodes.size(); ++n)
@@ -5905,6 +5907,18 @@ title_again:
         emotions.erase(std::remove_if(emotions.begin(), emotions.end(),
                                       [](const Emotion& em) { return em.dead; }), emotions.end());
         hud.tick_boss_gauge();                     // FUN_004281c0's widget loop (FUN_0043a540)
+        // ... and the same tick's mini-gauge timers (widget 0; MINI_GAUGE.md §2). [H] held with the
+        // other widget state: the engine's own pause local in FUN_004281c0 is not traced (U4).
+        for (int gi = 0; gi < 3; ++gi) {
+            static int was[3] = {0, 0, 0};             // the log only: a gauge coming on / going off
+            const WorldGauge& wg = hud.gauge[gi];
+            if ((was[gi] != 0) != (wg.timer != 0)) {
+                if (wg.timer != 0) std::printf("  [hud] t%llu mini gauge %d on: %g / %g\n", (unsigned long long)tick_count, gi, wg.value, wg.max);
+                else std::printf("  [hud] t%llu mini gauge %d off\n", (unsigned long long)tick_count, gi);
+            }
+            was[gi] = wg.timer;
+        }
+        tick_world_gauges(hud.gauge);
         {   // FUN_004281c0: the HUD's alpha moves 0.1 per step toward 1 - the box's alpha (0 while
             // flag 185 == 0) [BYTES 0x428638..86]; the CrossFade opacity steps by its rate.
             const float box = csHost.wtext.alive() ? csHost.wtext.box_alpha() : 0.0f;
@@ -8894,20 +8908,16 @@ title_again:
                 player.o2_py = (0.5f - py / pw * 0.5f) * float(ch);
             }
         }
-        boss7_gauges(last_vp, cw, ch);                     // Dalles's three mini gauges (view_boss07.inl)
-        boss8_gauges(last_vp, cw, ch);                     // Darm's (view_boss08.inl)
-        hud.arm_frac = -1.0f;                              // Gelaldy's arm mini-gauge, at the arm
-        if (boss3 && boss3->hp() > 0.0f && boss3_arm.timer > 0 && boss3_arm.max > 0.0f) {
-            const Vec3 o = boss3_arm.pos;
+        for (int gi = 0; gi < 3; ++gi) {                   // the mini gauges' anchors (MINI_GAUGE.md §3.2)
+            const Vec3 o = hud.gauge[gi].anchor;
             const float* M = last_vp.m.data();
             const float px = o.x * M[0] + o.y * M[4] + o.z * M[8] + M[12];
             const float py = o.x * M[1] + o.y * M[5] + o.z * M[9] + M[13];
             const float pw = o.x * M[3] + o.y * M[7] + o.z * M[11] + M[15];
-            if (pw > 1e-4f) {
-                hud.arm_frac = std::max(0.0f, boss3_arm.hp / boss3_arm.max);
-                hud.arm_px = (px / pw * 0.5f + 0.5f) * float(cw);
-                hud.arm_py = (0.5f - py / pw * 0.5f) * float(ch);
-            }
+            hud.gauge_proj[gi] = pw > 1e-4f;               // [approx] retail has no behind-the-camera test (U5)
+            if (!hud.gauge_proj[gi]) continue;
+            hud.gauge_px[gi] = (px / pw * 0.5f + 0.5f) * float(cw);
+            hud.gauge_py[gi] = (0.5f - py / pw * 0.5f) * float(ch);
         }
         have_vp = true;
         if (scrfx_log && (csHost.light_rgb.x != light_drawn.x || csHost.light_rgb.y != light_drawn.y ||

@@ -163,14 +163,13 @@ struct Hud {
         boss_frac = max > 0 ? std::clamp(cur / max, 0.0f, 1.0f) : 0.0f;
     }
     void hide_boss_gauge() { boss_frac = -1.0f; boss_id = 0; }
-    // Gelaldy's arm mini-gauge 0x76c1cc..0x76c1e0 (GELALDY.md §3.2, HUD_LAYOUT item 10): HP / max
-    // of the arm last hit, at its projected position (screen px). < 0 = hidden. [approx] a plain
-    // two-rect bar: the widget's own art and layout are not RE'd.
-    float arm_frac = -1.f, arm_px = 0, arm_py = 0;
-    // Dalles's three world-anchored mini gauges 0x76c1cc / 0x76c1e4 / 0x76c1fc (DALLES_AB.md §B.3 / §B.7): the
-    // barrier strength (or both options' HP) and one per option, drawn as the arm's [approx] bar.
-    struct MiniBar { float frac = -1.f, px = 0, py = 0; };
-    MiniBar mini_bar[3];
+    // The three world-anchored mini gauges 0x76c1cc / 0x76c1e4 / 0x76c1fc (build/mech_re/MINI_GAUGE.md,
+    // src/cleria/worldgauge.hpp): the one store Gelaldy, Khonsclard, Dalles and Darm write, and each anchor's
+    // projection to the back buffer (px; the host's world_gauge_project, before the draw).
+    WorldGauge gauge[3];
+    float gauge_px[3] = {0, 0, 0}, gauge_py[3] = {0, 0, 0};
+    bool gauge_proj[3] = {false, false, false};
+    void clear_world_gauges() { for (WorldGauge& wg : gauge) wg = WorldGauge{}; }   // FUN_00431840 [EXPORT 00431840.c:672-687]
     // FUN_0043a540, every 60 Hz step: the lag moves toward cur by w+0x2c (0.02) x max x 0.2.
     void tick_boss_gauge() {
         if (boss_frac < 0.0f) return;
@@ -908,16 +907,20 @@ struct Hud {
             if (boss_max <= 0.0f) { boss_max = 1.0f; boss_cur = boss_lag = boss_frac; }   // a bare preview
             boss_bar(float(sw), float(sh));
         }
-        if (arm_frac >= 0.f) {
-            const float w = 60.0f * s, h = 6.0f * s;
-            rect(arm_px - w * 0.5f - s, arm_py - h - s, w + 2.0f * s, h + 2.0f * s, float(sw), float(sh), 0, 0, 0, 170);
-            rect(arm_px - w * 0.5f, arm_py - h, w * std::min(1.0f, arm_frac), h, float(sw), float(sh), 230, 50, 30, 230);
-        }
-        for (const MiniBar& mb : mini_bar) {
-            if (mb.frac < 0.f) continue;
-            const float w = 60.0f * s, h = 6.0f * s;
-            rect(mb.px - w * 0.5f - s, mb.py - h - s, w + 2.0f * s, h + 2.0f * s, float(sw), float(sh), 0, 0, 0, 170);
-            rect(mb.px - w * 0.5f, mb.py - h, w * std::min(1.0f, mb.frac), h, float(sw), float(sh), 230, 50, 30, 230);
+        // The mini gauges (FUN_0043c230 0x43cb13.., MINI_GAUGE.md §3): the oxygen bar's cell in the HUD tint's
+        // red, cut to value / max (not clamped), alpha (A_hud x timer) >> 8 — A_hud is the dim below.
+        // The anchor goes back buffer -> authored by 1024 / W, 768 / H (FUN_005e3fc0 [EXPORT 005e3fc0.c,
+        // 005e3ed0.c]), and on a wide screen x0 / x1 then go through FUN_005d3be0(axis 0, mode 1) [BYTES
+        // 0x43cc38..0x43cc6b] — the HudMap's left-pinned 4:3 field, which the oxygen bar does not take: there
+        // retail draws the bar at x * W43 / W, left of the part it belongs to (no retail capture: U1 / U2).
+        // [approx] a quad left of its own left edge (value < 0) is skipped; retail draws it mirrored.
+        for (int gi = 0; gi < 3; ++gi) {
+            WorldGaugeQuad q;
+            if (!gauge_proj[gi]) continue;
+            const HudMap m{sw, sh};
+            if (!world_gauge_quad(gauge[gi], gauge_px[gi] * 1024.0f / float(sw), gauge_py[gi] / m.sy, 255, &q)) continue;
+            if (!(q.x1 > q.x0)) continue;
+            sprite_a(m, Ar{q.x0, q.y0, q.x1, q.y1}, Rc{q.sx, q.sy, q.sw, q.sh}, float(sw), float(sh), 255, 0, 0, q.a);
         }
         if (gauge_alpha < 1.0f) {
             auto dim = [&](std::vector<HudVertex>& v, std::size_t from) {

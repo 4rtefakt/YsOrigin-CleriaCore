@@ -569,6 +569,31 @@ static void test_damage() {
                              r.b.body().hp == 2500 - 3 - 48;
         check(paused && counted && quiet,
               "AB §B.3 / 0.1: one count per FRAME with damage, none while blk+0x178 != 0; gauge 0 = T - hits / T; no flinch behind a barrier");
+        {   // MINI_GAUGE.md §2 / §3: the shared store, the HUD tick's 255 countdown, the quad
+            Rig s;
+            WorldGauge store[3];
+            s.b.bind_gauges(store);
+            s.k().phase = 1; s.k().barrier = 1; s.k().cooldown = 9999; s.k().fc = 1;
+            s.k().drift_scale = 0; s.k().drift_timer = 99999;
+            s.b.hit_part(0, 1); s.step();
+            const bool wrote = store[0].timer == 255 && store[0].value == 24 && store[0].max == 25 && &s.b.mini(0) == &store[0];
+            WorldGaugeQuad q{};
+            WorldGauge half{255, 50, 100, {}};
+            const bool quad = world_gauge_quad(half, 512, 384, 255, &q) && q.x0 == 472 && q.y0 == 284 && q.x1 == 514 && q.y1 == 296 &&
+                              q.sx == 288 && q.sy == 24 && q.sw == 42 && q.sh == 12 && q.a == 254;
+            WorldGauge over{1, 150, 100, {}};                                // not clamped; alpha (255 x 1) >> 8 = 0
+            const bool wide = world_gauge_quad(over, 0, 0, 255, &q) && q.x1 == -40.0f + 126.0f && q.a == 0;
+            WorldGauge nomax{255, 1, 0, {}}, off{0, 1, 1, {}};
+            const bool gates = !world_gauge_quad(nomax, 0, 0, 255, &q) && !world_gauge_quad(off, 0, 0, 255, &q);
+            for (int i = 0; i < 254; ++i) tick_world_gauges(store);
+            const bool last = store[0].timer == 1 && store[0].value == 24;
+            tick_world_gauges(store);
+            const bool zeroed = store[0].timer == 0 && store[0].value == 0 && store[0].max == 0 && store[0].anchor.y == 0 &&
+                                s.b.mini(0).timer == 0;
+            check(wrote && quad && wide && gates && last && zeroed,
+                  "MINI_GAUGE §2 / §3: the brain writes the bound store; quad {472, 284, 514, 296} cell {288, 24, 42, 12} alpha 254; "
+                  "unclamped; 255 HUD ticks zero the record (the bar fades out)");
+        }
         r.b.hit_part(0, 1);
         r.forced = {kU25, kU50, kU75};
         const int d0 = r.draws;

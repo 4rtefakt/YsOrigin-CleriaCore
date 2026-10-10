@@ -284,6 +284,23 @@ int main() {
         check(o.arm_gauge && o.arm_gauge->right && o.arm_gauge->timer == 254 && o.arm_gauge->hp == 600.0f &&
                   o.arm_gauge->max == 800.0f,
               "arm mini-gauge: 255 frames (-1 this frame), 600 / 800, right");
+        {   // MINI_GAUGE.md §2 (U3): bound to the shared word, the driver's -1 and the HUD tick's -1 both count
+            Boss03 c(setup(0));
+            Rig rc;
+            WorldGauge g0;
+            c.bind_gauge(&g0);
+            rc.start(c);
+            for (int i = 0; i < 10; ++i) rc.step(c);
+            c.add_part_damage(1, 100);
+            rc.step(c);
+            const bool wrote = g0.timer == 254 && g0.value == 600.0f && g0.max == 800.0f;
+            WorldGauge store[3] = {g0, {}, {}};
+            c.bind_gauge(&store[0]);
+            tick_world_gauges(store);                      // the HUD
+            rc.step(c);                                    // the driver
+            check(wrote && store[0].timer == 252 && c.arm_gauge().timer == 252,
+                  "MINI_GAUGE §2: Gelaldy's gauge 0 counts down twice a step (driver + HUD tick), 254 -> 252");
+        }
         for (int k = 0; k < 2; ++k) { b.add_part_damage(1, 100); r.step(b); }
         check(b.part(1).hp == 200.0f && b.arm_alive(0), "300 dealt: right arm 200 / 800");
         b.add_part_damage(1, 100);                         // 400 dealt: 100 -> 0
