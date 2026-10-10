@@ -19,6 +19,7 @@
 
 #include "cleria/aso.hpp"
 #include "cleria/ef2.hpp"
+#include "cleria/hit_feedback.hpp"
 
 namespace fs = std::filesystem;
 using namespace cleria;
@@ -309,5 +310,55 @@ int main(int argc, char** argv) {
             if (!okf) flag_fail = 1;
         }
     }
-    return (ok == files && bad_tile == 0 && decode_err == 0 && !gencol_fail && !chain_fail && !flag_fail) ? 0 : 1;
+    // anime_ChangeSpecular (0x1f), anime_AttackBreak (0x14) — build/mech_re/ASO_NOOPS.md §1, §6.
+    int spec_fail = 0;
+    {
+        auto say = [&](bool c, const char* what) { std::printf("%s: %s\n", what, c ? "OK" : "FAIL"); if (!c) spec_fail = 1; };
+        Aso m = Aso::load(fs::path(argv[1]) / "ANI" / "M_100.ASO");
+        if (m.ok()) {   // M_100 section 7: the wind-up flash, on the section's first tick
+            AsoVm vm; vm.bind(&m); vm.set_section(7, /*force*/true);
+            vm.tick();
+            const AsoVm::SpecularEvent* s = vm.specular();
+            say(s && s->b == 0 && s->a == 0xc0c0c0 && std::fabs(s->step - 0.075f) < 1e-6f && s->count == 0,
+                "ChangeSpecular M_100 sec7 tick 0 = {b 0, a c0c0c0, 0.075, 0}");
+            vm.tick();
+            say(vm.specular() == nullptr, "ChangeSpecular: an event lasts the tick that issued it");
+        }
+        Aso m2 = Aso::load(fs::path(argv[1]) / "ANI" / "M_360.ASO");
+        if (m2.ok()) {  // M_360 section 300: the flash up, then (32 ticks on) the fade back from 192 grey
+            AsoVm vm; vm.bind(&m2); vm.set_section(300, /*force*/true);
+            std::vector<std::pair<int, AsoVm::SpecularEvent>> ev;
+            for (int t = 0; t < 120 && ev.size() < 2; ++t) { vm.tick(); if (vm.specular()) ev.push_back({t, *vm.specular()}); }
+            say(ev.size() == 2 && ev[1].first - ev[0].first == 32 && ev[1].second.b == 0xc0c0c0 && ev[1].second.a == 0,
+                "ChangeSpecular M_360 sec300: two events 32 ticks apart, the second c0c0c0 -> 0");
+        }
+        {   // The struct's timeline (hitfx::Tint = FUN_0045a3a0 / FUN_00473b70): stepped before the VM, so the op's
+            // tick shows t = 0, tick k shows k steps.
+            auto run = [](float step, int count, int ticks) {
+                hitfx::Tint t; t.a = 0xc0c0c0; t.b = 0; t.step = step; t.count = count;
+                std::vector<std::uint32_t> c{t.colour() & 0xff};
+                for (int k = 1; k <= ticks; ++k) { t.tick(); c.push_back(t.colour() & 0xff); }
+                return c;
+            };
+            const auto a = run(0.075f, 0, 15);
+            bool ramp = a[0] == 0 && a[1] == 14 && a[2] == 28 && a[13] == 187 && a[14] == 0 && a[15] == 0;
+            static const std::uint32_t kRamp[14] = {0, 14, 28, 43, 57, 72, 86, 100, 115, 129, 143, 158, 172, 187};
+            for (int k = 0; k <= 13; ++k) ramp = ramp && a[std::size_t(k)] == kRamp[k];
+            say(ramp, "Tint 0 -> c0 step 0.075 count 0: 0, 14, 28 .. 187 on ticks 0..13, off on tick 14 (the end colour never shows)");
+            const auto b = run(0.05f, 30, 51);
+            say(b[19] < 192 && b[20] == 192 && b[49] == 192 && b[50] == 0, "Tint step 0.05 count 30: c0 on ticks 20..49, off on 50");
+            const auto c = run(0.025f, 5, 42);
+            say(c[40] < 192 && c[41] == 192, "Tint step 0.025: the float32 sum reaches 1.0 on tick 41, not 40");
+        }
+        Aso ad = Aso::load(fs::path(argv[1]) / "ANI" / "C_990.ASO");
+        if (ad.ok()) {  // C_990 section 0x116 (a charged swing): AttackBreak(1) from about tick 6; section 2 starts clear
+            AsoVm vm; vm.bind(&ad); vm.set_section(0x116, /*force*/true);
+            int on = -1;
+            for (int t = 0; t < 40 && on < 0; ++t) { vm.tick(); if (vm.attack_break()) on = t; }
+            const bool was = on >= 0 && on <= 12;
+            vm.set_section(2, /*force*/true); vm.tick();
+            say(was && !vm.attack_break(), "AttackBreak C_990 sec0x116: on within 12 ticks; a new section clears vm+0xe5");
+        }
+    }
+    return (ok == files && bad_tile == 0 && decode_err == 0 && !gencol_fail && !chain_fail && !flag_fail && !spec_fail) ? 0 : 1;
 }

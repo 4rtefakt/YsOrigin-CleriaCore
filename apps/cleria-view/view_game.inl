@@ -5370,6 +5370,7 @@ title_again:
     // FUN_0042dc90: a point inside one of the room's exit volumes — the .SEN records with a destination; the
     // .SEV event boxes are another list here, as the engine skips them (KEEPOUT_BOXES.md §1, §2).
     const bool keepout_log = std::getenv("CLERIA_KEEPOUT") != nullptr;
+    const bool spec_log = std::getenv("CLERIA_SPEC") != nullptr;   // the enemies' specular tint (anime_ChangeSpecular)
     const std::function<bool(const Vec3&)> exit_volume = [&](const Vec3& p) {
         for (const SenTrigger& t : room.sen.triggers) if (t.contains(p)) return true;
         return false;
@@ -6022,7 +6023,9 @@ title_again:
                     }
                     else if (e.avm.section() != e.idle_section) e.avm.set_section(e.idle_section, true);
                 }
+                e.spec.tick();
                 e.avm.tick();
+                e.spec_event();
                 // The same VM step as in play: a scripted actor's section sounds (a walk's steps, a swing).
                 if (!hugo_eye(A)) for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, A.pos);
                 // Surface footsteps of any actor with the enable byte +0x4be (Chr_FootSound; cast 0x7e): the
@@ -6512,6 +6515,7 @@ title_again:
                 pi.facing = std::atan2(face_dir.z, face_dir.x);
                 pi.section = avm.section();
                 pi.actable = avm.actable(); pi.cancelable = avm.cancelable(); pi.reserve = avm.attack_reserve();
+                pi.attack_break = avm.attack_break();             // anime_AttackBreak (vm+0xe5; Adol's sets only)
                 pi.jump_enable = avm.jump_enable();
                 pi.grounded = pv.grounded; pi.submerged = submerged; pi.t = pv.t; pi.landed = p_landed;
                 pi.flag181 = game.g_flags[181] > 0;
@@ -7060,7 +7064,9 @@ title_again:
                             if (ai_debug && (tick_count % 60) == 0)   // no handler ran: say so (REACQUIRE.md §1.3)
                                 std::printf("[ai] #%d cast %d phase %d frozen (25 u or more) t%llu\n", en->instance_id,
                                             en->cast_id, en->ai.phase(), (unsigned long long)tick_count);
+                            e.spec.tick();
                             e.avm.tick();                         // the ASO step is all a frozen handler runs: its sounds too
+                            e.spec_event();
                             for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, en->pos);
                             continue;
                         }
@@ -7273,6 +7279,7 @@ title_again:
                     }
                     if (o.vm_step) {                                  // the brain's FUN_004472e0
                         e.avm.tick();
+                        e.spec_event();
                         if (!hugo_eye(*en) && e.avm.section() != 5) for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, en->pos);
                     }
                     // The brain writes its ASO registers directly (+0x9bc / +0x9c0 / +0x9d8);
@@ -7341,7 +7348,16 @@ title_again:
                                                movable_pre, e.avm.section(), &idx_pre);
                     if (lsec >= 0) e.avm.set_section(lsec);          // FUN_00446550: priority-gated
                     e.avm.set_is_land(grounded_now);
+                    e.spec.tick();                                    // FUN_0045a3a0, before the VM (ASO_NOOPS.md §1.2)
                     e.avm.tick();
+                    e.spec_event();                                   // anime_ChangeSpecular: the wind-up flash
+                    if (spec_log && e.avm.specular())
+                        std::printf("  [spec] t%llu #%d cast %d section %d: %06x -> %06x step %.3f count %d\n",
+                                    (unsigned long long)tick_count, en->instance_id, en->cast_id, e.avm.section(), e.spec.b, e.spec.a,
+                                    e.spec.step, e.spec.count);
+                    else if (spec_log && e.spec.step != 0.0f)
+                        std::printf("  [spec] t%llu #%d specular %06x\n", (unsigned long long)tick_count, en->instance_id,
+                                    e.spec.colour());
                     // anime_SePlay3D (funcid 42) of a monster's own sections: its steps, wing beats and attack
                     // cries (build/audit/SOUNDS.md root cause 1 -- the loop read bullets, effects and the hit
                     // volume but never the sounds). Not a familiar (view_hugo_eyes.inl plays its own) and not the
@@ -8811,6 +8827,11 @@ title_again:
                 if (character == 2 && fe.id == 0x90) barrier_fx = fx;   // +0x7e0 [EXPORT 004496f0.c:113-115]
             }
             // GenerateCollision fired: adopt this section's own box for its own lifetime.
+            // anime_ChangeSpecular of the player's own set: the same struct the GUARD / Boost-ready flash uses —
+            // the last writer owns it and restarts it at t = 0 (ASO_NOOPS.md §1.3; Hugo's s5 / s274 issue "off").
+            if (const AsoVm::SpecularEvent* sv = avm.specular()) {
+                player_spec.a = sv->a; player_spec.b = sv->b; player_spec.t = 0.0f; player_spec.step = sv->step; player_spec.count = sv->count;
+            }
             if (avm.armed_hitbox()) {
                 atk_hb = avm.hitbox();
                 atk_cls = player_damage_class(avm.section());   // FUN_004494e0: cls at arm time

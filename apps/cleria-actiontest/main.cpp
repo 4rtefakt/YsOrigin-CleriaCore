@@ -34,6 +34,22 @@ int main(int, char**) {
         PlayerActions::In ib; ib.character = 1; ib.actable = true; ib.attack_pressed = true;
         pb.tick(ib); pb.tick(ib);
         check(pb.stage == 1, "a press while actable again restarts the chain (stage 0 -> 1)");
+        {   // anime_AttackBreak (vm+0xe5; ASO_NOOPS.md §6 [BYTES 0x465f7f]): a press that cannot be buffered while it
+            // is on drops the request and latches +0x6f6 until the next Actable press.
+            PlayerActions pk;
+            PlayerActions::In ik; ik.character = 0; ik.actable = true; ik.attack_pressed = true;
+            pk.tick(ik);
+            ik.actable = false; ik.section = 0x116; ik.reserve = false; ik.attack_break = true;
+            pk.tick(ik);
+            const bool latched = pk.break_latch && !pk.request;
+            ik.reserve = true;                                  // AttackReserve comes on ~10 ticks later: too late
+            pk.tick(ik);
+            const bool refused = !pk.request;
+            ik.actable = true; ik.attack_break = false;
+            pk.tick(ik);
+            check(latched && refused && !pk.break_latch && pk.request == false,
+                  "AttackBreak: an early press forfeits the follow-up (latch +0x6f6), cleared by an Actable press");
+        }
         PlayerActions pc;
         PlayerActions::In ic; ic.character = 1; ic.reserve = true; ic.cancelable = true;
         int secs[5] = {};

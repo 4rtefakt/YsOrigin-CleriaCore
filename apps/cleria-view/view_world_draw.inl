@@ -174,6 +174,13 @@ struct EnemyRender {
     // ASO-driven combat, bound in bind_enemy_aso. When avm has no script the enemy
     // falls back to the old idle-cycling render and never scripts an attack.
     AsoVm avm;
+    // The specular tint struct +0x260 (hit_feedback.hpp Tint): anime_ChangeSpecular writes it — the attack
+    // wind-up flash (build/mech_re/ASO_NOOPS.md §1) — and FUN_0045a3a0 steps it once per actor tick, before the
+    // VM runs [EXPORT 0045a510.c:144 vs 890]. spec_event applies what the VM's last tick issued.
+    hitfx::Tint spec;
+    void spec_event() {
+        if (const AsoVm::SpecularEvent* s = avm.specular()) { spec.a = s->a; spec.b = s->b; spec.t = 0.0f; spec.step = s->step; spec.count = s->count; }
+    }
     int atk_section = -1;   // this kind's attack section id, or -1 if none
     int idle_section = 2;   // resting section (2, else 0, else the first present)
     int atk_cd = 0;         // ticks until it may attack again
@@ -380,8 +387,10 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         }
         const SpriteTex* t = &(*frames)[fi];
         if (!t->tex) continue;
-        // The hurt tint (hit_feedback.hpp): while +0x238 runs, FUN_00473c60 sets the sprite's
-        // specular to 0x6b3713, added after the texture modulate. (It was a 6-tick lerp to white.)
+        // The specular starts from the tint struct +0x260 (anime_ChangeSpecular's wind-up flash; EnemyRender::spec)
+        // and the hurt tint REPLACES it (hit_feedback.hpp): while +0x238 runs, FUN_00473c60 sets the sprite's
+        // specular to 0x6b3713 [BYTES 0x473ea8..0x473ec5], added after the texture modulate.
+        // [not modelled] the glare split of the specular (GlareEffectLevel, ASO_NOOPS.md §1.2).
         // The diffuse word's R, G, B x the scene light's colour [BYTES 0x473a16..0x473a6d]; the specular is not.
         const std::uint32_t tc = e.actor->tint;
         draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos, 0.0f,
@@ -389,7 +398,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                        float(tc & 0xff) / 255.0f * g_scene_light.z, false, e.actor->ai.alpha * e.actor->tint_alpha,
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,     // Chr_Tremble
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale,
-                       hitfx::hurt_specular(e.actor->hit_flash));
+                       e.actor->hit_flash != 0.0f ? hitfx::kHurtSpecular : e.spec.colour());
         // Event-bound (group-1..4) enemies GLOW their marker colour (FUN_00473c60 [BYTES 0x473ec8..f87],
         // BARRIER_OBJECTS.md §1a): A = marker alpha * |sin(2 pi phase / 255)|, no floor, the phase
         // stepped in the actor tick (so it holds still under a Fix). [H] the composition: the

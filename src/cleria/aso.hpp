@@ -222,6 +222,17 @@ class AsoVm {
     };
     const std::vector<SoundEvent>& sounds() const { return sounds_; }
 
+    // anime_ChangeSpecular (funcid 0x1f, `fffffffi`; build/mech_re/ASO_NOOPS.md §1 [BYTES 0x447887..0x4478e7]):
+    // a write of the actor's specular tint struct +0x260 — B (+0x268) from the first colour, A (+0x264) from
+    // the second, t = 0, the step per tick, the hold count. The base word is not written. The monsters'
+    // attack wind-up flash. Valid for the tick that produced it; the last one of a tick wins (one struct).
+    struct SpecularEvent {
+        std::uint32_t b = 0, a = 0;   // 0xRRGGBB: the start and the end colour
+        float step = 0;
+        int count = 0;
+    };
+    const SpecularEvent* specular() const { return specular_set_ ? &specular_ : nullptr; }
+
     // anime_FireBullet (funcid 41 / 0x29) — projectile spawns, 186 uses. Hugo and Toal
     // both fire (Yunica never does), as do many enemies. The two ints are surfaced raw
     // and the rest kept as the script's own floats, because what they SELECT is still
@@ -268,6 +279,9 @@ class AsoVm {
     bool actable() const { return actable_; }         // funcid 22, accepts a new action
     bool cancelable() const { return cancelable_; }   // funcid 23, cancel window open
     bool attack_reserve() const { return atk_reserve_; }  // funcid 21, combo input buffered
+    // anime_AttackBreak (funcid 0x14; ASO_NOOPS.md §6 [BYTES 0x4476fb..0x447707]): byte vm+0xe5, the combo-buffer
+    // penalty window the player update reads (player_actions.hpp In::attack_break). Adol's two sets only.
+    bool attack_break() const { return atk_break_; }
     bool durable() const { return durable_; }         // funcid 24, super-armor
     bool untouchable() const { return untouchable_; } // funcid 28, i-frames
     bool jump_enable() const { return jump_enable_; } // funcid 25
@@ -373,11 +387,14 @@ private:
     static constexpr std::size_t kMaxSoundsPerTick = 8;   // a script never issues near this many
     static constexpr std::size_t kMaxBulletsPerTick = 8;
     std::vector<SoundEvent> sounds_;
+    SpecularEvent specular_;
+    bool specular_set_ = false;
     std::vector<BulletEvent> bullets_;
     std::vector<EffectEvent> effects_;
     std::vector<LocusEvent> loci_;
     float movable_ = 1.0f;
     bool turnable_ = true, actable_ = true, cancelable_ = false, atk_reserve_ = false;
+    bool atk_break_ = false;
     bool durable_ = false, untouchable_ = false, jump_enable_ = true;
     std::int32_t queued_ = 2;   // idle: [0x29]=[0x2a]=[0x2b]=2 at init (ASOVM.md §5)
     std::int32_t queued_jump_ = 2;  // [0x2b]: the follow-on after section 3 (the jump)

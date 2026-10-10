@@ -310,6 +310,25 @@ bool AsoVm::step(std::size_t& pc) {
             break;
         }
         case kAttackReserve: atk_reserve_ = (ai(0) != 0); break;
+        case 0x14: atk_break_ = (ai(0) != 0); break;       // anime_AttackBreak: byte vm+0xe5 [BYTES 0x4476fb]
+        case 0x1f: {                                       // anime_ChangeSpecular [BYTES 0x447887..0x4478e7]
+            auto af = [&](std::uint32_t i) {
+                float v; std::uint32_t raw = std::uint32_t(ai(i));
+                std::memcpy(&v, &raw, 4); return v;
+            };
+            auto rgb = [&](std::uint32_t i) {              // cvttss2si each, then << 16 | << 8 | (no mask)
+                return (std::uint32_t(int(af(i))) << 16) | (std::uint32_t(int(af(i + 1))) << 8) | std::uint32_t(int(af(i + 2)));
+            };
+            if (argc >= 8) {
+                specular_.b = rgb(0); specular_.a = rgb(3);
+                specular_.step = af(6); specular_.count = ai(7);
+                specular_set_ = true;
+            }
+            break;
+        }
+        // anime_GenerateCollision2 (0x28) is INERT in the engine: its kind-10 object only counts a delay and a
+        // life down, nothing reads it (ASO_NOOPS.md §4 [BYTES 0x447a78..0x447b8c]; no RNG draw). Nothing to do.
+        case 0x28: break;
         // FUN_004472e0 case 0x16 writes BOTH +0x9d0 (actable) and +0x9d1 (the jump-enable byte that
         // case 0x19 writes alone): Actable(1) also allows the jump (the mover's gate 0x46520c).
         case kActable:       actable_ = jump_enable_ = (ai(0) != 0); break;
@@ -421,6 +440,7 @@ void AsoVm::reset_section_regs() {
     movable_ = 0.0f;
     turnable_ = actable_ = jump_enable_ = false;
     cancelable_ = atk_reserve_ = durable_ = untouchable_ = false;
+    atk_break_ = false;                           // vm+0xe5, inside the zeroed range
     own_jump_ = false;
 }
 
@@ -463,6 +483,7 @@ void AsoVm::tick() {
     hitbox_armed_ = false;
     section_ended_ = false;
     sounds_.clear();
+    specular_set_ = false;
     bullets_.clear();
     effects_.clear();
     loci_.clear();

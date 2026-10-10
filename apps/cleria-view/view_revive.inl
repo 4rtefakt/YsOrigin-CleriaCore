@@ -82,7 +82,9 @@ auto revive_tick = [&](EnemyRender& e) -> bool {
         en->visible = false;
         return true;
     }
+    e.spec.tick();
     e.avm.tick();                                                  // FUN_004472e0 on the corpse
+    e.spec_event();
     const Enemy* er = etab.get(en->cast_id);
     const revive::DeadPost post = revive::dead_post(*rr, *en, er ? er->ai_raw : nullptr);
     if (post.revived) {
@@ -112,7 +114,9 @@ auto boss_corpse = [&](EnemyRender& e) {
         e.avm.set_section(5, /*force*/true);
         std::printf("  [boss] t%llu M360 death section %d, the 255-tick fade\n", (unsigned long long)tick_count, e.avm.section());
     }
+    e.spec.tick();
     e.avm.tick();
+    e.spec_event();
     for (const AsoVm::EffectEvent& fe : e.avm.effects()) {
         const Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
         ef2sim::SpawnParams sp;

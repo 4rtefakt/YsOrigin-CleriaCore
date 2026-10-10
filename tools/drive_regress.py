@@ -1011,6 +1011,16 @@ CASES.update({
         expect=["epos #189 (0.00, 0.00, 2.90)", "[keepout] t", "#189 cast 14 (0.00, 1.03, 3.4", "-> (0.00, 1.03, 3.40)",
                 "t180 actors", "id 189 cast 14 enemy hp", "pos (0.1,0.0,3.0)"],
         absent=[">> entering"]),
+    # build/mech_re/ASO_NOOPS.md §1 (anime_ChangeSpecular, funcid 0x1f): the attack wind-up flash. A Riffligan's section
+    # 7 writes its specular tint struct (0 -> 192 grey, step 0.075, count 0): the sprite brightens over 14 ticks
+    # (0x0e, 0x1c .. 0xbb) and the struct switches off on the tick t reaches 1.
+    "windup_flash": dict(
+        room="S_10/S_1004/S_1004",
+        env={"CLERIA_SPEC": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:epos=#189,0,1.2;22:near=#189,1.6;120:quit",
+        expect=["#189 cast 14 section 7: 000000 -> c0c0c0 step 0.075 count 0", "#189 specular 0e0e0e",
+                "#189 specular 818181", "#189 specular bbbbbb"],
+        absent=["specular c0c0c0"]),
     # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
     # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
     # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.
