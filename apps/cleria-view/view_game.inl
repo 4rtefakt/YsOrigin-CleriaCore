@@ -27,6 +27,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // The settings (view_input.inl): the persistent file for a played session, memory defaults for a
     // CLERIA_DRIVE run. The gamepad: SDL's gamepad layer, mapped into the retail pad codes.
     settings_init(std::getenv("CLERIA_DRIVE") == nullptr);
+    clear_data_load();             // record.ta2 (view_content.inl): the clear data, before the title's gates
+    struct ClearDataGuard { ~ClearDataGuard() { clear_data_shutdown(); } } clear_data_guard;   // every clean return
+    // `Release\data.nya` exists (FUN_00576020 [BYTES 0x5760a7..0x5760fe]: opened, closed unread): byte 0x74c106,
+    // the gate of Very Easy / Nightmare, the Arena, the Bonus Shop and Adol's bar (CLEAR_DATA.md §6). CleriaCore
+    // looks where the retail install keeps it — the release folder of the install the game data came from
+    // (gamedata::release_dir_for); a data folder with no known install has none.
+    const bool nya_gate = [&] {
+        std::error_code nec;
+        const fs::path rel = cleria::gamedata::release_dir_for(asset_root);
+        return !rel.empty() && fs::exists(rel / "data.nya", nec);
+    }();
     if (!modfile_startup()) { SDL_Quit(); return 0; }   // a .cleriamod to install (view_modfile.inl)
     mods_startup(g, asset_root);   // the vfs + the enabled mods, before any asset loads (view_mods.inl)
     content_startup(asset_root);   // the active mods' content/ patches (view_content.inl)
@@ -906,6 +917,14 @@ title_again:
         TitleScreen tscreen;
         PauseBook tbook;
         TitleGates tgates;
+        // The gates (CLEAR_DATA.md §8): the clear bytes 0x74ab7b / 7a / 79 and 0x74c106.
+        // [not modelled] what Time Attack / Arena Mode / Bonus Shop open: the entries show as in retail and
+        // lead nowhere yet (BONUS_MODES.md §6.2 steps 7-12).
+        tgates.clear_yunica = g_clear.cleared(0); tgates.clear_hugo = g_clear.cleared(1); tgates.clear_toal = g_clear.cleared(2);
+        tgates.nya = nya_gate;
+        std::printf("  [title] clear data: Yunica %02x Hugo %02x Toal %02x, data.nya %d -> Bonus Modes %d, Toal's bar %s\n",
+                    g_clear.clear[0], g_clear.clear[1], g_clear.clear[2], int(nya_gate), int(tgates.any_clear()),
+                    (g_clear.cleared(0) || g_clear.cleared(1)) ? "open" : "locked");
         std::int32_t tflags[0x200];
         for (std::int32_t& v : tflags) v = -1;
         InvState tinv;
@@ -918,6 +937,16 @@ title_again:
             m.sliders = oslider; m.checks = ocheck;
             m.metrics = tr.metrics();
             m.charsel.open_toal = settings().s.cleria.unlock_characters || g_lua_open_toal;   // CleriaCore's, not retail's
+            // Character Select / Type Select / Difficulty from the clear data (CLEAR_DATA.md §8, TITLE_DRAW.md §5-6).
+            m.charsel.clear_yunica = g_clear.cleared(0); m.charsel.clear_hugo = g_clear.cleared(1);
+            m.charsel.clear_toal = g_clear.cleared(2);
+            m.charsel.nya = nya_gate;
+            m.charsel.extra_yunica = g_clear.shop[records::ClearData::kYunicaExtra] != 0;
+            m.charsel.extra_hugo = g_clear.shop[records::ClearData::kHugoExtra] != 0;
+            m.charsel.extra_toal = g_clear.shop[records::ClearData::kToalExtra] != 0;
+            m.charsel.adol_felghana = g_clear.shop[records::ClearData::kAdolFelghana] != 0;
+            m.charsel.adol_napishtim = g_clear.shop[records::ClearData::kAdolNapishtim] != 0;
+            m.charsel.yunica_outfit = g_clear.shop[records::ClearData::kYunicaOutfit] != 0;
             return m;
         };
         float taccum = 0;
@@ -1027,6 +1056,11 @@ title_again:
                         case TitleAction::LoadGame: tbook.open(tmodel(), 2); break;
                         case TitleAction::Options: tbook.open(tmodel(), 3); break;
                         case TitleAction::Exit: teardown(); return 0;
+                        case TitleAction::TimeAttack: case TitleAction::Arena: case TitleAction::BonusShop:
+                            // [not modelled] BONUS_MODES.md §6.2 steps 7-12: the list comes back.
+                            std::printf("  [title] %s: not implemented\n", act == TitleAction::TimeAttack ? "Time Attack" :
+                                        act == TitleAction::Arena ? "Arena Mode" : "Bonus Shop");
+                            break;
                         default: break;
                     }
                 }
@@ -1256,8 +1290,10 @@ title_again:
     // 0 would render the Crimson Lotusblade fire-skill form).
     game.new_game(character);
     // FUN_0041fd10: flag 144 = the difficulty 0x74ac3c (0 Normal / 1 Hard / 2 Nightmare), 143 =
-    // Easy (0x74e685), 203 = Very Easy (0x74e684). [not modelled] 201 (0x74e25f) and the clear
-    // bytes 297..299.
+    // Easy (0x74e685), 203 = Very Easy (0x74e684). [not modelled] 201 (0x74e25f).
+    // Flags 297 / 298 / 299 = min(clear byte, 1) for Yunica / Hugo / Toal [EXPORT 0041fd10.c:175-186]: what
+    // S_0000's SP-bonus test and the clear script read.
+    for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = std::min<int>(g_clear.clear[std::size_t(c)], 1);
     game.g_flags[144] = difficulty >= 2 ? difficulty - 2 : 0;
     game.g_flags[143] = difficulty <= 1 ? 1 : 0;      // Very Easy sets 143 AND 203 [BYTES 0x5759ed + 0x5759f4]
     game.g_flags[203] = difficulty == 0 ? 1 : 0;
@@ -1369,6 +1405,8 @@ title_again:
     if (pending_load) {
         std::memcpy(game.g_flags, pending_load->flags, sizeof game.g_flags);
         std::memcpy(game.item_arr, pending_load->item_arr, sizeof game.item_arr);
+        // A load writes the RAW clear bytes into 297..299 [EXPORT 0042f5e0.c:210-212] (0xD5 / 0x8E / 0x89 included).
+        for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];
         character = std::clamp(pending_load->character(), 1, 3);
         if (!pending_load->scene.empty()) {
             auto it = g.sob_index.find(pending_load->scene);
@@ -2114,6 +2152,7 @@ title_again:
         player.boost = s.boost;
         std::memcpy(game.g_flags, s.flags, sizeof s.flags);
         std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
+        for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];   // the raw clear bytes (FUN_0042f5e0)
         character = std::clamp(s.character(), 1, 3);
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
@@ -3465,20 +3504,32 @@ title_again:
         }
         else if (n == 1) player.boost = skillmp::kBoostFull;   // DAT_0076c1b4 = 30000 (a direct write: no READY)
         else if (n == 4) {
-            // The clear (case 4 [EXPORT 0058f210.c:94-129; BYTES 0x58f3b0..0x58f41c]): byte 0x74ab9b = 1
-            // ("GameFirstPlay" of the system ini) and the character's clear flag 297 / 298 / 299
-            // (0x76bdc0 / c4 / c8, by g_flags[150] = 1 / 2 / 3) = 1.
-            // [not modelled] the rest of the case: the clear bytes 0x74ab7b / 7a / 79 (max(old, 1), or 0xd5 / 0x8e /
-            // 0x89 when FUN_00583960 answers 1), the cleared-difficulty byte 0x74ab88 + 4 * tier + character - 1, the
-            // clear-time test (0x76bc38 against 75 / 80 / 90 / 120 minutes -> 0x74e258), FUN_005a22e0 and the config /
-            // clear-data writes that follow (FUN_00436fa0..FUN_005cf580). CleriaCore keeps no record of those bytes,
-            // so the title's cleared-game entries (TitleGates) stay shut after a clear.
+            // The clear (case 4 [BYTES 0x58f350..0x58f5e9; EXPORT 0058f210.c:92-229], CLEAR_DATA.md §3.2), in order:
+            // byte 0x74ab9b = 1 ("GameFirstPlay" of the system ini); the character's clear byte 0x74ab7b / 7a / 79 =
+            // max(old, 1), or 0xd5 / 0x8e / 0x89 when FUN_00583960 answers 1 (the Extra version), and its clear flag
+            // 297 / 298 / 299 = 1; the cleared-tier byte of the run's difficulty — the rows are 0x74ab88 (Very Easy),
+            // 8c (Easy), 94 (Normal), 98 (Hard), 9c (Nightmare), the column the character - 1; record.ta2
+            // (FUN_00436fa0); the system ini. [H] FUN_00583960 = the Type Select answer of this session (`skin`).
+            // [not modelled] the achievements (FUN_00403e80), and the clear-time test (flag 199 against 75 / 80 /
+            // 90 / 120 minutes -> 0x74e258) with its leaderboard upload FUN_005a22e0: no platform here.
             settings().s.game.game_first_play = 1;
-            settings().touch(); settings().save();
             movie_seen.first_play = true;
             const int ch = game.g_flags[150];
+            records::apply_clear(g_clear, ch, skin == 1, game.g_flags[143] != 0, game.g_flags[144], game.g_flags[203] != 0);
             if (ch >= 1 && ch <= 3) game.g_flags[296 + ch] = 1;
+            g_clear_dirty = true;
+            const bool wrote = clear_data_save();
+            settings().touch(); settings().save();
             std::printf("  [clear] EventXX(4): GameFirstPlay = 1, clear flag %d = 1\n", ch >= 1 && ch <= 3 ? 296 + ch : -1);
+            std::printf("  [clear] clear bytes Yunica %02x Hugo %02x Toal %02x, %d cleared tier(s); record.ta2 %s\n", g_clear.clear[0],
+                        g_clear.clear[1], g_clear.clear[2], g_clear.tier_count(), wrote ? "saved" : "NOT saved");
+        }
+        else if (n == 13) {
+            // The SP bonus (case 13 [BYTES 0x58f8a5..0x58f94a], BONUS_MODES.md §1): 10,000 SP per cleared
+            // (difficulty, character) cell, at most 150,000, a hundredth on Nightmare, through FUN_004fa290.
+            const int add = records::sp_bonus(g_clear, game.g_flags[144]);
+            player.sp = std::clamp(player.sp + add, 0, 999999);
+            std::printf("  [clear] EventXX(13): SP bonus %d (%d cleared tier(s)) -> SP %d\n", add, g_clear.tier_count(), player.sp);
         }
         // 11 and 12 zero the four status timers 0x76c160..0x76c16c [EXPORT 0058f210.c:288-311]; the bits and
         // the effects go on the next FUN_00462550 (ail_tick: the engine's own call here returns under a Fix).

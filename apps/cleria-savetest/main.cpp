@@ -3,6 +3,7 @@
 // tools/save_decode.py expects (magic "YsO", keys at +0x10/+0xc0, add-cipher), and a
 // truncated/garbage buffer is rejected. If CLERIA_REAL_SAVE points at a real
 // yso_NN.bin, it is decoded and its character/difficulty printed (read-compat proof).
+#include "cleria/records.hpp"
 #include "cleria/save.hpp"
 #include "cleria/sidecar.hpp"
 #include <cstdio>
@@ -179,6 +180,98 @@ int main() {
         } else {
             std::printf("[save] REAL save FAILED to decode\n");
             ++fails;
+        }
+    }
+    // ---- the record container and the clear data (build/mode_re/CLEAR_DATA.md; src/cleria/records.hpp) ----
+    {
+        auto ok = [&](bool c, const char* what) { std::printf("[records] %s %s\n", what, c ? "OK" : "FAIL"); fails += !c; };
+        records::ClearData d;
+        d.clear = {1, 0, 0x89};
+        d.tier[2][0] = 1; d.tier[4][2] = 1;
+        d.count = 4; d.nya = 1; d.shop[records::ClearData::kToalExtra] = 1; d.shop[records::ClearData::kYunicaOutfit] = 1;
+        const std::vector<std::uint8_t> f = records::encode_clear(d, 0x1234ABCDu);
+        const std::uint8_t head[8] = {0x59, 0x73, 0x4F, 0x00, 0x0D, 0x00, 0x00, 0x00};
+        const std::uint8_t tag[6] = {0x8B, 0x10, 0xCF, 0x78, 0x18, 0x56};
+        ok(f.size() == 0xC0 && std::memcmp(f.data(), head, 8) == 0 && std::memcmp(f.data() + 0x10, tag, 6) == 0 &&
+           f[0x20] == 0xCD && f[0x23] == 0x12, "record.ta2 image: 0xC0 bytes, \"YsO\\0\" 0x0D, the tag at +0x10, the key at +0x20");
+        const auto back = records::decode_clear(f);
+        ok(back && back->clear == d.clear && back->tier == d.tier && back->count == 4 && back->nya == 1 && back->shop == d.shop,
+           "clear data round-trips through the container");
+        const auto p = d.payload();
+        ok(p[0x08] == 0x89 && p[0x09] == 0 && p[0x24] == 1 && p[0x44] == 1 && p[0x48] == 4 && p[0x4C] == 1 && p[0x68] == 1 && p[0x84] == 1,
+           "payload offsets: Toal's clear +0x08, Normal x Yunica +0x24, Nightmare x Toal +0x44, the shop dwords +0x58..+0x84");
+        std::vector<std::uint8_t> bad = f;
+        bad[0x40] ^= 1;
+        ok(!records::decode_clear(bad), "a flipped payload byte fails the CRC");
+        bad = f; bad.pop_back();
+        ok(!records::decode_clear(bad), "a wrong length is refused");
+        const std::uint32_t k = records::make_key(1);
+        int bits = 0;
+        for (std::uint32_t v = k; v; v &= v - 1) ++bits;
+        ok(k != 0 && bits >= 11 && bits <= 21, "make_key: non-zero, 11..21 bits set");
+
+        // EventXX(4) (CLEAR_DATA.md §3.2)
+        records::ClearData c;
+        records::apply_clear(c, 3, false, false, 1, false);         // Toal, Hard
+        ok(c.clear[2] == 1 && c.tier[3][2] == 1 && c.tier_count() == 1 && !c.clear[0], "EventXX(4): Toal on Hard -> clear 1, the Hard row");
+        records::apply_clear(c, 3, true, false, 2, false);          // Toal Extra, Nightmare
+        ok(c.clear[2] == 0x89 && c.tier[4][2] == 1, "EventXX(4): the Extra version stores 0x89; Nightmare row");
+        records::apply_clear(c, 3, false, false, 0, false);
+        ok(c.clear[2] == 0x89 && c.tier[2][2] == 1, "EventXX(4): a later normal clear keeps the Extra value (max); Normal = row 0x74ab94");
+        records::apply_clear(c, 1, true, true, 0, false);           // Yunica Extra, Easy
+        records::apply_clear(c, 2, true, true, 2, true);            // Hugo Extra, Very Easy (flag 144 is not read on the easy side)
+        ok(c.clear[0] == 0xD5 && c.tier[1][0] == 1 && c.clear[1] == 0x8E && c.tier[0][1] == 1 && c.tier[4][1] == 0,
+           "EventXX(4): Easy / Very Easy rows from flags 143 / 203; 0xD5 / 0x8E");
+        records::ClearData n;
+        records::apply_clear(n, 1, false, false, 3, false);
+        records::apply_clear(n, 0, false, false, 0, false);
+        ok(n.clear[0] == 1 && n.tier_count() == 0, "EventXX(4): flag 144 > 2 writes no tier byte; character 0 writes nothing");
+        // EventXX(13) (BONUS_MODES.md §1)
+        ok(records::sp_bonus(c, 0) == 50000 && records::sp_bonus(c, 2) == 500 && records::sp_bonus(n, 0) == 0,
+           "EventXX(13): 10,000 SP per cleared cell (5 -> 50,000), a hundredth on Nightmare");
+        for (auto& row : c.tier) row = {1, 1, 1};
+        ok(records::sp_bonus(c, 1) == 150000, "EventXX(13): fifteen cells = the 150,000 cap");
+
+        // The real retail files, READ-ONLY: CLERIA_REAL_RECORDS = their folder, else Steam's remote folder of app
+        // 207350 under any user id. All seven must decode (exact length, CRC) and re-encode byte for byte.
+        namespace fs = std::filesystem;
+        fs::path dir;
+        std::error_code ec;
+        if (const char* e = std::getenv("CLERIA_REAL_RECORDS")) dir = e;
+        else if (const char* pf = std::getenv("ProgramFiles(x86)")) {
+            const fs::path ud = fs::path(pf) / "Steam" / "userdata";
+            if (fs::is_directory(ud, ec))
+                for (const auto& u : fs::directory_iterator(ud, ec))
+                    if (fs::exists(u.path() / "207350" / "remote" / "record.ta2", ec)) { dir = u.path() / "207350" / "remote"; break; }
+        }
+        if (dir.empty() || !fs::exists(dir / "record.ta2", ec)) {
+            std::printf("[records] no real record files found (CLERIA_REAL_RECORDS): the retail-file checks are SKIPPED\n");
+        } else {
+            static const struct { const char* name; std::size_t payload; } kFiles[7] = {
+                {"record.ta2", 0x98}, {"record.ar2", 0x04}, {"record.ta", 0xB40}, {"record.tae", 0xB40},
+                {"record.ar", 0x540}, {"record.are", 0x540}, {"record.tp", 0x1458}};
+            int good = 0;
+            for (const auto& rf : kFiles) {
+                std::ifstream in(dir / rf.name, std::ios::binary);
+                const std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(in), {}};
+                const auto pl = records::decode(raw, rf.payload);
+                if (!pl) { std::printf("[records] REAL %s did not decode (%zu bytes)\n", rf.name, raw.size()); continue; }
+                std::uint32_t key, na, nb;
+                std::memcpy(&key, raw.data() + 0x20, 4); std::memcpy(&na, raw.data() + 8, 4); std::memcpy(&nb, raw.data() + 12, 4);
+                good += records::encode(*pl, key, na, nb) == raw;
+            }
+            ok(good == 7, "REAL retail record files: all seven decode (length + CRC) and re-encode byte-exact");
+            std::ifstream in(dir / "record.ta2", std::ios::binary);
+            const std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(in), {}};
+            if (const auto cd = records::decode_clear(raw)) {
+                std::printf("[records] REAL record.ta2: clear %02x %02x %02x, tiers %d, shop", cd->clear[0], cd->clear[1], cd->clear[2],
+                            cd->tier_count());
+                for (std::uint32_t v : cd->shop) std::printf(" %u", v);
+                std::printf("\n");
+                const auto pl = records::decode(raw, records::ClearData::kPayload);
+                const auto again = cd->payload();
+                ok(pl && std::equal(again.begin(), again.end(), pl->begin()), "REAL record.ta2: ClearData reproduces its payload byte for byte");
+            }
         }
     }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

@@ -523,6 +523,47 @@ static fs::path save_folder() {
     const char* e = std::getenv("CLERIA_SAVE_DIR");
     return save_profile_dir(e ? e : "saves", g_save_profile);
 }
+// The clear data `record.ta2` (src/cleria/records.hpp; build/mode_re/CLEAR_DATA.md): which characters cleared
+// the game, the cleared tiers, the Bonus Shop's purchases. It is per INSTALL, not per save: retail keeps it beside
+// the save slots (FUN_005ce950's folder), so here it is <CLERIA_SAVE_DIR, default ./saves>/record.ta2 — the save
+// folder itself, never a profile's folder. Read once at boot (FUN_00442260); written by the clear (EventXX(4))
+// and at a clean shutdown (FUN_0040dcc0). [not modelled] the other six record files; the achievement repair of
+// the reader (CLEAR_DATA.md §3.4: nothing without Steam / GOG). A retail record.ta2 copied there is read as is.
+static records::ClearData g_clear;
+static bool g_clear_dirty = false;
+static fs::path clear_data_path() {
+    const char* e = std::getenv("CLERIA_SAVE_DIR");
+    return fs::path(e ? e : "saves") / "record.ta2";
+}
+static void clear_data_load() {
+    g_clear = records::ClearData{};
+    g_clear_dirty = false;
+    std::error_code ec;
+    if (!fs::exists(clear_data_path(), ec)) return;
+    if (const auto d = records::load_clear(clear_data_path())) {
+        g_clear = *d;
+        std::printf("[clear] record.ta2: Yunica %02x Hugo %02x Toal %02x, %d cleared tier(s)\n", g_clear.clear[0], g_clear.clear[1],
+                    g_clear.clear[2], g_clear.tier_count());
+    } else {
+        std::printf("[clear] record.ta2: wrong length or CRC, ignored (the defaults stay)\n");   // [EXPORT 00436790.c:153-165]
+    }
+}
+// [approx] the key and the two noise words come from the clock, not from the engine's xorshift (retail draws
+// three numbers of the game's stream here; CleriaCore leaves that stream alone).
+static bool clear_data_save() {
+    std::error_code ec;
+    fs::create_directories(clear_data_path().parent_path(), ec);
+    const std::uint32_t seed = std::uint32_t(std::chrono::steady_clock::now().time_since_epoch().count());
+    const bool ok = records::save_clear(clear_data_path(), g_clear, records::make_key(seed));
+    if (ok) g_clear_dirty = false;
+    return ok;
+}
+// The clean shutdown's write (FUN_0040dcc0 [EXPORT 0040dcc0.c:78]). Retail rewrites the file every time; here
+// only when it is missing or its content changed (the bytes would differ by the key alone).
+static void clear_data_shutdown() {
+    std::error_code ec;
+    if (g_clear_dirty || !fs::exists(clear_data_path(), ec)) clear_data_save();
+}
 // False (and no change) for a name save_profile_name refuses; "" returns to the normal folder.
 static bool save_set_profile(const std::string& raw) {
     const std::string n = save_profile_name(raw);

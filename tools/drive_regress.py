@@ -1461,9 +1461,29 @@ CASES.update({
         room="S_00/S_0003/S_0003", char="3",
         drive="5:flag=206,1;10:saveload;40:every=15,6000,ok;6000:quit",
         # On the way its EventXX(4) sets the system ini's GameFirstPlay and Toal's clear flag 299 (FUN_0058f210 case 4).
+        # ... and (CLEAR_DATA.md §3.2) Toal's clear byte and the Normal tier byte, saved to record.ta2 in the save folder;
+        # the title that follows reads the live bytes: Bonus Modes is on its list.
         expect=[">> entering S_0003", "[clear] EventXX(4): GameFirstPlay = 1, clear flag 299 = 1",
+                "[clear] clear bytes Yunica 00 Hugo 00 Toal 01, 1 cleared tier(s); record.ta2 saved",
                 "ChangeScene 'Title\\' -> the title", "Return to Title: back to the title",
-                "[title] t60 fader 0.00 list 1 book 0"]),
+                "[title] clear data: Yunica 00 Hugo 00 Toal 01, data.nya 0 -> Bonus Modes 1, Toal's bar locked",
+                "[title] t60 fader 0.00 list 1 book 0"],
+        files=["record.ta2"]),
+    # CLEAR_DATA.md: the clear data survives the process. First boot: Yunica's ending (Normal) writes record.ta2 into
+    # the save folder. Second boot, another room, the same folder: the record is read back before the title, flags
+    # 297..299 are seeded from it (a new game: min(byte, 1)), and the title's gates open — Bonus Modes, and Toal's bar
+    # in Character Select with no [cleria.qol] UnlockCharacters override.
+    "clear_second_boot": dict(
+        room="S_00/S_0003/S_0003", char="1",
+        drive="5:flag=206,1;10:saveload;40:every=15,6000,ok;6000:quit",
+        room2="S_10/S_1009/S_1009",
+        drive2="5:flagdump;20:esctap;70:right;80:right;90:right;120:ok;160:up;200:up;230:ok;260:left;290:ok;400:quit",
+        expect=["[clear] EventXX(4): GameFirstPlay = 1, clear flag 297 = 1",
+                "[clear] clear bytes Yunica 01 Hugo 00 Toal 00, 1 cleared tier(s); record.ta2 saved",
+                "==== second boot", "[clear] record.ta2: Yunica 01 Hugo 00 Toal 00, 1 cleared tier(s)",
+                " 297=1", "[game] Return to Title: back to the title",
+                "[title] clear data: Yunica 01 Hugo 00 Toal 00, data.nya 0 -> Bonus Modes 1, Toal's bar open"],
+        files=["record.ta2"]),
     # DIFFICULTY.md G2 / G8 on Hard (diff=3, then a reload so the room spawns under it): a regular Rif's 60 HP
     # is 72 and the Normal 112 is 134 (FUN_004202e0's x1.2); the hit that takes 22 on Normal takes
     # 22 * 1.5 + 1 = 34 (FUN_004fa740's tail).
@@ -1966,12 +1986,23 @@ def run(name, case, exe, assets):
         extra = modfile_regress.start(case, env, os.path.join(saves, "settings"))   # a `modfile` case: the file
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
         r = subprocess.run([exe, assets, sob] + extra, env=env, capture_output=True, text=True, timeout=900)
-    out = r.stdout + r.stderr
+        out = r.stdout + r.stderr
+        if "drive2" in case:        # a second boot on the same save folder (`room2`: its room)
+            sob2 = os.path.join(assets, "MAP", case.get("room2", case["room"]) + ".SOB")
+            r = subprocess.run([exe, assets, sob2] + extra, env=dict(env, CLERIA_DRIVE=case["drive2"]), capture_output=True,
+                               text=True, timeout=900)
+            out += "==== second boot" + chr(10) + r.stdout + r.stderr
+        lost = [n for n in case.get("files", []) if not os.path.exists(os.path.join(saves, n))]   # must be in the save folder
+        if lost:
+            out = "MISSING FILE " + ", ".join(lost)
     ok = aplua_regress.finish(name, case, srv, msg.append) and check(name, case, r, out, msg.append)
     return ok, msg, time.time() - t0
 
 
 def check(name, case, r, out, say):
+    if out.startswith("MISSING FILE "):
+        say(f"FAIL {name}: the save folder has no {out[13:]}")
+        return False
     for e in case.get("absent", []):
         if e in out:
             say(f"FAIL {name}: unexpected '{e}'")

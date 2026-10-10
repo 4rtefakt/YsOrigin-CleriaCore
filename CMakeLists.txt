@@ -76,6 +76,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/skillmp.cpp
   src/cleria/surface.cpp
   src/cleria/save.cpp
+  src/cleria/records.cpp
   src/cleria/world.cpp
   src/cleria/input_map.cpp
   src/cleria/mouse.cpp
