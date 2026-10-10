@@ -201,6 +201,7 @@
                     boss6_zava_env(*en, env);                        // Zava's link to her heads (view_boss06.inl)
                     env.was_hit = e.hit;
                     env.took_damage = e.dmg_hit;
+                    env.events = e.events;                           // +0x3bc & 0x6000: the stun-rolling hits
                     env.group_tag = en->tag.tagged();
                     env.aso_marker = e.avm.marker();
                     env.aso_marker_block = e.avm.marker_block();
@@ -239,6 +240,7 @@
                     }
                     e.hit = false;
                     e.dmg_hit = false;
+                    e.events = 0;
                     env.hp = en->hp; env.max_hp = en->max_hp; env.section = e.avm.section();
                     en->live_section = env.section;
                     env.cam_back = {-cam_fwd.x, 0.0f, -cam_fwd.z};   // [H] M470.md §7 #3
@@ -264,6 +266,9 @@
                     const int phase_before = e.actor->ai.phase();
                     AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
                     boss6_zava_post(*en, env, o);                    // Zava's handler past the action player (view_boss06.inl)
+                    if (phase_before == 2 && e.actor->ai.phase() == 3 && std::getenv("CLERIA_DMG"))
+                        std::printf("  [stun] t%llu #%d cast %d stunned for %d ticks (events %x)\n", (unsigned long long)tick_count,
+                                    en->instance_id, en->cast_id, e.actor->ai.dur(), env.events);
                     if (phase_before == 2 && e.actor->ai.phase() == 1 && los_log) los_report(*en, env);   // view_los.inl
                     // The brain's own writes to its HP (+0x98) / EXP (+0xb0), and its spawns.
                     if (o.set_hp >= 0) en->hp = o.set_hp;

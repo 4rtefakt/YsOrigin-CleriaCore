@@ -1097,6 +1097,14 @@ CASES.update({
         room="S_10/S_1004/S_1004", env={"CLERIA_DUST": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="5:opt=InfiniteHP=1;20:epos=#189,0,1.2;22:near=#189,1.6;120:quit",
         expect=["hurt: 5 puffs at", "20 draws", "hurt: 3 splats ff550a00", "18 draws"]),
+    # build/mech_re/LAUNCH_STATE.md §0 / §5 step 2: the stun is reachable in play. Yunica's down thrust (section 0x10b,
+    # attack kind 2: Attack while falling, no stick) deals damage -> the victim's event bit 0x2000 -> the action
+    # player's roll on its next tick (30 %; 60 % with 0x4000) -> phase 3 for 99 ticks, the stars, section 0x13b.
+    "stun_thrust": dict(
+        room="S_10/S_1004/S_1004", env={"CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.2;20:epos=#189,0,1.2;" +
+              ";".join("%d:near=#189,0.8;%d:jump;%d:atk" % (t, t + 1, t + 24) for t in range(30, 400, 60)) + ";420:quit",
+        expect=["hit Riffligan", "[stun] t304 #189 cast 14 stunned for 98 ticks (events 2000)"]),
     # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
     # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
     # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.

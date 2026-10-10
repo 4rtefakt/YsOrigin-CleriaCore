@@ -202,6 +202,7 @@ struct EnemyRender {
     unsigned step_n = 0;      // +0x4c0, its step counter
     bool hit = false;       // landed hit this tick (+0x3bc & 4), read by the next AI tick
     bool dmg_hit = false;   // ...and it did >= 1 damage (+0x3bc & 2)
+    std::uint32_t events = 0;   // ...and the stun-rolling bits of +0x3bc (0x2000 / 0x4000; LAUNCH_STATE.md §0)
     float origin_h = 1.075f;  // +0x324: this cast's origin height above its floor
 };
 

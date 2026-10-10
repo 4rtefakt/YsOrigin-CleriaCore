@@ -7197,6 +7197,14 @@ title_again:
                     if (er.actor != &en || !er.avm.ok()) continue;
                     er.hit = true;                      // +0x3bc & 4: wakes an unaware enemy
                     if (dmg >= 1) er.dmg_hit = true;    // +0x3bc & 2: a damaging hit
+                    // 0x4fd1d7.. [EXPORT 004fbb40.c:675-683]: a damaging hit while the attacker's kind +0x404 is 2
+                    // (the thrust 0x10b) sets 0x2000, and 0x4000 too when the attacker's +0x77c != 0; the action
+                    // player rolls the stun on them next tick (30 % / 60 %; enemy_ai.cpp). The attacker is the
+                    // player for a bullet or an effect too (LAUNCH_STATE.md §1).
+                    // [H] +0x77c is the double-jump count (player_actions dj_count): its meaning here is the spec's
+                    // unknown U1.
+                    if (dmg >= 1 && skillmp::attack_kind(avm.section()) == 2)
+                        er.events |= 0x2000u | (pact.dj_count != 0 ? 0x4000u : 0u);
                     if (enemy_flinch_state(dmg, false, rtype, er.avm.durable(), er.avm.section()) == 4) {
                         er.avm.set_section(4, /*force*/ er.avm.section() == 4);
                         er.atk_win = 0; er.atk_armed = false; er.atk_age = 0;
