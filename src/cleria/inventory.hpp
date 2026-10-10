@@ -8,6 +8,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace cleria {
@@ -60,6 +61,14 @@ bool equip_cell(std::int32_t* flags, InvState& inv, int character, int cell);
 
 // FUN_00443390: the effect of a heal drop / Panacea / seed on the player. `hp` / `max_hp` are
 // the live HP; returns the popup value (heal amount), or 0.
+// CleriaCore mods (LUA_API.md §5.2, not retail): what pickup() is about to apply. EffectEnv::mod may change
+// `value` / `timer`; when it returns false nothing is applied and the pickup is still taken.
+struct PickupFx {
+    int id = 0;
+    int what = 0;         // 0 SP, 1 HP, 2 / 3 / 4 the Strength / Defense / MP buff's step, 5 the Boost gauge, 6 oxygen, 7 an item count
+    float value = 0;
+    int timer = 0;        // 2..4: the buff's ticks
+};
 struct EffectEnv {
     std::int32_t* flags = nullptr;
     float* hp = nullptr;
@@ -70,6 +79,7 @@ struct EffectEnv {
     // FUN_00585ff0's gold scale [BYTES 0x58618d..0x5861eb]: 0.01 in the story (byte 0x74e25e == 0) when
     // g_flags[144] == 2 (Nightmare), else 1.0. [not modelled] mode 2's 1 + (2 * index + 2).
     float gold_scale = 1.0f;
+    std::function<bool(PickupFx&)> mod;   // CleriaCore mods; null = the game's own values
 };
 int apply_item_effect(InvState& inv, const ItemTable& items, EffectEnv& env, int id);
 

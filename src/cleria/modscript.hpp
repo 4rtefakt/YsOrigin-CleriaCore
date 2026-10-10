@@ -31,7 +31,7 @@ struct lua_State;
 
 namespace cleria::script {
 
-inline constexpr int kApiVersion = 5;   // cleria.api_version (= mods::kApiVersion; LUA_API.md §11 lists what each level added)
+inline constexpr int kApiVersion = 6;   // cleria.api_version (= mods::kApiVersion; LUA_API.md §11 lists what each level added)
 inline constexpr int kScriptApi = 3;    // the manifest ApiVersion a Script= needs (when the Lua API arrived)
 
 struct Limits {
@@ -40,6 +40,39 @@ struct Limits {
     std::size_t memory = 96u << 20;                 // [H] the Lua heap of one mod
     int websockets = 4;                             // [H] sockets open at once per mod
     std::size_t file_bytes = 16u << 20;             // [H] largest file a mod reads / writes
+};
+
+// cleria.combat.add_filter (API 6, LUA_API.md §5.2): one number of the player's progression, combat or pickups
+// that the game is about to apply. The game fills it (only when a mod has a filter of that kind); a filter
+// may answer another value.
+struct CombatQuery {
+    enum class Kind { Exp, Sp, Damage, Drop, Pickup };
+    Kind kind = Kind::Exp;
+    double value = 0;                 // what the game would apply: EXP, SP, damage, a pickup's amount
+    int item = -1;                    // Drop / Pickup: the item id
+    int timer = 0;                    // Pickup: a buff drop's duration in ticks
+    std::vector<std::pair<const char*, double>> num;        // the query table's other fields
+    std::vector<std::pair<const char*, std::string>> str;
+};
+inline constexpr int kCombatKinds = 5;
+struct CombatDecision {
+    enum class Action { Pass, Suppress, Replace } action = Action::Pass;
+    double value = 0;                 // Replace: the query's value unless the filter gave one (always finite)
+    int item = -1;
+    int timer = 0;
+};
+
+// cleria.player.stats(): the player's numbers as the game holds them (inventory.hpp PlayerStats, the view's Player).
+struct PlayerInfo {
+    int level = 1, hp = 0, max_hp = 0, sp = 0, weapon_tier = 0;
+    double exp = 0, exp_next = 0;     // the running total; the total the next level needs (0 at the cap)
+    double atk = 0, def = 0, luck = 0;                      // FUN_00420c40's results, a mod's modifiers applied
+    double base_max_hp = 0, base_atk = 0, base_def = 0;     // ... and without them
+    double mp = 0, max_mp = 0, boost = 0;                   // the skill gauge 0x76a738 / 0x76a734; the Boost gauge (30000 = full)
+    bool boosting = false;
+    double buff[3] = {0, 0, 0};       // the Strength / Defense / MP Drop buffs 0x76b904 / 0x76b908 / 0x76b900
+    int buff_timer[3] = {0, 0, 0};    // ... and their ticks left 0x76c19c / 0x76c1a0 / 0x76c1a4
+    float pos[3] = {0, 0, 0};         // the feet (world, Y up)
 };
 
 // What a script can reach. Every method has a harmless default, so a host provides only what it has.
@@ -68,6 +101,13 @@ struct Host {
     virtual double stat(Stat s) { (void)s; return 0; }
     virtual void set_stat(Stat s, double v) { (void)s; (void)v; }
     virtual void refresh() {}                               // the stat recompute after a grant
+    virtual bool player_info(PlayerInfo& out) { (void)out; return false; }   // false = no game
+    virtual void add_exp(double n) { (void)n; }             // EXP through the game's own level-up loop
+    // A mod's modifier of a derived stat (0 max HP, 1 ATK, 2 DEF): stat = (the game's + add) x mul, at every recompute.
+    virtual void set_modifier(const std::string& mod, int stat, double add, double mul) { (void)mod; (void)stat; (void)add; (void)mul; }
+    virtual std::pair<double, double> modifier(const std::string& mod, int stat) { (void)mod; (void)stat; return {0.0, 1.0}; }
+    // A collectable pickup of `item` thrown up from (x, y, z) as an enemy drop is; value >= 0 = what it applies.
+    virtual bool spawn_pickup(int item, float x, float y, float z, double value) { (void)item; (void)x; (void)y; (void)z; (void)value; return false; }
     virtual void warp(int index) { (void)index; }           // 0xa6 GoWarpPoint to a statue of the registry
     virtual bool save(int slot) { (void)slot; return false; }   // the statue save into slot 0..63; false = refused
     virtual void unlock_character(int c) { (void)c; }       // Character Select offers character c (3 = Toal) this session
@@ -127,6 +167,8 @@ public:
     GrantDecision filter(const GrantQuery& q, const std::string& room);
     bool has_shop_filter() const { return !shop_filters_.empty(); }
     GrantDecision shop_filter(const ShopQuery& q, const std::string& room);   // cleria.shop.add_filter
+    bool has_combat_filter(CombatQuery::Kind k) const { return !combat_filters_[int(k)].empty(); }
+    CombatDecision combat_filter(const CombatQuery& q, const std::string& room);   // cleria.combat.add_filter
     void draw_hud(float w, float h, float scale);
     std::vector<std::string> pages() const;                    // titles, in registration order
     void draw_page(std::size_t i, void* list);
@@ -145,6 +187,7 @@ public:
     int next_handler_ = 1;
     std::vector<int> filters_;                                  // registry refs
     std::vector<int> shop_filters_;                             // cleria.shop.add_filter
+    std::vector<int> combat_filters_[kCombatKinds];             // cleria.combat.add_filter, by CombatQuery::Kind
     std::map<std::string, int> layers_;                         // hud layer name -> ref (drawn in name order)
     std::vector<std::pair<std::string, int>> pages_;            // title -> ref
     std::map<std::string, int> commands_;

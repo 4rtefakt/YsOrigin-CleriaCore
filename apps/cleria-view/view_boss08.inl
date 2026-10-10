@@ -357,8 +357,7 @@ auto boss8_hit = [&](const HitShape& vol, std::uint32_t token, int rehit, float 
         PlayerDamageMods mods;
         mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-        const int dmg = access::damage_dealt(enemy_incoming_damage(a, cls, vd, mods,
-            [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
+        const int dmg = lua_part_damage(enemy_incoming_damage(a, cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, cls);   // the shell's Cheats, the Lua mods' filter
         const bool core = pi == boss08::kBodyParts;
         const Boss08Hit r = boss8->hit_part(core ? boss08::kW : boss08::kB, core ? 0 : pi, dmg);
         if (r != Boss08Hit::kRefused) { any = true; part_hit_feedback(bp.pos, bp.armor, dmg, cls); }   // FUN_004faf20's tail

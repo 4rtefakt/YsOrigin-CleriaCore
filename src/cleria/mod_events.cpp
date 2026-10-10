@@ -18,6 +18,8 @@ const char* kind_name(Kind k) {
         case Kind::ItemUsed: return "item_used";
         case Kind::DoorOpened: return "door_opened";
         case Kind::BlessingBought: return "blessing_bought";
+        case Kind::EnemyKilled: return "enemy_killed";
+        case Kind::PickupCollected: return "pickup_collected";
     }
     return "?";
 }

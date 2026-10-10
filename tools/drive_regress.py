@@ -2049,7 +2049,7 @@ CASES.update({
         room="S_10/S_1009/S_1009", lua=_LUA_SHOP,
         drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;820:esc;"
               "835:stats;836:flagdump;840:quit",
-        expect=[_LP + "api 5", _LP + "price 0 sub 221 was 1000 in @GrowMenu", _LP + "price 0 sub 97 was 1000 in @Grow00",
+        expect=[_LP + "api 6", _LP + "price 0 sub 221 was 1000 in @GrowMenu", _LP + "price 0 sub 97 was 1000 in @Grow00",
                 _LP + "price 0 sub 105 was 1000 in @Grow00", "[content] blessing_bought 0 for 7 SP (effect suppressed)",
                 _LP + "bought 0 price 7 suppressed true flag217 0 sp 243 room S_1009", "sp 243"],
         absent=[" 217="], count={_LP + "bought": 1}),
@@ -2106,6 +2106,168 @@ CASES.update({
         expect=['[save] profile "AP_seed_1" -> ', os.path.join("profiles", "AP_seed_1"), 'cprofile "AP_seed_1" normal 0 active 0',
                 'cprofile "AP_seed_1" normal 0 active 1', "event load"],
         count={"[save] profile": 1}),
+})
+
+# Mod API 6 (LUA_API.md §5.2, §4.1): the EXP / SP / damage / drop / pickup filters, enemy_killed and
+# pickup_collected, the stat modifiers, add_exp and spawn_pickup, through a generated Lua mod. `lua=on <name>`
+# turns one of its rules on, so a case shows the game's own numbers first where it needs them.
+_LUA_API6 = r"""
+cleria.log("api " .. cleria.api_version .. " combat " .. type(cleria.combat.add_filter))
+local on, M = {}, 100
+local function f(x) return string.format("%.4g", x) end
+cleria.command("on", function(a) on[a] = true end)
+cleria.game.exp_factor(function() return on.x100 and M or 1 end)
+-- the Archipelago rule of API6_FOR_AP.md: with an EXP multiplier M, a kill gives at least M / 2
+cleria.combat.add_filter("exp", function(q)
+    cleria.log("exp " .. q.source .. " cast " .. tostring(q.cast) .. " lv " .. q.level .. " vs " .. q.enemy_level .. " base " ..
+               f(q.base) .. " scaled " .. f(q.scaled) .. " rate " .. f(q.rate) .. " factor " .. f(q.factor) .. " floored " ..
+               f(q.floored) .. " combo " .. q.combo .. " value " .. f(q.value) .. " room " .. q.room)
+    if on.floor and q.source == "kill" then return math.max(q.value, M / 2) end
+    if on.noexp then return "suppress" end
+end)
+cleria.combat.add_filter("sp", function(q)
+    cleria.log("sp " .. q.source .. " base " .. q.base .. " value " .. q.value .. " cast " .. tostring(q.cast))
+    if on.sp77 then return {action = "replace", value = 77} end
+    if on.nosp then return "suppress" end
+end)
+cleria.combat.add_filter("damage", function(q)
+    cleria.log("damage " .. q.dir .. " cast " .. tostring(q.cast) .. " lv " .. tostring(q.level) .. " atk " .. f(q.atk) ..
+               " power " .. f(q.power) .. " def " .. f(q.def) .. " formula " .. q.formula .. " value " .. q.value)
+    if on.chip and q.dir == "dealt" then return 1 end
+    if on.tank and q.dir == "taken" then return 3 end
+end)
+cleria.combat.add_filter("drop", function(q)
+    cleria.log("drop " .. q.item .. " " .. q.name .. " slot " .. q.slot .. " cast " .. q.cast .. " lv " .. q.level)
+    if on.nodrop then return "suppress" end
+    if on.gem then return {action = "replace", item = 0x42, value = 7} end
+end)
+cleria.combat.add_filter("pickup", function(q)
+    cleria.log("pickup " .. q.item .. " " .. q.name .. " what " .. q.what .. " value " .. f(q.value) .. " ticks " .. q.ticks)
+    if on.p123 then return 123 end
+    if on.nopick then return "suppress" end
+    if on.buff and q.what == "atk_buff" then return {action = "replace", value = 2, ticks = 600} end
+end)
+cleria.events.on("enemy_killed", function(e)
+    cleria.log("killed cast " .. e.cast .. " lv " .. e.level .. " exp " .. f(e.exp) .. " sp " .. e.sp .. " room " .. e.room ..
+               string.format(" at %.1f %.1f %.1f", e.x, e.y, e.z))
+end)
+cleria.events.on("pickup_collected", function(e)
+    cleria.log("collected " .. e.item .. " what " .. e.what .. " value " .. f(e.value) .. " ticks " .. e.ticks ..
+               " suppressed " .. tostring(e.suppressed))
+end)
+cleria.command("st", function()
+    local s = cleria.player.stats()
+    local a, m = cleria.player.modifier("atk")
+    cleria.log("stats lv " .. s.level .. " hp " .. s.hp .. "/" .. s.max_hp .. " (" .. f(s.base_max_hp) .. ") atk " .. f(s.atk) ..
+               " (" .. f(s.base_atk) .. ") def " .. f(s.def) .. " (" .. f(s.base_def) .. ") exp " .. f(s.exp) .. "/" .. f(s.exp_next) ..
+               " mp " .. f(s.mp) .. "/" .. f(s.max_mp) .. " boost " .. f(s.boost) .. " tier " .. s.weapon_tier .. " sp " .. s.sp ..
+               " buffs " .. f(s.atk_buff) .. ":" .. s.atk_buff_ticks .. " " .. f(s.def_buff) .. ":" .. s.def_buff_ticks .. " " ..
+               f(s.mp_buff) .. ":" .. s.mp_buff_ticks .. " atk mod " .. a .. " x" .. m)
+end)
+cleria.command("mod", function(a)
+    local stat, add, mul = a:match("(%S+) (%S+) (%S+)")
+    cleria.player.set_modifier(stat, tonumber(add), tonumber(mul))
+end)
+cleria.command("xp", function(a) cleria.player.add_exp(tonumber(a)) end)
+cleria.command("spawn", function(a)
+    local id, v = a:match("(%S+) (%S+)")
+    local s = cleria.player.stats()
+    cleria.log("spawn " .. id .. " -> " .. tostring(cleria.game.spawn_pickup(tonumber(id), s.x, s.y + 1, s.z,
+                                                                             tonumber(v) >= 0 and {value = tonumber(v)} or nil)))
+end)
+"""
+_NOSTOP = ["script stopped", "Mod stopped"]
+_K17 = ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(40, 140, 25))
+CASES.update({
+    # The Archipelago rule (API6_FOR_AP.md): Hard, level 13 against a level-3 M_130 (cast 17; 10 levels over: 33 / 1.65^10
+    # x 0.6666 = 0.147), EXP x100 by exp_factor. The engine floors after the multiplier: 14, x1.01 for the combo =
+    # 14.14 (the user's "16" at x100). The "exp" filter's math.max(q.value, M / 2) makes it 50.
+    "lua_exp_floor": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API6,
+        drive="5:diff=3;6:level=13;8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on x100;13:lua=on floor;14:stats;" + _K17 +
+              ";150:stats;160:quit",
+        expect=[_LP + "api 6 combat function", "stats exp 21936 lv 13",
+                _LP + "exp kill cast 17 lv 13 vs 3 base 33 scaled 0.1471 rate 1 factor 100 floored 14 combo 1 value 14.14 room S_1002",
+                _LP + "killed cast 17 lv 3 exp 50 sp 4 room S_1002 at 30.5 -2.9 -36.9", "stats exp 21986 lv 13"],
+        absent=_NOSTOP, count={_LP + "exp kill": 1, _LP + "killed": 1}),
+    # The same kill with no multiplier and no rule: the engine's own "at least 1" (x1.01), passed through.
+    "lua_exp_plain": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API6,
+        drive="5:diff=3;6:level=13;8:opt=DamageDealt=10;10:opt=DamageTaken=0;14:stats;" + _K17 + ";150:stats;160:quit",
+        expect=["stats exp 21936 lv 13", "scaled 0.1471 rate 1 factor 1 floored 1 combo 1 value 1.01 room S_1002",
+                _LP + "killed cast 17 lv 3 exp 1.01 sp 4", "stats exp 21937 lv 13"],
+        absent=_NOSTOP),
+    # The "sp" filter on a kill's SP (4 -> 77) and on a gold piece (the "pickup" filter first: 1 -> 123, then
+    # "sp": -> 77); the "exp" filter's "suppress": the kill credits no EXP. 59 + 77 + 77 = 213.
+    "lua_sp_filter": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API6,
+        drive="6:level=13;8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on sp77;13:lua=on noexp;14:lua=on p123;15:stats;" + _K17 +
+              ";150:stats;160:quit",
+        expect=["stats exp 21936 lv 13 hp 129/129 sp 59", _LP + "sp kill base 4 value 4 cast 17",
+                _LP + "killed cast 17 lv 3 exp 0 sp 77", _LP + "pickup 120 1G what sp value 1 ticks 0",
+                _LP + "sp pickup base 123 value 123 cast nil", _LP + "collected 120 what sp value 77 ticks 0 suppressed false",
+                "stats exp 21936 lv 13 hp 129/129 sp 213"],
+        absent=_NOSTOP),
+    # The "damage" filter both ways. The player's hit: the formula's 2, x10 by the Cheats = 20 (HP 74 -> 54), then
+    # answered 1 (54 -> 53). A hit on the player (`hurt=60`: ATK 60 against DEF 38 = 22): answered 3, HP 60 -> 57.
+    "lua_damage_filter": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API6,
+        drive="8:opt=DamageDealt=10;20:near=17;21:atk;60:lua=on chip;61:lua=on tank;70:near=17;71:atk;110:near=17;120:hurt=60;"
+              "130:stats;140:quit",
+        expect=[_LP + "damage dealt cast 17 lv 3 atk 46 power 0 def 53 formula 2 value 20", "near cast 17 id 17 hp 54 ",
+                _LP + "damage dealt cast 17 lv 3 atk 46 power 0 def 53 formula 2 value 20", "near cast 17 id 17 hp 53 ",
+                _LP + "damage taken cast nil lv nil atk 60 power 0 def 38 formula 22 value 22", "stats exp 0 lv 1 hp 57/60"],
+        absent=_NOSTOP),
+    # set_modifier: ATK (46 + 10) x 2 = 112, max HP 60 + 50, DEF x 0.5; kept through a level-up (add_exp: level 2,
+    # (49 + 10) x 2 = 118, max HP 65 + 50, the level-up's full heal) and a save + load; the hits use them (the
+    # formula's 77 with ATK 118; 32 taken with DEF 20.5); (0, 1) removes them and HP falls back under the max.
+    "lua_stat_modifier": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API6,
+        drive="10:lua=st;20:lua=mod atk 10 2;21:lua=mod max_hp 50 1;22:lua=mod def 0 0.5;30:lua=st;40:lua=xp 400;50:lua=st;"
+              "60:saveload;80:lua=st;90:near=17;91:atk;120:hurt=60;130:lua=mod atk 0 1;131:lua=mod max_hp 0 1;132:lua=mod def 0 1;"
+              "140:lua=st;150:quit",
+        expect=[_LP + "stats lv 1 hp 60/60 (60) atk 46 (46) def 38 (38) exp 0/150 mp 3000/3000 boost 0 tier 0 sp 59 buffs 0:0 0:0 0:0 atk mod 0.0 x1.0",
+                _LP + "stats lv 1 hp 60/110 (60) atk 112 (46) def 19 (38) exp 0/150", "atk mod 10.0 x2.0",
+                "[levelup] lv 2", _LP + "stats lv 2 hp 115/115 (65) atk 118 (49) def 20.5 (41) exp 400/605.1",
+                _LP + "stats lv 2 hp 115/115 (65) atk 118 (49) def 20.5 (41) exp 400/605.1",
+                _LP + "damage dealt cast 17 lv 3 atk 118 power 0 def 53 formula 77 value 77",
+                _LP + "damage taken cast nil lv nil atk 60 power 0 def 20.5 formula 32 value 32",
+                _LP + "stats lv 2 hp 65/65 (65) atk 49 (49) def 41 (41)", "atk mod 0.0 x1.0"],
+        absent=_NOSTOP),
+    # The "drop" filter replaces the monster's gold with Recovery Drops worth 7 HP (the pickup's own value: the
+    # "pickup" query already reads 7); spawn_pickup: a Strength Drop whose step and timer the "pickup" filter
+    # replaces (+2 ATK for 600 ticks), a Recovery Drop made worth 9, and a gold piece the filter suppresses (taken,
+    # no SP); pickup_collected for each.
+    "lua_drop_pickup": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API6,
+        drive="6:hp=10;8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on gem;" + _K17 + ";150:lua=st;160:pickups;200:lua=st;"
+              "210:lua=on buff;220:lua=spawn 0x48 -1;300:lua=st;310:lua=spawn 0x42 9;390:lua=on nopick;400:lua=spawn 0x78 -1;"
+              "480:lua=st;490:quit",
+        expect=[_LP + "drop 120 1G slot 1 cast 17 lv 3", _LP + "stats lv 1 hp 10/60", "[pickup] id 66 pos",
+                _LP + "pickup 66 Recovery Drop 1 what hp value 7 ticks 0", _LP + "collected 66 what hp value 7 ticks 0 suppressed false",
+                _LP + "stats lv 1 hp 24/60", _LP + "spawn 0x48 -> true",
+                _LP + "pickup 72 Strength Drop 1 what atk_buff value 0.5 ticks 1800",
+                _LP + "collected 72 what atk_buff value 2 ticks 600 suppressed false", _LP + "stats lv 1 hp 24/60 (60) atk 48 (48)",
+                " buffs 2:5", _LP + "pickup 66 Recovery Drop 1 what hp value 9 ticks 0", _LP + "spawn 0x78 -> true",
+                _LP + "pickup 120 1G what sp value 1 ticks 0", _LP + "collected 120 what sp value 0 ticks 0 suppressed true",
+                _LP + "stats lv 1 hp 33/60 (60) atk 48 (48) def 38 (38) exp 50.96/150 mp 3000/3000 boost 0 tier 0 sp 63 "],
+        absent=_NOSTOP + ["[pickup] id 120"]),
+    # A boss part (boss_part_feedback's fight: Toal on a risen Khonsclard pod): the same filter, without a cast;
+    # answered 1, the part loses 1 a hit.
+    "lua_damage_boss": dict(
+        room="S_40/S_4099/S_4099", char="3", lua=_LUA_API6,
+        env={"CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="2:diff=3;3:saveload;4:opt=DamageTaken=0;6:level=45;7:tier=8;10:lua=on chip;20:at=-2.8,23.3,0;40:every=20,700,ok;"
+              "720:every=12,1100,boss4;721:every=12,1100,atk;1100:quit",
+        expect=["[boss04] Khonsclard: body 3750, pods 900", "boss4 -> part 1", _LP + "damage dealt cast nil lv nil atk 246 power 3 def 175 formula 144 value 144",
+                "hit khonsclard part 1 (DEF 175): 1 dmg, part HP 899 body 3750"],
+        absent=_NOSTOP),
+    # "suppress" on every drop: the kill leaves debris only.
+    "lua_drop_suppress": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API6,
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on nodrop;" + _K17 + ";150:pickups;155:stats;160:quit",
+        expect=[_LP + "drop 120 1G slot 1 cast 17 lv 3", "[pickup] debris", "stats exp 51 lv 1 hp 60/60 sp 63"],
+        absent=_NOSTOP + ["[pickup] id ", _LP + "pickup", _LP + "collected"]),
 })
 
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
@@ -2190,7 +2352,7 @@ SMOKE = [
     "book_return_title", "shell_subpages", "hud_damage_numbers",             # the book, the shell, the HUD
     "weather_embers", "video_passes", "video_looks",                         # weather, the Video page
     "sfx_loop_scene_stop",                                                   # audio: a looping SE, the scene stop
-    "content_chest", "lua_save", "modfile_install",                          # mods: content, Lua, a .cleriamod
+    "content_chest", "lua_save", "lua_exp_floor", "modfile_install",         # mods: content, Lua, a .cleriamod
     "aplua_items_save",                                                      # Archipelago (its mock server)
 ]
 

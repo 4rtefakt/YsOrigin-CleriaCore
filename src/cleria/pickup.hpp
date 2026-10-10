@@ -51,6 +51,7 @@ struct Pickup {
     float half = 0.2835f;             // +0x15c
     bool dead = false;
     int content = -1;                 // CleriaCore mods: a content pickups.ini entry (-1 = the game's own)
+    float mod_value = -1.0f;          // CleriaCore mods: what it applies when taken (< 0 = the game's own value)
 
     // FUN_00584f90 render prep: the sprite alpha 0..1 (the last 35 ticks fade).
     float alpha() const;
@@ -105,6 +106,10 @@ struct DropContext {
     bool boss_lock = false;           // 0x76bb8c != 0: no buff scatter
     bool whole_room_water = false;
     float rate = 1.0f;                // CleriaCore's drop-rate cheat (access.hpp): x every slot's chance
+    // CleriaCore mods (LUA_API.md §5.2): asked for every drop that passed its roll. `slot` 0..7 the ENEMYINFO
+    // slot (`chance` what its roll was under), 8..10 the Strength / Defense / MP scatter (chance 0). Returns the
+    // item to spawn, < 0 for none; `*value` >= 0 becomes the pickup's mod_value. Null = retail.
+    std::function<int(int item, int slot, float chance, float* value)> decide;
 };
 // `entry_draw` false: the caller already took FUN_00478510's entry draw (the death effect's
 // scale) and spawned the death effects, which draw too, before these rolls.

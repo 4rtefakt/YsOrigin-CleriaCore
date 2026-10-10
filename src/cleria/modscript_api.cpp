@@ -405,7 +405,7 @@ int l_command(lua_State* L) {
 
 const char* const kKinds[] = {"room_enter", "flag_changed", "chest_opened", "item_obtained", "death",
                               "new_game", "save", "load", "tick", "frame", "boss_defeated", "item_used",
-                              "door_opened", "blessing_bought"};
+                              "door_opened", "blessing_bought", "enemy_killed", "pickup_collected"};
 
 int l_on(lua_State* L) {
     Mod& m = M(L);
@@ -413,7 +413,8 @@ int l_on(lua_State* L) {
     bool known = false;
     for (const char* k : kKinds) known = known || kind == k;
     if (!known) return luaL_argerror(L, 1, ("unknown event '" + kind + "' (see LUA_API.md: room_enter, flag_changed, chest_opened, "
-                                             "item_obtained, death, new_game, save, load, tick, frame, boss_defeated, item_used, door_opened, blessing_bought)").c_str());
+                                             "item_obtained, death, new_game, save, load, tick, frame, boss_defeated, item_used, door_opened, blessing_bought, "
+                                             "enemy_killed, pickup_collected)").c_str());
     luaL_checktype(L, 2, LUA_TFUNCTION);
     lua_pushvalue(L, 2);
     const int ref = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -591,6 +592,66 @@ int l_add_sp(lua_State* L) {
 int l_set_level(lua_State* L) { M(L).host().set_stat(Host::Stat::Level, double(luaL_checkinteger(L, 1))); return 0; }
 int l_set_weapon_tier(lua_State* L) { M(L).host().set_stat(Host::Stat::WeaponTier, double(luaL_checkinteger(L, 1))); return 0; }
 int l_refresh(lua_State* L) { M(L).host().refresh(); return 0; }
+// add_exp(n): EXP as a kill credits it (the level-up loop runs); no filter and no factor is applied.
+int l_add_exp(lua_State* L) {
+    const double n = luaL_checknumber(L, 1);
+    if (std::isfinite(n) && n > 0) M(L).host().add_exp(std::min(n, 9999999.0));
+    return 0;
+}
+// stats() -> table | nil: everything the game holds of the player's numbers (LUA_API.md §4.1).
+int l_stats(lua_State* L) {
+    PlayerInfo p;
+    if (!M(L).host().player_info(p)) { lua_pushnil(L); return 1; }
+    lua_createtable(L, 0, 24);
+    auto n = [&](const char* k, double v) { lua_pushnumber(L, v); lua_setfield(L, -2, k); };
+    auto i = [&](const char* k, lua_Integer v) { lua_pushinteger(L, v); lua_setfield(L, -2, k); };
+    i("level", p.level); i("hp", p.hp); i("max_hp", p.max_hp); i("sp", p.sp); i("weapon_tier", p.weapon_tier);
+    n("exp", p.exp); n("exp_next", p.exp_next); n("atk", p.atk); n("def", p.def); n("luck", p.luck);
+    n("base_max_hp", p.base_max_hp); n("base_atk", p.base_atk); n("base_def", p.base_def);
+    n("mp", p.mp); n("max_mp", p.max_mp); n("boost", p.boost);
+    lua_pushboolean(L, p.boosting); lua_setfield(L, -2, "boosting");
+    n("atk_buff", p.buff[0]); n("def_buff", p.buff[1]); n("mp_buff", p.buff[2]);
+    i("atk_buff_ticks", p.buff_timer[0]); i("def_buff_ticks", p.buff_timer[1]); i("mp_buff_ticks", p.buff_timer[2]);
+    n("x", p.pos[0]); n("y", p.pos[1]); n("z", p.pos[2]);
+    return 1;
+}
+const char* const kModStats[] = {"max_hp", "atk", "def"};
+int mod_stat_arg(lua_State* L) {
+    const std::string s = str_arg(L, 1);
+    for (int k = 0; k < 3; ++k)
+        if (s == kModStats[k]) return k;
+    return luaL_argerror(L, 1, "a modifier is of \"max_hp\", \"atk\" or \"def\"");
+}
+// set_modifier(stat, add [, mul]): this mod's modifier of a derived stat, kept until it is set again;
+// (0, 1) or nil removes it. A value that is not finite, or a mul outside 0..100, raises an error.
+int l_set_modifier(lua_State* L) {
+    const int k = mod_stat_arg(L);
+    const double add = luaL_optnumber(L, 2, 0.0), mul = luaL_optnumber(L, 3, 1.0);
+    if (!std::isfinite(add) || std::fabs(add) > 9999.0) return luaL_argerror(L, 2, "add must be within -9999..9999");
+    if (!std::isfinite(mul) || mul < 0.0 || mul > 100.0) return luaL_argerror(L, 3, "mul must be within 0..100");
+    Mod& m = M(L);
+    m.host().set_modifier(m.id(), k, add, mul);
+    return 0;
+}
+int l_modifier(lua_State* L) {
+    Mod& m = M(L);
+    const auto [add, mul] = m.host().modifier(m.id(), mod_stat_arg(L));
+    lua_pushnumber(L, add);
+    lua_pushnumber(L, mul);
+    return 2;
+}
+// spawn_pickup(item, x, y, z [, {value = n}]) -> boolean: a collectable pickup thrown up from that point.
+int l_spawn_pickup(lua_State* L) {
+    const lua_Integer id = luaL_checkinteger(L, 1);
+    const double x = luaL_checknumber(L, 2), y = luaL_checknumber(L, 3), z = luaL_checknumber(L, 4);
+    const double v = lua_istable(L, 5) ? opt_field_n(L, 5, "value", -1.0) : -1.0;
+    if (!((id >= 0 && id < content::kRetailItems) || (id >= content::kNewItemFirst && id <= content::kNewItemLast)))
+        return luaL_error(L, "spawn_pickup: item id %d: retail items are 0..0x7F, mod items 0x100..0x1FF", int(id));
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) return luaL_error(L, "spawn_pickup: the position is not finite");
+    lua_pushboolean(L, M(L).host().spawn_pickup(int(id), float(x), float(y), float(z),
+                                                 std::isfinite(v) && v >= 0 ? std::min(v, 999999.0) : -1.0));
+    return 1;
+}
 
 // ---- cleria.content --------------------------------------------------------------------------------
 
@@ -606,6 +667,19 @@ int l_shop_add_filter(lua_State* L) {
     lua_pushvalue(L, 1);
     M(L).shop_filters_.push_back(luaL_ref(L, LUA_REGISTRYINDEX));
     return 0;
+}
+// cleria.combat.add_filter(kind, fn): the game's EXP / SP / damage / drop / pickup numbers (CombatQuery; LUA_API.md §5.2).
+const char* const kCombatKindNames[kCombatKinds] = {"exp", "sp", "damage", "drop", "pickup"};
+int l_combat_add_filter(lua_State* L) {
+    const std::string kind = str_arg(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    for (int k = 0; k < kCombatKinds; ++k)
+        if (kind == kCombatKindNames[k]) {
+            lua_pushvalue(L, 2);
+            M(L).combat_filters_[k].push_back(luaL_ref(L, LUA_REGISTRYINDEX));
+            return 0;
+        }
+    return luaL_argerror(L, 1, "a combat filter is of \"exp\", \"sp\", \"damage\", \"drop\" or \"pickup\"");
 }
 int l_give(lua_State* L) {
     const lua_Integer id = luaL_checkinteger(L, 1);
@@ -1128,6 +1202,7 @@ void open_api(lua_State* L, Mod& m) {
                                     {"scene", l_scene}, {"character", l_character}, {"frozen", l_frozen},
                                     {"in_game", l_in_game}, {"chests", l_chests}, {"exp_factor", l_exp_factor},
                                     {"save", l_game_save}, {"unlock_character", l_unlock_character},
+                                    {"spawn_pickup", l_spawn_pickup},
                                     {nullptr, nullptr}};
     lua_newtable(L);
     set_funcs(L, game);
@@ -1136,7 +1211,8 @@ void open_api(lua_State* L, Mod& m) {
     static const luaL_Reg player[] = {{"hp", l_hp}, {"max_hp", l_max_hp}, {"set_hp", l_set_hp}, {"sp", l_sp},
                                       {"add_sp", l_add_sp}, {"level", l_level}, {"set_level", l_set_level}, {"exp", l_exp},
                                       {"weapon_tier", l_weapon_tier}, {"set_weapon_tier", l_set_weapon_tier},
-                                      {"refresh", l_refresh}, {nullptr, nullptr}};
+                                      {"refresh", l_refresh}, {"add_exp", l_add_exp}, {"stats", l_stats},
+                                      {"set_modifier", l_set_modifier}, {"modifier", l_modifier}, {nullptr, nullptr}};
     lua_newtable(L);
     set_funcs(L, player);
     lua_setfield(L, -2, "player");
@@ -1151,6 +1227,11 @@ void open_api(lua_State* L, Mod& m) {
     lua_newtable(L);
     set_funcs(L, shop);
     lua_setfield(L, -2, "shop");
+
+    static const luaL_Reg combat[] = {{"add_filter", l_combat_add_filter}, {nullptr, nullptr}};
+    lua_newtable(L);
+    set_funcs(L, combat);
+    lua_setfield(L, -2, "combat");
 
     static const luaL_Reg save[] = {{"get", l_save_get}, {"set", l_save_set}, {"keys", l_save_keys}, {"ready", l_save_ready},
                                     {"set_profile", l_save_set_profile}, {"profile", l_save_profile},
@@ -1238,6 +1319,8 @@ const char* event_name(events::Kind k) {
         case events::Kind::ItemUsed: return "item_used";
         case events::Kind::DoorOpened: return "door_opened";
         case events::Kind::BlessingBought: return "blessing_bought";
+        case events::Kind::EnemyKilled: return "enemy_killed";
+        case events::Kind::PickupCollected: return "pickup_collected";
     }
     return "?";
 }
@@ -1246,6 +1329,11 @@ void push_event(lua_State* L, const events::Event& e) {
     lua_createtable(L, 0, 6);
     auto s = [&](const char* k, const std::string& v) { lua_pushlstring(L, v.data(), v.size()); lua_setfield(L, -2, k); };
     auto n = [&](const char* k, lua_Integer v) { lua_pushinteger(L, v); lua_setfield(L, -2, k); };
+    auto r = [&](const char* k, double v) {                    // an amount: a whole one is a Lua integer
+        if (v == std::floor(v) && std::fabs(v) < 9.0e15) lua_pushinteger(L, lua_Integer(v));
+        else lua_pushnumber(L, v);
+        lua_setfield(L, -2, k);
+    };
     s("kind", event_name(e.kind));
     s("room", e.room);
     switch (e.kind) {
@@ -1262,6 +1350,21 @@ void push_event(lua_State* L, const events::Event& e) {
         case events::Kind::BlessingBought:
             n("index", e.index); n("price", e.new_value);
             lua_pushboolean(L, e.old_value != 0); lua_setfield(L, -2, "suppressed");
+            break;
+        case events::Kind::EnemyKilled:
+            n("cast", e.cast); n("level", e.level);
+            r("exp", e.amount); n("sp", lua_Integer(e.amount2));
+            lua_pushnumber(L, e.pos[0]); lua_setfield(L, -2, "x");
+            lua_pushnumber(L, e.pos[1]); lua_setfield(L, -2, "y");
+            lua_pushnumber(L, e.pos[2]); lua_setfield(L, -2, "z");
+            break;
+        case events::Kind::PickupCollected:
+            n("item", e.item); s("what", e.source); n("ticks", e.count);
+            r("value", e.amount);
+            lua_pushboolean(L, e.old_value != 0); lua_setfield(L, -2, "suppressed");
+            lua_pushnumber(L, e.pos[0]); lua_setfield(L, -2, "x");
+            lua_pushnumber(L, e.pos[1]); lua_setfield(L, -2, "y");
+            lua_pushnumber(L, e.pos[2]); lua_setfield(L, -2, "z");
             break;
     }
 }
@@ -1352,6 +1455,51 @@ GrantDecision Mod::shop_filter(const ShopQuery& q, const std::string& room) {
         if (d.action != GrantDecision::Action::Pass) return d;
     }
     return d;
+}
+
+CombatDecision Mod::combat_filter(const CombatQuery& q, const std::string& room) {
+    CombatDecision d;
+    const std::vector<int>& fs = combat_filters_[int(q.kind)];
+    for (std::size_t i = 0; i < fs.size() && ok(); ++i) {
+        lua_State* L = state();
+        lua_createtable(L, 0, int(q.num.size() + q.str.size()) + 5);
+        lua_pushstring(L, kCombatKindNames[int(q.kind)]);
+        lua_setfield(L, -2, "kind");
+        auto num = [&](const char* k, double v) {              // a whole number is a Lua integer ("17", not "17.0")
+            if (v == std::floor(v) && std::fabs(v) < 9.0e15) lua_pushinteger(L, lua_Integer(v));
+            else lua_pushnumber(L, v);
+            lua_setfield(L, -2, k);
+        };
+        num("value", q.value);
+        if (q.item >= 0) num("item", q.item);
+        if (q.kind == CombatQuery::Kind::Pickup) num("ticks", q.timer);
+        for (const auto& [k, v] : q.num) num(k, v);
+        for (const auto& [k, v] : q.str) { lua_pushlstring(L, v.data(), v.size()); lua_setfield(L, -2, k); }
+        lua_pushstring(L, room.c_str());
+        lua_setfield(L, -2, "room");
+        lua_rawgeti(L, LUA_REGISTRYINDEX, fs[i]);
+        lua_insert(L, -2);
+        if (!pcall(1, 1, "combat filter")) return CombatDecision{};
+        d.value = q.value; d.item = q.item; d.timer = q.timer;
+        std::string action;
+        if (lua_type(L, -1) == LUA_TNUMBER) {                  // a number: that value instead
+            action = "replace";
+            d.value = lua_tonumber(L, -1);
+        } else if (lua_type(L, -1) == LUA_TSTRING) {
+            action = lua_tostring(L, -1);
+        } else if (lua_istable(L, -1)) {
+            action = opt_field_s(L, -1, "action", "pass");
+            d.value = opt_field_n(L, -1, "value", q.value);
+            d.item = int(opt_field_n(L, -1, "item", q.item));
+            d.timer = int(std::clamp(opt_field_n(L, -1, "ticks", q.timer), 0.0, 999999.0));
+        }
+        lua_pop(L, 1);
+        if (!std::isfinite(d.value)) action = "pass";          // NaN / inf: the game's own value stands
+        if (action == "suppress") d.action = CombatDecision::Action::Suppress;
+        else if (action == "replace") d.action = CombatDecision::Action::Replace;
+        if (d.action != CombatDecision::Action::Pass) return d;
+    }
+    return CombatDecision{};
 }
 
 void Mod::draw_hud(float w, float h, float scale) {

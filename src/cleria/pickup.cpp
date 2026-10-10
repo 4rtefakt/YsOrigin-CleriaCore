@@ -167,6 +167,13 @@ void roll_enemy_drops(ef2sim::Rng& rng, const Enemy& rec, int cast_id, const Vec
     if (c.no_drops) return;
     if (cast_id == 0xb0 || cast_id == 0xaf) return;           // rolls skipped (SP / flag 162 are the host's)
     SpawnArgs a;
+    auto drop = [&](int id, int slot, float chance) {
+        float value = -1.0f;
+        if (c.decide && (id = c.decide(id, slot, chance, &value)) < 0) return;   // CleriaCore mods
+        const std::size_t n0 = out.size();
+        spawn_pickups(rng, &id, 1, pos, a, c.whole_room_water, out);
+        for (std::size_t i = n0; i < out.size(); ++i) out[i].mod_value = value;
+    };
     for (const DropSlot& s : rec.drops) {
         if (s.item_id == -1) continue;
         const float luck = c.luck + (c.flag108 ? 2.5f : 0.0f) + (c.bless8 ? 5.0f : 0.0f);
@@ -174,7 +181,7 @@ void roll_enemy_drops(ef2sim::Rng& rng, const Enemy& rec, int cast_id, const Vec
         const float ka = std::min(0.25f, float(c.launch) * 0.025f) + 1.0f;
         const float kb = std::min(0.25f, float(c.combo) * 0.01f);
         const float chance = (kb + ka) * ((luck * 0.1f + 1.0f) * s.percent) * c.rate;
-        if (chance > float(roll)) spawn_pickups(rng, &s.item_id, 1, pos, a, c.whole_room_water, out);
+        if (chance > float(roll)) drop(s.item_id, int(&s - &rec.drops[0]), chance);
     }
     if (c.boss_lock) return;
     static constexpr int kLv2[3] = {73, 75, 77}, kLv1[3] = {72, 74, 76};
@@ -187,8 +194,7 @@ void roll_enemy_drops(ef2sim::Rng& rng, const Enemy& rec, int cast_id, const Vec
         if (f * f > float(r2) || r1 == 0) {
             if (int(rng.next() >> 17) % 3 == 0) {
                 const std::uint32_t w = rng.next();
-                const int id = (w & 0x20000u) ? kLv1[k] : kLv2[k];
-                spawn_pickups(rng, &id, 1, pos, a, c.whole_room_water, out);
+                drop((w & 0x20000u) ? kLv1[k] : kLv2[k], 8 + k, 0.0f);
             }
         }
     }

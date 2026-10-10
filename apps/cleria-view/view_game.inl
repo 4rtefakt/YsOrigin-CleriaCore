@@ -1337,10 +1337,12 @@ title_again:
     std::uint8_t topic_seen[256] = {};
     std::int32_t topic_kills[256] = {};
     const ItemTable inv_items = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
-    auto player_stats = [&]() -> PlayerStats {
+    auto player_stats = [&](bool mods = true) -> PlayerStats {
         if (!ginfo.ok() || inv_items.items.empty()) return PlayerStats{};
         std::copy(game.item_arr, game.item_arr + 54, inv.raval);   // 0x76a654 lives in `game`
-        return compute_stats(game.g_flags, inv, ginfo, inv_items, character, player.level);
+        PlayerStats st = compute_stats(game.g_flags, inv, ginfo, inv_items, character, player.level);
+        if (mods) lua_stat_modifiers(st);                          // Lua mods: cleria.player.set_modifier (view_lua.inl)
+        return st;
     };
     if (ginfo.ok())
         player.max_hp = player.hp = int(player_stats().max_hp);
@@ -1440,36 +1442,22 @@ title_again:
     expaward::Combo kill_combo;          // 0x76c1a8 / 0x76c1b0
     // The SP credit of a kill or a boss: FUN_004fa390(base) into the wallet 0x76a75c (FUN_004fa290, clamped
     // 0..999999), skipped when the base is 0. [not modelled] the mode byte 0x74e25e (time attack / arena: 0).
-    auto credit_sp = [&](int base) {
-        if (base == 0) return;
+    // Returns the SP credited (the Lua mods' "sp" filter may change it: `source` / `cast` are its query's).
+    auto credit_sp = [&](int base, const char* source = "boss", int cast = -1) -> int {
+        if (base == 0) return 0;
         expaward::SpIn si;
         si.index = game.g_flags[144]; si.easy = game.g_flags[143] != 0;
         si.very_easy = game.g_flags[203] != 0; si.bless_sp = (game.g_flags[217] & 0x100) != 0;
         si.rate = settings().s.access.sp_rate;
-        player.sp = std::clamp(player.sp + expaward::sp_award(base, si), 0, 999999);
+        const int n = lua_sp(expaward::sp_award(base, si), base, source, cast);
+        player.sp = std::clamp(player.sp + n, 0, 999999);
+        return n;
     };
     // `boss_eex`: the boss's EEX record, whose +0x10 is the award block's +0x30, the SP FUN_004fa4a0 credits
     // after the EXP [EXPORT 004fa4a0.c:38-43; 00443b80.c: param_2[0xc] = (int)EEX+0x10] (140 for the first
     // six bosses, 0 for Dalles and Darm [DATA EEX.DAT]).
     std::function<void()> level_up_fx;   // a level gained: the popup, the SE, the effect (set below, FUN_00420c40)
-    auto award_exp = [&](float b0, int enemy_level, bool boss, bool awarded = false, int boss_eex = -1) {
-        if (boss && game.g_flags[193] == 0 && boss_eex >= 0 && std::size_t(boss_eex) < eex.bosses.size())
-            credit_sp(int(eex.bosses[std::size_t(boss_eex)].unk10));
-        if (!ginfo.ok()) return;
-        // The shell's EXP rate and the Lua mods' (an AP seed's) factor stand where retail's
-        // 0x76a5fc (1.0 in every save) multiplies, before the floor.
-        const float rate = settings().s.access.exp_rate * lua_exp_factor(player.level);
-        const int diff = difficulty >= 2 ? difficulty - 2 : 0;                      // DAT_0076bb5c
-        const float dm = expaward::diff_mult(game.g_flags[143] != 0, game.g_flags[203] != 0);
-        if (boss) {
-            if (game.g_flags[193] != 0) return;
-            player.exp += expaward::boss_award(b0, player.level, enemy_level, diff, rate, dm);
-        } else {
-            expaward::KillIn k;
-            k.base = b0; k.player_level = player.level; k.enemy_level = enemy_level; k.difficulty = diff;
-            k.rate = rate; k.diff_mult = dm; k.combo = kill_combo.count; k.awarded = awarded;
-            player.exp += expaward::kill_award(k);
-        }
+    auto level_ups = [&] {
         while (player.level < 60 &&
                player.exp >= float(ginfo.exp_to_level(player.level + 1))) {
             ++player.level;
@@ -1480,6 +1468,50 @@ title_again:
             hud.debug_message("Level up! Lv " + std::to_string(player.level));
             if (level_up_fx) level_up_fx();
         }
+    };
+    // Returns the EXP credited. `cast`: the victim's cast id (a kill), for the Lua mods' "exp" filter.
+    auto award_exp = [&](float b0, int enemy_level, bool boss, bool awarded = false, int boss_eex = -1, int cast = -1) -> float {
+        if (boss && game.g_flags[193] == 0 && boss_eex >= 0 && std::size_t(boss_eex) < eex.bosses.size())
+            credit_sp(int(eex.bosses[std::size_t(boss_eex)].unk10));
+        if (!ginfo.ok()) return 0.0f;
+        // The shell's EXP rate and the Lua mods' (an AP seed's) factor stand where retail's
+        // 0x76a5fc (1.0 in every save) multiplies, before the floor.
+        const float factor = lua_exp_factor(player.level);
+        const float rate = settings().s.access.exp_rate * factor;
+        const int diff = difficulty >= 2 ? difficulty - 2 : 0;                      // DAT_0076bb5c
+        const float dm = expaward::diff_mult(game.g_flags[143] != 0, game.g_flags[203] != 0);
+        float got = 0.0f;
+        if (boss) {
+            if (game.g_flags[193] != 0) return 0.0f;
+            got = expaward::boss_award(b0, player.level, enemy_level, diff, rate, dm);
+        } else {
+            expaward::KillIn k;
+            k.base = b0; k.player_level = player.level; k.enemy_level = enemy_level; k.difficulty = diff;
+            k.rate = rate; k.diff_mult = dm; k.combo = kill_combo.count; k.awarded = awarded;
+            got = expaward::kill_award(k);
+        }
+        // Lua mods (cleria.combat.add_filter "exp", LUA_API.md §5.2): every award above 0, with the value after
+        // each of the engine's steps; the answer replaces the EXP credited.
+        if (got > 0.0f && lua_combat_on(script::CombatQuery::Kind::Exp)) {
+            script::CombatQuery q;
+            q.kind = script::CombatQuery::Kind::Exp;
+            q.value = got;
+            const float scaled = expaward::level_scale(b0, player.level, enemy_level, diff);
+            const float chain = boss ? 1.0f : expaward::chain_bonus(kill_combo.count);
+            q.num = {{"base", double(b0)}, {"level", double(player.level)}, {"enemy_level", double(enemy_level)},
+                     {"scaled", double(scaled)}, {"rate", double(settings().s.access.exp_rate)}, {"factor", double(factor)},
+                     {"diff_mult", double(dm)}, {"floored", double(got / chain)},
+                     {"combo", boss ? 0.0 : double(kill_combo.count)}, {"chain", double(chain)}};
+            if (cast >= 0) q.num.push_back({"cast", double(cast)});
+            if (boss_eex >= 0) q.num.push_back({"boss", double(boss_eex)});
+            q.str = {{"source", boss ? "boss" : "kill"}};
+            const script::CombatDecision d = lua_combat(q);
+            if (d.action == script::CombatDecision::Action::Suppress) got = 0.0f;
+            else if (d.action == script::CombatDecision::Action::Replace) got = float(std::clamp(d.value, 0.0, 9999999.0));
+        }
+        player.exp += got;
+        level_ups();
+        return got;
     };
     // Hand the room-load script's placed effects (op 0x117) to the world so they render.
     // S_SAVEOBJECTCHANGE both picks the statue variant AND places its idle glow; before
@@ -2926,7 +2958,7 @@ title_again:
     };
     {   // mods (view_content.inl): the grant filter on the live VM and the game callbacks it needs
         content_install(csMgr.vm);
-        g_content.add_sp = [&](int n) { player.sp = std::clamp(player.sp + n, 0, 999999); };
+        g_content.add_sp = [&](int n) { player.sp = std::clamp(player.sp + lua_sp(n, n, "give"), 0, 999999); };
         g_content.heal_hp = [&](int n) { player.hp = std::min(player.max_hp, player.hp + n); };
         g_content.save_slot = [&](int s) { do_save(s); };
         g_content.load_slot = [&](int s) {
@@ -2953,6 +2985,28 @@ title_again:
             player.hp = std::min(player.hp, player.max_hp);
         };
         b.refresh = [&] { player.max_hp = int(player_stats().max_hp); };
+        b.add_exp = [&](float n) { player.exp += n; level_ups(); };   // the kill credit's tail (FUN_00420c40's loop)
+        b.info = [&](script::PlayerInfo& o) {
+            const PlayerStats st = player_stats(), base = player_stats(false);
+            o.level = player.level; o.hp = player.hp; o.max_hp = player.max_hp; o.sp = player.sp;
+            o.weapon_tier = game.g_flags[148];
+            o.exp = player.exp;
+            o.exp_next = player.level < 60 && ginfo.ok() ? double(ginfo.exp_to_level(player.level + 1)) : 0.0;
+            o.atk = st.atk; o.def = st.def; o.luck = st.luck;
+            o.base_max_hp = base.max_hp; o.base_atk = base.atk; o.base_def = base.def;
+            o.mp = player.sp_cur; o.max_mp = player.sp_max; o.boost = player.boost; o.boosting = player.boosting;
+            o.buff[0] = inv.atk_buff; o.buff[1] = inv.def_buff; o.buff[2] = inv.mp_buff;
+            o.buff_timer[0] = inv.timer_atk; o.buff_timer[1] = inv.timer_def; o.buff_timer[2] = inv.timer_mp;
+            o.pos[0] = feet.x; o.pos[1] = feet.y; o.pos[2] = feet.z;
+            return true;
+        };
+        // [H] thrown up as an enemy drop is (FUN_00587010's default arguments; its draws come from the pickups' generator).
+        b.spawn_pickup = [&](int item, const Vec3& at, float value) {
+            const std::size_t n0 = pickups.size();
+            spawn_pickups(pick_rng, &item, 1, at, SpawnArgs{}, water_mode == 2, pickups);
+            for (std::size_t i = n0; i < pickups.size(); ++i) pickups[i].mod_value = value;
+            return pickups.size() > n0;
+        };
         b.frozen = [&] { return csMgr.world_frozen(); };
         b.warp = [&](int i) { game.g_flags[137] = i; csMgr.vm.g_flags[137] = i; csHost.go_warp_point(); };   // 0xa6
         lua_bind(std::move(b));
@@ -3603,7 +3657,8 @@ title_again:
         else if (n == 13) {
             // The SP bonus (case 13 [BYTES 0x58f8a5..0x58f94a], BONUS_MODES.md §1): 10,000 SP per cleared
             // (difficulty, character) cell, at most 150,000, a hundredth on Nightmare, through FUN_004fa290.
-            const int add = records::sp_bonus(g_clear, game.g_flags[144]);
+            const int bonus = records::sp_bonus(g_clear, game.g_flags[144]);
+            const int add = lua_sp(bonus, bonus, "script");            // Lua mods: the "sp" filter
             player.sp = std::clamp(player.sp + add, 0, 999999);
             std::printf("  [clear] EventXX(13): SP bonus %d (%d cleared tier(s)) -> SP %d\n", add, g_clear.tier_count(), player.sp);
         }
@@ -4722,7 +4777,9 @@ title_again:
     csHost.save_cont_fn = save_cont;
     // 0x84 / 0xaf: the SP wallet 0x76a75c and itemArr 0x76a654 (the blessing shop's purchase).
     csHost.gold_get_fn = [&] { return player.sp; };
-    csHost.gold_set_fn = [&](int v) { player.sp = v; };
+    csHost.gold_set_fn = [&](int v) {   // Lua mods: a script's gain (0xb2 AddPlayerSP) passes the "sp" filter
+        player.sp = v > player.sp ? std::clamp(player.sp + lua_sp(v - player.sp, v - player.sp, "script"), 0, 999999) : v;
+    };
     csHost.item_arr_fn = [&](int i, int v) {
         game.item_arr[i] = v;
         inv.raval[i] = v;                         // [approx] FUN_00420c40's recompute: player_stats()
@@ -7329,6 +7386,7 @@ title_again:
                     mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                     int dmg = enemy_incoming_damage(a, cls, vd, mods,
                         [&](float pct) { return float(rng_pct(rng)) < pct; });
+                    const int formula = dmg;
                     // The guard (FUN_004fbb40): a victim in section 6 facing the swing blocks it.
                     if (vr && vr->avm.ok() &&
                         guard_blocks(en.cast_id, vr->avm.section() == 6 || en.guard399, vr->avm.durable(), rtype,
@@ -7369,6 +7427,7 @@ title_again:
                         }
                     }
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
+                    dmg = lua_damage(true, dmg, formula, a.atk, power, en.def, cls, en.cast_id, en.level);   // Lua mods
                     HitResult r = apply_damage(en.hp, en.flags, dmg);
                     if (r.died && boss6_zava_undying(en)) { en.flags &= ~kActorDead; r.died = false; }   // her handler floors it (view_boss06.inl)
                     if (dmg > 0) kill_combo.hit();   // 0x4fc835: the combo meter, before the kill's EXP
@@ -7439,11 +7498,19 @@ title_again:
                     if (r.died) {
                         // The kill credit (0x4fcaf5..0x4fcd42): nothing once +0x12c & 0x4000000 is set,
                         // which this kill sets (a revived actor keeps it: REVIVE.md §3.10c).
-                        award_exp(en.exp_reward, en.level, /*boss*/false, (en.flags12c & 0x4000000u) != 0);
+                        const float kexp = award_exp(en.exp_reward, en.level, /*boss*/false, (en.flags12c & 0x4000000u) != 0, -1,
+                                                     en.cast_id);
                         // The kill SP in the same block [BYTES 0x4fcd1d..0x4fcd3d]: the victim's +0xc4 through
                         // FUN_004fa390 into the wallet (FUN_004fa290), when it is not 0.
-                        if (!(en.flags12c & 0x4000000u)) credit_sp(en.sp_reward);
+                        const int ksp = !(en.flags12c & 0x4000000u) ? credit_sp(en.sp_reward, "kill", en.cast_id) : 0;
                         en.flags12c |= 0x4000000u;
+                        {   // mods: enemy_killed (LUA_API.md §3)
+                            events::Event ke;
+                            ke.kind = events::Kind::EnemyKilled;
+                            ke.cast = en.cast_id; ke.level = en.level; ke.amount = kexp; ke.amount2 = ksp;
+                            ke.pos[0] = en.pos.x; ke.pos[1] = en.pos.y + en.height; ke.pos[2] = en.pos.z;
+                            content_emit(ke);
+                        }
                         // The revive family flips +0x130 ^= 9 on the first dead tick when the Chimes are
                         // on, before FUN_004780e0's death effects and drops (REVIVE.md §3.1).
                         const std::uint32_t f130 = en.flags130 ^
@@ -7478,6 +7545,23 @@ title_again:
                             dc.no_drops = game.g_flags[146] != 0;
                             dc.boss_lock = game.g_flags[156] != 0;
                             dc.rate = settings().s.access.drop_rate;   // the shell's Cheats
+                            if (lua_combat_on(script::CombatQuery::Kind::Drop))   // Lua mods: the "drop" filter
+                                dc.decide = [&](int item, int slot, float chance, float* value) {
+                                    script::CombatQuery q;
+                                    q.kind = script::CombatQuery::Kind::Drop;
+                                    q.item = item; q.value = -1.0;
+                                    q.num = {{"slot", double(slot)}, {"chance", double(chance)}, {"cast", double(en.cast_id)},
+                                             {"level", double(en.level)}, {"x", double(en.pos.x)},
+                                             {"y", double(en.pos.y + en.height)}, {"z", double(en.pos.z)}};
+                                    q.str = {{"name", g_content.items.name(item)}};
+                                    const script::CombatDecision d = lua_combat(q);
+                                    if (d.action == script::CombatDecision::Action::Suppress) return -1;
+                                    if (d.action != script::CombatDecision::Action::Replace) return item;
+                                    *value = d.value >= 0.0 ? float(std::min(d.value, 999999.0)) : -1.0f;
+                                    const bool known = (d.item >= 0 && d.item < content::kRetailItems) ||
+                                                       (d.item >= content::kNewItemFirst && d.item <= content::kNewItemLast);
+                                    return known ? d.item : item;
+                                };
                             // The drop position is enemy+0x50..+0x58 exactly, its ORIGIN (0x4785b5), not its feet.
                             roll_enemy_drops(pick_rng, *er, en.cast_id, {en.pos.x, en.pos.y + en.height, en.pos.z}, dc,
                                              pickups, /*entry_draw*/ false);
@@ -7654,8 +7738,7 @@ title_again:
                         PlayerDamageMods mods;
                         mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
-                            [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
+                        const int dmg = lua_part_damage(enemy_incoming_damage(a, atk_cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, atk_cls);   // the shell's Cheats, the Lua mods' filter
                         if (dmg > 0) boss->add_part_damage(pi, float(dmg));
                         boss_part_feedback(bp, dmg, atk_cls);
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
@@ -7686,8 +7769,7 @@ title_again:
                         PlayerDamageMods mods;
                         mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        return access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
-                            [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
+                        return lua_part_damage(enemy_incoming_damage(a, atk_cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, atk_cls);   // the shell's Cheats, the Lua mods' filter
                     };
                     for (int o = 0; o < boss02::kObjects && atk_window > 0; ++o) {
                         if (!boss2->mesh_hittable(o)) continue;
@@ -7758,8 +7840,7 @@ title_again:
                         PlayerDamageMods mods;
                         mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        const int dmg = access::damage_dealt(enemy_incoming_damage(a, atk_cls, vd, mods,
-                            [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
+                        const int dmg = lua_part_damage(enemy_incoming_damage(a, atk_cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, atk_cls);   // the shell's Cheats, the Lua mods' filter
                         if (dmg > 0) boss3->add_part_damage(pi, float(dmg));   // [not modelled] the element bonus on HP
                         part_hit_feedback(bp.pos, true, dmg, atk_cls);
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
@@ -7950,11 +8031,48 @@ title_again:
                     env.player_alive = player.hp > 0; env.boost = &player.boost; env.oxygen = &oxy.o2;
                     env.sp_rate = settings().s.access.sp_rate;    // SPrate 0x76a5f8 (the shell's Cheats)
                     if (game.g_flags[144] == 2) env.gold_scale = 0.01f;   // DIFFICULTY.md G13 (0x6bd084)
+                    // mods (LUA_API.md §5.2): what the pickup applies, for pickup_collected; the pickup's own value
+                    // (a drop filter's, spawn_pickup's), then the "pickup" filter, then for SP the "sp" filter.
+                    PickupFx got{pk.id, 7, 1.0f, 0};
+                    bool got_none = false;
+                    env.mod = [&](PickupFx& fx) {
+                        if (pk.mod_value >= 0.0f) fx.value = pk.mod_value;
+                        if (lua_combat_on(script::CombatQuery::Kind::Pickup)) {
+                            static const char* const kWhat[] = {"sp", "hp", "atk_buff", "def_buff", "mp_buff", "boost", "oxygen", "item"};
+                            script::CombatQuery q;
+                            q.kind = script::CombatQuery::Kind::Pickup;
+                            q.item = fx.id; q.value = fx.value; q.timer = fx.timer;
+                            q.num = {{"x", double(pk.pos.x)}, {"y", double(pk.pos.y)}, {"z", double(pk.pos.z)}};
+                            q.str = {{"what", kWhat[fx.what]}, {"name", g_content.items.name(fx.id)}};
+                            const script::CombatDecision d = lua_combat(q);
+                            if (d.action == script::CombatDecision::Action::Suppress) got_none = true;
+                            else if (d.action == script::CombatDecision::Action::Replace) {
+                                fx.value = float(std::clamp(d.value, 0.0, 999999.0));
+                                fx.timer = d.timer;
+                            }
+                        }
+                        if (fx.what == 0 && !got_none) {
+                            fx.value = float(lua_sp(int(fx.value), int(fx.value), "pickup"));
+                            got_none = fx.value <= 0.0f;
+                        }
+                        if (got_none) fx.value = 0.0f;
+                        got = fx;
+                        return !got_none;
+                    };
                     inv.sp = player.sp;
                     int pop = 0;
                     if (pk.id >= content::kNewItemFirst) { if (!content_touch_new(pk)) return false; }   // mods
                     else if (pickup(inv, inv_items, env, pk.id, &pop) != PickupResult::Taken) return false;
                     content_taken(pk);                                // mods: collected flag, ItemObtained
+                    {   // mods: pickup_collected
+                        static const char* const kWhat[] = {"sp", "hp", "atk_buff", "def_buff", "mp_buff", "boost", "oxygen", "item"};
+                        events::Event pe;
+                        pe.kind = events::Kind::PickupCollected;
+                        pe.item = pk.id; pe.source = kWhat[got.what]; pe.amount = got.value; pe.count = got.timer;
+                        pe.old_value = got_none ? 1 : 0;
+                        pe.pos[0] = pk.pos.x; pe.pos[1] = pk.pos.y; pe.pos[2] = pk.pos.z;
+                        content_emit(pe);
+                    }
                     player.sp = inv.sp;
                     player.hp = int(hp);
                     // The GoPopup (PICKUPS.md §7.3, §13.6); a full pool skips it, the grant stands.
@@ -8101,7 +8219,9 @@ title_again:
             if (cheat_o2) oxy.o2 = 6000.0f;
             if (player.hp < 1) player_death();                // lava / noise / drowning this tick
             bool hurt_direct = false;                         // a brain's own FUN_004fd350 call: no FUN_004fe9e0 gate
-            auto hurt_player = [&](float atk, float bonus, int rtype, float angle, int status = 0) {
+            // `from_cast` / `from_level`: the monster whose hit volume it is (the Lua mods' "damage" query), -1 = none.
+            auto hurt_player = [&](float atk, float bonus, int rtype, float angle, int status = 0, int from_cast = -1,
+                                   int from_level = 0) {
                 if (p_untouchable && !hurt_direct) return;
                 // Hugo's Force Shield (FUN_004fd350 0x4fd9d4 -> 0x4fd90e): a charge left blocks the
                 // hit: damage 0, i-frames at least 16, SE 121, the "GUARD" popup (0xffaa00, scale
@@ -8160,6 +8280,7 @@ title_again:
                     }
                     dmg = int(float(dmg) * skillmp::kArmorScale);
                 }
+                dmg = lua_damage(false, dmg, raw, atk, bonus, pdef, -1, from_cast, from_level);   // Lua mods
                 player.hp -= dmg;
                 if (player.hp < 1) player.hp = 0;             // FUN_004fd350: hp - dmg < 1.0 -> hp = 0 (no "-3/60")
                 if (dmg > 0) player_hurt_this_tick = true;    // +0x3bc |= 6 (FUN_004fd350 0x4fde3c)
@@ -8239,7 +8360,7 @@ title_again:
                 if (e.hb.one_shot) e.atk_win = 0;
                 e.atk_hit = true;
                 const float php_before = player.hp;
-                hurt_player(en->atk, e.hb.power, e.hb.rtype, hang, e.hb.status);
+                hurt_player(en->atk, e.hb.power, e.hb.rtype, hang, e.hb.status, en->cast_id, en->level);
                 // M470's lifesteal (FUN_0048de00 0x48e103, M470.md §2): a hit landed in section 8 heals it by the HP the
                 // player lost (at least 1) when it is down by 1 HP or more. [not modelled] the green popup.
                 if (en->ai_index == 40 && e.avm.section() == 8 && en->max_hp - 1.0f >= en->hp)
@@ -8476,8 +8597,7 @@ title_again:
                                 PlayerDamageMods mods;
                                 mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                                 mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                                const int dmg = access::damage_dealt(enemy_incoming_damage(a, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone,
-                                    vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);
+                                const int dmg = lua_part_damage(enemy_incoming_damage(a, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone);
                                 if (dmg > 0) boss->add_part_damage(pi, float(dmg));
                                 boss_part_feedback(bp, dmg, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone);
                                 if (std::getenv("CLERIA_DMG"))

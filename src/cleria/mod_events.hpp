@@ -14,6 +14,11 @@
 //   DoorOpened    a locked door's UseKey script stored its door flag                    room, index, script
 //   BlessingBought a blessing-shop purchase reached its effect (op 0xAF SetXXX)          room, index (the blessing),
 //                                                                                        new_value (SP paid), old_value (1 = a mod suppressed the effect)
+//   EnemyKilled   a monster died of a hit of the player's (FUN_004fbb40's kill block)   room, cast, level, pos,
+//                                                                                        amount (EXP credited), amount2 (SP credited)
+//   PickupCollected a world pickup was taken (FUN_00585ff0)                              room, item, source (what it is), pos,
+//                                                                                        amount (the value applied), count (a buff's ticks),
+//                                                                                        old_value (1 = a mod suppressed the effect)
 //   NewGame       a new game started                                                    character
 //   Save / Load   a save slot was written / read (after the sidecar was handled)        slot
 //
@@ -28,7 +33,7 @@
 namespace cleria::events {
 
 enum class Kind { RoomEnter, FlagChanged, ChestOpened, ItemObtained, PlayerDeath, NewGame, Save, Load, BossDefeated, ItemUsed, DoorOpened,
-                  BlessingBought };
+                  BlessingBought, EnemyKilled, PickupCollected };
 const char* kind_name(Kind k);
 
 struct Event {
@@ -42,6 +47,9 @@ struct Event {
     std::string source;               // ItemObtained: "chest", "script", "pickup", "rule", "ap", ...
     int slot = -1;                    // Save / Load
     int character = 0;                // NewGame
+    int cast = -1, level = 0;         // EnemyKilled: the monster's cast id and level
+    float pos[3] = {0, 0, 0};         // EnemyKilled / PickupCollected: where (world, Y up)
+    double amount = 0, amount2 = 0;   // EnemyKilled: the EXP and SP credited; PickupCollected: the value applied
 };
 
 using Handler = std::function<void(const Event&)>;

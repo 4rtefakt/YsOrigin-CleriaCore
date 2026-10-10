@@ -86,6 +86,25 @@ struct FakeHost : script::Host {
         if (s == Stat::WeaponTier) tier = v;
     }
     void warp(int i) override { warped = i; }
+    // API 6
+    double exp_added = 0;
+    std::map<int, std::pair<double, double>> mods6;
+    std::vector<std::string> spawned;
+    bool player_info(script::PlayerInfo& o) override {
+        if (!game) return false;
+        o.level = int(level); o.hp = int(hp); o.max_hp = int(max_hp); o.atk = 46; o.base_atk = 40; o.mp = 1500; o.max_mp = 3000;
+        o.buff[0] = 0.5; o.buff_timer[0] = 1800; o.pos[0] = 1; o.pos[1] = 2; o.pos[2] = 3;
+        return true;
+    }
+    void add_exp(double n) override { exp_added += n; }
+    void set_modifier(const std::string&, int stat, double add, double mul) override { mods6[stat] = {add, mul}; }
+    std::pair<double, double> modifier(const std::string&, int stat) override { return mods6.count(stat) ? mods6[stat] : std::make_pair(0.0, 1.0); }
+    bool spawn_pickup(int item, float x, float y, float z, double value) override {
+        char b[96];
+        std::snprintf(b, sizeof b, "%d at %.0f,%.0f,%.0f value %.0f", item, x, y, z, value);
+        spawned.push_back(b);
+        return true;
+    }
     bool save(int slot) override { if (slot == 9) return false; saved = slot; return true; }   // 9: "not now"
     std::string profile;
     bool set_save_profile(const std::string& n) override { if (n == "no") return false; profile = n; return true; }   // "no": refused
@@ -362,8 +381,8 @@ int main(int argc, char** argv) {
         m->command("json", "");
         check(m->ok(), "api: every call ran (" + m->error() + ")");
         check(has(h.logs, "probe hello flag -1 room S_1001 scene 1001"), "api: game.flag / room / scene, commands with arguments");
-        check(has(h.logs, "boss S_7080 226 api 5") && has(h.logs, "boss S_1080 nil api 5"),
-              "api: boss_defeated carries the room and the boss flag (nil for a duel); api_version 5");
+        check(has(h.logs, "boss S_7080 226 api 6") && has(h.logs, "boss S_1080 nil api 6"),
+              "api: boss_defeated carries the room and the boss flag (nil for a duel); api_version 6");
         check(has(h.logs, "used 89 in S_1001") && has(h.logs, "door S_1005 315 usekey"), "api: item_used (item), door_opened (flag, script)");
         check(h.fl[0x63] == 1 && h.sp == 75 && h.level == 7 && h.wp[3] == 1 && h.warped == 3,
               "api: set_flag, player.add_sp / set_level, warps");
@@ -444,6 +463,101 @@ int main(int argc, char** argv) {
             m->on_event(se);
             check(has(h.logs, "bought 3 for 777 suppressed true in S_1009"), "api: blessing_bought (index, price, suppressed)");
         }
+        {   // API 6: cleria.combat.add_filter, the stats, the modifiers, add_exp, spawn_pickup, the two events
+            using script::CombatQuery;
+            using script::CombatDecision;
+            auto c = make(h, tmp, "api6", R"LUA(
+                local C = cleria.combat
+                C.add_filter("exp", function(q)
+                    cleria.log("exp " .. q.kind .. " " .. q.source .. " " .. q.value .. " cast " .. q.cast .. " scaled " .. q.scaled .. " in " .. q.room)
+                    if q.cast == 17 then return math.max(q.value, 50) end       -- a number: that value
+                    if q.cast == 18 then return 0 / 0 end                       -- not finite: ignored
+                    if q.cast == 19 then return {value = 5} end                 -- no action: pass
+                end)
+                C.add_filter("sp", function(q) if q.source == "kill" then return "suppress" end return "pass" end)
+                C.add_filter("damage", function(q) if q.dir == "taken" then return {action = "replace", value = q.value / 2} end end)
+                C.add_filter("drop", function(q) return {action = "replace", item = 0x42, value = 7} end)
+                C.add_filter("pickup", function(q) return {action = "replace", ticks = q.ticks * 2} end)
+                C.add_filter("pickup", function(q) error("never reached") end)
+                cleria.events.on("enemy_killed", function(e)
+                    cleria.log("killed " .. e.cast .. " lv " .. e.level .. " exp " .. e.exp .. " sp " .. e.sp .. " at " .. e.x .. "," .. e.y .. "," .. e.z .. " in " .. e.room)
+                end)
+                cleria.events.on("pickup_collected", function(e)
+                    cleria.log("collected " .. e.item .. " " .. e.what .. " " .. e.value .. " ticks " .. e.ticks .. " " .. tostring(e.suppressed))
+                end)
+                cleria.command("six", function()
+                    local s = cleria.player.stats()
+                    cleria.log("stats lv " .. s.level .. " atk " .. s.atk .. "/" .. s.base_atk .. " mp " .. s.mp .. "/" .. s.max_mp .. " buff " ..
+                               s.atk_buff .. ":" .. s.atk_buff_ticks .. " pos " .. s.x .. "," .. s.y .. "," .. s.z)
+                    cleria.player.set_modifier("atk", 10, 2)
+                    cleria.player.set_modifier("max_hp", 50)
+                    local a, mu = cleria.player.modifier("atk")
+                    local d0, d1 = cleria.player.modifier("def")
+                    cleria.log("mods " .. a .. " " .. mu .. " " .. d0 .. " " .. d1)
+                    cleria.log("bad stat " .. tostring(pcall(cleria.player.set_modifier, "luck", 1)) .. " bad mul " ..
+                               tostring(pcall(cleria.player.set_modifier, "atk", 0, -1)) .. " bad kind " ..
+                               tostring(pcall(C.add_filter, "loot", print)))
+                    cleria.player.add_exp(120.5)
+                    cleria.player.add_exp(-5)
+                    cleria.log("spawn " .. tostring(cleria.game.spawn_pickup(0x78, 1, 2, 3, {value = 500})) .. " " ..
+                               tostring(cleria.game.spawn_pickup(0x42, 4, 5, 6)) .. " " .. tostring(pcall(cleria.game.spawn_pickup, 0x90, 0, 0, 0)))
+                end)
+            )LUA");
+            CombatQuery e;
+            e.kind = CombatQuery::Kind::Exp; e.value = 14.14; e.num = {{"cast", 17.0}, {"scaled", 0.147}}; e.str = {{"source", "kill"}};
+            const CombatDecision e17 = c->combat_filter(e, "S_1002");
+            e.num[0].second = 18.0;
+            const CombatDecision e18 = c->combat_filter(e, "S_1002");
+            e.num[0].second = 19.0;
+            const CombatDecision e19 = c->combat_filter(e, "S_1002");
+            check(c->has_combat_filter(CombatQuery::Kind::Exp) && e17.action == CombatDecision::Action::Replace && e17.value == 50 &&
+                  e18.action == CombatDecision::Action::Pass && e19.action == CombatDecision::Action::Pass &&
+                  has(h.logs, "exp exp kill 14.14 cast 17 scaled 0.147 in S_1002"),
+                  "api 6: the exp filter (a number replaces; NaN and a table without action pass)");
+            CombatQuery s;
+            s.kind = CombatQuery::Kind::Sp; s.value = 4; s.str = {{"source", "kill"}};
+            const CombatDecision sk = c->combat_filter(s, "S_1002");
+            s.str[0].second = "pickup";
+            const CombatDecision sp = c->combat_filter(s, "S_1002");
+            CombatQuery d;
+            d.kind = CombatQuery::Kind::Damage; d.value = 22; d.str = {{"dir", "taken"}};
+            const CombatDecision dt = c->combat_filter(d, "S_1002");
+            d.str[0].second = "dealt";
+            const CombatDecision dd = c->combat_filter(d, "S_1002");
+            check(sk.action == CombatDecision::Action::Suppress && sp.action == CombatDecision::Action::Pass &&
+                  dt.action == CombatDecision::Action::Replace && dt.value == 11 && dd.action == CombatDecision::Action::Pass,
+                  "api 6: the sp and damage filters (suppress, pass, replace)");
+            CombatQuery dr;
+            dr.kind = CombatQuery::Kind::Drop; dr.item = 0x78; dr.value = -1;
+            const CombatDecision drd = c->combat_filter(dr, "S_1002");
+            CombatQuery pk;
+            pk.kind = CombatQuery::Kind::Pickup; pk.item = 0x48; pk.value = 0.5; pk.timer = 1800;
+            const CombatDecision pkd = c->combat_filter(pk, "S_1002");
+            check(drd.action == CombatDecision::Action::Replace && drd.item == 0x42 && drd.value == 7 &&
+                  pkd.action == CombatDecision::Action::Replace && pkd.value == 0.5 && pkd.timer == 3600 && pkd.item == 0x48 && c->ok(),
+                  "api 6: the drop and pickup filters (item, value, ticks; the first decision wins)");
+            events::Event ke;
+            ke.kind = events::Kind::EnemyKilled; ke.room = "S_1002";
+            ke.cast = 17; ke.level = 3; ke.amount = 50; ke.amount2 = 4; ke.pos[0] = 1; ke.pos[1] = 2; ke.pos[2] = 3;
+            c->on_event(ke);
+            events::Event pe;
+            pe.kind = events::Kind::PickupCollected; pe.item = 0x48; pe.source = "atk_buff"; pe.amount = 0.5; pe.count = 1800;
+            c->on_event(pe);
+            check(has(h.logs, "killed 17 lv 3 exp 50 sp 4 at 1.0,2.0,3.0 in S_1002") && has(h.logs, "collected 72 atk_buff 0.5 ticks 1800 false"),
+                  "api 6: enemy_killed and pickup_collected");
+            c->command("six", "");
+            check(c->ok() && has(h.logs, "stats lv 7 atk 46.0/40.0 mp 1500.0/3000.0 buff 0.5:1800 pos 1.0,2.0,3.0") &&
+                  has(h.logs, "mods 10.0 2.0 0.0 1.0") && h.mods6[1] == std::make_pair(10.0, 2.0) && h.mods6[0] == std::make_pair(50.0, 1.0),
+                  "api 6: player.stats, set_modifier / modifier (" + c->error() + ")");
+            check(has(h.logs, "bad stat false bad mul false bad kind false") && h.exp_added == 120.5 && h.spawned.size() == 2 &&
+                  h.spawned[0] == "120 at 1,2,3 value 500" && h.spawned[1] == "66 at 4,5,6 value -1" && has(h.logs, "spawn true true false"),
+                  "api 6: bad arguments are errors; add_exp; spawn_pickup");
+            auto bad = make(h, tmp, "api6bad", "cleria.combat.add_filter('exp', function(q) error('boom') end)");
+            CombatQuery be;
+            be.kind = CombatQuery::Kind::Exp; be.value = 3;
+            const CombatDecision bd6 = bad->combat_filter(be, "S_1002");
+            check(bd6.action == CombatDecision::Action::Pass && !bad->ok(), "api 6: a filter that fails passes and stops its mod");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&
@@ -497,7 +611,7 @@ int main(int argc, char** argv) {
     {
         std::vector<std::string> errs;
         const mods::Manifest mf = mods::parse_manifest("[mod]\r\nId=a.b\r\nApiVersion=3\r\nScript=main.lua\r\n", errs);
-        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 5, "manifest: Script= and ApiVersion 3");
+        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 6, "manifest: Script= and ApiVersion 3");
         for (const char* s : {"hello", "archipelago_lua"}) {
             const fs::path root = fs::path("samples") / "mods" / s;
             std::vector<std::string> e2;

@@ -16,6 +16,9 @@
 //   each frame            lua_frame               "frame" handlers
 //   each tick             lua_tick                "tick" handlers (after content_tick)
 //   award_exp             lua_exp_factor          cleria.game.exp_factor
+//   award_exp, credit_sp, the hits, the drops, a pickup's touch
+//                         lua_combat_on / lua_combat   cleria.combat.add_filter (API 6); lua_sp, lua_damage
+//   player_stats          lua_stat_modifiers      cleria.player.set_modifier
 //   drive commands        lua_drive               lua=<command> <args> (cleria.command)
 #include "cleria/modscript.hpp"
 
@@ -30,6 +33,9 @@ struct LuaBind {
     std::function<void()> refresh;
     std::function<bool()> frozen;
     std::function<bool(int)> save;         // cleria.game.save (set where the game's save state is in scope)
+    std::function<bool(script::PlayerInfo&)> info;                  // cleria.player.stats
+    std::function<void(float)> add_exp;                             // cleria.player.add_exp
+    std::function<bool(int, const Vec3&, float)> spawn_pickup;      // cleria.game.spawn_pickup
 };
 
 struct LuaNotice {
@@ -37,6 +43,7 @@ struct LuaNotice {
     double t = 0;
 };
 
+static bool g_lua_info(script::PlayerInfo& out);
 struct LuaHost : script::Host {
     void notice(const std::string& mod, const std::string& head, const std::string& text) override;
     void failed(const std::string& mod, const std::string& error) override;
@@ -57,6 +64,11 @@ struct LuaHost : script::Host {
     double stat(Stat s) override;
     void set_stat(Stat s, double v) override;
     void refresh() override;
+    bool player_info(script::PlayerInfo& out) override { return g_lua_info(out); }
+    void add_exp(double n) override;
+    void set_modifier(const std::string& mod, int stat, double add, double mul) override;
+    std::pair<double, double> modifier(const std::string& mod, int stat) override;
+    bool spawn_pickup(int item, float x, float y, float z, double value) override;
     void warp(int index) override;
     bool save(int slot) override;
     void unlock_character(int c) override;
@@ -111,8 +123,13 @@ struct LuaRt {
     std::deque<LuaNotice> notices;
     std::map<std::string, std::string> mem_settings;   // a run without a settings file
     double last_frame = -1;
+    // cleria.player.set_modifier: per mod {add, mul} of max HP / ATK / DEF, and their totals (kept for the process)
+    std::map<std::string, std::array<std::pair<double, double>, 3>> stat_mods;
+    bool stat_any = false;
+    double stat_add[3] = {0, 0, 0}, stat_mul[3] = {1, 1, 1};
 };
 static LuaRt g_lua;
+static bool g_lua_info(script::PlayerInfo& out) { return g_lua.b.info && g_lua.b.info(out); }
 
 static mods::Mod* lua_mods_entry(const std::string& id) {
     for (mods::Mod& m : g_mods_ui.list)
@@ -166,6 +183,31 @@ void LuaHost::set_stat(Stat s, double v) {
     }
 }
 void LuaHost::refresh() { if (g_lua.b.refresh) g_lua.b.refresh(); }
+void LuaHost::add_exp(double n) { if (g_lua.b.add_exp) g_lua.b.add_exp(float(n)); }
+void LuaHost::set_modifier(const std::string& mod, int stat, double add, double mul) {
+    LuaRt& r = g_lua;
+    if (stat < 0 || stat > 2) return;
+    r.stat_mods[mod][std::size_t(stat)] = {add, mul};      // a new entry is value-initialised: {0, 0} ...
+    r.stat_any = false;
+    for (int k = 0; k < 3; ++k) { r.stat_add[k] = 0; r.stat_mul[k] = 1; }
+    for (auto& [id, a] : r.stat_mods)
+        for (int k = 0; k < 3; ++k) {
+            if (a[std::size_t(k)].first == 0 && a[std::size_t(k)].second == 0) a[std::size_t(k)].second = 1;   // ... = none
+            r.stat_add[k] += a[std::size_t(k)].first;
+            r.stat_mul[k] *= a[std::size_t(k)].second;
+            r.stat_any = r.stat_any || a[std::size_t(k)].first != 0 || a[std::size_t(k)].second != 1;
+        }
+    if (r.b.refresh) r.b.refresh();                        // max HP follows now; ATK / DEF are read at each hit
+    if (r.b.player) r.b.player->hp = std::min(r.b.player->hp, r.b.player->max_hp);
+}
+std::pair<double, double> LuaHost::modifier(const std::string& mod, int stat) {
+    const auto it = g_lua.stat_mods.find(mod);
+    if (it == g_lua.stat_mods.end() || stat < 0 || stat > 2) return {0.0, 1.0};
+    return it->second[std::size_t(stat)];
+}
+bool LuaHost::spawn_pickup(int item, float x, float y, float z, double value) {
+    return in_game() && g_lua.b.spawn_pickup && g_lua.b.spawn_pickup(item, Vec3{x, y, z}, float(value));
+}
 void LuaHost::warp(int index) { if (g_lua.b.warp && g_lua.b.warp_on) g_lua.b.warp(index); }
 bool LuaHost::save(int slot) { return in_game() && g_lua.b.save && g_lua.b.save(slot); }
 static bool g_lua_open_toal = false;   // cleria.game.unlock_character(3): read by the title's Character Select
@@ -382,6 +424,69 @@ static float lua_exp_factor(int level) {
     float f = 1.0f;
     for (auto& m : g_lua.mods) f *= m->exp_factor(level);
     return f;
+}
+
+// ---- cleria.combat.add_filter (API 6, LUA_API.md §5.2) ---------------------------------------------------
+// The game asks lua_combat_on(kind) first and builds a query only when some mod has a filter of that kind.
+static bool lua_combat_on(script::CombatQuery::Kind k) {
+    for (auto& m : g_lua.mods)
+        if (m->has_combat_filter(k) && m->ok()) return true;
+    return false;
+}
+// The mods in load order; the first decision that is not Pass wins.
+static script::CombatDecision lua_combat(const script::CombatQuery& q) {
+    for (auto& m : g_lua.mods)
+        if (m->has_combat_filter(q.kind) && m->ok()) {
+            const script::CombatDecision d = m->combat_filter(q, g_content.room);
+            if (d.action != script::CombatDecision::Action::Pass) return d;
+        }
+    return script::CombatDecision{};
+}
+// An SP gain of `value` (the game's own, from `base` before its scale): "kill", "boss", "pickup", "give", "script".
+static int lua_sp(int value, int base, const char* source, int cast = -1) {
+    if (value <= 0 || !lua_combat_on(script::CombatQuery::Kind::Sp)) return value;
+    script::CombatQuery q;
+    q.kind = script::CombatQuery::Kind::Sp;
+    q.value = value;
+    q.num = {{"base", double(base)}};
+    if (cast >= 0) q.num.push_back({"cast", double(cast)});
+    q.str = {{"source", source}};
+    const script::CombatDecision d = lua_combat(q);
+    if (d.action == script::CombatDecision::Action::Suppress) return 0;
+    if (d.action == script::CombatDecision::Action::Replace) return int(std::clamp(d.value, 0.0, 999999.0));
+    return value;
+}
+// A hit's final damage. `dealt`: the player's hit on a monster (`cast` / `level`: the victim's) or a boss part
+// (cast -1); else a hit the player takes (`cast`: the attacker's, -1 = a boss, a trap, a shot). `formula` is the
+// damage function's own result, `value` what is about to leave the HP.
+static int lua_damage(bool dealt, int value, int formula, float atk, float power, float def, int cls, int cast, int level) {
+    if (!lua_combat_on(script::CombatQuery::Kind::Damage)) return value;
+    script::CombatQuery q;
+    q.kind = script::CombatQuery::Kind::Damage;
+    q.value = value;
+    q.num = {{"formula", double(formula)}, {"atk", double(atk)}, {"power", double(power)}, {"def", double(def)}};
+    if (cls >= 0) q.num.push_back({"class", double(cls)});
+    if (cast >= 0) { q.num.push_back({"cast", double(cast)}); q.num.push_back({"level", double(level)}); }
+    q.str = {{"dir", dealt ? "dealt" : "taken"}};
+    const script::CombatDecision d = lua_combat(q);
+    if (d.action == script::CombatDecision::Action::Suppress) return 0;
+    if (d.action == script::CombatDecision::Action::Replace) return int(std::clamp(d.value, 0.0, 999999.0));
+    return value;
+}
+// A hit of the player's on a boss part (FUN_004fa550's result `formula`): the shell's Damage-dealt cheat, then the
+// "damage" filter (no cast).
+static int lua_part_damage(int formula, const AttackStats& a, float def, int cls) {
+    return lua_damage(true, access::damage_dealt(formula, settings().s.access.damage_dealt), formula, a.atk, a.bonus, def,
+                      cls == kDamageClassNone ? -1 : cls, -1, 0);
+}
+// cleria.player.set_modifier on FUN_00420c40's results: (the game's + add) x mul; max HP stays within 1..999
+// (the game's own cap), ATK is not negative (the damage function raises it to a power).
+static void lua_stat_modifiers(PlayerStats& s) {
+    const LuaRt& r = g_lua;
+    if (!r.stat_any) return;
+    s.max_hp = std::clamp(float((double(s.max_hp) + r.stat_add[0]) * r.stat_mul[0]), 1.0f, 999.0f);
+    s.atk = std::max(0.0f, float((double(s.atk) + r.stat_add[1]) * r.stat_mul[1]));
+    s.def = float((double(s.def) + r.stat_add[2]) * r.stat_mul[2]);
 }
 
 // CLERIA_DRIVE: lua=<command> <args>   (a cleria.command of an active scripted mod)

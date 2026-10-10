@@ -138,6 +138,11 @@ int apply_item_effect(InvState& inv, const ItemTable& items, EffectEnv& env, int
         int amt = int(m);
         if (bless & 0x1000) amt = int(std::floor(m * 1.25f));
         if (bless & 0x20000) amt = int(std::floor(m * 1.5f));
+        if (env.mod) {                                   // CleriaCore mods
+            PickupFx fx{id, 1, float(amt), 0};
+            if (!env.mod(fx)) return 0;
+            amt = int(fx.value);
+        }
         if (env.hp && env.player_alive && *env.hp >= 1.0f)
             *env.hp = std::clamp(*env.hp + float(amt), 0.0f, env.max_hp);
         return amt;
@@ -149,10 +154,17 @@ int apply_item_effect(InvState& inv, const ItemTable& items, EffectEnv& env, int
         return 0;
     }
     if (id == 0x72) {                                    // Vitality Seed
-        if (env.flags && env.flags[187] != 0 && env.boost) *env.boost = 30000.0f;
+        PickupFx fx{id, 5, 30000.0f, 0};
+        if (env.mod && !env.mod(fx)) return 0;           // CleriaCore mods
+        if (env.flags && env.flags[187] != 0 && env.boost) *env.boost = fx.value;
         return 0;
     }
-    if (id == 0x73) { if (env.oxygen) *env.oxygen = 6000.0f; return 0; }   // Air Seed
+    if (id == 0x73) {                                    // Air Seed
+        PickupFx fx{id, 6, 6000.0f, 0};
+        if (env.mod && !env.mod(fx)) return 0;           // CleriaCore mods
+        if (env.oxygen) *env.oxygen = fx.value;
+        return 0;
+    }
     return 0;                                            // "now making": no effect
 }
 
@@ -181,8 +193,13 @@ PickupResult pickup(InvState& inv, const ItemTable& items, EffectEnv& env, int i
     if (popup) *popup = 0;
     if (id >= 0x78 && id <= 0x7f) {                      // gold -> the SP wallet
         const Item* it = items.get(id);
-        const int n = std::max(1, int(std::floor(float(it ? it->magnitude : 0) * env.sp_rate * env.gold_scale)));
+        int n = std::max(1, int(std::floor(float(it ? it->magnitude : 0) * env.sp_rate * env.gold_scale)));
         if (inv.sp >= 999999) return PickupResult::LeftInWorld;
+        if (env.mod) {                                   // CleriaCore mods
+            PickupFx fx{id, 0, float(n), 0};
+            if (!env.mod(fx)) return PickupResult::Taken;
+            n = int(fx.value);
+        }
         inv.sp = std::min(999999, inv.sp + n);
         if (popup) *popup = n;
         return PickupResult::Taken;
@@ -196,23 +213,29 @@ PickupResult pickup(InvState& inv, const ItemTable& items, EffectEnv& env, int i
         const float lv = ((id - 0x48) & 1) ? 2.0f : 1.0f;
         const std::uint32_t bl = env.flags ? std::uint32_t(env.flags[217]) : 0u;
         const int timer = (bl & 0x800000) ? 2200 : (bl & 0x10) ? 2000 : 1800;
+        PickupFx fx{id, id <= 0x49 ? 2 : id <= 0x4b ? 3 : 4, (id <= 0x49 ? 0.5f : id <= 0x4b ? 0.3f : 0.2f) * lv, timer};
+        if (env.mod && !env.mod(fx)) return PickupResult::Taken;   // CleriaCore mods
         if (id <= 0x49) {
-            if (inv.atk_buff < 5.0f) inv.atk_buff = std::min(5.0f, inv.atk_buff + 0.5f * lv);
-            inv.timer_atk = timer;
+            if (inv.atk_buff < 5.0f) inv.atk_buff = std::min(5.0f, inv.atk_buff + fx.value);
+            inv.timer_atk = fx.timer;
         } else if (id <= 0x4b) {
-            if (inv.def_buff < 3.0f) inv.def_buff = std::min(3.0f, inv.def_buff + 0.3f * lv);
-            inv.timer_def = timer;
+            if (inv.def_buff < 3.0f) inv.def_buff = std::min(3.0f, inv.def_buff + fx.value);
+            inv.timer_def = fx.timer;
         } else {                                         // FUN_00463f40 bit 0x10 (PICKUPS.md §7.3)
-            if (inv.mp_buff == 0.0f) inv.mp_buff = 1.0f + 0.2f * lv;
-            else if (inv.mp_buff < 3.0f) inv.mp_buff += 0.2f * lv;
+            if (inv.mp_buff == 0.0f) inv.mp_buff = 1.0f + fx.value;
+            else if (inv.mp_buff < 3.0f) inv.mp_buff += fx.value;
             inv.mp_buff = std::min(3.0f, inv.mp_buff);
-            inv.timer_mp = timer;
+            inv.timer_mp = fx.timer;
         }
         return PickupResult::Taken;
     }
     if (!env.flags || id < 0 || id >= 128) return PickupResult::LeftInWorld;
     const std::int32_t c = env.flags[id];
     if (c >= kCountCap) return PickupResult::LeftInWorld;
+    if (env.mod) {                                       // CleriaCore mods
+        PickupFx fx{id, 7, 1.0f, 0};
+        if (!env.mod(fx)) return PickupResult::Taken;
+    }
     env.flags[id] = (c == -1) ? 1 : c + 1;
     return PickupResult::Taken;
 }

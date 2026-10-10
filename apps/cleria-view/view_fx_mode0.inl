@@ -29,8 +29,7 @@
         PlayerDamageMods mods;
         mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-        return access::damage_dealt(enemy_incoming_damage(a, cls_p, vd, mods,
-            [&](float pct) { return float(rng_pct(rng)) < pct; }), settings().s.access.damage_dealt);   // the shell's Cheats
+        return lua_part_damage(enemy_incoming_damage(a, cls_p, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, cls_p);   // the shell's Cheats, the Lua mods' filter
     };
     // The SOB sub-part pass: the 0x186 child spheres and the @Break_* objects (CleriaCore's breakables pass).
     const int struck0 = mesh_struck;

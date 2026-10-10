@@ -1,4 +1,4 @@
-# Lua scripting for mods: the `cleria.*` API (mod API 3, extended at 4 and 5: §11)
+# Lua scripting for mods: the `cleria.*` API (mod API 3, extended at 4, 5 and 6: §11)
 
 CleriaCore mods can carry a Lua script (MODS.md §10: the user chose Lua). This is the reference for modders
 and the design record. None of it is retail: the game stays a faithful port; scripts are CleriaCore's own
@@ -11,7 +11,7 @@ the game, its saves and its frames are what they were.
 | the runtime: state, sandbox, budget, errors, the game's calls into a mod | `src/cleria/modscript.{hpp,cpp}` (target `cleria-script`) |
 | the `cleria.*` API | `src/cleria/modscript_api.cpp` |
 | the game side (the `Host`): live game, content layer, ui kit, shell | `apps/cleria-view/view_lua.inl` + one-line hooks in `view_game.inl` |
-| tests | `apps/cleria-luatest` (ctest `luatest`, 58 checks), `tools/aplua_regress.py` (16 drive cases), `drive_regress shell_subpages` |
+| tests | `apps/cleria-luatest` (ctest `luatest`, 65 checks), `tools/aplua_regress.py` (16 drive cases), `drive_regress shell_subpages`, the `lua_*` drive cases (API 4-6) |
 | samples | `samples/mods/hello`, `samples/mods/archipelago_lua` (§9) |
 | the modder's guide | `samples/mods/README.md` |
 
@@ -25,7 +25,7 @@ Tags: **[CODE]** read in CleriaCore's code, **[H]** a choice of this design.
 Id=me.my_mod
 Name="My Mod"
 Version=1.0
-ApiVersion=3          ; 2 = content/, 3 = Script=; mods::kApiVersion is now 5 (§11), 3 and 4 still run unchanged
+ApiVersion=3          ; 2 = content/, 3 = Script=; mods::kApiVersion is now 6 (§11), 3 to 5 still run unchanged
 Script=main.lua       ; the entry file, relative to the mod folder
 ```
 
@@ -81,6 +81,8 @@ cleria.events.off(id)
 | `item_used` (API 4) | an item was used from the book and used up: the Celcetan Panacea (0x59), the only item the book consumes | `item` |
 | `door_opened` (API 4) | a locked door was opened with its key or medallion: the room's `UseKey` script stored the door's flag (0 -> set), and no filter changed that store | `flag` (the door's flag), `script` ("usekey") |
 | `blessing_bought` (API 5) | a purchase at the blessing shop reached its effect (op 0xAF), after the shop filters answered (§5.1) | `index` (the blessing, §5.1), `price` (the SP the script deducted), `suppressed` (a filter kept the effect from being applied) |
+| `enemy_killed` (API 6) | a monster died of a hit of the player's (his swing, a sword trail, a shot, a skill's effect), after its EXP and SP were credited and before its drops are rolled | `cast` (the CASTINFO id), `level`, `exp` and `sp` (what was credited, after the filters of §5.2; both 0 for a revived monster killed again), `x`, `y`, `z` (its origin) |
+| `pickup_collected` (API 6) | a world pickup was taken (an enemy's drop, a script's, a mod's) | `item`, `what` and `value` and `ticks` (what it applied: §5.2 "pickup"), `suppressed` (a filter kept it from applying anything), `x`, `y`, `z` |
 | `new_game` / `load` | a session started / a save was loaded | `character` / `slot` |
 | `save` | a slot was written (the save sidecar too) | `slot` |
 | `tick` | every fixed game tick (60 a second, not while the F1 panel holds the game) | (no argument) |
@@ -92,6 +94,11 @@ new session's when that `room_enter` runs (see `samples/mods/hello`).
 
 `cleria.events.emit("item_obtained", {item = 0x59, count = 1, source = "mymod"})` reports a grant the mod
 made itself (only `item_obtained` may be emitted).
+
+**`enemy_killed`** [CODE `view_game.inl` `player_hit_enemy`, the kill block FUN_004fbb40 0x4fcaf5..] is raised for monsters
+only: a boss is `boss_defeated` (its EXP and SP still pass the filters of §5.2 with `source = "boss"`), and a
+monster removed by a script (`killall`, a scene change) or by its own brain is not a kill and credits nothing.
+**`pickup_collected`** comes after the `item_obtained` (`source = "pickup"`) the same touch raises.
 
 **`boss_defeated`** (`view_content.inl` `content_boss_watch`) [CODE] is raised from the same per-tick flag
 diff as `flag_changed`, just before it, so it never fires on a load, a Retry or a new game (they re-prime the
@@ -134,12 +141,16 @@ consumed and raise no `item_used`.
 | `game.chests()` | the current room's chests: `{s_box01 = {flag = 302, object = "box_01"}, ...}` |
 | `game.save(slot)` (API 4) | save the game now into slot 0..63, as a goddess statue does; `true` if it saved, `false` if not (below) |
 | `game.unlock_character(c)` (2026-10-09; test `cleria.game.unlock_character ~= nil`) | Character Select offers character `c` for the rest of this session whatever the clear data says (1 Yunica, 2 Hugo, 3 Toal; only Toal is ever locked on a New Game). Not saved; callable on the title — "frame" handlers run there too. The player's own switch is `[cleria.qol] UnlockCharacters`. |
-| `game.exp_factor(fn)` | `fn(level) -> factor` multiplies the EXP of every kill (with the Cheats rate, the AP seed's) |
+| `game.exp_factor(fn)` | `fn(level) -> factor` multiplies the EXP of every kill (with the Cheats rate, the AP seed's); a factor outside 0..1000 counts as 1. It multiplies **before** the engine floors the award: for a per-kill rule use the `"exp"` filter (§5.2) |
+| `game.spawn_pickup(item, x, y, z [, {value = n}])` (API 6) | a collectable pickup thrown up from that point as an enemy's drop is; `true` if it was spawned (§5.2) |
 | `player.hp()`, `max_hp()`, `set_hp(n)` | `set_hp(0)` kills (the game-over flow follows) |
 | `player.sp()`, `add_sp(n)` | the SP wallet (the shop currency), 0..999999 |
 | `player.level()`, `set_level(n)`, `exp()` | `set_level` = the AP bind's [H]: EXP at the level's threshold, max HP recomputed |
 | `player.weapon_tier()`, `set_weapon_tier(t)` | g_flags[148] and the four weapon slots (0x7f SetWeaponLevel) |
 | `player.refresh()` | recompute the stats after a grant (max HP) |
+| `player.add_exp(n)` (API 6) | `n` > 0 EXP added to the total, then the game's level-up loop (max HP, the full heal, the popup); no filter, no factor |
+| `player.stats()` (API 6) | a table of everything below (§4.1), `nil` with no game |
+| `player.set_modifier(stat, add [, mul])`, `player.modifier(stat)` (API 6) | this mod's modifier of `"max_hp"`, `"atk"` or `"def"` (§4.1) |
 
 Writes go through the same paths the game and the C++ Archipelago glue use (`game.g_flags`, `player`, the
 bind lambdas in `view_game.inl`). [H] Nothing checks that a write makes sense for the story: a mod that sets
@@ -156,6 +167,37 @@ snapshot, then the slot's record `yso_NN.bin` and the mods' sidecar `yso_NN.cler
   is staged;
 - `slot` is 0..63 and the file could be written.
 A load of that slot (the title's or the book's) arrives where the player stood, on the floor below that point.
+
+### 4.1 The player's numbers and the stat modifiers (API 6)
+
+`cleria.player.stats()` returns what the game holds [CODE `view_game.inl` `g_lua.b.info`; `src/cleria/inventory.cpp`
+`compute_stats` = FUN_00420c40]:
+
+| field | |
+|---|---|
+| `level`, `exp`, `exp_next` | the level (1..60), the running EXP total (a float: a kill adds fractions), the total the next level needs (0 at level 60) |
+| `hp`, `max_hp`, `sp`, `weapon_tier` | as `player.hp()` ... |
+| `atk`, `def` | STR and DEF as every hit reads them: the level curve + the character's offset + the Strength / Defense Drop buff + the weapon tier, the armor, the leggings and the accessory, **with** the mods' modifiers |
+| `base_max_hp`, `base_atk`, `base_def` | the same without the modifiers |
+| `luck` | FUN_00420c40's luck (0 in every game: its base 0x76b90c has no writer). [not modelled] the drop rolls do not read it yet |
+| `mp`, `max_mp` | the skill gauge 0x76a738 / 0x76a734 (3000 full) |
+| `boost`, `boosting` | the Boost gauge (30000 = full) and whether a Boost runs |
+| `atk_buff`, `def_buff`, `mp_buff`, `atk_buff_ticks`, `def_buff_ticks`, `mp_buff_ticks` | the Strength / Defense / MP Drop buffs (+ATK up to 5, +DEF up to 3, the MP regen factor 1..3, 0 = none) and their ticks left (60 a second) |
+| `x`, `y`, `z` | the player's feet (world units, Y up) |
+
+Armor and leggings have no level of their own: each piece is "strengthened" or not, `game.upgrade(item id)` 0 / 1.
+
+`cleria.player.set_modifier(stat, add, mul)` [H]: the stat becomes **(the game's value + add) x mul** wherever the game
+reads it (every hit dealt and taken, the book's status page, max HP). `stat` is `"max_hp"`, `"atk"` or `"def"`; `add`
+within -9999..9999, `mul` within 0..100 (default 1); anything else is a Lua error. `set_modifier(stat, 0, 1)` (or
+`set_modifier(stat)`) removes it. `player.modifier(stat)` returns this mod's `add, mul`.
+- It is applied at **every recompute** [CODE `player_stats`, `lua_stat_modifiers`]: a level-up, an equipment change, a
+  buff, a load, a new game keep it. It lasts until the mod changes it or CleriaCore exits, and is **not saved**: a mod
+  that wants it per save keeps its numbers in `cleria.save` and sets them again on `load` / `new_game`.
+- Several mods: the adds are summed, the muls multiplied. Max HP stays within 1..999 (the game's own cap), ATK at 0 or
+  above. Max HP follows at once; a lowered max takes the HP above it, a raised one does not heal.
+- [H] There is no modifier for luck (nothing reads it), the MP gauge (not a derived stat: 3000 in every game) or the
+  Boost gauge. The `"damage"` filter (§5.2) covers what a modifier cannot.
 
 ## 5. Content: the grant filter and gifts
 
@@ -231,6 +273,108 @@ current armor" (`@GrowAr`) and **8** = "Strengthen current leggings" (`@GrowLe`)
   them). The deduction is still an ordinary store of flag 216 for the grant filter (`sub` 0x69, the new value).
 - [H] The wallet test and the deduction are the script's own: a price above the wallet answers "You don't have
   enough SP." like any other.
+
+### 5.2 EXP, SP, damage, drops and pickups: `cleria.combat` (API 6)
+
+```lua
+local M = 100                                             -- the seed's EXP multiplier
+cleria.game.exp_factor(function(level) return M end)
+cleria.combat.add_filter("exp", function(q)               -- every kill gives at least M / 2
+    if q.source == "kill" then return math.max(q.value, M / 2) end
+end)
+cleria.combat.add_filter("pickup", function(q)
+    if q.what == "sp" then return q.value * 2 end         -- gold is worth double
+    if q.what == "atk_buff" then return {action = "replace", value = 1, ticks = 3600} end
+end)
+```
+
+`cleria.combat.add_filter(kind, fn)` [H] registers `fn(q)` for one kind of number the game is about to apply:
+`"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (any other kind is a Lua error). The game asks at each occurrence,
+inside the fixed tick: keep the function cheap. With no filter of a kind the game builds no query and calls no Lua
+[CODE `view_lua.inl` `lua_combat_on`], and a run without filters is bit for bit what it was.
+
+**The answer**: `nil` / `"pass"` keeps the game's value; `"suppress"` makes it nothing (0 EXP / SP / damage, no drop,
+a pickup that applies nothing); a **number** is the value to use instead; `{action = "replace", value =, item =,
+ticks =}` replaces what the kind allows (missing fields keep the query's). A value that is not finite (NaN, inf) is
+ignored (pass); a value outside the kind's range is clamped. A table without `action` passes. Order: the Lua mods in
+load order, a mod's filters in registration order; the first answer that is not "pass" wins. A filter that raises an
+error stops its mod like any other call (§2) and the game's value stands.
+
+Every query has `kind`, `value`, `room`. Whole numbers arrive as Lua integers.
+
+**`"exp"`** [CODE `view_game.inl` `award_exp`; `src/cleria/exp_award.cpp` = FUN_004fa2f0, FUN_004fbb40 0x4fcb45..0x4fcc13,
+FUN_004fa4a0]: every EXP award above 0. The engine's order, each step a field:
+
+| step | field | |
+|---|---|---|
+| | `source` | `"kill"` (a monster) or `"boss"` (FUN_004fa4a0; none in time attack) |
+| | `cast`, `boss` | a kill: the monster's cast id; a boss: its EEX record 0..6 |
+| | `level`, `enemy_level` | the player's level, the monster's |
+| 1 | `base` | the monster's EXP (ENEMYINFO, victim +0xb0) |
+| 2 | `scaled` | the level difference: `base` / F^(level - enemy_level) when the player is above (F = 1.5 Normal, **1.65 Hard**, 1.8 Nightmare), `base` x 1.5^min(enemy_level - level, 3) when below; then x 0.6666 |
+| 3 | `rate`, `factor` | x the Cheats' EXP rate, x the mods' `exp_factor(level)` (retail's rate 0x76a5fc = 1) |
+| 4 | `diff_mult` | x 1.1 on Easy, x 2 on Very Easy |
+| 5 | `floored` | floor, then **at least 1**: `max(1, floor(scaled x rate x factor x diff_mult))` |
+| 6 | `combo`, `chain` | a kill: x `chain` = 1 + 0.01 x `combo` (the hit combo meter, 0..99); a boss: `chain` 1 |
+| | `value` | `floored` x `chain`: what is added to the EXP total (a float) |
+
+The answer replaces `value` (0..9999999). The multipliers of step 3 come **before** the floor of step 5, so "at least 1"
+protects nothing once a factor is set: 0.147 x 100 is floored to 14 (drive case `lua_exp_floor`). Not asked when the
+award is 0 (a revived monster killed again, a boss without EXP).
+
+**`"sp"`**: every gain of the SP wallet the game makes. `source`: `"kill"` (the monster's SP, `cast`), `"boss"`,
+`"pickup"` (a gold piece, after the `"pickup"` filter), `"give"` (a gold item granted by `content.give`, a content
+rule or chest), `"script"` (0xb2 AddPlayerSP: an SP chest, a reward; EventXX 13, the clear data's SP bonus). `base` is the amount
+before the game's own scale (a kill / boss: FUN_004fa390's Easy x 1.5, Very Easy x 2, Nightmare x 0.01, the blessing's
+x 1.25, the Cheats' SP rate), `value` what would be credited. The answer replaces it (0..999999). Not asked for
+`player.add_sp`, for a spend, or for a script that stores flag 216 directly (that is a `store` of §5).
+
+**`"damage"`** [CODE `player_hit_enemy` = FUN_004fbb40, `hurt_player` = FUN_004fd350; `src/cleria/hit.hpp`]: the final
+damage of one landed hit, just before it leaves the HP.
+
+| field | `dir = "dealt"` (the player's hit) | `dir = "taken"` (a hit on the player) |
+|---|---|---|
+| `cast`, `level` | the monster hit; absent for a boss part | the monster whose hit volume it is; absent for a boss, a trap, a shot, a script |
+| `atk`, `power` | the player's ATK (`stats().atk`) and the swing's own power | the attacker's ATK and its swing's power |
+| `def` | the victim's DEF | the player's DEF (- 5 while cursed) |
+| `class` | the damage class 0..7 (3 melee, the others the elements; hit.hpp) | absent |
+| `formula` | FUN_004fa550's result: ATK^0.66 x (ATK - 0.98 DEF + 10 + power) / 22.92, x (1 - resist), the swing's minimum, the random rounding, at least 1, Yunica's x 1.1 | FUN_004fa740's result with the difficulty's tail |
+| `value` | after the victim's guard (0), the Cheats' rate, the juggle factor, one-hit-kill | after the Boost halving, the Cheats' rate, the skill armour's x 0.75 |
+
+The answer replaces `value` (0..999999, truncated). A guarded hit arrives with `value` 0 (a mod may still give it
+damage); the player's guards (Hugo's shield and barrier, the MP armour) end the hit before the filter. Everything after
+the damage follows the answer: the kill, the combo meter (a hit of 0 does not count), the reaction, the Boost gained.
+[H] Hits on scene objects (breakables, switches) are not asked.
+
+**`"drop"`** [CODE `src/cleria/pickup.cpp` `roll_enemy_drops` = FUN_00478510]: one drop of a killed monster that
+**passed its roll**. `item` (the item id) and `name`, `slot` (0..7 the ENEMYINFO drop slot, 8 / 9 / 10 the Strength /
+Defense / MP Drop scatter), `chance` (the percentage its roll was under: the slot's rate with luck, the launch and
+combo bonuses and the Cheats' drop rate; 0 for the scatter), `cast`, `level`, `x`, `y`, `z`; `value` is -1.
+`"suppress"`: nothing drops. `{action = "replace", item =, value =}`: another item drops (0..0x7F, a mod item
+0x100..0x1FF; any other id keeps the original), and `value` >= 0 becomes that pickup's **own value**, used instead of
+the game's when it is taken (below). A drop that failed its roll is not asked: to add drops, spawn them from
+`enemy_killed`. [H] A drop has no value of its own in the game: what an item gives is decided when it is taken.
+
+**`"pickup"`** [CODE `src/cleria/inventory.cpp` `pickup` = FUN_00585ff0, `PickupFx`]: a world pickup is being taken.
+`item`, `name`, `x`, `y`, `z`, and by `what`:
+
+| `what` | items | `value` (replaceable, 0..999999) | `ticks` |
+|---|---|---|---|
+| `"sp"` | gold 0x78..0x7F | the SP credited (the piece x the Cheats' SP rate, x 0.01 on Nightmare) | |
+| `"hp"` | Recovery Drops 0x42..0x47 | the HP healed (the blessings' x 1.25 / x 1.5 included) | |
+| `"atk_buff"`, `"def_buff"`, `"mp_buff"` | 0x48..0x4D | the step added to the buff (0.5 / 0.3 / 0.2, doubled by the larger drop; the buffs' caps 5 / 3 / 3 stay) | the buff's duration (1800, 2000 or 2200 with the blessings); replaceable |
+| `"boost"` | Vitality Seed 0x72 | the Boost gauge it is set to (30000; applied only once Boost is unlocked, flag 187) | |
+| `"oxygen"` | Air Seed 0x73 | the oxygen it is set to (6000) | |
+| `"item"` | anything else | 1 (the count gained; not replaceable) | |
+
+`"suppress"`: the pickup is taken and applies nothing (grant something else from `pickup_collected`, whose
+`suppressed` is then true). A pickup with its own value (a `"drop"` answer's, `spawn_pickup`'s) arrives with it as
+`value`. A mod item (0x100..) taken from the world is not asked (it is `content.give`'s). The item cannot be replaced
+here: replace it when it drops.
+
+**`cleria.game.spawn_pickup(item, x, y, z [, {value = n}])`** [H]: one collectable pickup thrown up from that point with
+an enemy drop's arc and lifetime (FUN_00587010's default arguments). `item` as for `content.give`; `value` its own value
+(above). `false` with no game. Use `stats()` for the player's position, `enemy_killed` for a monster's.
 
 ## 6. Storage
 
@@ -352,7 +496,7 @@ ws:send(cleria.json.encode({cmd = "Hello", tags = cleria.json.array()}))
 - `cleria.command(name, fn(args))`: a command for tests and tools: `CLERIA_DRIVE="...;300:lua=<name> <args>"`.
 - `cleria.speedrun.modification(fn | "text")`: a line (or a list) for speedrun mode's "modified run" list,
   e.g. "Archipelago session (Lua)". Every active mod already marks a run as modded (MODS.md §5).
-- Also: `cleria.api_version` (5: §11), `cleria.mod` (`id`, `name`, `version`), `cleria.time()` (seconds, monotonic),
+- Also: `cleria.api_version` (6: §11), `cleria.mod` (`id`, `name`, `version`), `cleria.time()` (seconds, monotonic),
   `cleria.unix_time()`, `cleria.read(path)` / `cleria.exists(path)` (the mod's own files).
 
 ## 9. The proof: Archipelago as a Lua mod
@@ -418,7 +562,7 @@ python tools/drive_regress.py --exe build_diff/Release/cleria-view.exe --assets 
 
 `cleria-nettest`: the WebSocket under `cleria.net` (address parsing; a loopback echo server: wss -> ws fallback,
 echo, a 2 MB message, idle beyond the handshake timeout, a kick, a polite close, a close the server ignores,
-nothing listening, a bad address). `cleria-luatest` (58 checks): the sandbox (no io / package / debug / dofile / os.execute / getenv /
+nothing listening, a bad address). `cleria-luatest` (65 checks): the sandbox (no io / package / debug / dofile / os.execute / getenv /
 string.dump, bytecode refused, `require` / `cleria.read` / `cleria.data` cannot leave their folders, print to
 the log); a runaway handler stopped in milliseconds, also through `pcall`, a runaway main chunk, a heap bomb,
 errors with file:line (main chunk, handler, syntax, a module), a disabled mod getting no calls, other mods
@@ -427,7 +571,8 @@ chests, treasure_text, save storage incl. quotes / backslashes / newlines / % th
 settings typing, data files, json incl. null / int64 / empty arrays, the filter's three decisions, icons,
 hud layers in order with colours / alpha / kit names / images, page widgets, exp_factor, speedrun,
 commands, draw calls refused outside a layer); websockets (the 4-socket limit, a bad address, a refused
-connection reported by `poll`); the manifest's `Script=`; both samples start; archipelago_lua's own table (336
+connection reported by `poll`); API 6 (each combat filter's answers, the two events, stats, modifiers, add_exp, spawn_pickup, bad arguments, a failing
+filter); the manifest's `Script=`; both samples start; archipelago_lua's own table (336
 locations, 147 items), its page "Archipelago", its README and icon (self-contained).
 
 ## 11. API levels
@@ -441,4 +586,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 3 | everything above not marked otherwise |
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
+| 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |
