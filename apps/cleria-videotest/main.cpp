@@ -53,6 +53,11 @@ int main() {
         check(d.linear && !d.mip_linear && d.anisotropy == 1,
               "the defaults (TextureFilter 1, Anisotropy 1) = CleriaCore's existing bilinear sampler");
     }
+    // ---- anti-aliasing ([graphics] MultiSampleType) ----
+    check(video::msaa_samples(Settings{}.graphics.multi_sample_type) == 1 && video::msaa_samples(0) == 1 &&
+          video::msaa_samples(1) == 1 && video::msaa_samples(2) == 4 && video::msaa_samples(4) == 4 &&
+          video::msaa_samples(16) == 4,
+          "MultiSampleType: the default and 0 / 1 draw single-sampled; every count >= 2 draws with 4 samples");
     // ---- aspect (FUN_005e2670) ----
     check(std::fabs(video::projection_aspect(1280, 800, false) - 1.6f) < 1e-6f &&
           video::projection_aspect(1280, 800, true) == 1.3333334f && video::projection_aspect(3440, 1440, true) == 1.3333334f,

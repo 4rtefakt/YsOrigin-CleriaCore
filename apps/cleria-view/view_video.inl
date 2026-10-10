@@ -71,6 +71,11 @@ struct VideoGpu {
     std::uint32_t ww = 0, wh = 0;
     bool world_on = false;
     std::uint32_t world_w = 0, world_h = 0;      // the size the world draws at this frame
+    // [graphics] MultiSampleType: the world's multisampled colour + depth, resolved into wtex
+    WorldPipes mpipes{};
+    bool mpipes_built = false, msaa_on = false;
+    WGPUTextureView mview{}, mdepth{};
+    std::uint32_t mw = 0, mh = 0;
     // the post pass's copy of the frame
     WGPUTexture ptex{};
     WGPUTextureView pview{};
@@ -191,7 +196,8 @@ static void video_world_begin(Gpu& g, std::uint32_t cw, std::uint32_t ch, WGPUTe
     g_vgpu.world_on = false;
     g_vgpu.world_w = cw; g_vgpu.world_h = ch;
     const float s = vid().render_scale;
-    if (!g_vgpu.ready || (video::scale_is_native(s) && !vid().smooth_edges) || cw == 0 || ch == 0) return;
+    const bool msaa = video::msaa_samples(settings().s.graphics.multi_sample_type) > 1;
+    if (!g_vgpu.ready || (video::scale_is_native(s) && !vid().smooth_edges && !msaa) || cw == 0 || ch == 0) return;
     const video::Extent e = video::scaled_extent(cw, ch, s, g_vgpu.max_dim);
     if (!g_vgpu.wtex || g_vgpu.ww != e.w || g_vgpu.wh != e.h) {
         if (g_vgpu.wbind) wgpuBindGroupRelease(g_vgpu.wbind);
@@ -213,10 +219,56 @@ static void video_world_begin(Gpu& g, std::uint32_t cw, std::uint32_t ch, WGPUTe
     depth = g_vgpu.wdepth;
     g_vgpu.world_on = true;
     g_vgpu.world_w = e.w; g_vgpu.world_h = e.h;
+    if (!msaa) return;
+    // MSAA: the world's passes draw into a multisampled colour + depth with the multisampled pipelines;
+    // video_world_resolve puts the result in wtex before the screen passes that read it.
+    if (!g_vgpu.mpipes_built) {
+        const WorldPipes keep = g;
+        build_pipeline(g, g_vgpu.fmt, video::kMsaaSamples);
+        g_vgpu.mpipes = g;
+        static_cast<WorldPipes&>(g) = keep;
+        g_vgpu.mpipes_built = true;
+    }
+    if (!g_vgpu.mview || g_vgpu.mw != e.w || g_vgpu.mh != e.h) {
+        if (g_vgpu.mview) wgpuTextureViewRelease(g_vgpu.mview);
+        if (g_vgpu.mdepth) wgpuTextureViewRelease(g_vgpu.mdepth);
+        WGPUTextureDescriptor td = {};
+        td.usage = WGPUTextureUsage_RenderAttachment;
+        td.dimension = WGPUTextureDimension_2D; td.size = {e.w, e.h, 1};
+        td.format = g_vgpu.fmt; td.mipLevelCount = 1; td.sampleCount = video::kMsaaSamples;
+        WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
+        g_vgpu.mview = wgpuTextureCreateView(t, nullptr);
+        wgpuTextureRelease(t);
+        g_vgpu.mdepth = make_depth(g, e.w, e.h, video::kMsaaSamples);
+        g_vgpu.mw = e.w; g_vgpu.mh = e.h;
+    }
+    std::swap(static_cast<WorldPipes&>(g), g_vgpu.mpipes);
+    view = g_vgpu.mview;
+    depth = g_vgpu.mdepth;
+    g_vgpu.msaa_on = true;
+}
+// After the world's last 3D pass: the multisampled world is resolved into the world target, which the
+// screen passes after it (FireBlur, the Mask of Eyes, ZoomBlur) read and draw on. Without MSAA: nothing.
+static void video_world_resolve(Gpu& g, WGPUTextureView& view, WGPUTextureView& depth) {
+    if (!g_vgpu.msaa_on) return;
+    g_vgpu.msaa_on = false;
+    std::swap(static_cast<WorldPipes&>(g), g_vgpu.mpipes);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPURenderPassColorAttachment ca = {};
+    ca.view = g_vgpu.mview; ca.resolveTarget = g_vgpu.wview; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Discard;
+    WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    video_submit(g, enc);
+    view = g_vgpu.wview;
+    depth = g_vgpu.wdepth;
 }
 static void video_world_end(Gpu& g, WGPUTextureView frame_view, WGPUTextureView frame_depth,
                             WGPUTextureView& view, WGPUTextureView& depth) {
     if (!g_vgpu.world_on) return;
+    video_world_resolve(g, view, depth);
     const bool fxaa = vid().smooth_edges && g_vgpu.fxaa;
     if (fxaa) {
         const float u[4] = {1.0f, 1.0f / float(g_vgpu.world_w), 1.0f / float(g_vgpu.world_h), 0};
@@ -232,6 +284,7 @@ static void video_world_end(Gpu& g, WGPUTextureView frame_view, WGPUTextureView 
 // The size the world draws at this frame (a depth buffer made mid-world must match it).
 static std::uint32_t video_world_w(std::uint32_t cw) { return g_vgpu.world_on ? g_vgpu.world_w : cw; }
 static std::uint32_t video_world_h(std::uint32_t ch) { return g_vgpu.world_on ? g_vgpu.world_h : ch; }
+static std::uint32_t video_world_samples() { return g_vgpu.msaa_on ? std::uint32_t(video::kMsaaSamples) : 1u; }
 
 // Brightness: [graphics] GammaValue through retail's ramp (FUN_005d4de0), over the finished frame (after
 // the cursor, before the shell). Retail applies it as a hardware gamma ramp only in exclusive fullscreen
@@ -586,6 +639,17 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             persist();
         }
     }
+    {   // [graphics] MultiSampleType (0x765158): the back buffer's sample count in retail; here the 3D world's.
+        static const char* kMsaa[] = {"Off", "4x"};
+        int m = video::msaa_samples(gr.multi_sample_type) > 1 ? 1 : 0;
+        if (ui::choice(L, "Anti-aliasing (MSAA)", &m, kMsaa, 2,
+                       "Multisample anti-aliasing: smooths the edges of the scenery's geometry. Off is the original's "
+                       "default. CleriaCore's renderer offers 4 samples; any sample count saved by the original's "
+                       "tool counts as 4x. The HUD and the menus are not affected. (Original: FSAA Type.)")) {
+            gr.multi_sample_type = m ? video::kMsaaSamples : 0;
+            persist();
+        }
+    }
     {
         static const char* kFilters[] = {"Point", "Bilinear", "Trilinear"};
         int f = std::clamp(int(gr.texture_filter), 0, 2);
@@ -683,8 +747,8 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             "saved for the original game: low shadows, reflections and glare.",
             "The original's Normal preset: trilinear filtering, 2x anisotropic filtering, brightness 1.00, VSync on; and, "
             "saved for the original game: full shadows, reflections and glare.",
-            "The original's High-Definition preset: trilinear filtering, 16x anisotropic filtering, brightness 1.00, "
-            "VSync on; and, saved for the original game: anti-aliasing, full shadows, reflections and glare."};
+            "The original's High-Definition preset: trilinear filtering, 16x anisotropic filtering, anti-aliasing, "
+            "brightness 1.00, VSync on; and, saved for the original game: full shadows, reflections and glare."};
         for (int p = 0; p < 4; ++p) {
             const std::string d = std::string(kDesc[p]) + " The window mode and the resolution stay as they are.";
             if (ui::button(L, kNames[p], d.c_str())) {
@@ -708,10 +772,6 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             const std::string d = std::string(what) + " Saved for the original game: " + saved + ".";
             ui::choice_label(L, label, value, d.c_str(), false);
         };
-        row("Anti-aliasing (MSAA)", "Off",
-            "Multisample anti-aliasing (Original: FSAA Type). Not available yet: every world pipeline would need a "
-            "multisampled twin. Smooth edges, or Render scale above 100%, smooths edges instead.",
-            gr.multi_sample_type >= 2 ? std::to_string(gr.multi_sample_type) + " samples" : std::string("none"));
         row("Mipmapping", "Off",
             "Smaller copies of each texture for distant surfaces (Original: Mipmapping). The retail switch is not "
             "read: Smooth distant textures above is CleriaCore's own.", onoff(gr.mipmap != 0));
@@ -765,6 +825,7 @@ static bool video_drive(const std::string& cmd) {
         else if (k == "DisableMovies") gr.disable_movies = x != 0;
         else if (k == "EnemyHealthBars") settings().s.cleria.enemy_health_bars = std::clamp(int(x), 0, 2);   // [cleria.qol]
         else if (k == "TextureFilter") { gr.texture_filter = std::clamp(int(x), 0, 2); video_resample(); }
+        else if (k == "MultiSampleType") gr.multi_sample_type = std::max(0, int(x));
         else if (k == "Anisotropy") { gr.anisotropy = std::clamp(int(x), 1, 16); video_resample(); }
         else if (k == "Preset") { graphics_preset(std::clamp(int(x), 0, 3), settings().s); video_resample(); video_low_res(); }
         else if (k == "LowResoTexture") { gr.low_reso_texture = x != 0; video_low_res(); }
@@ -787,14 +848,15 @@ static bool video_drive(const std::string& cmd) {
         const float gv = settings().s.graphics.gamma_value;
         const int cap = vid().fps_cap;
         std::printf("  [video] world %ux%u scale %.2f gamma %.2f post %s aspect %.4f fps %d tps %d cap %d %s | looks: "
-                    "textures %d edges %d (target %s) crisp %d | sampler %s%s x%d blood %d\n",
+                    "textures %d edges %d (target %s) crisp %d | sampler %s%s x%d blood %d msaa %d\n",
                     g_vgpu.world_w, g_vgpu.world_h, double(vid().render_scale), double(gv),
                     g_vgpu.copy_ok && !video::gamma_is_identity(gv) ? "on" : "off",
                     double(video_aspect(g_vgpu.world_w, g_vgpu.world_h)), g_vstats.fps, g_vstats.tps, cap,
                     cap <= 0 ? "uncapped" : g_vstats.fps <= cap + 1 ? "held" : "over",
                     int(g_world_mips), int(vid().smooth_edges), g_vgpu.wtex ? "on" : "off", int(g_sprite_point),
                     g_world_sampler.linear ? "linear" : "point", g_world_sampler.mip_linear ? "+mip" : "",
-                    int(g_world_sampler.anisotropy), int(settings().s.game.bloody_effect_level));
+                    int(g_world_sampler.anisotropy), int(settings().s.game.bloody_effect_level),
+                    video::msaa_samples(settings().s.graphics.multi_sample_type));
         if (g_low_res_textures) std::printf("  [video] low-resolution textures on\n");
         return true;
     }

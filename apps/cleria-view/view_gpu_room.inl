@@ -21,12 +21,9 @@ static void on_device(WGPURequestDeviceStatus s, WGPUDevice d, WGPUStringView ms
     r->done = true;
 }
 
-// Persistent GPU objects (survive room changes).
-struct Gpu {
-    WGPUInstance instance{};
-    WGPUAdapter adapter{};
-    WGPUDevice device{};
-    WGPUQueue queue{};
+// The world's pipelines. A second set built for a multisampled target ([graphics] MultiSampleType,
+// view_video.inl) is swapped in for the world's passes.
+struct WorldPipes {
     WGPURenderPipeline pipeline{};
     WGPURenderPipeline fx_pipeline{};   // additive effect billboards (SEF/EF2)
     WGPURenderPipeline fx_pipeline_sa{};   // the same with the texture's alpha as SRCALPHA (the EF2 particles)
@@ -39,12 +36,21 @@ struct Gpu {
     WGPURenderPipeline zpre_pipe{};       // FUN_005f8de0's depth pre-pass (material_zprepass)
     // The same three with D3DCULL_CCW, for a material without flags 0x400 (material_cull).
     WGPURenderPipeline cull_pipeline{}, cull_mat_pipe[4][2]{}, cull_zpre_pipe{};
+};
+
+// Persistent GPU objects (survive room changes).
+struct Gpu : WorldPipes {
+    WGPUInstance instance{};
+    WGPUAdapter adapter{};
+    WGPUDevice device{};
+    WGPUQueue queue{};
     WGPUBuffer ubuf{};
     WGPUBindGroup ubind{};
     WGPUSampler sampler{};
     WGPUSampler sampler_mip{};    // "Smooth distant textures": the world sampler over the mip chain
     WGPUSampler sampler_point{};  // "Character sprites: Crisp": nearest
     WGPUBindGroupLayout tex_layout{};
+    WGPUBindGroupLayout u_layout{};
     WGPUBindGroup white_bind{};   // failed-to-load texture (missing-ref marker)
     WGPUBindGroup black_bind{};   // genuinely untextured material (renders its dark diffuse)
     std::unordered_map<std::string, fs::path> dds_index;  // basename(lower) -> path
@@ -918,7 +924,9 @@ static void make_world_samplers(Gpu& g) {
     g.sampler_mip = wgpuDeviceCreateSampler(g.device, &md);
 }
 
-static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
+// `samples` > 1: only the pipelines, for a multisampled target, with the layouts of the first call.
+static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t samples = 1) {
+    const bool first = !g.tex_layout;
     WGPUShaderSourceWGSL wgsl = {};
     wgsl.chain.sType = WGPUSType_ShaderSourceWGSL; wgsl.code = sv(kWGSL);
     WGPUShaderModuleDescriptor smd = {}; smd.nextInChain = &wgsl.chain;
@@ -940,7 +948,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     ue.binding = 0; ue.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
     ue.buffer.type = WGPUBufferBindingType_Uniform; ue.buffer.minBindingSize = 112;
     WGPUBindGroupLayoutDescriptor ubl = {}; ubl.entryCount = 1; ubl.entries = &ue;
-    WGPUBindGroupLayout bgl_u = wgpuDeviceCreateBindGroupLayout(g.device, &ubl);
+    WGPUBindGroupLayout bgl_u = first ? wgpuDeviceCreateBindGroupLayout(g.device, &ubl) : g.u_layout;
 
     WGPUBindGroupLayoutEntry te[2] = {};
     te[0].binding = 0; te[0].visibility = WGPUShaderStage_Fragment;
@@ -949,7 +957,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     te[1].binding = 1; te[1].visibility = WGPUShaderStage_Fragment;
     te[1].sampler.type = WGPUSamplerBindingType_Filtering;
     WGPUBindGroupLayoutDescriptor tbl = {}; tbl.entryCount = 2; tbl.entries = te;
-    WGPUBindGroupLayout bgl_t = wgpuDeviceCreateBindGroupLayout(g.device, &tbl);
+    WGPUBindGroupLayout bgl_t = first ? wgpuDeviceCreateBindGroupLayout(g.device, &tbl) : g.tex_layout;
 
     WGPUBindGroupLayout bgls[2] = {bgl_u, bgl_t};
     WGPUPipelineLayoutDescriptor pld = {};
@@ -976,7 +984,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     pd.vertex.bufferCount = 1; pd.vertex.buffers = &vbl;
     pd.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     pd.primitive.frontFace = g_front; pd.primitive.cullMode = g_cull;
-    pd.depthStencil = &ds; pd.multisample.count = 1; pd.multisample.mask = 0xFFFFFFFF;
+    pd.depthStencil = &ds; pd.multisample.count = samples; pd.multisample.mask = 0xFFFFFFFF;
     pd.fragment = &fs;
     g.pipeline = wgpuDeviceCreateRenderPipeline(g.device, &pd);
 
@@ -1068,14 +1076,17 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
         g.cull_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &kpd);
     }
 
-    WGPUBufferDescriptor ud = {};
-    ud.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst; ud.size = 112;
-    g.ubuf = wgpuDeviceCreateBuffer(g.device, &ud);
-    WGPUBindGroupEntry ube = {}; ube.binding = 0; ube.buffer = g.ubuf; ube.size = 112;
-    WGPUBindGroupDescriptor ubd = {};
-    ubd.layout = bgl_u; ubd.entryCount = 1; ubd.entries = &ube;
-    g.ubind = wgpuDeviceCreateBindGroup(g.device, &ubd);
-    g.tex_layout = bgl_t;
+    if (first) {
+        WGPUBufferDescriptor ud = {};
+        ud.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst; ud.size = 112;
+        g.ubuf = wgpuDeviceCreateBuffer(g.device, &ud);
+        WGPUBindGroupEntry ube = {}; ube.binding = 0; ube.buffer = g.ubuf; ube.size = 112;
+        WGPUBindGroupDescriptor ubd = {};
+        ubd.layout = bgl_u; ubd.entryCount = 1; ubd.entries = &ube;
+        g.ubind = wgpuDeviceCreateBindGroup(g.device, &ubd);
+        g.tex_layout = bgl_t;
+        g.u_layout = bgl_u;
+    }
 
     // Effect pipeline: same vertex layout and bind groups, but additive and
     // depth-read-only, so flames add light without occluding or z-fighting.
@@ -1099,7 +1110,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
         apd.vertex.bufferCount = 1; apd.vertex.buffers = &vbl;
         apd.primitive.topology = WGPUPrimitiveTopology_TriangleList;
         apd.primitive.frontFace = g_front; apd.primitive.cullMode = g_cull;
-        apd.depthStencil = &ads; apd.multisample.count = 1; apd.multisample.mask = 0xFFFFFFFF;
+        apd.depthStencil = &ads; apd.multisample.count = samples; apd.multisample.mask = 0xFFFFFFFF;
         apd.fragment = &afs;
         g.fx_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &apd);
         afs.entryPoint = sv("fs_sa");
@@ -1114,6 +1125,8 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
         wgpuShaderModuleRelease(fm);
     }
 
+    wgpuShaderModuleRelease(sm);
+    if (!first) return;
     make_world_samplers(g);
     {   // "Character sprites: Crisp" (g_sprite_point above)
         WGPUSamplerDescriptor nd = {};
@@ -1137,8 +1150,6 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     g.black_bind = tex_bindgroup(g, upload_texture(g, tmp, black));
     // deliberately leak the 1x1s (they live for the whole run)
     tmp.textures.clear(); tmp.views.clear();
-
-    wgpuShaderModuleRelease(sm);
 }
 
 // The room's current fog, from its SFO region data (see src/cleria/sfo.cpp). The
@@ -1276,11 +1287,11 @@ static void clear_depth(Gpu& g, WGPUTextureView v) {
     wgpuCommandEncoderRelease(enc);
 }
 
-static WGPUTextureView make_depth(Gpu& g, std::uint32_t w, std::uint32_t h) {
+static WGPUTextureView make_depth(Gpu& g, std::uint32_t w, std::uint32_t h, std::uint32_t samples = 1) {
     WGPUTextureDescriptor td = {};
     td.usage = WGPUTextureUsage_RenderAttachment; td.dimension = WGPUTextureDimension_2D;
     td.size = {w, h, 1}; td.format = WGPUTextureFormat_Depth24Plus;
-    td.mipLevelCount = 1; td.sampleCount = 1;
+    td.mipLevelCount = 1; td.sampleCount = samples;
     WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
     WGPUTextureView v = wgpuTextureCreateView(t, nullptr);
     wgpuTextureRelease(t);

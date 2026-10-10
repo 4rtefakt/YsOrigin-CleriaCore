@@ -400,9 +400,11 @@ CASES = {
     "config_live_video": dict(
         room="S_10/S_1009/S_1009",
         drive="10:vstat;11:vopt=TextureFilter=0;20:vstat;21:vopt=Preset=3;30:vstat;31:vopt=Preset=1;"
-              "32:vopt=BloodyEffectLevel=0;40:vstat;41:vopt=LowResoTexture=1;45:vstat;50:quit",
-        expect=["sampler linear x1 blood 2", "sampler point x1 blood 2", "sampler linear+mip x16 blood 2",
-                "sampler linear x1 blood 0", "[video] opt LowResoTexture=1", "[video] low-resolution textures on"],
+              "32:vopt=BloodyEffectLevel=0;40:vstat;41:vopt=LowResoTexture=1;45:vstat;"
+              "46:vopt=MultiSampleType=8;55:vstat;56:vopt=MultiSampleType=0;65:vstat;70:quit",
+        expect=["sampler linear x1 blood 2 msaa 1", "sampler point x1 blood 2", "sampler linear+mip x16 blood 2 msaa 4",
+                "sampler linear x1 blood 0 msaa 1", "[video] opt LowResoTexture=1", "[video] low-resolution textures on",
+                "(target on) crisp 0 | sampler linear x1 blood 0 msaa 4", "blood 0 msaa 1"],
         absent=["device:"]),
     # Input: Double-Tap to Dash (the dash machine: two taps of a direction with the dash owned = section 0x10a;
     # off, the same taps only run) and Hold Attack for Skills (the charge runs with the attack button held).

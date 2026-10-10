@@ -29,6 +29,7 @@ frame is the frame without it, pixel for pixel (§6).
 | Render scale | `[cleria.video] RenderScale` 0.5 .. 2.0 in 0.25 steps | live |
 | Texture filtering | `[graphics] TextureFilter` 0 point / 1 bilinear / 2 trilinear | live for what loads from then on (the next area) |
 | Anisotropic filtering | `[graphics] Anisotropy` 1 / 2 / 4 / 8 / 16 | as above |
+| Anti-aliasing (MSAA) | `[graphics] MultiSampleType` 0 / 4 (any saved count >= 2 draws with 4 samples) | live |
 | Blood | `[game] BloodyEffectLevel` 0 / 1 / 2 | live |
 | Presets (Lightest / Light / Normal / High-definition) | the quality keys in one click (`graphics_preset`, CONFIG_PARITY.md §5) | live |
 | Stretch widescreen | `[graphics] StretchAspect` | live |
@@ -121,6 +122,30 @@ CleriaCore (`video_apply_window`):
   memory-defaults session (no settings file) keeps the 1280 x 800 window; a CLERIA_DRIVE run's hidden
   offscreen window is never touched.
 
+### 2.7 Anti-aliasing — `MultiSampleType` [EXPORT 005d43d0.c:215-216, 005eb5b0.c:27, 147-149]
+
+Retail: `MultiSampleType` (`0x765158`, 1..16) becomes the back buffer's `D3DPRESENT_PARAMETERS.MultiSampleType`
+(`0x765110`) in `FUN_005d43d0`. The render-state preset `FUN_005eb5b0` then sets `D3DRS_MULTISAMPLEANTIALIAS`
+(state 0xa1) per draw: 1 when the count is > 1 and the preset word has none of the bits `0x12000c8`, else 0. The
+render-target pool (SCREEN_EFFECTS.md §1.1) is made of plain textures, so only what is drawn on the back buffer
+is anti-aliased.
+
+CleriaCore: with a count >= 2 the 3D world's passes draw into a 4-sample colour + depth target with a second set
+of the world pipelines (`WorldPipes`, `build_pipeline(.., samples)`), swapped in between `video_world_begin` and
+`video_world_resolve`; the resolve lands in the world target (the one Render scale and Smooth edges use), which
+the screen passes (FireBlur, the Mask of Eyes, ZoomBlur) then read, and which is copied onto the frame. The HUD,
+the windows and the menus draw after that, single-sampled, as before. The pipelines and the targets are made the
+first time the option is on, so a change shows on the next frame.
+
+- **[approx]** WebGPU's render targets take 1 or 4 samples: every saved count >= 2 draws with 4
+  (`video::msaa_samples`). The row offers Off / 4x and writes 0 / 4.
+- **[approx]** every world draw is multisampled; retail switches the state off for the presets with the bits
+  `0x12000c8` (not decoded per draw here).
+- At the default (0) nothing changes: no target, no second pipeline set, the frame pixel for pixel as before.
+- Measured (1280 x 800, `CLERIA_PROF`, lockstep, means of 8 windows of 60 frames, two runs each): S_1009
+  1.31-1.37 ms a frame off, 1.80-1.93 ms with 4x; S_7099 1.70-1.74 ms off, 2.25-2.29 ms with 4x.
+- Sheets: `scratchpad/batchF/msaa/` (off / 4x of S_1009, 4x zoom).
+
 ## 3. Window mode and the retail `Windowed` key
 
 Retail's default is `Windowed=0` (bss) = fullscreen. CleriaCore's window used to come from
@@ -138,7 +163,6 @@ original option and the value saved for the original game.
 
 | Retail key | Why not |
 |---|---|
-| `MultiSampleType` (MSAA) | Every world pipeline (room, characters, shadows, materials, effects) is built with 1 sample and each draw function opens its own pass on the frame; MSAA needs multisampled twins of all of them plus resolves. Render scale > 100% (supersampling) is the anti-aliasing offered instead. |
 | `Mipmap` | `upload_texture` / `upload_rgba` upload level 0 only. Mipmapping would also make Trilinear real. |
 | `ShadowEffectLevel` | The level's users (`FUN_00457a90`, `FUN_00459410`, `FUN_0045c490`, `FUN_00474870`, `FUN_00474cd0`, `FUN_005042e0`, `FUN_005043e0`) are not traced to what they drop. |
 | `WaterEffectLevel`, `GlareEffectLevel`, `WaterCaustics` | No reflection, glare or caustics pass exists yet. (`MaskOfEyes` is a live toggle since 2026-10-07: the grey pass is `view_mask.inl`, build/audit/PLAYTEST_1_STORY.md §1.) |
@@ -184,6 +208,11 @@ lockstep ticks 300 and 400) from this build is byte-identical to the same frames
   fps .. tps .. cap .. held|over|uncapped`). `CLERIA_VIDEO_SCROLL=<px>` scrolls the page for headless
   captures of its lower rows.
 - `drive_regress.py` `video_passes` (the passes switch on and off) and `video_fpscap` (cap 30 holds);
-  `config_live_video` (TextureFilter, a preset and Blood changed in mid-session: `vstat`'s `sampler .. blood ..`).
+  `config_live_video` (TextureFilter, a preset, Blood and MultiSampleType changed in mid-session: `vstat`'s
+  `sampler .. blood .. msaa ..`; the High-Definition preset turns the 4 samples on, Light off again).
+- MSAA with the other passes (2026-10-11, by hand): `hud_damage_numbers`, `weather_embers`, `weather_smoke`,
+  `fireblur_warp`, `mask_of_eyes_wall`, `zoom_blur`, `frame_hold`, `levelup_popup`, `torch_fire_hugo`,
+  `fix_motion_popups`, `boss_part_feedback`, `zava_single_jump` all pass with `CLERIA_VOPT=MultiSampleType=4;RenderScale=1.5`
+  (and three of them with `MultiSampleType=4;SmoothEdges=1`): no validation error, the same logs.
 - Not testable headlessly (no visible window allowed): the window mode / resolution / display switches
   themselves. Their pure parts (mode lists, nearest mode, fitting, the Windowed mirror) are unit-tested.

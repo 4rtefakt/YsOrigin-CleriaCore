@@ -49,7 +49,7 @@ apply. Each "yes" / "next area" was checked in a running session (§9).
 | Adapter (1031) | `Adapter` | (a) | already there: Video > Display (shown with 2+ displays) | yes |
 | Resolution (1035) | `BackBufferWidth` / `Height` | (a) | already there | yes |
 | Refresh Rate (1037) | `RefreshRate` | (a) | already there (exclusive fullscreen) | yes |
-| FSAA Type (1039) | `MultiSampleType` | (b) | **open**: every world pipeline is single-sampled (VIDEO.md §4); "Smooth edges" and Render scale > 100% are CleriaCore's substitutes | — |
+| FSAA Type (1039) | `MultiSampleType` | (b) | **done**: Video > Anti-aliasing (MSAA), Off / 4x. The 3D world draws into a 4-sample target (VIDEO.md §2.7). [approx] WebGPU offers 4 samples only, so every saved count >= 2 draws with 4 | yes |
 | Texture Filter (1041) | `TextureFilter` | (a) restart | **done**: the world samplers are rebuilt at once (`video_resample`) | next area |
 | Anisotropic Filter (1043) | `Anisotropy` | (a) restart | **done**, as above | next area |
 | Language (1045) | `[game] Language` | (c) | **done** as far as the data goes (§7): Prelaunch > Language | restart |

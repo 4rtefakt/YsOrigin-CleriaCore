@@ -60,6 +60,12 @@ struct SamplerSpec {
 };
 SamplerSpec sampler_spec(int texture_filter, int anisotropy);
 
+// ---- anti-aliasing: [graphics] MultiSampleType (0x765158) --------------------------------------------
+// Retail: the D3DMULTISAMPLE_TYPE of the back buffer (0 = none, 2..16 samples; FUN_005d43d0).
+// [approx] WebGPU's render targets take 1 or 4 samples, so every saved count >= 2 draws with 4.
+inline constexpr int kMsaaSamples = 4;
+inline int msaa_samples(int multi_sample_type) { return multi_sample_type >= 2 ? kMsaaSamples : 1; }
+
 // ---- the 3D projection's aspect: FUN_005e2670 [EXPORT] -----------------------------------------------
 // DAT_007b38f8 = 4/3 when StretchAspect ("Stretch Widescreen") is set, else backbuffer W / H.
 float projection_aspect(std::uint32_t w, std::uint32_t h, bool stretch_aspect);

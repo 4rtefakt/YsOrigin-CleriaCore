@@ -9201,10 +9201,12 @@ title_again:
                 static WGPUTextureView pdepth = nullptr;
                 static std::uint32_t pdw = 0, pdh = 0;
                 const std::uint32_t pw = video_world_w(cw), ph = video_world_h(ch);
-                if (pdepth && pdw == pw && pdh == ph) clear_depth(g, pdepth);
+                static std::uint32_t pds = 0;
+                const std::uint32_t ps = video_world_samples();
+                if (pdepth && pdw == pw && pdh == ph && pds == ps) clear_depth(g, pdepth);
                 else {
                     if (pdepth) wgpuTextureViewRelease(pdepth);
-                    pdepth = make_depth(g, pdw = pw, pdh = ph);
+                    pdepth = make_depth(g, pdw = pw, pdh = ph, pds = ps);
                 }
                 for (const Popup& pp : popups) draw_popup_glyphs(g, view, pdepth, geo20, pp, cam.forward());
             }
@@ -9244,6 +9246,7 @@ title_again:
                                   q.u0, q.v0, q.u1, q.v1, cam.forward(), float(q.a8) / 255.0f);
             }
         }
+        video_world_resolve(g, view, depth);                      // MSAA: the world into its target (view_video.inl)
         draw_fireblur(g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr), view,
                       video_world_w(cw), video_world_h(ch), cw, ch);   // FireBlur after layer 14 (view_weather.inl)
         draw_mask_of_eyes(g, mask_of_eyes_on(inv), g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr),
