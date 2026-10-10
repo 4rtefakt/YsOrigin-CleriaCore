@@ -918,7 +918,11 @@ struct Hud {
             WorldGaugeQuad q;
             if (!gauge_proj[gi]) continue;
             const HudMap m{sw, sh};
-            if (!world_gauge_quad(gauge[gi], gauge_px[gi] * 1024.0f / float(sw), gauge_py[gi] / m.sy, 255, &q)) continue;
+            // [approx] The bar is kept ON its part (x / m.sx, the oxygen bar's own mapping) until a wide-screen retail
+            // capture settles U1: the byte reading above (x * 1024 / W through the left-pinned field) draws it well to
+            // the left of the part on a wide screen (37.5 % of the width for a mid-screen anchor at 16:9). At 4:3 the
+            // two are the same.
+            if (!world_gauge_quad(gauge[gi], gauge_px[gi] / m.sx, gauge_py[gi] / m.sy, 255, &q)) continue;
             if (!(q.x1 > q.x0)) continue;
             sprite_a(m, Ar{q.x0, q.y0, q.x1, q.y1}, Rc{q.sx, q.sy, q.sw, q.sh}, float(sw), float(sh), 255, 0, 0, q.a);
         }
