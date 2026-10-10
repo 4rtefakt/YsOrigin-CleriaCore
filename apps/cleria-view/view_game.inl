@@ -6308,8 +6308,11 @@ title_again:
                     const char* clip = (m.sect >= 0 && std::size_t(m.sect) < m.clips.size())
                                            ? m.clips[std::size_t(m.sect)].name.c_str() : nullptr;
                     const Mat4* wm = m.has_world ? &m.world : nullptr;
+                    prof("mesh:bake-draw");
                     rebake_object(room.mesh, asset_root, nm, clip, m.time, &m.pos, false, &m.rot, wm);
+                    prof("mesh:bake-hull");
                     rebake_object(room.coll, asset_root, nm, clip, m.time, &m.pos, true, &m.rot, wm, m.twin_clips);
+                    prof("mesh:after-bake");
                     // A brain dropped its collision this tick (boss02): the hull collapses to a point.
                     if (m.no_collide)
                         if (const RoomMesh::ObjRange* cr = room.coll.object_range(nm))
