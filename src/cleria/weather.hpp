@@ -141,6 +141,12 @@ class Weather {
     // One type-0 sprite from a descriptor (FUN_0040f700 + FUN_00583d90), for the other emitters of the same
     // sprite: a pickup's sparkle (FUN_00584860). [approx] it shares this pool's cap; nullptr when full.
     Obj* sprite(const Desc& d) { return alloc(Obj::Child) ? emit(d) : nullptr; }
+    // FUN_00584550 (build/mech_re/GOXX_PARTICLES.md §3.1 [BYTES 0x584550..0x584857]): `count` dust puffs
+    // (EFTTEX[34]) on a ring of `radius` about `pos`, drifting outward at `speed`, each starting 2 ticks after
+    // the one before. 4 draws per puff (direction, distance, the quad's turn, the life 24 / 25); a full pool
+    // ends the loop before that puff's draws.
+    void dust(int count, std::uint32_t argb, bool additive, const Vec3& pos, float size, float radius,
+              float speed, float drag = 0.0f, bool layer9 = false);
     // The per-frame sweep FUN_00428b10: destroyed objects leave the pool.
     void sweep();
     // Room teardown FUN_00428ec0 (every GoXx goes) and the scene entry's 0x76a558 = 0 (FUN_00431260).

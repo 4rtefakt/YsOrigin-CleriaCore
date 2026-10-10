@@ -10,6 +10,17 @@
 static const bool wx_log = [] { const char* v = std::getenv("CLERIA_WX_LOG"); return v && *v && *v != '0'; }();
 std::uint64_t wx_draws = 0, wx_steps = 0;
 wx.rng = [&] { ++wx_draws; return pick_rng.next(); };
+// FUN_00584550's dust puffs (Weather::dust; GOXX_PARTICLES.md §3.1), 4 draws each, taken at the call.
+// CLERIA_DUST=1 logs each call with the draws it took.
+static const bool dust_log = [] { const char* v = std::getenv("CLERIA_DUST"); return v && *v && *v != '0'; }();
+auto dust_at = [&](const char* who, int count, std::uint32_t argb, bool additive, const Vec3& pos, float size,
+                   float radius, float speed, bool layer9) {
+    const std::uint64_t c0 = pick_rng.calls;
+    wx.dust(count, argb, additive, pos, size, radius, speed, 0.0f, layer9);
+    if (dust_log)
+        std::printf("  [dust] t%llu %s: %d puffs at (%.2f, %.2f, %.2f) size %.3f, %llu draws\n", (unsigned long long)tick_count,
+                    who, count, pos.x, pos.y, pos.z, size, (unsigned long long)(pick_rng.calls - c0));
+};
 csHost.weather_fn = [&](int op, int life, float a, float b, float c) {
     if (op == 0x125) wx.fire_drop(std::uint32_t(life));
     else if (op == 0x122) wx.frame_smoke(std::uint32_t(life));
@@ -49,8 +60,9 @@ auto step_weather = [&] {
 // The type-0 sprites (FUN_00584270): a yaw billboard (the 0x7961b0 basis, as the EF2 0x100 path)
 // at +0x50 + 0x795f50 * +0x140 (0x795f50 = the camera forward [H-med]), turned by the +0x144 /
 // +0x148 pair, half-size and alpha from the key frames, colour = alpha << 24 | +0x12c, render
-// state 0x46c1 (additive). [not modelled] the render interpolation (+0x1e8 / +0x1ec..: the
-// sub-tick lerp), the depth sort (additive: order-free), the FireBlur distortion pass.
+// state 0x46c1 (additive) or 0x4641 (the dust: alpha blend [H: the 0x800 bit is the additive one], through
+// the char pipeline). [not modelled] the render interpolation (+0x1e8 / +0x1ec..: the sub-tick lerp), the
+// depth sort (additive: order-free; [approx] the blended dust is drawn in pool order), the layer (+0x128).
 auto draw_weather = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec3& camFwd) {
     if (wx.objects().empty()) return;
     static std::map<int, SpriteTex> texs;                // weather::Tex -> texture (empty = failed)
@@ -80,16 +92,18 @@ auto draw_weather = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec
     for (const auto& op : wx.objects()) {
         if (op->dead || op->kind != weather::Obj::Child) continue;
         const weather::Sprite& s = op->s;
+        if (s.d.delay != 0) continue;                    // not started [EXPORT 00584030.c:62-65]
         const SpriteTex* t = tex_of(s.d.tex);
         if (!t) continue;
         const weather::Look lk = weather::look(s);
         const int ai = std::clamp(int(lk.alpha), 0, 255);
         if (ai == 0) continue;
-        const float a = float(ai) / 255.0f;
+        const bool blend = s.d.rstate == 0x4641u;
+        const float a = blend ? 1.0f : float(ai) / 255.0f;
         const std::uint8_t R = std::uint8_t(float((s.d.argb >> 16) & 0xff) * a);
         const std::uint8_t G = std::uint8_t(float((s.d.argb >> 8) & 0xff) * a);
         const std::uint8_t B = std::uint8_t(float(s.d.argb & 0xff) * a);
-        Batch& b = batches[int(s.d.tex)];
+        Batch& b = batches[int(s.d.tex) | (blend ? 0x100 : 0)];
         b.bind = t->bind;
         const Vec3 o = {s.pos.x + fwd.x * s.d.depth_k, s.pos.y + fwd.y * s.d.depth_k, s.pos.z + fwd.z * s.d.depth_k};
         const float cc = s.cs * lk.half, ss = s.sn * lk.half;
@@ -97,8 +111,12 @@ auto draw_weather = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec
         const float uv[4][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};   // the 0x7461c4 rect {0, 0, 1, 1}
         const std::uint32_t base = std::uint32_t(b.v.size());
         for (int k = 0; k < 4; ++k)
-            b.v.push_back({o.x + right.x * xy[k][0], o.y + xy[k][1], o.z + right.z * xy[k][0], 0, 1, 0,
-                           uv[k][0], uv[k][1], R, G, B, 255});
+            if (blend)                                   // the char pipeline's vertex: nrm.x = 1 - opacity, no specular
+                b.v.push_back({o.x + right.x * xy[k][0], o.y + xy[k][1], o.z + right.z * xy[k][0],
+                               1.0f - float(ai) / 255.0f, 0, -1, uv[k][0], uv[k][1], R, G, B, 0});
+            else
+                b.v.push_back({o.x + right.x * xy[k][0], o.y + xy[k][1], o.z + right.z * xy[k][0], 0, 1, 0,
+                               uv[k][0], uv[k][1], R, G, B, 255});
         b.i.insert(b.i.end(), {base, base + 1, base + 2, base + 2, base + 1, base + 3});
     }
     for (auto& [key, b] : batches) {
@@ -116,7 +134,8 @@ auto draw_weather = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
         // The pickup sparkles take the texture's alpha (SRCALPHA, FUN_005eb5b0 on 0x46c1; main.cpp fs_sa). The
         // floor-3 embers and smoke are the same draw and state; left on the old pipeline, not re-checked here.
-        wgpuRenderPassEncoderSetPipeline(pass, key == int(weather::Tex::EftTex96) ? g.fx_pipeline_sa : g.fx_pipeline);
+        wgpuRenderPassEncoderSetPipeline(pass, (key & 0x100) ? g.char_pipeline
+                                               : key == int(weather::Tex::EftTex96) ? g.fx_pipeline_sa : g.fx_pipeline);
         wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
         wgpuRenderPassEncoderSetBindGroup(pass, 1, b.bind, 0, nullptr);
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);

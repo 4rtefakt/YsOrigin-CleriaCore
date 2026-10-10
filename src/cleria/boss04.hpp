@@ -89,6 +89,9 @@ struct Boss04Input {
     std::array<Vec3, boss04::kPods> pods{};       // the boss04s meshes' positions (+0x50)
     std::array<bool, boss04::kPods> pod_damage_done{};   // its DAMAGE clip is current and ended
     std::function<std::uint32_t()> rng;
+    // FUN_00584550(ecx 7, 0xc0bda684, 0, .., &pos, size, 0.32, 0.012, 0, 0) at 0x52a51f / 0x52cf41, called in
+    // place: its 4 draws per puff come before the loop's next draw (GOXX_PARTICLES.md §3.1).
+    std::function<void(const Vec3& pos, float size)> dust;
 };
 
 // ---- the request vocabulary ----

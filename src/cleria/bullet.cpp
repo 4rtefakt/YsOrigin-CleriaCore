@@ -523,6 +523,7 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
                 const RayHit r = ray(s.pos, v);
                 const float d = r.hit ? vdot(v, r.normal) : 0.0f;
                 if (r.hit && d < 0.0f) {
+                    if (s.effect != 0x85 && env.dust) env.dust(0xc0bda684u, s.pos);   // 0x599e15, before the snap
                     s.pos = {s.pos.x + (r.point.x - s.pos.x) * 0.995f, s.pos.y + (r.point.y - s.pos.y) * 0.995f,
                              s.pos.z + (r.point.z - s.pos.z) * 0.995f};
                     s.dir = vnorm({v.x - 2.0f * d * r.normal.x, v.y - 2.0f * d * r.normal.y,
@@ -873,6 +874,9 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
         const Vec3 at{b.mat.m[3][0], b.mat.m[3][1], b.mat.m[3][2]};
         spawn_fx(int(s.f158), at, {pitch, yaw, 0.0f}, b.side, b.atk, 0.0f, 0.0f, 0, 0, -1, s.owner);
     }
+    // The flash (0x595823, BULLETS.md §2.2): every other tick while +0x174 != 0; not kind 0x25 / 0x29, not parked.
+    if (!parked && s.kind != 0x29 && s.kind != 0x25 && s.f174 != 0.0f && !(b.age & 1) && env.dust)
+        env.dust(0xc0ffffffu, s.pos);
     if (s.kind != 0x10 && s.kind != 0x23 && s.kind != 0xd)        // the render orientation
         b.mat = ef2sim::mul(look_rotation(s.dir), b.mat);
     // ---- the STRUCK test (BULLETS.md §4.4 [BYTES 0x5958b9..0x596852]) for effect 0x193 (boss07's F shot,

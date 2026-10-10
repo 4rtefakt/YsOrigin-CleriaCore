@@ -150,6 +150,32 @@ Obj* Weather::emit(const Desc& d) {
     return o;
 }
 
+void Weather::dust(int count, std::uint32_t argb, bool additive, const Vec3& pos, float size, float radius,
+                   float speed, float drag, bool layer9) {
+    Desc d;
+    d.tex = Tex::EftTex34;                           // 0x74a5e0, YsF_used\p_smoke1.dds
+    d.rstate = additive ? 0x46c1u : 0x4641u;
+    d.kind = layer9 ? 9u : 0xcu;
+    d.argb = argb;
+    d.drag = drag;
+    d.depth_k = size * -0.25f;
+    d.t1 = 5.0f; d.t2 = 18.0f;
+    d.alpha[0] = 0.5f; d.alpha[1] = 1.0f; d.alpha[2] = 0.5f; d.alpha[3] = 0.0f;
+    d.size[0] = size * 0.5f; d.size[1] = size; d.size[2] = size * 0.75f; d.size[3] = size * 0.5f;
+    for (int k = 0; k < count; ++k) {
+        if (!alloc(Obj::Child)) return;
+        const int i = int(((unit12(rng()) - 1.0f) * 6.2831855f - 1.5707964f) * 40.743664f);   // 0x6bd898, 0x6bd4e4
+        const float r = (radius - radius * 0.25f) * (unit12(rng()) - 1.0f) + radius * 0.25f;
+        const float c = cos_table(i & 0xff), s = cos_table((i - 0x40) & 0xff);
+        d.pos = {pos.x + c * r, pos.y, pos.z + s * r};
+        d.vel = {c * speed, 0.0f, s * speed};
+        d.angle = (unit12(rng()) - 1.0f) * 6.2831855f;
+        d.life = float((rng() >> 1) & 1u) + 24.0f;   // 0x6bd9b8
+        emit(d);
+        d.delay += 2;
+    }
+}
+
 // FUN_0058e7c0 (GoXx type 0x12), the 0x125 ember emitter [EXPORT 0058e7c0; BYTES 0x58e7c0..0x58ed71].
 void Weather::ember(Obj& o, const Env& e) {
     if (o.cap <= o.n) { o.dead = true; return; }
@@ -236,9 +262,11 @@ void Weather::smoke(Obj& o, const Env& e) {
     o.off.y = (unit12(rng()) - 1.0f) * k0012 + 0.006f + o.off.y;
 }
 
-// FUN_00584030 (GoXx type 0, +0x130 == 0): age, move, die at the end of its life.
+// FUN_00584030 (GoXx type 0): the start delay +0x130 counts down first (not moved, not drawn
+// [EXPORT 00584030.c:62-65]); then age, move, die at the end of its life.
 void Weather::sprite(Obj& o) {
     Sprite& s = o.s;
+    if (s.d.delay != 0) { --s.d.delay; return; }
     s.age = s.age + 1.0f;
     if (s.d.life <= s.age) { o.dead = true; return; }
     s.prev = s.pos;

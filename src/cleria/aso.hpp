@@ -184,6 +184,10 @@ class AsoVm {
     // cleria/surface.hpp. See also the README ledger: the game's footsteps are NOT
     // paced by ASO events — a claim this project made and then refuted.
     bool foot_smoke() const { return foot_smoke_; }
+    // ... and the bit itself, actor+0x3c0 & 1: it stays set until FUN_0045c490's dust hook takes it
+    // [BYTES 0x45d23f..0x45d257], which is not while that hook's 5-tick cooldown +0x4c2 runs.
+    bool foot_smoke_bit() const { return foot_smoke_bit_; }
+    void clear_foot_smoke_bit() { foot_smoke_bit_ = false; }
     // anime_Jump this tick: the host sets +0x330 = +0x420 = v (the cast's +0x408 when v == 0),
     // y += it, +0x388 = 0. anime_Dash: the host sets knock channel 1 = (cos, sin)(heading) * d.
     bool jumped() const { return jumped_; }
@@ -389,7 +393,7 @@ private:
     void flag_put(std::int32_t i, std::int32_t v);
     std::size_t flag_count_ = 0;
     bool is_land_ = true, is_stun_ = false;
-    bool foot_smoke_ = false;
+    bool foot_smoke_ = false, foot_smoke_bit_ = false;
     bool jumped_ = false, dashed_ = false, own_jump_ = false;
     float jump_v_ = 0, dash_d_ = 0;
     float smode_ = 0;

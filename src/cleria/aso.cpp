@@ -265,7 +265,7 @@ bool AsoVm::step(std::size_t& pc) {
             break;
         case kFootSmoke:
             // The handler gates on IsLand (actor+0x388), same input as funcid 12.
-            if (is_land_) foot_smoke_ = true;
+            if (is_land_) foot_smoke_ = foot_smoke_bit_ = true;
             break;
         case kJump: {                                  // FUN_00449460
             if (is_land_) {

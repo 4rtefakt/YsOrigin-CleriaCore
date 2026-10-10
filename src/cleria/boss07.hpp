@@ -125,6 +125,8 @@ struct Boss07Input {
     std::array<std::uint32_t, 2> opt_count{}; // *(opt+0x26c)+0x1c of options R / L
     std::array<Vec3, 2> opt_core{}, opt_hontai{};         // OptNode(i, "core" / "hontai") world positions
     std::function<std::uint32_t()> rng;       // one xorshift128 word per call
+    // FUN_00584550 @0x5501bd, called in place (Boss07Sprite): its 28 draws come before the loop's next draw.
+    std::function<void(const Vec3& pos, float size)> dust;
 };
 
 enum class Boss07Call { kFx, kFx2, kInline };            // FUN_00450410 / FUN_00450880 / brain-inlined GoEffect

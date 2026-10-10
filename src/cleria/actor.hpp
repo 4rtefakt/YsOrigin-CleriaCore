@@ -224,6 +224,7 @@ struct Actor {
     // the actor tick steps the phase; the colour builder adds RGB * A * |sin(2 pi phase / 255)|.
     std::uint32_t glow_marker = 0;   // +0x2b4 (0 = no glow)
     std::uint8_t glow_phase = 0;     // +0x2a7
+    std::uint8_t dust_cd = 0;        // +0x4c2: ticks before the next foot dust (FUN_0045c490 0x45d228)
 
     // Hidden outright (a removed corpse). Chr_Alpha fades ai.alpha instead (above).
     bool visible = true;

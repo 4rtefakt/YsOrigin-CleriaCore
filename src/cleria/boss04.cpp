@@ -172,7 +172,11 @@ void Boss04::emergence() {
         if (R(128) != 0 || m >= 100) continue;
         const std::uint32_t d2 = draw() >> 17, d3 = draw() >> 17, d4 = draw() >> 17;
         const Vec3 sc{1.5f + 0.05f * float(d4 % 50), 1.5f + 0.05f * float(d3 % 50), 1.5f + 0.05f * float(d2 % 50)};
-        if (R(8) == 0) { (void)draw(); continue; }                 // the dust sprite FUN_00584550 [not modelled]
+        if (R(8) == 0) {                                           // the dust FUN_00584550, its size drawn first
+            const float size = float(R(100)) * 0.005f + 0.55f;
+            if (in_->dust) in_->dust(Q, size);                     // [H] at the node
+            continue;
+        }
         Boss04Effect& e = fx(355, Q);                              // bs_03_kemuri (no hit)
         e.scale = sc; e.rtype = -1;
     }
@@ -580,7 +584,10 @@ void Boss04::death() {
         const std::uint32_t q = R(64);
         if (q != 0 || n >= 100 || debris_[std::size_t(n)]) continue;
         const float c = float(R(50)), b = float(R(50)), a = float(R(50));
-        if (R(8) == 0) { (void)draw(); }                           // the dust sprite [not modelled]
+        if (R(8) == 0) {                                           // the dust FUN_00584550, its size drawn first
+            const float size = float(R(100)) * 0.005f + 0.55f;
+            if (in_->dust) in_->dust({x, y, z}, size);             // [H] at the drawn point
+        }
         else {
             Boss04Effect& e = fx(87, {x, y, z});
             e.scale = {1.1f * (a * 0.01f + 0.3f), 1.1f * (b * 0.01f + 0.3f), 1.1f * (c * 0.01f + 0.3f)};

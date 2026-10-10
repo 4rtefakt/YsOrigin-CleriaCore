@@ -381,6 +381,42 @@ int main(int argc, char** argv) {
         check(ok, "ember sprite: alpha 0 -> 255 by 18, 255 to 72, -> 0 at its life; half-size 0.0225");
     }
 
+    {   // FUN_00584550, the dust puffs (GOXX_PARTICLES.md §3.1): 4 draws per puff, the descriptor, the stagger.
+        Shared r{{11u, 22u, 33u, 44u}};
+        Weather wx;
+        wx.rng = [&] { return r.next(); };
+        wx.dust(5, 0xc0bda684u, false, {1.0f, 2.0f, 3.0f}, 0.35f, 0.32f, 0.012f);
+        const std::vector<Desc> ds = wx.take_emits();
+        bool ok = r.calls == 20 && ds.size() == 5;
+        for (std::size_t k = 0; ok && k < ds.size(); ++k) {
+            const Desc& d = ds[k];
+            const float dx = d.pos.x - 1.0f, dz = d.pos.z - 3.0f, rr = std::sqrt(dx * dx + dz * dz);
+            const float sp = std::sqrt(d.vel.x * d.vel.x + d.vel.z * d.vel.z);
+            ok = d.tex == Tex::EftTex34 && d.rstate == 0x4641u && d.kind == 0xcu && d.argb == 0xc0bda684u &&
+                 d.delay == 2 * k && d.pos.y == 2.0f && rr >= 0.08f - 1e-4f && rr <= 0.32f + 1e-4f &&
+                 std::fabs(sp - 0.012f) < 1e-4f && d.vel.y == 0.0f && (d.life == 24.0f || d.life == 25.0f) &&
+                 d.t1 == 5.0f && d.t2 == 18.0f && d.depth_k == 0.35f * -0.25f && d.size[0] == 0.175f && d.size[1] == 0.35f &&
+                 d.size[2] == 0.35f * 0.75f && d.size[3] == 0.175f && d.alpha[0] == 0.5f && d.alpha[1] == 1.0f &&
+                 d.alpha[2] == 0.5f && d.alpha[3] == 0.0f && d.angle >= 0.0f && d.angle < 6.2832f &&
+                 std::fabs(dx * d.vel.z - dz * d.vel.x) < 1e-4f &&dx * d.vel.x + dz * d.vel.z > 0.0f;      // drifting outward
+        }
+        check(ok, "dust: 5 puffs = 20 draws; ring 0.08-0.32, speed 0.012 outward, life 24-25, delays 0/2/4/6/8, keys");
+        Env e;
+        wx.step(e);                                  // puff 0 moves; the others count their delay down
+        const auto& ob = wx.objects();
+        check(ob.size() == 5 && ob[0]->s.age == 1.0f && ob[1]->s.age == 0.0f && ob[1]->s.d.delay == 1 && ob[4]->s.d.delay == 7,
+              "dust: a puff neither ages nor moves while its start delay runs");
+        const std::uint64_t c0 = r.calls;
+        wx.dust(7, 0xa0606060u, true, {}, 0.6f, 0.32f, 0.012f, 0.0f, true);
+        const std::vector<Desc> d7 = wx.take_emits();
+        check(r.calls - c0 == 28 && d7.size() == 7 && d7[0].rstate == 0x46c1u && d7[0].kind == 9u,
+              "dust: 7 puffs = 28 draws; additive = state 0x46c1, layer 9 in water");
+        wx.pool_cap = wx.objects().size() + 2;
+        const std::uint64_t c1 = r.calls;
+        wx.dust(5, 0xc0bda684u, false, {}, 0.35f, 0.32f, 0.012f);
+        check(r.calls - c1 == 8, "dust: a full pool ends the loop before that puff's draws (2 slots = 8 draws)");
+    }
+
     std::printf("[weather] %s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
 }

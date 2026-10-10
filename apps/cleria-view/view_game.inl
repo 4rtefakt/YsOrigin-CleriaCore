@@ -7107,6 +7107,27 @@ title_again:
                 // [not modelled] +4/+5 in state +0x6f0 == 2 (its meaning for enemies is unknown).
                 if (a.tag.tagged()) a.glow_phase = std::uint8_t(a.glow_phase + 1);
                 ++a.age_ticks;                          // +0x504, every actor every tick (0x45d32d; M900's ring reads Hugo's)
+                // FUN_0045c490's foot dust [BYTES 0x45d228..0x45d2fb]: the cooldown +0x4c2 counts down; else the bit
+                // anime_FootSmoke left (+0x3c0 & 1) is taken and, on the ground and out of water, five puffs rise at
+                // (x, +0x318 + 0.18, z) — grey-brown, or additive grey on surface 0xa — and the cooldown is 5.
+                // [approx] the water bytes +0x389 / +0x38a: the player's wading / submerged, an enemy's in_water;
+                // the player's +0x318 is taken as the feet (it is grounded).
+                if (a.dust_cd) --a.dust_cd;
+                else {
+                    AsoVm* fv = a.is_player() ? &avm : nullptr;
+                    if (!fv) for (EnemyRender& er : render) if (er.actor == &a) { fv = &er.avm; break; }
+                    if (fv && fv->foot_smoke_bit()) {
+                        fv->clear_foot_smoke_bit();
+                        const bool pl = a.is_player();
+                        if ((pl ? pv.grounded : a.vert.grounded) && !(pl ? (wading || submerged) : a.ai.in_water)) {
+                            a.dust_cd = 5;
+                            const bool s10 = (pl ? cur_surface : a.ai.surf) == 0xa;
+                            dust_at("foot", 5, s10 ? 0xa0606060u : 0xc0bda684u, s10,
+                                    pl ? Vec3{feet.x, feet.y + 0.18f, feet.z} : Vec3{a.pos.x, a.floor_y + 0.18f, a.pos.z},
+                                    0.35f, 0.32f, 0.012f, false);
+                        }
+                    }
+                }
                 // The hurt timer +0x238 (FUN_0045a3a0: -0.075 a tick, clamped at 0) runs on the dead
                 // too (a duel puppet stays on screen).
                 a.hit_flash = hitfx::step_hurt(a.hit_flash);
@@ -7240,6 +7261,20 @@ title_again:
                             const float vf = vr ? vr->facing : heading_of_yaw(en.yaw);
                             spawn_sim_fx(fx, org, {0.0f, hitfx::skill_hit_yaw(vf), 0.0f}, 1.0f, sp, 0, {});
                             if (sfx_log) std::printf("  [hitfx] t%llu class %d hit effect 0x%x\n", (unsigned long long)tick_count, cls, fx);
+                        }
+                        // 0x4fd10e..0x4fd167 [BYTES], every hit for 1 or more: FUN_004fab40(victim, colour) = five dust
+                        // puffs (20 draws) at the origin - (cos, sin)(the hit angle) x the hurt radius +0x68, in the
+                        // cast's ENEMYINFO +0xe0 colour (0 = invisible, the draws are still taken; 0xff7c0000 for a
+                        // cast outside the monster ranges), layer 9 when the victim is in water.
+                        if (dmg >= 1) {
+                            const Enemy* hr = etab.get(en.cast_id);
+                            const bool mon = (en.cast_id >= 0x0e && en.cast_id <= 0x53) || (en.cast_id >= 0xa6 && en.cast_id <= 0xb0);
+                            std::uint32_t col = mon && hr ? hr->blood : 0xff7c0000u;
+                            if (col && !(col & 0xff000000u)) col |= 0xff000000u;
+                            const int hi = int(heading * 40.743664f);
+                            dust_at("hit", 5, col, false,
+                                    {org.x - cos_table(hi & 0xff) * en.hurt_radius, org.y, org.z - cos_table((hi - 0x40) & 0xff) * en.hurt_radius},
+                                    0.3f, 0.45f, 0.025f, en.ai.in_water);
                         }
                     }
                     // +300 per hit dealt (0x4fd0bf, DAT_006bdc44) when the kind is not 0 / 5 (skills).
@@ -7971,6 +8006,17 @@ title_again:
                 player.hp -= dmg;
                 if (player.hp < 1) player.hp = 0;             // FUN_004fd350: hp - dmg < 1.0 -> hp = 0 (no "-3/60")
                 if (dmg > 0) player_hurt_this_tick = true;    // +0x3bc |= 6 (FUN_004fd350 0x4fde3c)
+                // 0x4fe014 (dmg > 0, after the reaction's writes, which draw nothing): FUN_004fab40(victim,
+                // 0xff550a00) = five puffs at the origin - (cos, sin)(the hit angle, 256 steps) x the hurt radius
+                // +0x68, size 0.3, radius 0.45, speed 0.025, layer 9 in water [BYTES 0x4fab40..0x4fabef].
+                if (dmg > 0) {
+                    const Cast* hc = casts.get(13);
+                    const float hr = hc ? hc->hurt_radius : 0.45f;
+                    const int hi = int(angle * 40.743664f);
+                    dust_at("hurt", 5, 0xff550a00u, false,
+                            {feet.x - cos_table(hi & 0xff) * hr, feet.y + kOriginH, feet.z - cos_table((hi - 0x40) & 0xff) * hr},
+                            0.3f, 0.45f, 0.025f, submerged);
+                }
                 // FUN_004fd350's tail 0x4fe10b..0x4fe120: FUN_004fae00(0xffff0000), the red number of
                 // the damage taken, at the player's origin + 0.5. PLAYTEST_1_HUD.md item 3.
                 damage_popup(dmg, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
@@ -8154,6 +8200,9 @@ title_again:
                 benv.character = character;
                 benv.difficulty = difficulty >= 2 ? difficulty - 2 : 0;
                 benv.rng = [&] { return pick_rng.next(); };
+                benv.dust = [&](std::uint32_t argb, const Vec3& at) {   // FUN_00584550: the flash, the drip's bounce
+                    dust_at("bullet", 7, argb, false, at, 0.35f, 0.32f, 0.012f, false);
+                };
                 benv.carrier = boss2_carrier;                    // kind 0x24's segment (Nygtilger)
                 // Kind 0x25's probe: the terrain without the boss meshes; a shake already running (view_boss07.inl).
                 benv.ray_no_boss = [&](const Vec3& o, const Vec3& dl, int set) {

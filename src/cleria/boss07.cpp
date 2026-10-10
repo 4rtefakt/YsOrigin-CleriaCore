@@ -1266,6 +1266,7 @@ void Boss07::death() {
         if ((d8 >> 17) % 8 == 0) {
             const std::uint32_t d9 = W();
             out_->sprites.push_back({q, float((d9 >> 17) % 100) * 0.005f + 0.55f});   // FUN_00584550 @0x5501bd
+            if (in_->dust) in_->dust(q, out_->sprites.back().size);
         } else {
             Boss07Effect& e = fx(95, q, Boss07Call::kFx2);         // bs_07_sini_yotyou @0x550230
             e.scale = {1.1f * sx, 1.1f * sy, 1.1f * sz}; e.rtype = -1;

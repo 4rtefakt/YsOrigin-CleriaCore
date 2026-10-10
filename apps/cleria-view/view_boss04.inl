@@ -154,6 +154,7 @@ auto boss4_tick = [&] {
     in.clip_done = bm->count != 0;
     in.clip_frame = bm->time;
     in.rng = [&] { return pick_rng.next(); };
+    in.dust = [&](const Vec3& at, float size) { dust_at("boss04", 7, 0xc0bda684u, false, at, size, 0.32f, 0.012f, false); };
     const Boss04Output out = boss4->tick(in);
     boss4_apply(out);
     if (bm->alpha != boss4->alpha()) { bm->alpha = bm->alpha_target = boss4->alpha(); bm->dirty_alpha = true; }   // obj+0x418 (the death fade)

@@ -202,7 +202,7 @@ auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
     }
     if (out.shake) { g_rig.set_shake_frames(out.shake->first); g_rig.set_shake_amp(out.shake->second); }
     if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)
-    // [not modelled] out.sprites (FUN_00584550), out.kill_record (FUN_00403cd0).
+    // out.sprites (FUN_00584550) were made in place by in.dust. [not modelled] out.kill_record (FUN_00403cd0).
     for (const Boss07Fader& fd : out.fader) {              // 0x769f34 / 1c / 28 / 24 ([approx] one colour; zero_30 dropped)
         if (fd.colour) csHost.fade_rgb = *fd.colour & 0xffffffu;
         if (fd.current) csHost.fade_cur = *fd.current;
@@ -461,6 +461,7 @@ auto boss7_tick = [&] {
         in.opt_core[u] = at(boss7_op_core); in.opt_hontai[u] = at(boss7_op_hontai);
     }
     in.rng = [&] { return pick_rng.next(); };
+    in.dust = [&](const Vec3& at, float size) { dust_at("boss07", 7, 0xc0bda684u, false, at, size, 0.32f, 0.012f, false); };
     const int phase0 = boss7->blk().phase, barrier0 = boss7->blk().barrier, mode0 = boss7->blk().mode;
     const std::uint32_t window0 = boss7->blk().window, capture0 = boss7->blk().capture, circle0 = boss7->blk().circle_timer;
     const float oh0[2] = {boss7->blk().opt_hp[0], boss7->blk().opt_hp[1]};

@@ -131,6 +131,9 @@ struct Env {
     // Kind 0x24's carrier (+0x1a8, a boss segment) by the host's id: its matrix +0x20, its HP +0x98 and the ATK of
     // its stat block +0x94.. (the strike's effect is armed with it). False when it no longer exists.
     std::function<bool(int id, ef2sim::M4* world, float* hp, float* atk)> carrier;
+    // FUN_00584550(ecx 7, argb, 0, .., &pos, 0.35, 0.32, 0.012, 0, 0): seven dust puffs at the bullet, called
+    // in place (28 draws of the shared xorshift; GOXX_PARTICLES.md §3.1). None = not drawn, no draws.
+    std::function<void(std::uint32_t argb, const Vec3& pos)> dust;
 };
 
 // What an update asks the host to do.
