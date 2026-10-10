@@ -394,6 +394,45 @@ CASES = {
         expect=["[video] opt SmoothTextures=1", "scale 1.00", "looks: textures 1 edges 1 (target on) crisp 1",
                 "looks: textures 1 edges 0"], absent=["device:"]),
     # The frame limiter: FpsCap 30 holds the presented frames at <= 31 a second (the logic keeps 60 Hz).
+    # config.exe parity (build/shell_re/CONFIG_PARITY.md): each option changed in mid-session takes effect at once.
+    # Video: Texture Filter / the High-Definition preset rebuild the world sampler; Blood is read live; Low-Resolution
+    # Textures rebuilds the texture index.
+    "config_live_video": dict(
+        room="S_10/S_1009/S_1009",
+        drive="10:vstat;11:vopt=TextureFilter=0;20:vstat;21:vopt=Preset=3;30:vstat;31:vopt=Preset=1;"
+              "32:vopt=BloodyEffectLevel=0;40:vstat;41:vopt=LowResoTexture=1;45:vstat;50:quit",
+        expect=["sampler linear x1 blood 2", "sampler point x1 blood 2", "sampler linear+mip x16 blood 2",
+                "sampler linear x1 blood 0", "[video] opt LowResoTexture=1", "[video] low-resolution textures on"],
+        absent=["device:"]),
+    # Input: Double-Tap to Dash (the dash machine: two taps of a direction with the dash owned = section 0x10a;
+    # off, the same taps only run) and Hold Attack for Skills (the charge runs with the attack button held).
+    "config_live_input": dict(
+        room="S_10/S_1009/S_1009",
+        drive="5:flag=181,1;6:bracelet=116;7:flag=182,1;20:move=1,0,3;26:move=1,0,40;40:dstat;41:pos;80:vopt=DashControl=0;"
+              "100:move=1,0,3;106:move=1,0,40;120:dstat;121:pos;170:atk+;200:dstat;201:vopt=AtkBtnMagic=1;230:dstat;"
+              "231:atk-;240:quit",
+        expect=["[dash] on 1 state 4 latch 1 sec 0x10a", "opts dash 1 hold 0", "sec 0x10a",
+                "[dash] on 0 state 0 latch 0 sec 0x1 ", "opts dash 0 hold 0", "sec 0x1 ",
+                "| charge 0 lv 0 | opts dash 0 hold 0", "lv 1 | opts dash 0 hold 1"]),
+    # Audio: Enable BGMs / Enable SFX switch the mixer at once, both ways.
+    "config_live_audio": dict(
+        room="S_10/S_1009/S_1009",
+        drive="10:vopt=PlayBgm=0;20:vopt=PlayEffect=0;30:vopt=PlayBgm=1;40:vopt=PlayEffect=1;50:quit",
+        expect=["[audio] music off, effects on, device 0", "[audio] music off, effects off, device 0",
+                "[audio] music on, effects off, device 0", "[audio] music on, effects on, device 0"]),
+    # Audio > Other > Clear game progress: Yunica's ending writes record.ta2 (first boot); on the second boot the
+    # record is read, cleared in mid-session (the file deleted, the clear bytes 0), and the title entered afterwards
+    # has its gates closed -- no restart.
+    "config_clear_progress": dict(
+        room="S_00/S_0003/S_0003", char="1",
+        drive="5:flag=206,1;10:saveload;40:every=15,6000,ok;6000:quit",
+        room2="S_10/S_1009/S_1009",
+        drive2="5:cleardata=progress;8:cleardata=ta;20:esctap;70:right;80:right;90:right;120:ok;160:up;200:up;230:ok;"
+               "260:left;290:ok;400:quit",
+        expect=["record.ta2 saved", "==== second boot", "[clear] record.ta2: Yunica 01 Hugo 00 Toal 00",
+                "[clear] game progress cleared: 1 file(s) deleted", "[clear] now: clear bytes 00 00 00",
+                "[clear] Time Attack records cleared: 0 file(s) deleted",
+                "[title] clear data: Yunica 00 Hugo 00 Toal 00, data.nya 0 -> Bonus Modes 0, Toal's bar locked"]),
     "video_fpscap": dict(
         room="S_10/S_1009/S_1009",
         drive="5:vopt=FpsCap=30;200:vstat;210:quit",
@@ -2360,6 +2399,7 @@ SMOKE = [
     "duel_s1080_gameover",                                                   # a duel's start
     "book_return_title", "shell_subpages", "hud_damage_numbers",             # the book, the shell, the HUD
     "weather_embers", "video_passes", "video_looks",                         # weather, the Video page
+    "config_live_video", "config_live_input", "config_live_audio",           # config.exe parity: options change live
     "sfx_loop_scene_stop",                                                   # audio: a looping SE, the scene stop
     "content_chest", "lua_save", "lua_exp_floor", "modfile_install",         # mods: content, Lua, a .cleriamod
     "aplua_items_save",                                                      # Archipelago (its mock server)

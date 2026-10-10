@@ -27,8 +27,10 @@ frame is the frame without it, pixel for pixel (§6).
 | Frame rate limit | `[cleria.video] FpsCap` (0 = off) | live |
 | Brightness | `[graphics] GammaValue` (also the in-game Options' Screen Brightness) | live |
 | Render scale | `[cleria.video] RenderScale` 0.5 .. 2.0 in 0.25 steps | live |
-| Texture filtering | `[graphics] TextureFilter` 0 point / 1 bilinear / 2 trilinear | on restart |
-| Anisotropic filtering | `[graphics] Anisotropy` 1 / 2 / 4 / 8 / 16 | on restart |
+| Texture filtering | `[graphics] TextureFilter` 0 point / 1 bilinear / 2 trilinear | live for what loads from then on (the next area) |
+| Anisotropic filtering | `[graphics] Anisotropy` 1 / 2 / 4 / 8 / 16 | as above |
+| Blood | `[game] BloodyEffectLevel` 0 / 1 / 2 | live |
+| Presets (Lightest / Light / Normal / High-definition) | the quality keys in one click (`graphics_preset`, CONFIG_PARITY.md §5) | live |
 | Stretch widescreen | `[graphics] StretchAspect` | live |
 | Disable movies | `[graphics] DisableMovies` | live |
 | FPS display | `[graphics] ShowFPS` 0 / 1 / 2 (Shift+F1 cycles) | live |
@@ -68,8 +70,9 @@ equals `round(255 * (in/255)^(1/g))` of the default frame within 1 level on ever
 0x400); a POINT filter gets no anisotropy. CleriaCore: `video::sampler_spec` -> the world sampler `g.sampler`
 (`build_pipeline`), which every room / sprite / effect bind group bakes in. wgpu needs every filter linear
 for anisotropy > 1, so the mip filter goes linear then too; CleriaCore uploads one mip level, so that and
-Trilinear look like bilinear (§4). The bind groups bake the sampler at load, so a change **applies on
-restart** (the page says so and shows a "Restart" note while the running sampler differs). The 2D layers
+Trilinear look like bilinear (§4). The bind groups bake the sampler at load, so a change rebuilds the
+samplers at once (`video_resample` -> `make_world_samplers`) and **shows in what is loaded from then on**: the
+next area's textures, sprites loaded later (since 2026-10-10; before, on restart). The 2D layers
 (HUD, book, windows) keep their own linear samplers [not modelled: which of retail's 2D draws go through
 `FUN_005d4f00`].
 
@@ -139,7 +142,6 @@ original option and the value saved for the original game.
 | `Mipmap` | `upload_texture` / `upload_rgba` upload level 0 only. Mipmapping would also make Trilinear real. |
 | `ShadowEffectLevel` | The level's users (`FUN_00457a90`, `FUN_00459410`, `FUN_0045c490`, `FUN_00474870`, `FUN_00474cd0`, `FUN_005042e0`, `FUN_005043e0`) are not traced to what they drop. |
 | `WaterEffectLevel`, `GlareEffectLevel`, `WaterCaustics` | No reflection, glare or caustics pass exists yet. (`MaskOfEyes` is a live toggle since 2026-10-07: the grey pass is `view_mask.inl`, build/audit/PLAYTEST_1_STORY.md §1.) |
-| `[game] BloodyEffectLevel` | Its users (`FUN_00478510`, `FUN_004faf20`, `FUN_005130c0`) are not traced. |
 | `OtherLightWeightMode` | Users (`FUN_0044fdd0`, `FUN_00501a30`, `FUN_0055ddc0`) not traced. |
 | `CompressedTexture`, `LowResoTexture` | Loader variants, not ported (CleriaCore loads the full DDS). |
 | `HighResoText` | CleriaCore always uses the high-resolution (`H\`) text art. |
@@ -181,6 +183,7 @@ lockstep ticks 300 and 400) from this build is byte-identical to the same frames
   StretchAspect, DisableMovies) and `vstat` (`[video] world WxH scale .. gamma .. post on|off aspect ..
   fps .. tps .. cap .. held|over|uncapped`). `CLERIA_VIDEO_SCROLL=<px>` scrolls the page for headless
   captures of its lower rows.
-- `drive_regress.py` `video_passes` (the passes switch on and off) and `video_fpscap` (cap 30 holds).
+- `drive_regress.py` `video_passes` (the passes switch on and off) and `video_fpscap` (cap 30 holds);
+  `config_live_video` (TextureFilter, a preset and Blood changed in mid-session: `vstat`'s `sampler .. blood ..`).
 - Not testable headlessly (no visible window allowed): the window mode / resolution / display switches
   themselves. Their pure parts (mode lists, nearest mode, fitting, the Windowed mirror) are unit-tested.

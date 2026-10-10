@@ -436,7 +436,9 @@ fn fs_pm(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_book.inl"
 #include "view_game.inl"
 
+static fs::path g_index_root;   // the root build_indexes walked (reindex_textures)
 static void build_indexes(Gpu& g, const fs::path& root) {
+    g_index_root = root;
     std::error_code ec;
     for (fs::recursive_directory_iterator it(root, ec), end; it != end; it.increment(ec)) {
         if (ec || !it->is_regular_file()) continue;
@@ -447,8 +449,13 @@ static void build_indexes(Gpu& g, const fs::path& root) {
             std::string base = p.filename().string();
             for (char& c : base) c = char(std::tolower((unsigned char)c));
             const bool high = p.parent_path().filename() == "H";
+            // Low-Resolution Textures: retail's loader tries the file's L folder first and falls back to the path
+            // it was given [EXPORT 005fba80.c:91-140]; so the L copy wins, and an H one never replaces it.
+            const bool low = g_low_res_textures && p.parent_path().filename() == "L";
             auto f = g.dds_index.find(base);
-            if (f == g.dds_index.end() || high) g.dds_index[base] = p;
+            if (f == g.dds_index.end() || low ||
+                (high && !(g_low_res_textures && f->second.parent_path().filename() == "L")))
+                g.dds_index[base] = p;
         } else if (ext == ".sob") {
             std::string stem = p.stem().string();
             for (char& c : stem) c = char(std::toupper((unsigned char)c));
@@ -456,6 +463,14 @@ static void build_indexes(Gpu& g, const fs::path& root) {
         }
     }
     std::printf("indexed %zu textures, %zu rooms\n", g.dds_index.size(), g.sob_index.size());
+}
+
+// The texture index again, after g_low_res_textures changed: textures loaded from now on (the next area) come
+// from the other folder. The rooms and the mods' added names are indexed as at startup.
+static void reindex_textures(Gpu& g) {
+    g.dds_index.clear();
+    build_indexes(g, g_index_root);
+    mods_index(g);
 }
 
 // Locate the extracted-asset tree when not given on the command line: $CLERIA_ASSETS, then

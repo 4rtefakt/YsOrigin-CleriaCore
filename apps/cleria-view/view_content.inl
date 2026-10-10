@@ -564,6 +564,21 @@ static void clear_data_shutdown() {
     std::error_code ec;
     if (g_clear_dirty || !fs::exists(clear_data_path(), ec)) clear_data_save();
 }
+// The config tool's Clear Time Attack Records / Clear Game Progress (buttons 4501 / 4502 [BYTES 0x41d230.. /
+// 0x41cf17..]): the record files deleted from the save folder -- Time Attack: record.ta, .tae, .ar, .are; game
+// progress: record.ta2, .ar2, .tp. Live: the clear data in memory goes back to a fresh install's, so the title's
+// gates close at once. Returns the files deleted. [not modelled] retail also deletes the Steam / Galaxy cloud copies.
+static int clear_records(bool progress) {
+    static const char* const kTa[] = {"record.ta", "record.tae", "record.ar", "record.are"};
+    static const char* const kProgress[] = {"record.ta2", "record.ar2", "record.tp"};
+    int n = 0;
+    std::error_code ec;
+    const char* const* files = progress ? kProgress : kTa;
+    for (int i = 0; i < (progress ? 3 : 4); ++i) n += fs::remove(clear_data_path().parent_path() / files[i], ec) ? 1 : 0;
+    if (progress) { g_clear = records::ClearData{}; g_clear_dirty = false; }
+    std::printf("[clear] %s cleared: %d file(s) deleted\n", progress ? "game progress" : "Time Attack records", n);
+    return n;
+}
 // False (and no change) for a name save_profile_name refuses; "" returns to the normal folder.
 static bool save_set_profile(const std::string& raw) {
     const std::string n = save_profile_name(raw);

@@ -76,7 +76,7 @@ struct VideoGpu {
     WGPUTextureView pview{};
     WGPUBindGroup pbind{};
     std::uint32_t pw = 0, ph = 0;
-    video::SamplerSpec boot_sampler;             // the world sampler built at start (filter changes: restart)
+    Gpu* gpu = nullptr;                          // for video_resample (the page and the drive have no Gpu)
     std::string formats;                         // the ShowFPS 2 suffix (FUN_005d4820's format names)
 };
 static VideoGpu g_vgpu;
@@ -94,7 +94,9 @@ static WGPUBindGroup video_bind(Gpu& g, WGPUTextureView v, WGPUSampler s) {
 // Before build_pipeline: the world sampler from [graphics] TextureFilter / Anisotropy, and the passes.
 // `copy_ok`: the frame can be copied (the gamma pass reads a copy of it).
 static bool video_drive(const std::string& cmd);
+static void video_low_res();
 static void video_init(Gpu& g, WGPUTextureFormat fmt, bool copy_ok) {
+    g_vgpu.gpu = &g;
     // CLERIA_VOPT="Key=value;Key=value": vopt settings from the start (a headless run's settings are
     // memory-only, and SmoothTextures / CrispSprites are read when a room / a sprite loads).
     if (const char* e = std::getenv("CLERIA_VOPT")) {
@@ -105,7 +107,7 @@ static void video_init(Gpu& g, WGPUTextureFormat fmt, bool copy_ok) {
     g_sprite_point = vid().crisp_sprites;
     const auto& gr = settings().s.graphics;
     g_world_sampler = video::sampler_spec(gr.texture_filter, gr.anisotropy);
-    g_vgpu.boot_sampler = g_world_sampler;
+    video_low_res();                                     // a saved LowResoTexture: the index before the first room
     g_vgpu.fmt = fmt;
     g_vgpu.copy_ok = copy_ok;
     g_vgpu.formats = std::string(fmt == WGPUTextureFormat_BGRA8Unorm || fmt == WGPUTextureFormat_RGBA8Unorm
@@ -382,6 +384,30 @@ static int video_boot_window(SDL_Window* win, bool offscreen) {
     return mode;
 }
 
+// [graphics] TextureFilter / Anisotropy changed: the world samplers are rebuilt at once. Textures bound from
+// now on (the next area's, sprites loaded later) use them; what is already on screen keeps its sampler.
+static void video_resample() {
+    const auto& gr = settings().s.graphics;
+    const video::SamplerSpec want = video::sampler_spec(gr.texture_filter, gr.anisotropy);
+    if (!g_vgpu.gpu || (want.linear == g_world_sampler.linear && want.mip_linear == g_world_sampler.mip_linear &&
+                        want.anisotropy == g_world_sampler.anisotropy)) return;
+    g_world_sampler = want;
+    make_world_samplers(*g_vgpu.gpu);
+}
+
+// [graphics] LowResoTexture changed (the page, a preset, the drive) or was loaded: FUN_005fba80 loads a
+// texture from the L folder beside it when that copy exists [EXPORT 005fba80.c:91-140]; here the texture
+// index is rebuilt with the L folders first, and the textures loaded from then on (the next area) use it.
+// [not modelled] the low-resolution sprite sheets data/ani/l/*.aia (FUN_00444a50) and the combination with
+// CompressedTexture (another folder).
+static void reindex_textures(Gpu& g);                    // main.cpp
+static void video_low_res() {
+    const bool on = settings().s.graphics.low_reso_texture != 0;
+    if (on == g_low_res_textures) return;
+    g_low_res_textures = on;
+    if (g_vgpu.gpu) reindex_textures(*g_vgpu.gpu);
+}
+
 // ---- the page ----------------------------------------------------------------------------------------
 struct VideoModes {
     std::vector<video::Mode> modes, res;
@@ -495,6 +521,7 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
     if (ui::toggle(L, "VSync", &vsync, "Synchronise frames with the display's refresh rate to avoid tearing.")) {
         configure();
         settings().s.cleria.vsync = vsync;
+        gr.wait_vsync = vsync;                               // retail's WaitVSync follows the same choice
         persist();
     }
     {
@@ -519,6 +546,11 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
                        "in-game Options' Screen Brightness. The original applies it only in fullscreen; CleriaCore in "
                        "every window mode.")) {
             gr.gamma_value = std::round(gv * 100.0f) / 100.0f;
+            persist();
+        }
+        if (ui::button(L, "Reset brightness", "Back to 1.00, the unchanged picture. (Original: the Normal button beside "
+                       "Gamma Correction.)", gr.gamma_value != 1.0f)) {
+            gr.gamma_value = 1.0f;
             persist();
         }
     }
@@ -548,8 +580,9 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         int sp = v.crisp_sprites ? 1 : 0;
         if (ui::choice(L, "Character sprites", &sp, kSprites, 2,
                        "Soft blends the pixels of the characters and monsters (the default). Crisp keeps every pixel "
-                       "sharp, like pixel art. Takes effect after a restart. A CleriaCore extra, not a retail option.")) {
-            v.crisp_sprites = sp == 1;
+                       "sharp, like pixel art. Takes effect for the characters loaded from now on (the next area). A "
+                       "CleriaCore extra, not a retail option.")) {
+            g_sprite_point = v.crisp_sprites = sp == 1;   // sprites uploaded from now sample that way
             persist();
         }
     }
@@ -559,8 +592,10 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         if (ui::choice(L, "Texture filtering", &f, kFilters, 3,
                        "Point keeps texels sharp and blocky; bilinear smooths them (the original's default). "
                        "Trilinear also blends mipmap levels, which CleriaCore only loads with Smooth distant textures "
-                       "on, so here it looks like bilinear. Applies on restart. (Original: Texture Filter.)")) {
+                       "on, so here it looks like bilinear. Takes effect in the next area you enter. (Original: "
+                       "Texture Filter.)")) {
             gr.texture_filter = f;
+            video_resample();
             persist();
         }
         static const char* kAniso[] = {"Off", "2x", "4x", "8x", "16x"};
@@ -568,14 +603,32 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         while (a < 4 && (2 << a) <= gr.anisotropy) ++a;
         if (ui::choice(L, "Anisotropic filtering", &a, kAniso, 5,
                        "Keeps floors and walls seen at a steep angle sharper. Needs bilinear or trilinear filtering. "
-                       "Applies on restart. (Original: Anisotropic Filter.)", gr.texture_filter != 0)) {
+                       "Takes effect in the next area you enter. (Original: Anisotropic Filter.)", gr.texture_filter != 0)) {
             gr.anisotropy = a == 0 ? 1 : (1 << a);
+            video_resample();
             persist();
         }
-        const video::SamplerSpec want = video::sampler_spec(gr.texture_filter, gr.anisotropy);
-        if (want.linear != g_vgpu.boot_sampler.linear || want.anisotropy != g_vgpu.boot_sampler.anisotropy ||
-            want.mip_linear != g_vgpu.boot_sampler.mip_linear)
-            ui::info(L, "", "Restart CleriaCore to apply the texture filtering.", ui::kWarn);
+    }
+    {
+        bool lo = gr.low_reso_texture != 0;                  // 0x76516f (video_low_res)
+        if (ui::toggle(L, "Low-resolution textures", &lo,
+                       "Uses the game's smaller copies of the floor, wall and object textures: blurrier, lighter on "
+                       "slow PCs. Takes effect in the next area you enter. The characters keep their full "
+                       "resolution for now. (Original: Low-Resolution Textures.)")) {
+            gr.low_reso_texture = lo;
+            video_low_res();
+            persist();
+        }
+    }
+    {   // [game] BloodyEffectLevel (0x6d5d92): read live by the enemy hit / death ports (> 0 the blood effects
+        // and red debris, > 1 the extra ones)
+        static const char* kBlood[] = {"Off", "Low", "High"};
+        int b = std::clamp(int(settings().s.game.bloody_effect_level), 0, 2);
+        if (ui::choice(L, "Blood", &b, kBlood, 3,
+                       "How much blood enemy hits and deaths show. High is the original's default. (Original: Blood.)")) {
+            settings().s.game.bloody_effect_level = b;
+            persist();
+        }
     }
     {
         bool st = gr.stretch_aspect != 0;
@@ -619,6 +672,31 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             persist();
     }
 
+    ui::section(L, "Presets");                             // the config tool's "Basic Settings" (graphics_preset, settings.hpp)
+    {
+        static const char* const kNames[] = {"Lightest", "Light", "Normal", "High-definition"};
+        static const char* const kDesc[] = {
+            "The original's Lightest preset: bilinear filtering, no anisotropic filtering, brightness 1.00, VSync on; "
+            "and, saved for the original game: low-resolution textures, other simplification, no mipmaps, no shadows, "
+            "reflections or glare.",
+            "The original's Light preset: bilinear filtering, no anisotropic filtering, brightness 1.00, VSync on; and, "
+            "saved for the original game: low shadows, reflections and glare.",
+            "The original's Normal preset: trilinear filtering, 2x anisotropic filtering, brightness 1.00, VSync on; and, "
+            "saved for the original game: full shadows, reflections and glare.",
+            "The original's High-Definition preset: trilinear filtering, 16x anisotropic filtering, brightness 1.00, "
+            "VSync on; and, saved for the original game: anti-aliasing, full shadows, reflections and glare."};
+        for (int p = 0; p < 4; ++p) {
+            const std::string d = std::string(kDesc[p]) + " The window mode and the resolution stay as they are.";
+            if (ui::button(L, kNames[p], d.c_str())) {
+                graphics_preset(p, settings().s);
+                video_low_res();
+                if (!vsync) { vsync = true; configure(); }
+                video_resample();
+                persist();
+            }
+        }
+    }
+
     // Retail's switches CleriaCore's renderer cannot honour yet: the value is what CleriaCore does; the
     // description names the original option and the value saved for the original game (kept in yso_win.ini,
     // not editable here).
@@ -648,21 +726,15 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         row("Water caustics", "None",
             "The light patterns under water (Original: Disable Water Caustics). Not available yet.",
             gr.water_caustics ? "disabled" : "enabled");
-        row("Blood", "Default",
-            "Blood in enemy hits and deaths (Original: Blood). Not available yet: what each level changes is not traced.",
-            lvl(settings().s.game.bloody_effect_level));
         row("Other simplification", "Off",
             "Lighter effects for slow PCs (Original: Other Simplification). Not available yet.",
             onoff(gr.other_light_weight_mode != 0));
-        row("Texture quality", "Full",
-            "Low-resolution and compressed textures (Original: Compressed Textures / Low-resolution Textures). Not "
-            "available yet: CleriaCore always loads the full textures.",
-            gr.low_reso_texture ? "low resolution" : gr.compressed_texture ? "compressed" : "full");
         row("Increase text resolution", "On",
             "The high-resolution text art (Original: Increase Text Resolution). CleriaCore always uses it.",
             onoff(settings().s.kernel.high_reso_text != 0));
         row("Direct3D 9 options", "n/a",
-            "Triple buffering, 32-bit colour, hardware vertex / pixel shaders, the timer source: Direct3D 9 settings "
+            "Triple buffering, 32-bit colour, compressed textures, hardware vertex / pixel shaders, the timer source: "
+            "Direct3D 9 settings "
             "with no meaning for CleriaCore's renderer.",
             "triple buffering " + onoff(gr.triple_buffer != 0) + ", 32-bit " + onoff(gr.back_buffer_format32 != 0));
     }
@@ -692,6 +764,21 @@ static bool video_drive(const std::string& cmd) {
         else if (k == "StretchAspect") gr.stretch_aspect = x != 0;
         else if (k == "DisableMovies") gr.disable_movies = x != 0;
         else if (k == "EnemyHealthBars") settings().s.cleria.enemy_health_bars = std::clamp(int(x), 0, 2);   // [cleria.qol]
+        else if (k == "TextureFilter") { gr.texture_filter = std::clamp(int(x), 0, 2); video_resample(); }
+        else if (k == "Anisotropy") { gr.anisotropy = std::clamp(int(x), 1, 16); video_resample(); }
+        else if (k == "Preset") { graphics_preset(std::clamp(int(x), 0, 3), settings().s); video_resample(); video_low_res(); }
+        else if (k == "LowResoTexture") { gr.low_reso_texture = x != 0; video_low_res(); }
+        else if (k == "BloodyEffectLevel") settings().s.game.bloody_effect_level = std::clamp(int(x), 0, 2);   // [game]
+        // The other pages' retail keys, as the shell changes them (touch(): the mapper, the Options copy and
+        // the audio re-read the settings): [sound] PlayBgm / PlayEffect, [input] DashControl / AtkBtnMagic /
+        // AlwaysDashOK / MouseButtonAlwaysOkCancel.
+        else if (k == "PlayBgm") { settings().s.sound.play_bgm = x != 0; settings().touch(); }
+        else if (k == "PlayEffect") { settings().s.sound.play_effect = x != 0; settings().touch(); }
+        else if (k == "SoundDevice") { settings().s.sound.device = std::max(0, int(x)); settings().touch(); }   // [sound] Device
+        else if (k == "DashControl") { settings().s.input.dash_control = x != 0; settings().touch(); }
+        else if (k == "AtkBtnMagic") { settings().s.input.atk_btn_magic = x != 0; settings().touch(); }
+        else if (k == "AlwaysDashOK") { settings().s.input.always_dash_ok = x != 0; settings().touch(); }
+        else if (k == "MouseButtonAlwaysOkCancel") { settings().s.input.mouse_button_always_ok_cancel = x != 0; settings().touch(); }
         else ok = false;
         std::printf("  [video] opt %s%s\n", kv.c_str(), ok ? "" : " (unknown key)");
         return true;
@@ -700,12 +787,15 @@ static bool video_drive(const std::string& cmd) {
         const float gv = settings().s.graphics.gamma_value;
         const int cap = vid().fps_cap;
         std::printf("  [video] world %ux%u scale %.2f gamma %.2f post %s aspect %.4f fps %d tps %d cap %d %s | looks: "
-                    "textures %d edges %d (target %s) crisp %d\n",
+                    "textures %d edges %d (target %s) crisp %d | sampler %s%s x%d blood %d\n",
                     g_vgpu.world_w, g_vgpu.world_h, double(vid().render_scale), double(gv),
                     g_vgpu.copy_ok && !video::gamma_is_identity(gv) ? "on" : "off",
                     double(video_aspect(g_vgpu.world_w, g_vgpu.world_h)), g_vstats.fps, g_vstats.tps, cap,
                     cap <= 0 ? "uncapped" : g_vstats.fps <= cap + 1 ? "held" : "over",
-                    int(g_world_mips), int(vid().smooth_edges), g_vgpu.wtex ? "on" : "off", int(g_sprite_point));
+                    int(g_world_mips), int(vid().smooth_edges), g_vgpu.wtex ? "on" : "off", int(g_sprite_point),
+                    g_world_sampler.linear ? "linear" : "point", g_world_sampler.mip_linear ? "+mip" : "",
+                    int(g_world_sampler.anisotropy), int(settings().s.game.bloody_effect_level));
+        if (g_low_res_textures) std::printf("  [video] low-resolution textures on\n");
         return true;
     }
     return false;

@@ -40,6 +40,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     }();
     if (!modfile_startup()) { SDL_Quit(); return 0; }   // a .cleriamod to install (view_modfile.inl)
     mods_startup(g, asset_root);   // the vfs + the enabled mods, before any asset loads (view_mods.inl)
+    language_startup(asset_root);  // [game] Language: that language's files over the asset root (view_mods.inl)
     content_startup(asset_root);   // the active mods' content/ patches (view_content.inl)
     lua_startup();                 // Lua mods (Script=): start each, events, grant filter (view_lua.inl)
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) std::fprintf(stderr, "SDL gamepad: %s\n", SDL_GetError());
@@ -149,6 +150,21 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     audio.init(asset_root, !std::getenv("CLERIA_MUTE"));  // silent (and harmless) if the device or EFFECTDEF is missing
     audio.set_master_volume(oslider[1] / 1024.0f);  // Option "SFX Volume"
     audio.set_bgm_volume(oslider[0] / 1024.0f);     // Option "BGM Volume"
+    // [sound] PlayBgm / PlayEffect / Device (the config tool's Enable BGMs / Enable SFX / Device): applied at
+    // start and again whenever the settings change (sync_settings; the Audio page), so they are live.
+    int sound_applied = -1;
+    auto apply_sound = [&] {
+        const auto& so = settings().s.sound;
+        audio.set_bgm_enabled(so.play_bgm != 0);
+        audio.set_sfx_enabled(so.play_effect != 0);
+        audio.set_device(std::max(0, int(so.device)));
+        const int now = int(so.play_bgm != 0) | int(so.play_effect != 0) << 1 | audio.device() << 2;
+        if (now != sound_applied && sound_applied >= 0 && std::getenv("CLERIA_DRIVE"))
+            std::printf("  [audio] music %s, effects %s, device %d\n", so.play_bgm ? "on" : "off",
+                        so.play_effect ? "on" : "off", audio.device());
+        sound_applied = now;
+    };
+    apply_sound();
 
     // ---- the shell's settings pages (F1, and SETTINGS in the launcher) -------------------------
     // CleriaCore-only switches: QoL off by default (retail behaviour), cheats off. The cheats live in
@@ -234,7 +250,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 refresh = 0;
             }
             was_running = run;
-            if (!run && refresh-- <= 0) { st = gamedata::status(); refresh = 120; }
+            if (!run && refresh-- <= 0) { st = gamedata::status(); langs = gamedata::languages(asset_root); refresh = 120; }
+        }
+        std::vector<int> langs;                 // gamedata::languages(asset_root), refreshed with `st`
+        bool credits_open = false;              // Prelaunch > European localization credits
+        std::vector<std::string> credits;       // gamedata::localization_credits, read on first use
+        void show_credits(bool on) {
+            credits_open = on;
+            if (!on || !credits.empty()) return;
+            fs::path inst = st.install;             // the install the data came from, else a found one
+            if (inst.empty())
+                for (const gamedata::Validation& v : gamedata::find_installs())
+                    if (v.ok) { inst = v.root; break; }
+            credits = gamedata::localization_credits(inst);
+            if (credits.empty()) credits.push_back("Not found: locate your Ys Origin install first.");
         }
     };
     static GameDataUi gd;
@@ -275,6 +304,35 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                     gd.find_and_install();
             }
             if (!gd.msg.empty()) ui::info(L, "", gd.msg.c_str(), gd.msg_ok ? ui::kGood : ui::kWarn);
+            {   // [game] Language (config tool combo 1045; CONFIG_PARITY.md §7): the languages whose data is here
+                std::vector<const char*> names;
+                int idx = 0;
+                for (int i = 0; i < int(gd.langs.size()); ++i) {
+                    names.push_back(gamedata::language(gd.langs[std::size_t(i)])->name);
+                    if (gd.langs[std::size_t(i)] == settings().s.game.language) idx = i;
+                }
+                if (!names.empty() &&
+                    ui::choice(L, "Language", &idx, names.data(), int(names.size()),
+                               "The language of the game's text and images. (Original: Language.) Only the languages "
+                               "whose data is unpacked are listed: English always; Spanish, French, German and Italian "
+                               "when your Ys Origin install has that language's data archive (data_sp, data_fr, data_de, "
+                               "data_it in its release folder) when you unpack the game data. The words built into the "
+                               "original program (HUD words, some menu labels) stay English for now. Applies after a "
+                               "restart.", names.size() > 1)) {
+                    settings().s.game.language = gd.langs[std::size_t(idx)];
+                    persist();
+                }
+                if (!names.empty() && gd.langs[std::size_t(idx)] != g_language)
+                    ui::info(L, "", "Restart CleriaCore to change the language.", ui::kWarn);
+            }
+            if (ui::button(L, gd.credits_open ? "Hide the localization credits" : "European localization credits",
+                           "The credits of the original's European language versions, read from your Ys Origin install. "
+                           "(Original: European Localization Credits.)")) {
+                gd.show_credits(!gd.credits_open);
+            }
+            if (gd.credits_open)
+                for (const std::string& line : gd.credits)
+                    if (!line.empty()) ui::row_texts(L, ui::row_frame(L, nullptr, false), "", line.c_str(), false);
             ui::section(L, "Startup");
             if (ui::toggle(L, "Skip logo movie", &settings().s.cleria.skip_logo_movie,
                        "Go straight to the title screen instead of playing the Falcom logo movie first."))
@@ -298,7 +356,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                        "Lets you skip the prologue and opening movies at any time. In the original they become "
                        "skippable only after you have cleared the game once."))
                 persist();
-        });
+        }).open_sub = [&](const std::string& s) {        // Prelaunch:credits = the localization credits open
+            gd.show_credits(s == "credits");
+            return gd.credits_open;
+        };
         shell.panel.add("Video", [&](ui::List& L) { video_page(L, win, window_mode, vsync, configure, persist); });
         shell.panel.add("Input", [&](ui::List& L) {
             // Configure Inputs: the 34 retail binding slots ([input] Assign{...}, CONFIG.md §3.3), rebound
@@ -393,12 +454,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             ch |= ui::toggle(L, "Analog as digital", &ocheck[0],
                              "Treat the stick like the d-pad: 8 directions, always at full speed. (In-game Options: "
                              "Use Analog as Digital.)");
-            ch |= ui::toggle(L, "Dash", &ocheck[1], "Allow dashing once the Silver Bracelet is obtained. (In-game Options.)");
-            ch |= ui::toggle(L, "Hold attack for magic", &ocheck[2],
-                             "Charge and cast skills by holding the attack button. (In-game Options.)");
+            ch |= ui::toggle(L, "Double-tap to dash", &ocheck[1],
+                             "Once you can dash: tap a direction twice quickly, then keep it held, to dash. (Original: "
+                             "Double-Tap to Dash; in-game Options.)");
+            ch |= ui::toggle(L, "Hold attack for skills", &ocheck[2],
+                             "Holding the attack button charges your skill, as holding the skill button does; release "
+                             "to use it. (Original: Hold Attack for Skills; in-game Options.)");
             ch |= ui::toggle(L, "Always dash", &ocheck[3],
                              "Dash whenever you run, without holding a button. (In-game Options.)");
             if (ch) options_save(oslider, ocheck);
+            {
+                bool mk = in.mouse_button_always_ok_cancel != 0;   // 0x764880: the mapper's menu OK / Cancel bits
+                if (ui::toggle(L, "Mouse buttons confirm and cancel", &mk,
+                               "On: in menus and dialogue the left mouse button always confirms and the right one always "
+                               "cancels, whatever they are bound to. Off: the mouse buttons bound to Attack and Jump do. "
+                               "(Original: Always use the left and right mouse buttons for confirm and cancel.)")) {
+                    in.mouse_button_always_ok_cancel = mk;
+                    persist();
+                }
+            }
+            ui::section(L, "Fixed keys");                  // config tool group 2030: not rebindable
+            ui::info(L, "Esc", "Menu");
+            ui::info(L, "Arrow keys", "Movement");
+            ui::info(L, "Mouse wheel", "Switch skills");
         }).open_sub = [&](const std::string& s) {        // Input:bind = Configure Inputs, Input:pad = Controller
             input_bind_mode = s == "bind";
             g_pad_ui.open = s == "pad";
@@ -408,6 +486,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             ui::section(L, "Volume");
             vol(L, "Music volume", oslider[0], "Background music volume. (The same setting as the in-game Options.)", true);
             vol(L, "Sound effects volume", oslider[1], "Sound effect volume. (The same setting as the in-game Options.)", false);
+            {
+                auto& so = settings().s.sound;
+                bool bgm = so.play_bgm != 0, sfx = so.play_effect != 0;
+                if (ui::toggle(L, "Music", &bgm, "Off: no background music at all. (Original: Enable BGMs.)")) {
+                    so.play_bgm = bgm; persist(); apply_sound();
+                }
+                if (ui::toggle(L, "Sound effects", &sfx, "Off: no sound effects at all. (Original: Enable SFX.)")) {
+                    so.play_effect = sfx; persist(); apply_sound();
+                }
+                // [sound] Device: 0 = the system default, n = the n-th playback device (Audio::devices).
+                static std::vector<std::string> devs;
+                static int devs_refresh = 0;
+                if (devs_refresh-- <= 0) { devs = Audio::devices(); devs_refresh = 120; }
+                std::vector<const char*> names = {"System default"};
+                for (const std::string& d : devs) names.push_back(d.c_str());
+                int idx = std::clamp(int(so.device), 0, int(names.size()) - 1);
+                if (ui::choice(L, "Output device", &idx, names.data(), int(names.size()),
+                               "The device the game's sound plays on. Switches at once. (Original: Device.)",
+                               audio.ready())) {
+                    so.device = idx; persist(); apply_sound();
+                }
+            }
+            ui::section(L, "Launcher");
             if (ui::toggle(L, "Launcher music", &settings().s.cleria.launcher_music,
                            "Plays the title theme on this launcher screen. A CleriaCore addition: the original "
                            "game has no launcher."))
@@ -423,11 +524,37 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 }
                 if (ui::choice(L, "Launcher backdrop", &idx, names, int(std::size(names)),
                                "The room behind this launcher screen. Follow my last save shows the floor of your most "
-                               "recent save. Takes effect the next time CleriaCore starts. A CleriaCore addition.")) {
+                               "recent save. Changes at once. A CleriaCore addition.")) {
                     lr = idx ? kLaunchRooms[idx - 1].room : "auto";
                     persist();
                 }
             }
+            // The config tool's "Other" group on its Sound page (buttons 4501 / 4502, [BYTES 0x41cf17..0x41d577]):
+            // a Yes / No question, the files deleted from the save folder, "Deleted.".
+            ui::section(L, "Other");
+            static int clear_ask = 0;                       // 0 none, 1 Time Attack, 2 game progress
+            static std::string clear_msg;
+            if (clear_ask == 0) {
+                if (ui::button(L, "Clear Time Attack records",
+                               "Deletes the Time Attack and Arena records (record.ta, .tae, .ar, .are in the save folder). "
+                               "Asks first. (Original: Clear Time Attack Records.)")) { clear_ask = 1; clear_msg.clear(); }
+                if (ui::button(L, "Clear game progress",
+                               "Deletes the game completion data (record.ta2, .ar2, .tp in the save folder): which "
+                               "characters cleared the game, the unlocked difficulties and bonus modes, the Bonus Shop's "
+                               "purchases. Your save slots are not touched. Asks first. (Original: Clear Game Progress.)")) {
+                    clear_ask = 2; clear_msg.clear();
+                }
+            } else {
+                ui::info(L, "", clear_ask == 1 ? "Deleting Time Attack data. Continue?"
+                                               : "Deleting game completion data. Continue?", ui::kWarn);
+                if (ui::button(L, "No", "Keep the data.")) clear_ask = 0;
+                if (ui::button(L, "Yes, delete", "Delete it now. This cannot be undone.")) {
+                    clear_records(clear_ask == 2);
+                    clear_msg = "Deleted.";
+                    clear_ask = 0;
+                }
+            }
+            if (!clear_msg.empty()) ui::info(L, "", clear_msg.c_str(), ui::kGood);
         });
         // Gameplay (the cutscene skip, the game speed) and Cheats: view_access.inl.
         shell.panel.add("Gameplay", [&](ui::List& L) { access_gameplay_page(L, persist); });
@@ -499,6 +626,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         options_load(oslider, ocheck);
         audio.set_master_volume(oslider[1] / 1024.0f);
         audio.set_bgm_volume(oslider[0] / 1024.0f * bgm_gain);
+        apply_sound();
     };
     auto apply_room_bgm = [&](const std::string& room_name) {
         const SceneRec* s = scenes.find_room(room_name);
@@ -756,56 +884,68 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     const char* launcher_env = std::getenv("CLERIA_LAUNCHER");
     if (show_title && !s_launcher_shown && (!std::getenv("CLERIA_DRIVE") || launcher_env)) {
         s_launcher_shown = true;
-        const char* rn = std::getenv("CLERIA_LAUNCH_ROOM");
-        const std::string& lr = settings().s.cleria.launcher_room;
-        std::string bg_name = rn ? rn : lr, why = "fixed";
-        if (!rn && !g.sob_index.count(lr)) {
-            // "auto": the newest save file (by its write time; a manual save or a mod's autosave alike) names
-            // the floor, launcher_backdrop the room. Not retail.
-            int newest = -1;
-            fs::file_time_type nt{};
-            std::string scene;
-            for (int i = 0; i < 100; ++i) {
-                std::error_code ec;
-                const fs::file_time_type t = fs::last_write_time(slot_path(i), ec);
-                if (ec || (newest >= 0 && t <= nt)) continue;
-                std::ifstream f(slot_path(i), std::ios::binary);
-                const std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
-                if (const auto r = SaveRecord::decode(raw)) { newest = i; nt = t; scene = from_record(*r).scene; }
-            }
-            bg_name = launcher_backdrop(scene);
-            char b[80] = "auto: no save";
-            if (newest >= 0) std::snprintf(b, sizeof b, "auto: newest save yso_%02d in %s", newest, scene.c_str());
-            why = b;
-        }
+        // The backdrop is built by load_backdrop: at entry, and again whenever [cleria.shell] LauncherRoom changes
+        // (the shell's Launcher backdrop row), so a new choice shows at once.
         Room bg;
-        if (auto it = g.sob_index.find(bg_name); it != g.sob_index.end()) bg = load_room(g, asset_root, it->second);
-        if (bg.mesh.vertices.empty()) {                    // a room that is missing or does not load: the entrance hall
-            bg_name = "S_1000";
-            if (auto it = g.sob_index.find(bg_name); it != g.sob_index.end()) bg = load_room(g, asset_root, it->second);
-        }
-        std::printf("[launcher] backdrop %s (%s)\n", bg_name.c_str(), why.c_str());
-        Camera lcam;
-        spawn_in(lcam, bg);
-        for (const LaunchRoom& p : kLaunchRooms)
-            if (bg_name == p.room) { lcam.pos = {p.x, p.y, p.z}; lcam.yaw = p.yaw * 0.0174533f; lcam.pitch = p.pitch * 0.0174533f; }
-        if (const char* c = std::getenv("CLERIA_LAUNCH_CAM")) {
-            float x, y, z, yw, pt;
-            if (std::sscanf(c, "%f,%f,%f,%f,%f", &x, &y, &z, &yw, &pt) == 5) {
-                lcam.pos = {x, y, z}; lcam.yaw = yw * 0.0174533f; lcam.pitch = pt * 0.0174533f;
+        Camera lcam, base;
+        float D = 0.0f;
+        std::string lr_shown;                               // the setting the backdrop was built for
+        const char* rn = std::getenv("CLERIA_LAUNCH_ROOM");   // overrides the setting until the setting changes
+        auto load_backdrop = [&] {
+            const std::string lr = settings().s.cleria.launcher_room;
+            lr_shown = lr;
+            std::string bg_name = rn ? rn : lr, why = "fixed";
+            if (!rn && !g.sob_index.count(lr)) {
+                // "auto": the newest save file (by its write time; a manual save or a mod's autosave alike) names
+                // the floor, launcher_backdrop the room. Not retail.
+                int newest = -1;
+                fs::file_time_type nt{};
+                std::string scene;
+                for (int i = 0; i < 100; ++i) {
+                    std::error_code ec;
+                    const fs::file_time_type t = fs::last_write_time(slot_path(i), ec);
+                    if (ec || (newest >= 0 && t <= nt)) continue;
+                    std::ifstream f(slot_path(i), std::ios::binary);
+                    const std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(f), {}};
+                    if (const auto r = SaveRecord::decode(raw)) { newest = i; nt = t; scene = from_record(*r).scene; }
+                }
+                bg_name = launcher_backdrop(scene);
+                char b[80] = "auto: no save";
+                if (newest >= 0) std::snprintf(b, sizeof b, "auto: newest save yso_%02d in %s", newest, scene.c_str());
+                why = b;
             }
-        }
-        const Camera base = lcam;
-        const float D = room_diag(bg);
-        if (std::getenv("CLERIA_DRIVE")) {                 // framing aid: the bounds and the highest point
-            Vec3 top = bg.mesh.bmin;
-            for (const RoomVertex& v : bg.mesh.vertices) if (v.py > top.y) top = {v.px, v.py, v.pz};
-            std::printf("  [launcher] %s bounds (%.1f %.1f %.1f)..(%.1f %.1f %.1f) top (%.1f %.1f %.1f) cam (%.1f %.1f %.1f)\n",
-                        bg_name.c_str(), bg.mesh.bmin.x, bg.mesh.bmin.y, bg.mesh.bmin.z, bg.mesh.bmax.x, bg.mesh.bmax.y,
-                        bg.mesh.bmax.z, top.x, top.y, top.z, lcam.pos.x, lcam.pos.y, lcam.pos.z);
-        }
-        g_fog.on = false;
-        update_fog(bg, lcam.pos, 0.0f, /*snap*/true);
+            if (!bg.mesh.vertices.empty()) free_room(bg, g.white_bind);   // the backdrop it replaces
+            bg = Room{};
+            if (auto it = g.sob_index.find(bg_name); it != g.sob_index.end()) bg = load_room(g, asset_root, it->second);
+            if (bg.mesh.vertices.empty()) {                    // a room that is missing or does not load: the entrance hall
+                bg_name = "S_1000";
+                if (auto it = g.sob_index.find(bg_name); it != g.sob_index.end()) bg = load_room(g, asset_root, it->second);
+            }
+            std::printf("[launcher] backdrop %s (%s)\n", bg_name.c_str(), why.c_str());
+            lcam = Camera{};
+            spawn_in(lcam, bg);
+            for (const LaunchRoom& p : kLaunchRooms)
+                if (bg_name == p.room) { lcam.pos = {p.x, p.y, p.z}; lcam.yaw = p.yaw * 0.0174533f; lcam.pitch = p.pitch * 0.0174533f; }
+            if (const char* c = std::getenv("CLERIA_LAUNCH_CAM")) {
+                float x, y, z, yw, pt;
+                if (std::sscanf(c, "%f,%f,%f,%f,%f", &x, &y, &z, &yw, &pt) == 5) {
+                    lcam.pos = {x, y, z}; lcam.yaw = yw * 0.0174533f; lcam.pitch = pt * 0.0174533f;
+                }
+            }
+            base = lcam;
+            D = room_diag(bg);
+            if (std::getenv("CLERIA_DRIVE")) {                 // framing aid: the bounds and the highest point
+                Vec3 top = bg.mesh.bmin;
+                for (const RoomVertex& v : bg.mesh.vertices) if (v.py > top.y) top = {v.px, v.py, v.pz};
+                std::printf("  [launcher] %s bounds (%.1f %.1f %.1f)..(%.1f %.1f %.1f) top (%.1f %.1f %.1f) cam (%.1f %.1f %.1f)\n",
+                            bg_name.c_str(), bg.mesh.bmin.x, bg.mesh.bmin.y, bg.mesh.bmin.z, bg.mesh.bmax.x, bg.mesh.bmax.y,
+                            bg.mesh.bmax.z, top.x, top.y, top.z, lcam.pos.x, lcam.pos.y, lcam.pos.z);
+            }
+            g_fog.on = false;
+            update_fog(bg, lcam.pos, 0.0f, /*snap*/true);
+            rn = nullptr;
+        };
+        load_backdrop();
         WGPUTextureView ldepth = make_depth(g, cw, ch);
         static const char* kItems[] = {"Play", "Settings", "Quit"};
         ui::MainMenu menu;
@@ -815,8 +955,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const int hit = menu.draw(dl, w, h, nav, kItems, 3, !shell.open);
             gd.poll();
             if (gd.task.running()) ui::status(dl, h, false, "Unpacking the game data...", "Settings  \xE2\x80\xA2  Prelaunch");
-            else ui::status(dl, h, true, "Game data ready.", gd.ready() ? "Ys Origin  \xE2\x80\xA2  English"
-                                                                          : "Development assets  \xE2\x80\xA2  English");
+            else ui::status(dl, h, true, "Game data ready.",
+                            ((gd.ready() ? "Ys Origin  \xE2\x80\xA2  " : "Development assets  \xE2\x80\xA2  ") +
+                             std::string(gamedata::language(g_language)->name)).c_str());
             ui::version(dl, w, h, "CleriaCore 0.1 (dev)");
             if (hit == 1) shell.open = true;
             else if (hit >= 0) choice_made = hit;
@@ -842,6 +983,13 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 else { audio.stop_bgm(); cur_bgm = -1; }
                 if (std::getenv("CLERIA_DRIVE")) std::printf("  [launcher] music %d (bgm %d)\n", int(lmusic), cur_bgm);
             }
+            // CLERIA_LAUNCH_SWITCH=<room id | auto> (headless checks): the shell's Launcher backdrop choice, made
+            // on frame 3, so the capture on frame 6 shows the room switched to while the launcher is up.
+            if (const char* sw = std::getenv("CLERIA_LAUNCH_SWITCH"); sw && frame_no == 3) {
+                settings().s.cleria.launcher_room = sw;
+                settings().touch();
+            }
+            if (settings().s.cleria.launcher_room != lr_shown) load_backdrop();   // a new choice: it changes at once
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
                 if (shell.event(e)) continue;
@@ -932,8 +1080,11 @@ title_again:
         // The gates (CLEAR_DATA.md §8): the clear bytes 0x74ab7b / 7a / 79 and 0x74c106.
         // [not modelled] what Time Attack / Arena Mode / Bonus Shop open: the entries show as in retail and
         // lead nowhere yet (BONUS_MODES.md §6.2 steps 7-12).
-        tgates.clear_yunica = g_clear.cleared(0); tgates.clear_hugo = g_clear.cleared(1); tgates.clear_toal = g_clear.cleared(2);
-        tgates.nya = nya_gate;
+        auto gates_sync = [&] {                          // each tick: Audio > Clear game progress closes them at once
+            tgates.clear_yunica = g_clear.cleared(0); tgates.clear_hugo = g_clear.cleared(1); tgates.clear_toal = g_clear.cleared(2);
+            tgates.nya = nya_gate;
+        };
+        gates_sync();
         std::printf("  [title] clear data: Yunica %02x Hugo %02x Toal %02x, data.nya %d -> Bonus Modes %d, Toal's bar %s\n",
                     g_clear.clear[0], g_clear.clear[1], g_clear.clear[2], int(nya_gate), int(tgates.any_clear()),
                     (g_clear.cleared(0) || g_clear.cleared(1)) ? "open" : "locked");
@@ -998,6 +1149,7 @@ title_again:
                 // Cancel 0x4000, the auto-repeat steps; the book's 4-way stick while it is up.
                 const input::Frame& inf = input_tick(tbook.is_open());
                 sync_settings();
+                gates_sync();
                 {   // the cursor manager (FUN_004263c0): the title list and the book are menu windows
                     mouse::Context cc;
                     cc.menu = tscreen.list_alive() || tbook.is_open();
@@ -1162,6 +1314,7 @@ title_again:
     // the 0x112 tap-step, the dash and the double jump. The press (the mapper's +0x50c & 1 edge, or
     // a drive's atk) is latched at the top of the logic tick and consumed by that tick's mover.
     PlayerActions pact;
+    bool dash_opt[2] = {ocheck[1], ocheck[3]};   // DashControl / AlwaysDashOK as last seen (a change clears the dash)
     bool atk_press_pending = false;
     // The bracelet switch (src/cleria/mouse SkillSwitch = FUN_0046cb00; the apply in FUN_00465170
     // 0x4652ca..0x465377): the wheel and the skill bits make a request (+0x518), the mover lands it.
@@ -3494,6 +3647,7 @@ title_again:
         skill_charge = {};
     };
     bool drive_skill = false;                             // CLERIA_DRIVE skill+ / skill-
+    bool drive_atk_held = false;                          // CLERIA_DRIVE atk+ / atk-: the attack button held (+0x510 & 1)
     bool drive_jump = false;                              // CLERIA_DRIVE jump: one press
     Vec3 drive_wish{};                                    // CLERIA_DRIVE move=dx,dz,n: a held stick
     int drive_wish_n = 0;
@@ -3525,6 +3679,7 @@ title_again:
         const int slot = skillmp::bracelet_slot(inv.magic);
         skillmp::SkillIn si;
         si.skill_held = skill_held; si.attack_held = attack_held;
+        si.auto_charge = ocheck[2];                   // 0x6d606f "Hold Attack for Skills" [EXPORT 00465170.c:906]
         si.magic = inv.magic;
         si.bracelet_level = slot < 3 ? game.g_flags[182 + slot] : 0;
         si.section = avm.section();
@@ -4613,11 +4768,20 @@ title_again:
             else std::printf("  [drive] hud skill %d badge none\n", inv.magic);
         } else if (content_drive(cmd)) {               // cstate, give=, csave=, cload= (view_content.inl)
         } else if (access_drive(cmd)) {                // opt=Key=value, esctap, eschold=n (view_access.inl)
+        } else if (cmd == "cleardata=ta" || cmd == "cleardata=progress") {   // Audio > Other's two buttons, confirmed
+            clear_records(cmd == "cleardata=progress");
+            std::printf("  [clear] now: clear bytes %02x %02x %02x\n", g_clear.clear[0], g_clear.clear[1], g_clear.clear[2]);
         } else if (video_drive(cmd)) {                 // vopt=Key=value, vstat (view_video.inl)
         } else if (cmd == "jump") {
             drive_jump = true;
         } else if (cmd == "skill+" || cmd == "skill-") {   // hold / release the skill button
             drive_skill = cmd == "skill+";
+        } else if (cmd == "atk+" || cmd == "atk-") {       // hold / release the attack button (no press edge)
+            drive_atk_held = cmd == "atk+";
+        } else if (cmd == "dstat") {                   // the dash machine and the skill charge (the Input page's options)
+            std::printf("  [dash] on %d state %d latch %d sec 0x%x | charge %.0f lv %d | opts dash %d hold %d always %d\n",
+                        int(pact.dash), pact.dash_state, int(pact.dash_latch), unsigned(avm.section()),
+                        double(skill_charge.amount), skill_charge.level, int(ocheck[1]), int(ocheck[2]), int(ocheck[3]));
         } else if (cmd == "act") {
             try_interact();
         } else if (cmd.rfind("mouse=", 0) == 0) {      // the virtual pointer (view_input.inl)
@@ -6779,7 +6943,7 @@ title_again:
                 PlayerActions::In pi;
                 pi.character = character;
                 pi.attack_pressed = atk_press_pending && !paused;
-                pi.attack_held = !paused && (g_in.held & input::kAttack) != 0;   // +0x510 & 1
+                pi.attack_held = !paused && ((g_in.held & input::kAttack) != 0 || drive_atk_held);   // +0x510 & 1
                 pi.skill_held = !paused && ((g_in.held & input::kMagic) || drive_skill);   // +0x510 & 4
                 pi.jump_pressed = jump_edge && !submerged;       // the water re-jump stays below
                 pi.stick_active = moving;
@@ -6793,6 +6957,9 @@ title_again:
                 pi.flag181 = game.g_flags[181] > 0;
                 pi.flag163 = game.g_flags[163] > 0;
                 pi.always_dash = ocheck[3];
+                pi.dash_control = ocheck[1];                      // 0x6d606e "Double-Tap to Dash"
+                if (pi.dash_control != dash_opt[0] || (dash_opt[1] && !pi.always_dash)) pact.dash_reset();   // FUN_005ba2b0
+                dash_opt[0] = pi.dash_control; dash_opt[1] = pi.always_dash;
                 pi.kind = skillmp::attack_kind(pi.section);
                 pi.busy = game.g_flags[161] != 0 || game.g_flags[151] == -1;
                 pi.yunica_form = game.g_flags[149] != 0;
@@ -8134,7 +8301,7 @@ title_again:
             // The skill button, then MP regen with its lag (mover 0x467aff..0x467bfa).
             if (!fly) {
                 const bool held = !paused && ((g_in.held & input::kMagic) || drive_skill);
-                const bool atk = !paused && (g_in.held & input::kAttack) != 0;
+                const bool atk = !paused && ((g_in.held & input::kAttack) != 0 || drive_atk_held);
                 skill_tick(held, atk);
             }
             {

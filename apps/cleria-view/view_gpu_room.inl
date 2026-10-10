@@ -226,6 +226,9 @@ static WGPUBuffer make_buffer(WGPUDevice dev, WGPUQueue q, const void* data,
 // g_world_mips -- a room loaded while it is set uploads its textures' mip chains and samples them
 // through g.sampler_mip; g_sprite_point -- a character sprite uploaded while it is set samples nearest.
 static bool g_world_mips = false, g_sprite_point = false;
+// [graphics] LowResoTexture ("Low-Resolution Textures", 0x76516f): the texture index prefers a file's copy in an
+// L folder over the H one (build_indexes in main.cpp; set by view_video.inl's video_low_res).
+static bool g_low_res_textures = false;
 
 static WGPUTextureView upload_texture(Gpu& g, Room& room, const Dds& dds) {
     WGPUTextureFormat fmt; std::uint32_t block = 1, blk_bytes = 4;
@@ -894,6 +897,27 @@ static Room load_model(Gpu& g, const fs::path& asset_root, const fs::path& ymo) 
 // by the Video page's video_init before build_pipeline. The default = bilinear, no anisotropy.
 static video::SamplerSpec g_world_sampler;
 
+// The world sampler and its mip twin from g_world_sampler: at start (build_pipeline) and again when the Video
+// page changes the filter (video_resample). A bind group bakes its sampler in, so the ones already made keep
+// the old sampler (alive through their reference) until their room or sprite is unloaded.
+static void make_world_samplers(Gpu& g) {
+    if (g.sampler) wgpuSamplerRelease(g.sampler);
+    if (g.sampler_mip) wgpuSamplerRelease(g.sampler_mip);
+    WGPUSamplerDescriptor sad = {};
+    sad.addressModeU = sad.addressModeV = sad.addressModeW = WGPUAddressMode_Repeat;
+    sad.magFilter = sad.minFilter = g_world_sampler.linear ? WGPUFilterMode_Linear : WGPUFilterMode_Nearest;
+    if (g_world_sampler.mip_linear) sad.mipmapFilter = WGPUMipmapFilterMode_Linear;
+    sad.maxAnisotropy = g_world_sampler.anisotropy;
+    g.sampler = wgpuDeviceCreateSampler(g.device, &sad);
+    // The mip one ("Smooth distant textures", g_world_mips) blends the levels (trilinear) and, on a linear
+    // filter, takes at least 8x anisotropy: trilinear alone blurs a floor seen at a steep angle more than no
+    // mips at all. [H] 8.
+    WGPUSamplerDescriptor md = sad;
+    md.mipmapFilter = WGPUMipmapFilterMode_Linear; md.lodMaxClamp = 32.0f;
+    if (g_world_sampler.linear) md.maxAnisotropy = std::max<std::uint16_t>(g_world_sampler.anisotropy, 8);
+    g.sampler_mip = wgpuDeviceCreateSampler(g.device, &md);
+}
+
 static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
     WGPUShaderSourceWGSL wgsl = {};
     wgsl.chain.sType = WGPUSType_ShaderSourceWGSL; wgsl.code = sv(kWGSL);
@@ -1090,19 +1114,8 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
         wgpuShaderModuleRelease(fm);
     }
 
-    WGPUSamplerDescriptor sad = {};
-    sad.addressModeU = sad.addressModeV = sad.addressModeW = WGPUAddressMode_Repeat;
-    sad.magFilter = sad.minFilter = g_world_sampler.linear ? WGPUFilterMode_Linear : WGPUFilterMode_Nearest;
-    if (g_world_sampler.mip_linear) sad.mipmapFilter = WGPUMipmapFilterMode_Linear;
-    sad.maxAnisotropy = g_world_sampler.anisotropy;
-    g.sampler = wgpuDeviceCreateSampler(g.device, &sad);
-    {   // The two enhancement samplers (g_world_mips / g_sprite_point above). The mip one blends the levels
-        // (trilinear) and, on a linear filter, takes at least 8x anisotropy: trilinear alone blurs a floor seen
-        // at a steep angle more than no mips at all. [H] 8.
-        WGPUSamplerDescriptor md = sad;
-        md.mipmapFilter = WGPUMipmapFilterMode_Linear; md.lodMaxClamp = 32.0f;
-        if (g_world_sampler.linear) md.maxAnisotropy = std::max<std::uint16_t>(g_world_sampler.anisotropy, 8);
-        g.sampler_mip = wgpuDeviceCreateSampler(g.device, &md);
+    make_world_samplers(g);
+    {   // "Character sprites: Crisp" (g_sprite_point above)
         WGPUSamplerDescriptor nd = {};
         nd.addressModeU = nd.addressModeV = nd.addressModeW = WGPUAddressMode_Repeat;
         nd.magFilter = nd.minFilter = WGPUFilterMode_Nearest; nd.maxAnisotropy = 1;

@@ -147,9 +147,9 @@ The CLERIA_DRIVE commands are unchanged and land alongside the mapper. Drive run
 - **Live**: everything in `[input]` and `cleria.ini [cleria.input]` (bindings, deadzone, RunWalk,
   DoubleClick, AlwaysOkCancel, PadAnalog, GamePad); BGM / SFX volume; AlwaysDashOK (the dash FSM reads
   the Options copy); `UnlockMovieSkip`.
-- **Persisted, not consumed by CleriaCore yet**: `DashControl` and `AtkBtnMagic`; gamma (no shader term);
-  every `[graphics]` / `[kernel]` key; `PlayBgm` / `PlayEffect` / `Reverb` / `Device`; `ForceFeedback`;
-  `Language`; the `[game]` bookkeeping keys. `GameFirstPlay` is read.
+- **Persisted, not consumed by CleriaCore yet**: `Reverb`; the `[game]` bookkeeping keys; the keys listed as
+  not applicable or open in `CONFIG_PARITY.md`. `GameFirstPlay` is read. (Since 2026-10-10 `DashControl`,
+  `AtkBtnMagic`, `PlayBgm`, `PlayEffect`, the sound `Device` and `Language` are consumed: CONFIG_PARITY.md.)
 - **Needs a restart**: `GamePadID` and `NoInitializeGameCtrl` (the pad is opened at start and on
   hot-plug); `DebugHud` (its initial state).
 

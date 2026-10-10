@@ -545,6 +545,11 @@ static void pad_page(ui::List& L, Shell& shell) {
             s.input.dead_zone = dz / 100.0f;
             persist();
         }
+        if (ui::button(L, "Reset deadzone", "Back to 35%. (Original: the Reset button beside Deadzone.)",
+                       std::fabs(s.input.dead_zone - 0.35f) > 0.001f)) {
+            s.input.dead_zone = 0.35f;                     // button 3005 = 3500 / 10000
+            persist();
+        }
         if (ui::toggle(L, "Analog walk", &s.cleria.linear_stick_magnitude,
                        "Walk or run by how far the stick is pushed. In the original a stick past the deadzone "
                        "always runs; only the Walk button walks. Not a retail option."))

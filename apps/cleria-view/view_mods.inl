@@ -46,6 +46,7 @@ static mods::Prefs mods_prefs_from_settings() {
     return {c.use_mods, mods::split_list(c.mod_order), mods::split_list(c.mod_active)};
 }
 
+static void mods_index(Gpu& g);
 // Mount the game's folders and lay the enabled mods over them. Before any asset is loaded.
 static void mods_startup(Gpu& g, const fs::path& asset_root) {
     vfs::reset();
@@ -73,8 +74,12 @@ static void mods_startup(Gpu& g, const fs::path& asset_root) {
         for (const std::string& n : m.notes) std::printf("[mods]   %s: %s\n", m.label().c_str(), n.c_str());
     }
     mods_ui_script(u);
-    // Textures and rooms a mod ADDS (new names) join the name indexes like build_indexes does; a
-    // replaced file keeps its base index entry and vfs::resolve swaps it at the open.
+    mods_index(g);
+}
+
+// Textures and rooms a mod ADDS (new names) join the name indexes like build_indexes does; a
+// replaced file keeps its base index entry and vfs::resolve swaps it at the open.
+static void mods_index(Gpu& g) {
     for (const auto& [k, e] : vfs::table()) {
         const fs::path vp(k);
         const std::string ext = vp.extension().string();
@@ -86,6 +91,19 @@ static void mods_startup(Gpu& g, const fs::path& asset_root) {
             g.sob_index.emplace(stem, e.file);
         }
     }
+}
+
+// [game] Language (build/shell_re/CONFIG_PARITY.md §7): retail mounts one overlay archive per language over
+// release/data (FUN_005d68d0); here that archive's unpacked folder (gamedata::language_dir) is laid over the
+// asset root, under the mods. English is the data folder itself. A language whose folder is missing runs in
+// English, as retail falls back (FUN_0040ccf0). After mods_startup (which resets the vfs), before any load.
+static int g_language = 1;   // the language this session runs in
+static void language_startup(const fs::path& asset_root) {
+    const int want = settings().s.game.language;
+    const std::size_t n = vfs::set_language(gamedata::language_dir(asset_root, want));
+    g_language = n ? want : 1;
+    if (want != 1)
+        std::printf("[language] Language=%d: %s (%zu files)\n", want, gamedata::language(g_language)->name, n);
 }
 
 // Persist the tab's order / choices; recheck the list.
