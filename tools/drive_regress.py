@@ -1261,6 +1261,20 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=30;9:flag=205,1;10:saveload;40:every=20,700,ok;"
               "720:every=40,800,boss3;728:every=40,800,atk;1100:quit",
         expect=["[boss03] Gelaldy: body 1500, arms 800", "mini gauge 0 on: ", " / 800", "mini gauge 0 off"]),
+    # Gelaldy's whole fight (build/boss_re/GELALDY*.md; src/cleria/boss03), from the room's retry start (flag 205 + a
+    # reload: the root script places the player and starts the battle) as Yunica, with real swings: `boss3` stands
+    # her by an open part (an unguarded arm, then the core once it is open) and Attack is pressed. The arms are
+    # broken (RDAMAGE / LDAMAGE), the teeth open and the core is cut (body 1500 -> 1149 -> 795 -> 465 -> 111), the
+    # magma and a Perrie on the way, the sweep (LNAGI) and the roll (RROLL), then the death and flag 222.
+    # Written before BOSS_HULLS step 4 (the hull bound to the render bones), on the rest-pose hull.
+    "gelaldy_fight": dict(
+        room="S_30/S_3099/S_3099",
+        env={"CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=3;9:flag=205,1;10:saveload;"
+              "40:every=20,700,ok;720:every=40,5100,boss3;728:every=40,5100,atk;5100:quit",
+        expect=["[boss03] Gelaldy: body 1500, arms 800", "clip RPUNCHI", "clip RDAMAGE", "clip LDAMAGE", "clip TEETH1",
+                "body 1149/1500", "Perrie spawned", "body 795/1500", "clip LNAGI1", "clip RROLL", "clip DEAD",
+                "flag 222 = 1"]),
     # ... and as Hugo: the mode-0 scan's sub-part pass runs for his shots' particles too (view_fx_mode0.inl), so the
     # pods and the core take them (they passed through the boss before).
     "khonsclard_hugo": dict(
