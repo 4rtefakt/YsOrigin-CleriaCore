@@ -113,6 +113,7 @@ bool Audio::open_stream(int index) {
 
 bool Audio::set_device(int index) {
     if (!stream_) return false;                          // no device mode (CLERIA_MUTE), or init failed
+    if (index < 0 || index > int(devices().size())) index = 0;   // a saved device that is gone: the default
     if (index == device_) return true;
     SDL_DestroyAudioStream(as(stream_));                 // the audio thread is gone after this
     stream_ = nullptr;
