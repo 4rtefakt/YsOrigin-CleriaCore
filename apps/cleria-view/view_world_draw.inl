@@ -918,8 +918,33 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
         }
         return it->second.mesh.vertices.empty() ? nullptr : &it->second;
     };
-    struct Bucket { std::vector<RoomVertex> v; WGPURenderPipeline pipe{}; WGPUBindGroup bind{}; };
+    // A particle's mesh goes out as the model's own vertices, transformed, drawn with the model's index buffer
+    // (one indexed draw per particle and subset, in the old order). It used to be expanded triangle by triangle:
+    // 2436 vertices for each of Dalles's death meshes, 66 of them at once.
+    struct MeshDraw { WGPUBuffer ibuf; std::uint32_t first, count; std::int32_t base; };
+    struct Bucket { std::vector<RoomVertex> v; WGPURenderPipeline pipe{}; WGPUBindGroup bind{}; std::vector<MeshDraw> draws{}; };
     std::vector<Bucket> opaque, blended;
+    // Each subset's vertex span [lo, hi) and its usable index count (whole triangles before a bad index), per model.
+    struct Span { std::uint32_t lo = 0, hi = 0, count = 0; };
+    static std::unordered_map<const Room*, std::vector<Span>> spans;
+    auto spans_of = [&](const Room* m) -> const std::vector<Span>& {
+        auto it = spans.find(m);
+        if (it != spans.end()) return it->second;
+        std::vector<Span> out;
+        for (const DrawBatch& bt : m->mesh.batches) {
+            Span sp;
+            sp.lo = 0xffffffffu;
+            for (std::uint32_t k = 0; k < bt.index_count; ++k) {
+                const std::size_t ii = std::size_t(bt.first_index) + k;
+                if (ii >= m->mesh.indices.size() || m->mesh.indices[ii] >= m->mesh.vertices.size()) break;
+                sp.lo = std::min(sp.lo, m->mesh.indices[ii]); sp.hi = std::max(sp.hi, m->mesh.indices[ii] + 1);
+                ++sp.count;
+            }
+            sp.count -= sp.count % 3;
+            out.push_back(sp);
+        }
+        return spans.emplace(m, std::move(out)).first->second;
+    };
     for (const auto& pp : sim.particles()) {
         const ef2sim::Particle& p = *pp;
         if (p.dead || p.delay != 0 || p.remaining == 0 || !p.drawn) continue;
@@ -943,6 +968,7 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
         if (!E.frames.empty())
             over = tex_of(E.frames[std::min<std::size_t>(p.frame, E.frames.size() - 1)].tex_id);
         int mat_i = 0;
+        const std::vector<Span>& msp = spans_of(m);
         for (const DrawBatch& bt : m->mesh.batches) {
             if (bt.index_count == 0) continue;
             const int mode = material_blend_mode(bt, a);
@@ -954,11 +980,12 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
                                                       : (cull ? g.cull_mat_pipe : g.mat_pipe)[mode][material_zwrite(bt) ? 1 : 0];
             std::vector<Bucket>& list = mode == 0 ? opaque : blended;
             if (list.empty() || list.back().pipe != pipe || list.back().bind != bind) list.push_back({{}, pipe, bind});
+            const Span& sp = msp[std::size_t(&bt - m->mesh.batches.data())];
+            if (sp.count == 0) continue;
             std::vector<RoomVertex>& out = list.back().v;
-            for (std::uint32_t k = 0; k < bt.index_count; ++k) {
-                const std::size_t ii = std::size_t(bt.first_index) + k;
-                if (ii >= m->mesh.indices.size() || m->mesh.indices[ii] >= m->mesh.vertices.size()) break;
-                RoomVertex v = m->mesh.vertices[m->mesh.indices[ii]];
+            list.back().draws.push_back({m->ibuf, bt.first_index, sp.count, std::int32_t(out.size()) - std::int32_t(sp.lo)});
+            for (std::uint32_t k = sp.lo; k < sp.hi; ++k) {
+                RoomVertex v = m->mesh.vertices[k];
                 const Vec3 w = ef2sim::transform_coord({v.px, v.py, v.pz}, p.world);
                 v.px = w.x; v.py = w.y; v.pz = w.z;
                 v.u += du; v.v += dv;
@@ -970,10 +997,27 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
             }
         }
     }
+    // One vertex buffer kept between frames, each bucket written at its own offset (the writes land before the
+    // bucket's submit). A buffer made per bucket per frame cost ~31 ms once it passed 5 MB (measured: those 66
+    // meshes as 160776 expanded vertices), every frame the burst lasted.
+    static WGPUBuffer kept = nullptr;
+    static std::uint64_t kept_size = 0;
+    std::uint64_t need = 0, at = 0;
+    for (std::vector<Bucket>* list : {&opaque, &blended})
+        for (const Bucket& bk : *list) need += bk.v.size() * sizeof(RoomVertex);
+    if (need > kept_size) {
+        if (kept) wgpuBufferRelease(kept);
+        kept_size = need + need / 2;
+        WGPUBufferDescriptor bd = {};
+        bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst; bd.size = kept_size;
+        kept = wgpuDeviceCreateBuffer(g.device, &bd);
+    }
     for (std::vector<Bucket>* list : {&opaque, &blended})
         for (const Bucket& bk : *list) {
             if (bk.v.empty()) continue;
-            WGPUBuffer vb = make_buffer(g.device, g.queue, bk.v.data(), bk.v.size() * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
+            const std::uint64_t vsize = bk.v.size() * sizeof(RoomVertex), voff = at;
+            wgpuQueueWriteBuffer(g.queue, kept, voff, bk.v.data(), vsize);
+            at += vsize;
             WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
             WGPURenderPassColorAttachment ca = {};
             ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
@@ -986,13 +1030,16 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
             wgpuRenderPassEncoderSetPipeline(pass, bk.pipe);
             wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
             wgpuRenderPassEncoderSetBindGroup(pass, 1, bk.bind, 0, nullptr);
-            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
-            wgpuRenderPassEncoderDraw(pass, std::uint32_t(bk.v.size()), 1, 0, 0);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, kept, voff, vsize);
+            WGPUBuffer ib = nullptr;
+            for (const MeshDraw& d : bk.draws) {
+                if (d.ibuf != ib) wgpuRenderPassEncoderSetIndexBuffer(pass, ib = d.ibuf, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+                wgpuRenderPassEncoderDrawIndexed(pass, d.count, 1, d.first, d.base, 0);
+            }
             wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
             WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
             wgpuQueueSubmit(g.queue, 1, &cmd);
             wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
-            wgpuBufferRelease(vb);
         }
 }
 
