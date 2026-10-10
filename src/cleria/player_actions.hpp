@@ -26,6 +26,9 @@ struct PlayerActions {
     int tap_window = 0;             // +0x70c (12 ticks)
     int step_t = 0;                 // +0x400 (the 0x112 lunge timer, 13 ticks)
     bool dash = false;              // +0xa00
+    int dash_state = 0, dash_t = 0; // +0x720 / +0x728: the double-tap dash machine (4 = dashing by it)
+    float dash_angle = 0;           // +0x724: the first tap's stick angle
+    bool dash_latch = false;        // DAT_0076c1c4: a double-tap dash is on
     int dj_count = 0, dj_cool = 0;  // +0x77c / +0x780
     bool stick_was_active = false;
     bool break_latch = false;       // +0x6f6: an AttackBreak cancelled the buffer
@@ -48,6 +51,7 @@ struct PlayerActions {
         bool flag181 = false;        // the dash (Silver Bracelet)
         bool flag163 = false;        // the double jump
         bool always_dash = false;    // option AlwaysDashOK (0x6d6070)
+        bool dash_control = false;   // option DashControl (0x6d606e, "Double-Tap to Dash"; retail's default is on)
         int kind = 0;                // +0x404
         bool busy = false;           // g_flags[161] / 151 == -1
         bool yunica_form = true;     // g_flags[149] (DAT_0076bb70) != 0: her air-combo timer adds
@@ -71,6 +75,9 @@ struct PlayerActions {
 
     // One mover tick (before the integrator). `ground` / `air` combo tables per character.
     Out tick(const In& in);
+    // The Options rows that change DashControl, turn AlwaysDashOK off or reset to Default clear the dash
+    // (FUN_005ba2b0 [EXPORT 005ba2b0.c:225-269]: +0xa00, +0x728, +0x720 and DAT_0076c1c4 = 0).
+    void dash_reset() { dash = false; dash_state = 0; dash_t = 0; dash_latch = false; }
 
   private:
     void dispatch(const In& in, Out& o, int ch);   // FUN_0046ea00(0)

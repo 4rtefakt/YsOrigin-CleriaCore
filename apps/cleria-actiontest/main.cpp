@@ -112,6 +112,44 @@ int main(int, char**) {
         check(!pa.tick(in).locomotion_dash, "no flag 181: no dash");
         in.flag181 = true;
         check(pa.tick(in).locomotion_dash, "flag 181 + attack held + running: section 0x10a");
+        in.attack_held = false;
+        check(!pa.tick(in).locomotion_dash, "attack released: the dash ends");
+        // DashControl ("Double-Tap to Dash"): neutral, a tap, neutral, the same direction again.
+        auto taps = [](bool control, int gap, float second) {
+            PlayerActions p;
+            PlayerActions::In i; i.character = 1; i.flag181 = true; i.dash_control = control;
+            p.tick(i);                                   // neutral
+            i.stick_active = true; i.stick_angle = 0.5f;
+            for (int k = 0; k < 3; ++k) p.tick(i);       // the first tap
+            i.stick_active = false;
+            for (int k = 0; k < gap; ++k) p.tick(i);     // released
+            i.stick_active = true; i.stick_angle = second;
+            return p.tick(i).locomotion_dash;
+        };
+        check(taps(true, 4, 0.5f), "DashControl: a double tap dashes");
+        check(!taps(false, 4, 0.5f), "DashControl off: a double tap does not");
+        check(!taps(true, 14, 0.5f), "the second tap later than 12 ticks: no dash");
+        check(!taps(true, 4, 0.5f + 2.5f), "the second tap more than 2.243995 rad away: no dash");
+        PlayerActions pd;
+        PlayerActions::In id; id.character = 1; id.flag181 = true; id.dash_control = true;
+        pd.tick(id);
+        id.stick_active = true; pd.tick(id);
+        id.stick_active = false; pd.tick(id);
+        id.stick_active = true;
+        check(pd.tick(id).locomotion_dash && pd.dash_state == 4 && pd.dash_latch, "the dash: state 4, latched");
+        for (int k = 0; k < 30; ++k) pd.tick(id);
+        check(pd.tick(id).locomotion_dash, "...kept while the direction is held");
+        id.stick_active = false; id.attack_held = true;
+        pd.tick(id);
+        check(pd.dash && pd.dash_state == 0, "neutral with attack held: the dash flag stays, the machine restarts");
+        id.attack_held = false;
+        pd.tick(id);
+        check(!pd.dash && !pd.dash_latch, "neutral, nothing held: the dash ends");
+        PlayerActions pe;
+        PlayerActions::In ie; ie.character = 1; ie.flag181 = true; ie.always_dash = true; ie.stick_active = true;
+        check(pe.tick(ie).locomotion_dash && pe.dash_state == 4, "AlwaysDashOK: state 4 every tick");
+        ie.always_dash = false; pe.dash_reset();
+        check(!pe.tick(ie).locomotion_dash, "AlwaysDashOK turned off (the Options row clears it): no dash");
         PlayerActions pb;
         PlayerActions::In ib; ib.character = 1; ib.jump_pressed = true;
         check(pb.tick(ib).jump, "a ground jump");

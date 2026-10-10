@@ -44,6 +44,37 @@ PlayerActions::Out PlayerActions::tick(const In& in) {
         dj_count = 0; dj_cool = 6;
     }
 
+    // ---- the dash machine +0x720 / +0x724 / +0x728 (0x4651f3.., 0x4654a0..0x465641) ----
+    // Mover state 0xd: a latched dash (DAT_0076c1c4) or AlwaysDashOK re-arms it every tick.
+    if (in.flag181 && ((dash_latch && !dash) || in.always_dash)) { dash_state = 4; dash = true; }
+    // DashControl ("Double-Tap to Dash", 0x6d606e): neutral -> a direction (its angle kept) -> neutral within
+    // 12 ticks -> a direction again within 12 ticks and 2.243995 rad (0x6bd5cc) of the first = the dash, kept
+    // while the direction is held; back at neutral it ends unless attack or skill is held.
+    if (in.flag181 && in.dash_control) {
+        if (!dash) {
+            switch (dash_state) {
+                case 0: if (!in.stick_active) dash_state = 1; break;
+                case 1: if (in.stick_active) { dash_state = 2; dash_angle = in.stick_angle; } break;
+                case 2:
+                    ++dash_t;
+                    if (!in.stick_active) { dash_t = 0; dash_state = 3; }
+                    else if (dash_t > 12) { dash_t = 0; dash_state = 0; }
+                    break;
+                case 3:
+                    ++dash_t;
+                    if (!in.stick_active) { if (dash_t > 12) { dash_t = 0; dash_state = 0; } }
+                    else if (std::fabs(wrap(dash_angle - in.stick_angle)) < 2.243995f) {
+                        dash_state = 4; dash_t = 0; dash = true; dash_latch = true;
+                    }
+                    break;
+                default: break;
+            }
+        } else if (!in.stick_active) {
+            dash_t = 0; dash_state = 0;
+            if (!in.attack_held && !in.skill_held) { dash = false; dash_latch = false; }
+        }
+    }
+
     // ---- the tap machine +0x710 (0x465643..0x465819): a short tap opens a 12-tick window ----
     if (in.mouse_mode) {
         // Mouse mode [BYTES 0x465643..0x4656d6]: +0x70c = 0; state 4 holds the window for 12 more
@@ -72,13 +103,11 @@ PlayerActions::Out PlayerActions::tick(const In& in) {
             break;
     }
 
-    // ---- the dash +0xa00 (flag 181): held attack or skill, or AlwaysDashOK ----
-    if (in.flag181) {
-        if (in.always_dash || in.attack_held || in.skill_held) dash = true;
-        else dash = false;
-    } else {
-        dash = false;
-    }
+    // ---- the dash +0xa00 (flag 181), its W1 / W2 writes: held attack or skill sets it [BYTES 0x466afb],
+    // a release clears it unless the machine above holds it (+0x720 == 4) [BYTES 0x466596..0x4665b5] ----
+    if (!in.flag181) dash = false;
+    else if (in.attack_held || in.skill_held) dash = true;
+    else if (dash_state != 4) { dash = false; dash_latch = false; }
     o.locomotion_dash = dash && in.grounded && in.stick_active;
 
     // ---- the jump (0x465388.., 0x468ba7..) ----
