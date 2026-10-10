@@ -37,9 +37,8 @@ int chest_opened_flag(const std::filesystem::path& script) {
 namespace fs = std::filesystem;
 
 std::vector<std::uint8_t> read_file(const fs::path& p) {
-    std::ifstream f(vfs::resolve(p), std::ios::binary);
-    if (!f) throw std::runtime_error("cannot open " + p.string());
-    return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
+    if (!std::ifstream(vfs::resolve(p), std::ios::binary)) throw std::runtime_error("cannot open " + p.string());
+    return vfs::read(p);
 }
 
 // One spelling per file for the cache (resolve_ymo mixes / and \).

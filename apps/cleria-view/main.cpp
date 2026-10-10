@@ -154,10 +154,7 @@ namespace fs = std::filesystem;
 
 static WGPUStringView sv(const char* s) { return {s, s ? std::strlen(s) : 0}; }
 
-static std::vector<std::uint8_t> read_bytes(const fs::path& p) {
-    std::ifstream f(vfs::resolve(p), std::ios::binary);
-    return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
-}
+static std::vector<std::uint8_t> read_bytes(const fs::path& p) { return vfs::read(p); }
 
 static fs::path exe_dir() {
 #ifdef _WIN32

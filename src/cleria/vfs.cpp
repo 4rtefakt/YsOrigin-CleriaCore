@@ -186,10 +186,18 @@ fs::path locate(std::string_view vname) {
     return best->path / fs::path(std::u8string(rest.begin(), rest.end()));
 }
 
+// One block read: a byte-wise istreambuf_iterator copy was ~10 ms per MB (a 1 MB effect texture's first use,
+// a room's YMO and its textures at load).
 std::vector<std::uint8_t> read(const fs::path& p) {
-    std::ifstream f(resolve(p), std::ios::binary);
+    std::ifstream f(resolve(p), std::ios::binary | std::ios::ate);
     if (!f) return {};
-    return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
+    const std::streamoff n = f.tellg();
+    if (n <= 0) return {};
+    std::vector<std::uint8_t> b(static_cast<std::size_t>(n));
+    f.seekg(0);
+    f.read(reinterpret_cast<char*>(b.data()), n);
+    b.resize(static_cast<std::size_t>(f.gcount()));
+    return b;
 }
 
 bool exists(const fs::path& p) {

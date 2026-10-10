@@ -39,10 +39,7 @@ static std::vector<std::uint8_t> half_rgba(const std::vector<std::uint8_t>& s, s
 
 Dds load_dds(const std::filesystem::path& path, bool mips) {
     Dds out;
-    std::ifstream f(vfs::resolve(path), std::ios::binary);
-    if (!f) return out;
-    std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f),
-                                std::istreambuf_iterator<char>()};
+    const std::vector<std::uint8_t> b = vfs::read(path);
     if (b.size() < 128 || std::memcmp(b.data(), "DDS ", 4) != 0) return out;
 
     // DDS_HEADER: height @12, width @16; PIXELFORMAT flags @80, fourCC @84,
@@ -115,16 +112,28 @@ Dds load_dds(const std::filesystem::path& path, bool mips) {
         const std::size_t px = std::size_t(width) * height;
         if (data_off + px * bpp > b.size()) return {};
 
-        // Extract one channel, scaled to 8 bits. mask==0 => 255 (opaque).
-        auto chan = [](std::uint32_t v, std::uint32_t mask) -> std::uint8_t {
-            if (!mask) return 255;
-            std::uint32_t m = mask; int shift = 0;
-            while (!(m & 1)) { m >>= 1; ++shift; }
-            int nbits = 0; std::uint32_t mm = m;
-            while (mm & 1) { mm >>= 1; ++nbits; }
-            const std::uint32_t c = (v >> shift) & ((1u << nbits) - 1);
-            return std::uint8_t((c * 255u) / ((1u << nbits) - 1));
+        // Extract one channel, scaled to 8 bits. mask==0 => 255 (opaque). The mask's shift, width and the scaled
+        // values are worked out once per file, not per pixel (a 1024x1024 bust took ~25 ms to decode).
+        struct Chan {
+            int shift = 0;
+            std::uint32_t lim = 0;                   // (1 << bits) - 1; 0 = no mask
+            std::uint8_t lut[256] = {};
+            explicit Chan(std::uint32_t mask) {
+                if (!mask) return;
+                std::uint32_t m = mask;
+                while (!(m & 1)) { m >>= 1; ++shift; }
+                int nbits = 0; std::uint32_t mm = m;
+                while (mm & 1) { mm >>= 1; ++nbits; }
+                lim = (1u << nbits) - 1;
+                if (lim <= 255) for (std::uint32_t c = 0; c <= lim; ++c) lut[c] = std::uint8_t((c * 255u) / lim);
+            }
+            std::uint8_t operator()(std::uint32_t v) const {
+                if (!lim) return 255;
+                const std::uint32_t c = (v >> shift) & lim;
+                return lim <= 255 ? lut[c] : std::uint8_t((c * 255u) / lim);
+            }
         };
+        const Chan cr(rmask), cg(gmask), cb(bmask), ca(amask);
 
         auto decode = [&](std::size_t off, std::size_t n, std::vector<std::uint8_t>& dst) {
             dst.resize(n * 4);
@@ -134,10 +143,10 @@ Dds load_dds(const std::filesystem::path& path, bool mips) {
                 if (bpp >= 3) v |= std::uint32_t(s[2]) << 16;
                 if (bpp == 4) v |= std::uint32_t(s[3]) << 24;
                 std::uint8_t* d = &dst[i * 4];
-                d[0] = chan(v, rmask);
-                d[1] = chan(v, gmask);
-                d[2] = chan(v, bmask);
-                d[3] = chan(v, amask);
+                d[0] = cr(v);
+                d[1] = cg(v);
+                d[2] = cb(v);
+                d[3] = ca(v);
             }
         };
         decode(data_off, px, out.data);

@@ -23,9 +23,7 @@ std::uint32_t rd32(const std::uint8_t* p) {
 }  // namespace
 
 bool Aia::load(const std::filesystem::path& path) {
-    std::ifstream f(vfs::resolve(path), std::ios::binary);
-    if (!f) return false;
-    data.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    data = vfs::read(path);
     if (data.size() < 0x28 || std::memcmp(data.data(), "AIA\0", 4) != 0) { data.clear(); return false; }
     version = rd16(&data[4]);
     if (version != 0x150) { data.clear(); return false; }  // only the shipping version
