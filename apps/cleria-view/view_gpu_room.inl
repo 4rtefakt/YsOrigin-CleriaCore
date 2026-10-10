@@ -30,6 +30,8 @@ struct Gpu {
     WGPURenderPipeline pipeline{};
     WGPURenderPipeline fx_pipeline{};   // additive effect billboards (SEF/EF2)
     WGPURenderPipeline fx_pipeline_sa{};   // the same with the texture's alpha as SRCALPHA (the EF2 particles)
+    WGPURenderPipeline fx_pipeline_sub{};  // EF2 render word 0x200000: REVSUBTRACT, SRCALPHA / ONE (dst - src)
+    WGPURenderPipeline fx_pipeline_pm{};   // EF2 render word 0x1000000: ONE / INVSRCALPHA
     WGPURenderPipeline char_pipeline{}; // alpha-blended character/enemy sprites
     WGPURenderPipeline char_pipeline_add{}; // additive variant, for glow overlays (Topic selection wash)
     WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
@@ -1042,6 +1044,13 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color) {
         g.fx_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &apd);
         afs.entryPoint = sv("fs_sa");
         g.fx_pipeline_sa = wgpuDeviceCreateRenderPipeline(g.device, &apd);
+        // D3DRS_BLENDOP 3 = REVSUBTRACT (result = destination - source), same factors [EXPORT 005eb5b0.c:199-205].
+        ab.color.operation = WGPUBlendOperation_ReverseSubtract;
+        ab.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_Zero, WGPUBlendFactor_One};
+        g.fx_pipeline_sub = wgpuDeviceCreateRenderPipeline(g.device, &apd);
+        ab.color = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_OneMinusSrcAlpha};
+        afs.entryPoint = sv("fs_pm");
+        g.fx_pipeline_pm = wgpuDeviceCreateRenderPipeline(g.device, &apd);
         wgpuShaderModuleRelease(fm);
     }
 

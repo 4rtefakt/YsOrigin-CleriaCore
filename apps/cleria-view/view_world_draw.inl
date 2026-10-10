@@ -1013,8 +1013,9 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
     const Vec3 up = {0, 1, 0};
     const Vec3 right = normalize(cross(up, camFwd));
     const Vec3 cam_up = cross(camFwd, right);                // the camera's up (0x7961b0 row 1)
-    struct Batch { std::vector<RoomVertex> v; std::vector<std::uint32_t> i; WGPUBindGroup bind{}; bool additive = true; };
-    std::map<std::pair<std::uint32_t, bool>, Batch> batches;
+    // mode: the emitter's blend (Ef2Emitter): 0 alpha, 1 additive, 2 subtractive, 3 premultiplied.
+    struct Batch { std::vector<RoomVertex> v; std::vector<std::uint32_t> i; WGPUBindGroup bind{}; int mode = 1; };
+    std::map<std::pair<std::uint32_t, int>, Batch> batches;
     for (const auto& pp : sim.particles()) {
         const ef2sim::Particle& p = *pp;
         // Not stepped yet (a child fired inside this step's particle loop): the engine has not enqueued it.
@@ -1030,15 +1031,16 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         const Ef2Frame& fr = E.frames[std::min<std::size_t>(p.frame, E.frames.size() - 1)];
         const SpriteTex* t = tex_of(fr.tex_id);
         if (!t) continue;
-        Batch& b = batches[{fr.tex_id, E.additive}];
-        b.bind = t->bind; b.additive = E.additive;
+        const int mode = E.additive ? 1 : E.subtractive ? 2 : E.premult ? 3 : 0;
+        Batch& b = batches[{fr.tex_id, mode}];
+        b.bind = t->bind; b.mode = mode;
         const float a = float(p.diffuse >> 24) / 255.0f;
         float r = float((p.diffuse >> 16) & 0xff), gc = float((p.diffuse >> 8) & 0xff), bc = float(p.diffuse & 0xff);
-        if (E.additive) { r *= a; gc *= a; bc *= a; }
+        if (mode == 1 || mode == 2) { r *= a; gc *= a; bc *= a; }   // SRCALPHA into a ONE destination
         const std::uint8_t R = std::uint8_t(r), G = std::uint8_t(gc), B = std::uint8_t(bc);
-        // fs_char: vertex alpha is the hit-flash (0), opacity = 1 - nrm.x.
-        const float nx = E.additive ? 0.0f : 1.0f - a;
-        const std::uint8_t VA = E.additive ? 255 : 0;
+        // fs_char: vertex alpha is the hit-flash (0), opacity = 1 - nrm.x. fs_pm: vertex alpha = the diffuse alpha.
+        const float nx = mode == 0 ? 1.0f - a : 0.0f;
+        const std::uint8_t VA = mode == 0 ? 0 : mode == 3 ? std::uint8_t(p.diffuse >> 24) : 255;
         const std::uint32_t base = std::uint32_t(b.v.size());
         if (flags & 8) {                                     // the ring band
             if (E.b2.size() < 0x908) continue;
@@ -1103,7 +1105,8 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         WGPURenderPassDescriptor rp = {};
         rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-        wgpuRenderPassEncoderSetPipeline(pass, b.additive ? g.fx_pipeline_sa : g.char_pipeline);
+        wgpuRenderPassEncoderSetPipeline(pass, b.mode == 1 ? g.fx_pipeline_sa : b.mode == 2 ? g.fx_pipeline_sub
+                                               : b.mode == 3 ? g.fx_pipeline_pm : g.char_pipeline);
         wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
         wgpuRenderPassEncoderSetBindGroup(pass, 1, b.bind, 0, nullptr);
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);

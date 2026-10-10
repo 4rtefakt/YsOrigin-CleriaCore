@@ -173,6 +173,8 @@ Ef2 Ef2::load(const fs::path& file) {
         std::memcpy(&mode, b.data() + o2 + 0x00, 2);
         std::memcpy(&blend, b.data() + o2 + 0x08, 4);
         em.additive = (blend & 0x80) != 0;
+        em.subtractive = !em.additive && (blend & 0x200000) != 0;
+        em.premult = !em.additive && !em.subtractive && (blend & 0x1000000) != 0;
         em.face_cam = (mode & 0x100) != 0;
         std::memcpy(&em.orient, b.data() + o2 + 0x44, 4);
         em.flat = (em.sz != 1.0f);

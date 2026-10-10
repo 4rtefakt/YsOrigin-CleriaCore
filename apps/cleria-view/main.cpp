@@ -396,6 +396,14 @@ fn fs_sa(in : VsOut) -> @location(0) vec4<f32> {
   let tc = textureSample(tex, smp, in.uv);
   return vec4<f32>(tc.rgb * in.color.rgb * tc.a, 1.0);
 }
+
+// The render word's bit 0x1000000 (no 0x80, no 0x200000): SRCBLEND = ONE, DESTBLEND = INVSRCALPHA
+// [EXPORT 005eb5b0.c:207-222]. in.color.a carries the diffuse alpha here.
+@fragment
+fn fs_pm(in : VsOut) -> @location(0) vec4<f32> {
+  let tc = textureSample(tex, smp, in.uv);
+  return vec4<f32>(tc.rgb * in.color.rgb, tc.a * in.color.a);
+}
 )WGSL";
 
 

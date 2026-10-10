@@ -26,6 +26,16 @@ int main(int argc, char** argv) {
     if (argc < 2) { std::fprintf(stderr, "usage: cleria-ef2simtest <assets>\n"); return 2; }
     const std::filesystem::path root = argv[1];
 
+    // ---- the render word's blend (B2+0x08, FUN_005eb5b0): effect 504, enemy\m_970_attack01 (the bat's dive) ----
+    {
+        const Ef2 ef = Ef2::load(root / "EFFECT" / "EFT" / "ENEMY" / "M_970_ATTACK01.EF2");
+        const auto& em = ef.emitters();
+        check(ef.ok() && em.size() == 5, "M_970_ATTACK01.EF2 loads: 5 emitters");
+        check(em.size() == 5 && em[0].additive && em[2].additive && em[3].subtractive && !em[3].additive &&
+              !em[4].additive && !em[4].subtractive && !em[4].premult,
+              "blend: em0 / em2 additive (0x46c1 / 0xc6c1), em3 subtractive (0x204641), em4 alpha (0xc641)");
+    }
+
     // ---- 5.1 effect 267, enemy\m_bom01 ----
     {
         const Ef2 ef = Ef2::load(root / "EFFECT" / "EFT" / "ENEMY" / "M_BOM01.EF2");

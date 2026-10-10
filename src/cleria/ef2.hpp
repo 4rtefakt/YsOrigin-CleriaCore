@@ -64,6 +64,12 @@ struct Ef2Emitter {
     int ring_segs = 0;
     float ring_outer = 0, ring_inner = 0, ring_height = 0;
     bool additive = false;
+    // The other two blends of the render word, tested in this order after 0x80 (FUN_005eb5b0
+    // [EXPORT 005eb5b0.c:161-222]): 0x200000 = D3DRS_BLENDOP 3 (REVSUBTRACT) with SRCALPHA / ONE, the
+    // frame buffer minus the particle (174 emitters: dark trails, shadows); 0x1000000 = ADD with
+    // ONE / INVSRCALPHA, premultiplied (21 emitters). Neither = SRCALPHA / INVSRCALPHA.
+    bool subtractive = false;
+    bool premult = false;
     // B2+0x00 bit 0x100: the quad is CAMERA-FACING. Clear = a world-fixed quad, which is
     // how MAP_KEKKAI's two BARIARING01 emitters (7 and 8 — the ward's magenta ring) are
     // authored, against bit 0x100 being set on its camera-facing glow emitters.
