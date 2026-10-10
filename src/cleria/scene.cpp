@@ -100,6 +100,13 @@ std::unordered_map<std::string, Model>& big_model_cache() {
     return cache;
 }
 
+// build_room_objects' texture lookups, (model directory | reference) -> the file found: kept from a room's load to
+// the next (the re-bakes in between reuse it).
+static std::unordered_map<std::string, fs::path>& tex_memo_store() {
+    static std::unordered_map<std::string, fs::path> memo;
+    return memo;
+}
+
 Model* cached_big_model(const fs::path& ymo_file) {
     auto it = big_model_cache().find(model_key(ymo_file));
     return it == big_model_cache().end() ? nullptr : &it->second;
@@ -114,6 +121,7 @@ RoomMesh build_room(const fs::path& asset_root, const fs::path& sob_path,
                     const std::vector<SobObject>* extra) {
     Sob sob = Sob::parse(read_file(sob_path));
     if (extra) sob.objects.insert(sob.objects.end(), extra->begin(), extra->end());
+    tex_memo_store().clear();
     return build_room_objects(asset_root, sob,
                               sob_path.parent_path(), box_whitelist, hidden,
                               false, nullptr, 0, open_flags, states);
@@ -125,6 +133,7 @@ RoomMesh build_collision(const fs::path& asset_root, const fs::path& sob_path,
                          const std::vector<SobObject>* extra, const ObjStates* states) {
     Sob sob = Sob::parse(read_file(sob_path));
     if (extra) sob.objects.insert(sob.objects.end(), extra->begin(), extra->end());
+    tex_memo_store().clear();
     RoomMesh m = build_room_objects(asset_root, sob, sob_path.parent_path(), box_whitelist, hidden, true,
                                     nullptr, 0, nullptr, states);
     // The two-pass split (WATER.md §1): surface 3 "water" goes to the water tree only.
@@ -218,9 +227,11 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         }
         return fs::path{};
     };
-    // ... once per (directory, reference) of this build: a model names one texture from many subsets, and an
-    // animated object is re-baked every tick.
-    std::unordered_map<std::string, fs::path> tex_memo;
+    // ... once per (directory, reference) of this ROOM: a model names one texture from many subsets, and an
+    // animated object is re-baked every tick. The memo used to live for one build, so every re-bake probed the
+    // disk again for each texture name (up to 5 fs::exists each; Darm's four objects, drawn and hull, every tick).
+    // tex_memo_store() is emptied by build_room / build_collision, so a room load sees the files as they are.
+    std::unordered_map<std::string, fs::path>& tex_memo = tex_memo_store();
     auto resolve_tex = [&](const fs::path& ymo_dir, const std::string& ref) -> fs::path {
         const std::string key = ymo_dir.string() + '|' + ref;
         auto it = tex_memo.find(key);
