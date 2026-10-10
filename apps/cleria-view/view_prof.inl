@@ -6,7 +6,7 @@
 #include <chrono>
 
 struct Prof {
-    struct Sec { const char* name; double win = 0, frame = 0; };
+    struct Sec { const char* name; double win = 0, frame = 0, peak = 0; };
     std::vector<Sec> secs;
     std::vector<std::pair<const char*, long long>> counts;
     bool on = std::getenv("CLERIA_PROF") != nullptr;
@@ -38,7 +38,7 @@ struct Prof {
             std::printf("\n");
         }
         if (tot > worst) { worst = tot; worst_what = big ? big->name : ""; }
-        for (Sec& s : secs) { s.win += s.frame; s.frame = 0; }
+        for (Sec& s : secs) { s.win += s.frame; s.peak = std::max(s.peak, s.frame); s.frame = 0; }
         ++frames;
     }
     void report(unsigned long long tick) {
@@ -49,13 +49,20 @@ struct Prof {
         std::printf("  [prof] t%llu %d frames, %.2f ms/frame (worst %.1f in %s):", tick, frames, tot / std::max(1, frames),
                     worst, worst_what.c_str());
         for (const Sec* s : o) if (s->win / std::max(1, frames) >= 0.05) std::printf(" %s %.2f", s->name, s->win / std::max(1, frames));
+        std::printf(" | peaks:");
+        for (const Sec* s : o) if (s->peak >= 3.0) std::printf(" %s %.1f", s->name, s->peak);
         std::printf(" |");
         for (const auto& c : counts) std::printf(" %s %lld", c.first, c.second);
         std::printf("\n");
-        for (Sec& s : secs) s.win = 0;
+        for (Sec& s : secs) s.win = s.peak = 0;
         frames = 0; worst = 0;
     }
 };
 static Prof g_prof;
 static inline void prof(const char* name) { if (g_prof.on) g_prof.mark(name); }
+// A first-use load inside a frame (a texture, a model): "[load] what name: ms" when it took a millisecond or more.
+static inline double prof_ms() { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+static inline void prof_load(const char* what, const std::string& name, double t0) {
+    if (g_prof.on && prof_ms() - t0 >= 1.0) std::printf("  [load] %s %s: %.1f ms\n", what, name.c_str(), prof_ms() - t0);
+}
 static inline void prof_count(const char* name, long long v) { if (g_prof.on) g_prof.count(name, v); }

@@ -7082,6 +7082,7 @@ title_again:
                     ride_tri = floor_tri;
                 }
             }
+            prof("tick:meshes");
             step_meshes();
             // The region camera runs inside the player's update (FUN_00473540 -> FUN_00429450),
             // once per step: after this tick's move (CAMERA_OPS.md §5).
@@ -7110,6 +7111,7 @@ title_again:
                 #include "view_enemy_tick.inl"
             }
 
+            prof("tick:world.step");
             world.step();
             // Age script-placed effects and reap finished one-shots (the enemy warp-in rings).
             world.tick_effects([&](int id) {
@@ -7119,6 +7121,7 @@ title_again:
             // each ticking monster runs its pass right after its own integrator, as the handlers do
             // (FUN_0045a510 then FUN_0045e460). The player's own pass pushes nobody, so it is not run.
             // [not modelled] NPC passes (class 4 bodies: no NPC is alive() in the view).
+            prof("tick:enemies");
             std::vector<bodypush::Body> bodies;
             std::vector<bodypush::Body*> body_list;
             {
@@ -7576,6 +7579,7 @@ title_again:
                 }
                 return broke;
             };
+            prof("tick:hits");
             int killed = 0, broke = 0;
             if (atk_window > 0) {
                 --atk_window;
@@ -7790,6 +7794,7 @@ title_again:
             // GenerateCollision box, armed on the swing frame in the brain above — not from
             // touching it. player_def is the lv1 curve; no equipment model.
             // The countdown is frozen while a hurt section (4/9/0xb) plays (0x466cc1).
+            prof("tick:late");
             tick_iframes(player_iframes, avm.section());
             player_spec.tick();                                     // FUN_0045a3a0 (the integrator's helper)
             kill_combo.tick();                                      // 0x466b5d: the combo meter's timer
@@ -7886,6 +7891,7 @@ title_again:
             pending_debris.erase(std::remove_if(pending_debris.begin(), pending_debris.end(),
                                                 [](const PendingDebris& pd) { return pd.ticks <= 0; }), pending_debris.end());
             // World pickups: motion, bounce, collect (FUN_00584f90 / FUN_005856c0 / FUN_00585ff0).
+            prof("tick:pickups+fx");
             if (!pickups.empty()) {
                 PickupWorld pw;
                 pw.live = int(pickups.size());

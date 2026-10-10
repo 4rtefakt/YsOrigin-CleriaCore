@@ -911,7 +911,9 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
         if (it == models.end()) {
             Room r;
             auto nt = names.find(id);
+            const double t0 = g_prof.on ? prof_ms() : 0.0;
             if (nt != names.end() && fs::exists(nt->second)) r = load_model(g, asset_root, nt->second);
+            prof_load("effect mesh", nt != names.end() ? nt->second.filename().string() : std::string("?"), t0);
             it = models.emplace(id, std::move(r)).first;
         }
         return it->second.mesh.vertices.empty() ? nullptr : &it->second;
@@ -1014,10 +1016,12 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         if (it == texs.end()) {
             SpriteTex t{};
             const fs::path p = eft.path(asset_root, int(id));
+            const double t0 = g_prof.on ? prof_ms() : 0.0;
             if (!p.empty()) {
                 Dds d = load_dds(p);
                 if (d.ok()) t = upload_rgba(g, d.width, d.height, d.data.data());
             }
+            prof_load("effect texture", p.filename().string(), t0);
             it = texs.emplace(id, t).first;
         }
         return it->second.bind ? &it->second : nullptr;
