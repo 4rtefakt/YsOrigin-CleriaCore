@@ -172,13 +172,18 @@ CASES = {
     # until the gauge breaks (t3000). Then from the top of the body (`at3`: the floor below (2.5, 13, 33), 2.6
     # from the core; a player gets there over the right hand's thumb, the arm and the shoulder) they damage the
     # core. A shot dies on any part it touches (the armoured ones for 0), on the hull and in a bubble.
+    # Re-pinned 2026-10-10 (FIX_SLOTS.md S3): the intro's scripted hop back (t1060..1117, under its Fix(0)) used to be
+    # held on the floor by the frozen snap with the jump still pending, and resumed when the Fix ended — Hugo rose to
+    # y 3.10 at t1950 for no reason. He now lands inside the Fix (t1117) and stands at the thaw, so his first shots
+    # leave a tick apart from before and the stun breaks 30 ticks later with the body 7 further left: the spot on
+    # its top moved from (2.5, 13, 33) to (-4.8, 13, 29.6), the same offset from the core.
     "velagunder_hugo": dict(
         room="S_10/S_1099/S_1099", char="2", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 2200, 40)) + "2300:at=0,21,0;"
-              + "".join(f"{t}:bossaim;{t + 1}:atk;" for t in range(2302, 3100, 6)) + "3200:at3=2.5,13,33,0;"
+              + "".join(f"{t}:bossaim;{t + 1}:atk;" for t in range(2302, 3100, 6)) + "3200:at3=-4.8,13,29.6,0;"
               + "".join(f"{t}:bossaim;{t + 1}:atk;" for t in range(3205, 3500, 6)) + "3500:quit",
         expect=["[boss] Velagunder: HP 700 STR 70 DEF 53 lv 8", " ffffff\n  fx 130 hits boss part 1 (DEF 53)",
-                "stun 0 STUNNED", "t3200 at3=2.5,13,33,0", " ffffff\n  fx 130 hits boss part 0 (DEF 53)"]),
+                "stun 0 STUNNED", "t3200 at3=-4.8,13,29.6,0", " ffffff\n  fx 130 hits boss part 0 (DEF 53)"]),
     # The stunned Velagunder is climbed on foot (e44f09f: his collision twin is bound to the render bones, and
     # his body has no slope limit while stunned), Toal on Hard: the stun part broken from the floor, then the
     # walk (`goto`) up the hand, the arm and the shoulder to the core, where the sword hits part 0.
@@ -1763,6 +1768,16 @@ CASES.update({
         expect=["t36 actors", "id 176 cast 176 npc hp 1 g1 0 pos (1.9,0.2,-1.4)", "slot 1 taken: 0/1", "frozen 1 fix 0/1",
                 "t150 actors", "id 176 cast 176 npc hp 1 g1 0 pos (1.9,0.2,-1.4)", "id 195 cast 176 npc hp 1 g1 0 pos (1.9,0.2,0.1)"],
         absent=["[ai] #176"]),      # no handler tick of an eye at t60 / t120, under the Fix(1) taken at t39
+    # FIX_SLOTS.md S3: a jump caught by a Fix goes on. Hugo jumps at t30; @ItemCannotUse takes slot 1 at t39 with him
+    # 2 up and rising: he rises on (2.339, 2.528), falls, lands at t65 and the jump section 3 plays out to idle.
+    # (The frozen branch used to snap him to the floor at once and hold section 3 for the whole Fix.)
+    "fix_airborne_lands": dict(
+        room="S_10/S_1002/S_1002", char="2", env=_LOCK,
+        drive="30:jump;38:pos;39:run=@itemcannotuse;41:pos;50:pos;60:pos;100:pos;160:quit",
+        expect=["t38 pos", "feet (-0.005, 2.002, -0.640)", "sec 0x3", "slot 1 taken: 0/1", "t41 pos",
+                "feet (-0.005, 2.339, -0.640)", "t50 pos", "feet (-0.005, 2.528, -0.640)", "t60 pos",
+                "feet (-0.005, 1.823, -0.640)", "[fix] t65 the player lands under the Fix at y -0.048 (section 0x3)",
+                "t100 pos", "feet (-0.005, -0.098, -0.640)", "sec 0x2"]),
     # #72: after the S_1080 Hugo duel Epona's hurt timer (+0x238) runs out under the scene's Fix (it stood at
     # 1.2: the hurt specular stayed on, a red Epona), and her exit run plays the run section 1 (tag 302): the
     # locomotion change takes the motion back from the Chr_Animate(201, 3) of her leap (FUN_0045f4d0).

@@ -1156,6 +1156,7 @@ title_again:
     mouse::SkillSwitch skill_sw;
     int skill_req = -1;
     int jump_phase = 0;                    // +0x3a8: the jump section's marker phase
+    bool fix_fall = false;                 // an airborne player under a Fix: the integrator's vertical step (S3)
     int sec3_ground = 0;                   // ticks grounded in the jump section (the stand-in guard)
     bool p_landed = false;                 // last tick's touch-down
     // Projectiles. The effect registries resolve a bullet's eftlist id to its real
@@ -3113,7 +3114,13 @@ title_again:
         // `oy` below), not the room's top surface at that x/z: in a stacked room that is a roof
         // or a closed door's top (S_2012's door_01 lifted a frozen arrival from y 2 to 10.5).
         // Only a point with no floor under it at all falls back to the highest surface. [H]
-        if (csMgr.world_frozen() || csHost.p_moving) {
+        // Not an AIRBORNE player caught by a Fix (FIX_SLOTS.md S3): the original has no snap, its integrator
+        // FUN_0045a510 runs on under either slot [EXPORT 0046fba0.c:50-116], so she goes on through her arc and
+        // lands (fix_fall, stepped in the frozen branch). [approx] a grounded player under a Fix is still snapped:
+        // the port's script placements (Chr_Pos to authored heights) rely on it; neither is a swimmer stepped.
+        fix_fall = csMgr.world_frozen() && !csHost.p_moving && !pv.grounded && !submerged && !fly && player.hp >= 1 &&
+                   !(world.player() && world.player()->pattern.pinned());
+        if ((csMgr.world_frozen() || csHost.p_moving) && !fix_fall) {
             float fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + kOriginH);
             if (fl <= kNoFloor) fl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + room_diag(room));
             if (fl > kNoFloor) feet.y = fl;
@@ -6155,7 +6162,7 @@ title_again:
                     // to idle, the dash 0x10a falls back to locomotion (00465170.c:1935-1943: idle with
                     // no input) and idle keeps animating. Its sounds and bullets fire as the ASO issues
                     // them. [approx] GenerateCollision / GenerateEffect / GenerateLocus of a section
-                    // caught by a Fix are not spawned, and an airborne player still hangs (no mover here).
+                    // caught by a Fix are not spawned. An airborne player falls and lands (fix_fall, below).
                     if (avm.section() == 0x10a) avm.set_section(2, /*force*/true);
                     avm.tick();
                     spawn_player_bullets();
@@ -6381,6 +6388,32 @@ title_again:
                                                     std::max(kCharH - kStepUp, 0.5f));
                     feet.x = body.x; feet.z = body.z;
                 }
+            }
+            if (fix_fall) {
+                // FIX_SLOTS.md S3: the integrator's vertical step for a player in the air when a Fix holds, with
+                // the input record zeroed — dy from the timer +0x330 (the Fix edge zeroed the velocity and the
+                // push, not the timer: a jump goes on), 0 on surface 0x12 under a Fix [EXPORT 0045a510.c:229-231],
+                // the ceiling, the floor ray, the settle; no ledge sampler under a Fix [:625-631]. Then the jump
+                // section's landing phase (+0x3a8, 00465170.c:1964-1988), so it plays out to idle.
+                // [approx] the live tick's sand / water / ice / glide rows are not repeated here.
+                float oy = feet.y + kOriginH;
+                float dy = cur_surface == 0x12 ? 0.0f : vertical_dy(pv, false, false);
+                const Vec3 org = sphere_wall_clear(phys_mesh(room), {feet.x, oy, feet.z}, pm.radius());
+                if (pv.t > 0.0f && segment_hit(phys_mesh(room), org, {org.x, org.y + pm.radius() * 1.05f, org.z}, nullptr, nullptr))
+                    pv.t = 0.0f;
+                if (dy > 0.0f) dy = sweep_up(phys_mesh(room), org, pm.radius(), dy);
+                oy += dy;
+                const float ffl = floor_at(phys_mesh(room), feet.x, feet.z, oy);
+                if (ffl > kNoFloor) last_floor = ffl;
+                const bool landed = settle_vertical(pv, oy, last_floor, kOriginH, false);
+                grounded = pv.grounded;
+                feet.y = oy - kOriginH;
+                if (avm.section() == 3) {
+                    if (jump_phase == 1 && pv.t <= 0.01f) { jump_phase = 2; avm.fast_forward_to_marker(2); avm.set_marker_block(3); }
+                    if (grounded && jump_phase != 0) { jump_phase = 0; avm.fast_forward_to_marker(3); avm.set_marker_block(-1); }
+                }
+                if (landed) std::printf("  [fix] t%llu the player lands under the Fix at y %.3f (section 0x%x)\n",
+                                        (unsigned long long)tick_count, feet.y, unsigned(avm.section()));
             }
             step_meshes();
             // Effects run on under a Fix: the GoParticle step (0x5644c0) gates only on the menu
