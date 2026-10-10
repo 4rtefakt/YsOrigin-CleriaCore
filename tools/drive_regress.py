@@ -1747,6 +1747,22 @@ CASES.update({
         room="S_10/S_1004/S_1004", env=_LOCK,
         drive="20:run=@growmenu;22:scripts;60:quit",
         expect=["[fix] t", "slot 0 taken: 1/0", "frozen 1 fix 1/0"], absent=["slot 1 taken"]),
+    # FIX_SLOTS.md S2, issue #70: Hugo's Eyes of Fact are handler 83, which stops on slot 1 only. S_1013's
+    # s_Evt1013_2 holds Fix(0) while the wind pulls Hugo from z -1.27 to the pit centre (0, 0, 8): his two eyes
+    # (cast 176) go with him (they stood at z -2.1 for the whole scene). Under @ItemCannotUse's Fix(1) they hold.
+    "eyes_follow_fix0": dict(
+        room="S_10/S_1013/S_1013", char="2", env=_LOCK,
+        drive="20:move=0,1,200;100:every=20,700,ok;290:actors;590:actors;595:pos;700:quit",
+        expect=["slot 0 taken: 1/0", "t290 actors", "id 176 cast 176 npc hp 1 g1 0 pos (0.7,0.2,-1.8)",
+                "id 186 cast 176 npc hp 1 g1 0 pos (-0.9,0.2,-1.8)", "t590 actors",
+                "id 176 cast 176 npc hp 1 g1 0 pos (0.8,0.2,7.3)", "id 186 cast 176 npc hp 1 g1 0 pos (-0.8,0.2,7.3)",
+                "8.000) O2"]),
+    "eyes_hold_fix1": dict(
+        room="S_10/S_1002/S_1002", char="2", env=dict(_LOCK, CLERIA_AI="1"),
+        drive="10:move=1,0,20;36:actors;39:run=@itemcannotuse;40:scripts;150:actors;160:quit",
+        expect=["t36 actors", "id 176 cast 176 npc hp 1 g1 0 pos (1.9,0.2,-1.4)", "slot 1 taken: 0/1", "frozen 1 fix 0/1",
+                "t150 actors", "id 176 cast 176 npc hp 1 g1 0 pos (1.9,0.2,-1.4)", "id 195 cast 176 npc hp 1 g1 0 pos (1.9,0.2,0.1)"],
+        absent=["[ai] #176"]),      # no handler tick of an eye at t60 / t120, under the Fix(1) taken at t39
     # #72: after the S_1080 Hugo duel Epona's hurt timer (+0x238) runs out under the scene's Fix (it stood at
     # 1.2: the hurt specular stayed on, a red Epona), and her exit run plays the run section 1 (tag 302): the
     # locomotion change takes the motion back from the Chr_Animate(201, 3) of her leap (FUN_0045f4d0).
