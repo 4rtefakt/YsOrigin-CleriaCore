@@ -1621,6 +1621,7 @@ title_again:
 
     CharSprite chr;
     std::string cur_aia;
+    std::unordered_map<std::string, CharSprite> chr_parked;   // the character's other AIAs, kept parsed (sync_aia)
     // Load whatever sprite the script asks for. Falls back to our old hardcoded
     // choice only if the script gives nothing (e.g. a missing ASO).
     auto sync_aia = [&]() -> bool {  // true if it swapped the AIA this call
@@ -1628,7 +1629,16 @@ title_again:
         const std::string stem = (want && *want) ? std::string(want)
                                                  : std::string(char_aia(character)).substr(0, 5);
         if (stem == cur_aia) return false;
-        if (chr.load(g, asset_root / "ANI" / (stem + ".AIA"), 0)) {
+        // A file already used is kept parsed: an attack's anime_File swaps to its AIA and back, and reading and
+        // parsing the file each time was 30 - 60 ms inside one tick, twice per swing.
+        auto parked = chr_parked.find(stem);
+        const bool have = parked != chr_parked.end();
+        CharSprite next;
+        if (have) next = std::move(parked->second);
+        if (have || next.load(g, asset_root / "ANI" / (stem + ".AIA"), 0)) {
+            if (have) chr_parked.erase(parked);
+            if (!cur_aia.empty()) chr_parked[cur_aia] = std::move(chr);
+            chr = std::move(next);
             cur_aia = stem;
             std::printf("  [aso] anime_File(%d) -> %s.AIA\n", avm.file_id(), stem.c_str());
             return true;
@@ -8175,6 +8185,7 @@ title_again:
                 if (died) player_death();
             };
             #include "view_xso13_damage.inl"     // 0x15c Chr_Damage on the player (FLOOR13_OPS.md)
+            prof("tick:enemy-hits-player");
             for (EnemyRender& e : render) {
                 Actor* en = e.actor;
                 // An enemy hurts only through an armed volume: the body pass (FUN_0045e460) only
@@ -8288,11 +8299,13 @@ title_again:
                     break;
                 }
             }
+            prof("tick:weather");
             step_weather();                          // pool 9 (master update step 11): after the actors, before pools 2 / 6
             // The EF2 particles (EF2SIM.md §1.1: effects, then particles, after the actors). An
             // enemy effect's armed particle tests the player alone (EFFECTHIT.md §5): the
             // player's hit guard, the overlap, the re-hit bank keyed on token 0 (shared by every
             // effect), then the damage with the owner's ATK and the effect's power.
+            prof("tick:fx-A");
             {
                 // M460's handler pass #14: a gas puff that sank below its floor sits on it.
                 for (auto& bp : bullets.list()) {
@@ -8393,6 +8406,7 @@ title_again:
             // player-attached effect (Whirlwind, the charge glow) drew kOriginH low. Its origin
             // is feet + kOriginH (+0x324), as every spawn above computes `org`.
             actor_mats[13] = ef2sim::translation(feet.x, feet.y + kOriginH, feet.z);
+            prof("tick:fx-B");
             {
                 const Cast* pc = casts.get(13);
                 const HitShape pbody = body_shape({feet.x, feet.y + kOriginH, feet.z},
@@ -8496,6 +8510,7 @@ title_again:
             // deliberately NOT animation-synced: 20 ticks/step against C_010's
             // 48-tick walk cycle, so steps drift against footplants by design.
             // `enable` is +0x4be, Chr_FootSound's byte (FUN_00571320; class 2 defaults to 1).
+            prof("tick:player-anim");
             if (const Actor* fs_wp = world.player(); fs_wp && !fs_wp->footsteps) {
             } else if (step_timer > 0) {
                 --step_timer;
@@ -8578,6 +8593,7 @@ title_again:
             else if (cur_sec == 3 && sec3_ground >= 60)
                 avm.set_section(want_sec, /*force*/true);         // [STAND-IN] a jump section that never ends
             avm.set_is_land(grounded);
+            prof("pa:avm.tick");
             avm.tick();
             // anime_Jump (FUN_00449460 [BYTES 0x449464..0x4494af], MOVER.md §4.1), as the enemies' below: grounded
             // only, t = +0x420 = v (0.0 = the cast's +0x408), y += v at once, +0x388 = 0. Toal's Ignis hops by it
@@ -8596,12 +8612,14 @@ title_again:
                 player_kb.z = std::sin(h) * avm.dash_d();
             }
 
+            prof("pa:bullets");
             spawn_player_bullets();                      // anime_FireBullet
             // anime_GenerateEffect from the player's ASO (FUN_004496f0, as the enemies' below): at
             // origin + (cos, sin)(angle + facing) x fwd, y + voff, yaw angle - (facing + pi/2), the
             // player's side (0), class FUN_0046d5e0 (the section's), Hugo's 0x86 / 0x87 with rtype 3
             // and their handle kept as the Force Shield (+0x7c4). Their particles hit the monsters
             // in the hit tick below.
+            prof("pa:effects");
             for (const AsoVm::EffectEvent& fe : avm.effects()) {
                 const float pf = std::atan2(face_dir.z, face_dir.x);
                 const Vec3 org{feet.x, feet.y + kOriginH, feet.z};
@@ -8618,6 +8636,7 @@ title_again:
             // GenerateCollision fired: adopt this section's own box for its own lifetime.
             // anime_ChangeSpecular of the player's own set: the same struct the GUARD / Boost-ready flash uses —
             // the last writer owns it and restarts it at t = 0 (ASO_NOOPS.md §1.3; Hugo's s5 / s274 issue "off").
+            prof("pa:hitbox+loci");
             if (const AsoVm::SpecularEvent* sv = avm.specular()) {
                 player_spec.a = sv->a; player_spec.b = sv->b; player_spec.t = 0.0f; player_spec.step = sv->step; player_spec.count = sv->count;
             }
@@ -8647,11 +8666,13 @@ title_again:
             // free -- Yunica's attack section issues 139 = player\p1_sw_slash0, and
             // Hugo/Toal issue their own. Only drained here, on the logic tick: the
             // other avm.tick() calls are init/character-switch and must stay silent.
+            prof("pa:sounds");
             for (const AsoVm::SoundEvent& se : avm.sounds()) audio.play(se.id, kSfxAnimVol);
             // The script may switch sprite files mid-action (e.g. the attack section
             // swaps C_111 -> C_114). When it does, the image INDEX for a tag can differ
             // between the old and new AIA, so force a re-decode -- otherwise the sprite
             // keeps a stale/mismatched frame and renders half-missing after a swing.
+            prof("pa:frame");
             show_player_frame(world.player());
 
             // The room's authored camera (SCM): the last rig step (stepped per tick below).
