@@ -161,9 +161,11 @@ static Model parsed_model(const fs::path& file) {
     m.resolve_hierarchy();
     return m;
 }
-// The same, kept: a clip-driven re-bake (an animated map object — Darm's floor re-poses every tick) poses the kept
-// model in place. Each call puts its nodes back as parsed (the locals and worlds a fresh parse gives; a pose changes
-// nothing else), so the caller gets what a parse would give without the read, the parse or a copy of the model.
+// The same, kept: a re-bake (an animated map object — Darm's floor re-poses every tick, Dalles's room turns two
+// rings) poses the kept model in place. Each call puts its nodes back as parsed (the locals and worlds a fresh
+// parse gives; a pose changes nothing else), so the caller gets what a parse would give without the read, the parse
+// or a copy of the model. g_rebake: build_room_objects is rebake_object's (a room load keeps no small model).
+static bool g_rebake = false;
 static Model* kept_model(const fs::path& file) {
     struct Kept { Model m; std::vector<Mat4> local, world; };
     static std::unordered_map<std::string, Kept> cache;
@@ -408,7 +410,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 model_ptr->rest_pose();
                 in_big = true;
             } else if (const bool big = fs::file_size(vfs::resolve(ymo_file), fec) > (2u << 20);
-                       clip_name && !big && !o.has_world) {
+                       (clip_name || g_rebake) && !big && !o.has_world) {
                 model_ptr = kept_model(ymo_file);
             } else {
                 local_model = parsed_model(ymo_file);
@@ -477,7 +479,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 Model* rp = cached_big_model(rfile);
                 if (rp) rp->rest_pose();
                 else if (fs::exists(rfile)) {
-                    if (clip_name) rp = kept_model(rfile);
+                    if (clip_name || g_rebake) rp = kept_model(rfile);
                     else { render_twin = parsed_model(rfile); rp = &render_twin; }
                 }
                 if (rp) { pose_as_asked(*rp); twin_src = rp; }
@@ -799,8 +801,10 @@ bool rebake_object(RoomMesh& m, const fs::path& asset_root, const std::string& l
     if (rot) one.objects.back().rotation = *rot;
     if (world) { one.objects.back().has_world = true; one.objects.back().world_mat = *world; }
     one.objects.back().twin_clips = twin_clips;
+    g_rebake = true;
     const RoomMesh tmp = build_room_objects(asset_root, one, fs::path(), nullptr, nullptr,
                                             collision, clip, frame);
+    g_rebake = false;
     if (tmp.vertices.size() != std::size_t(r->v1 - r->v0)) return false;
     for (std::size_t k = 0; k < tmp.vertices.size(); ++k) m.vertices[r->v0 + k] = tmp.vertices[k];
     return true;

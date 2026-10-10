@@ -1142,6 +1142,15 @@ static void write_mvp(Gpu& g, const Mat4& mvp) {
 // just the affected ranges. Only 397 of 6642 materials scroll, and a room has a
 // handful of such batches, so this is a few hundred bytes a frame.
 static void advance_scroll(Gpu& g, Room& room, int ticks) {
+    // Batches whose vertices follow one another go out in one write (S_7099 has 132 scrolling batches: 132 writes a
+    // frame were 1.1 ms of GPU wait). Only the scrolled vertices are written, as before.
+    static std::vector<RoomVertex> run;
+    std::size_t run_v0 = 0;
+    auto flush = [&] {
+        if (!run.empty())
+            wgpuQueueWriteBuffer(g.queue, room.vbuf, run_v0 * sizeof(RoomVertex), run.data(), run.size() * sizeof(RoomVertex));
+        run.clear();
+    };
     for (ScrollBatch& sb : room.scrolls) {
         sb.phase_u += sb.vel_u * float(ticks);
         sb.phase_v += sb.vel_v * float(ticks);
@@ -1150,14 +1159,13 @@ static void advance_scroll(Gpu& g, Room& room, int ticks) {
         sb.phase_u -= std::floor(sb.phase_u);
         sb.phase_v -= std::floor(sb.phase_v);
         if (std::size_t(sb.first_vert) + sb.vert_count > room.mesh.vertices.size()) continue;
-        static std::vector<RoomVertex> tmp;
-        tmp.assign(room.mesh.vertices.begin() + sb.first_vert,
+        if (run.empty() || run_v0 + run.size() != sb.first_vert) { flush(); run_v0 = sb.first_vert; }
+        const std::size_t at = run.size();
+        run.insert(run.end(), room.mesh.vertices.begin() + sb.first_vert,
                    room.mesh.vertices.begin() + sb.first_vert + sb.vert_count);
-        for (RoomVertex& v : tmp) { v.u += sb.phase_u; v.v += sb.phase_v; }
-        wgpuQueueWriteBuffer(g.queue, room.vbuf,
-                             std::size_t(sb.first_vert) * sizeof(RoomVertex),
-                             tmp.data(), tmp.size() * sizeof(RoomVertex));
+        for (std::size_t k = at; k < run.size(); ++k) { run[k].u += sb.phase_u; run[k].v += sb.phase_v; }
     }
+    flush();
 }
 
 // part 0: the whole room (headless / backgrounds). part 1: the room's layers 3 and 5 (the
