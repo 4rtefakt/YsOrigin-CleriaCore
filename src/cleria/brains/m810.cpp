@@ -25,7 +25,7 @@
 // them.
 // [not modelled] the roster's sweep of orphaned EF2 0x95 and the live 0xc7 count the 0x112
 // picks are capped by (taken as 0) — both read the effect pool; the puppet path's count test
-// and top-up (its Eyes run FUN_00470210); the keep-out box restore; the specular flash of sub
+// and top-up (its Eyes run FUN_00470210); the specular flash of sub
 // 300; the barrier-expiry voice; sound preloads; +0x64 / +0x4be.
 #include <algorithm>
 #include <cmath>
@@ -123,7 +123,7 @@ AiOut m810(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     const bool f231 = gflag(e, 231, 0) != 0;                        // DAT_0076bcb8
 
     // ---- the brain FUN_004d7510
-    a.set_v(0x808, e.self);                                         // [not modelled] the keep-out restore
+    a.set_v(0x808, e.self);                                         // (the restore: ai::keep_out, by the host)
     if (e.launched) return out;
     auto half = [&] { return A.max_hp * 0.5f > A.hp; };
     const int eyes_want = (f231 ? 8 : 4) - (half() ? 0 : 2);       // local_9c

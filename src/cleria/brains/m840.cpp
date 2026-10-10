@@ -21,7 +21,7 @@
 // and a 4-hit barrier (+0x7a4) that burns on contact (a 1.25 sphere hit), adds an orb every 530
 // ticks and sparks (EF2 0x15a) on each hit; the 4th hit breaks it (EF2 0x15a, power 10) and
 // starts the rest; else DEF comes back when the charge drops under 20 and he lands.
-// [not modelled] the keep-out box restore (FUN_0042dc90); +0x64 / +0x4be /
+// [not modelled] +0x64 / +0x4be /
 // +0x3c0 writes; the barrier hit's tint block (+0x264..+0x274); the orb disown at Marker 1
 // (+0x1d5 = 0, +0x1a8 = 0 on every owned orb: AiEffect cannot disown, so a stale orb that is
 // still alive keeps its tag); the copied rotation of the orb re-placement (only the position is
@@ -83,7 +83,7 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
     using ai::r15;
     const int d = difficulty(e);
     const int pct = int(std::floor(A.hp * 100.0f / A.max_hp));     // FUN_004217f0 + cvttss2si
-    a.set_v(0x808, e.self);                                         // [not modelled] the keep-out restore
+    a.set_v(0x808, e.self);                                         // (the restore: ai::keep_out, by the host)
     if (e.launched) return;
     const float dist = std::sqrt(a.f(0x734) * a.f(0x734) + 0.0f + a.f(0x73c) * a.f(0x73c));
     switch (a.phase()) {

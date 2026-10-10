@@ -32,7 +32,7 @@
 //   0xa0  the jump-dodge (section 3), M830's candidate tables.
 // The GoEffect-pool scan reads Hugo's live effects 0x86 / 0x87 / 0x82 / 0x89 / 0x90 through
 // AiWorld::for_each_effect (they drive the dodge reactions; build/event_re/DUELS.md §7).
-// [not modelled] the keep-out box restore (FUN_0042dc90); +0x64 / +0x4be / +0x3c0
+// [not modelled] +0x64 / +0x4be / +0x3c0
 // writes. The zoom blur (0x76a550 / 0x76a554 / 0x7b2488 + FUN_005e0590 centre) on the big
 // slash and the super leaves as AiOut::zoom_s / zoom_r / zoom_centre.
 #include <cmath>
@@ -111,7 +111,7 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
     const int d = difficulty(e);
     const float fd = float(d);
     const int pct = int(std::floor(A.hp * 100.0f / A.max_hp));     // FUN_004217f0 + cvttss2si
-    a.set_v(0x808, e.self);                                         // [not modelled] the keep-out restore
+    a.set_v(0x808, e.self);                                         // (the restore: ai::keep_out, by the host)
     if (e.launched) return;
     const Vec3 to = a.v(0x734);
     const float dist = std::sqrt(to.x * to.x + 0.0f + to.z * to.z);

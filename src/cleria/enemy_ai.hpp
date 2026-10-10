@@ -441,6 +441,12 @@ void init(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e);         // FUN_00
 // The same for an actor that is not the caller (M460 initialising a bat it just spawned):
 // home = its origin, raw = its ENEMYINFO +0x90..+0xcc (nullptr: leave +0x814.. zero).
 void init_block(EnemyAi& a, const Vec3& home, const float raw[16]);
+// The keep-out restore every enemy handler / brain opens with (build/mech_re/KEEPOUT_BOXES.md §3.2; M100
+// [BYTES 0x47b872..0x47b950]): `inside` is FUN_0042dc90 on the room's exit volumes (the .SEN records with a
+// destination). Past phase 0, an origin inside a volume keeps only this tick's x move, else only its z move,
+// else goes back to last tick's origin +0x808..+0x810 (y is last tick's in all three); then +0x808 = the origin,
+// phase 0 included. `inside` null = no volumes (the snapshot is still written). True when the origin moved.
+bool keep_out(EnemyAi& a, Vec3& origin, const std::function<bool(const Vec3&)>& inside);
 // FUN_00476960(mode): the flyer altitude controller. Moves `self`'s origin y toward
 // base + H (+0x834) by at most one rise (+0x838) / sink (+0x83c) step, with the bob
 // (+0x840 amplitude, +0x844 deg/tick, +0x848 phase). `ref` is +0x888 (null = the player,

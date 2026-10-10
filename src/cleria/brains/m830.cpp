@@ -13,7 +13,7 @@
 // When its HP falls below 1 with the player alive the handler (m830_dead) restores HP to
 // 1, clears flags 156 and 130 (which ends the duel's Wait_FlagEqualInt(156, 0)), hides the
 // gauge and asks for section 5.
-// [not modelled] the keep-out box restore (FUN_0042dc90); +0x64 / +0x4be / +0x3c0 writes; the
+// [not modelled] +0x64 / +0x4be / +0x3c0 writes; the
 // slam's camera shake (0x76a5ac = 12, 0x76a598 = 0.25); the player-dead helper's forced
 // section 5 -> 2.
 #include <cmath>
@@ -61,7 +61,7 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
     const int d = difficulty(e);
     const float fd = float(d);
     const int pct = int(std::floor(A.hp * 100.0f / A.max_hp));     // FUN_004217f0 + cvttss2si
-    a.set_v(0x808, e.self);                                         // [not modelled] the keep-out restore
+    a.set_v(0x808, e.self);                                         // (the restore: ai::keep_out, by the host)
     if (e.launched) return;
     const Vec3 to = a.v(0x734);
     const float dist = std::sqrt(to.x * to.x + 0.0f + to.z * to.z);

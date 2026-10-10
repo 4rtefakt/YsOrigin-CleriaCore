@@ -1000,6 +1000,17 @@ CASES.update({
         expect=["seen #17 placed", "[ai] #17 cast 17 phase 2", "seen #17 placed feet (9.58, 0.00",
                 "[ai] #17 cast 17 phase 2"],
         absent=["[los]"]),
+    # build/mech_re/KEEPOUT_BOXES.md (FUN_0042dc90): a monster cannot stand in an exit volume. S_1004's S_1001 door
+    # volume is x -2.6..2.4, z 3.4..15.9: a Riffligan put at its mouth (epos) and knocked north by the player's swings
+    # is put back at the volume's face (z 3.40) at the head of each tick it was pushed in, and ends outside.
+    "keepout_door": dict(
+        room="S_10/S_1004/S_1004",
+        env={"CLERIA_KEEPOUT": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.05;20:epos=#189,0,2.9;22:near=#189,1.6;"
+              "30:every=20,150,atk;180:actors;181:quit",
+        expect=["epos #189 (0.00, 0.00, 2.90)", "[keepout] t", "#189 cast 14 (0.00, 1.03, 3.4", "-> (0.00, 1.03, 3.40)",
+                "t180 actors", "id 189 cast 14 enemy hp", "pos (0.1,0.0,3.0)"],
+        absent=[">> entering"]),
     # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
     # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
     # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.

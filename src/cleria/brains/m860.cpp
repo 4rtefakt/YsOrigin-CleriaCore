@@ -35,7 +35,7 @@
 // EF2 0x123) and the freeze (a live unmarked EF2 0x123 with the player in section 4 / 0xb: EF2 0x11e
 // at +0x88c, the player pinned in x / z for 20 ticks in section 9) follow the pool scan
 // (build/mech_re/KISHGAL_SHIELD.md §3, §4).
-// [not modelled] the keep-out restore (FUN_0042dc90);
+// [not modelled]
 // +0x64 / +0x4be / +0x3c0 writes; the camera shakes / zoom blurs (0x76a5ac.., 0x76a550..,
 // FUN_005e0590, FUN_005d3500); FUN_00451b50's rotation of the 0x121 bullet's effect.
 #include <cmath>
@@ -148,7 +148,7 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
     const bool room = in_s3080(e);
     const int cs = e.character == 2 ? -1 : (e.character == 3 ? 1 : 0);   // [ebp-0xf4] (0x4e3381)
     const int pct = int(std::floor(A.hp * 100.0f / A.max_hp));     // FUN_004217f0 + cvttss2si
-    a.set_v(0x808, e.self);                                         // [not modelled] the keep-out restore
+    a.set_v(0x808, e.self);                                         // (the restore: ai::keep_out, by the host)
     if (e.launched) return;
     const Vec3 to = a.v(0x734);
     const float dist = std::sqrt(to.x * to.x + 0.0f + to.z * to.z);

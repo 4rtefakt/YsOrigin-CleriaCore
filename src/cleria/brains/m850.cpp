@@ -15,7 +15,7 @@
 // [not modelled] the 231 = 1 rematch mode beyond its stats and HP link (the clone summons, the
 // joint attack 0x44c.., the death swap, the aura); the lunge's after-images, its d > 0 bullets
 // 0x12e and its Marker(298) slash effects; the guard's aura;
-// the keep-out restore (FUN_0042dc90); the handler's knock cap in the attack sections;
+// the handler's knock cap in the attack sections;
 // the dead path's player i-frames (9999) and double-KO revive.
 #include <algorithm>
 #include <cmath>

@@ -574,6 +574,19 @@ bool request(int& cur, int id, bool no_restart, const AiEnv& e) {
     return true;
 }
 
+bool keep_out(EnemyAi& a, Vec3& origin, const std::function<bool(const Vec3&)>& inside) {
+    bool moved = false;
+    if (a.phase() != 0 && inside && inside(origin)) {
+        const Vec3 prev = a.v(0x808);
+        const Vec3 c1{origin.x, prev.y, prev.z};                   // keep only the x move
+        const Vec3 c2{prev.x, prev.y, origin.z};                   // keep only the z move
+        origin = !inside(c1) ? c1 : !inside(c2) ? c2 : prev;
+        moved = true;
+    }
+    a.set_v(0x808, origin);
+    return moved;
+}
+
 }  // namespace ai
 
 void arena_clamp(Vec3& o, int mode, const float r[4]) {

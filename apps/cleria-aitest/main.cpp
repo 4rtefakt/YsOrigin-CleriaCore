@@ -14,6 +14,7 @@
 #include "cleria/enemy_mover.hpp"
 #include "cleria/factory_flags.hpp"
 #include "cleria/hugo_eyes.hpp"
+#include "cleria/sen.hpp"
 
 using namespace cleria;
 
@@ -66,6 +67,46 @@ int main() {
         check(std::fabs(rotate_toward(0.0f, 1.0f, 0.1f) - 0.1f) < 1e-6f, "rotate_toward steps by the rate");
         check(rotate_toward(0.0f, 0.05f, 0.1f) == 0.05f, "rotate_toward snaps when within the rate");
         check(std::fabs(rotate_toward(3.0f, -3.0f, 0.1f) - 3.1f) < 1e-5f, "rotate_toward goes the short way round");
+    }
+    {   // ai::keep_out — FUN_0042dc90's restore (build/mech_re/KEEPOUT_BOXES.md §3.2)
+        SenTrigger box;                                    // x 0..4, y 0..3, z 0..4
+        box.position = {2, 1.5f, 2}; box.lo = {-2, -1.5f, -2}; box.hi = {2, 1.5f, 2};
+        const std::function<bool(const Vec3&)> in = [&](const Vec3& q) { return box.contains(q); };
+        auto run = [&](int phase, Vec3 prev, Vec3 pos, bool* moved) {
+            EnemyAi a; a.phase() = phase; a.set_v(0x808, prev);
+            *moved = ai::keep_out(a, pos, in);
+            const Vec3 s = a.v(0x808);
+            return s.x == pos.x && s.y == pos.y && s.z == pos.z ? pos : Vec3{9999, 9999, 9999};   // the snapshot = the result
+        };
+        bool m = false;
+        Vec3 r = run(1, {-1, 1, 1}, {-0.5f, 1, 1}, &m);
+        check(!m && r.x == -0.5f && r.z == 1, "keep-out: outside -> the origin stays, +0x808 = the origin");
+        r = run(1, {1, 1, -1}, {1.2f, 1.1f, 0.5f}, &m);    // crossed the z = 0 face: the x move alone is outside
+        check(m && r.x == 1.2f && r.y == 1 && r.z == -1, "keep-out: entered along z -> keeps the x move (z and y from last tick)");
+        r = run(1, {-1, 1, 1}, {0.5f, 1.1f, 1.3f}, &m);    // crossed the x = 0 face: the z move alone is outside
+        check(m && r.x == -1 && r.y == 1 && r.z == 1.3f, "keep-out: entered along x -> keeps the z move");
+        box.lo.z = -50; box.hi.z = 50;                     // a wall of a volume: x alone is inside too
+        r = run(1, {-1, 1, 1}, {0.5f, 1, 1.3f}, &m);
+        check(m && r.x == -1 && r.z == 1.3f, "keep-out: the x candidate inside, the z candidate outside -> z kept");
+        box.lo.z = -2; box.hi.z = 2;
+        r = run(1, {1, 1, 1}, {1.5f, 1, 1.5f}, &m);        // last tick's origin inside as well: pinned there
+        check(m && r.x == 1 && r.z == 1, "keep-out: both candidates inside -> last tick's origin");
+        r = run(0, {-1, 1, 1}, {1, 1, 1}, &m);
+        check(!m && r.x == 1 && r.z == 1, "keep-out: phase 0 is not pushed, only snapshotted");
+        r = run(1, {-1, 1, 1}, {1, 3.6f, 1}, &m);
+        check(!m && r.y == 3.6f, "keep-out: above the volume (d.y > hi.y) is outside");
+        r = run(1, {-1, 1, 1}, {0, 3.0f, 0}, &m);
+        check(m, "keep-out: the bounds are inclusive (a corner counts)");
+        {   EnemyAi a; a.phase() = 1; Vec3 q{1, 1, 1};
+            check(!ai::keep_out(a, q, nullptr) && a.v(0x808).x == 1, "keep-out: no volumes -> snapshot only"); }
+        box.yaw = 135.0f * 0.0174532925f;                  // a turned volume (S_2011's door 2): the table index rule
+        box.lo = {-1, -1.5f, -6}; box.hi = {1, 1.5f, 6};
+        const int k = int(box.yaw * 40.7436637878418f);
+        const float c = std::cos(6.28318530717958647692f * float(k & 0xff) / 256.0f);
+        const float s = std::cos(6.28318530717958647692f * float((k - 0x40) & 0xff) / 256.0f);
+        // a point 5 along the box's long axis: its local (0, 0, 5) -> the world offset (x, z) with x c - z s = 0, z c + x s = 5
+        const Vec3 on{2 + 5 * s, 1.5f, 2 + 5 * c}, off{2 + 5 * c, 1.5f, 2 - 5 * s};
+        check(k == 96 && box.contains(on) && !box.contains(off), "keep-out: a turned volume tests the offset through cos[k], cos[k - 64], k = (int)(yaw * 40.7437)");
     }
     {   // Init, then an unseen target: wander, no acquisition.
         Rig r; EnemyAi ai;

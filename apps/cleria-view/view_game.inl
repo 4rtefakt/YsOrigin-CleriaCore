@@ -4087,6 +4087,14 @@ title_again:
                             feet.x, feet.y, feet.z);
                 break;
             }
+        } else if (cmd.rfind("epos=", 0) == 0) {       // epos=#id,x,z: that actor onto the floor at (x, z) (audit aid:
+            int id = 0; float x = 0, z = 0;            // KEEPOUT_BOXES.md — a monster next to an exit volume)
+            if (std::sscanf(cmd.c_str() + 5, "#%d,%f,%f", &id, &x, &z) == 3)
+                if (Actor* a = world.find(id)) {
+                    const float fl = floor_at(phys_mesh(room), x, z, a->pos.y + 2.0f);
+                    a->pos = {x, fl > kNoFloor ? fl : a->pos.y, z};
+                    std::printf("  [drive] epos #%d (%.2f, %.2f, %.2f)\n", id, a->pos.x, a->pos.y, a->pos.z);
+                }
         } else if (cmd.rfind("duel=", 0) == 0) {       // duel=cast: as near= + atk, only while a duel is live
             // (156 = 1 and the world not frozen), so a drive can fight through a whole duel script
             // without moving the player during its cutscenes (build/event_re/DUELS.md §5).
@@ -5358,6 +5366,13 @@ title_again:
                         r.eye.dist, r.eye.flags, r.target.mode, r.offset.x, r.offset.y, r.offset.z, g_cam_out.eye.x,
                         g_cam_out.eye.y, g_cam_out.eye.z, g_cam_out.target.x, g_cam_out.target.y, g_cam_out.target.z);
         }
+    };
+    // FUN_0042dc90: a point inside one of the room's exit volumes — the .SEN records with a destination; the
+    // .SEV event boxes are another list here, as the engine skips them (KEEPOUT_BOXES.md §1, §2).
+    const bool keepout_log = std::getenv("CLERIA_KEEPOUT") != nullptr;
+    const std::function<bool(const Vec3&)> exit_volume = [&](const Vec3& p) {
+        for (const SenTrigger& t : room.sen.triggers) if (t.contains(p)) return true;
+        return false;
     };
     #include "view_boss04.inl"                // Khonsclard's host (KHONSCLARD.md)
     #include "view_boss05.inl"                // Pictimos's host (PICTIMOS.md)
@@ -7141,6 +7156,24 @@ title_again:
                     env.hp = en->hp; env.max_hp = en->max_hp; env.section = e.avm.section();
                     en->live_section = env.section;
                     env.cam_back = {-cam_fwd.x, 0.0f, -cam_fwd.z};   // [H] M470.md §7 #3
+                    // FUN_0042dc90's restore, the first thing a handler does past its far freeze and its dead path
+                    // (KEEPOUT_BOXES.md §3): a monster does not stand in one of the room's exit volumes. Not the
+                    // handlers without the call (0..2, 83 = M900) nor a script puppet (FUN_0045f250).
+                    // [not modelled] M230 (16): FUN_004c1260 runs the same test against +0x808, which that brain
+                    // also uses for its relocation offset and snapshots only in the launch state [BYTES 0x4c136e..
+                    // 0x4c1396] — left as it was. Zava (80) has the restore inlined in her brain (m870.cpp).
+                    if (en->ai_index >= 3 && en->ai_index != 83 && en->ai_index != 16 && en->ai_index != 80 && !hugo_eye(*en) &&
+                        !enemy_handler_puppet(en->ai_index, env)) {
+                        Vec3 org = env.self;
+                        if (ai::keep_out(en->ai, org, exit_volume)) {
+                            if (keepout_log)
+                                std::printf("  [keepout] t%llu #%d cast %d (%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)\n",
+                                            (unsigned long long)tick_count, en->instance_id, en->cast_id, env.self.x, env.self.y,
+                                            env.self.z, org.x, org.y, org.z);
+                            en->pos = {org.x, org.y - en->height, org.z};
+                            env.self = org;
+                        }
+                    }
                     const EnemyBrain own = enemy_brain_for(en->ai_index);
                     const int phase_before = e.actor->ai.phase();
                     AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));

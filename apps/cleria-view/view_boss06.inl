@@ -533,7 +533,7 @@ auto boss6_zava_env = [&](Actor& en, AiEnv& env) {
         for (const auto& f : fxsim.effects())
             if (!f->dead && f->id == kHugoFx[k]) { boss6_link.zin.hugo_fx[std::size_t(k)] = Vec3{f->M.m[3][0], f->M.m[3][1], f->M.m[3][2]}; break; }
     }
-    boss6_link.zin.keep_out = nullptr;                     // [not modelled] FUN_0042dc90 (as every class-4 handler)
+    boss6_link.zin.keep_out = exit_volume;                 // FUN_0042dc90 (KEEPOUT_BOXES.md §3.1; view_game.inl)
     // FUN_00443b80(5, &Z+0x94): EEX record 5. [H] +0xb0 = the GAMEINFO enemy-EXP curve at the record's level, as
     // boss01..05; [not modelled] the loader's difficulty scaling (the brain overrides HP / STR / DEF right after).
     boss6_link.zin.eex5 = [&](Actor& z) {
