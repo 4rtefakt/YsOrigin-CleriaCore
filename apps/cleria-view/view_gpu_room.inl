@@ -182,6 +182,25 @@ static const std::vector<int>& enemy_death_sounds(const fs::path& asset_root,
     return out;
 }
 
+// The same for the death section's anime_GenerateDebris (funcid 0x26, ASO_NOOPS.md §3.3: one per script, on
+// section 5's tick 0 in all but four files): the op and the tick it runs on, nullptr when the script has none.
+struct DeathDebris { int tick = 0; AsoVm::DebrisEvent ev; };
+static const DeathDebris* enemy_death_debris(const fs::path& asset_root, const std::string& stem) {
+    static std::unordered_map<std::string, std::pair<bool, DeathDebris>> cache;
+    auto it = cache.find(stem);
+    if (it == cache.end()) {
+        it = cache.emplace(stem, std::pair<bool, DeathDebris>{}).first;
+        Aso a = stem.empty() ? Aso{} : Aso::load(asset_root / "ANI" / (stem + ".ASO"));
+        AsoVm vm;
+        if (a.ok() && (vm.bind(&a), vm.set_section(5)))
+            for (int t = 0; t < 60 && !it->second.first; ++t) {
+                vm.tick();
+                if (const AsoVm::DebrisEvent* d = vm.debris()) it->second = {true, {t, *d}};
+            }
+    }
+    return it->second.first ? &it->second.second : nullptr;
+}
+
 // What physics collides against. The game collides against the `_.YMO` hulls, not
 // the render mesh; fall back to the render mesh only if a room ships no twins.
 // CLERIA_COLL=render forces the old behaviour, for A/B.

@@ -329,6 +329,15 @@ bool AsoVm::step(std::size_t& pc) {
         // anime_GenerateCollision2 (0x28) is INERT in the engine: its kind-10 object only counts a delay and a
         // life down, nothing reads it (ASO_NOOPS.md §4 [BYTES 0x447a78..0x447b8c]; no RNG draw). Nothing to do.
         case 0x28: break;
+        case 0x26:                                         // anime_GenerateDebris [BYTES 0x447980..0x447a39]
+            if (argc >= 7) {
+                debris_.count = ai(0);
+                debris_.spin = ai(1) != 0; debris_.keep = ai(2) != 0; debris_.fixed = ai(3) != 0;
+                debris_.bag.clear();
+                for (std::uint32_t k = 7; k < argc; ++k) debris_.bag.push_back(ai(k));
+                debris_set_ = true;
+            }
+            break;
         // FUN_004472e0 case 0x16 writes BOTH +0x9d0 (actable) and +0x9d1 (the jump-enable byte that
         // case 0x19 writes alone): Actable(1) also allows the jump (the mover's gate 0x46520c).
         case kActable:       actable_ = jump_enable_ = (ai(0) != 0); break;
@@ -484,6 +493,7 @@ void AsoVm::tick() {
     section_ended_ = false;
     sounds_.clear();
     specular_set_ = false;
+    debris_set_ = false;
     bullets_.clear();
     effects_.clear();
     loci_.clear();

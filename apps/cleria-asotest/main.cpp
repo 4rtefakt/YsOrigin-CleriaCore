@@ -359,6 +359,23 @@ int main(int argc, char** argv) {
             vm.set_section(2, /*force*/true); vm.tick();
             say(was && !vm.attack_break(), "AttackBreak C_990 sec0x116: on within 12 ticks; a new section clears vm+0xe5");
         }
+        // anime_GenerateDebris (0x26) — ASO_NOOPS.md §3.3: the death section's op.
+        auto debris_of = [&](const char* file, int* tick) {
+            AsoVm::DebrisEvent ev;
+            Aso d = Aso::load(fs::path(argv[1]) / "ANI" / file);
+            AsoVm vm;
+            *tick = -1;
+            if (d.ok() && (vm.bind(&d), vm.set_section(5, /*force*/true)))
+                for (int t = 0; t < 60 && *tick < 0; ++t) { vm.tick(); if (vm.debris()) { ev = *vm.debris(); *tick = t; } }
+            return ev;
+        };
+        int t100 = 0, t900 = 0;
+        const AsoVm::DebrisEvent d100 = debris_of("M_100.ASO", &t100), d900 = debris_of("M_900.ASO", &t900);
+        say(t100 == 0 && d100.count == 5 && d100.spin && !d100.keep && !d100.fixed &&
+            d100.bag == std::vector<std::int32_t>{370, 371, 372, 373, 374},
+            "GenerateDebris M_100 sec5 tick 0 = {5, spin, bag 370..374}");
+        say(t900 >= 0 && d900.count == 8 && d900.bag == std::vector<std::int32_t>{8, 340, 341, 342, 343, 344, 343, 344},
+            "GenerateDebris M_900 sec5 = 8 pieces, bag {8, 340..344, 343, 344}");
     }
     return (ok == files && bad_tile == 0 && decode_err == 0 && !gencol_fail && !chain_fail && !flag_fail && !spec_fail) ? 0 : 1;
 }

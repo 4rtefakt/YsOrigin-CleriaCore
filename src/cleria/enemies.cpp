@@ -52,6 +52,7 @@ EnemyTable EnemyTable::load(const fs::path& path) {
         std::memcpy(&e.ai_run, b.data() + o + 0x9C, 4);
         std::memcpy(&e.ai_sight, b.data() + o + 0xB0, 4);
         std::memcpy(e.ai_raw, b.data() + o + 0x90, 64);
+        std::memcpy(&e.blood, b.data() + o + 0xE0, 4);
     }
     return t;
 }

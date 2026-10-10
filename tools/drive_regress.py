@@ -1026,6 +1026,14 @@ CASES.update({
         expect=["#189 cast 14 section 7: 000000 -> c0c0c0 step 0.075 count 0", "#189 specular 0e0e0e",
                 "#189 specular 818181", "#189 specular bbbbbb"],
         absent=["specular c0c0c0"]),
+    # build/mech_re/ASO_NOOPS.md §3 (anime_GenerateDebris, funcid 0x26): a monster's death section throws its five
+    # spinning pieces (texture base 0x42) through the pickup spawner: 5 shuffle draws + 5 x 5 = 30 draws of the shared
+    # xorshift on the kill's tick, the pieces starting 2 ticks apart.
+    "debris_death": dict(
+        room="S_10/S_1002/S_1002", env={"CLERIA_DEBRIS": "1", "CLERIA_LEVEL": "3"},
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;" +
+              ";".join("%d:near=17;%d:atk;%d:pickups" % (t, t + 1, t + 20) for t in range(20, 120, 25)) + ";130:quit",
+        expect=["[debris] t", "5 pieces", "30 draws", "[pickup] debris id"]),
     # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
     # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
     # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.
@@ -1734,7 +1742,10 @@ CASES.update({
         # the recovery drop is still in the air (it rested on the floor by then) and is collected there.
         expect=["[pickup] id 66 pos (32.30, -3.39, -37.96) ground -4.078 rest 0", "sprite (32.30, -3.16, -38.06)",
                 "shadow y -4.007", "[fxall] id 63 attach 2 at", "rel (0.00, -1.00, 0.00) bias 5.00",
-                "[fxall] id 72 attach 0 at (32.13, -3.59, -37.54)"]),
+                # Re-pinned 2026-10-10 (anime_GenerateDebris): cast 0x11's death section throws its debris 9 ticks
+                # after the kill (30 draws at t110), so the drops' later bounce rolls differ and the first collected
+                # pickup's z_item.eft is at (32.16, -4.10, -37.62), was (32.13, -3.59, -37.54). Same drops, same grants.
+                "[fxall] id 72 attach 0 at (32.16, -4.10, -37.62)"]),
     # 4. Eft_LocateChr (0x118) under a Fix: the attach reads the actor's current +0x20, so the smith
     # script's player light follows the player the opening moved (it sat at the world origin).
     "fx_locate_under_fix": dict(

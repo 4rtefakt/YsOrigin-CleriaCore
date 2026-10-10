@@ -7,9 +7,12 @@
 // Every speed is units per 60 Hz tick; the world is Y-up. All randomness draws from the game's
 // one xorshift128 (ef2sim::Rng bound to the shared state), in the engine's order.
 //
+// Debris (build/mech_re/ASO_NOOPS.md §3, GOXX_PARTICLES.md §2.1) is the same object with texture
+// base 0x42 (IMAGE/DEBRIS/DEBRISnnn.DDS) instead of 0x304: no pickup flag, a spin, the leaf kind.
+//
 // [not modelled] the water-surface probe (rooms with water mode 1), the probe modes' collider
-// filters, the sparkle particles (the host is told when one is emitted), the bounce effect (never
-// enabled for items).
+// filters (debris probes with mode 2, items with mode 0), the sparkle particles (the host is told
+// when one is emitted), a leaf in water.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -30,7 +33,12 @@ struct Pickup {
     int delay = 0;                    // +0x13c: ticks before it starts
     std::uint8_t flags = 0;           // +0x13d: 1 probe mode 0, 2 no ground probe, 4 pickup,
                                       //   8 never expires, 0x10 static, 0x20 chest close-on-window
-    int kind = 0;                     // +0x147: 0 normal, 2 chest item
+    int kind = 0;                     // +0x147: 0 normal, 1 leaf (debris only), 2 chest item
+    bool debris = false;              // the texture family: base 0x42 (debris) instead of 0x304 (items)
+    float spin = 0, spin_rate = 0;    // +0x148, +0x14c (rad, rad / tick): 0 for every item
+    std::uint32_t blood = 0;          // +0x130: the colour of the stain a bounce leaves (0 = none)
+    int stains = 0;                   // +0x141: stains left so far (2 at most)
+    int throttle = 0;                 // +0x13e: probe-less ticks left (debris in a crowd)
     bool resting = false;             // +0x142
     bool ground = false;              // +0x143: ground under it (the shadow is drawn)
     float ground_y = 0;               // +0x158
@@ -69,7 +77,20 @@ struct SpawnArgs {
     float h0 = 0.01f, h1 = 0.045f;    // horizontal speed range
     float v0 = 0.04f, v1 = 0.065f;    // vertical speed range
     float yaw0 = -3.14159265f, yaw1 = 3.14159265f;
+    bool debris = false;              // texture base 0x42: the leaf list applies
+    float spin_rate = 0;              // [ebp+0x24]
+    std::uint32_t colour = 0;         // [ebp+0x40] -> +0x130, the bounce stain's colour
+    int bloody = 2;                   // byte 0x6d5d92 (BloodyEffectLevel; the image's value is 2)
 };
+// FUN_00587440's arguments to FUN_00587010 for anime_GenerateDebris(count, spin, keep, fixed, ...).
+SpawnArgs debris_args(int count, bool spin, bool keep, bool fixed, std::uint32_t colour, int bloody);
+// The ASO handler's colour [BYTES 0x447980..0x447a39]: 0xff550a00, or for a monster cast (0xe..0x53,
+// 0xa6..0xb9) its ENEMYINFO +0xe0 | 0xff000000 (0 when that is 0).
+std::uint32_t debris_colour(int cast_id, std::uint32_t enemyinfo_e0);
+// ... and its gate: the five reviver casts, whose corpse does not shatter without the Silver Chimes.
+bool debris_skipped(int cast_id, bool chimes);
+// 0x42 + id is in the u16 list 0x6a2b5c[24]: a leaf piece.
+bool debris_is_leaf(int id);
 void spawn_pickups(ef2sim::Rng& rng, const int* bag, int n, const Vec3& pos, const SpawnArgs& a,
                    bool whole_room_water, std::vector<Pickup>& out);
 
@@ -110,6 +131,9 @@ struct PickupWorld {
     bool sword = false;               // the player has a live sword trail
     Vec3 sword_tip;                   // its +0xdc..+0xe4
     bool window_open = false;
+    int live = 0;                     // [0x75ae64]: the live kind-1 objects (the debris throttle)
+    // The bounce stain FUN_0058a900(&pos, 0.75, 0.9) with the piece's colour (its draws are the callee's).
+    std::function<void(const Pickup&)> stain;
 };
 void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w);
 

@@ -1207,6 +1207,8 @@ title_again:
     bullet::Bullets bullets(&fxsim, ef2_of);
     // World item pickups (src/cleria/pickup.hpp, build/item_re/PICKUPS.md).
     std::vector<Pickup> pickups;
+    struct PendingDebris { int ticks; int cast; Vec3 origin; const AsoVm::DebrisEvent* ev; };
+    std::vector<PendingDebris> pending_debris;            // a death section's GenerateDebris still to run (spawn_debris)
     std::vector<Popup> popups;                            // GoPopup (pool 7, 32 at most)
     ef2sim::Rng pick_rng;
     pick_rng.bind(game.rs);
@@ -1762,6 +1764,7 @@ title_again:
         wx.clear();                                           // FUN_00428ec0 / 0x76a558 = 0 (WEATHER.md)
         apply_load_effects(room);                             // after the clear (the statue glow)
         pickups.clear();
+        pending_debris.clear();
         popups.clear();
         actor_mats.clear();
         efx.kinds.clear();
@@ -3405,6 +3408,27 @@ title_again:
     int drive_wish_n = 0;
     Vec3 drive_goto{};                                    // CLERIA_DRIVE goto=x,z,n: the stick held toward a point
     int drive_goto_n = 0;
+    // anime_GenerateDebris (funcid 0x26; build/mech_re/ASO_NOOPS.md §3): the handler's colour and reviver gate
+    // [BYTES 0x447980..0x447a39], then FUN_00587440 -> FUN_00587010 with texture base 0x42 at the actor's
+    // origin +0x50: n + 5 * count draws of the shared xorshift, on the op's tick. An ordinary monster's corpse
+    // does not run its VM here (the kill removes it), so its death section's op is read from the script once
+    // (enemy_death_debris) and replayed `tick` ticks after the kill, at the place it died.
+    // [H] its place among the first dead tick's other draws: after FUN_00478510's (the puff, the drops).
+    static const bool debris_log = [] { const char* v = std::getenv("CLERIA_DEBRIS"); return v && *v && *v != '0'; }();
+    auto spawn_debris = [&](int cast_id, const Vec3& origin, const AsoVm::DebrisEvent& ev) {
+        if (debris_skipped(cast_id, (inv.equip_flags & 0x8000u) != 0)) return;
+        const Enemy* er = etab.get(cast_id);
+        const std::uint64_t c0 = pick_rng.calls;
+        const std::size_t n0 = pickups.size();
+        spawn_pickups(pick_rng, ev.bag.data(), int(ev.bag.size()), origin,
+                      debris_args(ev.count, ev.spin, ev.keep, ev.fixed, debris_colour(cast_id, er ? er->blood : 0u),
+                                  settings().s.game.bloody_effect_level),
+                      water_mode == 2, pickups);
+        if (debris_log)
+            std::printf("  [debris] t%llu cast 0x%x: %zu pieces (ids %d..), %llu draws\n", (unsigned long long)tick_count,
+                        cast_id, pickups.size() - n0, ev.bag.empty() ? -1 : ev.bag[0],
+                        (unsigned long long)(pick_rng.calls - c0));
+    };
     #include "view_hugo_eyes.inl"                         // Hugo's Eyes of Fact (the player's familiars)
     auto skill_tick = [&](bool skill_held, bool attack_held) {
         const int slot = skillmp::bracelet_slot(inv.magic);
@@ -4203,8 +4227,8 @@ title_again:
             const Vec3 cr = normalize(cross(Vec3{0, 1, 0}, cf)), cu = cross(cf, cr);
             for (const Pickup& pk : pickups) {
                 const Vec3 sc = pk.sprite_centre(cu, cf);
-                std::printf("  [pickup] id %d pos (%.2f, %.2f, %.2f) ground %.3f rest %d age %.0f sprite (%.2f, %.2f, %.2f) "
-                            "lowest %.3f shadow y %.3f\n", pk.id, pk.pos.x, pk.pos.y, pk.pos.z, pk.ground_y,
+                std::printf("  [pickup] %sid %d pos (%.2f, %.2f, %.2f) ground %.3f rest %d age %.0f sprite (%.2f, %.2f, %.2f) "
+                            "lowest %.3f shadow y %.3f\n", pk.debris ? "debris " : "", pk.id, pk.pos.x, pk.pos.y, pk.pos.z, pk.ground_y,
                             int(pk.resting), pk.age, sc.x, sc.y, sc.z, sc.y - pk.half * std::fabs(cu.y),
                             pk.shadow_centre(cf).y);
             }
@@ -7281,6 +7305,14 @@ title_again:
                             roll_enemy_drops(pick_rng, *er, en.cast_id, {en.pos.x, en.pos.y + en.height, en.pos.z}, dc,
                                              pickups, /*entry_draw*/ false);
                         }
+                        // The death section's GenerateDebris (spawn_debris). M360's corpse and a familiar run their
+                        // section 5 live and issue it there.
+                        if (en.ai_index != 29 && !hugo_eye(en))
+                            if (const DeathDebris* dd = enemy_death_debris(asset_root, casts.sprite_stem(en.cast_id))) {
+                                const Vec3 org{en.pos.x, en.pos.y + en.height, en.pos.z};
+                                if (dd->tick == 0) spawn_debris(en.cast_id, org, dd->ev);
+                                else pending_debris.push_back({dd->tick, en.cast_id, org, &dd->ev});
+                            }
                         if (en.cast_id >= 0 && en.cast_id < 256) {   // FUN_004fbb40: the Topic record
                             topic_seen[en.cast_id] = 1;
                             topic_kills[en.cast_id] = std::min(topic_kills[en.cast_id] + 1, 50);
@@ -7696,9 +7728,14 @@ title_again:
                 (void)player_stats();                         // refreshes inv.equip_flags
                 if (!(inv.equip_flags & 0x20000u)) player.hp = std::max(0, player.hp - 9999);
             }
+            for (PendingDebris& pd : pending_debris)
+                if (--pd.ticks == 0) spawn_debris(pd.cast, pd.origin, *pd.ev);
+            pending_debris.erase(std::remove_if(pending_debris.begin(), pending_debris.end(),
+                                                [](const PendingDebris& pd) { return pd.ticks <= 0; }), pending_debris.end());
             // World pickups: motion, bounce, collect (FUN_00584f90 / FUN_005856c0 / FUN_00585ff0).
             if (!pickups.empty()) {
                 PickupWorld pw;
+                pw.live = int(pickups.size());
                 pw.hit = [&](const Vec3& a, const Vec3& b, Vec3* pt, Vec3* n) {
                     return segment_hit(phys_mesh(room), a, b, pt, n);
                 };
@@ -8557,9 +8594,23 @@ title_again:
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());
             const Vec3 cf = cam.forward();
             const Vec3 cright = normalize(cross(Vec3{0, 1, 0}, cf)), cup = cross(cf, cright);   // 0x795f30 / 0x795f40
+            // Debris: static texture 0x42 + id = data\image\debris\debris%03d.dds, whole [EXPORT 00457410.c:44-49].
+            static std::unordered_map<int, SpriteTex> debris_tex;
+            auto debris_icon = [&](int id) -> const SpriteTex* {
+                auto it = debris_tex.find(id);
+                if (it == debris_tex.end()) {
+                    char nm[32];
+                    std::snprintf(nm, sizeof nm, "DEBRIS%03d.DDS", id);
+                    SpriteTex s{};
+                    Dds d = load_dds(asset_root / "IMAGE" / "DEBRIS" / nm);
+                    if (d.ok()) s = upload_rgba(g, d.width, d.height, d.data.data());
+                    it = debris_tex.emplace(id, s).first;
+                }
+                return it->second.tex ? &it->second : nullptr;
+            };
             for (const Pickup& pk : pickups) {
                 if (pk.delay > 0) continue;
-                const SpriteTex* ic = pauseUi.icon(g, items_tbl, asset_root, pk.id);
+                const SpriteTex* ic = pk.debris ? debris_icon(pk.id) : pauseUi.icon(g, items_tbl, asset_root, pk.id);
                 if (!ic) continue;
                 // FUN_00586e40: flat at (x, ground, z) - F * 0.15, ground = hit y + 0.02 (draw_shadow
                 // lifts its floorY by 0.05, so it gets ground - 0.05). It used to sit at the hit y
@@ -8570,8 +8621,18 @@ title_again:
                 // FUN_00586bf0: a camera-plane quad at pk.sprite_centre (it used to stand upright
                 // with its bottom 0.18 under the floor, clipped as the camera moved); the glint is the
                 // vertex specular (+0x12c, grey 7k); in water the RGB is halved.
-                const float t = pk.in_water ? 0.5f : 1.0f;
-                draw_billboard(g, view, depth, *ic, pk.sprite_centre(cup, cf), pk.half, cright, cup,
+                const float t = pk.in_water && pk.kind != 1 ? 0.5f : 1.0f;
+                // The quad turns by the spin (+0x148) in the camera plane, quantised to the 256-step table; a
+                // leaf's roll is a triangle wave of it [EXPORT 00584f90.c:223-229]. [approx] the turn's sense.
+                Vec3 qr = cright, qu = cup;
+                if (pk.spin != 0.0f) {
+                    int si = int(pk.spin * 40.7437f);
+                    if (pk.kind == 1) { const int u7 = (si / 8) & 0x7f; si = (u7 < 0x40 ? u7 : 0x80 - u7) - 0x20; }
+                    const float a = float(si & 255) * (6.28318531f / 256.0f), c = std::cos(a), s = std::sin(a);
+                    qr = {cright.x * c + cup.x * s, cright.y * c + cup.y * s, cright.z * c + cup.z * s};
+                    qu = {cup.x * c - cright.x * s, cup.y * c - cright.y * s, cup.z * c - cright.z * s};
+                }
+                draw_billboard(g, view, depth, *ic, pk.sprite_centre(cup, cf), pk.half, qr, qu,
                                std::uint32_t(pk.glint(ms)) * 0x010101u, t, t, t, pk.alpha());
             }
             if (!popups.empty()) {                            // layer 0xf, after the world, no Z test

@@ -233,6 +233,17 @@ class AsoVm {
     };
     const SpecularEvent* specular() const { return specular_set_ ? &specular_ : nullptr; }
 
+    // anime_GenerateDebris (funcid 0x26, varargs; ASO_NOOPS.md §3.1 [BYTES 0x447980..0x447a39]): a0 the count,
+    // a1 spin, a2 never expires, a3 static, a4..a6 not read, a7.. the bag of debris ids (argc - 7 of them).
+    // The host resolves the colour and the reviver gate from the cast and calls the spawner (pickup.hpp).
+    // Valid for the tick that produced it; one per tick is the corpus maximum.
+    struct DebrisEvent {
+        std::int32_t count = 0;
+        bool spin = false, keep = false, fixed = false;
+        std::vector<std::int32_t> bag;
+    };
+    const DebrisEvent* debris() const { return debris_set_ ? &debris_ : nullptr; }
+
     // anime_FireBullet (funcid 41 / 0x29) — projectile spawns, 186 uses. Hugo and Toal
     // both fire (Yunica never does), as do many enemies. The two ints are surfaced raw
     // and the rest kept as the script's own floats, because what they SELECT is still
@@ -389,6 +400,8 @@ private:
     std::vector<SoundEvent> sounds_;
     SpecularEvent specular_;
     bool specular_set_ = false;
+    DebrisEvent debris_;
+    bool debris_set_ = false;
     std::vector<BulletEvent> bullets_;
     std::vector<EffectEvent> effects_;
     std::vector<LocusEvent> loci_;

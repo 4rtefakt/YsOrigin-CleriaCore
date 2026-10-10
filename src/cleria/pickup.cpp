@@ -29,9 +29,11 @@ Vec3 scale(const Vec3& a, float s) { return {a.x * s, a.y * s, a.z * s}; }
 // FUN_00584c90: the constructor's own draw and the velocity from yaw + speed.
 void construct(ef2sim::Rng& rng, Pickup& p, float yaw, float spd, float vy) {
     const std::uint32_t w = rng.next();
-    p.glint_phase = int((w >> 25) & 3);                       // bit 31 would negate the spin (0)
+    p.glint_phase = int((w >> 25) & 3);
+    if (w & 0x80000000u) p.spin_rate *= -1.0f;                // 0x6be058
     const int i = int(yaw * 40.7437f);                        // cvttss2si; movzx al masks both
     p.vel = {cos256(i) * spd, vy, cos256(i - 64) * spd};
+    if (p.kind == 1) { p.vel.x *= 0.35f; p.vel.z *= 0.35f; }  // the leaf (0x6bd2b0)
     p.prev = p.pos;
     p.base = p.pos;
     p.resting = (p.flags & 0x10) != 0;
@@ -56,9 +58,17 @@ void bounce(ef2sim::Rng& rng, Pickup& p, const Vec3& hit, const Vec3& n, const P
             if (p.ground) p.ground_y = pt.y + 0.02f;
         }
     }
-    rng.next();                                               // the spin sign draw (spin is 0)
-    (void)sf;
+    if (std::int32_t(rng.next()) < 0) sf = -sf;               // the spin sign draw
+    p.spin_rate *= sf;
+    if (p.blood && p.age > 8.0f && p.stains < 2) {            // 0x585f92..0x585fd8
+        if (w.stain) w.stain(p);
+        ++p.stains;
+    }
 }
+
+// The u16 list 0x6a2b5c[24], less the 0x42 base [BYTES].
+constexpr int kLeaf[24] = {38, 68, 116, 117, 138, 171, 176, 178, 187, 192, 204, 221,
+                           251, 262, 305, 312, 323, 338, 339, 348, 349, 352, 353, 366};
 
 }  // namespace
 
@@ -89,9 +99,33 @@ float Pickup::shadow_alpha() const {
     return std::min(0.37647f, (0.4f - (pos.y - ground_y) * 0.14f) * alpha());
 }
 
+bool debris_is_leaf(int id) { return std::find(std::begin(kLeaf), std::end(kLeaf), id) != std::end(kLeaf); }
+
+SpawnArgs debris_args(int count, bool spin, bool keep, bool fixed, std::uint32_t colour, int bloody) {
+    SpawnArgs a;                                              // FUN_00587440 [BYTES 0x587440..0x5874ca]
+    a.count = count;
+    a.flags = std::uint8_t((keep ? 8 : 0) | (fixed ? 0x10 : 0));
+    a.size = 1.0f;
+    a.h0 = 0.04f; a.h1 = 0.11f; a.v0 = 0.07f; a.v1 = 0.12f;
+    a.debris = true;
+    a.spin_rate = spin ? 0.45f : 0.0f;                        // 0x6bd2f0
+    a.colour = colour;
+    a.bloody = bloody;
+    return a;
+}
+
+std::uint32_t debris_colour(int cast_id, std::uint32_t e0) {
+    if (!((cast_id >= 0x0e && cast_id <= 0x53) || (cast_id >= 0xa6 && cast_id <= 0xb9))) return 0xff550a00u;
+    return e0 ? (e0 | 0xff000000u) : 0u;
+}
+
+bool debris_skipped(int cast_id, bool chimes) {
+    return !chimes && (cast_id == 0x2f || cast_id == 0x3c || cast_id == 0x3d || cast_id == 0x47 || cast_id == 0x52);
+}
+
 void spawn_pickups(ef2sim::Rng& rng, const int* bag, int n, const Vec3& pos, const SpawnArgs& a,
                    bool whole_room_water, std::vector<Pickup>& out) {
-    const float base_life = (a.flags & 4) ? 990.0f : 90.0f;   // ([0x6d5d92] >= 2 -> 105: [not modelled])
+    const float base_life = (a.flags & 4) ? 990.0f : a.bloody >= 2 ? 105.0f : 90.0f;   // 0x6bde60 / 0x6bdb04 / 0x6bdadc
     std::vector<int> b;
     int idx = 0, delay = 0;
     for (int k = 0; k < a.count; ++k) {
@@ -116,6 +150,11 @@ void spawn_pickups(ef2sim::Rng& rng, const int* bag, int n, const Vec3& pos, con
         p.delay = delay;
         p.half = a.size * 0.315f;
         p.in_water = whole_room_water;
+        p.debris = a.debris;
+        p.spin_rate = a.spin_rate;
+        if (a.debris && debris_is_leaf(p.id)) p.kind = 1;
+        // +0x130 survives the ctor only off a leaf, with a colour, at level >= 2 [BYTES 0x584ef8..0x584f0d].
+        if (p.kind != 1 && (a.colour & 0xffffffu) && a.bloody >= 2) p.blood = a.colour;
         construct(rng, p, yaw, spd, vy);
         out.push_back(p);
         delay += a.delay_step;
@@ -216,8 +255,14 @@ void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w) {
         return;
     }
     // FUN_005856c0
-    if (!p.resting) {
-        if (!(p.flags & 2) && w.hit) {
+    const bool moving = !p.resting;                           // a bounce to rest still sparkles this tick
+    if (!p.resting && p.throttle > 0) {
+        --p.throttle;                                         // no probe, and prev stays (0x5856d8)
+    } else if (!p.resting) {
+        std::uint8_t f = p.flags;
+        if (w.live > 25 && !(f & 4)) p.throttle = 2;          // debris in a crowd probes every third tick
+        if (w.live > 48) f |= 2;                              // ... and loses its shadow probe
+        if (!(f & 2) && w.hit) {
             Vec3 pt, nn;
             p.ground = w.hit(add(p.pos, {0, 0.05f, 0}), add(p.pos, {0, -510.0f, 0}), &pt, &nn);
             if (p.ground) p.ground_y = pt.y + 0.02f;
@@ -227,11 +272,11 @@ void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w) {
             if (w.hit(p.prev, p.pos, &pt, &nn)) bounce(rng, p, pt, nn, w);
         }
         p.prev = p.pos;
-        if ((p.flags & 4) && (p.sparkle++ & 1) == 0) {
-            const float a = unit(rng.next()) * 2.0f * kPi - kPi / 2.0f;
-            const float rot = unit(rng.next()) * 2.0f * kPi;
-            if (w.sparkle) w.sparkle(p, a, rot);
-        }
+    }
+    if (moving && (p.flags & 4) && (p.sparkle++ & 1) == 0) {
+        const float a = unit(rng.next()) * 2.0f * kPi - kPi / 2.0f;
+        const float rot = unit(rng.next()) * 2.0f * kPi;
+        if (w.sparkle) w.sparkle(p, a, rot);
     }
     if (p.age > 50.0f && (p.flags & 4) &&
         (pickup_in_reach(p, w.player) || (w.sword && pickup_in_sword_reach(p, w.sword_tip))) && w.touch && w.touch(p)) {
@@ -240,6 +285,15 @@ void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w) {
     }
     if (p.resting) return;
     p.pos = add(p.pos, p.vel);
+    p.spin += p.spin_rate;
+    if (p.kind == 1) {                                        // the leaf [EXPORT 005856c0.c:158-180]
+        if (!p.in_water) p.vel.y = std::max(p.vel.y - 0.0075f, -0.026f);   // 0x6bdfbc
+        int u = (int(p.spin * 40.7437f) / 6) & 0xff;          // a triangle wave of the spin
+        if (u >= 0x81) u = 0x100 - u;
+        p.pos.x += cos256(u) * p.spin_rate * 0.015f;          // 0x6bd0c0: the sway
+        p.pos.z += cos256(u - 64) * p.spin_rate * 0.015f;
+        return;
+    }
     if (!p.in_water) p.vel.y -= 0.0075f;
     else if (p.vel.y > -0.03f) p.vel.y -= 0.0025f;
 }

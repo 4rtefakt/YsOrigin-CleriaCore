@@ -117,6 +117,8 @@ auto boss_corpse = [&](EnemyRender& e) {
     e.spec.tick();
     e.avm.tick();
     e.spec_event();
+    if (const AsoVm::DebrisEvent* dv = e.avm.debris())             // anime_GenerateDebris (ASO_NOOPS.md §3)
+        spawn_debris(en->cast_id, {en->pos.x, en->pos.y + en->height, en->pos.z}, *dv);
     for (const AsoVm::EffectEvent& fe : e.avm.effects()) {
         const Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
         ef2sim::SpawnParams sp;

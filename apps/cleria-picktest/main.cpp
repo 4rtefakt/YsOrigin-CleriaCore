@@ -192,6 +192,80 @@ int main() {
         check(pickup_in_sword_reach(q, {5.0f, 0.44f, 0.0f}) && !pickup_in_sword_reach(q, {5.0f, 0.46f, 0.0f}),
               "collect: the sword reach is 0.45 (squared < 0.2025)");
     }
+    {   // Debris (ASO_NOOPS.md §3.2, GOXX_PARTICLES.md §3.6): anime_GenerateDebris(5, 1, 0, 0, ..., 5 ids).
+        ef2sim::Rng r3;
+        const int bag[5] = {370, 371, 372, 373, 374};
+        bool draws = true, shape = true, ids = true;
+        for (int i = 0; i < 100; ++i) {
+            std::vector<Pickup> out;
+            const std::uint64_t before = r3.calls;
+            spawn_pickups(r3, bag, 5, {0, 1, 0}, debris_args(5, true, false, false, 0xff7c0000u, 2), false, out);
+            if (r3.calls - before != 30 || out.size() != 5) draws = false;
+            int seen = 0;
+            for (std::size_t k = 0; k < out.size(); ++k) {
+                const Pickup& p = out[k];
+                const float h = std::sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z);
+                if (p.delay != int(2 * k) || (p.life != 105.0f && p.life != 106.0f) || h < 0.0399f || h > 0.1101f ||
+                    p.vel.y < 0.07f || p.vel.y > 0.12f || std::fabs(p.half - 0.315f) > 1e-6f ||
+                    std::fabs(std::fabs(p.spin_rate) - 0.45f) > 1e-6f || !p.debris || p.kind != 0 || p.flags != 0 ||
+                    p.blood != 0xff7c0000u)
+                    shape = false;
+                if (p.id >= 370 && p.id <= 374) seen |= 1 << (p.id - 370);
+            }
+            if (seen != 31) ids = false;
+        }
+        check(draws, "debris: GenerateDebris(5, bag 5) takes 5 + 25 = 30 draws");
+        check(shape, "debris: delays 0/2/4/6/8, life 105-106, speed 0.04-0.11, vy 0.07-0.12, half 0.315, spin +-0.45");
+        check(ids, "debris: one piece of each bag id (the bag is shuffled, not sampled)");
+        {
+            std::vector<Pickup> out;
+            const int b8[8] = {8, 340, 341, 342, 343, 344, 343, 344};
+            const std::uint64_t before = r3.calls;
+            spawn_pickups(r3, b8, 8, {0, 1, 0}, debris_args(8, true, false, false, 0xff550a00u, 2), false, out);
+            check(r3.calls - before == 48 && out.size() == 8, "debris: M_900's GenerateDebris(8, bag 8) takes 8 + 40 = 48 draws");
+        }
+        {
+            std::vector<Pickup> out;
+            spawn_pickups(r3, bag, 5, {0, 1, 0}, debris_args(5, true, false, false, 0xff7c0000u, 1), false, out);
+            bool l = true;
+            for (const Pickup& p : out) if ((p.life != 90.0f && p.life != 91.0f) || p.blood != 0) l = false;
+            check(l, "debris: BloodyEffectLevel < 2 = life 90-91 and no bounce stain");
+        }
+        {   // A leaf: the launch x 0.35, the fall clamped at -0.026, no stain.
+            std::vector<Pickup> out;
+            const int leaf = 38;
+            spawn_pickups(r3, &leaf, 1, {0, 3, 0}, debris_args(1, true, false, false, 0xff7c0000u, 2), false, out);
+            Pickup& p = out.back();
+            const float h = std::sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z);
+            bool okl = p.kind == 1 && p.blood == 0 && h >= 0.04f * 0.35f - 1e-5f && h <= 0.11f * 0.35f + 1e-5f;
+            PickupWorld wl;                                // no floor: it falls for its whole life
+            for (int t = 0; t < 80; ++t) { step_pickup(r3, p, wl); if (p.vel.y < -0.026f - 1e-6f) okl = false; }
+            check(okl && p.vel.y == -0.026f, "debris: id 38 is a leaf (launch x0.35, fall speed held at -0.026)");
+            check(debris_is_leaf(366) && !debris_is_leaf(370) && !debris_is_leaf(8), "debris: the leaf list 0x6a2b5c");
+        }
+        {   // The bounce stain: a callback per bounce after age 8, twice at most; 2 draws per bounce.
+            std::vector<Pickup> out;
+            const int id = 370;
+            spawn_pickups(r3, &id, 1, {0, 0.5f, 0}, debris_args(1, true, false, false, 0xff7c0000u, 2), false, out);
+            Pickup& p = out.back();
+            int stains = 0;
+            PickupWorld ws;
+            ws.hit = floor_hit;
+            ws.stain = [&](const Pickup&) { ++stains; };
+            const std::uint64_t before = r3.calls;
+            int t = 0;
+            while (!p.dead && t < 300) { step_pickup(r3, p, ws); ++t; }
+            check(stains >= 1 && stains <= 2 && stains == p.stains && (r3.calls - before) % 2 == 0 && p.dead && t <= 107,
+                  "debris: a piece leaves 1-2 stains, takes 2 draws per bounce, and is gone by its life");
+        }
+        check(debris_skipped(0x2f, false) && debris_skipped(0x3c, false) && debris_skipped(0x3d, false) &&
+              debris_skipped(0x47, false) && debris_skipped(0x52, false) && !debris_skipped(0x2f, true) &&
+              !debris_skipped(0x0e, false),
+              "debris: the five reviver casts do not shatter without the Silver Chimes");
+        check(debris_colour(0x0e, 0x007c0000u) == 0xff7c0000u && debris_colour(0x0e, 0) == 0 &&
+              debris_colour(0xb0, 0xff550a00u) == 0xff550a00u && debris_colour(0x05, 0x123456u) == 0xff550a00u,
+              "debris: the colour is ENEMYINFO +0xe0 | 0xff000000 for a monster cast, 0xff550a00 otherwise");
+    }
     // FUN_00585ff0's [ebp-0x14]: the sound the tail plays at the pickup.
     check(pickup_collect_se(0x48) == 7 && pickup_collect_se(0x49) == 7 && pickup_collect_se(0x4a) == 13 &&
           pickup_collect_se(0x4b) == 13 && pickup_collect_se(0x4c) == 14 && pickup_collect_se(0x4d) == 14 &&

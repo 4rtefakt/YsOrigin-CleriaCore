@@ -246,6 +246,8 @@ auto hugo_eye_dead = [&](EnemyRender& e) -> bool {
     if (!en || en->alive() || en->destroy_requested() || !hugo_eye(*en)) return false;
     if (e.avm.ok()) {
         e.avm.tick();
+        if (const AsoVm::DebrisEvent* dv = e.avm.debris())              // M_900's eight pieces (ASO_NOOPS.md §3.3)
+            spawn_debris(en->cast_id, {en->pos.x, en->pos.y + en->height, en->pos.z}, *dv);
         for (const AsoVm::BulletEvent& fb : e.avm.bullets()) {          // as the enemy loop's FireBullet
             const float ang = fb.f[2] * 0.0174533f + e.facing;
             const float c = float(std::cos(double(ang))), sn = float(std::sin(double(ang)));

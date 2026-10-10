@@ -180,6 +180,7 @@ struct Enemy {
     // non-zero makes the actor a flyer (FUN_00459410 0x45967a; build/ai_spec/FLYER.md).
     float ai_turn = 0, ai_base = 0, ai_walk = 0, ai_run = 0, ai_sight = 0;
     float ai_raw[16] = {};  // +0x90..+0xcc verbatim (-> actor +0x814..+0x850)
+    std::uint32_t blood = 0;  // +0xe0: the blood / debris-stain colour, 0 = none (GOXX_PARTICLES.md §3.3 [DATA])
 
     // Live slots are front-packed (90/90), so this is the count.
     int drop_count() const {
