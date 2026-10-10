@@ -244,6 +244,11 @@ int main(int argc, char** argv) {
         a.stop_all(true);
         run(1.6);
         check("stop_all(1): 604 stopped too", a.voices_of(604) == 0 && a.looping().empty());
+        // the 3-D distance gain (DS3D min / max distance 8 / 180, rolloff 1)
+        check("distance gain: 1 at 8, 1/2 at 16, 8/179 at 179, 0 at 180",
+              Audio::distance_gain(8, 180, 0) == 1.0f && Audio::distance_gain(8, 180, 8) == 1.0f &&
+              Audio::distance_gain(8, 180, 16) == 0.5f && Audio::distance_gain(8, 180, 179) == 8.0f / 179.0f &&
+              Audio::distance_gain(8, 180, 180) == 0.0f);
         std::printf("voices: %s\n", fails ? "FAIL" : "OK");
         return fails ? 1 : 0;
     }

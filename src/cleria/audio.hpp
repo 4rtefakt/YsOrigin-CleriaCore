@@ -50,11 +50,21 @@ class Audio {
     // Positional play (AUDIO.md: the engine's SE path FUN_0045d7a0 plays at the
     // emitter's position; EFFECTDEF carries per-record `dup` = max simultaneous
     // voices and mindist/maxdist = 8/180 across the corpus). `pan` is listener-
-    // relative -1..+1, `dist` in world units. Attenuation is LINEAR between
-    // mindist/maxdist [HAND-TUNED: the engine's curve reader was never found];
-    // equal-power pan [HAND-TUNED: the exact pan law is inside FUN_0043a080,
-    // untraced]. The dup cap is the engine's (see play()).
+    // relative -1..+1, `dist` in world units from the listener. The distance gain is DirectSound
+    // 3D's (distance_gain); equal-power pan [HAND-TUNED: DirectSound's own stereo pan of a 3-D
+    // buffer is not in the exe]. The dup cap is the engine's (see play()).
     void play_at(int id, float pan, float dist, float volume = 1.0f);
+    // The record's mindist / maxdist are the buffer's DS3DBUFFER flMinDistance / flMaxDistance
+    // (FUN_005d87a0 copies sound+0xd8 / +0xdc into the buffer's +0x3c / +0x40 before SetAllParameters
+    // [EXPORT 005d87a0.c:84-89]); the listener's distance and rolloff factors are 1.0 [BYTES
+    // 0x703d7c, 0x703d80]; a 3-D record's buffer has DSBCAPS_MUTE3DATMAXDISTANCE (rec+0 = 0x20090).
+    // So, by DirectSound's documented model: full inside mindist, mindist / dist beyond it (half per
+    // doubling), silent at maxdist and beyond.
+    static float distance_gain(float mindist, float maxdist, float dist) {
+        if (!(maxdist > mindist)) return 1.0f;
+        if (dist >= maxdist) return 0.0f;
+        return dist > mindist && mindist > 0.0f ? mindist / dist : 1.0f;
+    }
 
     // Se_Stop (op 0xbf -> FUN_0043a1c0, audio command 6 -> FUN_005d8970(target 0, ms, stop 1)): every
     // voice of `id` ramps linearly to silence over `ms` (0 = at once) and is then stopped.

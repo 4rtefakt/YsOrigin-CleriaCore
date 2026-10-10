@@ -176,12 +176,8 @@ void Audio::play(int id, float volume, float level) {
 void Audio::play_at(int id, float pan, float dist, float volume) {
     if (!lock_ || id < 0) return;
     const EffectDef* def = defs_.find(id);
-    float att = 1.0f;
-    if (def && def->maxdist > def->mindist) {
-        if (dist >= def->maxdist) return;                      // out of earshot
-        if (dist > def->mindist)
-            att = 1.0f - (dist - def->mindist) / (def->maxdist - def->mindist);
-    }
+    const float att = def ? distance_gain(def->mindist, def->maxdist, dist) : 1.0f;
+    if (att <= 0.0f) return;                                   // muted at maxdist
     const Clip* c = clip(id);
     if (!c) return;
     pan = std::clamp(pan, -1.0f, 1.0f);

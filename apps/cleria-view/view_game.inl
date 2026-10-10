@@ -1979,9 +1979,11 @@ title_again:
         if (rerun_events) room_events_dirty = true;   // re-run scripts for the re-gated room
     };
 
-    // Positional SFX: pan from the camera's right axis, distance from the player
-    // (the engine's listener object; its emitter->listener lerp tames the pan the
-    // same direction). Curve/pan-law caveats live on Audio::play_at.
+    // Positional SFX: pan from the camera's right axis, distance from the listener. The listener
+    // (FUN_0042a3d0 [EXPORT 0042a3d0.c:331-341]) sits 0.175 (f32 0x6bd1f4) of the way from the camera's
+    // evaluated target 0x76a160.. to its eye 0x76a16c.., facing along the camera's yaw. [not modelled]
+    // FUN_0045d7a0's pull of the emitter toward the object 0x749d44 while 0x76bc1c > 0. The pan-law
+    // caveat lives on Audio::play_at.
     const bool sfx_log = std::getenv("CLERIA_SFXLOG") != nullptr;   // debug: the SE / hit-effect ids
     std::vector<int> sfx_loops;                                     // ... and the looping ids, on a change
     audio.set_trace(sfx_log);                                       // ... and the 2-D requests (`[se]`)
@@ -1990,7 +1992,9 @@ title_again:
         const float rl = std::sqrt(f.x * f.x + f.z * f.z);
         const float rx = rl > 1e-4f ? f.z / rl : 0.0f;     // right = (fz, -fx) on XZ
         const float rz = rl > 1e-4f ? -f.x / rl : 1.0f;
-        const float dx = p.x - feet.x, dy = p.y - feet.y, dz = p.z - feet.z;
+        const Vec3 ce = g_cam_out.eye, ct = g_cam_out.target;
+        const Vec3 ear = g_cam.on ? Vec3{ct.x + (ce.x - ct.x) * 0.175f, ct.y + (ce.y - ct.y) * 0.175f, ct.z + (ce.z - ct.z) * 0.175f} : feet;
+        const float dx = p.x - ear.x, dy = p.y - ear.y, dz = p.z - ear.z;
         const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
         const float pan = dist > 1e-4f ? (dx * rx + dz * rz) / dist : 0.0f;
         if (sfx_log) std::printf("  [sfx] t%llu %d at (%.2f, %.2f, %.2f)\n", (unsigned long long)tick_count, id, p.x, p.y, p.z);
