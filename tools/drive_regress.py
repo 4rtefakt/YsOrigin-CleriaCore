@@ -1125,6 +1125,14 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.2;" +
               ";".join("%d:near=#186,0.8;%d:jump;%d:atk" % (t, t + 1, t + 24) for t in range(30, 200, 60)) + ";230:quit",
         expect=["[stun] t124 #186 cast 43 stunned for 98 ticks", "[launch] t183 #186 flyer: count 0, t 0.0000, stun 51, dmg 2 -> 2"]),
+    # A Venueba's slime puddles (M200.md §3.7b / §3.8, BULLETS.md §3.3; FUN_0058a5f0 with flag B, 6 draws a puddle; kept,
+    # not drawn): one near it every 10th tick of its hit reaction, and the puddles of its glob (kind 0x29) where it lands.
+    "slime_puddles": dict(
+        room="S_20/S_2017/S_2017", env={"CLERIA_DUST": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.1;20:seen=#24,4;60:every=40,600,near=#24,1.4;"
+              "61:every=40,600,atk;700:quit",
+        expect=["[blood] t71 slime: 1 splats ff22cc44 at (1.71, 1.33, 17.98), 6 draws",
+                "glob: 2 splats ff22cc44 at (1.29, -0.04, 17.96), 12 draws"]),
     # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
     # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
     # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.

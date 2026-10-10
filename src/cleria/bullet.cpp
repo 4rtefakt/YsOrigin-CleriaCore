@@ -481,6 +481,13 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
         }
         case 0x29: {                                               // FUN_00598020: the lob
             const Vec3 v = integrate(b);
+            // Its effect's kill flag (a landed hit, a wall), once (+0x194; every tick for effects 0x20 / 0x15): the
+            // puddles, from the packed word +0x168 = count << 16 | life range (BULLETS.md §3.3 [BYTES 0x598020..]).
+            if (b.fx->kill && b.u194 == 0) {
+                if (s.effect != 0x20 && s.effect != 0x15) b.u194 = 1;
+                const long long n = (long long)s.f168;             // FUN_0066f350: float -> int64, truncated
+                if (env.slime) env.slime(int(n >> 16), int(n & 0xff), s.f170, s.f174, s.pos, s.f16c);
+            }
             s.pos = {s.pos.x + v.x, s.pos.y + v.y, s.pos.z + v.z};
             reset_matrix(b);
             break;

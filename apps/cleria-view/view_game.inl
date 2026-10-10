@@ -8287,6 +8287,9 @@ title_again:
                     benv.boss_point_on = true;
                     benv.boss_point = boss2->mode() == 4 ? boss2->group().hp_at : boss2->object(0).pos();
                 }
+                benv.slime = [&](int count, int life_range, float s0, float s1, const Vec3& at, float radius) {
+                    blood_at("glob", count, 0xff22cc44u, 0, life_range, s0, s1, at, radius, false, true);   // kind 0x29's burst
+                };
                 benv.dust = [&](std::uint32_t argb, const Vec3& at) {   // FUN_00584550: the flash, the drip's bounce
                     dust_at("bullet", 7, argb, false, at, 0.35f, 0.32f, 0.012f, false);
                 };

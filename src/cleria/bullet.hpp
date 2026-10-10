@@ -140,6 +140,9 @@ struct Env {
     // FUN_00584550(ecx 7, argb, 0, .., &pos, 0.35, 0.32, 0.012, 0, 0): seven dust puffs at the bullet, called
     // in place (28 draws of the shared xorshift; GOXX_PARTICLES.md §3.1). None = not drawn, no draws.
     std::function<void(std::uint32_t argb, const Vec3& pos)> dust;
+    // Kind 0x29's burst on impact: FUN_0058a5f0(count, 0xff22cc44, 0, life_range, size0, size1, &pos, radius, 0, 1),
+    // slime puddles (6 draws each of the shared xorshift, taken by the host). None = no puddle, no draws.
+    std::function<void(int count, int life_range, float size0, float size1, const Vec3& pos, float radius)> slime;
     // Kind 0x23 (the poison ball): flag 221 [0x76bc90] (the boss is dead: every ball goes), the player's body
     // radius P+0x68 and speed P+0x310, and the boss point the balls bounce off (*[0x76a2c4]: the head, or the
     // hoop centre +0x108 in mode 4).

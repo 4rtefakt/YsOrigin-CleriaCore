@@ -867,6 +867,34 @@ int main() {
         std::printf("[ai]   M200 first attacks over 60 seeds: lob %d, splash %d\n", lobs, splashes);
         check(lobs > 0 && splashes > 0, "both attacks occur: the lob (section 7) and the splash (section 8)");
         check(glob_ok >= 101 && splash_ok >= 101, "lob: hold 76 (Normal), one glob at marker 2; splash: hold 120, poison hit at marker 3");
+        // Its slime puddles (FUN_0058a5f0 requests, M200.md §3.7b / §3.8): the trail under it every 20th tick of its
+        // walk / run sections, one within 0.25..2.0 every 10th tick of the hit reaction (two draws for the place).
+        {
+            Rig r; EnemyAi ai;
+            r.env.blocked = [](const Vec3& a0, const Vec3& b0) { return a0.x == b0.x && a0.z == b0.z && b0.y < a0.y; };
+            r.env.target = {30.0f, 1.075f, 0};
+            int trail = 0, hurt = 0, draws = 0;
+            bool trail_ok = true, hurt_ok = true;
+            auto rng0 = r.env.rng;
+            r.env.rng = [&] { ++draws; return rng0(); };
+            for (int t = 0; t < 200; ++t) {
+                r.env.section = t < 100 ? 1 : 4;
+                const int d0 = draws;
+                const std::uint32_t tick = std::uint32_t(ai.i(0x8a0));
+                const AiOut o = enemy_ai_tick(ai, vp, r.env, m200);
+                for (const AiSplat& s : o.splats) {
+                    const float dx = s.pos.x - r.env.self.x, dz = s.pos.z - r.env.self.z, rr = std::sqrt(dx * dx + dz * dz);
+                    const bool base = s.count == 1 && s.argb == 0xff22cc44u && s.delay_step == 2 && s.life_range == 10 &&
+                                      s.radius == 0.2f && s.flag_b && !s.flag_a;
+                    if (t < 100) { ++trail; trail_ok = trail_ok && base && s.size0 == 0.8f && s.size1 == 1.6f && rr == 0.0f; }
+                    else { ++hurt; hurt_ok = hurt_ok && base && s.size0 == 1.5f && s.size1 == 2.5f && rr >= 0.25f - 1e-4f && rr <= 2.0f + 1e-4f && draws - d0 >= 2; }
+                }
+                (void)tick;
+            }
+            std::printf("[ai]   M200 puddles: %d on the trail, %d in the hit reaction\n", trail, hurt);
+            check(trail >= 4 && trail <= 6 && trail_ok, "M200: a slime puddle under it every 20th tick while it walks or runs (0.8-1.6)");
+            check(hurt >= 9 && hurt <= 11 && hurt_ok, "M200: a puddle 0.25-2.0 away every 10th tick of its hit reaction (1.5-2.5)");
+        }
     }
 
     // ---- M170 Vilvan, the orbiter (build/ai_spec/M170.md) ----

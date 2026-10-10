@@ -9,9 +9,10 @@
 // when d > 1, effect 315, speed 0.12, gravity 0.004) tilted 0.125*dist rad from vertical.
 // The splash (section 8): at marker 3 the poison-hit effect 255 one unit ahead. Every tick
 // in its hit reaction refills an "aggression credit" (+0x7c4 = d+2) spent on chase-and-lob.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the green particle bursts
-// FUN_0058a5f0 (no particle system; they also draw from the RNG an untraced number of
-// times); the globs' damage (the GoXx path is untraced).
+// Its slime puddles (FUN_0058a5f0, flag B; 6 draws each of the shared xorshift, taken by the host): six in an arc
+// ahead at the splash, one under it every 20th tick while it walks or runs, one near it every 10th tick of its hit
+// reaction (AiOut::splats; M200.md §3.7b, §3.8).
+// [not modelled] the keep-out box restore (FUN_0042dc90); the globs' damage (the GoXx path is untraced).
 #include <cmath>
 
 #include "cleria/brains/brains.hpp"
@@ -156,7 +157,15 @@ AiOut m200(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                     // The poison hit one unit ahead along the visible facing (+0x314).
                     out.effects.push_back({0xff, {e.self.x + std::cos(e.facing), e.self.y - 1.0f,
                                                   e.self.z + std::sin(e.facing)}, 2.3f, false});
-                    for (int k = 0; k < 6; ++k) { e.rng(); e.rng(); }   // the burst positions' draws
+                    for (int k = 0; k < 6; ++k) {                  // six puddles in a +-0.7 rad arc ahead of the HEADING
+                        const std::uint32_t w1 = e.rng(), w2 = e.rng();
+                        const float an = unit(w1) * 1.4f - 0.7f + a.heading;       // 0x6bd4b4, 0x6bd36c
+                        const float rad = unit(w2) * 1.5f + 1.5f;                  // 0x6bd4d4: 1.5 .. 3.0
+                        AiSplat sp;
+                        sp.life_range = 30; sp.size0 = 1.6f; sp.size1 = 2.6f;
+                        sp.pos = {e.self.x + float(std::cos(double(an))) * rad, e.self.y, e.self.z + float(std::sin(double(an))) * rad};
+                        out.splats.push_back(sp);
+                    }
                     break;
                 default:
                     break;
@@ -167,9 +176,20 @@ AiOut m200(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     }
     // Tail: the hit-reaction poison puff every 10 ticks.
     const std::uint32_t t = std::uint32_t(a.i(0x8a0));
+    if (t % 20u == 0 && (S == 0 || S == 1)) {                      // walking or running: the slime trail
+        AiSplat sp;
+        sp.size0 = 0.8f; sp.size1 = 1.6f; sp.pos = e.self;
+        out.splats.push_back(sp);
+    }
     if (t % 10u == 0 && S == 4) {
         out.effects.push_back({0xff, {e.self.x, e.self.y, e.self.z}, 1.3f, false});
-        e.rng(); e.rng();
+        const std::uint32_t w1 = e.rng(), w2 = e.rng();            // whether or not the effect allocated
+        const float an = unit(w1) * 6.28318f + 0.0f;               // 0x6bd894
+        const float rad = unit(w2) * 1.75f + 0.25f;                // 0x6bd510, 0x6bd244: 0.25 .. 2.0
+        AiSplat sp;
+        sp.size0 = 1.5f; sp.size1 = 2.5f;
+        sp.pos = {e.self.x + float(std::cos(double(an))) * rad, e.self.y, e.self.z + float(std::sin(double(an))) * rad};
+        out.splats.push_back(sp);
     }
     return out;
 }

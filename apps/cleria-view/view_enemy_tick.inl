@@ -302,6 +302,9 @@
                             blood_at("hit", 3, bcol ? bcol : 0x40101010u, 2, 0x18, 1.3f, 1.8f,
                                      {en->pos.x, en->pos.y + en->height, en->pos.z}, 0.65f, false, false);
                     }
+                    for (const AiSplat& sp : o.splats)               // a slime brain's puddles (FUN_0058a5f0, flag B)
+                        blood_at("slime", sp.count, sp.argb, sp.delay_step, sp.life_range, sp.size0, sp.size1, sp.pos,
+                                 sp.radius, sp.flag_a, sp.flag_b);
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
                     if (o.zoom_s || o.zoom_r) zoom_blur(o.zoom_s.value_or(zb.s), o.zoom_r.value_or(zb.r));   // ZoomBlur
                     if (o.zoom_centre) zoom_centre(*o.zoom_centre);                                         // FUN_005e0590

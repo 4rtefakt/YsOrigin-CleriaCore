@@ -293,12 +293,25 @@ struct AiBullet {
     // < 0 = untouched.
     int root_remaining = -1, root_life = -1;
 };
+// FUN_0058a5f0 called by a brain (a slime's puddles; GOXX_PARTICLES.md §3.3): the host makes the splats after
+// the brain's tick, drawing from the shared xorshift (the brain's own draws are the host's brain generator).
+struct AiSplat {
+    int count = 1;
+    std::uint32_t argb = 0xff22cc44u;
+    int delay_step = 2, life_range = 10;
+    float size0 = 0, size1 = 0;
+    Vec3 pos{};
+    float radius = 0.2f;
+    bool flag_a = false, flag_b = true;   // B: slime (variant 0, the slow-down trigger armed)
+};
+
 struct AiOut {
     int section = -1;            // FUN_00446550(section, 0): a priority-GATED request
     bool section_force = false;  // FUN_00446620: ungated
     std::vector<AiSpawn> spawns; // FUN_00476d70 / FUN_00475710 style spawns (cast ids)
     std::vector<int> sounds;     // EFFECTDEF ids, played at the actor (FUN_0043a080)
     std::vector<AiEffect> effects;
+    std::vector<AiSplat> splats;
     // FUN_00479b00's first act on a tick after a damaging hit (+0x3bc & 2): FUN_00478510's
     // alive path, the character hit spark (hit_feedback.hpp), placed from the victim's LAST
     // vector to the player (+0x734/+0x73c before this tick's refresh). The host spawns it (it
