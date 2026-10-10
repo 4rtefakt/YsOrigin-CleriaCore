@@ -66,20 +66,60 @@ bool Audio::init(const fs::path& asset_root, bool device) {
     // 44.1 kHz stereo: the effect WAVs are 44.1 kHz *mono* and get upmixed when
     // decoded, but every music track is stereo, and downmixing those would be the
     // worse trade. SDL converts on to whatever the device actually wants.
+    lock_ = SDL_CreateMutex();
+    voices_.reserve(kMaxVoices);
+    if (!open_stream(0)) {
+        std::fprintf(stderr, "audio: SDL_OpenAudioDeviceStream: %s\n", SDL_GetError());
+        SDL_DestroyMutex(mx(lock_));
+        lock_ = nullptr;
+        return false;
+    }
+    std::printf("audio: %zu effect defs, device open @ %d Hz\n", defs_.size(), rate_);
+    return true;
+}
+
+std::vector<std::string> Audio::devices() {
+    std::vector<std::string> out;
+    int n = 0;
+    if (SDL_AudioDeviceID* ids = SDL_GetAudioPlaybackDevices(&n)) {
+        for (int i = 0; i < n; ++i) {
+            const char* nm = SDL_GetAudioDeviceName(ids[i]);
+            out.push_back(nm ? nm : "Device");
+        }
+        SDL_free(ids);
+    }
+    return out;
+}
+
+bool Audio::open_stream(int index) {
+    SDL_AudioDeviceID id = SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
+    if (index > 0) {
+        int n = 0;
+        SDL_AudioDeviceID* ids = SDL_GetAudioPlaybackDevices(&n);
+        if (ids && index <= n) id = ids[index - 1];
+        else index = 0;                                  // not there (unplugged): the default
+        SDL_free(ids);
+    }
     SDL_AudioSpec spec{};
     spec.format = SDL_AUDIO_S16LE;
     spec.channels = channels_;
     spec.freq = rate_;
-    stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, feed_cb, this);
-    if (!stream_) {
-        std::fprintf(stderr, "audio: SDL_OpenAudioDeviceStream: %s\n", SDL_GetError());
-        return false;
-    }
-    lock_ = SDL_CreateMutex();
-    voices_.reserve(kMaxVoices);
+    stream_ = SDL_OpenAudioDeviceStream(id, &spec, feed_cb, this);
+    if (!stream_) return false;
+    device_ = index;
     SDL_ResumeAudioStreamDevice(as(stream_));
-    std::printf("audio: %zu effect defs, device open @ %d Hz\n", defs_.size(), rate_);
     return true;
+}
+
+bool Audio::set_device(int index) {
+    if (!stream_) return false;                          // no device mode (CLERIA_MUTE), or init failed
+    if (index == device_) return true;
+    SDL_DestroyAudioStream(as(stream_));                 // the audio thread is gone after this
+    stream_ = nullptr;
+    if (open_stream(index)) return device_ == index;
+    std::fprintf(stderr, "audio: device %d: %s\n", index, SDL_GetError());
+    open_stream(0);
+    return false;
 }
 
 const Audio::Clip* Audio::clip(int id) {
@@ -403,6 +443,7 @@ void Audio::mix(std::int16_t* out, int frames) {
             g = log_gain(bgm_slider_ * bgm_fade_cur_);
             bgm_fade_done_ += std::uint64_t(frames);
         }
+        if (!bgm_on_) g = 0.0f;                             // PlayBgm off
         for (int k = 0; k < got_n; ++k) out[k] = std::int16_t(bb[k] * g);
         // The delayed command 2: the stop, once the fade's time has run out. Only the decoder is
         // dropped here; bgm_name_ belongs to the game thread (play_bgm restarts a faded track).
@@ -428,7 +469,7 @@ void Audio::mix(std::int16_t* out, int frames) {
                 g = v.volume * log_gain(master_ * v.level);
             }
             // interleaved stereo: even = L, odd = R (pan gains are 1/1 for 2D plays)
-            const float pg = (k & 1) ? v.gr : v.gl;
+            const float pg = !sfx_on_ ? 0.0f : (k & 1) ? v.gr : v.gl;   // PlayEffect off: mixed silent
             const int mixed = out[k] + int(v.clip->samples[v.pos] * g * pg);
             out[k] = std::int16_t(std::clamp(mixed, -32768, 32767));
             ++v.pos;

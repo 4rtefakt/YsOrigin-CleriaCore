@@ -224,6 +224,23 @@ int main(int argc, char** argv) {
         a.stop_se(609, 0);
         run(0.1);
         check("Se_Stop(0) stops at once", a.voices_of(609) == 0);
+        {   // [sound] PlayEffect ("Enable SFX"): the voice runs on, mixed silent; live in both directions
+            auto peak = [&] {
+                std::vector<std::int16_t> b(735 * 2);
+                int m = 0;
+                for (int k = 0; k < 8; ++k) { a.mix(b.data(), 735); for (std::int16_t x : b) m = std::max(m, std::abs(int(x))); }
+                return m;
+            };
+            a.play(609);
+            check("Enable SFX on: the voice is heard", peak() > 0);
+            a.set_sfx_enabled(false);
+            check("Enable SFX off: silence, the voice still tracked", peak() == 0 && a.voices_of(609) == 1);
+            a.set_sfx_enabled(true);
+            check("Enable SFX on again: heard at once", peak() > 0);
+            a.stop_se(609, 0);
+            run(0.1);
+            check("no device: set_device refuses, devices() needs the subsystem", !a.set_device(1) && a.device() == 0);
+        }
         // the dup pick
         a.play(214); a.play(214);
         check("two requests before the mixer runs take the same buffer", a.voices_of(214) == 1);

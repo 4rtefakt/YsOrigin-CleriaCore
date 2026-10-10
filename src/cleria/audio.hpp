@@ -34,6 +34,18 @@ class Audio {
     // caller runs the mixer's clock itself with advance().
     bool init(const std::filesystem::path& asset_root, bool device = true);
     bool ready() const { return stream_ != nullptr; }
+    // [sound] Device (config tool combo 4001, a DirectSound device index in retail). Here: 0 = the system's
+    // default playback device, n = the n-th of devices() [H]. set_device() reopens the stream on it at once
+    // (voices and the BGM play on); false = no device mode, or the device did not open (the default is then
+    // tried). devices() is empty before init() or without an audio subsystem.
+    static std::vector<std::string> devices();
+    bool set_device(int index);
+    int device() const { return device_; }
+    // [sound] PlayBgm / PlayEffect (0x6d6066 / 0x6d6067; "Enable BGMs" / "Enable SFX"). [approx] retail skips
+    // the playback calls and reads the keys at boot only; here the stream and the voices run on and are
+    // mixed silent, so the switch is live in both directions and the voices' clock is unchanged.
+    void set_bgm_enabled(bool on) { bgm_on_ = on; }
+    void set_sfx_enabled(bool on) { sfx_on_ = on; }
 
     // Play the sound EFFECTDEF calls `id`, at `volume` (0..1, the port's own gain). Unknown or
     // missing ids are ignored. Safe to call every frame. `level` is the engine's volume argument
@@ -171,6 +183,9 @@ class Audio {
     std::vector<Voice> voices_;
     int rate_ = 44100, channels_ = 2;
     float master_ = 1.0f;   // SFX slider 0..1 (Option screen), before the taper
+    bool bgm_on_ = true, sfx_on_ = true;   // PlayBgm / PlayEffect
+    int device_ = 0;        // [sound] Device: 0 = default
+    bool open_stream(int index);
     bool trace_ = false;
 
     // BGM stream state. Decoded on the audio thread; every field below is
