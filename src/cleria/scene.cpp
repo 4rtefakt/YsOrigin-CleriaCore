@@ -50,7 +50,7 @@ static std::string model_key(const fs::path& p) { return p.lexically_normal().ma
 // [BYTES 0x560347..0x56036c, 0x503010..0x503045; build/audit/BOSS_HULLS.md 1.4]. The engine does this for every
 // 0x20 twin; here it is an opt-in by twin file, one boss at a time (BOSS_HULLS.md section 5).
 static bool bound_twin(const fs::path& twin_file) {
-    static const char* const kBound[] = {"boss01_", "boss08_", "boss08t_", "boss08w_", "boss08arm_"};
+    static const char* const kBound[] = {"boss01_", "boss08_", "boss08t_", "boss08w_", "boss08arm_", "boss05_"};
     std::string stem = twin_file.stem().string();
     for (char& c : stem) c = char(std::tolower(static_cast<unsigned char>(c)));
     for (const char* n : kBound) if (stem == n) return true;

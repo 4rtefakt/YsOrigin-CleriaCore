@@ -1297,13 +1297,17 @@ CASES.update({
     # Re-pinned 2026-10-10 (the dust puffs' draws from the shared xorshift): he falls with 10 of 20 alive and
     # absorbs body 1 -> 401. Same sections, the guts, the kill.
     # Re-pinned again 2026-10-10 (the blood splats' draws): 11 of 20 alive, body 1 -> 441.
+    # Re-pinned 2026-10-10 (BOSS_HULLS step 2: his hull is bound to the render bones, so it is on the drawn body
+    # and no longer strewn over the arena — the player stood on a stray piece at y 2.09 at t1170 and lost swings).
+    # Same sections in the same order, the guts, the kill; the early swings land (body 3592 at t1230, was 3796),
+    # he falls with 13 of 20 alive and absorbs body 1 -> 521; EXP at t2616 (was t2808), flag 224 at t3114 (t3306).
     "pictimos_fight": dict(
         room="S_50/S_5099/S_5099",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
               "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;2180:opt=DamageDealt=20;4100:quit",
         expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
-                "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 11/20", "body 441/4000 guts 1",
+                "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 13/20", "body 521/4000 guts 1",
                 "EXP (lv 40)", "flag 224 = 1", "destroyed"]),
     # ... and as Hugo: his shots' particles reach Pictimos's parts (part 1 takes the damage, the DEF-999 ones none).
     "pictimos_hugo": dict(
