@@ -473,16 +473,35 @@ int main(int argc, char** argv) {
             as.op(0xf0, {});
             as.raw(std::int32_t(1u << 24));
             ScriptManager mgr; H h; mgr.vm.host = &h;
+            std::vector<std::pair<int, bool>> taken;       // FUN_0056e8d0's edge (FIX_SLOTS.md S1)
+            mgr.on_fix_taken = [&](int s, bool first) { taken.push_back({s, first}); };
             mgr.start_root(std::make_shared<Xso>(Xso::parse(as.bytes())), "fixtest");
-            const bool a = mgr.fix_counts[0] == 0 && mgr.fix_counts[1] == 1;
+            const bool a = mgr.fix_counts[0] == 0 && mgr.fix_counts[1] == 1 && mgr.actors_stopped() && mgr.fix_any();
             mgr.tick_all();
-            const bool b = mgr.fix_counts[0] == 1 && mgr.fix_counts[1] == 0;
+            const bool b = mgr.fix_counts[0] == 1 && mgr.fix_counts[1] == 0 && !mgr.actors_stopped() && mgr.fix_any();
             mgr.tick_all();
             const bool c = !mgr.world_frozen() && mgr.live.empty();
             const bool ok = a && b && c;
             std::printf("[fixslot] Fix(0)+Fix(1) holds one slot; Window_Msg implicit Fix(0); teardown releases %s\n",
                         ok ? "OK" : "FAIL");
             fails += !ok;
+            const bool edge = taken.size() == 3 && taken[0] == std::make_pair(0, true) && taken[1] == std::make_pair(1, true) &&
+                              taken[2] == std::make_pair(0, true);
+            std::printf("[fixslot] the Fix edge: each of the three takes is a slot's 0 -> 1 (Fix(0), Fix(1), the window's) %s\n",
+                        edge ? "OK" : "FAIL");
+            fails += !edge;
+            {   // a second script taking a slot already held is not an edge
+                Asm a2;
+                a2.op(0xb6, {I(1)}); a2.op(0xf0, {}); a2.op(0xf0, {}); a2.raw(std::int32_t(1u << 24));
+                ScriptManager m2; H h2; m2.vm.host = &h2;
+                std::vector<bool> firsts;
+                m2.on_fix_taken = [&](int, bool first) { firsts.push_back(first); };
+                const auto x = std::make_shared<Xso>(Xso::parse(a2.bytes()));
+                m2.start_root(x, "fix_a"); m2.start_root(x, "fix_b");
+                const bool two = firsts.size() == 2 && firsts[0] && !firsts[1] && m2.fix_counts[1] == 2;
+                std::printf("[fixslot] the Fix edge: a second holder of the same slot is not a 0 -> 1 %s\n", two ? "OK" : "FAIL");
+                fails += !two;
+            }
         }
         // Wait_Script("@Flag_Inv") proceeds (#15); 0x169 deletes, 0x16c is collision (#29);
         // 0x116 grants nothing (#28); StartScript marshals its extra operand into $I0 (#33).

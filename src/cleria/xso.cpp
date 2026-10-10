@@ -1172,6 +1172,7 @@ void ScriptManager::fix(Inst& in, int slot) {
     if (in.fix_slot >= 0 && fix_counts[in.fix_slot] > 0) --fix_counts[in.fix_slot];
     ++fix_counts[slot];
     in.fix_slot = slot;
+    if (on_fix_taken) on_fix_taken(slot, fix_counts[slot] == 1);
 }
 
 void ScriptManager::unfix(Inst& in) {

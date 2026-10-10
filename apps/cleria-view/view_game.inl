@@ -3384,6 +3384,14 @@ title_again:
         shield_hits = 0; shield_life = 0;
     };
     skillmp::Charge skill_charge;
+    // The Fix edge, FUN_0056e8d0 (FIX_SLOTS.md §1.2, S1): when a slot's count goes 0 -> 1 the player's velocity
+    // +0xa3c..+0xa44 and push +0x338..+0x340 are zeroed [EXPORT 0056e8d0.c:15-20]; every Fix zeroes the charge
+    // state 0x76c134 / 0x76c138 [:57-58]. (Its kill of the ailment / buff effects is ail_tick's, in the frozen
+    // branch.) The vertical timer +0x330 is not touched: a jump caught by a Fix goes on.
+    csMgr.on_fix_taken = [&](int, bool first) {
+        if (first) { pvel = {}; player_kb = {}; }
+        skill_charge = {};
+    };
     bool drive_skill = false;                             // CLERIA_DRIVE skill+ / skill-
     bool drive_jump = false;                              // CLERIA_DRIVE jump: one press
     Vec3 drive_wish{};                                    // CLERIA_DRIVE move=dx,dz,n: a held stick

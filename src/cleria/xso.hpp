@@ -822,6 +822,10 @@ struct ScriptManager {
     std::vector<Spawn> spawn_queue;         // children queued by StartScript during a tick
     std::size_t peak_live = 0;              // max instances resident in one frame (pre-reap)
     int fix_counts[2] = {0, 0};             // 0x75ad90 / 0x75ad94: the two fix slots
+    // FUN_0056e8d0's writes to the player on a Fix (FIX_SLOTS.md §1.2 [EXPORT 0056e8d0.c:15-58]): called on every
+    // Fix / implicit window Fix, `first` when that slot's count went 0 -> 1. The host zeroes the player's
+    // velocity and push on `first`, and the charge state every time.
+    std::function<void(int slot, bool first)> on_fix_taken;
 
     ScriptManager() {
         vm.on_start_script = [this](const std::string& n, const XsoVm::Vars& v, int oid) {
