@@ -1233,12 +1233,20 @@ CASES.update({
     # Khonsclard (boss04, build/boss_re/KHONSCLARD.md): the intro (START), flag 156, two pods rise; breaking
     # them downs the boss and opens the core (jump attacks); every 20 % adds a pod; the kill writes 223 and
     # the EXP, and the 1/340 fade destroys the boss ~339 frames later. Level 50 and Damage x10 keep it short.
+    # Re-timed 2026-10-10 (BOSS_HULLS step 3: his hull and the pods' are bound to the render bones). The core and the
+    # fangs are solid where they are drawn, so `boss4` now stands the player on the downed core (feet y 5.1 .. 8.2,
+    # was 3.54 on the base piece with the core's hull hanging at y 13 .. 18) and more swings land per knock-down: at
+    # Damage dealt 10 he died in band 4 (t2058) and never reached band 5. And a risen pod's hull is on the pod, so it
+    # pushes the player off the spot `boss4` picks inside it (up to 2.7 from the pod: some swings fall short). At
+    # Damage dealt 8 the fight has every event again, in the same order: band 5 from t3390, the kill at t4730 (was
+    # t2890 at 10), destroyed at t5069 — hence the longer run. The knock-down counter is caught by the 30-tick status
+    # line at 11 (was at 1): "down 11 ".
     "khonsclard_fight": dict(
         room="S_40/S_4099/S_4099",
         env={"CLERIA_BOSSLOG": "1"},
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=10;20:at=-2.8,23.3,0;"
-              "40:every=20,700,ok;720:every=40,3700,boss4;728:every=40,3700,atk;3700:quit",
-        expect=["[boss04] Khonsclard: body 3000, pods 600", "clip START fr", "f156 1", "states 00", "down 1 ",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=8;20:at=-2.8,23.3,0;"
+              "40:every=20,700,ok;720:every=40,5400,boss4;728:every=40,5400,atk;5400:quit",
+        expect=["[boss04] Khonsclard: body 3000, pods 600", "clip START fr", "f156 1", "states 00", "down 11 ",
                 "band 2", "band 5", "flag 223 = 1", "EXP 328", "destroyed"]),
     # The world-anchored mini gauges (build/mech_re/MINI_GAUGE.md; the shared store 0x76c1cc.., worldgauge.hpp): a hit
     # pod writes gauge 0 on Normal (the host used to drop it), and the HUD tick's 255 countdown turns it off after
