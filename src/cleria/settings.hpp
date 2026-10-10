@@ -174,10 +174,12 @@ const char* launcher_backdrop(std::string_view scene);
 
 // The config tool's four "Basic Settings" buttons (CONFIG_PARITY.md §5) [EXPORT FUN_005d3640, FUN_005d3900,
 // FUN_00411f50, FUN_004192c0 case 0x3f5]: 0 Lightest, 1 Light, 2 Normal, 3 High-Definition. The quality keys
-// are set as retail sets them. [H] Left alone, although retail's presets reset them too: the window mode
-// (retail: fullscreen), the resolution (retail: the desktop mode, 640x480 for the light ones, 1024x768 for
-// High-Definition), Stretch widescreen, Disable movies, Mask of Eyes and caustics -- a click here should not
-// throw the window into another mode. The caps-dependent picks take the best case (a modern GPU has them all).
+// are set as retail sets them: FUN_005d3640 zeroes the whole 0x88-byte struct first, so Stretch widescreen,
+// Disable movies, Disable Mask of Eyes and Disable water caustics go off and the refresh rate to its default.
+// CleriaCore's deviation: the window mode (retail: fullscreen), the resolution (retail: the desktop mode,
+// 640x480 for the light ones, 1024x768 for High-Definition) and the display are left alone -- a click here
+// should not throw the window into another mode. The caps-dependent picks take the best case (a modern GPU
+// has them all).
 void graphics_preset(int p, Settings& s);
 
 // The mapper's configuration from the settings (the PAD_* slots from cleria.ini when NativePadBinds).

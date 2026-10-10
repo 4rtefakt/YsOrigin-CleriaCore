@@ -57,6 +57,18 @@ int main() {
           p2[KEY_DOWNRIGHT] == 0x2d && p2[MOUSE_DIR] == 0x106 && p2[MOUSE_ACTION] == 0x100 && p2[MOUSE_SHOT] == 0x102,
           "Preset 2: . / _ Space Tab / WASD QEZX / L R M mouse");
     check(!bindable(kDikF1) && bindable(0x3c), "F1 is reserved for the shell");
+    {   // key preset files (.ky)
+        const auto ky = ky_encode(p2);
+        Bindings back{}, bad{};
+        const bool ok = ky_decode(ky.data(), ky.size(), back);
+        check(ky.size() == 0x98 && ky[0] == 'K' && ky[1] == 'y' && ky[2] == 'a' && ky[3] == 0 && ky[8] == 4 &&
+              ky[12] == 0x22 && ky[16] == 0x34 && ok && back == p2,
+              ".ky: \"Kya\\0\", 0, 4, 0x22, the 34 codes; it reads back (FUN_00411820 / FUN_004122d0)");
+        auto wrong = ky; wrong[0] = 'X';
+        auto wrong2 = ky; wrong2[4] = 1;
+        check(!ky_decode(wrong.data(), wrong.size(), bad) && !ky_decode(wrong2.data(), wrong2.size(), bad) &&
+              !ky_decode(ky.data(), ky.size() - 1, bad), ".ky: a wrong magic, a non-zero second dword or a short file is refused");
+    }
 
     // ---- SDL scancode (USB HID usage) <-> DIK ----
     check(dik_from_sdl_scancode(4) == 0x1e && dik_from_sdl_scancode(41) == 0x01 && dik_from_sdl_scancode(82) == 0xc8 &&

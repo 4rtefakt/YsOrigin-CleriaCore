@@ -38,6 +38,12 @@ struct AiaImage {  // one animation
 void composite_over(AiaFrame& body, const AiaFrame& layer);
 void composite_add(AiaFrame& body, const AiaFrame& layer);
 
+// [graphics] LowResoTexture (0x76516f) for the sheets: FUN_00444a50 opens data\ani\l\<name>.aia when the
+// option is set and that file exists, else data\ani\<name>.aia [EXPORT 00444a50.c:60-69]. A sheet in the L
+// folder is half the size with twice the header scale (+0x1c), so it draws at the same size. While set,
+// Aia::load looks in the L folder beside the path first.
+void aia_low_res(bool on);
+
 // A loaded AIA file. Keeps the raw bytes and decodes frames on demand.
 struct Aia {
     std::uint16_t version = 0;

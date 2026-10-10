@@ -185,12 +185,17 @@ int main() {
               n.graphics.shadow_effect_level == 2 && n.graphics.water_effect_level == 2 && n.graphics.glare_effect_level == 2 &&
               n.graphics.low_reso_texture == 0 && n.kernel.high_reso_text == 1,
               "preset Normal: trilinear, 2x, no MSAA, mipmaps, gamma 1, VSync, effects 2 (FUN_005d3640)");
-        check(n.graphics.windowed == 1 && n.graphics.back_buffer_width == 1920 && n.graphics.stretch_aspect == 1,
-              "a preset leaves the window mode, the resolution and Stretch widescreen alone [H]");
-        Settings h; graphics_preset(3, h);
-        check(h.graphics.texture_filter == 2 && h.graphics.anisotropy == 16 && h.graphics.multi_sample_type == 2 &&
+        check(n.graphics.windowed == 1 && n.graphics.back_buffer_width == 1920,
+              "a preset leaves the window mode and the resolution alone (CleriaCore's deviation)");
+        Settings h; h.graphics.disable_movies = h.graphics.mask_of_eyes = h.graphics.water_caustics = 1;
+        h.graphics.refresh_rate = 75;
+        graphics_preset(3, h);
+        check(n.graphics.stretch_aspect == 0 && h.graphics.disable_movies == 0 && h.graphics.mask_of_eyes == 0 &&
+              h.graphics.water_caustics == 0 && h.graphics.refresh_rate == 0,
+              "a preset clears Stretch widescreen, Disable movies, Mask of Eyes, caustics, the refresh rate (the memset)");
+        check(h.graphics.texture_filter == 2 && h.graphics.anisotropy == 4 && h.graphics.multi_sample_type == 2 &&
               h.graphics.compressed_texture == 0 && h.graphics.glare_effect_level == 2,
-              "preset High-Definition: trilinear, 16x, MSAA 2, no compressed textures (FUN_00411f50)");
+              "preset High-Definition: trilinear, 4x (min(caps, 4)), MSAA 2, no compressed textures (FUN_00411f50)");
         Settings l; graphics_preset(1, l);
         check(l.graphics.texture_filter == 1 && l.graphics.anisotropy == 1 && l.graphics.shadow_effect_level == 1 &&
               l.graphics.water_effect_level == 1 && l.graphics.glare_effect_level == 1 && l.graphics.low_reso_texture == 0 &&

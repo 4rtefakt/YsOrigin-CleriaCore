@@ -54,6 +54,14 @@ using Bindings = std::array<Code, kSlots>;
 const Bindings& preset1();   // "Preset Type 1 [Arrows/ZXCV]" — the game default
 const Bindings& preset2();   // "Preset Type 2 [WASD/Mouse]" (FUN_005d51d0)
 
+// ---- key preset files (.ky): the config tool's Save button and its Presets list ---------------------
+// 0x98 bytes, little-endian [EXPORT 00411820.c:209-241]: u32 0x0061794b ("Kya\0"), u32 0, u32 4 (the entry
+// size), u32 0x22 (the count), then the 34 codes in slot order. The loader FUN_004122d0 checks the first
+// two dwords and reads 0x88 bytes of codes [EXPORT 004122d0.c:111-112].
+inline constexpr std::size_t kKySize = 0x98;
+std::array<std::uint8_t, kKySize> ky_encode(const Bindings& b);
+bool ky_decode(const std::uint8_t* p, std::size_t n, Bindings& out);
+
 // ---- the mask bits (CONFIG.md §3.4) --------------------------------------------------------------
 enum Bit : std::uint32_t {
     kAttack = 0x1, kJump = 0x2, kMagic = 0x4, kBoost = 0x8, kMenu = 0x10, kWalk = 0x20,

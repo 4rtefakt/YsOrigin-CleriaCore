@@ -170,6 +170,22 @@ bool bindable(Code c) { return c != kDikF1; }
 const Bindings& preset1() { return kPreset1; }
 const Bindings& preset2() { return kPreset2; }
 
+std::array<std::uint8_t, kKySize> ky_encode(const Bindings& b) {
+    std::array<std::uint8_t, kKySize> o{};
+    const std::uint32_t head[4] = {0x0061794bu, 0, 4, std::uint32_t(kSlots)};
+    std::memcpy(o.data(), head, 16);                     // little-endian hosts only, like every reader here
+    std::memcpy(o.data() + 16, b.data(), std::size_t(kSlots) * 4);
+    return o;
+}
+bool ky_decode(const std::uint8_t* p, std::size_t n, Bindings& out) {
+    std::uint32_t head[2];
+    if (n < kKySize) return false;
+    std::memcpy(head, p, 8);
+    if (head[0] != 0x0061794bu || head[1] != 0) return false;
+    std::memcpy(out.data(), p + 16, std::size_t(kSlots) * 4);
+    return true;
+}
+
 float dir_angle(std::uint32_t dir) { return kAngle[dir & 15]; }
 
 Code dik_from_sdl_scancode(int sc) {

@@ -402,10 +402,16 @@ CASES = {
         drive="10:vstat;11:vopt=TextureFilter=0;20:vstat;21:vopt=Preset=3;30:vstat;31:vopt=Preset=1;"
               "32:vopt=BloodyEffectLevel=0;40:vstat;41:vopt=LowResoTexture=1;45:vstat;"
               "46:vopt=MultiSampleType=8;55:vstat;56:vopt=MultiSampleType=0;65:vstat;70:quit",
-        expect=["sampler linear x1 blood 2 msaa 1", "sampler point x1 blood 2", "sampler linear+mip x16 blood 2 msaa 4",
+        expect=["sampler linear x1 blood 2 msaa 1", "sampler point x1 blood 2", "sampler linear+mip x4 blood 2 msaa 4",
                 "sampler linear x1 blood 0 msaa 1", "[video] opt LowResoTexture=1", "[video] low-resolution textures on",
                 "(target on) crisp 0 | sampler linear x1 blood 0 msaa 4", "blood 0 msaa 1"],
         absent=["device:"]),
+    # Input: key preset files (.ky) in the settings folder: Save writes key_00.ky, then key_01.ky; a saved file loads.
+    "config_ky_preset": dict(
+        room="S_10/S_1009/S_1009", mods=[],
+        drive="5:ky=save;6:ky=load,key_00;7:ky=load,nope;8:ky=save;10:quit",
+        expect=["[ky] saved key_00.ky", "[ky] load key_00 ok | KEY_ACTION 0x2c KEY_UP 0x48 of 1 files",
+                "[ky] load nope failed", "[ky] saved key_01.ky"]),
     # Input: Double-Tap to Dash (the dash machine: two taps of a direction with the dash owned = section 0x10a;
     # off, the same taps only run) and Hold Attack for Skills (the charge runs with the attack button held).
     "config_live_input": dict(
@@ -2402,6 +2408,7 @@ SMOKE = [
     "book_return_title", "shell_subpages", "hud_damage_numbers",             # the book, the shell, the HUD
     "weather_embers", "video_passes", "video_looks",                         # weather, the Video page
     "config_live_video", "config_live_input", "config_live_audio",           # config.exe parity: options change live
+    "config_ky_preset",
     "sfx_loop_scene_stop",                                                   # audio: a looping SE, the scene stop
     "content_chest", "lua_save", "lua_exp_floor", "modfile_install",         # mods: content, Lua, a .cleriamod
     "aplua_items_save",                                                      # Archipelago (its mock server)

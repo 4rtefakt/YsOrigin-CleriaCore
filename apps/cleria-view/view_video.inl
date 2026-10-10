@@ -451,13 +451,14 @@ static void video_resample() {
 // [graphics] LowResoTexture changed (the page, a preset, the drive) or was loaded: FUN_005fba80 loads a
 // texture from the L folder beside it when that copy exists [EXPORT 005fba80.c:91-140]; here the texture
 // index is rebuilt with the L folders first, and the textures loaded from then on (the next area) use it.
-// [not modelled] the low-resolution sprite sheets data/ani/l/*.aia (FUN_00444a50) and the combination with
-// CompressedTexture (another folder).
+// The sprite sheets likewise (FUN_00444a50: data/ani/l/*.aia, aia_low_res), for the sheets loaded from then on.
+// [not modelled] the combination with CompressedTexture (another folder).
 static void reindex_textures(Gpu& g);                    // main.cpp
 static void video_low_res() {
     const bool on = settings().s.graphics.low_reso_texture != 0;
     if (on == g_low_res_textures) return;
     g_low_res_textures = on;
+    aia_low_res(on);
     if (g_vgpu.gpu) reindex_textures(*g_vgpu.gpu);
 }
 
@@ -676,9 +677,9 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
     {
         bool lo = gr.low_reso_texture != 0;                  // 0x76516f (video_low_res)
         if (ui::toggle(L, "Low-resolution textures", &lo,
-                       "Uses the game's smaller copies of the floor, wall and object textures: blurrier, lighter on "
-                       "slow PCs. Takes effect in the next area you enter. The characters keep their full "
-                       "resolution for now. (Original: Low-Resolution Textures.)")) {
+                       "Uses the game's smaller copies of the floor, wall and object textures and of the character "
+                       "sprites: blurrier, lighter on slow PCs. Takes effect in the next area you enter, and for the "
+                       "characters loaded from then on. (Original: Low-Resolution Textures.)")) {
             gr.low_reso_texture = lo;
             video_low_res();
             persist();
@@ -747,10 +748,12 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             "saved for the original game: low shadows, reflections and glare.",
             "The original's Normal preset: trilinear filtering, 2x anisotropic filtering, brightness 1.00, VSync on; and, "
             "saved for the original game: full shadows, reflections and glare.",
-            "The original's High-Definition preset: trilinear filtering, 16x anisotropic filtering, anti-aliasing, "
+            "The original's High-Definition preset: trilinear filtering, 4x anisotropic filtering, anti-aliasing, "
             "brightness 1.00, VSync on; and, saved for the original game: full shadows, reflections and glare."};
         for (int p = 0; p < 4; ++p) {
-            const std::string d = std::string(kDesc[p]) + " The window mode and the resolution stay as they are.";
+            const std::string d = std::string(kDesc[p]) + " Every preset also turns off Stretch widescreen, Disable "
+                                  "movies and Disable Mask of Eyes effect, as the original's do. The window mode and the "
+                                  "resolution stay as they are.";
             if (ui::button(L, kNames[p], d.c_str())) {
                 graphics_preset(p, settings().s);
                 video_low_res();

@@ -440,6 +440,29 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 if (ui::button(L, "Preset 2  [WASD / Mouse]", "The game's WASD and mouse layout.")) {
                     in.assign = input::preset2(); persist();
                 }
+                {   // the config tool's saved presets (.ky files, view_input.inl)
+                    static std::vector<fs::path> kys;
+                    static int ky_poll = 0;
+                    if (ky_poll-- <= 0) { kys = ky_list(); ky_poll = 120; }
+                    for (const fs::path& p : kys) {
+                        const std::string nm = p.stem().string();
+                        const std::string d = "A saved key preset: " + p.string() + ". Replaces the bindings above "
+                                              "with the file's. (Original: the Presets list.)";
+                        if (ui::button(L, nm.c_str(), d.c_str())) {
+                            if (ky_load(p, in.assign)) { bind_msg.clear(); persist(); }
+                            else bind_msg = "That file is not a key preset.";
+                        }
+                    }
+                    if (ui::button(L, "Save as a preset file",
+                                   "Writes the bindings above to a new key preset file (key_00.ky, key_01.ky, ...) in "
+                                   "CleriaCore's settings folder, in the original game's format. With Xbox-style button "
+                                   "names on, the gamepad rows saved are the original-style ones. (Original: Save.)",
+                                   !settings().path().empty())) {
+                        const fs::path p = ky_save(in.assign);
+                        bind_msg = p.empty() ? "The preset file could not be written." : "Saved " + p.filename().string() + ".";
+                        ky_poll = 0;
+                    }
+                }
                 if (!bind_msg.empty()) ui::info(L, "", bind_msg.c_str(), ui::kWarn);
                 return;
             }
@@ -4232,6 +4255,7 @@ title_again:
         if (boss7_drive && boss7_drive(cmd)) return;     // view_boss07.inl
         if (boss8_drive && boss8_drive(cmd)) return;     // view_boss08.inl
         if (hud_drive(cmd)) return;                      // view_hudstate.inl
+        if (ky_drive(cmd)) return;                       // ky=save, ky=load,<stem> (view_input.inl)
         if (ail_drive(cmd)) return;                      // view_ailments.inl
         if (cmd.rfind("at=", 0) == 0) {
             float x = 0, z = 0, deg = 0;

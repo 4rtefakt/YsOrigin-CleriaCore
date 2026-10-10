@@ -34,6 +34,65 @@ static SettingsStore& settings() {
     return g_settings;
 }
 
+// Key preset files (.ky, input::ky_encode): the config tool keeps them in its settings folder, one per saved
+// preset, and lists every one it finds there (FUN_004125e0). Here: the files of CleriaCore's settings folder
+// and, read only, of the original game's (CLERIA_RETAIL_DIR's rules, as the settings import).
+static std::vector<fs::path> ky_list() {
+    std::vector<fs::path> out;
+    std::vector<fs::path> dirs;
+    if (!settings().path().empty()) dirs.push_back(settings().path().parent_path());
+    const char* rd = std::getenv("CLERIA_RETAIL_DIR");
+    if (!settings().memory_only()) dirs.push_back(retail_ini_path(rd ? fs::path(rd) : fs::path()).parent_path());
+    std::error_code ec;
+    for (const fs::path& d : dirs) {
+        if (d.empty()) continue;
+        for (fs::directory_iterator it(d, ec), end; !ec && it != end; it.increment(ec)) {
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+            if (ext == ".ky" && std::find(out.begin(), out.end(), it->path()) == out.end()) out.push_back(it->path());
+        }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+static bool ky_load(const fs::path& p, input::Bindings& out) {
+    std::ifstream f(p, std::ios::binary);
+    std::vector<std::uint8_t> b((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return input::ky_decode(b.data(), b.size(), out);
+}
+// The Save button: the first key_NN.ky (00..99) that does not exist yet (FUN_00411820's suggested name).
+static fs::path ky_save(const input::Bindings& b) {
+    if (settings().path().empty()) return {};
+    const fs::path dir = settings().path().parent_path();
+    std::error_code ec;
+    for (int n = 0; n < 100; ++n) {
+        char nm[16];
+        std::snprintf(nm, sizeof nm, "key_%02d.ky", n);
+        if (fs::exists(dir / nm, ec)) continue;
+        const auto ky = input::ky_encode(b);
+        std::ofstream f(dir / nm, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(ky.data()), std::streamsize(ky.size()));
+        return f ? dir / nm : fs::path();
+    }
+    return {};
+}
+// CLERIA_DRIVE: ky=save (the bindings into a new file), ky=load,<stem> (a file's bindings become the bindings).
+static bool ky_drive(const std::string& cmd) {
+    if (cmd.rfind("ky=", 0) != 0) return false;
+    auto& in = settings().s.input;
+    if (cmd == "ky=save") {
+        const fs::path p = ky_save(in.assign);
+        std::printf("  [ky] saved %s\n", p.empty() ? "nothing" : p.filename().string().c_str());
+    } else if (cmd.rfind("ky=load,", 0) == 0) {
+        bool ok = false;
+        for (const fs::path& p : ky_list())
+            if (p.stem().string() == cmd.substr(8) && ky_load(p, in.assign)) { ok = true; settings().touch(); break; }
+        std::printf("  [ky] load %s %s | KEY_ACTION 0x%x KEY_UP 0x%x of %d files\n", cmd.c_str() + 8, ok ? "ok" : "failed",
+                    unsigned(in.assign[input::KEY_ACTION]), unsigned(in.assign[input::KEY_UP]), int(ky_list().size()));
+    }
+    return true;
+}
+
 // The in-game Options page works on its own copy (0..1024 sliders and the four switches, OPTIONS.md
 // §2); these move it to and from the settings. Brightness <-> GammaValue per OPTIONS.md §2.
 static float slider_to_gamma(int s) {   // 0..1024 -> 0.5..2.0, neutral 1.0 @512

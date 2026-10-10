@@ -544,7 +544,11 @@ const char* launcher_backdrop(std::string_view scene) {
 void graphics_preset(int p, Settings& s) {
     auto& gr = s.graphics;
     gr.texture_filter = p >= 2 ? 2 : 1;                  // trilinear with the mip caps (Normal / HD), else bilinear
-    gr.anisotropy = p == 3 ? 16 : p == 2 ? 2 : 1;        // Normal: min(caps, 2); HD: FUN_005d50f0 = a min of two values, [H] 16
+    gr.anisotropy = p == 3 ? 4 : p == 2 ? 2 : 1;         // Normal: min(caps, 2); HD: min(caps, 4) [BYTES 0x411f65..0x411f89]
+    // FUN_005d3640 zeroes the whole struct first [EXPORT 005d3640.c:19]: every switch not set below goes off.
+    gr.stretch_aspect = gr.disable_movies = gr.mask_of_eyes = gr.water_caustics = 0;
+    gr.force_software_vp = gr.disable_pixel_shader = 0;
+    gr.refresh_rate = 0;
     gr.multi_sample_type = p == 3 ? 2 : 0;               // HD: the first available count >= 2
     gr.mipmap = p == 0 ? 0 : 1;
     gr.gamma_value = 1.0f;
