@@ -1490,12 +1490,18 @@ CASES.update({
                 # course): the same events in another order — the capture and the other dimension now come
                 # under the FIRST dark barrier (t3208..3859), before both options are down; the barrier then falls
                 # (t3970), stands again with the options revived, and falls twice more before the death (t5265).
-                "barrier D up", "phase 2 (max HP 4250)", "target option", "option L destroyed",
-                "bullet kind 0x25 effect 54", "clip SIS_LAZER_START", "the capture circle at", "the player is captured",
-                "CamSlot 5", "every particle removed", "mode 0 -> 4", "clip KIAI_START",
+                # Re-pinned 2026-10-10 (BOSS_HULLS step 6: the body's `core` and `cover_r` entries and the two options'
+                # hulls are bound to the render bones — the option's hull turns with its bone, 1.8 tall instead of
+                # 3.2, the core's sits 0.24 higher). The fight differs from t78 on (the pilot's place beside the body)
+                # and again has the same events in another order: the first dark barrier falls with option R at t3084,
+                # three ticks BEFORE the capture (t3087; the other dimension t3176..3738), it stands again with the
+                # options revived (t4010), and falls twice more before the death at t5037 (was t5265).
+                "barrier D up", "phase 2 (max HP 4250)", "target option", "bullet kind 0x25 effect 54",
+                "clip SIS_LAZER_START", "option L destroyed", "the capture circle at", "CamSlot 3",
+                "barrier D broken (window 699)", "option R destroyed", "target the core with the sword",
+                "the player is captured", "CamSlot 5", "every particle removed", "mode 0 -> 4", "clip KIAI_START",
                 "the player is pinned at (0.0,495.0,-5.0)", "clip METEOR", "the player is returned to (0.0,7.5,-15.0)",
-                "mode 4 -> 0", "CamSlot 3", "barrier D broken (window 699)", "option R destroyed",
-                "target the core with the sword", "barrier D up", "option R revived (1000)", "option L revived (1000)",
+                "mode 4 -> 0", "barrier D up", "option R revived (1000)", "option L revived (1000)",
                 "barrier D broken (window 699)",
                 "flag 226 = 1", "EXP (lv 49)", "the death starts", "[content] boss_defeated S_7080 flag 226", "[boss07] t",
                 "destroyed", ">> entering S_7000"], count={"boss_defeated": 1, "impact 404 at": 4}),
