@@ -232,6 +232,114 @@ void Weather::sparks(int count, int delay_step, int life_range, float width, con
     }
 }
 
+// FUN_0045e390 [BYTES 0x45e390..0x45e459]: a random offset — the distance, then the direction (the top byte).
+void Weather::offset(float lo, float hi, float* dx, float* dz) {
+    const float r = (hi - lo) * (unit12(rng()) - 1.0f) + lo;
+    const int i = int(rng() >> 24);
+    *dx = cos_table(i) * r;
+    *dz = cos_table((i - 0x40) & 0xff) * r;
+}
+
+// FUN_0058a210 [BYTES 0x58a210..0x58a5e8]: the water rooms' substitute — clouds that only grow and fade.
+bool Weather::water_cloud(int count, std::uint32_t argb, int delay_step, int life_range, float size0, float size1,
+                          const Vec3& pos, float radius) {
+    if (water_mode != 2) return false;               // mode 1's probes: [not modelled], see weather.hpp
+    const float cap = 1000.0f;
+    Desc d;
+    d.tex = Tex::EftTex34;
+    d.rstate = 0x4641u;
+    d.kind = 9;
+    d.argb = argb;
+    d.pad = 1;                                       // dword 5 = 1 (0x58a35e; not read by the init)
+    d.t1 = 35.0f; d.t2 = 158.0f;
+    d.alpha[0] = 0.5f; d.alpha[1] = 1.0f; d.alpha[2] = 0.05f; d.alpha[3] = 0.0f;
+    const float radius2 = radius + radius;
+    const std::uint32_t life_mod = std::uint32_t(life_range * 4 + 1);
+    for (int k = 0; k < count; ++k) {
+        if (!alloc(Obj::Child)) return true;
+        const float s = ((size1 - size0) * (unit12(rng()) - 1.0f) + size0) * 0.75f;
+        d.size[0] = s * 0.5f; d.size[1] = s * 0.75f; d.size[2] = s; d.size[3] = s * 1.25f;
+        float dx, dz;
+        offset(0.0f, radius2, &dx, &dz);
+        d.pos = {pos.x + dx, std::min(pos.y, cap), pos.z + dz};
+        d.angle = (unit12(rng()) - 1.0f) * 6.2831855f;
+        d.life = float((rng() >> 1) % life_mod) + 254.0f;   // 0x6bdc1c
+        emit(d);
+        d.delay += std::uint32_t(delay_step * 4);
+    }
+    return true;
+}
+
+// FUN_00589a60's head [BYTES 0x589a60..0x589b9b]: the ray 5 down from the point; no terrain there = no decal.
+void Weather::decal_init(Obj& o, const Decal& d) {
+    o.dc = d;
+    Vec3 pt{}, n{};
+    if (!hit || !hit(d.pos, {d.pos.x, d.pos.y - 5.0f, d.pos.z}, &pt, &n)) { o.dead = true; return; }
+    o.dc.pos = pt;
+    o.dc.normal = n;
+}
+
+void Weather::blood(int count, std::uint32_t argb, int delay_step, int life_range, float size0, float size1,
+                    const Vec3& pos, float radius, bool flag_a, bool flag_b) {
+    if (water_cloud(count, argb, delay_step, life_range, size0, size1, pos, radius)) return;
+    std::uint8_t delay = 0;
+    for (int k = 0; k < count; ++k) {
+        Obj* o = alloc(Obj::Splat);
+        if (!o) return;
+        Decal d;
+        d.variant = std::uint8_t((rng() >> 16) % 3u);
+        d.life = float((rng() >> 1) % std::uint32_t(life_range + 1)) + 250.0f;    // 0x6bdc14
+        if (flag_b) { d.variant = 0; d.foot = true; }
+        else {
+            d.foot = (argb & 0xf0f0f0u) != 0 && bloody > 1;       // footprints only at level 2
+            if (bloody >= 2) d.life += 120.0f;                    // 0x6bdb28
+        }
+        float dx, dz;
+        offset(0.0f, radius, &dx, &dz);
+        d.pos = {pos.x + dx, pos.y + 0.25f, pos.z + dz};
+        d.angle = (unit12(rng()) - 1.0f) * 6.2831855f - 3.1415927f;
+        d.size = (size1 - size0) * (unit12(rng()) - 1.0f) + size0;
+        d.argb = argb; d.delay = delay; d.keep = flag_a; d.slime = flag_b;
+        decal_init(*o, d);
+        delay = std::uint8_t(delay + delay_step);
+    }
+}
+
+void Weather::blood_drop(std::uint32_t argb, const Vec3& pos, float size0, float size1) {
+    if (water_cloud(1, argb, 0, 0x24, size0, size1, pos, 0.2f)) return;
+    Obj* o = alloc(Obj::Splat);
+    if (!o) return;
+    Decal d;
+    d.variant = std::uint8_t(((rng() >> 16) & 1u) + 1u);          // variants 1 or 2
+    d.life = (float((rng() >> 1) % 0x25u) + 250.0f + (bloody > 1 ? 120.0f : 0.0f)) * 0.75f;
+    d.angle = (unit12(rng()) - 1.0f) * 6.2831855f - 3.1415927f;
+    d.size = (size1 - size0) * (unit12(rng()) - 1.0f) + size0;
+    d.argb = argb;
+    d.pos = pos;                                                  // no jitter, no +0.25
+    decal_init(*o, d);
+}
+
+// FUN_00589f60's sim half (GoXx type 4): the delay, the age, the life, the footprint / slime trigger.
+void Weather::decal(Obj& o, const Env& e) {
+    Decal& d = o.dc;
+    if (d.delay != 0) { --d.delay; return; }
+    d.age += 1.0f;
+    if (d.age >= d.life && !d.keep) { o.dead = true; return; }
+    if (!d.foot || !e.player || !(d.age < d.life - 50.0f) || !(std::fabs(e.player_ground - d.pos.y) < 0.05f) ||
+        !e.player_grounded)
+        return;
+    const float dx = e.player_pos.x - d.pos.x, dz = e.player_pos.z - d.pos.z, r = d.size * 0.275f;   // 0x6bd268
+    if (!(dx * dx + dz * dz <= r * r)) return;
+    if (!d.slime) { foot_rgb = d.argb & 0xffffffu; foot_ticks = 0x2d; }
+    else { slime_ticks = 0x37; foot_rgb = 0xffffffu; }
+}
+
+std::size_t Weather::live_decals() const {
+    std::size_t k = 0;
+    for (const auto& o : objs_) k += !o->dead && o->kind == Obj::Splat;
+    return k;
+}
+
 // FUN_00588a50 (GoXx type 3): the start delay, the age, the collision + history, then the move.
 void Weather::spark(Obj& o) {
     Spark& s = o.sp;
@@ -372,6 +480,7 @@ void Weather::step(const Env& e) {
             case Obj::Smoke: smoke(o, e); break;
             case Obj::Child: sprite(o); break;
             case Obj::Streak: spark(o); break;
+            case Obj::Splat: decal(o, e); break;
         }
     }
 }

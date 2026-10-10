@@ -483,6 +483,78 @@ int main(int argc, char** argv) {
         check(wt.live_sparks() == 0 && wt.objects().empty(), "sparks: the sweep returns the live count");
     }
 
+    {   // FUN_0058a5f0 / FUN_0058a210 / FUN_0058a900 / FUN_00589f60, the blood splats (GOXX_PARTICLES.md §2.4, §3.3-§3.5).
+        Shared r{{3u, 1u, 4u, 1u}};
+        Weather wx;
+        wx.rng = [&] { return r.next(); };
+        auto floor0 = [](const Vec3& a, const Vec3& b, Vec3* p, Vec3* n) {
+            if (!(a.y > 0.0f && b.y <= 0.0f)) return false;
+            const float t = a.y / (a.y - b.y);
+            *p = {a.x + (b.x - a.x) * t, 0.0f, a.z + (b.z - a.z) * t};
+            *n = {0.0f, 1.0f, 0.0f};
+            return true;
+        };
+        wx.hit = floor0;
+        wx.blood(3, 0xff7c0000u, 2, 0x18, 1.3f, 1.8f, {10.0f, 1.0f, 20.0f}, 0.65f, false, false);   // a monster's
+        bool ok = r.calls == 18 && wx.live_decals() == 3;
+        for (std::size_t k = 0; ok && k < 3; ++k) {
+            const Decal& d = wx.objects()[k]->dc;
+            const float dx = d.pos.x - 10.0f, dz = d.pos.z - 20.0f;
+            ok = d.variant < 3 && d.life >= 370.0f && d.life <= 394.0f && d.delay == 2 * k && d.pos.y == 0.0f &&
+                 dx * dx + dz * dz <= 0.65f * 0.65f + 1e-4f && d.size >= 1.3f && d.size < 1.8f &&
+                 d.angle >= -3.1416f && d.angle < 3.1416f && d.foot && !d.slime && !d.keep && d.normal.y == 1.0f;
+        }
+        check(ok, "blood: 3 splats = 18 draws; on the floor within 0.65, size 1.3-1.8, life 370-394 at level 2, delays 0/2/4");
+        // No floor within 5 below: the draws are taken, no decal is left.
+        const std::uint64_t c0 = r.calls;
+        wx.blood(3, 0xff7c0000u, 2, 0x18, 1.3f, 1.8f, {0.0f, 9.0f, 0.0f}, 0.65f, false, false);
+        wx.sweep();
+        check(r.calls - c0 == 18 && wx.live_decals() == 3, "blood: without a floor within 5 the 18 draws are taken and no decal stays");
+        // Level 1: no +120 and no footprints; flag B (slime): variant 0, the trigger armed.
+        wx.bloody = 1;
+        wx.blood(1, 0xff7c0000u, 2, 0x18, 1.3f, 1.8f, {0.0f, 1.0f, 0.0f}, 0.65f, false, false);
+        const Decal l1 = wx.objects().back()->dc;
+        wx.bloody = 2;
+        wx.blood(1, 0xff22cc44u, 2, 10, 0.4f, 0.8f, {0.0f, 1.0f, 0.0f}, 0.2f, false, true);
+        const Decal sl = wx.objects().back()->dc;
+        check(l1.life >= 250.0f && l1.life <= 274.0f && !l1.foot && sl.variant == 0 && sl.foot && sl.slime &&
+              sl.life >= 250.0f && sl.life <= 260.0f,
+              "blood: level 1 = life 250-274, no footprints; a slime puddle = variant 0, life 250-260, the trigger armed");
+        // The drop of a debris bounce: 4 draws, variants 1 / 2, life x 0.75, no offset.
+        const std::uint64_t c1 = r.calls;
+        wx.blood_drop(0xff7c0000u, {5.0f, 0.5f, 5.0f}, 0.75f, 0.9f);
+        const Decal dr = wx.objects().back()->dc;
+        check(r.calls - c1 == 4 && (dr.variant == 1 || dr.variant == 2) && dr.pos.x == 5.0f && dr.pos.z == 5.0f && dr.pos.y == 0.0f &&
+              dr.life >= 370.0f * 0.75f && dr.life <= 406.0f * 0.75f && dr.size >= 0.75f && dr.size < 0.9f && !dr.foot,
+              "blood: a debris drop = 4 draws, variant 1-2, under the piece, life (370-406) x 0.75, size 0.75-0.9");
+        // The footprint trigger: the grounded player inside size x 0.275 of a splat on his floor.
+        Env e;
+        e.player = true; e.player_grounded = true; e.player_ground = 0.0f;
+        const Decal& d0 = wx.objects()[0]->dc;
+        e.player_pos = {d0.pos.x + d0.size * 0.27f, 1.075f, d0.pos.z};
+        wx.step(e);
+        const bool on = wx.foot_ticks == 0x2d && wx.foot_rgb == 0x7c0000u && wx.slime_ticks == 0;
+        wx.foot_ticks = 0;
+        e.player_pos = {d0.pos.x + 30.0f, 1.075f, d0.pos.z};
+        wx.step(e);
+        check(on && wx.foot_ticks == 0 && d0.age == 2.0f, "blood: walking through a splat arms 45 ticks of footprints in its colour");
+        // A water room: the clouds instead (type-0 sprites), 5 draws each, none of the decal's 6.
+        Weather ww;
+        Shared r2{{2u, 7u, 1u, 8u}};
+        ww.rng = [&] { return r2.next(); };
+        ww.hit = floor0;
+        ww.water_mode = 2;
+        ww.blood(3, 0xff7c0000u, 2, 0x18, 1.3f, 1.8f, {0.0f, 1.0f, 0.0f}, 0.65f, false, false);
+        const std::vector<Desc> cl = ww.take_emits();
+        check(r2.calls == 15 && cl.size() == 3 && ww.live_decals() == 0 && cl[0].kind == 9u && cl[0].rstate == 0x4641u &&
+              cl[1].delay == 8 && cl[0].t1 == 35.0f && cl[0].t2 == 158.0f && cl[0].life >= 254.0f && cl[0].life <= 350.0f &&
+              cl[0].size[3] == cl[0].size[2] * 1.25f / 1.0f && cl[0].vel.x == 0.0f && cl[0].pos.y == 1.0f,
+              "blood: in a water room 3 clouds = 15 draws (no decal): layer 9, delays 8 apart, life 254-350, growing");
+        const std::uint64_t c2 = r2.calls;
+        ww.blood_drop(0xff7c0000u, {0.0f, 1.0f, 0.0f}, 0.75f, 0.9f);
+        check(r2.calls - c2 == 5, "blood: a debris drop in a water room = one cloud, 5 draws");
+    }
+
     std::printf("[weather] %s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
 }

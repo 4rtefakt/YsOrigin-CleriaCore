@@ -153,12 +153,12 @@ CASES = {
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 2541, 12))
-              + "2641:at3=2.5,13,33,0;2646:pos;2821:pos;2921:quit",
-        # Re-pinned 2026-10-10 (the dust puffs: 20 draws at every hit the player takes move Velagunder's stream): the
-        # stun starts 25 ticks later, so WAIT is reached after t2610 and the placement moved from t2620 to t2641 (the
-        # two `pos` and the quit with it); the body's pose under her differs by a few frames (y 11.745, was 11.783).
-        expect=["stun 0 STUNNED", "state 0 sub 1", "t2641 at3=2.5,13,33,0", "feet (3.668, 11.745, 33.018)",
-                "state 8 sub 1", "clip ACTION_01", "feet (4.650, 10.608, 31.300)", "state 8 sub 1"]),
+              + "2620:at3=2.5,13,33,0;2625:pos;2800:pos;2900:quit",
+        # Re-pinned 2026-10-10, twice. The dust puffs (20 draws at every hit the player takes move Velagunder's
+        # stream) put the stun 25 ticks later and the placement at t2641; with the blood splats (18 more draws at each
+        # of those hits) the stun is where it was before both, and so are the placement (t2620) and the two stands.
+        expect=["stun 0 STUNNED", "state 0 sub 1", "t2620 at3=2.5,13,33,0", "feet (3.643, 11.783, 33.000)",
+                "state 8 sub 1", "clip ACTION_01", "feet (4.910, 10.521, 32.095)", "state 8 sub 1"]),
     # ... and the kill (Lv 60): the death timeline's end block sets flag 220 and awards the EXP, which releases
     # BATTLE_0.XSO into SENTOUGO.XSO (the stairs rise: stepup_se).
     "velagunder_kill": dict(
@@ -196,17 +196,20 @@ CASES = {
     "velagunder_climb_toal": dict(
         room="S_10/S_1099/S_1099", char="3", env=dict(CLERIA_LEVEL="60", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
         drive="5:diff=3;10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 2200, 40))
-              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2300, 2410, 12)) + "2414:level=9;2417:pos;"
-              "2422:goto=-6.6,23.3,80;2572:goto=-6.8,28.5,130;2612:jump;2712:goto=-6.2,30.6,40;2757:goto=-5.6,31.6,40;"
-              "2802:goto=-2.0,32.8,300;2872:pos;2873:goto=-1.2,31.5,60;2912:goto=0.3,30.6,4;"
-              + "".join(f"{t}:atk;" for t in range(2942, 3112, 14)) + "3122:pos;3212:quit",
+              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2300, 2422, 12)) + "2426:level=9;2429:pos;"
+              "2434:goto=-6.6,23.3,80;2584:goto=-6.8,28.5,130;2624:jump;2724:goto=-6.2,30.6,40;2769:goto=-5.6,31.6,40;"
+              "2814:goto=-2.0,32.8,300;2884:pos;2885:goto=-1.2,31.5,60;2924:goto=0.3,30.6,4;"
+              + "".join(f"{t}:atk;" for t in range(2954, 3124, 14)) + "3134:pos;3224:quit",
         # Re-pinned 2026-10-10 (the dust puffs: 20 draws at every hit the player takes move Velagunder's stream): he
         # meets the swings in another pose and two of the nine miss the stun part (36 of 700 left), so the pilot swings
         # a tenth time (t2409) and everything after it is 12 ticks later. The walk itself is the same — both `goto`
         # ends and the stand on the shoulder are unchanged; the first `pos` (on the floor) and the damage rolls moved.
-        expect=["[boss] Velagunder: HP 875 STR 63 DEF 54 lv 8", "feet (-0.968, 2.000, 27.304)", "stun 0 STUNNED",
-                "goto ends at (-6.72,4.97,28.37)", "goto ends at (-2.14,10.52,32.79)", "feet (-2.204, 10.514, 32.650)",
-                "hit boss part 0 (DEF 54): 10 dmg, HP 875", "hit boss part 0 (DEF 54): 11 dmg, HP 865"]),
+        # Re-pinned again 2026-10-10 (the blood splats: 18 more draws at each of those hits): three of the swings miss
+        # now (35 left after ten), so the pilot swings an eleventh time (t2421) and the walk starts 12 ticks later
+        # again. The same route to the same places within 0.04; the two hits on the core are 11 and 11.
+        expect=["[boss] Velagunder: HP 875 STR 63 DEF 54 lv 8", "feet (-0.454, 2.000, 27.332)", "stun 0 STUNNED",
+                "goto ends at (-6.72,4.96,28.36)", "goto ends at (-2.16,10.53,32.79)", "feet (-2.198, 10.527, 32.687)",
+                "hit boss part 0 (DEF 54): 11 dmg, HP 875", "hit boss part 0 (DEF 54): 11 dmg, HP 864"]),
     # Toal's fire skill from the ground (d05cfa5: the player's VM honours anime_Jump in 0x10e / 0x111): section
     # 0x10e lifts him off the floor (y 2 -> 4.368 at t74) and he lands again.
     "toal_ignis_hop": dict(
@@ -760,9 +763,11 @@ CASES.update({
     # his retail HP 1860; the shell's Damage taken 0 keeps Yunica up, no flag is forced). Before M970's phase-4 box clamp and the
     # sweep's edge / embedded-face fixes a bat stuck over the railing or in a wall pillar never docked,
     # M460's recall (sub 0x14) waited for it forever and 156 stayed 1 (a softlock).
+    # Re-pinned 2026-10-10 (the blood splats' draws from the shared xorshift): the same fight is 770
+    # ticks longer (his death at t11556, was t10786), so the run and its last read are at t13500.
     "duel_s1080_vagullion_long": dict(
         room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="5"),
-        drive=_S1080.format(end=12000, cast=50) + "330:opt=DamageTaken=0;7000:dflags;12000:dflags;12001:quit",
+        drive=_S1080.format(end=13500, cast=50) + "330:opt=DamageTaken=0;7000:dflags;13500:dflags;13501:quit",
         expect=["[access] opt DamageTaken=0", "cast 50 hp 1860/1860", "flags 130=0 131=0 133=0 156=1 174=0 230=0",
                 "flags 130=0 131=0 133=0 156=0 174=0 230=1 232=0 311=1"],
         absent=["[death]"]),
@@ -1028,8 +1033,10 @@ CASES.update({
         # Re-pinned 2026-10-10 (the dust puffs' 20 draws a hit): the swing effect's particles land other hits (HP 44
         # at the end, was 42); the last push ends at t143 with the Riffligan on the volume's face (z 3.40), where it
         # stands at t180 — it used to have walked back to (0.1, 0.0, 3.0). Outside the volume either way.
+        # Re-pinned again 2026-10-10 (the blood splats' 18 draws after a hit): HP 42 again, and it has walked back
+        # to (0.1, 0.0, 3.1) by t180.
         expect=["epos #189 (0.00, 0.00, 2.90)", "[keepout] t", "#189 cast 14 (0.00, 1.03, 3.4", "-> (0.00, 1.03, 3.40)",
-                "t180 actors", "id 189 cast 14 enemy hp", "pos (0.0,0.0,3.4)"],
+                "t180 actors", "id 189 cast 14 enemy hp", "pos (0.1,0.0,3.1)"],
         absent=[">> entering"]),
     # build/mech_re/ASO_NOOPS.md §1 (anime_ChangeSpecular, funcid 0x1f): the attack wind-up flash. A Riffligan's section
     # 7 writes its specular tint struct (0 -> 192 grey, step 0.075, count 0): the sprite brightens over 14 ticks
@@ -1074,6 +1081,22 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=#189,1.4;21:atk;40:near=#189,1.4;41:atk;80:quit",
         expect=["[spark] t42 guard: 3 sparks at (1.06, 1.28, 2.54), 12 draws", "[popup] 0 ffffff",
                 "[spark] t42 zero hit: 4 sparks at (1.06, 1.28, 2.54), 16 draws"]),
+    # build/mech_re/GOXX_PARTICLES.md §3.3 - §3.5 (FUN_0058a5f0 / FUN_0058a900, the blood splats; the decals are kept
+    # and simulated, not drawn). A hit a monster survives: three splats in its colour on its next tick (18 draws); the
+    # kill: three more at the death (18), before the debris; each debris piece leaves a drop where it bounces (4
+    # draws, two a piece at most).
+    "blood_splats": dict(
+        room="S_10/S_1002/S_1002", env={"CLERIA_DUST": "1", "CLERIA_DEBRIS": "1", "CLERIA_LEVEL": "3", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;20:near=17;21:atk;45:near=17;46:atk;140:quit",
+        expect=["[blood] t27 hit: 3 splats ff7c0000 at (30.50, -2.87, -36.94), 18 draws, 3 decals",
+                "[blood] t52 death: 3 splats ff7c0000", "18 draws, 6 decals", "[debris] t61", "30 draws",
+                "debris 44: a drop ff7c0000", "4 draws"],
+        count={"a drop ff7c0000": 10}),
+    # ... and every hit the player takes, at BloodyEffectLevel 2: the dust puff, then three splats of 0xff550a00.
+    "blood_hurt": dict(
+        room="S_10/S_1004/S_1004", env={"CLERIA_DUST": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="5:opt=InfiniteHP=1;20:epos=#189,0,1.2;22:near=#189,1.6;120:quit",
+        expect=["hurt: 5 puffs at", "20 draws", "hurt: 3 splats ff550a00", "18 draws"]),
     # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
     # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
     # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.
@@ -1223,13 +1246,14 @@ CASES.update({
     # falls with 12 of 20 alive: the guts (body 1 -> 481 absorbed), then the kill.
     # Re-pinned 2026-10-10 (the dust puffs' draws from the shared xorshift): he falls with 10 of 20 alive and
     # absorbs body 1 -> 401. Same sections, the guts, the kill.
+    # Re-pinned again 2026-10-10 (the blood splats' draws): 11 of 20 alive, body 1 -> 441.
     "pictimos_fight": dict(
         room="S_50/S_5099/S_5099",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
               "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;2180:opt=DamageDealt=20;4100:quit",
         expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
-                "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 10/20", "body 401/4000 guts 1",
+                "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 11/20", "body 441/4000 guts 1",
                 "EXP (lv 40)", "flag 224 = 1", "destroyed"]),
     # ... and as Hugo: his shots' particles reach Pictimos's parts (part 1 takes the damage, the DEF-999 ones none).
     "pictimos_hugo": dict(
@@ -1256,18 +1280,24 @@ CASES.update({
     "zava_fight": dict(
         room="S_60/S_6082/S_6082",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.5;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss6;4800:quit",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.45;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;5700:quit",
         # Re-pinned 2026-10-10 (the dust puffs: every hit on Zava takes 20 draws of the shared xorshift): the same
         # fight mirrored — she mounts head a first (orbs 4/0, thrown off it at t1884), the floor cast sends head b
         # diving (move 11), the second mount is head b (0/4, thrown off at t3927); the kill is at t4102 (was t3830)
         # and the heads are gone by t4628, so the run is 400 ticks longer.
+        # Re-pinned again 2026-10-10 (the blood splats: 18 more draws after every hit she survives). Phase 2 starts at
+        # t1708, and at Damage dealt 0.5 she survived the second fusion break with 428 HP
+        # and went on to the big attack; at 0.45 the course is the one above again (the floor cast at t3056 with
+        # 2067 HP, the kill at t4900 after the second break), with head a's bite on the way (it used to be seen in
+        # zava_big_attack, whose course has none now): the two expectations moved here.
         expect=["[boss06] Zava's heads: a (-39.46,6.10,30.00) b (-28.82,6.10,30.00), HP 5000 STR 232 DEF 320",
                 "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "jump under Zava (act 4)", "second jump",
                 "air attack", "y 13.00, falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded",
-                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 3834/6000", "BossCam 3", "move 9", "BossCam 4",
+                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4038/6000", "BossCam 3", "move 9", "BossCam 4",
                 "move 10", "riding, hits left 0, ride count 1, lives 4/0", "head a move 12 (pattern 2, lives 3)",
-                "lives 2/0", "lives 1/0", "head a move 8 (pattern 2, lives 0)", "Zava is thrown off head a",
+                "lives 2/0", "holds the player", "lets the player go", "lives 1/0",
+                "head a move 8 (pattern 2, lives 0)", "Zava is thrown off head a",
                 "grounded, hits left 0, ride count 1, lives 0/0", "Zava phase 2 action 7", "Zava phase 2 action 8",
                 "head b move 11", "Zava phase 2 action 12", "Zava phase 2 action 0", "head b move 9",
                 "riding, hits left 4, ride count 1, lives 0/4", "Zava is thrown off head b", "BossCam 6", "EXP (lv 45)",
@@ -1287,12 +1317,14 @@ CASES.update({
         # Re-pinned again 2026-10-10 (the spark streaks: the one hit for 0 on her takes 16 draws): at 0.7 she chose the
         # move 12 over the big attack at the re-position (265 HP); at 0.75 the big attack is back (515 HP, t2251), with
         # two bites on the way to the first mount and the kill at t3736 — the run ends at t4000.
+        # Re-pinned a third time 2026-10-10 (the blood splats: 18 more draws after every hit she survives): head b
+        # first again, the big attack at t2219 (532 HP), the kill at t3590. No head bites the pilot on this course:
+        # the bite's two expectations moved to zava_fight, where it is seen.
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.75;8:tier=10;9:flag=205,1;10:saveload;"
               "11:flag=163,1;60:boss6;4000:quit",
-        expect=["Zava phase 2 action 0", "head a move 9", "holds the player", "lets the player go",
-                "Zava is thrown off head a", "Zava phase 2 action 7", "Zava phase 2 action 20",
-                "head a move 17", "head b move 17", "Zava phase 2 action 12", "Zava phase 2 action 0", "head b move 9",
-                "Zava is thrown off head b", "flag 225 = 1"],
+        expect=["Zava phase 2 action 0", "head b move 9", "Zava is thrown off head b", "Zava phase 2 action 7",
+                "Zava phase 2 action 20", "head a move 17", "head b move 17", "Zava phase 2 action 12",
+                "Zava phase 2 action 0", "head a move 9", "Zava is thrown off head a", "flag 225 = 1"],
         absent=["direct damage ATK 267"]),
     # Nightmare (drive diff=4: Zava 7500 HP, the heads' DEF 325): the fourth damaging hit in the air knocks her down
     # (Z+0x8a8 = 4, ZAVA_AB B.3), here inside the lightning cast (action 8, she holds her place); knocked out of the
@@ -1798,7 +1830,7 @@ CASES.update({
     "fx_pickup_place": dict(
         room="S_10/S_1002/S_1002", env=_LOCK,
         drive="8:opt=DamageDealt=10;9:opt=DropRate=10;20:near=17;21:atk;45:near=17;46:atk;70:near=17;71:atk;"
-              "95:near=17;96:atk;120:pickups;153:fxall;160:quit",
+              "95:near=17;96:atk;120:pickups;150:at=34.3,-38.5,0;175:fxall;180:quit",
         # Re-pinned 2026-10-09: the drops leave the enemy's ORIGIN (enemy+0x50, 0x4785b5), not its feet, so at t120
         # the recovery drop is still in the air (it rested on the floor by then) and is collected there.
         # Re-pinned 2026-10-10, twice. anime_GenerateDebris: cast 0x11's death section throws its debris 9 ticks after
@@ -1806,9 +1838,12 @@ CASES.update({
         # the four hits takes 20 draws before the kill's drop rolls, so the same five drops (66, 120 x 3, 121) leave
         # with other launch rolls: the recovery drop at t120 is at (32.16, -3.24, -37.99), was (32.30, -3.39, -37.96),
         # and the first collected pickup's z_item.eft at (31.86, -3.95, -37.68), was (32.13, -3.59, -37.54).
-        expect=["[pickup] id 66 pos (32.16, -3.24, -37.99) ground -4.078 rest 0", "sprite (32.16, -3.01, -38.09)",
+        # Re-pinned a third time 2026-10-10 (the blood splats: 18 draws on the tick after each hit a monster survives
+        # and 18 at its death, before the debris): the recovery drop now flies to (34.45, -38.53), out of reach of
+        # where the last `near` left Yunica, so the drive walks her there (`at` at t150) and reads the effects at t175.
+        expect=["[pickup] id 66 pos (33.02, -3.15, -38.35) ground -4.078 rest 0", "sprite (33.02, -2.91, -38.45)",
                 "shadow y -4.007", "[fxall] id 63 attach 2 at", "rel (0.00, -1.00, 0.00) bias 5.00",
-                "[fxall] id 72 attach 0 at (31.86, -3.95, -37.68)"]),
+                "[fxall] id 72 attach 0 at (33.77, -3.26, -38.45)"]),
     # 4. Eft_LocateChr (0x118) under a Fix: the attach reads the actor's current +0x20, so the smith
     # script's player light follows the player the opening moved (it sat at the world origin).
     "fx_locate_under_fix": dict(
@@ -1983,11 +2018,13 @@ CASES.update({
     # ZoomBlur (§7): Velagunder's intro ramps it up by XSO 0xce (0.01, +0.005: the first drawn frame has TFACTOR
     # alpha floor(0.015 x 256) = 3, screen centre), then (0.38, -0.0012); the bite is the native write
     # (0.4, -0.02) with FUN_005e0590's centre at the projected mouth (alpha floor(0.38 x 256) = 97).
+    # Re-pinned 2026-10-10 (the blood splats: 18 draws at every hit the player takes move Velagunder's stream): the
+    # same bite 3 ticks earlier (t3806) from another spot, the mouth projected at x 0.526 (was 0.487), y 0.317.
     "zoom_blur": dict(
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_SCRFX_LOG="1"),
         drive=_VELA + "4600:quit",
         expect=["[zoomblur] t1051 ZoomBlur(0.0100, 0.0050)", "draw strength 0.0150 alpha 3 taps 3 centre (0.500, 0.500)",
-                "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.4"]),
+                "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.5"]),
     # The boss hit flash (§3.2, FUN_00504140): the stun part's damage sets obj+0x2a0 = 1.65, the brain's tail decays
     # it once (1.575) before the draw, whose additive colour is (107, 55, 19) / 255 x 0.5 x (1.575 - 0.65).
     # (t2040, was t2034: since e44f09f the first hit on the re-bound hull lands 6 ticks later; the values are the same.)
@@ -2024,10 +2061,11 @@ CASES.update({
     # The frame hold (§7.3): Zava's death (zava_fight's run) writes 0x76a548 / 0x76a54c = 1.0 / -0.025 with
     # 0x7b2488 = 1: that frame is copied and drawn over the live scene, first at floor(0.975 x 256) = 249.
     # Re-pinned 2026-10-10 (the dust puffs, as zava_fight): her death is at t4102, was t3830; the run ends at t4400.
+    # ... and again (the blood splats, as zava_fight: Damage dealt 0.45): her death is at t4900; the run ends at t5200.
     "frame_hold": dict(
         room="S_60/S_6082/S_6082", env={"CLERIA_CHAR": "1", "CLERIA_SCRFX_LOG": "1"},
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.5;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss6;4400:quit",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.45;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;5200:quit",
         expect=["FrameHold(1.0000, -0.0250)", "[framehold] t", "frame copied, drawn at alpha 249"]),
 })
 

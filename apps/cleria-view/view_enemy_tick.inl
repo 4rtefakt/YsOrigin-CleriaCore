@@ -274,7 +274,9 @@
                     for (const AiSpawn& s : o.spawns) brain_spawns.push_back({en, s});
                     // FUN_00479b00 -> FUN_00478510's alive path (hit_feedback.hpp): one game-RNG draw
                     // (the scale), the character's hit spark one unit toward the camera; SE 92 is in
-                    // o.sounds. [not modelled] its FUN_0058a5f0 particle burst (no particle system).
+                    // o.sounds; then its tail (LAB_004799f0 [EXPORT 00478510.c:738-757]): three blood splats at the
+                    // origin (18 draws) in the cast's ENEMYINFO +0xe0 colour — 0x40101010 for a cast without one, and
+                    // then only under 1 HP — unless +0x12c bit 31, BloodyEffectLevel 0 or the victim is in water.
                     if (o.hit_spark) {
                         en->hit_flash = hitfx::kHurtTimer;           // +0x238 = 1.65, before the 0x1a return
                         const float sc = hitfx::spark_scale(pick_rng.next(), hitfx::kAliveLo, hitfx::kAliveHi);
@@ -286,6 +288,12 @@
                             spawn_sim_fx(sid, sk.pos, sk.rot, sk.scale, sp, 0, {});
                             if (sfx_log) std::printf("  [hitfx] t%llu spark 0x%x x%.2f\n", (unsigned long long)tick_count, sid, sc);
                         }
+                        const Enemy* br = etab.get(en->cast_id);
+                        const std::uint32_t bcol = br ? br->blood : 0u;
+                        if (!(en->flags12c & 0x80000000u) && settings().s.game.bloody_effect_level > 0 && !en->ai.in_water &&
+                            (bcol != 0 || en->hp < 1.0f))
+                            blood_at("hit", 3, bcol ? bcol : 0x40101010u, 2, 0x18, 1.3f, 1.8f,
+                                     {en->pos.x, en->pos.y + en->height, en->pos.z}, 0.65f, false, false);
                     }
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
                     if (o.zoom_s || o.zoom_r) zoom_blur(o.zoom_s.value_or(zb.s), o.zoom_r.value_or(zb.r));   // ZoomBlur

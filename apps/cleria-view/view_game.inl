@@ -5101,7 +5101,7 @@ title_again:
         in.flag221 = game.g_flags[221];
         in.rush_select = game.g_flags[165];
         in.rush_room = room.name == "S_9113";
-        in.fx_option = false;                              // [not modelled] option byte 0x6d5d92
+        in.fx_option = settings().s.game.bloody_effect_level > 0;   // option byte 0x6d5d92
         for (int o = 0; o < boss02::kObjects; ++o) {
             const MeshObj* m = meshes.find(boss02::object_name(o));
             in.clip_done[std::size_t(o)] = m && m->count != 0;
@@ -5123,7 +5123,12 @@ title_again:
             in_bullets.push_back(bp.get());
         }
         in.rng = [&] { return pick_rng.next(); };
-        // in.cosmetic: [not modelled] FUN_00587010 / FUN_0058a5f0 (their draws are not taken)
+        // The screen debris (FUN_0058a5f0 at 0x51ab12: 3 splats 0xffc000c0, size 2.6..3.6, after the brain's own two
+        // jitter draws), called in place. [not modelled] kDebris (FUN_0051b5a0 -> FUN_00587010: its draws are not taken).
+        in.cosmetic = [&](const Boss02Cosmetic& c) {
+            if (c.kind == Boss02Cosmetic::kScreenDebris)
+                blood_at("boss02", 3, 0xffc000c0u, 2, 0x18, 2.6f, 3.6f, c.pos, 0.65f, false, false);
+        };
         const Boss02Output out = boss2->tick(in);
         // The attach frames this tick (before the requests that attach to them).
         boss2_mouth = to_m4(boss2->mouth_frame());
@@ -7349,6 +7354,12 @@ title_again:
                             roll_enemy_drops(pick_rng, *er, en.cast_id, {en.pos.x, en.pos.y + en.height, en.pos.z}, dc,
                                              pickups, /*entry_draw*/ false);
                         }
+                        // FUN_00478510's death path, after the drops (0x479348..0x479390; reached by the casts that
+                        // skip the drops too): three blood splats at the origin (18 draws) when the cast has a colour.
+                        if (const Enemy* br = etab.get(en.cast_id);
+                            br && br->blood != 0 && !(en.flags12c & 0x80000000u) && settings().s.game.bloody_effect_level > 0)
+                            blood_at("death", 3, br->blood | 0xff000000u, 2, 0x18, 1.3f, 1.8f,
+                                     {en.pos.x, en.pos.y + en.height, en.pos.z}, 0.65f, false, false);
                         // The death section's GenerateDebris (spawn_debris). M360's corpse and a familiar run their
                         // section 5 live and issue it there.
                         if (en.ai_index != 29 && !hugo_eye(en))
@@ -7562,7 +7573,12 @@ title_again:
                         // the run does not depend on the machine's speed.
                         const std::uint32_t now_ms = lockstep ? std::uint32_t(tick_count * 1000 / 60)
                                                               : std::uint32_t(SDL_GetTicks());
-                        const bool ok = boss2->accept_hit(o, hit, now_ms, fb);
+                        // ... and the accept-hit's own splat (0x513364: 1 of 0xffc000c0, size 1.95..2.7) on a cracked
+                        // piece, with the option byte.
+                        const bool ok = boss2->accept_hit(o, hit, now_ms, fb, [&](const Boss02Cosmetic& c) {
+                            if (c.kind == Boss02Cosmetic::kScreenDebris)
+                                blood_at("boss02 hit", 1, 0xffc000c0u, 2, 0x18, 1.95f, 2.7f, c.pos, 0.65f, false, false);
+                        }, settings().s.game.bloody_effect_level > 0);
                         boss2_apply(fb);
                         if (!ok) continue;
                         if (boss2_banks[std::size_t(o)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
@@ -7794,6 +7810,7 @@ title_again:
                         break;
                     }
                 pw.sparkle = pickup_sparkle;              // view_weather.inl
+                pw.stain = debris_stain;                  // view_weather.inl
                 pw.touch = [&](Pickup& pk) {
                     if (fly || player.hp <= 0) return false;
                     float hp = float(player.hp);
@@ -8025,6 +8042,11 @@ title_again:
                     dust_at("hurt", 5, 0xff550a00u, false,
                             {feet.x - cos_table(hi & 0xff) * hr, feet.y + kOriginH, feet.z - cos_table((hi - 0x40) & 0xff) * hr},
                             0.3f, 0.45f, 0.025f, submerged);
+                    // ... then, at BloodyEffectLevel 2, three blood splats (18 draws) [BYTES 0x4fe02a..0x4fe063].
+                    // [H] the position [ebp-0x58] is taken as the player's origin.
+                    if (settings().s.game.bloody_effect_level > 1)
+                        blood_at("hurt", 3, 0xff550a00u, 2, 0x18, 1.3f, 1.8f, {feet.x, feet.y + kOriginH, feet.z}, 0.65f,
+                                 false, false);
                 }
                 // FUN_004fd350's tail 0x4fe10b..0x4fe120: FUN_004fae00(0xffff0000), the red number of
                 // the damage taken, at the player's origin + 0.5. PLAYTEST_1_HUD.md item 3.

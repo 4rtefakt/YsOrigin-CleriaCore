@@ -33,6 +33,30 @@ auto sparks_at = [&](const char* who, int count, int delay_step, int life_range,
         std::printf("  [spark] t%llu %s: %d sparks at (%.2f, %.2f, %.2f), %llu draws\n", (unsigned long long)tick_count,
                     who, count, pos.x, pos.y, pos.z, (unsigned long long)(pick_rng.calls - c0));
 };
+// FUN_0058a5f0's blood splats / slime puddles and FUN_0058a900's drop (Weather::blood / blood_drop;
+// GOXX_PARTICLES.md §3.3 - §3.5): 6 draws a splat (5 a cloud in a water room), 4 the drop. The decals are
+// simulated and NOT drawn ([not modelled]: the clipped mesh, unknowns U3 / U4); the water rooms' clouds are
+// type-0 sprites and are drawn. CLERIA_DUST=1 logs each call.
+auto blood_env = [&] { wx.bloody = settings().s.game.bloody_effect_level; wx.water_mode = water_mode; };
+auto blood_at = [&](const char* who, int count, std::uint32_t argb, int delay_step, int life_range, float s0, float s1,
+                    const Vec3& pos, float radius, bool flag_a, bool flag_b) {
+    blood_env();
+    const std::uint64_t c0 = pick_rng.calls;
+    wx.blood(count, argb, delay_step, life_range, s0, s1, pos, radius, flag_a, flag_b);
+    if (dust_log)
+        std::printf("  [blood] t%llu %s: %d splats %08x at (%.2f, %.2f, %.2f), %llu draws, %zu decals\n",
+                    (unsigned long long)tick_count, who, count, argb, pos.x, pos.y, pos.z,
+                    (unsigned long long)(pick_rng.calls - c0), wx.live_decals());
+};
+// A debris piece's bounce stain (PickupWorld::stain): FUN_0058a900(&pos, 0.75, 0.9) in the piece's colour.
+auto debris_stain = [&](const Pickup& p) {
+    blood_env();
+    const std::uint64_t c0 = pick_rng.calls;
+    wx.blood_drop(p.blood, p.pos, 0.75f, 0.9f);
+    if (dust_log)
+        std::printf("  [blood] t%llu debris %d: a drop %08x at (%.2f, %.2f, %.2f), %llu draws\n", (unsigned long long)tick_count,
+                    p.id, p.blood, p.pos.x, p.pos.y, p.pos.z, (unsigned long long)(pick_rng.calls - c0));
+};
 csHost.weather_fn = [&](int op, int life, float a, float b, float c) {
     if (op == 0x125) wx.fire_drop(std::uint32_t(life));
     else if (op == 0x122) wx.frame_smoke(std::uint32_t(life));
@@ -58,6 +82,10 @@ auto step_weather = [&] {
     else { const Vec3 f = cam.forward(); e.eye = cam.pos; e.at = {cam.pos.x + f.x, cam.pos.y + f.y, cam.pos.z + f.z}; }
     e.noise = game.g_flags[290] != 0;                    // 0x76bda4 (the S_3009 noise)
     e.map = true;
+    e.player = true;                                     // a decal's footprint trigger (FUN_00589f60)
+    e.player_pos = {feet.x, feet.y + kOriginH, feet.z};
+    e.player_ground = last_floor;                        // +0x318
+    e.player_grounded = pv.grounded;                     // +0x388
     wx.step(e);
     wx.sweep();                                          // FUN_00428b10 runs every frame
     if (wx_log && tick_count % 100 == 0 && !wx.objects().empty()) {

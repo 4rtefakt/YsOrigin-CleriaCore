@@ -87,8 +87,25 @@ struct SparkQuad { Vec3 p[4]; float v[2]; };          // p: P + side, P - side, 
 void spark_ribbon(const Spark& s, const Vec3& cam_fwd, SparkQuad out[4]);
 inline float spark_alpha(const Spark& s) { return s.age > s.life - 20.0f ? (s.life - s.age) / 20.0f : 1.0f; }
 
+// One GoXx floor decal (type 4; GOXX_PARTICLES.md §2.4): a blood splat or a slime puddle. SIM ONLY — the record,
+// its ray to the floor, its delay / age / life and the footprint trigger (FUN_00589a60 init, FUN_00589f60 step).
+// [not modelled] the mesh clipped out of the room's triangles (FUN_00589690, unknown U3) and the three shared
+// batches that draw it (U4): nothing is drawn, and the two ways a decal dies in the render pass (an empty clip, a
+// full batch) do not happen here.
+struct Decal {
+    std::uint8_t variant = 0;        // +0x160: the texture variant 0..2 (the batch index)
+    std::uint32_t argb = 0;          // +0x168 = rgb, +0x188 = the alpha byte / 255
+    std::uint8_t delay = 0;          // +0x16c
+    bool keep = false;               // +0x16e (flag A): never expires
+    bool slime = false;              // +0x16f (flag B)
+    bool foot = false;               // +0x170: the footprint / slime trigger is armed
+    Vec3 pos{}, normal{};            // the floor point under the spawn point, its normal (+0x190)
+    float angle = 0, size = 0;       // the turn about the normal, +0x18c
+    float life = 0, age = 0;         // +0x184, +0x180
+};
+
 struct Obj {
-    enum Kind : std::uint8_t { Ember, Smoke, Child, Streak } kind = Child;
+    enum Kind : std::uint8_t { Ember, Smoke, Child, Streak, Splat } kind = Child;
     bool dead = false;               // +0x11 & 2 (destroy requested; freed by the sweep)
     // emitters
     std::uint32_t cap = 0;           // +0x12c, the op's operand: the life in ticks
@@ -99,6 +116,7 @@ struct Obj {
     // the type-0 child
     weather::Sprite s;
     weather::Spark sp;               // Streak (type 3)
+    weather::Decal dc;               // Splat (type 4)
 };
 
 // The world the update reads. Camera = the last LookAt (FUN_005ec270): eye 0x7b33f4, at 0x7b3400.
@@ -106,6 +124,11 @@ struct Env {
     Vec3 eye{}, at{};
     bool noise = false;              // flag 290 (0x76bda4), set on entry to S_3009
     bool map = true;                 // *0x730224 != 0: a room's render geometry is loaded
+    // The player (0x74c09c), for a decal's footprint trigger: the origin's x / z, the ground y +0x318, +0x388.
+    bool player = false;
+    Vec3 player_pos{};
+    float player_ground = 0;
+    bool player_grounded = false;
     std::uint32_t map268 = 0;        // (*0x730224)+0x268
 };
 
@@ -179,6 +202,24 @@ class Weather {
     void sparks(int count, int delay_step, int life_range, float width, const Vec3& pos, float speed0, float speed1,
                 float vy0, float vy1, float ang0, float ang1);
     int live_sparks() const { return sparks_; }      // 0x75ae6c
+    // FUN_0058a5f0 (GOXX_PARTICLES.md §3.3 [BYTES 0x58a5f0..0x58a8fd]): `count` blood splats / slime puddles on
+    // the floor around `pos`. 6 draws per splat (variant, life, the offset's distance and direction, the turn,
+    // the size), taken whether or not there is a floor within 5 below; in a water room FUN_0058a210's drifting
+    // clouds instead (type-0 sprites, 5 draws each). Returns nothing: the decals are kept, not drawn.
+    void blood(int count, std::uint32_t argb, int delay_step, int life_range, float size0, float size1,
+               const Vec3& pos, float radius, bool flag_a, bool flag_b);
+    // FUN_0058a900: the one small drop a debris piece leaves at a bounce (4 draws; 5 as a cloud in water).
+    void blood_drop(std::uint32_t argb, const Vec3& pos, float size0, float size1);
+    int bloody = 2;                  // byte 0x6d5d92 (BloodyEffectLevel)
+    // [0x76a544]: 0 a dry room, 2 whole-room water. [not modelled] 1 (a room with a water surface: the two
+    // probes of FUN_0058a210) is treated as dry; [H] byte 0x7494d7 (unknown U10) is taken as 0.
+    int water_mode = 0;
+    // What a walked-through decal wrote (FUN_00589f60): P+0x39e = 45 with the colour in 0x76a5b4 (footprints), or
+    // 0x76a5b0 = 55 with 0x76a5b4 = white (slime). [not modelled] their consumers in FUN_0045c490 / FUN_00427c90
+    // (unknown U5): the values are kept, nothing reads them.
+    int foot_ticks = 0, slime_ticks = 0;
+    std::uint32_t foot_rgb = 0;
+    std::size_t live_decals() const;
     // The per-frame sweep FUN_00428b10: destroyed objects leave the pool.
     void sweep();
     // Room teardown FUN_00428ec0 (every GoXx goes) and the scene entry's 0x76a558 = 0 (FUN_00431260).
@@ -196,6 +237,11 @@ class Weather {
     void sprite(Obj& o);
     void spark(Obj& o);
     void spark_collide(Spark& s);
+    void decal(Obj& o, const Env& e);
+    void decal_init(Obj& o, const Decal& d);
+    bool water_cloud(int count, std::uint32_t argb, int delay_step, int life_range, float size0, float size1,
+                     const Vec3& pos, float radius);
+    void offset(float lo, float hi, float* dx, float* dz);
     Obj* emit(const Desc& d);
     int sparks_ = 0;
     std::vector<std::unique_ptr<Obj>> objs_;

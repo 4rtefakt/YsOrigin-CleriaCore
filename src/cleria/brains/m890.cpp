@@ -19,8 +19,8 @@
 //   - phase 3 (the boss-stun hold): +0x730 == 1 (the boss's stun ended) zeroes the hold, which the
 //     action player turns into the exit; otherwise the hold counts UP, so it never runs out.
 // Harmless for Yunica / Toal: M_890.ASO's walk section arms its contact sphere for Hugo only.
-// [not modelled] FUN_0058a5f0's green particle every 6 action ticks (no particle system; its 4
-// draws a particle are not taken); phase 4 (the parent-spawned drop, +0x854: the boss spawns
+// [not modelled] FUN_0058a5f0's slime puddle every 6 action ticks (Weather::blood exists now, this site is not
+// wired; its 6 draws a puddle are not taken); phase 4 (the parent-spawned drop, +0x854: the boss spawns
 // with mode 0, so it never runs); the shared-RNG identity (the host's brain RNG is its own).
 #include <cmath>
 
