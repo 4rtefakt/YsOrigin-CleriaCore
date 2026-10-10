@@ -1267,13 +1267,20 @@ CASES.update({
     # broken (RDAMAGE / LDAMAGE), the teeth open and the core is cut (body 1500 -> 1149 -> 795 -> 465 -> 111), the
     # magma and a Perrie on the way, the sweep (LNAGI) and the roll (RROLL), then the death and flag 222.
     # Written before BOSS_HULLS step 4 (the hull bound to the render bones), on the rest-pose hull.
+    # Re-pinned 2026-10-10 with step 4: the arms' and hands' hulls follow the drawn ones (they stayed 10 .. 17 away,
+    # at rest), so `boss3` stands her ON the slammed hand (feet y 1.59, was -1.50 on the ring) and the fight runs
+    # mirrored: the left arm is broken first (LDAMAGE, then RDAMAGE), two swings reach the open core per window
+    # (body 1500 -> 792 -> 459 -> 129, three windows instead of four; the first cut now lands after the first
+    # Perrie, t1492, where it came before it), the sweep is the right arm's (RNAGI); the
+    # same beats in the same order — arms, teeth, core, magma, a Perrie, the sweep, the roll, the death at t4739
+    # (was t4938).
     "gelaldy_fight": dict(
         room="S_30/S_3099/S_3099",
         env={"CLERIA_BOSSLOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=3;9:flag=205,1;10:saveload;"
               "40:every=20,700,ok;720:every=40,5100,boss3;728:every=40,5100,atk;5100:quit",
-        expect=["[boss03] Gelaldy: body 1500, arms 800", "clip RPUNCHI", "clip RDAMAGE", "clip LDAMAGE", "clip TEETH1",
-                "body 1149/1500", "Perrie spawned", "body 795/1500", "clip LNAGI1", "clip RROLL", "clip DEAD",
+        expect=["[boss03] Gelaldy: body 1500, arms 800", "clip RPUNCHI", "clip LDAMAGE", "clip RDAMAGE", "clip TEETH1",
+                "Perrie spawned", "body 792/1500", "body 459/1500", "clip RNAGI1", "clip RROLL", "clip DEAD",
                 "flag 222 = 1"]),
     # ... and as Hugo: the mode-0 scan's sub-part pass runs for his shots' particles too (view_fx_mode0.inl), so the
     # pods and the core take them (they passed through the boss before).
