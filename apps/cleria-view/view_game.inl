@@ -6331,6 +6331,7 @@ title_again:
                                 room.mesh.vertices[k].py = room.mesh.vertices[rr->v0].py;
                                 room.mesh.vertices[k].pz = room.mesh.vertices[rr->v0].pz;
                             }
+                    prof("mesh:alpha");
                     apply_object_alpha(room, nm, m.alpha);   // the re-bake dropped d7 x alpha
                 } else {
                     const Vec3 d{m.pos.x - was.x, m.pos.y - was.y, m.pos.z - was.z};
@@ -6338,6 +6339,7 @@ title_again:
                     translate_object(room.coll, nm, d);
                     if (m.dirty_alpha) apply_object_alpha(room, nm, m.alpha);
                 }
+                prof("mesh:floor");
                 mesh_delta[nm] = {m.pos.x - was.x, m.pos.y - was.y, m.pos.z - was.z};
                 // MOVER.md §3.3: the carry is the change of the floor sub-mesh's matrix, and a
                 // twin sub-mesh rides its render node (COLLISION.md §1c), so a re-posed floor
@@ -6361,6 +6363,7 @@ title_again:
                 } else {
                     baked_frame.erase(nm);
                 }
+                prof("mesh:upload");
                 baked_pos[nm] = m.pos;
                 static const bool mesh_log = std::getenv("CLERIA_MESHLOG") != nullptr;
                 if (mesh_log && (tick_count % 30 == 0 || m.speed == 0.0f))
@@ -7097,6 +7100,7 @@ title_again:
             }
             prof("tick:meshes");
             step_meshes();
+            prof("tick:camera");
             // The region camera runs inside the player's update (FUN_00473540 -> FUN_00429450),
             // once per step: after this tick's move (CAMERA_OPS.md §5).
             update_camera(room, feet, kTickDt);

@@ -155,23 +155,29 @@ static std::function<bool(const std::string&, Model&)>& object_pose_hook() {
     return hook;
 }
 void set_object_pose_hook(std::function<bool(const std::string& lname, Model& m)> hook) { object_pose_hook() = std::move(hook); }
-// A model parsed and resolved. `keep`: a clip-driven re-bake (an animated map object — Darm's floor re-poses every
-// tick) keeps the parsed model and hands out a copy, which is what a parse would give.
-static Model parsed_model(const fs::path& file, bool keep) {
-    if (!keep) {
-        Model m = Model::parse(read_file(file));
-        m.resolve_hierarchy();
-        return m;
-    }
-    static std::unordered_map<std::string, Model> cache;
+// A model parsed and resolved.
+static Model parsed_model(const fs::path& file) {
+    Model m = Model::parse(read_file(file));
+    m.resolve_hierarchy();
+    return m;
+}
+// The same, kept: a clip-driven re-bake (an animated map object — Darm's floor re-poses every tick) poses the kept
+// model in place. Each call puts its nodes back as parsed (the locals and worlds a fresh parse gives; a pose changes
+// nothing else), so the caller gets what a parse would give without the read, the parse or a copy of the model.
+static Model* kept_model(const fs::path& file) {
+    struct Kept { Model m; std::vector<Mat4> local, world; };
+    static std::unordered_map<std::string, Kept> cache;
     const std::string key = model_key(file);
     auto it = cache.find(key);
     if (it == cache.end()) {
-        Model m = Model::parse(read_file(file));
-        m.resolve_hierarchy();
-        it = cache.emplace(key, std::move(m)).first;
+        Kept k;
+        k.m = parsed_model(file);
+        for (const Node& n : k.m.nodes) { k.local.push_back(n.local); k.world.push_back(n.world); }
+        return &cache.emplace(key, std::move(k)).first->second.m;
     }
-    return it->second;
+    Kept& k = it->second;
+    for (std::size_t i = 0; i < k.m.nodes.size(); ++i) { k.m.nodes[i].local = k.local[i]; k.m.nodes[i].world = k.world[i]; }
+    return &k.m;
 }
 RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                             const fs::path& script_dir,
@@ -268,7 +274,10 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
 
     // Debug: CLERIA_SKIP=<substr> drops any object whose YMO path or name contains
     // <substr>, for bisecting which object produces a given artifact.
-    const char* skip_env = std::getenv("CLERIA_SKIP");
+    // (The debug switches are read once: a getenv per mesh node was a third of an animated object's re-bake.)
+    static const char* const skip_env = std::getenv("CLERIA_SKIP");
+    static const bool dbg_obj = std::getenv("CLERIA_OBJ") != nullptr, dbg_mat = std::getenv("CLERIA_MAT") != nullptr,
+                      dbg_vb = std::getenv("CLERIA_VB") != nullptr, dbg_hull = std::getenv("CLERIA_HULLDUMP") != nullptr;
     const std::string skip = skip_env ? skip_env : "";
 
     for (const SobObject& o : sob.objects) {
@@ -279,7 +288,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         // (binding verified 62/62 across the corpus).
         std::string lname = o.name;
         for (char& c : lname) c = char(std::tolower((unsigned char)c));
-        if (std::getenv("CLERIA_OBJ"))
+        if (dbg_obj)
             std::printf("  [obj] %-20s hidden=%d\n", lname.c_str(),
                         hidden && hidden->count(lname) ? 1 : 0);
         if (hidden && hidden->count(lname)) continue;   // a script hid this variant
@@ -389,16 +398,20 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         Model render_twin;                 // a collision twin's render model, posed (below)
         const Model* twin_src = nullptr;
         bool by_parent = false;            // ... bound by its mesh nodes' parent names (below)
+        bool in_big = false;               // the model is the big-model cache's (posed in place, from rest)
         try {
             const std::string key = model_key(ymo_file);
             auto bit = big_models.find(key);
+            std::error_code fec;
             if (bit != big_models.end()) {
                 model_ptr = &bit->second;
                 model_ptr->rest_pose();
+                in_big = true;
+            } else if (const bool big = fs::file_size(vfs::resolve(ymo_file), fec) > (2u << 20);
+                       clip_name && !big && !o.has_world) {
+                model_ptr = kept_model(ymo_file);
             } else {
-                local_model = parsed_model(ymo_file, clip_name != nullptr);
-                std::error_code fec;
-                const bool big = fs::file_size(vfs::resolve(ymo_file), fec) > (2u << 20);
+                local_model = parsed_model(ymo_file);
                 // A brain-placed object (a world matrix: boss02's 36 pieces) is re-baked every
                 // tick, so its model is kept parsed too, whatever its size.
                 if (big || o.has_world) {
@@ -421,6 +434,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                         }
                     }
                     model_ptr = &big_models.emplace(key, std::move(local_model)).first->second;
+                    in_big = true;
                 }
             }
             Model& model = *model_ptr;
@@ -446,7 +460,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                         if (c.name == clip_name) { pm.pose(c, frame); break; }
                 }
             };
-            if (!(!collision && model_ptr != &local_model && object_pose_hook() && object_pose_hook()(lname, model)))
+            if (!(!collision && in_big && object_pose_hook() && object_pose_hook()(lname, model)))
                 pose_as_asked(model);
             // A collision twin is not posed by its own clips. FUN_005601e0 binds each twin
             // mesh's node BY NAME (FUN_005f4e10) to the GoMesh's RENDER model node (entry
@@ -458,14 +472,15 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             // as before); the big-model twins keep their clip-copy path above, except one with the
             // model flag 0x20 (bound by parent name, below) whose twin file is opted in (bound_twin).
             by_parent = collision && (model.flags & 0x20u) != 0 && bound_twin(ymo_file);
-            if (collision && (model_ptr == &local_model || by_parent) && (want || box_pose_open || clip_name)) {
+            if (collision && (!in_big || by_parent) && (want || box_pose_open || clip_name)) {
                 const fs::path rfile = resolve_ymo(asset_root, o.ymo_path);
                 Model* rp = cached_big_model(rfile);
-                if (!rp && fs::exists(rfile)) {
-                    render_twin = parsed_model(rfile, clip_name != nullptr);
-                    rp = &render_twin;
+                if (rp) rp->rest_pose();
+                else if (fs::exists(rfile)) {
+                    if (clip_name) rp = kept_model(rfile);
+                    else { render_twin = parsed_model(rfile); rp = &render_twin; }
                 }
-                if (rp) { if (rp != &render_twin) rp->rest_pose(); pose_as_asked(*rp); twin_src = rp; }
+                if (rp) { pose_as_asked(*rp); twin_src = rp; }
             }
         } catch (const std::exception&) { ++out.missing; continue; }
         const Model& model = *model_ptr;
@@ -481,7 +496,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
         const Mat4 place = po.has_world ? po.world_mat : po.world();
         // Debug: CLERIA_MAT=1 dumps the fields the engine's render struct actually
         // reads (flags/blend/diffuse/scroll), plus all three texture slots.
-        if (std::getenv("CLERIA_MAT"))
+        if (dbg_mat)
             for (const Material& m : model.materials)
                 std::printf("  [mat] %-18s fl=%08X bl=%u dif=%.2f,%.2f,%.2f,%.2f "
                             "uv=%+.4f,%+.4f t0=%-16s t1=%-14s t2=%s\n",
@@ -511,7 +526,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             const VertexBuffer& vb = mesh.vbs[0];
             // Debug: CLERIA_VB=1 reports each mesh's vertex format. Buffers whose FVF
             // isn't a decoded one get uv=(0,0) for every vertex (flat single-texel look).
-            if (std::getenv("CLERIA_VB")) {
+            if (dbg_vb) {
                 std::printf("  [vb] %-26s node=%-22s vbs=%zu ibs=%zu subs=%zu\n",
                             o.ymo_path.c_str(), node.name.c_str(), mesh.vbs.size(),
                             mesh.ibs.size(), mesh.submeshes.size());
@@ -629,7 +644,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             }
 
             // Debug: CLERIA_HULLDUMP=1 prints each mesh's box as placed, hull ("coll") and drawn ("draw") alike.
-            if (std::getenv("CLERIA_HULLDUMP") && out.vertices.size() > dump_v0) {
+            if (dbg_hull && out.vertices.size() > dump_v0) {
                 Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
                 for (std::size_t k = dump_v0; k < out.vertices.size(); ++k) {
                     const RoomVertex& v = out.vertices[k];
@@ -755,16 +770,10 @@ bool object_frame_mat(const fs::path& asset_root, const SobObject& o, const char
     // FUN_00573aa0: *(state+4 + mesh[0]+0x2c * 0x170 + 0x34), i.e. row 3 y of that node's
     // instance matrix (state +0x00; B x world, with B identity in ~98.5% of nodes).
     const fs::path file = resolve_ymo(asset_root, o.ymo_path);
-    Model local;
     Model* mp = cached_big_model(file);
     try {
-        if (!mp) {
-            local = Model::parse(read_file(file));
-            local.resolve_hierarchy();
-            mp = &local;
-        } else {
-            mp->rest_pose();
-        }
+        if (!mp) mp = kept_model(file);
+        else mp->rest_pose();
     } catch (const std::exception&) { return false; }
     if (clip)
         for (const AnimClip& c : mp->clips)

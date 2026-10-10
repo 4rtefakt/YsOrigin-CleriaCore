@@ -363,7 +363,7 @@ Vec3 lerp3(const Vec3& a, const Vec3& b, float t) {
 
 void Model::rest_pose() {
     for (Node& n : nodes) n.local = compose_srt(n.scale, n.quat, n.translation);
-    resolve_hierarchy();
+    update_worlds();
 }
 
 void Model::pose(const AnimClip& clip, float frame) {
@@ -403,7 +403,7 @@ void Model::pose(const AnimClip& clip, float frame) {
         }
         n.local = compose_srt(s, q, t);
     }
-    resolve_hierarchy();
+    update_worlds();
 }
 
 namespace {
@@ -521,7 +521,7 @@ void PoseTracks::evaluate(Model& m, const AnimClip& main, float frame, float wei
         m.nodes[std::size_t(mt.node_index)].local =
             compose_srt(tr->scale.empty() ? Vec3{1, 1, 1} : s, tr->rotation.empty() ? qi : q, t);
     }
-    m.resolve_hierarchy();
+    m.update_worlds();
 }
 
 bool Model::skin_point(const Mesh& mesh, int submesh, std::uint32_t k, const Vec3& v,
@@ -598,7 +598,12 @@ void Model::resolve_hierarchy() {
         auto mi = mesh_by_name.find(n.mesh);
         n.mesh_index = (mi != mesh_by_name.end()) ? mi->second : -1;
     }
+    resolved_ = true;
+    update_worlds();
+}
 
+void Model::update_worlds() {
+    if (!resolved_) { resolve_hierarchy(); return; }
     // world = local * parent.world, memoised. Guard against malformed cycles.
     std::vector<int> state(nodes.size(), 0);  // 0=todo 1=in-progress 2=done
     auto compute = [&](auto&& self, int i) -> Mat4 {

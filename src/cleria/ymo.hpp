@@ -188,6 +188,7 @@ struct AnimClip {
 };
 
 struct Model {
+    bool resolved_ = false;    // resolve_hierarchy() has run (update_worlds)
     std::uint32_t flags = 0, flags2 = 0;
     Vec3 aabb_min, aabb_max;   // the union of the clip AABBs
     std::vector<Material> materials;
@@ -200,6 +201,9 @@ struct Model {
 
     // Resolve name references into indices and compute each node's world matrix.
     void resolve_hierarchy();
+    // Only the node world matrices, from the locals as they are (the names stay resolved: a pose changes no name).
+    // A re-pose used to redo the whole name resolution — every clip's every track, by string — on each call.
+    void update_worlds();
 
     // Pose the hierarchy at `frame` of `clip`: replace each tracked node's local
     // matrix with compose(S, R, T) sampled from its keys, then recompute worlds.
