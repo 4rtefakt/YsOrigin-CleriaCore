@@ -1628,6 +1628,15 @@ CASES.update({
 
 # Playtest 1, effects (build/audit/PLAYTEST_1_FX.md).
 CASES.update({
+    # The Defense / MP drops' auras (FUN_00463f40: EF2 0x25 adol_defup, 0x26 adol_mpup), attached at the player's
+    # origin; one spawn each, alive at t400, killed with the buff 1800 ticks after its drop (FUN_00462c40).
+    "fx_buff_auras": dict(
+        room="S_10/S_1002/S_1002", env=_LOCK,
+        drive="20:drop=74;300:drop=76;400:fxall;2300:fxall;2310:quit",
+        expect=["[buff] aura 37 on", "[buff] aura 38 on", "t400 fxall",
+                "[fxall] id 37 attach 2", "rel (0.00, 0.00, 0.00) bias 0.00 #buff_def",
+                "[fxall] id 38 attach 2", "#buff_mp", "t2300 fxall"],
+        count={"[buff] aura 37 on": 1, "[buff] aura 38 on": 1, "#buff_def": 1, "#buff_mp": 1}),
     # 1. A damaging hit sets the monster's hurt timer +0x238 = 1.65 (FUN_00478510) on its next tick, the
     # integrator runs it down by 0.075 (FUN_0045a3a0): 1.575 one tick later, 0 after 22 ticks. While it
     # runs the sprite gets the 0x6b3713 specular add (no white flash).

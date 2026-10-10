@@ -6,10 +6,31 @@
 //   damage_popup()     FUN_004fae00: a damage number (GoPopup) at an origin + 0.5 up
 //   hud_drive()        CLERIA_DRIVE: hudstate (print it), drop=<item id> (an item at the feet)
 std::int32_t hud_pulse_ticks = 0;
+// The Defense / MP buffs' auras, pc\adol\adol_defup (EF2 0x25) and adol_mpup (0x26). FUN_00463f40 spawns one
+// when its buff starts (the bit clear in 0x76c198, the handle player+0x750 / +0x754 null) [EXPORT 00463f40.c:
+// 98-180, 198-277]; the scene entry FUN_00461d30 spawns it again for the new player actor while the bit is set
+// [EXPORT 00461d30.c:60-270]; FUN_00462c40 kills it when the timer runs out [EXPORT 00462c40.c:76-98]. Placed
+// at 0 and attached to the player with the camera's yaw, mode 2 [BYTES 0x464222..0x464285]; power 0, knock 1,
+// rtype 0, class 0xff. The Strength buff has no aura in either routine. Here the three are one rule a tick:
+// "the buff is on and it has no live aura" spawns, "off" kills.
+auto buff_aura = [&](float value, int id, const char* name) {
+    bool live = false;
+    for (auto& f : fxsim.effects()) if (!f->dead && !f->kill && f->name == name) live = true;
+    if (value == 0.0f) { if (live) kill_named_fx(name); return; }
+    if (live) return;
+    ef2sim::SpawnParams sp;
+    sp.power = 0.0f; sp.knock = 1.0f; sp.rtype = 0; sp.cls = -1;
+    if (ef2sim::Effect* a = attach_to_player(spawn_sim_fx(id, {}, {}, 1.0f, sp, 0, {}), {}, camera_yaw())) {
+        a->name = name;
+        std::printf("  [buff] aura %d on\n", id);
+    }
+};
 auto hud_state_tick = [&]() {
     ++hud_pulse_ticks;                              // FUN_0043a540: not gated on a Fix
-    if (csMgr.world_frozen()) return;               // 0x462c5b: no buff count-down while a Fix holds
-    if (hudstate::tick_buffs(inv)) (void)player_stats();   // FUN_00420c40 | 0x75: the buffs left the stats
+    // 0x462c5b: no buff count-down while a Fix holds
+    if (!csMgr.world_frozen() && hudstate::tick_buffs(inv)) (void)player_stats();   // FUN_00420c40 | 0x75: the buffs left the stats
+    buff_aura(inv.def_buff, 0x25, "#buff_def");
+    buff_aura(inv.mp_buff, 0x26, "#buff_mp");
 };
 auto hud_state_fill = [&]() {
     skillmp::CostIn ci;
