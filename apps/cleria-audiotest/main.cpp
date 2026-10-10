@@ -249,6 +249,24 @@ int main(int argc, char** argv) {
               Audio::distance_gain(8, 180, 0) == 1.0f && Audio::distance_gain(8, 180, 8) == 1.0f &&
               Audio::distance_gain(8, 180, 16) == 0.5f && Audio::distance_gain(8, 180, 179) == 8.0f / 179.0f &&
               Audio::distance_gain(8, 180, 180) == 0.0f);
+        // ... as mixed: the peak of one second of a fresh mixer. 508 zako/z_970_run is a 3-D record, 0 is not.
+        auto peak = [&](int id, bool at, float dist) {
+            Audio b;
+            if (!b.init(argv[1], /*device*/false)) return -1;
+            if (at) b.play_at(id, 0.0f, dist); else b.play(id);
+            std::vector<std::int16_t> buf(44100 * 2);
+            b.mix(buf.data(), 44100);
+            int p = 0;
+            for (std::int16_t s : buf) if (std::abs(int(s)) > p) p = std::abs(int(s));
+            return p;
+        };
+        const int near_ = peak(508, true, 4.0f), far_ = peak(508, true, 16.0f), gone = peak(508, true, 180.0f);
+        std::printf("voices: 508 peaks %d (4 u) %d (16 u) %d (180 u); 0 peaks %d (2-D) %d (at 100 u)\n", near_, far_, gone,
+                    peak(0, false, 0.0f), peak(0, true, 100.0f));
+        check("a 3-D record at 16 u is half of itself at 4 u, silent at 180 u",
+              near_ > 100 && std::abs(far_ * 2 - near_) <= 2 + near_ / 100 && gone == 0);
+        check("a record without the 3-D flag ignores the position", peak(0, false, 0.0f) > 100 &&
+              peak(0, true, 100.0f) == peak(0, false, 0.0f));
         std::printf("voices: %s\n", fails ? "FAIL" : "OK");
         return fails ? 1 : 0;
     }

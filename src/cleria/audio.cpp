@@ -176,14 +176,18 @@ void Audio::play(int id, float volume, float level) {
 void Audio::play_at(int id, float pan, float dist, float volume) {
     if (!lock_ || id < 0) return;
     const EffectDef* def = defs_.find(id);
-    const float att = def ? distance_gain(def->mindist, def->maxdist, dist) : 1.0f;
+    // A record without the 3-D flag has no 3-D buffer (rec+0 = 0x80: no DSBCAPS_CTRL3D), and FUN_005d87a0
+    // sets the position only on a buffer that has one (+4 != 0) [EXPORT 005d87a0.c:79-80]: FUN_0043a080
+    // on such a record is a plain 2-D play, whatever the position.
+    const bool flat = def && !def->is3d;
+    const float att = def && !flat ? distance_gain(def->mindist, def->maxdist, dist) : 1.0f;
     if (att <= 0.0f) return;                                   // muted at maxdist
     const Clip* c = clip(id);
     if (!c) return;
     pan = std::clamp(pan, -1.0f, 1.0f);
     const float th = (pan + 1.0f) * 0.25f * 3.14159265f;       // equal-power
     SDL_LockMutex(mx(lock_));
-    start(id, def, c, volume * att, 1.0f, std::cos(th), std::sin(th));   // command 5: volume 0x400
+    start(id, def, c, volume * att, 1.0f, flat ? 1.0f : std::cos(th), flat ? 1.0f : std::sin(th));   // command 5: volume 0x400
     SDL_UnlockMutex(mx(lock_));
 }
 
