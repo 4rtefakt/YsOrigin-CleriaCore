@@ -549,6 +549,117 @@ int main(int argc, char** argv) {
         check(gone > 0 && cgone > 0 && gone - cgone >= 30, "kind 0x1b: outlives a kind-1 198 by 30+ updates (the 80-tick root)");
     }
 
+    // ---- kind 8: the ground-hugging shot (FUN_005991f0; effect 270 m_230_taiki, BULLET_KINDS.md §4) ----
+    efs[270] = Ef2::load(enemy / "M_230_TAIKI.EF2");
+    if (!efs[270].ok()) { std::fprintf(stderr, "missing EF2 270\n"); return 2; }
+    {
+        // speed 0.3, knock -2 (rtype 1), no trail and no homing here: the handler alone.
+        float f[13] = {0.3f, 0, 0, 0, -2.0f, 0, 0, 0, 0, 0, 0, 0, 0};
+        float floor_y = 2.0f;
+        Vec3 nrm{0, 1, 0};
+        int rays = 0, draws = 0;
+        Env env;
+        env.player = {100, 0, 100};
+        env.rng = [&] { ++draws; return 0u; };
+        env.ray = [&](const Vec3& from, const Vec3& d, int set) {     // a plane at floor_y with the normal nrm
+            RayHit r;
+            if (set != 2) return r;
+            ++rays;
+            if (from.y >= floor_y && from.y + d.y <= floor_y) { r.hit = true; r.point = {from.x, floor_y, from.z}; r.normal = nrm; }
+            return r;
+        };
+        auto one = [&](const Vec3& pos, const Vec3& dir, float f9, float g, Vec3* out_dir, float* mat_y) {
+            ef2sim::Rng rng;
+            ef2sim::System fx(&rng);
+            Bullets bs(&fx, ef2_of);
+            float ff[13];
+            for (int k = 0; k < 13; ++k) ff[k] = f[k];
+            ff[2] = g; ff[9] = f9;
+            Bullet* b = bs.spawn(block_spawn(8, 270, pos, dir, ff));
+            bs.update(env, nullptr);
+            *out_dir = b->s.dir; *mat_y = b->mat.m[3][1];
+            return b->s.pos;
+        };
+        Vec3 d{}; float my = 0;
+        Vec3 p = one({0, 3.5f, 0}, {1, 0.5f, 0}, 0.0f, 0.0f, &d, &my);
+        check(near(p.x, 0.3f) && p.y == 2.0f && p.z == 0.0f && d.y == 0.0f && d.x == 1.0f && near(my, 3.65f),
+              "kind 8: moves dir x speed, snaps to the ground under it (f9 = 0), zeroes dir.y; the matrix keeps the pre-snap y");
+        p = one({0, 3.5f, 0}, {1, 0, 0}, 0.5f, 0.0f, &d, &my);
+        check(near(p.y, 2.5f), "kind 8: the hover height f9 x n.y over the hit point");
+        nrm = {1, 0, 0};
+        p = one({0, 3.5f, 0}, {1, 0, 0}, 0.0f, 0.0f, &d, &my);
+        check(near(p.y, -6.5f), "kind 8: a wall / steep face (n.y <= 0.5) drops the shot 10 under, it is not killed");
+        nrm = {0, 1, 0};
+        floor_y = -50.0f;                                             // nothing within 2 below
+        p = one({0, 3.5f, 0}, {1, 0, 0}, 0.0f, 0.5f, &d, &my);
+        check(near(p.y, 3.495f, 1e-5f), "kind 8: no ground in reach: the fall is g x 0.01 a tick (not accumulated)");
+        check(rays == 4 && draws == 0, "kind 8: one terrain ray a tick, no RNG draw");
+    }
+
+    // ---- kind 0x24: Nygtilger's plasma ball (FUN_0059fa30; effect 348 bs_02_plasma03b, BULLET_KINDS.md §5) ----
+    efs[0x15c] = Ef2::load(bos / "BS_02_PLASMA03B.EF2");
+    efs[0x15b] = Ef2::load(bos / "BS_02_THUNDER.EF2");
+    if (!efs[0x15c].ok() || !efs[0x15b].ok()) { std::fprintf(stderr, "missing EF2 348 / 347\n"); return 2; }
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        Bullets bs(&fx, ef2_of);
+        float f[13] = {0, 0.01f, 0, 0, 2.0f, 0, 0, 0, 0, 0, 0, 0, 0};      // the caster's block: accel 0.01, knock 2
+        Bullet* b = bs.spawn(block_spawn(0x24, 0x15c, {11, 5.7f, 0.8f}, {1, 0, 0}, f));
+        b->carrier = 3; b->v1ac = {0, 2.7f, 0.8f}; b->t1b8 = {12, 10, 0};
+        float seg_hp = 350.0f;
+        int draws = 0, thunder = 0;
+        std::vector<Event> ev;
+        Env env;
+        env.player = {15, 0, 0};
+        env.rng = [&] { ++draws; return 0u; };
+        env.carrier = [&](int id, ef2sim::M4* w, float* hp, float* atk) {
+            if (id != 3) return false;
+            *w = ef2sim::translation(11, 3, 0); *hp = seg_hp; *atk = 77.0f;
+            return true;
+        };
+        env.ray = [&](const Vec3& from, const Vec3& d, int set) {         // the floor at y 0.5
+            RayHit r;
+            if (set == 2 && from.y >= 0.5f && from.y + d.y <= 0.5f) { r.hit = true; r.point = {from.x, 0.5f, from.z}; r.normal = {0, 1, 0}; }
+            return r;
+        };
+        auto at = [&] { return Vec3{b->mat.m[3][0], b->mat.m[3][1], b->mat.m[3][2]}; };
+        for (int i = 0; i < 59; ++i) bs.update(env, &ev);
+        check(near(at().x, 11) && near(at().y, 5.7f) && near(at().z, 0.8f) && !b->d1d4 && b->n1d0 == 59,
+              "kind 0x24: glued to its segment (v through the carrier's matrix) for the first 59 calls");
+        check(b->s.pos.x == 11.0f && b->s.pos.y == 5.7f, "kind 0x24: +0x12c stays at the spawn point (only the matrix row moves)");
+        bs.update(env, &ev);                                               // n = 60: t = 0
+        check(near(at().y, 5.7f) && near(b->t1b8.x, 12.075f), "kind 0x24: n = 60 starts the lerp at A; T steps 0.075 toward the player");
+        for (int i = 0; i < 120; ++i) bs.update(env, &ev);                 // n = 180: t = 0.5
+        check(near(at().y, 5.7f + (10.0f - 5.7f) * 0.5f, 1e-3f), "kind 0x24: halfway to T at n = 180 ((n - 60) / 240)");
+        for (int i = 0; i < 119; ++i) bs.update(env, &ev);                 // n = 299
+        const Vec3 last = at();
+        check(!b->d1d4 && last.y > 9.9f && ev.empty(), "kind 0x24: at T's height by n = 299, nothing struck yet");
+        for (const auto& e : fx.effects()) thunder += e->id == 0x15b;
+        bs.update(env, &ev);                                               // n = 300: the strike
+        int thunder2 = 0;
+        Vec3 tp{};
+        for (const auto& e : fx.effects()) if (e->id == 0x15b) { ++thunder2; tp = {e->M.m[3][0], e->M.m[3][1], e->M.m[3][2]}; }
+        check(thunder == 0 && thunder2 == 1 && near(tp.y, 4.0f) && near(tp.x, last.x, 1e-3f) && b->d1d4 && b->fx && b->fx->kill &&
+              b->carrier == -1, "kind 0x24: n = 300 strikes — effect 0x15b at (x, hit.y + 3.5, z), the kill flag, done");
+        check(ev.size() == 1 && ev[0].type == Event::kSound && ev[0].id == 221 && ev[0].pos.x == 11.0f && ev[0].pos.y == 5.7f,
+              "kind 0x24: the strike's SE 221 (222, 223 by the shared count) plays at the spawn point");
+        check(draws == 0, "kind 0x24: no RNG draw");
+        // the carrier's death and the inner radius end it early
+        Bullet* c = bs.spawn(block_spawn(0x24, 0x15c, {11, 5.7f, 0.8f}, {1, 0, 0}, f));
+        c->carrier = 3; c->v1ac = {0, 2.7f, 0.8f}; c->t1b8 = {12, 10, 0};
+        bs.update(env, &ev);
+        const bool alive1 = !c->d1d4;
+        seg_hp = 0.5f;
+        bs.update(env, &ev);
+        check(alive1 && c->d1d4 && c->fx->kill, "kind 0x24: the carrier's HP under 1 ends the ball");
+        seg_hp = 350.0f;
+        Bullet* d = bs.spawn(block_spawn(0x24, 0x15c, {3, 5, 0}, {1, 0, 0}, f));
+        d->carrier = 9; d->t1b8 = {3, 10, 0};                               // no carrier: the row stays at the spawn point
+        bs.update(env, &ev);
+        check(d->d1d4, "kind 0x24: within 8.05 of the arena's centre it ends");
+    }
+
     // ---- kind 0x16: the aimed effect (inline 0x594b51; effect 184 PC3_mazin_sitatuki, BULLETS.md §3.13) ----
     const std::filesystem::path eft = std::filesystem::path(argv[1]) / "EFFECT" / "EFT";
     efs[184] = Ef2::load(eft / "PC" / "PC03" / "PC3_MAZIN_SITATUKI.EF2");

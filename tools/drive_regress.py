@@ -1097,6 +1097,18 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#27,7;60:every=500,2000,seen=#27,7;"
               "61:every=30,2000,bullets;2000:quit",
         expect=["[bullet] kind 2 effect 272"]),
+    # Nygtilger (boss02, build/boss_re/NYGTILGER.md) from the room's retry start, to the kill (flag 221). His plasma
+    # balls are bullet kind 0x24 (36), moved by FUN_0059fa30 in bullet.cpp (build/mech_re/BULLET_KINDS.md §5): glued to
+    # a segment for 60 calls, drifting to a point that homes on the player until 300, then the strike (SE 221 / 222 /
+    # 223 in turn, effect 347) — or ended early with the carrier or inside 8.05 of the pillar.
+    "nygtilger_fight": dict(
+        room="S_20/S_2099/S_2099",
+        env={"CLERIA_BOSSLOG": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=40;9:flag=205,1;10:saveload;40:every=20,700,ok;"
+              "720:every=30,5000,boss2;726:every=30,5000,atk;800:every=50,4200,bullets;5000:quit",
+        expect=["[boss02] Nygtilger: pool 7000 (head 700, segments 350) lv 16", "[bullet] kind 36 effect 348",
+                "a plasma ball strikes (SE 221)", "a plasma ball strikes (SE 222)", "a plasma ball strikes (SE 223)",
+                "flag 221 = 1", "[content] boss_defeated S_2099 flag 221"]),
     # Khonsclard (boss04, build/boss_re/KHONSCLARD.md): the intro (START), flag 156, two pods rise; breaking
     # them downs the boss and opens the core (jump attacks); every 20 % adds a pod; the kill writes 223 and
     # the EXP, and the 1/340 fade destroys the boss ~339 frames later. Level 50 and Damage x10 keep it short.

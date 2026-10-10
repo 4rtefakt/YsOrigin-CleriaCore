@@ -1848,45 +1848,4 @@ bool Boss02::touch_applied(int o, float player_hp_after) {
     return false;
 }
 
-// ---------------------------------------------------------------------------
-// FUN_0059fa30: the kind-0x24 marker (§7.1).
-Boss02Plasma::Step Boss02Plasma::step(const Vec3& player_pos, const Mat4* carrier_world, float carrier_hp,
-                                      const std::function<bool(const Vec3&, float&)>& ground,
-                                      int& se_counter) {
-    Step st;
-    if (dead) return st;
-    const int k = ++n;
-    if (k < 300 && carrier >= 0 && carrier_world) {    // glued to its segment
-        anchor = carrier_world->transform_point(local);
-        pos = anchor;
-    }
-    if (k < 60) {
-        if (carrier >= 0 && carrier_world) pos = anchor;
-    } else if (k < 300) {                              // drifts toward T, T homes on the player
-        const float t = float(k - 60) / 240.0f;        // 0x6bdc04
-        pos = {(target.x - anchor.x) * t + anchor.x, (target.y - anchor.y) * t + anchor.y,
-               (target.z - anchor.z) * t + anchor.z};
-        float dx = player_pos.x - target.x, dz = player_pos.z - target.z;
-        const float l = std::sqrt(dx * dx + dz * dz);
-        if (l != 0.0f) { dx /= l; dz /= l; }           // D3DXVec2Normalize
-        target.x = dx * 0.075f + target.x;             // 0x6bd174
-        target.z = dz * 0.075f + target.z;
-    } else if (k < 310) {                              // STRIKE
-        float y = 1.0f, t = 0.0f;
-        if (ground && ground({pos.x, 1.0f, pos.z}, t) && 0.01f < t) y = t + 3.5f;   // [U13] 0x6bd720
-        static const int kSe[3] = {221, 222, 223};     // 0x6a2b9c, indexed by the OLD counter [BYTES 0x59fc6a]
-        st.strike = true;
-        st.strike_pos = {pos.x, y, pos.z};
-        st.strike_se = kSe[((se_counter % 3) + 3) % 3];
-        ++se_counter;                                  // DAT_007de270
-    }
-    const bool carrier_dead = carrier >= 0 && carrier_world && carrier_hp < 1.0f;
-    const float r = std::sqrt(pos.x * pos.x + pos.z * pos.z);
-    if (!carrier_dead && 8.05f <= r && !st.strike) return st;   // 0x6bd8ec
-    carrier = -1;
-    dead = true;
-    st.killed = true;
-    return st;
-}
-
 }  // namespace cleria

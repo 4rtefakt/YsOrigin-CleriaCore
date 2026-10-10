@@ -8,7 +8,7 @@
 //   FUN_005136f0, the leader step FUN_00513590, the annulus clamp FUN_00513490, the body
 //   probe FUN_005151b0, the player ring FUN_00518a10, the callbacks FUN_005130c0 (accept
 //   hit) / LAB_00513390 (touch), the bullet spawner FUN_0051c8c0, the arc spawner
-//   FUN_0051b850 (its RNG draws only), the kind-0x24 handler FUN_0059fa30 (Boss02Plasma).
+//   FUN_0051b850 (its RNG draws only), the kind-0x24 handler FUN_0059fa30 is in bullet.cpp.
 //
 // The worm is 36 engine objects: the 19 vector pieces (0 head boss02_h, 1..17 b01..b17,
 // 18 tail c18) plus the 17 twin plates d01..d17 (not in the vector). Boss02 owns all of
@@ -469,30 +469,6 @@ private:
     int flag221_ = 0;                 // flag 221
     int balls_spawned_ = 0;           // kind-0x23 spawns this tick (the tail's count, [H])
     std::array<bool, boss02::kObjects> clip_reset_{};   // a set-clip this tick zeroed the count
-};
-
-// The kind-0x24 marker (FUN_0059fa30, §7.1): the host owns one per 0x24 bullet the brain
-// requested and steps it once per frame. Its damage is the bullet's EF2 348 / the strike's
-// GoEffect 347 (the host's EF2 sim).
-struct Boss02Plasma {
-    int carrier = -1;            // +0x1a8 (cleared when the strike fires / it dies)
-    Vec3 local{};                // +0x1ac
-    Vec3 target{};               // +0x1b8 (T)
-    Vec3 anchor{};               // +0x1c4 (A)
-    Vec3 pos{};                  // +0x50
-    int n = 0;                   // +0x1d0
-    bool dead = false;           // +0x1d4
-    struct Step {
-        bool strike = false;     // spawn GoEffect 0x15b (347 bs_02_thunder) at strike_pos with
-        Vec3 strike_pos{};       //   the carrier segment's stat block, and play strike_se (3-D at pos)
-        int strike_se = 0;
-        bool killed = false;     // fx.kill (+0x180's effect too)
-    };
-    // `carrier_world` / `carrier_hp`: the carrier piece now (null if gone). `ground`: the
-    // FUN_0041e420 ray from (x, 1, z) by (0, -10, 0): returns true and t on contact [U13].
-    // `se_counter`: the global DAT_007de270 (SE = {221,222,223}[c % 3], then c++).
-    Step step(const Vec3& player_pos, const Mat4* carrier_world, float carrier_hp,
-              const std::function<bool(const Vec3& from, float& t)>& ground, int& se_counter);
 };
 
 }  // namespace cleria

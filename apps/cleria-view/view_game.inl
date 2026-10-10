@@ -3589,6 +3589,8 @@ title_again:
         }
     };
     #include "view_xso13.inl"                  // the floor 1..3 op pass (FLOOR13_OPS.md)
+    // Kind 0x24's carrier for bullet.cpp (bullet::Env::carrier): set by the boss02 host below.
+    std::function<bool(int, ef2sim::M4*, float*, float*)> boss2_carrier;
     #include "view_duel.inl"                   // the story duels' script side (DUELS.md)
     #include "view_weather.inl"                // the floor-3 weather ops (WEATHER.md)
     csHost.water_mode_p = &water_mode;
@@ -4895,9 +4897,6 @@ title_again:
     constexpr int kB2Owner = -0xB02;                       // fx owner tag for the slot effects
     std::array<RehitBank, boss02::kObjects> boss2_banks{}; // FUN_004faac0 per piece (the mesh path)
     std::array<RehitBank, 2> boss2_part_banks{};           // the head / tail kind-9 parts (+0x14c)
-    struct Boss2PlasmaHost { Boss02Plasma m; bullet::Bullet* b = nullptr; };
-    std::vector<Boss2PlasmaHost> boss2_plasma;             // one per live kind-0x24 marker
-    int boss2_se_counter = 0;                              // DAT_007de270 (the strike SE rotation)
     ef2sim::M4 boss2_mouth, boss2_hoop, boss2_bone02;      // the attach parents G+0x80 / G+0x130 / Bone02
     // The render models, posed per piece for the entry bones and Bone02 ([approx] the broken
     // shells share the skeleton, so the base models stand in after a swap).
@@ -4909,6 +4908,15 @@ title_again:
         ef2sim::M4 r;
         for (int i = 0; i < 4; ++i) for (int j = 0; j < 4; ++j) r.m[i][j] = a.m[std::size_t(i * 4 + j)];
         return r;
+    };
+    // Kind 0x24's carrier (BULLET_KINDS.md §5): Nygtilger's segment by its object index — its matrix, HP and the
+    // STR of its stat block (the strike's effect 0x15b is armed with it).
+    boss2_carrier = [&](int o, ef2sim::M4* w, float* hp, float* atk) {
+        if (!boss2 || o < 0 || o >= boss02::kObjects || !boss2->object(o).exists) return false;
+        *w = to_m4(boss2->object(o).world);
+        *hp = boss2->object(o).hp;
+        *atk = boss2->object(o).str;
+        return true;
     };
     // The posed node `ni` of piece o's model at its current clip frame, placed by the piece.
     auto boss2_node_world = [&](int o, int ni) -> Mat4 {
@@ -4975,16 +4983,10 @@ title_again:
             bullet::Spawn s = bullet::block_spawn(b.kind, b.effect, b.pos, b.dir, b.f.data());
             s.owner = 0; s.owner_monster = true;
             if (b.kind == 0x23) s.owner_atk = b.a4;         // +0xa4 = 0x7b91a4 (the kind-0x23 flies as the stand-in mover)
-            if (b.kind == 0x24) {
-                s.owner_atk = b.proxy_owner ? boss2->stats().proxy_str : 0.0f;
-                s.speed = s.accel = s.gravity = 0.0f;       // [approx U8] the host's marker places it
-            }
+            if (b.kind == 0x24) s.owner_atk = b.proxy_owner ? boss2->stats().proxy_str : 0.0f;
             bullet::Bullet* bp = bullets.spawn(s);
-            if (b.kind == 0x24 && bp) {
-                Boss2PlasmaHost h;
-                h.b = bp;
-                h.m.carrier = b.carrier; h.m.local = b.local; h.m.target = b.target; h.m.pos = b.pos;
-                boss2_plasma.push_back(h);
+            if (b.kind == 0x24 && bp) {                     // the caster's writes after the spawn (FUN_0051c8c0)
+                bp->carrier = b.carrier; bp->v1ac = b.local; bp->t1b8 = b.target; bp->n1d0 = 0;
             }
         }
         for (const auto& [fi, fv] : out.flags) {
@@ -5007,14 +5009,10 @@ title_again:
         }
         if (out.gauge_hide) hud.hide_boss_gauge();
     };
-    auto boss2_live = [&](bullet::Bullet* b) {
-        for (auto& bp : bullets.list()) if (bp.get() == b) return !b->gone && !b->destroyed;
-        return false;
-    };
     auto boss2_tick = [&] {
         MeshObj* hm = meshes.find("boss02_h");
-        if (!hm) { boss2.reset(); boss2_plasma.clear(); return; }
-        if (boss2 && boss_load[1] != mesh_load_serial) { boss2.reset(); boss2_plasma.clear(); }
+        if (!hm) { boss2.reset(); return; }
+        if (boss2 && boss_load[1] != mesh_load_serial) boss2.reset();
         if (!boss2) {
             boss_load[1] = mesh_load_serial;
             Boss02Setup su;                                // EEX record 1 (§2.1, N4)
@@ -5034,7 +5032,6 @@ title_again:
             boss2 = std::make_unique<Boss02>(su);
             boss2_banks.fill(RehitBank{});
             boss2_part_banks.fill(RehitBank{});
-            boss2_plasma.clear();
             // The 35 pieces the ctor creates (§2.1), at their pre-rolled positions; one rebuild.
             for (int o = 1; o < boss02::kObjects; ++o) {
                 ObjLocateArgs a;
@@ -5091,14 +5088,15 @@ title_again:
                 in.entry_bone_y[std::size_t(o)][std::size_t(k)] =
                     boss2_node_world(o, boss2_entry_node[std::size_t(role)][std::size_t(k)]).m[13];
         }
-        std::vector<std::pair<bullet::Bullet*, Boss2PlasmaHost*>> in_bullets;   // DAT_00730248 order
+        std::vector<bullet::Bullet*> in_bullets;           // DAT_00730248 order
         for (auto& bp : bullets.list()) {
             if (bp->gone || bp->destroyed) continue;
             if (bp->s.kind != 0x23 && bp->s.kind != 0x24) continue;
-            Boss2PlasmaHost* ph = nullptr;
-            for (Boss2PlasmaHost& h : boss2_plasma) if (h.b == bp.get()) ph = &h;
-            in.bullets.push_back({bp->s.kind, ph ? ph->m.n : 0, bp->s.pos});
-            in_bullets.push_back({bp.get(), ph});
+            // The tail reads the MATRIX row +0x50..+0x58 [EXPORT 00518ae0.c:864-866]: for a plasma that is where
+            // its handler put it (its +0x12c stays at the spawn point, BULLET_KINDS.md §5).
+            const Vec3 at = bp->s.kind == 0x24 ? Vec3{bp->mat.m[3][0], bp->mat.m[3][1], bp->mat.m[3][2]} : bp->s.pos;
+            in.bullets.push_back({bp->s.kind, bp->n1d0, at});
+            in_bullets.push_back(bp.get());
         }
         in.rng = [&] { return pick_rng.next(); };
         // in.cosmetic: [not modelled] FUN_00587010 / FUN_0058a5f0 (their draws are not taken)
@@ -5110,9 +5108,9 @@ title_again:
         // The tail's repulsion pass (§7.3) on the markers' T and A.
         for (const Boss02BulletNudge& nd : out.nudges) {
             if (nd.index < 0 || std::size_t(nd.index) >= in_bullets.size()) continue;
-            if (Boss2PlasmaHost* ph = in_bullets[std::size_t(nd.index)].second) {
-                ph->m.target = {ph->m.target.x + nd.delta.x, ph->m.target.y + nd.delta.y, ph->m.target.z + nd.delta.z};
-                ph->m.anchor = {ph->m.anchor.x + nd.delta.x, ph->m.anchor.y + nd.delta.y, ph->m.anchor.z + nd.delta.z};
+            if (bullet::Bullet* pb = in_bullets[std::size_t(nd.index)]; pb->s.kind == 0x24) {
+                pb->t1b8 = {pb->t1b8.x + nd.delta.x, pb->t1b8.y + nd.delta.y, pb->t1b8.z + nd.delta.z};
+                pb->a1c4 = {pb->a1c4.x + nd.delta.x, pb->a1c4.y + nd.delta.y, pb->a1c4.z + nd.delta.z};
             }
         }
         boss2_apply(out);
@@ -5137,39 +5135,7 @@ title_again:
             m->no_collide = no_coll;
             m->frozen = p.frozen;                          // obj+0x28f: no clip advance while dormant
         }
-        // The kind-0x24 markers (FUN_0059fa30), stepped by the host.
-        for (Boss2PlasmaHost& h : boss2_plasma) {
-            if (!boss2_live(h.b)) { h.b = nullptr; continue; }
-            const Mat4* cw = nullptr;
-            float chp = 0.0f;
-            if (h.m.carrier >= 0 && h.m.carrier < boss02::kObjects && boss2->object(h.m.carrier).exists) {
-                cw = &boss2->object(h.m.carrier).world;
-                chp = boss2->object(h.m.carrier).hp;
-            }
-            const int carrier = h.m.carrier;
-            const Boss02Plasma::Step st = h.m.step({feet.x, feet.y + kOriginH, feet.z}, cw, chp,
-                [&](const Vec3& from, float& t) {          // [U13] t read as the ground height
-                    Vec3 pt{}, nrm{};
-                    if (!segment_hit(phys_mesh(room), from, {from.x, from.y - 10.0f, from.z}, &pt, &nrm)) return false;
-                    t = pt.y;
-                    return true;
-                }, boss2_se_counter);
-            h.b->s.pos = h.m.pos;
-            if (st.strike) {                               // GoEffect 0x15b, the carrier's stat block
-                ef2sim::SpawnParams sp;
-                sp.atk = carrier >= 0 ? boss2->object(carrier).str : boss2->stats().body_str;
-                spawn_sim_fx(0x15b, st.strike_pos, {}, 1.0f, sp, 0, {});
-                sfx_at(st.strike_se, h.m.pos, kSfxAnimVol);
-            }
-            if (st.killed) {
-                if (h.b->fx) h.b->fx->kill = true;
-                h.b->gone = true;
-                h.b = nullptr;
-            }
-        }
-        boss2_plasma.erase(std::remove_if(boss2_plasma.begin(), boss2_plasma.end(),
-                                          [](const Boss2PlasmaHost& h) { return h.b == nullptr; }),
-                           boss2_plasma.end());
+        // (The kind-0x24 plasma balls move in bullet.cpp now: FUN_0059fa30, with boss2_carrier.)
         // The poison balls die once flag 221 is set ([0x76bc90], BULLETS.md §3.6).
         if (game.g_flags[221] != 0)
             for (auto& bp : bullets.list())
@@ -8151,6 +8117,7 @@ title_again:
                 benv.character = character;
                 benv.difficulty = difficulty >= 2 ? difficulty - 2 : 0;
                 benv.rng = [&] { return pick_rng.next(); };
+                benv.carrier = boss2_carrier;                    // kind 0x24's segment (Nygtilger)
                 // Kind 0x25's probe: the terrain without the boss meshes; a shake already running (view_boss07.inl).
                 benv.ray_no_boss = [&](const Vec3& o, const Vec3& dl, int set) {
                     bullet::RayHit r;
@@ -8167,6 +8134,8 @@ title_again:
                     it = live ? std::next(it) : gas_owner.erase(it);
                 }
                 for (const bullet::Event& ev : bev) {
+                    if (ev.type == bullet::Event::kSound && ev.id >= 221 && ev.id <= 223 && boss2 && std::getenv("CLERIA_BOSSLOG"))
+                        std::printf("  [boss02] t%llu a plasma ball strikes (SE %d)\n", (unsigned long long)tick_count, ev.id);
                     if (ev.type == bullet::Event::kSound) { sfx_at(ev.id, ev.pos, kSfxAnimVol); continue; }
                     if (ev.type == bullet::Event::kShake) {         // 0x76a5ac / 0x76a594.. (kind 0x25's burst)
                         g_rig.set_shake_frames(ev.id); g_rig.set_shake_amp(ev.push);

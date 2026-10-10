@@ -56,6 +56,14 @@ struct Bullet {
     std::uint32_t u184 = 0;       // +0x184: kind 2 the saved period; kind 0x10 in water
     std::uint32_t u194 = 0;       // +0x194: kinds 0x1b / 0x1e the tick count; kind 0x1f the first-tick latch
     float y190 = 0;               // +0x190
+    std::uint8_t n178 = 0;        // +0x178 (a byte): kind 8 the handler's tick count
+    // Kind 0x24 (FUN_0059fa30, Nygtilger's plasma ball; BULLET_KINDS.md §5), written by the caster after the spawn:
+    int carrier = -1;             // +0x1a8: the carrier segment (the host's id for Env::carrier; -1 = none)
+    Vec3 v1ac{};                  // +0x1ac: the carrier-local vector v
+    Vec3 t1b8{};                  // +0x1b8: the target T
+    Vec3 a1c4{};                  // +0x1c4: the anchor A (v through the carrier's matrix)
+    int n1d0 = 0;                 // +0x1d0: the handler's frame count
+    bool d1d4 = false;            // +0x1d4: done
     bool f17a = false;            // +0x17a: destroyed when struck (the deployed Bit sets it past age 10, DARM_B1.md §6.2)
     int side = 1;                 // +0x188
     float atk = 0;                // the stat block the effect was armed with (the proxy's 0 for 0x10/0x23)
@@ -120,6 +128,9 @@ struct Env {
     int difficulty = 0;           // DAT_0076bb5c: 0 Normal, 1 Hard, 2 Nightmare
     // One advance of the engine's xorshift128 (0x74622c), returning the new word. None = word 0.
     std::function<std::uint32_t()> rng;
+    // Kind 0x24's carrier (+0x1a8, a boss segment) by the host's id: its matrix +0x20, its HP +0x98 and the ATK of
+    // its stat block +0x94.. (the strike's effect is armed with it). False when it no longer exists.
+    std::function<bool(int id, ef2sim::M4* world, float* hp, float* atk)> carrier;
 };
 
 // What an update asks the host to do.
@@ -171,6 +182,7 @@ class Bullets {
     Ef2Of ef2_of_;
     std::vector<std::unique_ptr<Bullet>> list_;
     int serial_ = 0;
+    int strikes_ = 0;             // DAT_007de270: kind 0x24's strike count, shared by every plasma (never reset)
     std::vector<std::unique_ptr<WaterProbe>> probes_;
     std::vector<std::unique_ptr<Bomb>> bombs_;
     std::function<std::uint32_t()> rng_;

@@ -366,25 +366,7 @@ int main() {
         check(hidden, "death: every piece uncollided (+0x298 |= 0x40)");
     }
 
-    // ---------------------------------------------------------------- the kind-0x24 marker
-    {
-        Boss02Plasma m;
-        m.carrier = 3;
-        m.local = {0, 2.7f, 0.8f};
-        m.target = {12, 10, 0};
-        Mat4 w;
-        w.m[12] = 11; w.m[13] = 3; w.m[14] = 0;
-        int sec = 0;
-        Boss02Plasma::Step st;
-        for (int i = 0; i < 59; ++i) st = m.step({15, 0, 0}, &w, 350, {}, sec);
-        check(near_eq(m.pos.x, 11) && near_eq(m.pos.y, 5.7f) && !st.killed, "0x24: glued to its segment for 60 frames");
-        for (int i = 0; i < 240; ++i) st = m.step({15, 0, 0}, &w, 350, {}, sec);
-        check(!st.strike && !m.dead && m.pos.y > 9.0f, "0x24: drifts to T (y 10) by frame 299");
-        auto ground = [](const Vec3&, float& t) { t = 0.5f; return true; };
-        st = m.step({15, 0, 0}, &w, 350, ground, sec);
-        check(st.strike && st.killed && near_eq(st.strike_pos.y, 4.0f) && st.strike_se == 221 && sec == 1,
-              "0x24: strike at frame 300 (y = t + 3.5), SE 221/222/223 by the counter, then dies");
-    }
+    // (the kind-0x24 plasma ball: FUN_0059fa30 is in src/cleria/bullet.cpp now, checked in cleria-bullettest)
 
     // ---------------------------------------------------------------- smoke: modes 1, 3, 4
     {

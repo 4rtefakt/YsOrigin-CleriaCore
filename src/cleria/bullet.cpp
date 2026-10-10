@@ -763,6 +763,80 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
             reset_matrix(b);                                       // jmp 0x5942c8: kind 0's matrix reset
             break;
         }
+        case 8: {                                                  // FUN_005991f0: the ground-hugging shot
+            // Pictimos's pounce shots (build/mech_re/BULLET_KINDS.md §4 [BYTES 0x5991f0..0x599503]). No INTEGRATE:
+            // the move is dir x speed with a fall of g x 0.01 (0x6bd084) a tick, never accumulated; the matrix is
+            // written BEFORE the snap (the effect and the trail lag the snapped y by a tick); dir.y is zeroed and
+            // dir is not re-normalised (the tail's homing re-adds its pitch from that vector).
+            if (!b.fx->kill) {
+                s.pos.x += s.dir.x * s.speed;
+                s.pos.z += s.dir.z * s.speed;
+                s.pos.y += s.dir.y * s.speed - s.gravity * 0.01f;
+            }
+            reset_matrix(b);
+            s.dir.y = 0.0f;
+            if (b.fx->kill) break;
+            // The ground: a terrain ray from 1 above by (0, -3, 0) (the static 0x7de244). Walkable (n.y > 0.5,
+            // 0x6bd304): y = hit.y + n.y x f9 (+0x168, the hover height); a wall or a steep face: y -= 10
+            // (0x6bd928) — dropped under the world, not killed. No hit: y keeps this tick's value.
+            const RayHit r = ray({s.pos.x, s.pos.y + 1.0f, s.pos.z}, {0.0f, -3.0f, 0.0f});
+            if (r.hit) {
+                if (r.normal.y > 0.5f) s.pos.y = r.normal.y * s.f168 + r.point.y;
+                else s.pos.y -= 10.0f;
+            }
+            // [not modelled] every 4th call ((+0x178 & 3) == 0): a water ray (set 1) from 0.5 above, and on a
+            // hit the ring FUN_00454ff0 at hit + 0.15, size 1.55, yawed along dir (the swimmer's wake object;
+            // no RNG draw in it or in FUN_00455710). Pictimos's arena has no water.
+            ++b.n178;
+            break;
+        }
+        case 0x24: {                                               // FUN_0059fa30: Nygtilger's plasma ball
+            // BULLET_KINDS.md §5 [BYTES 0x59fa62..0x59fedf; EXPORT 0059fa30.c]. The handler moves the MATRIX's
+            // translation only: `pos` (+0x12c) stays at the spawn point for the whole life (the strike's SE plays
+            // there), and the matrix's rotation is never reset — [H, not observed] the tail's orientation step
+            // then compounds in it. The tail's speed += accel (0.01) is read by nothing.
+            if (b.d1d4) break;
+            const int n = ++b.n1d0;
+            bool struck = false;
+            ef2sim::M4 seg;
+            float seg_hp = 0.0f, seg_atk = 0.0f;
+            const bool have = b.carrier >= 0 && env.carrier && env.carrier(b.carrier, &seg, &seg_hp, &seg_atk);
+            Vec3 at{b.mat.m[3][0], b.mat.m[3][1], b.mat.m[3][2]};  // row 3 (+0x50..+0x58)
+            if (n < 300 && have) { b.a1c4 = ef2sim::transform_coord(b.v1ac, seg); at = b.a1c4; }
+            if (n < 60) {
+                if (have) at = b.a1c4;                             // glued to its segment
+            } else if (n < 300) {                                  // drifts to T, T homes on the player
+                const float t = float(n - 60) / 240.0f;            // 0x6bdc04
+                at = {(b.t1b8.x - b.a1c4.x) * t + b.a1c4.x, (b.t1b8.y - b.a1c4.y) * t + b.a1c4.y,
+                      (b.t1b8.z - b.a1c4.z) * t + b.a1c4.z};
+                float ex = env.player.x - b.t1b8.x, ez = env.player.z - b.t1b8.z;
+                const float l = std::sqrt(ex * ex + ez * ez);
+                if (l != 0.0f) { ex /= l; ez /= l; }               // D3DXVec2Normalize
+                b.t1b8.x = ex * 0.075f + b.t1b8.x;                 // 0x6bd174
+                b.t1b8.z = ez * 0.075f + b.t1b8.z;
+            } else if (n < 310) {                                  // the STRIKE: reached once, at n == 300
+                // From (x, 1, z) by (0, -10, 0); the height is the HIT POINT's y + 3.5 (0x6bd720) when that y >
+                // 0.01 [BYTES 0x59fc46]. [approx] the engine casts this one ray in set 0 (`xor ecx, ecx`
+                // 0x59fc36), whose contents are not known (BULLET_KINDS U1): the terrain set stands in.
+                Vec3 S{at.x, 1.0f, at.z};
+                const RayHit r = ray(S, {0.0f, -10.0f, 0.0f});
+                if (r.hit && r.point.y > 0.01f) S.y = r.point.y + 3.5f;
+                static const int kSe[3] = {221, 222, 223};         // u16 table 0x6a2b9c, by the OLD count
+                sound(kSe[((strikes_ % 3) + 3) % 3]);              // at &bullet+0x12c: the spawn point
+                ++strikes_;                                        // DAT_007de270
+                // The inline effect 0x15b (347 bs_02_thunder): power 0, knock 1.0, rtype 0, status 0, cls 0xff,
+                // side 1, the carrier's stat block. [not modelled] the pool-full gate, fx+0x1dc |= 0x116.
+                spawn_fx(0x15b, S, {0, 0, 0}, 1, seg_atk, 0.0f, 1.0f, 0, 0, -1, s.owner);
+                struck = true;
+            }
+            b.mat.m[3][0] = at.x; b.mat.m[3][1] = at.y; b.mat.m[3][2] = at.z;
+            if ((have && 1.0f > seg_hp) || 8.05f > std::sqrt(at.x * at.x + at.z * at.z) || struck) {   // 0x6bd8ec
+                b.carrier = -1;
+                b.fx->kill = true;
+                b.d1d4 = true;
+            }
+            break;
+        }
         case 0x14: case 0x19: case 0x2b:                           // none: the tail only
             break;
         default:

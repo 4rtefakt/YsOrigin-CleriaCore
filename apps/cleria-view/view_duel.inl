@@ -90,6 +90,7 @@ auto step_bullets_frozen = [&] {
     benv.character = character;
     benv.difficulty = difficulty >= 2 ? difficulty - 2 : 0;
     benv.rng = [&] { return pick_rng.next(); };
+    benv.carrier = boss2_carrier;                        // kind 0x24's segment (Nygtilger)
     std::vector<bullet::Event> bev;
     bullets.update(benv, &bev);
     for (const bullet::Event& ev : bev) {
