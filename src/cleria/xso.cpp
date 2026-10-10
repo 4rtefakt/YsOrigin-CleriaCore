@@ -1034,12 +1034,49 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
     return Step::Continue;
 }
 
-int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps) {
+int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps, bool skip_cycles) {
     std::uint32_t pc = entry;
     int steps = 0;
+    // The state at an earlier backward jump (taken again at the 1st, 2nd, 4th, 8th ... one, so a loop that
+    // settles late is still found).
+    struct Snap {
+        std::uint32_t pc = 0; int steps = 0;
+        std::int32_t acc = 0, shop_paid = 0, flags[0x200], items[54];
+        std::unordered_map<int, std::int32_t> locals;
+        Vars vars;
+        std::uint32_t rs[4];
+    } snap;
+    bool have = false;
+    skip_cycles = skip_cycles && !host;
+    auto same = [&](std::uint32_t at) {
+        const std::uint32_t* r = rs_ext ? rs_ext : rs;
+        return at == snap.pc && acc == snap.acc && shop_paid == snap.shop_paid &&
+               std::memcmp(g_flags, snap.flags, sizeof snap.flags) == 0 &&
+               std::memcmp(item_arr, snap.items, sizeof snap.items) == 0 && std::memcmp(r, snap.rs, sizeof snap.rs) == 0 &&
+               locals == snap.locals && vars.i[0] == snap.vars.i[0] && vars.i[1] == snap.vars.i[1] &&
+               vars.f[0] == snap.vars.f[0] && vars.f[1] == snap.vars.f[1] && vars.s[0] == snap.vars.s[0] &&
+               vars.s[1] == snap.vars.s[1];
+    };
+    unsigned back = 0;
     for (; steps < max_steps; ++steps) {
+        const std::uint32_t was = pc;
         const Step s = step_one(script, pc, /*coroutine*/false);
         if (s == Step::End || s == Step::Unknown) return steps;
+        if (!skip_cycles || pc > was) continue;
+        if (have && same(pc)) {                      // steps + 1 done; the loop is steps + 1 - snap.steps long
+            const int period = steps + 1 - snap.steps, left = max_steps - (steps + 1);
+            steps += left / period * period;
+            skip_cycles = false;
+            continue;
+        }
+        if ((++back & (back - 1)) == 0) {
+            snap.pc = pc; snap.steps = steps + 1; snap.acc = acc; snap.shop_paid = shop_paid;
+            std::memcpy(snap.flags, g_flags, sizeof snap.flags);
+            std::memcpy(snap.items, item_arr, sizeof snap.items);
+            std::memcpy(snap.rs, rs_ext ? rs_ext : rs, sizeof snap.rs);
+            snap.locals = locals; snap.vars = vars;
+            have = true;
+        }
     }
     return steps;
 }

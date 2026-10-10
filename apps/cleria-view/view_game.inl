@@ -1647,6 +1647,21 @@ title_again:
     };
     avm.tick();          // run to the first Pattern so file/tag/frame are populated
     sync_aia();
+    // The character's other sprite files are read now, not inside the tick of the first swing that names one
+    // (8 - 17 MB each: 20 - 25 ms there, CLERIA_PROF "pa:frame"). Which ones: each section's opening anime_File
+    // under the flags as they are, from a throwaway VM. [approx] a file named deeper in a section, or under
+    // other flags (the cutscene set, Toal's other form), is still read at its first use.
+    for (const Aso::Section& s : aso.sections()) {
+        AsoVm probe;
+        probe.bind(&aso);
+        probe.set_flags(static_cast<const std::int32_t*>(game.g_flags), 0x200);   // read-only: a probe writes no flag
+        if (!probe.set_section(s.id, /*force*/true)) continue;
+        for (int t = 0; t < 8 && probe.file_id() <= 0; ++t) probe.tick();
+        const char* nm = aso_aia_name(probe.file_id());
+        if (!nm || !*nm || cur_aia == nm || chr_parked.count(nm)) continue;
+        CharSprite pre;
+        if (pre.load(g, asset_root / "ANI" / (std::string(nm) + ".AIA"), 0)) chr_parked[nm] = std::move(pre);
+    }
     int facing = 2;              // dir2 = back to camera (facing north, into the room)
     std::uint32_t curAnim = std::uint32_t(std::max(0, chr.find_tag(std::uint32_t(avm.anim_tag()))));
     int animFrame = 0, shownFrame = -1;
@@ -2038,7 +2053,7 @@ title_again:
         if (it == g.sob_index.end()) return;
         const std::unordered_set<std::string> gone = broken_in(room.name);
         Room next = load_room(g, asset_root, it->second, game.g_flags, character,
-                              gone.empty() ? nullptr : &gone, &live_obj);
+                              gone.empty() ? nullptr : &gone, &live_obj, &room);
         free_room(room, g.white_bind);
         room = std::move(next);
         load_meshes(/*keep*/true);
@@ -8889,9 +8904,17 @@ title_again:
                     Dds dd = load_dds(asset_root / "IMAGE" / "F_GEO20.DDS");
                     if (dd.ok()) geo20 = upload_rgba(g, dd.width, dd.height, dd.data.data());
                 }
-                WGPUTextureView pdepth = make_depth(g, video_world_w(cw), video_world_h(ch));
+                // Their own cleared depth, kept between frames: a depth texture made per frame cost 14-31 ms for
+                // every frame a damage number was on screen (CLERIA_PROF, S_5014).
+                static WGPUTextureView pdepth = nullptr;
+                static std::uint32_t pdw = 0, pdh = 0;
+                const std::uint32_t pw = video_world_w(cw), ph = video_world_h(ch);
+                if (pdepth && pdw == pw && pdh == ph) clear_depth(g, pdepth);
+                else {
+                    if (pdepth) wgpuTextureViewRelease(pdepth);
+                    pdepth = make_depth(g, pdw = pw, pdh = ph);
+                }
                 for (const Popup& pp : popups) draw_popup_glyphs(g, view, pdepth, geo20, pp, cam.forward());
-                wgpuTextureViewRelease(pdepth);
             }
         }
         prof("draw:enemies");

@@ -42,43 +42,48 @@ struct EnemyFx {
         // Other animations (walk, attack, hurt, death), decoded on demand and keyed by
         // AIA tag -> 8 facings. Idle stays in `anim` above; this is everything the enemy
         // ASO can ask for beyond it, so an attacking enemy shows its attack clip.
-        std::unordered_map<std::uint32_t, std::array<std::vector<SpriteTex>, 8>> byTag;
+        // A frame is decoded when it is first shown (`got`): a tag's eight facings at once were a 30-37 ms frame
+        // at an enemy's first attack / first hurt, one whole facing still up to 28 (CLERIA_PROF, S_3013, S_5014,
+        // S_1002). img: the tag's image record, -1 = this AIA has none, -2 = not looked up yet.
+        struct TagSet { std::array<std::vector<SpriteTex>, 8> dir; std::array<std::vector<std::uint8_t>, 8> got; int img = -2; };
+        std::unordered_map<std::uint32_t, TagSet> byTag;
     };
     std::unordered_map<std::string, Kind> kinds;   // sprite stem -> decoded facings
 
-    // Frames for one animation tag + facing, decoded and cached lazily. Falls back to
-    // the idle set when the tag is not in this AIA (so a script asking for a clip the
-    // sprite lacks still draws something rather than vanishing).
-    const std::vector<SpriteTex>& tag_frames(Gpu& g, Kind& k, std::uint32_t tag,
-                                             std::uint32_t dir) {
+    // The frame `want` (clamped to the clip, FUN_00444dc0) of one animation tag + facing, decoded and cached
+    // lazily. Falls back to the idle set when the tag is not in this AIA (so a script asking for a clip the
+    // sprite lacks still draws something rather than vanishing); nullptr when there is nothing to show.
+    // [approx] a frame that fails to decode is an empty texture in its place (it used to be dropped from the
+    // clip, the later frames moving up).
+    const SpriteTex* tag_frame(Gpu& g, Kind& k, std::uint32_t tag, std::uint32_t dir, int want) {
         if (dir >= 8) dir = 0;
-        auto it = k.byTag.find(tag);
-        if (it == k.byTag.end()) {
-            std::array<std::vector<SpriteTex>, 8> a;
-            int img = -1;
+        Kind::TagSet& ts = k.byTag[tag];
+        if (ts.img == -2) {
+            ts.img = -1;
             for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
-                if (k.aia.images[i].tag == tag) { img = int(i); break; }
-            if (img >= 0) {
-                const std::uint32_t nd = k.aia.images[img].nDir;
-                const std::uint32_t nf = k.aia.images[img].nFrame;
-                // FUN_00444dc0: a direction past the record's nDir is taken modulo it (C_101's
-                // 2-direction tags; PLAYTEST_1.md §2).
-                for (std::uint32_t d = 0; d < 8 && nd > 0; ++d)
-                    for (std::uint32_t f = 0; f < nf; ++f) {
-                        AiaFrame fr;
-                        if (!k.aia.decode_frame_composited(std::uint32_t(img), d % nd, f, fr)) continue;
-                        SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
-                        st.set_placement(fr, k.aia.canvasW, k.aia.scaleA);
-                        st.footFix = k.footFix;   // same per-file foot correction as idle
-                        a[d].push_back(std::move(st));
-                    }
-            }
-            it = k.byTag.emplace(tag, std::move(a)).first;
+                if (k.aia.images[i].tag == tag) { ts.img = int(i); break; }
         }
-        const std::vector<SpriteTex>& v = it->second[dir];
-        if (!v.empty()) return v;
-        if (!it->second[0].empty()) return it->second[0];   // fewer facings shipped
-        return k.anim[k.ndir ? dir % k.ndir : 0];           // tag absent -> idle (FUN_00444dc0 dir %= nDir)
+        const std::uint32_t nd = ts.img >= 0 ? k.aia.images[ts.img].nDir : 0;
+        const std::uint32_t nf = ts.img >= 0 ? k.aia.images[ts.img].nFrame : 0;
+        if (nd == 0 || nf == 0) {                            // tag absent -> idle (FUN_00444dc0 dir %= nDir)
+            const std::vector<SpriteTex>& v = k.anim[k.ndir ? dir % k.ndir : 0];
+            return v.empty() ? nullptr : &v[std::size_t(std::max(0, std::min(want, int(v.size()) - 1)))];
+        }
+        std::vector<SpriteTex>& v = ts.dir[dir];
+        if (v.empty()) { v.resize(nf); ts.got[dir].assign(nf, 0); }
+        const std::size_t fi = std::size_t(std::max(0, std::min(want, int(nf) - 1)));
+        if (!ts.got[dir][fi]) {
+            ts.got[dir][fi] = 1;
+            AiaFrame fr;
+            // FUN_00444dc0: a direction past the record's nDir is taken modulo it (C_101's
+            // 2-direction tags; PLAYTEST_1.md §2).
+            if (k.aia.decode_frame_composited(std::uint32_t(ts.img), dir % nd, std::uint32_t(fi), fr)) {
+                v[fi] = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
+                v[fi].set_placement(fr, k.aia.canvasW, k.aia.scaleA);
+                v[fi].footFix = k.footFix;   // same per-file foot correction as idle
+            }
+        }
+        return &v[fi];
     }
 
     // Decode ALL frames of one enemy type's idle animation for EVERY facing, so
@@ -354,40 +359,24 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // 8-dir ring the player uses -- up->dir2 (back), right->dir0, down->dir6 (front).
         // A chasing enemy faces the player (~the camera), so it mostly shows its front.
         int dir = sprite_dir_of(e.actor->yaw, camFwd);
-        const std::vector<SpriteTex>* frames = nullptr;
-        int fi = 0;
-        if (e.actor->pattern.pinned()) {
-            // Chr_Pattern(id, tag, frame) (FUN_005712e0 -> FUN_00446340 0x446365): the pinned AIA
-            // tag and frame override the ASO's; FUN_00444dc0 clamps the frame. A tag this AIA
-            // lacks falls through to the ASO [H: the engine uses the AIA's default record].
-            const std::vector<SpriteTex>& fr =
-                fx.tag_frames(g, k, std::uint32_t(e.actor->pattern.tag), std::uint32_t(dir));
-            if (!fr.empty()) {
-                frames = &fr;
-                fi = std::max(0, std::min(e.actor->pattern.frame, int(fr.size()) - 1));
-            }
-        }
-        if (!frames && e.avm.ok()) {
-            // ASO-driven: the running section's anime_Pattern picks the clip (tag) and the
-            // VM the frame, so an attacking enemy shows its attack animation, an idle one
-            // its idle, all in step with the hit-volume the same script arms.
-            const std::vector<SpriteTex>& fr =
-                fx.tag_frames(g, k, std::uint32_t(e.avm.anim_tag()), std::uint32_t(dir));
-            if (!fr.empty()) {
-                frames = &fr;
-                const int n = int(fr.size());
-                fi = std::max(0, std::min(int(e.avm.frame()), n - 1));   // FUN_00444dc0 clamps
-            }
-        }
-        if (!frames) {  // scriptless enemy: cycle idle, offset per instance
+        const SpriteTex* t = nullptr;
+        // Chr_Pattern(id, tag, frame) (FUN_005712e0 -> FUN_00446340 0x446365): the pinned AIA
+        // tag and frame override the ASO's; FUN_00444dc0 clamps the frame. A tag this AIA
+        // lacks falls through to the ASO [H: the engine uses the AIA's default record].
+        if (e.actor->pattern.pinned())
+            t = fx.tag_frame(g, k, std::uint32_t(e.actor->pattern.tag), std::uint32_t(dir), e.actor->pattern.frame);
+        // ASO-driven: the running section's anime_Pattern picks the clip (tag) and the
+        // VM the frame, so an attacking enemy shows its attack animation, an idle one
+        // its idle, all in step with the hit-volume the same script arms.
+        if (!t && e.avm.ok())
+            t = fx.tag_frame(g, k, std::uint32_t(e.avm.anim_tag()), std::uint32_t(dir), int(e.avm.frame()));
+        if (!t) {  // scriptless enemy: cycle idle, offset per instance
             if (k.ndir && dir >= int(k.ndir)) dir %= int(k.ndir);   // FUN_00444dc0 dir %= nDir
             if (k.anim[dir].empty()) dir = 0;
             if (k.anim[dir].empty()) continue;
-            frames = &k.anim[dir];
-            const int n = int(frames->size());
-            fi = ((int(t_anim * kEnemyAnimFps) + e.actor->instance_id * 2) % n + n) % n;
+            const int n = int(k.anim[dir].size());
+            t = &k.anim[dir][std::size_t(((int(t_anim * kEnemyAnimFps) + e.actor->instance_id * 2) % n + n) % n)];
         }
-        const SpriteTex* t = &(*frames)[fi];
         if (!t->tex) continue;
         // The specular starts from the tint struct +0x260 (anime_ChangeSpecular's wind-up flash; EnemyRender::spec)
         // and the hurt tint REPLACES it (hit_feedback.hpp): while +0x238 runs, FUN_00473c60 sets the sprite's

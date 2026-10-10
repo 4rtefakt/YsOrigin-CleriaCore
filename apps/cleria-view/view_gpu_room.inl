@@ -111,6 +111,7 @@ struct Room {
     std::vector<WGPUTexture> textures;
     std::vector<WGPUTextureView> views;
     std::vector<WGPUBindGroup> binds;  // parallel to mesh.textures
+    bool tex_mips = false;             // g_world_mips when its textures were uploaded (load_room's `donor`)
 };
 
 // Play the footstep for the surface of `tri` on the collision mesh: material name
@@ -443,10 +444,13 @@ static SobObject located_object(const std::string& ymo, const std::string& name,
     o.scale = {1, 1, 1};
     return o;
 }
+// `donor`: the room being rebuilt (reload_room). A texture it already holds, by resolved path, is taken over
+// instead of being read, decoded and uploaded again: that was 23-25 ms of a 37 ms rebuild in S_7080, every time
+// a script showed or hid an object. (A bind group keeps its view and texture alive after the donor is freed.)
 static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                       const std::int32_t* base_flags = nullptr, int character = 1,
                       const std::unordered_set<std::string>* extra_hidden = nullptr,
-                      const LiveObjState* live = nullptr) {
+                      const LiveObjState* live = nullptr, const Room* donor = nullptr) {
     Room r;
     r.name = sob.stem().string();
     r.dir = sob.parent_path();
@@ -488,13 +492,13 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                     else if (in.sub == 0xb8 && in.ops.size() >= 2)
                         children.push_back(sm.string(in.ops[0]) + sm.string(in.ops[1]));
                 }
-                tmp.run(sm);
+                tmp.run(sm, 0, 2'000'000, /*skip_cycles*/true);
                 for (const std::string& nm : children) {
                     std::string up = nm;
                     for (char& c : up) c = char(std::toupper((unsigned char)c));
                     const fs::path cp = sob.parent_path() / (up + ".XSO");
                     if (!fs::exists(cp)) continue;
-                    try { tmp.run(Xso::parse(read_bytes(cp))); } catch (const std::exception&) {}
+                    try { tmp.run(Xso::parse(read_bytes(cp)), 0, 2'000'000, /*skip_cycles*/true); } catch (const std::exception&) {}
                 }
                 auto low = [](std::string s) { for (char& c : s) c = char(std::tolower((unsigned char)c)); return s; };
                 for (const std::string& s : tmp.obj_deleted) { root_hidden.insert(low(s)); gone.insert(low(s)); }
@@ -682,10 +686,23 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
 
     int loaded = 0;
     r.binds.reserve(r.mesh.textures.size());
+    r.tex_mips = g_world_mips;
+    if (donor && (donor->tex_mips != g_world_mips || donor->binds.size() != donor->mesh.textures.size())) donor = nullptr;
     // mesh.textures are already RESOLVED absolute paths — scene.cpp resolves each
     // ref against its own YMO's directory. Do not reduce to a basename and look it
     // up game-wide: 532 basenames are ambiguous and 530 of those differ in content.
     for (const std::string& path : r.mesh.textures) {
+        if (donor) {
+            const auto it = std::find(donor->mesh.textures.begin(), donor->mesh.textures.end(), path);
+            const WGPUBindGroup have = it == donor->mesh.textures.end() ? nullptr
+                                           : donor->binds[std::size_t(it - donor->mesh.textures.begin())];
+            if (have && have != g.white_bind) {
+                wgpuBindGroupAddRef(have);
+                r.binds.push_back(have);
+                ++loaded;
+                continue;
+            }
+        }
         Dds dds = load_dds(path, g_world_mips);
         if (dds.ok()) {
             r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds), g_world_mips ? g.sampler_mip : nullptr));
@@ -1229,18 +1246,8 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
     wgpuCommandEncoderRelease(enc);
 }
 
-static WGPUTextureView make_depth(Gpu& g, std::uint32_t w, std::uint32_t h) {
-    WGPUTextureDescriptor td = {};
-    td.usage = WGPUTextureUsage_RenderAttachment; td.dimension = WGPUTextureDimension_2D;
-    td.size = {w, h, 1}; td.format = WGPUTextureFormat_Depth24Plus;
-    td.mipLevelCount = 1; td.sampleCount = 1;
-    WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
-    WGPUTextureView v = wgpuTextureCreateView(t, nullptr);
-    wgpuTextureRelease(t);
-    // CLEAR to far (1.0) immediately: a fresh depth texture's contents are undefined
-    // (in practice zero = NEAREST), so any overlay that draws with loadOp Load before
-    // a clearing pass — the dialogue box, the statue menu — silently depth-fails every
-    // quad. A depth-only clearing pass here makes every make_depth safe to Load from.
+// A depth-only pass that clears `v` to far (1.0).
+static void clear_depth(Gpu& g, WGPUTextureView v) {
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPURenderPassDepthStencilAttachment da = {};
     da.view = v; da.depthLoadOp = WGPULoadOp_Clear; da.depthStoreOp = WGPUStoreOp_Store;
@@ -1254,6 +1261,21 @@ static WGPUTextureView make_depth(Gpu& g, std::uint32_t w, std::uint32_t h) {
     wgpuQueueSubmit(g.queue, 1, &cmd);
     wgpuCommandBufferRelease(cmd);
     wgpuCommandEncoderRelease(enc);
+}
+
+static WGPUTextureView make_depth(Gpu& g, std::uint32_t w, std::uint32_t h) {
+    WGPUTextureDescriptor td = {};
+    td.usage = WGPUTextureUsage_RenderAttachment; td.dimension = WGPUTextureDimension_2D;
+    td.size = {w, h, 1}; td.format = WGPUTextureFormat_Depth24Plus;
+    td.mipLevelCount = 1; td.sampleCount = 1;
+    WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
+    WGPUTextureView v = wgpuTextureCreateView(t, nullptr);
+    wgpuTextureRelease(t);
+    // CLEAR to far (1.0) immediately: a fresh depth texture's contents are undefined
+    // (in practice zero = NEAREST), so any overlay that draws with loadOp Load before
+    // a clearing pass — the dialogue box, the statue menu — silently depth-fails every
+    // quad. A depth-only clearing pass here makes every make_depth safe to Load from.
+    clear_depth(g, v);
     return v;
 }
 

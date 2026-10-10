@@ -2,10 +2,13 @@
 // on synthetic scripts and on the shipped scripts that use them. Usage: cleria-xso13test <assets>
 #include "cleria/xso.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -298,6 +301,48 @@ int main(int argc, char** argv) {
         Asm a; a.op(0x7a, {Asm::I(200)}); a.raw(0x01000000);
         const auto g = Xso::parse(a.bytes()).grants();
         check(g.size() == 1 && g[0].op == "zero" && g[0].index == 200, "0x7a Flag_Clr = zero");
+    }
+
+    // 12) XsoVm::run's skip_cycles ends a script in the state the full run does: every script of S_4001 (its
+    //     four ROLL_EDGE movers loop forever), as the three characters. CLERIA_XSO_CYCLE_ALL=1: every MAP
+    //     script (2225 files, 242 of them endless as Yunica; half a minute — all equal, 2026-10-10).
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir = fs::path(root) / "MAP" / (std::getenv("CLERIA_XSO_CYCLE_ALL") ? "" : "S_40/S_4001");
+        auto as_set = [](std::vector<std::string> v) { std::sort(v.begin(), v.end()); v.erase(std::unique(v.begin(), v.end()), v.end()); return v; };
+        int files = 0, endless = 0, bad = 0;
+        std::error_code ec;
+        for (const auto& e : fs::recursive_directory_iterator(dir, ec)) {
+            std::string ext = e.path().extension().string();
+            for (char& c : ext) c = char(std::toupper(static_cast<unsigned char>(c)));
+            if (!e.is_regular_file() || ext != ".XSO") continue;
+            Xso x;
+            try { x = Xso::parse(rd(e.path().string())); } catch (const std::exception&) { continue; }
+            ++files;
+            for (int ch = 1; ch <= 3; ++ch) {
+                XsoVm a, b;
+                a.g_flags[150] = b.g_flags[150] = ch;
+                const int na = a.run(x), nb = b.run(x, 0, 2'000'000, true);
+                if (ch == 1 && na == 2'000'000) ++endless;
+                auto place = [](const XsoVm& v) {
+                    std::vector<std::string> o;
+                    for (const auto& [n, p] : v.obj_place) o.push_back(n + ":" + std::to_string(p.x) + "," + std::to_string(p.y) + "," + std::to_string(p.z));
+                    for (const auto& [n, s] : v.obj_sync) o.push_back(n + "<" + s.from + char('0' + s.x) + char('0' + s.y) + char('0' + s.z));
+                    for (const auto& l : v.obj_locate) o.push_back(l.name + "@" + l.ymo + std::to_string(l.x) + "," + std::to_string(l.y) + "," + std::to_string(l.z));
+                    std::sort(o.begin(), o.end()); o.erase(std::unique(o.begin(), o.end()), o.end());
+                    return o;
+                };
+                const bool same = na == nb && a.acc == b.acc && std::memcmp(a.g_flags, b.g_flags, sizeof a.g_flags) == 0 &&
+                                  std::memcmp(a.item_arr, b.item_arr, sizeof a.item_arr) == 0 && a.locals == b.locals &&
+                                  std::memcmp(a.rs, b.rs, sizeof a.rs) == 0 && a.obj_state == b.obj_state &&
+                                  a.obj_visible == b.obj_visible && a.obj_collide == b.obj_collide &&
+                                  as_set(a.obj_deleted) == as_set(b.obj_deleted) && as_set(a.obj_opened) == as_set(b.obj_opened) &&
+                                  place(a) == place(b);
+                if (!same) { ++bad; std::printf("  skip_cycles differs: %s (char %d, %d / %d steps)\n", e.path().filename().string().c_str(), ch, na, nb); }
+            }
+        }
+        std::printf("  skip_cycles: %d scripts, %d endless\n", files, endless);
+        check(files > 0 && endless > 0 && bad == 0, "skip_cycles ends every script in the full run's state");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");

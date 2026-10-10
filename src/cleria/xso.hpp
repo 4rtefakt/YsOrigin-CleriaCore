@@ -737,7 +737,12 @@ struct XsoVm {
 
     // Execute from word `entry`; bounded by max_steps. Returns steps executed. This is
     // the RUN-TO-COMPLETION path (static grant extraction): Wait_* ops are inert no-ops.
-    int run(const Xso& script, std::uint32_t entry = 0, int max_steps = 2'000'000);
+    // `skip_cycles` (a host-less VM only): a script that loops forever (238 of the 2225 map scripts: a mover's
+    // `MoveTo; Wait` loop — Wait is inert here) is not stepped max_steps times. Once the whole state the script can
+    // read (pc, acc, flags, items, locals, vars, the generator) is back where it was a loop ago, the whole loops
+    // left are skipped and only the remainder is stepped: the state and every name -> value output end as they
+    // would have. The list outputs (grants, items, obj_deleted, ...) hold fewer repeats of the same entries.
+    int run(const Xso& script, std::uint32_t entry = 0, int max_steps = 2'000'000, bool skip_cycles = false);
 
     // ## Coroutine (resumable) execution — the runtime model for cutscenes/events.
     // CUTSCENE_COROUTINE.md: FUN_00566350 ticks a GoScript once per frame — if a wait
