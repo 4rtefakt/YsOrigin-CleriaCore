@@ -225,6 +225,7 @@ struct Actor {
     std::uint32_t glow_marker = 0;   // +0x2b4 (0 = no glow)
     std::uint8_t glow_phase = 0;     // +0x2a7
     std::uint8_t dust_cd = 0;        // +0x4c2: ticks before the next foot dust (FUN_0045c490 0x45d228)
+    int launch = 0;                  // +0x4d0: the knock-up / juggle counter (hit.hpp launch_on_hit)
 
     // Hidden outright (a removed corpse). Chr_Alpha fades ai.alpha instead (above).
     bool visible = true;

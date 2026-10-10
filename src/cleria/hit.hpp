@@ -273,4 +273,58 @@ inline Impulse step_knockback_player(Impulse& k1, Impulse& k2, bool grounded, bo
     return disp;
 }
 
+// ---------------------------------------------------------------------------
+// The victim's knock-up / juggle counter +0x4d0 — FUN_004fbb40 0x4fc137..0x4fc7d4
+// (build/mech_re/LAUNCH_STATE.md §1), between the guard / knockback add and the HP subtraction.
+// "Launch" is what an actor-owned hit (a swing, a locus: cl = 1) other than the thrust (attack kind
+// +0x404 == 2) does to a victim that is stunned (+0x724 == 1), not a flyer (+0x398), not +0x399 and
+// not launch-immune (+0x12c & 0x140): +0x4d0 = 1 and a pop of 0.175. Every later hit while +0x4d0 != 0
+// — by anything — juggles: a pop of 0.15 - 0.0125 n, n + 1, the knock channel x 0.875 (this hit's
+// knockback included). A stunned flyer gets 12 more stun ticks instead (cap 99). Each of the three
+// multiplies the post-guard integer damage by 1.2 / 1.15 / 1.1 (Normal and easier / Hard / Nightmare,
+// table 0x68b218), truncating, and spawns effect 1 at the victim's origin (taken before the lift).
+inline constexpr float kLaunchFactor[3] = {1.2f, 1.15f, 1.1f};       // 0x68b218..0x68b220
+inline constexpr float kLaunchPop = 0.175f;                          // 0x6bd1f4 / 0x3e333333
+struct LaunchVictim {
+    int launch = 0;              // +0x4d0
+    float t = 0;                 // +0x330, the vertical timer
+    float y = 0;                 // +0x54
+    bool grounded = true;        // +0x388
+    float k1x = 0, k1z = 0;      // +0x338 / +0x340
+    int stun_dur = 0;            // +0x714
+    bool flyer = false;          // +0x398
+    bool guard399 = false;       // +0x399
+    int stunned = 0;             // byte +0x724
+    std::uint32_t flags12c = 0;  // +0x12c
+};
+enum class LaunchKind { None, Launch, Juggle, Flyer };
+// Mutates the victim as the block does, except the JUGGLE's knock scale, which the caller applies
+// AFTER it has added this hit's knockback (`scale_knock`). Returns what happened; the damage is
+// `launch_damage(dmg, diff_index)` whenever it is not None.
+inline LaunchKind launch_on_hit(LaunchVictim& v, bool actor_owned, int attack_kind) {
+    auto juggle = [&] {
+        const float vy = 0.15f - float(v.launch) * 0.0125f;          // 0x6bd1d8, 0x6bd0a8
+        v.t = vy; v.y += vy; v.launch += 1;
+        return LaunchKind::Juggle;
+    };
+    if (actor_owned && !v.flyer && !v.guard399) {
+        if (v.launch != 0) return juggle();
+        if (!(v.flags12c & 0x140u)) {
+            if (attack_kind == 2 || v.stunned != 1) return LaunchKind::None;
+            v.launch = 1;
+            v.t = kLaunchPop; v.y += kLaunchPop; v.grounded = false;
+            return LaunchKind::Launch;
+        }
+    }
+    if (v.launch != 0) return juggle();
+    if (v.flyer && v.stunned != 0) {
+        v.stun_dur = std::min(v.stun_dur + 12, 99);
+        return LaunchKind::Flyer;
+    }
+    return LaunchKind::None;
+}
+inline int launch_damage(int dmg, int diff_index) {
+    return int(float(dmg) * kLaunchFactor[diff_index < 0 ? 0 : diff_index > 2 ? 2 : diff_index]);
+}
+
 }  // namespace cleria

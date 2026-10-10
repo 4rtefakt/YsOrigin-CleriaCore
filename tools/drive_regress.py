@@ -1105,6 +1105,26 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.2;20:epos=#189,0,1.2;" +
               ";".join("%d:near=#189,0.8;%d:jump;%d:atk" % (t, t + 1, t + 24) for t in range(30, 400, 60)) + ";420:quit",
         expect=["hit Riffligan", "[stun] t304 #189 cast 14 stunned for 98 ticks (events 2000)"]),
+    # LAUNCH_STATE.md §1 / §2: the knock-up and the juggle. The Riffligan stunned as above (t304); a ground swing on it
+    # launches it (+0x4d0 = 1, t 0.175), the next two juggle it in the air (t 0.15 - 0.0125 n: 0.1375, 0.125), each
+    # with the damage x 1.2 truncated (5 -> 6, 6 -> 7); it lands, the count is cleared, and the hit at t441 is plain.
+    "launch_juggle": dict(
+        room="S_10/S_1004/S_1004", env={"CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.2;20:epos=#189,0,1.2;" +
+              ";".join("%d:near=#189,0.8;%d:jump;%d:atk" % (t, t + 1, t + 24) for t in range(30, 300, 60)) +
+              ";310:opt=DamageDealt=0.6;330:near=#189,1.2;331:atk;348:near=#189,1.2;349:atk;366:near=#189,1.2;367:atk;"
+              "440:near=#189,1.2;441:atk;470:quit",
+        expect=["[stun] t304 #189 cast 14 stunned", "[launch] t332 #189 launched: count 1, t 0.1750, stun 70, dmg 4 -> 4",
+                "[launch] t350 #189 juggled: count 2, t 0.1375, stun 52, dmg 5 -> 6",
+                "[launch] t368 #189 juggled: count 3, t 0.1250, stun 34, dmg 6 -> 7", "hit Riffligan (lv1 DEF 43): 7 dmg",
+                "hit Riffligan (lv1 DEF 43): 5 dmg"],
+        count={"[launch]": 3}),
+    # ... and a flyer (a Baocar, +0x398): never launched; a hit while it is stunned adds 12 ticks to the stun (39 -> 51).
+    "launch_flyer": dict(
+        room="S_10/S_1002/S_1002", env={"CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1", "CLERIA_LEVEL": "3"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.2;" +
+              ";".join("%d:near=#186,0.8;%d:jump;%d:atk" % (t, t + 1, t + 24) for t in range(30, 200, 60)) + ";230:quit",
+        expect=["[stun] t124 #186 cast 43 stunned for 98 ticks", "[launch] t183 #186 flyer: count 0, t 0.0000, stun 51, dmg 2 -> 2"]),
     # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
     # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
     # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.

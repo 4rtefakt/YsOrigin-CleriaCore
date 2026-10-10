@@ -211,6 +211,29 @@ int main() {
         for (int t = 0; t < 200; ++t) attacked |= enemy_ai_tick_m100(ai, p, r.env).attack;
         check(attacked, "...but a jumping target can be hit");
     }
+    {   // LAUNCH_STATE.md §2.2: stunned (0x2000 rolled) and knocked up (+0x4d0), the brain asks for nothing while
+        // phase 3 counts down; the stun's exit clears the count (launch_clear) and forces section 4.
+        Rig r; EnemyAi ai;
+        r.env.target = {1.2f, 1.075f, 0};
+        for (int i = 0; i < 2; ++i) enemy_ai_tick_m100(ai, p, r.env);
+        r.env.events = 0x2000u;
+        r.env.rng = [] { return 0u; };                 // roll 0 <= 30: the stun lands
+        enemy_ai_tick_m100(ai, p, r.env);
+        const bool stunned = ai.phase() == 3 && ai.dur() <= 99 && (ai.i(0x724) & 0xff) == 1;
+        r.env.events = 0;
+        r.env.launched = true;
+        bool quiet = true, cleared = false;
+        int exit_tick = -1, exit_section = -1;
+        for (int t = 0; t < 130 && exit_tick < 0; ++t) {
+            r.env.section = 0x13b;
+            const AiOut o = enemy_ai_tick_m100(ai, p, r.env);
+            if (o.launch_clear) { exit_tick = t; exit_section = o.section; cleared = true; }
+            else if (o.attack || !o.hitboxes.empty() || !o.bullets.empty() || (t < 40 && ai.phase() != 3)) quiet = false;
+        }
+        check(stunned, "stun: events 0x2000 + a roll under 30 = phase 3, 99 ticks, +0x724 = 1");
+        check(quiet && cleared && exit_tick >= 90 && exit_tick <= 100 && exit_section == 4 && ai.phase() == 2,
+              "launched: no attack while the stun counts down; its exit clears +0x4d0 and forces section 4");
+    }
     {   // Losing sight: breadcrumbs, then disengage.
         Rig r; EnemyAi ai;
         r.env.target = {6.0f, 1.075f, 0};

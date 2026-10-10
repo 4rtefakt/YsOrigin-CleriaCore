@@ -202,6 +202,7 @@
                     env.was_hit = e.hit;
                     env.took_damage = e.dmg_hit;
                     env.events = e.events;                           // +0x3bc & 0x6000: the stun-rolling hits
+                    env.launched = en->launch != 0;                  // +0x4d0: the brain does nothing while knocked up
                     env.group_tag = en->tag.tagged();
                     env.aso_marker = e.avm.marker();
                     env.aso_marker_block = e.avm.marker_block();
@@ -272,6 +273,7 @@
                     if (phase_before == 2 && e.actor->ai.phase() == 1 && los_log) los_report(*en, env);   // view_los.inl
                     // The brain's own writes to its HP (+0x98) / EXP (+0xb0), and its spawns.
                     if (o.set_hp >= 0) en->hp = o.set_hp;
+                    if (o.launch_clear) en->launch = 0;              // the stun's end (0x479b00: +0x4d0 = 0)
                     // M280's latch on the player: DAT_0076c15c |= 8, DAT_0076c164 = 1, a direct write (no
                     // effect, SE or popup) [BYTES 0x4a40bb, 0x4a40c2].
                     if (o.heavy_hold) { ail.mask |= ailments::kHeavy; ail.t[1] = 1; }

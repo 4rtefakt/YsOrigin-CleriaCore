@@ -255,6 +255,33 @@ int main() {
         check(rolls == 0 && applied == 1, "path B, Hard: lands; a dead player gets one pass");
     }
 
+    {   // The launch / juggle rule (LAUNCH_STATE.md §1, FUN_004fbb40 0x4fc137..).
+        LaunchVictim v; v.stunned = 1; v.y = 5.0f;
+        check(launch_on_hit(v, true, 2) == LaunchKind::None && v.launch == 0, "launch: the thrust itself (kind 2) does not launch");
+        LaunchVictim b = v;
+        check(launch_on_hit(b, false, 1) == LaunchKind::None && b.launch == 0, "launch: a bullet or an effect cannot start one");
+        check(launch_on_hit(v, true, 1) == LaunchKind::Launch && v.launch == 1 && v.t == 0.175f && near(v.y, 5.175f) && !v.grounded,
+              "launch: stunned + another attack = count 1, t 0.175, y + 0.175, airborne");
+        LaunchVictim n; n.stunned = 0;
+        check(launch_on_hit(n, true, 1) == LaunchKind::None, "launch: not stunned = nothing");
+        LaunchVictim im; im.stunned = 1; im.flags12c = 0x40;
+        check(launch_on_hit(im, true, 1) == LaunchKind::None && im.launch == 0, "launch: a +0x12c & 0x40 cast is never launched");
+        LaunchVictim g; g.stunned = 1; g.guard399 = true;
+        check(launch_on_hit(g, true, 1) == LaunchKind::None, "launch: +0x399 blocks the start");
+        v.launch = 3; v.t = -0.2f; v.y = 6.0f;
+        check(launch_on_hit(v, false, 2) == LaunchKind::Juggle && v.launch == 4 && near(v.t, 0.1125f) && near(v.y, 6.1125f),
+              "juggle: count 3 + a bullet = vy 0.1125, count 4 (no owner / kind / stun test)");
+        v.launch = 12; v.t = 0;
+        check(launch_on_hit(v, true, 1) == LaunchKind::Juggle && near(v.t, 0.0f) && v.launch == 13, "juggle: the 12th gives 0, later ones push down");
+        LaunchVictim f; f.flyer = true; f.stunned = 1; f.stun_dur = 90;
+        check(launch_on_hit(f, true, 1) == LaunchKind::Flyer && f.launch == 0 && f.stun_dur == 99, "flyer: stunned = +12 stun ticks (cap 99), no count");
+        f.stunned = 0;
+        check(launch_on_hit(f, true, 1) == LaunchKind::None, "flyer: not stunned = nothing");
+        check(launch_damage(9, 0) == 10 && launch_damage(9, 1) == 10 && launch_damage(9, 2) == 9 && launch_damage(100, 0) == 120 &&
+              launch_damage(100, 1) == 115 && launch_damage(100, 2) == 110 && launch_damage(0, 0) == 0,
+              "launch: x1.2 / x1.15 / x1.1 on the integer damage, truncated");
+    }
+
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

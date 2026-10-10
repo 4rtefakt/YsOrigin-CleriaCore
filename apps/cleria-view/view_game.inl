@@ -7176,7 +7176,14 @@ title_again:
                         a.vert.t = std::max(-0.5f, a.vert.t - 0.0118f);        // the in-water decrement
                     } else if (!a.flyer) {
                         a.vert.jumping = a.mover.loco == 3;                  // the coyote keys on +0x3a0
+                        const bool was_air = !a.vert.grounded;
                         settle_vertical(a.vert, o1.y, a.floor_y, a.height);
+                        // While knocked up (+0x4d0 != 0; LAUNCH_STATE.md §2.1 [EXPORT 0045a510.c:869-883]) the fall is
+                        // damped x 0.985 after the timer's step, and a live landing ends the state (a corpse keeps it).
+                        if (a.launch != 0) {
+                            if (!a.vert.grounded && a.vert.t < 0.0f) a.vert.t *= 0.985f;       // 0x6bd418
+                            if (was_air && a.vert.grounded && a.hp >= 1.0f) a.launch = 0;
+                        }
                     }
                     a.pos = {o1.x, o1.y - a.height, o1.z};
                 }
@@ -7222,8 +7229,9 @@ title_again:
             // on a monster (FUN_004fbb40). `power` / `knock` / `rtype` / `cls` are the attacker
             // record's +0xfc / +0x104 / +0x108 / +0x109; `heading` is the attack direction the guard
             // and the knockback read. Returns true on a kill.
+            // `actor_owned`: the hitter is the player or his locus (cl = 1), not a bullet or an effect (the launch rule).
             auto player_hit_enemy = [&](Actor& en, const EnemyRender* vr, float power, float knock, int rtype,
-                                        int cls, float heading) {
+                                        int cls, float heading, bool actor_owned = true) {
                     // 0x4fbcb2..0x4fbcd1: the first player-owned locus in the pool holds its frame one
                     // tick (+0x180 += 1). [H] the victim's +0x12c bit 28 is taken as clear; the owner's
                     // own +0x118 += 1 at the same site is [not modelled].
@@ -7250,6 +7258,33 @@ title_again:
                                   0.05f, 0.075f, 0.0f, 6.2831855f);
                     }
                     dmg = access::damage_dealt(dmg, settings().s.access.damage_dealt);       // the shell's Cheats
+                    // The knock-up / juggle (0x4fc137..0x4fc7d4, after the guard and before the HP subtraction; hit.hpp
+                    // launch_on_hit, LAUNCH_STATE.md §1): a stunned, grounded, launchable victim hit by anything of
+                    // the player's but the thrust is popped up (+0x4d0 = 1); every hit while +0x4d0 != 0 juggles it;
+                    // a stunned flyer's stun grows instead. Each multiplies the integer damage by 1.2 / 1.15 / 1.1 and
+                    // spawns effect 1 at the origin (taken before the lift). [approx] the shell's Damage-dealt cheat
+                    // is applied before the factor.
+                    LaunchKind lk = LaunchKind::None;
+                    {
+                        LaunchVictim lv;
+                        lv.launch = en.launch; lv.t = en.vert.t; lv.y = en.pos.y; lv.grounded = en.vert.grounded;
+                        lv.stun_dur = en.ai.dur(); lv.flyer = en.flyer; lv.guard399 = en.guard399;
+                        lv.stunned = en.ai.i(0x724) & 0xff; lv.flags12c = en.flags12c;
+                        lk = launch_on_hit(lv, actor_owned, skillmp::attack_kind(avm.section()));
+                        if (lk != LaunchKind::None) {
+                            const int d0 = dmg;
+                            dmg = launch_damage(dmg, difficulty >= 2 ? difficulty - 2 : 0);
+                            ef2sim::SpawnParams lsp; lsp.side = 0;
+                            spawn_sim_fx(1, {en.pos.x, en.pos.y + en.height, en.pos.z}, {}, 1.0f, lsp, 0, {});
+                            en.launch = lv.launch; en.vert.t = lv.t; en.pos.y = lv.y; en.vert.grounded = lv.grounded;
+                            en.ai.dur() = lv.stun_dur;
+                            if (std::getenv("CLERIA_DMG"))
+                                std::printf("  [launch] t%llu #%d %s: count %d, t %.4f, stun %d, dmg %d -> %d\n",
+                                            (unsigned long long)tick_count, en.instance_id,
+                                            lk == LaunchKind::Launch ? "launched" : lk == LaunchKind::Juggle ? "juggled" : "flyer",
+                                            en.launch, en.vert.t, en.ai.dur(), d0, dmg);
+                        }
+                    }
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
                     HitResult r = apply_damage(en.hp, en.flags, dmg);
                     if (r.died && boss6_zava_undying(en)) { en.flags &= ~kActorDead; r.died = false; }   // her handler floors it (view_boss06.inl)
@@ -7308,6 +7343,7 @@ title_again:
                                                           feet.x, feet.z, feet.y, en.pos.x, en.pos.z, en.pos.y);
                     react_enemy(en, dmg, r.died, rtype,
                                 knock_impulse(kang, player_knock_scale(pm.speed_base, false, 2.2f) * knock));
+                    if (lk == LaunchKind::Juggle) { en.mover.k1.x *= 0.875f; en.mover.k1.z *= 0.875f; }   // 0x6bd3cc, this hit's knock included
                     const std::string nm = casts.get(en.cast_id) && !casts.get(en.cast_id)->display.empty()
                                            ? casts.get(en.cast_id)->display : ("cast " + std::to_string(en.cast_id));
                     hud.debug_message(r.died ? (nm + " defeated!")
@@ -7351,7 +7387,8 @@ title_again:
                         // FUN_00478510's drop loop is skipped while +0x130 & 1 (0x478b5c; factory 0x2009 / 0x6081 / 0x1);
                         // casts 0xaf (M890) / 0xb0 (M900) branch away before it (0x478b39..0x478b49 -> 0x479348: no drops).
                         if (const Enemy* er = etab.get(en.cast_id); er && !(f130 & 1u) && en.cast_id != 0xaf && en.cast_id != 0xb0) {
-                            DropContext dc;                 // [not modelled] launch count, luck
+                            DropContext dc;                 // [not modelled] luck
+                            dc.launch = en.launch;          // +0x4d0: a corpse keeps its count (LAUNCH_STATE.md §2.3)
                             dc.combo = kill_combo.count;    // 0x76c1a8 (FUN_00478510 0x479062)
                             dc.flag108 = game.g_flags[108] == 1;
                             dc.bless8 = (game.g_flags[217] & 8) != 0;
@@ -8308,7 +8345,7 @@ title_again:
                             if (en.bank.check_and_record(0u, p.hit.rehit)) continue;
                             const float hd = std::atan2(en.pos.z - p.hit.centre.z, en.pos.x - p.hit.centre.x);
                             player_hit_enemy(en, vr, p.hit.power, p.hit.knock, p.hit.rtype,
-                                             p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone, hd);
+                                             p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone, hd, /*actor_owned*/ false);
                             landed = true;
                         }
                         // The same mode-0 scan's GoMesh pass (FUN_004fed50 [EXPORT 004fed50.c:296-345],
