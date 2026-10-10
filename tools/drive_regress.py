@@ -1374,16 +1374,24 @@ CASES.update({
         # and went on to the big attack; at 0.45 the course is the one above again (the floor cast at t3056 with
         # 2067 HP, the kill at t4900 after the second break), with head a's bite on the way (it used to be seen in
         # zava_big_attack, whose course has none now): the two expectations moved here.
+        # Re-pinned 2026-10-10 (BOSS_HULLS step 5: the heads' hulls are bound to the render bones — they sat ~3.5 under
+        # the drawn heads: in S_6082 at t600 head a is drawn at y 6.41 .. 13.09, its hull was y 2.87 .. 11.02 and is
+        # y 6.71 .. 12.44). The player is pushed out differently beside a head (first at t390), so the same fight
+        # runs mirrored again, and sooner: phase 2 at t1189 with 4036 HP (was t1708, 4038), she mounts head b first
+        # (orbs 0/4, thrown off it at t1942), the floor cast sends head a diving (move 11), the second mount is head
+        # a (4/0, thrown off at t3948), the kill at t4172 (was t4900), the heads gone by t4698. Every beat of the old
+        # list is here with a and b exchanged; Zava still lands at y 6.83.
         expect=["[boss06] Zava's heads: a (-39.46,6.10,30.00) b (-28.82,6.10,30.00), HP 5000 STR 232 DEF 320",
                 "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "jump under Zava (act 4)", "second jump",
                 "air attack", "y 13.00, falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded",
-                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4038/6000", "BossCam 3", "move 9", "BossCam 4",
-                "move 10", "riding, hits left 0, ride count 1, lives 4/0", "head a move 12 (pattern 2, lives 3)",
-                "lives 2/0", "holds the player", "lets the player go", "lives 1/0",
-                "head a move 8 (pattern 2, lives 0)", "Zava is thrown off head a",
+                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4036/6000", "BossCam 3", "move 9", "BossCam 4",
+                "move 10", "riding, hits left 0, ride count 1, lives 0/4", "head b move 12 (pattern 2, lives 3)",
+                "lives 0/2", "lives 0/1",
+                "head b move 8 (pattern 2, lives 0)", "Zava is thrown off head b",
                 "grounded, hits left 0, ride count 1, lives 0/0", "Zava phase 2 action 7", "Zava phase 2 action 8",
-                "head b move 11", "Zava phase 2 action 12", "Zava phase 2 action 0", "head b move 9",
-                "riding, hits left 4, ride count 1, lives 0/4", "Zava is thrown off head b", "BossCam 6", "EXP (lv 45)",
+                "head a move 11", "Zava phase 2 action 12", "Zava phase 2 action 0", "head a move 9",
+                "riding, hits left 4, ride count 1, lives 4/0", "holds the player", "lets the player go",
+                "Zava is thrown off head a", "BossCam 6", "EXP (lv 45)",
                 "flag 225 = 1", "move 15", "head b destroyed", "head a destroyed"],
         absent=["direct damage ATK 267"]),
     # ... under 25 % at her re-position the big attack instead (action 20, both heads dive = move 17, the pull to
