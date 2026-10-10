@@ -402,11 +402,11 @@ CASES = {
         drive="10:vstat;11:vopt=TextureFilter=0;20:vstat;21:vopt=Preset=3;30:vstat;31:vopt=Preset=1;"
               "32:vopt=BloodyEffectLevel=0;40:vstat;41:vopt=LowResoTexture=1;45:vstat;"
               "46:vopt=MultiSampleType=8;55:vstat;56:vopt=MultiSampleType=0;57:vopt=Mipmap=0;65:vstat;"
-              "66:vopt=Preset=2;67:vstat;70:quit",
-        expect=["sampler linear x1 blood 2 msaa 1", "sampler point x1 blood 2", "sampler linear+mip x4 blood 2 msaa 4",
+              "66:vopt=Preset=2;67:vstat;68:vopt=GlareEffectLevel=0;69:vstat;70:quit",
+        expect=["sampler linear x1 blood 2 msaa 1 mips 1 glare 2", "sampler point x1 blood 2", "sampler linear+mip x4 blood 2 msaa 4",
                 "sampler linear x1 blood 0 msaa 1", "[video] opt LowResoTexture=1", "[video] low-resolution textures on",
                 "(target on) crisp 0 | sampler linear x1 blood 0 msaa 4 mips 1", "blood 0 msaa 1 mips 0",
-                "sampler linear+mip x2 blood 0 msaa 1 mips 1"],
+                "sampler linear+mip x2 blood 0 msaa 1 mips 1 glare 2", "msaa 1 mips 1 glare 0"],
         absent=["device:"]),
     # Input: key preset files (.ky) in the settings folder: Save writes key_00.ky, then key_01.ky; a saved file loads.
     "config_ky_preset": dict(

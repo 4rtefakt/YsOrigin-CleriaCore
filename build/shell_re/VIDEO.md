@@ -30,6 +30,7 @@ frame is the frame without it, pixel for pixel (§6).
 | Texture filtering | `[graphics] TextureFilter` 0 point / 1 bilinear / 2 trilinear | live for what loads from then on (the next area) |
 | Anisotropic filtering | `[graphics] Anisotropy` 1 / 2 / 4 / 8 / 16 | as above |
 | Mipmapping | `[graphics] Mipmap` (CONFIG_PARITY.md §17) | live for what loads from then on (the next area) |
+| Glare | `[graphics] GlareEffectLevel` 0 / 1 / 2 (build/render_re/SCREEN_EFFECTS.md §2.5) | live |
 | Anti-aliasing (MSAA) | `[graphics] MultiSampleType` 0 / 4 (any saved count >= 2 draws with 4 samples) | live |
 | Blood | `[game] BloodyEffectLevel` 0 / 1 / 2 | live |
 | Presets (Lightest / Light / Normal / High-definition) | the quality keys in one click (`graphics_preset`, CONFIG_PARITY.md §5) | live |
@@ -165,7 +166,7 @@ original option and the value saved for the original game.
 | Retail key | Why not |
 |---|---|
 | `ShadowEffectLevel` | Floor-following blob shadows, the bosses' projected shadows and Toal's trail length: none is drawn (CONFIG_PARITY.md §6, issue #86). |
-| `WaterEffectLevel`, `GlareEffectLevel`, `WaterCaustics` | No reflection (CONFIG_PARITY.md §12), glare (issue #82) or caustics (§13, issue #87) pass exists yet. (`MaskOfEyes` is a live toggle since 2026-10-07: the grey pass is `view_mask.inl`, build/audit/PLAYTEST_1_STORY.md §1.) |
+| `WaterEffectLevel`, `WaterCaustics` | No reflection (CONFIG_PARITY.md §12) or caustics (§13, issue #87) pass exists yet. (`MaskOfEyes` is a live toggle since 2026-10-07: the grey pass is `view_mask.inl`, build/audit/PLAYTEST_1_STORY.md §1.) |
 | `OtherLightWeightMode` | Darm's lighter room and two smaller effects (CONFIG_PARITY.md §14, issue #88). |
 | `CompressedTexture` | A loader variant with no meaning here (CleriaCore uploads each DDS as stored). |
 | `HighResoText` | The resolution GDI text is rasterised at (CONFIG_PARITY.md §15, issue #89). |
@@ -190,6 +191,10 @@ original option and the value saved for the original game.
   and Stretch widescreen gives retail's 4:3 framing.
 
 ## 6. Defaults are pixel-identical
+
+**Since 2026-10-11 two retail defaults draw something** (so this section holds for a frame with `Mipmap` 0 and
+`GlareEffectLevel` 0): Mipmapping (CONFIG_PARITY.md §17) and the glare (SCREEN_EFFECTS.md §2.5; the world then
+goes through its own target, and a room without a glare material comes out pixel for pixel the same).
 
 At the defaults: `RenderScale` 1 -> `video_world_begin` returns before touching anything; `GammaValue` 1
 -> `video_post` returns; `StretchAspect` 0 -> `projection_aspect` = `float(w)/float(h)` as before;

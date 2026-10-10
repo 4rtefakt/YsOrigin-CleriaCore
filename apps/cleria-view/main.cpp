@@ -266,8 +266,7 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
   return o;
 }
 
-@fragment
-fn fs(in : VsOut) -> @location(0) vec4<f32> {
+fn opaque(in : VsOut) -> vec4<f32> {
   let tc = textureSample(tex, smp, in.uv);
   if (tc.a < 0.5) { discard; }
   // Fixed-function MODULATE: texture * baked vertex colour, + the specular oD1 (0 but for a model's
@@ -281,8 +280,16 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
                   0.0, 1.0);
     c = mix(u.fogColor.rgb, c, f);
   }
-  return vec4<f32>(c, 1.0);
+  return vec4<f32>(c, tc.a);
 }
+@fragment
+fn fs(in : VsOut) -> @location(0) vec4<f32> { return vec4<f32>(opaque(in).rgb, 1.0); }
+// The glare mask in the target's alpha (weight 1 - alpha, SCREEN_EFFECTS.md 2.3), for the world's pipelines
+// while the glare is on. An opaque material writes its stage alpha, texture x diffuse (the diffuse alpha is 1
+// on this path) [EXPORT 005f92b0.c:561-564]; one with a glare amount g = (int)(d13 x a) >= 1 writes the
+// constant max(0x100 - g, 2) / 255 through the blend constant (TEXTUREFACTOR, SELECTARG2) [EXPORT 005f92b0.c:571-585].
+@fragment
+fn fs_mask(in : VsOut) -> @location(0) vec4<f32> { return opaque(in); }
 
 // Blended YMO materials (modes 1-3, material_blend_mode). Stage 0 is MODULATE in colour
 // AND alpha, TEXTURE x DIFFUSE (FUN_005f6e50: COLOROP 4, ALPHAOP 4, ARG1 TEXTURE, ARG2

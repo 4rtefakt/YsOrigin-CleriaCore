@@ -30,6 +30,20 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
     let c = textureSample(src, smp, v.uv);
     return vec4f(pow(max(c.rgb, vec3f(0.0)), vec3f(u.x)), c.a);
 }
+// The glare (FUN_005fd750, SCREEN_EFFECTS.md 2.4). fs_bright: the scene x its mask, weight 1 - alpha (stage 0
+// BLENDTEXTUREALPHA(TFACTOR black, TEXTURE), alpha TEXTURE|COMPLEMENT). fs_blur: FUN_005fcc90's four taps at
+// +-(u.x, 0) and +-(0, u.y), each x L / 255 (u.z), summed stage by stage (MULTIPLYADD saturates), alpha 1
+// (stage 0's alpha is the diffuse's). fs_fade: the feedback quad, black at alpha u.x.
+@fragment fn fs_bright(v: VO) -> @location(0) vec4f {
+    let c = textureSample(src, smp, v.uv);
+    return vec4f(c.rgb * (1.0 - c.a), 1.0 - c.a);
+}
+@fragment fn fs_blur(v: VO) -> @location(0) vec4f {
+    let s = textureSample(src, smp, v.uv - vec2f(u.x, 0.0)).rgb + textureSample(src, smp, v.uv + vec2f(u.x, 0.0)).rgb +
+            textureSample(src, smp, v.uv - vec2f(0.0, u.y)).rgb + textureSample(src, smp, v.uv + vec2f(0.0, u.y)).rgb;
+    return vec4f(min(s * u.z, vec3f(1.0)), 1.0);
+}
+@fragment fn fs_fade(v: VO) -> @location(0) vec4f { return vec4f(0.0, 0.0, 0.0, u.x); }
 // "Smooth edges" (a CleriaCore enhancement, not a port): FXAA over the world target -- where the
 // brightness steps sharply, blend along the edge. u.yz = one world texel.
 fn luma(c: vec3f) -> f32 { return dot(c, vec3f(0.299, 0.587, 0.114)); }
@@ -71,9 +85,20 @@ struct VideoGpu {
     std::uint32_t ww = 0, wh = 0;
     bool world_on = false;
     std::uint32_t world_w = 0, world_h = 0;      // the size the world draws at this frame
-    // [graphics] MultiSampleType: the world's multisampled colour + depth, resolved into wtex
-    WorldPipes mpipes{};
-    bool mpipes_built = false, msaa_on = false;
+    // [graphics] MultiSampleType: the world's multisampled colour + depth, resolved into wtex.
+    // The world's other pipeline sets: bit 0 = multisampled, bit 1 = with the glare mask; [0] is unused (g's own).
+    WorldPipes pipes[4]{};
+    bool pipes_built[4]{}, msaa_on = false;
+    int pipes_on = 0;                            // the set swapped into g for the world's passes
+    // [graphics] GlareEffectLevel: the quarter-size targets of FUN_005fd750 (pool surfaces 2, 3, 4)
+    WGPURenderPipeline bright{}, blur{}, fade{}, comp_add{}, comp_sub{};
+    WGPUTextureView gview[3]{};                  // surfaces 2, 3, 4
+    WGPUBindGroup gbind[3]{};
+    WGPUBuffer gubuf[5]{};                       // a blur step's (0..3) and the feedback quad's (4) constants
+    WGPUBindGroup gstep[2][4]{}, gfade{};        // [level - 1][step]: the step's source with its constants
+    std::uint32_t gw = 0, gh = 0;
+    int glare_level = 0;                         // this frame's level (0 = no glare this frame)
+    bool glare_grabbed = false;
     WGPUTextureView mview{}, mdepth{};
     std::uint32_t mw = 0, mh = 0;
     // the post pass's copy of the frame
@@ -86,11 +111,11 @@ struct VideoGpu {
 };
 static VideoGpu g_vgpu;
 
-static WGPUBindGroup video_bind(Gpu& g, WGPUTextureView v, WGPUSampler s) {
+static WGPUBindGroup video_bind(Gpu& g, WGPUTextureView v, WGPUSampler s, WGPUBuffer ubuf = nullptr) {
     WGPUBindGroupEntry e[3] = {};
     e[0].binding = 0; e[0].textureView = v;
     e[1].binding = 1; e[1].sampler = s;
-    e[2].binding = 2; e[2].buffer = g_vgpu.ubuf; e[2].size = 16;
+    e[2].binding = 2; e[2].buffer = ubuf ? ubuf : g_vgpu.ubuf; e[2].size = 16;
     WGPUBindGroupDescriptor d = {};
     d.layout = g_vgpu.bgl; d.entryCount = 3; d.entries = e;
     return wgpuDeviceCreateBindGroup(g.device, &d);
@@ -154,6 +179,25 @@ static void video_init(Gpu& g, WGPUTextureFormat fmt, bool copy_ok) {
     g_vgpu.gamma = wgpuDeviceCreateRenderPipeline(g.device, &pd);
     fs.entryPoint = sv("fs_fxaa");
     g_vgpu.fxaa = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+    {   // the glare passes: the bright pass replaces; the blur and the composite add (SRCALPHA / ONE with a
+        // source alpha of 1), or subtract (REVSUBTRACT); the feedback quad fades (SRCALPHA / INVSRCALPHA)
+        fs.entryPoint = sv("fs_bright");
+        g_vgpu.bright = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+        WGPUBlendState ab = {};
+        ab.color = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_One};
+        ab.alpha = ab.color;
+        tgt.blend = &ab;
+        fs.entryPoint = sv("fs_blur");
+        g_vgpu.blur = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+        tgt.writeMask = WGPUColorWriteMask_Red | WGPUColorWriteMask_Green | WGPUColorWriteMask_Blue;
+        fs.entryPoint = sv("fs_copy");
+        g_vgpu.comp_add = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+        ab.color.operation = WGPUBlendOperation_ReverseSubtract;
+        g_vgpu.comp_sub = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+        ab.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
+        fs.entryPoint = sv("fs_fade");
+        g_vgpu.fade = wgpuDeviceCreateRenderPipeline(g.device, &pd);
+    }
     wgpuPipelineLayoutRelease(pl);
     wgpuShaderModuleRelease(sm);
 
@@ -168,16 +212,20 @@ static void video_init(Gpu& g, WGPUTextureFormat fmt, bool copy_ok) {
     g_vgpu.ready = g_vgpu.copy && g_vgpu.gamma;
 }
 
+// `pipe` null: only the clear. `load`: draw over what the target holds.
 static void video_fullscreen_pass(Gpu& g, WGPURenderPipeline pipe, WGPUBindGroup bind, WGPUTextureView dst,
-                                  WGPUCommandEncoder enc) {
+                                  WGPUCommandEncoder enc, bool load = false) {
     WGPURenderPassColorAttachment ca = {};
     ca.view = dst; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    ca.loadOp = WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store; ca.clearValue = {0, 0, 0, 1};
+    ca.loadOp = load ? WGPULoadOp_Load : WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
+    ca.clearValue = {0, 0, 0, pipe ? 1.0 : 0.0};
     WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, pipe);
-    wgpuRenderPassEncoderSetBindGroup(pass, 0, bind, 0, nullptr);
-    wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+    if (pipe) {
+        wgpuRenderPassEncoderSetPipeline(pass, pipe);
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, bind, 0, nullptr);
+        wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+    }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
     (void)g;
@@ -201,7 +249,13 @@ static void video_world_begin(Gpu& g, std::uint32_t cw, std::uint32_t ch, WGPUTe
     g_vgpu.world_w = cw; g_vgpu.world_h = ch;
     const float s = vid().render_scale;
     const bool msaa = video::msaa_samples(settings().s.graphics.multi_sample_type) > 1;
-    if (!g_vgpu.ready || (video::scale_is_native(s) && !vid().smooth_edges && !msaa) || cw == 0 || ch == 0) return;
+    // The glare needs the world in its own target: its alpha is the mask, and the passes read it.
+    g_glare_cfg = std::clamp(int(settings().s.graphics.glare_effect_level), 0, 2);
+    g_vgpu.glare_level = 0;
+    g_vgpu.glare_grabbed = false;
+    if (!g_vgpu.ready || cw == 0 || ch == 0) return;
+    const bool glare = g_glare_cfg != 0 && g_vgpu.blur && g_vgpu.comp_sub && g_vgpu.fade;
+    if (video::scale_is_native(s) && !vid().smooth_edges && !msaa && !glare) return;
     const video::Extent e = video::scaled_extent(cw, ch, s, g_vgpu.max_dim);
     if (!g_vgpu.wtex || g_vgpu.ww != e.w || g_vgpu.wh != e.h) {
         if (g_vgpu.wbind) wgpuBindGroupRelease(g_vgpu.wbind);
@@ -223,16 +277,24 @@ static void video_world_begin(Gpu& g, std::uint32_t cw, std::uint32_t ch, WGPUTe
     depth = g_vgpu.wdepth;
     g_vgpu.world_on = true;
     g_vgpu.world_w = e.w; g_vgpu.world_h = e.h;
-    if (!msaa) return;
-    // MSAA: the world's passes draw into a multisampled colour + depth with the multisampled pipelines;
-    // video_world_resolve puts the result in wtex before the screen passes that read it.
-    if (!g_vgpu.mpipes_built) {
+    if (glare) g_vgpu.glare_level = g_glare_cfg;
+    // The world's passes draw with another set of the world pipelines when the target is multisampled or its
+    // alpha is the glare mask; video_world_resolve puts g's own back.
+    const int set = (msaa ? 1 : 0) | (glare ? 2 : 0);
+    if (set == 0) return;
+    if (!g_vgpu.pipes_built[set]) {
         const WorldPipes keep = g;
-        build_pipeline(g, g_vgpu.fmt, video::kMsaaSamples);
-        g_vgpu.mpipes = g;
+        static_cast<WorldPipes&>(g) = WorldPipes{};
+        build_pipeline(g, g_vgpu.fmt, msaa ? video::kMsaaSamples : 1, glare);
+        g_vgpu.pipes[set] = g;
         static_cast<WorldPipes&>(g) = keep;
-        g_vgpu.mpipes_built = true;
+        g_vgpu.pipes_built[set] = true;
     }
+    std::swap(static_cast<WorldPipes&>(g), g_vgpu.pipes[set]);
+    g_vgpu.pipes_on = set;
+    if (!msaa) return;
+    // MSAA: a multisampled colour + depth; video_world_resolve puts the result in wtex before the screen
+    // passes that read it.
     if (!g_vgpu.mview || g_vgpu.mw != e.w || g_vgpu.mh != e.h) {
         if (g_vgpu.mview) wgpuTextureViewRelease(g_vgpu.mview);
         if (g_vgpu.mdepth) wgpuTextureViewRelease(g_vgpu.mdepth);
@@ -246,28 +308,113 @@ static void video_world_begin(Gpu& g, std::uint32_t cw, std::uint32_t ch, WGPUTe
         g_vgpu.mdepth = make_depth(g, e.w, e.h, video::kMsaaSamples);
         g_vgpu.mw = e.w; g_vgpu.mh = e.h;
     }
-    std::swap(static_cast<WorldPipes&>(g), g_vgpu.mpipes);
     view = g_vgpu.mview;
     depth = g_vgpu.mdepth;
     g_vgpu.msaa_on = true;
 }
-// After the world's last 3D pass: the multisampled world is resolved into the world target, which the
-// screen passes after it (FireBlur, the Mask of Eyes, ZoomBlur) read and draw on. Without MSAA: nothing.
-static void video_world_resolve(Gpu& g, WGPUTextureView& view, WGPUTextureView& depth) {
-    if (!g_vgpu.msaa_on) return;
-    g_vgpu.msaa_on = false;
-    std::swap(static_cast<WorldPipes&>(g), g_vgpu.mpipes);
+// The multisampled world into the world target. `keep`: the world goes on drawing after it.
+static void video_msaa_resolve(Gpu& g, bool keep) {
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPURenderPassColorAttachment ca = {};
     ca.view = g_vgpu.mview; ca.resolveTarget = g_vgpu.wview; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Discard;
+    ca.loadOp = WGPULoadOp_Load; ca.storeOp = keep ? WGPUStoreOp_Store : WGPUStoreOp_Discard;
     WGPURenderPassDescriptor rp = {}; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
     video_submit(g, enc);
+}
+// After the world's last 3D pass: g's own pipelines are put back, and a multisampled world is resolved into
+// the world target, which the screen passes after it (the glare, FireBlur, the Mask of Eyes, ZoomBlur) read
+// and draw on.
+static void video_world_resolve(Gpu& g, WGPUTextureView& view, WGPUTextureView& depth) {
+    if (g_vgpu.pipes_on) std::swap(static_cast<WorldPipes&>(g), g_vgpu.pipes[g_vgpu.pipes_on]);
+    g_vgpu.pipes_on = 0;
+    if (!g_vgpu.msaa_on) return;
+    g_vgpu.msaa_on = false;
+    video_msaa_resolve(g, false);
     view = g_vgpu.wview;
     depth = g_vgpu.wdepth;
+}
+
+// ---- the glare: [graphics] GlareEffectLevel (FUN_005fd750; build/render_re/SCREEN_EFFECTS.md 2) -------
+// The world target's alpha is the mask (weight 1 - alpha). After the actors' layer the frame is taken down
+// to a quarter (video_glare_grab = FUN_005fc8f0(3) after layer 6); before the screen effects the masked colour
+// is blurred into an accumulation target that is added to the world (video_glare). Level 1 and 2 differ by
+// their blur pass tables. [not modelled] level 2's specular path (*param_9, the PS11_SPTOA shaders), the
+// actors' mask quads (FUN_00475230), Darm's layer (0x7b2e70).
+// The blur pass tables [BYTES 0x5fe047..0x5fe175]: source, target (0, 1, 2 = surfaces 2, 3, 4), k.
+struct GlareStep { int src, dst, k; };
+static const GlareStep kGlareSteps[2][4] = {{{0, 1, 1}, {1, 0, 2}, {0, 2, 3}, {0, 0, 0}},
+                                            {{0, 1, 1}, {1, 0, 2}, {0, 1, 1}, {1, 2, 3}}};
+static void video_glare_grab(Gpu& g) {
+    if (!g_vgpu.world_on || g_vgpu.glare_level == 0) return;
+    const std::uint32_t qw = std::max(1u, g_vgpu.world_w / 4), qh = std::max(1u, g_vgpu.world_h / 4);   // [BYTES 0x5e3816..0x5e3838]
+    if (!g_vgpu.gview[0] || g_vgpu.gw != qw || g_vgpu.gh != qh) {
+        for (int i = 0; i < 3; ++i) {
+            if (g_vgpu.gbind[i]) wgpuBindGroupRelease(g_vgpu.gbind[i]);
+            if (g_vgpu.gview[i]) wgpuTextureViewRelease(g_vgpu.gview[i]);
+            WGPUTextureDescriptor td = {};
+            td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+            td.dimension = WGPUTextureDimension_2D; td.size = {qw, qh, 1};
+            td.format = g_vgpu.fmt; td.mipLevelCount = 1; td.sampleCount = 1;
+            WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
+            g_vgpu.gview[i] = wgpuTextureCreateView(t, nullptr);
+            wgpuTextureRelease(t);
+            g_vgpu.gbind[i] = video_bind(g, g_vgpu.gview[i], g_vgpu.linear);
+        }
+        for (int i = 0; i < 5; ++i)
+            if (!g_vgpu.gubuf[i]) {
+                WGPUBufferDescriptor bd = {}; bd.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst; bd.size = 16;
+                g_vgpu.gubuf[i] = wgpuDeviceCreateBuffer(g.device, &bd);
+            }
+        for (int lv = 0; lv < 2; ++lv)
+            for (int i = 0; i < 4; ++i) {
+                if (g_vgpu.gstep[lv][i]) wgpuBindGroupRelease(g_vgpu.gstep[lv][i]);
+                g_vgpu.gstep[lv][i] = video_bind(g, g_vgpu.gview[kGlareSteps[lv][i].src], g_vgpu.linear, g_vgpu.gubuf[i]);
+            }
+        if (g_vgpu.gfade) wgpuBindGroupRelease(g_vgpu.gfade);
+        g_vgpu.gfade = video_bind(g, g_vgpu.gview[1], g_vgpu.linear, g_vgpu.gubuf[4]);
+        g_vgpu.gw = qw; g_vgpu.gh = qh;
+        WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+        video_fullscreen_pass(g, nullptr, nullptr, g_vgpu.gview[2], enc);   // a new accumulation target is empty
+        video_submit(g, enc);
+    }
+    if (g_vgpu.msaa_on) video_msaa_resolve(g, true);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    video_fullscreen_pass(g, g_vgpu.copy, g_vgpu.wbind, g_vgpu.gview[1], enc);   // StretchRect -> surface 3 [H] linear
+    video_submit(g, enc);
+    g_vgpu.glare_grabbed = true;
+}
+// `level` = the blur gain byte L (0x7b2e39), `feedback` = F (0x7b2e38), `subtract` = 0x7b2e3a. `world` = the
+// world target's view (single-sampled: after video_world_resolve).
+static void video_glare(Gpu& g, WGPUTextureView world, int level, int feedback, bool subtract) {
+    if (!g_vgpu.glare_grabbed) return;
+    g_vgpu.glare_grabbed = false;
+    // Every pass in one submit; each blur step and the feedback quad has its own constants.
+    const int lv = g_vgpu.glare_level >= 2 ? 1 : 0, n = lv ? 4 : 3;
+    const GlareStep* st = kGlareSteps[lv];
+    for (int i = 0; i < n; ++i) {
+        const float u[4] = {float(st[i].k) * 0.5f / float(g_vgpu.gw), float(st[i].k) * 0.5f / float(g_vgpu.gh),
+                            float(std::clamp(level, 0, 255)) / 255.0f, 0};
+        wgpuQueueWriteBuffer(g.queue, g_vgpu.gubuf[i], 0, u, 16);
+    }
+    const int F = std::clamp(feedback, 0, 255);
+    const float uf[4] = {float(255 - F) / 255.0f, 0, 0, 0};
+    wgpuQueueWriteBuffer(g.queue, g_vgpu.gubuf[4], 0, uf, 16);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    // A. the bright pass: surface 3 -> surface 2
+    video_fullscreen_pass(g, g_vgpu.bright, g_vgpu.gbind[1], g_vgpu.gview[0], enc);
+    // B. the feedback (FUN_005fc990): F = 0 clears the accumulation, else it keeps F / 255 of it
+    if (F == 0) video_fullscreen_pass(g, nullptr, nullptr, g_vgpu.gview[2], enc);
+    else video_fullscreen_pass(g, g_vgpu.fade, g_vgpu.gfade, g_vgpu.gview[2], enc, true);
+    // C. the blur: surface 3 cleared, then the level's passes, each adding into its target
+    video_fullscreen_pass(g, nullptr, nullptr, g_vgpu.gview[1], enc);
+    for (int i = 0; i < n; ++i)
+        video_fullscreen_pass(g, g_vgpu.blur, g_vgpu.gstep[lv][i], g_vgpu.gview[st[i].dst], enc, true);
+    // D. the composite: the accumulation added to (or taken from) the world
+    video_fullscreen_pass(g, subtract ? g_vgpu.comp_sub : g_vgpu.comp_add, g_vgpu.gbind[2], world, enc, true);
+    video_submit(g, enc);
 }
 static void video_world_end(Gpu& g, WGPUTextureView frame_view, WGPUTextureView frame_depth,
                             WGPUTextureView& view, WGPUTextureView& depth) {
@@ -699,6 +846,16 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             persist();
         }
     }
+    {   // [graphics] GlareEffectLevel (0x76519a): video_glare
+        static const char* kGlare[] = {"Off", "Low", "High"};
+        int gl = std::clamp(int(gr.glare_effect_level), 0, 2);
+        if (ui::choice(L, "Glare", &gl, kGlare, 3,
+                       "The soft glow around lava, magic and other bright surfaces. High is the original's default; "
+                       "Low blurs it a little less; Off draws none. (Original: Glare.)")) {
+            gr.glare_effect_level = gl;
+            persist();
+        }
+    }
     {   // [game] BloodyEffectLevel (0x6d5d92): read live by the enemy hit / death ports (> 0 the blood effects
         // and red debris, > 1 the extra ones)
         static const char* kBlood[] = {"Off", "Low", "High"};
@@ -755,15 +912,15 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
     {
         static const char* const kNames[] = {"Lightest", "Light", "Normal", "High-definition"};
         static const char* const kDesc[] = {
-            "The original's Lightest preset: bilinear filtering, no anisotropic filtering, brightness 1.00, VSync on; "
-            "and, saved for the original game: low-resolution textures, other simplification, no mipmaps, no shadows, "
-            "reflections or glare.",
-            "The original's Light preset: bilinear filtering, no anisotropic filtering, brightness 1.00, VSync on; and, "
-            "saved for the original game: low shadows, reflections and glare.",
-            "The original's Normal preset: trilinear filtering, 2x anisotropic filtering, brightness 1.00, VSync on; and, "
-            "saved for the original game: full shadows, reflections and glare.",
+            "The original's Lightest preset: bilinear filtering, no anisotropic filtering, no anti-aliasing, "
+            "low-resolution textures, no mipmaps, no glare, brightness 1.00, VSync on; and, saved for the original "
+            "game: other simplification, no shadows or reflections.",
+            "The original's Light preset: bilinear filtering, no anisotropic filtering, no anti-aliasing, low glare, "
+            "brightness 1.00, VSync on; and, saved for the original game: low shadows and reflections.",
+            "The original's Normal preset: trilinear filtering, 2x anisotropic filtering, no anti-aliasing, full "
+            "glare, brightness 1.00, VSync on; and, saved for the original game: full shadows and reflections.",
             "The original's High-Definition preset: trilinear filtering, 4x anisotropic filtering, anti-aliasing, "
-            "brightness 1.00, VSync on; and, saved for the original game: full shadows, reflections and glare."};
+            "full glare, brightness 1.00, VSync on; and, saved for the original game: full shadows and reflections."};
         for (int p = 0; p < 4; ++p) {
             const std::string d = std::string(kDesc[p]) + " Every preset also turns off Stretch widescreen, Disable "
                                   "movies and Disable Mask of Eyes effect, as the original's do. The window mode and the "
@@ -797,8 +954,6 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         row("Reflections", "None",
             "Water reflections (Original: Reflections). Not available yet: CleriaCore has no reflection pass.",
             lvl(gr.water_effect_level));
-        row("Glare", "None", "Glare / bloom (Original: Glare). Not available yet: CleriaCore has no glare pass.",
-            lvl(gr.glare_effect_level));
         row("Water caustics", "None",
             "The light patterns under water (Original: Disable Water Caustics). Not available yet.",
             gr.water_caustics ? "disabled" : "enabled");
@@ -847,6 +1002,7 @@ static bool video_drive(const std::string& cmd) {
         else if (k == "EnemyHealthBars") settings().s.cleria.enemy_health_bars = std::clamp(int(x), 0, 2);   // [cleria.qol]
         else if (k == "TextureFilter") { gr.texture_filter = std::clamp(int(x), 0, 2); video_resample(); }
         else if (k == "MultiSampleType") gr.multi_sample_type = std::max(0, int(x));
+        else if (k == "GlareEffectLevel") gr.glare_effect_level = std::clamp(int(x), 0, 2);
         else if (k == "Anisotropy") { gr.anisotropy = std::clamp(int(x), 1, 16); video_resample(); }
         else if (k == "Preset") { graphics_preset(std::clamp(int(x), 0, 3), settings().s); video_resample(); video_low_res(); video_mips(); }
         else if (k == "LowResoTexture") { gr.low_reso_texture = x != 0; video_low_res(); }
@@ -869,7 +1025,7 @@ static bool video_drive(const std::string& cmd) {
         const float gv = settings().s.graphics.gamma_value;
         const int cap = vid().fps_cap;
         std::printf("  [video] world %ux%u scale %.2f gamma %.2f post %s aspect %.4f fps %d tps %d cap %d %s | looks: "
-                    "textures %d edges %d (target %s) crisp %d | sampler %s%s x%d blood %d msaa %d mips %d\n",
+                    "textures %d edges %d (target %s) crisp %d | sampler %s%s x%d blood %d msaa %d mips %d glare %d\n",
                     g_vgpu.world_w, g_vgpu.world_h, double(vid().render_scale), double(gv),
                     g_vgpu.copy_ok && !video::gamma_is_identity(gv) ? "on" : "off",
                     double(video_aspect(g_vgpu.world_w, g_vgpu.world_h)), g_vstats.fps, g_vstats.tps, cap,
@@ -877,7 +1033,7 @@ static bool video_drive(const std::string& cmd) {
                     int(g_world_mips == 2), int(vid().smooth_edges), g_vgpu.wtex ? "on" : "off", int(g_sprite_point),
                     g_world_sampler.linear ? "linear" : "point", g_world_sampler.mip_linear ? "+mip" : "",
                     int(g_world_sampler.anisotropy), int(settings().s.game.bloody_effect_level),
-                    video::msaa_samples(settings().s.graphics.multi_sample_type), g_world_mips);
+                    video::msaa_samples(settings().s.graphics.multi_sample_type), g_world_mips, g_vgpu.glare_level);
         if (g_low_res_textures) std::printf("  [video] low-resolution textures on\n");
         return true;
     }

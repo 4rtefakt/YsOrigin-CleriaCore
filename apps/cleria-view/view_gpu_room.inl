@@ -36,6 +36,8 @@ struct WorldPipes {
     WGPURenderPipeline zpre_pipe{};       // FUN_005f8de0's depth pre-pass (material_zprepass)
     // The same three with D3DCULL_CCW, for a material without flags 0x400 (material_cull).
     WGPURenderPipeline cull_pipeline{}, cull_mat_pipe[4][2]{}, cull_zpre_pipe{};
+    // Only in a set built with `mask` (the glare is on): an opaque material with a glare amount (draw()).
+    WGPURenderPipeline glare_pipe{}, cull_glare_pipe{};
 };
 
 // Persistent GPU objects (survive room changes).
@@ -294,19 +296,21 @@ static WGPUBindGroup tex_bindgroup(Gpu& g, WGPUTextureView view, WGPUSampler sam
 //     alpha is initialised to 1.0 by FUN_005f4420); the runtime model alpha reaches the blended
 //     subsets through apply_object_alpha, its mode switch is [not modelled].
 //   mode = d3, then if mode < 2: mode = (a < 1 || flags & 0x10) ? 1 : 0.
-//   (int)(d13 * a) >= 1, or flags & 0x40000, with a == 1 -> mode 0 (an alpha-test cutout)
-//     [H: that override is gated by DAT_0076519a != 0, a capability byte never seen written].
+//   (int)(d13 * a) >= 1 (d13 = the material's glare amount), or flags & 0x40000, with a == 1 -> mode 0, its
+//     alpha the glare mask -- only while GlareEffectLevel (DAT_0076519a) != 0 [EXPORT 005f92b0.c:571-585]:
+//     g_glare_cfg, retail's default 2 unless the Video page says otherwise (view_video.inl).
 // So an artist's 0.999 diffuse alpha (the s10step shadows) is how a mesh asks to be blended.
 // `a` is the per-draw alpha. A scene object passes d7 (FUN_005faca0 folds it in); an EFTMESH
 // particle draws with FUN_005fafc0(0, -1), whose subsets take node x model alpha instead
 // (FUN_005fb0e0 0x5fb202..0x5fb216), the model alpha being the particle's track alpha.
+static int g_glare_cfg = 2;
 static int material_blend_mode(const DrawBatch& b, float a) {
     int mode = int(b.blend);
     if (mode > 3) mode = 0;                       // only 0..3 occur (MATERIAL.md §4)
     if (mode >= 2) return mode;
     const int cut = int(float(b.alpha_ref) * a);  // local_6c
     if ((cut != 0 || (b.mat_flags & 0x40000)) && a < 1.0f) return 1;
-    if (cut >= 1 || (b.mat_flags & 0x40000)) return 0;
+    if (g_glare_cfg != 0 && (cut >= 1 || (b.mat_flags & 0x40000))) return 0;
     return (a < 1.0f || (b.mat_flags & 0x10)) ? 1 : 0;
 }
 static int material_blend_mode(const DrawBatch& b) { return material_blend_mode(b, b.mat_alpha); }
@@ -931,8 +935,14 @@ static void make_world_samplers(Gpu& g) {
 }
 
 // `samples` > 1: only the pipelines, for a multisampled target, with the layouts of the first call.
-static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t samples = 1) {
+// `mask`: the set the world draws with while the glare is on -- the target's alpha is the glare mask
+// (SCREEN_EFFECTS.md 2.3): the opaque pipelines write it (fs_mask), every blended one writes RGB only
+// (COLORWRITEENABLE 7 for a preset without the bits 0x400000 / 0x800000 [EXPORT 005eb5b0.c:32-38]; the
+// sprite body's preset 0x24f51 has neither [EXPORT 00474290.c:113]).
+static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t samples = 1, bool mask = false) {
     const bool first = !g.tex_layout;
+    const WGPUColorWriteMask blended_mask =
+        mask ? WGPUColorWriteMask_Red | WGPUColorWriteMask_Green | WGPUColorWriteMask_Blue : WGPUColorWriteMask_All;
     WGPUShaderSourceWGSL wgsl = {};
     wgsl.chain.sType = WGPUSType_ShaderSourceWGSL; wgsl.code = sv(kWGSL);
     WGPUShaderModuleDescriptor smd = {}; smd.nextInChain = &wgsl.chain;
@@ -976,7 +986,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
     WGPUColorTargetState target = {};
     target.format = color; target.blend = &blend; target.writeMask = WGPUColorWriteMask_All;
     WGPUFragmentState fs = {};
-    fs.module = sm; fs.entryPoint = sv("fs"); fs.targetCount = 1; fs.targets = &target;
+    fs.module = sm; fs.entryPoint = sv(mask ? "fs_mask" : "fs"); fs.targetCount = 1; fs.targets = &target;
 
     WGPUDepthStencilState ds = {};
     ds.format = WGPUTextureFormat_Depth24Plus;
@@ -1002,7 +1012,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
                     WGPUBlendFactor_OneMinusSrcAlpha};
     cblend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One,
                     WGPUBlendFactor_OneMinusSrcAlpha};
-    WGPUColorTargetState ctarget = target; ctarget.blend = &cblend;
+    WGPUColorTargetState ctarget = target; ctarget.blend = &cblend; ctarget.writeMask = blended_mask;
     WGPUFragmentState cfs = fs; cfs.entryPoint = sv("fs_char"); cfs.targets = &ctarget;
     // An upright billboard's lower half sits at nearly the floor's depth where it stands,
     // so it Z-FIGHTS the floor (the "bottom half disappears" the sprite showed). A
@@ -1080,6 +1090,16 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
         WGPURenderPipelineDescriptor kpd = pd;
         kpd.primitive.frontFace = WGPUFrontFace_CW; kpd.primitive.cullMode = WGPUCullMode_Back;
         g.cull_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &kpd);
+        if (mask) {   // a glare amount: alpha = the blend constant (the fragment's alpha is 1)
+            WGPUBlendState gb = blend;
+            gb.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_Constant, WGPUBlendFactor_Zero};
+            WGPUColorTargetState gt = target; gt.blend = &gb;
+            WGPUFragmentState gfs = fs; gfs.targets = &gt; gfs.entryPoint = sv("fs");
+            WGPURenderPipelineDescriptor gpd = pd; gpd.fragment = &gfs;
+            g.glare_pipe = wgpuDeviceCreateRenderPipeline(g.device, &gpd);
+            gpd.primitive.frontFace = WGPUFrontFace_CW; gpd.primitive.cullMode = WGPUCullMode_Back;
+            g.cull_glare_pipe = wgpuDeviceCreateRenderPipeline(g.device, &gpd);
+        }
     }
 
     if (first) {
@@ -1105,7 +1125,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
         ab.color = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_One};
         ab.alpha = ab.color;
         WGPUColorTargetState at = {};
-        at.format = color; at.blend = &ab; at.writeMask = WGPUColorWriteMask_All;
+        at.format = color; at.blend = &ab; at.writeMask = blended_mask;
         WGPUFragmentState afs = {};
         afs.module = fm; afs.entryPoint = sv("fs"); afs.targetCount = 1; afs.targets = &at;
         WGPUDepthStencilState ads = ds;
@@ -1261,9 +1281,14 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
                 wgpuRenderPassEncoderSetPipeline(pass, cull ? g.cull_zpre_pipe : g.zpre_pipe);
                 wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
             }
+            const int glare = g.glare_pipe ? int(float(b.alpha_ref) * b.mat_alpha * ka) : 0;   // g (a >= 1 here)
             if (blended)
                 wgpuRenderPassEncoderSetPipeline(pass, (cull ? g.cull_mat_pipe : g.mat_pipe)[mode][material_zwrite(b) ? 1 : 0]);
-            else
+            else if (glare >= 1) {
+                const WGPUColor k = {0, 0, 0, double(std::max(0x100 - glare, 2)) / 255.0};
+                wgpuRenderPassEncoderSetBlendConstant(pass, &k);
+                wgpuRenderPassEncoderSetPipeline(pass, cull ? g.cull_glare_pipe : g.glare_pipe);
+            } else
                 wgpuRenderPassEncoderSetPipeline(pass, cull ? g.cull_pipeline : g.pipeline);
             wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
         }

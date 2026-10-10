@@ -34,7 +34,7 @@ apply. Each "yes" / "next area" was checked in a running session (§9).
 | Shadows (1180) | `ShadowEffectLevel` | (b) | **no switch**: none of the three things the level controls is drawn yet (§6, issue #86) | — |
 | Reflections (1190) | `WaterEffectLevel` | (b) | **no switch**: no reflection / refraction pass exists (§12, issues #9, #12) | — |
 | Blood (1170) | `[game] BloodyEffectLevel` | (b) | **done**: Video > Blood (Off / Low / High). The enemy hit / death ports already read the key (`> 0` the blood effects and red debris, `> 1` the extra ones); only the row was missing | yes |
-| Glare (1171) | `GlareEffectLevel` | (b) | stays "Not available yet" (issue #82) | — |
+| Glare (1171) | `GlareEffectLevel` | (b) | **done** as far as the level-1 mask rules go: Video > Glare (Off / Low / High), each level with its own blur table (SCREEN_EFFECTS.md §2.5). [H] level 2's specular highlights and [not modelled] the actors' glow are open (issue #82) | yes |
 | Hardware Vertex Shader (1101) | `ForceSoftwareVP` | n/a | **not applicable**: a D3D9 device-creation flag | — |
 | Pixel Shader (1105) | `DisablePixelShader` | n/a | **not applicable**: D3D9's fixed-function fallback; CleriaCore's renderer is shaders only | — |
 | Compressed Textures (1110) | `CompressedTexture` | (b) | **not applicable**: a D3D9 loader variant (convert to DXT at load to save video memory); CleriaCore uploads each DDS as stored | — |

@@ -250,7 +250,7 @@ auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
         for (const auto& p : fxsim.particles()) { p->dead = true; p->hit.armed = false; p->collide = false; }
         std::printf("  [boss07] t%llu every particle removed\n", (unsigned long long)tick_count);
     }
-    if (out.glare) csHost.glare = int(*out.glare);         // byte 0x7b2e38 [not modelled] no reader
+    if (out.glare) csHost.glare_fb = int(*out.glare);      // byte 0x7b2e38: the glare's feedback (video_glare)
     if (out.hp_bar) { hud.set_boss_gauge(-11, out.hp_bar->hp, out.hp_bar->max_hp, boss07::kBarLen, boss07::kEmblem); gauge_owner = 0; }
     if (out.exp) {                                         // FUN_004fa4a0(&D+0x94) [H] b0 as boss01..05
         const int lv = eex.bosses.size() > 6 ? eex.bosses[6].level : 49;

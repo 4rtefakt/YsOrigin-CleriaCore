@@ -2897,7 +2897,8 @@ title_again:
         std::function<void(int, int)> se_stop_fn;
         std::function<void(int, int, float, float, float, float, int, const std::string&)> locate_chr_fx;
         std::function<void(const std::string&, float, int)> fx_alpha_fn;
-        int glare = 0;
+        int glare = 0x38;        // 0x76c1c5 -> 0x7b2e39: the glare's blur gain L (56 at the scene reset [BYTES 0x442f8f])
+        int glare_fb = 0;        // 0x7b2e38: the glare's feedback F (Dalles's wing)
         void se_stop(int id, int ms) override { if (se_stop_fn) se_stop_fn(id, ms); }
         void locate_effect_chr(int eff, int id, float dist, float deg, float dy, float scale, int mode,
                                const std::string& n) override {
@@ -3245,6 +3246,7 @@ title_again:
         // ... and sets the scene light back to (1, 1, 1) [EXPORT 00431260.c:113-133]; the room's SNF block then
         // gives its colour (Room::snf_light), the root script's Light_Directional after it.
         csHost.light_rgb = room.snf_light;
+        csHost.glare = 0x38; csHost.glare_fb = 0;        // FUN_00442dd0: word [0x7b2e39] = 0x0038, [0x7b2e38] = 0
         fog_script_reset();                              // a new room: no script-selected fog record
         csHost.box_active = false; csHost.advance = false;
         camera_return();                            // no forced camera carries across rooms
@@ -4652,7 +4654,7 @@ title_again:
                             pl ? feet.x : a->pos.x, pl ? feet.y : a->pos.y, pl ? feet.z : a->pos.z);
             }
         } else if (cmd == "fx") {                      // the named (script-placed) effects, the glare byte
-            std::printf("  [fx] glare %d\n", csHost.glare);
+            std::printf("  [fx] glare %d feedback %d\n", csHost.glare, csHost.glare_fb);
             for (const auto& f : fxsim.effects())
                 if (!f->name.empty() && !f->dead)
                     std::printf("  [fx] '%s' id %d alpha %.3f -> %.3f attach %d at (%.2f, %.2f, %.2f)%s\n", f->name.c_str(),
@@ -9237,6 +9239,7 @@ title_again:
         }
         prof("draw:enemies");
         draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
+        video_glare_grab(g);                             // after layer 6: the glare's source (view_video.inl)
         prof("draw:room2+flames");
         draw(g, room, view, depth, 2);   // layer 0xb (the water surfaces) after the actors' layers 6/8/9
         fx_time += dt;
@@ -9271,6 +9274,7 @@ title_again:
             }
         }
         video_world_resolve(g, view, depth);                      // MSAA: the world into its target (view_video.inl)
+        video_glare(g, view, csHost.glare, csHost.glare_fb, false);   // FUN_005fed30 (a): the glare, before FireBlur
         draw_fireblur(g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr), view,
                       video_world_w(cw), video_world_h(ch), cw, ch);   // FireBlur after layer 14 (view_weather.inl)
         draw_mask_of_eyes(g, mask_of_eyes_on(inv), g_vgpu.world_on ? g_vgpu.wtex : (g_vgpu.copy_ok ? st.texture : nullptr),
