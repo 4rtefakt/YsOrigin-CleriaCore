@@ -541,6 +541,25 @@ const char* launcher_backdrop(std::string_view scene) {
     return "S_0002";                 // the prologue's Roda tree
 }
 
+void graphics_preset(int p, Settings& s) {
+    auto& gr = s.graphics;
+    gr.texture_filter = p >= 2 ? 2 : 1;                  // trilinear with the mip caps (Normal / HD), else bilinear
+    gr.anisotropy = p == 3 ? 16 : p == 2 ? 2 : 1;        // Normal: min(caps, 2); HD: FUN_005d50f0 = a min of two values, [H] 16
+    gr.multi_sample_type = p == 3 ? 2 : 0;               // HD: the first available count >= 2
+    gr.mipmap = p == 0 ? 0 : 1;
+    gr.gamma_value = 1.0f;
+    gr.wait_vsync = 1;
+    gr.triple_buffer = 0;
+    gr.back_buffer_format32 = p == 0 ? 0 : 1;
+    gr.compressed_texture = p == 3 ? 0 : 1;              // per caps; High-Definition clears it
+    gr.low_reso_texture = p == 0 ? 1 : 0;
+    gr.other_light_weight_mode = p == 0 ? 1 : 0;
+    gr.shadow_effect_level = gr.water_effect_level = p == 0 ? 0 : p == 1 ? 1 : 2;
+    gr.glare_effect_level = p == 0 ? 0 : p == 1 ? 1 : 2;
+    if (p < 2) s.kernel.high_reso_text = 0;              // Light / Lightest clear it; the others leave it
+    s.cleria.vsync = true;                               // CleriaCore's own VSync follows WaitVSync
+}
+
 input::Config mapper_config(const Settings& s, bool book_mode) {
     input::Config c;
     c.assign = s.input.assign;

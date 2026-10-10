@@ -175,6 +175,49 @@ int main() {
               "...but Language, PadAnalog (the mapper copy) and the volumes are read");
     }
 
+    // ---- config.exe parity (CONFIG_PARITY.md): the presets, and the keys the shell's new rows write ----
+    {
+        Settings n; n.graphics.gamma_value = 1.6f; n.graphics.windowed = 1; n.graphics.back_buffer_width = 1920;
+        n.graphics.stretch_aspect = 1; n.cleria.vsync = false;
+        graphics_preset(2, n);
+        check(n.graphics.texture_filter == 2 && n.graphics.anisotropy == 2 && n.graphics.multi_sample_type == 0 &&
+              n.graphics.mipmap == 1 && n.graphics.gamma_value == 1.0f && n.graphics.wait_vsync == 1 && n.cleria.vsync &&
+              n.graphics.shadow_effect_level == 2 && n.graphics.water_effect_level == 2 && n.graphics.glare_effect_level == 2 &&
+              n.graphics.low_reso_texture == 0 && n.kernel.high_reso_text == 1,
+              "preset Normal: trilinear, 2x, no MSAA, mipmaps, gamma 1, VSync, effects 2 (FUN_005d3640)");
+        check(n.graphics.windowed == 1 && n.graphics.back_buffer_width == 1920 && n.graphics.stretch_aspect == 1,
+              "a preset leaves the window mode, the resolution and Stretch widescreen alone [H]");
+        Settings h; graphics_preset(3, h);
+        check(h.graphics.texture_filter == 2 && h.graphics.anisotropy == 16 && h.graphics.multi_sample_type == 2 &&
+              h.graphics.compressed_texture == 0 && h.graphics.glare_effect_level == 2,
+              "preset High-Definition: trilinear, 16x, MSAA 2, no compressed textures (FUN_00411f50)");
+        Settings l; graphics_preset(1, l);
+        check(l.graphics.texture_filter == 1 && l.graphics.anisotropy == 1 && l.graphics.shadow_effect_level == 1 &&
+              l.graphics.water_effect_level == 1 && l.graphics.glare_effect_level == 1 && l.graphics.low_reso_texture == 0 &&
+              l.graphics.back_buffer_format32 == 1 && l.kernel.high_reso_text == 0,
+              "preset Light: bilinear, 1x, effects 1, 32-bit, HighResoText 0 (FUN_005d3900)");
+        Settings z; graphics_preset(0, z);
+        check(z.graphics.texture_filter == 1 && z.graphics.low_reso_texture == 1 && z.graphics.other_light_weight_mode == 1 &&
+              z.graphics.mipmap == 0 && z.graphics.shadow_effect_level == 0 && z.graphics.water_effect_level == 0 &&
+              z.graphics.glare_effect_level == 0 && z.graphics.back_buffer_format32 == 0 && z.kernel.high_reso_text == 0,
+              "preset Lightest: low-res textures, simplification, no mipmaps, effects 0, 16-bit (FUN_004192c0 0x3f5)");
+        // the rows added to the shell write these retail keys, in yso_win.ini
+        Settings e; e.sound.play_bgm = 0; e.sound.play_effect = 0; e.sound.device = 2; e.game.language = 3;
+        e.game.bloody_effect_level = 0; e.input.mouse_button_always_ok_cancel = 0; e.input.dash_control = 0;
+        e.input.atk_btn_magic = 1; e.graphics.wait_vsync = 1;
+        Ini w; write_retail(w, e);
+        Settings r; read_retail(w, r);
+        check(r.sound.play_bgm == 0 && r.sound.play_effect == 0 && r.sound.device == 2 && r.game.language == 3 &&
+              r.game.bloody_effect_level == 0 && r.input.mouse_button_always_ok_cancel == 0 && r.input.dash_control == 0 &&
+              r.input.atk_btn_magic == 1 && r.graphics.wait_vsync == 1,
+              "PlayBgm / PlayEffect / Device / Language / Blood / mouse OK-Cancel / DashControl / AtkBtnMagic / WaitVSync round-trip");
+        check(mapper_config(e).mouse_ok_cancel == false && mapper_config(Settings{}).mouse_ok_cancel == true,
+              "MouseButtonAlwaysOkCancel reaches the mapper (default on)");
+        check(Settings{}.sound.play_bgm == 1 && Settings{}.sound.play_effect == 1 && Settings{}.sound.device == 0 &&
+              Settings{}.game.language == 1 && Settings{}.game.bloody_effect_level == 2 && Settings{}.input.dash_control == 1 &&
+              Settings{}.input.atk_btn_magic == 0, "their defaults are the game's");
+    }
+
     // ---- cleria.ini ----
     {
         Settings s;
