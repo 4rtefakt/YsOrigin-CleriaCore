@@ -1057,6 +1057,15 @@ CASES.update({
               ";".join("%d:near=17;%d:atk;%d:pickups" % (t, t + 1, t + 20) for t in range(20, 120, 25)) + ";130:quit",
         # ... and each hit for 1 or more raises FUN_004fab40's five puffs in the cast's colour first (20 draws).
         expect=["hit: 5 puffs at", "size 0.300, 20 draws", "[debris] t", "5 pieces", "30 draws", "[pickup] debris id"]),
+    # [cleria.qol] EnemyHealthBars (CleriaCore's own, not retail; src/cleria/enemybar.hpp), mode 1 "After a hit": the
+    # first hit on a Riffligan turns its bar on, the second (t52) restarts it, and 120 + 255 steps later it has faded.
+    # Mode 0 (the default) prints nothing and draws nothing: every other case runs with it.
+    "enemy_bars": dict(
+        room="S_10/S_1002/S_1002", env={"CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="5:vopt=EnemyHealthBars=1;8:opt=DamageDealt=0.3;10:opt=DamageTaken=0;20:near=17;21:atk;45:near=17;46:atk;"
+              "440:quit",
+        expect=["[video] opt EnemyHealthBars=1", "[ebar] t27 bar on #17 (cast 17): 73 / 74", "[ebar] t427 bar off #17 (faded)"],
+        count={"[ebar] ": 2}),
     # build/mech_re/GOXX_PARTICLES.md §3.1 (FUN_00584550, the dust puffs). The foot dust: anime_FootSmoke leaves the
     # bit +0x3c0 & 1, FUN_0045c490 takes it on the ground and throws five puffs (20 draws), then waits 5 ticks —
     # Yunica's dash 0x10a (flag 181 + a held button) raises one every 6th tick.

@@ -109,6 +109,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     if (!flames.init(g, asset_root))
         std::fprintf(stderr, "flames: NAGA01.DDS failed to load\n");
     ShadowFx shadows;                    // floor shadow decals under characters
+    EnemyBars enemy_bars;                // the optional bars over ordinary enemies (CleriaCore's own; enemybar.hpp)
     std::vector<Emotion> emotions;       // op 0x148's GoEmotion bubbles (pool 3)
     SpriteTex emotion_tex;               // IMAGE/EMOTION.DDS, 8 x 4 cells of 32 x 32
     {
@@ -282,6 +283,17 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                        "Lets you pick Toal on a New Game right away. In the original he becomes available only "
                        "after you have cleared the game with Yunica or Hugo."))
                 persist();
+            {   // CleriaCore's own, not in the original (src/cleria/enemybar.hpp)
+                static const char* const kBars[3] = {"Off", "After a hit", "Always"};
+                int eb = std::clamp(int(settings().s.cleria.enemy_health_bars), 0, 2);
+                if (ui::choice(L, "Health bars over enemies", &eb, kBars, 3,
+                               "Shows a small health bar over ordinary enemies, like the ones over a boss's minions. "
+                               "After a hit: the bar appears when an enemy takes damage, then fades. Always: over every "
+                               "enemy on screen. A CleriaCore extra: the original has no such bars (Off).")) {
+                    settings().s.cleria.enemy_health_bars = eb;
+                    persist();
+                }
+            }
             if (ui::toggle(L, "Unlock movie skipping", &settings().s.cleria.unlock_movie_skip,
                        "Lets you skip the prologue and opening movies at any time. In the original they become "
                        "skippable only after you have cleared the game once."))
@@ -6007,6 +6019,31 @@ title_again:
             was[gi] = wg.timer;
         }
         tick_world_gauges(hud.gauge);
+        {   // The optional bars over ordinary enemies: CleriaCore's own, NOT retail ([cleria.qol] EnemyHealthBars,
+            // src/cleria/enemybar.hpp). Read-only on the world; held (and not drawn) while a Fix freezes it.
+            // Who gets one: a living enemy actor that can be hit and is not faded out — never the player, an NPC /
+            // puppet / Hugo's eyes (not enemy-kind), nor the actor the boss gauge is showing. Brain-driven bosses and
+            // their parts (the retail mini gauges' owners) are not actors, so they never get a second bar.
+            const int ebm = std::clamp(int(settings().s.cleria.enemy_health_bars), 0, 2);
+            if (ebm == 0) enemy_bars.clear();
+            else if (!csMgr.world_frozen()) {
+                enemy_bars.begin();
+                for (const Actor& a : world.actors()) {
+                    if (a.is_player() || !a.is_enemy() || !a.alive() || !a.ai.hittable || a.ai.alpha <= 0.0f) continue;
+                    if (hud.boss_frac >= 0.0f && hud.boss_id == a.instance_id) continue;
+                    // [approx: CleriaCore's own] the bar hangs over the actor's feet + its collision height (+0x324)
+                    const Vec3 top{a.pos.x, a.pos.y + a.height, a.pos.z};
+                    const float dx = a.pos.x - feet.x, dy = a.pos.y - feet.y, dz = a.pos.z - feet.z;
+                    if (enemy_bars.see(a.instance_id, a.hp, a.max_hp, top, dx * dx + dy * dy + dz * dz) == EnemyBars::kOn)
+                        std::printf("  [ebar] t%llu bar on #%d (cast %d): %g / %g\n", (unsigned long long)tick_count,
+                                    a.instance_id, a.cast_id, a.hp, a.max_hp);
+                }
+                enemy_bars.end([&](int id, EnemyBars::Event e) {
+                    std::printf("  [ebar] t%llu bar off #%d (%s)\n", (unsigned long long)tick_count, id,
+                                e == EnemyBars::kFaded ? "faded" : "gone");
+                });
+            }
+        }
         {   // FUN_004281c0: the HUD's alpha moves 0.1 per step toward 1 - the box's alpha (0 while
             // flag 185 == 0) [BYTES 0x428638..86]; the CrossFade opacity steps by its rate.
             const float box = csHost.wtext.alive() ? csHost.wtext.box_alpha() : 0.0f;
@@ -8710,6 +8747,20 @@ title_again:
             hud.gauge_px[gi] = (px / pw * 0.5f + 0.5f) * float(cw);
             hud.gauge_py[gi] = (0.5f - py / pw * 0.5f) * float(ch);
         }
+        hud.ebar_n = 0;                                    // the enemy bars' anchors (CleriaCore's own; enemybar.hpp)
+        if (const int ebm = std::clamp(int(settings().s.cleria.enemy_health_bars), 0, 2); ebm != 0 && !csMgr.world_frozen())
+            for (int i = 0; i < EnemyBars::kTrack; ++i) {
+                const std::uint8_t ea = enemy_bars.alpha(i, ebm);
+                if (ea == 0) continue;
+                const EnemyBars::Track& k = enemy_bars.t[std::size_t(i)];
+                const float* M = last_vp.m.data();
+                const float px = k.anchor.x * M[0] + k.anchor.y * M[4] + k.anchor.z * M[8] + M[12];
+                const float py = k.anchor.x * M[1] + k.anchor.y * M[5] + k.anchor.z * M[9] + M[13];
+                const float pw = k.anchor.x * M[3] + k.anchor.y * M[7] + k.anchor.z * M[11] + M[15];
+                if (pw <= 1e-4f || std::fabs(px) > pw || std::fabs(py) > pw) continue;   // behind the camera / off screen
+                hud.ebar[std::size_t(hud.ebar_n++)] = {(px / pw * 0.5f + 0.5f) * float(cw), (0.5f - py / pw * 0.5f) * float(ch),
+                                                       k.hp, k.max, ea};
+            }
         have_vp = true;
         if (scrfx_log && (csHost.light_rgb.x != light_drawn.x || csHost.light_rgb.y != light_drawn.y ||
                           csHost.light_rgb.z != light_drawn.z))

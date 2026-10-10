@@ -170,6 +170,11 @@ struct Hud {
     float gauge_px[3] = {0, 0, 0}, gauge_py[3] = {0, 0, 0};
     bool gauge_proj[3] = {false, false, false};
     void clear_world_gauges() { for (WorldGauge& wg : gauge) wg = WorldGauge{}; }   // FUN_00431840 [EXPORT 00431840.c:672-687]
+    // CleriaCore's own, NOT retail ([cleria.qol] EnemyHealthBars, src/cleria/enemybar.hpp): the bars over ordinary
+    // enemies this frame — the anchor projected to the back buffer (px), HP / max, the bar's alpha. The host fills it.
+    struct EnemyBarDraw { float px, py, hp, max; std::uint8_t a; };
+    std::array<EnemyBarDraw, EnemyBars::kDraw> ebar{};
+    int ebar_n = 0;
     // FUN_0043a540, every 60 Hz step: the lag moves toward cur by w+0x2c (0.02) x max x 0.2.
     void tick_boss_gauge() {
         if (boss_frac < 0.0f) return;
@@ -925,6 +930,15 @@ struct Hud {
             if (!world_gauge_quad(gauge[gi], gauge_px[gi] / m.sx, gauge_py[gi] / m.sy, 255, &q)) continue;
             if (!(q.x1 > q.x0)) continue;
             sprite_a(m, Ar{q.x0, q.y0, q.x1, q.y1}, Rc{q.sx, q.sy, q.sw, q.sh}, float(sw), float(sh), 255, 0, 0, q.a);
+        }
+        // The optional bars over ordinary enemies (CleriaCore's own, NOT retail; enemybar.hpp): the same cell in red,
+        // on the enemy (x / m.sx, as the mini gauges above), dimmed with the HUD below.
+        for (int i = 0; i < ebar_n; ++i) {
+            const HudMap m{sw, sh};
+            const EnemyBarDraw& e = ebar[std::size_t(i)];
+            EnemyBarQuad q;
+            if (!enemy_bar_quad(e.hp, e.max, e.px / m.sx, e.py / m.sy, &q)) continue;
+            sprite_a(m, Ar{q.x0, q.y0, q.x1, q.y1}, Rc{q.sx, q.sy, q.sw, q.sh}, float(sw), float(sh), 255, 0, 0, e.a);
         }
         if (gauge_alpha < 1.0f) {
             auto dim = [&](std::vector<HudVertex>& v, std::size_t from) {

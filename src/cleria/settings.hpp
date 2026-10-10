@@ -125,6 +125,8 @@ struct Settings {
         bool unlock_movie_skip = false;      // [cleria.qol] UnlockMovieSkip (skip a demo never seen)
         bool unlock_characters = false;      // [cleria.qol] UnlockCharacters (Toal selectable before a clear)
         bool skip_logo_movie = false;        // [cleria.qol] SkipLogoMovie (boot straight to the title)
+        std::int32_t enemy_health_bars = 0;  // [cleria.qol] EnemyHealthBars: 0 off (retail), 1 after a hit, 2 always
+                                             // (CleriaCore's own, not retail: src/cleria/enemybar.hpp)
         bool launcher_music = true;          // [cleria.shell] LauncherMusic (the title theme on CleriaCore's launcher)
         std::string launcher_room = "auto";  // [cleria.shell] LauncherRoom (the launcher's backdrop: "auto" (or empty) =
                                              // by the newest save's floor, launcher_backdrop; else a room id)

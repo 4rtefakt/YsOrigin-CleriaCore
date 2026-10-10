@@ -456,6 +456,7 @@ void read_cleria(const Ini& ini, Settings& s) {
     rb("cleria.qol", "UnlockMovieSkip", c.unlock_movie_skip);
     rb("cleria.qol", "UnlockCharacters", c.unlock_characters);
     rb("cleria.qol", "SkipLogoMovie", c.skip_logo_movie);
+    if (auto x = ini.get_int("cleria.qol", "EnemyHealthBars")) c.enemy_health_bars = *x < 0 ? 0 : (*x > 2 ? 2 : std::int32_t(*x));
     rb("cleria.shell", "LauncherMusic", c.launcher_music);
     if (auto v = ini.get_string("cleria.shell", "LauncherRoom")) c.launcher_room = *v;
     rb("cleria.video", "VSync", c.vsync);
@@ -497,6 +498,7 @@ void write_cleria(Ini& ini, const Settings& s) {
     ini.set_int("cleria.qol", "UnlockMovieSkip", c.unlock_movie_skip);
     ini.set_int("cleria.qol", "UnlockCharacters", c.unlock_characters);
     ini.set_int("cleria.qol", "SkipLogoMovie", c.skip_logo_movie);
+    ini.set_int("cleria.qol", "EnemyHealthBars", c.enemy_health_bars);
     ini.set_int("cleria.shell", "LauncherMusic", c.launcher_music);
     ini.set_string("cleria.shell", "LauncherRoom", c.launcher_room);
     ini.set_int("cleria.video", "VSync", c.vsync);

@@ -39,6 +39,7 @@
 #include "cleria/ef2.hpp"
 #include "cleria/bullet.hpp"
 #include "cleria/inventory.hpp"
+#include "cleria/enemybar.hpp"
 #include "cleria/pausebook.hpp"
 #include "cleria/pickup.hpp"
 #include "cleria/popup.hpp"

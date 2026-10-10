@@ -9,6 +9,7 @@
 #include <string>
 
 #include "cleria/settings.hpp"
+#include "cleria/enemybar.hpp"
 
 using namespace cleria;
 namespace fs = std::filesystem;
@@ -178,10 +179,42 @@ int main() {
     {
         Settings s;
         s.cleria.unlock_movie_skip = true;
+        s.cleria.enemy_health_bars = 7;                    // written as is, read back clamped to 0..2
         s.cleria.native_pad_binds = true;
         s.cleria.pad_bind[0] = "rightshoulder";
         Ini c; write_cleria(c, s);
         Settings t; read_cleria(c, t);
+        check(Settings{}.cleria.enemy_health_bars == 0 && t.cleria.enemy_health_bars == 2 && c.has("cleria.qol", "EnemyHealthBars"),
+              "[cleria.qol] EnemyHealthBars: off by default (retail), clamped to 0..2");
+        {   // the pool (src/cleria/enemybar.hpp): a hit turns a bar on, kHold + 255 steps later it is off; a kill drops it
+            EnemyBars eb; int on = 0, faded = 0, gone = 0;
+            auto ev = [&](int, EnemyBars::Event e) { (e == EnemyBars::kFaded ? faded : gone)++; };
+            auto step = [&](float hp1, bool two) {
+                eb.begin();
+                if (eb.see(1, hp1, 10, {}, 1.0f) == EnemyBars::kOn) ++on;
+                if (two && eb.see(2, 5, 5, {}, 4.0f) == EnemyBars::kOn) ++on;
+                eb.end(ev);
+            };
+            step(10, true);
+            const bool quiet = on == 0 && eb.alpha(0, 1) == 0 && eb.alpha(0, 2) == 255 && eb.alpha(1, 2) == 255;
+            step(7, true);
+            const bool hit = on == 1 && eb.alpha(0, 1) == 255 && eb.alpha(1, 1) == 0;
+            for (int i = 0; i < EnemyBars::kHold; ++i) step(7, true);
+            const bool held = eb.alpha(0, 1) == 254;
+            for (int i = 0; i < 253; ++i) step(7, true);
+            const bool last = eb.alpha(0, 1) == 1 && faded == 0;
+            step(7, true);
+            const bool off = eb.alpha(0, 1) == 0 && faded == 1;
+            step(3, true); step(3, false);                  // hit again; then enemy 2 is gone (no bar: no event)
+            const bool again = on == 2 && gone == 0;
+            eb.begin(); eb.end(ev);                         // enemy 1 killed with its bar up
+            EnemyBarQuad q;
+            const bool quad = enemy_bar_quad(5, 10, 512, 384, &q) && q.x0 == 470 && q.x1 == 512 && q.y0 == 350 && q.y1 == 362 &&
+                              q.sw == 42 && !enemy_bar_quad(0, 10, 0, 0, &q) && !enemy_bar_quad(1, 0, 0, 0, &q) &&
+                              enemy_bar_quad(20, 10, 0, 0, &q) && q.sw == 84;
+            check(quiet && hit && held && last && off && again && gone == 1 && quad,
+                  "enemy bars: on at a hit, full kHold steps, the 255-step fade, gone at the kill; the quad");
+        }
         check(t.cleria.unlock_movie_skip && t.cleria.native_pad_binds && !t.cleria.debug_hud &&
               t.cleria.pad_bind[0] == "rightshoulder" && c.has("cleria.qol", "UnlockMovieSkip") &&
               c.has("cleria.video", "DebugHud") && c.has("cleria.input", "PadBind{PAD_ACTION}"),

@@ -671,7 +671,8 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
 // ---- CLERIA_DRIVE ------------------------------------------------------------------------------------
 // vopt=Key=value: a Video setting for this run -- RenderScale, FpsCap, PerfGraph, SmoothTextures, SmoothEdges,
 // CrispSprites ([cleria.video]; CLERIA_VOPT sets them from the start) or retail's
-// GammaValue, ShowFPS, StretchAspect, DisableMovies ([graphics]). vstat: what the passes did last frame.
+// GammaValue, ShowFPS, StretchAspect, DisableMovies ([graphics]), and [cleria.qol] EnemyHealthBars (0 / 1 / 2).
+// vstat: what the passes did last frame.
 static bool video_drive(const std::string& cmd) {
     if (cmd.rfind("vopt=", 0) == 0) {
         const std::string kv = cmd.substr(5);
@@ -690,6 +691,7 @@ static bool video_drive(const std::string& cmd) {
         else if (k == "ShowFPS") gr.show_fps = std::clamp(int(x), 0, 2);
         else if (k == "StretchAspect") gr.stretch_aspect = x != 0;
         else if (k == "DisableMovies") gr.disable_movies = x != 0;
+        else if (k == "EnemyHealthBars") settings().s.cleria.enemy_health_bars = std::clamp(int(x), 0, 2);   // [cleria.qol]
         else ok = false;
         std::printf("  [video] opt %s%s\n", kv.c_str(), ok ? "" : " (unknown key)");
         return true;
