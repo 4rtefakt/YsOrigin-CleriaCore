@@ -97,6 +97,20 @@ std::string level_label(int v, int max) {
     return "Lv" + std::to_string(v + 1);
 }
 
+}  // namespace
+
+// Builder D's (the HUD's) spelling of the weapon's level: "Lv1".."Lv6", "Max" [BYTES 0x43ff9f..0x43fff7, the
+// strings 0x6994f4..0x6994c4] — the book's thresholds, without its space and its "Lv " before Max.
+std::string hud_weapon_label(int tier) {
+    const std::string s = weapon_label(tier);
+    return s == "Lv Max" ? "Max" : "Lv" + s.substr(3);
+}
+// ... and of an armor's / a footwear's: "Max" when its cell of 0x76a654 is 1, else "Lv%d" of the cell + 1
+// [BYTES 0x440059..0x440090] — the book's level_label(v, 1).
+std::string hud_gear_label(int strengthened) { return level_label(strengthened, 1); }
+
+namespace {
+
 bool usable(int id) {   // the Use list L (§6.4)
     switch (id) {
         case 0x54: case 0x55: case 0x56: case 0x59: case 0x70: case 0x5F: case 0x60: case 0x69: return true;

@@ -591,6 +591,15 @@ CASES = {
     # Item 3 (FUN_004fae00): a landed swing pops the white number on the Selnarg (FUN_004fbb40 0x4fd241),
     # the combo line's meter starts (0x76c1a8), and a hit on the player pops the red one (FUN_004fd350
     # 0x4fe120).
+    # The HUD's level badges (builder D 0x43ff97..0x440100): the weapon's by its tier ("Lv4" at tier 4, "Max" at 10),
+    # an armor's / a footwear's by its strengthened cell ("Lv1", "Max"), red for an item whose count is 0 (the footwear, last); each
+    # starts at icon x + 31 - its width (three glyphs of 9: 27).
+    "hud_lv_badges": dict(
+        room="S_10/S_1002/S_1002", lua='cleria.command("up", function(a) cleria.game.set_upgrade(tonumber(a), 1) end)\n',
+        drive="5:tier=4;6:flag=7,1;7:flag=152,7;8:flag=31,1;9:flag=153,31;10:lua=up 31;40:hudequip;"
+              "50:tier=10;51:lua=up 7;52:flag=31,0;60:hudequip;70:quit",
+        expect=["hud slot 0 badge 'Lv4' x 136", "hud slot 1 badge 'Lv1' x 176", "hud slot 2 badge 'Max' x 216",
+                "hud slot 0 badge 'Max' x 136", "hud slot 1 badge 'Max' x 176", "hud slot 2 badge 'Max' red x 216"]),
     "hud_damage_numbers": dict(
         room="S_10/S_1002/S_1002",
         drive="100:near=17;101:atk;140:hudstate;150:hurt=60;160:quit",

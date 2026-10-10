@@ -299,4 +299,9 @@ class PauseBook {
     NewGameInfo cs_result_;
 };
 
+// The level badges the HUD draws on the equipped weapon / armor / footwear (builder D FUN_0043fe00), by the
+// book's level rules: the weapon's tier 0x76a634[character] and a gear's "strengthened" cell 0x76a654[id].
+std::string hud_weapon_label(int tier);
+std::string hud_gear_label(int strengthened);
+
 }  // namespace cleria

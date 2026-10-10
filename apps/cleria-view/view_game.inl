@@ -4601,6 +4601,11 @@ title_again:
             std::printf("  [drive] arena mode %d rect (%g, %g, %g, %g) dist %.2f\n", game.g_flags[190], world.arena[0],
                         world.arena[1], world.arena[2], world.arena[3],
                         std::hypot(feet.x - world.arena[0], feet.z - world.arena[1]));
+        } else if (cmd == "hudequip") {                // the HUD's level badges (view_hud.inl) and where each starts
+            for (int k = 0; k < 3; ++k)
+                std::printf("  [drive] hud slot %d badge '%s'%s x %.0f\n", k, hud.equip_badge[k].c_str(),
+                            hud.equip_badge_red[k] ? " red" : "",
+                            132.0f + 40.0f * float(k) + 31.0f - text_width_mini(hud.equip_badge[k]));
         } else if (cmd == "hudskill") {                // the HUD's skill badge cell (view_hud.inl skill_badge_cell)
             Rc c{};
             if (skill_badge_cell(inv.magic, character, player.boosting, c))
@@ -9108,12 +9113,22 @@ title_again:
         hud.overlay_bind = cf_bind;
         hud.overlay_alpha = cf_bind ? csHost.cf_alpha : 0.0f;
         // Bind the HUD's four equipment slots (FUN_0043fe00): weapon, armor, foot (flags
-        // 151..153) and the accessory (0x76a628; 0xff = none). [not modelled] the dimming of a
-        // used-up item and the Lv badges (INVENTORY.md §7).
+        // 151..153) and the accessory (0x76a628; 0xff = none), and the level badges of the first three
+        // (pausebook.hpp hud_weapon_label / hud_gear_label). [not modelled] the dimming of a used-up item.
         {
             const int acc = (inv.accessory == 0xff) ? -1 : inv.accessory;
             const int ids[4] = {game.g_flags[151], game.g_flags[152], game.g_flags[153], acc};
             hud.set_equip(g, items_tbl, asset_root, ids);
+            std::string lab[3];
+            bool red[3] = {};
+            for (int k = 0; k < 3; ++k) {
+                const int id = ids[k];
+                if (id < 0 || id >= 128 || game.g_flags[id] < 0) continue;       // 0x43fe54..0x43fe72: no icon, no badge
+                lab[k] = k == 0 ? hud_weapon_label(inv.tier[std::clamp(character, 0, 3)])
+                                : hud_gear_label(id < 54 ? game.item_arr[id] : 0);
+                red[k] = game.g_flags[id] == 0;
+            }
+            hud.set_equip_badges(lab, red);
         }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
         // The cutscene overlay, in descending draw key (WNDDIALOG_DRAW.md §8.1: pass 15 is qsorted

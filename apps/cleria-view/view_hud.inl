@@ -148,6 +148,10 @@ struct Hud {
     std::unordered_map<int, WGPUBindGroup> icon_binds;
     WGPUBindGroup equip_bind[4] = {};
     std::vector<HudVertex> equip_verts[4];
+    // The level badges of slots 0..2 (set_equip_badges): the text, and red for an item whose count is 0.
+    std::string equip_badge[3];
+    bool equip_badge_red[3] = {};
+    std::size_t badge0 = 0;                  // where the badges' glyphs start in mini_verts (drawn over the icons)
     float boss_frac = -1.f;              // <0 = no boss gauge (DAT_006d5fd8 == 0)
     std::string boss_name;               // not drawn: the retail gauge has no text
     // Widget 3 (0x6d5fd4): +0x04 owner id, +0x30 cur, +0x34 lag, +0x38 max, +0x44 lenScale; the
@@ -307,6 +311,9 @@ struct Hud {
             }
             equip_bind[i] = it->second;
         }
+    }
+    void set_equip_badges(const std::string labels[3], const bool red[3]) {
+        for (int i = 0; i < 3; ++i) { equip_badge[i] = labels[i]; equip_badge_red[i] = red[i]; }
     }
     // Load the game's HP2 atlas (boss health bar graphics).
     void init_boss(Gpu& g, const fs::path& dds_path) {
@@ -940,6 +947,22 @@ struct Hud {
             if (!enemy_bar_quad(e.hp, e.max, e.px / m.sx, e.py / m.sy, &q)) continue;
             sprite_a(m, Ar{q.x0, q.y0, q.x1, q.y1}, Rc{q.sx, q.sy, q.sw, q.sh}, float(sw), float(sh), 255, 0, 0, e.a);
         }
+        // The level badges on the weapon / armor / footwear icons, builder D FUN_0043fe00 [BYTES 0x43ff97..0x440100]:
+        // the label measured by FUN_004530a0 (w = the glyphs' table widths, h = 14.0 [0x6bd960]) and drawn by
+        // FUN_00452f40 (the mini font, as the readouts) at x = icon x + 32.0 [0x6bd9f0] - w - 1.0 [0x6bd438],
+        // y = icon y + 34.0 [0x6bda0c] - h, the icon at (132 + 40 i, 682): the label ends on the icon's right edge
+        // and on the frame's bottom. Colour: white, 0xffff0000 for an item whose count is 0, ANDed with the HUD
+        // tint 0x74e68c ([approx] its rgb taken as white, as for every quad here; its alpha is the dim below).
+        // The accessory (slot 3) has none. The glyphs go last in the batch: they are drawn over the icons.
+        badge0 = mini_verts.size();
+        if (player)
+            for (int i = 0; i < 3; ++i) {
+                if (!equip_bind[i] || equip_badge[i].empty()) continue;
+                const HudMap m{sw, sh};
+                const std::uint8_t gb = equip_badge_red[i] ? 0 : 255;
+                mini_text(m, equip_badge[i], 132.0f + 40.0f * float(i) + 32.0f - text_width_mini(equip_badge[i]) - 1.0f,
+                          682.0f + 34.0f - 14.0f, float(sw), float(sh), 255, gb, gb);
+            }
         if (gauge_alpha < 1.0f) {
             auto dim = [&](std::vector<HudVertex>& v, std::size_t from) {
                 for (std::size_t k = from; k < v.size(); ++k) v[k].a = std::uint8_t(float(v[k].a) * gauge_alpha);
@@ -1041,10 +1064,10 @@ struct Hud {
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, (nf + ns) * sizeof(HudVertex), nb * sizeof(HudVertex));
             wgpuRenderPassEncoderDraw(pass, std::uint32_t(nb), 1, 0, 0);
         }
-        if (nm && mini_bind) {  // F_MINI (font_A readouts) batch
+        if (badge0 && mini_bind) {  // F_MINI (font_A readouts) batch; the level badges come after the icons
             wgpuRenderPassEncoderSetBindGroup(pass, 0, mini_bind, 0, nullptr);
-            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, (nf + ns + nb) * sizeof(HudVertex), nm * sizeof(HudVertex));
-            wgpuRenderPassEncoderDraw(pass, std::uint32_t(nm), 1, 0, 0);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, (nf + ns + nb) * sizeof(HudVertex), badge0 * sizeof(HudVertex));
+            wgpuRenderPassEncoderDraw(pass, std::uint32_t(badge0), 1, 0, 0);
         }
         {   // equipped-item icons: one draw per occupied slot (its own DDS bind group)
             std::size_t off = (nf + ns + nb + nm) * sizeof(HudVertex);
@@ -1057,6 +1080,12 @@ struct Hud {
                 }
                 off += n * sizeof(HudVertex);
             }
+        }
+        if (nm > badge0 && mini_bind) {  // the level badges, over the icons
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, mini_bind, 0, nullptr);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbuf, (nf + ns + nb + badge0) * sizeof(HudVertex),
+                                                 (nm - badge0) * sizeof(HudVertex));
+            wgpuRenderPassEncoderDraw(pass, std::uint32_t(nm - badge0), 1, 0, 0);
         }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
