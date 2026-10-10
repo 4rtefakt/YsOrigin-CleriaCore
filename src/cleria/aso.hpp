@@ -237,6 +237,12 @@ class AsoVm {
     };
     const SpecularEvent* specular() const { return specular_set_ ? &specular_ : nullptr; }
 
+    // anime_CameraDistanceOffset (funcid 0x0f, `f`; ASO_NOOPS.md §2 [BYTES 0x447635..0x447640]): vm+0xd8, added to
+    // the AIA region's bill[0] by FUN_00446000 — the sprite quad is drawn that many world units nearer the eye
+    // along the eye -> feet ray (a depth bias; the camera does not read it). STATE: 0 from a section's first tick
+    // until the script sets it (the VM zeroes vm+0xcc..+0x10b at pc 0).
+    float sprite_depth_offset() const { return depth_offset_; }
+
     // anime_GenerateDebris (funcid 0x26, varargs; ASO_NOOPS.md §3.1 [BYTES 0x447980..0x447a39]): a0 the count,
     // a1 spin, a2 never expires, a3 static, a4..a6 not read, a7.. the bag of debris ids (argc - 7 of them).
     // The host resolves the colour and the reviver gate from the cast and calls the spawner (pickup.hpp).
@@ -397,6 +403,7 @@ private:
     bool jumped_ = false, dashed_ = false, own_jump_ = false;
     float jump_v_ = 0, dash_d_ = 0;
     float smode_ = 0;
+    float depth_offset_ = 0;         // vm+0xd8
     bool hitbox_armed_ = false;
     Hitbox hitbox_;
     static constexpr std::size_t kMaxSoundsPerTick = 8;   // a script never issues near this many

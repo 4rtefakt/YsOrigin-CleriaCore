@@ -311,6 +311,11 @@ bool AsoVm::step(std::size_t& pc) {
         }
         case kAttackReserve: atk_reserve_ = (ai(0) != 0); break;
         case 0x14: atk_break_ = (ai(0) != 0); break;       // anime_AttackBreak: byte vm+0xe5 [BYTES 0x4476fb]
+        case 0x0f: {                                       // anime_CameraDistanceOffset: vm+0xd8 = the raw float
+            const std::uint32_t raw = std::uint32_t(ai(0));
+            std::memcpy(&depth_offset_, &raw, 4);
+            break;
+        }
         case 0x1f: {                                       // anime_ChangeSpecular [BYTES 0x447887..0x4478e7]
             auto af = [&](std::uint32_t i) {
                 float v; std::uint32_t raw = std::uint32_t(ai(i));
@@ -445,6 +450,7 @@ void AsoVm::reset_section_regs() {
     // they need (C_010's locomotion sections start with Actable/Movable/Turnable(1)).
     marker_ = 0;
     marker_wait_ = -1;
+    depth_offset_ = 0.0f;                         // vm+0xd8
     for (int n = 0; n < 8; ++n) locals_[n] = 0;   // obj[0x3b..0x42]
     movable_ = 0.0f;
     turnable_ = actable_ = jump_enable_ = false;

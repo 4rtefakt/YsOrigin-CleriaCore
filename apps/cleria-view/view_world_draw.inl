@@ -399,7 +399,8 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                        float(tc & 0xff) / 255.0f * g_scene_light.z, false, e.actor->ai.alpha * e.actor->tint_alpha,
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,     // Chr_Tremble
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale,
-                       e.actor->hit_flash != 0.0f ? hitfx::kHurtSpecular : e.spec.colour());
+                       e.actor->hit_flash != 0.0f ? hitfx::kHurtSpecular : e.spec.colour(),
+                       e.avm.ok() ? e.avm.sprite_depth_offset() : 0.0f);                  // anime_CameraDistanceOffset
         // Event-bound (group-1..4) enemies GLOW their marker colour (FUN_00473c60 [BYTES 0x473ec8..f87],
         // BARRIER_OBJECTS.md §1a): A = marker alpha * |sin(2 pi phase / 255)|, no floor, the phase
         // stepped in the actor tick (so it holds still under a Fix). [H] the composition: the
@@ -415,7 +416,8 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                 draw_character(g, color, depth, e.actor->pos, k.height * e.actor->scale, *t, camFwd, camPos,
                                0.0f, mr * I, mg * I, mb * I, /*additive*/true, e.actor->ai.alpha,
                                tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,
-                               tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale);
+                               tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale, 0,
+                               e.avm.ok() ? e.avm.sprite_depth_offset() : 0.0f);
         }
     }
 }

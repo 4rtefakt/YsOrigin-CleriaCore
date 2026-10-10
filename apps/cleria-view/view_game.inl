@@ -8731,7 +8731,8 @@ title_again:
                                0.0f, g_scene_light.x, g_scene_light.y, g_scene_light.z, false, palpha,   // diffuse x the scene light
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,   // Chr_Tremble(13)
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f,
-                               wpl ? wpl->scale : 1.0f, player_spec.colour());   // +0x14c from the tint struct +0x260
+                               wpl ? wpl->scale : 1.0f, player_spec.colour(),    // +0x14c from the tint struct +0x260
+                               avm.sprite_depth_offset());                       // anime_CameraDistanceOffset
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());

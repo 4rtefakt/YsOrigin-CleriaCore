@@ -359,6 +359,25 @@ int main(int argc, char** argv) {
             vm.set_section(2, /*force*/true); vm.tick();
             say(was && !vm.attack_break(), "AttackBreak C_990 sec0x116: on within 12 ticks; a new section clears vm+0xe5");
         }
+        // anime_CameraDistanceOffset (0x0f) — ASO_NOOPS.md §2.3: 0.3 in nearly every section of C_010, none in
+        // section 3; Hugo's death goes 0 -> 0.45 -> 0.65. A new section starts at 0 again.
+        {
+            Aso c10 = Aso::load(fs::path(argv[1]) / "ANI" / "C_010.ASO"), c20 = Aso::load(fs::path(argv[1]) / "ANI" / "C_020.ASO");
+            AsoVm vm; vm.bind(&c10); vm.set_section(2, /*force*/true);
+            vm.tick();
+            const float s2 = vm.sprite_depth_offset();
+            vm.set_section(3, /*force*/true);
+            float s3 = 0.0f;
+            for (int t = 0; t < 10; ++t) { vm.tick(); s3 = std::max(s3, vm.sprite_depth_offset()); }
+            say(c10.ok() && s2 == 0.3f && s3 == 0.0f, "CameraDistanceOffset C_010: section 2 = 0.3 on its first tick, section 3 stays 0");
+            AsoVm vh; vh.bind(&c20); vh.set_section(5, /*force*/true);
+            std::vector<float> seen;
+            for (int t = 0; t < 120; ++t) {
+                vh.tick();
+                if (seen.empty() || seen.back() != vh.sprite_depth_offset()) seen.push_back(vh.sprite_depth_offset());
+            }
+            say(c20.ok() && seen == std::vector<float>{0.0f, 0.45f, 0.65f}, "CameraDistanceOffset C_020 section 5: 0 -> 0.45 -> 0.65");
+        }
         // anime_GenerateDebris (0x26) — ASO_NOOPS.md §3.3: the death section's op.
         auto debris_of = [&](const char* file, int* tick) {
             AsoVm::DebrisEvent ev;

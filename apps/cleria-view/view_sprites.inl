@@ -157,7 +157,7 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                            float tr = 1.0f, float tg = 1.0f, float tb = 1.0f,
                            bool additive = false, float opacity = 1.0f,
                            float px_dx = 0.0f, float px_dy = 0.0f, float actor_scale = 1.0f,
-                           std::uint32_t spec = 0) {
+                           std::uint32_t spec = 0, float depth_bias = 0.0f) {
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
@@ -174,9 +174,11 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     // Engine uses ~0.1 (bill[0]) PLUS an oz/pitch per-vertex depth lean; we don't model the
     // lean yet, so a slightly larger uniform nudge covers the floor at steep angles. Still
     // far under a fence's ~0.5u standoff, so occlusion stays correct. [H-med] until the lean.
+    // `depth_bias` is the script's anime_CameraDistanceOffset (AsoVm::sprite_depth_offset; ASO_NOOPS.md §2): the
+    // engine's distance is bill[0] + it. [H] it is added to the stand-in nudge until bill[0] and the lean are ported.
     constexpr float kDepthNudge = 0.2f;
-    const Vec3 base = {feet.x - ray.x * kDepthNudge, feet.y - ray.y * kDepthNudge,
-                       feet.z - ray.z * kDepthNudge};
+    const float nudge = kDepthNudge + depth_bias;
+    const Vec3 base = {feet.x - ray.x * nudge, feet.y - ray.y * nudge, feet.z - ray.z * nudge};
     // Quad extents in billboard-local units (X = along `right`, Y = world up), from feet.
     float lX, rX, tY, bY;
     if (spr.place_ok && spr.canvasW > 0) {
