@@ -66,10 +66,13 @@ MiniGlyph MiniFont::glyph(char c) const {
     g.cell_x = (idx % kPerRow) * kCellW;
     g.cell_y = (idx / kPerRow) * kCellH;
     if (c == ' ' || c == '\t') {
-        // Hardcoded in the drawer, not table-driven -- and 9, not width+1.
+        // Hardcoded in the drawer, not table-driven.
         g.advance = kSpaceAdvance;
     } else if (have_widths_ && std::size_t(idx) < widths_.size()) {
-        g.advance = widths_[std::size_t(idx)] + 1;  // the unconditional INC EAX
+        // The pen moves by the table value: the INC at 0x452ace makes the QUAD's width (table + 1), and the pen
+        // gets that width - 1.0 [BYTES 0x452e5e..0x452e7e: movss xmm0,[ebp-0x38]; subss xmm0,[0x6bd438]; addss
+        // xmm7,xmm0]. FUN_00452ff0 measures a string the same way (the sum of the table values).
+        g.advance = widths_[std::size_t(idx)];
     }
     return g;
 }

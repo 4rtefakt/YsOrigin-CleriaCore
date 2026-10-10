@@ -14,9 +14,10 @@
 //     accented-Latin set (the European localisation font)
 //
 // The font is PROPORTIONAL — barely. The advance comes from an int8 table in the exe
-// at `.data 0x0068ace0` (224 entries, ending 0x0068adc0), and the ADVANCE IS
-// `width[idx] + 1` (an unconditional `INC EAX` at 0x00452ace); the quad is drawn
-// `width+1` wide too, so glyphs stay 1:1. Default 9 => 10px inside the 12px cell.
+// at `.data 0x0068ace0` (224 entries, ending 0x0068adc0): the quad is drawn
+// `width[idx] + 1` wide (an unconditional `INC EAX` at 0x00452ace) and the PEN ADVANCES BY
+// `width[idx]` (that width - 1.0, 0x452e5e..0x452e7e; corrected 2026-10-10: it was read as
+// width + 1). Default 9 => a 10px quad inside the 12px cell, the next glyph 9 further.
 //
 // In practice it is effectively MONOSPACE: only 10 of 224 entries differ from 9 —
 // '('=8 '.'=5 ':'=8 ';'=8 'T'=8 '['=5 '_'=6 'o'=8 'p'=8 '~'=6. Note ']' is 9 while
@@ -71,7 +72,7 @@ inline constexpr std::int8_t kMiniWidths[224] = {
 class MiniFont {
   public:
     static constexpr int kCellW = 12, kCellH = 14, kPerRow = 16, kFirst = 0x20;
-    // Hardcoded in the drawer, not read from the table — and 9, not width+1.
+    // Hardcoded in the drawer, not read from the table (0x6bd900 = 9.0).
     static constexpr int kSpaceAdvance = 9;
     static constexpr float kLineHeight = 14.0f;
 
