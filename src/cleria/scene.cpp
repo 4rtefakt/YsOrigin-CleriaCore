@@ -45,6 +45,18 @@ std::vector<std::uint8_t> read_file(const fs::path& p) {
 // One spelling per file for the cache (resolve_ymo mixes / and \).
 static std::string model_key(const fs::path& p) { return p.lexically_normal().make_preferred().string(); }
 
+// The collision twins (X_.YMO, model flag 0x20) whose entries take the engine's binding: each twin mesh bound to
+// the RENDER node named like its parent, entry = that node's offset x posed world, rebuilt at every re-bake
+// [BYTES 0x560347..0x56036c, 0x503010..0x503045; build/audit/BOSS_HULLS.md 1.4]. The engine does this for every
+// 0x20 twin; here it is an opt-in by twin file, one boss at a time (BOSS_HULLS.md section 5).
+static bool bound_twin(const fs::path& twin_file) {
+    static const char* const kBound[] = {"boss01_"};
+    std::string stem = twin_file.stem().string();
+    for (char& c : stem) c = char(std::tolower(static_cast<unsigned char>(c)));
+    for (const char* n : kBound) if (stem == n) return true;
+    return false;
+}
+
 fs::path resolve_ymo(const fs::path& root, std::string path) {
     for (char& c : path)
         if (c == '\\') c = '/';
@@ -433,8 +445,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             // a DEFAULT clip, yet its hull rises with the render model's UP (COLLISION.md §1c).
             // Only needed when a pose was asked for (at rest the twin's own rest nodes are used,
             // as before); the big-model twins keep their clip-copy path above, except one with the
-            // model flag 0x20 (bound by parent name, below).
-            by_parent = collision && model_ptr != &local_model && (model.flags & 0x20u) != 0 && lname == "boss01";
+            // model flag 0x20 (bound by parent name, below) whose twin file is opted in (bound_twin).
+            by_parent = collision && (model.flags & 0x20u) != 0 && bound_twin(ymo_file);
             if (collision && (model_ptr == &local_model || by_parent) && (want || box_pose_open || clip_name)) {
                 const fs::path rfile = resolve_ymo(asset_root, o.ymo_path);
                 Model* rp = cached_big_model(rfile);
@@ -475,13 +487,14 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             // node +0x184) instead [EXPORT 005601e0.c:178-189]: BOSS01_.YMO's 31 meshes hang under the
             // render model's bones. Posed by its own tree (the clip copy above) that hull sat ~1.2 over
             // the drawn arms in Velagunder's stun clips and opened a hole at the shoulder.
-            // [scoped] Velagunder's twin only: the other bosses' big 0x20 twins keep the clip copy
-            // until their fights are checked against it (zava_fight / dalles_fight moved with it).
+            // [scoped] the twins listed in bound_twin only: the other bosses' 0x20 twins keep their rest pose /
+            // clip copy until their fights are checked against it (build/audit/BOSS_HULLS.md section 5).
             if (twin_src) {                // the bound render node, posed (see above)
                 const std::string& bind = by_parent ? node.parent : node.name;
                 for (const Node& rn : twin_src->nodes)
                     if (rn.name == bind) { xf = rn.offset * rn.world * place; break; }
             }
+            const std::size_t dump_v0 = out.vertices.size();   // CLERIA_HULLDUMP (below)
 
             // Append the primary vertex buffer (submeshes index into vbs[0]).
             const VertexBuffer& vb = mesh.vbs[0];
@@ -602,6 +615,19 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                             std::min(out.bmin.z, p.z)};
                 out.bmax = {std::max(out.bmax.x, p.x), std::max(out.bmax.y, p.y),
                             std::max(out.bmax.z, p.z)};
+            }
+
+            // Debug: CLERIA_HULLDUMP=1 prints each mesh's box as placed, hull ("coll") and drawn ("draw") alike.
+            if (std::getenv("CLERIA_HULLDUMP") && out.vertices.size() > dump_v0) {
+                Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+                for (std::size_t k = dump_v0; k < out.vertices.size(); ++k) {
+                    const RoomVertex& v = out.vertices[k];
+                    lo = {std::min(lo.x, v.px), std::min(lo.y, v.py), std::min(lo.z, v.pz)};
+                    hi = {std::max(hi.x, v.px), std::max(hi.y, v.py), std::max(hi.z, v.pz)};
+                }
+                std::printf("  [hull] %s %s %s (parent %s) x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f\n",
+                            collision ? "coll" : "draw", lname.c_str(), node.name.c_str(), node.parent.c_str(),
+                            lo.x, hi.x, lo.y, hi.y, lo.z, hi.z);
             }
 
             const IndexBuffer& ib = mesh.ibs[0];
