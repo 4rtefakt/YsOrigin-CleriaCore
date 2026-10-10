@@ -5710,6 +5710,7 @@ title_again:
             }
         }
 
+        prof("frame:pre");
         sync_settings();
         ptr_sync();
         const bool* ks = SDL_GetKeyboardState(nullptr);   // free-fly's raw keys (debug, outside the mapper)
@@ -5842,7 +5843,9 @@ title_again:
         while (accum >= kTickDt) {
         accum -= kTickDt;
         ++tick_count;
+        prof("tick:mixer");
         audio.advance(735);                        // no device (CLERIA_MUTE): 44100 / 60 frames a tick
+        prof("tick:head");
         if (sfx_log) {
             std::vector<int> lp = audio.looping();
             if (lp != sfx_loops) {
@@ -5974,7 +5977,9 @@ title_again:
         std::copy(game.g_flags, game.g_flags + 0x200, csMgr.vm.g_flags);
         std::copy(game.item_arr, game.item_arr + 54, csMgr.vm.item_arr);   // IsXXX 7 / 8 read it
         csMgr.vm.g_flags[150] = character;
+        prof("tick:events");
         const bool frozen_now = tick_events();
+        prof("tick:hud+bars");
         {   // The log: a 0 <-> non-0 edge of either fix counter (FIX_SLOTS.md S0).
             static int fix_was[2] = {0, 0};
             for (int s = 0; s < 2; ++s) {
@@ -6076,6 +6081,7 @@ title_again:
         }
         // A live script showed / hid an object (or switched its collision): rebuild the room's
         // geometry with the overrides, mesh only (the scripts keep running).
+        prof("tick:world-sync");
         if (live_obj_dirty) {
             live_obj_dirty = false;
             reload_room(/*rerun_events*/false);
@@ -6102,6 +6108,7 @@ title_again:
         bool eyes_run = false;
         if (frozen_now && !csMgr.actors_stopped())
             for (const EnemyRender& e : render) eyes_run = eyes_run || (e.actor && e.actor->ai_index == 83 && !e.actor->destroy_requested());
+        prof("tick:frozen");
         if (frozen_now) {
             // CHR_OPS.md §4/§5: a Chr_Pattern pin stops the actor's ASO (FUN_004472e0 0x44735f returns
             // before the VM); a Chr_Animate motion (+0x994) is the section played, set once when it
@@ -6357,6 +6364,7 @@ title_again:
         // The dead player (FUN_0046fba0's HP < 1 branch): no input decode / mover (FUN_0046f980),
         // the death count, the ASO plays the death section on (FUN_004472e0), then the game over.
         // [approx] the rest of the world (enemies, bullets) stands still here; retail runs it on.
+        prof("tick:death");
         if (death_t > 0) {
             if (death_t < 0x65 && ++death_t == 100) game_over();
             avm.tick();
@@ -6522,6 +6530,7 @@ title_again:
             }
             continue;
         }
+        prof("tick:play");
         const float dt = kTickDt;
 
         if (fly) {
@@ -8651,6 +8660,7 @@ title_again:
         // block only runs unfrozen), no pending scene (0x76a538: a staged door or a ChangeScene), flag 129
         // (0x76bb20) = 0. Retail data never puts an arrival inside the destination's own volumes (0 of 367
         // records with the yaw applied, build/warp_re/TRANSIT.md §1), so arriving never re-triggers.
+        prof("tick:doors");
         if (!door_latched && !door_commit && csHost.pending_scene.empty() && death_t == 0 &&
             game.g_flags[156] == 0 && game.g_flags[129] == 0) {
             const Vec3 probe = fly ? cam.pos : Vec3{feet.x, feet.y + kOriginH, feet.z};
@@ -8688,6 +8698,7 @@ title_again:
         // accumulation is linear. The engine uploads c1.xy = baseTexcoordOffset +
         // phase; we bake the phase into the batch's UVs, which needs no per-draw
         // uniform and keeps the batching intact.
+        prof("frame:scroll+acquire");
         if (ticks && !room.scrolls.empty() && !std::getenv("CLERIA_NOSCROLL"))
             advance_scroll(g, room, ticks);
         // Presentation advances by the time we actually SIMULATED this frame, not by
@@ -8769,10 +8780,12 @@ title_again:
         g_scene_light = light_drawn = csHost.light_rgb;    // 0x76a570..78 -> 0x7b2f14..1c: the world draws below
         write_mvp(g, last_vp);
         const WGPUTextureView frame_view = view, frame_depth = depth;
+        prof("draw:room1");
         video_world_begin(g, cw, ch, view, depth);       // Render scale: the world's own target (view_video.inl)
         draw(g, room, view, depth, 1);                     // render layers 3 / 5 (layer 0xb below)
         // Character billboard (play mode only; fly is a free debug camera). Draw the floor
         // shadow first, on the actual floor under the player (so it stays put during a jump).
+        prof("draw:player+pickups");
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex) {
             const float sfl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + 0.5f);
             const Actor* wpl = world.player();
@@ -8806,6 +8819,8 @@ title_again:
                 }
                 return it->second.tex ? &it->second : nullptr;
             };
+            {
+            QuadScope quads(g);                // the drops' and the debris pieces' shadows and sprites in one pass
             for (const Pickup& pk : pickups) {
                 if (pk.delay > 0) continue;
                 const SpriteTex* ic = pk.debris ? debris_icon(pk.id) : pauseUi.icon(g, items_tbl, asset_root, pk.id);
@@ -8833,6 +8848,7 @@ title_again:
                 draw_billboard(g, view, depth, *ic, pk.sprite_centre(cup, cf), pk.half, qr, qu,
                                std::uint32_t(pk.glint(ms)) * 0x010101u, t, t, t, pk.alpha());
             }
+            }
             if (!popups.empty()) {                            // layer 0xf, after the world, no Z test
                 static SpriteTex geo20;
                 if (!geo20.tex) {
@@ -8844,15 +8860,20 @@ title_again:
                 wgpuTextureViewRelease(pdepth);
             }
         }
+        prof("draw:enemies");
         draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
+        prof("draw:room2+flames");
         draw(g, room, view, depth, 2);   // layer 0xb (the water surfaces) after the actors' layers 6/8/9
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         // Script-placed persistent effects (the barrier ward). Killed by op 0x119 when
         // the barrier breaks, so it renders only while the fight is unresolved.
+        prof("draw:located");
         draw_located_effects(g, world.effects(), asset_root, efl, eft, view, depth,
                              cam.forward(), fx_time);
+        prof("draw:particles");
         draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward(), cam.pos);
+        prof("draw:weather+post");
         draw_weather(view, depth, cam.forward());                 // view_weather.inl
         {   // The bubbles (FUN_004ffdb0): at the owner's origin + 0.75 + yoff, far-to-near.
             struct EmDraw { const Emotion* e; Vec3 base; float d2; };
@@ -8888,10 +8909,12 @@ title_again:
             std::printf("  [zoomblur] t%llu draw strength %.4f alpha %d taps %d centre (%.3f, %.3f)\n",
                         (unsigned long long)tick_count, zb.strength, zb.alpha8(), kZoomBlurTaps, zb.cx, zb.cy);
         }
+        prof("draw:world_end");
         video_world_end(g, frame_view, frame_depth, view, depth);   // the world onto the frame (view_video.inl)
         g_scene_light = {1.0f, 1.0f, 1.0f};                   // the HUD / menu draws that share write_mvp stay white
         player.character = character;
         player.magic = inv.magic;
+        prof("draw:hud+book");
         hud_state_fill();                                     // view_hudstate.inl
         // EXP bar: progress from this level's threshold to the next (100% at the cap).
         if (ginfo.ok()) {
@@ -8971,6 +8994,7 @@ title_again:
             wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
         }
         if (cursor_now) draw_cursor(g, bookR, view, cw, ch, !fly);
+        prof("draw:post+shell");
         video_post(g, st.texture, view, cw, ch);         // Brightness (view_video.inl)
         shell.frame(g, view, cw, ch);                    // after the crossfade capture; a drive `shot` sees it
         if (shell_shot_frames > 0 && --shell_shot_frames == 0) {
@@ -9012,10 +9036,16 @@ title_again:
             drive_shot.clear();
             if (shell_drive_close) { shell.open = false; shell_drive_close = false; }
         }
+        prof("gpu:present/wait");
         if (!offscreen) wgpuSurfacePresent(surface);
         else wgpuDevicePoll(g.device, true, nullptr);    // no vsync: wait out each frame
         wgpuTextureViewRelease(view);
         wgpuTextureRelease(st.texture);
+        if (g_prof.on) {                                 // CLERIA_PROF (view_prof.inl)
+            g_prof.end_frame(tick_count);
+            static unsigned long long prof_next = 60;
+            if (tick_count >= prof_next) { g_prof.report(tick_count); prof_next = tick_count + 60; }
+        }
         video_frame_end(ticks);                          // the frame limiter / counters (view_video.inl)
     }
     // LAB_00427750 -> FUN_0042f510: the game over's Return to Title, and the pause book's

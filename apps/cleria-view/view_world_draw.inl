@@ -331,6 +331,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     const float fl = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
     if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
     const Vec3 rt = normalize(cross(Vec3{0, 1, 0}, fwdH));
+    QuadScope quads(g);                    // every shadow and sprite below in one pass (view_sprites.inl)
     for (const EnemyRender& e : list) {
         // Skip DEAD ENEMIES only. Cutscene NPCs (Shion/Roy/…) are non-enemy actors that
         // ActorWorld::spawn leaves at hp=0, so alive() is false for them though they are

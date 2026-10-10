@@ -416,6 +416,7 @@ fn fs_pm(in : VsOut) -> @location(0) vec4<f32> {
 // Each part is a textual slice of the former 6,381-line main.cpp: one TU, split
 // for editability. Order matters; nothing here is standalone.
 #include "view_platform.inl"             // the window surface + OS calls per platform (issue #46)
+#include "view_prof.inl"                 // CLERIA_PROF: per-section tick / frame timers
 #include "view_gpu_room.inl"
 #include "view_camera.inl"
 #include "view_sprites.inl"

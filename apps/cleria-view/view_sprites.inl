@@ -96,6 +96,90 @@ struct CharSprite {
     }
 };
 
+// One world quad — a pipeline, a texture, four vertices — onto (color, depth), which are kept. Drawn at once in its
+// own pass, or, inside a QuadScope, recorded and drawn with its neighbours in ONE pass at the scope's end: the same
+// draws in the same order with the same state, so the picture is the same. A room with 29 enemies made 58 passes,
+// 58 submits and 116 two-triangle buffers a frame for their sprites and shadows alone (S_6015: 9 of 13 ms).
+struct QuadBatch {
+    struct Draw { WGPURenderPipeline pipe; WGPUBindGroup bind; };
+    bool on = false;                              // inside a QuadScope
+    WGPUTextureView color = nullptr, depth = nullptr;
+    std::vector<Draw> draws;
+    std::vector<RoomVertex> verts;                // four per draw
+    WGPUBuffer vb = nullptr, ib = nullptr;
+    std::size_t cap = 0;                          // vb's size in quads
+};
+static QuadBatch g_quads;
+
+static void quad_pass(Gpu& g, WGPUTextureView color, WGPUTextureView depth, WGPUBuffer vb, WGPUBuffer ib,
+                      const QuadBatch::Draw* draws, std::size_t n) {
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPURenderPassColorAttachment ca = {};
+    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;   // keep the room
+    WGPURenderPassDepthStencilAttachment da = {};
+    da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+    WGPURenderPassDescriptor rp = {};
+    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (i == 0 || draws[i].pipe != draws[i - 1].pipe) wgpuRenderPassEncoderSetPipeline(pass, draws[i].pipe);
+        if (i == 0 || draws[i].bind != draws[i - 1].bind) wgpuRenderPassEncoderSetBindGroup(pass, 1, draws[i].bind, 0, nullptr);
+        wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, std::int32_t(i * 4), 0);
+    }
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+}
+
+static void quad_flush(Gpu& g) {
+    QuadBatch& q = g_quads;
+    if (q.draws.empty()) return;
+    static const std::uint32_t kIdx[6] = {0, 1, 2, 0, 2, 3};
+    if (!q.ib) q.ib = make_buffer(g.device, g.queue, kIdx, sizeof kIdx, WGPUBufferUsage_Index);
+    if (q.cap < q.draws.size()) {
+        if (q.vb) wgpuBufferRelease(q.vb);
+        q.cap = std::max<std::size_t>(256, q.draws.size() * 2);
+        WGPUBufferDescriptor bd = {};
+        bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst; bd.size = q.cap * 4 * sizeof(RoomVertex);
+        q.vb = wgpuDeviceCreateBuffer(g.device, &bd);
+    }
+    wgpuQueueWriteBuffer(g.queue, q.vb, 0, q.verts.data(), q.verts.size() * sizeof(RoomVertex));
+    quad_pass(g, q.color, q.depth, q.vb, q.ib, q.draws.data(), q.draws.size());
+    q.draws.clear(); q.verts.clear();
+}
+
+// Batches the draw_quad calls made while it lives (draw_shadow / draw_character / draw_billboard / _uv). Nothing
+// else may draw onto the same target inside the scope: it would land before the quads recorded so far.
+struct QuadScope {
+    Gpu& g;
+    explicit QuadScope(Gpu& gpu) : g(gpu) { g_quads.on = true; }
+    ~QuadScope() { quad_flush(g); g_quads.on = false; }
+};
+
+static void draw_quad(Gpu& g, WGPUTextureView color, WGPUTextureView depth, WGPURenderPipeline pipe, WGPUBindGroup bind,
+                      const RoomVertex verts[4]) {
+    QuadBatch& q = g_quads;
+    if (q.on) {
+        if (!q.draws.empty() && (q.color != color || q.depth != depth)) quad_flush(g);
+        q.color = color; q.depth = depth;
+        q.draws.push_back({pipe, bind});
+        q.verts.insert(q.verts.end(), verts, verts + 4);
+        return;
+    }
+    static const std::uint32_t kIdx[6] = {0, 1, 2, 0, 2, 3};
+    WGPUBuffer vb = make_buffer(g.device, g.queue, verts, 4 * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
+    WGPUBuffer ib = make_buffer(g.device, g.queue, kIdx, sizeof kIdx, WGPUBufferUsage_Index);
+    const QuadBatch::Draw d{pipe, bind};
+    quad_pass(g, color, depth, vb, ib, &d, 1);
+    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+}
+
 // A sprite vertex's D3D specular (0xRRGGBB, added after the texture modulate, before fog): fs_char
 // reads it from nrm.y encoded as -(1 + rgb) (main.cpp vs); 0 = none.
 static float spec_ny(std::uint32_t spec) {
@@ -121,30 +205,7 @@ static void draw_billboard(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                 centre.z + (right.z * sx + up.z * sy) * half, nx, ny, -1, u, v, cr, cg, cb, 0};
     };
     RoomVertex verts[4] = {V(-1, 1, 0, 0), V(1, 1, 1, 0), V(1, -1, 1, 1), V(-1, -1, 0, 1)};
-    std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
-    WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
-    WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
-    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
-    WGPURenderPassColorAttachment ca = {};
-    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
-    WGPURenderPassDepthStencilAttachment da = {};
-    da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
-    WGPURenderPassDescriptor rp = {};
-    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
-    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, g.char_pipeline);
-    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
-    wgpuRenderPassEncoderSetBindGroup(pass, 1, spr.bind, 0, nullptr);
-    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
-    wgpuRenderPassEncoderEnd(pass);
-    wgpuRenderPassEncoderRelease(pass);
-    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
-    wgpuQueueSubmit(g.queue, 1, &cmd);
-    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
-    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+    draw_quad(g, color, depth, g.char_pipeline, spr.bind, verts);
 }
 
 // Draw an upright, camera-facing billboard of `spr` standing at `feet`, in a
@@ -221,31 +282,7 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                 1.0f - std::clamp(opacity, 0.0f, 1.0f), ny, -1, u, v, cr, cg, cb, fa};
     };
     RoomVertex verts[4] = {V(lX, tY, 0, 0), V(rX, tY, 1, 0), V(rX, bY, 1, 1), V(lX, bY, 0, 1)};
-    std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
-    WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
-    WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
-
-    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
-    WGPURenderPassColorAttachment ca = {};
-    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;   // keep the room
-    WGPURenderPassDepthStencilAttachment da = {};
-    da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
-    WGPURenderPassDescriptor rp = {};
-    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
-    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, additive && g.char_pipeline_add ? g.char_pipeline_add : g.char_pipeline);
-    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
-    wgpuRenderPassEncoderSetBindGroup(pass, 1, spr.bind, 0, nullptr);
-    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
-    wgpuRenderPassEncoderEnd(pass);
-    wgpuRenderPassEncoderRelease(pass);
-    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
-    wgpuQueueSubmit(g.queue, 1, &cmd);
-    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
-    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+    draw_quad(g, color, depth, additive && g.char_pipeline_add ? g.char_pipeline_add : g.char_pipeline, spr.bind, verts);
 }
 
 // GoPopup glyphs (src/cleria/popup.hpp, PICKUPS.md §13.5): F_GEO20 quads on a billboard at
@@ -317,30 +354,7 @@ static void draw_billboard_uv(Gpu& g, WGPUTextureView color, WGPUTextureView dep
                 1.0f - std::clamp(opacity, 0.0f, 1.0f), 0, -1, u, v, 255, 255, 255, 0};
     };
     RoomVertex verts[4] = {V(x0, y1, u0, v0), V(x1, y1, u1, v0), V(x1, y0, u1, v1), V(x0, y0, u0, v1)};
-    std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
-    WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
-    WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
-    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
-    WGPURenderPassColorAttachment ca = {};
-    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
-    WGPURenderPassDepthStencilAttachment da = {};
-    da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
-    WGPURenderPassDescriptor rp = {};
-    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
-    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, g.char_pipeline);
-    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
-    wgpuRenderPassEncoderSetBindGroup(pass, 1, tex.bind, 0, nullptr);
-    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
-    wgpuRenderPassEncoderEnd(pass);
-    wgpuRenderPassEncoderRelease(pass);
-    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
-    wgpuQueueSubmit(g.queue, 1, &cmd);
-    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
-    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+    draw_quad(g, color, depth, g.char_pipeline, tex.bind, verts);
 }
 
 struct ShadowFx {
@@ -369,30 +383,7 @@ static void draw_shadow(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         return {feet.x + sx * radius, y, feet.z + sz * radius, nx, 1, 0, u, v, rgb, rgb, rgb, 0};
     };
     RoomVertex verts[4] = {V(-1, -1, 0, 0), V(1, -1, 1, 0), V(1, 1, 1, 1), V(-1, 1, 0, 1)};
-    std::uint32_t idx[6] = {0, 1, 2, 0, 2, 3};
-    WGPUBuffer vb = make_buffer(g.device, g.queue, verts, sizeof verts, WGPUBufferUsage_Vertex);
-    WGPUBuffer ib = make_buffer(g.device, g.queue, idx, sizeof idx, WGPUBufferUsage_Index);
-    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
-    WGPURenderPassColorAttachment ca = {};
-    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
-    WGPURenderPassDepthStencilAttachment da = {};
-    da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
-    WGPURenderPassDescriptor rp = {};
-    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
-    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, g.shadow_pipeline);
-    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
-    wgpuRenderPassEncoderSetBindGroup(pass, 1, shadow.bind, 0, nullptr);
-    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderSetIndexBuffer(pass, ib, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, 0, 0);
-    wgpuRenderPassEncoderEnd(pass);
-    wgpuRenderPassEncoderRelease(pass);
-    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
-    wgpuQueueSubmit(g.queue, 1, &cmd);
-    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
-    wgpuBufferRelease(vb); wgpuBufferRelease(ib);
+    draw_quad(g, color, depth, g.shadow_pipeline, shadow.bind, verts);
 }
 
 // Draw a screen-space textured quad (UI/title images) at NDC corners (l,t)-(r,b), z in [0,1].
