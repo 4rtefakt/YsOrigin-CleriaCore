@@ -417,6 +417,72 @@ int main(int argc, char** argv) {
         check(r.calls - c1 == 8, "dust: a full pool ends the loop before that puff's draws (2 slots = 8 draws)");
     }
 
+    {   // FUN_00589130 / FUN_00588450 / FUN_005886b0 / FUN_00588a50, the spark streaks (GOXX_PARTICLES.md §2.3, §3.7).
+        Shared r{{5u, 6u, 7u, 8u}};
+        Weather wx;
+        wx.rng = [&] { return r.next(); };
+        wx.sparks(3, 1, 0x19, 0.11f, {1.0f, 2.0f, 3.0f}, 0.05f, 0.125f, 0.05f, 0.075f, 0.0f, 6.2831855f);   // the guard's
+        bool ok = r.calls == 12 && wx.objects().size() == 3 && wx.live_sparks() == 3;
+        for (std::size_t k = 0; ok && k < 3; ++k) {
+            const Spark& s = wx.objects()[k]->sp;
+            const float h = std::sqrt(s.vel.x * s.vel.x + s.vel.z * s.vel.z);
+            // ten quarter-steps: vy fell 10 x 0.0075; the tail's far end is still the start
+            ok = wx.objects()[k]->kind == Obj::Streak && s.delay == k && s.life >= 35.0f && s.life <= 60.0f &&
+                 h >= 0.05f - 1e-5f && h <= 0.125f + 1e-5f && s.vel.y >= 0.05f - 0.075f - 1e-5f && s.vel.y <= 1e-5f &&
+                 std::fabs(s.half - 0.044f) < 1e-6f && s.hist[10].x == 1.0f && s.hist[10].y == 2.0f && s.hist[10].z == 3.0f &&
+                 (s.hist[1].x != 1.0f || s.hist[1].z != 3.0f) && s.pos.y > 2.0f;
+        }
+        check(ok, "sparks: the guard's 3 = 12 draws with no terrain; delays 0/1/2, life 35-60, 10 pre-rolled quarter-steps");
+        Env e;
+        const std::uint64_t c0 = r.calls;
+        const float y0 = wx.objects()[0]->sp.pos.y, vy0 = wx.objects()[0]->sp.vel.y;
+        wx.step(e);
+        const Spark& s0 = wx.objects()[0]->sp;
+        check(r.calls == c0 && s0.age == 1.0f && s0.pos.y == y0 + vy0 && s0.vel.y == vy0 - 0.0075f &&
+              wx.objects()[1]->sp.age == 0.0f && wx.objects()[1]->sp.delay == 0 && wx.objects()[2]->sp.delay == 1,
+              "sparks: a step moves by the velocity, then the full gravity; a delayed spark waits; no draw in the air");
+        SparkQuad q[4];
+        spark_ribbon(s0, {0.0f, 0.0f, 1.0f}, q);
+        const float wdt = std::sqrt((q[1].p[0].x - q[1].p[1].x) * (q[1].p[0].x - q[1].p[1].x) +
+                                    (q[1].p[0].y - q[1].p[1].y) * (q[1].p[0].y - q[1].p[1].y) +
+                                    (q[1].p[0].z - q[1].p[1].z) * (q[1].p[0].z - q[1].p[1].z));
+        check(std::fabs(wdt - 0.088f) < 1e-4f && q[0].v[0] == 0.1f && q[0].v[1] == 0.4f && q[3].v[1] == 0.9f &&
+              std::fabs((q[0].p[0].x + q[0].p[1].x) * 0.5f - s0.hist[1].x) < 1e-5f &&
+              std::fabs((q[3].p[2].y + q[3].p[3].y) * 0.5f - s0.hist[9].y) < 1e-5f && q[1].p[0].z == q[1].p[1].z,
+              "sparks: the ribbon = 4 quads through hist[1,3,5,7,9], width 2 x 0.4 x the width, across the view, v 0.1-0.9");
+        Spark f; f.life = 40.0f; f.age = 30.0f;
+        check(spark_alpha(f) == 0.5f && (f.age = 10.0f, spark_alpha(f) == 1.0f), "sparks: alpha 1, fading over the last 20 ticks");
+        // One bounce = one draw: a spark dropped straight down from just above a floor bounces once in its pre-roll.
+        Weather wf;
+        Shared r2{{9u, 8u, 7u, 6u}};
+        wf.rng = [&] { return r2.next(); };
+        int rays = 0;
+        wf.hit = [&](const Vec3& a, const Vec3& b, Vec3* p, Vec3* n) {
+            ++rays;
+            if (!(a.y > 0.0f && b.y <= 0.0f)) return false;
+            const float t = a.y / (a.y - b.y);
+            *p = {a.x + (b.x - a.x) * t, 0.0f, a.z + (b.z - a.z) * t};
+            *n = {0.0f, 1.0f, 0.0f};
+            return true;
+        };
+        wf.sparks(1, 0, 0, 0.15f, {0.0f, 0.001f, 0.0f}, 0.0f, 0.0f, -0.05f, -0.05f, 0.0f, 0.0f);
+        const Spark& sb = wf.objects()[0]->sp;
+        check(r2.calls == 5 && rays == 9 && sb.pos.y > 0.0f && sb.life == 35.0f,
+              "sparks: 4 draws + 1 for the one bounce of the pre-roll (a zero-length first ray is not cast)");
+        // The crowd throttle: more than 12 live sparks skip the next collision call, more than 20 the next two.
+        Weather wt;
+        Shared r3{{1u, 1u, 2u, 3u}};
+        wt.rng = [&] { return r3.next(); };
+        int rays2 = 0;
+        wt.hit = [&](const Vec3&, const Vec3&, Vec3*, Vec3*) { ++rays2; return false; };
+        wt.sparks(13, 0, 0, 0.1f, {}, 0.1f, 0.1f, 0.0f, 0.0f, 0.0f, 0.0f);
+        // sparks 1..12: 9 rays each (calls 2..10); the 13th (13 live): calls 1 (zero ray, sets skip), 3, 5, 7, 9 cast -> 4 rays
+        check(rays2 == 12 * 9 + 4 && wt.live_sparks() == 13, "sparks: the 13th live spark casts its ray every other call");
+        for (auto& o : wt.objects()) o->sp.life = 1.0f;
+        wt.step(e); wt.sweep();
+        check(wt.live_sparks() == 0 && wt.objects().empty(), "sparks: the sweep returns the live count");
+    }
+
     std::printf("[weather] %s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
 }

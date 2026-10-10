@@ -7228,8 +7228,14 @@ title_again:
                     // The guard (FUN_004fbb40): a victim in section 6 facing the swing blocks it.
                     if (vr && vr->avm.ok() &&
                         guard_blocks(en.cast_id, vr->avm.section() == 6 || en.guard399, vr->avm.durable(), rtype,
-                                     vr->facing, heading))
+                                     vr->facing, heading)) {
                         dmg = 0;
+                        // 0x4fbfaa..0x4fc0da: the guard's three sparks at the victim's origin (FUN_00589130: delay
+                        // step 1, life 35 + 0..25, width 0.11, speed 0.05..0.125, vy 0.05..0.075, any heading).
+                        // [not modelled] its yellow tint (+0x268 = 0xffff00, +0x270 = 0.05, +0x274 = 1).
+                        sparks_at("guard", 3, 1, 0x19, 0.11f, {en.pos.x, en.pos.y + en.height, en.pos.z}, 0.05f, 0.125f,
+                                  0.05f, 0.075f, 0.0f, 6.2831855f);
+                    }
                     dmg = access::damage_dealt(dmg, settings().s.access.damage_dealt);       // the shell's Cheats
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
                     HitResult r = apply_damage(en.hp, en.flags, dmg);
@@ -7251,9 +7257,12 @@ title_again:
                         // PLAYTEST_1_HUD.md item 3.
                         damage_popup(hudstate::dealt_popup_value(dmg, cls, game.g_flags), 0xffffff, org);
                         if (dmg < 1) {
-                            // 0x4fd1b5: a guarded / zero hit. [not modelled] the FUN_00589130 sparks
-                            // (10; 25 more on a guard) and the guard's yellow tint.
+                            // 0x4fd1b5: a guarded / zero hit: the SE, then four sparks thrown back within a quarter
+                            // turn of the hit angle (FUN_00589130: delay step 2, life 35 + 0..10, width 0.15, speed
+                            // 0.15..0.2, vy -0.05..0.1) [BYTES 0x4fd1cf..0x4fd239].
                             sfx_at(hitfx::no_damage_se(en.cast_id), org, kSfxAnimVol);
+                            sparks_at("zero hit", 4, 2, 0xa, 0.15f, org, 0.15f, 0.2f, -0.05f, 0.1f,
+                                      heading - 1.5707964f, heading + 1.5707964f);
                         } else if (const int fx = hitfx::skill_hit_effect(cls, character); fx >= 0) {
                             // 0x4fd020: the damage class's elemental hit effect (FUN_00450410).
                             ef2sim::SpawnParams sp;

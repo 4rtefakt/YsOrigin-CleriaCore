@@ -791,9 +791,11 @@ CASES.update({
     # S_3080 Yunica: Kishgal (M860) ends the fight at half HP in this room -> 174 = 1 -> the Silver
     # Harmonica scene -> 232 = 1 and ChangeScene to S_1000. The half-HP end is read at t8900 (was t8850): a pillar
     # now freezes Yunica once on the way (t8669, KISHGAL_SHIELD.md §4), so the fight ends at t8859, not before t8850.
+    # Re-pinned 2026-10-10 (the spark streaks' draws from the shared xorshift at the hits for 0):
+    # the same fight ends at t8952, so the half-HP end is read at t9000.
     "duel_s3080_kishgal": dict(
         room="S_30/S_3080/S_3080", char="1", env=dict(_LOCK, CLERIA_LEVEL="28"),
-        drive=_S3080.format(end=15000, cast=172) + "8900:dflags;15000:dflags;15001:quit",
+        drive=_S3080.format(end=15000, cast=172) + "9000:dflags;15000:dflags;15001:quit",
         expect=["cast 172 hp 2985/2985", "| lv 19 max 2985 atk 121 def 108 exp 5766", "[content] boss_defeated S_3080",
                 "133=1 156=0 174=1", ">> entering S_1000", "232=1"], absent=["[duel] lost"], count={"boss_defeated": 1}),
     # S_3080 Hugo wins against Toal (M820): 174 = 1 -> Battle_Win (its 0.4 slow-mo) -> EV_Feena02_2, where
@@ -1063,6 +1065,15 @@ CASES.update({
         room="S_10/S_1004/S_1004", env={"CLERIA_DUST": "1", "CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="5:opt=InfiniteHP=1;20:epos=#189,0,1.2;22:near=#189,1.6;120:quit",
         expect=["hurt: 5 puffs at", "size 0.300, 20 draws", "[hurt] dmg"]),
+    # build/mech_re/GOXX_PARTICLES.md §2.3 / §3.7 (FUN_00589130, the spark streaks, GoXx type 3). A Wilewarer's guard
+    # (section 6, the player's swing from the front): FUN_004fbb40 throws three sparks at the guard (4 draws each: 12)
+    # and, the hit being for 0, the parry SE and four more thrown back (16); here none of them bounces in its ten
+    # pre-rolled quarter-steps (a bounce is one more draw).
+    "spark_guard": dict(
+        room="S_10/S_1008/S_1008", env={"CLERIA_DUST": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=#189,1.4;21:atk;40:near=#189,1.4;41:atk;80:quit",
+        expect=["[spark] t42 guard: 3 sparks at (1.06, 1.28, 2.54), 12 draws", "[popup] 0 ffffff",
+                "[spark] t42 zero hit: 4 sparks at (1.06, 1.28, 2.54), 16 draws"]),
     # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
     # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
     # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.
@@ -1273,8 +1284,11 @@ CASES.update({
         # dealt 0.6 the new course brought her to the re-position with 30 % (no big attack: action 8), so the drive
         # deals 0.7: 227 HP there, action 20. The fight is mirrored (head a first, then b), and the head's bite comes
         # on the way to the first mount (t1672) instead of the second.
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.7;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss6;3800:quit",
+        # Re-pinned again 2026-10-10 (the spark streaks: the one hit for 0 on her takes 16 draws): at 0.7 she chose the
+        # move 12 over the big attack at the re-position (265 HP); at 0.75 the big attack is back (515 HP, t2251), with
+        # two bites on the way to the first mount and the kill at t3736 — the run ends at t4000.
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.75;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;4000:quit",
         expect=["Zava phase 2 action 0", "head a move 9", "holds the player", "lets the player go",
                 "Zava is thrown off head a", "Zava phase 2 action 7", "Zava phase 2 action 20",
                 "head a move 17", "head b move 17", "Zava phase 2 action 12", "Zava phase 2 action 0", "head b move 9",

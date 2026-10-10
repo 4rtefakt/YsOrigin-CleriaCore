@@ -21,6 +21,18 @@ auto dust_at = [&](const char* who, int count, std::uint32_t argb, bool additive
         std::printf("  [dust] t%llu %s: %d puffs at (%.2f, %.2f, %.2f) size %.3f, %llu draws\n", (unsigned long long)tick_count,
                     who, count, pos.x, pos.y, pos.z, size, (unsigned long long)(pick_rng.calls - c0));
 };
+// FUN_00589130's spark streaks (Weather::sparks; GOXX_PARTICLES.md §3.7): 4 draws each plus one per bounce
+// off the room's collision. CLERIA_DUST=1 logs each call with the draws it took at the call (the pre-roll's
+// bounces included; later bounces draw in the weather pass).
+wx.hit = [&](const Vec3& a, const Vec3& b, Vec3* pt, Vec3* n) { return segment_hit(phys_mesh(room), a, b, pt, n); };
+auto sparks_at = [&](const char* who, int count, int delay_step, int life_range, float width, const Vec3& pos,
+                     float s0, float s1, float vy0, float vy1, float a0, float a1) {
+    const std::uint64_t c0 = pick_rng.calls;
+    wx.sparks(count, delay_step, life_range, width, pos, s0, s1, vy0, vy1, a0, a1);
+    if (dust_log)
+        std::printf("  [spark] t%llu %s: %d sparks at (%.2f, %.2f, %.2f), %llu draws\n", (unsigned long long)tick_count,
+                    who, count, pos.x, pos.y, pos.z, (unsigned long long)(pick_rng.calls - c0));
+};
 csHost.weather_fn = [&](int op, int life, float a, float b, float c) {
     if (op == 0x125) wx.fire_drop(std::uint32_t(life));
     else if (op == 0x122) wx.frame_smoke(std::uint32_t(life));
@@ -90,6 +102,25 @@ auto draw_weather = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec
     struct Batch { std::vector<RoomVertex> v; std::vector<std::uint32_t> i; WGPUBindGroup bind{}; };
     std::map<int, Batch> batches;
     for (const auto& op : wx.objects()) {
+        // The spark streaks (LAB_00588c20): four quads through the history, additive, SPARKLE.DDS, white x the
+        // fade. [approx] quad 0's direction uses the tick's position, not the sub-tick lerp +0x1c8.
+        if (!op->dead && op->kind == weather::Obj::Streak && op->sp.delay == 0) {
+            const SpriteTex* t = tex_of(weather::Tex::Sparkle);
+            const int ai = std::clamp(int(weather::spark_alpha(op->sp) * 256.0f), 0, 255);
+            if (!t || ai == 0) continue;
+            weather::SparkQuad q4[4];
+            weather::spark_ribbon(op->sp, fwd, q4);
+            Batch& b = batches[int(weather::Tex::Sparkle)];
+            b.bind = t->bind;
+            const std::uint8_t c8 = std::uint8_t(ai);
+            for (const weather::SparkQuad& q : q4) {
+                const std::uint32_t base = std::uint32_t(b.v.size());
+                for (int k = 0; k < 4; ++k)
+                    b.v.push_back({q.p[k].x, q.p[k].y, q.p[k].z, 0, 1, 0, float(k & 1), q.v[k >> 1], c8, c8, c8, 255});
+                b.i.insert(b.i.end(), {base, base + 1, base + 2, base + 2, base + 1, base + 3});
+            }
+            continue;
+        }
         if (op->dead || op->kind != weather::Obj::Child) continue;
         const weather::Sprite& s = op->s;
         if (s.d.delay != 0) continue;                    // not started [EXPORT 00584030.c:62-65]

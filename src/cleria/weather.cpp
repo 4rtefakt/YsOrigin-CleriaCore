@@ -176,6 +176,91 @@ void Weather::dust(int count, std::uint32_t argb, bool additive, const Vec3& pos
     }
 }
 
+// FUN_005886b0 [BYTES 0x5886b0..0x5887ce]: the terrain ray from the anchor to the position (skipped for one or
+// two calls when more than 12 / 20 sparks live), the mirror bounce with its one draw, then the history shift.
+void Weather::spark_collide(Spark& s) {
+    s.prev = s.pos;
+    if (s.skip != 0) --s.skip;
+    else {
+        if (sparks_ > 12) s.skip = sparks_ > 20 ? 2u : 1u;
+        const Vec3 o = s.hist[0];
+        Vec3 pt{}, n{};
+        // (a zero-length ray — the first pre-roll call — is taken to hit nothing)
+        if (hit && (o.x != s.pos.x || o.y != s.pos.y || o.z != s.pos.z) && hit(o, s.pos, &pt, &n)) {
+            const float vn = s.vel.x * n.x + s.vel.y * n.y + s.vel.z * n.z;
+            if (vn < 0.0f) {
+                s.pos = {o.x + (pt.x - o.x) * 0.995f, o.y + (pt.y - o.y) * 0.995f, o.z + (pt.z - o.z) * 0.995f};   // 0x6bd424
+                const float m = vn * -2.0f;                                                                      // 0x6be098
+                s.vel = {s.vel.x + n.x * m, s.vel.y + n.y * m, s.vel.z + n.z * m};
+                const float k = (unit12(rng()) - 1.0f) * 0.2f + 0.55f;       // 0x6bd210, 0x6bd320
+                const float hf = n.y >= 0.5f ? k : 0.8f;                     // 0x6bd304, 0x6bd3a8
+                s.vel.x *= hf; s.vel.z *= hf; s.vel.y *= k;
+            }
+        }
+        s.hist[0] = s.pos;
+    }
+    for (int i = 10; i >= 2; --i) s.hist[i] = s.hist[i - 1];
+    s.hist[1] = s.pos;
+}
+
+void Weather::sparks(int count, int delay_step, int life_range, float width, const Vec3& pos, float speed0,
+                     float speed1, float vy0, float vy1, float ang0, float ang1) {
+    std::uint8_t delay = 0;
+    for (int k = 0; k < count; ++k) {
+        Obj* o = alloc(Obj::Streak);
+        if (!o) return;
+        Spark& s = o->sp;
+        s.life = float((rng() >> 1) % std::uint32_t(life_range + 1)) + 35.0f;     // 0x6bda10
+        const float angle = (ang1 - ang0) * (unit12(rng()) - 1.0f) + ang0;
+        const float speed = (speed1 - speed0) * (unit12(rng()) - 1.0f) + speed0;
+        const float vy = (vy1 - vy0) * (unit12(rng()) - 1.0f) + vy0;
+        // FUN_00588450: the velocity from the true cos / sin (FUN_0041c530 / FUN_0041c510), the history filled
+        // with the start, then ten quarter-steps — each with the FULL tick's gravity.
+        ++sparks_;                                   // [H] counted before the pre-roll, as the type-1 ctor does
+        s.delay = delay;
+        s.pos = pos;
+        s.vel = {float(std::cos(double(angle))) * speed, vy, float(std::sin(double(angle))) * speed};
+        s.half = width * 0.4f;                       // 0x6bd2d4
+        for (Vec3& h : s.hist) h = pos;
+        for (int q = 0; q < 10; ++q) {
+            spark_collide(s);
+            s.pos = {s.pos.x + s.vel.x * 0.25f, s.pos.y + s.vel.y * 0.25f, s.pos.z + s.vel.z * 0.25f};   // 0x6bd244
+            s.vel.y -= 0.0075f;                      // 0x6bd064
+        }
+        s.prev = s.pos;
+        delay = std::uint8_t(delay + delay_step);
+    }
+}
+
+// FUN_00588a50 (GoXx type 3): the start delay, the age, the collision + history, then the move.
+void Weather::spark(Obj& o) {
+    Spark& s = o.sp;
+    if (s.delay != 0) { --s.delay; return; }
+    s.age += 1.0f;
+    if (s.age >= s.life) { o.dead = true; return; }
+    spark_collide(s);
+    s.pos = {s.pos.x + s.vel.x, s.pos.y + s.vel.y, s.pos.z + s.vel.z};
+    s.vel.y -= 0.0075f;
+}
+
+void spark_ribbon(const Spark& s, const Vec3& F, SparkQuad out[4]) {
+    auto unit = [](Vec3 v) {
+        const float l = std::sqrt(v.y * v.y + v.x * v.x + v.z * v.z);
+        return l == 0.0f ? Vec3{} : Vec3{v.x / l, v.y / l, v.z / l};
+    };
+    for (int q = 0; q < 4; ++q) {
+        const Vec3 P = s.hist[1 + 2 * q], A = s.hist[3 + 2 * q], B = q == 0 ? s.pos : P;
+        const Vec3 d = unit({A.x - B.x, A.y - B.y, A.z - B.z});
+        Vec3 sd = unit({F.z * d.y - F.y * d.z, F.x * d.z - F.z * d.x, F.y * d.x - F.x * d.y});   // d x F
+        sd = {sd.x * s.half, sd.y * s.half, sd.z * s.half};
+        out[q].p[0] = {P.x + sd.x, P.y + sd.y, P.z + sd.z};
+        out[q].p[1] = {P.x - sd.x, P.y - sd.y, P.z - sd.z};
+        out[q].p[2] = {A.x + sd.x, A.y + sd.y, A.z + sd.z};
+        out[q].p[3] = {A.x - sd.x, A.y - sd.y, A.z - sd.z};
+        out[q].v[0] = kSparkV[q]; out[q].v[1] = kSparkV[q + 1];
+    }
+}
+
 // FUN_0058e7c0 (GoXx type 0x12), the 0x125 ember emitter [EXPORT 0058e7c0; BYTES 0x58e7c0..0x58ed71].
 void Weather::ember(Obj& o, const Env& e) {
     if (o.cap <= o.n) { o.dead = true; return; }
@@ -286,20 +371,23 @@ void Weather::step(const Env& e) {
             case Obj::Ember: ember(o, e); break;
             case Obj::Smoke: smoke(o, e); break;
             case Obj::Child: sprite(o); break;
+            case Obj::Streak: spark(o); break;
         }
     }
 }
 
 void Weather::sweep() {
-    for (auto& o : objs_)
+    for (auto& o : objs_) {
         if (o->child && o->child->dead) o->child = nullptr;   // [H] a freed slot is not written
+        if (o->dead && o->kind == Obj::Streak) --sparks_;     // the destructor's [0x75ae60 + 4 * type]--
+    }
     objs_.erase(std::remove_if(objs_.begin(), objs_.end(), [](const std::unique_ptr<Obj>& o) { return o->dead; }),
                 objs_.end());
 }
 
 std::size_t Weather::live_emitters() const {
     std::size_t k = 0;
-    for (const auto& o : objs_) k += !o->dead && o->kind != Obj::Child;
+    for (const auto& o : objs_) k += !o->dead && (o->kind == Obj::Ember || o->kind == Obj::Smoke);
     return k;
 }
 

@@ -5,7 +5,8 @@
 // Three engine sites, in the order they run:
 //   1. FUN_004fbb40 (the per-victim hit, in the attacker's tick):
 //        dmg < 1 (a guard or a zero roll) -> SE 93 player\p_parry (545 zako\z_180_guard for casts
-//        0x16 / 0x49) at the victim; [not modelled] a FUN_00589130 spark burst (25 more on a guard).
+//        0x16 / 0x49) at the victim, then FUN_00589130's 4 spark streaks (the guard itself threw 3
+//        more, earlier in the function); the host makes them (Weather::sparks).
 //        dmg >= 1 -> the elemental hit effect of the damage class +0x109 (skill_hit_effect).
 //   2. FUN_00479b00 (the monster's common tick, first thing): +0x3bc & 2 (it took >= 1 damage)
 //        -> FUN_00478510 alive path (the character's hit spark) then SE 92 player\p_hit0.

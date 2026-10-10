@@ -65,8 +65,30 @@ struct Sprite {
 struct Look { float alpha = 0, half = 0; };
 Look look(const Sprite& s);
 
+// One GoXx spark streak (type 3; build/mech_re/GOXX_PARTICLES.md §2.3): a point under gravity that bounces off
+// the terrain and drags an 11-point history, drawn as a ribbon through it (FUN_00588450 init, FUN_005886b0
+// collision + history, FUN_00588a50 step, LAB_00588c20 draw).
+struct Spark {
+    std::uint8_t delay = 0;          // +0x130: ticks before it starts (not stepped, not drawn)
+    float age = 0, life = 0;         // +0x134 / +0x138
+    Vec3 pos{}, vel{};               // +0x50 / +0x220
+    Vec3 hist[11]{};                 // +0x144, stride 0xc: [0] the collision anchor, [1..10] the tail
+    std::uint32_t skip = 0;          // +0x12c: collision-less calls left (the crowd throttle)
+    float half = 0;                  // +0x13c = width * 0.4
+    Vec3 prev{};                     // +0x1d4 (the render interpolation's "previous")
+};
+// LAB_00588c20 [BYTES 0x588c20..0x589129]: the ribbon is four quads through hist[1], [3], [5], [7], [9]. Quad q
+// runs from P = hist[1 + 2q] to A = hist[3 + 2q]; its side vector is normalize(normalize(A - B) x F) * half, with
+// F the camera forward 0x795f50 and B = P, except B = the current position (+0x1c8) for q = 0; the corners are
+// P +- side (v = kV[q]) and A +- side (v = kV[q + 1]), u = 0 / 1 across. White, alpha 1 fading over the last 20
+// ticks ((life - age) / 20), render state 0x146c1 (additive), IMAGE\SPARKLE.DDS; 16 vertices, 8 triangles.
+inline constexpr float kSparkV[5] = {0.1f, 0.4f, 0.5f, 0.7f, 0.9f};   // 0x6a2b48..0x6a2b58
+struct SparkQuad { Vec3 p[4]; float v[2]; };          // p: P + side, P - side, A + side, A - side
+void spark_ribbon(const Spark& s, const Vec3& cam_fwd, SparkQuad out[4]);
+inline float spark_alpha(const Spark& s) { return s.age > s.life - 20.0f ? (s.life - s.age) / 20.0f : 1.0f; }
+
 struct Obj {
-    enum Kind : std::uint8_t { Ember, Smoke, Child } kind = Child;
+    enum Kind : std::uint8_t { Ember, Smoke, Child, Streak } kind = Child;
     bool dead = false;               // +0x11 & 2 (destroy requested; freed by the sweep)
     // emitters
     std::uint32_t cap = 0;           // +0x12c, the op's operand: the life in ticks
@@ -76,6 +98,7 @@ struct Obj {
     std::uint32_t f138 = 0;          // smoke +0x138 = (*0x730224)+0x268 [not read anywhere traced]
     // the type-0 child
     weather::Sprite s;
+    weather::Spark sp;               // Streak (type 3)
 };
 
 // The world the update reads. Camera = the last LookAt (FUN_005ec270): eye 0x7b33f4, at 0x7b3400.
@@ -147,10 +170,19 @@ class Weather {
     // ends the loop before that puff's draws.
     void dust(int count, std::uint32_t argb, bool additive, const Vec3& pos, float size, float radius,
               float speed, float drag = 0.0f, bool layer9 = false);
+    // The room's nearest terrain hit on the segment a -> b (FUN_0041e420, set 2): a spark's bounce. None = no
+    // terrain (no bounce, no bounce draw).
+    std::function<bool(const Vec3& a, const Vec3& b, Vec3* point, Vec3* normal)> hit;
+    // FUN_00589130 (GOXX_PARTICLES.md §3.7 [BYTES 0x589130..0x589374]): `count` spark streaks from `pos`, each
+    // starting `delay_step` ticks after the one before. 4 draws per spark (life 35 + 0..life_range, angle, speed,
+    // vy), then FUN_00588450's ten pre-rolled quarter-steps, each of which may bounce (1 draw a bounce).
+    void sparks(int count, int delay_step, int life_range, float width, const Vec3& pos, float speed0, float speed1,
+                float vy0, float vy1, float ang0, float ang1);
+    int live_sparks() const { return sparks_; }      // 0x75ae6c
     // The per-frame sweep FUN_00428b10: destroyed objects leave the pool.
     void sweep();
     // Room teardown FUN_00428ec0 (every GoXx goes) and the scene entry's 0x76a558 = 0 (FUN_00431260).
-    void clear() { objs_.clear(); blur.level = 0; blur.out = 0; }
+    void clear() { objs_.clear(); sparks_ = 0; blur.level = 0; blur.out = 0; }
     const std::vector<std::unique_ptr<Obj>>& objects() const { return objs_; }
     std::size_t live_emitters() const;
     // Every descriptor handed to FUN_00583d90 since the last call (tests / logs).
@@ -162,7 +194,10 @@ class Weather {
     void ember(Obj& o, const Env& e);
     void smoke(Obj& o, const Env& e);
     void sprite(Obj& o);
+    void spark(Obj& o);
+    void spark_collide(Spark& s);
     Obj* emit(const Desc& d);
+    int sparks_ = 0;
     std::vector<std::unique_ptr<Obj>> objs_;
     std::vector<Desc> emits_;
 };
