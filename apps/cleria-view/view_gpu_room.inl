@@ -117,7 +117,7 @@ struct Room {
     std::vector<WGPUTexture> textures;
     std::vector<WGPUTextureView> views;
     std::vector<WGPUBindGroup> binds;  // parallel to mesh.textures
-    bool tex_mips = false;             // g_world_mips when its textures were uploaded (load_room's `donor`)
+    int tex_mips = 0;                  // g_world_mips when its textures were uploaded (load_room's `donor`)
 };
 
 // Play the footstep for the surface of `tri` on the collision mesh: material name
@@ -228,10 +228,15 @@ static WGPUBuffer make_buffer(WGPUDevice dev, WGPUQueue q, const void* data,
     return b;
 }
 
-// CleriaCore enhancements (the Video page, view_video.inl; both off by default, neither is a port):
-// g_world_mips -- a room loaded while it is set uploads its textures' mip chains and samples them
-// through g.sampler_mip; g_sprite_point -- a character sprite uploaded while it is set samples nearest.
-static bool g_world_mips = false, g_sprite_point = false;
+// g_world_mips (view_video.inl's video_mips) -- how a room loaded from now on takes its textures:
+//   0  level 0 only ([graphics] Mipmap = 0: FUN_005fba80 forces the level count to 1 [EXPORT 005fba80.c:71-80]);
+//   1  [graphics] Mipmap = 1, retail's default: the file's own mip chain, sampled through the world sampler
+//      (FUN_005d4f00: the nearest level at Point / Bilinear, blended at Trilinear);
+//   2  "Smooth distant textures", a CleriaCore enhancement: the chain through g.sampler_mip.
+// Headless renders never set it (no settings): they draw level 0, as before.
+// g_sprite_point (a CleriaCore enhancement) -- a character sprite uploaded while it is set samples nearest.
+static int g_world_mips = 0;
+static bool g_sprite_point = false;
 // [graphics] LowResoTexture ("Low-Resolution Textures", 0x76516f): the texture index prefers a file's copy in an
 // L folder over the H one (build_indexes in main.cpp; set by view_video.inl's video_low_res).
 static bool g_low_res_textures = false;
@@ -712,9 +717,9 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
                 continue;
             }
         }
-        Dds dds = load_dds(path, g_world_mips);
+        Dds dds = load_dds(path, g_world_mips != 0);
         if (dds.ok()) {
-            r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds), g_world_mips ? g.sampler_mip : nullptr));
+            r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds), g_world_mips == 2 ? g.sampler_mip : nullptr));
             ++loaded;
         }
         else {
@@ -882,9 +887,9 @@ static Room load_model(Gpu& g, const fs::path& asset_root, const fs::path& ymo) 
     // ref against its own YMO's directory. Do not reduce to a basename and look it
     // up game-wide: 532 basenames are ambiguous and 530 of those differ in content.
     for (const std::string& path : r.mesh.textures) {
-        Dds dds = load_dds(path, g_world_mips);
+        Dds dds = load_dds(path, g_world_mips != 0);
         if (dds.ok()) {
-            r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds), g_world_mips ? g.sampler_mip : nullptr));
+            r.binds.push_back(tex_bindgroup(g, upload_texture(g, r, dds), g_world_mips == 2 ? g.sampler_mip : nullptr));
             ++loaded;
         }
         else {
@@ -914,6 +919,7 @@ static void make_world_samplers(Gpu& g) {
     sad.magFilter = sad.minFilter = g_world_sampler.linear ? WGPUFilterMode_Linear : WGPUFilterMode_Nearest;
     if (g_world_sampler.mip_linear) sad.mipmapFilter = WGPUMipmapFilterMode_Linear;
     sad.maxAnisotropy = g_world_sampler.anisotropy;
+    sad.lodMaxClamp = 32.0f;                             // D3D's MAXMIPLEVEL 0: every level a texture has
     g.sampler = wgpuDeviceCreateSampler(g.device, &sad);
     // The mip one ("Smooth distant textures", g_world_mips) blends the levels (trilinear) and, on a linear
     // filter, takes at least 8x anisotropy: trilinear alone blurs a floor seen at a steep angle more than no

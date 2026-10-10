@@ -52,7 +52,7 @@ bool gamma_is_identity(float gamma_value);               // 1.0: no pass at all
 // TextureFilter 0 -> {min, mag, mip} = {POINT, POINT, POINT}, 1 -> {LINEAR, LINEAR, POINT},
 // 2 -> {LINEAR, LINEAR, LINEAR}. Anisotropy > 1 sets MAXANISOTROPY and turns a LINEAR min filter into
 // ANISOTROPIC; a POINT filter keeps no anisotropy. wgpu needs every filter linear for anisotropy > 1,
-// so the mip filter goes linear then too (CleriaCore uploads one mip level: no visible difference).
+// so the mip filter goes linear then too ([approx]: retail keeps the nearest level under Bilinear + anisotropy).
 struct SamplerSpec {
     bool linear = true;          // min + mag
     bool mip_linear = false;

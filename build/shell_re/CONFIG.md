@@ -132,7 +132,7 @@ Missing-key defaults:
 | `IniVersion` | hex int, must be `0x100` | — | `FUN_0040d1d0` (local) | B | gate (§1.3) | g,c | — |
 | `WindowPosX` / `WindowPosY` | int px | 64 / 64 | `FUN_0040b600` (window create); `FUN_0040bf50` → param[3]/[4] → `0x703d40` / `0x703d44` | B | windowed window origin; updated by `FUN_005d4ab0` [H move/reset] | g only (`FUN_0040db00`) | — (tool neither reads nor writes it) |
 | `EnglishRoonic` | 0/1 | 0 | `FUN_0040bf50` → gfx+0x65 → `0x76519d` | B | `FUN_005efb50`, `FUN_005f03f0` (text/glyph path) [H: Roonic-script text in Latin letters] | g,c | none found |
-| `ClampInternalFrameRateMin` | int | 5 | `FUN_0040bf50` → param[11] (clamped ≤ max) | B | **consumer not found** in `FUN_005d68d0` | c | combo **1025** "Minimum Frame Rate": {12, 10, 5, 1} (`0x689ed4`) |
+| `ClampInternalFrameRateMin` | int | 5 | `FUN_0040bf50` → param[11] (clamped ≤ max) | B | **no consumer** (confirmed 2026-10-11, CONFIG_PARITY.md §16) | c | combo **1025** "Minimum Frame Rate": {12, 10, 5, 1} (`0x689ed4`) |
 | `ClampInternalFrameRateMax` | int | 10000 | `FUN_0040bf50` → param[12], clamped to [60, 10000] | B | not found | c | — |
 | `AccessArchiveViaMemoryMappedFile` | 0/1 | 1 | `FUN_0040bf50` → param[10] | B | archive open (`FUN_005de7f0`) | c | — |
 | `HighResoText` | 0/1 | `0x6d606c` init = **1** | `FUN_0040d1d0` → `0x6d606c` (only if IniVersion is OK) | B | text: `FUN_00442260`, `FUN_005781f0`, `FUN_00578710`, `FUN_0057a050`, `FUN_005a3850` | c | checkbox **1115** "Increase Text Resolution" (JP: pixel-exact text) |
@@ -402,7 +402,8 @@ The page dialogs are embedded and the current one is remembered in `config.ini C
   - 1014 **Light** (`FUN_005d3900`: 640×480, 32-bit, Bilinear, AF 1, no MSAA, shadow/water 1, glare 0);
   - 1013 **Lightest** (`0x3f5`: 640×480, 16-bit, LowRes 1, OtherLightWeight 1, Mipmap 0,
     shadow/water/glare 0);
-  - all four presets then set GammaEnable = (fullscreen && caps) and HighResoText = 0;
+  - all four presets then set GammaEnable = (fullscreen && caps); Light and Lightest (only) also set
+    HighResoText = 0 (corrected 2026-10-11, CONFIG_PARITY.md §5);
   - other buttons: 601 DxDiag, 603 EU-localisation credits;
   - static 604: caps warnings (e.g. "Cannot find Hardware Vertex Shader (v1.1)").
 - **Page 202 Input Assignments**:
@@ -533,7 +534,7 @@ Survey of the working tree on 2026-10-06. `vg` = `apps/cleria-view/view_game.inl
 | Frame-rate clamp | `kTickHz = 60`, uncapped catch-up | main:101-106 |
 | Shadow / water / glare / caustics / MaskOfEyes / Blood levels | not settings: shadows always on (vg:64), no water/caustics/glare pass, Blood missing | — |
 | DisableMovies | env `CLERIA_MOVIE=0` | vg:168 |
-| HighResoText | the `H\` DDS variant always wins | main:321 |
+| HighResoText | (corrected 2026-10-11: not the `H\` folders — the text raster resolution, CONFIG_PARITY.md §15) | — |
 | Language | English only (asset tree = `data.ni` + `data_us.ni` overlay, README:118) | bgmdef.cpp:19 |
 | BGM / SFX volume | read, persisted and applied, retail 0..1024 scale and the same log taper | vm:1616-1617; vg:449-450; audio.hpp:97-102 |
 | PlayBgm / PlayEffect / Reverb / sound device | missing; `CLERIA_MUTE` = no device | vg:99 |
@@ -605,9 +606,7 @@ Survey of the working tree on 2026-10-06. `vg` = `apps/cleria-view/view_game.inl
 
 ## 8. Open questions
 
-1. **ClampInternalFrameRateMin/Max**: read and clamped into init-param slots [11]/[12], but no consumer
-   was found in `FUN_005d68d0` or in `FUN_0040bf50`'s global stores. Check `FUN_005da120` and the main
-   loop `FUN_00410440`.
+1. **ClampInternalFrameRateMin/Max**: closed 2026-10-11 — no consumer exists (CONFIG_PARITY.md §16).
 2. **MouseSensitivity**: struct+0x98 is never copied (verified bytes). Confirm that no other reader
    exists.
 3. **Sound page (204) and gamma "Active" (1021)** WM_COMMAND handlers were not located. Their key

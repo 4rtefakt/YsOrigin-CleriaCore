@@ -29,6 +29,7 @@ frame is the frame without it, pixel for pixel (§6).
 | Render scale | `[cleria.video] RenderScale` 0.5 .. 2.0 in 0.25 steps | live |
 | Texture filtering | `[graphics] TextureFilter` 0 point / 1 bilinear / 2 trilinear | live for what loads from then on (the next area) |
 | Anisotropic filtering | `[graphics] Anisotropy` 1 / 2 / 4 / 8 / 16 | as above |
+| Mipmapping | `[graphics] Mipmap` (CONFIG_PARITY.md §17) | live for what loads from then on (the next area) |
 | Anti-aliasing (MSAA) | `[graphics] MultiSampleType` 0 / 4 (any saved count >= 2 draws with 4 samples) | live |
 | Blood | `[game] BloodyEffectLevel` 0 / 1 / 2 | live |
 | Presets (Lightest / Light / Normal / High-definition) | the quality keys in one click (`graphics_preset`, CONFIG_PARITY.md §5) | live |
@@ -70,8 +71,8 @@ equals `round(255 * (in/255)^(1/g))` of the default frame within 1 level on ever
 `Anisotropy > 1` sets `MAXANISOTROPY` and turns a LINEAR min filter into ANISOTROPIC (given the caps bit
 0x400); a POINT filter gets no anisotropy. CleriaCore: `video::sampler_spec` -> the world sampler `g.sampler`
 (`build_pipeline`), which every room / sprite / effect bind group bakes in. wgpu needs every filter linear
-for anisotropy > 1, so the mip filter goes linear then too; CleriaCore uploads one mip level, so that and
-Trilinear look like bilinear (§4). The bind groups bake the sampler at load, so a change rebuilds the
+for anisotropy > 1, so the mip filter goes linear then too [approx]. With Mipmapping on (CONFIG_PARITY.md §17)
+the map textures carry their mip chains, so Trilinear is real. The bind groups bake the sampler at load, so a change rebuilds the
 samplers at once (`video_resample` -> `make_world_samplers`) and **shows in what is loaded from then on**: the
 next area's textures, sprites loaded later (since 2026-10-10; before, on restart). The 2D layers
 (HUD, book, windows) keep their own linear samplers [not modelled: which of retail's 2D draws go through
@@ -163,12 +164,12 @@ original option and the value saved for the original game.
 
 | Retail key | Why not |
 |---|---|
-| `Mipmap` | `upload_texture` / `upload_rgba` upload level 0 only. Mipmapping would also make Trilinear real. |
-| `ShadowEffectLevel` | The level's users (`FUN_00457a90`, `FUN_00459410`, `FUN_0045c490`, `FUN_00474870`, `FUN_00474cd0`, `FUN_005042e0`, `FUN_005043e0`) are not traced to what they drop. |
-| `WaterEffectLevel`, `GlareEffectLevel`, `WaterCaustics` | No reflection, glare or caustics pass exists yet. (`MaskOfEyes` is a live toggle since 2026-10-07: the grey pass is `view_mask.inl`, build/audit/PLAYTEST_1_STORY.md §1.) |
-| `OtherLightWeightMode` | Users (`FUN_0044fdd0`, `FUN_00501a30`, `FUN_0055ddc0`) not traced. |
-| `CompressedTexture`, `LowResoTexture` | Loader variants, not ported (CleriaCore loads the full DDS). |
-| `HighResoText` | CleriaCore always uses the high-resolution (`H\`) text art. |
+| `ShadowEffectLevel` | Floor-following blob shadows, the bosses' projected shadows and Toal's trail length: none is drawn (CONFIG_PARITY.md §6, issue #86). |
+| `WaterEffectLevel`, `GlareEffectLevel`, `WaterCaustics` | No reflection (CONFIG_PARITY.md §12), glare (issue #82) or caustics (§13, issue #87) pass exists yet. (`MaskOfEyes` is a live toggle since 2026-10-07: the grey pass is `view_mask.inl`, build/audit/PLAYTEST_1_STORY.md §1.) |
+| `OtherLightWeightMode` | Darm's lighter room and two smaller effects (CONFIG_PARITY.md §14, issue #88). |
+| `CompressedTexture` | A loader variant with no meaning here (CleriaCore uploads each DDS as stored). |
+| `HighResoText` | The resolution GDI text is rasterised at (CONFIG_PARITY.md §15, issue #89). |
+| `ClampInternalFrameRateMin` | Read and never used by the original (CONFIG_PARITY.md §16). |
 | `TripleBuffer`, `BackBufferFormat32`, `ForceSoftwareVP`, `DisablePixelShader`, `DisableQPC`, `Device`, `DeviceIdentifier` | Direct3D 9 / timer specifics with no meaning for wgpu; they round-trip in yso_win.ini. (`TripleBuffer` = a second D3D back buffer under FIFO; wgpu's FIFO swap chain already queues frames.) |
 
 ## 5. CleriaCore's extras ("Not a retail option.")

@@ -100,6 +100,10 @@ static WGPUBindGroup video_bind(Gpu& g, WGPUTextureView v, WGPUSampler s) {
 // `copy_ok`: the frame can be copied (the gamma pass reads a copy of it).
 static bool video_drive(const std::string& cmd);
 static void video_low_res();
+// [graphics] Mipmap (0x765172) and "Smooth distant textures" -> g_world_mips, for the rooms loaded from now on.
+static void video_mips() {
+    g_world_mips = vid().smooth_textures ? 2 : settings().s.graphics.mipmap != 0 ? 1 : 0;
+}
 static void video_init(Gpu& g, WGPUTextureFormat fmt, bool copy_ok) {
     g_vgpu.gpu = &g;
     // CLERIA_VOPT="Key=value;Key=value": vopt settings from the start (a headless run's settings are
@@ -108,7 +112,7 @@ static void video_init(Gpu& g, WGPUTextureFormat fmt, bool copy_ok) {
         std::stringstream ss(e);
         for (std::string kv; std::getline(ss, kv, ';');) if (!kv.empty()) video_drive("vopt=" + kv);
     }
-    g_world_mips = vid().smooth_textures;
+    video_mips();
     g_sprite_point = vid().crisp_sprites;
     const auto& gr = settings().s.graphics;
     g_world_sampler = video::sampler_spec(gr.texture_filter, gr.anisotropy);
@@ -620,10 +624,20 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         }
     }
     {   // CleriaCore's own "looks better" switches: none is a retail option, all are off by default.
+        bool mm = gr.mipmap != 0;                        // 0x765172 (video_mips)
+        if (ui::toggle(L, "Mipmapping", &mm,
+                       "Uses the smaller copies stored with each floor, wall and object texture for surfaces far "
+                       "from the camera: less shimmer when you move, a little softer in the distance. On is the "
+                       "original's default. Takes effect in the next area you enter. (Original: Mipmapping.)")) {
+            gr.mipmap = mm;
+            video_mips();
+            persist();
+        }
         if (ui::toggle(L, "Smooth distant textures", &v.smooth_textures,
-                       "Floors and walls far from the camera look cleaner and shimmer less when you move. Takes "
+                       "Blends between those smaller copies and keeps floors seen at a steep angle sharp (trilinear "
+                       "and at least 8x anisotropic filtering, whatever the two rows below say). Takes "
                        "effect in the next area you enter. A CleriaCore extra, not a retail option.")) {
-            g_world_mips = v.smooth_textures;
+            video_mips();
             persist();
         }
         if (ui::toggle(L, "Smooth edges", &v.smooth_edges,
@@ -656,8 +670,8 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         int f = std::clamp(int(gr.texture_filter), 0, 2);
         if (ui::choice(L, "Texture filtering", &f, kFilters, 3,
                        "Point keeps texels sharp and blocky; bilinear smooths them (the original's default). "
-                       "Trilinear also blends mipmap levels, which CleriaCore only loads with Smooth distant textures "
-                       "on, so here it looks like bilinear. Takes effect in the next area you enter. (Original: "
+                       "Trilinear also blends between mipmap levels (with Mipmapping on), which hides the line where "
+                       "one level gives way to the next. Takes effect in the next area you enter. (Original: "
                        "Texture Filter.)")) {
             gr.texture_filter = f;
             video_resample();
@@ -756,6 +770,7 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
                                   "resolution stay as they are.";
             if (ui::button(L, kNames[p], d.c_str())) {
                 graphics_preset(p, settings().s);
+                video_mips();
                 video_low_res();
                 if (!vsync) { vsync = true; configure(); }
                 video_resample();
@@ -775,12 +790,10 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             const std::string d = std::string(what) + " Saved for the original game: " + saved + ".";
             ui::choice_label(L, label, value, d.c_str(), false);
         };
-        row("Mipmapping", "Off",
-            "Smaller copies of each texture for distant surfaces (Original: Mipmapping). The retail switch is not "
-            "read: Smooth distant textures above is CleriaCore's own.", onoff(gr.mipmap != 0));
-        row("Shadows", "Full",
-            "Shadow detail (Original: Shadows). Not available yet: what each level removes is not traced, so CleriaCore "
-            "always draws its shadows.", lvl(gr.shadow_effect_level));
+        row("Shadows", "Flat",
+            "Shadow detail (Original: Shadows): round shadows that follow steps and slopes, the bosses' own shadows, "
+            "the length of Toal's afterimage trail. Not available yet: CleriaCore draws every shadow as a flat disc.",
+            lvl(gr.shadow_effect_level));
         row("Reflections", "None",
             "Water reflections (Original: Reflections). Not available yet: CleriaCore has no reflection pass.",
             lvl(gr.water_effect_level));
@@ -790,11 +803,15 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             "The light patterns under water (Original: Disable Water Caustics). Not available yet.",
             gr.water_caustics ? "disabled" : "enabled");
         row("Other simplification", "Off",
-            "Lighter effects for slow PCs (Original: Other Simplification). Not available yet.",
-            onoff(gr.other_light_weight_mode != 0));
+            "A lighter version of the final boss's room for slow PCs (Original: Other Simplification). Not available "
+            "yet.", onoff(gr.other_light_weight_mode != 0));
         row("Increase text resolution", "On",
-            "The high-resolution text art (Original: Increase Text Resolution). CleriaCore always uses it.",
+            "Text drawn at the screen's resolution instead of stretched from 1024 x 768 (Original: Increase Text "
+            "Resolution). CleriaCore always draws it sharp.",
             onoff(settings().s.kernel.high_reso_text != 0));
+        row("Minimum frame rate", "n/a",
+            "(Original: Minimum Frame Rate.) The original game reads this value and never uses it, so there is "
+            "nothing to apply.", std::to_string(settings().s.kernel.clamp_fr_min));
         row("Direct3D 9 options", "n/a",
             "Triple buffering, 32-bit colour, compressed textures, hardware vertex / pixel shaders, the timer source: "
             "Direct3D 9 settings "
@@ -819,7 +836,8 @@ static bool video_drive(const std::string& cmd) {
         if (k == "RenderScale") vid().render_scale = video::clamp_scale(x);
         else if (k == "FpsCap") vid().fps_cap = x <= 0 ? 0 : std::clamp(int(x), video::kFpsCapMin, video::kFpsCapMax);
         else if (k == "PerfGraph") vid().perf_graph = x != 0;
-        else if (k == "SmoothTextures") g_world_mips = vid().smooth_textures = x != 0;   // from the next room load
+        else if (k == "SmoothTextures") { vid().smooth_textures = x != 0; video_mips(); }   // from the next room load
+        else if (k == "Mipmap") { gr.mipmap = x != 0; video_mips(); }                       // likewise
         else if (k == "SmoothEdges") vid().smooth_edges = x != 0;
         else if (k == "CrispSprites") g_sprite_point = vid().crisp_sprites = x != 0;     // sprites uploaded from now
         else if (k == "GammaValue") gr.gamma_value = x;
@@ -830,7 +848,7 @@ static bool video_drive(const std::string& cmd) {
         else if (k == "TextureFilter") { gr.texture_filter = std::clamp(int(x), 0, 2); video_resample(); }
         else if (k == "MultiSampleType") gr.multi_sample_type = std::max(0, int(x));
         else if (k == "Anisotropy") { gr.anisotropy = std::clamp(int(x), 1, 16); video_resample(); }
-        else if (k == "Preset") { graphics_preset(std::clamp(int(x), 0, 3), settings().s); video_resample(); video_low_res(); }
+        else if (k == "Preset") { graphics_preset(std::clamp(int(x), 0, 3), settings().s); video_resample(); video_low_res(); video_mips(); }
         else if (k == "LowResoTexture") { gr.low_reso_texture = x != 0; video_low_res(); }
         else if (k == "BloodyEffectLevel") settings().s.game.bloody_effect_level = std::clamp(int(x), 0, 2);   // [game]
         // The other pages' retail keys, as the shell changes them (touch(): the mapper, the Options copy and
@@ -851,15 +869,15 @@ static bool video_drive(const std::string& cmd) {
         const float gv = settings().s.graphics.gamma_value;
         const int cap = vid().fps_cap;
         std::printf("  [video] world %ux%u scale %.2f gamma %.2f post %s aspect %.4f fps %d tps %d cap %d %s | looks: "
-                    "textures %d edges %d (target %s) crisp %d | sampler %s%s x%d blood %d msaa %d\n",
+                    "textures %d edges %d (target %s) crisp %d | sampler %s%s x%d blood %d msaa %d mips %d\n",
                     g_vgpu.world_w, g_vgpu.world_h, double(vid().render_scale), double(gv),
                     g_vgpu.copy_ok && !video::gamma_is_identity(gv) ? "on" : "off",
                     double(video_aspect(g_vgpu.world_w, g_vgpu.world_h)), g_vstats.fps, g_vstats.tps, cap,
                     cap <= 0 ? "uncapped" : g_vstats.fps <= cap + 1 ? "held" : "over",
-                    int(g_world_mips), int(vid().smooth_edges), g_vgpu.wtex ? "on" : "off", int(g_sprite_point),
+                    int(g_world_mips == 2), int(vid().smooth_edges), g_vgpu.wtex ? "on" : "off", int(g_sprite_point),
                     g_world_sampler.linear ? "linear" : "point", g_world_sampler.mip_linear ? "+mip" : "",
                     int(g_world_sampler.anisotropy), int(settings().s.game.bloody_effect_level),
-                    video::msaa_samples(settings().s.graphics.multi_sample_type));
+                    video::msaa_samples(settings().s.graphics.multi_sample_type), g_world_mips);
         if (g_low_res_textures) std::printf("  [video] low-resolution textures on\n");
         return true;
     }
