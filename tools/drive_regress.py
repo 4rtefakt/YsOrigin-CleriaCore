@@ -1737,6 +1737,16 @@ CASES.update({
         drive="20:near=17;21:atk;36:atk;39:run=@itemcannotuse;40:scripts;41:pos;150:scripts;151:pos;160:quit",
         expect=["t40 scripts", "frozen 1 fix 0/1 popups 1", "sec 0x103", "t150 scripts", "frozen 1 fix 0/1 popups 0",
                 "sec 0x2"]),
+    # build/mech_re/FIX_SLOTS.md S0: the two fix slots, reported. @ItemCannotUse holds slot 1 (it stops the monsters
+    # too), the blessing shop @GrowMenu slot 0 (the controls only).
+    "fix_slots_reported": dict(
+        room="S_10/S_1002/S_1002", char="2", env=_LOCK,
+        drive="20:run=@itemcannotuse;22:scripts;60:quit",
+        expect=["[fix] t", "slot 1 taken: 0/1", "frozen 1 fix 0/1"], absent=["slot 0 taken"]),
+    "fix_slots_reported_0": dict(
+        room="S_10/S_1004/S_1004", env=_LOCK,
+        drive="20:run=@growmenu;22:scripts;60:quit",
+        expect=["[fix] t", "slot 0 taken: 1/0", "frozen 1 fix 1/0"], absent=["slot 1 taken"]),
     # #72: after the S_1080 Hugo duel Epona's hurt timer (+0x238) runs out under the scene's Fix (it stood at
     # 1.2: the hurt specular stayed on, a red Epona), and her exit run plays the run section 1 (tag 302): the
     # locomotion change takes the motion back from the Chr_Animate(201, 3) of her leap (FUN_0045f4d0).

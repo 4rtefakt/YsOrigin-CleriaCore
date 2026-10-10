@@ -5951,6 +5951,15 @@ title_again:
         std::copy(game.item_arr, game.item_arr + 54, csMgr.vm.item_arr);   // IsXXX 7 / 8 read it
         csMgr.vm.g_flags[150] = character;
         const bool frozen_now = tick_events();
+        {   // The log: a 0 <-> non-0 edge of either fix counter (FIX_SLOTS.md S0).
+            static int fix_was[2] = {0, 0};
+            for (int s = 0; s < 2; ++s) {
+                if ((fix_was[s] != 0) != (csMgr.fix_counts[s] != 0))
+                    std::printf("  [fix] t%llu slot %d %s: %d/%d\n", (unsigned long long)tick_count, s,
+                                csMgr.fix_counts[s] != 0 ? "taken" : "released", csMgr.fix_counts[0], csMgr.fix_counts[1]);
+                fix_was[s] = csMgr.fix_counts[s];
+            }
+        }
         // The door's fade machine (FUN_004106e0 0x4108a5..0x41094f, every real step, a Fix or not): once
         // current == target with a door pending, commit when the player lives (HP 0x76a730 >= 1, no game
         // over 0x74ab71) -- FUN_00430ef0 sets 0x74c120 |= 3 and the scene swaps at the next frame -- and

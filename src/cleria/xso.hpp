@@ -836,9 +836,17 @@ struct ScriptManager {
         vm.on_allow_multi = [this](bool on) { if (cur_inst_) cur_inst_->multi = on; };
     }
 
-    // The world is frozen while any live script holds a fix (IsFix = the two counters'
-    // sum, FUN_0040b2c0; CUTSCENE_CAMERA.md §7).
-    bool world_frozen() const { return fix_counts[0] + fix_counts[1] > 0; }
+    // The engine reads the two counters in three ways (build/mech_re/FIX_SLOTS.md §0, §1.4):
+    //   fix_any        the SUM (FUN_0040b2c0, IsFix): the player's input and player-only bookkeeping — 27 readers;
+    //   actors_stopped slot 1 ALONE, the script half of the actor-stop byte 0x74ab8b [EXPORT 004281c0.c:49-50]:
+    //                  the actor handlers 3..93 (enemies, Hugo's eyes) and the EF2 particle hit test;
+    //   (slot 0 alone: two input wrappers of the puppet handler, not used here).
+    // So Fix(0) takes the controls away, Fix(1) also stops the monsters.
+    bool fix_any() const { return fix_counts[0] + fix_counts[1] > 0; }
+    bool actors_stopped() const { return fix_counts[1] > 0; }
+    // The port's own "a Fix holds" test = the sum: its main loop still takes one frozen branch for both slots
+    // (FIX_SLOTS.md §3.1 lists what that branch stops that slot 0 does not).
+    bool world_frozen() const { return fix_any(); }
 
     // Register a root (or already-loaded child) instance and tick it once this frame,
     // matching StartScript's immediate first tick (§5a). Returns the live-index.
