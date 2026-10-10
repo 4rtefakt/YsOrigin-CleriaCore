@@ -132,6 +132,24 @@ int main(int argc, char** argv) {
             std::size_t from_us = 0;
             for (const auto& f : src.files) from_us += f.archive == 1;
             check(from_us == 813, "merge: 813 files come from data_us");
+            {   // a language overlay on its own (CONFIG_PARITY.md §7): data_us stands in for data_sp, which this
+                // install does not have
+                const fs::path lt = fs::temp_directory_path() / "cleria-gamedatatest-lang";
+                std::error_code lec;
+                fs::remove_all(lt, lec);
+                check(gamedata::languages(lt) == std::vector<int>{1}, "languages: English alone without a lang folder");
+                const long long n = gamedata::unpack_archive(v.root / "release" / "data_us.ni", gamedata::language_dir(lt, 2), &err);
+                check(n == 813 && fs::exists(lt / "lang" / "data_sp" / "MISC" / "INVINFO.DAT", lec),
+                      "unpack_archive: the overlay's 813 files under lang/data_sp");
+                check(gamedata::languages(lt) == std::vector<int>({1, 2}) && gamedata::language(2)->name == std::string("Spanish") &&
+                          gamedata::language_dir(lt, 1).empty() && !gamedata::language(0),
+                      "languages: English + the unpacked one; English and Japanese have no folder");
+                fs::remove_all(lt, lec);
+                const std::vector<std::string> cr = gamedata::localization_credits(v.root);
+                check(cr.size() > 30 && cr[0] == "Ys Origin" && cr[1] == "PC Version - European Language Localization" &&
+                          std::find(cr.begin(), cr.end(), "Translators and Editors") != cr.end(),
+                      "localization_credits: both message boxes read from yso_win.exe");
+            }
             for (const ni::Archive* a : {&base, &us}) {
                 std::uint64_t sum = 0;
                 bool sorted = true;

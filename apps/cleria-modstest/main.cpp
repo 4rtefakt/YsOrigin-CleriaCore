@@ -140,6 +140,18 @@ int main(int argc, char** argv) {
         const auto it = vfs::table().find("map/s_10/a.dds");
         check(it != vfs::table().end() && it->second.layer == 1 && it->second.also == std::vector<int>{0},
               "vfs: the table records the overridden lower layer (conflict report)");
+        {   // the language overlay: under the layers, over the base
+            fs::create_directories(tmp / "LANG" / "map" / "s_10");
+            fs::create_directories(tmp / "LANG" / "IMAGE");
+            { std::ofstream(tmp / "LANG" / "map" / "s_10" / "a.dds") << "fr-a"; }
+            { std::ofstream(tmp / "LANG" / "IMAGE" / "B.DDS") << "fr-b"; }
+            check(vfs::set_language(tmp / "LANG") == 2, "vfs: the language overlay lists its files");
+            check(slurp(vfs::resolve(base / "IMAGE" / "B.DDS")) == "fr-b" && slurp(vfs::locate("image/b.dds")) == "fr-b",
+                  "vfs: a name only the language overlay has replaces the base file");
+            check(slurp(vfs::resolve(a)) == "l2-a", "vfs: a mod layer still wins over the language overlay");
+            check(vfs::set_language(tmp / "nope") == 0 && vfs::resolve(base / "IMAGE" / "B.DDS") == base / "IMAGE" / "B.DDS",
+                  "vfs: a missing language folder = no overlay");
+        }
         const std::vector<std::uint8_t> rd = vfs::read(a);
         check(std::string(rd.begin(), rd.end()) == "l2-a", "vfs: read() goes through resolve()");
         vfs::reset();

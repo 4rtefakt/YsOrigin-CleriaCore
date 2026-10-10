@@ -47,7 +47,13 @@ void mount(const std::string& prefix, const std::filesystem::path& dir);
 // layer's root. Returns the number of distinct names provided.
 std::size_t set_layers(std::vector<Layer> layers);
 
-// Back to no mounts and no layers (tests).
+// The language overlay (build/shell_re/CONFIG_PARITY.md §7): a folder of the asset root's files in another
+// language (one of retail's data_xx overlay archives, unpacked), consulted for a path under the "" mount
+// when no layer provides the name. An empty or missing folder = none. Returns the number of names. Like the
+// layers: set once at startup, before the first load.
+std::size_t set_language(const std::filesystem::path& dir);
+
+// Back to no mounts, no layers and no language overlay (tests).
 void reset();
 
 // The file to open for `p`: a layer's file when `p` lies under a mount and a layer provides its

@@ -96,6 +96,29 @@ std::filesystem::path ready_data_dir();
 // else empty. The music (\music), movie and font (yso_ins04.dat) lookups try it first.
 std::filesystem::path release_dir_for(const std::filesystem::path& asset_root);
 
+// ---- languages (build/shell_re/CONFIG_PARITY.md §7) ---------------------------------------
+// [game] Language and the overlay archive retail mounts over release\data for it [EXPORT FUN_005d68d0,
+// strings 0x6b8978..0x6b8998]. Japanese (0) mounts none: the base archive alone [not offered: its text
+// needs a Japanese font path]. The data folder is data + data_us merged, so English needs nothing more;
+// another language's archive is unpacked ON ITS OWN into <asset root>/lang/<archive>/ (the same relative
+// names) and laid over the asset root by vfs::set_language. $CLERIA_LANG_DIR replaces <asset root>/lang
+// for the lookup (like CLERIA_MUSIC_DIR: language data kept elsewhere).
+struct Language { int id; const char* name; const char* archive; };
+inline constexpr Language kLanguages[] = {
+    {1, "English", "data_us"}, {2, "Spanish", "data_sp"}, {3, "French", "data_fr"},
+    {4, "German", "data_de"},  {5, "Italian", "data_it"}};
+const Language* language(int id);   // null for an id not in kLanguages
+std::filesystem::path language_dir(const std::filesystem::path& asset_root, int id);   // empty for English / unknown
+// The languages `asset_root` can run: English, then every other whose language_dir exists.
+std::vector<int> languages(const std::filesystem::path& asset_root);
+// Unpacks `ni` (an index; its .na beside it) on its own into `out_dir`. Returns the files written, -1 on error.
+long long unpack_archive(const std::filesystem::path& ni, const std::filesystem::path& out_dir, std::string* err = nullptr);
+
+// The config tool's "European Localization Credits" (button 603): the two message-box texts, read from the
+// install's yso_win.exe (UTF-16 strings; found by their first words and the second box's title, so no address
+// is assumed) and returned as UTF-8 lines. Empty when the exe or the strings are not there.
+std::vector<std::string> localization_credits(const std::filesystem::path& install_root);
+
 // ---- unpacking ---------------------------------------------------------------------------
 struct Progress {
     std::uint64_t files_done = 0, files_total = 0;
@@ -113,7 +136,9 @@ struct InstallResult {
     double seconds = 0;
 };
 
-// Unpacks data.ni/.na then data_us.ni/.na over it into `out`. `progress` is called on the
+// Unpacks data.ni/.na then data_us.ni/.na over it into `out`, then every other language archive the install
+// has (release\data_sp / _fr / _de / _it) into out/lang/<archive>/ (a failure there is a warning in
+// `failures`, not an error). `progress` is called on the
 // calling thread about every 50 ms and once at the end; `cancel` is polled per file. `threads`
 // 0 = min(hardware threads, 8). Refuses a non-empty `out` that is not a CleriaCore data folder
 // (no manifest, no marker), and deletes nothing: it only overwrites the files it writes. The

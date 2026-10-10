@@ -21,6 +21,7 @@ struct Mount {
 std::vector<Mount> g_mounts;
 std::vector<Layer> g_layers;
 std::unordered_map<std::string, Entry> g_table;
+std::unordered_map<std::string, fs::path> g_lang;   // set_language: key(virtual name under "") -> file
 
 std::string lower(std::string s) {
     for (char& c : s)
@@ -133,10 +134,24 @@ std::size_t set_layers(std::vector<Layer> layers) {
     return g_table.size();
 }
 
+std::size_t set_language(const fs::path& dir) {
+    g_lang.clear();
+    std::error_code ec;
+    if (dir.empty() || !fs::is_directory(dir, ec)) return 0;
+    for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code fec;
+        if (!it->is_regular_file(fec)) continue;
+        const std::string k = key(u8(it->path().lexically_relative(dir)));
+        if (!k.empty() && k.rfind("..", 0) != 0) g_lang[k] = it->path();
+    }
+    return g_lang.size();
+}
+
 void reset() {
     g_mounts.clear();
     g_layers.clear();
     g_table.clear();
+    g_lang.clear();
 }
 
 std::string virtual_name(const fs::path& p) {
@@ -153,23 +168,28 @@ std::string virtual_name(const fs::path& p) {
 
 fs::path resolve(const fs::path& p) {
 #ifndef _WIN32
-    if (g_table.empty()) return case_fold(p);   // no mods: the base path, its case found on disk
+    if (g_table.empty() && g_lang.empty()) return case_fold(p);   // no mods: the base path, its case found on disk
     const std::string vn = virtual_name(p);
     if (vn.empty()) return case_fold(p);
-    const auto it = g_table.find(key(vn));
-    return it == g_table.end() ? case_fold(p) : it->second.file;
+    const std::string k = key(vn);
+    if (const auto it = g_table.find(k); it != g_table.end()) return it->second.file;
+    const auto lt = g_lang.find(k);
+    return lt == g_lang.end() ? case_fold(p) : lt->second;
 #else
-    if (g_table.empty()) return p;   // no mods: the base path, untouched
+    if (g_table.empty() && g_lang.empty()) return p;   // no mods, no language overlay: the base path, untouched
     const std::string vn = virtual_name(p);
     if (vn.empty()) return p;
-    const auto it = g_table.find(key(vn));
-    return it == g_table.end() ? p : it->second.file;
+    const std::string k = key(vn);
+    if (const auto it = g_table.find(k); it != g_table.end()) return it->second.file;
+    const auto lt = g_lang.find(k);
+    return lt == g_lang.end() ? p : lt->second;
 #endif
 }
 
 fs::path locate(std::string_view vname) {
     const std::string k = key(vname);
     if (const auto it = g_table.find(k); it != g_table.end()) return it->second.file;
+    if (const auto lt = g_lang.find(k); lt != g_lang.end()) return lt->second;
     // the mounts are sorted by folder length; for a virtual name the longest PREFIX must win
     const Mount* best = nullptr;
     for (const Mount& m : g_mounts) {

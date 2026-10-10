@@ -256,6 +256,90 @@ bool GameArchives::open(const fs::path& install_root, std::string* err) {
     return true;
 }
 
+// ---- languages ---------------------------------------------------------------------------
+
+const Language* language(int id) {
+    for (const Language& l : kLanguages)
+        if (l.id == id) return &l;
+    return nullptr;
+}
+
+fs::path language_dir(const fs::path& asset_root, int id) {
+    const Language* l = language(id);
+    if (!l || id == 1) return {};
+    const fs::path e = env_path("CLERIA_LANG_DIR");
+    return (e.empty() ? asset_root / "lang" : e) / l->archive;
+}
+
+std::vector<int> languages(const fs::path& asset_root) {
+    std::vector<int> out = {1};
+    for (const Language& l : kLanguages)
+        if (l.id != 1 && is_dir(language_dir(asset_root, l.id))) out.push_back(l.id);
+    return out;
+}
+
+long long unpack_archive(const fs::path& ni_path, const fs::path& out_dir, std::string* err) {
+    ni::Archive a;
+    if (!a.open(ni_path, err)) return -1;
+    ni::NaReader rd(a);
+    std::vector<std::uint8_t> buf;
+    long long n = 0;
+    for (const ni::Entry& e : a.entries()) {
+        if (!rd.read(e, buf, err)) return -1;
+        const fs::path dst = out_dir / from_u8(e.name);
+        std::error_code ec;
+        fs::create_directories(dst.parent_path(), ec);
+        std::FILE* f = open_write(dst);
+        const bool ok = f && (buf.empty() || std::fwrite(buf.data(), 1, buf.size(), f) == buf.size());
+        if ((f && std::fclose(f) != 0) || !ok) {
+            if (err) *err = "cannot write " + u8(dst);
+            return -1;
+        }
+        ++n;
+    }
+    return n;
+}
+
+std::vector<std::string> localization_credits(const fs::path& install_root) {
+    std::vector<std::string> lines;
+    std::ifstream f(install_root_of(install_root) / "yso_win.exe", std::ios::binary);
+    if (!f) return lines;
+    const std::string d{std::istreambuf_iterator<char>(f), {}};
+    auto wide = [](std::string_view s) {
+        std::string w;
+        for (char c : s) { w += c; w += char(0); }
+        return w;
+    };
+    // One NUL-terminated UTF-16LE string at `at`, as UTF-8 lines appended to `lines`.
+    auto take = [&](std::size_t at) {
+        std::string cur;
+        for (; at + 1 < d.size(); at += 2) {
+            const unsigned c = std::uint8_t(d[at]) | unsigned(std::uint8_t(d[at + 1])) << 8;
+            if (c == 0) break;
+            if (c == 10) { lines.push_back(cur); cur.clear(); }
+            else if (c < 0x80) cur += char(c);
+            else if (c == 0x2013 || c == 0x2014) cur += '-';          // dashes the shell's font may lack
+            else if (c < 0x800) { cur += char(0xC0 | c >> 6); cur += char(0x80 | (c & 0x3F)); }
+            else { cur += char(0xE0 | c >> 12); cur += char(0x80 | ((c >> 6) & 0x3F)); cur += char(0x80 | (c & 0x3F)); }
+        }
+        lines.push_back(cur);
+    };
+    std::string first = "Ys Origin";
+    first += char(10);
+    first += "PC Version - European Language Localization";
+    const std::size_t p1 = d.find(wide(first));
+    if (p1 == std::string::npos) return lines;
+    take(p1);
+    const std::string t2 = wide("European Localization Credits (2/2)");
+    std::size_t p2 = d.find(t2, p1);
+    if (p2 == std::string::npos) return lines;
+    p2 += t2.size();
+    while (p2 + 1 < d.size() && d[p2] == 0 && d[p2 + 1] == 0) p2 += 2;   // the title's NUL and the padding
+    lines.push_back("");
+    take(p2);
+    return lines;
+}
+
 // ---- the data folder ---------------------------------------------------------------------
 
 fs::path data_dir() {
@@ -471,6 +555,14 @@ InstallResult install(const fs::path& game_dir, const fs::path& out, const Progr
     if (failed) {
         r.error = std::to_string(r.failures.size()) + " file(s) failed, first: " + r.failures.front();
         return finish();
+    }
+
+    // The other language overlays the install has, each on its own under lang/ (see kLanguages).
+    for (const Language& l : kLanguages) {
+        const fs::path lni = v.root / "release" / (std::string(l.archive) + ".ni");
+        if (l.id == 1 || !is_file(lni)) continue;
+        std::string lerr;
+        if (unpack_archive(lni, out / "lang" / l.archive, &lerr) < 0) r.failures.push_back(std::string(l.archive) + ": " + lerr);
     }
 
     // The manifest goes last, via a rename, so it only ever exists for a complete tree.
