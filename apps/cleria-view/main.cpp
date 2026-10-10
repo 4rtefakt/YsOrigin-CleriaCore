@@ -347,11 +347,14 @@ fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
 
 // Floor shadow decal: pure black at the texture's alpha, NO fog (fs_char's fog would
 // tint the shadow toward the fog colour and it would blend invisibly over the floor).
+// x the vertex alpha (in.opacity; 1 for a character's): a pickup's / a debris piece's flat shadow is its own
+// texture x the vertex colour +0x128 = alpha << 24, alpha <= 0.37647 [EXPORT 00586e40.c, PICKUPS.md 8.3] -- it was
+// dropped here, so those shadows drew as opaque black silhouettes.
 @fragment
 fn fs_shadow(in : VsOut) -> @location(0) vec4<f32> {
   let a = textureSample(tex, smp, in.uv).a;
   if (a < 0.004) { discard; }
-  return vec4<f32>(0.0, 0.0, 0.0, a);
+  return vec4<f32>(0.0, 0.0, 0.0, a * clamp(in.opacity, 0.0, 1.0));
 }
 )WGSL";
 
