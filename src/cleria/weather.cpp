@@ -277,6 +277,61 @@ void Weather::decal_init(Obj& o, const Decal& d) {
     if (!hit || !hit(d.pos, {d.pos.x, d.pos.y - 5.0f, d.pos.z}, &pt, &n)) { o.dead = true; return; }
     o.dc.pos = pt;
     o.dc.normal = n;
+    if (!surface) return;
+    std::vector<Vec3> tris;
+    surface(pt, d.size, tris);
+    decal_mesh(o.dc, tris);
+    if (o.dc.verts.empty()) o.dead = true;                       // +0x1a0 == 0 [EXPORT 00589a60.c:165-176]
+}
+
+void decal_mesh(Decal& d, const std::vector<Vec3>& tris) {
+    d.verts.clear();
+    // M = Scale(size) . R(axis = -normal, angle), row vectors; two of R's terms are not the textbook ones
+    // (0x589dd5, 0x589e08) and are kept as the bytes have them. The origin puts the square's centre on pos.
+    const float x = -d.normal.x, y = -d.normal.y, z = -d.normal.z;
+    const float c = std::cos(d.angle), s = std::sin(d.angle), t = 1.0f - c;
+    const float R[3][3] = {{t * x * x + c, t * x * y + s * z, t * x * z - s * y},
+                           {t * x * y - s * z, t * y * y + c, s * x - t * y * z},
+                           {s * y - t * x * z, t * y * z - s * x, t * z * z + c}};
+    float A[3][3];
+    for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) A[i][j] = R[i][j] * d.size;
+    const int i = int((d.angle + 0.7853982f) * 40.743664f);                       // 0x6bd3a0, 0x6bda38
+    const Vec3 T{d.pos.x - cos_table(i & 0xff) * d.size * 0.70710677f, d.pos.y,
+                 d.pos.z - cos_table((i - 0x40) & 0xff) * d.size * 0.70710677f};
+    const float det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0]) +
+                      A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    if (det == 0.0f) return;
+    // local = (world - T) . inverse(A): the first and third columns of the inverse give U and V.
+    const float iu[3] = {(A[1][1] * A[2][2] - A[1][2] * A[2][1]) / det, -(A[1][0] * A[2][2] - A[1][2] * A[2][0]) / det,
+                         (A[1][0] * A[2][1] - A[1][1] * A[2][0]) / det};
+    const float iv[3] = {(A[0][1] * A[1][2] - A[0][2] * A[1][1]) / det, -(A[0][0] * A[1][2] - A[0][2] * A[1][0]) / det,
+                         (A[0][0] * A[1][1] - A[0][1] * A[1][0]) / det};
+    const float k = 223.0f / 255.0f;                             // 0x6bd3c8 ([H] +0x16d = 0: no writer found)
+    for (std::size_t n = 0; n + 2 < tris.size() && d.verts.size() + 3 <= kDecalMaxVerts; n += 3) {
+        const float cy = (tris[n].y + tris[n + 1].y + tris[n + 2].y) * 0.3333333f;
+        const float dy = (d.pos.y + 0.75f) - cy;                 // 0x6bd390
+        if (dy < -2.0f || dy > 2.0f) continue;
+        float u[3], v[3];
+        for (int q = 0; q < 3; ++q) {
+            const Vec3 r{tris[n + q].x - T.x, tris[n + q].y - T.y, tris[n + q].z - T.z};
+            u[q] = r.x * iu[0] + r.y * iu[1] + r.z * iu[2];
+            v[q] = r.x * iv[0] + r.y * iv[1] + r.z * iv[2];
+        }
+        if ((u[0] < 0 && u[1] < 0 && u[2] < 0) || (u[0] > 1 && u[1] > 1 && u[2] > 1) ||
+            (v[0] < 0 && v[1] < 0 && v[2] < 0) || (v[0] > 1 && v[1] > 1 && v[2] > 1))
+            continue;
+        for (int q = 0; q < 3; ++q) {
+            const float h = std::clamp(2.0f * (tris[n + q].y - d.pos.y), -1.25f, 1.25f);
+            d.verts.push_back({tris[n + q], u[q], v[q], k * std::clamp(1.0f - std::fabs(h), 0.0f, 1.0f)});
+        }
+    }
+}
+
+float decal_alpha(const Decal& d) {
+    float a = float(d.argb >> 24) / 255.0f;                      // +0x188 (table 0x68f7a0)
+    if (d.age < 6.0f) a *= d.age / 6.0f;                         // 0x6bd880
+    if (!d.keep && d.age > d.life - 50.0f) a *= (d.life - d.age) / 50.0f;
+    return a;
 }
 
 void Weather::blood(int count, std::uint32_t argb, int delay_step, int life_range, float size0, float size1,

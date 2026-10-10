@@ -87,12 +87,13 @@ struct SparkQuad { Vec3 p[4]; float v[2]; };          // p: P + side, P - side, 
 void spark_ribbon(const Spark& s, const Vec3& cam_fwd, SparkQuad out[4]);
 inline float spark_alpha(const Spark& s) { return s.age > s.life - 20.0f ? (s.life - s.age) / 20.0f : 1.0f; }
 
-// One GoXx floor decal (type 4; GOXX_PARTICLES.md §2.4): a blood splat or a slime puddle. SIM ONLY — the record,
-// its ray to the floor, its delay / age / life and the footprint trigger (FUN_00589a60 init, FUN_00589f60 step).
-// [not modelled] the mesh clipped out of the room's triangles (FUN_00589690, unknown U3) and the three shared
-// batches that draw it (U4): nothing is drawn, and the two ways a decal dies in the render pass (an empty clip, a
-// full batch) do not happen here.
+// One GoXx floor decal (type 4; GOXX_PARTICLES.md §2.4): a blood splat or a slime puddle -- the record, its ray
+// to the floor, its mesh (decal_mesh), its delay / age / life and the footprint trigger (FUN_00589a60 init,
+// FUN_00589f60 step). The view draws it (view_weather.inl's draw_decals).
+struct DecalVert { Vec3 p; float u = 0, v = 0, w = 0; };   // +0x174: a world vertex, its UV; +0x17c: its weight
+inline constexpr std::size_t kDecalMaxVerts = 0x87;        // +0x1a4: 135 vertices = 45 triangles
 struct Decal {
+    std::vector<DecalVert> verts;    // the surface triangles the decal lies on, whole (3 each)
     std::uint8_t variant = 0;        // +0x160: the texture variant 0..2 (the batch index)
     std::uint32_t argb = 0;          // +0x168 = rgb, +0x188 = the alpha byte / 255
     std::uint8_t delay = 0;          // +0x16c
@@ -103,6 +104,18 @@ struct Decal {
     float angle = 0, size = 0;       // the turn about the normal, +0x18c
     float life = 0, age = 0;         // +0x184, +0x180
 };
+
+// FUN_00589a60's frame + FUN_00589690 [BYTES 0x589c43..0x589e4e, 0x589690..0x589a55] (GOXX_PARTICLES.md §2.4):
+// `tris` (3 points each) are the candidate surface triangles; the ones that pass go into d.verts WHOLE -- nothing
+// is clipped, the texture is drawn clamped -- until the 45-triangle cap. Needs d.pos / normal / angle / size.
+void decal_mesh(Decal& d, const std::vector<Vec3>& tris);
+// FUN_00589f60's draw half [BYTES 0x58a0dc..0x58a1b0]: this frame's alpha (the colour's alpha byte, the 6-tick
+// fade in, the 50-tick fade out), and a vertex's alpha byte = the top 8 mantissa bits of w x a + 1.
+float decal_alpha(const Decal& d);
+inline std::uint8_t decal_alpha8(float w, float a) {
+    const float x = 256.0f * w * a;
+    return x >= 255.0f ? 255 : x <= 0.0f ? 0 : std::uint8_t(x);
+}
 
 struct Obj {
     enum Kind : std::uint8_t { Ember, Smoke, Child, Streak, Splat } kind = Child;
@@ -196,6 +209,10 @@ class Weather {
     // The room's nearest terrain hit on the segment a -> b (FUN_0041e420, set 2): a spark's bounce. None = no
     // terrain (no bounce, no bounce draw).
     std::function<bool(const Vec3& a, const Vec3& b, Vec3* point, Vec3* normal)> hit;
+    // The surface triangles around a decal's floor point (FUN_00589a60's collection: the room model's opaque
+    // render triangles within `size` of the 1.5 above `pos`), 3 points each. None = the decals keep no mesh
+    // and never die of an empty one (the sim alone, as before 2026-10-11).
+    std::function<void(const Vec3& pos, float size, std::vector<Vec3>& out)> surface;
     // FUN_00589130 (GOXX_PARTICLES.md §3.7 [BYTES 0x589130..0x589374]): `count` spark streaks from `pos`, each
     // starting `delay_step` ticks after the one before. 4 draws per spark (life 35 + 0..life_range, angle, speed,
     // vy), then FUN_00588450's ten pre-rolled quarter-steps, each of which may bounce (1 draw a bounce).
@@ -205,7 +222,7 @@ class Weather {
     // FUN_0058a5f0 (GOXX_PARTICLES.md §3.3 [BYTES 0x58a5f0..0x58a8fd]): `count` blood splats / slime puddles on
     // the floor around `pos`. 6 draws per splat (variant, life, the offset's distance and direction, the turn,
     // the size), taken whether or not there is a floor within 5 below; in a water room FUN_0058a210's drifting
-    // clouds instead (type-0 sprites, 5 draws each). Returns nothing: the decals are kept, not drawn.
+    // clouds instead (type-0 sprites, 5 draws each). Returns nothing: the decals are kept (the view draws them).
     void blood(int count, std::uint32_t argb, int delay_step, int life_range, float size0, float size1,
                const Vec3& pos, float radius, bool flag_a, bool flag_b);
     // FUN_0058a900: the one small drop a debris piece leaves at a bounce (4 draws; 5 as a cloud in water).

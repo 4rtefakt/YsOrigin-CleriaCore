@@ -103,6 +103,98 @@ auto step_weather = [&] {
 // state 0x46c1 (additive) or 0x4641 (the dust: alpha blend [H: the 0x800 bit is the additive one], through
 // the char pipeline). [not modelled] the render interpolation (+0x1e8 / +0x1ec..: the sub-tick lerp), the
 // depth sort (additive: order-free; [approx] the blended dust is drawn in pool order), the layer (+0x128).
+// The floor decals (GoXx type 4: blood splats, slime puddles). Their surface: FUN_00589a60 collects the room
+// model's render triangles of the materials FUN_005610e0(.., 3) keeps -- flags & 0x800000, or no flag of 0x8051
+// and a diffuse alpha above 0.75 [BYTES 0x56132c..0x561353] -- near the vertical 1.5 above the point.
+// [approx] retail walks an AABB tree of the room model alone (leaf order decides who makes the 45-triangle cap);
+// here every static batch of the room is tested in mesh order, the box test per triangle.
+wx.surface = [&](const Vec3& pos, float size, std::vector<Vec3>& out) {
+    const float r = size + 0.01f;                                // 0x6bd084
+    const auto& vs = room.mesh.vertices;
+    const auto& is = room.mesh.indices;
+    for (const DrawBatch& b : room.mesh.batches) {
+        if (!((b.mat_flags & 0x800000u) || ((b.mat_flags & 0x8051u) == 0 && b.mat_alpha > 0.75f))) continue;
+        for (std::uint32_t k = b.first_index; k + 2 < b.first_index + b.index_count && k + 2 < is.size(); k += 3) {
+            const RoomVertex& a = vs[is[k]]; const RoomVertex& c = vs[is[k + 1]]; const RoomVertex& d = vs[is[k + 2]];
+            if (std::min({a.px, c.px, d.px}) - r > pos.x || std::max({a.px, c.px, d.px}) + r < pos.x ||
+                std::min({a.pz, c.pz, d.pz}) - r > pos.z || std::max({a.pz, c.pz, d.pz}) + r < pos.z ||
+                std::min({a.py, c.py, d.py}) - r > pos.y + 1.5f || std::max({a.py, c.py, d.py}) + r < pos.y)
+                continue;
+            out.push_back({a.px, a.py, a.pz}); out.push_back({c.px, c.py, c.pz}); out.push_back({d.px, d.py, d.pz});
+        }
+    }
+};
+// Their draw: the batch flush FUN_005e07e0 before layer 8 (buckets 0..2 = data\image\ti_01..03.dds, state
+// 0x24741: texture x diffuse, SRCALPHA / INVSRCALPHA, z test without z write, clamped, fogged, RGB only). Each
+// decal's vertices take this frame's alpha; a decal that finds its bucket full dies (2730 / 1365 / 1365
+// triangles). [approx] retail draws the buckets with a projection whose near plane is 0.005 further
+// (FUN_005ed700); here each vertex is pulled 0.5% of the way to the camera, the same depth offset at near = 1.
+// [approx] the scene light multiplies the colour (fs_mat); unculled.
+auto draw_decals = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec3& eye) {
+    if (wx.live_decals() == 0) return;
+    static SpriteTex tex[3];
+    static bool tried = false;
+    static WGPUSampler clamp = nullptr;
+    if (!tried) {
+        tried = true;
+        WGPUSamplerDescriptor sd = {};
+        sd.addressModeU = sd.addressModeV = sd.addressModeW = WGPUAddressMode_ClampToEdge;
+        sd.magFilter = sd.minFilter = WGPUFilterMode_Linear; sd.maxAnisotropy = 1;
+        clamp = wgpuDeviceCreateSampler(g.device, &sd);
+        for (int v = 0; v < 3; ++v) {
+            char nm[16];
+            std::snprintf(nm, sizeof nm, "TI_%02d.DDS", v + 1);
+            Dds d = load_dds(asset_root / "IMAGE" / nm);
+            if (!d.ok()) continue;
+            tex[v] = upload_rgba(g, d.width, d.height, d.data.data());
+            tex[v].bind = tex_bindgroup(g, tex[v].view, clamp);
+        }
+    }
+    static const std::size_t kCap[3] = {2730 * 3, 1365 * 3, 1365 * 3};   // 0x6b8dc8: 0x2000 / 0x1000 / 0x1000 vertices
+    static std::vector<RoomVertex> list[3];
+    for (auto& l : list) l.clear();
+    for (const auto& o : wx.objects()) {
+        if (o->dead || o->kind != weather::Obj::Splat || o->dc.delay != 0) continue;
+        const weather::Decal& d = o->dc;
+        std::vector<RoomVertex>& l = list[std::min<int>(d.variant, 2)];
+        const std::size_t n = std::min(d.verts.size(), kCap[std::min<int>(d.variant, 2)] - l.size()) / 3 * 3;
+        if (n == 0) { o->dead = true; continue; }                // 0x58a0dc: no room in the bucket (or no mesh)
+        const float a = weather::decal_alpha(d);
+        for (std::size_t k = 0; k < n; ++k) {
+            const weather::DecalVert& dv = d.verts[k];
+            const Vec3 p{dv.p.x + (eye.x - dv.p.x) * 0.005f, dv.p.y + (eye.y - dv.p.y) * 0.005f, dv.p.z + (eye.z - dv.p.z) * 0.005f};
+            l.push_back({p.x, p.y, p.z, 0, 1, 0, dv.u, dv.v, std::uint8_t(d.argb >> 16), std::uint8_t(d.argb >> 8),
+                         std::uint8_t(d.argb), weather::decal_alpha8(dv.w, a)});
+        }
+    }
+    for (int v = 0; v < 3; ++v) {
+        if (list[v].empty() || !tex[v].bind) continue;
+        const std::uint64_t size = list[v].size() * sizeof(RoomVertex);
+        WGPUBufferDescriptor bd = {};
+        bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst; bd.size = size;
+        WGPUBuffer vb = wgpuDeviceCreateBuffer(g.device, &bd);
+        wgpuQueueWriteBuffer(g.queue, vb, 0, list[v].data(), size);
+        WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+        WGPURenderPassColorAttachment ca = {};
+        ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+        ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+        WGPURenderPassDepthStencilAttachment da = {};
+        da.view = depthv; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+        WGPURenderPassDescriptor rp = {};
+        rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+        wgpuRenderPassEncoderSetPipeline(pass, g.mat_pipe[1][0]);   // SRCALPHA / INVSRCALPHA, no z write, RGB only
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+        wgpuRenderPassEncoderSetBindGroup(pass, 1, tex[v].bind, 0, nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, size);
+        wgpuRenderPassEncoderDraw(pass, std::uint32_t(list[v].size()), 1, 0, 0);
+        wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
+        WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+        wgpuQueueSubmit(g.queue, 1, &cmd);
+        wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+        wgpuBufferRelease(vb);
+    }
+};
 auto draw_weather = [&](WGPUTextureView color, WGPUTextureView depthv, const Vec3& camFwd) {
     if (wx.objects().empty()) return;
     static std::map<int, SpriteTex> texs;                // weather::Tex -> texture (empty = failed)

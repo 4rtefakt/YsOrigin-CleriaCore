@@ -505,6 +505,36 @@ int main(int argc, char** argv) {
                  d.angle >= -3.1416f && d.angle < 3.1416f && d.foot && !d.slime && !d.keep && d.normal.y == 1.0f;
         }
         check(ok, "blood: 3 splats = 18 draws; on the floor within 0.65, size 1.3-1.8, life 370-394 at level 2, delays 0/2/4");
+        {   // the decal's mesh (FUN_00589690): on a level floor, a 2-unit decal turned by 0 at (10, 0, 20)
+            weather::Decal dm;
+            dm.pos = {10.0f, 0.0f, 20.0f}; dm.normal = {0.0f, 1.0f, 0.0f}; dm.angle = 0.0f; dm.size = 2.0f;
+            dm.argb = 0xff7c0000u; dm.life = 100.0f; dm.age = 3.0f;
+            const std::vector<Vec3> tris = {
+                {9, 0, 19}, {11, 0, 19}, {11, 0, 21},                 // under the decal
+                {40, 0, 40}, {41, 0, 40}, {41, 0, 41},                // far away: every u > 1
+                {9, 5, 19}, {11, 5, 19}, {11, 5, 21},                 // 5 above: outside the centroid window
+                {10, 0, 20}, {10, 0.25f, 21}, {11, 0.6f, 20}};        // a slope: the weight falls with the height
+            weather::decal_mesh(dm, tris);
+            bool mok = dm.verts.size() == 6;
+            if (mok) {
+                mok = std::fabs(dm.verts[0].u - 0.0f) < 0.03f && std::fabs(dm.verts[0].v - 0.0f) < 0.03f &&
+                      std::fabs(dm.verts[2].u - 1.0f) < 0.03f && std::fabs(dm.verts[2].v - 1.0f) < 0.03f &&
+                      std::fabs(dm.verts[3].u - 0.5f) < 0.03f && std::fabs(dm.verts[3].v - 0.5f) < 0.03f &&
+                      std::fabs(dm.verts[0].w - 223.0f / 255.0f) < 1e-6f &&
+                      std::fabs(dm.verts[4].w - 0.5f * 223.0f / 255.0f) < 1e-5f && dm.verts[5].w == 0.0f;
+            }
+            check(mok, "decal mesh: whole triangles under the square, UV 0..1 centred on the point, weight 223/255 "
+                       "falling to 0 half a unit above");
+            check(std::fabs(weather::decal_alpha(dm) - 0.5f) < 1e-6f && weather::decal_alpha8(223.0f / 255.0f, 1.0f) == 223 &&
+                  weather::decal_alpha8(1.0f, 1.0f) == 255 && weather::decal_alpha8(0.5f, 0.5f) == 64,
+                  "decal alpha: the 6-tick fade in; the byte = floor(256 x weight x alpha), at most 255");
+            dm.age = 75.0f;
+            check(std::fabs(weather::decal_alpha(dm) - 0.5f) < 1e-6f, "decal alpha: the 50-tick fade out");
+            std::vector<Vec3> many;
+            for (int k = 0; k < 60; ++k) { many.push_back({9, 0, 19}); many.push_back({11, 0, 19}); many.push_back({11, 0, 21}); }
+            weather::decal_mesh(dm, many);
+            check(dm.verts.size() == 135, "decal mesh: at most 45 triangles");
+        }
         // No floor within 5 below: the draws are taken, no decal is left.
         const std::uint64_t c0 = r.calls;
         wx.blood(3, 0xff7c0000u, 2, 0x18, 1.3f, 1.8f, {0.0f, 9.0f, 0.0f}, 0.65f, false, false);

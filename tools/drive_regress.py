@@ -1148,8 +1148,8 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=#189,1.4;21:atk;40:near=#189,1.4;41:atk;80:quit",
         expect=["[spark] t42 guard: 3 sparks at (1.06, 1.28, 2.54), 12 draws", "[popup] 0 ffffff",
                 "[spark] t42 zero hit: 4 sparks at (1.06, 1.28, 2.54), 16 draws"]),
-    # build/mech_re/GOXX_PARTICLES.md §3.3 - §3.5 (FUN_0058a5f0 / FUN_0058a900, the blood splats; the decals are kept
-    # and simulated, not drawn). A hit a monster survives: three splats in its colour on its next tick (18 draws); the
+    # build/mech_re/GOXX_PARTICLES.md §3.3 - §3.5 (FUN_0058a5f0 / FUN_0058a900, the blood splats; the decals are kept,
+    # simulated and drawn). A hit a monster survives: three splats in its colour on its next tick (18 draws); the
     # kill: three more at the death (18), before the debris; each debris piece leaves a drop where it bounces (4
     # draws, two a piece at most).
     "blood_splats": dict(
