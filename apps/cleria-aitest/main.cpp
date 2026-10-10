@@ -108,6 +108,15 @@ int main() {
         const Vec3 on{2 + 5 * s, 1.5f, 2 + 5 * c}, off{2 + 5 * c, 1.5f, 2 - 5 * s};
         check(k == 96 && box.contains(on) && !box.contains(off), "keep-out: a turned volume tests the offset through cos[k], cos[k - 64], k = (int)(yaw * 40.7437)");
     }
+    {   // The handlers with no brain call (build/audit/STANDINS.md §2): 66 / 72 / 92 and 73 / 81.
+        bool all = true;
+        for (int idx : {66, 72, 92, 73, 81}) all = all && enemy_brain_for(idx) != nullptr && enemy_brain_for(idx) == enemy_brain_for(66);
+        Rig r; EnemyAi ai;
+        r.env.target = {2.0f, 1.075f, 0};                  // in front, in reach: Riffligan's brain would engage
+        for (int i = 0; i < 120; ++i) enemy_ai_tick(ai, p, r.env, enemy_brain_for(73));
+        check(all && enemy_brain_for(25) == nullptr && ai.phase() == 0 && !ai.initialised && ai.mode() == 0 && ai.speed == 0.0f,
+              "the empty brain: indices 66 / 72 / 92 / 73 / 81 never leave phase 0 and never move (25 / 26 are still unregistered)");
+    }
     {   // Init, then an unseen target: wander, no acquisition.
         Rig r; EnemyAi ai;
         r.env.target = {-12.0f, 1.075f, 0};   // behind (heading 0 faces +X), beyond 8u

@@ -42,6 +42,11 @@ inline float swarm_speed(int d, bool hugo) {
 }
 
 AiOut m100(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047adf0 Riffligan
+// No brain: the handlers of AI indices 66 / 72 / 92 (FUN_004ec3b0 / FUN_004f5710 / FUN_004f8940: M730, M790, M990)
+// and 73 / 81 (FUN_004f5c00 / FUN_004f6130: the M800 Yunica / M880 Dalles puppets) have no brain call between the
+// mover reset and the action player — only the keep-out restore, inlined (build/audit/STANDINS.md §2, §2.1
+// [BYTES: five 264-byte orphan copies of the empty brain]). The actor stays in phase 0 and never moves itself.
+AiOut none(EnemyAi&, const EnemyAiParams&, const AiEnv&);
 AiOut m110(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00489970 Genoid
 AiOut m120(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00483200 Jestona (swordsman)
 AiOut m130(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0047bae0 Selnarg

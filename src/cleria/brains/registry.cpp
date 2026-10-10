@@ -4,6 +4,10 @@
 
 namespace cleria {
 
+namespace brains {
+AiOut none(EnemyAi&, const EnemyAiParams&, const AiEnv&) { return {}; }   // brains.hpp: the empty brain
+}
+
 EnemyBrain enemy_brain_for(int ai_index) {
     switch (ai_index) {
         case 3: return &brains::m100;    // M100 Riffligan
@@ -89,6 +93,11 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 87: return &brains::m940;   // M940 Nooze (Yellow)
         case 90: return &brains::m970;   // M970 Vagully
         case 80: return &brains::m870;   // M870 Zava (the floor-6 boss actor; boss06_zava.hpp)
+        // The handlers with no brain call (STANDINS.md §4): they used to run Riffligan's brain as the stand-in.
+        // [not modelled] idx 73's re-type of the puppet while g_flags[130] is set (+0x60 = 0x88, +0x64 = 0x2f,
+        // +0x4be = 0, +0x12c |= 0x10000 [BYTES 0x4f5c18..0x4f5c3f]; build/ai_spec/M800.md).
+        case 66: case 72: case 92: return &brains::none;   // M730 / M790 / M990
+        case 73: case 81: return &brains::none;            // M800 Yunica / M880 Dalles (cutscene puppets); 81 has no cast
         default: return nullptr;
     }
 }

@@ -196,15 +196,17 @@ NOTES = {
     0x0a0: ("implemented", "populate_room runs the root with ActorWorld (spawn_placements); the live re-run "
                            "is a no-op by design"),
     0x0a1: ("implemented", "inert by design: load_room reads the room's .SNF"),
-    0x0a2: ("unhandled", "FUN_004348a0 near/far clip (1.0 / 4000-7000) in the S_x1 rooms [not modelled]"),
+    0x0a2: ("implemented", "FUN_004348a0 near/far clip (1.0 / 4000-7000) in the S_x1 rooms: host scene_clip "
+                           "(src/cleria/xso.cpp sub 0xa2 -> the view's clip_near / clip_far)"),
     0x0ac: ("implemented", "preload: SEs load on first use"),
     0x0ad: ("implemented", "preload: casts load on first use"),
     0x0ae: ("implemented", "preload: portraits load on first use"),
     0x0be: ("partial", "[approx] placed once at the actor, the engine's voice follows it (FUN_0045d7a0)"),
-    0x0ce: ("unhandled", "post-fx globals 0x76a550/0x76a554 [not modelled: no zoom-blur pass]"),
+    0x0ce: ("implemented", "ZoomBlur(s, r): the post-fx globals 0x76a550 / 0x76a554 through host zoom_blur "
+                           "(src/cleria/xso.cpp sub 0xce; the pass is apps/cleria-view/view_screenfx.inl)"),
     0x10a: ("partial", "the byte 0x76c1c5 is kept [not modelled: no glare/bloom pass]"),
-    0x111: ("unhandled", "FUN_00571500 -> FUN_00593550 (EVENTVM_HANDLERS_4 §1); only after the S_3080 Shion duel "
-                         "(M840 not ported) [not modelled]"),
+    0x111: ("implemented", "FireBullet: FUN_00571500 -> FUN_00593550 (EVENTVM_HANDLERS_4 §1), kind 2 in all 17 sites; "
+                         "src/cleria/xso.cpp sub 0x111 -> the host's bullets.spawn"),
     0x11d: ("unhandled", "FUN_00432e60 reflection-plane height [not modelled: no planar water reflection]"),
     0x122: ("implemented", "GoXx type 0x10 smoke emitter FUN_0058da80 / update FUN_0058daa0 (src/cleria/weather, "
                            "WEATHER.md): its shared-xorshift draws and puffs"),
