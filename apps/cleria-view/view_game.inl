@@ -6405,6 +6405,18 @@ title_again:
         if (frozen_now && !fly && death_t == 0 && (atk_window > 0 || !loci.empty())) {
             #include "view_player_hit.inl"
         }
+        // FIX_SLOTS.md §1.4, S5b: under slot 1 the actor-stop byte 0x74ab8b stops a handler 3..93 whole — brain, mover,
+        // its ASO step FUN_004472e0 (inside the mover, or the dead path's own call), the integrator and with it the
+        // hurt timer [EXPORT 0047b7f0.c:31-124, the same gate in each handler of table 0x69b8c0]. Not an actor on
+        // its handler's puppet path, tested before that gate: g_flags[130] == 0 for 73..79 and 81, g_flags[156] == 0
+        // for Zava (80) -> FUN_0045f250, which the menu byte alone stops [EXPORT 004da070.c:261-264; 004f5c00.c:32;
+        // 0053af10.c:65-74]. The handler index is the cast's CASTINFO +0x64 for every spawn [EXPORT 00570400.c:59].
+        auto handler_stopped = [&](const Actor& A) {
+            if (!csMgr.actors_stopped() || A.is_player() || A.ai_index < 3 || A.ai_index > 93) return false;
+            if (((A.ai_index >= 73 && A.ai_index <= 79) || A.ai_index == 81) && game.g_flags[130] == 0) return false;
+            if (A.ai_index == 80 && game.g_flags[156] == 0) return false;
+            return true;
+        };
         prof("tick:frozen");
         if (frozen_now) {
             // CHR_OPS.md §4/§5: a Chr_Pattern pin stops the actor's ASO (FUN_004472e0 0x44735f returns
@@ -6427,6 +6439,10 @@ title_again:
                         e.actor->anim_motion = -1;
                     e.fix_loco = loco;
                 }
+                // A stopped handler holds its frame (S5b). [approx] kept on the old rule while a script drives it
+                // (a move, a Chr_Animate motion): in the original the stopped handler would not run FUN_004601a0
+                // either, so no shipped scene can rely on it; the port's script mover still moves it.
+                if (handler_stopped(A) && !A.cmoving && A.fly_r2 == 0.0f && A.anim_motion < 0) continue;
                 if (A.anim_motion >= 0) {
                     if (e.motion_applied != A.anim_motion) {
                         e.avm.set_section(A.anim_motion, /*force*/true);
@@ -6778,7 +6794,8 @@ title_again:
                 // FUN_0045a3a0 with no fix gate [EXPORT 0045f250.c L20-49, 0045a510.c L144]. It stood
                 // still here, so a duel opponent hit just before the ending Fix kept the hurt specular
                 // for the whole scene (issue #72: Epona stayed red after the S_1080 duel).
-                a.hit_flash = hitfx::step_hurt(a.hit_flash);
+                // ... but not in a handler the actor-stop byte holds (slot 1; S5b).
+                if (!handler_stopped(a)) a.hit_flash = hitfx::step_hurt(a.hit_flash);
             }
             actor_mats[13] = ef2sim::translation(feet.x, feet.y + kOriginH, feet.z);
             fxsim.step();

@@ -2407,6 +2407,13 @@ CASES.update({
         drive="5:opt=InfiniteHP=1;20:near=17;21:move=-1,0,40;100:flag=131,1;101:actors;239:actors;240:flag=131,0;300:quit",
         expect=["dist 7.46 head 3.04 culled 0 sec 7 mov 0.00 hp 74.0 mk 1 at (26.6,-36.1) alpha 1.00 t180", "t239 actors",
                 "id 17 cast 17 enemy hp 74 g1 0 pos (26.6,-4.1,-36.1)", "dist 3.03 head 3.04 culled 0 sec 2 mov 1.00 hp 74.0 mk 0 at (26.6,-36.1) alpha 1.00 t240"]),
+    # FIX_SLOTS.md S5b: under slot 1 a stopped handler does not step its ASO either [EXPORT 0047b7f0.c:31-124]. The
+    # Selnarg running at Yunica when @ItemCannotUse takes slot 1 holds its run frame (section 1, tag 1, frame 3) for
+    # the whole Fix; it used to be put on its idle section and animated (2/2/0 at t41, 2/2/7 at t100).
+    "fix1_handler_holds_frame": dict(
+        room="S_10/S_1002/S_1002", env=_LOCK,
+        drive="20:near=17;39:run=@itemcannotuse;41:chr=17;100:chr=17;101:scripts;160:quit",
+        expect=["slot 1 taken: 0/1", "[chr] 17", "motion -1 aso 1/1/3", "[chr] 17", "motion -1 aso 1/1/3", "frozen 1 fix 0/1"]),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:
