@@ -82,7 +82,7 @@
         ef2sim::Effect* fx = spawn_sim_fx(fe.id, at, parent ? Vec3{} : fe.rot, fe.scale_after ? 1.0f : fe.scale.x, sp, 0, {});
         if (!fx) continue;
         if (fe.scale_after) { fx->scale_x = fe.scale.x; fx->scale_y = fe.scale.y; fx->scale_z = fe.scale.z; }
-        if (fe.flag201) fx->set1 = true;                     // fx+0x201 = 1: its world contact is on set 1
+        if (fe.flag201) fx->no_boss = true;                  // fx+0x201 = 1: its world rays skip the boss meshes
         if (parent) {
             fx->local = local;
             fx->attach_parent = parent;

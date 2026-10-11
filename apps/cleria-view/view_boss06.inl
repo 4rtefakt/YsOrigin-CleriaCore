@@ -267,7 +267,7 @@ auto boss6_apply = [&](const Boss06Output& out) {
         if (!fx) continue;
         if (fe.call == Boss06Call::kFx2) { fx->scale_x = fe.scale.x; fx->scale_y = fe.scale.y; fx->scale_z = fe.scale.z; }   // FUN_00450880 keeps it
         if (parent) { fx->local = local; fx->attach_parent = parent; fx->attach_mode = fe.at_mode == 1 ? 1 : 2; }
-        if (fe.flag201) fx->set1 = true;                   // fx+0x201
+        if (fe.flag201) fx->no_boss = true;                // fx+0x201: its world rays skip the boss meshes
         // [approx] fx+0x203 (drop the hit record at the first particle step, ZAVA_EF L3): disarmed at the spawn.
         if (fe.flag203) if (ef2sim::Particle* p = fxsim.first_particle(fx)) p->hit.armed = false;
         if (fe.handle) { fx->owner = kB6Owner; fx->tag = fe.handle; }
@@ -277,7 +277,7 @@ auto boss6_apply = [&](const Boss06Output& out) {
         s.owner = 0; s.owner_monster = true;
         s.owner_atk = bb.head >= 0 && bb.head < boss06::kHeads ? boss6->head(bb.head).str : 0.0f;
         bullet::Bullet* bl = bullets.spawn(s);
-        if (bl && bl->fx && bb.flag201) bl->fx->set1 = true;
+        if (bl && bl->fx && bb.flag201) bl->fx->no_boss = true;
     }
     if (out.shake) { g_rig.set_shake_frames(out.shake->first); g_rig.set_shake_amp(out.shake->second); }
     if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)

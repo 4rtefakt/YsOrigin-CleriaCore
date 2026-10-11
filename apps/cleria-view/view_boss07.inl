@@ -53,14 +53,20 @@ auto boss7_child_m = [&](int i) {                         // SetRot(child, &rot)
     return m;
 };
 // The terrain segment with the boss meshes left out (FUN_0041e420's option bit 0 = the ray's byte +0x49: every mesh
-// whose type byte +0x28d is 5..0xc is skipped; DALLES_CD1 §4.2 / §6, DALLES_D23 §16.4). In S_7080 that is "boss07"
-// alone (the options and the wing are not type 0xb and still block); in S_7099 Darm's four type-0xc meshes (the
-// 6-character name test: boss08, boss08t, boss08w, boss08Arm; DARM.md §3.1) — not the floor, not bs08_mgcra.
+// whose type byte +0x28d is 5..0xc is skipped; DALLES_CD1 §4.2 / §6, DALLES_D23 §16.4). The types are given by
+// name in FUN_00501a30 [EXPORT 00501a30.c:228-264]: boss01, boss03, boss04, boss05 and boss07 exactly, and the
+// first six characters boss02, boss06, boss08. In S_7080 that is "boss07" alone (the options and the wing are
+// not type 0xb and still block); in S_7099 Darm's four type-0xc meshes (boss08, boss08t, boss08w, boss08Arm;
+// DARM.md §3.1) — not the floor, not bs08_mgcra.
 auto boss7_seg_nb = [&](const Vec3& a, const Vec3& b, Vec3* at) {
     const RoomMesh& cm = phys_mesh(room);
     std::vector<std::pair<std::uint32_t, std::uint32_t>> skip;
-    for (const char* nm : {"boss07", "boss08", "boss08t", "boss08w", "boss08arm"})
-        if (const RoomMesh::ObjRange* r = cm.object_range(nm)) skip.push_back({r->t0, r->t1});
+    for (const RoomMesh::ObjRange& r : cm.object_ranges) {
+        const std::string six = r.name.substr(0, 6);
+        if (six == "boss02" || six == "boss06" || six == "boss08" || r.name == "boss01" || r.name == "boss03" ||
+            r.name == "boss04" || r.name == "boss05" || r.name == "boss07")
+            skip.push_back({r.t0, r.t1});
+    }
     if (skip.empty()) { Vec3 n{}; return segment_hit(cm, a, b, at, &n); }
     std::sort(skip.begin(), skip.end());
     skip.push_back({std::uint32_t(cm.indices.size() / 3), 0u});   // the tail run [last t1, nt)

@@ -137,13 +137,19 @@ CASES = {
     # M890 Spawns (the boss level, the chaser first), the laser's terrain-ray bursts hit (EF2 326), the inhale
     # swallows Spawns and the bite (part 2) lands. (The taunt is velagunder_taunt below: since e44f09f the end of
     # a stun no longer leaves her standing on the body.)
+    # Re-pinned 2026-10-11 (fx+0x201 read as the bytes have it: the beam's particles trace the room without the boss
+    # meshes instead of never meeting the world, issue #66). On the full-log diff the run is the same up to t4207,
+    # where a beam particle's own world contact now lands a hit (logged as fx 326 with the beam's power 4.0, rtype 2: 4 damage, a knock-back)
+    # in place of two of the burst's ticks; she stands elsewhere for the inhale, so two Spawns are swallowed on one
+    # tick (t4537: both lines say "2 so far") and the five are eaten in another order. The bite still lands at t4654.
     "velagunder_attacks": dict(
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;5500:quit",
         expect=["[boss] Velagunder: HP 700 STR 70 DEF 53 lv 8", "[boss] 31 body entries (820 tris)",
                 "fx 323 (atk 70 power 0.0 knock 5.00",
-                "M890 #175 spawned", "hp 58 lv 8 mode 1", "fx 326 (atk 70 power 0.0 knock 1.00 rtype 1", "eaten (1 so far)",
+                "M890 #175 spawned", "hp 58 lv 8 mode 1", "fx 326 (atk 70 power 0.0 knock 1.00 rtype 1",
+                "fx 326 (atk 70 power 4.0 knock 1.00 rtype 2", "eaten (2 so far)", "eaten (5 so far)",
                 "velagunder part 2 (STR 70 power 14.0 rtype 2"]),
     # The taunt (VELAGUNDER.md C10, §5.8: state 8, ACTION_01 — the player grounded on surface 5 (his wood body)
     # with the floor above 4.0, out of his reach). After the first stun is over (t2610: state 0, WAIT) Yunica is
@@ -1439,10 +1445,16 @@ CASES.update({
         # (orbs 0/4, thrown off it at t1942), the floor cast sends head a diving (move 11), the second mount is head
         # a (4/0, thrown off at t3948), the kill at t4172 (was t4900), the heads gone by t4698. Every beat of the old
         # list is here with a and b exchanged; Zava still lands at y 6.83.
+        # Re-pinned 2026-10-11 (fx+0x201 as the bytes have it, issue #66: the heads' flagged effects and bullets trace
+        # the room without the boss meshes; before, their particles never met the world). First difference on the
+        # full-log diff at t~400: a 0-damage tick of a flagged effect no longer reaches the player, so the pilot
+        # stands 0.6 away and the fourth knock-down comes one round later. Same course, same order (head b first,
+        # then a), about 110 ticks later: phase 2 at t1298 with 4046 HP (was t1189, 4036), thrown off head b at
+        # t2050, the floor cast at t2564, thrown off head a at t4060, the kill at t4237 (was t4172).
         expect=["[boss06] Zava's heads: a (-39.46,6.10,30.00) b (-28.82,6.10,30.00), HP 5000 STR 232 DEF 320",
                 "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "jump under Zava (act 4)", "second jump",
                 "air attack", "y 13.00, falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded",
-                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4036/6000", "BossCam 3", "move 9", "BossCam 4",
+                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4046/6000", "BossCam 3", "move 9", "BossCam 4",
                 "move 10", "riding, hits left 0, ride count 1, lives 0/4", "head b move 12 (pattern 2, lives 3)",
                 "lives 0/2", "lives 0/1",
                 "head b move 8 (pattern 2, lives 0)", "Zava is thrown off head b",
