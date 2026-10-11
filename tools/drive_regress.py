@@ -2517,6 +2517,15 @@ CASES.update({
               "85:actors;90:quit",
         expect=["id 55 cast 55 enemy hp 139", "[popup] 13 ffffff", "t55 actors", "id 55 cast 55 enemy hp 126",
                 "[popup] 13 ffffff", "t85 actors", "id 55 cast 55 enemy hp 113"]),
+    # FIX_SLOTS.md S8: a death stops nothing but the doors — the world runs on through the 100 dead ticks and under the
+    # game-over menu [EXPORT 0046fba0.c:77-82; 00427820.c:41-47]. The Selnarg engaged at t20 goes through with its lunge
+    # while Yunica lies dead (HP 0 at t60): from (31.0, -36.5) at t61 and t120 to (26.6, -36.1) at t200, under the
+    # menu. It used to stand at (31.0, -36.5) until the Retry.
+    "death_world_runs": dict(
+        room="S_10/S_1002/S_1002", env=_LOCK,
+        drive="20:near=17;21:move=-1,0,30;60:hp=0;61:actors;120:actors;200:actors;230:ok;260:pos;300:quit",
+        expect=["[death] HP 0", "t61 actors", "id 17 cast 17 enemy hp 74 g1 0 pos (31.0,-4.1,-36.5)", "[gameover] gameover.dds",
+                "t200 actors", "id 17 cast 17 enemy hp 74 g1 0 pos (26.6,-4.1,-36.1)", "[gameover] chose retry"]),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:
