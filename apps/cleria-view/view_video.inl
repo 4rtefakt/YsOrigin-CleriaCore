@@ -890,6 +890,14 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             gr.mask_of_eyes = me;
             persist();
         }
+        bool wc = gr.water_caustics != 0;                // 0x76519c (g_caustic.off, read every frame)
+        if (ui::toggle(L, "Disable water caustics", &wc,
+                       "Off: in the flooded rooms, moving patterns of light play over the floors, the walls and the "
+                       "characters (the original's default). On: they are not drawn; the bottoms of the shallow pools "
+                       "keep theirs. (Original: Disable Water Caustics.)")) {
+            gr.water_caustics = wc;
+            persist();
+        }
     }
 
     ui::section(L, "Overlay");
@@ -954,9 +962,6 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         row("Reflections", "None",
             "Water reflections (Original: Reflections). Not available yet: CleriaCore has no reflection pass.",
             lvl(gr.water_effect_level));
-        row("Water caustics", "None",
-            "The light patterns under water (Original: Disable Water Caustics). Not available yet.",
-            gr.water_caustics ? "disabled" : "enabled");
         row("Other simplification", "Off",
             "A lighter version of the final boss's room for slow PCs (Original: Other Simplification). Not available "
             "yet.", onoff(gr.other_light_weight_mode != 0));
@@ -1003,6 +1008,7 @@ static bool video_drive(const std::string& cmd) {
         else if (k == "TextureFilter") { gr.texture_filter = std::clamp(int(x), 0, 2); video_resample(); }
         else if (k == "MultiSampleType") gr.multi_sample_type = std::max(0, int(x));
         else if (k == "GlareEffectLevel") gr.glare_effect_level = std::clamp(int(x), 0, 2);
+        else if (k == "WaterCaustics") g_caustic.off = (gr.water_caustics = x != 0) != 0;
         else if (k == "Anisotropy") { gr.anisotropy = std::clamp(int(x), 1, 16); video_resample(); }
         else if (k == "Preset") { graphics_preset(std::clamp(int(x), 0, 3), settings().s); video_resample(); video_low_res(); video_mips(); }
         else if (k == "LowResoTexture") { gr.low_reso_texture = x != 0; video_low_res(); }
@@ -1035,6 +1041,8 @@ static bool video_drive(const std::string& cmd) {
                     int(g_world_sampler.anisotropy), int(settings().s.game.bloody_effect_level),
                     video::msaa_samples(settings().s.graphics.multi_sample_type), g_world_mips, g_vgpu.glare_level);
         if (g_low_res_textures) std::printf("  [video] low-resolution textures on\n");
+        std::printf("  [video] caustics room %d off %d frame %d scroll %.4f %.5f\n", int(g_caustic.room()), int(g_caustic.off),
+                    g_caustic.frame, double(g_caustic.sx), double(g_caustic.sy));
         return true;
     }
     return false;

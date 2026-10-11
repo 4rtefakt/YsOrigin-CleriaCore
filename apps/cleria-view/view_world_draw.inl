@@ -390,7 +390,10 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,     // Chr_Tremble
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale,
                        e.actor->hit_flash != 0.0f ? hitfx::kHurtSpecular : e.spec.colour(),
-                       e.avm.ok() ? e.avm.sprite_depth_offset() : 0.0f);                  // anime_CameraDistanceOffset
+                       e.avm.ok() ? e.avm.sprite_depth_offset() : 0.0f,                   // anime_CameraDistanceOffset
+                       // The caustics on a body under water (+0x38a && !+0x389 && +0x4ba != 0x12 && WaterCaustics == 0
+                       // [EXPORT 00474290.c:96-123]). [approx] an enemy's wading byte is not kept: in_water stands for both.
+                       !g_caustic.off && (g_caustic.mode2 || e.actor->ai.in_water) && e.actor->ai.surf_ray != 0x12);
         // Event-bound (group-1..4) enemies GLOW their marker colour (FUN_00473c60 [BYTES 0x473ec8..f87],
         // BARRIER_OBJECTS.md §1a): A = marker alpha * |sin(2 pi phase / 255)|, no floor, the phase
         // stepped in the actor tick (so it holds still under a Fix). [H] the composition: the

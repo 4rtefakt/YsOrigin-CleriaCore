@@ -1733,6 +1733,7 @@ title_again:
         water_mode = (num == 2008 || num == 2009 || num == 2010 || num == 2014 || num == 2015) ? 2 : 0;
         submerged = water_mode == 2;          // the factory / warp placement sets it, no transition
         wading = false;
+        g_caustic.sx = g_caustic.sy = 0.0f;   // the scene load zeroes the scroll [BYTES 0x431576]
     };
     // FUN_00431840's per-scene flag writes (SCENEFLOW.md 6.2), on every scene entry: the first
     // room too (a dev start into a room otherwise kept flag 185 = 0 and the HUD faded out).
@@ -9068,6 +9069,11 @@ title_again:
         prof("frame:scroll+acquire");
         if (ticks && !room.scrolls.empty() && !std::getenv("CLERIA_NOSCROLL"))
             advance_scroll(g, room, ticks);
+        // The caustics' frame counter and scroll, once a step (CONFIG_PARITY.md 13). [approx] retail stops the
+        // scroll, not the frames, under the menu pause 0x74ab8f; here both follow the ticks.
+        g_caustic.off = settings().s.graphics.water_caustics != 0;
+        g_caustic.counter += std::uint32_t(ticks);
+        g_caustic.sx += 0.0005f * float(ticks); g_caustic.sy += 0.00015f * float(ticks);
         // Presentation advances by the time we actually SIMULATED this frame, not by
         // wall time — so fog blends, flame flipbooks and HUD bars stay locked to the
         // tick and slow down with timeScale, instead of drifting off it.
@@ -9167,7 +9173,9 @@ title_again:
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,   // Chr_Tremble(13)
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f,
                                wpl ? wpl->scale : 1.0f, player_spec.colour(),    // +0x14c from the tint struct +0x260
-                               avm.sprite_depth_offset());                       // anime_CameraDistanceOffset
+                               avm.sprite_depth_offset(),                        // anime_CameraDistanceOffset
+                               // the caustics on a submerged body [EXPORT 00474290.c:96-123]
+                               !g_caustic.off && submerged && !wading && !psand.on_sand2() && cur_surface != 0x12);
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());

@@ -233,7 +233,8 @@ happens only when it changes one of the two options.
 - `cleria-modstest`: the vfs language overlay (under the mods, over the base). `cleria-gamedatatest`: `unpack_archive`
   on the real `data_us` as a stand-in overlay (813 files), `languages`, the credits read from the real exe.
 - `drive_regress.py` (each changes the option in mid-session and reads the effect):
-  `config_live_video` (TextureFilter, a preset, Blood, LowResoTexture, MultiSampleType, Mipmap), `config_live_input` (Double-tap to dash on / off,
+  `config_live_video` (TextureFilter, a preset, Blood, LowResoTexture, MultiSampleType, Mipmap), `caustics_live`
+  (S_2008: the room-wide flag, the frame and the scroll; WaterCaustics on / off), `config_live_input` (Double-tap to dash on / off,
   Hold attack for skills off / on), `config_live_audio` (Enable BGMs / SFX both ways), `config_clear_progress`
   (record.ta2 read at boot, cleared, the title's gates closed in the same run).
 - Manual runs (2026-10-10): the output device switched in mid-session on a real device with music and effects off
@@ -264,7 +265,7 @@ happens only when it changes one of the two options.
 
 - Language: the exe-embedded strings / tables per language; Japanese; a check with a real `data_sp/fr/de/it`.
 - Options whose feature CleriaCore does not have yet (no switch until it does): Shadows (#86), Reflections
-  (#9, #12), Water caustics (#87), Other Simplification (#88), Increase Text Resolution off (#89).
+  (#9, #12), Other Simplification (#88), Increase Text Resolution off (#89).
 - Stretch Widescreen for the 2D layers (VIDEO.md §2.3).
 
 Provenance of §6 and §12..§18: read from the export and the bytes on 2026-10-11 by two research passes. Re-read
@@ -303,23 +304,44 @@ sin / cos order of the bump matrix, which materials carry `0x200000` / `0x400000
 - **Texture**: 96 frames `data\image\caustics\01\c_%03d.bmp`, 1..96 (128², 8-bit grey; all in the data)
   [EXPORT 004548d0.c:35-72], one R5G6B5 texture re-filled on a frame change (`FUN_00454b30`, `FUN_00454c30`):
   frame = (counter / 2) % 96, the counter stepping once an update while `0x74c0f0` [EXPORT 00454c30.c:28-74].
-- **Scroll**: (0, 0) at room load, + (0.0005, 0.00015) an update; c3 = (scroll.x, scroll.y, 0.2, 0.4)
-  [BYTES 0x42807e..0x42810f, 0x6be6e0..ec].
+  An update is a live sim step (`0x74c0f0`). The file's rows are turned top row first (`FUN_005fb7f0`
+  [EXPORT 005fb7f0.c:61-69]); a pixel is its 8-bit index as a grey (the palette is the identity ramp [DATA]).
+- **Scroll**: (0, 0) at room load [BYTES 0x431576], + (0.0005, 0.00015) a live step outside the menu pause
+  [BYTES 0x42807e..0x4280c7]; c3 = (scroll.x, scroll.y, 0.2, 0.4): `FUN_005df530` copies `0x6be6e0..ec` to
+  `0x7b2e24..30`, the frame overwrites x, y and z (`0x76a5c8` = 0.2 [BYTES 0x431520]).
+- **Coordinates** (the `*_cvr` vertex shaders, listings `B_NDST1_TRN_CVR.VSO`, `B_DST1_CVR.VSO`): `r0 = viewPos x c8`,
+  `uv1 = (r0.x, r0.z + c3.w r0.y) c3.z + c3.xy`. c8 = the transposed inverse view (`D3DXMatrixInverse` of
+  `0x795e70` into `0x795ef0`, `D3DXMatrixTranspose` into `0x795f70` [BYTES 0x457c68..0x457cc3], copied to c8 by
+  `FUN_005ed000`), so r0 is the world position: `uv1 = (X, Z + 0.4 Y) x 0.2 + scroll`.
 - **Room mode** `0x76a544` [EXPORT 00431840.c:98-108]: 2 for `s_2008`, `s_2009`, `s_2010`, `s_2014`, `s_2015`
   (table `0x68a20c`), 1 when a map object has a water collision mesh, else 0. `FUN_00427c90`: the room-wide flag
   `0x7b2e34 = (mode == 2)`, **forced 0 when `WaterCaustics` = 1** [EXPORT 00427c90.c:137-141].
-- **Map materials** (`FUN_005f92b0` [EXPORT 005f92b0.c:170-200, 266-293]): variant 3 = the material's stages +
-  the caustic texture on the next stage with `COLOROP ADD` (`FUN_005f7230`), for material flag `0x2000` or the
-  pass flag `0x400` every GoMesh gets while `0x7b2e34` is set; variant 2 = the caustic texture alone, MODULATE
-  with the diffuse, for material flag `0x4000`. The option removes only the room-wide part.
+- **Map materials** (`FUN_005f92b0` [EXPORT 005f92b0.c:166-200, 266-293]), after the tests for flags
+  `0x20000000`, `0x100`, `0x200`: variant 3 for material flag `0x2000` or the pass flag `0x400` (every GoMesh of
+  types 0 and `FUN_00562990`'s while `0x7b2e34` is set [EXPORT 00561f40.c:51-53, 00562990.c:212-214]) **unless the
+  material has flag `0x40`** (the water surfaces); else variant 2 for material flag `0x4000`.
+  Variant 3 (`FUN_005f7230(1)` [BYTES 0x5f9f88] [EXPORT 005f7230.c:55-125]): after the material's stage 0
+  (texture x diffuse), stage 1 = `ADD(caustic, current)`, alpha `MODULATE(texture, current)`; stage 2, no texture,
+  = `MODULATE(diffuse, current)`. So the pixel is `(tex x diffuse + caustic) x diffuse`: a flooded room's own
+  colours are multiplied by the vertex colour twice. Variant 2 (`FUN_005f7230(0)` [BYTES 0x5f9f2d]): stage 0 =
+  the caustic texture in place of the material's, `MODULATE` with the diffuse, alpha = the diffuse alpha, and the
+  blend mode forced to 2 (additive) [EXPORT 005f92b0.c:274-284]. The option removes only the room-wide part.
+  [DATA] flag `0x2000`: the pool floors `20yuka72 / 82 / 92` of S_2001, S_2002, S_2016, S_2017, S_2100, S_2101,
+  and S_9008 (with `z_upwater`); flag `0x4000`: S_9008 and S_TEST4 only.
 - **Actor sprites** (`FUN_00474290`, `FUN_004745a0` [EXPORT 00474290.c:108-123]): when `+0x38a != 0 && +0x389 == 0
   && +0x4ba != 0x12 && WaterCaustics == 0` — i.e. every actor in the five rooms, and an actor 2.0 or more deep
-  elsewhere. `FUN_005e0630`: stage 1 = the caustic texture, combiner 2 (`COLOROP ADD`), shader `b_dst1_cvr`:
-  `uv1 = (X, Z + 0.4 Y) × 0.2 + scroll` of the world position ([H] c8..c10 = the inverse view). Not for additive
-  presets.
+  elsewhere. `FUN_005e0630` [EXPORT 005e0630.c:21-33]: stage 1 = the caustic texture, the preset's combiner 2
+  (`ADD(caustic, current)`, no third stage [EXPORT 005eb5b0.c:58-70, 120-130]), shader `b_dst1_cvr`. Not for
+  additive presets (bit 0x80).
 
-CleriaCore draws none of it. [UNKNOWN] the BMP row orientation; which other rooms' materials carry `0x2000` /
-`0x4000`; whether an update is a frame or a logic tick.
+CleriaCore (2026-10-11): all of the above. `g_caustic` / `caustic_stage` / `caustic_upload`
+(`view_gpu_room.inl`), the world shader's `u.cvr` and `cvr_stages` (`main.cpp`); a draw that takes the stage binds
+group 0 with the combiner's number. The Video page's "Disable water caustics" is `WaterCaustics`, read every
+frame. Measured in S_2008 (1280 x 800): 2.78 ms a frame without, 2.80 ms with.
+[approx] the frame is sampled at level 0 (retail asks for generated mips when it can); every batch of the room
+mesh takes the room-wide flag (GoMesh type 2, the camera-following model, is not told apart); an enemy's wading
+byte is not kept (`in_water` stands for submerged); the frame counter stops with the scroll under a pause;
+[H] the stage's filter is linear.
 
 ## 14. Other Simplification: the three readers of `OtherLightWeightMode` (`0x765171`) [EXPORT] (issue #88)
 

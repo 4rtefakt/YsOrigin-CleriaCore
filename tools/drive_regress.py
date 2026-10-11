@@ -2390,6 +2390,20 @@ CASES.update({
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aplua_regress  # noqa: E402
+# ---- batch G (2026-10-11) ----------------------------------------------------------------------------
+CASES.update({
+    # Video: the water caustics (CONFIG_PARITY.md 13). A flooded room draws them room-wide, the frame steps every
+    # 2 ticks and the scroll every tick; "Disable water caustics" takes the room-wide part off at once and back.
+    "caustics_live": dict(
+        room="S_20/S_2008/S_2008",
+        drive="10:vstat;11:vopt=WaterCaustics=1;20:vstat;21:vopt=WaterCaustics=0;30:vstat;31:quit",
+        expect=["[video] caustics room 1 off 0 frame 4 scroll 0.0045 0.00135",
+                "[video] caustics room 0 off 1 frame 9 scroll 0.0095 0.00285",
+                "[video] caustics room 1 off 0 frame 14 scroll 0.0145 0.00435"]),
+    "caustics_dry_room": dict(
+        room="S_10/S_1009/S_1009", drive="10:vstat;11:quit", expect=["[video] caustics room 0 off 0"]),
+})
+
 CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402

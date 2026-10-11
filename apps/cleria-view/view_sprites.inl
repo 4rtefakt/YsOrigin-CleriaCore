@@ -101,7 +101,7 @@ struct CharSprite {
 // draws in the same order with the same state, so the picture is the same. A room with 29 enemies made 58 passes,
 // 58 submits and 116 two-triangle buffers a frame for their sprites and shadows alone (S_6015: 9 of 13 ms).
 struct QuadBatch {
-    struct Draw { WGPURenderPipeline pipe; WGPUBindGroup bind; };
+    struct Draw { WGPURenderPipeline pipe; WGPUBindGroup bind; bool cvr; };   // cvr: with the caustic stage (g.ubind_cvr[2])
     bool on = false;                              // inside a QuadScope
     WGPUTextureView color = nullptr, depth = nullptr;
     std::vector<Draw> draws;
@@ -128,6 +128,8 @@ static void quad_pass(Gpu& g, WGPUTextureView color, WGPUTextureView depth, WGPU
     for (std::size_t i = 0; i < n; ++i) {
         if (i == 0 || draws[i].pipe != draws[i - 1].pipe) wgpuRenderPassEncoderSetPipeline(pass, draws[i].pipe);
         if (i == 0 || draws[i].bind != draws[i - 1].bind) wgpuRenderPassEncoderSetBindGroup(pass, 1, draws[i].bind, 0, nullptr);
+        if (draws[i].cvr != (i != 0 && draws[i - 1].cvr))
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, draws[i].cvr ? g.ubind_cvr[2] : g.ubind, 0, nullptr);
         wgpuRenderPassEncoderDrawIndexed(pass, 6, 1, 0, std::int32_t(i * 4), 0);
     }
     wgpuRenderPassEncoderEnd(pass);
@@ -163,19 +165,19 @@ struct QuadScope {
 };
 
 static void draw_quad(Gpu& g, WGPUTextureView color, WGPUTextureView depth, WGPURenderPipeline pipe, WGPUBindGroup bind,
-                      const RoomVertex verts[4]) {
+                      const RoomVertex verts[4], bool cvr = false) {
     QuadBatch& q = g_quads;
     if (q.on) {
         if (!q.draws.empty() && (q.color != color || q.depth != depth)) quad_flush(g);
         q.color = color; q.depth = depth;
-        q.draws.push_back({pipe, bind});
+        q.draws.push_back({pipe, bind, cvr});
         q.verts.insert(q.verts.end(), verts, verts + 4);
         return;
     }
     static const std::uint32_t kIdx[6] = {0, 1, 2, 0, 2, 3};
     WGPUBuffer vb = make_buffer(g.device, g.queue, verts, 4 * sizeof(RoomVertex), WGPUBufferUsage_Vertex);
     WGPUBuffer ib = make_buffer(g.device, g.queue, kIdx, sizeof kIdx, WGPUBufferUsage_Index);
-    const QuadBatch::Draw d{pipe, bind};
+    const QuadBatch::Draw d{pipe, bind, cvr};
     quad_pass(g, color, depth, vb, ib, &d, 1);
     wgpuBufferRelease(vb); wgpuBufferRelease(ib);
 }
@@ -218,7 +220,7 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                            float tr = 1.0f, float tg = 1.0f, float tb = 1.0f,
                            bool additive = false, float opacity = 1.0f,
                            float px_dx = 0.0f, float px_dy = 0.0f, float actor_scale = 1.0f,
-                           std::uint32_t spec = 0, float depth_bias = 0.0f) {
+                           std::uint32_t spec = 0, float depth_bias = 0.0f, bool caustic = false) {
     if (!spr.tex || spr.h == 0) return;
     const Vec3 up = {0, 1, 0};
     Vec3 right = normalize(cross(up, camForward));       // horizontal screen-right
@@ -282,7 +284,9 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                 1.0f - std::clamp(opacity, 0.0f, 1.0f), ny, -1, u, v, cr, cg, cb, fa};
     };
     RoomVertex verts[4] = {V(lX, tY, 0, 0), V(rX, tY, 1, 0), V(rX, bY, 1, 1), V(lX, bY, 0, 1)};
-    draw_quad(g, color, depth, additive && g.char_pipeline_add ? g.char_pipeline_add : g.char_pipeline, spr.bind, verts);
+    // `caustic`: the body takes the caustic stage -- never an additive preset (bit 0x80 [EXPORT 005e0630.c:22]).
+    draw_quad(g, color, depth, additive && g.char_pipeline_add ? g.char_pipeline_add : g.char_pipeline, spr.bind, verts,
+              caustic && !additive);
 }
 
 // GoPopup glyphs (src/cleria/popup.hpp, PICKUPS.md §13.5): F_GEO20 quads on a billboard at

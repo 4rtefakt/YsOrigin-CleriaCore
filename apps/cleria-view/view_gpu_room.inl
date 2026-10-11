@@ -48,6 +48,11 @@ struct Gpu : WorldPipes {
     WGPUQueue queue{};
     WGPUBuffer ubuf{};
     WGPUBindGroup ubind{};
+    // The same constants with the caustic combiner 1 / 2 / 3 (caustic_stage; main.cpp's u.cvr.z): a draw
+    // that takes the caustic stage binds one of these as group 0 instead.
+    WGPUBuffer ubuf_cvr[3]{};
+    WGPUBindGroup ubind_cvr[3]{};
+    WGPUTexture caustic_tex{};      // the caustic frame (0x74e244 / 0x7b2f6c), 128 x 128
     WGPUSampler sampler{};
     WGPUSampler sampler_mip{};    // "Smooth distant textures": the world sampler over the mip chain
     WGPUSampler sampler_point{};  // "Character sprites: Crisp": nearest
@@ -304,7 +309,82 @@ static WGPUBindGroup tex_bindgroup(Gpu& g, WGPUTextureView view, WGPUSampler sam
 // particle draws with FUN_005fafc0(0, -1), whose subsets take node x model alpha instead
 // (FUN_005fb0e0 0x5fb202..0x5fb216), the model alpha being the particle's track alpha.
 static int g_glare_cfg = 2;
+
+// ---- water caustics (build/shell_re/CONFIG_PARITY.md 13) -------------------------------------
+// One 128 x 128 texture holding frame (counter / 2) % 96 of data\image\caustics\01\c_001..096.bmp, added
+// to the map materials and the actors' bodies under water through world-space coordinates that scroll.
+struct Caustics {
+    fs::path dir;                      // IMAGE/CAUSTICS/01
+    bool mode2 = false;                // the room's water mode 0x76a544 == 2 (load_room)
+    bool off = false;                  // [graphics] WaterCaustics = 1 ("Disable Water Caustics", 0x76519c)
+    std::uint32_t counter = 0;         // 0x74e250: +1 a live step [EXPORT 00454c30.c:28-32]
+    int frame = -1;                    // 0x74e248: the frame the texture holds
+    float sx = 0, sy = 0;              // 0x76a5c0 / c4: + (0.0005, 0.00015) a step [BYTES 0x42807e..0x4280c7]
+    bool loaded = false;
+    std::vector<std::uint8_t> frames;  // 96 x 128 x 128, top row first
+    // 0x7b2e34: every GoMesh draws with the pass flag 0x400 [EXPORT 00427c90.c:137-141, 00561f40.c:51-53].
+    bool room() const { return mode2 && !off; }
+};
+static Caustics g_caustic;
+// 0x76a544 == 2: the five rooms of the table 0x68a20c [EXPORT 00431840.c:98-108].
+static bool caustic_room_name(const std::string& stem) {
+    static const char* const k[] = {"S_2008", "S_2009", "S_2010", "S_2014", "S_2015"};
+    for (const char* n : k)
+        if (stem.size() == 6 && std::equal(stem.begin(), stem.end(), n, [](char a, char b) { return std::toupper((unsigned char)a) == b; }))
+            return true;
+    return false;
+}
+// The caustic stage FUN_005f92b0 picks for a map material [EXPORT 005f92b0.c:166-200]: 1 = variant 3 (the
+// material's stages + the caustic added: flag 0x2000, or the room-wide pass flag, unless flag 0x40), 2 = variant 2
+// (the caustic alone, drawn additive: flag 0x4000), 0 = none. Flags 0x20000000 / 0x100 / 0x200 come first.
+// [DATA] 0x2000: the pool floors 20yuka72 / 82 / 92 of S_2001, S_2002, S_2016, S_2017, S_2100, S_2101, and
+// S_9008; 0x4000: S_9008 only (and S_TEST4).
+static int caustic_stage(const DrawBatch& b, bool room) {
+    const std::uint32_t f = b.mat_flags;
+    if (f & 0x20000300u) return 0;
+    if (((f & 0x2000u) || room) && !(f & 0x40u)) return 1;
+    return (f & 0x4000u) ? 2 : 0;
+}
+// The frame into the texture when it changed (FUN_00454c30). A BMP row is copied top row first
+// (FUN_005fb7f0 turns a bottom-up file over [EXPORT 005fb7f0.c:61-69]) and each 8-bit index becomes the R5G6B5
+// grey (i >> 3, i >> 2, i >> 3) [EXPORT 00454c30.c:36-43]; here the 5 / 6 bits widened back to 8.
+static void caustic_upload(Gpu& g) {
+    Caustics& c = g_caustic;
+    if (!c.loaded) {
+        c.loaded = true;
+        std::vector<std::uint8_t> all(96 * 128 * 128);
+        for (int i = 0; i < 96; ++i) {
+            char nm[16];
+            std::snprintf(nm, sizeof nm, "C_%03d.BMP", i + 1);
+            const std::vector<std::uint8_t> b = read_bytes(c.dir / nm);
+            if (b.size() < 54) return;
+            std::uint32_t off, w, h; std::uint16_t bpp;
+            std::memcpy(&off, &b[10], 4); std::memcpy(&w, &b[18], 4); std::memcpy(&h, &b[22], 4); std::memcpy(&bpp, &b[28], 2);
+            if (b[0] != 'B' || b[1] != 'M' || w != 128 || h != 128 || bpp != 8 || b.size() < off + 128u * 128u) return;
+            for (int y = 0; y < 128; ++y)
+                std::memcpy(&all[std::size_t(i) * 16384 + std::size_t(y) * 128], &b[off + std::size_t(127 - y) * 128], 128);
+        }
+        c.frames = std::move(all);
+    }
+    const int f = int((c.counter / 2) % 96);
+    if (c.frames.empty() || f == c.frame || !g.caustic_tex) return;
+    c.frame = f;
+    static std::uint8_t px[128 * 128 * 4];
+    const std::uint8_t* s = &c.frames[std::size_t(f) * 16384];
+    for (int i = 0; i < 16384; ++i) {
+        const std::uint8_t v = s[i], rb = std::uint8_t((v & 0xf8) | (v >> 5)), gg = std::uint8_t((v & 0xfc) | (v >> 6));
+        px[i * 4] = rb; px[i * 4 + 1] = gg; px[i * 4 + 2] = rb; px[i * 4 + 3] = 255;
+    }
+    WGPUTexelCopyTextureInfo dst = {}; dst.texture = g.caustic_tex; dst.aspect = WGPUTextureAspect_All;
+    WGPUTexelCopyBufferLayout layout = {}; layout.bytesPerRow = 128 * 4; layout.rowsPerImage = 128;
+    WGPUExtent3D ext = {128, 128, 1};
+    wgpuQueueWriteTexture(g.queue, &dst, px, sizeof px, &layout, &ext);
+}
+
 static int material_blend_mode(const DrawBatch& b, float a) {
+    // Variant 2 (the caustic alone) sets the mode to 2 whatever the material says [EXPORT 005f92b0.c:274-284].
+    // [approx] the room-wide flag is left out of this test: no room with it has a 0x4000 material.
+    if (caustic_stage(b, false) == 2) return 2;
     int mode = int(b.blend);
     if (mode > 3) mode = 0;                       // only 0..3 occur (MATERIAL.md §4)
     if (mode >= 2) return mode;
@@ -472,6 +552,7 @@ static Room load_room(Gpu& g, const fs::path& asset_root, const fs::path& sob,
     Room r;
     r.name = sob.stem().string();
     r.dir = sob.parent_path();
+    g_caustic.mode2 = caustic_room_name(r.name);
     // The room's named trigger boxes, for op 0x13d Chr_IsInEventBox (region-talk triggers).
     // parse_sev returns empty until the .SEV record layout is confirmed, so this is inert now.
     r.event_boxes = load_sev(r.dir / (r.name + ".SEV"));
@@ -962,8 +1043,15 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
     // groups made from one can never be used with another.
     WGPUBindGroupLayoutEntry ue = {};
     ue.binding = 0; ue.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
-    ue.buffer.type = WGPUBufferBindingType_Uniform; ue.buffer.minBindingSize = 112;
-    WGPUBindGroupLayoutDescriptor ubl = {}; ubl.entryCount = 1; ubl.entries = &ue;
+    ue.buffer.type = WGPUBufferBindingType_Uniform; ue.buffer.minBindingSize = 128;
+    WGPUBindGroupLayoutEntry ues[3] = {};                  // + the caustic frame and its sampler
+    ues[0] = ue;
+    ues[1].binding = 1; ues[1].visibility = WGPUShaderStage_Fragment;
+    ues[1].texture.sampleType = WGPUTextureSampleType_Float;
+    ues[1].texture.viewDimension = WGPUTextureViewDimension_2D;
+    ues[2].binding = 2; ues[2].visibility = WGPUShaderStage_Fragment;
+    ues[2].sampler.type = WGPUSamplerBindingType_Filtering;
+    WGPUBindGroupLayoutDescriptor ubl = {}; ubl.entryCount = 3; ubl.entries = ues;
     WGPUBindGroupLayout bgl_u = first ? wgpuDeviceCreateBindGroupLayout(g.device, &ubl) : g.u_layout;
 
     WGPUBindGroupLayoutEntry te[2] = {};
@@ -1104,12 +1192,38 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
 
     if (first) {
         WGPUBufferDescriptor ud = {};
-        ud.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst; ud.size = 112;
-        g.ubuf = wgpuDeviceCreateBuffer(g.device, &ud);
-        WGPUBindGroupEntry ube = {}; ube.binding = 0; ube.buffer = g.ubuf; ube.size = 112;
+        ud.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst; ud.size = 128;
+        // The caustic frame: black (it adds nothing) until caustic_upload fills it. Its stage wraps
+        // (ADDRESSU / V 1 [EXPORT 005f7230.c:101-108]); [H] sampled linear.
+        WGPUTextureDescriptor ctd = {};
+        ctd.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        ctd.dimension = WGPUTextureDimension_2D; ctd.size = {128, 128, 1};
+        ctd.format = WGPUTextureFormat_RGBA8Unorm; ctd.mipLevelCount = 1; ctd.sampleCount = 1;
+        g.caustic_tex = wgpuDeviceCreateTexture(g.device, &ctd);
+        {
+            const std::vector<std::uint8_t> zero(128 * 128 * 4, 0);
+            WGPUTexelCopyTextureInfo cdst = {}; cdst.texture = g.caustic_tex; cdst.aspect = WGPUTextureAspect_All;
+            WGPUTexelCopyBufferLayout cl = {}; cl.bytesPerRow = 128 * 4; cl.rowsPerImage = 128;
+            WGPUExtent3D cext = {128, 128, 1};
+            wgpuQueueWriteTexture(g.queue, &cdst, zero.data(), zero.size(), &cl, &cext);
+        }
+        WGPUSamplerDescriptor csd = {};
+        csd.addressModeU = csd.addressModeV = csd.addressModeW = WGPUAddressMode_Repeat;
+        csd.magFilter = csd.minFilter = WGPUFilterMode_Linear; csd.maxAnisotropy = 1;
+        WGPUBindGroupEntry ube[3] = {};
+        ube[0].binding = 0; ube[0].size = 128;
+        ube[1].binding = 1; ube[1].textureView = wgpuTextureCreateView(g.caustic_tex, nullptr);
+        ube[2].binding = 2; ube[2].sampler = wgpuDeviceCreateSampler(g.device, &csd);
         WGPUBindGroupDescriptor ubd = {};
-        ubd.layout = bgl_u; ubd.entryCount = 1; ubd.entries = &ube;
+        ubd.layout = bgl_u; ubd.entryCount = 3; ubd.entries = ube;
+        g.ubuf = wgpuDeviceCreateBuffer(g.device, &ud);
+        ube[0].buffer = g.ubuf;
         g.ubind = wgpuDeviceCreateBindGroup(g.device, &ubd);
+        for (int i = 0; i < 3; ++i) {
+            g.ubuf_cvr[i] = wgpuDeviceCreateBuffer(g.device, &ud);
+            ube[0].buffer = g.ubuf_cvr[i];
+            g.ubind_cvr[i] = wgpuDeviceCreateBindGroup(g.device, &ubd);
+        }
         g.tex_layout = bgl_t;
         g.u_layout = bgl_u;
     }
@@ -1194,12 +1308,17 @@ static FogState g_fog;
 static Vec3 g_scene_light{1.0f, 1.0f, 1.0f};
 
 static void write_mvp(Gpu& g, const Mat4& mvp) {
-    float u[28];
+    float u[32];
     std::memcpy(u, mvp.m.data(), 64);
     u[16] = g_scene_light.x; u[17] = g_scene_light.y; u[18] = g_scene_light.z; u[19] = 1.0f;
     u[20] = g_fog.r; u[21] = g_fog.g; u[22] = g_fog.b; u[23] = 1.0f;
     u[24] = g_fog.near_; u[25] = g_fog.far_; u[26] = g_fog.on ? 1.0f : 0.0f; u[27] = 0.0f;
+    u[28] = g_caustic.sx; u[29] = g_caustic.sy; u[30] = 0.0f; u[31] = 0.0f;   // c3.xy; the combiner (u.cvr.z)
     wgpuQueueWriteBuffer(g.queue, g.ubuf, 0, u, sizeof(u));
+    for (int i = 0; i < 3; ++i) {
+        u[30] = float(i + 1);
+        wgpuQueueWriteBuffer(g.queue, g.ubuf_cvr[i], 0, u, sizeof(u));
+    }
 }
 
 // Advance every scrolling material by `ticks` and rewrite its vertices' UVs.
@@ -1239,6 +1358,7 @@ static void advance_scroll(Gpu& g, Room& room, int ticks) {
 // frame's first pass, it clears). part 2: layer 0xb only, loaded over the actors drawn
 // between (room_late_layer).
 static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureView depth, int part = 0) {
+    caustic_upload(g);
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPURenderPassColorAttachment ca = {};
     ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
@@ -1253,6 +1373,8 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
 
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+    WGPUBindGroup ub_now = g.ubind;
+    const bool cvr_room = g_caustic.room();
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, room.vbuf, 0, WGPU_WHOLE_SIZE);
     wgpuRenderPassEncoderSetIndexBuffer(pass, room.ibuf, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
     // Opaque first, then the blended materials: a scene object queues its opaque subsets
@@ -1268,6 +1390,9 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
             if (ka <= 0.0f) continue;                       // FUN_005faca0: nothing at a = 0
             const int mode = material_blend_mode(b, b.mat_alpha * ka);
             if ((mode != 0) != (blended != 0)) continue;
+            const int cv = caustic_stage(b, cvr_room);
+            if (WGPUBindGroup ub = cv ? g.ubind_cvr[cv - 1] : g.ubind; ub != ub_now)
+                wgpuRenderPassEncoderSetBindGroup(pass, 0, ub_now = ub, 0, nullptr);
             // A resolved (or failed-load) texture is in room.binds; a genuinely untextured
             // material (index -1) renders its dark diffuse via black_bind, not white.
             WGPUBindGroup tb = (b.texture >= 0 && b.texture < int(room.binds.size()))
