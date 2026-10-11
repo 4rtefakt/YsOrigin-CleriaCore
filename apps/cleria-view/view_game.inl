@@ -7038,6 +7038,7 @@ title_again:
                 pi.actable = avm.actable(); pi.cancelable = avm.cancelable(); pi.reserve = avm.attack_reserve();
                 pi.attack_break = avm.attack_break();             // anime_AttackBreak (vm+0xe5; Adol's sets only)
                 pi.jump_enable = avm.jump_enable();
+                pi.movable = avm.movable() != 0.0f; pi.own_jump = avm.own_jump();   // the +0x3a0 rule (PlayerActions::loco_air)
                 pi.grounded = pv.grounded; pi.submerged = submerged; pi.t = pv.t; pi.landed = p_landed;
                 pi.flag181 = game.g_flags[181] > 0;
                 pi.flag163 = game.g_flags[163] > 0;

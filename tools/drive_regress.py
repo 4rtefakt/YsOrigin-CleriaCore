@@ -928,7 +928,9 @@ CASES.update({
         drive="5:opt=InfiniteHP=1;6:killall;7:bracelet=118;8:flag=184,1;20:at3=25,4,27.5,0;240:move=0.81,0.59,70;"
               "241:jump;242:jump;258:skill+;260:skill-;320:pos;440:pos;560:pos;570:move=0.645,0.764,170;571:jump;"
               "572:jump;588:skill+;590:skill-;648:jump;649:jump;745:move=0,1,500;760:every=20,1240,jump;1250:quit",
-        expect=["feet (34.798, 2.000, 36.664)", "feet (37.291, 2.000, 50.254)", "feet (50.625, 2.000, 50.311)",
+        # Re-pinned 2026-10-11 (the jump gate reads +0x3a0): the second of the two presses a tick apart (241 / 242, 571 / 572)
+        # is an air press and no longer kicks him up a second time, so he lands elsewhere on the arm; the ride is the same.
+        expect=["feet (34.344, 2.000, 37.547)", "feet (38.092, 2.000, 50.841)", "feet (51.369, 2.000, 49.654)",
                 ">> entering S_5102"], absent=[">> entering S_5009"]),
     # The same carry on S_5005's floor (s50_yuka_00, hub (84, -28)) and S_5012's lower one (hub (66, 20), the
     # other way round): a standing player stays on for more than a full turn.
@@ -954,7 +956,7 @@ CASES.update({
         room="S_50/S_5012/S_5012", char="3", env=dict(_LOCK),
         drive="2:diff=3;5:opt=InfiniteHP=1;6:killall;7:flag=163,1;241:at3=23,2,21,45;246:move=0.7071,0.7071,100;300:jump;"
               "330:jump;400:pos;560:pos;628:move=0.7071,0.7071,170;634:jump;660:jump;700:pos;720:every=20,790,jump;"
-              "800:move=-0.033,0.9995,500;801:every=20,1290,jump;1300:quit",
+              "800:move=-0.033,0.9995,500;805:every=20,1290,jump;1300:quit",   # 805 (was 801) since the jump gate reads +0x3a0: a press on the landing frames now jumps, and the old phase took him off a step once ([ledge] t1001)
         expect=["feet (33.636, 2.000, 36.923)", "feet (41.689, 2.000, 53.298)", "feet (62.963, 2.476, 55.832)",
                 ">> entering S_5102"], absent=[">> entering S_5009", "[ledge]"]),
     "yuka_cross_s5005": dict(
@@ -1173,31 +1175,35 @@ CASES.update({
     # build/mech_re/LAUNCH_STATE.md §0 / §5 step 2: the stun is reachable in play. Yunica's down thrust (section 0x10b,
     # attack kind 2: Attack while falling, no stick) deals damage -> the victim's event bit 0x2000 -> the action
     # player's roll on its next tick (30 %; 60 % with 0x4000) -> phase 3 for 99 ticks, the stars, section 0x13b.
+    # Re-timed 2026-10-11 (the jump gate reads +0x3a0, not the section): the jump is pressed at t + 2, not t + 1 — a
+    # press one tick after the last thrust's recovery ends is still an air press (+0x3a0 is 3 through 0x10b's
+    # Movable(0) and is rewritten on the first Movable tick) and was refused. The first thrust now stuns (t65, was the
+    # fifth at t304); launch_juggle moves its three swings after that stun (the monster put on open floor first) and
+    # launch_flyer's lines come one tick later; every number of the mechanics is as before.
     "stun_thrust": dict(
         room="S_10/S_1004/S_1004", env={"CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.2;20:epos=#189,0,1.2;" +
-              ";".join("%d:near=#189,0.8;%d:jump;%d:atk" % (t, t + 1, t + 24) for t in range(30, 400, 60)) + ";420:quit",
-        expect=["hit Riffligan", "[stun] t304 #189 cast 14 stunned for 98 ticks (events 2000)"]),
+              ";".join("%d:near=#189,0.8;%d:jump;%d:atk" % (t, t + 2, t + 24) for t in range(30, 400, 60)) + ";420:quit",
+        expect=["hit Riffligan", "[stun] t65 #189 cast 14 stunned for 98 ticks (events 2000)"]),
     # LAUNCH_STATE.md §1 / §2: the knock-up and the juggle. The Riffligan stunned as above (t304); a ground swing on it
     # launches it (+0x4d0 = 1, t 0.175), the next two juggle it in the air (t 0.15 - 0.0125 n: 0.1375, 0.125), each
-    # with the damage x 1.2 truncated (5 -> 6, 6 -> 7); it lands, the count is cleared, and the hit at t441 is plain.
+    # with the damage x 1.2 truncated (5 -> 6, 6 -> 7); it lands, the count is cleared, and the hit at t203 is plain.
     "launch_juggle": dict(
         room="S_10/S_1004/S_1004", env={"CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.2;20:epos=#189,0,1.2;" +
-              ";".join("%d:near=#189,0.8;%d:jump;%d:atk" % (t, t + 1, t + 24) for t in range(30, 300, 60)) +
-              ";310:opt=DamageDealt=0.6;330:near=#189,1.2;331:atk;348:near=#189,1.2;349:atk;366:near=#189,1.2;367:atk;"
-              "440:near=#189,1.2;441:atk;470:quit",
-        expect=["[stun] t304 #189 cast 14 stunned", "[launch] t332 #189 launched: count 1, t 0.1750, stun 70, dmg 4 -> 4",
-                "[launch] t350 #189 juggled: count 2, t 0.1375, stun 52, dmg 5 -> 6",
-                "[launch] t368 #189 juggled: count 3, t 0.1250, stun 34, dmg 6 -> 7", "hit Riffligan (lv1 DEF 43): 7 dmg",
-                "hit Riffligan (lv1 DEF 43): 5 dmg"],
+              "30:near=#189,0.8;32:jump;54:atk;70:opt=DamageDealt=0.6;86:epos=#189,0,-1.6;92:near=#189,1.2;93:atk;"
+              "110:near=#189,1.2;111:atk;128:near=#189,1.2;129:atk;202:near=#189,1.2;203:atk;233:quit",
+        expect=["[stun] t65 #189 cast 14 stunned", "[launch] t94 #189 launched: count 1, t 0.1750, stun 69, dmg 5 -> 6",
+                "[launch] t112 #189 juggled: count 2, t 0.1375, stun 51, dmg 5 -> 6",
+                "[launch] t130 #189 juggled: count 3, t 0.1250, stun 33, dmg 6 -> 7", "hit Riffligan (lv1 DEF 43): 7 dmg",
+                "hit Riffligan (lv1 DEF 43): 4 dmg"],
         count={"[launch]": 3}),
     # ... and a flyer (a Baocar, +0x398): never launched; a hit while it is stunned adds 12 ticks to the stun (39 -> 51).
     "launch_flyer": dict(
         room="S_10/S_1002/S_1002", env={"CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1", "CLERIA_LEVEL": "3"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.2;" +
-              ";".join("%d:near=#186,0.8;%d:jump;%d:atk" % (t, t + 1, t + 24) for t in range(30, 200, 60)) + ";230:quit",
-        expect=["[stun] t124 #186 cast 43 stunned for 98 ticks", "[launch] t183 #186 flyer: count 0, t 0.0000, stun 51, dmg 2 -> 2"]),
+              ";".join("%d:near=#186,0.8;%d:jump;%d:atk" % (t, t + 2, t + 24) for t in range(30, 200, 60)) + ";230:quit",
+        expect=["[stun] t125 #186 cast 43 stunned for 98 ticks", "[launch] t184 #186 flyer: count 0, t 0.0000, stun 51, dmg 2 -> 2"]),
     # A Venueba's slime puddles (M200.md §3.7b / §3.8, BULLETS.md §3.3; FUN_0058a5f0 with flag B, 6 draws a puddle; kept,
     # not drawn): one near it every 10th tick of its hit reaction, and the puddles of its glob (kind 0x29) where it lands.
     "slime_puddles": dict(
@@ -1609,11 +1615,16 @@ CASES.update({
                 "band 2 (the refill starts", "form Low -> Normal", "settled in Normal", "clip 04_RightHandSwing",
                 "effect 451", "effect 490", "band 3 (the refill starts", "form Normal -> High", "motion s7099yuka e",
                 "CamSlot 3 (0.025)", "settled in High", "with a jump", "clip 39_HighDown", "band 4 (the refill starts",
-                "form High -> OnBack", "the barrier is up", "motion s7099yuka j", "settled in OnBack",
-                "(24_StabInTheGround)", "CamSlot 4 (", "the swing hits the core 0 (DEF 998, class 3): 2 dmg",
-                "bullet(s) kind 0x25 effect 484", "(25_PullFromTheGround)", "released from Bone_", "barrier 59",
+                "form High -> OnBack", "the barrier is up", "motion s7099yuka j", "CamSlot 4 (", "settled in OnBack",
+                # Re-pinned 2026-10-11 (the jump gate reads +0x3a0): the pilot's jumps take on other ticks, so the OnBack
+                # phase runs another course with the same events — the camera at the settle (CamSlot 4 (0.025), not the
+                # (1.000) of a stab that catches him), the tentacle tracks in the order Beat, Stab, Pull (was Stab,
+                # Pull, Beat), the barrier broken before the first stab.
+                "(20_Beat)", "the swing hits the core 0 (DEF 998, class 3): 2 dmg",
+                "bullet(s) kind 0x25 effect 484", "released from Bone_", "barrier 59",
                 "the barrier breaks (window 900)", "the swing hits the core 0 (DEF 295, class 3)",
-                "the window closed: the barrier is back", "the barrier is up", "(20_Beat)", "flag 215 = 0",
+                "the window closed: the barrier is back", "the barrier is up", "(24_StabInTheGround)",
+                "(25_PullFromTheGround)", "flag 215 = 0",
                 "the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1", "[content] boss_defeated S_7099 flag 227",
                 "the death timeline starts", "the body is gone (alpha 0)", ">> entering S_7000"],
         count={"boss_defeated": 1}),
@@ -2450,6 +2461,22 @@ CASES.update({
         expect=["131=1", ">> entering S_1003", "t100 dflags", "131=0", ">> entering S_1003", "t170 dflags", "131=0",
                 "t181 actors", "id 43 cast 43 enemy hp 86 g1 0 pos (-28.4,0.2,-6.4)", "t300 actors",
                 "id 43 cast 43 enemy hp 86 g1 0 pos (-27.4,0.2,-9.1)"]),
+    # S_5013's seven falling steps (@Fall_001: on Normal and above a touched step sinks 0.025 a tick for 10 ticks,
+    # 0.05 for 10, loses its collision at tick 20 and is back at tick 120), crossed with real inputs: Toal on Hard
+    # with the double jump and the dash, one placement at the start of the run, then a double tap and the stick held
+    # toward -x, and a jump press ONE tick after every landing (a second press 16 ticks later = the double jump
+    # over the long gaps). The jump gate reads the locomotion state +0x3a0, not the section [EXPORT 00465170.c:243,
+    # 1939-1940]: one grounded tick after a landing still counts as air, the next jumps. CleriaCore tested
+    # "section != 3" and so swallowed every press during the jump section's landing frames (4 ticks for Toal):
+    # this run fell into the pit after step_03 (feet (-79.155, -8.000, 42.368) at t470).
+    "s5013_falling_steps": dict(
+        room="S_50/S_5013/S_5013", char="3", env=_LOCK,
+        drive="3:diff=3;5:opt=InfiniteHP=1;6:flag=163,1;11:flag=181,1;30:at=-10,42,270;38:move=-1,0,3;44:move=-1,0,420;"
+              "94:jump;131:jump;147:jump;181:jump;197:jump;228:jump;264:jump;280:jump;316:jump;332:jump;375:jump;391:jump;"
+              "470:pos;480:quit",
+        expect=["[plate] step_00 -> @fall_001", "[plate] step_01 -> @fall_001", "[plate] step_03 -> @fall_001",
+                "[plate] step_04 -> @fall_001", "[plate] step_05 -> @fall_001", "[plate] step_06 -> @fall_001",
+                "t470 pos", "feet (-90.371, 0.000, 42.000)"]),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:

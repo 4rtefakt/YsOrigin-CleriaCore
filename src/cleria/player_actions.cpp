@@ -111,15 +111,20 @@ PlayerActions::Out PlayerActions::tick(const In& in) {
     o.locomotion_dash = dash && in.grounded && in.stick_active;
 
     // ---- the jump (0x465388.., 0x468ba7..) ----
+    // The air test is the locomotion state +0x3a0 == 3 or not grounded [EXPORT 00465170.c:243], NOT the section:
+    // the jump section 3 plays its landing frames on for some ticks, +0x3a0 is back on the ground state after one.
+    // [not modelled] the floor sub-mesh's no-jump byte (+0x25c record +0x89) [:234-240].
     if (in.jump_pressed && !in.busy && in.jump_enable && tap_window == 0) {
-        if (in.grounded && in.section != 3) {
+        if (in.grounded && !loco_air) {
             o.jump = true;
-        } else if (!in.grounded && !in.submerged && in.flag163 && in.kind != 2 && dj_count == 0 &&
+        } else if (!in.submerged && in.flag163 && in.kind != 2 && dj_count == 0 &&
                    dj_cool == 0 && in.t <= 0.15f) {                                  // 0x6bd1d8
             o.double_jump = true;
             dj_count = 1; dj_cool = 6;
         }
     }
+    if (o.jump || o.double_jump) loco_air = true;                  // +0x3a0 = 3 [:1918]
+    else if (in.movable) loco_air = !in.grounded && !in.own_jump;  // [:441-443, 1939-1940]
 
     // ---- the attack request (0x465e68..0x465f9d) ----
     if (in.attack_pressed && !in.busy) {

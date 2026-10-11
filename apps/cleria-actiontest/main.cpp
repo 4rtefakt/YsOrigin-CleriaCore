@@ -161,6 +161,28 @@ int main(int, char**) {
         ib.landed = true; ib.grounded = true; ib.jump_pressed = false;
         pb.tick(ib);
         check(pb.dj_count == 0 && pb.dj_cool == 6, "landing resets it, with the 6-tick cool-down");
+        {   // The jump gate after a landing reads +0x3a0, not the section [EXPORT 00465170.c:243, 1939-1940]: the
+            // first grounded tick still counts as air (and the double jump is cooling), the second jumps — while
+            // the jump section 3 is still on its landing frames.
+            PlayerActions pj;
+            PlayerActions::In ij; ij.character = 3; ij.flag163 = true; ij.jump_pressed = true;
+            const bool j0 = pj.tick(ij).jump;                        // off the ground
+            ij.jump_pressed = false; ij.grounded = false; ij.section = 3; ij.t = -0.3f;
+            for (int k = 0; k < 20; ++k) pj.tick(ij);
+            ij.grounded = true; ij.landed = true; ij.jump_pressed = true;   // the first grounded tick, section 3
+            const PlayerActions::Out a1 = pj.tick(ij);
+            ij.landed = false;                                       // the second, still section 3
+            const PlayerActions::Out a2 = pj.tick(ij);
+            check(j0 && !a1.jump && !a1.double_jump && a2.jump,
+                  "a press on the landing tick is refused, on the next it jumps (section 3 still playing)");
+            PlayerActions pk;
+            PlayerActions::In ik; ik.character = 3; ik.jump_pressed = true;
+            pk.tick(ik);
+            ik.jump_pressed = false; ik.grounded = false; ik.section = 3; ik.movable = false;
+            pk.tick(ik);
+            ik.grounded = true; ik.jump_pressed = true;
+            check(!pk.tick(ik).jump && pk.loco_air, "Movable 0 keeps +0x3a0: the state is not rewritten");
+        }
         check(near(dash_char_const(1, false), 1.4f) && near(dash_char_const(3, false), 1.55f),
               "the dash constants (Yunica 1.4, Toal 1.55)");
     }

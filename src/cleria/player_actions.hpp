@@ -45,6 +45,8 @@ struct PlayerActions {
         int section = 0;             // +0x994
         bool actable = false, cancelable = false, reserve = false, attack_break = false;   // ASO
         bool jump_enable = true;     // ASO +0x9d1
+        bool movable = true;         // ASO +0x9cc != 0
+        bool own_jump = false;       // ASO +0x9d6: the section owns its air time (no "air" locomotion state)
         bool grounded = true, submerged = false;
         float t = 0;                 // the vertical timer +0x330
         bool landed = false;         // this tick's touch-down
@@ -72,6 +74,13 @@ struct PlayerActions {
         bool double_jump = false;    // section 3 restarts, t = v0, origin += t
         bool locomotion_dash = false;  // play 0x10a instead of the run section 1
     };
+
+    // The locomotion state +0x3a0 == 3 ("air"), as the previous mover tick left it. The jump gate reads it, not
+    // the section: a press with it set (or off the ground) is an air press [EXPORT 00465170.c:243]. The mover
+    // rewrites it each tick while Movable != 0 — 3 off the ground without OwnJump, else the stick's state
+    // [:441-443, 1939-1940] — and a jump sets it [:1918]. So after a landing ONE grounded tick still counts as
+    // air; the jump section's landing frames (4 ticks for Toal) do not hold the jump back.
+    bool loco_air = false;
 
     // One mover tick (before the integrator). `ground` / `air` combo tables per character.
     Out tick(const In& in);
