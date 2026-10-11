@@ -1,0 +1,10 @@
+; The dinput8.dll entry points, forwarded to the real DLL in hooks.cpp.
+LIBRARY dinput8
+EXPORTS
+    DirectInput8Create
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE
+    DllRegisterServer PRIVATE
+    DllUnregisterServer PRIVATE
+    GetdfDIJoystick
+    RetailProbeSim          ; offline simulation only (src/simtest.cpp)
