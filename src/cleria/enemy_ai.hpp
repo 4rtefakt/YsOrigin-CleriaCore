@@ -335,6 +335,10 @@ struct AiOut {
     // handlers' script-puppet path (g_flags[130] == 0 -> FUN_0045f250) and their g_flags[131]
     // freeze (FUN_0045f470 only).
     bool skip_action_player = false;
+    // The handler took its g_flags[131] branch: FUN_0045f470, the mover with the moving byte +0x514 = 0, in place
+    // of the brain, the action player and FUN_00478080 [EXPORT 0047b7f0.c:73-117; 0045f470.c]. The host runs its
+    // mover as stopped; +0x6f8 (mode) and the rest of the brain's state are left as they are.
+    bool plain_mover = false;
     // The brain cleared +0x3bc & 4 (the landed-hit bit) before the action player ran (M160 0x4ba9fc):
     // the action player then does not see the hit (no acquisition through it).
     bool consume_hit = false;

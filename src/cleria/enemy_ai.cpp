@@ -607,7 +607,7 @@ AiOut enemy_ai_tick(EnemyAi& a, const EnemyAiParams& p, const AiEnv& env, EnemyB
     // The handler's first branch: an actor not yet engaged that is off-screen does nothing.
     if (a.phase() < 2 && env.culled) { ai::stop(a, 1); return {}; }
     // ... then g_flags[131] (0x4d2146): the plain mover only, no brain, no action player.
-    if (enemy_handler_held(idx, env)) return {};
+    if (enemy_handler_held(idx, env)) { AiOut held; held.plain_mover = true; return held; }
     AiOut out = brain ? brain(a, p, env) : AiOut{};
     // What a death hook asked for last tick (EnemyAi::hook_section / hook_kill_tags).
     if (a.hook_section >= 0) {

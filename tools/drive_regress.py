@@ -2398,6 +2398,15 @@ CASES.update({
         drive="20:near=17;21:atk;23:run=@itemcannotuse;40:scripts;41:actors;150:scripts;160:quit",
         expect=["slot 1 taken: 0/1", "[popup] 2 ffffff", "t40 scripts", "frozen 1 fix 0/1 popups 1", "t41 actors",
                 "id 17 cast 17 enemy hp 72 g1 0 pos (30.4,-4.1,-37.3)", "t150 scripts", "frozen 1 fix 0/1 popups 0"]),
+    # FIX_SLOTS.md S5a (REACQUIRE.md D2): g_flags[131] holds every handler 3..93 but the eyes', not Epona's alone
+    # [EXPORT 0047b7f0.c:73-117]. A Selnarg (handler 6) engaged at t20 starts its lunge; 131 = 1 at t100: no brain
+    # and no action player (its distance stays the 7.46 of t100 while it ends the lunge 3.03 away, and it stands at
+    # (26.6, -36.1) from t180 to t239 — it used to come on to 26.0 and strike again); 131 = 0 at t240: the brain is back.
+    "flag131_holds_brain": dict(
+        room="S_10/S_1002/S_1002", env=dict(_LOCK, CLERIA_AI="1"),
+        drive="5:opt=InfiniteHP=1;20:near=17;21:move=-1,0,40;100:flag=131,1;101:actors;239:actors;240:flag=131,0;300:quit",
+        expect=["dist 7.46 head 3.04 culled 0 sec 7 mov 0.00 hp 74.0 mk 1 at (26.6,-36.1) alpha 1.00 t180", "t239 actors",
+                "id 17 cast 17 enemy hp 74 g1 0 pos (26.6,-4.1,-36.1)", "dist 3.03 head 3.04 culled 0 sec 2 mov 1.00 hp 74.0 mk 0 at (26.6,-36.1) alpha 1.00 t240"]),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:

@@ -2173,6 +2173,22 @@ int main() {
         w.g[156] = 1; w.g[130] = 1;
         enemy_ai_tick(E.ai, ep, r.env, m850);
         check(E.ai.phase() == 0, "flag 131 != 0: the plain mover only, still no brain");
+        {   // FIX_SLOTS.md S5a: every handler 3..93 but the eyes' (83) takes that branch [EXPORT 0047b7f0.c:73-117].
+            Actor M; M.cast_id = 0x0e; M.ai_index = 3; M.hp = M.max_hp = 50; M.height = 1.0f; M.vert.grounded = true;
+            Rig r3; r3.env.actor = &M; r3.env.world = &w; r3.env.character = 1;
+            r3.env.self = {0, 1.0f, 48.0f}; r3.env.target = {0, 1.075f, 44.0f}; r3.env.target_alive = true;
+            w.g[131] = 0;
+            for (int t = 0; t < 40; ++t) enemy_ai_tick(M.ai, p, r3.env, enemy_brain_or_standin(3));
+            const EnemyAi before = M.ai;
+            w.g[131] = 1;
+            const AiOut h = enemy_ai_tick(M.ai, p, r3.env, enemy_brain_or_standin(3));
+            check(before.phase() == 2 && h.plain_mover && h.section < 0 && M.ai.phase() == 2 && M.ai.i(0x728) == before.i(0x728) &&
+                  M.ai.mode() == before.mode() && M.ai.cool() == before.cool() && M.ai.dist() == before.dist(),
+                  "flag 131 != 0, M100 engaged: the plain mover, the brain's state untouched");
+            check(enemy_handler_held(3, r3.env) && enemy_handler_held(93, r3.env) && !enemy_handler_held(83, r3.env) &&
+                  !enemy_handler_held(1, r3.env) && !enemy_handler_held(75, r3.env),
+                  "flag 131: handlers 3..93 but the eyes' (83); the duel brains take the branch themselves");
+        }
         w.g[131] = 0;
         const AiOut o0 = enemy_ai_tick(E.ai, ep, r.env, m850);
         check(E.ai.phase() == 4 && E.hp == 475.0f && E.max_hp == 475.0f && std::fabs(E.def - 68.95f) < 1e-3f &&

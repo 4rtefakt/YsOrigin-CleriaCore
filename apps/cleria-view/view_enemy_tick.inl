@@ -442,7 +442,8 @@
                     const bool grounded_now = en->vert.grounded;
                     const bool movable_pre = e.avm.movable() != 0.0f;
                     int idx_pre = 0;
-                    const int lsec = mover_pre(en->mover, e.actor->ai.mode(), grounded_now, e.avm.own_jump(),
+                    // (o.plain_mover: the g_flags[131] branch, FUN_0045f470 — the moving byte +0x514 = 0)
+                    const int lsec = mover_pre(en->mover, o.plain_mover ? 0 : e.actor->ai.mode(), grounded_now, e.avm.own_jump(),
                                                movable_pre, e.avm.section(), &idx_pre);
                     if (lsec >= 0) e.avm.set_section(lsec);          // FUN_00446550: priority-gated
                     e.avm.set_is_land(grounded_now);

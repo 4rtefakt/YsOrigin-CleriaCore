@@ -150,7 +150,14 @@ bool enemy_handler_puppet(int ai_index, const AiEnv& env) {
     return ai_index == 78 && env.world && env.world->flag(130, 1) == 0;
 }
 bool enemy_handler_held(int ai_index, const AiEnv& env) {
-    return ai_index == 78 && env.world && env.world->flag(131, 0) != 0;
+    // Every handler 3..93 but Hugo's eyes (83, FUN_004731d0) tests g_flags[131] (0x76bb28) between its cull branch
+    // and its brain: 90 of the 91 functions that read it, the 91st being the scene reset FUN_00431260 (FIX_SLOTS.md
+    // S5a, REACQUIRE.md D2) [EXPORT 0047b7f0.c:73-117 and the same branch in each handler of table 0x69b8c0].
+    // Not here: the handlers whose ported brain takes that branch itself (it keeps their gauge / gates in their
+    // order): M810 / M820 / M830 / M840 / M860 (74..77, 79) and Zava (80).
+    if (ai_index < 3 || ai_index > 93 || ai_index == 83) return false;
+    if ((ai_index >= 74 && ai_index <= 77) || ai_index == 79 || ai_index == 80) return false;
+    return env.world && env.world->flag(131, 0) != 0;
 }
 
 EnemyDeathHook enemy_death_hook_for(int ai_index) {
