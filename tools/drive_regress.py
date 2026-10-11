@@ -2526,6 +2526,18 @@ CASES.update({
         drive="20:near=17;21:move=-1,0,30;60:hp=0;61:actors;120:actors;200:actors;230:ok;260:pos;300:quit",
         expect=["[death] HP 0", "t61 actors", "id 17 cast 17 enemy hp 74 g1 0 pos (31.0,-4.1,-36.5)", "[gameover] gameover.dds",
                 "t200 actors", "id 17 cast 17 enemy hp 74 g1 0 pos (26.6,-4.1,-36.1)", "[gameover] chose retry"]),
+    # The floor entry's no-jump byte (+0x25c record +0x89): a jump press on the ground is refused while it is set
+    # [EXPORT 00465170.c:234-240], and one ctor in the exe sets it — the Zava heads', on their collision entry 0
+    # [EXPORT 0053bbb0.c:247-254]. Head a at rest in S_6082: standing on its entry 0 (the low surface at y ~7, inside
+    # the head: placed from y 8.5) the press does nothing; on its top (another entry, y 10.76) she jumps.
+    # [H] which twin mesh is entry 0 follows the collision file's node order (ZAVA_D.md U-D4).
+    "zava_head_no_jump": dict(
+        room="S_60/S_6082/S_6082", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;30:at3=-39.46,8.5,29.2,0;38:floor;39:pos;40:jump;46:pos;"
+              "60:at3=-38.66,16,30,0;68:floor;69:pos;70:jump;76:pos;90:quit",
+        expect=["floor 'boss06a' nojump 1", "feet (-39.460, 7.108, 29.098)", "[jump] t40 refused", "feet (-39.461, 7.069, 28.978)",
+                "floor 'boss06a' nojump 0", "feet (-38.662, 10.763, 29.838)", "feet (-38.662, 12.413, 29.838)"],
+        count={"[jump] t": 1}),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:

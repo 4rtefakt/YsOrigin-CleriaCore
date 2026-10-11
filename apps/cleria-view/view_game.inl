@@ -2053,6 +2053,7 @@ title_again:
     Mat4 floor_was, floor_now;               // the floor object's frame before / after the last mesh step
     bool floor_moved = false;                // ... which changed it (the rider carry reads the pair next tick)
     std::string player_floor_obj;            // the object the player stands on (+0x540)
+    bool player_floor_nojump = false;        // ... and its collision entry's byte +0x89 (+0x544 picks the entry)
     int ride_tri = -1;                       // ... and, on the stunned Velagunder, the face under him and his
     Vec3 ride_uvw{};                         // place in its frame (a + u (b - a) + v (c - a) + w n): the carry
     Vec3 carry{};                            // +0x5b0..: the platform carry
@@ -4667,6 +4668,8 @@ title_again:
         } else if (cmd == "gauge") {                   // the boss HP gauge: shown (DAT_006d5fd8 != 0) or hidden
             std::printf("  [drive] gauge %d id %d hp %.0f/%.0f\n", int(hud.boss_frac >= 0.0f), hud.boss_id,
                         double(hud.boss_cur), double(hud.boss_max));
+        } else if (cmd == "floor") {                   // the floor contact record: the object stood on, its entry's no-jump byte
+            std::printf("  [drive] floor '%s' nojump %d\n", player_floor_obj.c_str(), int(player_floor_nojump));
         } else if (cmd == "pos") {                     // print the player's feet and O2
             std::printf("  [drive] feet (%.3f, %.3f, %.3f) O2 %.0f a%d hp %d sub %d sec 0x%x stage %d sp %.0f shield %d/%d/%d\n", feet.x, feet.y, feet.z,
                         oxy.o2, oxy.alpha, player.hp, int(submerged), unsigned(avm.section()), pact.stage,
@@ -7061,7 +7064,10 @@ title_again:
                 pi.section = avm.section();
                 pi.actable = avm.actable(); pi.cancelable = avm.cancelable(); pi.reserve = avm.attack_reserve();
                 pi.attack_break = avm.attack_break();             // anime_AttackBreak (vm+0xe5; Adol's sets only)
-                pi.jump_enable = avm.jump_enable();
+                // No jump off a floor entry whose byte +0x89 is set [EXPORT 00465170.c:234-240]: entry 0 of a Zava head.
+                pi.jump_enable = avm.jump_enable() && !(pv.grounded && player_floor_nojump);
+                if (jump_edge && pv.grounded && player_floor_nojump)
+                    std::printf("  [jump] t%llu refused: %s's floor entry has the no-jump byte\n", (unsigned long long)tick_count, player_floor_obj.c_str());
                 pi.movable = avm.movable() != 0.0f; pi.own_jump = avm.own_jump();   // the +0x3a0 rule (PlayerActions::loco_air)
                 pi.grounded = pv.grounded; pi.submerged = submerged; pi.t = pv.t; pi.landed = p_landed;
                 pi.flag181 = game.g_flags[181] > 0;
@@ -7476,10 +7482,21 @@ title_again:
             // The floor contact record (+0x540): the object under a grounded player whose floor
             // point lies within 1.1 x the origin height (FUN_0045a510 0x45c2b5).
             player_floor_obj.clear();
+            player_floor_nojump = false;
             if (pv.grounded && floor_tri >= 0 && fl > kNoFloor && oy - fl <= 1.1f * kOriginH)
                 for (const RoomMesh::ObjRange& r : phys_mesh(room).object_ranges)
                     if (std::uint32_t(floor_tri) >= r.t0 && std::uint32_t(floor_tri) < r.t1) {
-                        player_floor_obj = r.name; break;
+                        player_floor_obj = r.name;
+                        // The entry's byte +0x89 has one writer in the exe: the ctor of Zava's two heads sets it
+                        // on entry 0 and clears it on the others [EXPORT 0053bbb0.c:247-254] (view_boss06.inl
+                        // keeps each head's entries as triangle ranges of its hull).
+                        for (int hi = 0; hi < boss06::kHeads; ++hi)
+                            if (r.name == boss6_name[hi] && !boss6_entries[std::size_t(hi)].empty()) {
+                                const std::uint32_t rel = std::uint32_t(floor_tri) - r.t0;
+                                player_floor_nojump = rel >= boss6_entries[std::size_t(hi)][0].first &&
+                                                      rel < boss6_entries[std::size_t(hi)][0].second;
+                            }
+                        break;
                     }
             ride_tri = -1;
             if (player_floor_obj == "boss01" && phys_mesh(room).climb_t1 > phys_mesh(room).climb_t0) {
