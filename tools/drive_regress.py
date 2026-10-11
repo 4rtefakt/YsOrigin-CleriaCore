@@ -2386,6 +2386,19 @@ CASES.update({
         expect=["FrameHold(1.0000, -0.0250)", "[framehold] t", "frame copied, drawn at alpha 249"]),
 })
 
+# The second builder's batch of 2026-10-11 (FIX_SLOTS.md S4.., ENEMY_WATER.md): one block.
+CASES.update({
+    # FIX_SLOTS.md S4: the player's hit scan and her section's Generate* events run under either fix slot. Yunica
+    # swings at t21, 2.0 from a Selnarg; @ItemCannotUse takes slot 1 at t23, before the section arms anything. The
+    # swing's locus is still made and still lands (2 dmg, HP 74 -> 72) on the monster the Fix(1) holds in place.
+    # (Nothing was armed under a Fix before: the swing played out and hit nothing.)
+    "fix_swing_hits": dict(
+        room="S_10/S_1002/S_1002", env=_LOCK,
+        drive="20:near=17;21:atk;23:run=@itemcannotuse;40:scripts;41:actors;150:scripts;160:quit",
+        expect=["slot 1 taken: 0/1", "[popup] 2 ffffff", "t40 scripts", "frozen 1 fix 0/1 popups 1", "t41 actors",
+                "id 17 cast 17 enemy hp 72 g1 0 pos (30.4,-4.1,-37.3)", "t150 scripts", "frozen 1 fix 0/1 popups 0"]),
+})
+
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
