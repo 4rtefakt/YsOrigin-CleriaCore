@@ -85,6 +85,7 @@
 #include "cleria/records.hpp"
 #include "cleria/save.hpp"
 #include "cleria/world.hpp"
+#include "cleria/water.hpp"
 #include "cleria/xso.hpp"
 #include "cleria/wndtext.hpp"
 #include "cleria/extfont.hpp"

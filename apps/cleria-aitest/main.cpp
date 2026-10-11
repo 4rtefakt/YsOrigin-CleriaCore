@@ -990,6 +990,52 @@ int main() {
         std::printf("[ai]   M510 discs %d, sweep %.1f .. %.1f deg\n", discs, first_deg, last_deg);
         check(discs == 8 && std::fabs(first_deg + 38.0f) < 0.1f && std::fabs(last_deg - 60.0f) < 0.1f,
               "51 marker-1 ticks: 8 discs sweeping -38 .. +60 deg");
+        {   // WATER (M510.md §3.2; ENEMY_WATER.md W4): the flail and the drain, in place of the phase switch.
+            Rig w; Actor M; M.ai_index = 44; M.hp = M.max_hp = 95.0f;
+            w.env.actor = &M; w.env.hp = 95.0f; w.env.max_hp = 95.0f; w.env.target = {3.0f, 1.075f, 0}; w.env.section = 2;
+            enemy_ai_tick(M.ai, mp, w.env, m510);                  // INIT -> phase 1
+            int draws = 0;
+            w.env.rng = [&] { ++draws; return w.rng(); };
+            M.ai.in_water = true; M.ai.entered = true;
+            const float h0 = M.ai.heading;
+            const AiOut o1 = m510(M.ai, mp, w.env);
+            check(draws == 3 && o1.section == 4 && o1.popup < 0 && M.ai.action() == 0x800 && M.ai.steer() == 1 &&
+                  M.ai.i(0x79c) == 1 && std::fabs(M.ai.heading - h0) <= 0.06f + 1e-6f && M.mover.k2.y >= 0.0f && M.mover.k2.y < 0.3f &&
+                  std::fabs(std::hypot(M.mover.k2.x, M.mover.k2.z) - 0.04f * 2.0f * 0.1f) < 1e-6f,
+                  "M510 in water: 3 raw draws, heading pulled by 0.06, always-run, the 0.008 impulse + a lift under 0.3, section 4");
+            M.ai.entered = false;
+            int pops = 0;
+            for (int t = 2; t <= 29; ++t) if (m510(M.ai, mp, w.env).popup >= 0) ++pops;
+            const AiOut o30 = m510(M.ai, mp, w.env);
+            check(pops == 0 && o30.popup == 9 && M.hp == 86.0f && draws == 90, "M510: the 30th water tick takes floor(max HP / 10) with a number");
+            M.ai.entered = true;
+            m510(M.ai, mp, w.env);
+            check(M.ai.i(0x79c) == 1, "M510: an entry tick restarts the count");
+        }
+    }
+    {   // The edge probe's deep-water test (FUN_00477450's tail; ENEMY_WATER.md W3).
+        struct Pool : AiWorld {
+            float wy = -1.0e30f;
+            void for_each(const std::function<void(Actor&)>&) override {}
+            Actor* find(int) override { return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3& o, const Vec3& d) override {       // a floor at y 0 everywhere, no walls
+                Ray r; r.hit = d.y < 0.0f && o.y + d.y <= 0.0f; r.point = {o.x, 0.0f, o.z}; return r;
+            }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = r[2] = r[3] = 0.0f; }
+            const float* enemy_raw(int) override { return nullptr; }
+            float water_under(const Vec3&, float) override { return wy; }
+        } pool;
+        Actor A; A.flags12c = 0; A.flags130 = 0;
+        Rig r; r.env.actor = &A; r.env.world = &pool; r.env.self = {0, 1.0f, 0}; r.env.height = 1.0f; r.env.radius = 0.5f;
+        r.env.grounded = true;
+        EnemyAi a; a.phase() = 2; a.mode() = 1;
+        const bool dry = ai::blocked_ahead(a, r.env);
+        pool.wy = 1.5f; const bool deep = ai::blocked_ahead(a, r.env);
+        pool.wy = 0.5f; const bool shallow = ai::blocked_ahead(a, r.env);
+        check(!dry && deep && !shallow, "edge probe: water 1.5 over the floor ahead blocks, 0.5 does not, none does not");
     }
 
     // ---- M190 Irebolg (build/ai_spec/M190.md) ----

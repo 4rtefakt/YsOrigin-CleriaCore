@@ -266,6 +266,8 @@ struct FnAiWorld : AiWorld {
     std::function<void(Actor&)> remove_fn;
     std::function<Ray(const Vec3&, const Vec3&)> ray_fn;
     std::function<bool(const Vec3&, float)> sphere_fn;
+    std::function<float(const Vec3&, float)> water_under_fn;   // the edge probe's set-1 test (ENEMY_WATER.md W3)
+    float water_under(const Vec3& o, float depth) override { return water_under_fn ? water_under_fn(o, depth) : -1.0e30f; }
     std::function<void(float*)> arena_fn;
     std::function<const float*(int)> raw_fn;
     std::function<void(int, int)> flag_fn;

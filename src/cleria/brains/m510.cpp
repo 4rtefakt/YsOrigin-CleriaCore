@@ -10,9 +10,11 @@
 // +60 deg across its heading (speed 0.06, 0.09 above Normal); above Normal its heading
 // tracks the target at 0.012 rad/tick. Durable in sections 7/8 (the VM's section start
 // clears it again). The jump helper's section-0x13a launch: K 0.1, no horizontal push.
-// [not modelled] water (+0x38a/+0x38b: the flailing, the HP drain and popups — the room
-// collision has no water set); the keep-out box restore (FUN_0042dc90).
+// In deep water (+0x38a, or +0x38b on the entry tick) the WATER branch replaces the whole phase switch in
+// every phase but 0 (M510.md §3.2, 0x488d69..0x489011): it flails and loses a tenth of its max HP on every
+// 30th water tick. [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
+#include <cstring>
 
 #include "cleria/actor.hpp"
 #include "cleria/brains/brains.hpp"
@@ -26,6 +28,37 @@ AiOut m510(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     bool can_atk = true;
     if (e.target_grounded && std::fabs(e.target.y - e.self.y) >= 2.5f) can_atk = false;
     const int d = difficulty(e);
+    if (a.phase() != 0 && (a.in_water || a.entered)) {
+        // WATER. The heading is pulled at the turn rate toward a fresh random direction (uniform on the square
+        // [-1, 1)^2), always-run, an impulse on knock channel 2 of speed x run multiplier x 0.1 along it plus a
+        // lift of 0..0.3, the hit section 4 asked for (gated), and on every 30th consecutive water tick (the
+        // entry tick is 1) HP -= floor(max HP / 10) with a white number. Three raw RNG draws a tick. No death
+        // test here: the handler's dead path takes it next tick. +0x79c is shared with phase 2's counter.
+        auto unit = [](std::uint32_t w) {                          // [1, 2)
+            const std::uint32_t b = (w & 0x7fffffu) | 0x3f800000u;
+            float f; std::memcpy(&f, &b, 4); return f;
+        };
+        a.steer() = 1;
+        a.action() = 0x800;
+        const std::uint32_t w1 = e.rng(), w2 = e.rng();
+        const float u1 = 2.0f * (unit(w1) - 1.0f) - 1.0f, u2 = 2.0f * (unit(w2) - 1.0f) - 1.0f;
+        a.heading = rotate_toward(a.heading, std::atan2(u1, u2), a.f(0x814));
+        const std::uint32_t w3 = e.rng();
+        const float spd = a.f(0x818) * a.f(0x7b0) * 0.1f;
+        if (Actor* W = e.actor) {
+            W->mover.k2.x += float(std::cos(double(a.heading))) * spd;
+            W->mover.k2.y += (unit(w3) - 1.0f) * 0.3f + 0.0f;
+            W->mover.k2.z += float(std::sin(double(a.heading))) * spd;
+        }
+        if (e.section != 4) out.section = 4;
+        const int n = a.entered ? 1 : a.i(0x79c) + 1;
+        a.i(0x79c) = n;
+        if (std::uint32_t(n) % 30u != 0u) return out;
+        const int dmg = int(std::floor(e.max_hp / 10.0f));
+        if (e.actor) e.actor->hp -= float(dmg);
+        out.popup = dmg;
+        return out;
+    }
     if (a.phase() != 0) a.f(0x820) = a.f(0x7b0);                  // restore the run multiplier
     switch (a.phase()) {
         case 0:

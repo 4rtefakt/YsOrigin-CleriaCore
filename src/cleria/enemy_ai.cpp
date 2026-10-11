@@ -45,7 +45,8 @@ void stop(EnemyAi& a, int hold) {
 // probe reaches radius + 0.5 (min 1.0), x1.5 while unaware and again while stopped. A wall
 // at origin height counts only for a non-engaged actor; else a floor must lie within
 // `depth` below the far point (-7.5 with +0x130 & 0x20; min(-(H + 2), -2.5) for jump-capable
-// casts; else -(2 + radius)). [not modelled] the deep-water test (DAT_0076a544 == 1, sel 1).
+// casts; else -(2 + radius)). Then, in a room with a water set (DAT_0076a544 == 1): a set-1 surface under
+// the far point more than 1.0 above that floor is deep water ahead = blocked (MOVEPRIM.md §2.1; W3).
 bool probe_ahead(const EnemyAi& a, const AiEnv& e, const Vec3& P) {
     const Actor* A = e.actor;
     const std::uint32_t f12c = A ? A->flags12c : 0u, f130 = A ? A->flags130 : 0u;
@@ -62,7 +63,10 @@ bool probe_ahead(const EnemyAi& a, const AiEnv& e, const Vec3& P) {
     const Vec3 Q{P.x + L * c, P.y + (L - e.height), P.z + L * s};
     if (e.world) {
         if (e.world->ray(P, D).hit) return a.phase() != 2;
-        return !e.world->ray(Q, {0, depth, 0}).hit;
+        const AiWorld::Ray fl = e.world->ray(Q, {0, depth, 0});
+        if (!fl.hit) return true;
+        const float wy = e.world->water_under(Q, depth);
+        return wy > -1.0e29f && wy > fl.point.y + 1.0f;
     }
     if (e.blocked && e.blocked(P, add(P, D))) return a.phase() != 2;
     if (e.has_floor && !e.has_floor(Q.x, Q.z, Q.y, -depth)) return true;

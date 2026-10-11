@@ -7592,12 +7592,18 @@ title_again:
                 // step for it has a zero displacement and leaves it where the script put it.
                 if (!(a.cast_id == 1 && !a.is_enemy())) {
                     const Vec3 o0{a.pos.x, a.pos.y + a.height, a.pos.z};
-                    float dy = a.flyer ? a.vert.t : vertical_dy(a.vert);
                     const float hitY = floor_at(phys_mesh(room), o0.x, o0.z, o0.y);
                     // Sand2 (MOVER.md §3.1/§3.2, 0x45a63f / 0x45a6fa): in the selector-1 set over a
                     // sand2 floor dy is clamped to [-0.015, 0.03]; on sand2 (+0x4b9) xz x0.25 and a
                     // rising dy x0.25; the settle keeps such an actor grounded above its floor.
                     enemy_surfaces(a);
+                    // ENEMY_WATER.md W2 (§1.3; FUN_0045a510 has no cast test in these rows): submerged (+0x38a) dy
+                    // is clamped to [-0.05, +0.1] (0x45a63f), the timer steps 0.0118 and the landing margin is
+                    // 0.01 (0x45beee, 0x45be61), xz x 0.8 (x 0.9 with blessing bit 1; 0x45a82a..0x45a87d), and on
+                    // lava / blood (+0x4b9 0x0d / 0x11) xz and a rising dy x 0.6 (xz 0.8 blessed; 0x45a8b0).
+                    // [not modelled] the foot gear's x 1 (0x76a624 & 0x1000000), as for the player.
+                    const bool sub = a.ai.in_water;
+                    float dy = a.flyer ? a.vert.t : vertical_dy(a.vert, sub, sub && a.ai.surf_ray == 0x12);
                     if (a.vert.grounded && a.ai.surf != kSurfaceIce) a.mover.ice_tail = 0;   // 0x45d139
                     if (a.vert.grounded && !a.flyer && a.ai.surf_ray == kSurfaceIce && !(a.flags12c & 0x20000000u)) {
                         Vec3 ihit, in_n;                                        // the ice slope slide (0x45b053)
@@ -7609,8 +7615,8 @@ title_again:
                     const bool in_sand = !a.flyer && a.ai.in_water && a.ai.surf_ray == 0x12;
                     if (in_sand) { dy = std::clamp(dy, -0.015f, 0.03f); a.ai.surf = 0x12; }   // +0x4b9 = 0x12
                     float mdx = a.mover.dx, mdz = a.mover.dz;
-                    if (a.ai.surf == 0x12) {      // sand2: 0.25, xz 0.5 with blessing bit 1 (no cast test, 0x45a762)
-                        const SurfaceScale ss = surface_scale(0x12, false, (game.g_flags[217] & 2) != 0);
+                    {   // sand2: 0.25, xz 0.5 with blessing bit 1 (no cast test, 0x45a762); lava / blood; water
+                        const SurfaceScale ss = surface_scale(a.ai.surf, sub, (game.g_flags[217] & 2) != 0);
                         mdx *= ss.xz; mdz *= ss.xz; if (dy > 0.0f) dy *= ss.up;
                     }
                     Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, a.radius);
@@ -7621,7 +7627,7 @@ title_again:
                     } else if (!a.flyer) {
                         a.vert.jumping = a.mover.loco == 3;                  // the coyote keys on +0x3a0
                         const bool was_air = !a.vert.grounded;
-                        settle_vertical(a.vert, o1.y, a.floor_y, a.height);
+                        settle_vertical(a.vert, o1.y, a.floor_y, a.height, sub);
                         // While knocked up (+0x4d0 != 0; LAUNCH_STATE.md §2.1 [EXPORT 0045a510.c:869-883]) the fall is
                         // damped x 0.985 after the timer's step, and a live landing ends the state (a corpse keeps it).
                         if (a.launch != 0) {

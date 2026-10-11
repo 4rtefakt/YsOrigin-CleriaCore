@@ -24,7 +24,9 @@ ASSETS = os.path.join(ROOT, "assets")
 CLEANSE = "5:flag=310,1;6:flag=84,1;10:at=-0.036,8.2,0;20:act;60:ok;80:ok;100:ok;120:ok;140:ok;160:ok"
 
 # S_2015 -> S_2010 by its door, then the swim to the S_2011 door (issue #47).
-_S2010_ENTRY = ("5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;10:exit=1;40:move=0,1,75;120:move=-1,-0.4,75;"
+# (36:killall since ENEMY_WATER.md W1 / W2: in the flooded rooms the monsters are submerged like every actor, the
+# Kelemare's own water launches work, and they now swim up to the swimmer and knock him off these routes.)
+_S2010_ENTRY = ("5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;10:exit=1;36:killall;40:move=0,1,75;120:move=-1,-0.4,75;"
                 "210:every=12,600,jump;400:move=-1,0.3,150;560:move=-0.2,1,600;1240:quit")
 
 CASES = {
@@ -254,11 +256,11 @@ CASES = {
     # player drowns at maxHP/60 a step; holding them (0x76a62c == 0x61) drains 1 (WATER.md §3).
     "drown_no_scales": dict(
         room="S_20/S_2008/S_2008",
-        drive="600:pos;620:pos;700:quit",
+        drive="2:flag=131,1;600:pos;620:pos;700:quit",  # 131 (the brain hold): a Kelemare now swims up and pushes an idle player away (ENEMY_WATER W1 / W2)
         expect=["O2 10 a255 hp 60 sub 1", "O2 0 a255 hp 41 sub 1", "[death] HP 0"]),
     "scales_air": dict(
         room="S_20/S_2008/S_2008",
-        drive="2:held=97;700:pos;710:quit",
+        drive="2:held=97;3:flag=131,1;700:pos;710:quit", # 131: as drown_no_scales
         expect=["O2 5292 a255 hp 60 sub 1"]),
     # ROUTE_F13 D2, the ceiling while swimming (FUN_0045a510's ceiling ray 0x45b219 + the sphere sweep's
     # push-out of an embedded contact). Mashing jump every 4 ticks under S_2010's y 13 slab: the top of
@@ -270,8 +272,8 @@ CASES = {
     # ...and the open shaft still climbs: west to x 0, up the shaft, over to the S_2011 door (y 15.75+).
     "swim_up_s2011": dict(
         room="S_20/S_2010/S_2010",
-        drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;20:move=-1,-0.4,75;110:every=12,500,jump;"
-              "300:move=-1,0.3,150;460:move=-0.2,1,600;1100:quit",
+        drive="5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;8:killall;20:move=-1,-0.4,75;110:every=12,500,jump;"
+              "300:move=-1,0.3,150;460:move=-0.2,1,600;1100:quit",   # killall: as _S2010_ENTRY
         expect=[">> entering S_2011"]),
     # Issue #47 (ROUTE_F13_HUGO HD2): S_2010 swum from its real entry, the S_2015 door's arrival (8, -2, -2)
     # on the stairs, for Yunica and Hugo: up the stairs to the landing, west to the open column at x ~0
@@ -1010,7 +1012,10 @@ CASES.update({
         room="S_40/S_4004/S_4004", env=_F4,
         drive="7:opt=InfiniteOxygen=1;8:opt=OneHitKill=1;9:opt=DamageTaken=0;20:at3=4.6,-1,12,90;100:every=12,300,near=#60;"
               "101:every=12,300,atk;350:stats;800:stats;801:quit",
-        expect=["[revive] #186 cast 60 hp 261 phase 1 7a0 0 gnd 1 t 0.000 y -4.00", "defeated 1", "stats exp 3 lv 1",
+        # "stats exp 2" (was 3) since ENEMY_WATER.md W1: the sand probe starts 0.25 + 0.7 under the feet for every actor
+        # [EXPORT 0045c490.c:137-141] (the enemies' was 0.7), so the Karons count as in the sand sooner and wade slower:
+        # one bystander fewer walks into the swings. The kill of #60 and its revival are as before.
+        expect=["[revive] #186 cast 60 hp 261 phase 1 7a0 0 gnd 1 t 0.000 y -4.00", "defeated 1", "stats exp 2 lv 1",
                 "cast 60 revived as #207 (section 10)"]),
     # M570 Zarue summons its hands (M410) next to the player in S_4006; they appear and are removed.
     "zarue_summon": dict(
@@ -2495,6 +2500,23 @@ CASES.update({
         room="S_50/S_5013/S_5013", char="3", env=_LOCK,
         drive="3:diff=1;5:opt=InfiniteHP=1;30:at3=-41,0,42,270;40:move=-1,0,120;60:pos;150:pos;160:quit",
         expect=["feet (-43.333, -1.989, 42.000)"], count={"feet (-43.333, -1.989, 42.000)": 2}),
+    # ENEMY_WATER.md W1 / W2: in a flooded room (mode 2: S_2010) every actor is submerged, and the integrator slows
+    # its xz step x 0.8 with no cast test [BYTES 0x45a82a..0x45a87d]. The Kelemare wandering +z at its 0.0366 a tick
+    # is at z 5.5 at t20 and 8.5 at t120: 3.0 in 100 ticks (it was 5.7 -> 9.3, 3.6, at land speed).
+    "kelemare_flooded": dict(
+        room="S_20/S_2010/S_2010", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;6:opt=InfiniteOxygen=1;20:actors;120:actors;121:quit",
+        expect=["t20 actors", "id 25 cast 25 enemy hp 125 g1 0 pos (-2.3,0.0,5.5)", "t120 actors",
+                "id 25 cast 25 enemy hp 125 g1 0 pos (-2.3,0.0,8.5)"]),
+    # ENEMY_WATER.md W4 (M510.md §3.2): a Mobre cannot swim. Put in S_2003's pool (surface 6.28 over a floor at 5.0:
+    # submerged) with the player in sight on the bank, it flails (section 4) and loses floor(139 / 10) = 13 HP on every
+    # 30th water tick, with the white number: 139 -> 126 by t55, 113 by t85.
+    "mobre_pool": dict(
+        room="S_20/S_2003/S_2003", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;19:at3=-12,8,36.33,270;20:epos=#55,-20,36.33;21:actors;55:actors;"
+              "85:actors;90:quit",
+        expect=["id 55 cast 55 enemy hp 139", "[popup] 13 ffffff", "t55 actors", "id 55 cast 55 enemy hp 126",
+                "[popup] 13 ffffff", "t85 actors", "id 55 cast 55 enemy hp 113"]),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:

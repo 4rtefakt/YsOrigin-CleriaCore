@@ -62,6 +62,13 @@
                     world.request_destroy(a);
                     a.ai.hittable = false; a.hp = 0; a.visible = false;
                 };
+                // The edge probe's deep-water test (ENEMY_WATER.md W3): mode 1 only; the set-1 surface between
+                // the far point and `depth` below it. [approx] by the up-ray from the segment's lower end.
+                aiw.water_under_fn = [&](const Vec3& o, float depth) {
+                    if (water_mode == 2 || !phys_mesh(room).has_water()) return -1.0e30f;
+                    const float s = water_above(phys_mesh(room), o.x, o.y + depth, o.z, -depth);
+                    return s > kNoFloor ? s : -1.0e30f;
+                };
                 aiw.ray_fn = [&](const Vec3& o, const Vec3& dl) {
                     AiWorld::Ray r;
                     r.hit = segment_hit(phys_mesh(room), o, {o.x + dl.x, o.y + dl.y, o.z + dl.z}, &r.point, &r.normal);
@@ -306,6 +313,7 @@
                         blood_at("slime", sp.count, sp.argb, sp.delay_step, sp.life_range, sp.size0, sp.size1, sp.pos,
                                  sp.radius, sp.flag_a, sp.flag_b);
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
+                    if (o.popup >= 0) damage_popup(o.popup, 0xffffff, {en->pos.x, en->pos.y + en->height, en->pos.z});   // FUN_004fae00
                     if (o.zoom_s || o.zoom_r) zoom_blur(o.zoom_s.value_or(zb.s), o.zoom_r.value_or(zb.r));   // ZoomBlur
                     if (o.zoom_centre) zoom_centre(*o.zoom_centre);                                         // FUN_005e0590
                     // M470's hold (0x48ce69): the player's origin at the mouth, +0x330 = 0, +0x398 = 1 until a brain

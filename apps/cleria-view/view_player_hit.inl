@@ -242,7 +242,8 @@
                         // FUN_00478510's death path, after the drops (0x479348..0x479390; reached by the casts that
                         // skip the drops too): three blood splats at the origin (18 draws) when the cast has a colour.
                         if (const Enemy* br = etab.get(en.cast_id);
-                            br && br->blood != 0 && !(en.flags12c & 0x80000000u) && settings().s.game.bloody_effect_level > 0)
+                            br && br->blood != 0 && !(en.flags12c & 0x80000000u) && settings().s.game.bloody_effect_level > 0 &&
+                            !en.ai.in_water)                 // not while +0x38a [EXPORT 00478510.c:747-759]
                             blood_at("death", 3, br->blood | 0xff000000u, 2, 0x18, 1.3f, 1.8f,
                                      {en.pos.x, en.pos.y + en.height, en.pos.z}, 0.65f, false, false);
                         // The death section's GenerateDebris (spawn_debris). M360's corpse and a familiar run their

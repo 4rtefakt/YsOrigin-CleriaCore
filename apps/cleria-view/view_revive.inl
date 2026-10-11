@@ -7,6 +7,11 @@
 // = the "water" set above — the sand top in S_40). The probe starts 0.25 under the feet, 0.7 on
 // sand2 (the player's 0x6bd244 and its sand2 variant), and counts as in it past a depth of 1.1
 // (0x6bd464), as the player's water test.
+// ENEMY_WATER.md W1 (src/cleria/water.hpp): the whole test — a flooded room (mode 2) is "submerged" with no
+// ray, the wading and entered bytes, the timer's cap at 0.1 on a change of +0x38a, and no probe at all for a
+// cast with +0x12c & 0x8000 (M590, M910..M960, M270). [approx] for those the bytes should keep what the
+// placement FUN_00459ff0 found; the port has no placement probe, so they stay dry in a mode-1 room.
+// [not modelled] the splash 0x49, the bubbles, the ripples, the half tint (W5).
 auto enemy_surfaces = [&](Actor& a) {
     const RoomMesh& pm = phys_mesh(room);
     const float oy = a.pos.y + a.height;
@@ -16,12 +21,14 @@ auto enemy_surfaces = [&](Actor& a) {
         a.ai.surf_ray = surface_index_or_default(surface_of(pm, tri));
         if (oy - fl < 1.6f) a.ai.surf = a.ai.surf_ray;
     }
-    a.ai.in_water = false;
-    if (pm.has_water()) {
-        const float o0 = a.pos.y - (a.ai.surf_ray == 0x12 ? 0.7f : 0.25f);
-        const float s = water_above(pm, a.pos.x, o0, a.pos.z);
-        if (s > kNoFloor) { a.ai.water_y = s; a.ai.in_water = s - o0 > 1.1f; }
-    }
+    WaterBytes wb;
+    wb.wading = a.ai.wading; wb.submerged = a.ai.in_water; wb.surface = a.ai.water_y;
+    const int mode = water_mode == 2 ? 2 : pm.has_water() ? 1 : 0;
+    const bool skip = (a.flags12c & 0x8000u) != 0;
+    const float o0 = a.pos.y - kWaterProbeDrop - (a.ai.surf_ray == 0x12 ? kWaterProbeSand : 0.0f);   // [EXPORT 0045c490.c:137-141] (0.7 alone until 2026-10-11)
+    const float s = mode == 1 && !skip ? water_above(pm, a.pos.x, o0, a.pos.z) : kNoFloor;
+    water_test(wb, a.vert, mode, skip, s > kNoFloor, s, o0);
+    a.ai.wading = wb.wading; a.ai.in_water = wb.submerged; a.ai.entered = wb.entered; a.ai.water_y = wb.surface;
 };
 // The world facts the family's handlers read.
 auto revive_world = [&]() {

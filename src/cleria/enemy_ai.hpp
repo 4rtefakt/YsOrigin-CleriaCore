@@ -96,6 +96,7 @@ struct EnemyAi {
     int surf = 1, surf_ray = 1;
     float water_y = -1.0e30f;
     bool in_water = false;
+    bool wading = false, entered = false;   // +0x389, +0x38b (water.hpp; ENEMY_WATER.md §1.2)
     float exp_base = -1;   // the revive family's spawn EXP (+0xb0), restored under Silver Chimes
 };
 
@@ -118,6 +119,10 @@ struct AiWorld {
     struct Ray { bool hit = false; Vec3 point{}, normal{}; int surface = -1; };
     virtual Ray ray(const Vec3& origin, const Vec3& delta) = 0;   // FUN_005e9380 + FUN_0041e420
     virtual bool sphere_hits(const Vec3& centre, float radius) = 0;  // FUN_005e92b0 + FUN_0041ea80
+    // The edge probe's set-1 ("water") test (FUN_00477450's tail: [0x76a544] == 1, then FUN_0041f130 down
+    // `depth` < 0 from `origin`): the surface's y, or a value below -1e29 when the room is not in mode 1 or
+    // the ray finds none.
+    virtual float water_under(const Vec3& /*origin*/, float /*depth*/) { return -1.0e30f; }
     // DAT_0076a5cc..d8 = {xmin, zmin, xmax, zmax}: the arena rectangle.
     virtual void arena(float rect[4]) = 0;
     // ENEMYINFO +0x90..+0xcc (16 floats) for a cast, or nullptr.
@@ -335,6 +340,8 @@ struct AiOut {
     // handlers' script-puppet path (g_flags[130] == 0 -> FUN_0045f250) and their g_flags[131]
     // freeze (FUN_0045f470 only).
     bool skip_action_player = false;
+    // FUN_004fae00(value, origin, 0xffffffff): a white number at the actor's origin + 0.5 (M510's water drain).
+    int popup = -1;
     // The handler took its g_flags[131] branch: FUN_0045f470, the mover with the moving byte +0x514 = 0, in place
     // of the brain, the action player and FUN_00478080 [EXPORT 0047b7f0.c:73-117; 0045f470.c]. The host runs its
     // mover as stopped; +0x6f8 (mode) and the rest of the brain's state are left as they are.

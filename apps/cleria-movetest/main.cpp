@@ -8,6 +8,7 @@
 #include "cleria/ledge.hpp"
 #include "cleria/oxygen.hpp"
 #include "cleria/physics_player.hpp"
+#include "cleria/water.hpp"
 #include "cleria/rider.hpp"
 
 using namespace cleria;
@@ -347,6 +348,39 @@ int main() {
                     climb(0.65f, 0.157f), climb(0.70f, 0.157f), climb(0.75f, 0.157f), climb(0.80f, 0.157f), climb(0.75f, 0.191f));
         check(climb(0.65f, 0.157f) > 0 && climb(0.65f, 0.157f) < 20 && climb(0.70f, 0.157f) > 0 && climb(0.80f, 0.157f) == 0 &&
               climb(1.0f, 0.157f) == 0, "kerb: 0.65 and 0.70 are ridden over at a run, 0.80 and 1.0 never");
+    }
+    {   // ENEMY_WATER.md W1: the generic water test FUN_0045c490 (water.hpp), W2: its use by the integrator.
+        auto at = [](float depth) { WaterBytes w; VerticalState v; water_test(w, v, 1, false, true, depth, 0.0f); return w; };
+        check(!at(0.3f).wading && !at(0.3f).submerged && at(0.5f).wading && !at(0.5f).submerged &&
+              at(1.2f).wading && at(1.2f).submerged && !at(2.5f).wading && at(2.5f).submerged,
+              "water: depth 0.3 / 0.5 / 1.2 / 2.5 -> (wading, submerged) = (0,0) / (1,0) / (1,1) / (0,1)");
+        WaterBytes w; VerticalState v; v.t = 0.4f;
+        bool splash = water_test(w, v, 1, false, true, 1.5f, 0.0f);
+        check(splash && w.entered && w.submerged && near(v.t, 0.1f) && near(w.surface, 1.5f),
+              "water: an entry sets `entered` for the tick, caps the timer at 0.1, keeps the surface");
+        splash = water_test(w, v, 1, false, true, 1.5f, 0.0f);
+        check(!splash && !w.entered && w.submerged, "water: the next tick clears `entered`, no splash");
+        v.t = 0.3f;
+        splash = water_test(w, v, 1, false, true, 0.2f, 0.0f);
+        check(splash && !w.submerged && !w.wading && !w.entered && near(v.t, 0.1f), "water: an exit caps the timer too, and splashes");
+        WaterBytes m; VerticalState mv; mv.t = 0.4f;
+        check(!water_test(m, mv, 2, false, false, 0.0f, 0.0f) && m.submerged && !m.wading && !m.entered && near(mv.t, 0.4f),
+              "water: mode 2 forces (0, 1) with no ray, no cap, no splash");
+        WaterBytes k; k.submerged = true;
+        water_test(k, mv, 1, true, true, 0.1f, 0.0f);
+        const bool kept = k.submerged;
+        water_test(k, mv, 0, true, false, 0.0f, 0.0f);
+        check(kept && !k.submerged, "water: +0x12c & 0x8000 leaves the bytes in mode 1; mode 0 clears them");
+        VerticalState f; f.grounded = false; f.t = -0.4f;
+        float y = 10.0f;
+        const float dyw = vertical_dy(f, true), dys = vertical_dy(f, true, true), t0 = f.t;
+        settle_vertical(f, y, 0.0f, 1.0f, true);
+        check(near(dyw, -0.05f) && near(dys, -0.015f) && near(t0 - f.t, 0.0118f),
+              "water: a fall is clamped to -0.05 (-0.015 over sand2), the timer steps 0.0118");
+        check(near(surface_scale(1, true).xz, 0.8f) && near(surface_scale(1, true, true).xz, 0.9f) &&
+              near(surface_scale(1, true, false, true).xz, 1.0f) && near(surface_scale(0x11, false).xz, 0.6f) &&
+              near(surface_scale(0x0d, false, true).xz, 0.8f) && near(surface_scale(0x0d, false).up, 0.6f),
+              "water: xz x 0.8, x 0.9 blessed, x 1 with the foot gear; lava / blood x 0.6 (0.8 blessed), rise x 0.6");
     }
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
