@@ -13,7 +13,7 @@ static int g_drive_esc_hold = 0;               // CLERIA_DRIVE `eschold=N`: tick
 static int g_drive_cxl_hold = 0;               // CLERIA_DRIVE `cxlhold=N`: ticks of the Cancel binding (slot 1)
 
 static access::Settings& acc() { return settings().s.access; }
-static access::SkipMode skip_mode() { return access::SkipMode(std::clamp(acc().cutscene_skip, 0, 3)); }
+static access::SkipMode skip_mode() { return access::SkipMode(std::clamp(acc().cutscene_skip, 0, 4)); }
 
 // One logic tick, before the mapper step: the drive's held Esc, and the assists that live in
 // engine objects (the camera rig's shake scale).
@@ -33,7 +33,7 @@ static bool access_skip_step(bool pressed, bool held) {
     const access::SkipMode m = skip_mode();
     const access::SkipGate before = g_skip_gate;
     const bool skip = g_skip_gate.step(m, pressed, held);
-    static const char* const kName[] = {"single", "double", "hold", "off"};
+    static const char* const kName[] = {"single", "double", "hold", "off", "always"};
     if (skip) {
         std::printf("  [access] cutscene skip (%s)\n", kName[int(m)]);
         cleria::speedrun::note_modification("Cutscene skipped");   // retail has no skip (ACCESS.md §1)
@@ -110,7 +110,7 @@ static bool access_rate(ui::List& L, const char* label, float* v, std::initializ
 
 static void access_gameplay_page(ui::List& L, const std::function<void()>& persist) {
     access::Settings& a = acc();
-    static const char* kSkip[] = {"Single press", "Double press", "Hold", "Off"};
+    static const char* kSkip[] = {"Single press", "Double press", "Hold", "Off", "Always"};
     static const char* kSkipDesc[] = {
         "How the Camp Menu button (Esc, or your gamepad's menu button) skips a cutscene or a movie.\n\n"
         "Single press: one press skips the whole cutscene. The original game has no cutscene skip; "
@@ -124,10 +124,14 @@ static void access_gameplay_page(ui::List& L, const std::function<void()>& persi
         "How the Camp Menu button (Esc, or your gamepad's menu button) skips a cutscene or a movie.\n\n"
         "Off: cutscenes cannot be skipped, as in the original game (movies follow the Prelaunch "
         "\"Unlock movie skipping\" setting).",
+        "How the Camp Menu button (Esc, or your gamepad's menu button) skips a cutscene or a movie.\n\n"
+        "Always: no press at all. Every cutscene, conversation and movie skips by itself as it starts; "
+        "a menu that asks you something (Save, Yes / No, a shop) still waits for your answer. For the "
+        "2348th playthrough. Not a retail option.",
     };
     ui::section(L, "Cutscenes");
-    int sk = std::clamp(a.cutscene_skip, 0, 3);
-    if (ui::choice(L, "Cutscene skip", &sk, kSkip, 4, kSkipDesc[sk])) {
+    int sk = std::clamp(a.cutscene_skip, 0, 4);
+    if (ui::choice(L, "Cutscene skip", &sk, kSkip, 5, kSkipDesc[sk])) {
         a.cutscene_skip = sk;
         g_skip_gate.reset();
         persist();

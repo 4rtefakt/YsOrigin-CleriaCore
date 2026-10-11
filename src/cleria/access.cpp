@@ -26,7 +26,7 @@ struct Key {
     float lo, hi;
 };
 const Key kKeys[] = {
-    {kAccess, "CutsceneSkip", nullptr, nullptr, &Settings::cutscene_skip, 0, 3},
+    {kAccess, "CutsceneSkip", nullptr, nullptr, &Settings::cutscene_skip, 0, 4},
     {kAccess, "TextSpeed", nullptr, nullptr, &Settings::text_speed, 0, 2},
     {kAccess, "ReduceFlashes", &Settings::reduce_flashes, nullptr, nullptr, 0, 1},
     {kAccess, "ScreenShake", nullptr, &Settings::shake, nullptr, 0.0f, 1.0f},
@@ -113,6 +113,9 @@ bool SkipGate::step(SkipMode m, bool pressed, bool held) {
         case SkipMode::Off:
             reset();
             return false;
+        case SkipMode::Always:
+            reset();
+            return true;
         case SkipMode::Double:
             if (pressed && window > 0) { reset(); return true; }
             if (pressed) window = kDoubleWindow;

@@ -2415,6 +2415,27 @@ CASES.update({
         room="S_10/S_1002/S_1002", char="3", env=_LOCK,
         drive=_GODSPEED + "34:move=1,0,8;40:pos;41:jump;50:skill+;52:skill-;120:pos;140:quit",
         expect=["feet (20.942, -4.098, -37.000)", "feet (27.820, -4.098, -37.000)"]),
+    # ACCESS.md §1.3, CutsceneSkip = 4 "Always" (CleriaCore's own, not retail): no press. The statue cleanse of
+    # access_skip_double is skipped on the tick its Fix is taken, through the pressed skip's own path: flags,
+    # position, scripts, actors and stats at t85 equal a pressed skip's (checked: the two logs' tails are equal).
+    "access_skip_always": dict(
+        room="S_10/S_1009/S_1009",
+        drive="5:flag=310,1;6:flag=84,1;8:opt=CutsceneSkip=4;10:at=-0.036,8.2,0;20:act;25:scripts;26:pos;90:quit",
+        expect=["[access] cutscene skip (always)", "t25 scripts", "frozen 0 fix 0/0", "feet (-0.036, 2.000, 8.200)"],
+        count={"[access] cutscene skip (always)": 1}),
+    # ... and it stops at a script menu: the blessing shop's list stays up for its answer (no skip is logged).
+    "access_skip_always_menu": dict(
+        room="S_10/S_1004/S_1004", env=_LOCK,
+        drive="8:opt=CutsceneSkip=4;20:run=@growmenu;60:scripts;100:quit",
+        expect=["slot 0 taken: 1/0", "t60 scripts", "frozen 1 fix 1/0", "script @growmenu pc 1165"],
+        absent=["cutscene skip"]),
+    # ... and the opening with no input at all: the three movies and every scene of the chain skip by themselves.
+    "opening_skip_always": dict(
+        room="S_00/S_0000/S_0000", env=dict(CLERIA_MOVIE="1"),
+        drive="1:opt=CutsceneSkip=4;40:every=50,1600,killall;1600:scripts;1601:quit",
+        expect=["demo1 skipped", "demo2 skipped", ">> entering S_0002", "cutscene skip (always)", "demo3 skipped",
+                ">> entering S_1000", "cutscene skip (always)", "t1600 scripts", "frozen 0 fix 0/0", "script s_Stop1000_03"],
+        absent=["script battle_", "script BattleStart1", "script Prologue_Event", "ended at"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

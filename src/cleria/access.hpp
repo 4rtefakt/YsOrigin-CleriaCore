@@ -23,6 +23,7 @@ enum class SkipMode : int {
     Double = 1,   // the first press shows "Press again to skip"; a second within the window skips
     Hold = 2,     // hold the button for kHoldTicks
     Off = 3,      // never (retail: no cutscene skip exists)
+    Always = 4,   // no press: every cutscene and movie skips as it starts ([H] CleriaCore's own, 2026-10-11)
 };
 // The message box's typewriter (WndText / WndDialog reveal rate, WNDDIALOG_DRAW.md §2.4).
 enum class TextSpeed : int {

@@ -2571,10 +2571,16 @@ title_again:
         // clears not just Wait_Prompt but Wait_Script / Wait_Window / Wait_Sound /
         // Wait_Fader too, which a plain Wait_Time collapse can't. Set by the skip loop.
         bool skipping = false;
+        // The Cutscene skip's "Always" (CleriaCore's own): a skip nobody pressed stops at a script menu, so a
+        // choice (the statue's Save, a Yes / No, a shop list) is still the player's.
+        bool skip_keeps_menus = false;
+        // ... and one that ended with the Fix still held and no menu up is not tried again under that Fix.
+        bool skip_stuck = false;
+        bool menu_up() const { return wdlg.alive() && wdlg.is_menu(); }
         // FUN_005741b0: arm the slot's window and return its "accepted"; with no window,
         // proceed on a Confirm press.
         bool wait_prompt() override {
-            if (skipping) return true;
+            if (skipping && !(skip_keeps_menus && last_win == 2 && menu_up())) return true;
             if (last_win == 2 && wdlg.alive()) { wdlg.arm(); return wdlg.accepted(); }
             if (last_win == 1 && wtext.alive()) { wtext.arm(); return wtext.accepted(); }
             if (advance) { advance = false; return true; }
@@ -3296,6 +3302,7 @@ title_again:
         // (all Fixes released) or a bounded budget is hit. Side effects (flags, spawns,
         // warps, Eft/Scroll) still run in order — only the waiting is removed. Bounded
         // so a script that legitimately never ends (a persistent controller) can't hang.
+        if (!csMgr.world_frozen()) csHost.skip_stuck = false;
         if (skip_cutscene) {
             csHost.skipping = true;                // every wait predicate reports "done"
             for (int guard = 0; guard < 20000 && csMgr.world_frozen(); ++guard) {
@@ -3308,8 +3315,11 @@ title_again:
                 csHost.advance_player_move();
                 world.advance_cutscene_moves();
                 world.tick_facing([](const Actor&) { return false; });
+                if (csHost.skip_keeps_menus && csHost.menu_up()) break;   // "Always": the menu waits for its answer
             }
             csHost.skipping = false;
+            csHost.skip_stuck = csHost.skip_keeps_menus && csMgr.world_frozen() && !csHost.menu_up();
+            csHost.skip_keeps_menus = false;
             csHost.advance = false;
             csHost.fade_cur = csHost.fade_tgt;   // land the fade at its end state
             skip_cutscene = false;
@@ -6189,8 +6199,11 @@ title_again:
                 // 0x75ad90 + 0x75ad94 is non-zero (build/shell_re/ACCESS.md §1).
                 const bool menu = csHost.wdlg.alive() && csHost.wdlg.is_menu();
                 // The shell's Cutscene skip mode (single / double / hold / off: view_access.inl).
-                const bool skip_now = !menu && access_skip_step((inf.pressed & input::kMenu) != 0,
-                                                                (inf.held & input::kMenu) != 0);
+                // ("Always" skips with no press, through the same gate; not again under a Fix its skip could not end.)
+                const bool auto_skip = skip_mode() == access::SkipMode::Always;
+                const bool skip_now = !menu && !(auto_skip && csHost.skip_stuck) &&
+                                      access_skip_step((inf.pressed & input::kMenu) != 0, (inf.held & input::kMenu) != 0);
+                if (skip_now) csHost.skip_keeps_menus = auto_skip;
                 if (menu) g_skip_gate.reset();
                 if (inf.pressed & (menu ? input::kOk : input::kOk | input::kClick)) csHost.advance = true;
                 else if (menu && (inf.pressed & (input::kCancel | input::kMenu))) csHost.wnd_cancel = true;

@@ -51,6 +51,8 @@ int main() {
         check(g.step(SkipMode::Single, true, true) && !g.step(SkipMode::Single, false, true),
               "Single: the press edge skips at once (CleriaCore's skip)");
         g.reset();
+        check(g.step(SkipMode::Always, false, false) && g.step(SkipMode::Always, false, false) &&
+              g.prompt(SkipMode::Always) == SkipGate::Prompt::None, "Always: skips with no press, every tick, no prompt");
         check(!g.step(SkipMode::Off, true, true) && g.prompt(SkipMode::Off) == SkipGate::Prompt::None,
               "Off: a press never skips (retail), no prompt");
         g.reset();
@@ -143,7 +145,7 @@ int main() {
         Settings u;
         read_cleria(bad, u);
         check(u.access.exp_rate == access::kRateMax && u.access.damage_taken == 0 &&
-                  u.access.game_speed == access::kSpeedMin && u.access.cutscene_skip == 3,
+                  u.access.game_speed == access::kSpeedMin && u.access.cutscene_skip == 4,
               "out-of-range values clamp to the offered ranges");
         Settings d;
         Ini none;
