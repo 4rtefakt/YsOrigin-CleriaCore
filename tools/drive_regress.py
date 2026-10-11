@@ -2400,8 +2400,17 @@ CASES.update({
         expect=["[video] caustics room 1 off 0 frame 4 scroll 0.0045 0.00135",
                 "[video] caustics room 0 off 1 frame 9 scroll 0.0095 0.00285",
                 "[video] caustics room 1 off 0 frame 14 scroll 0.0145 0.00435"]),
+    # Video: the water surfaces (REFLECTIONS.md 5). Reflections High draws them through a full-size grab of the
+    # frame, Low through a half-size one, Off as the plain sheet; a room without water takes no grab.
+    "water_levels": dict(
+        room="S_20/S_2000/S_2000",
+        drive="10:vstat;11:vopt=WaterEffectLevel=1;20:vstat;21:vopt=WaterEffectLevel=0;30:vstat;"
+              "31:vopt=WaterEffectLevel=2;40:vstat;41:quit",
+        expect=["[video] water level 2 surfaces 1 grab 1280x800", "[video] water level 1 surfaces 1 grab 640x400",
+                "[video] water level 0 surfaces 0 grab 0x0"]),
     "caustics_dry_room": dict(
-        room="S_10/S_1009/S_1009", drive="10:vstat;11:quit", expect=["[video] caustics room 0 off 0"]),
+        room="S_10/S_1009/S_1009", drive="10:vstat;11:quit",
+        expect=["[video] caustics room 0 off 0", "[video] water level 2 surfaces 0 grab 0x0"]),
 })
 
 CASES.update(aplua_regress.CASES)

@@ -264,8 +264,8 @@ happens only when it changes one of the two options.
 ## 11. Open (the checklist on issue #85)
 
 - Language: the exe-embedded strings / tables per language; Japanese; a check with a real `data_sp/fr/de/it`.
-- Options whose feature CleriaCore does not have yet (no switch until it does): Shadows (#86), Reflections
-  (#9, #12), Other Simplification (#88), Increase Text Resolution off (#89).
+- Options whose feature CleriaCore does not have yet (no switch until it does): Shadows (#86), the true reflection
+  and the mirror floor (#9), Other Simplification (#88), Increase Text Resolution off (#89).
 - Stretch Widescreen for the 2D layers (VIDEO.md §2.3).
 
 Provenance of §6 and §12..§18: read from the export and the bytes on 2026-10-11 by two research passes. Re-read
@@ -295,9 +295,9 @@ matrix per frame [EXPORT 005dfea0.c:37-45]: θ = phase `0x7b2e54` × 0.2, M00 = 
 0.01 g(θ) ([H] which of f / g is sin). Vertex constants [EXPORT 005f92b0.c:346-355]: c23.x = the phase (+0.02 an
 update), c23.z = 0.075, c23.w = 0.08, c22.w = 0.85.
 
-**Not a complete spec** (so nothing is built): the oblique projection column of the reflected camera, the
-sin / cos order of the bump matrix, which materials carry `0x200000` / `0x400000`, the boss mirror branch at
-`0x5634da`. CleriaCore has none of the passes.
+Superseded by `build/render_re/REFLECTIONS.md` (2026-10-11), which completes and corrects this section. Built from
+it: the water2 surfaces (the frame grab, the du/dv refraction) and the Reflections row; the S_2005 reflection pass
+and the mirror floor are not.
 
 ## 13. Water caustics [EXPORT / BYTES] (issue #87)
 

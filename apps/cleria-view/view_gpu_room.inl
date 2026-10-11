@@ -53,6 +53,10 @@ struct Gpu : WorldPipes {
     WGPUBuffer ubuf_cvr[3]{};
     WGPUBindGroup ubind_cvr[3]{};
     WGPUTexture caustic_tex{};      // the caustic frame (0x74e244 / 0x7b2f6c), 128 x 128
+    // The water surfaces' draw (g_water; view_video.inl's video_water_grab makes them): the constants with the
+    // frame grab as group 0, the du/dv map as group 1.
+    WGPUBuffer ubuf_water{};
+    WGPUBindGroup ubind_water{}, dudv_bind{};
     WGPUSampler sampler{};
     WGPUSampler sampler_mip{};    // "Smooth distant textures": the world sampler over the mip chain
     WGPUSampler sampler_point{};  // "Character sprites: Crisp": nearest
@@ -380,6 +384,20 @@ static void caustic_upload(Gpu& g) {
     WGPUExtent3D ext = {128, 128, 1};
     wgpuQueueWriteTexture(g.queue, &dst, px, sizeof px, &layout, &ext);
 }
+
+// ---- the water surfaces (build/render_re/REFLECTIONS.md 5) -----------------------------------------
+// [graphics] WaterEffectLevel (0x765199) != 0: a material with flag 0x400000 (water2) draws opaque through the
+// du/dv map and the frame grabbed before the water layer (pool surface 1), instead of its own texture.
+// [not modelled] flag 0x200000's reflection (S_2005 is the one shipped room): it is drawn as water2 here.
+struct Water {
+    fs::path dudv;                 // data\image\water_dudv_256.dds
+    float phase = 0;               // 0x7b2e54: + 0.02 a step [BYTES 0x4280cf..0x4280df]
+    bool want = false;             // this frame's room has such a material and the level is != 0
+    bool on = false;               // this frame's grab is taken (video_water_grab): draw() takes the water path
+    float tint[4] = {0, 0, 0, 1};  // the material's diffuse (TEXTUREFACTOR [BYTES 0x5fa07f..0x5fa082])
+};
+static Water g_water;
+static bool water_material(const DrawBatch& b) { return (b.mat_flags & 0x600000u) != 0 && (b.mat_flags & 0x40u) != 0; }
 
 static int material_blend_mode(const DrawBatch& b, float a) {
     // Variant 2 (the caustic alone) sets the mode to 2 whatever the material says [EXPORT 005f92b0.c:274-284].
@@ -1224,6 +1242,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
             ube[0].buffer = g.ubuf_cvr[i];
             g.ubind_cvr[i] = wgpuDeviceCreateBindGroup(g.device, &ubd);
         }
+        g.ubuf_water = wgpuDeviceCreateBuffer(g.device, &ud);
         g.tex_layout = bgl_t;
         g.u_layout = bgl_u;
     }
@@ -1319,6 +1338,13 @@ static void write_mvp(Gpu& g, const Mat4& mvp) {
         u[30] = float(i + 1);
         wgpuQueueWriteBuffer(g.queue, g.ubuf_cvr[i], 0, u, sizeof(u));
     }
+    // The water's: the diffuse in the light's place, the bump matrix and the phase in the caustic's
+    // (main.cpp's water()). theta = phase x 0.2, M00 = M11 = 0.01 cos, M10 = -M01 = 0.01 sin [BYTES 0x5dfea9..0x5dff46].
+    // [approx] retail adds the frame's interpolation factor (0..1) to the phase before the x 0.2.
+    std::memcpy(&u[16], g_water.tint, 16);
+    u[28] = 0.01f * std::cos(g_water.phase * 0.2f); u[29] = 0.01f * std::sin(g_water.phase * 0.2f);
+    u[30] = 4.0f; u[31] = g_water.phase;
+    wgpuQueueWriteBuffer(g.queue, g.ubuf_water, 0, u, sizeof(u));
 }
 
 // Advance every scrolling material by `ticks` and rewrite its vertices' UVs.
@@ -1388,14 +1414,16 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
             if (part != 0 && room_late_layer(b) != (part == 2)) continue;
             const float ka = bi < room.batch_alpha.size() ? room.batch_alpha[bi] : 1.0f;   // the object's alpha
             if (ka <= 0.0f) continue;                       // FUN_005faca0: nothing at a = 0
-            const int mode = material_blend_mode(b, b.mat_alpha * ka);
+            // The water path (g_water): variants 8 / 9 force the mode to 0, the alpha to 1 [BYTES 0x5fa097..0x5fa0ca].
+            const bool wat = part == 2 && g_water.on && water_material(b);
+            const int mode = wat ? 0 : material_blend_mode(b, b.mat_alpha * ka);
             if ((mode != 0) != (blended != 0)) continue;
             const int cv = caustic_stage(b, cvr_room);
-            if (WGPUBindGroup ub = cv ? g.ubind_cvr[cv - 1] : g.ubind; ub != ub_now)
+            if (WGPUBindGroup ub = wat ? g.ubind_water : cv ? g.ubind_cvr[cv - 1] : g.ubind; ub != ub_now)
                 wgpuRenderPassEncoderSetBindGroup(pass, 0, ub_now = ub, 0, nullptr);
             // A resolved (or failed-load) texture is in room.binds; a genuinely untextured
             // material (index -1) renders its dark diffuse via black_bind, not white.
-            WGPUBindGroup tb = (b.texture >= 0 && b.texture < int(room.binds.size()))
+            WGPUBindGroup tb = wat ? g.dudv_bind : (b.texture >= 0 && b.texture < int(room.binds.size()))
                                    ? room.binds[b.texture] : g.black_bind;
             wgpuRenderPassEncoderSetBindGroup(pass, 1, tb, 0, nullptr);
             // The depth pre-pass, right before the subset's own draw (FUN_005fb0e0 0x5fb45a).
@@ -1406,7 +1434,7 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
                 wgpuRenderPassEncoderSetPipeline(pass, cull ? g.cull_zpre_pipe : g.zpre_pipe);
                 wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
             }
-            const int glare = g.glare_pipe ? int(float(b.alpha_ref) * b.mat_alpha * ka) : 0;   // g (a >= 1 here)
+            const int glare = g.glare_pipe && !wat ? int(float(b.alpha_ref) * b.mat_alpha * ka) : 0;   // g (a >= 1 here)
             if (blended)
                 wgpuRenderPassEncoderSetPipeline(pass, (cull ? g.cull_mat_pipe : g.mat_pipe)[mode][material_zwrite(b) ? 1 : 0]);
             else if (glare >= 1) {

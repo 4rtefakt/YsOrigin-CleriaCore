@@ -101,6 +101,9 @@ struct VideoGpu {
     bool glare_grabbed = false;
     WGPUTextureView mview{}, mdepth{};
     std::uint32_t mw = 0, mh = 0;
+    // [graphics] WaterEffectLevel: the frame grabbed before the water layer (pool surface 1)
+    WGPUTextureView grab{};
+    std::uint32_t grab_w = 0, grab_h = 0;
     // the post pass's copy of the frame
     WGPUTexture ptex{};
     WGPUTextureView pview{};
@@ -255,7 +258,8 @@ static void video_world_begin(Gpu& g, std::uint32_t cw, std::uint32_t ch, WGPUTe
     g_vgpu.glare_grabbed = false;
     if (!g_vgpu.ready || cw == 0 || ch == 0) return;
     const bool glare = g_glare_cfg != 0 && g_vgpu.blur && g_vgpu.comp_sub && g_vgpu.fade;
-    if (video::scale_is_native(s) && !vid().smooth_edges && !msaa && !glare) return;
+    g_water.on = false;                                  // the water reads a copy of the world: its own target too
+    if (video::scale_is_native(s) && !vid().smooth_edges && !msaa && !glare && !g_water.want) return;
     const video::Extent e = video::scaled_extent(cw, ch, s, g_vgpu.max_dim);
     if (!g_vgpu.wtex || g_vgpu.ww != e.w || g_vgpu.wh != e.h) {
         if (g_vgpu.wbind) wgpuBindGroupRelease(g_vgpu.wbind);
@@ -385,6 +389,54 @@ static void video_glare_grab(Gpu& g) {
     video_fullscreen_pass(g, g_vgpu.copy, g_vgpu.wbind, g_vgpu.gview[1], enc);   // StretchRect -> surface 3 [H] linear
     video_submit(g, enc);
     g_vgpu.glare_grabbed = true;
+}
+// ---- the water's frame grab: [graphics] WaterEffectLevel (build/render_re/REFLECTIONS.md 2, 5) ----------
+// FUN_005fc8f0(1) before layer 0xb: the frame so far into pool surface 1, the render size at level 2 and half
+// of it otherwise (c = (level != 2) + 1 [BYTES 0x5e3761..0x5e378a]), filtered (StretchRect LINEAR where the
+// device can). The water's draw reads it (draw()'s water path, main.cpp's water()).
+// [approx] the sprite effects (retail's layer 8 buckets) are drawn after the water here, so they are not in it.
+static void video_water_grab(Gpu& g) {
+    if (!g_vgpu.world_on || !g_water.want) return;
+    const int c = settings().s.graphics.water_effect_level != 2 ? 2 : 1;
+    const std::uint32_t w = std::max(1u, g_vgpu.world_w / std::uint32_t(c)), h = std::max(1u, g_vgpu.world_h / std::uint32_t(c));
+    if (!g.dudv_bind) {                                  // the du/dv map: V8U8 (signed), level 0; the stage wraps
+        const std::vector<std::uint8_t> b = read_bytes(g_water.dudv);
+        if (b.size() < 128 + 256 * 256 * 2 || b[0] != 'D' || b[84] != 0 || b[88] != 16) return;   // no fourcc, 16 bits
+        WGPUTextureDescriptor td = {};
+        td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        td.dimension = WGPUTextureDimension_2D; td.size = {256, 256, 1};
+        td.format = WGPUTextureFormat_RG8Snorm; td.mipLevelCount = 1; td.sampleCount = 1;
+        WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
+        WGPUTexelCopyTextureInfo dst = {}; dst.texture = t; dst.aspect = WGPUTextureAspect_All;
+        WGPUTexelCopyBufferLayout layout = {}; layout.bytesPerRow = 256 * 2; layout.rowsPerImage = 256;
+        WGPUExtent3D ext = {256, 256, 1};
+        wgpuQueueWriteTexture(g.queue, &dst, &b[128], 256 * 256 * 2, &layout, &ext);
+        g.dudv_bind = tex_bindgroup(g, wgpuTextureCreateView(t, nullptr));
+    }
+    if (!g_vgpu.grab || g_vgpu.grab_w != w || g_vgpu.grab_h != h) {
+        if (g.ubind_water) wgpuBindGroupRelease(g.ubind_water);
+        if (g_vgpu.grab) wgpuTextureViewRelease(g_vgpu.grab);
+        WGPUTextureDescriptor td = {};
+        td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+        td.dimension = WGPUTextureDimension_2D; td.size = {w, h, 1};
+        td.format = g_vgpu.fmt; td.mipLevelCount = 1; td.sampleCount = 1;
+        WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
+        g_vgpu.grab = wgpuTextureCreateView(t, nullptr);
+        wgpuTextureRelease(t);
+        WGPUBindGroupEntry e[3] = {};                    // stage 1: the grab, ADDRESSU / V CLAMP
+        e[0].binding = 0; e[0].buffer = g.ubuf_water; e[0].size = 128;
+        e[1].binding = 1; e[1].textureView = g_vgpu.grab;
+        e[2].binding = 2; e[2].sampler = g_vgpu.linear;
+        WGPUBindGroupDescriptor d = {};
+        d.layout = g.u_layout; d.entryCount = 3; d.entries = e;
+        g.ubind_water = wgpuDeviceCreateBindGroup(g.device, &d);
+        g_vgpu.grab_w = w; g_vgpu.grab_h = h;
+    }
+    if (g_vgpu.msaa_on) video_msaa_resolve(g, true);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    video_fullscreen_pass(g, g_vgpu.copy, g_vgpu.wbind, g_vgpu.grab, enc);
+    video_submit(g, enc);
+    g_water.on = true;
 }
 // `level` = the blur gain byte L (0x7b2e39), `feedback` = F (0x7b2e38), `subtract` = 0x7b2e3a. `world` = the
 // world target's view (single-sampled: after video_world_resolve).
@@ -856,6 +908,18 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             persist();
         }
     }
+    {   // [graphics] WaterEffectLevel (0x765199): video_water_grab, draw()'s water path
+        static const char* kWater[] = {"Off", "Low", "High"};
+        int wl = std::clamp(int(gr.water_effect_level), 0, 2);
+        if (ui::choice(L, "Reflections", &wl, kWater, 3,
+                       "How water surfaces are drawn. High (the original's default): you see the floor and the "
+                       "characters through the water, wobbling. Low: the same from a half-size picture. Off: a "
+                       "plain see-through sheet. The mirror floors of the tower's upper part and the one true water "
+                       "reflection are not drawn yet. (Original: Reflections.)")) {
+            gr.water_effect_level = wl;
+            persist();
+        }
+    }
     {   // [game] BloodyEffectLevel (0x6d5d92): read live by the enemy hit / death ports (> 0 the blood effects
         // and red debris, > 1 the extra ones)
         static const char* kBlood[] = {"Off", "Low", "High"};
@@ -959,9 +1023,6 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             "Shadow detail (Original: Shadows): round shadows that follow steps and slopes, the bosses' own shadows, "
             "the length of Toal's afterimage trail. Not available yet: CleriaCore draws every shadow as a flat disc.",
             lvl(gr.shadow_effect_level));
-        row("Reflections", "None",
-            "Water reflections (Original: Reflections). Not available yet: CleriaCore has no reflection pass.",
-            lvl(gr.water_effect_level));
         row("Other simplification", "Off",
             "A lighter version of the final boss's room for slow PCs (Original: Other Simplification). Not available "
             "yet.", onoff(gr.other_light_weight_mode != 0));
@@ -1009,6 +1070,7 @@ static bool video_drive(const std::string& cmd) {
         else if (k == "MultiSampleType") gr.multi_sample_type = std::max(0, int(x));
         else if (k == "GlareEffectLevel") gr.glare_effect_level = std::clamp(int(x), 0, 2);
         else if (k == "WaterCaustics") g_caustic.off = (gr.water_caustics = x != 0) != 0;
+        else if (k == "WaterEffectLevel") gr.water_effect_level = std::clamp(int(x), 0, 2);
         else if (k == "Anisotropy") { gr.anisotropy = std::clamp(int(x), 1, 16); video_resample(); }
         else if (k == "Preset") { graphics_preset(std::clamp(int(x), 0, 3), settings().s); video_resample(); video_low_res(); video_mips(); }
         else if (k == "LowResoTexture") { gr.low_reso_texture = x != 0; video_low_res(); }
@@ -1043,6 +1105,8 @@ static bool video_drive(const std::string& cmd) {
         if (g_low_res_textures) std::printf("  [video] low-resolution textures on\n");
         std::printf("  [video] caustics room %d off %d frame %d scroll %.4f %.5f\n", int(g_caustic.room()), int(g_caustic.off),
                     g_caustic.frame, double(g_caustic.sx), double(g_caustic.sy));
+        std::printf("  [video] water level %d surfaces %d grab %ux%u phase %.2f\n", int(settings().s.graphics.water_effect_level),
+                    int(g_water.want), g_water.on ? g_vgpu.grab_w : 0u, g_water.on ? g_vgpu.grab_h : 0u, double(g_water.phase));
         return true;
     }
     return false;

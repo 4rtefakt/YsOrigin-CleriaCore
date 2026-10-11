@@ -249,6 +249,7 @@ struct VsOut {
   @location(3) opacity : f32,   // characters only: 1 - nrm.x (sprites pass nx = 1 - opacity)
   @location(4) spec : vec3<f32>,  // characters only: the D3D vertex SPECULAR, added (see fs_char)
   @location(5) cuv : vec2<f32>,   // the caustic stage's coordinates
+  @location(6) wuv : vec4<f32>,   // the water's projective screen coordinates (oT1 of b_ndst1_water2)
 };
 
 @vertex
@@ -271,7 +272,30 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
   //   m4x3 r0, viewPos, c8 (the inverse view: the world position);  mad r0.z, r0.y, c3.w, r0.z;
   //   mad oT1.xy, r0.xz, c3.z, c3.xy     with c3 = (scroll.x, scroll.y, 0.2, 0.4) [BYTES 0x6be6e0..ec].
   o.cuv = vec2<f32>(pos.x, pos.z + 0.4 * pos.y) * 0.2 + u.cvr.xy;
+  // b_ndst1_water2's oT1 (listing B_NDST1_WATER2.VSO; REFLECTIONS.md 5.3): the screen position before the divide,
+  // s = (x/2 + w/2, -y/2 + w/2, z, w), its y moved by cos(a) x c23.w, a = 2 (t.x/2 + t.y) wrapped to [-pi, pi),
+  // t = s.xy x c23.z + c23.x (the phase, u.cvr.w), the cosine by the shader's own series (c29).
+  let sx = o.clip.x * 0.5 + o.clip.w * 0.5;
+  let sy = -o.clip.y * 0.5 + o.clip.w * 0.5;
+  let wt = vec2<f32>(sx, sy) * 0.075 + u.cvr.w;
+  let wa = fract((wt.x * 0.5 + wt.y) * 0.31831 + 0.5) * 6.28319 - 3.14159;
+  let w2 = wa * wa;
+  o.wuv = vec4<f32>(sx, sy + (1.0 - 0.5 * w2 + 0.041667 * w2 * w2 - 0.001389 * w2 * w2 * w2) * 0.08, o.clip.z, o.clip.w);
   return o;
+}
+
+// A water surface at WaterEffectLevel != 0 (u.cvr.z = 4; FUN_005f7e20's stages for material flag 0x400000
+// [EXPORT 005f7e20.c], REFLECTIONS.md 5.2): stage 0 = the du/dv map as BUMPENVMAP, which moves stage 1's
+// coordinates by the matrix (M00 = M11 = u.cvr.x, M10 = -M01 = u.cvr.y); stage 1 = the frame grabbed before the
+// water layer, projected, BLENDFACTORALPHA with the material's diffuse (u.light here): grab x a + rgb x (1 - a).
+// Opaque, no alpha test, no fog; the alpha written is the diffuse alpha, i.e. the vertex colour's (c16.w = 1).
+// Here `tex` is the du/dv map and `ctex` the grab. [H] the bump offset is added after the projective divide.
+fn water(in : VsOut) -> vec4<f32> {
+  let dudv = textureSampleLevel(tex, smp, in.uv, 0.0).rg;
+  let uv = in.wuv.xy / in.wuv.w +
+           vec2<f32>(u.cvr.x * dudv.x + u.cvr.y * dudv.y, u.cvr.x * dudv.y - u.cvr.y * dudv.x);
+  let grab = textureSampleLevel(ctex, csmp, uv, 0.0).rgb;
+  return vec4<f32>(grab * u.light.a + u.light.rgb * (1.0 - u.light.a), min(in.color.a / max(u.light.a, 0.001), 1.0));
 }
 
 // The caustic frame of this fragment. [approx] level 0 only (retail asks for a generated mip chain when
@@ -286,6 +310,7 @@ fn cvr_stages(base : vec3<f32>, d : vec3<f32>, in : VsOut) -> vec3<f32> {
 }
 
 fn opaque(in : VsOut) -> vec4<f32> {
+  if (u.cvr.z == 4.0) { return water(in); }
   let tc = textureSample(tex, smp, in.uv);
   if (tc.a < 0.5) { discard; }
   // Fixed-function MODULATE: texture * baked vertex colour, + the specular oD1 (0 but for a model's
@@ -615,6 +640,7 @@ int main(int argc, char** argv) {
 
     build_indexes(g, asset_root);
     g_caustic.dir = asset_root / "IMAGE" / "CAUSTICS" / "01";
+    g_water.dudv = asset_root / "IMAGE" / "WATER_DUDV_256.DDS";
 
     // Default start room = S_1000 (tower base) when no SOB given.
     fs::path sob_path;

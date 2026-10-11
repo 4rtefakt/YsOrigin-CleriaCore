@@ -1734,6 +1734,7 @@ title_again:
         submerged = water_mode == 2;          // the factory / warp placement sets it, no transition
         wading = false;
         g_caustic.sx = g_caustic.sy = 0.0f;   // the scene load zeroes the scroll [BYTES 0x431576]
+        g_water.phase = 0.0f;                 // the scene reset FUN_00442dd0
     };
     // FUN_00431840's per-scene flag writes (SCENEFLOW.md 6.2), on every scene entry: the first
     // room too (a dev start into a room otherwise kept flag 185 = 0 and the HUD faded out).
@@ -9074,6 +9075,17 @@ title_again:
         g_caustic.off = settings().s.graphics.water_caustics != 0;
         g_caustic.counter += std::uint32_t(ticks);
         g_caustic.sx += 0.0005f * float(ticks); g_caustic.sy += 0.00015f * float(ticks);
+        // The water: its phase, and whether this room has a surface to draw through the grab (REFLECTIONS.md 5).
+        g_water.phase += 0.02f * float(ticks);
+        g_water.want = false;
+        if (settings().s.graphics.water_effect_level != 0)
+            for (const DrawBatch& b : room.mesh.batches)
+                if (b.index_count && water_material(b)) {
+                    g_water.want = true;
+                    g_water.tint[0] = float(b.diffuse & 0xff) / 255.0f; g_water.tint[1] = float((b.diffuse >> 8) & 0xff) / 255.0f;
+                    g_water.tint[2] = float((b.diffuse >> 16) & 0xff) / 255.0f; g_water.tint[3] = float(b.diffuse >> 24) / 255.0f;
+                    break;                               // [approx] one diffuse a room (each shipped room has one water material)
+                }
         // Presentation advances by the time we actually SIMULATED this frame, not by
         // wall time — so fog blends, flame flipbooks and HUD bars stay locked to the
         // tick and slow down with timeScale, instead of drifting off it.
@@ -9250,6 +9262,7 @@ title_again:
         draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
         video_glare_grab(g);                             // after layer 6: the glare's source (view_video.inl)
         prof("draw:room2+flames");
+        video_water_grab(g);                             // before layer 0xb: what the water shows (view_video.inl)
         draw(g, room, view, depth, 2);   // layer 0xb (the water surfaces) after the actors' layers 6/8/9
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
