@@ -2063,6 +2063,25 @@ title_again:
         if (keep) old = meshes.all();
         else ++mesh_load_serial;
         meshes.clear(); baked_pos.clear(); mesh_delta.clear(); baked_frame.clear();
+        // The objects (lower case) that a script in the room's folder names in a Mesh_SetMotion (0x175).
+        std::unordered_set<std::string> motion_named;
+        {
+            std::error_code ec;
+            for (const auto& de : fs::directory_iterator(room.dir, ec)) {
+                std::string ext = de.path().extension().string();
+                for (char& c : ext) c = char(std::toupper(static_cast<unsigned char>(c)));
+                if (ext != ".XSO") continue;
+                try {
+                    const Xso x = Xso::parse(read_bytes(de.path()));
+                    for (const XsoInstr& in : x.disasm())
+                        if (in.cls == 2 && in.sub == 0x175 && !in.ops.empty()) {
+                            std::string n = x.string(in.ops[0]);
+                            for (char& c : n) c = char(std::tolower(static_cast<unsigned char>(c)));
+                            motion_named.insert(n);
+                        }
+                } catch (const std::exception&) {}
+            }
+        }
         for (const RoomMesh::ObjRange& r : room.mesh.object_ranges) {
             std::vector<MeshClip> clips;
             for (const auto& c : r.clips) clips.push_back({c.name, c.start, c.end, c.next, c.rate});
@@ -2085,7 +2104,15 @@ title_again:
             // collision switch; s30kaid0; s7099kumo, whose update kind is 3 [EXPORT 00501a30.c:208-211]).
             // 'LOOP' is the three large spinning floors s50_yuka_00 / 01 / 02 (S_5005, S_5012): a standing player
             // rides them by the frame's whole matrix (rider.hpp, MOVER.md §3.3 [BYTES 0x45a9a4..]).
-            if (!r.name.empty() && r.name[0] == '#' && !m.clips.empty() &&
+            // A NAMED object whose section 0 is such a clip plays it from the load as well when no script of the
+            // room ever names it in a Mesh_SetMotion (0x175): the spinning blades fire00.. of S_3005 / S_3008
+            // (s30fire0, 'DEFAULT', 120 frames, next -2 = it loops; their only script is the touch @Touch_Toge),
+            // S_9100's furiko00. The engine's rule has no name in it (every model of update kind 1 advances its
+            // cursor, FUN_00562990 [EXPORT 00562990.c:74-79], and an unknown motion name changes nothing,
+            // FUN_005f5c10); [approx] an object a script does name is still left to that script -- S_4015's
+            // step_00 / step_01, which the root sets to a 'STOP' their model does not have: whether they move
+            // before their switches in retail needs a check.
+            if (!r.name.empty() && !m.clips.empty() && (r.name[0] == '#' || !motion_named.count(r.name)) &&
                 (m.clips[0].name == "Default" || m.clips[0].name == "DEFAULT" || m.clips[0].name == "LOOP")) {
                 m.sect = 0; m.time = float(m.clips[0].start); m.count = 0;
                 m.dirty_pose = true;

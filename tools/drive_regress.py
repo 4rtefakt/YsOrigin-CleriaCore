@@ -2519,6 +2519,21 @@ CASES.update({
         drive="30:vstat;31:vopt=ShadowEffectLevel=1;35:vstat;36:vopt=ShadowEffectLevel=0;40:vstat;41:quit",
         expect=["[video] shadows level 2 decals 2 (16 triangles) quads 28", "[video] shadows level 1 decals 1 (8 triangles) quads 29",
                 "[video] shadows level 0 decals 0 (0 triangles) quads 30"]),
+    # The spinning blades of S_3005 / S_3008 (fire00.., s30fire0: section 0 'DEFAULT', 120 frames, looping, 0.25 a
+    # tick): a named object no script sets in motion plays its section 0 from the load. The cursor advances, the
+    # hull turns with the blade (standing beside the hub, off the blade's rest pose, she is touched: @Touch_Toge,
+    # ATK 120), and an object a script does name stays the script's (S_4015's step_00 holds its frame).
+    "blades_spin": dict(
+        room="S_30/S_3005/S_3005", env=dict(CLERIA_DMG="1"),
+        drive="20:mesh=fire00;120:mesh=fire00;121:mesh=fire02;125:at=2.5,34,0;600:pos;601:quit",
+        expect=["mesh fire00 pos (-2.00, 2.00, 34.00) clip 0 t 4.8", "mesh fire00 pos (-2.00, 2.00, 34.00) clip 0 t 29.8",
+                "mesh fire02 pos (52.00, 2.00, 34.00) clip 0 t 30.0", "fire00 -> @touch_toge", "[hurt] dmg 96 (atk 120"]),
+    "blades_spin_s3008": dict(
+        room="S_30/S_3008/S_3008", drive="120:mesh=fire00;121:mesh=fire06;122:quit",
+        expect=["mesh fire00 pos (86.00, 4.00, 36.00) clip 0 t 29.8", "mesh fire06 pos (42.10, 1.00, 18.85) clip 0 t 30.0"]),
+    "blades_named_by_script_hold": dict(
+        room="S_40/S_4015/S_4015", drive="20:mesh=step_00;120:mesh=step_00;121:quit",
+        expect=["mesh step_00 pos (-30.00, 26.00, 43.00) clip 1 t 90.0", "mesh step_00 pos (-30.00, 26.00, 43.00) clip 1 t 90.0"]),
     "caustics_dry_room": dict(
         room="S_10/S_1009/S_1009", drive="10:vstat;11:quit",
         expect=["[video] caustics room 0 off 0", "[video] water level 2 surfaces 0 grab 0x0"]),
