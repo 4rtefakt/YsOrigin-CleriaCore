@@ -110,6 +110,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     if (!flames.init(g, asset_root))
         std::fprintf(stderr, "flames: NAGA01.DDS failed to load\n");
     ShadowFx shadows;                    // floor shadow decals under characters
+    ShadowFrame shadow_frame;            // this frame's actor shadows (view_sprites.inl)
     EnemyBars enemy_bars;                // the optional bars over ordinary enemies (CleriaCore's own; enemybar.hpp)
     std::vector<Emotion> emotions;       // op 0x148's GoEmotion bubbles (pool 3)
     SpriteTex emotion_tex;               // IMAGE/EMOTION.DDS, 8 x 4 cells of 32 x 32
@@ -1733,6 +1734,8 @@ title_again:
         water_mode = (num == 2008 || num == 2009 || num == 2010 || num == 2014 || num == 2015) ? 2 : 0;
         submerged = water_mode == 2;          // the factory / warp placement sets it, no transition
         wading = false;
+        g_caustic.sx = g_caustic.sy = 0.0f;   // the scene load zeroes the scroll [BYTES 0x431576]
+        g_water.phase = 0.0f;                 // the scene reset FUN_00442dd0
     };
     // FUN_00431840's per-scene flag writes (SCENEFLOW.md 6.2), on every scene entry: the first
     // room too (a dev start into a room otherwise kept flag 185 = 0 and the HUD faded out).
@@ -8390,6 +8393,22 @@ title_again:
         prof("frame:scroll+acquire");
         if (ticks && !room.scrolls.empty() && !std::getenv("CLERIA_NOSCROLL"))
             advance_scroll(g, room, ticks);
+        // The caustics' frame counter and scroll, once a step (CONFIG_PARITY.md 13). [approx] retail stops the
+        // scroll, not the frames, under the menu pause 0x74ab8f; here both follow the ticks.
+        g_caustic.off = settings().s.graphics.water_caustics != 0;
+        g_caustic.counter += std::uint32_t(ticks);
+        g_caustic.sx += 0.0005f * float(ticks); g_caustic.sy += 0.00015f * float(ticks);
+        // The water: its phase, and whether this room has a surface to draw through the grab (REFLECTIONS.md 5).
+        g_water.phase += 0.02f * float(ticks);
+        g_water.want = false;
+        if (settings().s.graphics.water_effect_level != 0)
+            for (const DrawBatch& b : room.mesh.batches)
+                if (b.index_count && water_material(b)) {
+                    g_water.want = true;
+                    g_water.tint[0] = float(b.diffuse & 0xff) / 255.0f; g_water.tint[1] = float((b.diffuse >> 8) & 0xff) / 255.0f;
+                    g_water.tint[2] = float((b.diffuse >> 16) & 0xff) / 255.0f; g_water.tint[3] = float(b.diffuse >> 24) / 255.0f;
+                    break;                               // [approx] one diffuse a room (each shipped room has one water material)
+                }
         // Presentation advances by the time we actually SIMULATED this frame, not by
         // wall time — so fog blends, flame flipbooks and HUD bars stay locked to the
         // tick and slow down with timeScale, instead of drifting off it.
@@ -8472,24 +8491,51 @@ title_again:
         prof("draw:room1");
         video_world_begin(g, cw, ch, view, depth);       // Render scale: the world's own target (view_video.inl)
         draw(g, room, view, depth, 1);                     // render layers 3 / 5 (layer 0xb below)
+        draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward(), cam.pos, true);   // the effect meshes of layer 4
         draw_decals(view, depth, cam.pos);                 // the blood splats on the floor (view_weather.inl)
         // Character billboard (play mode only; fly is a free debug camera). Draw the floor
         // shadow first, on the actual floor under the player (so it stays put during a jump).
         prof("draw:player+pickups");
+        g_shadow_level = std::clamp(int(settings().s.graphics.shadow_effect_level), 0, 2);
+        shadow_frame.room = &room; shadow_frame.eye = cam.pos; shadow_frame.fwd = cam.forward();
+        shadow_frame.has_player = !fly; shadow_frame.player = {feet.x, feet.y + kOriginH, feet.z};
+        shadow_frame.decals = shadow_frame.tris = shadow_frame.quads = 0;
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex) {
-            const float sfl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + 0.5f);
+            int ftri = -1;
+            const RoomMesh& pm_ = phys_mesh(room);
+            const float sfl = floor_at(pm_, feet.x, feet.z, feet.y + 0.5f, &ftri);
             const Actor* wpl = world.player();
-            if (!wpl || !(wpl->flags12c & 1u))          // Chr_Shadow(13, 0)
-                draw_shadow(g, view, depth, shadows.tex, feet,
-                            (sfl > kNoFloor ? sfl : feet.y), 0.6f);
             const float palpha = wpl ? wpl->ai.alpha : 1.0f;   // Chr_Alpha(13, ...) (+0x4d8)
+            // The player's shadow (SHADOWS.md 2): queued when (+0x12c & 1) == 0 (Chr_Shadow(13, 0)) and +0x4d8 != 0.
+            if ((!wpl || !(wpl->flags12c & 1u)) && palpha != 0.0f) {
+                Vec3 fn{0, 1, 0};                              // +0x298: the floor triangle's normal
+                if (ftri >= 0 && std::size_t(ftri) * 3 + 2 < pm_.indices.size()) {
+                    const RoomVertex& p0 = pm_.vertices[pm_.indices[std::size_t(ftri) * 3]];
+                    const RoomVertex& p1 = pm_.vertices[pm_.indices[std::size_t(ftri) * 3 + 1]];
+                    const RoomVertex& p2 = pm_.vertices[pm_.indices[std::size_t(ftri) * 3 + 2]];
+                    Vec3 c = cross(Vec3{p1.px - p0.px, p1.py - p0.py, p1.pz - p0.pz}, Vec3{p2.px - p0.px, p2.py - p0.py, p2.pz - p0.pz});
+                    const float cl = std::sqrt(c.x * c.x + c.y * c.y + c.z * c.z);
+                    if (cl > 1e-9f) fn = c.y < 0 ? Vec3{-c.x / cl, -c.y / cl, -c.z / cl} : Vec3{c.x / cl, c.y / cl, c.z / cl};
+                }
+                const float fy = sfl > kNoFloor ? sfl : feet.y;
+                const std::uint32_t pt = wpl ? wpl->tint : 0xffffffffu;
+                shadow_actor(g, view, depth, shadows.tex, shadow_frame, feet, fy,
+                             casts.casts.size() > std::size_t(kPlayerCast) ? casts.casts[std::size_t(kPlayerCast)].shadow_size : 0.6f,
+                             (wpl ? wpl->tint_alpha : 1.0f) * float(pt >> 24) / 255.0f,
+                             shadow_decal_ok(shadow_frame, {feet.x, fy + 0.05f, feet.z}, true, wpl ? wpl->flags12c : 0u,
+                                             sfl > kNoFloor && feet.y - sfl <= 8.0f),   // +0x2b8: the player's ray is 8 long
+                             fn);
+                shadow_flush(g, view, depth, shadows.tex, shadow_frame);
+            }
             if (palpha > 0.0f)
                 draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos,
                                0.0f, g_scene_light.x, g_scene_light.y, g_scene_light.z, false, palpha,   // diffuse x the scene light
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,   // Chr_Tremble(13)
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f,
                                wpl ? wpl->scale : 1.0f, player_spec.colour(),    // +0x14c from the tint struct +0x260
-                               avm.sprite_depth_offset());                       // anime_CameraDistanceOffset
+                               avm.sprite_depth_offset(),                        // anime_CameraDistanceOffset
+                               // the caustics on a submerged body [EXPORT 00474290.c:96-123]
+                               !g_caustic.off && submerged && !wading && !psand.on_sand2() && cur_surface != 0x12);
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());
@@ -8561,9 +8607,11 @@ title_again:
             }
         }
         prof("draw:enemies");
-        draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
+        draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex, &shadow_frame, &casts);
+        g_shadow_stat[0] = shadow_frame.decals; g_shadow_stat[1] = shadow_frame.tris; g_shadow_stat[2] = shadow_frame.quads;
         video_glare_grab(g);                             // after layer 6: the glare's source (view_video.inl)
         prof("draw:room2+flames");
+        video_water_grab(g);                             // before layer 0xb: what the water shows (view_video.inl)
         draw(g, room, view, depth, 2);   // layer 0xb (the water surfaces) after the actors' layers 6/8/9
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);

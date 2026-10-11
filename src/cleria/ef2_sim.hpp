@@ -110,15 +110,11 @@ struct Effect {
     int rtype = 0, status = 0, cls = -1, side = 1;
     int owner = 0;                // an actor instance id (bookkeeping only)
     int tag = -1;                 // a brain's private tag (M530 beams, M140 charge)
-    // fx+0x201: the world-contact trace of its particles runs on collision set 1 (the water list;
-    // FUN_005645b0 0x5645f9 passes it as FUN_0041e420's ecx) instead of set 0. CleriaCore has no
-    // water collision, so such particles never touch the world (Velagunder's laser beam).
-    bool set1 = false;
-    // fx+0x201 as DALLES_D23.md §16.4 / DALLES_CD1.md §6 read it [BYTES 0x56461f..0x56470b, 0x41e4d2..0x41e4f4]: the
-    // byte goes into the ray's +0x49 and bit 0 of FUN_0041e420's option argument, where it makes the terrain scan
-    // (still set 2) skip every mesh whose type byte +0x28d is 5..0xc — the boss meshes. Its particles' world trace
-    // then runs on the host's set_world_no_boss test. boss07's host sets this one; `set1` above is the older reading
-    // the boss01 / boss06 hosts were built on (left as it is).
+    // fx+0x201 [BYTES 0x56461f..0x56470b, 0x41e4d2..0x41e4f4; DALLES_D23.md §16.4 / DALLES_CD1.md §6]: the byte
+    // goes into the ray's +0x49 and bit 0 of FUN_0041e420's option argument (ecx stays 2: `mov ecx, 2` at 0x564703),
+    // where it makes the terrain scan skip every mesh whose type byte +0x28d is 5..0xc — the boss meshes. Its
+    // particles' world trace then runs on the host's set_world_no_boss test. (An older reading, "collision set 1:
+    // never touches the world", was what the boss01 / boss06 hosts used until 2026-10-11; the bytes do not say that.)
     bool no_boss = false;
     std::string name;             // fx+0x20c, set by the script placements (FUN_00451da0)
     // fx+0x1f0: the draw depth bias, emitter 0's B2+0x0c, copied by every spawn path (FUN_00450410,

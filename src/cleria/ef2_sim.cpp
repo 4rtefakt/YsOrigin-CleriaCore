@@ -492,7 +492,6 @@ bool System::impact(Particle& p, bool force) {
 void System::collide_tick(Particle& p) {
     const Vec3 w = p.world_pos();
     if (!p.latched) { p.latched = true; p.latch = w; return; }
-    if (p.fx && p.fx->set1) { p.latch = w; return; }              // [not modelled] the water set
     Vec3 at{};
     const auto& trace = p.fx && p.fx->no_boss && world_nb_ ? world_nb_ : world_;   // fx+0x201 (DALLES_D23.md §16.4)
     if (trace && trace(p.latch, vsub(w, p.latch), &at)) {

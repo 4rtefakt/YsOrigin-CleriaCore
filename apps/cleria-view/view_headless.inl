@@ -322,6 +322,7 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                 if (std::getenv("CLERIA_BARRIER"))
                     std::printf("barrier: fx sim at tick %d: %zu effect(s), %zu particle(s)\n",
                                 fx_ticks, sim.effects().size(), sim.particles().size());
+                draw_particles(g, sim, asset_root, eft2, cview, dview, cam.forward(), cam.pos, true);   // layer 4's meshes
                 draw_particles(g, sim, asset_root, eft2, cview, dview, cam.forward(), cam.pos);
                 // CLERIA_BULLET_PREVIEW=<effectId>[,age] — park one projectile in front of
                 // the player and draw it. Bullet art was otherwise only reachable by firing

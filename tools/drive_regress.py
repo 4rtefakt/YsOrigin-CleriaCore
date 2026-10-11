@@ -137,13 +137,19 @@ CASES = {
     # M890 Spawns (the boss level, the chaser first), the laser's terrain-ray bursts hit (EF2 326), the inhale
     # swallows Spawns and the bite (part 2) lands. (The taunt is velagunder_taunt below: since e44f09f the end of
     # a stun no longer leaves her standing on the body.)
+    # Re-pinned 2026-10-11 (fx+0x201 read as the bytes have it: the beam's particles trace the room without the boss
+    # meshes instead of never meeting the world, issue #66). On the full-log diff the run is the same up to t4207,
+    # where a beam particle's own world contact now lands a hit (logged as fx 326 with the beam's power 4.0, rtype 2: 4 damage, a knock-back)
+    # in place of two of the burst's ticks; she stands elsewhere for the inhale, so two Spawns are swallowed on one
+    # tick (t4537: both lines say "2 so far") and the five are eaten in another order. The bite still lands at t4654.
     "velagunder_attacks": dict(
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;5500:quit",
         expect=["[boss] Velagunder: HP 700 STR 70 DEF 53 lv 8", "[boss] 31 body entries (820 tris)",
                 "fx 323 (atk 70 power 0.0 knock 5.00",
-                "M890 #175 spawned", "hp 58 lv 8 mode 1", "fx 326 (atk 70 power 0.0 knock 1.00 rtype 1", "eaten (1 so far)",
+                "M890 #175 spawned", "hp 58 lv 8 mode 1", "fx 326 (atk 70 power 0.0 knock 1.00 rtype 1",
+                "fx 326 (atk 70 power 4.0 knock 1.00 rtype 2", "eaten (2 so far)", "eaten (5 so far)",
                 "velagunder part 2 (STR 70 power 14.0 rtype 2"]),
     # The taunt (VELAGUNDER.md C10, §5.8: state 8, ACTION_01 — the player grounded on surface 5 (his wood body)
     # with the floor above 4.0, out of his reach). After the first stun is over (t2610: state 0, WAIT) Yunica is
@@ -1439,10 +1445,16 @@ CASES.update({
         # (orbs 0/4, thrown off it at t1942), the floor cast sends head a diving (move 11), the second mount is head
         # a (4/0, thrown off at t3948), the kill at t4172 (was t4900), the heads gone by t4698. Every beat of the old
         # list is here with a and b exchanged; Zava still lands at y 6.83.
+        # Re-pinned 2026-10-11 (fx+0x201 as the bytes have it, issue #66: the heads' flagged effects and bullets trace
+        # the room without the boss meshes; before, their particles never met the world). First difference on the
+        # full-log diff at t~400: a 0-damage tick of a flagged effect no longer reaches the player, so the pilot
+        # stands 0.6 away and the fourth knock-down comes one round later. Same course, same order (head b first,
+        # then a), about 110 ticks later: phase 2 at t1298 with 4046 HP (was t1189, 4036), thrown off head b at
+        # t2050, the floor cast at t2564, thrown off head a at t4060, the kill at t4237 (was t4172).
         expect=["[boss06] Zava's heads: a (-39.46,6.10,30.00) b (-28.82,6.10,30.00), HP 5000 STR 232 DEF 320",
                 "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "jump under Zava (act 4)", "second jump",
                 "air attack", "y 13.00, falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded",
-                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4036/6000", "BossCam 3", "move 9", "BossCam 4",
+                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4046/6000", "BossCam 3", "move 9", "BossCam 4",
                 "move 10", "riding, hits left 0, ride count 1, lives 0/4", "head b move 12 (pattern 2, lives 3)",
                 "lives 0/2", "lives 0/1",
                 "head b move 8 (pattern 2, lives 0)", "Zava is thrown off head b",
@@ -2470,6 +2482,36 @@ CASES.update({
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aplua_regress  # noqa: E402
+# ---- batch G (2026-10-11) ----------------------------------------------------------------------------
+CASES.update({
+    # Video: the water caustics (CONFIG_PARITY.md 13). A flooded room draws them room-wide, the frame steps every
+    # 2 ticks and the scroll every tick; "Disable water caustics" takes the room-wide part off at once and back.
+    "caustics_live": dict(
+        room="S_20/S_2008/S_2008",
+        drive="10:vstat;11:vopt=WaterCaustics=1;20:vstat;21:vopt=WaterCaustics=0;30:vstat;31:quit",
+        expect=["[video] caustics room 1 off 0 frame 4 scroll 0.0045 0.00135",
+                "[video] caustics room 0 off 1 frame 9 scroll 0.0095 0.00285",
+                "[video] caustics room 1 off 0 frame 14 scroll 0.0145 0.00435"]),
+    # Video: the water surfaces (REFLECTIONS.md 5). Reflections High draws them through a full-size grab of the
+    # frame, Low through a half-size one, Off as the plain sheet; a room without water takes no grab.
+    "water_levels": dict(
+        room="S_20/S_2000/S_2000",
+        drive="10:vstat;11:vopt=WaterEffectLevel=1;20:vstat;21:vopt=WaterEffectLevel=0;30:vstat;"
+              "31:vopt=WaterEffectLevel=2;40:vstat;41:quit",
+        expect=["[video] water level 2 surfaces 1 grab 1280x800", "[video] water level 1 surfaces 1 grab 640x400",
+                "[video] water level 0 surfaces 0 grab 0x0"]),
+    # Video: the actors' round shadows (SHADOWS.md 2). Full lays the shadow of every actor in range on the room's
+    # triangles (decals), Player only the player's, Simple draws flat quads; switched while the game runs.
+    "shadow_levels": dict(
+        room="S_60/S_6015/S_6015",
+        drive="30:vstat;31:vopt=ShadowEffectLevel=1;35:vstat;36:vopt=ShadowEffectLevel=0;40:vstat;41:quit",
+        expect=["[video] shadows level 2 decals 2 (16 triangles) quads 28", "[video] shadows level 1 decals 1 (8 triangles) quads 29",
+                "[video] shadows level 0 decals 0 (0 triangles) quads 30"]),
+    "caustics_dry_room": dict(
+        room="S_10/S_1009/S_1009", drive="10:vstat;11:quit",
+        expect=["[video] caustics room 0 off 0", "[video] water level 2 surfaces 0 grab 0x0"]),
+})
+
 CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402

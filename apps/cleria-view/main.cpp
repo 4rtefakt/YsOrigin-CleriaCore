@@ -233,8 +233,11 @@ struct Uniforms {
   light    : vec4<f32>,
   fogColor : vec4<f32>,   // rgb = fog colour
   fogParams: vec4<f32>,   // x = near, y = far, z = enabled
+  cvr      : vec4<f32>,   // the water caustics: xy = the scroll (c3.xy), z = the draw's combiner (0 none; caustic_stage)
 };
 @group(0) @binding(0) var<uniform> u : Uniforms;
+@group(0) @binding(1) var ctex : texture_2d<f32>;   // the caustic frame (0x7b2f6c)
+@group(0) @binding(2) var csmp : sampler;
 @group(1) @binding(0) var tex : texture_2d<f32>;
 @group(1) @binding(1) var smp : sampler;
 
@@ -245,6 +248,8 @@ struct VsOut {
   @location(2) depth : f32,     // view-space depth for fog
   @location(3) opacity : f32,   // characters only: 1 - nrm.x (sprites pass nx = 1 - opacity)
   @location(4) spec : vec3<f32>,  // characters only: the D3D vertex SPECULAR, added (see fs_char)
+  @location(5) cuv : vec2<f32>,   // the caustic stage's coordinates
+  @location(6) wuv : vec4<f32>,   // the water's projective screen coordinates (oT1 of b_ndst1_water2)
 };
 
 @vertex
@@ -263,16 +268,56 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
     let s = u32(-nrm.y - 1.0);
     o.spec = vec3<f32>(f32((s >> 16u) & 255u), f32((s >> 8u) & 255u), f32(s & 255u)) / 255.0;
   }
+  // The *_cvr shaders' second coordinate set (b_ndst1_trn_cvr, b_dst1_cvr; CONFIG_PARITY.md 13):
+  //   m4x3 r0, viewPos, c8 (the inverse view: the world position);  mad r0.z, r0.y, c3.w, r0.z;
+  //   mad oT1.xy, r0.xz, c3.z, c3.xy     with c3 = (scroll.x, scroll.y, 0.2, 0.4) [BYTES 0x6be6e0..ec].
+  o.cuv = vec2<f32>(pos.x, pos.z + 0.4 * pos.y) * 0.2 + u.cvr.xy;
+  // b_ndst1_water2's oT1 (listing B_NDST1_WATER2.VSO; REFLECTIONS.md 5.3): the screen position before the divide,
+  // s = (x/2 + w/2, -y/2 + w/2, z, w), its y moved by cos(a) x c23.w, a = 2 (t.x/2 + t.y) wrapped to [-pi, pi),
+  // t = s.xy x c23.z + c23.x (the phase, u.cvr.w), the cosine by the shader's own series (c29).
+  let sx = o.clip.x * 0.5 + o.clip.w * 0.5;
+  let sy = -o.clip.y * 0.5 + o.clip.w * 0.5;
+  let wt = vec2<f32>(sx, sy) * 0.075 + u.cvr.w;
+  let wa = fract((wt.x * 0.5 + wt.y) * 0.31831 + 0.5) * 6.28319 - 3.14159;
+  let w2 = wa * wa;
+  o.wuv = vec4<f32>(sx, sy + (1.0 - 0.5 * w2 + 0.041667 * w2 * w2 - 0.001389 * w2 * w2 * w2) * 0.08, o.clip.z, o.clip.w);
   return o;
 }
 
+// A water surface at WaterEffectLevel != 0 (u.cvr.z = 4; FUN_005f7e20's stages for material flag 0x400000
+// [EXPORT 005f7e20.c], REFLECTIONS.md 5.2): stage 0 = the du/dv map as BUMPENVMAP, which moves stage 1's
+// coordinates by the matrix (M00 = M11 = u.cvr.x, M10 = -M01 = u.cvr.y); stage 1 = the frame grabbed before the
+// water layer, projected, BLENDFACTORALPHA with the material's diffuse (u.light here): grab x a + rgb x (1 - a).
+// Opaque, no alpha test, no fog; the alpha written is the diffuse alpha, i.e. the vertex colour's (c16.w = 1).
+// Here `tex` is the du/dv map and `ctex` the grab. [H] the bump offset is added after the projective divide.
+fn water(in : VsOut) -> vec4<f32> {
+  let dudv = textureSampleLevel(tex, smp, in.uv, 0.0).rg;
+  let uv = in.wuv.xy / in.wuv.w +
+           vec2<f32>(u.cvr.x * dudv.x + u.cvr.y * dudv.y, u.cvr.x * dudv.y - u.cvr.y * dudv.x);
+  let grab = textureSampleLevel(ctex, csmp, uv, 0.0).rgb;
+  return vec4<f32>(grab * u.light.a + u.light.rgb * (1.0 - u.light.a), min(in.color.a / max(u.light.a, 0.001), 1.0));
+}
+
+// The caustic frame of this fragment. [approx] level 0 only (retail asks for a generated mip chain when
+// Mipmap is on and the device can [EXPORT 00454c30.c:68-70]; at 5 units a tile it is magnified in play).
+fn caustic(in : VsOut) -> vec3<f32> { return textureSampleLevel(ctex, csmp, in.cuv, 0.0).rgb; }
+// Stage 0's colour (texture x diffuse) through the caustic stages FUN_005f7230 adds for u.cvr.z = 1
+// (FUN_005f92b0's variant 3 [EXPORT 005f7230.c:55-125]): stage 1 ADD(caustic, current), stage 2
+// MODULATE(diffuse, current) -- each stage's result saturated, as the fixed function does.
+fn cvr_stages(base : vec3<f32>, d : vec3<f32>, in : VsOut) -> vec3<f32> {
+  if (u.cvr.z != 1.0) { return base; }
+  return min(base + caustic(in), vec3<f32>(1.0, 1.0, 1.0)) * d;
+}
+
 fn opaque(in : VsOut) -> vec4<f32> {
+  if (u.cvr.z == 4.0) { return water(in); }
   let tc = textureSample(tex, smp, in.uv);
   if (tc.a < 0.5) { discard; }
   // Fixed-function MODULATE: texture * baked vertex colour, + the specular oD1 (0 but for a model's
   // additive colour c17: the boss hit flash, Room::mat_add), saturated.
   // u.light: the scene light's colour, in every material's c16 (white but for Dalles's / Darm's rooms).
-  var c = min(tc.rgb * in.color.rgb * u.light.rgb + in.spec, vec3<f32>(1.0, 1.0, 1.0));
+  let d = in.color.rgb * u.light.rgb;
+  var c = min(cvr_stages(tc.rgb * d, d, in) + in.spec, vec3<f32>(1.0, 1.0, 1.0));
   // D3D9 linear fog, driven by the room's real SFO region data:
   //   f = (far - d) / (far - near), clamped;  colour = lerp(fog, lit, f)
   if (u.fogParams.z > 0.5) {
@@ -298,7 +343,11 @@ fn fs_mask(in : VsOut) -> @location(0) vec4<f32> { return opaque(in); }
 // room's fog colour; modes 2/3 set FOGCOLOR 0 (FUN_005f92b0 local_60), so they fog to black.
 fn mat_lit(in : VsOut) -> vec4<f32> {
   let tc = textureSample(tex, smp, in.uv);
-  return vec4<f32>(min(tc.rgb * in.color.rgb * u.light.rgb + in.spec, vec3<f32>(1.0, 1.0, 1.0)), tc.a * in.color.a);
+  let d = in.color.rgb * u.light.rgb;
+  // u.cvr.z = 2 (variant 2, material flag 0x4000): stage 0 is the caustic frame, not the material's texture --
+  // MODULATE(caustic, diffuse), alpha SELECTARG2 = the diffuse alpha [EXPORT 005f7230.c:8-53].
+  if (u.cvr.z == 2.0) { return vec4<f32>(min(caustic(in) * d + in.spec, vec3<f32>(1.0, 1.0, 1.0)), in.color.a); }
+  return vec4<f32>(min(cvr_stages(tc.rgb * d, d, in) + in.spec, vec3<f32>(1.0, 1.0, 1.0)), tc.a * in.color.a);
 }
 fn fog_f(depth : f32) -> f32 {
   return clamp((u.fogParams.y - depth) / max(u.fogParams.y - u.fogParams.x, 0.001), 0.0, 1.0);
@@ -338,7 +387,11 @@ fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
   // init): texture x diffuse + the vertex specular, saturated, before the fog. The actor colour
   // builder FUN_00473c60 writes the specular word (+0x14c): the hurt tint (0x6b3713), the pickup
   // glint (grey), the marker glow.
-  var c = min(tc.rgb * in.color.rgb + in.spec, vec3<f32>(1.0, 1.0, 1.0));
+  // u.cvr.z = 3: an actor's body in water (FUN_005e0630 with the caustic bit: the preset's combiner 2
+  // [EXPORT 005e0630.c:21-33, 005eb5b0.c:58-70, 120-130]) -- stage 1 ADD(caustic, current), no third stage.
+  var b = tc.rgb * in.color.rgb;
+  if (u.cvr.z == 3.0) { b = min(b + caustic(in), vec3<f32>(1.0, 1.0, 1.0)); }
+  var c = min(b + in.spec, vec3<f32>(1.0, 1.0, 1.0));
   if (u.fogParams.z > 0.5) {
     let f = clamp((u.fogParams.y - in.depth) / max(u.fogParams.y - u.fogParams.x, 0.001),
                   0.0, 1.0);
@@ -586,6 +639,8 @@ int main(int argc, char** argv) {
       std::printf("adapter: %.*s\n", int(info.device.length), info.device.data); }
 
     build_indexes(g, asset_root);
+    g_caustic.dir = asset_root / "IMAGE" / "CAUSTICS" / "01";
+    g_water.dudv = asset_root / "IMAGE" / "WATER_DUDV_256.DDS";
 
     // Default start room = S_1000 (tower base) when no SOB given.
     fs::path sob_path;

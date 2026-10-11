@@ -165,8 +165,8 @@ original option and the value saved for the original game.
 
 | Retail key | Why not |
 |---|---|
-| `ShadowEffectLevel` | Floor-following blob shadows, the bosses' projected shadows and Toal's trail length: none is drawn (CONFIG_PARITY.md §6, issue #86). |
-| `WaterEffectLevel`, `WaterCaustics` | No reflection (CONFIG_PARITY.md §12) or caustics (§13, issue #87) pass exists yet. (`MaskOfEyes` is a live toggle since 2026-10-07: the grey pass is `view_mask.inl`, build/audit/PLAYTEST_1_STORY.md §1.) |
+| `ShadowEffectLevel` | Live since 2026-10-11 for the actors' round shadows (build/render_re/SHADOWS.md §6); the bosses' projected shadows and Toal's trail are not drawn (issue #86). |
+| `WaterEffectLevel` | Live since 2026-10-11 for the water surfaces (REFLECTIONS.md §10); no reflection pass or mirror floor yet. (`WaterCaustics` is a live toggle since 2026-10-11: §13. `MaskOfEyes` is a live toggle since 2026-10-07: the grey pass is `view_mask.inl`, build/audit/PLAYTEST_1_STORY.md §1.) |
 | `OtherLightWeightMode` | Darm's lighter room and two smaller effects (CONFIG_PARITY.md §14, issue #88). |
 | `CompressedTexture` | A loader variant with no meaning here (CleriaCore uploads each DDS as stored). |
 | `HighResoText` | The resolution GDI text is rasterised at (CONFIG_PARITY.md §15, issue #89). |
