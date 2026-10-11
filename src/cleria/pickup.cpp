@@ -241,7 +241,9 @@ void step_pickup(ef2sim::Rng& rng, Pickup& p, const PickupWorld& w) {
             if (p.flags & 0x20) { if (!w.window_open) p.closing = true; }
             else if (p.t > 210) { p.dead = true; return; }
         } else if (p.flags & 0x20) {
-            if (p.rise > 0) { p.rise -= 5.0f; if (p.rise <= 0) { p.dead = true; return; } }
+            // [EXPORT 00586910.c:53-59]: the fall, then the test — one that never rose goes at once.
+            if (p.rise > 0) p.rise -= 5.0f;
+            if (p.rise <= 0) { p.dead = true; return; }
         }
         const float h = p.rise < 60.0f ? p.rise / 60.0f * 0.55f : 0.55f;
         float y = p.base.y + h;

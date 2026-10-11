@@ -135,6 +135,8 @@ struct PickupWorld {
     // pickup (squared < 0.2025, 0x6bd214) [BYTES 0x5860bf..0x586139].
     bool sword = false;               // the player has a live sword trail
     Vec3 sword_tip;                   // its +0xdc..+0xe4
+    // The chest item's gate: a Fix holds (0x75ad90 + 0x75ad94 != 0). One with +0x13d & 0x20 starts to close on
+    // the first tick without it [EXPORT 00586910.c:50-52].
     bool window_open = false;
     int live = 0;                     // [0x75ae64]: the live kind-1 objects (the debris throttle)
     // The bounce stain FUN_0058a900(&pos, 0.75, 0.9) with the piece's colour (its draws are the callee's).

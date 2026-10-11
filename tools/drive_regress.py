@@ -1776,7 +1776,7 @@ CASES.update({
         drive="4:saveload;8:opt=OneHitKill=1;20:actors;21:stats;30:hurt=60;31:opt=DamageTaken=0;"
               "41:every=12,300,nearest=;42:every=12,300,atk;400:stats;410:quit",
         expect=["id 14 cast 14 enemy hp 60", "id 19 cast 19 enemy hp 112", "hp 60/60 sp 59",
-                "Chr_Damage player atk 60 -> HP 38", "defeated 1 (6 left)", "hp 38/60 sp 75"]),
+                "Chr_Damage player atk 60 -> HP 38", "defeated 1 (6 left)", "hp 38/60 sp 77"]),   # 77 since FIX_SLOTS S6 (was 75): a 2-SP drop in reach is collected under the window's Fix(0) held from t98
     # STATUS_AILMENTS.md (issue #60): poison 900 ticks, a 1-HP tick each 120 (max(1, 60 / 150)) with the magenta
     # number; heavy walks (3.36 in 60 ticks, a run does 9.4); confuse reverses the stick (back to the start);
     # curse lands and the Blue Necklace (accessory 55) ends it on the next tick.
@@ -2414,6 +2414,18 @@ CASES.update({
         room="S_10/S_1002/S_1002", env=_LOCK,
         drive="20:near=17;39:run=@itemcannotuse;41:chr=17;100:chr=17;101:scripts;160:quit",
         expect=["slot 1 taken: 0/1", "[chr] 17", "motion -1 aso 1/1/3", "[chr] 17", "motion -1 aso 1/1/3", "frozen 1 fix 0/1"]),
+    # FIX_SLOTS.md S6: the GoXx pool runs under a Fix. A gold piece dropped at t20 goes on falling under the Fix(1)
+    # taken at t23 (it hung at age 3 for the whole Fix) and is collected under it when Toal is put by it at t90
+    # (SP 59 -> 60, its popup): the pickup's step and collect read no fix counter [EXPORT 00584f90.c, 005856c0.c,
+    # 00585ff0.c].
+    "drop_falls_fix1": dict(
+        room="S_10/S_1009/S_1009", char="3", env=_LOCK,
+        drive="20:drop=120;21:at=6.0,7.87,270;23:run=@itemcannotuse;26:pickups;60:pickups;90:at=0.6,7.87,270;100:pickups;"
+              "101:stats;102:scripts;110:quit",
+        expect=["slot 1 taken: 0/1", "[pickup] id 120 pos (0.13, 2.67, 7.81) ground 2.020 rest 0 age 6",
+                "[pickup] id 120 pos (0.47, 2.07, 7.85) ground 2.020 rest 0 age 40", "t100 pickups", "sp 60",
+                "frozen 1 fix 0/1 popups 1"],
+        count={"[pickup] id 120": 2}),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:
