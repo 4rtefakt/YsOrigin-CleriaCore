@@ -901,7 +901,7 @@ static bool fx_debug_skip(int id, int em) {
 
 static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::path& asset_root,
                                    const std::function<const SpriteTex*(std::uint32_t)>& tex_of,
-                                   WGPUTextureView color, WGPUTextureView depth) {
+                                   WGPUTextureView color, WGPUTextureView depth, bool early) {
     static std::unordered_map<int, fs::path> names;           // EFTMESH.DAT id -> YMO
     static bool names_read = false;
     if (!names_read) {
@@ -919,11 +919,20 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
         }
     }
     static std::unordered_map<int, Room> models;              // id -> uploaded YMO (empty = failed)
+    // The particle's render layer (FUN_0044ef00 [EXPORT 0044ef00.c:24-45]): 12 (10 with fx+0x1da, 13 with
+    // fx+0x1dc & 0x20), but **4** for a mesh whose model header (+8) has flag 0x80 -- 46 of the 153 effect meshes
+    // [DATA]: the solid ones (rocks, blades, spikes, Dalles's death shards). Layer 4 is drawn with the room's
+    // opaque objects, before the actors and before the glare's source is taken; `early` selects those.
+    static std::unordered_map<int, bool> layer4;
     auto model_of = [&](int id) -> const Room* {
         auto it = models.find(id);
         if (it == models.end()) {
             Room r;
             auto nt = names.find(id);
+            if (nt != names.end() && fs::exists(nt->second)) {
+                const std::vector<std::uint8_t> hb = read_bytes(nt->second);
+                layer4[id] = hb.size() >= 12 && (hb[8] & 0x80) != 0;
+            }
             const double t0 = g_prof.on ? prof_ms() : 0.0;
             if (nt != names.end() && fs::exists(nt->second)) r = load_model(g, asset_root, nt->second);
             prof_load("effect mesh", nt != names.end() ? nt->second.filename().string() : std::string("?"), t0);
@@ -935,7 +944,11 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
     // (one indexed draw per particle and subset, in the old order). It used to be expanded triangle by triangle:
     // 2436 vertices for each of Dalles's death meshes, 66 of them at once.
     struct MeshDraw { WGPUBuffer ibuf; std::uint32_t first, count; std::int32_t base; };
-    struct Bucket { std::vector<RoomVertex> v; WGPURenderPipeline pipe{}; WGPUBindGroup bind{}; std::vector<MeshDraw> draws{}; };
+    // `glare`: an opaque material's glare amount (int)(d13 x a) >= 1 -- the draw writes the constant
+    // max(0x100 - g, 2) / 255 as the glare mask instead of its texture's alpha, as draw() does for the room
+    // [EXPORT 005f92b0.c:571-585]. Dalles's death shards (EFTMESH 26, d13 = 300) are such a material: without it
+    // they drew as flat grey wedges with no glow (issue #84).
+    struct Bucket { std::vector<RoomVertex> v; WGPURenderPipeline pipe{}; WGPUBindGroup bind{}; std::vector<MeshDraw> draws{}; int glare = 0; };
     std::vector<Bucket> opaque, blended;
     // Each subset's vertex span [lo, hi) and its usable index count (whole triangles before a bad index), per model.
     struct Span { std::uint32_t lo = 0, hi = 0, count = 0; };
@@ -967,7 +980,7 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
         if (!(flags & 0x200) || (flags & 0x400)) continue;
         if (fx_debug_skip(p.fx->id, p.em)) continue;
         const Room* m = model_of(E.b2[0x18]);
-        if (!m) continue;
+        if (!m || layer4[E.b2[0x18]] != early) continue;
         float a = float(p.diffuse >> 24) / 255.0f;
         a = a > 0.985f ? 1.0f : (a < 0.015f ? 0.0f : a);
         if (a <= 0.0f) continue;                                  // FUN_005faca0: nothing above 0
@@ -989,10 +1002,15 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
             if (over && mat_i < 8) bind = over->bind;
             ++mat_i;
             const bool cull = material_cull(bt);
-            const WGPURenderPipeline pipe = mode == 0 ? (cull ? g.cull_pipeline : g.pipeline)
-                                                      : (cull ? g.cull_mat_pipe : g.mat_pipe)[mode][material_zwrite(bt) ? 1 : 0];
+            const int glare = mode == 0 && g.glare_pipe ? int(float(bt.alpha_ref) * a) : 0;
+            const WGPURenderPipeline pipe = glare >= 1 ? (cull ? g.cull_glare_pipe : g.glare_pipe)
+                                            : mode == 0 ? (cull ? g.cull_pipeline : g.pipeline)
+                                                        : (cull ? g.cull_mat_pipe : g.mat_pipe)[mode][material_zwrite(bt) ? 1 : 0];
             std::vector<Bucket>& list = mode == 0 ? opaque : blended;
-            if (list.empty() || list.back().pipe != pipe || list.back().bind != bind) list.push_back({{}, pipe, bind});
+            if (list.empty() || list.back().pipe != pipe || list.back().bind != bind || list.back().glare != glare) {
+                list.push_back({{}, pipe, bind});
+                list.back().glare = glare;
+            }
             const Span& sp = msp[std::size_t(&bt - m->mesh.batches.data())];
             if (sp.count == 0) continue;
             std::vector<RoomVertex>& out = list.back().v;
@@ -1041,6 +1059,10 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
             rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
             WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
             wgpuRenderPassEncoderSetPipeline(pass, bk.pipe);
+            if (bk.glare >= 1) {
+                const WGPUColor k = {0, 0, 0, double(std::max(0x100 - bk.glare, 2)) / 255.0};
+                wgpuRenderPassEncoderSetBlendConstant(pass, &k);
+            }
             wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
             wgpuRenderPassEncoderSetBindGroup(pass, 1, bk.bind, 0, nullptr);
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, kept, voff, vsize);
@@ -1068,7 +1090,7 @@ static void draw_eftmesh_particles(Gpu& g, const ef2sim::System& sim, const fs::
 //    every segment shows the whole frame (it used to spread one frame once around the ring).
 static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& asset_root,
                            const EftTex& eft, WGPUTextureView color, WGPUTextureView depth,
-                           const Vec3& camFwd, const Vec3& camPos) {
+                           const Vec3& camFwd, const Vec3& camPos, bool layer4_only = false) {
     if (sim.particles().empty()) return;
     static std::unordered_map<std::uint32_t, SpriteTex> texs;   // tex_id -> texture (empty = failed)
     auto tex_of = [&](std::uint32_t id) -> const SpriteTex* {
@@ -1086,7 +1108,8 @@ static void draw_particles(Gpu& g, const ef2sim::System& sim, const fs::path& as
         }
         return it->second.bind ? &it->second : nullptr;
     };
-    draw_eftmesh_particles(g, sim, asset_root, tex_of, color, depth);
+    draw_eftmesh_particles(g, sim, asset_root, tex_of, color, depth, layer4_only);
+    if (layer4_only) return;
     const Vec3 up = {0, 1, 0};
     const Vec3 right = normalize(cross(up, camFwd));
     const Vec3 cam_up = cross(camFwd, right);                // the camera's up (0x7961b0 row 1)

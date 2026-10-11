@@ -9169,6 +9169,7 @@ title_again:
         prof("draw:room1");
         video_world_begin(g, cw, ch, view, depth);       // Render scale: the world's own target (view_video.inl)
         draw(g, room, view, depth, 1);                     // render layers 3 / 5 (layer 0xb below)
+        draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward(), cam.pos, true);   // the effect meshes of layer 4
         draw_decals(view, depth, cam.pos);                 // the blood splats on the floor (view_weather.inl)
         // Character billboard (play mode only; fly is a free debug camera). Draw the floor
         // shadow first, on the actual floor under the player (so it stays put during a jump).
