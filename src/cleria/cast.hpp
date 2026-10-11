@@ -137,6 +137,7 @@ struct Cast {
     // record 13 (the player) carries bespoke values; 168-169 casts share the defaults.
     float radius_base = 0;  // +0x34
     float height_base = 0;  // +0x38
+    float shadow_size = 0;  // +0x3c -> actor+0x144: the round shadow's half-width [EXPORT 00459410.c:61]
     float speed_base = 0;   // +0x48
     // The hurt body (victim record +0x60, build/ai_spec/HITVOLUME.md §4): radius, cylinder
     // half-height, shape (0 sphere, else a vertical cylinder), centred +0x54 off the origin.

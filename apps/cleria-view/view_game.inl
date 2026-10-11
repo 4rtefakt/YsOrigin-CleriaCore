@@ -110,6 +110,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     if (!flames.init(g, asset_root))
         std::fprintf(stderr, "flames: NAGA01.DDS failed to load\n");
     ShadowFx shadows;                    // floor shadow decals under characters
+    ShadowFrame shadow_frame;            // this frame's actor shadows (view_sprites.inl)
     EnemyBars enemy_bars;                // the optional bars over ordinary enemies (CleriaCore's own; enemybar.hpp)
     std::vector<Emotion> emotions;       // op 0x148's GoEmotion bubbles (pool 3)
     SpriteTex emotion_tex;               // IMAGE/EMOTION.DDS, 8 x 4 cells of 32 x 32
@@ -9172,13 +9173,37 @@ title_again:
         // Character billboard (play mode only; fly is a free debug camera). Draw the floor
         // shadow first, on the actual floor under the player (so it stays put during a jump).
         prof("draw:player+pickups");
+        g_shadow_level = std::clamp(int(settings().s.graphics.shadow_effect_level), 0, 2);
+        shadow_frame.room = &room; shadow_frame.eye = cam.pos; shadow_frame.fwd = cam.forward();
+        shadow_frame.has_player = !fly; shadow_frame.player = {feet.x, feet.y + kOriginH, feet.z};
+        shadow_frame.decals = shadow_frame.tris = shadow_frame.quads = 0;
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex) {
-            const float sfl = floor_at(phys_mesh(room), feet.x, feet.z, feet.y + 0.5f);
+            int ftri = -1;
+            const RoomMesh& pm_ = phys_mesh(room);
+            const float sfl = floor_at(pm_, feet.x, feet.z, feet.y + 0.5f, &ftri);
             const Actor* wpl = world.player();
-            if (!wpl || !(wpl->flags12c & 1u))          // Chr_Shadow(13, 0)
-                draw_shadow(g, view, depth, shadows.tex, feet,
-                            (sfl > kNoFloor ? sfl : feet.y), 0.6f);
             const float palpha = wpl ? wpl->ai.alpha : 1.0f;   // Chr_Alpha(13, ...) (+0x4d8)
+            // The player's shadow (SHADOWS.md 2): queued when (+0x12c & 1) == 0 (Chr_Shadow(13, 0)) and +0x4d8 != 0.
+            if ((!wpl || !(wpl->flags12c & 1u)) && palpha != 0.0f) {
+                Vec3 fn{0, 1, 0};                              // +0x298: the floor triangle's normal
+                if (ftri >= 0 && std::size_t(ftri) * 3 + 2 < pm_.indices.size()) {
+                    const RoomVertex& p0 = pm_.vertices[pm_.indices[std::size_t(ftri) * 3]];
+                    const RoomVertex& p1 = pm_.vertices[pm_.indices[std::size_t(ftri) * 3 + 1]];
+                    const RoomVertex& p2 = pm_.vertices[pm_.indices[std::size_t(ftri) * 3 + 2]];
+                    Vec3 c = cross(Vec3{p1.px - p0.px, p1.py - p0.py, p1.pz - p0.pz}, Vec3{p2.px - p0.px, p2.py - p0.py, p2.pz - p0.pz});
+                    const float cl = std::sqrt(c.x * c.x + c.y * c.y + c.z * c.z);
+                    if (cl > 1e-9f) fn = c.y < 0 ? Vec3{-c.x / cl, -c.y / cl, -c.z / cl} : Vec3{c.x / cl, c.y / cl, c.z / cl};
+                }
+                const float fy = sfl > kNoFloor ? sfl : feet.y;
+                const std::uint32_t pt = wpl ? wpl->tint : 0xffffffffu;
+                shadow_actor(g, view, depth, shadows.tex, shadow_frame, feet, fy,
+                             casts.casts.size() > std::size_t(kPlayerCast) ? casts.casts[std::size_t(kPlayerCast)].shadow_size : 0.6f,
+                             (wpl ? wpl->tint_alpha : 1.0f) * float(pt >> 24) / 255.0f,
+                             shadow_decal_ok(shadow_frame, {feet.x, fy + 0.05f, feet.z}, true, wpl ? wpl->flags12c : 0u,
+                                             sfl > kNoFloor && feet.y - sfl <= 8.0f),   // +0x2b8: the player's ray is 8 long
+                             fn);
+                shadow_flush(g, view, depth, shadows.tex, shadow_frame);
+            }
             if (palpha > 0.0f)
                 draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos,
                                0.0f, g_scene_light.x, g_scene_light.y, g_scene_light.z, false, palpha,   // diffuse x the scene light
@@ -9259,7 +9284,8 @@ title_again:
             }
         }
         prof("draw:enemies");
-        draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex);
+        draw_enemies(g, view, depth, efx, render, cam.forward(), cam.pos, fx_time, shadows.tex, &shadow_frame, &casts);
+        g_shadow_stat[0] = shadow_frame.decals; g_shadow_stat[1] = shadow_frame.tris; g_shadow_stat[2] = shadow_frame.quads;
         video_glare_grab(g);                             // after layer 6: the glare's source (view_video.inl)
         prof("draw:room2+flames");
         video_water_grab(g);                             // before layer 0xb: what the water shows (view_video.inl)

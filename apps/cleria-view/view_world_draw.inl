@@ -327,7 +327,7 @@ static std::vector<EnemyRender> build_enemy_render(ActorWorld& world,
 static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                          EnemyFx& fx, const std::vector<EnemyRender>& list,
                          const Vec3& camFwd, const Vec3& camPos, float t_anim,
-                         const SpriteTex& shadow) {
+                         const SpriteTex& shadow, ShadowFrame* sf = nullptr, const CastTable* casts = nullptr) {
     constexpr float kEnemyAnimFps = 8.0f;   // TUNED: real rate is per-enemy ASO Wait
     // Screen basis, matching the player's facing calibration: horizontal camera forward
     // (screen-up) and its right. The enemy's heading is mapped into this basis so the
@@ -336,6 +336,27 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     const float fl = std::sqrt(fwdH.x * fwdH.x + fwdH.z * fwdH.z);
     if (fl > 1e-4f) { fwdH.x /= fl; fwdH.z /= fl; }
     const Vec3 rt = normalize(cross(Vec3{0, 1, 0}, fwdH));
+    // With a ShadowFrame (the game frame): every shadow first, by SHADOWS.md 2 -- retail draws them on layer 8,
+    // the bodies after -- then the decals, then the sprites. Without one (headless): the old flat disc per enemy.
+    if (sf) {
+        {
+            QuadScope quads(g);
+            for (const EnemyRender& e : list) {
+                if (!e.actor || (e.actor->is_enemy() && !e.actor->alive() &&
+                                 (e.actor->destroy_requested() || !revive::corpse_drawn(*e.actor)))) continue;
+                // FUN_00473540 queues the shadow when (+0x12c & 1) == 0 and +0x4d8 != 0 [BYTES 0x47385f..0x47387f].
+                if (!e.actor->visible || e.actor->ai.alpha <= 0.0f || !fx.kinds.count(e.stem) || (e.actor->flags12c & 1u)) continue;
+                const Actor& a = *e.actor;
+                const float fy = a.flyer ? a.floor_y : a.pos.y;
+                const float size = casts && a.cast_id >= 0 && std::size_t(a.cast_id) < casts->casts.size()
+                                       ? casts->casts[std::size_t(a.cast_id)].shadow_size : 0.6f;
+                // [approx] +0x2b8 (floor within 4 below) from the kept floor height; an enemy's quad is not tilted.
+                shadow_actor(g, color, depth, shadow, *sf, a.pos, fy, size, a.tint_alpha * float(a.tint >> 24) / 255.0f,
+                             shadow_decal_ok(*sf, {a.pos.x, fy + 0.05f, a.pos.z}, false, a.flags12c, a.pos.y - fy <= 4.0f));
+            }
+        }
+        shadow_flush(g, color, depth, shadow, *sf);
+    }
     QuadScope quads(g);                    // every shadow and sprite below in one pass (view_sprites.inl)
     for (const EnemyRender& e : list) {
         // Skip DEAD ENEMIES only. Cutscene NPCs (Shion/Roy/…) are non-enemy actors that
@@ -352,7 +373,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         if (it == fx.kinds.end()) continue;
         EnemyFx::Kind& k = it->second;
         // Floor shadow first (enemies are grounded, so pos.y is the floor).
-        if (!(e.actor->flags12c & 1u))                 // +0x12c bit 1: no shadow (Chr_Shadow 0x153)
+        if (!sf && !(e.actor->flags12c & 1u))          // +0x12c bit 1: no shadow (Chr_Shadow 0x153)
         draw_shadow(g, color, depth, shadow, e.actor->pos,
                     e.actor->flyer ? e.actor->floor_y : e.actor->pos.y, 0.6f);   // flyers: on the floor
         // Facing: the enemy's heading (yaw, vx=sin/vz=cos convention) mapped to the same

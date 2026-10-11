@@ -908,6 +908,18 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
             persist();
         }
     }
+    {   // [graphics] ShadowEffectLevel (0x765198): shadow_actor (view_sprites.inl), read every frame
+        static const char* kShadow[] = {"Simple", "Player", "Full"};
+        int sl = std::clamp(int(gr.shadow_effect_level), 0, 2);
+        if (ui::choice(L, "Shadows", &sl, kShadow, 3,
+                       "The round shadow under each character. Full (the original's default): it lies on the steps "
+                       "and slopes it falls on. Player: only yours does; the others are flat discs. Simple: all are "
+                       "flat discs. The bosses' own shadows and Toal's afterimages are not drawn yet. (Original: "
+                       "Shadows.)")) {
+            gr.shadow_effect_level = sl;
+            persist();
+        }
+    }
     {   // [graphics] WaterEffectLevel (0x765199): video_water_grab, draw()'s water path
         static const char* kWater[] = {"Off", "Low", "High"};
         int wl = std::clamp(int(gr.water_effect_level), 0, 2);
@@ -1013,16 +1025,11 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
     // not editable here).
     ui::section(L, "Not available yet");
     {
-        auto lvl = [](int x) { static const char* k[] = {"Off", "Low", "High"}; return std::string(k[std::clamp(x, 0, 2)]); };
         auto onoff = [](bool x) { return std::string(x ? "On" : "Off"); };
         auto row = [&](const char* label, const char* value, const char* what, const std::string& saved) {
             const std::string d = std::string(what) + " Saved for the original game: " + saved + ".";
             ui::choice_label(L, label, value, d.c_str(), false);
         };
-        row("Shadows", "Flat",
-            "Shadow detail (Original: Shadows): round shadows that follow steps and slopes, the bosses' own shadows, "
-            "the length of Toal's afterimage trail. Not available yet: CleriaCore draws every shadow as a flat disc.",
-            lvl(gr.shadow_effect_level));
         row("Other simplification", "Off",
             "A lighter version of the final boss's room for slow PCs (Original: Other Simplification). Not available "
             "yet.", onoff(gr.other_light_weight_mode != 0));
@@ -1071,6 +1078,7 @@ static bool video_drive(const std::string& cmd) {
         else if (k == "GlareEffectLevel") gr.glare_effect_level = std::clamp(int(x), 0, 2);
         else if (k == "WaterCaustics") g_caustic.off = (gr.water_caustics = x != 0) != 0;
         else if (k == "WaterEffectLevel") gr.water_effect_level = std::clamp(int(x), 0, 2);
+        else if (k == "ShadowEffectLevel") gr.shadow_effect_level = std::clamp(int(x), 0, 2);
         else if (k == "Anisotropy") { gr.anisotropy = std::clamp(int(x), 1, 16); video_resample(); }
         else if (k == "Preset") { graphics_preset(std::clamp(int(x), 0, 3), settings().s); video_resample(); video_low_res(); video_mips(); }
         else if (k == "LowResoTexture") { gr.low_reso_texture = x != 0; video_low_res(); }
@@ -1105,6 +1113,8 @@ static bool video_drive(const std::string& cmd) {
         if (g_low_res_textures) std::printf("  [video] low-resolution textures on\n");
         std::printf("  [video] caustics room %d off %d frame %d scroll %.4f %.5f\n", int(g_caustic.room()), int(g_caustic.off),
                     g_caustic.frame, double(g_caustic.sx), double(g_caustic.sy));
+        std::printf("  [video] shadows level %d decals %d (%d triangles) quads %d\n", g_shadow_level, g_shadow_stat[0],
+                    g_shadow_stat[1], g_shadow_stat[2]);
         std::printf("  [video] water level %d surfaces %d grab %ux%u phase %.2f\n", int(settings().s.graphics.water_effect_level),
                     int(g_water.want), g_water.on ? g_vgpu.grab_w : 0u, g_water.on ? g_vgpu.grab_h : 0u, double(g_water.phase));
         return true;

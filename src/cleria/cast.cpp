@@ -49,6 +49,7 @@ CastTable CastTable::load(const fs::path& path) {
         std::memcpy(&c.cast_id, b.data() + o + 0x60, 4);
         std::memcpy(&c.radius_base, b.data() + o + 0x34, 4);
         std::memcpy(&c.height_base, b.data() + o + 0x38, 4);
+        std::memcpy(&c.shadow_size, b.data() + o + 0x3C, 4);
         std::memcpy(&c.speed_base, b.data() + o + 0x48, 4);
         std::memcpy(&c.lift, b.data() + o + 0x44, 4);
         std::memcpy(&c.hurt_radius, b.data() + o + 0x30, 4);

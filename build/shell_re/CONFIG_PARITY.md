@@ -151,9 +151,9 @@ level 2, `+0x268` at 2 [EXPORT 005043e0.c:104-112]; the attached object only at 
 kept (`FUN_00459410` [EXPORT 00459410.c:419-427], `FUN_0045c490`) and drawn as (N − 1) × 6 additive copies of
 the sprite quad (`FUN_00474870`).
 
-CleriaCore: `draw_shadow` draws a flat quad of `SHADOW0.DDS` (level 0's shape, without the tilt and the d²
-terms); no floor-following decal, no boss shadow, no trail. The slider has nothing to scale, so there is no row.
-[UNKNOWN] what sets `+0x2b8`.
+Superseded by `build/render_re/SHADOWS.md` (2026-10-11; its §9 lists what is wrong above: the fade is linear in the
+distance, the range test is against the camera's eye, the triangles are the render model's, nothing is clipped).
+Built from it: (a), with the Shadows row. Not built: (b) and (c).
 
 ## 7. Language
 
@@ -264,7 +264,7 @@ happens only when it changes one of the two options.
 ## 11. Open (the checklist on issue #85)
 
 - Language: the exe-embedded strings / tables per language; Japanese; a check with a real `data_sp/fr/de/it`.
-- Options whose feature CleriaCore does not have yet (no switch until it does): Shadows (#86), the true reflection
+- Options whose feature CleriaCore does not have yet (no switch until it does): the bosses' shadows and Toal's trail (#86), the true reflection
   and the mirror floor (#9), Other Simplification (#88), Increase Text Resolution off (#89).
 - Stretch Widescreen for the 2D layers (VIDEO.md §2.3).
 

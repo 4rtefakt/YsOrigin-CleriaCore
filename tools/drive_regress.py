@@ -2408,6 +2408,13 @@ CASES.update({
               "31:vopt=WaterEffectLevel=2;40:vstat;41:quit",
         expect=["[video] water level 2 surfaces 1 grab 1280x800", "[video] water level 1 surfaces 1 grab 640x400",
                 "[video] water level 0 surfaces 0 grab 0x0"]),
+    # Video: the actors' round shadows (SHADOWS.md 2). Full lays the shadow of every actor in range on the room's
+    # triangles (decals), Player only the player's, Simple draws flat quads; switched while the game runs.
+    "shadow_levels": dict(
+        room="S_60/S_6015/S_6015",
+        drive="30:vstat;31:vopt=ShadowEffectLevel=1;35:vstat;36:vopt=ShadowEffectLevel=0;40:vstat;41:quit",
+        expect=["[video] shadows level 2 decals 2 (16 triangles) quads 28", "[video] shadows level 1 decals 1 (8 triangles) quads 29",
+                "[video] shadows level 0 decals 0 (0 triangles) quads 30"]),
     "caustics_dry_room": dict(
         room="S_10/S_1009/S_1009", drive="10:vstat;11:quit",
         expect=["[video] caustics room 0 off 0", "[video] water level 2 surfaces 0 grab 0x0"]),

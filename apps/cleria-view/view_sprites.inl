@@ -390,6 +390,189 @@ static void draw_shadow(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     draw_quad(g, color, depth, g.shadow_pipeline, shadow.bind, verts);
 }
 
+// ---- the actors' round shadow (build/render_re/SHADOWS.md 2) ----------------------------------------
+// FUN_00474e10: per actor, either the flat quad FUN_00456da0 or -- [graphics] ShadowEffectLevel 1 for the
+// player, 2 for every actor in range -- the same texture laid on the room's own triangles (FUN_00456740), so
+// the shadow follows steps and slopes. Both fade and shrink with the actor's height above its shadow.
+// [not modelled] the fog of state 0x20641, a coloured +0x290, the light2 under-glow (+0x130 & 0x40000), the
+// veto of the object an actor stands on (+0x554), the moving map objects' own matrices (their triangles are
+// found where the room was last built); [approx] the depth offset (0.5% toward the eye, as the blood decals).
+static int g_shadow_level = 2;          // 0x765198, retail's default
+static int g_shadow_stat[3] = {0, 0, 0};   // the last frame's decals, decal triangles, quads (vstat)
+struct ShadowFrame {
+    const Room* room = nullptr;
+    Vec3 eye{}, fwd{};                  // the camera's eye (0x7b33f4) and forward axis (0x795f50)
+    bool has_player = false;
+    Vec3 player{};                      // the player's position (+0x50)
+    std::vector<RoomVertex> decal;      // this frame's decal triangles, drawn by shadow_flush
+    int decals = 0, tris = 0, quads = 0;
+};
+// FUN_00474cd0 [BYTES 0x474cd0..0x474e07]: the decal when +0x12c bit 2 is clear, the level allows this actor,
+// the mover found floor within 4 (the player: 8) below it (+0x2b8), and the shadow point is within 15 of the
+// player or 36 of the camera's eye.
+static bool shadow_decal_ok(const ShadowFrame& sf, const Vec3& B, bool is_player, std::uint32_t flags12c, bool floor_near) {
+    if ((flags12c & 2u) || g_shadow_level == 0 || (g_shadow_level < 2 && !is_player) || !floor_near) return false;
+    auto d2 = [&](const Vec3& p) { return (B.x - p.x) * (B.x - p.x) + (B.y - p.y) * (B.y - p.y) + (B.z - p.z) * (B.z - p.z); };
+    return (sf.has_player && d2(sf.player) < 225.0f) || d2(sf.eye) < 1296.0f;       // 0x6bdbe4, 0x6bded0
+}
+// FUN_00456740 + FUN_004558c0 (the actor variant): the room's triangles near the vertical through B, whole,
+// with u = (x + s) / 2s, v = 1 - (z + s) / 2s of the offset from B (the sampler clamps; the texture's border is
+// clear). Source: the materials FUN_005610e0 keeps (flags & 0x800000, or no flag of 0x8051 and an alpha above
+// 0.75 [BYTES 0x56132c..0x561353]). A floor (normal y > cos 75 deg) is kept unless all of it is 0.75 or more
+// above B; anything else only when all of it is within -0.75 .. +0.95 of B. 341 triangles a shadow.
+// [approx] a grid over the room's triangles stands for retail's AABB tree (a superset walk gives the same
+// picture below the cap); the turn by the camera yaw is left out (the texture is round); a triangle's normal is
+// its vertices' mean.
+static void shadow_decal(ShadowFrame& sf, const Vec3& B, float s, float a) {
+    struct Grid { WGPUBuffer key = nullptr; std::size_t nidx = 0; float x0 = 0, z0 = 0; int nx = 0, nz = 0;
+                  std::vector<std::uint32_t> start, tris, stamp; std::uint32_t serial = 0; };
+    static Grid gr;
+    constexpr float kCell = 2.0f;
+    const RoomMesh& m = sf.room->mesh;
+    const auto& vs = m.vertices;
+    const auto& is = m.indices;
+    if (gr.key != sf.room->vbuf || gr.nidx != is.size()) {
+        gr.key = sf.room->vbuf; gr.nidx = is.size();
+        gr.x0 = m.bmin.x; gr.z0 = m.bmin.z;
+        gr.nx = std::clamp(int((m.bmax.x - m.bmin.x) / kCell) + 1, 1, 512);
+        gr.nz = std::clamp(int((m.bmax.z - m.bmin.z) / kCell) + 1, 1, 512);
+        auto cell = [&](float v, float o, int n) { return std::clamp(int((v - o) / kCell), 0, n - 1); };
+        std::vector<std::uint32_t> count(std::size_t(gr.nx) * gr.nz + 1, 0);
+        for (int pass = 0; pass < 2; ++pass) {
+            for (const DrawBatch& b : m.batches) {
+                if (!((b.mat_flags & 0x800000u) || ((b.mat_flags & 0x8051u) == 0 && b.mat_alpha > 0.75f))) continue;
+                for (std::uint32_t k = b.first_index; k + 2 < b.first_index + b.index_count && k + 2 < is.size(); k += 3) {
+                    if (is[k] >= vs.size() || is[k + 1] >= vs.size() || is[k + 2] >= vs.size()) continue;
+                    const RoomVertex& p = vs[is[k]]; const RoomVertex& q = vs[is[k + 1]]; const RoomVertex& r = vs[is[k + 2]];
+                    const int cx0 = cell(std::min({p.px, q.px, r.px}), gr.x0, gr.nx), cx1 = cell(std::max({p.px, q.px, r.px}), gr.x0, gr.nx);
+                    const int cz0 = cell(std::min({p.pz, q.pz, r.pz}), gr.z0, gr.nz), cz1 = cell(std::max({p.pz, q.pz, r.pz}), gr.z0, gr.nz);
+                    for (int cz = cz0; cz <= cz1; ++cz)
+                        for (int cx = cx0; cx <= cx1; ++cx) {
+                            const std::size_t c = std::size_t(cz) * gr.nx + cx;
+                            if (pass == 0) ++count[c + 1]; else gr.tris[gr.start[c] + count[c]++] = k;
+                        }
+                }
+            }
+            if (pass == 0) {
+                for (std::size_t c = 1; c < count.size(); ++c) count[c] += count[c - 1];
+                gr.start = count;
+                gr.tris.assign(count.back(), 0);
+                std::fill(count.begin(), count.end(), 0u);
+            }
+        }
+        gr.stamp.assign(is.size() / 3 + 1, 0);
+        gr.serial = 0;
+    }
+    if (s <= 0.0f || gr.tris.empty()) return;
+    const float r = s * 1.41421f + 0.01f;
+    auto cell = [&](float v, float o, int n) { return std::clamp(int((v - o) / kCell), 0, n - 1); };
+    const int cx0 = cell(B.x - r, gr.x0, gr.nx), cx1 = cell(B.x + r, gr.x0, gr.nx);
+    const int cz0 = cell(B.z - r, gr.z0, gr.nz), cz1 = cell(B.z + r, gr.z0, gr.nz);
+    ++gr.serial;
+    const float opacity_nx = 1.0f - std::clamp(a, 0.0f, 1.0f), k = 0.5f / s;
+    int emitted = 0;
+    for (int cz = cz0; cz <= cz1 && emitted < 341; ++cz)
+        for (int cx = cx0; cx <= cx1 && emitted < 341; ++cx) {
+            const std::size_t c = std::size_t(cz) * gr.nx + cx;
+            for (std::uint32_t t = gr.start[c]; t < gr.start[c + 1] && emitted < 341; ++t) {
+                const std::uint32_t i0 = gr.tris[t];
+                if (gr.stamp[i0 / 3] == gr.serial) continue;
+                gr.stamp[i0 / 3] = gr.serial;
+                const RoomVertex* v[3] = {&vs[is[i0]], &vs[is[i0 + 1]], &vs[is[i0 + 2]]};
+                float u[3], w[3], dy[3];
+                for (int i = 0; i < 3; ++i) {
+                    u[i] = (v[i]->px - B.x + s) * k; w[i] = (v[i]->pz - B.z + s) * k; dy[i] = v[i]->py - B.y;
+                }
+                if ((u[0] < 0 && u[1] < 0 && u[2] < 0) || (u[0] > 1 && u[1] > 1 && u[2] > 1) ||
+                    (w[0] < 0 && w[1] < 0 && w[2] < 0) || (w[0] > 1 && w[1] > 1 && w[2] > 1)) continue;
+                float ny = 0;
+                for (int i = 0; i < 3; ++i) ny += v[i]->ny >= -1.5f ? v[i]->ny : 1.0f;     // (a specular rides in ny)
+                if (ny / 3.0f > 0.258819f) {                                              // 0x6bd24c
+                    if (dy[0] >= 0.75f && dy[1] >= 0.75f && dy[2] >= 0.75f) continue;      // 0x6bd390
+                } else {
+                    bool in = true;
+                    for (int i = 0; i < 3; ++i) in = in && dy[i] >= -0.75f && dy[i] <= 0.95f;   // 0x6be02c, 0x6bd3f8
+                    if (!in) continue;
+                }
+                for (int i = 0; i < 3; ++i)
+                    sf.decal.push_back({v[i]->px + (sf.eye.x - v[i]->px) * 0.005f, v[i]->py + (sf.eye.y - v[i]->py) * 0.005f,
+                                        v[i]->pz + (sf.eye.z - v[i]->pz) * 0.005f, opacity_nx, 1, 0, u[i], 1.0f - w[i], 255, 255, 255, 0});
+                ++emitted;
+            }
+        }
+    sf.tris += emitted;
+}
+// One actor's shadow. A = its drawn position, the shadow point B = (A.x, floor + 0.05, A.z) [EXPORT
+// 00473540.c:66-80]; `size` = +0x144, `alpha` = the alpha of modulate(+0x290, +0x148); `n` = the floor triangle's
+// normal (+0x298). Both shapes: k = 0.025 |B - A|, alpha - k and size - k, nothing when either is below 0
+// [BYTES 0x456da0.., 0x6bd0f8]. The quad (FUN_00456da0): centred B - forward x 0.15, its corners (+-s, 0, +-s)
+// through RotationZ(-n.x pi/3) then RotationX(n.z pi/3). [approx] its turn by the camera yaw is left out.
+static void shadow_actor(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& tex, ShadowFrame& sf,
+                         const Vec3& A, float floorY, float size, float alpha, bool decal, Vec3 n = {0, 1, 0}) {
+    if (!tex.tex || size == 0.0f) return;
+    const Vec3 B{A.x, floorY + 0.05f, A.z};
+    const float k = std::fabs(B.y - A.y) * 0.025f, a = alpha - k, s = size - k;
+    if (a < 0.0f || s < 0.0f) return;
+    if (decal && sf.room) { ++sf.decals; shadow_decal(sf, B, s, a); return; }
+    if (!(n.y > 0.001f)) n = {0, 1, 0};
+    const float az = n.x * -1.0471976f, ax = n.z * 1.0471976f;                       // 0x6be05c, 0x6bd454
+    const float cz = std::cos(az), sz = std::sin(az), cx = std::cos(ax), sx = std::sin(ax);
+    const Vec3 C{B.x - sf.fwd.x * 0.15f, B.y - sf.fwd.y * 0.15f, B.z - sf.fwd.z * 0.15f};   // 0x6bd1d8
+    const float nx = 1.0f - std::clamp(a, 0.0f, 1.0f);
+    auto V = [&](float ox, float oz, float u, float v) -> RoomVertex {
+        const float x1 = ox * cz, y1 = ox * sz;                    // RotationZ on (ox, 0, oz)
+        const float y2 = y1 * cx - oz * sx, z2 = y1 * sx + oz * cx;   // RotationX
+        return {C.x + x1, C.y + y2, C.z + z2, nx, 1, 0, u, v, 255, 255, 255, 0};
+    };
+    RoomVertex verts[4] = {V(-s, -s, 0, 1), V(s, -s, 1, 1), V(s, s, 1, 0), V(-s, s, 0, 0)};
+    draw_quad(g, color, depth, g.shadow_pipeline, tex.bind, verts);
+    ++sf.quads;
+}
+// The decals of this frame so far: texture x diffuse, SRCALPHA / INVSRCALPHA, z test without z write, unculled,
+// clamped (state 0x20641, SHADOWS.md 2.5).
+static void shadow_flush(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& tex, ShadowFrame& sf) {
+    if (sf.decal.empty() || !tex.tex) { sf.decal.clear(); return; }
+    static WGPUBindGroup bind = nullptr;
+    static WGPUTextureView bound = nullptr;
+    if (bound != tex.view) {
+        WGPUSamplerDescriptor sd = {};
+        sd.addressModeU = sd.addressModeV = sd.addressModeW = WGPUAddressMode_ClampToEdge;
+        sd.magFilter = sd.minFilter = WGPUFilterMode_Linear; sd.maxAnisotropy = 1;
+        bind = tex_bindgroup(g, tex.view, wgpuDeviceCreateSampler(g.device, &sd));
+        bound = tex.view;
+    }
+    const std::uint64_t size = sf.decal.size() * sizeof(RoomVertex);
+    static WGPUBuffer vb = nullptr;
+    static std::uint64_t cap = 0;
+    if (size > cap) {
+        if (vb) wgpuBufferRelease(vb);
+        cap = size * 2;
+        WGPUBufferDescriptor bd = {};
+        bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst; bd.size = cap;
+        vb = wgpuDeviceCreateBuffer(g.device, &bd);
+    }
+    wgpuQueueWriteBuffer(g.queue, vb, 0, sf.decal.data(), size);
+    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
+    WGPURenderPassColorAttachment ca = {};
+    ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    ca.loadOp = WGPULoadOp_Load; ca.storeOp = WGPUStoreOp_Store;
+    WGPURenderPassDepthStencilAttachment da = {};
+    da.view = depth; da.depthLoadOp = WGPULoadOp_Load; da.depthStoreOp = WGPUStoreOp_Store;
+    WGPURenderPassDescriptor rp = {};
+    rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
+    wgpuRenderPassEncoderSetPipeline(pass, g.shadow_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(pass, 1, bind, 0, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, size);
+    wgpuRenderPassEncoderDraw(pass, std::uint32_t(sf.decal.size()), 1, 0, 0);
+    wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
+    wgpuQueueSubmit(g.queue, 1, &cmd);
+    wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
+    sf.decal.clear();
+}
+
 // Draw a screen-space textured quad (UI/title images) at NDC corners (l,t)-(r,b), z in [0,1].
 // Reuses the char pipeline (alpha-over, fs_char); the caller writes an IDENTITY MVP + fog off
 // beforehand so the RoomVertex positions are taken as clip space directly. `clear` starts a
