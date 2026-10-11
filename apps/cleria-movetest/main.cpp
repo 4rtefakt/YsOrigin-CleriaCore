@@ -321,6 +321,34 @@ int main() {
               !ledge_exempt(5009, 44.0f, 42.0f), "ledge: byte +0x500 inside the floor-5 rectangles (S_5005 x2, S_5007, S_5012)");
     }
 
+    {   // The kerb ride (SWEEP_PUSHOUT.md §0.2-0.4): the sphere (r 0.675, origin 1.075 over the feet) at an edge below
+        // its centre, with the settle's 65 % pull of the origin back to its floor each tick.
+        const float r = 0.675f, H = 1.075f;
+        const KerbStep one = kerb_ride(std::sqrt(r * r - 0.325f * 0.325f), 0.157f, 0.325f, r);   // a 0.75 kerb, at the contact
+        check(near(one.lift, 0.157f * 0.5916f * 0.325f / (r * r)) && near(std::sqrt(r * r - 0.325f * 0.325f) - one.d, 0.157f * 0.325f * 0.325f / (r * r)),
+              "kerb: a swept contact slides the move on the tangent (forward x a^2 / r^2, up x d a / r^2)");
+        const KerbStep emb = kerb_ride(0.3f, 0.0f, 0.325f, r);
+        check(near(std::sqrt(emb.d * emb.d + (0.325f + emb.lift) * (0.325f + emb.lift)), r) && near(emb.d / (0.325f + emb.lift), 0.3f / 0.325f),
+              "kerb: an embedded edge pushes the sphere out along centre - edge by the depth");
+        check(near(kerb_ride(1.0f, 0.157f, 0.7f, r).d, 0.843f) && near(kerb_ride(1.0f, 0.157f, -0.1f, r).d, 0.843f) && kerb_ride(1.0f, 0.157f, 0.7f, r).lift == 0.0f,
+              "kerb: under the sphere's bottom (a >= r) or over its centre (a <= 0) there is no ride");
+        auto climb = [&](float h, float v) {            // ticks to stand on a kerb h high, 0 = never
+            float d = r + 0.3f, L = 0.0f;
+            for (int t = 1; t < 400; ++t) {
+                const KerbStep k = kerb_ride(d, v, H + L - h, r);
+                d = k.d; L += k.lift;
+                const float floor = d <= 0.0f ? h : 0.0f;
+                if (L < floor + 0.4f) L += (floor - L) * 0.65f;      // the settle, grounded [BYTES 0x6bd34c]
+                if (d <= -0.05f && std::fabs(L - h) < 0.02f) return t;
+            }
+            return 0;
+        };
+        std::printf("[move]   kerb at 0.157: 0.65 in %d ticks, 0.70 in %d, 0.75 in %d, 0.80 in %d; at the dash's 0.191: 0.75 in %d\n",
+                    climb(0.65f, 0.157f), climb(0.70f, 0.157f), climb(0.75f, 0.157f), climb(0.80f, 0.157f), climb(0.75f, 0.191f));
+        check(climb(0.65f, 0.157f) > 0 && climb(0.65f, 0.157f) < 20 && climb(0.70f, 0.157f) > 0 && climb(0.80f, 0.157f) == 0 &&
+              climb(1.0f, 0.157f) == 0, "kerb: 0.65 and 0.70 are ridden over at a run, 0.80 and 1.0 never");
+    }
+
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

@@ -7231,6 +7231,44 @@ title_again:
                             break;
                         }
             }
+            // On the ground, a kerb higher than the stand-in's 0.6 and lower than the sphere's centre is not a wall
+            // either: the sphere rides its top edge (kerb_ride, physics_player.hpp; SWEEP_PUSHOUT.md §0.2-0.4), slowed
+            // and lifted, and gets over while the lift outruns the settle's pull — about 0.7 at a run, as when a
+            // sinking step of S_5013 has dropped that far under its neighbour. The kerb is found ahead of the move:
+            // its top by the floor ray a radius on, its face by a ray just under the top. [approx] kerbs of 0.4..0.6
+            // (which the sphere touches too) keep the stand-in: passed at once, lifted by the settle. [approx] not in
+            // a boss's room: the bosses' hulls and floors are stand-ins tuned with the capsule (the eight fights' drive
+            // cases shifted with the ride on their parts), so they keep it until the sweep itself is ported (#14, #64).
+            const bool boss_room = boss || boss2 || boss3 || boss4 || boss5 || boss6 || boss7 || boss8;
+            if (pv.grounded && !player_hold && !boss_room) {
+                const float mx = feet.x - hx0, mz = feet.z - hz0, ml = std::sqrt(mx * mx + mz * mz);
+                if (ml > 1e-4f) {
+                    const RoomMesh& km = phys_mesh(room);
+                    const float R = pm.radius(), reach = R + ml + 0.05f;
+                    const Vec3 dir{mx / ml, 0.0f, mz / ml};
+                    const float top = floor_at(km, hx0 + dir.x * reach, hz0 + dir.z * reach, feet.y + kOriginH);
+                    const float kh = top - feet.y;
+                    Vec3 hit, kn;
+                    const Vec3 p0{hx0, top - 0.05f, hz0};
+                    if (top > kNoFloor && kh > stepUp && kh < kOriginH &&
+                        segment_hit(km, p0, {p0.x + dir.x * reach, p0.y, p0.z + dir.z * reach}, &hit, &kn) &&
+                        std::fabs(kn.y) < 0.6f) {
+                        float nl = std::sqrt(kn.x * kn.x + kn.z * kn.z);
+                        Vec3 nh{kn.x / nl, 0.0f, kn.z / nl};
+                        if (nh.x * dir.x + nh.z * dir.z > 0.0f) nh = {-nh.x, 0.0f, -nh.z};   // toward the player
+                        const float d0 = (hx0 - hit.x) * nh.x + (hz0 - hit.z) * nh.z;
+                        const float into = -(mx * nh.x + mz * nh.z);
+                        if (d0 > 0.0f && into > 0.0f) {
+                            const KerbStep ks = kerb_ride(d0, into, kOriginH - kh, R);
+                            const float adv = d0 - ks.d;                       // toward the face, this tick
+                            feet.x = hx0 + mx + (into - adv) * nh.x;
+                            feet.z = hz0 + mz + (into - adv) * nh.z;
+                            feet.y += ks.lift;
+                            wallStep = kOriginH;                              // the stand-in's capsule leaves this kerb alone
+                        }
+                    }
+                }
+            }
             { Vec3 body = {feet.x, feet.y + wallStep, feet.z};
               // The engine sweeps the tick's whole move with its sphere (FUN_0045a510 0x45b2eb), so no
               // move crosses a wall. resolve_walls only resolves an overlap: a step past the radius (a

@@ -2477,6 +2477,24 @@ CASES.update({
         expect=["[plate] step_00 -> @fall_001", "[plate] step_01 -> @fall_001", "[plate] step_03 -> @fall_001",
                 "[plate] step_04 -> @fall_001", "[plate] step_05 -> @fall_001", "[plate] step_06 -> @fall_001",
                 "t470 pos", "feet (-90.371, 0.000, 42.000)"]),
+    # The kerb ride (SWEEP_PUSHOUT.md §0.2-0.4; kerb_ride in physics_player.hpp): on the ground the engine's sphere
+    # rides over an edge below its centre while the lift outruns the settle's pull — about 0.7 at a run. In S_5013
+    # Toal lands on step_01 and walks on (no jump): 18 ticks later it has sunk 0.6 under step_02, and he rides up onto
+    # step_02 (y -2.595 at t226 on the sunk step, -2.078 at t234 on step_02). The stand-in's limit of 0.6 stopped him
+    # at x -39.55 and he went down with step_01.
+    "s5013_step_to_neighbour": dict(
+        room="S_50/S_5013/S_5013", char="3", env=_LOCK,
+        drive="3:diff=3;5:opt=InfiniteHP=1;6:flag=163,1;30:at=-10,42,270;38:move=-1,0,900;102:jump;152:jump;168:jump;"
+              "226:pos;234:pos;240:quit",
+        expect=["[plate] step_01 -> @fall_001", "feet (-39.526, -2.595, 42.000)", "[plate] step_02 -> @fall_001",
+                "feet (-40.668, -2.078, 42.000)"]),
+    # ... and a kerb of 1.0 is still a wall: on Easy the steps do not fall (FALL_001's flag-143 branch), and Toal
+    # walking on step_02 against step_03 (one unit up) stalls a sphere's reach from its face, lifted 0.011 — the
+    # ride's equilibrium (it used to stand 0.45 from it, the capsule's radius).
+    "kerb_1u_is_a_wall": dict(
+        room="S_50/S_5013/S_5013", char="3", env=_LOCK,
+        drive="3:diff=1;5:opt=InfiniteHP=1;30:at3=-41,0,42,270;40:move=-1,0,120;60:pos;150:pos;160:quit",
+        expect=["feet (-43.333, -1.989, 42.000)"], count={"feet (-43.333, -1.989, 42.000)": 2}),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:

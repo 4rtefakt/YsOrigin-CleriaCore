@@ -121,6 +121,39 @@ inline SurfaceScale surface_scale(int surface, bool in_water, bool blessing_2 = 
 }
 
 // ---------------------------------------------------------------------------
+// THE KERB RIDE — the engine's sphere at an edge below its centre (build/physics_re/SWEEP_PUSHOUT.md §0.2-0.4;
+// FUN_005daa10's type-4 contact and FUN_005dca20's answers), in the vertical plane through the edge's normal.
+// The actor is ONE sphere of radius `r` about its origin; a kerb's top edge inside it is an embedded contact
+// whatever the motion: the sphere is moved out along (centre - closest point) by exactly the depth
+// [BYTES 0x5dce51..0x5dcec2]; a swept contact with the edge slides the rest of the move along the plane through
+// the contact whose normal is (centre - contact point) [EXPORT 005dca20.c]. Both lift the sphere over the edge;
+// the integrator's settle then pulls the origin 65 % back toward its floor each tick, so a kerb is climbed only
+// while the lift a tick gives outruns that pull: at the run's 0.157 a tick up to about 0.7 above the feet, slower
+// the higher (0.6: ~11 ticks for the last 0.975 against 7 on the flat; 0.75: ~67; 0.8 and more: never).
+//   d: the origin's horizontal distance to the edge (> 0 before it); s: this tick's move toward it;
+//   a: the origin's height above the edge (+0x324 + the current lift - the kerb's height; <= 0: a wall).
+// Returns the new distance and the lift gained. [approx] a straight horizontal edge met in that plane, one
+// contact a tick, and none of the 0.99999 r / sqrt(0.999) r embedded-test margins [BYTES 0x5da74b, 0x5da9eb].
+struct KerbStep { float d = 0, lift = 0; };
+inline KerbStep kerb_ride(float d, float s, float a, float r) {
+    KerbStep k{d, 0.0f};
+    if (a <= 0.0f || a >= r || d <= 0.0f) { k.d = d - s; return k; }   // a wall (the caller's), or nothing to touch
+    float dist = std::sqrt(d * d + a * a);
+    if (dist < r) {                                    // embedded: out along centre - edge by the depth
+        const float f = r / dist;
+        k.lift += a * f - a; a *= f; k.d = d = d * f;
+    }
+    const float dc = std::sqrt(r * r - a * a);         // where the sphere meets the edge
+    if (d - s >= dc) { k.d = d - s; return k; }        // not reached this tick
+    const float rem = s - (d > dc ? d - dc : 0.0f);
+    if (d > dc) d = dc;
+    const float n2 = d * d + a * a;                    // the slide: the rest of the move on the contact's tangent
+    k.d = d - rem * a * a / n2;
+    k.lift += rem * d * a / n2;
+    return k;
+}
+
+// ---------------------------------------------------------------------------
 // VERTICAL — FUN_0045a510 0x45a5a8..0x45a6f4 (displacement) and 0x45be61..0x45c1ef
 // (timer, landing, snap). Not modelled: the +0x398 float flag, the sand2 lift while
 // +0x3b8, and the +0x4d0 launch-state x0.985.
