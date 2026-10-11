@@ -2387,6 +2387,7 @@ CASES.update({
 })
 
 # The second builder's batch of 2026-10-11 (FIX_SLOTS.md S4.., ENEMY_WATER.md): one block.
+_GODSPEED = "5:killall;8:bracelet=116;9:flag=116,1;10:flag=182,1;30:at=20,-37,90;"
 CASES.update({
     # FIX_SLOTS.md S4: the player's hit scan and her section's Generate* events run under either fix slot. Yunica
     # swings at t21, 2.0 from a Selnarg; @ItemCannotUse takes slot 1 at t23, before the section arms anything. The
@@ -2397,6 +2398,23 @@ CASES.update({
         drive="20:near=17;21:atk;23:run=@itemcannotuse;40:scripts;41:actors;150:scripts;160:quit",
         expect=["slot 1 taken: 0/1", "[popup] 2 ffffff", "t40 scripts", "frozen 1 fix 0/1 popups 1", "t41 actors",
                 "id 17 cast 17 enemy hp 72 g1 0 pos (30.4,-4.1,-37.3)", "t150 scripts", "frozen 1 fix 0/1 popups 0"]),
+    # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
+    # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
+    # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:
+    # a standing jump lands 6.564 u on (it was 4.606: the dash's own blend alone), a running jump with the stick
+    # released 6.878 u from the jump (was 4.921). Gravity is not held for Toal [EXPORT 00465170.c:2464-2484].
+    "godspeed_tap_ground": dict(
+        room="S_10/S_1002/S_1002", char="3", env=_LOCK,
+        drive=_GODSPEED + "40:pos;41:skill+;43:skill-;45:abil;120:pos;140:quit",
+        expect=["feet (20.000, -4.098, -37.000)", "[abil] t45 sec 0x10d", "feet (26.160, -4.098, -37.000)"]),
+    "godspeed_tap_jump": dict(
+        room="S_10/S_1002/S_1002", char="3", env=_LOCK,
+        drive=_GODSPEED + "40:pos;41:jump;50:skill+;52:skill-;54:abil;120:pos;140:quit",
+        expect=["feet (20.000, -4.098, -37.000)", "[abil] t54 sec 0x10d", "feet (26.564, -4.098, -37.000)"]),
+    "godspeed_tap_run_jump": dict(
+        room="S_10/S_1002/S_1002", char="3", env=_LOCK,
+        drive=_GODSPEED + "34:move=1,0,8;40:pos;41:jump;50:skill+;52:skill-;120:pos;140:quit",
+        expect=["feet (20.942, -4.098, -37.000)", "feet (27.820, -4.098, -37.000)"]),
 })
 
 # The Archipelago cases, played by the Lua mod samples/mods/archipelago_lua against a local scripted AP

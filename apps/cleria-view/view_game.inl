@@ -7077,6 +7077,13 @@ title_again:
                 }
                 // Godspeed: each tick in 0x10d / 0x110 past Marker 1 the C++ drives the dash and
                 // ends the endless ASO loop with SetSection(0x105).
+                // The dash's step is a SECOND one in the tick: the mover's ordinary velocity step above has already
+                // written the tick's displacement (+0xa3c / +0xa44 = scale x +0x32c / +0x334), and the dash block then
+                // blends +0x32c / +0x334 toward the dash velocity and ADDS scale x them to it [BYTES 0x4697f9..0x469823:
+                // mulss [edi+0x32c]; addss [eax]; movss [eax]]. On the ground the first step is 0 (Movable(0), a snap),
+                // so the dash is 0.56 a tick; in the air the first step is the carried velocity (x 0.95, or x 0.88 with
+                // the stick held), so an airborne dash covers about twice what its own blend gives.
+                Vec3 gs_first{};                                        // the ordinary step's part of the displacement
                 if (character == 3 && (sec == 0x10d || sec == 0x110)) {
                     gs_ramp = std::max(0.0f, gs_ramp - 0.1f);          // +0x4d8 -= 0.1 (collision off)
                     if (avm.marker() >= 1) {
@@ -7105,6 +7112,7 @@ title_again:
                         }
                         const float v = pm.speed_base * 10.0f;            // +0x30c x 10 = 0.56 / tick
                         const Vec3 want{face_dir.x * v, 0.0f, face_dir.z * v};
+                        gs_first = {pvel.x, 0.0f, pvel.z};
                         if (pv.grounded) { pvel.x = want.x; pvel.z = want.z; }
                         else { pvel.x += (want.x - pvel.x) * 0.1f; pvel.z += (want.z - pvel.z) * 0.1f; }
                         ++gs_t;
@@ -7130,7 +7138,7 @@ title_again:
                                                       (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 2) != 0,
                                                       /*foot gear 0x76a624 & 0x1000000 [not modelled]*/ false,
                                                       (inv.equip_flags & 0x2000000u) != 0);   // the sand gear
-                feet.x += pvel.x * ss.xz; feet.z += pvel.z * ss.xz;
+                feet.x += (pvel.x + gs_first.x) * ss.xz; feet.z += (pvel.z + gs_first.z) * ss.xz;
                 surface_up = ss.up;
             }
             if (moving && avm.turnable()) {
