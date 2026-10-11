@@ -2438,6 +2438,18 @@ CASES.update({
                 "[pickup] id 120 pos (0.47, 2.07, 7.85) ground 2.020 rest 0 age 40", "t100 pickups", "sp 60",
                 "frozen 1 fix 0/1 popups 1"],
         count={"[pickup] id 120": 2}),
+    # The regression of 2026-10-11 ("mobs are all immobile"): g_flags[131] left set by a duel / scene script held
+    # every monster of the following rooms, and of a save written with it, once S5a made every handler honour it.
+    # The scene load clears 131 and 134 [EXPORT 00431260.c:141-142]: set stale in S_1002, it is 0 after the door into
+    # S_1003, and 0 again after a save / load made with it set (the load is a scene load); S_1003's monsters then
+    # move (#43 went from z -6.4 to -9.1 between t181 and t300; held, it stood at its spawn (-28.4, 0.0, -11.0)).
+    "flag131_cleared_by_scene_load": dict(
+        room="S_10/S_1002/S_1002", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;6:flag=131,1;8:dflags;10:exit=0;100:dflags;110:flag=131,1;111:saveload;170:dflags;"
+              "180:nearest=6;181:actors;300:actors;301:quit",
+        expect=["131=1", ">> entering S_1003", "t100 dflags", "131=0", ">> entering S_1003", "t170 dflags", "131=0",
+                "t181 actors", "id 43 cast 43 enemy hp 86 g1 0 pos (-28.4,0.2,-6.4)", "t300 actors",
+                "id 43 cast 43 enemy hp 86 g1 0 pos (-27.4,0.2,-9.1)"]),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:

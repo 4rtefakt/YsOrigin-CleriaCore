@@ -3252,6 +3252,10 @@ title_again:
         csMgr.paused = false;
         csHost.heal_spots.clear();
         csHost.mirror = false; csHost.cubemap.clear();   // FUN_00431260 clears 0x74c104 with the scene [M]
+        // ... and g_flags[131] (0x76bb28, the brain hold) and g_flags[134] (0x76bb34) on every scene load
+        // [EXPORT 00431260.c:141-142]: a duel or scene script that leaves 131 set does not hold the next room's
+        // monsters, and a save written with it set recovers at its load (the load is a scene load).
+        game.g_flags[131] = 0; game.g_flags[134] = 0;
         // ... and sets the scene light back to (1, 1, 1) [EXPORT 00431260.c:113-133]; the room's SNF block then
         // gives its colour (Room::snf_light), the root script's Light_Directional after it.
         csHost.light_rgb = room.snf_light;
