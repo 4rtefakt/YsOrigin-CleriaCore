@@ -138,6 +138,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // The rest of the New-Game choices (set by the title's popups; see the flow below):
     int skin = 0;          // the Type Select answer 0x74c0dc / d8 / d4: 0 Normal, 1 Extra (EXTRA_VERSIONS.md; view_extra.inl)
     if (const char* ts = std::getenv("CLERIA_TYPE")) skin = std::atoi(ts) == 1;   // a room boot's version (the drive cases)
+    // Outfit Select's answer 0x74c0d0 (Yunica's School Outfit; EXTRA_VERSIONS.md §1.4): her script C_980.ASO in place
+    // of C_010.ASO [BYTES 0x465089..0x4650c0] — it names the AIAs c_981 / c_980 / c_982 itself.
+    // [not modelled] cast 0xa6 (Yunica as an actor) taking the same script and c_982 (FUN_00459410, FUN_00572230).
+    int outfit = 0;
+    if (const char* os = std::getenv("CLERIA_OUTFIT")) outfit = std::atoi(os) == 1;   // a room boot's outfit (the drive cases)
     int difficulty = 2;    // 0 VeryEasy,1 Easy,2 Normal,3 Hard,4 Nightmare (persisted TitleGameDifficulty)
     bool sp_bonus = false; // "SP Bonus Acquisition": boosts this save's SP gains
     // Option settings (persisted in yso_win.ini). Function-scope so the title menu edits them and
@@ -1281,13 +1286,14 @@ title_again:
                         // FUN_00575990 in a bonus mode: no game yet — flags 203 / 201 = 0 and 0x74e25a = 2, which
                         // makes the title tick create the stage select once the book is gone.
                         const NewGameInfo& ng = ev.new_game_info;
-                        g_run.character = ng.character; g_run.type = ng.type;
+                        g_run.character = ng.character; g_run.type = ng.type; g_run.outfit = ng.outfit;
                         g_run.difficulty = ng.difficulty; g_run.easy = ng.easy;
                         g_run.front = 2;
                     } else if (ev.new_game) {
                         const NewGameInfo& ng = ev.new_game_info;
                         character = std::clamp(ng.character, 1, 3);   // [not modelled] Adol (0)
                         skin = ng.type;
+                        outfit = ng.outfit == 1;
                         difficulty = ng.very_easy ? 0 : ng.easy ? 1 : 2 + ng.difficulty;
                         speedrun_new_game(character, skin);  // the speedrun start: the difficulty pick
                         ng_commit = true;                    // FUN_005758f0: fade, then commit
@@ -1347,6 +1353,7 @@ title_again:
                             else for (records::RecordTable& t : g_rec_ta) t.clear_marks(stages::time_attack_count(g_run.character));
                             character = g_run.character;
                             skin = g_run.type;
+                            outfit = g_run.outfit == 1;
                             difficulty = g_run.easy ? 1 : 2 + g_run.difficulty;
                             ng_commit = true;
                             tf_cur = 0.0f; tf_tgt = 1.0f;
@@ -1542,6 +1549,7 @@ title_again:
     // (fx+0x1a8; its handler pass #14).
     bullet::Bullets bullets(&fxsim, ef2_of);
     std::vector<extra::Runner> xrunners;                  // the kind-0x17 runners (view_extra.inl)
+    std::vector<extra::Chain> xchains;                    // the kind-0x18 chain lightnings (view_extra_chain.inl)
     // World item pickups (src/cleria/pickup.hpp, build/item_re/PICKUPS.md).
     std::vector<Pickup> pickups;
     struct PendingDebris { int ticks; int cast; Vec3 origin; const AsoVm::DebrisEvent* ev; };
@@ -1986,8 +1994,9 @@ title_again:
     // state), 3 jump. The script supplies (file, tag, frame); `dir` is NOT in it —
     // that comes from the actor's facing, which is what closes the AIA formula.
     // Adol (0): ASO 0xC c_101 (Felghana) / 0xA4 c_990 (Napishtim) [BYTES 0x46500a..0x465038].
-    auto char_aso = [&skin](int c) -> const char* {
-        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : c == 0 ? (skin == 1 ? "C_990.ASO" : "C_101.ASO") : "C_010.ASO";
+    auto char_aso = [&skin, &outfit](int c) -> const char* {
+        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : c == 0 ? (skin == 1 ? "C_990.ASO" : "C_101.ASO")
+                                                                    : (outfit == 1 ? "C_980.ASO" : "C_010.ASO");
     };
     Aso aso = Aso::load(asset_root / "ANI" / char_aso(character));
     AsoVm avm;
@@ -2186,6 +2195,7 @@ title_again:
         world.drop_named_effects();
         bullets.clear();                                      // before the effects they hold
         xrunners.clear();
+        xchains.clear();
         gas_owner.clear();
         fxsim.clear();
         wx.clear();                                           // FUN_00428ec0 / 0x76a558 = 0 (WEATHER.md)
@@ -2534,6 +2544,7 @@ title_again:
         for (int i = 0; i < 4; ++i) s.ail[i + 1] = ail.t[i];
         s.boost = player.boost;                                 // 0x76c1b4, in the block
         s.version[character & 3] = skin;                        // 0x76c218.. = the session's Type Select answers
+        s.version[4] = outfit;                                  // 0x76c228 = 0x74c0d0
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
@@ -2617,6 +2628,7 @@ title_again:
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];   // the raw clear bytes (FUN_0042f5e0)
         character = std::clamp(s.character(), 0, 3);   // 0 = Adol: a run's Retry snapshot
         skin = s.version[character] == 1;              // FUN_0042f5e0: 0x74c0dc / d8 / d4 = the block's (EXTRA_VERSIONS.md §1.2)
+        outfit = s.version[4] == 1;                    // ... and 0x74c0d0
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
         if (s.mp_max > 0.0f) { player.sp_max = s.mp_max; player.sp_cur = std::min(s.mp_cur, s.mp_max); }
@@ -4026,7 +4038,7 @@ title_again:
         si.cost.bc80 = si.bc80;
         si.cost.boosting = player.boosting;
         si.cost.acc_mp = (inv.equip_flags & 0x200000u) != 0;   // the Ring of Ease (x0.80)
-        // [not modelled] Adol's DAT_0074c0cc table.
+        si.cost.adol_alt = character == 0 && skin == 1;        // Napishtim: 0x68b084 = 1500 / 1800 / 1200 [BYTES 0x46618c]
         skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
         const int charge_lv0 = skill_charge.level;
         const skillmp::SkillOut so = skillmp::skill_tick(si, mp, skill_charge);
@@ -7499,7 +7511,7 @@ title_again:
                 // The bracelet switch lands (FUN_00465170 0x4652ca..0x465377): a pending request when the
                 // ASO is actable (+0x9d0), or a buffered attack meets an open cancel window (+0x9d2).
                 // The switch also clears the skill charge 0x76c134 / 0x76c138 (0x465323 / 0x465330) and
-                // the combo stage. [not modelled] the 0x76b914 |= 0x20 bit and Adol's +0x6fc reset.
+                // the combo stage, and Adol's +0x6fc / +0x708 (0x465363). [not modelled] the 0x76b914 |= 0x20 bit.
                 if (skill_req != -1 && (avm.actable() || (pact.request && avm.cancelable()))) {
                     if (skill_req >= 0x74 && skill_req <= 0x77) {
                         inv.magic = skill_req == 0x77 ? 0xff : skill_req;
@@ -7507,6 +7519,7 @@ title_again:
                         pact.request = false;
                         skill_charge = {};
                         audio.play(0x0a, kSfxMenuVol);                    // FUN_0043a040(0xa)
+                        nap.on_switch();
                     }
                     skill_req = -1;
                 }
@@ -7544,6 +7557,11 @@ title_again:
                 {
                     const float c = std::cos(g_cursor.move_angle), s = std::sin(g_cursor.move_angle);
                     pi.mouse_angle = std::atan2(rt.z * c + fwd.z * s, rt.x * c + fwd.x * s);
+                }
+                nap_skip = false;
+                if (character == 0 && skin == 1) {                    // Napishtim Adol (view_extra.inl)
+                    pi.adol_slot = skillmp::bracelet_slot(inv.magic);
+                    napishtim_input(pi);
                 }
                 pa_out = pact.tick(pi);
                 // The request (FUN_0046cb00 [BYTES 0x465a56..0x465b31]): the raw wheel (15-tick
@@ -8151,7 +8169,7 @@ title_again:
             if (!fly) {
                 const bool held = !paused && ((g_in.held & input::kMagic) || drive_skill);
                 const bool atk = !paused && ((g_in.held & input::kAttack) != 0 || drive_atk_held);
-                skill_tick(held, atk);
+                if (!nap_skip) skill_tick(held, atk);
             }
             {
                 const int slot = skillmp::bracelet_slot(inv.magic);
@@ -8306,6 +8324,7 @@ title_again:
             // is feet + kOriginH (+0x324), as every spawn above computes `org`.
             actor_mats[13] = ef2sim::translation(feet.x, feet.y + kOriginH, feet.z);
             prof("tick:fx-B");
+            #include "view_extra_chain.inl"      // Napishtim Adol's chain lightnings (FUN_00592d00)
             #include "view_fx_hits.inl"          // the effects' step and the particles' hit tick
 
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS

@@ -43,10 +43,12 @@
                 la.row = ev.i[0]; la.a1 = ev.i[1]; la.a2 = ev.i[2]; la.a3 = ev.i[3];
                 la.clank_lo = ev.i[4]; la.clank_hi = ev.i[5];
                 la.bonus = ev.bonus; la.knock = ev.knock; la.life = ev.i[8]; la.rehit = ev.i[9];
-                const int si = locus_sword_index(0xd, character, game.g_flags[149]);
+                const int si = locus_sword_index(0xd, character, game.g_flags[149], character == 0 && skin == 1);
                 PlayerLocus pl;
                 pl.cls = player_damage_class(avm.section());
                 if (pl.sword.spawn(sl2set.sword[std::size_t(si)], la, player_hit_serial,
                                    game.g_flags[215], game.g_flags[217], character))
                     loci.push_back(pl);
             }
+            // anime_Special fired (Napishtim Adol's script): the fire runner, the chain lightning (view_extra.inl).
+            for (const AsoVm::SpecialEvent& ev : avm.specials()) extra_special(ev);

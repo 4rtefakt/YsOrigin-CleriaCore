@@ -50,6 +50,29 @@ int main(int, char**) {
             check(latched && refused && !pk.break_latch && pk.request == false,
                   "AttackBreak: an early press forfeits the follow-up (latch +0x6f6), cleared by an Actable press");
         }
+        {   // Napishtim Adol: the ground combo by bracelet [BYTES 0x68a4fc / 0x68af70]; the air combo is the common one.
+            static const int kWant[4][9] = {{0x113, 0x114, 0x115, 0x116, 0x117, 0x118, 0x119, 0x11a, 0x113},
+                                            {0x121, 0x122, 0x123, 0x121, 0, 0, 0, 0, 0},
+                                            {0x11b, 0x11d, 0x11f, 0x11b, 0, 0, 0, 0, 0},
+                                            {0x100, 0x103, 0x104, 0x100, 0, 0, 0, 0, 0}};
+            bool ok = true;
+            for (int k = 0; k < 4; ++k) {
+                PlayerActions pn;
+                PlayerActions::In in2; in2.character = 0; in2.adol_slot = k; in2.reserve = true; in2.cancelable = true;
+                for (int s = 0; s < 9 && kWant[k][s]; ++s) {
+                    in2.actable = (s == 0); in2.attack_pressed = true;
+                    ok = ok && pn.tick(in2).section == kWant[k][s];
+                }
+            }
+            PlayerActions pf;
+            PlayerActions::In inf; inf.character = 0; inf.reserve = true; inf.cancelable = true;
+            int last = 0;
+            for (int s = 0; s < 6; ++s) { inf.actable = (s == 0); inf.attack_pressed = true; last = pf.tick(inf).section; }
+            PlayerActions py;
+            PlayerActions::In iy; iy.character = 1; iy.adol_slot = 0; iy.actable = true; iy.attack_pressed = true;
+            check(ok && last == 0x105 && py.tick(iy).section == 0x100,
+                  "Napishtim Adol: 8 / 3 / 3 / 3 steps by bracelet; Felghana keeps his six; the slot is character 0's only");
+        }
         PlayerActions pc;
         PlayerActions::In ic; ic.character = 1; ic.reserve = true; ic.cancelable = true;
         int secs[5] = {};
