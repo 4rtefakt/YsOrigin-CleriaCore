@@ -62,6 +62,10 @@ void reset();
 // file systems are not).
 std::filesystem::path resolve(const std::filesystem::path& p);
 
+// `p` as spelled on disk, layers ignored: off Windows a path that does not exist as spelled is looked
+// up ignoring case (as resolve() does); `p` unchanged on Windows or when nothing matches.
+std::filesystem::path on_disk(const std::filesystem::path& p);
+
 // The virtual name of `p` if it lies under a mount ("" prefix => "MAP/..."), else empty.
 std::string virtual_name(const std::filesystem::path& p);
 
