@@ -3148,6 +3148,7 @@ title_again:
         std::string cubemap;
         void effect_camera_offset(int id, float off) override { if (fx_camoff_fn) fx_camoff_fn(id, off); }
         void mirror_floor(bool on) override { mirror = on; }
+        void water_plane(float h) override { g_water.plane_y = h + 0.025f; }                             // 0x11d
         void cube_map(const std::string& n) override { cubemap = n; }
         void change_fog(int idx, float speed) override { fog_script(idx, speed); }                       // 0x129
         bool mesh_is_motion_finish(const std::string& n, std::uint32_t k) const override {              // 0x17a
@@ -3484,6 +3485,7 @@ title_again:
         csMgr.paused = false;
         csHost.heal_spots.clear();
         csHost.mirror = false; csHost.cubemap.clear();   // FUN_00431260 clears 0x74c104 with the scene [M]
+        g_water.plane_y = 0.0f;                          // the scene reset: the plane (0, 1, 0, 0) [EXPORT 00442dd0.c:51-54]
         // ... and g_flags[131] (0x76bb28, the brain hold) and g_flags[134] (0x76bb34) on every scene load
         // [EXPORT 00431260.c:141-142]: a duel or scene script that leaves 131 set does not hold the next room's
         // monsters, and a save written with it set recovers at its load (the load is a scene load).
@@ -8464,15 +8466,20 @@ title_again:
         g_caustic.sx += 0.0005f * float(ticks); g_caustic.sy += 0.00015f * float(ticks);
         // The water: its phase, and whether this room has a surface to draw through the grab (REFLECTIONS.md 5).
         g_water.phase += 0.02f * float(ticks);
-        g_water.want = false;
-        if (settings().s.graphics.water_effect_level != 0)
+        g_water.want = g_water.rwant = false;
+        if (settings().s.graphics.water_effect_level != 0) {
+            bool w2 = false;
             for (const DrawBatch& b : room.mesh.batches)
                 if (b.index_count && water_material(b)) {
-                    g_water.want = true;
-                    g_water.tint[0] = float(b.diffuse & 0xff) / 255.0f; g_water.tint[1] = float((b.diffuse >> 8) & 0xff) / 255.0f;
-                    g_water.tint[2] = float((b.diffuse >> 16) & 0xff) / 255.0f; g_water.tint[3] = float(b.diffuse >> 24) / 255.0f;
-                    break;                               // [approx] one diffuse a room (each shipped room has one water material)
+                    // [approx] one diffuse a room and kind (each shipped room has one water material of a kind)
+                    bool& have = water_reflects(b) ? g_water.rwant : w2;
+                    if (have) continue;
+                    have = g_water.want = true;
+                    float* t = water_reflects(b) ? g_water.rtint : g_water.tint;
+                    t[0] = float(b.diffuse & 0xff) / 255.0f; t[1] = float((b.diffuse >> 8) & 0xff) / 255.0f;
+                    t[2] = float((b.diffuse >> 16) & 0xff) / 255.0f; t[3] = float(b.diffuse >> 24) / 255.0f;
                 }
+        }
         // Presentation advances by the time we actually SIMULATED this frame, not by
         // wall time — so fog blends, flame flipbooks and HUD bars stay locked to the
         // tick and slow down with timeScale, instead of drifting off it.
@@ -8550,6 +8557,10 @@ title_again:
             std::printf("  [light] t%llu the scene light's colour (%.3f, %.3f, %.3f)\n", (unsigned long long)tick_count,
                         csHost.light_rgb.x, csHost.light_rgb.y, csHost.light_rgb.z);
         g_scene_light = light_drawn = csHost.light_rgb;    // 0x76a570..78 -> 0x7b2f14..1c: the world draws below
+        prof("draw:reflection");
+        video_water_reflect(g, room, cw, ch,             // the water's reflection pass, first in the frame (view_video.inl)
+                            fly ? cam.reflected_view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f, g_water.plane_y)
+                                : cam.reflected_view_proj(video_aspect(cw, ch), clip_near, clip_far, g_water.plane_y));
         write_mvp(g, last_vp);
         const WGPUTextureView frame_view = view, frame_depth = depth;
         prof("draw:room1");

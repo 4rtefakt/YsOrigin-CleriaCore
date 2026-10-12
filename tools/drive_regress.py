@@ -3163,6 +3163,18 @@ CASES.update({
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aplua_regress  # noqa: E402
+# ---- the renderer builder (2026-10-12): RENDER_LEFTOVERS.md ----------------------------------------------
+CASES.update({
+    # S_2005's water reflects (material flag 0x200000; REFLECTIONS.md 4): the room's WaterReflection script sets
+    # the plane (op 0x11d: h = -8.975, the plane at h + 0.025), the pass draws at half the render size at
+    # Reflections High and a quarter at Low, and not at all at Off.
+    "water_reflection": dict(
+        room="S_20/S_2005/S_2005",
+        drive="10:vstat;11:vopt=WaterEffectLevel=1;20:vstat;21:vopt=WaterEffectLevel=0;30:vstat;31:quit",
+        expect=["[video] water level 2 surfaces 1 grab 1280x800", "[video] reflection 640x400 plane y -8.950",
+                "[video] water level 1 surfaces 1 grab 640x400", "[video] reflection 320x200 plane y -8.950",
+                "[video] water level 0 surfaces 0 grab 0x0"]),
+})
 # ---- batch G (2026-10-11) ----------------------------------------------------------------------------
 CASES.update({
     # Video: the water caustics (CONFIG_PARITY.md 13). A flooded room draws them room-wide, the frame steps every

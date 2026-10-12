@@ -104,6 +104,12 @@ struct VideoGpu {
     // [graphics] WaterEffectLevel: the frame grabbed before the water layer (pool surface 1)
     WGPUTextureView grab{};
     std::uint32_t grab_w = 0, grab_h = 0;
+    // ... and the water's reflection (pool surface 5) with its own depth, drawn with the reflected view's set
+    WGPUTextureView refl{}, refl_depth{};
+    std::uint32_t refl_w = 0, refl_h = 0;
+    bool refl_new = false;                       // made this frame: the water's bind groups are made again
+    WorldPipes refl_pipes{};
+    bool refl_pipes_built = false;
     // the post pass's copy of the frame
     WGPUTexture ptex{};
     WGPUTextureView pview{};
@@ -413,8 +419,10 @@ static void video_water_grab(Gpu& g) {
         wgpuQueueWriteTexture(g.queue, &dst, &b[128], 256 * 256 * 2, &layout, &ext);
         g.dudv_bind = tex_bindgroup(g, wgpuTextureCreateView(t, nullptr));
     }
-    if (!g_vgpu.grab || g_vgpu.grab_w != w || g_vgpu.grab_h != h) {
+    if (!g_vgpu.grab || g_vgpu.grab_w != w || g_vgpu.grab_h != h || g_vgpu.refl_new) {
+        g_vgpu.refl_new = false;
         if (g.ubind_water) wgpuBindGroupRelease(g.ubind_water);
+        if (g.ubind_refl) wgpuBindGroupRelease(g.ubind_refl);
         if (g_vgpu.grab) wgpuTextureViewRelease(g_vgpu.grab);
         WGPUTextureDescriptor td = {};
         td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
@@ -423,13 +431,17 @@ static void video_water_grab(Gpu& g) {
         WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
         g_vgpu.grab = wgpuTextureCreateView(t, nullptr);
         wgpuTextureRelease(t);
-        WGPUBindGroupEntry e[3] = {};                    // stage 1: the grab, ADDRESSU / V CLAMP
+        WGPUBindGroupEntry e[4] = {};                    // stage 1: the grab, ADDRESSU / V CLAMP
         e[0].binding = 0; e[0].buffer = g.ubuf_water; e[0].size = 128;
         e[1].binding = 1; e[1].textureView = g_vgpu.grab;
         e[2].binding = 2; e[2].sampler = g_vgpu.linear;
+        e[3].binding = 3; e[3].textureView = g_vgpu.grab;   // water2 has no stage 3
         WGPUBindGroupDescriptor d = {};
-        d.layout = g.u_layout; d.entryCount = 3; d.entries = e;
+        d.layout = g.u_layout; d.entryCount = 4; d.entries = e;
         g.ubind_water = wgpuDeviceCreateBindGroup(g.device, &d);
+        e[0].buffer = g.ubuf_refl;                       // stage 3: the reflection, ADDRESSU / V CLAMP
+        if (g_vgpu.refl) e[3].textureView = g_vgpu.refl;
+        g.ubind_refl = wgpuDeviceCreateBindGroup(g.device, &d);
         g_vgpu.grab_w = w; g_vgpu.grab_h = h;
     }
     if (g_vgpu.msaa_on) video_msaa_resolve(g, true);
@@ -437,6 +449,49 @@ static void video_water_grab(Gpu& g) {
     video_fullscreen_pass(g, g_vgpu.copy, g_vgpu.wbind, g_vgpu.grab, enc);
     video_submit(g, enc);
     g_water.on = true;
+}
+// ---- the water's reflection pass (FUN_005dfea0 [BYTES 0x5dff0f..0x5e008b]; REFLECTIONS.md 2, 4) ----------
+// First in the frame, when a loaded model has a 0x200000 material (0x7b2e3c) and WaterEffectLevel != 0: the
+// world from the reflected view (`rvp`: Camera::reflected_view_proj) into pool surface 5 -- the render size
+// over 2c, c = (level != 2) + 1 [BYTES 0x5e3761..0x5e378a] -- with its own depth, cleared to 0xff000000, the
+// culled materials culling the other winding. Retail calls the layers 2, 3, 4, 5, 7, 9, 12, 13 there
+// [BYTES 0x5dff52..0x5e007f: skipped 6, 8, 10, 11, 14, 15]; drawn here: the room and its objects (draw()'s
+// part 3 = layers 3 / 5, and the objects of 4). [not modelled] in the reflection: the effects of layers 9 / 12
+// (flames, particles), an actor's glare-alpha body (9) and sprite overlay (12), boss02's attachment (7); the
+// generated mip chain of surface 5 (it is sampled magnified); the reflected eye of the sort keys.
+static void video_water_reflect(Gpu& g, const Room& room, std::uint32_t cw, std::uint32_t ch, const Mat4& rvp) {
+    g_water.ron = false;
+    if (!g_vgpu.ready || !g_water.rwant || cw == 0 || ch == 0) return;
+    const video::Extent e = video::scaled_extent(cw, ch, vid().render_scale, g_vgpu.max_dim);
+    const std::uint32_t c = settings().s.graphics.water_effect_level != 2 ? 4 : 2;
+    const std::uint32_t w = std::max(1u, e.w / c), h = std::max(1u, e.h / c);
+    if (!g_vgpu.refl || g_vgpu.refl_w != w || g_vgpu.refl_h != h) {
+        if (g_vgpu.refl) wgpuTextureViewRelease(g_vgpu.refl);
+        if (g_vgpu.refl_depth) wgpuTextureViewRelease(g_vgpu.refl_depth);
+        WGPUTextureDescriptor td = {};
+        td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+        td.dimension = WGPUTextureDimension_2D; td.size = {w, h, 1};
+        td.format = g_vgpu.fmt; td.mipLevelCount = 1; td.sampleCount = 1;
+        WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
+        g_vgpu.refl = wgpuTextureCreateView(t, nullptr);
+        wgpuTextureRelease(t);
+        g_vgpu.refl_depth = make_depth(g, w, h);
+        g_vgpu.refl_w = w; g_vgpu.refl_h = h;
+        g_vgpu.refl_new = true;
+    }
+    if (!g_vgpu.refl_pipes_built) {
+        const WorldPipes keep = g;
+        static_cast<WorldPipes&>(g) = WorldPipes{};
+        build_pipeline(g, g_vgpu.fmt, 1, false, true);
+        g_vgpu.refl_pipes = g;
+        static_cast<WorldPipes&>(g) = keep;
+        g_vgpu.refl_pipes_built = true;
+    }
+    std::swap(static_cast<WorldPipes&>(g), g_vgpu.refl_pipes);
+    write_mvp(g, rvp);
+    draw(g, room, g_vgpu.refl, g_vgpu.refl_depth, 3);
+    std::swap(static_cast<WorldPipes&>(g), g_vgpu.refl_pipes);
+    g_water.ron = true;
 }
 // `level` = the blur gain byte L (0x7b2e39), `feedback` = F (0x7b2e38), `subtract` = 0x7b2e3a. `world` = the
 // world target's view (single-sampled: after video_world_resolve).
@@ -926,8 +981,8 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         if (ui::choice(L, "Reflections", &wl, kWater, 3,
                        "How water surfaces are drawn. High (the original's default): you see the floor and the "
                        "characters through the water, wobbling. Low: the same from a half-size picture. Off: a "
-                       "plain see-through sheet. The mirror floors of the tower's upper part and the one true water "
-                       "reflection are not drawn yet. (Original: Reflections.)")) {
+                       "plain see-through sheet. The one room whose water mirrors the room shows it at High and Low. "
+                       "The mirror floors of the tower's upper part are not drawn yet. (Original: Reflections.)")) {
             gr.water_effect_level = wl;
             persist();
         }
@@ -1117,6 +1172,9 @@ static bool video_drive(const std::string& cmd) {
                     g_shadow_stat[1], g_shadow_stat[2]);
         std::printf("  [video] water level %d surfaces %d grab %ux%u phase %.2f\n", int(settings().s.graphics.water_effect_level),
                     int(g_water.want), g_water.on ? g_vgpu.grab_w : 0u, g_water.on ? g_vgpu.grab_h : 0u, double(g_water.phase));
+        if (g_water.rwant || g_water.ron)
+            std::printf("  [video] reflection %ux%u plane y %.3f\n", g_water.ron ? g_vgpu.refl_w : 0u,
+                        g_water.ron ? g_vgpu.refl_h : 0u, double(g_water.plane_y));
         return true;
     }
     return false;

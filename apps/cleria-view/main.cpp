@@ -235,12 +235,13 @@ struct Uniforms {
   mvp      : mat4x4<f32>,
   light    : vec4<f32>,
   fogColor : vec4<f32>,   // rgb = fog colour
-  fogParams: vec4<f32>,   // x = near, y = far, z = enabled
+  fogParams: vec4<f32>,   // x = near, y = far, z = enabled, w = 1: the water draw mixes the reflection in (water())
   cvr      : vec4<f32>,   // the water caustics: xy = the scroll (c3.xy), z = the draw's combiner (0 none; caustic_stage)
 };
 @group(0) @binding(0) var<uniform> u : Uniforms;
 @group(0) @binding(1) var ctex : texture_2d<f32>;   // the caustic frame (0x7b2f6c)
 @group(0) @binding(2) var csmp : sampler;
+@group(0) @binding(3) var rtex : texture_2d<f32>;   // the water's reflection (pool surface 5); a stand-in elsewhere
 @group(1) @binding(0) var tex : texture_2d<f32>;
 @group(1) @binding(1) var smp : sampler;
 
@@ -253,6 +254,7 @@ struct VsOut {
   @location(4) spec : vec3<f32>,  // characters only: the D3D vertex SPECULAR, added (see fs_char)
   @location(5) cuv : vec2<f32>,   // the caustic stage's coordinates
   @location(6) wuv : vec4<f32>,   // the water's projective screen coordinates (oT1 of b_ndst1_water2)
+  @location(7) ruv : vec2<f32>,   // ... and the reflection's (oT3.xy of b_ndst1_water: the same without the wobble)
 };
 
 @vertex
@@ -284,6 +286,7 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
   let wa = fract((wt.x * 0.5 + wt.y) * 0.31831 + 0.5) * 6.28319 - 3.14159;
   let w2 = wa * wa;
   o.wuv = vec4<f32>(sx, sy + (1.0 - 0.5 * w2 + 0.041667 * w2 * w2 - 0.001389 * w2 * w2 * w2) * 0.08, o.clip.z, o.clip.w);
+  o.ruv = vec2<f32>(sx, sy);
   return o;
 }
 
@@ -293,12 +296,21 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
 // water layer, projected, BLENDFACTORALPHA with the material's diffuse (u.light here): grab x a + rgb x (1 - a).
 // Opaque, no alpha test, no fog; the alpha written is the diffuse alpha, i.e. the vertex colour's (c16.w = 1).
 // Here `tex` is the du/dv map and `ctex` the grab. [H] the bump offset is added after the projective divide.
+// Material flag 0x200000 (u.fogParams.w = 1) goes on [EXPORT 005f7e20.c; BYTES 0x5f85f1..0x5f85fc: water2 stops
+// after stage 1]: stage 2 = the du/dv map again (the same matrix, oT2 = oT0), stage 3 = the reflection (`rtex`),
+// projected through oT3, BLENDDIFFUSEALPHA with the result so far: reflection x D.a + refraction x (1 - D.a),
+// D.a = the vertex colour's alpha.
 fn water(in : VsOut) -> vec4<f32> {
   let dudv = textureSampleLevel(tex, smp, in.uv, 0.0).rg;
-  let uv = in.wuv.xy / in.wuv.w +
-           vec2<f32>(u.cvr.x * dudv.x + u.cvr.y * dudv.y, u.cvr.x * dudv.y - u.cvr.y * dudv.x);
-  let grab = textureSampleLevel(ctex, csmp, uv, 0.0).rgb;
-  return vec4<f32>(grab * u.light.a + u.light.rgb * (1.0 - u.light.a), min(in.color.a / max(u.light.a, 0.001), 1.0));
+  let bump = vec2<f32>(u.cvr.x * dudv.x + u.cvr.y * dudv.y, u.cvr.x * dudv.y - u.cvr.y * dudv.x);
+  let grab = textureSampleLevel(ctex, csmp, in.wuv.xy / in.wuv.w + bump, 0.0).rgb;
+  let refr = grab * u.light.a + u.light.rgb * (1.0 - u.light.a);
+  let da = min(in.color.a / max(u.light.a, 0.001), 1.0);
+  if (u.fogParams.w == 1.0) {
+    let refl = textureSampleLevel(rtex, csmp, in.ruv / in.wuv.w + bump, 0.0).rgb;
+    return vec4<f32>(refl * da + refr * (1.0 - da), da);
+  }
+  return vec4<f32>(refr, da);
 }
 
 // The caustic frame of this fragment. [approx] level 0 only (retail asks for a generated mip chain when

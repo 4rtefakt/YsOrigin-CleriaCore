@@ -57,6 +57,9 @@ struct Gpu : WorldPipes {
     // frame grab as group 0, the du/dv map as group 1.
     WGPUBuffer ubuf_water{};
     WGPUBindGroup ubind_water{}, dudv_bind{};
+    // ... and those of a material with flag 0x200000 (its own diffuse; the reflection as binding 3).
+    WGPUBuffer ubuf_refl{};
+    WGPUBindGroup ubind_refl{};
     WGPUSampler sampler{};
     WGPUSampler sampler_mip{};    // "Smooth distant textures": the world sampler over the mip chain
     WGPUSampler sampler_point{};  // "Character sprites: Crisp": nearest
@@ -388,16 +391,26 @@ static void caustic_upload(Gpu& g) {
 // ---- the water surfaces (build/render_re/REFLECTIONS.md 5) -----------------------------------------
 // [graphics] WaterEffectLevel (0x765199) != 0: a material with flag 0x400000 (water2) draws opaque through the
 // du/dv map and the frame grabbed before the water layer (pool surface 1), instead of its own texture.
-// [not modelled] flag 0x200000's reflection (S_2005 is the one shipped room): it is drawn as water2 here.
+// Flag 0x200000 (S_2005 is the one shipped room) adds the reflection: the room drawn once more from the camera
+// mirrored in the water plane, into pool surface 5 (view_video.inl's video_water_reflect), mixed in by the
+// vertex colour's alpha (main.cpp's water()).
 struct Water {
     fs::path dudv;                 // data\image\water_dudv_256.dds
     float phase = 0;               // 0x7b2e54: + 0.02 a step [BYTES 0x4280cf..0x4280df]
     bool want = false;             // this frame's room has such a material and the level is != 0
     bool on = false;               // this frame's grab is taken (video_water_grab): draw() takes the water path
     float tint[4] = {0, 0, 0, 1};  // the material's diffuse (TEXTUREFACTOR [BYTES 0x5fa07f..0x5fa082])
+    // The reflection. plane_y: the water plane 0x7b2e40 = (0, 1, 0, -plane_y) -- y = 0 at the scene reset
+    // [EXPORT 00442dd0.c:51-54], h + 0.025 by op 0x11d Scene_SetWaterPlane(h) [BYTES 0x432e60..0x432eb0].
+    float plane_y = 0;
+    bool rwant = false;            // the room has a 0x200000 material (0x7b2e3c) and the level is != 0
+    bool ron = false;              // this frame's reflection is drawn (video_water_reflect)
+    float rtint[4] = {0, 0, 0, 1}; // that material's diffuse
 };
 static Water g_water;
 static bool water_material(const DrawBatch& b) { return (b.mat_flags & 0x600000u) != 0 && (b.mat_flags & 0x40u) != 0; }
+// Variant 8 before variant 9 in FUN_005f92b0's ladder [EXPORT 005f92b0.c; REFLECTIONS.md 3.1].
+static bool water_reflects(const DrawBatch& b) { return (b.mat_flags & 0x200000u) != 0 && (b.mat_flags & 0x40u) != 0; }
 
 static int material_blend_mode(const DrawBatch& b, float a) {
     // Variant 2 (the caustic alone) sets the mode to 2 whatever the material says [EXPORT 005f92b0.c:274-284].
@@ -1038,8 +1051,12 @@ static void make_world_samplers(Gpu& g) {
 // (SCREEN_EFFECTS.md 2.3): the opaque pipelines write it (fs_mask), every blended one writes RGB only
 // (COLORWRITEENABLE 7 for a preset without the bits 0x400000 / 0x800000 [EXPORT 005eb5b0.c:32-38]; the
 // sprite body's preset 0x24f51 has neither [EXPORT 00474290.c:113]).
-static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t samples = 1, bool mask = false) {
+// `flip`: the set of the reflected view (0x7b38f0 != 0) -- a culled material culls the other winding there:
+// CULLMODE CW instead of CCW [EXPORT 005f92b0.c local_54; BYTES 0x5ebae1..0x5ebaf7 for the presets].
+static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t samples = 1, bool mask = false,
+                           bool flip = false) {
     const bool first = !g.tex_layout;
+    const WGPUFrontFace cull_front = flip ? WGPUFrontFace_CCW : WGPUFrontFace_CW;
     const WGPUColorWriteMask blended_mask =
         mask ? WGPUColorWriteMask_Red | WGPUColorWriteMask_Green | WGPUColorWriteMask_Blue : WGPUColorWriteMask_All;
     WGPUShaderSourceWGSL wgsl = {};
@@ -1062,14 +1079,15 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
     WGPUBindGroupLayoutEntry ue = {};
     ue.binding = 0; ue.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
     ue.buffer.type = WGPUBufferBindingType_Uniform; ue.buffer.minBindingSize = 128;
-    WGPUBindGroupLayoutEntry ues[3] = {};                  // + the caustic frame and its sampler
+    WGPUBindGroupLayoutEntry ues[4] = {};                  // + the caustic frame and its sampler
     ues[0] = ue;
     ues[1].binding = 1; ues[1].visibility = WGPUShaderStage_Fragment;
     ues[1].texture.sampleType = WGPUTextureSampleType_Float;
     ues[1].texture.viewDimension = WGPUTextureViewDimension_2D;
     ues[2].binding = 2; ues[2].visibility = WGPUShaderStage_Fragment;
     ues[2].sampler.type = WGPUSamplerBindingType_Filtering;
-    WGPUBindGroupLayoutDescriptor ubl = {}; ubl.entryCount = 3; ubl.entries = ues;
+    ues[3] = ues[1]; ues[3].binding = 3;                   // + the water's reflection (main.cpp's rtex)
+    WGPUBindGroupLayoutDescriptor ubl = {}; ubl.entryCount = 4; ubl.entries = ues;
     WGPUBindGroupLayout bgl_u = first ? wgpuDeviceCreateBindGroupLayout(g.device, &ubl) : g.u_layout;
 
     WGPUBindGroupLayoutEntry te[2] = {};
@@ -1178,7 +1196,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
             mds.depthCompare = WGPUCompareFunction_LessEqual;
             WGPURenderPipelineDescriptor mpd = pd; mpd.fragment = &mfs; mpd.depthStencil = &mds;
             g.mat_pipe[mode][zw] = wgpuDeviceCreateRenderPipeline(g.device, &mpd);
-            mpd.primitive.frontFace = WGPUFrontFace_CW; mpd.primitive.cullMode = WGPUCullMode_Back;
+            mpd.primitive.frontFace = cull_front; mpd.primitive.cullMode = WGPUCullMode_Back;
             g.cull_mat_pipe[mode][zw] = wgpuDeviceCreateRenderPipeline(g.device, &mpd);
         }
     // FUN_005f8de0's pre-pass (material_zprepass): alpha test texture alpha >= 0xbf, depth
@@ -1190,11 +1208,11 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
         WGPUDepthStencilState zds = ds; zds.depthCompare = WGPUCompareFunction_LessEqual;
         WGPURenderPipelineDescriptor zpd = pd; zpd.fragment = &zfs; zpd.depthStencil = &zds;
         g.zpre_pipe = wgpuDeviceCreateRenderPipeline(g.device, &zpd);
-        zpd.primitive.frontFace = WGPUFrontFace_CW; zpd.primitive.cullMode = WGPUCullMode_Back;
+        zpd.primitive.frontFace = cull_front; zpd.primitive.cullMode = WGPUCullMode_Back;
         g.cull_zpre_pipe = wgpuDeviceCreateRenderPipeline(g.device, &zpd);
         // material_cull: D3D's clockwise front face is WebGPU's (both rasterise y-down), so CCW culling is Back here.
         WGPURenderPipelineDescriptor kpd = pd;
-        kpd.primitive.frontFace = WGPUFrontFace_CW; kpd.primitive.cullMode = WGPUCullMode_Back;
+        kpd.primitive.frontFace = cull_front; kpd.primitive.cullMode = WGPUCullMode_Back;
         g.cull_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &kpd);
         if (mask) {   // a glare amount: alpha = the blend constant (the fragment's alpha is 1)
             WGPUBlendState gb = blend;
@@ -1203,7 +1221,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
             WGPUFragmentState gfs = fs; gfs.targets = &gt; gfs.entryPoint = sv("fs");
             WGPURenderPipelineDescriptor gpd = pd; gpd.fragment = &gfs;
             g.glare_pipe = wgpuDeviceCreateRenderPipeline(g.device, &gpd);
-            gpd.primitive.frontFace = WGPUFrontFace_CW; gpd.primitive.cullMode = WGPUCullMode_Back;
+            gpd.primitive.frontFace = cull_front; gpd.primitive.cullMode = WGPUCullMode_Back;
             g.cull_glare_pipe = wgpuDeviceCreateRenderPipeline(g.device, &gpd);
         }
     }
@@ -1228,12 +1246,13 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
         WGPUSamplerDescriptor csd = {};
         csd.addressModeU = csd.addressModeV = csd.addressModeW = WGPUAddressMode_Repeat;
         csd.magFilter = csd.minFilter = WGPUFilterMode_Linear; csd.maxAnisotropy = 1;
-        WGPUBindGroupEntry ube[3] = {};
+        WGPUBindGroupEntry ube[4] = {};
         ube[0].binding = 0; ube[0].size = 128;
         ube[1].binding = 1; ube[1].textureView = wgpuTextureCreateView(g.caustic_tex, nullptr);
         ube[2].binding = 2; ube[2].sampler = wgpuDeviceCreateSampler(g.device, &csd);
+        ube[3].binding = 3; ube[3].textureView = ube[1].textureView;   // no reflection outside the water's draw
         WGPUBindGroupDescriptor ubd = {};
-        ubd.layout = bgl_u; ubd.entryCount = 3; ubd.entries = ube;
+        ubd.layout = bgl_u; ubd.entryCount = 4; ubd.entries = ube;
         g.ubuf = wgpuDeviceCreateBuffer(g.device, &ud);
         ube[0].buffer = g.ubuf;
         g.ubind = wgpuDeviceCreateBindGroup(g.device, &ubd);
@@ -1243,6 +1262,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
             g.ubind_cvr[i] = wgpuDeviceCreateBindGroup(g.device, &ubd);
         }
         g.ubuf_water = wgpuDeviceCreateBuffer(g.device, &ud);
+        g.ubuf_refl = wgpuDeviceCreateBuffer(g.device, &ud);
         g.tex_layout = bgl_t;
         g.u_layout = bgl_u;
     }
@@ -1345,6 +1365,9 @@ static void write_mvp(Gpu& g, const Mat4& mvp) {
     u[28] = 0.01f * std::cos(g_water.phase * 0.2f); u[29] = 0.01f * std::sin(g_water.phase * 0.2f);
     u[30] = 4.0f; u[31] = g_water.phase;
     wgpuQueueWriteBuffer(g.queue, g.ubuf_water, 0, u, sizeof(u));
+    std::memcpy(&u[16], g_water.rtint, 16);
+    u[27] = g_water.ron ? 1.0f : 0.0f;                   // without this frame's reflection: as water2
+    wgpuQueueWriteBuffer(g.queue, g.ubuf_refl, 0, u, sizeof(u));
 }
 
 // Advance every scrolling material by `ticks` and rewrite its vertices' UVs.
@@ -1382,7 +1405,8 @@ static void advance_scroll(Gpu& g, Room& room, int ticks) {
 
 // part 0: the whole room (headless / backgrounds). part 1: the room's layers 3 and 5 (the
 // frame's first pass, it clears). part 2: layer 0xb only, loaded over the actors drawn
-// between (room_late_layer).
+// between (room_late_layer). part 3: part 1 as the water's reflection pass draws it -- cleared to
+// 0xff000000 [BYTES 0x5dff52..0x5e007f: Clear(0, NULL, 3, 0xff000000, 1.0, 0)].
 static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureView depth, int part = 0) {
     caustic_upload(g);
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -1390,6 +1414,7 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
     ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
     ca.loadOp = part == 2 ? WGPULoadOp_Load : WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
     ca.clearValue = {0.055, 0.067, 0.086, 1.0};
+    if (part == 3) ca.clearValue = {0, 0, 0, 1.0};
     WGPURenderPassDepthStencilAttachment da = {};
     da.view = depth; da.depthLoadOp = part == 2 ? WGPULoadOp_Load : WGPULoadOp_Clear;
     da.depthStoreOp = WGPUStoreOp_Store;
@@ -1419,7 +1444,8 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
             const int mode = wat ? 0 : material_blend_mode(b, b.mat_alpha * ka);
             if ((mode != 0) != (blended != 0)) continue;
             const int cv = caustic_stage(b, cvr_room);
-            if (WGPUBindGroup ub = wat ? g.ubind_water : cv ? g.ubind_cvr[cv - 1] : g.ubind; ub != ub_now)
+            if (WGPUBindGroup ub = wat ? (water_reflects(b) ? g.ubind_refl : g.ubind_water) : cv ? g.ubind_cvr[cv - 1] : g.ubind;
+                ub != ub_now)
                 wgpuRenderPassEncoderSetBindGroup(pass, 0, ub_now = ub, 0, nullptr);
             // A resolved (or failed-load) texture is in room.binds; a genuinely untextured
             // material (index -1) renders its dark diffuse via black_bind, not white.
