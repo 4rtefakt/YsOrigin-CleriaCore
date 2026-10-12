@@ -2696,6 +2696,23 @@ CASES.update({
               "11:flag=163,1;20:at3=-34,8,15.5,0;40:every=10,4870,oktapf;4880:scripts;4890:boss6;12500:quit",
         expect=["slot 0 taken: 1/0", "slot 0 released: 0/0", "t4880 scripts", "script Battle_Hugo pc 38",
                 "Zava phase 2 action 0", "flag 225 = 1", "head a destroyed"]),
+    # S_6004 walked as Yunica and as Hugo with real inputs (ROUTE_F47_*.md): route_s6004's way — both plates, the four
+    # falling steps, the leap over the hub (a gap of 7.5 .. 8.0 at y 14; their running jump + late double jump
+    # reaches 10.26 / 9.12 on the flat, no dash) — by the closed-loop pilot `hops=` (the stick at the next waypoint,
+    # Jump at an edge or a rise, the second press late), so no tick is timed for a run speed. Toal's own hand-timed
+    # case stays; the pilot overshoots step_01 at his speed.
+    "route_s6004_yunica": dict(
+        room="S_60/S_6004/S_6004", char="1", env=_LOCK,
+        drive="2:diff=3;3:flag=163,1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=44;20:killall;30:obj=switch02,0;370:killall;371:obj=switch01,0;710:killall;715:at3=-66,6,72,0;730:hops=-58.3,79.7/-68.7,84.9/-51.4,83.7/-38.3,83.8/-30.5,83.84/-16.3,84.0/-9.9,75.8/7.0,75.93/11.6,76.0/19.6,87.7/17.2,98.1/3.26,97.66/-4.5,97.45/-21.7,96.9/-36.2,97.0/-36.1,112/-36.07,134.5/-37.8,163.2;3300:quit",
+        expect=["[plate] step_01 -> @fall_001", "[plate] step_02 -> @fall_001", "waypoint 7 reached at (6.", "14.00, 75.93)",
+                "[plate] step_04 -> @fall_001", "[plate] step_03 -> @fall_001", "waypoint 17 reached", ">> entering S_6052"],
+        absent=["NOT reached"]),
+    "route_s6004_hugo": dict(
+        room="S_60/S_6004/S_6004", char="2", env=_LOCK,
+        drive="2:diff=3;3:flag=163,1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=44;20:killall;30:obj=switch02,0;370:killall;371:obj=switch01,0;710:killall;715:at3=-66,6,72,0;730:hops=-58.3,79.7/-68.7,84.9/-51.4,83.7/-38.3,83.8/-30.5,83.84/-16.3,84.0/-9.9,75.8/7.0,75.93/11.6,76.0/19.6,87.7/17.2,98.1/3.26,97.66/-4.5,97.45/-21.7,96.9/-36.2,97.0/-36.1,112/-36.07,134.5/-37.8,163.2;3300:quit",
+        expect=["[plate] step_01 -> @fall_001", "[plate] step_02 -> @fall_001", "waypoint 7 reached at (6.", "14.00, 75.93)",
+                "[plate] step_04 -> @fall_001", "[plate] step_03 -> @fall_001", "waypoint 17 reached", ">> entering S_6052"],
+        absent=["NOT reached"]),
     # S_7099 (Darm) has no floor for Hugo or Yunica, and S_7000 has a SEN door to it. Nobody walks through it: a
     # collision wall at z -3.98 stops a running, double-jumping Hugo short of the door at z 10.1 (Toal enters by
     # EVT_7000_THOR_2's ChangeScene). The room root starts no script that opens anything there for any character.

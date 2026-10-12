@@ -3770,6 +3770,15 @@ title_again:
     int drive_wish_n = 0;
     Vec3 drive_goto{};                                    // CLERIA_DRIVE goto=x,z,n: the stick held toward a point
     int drive_goto_n = 0;
+    // CLERIA_DRIVE hops=x,z/x,z/...: a closed-loop walk through waypoints with the real stick and Jump — the same
+    // inputs for every character, whatever her run speed (the route audits, ROUTE_F47_*.md). Steer at the next
+    // waypoint; on the ground, jump when the floor 0.45 ahead is a gap or a drop, or 0.45 / 0.9 ahead a rise of more than a step; in
+    // the air, press Jump again late — falling, back within 1.0 of the take-off height — while the waypoint is
+    // still more than 1.2 away, and let go of the stick once over it.
+    std::vector<Vec3> drive_hops;
+    std::size_t drive_hop_i = 0;
+    int drive_hop_jumps = 0, drive_hop_ticks = 0;
+    float drive_hop_y = 0.0f, drive_hop_y0 = 0.0f;
     // anime_GenerateDebris (funcid 0x26; build/mech_re/ASO_NOOPS.md §3): the handler's colour and reviver gate
     // [BYTES 0x447980..0x447a39], then FUN_00587440 -> FUN_00587010 with texture base 0x42 at the actor's
     // origin +0x50: n + 5 * count draws of the shared xorshift, on the op's tick. An ordinary monster's corpse
@@ -4852,6 +4861,16 @@ title_again:
         } else if (cmd.rfind("goto=", 0) == 0) {       // goto=x,z,n: hold the stick toward the world point (x, z) for n ticks, or until 0.2 from it
             float x = 0, z = 0; int nn = 0;
             if (std::sscanf(cmd.c_str() + 5, "%f,%f,%d", &x, &z, &nn) == 3) { drive_goto = {x, 0, z}; drive_goto_n = nn; }
+        } else if (cmd.rfind("hops=", 0) == 0) {       // hops=x,z/x,z/...: the closed-loop waypoint walk (above)
+            drive_hops.clear(); drive_hop_i = 0; drive_hop_ticks = 0; drive_hop_jumps = 0;
+            const char* p = cmd.c_str() + 5;
+            float x = 0, z = 0; int used = 0;
+            while (std::sscanf(p, "%f,%f%n", &x, &z, &used) == 2) {
+                drive_hops.push_back({x, 0, z});
+                p += used;
+                if (*p != '/') break;
+                ++p;
+            }
         } else if (cmd.rfind("bracelet=", 0) == 0) {   // bracelet=<item id>: the equipped bracelet 0x76a630
             inv.magic = std::atoi(cmd.c_str() + 9);
         } else if (cmd.rfind("held=", 0) == 0) {       // held=<item id>: the Item page's held tool 0x76a62c (97 = the Scales)
@@ -7057,6 +7076,34 @@ title_again:
                     drive_goto_n = 0;
                     std::printf("  [drive] t%llu goto ends at (%.2f,%.2f,%.2f)\n", (unsigned long long)tick_count, feet.x, feet.y, feet.z);
                 } else { wish.x += gx; wish.z += gz; }
+            }
+            if (drive_hop_i < drive_hops.size()) {
+                const Vec3 w = drive_hops[drive_hop_i];
+                const float gx = w.x - feet.x, gz = w.z - feet.z, d2 = gx * gx + gz * gz;
+                const RoomMesh& hm = phys_mesh(room);
+                if (d2 < 0.36f && pv.grounded) {
+                    std::printf("  [hop] t%llu waypoint %zu reached at (%.2f, %.2f, %.2f) after %d ticks\n",
+                                (unsigned long long)tick_count, drive_hop_i, feet.x, feet.y, feet.z, drive_hop_ticks);
+                    ++drive_hop_i; drive_hop_ticks = 0;
+                } else if (++drive_hop_ticks > 900) {
+                    std::printf("  [hop] t%llu waypoint %zu NOT reached: at (%.2f, %.2f, %.2f), %.2f from (%.2f, %.2f)\n",
+                                (unsigned long long)tick_count, drive_hop_i, feet.x, feet.y, feet.z, std::sqrt(d2), w.x, w.z);
+                    drive_hop_i = drive_hops.size();
+                } else {
+                    const float l = std::sqrt(d2), ux = gx / l, uz = gz / l;
+                    if (pv.grounded || l > 0.3f) { wish.x += gx; wish.z += gz; }   // over the waypoint in the air: let go, drop onto it
+                    if (pv.grounded) {
+                        drive_hop_jumps = 0;
+                        const float fa = floor_at(hm, feet.x + ux * 0.45f, feet.z + uz * 0.45f, feet.y + 4.0f);
+                        const float fb = floor_at(hm, feet.x + ux * 0.9f, feet.z + uz * 0.9f, feet.y + 4.0f);
+                        if (l > 0.9f && (fa < feet.y - 0.8f || fa > feet.y + 0.65f || fb > feet.y + 0.65f)) {
+                            drive_jump = true; drive_hop_jumps = 1; drive_hop_y0 = feet.y;
+                        }
+                    } else if (drive_hop_jumps == 1 && feet.y < drive_hop_y && feet.y < drive_hop_y0 + 1.0f && l > 1.2f) {
+                        drive_jump = true; drive_hop_jumps = 2;
+                    }
+                }
+                drive_hop_y = feet.y;
             }
             // The door walk-out (FUN_0042cf00 0x42d246..0x42d29d -> the mover FUN_00465170 l.405-420): while
             // +0x364 != 0 the mover replaces the stick with a full one (+0x508 = 1.0) toward +0x358 / +0x35c,
