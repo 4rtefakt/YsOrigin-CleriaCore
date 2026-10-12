@@ -459,9 +459,14 @@ static void video_water_grab(Gpu& g) {
 // over 2c, c = (level != 2) + 1 [BYTES 0x5e3761..0x5e378a] -- with its own depth, cleared to 0xff000000, the
 // culled materials culling the other winding. Retail calls the layers 2, 3, 4, 5, 7, 9, 12, 13 there
 // [BYTES 0x5dff52..0x5e007f: skipped 6, 8, 10, 11, 14, 15]; drawn here: the room and its objects (draw()'s
-// part 3 = layers 3 / 5, and the objects of 4). [not modelled] in the reflection: the effects of layers 9 / 12
-// (flames, particles), an actor's glare-alpha body (9) and sprite overlay (12), boss02's attachment (7); the
-// generated mip chain of surface 5 (it is sampled magnified); the reflected eye of the sort keys.
+// part 3 = layers 3 / 5, and the objects of 4), and -- between _begin and _end, by the caller -- the effects: an
+// effect element draws at once from its layer's callback (FUN_0044cbd0 -> FUN_0044f2e0: its own upload and
+// DrawPrimitive, or FUN_005fafc0 for a mesh element [EXPORT 0044f2e0.c:197-241, 406]), on layer 4 / 12 / 13
+// [EXPORT 0044ef00.c], so it is in this pass. [not modelled] in the reflection: an actor's glare-alpha body (9)
+// and sprite overlay (12; CleriaCore composites the overlay into the body's texture), boss02's attachment (7);
+// the generated mip chain of surface 5 (it is sampled magnified); the reflected eye of the sort keys.
+// _begin leaves the reflected view's pipelines and constants in place and returns true; _end puts g's own back
+// (the caller writes the frame's constants after it).
 // Pool surface 5 for a cw x ch frame: the render size over 2c, c = (level != 2) + 1 -- half at Reflections
 // High, a quarter at Low and at Off [BYTES 0x5e3761..0x5e378a, 0x5e37f3..0x5e380f].
 static void video_surface5(Gpu& g, std::uint32_t cw, std::uint32_t ch) {
@@ -491,9 +496,9 @@ static void video_surface5(Gpu& g, std::uint32_t cw, std::uint32_t ch) {
     d.layout = g.u_layout; d.entryCount = 4; d.entries = be;
     g.ubind_mirror = wgpuDeviceCreateBindGroup(g.device, &d);
 }
-static void video_water_reflect(Gpu& g, const Room& room, std::uint32_t cw, std::uint32_t ch, const Mat4& rvp) {
+static bool video_water_reflect_begin(Gpu& g, const Room& room, std::uint32_t cw, std::uint32_t ch, const Mat4& rvp) {
     g_water.ron = false;
-    if (!g_vgpu.ready || !g_water.rwant || cw == 0 || ch == 0) return;
+    if (!g_vgpu.ready || !g_water.rwant || cw == 0 || ch == 0) return false;
     video_surface5(g, cw, ch);
     if (!g_vgpu.refl_pipes_built) {
         const WorldPipes keep = g;
@@ -506,6 +511,9 @@ static void video_water_reflect(Gpu& g, const Room& room, std::uint32_t cw, std:
     std::swap(static_cast<WorldPipes&>(g), g_vgpu.refl_pipes);
     write_mvp(g, rvp);
     draw(g, room, g_vgpu.refl, g_vgpu.refl_depth, 3);
+    return true;
+}
+static void video_water_reflect_end(Gpu& g) {
     std::swap(static_cast<WorldPipes&>(g), g_vgpu.refl_pipes);
     g_water.ron = true;
 }

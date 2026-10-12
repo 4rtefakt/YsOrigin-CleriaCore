@@ -8605,18 +8605,29 @@ title_again:
         g_mirror.floor_on = csHost.mirror;                 // 0x74c104: the actors' images on a mirror floor
         g_mirror.quads.clear();
         const BossCaster* boss_caster = boss_shadow_setup(room, meshes);   // view_boss_shadow.inl
-        video_water_reflect(g, room, cw, ch,             // the water's reflection pass, first in the frame (view_video.inl)
-                            fly ? cam.reflected_view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f, g_water.plane_y)
-                                : cam.reflected_view_proj(video_aspect(cw, ch), clip_near, clip_far, g_water.plane_y));
+        if (video_water_reflect_begin(g, room, cw, ch,   // the water's reflection pass, first in the frame (view_video.inl)
+                fly ? cam.reflected_view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f, g_water.plane_y)
+                    : cam.reflected_view_proj(video_aspect(cw, ch), clip_near, clip_far, g_water.plane_y))) {
+            // ... with the effects, from the reflected record's camera: the same forward mirrored, the eye at
+            // (x, -d - y, z) [BYTES 0x5ec78e..0x5ec7b0: not the geometric mirror; REFLECTIONS.md 4.2 step 4].
+            const Vec3 cf = cam.forward(), rf{cf.x, -cf.y, cf.z}, rp{cam.pos.x, g_water.plane_y - cam.pos.y, cam.pos.z};
+            draw_particles(g, fxsim, asset_root, eft, g_vgpu.refl, g_vgpu.refl_depth, rf, rp, true);
+            draw_flames(g, room, g_vgpu.refl, g_vgpu.refl_depth, flames, rf, fx_time + dt);
+            draw_located_effects(g, world.effects(), asset_root, efl, eft, g_vgpu.refl, g_vgpu.refl_depth, rf, fx_time + dt);
+            draw_particles(g, fxsim, asset_root, eft, g_vgpu.refl, g_vgpu.refl_depth, rf, rp);
+            video_water_reflect_end(g);
+        }
         write_mvp(g, last_vp);
         boss_shadow_cast(g, room, meshes, boss_caster, cw, ch);             // the bosses' shadow targets, before the room
         boss_shadow_zava(g, room, meshes, cw, ch, last_vp, cam.forward());
+        boss_shadow_nygtilger(g, room, meshes, cw, ch, cam.forward());
         const WGPUTextureView frame_view = view, frame_depth = depth;
         prof("draw:room1");
         video_world_begin(g, cw, ch, view, depth);       // Render scale: the world's own target (view_video.inl)
         draw(g, room, view, depth, 1);                     // render layers 3 / 5 (layer 0xb below)
         draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward(), cam.pos, true);   // the effect meshes of layer 4
         draw_decals(view, depth, cam.pos);                 // the blood splats on the floor (view_weather.inl)
+        boss_shadow_quads(g, view, depth);                 // Nygtilger's darkening quads (view_boss_shadow.inl)
         // Character billboard (play mode only; fly is a free debug camera). Draw the floor
         // shadow first, on the actual floor under the player (so it stays put during a jump).
         prof("draw:player+pickups");
