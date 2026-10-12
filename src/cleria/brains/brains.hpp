@@ -64,6 +64,8 @@ AiOut m340(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00493240 Reza
 AiOut m380(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004953e0 Chelasken (breeds Celny)
 AiOut m370(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00494430 Celny
 AiOut m310(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00491c00 Jiamobre (hops, shuriken)
+AiOut m320(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004e9d00 Pikkarton (two hop attacks)
+AiOut m330(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ea740 Pikkardon (leap + bullet ring, charge, breeds M320)
 AiOut m540(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00498830 / FUN_00497bb0 Perrie (fuse)
 AiOut m530(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004965d0 Sepast (beam top)
 AiOut m580(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0049db20 Sevnam (M500's teleporter, bubbles)
