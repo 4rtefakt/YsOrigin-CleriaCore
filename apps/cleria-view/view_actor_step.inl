@@ -74,6 +74,7 @@
                 // too (a duel puppet stays on screen).
                 a.hit_flash = hitfx::step_hurt(a.hit_flash);
                 if (a.is_player() || (!a.alive() && !revive_corpse(a))) continue;   // a family corpse falls on
+                if (fix0_tick && !fix0_runs(a)) continue;      // under a Fix(0): the actors whose handler runs (S5c)
                 // The integrator FUN_0045a510 (MOVER.md §3): one swept sphere (radius +0x328,
                 // centred on the ORIGIN) through D = (displacement, dy), the floor ray from the
                 // pre-move origin, then the settle (land with a 0.65 lerp / coyote / fall).

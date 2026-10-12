@@ -1,10 +1,10 @@
 // The enemy handlers' tick: one pass over the room's enemies — the far freeze, the dead paths, the keep-out
 // restore, the brain (enemy_ai_tick), the action player and the ASO step, the bullets / effects / hit volumes a
 // section issues — then the brains' spawns. Textual part of view_game.inl's logic step, cut out on 2026-10-10 so
-// that it can run twice: on a live tick for every enemy (`eyes_only` false), and under a Fix that holds slot 0
-// only for Hugo's Eyes of Fact, whose handler (index 83, FUN_004731d0) tests the actor-stop byte 0x74ab8b —
-// slot 1 alone — and so runs on under a Fix(0) (build/mech_re/FIX_SLOTS.md §1.4, S2; issue #70). Every other
-// handler 3..93 does too in the original (S5c: not done). Needs `const bool eyes_only` in scope.
+// that it can run more than once: on a live tick and under a dead player for every enemy (`fix0_tick` false), and
+// under a Fix that holds slot 0 only (`fix0_tick` true) for the actors `fix0_runs` names: every handler 3..93 tests
+// the actor-stop byte 0x74ab8b — slot 1 alone — and so runs on under a Fix(0) (build/mech_re/FIX_SLOTS.md §1.4;
+// S2, issue #70: Hugo's eyes; S5c: the rest). Needs `fix0_tick` and `fix0_runs` in scope.
             {
                 const int d = game.g_flags[201] ? 3 : (difficulty - 2);   // -2 v.easy .. 2 nightmare
                 // The handlers' off-screen test FUN_0045d3c0: a SPHERE of 5.0 (0x6bd868) x 0.5
@@ -135,10 +135,10 @@
                     return er ? er->ai_raw : nullptr;
                 };
                 const Vec3 cam_fwd = cam.forward();
-                if (!eyes_only) player_hold = boss6_grab || boss7_pin || boss8_pin;   // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl); Dalles's pin (view_boss07.inl); Darm's dead fall (view_boss08.inl)
+                if (!fix0_tick) player_hold = boss6_grab || boss7_pin || boss8_pin;   // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl); Dalles's pin (view_boss07.inl); Darm's dead fall (view_boss08.inl)
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
-                    if (eyes_only && !(en && en->ai_index == 83)) continue;   // a Fix(0): handler 83 only (S2)
+                    if (fix0_tick && !(en && fix0_runs(*en))) continue;       // a Fix(0): the handlers that run (S2, S5c)
                     // M450's handler, every path (FUN_004c0ee0 0x4c1231): the Mask of Eyes tint +0x148 / +0x278.
                     if (en && en->ai_index == 38) en->tint = mask_of_eyes_on(inv) ? 0xff999999u : 0xffffffffu;
                     // The M680 / M740 handlers' far freeze, before their HP test: 25 u or more from the player's
@@ -582,7 +582,7 @@
                     if (c->aso_local15) render.back().avm.set_local(15, c->aso_local15);   // +0xa18
                 }
                 // The boss gauge disappears with its owner (DAT_006d5fd8 cleared at death).
-                if (!eyes_only && hud.boss_frac >= 0.0f && gauge_owner != 0) {
+                if (!fix0_tick && hud.boss_frac >= 0.0f && gauge_owner != 0) {
                     bool live = false;
                     for (const Actor& a : world.actors()) live |= a.instance_id == gauge_owner && a.alive();
                     if (!live) { hud.hide_boss_gauge(); gauge_owner = 0; }

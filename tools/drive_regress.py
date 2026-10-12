@@ -866,7 +866,7 @@ CASES.update({
     # the same fight ends at t8952, so the half-HP end is read at t9000.
     "duel_s3080_kishgal": dict(
         room="S_30/S_3080/S_3080", char="1", env=dict(_LOCK, CLERIA_LEVEL="28"),
-        drive=_S3080.format(end=15000, cast=172) + "9000:dflags;15000:dflags;15001:quit",
+        drive=_S3080.format(end=15000, cast=172) + "9100:dflags;15000:dflags;15001:quit",   # 9100 (was 9000) since FIX_SLOTS S5c: the handlers run under the intro's Fix(0), the RNG is elsewhere at the first exchange and the half-HP end comes at t9038 (was t8845)
         expect=["cast 172 hp 2985/2985", "| lv 19 max 2985 atk 121 def 108 exp 5766", "[content] boss_defeated S_3080",
                 "133=1 156=0 174=1", ">> entering S_1000", "232=1"], absent=["[duel] lost"], count={"boss_defeated": 1}),
     # S_3080 Hugo wins against Toal (M820): 174 = 1 -> Battle_Win (its 0.4 slow-mo) -> EV_Feena02_2, where
@@ -2538,6 +2538,21 @@ CASES.update({
         expect=["floor 'boss06a' nojump 1", "feet (-39.460, 7.108, 29.098)", "[jump] t40 refused", "feet (-39.461, 7.069, 28.978)",
                 "floor 'boss06a' nojump 0", "feet (-38.662, 10.763, 29.838)", "feet (-38.662, 12.413, 29.838)"],
         count={"[jump] t": 1}),
+    # FIX_SLOTS.md S5c [LIKELY, not retail-proven; RETAIL_ANSWERS.md A1]: the monsters' handlers test slot 1 alone, so
+    # under a Fix that holds slot 0 only they run on. S_1004's Riffligan #189 seen from 6 u, then the blessing shop
+    # @GrowMenu (slot 0): it comes on from z -1.8 to -7.8 and stops 2.02 from Yunica (it stood at (44.9, -1.8)).
+    # Under @ItemCannotUse (slot 1) it holds where it was.
+    "fix0_enemy_runs": dict(
+        room="S_10/S_1004/S_1004", env=dict(_LOCK, CLERIA_AI="1"),
+        drive="5:opt=InfiniteHP=1;20:seen=#189,6;22:run=@growmenu;23:actors;119:actors;239:actors;241:quit",
+        expect=["slot 0 taken: 1/0", "id 189 cast 14 enemy hp 60 g1 0 pos (44.9,0.0,-1.8)",
+                "[ai] #189 cast 14 phase 2 sub 0 act 0x400 steer 0 mode 2 spd 0.0487 dist 4.69",
+                "id 189 cast 14 enemy hp 60 g1 0 pos (44.5,-2.0,-6.6)", "dist 2.02", "id 189 cast 14 enemy hp 60 g1 0 pos (44.4,-2.0,-7.8)"]),
+    "fix1_enemy_holds": dict(
+        room="S_10/S_1004/S_1004", env=dict(_LOCK, CLERIA_AI="1"),
+        drive="5:opt=InfiniteHP=1;20:seen=#189,6;22:run=@itemcannotuse;23:actors;119:actors;121:quit",
+        expect=["slot 1 taken: 0/1", "t23 actors", "id 189 cast 14 enemy hp 60 g1 0 pos (44.9,0.0,-1.8)", "t119 actors",
+                "id 189 cast 14 enemy hp 60 g1 0 pos (44.9,0.0,-1.8)"], absent=["[ai] #189"]),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:
