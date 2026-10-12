@@ -573,6 +573,86 @@ static void shadow_flush(Gpu& g, WGPUTextureView color, WGPUTextureView depth, c
     sf.decal.clear();
 }
 
+// ---- Toal's trail (SHADOWS.md 5, RENDER_LEFTOVERS.md 3) -----------------------------------------------------
+// Only the player actor spawned as Toal has it (FUN_00459410: the texture record +0x5c8 and N x 12 bytes of
+// history +0x5cc, N = {12, 18, 24}[ShadowEffectLevel] [BYTES 0x68b0ec]). Every tick FUN_0045c490 shifts the
+// history -- hist[i] = where he was i ticks ago, relative to now. After his sprite, FUN_00474870 [EXPORT
+// 00474870.c] looks the current animation tag up in the image table of AIA slot 0x10a = c_119 [BYTES
+// 0x4748a5..0x4748ae, 0x68a800 + 4 x 266]: no entry, no trail. Else the body region of (tag, dir % nDir,
+// min(frame, nFrame - 1)) is decoded at its canvas position into the trail's canvas-sized texture, and for each
+// segment j of the history six copies of the BODY's billboard quad are built, moved by lerp(hist[j], hist[j + 1],
+// q / 6) with alpha clamp(1 - m / 6N, 0, 1) (m counts the copies), additive (the sprite state | 0x80: SRCALPHA /
+// ONE). The buffer is drawn after every 9th segment and the remainder never is [BYTES 0x474c51..0x474c99]: 54
+// quads at Shadows Simple and Player, 108 at Full. C_119 has the demon form's tags 300..317 and 259, 264, 265; most
+// of its images are a small light at one point of the figure, tag 317's are the whole figure [DATA].
+// [H] the history offset is a world offset: retail turns it by RotationY(-camera yaw), taken to undo the
+// billboard's own turn (the camera record's +0x48c was not traced). [approx] the trail's quad is the image's tight
+// box placed as the body's frame is (the same canvas and scale); the rgb is the body's (the scene light).
+// [not modelled] the fade factor +0x5bc (1.0 for the actor's whole life: no writer lowers it).
+struct ToalTrail {
+    Aia aia;
+    bool tried = false;
+    SpriteTex tex;
+    long shown = -1;                   // the (image, dir, frame) the texture holds
+    bool has = false;                  // ... and it is not an empty region
+    std::vector<Vec3> pos;             // the player's position after each of the last ticks, newest first
+    int stat[2] = {-1, 0};             // the last draw's tag and quads (vstat)
+};
+static ToalTrail g_trail;
+static void trail_record(const Vec3& p) {
+    g_trail.pos.insert(g_trail.pos.begin(), p);
+    if (g_trail.pos.size() > 24) g_trail.pos.resize(24);
+}
+static void trail_draw(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const fs::path& asset_root,
+                       const SpriteTex& body, const Vec3& feet, float worldH, int tag, int dir, int frame,
+                       const Vec3& camFwd, const Vec3& camPos, float tr, float tg, float tb, float px_dx, float px_dy,
+                       float scale, float depth_bias) {
+    ToalTrail& t = g_trail;
+    t.stat[0] = -1; t.stat[1] = 0;
+    if (!t.tried) { t.tried = true; t.aia.load(asset_root / "ANI" / "C_119.AIA"); }
+    if (!t.aia.ok()) return;
+    int img = -1;
+    for (std::uint32_t i = 0; i < t.aia.nImg && img < 0; ++i)
+        if (int(t.aia.images[i].tag) == tag) img = int(i);
+    if (img < 0) return;
+    const AiaImage& im = t.aia.images[std::size_t(img)];
+    if (im.nDir == 0 || im.nFrame == 0) return;
+    const std::uint32_t d = std::uint32_t(dir) % im.nDir, f = std::min(std::uint32_t(std::max(frame, 0)), im.nFrame - 1);
+    const long key = (long(img) << 16) | long(d << 8) | long(f);
+    if (key != t.shown) {
+        t.shown = key;
+        AiaFrame fr;
+        t.has = t.aia.decode_frame(std::uint32_t(img), d, f, fr) && fr.w > 0 && fr.h > 0;
+        if (t.has) {
+            if (t.tex.tex) { wgpuBindGroupRelease(t.tex.bind); wgpuTextureViewRelease(t.tex.view); wgpuTextureRelease(t.tex.tex); }
+            t.tex = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
+            t.tex.set_placement(fr, t.aia.canvasW, t.aia.canvasH, t.aia.scaleA);
+        }
+    }
+    t.stat[0] = tag;
+    if (!t.has || t.pos.empty()) return;
+    t.tex.oy = body.oy; t.tex.footFix = body.footFix;      // the body's quad: its foot line
+    const int N = g_shadow_level == 0 ? 12 : g_shadow_level == 1 ? 18 : 24;
+    const int segs = ((N - 1) / 9) * 9;                    // drawn in runs of nine
+    auto hist = [&](int i) {
+        const Vec3& p = t.pos[std::min(std::size_t(i), t.pos.size() - 1)];
+        return Vec3{p.x - t.pos[0].x, p.y - t.pos[0].y, p.z - t.pos[0].z};
+    };
+    QuadScope quads(g);
+    int m = 0;
+    for (int j = 0; j < segs; ++j) {
+        const Vec3 a = hist(j), b = hist(j + 1);
+        for (int q = 0; q < 6; ++q, ++m) {
+            const float w = float(q) / 6.0f;                // 0x6bd880
+            const float al = float(int(std::clamp(1.0f - float(m) / float(6 * N), 0.0f, 1.0f) * 255.0f)) / 255.0f;
+            const Vec3 at{feet.x + a.x + (b.x - a.x) * w, feet.y + a.y + (b.y - a.y) * w, feet.z + a.z + (b.z - a.z) * w};
+            draw_character(g, color, depth, at, worldH, t.tex, camFwd, camPos, 0.0f, tr, tg, tb, true, al, px_dx, px_dy,
+                           scale, 0, depth_bias, false);
+        }
+    }
+    t.stat[1] = m;
+}
+
 // ---- an actor's image on a mirror floor (REFLECTIONS.md 7.4, RENDER_LEFTOVERS.md 1.2-1.3) ------------------
 // While MirrorFloor is on, FUN_00473540 queues the actor's shadow callback FUN_00474e10 on layer 1 as well
 // [BYTES 0x47385f..0x4738ff], and there it builds the shadow's flat quad (FUN_00456da0) with the actor's own sprite

@@ -1044,7 +1044,7 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
                        "The round shadow under each character. Full (the original's default): it lies on the steps "
                        "and slopes it falls on. Player: only yours does; the others are flat discs. Simple: all are "
                        "flat discs. The big bosses' own shadows are drawn at every setting, coarser at Player and "
-                       "Simple. Toal's afterimages are not drawn yet. (Original: Shadows.)")) {
+                       "Simple. Toal's trail of light is twice as long at Full. (Original: Shadows.)")) {
             gr.shadow_effect_level = sl;
             persist();
         }
@@ -1247,6 +1247,8 @@ static bool video_drive(const std::string& cmd) {
                     g_shadow_stat[1], g_shadow_stat[2]);
         std::printf("  [video] water level %d surfaces %d grab %ux%u phase %.2f\n", int(settings().s.graphics.water_effect_level),
                     int(g_water.want), g_water.on ? g_vgpu.grab_w : 0u, g_water.on ? g_vgpu.grab_h : 0u, double(g_water.phase));
+        if (g_trail.tried)
+            std::printf("  [video] trail level %d tag %d quads %d\n", g_shadow_level, g_trail.stat[0], g_trail.stat[1]);
         if (g_bshadow.stat[0] || g_bshadow.stat[2])
             std::printf("  [video] boss shadow target %d triangles %d strength %.3f quads %d\n", g_bshadow.stat[0],
                         g_bshadow.stat[1], double(g_bshadow.on ? g_bshadow.strength : 0.0f), g_bshadow.stat[2]);

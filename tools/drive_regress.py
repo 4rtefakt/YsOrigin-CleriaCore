@@ -3217,6 +3217,15 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:tier=10;9:flag=205,1;10:saveload;"
               "11:flag=163,1;60:boss6;400:vstat;401:quit",
         expect=["[video] boss shadow target 0 triangles 0 strength 0.000 quads 2", "[video] mirror 640x400 floor 1 objects 1 images 4"]),
+    # Toal's trail (SHADOWS.md 5): none in the human form's stand (C_119 has no entry for the tag); in the demon
+    # form the run (tag 301, then 302 where the wall stops him) leaves 108 copies of the trail image at Shadows
+    # Full and 54 at Player and Simple.
+    "toal_trail": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="3:flag=187,1;10:vstat;12:boost=30000;20:boostkey;70:move=1,0,300;100:vstat;"
+              "101:vopt=ShadowEffectLevel=1;110:vstat;111:vopt=ShadowEffectLevel=0;120:vstat;121:quit",
+        expect=["[video] trail level 2 tag -1 quads 0", "[video] trail level 2 tag 301 quads 108",
+                "[video] trail level 1 tag 301 quads 54", "[video] trail level 0 tag 302 quads 54"]),
 })
 # ---- batch G (2026-10-11) ----------------------------------------------------------------------------
 CASES.update({

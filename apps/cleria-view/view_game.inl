@@ -3486,6 +3486,7 @@ title_again:
         csHost.heal_spots.clear();
         csHost.mirror = false; csHost.cubemap.clear();   // FUN_00431260 clears 0x74c104 with the scene [M]
         g_water.plane_y = 0.0f;                          // the scene reset: the plane (0, 1, 0, 0) [EXPORT 00442dd0.c:51-54]
+        g_trail.pos.clear();                             // a scene's player actor is spawned anew: an empty history
         // ... and g_flags[131] (0x76bb28, the brain hold) and g_flags[134] (0x76bb34) on every scene load
         // [EXPORT 00431260.c:141-142]: a duel or scene script that leaves 131 set does not hold the next room's
         // monsters, and a save written with it set recovers at its load (the load is a scene load).
@@ -8452,6 +8453,7 @@ title_again:
                 break;   // 0x76a538 is set: the rest of the pool fails the gate
             }
         }
+        if (character == 3) trail_record(feet);            // Toal's trail history, once a tick (view_sprites.inl)
         }  // ---- end fixed-step logic ----------------------------------------
         // UV scroll — the water. `phase += velocity` ONCE PER TICK, unscaled: the
         // disassembly is unambiguous (FUN_0044cda0 @0x44e165 — the neighbouring
@@ -8624,6 +8626,14 @@ title_again:
                                avm.sprite_depth_offset(),                        // anime_CameraDistanceOffset
                                // the caustics on a submerged body [EXPORT 00474290.c:96-123]
                                !g_caustic.off && submerged && !wading && !psand.on_sand2() && cur_surface != 0x12);
+            if (palpha > 0.0f && character == 3)           // Toal's trail, after his sprite (FUN_004745a0 -> FUN_00474870)
+                trail_draw(g, view, depth, asset_root, chr.dirs[facing], feet, kCharH,
+                           wpl && wpl->pattern.pinned() ? int(wpl->pattern.tag) : int(avm.anim_tag()), facing,
+                           wpl && wpl->pattern.pinned() ? int(wpl->pattern.frame) : int(avm.frame()),
+                           cam.forward(), cam.pos, g_scene_light.x, g_scene_light.y, g_scene_light.z,
+                           wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,
+                           wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f,
+                           wpl ? wpl->scale : 1.0f, avm.sprite_depth_offset());
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());
