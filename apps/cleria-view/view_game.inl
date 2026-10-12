@@ -3161,6 +3161,7 @@ title_again:
         std::string cubemap;
         void effect_camera_offset(int id, float off) override { if (fx_camoff_fn) fx_camoff_fn(id, off); }
         void mirror_floor(bool on) override { mirror = on; }
+        void water_plane(float h) override { g_water.plane_y = h + 0.025f; }                             // 0x11d
         void cube_map(const std::string& n) override { cubemap = n; }
         void change_fog(int idx, float speed) override { fog_script(idx, speed); }                       // 0x129
         bool mesh_is_motion_finish(const std::string& n, std::uint32_t k) const override {              // 0x17a
@@ -3499,6 +3500,8 @@ title_again:
         csMgr.paused = false;
         csHost.heal_spots.clear();
         csHost.mirror = false; csHost.cubemap.clear();   // FUN_00431260 clears 0x74c104 with the scene [M]
+        g_water.plane_y = 0.0f;                          // the scene reset: the plane (0, 1, 0, 0) [EXPORT 00442dd0.c:51-54]
+        g_trail.pos.clear();                             // a scene's player actor is spawned anew: an empty history
         // ... and g_flags[131] (0x76bb28, the brain hold) and g_flags[134] (0x76bb34) on every scene load
         // [EXPORT 00431260.c:141-142]: a duel or scene script that leaves 131 set does not hold the next room's
         // monsters, and a save written with it set recovers at its load (the load is a scene load).
@@ -8495,6 +8498,7 @@ title_again:
                 break;   // 0x76a538 is set: the rest of the pool fails the gate
             }
         }
+        if (character == 3) trail_record(feet);            // Toal's trail history, once a tick (view_sprites.inl)
         }  // ---- end fixed-step logic ----------------------------------------
         // UV scroll — the water. `phase += velocity` ONCE PER TICK, unscaled: the
         // disassembly is unambiguous (FUN_0044cda0 @0x44e165 — the neighbouring
@@ -8513,15 +8517,20 @@ title_again:
         g_caustic.sx += 0.0005f * float(ticks); g_caustic.sy += 0.00015f * float(ticks);
         // The water: its phase, and whether this room has a surface to draw through the grab (REFLECTIONS.md 5).
         g_water.phase += 0.02f * float(ticks);
-        g_water.want = false;
-        if (settings().s.graphics.water_effect_level != 0)
+        g_water.want = g_water.rwant = false;
+        if (settings().s.graphics.water_effect_level != 0) {
+            bool w2 = false;
             for (const DrawBatch& b : room.mesh.batches)
                 if (b.index_count && water_material(b)) {
-                    g_water.want = true;
-                    g_water.tint[0] = float(b.diffuse & 0xff) / 255.0f; g_water.tint[1] = float((b.diffuse >> 8) & 0xff) / 255.0f;
-                    g_water.tint[2] = float((b.diffuse >> 16) & 0xff) / 255.0f; g_water.tint[3] = float(b.diffuse >> 24) / 255.0f;
-                    break;                               // [approx] one diffuse a room (each shipped room has one water material)
+                    // [approx] one diffuse a room and kind (each shipped room has one water material of a kind)
+                    bool& have = water_reflects(b) ? g_water.rwant : w2;
+                    if (have) continue;
+                    have = g_water.want = true;
+                    float* t = water_reflects(b) ? g_water.rtint : g_water.tint;
+                    t[0] = float(b.diffuse & 0xff) / 255.0f; t[1] = float((b.diffuse >> 8) & 0xff) / 255.0f;
+                    t[2] = float((b.diffuse >> 16) & 0xff) / 255.0f; t[3] = float(b.diffuse >> 24) / 255.0f;
                 }
+        }
         // Presentation advances by the time we actually SIMULATED this frame, not by
         // wall time — so fog blends, flame flipbooks and HUD bars stay locked to the
         // tick and slow down with timeScale, instead of drifting off it.
@@ -8599,7 +8608,17 @@ title_again:
             std::printf("  [light] t%llu the scene light's colour (%.3f, %.3f, %.3f)\n", (unsigned long long)tick_count,
                         csHost.light_rgb.x, csHost.light_rgb.y, csHost.light_rgb.z);
         g_scene_light = light_drawn = csHost.light_rgb;    // 0x76a570..78 -> 0x7b2f14..1c: the world draws below
+        prof("draw:reflection");
+        g_shadow_level = std::clamp(int(settings().s.graphics.shadow_effect_level), 0, 2);
+        g_mirror.floor_on = csHost.mirror;                 // 0x74c104: the actors' images on a mirror floor
+        g_mirror.quads.clear();
+        const BossCaster* boss_caster = boss_shadow_setup(room, meshes);   // view_boss_shadow.inl
+        video_water_reflect(g, room, cw, ch,             // the water's reflection pass, first in the frame (view_video.inl)
+                            fly ? cam.reflected_view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f, g_water.plane_y)
+                                : cam.reflected_view_proj(video_aspect(cw, ch), clip_near, clip_far, g_water.plane_y));
         write_mvp(g, last_vp);
+        boss_shadow_cast(g, room, meshes, boss_caster, cw, ch);             // the bosses' shadow targets, before the room
+        boss_shadow_zava(g, room, meshes, cw, ch, last_vp, cam.forward());
         const WGPUTextureView frame_view = view, frame_depth = depth;
         prof("draw:room1");
         video_world_begin(g, cw, ch, view, depth);       // Render scale: the world's own target (view_video.inl)
@@ -8639,6 +8658,9 @@ title_again:
                                              sfl > kNoFloor && feet.y - sfl <= 8.0f),   // +0x2b8: the player's ray is 8 long
                              fn);
                 shadow_flush(g, view, depth, shadows.tex, shadow_frame);
+                mirror_actor_quad(chr.dirs[facing], feet, fy, wpl ? wpl->scale : 1.0f, pt,     // view_sprites.inl
+                                  (wpl ? wpl->tint_alpha : 1.0f) * float(pt >> 24) / 255.0f, cam.pos, cam.forward(),
+                                  mirror_quad_unturned(kPlayerCast, int(avm.anim_tag()), int(avm.frame())));
             }
             if (palpha > 0.0f)
                 draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos,
@@ -8649,6 +8671,14 @@ title_again:
                                avm.sprite_depth_offset(),                        // anime_CameraDistanceOffset
                                // the caustics on a submerged body [EXPORT 00474290.c:96-123]
                                !g_caustic.off && submerged && !wading && !psand.on_sand2() && cur_surface != 0x12);
+            if (palpha > 0.0f && character == 3)           // Toal's trail, after his sprite (FUN_004745a0 -> FUN_00474870)
+                trail_draw(g, view, depth, asset_root, chr.dirs[facing], feet, kCharH,
+                           wpl && wpl->pattern.pinned() ? int(wpl->pattern.tag) : int(avm.anim_tag()), facing,
+                           wpl && wpl->pattern.pinned() ? int(wpl->pattern.frame) : int(avm.frame()),
+                           cam.forward(), cam.pos, g_scene_light.x, g_scene_light.y, g_scene_light.z,
+                           wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,
+                           wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f,
+                           wpl ? wpl->scale : 1.0f, avm.sprite_depth_offset());
         }
         {
             const std::uint32_t ms = std::uint32_t(SDL_GetTicks());
@@ -8724,6 +8754,7 @@ title_again:
         g_shadow_stat[0] = shadow_frame.decals; g_shadow_stat[1] = shadow_frame.tris; g_shadow_stat[2] = shadow_frame.quads;
         video_glare_grab(g);                             // after layer 6: the glare's source (view_video.inl)
         prof("draw:room2+flames");
+        video_mirror_pass(g, room, cw, ch, last_vp);     // the mirror floors' image, before the floors (view_video.inl)
         video_water_grab(g);                             // before layer 0xb: what the water shows (view_video.inl)
         draw(g, room, view, depth, 2);   // layer 0xb (the water surfaces) after the actors' layers 6/8/9
         fx_time += dt;

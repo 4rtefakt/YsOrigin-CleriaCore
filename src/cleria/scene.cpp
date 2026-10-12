@@ -737,6 +737,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             r.v0 = std::uint32_t(trig_v0); r.v1 = std::uint32_t(out.vertices.size());
             r.t0 = std::uint32_t(obj_i0 / 3); r.t1 = std::uint32_t(out.indices.size() / 3);
             r.obj = po;
+            r.model_flags = model.flags;
             for (const AnimClip& c : model.clips)
                 r.clips.push_back({c.name, std::int32_t(c.frame_start), std::int32_t(c.frame_end), c.next, c.rate});
             if (states) {
