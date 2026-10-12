@@ -31,7 +31,7 @@ struct lua_State;
 
 namespace cleria::script {
 
-inline constexpr int kApiVersion = 6;   // cleria.api_version (= mods::kApiVersion; LUA_API.md §11 lists what each level added)
+inline constexpr int kApiVersion = 7;   // cleria.api_version (= mods::kApiVersion; LUA_API.md §11 lists what each level added)
 inline constexpr int kScriptApi = 3;    // the manifest ApiVersion a Script= needs (when the Lua API arrived)
 
 struct Limits {
@@ -137,6 +137,16 @@ struct Host {
     virtual bool ui_button(void* list, const std::string& label, const std::string& desc, bool enabled) { (void)list; (void)label; (void)desc; (void)enabled; return false; }
     virtual bool ui_text_field(void* list, const std::string& label, std::string* v, const std::string& desc, bool secret, const std::string& empty) { (void)list; (void)label; (void)v; (void)desc; (void)secret; (void)empty; return false; }
     virtual void ui_info(void* list, const std::string& label, const std::string& value, std::uint32_t col, const std::string& desc) { (void)list; (void)label; (void)value; (void)col; (void)desc; }
+    // ---- API 7 ----
+    struct ModInfo { std::string id, name, version; bool active = false, scripted = false; };
+    virtual std::vector<ModInfo> mod_list() { return {}; }      // every installed mod, in load order
+    // cleria.bus: a message to the other scripted mods (-> how many handlers ran), and a process-wide key / value.
+    virtual int bus_publish(const std::string& from, const std::string& topic, const std::string& json_text) { (void)from; (void)topic; (void)json_text; return 0; }
+    virtual std::optional<std::string> bus_get(const std::string& key) { (void)key; return std::nullopt; }
+    virtual void bus_set(const std::string& key, const std::string& json_text) { (void)key; (void)json_text; }
+    virtual bool set_clipboard(const std::string& text) { (void)text; return false; }
+    virtual bool open_url(const std::string& mod, const std::string& url) { (void)mod; (void)url; return false; }
+    virtual std::string locale() { return "en"; }               // the game's text language: "en", "fr", "ja" ...
 };
 
 // One scripted mod: its Lua state, sandbox, budget, handlers, and the calls the game makes into it.
@@ -197,6 +207,14 @@ public:
     std::vector<void*> sockets_;                                // live websocket userdata (closed on failure)
     std::map<std::string, int> images_;                         // path -> host image handle
     void* list_ = nullptr;                                      // the F1 page being drawn (draw_page)
+    // ---- API 7 (modscript_api7.inl) ----
+    struct Timer { int id = 0; double due = 0, period = 0; int ref = 0; bool play = false, dead = false; };
+    std::vector<Timer> timers_;                                 // cleria.after / every
+    int next_timer_ = 1;
+    double play_clock_ = 0;                                     // seconds of play: ticks / 60 while a game runs unfrozen
+    std::map<std::string, std::vector<int>> bus_subs_;          // cleria.bus.subscribe: topic -> refs
+    void run_timers(bool play);
+    int on_bus(const std::string& topic, const std::string& json_text, const std::string& from);   // -> handlers called
     std::size_t page_ = 0;
     bool drawing_ = false;                                      // inside draw_hud (the d:* calls draw)
     void add_log(const std::string& line);
@@ -232,5 +250,6 @@ void close_socket(void* ud);   // a cleria.net websocket userdata (Mod::sockets_
 // events::Event -> a Lua table (pushed); the kind names of LUA_API.md ("room_enter", ...).
 void push_event(lua_State* L, const events::Event& e);
 const char* event_name(events::Kind k);
+void push_json_text(lua_State* L, const std::string& json_text);   // a JSON text as a Lua value (nil when it does not parse)
 
 }  // namespace cleria::script

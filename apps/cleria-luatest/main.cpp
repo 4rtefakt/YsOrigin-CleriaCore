@@ -106,6 +106,24 @@ struct FakeHost : script::Host {
         return true;
     }
     bool save(int slot) override { if (slot == 9) return false; saved = slot; return true; }   // 9: "not now"
+    // API 7
+    double clock = -1;                                         // >= 0: the test's clock
+    double now() override { return clock >= 0 ? clock : script::Host::now(); }
+    std::vector<script::Mod*> peers;
+    std::map<std::string, std::string> busv;
+    std::string clip;
+    std::vector<std::string> urls;
+    std::vector<ModInfo> mod_list() override { return {{"api7a", "A", "1.0", true, true}, {"off", "Off", "2.0", false, false}}; }
+    int bus_publish(const std::string& from, const std::string& topic, const std::string& text) override {
+        int n = 0;
+        for (script::Mod* p : peers) if (p->id() != from) n += p->on_bus(topic, text, from);
+        return n;
+    }
+    std::optional<std::string> bus_get(const std::string& k) override { return busv.count(k) ? std::optional<std::string>(busv[k]) : std::nullopt; }
+    void bus_set(const std::string& k, const std::string& v) override { if (v.empty()) busv.erase(k); else busv[k] = v; }
+    bool set_clipboard(const std::string& t) override { clip = t; return true; }
+    bool open_url(const std::string&, const std::string& u) override { urls.push_back(u); return true; }
+    std::string locale() override { return "fr"; }
     std::string profile;
     bool set_save_profile(const std::string& n) override { if (n == "no") return false; profile = n; return true; }   // "no": refused
     std::string save_profile() override { return profile; }
@@ -381,7 +399,7 @@ int main(int argc, char** argv) {
         m->command("json", "");
         check(m->ok(), "api: every call ran (" + m->error() + ")");
         check(has(h.logs, "probe hello flag -1 room S_1001 scene 1001"), "api: game.flag / room / scene, commands with arguments");
-        check(has(h.logs, "boss S_7080 226 api 6") && has(h.logs, "boss S_1080 nil api 6"),
+        check(has(h.logs, "boss S_7080 226 api 7") && has(h.logs, "boss S_1080 nil api 7"),
               "api: boss_defeated carries the room and the boss flag (nil for a duel); api_version 6");
         check(has(h.logs, "used 89 in S_1001") && has(h.logs, "door S_1005 315 usekey"), "api: item_used (item), door_opened (flag, script)");
         check(h.fl[0x63] == 1 && h.sp == 75 && h.level == 7 && h.wp[3] == 1 && h.warped == 3,
@@ -558,6 +576,71 @@ int main(int argc, char** argv) {
             const CombatDecision bd6 = bad->combat_filter(be, "S_1002");
             check(bd6.action == CombatDecision::Action::Pass && !bad->ok(), "api 6: a filter that fails passes and stops its mod");
         }
+        {   // API 7, the runtime batch (build/shell_re/API7.md A): timers, cleria.rng, the mods and the bus, named events
+            h.clock = 100.0;
+            auto a = make(h, tmp, "api7a", R"LUA(
+                cleria.after(1, function() cleria.log("t one") end)
+                local n, id = 0
+                id = cleria.every(2, function() n = n + 1 cleria.log("t every " .. n) if n == 3 then cleria.cancel(id) end end)
+                cleria.after(0.05, function() cleria.log("t play") end, {play = true})
+                cleria.log("timer args " .. tostring(pcall(cleria.after, -1, print)) .. " " .. tostring(pcall(cleria.after, 1)) ..
+                           " cancel " .. tostring(cleria.cancel(9999)))
+                local r1, r2, s1, s2 = cleria.rng("abc"), cleria.rng("abc"), {}, {}
+                for i = 1, 8 do s1[i] = r1:int(1000) s2[i] = r2:int(1000) end
+                local lo, hi = 99, 0
+                for i = 1, 200 do local v = r1:int(3, 5) lo = math.min(lo, v) hi = math.max(hi, v) end
+                local f = r1:float()
+                cleria.log("rng same " .. tostring(table.concat(s1, ",") == table.concat(s2, ",")) .. " other " ..
+                           tostring(cleria.rng("abd"):int(1000000) ~= cleria.rng("abc"):int(1000000)) .. " range " .. lo .. ".." .. hi ..
+                           " float " .. tostring(f >= 0 and f < 1) .. " shuffle " .. #cleria.rng(1):shuffle({1, 2, 3, 4}) ..
+                           " pick " .. tostring(cleria.rng(1):pick({})) .. " empty " .. tostring(pcall(r1.int, r1, 5, 4)))
+                local ids = {}
+                for _, m in ipairs(cleria.mods.list()) do ids[#ids + 1] = m.id .. (m.active and "+" or "-") .. (m.scripted and "s" or "") end
+                cleria.log("mods " .. table.concat(ids, " ") .. " active " .. tostring(cleria.mods.is_active("api7a")) .. " " ..
+                           tostring(cleria.mods.is_active("off")) .. " locale " .. cleria.locale() .. " clip " .. tostring(cleria.clipboard("hi")) ..
+                           " url " .. tostring(pcall(cleria.open_url, "https://example.org/")))
+                cleria.bus.set("k", {a = 1})
+                cleria.log("bus get " .. cleria.bus.get("k").a .. " " .. tostring(cleria.bus.get("none")) .. " " .. cleria.bus.get("none", 7))
+                cleria.command("pub", function() cleria.log("published to " .. cleria.bus.publish("topic.x", {v = 5, list = {1, 2}})) end)
+                cleria.events.on("level_up", function(e) cleria.log("ev " .. e.kind .. " " .. e.level .. " " .. e.room .. " " .. e.who) end)
+                cleria.events.on("load", function(e) cleria.log("ev load retry " .. tostring(e.retry)) end)
+                cleria.log("bad event " .. tostring(pcall(cleria.events.on, "nope", print)))
+            )LUA");
+            auto b = make(h, tmp, "api7b", R"LUA(
+                cleria.bus.subscribe("topic.x", function(v, from) cleria.log("got " .. v.v .. " " .. #v.list .. " from " .. from .. " k " .. cleria.bus.get("k").a) end)
+                cleria.bus.subscribe("topic.x", function(v) cleria.log("got twice") end)
+            )LUA");
+            h.peers = {a.get(), b.get()};
+            check(a->ok() && b->ok() && has(h.logs, "timer args false false cancel false") &&
+                  has(h.logs, "rng same true other true range 3..5 float true shuffle 4 pick nil empty false"), "api 7: timers' arguments, cleria.rng (" + a->error() + ")");
+            check(has(h.logs, "mods api7a+s off- active true false locale fr clip true url false") && h.clip == "hi" && h.urls.empty() &&
+                  has(h.logs, "bus get 1 nil 7"), "api 7: cleria.mods, locale, clipboard, open_url only from a page, bus.get / set");
+            a->command("pub", "");
+            check(has(h.logs, "got 5 2 from api7a k 1") && has(h.logs, "got twice") && has(h.logs, "published to 2"), "api 7: bus.publish reaches the other mods' handlers");
+            a->on_frame(0.016);
+            const bool none = !has(h.logs, "t one");
+            h.clock = 101.1; a->on_frame(0.016);
+            const bool one = has(h.logs, "t one") && !has(h.logs, "t every 1");
+            h.clock = 102.1; a->on_frame(0.016);
+            h.clock = 150.0; a->on_frame(0.016);                   // far behind: one call, no burst
+            const bool two = has(h.logs, "t every 2") && !has(h.logs, "t every 3");
+            h.clock = 153.0; a->on_frame(0.016);
+            h.clock = 160.0; a->on_frame(0.016);                   // cancelled by its third run
+            check(none && one && two && has(h.logs, "t every 3") && !has(h.logs, "t every 4") && a->timers_.size() == 1,
+                  "api 7: after / every in real time, no burst, cancel from inside");
+            a->on_tick(); a->on_tick();
+            const bool not_yet = !has(h.logs, "t play");
+            a->on_tick(); a->on_tick();
+            check(not_yet && has(h.logs, "t play") && a->timers_.empty(), "api 7: a play-time timer counts ticks");
+            events::Event lv = events::Event::named("level_up").with("level", 5).with("who", "you");
+            lv.room = "S_1002";
+            a->on_event(lv);
+            events::Event ld;
+            ld.kind = events::Kind::Load; ld.retry = true;
+            a->on_event(ld);
+            check(has(h.logs, "ev level_up 5 S_1002 you") && has(h.logs, "ev load retry true") && has(h.logs, "bad event false"),
+                  "api 7: named events with their fields; load.retry");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&
@@ -611,7 +694,7 @@ int main(int argc, char** argv) {
     {
         std::vector<std::string> errs;
         const mods::Manifest mf = mods::parse_manifest("[mod]\r\nId=a.b\r\nApiVersion=3\r\nScript=main.lua\r\n", errs);
-        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 6, "manifest: Script= and ApiVersion 3");
+        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 7, "manifest: Script= and ApiVersion 3");
         for (const char* s : {"hello", "archipelago_lua"}) {
             const fs::path root = fs::path("samples") / "mods" / s;
             std::vector<std::string> e2;

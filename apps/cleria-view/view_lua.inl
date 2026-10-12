@@ -110,6 +110,14 @@ struct LuaHost : script::Host {
     void ui_info(void* list, const std::string& label, const std::string& value, std::uint32_t col, const std::string& desc) override {
         ui::info(*static_cast<ui::List*>(list), label.c_str(), value.c_str(), col, desc.empty() ? nullptr : desc.c_str());
     }
+    // ---- API 7 ----
+    std::vector<ModInfo> mod_list() override;
+    int bus_publish(const std::string& from, const std::string& topic, const std::string& json_text) override;
+    std::optional<std::string> bus_get(const std::string& key) override;
+    void bus_set(const std::string& key, const std::string& json_text) override;
+    bool set_clipboard(const std::string& text) override { return SDL_SetClipboardText(text.c_str()); }
+    bool open_url(const std::string& mod, const std::string& url) override;
+    std::string locale() override;
 };
 
 struct LuaRt {
@@ -127,6 +135,7 @@ struct LuaRt {
     std::map<std::string, std::array<std::pair<double, double>, 3>> stat_mods;
     bool stat_any = false;
     double stat_add[3] = {0, 0, 0}, stat_mul[3] = {1, 1, 1};
+    std::map<std::string, std::string> bus;            // cleria.bus.get / set: JSON text by key (the process)
 };
 static LuaRt g_lua;
 static bool g_lua_info(script::PlayerInfo& out) { return g_lua.b.info && g_lua.b.info(out); }
@@ -187,12 +196,12 @@ void LuaHost::add_exp(double n) { if (g_lua.b.add_exp) g_lua.b.add_exp(float(n))
 void LuaHost::set_modifier(const std::string& mod, int stat, double add, double mul) {
     LuaRt& r = g_lua;
     if (stat < 0 || stat > 2) return;
-    r.stat_mods[mod][std::size_t(stat)] = {add, mul};      // a new entry is value-initialised: {0, 0} ...
+    if (!r.stat_mods.count(mod)) r.stat_mods[mod] = {{{0.0, 1.0}, {0.0, 1.0}, {0.0, 1.0}}};   // none (API 7: x0 is a modifier)
+    r.stat_mods[mod][std::size_t(stat)] = {add, mul};
     r.stat_any = false;
     for (int k = 0; k < 3; ++k) { r.stat_add[k] = 0; r.stat_mul[k] = 1; }
     for (auto& [id, a] : r.stat_mods)
         for (int k = 0; k < 3; ++k) {
-            if (a[std::size_t(k)].first == 0 && a[std::size_t(k)].second == 0) a[std::size_t(k)].second = 1;   // ... = none
             r.stat_add[k] += a[std::size_t(k)].first;
             r.stat_mul[k] *= a[std::size_t(k)].second;
             r.stat_any = r.stat_any || a[std::size_t(k)].first != 0 || a[std::size_t(k)].second != 1;
@@ -220,6 +229,40 @@ bool LuaHost::set_save_profile(const std::string& name) {
     if (g_save_profile != was)
         g_lua.notices.push_back({"Save profile", g_save_profile.empty() ? "The normal saves" : g_save_profile, now()});
     return true;
+}
+
+// ---- API 7: the mods see each other ----
+std::vector<script::Host::ModInfo> LuaHost::mod_list() {
+    std::vector<ModInfo> v;
+    for (const mods::Mod& m : g_mods_ui.list)
+        v.push_back({m.m.id, m.label(), m.m.version, m.state == mods::State::Active, !m.m.script.empty()});
+    return v;
+}
+int LuaHost::bus_publish(const std::string& from, const std::string& topic, const std::string& json_text) {
+    int n = 0;
+    for (std::size_t i = 0; i < g_lua.mods.size(); ++i)        // by index: a handler may not add mods, but may fail one
+        if (g_lua.mods[i]->id() != from) n += g_lua.mods[i]->on_bus(topic, json_text, from);
+    return n;
+}
+std::optional<std::string> LuaHost::bus_get(const std::string& key) {
+    const auto it = g_lua.bus.find(key);
+    if (it == g_lua.bus.end()) return std::nullopt;
+    return it->second;
+}
+void LuaHost::bus_set(const std::string& key, const std::string& json_text) {
+    if (json_text.empty()) g_lua.bus.erase(key);
+    else if (g_lua.bus.size() < 4096 || g_lua.bus.count(key)) g_lua.bus[key] = json_text;
+}
+// Only reached from a page's button (modscript_api7.inl checks it): the player pressed it.
+bool LuaHost::open_url(const std::string& mod, const std::string& url) {
+    std::printf("  [lua] %s opens %s\n", mod.c_str(), url.c_str());
+    if (std::getenv("CLERIA_DRIVE")) return true;               // a headless run opens nothing
+    return SDL_OpenURL(url.c_str());
+}
+std::string LuaHost::locale() {
+    static const char* const k[] = {"ja", "en", "es", "fr", "de", "it"};
+    const int l = int(settings().s.game.language);
+    return l >= 0 && l < 6 ? k[l] : "en";
 }
 
 static std::string lua_setting_sec(const std::string& mod) { return "cleria.mod." + mod; }

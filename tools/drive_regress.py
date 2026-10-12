@@ -2461,7 +2461,7 @@ CASES.update({
         room="S_10/S_1009/S_1009", lua=_LUA_SHOP,
         drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;820:esc;"
               "835:stats;836:flagdump;840:quit",
-        expect=[_LP + "api 6", _LP + "price 0 sub 221 was 1000 in @GrowMenu", _LP + "price 0 sub 97 was 1000 in @Grow00",
+        expect=[_LP + "api 7", _LP + "price 0 sub 221 was 1000 in @GrowMenu", _LP + "price 0 sub 97 was 1000 in @Grow00",
                 _LP + "price 0 sub 105 was 1000 in @Grow00", "[content] blessing_bought 0 for 7 SP (effect suppressed)",
                 _LP + "bought 0 price 7 suppressed true flag217 0 sp 243 room S_1009", "sp 243"],
         absent=[" 217="], count={_LP + "bought": 1}),
@@ -2612,7 +2612,7 @@ CASES.update({
         room="S_10/S_1002/S_1002", lua=_LUA_API6,
         drive="5:diff=3;6:level=13;8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on x100;13:lua=on floor;14:stats;" + _K17 +
               ";150:stats;160:quit",
-        expect=[_LP + "api 6 combat function", "stats exp 21936 lv 13",
+        expect=[_LP + "api 7 combat function", "stats exp 21936 lv 13",
                 _LP + "exp kill cast 17 lv 13 vs 3 base 33 scaled 0.1471 rate 1 factor 100 floored 14 combo 1 value 14.14 room S_1002",
                 _LP + "killed cast 17 lv 3 exp 50 sp 4 room S_1002 at 30.5 -2.9 -36.9", "stats exp 21986 lv 13"],
         absent=_NOSTOP, count={_LP + "exp kill": 1, _LP + "killed": 1}),
@@ -2694,6 +2694,44 @@ CASES.update({
         drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on nodrop;" + _K17 + ";150:pickups;155:stats;160:quit",
         expect=[_LP + "drop 120 1G slot 1 cast 17 lv 3", "[pickup] debris", "stats exp 51 lv 1 hp 60/60 sp 4"],
         absent=_NOSTOP + ["[pickup] id ", _LP + "pickup", _LP + "collected"]),
+})
+
+# Mod API 7 (build/shell_re/API7.md): the runtime batch. Timers in play time and in real time, the seeded generator,
+# the mods' list and the bus (one mod here: a publish reaches nobody), x0 as a stat modifier, level_up, and the two
+# kinds of Retry (in place with no snapshot: "retry" alone; from the snapshot: "retry" then a Load with retry = true).
+_LUA_API7A = (
+    'cleria.log("api " .. cleria.api_version .. " locale " .. cleria.locale())\n'
+    'local a, b, s, t = cleria.rng("seed"), cleria.rng("seed"), {}, {}\n'
+    'for i = 1, 5 do s[i] = a:int(100) t[i] = b:int(100) end\n'
+    'cleria.log("rng same " .. tostring(table.concat(s, ",") == table.concat(t, ",")))\n'
+    'local n, id = 0\n'
+    'id = cleria.every(0.25, function() n = n + 1 cleria.log("every play " .. n) if n == 3 then cleria.cancel(id) end end, {play = true})\n'
+    'cleria.after(0.2, function() cleria.log("after real") end)\n'
+    'for _, m in ipairs(cleria.mods.list()) do cleria.log("mod " .. m.id .. " " .. tostring(m.active) .. " " .. tostring(m.scripted)) end\n'
+    'cleria.bus.set("k", {n = 42})\n'
+    'cleria.log("bus " .. cleria.bus.get("k").n .. " published " .. cleria.bus.publish("t", 1) .. " active " .. tostring(cleria.mods.is_active("test.lua")))\n'
+    'for _, k in ipairs({"retry", "level_up", "load"}) do cleria.events.on(k, function(e) cleria.log("EV " .. cleria.json.encode(e)) end) end\n'
+    'cleria.command("p7", function(x)\n'
+    '    if x == "hp0" then cleria.player.set_modifier("max_hp", 0, 0) end\n'
+    '    if x == "hp1" then cleria.player.set_modifier("max_hp") end\n'
+    '    if x == "xp" then cleria.player.add_exp(400) end\n'
+    '    local st = cleria.player.stats()\n'
+    '    cleria.log("hp " .. st.hp .. "/" .. st.max_hp .. " lv " .. st.level)\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_runtime": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7A, env={"CLERIA_DRIVE_REALTIME": "1"},
+        drive="20:lua=p7;30:lua=p7 hp0;40:lua=p7 hp1;50:lua=p7 xp;120:quit",
+        expect=[_LP + "api 7 locale en", _LP + "rng same true", _LP + "mod test.lua true true", _LP + "bus 42 published 0 active true",
+                _LP + "hp 60/60 lv 1", _LP + "hp 1/1 lv 1", _LP + "hp 1/60 lv 1",
+                _LP + 'EV {"kind":"level_up","level":2,"max_hp":65,"room":"S_1002"}', _LP + "hp 65/65 lv 2"],
+        absent=_NOSTOP, count={_LP + "every play": 3, _LP + "after real": 1}),
+    "lua_api7_retry": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7A, drive="30:hp=0;200:ok;260:ok;400:quit",
+        expect=[_LP + 'EV {"kind":"retry","room":"S_1002","snapshot":0}'], absent=_NOSTOP + ['"kind":"load"']),
+    "lua_api7_retry_snapshot": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7A, drive="30:hp=0;200:ok;260:ok;400:quit",
+        expect=[_LP + 'EV {"kind":"retry","room":"S_1009","snapshot":1}', '"kind":"load"', '"retry":true'], absent=_NOSTOP),
 })
 
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).

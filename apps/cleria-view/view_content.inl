@@ -520,8 +520,10 @@ static void content_retry(const Sidecar& snap) {
     ContentRt& r = g_content;
     r.sc = snap;
     r.watch.primed = false;
+    r.queued.push_back(events::Event::named("retry").with("snapshot", 1));   // API 7: before the Load it causes
     events::Event e;
     e.kind = events::Kind::Load;
+    e.retry = true;
     r.queued.push_back(e);
 }
 

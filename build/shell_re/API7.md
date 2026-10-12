@@ -1,0 +1,118 @@
+# Mod API 7: the plan and where it stands
+
+Branch `feat/mod-api-7`. The list was agreed with the user on 2026-10-13 after fourteen public mods were written on
+API 6 (github.com/4rtefakt/cleriacore-*): every gap below was either hit while writing them or asked for.
+The reference stays `LUA_API.md`; this file is the work list. Status: **done** (code, luatest, a drive case, the
+reference), **part**, or blank.
+
+Order of work: the runtime-only pieces first (no game state), then reads of the live game, then writes, then new
+content, then multiplayer, then the tools.
+
+## A. Runtime (no game needed)
+
+| # | What | Lua | Status |
+|---|---|---|---|
+| 12 | Timers | `cleria.after(s, fn [, {play = true}])`, `cleria.every(...)`, `cleria.cancel(id)` | done |
+| 57a | A seeded random generator | `cleria.rng(seed)` -> `:int(a, b)`, `:float()`, `:shuffle(t)` | done |
+| 10 | Mods see each other | `cleria.mods.list()`, `mods.is_active(id)`, `cleria.bus.publish / subscribe`, `bus.get / set` | done |
+| 17 | A modifier of x0 is a modifier | `player.set_modifier("max_hp", 0, 0)` | done |
+| 57b | Clipboard, a web link, translations | `cleria.clipboard(text)`, `cleria.open_url(url)`, `cleria.locale()` | done |
+
+## B. Knowing what the game is doing
+
+| # | What | Lua | Status |
+|---|---|---|---|
+| 6 | The state of the game | `game.state()`: title, play, cutscene, dialog, book, shop, panel, gameover; the event `state_changed` | |
+| 7 | Floor and zone | `game.floor()`, `game.zone()`, `game.difficulty()`, `game.play_time()`; the event `floor_changed` | |
+| 9 | Retry | the event `retry`; `load` says `retry = true` when it is the continue snapshot | done |
+| 14 | Plain events | `level_up`, `player_hit`, `skill_used`, `boost`, `statue_used`, `enemy_hit` | part: `level_up` |
+| 13 | More in the damage query | `actor` (an id), `hp`, `max_hp`, `kills` | |
+| 3 | The monsters of the room | `cleria.world.actors()` -> id, cast, name, level, x y z, hp, max_hp, state | |
+| 34 | Bosses | `cleria.world.boss()` -> name, hp, max_hp, phase, parts | |
+| 33a | Projectiles | `cleria.world.bullets()` | |
+| 35a | Drop tables | `cleria.data.drops(cast)` | |
+| 2 | World to screen, the camera | `cleria.world.to_screen(x, y, z)`, `cleria.camera.get()` | |
+
+## C. Changing the player and the flow
+
+| # | What | Lua | Status |
+|---|---|---|---|
+| 15 | Gauges and equipment | `player.set_mp`, `set_boost`, `set_exp`; `player.equipment()`, `player.equip(slot, item)` | |
+| 16 | Position, rooms | `player.set_position(x, y, z)`, `game.goto_room(room [, entrance])` | |
+| 22 | Status effects, invulnerability | `player.status()`, `set_status(name, ticks)`, `player.set_invulnerable(ticks)` | |
+| 23 | Ability switches | `player.abilities()`, `player.set_ability(name, on)` | |
+| 21 | Movement | `player.set_movement{speed =, jump =, gravity =, air_jumps =}` | |
+| 24 | More stat modifiers | `set_modifier` for `luck`, `mp_cost`, `mp_regen`, `boost_gain`, `speed` | |
+| 32 | Damage and healing from Lua | `cleria.combat.damage(actor, n [, opts])`, `combat.heal(n)` | |
+| 46 | Game speed | `game.set_speed(x)`, `game.pause(on)` | |
+| 45 | Flow | `game.load(slot)`, `game.retry()`, `game.to_title()`, `game.new_game(character)` | |
+| 47 | The game's random numbers | `game.seed_random(n)` | |
+| 48 | Text on a save card | `cleria.save.card(text)` | |
+
+## D. Drawing and input
+
+| # | What | Lua | Status |
+|---|---|---|---|
+| 1 | Key and pad binds | `cleria.input.action(id, {label =, key =, pad =}, fn)`, `input.down(id)` | |
+| 25 | Drawing in the world | a `world` hud layer: `d:world_text / world_line / world_circle / world_image` | |
+| 26 | The camera | `cleria.camera.set{zoom =, offset =}`, `camera.shake(...)`, `camera.reset()` | |
+| 27 | Screen effects | `cleria.screen.flash(color, s)`, `screen.fade(...)`, `screen.tint(...)` | |
+| 28 | The game's HUD | `cleria.hud.show(part, on)` | |
+| 30 | Page widgets | `p:progress`, `p:image`, `p:table`, `p:columns`, `p:list` | |
+| 11 | Asking the player | `cleria.ui.message(text)`, `cleria.ui.choose(text, options, fn)` | |
+| 29 | Windows outside F1 | `cleria.ui.window(id, {title =, key =}, fn(p))` | |
+| 20 | Sound | `cleria.audio.play(file)`, `audio.music(file)`, `audio.se(id)` | |
+
+## E. Monsters and combat
+
+| # | What | Lua | Status |
+|---|---|---|---|
+| 31 | A filter on each monster as its room loads | `cleria.world.add_filter("spawn", fn(q))` -> cast, level, hp / atk / def multipliers | |
+| 4 | Spawning and removing | `cleria.world.spawn(cast, x, y, z [, opts])`, `world.remove(actor)`, `world.set_actor(actor, {...})` | |
+| 33b | Spawning a projectile | `cleria.world.shoot(kind, from, dir, opts)` | |
+| 35b | Changing drop tables | `cleria.data.set_drops(cast, list)` | |
+| 37 | Monster variants | `cleria.content.define_monster(id, {base =, name =, hp =, atk =, ...})` | |
+| 59 | Custom bosses | a monster variant with a gauge, phases and a Lua brain: `define_boss` | |
+
+## F. New content
+
+| # | What | Lua | Status |
+|---|---|---|---|
+| 36 | Items with behaviour | `cleria.content.define_item(id, {name =, icon =, use = fn, equip = fn})` | |
+| 38 | Doors | `cleria.world.add_filter("exit", fn(q))` | |
+| 43 | Scripts | `cleria.script.run(name)`, `script.add_filter(fn(q))`, the event `script_started` | |
+| 44 | Shops and menus | `cleria.ui.shop{...}` | |
+| 39 | Rooms | `cleria.content.define_room(id, {...})` | |
+| 40 | Skills | `cleria.content.define_skill(slot, {mp =, cooldown =, cast = fn})` | |
+| 41 | Character variants | `cleria.content.define_character(id, {base =, ...})` | |
+| 42 | New characters and monsters with their own models | the model pipeline | |
+
+## G. Network
+
+| # | What | Lua | Status |
+|---|---|---|---|
+| 19 | HTTP, TCP | `cleria.net.http{...}`, `cleria.net.tcp()` | |
+| 54 | UDP | `cleria.net.udp()` | |
+
+## H. Multiplayer
+
+| # | What | Lua | Status |
+|---|---|---|---|
+| 49 | A puppet character | `cleria.world.puppet(character)` -> `:set{x, y, z, facing, anim}` | |
+| 53 | The player's own actions | the events `attack`, `skill_used`, `jump`, `land`; `player.pose()` | |
+| 50 | Hits between players | a hit shape on a puppet; `source` in the damage query | |
+| 51 | Monster state | `cleria.world.snapshot()`, `world.apply(snapshot)` | |
+| 52 | Bosses and room scripts | the same for the boss modules and the script VM | |
+
+## I. For the people who write mods
+
+| # | What | Status |
+|---|---|---|
+| 18 | The F1 panel in a headless capture; a drive command that presses a page's widget | |
+| 55 | Reloading a mod's script without a restart | |
+| 56 | A console for mod commands | |
+| 58 | The mods' test runner in `tools/` | |
+
+## Added along the way
+
+(Anything found while doing the above goes here with its own number, from 60.)

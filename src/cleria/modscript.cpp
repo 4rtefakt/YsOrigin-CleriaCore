@@ -218,7 +218,7 @@ bool Mod::start(const std::string& main_file) {
 
 void Mod::on_event(const events::Event& e) {
     if (!ok()) return;
-    const char* kind = event_name(e.kind);
+    const char* kind = e.kind == events::Kind::Named ? e.name.c_str() : event_name(e.kind);
     for (std::size_t i = 0; i < handlers_.size() && ok(); ++i) {
         if (handlers_[i].kind != kind) continue;
         push_event(L_, e);
@@ -226,14 +226,59 @@ void Mod::on_event(const events::Event& e) {
     }
 }
 
+// cleria.after / every (API 7). A timer that is due runs once per call at most; a repeating one that fell
+// behind skips to the next period (no burst). `dead` timers (cancelled, or a finished one-shot) are dropped here.
+void Mod::run_timers(bool play) {
+    if (timers_.empty() || !ok()) return;
+    const double now = play ? play_clock_ : host_.now();
+    const std::size_t n = timers_.size();                      // timers added by a callback wait for the next call
+    for (std::size_t i = 0; i < n && ok(); ++i) {
+        if (timers_[i].dead || timers_[i].play != play || timers_[i].due > now) continue;
+        const int ref = timers_[i].ref;
+        if (timers_[i].period > 0) {
+            timers_[i].due += timers_[i].period;
+            if (timers_[i].due <= now) timers_[i].due = now + timers_[i].period;
+        } else {
+            timers_[i].dead = true;
+        }
+        call_ref(ref, 0, 0, "timer");
+    }
+    if (!L_) return;
+    for (std::size_t i = timers_.size(); i-- > 0;)
+        if (timers_[i].dead) {
+            luaL_unref(L_, LUA_REGISTRYINDEX, timers_[i].ref);
+            timers_.erase(timers_.begin() + std::ptrdiff_t(i));
+        }
+}
+
+// cleria.bus.subscribe handlers of `topic`: fn(value, from).
+int Mod::on_bus(const std::string& topic, const std::string& json_text, const std::string& from) {
+    if (!ok()) return 0;
+    const auto it = bus_subs_.find(topic);
+    if (it == bus_subs_.end()) return 0;
+    int n = 0;
+    const std::vector<int> refs = it->second;                  // a handler may subscribe again
+    for (int ref : refs) {
+        if (!ok()) break;
+        push_json_text(L_, json_text);
+        lua_pushlstring(L_, from.data(), from.size());
+        call_ref(ref, 2, 0, "bus");
+        ++n;
+    }
+    return n;
+}
+
 void Mod::on_tick() {
     if (!ok()) return;
+    if (host_.in_game() && !host_.frozen()) play_clock_ += 1.0 / 60.0;
+    run_timers(true);
     for (std::size_t i = 0; i < handlers_.size() && ok(); ++i)
         if (handlers_[i].kind == "tick") call_ref(handlers_[i].ref, 0, 0, "tick");
 }
 
 void Mod::on_frame(double dt) {
     if (!ok()) return;
+    run_timers(false);
     for (std::size_t i = 0; i < handlers_.size() && ok(); ++i) {
         if (handlers_[i].kind != "frame") continue;
         lua_pushnumber(L_, dt);

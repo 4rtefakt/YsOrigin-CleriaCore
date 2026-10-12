@@ -500,7 +500,7 @@ ws:send(cleria.json.encode({cmd = "Hello", tags = cleria.json.array()}))
 - `cleria.command(name, fn(args))`: a command for tests and tools: `CLERIA_DRIVE="...;300:lua=<name> <args>"`.
 - `cleria.speedrun.modification(fn | "text")`: a line (or a list) for speedrun mode's "modified run" list,
   e.g. "Archipelago session (Lua)". Every active mod already marks a run as modded (MODS.md §5).
-- Also: `cleria.api_version` (6: §11), `cleria.mod` (`id`, `name`, `version`), `cleria.time()` (seconds, monotonic),
+- Also: `cleria.api_version` (7: §11), `cleria.mod` (`id`, `name`, `version`), `cleria.time()` (seconds, monotonic),
   `cleria.unix_time()`, `cleria.read(path)` / `cleria.exists(path)` (the mod's own files).
 
 ## 9. The proof: Archipelago as a Lua mod
@@ -556,6 +556,87 @@ the `[ap]` block -> `[mod.<id>]` sections), per-mod settings (`SettingsStore::cl
 `events.emit("item_obtained")`, `save.ready()` (the C++ glue's `ap_save_pending`), test commands, and a
 "Stopped" state for a mod whose script failed (`mods::Mod::stopped`).
 
+## 12. API 7
+
+The work list and its state are in `API7.md`. What is done is described here, by family. Test `cleria.api_version >= 7`.
+
+### 12.1 Timers
+
+```lua
+local id = cleria.after(2.5, function() cleria.notice("2.5 seconds later") end)
+local tick = cleria.every(1, function() ... end, {play = true})      -- once a second of PLAY time
+cleria.cancel(tick)                                                    -- true when it was still pending
+```
+
+- `cleria.after(seconds, fn [, {play = true}])` runs `fn` once; `cleria.every` runs it again every `seconds` (at least one
+  tick, 1 / 60). Both return an id for `cleria.cancel(id)`.
+- **Real time** by default (`cleria.time()`'s clock): the timer runs with the frames, also on the title and while the F1
+  panel is open. With **`play = true`** it counts play time: one sixtieth per game tick while a game runs and no cutscene
+  or box holds the world (`game.in_game() and not game.frozen()`), the clock the mods' own tick counters used.
+- A timer runs at most once per frame (or tick). A repeating timer that fell behind (a long load) runs once and waits a
+  full period: no burst. A timer may cancel itself or add timers; those start at the next frame.
+- At most 4096 timers per mod. Timers are not saved.
+
+### 12.2 `cleria.rng(seed)`: a generator of the mod's own
+
+```lua
+local r = cleria.rng("daily-2026-10-13")      -- a string or an integer
+r:int(6)            -- 1..6          r:int(10, 20)   -- 10..20
+r:float()           -- [0, 1)        r:pick(list)    -- one element (nil for an empty list)
+r:shuffle(list)     -- in place, returns the list
+```
+
+The same seed gives the same sequence on every machine and every CleriaCore (xoshiro256** seeded through splitmix64;
+a string seed is hashed with FNV-1a 64). It never touches the game's generator or `math.random`.
+
+### 12.3 The mods see each other: `cleria.mods`, `cleria.bus`
+
+```lua
+for _, m in ipairs(cleria.mods.list()) do ... end           -- {id, name, version, active, scripted}, load order
+if cleria.mods.is_active("4rtefakt.solorando") then ... end
+
+-- mod A
+cleria.bus.subscribe("rando.layout", function(value, from) ... end)
+-- mod B
+local heard = cleria.bus.publish("rando.layout", {seed = "abc", chests = 42})      -- how many handlers ran
+
+cleria.bus.set("rando.seed", "abc")                         -- a value every mod can read
+cleria.bus.get("rando.seed", "none")                        -- its value, or the default
+```
+
+- A message is any JSON-able value (it crosses between two Lua states as JSON, at most 1 MB). `publish` calls the
+  handlers of the **other** mods at once, in load order, and returns how many ran; the sender's own handlers are not
+  called. A handler that fails stops its own mod, not the sender.
+- `bus.set` / `bus.get` is a table shared by every mod for the life of the process (not saved; `set(key)` or
+  `set(key, nil)` removes). Topics and keys are 1-64 characters of `A-Z a-z 0-9 _ . - :`; start them with your mod's
+  name.
+- A mod that needs another declares it with `Requires=` in `mod.ini` (MODS.md); the bus is for the ones that only
+  cooperate when both are there.
+
+### 12.4 Events with a name: `retry`, `level_up`
+
+API 7's events arrive like the others (`cleria.events.on(name, fn)`; `e.kind`, `e.room`) with the fields listed here.
+
+| event | when | fields |
+|---|---|---|
+| `retry` | the player chose Retry on the game-over screen, before anything is restored | `snapshot`: 1 = the continue snapshot comes back (a `load` follows, with `retry = true`), 0 = there was none and the player is revived in place (no `load`) |
+| `level_up` | a level was gained (once per level), after max HP and the full heal | `level`, `max_hp` |
+
+**`load`** now carries `retry` (a boolean): true when it is the continue snapshot coming back after a Retry rather
+than a slot. A Retry from the snapshot brings the mods' save storage (`cleria.save`) back **as it was when the
+snapshot was taken**: what a mod stored since then is gone, exactly like the flags. A mod that must keep something
+across it (a death counter) holds it in a Lua variable at `death` and writes it back at that `load`.
+
+### 12.5 Small things
+
+- `cleria.player.set_modifier(stat, add, 0)`: a multiplier of 0 is now a multiplier of 0 (max HP then stays at the
+  game's floor of 1). Before API 7 `(0, 0)` was read as "no modifier".
+- `cleria.clipboard(text)` puts text (at most 64 KB) on the clipboard; true when it worked.
+- `cleria.open_url("https://...")` opens the player's browser. It is an error anywhere but inside a page's function
+  (a button of the mod's own page was pressed: the player asked for it); http and https only. In a headless run it
+  opens nothing.
+- `cleria.locale()`: the game's text language, `"ja"`, `"en"`, `"es"`, `"fr"`, `"de"` or `"it"`.
+
 ## 10. Tests
 
 ```
@@ -591,4 +672,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry` and `level_up`, `load.retry`, a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

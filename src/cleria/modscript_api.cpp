@@ -405,7 +405,10 @@ int l_command(lua_State* L) {
 
 const char* const kKinds[] = {"room_enter", "flag_changed", "chest_opened", "item_obtained", "death",
                               "new_game", "save", "load", "tick", "frame", "boss_defeated", "item_used",
-                              "door_opened", "blessing_bought", "enemy_killed", "pickup_collected"};
+                              "door_opened", "blessing_bought", "enemy_killed", "pickup_collected",
+                              // API 7 (events::Kind::Named)
+                              "retry", "level_up", "state_changed", "floor_changed", "player_hit", "enemy_hit", "skill_used",
+                              "boost", "statue_used", "attack", "jump", "land", "enemy_spawned", "script_started", "input"};
 
 int l_on(lua_State* L) {
     Mod& m = M(L);
@@ -414,7 +417,8 @@ int l_on(lua_State* L) {
     for (const char* k : kKinds) known = known || kind == k;
     if (!known) return luaL_argerror(L, 1, ("unknown event '" + kind + "' (see LUA_API.md: room_enter, flag_changed, chest_opened, "
                                              "item_obtained, death, new_game, save, load, tick, frame, boss_defeated, item_used, door_opened, blessing_bought, "
-                                             "enemy_killed, pickup_collected)").c_str());
+                                             "enemy_killed, pickup_collected; API 7: retry, level_up, state_changed, floor_changed, player_hit, "
+                                             "enemy_hit, skill_used, boost, statue_used, attack, jump, land, enemy_spawned, script_started, input)").c_str());
     luaL_checktype(L, 2, LUA_TFUNCTION);
     lua_pushvalue(L, 2);
     const int ref = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -1175,6 +1179,13 @@ void open_sandbox(lua_State* L, Mod& m) {
     lua_pop(L, 1);
 }
 
+#include "modscript_api7.inl"
+
+void push_json_text(lua_State* L, const std::string& json_text) {
+    if (const auto j = json::parse(json_text)) push_json(L, *j);
+    else lua_pushnil(L);
+}
+
 void open_api(lua_State* L, Mod& m) {
     lua_newtable(L);   // cleria
     lua_pushinteger(L, kApiVersion);
@@ -1296,6 +1307,7 @@ void open_api(lua_State* L, Mod& m) {
     lua_newtable(L);
     set_funcs(L, sr);
     lua_setfield(L, -2, "speedrun");
+    open_api7(L);
 
     lua_setglobal(L, "cleria");
 }
@@ -1321,6 +1333,7 @@ const char* event_name(events::Kind k) {
         case events::Kind::BlessingBought: return "blessing_bought";
         case events::Kind::EnemyKilled: return "enemy_killed";
         case events::Kind::PickupCollected: return "pickup_collected";
+        case events::Kind::Named: return "named";
     }
     return "?";
 }
@@ -1334,7 +1347,7 @@ void push_event(lua_State* L, const events::Event& e) {
         else lua_pushnumber(L, v);
         lua_setfield(L, -2, k);
     };
-    s("kind", event_name(e.kind));
+    s("kind", e.kind == events::Kind::Named ? e.name : std::string(event_name(e.kind)));
     s("room", e.room);
     switch (e.kind) {
         case events::Kind::RoomEnter: s("prev_room", e.prev_room); break;
@@ -1342,7 +1355,12 @@ void push_event(lua_State* L, const events::Event& e) {
         case events::Kind::ChestOpened: n("index", e.index); s("script", e.script); s("object", e.object); break;
         case events::Kind::ItemObtained: n("item", e.item); n("count", e.count); s("source", e.source); s("script", e.script); break;
         case events::Kind::NewGame: n("character", e.character); break;
-        case events::Kind::Save: case events::Kind::Load: n("slot", e.slot); break;
+        case events::Kind::Save: n("slot", e.slot); break;
+        case events::Kind::Load: n("slot", e.slot); lua_pushboolean(L, e.retry); lua_setfield(L, -2, "retry"); break;
+        case events::Kind::Named:
+            for (const auto& [k, v] : e.num) r(k.c_str(), v);
+            for (const auto& [k, v] : e.str) s(k.c_str(), v);
+            break;
         case events::Kind::PlayerDeath: break;
         case events::Kind::BossDefeated: if (e.index >= 0) n("flag", e.index); break;
         case events::Kind::ItemUsed: n("item", e.item); break;

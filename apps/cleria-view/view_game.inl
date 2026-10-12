@@ -1848,6 +1848,7 @@ title_again:
             if (player.hp >= 1) player.hp = player.max_hp;
             hud.debug_message("Level up! Lv " + std::to_string(player.level));
             if (level_up_fx) level_up_fx();
+            content_emit(events::Event::named("level_up").with("level", player.level).with("max_hp", player.max_hp));   // mods (API 7)
         }
     };
     // Returns the EXP credited. `cast`: the victim's cast id (a kill), for the Lua mods' "exp" filter.
@@ -6283,6 +6284,7 @@ title_again:
             // [STAND-IN] a room given on the command line (dev; no New Game ran, the engine's 0x767f50 would hold
             // whatever was there): revive in place at the room's spawn.
             std::printf("  [gameover] Retry: no continue snapshot, respawn\n");
+            content_emit(events::Event::named("retry").with("snapshot", 0));   // mods (API 7): no Load follows this one
             player.hp = player.max_hp;
             spawn_player();
             hud.hide_boss_gauge(); gauge_owner = 0;      // as the scene load does (transition)

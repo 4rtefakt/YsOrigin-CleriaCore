@@ -33,7 +33,8 @@
 namespace cleria::events {
 
 enum class Kind { RoomEnter, FlagChanged, ChestOpened, ItemObtained, PlayerDeath, NewGame, Save, Load, BossDefeated, ItemUsed, DoorOpened,
-                  BlessingBought, EnemyKilled, PickupCollected };
+                  BlessingBought, EnemyKilled, PickupCollected,
+                  Named };   // API 7: an event known by its `name` with free fields (level_up, retry, state_changed ...)
 const char* kind_name(Kind k);
 
 struct Event {
@@ -50,6 +51,14 @@ struct Event {
     int cast = -1, level = 0;         // EnemyKilled: the monster's cast id and level
     float pos[3] = {0, 0, 0};         // EnemyKilled / PickupCollected: where (world, Y up)
     double amount = 0, amount2 = 0;   // EnemyKilled: the EXP and SP credited; PickupCollected: the value applied
+    bool retry = false;               // Load: it is the continue snapshot coming back (a Retry), not a slot
+    // Named (API 7, LUA_API.md §12): the event's name and its fields, as the Lua handler gets them.
+    std::string name;
+    std::vector<std::pair<std::string, double>> num;
+    std::vector<std::pair<std::string, std::string>> str;
+    static Event named(std::string n) { Event e; e.kind = Kind::Named; e.name = std::move(n); return e; }
+    Event& with(std::string k, double v) { num.emplace_back(std::move(k), v); return *this; }
+    Event& with(std::string k, std::string v) { str.emplace_back(std::move(k), std::move(v)); return *this; }
 };
 
 using Handler = std::function<void(const Event&)>;
