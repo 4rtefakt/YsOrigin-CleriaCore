@@ -6664,8 +6664,12 @@ title_again:
         // reads it directly; game keeps the canonical copy).
         {
             std::int32_t live = 0;
+            // The count drops when a dead monster is removed, not at its HP 0 (FUN_004780e0, view_enemy_tick.inl):
+            // an ordinary monster stays counted through its fade. [approx] the revive family's corpses, the
+            // death-hook casts and Pictimos's minions leave the count at HP 0, as before.
             for (const Actor& a : world.actors())
-                if (a.is_enemy() && a.alive()) ++live;
+                if (a.is_enemy() && !a.destroy_requested() &&
+                    (a.alive() || (!enemy_death_hook_for(a.ai_index) && !revive::corpse_drawn(a) && !boss5_dead_t.count(a.instance_id)))) ++live;
             game.g_flags[132] = live;
             csMgr.vm.g_flags[132] = live;
             // Keep the world's player actor on the view's feet EVERY frame (incl. during

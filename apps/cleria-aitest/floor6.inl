@@ -1,5 +1,149 @@
 // Floor 6 (S_60) brains (build/ai_spec/M960.md, ...). Included by main.cpp after floor5.inl.
 
+// The Arena's Stage 7 pair (build/ai_spec/M320.md, M330.md).
+static void arena7_tests() {
+    // ---- M320 Pikkarton ----
+    {
+        const EnemyBrain m320 = enemy_brain_for(25);
+        check(m320 != nullptr, "Pikkarton brain registered (AI index 25)");
+        EnemyAiParams ep = params(0.115f, 0.035f, 1.0f, 1.75f, 0.0f);   // EI[22]
+        ep.raw[5] = 3.2f;
+        // Runs until the first attack section; returns it (or -1), the brain state in `ai`.
+        auto first = [&](int seed, float dist, int diff_index, bool above, bool tgt_ground, EnemyAi& ai) {
+            Rig r; for (int i = 0; i < seed; ++i) r.rng();
+            r.env.target = {dist, above ? 1.675f : 1.075f, 0}; r.env.target_grounded = tgt_ground;
+            r.env.section = 1; r.env.hp = 50; r.env.max_hp = 50; r.env.diff_index = diff_index;
+            for (int t = 0; t < 200; ++t) {
+                const AiOut o = enemy_ai_tick(ai, ep, r.env, m320);
+                if (o.section == 7 || o.section == 8) return o.section;
+            }
+            return -1;
+        };
+        int a45 = 0, b45 = 0, b39 = 0, up = 0, air = 0;
+        bool timing = true, hard = true;
+        for (int s = 0; s < 80; ++s) {
+            EnemyAi ai;
+            const int k = first(s, 4.5f, 0, false, true, ai);
+            a45 += k == 7; b45 += k == 8;
+            if (k == 7) timing = timing && ai.action() == 1 && ai.dur() >= 69 && ai.dur() <= 70 && ai.cool() >= 74 && ai.cool() <= 89;
+            EnemyAi h;
+            if (first(s, 4.5f, 1, false, true, h) == 7) hard = hard && h.action() == 2 && h.dur() >= 54 && h.dur() <= 55;
+            EnemyAi c; b39 += first(s, 3.9f, 0, false, true, c) == 8;
+            EnemyAi u; up += first(s, 4.5f, 0, true, true, u) != -1;
+            EnemyAi v; air += first(s, 4.5f, 0, true, false, v) == 7;
+        }
+        std::printf("[aitest]   M320 at 4.5 u: section 7 in %d / 80, 8 in %d; at 3.9 u: 8 in %d; target 0.6 up: %d, airborne: %d\n", a45, b45, b39, up, air);
+        check(a45 > 60 && b45 == 0, "M320: inside 4.75 u the hop-and-dash (section 7); the high hop (8) only inside 4.0");
+        check(b39 > 5, "M320: inside 4.0 u section 8 comes too (61 per mille after the failed roll of 7)");
+        check(up == 0 && air > 60, "M320: a grounded target 0.6 above is not attacked; an airborne one is");
+        check(timing, "M320 section 7 on Normal: action 1, dur 70, cooldown dur + 5 + 0..14");
+        check(hard, "M320 section 7 on Hard: action 2 (keeps turning), dur 55");
+        Rig r; EnemyAi ai;
+        r.env.target = {4.5f, 1.075f, 0}; r.env.section = 1; r.env.hp = 50; r.env.max_hp = 50; r.env.diff_index = 1;
+        for (int t = 0; t < 3; ++t) enemy_ai_tick(ai, ep, r.env, m320);
+        r.env.section = 7;
+        const AiOut o = enemy_ai_tick(ai, ep, r.env, m320);
+        check(ai.phase() == 2 && o.set_durable == 1 && std::fabs(ai.f(0x814) - 0.115f * 0.2f) < 1e-6f,
+              "M320 on Hard in section 7: Durable forced, the turn rate x 0.2");
+        r.env.diff_index = 0;
+        check(enemy_ai_tick(ai, ep, r.env, m320).set_durable == -1 && ai.f(0x814) == 0.115f, "M320 on Normal: neither");
+    }
+    // ---- M330 Pikkardon ----
+    {
+        const EnemyBrain m330 = enemy_brain_for(26);
+        check(m330 != nullptr, "Pikkardon brain registered (AI index 26)");
+        EnemyAiParams ep = params(0.06f, 0.0475f, 1.0f, 2.0f, 0.0f);    // EI[23]
+        floor4::Pool w;
+        Actor B; B.instance_id = 37; B.cast_id = 37; B.level = 60; B.pos = {0, 0, 0};
+        auto rig = [&](Rig& r) {
+            r.env.target = {9.0f, 1.075f, 0}; r.env.section = 1; r.env.hp = 15200; r.env.max_hp = 15200;
+            r.env.actor = &B; r.env.world = &w; r.env.pool_count = 1;
+        };
+        {
+            Rig r; EnemyAi ai; rig(r); r.wall = true;                   // no line of sight: it engages anyway
+            const AiOut o0 = enemy_ai_tick(ai, ep, r.env, m330);
+            const int p1 = ai.phase();
+            enemy_ai_tick(ai, ep, r.env, m330);
+            check(p1 == 1 && ai.phase() == 2 && o0.gauge_hp == 15200.0f && o0.gauge_len == 10000.0f,
+                  "M330: init, then engaged on the next tick with no sight test; the boss gauge at lenScale 10000");
+        }
+        int leaps = 0, charges = 0;
+        bool leap_ok = true, charge_ok = true;
+        for (int s = 0; s < 60; ++s) {
+            for (int di : {0, 1}) {
+                Rig r; EnemyAi ai; rig(r); for (int i = 0; i < s; ++i) r.rng();
+                r.env.diff_index = di; r.env.difficulty = di;
+                for (int t = 0; t < 200; ++t) {
+                    const AiOut o = enemy_ai_tick(ai, ep, r.env, m330);
+                    if (o.section == 7) {
+                        ++leaps;
+                        leap_ok = leap_ok && ai.i(0x728) == 1 && ai.action() == 2 && ai.dur() >= (di ? 104 : 119) && ai.dur() <= (di ? 105 : 120);
+                        break;
+                    }
+                    if (o.section == 8) { ++charges; charge_ok = charge_ok && ai.i(0x728) == 2 && ai.dur() >= 139 && ai.cool() >= 139; break; }
+                }
+            }
+        }
+        std::printf("[aitest]   M330 at 9 u: %d leaps, %d charges of 120 runs\n", leaps, charges);
+        check(leaps > 30 && charges > 30 && leaps + charges == 120, "M330: inside 10 u a leap (12%) or a charge (13%) starts");
+        check(leap_ok, "M330 leap: sub 1, action 2, dur 120 on Normal / 105 on Hard");
+        check(charge_ok, "M330 charge: sub 2, dur 140, cooldown 140");
+        // The leap: its push and its three landings.
+        {
+            Rig r; EnemyAi ai; rig(r);
+            enemy_ai_tick(ai, ep, r.env, m330); enemy_ai_tick(ai, ep, r.env, m330);
+            enemy_ai_tick(ai, ep, r.env, m330);                         // one engaged tick: the vector to the target
+            ai.i(0x728) = 1; ai.i(0x7bc) = 1; ai.action() = 2; ai.dur() = 120; ai.cool() = 150;
+            r.env.section = 7; r.env.aso_marker = 1;
+            B.mover.k1 = {};
+            enemy_ai_tick(ai, ep, r.env, m330);
+            const float vx = B.mover.k1.x;
+            enemy_ai_tick(ai, ep, r.env, m330);
+            check(std::fabs(vx - 9.0f / 13.0f) < 1e-3f && B.mover.k1.x == vx && B.guard399,
+                  "M330 leap at Marker 1: one push of (distance / 13) toward the target; guarded from the marker on");
+            int fx[3] = {0, 0, 0}, shots[3] = {0, 0, 0}, kids[3] = {0, 0, 0};
+            bool kinds = true;
+            for (int land = 0; land < 3; ++land) {
+                ai.i(0x7a0) = 0; ai.dur() = 100; ai.action() = 2;
+                r.env.aso_marker = 2; r.env.grounded = true; r.env.pool_count = land == 2 ? 13 : 12;
+                const std::size_t before = w.actors.size();
+                const AiOut o = enemy_ai_tick(ai, ep, r.env, m330);
+                fx[land] = o.effects.empty() ? 0 : o.effects[0].id;
+                shots[land] = int(o.bullets.size());
+                kids[land] = int(w.actors.size() - before);
+                for (const AiBullet& b : o.bullets)
+                    kinds = kinds && b.kind == 2 && b.effect == 409 && b.speed >= 0.23f && b.speed < 0.28f && b.accel >= -0.00225f &&
+                            b.accel < -0.00175f && b.power == -10.0f && std::fabs(b.dir.x * b.dir.x + b.dir.z * b.dir.z - 1.0f) < 1e-4f;
+                check(enemy_ai_tick(ai, ep, r.env, m330).effects.empty(), "M330: one landing a leap");
+            }
+            std::printf("[aitest]   M330 landings: effects %d %d %d, bullets %d %d %d, Pikkartons %d %d %d\n", fx[0], fx[1], fx[2],
+                        shots[0], shots[1], shots[2], kids[0], kids[1], kids[2]);
+            check(fx[0] == 406 && fx[1] == 332 && fx[2] == 332 && shots[0] == 0 && shots[1] == 120 && shots[2] == 120 && kinds,
+                  "M330 landings cycle: effect 406; then twice 332 + 193 and a ring of 120 kind-2 bullets (0.23..0.28 u/tick)");
+            check(kids[0] >= 6 && kids[0] <= 8 && kids[1] >= 6 && kids[1] <= 8 && kids[2] == 0 && ai.i(0x7a8) == 0,
+                  "M330: 6..8 Pikkartons a landing while fewer than 13 actors live; the cycle wraps after three");
+            bool child = !w.actors.empty();
+            for (const Actor& c : w.actors) child = child && c.cast_id == 0x24 && c.exp_reward == 0 && c.sp_reward == 0 && (c.flags130 & 1u);
+            check(child, "M330: its Pikkartons are cast 0x24 with no EXP, no SP and +0x130 bit 0");
+        }
+        // The charge.
+        {
+            Rig r; EnemyAi ai; rig(r);
+            enemy_ai_tick(ai, ep, r.env, m330); enemy_ai_tick(ai, ep, r.env, m330);
+            ai.i(0x728) = 2; ai.action() = 2; ai.dur() = 140; ai.cool() = 140;
+            r.env.section = 8; r.env.aso_marker = 1; r.env.diff_index = 2; r.env.difficulty = 2;
+            const AiOut o = enemy_ai_tick(ai, ep, r.env, m330);
+            check(o.bullets.size() == 3 && ai.f(0x820) == 4.0f && std::fabs(ai.f(0x814) - 0.075f) < 1e-6f && o.set_durable == 1,
+                  "M330 charge, Marker 1 on Nightmare: 3 bullets a tick, run x2, turn x1.25, Durable");
+            r.env.aso_marker = 2;
+            const AiOut s = enemy_ai_tick(ai, ep, r.env, m330);
+            check(ai.phase() == 3 && s.section == 0x13b && !s.effects.empty() && s.effects[0].id == 60 && s.effects[0].attach &&
+                  !s.sounds.empty() && s.sounds[0] == 0xb8,
+                  "M330 charge, Marker 2: it stuns itself (phase 3, section 0x13b, the stars, SE 184)");
+        }
+    }
+}
+
 static void floor6_tests() {
     // ---- M960 Nooze (Purple): the Nooze routine with no difficulty term (build/ai_spec/M960.md) ----
     {

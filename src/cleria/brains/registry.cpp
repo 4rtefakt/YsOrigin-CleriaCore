@@ -26,6 +26,8 @@ EnemyBrain enemy_brain_for(int ai_index) {
         case 20: return &brains::m270;   // M270 Moz
         case 23: return &brains::m300;   // M300 Hubamobre
         case 24: return &brains::m310;   // M310 Jiamobre
+        case 25: return &brains::m320;   // M320 Pikkarton
+        case 26: return &brains::m330;   // M330 Pikkardon
         case 27: return &brains::m340;   // M340 Rezalior
         case 28: return &brains::m350;   // M350 Diphtheloyd
         case 30: return &brains::m370;   // M370 Celny
