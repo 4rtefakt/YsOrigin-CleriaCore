@@ -107,4 +107,38 @@ def cases(clear_data):
                 "runner: effect 167 C 4 P 4, 0.50 ahead", "runner gone at", "its life",
                 "[arena] the run ends: record.ar + record.are saved"],
         count={"runner pulse: effect 167": 4}, files=["record.are"])
+    # ADOL.md (Felghana version), a room boot as character 0 (CLERIA_CHAR=0; retail offers him in Time Attack and the
+    # Arena only): C_101.ASO on C_110.AIA (his script names no file), the six-step ground combo (0x105 is its last
+    # section), the skills at his costs 1000 / 600 / 300 (FUN_0046ea00's row 0), Ignis = his script's FireBullet(2, 20).
+    c["adol_felghana_room"] = dict(
+        room="S_10/S_1009/S_1009", char="0", env=dict(_X),
+        drive="8:flag=116,1;9:flag=117,1;10:flag=118,1;11:flag=182,1;12:flag=183,1;13:flag=184,1;30:atk;45:atk;60:atk;75:atk;90:atk;"
+              "105:atk;120:abil;150:bracelet=116;160:skill+;162:skill-;164:abil;220:bracelet=117;225:mp=3000;230:skill+;232:skill-;"
+              "234:abil;300:bracelet=118;305:mp=3000;310:skill+;312:skill-;314:abil;330:bullets;340:quit",
+        expect=["-> C_110.AIA", "[abil] t120 sec 0x105", "[abil] t164 sec 0x10d mp 2000", "[abil] t234 sec 0x10c mp 2400",
+                "[abil] t314 sec 0x10e mp 2700", "[bullet] kind 2 effect 20"], absent=["[extra]"])
+    # ... an Arena run from the title: the fourth bar (Felghana bought), Type Select "Felghana", Stage 1; the pilot
+    # clears the eight waves; the record goes to record.ar (Felghana is the first version).
+    c["adol_felghana_arena"] = dict(
+        room=None, env=dict(_X, CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[0]), "record.ar2": [0]},
+        title="1:keys;40:down;45:down;50:ok;100:down;110:ok;158:down;166:down;174:down;190:ok;255:ok;330:ok;590:ok;790:quit",
+        drive="10:opt=OneHitKill=1;11:opt=DamageTaken=0;130:every=9,3000,nearest=1.2;133:every=9,3000,atk;700:every=700,3000,killall",
+        expect=["[title] Arena Mode: Character Select", "[stage] Arena stage select: Adol, column 1, 1 row(s), cursor 0",
+                "[stage] row 0 (Wailing Blue): the run starts in S_9109", "-> C_110.AIA", "[script] SetLevel(1): HP 60",
+                "[arena] Arena(cast 53, level 8, count 0): 8 spawned", "[arena] ArenaSave: SP ", "(a record)",
+                "[arena] the run ends: record.ar + record.are saved", "[stage] Arena stage select: Adol"],
+        count={"[arena] Arena(": 13}, absent=["[gameover]", "not implemented"], files=["record.ar"])
+    # ... and Time Attack (his 14 rows): the Boss Rush's first stage won by the pilot, the second entered; the death
+    # there and its Retry keep him Adol (the snapshot's character 0).
+    c["adol_felghana_time_attack"] = dict(
+        room=None, env=dict(_X, CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[0])},
+        title="1:keys;40:down;45:down;50:ok;100:ok;158:down;166:down;174:down;190:ok;255:ok;330:ok;590:ok;790:quit",
+        drive="10:opt=OneHitKill=1;11:opt=DamageTaken=0;100:every=7,900,duel=0;130:every=9,900,nearest=1.2;133:every=9,900,atk;"
+              "1000:hp=0;1160:ok;1300:stats;1301:flagdump;1310:quit",
+        expect=["[stage] Time Attack stage select: Adol, column 1, 14 row(s), cursor 0", "the run starts in S_1080", "-> C_110.AIA",
+                "stage 1 (Vagullion) won", ">> entering S_1099", "[death] HP 0", "[gameover] chose retry", ">> entering S_1099",
+                "t1300 stats", "t1301 flagdump"],
+        absent=[" 150="])           # flagdump lists the nonzero flags: 150 (the character) stays 0
     return c

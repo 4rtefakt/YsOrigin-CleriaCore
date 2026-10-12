@@ -179,6 +179,18 @@ int main(int, char**) {
         cleria::Vec3 p{}; a.tick(floor0, &p);
         check(a.vy == -0.75f && std::fabs(a.pos.y - (4.25f - 0.225f)) < 1e-5f, "runner off the floor: falls 0.75 x step a tick");
     }
+    {   // Felghana Adol's skill armour (ADOL.md §2.4)
+        Armor a = armor(0, 0x10c, 0, 200.0f, 0);
+        check(a.active && a.guard && a.spend == 200.0f, "Adol (Felghana) Terra with 200 MP: the guard, 200 spent");
+        a = armor(0, 0x10f, 0, 199.0f, 0);
+        check(a.active && !a.guard && a.scale == 0.25f, "... under 200 MP: x 0.25");
+        check(armor(0, 0x10e, 0, 3000.0f, 0).scale == 0.5f && !armor(0, 0x111, 0, 3000.0f, 0).guard &&
+              armor(0, 0x10d, 0, 3000.0f, 0).scale == 0.75f && armor(0, 0x110, 0, 0.0f, 0).active,
+              "Ignis x 0.5, Ventus x 0.75, no guard");
+        check(!armor(0, 0x100, 0, 3000.0f, 0).active && !armor(0, 0x10c, 0, 3000.0f, 1).active && !armor(0, 0x10e, 0, 3000.0f, 1).active,
+              "none outside the skills, none for Napishtim");
+        check(armor(1, 0x10f, 0, 499.0f).scale == 0.75f && armor(3, 0x111, 0, 100.0f).scale == 0.75f, "Yunica / Toal keep x 0.75");
+    }
     {   // Toal Extra (EXTRA_VERSIONS.md §4): which ticks of a section ask for what
         namespace x = cleria::extra;
         auto run = [](int sec, bool demon, int n) {

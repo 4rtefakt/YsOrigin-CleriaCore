@@ -172,7 +172,7 @@ static fs::path exe_dir() {
 }
 
 // Playable characters, indexed by g_flags[150] (1=Yunica, 2=Hugo, 3=Toal).
-static const char* kCharNames[] = {"Default", "Yunica", "Hugo", "Toal"};
+static const char* kCharNames[] = {"Adol", "Yunica", "Hugo", "Toal"};
 
 // Player state (placeholder stats until the stat/progression system lands).
 struct Player {

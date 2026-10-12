@@ -92,7 +92,7 @@
                 // The MP super-armour of Yunica's 0x10c / 0x10f and Toal's 0x10e / 0x111 (Marker 0): with the MP
                 // it is spent and the hit is the GUARD above (0x4fd90e); without, 16 i-frames and x 0.75
                 // (skillmp::armor, BOOST_SKILLS.md §3.3).
-                if (const skillmp::Armor ar = skillmp::armor(character, avm.section(), avm.marker(), player.sp_cur);
+                if (const skillmp::Armor ar = skillmp::armor(character, avm.section(), avm.marker(), player.sp_cur, skin);
                     ar.active) {
                     player_iframes = std::max(player_iframes, skillmp::kArmorIframes);
                     if (ar.guard) {
@@ -107,7 +107,7 @@
                         player_kb.x += k.x; player_kb.z += k.z;
                         return;
                     }
-                    dmg = int(float(dmg) * skillmp::kArmorScale);
+                    dmg = int(float(dmg) * ar.scale);
                 }
                 dmg = lua_damage(false, dmg, raw, atk, bonus, pdef, -1, from_cast, from_level);   // Lua mods
                 player.hp -= dmg;

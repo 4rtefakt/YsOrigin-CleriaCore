@@ -133,7 +133,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int character = 1;
     if (const char* cs = std::getenv("CLERIA_CHAR")) {
         const int c = std::atoi(cs);
-        if (c >= 1 && c <= 3) character = c;
+        if (c >= 0 && c <= 3) character = c;      // 0 = Adol (Time Attack / Arena only in retail; ADOL.md)
     }
     // The rest of the New-Game choices (set by the title's popups; see the flow below):
     int skin = 0;          // the Type Select answer 0x74c0dc / d8 / d4: 0 Normal, 1 Extra (EXTRA_VERSIONS.md; view_extra.inl)
@@ -1337,10 +1337,6 @@ title_again:
                             const bool wrote = record_tables_save(arena);
                             std::printf("  [stage] Cancel: %s %s\n", arena ? "record.ar + record.are" : "record.ta + record.tae",
                                         wrote ? "saved" : "NOT saved");
-                        } else if (sev.launch >= 0 && g_run.character == 0) {
-                            // [not modelled] Adol (BONUS_MODES.md §6.2 step 13, ARENA.md §6): the stage select comes back.
-                            std::printf("  [stage] row %d (%s): Adol is not implemented\n", sev.launch,
-                                        arena ? stages::arena_name(sev.launch) : stages::time_attack_name(g_run.character, sev.launch));
                         } else if (sev.launch >= 0) {
                             // The launch [BYTES 0x57bf21..0x57bf5b; the Arena's 0x57c938..0x57c973]: 0x74ab9f = the
                             // row, 0x74e25a = 3, the scene of the row, FUN_005832e0 (the character's marks = 0; the
@@ -1768,7 +1764,7 @@ title_again:
         std::memcpy(game.item_arr, pending_load->item_arr, sizeof game.item_arr);
         // A load writes the RAW clear bytes into 297..299 [EXPORT 0042f5e0.c:210-212] (0xD5 / 0x8E / 0x89 included).
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];
-        character = std::clamp(pending_load->character(), 1, 3);
+        character = std::clamp(pending_load->character(), 0, 3);
         if (!pending_load->scene.empty()) {
             auto it = g.sob_index.find(pending_load->scene);
             if (it != g.sob_index.end()) boot_sob = it->second;
@@ -1968,8 +1964,10 @@ title_again:
     unsigned step_n = 0;              // actor+0x4c0, the step counter (variant = n & mask)
     // Base player sprites: C_102/103/104 = Yunica / Hugo / Toal. (C_110-115 are the
     // late-game / weapon-state variants — wrong look for normal play.)
-    auto char_aia = [](int c) -> const char* {
-        return c == 2 ? "C_103.AIA" : c == 3 ? "C_104.AIA" : "C_102.AIA";
+    // Adol (0): FUN_00464fc0 [BYTES 0x46500a..0x465038]: AIA 0xE c_110 (Felghana; his script names no file), 0xF4
+    // c_990 (Napishtim, 0x74c0cc = `skin`).
+    auto char_aia = [&skin](int c) -> const char* {
+        return c == 2 ? "C_103.AIA" : c == 3 ? "C_104.AIA" : c == 0 ? (skin == 1 ? "C_990.AIA" : "C_110.AIA") : "C_102.AIA";
     };
     // Canonical gameplay animation tags — identical across every player sprite
     // (user-identified from animation GIFs; see tools/aia_gif.py). Resolve by TAG,
@@ -1987,8 +1985,9 @@ title_again:
     // Section ids double as the action: 0 walk, 1 run/dash, 2 idle (the VM's initial
     // state), 3 jump. The script supplies (file, tag, frame); `dir` is NOT in it —
     // that comes from the actor's facing, which is what closes the AIA formula.
-    auto char_aso = [](int c) -> const char* {
-        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : "C_010.ASO";
+    // Adol (0): ASO 0xC c_101 (Felghana) / 0xA4 c_990 (Napishtim) [BYTES 0x46500a..0x465038].
+    auto char_aso = [&skin](int c) -> const char* {
+        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : c == 0 ? (skin == 1 ? "C_990.ASO" : "C_101.ASO") : "C_010.ASO";
     };
     Aso aso = Aso::load(asset_root / "ANI" / char_aso(character));
     AsoVm avm;
@@ -2606,7 +2605,7 @@ title_again:
         std::memcpy(game.g_flags, s.flags, sizeof s.flags);
         std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];   // the raw clear bytes (FUN_0042f5e0)
-        character = std::clamp(s.character(), 1, 3);
+        character = std::clamp(s.character(), 0, 3);   // 0 = Adol: a run's Retry snapshot
         skin = s.version[character] == 1;              // FUN_0042f5e0: 0x74c0dc / d8 / d4 = the block's (EXTRA_VERSIONS.md §1.2)
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
@@ -7788,9 +7787,10 @@ title_again:
             float oy = feet.y + kOriginH;
             const float oy0 = oy;                     // the origin before this tick's vertical move
             {   // The Ventus glide: Yunica (and Adol), airborne in 0x10d / 0x110 with the timer at or
-                // under 0.05: a falling timer is damped x0.95, then lifted 0.01 (Adol 0.015).
+                // under 0.05: a falling timer is damped x0.95, then lifted 0.01 (Adol 0.015). Adol: the Felghana
+                // version only, (c == 0 && 0x74c0cc == 0) || c == 1 [BYTES 0x469eae..0x469f3a per ADOL.md §2.3].
                 const int ss = avm.section();
-                if ((character == 1 || character == 0) && !pv.grounded && (ss == 0x10d || ss == 0x110) &&
+                if ((character == 1 || (character == 0 && skin != 1)) && !pv.grounded && (ss == 0x10d || ss == 0x110) &&
                     pv.t <= 0.05f) {
                     if (pv.t < 0.0f) pv.t *= 0.95f;
                     pv.t += character == 0 ? 0.015f : 0.01f;
