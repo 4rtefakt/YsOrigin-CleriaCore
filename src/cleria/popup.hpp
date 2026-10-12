@@ -32,6 +32,12 @@ struct Popup {
     std::uint32_t diffuse() const;           // pack(alpha) << 24 | colour
 };
 
+// One F_GEO20 glyph as FUN_004535d0 lays it out at scale 1 (the font object 0x731460: 24-px cells in 21 columns of
+// f_geo20.dds, the widths 0x69b1f0): the quad is `adv` x 23 and the pen moves on by adv - 2. False for a char
+// with no glyph (a space or a tab moves the pen by 12).
+struct GeoGlyph { float adv = 0, u0 = 0, v0 = 0, u1 = 0, v1 = 0; };
+bool geo20_glyph(unsigned char c, GeoGlyph* g);
+
 // FUN_00564da0: lay `text` out (31 chars at most) at `scale` (gold 0.75, heals 1.0, the seeds'
 // "BOOST MAX" / "OXYGEN MAX" 0.65).
 Popup make_popup(const std::string& text, std::uint32_t colour, float scale, const Vec3& pos);

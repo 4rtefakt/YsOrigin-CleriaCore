@@ -1908,10 +1908,11 @@ CASES.update({
     # BONUS_MODES.md §2.5, the game over in a run: no gameover.dds, the same two rows. Retry reloads the stage's room
     # from the continue snapshot its battle script took (the loadout runs again, retries 1, the stage and the mode
     # kept); Return to Title leaves the run with no record and reopens the stage select.
+    # The pause book does not open in a run (`esctap` at t350 [BYTES 0x410728]: with the book up the presses below would go to it).
     "time_attack_gameover": dict(
         room=None, env=_LOCK, records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)])},
         title=_TA_YUNICA + "300:ok;430:esc;470:quit",
-        drive="10:opt=OneHitKill=1;30:every=7,200,duel=50;400:hp=0;560:ok;700:flagdump;800:hp=0;960:down;970:ok",
+        drive="10:opt=OneHitKill=1;30:every=7,200,duel=50;350:esctap;400:hp=0;560:ok;700:flagdump;800:hp=0;960:down;970:ok",
         expect=[">> entering S_1099", "[death] HP 0", "[gameover] Retry / Return to Title (a run: no card)", "[gameover] chose retry",
                 ">> entering S_1099", "[gameover] Retry -> S_1099", "retries 1", "[script] SetLevel(8): HP 100",
                 " 193=1 194=1 195=2 196=1", "[death] HP 0", "[gameover] chose title", "[game] Return to Title",

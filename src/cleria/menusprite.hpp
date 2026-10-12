@@ -62,7 +62,8 @@ struct DrawCmd {
     // Mesh: an indexed triangle list (the map's clouds), x scaled by min(W,H)/768, WRAP sampler.
     // TextRich: laid-out window text (richtext.hpp) at (x, y), alpha from `diffuse`, the
     // typewriter counter `reveal`, with the GDI shadow. Quad flags 0x40c1 = additive.
-    enum Kind : std::uint8_t { Quad, TextMiddle, TextMini, TextGdi, Pillars, Mesh, TextRich } kind = Quad;
+    // TextGeo: F_GEO20 (popup.hpp geo20_glyph) through FUN_00453c10 with the font object 0x731460, at `scale`.
+    enum Kind : std::uint8_t { Quad, TextMiddle, TextMini, TextGdi, Pillars, Mesh, TextRich, TextGeo } kind = Quad;
     // Quad
     TexRef tex;
     float x = 0, y = 0, w = 0, h = 0, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
@@ -73,7 +74,7 @@ struct DrawCmd {
     // Text (x, y = the top-left; colour = diffuse)
     std::string text;
     float line_extra = 0;                           // GDI: extra line spacing
-    float scale = 1;                                // GDI: the "<scale:k>" markup
+    float scale = 1;                                // GDI: the "<scale:k>" markup; TextGeo: the routine's scale
     // Mesh
     struct Vert { float x, y, u, v; std::uint32_t argb; };
     std::vector<Vert> verts;

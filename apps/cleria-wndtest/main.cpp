@@ -332,6 +332,37 @@ int main() {
         e = step(0, false, true);
         check(e.back && e.sounds.empty(), "cancel: back, no sound of its own");
     }
+    {   // The run's clocks on the HUD (STAGE_SELECT.md §7; FUN_0043fe00's block, FUN_0043a340).
+        records::RecordTable ta(records::RecordTable::kTimeAttackRows);
+        ta.submit(1, 1, 0, 45259);                                                 // the Boss Rush's best: 12:34:316
+        ta.submit(1, 1, 2, 3674);                                                  // stage 2's: 01:01:233
+        RunHud h;
+        h.mode = 1; h.pick = 0; h.character = 1; h.stage = 2; h.d = 1; h.stage_frames = 485; h.run_frames = 515; h.table = &ta;
+        DrawList dl;
+        run_hud(dl, h);
+        auto is = [&](std::size_t i, const char* t, float x, float y, float s) {
+            return i < dl.size() && dl[i].text == t && std::abs(dl[i].x - x) < 0.01f && dl[i].y == y && dl[i].scale == s && dl[i].anchor_x == 3;
+        };
+        check(dl.size() == 7 && is(0, "00:08:583", 908, 738, 1) && is(1, "/", 894, 738, 1) && is(2, "00:08:083", 782, 738, 1),
+              "a Boss Rush's live line: the run's clock at 874 + 34, '/' 14 left of it, the stage's clock 160 left");
+        check(is(3, "12:34:316", 942.8f, 718, 0.7f) && is(4, "/", 933, 718, 0.7f) && is(5, "01:01:233", 854.6f, 718, 0.7f),
+              "the bests at 0.7: the Boss Rush's at 919 + 23.8, '/' 9.8 left, the stage's 112 left");
+        check(dl[0].kind == DrawCmd::TextGeo && dl[6].kind == DrawCmd::TextMiddle && dl[6].text == "[Normal]" &&
+              std::abs(dl[6].x - 886.8f) < 0.01f && dl[6].y == 688, "the tag [Normal] in F_MIDDLE at X2 - 56, y 688");
+        h.pick = 2; h.d = 3; h.run_frames = 216000 + 485;                          // a single stage; an hour on the (unused) run clock
+        dl.clear();
+        run_hud(dl, h);
+        check(is(0, "--:--:---", 914, 738, 1) && is(1, "/", 900, 738, 1) && is(2, "00:08:083", 788, 738, 1) && is(3, "--:--:---", 947, 718, 0.7f) &&
+              is(4, "/", 937.2f, 718, 0.7f) && is(5, "00:00:000", 858.8f, 718, 0.7f) && dl[6].text == "[Nightmare]" && std::abs(dl[6].x - 850.4f) < 0.01f,
+              "a single stage: the dashes at 914 / 947 for the run's items, an empty best prints 00:00:000");
+        h.mode = 2; h.stage = 0; h.stage_frames = 216000 + 60;
+        records::RecordTable ar(records::RecordTable::kArenaRows);
+        h.table = &ar; h.d = 0;
+        dl.clear();
+        run_hud(dl, h);
+        check(dl.size() == 4 && is(0, "00:00:000", 908, 738, 1) && is(1, "/", 894, 738, 1) && is(2, "01:00:01:000", 748, 738, 1) &&
+              dl[3].text == "[Easy]" && std::abs(dl[3].x - 880.0f) < 0.01f, "the Arena's one line: the best right, the live clock left (hh: from an hour on, no shift)");
+    }
     std::printf("[wnd] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }

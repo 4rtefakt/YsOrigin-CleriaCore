@@ -161,4 +161,54 @@ void StageSelect::panel(DrawList& out, const StageModel& m, bool arena) const {
         out.push_back(text("Cancel", name_x, float(20 * (count + 2)) * 1.6f + base, cursor == count ? sel : white));
 }
 
+namespace {
+
+DrawCmd geo(const std::string& s, float x, float y, float scale) {                // FUN_00453c10(s, 3, x; y, -1, 0x731460, .., scale)
+    DrawCmd c;
+    c.kind = DrawCmd::TextGeo; c.text = s; c.x = x; c.y = y; c.scale = scale; c.diffuse = 0xFFFFFFFF;
+    c.anchor_x = 3; c.anchor_y = 0;
+    return c;
+}
+
+// FUN_0043a340 [BYTES 0x43a340..0x43a455]: the x it drew at.
+float clock(DrawList& out, std::uint32_t value, bool frames, float x, float y, float s) {
+    const std::uint32_t ms = frames ? std::uint32_t(std::uint64_t(value) * 1000 / 60) : value;
+    const std::uint32_t t = ms / 1000, mmm = ms % 1000, min = t / 60, ss = t - min * 60, h = min / 60, mm = min - h * 60;
+    char buf[40];
+    if (h) std::snprintf(buf, sizeof buf, "%02u:%02u:%02u:%03u", h, mm, ss, mmm);  // 0x69936c
+    else { std::snprintf(buf, sizeof buf, "%02u:%02u:%03u", mm, ss, mmm); x += 34.0f * s; }   // 0x699380
+    out.push_back(geo(buf, x, y, s));
+    return x;
+}
+
+}  // namespace
+
+void run_hud(DrawList& out, const RunHud& h) {
+    auto rec = [&](int row) { return h.table ? h.table->ms(h.character, h.d, row) : 0u; };
+    float X;
+    if (h.mode == 1) {
+        float x1 = 914.0f;                                                        // [BYTES 0x440e41..0x440f28]
+        if (h.pick == 0) x1 = clock(out, h.run_frames, true, 874.0f, 738.0f, 1.0f);
+        else out.push_back(geo("--:--:---", 914.0f, 738.0f, 1.0f));               // 0x699b34
+        out.push_back(geo("/", x1 - 14.0f, 738.0f, 1.0f));                        // 0x699b40
+        clock(out, h.stage_frames, true, x1 - 160.0f, 738.0f, 1.0f);
+        float x2 = 947.0f;                                                        // [BYTES 0x440f2d..0x441058]
+        if (h.pick == 0) x2 = clock(out, rec(0), false, 919.0f, 718.0f, 0.7f);
+        else out.push_back(geo("--:--:---", 947.0f, 718.0f, 0.7f));
+        out.push_back(geo("/", x2 - 9.8f, 718.0f, 0.7f));
+        clock(out, rec(h.stage), false, x2 - 112.0f, 718.0f, 0.7f);
+        X = x2;
+    } else {                                                                      // [BYTES 0x44105d..0x44110f]
+        const float x1 = clock(out, rec(h.stage), false, 874.0f, 738.0f, 1.0f);
+        out.push_back(geo("/", x1 - 14.0f, 738.0f, 1.0f));
+        clock(out, h.stage_frames, true, x1 - 160.0f, 738.0f, 1.0f);
+        X = x1;
+    }
+    static constexpr const char* kTag[4] = {"[Easy]", "[Normal]", "[Hard]", "[Nightmare]"};   // 0x699fd0
+    static constexpr float kOff[4] = {28.0f, 56.0f, 28.0f, 96.6f};                // [BYTES 0x441114..0x441263]
+    DrawCmd tag = text(kTag[h.d & 3], X - kOff[h.d & 3], 688.0f, 0xFFFFFFFF);
+    tag.anchor_x = 3;
+    out.push_back(tag);
+}
+
 }  // namespace cleria

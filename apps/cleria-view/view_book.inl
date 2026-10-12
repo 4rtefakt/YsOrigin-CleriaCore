@@ -306,6 +306,19 @@ struct BookRenderer {
         }
     }
 
+    // F_GEO20 (FUN_00453c10 with the font object 0x731460; popup.hpp geo20_glyph): quads adv x 23, the pen moves
+    // adv - 2, a space 12 — all times the routine's scale.
+    void text_geo(Gpu& g, const DrawCmd& c) {
+        const WGPUBindGroup bind = bind_of(g, {TexRef::Named, 0, "F_GEO20.DDS"});
+        float x = c.x;
+        for (unsigned char ch : c.text) {
+            GeoGlyph gg;
+            if (!geo20_glyph(ch, &gg)) { if (ch == ' ' || ch == '\t') x += 12.0f * c.scale; continue; }
+            aquad(bind, x, c.y, gg.adv * c.scale, 23.0f * c.scale, c.anchor_x, c.anchor_y, gg.u0, gg.v0, gg.u1, gg.v1, c.diffuse, 0, false);
+            x += (gg.adv - 2.0f) * c.scale;
+        }
+    }
+
     // §7.3: GDI text, rasterised at the 32-px cell (raster px = authored units), a (-1,+1) black
     // shadow first, then the text at (x, y+1).
     void text_gdi(const DrawCmd& c) {
@@ -405,6 +418,7 @@ struct BookRenderer {
                 case DrawCmd::TextRich: text_rich(c); break;
                 case DrawCmd::TextMiddle: text_bitmap(g, c, true); break;
                 case DrawCmd::TextMini: text_bitmap(g, c, false); break;
+                case DrawCmd::TextGeo: text_geo(g, c); break;
                 case DrawCmd::TextGdi: text_gdi(c); break;
                 case DrawCmd::Pillars: {
                     // §2.1: drawn only when A != 1; 16:9 art from A >= 1.21, else 16:10 (tex id + 1).

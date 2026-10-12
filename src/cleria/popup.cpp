@@ -22,6 +22,18 @@ constexpr std::int8_t kGeoAdv[222] = {
 
 }  // namespace
 
+bool geo20_glyph(unsigned char c, GeoGlyph* g) {
+    if (c <= 0x20) return false;
+    const int e = c < 0x84 ? c - 0x21 : c < 0xff ? c - 0x28 : 9;
+    if (e < 0 || e >= 222) return false;
+    g->adv = float(kGeoAdv[e]);
+    g->u0 = float((e % 21) * 24) / 512.0f;
+    g->v0 = float((e / 21) * 24) / 128.0f;
+    g->u1 = g->u0 + g->adv / 512.0f;
+    g->v1 = g->v0 + 0.1796875f;
+    return true;
+}
+
 Popup make_popup(const std::string& text, std::uint32_t colour, float scale, const Vec3& pos) {
     Popup p;
     p.pos = pos;

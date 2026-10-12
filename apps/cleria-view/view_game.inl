@@ -1172,11 +1172,11 @@ title_again:
         mouse::Point tbook_pt;                           // the book's open-time cursor (this+0x128)
         // CLERIA_TITLE_DRIVE (debug): "tick:cmd;..." on the title's own ticks, counted over every visit of the
         // process -- ok / esc / up / down / left / right (one press), shot=<name> (CLERIA_SHOT_DIR/<name>.ppm),
-        // keys (the mouse mode 0x7325d4 off, as a direction through the input record leaves it: the steps above
-        // bypass the record, and a book's cursor warp turns the mode on), quit. With it the title does not shoot and quit at t60: a drive run started with no room boots here.
+        // keys (a keyboard-only session from now on: the mouse mode 0x7325d4 is held off — the steps above bypass
+        // the input record, whose directions end the mode, and a book's cursor warp turns it on), quit. With it the title does not shoot and quit at t60: a drive run started with no room boots here.
         static std::vector<std::pair<int, std::string>> tdrive;
         static int tdrive_tick = 0;
-        static bool tdrive_on = false;
+        static bool tdrive_on = false, tdrive_keys = false;
         if (const char* td = tdrive_on ? nullptr : std::getenv("CLERIA_TITLE_DRIVE")) {
             tdrive_on = true;
             const std::string all = td;
@@ -1243,9 +1243,10 @@ title_again:
                     else if (cmd == "up" || cmd == "down") vstep = cmd == "up" ? -1 : 1;
                     else if (cmd == "left" || cmd == "right") hstep = cmd == "left" ? -1 : 1;
                     else if (cmd.rfind("shot=", 0) == 0) tshot = cmd.substr(5);
-                    else if (cmd == "keys") g_cursor.mouse_mode = false;
+                    else if (cmd == "keys") tdrive_keys = true;
                     else if (cmd == "quit") tquit = true;
                 }
+                if (tdrive_keys) g_cursor.mouse_mode = false;
                 std::vector<int> snd;
                 tstage.tick_fade();                          // [BYTES 0x576b50..0x576c36]
                 if (tbook.is_open()) {
@@ -6510,7 +6511,8 @@ title_again:
             }
         }
         ++game.g_flags[199];                       // 0x76bc38, the play time (FUN_004281c0 0x428274)
-        if (game.g_flags[193] != 0 && !paused) run_tick();
+        // (mode 0 with flag 193 set by hand — a dev room's boss-rush test — counts nothing: [BYTES 0x4282e0..0x4282f6].)
+        if (game.g_flags[193] != 0 && g_run.mode != 0 && !paused) run_tick();
         if (!running) break;                       // a run ended: the title
         speedrun_tick(room.name, hud.boss_frac >= 0.0f, hud.boss_cur, game.g_flags, player.hp > 0);   // IGT, auto-splits
         for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
@@ -6579,8 +6581,10 @@ title_again:
                 else if (skip_now) skip_cutscene = true;
             } else if (!paused) {
                 // [EXPORT 004106e0.c L47-57] the book opens only while the fader is clear (0x769f1c == 0):
-                // never during a door's fade-out / fade-in. [not modelled] its other gates (0x76bc20, flag 156).
-                if ((inf.pressed & input::kMenu) && (!fly || ks[SDL_SCANCODE_ESCAPE]) && csHost.fade_cur == 0.0f) {
+                // never during a door's fade-out / fade-in — and never in a Time Attack / Arena run (flag 193 != 0)
+                // [BYTES 0x41071f..0x410779]. [not modelled] its gate on a boss fight (flag 156).
+                if ((inf.pressed & input::kMenu) && (!fly || ks[SDL_SCANCODE_ESCAPE]) && csHost.fade_cur == 0.0f &&
+                    game.g_flags[193] == 0) {
                     // The book (FUN_00443150 on the menu bit's edge, PAUSEBOOK_DRAW.md §1): Esc or the
                     // Camp Menu binding (only Esc in free-fly, whose raw keys may overlap it). The game
                     // ticks stop with this one.
@@ -8713,6 +8717,18 @@ title_again:
             hud.set_equip_badges(lab, red);
         }
         hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
+        // A run's clocks (the HUD text pass FUN_0043fe00, while flag 193 != 0: stageselect.hpp run_hud).
+        if (bookOk && game.g_flags[193] != 0 && g_run.mode != 0) {
+            RunHud rh;
+            rh.mode = g_run.mode; rh.pick = g_run.pick;
+            rh.character = game.g_flags[150] & 3; rh.stage = game.g_flags[195];
+            rh.d = game.g_flags[143] != 0 ? 0 : std::clamp(game.g_flags[144] + 1, 0, 3);
+            rh.stage_frames = g_run.stage_frames; rh.run_frames = g_run.run_frames;
+            rh.table = &(g_run.mode == 2 ? g_rec_ar : g_rec_ta)[g_run.second()];
+            DrawList rl;
+            run_hud(rl, rh);
+            bookR.render(g, view, cw, ch, rl);
+        }
         // The cutscene overlay, in descending draw key (WNDDIALOG_DRAW.md §8.1: pass 15 is qsorted
         // descending [BYTES]): the busts (0x0a000000 + priority), the message box (0x08000000),
         // the caption card (0x06800000), the dialogs (0x03000000 + z).

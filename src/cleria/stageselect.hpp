@@ -76,4 +76,19 @@ class StageSelect {
     int hover_ = -1;                      // 0x7de0f4 / 0x7de0fc: the mouse's last row
 };
 
+// The run's clocks on the HUD: the block of the HUD text pass FUN_0043fe00 that runs while flag 193 != 0
+// [BYTES 0x440d4a..0x441268] (STAGE_SELECT.md §7). F_GEO20 through FUN_0043a340 (frames or ms -> "mm:ss:mmm",
+// "hh:mm:ss:mmm" from an hour on), "/" between the pair, the difficulty tag in F_MIDDLE; all white, anchor arg 3.
+// Time Attack: y 738 the live clocks "<this stage> / <the run>", y 718 at 0.7 the stored bests "<the stage's> /
+// <the Boss Rush's>" — the right-hand item is "--:--:---" outside a Boss Rush; Arena: one line "<live> / <best>".
+struct RunHud {
+    int mode = 1;                         // 0x74e25e
+    int pick = 0;                         // 0x74ab9f: 0 = a Boss Rush
+    int character = 1, stage = 1;         // 0x76bb74, flag 195
+    int d = 1;                            // flag 143 != 0 ? 0 : flag 144 + 1
+    std::uint32_t stage_frames = 0, run_frames = 0;   // 0x74e67c / 0x74e680
+    const records::RecordTable* table = nullptr;      // the mode's table FUN_00583960 picks
+};
+void run_hud(DrawList& out, const RunHud& h);
+
 }  // namespace cleria
