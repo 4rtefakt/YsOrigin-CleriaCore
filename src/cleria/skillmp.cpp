@@ -35,10 +35,16 @@ int attack_kind(int section) {
     return kKind[section - 0x100];
 }
 
-Armor armor(int chr, int section, int marker, float mp) {
+Armor armor(int chr, int section, int marker, float mp, int adol_version) {
     Armor r;
     float cost = 0.0f;
-    if (chr == 1 && (section == 0x10c || section == 0x10f)) cost = 500.0f;                       // 0x4fd8e9 (0x6bdcf4)
+    if (chr == 0) {
+        if (adol_version != 0) return r;
+        if (section == 0x10c || section == 0x10f) { cost = 200.0f; r.scale = 0.25f; }           // 0x6bdbc0, 0x6bd244
+        else if (section == 0x10e || section == 0x111) { r.active = true; r.scale = 0.5f; return r; }    // 0x6bd304
+        else if (section == 0x10d || section == 0x110) { r.active = true; return r; }                    // 0x6bd390
+        else return r;
+    } else if (chr == 1 && (section == 0x10c || section == 0x10f)) cost = 500.0f;                       // 0x4fd8e9 (0x6bdcf4)
     else if (chr == 3 && (section == 0x10e || section == 0x111) && marker < 1) cost = 200.0f;    // 0x4fdaab (0x6bdbc0)
     else return r;
     r.active = true;
