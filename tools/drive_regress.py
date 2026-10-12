@@ -487,7 +487,7 @@ CASES = {
         drive2="5:cleardata=progress;8:cleardata=ta;20:esctap;70:right;80:right;90:right;120:ok;160:up;200:up;230:ok;"
                "260:left;290:ok;400:quit",
         expect=["record.ta2 saved", "==== second boot", "[clear] record.ta2: Yunica 01 Hugo 00 Toal 00",
-                "[clear] game progress cleared: 1 file(s) deleted", "[clear] now: clear bytes 00 00 00",
+                "[clear] game progress cleared: 2 file(s) deleted", "[clear] now: clear bytes 00 00 00",
                 "[clear] Time Attack records cleared: 0 file(s) deleted, 0 time(s) left",
                 "[title] clear data: Yunica 00 Hugo 00 Toal 00, data.nya 0 -> Bonus Modes 0, Toal's bar locked"]),
     "video_fpscap": dict(
