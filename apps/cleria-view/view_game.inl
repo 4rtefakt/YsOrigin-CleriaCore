@@ -1095,8 +1095,8 @@ title_again:
         // (Character Select, then the Type / Difficulty popups), Load Game = ctx 2, Options =
         // ctx 3. SP Bonus Acquisition is not here: it is a script menu (GOHOUBIMENU.XSO) the
         // new game's router runs. Steps on the 60 Hz tick like the game.
-        // [not modelled] the clear / system data behind the gates (Bonus Modes, Toal, the
-        // Extra types) — a fresh install's title; Time Attack / Arena / the Bonus Shop.
+        // Time Attack / Arena Mode: the book in the mode (0x74e25e), then the stage select over the
+        // title (src/cleria/stageselect, build/mode_re/STAGE_SELECT.md).
         apply_room_bgm("title");   // "title\" is a scene record like any room (BGM id 1)
         pending_load.reset();      // a Return to Title: the last game's Load must not outlive it
         const ItemTable titems = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
@@ -1105,10 +1105,21 @@ title_again:
         TitleScreen tscreen;
         PauseBook tbook;
         BonusShop tshop;
+        StageSelect tstage;                              // a new title object: FUN_005755c0 zeroes the overlay channels
+        // FUN_00576020: the title of a started run (0x74e25a == 3) comes back in its mode — FUN_00575ca0 /
+        // FUN_00575dd0 (the overlay's target; flag 140 keeps the book shut) and FUN_00575990 (0x74e25a = 2).
+        if (g_run.front == 3) { tstage.set_target(g_run.mode, true); g_run.front = 2; }
+        auto smodel = [&](int tick) {
+            StageModel s;
+            s.mode = g_run.mode; s.character = g_run.character; s.column = g_run.column(); s.nya = nya_gate;
+            for (int i = records::ClearData::kArena2; i <= records::ClearData::kArena7; ++i) s.arena_rows += g_clear.shop[std::size_t(i)] != 0;
+            s.picking = g_run.front >= 2;
+            s.ta = &g_rec_ta[g_run.second()]; s.ar = &g_rec_ar[g_run.second()];
+            s.ms = std::getenv("CLERIA_DRIVE") ? std::uint32_t(tick) * 50 / 3 : std::uint32_t(SDL_GetTicks());   // timeGetTime()
+            return s;
+        };
         TitleGates tgates;
         // The gates (CLEAR_DATA.md §8): the clear bytes 0x74ab7b / 7a / 79 and 0x74c106.
-        // [not modelled] what Time Attack / Arena Mode / Bonus Shop open: the entries show as in retail and
-        // lead nowhere yet (BONUS_MODES.md §6.2 steps 7-12).
         auto gates_sync = [&] {                          // each tick: Audio > Clear game progress closes them at once
             tgates.clear_yunica = g_clear.cleared(0); tgates.clear_hugo = g_clear.cleared(1); tgates.clear_toal = g_clear.cleared(2);
             tgates.nya = nya_gate;
@@ -1129,6 +1140,7 @@ title_again:
             m.sliders = oslider; m.checks = ocheck;
             m.metrics = tr.metrics();
             m.charsel.open_toal = settings().s.cleria.unlock_characters || g_lua_open_toal;   // CleriaCore's, not retail's
+            m.charsel.mode = g_run.mode;
             // Character Select / Type Select / Difficulty from the clear data (CLEAR_DATA.md §8, TITLE_DRAW.md §5-6).
             m.charsel.clear_yunica = g_clear.cleared(0); m.charsel.clear_hugo = g_clear.cleared(1);
             m.charsel.clear_toal = g_clear.cleared(2);
@@ -1201,7 +1213,7 @@ title_again:
                 gates_sync();
                 {   // the cursor manager (FUN_004263c0): the title list and the book are menu windows
                     mouse::Context cc;
-                    cc.menu = tscreen.list_alive() || tbook.is_open() || tshop.is_open();
+                    cc.menu = tscreen.list_alive() || tbook.is_open() || tshop.is_open() || tstage.is_open();
                     input::Frame rec = inf;
                     cursor_tick(rec, cc);
                 }
@@ -1229,7 +1241,9 @@ title_again:
                     else if (cmd == "quit") tquit = true;
                 }
                 std::vector<int> snd;
+                tstage.tick_fade();                          // [BYTES 0x576b50..0x576c36]
                 if (tbook.is_open()) {
+                    tscreen.fade_out(snd);                   // the chosen list closes under the book (a window ticks on its own)
                     BookInput in;
                     in.hstep = hstep;
                     in.vstep = vstep;
@@ -1255,7 +1269,14 @@ title_again:
                         if (auto r = SaveRecord::decode(raw)) { pending_load = from_record(*r); started = true; }
                         content_title_load(slot_path(ev.load_slot));   // its mod sidecar (view_content.inl)
                     }
-                    if (ev.new_game) {
+                    if (ev.new_game && g_run.mode != 0) {
+                        // FUN_00575990 in a bonus mode: no game yet — flags 203 / 201 = 0 and 0x74e25a = 2, which
+                        // makes the title tick create the stage select once the book is gone.
+                        const NewGameInfo& ng = ev.new_game_info;
+                        g_run.character = ng.character; g_run.type = ng.type;
+                        g_run.difficulty = ng.difficulty; g_run.easy = ng.easy;
+                        g_run.front = 2;
+                    } else if (ev.new_game) {
                         const NewGameInfo& ng = ev.new_game_info;
                         character = std::clamp(ng.character, 1, 3);   // [not modelled] Adol (0)
                         skin = ng.type;
@@ -1284,18 +1305,50 @@ title_again:
                                     shop_price(sev.item), g_arena_sp, wrote ? "saved" : "NOT saved");
                     }
                     if (sev.closed) std::printf("  [shop] closed\n");
+                } else if (g_run.front == 2) {
+                    // The stage select GoWndZzz (FUN_005765c0 creates it once the fader rests and no window or book
+                    // is up; cursor = the last pick 0x74ab9f), then its tick FUN_0057bb20.
+                    const bool arena = g_run.mode == 2;
+                    tscreen.fade_out(snd);
+                    if (!tstage.is_open()) {
+                        if (live && !tscreen.list_alive()) {
+                            tstage.open(g_run.pick);
+                            std::printf("  [stage] %s stage select: %s, column %d, %d row(s), cursor %d\n", arena ? "Arena" : "Time Attack",
+                                        kCharNames[g_run.character & 3], g_run.column(), smodel(ttick).rows(), g_run.pick);
+                        }
+                    } else {
+                        WndInput in;
+                        in.confirm_pressed = confirm_edge; in.cancel_pressed = cancel_edge;
+                        in.vstep = vstep;
+                        if (live) wnd_mouse(in);
+                        StageEvents sev;
+                        tstage.update(in, smodel(ttick), sev);
+                        snd = sev.sounds;
+                        if (sev.back) {                      // 0x74e25a = 0, FUN_00436060 / FUN_004383e0 [BYTES 0x57bf9e.., 0x57c9a7..]
+                            g_run.front = 0;
+                            const bool wrote = record_tables_save(arena);
+                            std::printf("  [stage] Cancel: %s %s\n", arena ? "record.ar + record.are" : "record.ta + record.tae",
+                                        wrote ? "saved" : "NOT saved");
+                        } else if (sev.launch >= 0) {
+                            // [not modelled yet] the run (BONUS_MODES.md §6.2 step 8): the stage select comes back.
+                            std::printf("  [stage] row %d (%s): the run is not implemented\n", sev.launch,
+                                        arena ? stages::arena_name(sev.launch) : stages::time_attack_name(g_run.character, sev.launch));
+                        }
+                    }
                 } else {
+                    tstage.set_target(1, false);             // 0x74e25d = 0 [EXPORT 005765c0.c:77-79]; the Arena's byte stays
                     WndInput in;
                     in.confirm_held = conf_held; in.confirm_pressed = confirm_edge;
                     in.cancel_pressed = cancel_edge;
                     in.vstep = vstep;
                     if (live) wnd_mouse(in);
                     const TitleAction act = tscreen.update(in, false, tgates, tr.metrics(), snd);
-                    if (act == TitleAction::NewGame || act == TitleAction::LoadGame || act == TitleAction::Options)
+                    if (act == TitleAction::NewGame || act == TitleAction::LoadGame || act == TitleAction::Options ||
+                        act == TitleAction::TimeAttack || act == TitleAction::Arena)
                         tbook_pt = {g_in.x, g_in.y};            // FUN_005a4fd0 saves the record's cursor
                     switch (act) {
-                        case TitleAction::NewGame: tbook.open(tmodel(), 4); break;
-                        case TitleAction::LoadGame: tbook.open(tmodel(), 2); break;
+                        case TitleAction::NewGame: g_run.mode = 0; tbook.open(tmodel(), 4); break;    // FUN_00575c10
+                        case TitleAction::LoadGame: g_run.mode = 0; tbook.open(tmodel(), 2); break;   // 0x575ea0
                         case TitleAction::Options: tbook.open(tmodel(), 3); break;
                         case TitleAction::Exit: teardown(); return 0;
                         case TitleAction::BonusShop:
@@ -1303,8 +1356,12 @@ title_again:
                             std::printf("  [shop] opened: Arena SP %u\n", g_arena_sp);
                             break;
                         case TitleAction::TimeAttack: case TitleAction::Arena:
-                            // [not modelled] BONUS_MODES.md §6.2 steps 8-12: the list comes back.
-                            std::printf("  [title] %s: not implemented\n", act == TitleAction::TimeAttack ? "Time Attack" : "Arena Mode");
+                            // FUN_00575ca0 / FUN_00575dd0: the mode, its overlay's target, the book as for a New Game
+                            // (Character Select in the mode: BONUS_MODES.md §2.1, §3.1).
+                            g_run.mode = act == TitleAction::Arena ? 2 : 1;
+                            tstage.set_target(g_run.mode, true);
+                            tbook.open(tmodel(), 4);
+                            std::printf("  [title] %s: Character Select\n", g_run.mode == 2 ? "Arena Mode" : "Time Attack");
                             break;
                         default: break;
                     }
@@ -1330,7 +1387,8 @@ title_again:
                 wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
             }
             DrawList dl;
-            tscreen.draw(dl);
+            tscreen.draw(dl, tstage.title_tint());
+            tstage.draw(dl, smodel(ttick));                  // the panel sits under the book (its fade starts with it)
             if (tbook.is_open()) tbook.draw(dl, tmodel());
             tshop.draw(dl);
             tr.render(g, view, cw, ch, dl);

@@ -553,7 +553,55 @@ static bool arena_sp_save() {
     const std::uint32_t seed = std::uint32_t(std::chrono::steady_clock::now().time_since_epoch().count());
     return records::save_arena_sp(clear_data_path().parent_path() / "record.ar2", g_arena_sp, records::make_key(seed));
 }
+// The best-time tables (CLEAR_DATA.md §4), beside record.ta2: [0] the normal table, [1] the "e" one (a run played
+// with the character's second version, FUN_00583960). Read at boot (FUN_00435950, FUN_00437ca0 — each then zeroes
+// the marks: FUN_005832e0 with character 0's 14 rows, FUN_00583340); written at the end of a run and by the stage
+// select's Cancel (FUN_00436060 / FUN_004383e0).
+static records::RecordTable g_rec_ta[2] = {records::RecordTable(records::RecordTable::kTimeAttackRows),
+                                           records::RecordTable(records::RecordTable::kTimeAttackRows)};
+static records::RecordTable g_rec_ar[2] = {records::RecordTable(records::RecordTable::kArenaRows),
+                                           records::RecordTable(records::RecordTable::kArenaRows)};
+static int record_times(const records::RecordTable& t) {
+    int n = 0;
+    for (std::size_t e = 0; e < t.bytes.size(); e += 12) n += (t.bytes[e] | t.bytes[e + 1] | t.bytes[e + 2] | t.bytes[e + 3]) != 0;
+    return n;
+}
+static void record_tables_load() {
+    static const char* const kNames[4] = {"record.ta", "record.tae", "record.ar", "record.are"};
+    for (int i = 0; i < 4; ++i) {
+        records::RecordTable& t = (i < 2 ? g_rec_ta : g_rec_ar)[i & 1];
+        t = records::RecordTable(t.rows);
+        if (auto f = records::load_table(clear_data_path().parent_path() / kNames[i], t.rows)) {
+            t = std::move(*f);
+            if (const int n = record_times(t)) std::printf("[clear] %s: %d time(s)\n", kNames[i], n);
+        }
+        t.clear_marks(i < 2 ? 14 : 7);
+    }
+}
+static bool record_tables_save(bool arena) {
+    std::error_code ec;
+    const fs::path dir = clear_data_path().parent_path();
+    fs::create_directories(dir, ec);
+    const std::uint32_t seed = std::uint32_t(std::chrono::steady_clock::now().time_since_epoch().count());
+    const records::RecordTable* t = arena ? g_rec_ar : g_rec_ta;
+    const bool a = records::save_table(dir / (arena ? "record.ar" : "record.ta"), t[0], records::make_key(seed));
+    const bool b = records::save_table(dir / (arena ? "record.are" : "record.tae"), t[1], records::make_key(seed + 1));
+    return a && b;
+}
+// The bonus modes' front end (BONUS_MODES.md §2.1, §3.1), kept across the title and the game: the mode byte
+// 0x74e25e (0 story, 1 Time Attack, 2 Arena), the title's state 0x74e25a (0 the list, 2 the stage select is wanted
+// / up, 3 a run was started: the title reopens the stage select), the stage picked 0x74ab9f, and what Character
+// Select and Difficulty chose (0x76bb74 — 0 = Adol, the boot value —, the type, 0x74ac3c / 0x74e685).
+struct RunState {
+    int mode = 0, front = 0, pick = 0;
+    int character = 0, type = 0, difficulty = 0;
+    bool easy = false;
+    int column() const { return easy ? difficulty : difficulty + 1; }   // [BYTES 0x57e92e..0x57e947]: 0 Easy .. 3 Nightmare
+    bool second() const { return type == 1; }                           // FUN_00583960
+};
+static RunState g_run;
 static void clear_data_load() {
+    record_tables_load();
     g_clear = records::ClearData{};
     g_clear_dirty = false;
     g_arena_sp = records::load_arena_sp(clear_data_path().parent_path() / "record.ar2").value_or(0);
@@ -608,7 +656,10 @@ static int clear_records(bool progress) {
     const char* const* files = progress ? kProgress : kTa;
     for (int i = 0; i < (progress ? 3 : 4); ++i) n += fs::remove(clear_data_path().parent_path() / files[i], ec) ? 1 : 0;
     if (progress) { g_clear = records::ClearData{}; g_clear_dirty = false; g_arena_sp = 0; }
-    std::printf("[clear] %s cleared: %d file(s) deleted\n", progress ? "game progress" : "Time Attack records", n);
+    else record_tables_load();                          // the tables in memory are the empty ones again
+    if (progress) std::printf("[clear] game progress cleared: %d file(s) deleted\n", n);
+    else std::printf("[clear] Time Attack records cleared: %d file(s) deleted, %d time(s) left\n", n,
+                     record_times(g_rec_ta[0]) + record_times(g_rec_ta[1]) + record_times(g_rec_ar[0]) + record_times(g_rec_ar[1]));
     return n;
 }
 // False (and no change) for a name save_profile_name refuses; "" returns to the normal folder.

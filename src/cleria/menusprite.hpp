@@ -68,6 +68,8 @@ struct DrawCmd {
     float x = 0, y = 0, w = 0, h = 0, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
     std::uint32_t diffuse = 0xFFFFFFFF, specular = 0, flags = 0x24041;
     int anchor_x = 2, anchor_y = 0;
+    bool hgrad = false;                             // Quad: the two left vertices take diffuse_left (a raw vertex quad)
+    std::uint32_t diffuse_left = 0;
     // Text (x, y = the top-left; colour = diffuse)
     std::string text;
     float line_extra = 0;                           // GDI: extra line spacing
@@ -87,6 +89,9 @@ void draw(DrawList& out, const MenuSprite& s);
 
 // The bitmap fonts' metrics (PAUSEBOOK_DRAW.md §7.1 / §7.2), from the engine's width tables.
 float text_width_middle(const std::string& s);   // FUN_004531d0 (with its c >= 0x84 quirk)
+// FUN_00453480's "#>h" / "#<h" at s[i] == '#': the pen shift (one hex digit of pixels, signed) and i moved to
+// the escape's last char; 0 and i untouched when it is not one. [not modelled] "#$" (the colour escapes).
+float middle_shift(const std::string& s, std::size_t& i);
 float text_width_mini(const std::string& s);     // FUN_00452ff0
 // One glyph of F_MIDDLE / F_MINI: its quad size, UV and advance. False for an unknown char.
 struct Glyph { float w = 0, h = 0, u0 = 0, v0 = 0, u1 = 0, v1 = 0, advance = 0; };

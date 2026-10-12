@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "cleria/bonusshop.hpp"
+#include "cleria/stageselect.hpp"
 #include "cleria/emotion.hpp"
 #include "cleria/eventsprites.hpp"
 #include "cleria/extfont.hpp"
@@ -270,6 +271,66 @@ int main() {
         check(!ev.bought && sp == 0 && c.shop[CD::kArena3] == 0, "Insufficient SP.: an OK box, nothing bought");
         press(true); run(10);                                 // Cancel on the list
         check(ev.closed && !shop.is_open(), "Cancel (the list's cancel slot) closes the shop");
+    }
+    {   // The Time Attack / Arena stage select (STAGE_SELECT.md): the tables, the time text, the window, the panel.
+        check(stages::time_attack_count(0) == 14 && stages::time_attack_count(1) == 13 && stages::time_attack_count(2) == 13 &&
+              stages::time_attack_count(3) == 14, "stage counts 14 / 13 / 13 / 14 [BYTES 0x68c460]");
+        check(std::string(stages::time_attack_name(2, 1)) == "Epona" && std::string(stages::time_attack_name(3, 5)) == "Shion" &&
+              std::string(stages::time_attack_scene(3, 5)) == "S_3080" && std::string(stages::time_attack_scene(1, 6)) == "S_4013" &&
+              std::string(stages::time_attack_scene(1, 0)) == "S_1080" && std::string(stages::arena_scene(6)) == "S_9159",
+              "stage names and scenes per character [BYTES 0x68c4cc, 0x68cba4, 0x68c604]");
+        check(stages::time_text(0) == "-#>3-#>1:#>2-#>3-#>1:#>2-#>3-#>3-#>1" && stages::time_text(59983) == "00:59:983" &&
+              stages::time_text(3723004) == "1:02:03:004", "FUN_0057d1e0: the dash form, mm:ss:mmm, h:mm:ss:mmm");
+        check(text_width_middle("00:59:983") == 114.0f && text_width_middle(stages::time_text(0)) == 133.0f,
+              "F_MIDDLE widths: a time 114, the dash form 133 (its #>n shifts add 19)");
+        records::RecordTable ta(records::RecordTable::kTimeAttackRows), ar(records::RecordTable::kArenaRows);
+        ta.submit(1, 1, 2, 3600);                                                  // Yunica, Normal, Velagunder: 01:00:000, marked
+        StageModel sm;
+        sm.mode = 1; sm.character = 1; sm.column = 1; sm.picking = true; sm.ta = &ta; sm.ar = &ar;
+        StageSelect ss;
+        ss.set_target(1, true);
+        check(ss.title_tint() == 0xFFFFFFFFu, "no overlay: the title is white");
+        for (int i = 0; i < 20; ++i) ss.tick_fade();
+        check(ss.fade(1) == 1.0f && ss.fade(2) == 0.0f && ss.title_tint() == 0xFFAFAFAFu, "20 ticks: fade 1, the title shaded to 0xAFAFAF");
+        ss.open(0);
+        auto step = [&](int v, bool ok, bool esc) {
+            WndInput in; in.vstep = v; in.confirm_pressed = ok; in.cancel_pressed = esc;
+            StageEvents e; ss.update(in, sm, e); return e;
+        };
+        check(step(-1, false, false).sounds == std::vector<int>{3} && ss.cursor() == 13, "up from row 0 wraps to Cancel (row 13 for Yunica)");
+        step(1, false, false); step(1, false, false); step(1, false, false);
+        check(ss.cursor() == 2, "down from Cancel wraps to row 0, then 1, 2");
+        DrawList dl;
+        ss.draw(dl, sm);
+        auto find = [&](const std::string& t) -> const DrawCmd* { for (const DrawCmd& c : dl) if (c.text == t) return &c; return nullptr; };
+        const DrawCmd* vela = find("Velagunder");
+        const DrawCmd* rec = find("01:00:000");
+        const DrawCmd* easy = find("Easy");
+        check(dl[0].hgrad && dl[0].diffuse == 0xFFFFFFFFu && dl[0].diffuse_left == 0x00FFFFFFu && dl[0].u0 == 0.07f && dl[0].anchor_x == 0,
+              "the panel's background: tarec_back over the whole frame, alpha 0 on its left edge");
+        check(vela && vela->x == 76.8f && vela->y == 204.8f && vela->diffuse == 0xFFFFFF00u, "row 2 at (76.8, 140.8 + 64), yellow under the cursor");
+        check(rec && rec->x == 572.8f - 114.0f && rec->y == 204.8f && (rec->diffuse & 0xFF00FF00u) == 0xFF00FF00u && (rec->diffuse & 0xFF) == ((rec->diffuse >> 16) & 0xFF),
+              "its Normal time right-aligned at 572.8, in the new-record pulse");
+        check(easy && easy->x == 309.8f && easy->y == 108.8f && easy->diffuse == 0xFF586868u && !find("Nightmare"),
+              "the column headers: Easy dimmed beside the chosen Normal; no Nightmare column without data.nya");
+        check(find("Cancel") && find("Cancel")->y == 140.8f + 32.0f * 13 && dl.back().kind == DrawCmd::Quad && dl.back().tex.kind == TexRef::Icon &&
+              dl.back().tex.id == 4 && dl.back().x == 44.8f && dl.back().y == 204.8f, "Cancel under the 13 rows; the cursor icon (item 4) at (44.8, row y)");
+        StageEvents e = step(0, true, false);
+        check(e.launch == 2 && !e.back && !ss.is_open() && e.sounds == std::vector<int>{0}, "confirm on a stage: launch row 2, sound 0");
+        ss.open(13);
+        e = step(0, true, false);
+        check(e.back && e.launch < 0 && !ss.is_open(), "confirm on Cancel: back");
+        for (int i = 0; i < 20; ++i) ss.tick_fade();
+        check(ss.fade(1) == 0.0f, "back drops the overlay's target: faded out after 20 ticks");
+        // The Arena twin: rows from the bought stages, its own offsets.
+        sm.mode = 2; sm.arena_rows = 3;
+        ss.set_target(2, true); ss.tick_fade(); ss.open(1);
+        dl.clear(); ss.draw(dl, sm);
+        check(find("Flooded Prison") && find("Flooded Prison")->x == 56.8f && find("Flooded Prison")->y == 172.8f + 32.0f && !find("Silent Sands") &&
+              find("Easy")->y == 140.8f && dl.back().x == 24.8f && dl.back().y == 172.8f + 32.0f,
+              "the Arena panel: 3 rows at (56.8, 172.8 + 32 r), headers at y 140.8, the cursor icon at x 24.8");
+        e = step(0, false, true);
+        check(e.back && e.sounds.empty(), "cancel: back, no sound of its own");
     }
     std::printf("[wnd] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;

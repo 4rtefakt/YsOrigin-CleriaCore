@@ -49,6 +49,8 @@ TitleAction TitleScreen::update(const WndInput& in, bool book_open, const TitleG
         case TitleAction::NewGame: cursor_mem_ = 0; break;
         case TitleAction::LoadGame: cursor_mem_ = 1; break;
         case TitleAction::Options: cursor_mem_ = gates.achievements ? 4 : 3; break;
+        case TitleAction::TimeAttack: cursor_mem_ = 0; break;   // FUN_00575ca0 / FUN_00575dd0: 0x74ac3d = 0 / 1
+        case TitleAction::Arena: cursor_mem_ = 1; break;
         case TitleAction::BonusShop: cursor_mem_ = 2; break;
         case TitleAction::None:                              // Bonus Modes / Back (0x575f30)
             kind_ ^= 1;
@@ -59,10 +61,11 @@ TitleAction TitleScreen::update(const WndInput& in, bool book_open, const TitleG
     return a;
 }
 
-void TitleScreen::draw(DrawList& out) const {
+void TitleScreen::draw(DrawList& out, std::uint32_t tint) const {
     DrawCmd p;                                              // TitlePillar16-9 / 16-10 (menu tex 54 / 55)
     p.kind = DrawCmd::Pillars;
     p.tex = {TexRef::Menu, 54, nullptr};
+    p.diffuse = tint;
     out.push_back(p);
     DrawCmd logo;                                           // title_000: opaque, the 4:3 field, rows 0..767
     logo.kind = DrawCmd::Quad;
@@ -70,6 +73,7 @@ void TitleScreen::draw(DrawList& out) const {
     logo.x = 0; logo.y = 0; logo.w = 1024; logo.h = 768;
     logo.u0 = 0; logo.v0 = 0; logo.u1 = 1; logo.v1 = 0.75f;
     logo.flags = 0x20001;
+    logo.diffuse = tint;
     logo.anchor_x = 2; logo.anchor_y = 0;
     out.push_back(logo);
     list_.draw(out);

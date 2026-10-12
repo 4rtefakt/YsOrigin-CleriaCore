@@ -140,6 +140,53 @@ bool save_arena_sp(const std::filesystem::path& file, std::uint32_t sp, std::uin
     return bool(f);
 }
 
+RecordTable::RecordTable(int rows_per_block) : rows(rows_per_block), bytes(std::size_t(16 * rows_per_block * 12), 0) {
+    for (std::size_t e = 0; e < bytes.size(); e += 12) {
+        bytes[e + 4] = bytes[e + 5] = bytes[e + 6] = bytes[e + 7] = 0xFF;
+        bytes[e + 8] = 0xFF;
+        bytes[e + 10] = 0xFF;
+    }
+}
+
+std::uint32_t RecordTable::ms(int character, int d, int row) const {
+    const std::uint8_t* p = &bytes[entry(character, d, row)];
+    return std::uint32_t(p[0]) | std::uint32_t(p[1]) << 8 | std::uint32_t(p[2]) << 16 | std::uint32_t(p[3]) << 24;
+}
+
+bool RecordTable::submit(int character, int d, int row, std::uint32_t frames) {
+    const std::uint32_t t = std::uint32_t(std::uint64_t(frames) * 1000 / 60);   // __aulldiv(frames * 1000, 60)
+    const std::uint32_t old = ms(character, d, row);
+    if (old != 0 && t >= old) return false;
+    std::uint8_t* p = &bytes[entry(character, d, row)];
+    p[0] = std::uint8_t(t); p[1] = std::uint8_t(t >> 8); p[2] = std::uint8_t(t >> 16); p[3] = std::uint8_t(t >> 24);
+    p[10] = 1;
+    return true;
+}
+
+void RecordTable::clear_marks(int n) {
+    for (int blk = 0; blk < 16; ++blk)
+        for (int r = 0; r < n && r < rows; ++r) bytes[std::size_t(blk * rows + r) * 12 + 10] = 0;
+}
+
+std::optional<RecordTable> load_table(const std::filesystem::path& file, int rows_per_block) {
+    std::ifstream f(file, std::ios::binary);
+    if (!f) return std::nullopt;
+    const std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f), {}};
+    RecordTable t(rows_per_block);
+    auto p = decode(b, t.bytes.size());
+    if (!p) return std::nullopt;
+    t.bytes = std::move(*p);
+    return t;
+}
+
+bool save_table(const std::filesystem::path& file, const RecordTable& t, std::uint32_t key) {
+    const std::vector<std::uint8_t> b = encode(t.bytes, key);
+    std::ofstream f(file, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+    return bool(f);
+}
+
 void apply_clear(ClearData& d, int character, bool extra, bool easy, int hard, bool very_easy) {
     if (character < 1 || character > 3) return;
     const std::size_t col = std::size_t(character - 1);

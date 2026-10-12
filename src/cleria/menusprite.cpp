@@ -142,9 +142,21 @@ bool glyph_mini(unsigned char c, Glyph* g) {
     return true;
 }
 
+float middle_shift(const std::string& s, std::size_t& i) {
+    if (s[i] != '#' || i + 2 >= s.size() || (s[i + 1] != '>' && s[i + 1] != '<')) return 0;
+    const unsigned char h = static_cast<unsigned char>(s[i + 2]);              // the table 0x68edc0: a hex digit
+    const int v = h >= '0' && h <= '9' ? h - '0' : h >= 'A' && h <= 'F' ? h - 'A' + 10 : h >= 'a' && h <= 'f' ? h - 'a' + 10 : -1;
+    if (v < 0) return 0;
+    const float d = s[i + 1] == '>' ? float(v) : -float(v);
+    i += 2;
+    return d;
+}
+
 float text_width_middle(const std::string& s) {
     float w = 0;
-    for (unsigned char c : s) {
+    for (std::size_t k = 0; k < s.size(); ++k) {
+        const unsigned char c = static_cast<unsigned char>(s[k]);
+        if (c == '#') { const std::size_t k0 = k; w += middle_shift(s, k); if (k != k0) continue; }
         if (c == ' ' || c == '\t') { w += 13; continue; }
         // FUN_004531d0 measures with c - 0x21 for every char (the draw uses c - 0x28 >= 0x84).
         const int i = c - 0x21;

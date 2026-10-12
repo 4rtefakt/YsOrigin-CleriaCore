@@ -294,7 +294,9 @@ struct BookRenderer {
     void text_bitmap(Gpu&, const DrawCmd& c, bool middle) {
         const WGPUBindGroup bind = middle ? f_middle.bind : f_mini.bind;
         float x = c.x, y = c.y;
-        for (unsigned char ch : c.text) {
+        for (std::size_t k = 0; k < c.text.size(); ++k) {
+            const unsigned char ch = static_cast<unsigned char>(c.text[k]);
+            if (middle && ch == '#') { const std::size_t k0 = k; x += middle_shift(c.text, k); if (k != k0) continue; }
             if (ch == '\n') { x = c.x; y += middle ? 26.0f : 14.0f; continue; }
             if (ch == ' ' || ch == '\t') { x += middle ? 13.0f : 9.0f; continue; }
             Glyph gph;
@@ -387,12 +389,19 @@ struct BookRenderer {
         verts.clear(); batches.clear();
         for (const DrawCmd& c : list) {
             switch (c.kind) {
-                case DrawCmd::Quad:
+                case DrawCmd::Quad: {
                     add_mode = (c.flags & 0x80) != 0;
+                    const std::size_t v0 = verts.size();
                     aquad(bind_of(g, c.tex), c.x, c.y, c.w, c.h, c.anchor_x, c.anchor_y, c.u0, c.v0, c.u1, c.v1,
                           c.diffuse, c.specular, (c.flags & 0xFFFF) == 0x0001);
+                    if (c.hgrad && verts.size() == v0 + 6)       // quad()'s order: q0 q1 q2 q0 q2 q3 (q0, q3 = the left edge)
+                        for (std::size_t i : {v0, v0 + 3, v0 + 5}) {
+                            verts[i].d[0] = std::uint8_t(c.diffuse_left >> 16); verts[i].d[1] = std::uint8_t(c.diffuse_left >> 8);
+                            verts[i].d[2] = std::uint8_t(c.diffuse_left); verts[i].d[3] = std::uint8_t(c.diffuse_left >> 24);
+                        }
                     add_mode = false;
                     break;
+                }
                 case DrawCmd::TextRich: text_rich(c); break;
                 case DrawCmd::TextMiddle: text_bitmap(g, c, true); break;
                 case DrawCmd::TextMini: text_bitmap(g, c, false); break;

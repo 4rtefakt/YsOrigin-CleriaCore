@@ -239,6 +239,29 @@ int main() {
             std::filesystem::remove(f, ec);
         }
 
+        {   // record.ta / .ar: the best-time tables (CLEAR_DATA.md §4)
+            records::RecordTable ta(records::RecordTable::kTimeAttackRows), ar(records::RecordTable::kArenaRows);
+            ok(ta.bytes.size() == 0xB40 && ar.bytes.size() == 0x540, "record tables: 16 x 15 x 12 = 0xB40 and 16 x 7 x 12 = 0x540 bytes");
+            static const std::uint8_t kEmpty[12] = {0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0xFF, 0};
+            ok(std::equal(kEmpty, kEmpty + 12, ta.bytes.begin() + 12 * 239), "record table: the empty entry 0 / FFFFFFFF / FF 00 FF 00");
+            // Yunica (1), Hard (d 2), stage 3: entry (1 * 4 + 2) * 15 + 3 = 93; 3600 frames = 60,000 ms.
+            ok(ta.submit(1, 2, 3, 3600) && ta.ms(1, 2, 3) == 60000 && ta.mark(1, 2, 3) == 1 && ta.entry(1, 2, 3) == 93 * 12,
+               "record table: a first time is kept (frames * 1000 / 60), mark 1, entry (char * 4 + d) * 15 + stage");
+            ok(!ta.submit(1, 2, 3, 3600) && !ta.submit(1, 2, 3, 3601) && ta.submit(1, 2, 3, 3599) && ta.ms(1, 2, 3) == 59983,
+               "record table: only a smaller time replaces it");
+            ta.clear_marks(13);
+            ok(ta.mark(1, 2, 3) == 0 && ta.mark(0, 0, 12) == 0 && ta.mark(0, 0, 13) == 0xFF && ta.ms(1, 2, 3) == 59983,
+               "record table: clear_marks(13) zeroes rows 0..12 of every block, times stay");
+            ok(ar.submit(3, 1, 0, 10120) && ar.entry(3, 1, 0) == 91 * 12 && ar.ms(3, 1, 0) == 168666, "arena table: entry (char * 4 + d) * 7 + stage");
+            const std::filesystem::path f = std::filesystem::temp_directory_path() / "cleria_savetest_record.ta";
+            const bool wrote = records::save_table(f, ta, records::make_key(77));
+            const auto back = records::load_table(f, records::RecordTable::kTimeAttackRows);
+            ok(wrote && back && back->bytes == ta.bytes && std::filesystem::file_size(f) == 0xB68 &&
+               !records::load_table(f, records::RecordTable::kArenaRows), "record.ta: round-trips in a 0xB68-byte file; the wrong shape is refused");
+            std::error_code rm;
+            std::filesystem::remove(f, rm);
+        }
+
         // The real retail files, READ-ONLY: CLERIA_REAL_RECORDS = their folder, else Steam's remote folder of app
         // 207350 under any user id. All seven must decode (exact length, CRC) and re-encode byte for byte.
         namespace fs = std::filesystem;
@@ -270,6 +293,17 @@ int main() {
             ok(good == 7, "REAL retail record files: all seven decode (length + CRC) and re-encode byte-exact");
             if (const auto sp = records::load_arena_sp(dir / "record.ar2")) std::printf("[records] REAL record.ar2: Arena SP %u\n", *sp);
             else ok(false, "REAL record.ar2 loads");
+            for (const char* n : {"record.ta", "record.tae", "record.ar", "record.are"}) {
+                const auto t = records::load_table(dir / n, n[7] == 't' ? records::RecordTable::kTimeAttackRows : records::RecordTable::kArenaRows);
+                if (!t) { ok(false, "REAL record table loads"); continue; }
+                int set = 0;
+                for (int c = 0; c < 4; ++c) for (int d = 0; d < 4; ++d) for (int r = 0; r < t->rows; ++r)
+                    if (const std::uint32_t ms = t->ms(c, d, r)) {
+                        ++set;
+                        std::printf("[records] REAL %s: character %d difficulty %d row %d = %u ms (mark %u)\n", n, c, d, r, ms, t->mark(c, d, r));
+                    }
+                if (!set) std::printf("[records] REAL %s: no time set\n", n);
+            }
             std::ifstream in(dir / "record.ta2", std::ios::binary);
             const std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(in), {}};
             if (const auto cd = records::decode_clear(raw)) {

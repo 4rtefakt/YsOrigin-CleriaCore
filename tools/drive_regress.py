@@ -56,6 +56,18 @@ def clear_data(clear=(1, 1, 1), tiers=(), shop=()):
     return d
 
 
+def record_table(rows, times):
+    """A best-time table's dwords (CLEAR_DATA.md §4; `rows` 15 = record.ta / .tae, 7 = record.ar / .are): 16 blocks
+    of `rows` entries {ms, 0xFFFFFFFF, 0xFF | mark << 16}; `times` = {(character, d, row): (ms, mark)} with
+    character 0 Adol .. 3 Toal and d 0 Easy .. 3 Nightmare."""
+    d = [0, 0xFFFFFFFF, 0x00FF00FF] * (16 * rows)
+    for (c, dif, row), (ms, mark) in times.items():
+        e = ((c * 4 + dif) * rows + row) * 3
+        d[e] = ms
+        d[e + 2] = 0xFF | mark << 16
+    return d
+
+
 CASES = {
     # STATUE_CLEANSE.md D2: the touch cleanse swaps save_01 for save_03 at once, and the
     # cleansed statue's @Save menu -> Save opens the book (0xe0), which writes slot 1.
@@ -476,7 +488,7 @@ CASES = {
                "260:left;290:ok;400:quit",
         expect=["record.ta2 saved", "==== second boot", "[clear] record.ta2: Yunica 01 Hugo 00 Toal 00",
                 "[clear] game progress cleared: 1 file(s) deleted", "[clear] now: clear bytes 00 00 00",
-                "[clear] Time Attack records cleared: 0 file(s) deleted",
+                "[clear] Time Attack records cleared: 0 file(s) deleted, 0 time(s) left",
                 "[title] clear data: Yunica 00 Hugo 00 Toal 00, data.nya 0 -> Bonus Modes 0, Toal's bar locked"]),
     "video_fpscap": dict(
         room="S_10/S_1009/S_1009",
@@ -1847,6 +1859,21 @@ CASES.update({
                 "[shop] closed", "==== second boot", "[clear] record.ar2: Arena SP 5000",
                 "[clear] record.ta2: Bonus Shop purchases 0x001"],
         count={"[shop] bought": 1}),
+    # STAGE_SELECT.md, the Time Attack stage select from a title boot: three clears, a record.ta with five of Yunica's
+    # times. Title -> Bonus Modes -> Time Attack -> Yunica -> Normal opens the stage select (13 rows, the cursor on
+    # the Boss Rush); Cancel (up from row 0) writes record.ta and record.tae. The second boot reads the five times
+    # back, and Audio > Clear Time Attack records deletes both files and empties the tables.
+    "title_time_attack_select": dict(
+        room=None,
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)]),
+                 "record.ta": record_table(15, {(1, 1, 0): (754321, 0), (1, 1, 1): (61234, 0), (1, 1, 2): (3723004, 1),
+                                                (1, 0, 1): (59983, 0), (1, 2, 5): (100000, 0)})},
+        title="40:down;45:down;50:ok;100:ok;170:ok;240:ok;300:shot=stage;310:up;320:ok;400:quit",
+        drive="10:quit", room2="S_10/S_1009/S_1009", drive2="5:cleardata=ta;10:quit",
+        expect=["[clear] record.ta: 5 time(s)", "[title] Time Attack: Character Select",
+                "[stage] Time Attack stage select: Yunica, column 1, 13 row(s), cursor 0", "shot stage.ppm",
+                "[stage] Cancel: record.ta + record.tae saved", "==== second boot", "[clear] record.ta: 5 time(s)",
+                "[clear] Time Attack records cleared: 2 file(s) deleted, 0 time(s) left"]),
     # DIFFICULTY.md G2 / G8 on Hard (diff=3, then a reload so the room spawns under it): a regular Rif's 60 HP
     # is 72 and the Normal 112 is 134 (FUN_004202e0's x1.2); the hit that takes 22 on Normal takes
     # 22 * 1.5 + 1 = 34 (FUN_004fa740's tail).

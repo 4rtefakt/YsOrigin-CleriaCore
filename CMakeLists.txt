@@ -60,6 +60,7 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/wnddialog.cpp
   src/cleria/titlescreen.cpp
   src/cleria/bonusshop.cpp
+  src/cleria/stageselect.cpp
   src/cleria/popup.cpp
   src/cleria/eventsprites.cpp
   src/cleria/boss01.cpp

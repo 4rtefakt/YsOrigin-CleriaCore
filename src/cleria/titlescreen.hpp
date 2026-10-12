@@ -5,8 +5,8 @@
 // 0x576000 / 0x575ca0 / 0x575dd0 / 0x575f20) become actions for the host: New Game opens the
 // book with ctx 4, Load Game ctx 2, Options ctx 3.
 //
-// [not modelled] the Time Attack / Arena overlays and their shade channels (the logo stays
-// white), the Steam achievements overlay. The mouse is GoWndDialog's (wnddialog.hpp, MOUSE.md §5.1).
+// The Time Attack / Arena overlays are stageselect.hpp's; their shade of the background is draw()'s `tint`.
+// [not modelled] the Steam achievements overlay. The mouse is GoWndDialog's (wnddialog.hpp, MOUSE.md §5.1).
 #pragma once
 #include <vector>
 
@@ -32,9 +32,11 @@ class TitleScreen {
     // FUN_005765c0: (re)build the list when nothing is up, step it, run the chosen callback.
     TitleAction update(const WndInput& in, bool book_open, const TitleGates& gates, const RichMetrics& m,
                        std::vector<int>& sounds);
-    // FUN_00576c90 (pillars + logo), then the list window.
-    void draw(DrawList& out) const;
+    // FUN_00576c90 (pillars + logo, both in `tint`: the overlays' shade), then the list window.
+    void draw(DrawList& out, std::uint32_t tint = 0xFFFFFFFF) const;
     bool list_alive() const { return list_.alive(); }
+    // The list window's own tick while the book or the stage select holds the title: a chosen list closes.
+    void fade_out(std::vector<int>& sounds) { if (list_.alive() && list_.accepted()) list_.update(WndInput{}, sounds); }
 
   private:
     WndDialog list_;

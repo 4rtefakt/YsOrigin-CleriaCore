@@ -92,6 +92,7 @@
 #include "cleria/wnddialog.hpp"
 #include "cleria/titlescreen.hpp"
 #include "cleria/bonusshop.hpp"
+#include "cleria/stageselect.hpp"
 #include "cleria/eventsprites.hpp"
 #include "cleria/boss01.hpp"
 #include "cleria/boss02.hpp"

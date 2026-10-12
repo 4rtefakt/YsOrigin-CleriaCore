@@ -74,6 +74,31 @@ inline constexpr std::uint32_t kArenaSpMax = 9999999;
 std::optional<std::uint32_t> load_arena_sp(const std::filesystem::path& file);
 bool save_arena_sp(const std::filesystem::path& file, std::uint32_t sp, std::uint32_t key);
 
+// ---- record.ta / .tae / .ar / .are: the best times (CLEAR_DATA.md §4) ----
+// 16 blocks (4 characters x Easy / Normal / Hard / Nightmare) of `rows` 12-byte entries: +0 u32 the time in ms
+// (0 = none), +4 u32 0xFFFFFFFF, +8 u8 0xFF, +10 u8 the "new record" mark (0xFF from the init, 0 once the stage
+// select starts a run, 1 when a record is set) [EXPORT 00435950.c, 00437ca0.c init loops; DATA the real files].
+// Time Attack: 15 rows (row 0 = the whole Boss Rush, row n = stage n; tables 0x74d6f0 `record.ta`, 0x74cbb0
+// `record.tae`); Arena: 7 rows (0x74c670 `record.ar`, 0x74c130 `record.are`). The "e" file is the table of a run
+// played with the character's second version (FUN_00583960).
+struct RecordTable {
+    static constexpr int kTimeAttackRows = 15, kArenaRows = 7;
+    int rows;
+    std::vector<std::uint8_t> bytes;                               // the payload: 16 * rows * 12
+    explicit RecordTable(int rows_per_block);                      // the empty table
+    std::size_t entry(int character, int d, int row) const { return std::size_t((character * 4 + d) * rows + row) * 12; }
+    std::uint32_t ms(int character, int d, int row) const;
+    std::uint8_t mark(int character, int d, int row) const { return bytes[entry(character, d, row) + 10]; }
+    // FUN_00583530 / FUN_00583640 / FUN_00583760: t = frames * 1000 / 60 replaces the entry when the entry is 0
+    // or t is smaller, and sets its mark. True when it did. (`frames` 0 is no time: the callers return early.)
+    bool submit(int character, int d, int row, std::uint32_t frames);
+    // FUN_005832e0 (n = the character's stage count) / FUN_00583340 (n = 7): the marks of rows 0..n-1 of all
+    // sixteen blocks = 0.
+    void clear_marks(int n);
+};
+std::optional<RecordTable> load_table(const std::filesystem::path& file, int rows_per_block);
+bool save_table(const std::filesystem::path& file, const RecordTable& t, std::uint32_t key);
+
 // EventXX(4)'s writes to the clear data (FUN_0058f210 case 4 [BYTES 0x58f350..0x58f5e9], CLEAR_DATA.md §3.2):
 // `character` = flag 150 (1 Yunica, 2 Hugo, 3 Toal; anything else writes nothing), `extra` = FUN_00583960 (the
 // Type Select answer), `easy` = flag 143 (0x76bb58), `hard` = flag 144 (0x76bb5c: 0 Normal, 1 Hard, 2
