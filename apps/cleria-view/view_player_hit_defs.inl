@@ -265,10 +265,7 @@
                                 if (dd->tick == 0) spawn_debris(en.cast_id, org, dd->ev);
                                 else pending_debris.push_back({dd->tick, en.cast_id, org, &dd->ev});
                             }
-                        if (en.cast_id >= 0 && en.cast_id < 256) {   // FUN_004fbb40: the Topic record
-                            topic_seen[en.cast_id] = 1;
-                            topic_kills[en.cast_id] = std::min(topic_kills[en.cast_id] + 1, 50);
-                        }
+                        note_kill(en.cast_id);                // FUN_004fbb40: the Topic record
                         // Death entry plays p_hit0 from C for any actor, and the enemy's
                         // own death animation adds its z_dead* pair (SFX_TRIGGERS.md §4.3).
                         // Positional: panned/attenuated from the enemy's spot.

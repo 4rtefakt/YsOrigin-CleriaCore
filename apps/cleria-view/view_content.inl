@@ -556,6 +556,18 @@ static bool arena_sp_save() {
     const std::uint32_t seed = std::uint32_t(std::chrono::steady_clock::now().time_since_epoch().count());
     return records::save_arena_sp(clear_data_path().parent_path() / "record.ar2", g_arena_sp, records::make_key(seed));
 }
+// The monster notes 0x74ac40, `record.tp` beside it (CLEAR_DATA.md §5): read at boot after record.ta2
+// (FUN_004375e0 [EXPORT 00442260.c:123]), written at a clean shutdown only (FUN_004378e0 [EXPORT 0040dcc0.c:79]) —
+// a crash loses the session's notes, as in retail. The book's monster pages read g_notes (view_game.inl).
+static records::MonsterNotes g_notes, g_notes_disk;
+static void notes_shutdown() {
+    std::error_code ec;
+    const fs::path f = clear_data_path().parent_path() / "record.tp";
+    if (g_notes == g_notes_disk && fs::exists(f, ec)) return;   // retail rewrites it every time; the bytes would differ by the key alone
+    fs::create_directories(f.parent_path(), ec);
+    const std::uint32_t seed = std::uint32_t(std::chrono::steady_clock::now().time_since_epoch().count());
+    if (records::save_notes(f, g_notes, records::make_key(seed + 2))) g_notes_disk = g_notes;
+}
 // The best-time tables (CLEAR_DATA.md §4), beside record.ta2: [0] the normal table, [1] the "e" one (a run played
 // with the character's second version, FUN_00583960). Read at boot (FUN_00435950, FUN_00437ca0 — each then zeroes
 // the marks: FUN_005832e0 with character 0's 14 rows, FUN_00583340); written at the end of a run and by the stage
@@ -612,6 +624,9 @@ static void clear_data_load() {
     g_clear_dirty = false;
     g_arena_sp = records::load_arena_sp(clear_data_path().parent_path() / "record.ar2").value_or(0);
     if (g_arena_sp) std::printf("[clear] record.ar2: Arena SP %u\n", g_arena_sp);
+    g_notes = g_notes_disk = records::load_notes(clear_data_path().parent_path() / "record.tp").value_or(records::MonsterNotes{});
+    if (const auto n = std::count_if(g_notes.seen.begin(), g_notes.seen.end(), [](std::uint8_t s) { return s != 0; }))
+        std::printf("[clear] record.tp: %d of %d monster notes seen\n", int(n), records::MonsterNotes::kEntries);
     std::error_code ec;
     if (!fs::exists(clear_data_path(), ec)) return;
     if (const auto d = records::load_clear(clear_data_path())) {
@@ -649,6 +664,7 @@ static bool clear_data_save() {
 static void clear_data_shutdown() {
     std::error_code ec;
     if (g_clear_dirty || !fs::exists(clear_data_path(), ec)) clear_data_save();
+    notes_shutdown();
 }
 // The config tool's Clear Time Attack Records / Clear Game Progress (buttons 4501 / 4502 [BYTES 0x41d230.. /
 // 0x41cf17..]): the record files deleted from the save folder -- Time Attack: record.ta, .tae, .ar, .are; game
@@ -661,7 +677,7 @@ static int clear_records(bool progress) {
     std::error_code ec;
     const char* const* files = progress ? kProgress : kTa;
     for (int i = 0; i < (progress ? 3 : 4); ++i) n += fs::remove(clear_data_path().parent_path() / files[i], ec) ? 1 : 0;
-    if (progress) { g_clear = records::ClearData{}; g_clear_dirty = false; g_arena_sp = 0; }
+    if (progress) { g_clear = records::ClearData{}; g_clear_dirty = false; g_arena_sp = 0; g_notes = g_notes_disk = {}; }
     else record_tables_load();                          // the tables in memory are the empty ones again
     if (progress) std::printf("[clear] game progress cleared: %d file(s) deleted\n", n);
     else std::printf("[clear] Time Attack records cleared: %d file(s) deleted, %d time(s) left\n", n,

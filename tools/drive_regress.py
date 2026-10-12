@@ -3294,6 +3294,28 @@ CASES.update({
                 "hit Menoak (lv14 DEF 91): 6", "t324 sec 0x10c", "hit Menoak (lv14 DEF 91): 18"]),
 })
 
+CASES.update({
+    # Issue #100: the camp is in the scripts' event mode. battle_0 sets flag 161 at pc 367 and nothing in S_1000
+    # clears it; the mover and the charge read it as "busy" (0x76bba0), so a held skill button charges nothing
+    # there. The next scene entry zeroes it (FUN_00431840 [BYTES 0x431a72]): the same press casts in S_1001.
+    "camp_no_skill": dict(
+        room="S_00/S_0000/S_0000", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:opt=CutsceneSkip=1;20:every=20,1200,skiptap;40:every=50,1200,killall;1200:scripts;1205:bracelet=116;"
+              "1206:flag=116,1;1207:flag=182,1;1210:skill+;1240:abil;1241:skill-;1245:abil;1246:flagdump;1250:exit=0;"
+              "1400:skill+;1430:abil;1431:skill-;1435:abil;1436:quit",
+        expect=["script s_Stop1000_03", "[abil] t1240 sec 0x2 mp 3000", "magic 116 charge 0", "[abil] t1245 sec 0x2 mp 3000",
+                " 161=1 ", ">> entering S_1001", "[abil] t1430 sec 0x2 mp 3000", "magic 116 charge 1", "[abil] t1435 sec 0x10d"]),
+    # Issue #94, record.tp: a monster killed on Normal is in the monster notes (seen 1, kills 1, the Normal mark);
+    # the clean exit writes the file and a second boot reads it back.
+    "monster_notes_tp": dict(
+        room="S_10/S_1002/S_1002", env=dict(CLERIA_LEVEL="3"),
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;15:notes;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:notes;430:quit",
+        room2="S_10/S_1002/S_1002", drive2="5:notes;10:quit",
+        expect=["[notes] t15 seen 0 kills 0", "[notes] t420 seen 1 kills 1 killed-on 0 0 1 0 0", "==== second boot",
+                "[clear] record.tp: 1 of 186 monster notes seen", "[notes] t5 seen 1 kills 1 killed-on 0 0 1 0 0"]),
+})
+
 CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402

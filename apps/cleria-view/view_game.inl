@@ -1669,11 +1669,15 @@ title_again:
     inv_new_game(inv);
     // Saved with the game: the warp points 0x76c11c[24] (op 0xa7) and the manual pages
     // 0x76b8d8[13] (op 0x92). The Topic collection 0x74ac40 (seen byte + kill count per cast
-    // id) is system data outside the save record [not modelled: persisting it].
+    // id) is system data outside the save record: record.tp (g_notes, view_content.inl).
     std::uint8_t warp_on[24] = {};
     std::uint8_t manual_on[13] = {};
-    std::uint8_t topic_seen[256] = {};
-    std::int32_t topic_kills[256] = {};
+    std::uint8_t* const topic_seen = g_notes.seen.data();
+    std::int32_t* const topic_kills = g_notes.kills.data();
+    // A kill's entry [EXPORT 004fbb40.c:639-660]: flags 143 / 144 / 203 pick the "killed on" dword.
+    auto note_kill = [&](int id) {
+        g_notes.kill(id, game.g_flags[143] != 0, game.g_flags[144], game.g_flags[203] != 0);
+    };
     const ItemTable inv_items = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
     auto player_stats = [&](bool mods = true) -> PlayerStats {
         if (!ginfo.ok() || inv_items.items.empty()) return PlayerStats{};
@@ -2837,15 +2841,10 @@ title_again:
         // 0xa7 / 0x92 / 0x93: the warp points, the manual pages, the Topic collection.
         std::uint8_t* warp_on = nullptr;
         std::uint8_t* manual_on = nullptr;
-        std::uint8_t* topic_seen = nullptr;
-        std::int32_t* topic_kills = nullptr;
+        std::function<void(int)> note_kill;
         void warp_enable(int i) override { if (warp_on && i >= 0 && i < 24) warp_on[i] = 1; }
         void manual_enable(int i) override { if (manual_on && i >= 0 && i < 13) manual_on[i] = 1; }
-        void topic_known(int i) override {
-            if (!topic_seen || i < 0 || i >= 256) return;
-            topic_seen[i] = 1;
-            topic_kills[i] = std::min(topic_kills[i] + 1, 50);
-        }
+        void topic_known(int i) override { if (note_kill) note_kill(i); }   // the kill's block [EXPORT 005660e0.c:2488-2513]
         // 0xa6 GoWarpPoint: ChangeScene(table 0x68c190[flag 137]) (SCENEFLOW.md §3).
         void go_warp_point() override {
             static const char* kWarpRooms[22] = {
@@ -3449,8 +3448,7 @@ title_again:
     LuaUnbind lua_unbind;                                // ... unbound when this game's scope ends (Return to Title)
     csHost.warp_on = warp_on;
     csHost.manual_on = manual_on;
-    csHost.topic_seen = topic_seen;
-    csHost.topic_kills = topic_kills;
+    csHost.note_kill = note_kill;
     csHost.meshes = &meshes;
     csHost.player_floor = &player_floor_obj;
     csHost.worldHost = &world;
@@ -4852,6 +4850,14 @@ title_again:
             boss6.reset();                              // Zava's heads latch it in their ctor: built again next step
             boss7.reset();                              // ... and Dalles (view_boss07.inl)
             boss8.reset();                              // ... and Darm (view_boss08.inl)
+        } else if (cmd == "notes") {                   // the monster notes (record.tp): entries seen, kills, "killed on" marks
+            int seen = 0, kills = 0, tiers[5] = {};
+            for (int i = 0; i < records::MonsterNotes::kEntries; ++i) {
+                seen += g_notes.seen[std::size_t(i)] != 0; kills += g_notes.kills[std::size_t(i)];
+                for (int t = 0; t < 5; ++t) tiers[t] += g_notes.tier[std::size_t(i)][std::size_t(t)] != 0;
+            }
+            std::printf("  [notes] t%llu seen %d kills %d killed-on %d %d %d %d %d\n", (unsigned long long)tick_count, seen, kills,
+                        tiers[0], tiers[1], tiers[2], tiers[3], tiers[4]);
         } else if (cmd == "flagdump") {               // every nonzero game flag, "i=v" (audit aid)
             std::string s;
             for (int i = 0; i < 0x200; ++i)

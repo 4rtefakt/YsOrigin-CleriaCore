@@ -74,6 +74,28 @@ inline constexpr std::uint32_t kArenaSpMax = 9999999;
 std::optional<std::uint32_t> load_arena_sp(const std::filesystem::path& file);
 bool save_arena_sp(const std::filesystem::path& file, std::uint32_t sp, std::uint32_t key);
 
+// ---- record.tp: the monster notes 0x74ac40 (CLEAR_DATA.md §5; reader FUN_004375e0, writer FUN_004378e0) ----
+// 186 entries x 0x1C, indexed by the cast id (actor +0x124): +0 seen (a byte write of 1 into a zeroed dword),
+// +4 u32 kills (capped at 50), +8.. five u32 "killed on" Very Easy / Easy / Normal / Hard / Nightmare. The
+// reader copies the 0x1458 payload bytes as they are [EXPORT 004375e0.c tail].
+struct MonsterNotes {
+    static constexpr int kEntries = 186;
+    static constexpr std::size_t kPayload = std::size_t(kEntries) * 0x1C;   // 0x1458; the file is 0x1480 bytes
+    std::array<std::uint8_t, kEntries> seen{};
+    std::array<std::int32_t, kEntries> kills{};
+    std::array<std::array<std::uint32_t, 5>, kEntries> tier{};
+    // A kill's writes (FUN_004fbb40 [EXPORT 004fbb40.c:639-660], the same block in the script op 0x93's three
+    // copies): seen, kills + 1 capped at 50, the dword of the run's difficulty — `easy` = flag 143 (0x76bb58),
+    // `hard` = flag 144 (0x76bb5c: 0 Normal, 1 Hard, 2 Nightmare; none above), `very_easy` = flag 203 (0x76bc48).
+    void kill(int id, bool easy, int hard, bool very_easy);
+    // [H] the bytes +1..+3 of an entry (never written by the game, zero in the real file) are not kept.
+    static MonsterNotes from_payload(std::span<const std::uint8_t> p);   // p.size() == kPayload
+    std::vector<std::uint8_t> payload() const;
+    bool operator==(const MonsterNotes&) const = default;
+};
+std::optional<MonsterNotes> load_notes(const std::filesystem::path& file);
+bool save_notes(const std::filesystem::path& file, const MonsterNotes& n, std::uint32_t key);
+
 // ---- record.ta / .tae / .ar / .are: the best times (CLEAR_DATA.md §4) ----
 // 16 blocks (4 characters x Easy / Normal / Hard / Nightmare) of `rows` 12-byte entries: +0 u32 the time in ms
 // (0 = none), +4 u32 0xFFFFFFFF, +8 u8 0xFF, +10 u8 the "new record" mark (0xFF from the init, 0 once the stage
