@@ -557,6 +557,15 @@ static void clear_data_load() {
         std::printf("[clear] record.ta2: wrong length or CRC, ignored (the defaults stay)\n");   // [EXPORT 00436790.c:153-165]
     }
 }
+// The cleared-tier bytes as they lie from 0x74ab88 (the rows at +0, +4, +12, +16, +20: CLEAR_DATA.md §3.1), for the
+// book's boss notes, whose stat columns open per cleared difficulty (FUN_005bff40 [EXPORT 005bff40.c:308-318]).
+static const std::uint8_t* clear_tier_bytes() {
+    static std::uint8_t b[24];
+    static constexpr int kRow[5] = {0, 4, 12, 16, 20};
+    std::memset(b, 0, sizeof b);
+    for (std::size_t t = 0; t < 5; ++t) for (std::size_t c = 0; c < 3; ++c) b[std::size_t(kRow[t]) + c] = g_clear.tier[t][c];
+    return b;
+}
 // [approx] the key and the two noise words come from the clock, not from the engine's xorshift (retail draws
 // three numbers of the game's stream here; CleriaCore leaves that stream alone).
 static bool clear_data_save() {

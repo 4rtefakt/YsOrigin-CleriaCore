@@ -48,6 +48,9 @@ struct CharSelectGates {
     bool nya = false;
     bool extra_yunica = false, extra_hugo = false, extra_toal = false;
     bool adol_felghana = false, adol_napishtim = false, yunica_outfit = false;
+    // The cleared-tier bytes 0x74ab88.. / 8c.. / 94.. / 98.. / 9c.. (Very Easy .. Nightmare) of Yunica / Hugo / Toal:
+    // the Difficulty popup's "(Clear)" labels in a New Game (FUN_005c4950).
+    std::array<std::array<bool, 3>, 5> tier{};
     // CleriaCore's (not retail's): Toal's bar is open whatever the clear bytes say -- [cleria.qol]
     // UnlockCharacters, or a mod's cleria.game.unlock_character(3) (build/shell_re/LUA_API.md).
     bool open_toal = false;
@@ -156,6 +159,7 @@ class PauseBook {
     void draw(DrawList& out, const BookModel& m) const;              // FUN_005a5d50
     int page() const { return page_; }
     int sub_id() const { return sub_; }
+    const std::vector<std::string>& popup_rows() const { return cspop_rows_; }   // the last New-Game popup's rows (tests)
 
   private:
     // shell
@@ -294,6 +298,7 @@ class PauseBook {
     MenuSprite cspanel_, csbar_[4], csface_[4], csport_[4], cshi_, cschibi_, csstrip_, csbanner_, cstext_;
     WndDialog cspop_;
     std::vector<int> cspop_codes_;
+    std::vector<std::string> cspop_rows_;
     int cspop_kind_ = 0, cs_next_ = -1;
     bool cspop_done_ = false, cs_cancelled_ = false;
     NewGameInfo cs_result_;

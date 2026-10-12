@@ -302,6 +302,28 @@ int main(int argc, char** argv) {
         cstep({0, +1, false, false});
         cstep({0, 0, true, false});
         check(C.sub_id() == 0x18, "down twice wraps past locked Toal back to Yunica; Confirm opens Difficulty");
+        check(C.popup_rows() == std::vector<std::string>{"Easy", "Normal", "Hard", "Cancel"}, "no data.nya, nothing cleared: Easy / Normal / Hard");
+        {   // FUN_005c4950: the cleared levels of the chosen character read "(Clear)" in a New Game, not in Time Attack
+            BookModel mc = m;
+            mc.charsel.clear_yunica = mc.charsel.clear_hugo = mc.charsel.nya = true;
+            mc.charsel.tier[2][0] = mc.charsel.tier[4][0] = mc.charsel.tier[1][1] = true;   // Yunica Normal + Nightmare, Hugo Easy
+            auto rows = [&](int downs, int mode) {
+                mc.charsel.mode = mode;
+                PauseBook P;
+                P.open(mc, 4);
+                BookEvents e2;
+                for (int i = 0; i < 10; ++i) P.update({}, mc, e2);
+                for (int i = 0; i < downs; ++i) P.update({0, +1, false, false}, mc, e2);
+                P.update({0, 0, true, false}, mc, e2);
+                return P.popup_rows();
+            };
+            check(rows(0, 0) == std::vector<std::string>{"Very Easy", "Easy", "Normal (Clear)", "Hard", "Nightmare (Clear)", "Cancel"},
+                  "New Game, data.nya, Yunica cleared Normal and Nightmare: those two rows read (Clear)");
+            check(rows(1, 0) == std::vector<std::string>{"Very Easy", "Easy (Clear)", "Normal", "Hard", "Nightmare", "Cancel"},
+                  "... Hugo's own row: Easy (Clear)");
+            check(rows(0, 1) == std::vector<std::string>{"Easy", "Normal", "Hard", "Nightmare", "Cancel"},
+                  "Time Attack: no Very Easy, no (Clear)");
+        }
         for (int i = 0; i < 60; ++i) cstep({});
         cstep({0, 0, true, false});                              // the default row: Normal
         bool started = false;

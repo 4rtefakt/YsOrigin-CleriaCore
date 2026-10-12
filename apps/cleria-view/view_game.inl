@@ -1134,6 +1134,7 @@ title_again:
             m.charsel.adol_felghana = g_clear.shop[records::ClearData::kAdolFelghana] != 0;
             m.charsel.adol_napishtim = g_clear.shop[records::ClearData::kAdolNapishtim] != 0;
             m.charsel.yunica_outfit = g_clear.shop[records::ClearData::kYunicaOutfit] != 0;
+            for (std::size_t t = 0; t < 5; ++t) for (std::size_t c = 0; c < 3; ++c) m.charsel.tier[t][c] = g_clear.tier[t][c] != 0;
             return m;
         };
         float taccum = 0;
@@ -1148,6 +1149,25 @@ title_again:
         int ttick = 0;                                   // logic ticks on the title (the drive shot)
         bool ng_commit = false;
         mouse::Point tbook_pt;                           // the book's open-time cursor (this+0x128)
+        // CLERIA_TITLE_DRIVE (debug): "tick:cmd;..." on the title's own ticks, counted over every visit of the
+        // process -- ok / esc / up / down / left / right (one press), shot=<name> (CLERIA_SHOT_DIR/<name>.ppm),
+        // quit. With it the title does not shoot and quit at t60: a drive run started with no room boots here.
+        static std::vector<std::pair<int, std::string>> tdrive;
+        static int tdrive_tick = 0;
+        static bool tdrive_on = false;
+        if (const char* td = tdrive_on ? nullptr : std::getenv("CLERIA_TITLE_DRIVE")) {
+            tdrive_on = true;
+            const std::string all = td;
+            for (std::size_t p0 = 0; p0 < all.size();) {
+                const std::size_t p1 = std::min(all.find(';', p0), all.size());
+                const std::string item = all.substr(p0, p1 - p0);
+                if (const std::size_t c = item.find(':'); c != std::string::npos)
+                    tdrive.push_back({std::atoi(item.c_str()), item.substr(c + 1)});
+                p0 = p1 + 1;
+            }
+        }
+        std::string tshot;                               // a pending shot=<name>
+        bool tquit = false;
         for (bool started = false; !started;) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
@@ -1189,10 +1209,20 @@ title_again:
                     continue;
                 }
                 const bool live = tf_cur == tf_tgt;          // no input mid-fade (FUN_005765c0)
-                const bool confirm_edge = live && (inf.pressed & input::kOk);
-                const bool cancel_edge = live && (inf.pressed & input::kCancel);
+                bool confirm_edge = live && (inf.pressed & input::kOk);
+                bool cancel_edge = live && (inf.pressed & input::kCancel);
                 const bool conf_held = live && (inf.held & input::kOk);
-                const int hstep = live ? inf.dx : 0, vstep = live ? inf.dy : 0;
+                int hstep = live ? inf.dx : 0, vstep = live ? inf.dy : 0;
+                ++tdrive_tick;
+                for (const auto& [tt, cmd] : tdrive) {
+                    if (tt != tdrive_tick) continue;
+                    if (cmd == "ok") confirm_edge = true;
+                    else if (cmd == "esc") cancel_edge = true;
+                    else if (cmd == "up" || cmd == "down") vstep = cmd == "up" ? -1 : 1;
+                    else if (cmd == "left" || cmd == "right") hstep = cmd == "left" ? -1 : 1;
+                    else if (cmd.rfind("shot=", 0) == 0) tshot = cmd.substr(5);
+                    else if (cmd == "quit") tquit = true;
+                }
                 std::vector<int> snd;
                 if (tbook.is_open()) {
                     BookInput in;
@@ -1288,7 +1318,15 @@ title_again:
             shell.frame(g, view, cw, ch);
             // A CLERIA_DRIVE run reaches the title only through a Return to Title: one shot once the
             // entry fade-in is over (60 ticks > its 20), CLERIA_SHOT_DIR/title.ppm, then it quits.
-            if (offscreen && ttick >= 60) {
+            if (!tshot.empty()) {
+                const char* shd = std::getenv("CLERIA_SHOT_DIR");
+                const fs::path out = fs::path(shd ? shd : ".") / (tshot + ".ppm");
+                save_frame_ppm(g, st.texture, fmt, cw, ch, out);
+                std::printf("  [title] t%d shot %s\n", tdrive_tick,out.filename().string().c_str());
+                tshot.clear();
+            }
+            if (tquit) { wgpuTextureViewRelease(view); wgpuTextureRelease(st.texture); teardown(); return 0; }
+            if (offscreen && ttick >= 60 && !tdrive_on) {
                 const char* shd = std::getenv("CLERIA_SHOT_DIR");
                 const fs::path out = fs::path(shd ? shd : ".") / "title.ppm";
                 save_frame_ppm(g, st.texture, fmt, cw, ch, out);
@@ -5059,6 +5097,7 @@ title_again:
         m.checks = ocheck;
         m.topic_seen = topic_seen;
         m.topic_kills = topic_kills;
+        m.clear_flags = clear_tier_bytes();
         m.manual_on = manual_on;
         m.casts = &casts;
         m.enemies = &etab;

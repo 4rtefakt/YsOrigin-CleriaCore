@@ -29,6 +29,33 @@ CLEANSE = "5:flag=310,1;6:flag=84,1;10:at=-0.036,8.2,0;20:act;60:ok;80:ok;100:ok
 _S2010_ENTRY = ("5:opt=InfiniteOxygen=1;6:opt=InfiniteHP=1;7:held=97;10:exit=1;36:killall;40:move=0,1,75;120:move=-1,-0.4,75;"
                 "210:every=12,600,jump;400:move=-1,0.3,150;560:move=-0.2,1,600;1240:quit")
 
+def record_file(dwords):
+    """A record.* file (build/mode_re/CLEAR_DATA.md §1) holding `dwords`: the header, the key, crc32 of the plain
+    payload, and the additive cipher over crc + payload."""
+    import struct, zlib
+    payload = struct.pack("<%dI" % len(dwords), *dwords)
+    body = bytearray(struct.pack("<I", zlib.crc32(payload)) + payload)
+    key = 0x1234ABCD
+    for i in range(len(body)):
+        key = key * 0x3D09 & 0xFFFFFFFF
+        body[i] = body[i] + (key >> 16) & 0xFF
+    return (struct.pack("<4I", 0x004F7359, 0xD, 0, 0) + bytes([0x8B, 0x10, 0xCF, 0x78, 0x18, 0x56]) + bytes(10) +
+            struct.pack("<I", 0x1234ABCD) + bytes(body))
+
+
+def clear_data(clear=(1, 1, 1), tiers=(), shop=()):
+    """record.ta2's 0x26 dwords (CLEAR_DATA.md §3.1): the clear bytes of Yunica / Hugo / Toal, cleared tiers as
+    (row 0 Very Easy .. 4 Nightmare, column 0 Yunica .. 2 Toal), bought shop items by index (0 Adol Felghana,
+    1 Adol Napishtim, 2-4 the Extras, 5-10 Arena Stage 2-7, 11 the School Outfit)."""
+    d = [0] * 0x26
+    d[0:3] = clear
+    for row, col in tiers:
+        d[3 + row * 3 + col] = 1
+    for i in shop:
+        d[0x16 + i] = 1
+    return d
+
+
 CASES = {
     # STATUE_CLEANSE.md D2: the touch cleanse swaps save_01 for save_03 at once, and the
     # cleansed statue's @Save menu -> Save opens the book (0xe0), which writes slot 1.
@@ -1785,6 +1812,25 @@ CASES.update({
                 " 297=1", "[game] Return to Title: back to the title",
                 "[title] clear data: Yunica 01 Hugo 00 Toal 00, data.nya 0 -> Bonus Modes 1, Toal's bar open"],
         files=["record.ta2"]),
+    # BONUS_MODES.md §1, the SP bonus at a New Game: a process booted on the title (no room) with a record.ta2 of
+    # three clears and two cleared tiers (Yunica Normal, Toal Hard). New Game -> Yunica -> Difficulty Normal starts
+    # S_0000 with flags 297..299 = 1, whose router runs GohoubiMenu ("SP Bonus Acquisition"); [Enable] = Get_Bonus
+    # = EventXX(13): 2 x 10,000 SP into a wallet that starts at 0.
+    "title_new_game_sp_bonus": dict(
+        room=None, records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0), (3, 2)])},
+        title="40:ok;100:ok;170:ok", drive="5:flagdump;60:scripts;120:ok;200:scripts;220:quit",
+        expect=["[clear] record.ta2: Yunica 01 Hugo 01 Toal 01, 2 cleared tier(s)",
+                "[title] clear data: Yunica 01 Hugo 01 Toal 01, data.nya 0 -> Bonus Modes 1, Toal's bar open",
+                " 297=1 298=1 299=1", "script GohoubiMenu",
+                "[clear] EventXX(13): SP bonus 20000 (2 cleared tier(s)) -> SP 20000", "script Prologue_Event_1"]),
+    # ... and with two clears (Yunica, Hugo) there is no menu: S_0000's three tests are nested. Toal's bar is open
+    # (down, down), and his new game goes straight to its prologue.
+    "title_new_game_no_sp_bonus": dict(
+        room=None, records={"record.ta2": clear_data((1, 1, 0), tiers=[(2, 0), (2, 1)])},
+        title="40:ok;100:down;110:down;120:ok;190:ok", drive="5:flagdump;60:scripts;120:ok;200:quit",
+        expect=["[title] clear data: Yunica 01 Hugo 01 Toal 00, data.nya 0 -> Bonus Modes 1, Toal's bar open",
+                " 150=3 ", " 297=1 298=1", "script Prologue_Event_0"],
+        absent=[" 299=", "GohoubiMenu", "EventXX(13)"]),
     # DIFFICULTY.md G2 / G8 on Hard (diff=3, then a reload so the room spawns under it): a regular Rif's 60 HP
     # is 72 and the Normal 112 is 134 (FUN_004202e0's x1.2); the hit that takes 22 on Normal takes
     # 22 * 1.5 + 1 = 34 (FUN_004fa740's tail).
@@ -1803,8 +1849,8 @@ CASES.update({
         room="S_10/S_1001/S_1001",
         drive="4:saveload;8:opt=OneHitKill=1;20:actors;21:stats;30:hurt=60;31:opt=DamageTaken=0;"
               "41:every=12,300,nearest=;42:every=12,300,atk;400:stats;410:quit",
-        expect=["id 14 cast 14 enemy hp 60", "id 19 cast 19 enemy hp 112", "hp 60/60 sp 59",
-                "Chr_Damage player atk 60 -> HP 38", "defeated 1 (6 left)", "hp 38/60 sp 77"]),   # 77 since FIX_SLOTS S6 (was 75): a 2-SP drop in reach is collected under the window's Fix(0) held from t98
+        expect=["id 14 cast 14 enemy hp 60", "id 19 cast 19 enemy hp 112", "hp 60/60 sp 0",
+                "Chr_Damage player atk 60 -> HP 38", "defeated 1 (6 left)", "hp 38/60 sp 18"]),   # 18 (a new game starts at 0 SP) since FIX_SLOTS S6 (was 16): a 2-SP drop in reach is collected under the window's Fix(0) held from t98
     # STATUS_AILMENTS.md (issue #60): poison 900 ticks, a 1-HP tick each 120 (max(1, 60 / 150)) with the magenta
     # number; heavy walks (3.36 in 60 ticks, a run does 9.4); confuse reverses the stick (back to the start);
     # curse lands and the Blue Necklace (accessory 55) ends it on the next tick.
@@ -2284,15 +2330,15 @@ CASES.update({
                 _LP + "killed cast 17 lv 3 exp 1.01 sp 4", "stats exp 21937 lv 13"],
         absent=_NOSTOP),
     # The "sp" filter on a kill's SP (4 -> 77) and on a gold piece (the "pickup" filter first: 1 -> 123, then
-    # "sp": -> 77); the "exp" filter's "suppress": the kill credits no EXP. 59 + 77 + 77 = 213.
+    # "sp": -> 77); the "exp" filter's "suppress": the kill credits no EXP. 0 + 77 + 77 = 154.
     "lua_sp_filter": dict(
         room="S_10/S_1002/S_1002", lua=_LUA_API6,
         drive="6:level=13;8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on sp77;13:lua=on noexp;14:lua=on p123;15:stats;" + _K17 +
               ";150:stats;160:quit",
-        expect=["stats exp 21936 lv 13 hp 129/129 sp 59", _LP + "sp kill base 4 value 4 cast 17",
+        expect=["stats exp 21936 lv 13 hp 129/129 sp 0", _LP + "sp kill base 4 value 4 cast 17",
                 _LP + "killed cast 17 lv 3 exp 0 sp 77", _LP + "pickup 120 1G what sp value 1 ticks 0",
                 _LP + "sp pickup base 123 value 123 cast nil", _LP + "collected 120 what sp value 77 ticks 0 suppressed false",
-                "stats exp 21936 lv 13 hp 129/129 sp 213"],
+                "stats exp 21936 lv 13 hp 129/129 sp 154"],
         absent=_NOSTOP),
     # The "damage" filter both ways. The player's hit: the formula's 2, x10 by the Cheats = 20 (HP 74 -> 54), then
     # answered 1 (54 -> 53). A hit on the player (`hurt=60`: ATK 60 against DEF 38 = 22): answered 3, HP 60 -> 57.
@@ -2312,7 +2358,7 @@ CASES.update({
         drive="10:lua=st;20:lua=mod atk 10 2;21:lua=mod max_hp 50 1;22:lua=mod def 0 0.5;30:lua=st;40:lua=xp 400;50:lua=st;"
               "60:saveload;80:lua=st;90:near=17;91:atk;120:hurt=60;130:lua=mod atk 0 1;131:lua=mod max_hp 0 1;132:lua=mod def 0 1;"
               "140:lua=st;150:quit",
-        expect=[_LP + "stats lv 1 hp 60/60 (60) atk 46 (46) def 38 (38) exp 0/150 mp 3000/3000 boost 0 tier 0 sp 59 buffs 0:0 0:0 0:0 atk mod 0.0 x1.0",
+        expect=[_LP + "stats lv 1 hp 60/60 (60) atk 46 (46) def 38 (38) exp 0/150 mp 3000/3000 boost 0 tier 0 sp 0 buffs 0:0 0:0 0:0 atk mod 0.0 x1.0",
                 _LP + "stats lv 1 hp 60/110 (60) atk 112 (46) def 19 (38) exp 0/150", "atk mod 10.0 x2.0",
                 "[levelup] lv 2", _LP + "stats lv 2 hp 115/115 (65) atk 118 (49) def 20.5 (41) exp 400/605.1",
                 _LP + "stats lv 2 hp 115/115 (65) atk 118 (49) def 20.5 (41) exp 400/605.1",
@@ -2336,7 +2382,7 @@ CASES.update({
                 _LP + "collected 72 what atk_buff value 2 ticks 600 suppressed false", _LP + "stats lv 1 hp 24/60 (60) atk 48 (48)",
                 " buffs 2:5", _LP + "pickup 66 Recovery Drop 1 what hp value 9 ticks 0", _LP + "spawn 0x78 -> true",
                 _LP + "pickup 120 1G what sp value 1 ticks 0", _LP + "collected 120 what sp value 0 ticks 0 suppressed true",
-                _LP + "stats lv 1 hp 33/60 (60) atk 48 (48) def 38 (38) exp 50.96/150 mp 3000/3000 boost 0 tier 0 sp 63 "],
+                _LP + "stats lv 1 hp 33/60 (60) atk 48 (48) def 38 (38) exp 50.96/150 mp 3000/3000 boost 0 tier 0 sp 4 "],
         absent=_NOSTOP + ["[pickup] id 120"]),
     # A boss part (boss_part_feedback's fight: Toal on a risen Khonsclard pod): the same filter, without a cast;
     # answered 1, the part loses 1 a hit.
@@ -2352,7 +2398,7 @@ CASES.update({
     "lua_drop_suppress": dict(
         room="S_10/S_1002/S_1002", lua=_LUA_API6,
         drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on nodrop;" + _K17 + ";150:pickups;155:stats;160:quit",
-        expect=[_LP + "drop 120 1G slot 1 cast 17 lv 3", "[pickup] debris", "stats exp 51 lv 1 hp 60/60 sp 63"],
+        expect=[_LP + "drop 120 1G slot 1 cast 17 lv 3", "[pickup] debris", "stats exp 51 lv 1 hp 60/60 sp 4"],
         absent=_NOSTOP + ["[pickup] id ", _LP + "pickup", _LP + "collected"]),
 })
 
@@ -2444,14 +2490,14 @@ CASES.update({
         expect=["slot 1 taken: 0/1", "[chr] 17", "motion -1 aso 1/1/3", "[chr] 17", "motion -1 aso 1/1/3", "frozen 1 fix 0/1"]),
     # FIX_SLOTS.md S6: the GoXx pool runs under a Fix. A gold piece dropped at t20 goes on falling under the Fix(1)
     # taken at t23 (it hung at age 3 for the whole Fix) and is collected under it when Toal is put by it at t90
-    # (SP 59 -> 60, its popup): the pickup's step and collect read no fix counter [EXPORT 00584f90.c, 005856c0.c,
+    # (SP 0 -> 1, its popup): the pickup's step and collect read no fix counter [EXPORT 00584f90.c, 005856c0.c,
     # 00585ff0.c].
     "drop_falls_fix1": dict(
         room="S_10/S_1009/S_1009", char="3", env=_LOCK,
         drive="20:drop=120;21:at=6.0,7.87,270;23:run=@itemcannotuse;26:pickups;60:pickups;90:at=0.6,7.87,270;100:pickups;"
               "101:stats;102:scripts;110:quit",
         expect=["slot 1 taken: 0/1", "[pickup] id 120 pos (0.13, 2.67, 7.81) ground 2.020 rest 0 age 6",
-                "[pickup] id 120 pos (0.47, 2.07, 7.85) ground 2.020 rest 0 age 40", "t100 pickups", "sp 60",
+                "[pickup] id 120 pos (0.47, 2.07, 7.85) ground 2.020 rest 0 age 40", "t100 pickups", "hp 60/60 sp 1",
                 "frozen 1 fix 0/1 popups 1"],
         count={"[pickup] id 120": 2}),
     # The regression of 2026-10-11 ("mobs are all immobile"): g_flags[131] left set by a duel / scene script held
@@ -3089,7 +3135,9 @@ def content_setup(case, env, tmp):
 
 def run(name, case, exe, assets):
     """One case, in its own temp folder (saves, shots, settings, an aplua case's server on a free port):
-    cases share nothing, so they run side by side. Returns (passed, its report lines, seconds)."""
+    cases share nothing, so they run side by side. Returns (passed, its report lines, seconds).
+    `room=None` boots the title (no room argument), driven by `title` (CLERIA_TITLE_DRIVE); `records`:
+    {file name: dwords} written into the save folder first (record_file)."""
     t0 = time.time()
     msg = []
     with tempfile.TemporaryDirectory() as saves:
@@ -3101,8 +3149,12 @@ def run(name, case, exe, assets):
             content_setup(case, env, os.path.join(saves, "settings"))
         srv = aplua_regress.start(case, env, os.path.join(saves, "settings"))   # an `aplua` case: its server, the mod
         extra = modfile_regress.start(case, env, os.path.join(saves, "settings"))   # a `modfile` case: the file
-        sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
-        r = subprocess.run([exe, assets, sob] + extra, env=env, capture_output=True, text=True, timeout=900)
+        for f, dwords in case.get("records", {}).items():
+            open(os.path.join(saves, f), "wb").write(record_file(dwords))
+        if "title" in case:
+            env["CLERIA_TITLE_DRIVE"] = case["title"]
+        sob = [os.path.join(assets, "MAP", case["room"] + ".SOB")] if case.get("room") else []
+        r = subprocess.run([exe, assets] + sob + extra, env=env, capture_output=True, text=True, timeout=900)
         out = r.stdout + r.stderr
         if "drive2" in case:        # a second boot on the same save folder (`room2`: its room)
             sob2 = os.path.join(assets, "MAP", case.get("room2", case["room"]) + ".SOB")

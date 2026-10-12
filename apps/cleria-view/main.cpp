@@ -175,7 +175,7 @@ static const char* kCharNames[] = {"Default", "Yunica", "Hugo", "Toal"};
 struct Player {
     int level = 1;
     int hp = 400, max_hp = 400;
-    int sp = 59;   // placeholder until the stat model lands
+    int sp = 0;    // 0x76a75c: a new game's is 0 (FUN_0041fd10 zeroes 0x76a2d0..0x76c297 [EXPORT 0041fd10.c:28])
     float exp = 0;          // running EXP total (build/progress_re/LEVELING.md)
     float exp_pct = 0.0f;   // progress toward the next level, for the HUD bar
     float mp_pct = 100.0f;

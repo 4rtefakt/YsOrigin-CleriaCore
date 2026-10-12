@@ -2111,15 +2111,23 @@ void PauseBook::cs_popup(const BookModel& m, int which) {
         add("Cancel", -1);
     } else {                                                 // Difficulty Level
         title = "Difficulty Level";
-        if (g.mode == 0 && g.nya) add("Very Easy", 10);
-        add("Easy", 11);
-        add("Normal", 12);
-        add("Hard", 13);
-        if (g.nya) add("Nightmare", 14);
+        // FUN_005c4950 [EXPORT; the strings: BYTES 0x68d4ec..0x68d4fc]: in a New Game (mode 0) a level the chosen
+        // character (1..3, not Adol) has cleared reads "<level> (Clear)".
+        static const char* const kLevel[5][2] = {{"Very Easy", "Very Easy (Clear)"}, {"Easy", "Easy (Clear)"},
+            {"Normal", "Normal (Clear)"}, {"Hard", "Hard (Clear)"}, {"Nightmare", "Nightmare (Clear)"}};
+        auto level = [&](int t) {
+            add(kLevel[t][g.mode == 0 && cssel_ >= 0 && cssel_ < 3 && g.tier[std::size_t(t)][std::size_t(cssel_)]], 10 + t);
+        };
+        if (g.mode == 0 && g.nya) level(0);
+        level(1);
+        level(2);
+        level(3);
+        if (g.nya) level(4);
         add("Cancel", -1);
     }
     const std::vector<std::string> labels(items.size());
     cspop_.menu(512, 256, title, items, labels, m.metrics, false, false);
+    cspop_rows_ = items;
     cspop_.set_cancel(int(items.size()));
     if (which == 2) for (std::size_t k = 0; k < cspop_codes_.size(); ++k) if (cspop_codes_[k] == 12) cspop_.set_cursor(int(k) + 1);
     cspop_.arm();
