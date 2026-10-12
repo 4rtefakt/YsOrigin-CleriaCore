@@ -351,7 +351,10 @@
                         blood_at("slime", sp.count, sp.argb, sp.delay_step, sp.life_range, sp.size0, sp.size1, sp.pos,
                                  sp.radius, sp.flag_a, sp.flag_b);
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
-                    if (o.popup >= 0) damage_popup(o.popup, 0xffffff, {en->pos.x, en->pos.y + en->height, en->pos.z});   // FUN_004fae00
+                    if (o.popup >= 0) damage_popup(o.popup, o.popup_rgb, {en->pos.x, en->pos.y + en->height, en->pos.z});   // FUN_004fae00
+                    // The floor killed it (0x47a671..0x47a6ac): the notes' seen byte, no kill count.
+                    if (o.floor_death && en->cast_id >= 0 && en->cast_id < records::MonsterNotes::kEntries)
+                        g_notes.seen[std::size_t(en->cast_id)] = 1;
                     if (o.zoom_s || o.zoom_r) zoom_blur(o.zoom_s.value_or(zb.s), o.zoom_r.value_or(zb.r));   // ZoomBlur
                     if (o.zoom_centre) zoom_centre(*o.zoom_centre);                                         // FUN_005e0590
                     // M470's hold (0x48ce69): the player's origin at the mouth, +0x330 = 0, +0x398 = 1 until a brain

@@ -242,6 +242,25 @@ int main() {
             std::filesystem::remove(f, ec);
         }
 
+        {   // record.tp: the monster notes (CLEAR_DATA.md §5)
+            records::MonsterNotes n;
+            for (int i = 0; i < 60; ++i) n.kill(7, false, 1, false);            // Hard
+            n.kill(7, true, 0, true); n.kill(185, true, 2, false); n.kill(3, false, 2, false); n.kill(4, false, 0, false);
+            n.kill(5, false, 3, false); n.kill(186, false, 0, false); n.kill(-1, false, 0, false);
+            ok(n.seen[7] == 1 && n.kills[7] == 50 && n.tier[7] == std::array<std::uint32_t, 5>{1, 0, 0, 1, 0} &&
+               n.tier[185] == std::array<std::uint32_t, 5>{0, 1, 0, 0, 0} && n.tier[3][4] == 1 && n.tier[4][2] == 1 &&
+               n.kills[5] == 1 && n.tier[5] == std::array<std::uint32_t, 5>{},
+               "record.tp: a kill sets seen, counts to 50 and marks its difficulty (flag 144 > 2 off the easy side: none)");
+            const auto p = n.payload();
+            ok(p.size() == 0x1458 && p[7 * 0x1C] == 1 && p[7 * 0x1C + 4] == 50 && p[7 * 0x1C + 8] == 1 && p[7 * 0x1C + 0x14] == 1 &&
+               records::MonsterNotes::from_payload(p) == n, "record.tp: 186 entries x 0x1C, seen +0, kills +4, the five tiers +8..");
+            const std::filesystem::path f = std::filesystem::temp_directory_path() / "cleria_savetest_record.tp";
+            ok(records::save_notes(f, n, records::make_key(9)) && std::filesystem::file_size(f) == 0x1480 &&
+               records::load_notes(f) == n, "record.tp: the notes round-trip in a 0x1480-byte file");
+            std::error_code ec;
+            std::filesystem::remove(f, ec);
+        }
+
         {   // record.ta / .ar: the best-time tables (CLEAR_DATA.md §4)
             records::RecordTable ta(records::RecordTable::kTimeAttackRows), ar(records::RecordTable::kArenaRows);
             ok(ta.bytes.size() == 0xB40 && ar.bytes.size() == 0x540, "record tables: 16 x 15 x 12 = 0xB40 and 16 x 7 x 12 = 0x540 bytes");
@@ -306,6 +325,22 @@ int main() {
                         std::printf("[records] REAL %s: character %d difficulty %d row %d = %u ms (mark %u)\n", n, c, d, r, ms, t->mark(c, d, r));
                     }
                 if (!set) std::printf("[records] REAL %s: no time set\n", n);
+            }
+            {
+                std::ifstream tp(dir / "record.tp", std::ios::binary);
+                const std::vector<std::uint8_t> traw{std::istreambuf_iterator<char>(tp), {}};
+                const auto pl = records::decode(traw, records::MonsterNotes::kPayload);
+                const auto n = records::load_notes(dir / "record.tp");
+                if (pl && n) {
+                    int seen = 0, kills = 0, tiers[5] = {};
+                    for (int i = 0; i < records::MonsterNotes::kEntries; ++i) {
+                        seen += n->seen[std::size_t(i)] != 0; kills += n->kills[std::size_t(i)];
+                        for (int t = 0; t < 5; ++t) tiers[t] += n->tier[std::size_t(i)][std::size_t(t)] != 0;
+                    }
+                    std::printf("[records] REAL record.tp: %d of 186 seen, %d kills counted, killed-on %d %d %d %d %d\n", seen, kills,
+                                tiers[0], tiers[1], tiers[2], tiers[3], tiers[4]);
+                    ok(n->payload() == *pl, "REAL record.tp: MonsterNotes reproduces its payload byte for byte");
+                } else ok(false, "REAL record.tp loads");
             }
             std::ifstream in(dir / "record.ta2", std::ios::binary);
             const std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(in), {}};

@@ -491,7 +491,7 @@ CASES = {
         drive2="5:cleardata=progress;8:cleardata=ta;20:esctap;70:right;80:right;90:right;120:ok;160:up;200:up;230:ok;"
                "260:left;290:ok;400:quit",
         expect=["record.ta2 saved", "==== second boot", "[clear] record.ta2: Yunica 01 Hugo 00 Toal 00",
-                "[clear] game progress cleared: 1 file(s) deleted", "[clear] now: clear bytes 00 00 00",
+                "[clear] game progress cleared: 2 file(s) deleted", "[clear] now: clear bytes 00 00 00",
                 "[clear] Time Attack records cleared: 0 file(s) deleted, 0 time(s) left",
                 "[title] clear data: Yunica 00 Hugo 00 Toal 00, data.nya 0 -> Bonus Modes 0, Toal's bar locked"]),
     "video_fpscap": dict(
@@ -1292,7 +1292,7 @@ CASES.update({
         env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#35,4;150:move=0.988,0.152,420;"
               "580:move=-0.988,-0.152,480;1290:quit",
-        expect=["[los] t798 #35 cast 35 2->1", "blocked 1", "[los] t894 #195 cast 35 2->1", "dist 10.92 blocked 0"]),
+        expect=["[los] t798 #35 cast 35 2->1", "blocked 1", "[los] t862 #195 cast 35 2->1", "dist 10.86 blocked 0"]),
     # C4: a far-frozen Hekat-Baocar (25 u or more: the ASO step only) keeps phase 2 across the absence and attacks
     # at once on the return; the [ai] log says "frozen" for it instead of printing nothing.
     "far_freeze_keeps_phase": dict(
@@ -3367,6 +3367,45 @@ CASES.update({
                 "hit Menoak (lv14 DEF 91): 6", "t324 sec 0x10c", "hit Menoak (lv14 DEF 91): 18"]),
 })
 
+CASES.update({
+    # Issue #100: the camp is in the scripts' event mode. battle_0 sets flag 161 at pc 367 and nothing in S_1000
+    # clears it; the mover and the charge read it as "busy" (0x76bba0), so a held skill button charges nothing
+    # there. The next scene entry zeroes it (FUN_00431840 [BYTES 0x431a72]): the same press casts in S_1001.
+    "camp_no_skill": dict(
+        room="S_00/S_0000/S_0000", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:opt=CutsceneSkip=1;20:every=20,1200,skiptap;40:every=50,1200,killall;1200:scripts;1205:bracelet=116;"
+              "1206:flag=116,1;1207:flag=182,1;1210:skill+;1240:abil;1241:skill-;1245:abil;1246:flagdump;1250:exit=0;"
+              "1400:skill+;1430:abil;1431:skill-;1435:abil;1436:quit",
+        expect=["script s_Stop1000_03", "[abil] t1240 sec 0x2 mp 3000", "magic 116 charge 0", "[abil] t1245 sec 0x2 mp 3000",
+                " 161=1 ", ">> entering S_1001", "[abil] t1430 sec 0x2 mp 3000", "magic 116 charge 1", "[abil] t1435 sec 0x10d"]),
+    # Issue #94, record.tp: a monster killed on Normal is in the monster notes (seen 1, kills 1, the Normal mark);
+    # the clean exit writes the file and a second boot reads it back.
+    "monster_notes_tp": dict(
+        room="S_10/S_1002/S_1002", env=dict(CLERIA_LEVEL="3"),
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;15:notes;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:notes;430:quit",
+        room2="S_10/S_1002/S_1002", drive2="5:notes;10:quit",
+        expect=["[notes] t15 seen 0 kills 0", "[notes] t420 seen 1 kills 1 killed-on 0 0 1 0 0", "==== second boot",
+                "[clear] record.tp: 1 of 186 monster notes seen", "[notes] t5 seen 1 kills 1 killed-on 0 0 1 0 0"]),
+})
+
+# S_4015 on foot as Yunica and as Hugo (ROUTE_F47_*.md §S_4015), the pilot's moving-ground forms (`x,z,y` and
+# `dx,dz,y@object>d`): from the y 26 ledge onto the sliding platform #6 as it comes in, both spiked rods jumped as
+# it carries her under them (toge_01 / toge_02: 2.1 over the platform, 1.8 wide, a double jump each), the jump north
+# onto the path, the slope down to switch_01 (451); back: the platform from its west end, the rods again, the east
+# ledge, the lift step_01 at its top (flag 450 set by hand, as route_s4015), step_00 from 27 up to 48, the curb and
+# the stairs to S_4019. The same route string for both; no rod is touched.
+_S4015 = ("2:flag=450,1;3:diff=3;4:saveload;5:flag=163,1;6:level=27;7:opt=DamageTaken=0;200:at3=-51.6,26,38,180;"
+          "234:hops=0.9,0,26@#6>5.2/-70.3,43.5,26/-88,43.5/-90.5,40/-89.8,27/-90.9,26.9;"
+          "1715:hops=-90.9,31/-89.6,39/-86.5,42.7/-70.5,42.7,26/0.6,0,26@#6>5.9/-50.5,38.5,26/-44.6,38.6,26/"
+          "-40,38.6,24/-33,38.2,24/-31.1,38,24/-31.1,41.6,27/-31.1,47.5,48/-31.1,60/-31.1,69;3900:quit")
+for _n, _c in (("yunica", "1"), ("hugo", "2")):
+    CASES["route_s4015_" + _n] = dict(
+        room="S_40/S_4015/S_4015", char=_c, env=dict(CLERIA_DRIVE_LOCKSTEP="1"), drive=_S4015,
+        expect=["waypoint 0 reached at (-67.7", "[plate] switch_01 -> turnswitch01", "waypoint 4 reached at (-56.1",
+                "waypoint 10 reached", "waypoint 11 reached at (-31.10, 48.00", ">> entering S_4019"],
+        absent=["@touch_toge", "FELL", "NOT reached"])
+
 CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402
@@ -3440,7 +3479,8 @@ def frame_edges(path, name, seams):
 # The cases of a minute or more (measured 2026-10-09): with --jobs they start first, so the longest one
 # (darm_fight, ~7 minutes) does not start last and run on alone.
 LONG = ["darm_fight", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
-        "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light"]
+        "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light",
+        "route_s4015_yunica", "route_s4015_hugo"]
 
 
 def content_setup(case, env, tmp):

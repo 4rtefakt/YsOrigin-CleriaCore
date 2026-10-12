@@ -7,8 +7,8 @@
 // / 45% the triple shot (section 8, chained into 311 on Hard+) / else back off (flee 60..89 ticks), a back-hop
 // (section 312) or the hop-and-shoot (section 313). Cooldown 45 - 15d + R%20 past the hold. Standing on
 // surface 0x11 (blood water) it runs back to the target's last safe position; unaware, a target on 0x11 wakes it.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the collision set-1 ("water") rays (no such set in the
-// view: the back-hop's "not water" test passes, the launch's set-1 skip never fires).
+// The set-1 ("water") rays are AiWorld::water_under (straight down, as both of the brain's are).
+// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -38,6 +38,7 @@ AiOut m630(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     const int S = e.section;
     const float h = a.heading;
     auto ray_hit = [&](const Vec3& o, const Vec3& dl) { return e.world && e.world->ray(o, dl).hit; };
+    auto water1 = [&](const Vec3& o, float dy) { return e.world && e.world->water_under(o, dy) > -1.0e29f; };   // ray1
     auto hop = [&](float vy) { if (A) jump(*A, vy, e.jump_v0, out); };
     auto dirh = [&](float ang, float k) { if (A) push1(*A, ang, k); };
     int& sub = a.i(0x72c);
@@ -114,7 +115,7 @@ AiOut m630(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                             if ((e.rng() & 0x20000u) != 0) {       // N5 (BIT17)
                                 const double hb = double(h + 3.14159f);   // 0x6bd6a8 (truncated pi)
                                 const Vec3 O{e.self.x + 3 * float(std::cos(hb)), e.self.y, e.self.z + 3 * float(std::sin(hb))};
-                                if (ray_hit(O, {0, -1.5f, 0})) sub = 0xc8;   // [not modelled] && !ray1
+                                if (ray_hit(O, {0, -1.5f, 0}) && !water1(O, -1.5f)) sub = 0xc8;   // floor 3 behind, not "water"
                             }
                             if (sub != 0xc8) { a.action() = 0x400; a.steer() = 3; a.dur() = int(r15(e) % 30u) + 60; }   // N6
                         }
@@ -193,9 +194,15 @@ AiOut m630(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     }
     // TAIL (0x4b21ce)
     if (S == 0x13a && gnd && e.aso_marker == 1 && A) {             // the launch (K 0.11, fallback push x3.5)
-        const float vv = a.f(0x7dc) * 0.11f;
-        launch(*A, vv, out);
-        push1(*A, h, a.f(0x7e0) != 0.0f ? a.f(0x7e0) : a.f(0x818) * 3.5f);
+        // ... skipped only for a set-1 surface within 2 under the point L ahead, the target nearer than 6.5 and
+        // not faced (M630.md §3.6): L = +0x328 + 0.5 past a radius of 0.5, else 1.0.
+        const float L = e.radius > 0.5f ? e.radius + 0.5f : 1.0f;
+        const Vec3 Q{e.self.x + float(std::cos(double(h))) * L, e.self.y, e.self.z + float(std::sin(double(h))) * L};
+        if (!(water1(Q, -2.0f) && 6.5f > pd && !F)) {
+            const float vv = a.f(0x7dc) * 0.11f;
+            launch(*A, vv, out);
+            push1(*A, h, a.f(0x7e0) != 0.0f ? a.f(0x7e0) : a.f(0x818) * 3.5f);
+        }
     }
     if (A && a.surf_ray == 0x11 && A->pos.y + A->height > a.water_y + 5.0f && a.water_y > -1.0e29f)
         A->pos.y = a.water_y + 5.0f - A->height;                   // the height clamp over +0x320
