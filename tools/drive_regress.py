@@ -2567,6 +2567,13 @@ CASES.update({
         drive="5:opt=InfiniteHP=1;20:near=17;21:atk;22:run=@itemcannotuse;23:actors;100:actors;101:scripts;102:quit",
         expect=["slot 1 taken: 0/1", "t100 actors", "id 17 cast 17 enemy hp 74 g1 0 pos (30.4,-4.1,-37.3)",
                 "frozen 1 fix 0/1"], absent=["[popup]"]),
+    # XSO op 0x161 Chr_SlantFire (FUN_00571ca0: +0x4ec = degrees x 0.0174533; it was unhandled): Toal's scene in S_5097,
+    # walked into and played with Confirm — Hugo's Eye 167 is slanted -5 degrees at pc 1803 (seen at t7250), the pitch
+    # anime_GenerateEffect gives its attached shot effect [EXPORT 004496f0.c:106].
+    "slant_fire_s5097": dict(
+        room="S_50/S_5097/S_5097", char="3", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=InfiniteHP=1;10:move=0,1,400;40:every=10,7300,ok;7200:chr=167;7300:chr=167;7301:quit",
+        expect=["slot 0 taken: 1/0", "t7300 chr=167", "[chr] 167 slant -5.0 deg (+0x4ec)"]),
     # A skipped cutscene leaves what the same scene leaves played to its end (build/shell_re/ACCESS.md §1.5; retail has
     # no skip, so this is CleriaCore's own rule). Each case below skips with one Esc and pins what the survey of
     # 2026-10-12 read off the PLAYED scene after its Fix (tools: the scratch surveys named in ACCESS.md §1.5).

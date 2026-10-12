@@ -1427,10 +1427,11 @@ title_again:
     //   arg 5 != 0 [BYTES 0x4499ce..0x449a33]: spawned at 0 with scale (s, s, s), then
     //     FUN_00451c20(parent = the actor's +0x20, off (0, voff, -fwd), rot (pitch +0x4ec, yaw angle,
     //     roll 0), scale (s, s, s), mode = arg 5): local = T(off) * RotYPR * S (0x451c81..0x451d33).
+    //     The pitch +0x4ec is Actor::slant (XSO op 0x161 Chr_SlantFire; 0 unless a scene set it).
     //     Mode 2/3 add only the parent's translation, so that local is the whole story. Mode 1
     //     multiplies by the full +0x20; [H] its rotation is the actor's yaw -(facing + pi/2) (the
     //     unattached branch's), baked at spawn — actor_mats carry the origin translation only.
-    //     [not modelled] actor +0x4ec (taken as 0); mode 3's +0x230 height (run as mode 2).
+    //     [not modelled] mode 3's +0x230 height (run as mode 2).
     // The attached effect used to keep only the offset, so it lost its scale: Yunica's
     // Whirlwind (102, s 1.5, mode 2) drew at 1x.
     auto spawn_generate_effect = [&](const AsoVm::EffectEvent& fe, const Vec3& org, float facing,
@@ -1442,9 +1443,11 @@ title_again:
             return spawn_sim_fx(fe.id, at, {0.0f, a - (facing + 1.5707963f), 0.0f}, fe.scale, sp, 0, {});
         }
         ef2sim::Effect* fx = spawn_sim_fx(fe.id, {}, {}, fe.scale, sp, 0, {});
+        const Actor* oa = world.find(owner);
+        const float slant = oa ? oa->slant : 0.0f;
         if (fx) {
             fx->local = ef2sim::mul(ef2sim::mul(ef2sim::translation(0.0f, fe.voff, -fe.fwd),
-                                                ef2sim::rot_ypr(a, 0.0f, 0.0f)),
+                                                ef2sim::rot_ypr(a, slant, 0.0f)),
                                     ef2sim::scaling(fe.scale, fe.scale, fe.scale));
             if (fe.attach == 1)
                 fx->local = ef2sim::mul(fx->local, ef2sim::rot_ypr(-(facing + 1.5707963f), 0.0f, 0.0f));
@@ -2927,6 +2930,8 @@ title_again:
         void bgm_play(int id) override { if (bgm_play_fn) bgm_play_fn(id); }
         void bgm_stop(int t) override { if (bgm_stop_fn) bgm_stop_fn(t); }
         void heal_hp() override { if (heal_fn) heal_fn(); }
+        Oxygen* oxy_p = nullptr;                                    // 0x86 GiveO2: 0x76c1b8 = 6000.0
+        void give_o2() override { if (oxy_p) oxy_p->o2 = Oxygen::kMax; }
         void chr_muteking(int id, int n) override { if (p_isplayer(id) && muteking_fn) muteking_fn(n); }   // player only
         std::function<void()> save_cont_fn;
         void save_cont_data() override { if (save_cont_fn) save_cont_fn(); }
@@ -3116,6 +3121,7 @@ title_again:
         void weapon_level(int k, int v) override { if (weapon_level_fn) weapon_level_fn(k, v); }
         // 0x163 / 0x164: the +0x130 bits on the world actor (the player's too: find(13)).
         void chr_no_force(int id, bool on) override { if (worldHost) worldHost->chr_no_force(rid(id), on); }
+        void chr_slant_fire(int id, float deg) override { if (worldHost) worldHost->chr_slant_fire(rid(id), deg); }   // 0x161
         void chr_ani_disable(int id, bool on) override { if (worldHost) worldHost->chr_ani_disable(rid(id), on); }
         bool p_no_force() const { const Actor* wp = wplayer(); return wp && (wp->tag.bits & 0x10000u); }
         // 0x15e / 0x15f on the player (+0x5d0 / +0x5d8, counter +0x5dc), applied by the player step
@@ -4068,6 +4074,7 @@ title_again:
     };
     csHost.bgm_stop_fn = [&](int ms) { audio.fade_out_bgm(ms); cur_bgm = 0; };
     // 0x85 HealHp (FUN_004fa0e0): HP to max; SE 0x75 (FUN_00430790). [not modelled] FUN_00420c40.
+    csHost.oxy_p = &oxy;
     csHost.heal_fn = [&] {
         if (player.hp >= 1) { player.hp = player.max_hp; player.hp_lag = float(player.hp); }
         audio.play(0x75, kSfxMenuVol);
@@ -4755,6 +4762,7 @@ title_again:
                             tremble_active(a->tremble) ? " ON" : "", int(a->footsteps), int(a->flyer),
                             a->fly_r2 != 0.0f ? " flyto" : "", int(a->ztest),
                             pl ? feet.x : a->pos.x, pl ? feet.y : a->pos.y, pl ? feet.z : a->pos.z);
+                if (a->slant != 0.0f) std::printf("  [chr] %d slant %.1f deg (+0x4ec)\n", id, a->slant * 57.29578f);
             }
         } else if (cmd == "fx") {                      // the named (script-placed) effects, the glare byte
             std::printf("  [fx] glare %d feedback %d\n", csHost.glare, csHost.glare_fb);

@@ -351,6 +351,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0xb9 && nargs >= 1) { host->bgm_play(op(0)); return Step::Continue; }
                     if (sub == 0xba) { host->bgm_stop(nargs >= 1 ? op(0) : 0); return Step::Continue; }
                     if (sub == 0x85) { host->heal_hp(); return Step::Continue; }
+                    // 0x86 GiveO2(): the oxygen gauge 0x76c1b8 = 6000.0 [DOC EVENTVM_HANDLERS_2.md, 0x56880a].
+                    if (sub == 0x86) { host->give_o2(); return Step::Continue; }
                     if (sub == 0x14e && nargs >= 2) { host->chr_muteking(op(0), op(1)); return Step::Continue; }
                     if (sub == 0x96) { host->save_cont_data(); return Step::Continue; }
                     if (sub == 0x160 && nargs >= 11) {        // (id, lv, 9 floats)
@@ -389,6 +391,7 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // 0x163 Chr_NoForce / 0x164 Chr_AniDisable(id, on) [cases 0x163 / 0x164 ->
                     // FUN_00571d60 / FUN_00571db0: +0x130 bit 0x10000 / 0x80000 = (on != 0)].
                     if (sub == 0x163 && nargs >= 2) { host->chr_no_force(op(0), op(1) != 0); return Step::Continue; }
+                    if (sub == 0x161 && nargs >= 2) { host->chr_slant_fire(op(0), opf(1)); return Step::Continue; }
                     if (sub == 0x164 && nargs >= 2) { host->chr_ani_disable(op(0), op(1) != 0); return Step::Continue; }
                     // 0xd0 PadTilt(i) [case 0xd0 -> FUN_005d3500(op0)].
                     if (sub == 0xd0 && nargs >= 1) { host->pad_tilt(op(0)); return Step::Continue; }

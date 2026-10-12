@@ -244,6 +244,10 @@ struct Actor {
     Vec3 knockback{};      // (legacy; enemies use mover.k1/k2 — the player keeps its own)
     MoverState mover;      // engine: +0x32c velocity, +0x338/+0x344 knock channels, +0xa3c disp
     float hit_flash = 0.0f;  // engine: +0x238, the hurt timer (1.65 -> 0 by 0.075 a tick)
+    // +0x4ec, radians: XSO op 0x161 Chr_SlantFire writes it (FUN_00571ca0); the one reader found (the export
+    // searched for the offset) is anime_GenerateEffect's attached branch, as the effect's pitch
+    // [EXPORT 004496f0.c:106] (a caster aiming up or down in a scene).
+    float slant = 0.0f;
     float scale = 1.0f;    // engine: +0x248, the model/sprite scale (M460 shrinks on a split)
     float height = 0.0f;   // engine: +0x324, collision height: the origin floats this far above pos
     bool flyer = false;    // engine: byte +0x398 (CASTINFO+0x44 > 0 or EI+0xb0 != 0): hovers via

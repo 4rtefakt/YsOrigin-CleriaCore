@@ -77,6 +77,8 @@ struct H : XsoHost {
     void chr_collision_vanish(int id, bool on) override { log.push_back("vanish " + std::to_string(id) + " " + std::to_string(on)); }
     void chr_stop(int id) override { log.push_back("stop " + std::to_string(id)); }
     void chr_no_force(int id, bool on) override { log.push_back("noforce " + std::to_string(id) + " " + std::to_string(on)); }
+    void chr_slant_fire(int id, float deg) override { char b[48]; std::snprintf(b, sizeof b, "slant %d %.1f", id, deg); log.push_back(b); }
+    void give_o2() override { log.push_back("o2"); }
     void chr_ani_disable(int id, bool on) override { log.push_back("anidisable " + std::to_string(id) + " " + std::to_string(on)); }
     void pad_tilt(int i) override { log.push_back("tilt " + std::to_string(i)); }
     void se_play_pos(int se, float x, float y, float z) override {
@@ -277,6 +279,8 @@ int main(int argc, char** argv) {
         a.op(0x14d, {Asm::I(196), Asm::I(1)});
         a.op(0x165, {Asm::I(198), Asm::I(0)});
         a.op(0x163, {Asm::I(998), Asm::I(1)});
+        a.op(0x161, {Asm::I(167), Asm::F(-5.0f)});
+        a.op(0x86, {});
         a.op(0x164, {Asm::I(197), Asm::I(1)});
         a.op(0xd0, {Asm::I(5)});
         a.op(0xbd, {Asm::I(600), Asm::F(1.5f), Asm::F(2.0f), Asm::F(-3.0f)});
@@ -290,6 +294,7 @@ int main(int argc, char** argv) {
         H h2; h2.wallet = 5;
         Asm b; b.op(0xb2, {Asm::I(-50)}); b.raw(0x01000000);
         XsoVm vm2; vm2.host = &h2; vm2.run(Xso::parse(b.bytes()));
+        check(h.has("slant 167 -5.0") && h.has("o2"), "Chr_SlantFire(id, degrees) / GiveO2 reach the host");
         check(h.has("vanish 196 1") && h.has("stop 198") && h.has("noforce 998 1") && h.has("anidisable 197 1") && h.has("tilt 5") && h.has("se3d 600 1.50 2.00 -3.00") &&
                   h.has("sechr 697 203") && h.has("fxalpha eft_x 0.30") && h.has("meshalpha plate 0.00") &&
                   h.has("timescale 0.50") && h.wallet == 999999 && h2.wallet == 0,

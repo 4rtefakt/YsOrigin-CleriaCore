@@ -249,6 +249,8 @@ struct XsoHost {
     // 0x164 Chr_AniDisable(id, on) (FUN_00571db0): +0x130 bit 0x80000 = (on != 0); the NPC mover
     // FUN_0045f4d0 then stops picking its idle / walk / run motion from the table 0x69ba48.
     virtual void chr_no_force(int /*id*/, bool /*on*/) {}
+    // 0x161 Chr_SlantFire(id, degrees) (FUN_00571ca0 [EXPORT 00571ca0.c:19]): +0x4ec = degrees x 0.0174533.
+    virtual void chr_slant_fire(int /*id*/, float /*deg*/) {}
     virtual void chr_ani_disable(int /*id*/, bool /*on*/) {}
     // 0x165 Chr_Stop(id) (FUN_00571e00): the walk and fly targets = the position, the arrival
     // radii +0x364 / +0x380 and the speed +0x368 = 0, so Wait_ChrMoving passes.
@@ -382,6 +384,7 @@ struct XsoHost {
     // 0x85 HealHp() (FUN_004fa0e0: HP to max), 0x14E Chr_Muteking(id, n) (player +0x734 =
     // max(+0x734, n)), 0x96 SaveContData() (the continue checkpoint, FUN_00443d70).
     virtual void heal_hp() {}
+    virtual void give_o2() {}                                   // 0x86: the oxygen gauge back to full
     virtual void chr_muteking(int /*id*/, int /*frames*/) {}
     virtual void save_cont_data() {}
     // op 0xe2 Caption(name): the area-name card is PRE-RENDERED art (data/image/<name>.dds).

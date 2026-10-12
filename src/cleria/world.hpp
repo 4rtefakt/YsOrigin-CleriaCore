@@ -219,6 +219,9 @@ class ActorWorld : public XsoHost {
     }
     // 0x163 Chr_NoForce / 0x164 Chr_AniDisable (FUN_00571d60 / FUN_00571db0): +0x130 (SpawnTag::bits,
     // whose group field is bits 8..10) bit 0x10000 / 0x80000.
+    void chr_slant_fire(int id, float deg) override {           // 0x161: +0x4ec (0x6bd0dc)
+        if (Actor* a = find(id)) a->slant = deg * 0.017453292f;
+    }
     void chr_no_force(int id, bool on) override {
         if (Actor* a = find(id)) a->tag.bits = (a->tag.bits & ~0x10000u) | (on ? 0x10000u : 0u);
     }
