@@ -3246,6 +3246,49 @@ CASES.update({
         expect=["pin 308/5", ") file 12", "pin 9/6", ") file 17", "pin 410/", ") file 8"]),
 })
 
+# Arena reach (build/mode_re/ARENA.md §12). Hugo's shot is FireBullet(2, 130, ..): homing period 1 with a max turn of
+# 0, and the bullet's target scan FUN_00596c70 runs for effects 0x20 / 0x15 only [EXPORT 00593b90.c:176] — it flies
+# level from where it was fired, so the fliers (Chelasken 42 and Vagully 41 on Stage 3, Diphtheloyd 39 on Stage 4) are
+# shot from a jump. The pilot alternates 440 ticks of ground shots with 440 of jump shots (jump, fire 6 ticks later);
+# both stages clear and bank with no sweep.
+def _hugo_jumpshots(end):
+    d = "10:opt=OneHitKill=1;11:opt=DamageTaken=0"
+    for b in range(130, end, 900):
+        d += (f";{b}:every=9,{b + 440},nearest=1.2;{b + 3}:every=9,{b + 440},atk;{b + 450}:every=60,{b + 890},nearest=2;"
+              f"{b + 470}:every=60,{b + 890},jump;{b + 476}:every=60,{b + 890},atk")
+    return d + f";{end}:stats;{end + 1}:quit"
+_ARENA_HUGO = "1:keys;40:down;45:down;50:ok;100:down;110:ok;150:down;190:ok;270:ok;{rows}520:ok;700:quit"
+# Menoak (cast 56), "Shell repels all physical attacks": its ENEMYINFO resists are 1, -1, -5, 1 and the damage is
+# (1 - resist[class]) x raw [EXPORT 004fa550.c:43], the class from the section (FUN_0046d5e0: 0x10d -> 0, 0x10e -> 1,
+# 0x10c -> 2, anything else 3). So a swing or a plain shot does 0, the bracelet-116 skill (section 0x10d) does 0, the
+# 118 skill (0x10e) does x2 and the 117 skill (0x10c) x6 — with each character.
+_MENOAK = ("5:flag=116,1;6:flag=117,1;7:flag=118,1;8:flag=182,1;9:flag=183,1;10:flag=184,1;12:level=20;13:opt=InfiniteHP=1;"
+           "20:every=30,460,nearest=1.6;40:atk;55:atk;100:bracelet=116;120:skill+;122:skill-;124:abil;200:bracelet=118;220:skill+;"
+           "222:skill-;224:abil;300:bracelet=117;320:skill+;322:skill-;324:abil;460:quit")
+CASES.update({
+    "arena_stage3_hugo_fliers": dict(
+        room=None, char="2", env=dict(_LOCK, CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[5, 6, 7, 8, 9, 10])},
+        title=_ARENA_HUGO.format(rows="430:down;432:down;"), drive=_hugo_jumpshots(3400),
+        expect=["(Guilty Fire): the run starts in S_9129", "[arena] Arena(cast 42,", "ArenaSave: SP ", "cleared in "]),
+    "arena_stage4_hugo_fliers": dict(
+        room=None, char="2", env=dict(_LOCK, CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[5, 6, 7, 8, 9, 10])},
+        title=_ARENA_HUGO.format(rows="430:down;432:down;434:down;"), drive=_hugo_jumpshots(4500),
+        expect=["(Silent Sands): the run starts in S_9139", "[arena] Arena(cast 39,", "ArenaSave: SP ", "cleared in "]),
+    "menoak_resists_yunica": dict(
+        room="S_20/S_2008/S_2008", char="1", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
+        expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t124 sec 0x10d", "): 0 dmg, 146/146 left", "t224 sec 0x10e",
+                "hit Menoak (lv14 DEF 91): 7", "t324 sec 0x10c", "hit Menoak (lv14 DEF 91): 159 dmg, 0/146 left"]),
+    "menoak_resists_hugo": dict(
+        room="S_20/S_2008/S_2008", char="2", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
+        expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t224 sec", "hit Menoak (lv14 DEF 91): 49 dmg"]),
+    "menoak_resists_toal": dict(
+        room="S_20/S_2008/S_2008", char="3", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
+        expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t124 sec 0x10d", "): 0 dmg, 146/146 left", "t224 sec 0x10e",
+                "hit Menoak (lv14 DEF 91): 6", "t324 sec 0x10c", "hit Menoak (lv14 DEF 91): 18"]),
+})
+
 CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402
