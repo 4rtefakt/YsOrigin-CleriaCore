@@ -96,6 +96,11 @@ struct SaveState {
     // the item, the event grant, the player tick, the add FUN_0046cc10, the drain FUN_00462c40, 0x54a890 and the
     // stage step at 0x428371), so a load and the Retry bring back the saved value. 0 in older CleriaCore saves.
     float boost = 0.0f;
+    // The Type Select answers 0x76c218..0x76c228 (block +0x1f48..+0x1f58): Adol's version (0 Felghana, 1 Napishtim),
+    // Yunica / Hugo / Toal Extra, Yunica's School Outfit. FUN_0042e9a0 / FUN_0042ef40 copy the session globals
+    // 0x74c0cc / dc / d8 / d4 / d0 in before the block is written, FUN_0042f5e0 / FUN_0042fb90 copy them back
+    // (build/mode_re/EXTRA_VERSIONS.md §1.2). Indexed by the character for 0..3. 0 in older CleriaCore saves.
+    std::int32_t version[5] = {0, 0, 0, 0, 0};
 
     int character() const { return flags[150]; }
     int difficulty() const { return flags[144]; }  // DAT_0076bb5c; header +0x50 = this+1

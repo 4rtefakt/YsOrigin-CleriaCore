@@ -190,6 +190,8 @@ class Bullets {
     Bomb* spawn_bomb(const Spawn& s);
     std::vector<std::unique_ptr<Bomb>>& bombs() { return bombs_; }
     void set_rng(std::function<std::uint32_t()> r) { rng_ = std::move(r); }
+    // DAT_0074c0d8 (Hugo's Extra version, EXTRA_VERSIONS.md §3): spawn() speeds every effect-0x82 bullet x 1.35.
+    void set_hugo_extra(bool on) { hugo_extra_ = on; }
 
   private:
     ef2sim::Effect* spawn_fx(int id, const Vec3& pos, const Vec3& rot, int side, float atk,
@@ -206,6 +208,7 @@ class Bullets {
     std::vector<std::unique_ptr<WaterProbe>> probes_;
     std::vector<std::unique_ptr<Bomb>> bombs_;
     std::function<std::uint32_t()> rng_;
+    bool hugo_extra_ = false;
 };
 
 }  // namespace cleria::bullet

@@ -107,6 +107,7 @@
 #include "cleria/camrig.hpp"
 #include "cleria/skillmp.hpp"
 #include "cleria/hugo_eyes.hpp"
+#include "cleria/extra_versions.hpp"
 #include "cleria/exp_award.hpp"
 #include "cleria/oxygen.hpp"
 #include "cleria/hazard.hpp"

@@ -136,7 +136,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (c >= 1 && c <= 3) character = c;
     }
     // The rest of the New-Game choices (set by the title's popups; see the flow below):
-    int skin = 0;          // 0 Normal, 1 Extra (alternate appearance -- swap pending skin RE)
+    int skin = 0;          // the Type Select answer 0x74c0dc / d8 / d4: 0 Normal, 1 Extra (EXTRA_VERSIONS.md; view_extra.inl)
+    if (const char* ts = std::getenv("CLERIA_TYPE")) skin = std::atoi(ts) == 1;   // a room boot's version (the drive cases)
     int difficulty = 2;    // 0 VeryEasy,1 Easy,2 Normal,3 Hard,4 Nightmare (persisted TitleGameDifficulty)
     bool sp_bonus = false; // "SP Bonus Acquisition": boosts this save's SP gains
     // Option settings (persisted in yso_win.ini). Function-scope so the title menu edits them and
@@ -1544,6 +1545,7 @@ title_again:
     // the effect's particles do the damage. gas_owner: the M460 whose gas floor applies
     // (fx+0x1a8; its handler pass #14).
     bullet::Bullets bullets(&fxsim, ef2_of);
+    std::vector<extra::Runner> xrunners;                  // the kind-0x17 runners (view_extra.inl)
     // World item pickups (src/cleria/pickup.hpp, build/item_re/PICKUPS.md).
     std::vector<Pickup> pickups;
     struct PendingDebris { int ticks; int cast; Vec3 origin; const AsoVm::DebrisEvent* ev; };
@@ -2184,6 +2186,7 @@ title_again:
         // placed again by the live root on csMgr, into the EF2 sim.
         world.drop_named_effects();
         bullets.clear();                                      // before the effects they hold
+        xrunners.clear();
         gas_owner.clear();
         fxsim.clear();
         wx.clear();                                           // FUN_00428ec0 / 0x76a558 = 0 (WEATHER.md)
@@ -2531,6 +2534,7 @@ title_again:
         s.ail[0] = std::int32_t(ail.mask);                      // g_flags 528..532, in the block
         for (int i = 0; i < 4; ++i) s.ail[i + 1] = ail.t[i];
         s.boost = player.boost;                                 // 0x76c1b4, in the block
+        s.version[character & 3] = skin;                        // 0x76c218.. = the session's Type Select answers
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
@@ -2613,6 +2617,7 @@ title_again:
         std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];   // the raw clear bytes (FUN_0042f5e0)
         character = std::clamp(s.character(), 1, 3);
+        skin = s.version[character] == 1;              // FUN_0042f5e0: 0x74c0dc / d8 / d4 = the block's (EXTRA_VERSIONS.md §1.2)
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
         if (s.mp_max > 0.0f) { player.sp_max = s.mp_max; player.sp_cur = std::min(s.mp_cur, s.mp_max); }
@@ -4001,6 +4006,7 @@ title_again:
                         (unsigned long long)(pick_rng.calls - c0));
     };
     #include "view_hugo_eyes.inl"                         // Hugo's Eyes of Fact (the player's familiars)
+    #include "view_extra.inl"                             // the Extra versions (EXTRA_VERSIONS.md)
     auto skill_tick = [&](bool skill_held, bool attack_held) {
         const int slot = skillmp::bracelet_slot(inv.magic);
         skillmp::SkillIn si;
@@ -4063,7 +4069,7 @@ title_again:
             shield_fx = nullptr; shield_on = false;
             const bool charged = so.level == 2;
             shield_hits = charged ? 2 : 1;
-            shield_life = charged ? 0x17c : 0x168;
+            shield_life = extra::hugo_shield_life(charged, skin == 1);   // 360 / 380; Hugo Extra 420 / 440 [BYTES 0x46f4c8..0x46f53e]
             if (player.boosting) { shield_life = 0x1e0; shield_hits += 1; }
         }
         // Toal's 0x76 cast: +0x7b0 = (+0x388 == 0), "cast in the air" [EXPORT 0046ea00.c:171-173]; only the
@@ -7554,6 +7560,7 @@ title_again:
                 if (pa_out.section != 0x112) hugo_eyes_fire();         // FUN_0046d6e0: the eyes shoot too
             }
             hugo_eyes_tick();                                          // FUN_0046af60's eyes, FUN_0046a3e0's blast
+            extra_tick();                                              // the Extra versions' blocks [BYTES 0x466e0a..0x467aff]
             if (pa_out.t_add != 0.0f) pv.t += pa_out.t_add;            // the air combo's hang time
             if (pa_out.impulse) { player_kb.x += pa_out.impulse_x; player_kb.z += pa_out.impulse_z; }
             if (pa_out.lunge) { player_kb.x = pa_out.lunge_x; player_kb.z = pa_out.lunge_z; }
@@ -8257,6 +8264,7 @@ title_again:
                 std::vector<bullet::Event> bev;
                 #include "view_crystal.inl"          // M980's bullet scan (M980.md §3.4a)
                 bullets.update(benv, &bev);
+                extra_runners_tick();                // the kind-0x17 runners (FUN_00591850)
                 for (auto it = gas_owner.begin(); it != gas_owner.end();) {
                     bool live = false;
                     for (auto& bp : bullets.list()) live = live || bp.get() == it->first;

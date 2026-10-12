@@ -218,8 +218,12 @@ Bullet* Bullets::spawn(const Spawn& in) {
     b->atk = s.owner_atk;
     if (s.kind == 0x10 || s.kind == 0x23) { monster = true; b->atk = 0.0f; }
     int rtype = 0;
-    // Hugo's shot (effect 0x82): rtype 3. [not modelled] its x1.35 speed under DAT_0074c0d8 (Extra mode).
-    if (s.effect == 0x82) rtype = 3;
+    // Hugo's shot (effect 0x82): rtype 3, and x 1.35 the speed (0x6bd4ac) under DAT_0074c0d8, his Extra version
+    // [BYTES 0x593db6..0x593dda].
+    if (s.effect == 0x82) {
+        rtype = 3;
+        if (hugo_extra_) s.speed *= 1.35f;
+    }
     // Effect 0x1e7 (487, boss08's black smoke; §1.3, DARM_B23.md §7): three draws u1..u3 in [1, 2) from the raw
     // word's mantissa, scale = (1 + 1.5 (u3 - 1), u2, 1 + 1.5 (u1 - 1)), spawned through FUN_00450880 (the scale is
     // kept as the effect's own).

@@ -31,6 +31,7 @@ int main() {
     s.o2 = 1234.5f; s.o2_alpha = 255;           // O2 0x76c1b8 + its gauge 0x76c1bc (in the block)
     s.ail[0] = 0x21; s.ail[1] = 700; s.ail[4] = 1800;   // the ailment mask + timers, g_flags 528..532
     s.boost = 12486.0f;                         // the Boost gauge 0x76c1b4
+    s.version[1] = 1; s.version[4] = 1;         // 0x76c21c Yunica Extra, 0x76c228 the School Outfit (EXTRA_VERSIONS.md §1.2)
 
     const SaveRecord rec = to_record(s, "Water Prison 1F", "07/23/2026", "13:37:00");
     const std::vector<std::uint8_t> raw = rec.encode(0xDEADBEEFu, 0x1234ABCDu);
@@ -51,7 +52,9 @@ int main() {
          dec->f32(0x0076C140) == 2.0f &&         // the snapshot y FUN_00443d70 stores
          t.o2 == 1234.5f && t.o2_alpha == 255 && dec->f32(0x0076C1B8) == 1234.5f && dec->i32(0x0076C1BC) == 255 &&
          std::memcmp(t.ail, s.ail, sizeof s.ail) == 0 && dec->i32(0x0076B91C + 4 * 528) == 0x21 &&
-         dec->i32(0x0076B91C + 4 * 532) == 1800 && t.boost == 12486.0f && dec->f32(0x0076C1B4) == 12486.0f;
+         dec->i32(0x0076B91C + 4 * 532) == 1800 && t.boost == 12486.0f && dec->f32(0x0076C1B4) == 12486.0f &&
+         std::memcmp(t.version, s.version, sizeof s.version) == 0 && dec->i32(0x0076C21C) == 1 && dec->i32(0x0076C228) == 1 &&
+         dec->i32(0x0076C218) == 0 && 0x0076C21C - SaveRecord::kBase == 0x1f4c;
     const SaveMeta m = meta_of(*dec);
     ok = ok && m.character == 1 && m.difficulty == 2 && m.area == "Water Prison 1F" &&
          m.date == "07/23/2026" && m.time == "13:37:00";
