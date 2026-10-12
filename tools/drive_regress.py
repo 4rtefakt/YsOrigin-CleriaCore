@@ -2586,7 +2586,51 @@ CASES.update({
               "5766:dflags;5770:every=40,9000,boss5;5778:every=40,9000,atk;9000:every=20,9400,oktapf;9400:scripts;9401:quit",
         expect=["flag 224 = 1", "slot 0 released: 0/0", "t5765 scripts", "script Battle_Hugo_2 pc 35",
                 "flags 130=0 131=0 133=0 156=1", "flag 224 = 1", "t9400 scripts", "script AfterBattle_Hugo_2"],
-        count={"flag 224 = 1": 2}),
+        count={"flag 224 = 1": 2, "boss_defeated": 1}),      # one event a boss (issue #91)
+    # Floors 6-7 and the ending as Hugo and Yunica (ROUTE_F47_HUGO.md / ROUTE_F47_YUNICA.md §3).
+    # Zava as Hugo: the Retry start runs Battle_Hugo; zava_fight's pilot wins with his shots (225, both heads).
+    "zava_hugo": dict(
+        room="S_60/S_6082/S_6082", env={"CLERIA_CHAR": "2", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.45;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;6400:scripts;6401:quit",
+        expect=["Zava's heads: a (-39.46,6.10,30.00)", "Zava phase 2 action 0", "flag 225 = 1",
+                "[content] boss_defeated S_6082 flag 225", "head b destroyed", "head a destroyed", "script Battle_Hugo"]),
+    # Dalles as Hugo (his last boss): dalles_fight's drive; 226, then S_7000's Evt_7000_Hugo_2 (the ending chain).
+    "dalles_hugo": dict(
+        room="S_70/S_7080/S_7080", env={"CLERIA_CHAR": "2", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.5;8:tier=10;"
+              "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
+              "16:flag=184,3;17:bracelet=116;60:boss7;9000:scripts;9001:quit",
+        expect=["[boss07] Dalles: HP 2500", "the fight starts at", "flag 226 = 1", "[content] boss_defeated S_7080 flag 226",
+                ">> entering S_7000", "script Evt_7000_Hugo_2"]),
+    # S_6080's duel, walked into. Hugo: Kishgal (cast 172) -> demo4 -> After_Move_Hugo: the Rod (98) and 235.
+    "duel_s6080_hugo": dict(
+        room="S_60/S_6080/S_6080", char="2", env=dict(_LOCK, CLERIA_LEVEL="50"),
+        drive="1:opt=CutsceneSkip=3;8:tier=10;9:opt=DamageTaken=0;40:move=0,1,300;80:every=20,9000,oktapf;"
+              "81:every=7,9000,duel=172;9000:scripts;9001:flagdump;9002:quit",
+        expect=["[content] boss_defeated S_6080", "ChangeScene 'demo4\\' -> S_6080", "t9000 scripts", "frozen 0 fix 0/0",
+                " 98=1 ", " 235=1 "], count={"boss_defeated": 1}),
+    # Yunica: demo4 first, then Epona (cast 171), 235; the Rod only from TalkC960 (cast 161) afterwards.
+    "duel_s6080_yunica": dict(
+        room="S_60/S_6080/S_6080", char="1", env=dict(_LOCK, CLERIA_LEVEL="50"),
+        drive="1:opt=CutsceneSkip=3;8:tier=10;9:opt=DamageTaken=0;40:move=0,1,300;80:every=20,4800,oktapf;"
+              "81:every=7,4800,duel=171;4849:flagdump;4850:near=161;4860:act;4870:every=20,7000,oktapf;7000:scripts;"
+              "7001:flagdump;7002:quit",
+        expect=["ChangeScene 'demo4\\' -> S_6080", "[content] boss_defeated S_6080", " 98=-1 ", " 235=1 ",
+                "[probe] actor 161 -> talkc960", "t7000 scripts", "frozen 0 fix 0/0", " 98=1 "],
+        count={"boss_defeated": 1}),
+    # The ending scene and the clear write, per character: S_0003's Evt_0001_<name> -> demo7 -> Clear_Event_1, whose
+    # EventXX(4) sets the character's clear flag and byte and saves record.ta2 (in the case's own save folder).
+    "ending_hugo": dict(
+        room="S_00/S_0003/S_0003", char="2",
+        drive="1:opt=CutsceneSkip=3;40:every=10,8400,ok;8400:quit",
+        expect=["ChangeScene 'demo7\\' -> S_0003", "[clear] EventXX(4): GameFirstPlay = 1, clear flag 298 = 1",
+                "[clear] clear bytes Yunica 00 Hugo 01 Toal 00, 1 cleared tier(s); record.ta2 saved"]),
+    "ending_yunica": dict(
+        room="S_00/S_0003/S_0003", char="1",
+        drive="1:opt=CutsceneSkip=3;40:every=10,8900,ok;8900:quit",
+        expect=["ChangeScene 'demo7\\' -> S_0003", "[clear] EventXX(4): GameFirstPlay = 1, clear flag 297 = 1",
+                "[clear] clear bytes Yunica 01 Hugo 00 Toal 00, 1 cleared tier(s); record.ta2 saved"]),
     # ROUTE_F47 R8, Yunica's item gates. S_4021's evil door: the Evil Ring held (Flag_IsEquip(94)) and 93 == 1 ->
     # Look_Door -> EV_4021_Yunica_2 -> S_4017's EV_4017_Yunica_1. Hugo's branch of the same door: EV_4021_Hugo_2.
     "route_s4021_yunica": dict(
