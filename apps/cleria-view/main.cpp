@@ -447,6 +447,12 @@ fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
   return vec4<f32>(c, tc.a * clamp(in.opacity, 0.0, 1.0));
 }
 
+// A boss's darkening quad (preset 0x20649, g.darken_pipe): texture x diffuse, taken off the destination.
+@fragment
+fn fs_darken(in : VsOut) -> @location(0) vec4<f32> {
+  return vec4<f32>(textureSample(tex, smp, in.uv).rgb * in.color.rgb, 1.0);
+}
+
 // Floor shadow decal: pure black at the texture's alpha, NO fog (fs_char's fog would
 // tint the shadow toward the fog colour and it would blend invisibly over the floor).
 // x the vertex alpha (in.opacity; 1 for a character's): a pickup's / a debris piece's flat shadow is its own

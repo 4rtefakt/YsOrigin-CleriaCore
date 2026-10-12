@@ -33,6 +33,7 @@ struct WorldPipes {
     WGPURenderPipeline char_pipeline_add{}; // additive variant, for glow overlays (Topic selection wash)
     WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
     WGPURenderPipeline floor_quad_pipe{}; // an actor's image on a mirror floor (preset 0x21641: fs_char, no depth write, unculled)
+    WGPURenderPipeline darken_pipe{};     // a boss's darkening quad (preset 0x20649: dest x (1 - texture x diffuse))
     WGPURenderPipeline mat_pipe[4][2]{};  // blended YMO materials: [blend mode 1..3][z-write]
     WGPURenderPipeline zpre_pipe{};       // FUN_005f8de0's depth pre-pass (material_zprepass)
     // The same three with D3DCULL_CCW, for a material without flags 0x400 (material_cull).
@@ -1228,6 +1229,15 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
         WGPURenderPipelineDescriptor qpd = cpd; qpd.depthStencil = &ads;
         qpd.primitive.cullMode = WGPUCullMode_None;
         g.floor_quad_pipe = wgpuDeviceCreateRenderPipeline(g.device, &qpd);
+        // Preset 0x20649 (bit 8): BLENDOP ADD, SRCBLEND ZERO, DESTBLEND INVSRCCOLOR [BYTES 0x5ebcd4..0x5ebd01]; Z test
+        // without Z write, CULLMODE NONE, RGB. [not modelled] its fog (the fog colour is forced to 0).
+        WGPUBlendState db = {};
+        db.color = {WGPUBlendOperation_Add, WGPUBlendFactor_Zero, WGPUBlendFactor_OneMinusSrc};
+        db.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_Zero, WGPUBlendFactor_One};
+        WGPUColorTargetState dt = ctarget; dt.blend = &db;
+        WGPUFragmentState dfs = cfs; dfs.entryPoint = sv("fs_darken"); dfs.targets = &dt;
+        qpd.fragment = &dfs;
+        g.darken_pipe = wgpuDeviceCreateRenderPipeline(g.device, &qpd);
     }
 
     // Blended YMO materials: FUN_005f92b0's jump table 0x5fa768 (MATERIAL.md §4) — mode 1
@@ -1472,9 +1482,12 @@ static void advance_scroll(Gpu& g, Room& room, int ticks) {
 
 // part 0: the whole room (headless / backgrounds). part 1: the room's layers 3 and 5 (the
 // frame's first pass, it clears). part 2: layer 0xb only, loaded over the actors drawn
-// between (room_late_layer). part 3: part 1 as the water's reflection pass draws it -- cleared to
-// 0xff000000 [BYTES 0x5dff52..0x5e007f: Clear(0, NULL, 3, 0xff000000, 1.0, 0)]. part 4: the mirror pass's
-// layer 0 -- the header-0x100 objects' passes 0 and 2, cleared to 0xff000000 too. part 5: every subset of the
+// between (room_late_layer). part 3: part 1 as the water's reflection pass draws it. Retail clears that target to
+// 0xff000000 [BYTES 0x5dff52..0x5e007f: Clear(0, NULL, 3, 0xff000000, 1.0, 0)] -- the colour it clears the back
+// buffer to as well, so water that mirrors the void beside a room shows what the void itself shows. [approx]
+// CleriaCore's frame is cleared to its own dark colour, and the reflection pass uses that one: with 0xff000000
+// the water beside S_2005's left pillar mirrored a black the frame has nowhere else. part 4: the mirror pass's
+// layer 0 -- the header-0x100 objects' passes 0 and 2, cleared to 0xff000000. part 5: every subset of the
 // object whose vertices are [g_mirror.v0, g_mirror.v1), over what the target holds (FUN_00562650's pass -1).
 // part 6: the same into a target cleared to 0 (a boss's shadow pass with draw flags 4, view_boss_shadow.inl).
 // Parts 1 and 2 leave the header-0x100 objects out.
@@ -1487,7 +1500,7 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
     ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
     ca.loadOp = load ? WGPULoadOp_Load : WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
     ca.clearValue = {0.055, 0.067, 0.086, 1.0};
-    if (part == 3 || part == 4) ca.clearValue = {0, 0, 0, 1.0};
+    if (part == 4) ca.clearValue = {0, 0, 0, 1.0};
     if (part == 6) ca.clearValue = {0, 0, 0, 0};
     WGPURenderPassDepthStencilAttachment da = {};
     da.view = depth; da.depthLoadOp = load ? WGPULoadOp_Load : WGPULoadOp_Clear;

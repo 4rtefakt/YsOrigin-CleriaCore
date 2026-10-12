@@ -3217,6 +3217,15 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:tier=10;9:flag=205,1;10:saveload;"
               "11:flag=163,1;60:boss6;400:vstat;401:quit",
         expect=["[video] boss shadow target 0 triangles 0 strength 0.000 quads 2", "[video] mirror 640x400 floor 1 objects 1 images 4"]),
+    # ... and Nygtilger's 36 pieces each darken the floor through one quad, their pictures the cells of one atlas:
+    # 64 a cell at Shadows Full (the render models), 32 at Player and 16 at Simple (the hulls).
+    "boss_shadow_nygtilger": dict(
+        room="S_20/S_2099/S_2099",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=40;9:flag=205,1;10:saveload;40:every=20,700,ok;"
+              "900:vstat;903:vopt=ShadowEffectLevel=1;910:vstat;911:vopt=ShadowEffectLevel=0;920:vstat;921:quit",
+        expect=["[video] boss shadow target 64 triangles 25973 strength 0.000 quads 36",
+                "[video] boss shadow target 32 triangles 1408 strength 0.000 quads 36",
+                "[video] boss shadow target 16 triangles 1408 strength 0.000 quads 36"]),
     # Toal's trail (SHADOWS.md 5): none in the human form's stand (C_119 has no entry for the tag); in the demon
     # form the run (tag 301, then 302 where the wall stops him) leaves 108 copies of the trail image at Shadows
     # Full and 54 at Player and Simple.
