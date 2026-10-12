@@ -3479,12 +3479,12 @@ def run(name, case, exe, assets):
         if "title" in case:
             env["CLERIA_TITLE_DRIVE"] = case["title"]
         sob = [os.path.join(assets, "MAP", case["room"] + ".SOB")] if case.get("room") else []
-        r = subprocess.run([exe, assets] + sob + extra, env=env, capture_output=True, text=True, timeout=TIMEOUT)
+        r = subprocess.run([exe, assets] + sob + extra, env=env, capture_output=True, text=True, errors="replace", timeout=TIMEOUT)
         out = r.stdout + r.stderr
         if "drive2" in case:        # a second boot on the same save folder (`room2`: its room)
             sob2 = os.path.join(assets, "MAP", case.get("room2", case["room"]) + ".SOB")
             r = subprocess.run([exe, assets, sob2] + extra, env=dict(env, CLERIA_DRIVE=case["drive2"]), capture_output=True,
-                               text=True, timeout=TIMEOUT)
+                               text=True, errors="replace", timeout=TIMEOUT)
             out += "==== second boot" + chr(10) + r.stdout + r.stderr
         lost = [n for n in case.get("files", []) if not os.path.exists(os.path.join(saves, n))]   # must be in the save folder
         if lost:
