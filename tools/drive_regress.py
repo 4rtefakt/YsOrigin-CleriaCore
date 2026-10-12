@@ -3222,6 +3222,30 @@ CASES.update({
         expect=["[video] caustics room 0 off 0", "[video] water level 2 surfaces 0 grab 0x0"]),
 })
 
+# The sprite's AIA file +0x97c and op 0x167 Chr_AniChange (build/event_re/ANI_VARIANT.md, issue #92): `chr=` prints the
+# file index after the pose. Yunica (196) lying in S_3015 is placed and pinned in one script step, so only the op's 6
+# (C_102) reaches her; Toal (198) in S_5097 and S_7000 goes demon sheet 12 (C_115) -> 17 (C_113) for the knock-down
+# tag 9 -> 8 (C_104) for the rise tag 410; Hugo (197) in S_6099 sits on 7 (C_103, chosen by section 319 in the one
+# tick hugo_anime leaves before its pins — an NPC's script runs in play) and raises his staff on 16 (C_112).
+_ANI7 = "1:opt=CutsceneSkip=3;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:at3=0,7.4,-27.8,0;40:every=10,3100,oktapf;"
+CASES.update({
+    "anichange_s3015_yunica_down": dict(
+        room="S_30/S_3009/S_3009", char="3", env=_LOCK, drive="10:flag=251,1;20:exit=1;60:chr=196;61:quit",
+        expect=[">> entering S_3015", "[chr] 196 ", "pin 405/0 motion -1 aso 2/-1/0", ") file 6"]),
+    "anichange_s5097_toal": dict(
+        room="S_50/S_5097/S_5097", char="3", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=InfiniteHP=1;10:move=0,1,400;40:every=10,10500,ok;9860:chr=198;9990:chr=198;10460:chr=198;10461:quit",
+        expect=["pin -1/0", ") file 12", "pin 9/6", ") file 17", "pin 410/1", ") file 8"]),
+    "anichange_s6099_hugo": dict(
+        room="S_60/S_6099/S_6099", char="3", env=_F6,
+        drive="5:flag=231,1;8:tier=10;9:opt=DamageTaken=0;40:move=0,1,300;80:every=20,2400,ok;100:chr=197;2256:chr=197;2340:chr=197;2341:quit",
+        expect=["pin 302/3 motion 319 aso 319/", ") file 7", "pin 300/3", ") file 16", "pin 300/5", "aso 2/-1/0", ") file 16"]),
+    "anichange_s7000_toal": dict(
+        room="S_70/S_7000/S_7000", char="3", env=_LOCK,
+        drive=_ANI7 + "2700:chr=198;2900:chr=198;3010:chr=198;3011:quit",
+        expect=["pin 308/5", ") file 12", "pin 9/6", ") file 17", "pin 410/", ") file 8"]),
+})
+
 CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402

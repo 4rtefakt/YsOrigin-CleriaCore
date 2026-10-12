@@ -388,6 +388,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0x14d && nargs >= 2) { host->chr_collision_vanish(op(0), op(1) != 0); return Step::Continue; }
                     // 0x165 Chr_Stop(id, i) [case 0x165 -> FUN_00571e00; op1 is fetched, unused].
                     if (sub == 0x165 && nargs >= 1) { host->chr_stop(op(0)); return Step::Continue; }
+                    // 0x167 Chr_AniChange(id, file) [BYTES 0x571ec0..0x571ee9: actor +0x97c = op1, nothing else].
+                    if (sub == 0x167 && nargs >= 2) { host->chr_anichange(op(0), op(1)); return Step::Continue; }
                     // 0x163 Chr_NoForce / 0x164 Chr_AniDisable(id, on) [cases 0x163 / 0x164 ->
                     // FUN_00571d60 / FUN_00571db0: +0x130 bit 0x10000 / 0x80000 = (on != 0)].
                     if (sub == 0x163 && nargs >= 2) { host->chr_no_force(op(0), op(1) != 0); return Step::Continue; }

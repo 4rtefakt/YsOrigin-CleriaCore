@@ -244,6 +244,10 @@ class ActorWorld : public XsoHost {
     void chr_pattern(int id, int tag, int frame) override {
         if (Actor* a = find(id)) { a->pattern.tag = tag; a->pattern.frame = frame; }
     }
+    // 0x167 Chr_AniChange (FUN_00571ec0): +0x97c = file, the AIA the sprite is decoded from. ANI_VARIANT.md.
+    void chr_anichange(int id, int file) override {
+        if (Actor* a = find(id)) a->aia_file = file;
+    }
     // 0x145 Chr_RunOrWalk (FUN_00570fb0): +0x12c bit 0x20 = run. CHR_OPS.md §5.
     void chr_run(int id, bool run) override {
         if (Actor* a = find(id)) a->flags12c = (a->flags12c & ~0x20u) | (run ? 0x20u : 0u);
