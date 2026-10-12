@@ -8401,11 +8401,13 @@ title_again:
                 jump_phase = 0;
             }
             sec3_ground = (avm.section() == 3 && grounded) ? sec3_ground + 1 : 0;
-            // The mover reselects locomotion only below section 3 or in the dash 0x10a
-            // (00465170.c:1935-1943); the jump plays out and chains on its own.
+            // The mover reselects locomotion only below section 3 or in the dash 0x10a, and only when the
+            // wanted section is not the running one (00465170.c:1942-1945: a request for it would restart it);
+            // the jump plays out and chains on its own.
             const int cur_sec = avm.section();
-            if (cur_sec < 3 || cur_sec == 0x10a)
-                avm.set_section(want_sec);
+            if (cur_sec < 3 || cur_sec == 0x10a) {
+                if (want_sec != cur_sec) avm.set_section(want_sec);
+            }
             else if (cur_sec == 3 && sec3_ground >= 60)
                 avm.set_section(want_sec, /*force*/true);         // [STAND-IN] a jump section that never ends
             avm.set_is_land(grounded);

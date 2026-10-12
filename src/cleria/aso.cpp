@@ -151,19 +151,25 @@ void AsoVm::bind(const Aso* aso) {
     aso_ = aso;
     // The interpreter initialises its current section to 2 (FUN_00445bd0 sets
     // obj[0x29]=[0x2a]=[0x2b]=2) — for the players that is idle.
-    set_section(2);
+    set_section(2, /*force*/true);
 }
 
 bool AsoVm::set_section(std::int32_t id, bool force) {
     if (!aso_ || !aso_->ok()) return false;
     const Aso::Section* s = aso_->find(id);
-    if (!s) return false;
-    // The priority refusal (FUN_00446550). Re-selecting the section already running is
-    // a no-op rather than a restart, so a caller may ask for it every tick.
-    if (!force && cur_) {
-        if (id == section_) return true;
-        if (s->type < cur_->type) return false;
+    // FUN_00446550(id, 0) [BYTES 0x446550..0x44661a]: a missing id becomes section 0 and the call returns 0
+    // after switching (0x446588..0x4465b1); the only refusal is a target of a LOWER type than the running
+    // section's (`cmp ecx, [eax+4]; ja` 0x446601..0x446607). A request for the section already running is not
+    // refused: it restarts it (the callers that must not restart compare +0x994 themselves). The flag != 0
+    // form, which returns 0 for the running section (0x4465b5..0x4465c2), is pushed as an immediate at three
+    // call sites (M180's 0x47d464 / 0x47d7c3, M250's 0x48f299) and is the caller's own `section() != id` test here.
+    // [not modelled] vm[0x4b] = -1 / [0x4c] = 0, written before the type test: nothing here stops the VM by them.
+    bool found = s != nullptr;
+    if (!s) {
+        if (force || !(s = aso_->find(0))) return false;
+        id = 0;
     }
+    if (!force && cur_ && s->type < cur_->type) return false;
     // Capabilities are NOT touched here (FUN_00446620 leaves them): the VM zeroes them when it
     // next runs the section from its first word (reset_section_regs).
     prev_section_ = section_;
@@ -173,7 +179,7 @@ bool AsoVm::set_section(std::int32_t id, bool force) {
     wait_ = 0;
     end_yield_ = false;
     if (file_out_) *file_out_ = file_id_ = aso_->default_file();   // FUN_00446620: sprite[0x23] = header +0xc
-    return true;
+    return found;
 }
 
 // Decode and execute one instruction. Encoding (52,280 instructions, 0 errors):
@@ -251,9 +257,15 @@ bool AsoVm::step(std::size_t& pc) {
             if (marker_wait_ == marker_) { pc = pc; return false; }
             break;
         case kRaise:
-            pc = next;
-            set_section(ai(0));
-            return false;
+            // FUN_004472e0 case 5 [EXPORT 004472e0.c:345-357]: when the section exists, the UNGATED FUN_00446620
+            // and the register reset FUN_00445a70, and the run goes on in the new section in the same tick. (It
+            // used to ask through the gate and yield, and the tick's tail then chained to the queued section.)
+            if (aso_->find(ai(0))) {
+                set_section(ai(0), /*force*/true);
+                reset_section_regs();
+                return true;
+            }
+            break;
         case kLocalSet:
             if (ai(0) >= 0 && ai(0) < 32) locals_[ai(0)] = ai(1);
             break;

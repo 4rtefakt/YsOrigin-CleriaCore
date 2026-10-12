@@ -84,9 +84,10 @@ class AsoVm {
     // Section `type` is a PRIORITY (2 locomotion < 3 attack < 4 special/reaction) and
     // SetSection (FUN_00446550) REFUSES a transition to a lower one — which is exactly
     // why walking cannot interrupt a swing and an attack plays to its own authored
-    // length. Returns false when refused, so callers can simply ask every tick and let
-    // the running animation win. `force` bypasses the check for the internal
-    // end-of-section chain and for hard resets.
+    // length. Returns false when refused. A request for the section already running RESTARTS
+    // it (issue #99), so a caller that asks every tick tests section() first, as retail's do.
+    // A missing id switches to section 0 and returns false. `force` (FUN_00446620) bypasses
+    // the type check for the internal end-of-section chain and for hard resets.
     bool set_section(std::int32_t id, bool force = false);
     std::int32_t section() const { return section_; }
 

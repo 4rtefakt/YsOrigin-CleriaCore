@@ -1288,7 +1288,7 @@ CASES.update({
         env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#35,4;150:move=0.988,0.152,420;"
               "580:move=-0.988,-0.152,480;1290:quit",
-        expect=["[los] t798 #35 cast 35 2->1", "blocked 1", "[los] t894 #195 cast 35 2->1", "dist 10.92 blocked 0"]),
+        expect=["[los] t798 #35 cast 35 2->1", "blocked 1", "[los] t862 #195 cast 35 2->1", "dist 10.86 blocked 0"]),
     # C4: a far-frozen Hekat-Baocar (25 u or more: the ASO step only) keeps phase 2 across the absence and attacks
     # at once on the return; the [ai] log says "frozen" for it instead of printing nothing.
     "far_freeze_keeps_phase": dict(
