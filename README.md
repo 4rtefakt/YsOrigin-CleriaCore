@@ -137,13 +137,14 @@ sudo apt install ninja-build pkg-config libx11-dev libxext-dev libxrandr-dev lib
   libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev \
   libdrm-dev libgbm-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
 # optional: movies (FFmpeg) and the Lua mods' WebSocket (libcurl with WebSockets)
-sudo apt install libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libcurl4-openssl-dev
+sudo apt install libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libssl-dev
 ```
 
 On macOS: `brew install cmake ninja pkgconf` (+ `ffmpeg curl` for the options). Then:
 
 ```sh
-python3 tools/fetch_deps.py                 # SDL3 3.4.12 built into third_party/sdl3, wgpu-native .so / .dylib
+python3 tools/fetch_deps.py                 # SDL3 3.4.12 built into third_party/sdl3, wgpu-native .so / .dylib,
+                                            # on Linux a static libcurl 8.11.1 (WebSockets) into third_party/curl
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCLERIA_FFMPEG=ON -DCLERIA_CURL=ON
 cmake --build build
 ctest --test-dir build -LE assets           # the tests that need no game data
@@ -153,8 +154,9 @@ build/cleria-view                           # SDL3 + wgpu-native are copied next
 `SDL3_DIR` / `CMAKE_PREFIX_PATH` point at another SDL3 3.4 install, `-DWGPU_NATIVE_DIR=<dir>` at
 another wgpu-native release folder (`include/`, `lib/`). Without `CLERIA_FFMPEG` the demo movies are
 skipped (as when retail cannot open one); without `CLERIA_CURL` `cleria.net.websocket` reports
-"unsupported on this platform" (so does a libcurl built without WebSockets, e.g. Ubuntu 24.04's 8.5;
-curl 8.11+ enables them by default, as Homebrew's does). The `.cleriamod` association is a freedesktop `.desktop` + mime type
+"unsupported on this platform". On Linux `CLERIA_CURL` links the libcurl the fetch script built
+(`third_party/curl`, needs `libssl-dev`); without that folder, and on macOS, the installed libcurl, which
+must have WebSockets (8.11+ enables them by default, as Homebrew's does; Ubuntu 24.04's 8.5 has none). The `.cleriamod` association is a freedesktop `.desktop` + mime type
 under `$XDG_DATA_HOME` on Linux and unavailable on macOS (use `--install-mod <file>`). Settings live in
 `$XDG_CONFIG_HOME/CleriaCore` (macOS: `~/Library/Application Support/CleriaCore`), the unpacked data in
 `$XDG_DATA_HOME/CleriaCore/data`; `cleria-gamedata` finds the Steam (Proton) install under
