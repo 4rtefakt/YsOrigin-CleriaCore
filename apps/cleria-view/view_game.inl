@@ -133,10 +133,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int character = 1;
     if (const char* cs = std::getenv("CLERIA_CHAR")) {
         const int c = std::atoi(cs);
-        if (c >= 1 && c <= 3) character = c;
+        if (c >= 0 && c <= 3) character = c;      // 0 = Adol (Time Attack / Arena only in retail; ADOL.md)
     }
     // The rest of the New-Game choices (set by the title's popups; see the flow below):
-    int skin = 0;          // 0 Normal, 1 Extra (alternate appearance -- swap pending skin RE)
+    int skin = 0;          // the Type Select answer 0x74c0dc / d8 / d4: 0 Normal, 1 Extra (EXTRA_VERSIONS.md; view_extra.inl)
+    if (const char* ts = std::getenv("CLERIA_TYPE")) skin = std::atoi(ts) == 1;   // a room boot's version (the drive cases)
     int difficulty = 2;    // 0 VeryEasy,1 Easy,2 Normal,3 Hard,4 Nightmare (persisted TitleGameDifficulty)
     bool sp_bonus = false; // "SP Bonus Acquisition": boosts this save's SP gains
     // Option settings (persisted in yso_win.ini). Function-scope so the title menu edits them and
@@ -1336,10 +1337,6 @@ title_again:
                             const bool wrote = record_tables_save(arena);
                             std::printf("  [stage] Cancel: %s %s\n", arena ? "record.ar + record.are" : "record.ta + record.tae",
                                         wrote ? "saved" : "NOT saved");
-                        } else if (sev.launch >= 0 && g_run.character == 0) {
-                            // [not modelled] Adol (BONUS_MODES.md §6.2 step 13, ARENA.md §6): the stage select comes back.
-                            std::printf("  [stage] row %d (%s): Adol is not implemented\n", sev.launch,
-                                        arena ? stages::arena_name(sev.launch) : stages::time_attack_name(g_run.character, sev.launch));
                         } else if (sev.launch >= 0) {
                             // The launch [BYTES 0x57bf21..0x57bf5b; the Arena's 0x57c938..0x57c973]: 0x74ab9f = the
                             // row, 0x74e25a = 3, the scene of the row, FUN_005832e0 (the character's marks = 0; the
@@ -1544,6 +1541,7 @@ title_again:
     // the effect's particles do the damage. gas_owner: the M460 whose gas floor applies
     // (fx+0x1a8; its handler pass #14).
     bullet::Bullets bullets(&fxsim, ef2_of);
+    std::vector<extra::Runner> xrunners;                  // the kind-0x17 runners (view_extra.inl)
     // World item pickups (src/cleria/pickup.hpp, build/item_re/PICKUPS.md).
     std::vector<Pickup> pickups;
     struct PendingDebris { int ticks; int cast; Vec3 origin; const AsoVm::DebrisEvent* ev; };
@@ -1766,7 +1764,7 @@ title_again:
         std::memcpy(game.item_arr, pending_load->item_arr, sizeof game.item_arr);
         // A load writes the RAW clear bytes into 297..299 [EXPORT 0042f5e0.c:210-212] (0xD5 / 0x8E / 0x89 included).
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];
-        character = std::clamp(pending_load->character(), 1, 3);
+        character = std::clamp(pending_load->character(), 0, 3);
         if (!pending_load->scene.empty()) {
             auto it = g.sob_index.find(pending_load->scene);
             if (it != g.sob_index.end()) boot_sob = it->second;
@@ -1966,8 +1964,10 @@ title_again:
     unsigned step_n = 0;              // actor+0x4c0, the step counter (variant = n & mask)
     // Base player sprites: C_102/103/104 = Yunica / Hugo / Toal. (C_110-115 are the
     // late-game / weapon-state variants — wrong look for normal play.)
-    auto char_aia = [](int c) -> const char* {
-        return c == 2 ? "C_103.AIA" : c == 3 ? "C_104.AIA" : "C_102.AIA";
+    // Adol (0): FUN_00464fc0 [BYTES 0x46500a..0x465038]: AIA 0xE c_110 (Felghana; his script names no file), 0xF4
+    // c_990 (Napishtim, 0x74c0cc = `skin`).
+    auto char_aia = [&skin](int c) -> const char* {
+        return c == 2 ? "C_103.AIA" : c == 3 ? "C_104.AIA" : c == 0 ? (skin == 1 ? "C_990.AIA" : "C_110.AIA") : "C_102.AIA";
     };
     // Canonical gameplay animation tags — identical across every player sprite
     // (user-identified from animation GIFs; see tools/aia_gif.py). Resolve by TAG,
@@ -1985,8 +1985,9 @@ title_again:
     // Section ids double as the action: 0 walk, 1 run/dash, 2 idle (the VM's initial
     // state), 3 jump. The script supplies (file, tag, frame); `dir` is NOT in it —
     // that comes from the actor's facing, which is what closes the AIA formula.
-    auto char_aso = [](int c) -> const char* {
-        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : "C_010.ASO";
+    // Adol (0): ASO 0xC c_101 (Felghana) / 0xA4 c_990 (Napishtim) [BYTES 0x46500a..0x465038].
+    auto char_aso = [&skin](int c) -> const char* {
+        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : c == 0 ? (skin == 1 ? "C_990.ASO" : "C_101.ASO") : "C_010.ASO";
     };
     Aso aso = Aso::load(asset_root / "ANI" / char_aso(character));
     AsoVm avm;
@@ -2174,6 +2175,7 @@ title_again:
         // placed again by the live root on csMgr, into the EF2 sim.
         world.drop_named_effects();
         bullets.clear();                                      // before the effects they hold
+        xrunners.clear();
         gas_owner.clear();
         fxsim.clear();
         wx.clear();                                           // FUN_00428ec0 / 0x76a558 = 0 (WEATHER.md)
@@ -2521,6 +2523,7 @@ title_again:
         s.ail[0] = std::int32_t(ail.mask);                      // g_flags 528..532, in the block
         for (int i = 0; i < 4; ++i) s.ail[i + 1] = ail.t[i];
         s.boost = player.boost;                                 // 0x76c1b4, in the block
+        s.version[character & 3] = skin;                        // 0x76c218.. = the session's Type Select answers
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
@@ -2602,7 +2605,8 @@ title_again:
         std::memcpy(game.g_flags, s.flags, sizeof s.flags);
         std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];   // the raw clear bytes (FUN_0042f5e0)
-        character = std::clamp(s.character(), 1, 3);
+        character = std::clamp(s.character(), 0, 3);   // 0 = Adol: a run's Retry snapshot
+        skin = s.version[character] == 1;              // FUN_0042f5e0: 0x74c0dc / d8 / d4 = the block's (EXTRA_VERSIONS.md §1.2)
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
         if (s.mp_max > 0.0f) { player.sp_max = s.mp_max; player.sp_cur = std::min(s.mp_cur, s.mp_max); }
@@ -3991,6 +3995,7 @@ title_again:
                         (unsigned long long)(pick_rng.calls - c0));
     };
     #include "view_hugo_eyes.inl"                         // Hugo's Eyes of Fact (the player's familiars)
+    #include "view_extra.inl"                             // the Extra versions (EXTRA_VERSIONS.md)
     auto skill_tick = [&](bool skill_held, bool attack_held) {
         const int slot = skillmp::bracelet_slot(inv.magic);
         skillmp::SkillIn si;
@@ -4053,7 +4058,7 @@ title_again:
             shield_fx = nullptr; shield_on = false;
             const bool charged = so.level == 2;
             shield_hits = charged ? 2 : 1;
-            shield_life = charged ? 0x17c : 0x168;
+            shield_life = extra::hugo_shield_life(charged, skin == 1);   // 360 / 380; Hugo Extra 420 / 440 [BYTES 0x46f4c8..0x46f53e]
             if (player.boosting) { shield_life = 0x1e0; shield_hits += 1; }
         }
         // Toal's 0x76 cast: +0x7b0 = (+0x388 == 0), "cast in the air" [EXPORT 0046ea00.c:171-173]; only the
@@ -7534,6 +7539,7 @@ title_again:
                 if (pa_out.section != 0x112) hugo_eyes_fire();         // FUN_0046d6e0: the eyes shoot too
             }
             hugo_eyes_tick();                                          // FUN_0046af60's eyes, FUN_0046a3e0's blast
+            extra_tick();                                              // the Extra versions' blocks [BYTES 0x466e0a..0x467aff]
             if (pa_out.t_add != 0.0f) pv.t += pa_out.t_add;            // the air combo's hang time
             if (pa_out.impulse) { player_kb.x += pa_out.impulse_x; player_kb.z += pa_out.impulse_z; }
             if (pa_out.lunge) { player_kb.x = pa_out.lunge_x; player_kb.z = pa_out.lunge_z; }
@@ -7784,9 +7790,10 @@ title_again:
             float oy = feet.y + kOriginH;
             const float oy0 = oy;                     // the origin before this tick's vertical move
             {   // The Ventus glide: Yunica (and Adol), airborne in 0x10d / 0x110 with the timer at or
-                // under 0.05: a falling timer is damped x0.95, then lifted 0.01 (Adol 0.015).
+                // under 0.05: a falling timer is damped x0.95, then lifted 0.01 (Adol 0.015). Adol: the Felghana
+                // version only, (c == 0 && 0x74c0cc == 0) || c == 1 [BYTES 0x469eae..0x469f3a per ADOL.md §2.3].
                 const int ss = avm.section();
-                if ((character == 1 || character == 0) && !pv.grounded && (ss == 0x10d || ss == 0x110) &&
+                if ((character == 1 || (character == 0 && skin != 1)) && !pv.grounded && (ss == 0x10d || ss == 0x110) &&
                     pv.t <= 0.05f) {
                     if (pv.t < 0.0f) pv.t *= 0.95f;
                     pv.t += character == 0 ? 0.015f : 0.01f;
@@ -8231,6 +8238,7 @@ title_again:
                 std::vector<bullet::Event> bev;
                 #include "view_crystal.inl"          // M980's bullet scan (M980.md §3.4a)
                 bullets.update(benv, &bev);
+                extra_runners_tick();                // the kind-0x17 runners (FUN_00591850)
                 for (auto it = gas_owner.begin(); it != gas_owner.end();) {
                     bool live = false;
                     for (auto& bp : bullets.list()) live = live || bp.get() == it->first;

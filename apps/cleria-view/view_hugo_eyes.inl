@@ -9,7 +9,7 @@
 //   hugo_eye(a)           a player-owned eye (its bullets / effects are the player's side, class FUN_0046d650)
 //   hugo_eye_dead(e)      the handler's death branch (FUN_004780e0 + the ASO tick) for a dead eye
 // [not modelled] the eye SEs' Se_Stop (0x97 / 0x9c), the tints (+0x264..+0x274), the +0x248 / +0x144
-// ramps, the Extra skin (DAT_0074c0d8), the castinfo live counts.
+// ramps (and their Extra base, 180 for 60), the castinfo live counts.
 FamiliarHost fam;
 auto hugo_eye = [&](const Actor& a) {
     const Actor* pa = world.player();
@@ -51,6 +51,7 @@ auto fam_refresh = [&] {
     fam.hp = float(player.hp);
     fam.level = player.level;
     fam.boosting = player.boosting;
+    fam.extra = skin == 1;                                           // DAT_0074c0d8: the 180-tick mine fuse
 };
 // FUN_0046af60, Hugo branch [EXPORT 0046af60.c:178-409]: keep E eyes; a new eye takes the lowest free
 // slot k (free eyes 1..k, laid mines above them); more than E: they all die (no explosion). Another
@@ -280,18 +281,32 @@ auto hugo_eye_dead = [&](EnemyRender& e) -> bool {
     return true;
 };
 // FUN_0046d6e0 [BYTES 0x46d6e0..]: on each of Hugo's attacks (not the 0x112 tap step) every free eye is
-// asked for section 7 (FUN_00446550: priority-gated). [not modelled] the Extra skin's direct 0x82 shot.
+// asked for section 7 (FUN_00446550: priority-gated). Hugo Extra (DAT_0074c0d8; EXTRA_VERSIONS.md §3): a laid
+// eye (+0x8a4) is asked too, and an eye whose section outranks 7 (the request returns 0) fires the plain shot
+// itself [BYTES 0x46d740..0x46d899]: FUN_00593550(eye, kind 2, effect 0x82, origin - 0.5 (cos, sin)(+0x314) -
+// (0, 0.1, 0), dir (cos, 0, sin), speed 0.3, power 2.0, knock 0.15, homing period 1) — section 7's FireBullet
+// without its element choice, SE and animation.
 auto hugo_eyes_fire = [&] {
     const Actor* pa = world.player();
     if (character != 2 || !pa) return;
+    const bool extra = skin == 1;
     for (Actor& a : world.actors()) {
-        if (!hugo::owned_eye(a, pa->instance_id) || hugo::b8a4(a.ai) || !a.alive()) continue;
+        if (!hugo::owned_eye(a, pa->instance_id) || (hugo::b8a4(a.ai) && !extra) || !a.alive()) continue;
         EnemyRender* er = eye_render(a);
         if (er && er->avm.ok() && er->avm.section() != 5) {
             const bool took = er->avm.set_section(7);
             if (std::getenv("CLERIA_DMG"))
                 std::printf("  [eye] t%llu #%d section 7 %s\n", (unsigned long long)tick_count, a.instance_id,
-                            took ? "on" : "refused");
+                            took ? "on" : extra ? "refused: the direct shot" : "refused");
+            if (took || !extra) continue;
+            const float c = std::cos(er->facing), sn = std::sin(er->facing);
+            static const float kF[13] = {0.3f, 0, 0, 2.0f, 0.15f, 0, 0, 0, 0, 0, 0, 0, 0};
+            bullet::Spawn s = bullet::block_spawn(2, 0x82, {a.pos.x - 0.5f * c, a.pos.y + a.height - 0.1f, a.pos.z - 0.5f * sn},
+                                                  {c, 0.0f, sn}, kF);
+            s.f160 = 1;                                             // the int 1 in f7's slot
+            s.owner = a.instance_id; s.owner_atk = float(a.atk);
+            hugo_eye_bullet(a, s);
+            bullets.spawn(s);
         }
     }
 };

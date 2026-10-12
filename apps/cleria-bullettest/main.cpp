@@ -68,6 +68,24 @@ int main(int argc, char** argv) {
         check(near(h2.x, 0.70711f, 1e-4f) && near(h2.y, 0.70711f, 1e-4f), "home: a large max turn reaches the target (3-D)");
     }
 
+    // ---- Hugo's shot, effect 0x82: rtype 3; x 1.35 the speed under his Extra version (EXTRA_VERSIONS.md §3) ----
+    {
+        ef2sim::Rng rng;
+        ef2sim::System fx(&rng);
+        // (any EF2 stands in for 130 PC2_DEF_ATTACK: the rule keys on the id)
+        Bullets bs(&fx, [&](int id) -> const Ef2* { return id == 0x82 ? &efs[317] : ef2_of(id); });
+        Spawn s;
+        s.kind = 2; s.effect = 0x82; s.owner = 13; s.owner_monster = false; s.owner_atk = 20;
+        s.pos = {0, 0, 0}; s.dir = {1, 0, 0}; s.speed = 0.3f; s.power = 2.0f; s.knock = 0.15f;
+        const Bullet* n = bs.spawn(s);
+        bs.set_hugo_extra(true);
+        const Bullet* x = bs.spawn(s);
+        s.effect = 317;
+        const Bullet* o = bs.spawn(s);
+        check(n && x && o && n->s.speed == 0.3f && n->fx->rtype == 3 && x->s.speed == 0.3f * 1.35f && x->fx->rtype == 3 &&
+              o->s.speed == 0.3f, "effect 0x82: rtype 3; Hugo Extra flies x 1.35, other effects do not");
+    }
+
     // ---- §5 worked example A: M510's disc, kind 1, effect 317 ----
     {
         ef2sim::Rng rng;

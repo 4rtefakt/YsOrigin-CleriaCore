@@ -3276,6 +3276,9 @@ CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402
 CASES.update(modfile_regress.CASES)
+# The Extra versions and Adol (tools/extra_regress.py; EXTRA_VERSIONS.md, ADOL.md).
+import extra_regress  # noqa: E402
+CASES.update(extra_regress.cases(clear_data))
 
 # --smoke: the quick tier for a per-commit check (under a minute with --jobs 8; the whole list is the
 # pre-push check). One or two short cases per subsystem, picked by their measured time (2026-10-09, each

@@ -107,6 +107,7 @@
 #include "cleria/camrig.hpp"
 #include "cleria/skillmp.hpp"
 #include "cleria/hugo_eyes.hpp"
+#include "cleria/extra_versions.hpp"
 #include "cleria/exp_award.hpp"
 #include "cleria/oxygen.hpp"
 #include "cleria/hazard.hpp"
@@ -171,7 +172,7 @@ static fs::path exe_dir() {
 }
 
 // Playable characters, indexed by g_flags[150] (1=Yunica, 2=Hugo, 3=Toal).
-static const char* kCharNames[] = {"Default", "Yunica", "Hugo", "Toal"};
+static const char* kCharNames[] = {"Adol", "Yunica", "Hugo", "Toal"};
 
 // Player state (placeholder stats until the stat/progression system lands).
 struct Player {

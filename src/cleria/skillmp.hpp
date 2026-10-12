@@ -111,8 +111,12 @@ struct Armor {
     bool active = false;   // the rule applies to this hit
     bool guard = false;    // MP >= cost: spend it, damage 0
     float spend = 0;
+    float scale = 0.75f;   // no guard: the damage's factor (0x6bd390; Felghana Adol 0.25 / 0.5 / 0.75 by skill)
 };
-Armor armor(int chr, int section, int marker, float mp);
+// `adol_version` = DAT_0074c0cc (0 Felghana, 1 Napishtim): Felghana Adol's skill sections [BYTES 0x4fd6e5..0x4fd8be;
+// build/mode_re/ADOL.md §2.4]: Terra 0x10c / 0x10f the 200-MP guard, else x 0.25; Ignis 0x10e / 0x111 x 0.5; Ventus
+// 0x10d / 0x110 x 0.75; 16 i-frames in each. Napishtim has none.
+Armor armor(int chr, int section, int marker, float mp, int adol_version = 0);
 inline constexpr float kArmorScale = 0.75f;   // 0x6bd390
 inline constexpr int kArmorIframes = 16;
 
