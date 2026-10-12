@@ -139,7 +139,7 @@ consumed and raise no `item_used`.
 | `game.character()` | 1 Yunica, 2 Hugo, 3 Toal (g_flags[150]) |
 | `game.frozen()` | a cutscene or a box holds the world (grant things later) |
 | `game.chests()` | the current room's chests: `{s_box01 = {flag = 302, object = "box_01"}, ...}` |
-| `game.save(slot)` (API 4) | save the game now into slot 0..63, as a goddess statue does; `true` if it saved, `false` if not (below) |
+| `game.save(slot)` (API 4) | save the game now into slot 0..63; `true` if it saved, `false` if not (below) |
 | `game.unlock_character(c)` (2026-10-09; test `cleria.game.unlock_character ~= nil`) | Character Select offers character `c` for the rest of this session whatever the clear data says (1 Yunica, 2 Hugo, 3 Toal; only Toal is ever locked on a New Game). Not saved; callable on the title — "frame" handlers run there too. The player's own switch is `[cleria.qol] UnlockCharacters`. |
 | `game.exp_factor(fn)` | `fn(level) -> factor` multiplies the EXP of every kill (with the Cheats rate, the AP seed's); a factor outside 0..1000 counts as 1. It multiplies **before** the engine floors the award: for a per-kill rule use the `"exp"` filter (§5.2) |
 | `game.spawn_pickup(item, x, y, z [, {value = n}])` (API 6) | a collectable pickup thrown up from that point as an enemy's drop is; `true` if it was spawned (§5.2) |
@@ -156,9 +156,13 @@ Writes go through the same paths the game and the C++ Archipelago glue use (`gam
 bind lambdas in `view_game.inl`). [H] Nothing checks that a write makes sense for the story: a mod that sets
 flag 226 has beaten the final boss.
 
-**`game.save(slot)`** [CODE `view_game.inl` `g_lua.b.save`] writes what the book's Save writes: the continue
-snapshot, then the slot's record `yso_NN.bin` and the mods' sidecar `yso_NN.cleria`, and it raises `save`
-(`e.slot`). `slot` is the file number: 0..63, the book's "No.01".."No.64" minus one (the same number `save` /
+**`game.save(slot)`** [CODE `view_game.inl` `g_lua.b.save`] writes the slot's record `yso_NN.bin` and the mods'
+sidecar `yso_NN.cleria`, and it raises `save` (`e.slot`). It does NOT move the game over's Retry point (the
+continue snapshot, which the book's Save does take): retail moves it at statue rooms, battle starts, saves and
+loads only (build/gameflow_re/DEATH_RETRY.md), and a mod's autosave in an ordinary room would turn Retry into
+"start again in this room". The player can ask for that: Gameplay > Game over > "Retry from mod saves"
+(`[cleria.access] RetryAtModSave`, off by default) makes the call take the snapshot too (it did always, before
+2026-10-13). `slot` is the file number: 0..63, the book's "No.01".."No.64" minus one (the same number `save` /
 `load` events carry). It never raises an error; it returns `false` and writes nothing unless all of these hold:
 - a session runs and its `new_game` / `load` was delivered (`game.in_game()`, `save.ready()`);
 - `flag(185) == 1`, `flag(156) == 0`, `flag(190) == 0` and the room was entered at least 60 ticks ago (the

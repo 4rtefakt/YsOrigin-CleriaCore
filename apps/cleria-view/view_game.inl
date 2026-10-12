@@ -1699,6 +1699,7 @@ title_again:
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     ailments::State ail;               // poison / heavy / confuse / curse: 0x76c15c..0x76c16c (view_ailments.inl)
     bool ail_reload = false;           // a record was loaded: its effects are re-created / dropped (ail_tick)
+    bool boost_aura_entry = false;     // a scene entry / a load: FUN_00461d30's Boost aura (hud_state_tick)
     bool toal_air_cast = false;        // +0x7b0: Toal's last 0x76 (Ignis) cast started in the air
     // Hugo's super barrier (BOOST_SKILLS.md §2.5): +0x7dc, 420 ticks from the press; +0x7e0, the handle of
     // effect 0x90 (PC2_B_B_b) his section 300 spawns at tick 25. While the effect stands every hit on him
@@ -2388,6 +2389,7 @@ title_again:
         scene_entry_flags(dest);
         clip_near = 1.0f; clip_far = 2000.0f;                    // FUN_00431840 (0x74c0fc / 0x74c0f8)
         scene_objects_reset = true;                             // busts / caption card (start_room_events)
+        boost_aura_entry = true;
         live_obj = {};                                           // a new visit
         emotions.clear();
         live_obj_dirty = false;
@@ -2547,6 +2549,8 @@ title_again:
         s.ail[0] = std::int32_t(ail.mask);                      // g_flags 528..532, in the block
         for (int i = 0; i < 4; ++i) s.ail[i + 1] = ail.t[i];
         s.boost = player.boost;                                 // 0x76c1b4, in the block
+        s.mode = (player.boosting ? 0x20 : 0) | (inv.atk_buff != 0.0f ? 1 : 0) | (inv.def_buff != 0.0f ? 8 : 0) |
+                 (inv.mp_buff != 0.0f ? 0x10 : 0);              // 0x76c198 (save.hpp)
         s.version[character & 3] = skin;                        // 0x76c218.. = the session's Type Select answers
         s.version[4] = outfit;                                  // 0x76c228 = 0x74c0d0
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
@@ -2624,10 +2628,19 @@ title_again:
         ail.mask = std::uint32_t(s.ail[0]);            // the record's g_flags 528..532 (STATUS_AILMENTS.md §7)
         for (int i = 0; i < 4; ++i) ail.t[i] = s.ail[i + 1];
         ail_reload = true;                             // ail_tick: the effects follow the loaded mask
-        // The Boost gauge 0x76c1b4 comes back with the block (it kept the value of the moment of the load).
-        // [not modelled] the mode word 0x76c198 (a Boost running at the snapshot).
+        // The Boost comes back with the block as it was at the save / the snapshot [EXPORT 00431260.c:44-53: the
+        // Retry copies 0x767f50 back whole; FUN_0042f5e0 reads the file into it]: the gauge 0x76c1b4, the mode word
+        // 0x76c198 (bit 0x20 = it runs: FUN_00462c40 drains it from the next tick on) and flag 141. So a Boost that
+        // ran when the player died is over after a Retry unless the snapshot was taken inside one, and then it runs
+        // on from the snapshot's gauge. Its aura is the scene entry's (view_hudstate.inl). The mode used to stay as
+        // it was at the death: Toal came back in demon form (flag 141 of the snapshot) with no drain, or boosting
+        // in human form, or the end burst 172 went off at the respawn.
         player.boost = s.boost;
+        player.boosting = (s.mode & 0x20) != 0;
+        boost_aura_entry = true;
         std::memcpy(game.g_flags, s.flags, sizeof s.flags);
+        // [H] not retail: a CleriaCore save from before the mode word was stored (mode 0) may hold flag 141 = 1.
+        if (!player.boosting) game.g_flags[141] = 0;
         std::memcpy(game.item_arr, s.item_arr, sizeof s.item_arr);
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];   // the raw clear bytes (FUN_0042f5e0)
         character = std::clamp(s.character(), 0, 3);   // 0 = Adol: a run's Retry snapshot
@@ -6164,8 +6177,12 @@ title_again:
     // [not modelled] the fader pair 0x769f24 = 1/3, 0x769f28 = 0.01; Hugo's scene-0x93 achievement;
     // the death count's own gate 0x74ab8f (the menu) and the actor fields beyond the motion.
     int death_t = 0;                                     // +0x3fc
-    // cleria.game.save(slot) (LUA_API.md §4; not retail): the statue save's two steps (FUN_0042e9a0: the continue
-    // snapshot, then the slot and its sidecar) when the game can be saved. [MOD] the retail Archipelago mod's
+    // cleria.game.save(slot) (LUA_API.md §4; not retail): the slot and its sidecar, when the game can be saved. The
+    // statue save's first step (FUN_0042e9a0 -> FUN_00443d70, the continue snapshot) only with the shell's "Retry
+    // from mod saves" (RetryAtModSave, off by default): retail's Retry point moves at the 0x96 SaveContData sites
+    // (the statue rooms' roots, the battle starts, the event ends), at a save and after a load, never in an
+    // ordinary room, and a mod's autosave used to move it to wherever the player stood (a second after a room
+    // entry when the save had to wait for the room: "I respawn at the room's entrance"). [MOD] the retail Archipelago mod's
     // autosave gate: 185 == 1 (the player has the controls), 156 == 0 (no boss fight), 190 == 0 (no arena),
     // 193 == 0 (not in a Time Attack / Arena run: retail's room-entry save skips them [EXPORT 00431840.c:693]),
     // a second in the room. [H] the rest is this port's: a session that started, no Fix, alive, no staged
@@ -6175,7 +6192,7 @@ title_again:
             g_content.room_age < 60) return false;
         if (content_session_pending() || csMgr.world_frozen() || player.hp < 1 || death_t > 0) return false;
         if (door_pending || door_commit || door_latched || !csHost.pending_scene.empty()) return false;
-        save_cont();
+        if (settings().s.access.mod_save_retry) save_cont();
         return do_save(slot);
     };
     CaptionCard gameover_card;
@@ -6194,9 +6211,17 @@ title_again:
         gameover_card = CaptionCard{};
         gameover_menu = WndDialog{};
         death_t = 0;
+        if (!cont.valid && show_title) {
+            // No SaveContData, save or load since the New Game: 0x767f50 is the new game's own snapshot, the fresh
+            // block with its next scene 0x7681b8 = the title's 0x74e678 [EXPORT 0041fd10.c:164-165], so the Retry
+            // loads the title scene. [H] what the title does under the label "continue": taken as Return to Title.
+            std::printf("  [gameover] Retry: the new game's snapshot, the title\n");
+            return_to_title = true; running = false; accum = 0;
+            return;
+        }
         if (!cont.valid) {
-            // [STAND-IN] no snapshot yet (the engine's 0x767f50 would hold whatever was there):
-            // revive in place at the room's spawn.
+            // [STAND-IN] a room given on the command line (dev; no New Game ran, the engine's 0x767f50 would hold
+            // whatever was there): revive in place at the room's spawn.
             std::printf("  [gameover] Retry: no continue snapshot, respawn\n");
             player.hp = player.max_hp;
             spawn_player();
