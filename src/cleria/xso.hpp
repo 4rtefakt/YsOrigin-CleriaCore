@@ -756,6 +756,7 @@ struct XsoVm {
     const Xso* co_script = nullptr;   // bound script (caller keeps it alive); null = inactive
     std::uint32_t co_pc = 0;          // saved PC (engine GoScript+0x1e4)
     std::int32_t co_wait = 0;         // frame countdown (engine +0x1e8)
+    int burst_ops = 0;                // ops the last tick() ran (0: it only counted a Wait_Time down)
 
     // Begin a resumable run of `s` from `entry`. Shares g_flags; resets acc/pc/wait.
     void co_begin(const Xso& s, std::uint32_t entry = 0) {
@@ -821,6 +822,12 @@ struct ScriptManager {
         XsoVm::Vars vars;                  // +0x244..: $I/$F/$S
         int owner = 0;                     // +0x240: the bound actor (13 = the player)
         bool multi = false;                // +0x238: AllowMultiInstance (0xb5)
+        // A cutscene skip's bookkeeping (skip_tail_step; CleriaCore's own): the start order, and the tail's view
+        // of this script — the pcs it has parked on, how long it has stood on one wait, whether it is left alone.
+        std::uint64_t born = 0;
+        std::vector<std::uint32_t> tail_pcs;
+        int tail_stood = 0;
+        bool tail_done = false;
     };
     std::vector<Inst> live;
     struct Spawn { std::string name; XsoVm::Vars vars; int owner = 0; };
@@ -875,12 +882,22 @@ struct ScriptManager {
     // order — only the waiting collapses. Caller loops tick_all() until world_frozen()
     // clears. (The per-instance `wait` is the saved co_wait; see tick_inst.)
     void skip_waits() { for (Inst& in : live) if (!in.finished) in.wait = 0; }
+    // A skip's tail (CleriaCore's own; the original has no skip): one step of the scripts the skipped scene
+    // started — those born since the fix count last left 0 — that outlive its Fix: a child nobody waits for (an
+    // actor's walk off the stage and its Chr_Delete). A played scene is long over when they end; a skipped one
+    // must run them on, their Wait_Time collapsed. Each is run until it ends, takes a Fix, parks where it has
+    // parked before (a loop: a controller, a spawner — left to real time after that one turn), stands on one
+    // wait for `patience` steps (a wait on the fight's end), or counts a Wait_Time longer than `long_wait` (a
+    // timer of the fight, not a scene's choreography). Returns whether any is still being run.
+    bool skip_tail_step(int patience, int long_wait);
 
   private:
     void tick_inst(Inst& in);          // swap regs into `vm`, run one frame, save back
     void fix(Inst& in, int slot);      // FUN_0056e8d0: release the held slot, count `slot`
     void unfix(Inst& in);
     Inst* cur_inst_ = nullptr;         // the instance being ticked (for Fix/Unfix attribution)
+    std::uint64_t serial_ = 0;         // the next Inst::born
+    std::uint64_t scene_mark_ = 0;     // serial_ when the fix count last left 0: the scene's scripts are born >= it
 };
 
 }  // namespace cleria

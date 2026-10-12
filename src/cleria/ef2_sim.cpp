@@ -502,11 +502,11 @@ void System::collide_tick(Particle& p) {
     p.latch = p.world_pos();
 }
 
-void System::step(const std::function<bool(Particle&)>& on_hit) {
+void System::step(const std::function<bool(Particle&)>& on_hit, const std::function<bool(const Effect&)>& only) {
     const std::size_t nf = fx_.size();
     for (std::size_t i = 0; i < nf; ++i) {                         // FUN_00451e60
         Effect& fx = *fx_[i];
-        if (fx.dead) continue;
+        if (fx.dead || (only && !only(fx))) continue;
         if (fx.live == 0) { fx.dead = true; continue; }
         if (fx.attach_parent) {
             if (fx.attach_mode == 1) fx.M = mul(fx.local, *fx.attach_parent);
@@ -525,7 +525,7 @@ void System::step(const std::function<bool(Particle&)>& on_hit) {
     const std::size_t np = parts_.size();
     for (std::size_t i = 0; i < np; ++i) {
         Particle& p = *parts_[i];
-        if (p.dead) continue;
+        if (p.dead || (only && !only(*p.fx))) continue;
         p.prev_world = p.world_pos();
         p.drawn = update_particle(p, true);
         if (p.remaining == 0) { p.dead = true; continue; }

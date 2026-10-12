@@ -2553,6 +2553,110 @@ CASES.update({
         drive="5:opt=InfiniteHP=1;20:seen=#189,6;22:run=@itemcannotuse;23:actors;119:actors;121:quit",
         expect=["slot 1 taken: 0/1", "t23 actors", "id 189 cast 14 enemy hp 60 g1 0 pos (44.9,0.0,-1.8)", "t119 actors",
                 "id 189 cast 14 enemy hp 60 g1 0 pos (44.9,0.0,-1.8)"], absent=["[ai] #189"]),
+    # A skipped cutscene leaves what the same scene leaves played to its end (build/shell_re/ACCESS.md §1.5; retail has
+    # no skip, so this is CleriaCore's own rule). Each case below skips with one Esc and pins what the survey of
+    # 2026-10-12 read off the PLAYED scene after its Fix (tools: the scratch surveys named in ACCESS.md §1.5).
+    # The camera. S_1000's opening, skipped on its third tick: the rig ends in the sticky slot 3 the played scene ends
+    # in, and no slot was rewritten (the slots' sum 151.807). Before: slot 2, dist 21 / pitch 0.7156 / fov 0.5411, sum
+    # 145.807 — the scene's Camera_Change had edited the slot the player stood in, the rig never having stepped.
+    "skip_cam_s1000": dict(
+        room="S_10/S_1000/S_1000", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;2:every=4,70,flag=131,1;3:esctap;60:cam;61:quit",
+        expect=["cutscene skip (single)", "[cam] cur 3 from 3 forced -1 t 1.00 scroll 0.00>0.00 shake 0",
+                "slot dist 24.00 yaw 0.0000 pitch 0.6632 fov 0.5236 | slots 151.807"]),
+    # ... and a skip stops at a script menu (it was waved through with no row chosen): S_3015's EV_3015_HUGO_2 asks
+    # (SentakuMenu); the skip at t22 leaves the menu up, `ok` answers it, a second skip ends the scene with the
+    # camera returned as when played (before: slot 1 forced, the scroll at 1.00, for good).
+    "skip_stops_at_menu": dict(
+        room="S_30/S_3015/S_3015", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;20:run=EV_3015_HUGO_2;22:esctap;60:scripts;100:every=15,200,ok;201:scripts;210:skiptap;"
+              "300:scripts;301:cam;302:quit",
+        expect=["cutscene skip (single)", "t60 scripts", "frozen 1 fix 2/0", "script SentakuMenu pc 12", "t300 scripts",
+                "frozen 0 fix 0/0", "[cam] cur 0 from 0 forced -1 t 1.00 scroll 0.00>0.00 shake 0"],
+        count={"cutscene skip (single)": 2}),
+    # Zava's intro skipped on its third tick (it was: the heads under the floor at y -2, `Summon` playing on over the
+    # fight — Wait_Script was waved through and nothing stepped the scripted objects): the heads are up at y 6.1
+    # (6.08: the brain's first bob) on the first fight tick, Summon is over, and zava_fight's pilot wins the fight.
+    "skip_intro_zava_fight": dict(
+        room="S_60/S_6082/S_6082",
+        env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.45;8:tier=10;9:opt=CutsceneSkip=0;"
+              "11:flag=163,1;20:at3=-34,8,15.5,0;22:esctap;24:scripts;24:mesh=boss06a;24:mesh=boss06b;60:boss6;6500:quit",
+        expect=["cutscene skip (single)", "t24 scripts", "frozen 0 fix 0/0", "script Battle_Yunica pc 38",
+                "mesh boss06a pos (-39.46, 6.08, 30.00)", "mesh boss06b pos (-28.82, 6.08, 30.00)",
+                "Zava phase 1 action 1 hp 6000/6000", "Zava phase 2 action 0", "flag 225 = 1", "head b destroyed", "head a destroyed"],
+        absent=["script Summon"]),
+    # One skipped intro per boss and per duel room: the gauge, the fight flags, the fight's script and the forced
+    # camera slot 2 ticks after the Fix are the played intro's. (The Retry start, flag 205, is not the reference: it
+    # runs another branch of the same scripts and differs from the played start itself — the slots it never edits.)
+    # S_3080 as Hugo was broken at the start and the middle before: Epona, whose walk off the stage nobody waits
+    # for, still stood there, and her handler's defeat path ended Toal's duel five ticks in (`Battle_Lose`).
+    "skip_intro_jenocres": dict(
+        room="S_40/S_4013/S_4013", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;3:esctap;5:cam;5:scripts;5:gauge;5:dflags;7:quit",
+        expect=["cutscene skip (single)", "[cam] cur 6 from 6 forced 6", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle_Yunica pc 52", "[drive] gauge 1 id 168 hp 5869/5869", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+    "skip_intro_nygtilger": dict(
+        room="S_20/S_2099/S_2099", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;3:esctap;5:cam;5:scripts;5:gauge;5:dflags;7:quit",
+        expect=["cutscene skip (single)", "[cam] cur 0 from 0 forced 0", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script BuruBuru pc 18", "[drive]   script Battle_Yunica pc 33", "[drive] gauge 1 id -6 hp 7000/7000", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+    "skip_intro_gelaldy": dict(
+        room="S_30/S_3099/S_3099", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:run=s_Evt3099_2;22:esctap;24:cam;24:scripts;24:gauge;24:dflags;26:quit",
+        expect=["cutscene skip (single)", "[cam] cur 5 from 5 forced 5", "t24 scripts", "frozen 0 fix 0/0", "[drive]   script BuruBuru pc 18", "[drive]   script Battle pc 30", "[drive] gauge 1 id -7 hp 1500/1500", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+    "skip_intro_khonsclard": dict(
+        room="S_40/S_4099/S_4099", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:at=-2.8,23.3,0;22:esctap;24:cam;24:scripts;24:gauge;24:dflags;26:quit",
+        expect=["cutscene skip (single)", "[cam] cur 3 from 3 forced 3", "t24 scripts", "frozen 0 fix 0/0", "[drive]   script BuruBuru pc 18", "[drive]   script Battle_1 pc 30", "[drive] gauge 1 id -8 hp 3000/3000", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+    "skip_intro_pictimos": dict(
+        room="S_50/S_5099/S_5099", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;10:move=0,1,200;16:esctap;18:cam;18:scripts;18:gauge;18:dflags;20:quit",
+        expect=["cutscene skip (single)", "[cam] cur 3 from 3 forced 3", "t18 scripts", "frozen 0 fix 0/0", "[drive]   script Battle_Start pc 34", "[drive] gauge 1 id -9 hp 4000/4000", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+    "skip_intro_dalles": dict(
+        room="S_70/S_7080/S_7080", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;11:flag=116,1;12:flag=117,1;13:flag=118,1;3:esctap;5:cam;5:scripts;5:gauge;5:dflags;7:quit",
+        expect=["cutscene skip (single)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 23", "[drive] gauge 1 id -11 hp 2500/2500", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+    "skip_intro_darm": dict(
+        room="S_70/S_7099/S_7099", char="3", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;11:flag=163,1;3:esctap;5:cam;5:scripts;5:gauge;5:dflags;7:quit",
+        expect=["cutscene skip (single)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 30", "[drive] gauge 1 id -12 hp 9999/9999", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+    "skip_intro_duel1080_y": dict(
+        room="S_10/S_1080/S_1080", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;21:move=0,-1,300;221:esctap;223:cam;223:scripts;223:gauge;223:dflags;225:quit",
+        expect=["cutscene skip (single)", "[cam] cur 1 from 1 forced 1", "t223 scripts", "frozen 0 fix 0/0", "[drive]   script s_Evt1080 pc 82", "[drive]   script Battle_1 pc 56", "[drive] gauge 1 id 167 hp 1860/1860", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+    "skip_intro_duel3080_h": dict(
+        room="S_30/S_3080/S_3080", char="2", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:at=-12,36,0;30:move=0,1,30;22:esctap;24:cam;24:scripts;24:gauge;24:dflags;26:quit",
+        expect=["cutscene skip (single)", "[cam] cur 3 from 3 forced 3", "t24 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 55", "[drive] gauge 1 id 198 hp 3550/3550", "[duel] flags 130=1 131=0 133=1 156=1 174=0 230=0 232=0 311=0"]),
+    "skip_intro_duel6099_t": dict(
+        room="S_60/S_6099/S_6099", char="3", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;5:flag=231,1;40:move=0,1,300;244:esctap;246:cam;246:scripts;246:gauge;246:dflags;248:quit",
+        expect=["cutscene skip (single)", "[cam] cur 4 from 4 forced 4", "t246 scripts", "frozen 0 fix 0/0", "[drive]   script Battle_Thor pc 56", "[drive] gauge 1 id 197 hp 4186/4186", "[duel] flags 130=1 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+    # Dalles after a skipped intro leaves the loop clip METEOR the scene leaves him in and acts: his first shot comes
+    # (played: 62 ticks after the Fix; skipped: once his brain has run METEOR out, about 200 ticks).
+    "skip_intro_dalles_acts": dict(
+        room="S_70/S_7080/S_7080", env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;3:esctap;400:quit",
+        expect=["cutscene skip (single)", "the fight starts at", "clip METEOR_FROM_WAIT", "clip N_WAIT", "clip N_SHOOT_"]),
+    # "Always" and what the player starts herself (ACCESS.md §1.3 row 4): the blessing shop walked as `blessing`
+    # walks it, with real presses — every menu and box takes its own press, the one purchase is made (SP 250 - 100)
+    # and nothing is skipped. Before, each answer set the skip off again and the next choice was up under the press
+    # meant for a box.
+    "access_always_shop": dict(
+        room="S_10/S_1009/S_1009",
+        drive=CLEANSE + ";190:opt=CutsceneSkip=4;200:sp=250;220:act;290:down;300:oktap;400:oktap;480:oktap;570:oktap;"
+              "650:oktap;651:scripts;730:oktap;820:esc;830:scripts;835:stats;840:quit",
+        expect=["[probe] save_03 -> @save", "script @GrowMenu", "script @GrowYes", "t830 scripts", "frozen 0 fix 0/0",
+                "sp 150"],
+        absent=["cutscene skip"]),
+    # ... and a menu an auto-skip lands on is the window's own: Confirm held from before the scene and through the
+    # skip answers nothing (FUN_005789a0: the fade-in, then a release, then a press), a fresh press does — the skip
+    # is logged only after it (the answered menu's script runs on and is skipped back to the list).
+    "access_always_menu_held": dict(
+        room="S_10/S_1004/S_1004", env=_LOCK,
+        drive="8:opt=CutsceneSkip=4;15:every=1,200,oktap;20:run=@growmenu;210:scripts;230:oktap;260:scripts;261:quit",
+        expect=["slot 0 taken: 1/0", "t210 scripts", "frozen 1 fix 1/0", "script @growmenu pc 1165", "t230 oktap",
+                "[access] cutscene skip (always)", "t260 scripts"],
+        count={"[access] cutscene skip (always)": 1}),
     # Toal's Godspeed, tapped (bracelet 116, section 0x10d; ABILITIES_VERIFIED.md §3.3), in S_1002's flat corridor with
     # the monsters gone (no lock-on). On the ground: 11 ticks x 0.56 = 6.16 u. From a jump the dash's step is added to
     # the mover's ordinary step of the same tick [BYTES 0x4697f9..0x469823], which in the air is the carried velocity:
@@ -2570,14 +2674,23 @@ CASES.update({
         room="S_10/S_1002/S_1002", char="3", env=_LOCK,
         drive=_GODSPEED + "34:move=1,0,8;40:pos;41:jump;50:skill+;52:skill-;120:pos;140:quit",
         expect=["feet (20.942, -4.098, -37.000)", "feet (27.820, -4.098, -37.000)"]),
-    # ACCESS.md §1.3, CutsceneSkip = 4 "Always" (CleriaCore's own, not retail): no press. The statue cleanse of
-    # access_skip_double is skipped on the tick its Fix is taken, through the pressed skip's own path: flags,
-    # position, scripts, actors and stats at t85 equal a pressed skip's (checked: the two logs' tails are equal).
+    # ACCESS.md §1.3, CutsceneSkip = 4 "Always" (CleriaCore's own, not retail): no press. A scene the player did not
+    # start (S_3015's event, run by the drive) is skipped on the tick its Fix is taken, through the pressed skip's
+    # own path.
     "access_skip_always": dict(
-        room="S_10/S_1009/S_1009",
-        drive="5:flag=310,1;6:flag=84,1;8:opt=CutsceneSkip=4;10:at=-0.036,8.2,0;20:act;25:scripts;26:pos;90:quit",
-        expect=["[access] cutscene skip (always)", "t25 scripts", "frozen 0 fix 0/0", "feet (-0.036, 2.000, 8.200)"],
+        room="S_30/S_3015/S_3015", char="1", env=_LOCK,
+        drive="8:opt=CutsceneSkip=4;20:run=EV_3015_YUNICA_1;25:scripts;90:quit",
+        expect=["[access] cutscene skip (always)", "t25 scripts", "frozen 0 fix 0/0"],
         count={"[access] cutscene skip (always)": 1}),
+    # ... and one she starts with the action button is hers (since 2026-10-12; it was skipped unread): the statue
+    # cleanse of access_skip_double plays, and one press of the menu button skips it as under Single press.
+    "access_skip_always_talk": dict(
+        room="S_10/S_1009/S_1009",
+        drive="5:flag=310,1;6:flag=84,1;8:opt=CutsceneSkip=4;10:at=-0.036,8.2,0;20:act;25:scripts;40:esctap;45:scripts;"
+              "46:pos;90:quit",
+        expect=["t25 scripts", "frozen 1 fix 0/1", "script save pc 87", "[access] cutscene skip (single)", "t45 scripts",
+                "frozen 0 fix 0/0", "feet (-0.036, 2.000, 8.200)"],
+        absent=["cutscene skip (always)"]),
     # ... and it stops at a script menu: the blessing shop's list stays up for its answer (no skip is logged).
     "access_skip_always_menu": dict(
         room="S_10/S_1004/S_1004", env=_LOCK,

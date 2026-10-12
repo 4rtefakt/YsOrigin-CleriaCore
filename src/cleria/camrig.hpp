@@ -40,6 +40,9 @@ class CamRig {
     void scroll_return(int frames, int prio);                                      // 0xC4
     void shake(const Vec3& amp, int frames);                                       // 0xCF
     void hard_cut() { c0_ = true; }
+    // A cutscene skip's end (CleriaCore's own): the scroll ramp lands on its destination, the shake stops. With
+    // hard_cut() the next step publishes the settled camera.
+    void finish_ramps() { sc_t_ = sc_dest_; sc_rate_ = 0.0f; sh_frames_ = 0; }
 
     // The selection globals a brain writes directly (0x76a158 / 15c / 1bc / 1b8, 0x76a1f8).
     void write_sel(int cur, int from, float t, float rate) { cur_ = cur; from_ = from; t_ = t; rate_ = rate; }
@@ -80,6 +83,9 @@ class CamRig {
     int from() const { return from_; }
     float blend_t() const { return t_; }
     int forced() const { return forced_; }
+    int count() const { return count_; }
+    float scroll_t() const { return sc_t_; }
+    float scroll_dest() const { return sc_dest_; }
     const CameraRegion& slot(int i) const { return slots_[std::size_t(i)].rec; }
 
   private:

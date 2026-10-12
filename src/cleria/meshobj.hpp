@@ -121,6 +121,11 @@ class MeshWorld {
     // One live step of every object (FUN_00503ef0): the anim advance, then the move, then
     // the pending clip. Marks objects whose position / pose changed.
     void step();
+    // A cutscene skip's step (CleriaCore's own; the original has no skip): what a script started and would wait
+    // out lands now — the scripted move runs to its stop, the alpha reaches its target, a counted Mesh_Rotate
+    // runs out, a fall comes to rest, a pending clip switches, and a chain / stop clip runs to where it ends
+    // (Dalles stood in his intro's clip 17 at the fight's start). A loop clip's clock does not run.
+    void finish_scripted();
 
     // The wait predicates. `found` = false when the object does not exist (the original
     // then rewinds forever).

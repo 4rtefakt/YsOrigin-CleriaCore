@@ -2602,16 +2602,23 @@ title_again:
         // clears not just Wait_Prompt but Wait_Script / Wait_Window / Wait_Sound /
         // Wait_Fader too, which a plain Wait_Time collapse can't. Set by the skip loop.
         bool skipping = false;
-        // The Cutscene skip's "Always" (CleriaCore's own): a skip nobody pressed stops at a script menu, so a
-        // choice (the statue's Save, a Yes / No, a shop list) is still the player's.
-        bool skip_keeps_menus = false;
-        // ... and one that ended with the Fix still held and no menu up is not tried again under that Fix.
-        bool skip_stuck = false;
+        int skip_step = 0;                         // the drain's step count (Wait_Script's patience)
+        enum { kSkipChildBudget = 2000 };   // [H] far above any scene's count of waits
+        // A skip stops at a script menu: the choice (the statue's Save, a Yes / No, a shop list) is the player's.
+        // (Until 2026-10-12 only "Always" did; a pressed skip waved the menu through with no row chosen: S_3015's
+        // EV_3015_HUGO_2 then ended at once with camera slot 1 still forced and the scroll out, for good.)
+        // Under "Always", a Fix the player started with the action button (a talk, a statue, a shop, a chest, a
+        // sign) skips nothing by itself: it plays as the original plays it — every window with its own fade-in,
+        // its release and its fresh press (wnddialog.cpp) — so one press answers one thing. (Before, each answer
+        // set the skip off again: the boxes and pauses between two choices went by unread and the next choice
+        // was up at once, under the press meant for a box.) Nor does a Fix whose skip ended stuck: still held,
+        // no menu up. A story scene's own menu waits for its answer, and the skip goes on after it.
+        bool auto_skip_off = false;
         bool menu_up() const { return wdlg.alive() && wdlg.is_menu(); }
         // FUN_005741b0: arm the slot's window and return its "accepted"; with no window,
         // proceed on a Confirm press.
         bool wait_prompt() override {
-            if (skipping && !(skip_keeps_menus && last_win == 2 && menu_up())) return true;
+            if (skipping && !(last_win == 2 && menu_up())) return true;
             if (last_win == 2 && wdlg.alive()) { wdlg.arm(); return wdlg.accepted(); }
             if (last_win == 1 && wtext.alive()) { wtext.arm(); return wtext.accepted(); }
             if (advance) { advance = false; return true; }
@@ -2728,7 +2735,11 @@ title_again:
         // 0xf4 Wait_Script(name): a parent controller blocks until its spawned talk child
         // is gone. Answer from the live set (case-insensitive; script names vary in case).
         bool wait_script_done(const std::string& n) override {
-            if (skipping) return true;
+            // A skip waits for the child too: the child drains with the parent (its own waits collapse), and what
+            // it does is part of the scene — Zava's intro waits on Summon, which raises the heads; waved through,
+            // the intro let go of its Fix with the heads still under the floor and Summon playing on into the
+            // fight. Only a child that will not end (kSkipChildBudget drained steps) is given up on.
+            if (skipping && skip_step >= kSkipChildBudget) return true;
             if (!mgr) return true;
             for (const auto& i : mgr->live) {
                 if (i.finished || i.name.size() != n.size()) continue;
@@ -3337,10 +3348,11 @@ title_again:
         // (all Fixes released) or a bounded budget is hit. Side effects (flags, spawns,
         // warps, Eft/Scroll) still run in order — only the waiting is removed. Bounded
         // so a script that legitimately never ends (a persistent controller) can't hang.
-        if (!csMgr.world_frozen()) csHost.skip_stuck = false;
+        if (!csMgr.world_frozen()) csHost.auto_skip_off = false;
         if (skip_cutscene) {
             csHost.skipping = true;                // every wait predicate reports "done"
             for (int guard = 0; guard < 20000 && csMgr.world_frozen(); ++guard) {
+                csHost.skip_step = guard;
                 csMgr.skip_waits();                // zero every live script's Wait_Time
                 csMgr.tick_all();
                 // Wait_ChrMoving (0x100) waits on the walk itself, which no predicate can wave through
@@ -3350,20 +3362,49 @@ title_again:
                 csHost.advance_player_move();
                 world.advance_cutscene_moves();
                 world.tick_facing([](const Actor&) { return false; });
-                if (csHost.skip_keeps_menus && csHost.menu_up()) break;   // "Always": the menu waits for its answer
+                // ... and the scripted map objects: Wait_MeshMoving is waved through, so the move it waited on
+                // (a boss rising out of the floor), a fade and a pending clip land here.
+                meshes.finish_scripted();
+                // ... and the camera rig, one step per drained step as on a played tick. The camera ops act on the
+                // rig's CURRENT slot (Camera_Change edits it in place, for the rest of the room's life), and only a
+                // step moves the selection onto the slot a Camera_Set forced: without it a skipped scene's
+                // Camera_Change rewrote the slot the player stood in, and a sticky slot the scene ends in was
+                // never entered.
+                update_camera(room, feet, 0.0f);
+                if (csHost.menu_up()) break;       // the menu waits for its answer
             }
             csHost.skipping = false;
-            csHost.skip_stuck = csHost.skip_keeps_menus && csMgr.world_frozen() && !csHost.menu_up();
-            csHost.skip_keeps_menus = false;
+            // The scene's children that outlive its Fix (ScriptManager::skip_tail_step): S_3080's Move_Epona01
+            // walks Epona off and deletes her while Hugo's scene plays on; left to real time after a skip, she
+            // stood there when `Battle` set flag 130 — her own handler's defeat path then ended Toal's duel
+            // five ticks in (156 = 0, 174 = 0: `Battle_Lose`). No wait is waved here but Wait_Time; what the
+            // others stand on is landed as in the drain. [H] 600 steps on one wait, a Wait_Time of at most 600,
+            // 2000 steps in all.
+            for (int k = 0; k < 2000 && !csMgr.world_frozen(); ++k) {
+                const bool more = csMgr.skip_tail_step(600, 600);
+                csHost.advance_player_move();
+                world.advance_cutscene_moves();
+                world.tick_facing([](const Actor&) { return false; });
+                meshes.finish_scripted();
+                csHost.fade_cur = csHost.fade_tgt;
+                update_camera(room, feet, 0.0f);
+                if (!more) break;
+            }
+            if (csMgr.world_frozen() && !csHost.menu_up()) csHost.auto_skip_off = true;
             csHost.advance = false;
             csHost.fade_cur = csHost.fade_tgt;   // land the fade at its end state
             skip_cutscene = false;
             csHost.box_active = false;             // drop any half-revealed line
-            scroll_reset(); shake(0, 0, 0, 0);     // clear the scripted look-at + shake
-            camera_return();                       // drop any forced camera region
+            // The camera is where the scene's own ops left it (its Scroll_Return, its Camera_Return, or a camera
+            // it means to keep: a boss's); what is still ramping lands now, and the shake ends.
+            g_rig.finish_ramps();
+            // The effects the scripts placed (the named ones: Eft_Locate*) play out: a played scene's were over
+            // long before its Fix let go; here a boss's whole intro was spawned in one tick and ran on over the
+            // fight's first seconds. Loops a script did not kill stay, as they do played.
+            // [H] 600 steps (10 s): longer than any one-shot effect of the scenes checked (ACCESS.md §1.5).
+            for (int k = 0; k < 600; ++k) fxsim.step({}, [](const ef2sim::Effect& f) { return !f.name.empty(); });
+            fxsim.sweep();
             after_cutscene = nullptr;              // its thaw-action is moot after a skip
-            // Snap the region camera straight back onto the player this frame, so the
-            // view doesn't stay parked where the cutscene had panned it.
             update_camera(room, feet, 0.0f, /*snap=*/true);
             if (g_cam.on) apply_cam_state(cam, feet);
             hud.debug_message("(skipped)");
@@ -4169,6 +4210,7 @@ title_again:
                 for (char& ch : sc) ch = char(std::tolower((unsigned char)ch));
                 if (csMgr.start(sc, {}, cd.actor->instance_id)) {        // bound to the actor [H]
                     std::printf("  [probe] actor %d -> %s\n", cd.actor->instance_id, sc.c_str());
+                    csHost.auto_skip_off = true;                         // the player's own: "Always" leaves it be
                     return true;
                 }
                 continue;
@@ -4187,6 +4229,7 @@ title_again:
             ov.i[0] = target->i0; ov.i[1] = target->i1; ov.f[0] = target->f0;
             if (csMgr.start(name, ov, /*owner: the player*/ 13)) {
                 std::printf("  [probe] %s -> %s\n", target->name.c_str(), name.c_str());
+                csHost.auto_skip_off = true;                             // the player's own: "Always" leaves it be
                 return true;
             }
         }
@@ -4622,6 +4665,19 @@ title_again:
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
             }
+        } else if (cmd == "cam") {                    // the camera rig: the selection, the ramps, the output, the slots
+            float sum = 0;                            // every slot's script-editable fields (a Camera_Change left behind)
+            for (int i = 0; i < g_rig.count(); ++i) {
+                const CameraRegion& r = g_rig.slot(i);
+                sum += r.eye.dist + r.eye.yaw + r.eye.pitch + r.fov;
+            }
+            const CameraRegion& c = g_rig.slot(std::clamp(g_rig.current(), 0, CamRig::kSlots - 1));
+            std::printf("  [cam] cur %d from %d forced %d t %.2f scroll %.2f>%.2f shake %d | eye (%.2f, %.2f, %.2f) tgt (%.2f, %.2f, %.2f) "
+                        "fov %.4f | slot dist %.2f yaw %.4f pitch %.4f fov %.4f | slots %.3f | fade %.2f>%.2f cf %.2f\n",
+                        g_rig.current(), g_rig.from(), g_rig.forced(), g_rig.blend_t(), g_rig.scroll_t(), g_rig.scroll_dest(),
+                        g_rig.shake_frames(), g_cam_out.eye.x, g_cam_out.eye.y, g_cam_out.eye.z, g_cam_out.target.x,
+                        g_cam_out.target.y, g_cam_out.target.z, g_cam_out.fov, c.eye.dist, c.eye.yaw, c.eye.pitch, c.fov, sum,
+                        csHost.fade_cur, csHost.fade_tgt, csHost.cf_alpha);
         } else if (cmd == "scripts") {                // the live scripts and their pcs
             std::printf("  [drive]   frozen %d fix %d/%d popups %zu\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1], popups.size());
             for (const auto& li : csMgr.live)
@@ -6236,11 +6292,11 @@ title_again:
                 // 0x75ad90 + 0x75ad94 is non-zero (build/shell_re/ACCESS.md §1).
                 const bool menu = csHost.wdlg.alive() && csHost.wdlg.is_menu();
                 // The shell's Cutscene skip mode (single / double / hold / off: view_access.inl).
-                // ("Always" skips with no press, through the same gate; not again under a Fix its skip could not end.)
+                // ("Always" skips with no press, through the same gate; under a Fix that wants the player
+                // (auto_skip_off) only on a press, like "Single press".)
                 const bool auto_skip = skip_mode() == access::SkipMode::Always;
-                const bool skip_now = !menu && !(auto_skip && csHost.skip_stuck) &&
-                                      access_skip_step((inf.pressed & input::kMenu) != 0, (inf.held & input::kMenu) != 0);
-                if (skip_now) csHost.skip_keeps_menus = auto_skip;
+                const bool skip_now = !menu && access_skip_step((inf.pressed & input::kMenu) != 0, (inf.held & input::kMenu) != 0,
+                                                                auto_skip && csHost.auto_skip_off);
                 if (menu) g_skip_gate.reset();
                 if (inf.pressed & (menu ? input::kOk : input::kOk | input::kClick)) csHost.advance = true;
                 else if (menu && (inf.pressed & (input::kCancel | input::kMenu))) csHost.wnd_cancel = true;

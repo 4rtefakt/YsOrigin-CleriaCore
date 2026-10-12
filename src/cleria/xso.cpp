@@ -1118,6 +1118,7 @@ XsoVm::Tick XsoVm::tick() {
     if (!co_script) return Tick::Ended;
     if (co_wait > 0) { if (--co_wait > 0) return Tick::Waiting; }   // still counting down
     for (int guard = 0; guard < 2'000'000; ++guard) {              // bound a wait-less loop
+        ++burst_ops;
         const Step s = step_one(*co_script, co_pc, /*coroutine*/true);
         if (s == Step::Park) return Tick::Waiting;
         if (s == Step::End || s == Step::Unknown) { co_script = nullptr; return Tick::Ended; }
@@ -1180,6 +1181,7 @@ std::size_t ScriptManager::start_root(std::shared_ptr<const Xso> s, std::string 
     Inst in;
     in.script = std::move(s);
     in.name = std::move(name);
+    in.born = serial_++;
     live.push_back(std::move(in));
     const std::size_t idx = live.size() - 1;
     tick_inst(live[idx]);   // immediate first tick this frame (§5a)
@@ -1199,6 +1201,7 @@ bool ScriptManager::start(const std::string& name, const XsoVm::Vars& vars, int 
     in.name = name;
     in.vars = vars;
     in.owner = owner;
+    in.born = serial_++;
     live.push_back(std::move(in));
     tick_inst(live.back());               // child runs its first burst the same frame
     return true;
@@ -1207,6 +1210,7 @@ bool ScriptManager::start(const std::string& name, const XsoVm::Vars& vars, int 
 void ScriptManager::fix(Inst& in, int slot) {
     if (slot < 0 || slot > 1) return;
     if (in.fix_slot >= 0 && fix_counts[in.fix_slot] > 0) --fix_counts[in.fix_slot];
+    if (fix_counts[0] + fix_counts[1] == 0) scene_mark_ = serial_;   // a scene begins (skip_tail_step)
     ++fix_counts[slot];
     in.fix_slot = slot;
     if (on_fix_taken) on_fix_taken(slot, fix_counts[slot] == 1);
@@ -1231,6 +1235,7 @@ void ScriptManager::tick_inst(Inst& in) {
     vm.vars = in.vars;
     vm.owner = in.owner;
     vm.script_name = in.name;          // the grant filter's context (CleriaCore mods)
+    vm.burst_ops = 0;
     const XsoVm::Tick t = vm.tick();
     vm.script_name.clear();
     in.pc = vm.co_pc;
@@ -1268,6 +1273,40 @@ void ScriptManager::tick_all() {
     live.erase(std::remove_if(live.begin(), live.end(),
                               [](const Inst& i) { return i.finished; }),
                live.end());
+}
+
+bool ScriptManager::skip_tail_step(int patience, int long_wait) {
+    if (paused) return false;
+    bool more = false;
+    const std::size_t n = live.size();
+    for (std::size_t i = 0; i < n && !paused; ++i) {
+        Inst& in = live[i];
+        if (in.finished || in.born < scene_mark_ || in.tail_done) continue;
+        if (in.fix_slot >= 0) { in.tail_done = true; continue; }    // it holds the world: the main drain's
+        if (in.wait > long_wait) { in.tail_done = true; continue; } // a timer, not choreography
+        if (in.tail_pcs.empty()) in.tail_pcs.push_back(in.pc);
+        const std::uint32_t pc0 = in.pc;
+        in.wait = 0;
+        tick_inst(in);
+        if (in.finished) continue;
+        if (in.fix_slot >= 0) in.tail_done = true;
+        else if (in.pc == pc0 && vm.burst_ops <= 1) { if (++in.tail_stood >= patience) in.tail_done = true; }
+        else {
+            in.tail_stood = 0;
+            if (std::find(in.tail_pcs.begin(), in.tail_pcs.end(), in.pc) != in.tail_pcs.end()) in.tail_done = true;
+            else in.tail_pcs.push_back(in.pc);
+        }
+        more = more || !in.tail_done;
+    }
+    while (!spawn_queue.empty() && !paused) {                       // as tick_all: the children start now
+        std::vector<Spawn> batch;
+        batch.swap(spawn_queue);
+        for (const Spawn& sp : batch) more = start(sp.name, sp.vars, sp.owner) || more;
+    }
+    for (Inst& i : live)
+        if (i.finished) unfix(i);
+    live.erase(std::remove_if(live.begin(), live.end(), [](const Inst& i) { return i.finished; }), live.end());
+    return more;
 }
 
 bool ScriptManager::any_live() const {

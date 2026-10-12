@@ -271,6 +271,65 @@ void MeshWorld::step() {
     }
 }
 
+void MeshWorld::finish_scripted() {
+    for (auto& [nm, m] : objs_) {
+        if (m.sleeping) continue;
+        if (m.alpha != m.alpha_target) {
+            if ((m.alpha > 0.0f) != (m.alpha_target > 0.0f)) m.dirty_pose = true;
+            m.alpha = m.alpha_target;
+            m.dirty_alpha = true;
+        }
+        // The move, the fall and the counted rotation by step()'s own arithmetic, so each ends where it would.
+        for (int guard = 0; guard < 100000 && m.speed != 0.0f; ++guard) {
+            Vec3 d{m.dest.x - m.pos.x, m.dest.y - m.pos.y, m.dest.z - m.pos.z};
+            const float l0 = len3(d);
+            if (l0 != 0.0f) { const float k = 1.0f / l0; d = {d.x * k, d.y * k, d.z * k}; }
+            m.pos = {m.pos.x + d.x * m.speed, m.pos.y + d.y * m.speed, m.pos.z + d.z * m.speed};
+            const float l1 = len3({m.dest.x - m.pos.x, m.dest.y - m.pos.y, m.dest.z - m.pos.z});
+            if (l1 > l0 || l1 <= m.radius) {
+                if (m.radius < 0.01f) m.pos = m.dest;
+                m.speed = 0.0f;
+            }
+            m.dirty_pos = true;
+        }
+        for (int guard = 0; guard < 100000 && m.fall_e != 0.0f; ++guard) {
+            m.fall_vel -= 0.02f;
+            m.pos.y += m.fall_vel;
+            const float under = m.fall_start - m.pos.y;
+            if (under >= 0.0f) {
+                m.fall_vel = -(m.fall_e * m.fall_vel);
+                m.pos.y = m.fall_e * under + m.fall_start;
+                if (m.fall_vel < 0.025f) { m.fall_e = 0.0f; m.pos.y = m.fall_start; }
+            }
+            m.dirty_pos = true;
+        }
+        for (; m.rot_steps > 0; --m.rot_steps) {
+            m.rot = {m.rot.x + m.rot_delta.x, m.rot.y + m.rot_delta.y, m.rot.z + m.rot_delta.z};
+            m.dirty_pose = true;
+        }
+        if (!m.pending.empty()) {
+            const std::string want = lower(m.pending);
+            for (std::size_t i = 0; i < m.clips.size(); ++i)
+                if (lower(m.clips[i].name) == want) {
+                    apply_clip(m, int(i), m.pending_start);
+                    m.dirty_pose = true;
+                    break;
+                }
+            m.pending.clear();
+        }
+        // The clip a Wait_MeshMotionFinish stood on: a chain section runs on into its next, a stop section lands
+        // on its end (set_time's own rules); a loop section is left where it is.
+        for (int guard = 0; guard < 64 && !m.frozen && m.sect >= 0 && std::size_t(m.sect) < m.clips.size(); ++guard) {
+            const MeshClip& s = m.clips[std::size_t(m.sect)];
+            if (s.next == -2 || (s.next < 0 && m.time >= float(s.end))) break;
+            const int was = m.sect;
+            set_time(m, float(s.end));
+            m.dirty_pose = true;
+            if (m.sect == was) break;
+        }
+    }
+}
+
 bool MeshWorld::moving(const std::string& name, bool* found) const {
     const MeshObj* m = find(name);
     if (found) *found = m != nullptr;

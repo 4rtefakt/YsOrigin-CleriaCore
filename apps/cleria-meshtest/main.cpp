@@ -127,6 +127,37 @@ int main(int argc, char** argv) {
         w.moving("nothing", &found);
         check(w.find("door_01")->time == t && !found, "StopMotion(0) freezes the clip; a missing object is not found");
     }
+    {   // A cutscene skip's step (CleriaCore's own, ACCESS.md §1.5): what the scripts wait on lands at once, where
+        // step() would have taken it.
+        MeshWorld w;
+        w.add("asiba_00", {0, 0, 0}, {});
+        w.move_to("asiba_00", {0, 0, 10}, 0.16f, 0.15f, false);
+        w.add("head", {0, -2, 0}, {{"RISE", 0, 40, 1, 1.0f}, {"ROAR", 40, 90, 2, 1.0f}, {"WAIT", 100, 130, -2, 1.0f},
+                                   {"OPEN", 0, 90, -1, 0.2f}});
+        w.move_to("head", {0, 6.1f, 0}, 0.005f, 0.08f, false);
+        w.alpha_current("head", 0.0f);
+        w.alpha_target("head", 0.9f, 60);
+        w.set_motion("head", "RISE", false, 0);
+        w.add("door", {0, 0, 0}, {{"OPEN", 0, 90, -1, 0.2f}});
+        w.set_motion("door", "OPEN", false, 0);
+        w.add("fan", {0, 0, 0}, {{"WAIT", 0, 9, -2, 1.0f}});
+        w.set_motion("fan", "WAIT", false, 0);
+        w.step();                                          // the pending clips apply
+        w.rotate("fan", {0, 10, 0}, 3);
+        const float fan_t = w.find("fan")->time;
+        w.finish_scripted();
+        const MeshObj& a = *w.find("asiba_00");
+        const MeshObj& h = *w.find("head");
+        const MeshObj& d = *w.find("door");
+        const MeshObj& f = *w.find("fan");
+        bool found = false;
+        check(a.speed == 0.0f && a.pos.z < 10.0f && 10.0f - a.pos.z <= 0.16f, "skip: a MoveTo stops where step() stops it (within the radius)");
+        check(h.pos.y == 6.1f && h.speed == 0.0f && h.alpha == 0.9f, "skip: a snapping MoveTo is on its destination, the alpha on its target");
+        check(h.sect == 2 && w.motion_finished("door", 1, &found) && d.time == 90.0f,
+              "skip: a chain clip runs on to the loop it ends in; a stop clip is at its end, counter 1");
+        check(f.time == fan_t && f.sect == 0 && f.rot_steps == 0 && std::fabs(f.rot.y - 30.0f * 0.017453292f) < 1e-6f,
+              "skip: a loop clip's clock stands; a counted Mesh_Rotate has run out");
+    }
     {   // 0x188 (FUN_00573aa0): a = (b.fade + 1) * 0.5 * k * b.alpha * clamp(1 - |yb - ya| / div).
         // S_1004's STEPSHADOWUPDATE: (shadow, step, 10.0, 0.45); the UP clip lifts a step 7.
         MeshWorld w;

@@ -89,6 +89,17 @@ int main(int, char**) {
         rig.scroll_return(0, 0);
         o = rig.step(player, look, rng);
         check(near(o.target.x, 0, 1e-2f), "0xC4 frames 0: back on the player at once");
+        // A cutscene skip's end (CleriaCore's own, ACCESS.md §1.5): a ramp still running lands, the shake stops;
+        // nothing is returned that the scripts did not return.
+        rig.scroll_moveto({10, 1, 0}, 100, 0);
+        rig.shake({1, 1, 1}, 50);
+        rig.set(0, 60);
+        rig.step(player, look, rng);
+        rig.finish_ramps();
+        rig.hard_cut();
+        o = rig.step(player, look, rng);
+        check(near(o.target.x, 10, 1e-2f) && rig.scroll_t() == 1.0f && rig.shake_frames() == 0 && rig.blend_t() == 1.0f &&
+              rig.forced() == 0, "skip end: the scroll is on its point, the blend settled, no shake; the forced slot is kept");
     }
     {   // the camera-space offset translates eye and target together
         Scm scm;

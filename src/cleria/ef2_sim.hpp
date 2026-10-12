@@ -146,7 +146,9 @@ class System {
     // One 60 Hz step: every effect, then every particle (counts snapshot first; EF2SIM §1.1).
     // `on_hit(p)` is the hit tick of each armed, live particle (EFFECTHIT §4.2); it returns
     // true when the hit landed, so a mode-2 particle disarms and fades (§5.5).
-    void step(const std::function<bool(Particle&)>& on_hit = {});
+    // `only`: step just the effects it accepts and their particles (a cutscene skip plays the scripts' own
+    // effects out; CleriaCore's own).
+    void step(const std::function<bool(Particle&)>& on_hit = {}, const std::function<bool(const Effect&)>& only = {});
     // The per-render-frame sweep: destroy dead particles (their effects' counts drop).
     void sweep();
     void clear() { parts_.clear(); fx_.clear(); }

@@ -28,9 +28,10 @@ static void access_tick() {
 }
 
 // The cutscene skip, once per logic tick while a Fix holds the world and no script menu is up
-// (`pressed` / `held` = the mapper record's menu bit 0x10). Returns true to skip now.
-static bool access_skip_step(bool pressed, bool held) {
-    const access::SkipMode m = skip_mode();
+// (`pressed` / `held` = the mapper record's menu bit 0x10). Returns true to skip now. `press_only`: "Always" under
+// a Fix it leaves to the player (a conversation she started, a skip that got stuck) skips on a press.
+static bool access_skip_step(bool pressed, bool held, bool press_only = false) {
+    const access::SkipMode m = press_only ? access::SkipMode::Single : skip_mode();
     const access::SkipGate before = g_skip_gate;
     const bool skip = g_skip_gate.step(m, pressed, held);
     static const char* const kName[] = {"single", "double", "hold", "off", "always"};
@@ -125,9 +126,9 @@ static void access_gameplay_page(ui::List& L, const std::function<void()>& persi
         "Off: cutscenes cannot be skipped, as in the original game (movies follow the Prelaunch "
         "\"Unlock movie skipping\" setting).",
         "How the Camp Menu button (Esc, or your gamepad's menu button) skips a cutscene or a movie.\n\n"
-        "Always: no press at all. Every cutscene, conversation and movie skips by itself as it starts; "
-        "a menu that asks you something (Save, Yes / No, a shop) still waits for your answer. For the "
-        "2348th playthrough. Not a retail option.",
+        "Always: no press at all. Every cutscene and movie skips by itself as it starts; a choice inside "
+        "one still waits for your answer. What you start yourself (talking to someone, a statue, a shop, "
+        "a chest) plays normally; one press skips it. For the 2348th playthrough. Not a retail option.",
     };
     ui::section(L, "Cutscenes");
     int sk = std::clamp(a.cutscene_skip, 0, 4);
