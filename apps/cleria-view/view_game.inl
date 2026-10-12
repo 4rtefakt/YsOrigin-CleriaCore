@@ -3501,6 +3501,35 @@ title_again:
             return pickups.size() > n0;
         };
         b.frozen = [&] { return csMgr.world_frozen(); };
+        b.actors = [&](std::vector<script::Host::ActorInfo>& out) {   // API 7: who the enemy bars would consider
+            for (const Actor& a : world.actors()) {
+                if (a.is_player() || !a.is_enemy() || !a.alive()) continue;
+                script::Host::ActorInfo i;
+                i.id = a.instance_id; i.cast = a.cast_id; i.level = a.level;
+                if (const Cast* c = casts.get(a.cast_id)) i.name = c->display;
+                i.hp = a.hp; i.max_hp = a.max_hp; i.atk = a.atk; i.def = a.def;
+                i.pos[0] = a.pos.x; i.pos[1] = a.pos.y; i.pos[2] = a.pos.z; i.height = a.height; i.yaw = a.yaw;
+                i.hittable = a.ai.hittable && a.ai.alpha > 0.0f;
+                out.push_back(std::move(i));
+            }
+        };
+        b.to_screen = [&](const Vec3& o, float* sx, float* sy) {   // API 7: the last frame's view-projection
+            if (!have_vp) return false;
+            const float* M = last_vp.m.data();
+            const float px = o.x * M[0] + o.y * M[4] + o.z * M[8] + M[12];
+            const float py = o.x * M[1] + o.y * M[5] + o.z * M[9] + M[13];
+            const float pw = o.x * M[3] + o.y * M[7] + o.z * M[11] + M[15];
+            if (!(pw > 1e-4f)) return false;
+            *sx = px / pw * 0.5f + 0.5f;
+            *sy = 0.5f - py / pw * 0.5f;
+            return std::isfinite(*sx) && std::isfinite(*sy);
+        };
+        b.room_title = [&]() -> std::string {            // API 7: SCENELIST's display string, after its ':' when it has one
+            const SceneRec* sr = scenes.find_room(room.name);
+            if (!sr) return {};
+            const std::size_t k = sr->display.find(':');
+            return k != std::string::npos && k + 2 <= sr->display.size() ? sr->display.substr(k + 2) : sr->display;
+        };
         b.warp = [&](int i) { game.g_flags[137] = i; csMgr.vm.g_flags[137] = i; csHost.go_warp_point(); };   // 0xa6
         lua_bind(std::move(b));
     }
@@ -6259,6 +6288,14 @@ title_again:
     CaptionCard gameover_card;
     WndDialog gameover_menu;
     bool return_to_title = false;
+    g_lua.b.state = [&]() -> const char* {              // cleria.game.state (API 7), most covering first
+        if (shell.open) return "panel";
+        if (death_t > 0 || player.hp < 1) return "gameover";
+        if (book.is_open()) return "book";
+        if (csHost.wdlg.alive()) return csHost.wdlg.is_menu() ? "menu" : "dialog";
+        if (csMgr.world_frozen()) return "cutscene";
+        return "play";
+    };
     auto game_over = [&] {                               // FUN_00427820
         const bool time_attack = game.g_flags[193] != 0;
         std::printf(time_attack ? "  [gameover] Retry / Return to Title (a run: no card)\n" : "  [gameover] gameover.dds + Retry / Return to Title\n");

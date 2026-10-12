@@ -111,8 +111,11 @@
                         }
                     }
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
-                    dmg = lua_damage(true, dmg, formula, a.atk, power, en.def, cls, en.cast_id, en.level);   // Lua mods
+                    dmg = lua_damage(true, dmg, formula, a.atk, power, en.def, cls, en.cast_id, en.level, en.instance_id, en.hp, en.max_hp);   // Lua mods
                     HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    if (lua_events_on())                                // mods (API 7): the hit as it landed
+                        content_emit(events::Event::named("enemy_hit").with("actor", en.instance_id).with("cast", en.cast_id)
+                                         .with("damage", dmg).with("hp", std::max(en.hp, 0.0f)).with("max_hp", en.max_hp).with("killed", r.died ? 1 : 0));
                     if (r.died && boss6_zava_undying(en)) { en.flags &= ~kActorDead; r.died = false; }   // her handler floors it (view_boss06.inl)
                     if (dmg > 0) kill_combo.hit();   // 0x4fc835: the combo meter, before the kill's EXP
                     // ... and in the same block, Toal in 0x10c / 0x10f: FUN_0046cc10(500.0) (refused while

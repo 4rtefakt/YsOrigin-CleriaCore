@@ -637,6 +637,54 @@ across it (a death counter) holds it in a Lua variable at `death` and writes it 
   opens nothing.
 - `cleria.locale()`: the game's text language, `"ja"`, `"en"`, `"es"`, `"fr"`, `"de"` or `"it"`.
 
+### 12.6 What the game is doing: `cleria.game.state` and friends
+
+| call | |
+|---|---|
+| `game.state()` | `"title"` (no game runs), `"play"`, `"cutscene"` (a script holds the world), `"dialog"` (a text window), `"menu"` (a script's menu: a statue's blessings, a choice), `"book"` (the pause book), `"panel"` (the F1 panel), `"gameover"`. The most covering one wins: the panel over the book over a window over a cutscene |
+| `game.room_title()` | the room's own name as the game's data has it (`"4F Forward Passage 1"`, `"Outer Corridor 1"`); `""` for a room without one |
+| `game.floor()` | the floor that name starts with, 1..25, or `nil` when it names none (the outer corridors, Rado's Annex, the summit) |
+| `game.zone()` | `1..7` and the zone's name (`1, "Wailing Blue"` ... `7, "Tower Summit"`), from the room number; `nil` elsewhere |
+| `game.difficulty()` | `0..4` and its name: Very Easy, Easy, Normal, Hard, Nightmare |
+| `game.play_time()` | seconds of play, the game's own counter (the one on the save card) |
+
+Two events follow them, raised from the tick that sees the change:
+
+| event | fields |
+|---|---|
+| `state_changed` | `state`, `old` |
+| `floor_changed` | `floor`, `old` (0 when the game started in a room without a floor). A room whose name has no floor keeps the last one: walking through an outer corridor raises nothing |
+
+### 12.7 The room's monsters: `cleria.world`
+
+```lua
+for _, a in ipairs(cleria.world.actors()) do
+    -- a.id, a.cast, a.name, a.level, a.hp, a.max_hp, a.atk, a.def, a.x, a.y, a.z, a.height, a.yaw, a.hittable
+end
+local one = cleria.world.actor(id)                      -- the same table for one id, or nil
+
+cleria.hud.layer("bars", function(d)                    -- a name over every monster
+    for _, a in ipairs(cleria.world.actors()) do
+        local fx, fy = cleria.world.to_screen(a.x, a.y + a.height, a.z)
+        if fx then d:text(fx * d.w, fy * d.h, a.name, {size = 16 * d.scale}) end
+    end
+end)
+```
+
+- `world.actors()` lists the living enemy actors of the room: never the player, an NPC, a puppet, or the parts of a
+  boss module (those are not actors). `id` is the actor's instance id, stable while it lives; `x, y, z` its feet and
+  `height` its collision height (the head is at `y + height`); `hittable` is false while it is faded out or immune.
+- `world.to_screen(x, y, z)` returns where a world point was on the **last drawn frame**, as fractions of the picture
+  (0..1 from its top left: multiply by a layer's `d.w`, `d.h`), or `nil` behind the camera. A point outside 0..1 is
+  off the screen.
+- The `"damage"` filter's query gains `actor` (the monster hit, for `dir = "dealt"`), and `hp` / `max_hp`: the
+  victim's HP before the hit (the monster's, or the player's for `dir = "taken"`). `q.value >= q.hp` is a kill.
+
+| event | when | fields |
+|---|---|---|
+| `enemy_hit` | a hit of the player's landed on a monster, after the HP changed | `actor`, `cast`, `damage`, `hp`, `max_hp`, `killed` (1 / 0) |
+| `player_hit` | a hit landed on the player, after the HP changed | `damage`, `hp`, `max_hp`; `cast`, `level` when a monster's hit volume did it |
+
 ## 10. Tests
 
 ```
@@ -672,5 +720,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry` and `level_up`, `load.retry`, a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

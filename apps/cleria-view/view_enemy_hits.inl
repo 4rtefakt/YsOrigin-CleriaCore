@@ -109,9 +109,15 @@
                     }
                     dmg = int(float(dmg) * ar.scale);
                 }
-                dmg = lua_damage(false, dmg, raw, atk, bonus, pdef, -1, from_cast, from_level);   // Lua mods
+                dmg = lua_damage(false, dmg, raw, atk, bonus, pdef, -1, from_cast, from_level, -1, float(player.hp), float(player.max_hp));   // Lua mods
                 player.hp -= dmg;
                 if (player.hp < 1) player.hp = 0;             // FUN_004fd350: hp - dmg < 1.0 -> hp = 0 (no "-3/60")
+                if (lua_events_on()) {                        // mods (API 7): the hit as it landed
+                    events::Event he = events::Event::named("player_hit");
+                    he.with("damage", dmg).with("hp", player.hp).with("max_hp", player.max_hp);
+                    if (from_cast >= 0) he.with("cast", from_cast).with("level", from_level);
+                    content_emit(he);
+                }
                 if (dmg > 0) player_hurt_this_tick = true;    // +0x3bc |= 6 (FUN_004fd350 0x4fde3c)
                 // 0x4fe014 (dmg > 0, after the reaction's writes, which draw nothing): FUN_004fab40(victim,
                 // 0xff550a00) = five puffs at the origin - (cos, sin)(the hit angle, 256 steps) x the hurt radius

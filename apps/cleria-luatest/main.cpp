@@ -124,6 +124,15 @@ struct FakeHost : script::Host {
     bool set_clipboard(const std::string& t) override { clip = t; return true; }
     bool open_url(const std::string&, const std::string& u) override { urls.push_back(u); return true; }
     std::string locale() override { return "fr"; }
+    std::string state7 = "play", title7 = " 4F - Wailing Blue";
+    std::string game_state() override { return state7; }
+    std::string room_title() override { return title7; }
+    std::vector<ActorInfo> actors() override {
+        ActorInfo a;
+        a.id = 17; a.cast = 17; a.level = 3; a.name = "Selnarg"; a.hp = 54; a.max_hp = 74; a.pos[0] = 1; a.pos[1] = 2; a.pos[2] = 3; a.height = 1.5f;
+        return {a};
+    }
+    bool to_screen(float x, float, float z, float* sx, float* sy) override { if (z < 0) return false; *sx = x / 10; *sy = 0.5f; return true; }
     std::string profile;
     bool set_save_profile(const std::string& n) override { if (n == "no") return false; profile = n; return true; }   // "no": refused
     std::string save_profile() override { return profile; }
@@ -640,6 +649,31 @@ int main(int argc, char** argv) {
             a->on_event(ld);
             check(has(h.logs, "ev level_up 5 S_1002 you") && has(h.logs, "ev load retry true") && has(h.logs, "bad event false"),
                   "api 7: named events with their fields; load.retry");
+        }
+        {   // API 7, batch B: what the game is doing, the room's monsters, a world point on the screen
+            h.fl[199] = 600; h.fl[144] = 1;
+            auto g = make(h, tmp, "api7g", R"LUA(
+                local z, zn = cleria.game.zone()
+                local d, dn = cleria.game.difficulty()
+                cleria.log("where " .. cleria.game.state() .. " [" .. cleria.game.room_title() .. "] floor " .. tostring(cleria.game.floor()) ..
+                           " zone " .. z .. " " .. zn .. " diff " .. d .. " " .. dn .. " time " .. cleria.game.play_time())
+                local list = cleria.world.actors()
+                local a = list[1]
+                local fx, fy = cleria.world.to_screen(a.x, a.y, a.z)
+                cleria.log("actors " .. #list .. " " .. a.id .. " " .. a.name .. " lv " .. a.level .. " hp " .. a.hp .. "/" .. a.max_hp ..
+                           " h " .. a.height .. " screen " .. string.format("%.1f", fx) .. " " .. fy .. " behind " .. tostring(cleria.world.to_screen(0, 0, -1)) ..
+                           " one " .. cleria.world.actor(17).cast .. " none " .. tostring(cleria.world.actor(5)))
+                cleria.events.on("state_changed", function(e) cleria.log("state " .. e.old .. " -> " .. e.state) end)
+                cleria.events.on("enemy_hit", function(e) cleria.log("hit " .. e.actor .. " " .. e.damage .. " " .. e.killed) end)
+            )LUA");
+            g->on_event(events::Event::named("state_changed").with("state", "book").with("old", "play"));
+            g->on_event(events::Event::named("enemy_hit").with("actor", 17).with("damage", 20).with("killed", 0));
+            h.title7 = "Outer Corridor 1";
+            auto g2 = make(h, tmp, "api7g2", "cleria.log('nofloor ' .. tostring(cleria.game.floor()))");
+            check(g->ok() && has(h.logs, "where play [ 4F - Wailing Blue] floor 4 zone 1 Wailing Blue diff 3 Hard time 10.0") &&
+                  has(h.logs, "actors 1 17 Selnarg lv 3 hp 54.0/74.0 h 1.5 screen 0.1 0.5 behind nil one 17 none nil") &&
+                  has(h.logs, "state play -> book") && has(h.logs, "hit 17 20 0") && has(h.logs, "nofloor nil"),
+                  "api 7: game.state / room_title / floor / zone / difficulty / play_time, world.actors / actor / to_screen (" + g->error() + ")");
         }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);

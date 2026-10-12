@@ -36,6 +36,11 @@ struct LuaBind {
     std::function<bool(script::PlayerInfo&)> info;                  // cleria.player.stats
     std::function<void(float)> add_exp;                             // cleria.player.add_exp
     std::function<bool(int, const Vec3&, float)> spawn_pickup;      // cleria.game.spawn_pickup
+    // API 7
+    std::function<const char*()> state;                            // cleria.game.state while a game is bound
+    std::function<std::string()> room_title;                       // cleria.game.room_title
+    std::function<void(std::vector<script::Host::ActorInfo>&)> actors;   // cleria.world.actors
+    std::function<bool(const Vec3&, float*, float*)> to_screen;    // cleria.world.to_screen (fractions of the picture)
 };
 
 struct LuaNotice {
@@ -118,6 +123,10 @@ struct LuaHost : script::Host {
     bool set_clipboard(const std::string& text) override { return SDL_SetClipboardText(text.c_str()); }
     bool open_url(const std::string& mod, const std::string& url) override;
     std::string locale() override;
+    std::string game_state() override;
+    std::string room_title() override;
+    std::vector<ActorInfo> actors() override;
+    bool to_screen(float x, float y, float z, float* sx, float* sy) override;
 };
 
 struct LuaRt {
@@ -136,6 +145,8 @@ struct LuaRt {
     bool stat_any = false;
     double stat_add[3] = {0, 0, 0}, stat_mul[3] = {1, 1, 1};
     std::map<std::string, std::string> bus;            // cleria.bus.get / set: JSON text by key (the process)
+    std::string last_state;                            // state_changed / floor_changed: what the last tick saw
+    int last_floor = -2;
 };
 static LuaRt g_lua;
 static bool g_lua_info(script::PlayerInfo& out) { return g_lua.b.info && g_lua.b.info(out); }
@@ -258,6 +269,19 @@ bool LuaHost::open_url(const std::string& mod, const std::string& url) {
     std::printf("  [lua] %s opens %s\n", mod.c_str(), url.c_str());
     if (std::getenv("CLERIA_DRIVE")) return true;               // a headless run opens nothing
     return SDL_OpenURL(url.c_str());
+}
+std::string LuaHost::room_title() { return g_lua.b.room_title ? g_lua.b.room_title() : std::string(); }
+std::vector<script::Host::ActorInfo> LuaHost::actors() {
+    std::vector<ActorInfo> v;
+    if (in_game() && g_lua.b.actors) g_lua.b.actors(v);
+    return v;
+}
+bool LuaHost::to_screen(float x, float y, float z, float* sx, float* sy) {
+    return in_game() && g_lua.b.to_screen && g_lua.b.to_screen(Vec3{x, y, z}, sx, sy);
+}
+std::string LuaHost::game_state() {
+    if (!in_game() || !g_lua.b.state) return "title";
+    return g_lua.b.state();
 }
 std::string LuaHost::locale() {
     static const char* const k[] = {"ja", "en", "es", "fr", "de", "it"};
@@ -459,7 +483,36 @@ static void lua_frame() {
     for (auto& m : r.mods) m->on_frame(dt);
 }
 
+// API 7: state_changed and floor_changed, from what this tick sees against the last one.
+static int lua_floor_of(const std::string& t) {
+    std::size_t i = 0;
+    while (i < t.size() && t[i] == ' ') ++i;
+    int n = 0;
+    std::size_t d = i;
+    while (d < t.size() && t[d] >= '0' && t[d] <= '9' && d - i < 2) n = n * 10 + (t[d++] - '0');
+    return (d == i || d >= t.size() || t[d] != 'F' || n < 1 || n > 25) ? -1 : n;
+}
+static void lua_watch_state() {
+    LuaRt& r = g_lua;
+    const std::string st = r.host.game_state();
+    if (st != r.last_state) {
+        if (!r.last_state.empty()) content_emit(events::Event::named("state_changed").with("state", st).with("old", r.last_state));
+        r.last_state = st;
+    }
+    if (!r.host.in_game()) { r.last_floor = -2; return; }
+    const int fl = lua_floor_of(r.host.room_title());
+    if (fl != r.last_floor) {
+        if (r.last_floor != -2 && fl > 0) content_emit(events::Event::named("floor_changed").with("floor", fl).with("old", r.last_floor > 0 ? r.last_floor : 0));
+        if (fl > 0 || r.last_floor == -2) r.last_floor = fl;      // a room with no floor in its name keeps the last one
+    }
+}
+
+// A named event of API 7 raised from the game's own code: built only when a scripted mod runs.
+static bool lua_events_on() { return !g_lua.mods.empty(); }
+
 static void lua_tick() {
+    if (g_lua.mods.empty()) return;
+    lua_watch_state();
     for (auto& m : g_lua.mods) m->on_tick();
 }
 
@@ -502,7 +555,9 @@ static int lua_sp(int value, int base, const char* source, int cast = -1) {
 // A hit's final damage. `dealt`: the player's hit on a monster (`cast` / `level`: the victim's) or a boss part
 // (cast -1); else a hit the player takes (`cast`: the attacker's, -1 = a boss, a trap, a shot). `formula` is the
 // damage function's own result, `value` what is about to leave the HP.
-static int lua_damage(bool dealt, int value, int formula, float atk, float power, float def, int cls, int cast, int level) {
+// API 7: `actor` (the monster's id), `hp` / `max_hp` (the victim's, before the hit) when the caller knows them.
+static int lua_damage(bool dealt, int value, int formula, float atk, float power, float def, int cls, int cast, int level,
+                      int actor = -1, float hp = -1.0f, float max_hp = -1.0f) {
     if (!lua_combat_on(script::CombatQuery::Kind::Damage)) return value;
     script::CombatQuery q;
     q.kind = script::CombatQuery::Kind::Damage;
@@ -510,6 +565,8 @@ static int lua_damage(bool dealt, int value, int formula, float atk, float power
     q.num = {{"formula", double(formula)}, {"atk", double(atk)}, {"power", double(power)}, {"def", double(def)}};
     if (cls >= 0) q.num.push_back({"class", double(cls)});
     if (cast >= 0) { q.num.push_back({"cast", double(cast)}); q.num.push_back({"level", double(level)}); }
+    if (actor >= 0) q.num.push_back({"actor", double(actor)});
+    if (hp >= 0.0f) { q.num.push_back({"hp", double(hp)}); q.num.push_back({"max_hp", double(max_hp)}); }
     q.str = {{"dir", dealt ? "dealt" : "taken"}};
     const script::CombatDecision d = lua_combat(q);
     if (d.action == script::CombatDecision::Action::Suppress) return 0;

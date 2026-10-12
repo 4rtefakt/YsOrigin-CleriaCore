@@ -230,3 +230,133 @@ void open_api7(lua_State* L) {                           // the cleria table is 
 }
 
 }  // namespace
+
+namespace {
+
+// ---- what the game is doing: cleria.game.state / room_title / floor / zone / difficulty / play_time -----------
+int l_game_state(lua_State* L) {
+    const std::string s = M(L).host().game_state();
+    lua_pushlstring(L, s.data(), s.size());
+    return 1;
+}
+int l_room_title(lua_State* L) {
+    const std::string s = M(L).host().room_title();
+    lua_pushlstring(L, s.data(), s.size());
+    return 1;
+}
+// The floor a room's name starts with (" 4F - Wailing Blue", "12F Path 2"): 1..25, or -1 when it names none
+// (the outer corridors, Rado's Annex, the summit).
+int floor_of_title(const std::string& t) {
+    std::size_t i = 0;
+    while (i < t.size() && t[i] == ' ') ++i;
+    int n = 0;
+    std::size_t d = i;
+    while (d < t.size() && std::isdigit(static_cast<unsigned char>(t[d])) && d - i < 2) n = n * 10 + (t[d++] - '0');
+    if (d == i || d >= t.size() || t[d] != 'F' || n < 1 || n > 25) return -1;
+    return n;
+}
+int l_game_floor(lua_State* L) {
+    Mod& m = M(L);
+    if (!m.host().in_game()) { lua_pushnil(L); return 1; }
+    const int f = floor_of_title(m.host().room_title());
+    if (f < 0) lua_pushnil(L); else lua_pushinteger(L, f);
+    return 1;
+}
+int scene_of_room(const std::string& r) {                // "S_1001" -> 1001, anything else -> 0
+    if (r.size() < 3 || (r[0] != 'S' && r[0] != 's') || r[1] != '_') return 0;
+    int n = 0;
+    for (std::size_t i = 2; i < r.size() && std::isdigit(static_cast<unsigned char>(r[i])); ++i) n = n * 10 + (r[i] - '0');
+    return n;
+}
+int l_zone(lua_State* L) {                               // -> 1..7 and its name; nil outside the tower's rooms
+    static const char* const kZone[] = {"Wailing Blue", "Flooded Prison", "Guilty Fire", "Silent Sands", "Blighted Blood",
+                                        "Demonic Core", "Tower Summit"};
+    Mod& m = M(L);
+    const int z = m.host().in_game() ? scene_of_room(m.host().room()) / 1000 : 0;
+    if (z < 1 || z > 7) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, z);
+    lua_pushstring(L, kZone[z - 1]);
+    return 2;
+}
+int l_difficulty(lua_State* L) {                         // -> 0..4 and its name (flags 203 / 143 / 144)
+    static const char* const kDiff[] = {"Very Easy", "Easy", "Normal", "Hard", "Nightmare"};
+    const std::int32_t* f = M(L).host().flags();
+    if (!f) { lua_pushnil(L); return 1; }
+    const int d = f[203] ? 0 : f[143] ? 1 : 2 + std::clamp(int(f[144]), 0, 2);
+    lua_pushinteger(L, d);
+    lua_pushstring(L, kDiff[d]);
+    return 2;
+}
+int l_play_time(lua_State* L) {                          // seconds: the game's own counter (flag 199, ticks)
+    const std::int32_t* f = M(L).host().flags();
+    if (!f) { lua_pushnil(L); return 1; }
+    lua_pushnumber(L, double(f[199]) / 60.0);
+    return 1;
+}
+
+void open_api7_game(lua_State* L) {                      // the cleria table is on top of the stack
+    static const luaL_Reg game[] = {{"state", l_game_state}, {"room_title", l_room_title}, {"floor", l_game_floor}, {"zone", l_zone},
+                                    {"difficulty", l_difficulty}, {"play_time", l_play_time}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "game");
+    set_funcs(L, game);
+    lua_pop(L, 1);
+}
+
+}  // namespace
+
+namespace {
+
+// ---- cleria.world: the monsters of the room, and where a world point is on the screen ------------------------
+void push_actor(lua_State* L, const Host::ActorInfo& a) {
+    lua_createtable(L, 0, 14);
+    lua_pushinteger(L, a.id); lua_setfield(L, -2, "id");
+    lua_pushinteger(L, a.cast); lua_setfield(L, -2, "cast");
+    lua_pushinteger(L, a.level); lua_setfield(L, -2, "level");
+    lua_pushlstring(L, a.name.data(), a.name.size()); lua_setfield(L, -2, "name");
+    lua_pushnumber(L, a.hp); lua_setfield(L, -2, "hp");
+    lua_pushnumber(L, a.max_hp); lua_setfield(L, -2, "max_hp");
+    lua_pushnumber(L, a.atk); lua_setfield(L, -2, "atk");
+    lua_pushnumber(L, a.def); lua_setfield(L, -2, "def");
+    lua_pushnumber(L, a.pos[0]); lua_setfield(L, -2, "x");
+    lua_pushnumber(L, a.pos[1]); lua_setfield(L, -2, "y");
+    lua_pushnumber(L, a.pos[2]); lua_setfield(L, -2, "z");
+    lua_pushnumber(L, a.height); lua_setfield(L, -2, "height");
+    lua_pushnumber(L, a.yaw); lua_setfield(L, -2, "yaw");
+    lua_pushboolean(L, a.hittable); lua_setfield(L, -2, "hittable");
+}
+int l_world_actors(lua_State* L) {
+    const std::vector<Host::ActorInfo> v = M(L).host().actors();
+    lua_createtable(L, int(v.size()), 0);
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        push_actor(L, v[i]);
+        lua_rawseti(L, -2, lua_Integer(i + 1));
+    }
+    return 1;
+}
+int l_world_actor(lua_State* L) {
+    const lua_Integer id = luaL_checkinteger(L, 1);
+    for (const Host::ActorInfo& a : M(L).host().actors())
+        if (a.id == id) { push_actor(L, a); return 1; }
+    lua_pushnil(L);
+    return 1;
+}
+int l_world_to_screen(lua_State* L) {                    // -> fx, fy (0..1 of the game picture), or nil behind the camera
+    float sx = 0, sy = 0;
+    if (!M(L).host().to_screen(float(luaL_checknumber(L, 1)), float(luaL_checknumber(L, 2)), float(luaL_checknumber(L, 3)), &sx, &sy)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushnumber(L, sx);
+    lua_pushnumber(L, sy);
+    return 2;
+}
+
+void open_api7_world(lua_State* L) {                     // the cleria table is on top of the stack
+    static const luaL_Reg world[] = {{"actors", l_world_actors}, {"actor", l_world_actor}, {"to_screen", l_world_to_screen},
+                                     {nullptr, nullptr}};
+    lua_newtable(L);
+    set_funcs(L, world);
+    lua_setfield(L, -2, "world");
+}
+
+}  // namespace

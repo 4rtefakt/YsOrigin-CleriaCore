@@ -22,16 +22,16 @@ content, then multiplayer, then the tools.
 
 | # | What | Lua | Status |
 |---|---|---|---|
-| 6 | The state of the game | `game.state()`: title, play, cutscene, dialog, book, shop, panel, gameover; the event `state_changed` | |
-| 7 | Floor and zone | `game.floor()`, `game.zone()`, `game.difficulty()`, `game.play_time()`; the event `floor_changed` | |
+| 6 | The state of the game | `game.state()`: title, play, cutscene, dialog, book, shop, panel, gameover; the event `state_changed` | done |
+| 7 | Floor and zone | `game.floor()`, `game.zone()`, `game.difficulty()`, `game.play_time()`; the event `floor_changed` | done |
 | 9 | Retry | the event `retry`; `load` says `retry = true` when it is the continue snapshot | done |
-| 14 | Plain events | `level_up`, `player_hit`, `skill_used`, `boost`, `statue_used`, `enemy_hit` | part: `level_up` |
-| 13 | More in the damage query | `actor` (an id), `hp`, `max_hp`, `kills` | |
-| 3 | The monsters of the room | `cleria.world.actors()` -> id, cast, name, level, x y z, hp, max_hp, state | |
+| 14 | Plain events | `level_up`, `player_hit`, `skill_used`, `boost`, `statue_used`, `enemy_hit` | part: `level_up`, `player_hit`, `enemy_hit` |
+| 13 | More in the damage query | `actor` (an id), `hp`, `max_hp`, `kills` | done (`actor`, `hp`, `max_hp`) |
+| 3 | The monsters of the room | `cleria.world.actors()` -> id, cast, name, level, x y z, hp, max_hp, state | done |
 | 34 | Bosses | `cleria.world.boss()` -> name, hp, max_hp, phase, parts | |
 | 33a | Projectiles | `cleria.world.bullets()` | |
 | 35a | Drop tables | `cleria.data.drops(cast)` | |
-| 2 | World to screen, the camera | `cleria.world.to_screen(x, y, z)`, `cleria.camera.get()` | |
+| 2 | World to screen, the camera | `cleria.world.to_screen(x, y, z)`, `cleria.camera.get()` | part: `to_screen`; the camera read is with #26 |
 
 ## C. Changing the player and the flow
 

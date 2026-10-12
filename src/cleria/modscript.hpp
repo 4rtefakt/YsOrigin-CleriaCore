@@ -147,6 +147,20 @@ struct Host {
     virtual bool set_clipboard(const std::string& text) { (void)text; return false; }
     virtual bool open_url(const std::string& mod, const std::string& url) { (void)mod; (void)url; return false; }
     virtual std::string locale() { return "en"; }               // the game's text language: "en", "fr", "ja" ...
+    // What the game is doing: "title", "play", "cutscene", "dialog", "menu", "book", "panel", "gameover".
+    virtual std::string game_state() { return in_game() ? "play" : "title"; }
+    virtual std::string room_title() { return {}; }             // the room's own name ("2F Path 1"), "" when it has none
+    // cleria.world: the room's monsters (living enemy actors; never the player, an NPC or a boss module's parts).
+    struct ActorInfo {
+        int id = 0, cast = 0, level = 0;
+        std::string name;                                       // CASTINFO's display name
+        float hp = 0, max_hp = 0, atk = 0, def = 0;
+        float pos[3] = {0, 0, 0}, height = 0, yaw = 0;          // the feet (world, Y up), the collision height, the heading
+        bool hittable = true;
+    };
+    virtual std::vector<ActorInfo> actors() { return {}; }
+    // A world point on the screen as fractions of the game picture (0..1 from its top left); false = behind the camera.
+    virtual bool to_screen(float x, float y, float z, float* sx, float* sy) { (void)x; (void)y; (void)z; (void)sx; (void)sy; return false; }
 };
 
 // One scripted mod: its Lua state, sandbox, budget, handlers, and the calls the game makes into it.

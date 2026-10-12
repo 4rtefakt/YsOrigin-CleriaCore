@@ -1308,6 +1308,8 @@ void open_api(lua_State* L, Mod& m) {
     set_funcs(L, sr);
     lua_setfield(L, -2, "speedrun");
     open_api7(L);
+    open_api7_game(L);
+    open_api7_world(L);
 
     lua_setglobal(L, "cleria");
 }

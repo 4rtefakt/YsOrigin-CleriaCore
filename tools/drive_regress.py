@@ -2734,6 +2734,40 @@ CASES.update({
         expect=[_LP + 'EV {"kind":"retry","room":"S_1009","snapshot":1}', '"kind":"load"', '"retry":true'], absent=_NOSTOP),
 })
 
+# Mod API 7, batch B: where the game is (state, the room's own name, floor, zone, difficulty, play time), the room's
+# monsters and a world point on the screen, the hit events and the damage query's actor / hp. A door (same floor: no
+# floor_changed), then a death: state_changed play -> gameover.
+_LUA_API7B = (
+    'for _, k in ipairs({"state_changed", "floor_changed", "enemy_hit", "player_hit"}) do\n'
+    '    cleria.events.on(k, function(e) cleria.log("EV " .. cleria.json.encode(e)) end)\n'
+    'end\n'
+    'cleria.combat.add_filter("damage", function(q) cleria.log("DMG " .. q.dir .. " actor " .. tostring(q.actor) .. " hp " .. tostring(q.hp) .. "/" .. tostring(q.max_hp)) end)\n'
+    'cleria.command("where", function()\n'
+    '    local z, zn = cleria.game.zone()\n'
+    '    local d, dn = cleria.game.difficulty()\n'
+    '    cleria.log("state " .. cleria.game.state() .. " [" .. cleria.game.room_title() .. "] floor " .. tostring(cleria.game.floor()) .. " zone " .. z .. " " .. zn .. " diff " .. d .. " " .. dn)\n'
+    'end)\n'
+    'cleria.command("actors", function()\n'
+    '    local list = cleria.world.actors()\n'
+    '    local a = cleria.world.actor(17)\n'
+    '    local fx, fy = cleria.world.to_screen(a.x, a.y + a.height, a.z)\n'
+    '    cleria.log(#list .. " actors; #17 " .. a.name .. " lv " .. a.level .. " hp " .. a.hp .. "/" .. a.max_hp .. " on screen " .. tostring(fx > 0 and fx < 1 and fy > 0 and fy < 1))\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_world": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7B,
+        drive="8:opt=DamageDealt=10;30:lua=where;40:near=17;41:atk;70:lua=actors;80:hurt=60;100:hp=0;160:lua=where;170:quit",
+        expect=[_LP + "state play [4F Forward Passage 1] floor 4 zone 1 Wailing Blue diff 2 Normal", _LP + "DMG dealt actor 17 hp 74/74",
+                _LP + 'EV {"actor":17,"cast":17,"damage":20,"hp":54,"killed":0,"kind":"enemy_hit","max_hp":74,"room":"S_1002"}',
+                _LP + "11 actors; #17 Selnarg lv 3 hp 54.0/74.0 on screen true", _LP + "DMG taken actor nil hp 60/60",
+                _LP + 'EV {"damage":21,"hp":39,"kind":"player_hit","max_hp":60,"room":"S_1002"}',
+                _LP + 'EV {"kind":"state_changed","old":"play","room":"S_1002","state":"gameover"}', _LP + "state gameover ["],
+        absent=_NOSTOP),
+    "lua_api7_hard": dict(
+        room="S_30/S_3001/S_3001", lua=_LUA_API7B, drive="5:diff=3;60:lua=where;70:quit",
+        expect=[_LP + "state play [10F Path 1 Furnace] floor 10 zone 3 Guilty Fire diff 3 Hard"], absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")
