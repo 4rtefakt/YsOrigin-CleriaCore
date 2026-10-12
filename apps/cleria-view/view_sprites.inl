@@ -12,7 +12,7 @@
 struct SpriteTex {
     WGPUTexture tex{}; WGPUTextureView view{}; WGPUBindGroup bind{};
     std::uint32_t w = 0, h = 0;
-    float x0 = 0, y0 = 0, canvasW = 0, oy = 0;
+    float x0 = 0, y0 = 0, canvasW = 0, canvasH = 0, oy = 0;
     float footFix = 0;   // per-file foot correction: oy - resting-frame bbox bottom (grounds
                          // large-canvas sprites whose oy sits below the art; see draw_character)
     bool place_ok = false;
@@ -20,8 +20,8 @@ struct SpriteTex {
     // S = AIA header +0x1c x the actor's +0x248 x 1/32 (DAT_006bd104); the actor's factor is
     // applied at draw time. render_effects.md S1/S2.
     float S = 0.03125f;
-    void set_placement(const AiaFrame& fr, std::uint32_t cw, float scaleA) {
-        x0 = float(fr.x0); y0 = float(fr.y0); canvasW = float(cw); oy = fr.bill[2];
+    void set_placement(const AiaFrame& fr, std::uint32_t cw, std::uint32_t ch, float scaleA) {
+        x0 = float(fr.x0); y0 = float(fr.y0); canvasW = float(cw); canvasH = float(ch); oy = fr.bill[2];
         S = scaleA * 0.03125f;
         place_ok = true;
     }
@@ -91,7 +91,7 @@ struct CharSprite {
                 continue;
             if (dirs[d].tex) { wgpuBindGroupRelease(dirs[d].bind); wgpuTextureViewRelease(dirs[d].view); wgpuTextureRelease(dirs[d].tex); }
             dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
-            dirs[d].set_placement(fr, aia.canvasW, aia.scaleA);   // canvas anchor -> no animation slide
+            dirs[d].set_placement(fr, aia.canvasW, aia.canvasH, aia.scaleA);   // canvas anchor -> no animation slide
         }
     }
 };
@@ -571,6 +571,55 @@ static void shadow_flush(Gpu& g, WGPUTextureView color, WGPUTextureView depth, c
     wgpuQueueSubmit(g.queue, 1, &cmd);
     wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
     sf.decal.clear();
+}
+
+// ---- an actor's image on a mirror floor (REFLECTIONS.md 7.4, RENDER_LEFTOVERS.md 1.2-1.3) ------------------
+// While MirrorFloor is on, FUN_00473540 queues the actor's shadow callback FUN_00474e10 on layer 1 as well
+// [BYTES 0x47385f..0x4738ff], and there it builds the shadow's flat quad (FUN_00456da0) with the actor's own sprite
+// texture: the whole canvas of its sheet, the current frame decoded in it [EXPORT 00446220.c, 00444fe0.c].
+//   half-size s = scale (+0x248) x canvas width x scale A / 32 x 0.5 x 0.8 [EXPORT 00474e10.c; BYTES 0x6bd104,
+//     0x6bd304, 0x6bd3a8] -- a square, whatever the canvas height;
+//   the shadow point B moves k toward the eye in xz, k = 0.85, or -0.6 in the listed poses (which also leave
+//     the image unturned in v) [BYTES 0x6bd3bc, 0x6be01c]; then the shadow's law: 0.025 |B - A| off the size and
+//     the alpha, nothing below 0; centre B - forward x 0.15;
+//   corners (-s, -s) (-s, +s) (+s, -s) (+s, +s) with (u, v) = (0, 0) (0, 1) (1, 0) (1, 1), v turned over in the
+//     listed poses [BYTES 0x456f96..0x45711c], turned about Y by the camera's yaw;
+//   preset 0x21641: texture x the tint's rgb, alpha = texture x the tint's alpha (g.floor_quad_pipe).
+// Here the sprite texture is the frame's tight box, so the quad drawn is that box's part of the canvas square.
+// [H] the yaw turns local +z to the camera's horizontal forward and +x to screen right (the record's +0x48c was
+// not traced): the figure then lies feet away from the camera, head toward it, as a floor reflection does.
+// [not modelled] the bob +0x240 in the size, the sprite's x offset +0xa34, the tilt to the floor's normal;
+// [approx] the texture holds the body with its second layer added (retail: the body alone).
+static bool mirror_quad_unturned(int cast, int anim, int frame) {     // [EXPORT 00474e10.c:88-111]
+    if (cast == 0xd) return ((anim == 5 || anim == 0x133) && frame > 3) || (anim == 9 && frame > 3);
+    if (cast == 0xad) return (anim == 5 && frame >= 8) || (anim == 0x131 && frame >= 4);
+    return false;
+}
+static void mirror_actor_quad(const SpriteTex& spr, const Vec3& A, float floorY, float scale, std::uint32_t tint,
+                              float alpha, const Vec3& eye, const Vec3& fwd, bool unturned) {
+    if (!g_mirror.floor_on || !spr.tex || !spr.place_ok || spr.canvasW <= 0 || spr.canvasH <= 0) return;
+    float s = scale * spr.canvasW * spr.S * 0.4f;
+    Vec3 B{A.x, floorY + 0.05f, A.z};
+    float dx = eye.x - B.x, dz = eye.z - B.z;
+    if (const float l = std::sqrt(dx * dx + dz * dz); l > 0.0f) { dx /= l; dz /= l; }
+    const float k = unturned ? -0.6f : 0.85f;
+    B.x += dx * k; B.z += dz * k;
+    const float kk = 0.025f * std::sqrt((B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y) + (B.z - A.z) * (B.z - A.z));
+    s -= kk;
+    if (alpha - kk < 0.0f || s < 0.0f) return;
+    const Vec3 C{B.x - fwd.x * 0.15f, B.y - fwd.y * 0.15f, B.z - fwd.z * 0.15f};
+    float fx = fwd.x, fz = fwd.z;
+    if (const float l = std::sqrt(fx * fx + fz * fz); l > 1e-6f) { fx /= l; fz /= l; } else { fx = 0; fz = 1; }
+    const float u0 = spr.x0 / spr.canvasW, u1 = (spr.x0 + float(spr.w)) / spr.canvasW;
+    const float v0 = spr.y0 / spr.canvasH, v1 = (spr.y0 + float(spr.h)) / spr.canvasH;
+    const float nx = 1.0f - std::clamp(alpha, 0.0f, 1.0f);
+    const std::uint8_t cr = std::uint8_t(tint >> 16), cg = std::uint8_t(tint >> 8), cb = std::uint8_t(tint);
+    auto V = [&](float u, float v, float tu, float tv) -> RoomVertex {
+        const float lx = (2.0f * u - 1.0f) * s, lz = (unturned ? 1.0f - 2.0f * v : 2.0f * v - 1.0f) * s;
+        return {C.x + fz * lx + fx * lz, C.y, C.z - fx * lx + fz * lz, nx, 0, -1, tu, tv, cr, cg, cb, 0};
+    };
+    Mirror::Quad q{spr.bind, {V(u0, v0, 0, 0), V(u1, v0, 1, 0), V(u1, v1, 1, 1), V(u0, v1, 0, 1)}};
+    g_mirror.quads.push_back(q);
 }
 
 // Draw a screen-space textured quad (UI/title images) at NDC corners (l,t)-(r,b), z in [0,1].

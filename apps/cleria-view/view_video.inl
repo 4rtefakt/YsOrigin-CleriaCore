@@ -104,7 +104,8 @@ struct VideoGpu {
     // [graphics] WaterEffectLevel: the frame grabbed before the water layer (pool surface 1)
     WGPUTextureView grab{};
     std::uint32_t grab_w = 0, grab_h = 0;
-    // ... and the water's reflection (pool surface 5) with its own depth, drawn with the reflected view's set
+    // ... and the water's reflection or the mirror floors' image (pool surface 5) with its own depth; the
+    // reflection is drawn with the reflected view's set
     WGPUTextureView refl{}, refl_depth{};
     std::uint32_t refl_w = 0, refl_h = 0;
     bool refl_new = false;                       // made this frame: the water's bind groups are made again
@@ -459,26 +460,39 @@ static void video_water_grab(Gpu& g) {
 // part 3 = layers 3 / 5, and the objects of 4). [not modelled] in the reflection: the effects of layers 9 / 12
 // (flames, particles), an actor's glare-alpha body (9) and sprite overlay (12), boss02's attachment (7); the
 // generated mip chain of surface 5 (it is sampled magnified); the reflected eye of the sort keys.
-static void video_water_reflect(Gpu& g, const Room& room, std::uint32_t cw, std::uint32_t ch, const Mat4& rvp) {
-    g_water.ron = false;
-    if (!g_vgpu.ready || !g_water.rwant || cw == 0 || ch == 0) return;
+// Pool surface 5 for a cw x ch frame: the render size over 2c, c = (level != 2) + 1 -- half at Reflections
+// High, a quarter at Low and at Off [BYTES 0x5e3761..0x5e378a, 0x5e37f3..0x5e380f].
+static void video_surface5(Gpu& g, std::uint32_t cw, std::uint32_t ch) {
     const video::Extent e = video::scaled_extent(cw, ch, vid().render_scale, g_vgpu.max_dim);
     const std::uint32_t c = settings().s.graphics.water_effect_level != 2 ? 4 : 2;
     const std::uint32_t w = std::max(1u, e.w / c), h = std::max(1u, e.h / c);
-    if (!g_vgpu.refl || g_vgpu.refl_w != w || g_vgpu.refl_h != h) {
-        if (g_vgpu.refl) wgpuTextureViewRelease(g_vgpu.refl);
-        if (g_vgpu.refl_depth) wgpuTextureViewRelease(g_vgpu.refl_depth);
-        WGPUTextureDescriptor td = {};
-        td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
-        td.dimension = WGPUTextureDimension_2D; td.size = {w, h, 1};
-        td.format = g_vgpu.fmt; td.mipLevelCount = 1; td.sampleCount = 1;
-        WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
-        g_vgpu.refl = wgpuTextureCreateView(t, nullptr);
-        wgpuTextureRelease(t);
-        g_vgpu.refl_depth = make_depth(g, w, h);
-        g_vgpu.refl_w = w; g_vgpu.refl_h = h;
-        g_vgpu.refl_new = true;
-    }
+    if (g_vgpu.refl && g_vgpu.refl_w == w && g_vgpu.refl_h == h) return;
+    if (g_vgpu.refl) wgpuTextureViewRelease(g_vgpu.refl);
+    if (g_vgpu.refl_depth) wgpuTextureViewRelease(g_vgpu.refl_depth);
+    WGPUTextureDescriptor td = {};
+    td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+    td.dimension = WGPUTextureDimension_2D; td.size = {w, h, 1};
+    td.format = g_vgpu.fmt; td.mipLevelCount = 1; td.sampleCount = 1;
+    WGPUTexture t = wgpuDeviceCreateTexture(g.device, &td);
+    g_vgpu.refl = wgpuTextureCreateView(t, nullptr);
+    wgpuTextureRelease(t);
+    g_vgpu.refl_depth = make_depth(g, w, h);
+    g_vgpu.refl_w = w; g_vgpu.refl_h = h;
+    g_vgpu.refl_new = true;
+    if (g.ubind_mirror) wgpuBindGroupRelease(g.ubind_mirror);
+    WGPUBindGroupEntry be[4] = {};                       // a mirror floor's stage 0: the image, ADDRESSU / V CLAMP
+    be[0].binding = 0; be[0].buffer = g.ubuf_mirror; be[0].size = 128;
+    be[1].binding = 1; be[1].textureView = g_vgpu.refl;
+    be[2].binding = 2; be[2].sampler = g_vgpu.linear;
+    be[3].binding = 3; be[3].textureView = g_vgpu.refl;
+    WGPUBindGroupDescriptor d = {};
+    d.layout = g.u_layout; d.entryCount = 4; d.entries = be;
+    g.ubind_mirror = wgpuDeviceCreateBindGroup(g.device, &d);
+}
+static void video_water_reflect(Gpu& g, const Room& room, std::uint32_t cw, std::uint32_t ch, const Mat4& rvp) {
+    g_water.ron = false;
+    if (!g_vgpu.ready || !g_water.rwant || cw == 0 || ch == 0) return;
+    video_surface5(g, cw, ch);
     if (!g_vgpu.refl_pipes_built) {
         const WorldPipes keep = g;
         static_cast<WorldPipes&>(g) = WorldPipes{};
@@ -492,6 +506,55 @@ static void video_water_reflect(Gpu& g, const Room& room, std::uint32_t cw, std:
     draw(g, room, g_vgpu.refl, g_vgpu.refl_depth, 3);
     std::swap(static_cast<WorldPipes&>(g), g_vgpu.refl_pipes);
     g_water.ron = true;
+}
+// ---- the mirror floors' pass (FUN_005dfea0 [EXPORT 005dfea0.c]; REFLECTIONS.md 7.6) ------------------------
+// Retail runs it before the main pass when layer 0 or 1 holds anything: the normal camera, surface 5 cleared to
+// 0xff000000, then layer 0 (the `B` models; the mirrored chests / boxes / statues at level >= 1), layer 5
+// (filtered to nothing in the shipped rooms) and layer 1 (the actors' floor images; the `B` models' additive
+// subsets, filtered out). Here it runs after the actors are drawn (their images are collected while they are)
+// and before the floors of layer 0xb read it; `vp` = the frame's view-projection, written back at the end.
+// The mirrored objects (FUN_00562650 [EXPORT 00562650.c]): world x D3DXMatrixReflect(the plane through the
+// object's position, normal +y), every subset, the cull mode unchanged -- so with the winding turned over.
+// [approx] the object's placed position stands for its current one. [not modelled] layer 5's alpha stamp
+// (S_9110's test floor only), boss06's quad (the boss shadows).
+static void video_mirror_pass(Gpu& g, const Room& room, std::uint32_t cw, std::uint32_t ch, const Mat4& vp) {
+    g_mirror.on = false;
+    std::vector<Mirror::Quad> quads;
+    quads.swap(g_mirror.quads);
+    bool want = false;
+    for (const std::uint8_t k : mirror_kinds(room)) want = want || k != 0;
+    for (const DrawBatch& b : room.mesh.batches) want = want || (b.index_count && (b.mat_flags & 0x800000u));
+    if (!g_vgpu.ready || !want || cw == 0 || ch == 0) return;
+    video_surface5(g, cw, ch);
+    const int set = g_vgpu.pipes_on;                     // the image is single-sampled, its alpha is not read
+    if (set) std::swap(static_cast<WorldPipes&>(g), g_vgpu.pipes[set]);
+    draw(g, room, g_vgpu.refl, g_vgpu.refl_depth, 4);
+    g_mirror.stat[0] = 0;
+    auto is = [&](const char* n) {
+        return room.name.size() == 6 && std::equal(room.name.begin(), room.name.end(), n,
+                                                   [](char a, char b) { return std::toupper((unsigned char)a) == b; });
+    };
+    if (settings().s.graphics.water_effect_level >= 1 && (is("S_6014") || is("S_6082"))) {
+        static const char* const kNames[] = {"takara_00", "box_00", "box_01", "box_02", "box_03", "save_01", "save_02", "save_03"};
+        for (const RoomMesh::ObjRange& r : room.mesh.object_ranges) {
+            if (std::find_if(std::begin(kNames), std::end(kNames), [&](const char* n) { return r.name == n; }) == std::end(kNames) ||
+                (r.model_flags & 0x100u)) continue;
+            Mat4 refl;
+            refl.m[5] = -1.0f; refl.m[13] = 2.0f * r.obj.position.y;
+            write_mvp(g, refl * vp);
+            g_mirror.v0 = r.v0; g_mirror.v1 = r.v1;
+            draw(g, room, g_vgpu.refl, g_vgpu.refl_depth, 5);
+            ++g_mirror.stat[0];
+        }
+        if (g_mirror.stat[0]) write_mvp(g, vp);
+    }
+    {
+        QuadScope scope(g);
+        for (const Mirror::Quad& q : quads) draw_quad(g, g_vgpu.refl, g_vgpu.refl_depth, g.floor_quad_pipe, q.bind, q.v);
+    }
+    g_mirror.stat[1] = int(quads.size());
+    if (set) std::swap(static_cast<WorldPipes&>(g), g_vgpu.pipes[set]);
+    g_mirror.on = true;
 }
 // `level` = the blur gain byte L (0x7b2e39), `feedback` = F (0x7b2e38), `subtract` = 0x7b2e3a. `world` = the
 // world target's view (single-sampled: after video_world_resolve).
@@ -534,6 +597,14 @@ static void video_world_end(Gpu& g, WGPUTextureView frame_view, WGPUTextureView 
     }
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     video_fullscreen_pass(g, fxaa ? g_vgpu.fxaa : g_vgpu.copy, g_vgpu.wbind, frame_view, enc);
+    // CLERIA_SURFACE5=1 (a debug aid): pool surface 5 -- the water's reflection or the mirror floors' image --
+    // over the frame instead of the world.
+    static const bool show5 = std::getenv("CLERIA_SURFACE5") != nullptr;
+    if (show5 && g_vgpu.refl) {
+        WGPUBindGroup b5 = video_bind(g, g_vgpu.refl, g_vgpu.linear);
+        video_fullscreen_pass(g, g_vgpu.copy, b5, frame_view, enc);
+        wgpuBindGroupRelease(b5);
+    }
     video_submit(g, enc);
     view = frame_view;
     depth = frame_depth;
@@ -982,7 +1053,8 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
                        "How water surfaces are drawn. High (the original's default): you see the floor and the "
                        "characters through the water, wobbling. Low: the same from a half-size picture. Off: a "
                        "plain see-through sheet. The one room whose water mirrors the room shows it at High and Low. "
-                       "The mirror floors of the tower's upper part are not drawn yet. (Original: Reflections.)")) {
+                       "The mirror floors of the tower's upper part always mirror; at Off their picture is the "
+                       "smaller one and the chests and statues are missing from it. (Original: Reflections.)")) {
             gr.water_effect_level = wl;
             persist();
         }
@@ -1172,6 +1244,9 @@ static bool video_drive(const std::string& cmd) {
                     g_shadow_stat[1], g_shadow_stat[2]);
         std::printf("  [video] water level %d surfaces %d grab %ux%u phase %.2f\n", int(settings().s.graphics.water_effect_level),
                     int(g_water.want), g_water.on ? g_vgpu.grab_w : 0u, g_water.on ? g_vgpu.grab_h : 0u, double(g_water.phase));
+        if (g_mirror.on)
+            std::printf("  [video] mirror %ux%u floor %d objects %d images %d\n", g_vgpu.refl_w, g_vgpu.refl_h,
+                        int(g_mirror.floor_on), g_mirror.stat[0], g_mirror.stat[1]);
         if (g_water.rwant || g_water.ron)
             std::printf("  [video] reflection %ux%u plane y %.3f\n", g_water.ron ? g_vgpu.refl_w : 0u,
                         g_water.ron ? g_vgpu.refl_h : 0u, double(g_water.plane_y));

@@ -8575,6 +8575,8 @@ title_again:
         shadow_frame.room = &room; shadow_frame.eye = cam.pos; shadow_frame.fwd = cam.forward();
         shadow_frame.has_player = !fly; shadow_frame.player = {feet.x, feet.y + kOriginH, feet.z};
         shadow_frame.decals = shadow_frame.tris = shadow_frame.quads = 0;
+        g_mirror.floor_on = csHost.mirror;                 // 0x74c104: the actors' images on a mirror floor
+        g_mirror.quads.clear();
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex) {
             int ftri = -1;
             const RoomMesh& pm_ = phys_mesh(room);
@@ -8601,6 +8603,9 @@ title_again:
                                              sfl > kNoFloor && feet.y - sfl <= 8.0f),   // +0x2b8: the player's ray is 8 long
                              fn);
                 shadow_flush(g, view, depth, shadows.tex, shadow_frame);
+                mirror_actor_quad(chr.dirs[facing], feet, fy, wpl ? wpl->scale : 1.0f, pt,     // view_sprites.inl
+                                  (wpl ? wpl->tint_alpha : 1.0f) * float(pt >> 24) / 255.0f, cam.pos, cam.forward(),
+                                  mirror_quad_unturned(kPlayerCast, int(avm.anim_tag()), int(avm.frame())));
             }
             if (palpha > 0.0f)
                 draw_character(g, view, depth, feet, kCharH, chr.dirs[facing], cam.forward(), cam.pos,
@@ -8686,6 +8691,7 @@ title_again:
         g_shadow_stat[0] = shadow_frame.decals; g_shadow_stat[1] = shadow_frame.tris; g_shadow_stat[2] = shadow_frame.quads;
         video_glare_grab(g);                             // after layer 6: the glare's source (view_video.inl)
         prof("draw:room2+flames");
+        video_mirror_pass(g, room, cw, ch, last_vp);     // the mirror floors' image, before the floors (view_video.inl)
         video_water_grab(g);                             // before layer 0xb: what the water shows (view_video.inl)
         draw(g, room, view, depth, 2);   // layer 0xb (the water surfaces) after the actors' layers 6/8/9
         fx_time += dt;

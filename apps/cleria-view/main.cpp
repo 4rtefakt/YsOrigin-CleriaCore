@@ -324,8 +324,22 @@ fn cvr_stages(base : vec3<f32>, d : vec3<f32>, in : VsOut) -> vec3<f32> {
   return min(base + caustic(in), vec3<f32>(1.0, 1.0, 1.0)) * d;
 }
 
+// A mirror floor (u.cvr.z = 5; material flag 0x800000, FUN_005f8a50's stages [EXPORT 005f8a50.c], REFLECTIONS.md
+// 7.8): stage 0 = the mirror image (`rtex`, pool surface 5), projected at the fragment's own screen position
+// (oT0 of b_ndst1_mirror = oT3 of the water's), SELECTARG1; stage 1 = the material's texture, BLENDDIFFUSEALPHA
+// with it: texture x D.a + image x (1 - D.a), D.a = the subset's alpha x the vertex alpha; alpha = the texture's.
+// Opaque; fogged as the other opaque materials are here.
+fn mirror(in : VsOut) -> vec4<f32> {
+  let tc = textureSample(tex, smp, in.uv);
+  let img = textureSampleLevel(rtex, csmp, in.ruv / in.wuv.w, 0.0).rgb;
+  var c = tc.rgb * in.color.a + img * (1.0 - in.color.a);
+  if (u.fogParams.z > 0.5) { c = mix(u.fogColor.rgb, c, fog_f(in.depth)); }
+  return vec4<f32>(c, tc.a);
+}
+
 fn opaque(in : VsOut) -> vec4<f32> {
   if (u.cvr.z == 4.0) { return water(in); }
+  if (u.cvr.z == 5.0) { return mirror(in); }
   let tc = textureSample(tex, smp, in.uv);
   if (tc.a < 0.5) { discard; }
   // Fixed-function MODULATE: texture * baked vertex colour, + the specular oD1 (0 but for a model's

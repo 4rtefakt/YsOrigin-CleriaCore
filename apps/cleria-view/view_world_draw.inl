@@ -79,7 +79,7 @@ struct EnemyFx {
             // 2-direction tags; PLAYTEST_1.md §2).
             if (k.aia.decode_frame_composited(std::uint32_t(ts.img), dir % nd, std::uint32_t(fi), fr)) {
                 v[fi] = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
-                v[fi].set_placement(fr, k.aia.canvasW, k.aia.scaleA);
+                v[fi].set_placement(fr, k.aia.canvasW, k.aia.canvasH, k.aia.scaleA);
                 v[fi].footFix = k.footFix;   // same per-file foot correction as idle
             }
         }
@@ -131,7 +131,7 @@ struct EnemyFx {
                 AiaFrame fr;
                 if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
                 SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
-                st.set_placement(fr, k.aia.canvasW, k.aia.scaleA);   // canvas anchor, like the player
+                st.set_placement(fr, k.aia.canvasW, k.aia.canvasH, k.aia.scaleA);   // canvas anchor, like the player
                 st.footFix = k.footFix;
                 k.anim[d].push_back(st);
                 tall = std::max(tall, fr.h);
@@ -401,6 +401,14 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             t = &k.anim[dir][std::size_t(((int(t_anim * kEnemyAnimFps) + e.actor->instance_id * 2) % n + n) % n)];
         }
         if (!t->tex) continue;
+        // Its image on a mirror floor, under the shadow's own conditions (view_sprites.inl's mirror_actor_quad).
+        if (sf && !(e.actor->flags12c & 1u))
+            mirror_actor_quad(*t, e.actor->pos, e.actor->flyer ? e.actor->floor_y : e.actor->pos.y, e.actor->scale,
+                              e.actor->tint, e.actor->tint_alpha * float(e.actor->tint >> 24) / 255.0f, camPos, camFwd,
+                              mirror_quad_unturned(e.actor->cast_id, e.actor->pattern.pinned() ? int(e.actor->pattern.tag)
+                                                                         : e.avm.ok() ? int(e.avm.anim_tag()) : -1,
+                                                   e.actor->pattern.pinned() ? int(e.actor->pattern.frame)
+                                                                         : e.avm.ok() ? int(e.avm.frame()) : 0));
         // The specular starts from the tint struct +0x260 (anime_ChangeSpecular's wind-up flash; EnemyRender::spec)
         // and the hurt tint REPLACES it (hit_feedback.hpp): while +0x238 runs, FUN_00473c60 sets the sprite's
         // specular to 0x6b3713 [BYTES 0x473ea8..0x473ec5], added after the texture modulate.

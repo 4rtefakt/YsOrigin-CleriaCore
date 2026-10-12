@@ -3174,6 +3174,14 @@ CASES.update({
         expect=["[video] water level 2 surfaces 1 grab 1280x800", "[video] reflection 640x400 plane y -8.950",
                 "[video] water level 1 surfaces 1 grab 640x400", "[video] reflection 320x200 plane y -8.950",
                 "[video] water level 0 surfaces 0 grab 0x0"]),
+    # The mirror floors (material flag 0x800000; REFLECTIONS.md 7): S_6082's image holds the room's `B` model,
+    # the statue save_01 mirrored about its base and -- MirrorFloor is on -- the player's sprite laid on the
+    # floor; half the render size at Reflections High, a quarter at Low and at Off, where the statue is left out.
+    "mirror_floor": dict(
+        room="S_60/S_6082/S_6082",
+        drive="10:vstat;11:vopt=WaterEffectLevel=1;20:vstat;21:vopt=WaterEffectLevel=0;30:vstat;31:quit",
+        expect=["[video] mirror 640x400 floor 1 objects 1 images 1", "[video] mirror 320x200 floor 1 objects 1 images 1",
+                "[video] mirror 320x200 floor 1 objects 0 images 1"]),
 })
 # ---- batch G (2026-10-11) ----------------------------------------------------------------------------
 CASES.update({
