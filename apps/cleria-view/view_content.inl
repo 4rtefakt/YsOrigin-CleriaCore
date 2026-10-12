@@ -48,6 +48,8 @@ struct ContentRt {
     int rules_sub = 0;
     bool duel_lost = false;                 // FUN_0046f810's losable branch cleared 156 since the last tick
     std::string fight_room;                 // the room in which 156 last went 0 -> 1 (content_boss_watch)
+    std::string defeated_room;              // ... and the floor-boss flags already raised in this room (one event a boss:
+    unsigned defeated_mask = 0;             // Hugo's Pictimos sets 224 twice, issue #91)
     int room_age = 0;                       // ticks since the last room entry (cleria.game.save's gate)
 };
 static ContentRt g_content;
@@ -415,8 +417,15 @@ static void content_boss_watch(const std::int32_t* flags) {
         e.index = flag;
         content_emit(e);
     };
+    // One event a boss. On Hugo's route Pictimos is killed twice: Battle_Hugo_1 clears 224 for the second round
+    // and the brain sets it again. The retail Archipelago mod reads the flags as state (>= 1, hook_ap.cpp
+    // goal_bosses_done), which is true from the first kill on; so the first rise in a room is the defeat.
+    if (r.defeated_room != r.room) { r.defeated_room = r.room; r.defeated_mask = 0; }
     for (int f = 220; f <= 227; ++f)
-        if (r.watch.prev[std::size_t(f)] == 0 && flags[f] == 1) raise(f);
+        if (r.watch.prev[std::size_t(f)] == 0 && flags[f] == 1 && !(r.defeated_mask & (1u << (f - 220)))) {
+            r.defeated_mask |= 1u << (f - 220);
+            raise(f);
+        }
     if (r.watch.prev[156] == 1 && flags[156] == 0 && !lost && r.fight_room == r.room &&
         std::find(std::begin(kFlagged), std::end(kFlagged), r.room) == std::end(kFlagged))
         raise(-1);
