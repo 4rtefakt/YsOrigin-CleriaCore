@@ -578,6 +578,10 @@ CASES = {
                 "shell back on Mods: to the page", "[mods] page: Mods > content", "Mods has no sub-page 'nope'",
                 "shell: no page Mods:nope", "[mods] page: Mods\n", "shell back on Mods: would close the panel",
                 "shell: no page Hello Lua"]),
+    # The pad's way to the F1 panel (a pad has no F1; a Steam Deck has no keyboard): Back + Start together toggles it.
+    "shell_pad_chord": dict(
+        room="S_10/S_1009/S_1009", drive="60:padmenu;80:quit",
+        expect=["pad Back + Start: the settings panel is open", "pad Back + Start: the settings panel is closed"]),
     # A rule on a flag (rules.ini of a generated test mod): flag 480 0 -> 1 fires it once (give, text, cflag).
     "content_rule": dict(
         room="S_10/S_1009/S_1009",
