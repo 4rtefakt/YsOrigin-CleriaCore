@@ -244,9 +244,8 @@ inline Runner special_runner(const std::int32_t a[8], const Vec3& origin, float 
 // hop — at 0.85 a tick, one direct hit per arrival (FUN_004fba30 flag 1: no overlap test, no re-hit bank; power
 // +0xfc, class +0x109 = 2, knock 0). With no monster it is a 5-unit ray along the heading instead: 19 scans,
 // power -2.0, re-hit 12 on its token.
-// [not modelled] the two jagged bolts (type-7 GoXx, FUN_005903b0) and their RNG draws (3 a bolt a tick + the
-// flicker word), the water byte +0x13c, the boss meshes' parts as targets (0x5921d7..), a target's node offset
-// (FUN_005f5000 for class 0x0d).
+// Its two bolts are type-7 lines (Bolt below) fed with the head's position each tick.
+// [not modelled] a target's node offset (FUN_005f5000 for class 0x0d).
 
 // The CRT's qsort as the exe links it [BYTES 0x64c4d0; its short sort 0x64c3f0]: not stable, and the order it
 // leaves equal keys in decides the chain's later hops (after one pass over the targets every key ties).
@@ -296,6 +295,170 @@ void crt_qsort(std::vector<T>& v, Cmp cmp) {
     }
 }
 
+// ---- The type-7 GoXx: the jagged line (GOXX_17_19.md §3.5) ----
+// FUN_005903b0 (constructor), FUN_00590200 (a node's drift), FUN_00590ac0 (update), FUN_00590f50 (draw) [BYTES
+// 0x590200..0x5913f9]. N nodes from `a` to `b`, each pushed off the straight line by a random unit vector x 0.35 /
+// (its distance to the previous node), then smoothed (2 : 1 : 2 with its neighbours, x 0.2); every node drifts
+// 0.01 a tick along a heading that turns 0.45..1.35 rad per node made. A free line lives `life` updates; a driven
+// one (the chain's) starts hidden and is fed by its owner. While `forks` is set it throws a side line every 4th
+// update from a random node: 2.0..3.5 x `reach` long, `fork_segs` nodes, 20 updates, widths 0.125 -> 0.025.
+// The descriptor's +0x24 (0.15 / 0.1) is never read.
+struct Bolt {
+    struct Node {                                         // 0x38 bytes
+        Vec3 pos{}, prev{};                               // +0x00, +0x0c (+0x18: the frame's blend of the two)
+        Vec3 vel{};                                       // +0x24
+        float w = 0;                                      // +0x30: the half width
+        bool hidden = false, water = false;               // +0x34, +0x35
+    };
+    struct Desc {
+        Vec3 a{}, b{};                                    // +0x00, +0x0c
+        float w0 = 0, w1 = 0;                             // +0x18, +0x1c
+        int segs = 2, life = 0, forks = 0;                // +0x20, +0x28, +0x2c
+        float reach = 0;                                  // +0x30
+        int fork_segs = 0;                                // +0x34
+        bool water = false, driven = false;               // +0x3c, +0x44
+    };
+    std::vector<Node> nodes;                              // +0x120, +0x124
+    int life = 0;                                         // +0x128
+    float scroll = 0;                                     // +0x12c: the texture's u, -0.015 a tick
+    int forks = 0, cd = 3;                                // +0x130, +0x134
+    int fork_segs = 0;                                    // +0x138
+    float reach = 0;                                      // +0x13c
+    float ang = 0, turn = 0;                              // +0x148, +0x14c
+    bool driven = false;                                  // +0x150
+    bool dead = false;
+
+    static float u01(std::uint32_t w) {                   // U in [0, 1) from a word's low 23 bits
+        const std::uint32_t bits = (w & 0x7fffffu) | 0x3f800000u;
+        float f;
+        std::memcpy(&f, &bits, 4);
+        return f - 1.0f;
+    }
+    // FUN_00590200: the node's drift along the line's heading, then the heading turns (one draw).
+    template <class Rnd>
+    void jag(Node& q, Rnd&& rnd) {
+        q.vel = {float(std::cos(double(ang))) * 0.01f, 0.0f, float(std::sin(double(ang))) * 0.01f};   // 0x6bd084
+        ang = (u01(rnd()) * 0.9f + 0.45f) * turn + ang;   // 0x6bd3e4, 0x6bd2f0
+    }
+    // FUN_005903b0. Draws: the heading, the turn's sign, then four a node (the offset's x, y, z; the drift).
+    template <class Rnd>
+    static Bolt make(const Desc& d, Rnd&& rnd) {
+        Bolt b;
+        const int n = unsigned(d.segs) < 2u ? 2 : d.segs;
+        b.nodes.resize(std::size_t(n));
+        b.life = d.life; b.forks = d.forks; b.reach = d.reach; b.fork_segs = d.fork_segs; b.driven = d.driven;
+        b.nodes[0].pos = d.a; b.nodes[0].w = d.w0;
+        b.nodes[std::size_t(n - 1)].pos = d.b; b.nodes[std::size_t(n - 1)].w = d.w1;
+        const float step = 1.0f / float(n - 1);
+        b.ang = u01(rnd()) * 6.2831855f + 0.0f;           // 0x6bd898
+        b.turn = std::int32_t(rnd()) < 0 ? 1.0f : -1.0f;  // [BYTES 0x5905eb: jge -> -1.0]
+        float t = step;
+        for (int i = 1; i < n; ++i, t += step) {          // the last node too: `b` is moved as the others are
+            Node& q = b.nodes[std::size_t(i)];
+            const Node& p = b.nodes[std::size_t(i - 1)];
+            q.w = (d.w1 - d.w0) * t + d.w0;
+            q.pos = {(d.b.x - d.a.x) * t + d.a.x, (d.b.y - d.a.y) * t + d.a.y, (d.b.z - d.a.z) * t + d.a.z};
+            const float dx = q.pos.x - p.pos.x, dy = q.pos.y - p.pos.y, dz = q.pos.z - p.pos.z;
+            float jx = u01(rnd()), jy = u01(rnd()), jz = u01(rnd());
+            jx = (jx + jx) - 1.0f; jy = (jy + jy) - 1.0f; jz = (jz + jz) - 1.0f;
+            float l = std::sqrt(jy * jy + jx * jx + jz * jz);
+            if (l == 0.0f) jx = jy = jz = 0.0f;
+            else { l = 1.0f / l; jx *= l; jy *= l; jz *= l; }
+            const float dl = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (dl > 0.0f) {
+                const float k = 0.35f / dl;               // 0x6bd2b0
+                q.pos.x += jx * k; q.pos.y += jy * k; q.pos.z += jz * k;
+            }
+            b.jag(q, rnd);
+        }
+        std::vector<Vec3> raw(std::size_t(n), Vec3{});
+        for (int i = 0; i < n; ++i) { raw[std::size_t(i)] = b.nodes[std::size_t(i)].pos; b.nodes[std::size_t(i)].water = d.water; }
+        for (int i = 1; i < n - 1; ++i) {                 // 0x6bd210
+            const Vec3 &l = raw[std::size_t(i - 1)], &c = raw[std::size_t(i)], &r = raw[std::size_t(i + 1)];
+            b.nodes[std::size_t(i)].pos = {(l.x + l.x + c.x + (r.x + r.x)) * 0.2f, (l.y + l.y + c.y + (r.y + r.y)) * 0.2f,
+                                          (l.z + l.z + c.z + (r.z + r.z)) * 0.2f};
+        }
+        for (Node& q : b.nodes) { q.prev = q.pos; q.hidden = d.driven; }
+        return b;
+    }
+    // FUN_00590ac0's sim half, one tick. True when it threw a side line: *fork (made inside this update: its
+    // draws come before the next object's).
+    template <class Rnd>
+    bool tick(Rnd&& rnd, Bolt* fork) {
+        if (dead) return false;
+        if (!driven && --life < 0) { dead = true; return false; }
+        bool made = false;
+        if (forks != 0) {
+            if (cd == 0) {
+                cd = 3; --forks;
+                const std::uint32_t n = std::uint32_t(nodes.size()), m = (n * 2u) / 3u;
+                const std::uint32_t r = (rnd() >> 17) % m;
+                const Node s = nodes[std::size_t((n >> 3) + r)];
+                if (!s.hidden) {
+                    const float rad = (float(int(r)) / float(int(m)) * 1.5f + 2.0f) * reach;   // 0x6bd4d4, 0x6bd580
+                    const int v = int(rnd() >> 24);                                         // FUN_0045e310
+                    Desc d;
+                    d.a = s.pos;
+                    d.b = {s.pos.x + cos_table(v) * rad, s.pos.y + 0.0f, s.pos.z + cos_table((v - 0x40) & 0xff) * rad};
+                    d.w0 = 0.125f; d.w1 = 0.025f; d.segs = fork_segs; d.life = 20; d.water = s.water;
+                    *fork = make(d, rnd);
+                    made = true;
+                }
+            } else --cd;
+        }
+        for (Node& q : nodes) {
+            q.prev = q.pos;
+            q.pos = {q.pos.x + q.vel.x, q.pos.y + q.vel.y, q.pos.z + q.vel.z};
+        }
+        scroll -= 0.015f;                                 // 0x6bd0c0
+        return made;
+    }
+    // The chain's feed [BYTES 0x5930b9..0x59328c]: the head +- 0.25 on each axis becomes node 0, the others move
+    // down one (each index keeps its width). Four draws: x, y, z, the drift.
+    template <class Rnd>
+    void feed(const Vec3& head, bool in_water, Rnd&& rnd) {
+        Vec3 p = head;
+        p.x += u01(rnd()) * 0.5f - 0.25f;                 // 0x6bd304, 0x6bd244
+        p.y += u01(rnd()) * 0.5f - 0.25f;
+        p.z += u01(rnd()) * 0.5f - 0.25f;
+        for (std::size_t k = nodes.size() - 1; k >= 1; --k) {
+            const float w = nodes[k].w;
+            nodes[k] = nodes[k - 1];
+            nodes[k].w = w;
+        }
+        nodes[0].pos = p;
+        jag(nodes[0], rnd);
+        nodes[0].hidden = false; nodes[0].water = in_water;
+    }
+    // The quads FUN_00590f50 builds for one pass (`water`: the nodes' +0x35) [BYTES 0x590fe4..0x5912d7]: a segment
+    // is drawn when its first node is shown and of the pass; `view` = the camera's forward 0x795f50; the far end
+    // overshoots by 0.1 of the segment. emit(corners[4], u[4], v[4]) in the order near +, near -, far +, far -.
+    // `a` = the frame's blend 0x74c0e0. Alpha (of 255): 0x15 x life under 12 updates, else 255.
+    int alpha() const { return life < 12 ? (life * 0x15) & 0xff : 0xff; }
+    template <class Emit>
+    void quads(bool pass_water, const Vec3& view, float a, Emit&& emit) const {
+        auto at = [&](const Node& q) {
+            return Vec3{(q.pos.x - q.prev.x) * a + q.prev.x, (q.pos.y - q.prev.y) * a + q.prev.y, (q.pos.z - q.prev.z) * a + q.prev.z};
+        };
+        for (std::size_t i = 1; i < nodes.size(); ++i) {
+            const Node &A = nodes[i - 1], &B = nodes[i];
+            if (A.hidden || A.water != pass_water) continue;
+            const Vec3 ra = at(A), rb = at(B);
+            const Vec3 d{ra.x - rb.x, ra.y - rb.y, ra.z - rb.z};
+            const Vec3 e{d.x * -0.1f, d.y * -0.1f, d.z * -0.1f};                           // 0x6bdfd8
+            const Vec3 p{view.z * d.y - view.y * d.z, view.x * d.z - view.z * d.x, view.y * d.x - view.x * d.y};
+            float inv = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+            if (inv > 0.0f) inv = 1.0f / inv;
+            const float ka = A.w * inv, kb = B.w * inv;
+            const Vec3 fb{rb.x + e.x, rb.y + e.y, rb.z + e.z};
+            const Vec3 c[4] = {{ra.x + p.x * ka, ra.y + p.y * ka, ra.z + p.z * ka}, {ra.x - p.x * ka, ra.y - p.y * ka, ra.z - p.z * ka},
+                               {fb.x + p.x * kb, fb.y + p.y * kb, fb.z + p.z * kb}, {fb.x - p.x * kb, fb.y - p.y * kb, fb.z - p.z * kb}};
+            const float u[4] = {scroll, scroll, scroll + 1.0f, scroll + 1.0f}, v[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+            emit(c, u, v);
+        }
+    }
+};
+
 struct Chain {
     struct Target {
         int id = -1;
@@ -317,6 +480,10 @@ struct Chain {
     float heading = 0;                                    // +0x144
     std::uint32_t token = 0;                              // +0xf0 (ray mode only)
     bool dead = false;
+    Bolt bolt[2];                                         // +0x12c, +0x130: the two driven lines (chain mode)
+    bool bolted = false;                                  // ... were made (the host makes them: the creator's draws)
+    int flick = 0;                                        // +0x134
+    bool water = false;                                   // +0x13c: FUN_005902d0 at the head, set by the host before a tick
 
     // The scan's centre [BYTES 0x59206b..0x592093]: ONE cosf feeds both axes (sic).
     static Vec3 centre(const Vec3& at, float h) {
@@ -397,7 +564,11 @@ struct Chain {
             --scans;
             return true;
         }
-        if (cur >= n && hops[std::size_t(std::max(cur - 1, 0))].timer == 0) { dead = true; return false; }
+        if (cur >= n && hops[std::size_t(std::max(cur - 1, 0))].timer == 0) {
+            if (bolted) for (Bolt& b : bolt) { b.driven = false; b.life = 12; }   // let go: they fade over 12 updates
+            dead = true;
+            return false;
+        }
         int alive = 0;
         for (int i = 0; i < n; ++i) {
             Hop& e = hops[std::size_t(i)];
@@ -423,6 +594,13 @@ struct Chain {
                          pos.z + cos_table((v - 0x40) & 0xff) * 1.5f};
             }
         }
+        if (bolted)                                        // the head feeds both lines [BYTES 0x5930b0..0x593311]
+            for (Bolt& b : bolt) {
+                b.feed(pos, water, rnd);
+                if (flick == 0) {                          // ~45.8 % a line a tick: one side line, then 3 ticks off
+                    if ((rnd() & 0xfffe0000u) < 0x75300000u) { flick = 3; b.forks = 1; }
+                } else --flick;
+            }
         const Vec3 d{e.pos.x - pos.x, e.pos.y - pos.y, e.pos.z - pos.z};
         const float q = d.x * d.x + d.y * d.y + d.z * d.z;
         if (q <= 0.7225f) {                                // 0x6bd38c: arrival

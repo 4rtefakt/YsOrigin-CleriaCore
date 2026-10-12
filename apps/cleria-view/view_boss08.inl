@@ -342,12 +342,14 @@ auto boss8_apply = [&](const Boss08Output& out, MeshObj** mo) {
 // landed hit exactly 1 by the min-1 rule, DEF 999 (closed) 0, the exposed core the real formula. The module consumes
 // the accumulated damage on its next tick (one limb step per part-frame with damage). Type 7: no sound on a 0-damage
 // hit. True = a part took the hit; *banked = a part's bank recorded it (the swing's one-shot rule).
-auto boss8_hit = [&](const HitShape& vol, std::uint32_t token, int rehit, float power, int cls, bool swing, bool* banked) {
+// `only` >= 0: a direct hit on that part, no overlap test (FUN_004faf20's flag 1: the chain lightning's arrival).
+auto boss8_hit = [&](const HitShape& vol, std::uint32_t token, int rehit, float power, int cls, bool swing, bool* banked,
+                     int only = -1) {
     bool any = false;
     if (!boss8 || game.g_flags[156] == 0) return any;
     for (int pi = 0; pi <= boss08::kBodyParts; ++pi) {
         const Boss08Part& bp = boss8->part(pi);
-        if (!overlap(vol, body_shape(bp.pos, bp.radius, 0.0f, 0, 0.0f))) continue;
+        if (only >= 0 ? pi != only : !overlap(vol, body_shape(bp.pos, bp.radius, 0.0f, 0, 0.0f))) continue;
         if (boss8_banks[std::size_t(pi)].check_and_record(token, rehit)) continue;
         if (banked) *banked = true;
         AttackStats a;

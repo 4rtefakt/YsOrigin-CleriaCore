@@ -653,6 +653,42 @@ static void trail_draw(Gpu& g, WGPUTextureView color, WGPUTextureView depth, con
     t.stat[1] = m;
 }
 
+// ---- the type-7 lines: the chain lightning's bolts (extra::Bolt; GOXX_17_19.md 3.5) --------------------------
+// FUN_00590f50 [BYTES 0x590f50..0x5913f9]: one quad a shown segment, `data\image\lightning2.dds` (static texture
+// 33 = 0x749dd0 [BYTES 0x6d6394 + 33 x 0xc4]), render word 0x46c1 (additive: SRCALPHA / ONE, Z test, no Z write),
+// u = the line's scroll .. + 1 along each segment, v across; white, alpha 0x15 x life in its last 12 updates. The
+// segments whose node is in water are drawn by a second entry on layer 9 at 0x7f7f7f.
+// [approx] both passes are drawn here, on the effects' layer; the frame blend 0x74c0e0 is 1 (the tick's positions).
+struct BoltFx {
+    SpriteTex tex;
+    bool tried = false;
+    int stat = 0;                      // the last draw's quads (vstat)
+};
+static BoltFx g_boltfx;
+static void draw_bolts(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const fs::path& asset_root,
+                       const std::vector<const extra::Bolt*>& bolts, const Vec3& camFwd) {
+    BoltFx& f = g_boltfx;
+    f.stat = 0;
+    if (!f.tried) {
+        f.tried = true;
+        Dds d = load_dds(asset_root / "IMAGE" / "LIGHTNING2.DDS");
+        if (d.ok()) f.tex = upload_rgba(g, d.width, d.height, d.data.data());
+    }
+    if (!f.tex.tex) return;
+    QuadScope quads(g);
+    for (const extra::Bolt* b : bolts)
+        for (int pass = 0; pass < 2; ++pass) {
+            const std::uint8_t c = pass ? 0x7f : 0xff;
+            const float nx = 1.0f - float(b->alpha()) / 255.0f;
+            b->quads(pass != 0, camFwd, 1.0f, [&](const Vec3 p[4], const float u[4], const float v[4]) {
+                auto V = [&](int k) -> RoomVertex { return {p[k].x, p[k].y, p[k].z, nx, 0, -1, u[k], v[k], c, c, c, 0}; };
+                const RoomVertex verts[4] = {V(0), V(1), V(3), V(2)};
+                draw_quad(g, color, depth, g.char_pipeline_add, f.tex.bind, verts);
+                ++f.stat;
+            });
+        }
+}
+
 // ---- an actor's image on a mirror floor (REFLECTIONS.md 7.4, RENDER_LEFTOVERS.md 1.2-1.3) ------------------
 // While MirrorFloor is on, FUN_00473540 queues the actor's shadow callback FUN_00474e10 on layer 1 as well
 // [BYTES 0x47385f..0x4738ff], and there it builds the shadow's flat quad (FUN_00456da0) with the actor's own sprite

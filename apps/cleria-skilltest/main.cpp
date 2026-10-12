@@ -5,6 +5,7 @@
 #include <string>
 
 #include "cleria/extra_versions.hpp"
+#include "cleria/hit_feedback.hpp"
 #include "cleria/skillmp.hpp"
 
 using namespace cleria::skillmp;
@@ -321,6 +322,44 @@ int main(int, char**) {
         check(rr.ray_reaches({4.0f, 0, 0.5f}, 0.5f) && !rr.ray_reaches({6.0f, 0, 0}, 0.5f) && !rr.ray_reaches({3.0f, 0, 1.0f}, 0.5f) &&
               !rr.ray_reaches({-2.0f, 0, 0}, 0.5f) && rr.ray_reaches({-0.5f, 0, 0}, 0.5f),
               "the ray reaches 5.0 along the heading, a body's radius + 0.4 wide; not behind unless overlapping");
+    }
+    {   // The type-7 jagged line (GOXX_17_19.md §3.5)
+        namespace x = cleria::extra;
+        std::uint32_t w = 0;
+        int draws = 0;
+        auto rnd = [&] { ++draws; return w += 0x9e3779b9u; };
+        x::Bolt::Desc d;
+        d.a = {0, 0, 0}; d.b = {6, 0, 0}; d.w0 = 0.25f; d.w1 = 0.05f; d.segs = 12; d.life = 30; d.forks = 1; d.reach = 0.75f; d.fork_segs = 5;
+        x::Bolt b = x::Bolt::make(d, rnd);
+        float off = 0;
+        for (const x::Bolt::Node& q : b.nodes) off = std::max(off, std::fabs(q.pos.y) + std::fabs(q.pos.z));
+        check(b.nodes.size() == 12 && draws == 2 + 4 * 11 && b.nodes[0].pos.x == 0.0f && b.nodes[0].w == 0.25f &&
+              std::fabs(b.nodes[11].w - 0.05f) < 1e-5f && off > 0.05f && off < 2.0f && !b.nodes[5].hidden && b.cd == 3,
+              "a free line: 12 nodes, 2 + 4 x 11 draws, widths 0.25 -> 0.05, the nodes off the straight line");
+        int forks = 0, life = 0, fork_nodes = 0;
+        x::Bolt f;
+        while (!b.dead && life < 100) { ++life; if (b.tick(rnd, &f)) { ++forks; fork_nodes = int(f.nodes.size()); } }
+        check(life == 31 && forks == 1 && fork_nodes == 5 && f.life == 20 && f.nodes[0].w == 0.125f && f.forks == 0,
+              "it lives 30 updates and throws its one side line on the 4th: 5 nodes, 20 updates, 0.125 wide");
+        x::Bolt fade; fade.life = 6;
+        const int a6 = fade.alpha(); fade.life = 12;
+        check(std::fabs(b.scroll + 0.015f * 30) < 1e-5f && a6 == 0x7e && fade.alpha() == 0xff, "the texture scrolls 0.015 an update; alpha 0x15 x life under 12");
+        d.driven = true; d.segs = 25; d.forks = 0;
+        x::Bolt c = x::Bolt::make(d, rnd);
+        int shown = 0;
+        c.quads(false, {0, 0, 1}, 1.0f, [&](const cleria::Vec3*, const float*, const float*) { ++shown; });
+        const float w3 = c.nodes[3].w;
+        c.feed({1, 2, 3}, false, rnd);
+        c.feed({2, 2, 3}, true, rnd);
+        int dry = 0, wet = 0;
+        c.quads(false, {0, 0, 1}, 1.0f, [&](const cleria::Vec3*, const float*, const float*) { ++dry; });
+        c.quads(true, {0, 0, 1}, 1.0f, [&](const cleria::Vec3*, const float*, const float*) { ++wet; });
+        for (int t = 0; t < 50; ++t) c.tick(rnd, &f);
+        check(shown == 0 && dry == 1 && wet == 1 && c.nodes[3].w == w3 && std::fabs(c.nodes[1].pos.x - 1.0f) <= 0.76f && !c.dead,
+              "a driven line starts hidden, shows what it is fed (a quad a shown node, by its water byte), keeps its widths, does not age");
+        check(cleria::hitfx::charged_glow(0, 1, 0, 0x40) == 0x008050u && cleria::hitfx::charged_glow(0, 0, 0, 0x40) == 0x700010u &&
+              cleria::hitfx::charged_glow(0xf0f0f0, 2, 3, 0x40) == 0xffffffu && cleria::hitfx::charged_glow(0x101010, 1, 1, 0xc0) == 0x101010u,
+              "the charged glow: row x (0.5 sin + 0.5), the others' Ventus (0, 128, 80), Adol's (112, 0, 16), clamped, nothing at the trough");
     }
     std::printf("[skill] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;

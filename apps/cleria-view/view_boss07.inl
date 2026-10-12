@@ -278,12 +278,14 @@ auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
 // E 2 / 6, the dark barrier nothing — a refused class is damage 0 (resist 1.0: no min-1), the clank SE 368 and no
 // count. The module consumes the accumulated damage on its next tick (one barrier count per frame with damage).
 // True = a part took the hit (also a clank); *banked = a part's bank recorded it (the swing's one-shot rule).
-auto boss7_hit = [&](const HitShape& vol, std::uint32_t token, int rehit, float power, int cls, bool swing, bool* banked) {
+// `only` >= 0: a direct hit on that part, no overlap test (FUN_004faf20's flag 1: the chain lightning's arrival).
+auto boss7_hit = [&](const HitShape& vol, std::uint32_t token, int rehit, float power, int cls, bool swing, bool* banked,
+                     int only = -1) {
     bool any = false;
     if (!boss7 || boss7_gone || game.g_flags[156] == 0) return any;
     for (int pi = 0; pi < boss07::kParts; ++pi) {
         const Boss07Part& bp = boss7->part(pi);
-        if (!overlap(vol, body_shape(bp.pos, bp.radius, 0.0f, 0, 0.0f))) continue;
+        if (only >= 0 ? pi != only : !overlap(vol, body_shape(bp.pos, bp.radius, 0.0f, 0, 0.0f))) continue;
         if (boss7_banks[std::size_t(pi)].check_and_record(token, rehit)) continue;
         if (banked) *banked = true;
         AttackStats a;
