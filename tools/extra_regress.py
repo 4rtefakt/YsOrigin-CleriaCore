@@ -141,4 +141,67 @@ def cases(clear_data):
                 "stage 1 (Vagullion) won", ">> entering S_1099", "[death] HP 0", "[gameover] chose retry", ">> entering S_1099",
                 "t1300 stats", "t1301 flagdump"],
         absent=[" 150="])           # flagdump lists the nonzero flags: 150 (the character) stays 0
+    # ADOL.md §4, the Napishtim version in a story room (S_1002, Selnargs = cast 17; CLERIA_CHAR=0 CLERIA_TYPE=1):
+    # C_990.ASO on C_990.AIA. The ground combo by bracelet: none 0x100 / 0x103 / 0x104; Ventus the eight steps to
+    # 0x11a (0x116..0x119 are spins whose anime_AttackBreak forfeits an early press: one press each, inside the
+    # reserve window); Terra 0x121.. and, pressed every 4th tick, the 11th press plays section 0x124; Ignis: a tap's wind-up
+    # 0x11b turns into its swing 0x11c when the button is up, a held one runs to its end — the fire runner
+    # (anime_Special(1): effect 623, C 5, P 2) and then the swing by anime_Raise.
+    c["adol_napishtim_combos"] = dict(
+        room="S_10/S_1002/S_1002", char="0", env=dict(_X, CLERIA_TYPE="1"),
+        drive="5:opt=DamageTaken=0;6:opt=InfiniteHP=1;8:flag=116,1;9:flag=117,1;10:flag=118,1;11:flag=182,1;12:flag=183,1;"
+              "13:flag=184,1;30:every=3,70,atk;66:abil;120:bracelet=116;140:every=3,190,atk;215:atk;238:atk;261:atk;284:atk;"
+              "290:abil;380:bracelet=117;390:near=17;391:every=4,436,atk;405:abil;433:abil;520:bracelet=118;530:atk;533:abil;"
+              "580:atk;581:atk+;583:abil;626:abil;640:atk-;680:quit",
+        expect=["-> C_990.AIA", "the Extra version is in play (character 0)", "[abil] t66 sec 0x104", "[abil] t290 sec 0x11a",
+                "[abil] t405 sec 0x122", "t431 Adol: the 11th press, section 0x124 (lockout 60)", "[abil] t433 sec 0x124",
+                "t531 Adol: the button is up, section 0x11c", "[abil] t533 sec 0x11c", "[abil] t583 sec 0x11b",
+                "t624 runner: effect 623 C 5 P 2, power 5.0 scale 1.00 step 0.28 (section 0x11c)", "runner pulse: effect 623",
+                "[abil] t626 sec 0x11c"],
+        count={"Adol: the 11th press": 1, "runner: effect 623": 1})
+    # ... his skills at 1500 / 1800 / 1200 MP: Terra (0x10c) = two chain lightnings (anime_Special(2): 5 hops after
+    # 25 ticks, then 10 at once; power -15.0, class 2), each arrival one direct hit; Ventus (0x10d) hits with its own
+    # collision (the water rings are not modelled); Ignis (0x10e) = the runner of effect 627 (C 20, P 3, power 15,
+    # scale 1.4), charged with a Lv 2 bracelet (0x111) effect 624 (P 6, scale 1.8, step 0.36).
+    c["adol_napishtim_skills"] = dict(
+        room="S_10/S_1002/S_1002", char="0", env=dict(_X, CLERIA_TYPE="1"),
+        drive="5:opt=DamageTaken=0;6:opt=InfiniteHP=1;8:flag=116,1;9:flag=117,1;10:flag=118,1;11:flag=182,1;12:flag=183,1;"
+              "13:flag=184,2;20:bracelet=117;100:near=17;102:skill+;104:skill-;106:abil;260:bracelet=116;265:mp=3000;270:skill+;"
+              "272:skill-;274:abil;400:bracelet=118;405:mp=3000;410:skill+;412:skill-;414:abil;520:mp=3000;530:skill+;690:skill-;"
+              "692:abil;760:quit",
+        expect=["t104 chain: power -15.0, 5 hop(s) over ", "delay 25 (section 0x10c)", "[abil] t106 sec 0x10c mp 1200",
+                "t129 chain: power -15.0, 10 hop(s) over ", "chain hop 1/5 hits #", "chain hop 10/10 hits #",
+                "[abil] t274 sec 0x10d mp 1500", "water rings (not modelled)", "[abil] t414 sec 0x10e mp 1800",
+                "runner: effect 627 C 20 P 3, power 15.0 scale 1.40 step 0.30 (section 0x10e)", "runner pulse: effect 627",
+                "[abil] t692 sec 0x111", "runner: effect 624 C 20 P 6, power 15.0 scale 1.80 step 0.36 (section 0x111)"],
+        count={" chain: power": 2})
+    # ... with nothing in reach the Terra skill is the 5-unit ray (power -2.0, 19 scans), and he does not turn.
+    c["adol_napishtim_ray"] = dict(
+        room="S_10/S_1009/S_1009", char="0", env=dict(_X, CLERIA_TYPE="1"),
+        drive="8:flag=117,1;12:flag=183,1;20:bracelet=117;40:skill+;42:skill-;44:abil;140:quit",
+        expect=["chain: power -2.0, 0 hop(s) over 0 monster(s), delay 25, the ray (section 0x10c):", "[abil] t44 sec 0x10c mp 1200"],
+        absent=["chain hop"])
+    # ... an Arena run from the title: the fourth bar, Type Select's second answer (both versions bought), Stage 1 by
+    # the pilot with the Terra sword and its skill; the record goes to record.are (Napishtim is the second version).
+    c["adol_napishtim_arena"] = dict(
+        room=None, env=dict(_X, CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[0, 1]), "record.ar2": [0]},
+        title="1:keys;40:down;45:down;50:ok;100:down;110:ok;158:down;166:down;174:down;190:ok;240:down;255:ok;330:ok;590:ok;790:quit",
+        drive="11:opt=DamageTaken=0;100:bracelet=117;130:nearest=2.5;131:skill+;133:skill-;300:opt=OneHitKill=1;"
+              "310:every=9,3000,nearest=1.2;313:every=9,3000,atk;700:every=700,3000,killall",
+        expect=["[stage] Arena stage select: Adol", "the run starts in S_9109", "-> C_990.AIA",
+                "the Extra version is in play (character 0)", " chain: power -15.0, 5 hop(s) over 8 monster(s)", "chain hop 1/5 hits #",
+                "[arena] the run ends: record.ar + record.are saved"],
+        absent=["[gameover]", "not implemented"], files=["record.are"])
+    # ... and Time Attack: the Boss Rush's first stage won by the pilot with the Ignis sword, the second entered.
+    c["adol_napishtim_time_attack"] = dict(
+        room=None, env=dict(_X, CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[0, 1])},
+        title="1:keys;40:down;45:down;50:ok;100:ok;158:down;166:down;174:down;190:ok;240:down;255:ok;330:ok;590:ok;790:quit",
+        drive="10:opt=OneHitKill=1;11:opt=DamageTaken=0;60:bracelet=118;100:every=7,900,duel=0;130:every=9,900,nearest=1.2;"
+              "133:every=9,900,atk;1000:stats;1010:quit",
+        expect=["[stage] Time Attack stage select: Adol, column 1, 14 row(s), cursor 0", "the run starts in S_1080", "-> C_990.AIA",
+                "the Extra version is in play (character 0)", "Adol: the button is up, section 0x11c",
+                "stage 1 (Vagullion) won", ">> entering S_1099", "t1000 stats"],
+        absent=["-> C_110.AIA"])
     return c

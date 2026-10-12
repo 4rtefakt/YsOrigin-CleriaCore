@@ -1542,6 +1542,7 @@ title_again:
     // (fx+0x1a8; its handler pass #14).
     bullet::Bullets bullets(&fxsim, ef2_of);
     std::vector<extra::Runner> xrunners;                  // the kind-0x17 runners (view_extra.inl)
+    std::vector<extra::Chain> xchains;                    // the kind-0x18 chain lightnings (view_extra_chain.inl)
     // World item pickups (src/cleria/pickup.hpp, build/item_re/PICKUPS.md).
     std::vector<Pickup> pickups;
     struct PendingDebris { int ticks; int cast; Vec3 origin; const AsoVm::DebrisEvent* ev; };
@@ -2176,6 +2177,7 @@ title_again:
         world.drop_named_effects();
         bullets.clear();                                      // before the effects they hold
         xrunners.clear();
+        xchains.clear();
         gas_owner.clear();
         fxsim.clear();
         wx.clear();                                           // FUN_00428ec0 / 0x76a558 = 0 (WEATHER.md)
@@ -4010,7 +4012,7 @@ title_again:
         si.cost.bc80 = si.bc80;
         si.cost.boosting = player.boosting;
         si.cost.acc_mp = (inv.equip_flags & 0x200000u) != 0;   // the Ring of Ease (x0.80)
-        // [not modelled] Adol's DAT_0074c0cc table.
+        si.cost.adol_alt = character == 0 && skin == 1;        // Napishtim: 0x68b084 = 1500 / 1800 / 1200 [BYTES 0x46618c]
         skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
         const int charge_lv0 = skill_charge.level;
         const skillmp::SkillOut so = skillmp::skill_tick(si, mp, skill_charge);
@@ -7473,7 +7475,7 @@ title_again:
                 // The bracelet switch lands (FUN_00465170 0x4652ca..0x465377): a pending request when the
                 // ASO is actable (+0x9d0), or a buffered attack meets an open cancel window (+0x9d2).
                 // The switch also clears the skill charge 0x76c134 / 0x76c138 (0x465323 / 0x465330) and
-                // the combo stage. [not modelled] the 0x76b914 |= 0x20 bit and Adol's +0x6fc reset.
+                // the combo stage, and Adol's +0x6fc / +0x708 (0x465363). [not modelled] the 0x76b914 |= 0x20 bit.
                 if (skill_req != -1 && (avm.actable() || (pact.request && avm.cancelable()))) {
                     if (skill_req >= 0x74 && skill_req <= 0x77) {
                         inv.magic = skill_req == 0x77 ? 0xff : skill_req;
@@ -7481,6 +7483,7 @@ title_again:
                         pact.request = false;
                         skill_charge = {};
                         audio.play(0x0a, kSfxMenuVol);                    // FUN_0043a040(0xa)
+                        nap.on_switch();
                     }
                     skill_req = -1;
                 }
@@ -7518,6 +7521,11 @@ title_again:
                 {
                     const float c = std::cos(g_cursor.move_angle), s = std::sin(g_cursor.move_angle);
                     pi.mouse_angle = std::atan2(rt.z * c + fwd.z * s, rt.x * c + fwd.x * s);
+                }
+                nap_skip = false;
+                if (character == 0 && skin == 1) {                    // Napishtim Adol (view_extra.inl)
+                    pi.adol_slot = skillmp::bracelet_slot(inv.magic);
+                    napishtim_input(pi);
                 }
                 pa_out = pact.tick(pi);
                 // The request (FUN_0046cb00 [BYTES 0x465a56..0x465b31]): the raw wheel (15-tick
@@ -8119,7 +8127,7 @@ title_again:
             if (!fly) {
                 const bool held = !paused && ((g_in.held & input::kMagic) || drive_skill);
                 const bool atk = !paused && ((g_in.held & input::kAttack) != 0 || drive_atk_held);
-                skill_tick(held, atk);
+                if (!nap_skip) skill_tick(held, atk);
             }
             {
                 const int slot = skillmp::bracelet_slot(inv.magic);
@@ -8274,6 +8282,7 @@ title_again:
             // is feet + kOriginH (+0x324), as every spawn above computes `org`.
             actor_mats[13] = ef2sim::translation(feet.x, feet.y + kOriginH, feet.z);
             prof("tick:fx-B");
+            #include "view_extra_chain.inl"      // Napishtim Adol's chain lightnings (FUN_00592d00)
             #include "view_fx_hits.inl"          // the effects' step and the particles' hit tick
 
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS

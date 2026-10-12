@@ -236,9 +236,13 @@ bool AsoVm::step(std::size_t& pc) {
             if (marker_wait_ == marker_) { pc = pc; return false; }
             break;
         case kRaise:
+            // anime_Raise [EXPORT 004472e0.c:345-357]: when the section exists, the ungated FUN_00446620 and
+            // the register reset FUN_00445a70 (vm+0xcc..+0x10b, marker wait -1), and the new section runs on in
+            // the same tick; a missing section is skipped. (It used to yield here, which the tick took for the
+            // section's end: the raised section never ran. Users: C_990's Ignis wind-ups, M_230's 303.)
             pc = next;
-            set_section(ai(0));
-            return false;
+            if (set_section(ai(0), /*force*/true)) reset_section_regs();
+            return true;
         case kLocalSet:
             if (ai(0) >= 0 && ai(0) < 32) locals_[ai(0)] = ai(1);
             break;
@@ -401,6 +405,13 @@ bool AsoVm::step(std::size_t& pc) {
             }
             break;
         }
+        case 0x09:                                         // anime_Special (FUN_00449ed0): surfaced raw
+            if (specials_.size() < kMaxBulletsPerTick) {
+                SpecialEvent ev;
+                for (std::uint32_t k = 0; k < 8; ++k) ev.a[k] = ai(k);
+                specials_.push_back(ev);
+            }
+            break;
         case kSePlay3D: {
             // anime_SePlay3D (0x2a): arg0 is an EFFECTDEF id, args 1..3 a float xyz
             // offset from the actor, arg4 a flag. 1072 uses across the corpus — this
@@ -503,6 +514,7 @@ void AsoVm::tick() {
     bullets_.clear();
     effects_.clear();
     loci_.clear();
+    specials_.clear();
     if (!ok()) return;
     // The wait gate `[0x2e] == 0 || --[0x2e] == 0` [EXPORT 004472e0.c:118]: a negative count never reaches 0
     // in a session, so anime_Wait(-1) holds its frame for good (the last frame of the player's death

@@ -40,6 +40,7 @@ auto hud_state_fill = [&]() {
     ci.bc80 = std::uint32_t(game.g_flags[217]);
     ci.acc_mp = (inv.equip_flags & 0x200000u) != 0;
     ci.boosting = player.boosting;
+    ci.adol_alt = character == 0 && skin == 1;              // Napishtim: 0x68a408 = 1500 / 1800 / 1200 (ADOL.md §3)
     player.skill_ready = hudstate::skill_ready(ci, player.sp_cur);
     player.charge_level = skill_charge.level;
     player.pulse = hud_pulse_ticks * (skill_charge.level == 2 ? 6 : 3);

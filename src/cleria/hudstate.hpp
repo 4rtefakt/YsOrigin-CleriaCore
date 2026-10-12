@@ -37,7 +37,7 @@ inline std::uint8_t pulse_scaled(std::uint8_t hud_a, std::int32_t counter) {
 // jmp 0x43edb3, past the comiss at 0x43eda6), so the overlays are on whatever the MP — a quirk
 // of the retail code, kept. Otherwise it is `cost <= MP` (0x43eda6: comiss MP, cost; setae), the
 // cost being the per-character table (+ Nightmare's), halved for Yunica in Boost.
-// [not modelled] Adol's DAT_0074c0cc table drops the Nightmare add here (skillmp adds it).
+// Napishtim Adol (CostIn::adol_alt): the table 0x68a408 = 1500 / 1800 / 1200, no Nightmare add (his row of it is 0).
 inline bool skill_ready(const skillmp::CostIn& in, float mp) {
     if (in.slot < 0 || in.slot > 2) return false;              // FUN_0046d560 == 3: nothing drawn
     if ((in.bc80 & (0x80000u | 0x40000u | 0x40u)) != 0 || in.acc_mp) return true;

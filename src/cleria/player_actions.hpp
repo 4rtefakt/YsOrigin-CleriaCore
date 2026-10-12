@@ -35,6 +35,9 @@ struct PlayerActions {
 
     struct In {
         int character = 1;           // 0 Adol, 1 Yunica, 2 Hugo, 3 Toal
+        // Adol's Napishtim version (0x74c0cc != 0 && character == 0): the bracelet slot FUN_0046d560 (0 Ventus,
+        // 1 Terra, 2 Ignis, 3 none) picks the ground combo; -1 = not that version.
+        int adol_slot = -1;
         bool attack_pressed = false; // +0x50c & 1 (this tick's edge)
         bool attack_held = false;    // +0x510 & 1
         bool skill_held = false;     // +0x510 & 4
