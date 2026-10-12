@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "cleria/bonusshop.hpp"
 #include "cleria/emotion.hpp"
 #include "cleria/eventsprites.hpp"
 #include "cleria/extfont.hpp"
@@ -209,6 +210,66 @@ int main() {
         dl.clear();
         bs.draw(dl, 1024, 768);
         check(dl.size() == 2, "4:3: no pillars");
+    }
+    {   // The Bonus Shop (BONUS_MODES.md §4): the rows FUN_005c9d20 builds, the prices, a purchase.
+        using CD = records::ClearData;
+        auto labels = [](const CD& d) { std::vector<std::string> v; for (const ShopRow& r : shop_rows(d)) v.push_back(r.label); return v; };
+        using V = std::vector<std::string>;
+        CD d;
+        d.clear = {1, 1, 1};
+        check(labels(d) == V{"[5,000] Arena Stage 2", "[500,000] Adol (Felghana Version)", "Cancel"},
+              "shop, nothing bought: Arena Stage 2, Adol (Felghana), Cancel");
+        d.shop[CD::kAdolFelghana] = 1;
+        check(labels(d) == V{"[5,000] Arena Stage 2", "[Unlocked] Adol (Felghana Version)", "[750,000] Yunica (Extra Version)",
+                             "[750,000] Hugo (Extra Version)", "[750,000] Toal (Extra Version)", "Cancel"},
+              "Felghana bought: the three Extras appear");
+        d.shop[CD::kYunicaExtra] = d.shop[CD::kHugoExtra] = d.shop[CD::kToalExtra] = 1;
+        check(labels(d).size() == 7 && labels(d)[5] == "[1,000,000] Adol (Napishtim Version)", "the three Extras bought: Adol (Napishtim)");
+        for (int s = CD::kArena2; s <= CD::kArena6; ++s) d.shop[std::size_t(s)] = 1;
+        check(labels(d)[0] == "[Unlocked] Arena Stages" && shop_rows(d)[0].kind == ShopRow::Unlocked,
+              "stages 2-6 bought, no Nightmare x 3 / Hard + Normal + Easy x 3: the slot reads [Unlocked] Arena Stages");
+        d.tier[4] = {1, 1, 1};
+        check(labels(d)[0] == "[2,000,000] Arena Stage 7", "Nightmare x 3: Arena Stage 7 is offered");
+        d.tier[4] = {1, 1, 0}; d.tier[1] = d.tier[2] = d.tier[3] = {1, 1, 1};
+        check(labels(d)[0] == "[2,000,000] Arena Stage 7", "... or Hard, Normal and Easy x 3 each");
+        d.shop[CD::kArena7] = d.shop[CD::kAdolNapishtim] = 1;
+        check(labels(d).size() == 7 && labels(d)[0] == "[Unlocked] Arena Stages", "all bought, 11 of 15 tiers: no School Outfit row");
+        d.clear = {0xD5, 0x8E, 0x89};
+        check(labels(d).size() == 8 && labels(d)[6] == "[3,000,000] Yunica School Outfit", "the three Extra clear bytes: the School Outfit");
+        d.clear = {1, 1, 1}; d.tier[0] = d.tier[4] = {1, 1, 1};
+        check(labels(d).size() == 8, "... or all fifteen tiers");
+        static const std::uint32_t kPrice[CD::kShopCount] = {500000, 1000000, 750000, 750000, 750000, 5000, 15000, 30000, 100000,
+                                                             250000, 2000000, 3000000};
+        bool prices = true;
+        for (int i = 0; i < CD::kShopCount; ++i) prices = prices && shop_price(CD::Shop(i)) == kPrice[i];
+        check(prices, "the twelve prices [BYTES 0x5c7b82..0x5c9a72]");
+
+        // A purchase: Arena Stage 2 with 5,000 SP exactly (the compare is `jb`), then the same row again is Stage 3
+        // with 0 SP: "Insufficient SP.".
+        CD c;
+        c.clear = {1, 1, 1};
+        std::uint32_t sp = 5000;
+        BonusShop shop;
+        shop.open();
+        ShopEvents ev;
+        auto run = [&](int n) { for (int i = 0; i < n; ++i) { ShopEvents e; shop.update({}, c, sp, m, e); ev.bought |= e.bought; ev.closed |= e.closed; } };
+        auto press = [&](bool cancel) {
+            WndInput in; in.confirm_pressed = !cancel; in.cancel_pressed = cancel;
+            ShopEvents e; shop.update(in, c, sp, m, e); ev.bought |= e.bought; ev.closed |= e.closed;
+        };
+        run(120);
+        check(shop.is_open() && shop.rows().size() == 3, "the shop opens on its list");
+        press(false); run(60);                                // Arena Stage 2 -> the confirm window
+        check(!ev.bought && sp == 5000, "the row's handler opens the confirm window: nothing bought yet");
+        press(false); run(120);                               // "OK to unlock this bonus?"
+        check(ev.bought && sp == 0 && c.shop[CD::kArena2] == 1 && shop.rows()[0].label == "[15,000] Arena Stage 3",
+              "confirm: 5,000 SP spent, 0x74ac0c = 1, the list rebuilt on Arena Stage 3");
+        ev = {};
+        press(false); run(60);                                // Arena Stage 3 with 0 SP: the OK box
+        press(false); run(120);
+        check(!ev.bought && sp == 0 && c.shop[CD::kArena3] == 0, "Insufficient SP.: an OK box, nothing bought");
+        press(true); run(10);                                 // Cancel on the list
+        check(ev.closed && !shop.is_open(), "Cancel (the list's cancel slot) closes the shop");
     }
     std::printf("[wnd] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;

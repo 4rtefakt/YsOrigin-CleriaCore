@@ -35,6 +35,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // (gamedata::release_dir_for); a data folder with no known install has none.
     const bool nya_gate = [&] {
         std::error_code nec;
+        if (const char* e = std::getenv("CLERIA_NYA")) return std::atoi(e) != 0;   // tests: the gate without an install
         const fs::path rel = cleria::gamedata::release_dir_for(asset_root);
         return !rel.empty() && fs::exists(rel / "data.nya", nec);
     }();
@@ -48,7 +49,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // A CLERIA_DRIVE run is headless: a hidden window (nothing on the user's desktop or taskbar) and an
     // offscreen target, whatever the desktop offers. CLERIA_DRIVE_VISIBLE=1 shows and presents it.
     const bool drive_hidden = std::getenv("CLERIA_DRIVE") && !std::getenv("CLERIA_DRIVE_VISIBLE");
-    SDL_Window* win = SDL_CreateWindow("CleriaCore - Ys Origin", 1280, 800,
+    int win_w = 1280, win_h = 800;
+    if (const char* e = drive_hidden ? std::getenv("CLERIA_DRIVE_SIZE") : nullptr)   // "WxH": a hidden run's frame (16:9 shots)
+        if (std::sscanf(e, "%dx%d", &win_w, &win_h) != 2 || win_w < 320 || win_h < 240) { win_w = 1280; win_h = 800; }
+    SDL_Window* win = SDL_CreateWindow("CleriaCore - Ys Origin", win_w, win_h,
                                        SDL_WINDOW_RESIZABLE | kWindowGpuFlag | (drive_hidden ? SDL_WINDOW_HIDDEN : 0));
     WGPUSurface surface = create_window_surface(g.instance, win);   // view_platform.inl
     WGPUSurfaceCapabilities caps = {};
@@ -66,7 +70,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         const WGPUTextureFormat f = caps.formats[i];
         if (f == WGPUTextureFormat_RGBA8Unorm || f == WGPUTextureFormat_BGRA8Unorm) { fmt = f; break; }
     }
-    std::uint32_t cw = 1280, ch = 800;
+    std::uint32_t cw = std::uint32_t(win_w), ch = std::uint32_t(win_h);
     WGPUTexture off_tex = nullptr;
     bool vsync = settings().s.cleria.vsync;              // the shell's Video > VSync (Fifo vs Immediate)
     auto configure = [&] {
@@ -1100,6 +1104,7 @@ title_again:
         tr.init(g, fmt, asset_root, titems);
         TitleScreen tscreen;
         PauseBook tbook;
+        BonusShop tshop;
         TitleGates tgates;
         // The gates (CLEAR_DATA.md §8): the clear bytes 0x74ab7b / 7a / 79 and 0x74c106.
         // [not modelled] what Time Attack / Arena Mode / Bonus Shop open: the entries show as in retail and
@@ -1196,7 +1201,7 @@ title_again:
                 gates_sync();
                 {   // the cursor manager (FUN_004263c0): the title list and the book are menu windows
                     mouse::Context cc;
-                    cc.menu = tscreen.list_alive() || tbook.is_open();
+                    cc.menu = tscreen.list_alive() || tbook.is_open() || tshop.is_open();
                     input::Frame rec = inf;
                     cursor_tick(rec, cc);
                 }
@@ -1260,6 +1265,25 @@ title_again:
                         tf_cur = 0.0f; tf_tgt = 1.0f;
                         audio.fade_out_bgm(0x5dc);           // FUN_005cde10(1500) [BYTES 0x575985]
                     }
+                } else if (tshop.is_open()) {
+                    // The Bonus Shop (src/cleria/bonusshop; BONUS_MODES.md §4). A purchase saves record.ar2 as the
+                    // apply stub does (FUN_00438de0) -- and record.ta2 with it. [CleriaCore] retail writes the
+                    // unlock dword only at the next clear or a clean exit, so a crash after buying loses the
+                    // unlock and keeps the lower balance (CLEAR_DATA.md §2): not reproduced.
+                    WndInput in;
+                    in.confirm_held = conf_held; in.confirm_pressed = confirm_edge;
+                    in.cancel_pressed = cancel_edge;
+                    in.vstep = vstep;
+                    if (live) wnd_mouse(in);
+                    ShopEvents sev;
+                    tshop.update(in, g_clear, g_arena_sp, tr.metrics(), sev);
+                    snd = sev.sounds;
+                    if (sev.bought) {
+                        const bool wrote = arena_sp_save() && clear_data_save();
+                        std::printf("  [shop] bought %s for %u: Arena SP %u; record.ar2 + record.ta2 %s\n", shop_name(sev.item),
+                                    shop_price(sev.item), g_arena_sp, wrote ? "saved" : "NOT saved");
+                    }
+                    if (sev.closed) std::printf("  [shop] closed\n");
                 } else {
                     WndInput in;
                     in.confirm_held = conf_held; in.confirm_pressed = confirm_edge;
@@ -1274,10 +1298,13 @@ title_again:
                         case TitleAction::LoadGame: tbook.open(tmodel(), 2); break;
                         case TitleAction::Options: tbook.open(tmodel(), 3); break;
                         case TitleAction::Exit: teardown(); return 0;
-                        case TitleAction::TimeAttack: case TitleAction::Arena: case TitleAction::BonusShop:
-                            // [not modelled] BONUS_MODES.md §6.2 steps 7-12: the list comes back.
-                            std::printf("  [title] %s: not implemented\n", act == TitleAction::TimeAttack ? "Time Attack" :
-                                        act == TitleAction::Arena ? "Arena Mode" : "Bonus Shop");
+                        case TitleAction::BonusShop:
+                            tshop.open();
+                            std::printf("  [shop] opened: Arena SP %u\n", g_arena_sp);
+                            break;
+                        case TitleAction::TimeAttack: case TitleAction::Arena:
+                            // [not modelled] BONUS_MODES.md §6.2 steps 8-12: the list comes back.
+                            std::printf("  [title] %s: not implemented\n", act == TitleAction::TimeAttack ? "Time Attack" : "Arena Mode");
                             break;
                         default: break;
                     }
@@ -1305,6 +1332,7 @@ title_again:
             DrawList dl;
             tscreen.draw(dl);
             if (tbook.is_open()) tbook.draw(dl, tmodel());
+            tshop.draw(dl);
             tr.render(g, view, cw, ch, dl);
             if (tf_cur > 0.0f) {                             // the fader over the title
                 hud.set_fade(0, tf_cur);

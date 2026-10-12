@@ -68,6 +68,12 @@ std::optional<ClearData> decode_clear(std::span<const std::uint8_t> file);
 std::optional<ClearData> load_clear(const std::filesystem::path& file);
 bool save_clear(const std::filesystem::path& file, const ClearData& d, std::uint32_t key);
 
+// ---- record.ar2: the Arena SP wallet 0x74c128 (CLEAR_DATA.md §2; reader FUN_00438b10, writer FUN_00438de0) ----
+// One dword, 0..9,999,999: earned by op 0x18F ArenaSave, spent in the Bonus Shop.
+inline constexpr std::uint32_t kArenaSpMax = 9999999;
+std::optional<std::uint32_t> load_arena_sp(const std::filesystem::path& file);
+bool save_arena_sp(const std::filesystem::path& file, std::uint32_t sp, std::uint32_t key);
+
 // EventXX(4)'s writes to the clear data (FUN_0058f210 case 4 [BYTES 0x58f350..0x58f5e9], CLEAR_DATA.md §3.2):
 // `character` = flag 150 (1 Yunica, 2 Hugo, 3 Toal; anything else writes nothing), `extra` = FUN_00583960 (the
 // Type Select answer), `easy` = flag 143 (0x76bb58), `hard` = flag 144 (0x76bb5c: 0 Normal, 1 Hard, 2

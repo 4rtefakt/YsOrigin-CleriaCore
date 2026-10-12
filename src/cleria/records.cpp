@@ -122,6 +122,24 @@ bool save_clear(const std::filesystem::path& file, const ClearData& d, std::uint
     return bool(f);
 }
 
+std::optional<std::uint32_t> load_arena_sp(const std::filesystem::path& file) {
+    std::ifstream f(file, std::ios::binary);
+    if (!f) return std::nullopt;
+    const std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f), {}};
+    const auto p = decode(b, 4);
+    if (!p) return std::nullopt;
+    return std::uint32_t((*p)[0]) | std::uint32_t((*p)[1]) << 8 | std::uint32_t((*p)[2]) << 16 | std::uint32_t((*p)[3]) << 24;
+}
+
+bool save_arena_sp(const std::filesystem::path& file, std::uint32_t sp, std::uint32_t key) {
+    const std::uint8_t p[4] = {std::uint8_t(sp), std::uint8_t(sp >> 8), std::uint8_t(sp >> 16), std::uint8_t(sp >> 24)};
+    const std::vector<std::uint8_t> b = encode(p, key);
+    std::ofstream f(file, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+    return bool(f);
+}
+
 void apply_clear(ClearData& d, int character, bool extra, bool easy, int hard, bool very_easy) {
     if (character < 1 || character > 3) return;
     const std::size_t col = std::size_t(character - 1);

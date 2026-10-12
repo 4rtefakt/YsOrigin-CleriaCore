@@ -231,6 +231,13 @@ int main() {
            "EventXX(13): 10,000 SP per cleared cell (5 -> 50,000), a hundredth on Nightmare");
         for (auto& row : c.tier) row = {1, 1, 1};
         ok(records::sp_bonus(c, 1) == 150000, "EventXX(13): fifteen cells = the 150,000 cap");
+        {   // record.ar2: one dword
+            const std::filesystem::path f = std::filesystem::temp_directory_path() / "cleria_savetest_record.ar2";
+            ok(records::save_arena_sp(f, 2811, records::make_key(7)) && records::load_arena_sp(f) == 2811u &&
+               std::filesystem::file_size(f) == 0x2C, "record.ar2: the Arena SP wallet round-trips in a 0x2C-byte file");
+            std::error_code ec;
+            std::filesystem::remove(f, ec);
+        }
 
         // The real retail files, READ-ONLY: CLERIA_REAL_RECORDS = their folder, else Steam's remote folder of app
         // 207350 under any user id. All seven must decode (exact length, CRC) and re-encode byte for byte.
@@ -261,6 +268,8 @@ int main() {
                 good += records::encode(*pl, key, na, nb) == raw;
             }
             ok(good == 7, "REAL retail record files: all seven decode (length + CRC) and re-encode byte-exact");
+            if (const auto sp = records::load_arena_sp(dir / "record.ar2")) std::printf("[records] REAL record.ar2: Arena SP %u\n", *sp);
+            else ok(false, "REAL record.ar2 loads");
             std::ifstream in(dir / "record.ta2", std::ios::binary);
             const std::vector<std::uint8_t> raw{std::istreambuf_iterator<char>(in), {}};
             if (const auto cd = records::decode_clear(raw)) {

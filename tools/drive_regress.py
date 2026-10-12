@@ -1831,6 +1831,22 @@ CASES.update({
         expect=["[title] clear data: Yunica 01 Hugo 01 Toal 00, data.nya 0 -> Bonus Modes 1, Toal's bar open",
                 " 150=3 ", " 297=1 298=1", "script Prologue_Event_0"],
         absent=[" 299=", "GohoubiMenu", "EventXX(13)"]),
+    # BONUS_MODES.md §4, the Bonus Shop: three clears, data.nya, 505,000 Arena SP in record.ar2. Title -> Bonus Modes
+    # -> Bonus Shop; Adol (Felghana Version) for 500,000 through its confirm window; the list comes back with the
+    # three Extras, each "Insufficient SP." at 5,000 left; Cancel closes. Both record files are written at the
+    # purchase, and a second boot reads the balance and the purchase back.
+    "title_bonus_shop": dict(
+        room=None, env=dict(CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)]), "record.ar2": [505000]},
+        title="40:down;45:down;50:ok;100:down;105:down;110:ok;210:down;220:ok;290:ok;400:down;410:down;420:ok;490:ok;"
+              "620:esc;700:quit",
+        drive="10:quit", room2="S_10/S_1009/S_1009", drive2="10:quit",
+        expect=["[clear] record.ar2: Arena SP 505000",
+                "[title] clear data: Yunica 01 Hugo 01 Toal 01, data.nya 1 -> Bonus Modes 1", "[shop] opened: Arena SP 505000",
+                "[shop] bought Adol (Felghana Version) for 500000: Arena SP 5000; record.ar2 + record.ta2 saved",
+                "[shop] closed", "==== second boot", "[clear] record.ar2: Arena SP 5000",
+                "[clear] record.ta2: Bonus Shop purchases 0x001"],
+        count={"[shop] bought": 1}),
     # DIFFICULTY.md G2 / G8 on Hard (diff=3, then a reload so the room spawns under it): a regular Rif's 60 HP
     # is 72 and the Normal 112 is 134 (FUN_004202e0's x1.2); the hit that takes 22 on Normal takes
     # 22 * 1.5 + 1 = 34 (FUN_004fa740's tail).

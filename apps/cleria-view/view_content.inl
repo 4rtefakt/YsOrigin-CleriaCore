@@ -544,15 +544,29 @@ static fs::path clear_data_path() {
     const char* e = std::getenv("CLERIA_SAVE_DIR");
     return fs::path(e ? e : "saves") / "record.ta2";
 }
+// The Arena SP wallet 0x74c128, `record.ar2` beside it (FUN_00438b10 at boot, before record.ta2 [EXPORT
+// 00442260.c:119-123]; FUN_00438de0 after each Bonus Shop purchase and by op 0x18F ArenaSave).
+static std::uint32_t g_arena_sp = 0;
+static bool arena_sp_save() {
+    std::error_code ec;
+    fs::create_directories(clear_data_path().parent_path(), ec);
+    const std::uint32_t seed = std::uint32_t(std::chrono::steady_clock::now().time_since_epoch().count());
+    return records::save_arena_sp(clear_data_path().parent_path() / "record.ar2", g_arena_sp, records::make_key(seed));
+}
 static void clear_data_load() {
     g_clear = records::ClearData{};
     g_clear_dirty = false;
+    g_arena_sp = records::load_arena_sp(clear_data_path().parent_path() / "record.ar2").value_or(0);
+    if (g_arena_sp) std::printf("[clear] record.ar2: Arena SP %u\n", g_arena_sp);
     std::error_code ec;
     if (!fs::exists(clear_data_path(), ec)) return;
     if (const auto d = records::load_clear(clear_data_path())) {
         g_clear = *d;
         std::printf("[clear] record.ta2: Yunica %02x Hugo %02x Toal %02x, %d cleared tier(s)\n", g_clear.clear[0], g_clear.clear[1],
                     g_clear.clear[2], g_clear.tier_count());
+        int bought = 0;
+        for (std::size_t i = 0; i < g_clear.shop.size(); ++i) bought |= (g_clear.shop[i] != 0) << i;
+        if (bought) std::printf("[clear] record.ta2: Bonus Shop purchases 0x%03x\n", bought);
     } else {
         std::printf("[clear] record.ta2: wrong length or CRC, ignored (the defaults stay)\n");   // [EXPORT 00436790.c:153-165]
     }
@@ -593,7 +607,7 @@ static int clear_records(bool progress) {
     std::error_code ec;
     const char* const* files = progress ? kProgress : kTa;
     for (int i = 0; i < (progress ? 3 : 4); ++i) n += fs::remove(clear_data_path().parent_path() / files[i], ec) ? 1 : 0;
-    if (progress) { g_clear = records::ClearData{}; g_clear_dirty = false; }
+    if (progress) { g_clear = records::ClearData{}; g_clear_dirty = false; g_arena_sp = 0; }
     std::printf("[clear] %s cleared: %d file(s) deleted\n", progress ? "game progress" : "Time Attack records", n);
     return n;
 }

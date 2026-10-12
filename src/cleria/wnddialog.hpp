@@ -84,6 +84,7 @@ class WndDialog {
     void set_no_frame(bool v) { no_frame_ = v; }          // +0x1fdb (the title lists)
     void set_cancel(int item) { cancel_ = item; }         // Menu_AssignCancel (1-based, -1 none)
     void set_cursor(int item) { cursor_ = item; }         // MoveCursorLastScript (1-based)
+    void set_fast() { fast_ = true; }                     // +0x1fd4: the caption reveals at 0x30000 a tick
     void close() { close_ = true; }                       // +0x1fd5
     void arm() { armed_ = true; }                         // +0x1fd1
     bool accepted() const { return accepted_; }           // +0x1fd9
@@ -101,7 +102,7 @@ class WndDialog {
   private:
     void layout(const RichMetrics& m);
     bool alive_ = false, treasure_ = false, close_ = false, armed_ = false, accepted_ = false;
-    bool released_ = false, revealed_ = false, tick_sound_ = false, no_frame_ = false;
+    bool released_ = false, revealed_ = false, tick_sound_ = false, no_frame_ = false, fast_ = false;
     int chosen_index_ = -1;
     float alpha_ = 0;                                      // +0x1fb4
     std::uint32_t reveal_ = 0, reveal_end_ = 0;            // +0x1fb8, +0x1fbc
