@@ -50,9 +50,27 @@ struct EnemyFx {
     };
     std::unordered_map<std::string, Kind> kinds;   // sprite stem -> decoded facings
 
+    fs::path root;                       // the asset root of the last load_kind (sheet() loads from it)
+    std::unordered_set<std::string> no_sheet;   // sheets that did not load: not asked for again
+
+    // The sheet of an AIA file index (an actor's +0x97c; aso_aia_name), loaded at its first use like the engine's
+    // slot (FUN_00444850). nullptr = no such index or file: the caller keeps the cast's own sheet.
+    Kind* sheet(Gpu& g, std::int32_t file) {
+        const char* nm = aso_aia_name(file);
+        if (!*nm) return nullptr;
+        auto it = kinds.find(nm);
+        if (it == kinds.end() && !root.empty() && !no_sheet.count(nm)) {
+            load_kind(g, fs::path(root), nm);
+            it = kinds.find(nm);
+            if (it == kinds.end()) no_sheet.insert(nm);
+        }
+        return it == kinds.end() ? nullptr : &it->second;
+    }
+
     // The frame `want` (clamped to the clip, FUN_00444dc0) of one animation tag + facing, decoded and cached
-    // lazily. Falls back to the idle set when the tag is not in this AIA (so a script asking for a clip the
-    // sprite lacks still draws something rather than vanishing); nullptr when there is nothing to show.
+    // lazily. A tag the file lacks takes the file's fallback entry, as FUN_00444dc0 does (slot +0x18: the first
+    // entry whose tag is 0 [EXPORT 00444a50.c:97-101]; [H] entry 0 in a file with none, the field's initial
+    // value, ANI_VARIANT.md §8.2); nullptr when there is nothing to show.
     // [approx] a frame that fails to decode is an empty texture in its place (it used to be dropped from the
     // clip, the later frames moving up).
     const SpriteTex* tag_frame(Gpu& g, Kind& k, std::uint32_t tag, std::uint32_t dir, int want) {
@@ -62,10 +80,15 @@ struct EnemyFx {
             ts.img = -1;
             for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
                 if (k.aia.images[i].tag == tag) { ts.img = int(i); break; }
+            if (ts.img < 0 && k.aia.nImg && !k.aia.images.empty()) {
+                ts.img = 0;
+                for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
+                    if (k.aia.images[i].tag == 0) { ts.img = int(i); break; }
+            }
         }
         const std::uint32_t nd = ts.img >= 0 ? k.aia.images[ts.img].nDir : 0;
         const std::uint32_t nf = ts.img >= 0 ? k.aia.images[ts.img].nFrame : 0;
-        if (nd == 0 || nf == 0) {                            // tag absent -> idle (FUN_00444dc0 dir %= nDir)
+        if (nd == 0 || nf == 0) {                            // an empty record -> idle
             const std::vector<SpriteTex>& v = k.anim[k.ndir ? dir % k.ndir : 0];
             return v.empty() ? nullptr : &v[std::size_t(std::max(0, std::min(want, int(v.size()) - 1)))];
         }
@@ -91,6 +114,7 @@ struct EnemyFx {
     // (cycle the frames). Idempotent per stem.
     void load_kind(Gpu& g, const fs::path& asset_root, const std::string& stem) {
         if (stem.empty() || kinds.count(stem)) return;
+        root = asset_root;
         Kind k;
         if (!k.aia.load(asset_root / "ANI" / (stem + ".AIA"))) return;
         // Some enemy AIAs are 40-byte stubs with no images (M_810 / M_820: Hugo and Toal as
@@ -345,7 +369,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             QuadScope quads(g);
             for (const EnemyRender& e : list) {
                 if (!e.actor || (e.actor->is_enemy() && !e.actor->alive() &&
-                                 (e.actor->destroy_requested() || !revive::corpse_drawn(*e.actor)))) continue;
+                                 (e.actor->destroy_requested() || !(revive::corpse_drawn(*e.actor) || e.actor->ai.dead_fade)))) continue;
                 // FUN_00473540 queues the shadow when (+0x12c & 1) == 0 and +0x4d8 != 0 [BYTES 0x47385f..0x47387f].
                 if (!e.actor->visible || e.actor->ai.alpha <= 0.0f || !fx.kinds.count(e.stem) || (e.actor->flags12c & 1u)) continue;
                 const Actor& a = *e.actor;
@@ -364,16 +388,21 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // Skip DEAD ENEMIES only. Cutscene NPCs (Shion/Roy/…) are non-enemy actors that
         // ActorWorld::spawn leaves at hp=0, so alive() is false for them though they are
         // very much present — gating on alive() alone made every intro NPC invisible.
-        // The revive family's corpse lies on (REVIVE.md §3.4: opaque, never removed without the Chimes).
+        // The revive family's corpse lies on (REVIVE.md §3.4: opaque, never removed without the Chimes); an ordinary
+        // monster's body fades out on its dead path (FUN_004780e0: ai.dead_fade, the opacity in ai.alpha).
         if (!e.actor || (e.actor->is_enemy() && !e.actor->alive() &&
-                         (e.actor->destroy_requested() || !revive::corpse_drawn(*e.actor)))) continue;
+                         (e.actor->destroy_requested() || !(revive::corpse_drawn(*e.actor) || e.actor->ai.dead_fade)))) continue;
         if (!e.actor->visible) continue;   // Chr_Alpha faded it out (cutscene visibility)
         // A brain's opacity (+0x4d8, e.g. M390's warp fades): the render submit FUN_00473540
         // skips the actor at exactly 0; otherwise it is drawn at that opacity.
         if (e.actor->ai.alpha <= 0.0f) continue;
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
-        EnemyFx::Kind& k = it->second;
+        // The sheet is the actor's AIA file +0x97c, one of the decode's four cache keys (file, tag, direction,
+        // frame) [BYTES 0x446220..0x44632e]; its scale and placement are the sheet's own (FUN_00446340). An actor
+        // without one (no script bound) keeps its cast's sheet.
+        EnemyFx::Kind* sheet = fx.sheet(g, e.actor->aia_file);
+        EnemyFx::Kind& k = sheet ? *sheet : it->second;
         // Floor shadow first (enemies are grounded, so pos.y is the floor).
         if (!sf && !(e.actor->flags12c & 1u))          // +0x12c bit 1: no shadow (Chr_Shadow 0x153)
         draw_shadow(g, color, depth, shadow, e.actor->pos,

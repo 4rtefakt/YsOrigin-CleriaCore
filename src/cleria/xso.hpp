@@ -255,6 +255,7 @@ struct XsoHost {
     // 0x165 Chr_Stop(id) (FUN_00571e00): the walk and fly targets = the position, the arrival
     // radii +0x364 / +0x380 and the speed +0x368 = 0, so Wait_ChrMoving passes.
     virtual void chr_stop(int /*id*/) {}
+    virtual void chr_anichange(int /*id*/, int /*file*/) {}                        // 0x167 the sprite's AIA file
     // 0xD0 PadTilt(i): FUN_005d3500(i), the controller vibration pattern i.
     virtual void pad_tilt(int /*pattern*/) {}
     // 0xBD Se_Play3DPos(se, x, y, z): a 3D SE (EFFECTDEF flag 0x10) plays at the point

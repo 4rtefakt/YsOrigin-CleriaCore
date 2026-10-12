@@ -1,6 +1,7 @@
 #include "cleria/aso.hpp"
 #include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 
@@ -82,30 +83,37 @@ static bool flag_compare(std::int32_t a, std::int32_t op, std::int32_t b) {
     }
 }
 
+// The table's 269 names, in its own order [BYTES 0x68a800 + 4n, every pointer followed]. Of note: 6 / 7 / 8 =
+// C_102 / C_103 / C_104 (Yunica's, Hugo's, Toal's event sheets), 11 = C_114 (Yunica's attacks), 12 = C_115 (Toal's
+// demon form), 13 = C_101, 14..17 = C_110..C_113 (the gameplay sheets of Adol, Yunica, Hugo, Toal).
 const char* aso_aia_name(std::int32_t id) {
-    switch (id) {
-        case 6:  return "C_102";   // Yunica  — cutscene set (flag 161 == 1)
-        case 7:  return "C_103";   // Hugo    — cutscene set
-        case 8:  return "C_104";   // Toal    — cutscene set
-        case 11: return "C_114";   // Yunica  — variant
-        case 12: return "C_115";   // Toal    — Boost / demon form
-        case 13: return "C_101";
-        case 15: return "C_111";   // Yunica  — GAMEPLAY set
-        case 16: return "C_112";   // Hugo    — GAMEPLAY set
-        case 17: return "C_113";   // Toal    — GAMEPLAY set
-        // The AIA name table 0x68a800 [BYTES]: Yunica's School Outfit set (C_980.ASO names these) and Napishtim Adol.
-        case 243: return "C_980";  // School Outfit — cutscene set (flag 161 != 0)
-        case 244: return "C_990";  // Adol, the Napishtim version
-        case 267: return "C_981";  // School Outfit — GAMEPLAY set
-        case 268: return "C_982";  // School Outfit — variant (c_114's counterpart)
-        default: return "";
-    }
+    struct Names {
+        char n[269][6];
+        Names() {
+            static const std::int16_t c6[12] = {102, 103, 104, 105, 106, 114, 115, 101, 110, 111, 112, 113};
+            static const std::int16_t c88[6] = {120, 121, 122, 131, 132, 133};
+            int i = 0;
+            auto put = [&](char c, int v) { std::snprintf(n[i++], 6, "%c_%03d", c, v); };
+            for (int v = 0; v <= 50; v += 10) put('C', v);          //   0..5
+            for (int v : c6) put('C', v);                          //   6..17
+            for (int v = 100; v <= 790; v += 10) put('M', v);       //  18..87
+            for (int v : c88) put('C', v);                         //  88..93
+            for (int v = 200; v <= 790; v += 10) put('C', v);       //  94..153
+            for (int v = 200; v <= 900; v += 10) put('F', v);       // 154..224
+            for (int v = 800; v <= 990; v += 10) put('C', v);       // 225..244
+            for (int v = 800; v <= 990; v += 10) put('M', v);       // 245..264
+            put('M', 861); put('C', 119); put('C', 981); put('C', 982);   // 265..268
+        }
+    };
+    static const Names names;
+    return id >= 0 && id < 269 ? names.n[id] : "";
 }
 
 Aso Aso::parse(const std::vector<std::uint8_t>& b) {
     Aso a;
     if (b.size() < 0x10 || std::memcmp(b.data(), "XSR\0", 4) != 0) return a;
     const std::uint32_t n_sec = rd32(&b[0x08]);
+    a.default_file_ = std::int32_t(rd32(&b[0x0C]));
     const std::size_t code_base = 0x10 + std::size_t(n_sec) * 0x14;
     if (code_base > b.size()) return a;
 
@@ -164,6 +172,7 @@ bool AsoVm::set_section(std::int32_t id, bool force) {
     pc_ = std::size_t(s->code_off) / 4;
     wait_ = 0;
     end_yield_ = false;
+    if (file_out_) *file_out_ = file_id_ = aso_->default_file();   // FUN_00446620: sprite[0x23] = header +0xc
     return true;
 }
 
@@ -228,6 +237,7 @@ bool AsoVm::step(std::size_t& pc) {
             return false;  // yield: the tick is spent
         case kFile:
             file_id_ = ai(0);
+            if (file_out_) *file_out_ = file_id_;
             break;
         case kPattern:
             anim_tag_ = ai(0);

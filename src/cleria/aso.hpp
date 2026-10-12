@@ -26,10 +26,10 @@ namespace cleria {
 // entries) — `FUN_0040a460(buf, "data\\ani\\%s.aia", table[id])`. Engine data, so
 // it lives in code, not assets.
 //
-// Only the entries the player scripts use are reproduced here; the full 269 are not
-// dumped, and every M_*.ASO calls anime_File ZERO times (enemies just use their
-// same-named .aia sidecar), so these nine are the ones that matter. Returns "" for
-// anything else.
+// The whole table [BYTES 0x68a800: 269 pointers, c_000 .. c_982], upper-cased like the asset
+// stems; "" outside it. Among the ASOs only the player scripts (C_010 / C_020 / C_030, C_980)
+// and the three NPC / duel scripts M_800 / M_810 / M_820 call anime_File; every other one uses
+// its header's default sheet, which is its same-named .aia (build/event_re/ANI_VARIANT.md §2.2).
 //
 // This is what picks the sprite: in C_010 (Yunica), `Flag_IsEqualInt(161,1)` guards
 // `anime_File(6)` = c_102 and falls through to `anime_File(15)` = c_111. So flag 161
@@ -58,8 +58,13 @@ class Aso {
     const std::vector<Section>& sections() const { return sections_; }
     const Section* find(std::int32_t id) const;
     const std::vector<std::uint32_t>& code() const { return code_; }
+    // Header +0xc: the script's default AIA file index (the anime_File numbering). A section start writes it to
+    // the sprite's file [EXPORT 00446620.c: sprite[0x23] = *(aso.data + 0xc)]. 13 = C_101 on disk for the three
+    // player scripts and for M_800 / M_810 / M_820, whose sections open with their own anime_File.
+    std::int32_t default_file() const { return default_file_; }
 
   private:
+    std::int32_t default_file_ = -1;
     std::vector<Section> sections_;
     std::vector<std::uint32_t> code_;  // the whole blob, indexed in dwords
 };
@@ -68,6 +73,11 @@ class Aso {
 class AsoVm {
   public:
     void bind(const Aso* aso);
+    // The actor's AIA file index (+0x97c = sprite +0x8c) this VM writes: each section start puts the script's
+    // default there (FUN_00446620) and anime_File its argument (ANI_VARIANT.md §2.1). Without one (the player's
+    // VM) a section start leaves file_id() alone. [not modelled] the player routine FUN_00464fc0, which patches
+    // the loaded header's default to the wanted sheet and restarts a locomotion section when it changes.
+    void bind_file(std::int32_t* actor_file) { file_out_ = actor_file; }
     // Switch to a section by ID. Sections are addressed by id, not index; the VM's
     // initial state is id 2 (idle for the players), present in 112/115 files.
     //
@@ -378,6 +388,7 @@ class AsoVm {
     std::size_t pc_ = 0;
     std::int32_t wait_ = 0;
     std::int32_t anim_tag_ = -1, frame_ = 0, file_id_ = -1, dir_offset_ = 0;
+    std::int32_t* file_out_ = nullptr;
     std::int32_t marker_ = -1, marker_wait_ = -1;
 public:
     // anime_Marker's last value = the actor's +0x9bc (sprite[0x33]) that brains read.
