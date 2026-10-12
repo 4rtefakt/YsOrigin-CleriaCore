@@ -4672,6 +4672,18 @@ title_again:
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
             }
+        } else if (cmd == "exits") {                  // the room's SEN exits (audit aid: the door sweeps)
+            for (std::size_t i = 0; i < room.sen.triggers.size(); ++i) {
+                const SenTrigger& t = room.sen.triggers[i];
+                std::printf("  [exit] %zu %s -> %s at (%.2f, %.2f, %.2f) arrival (%.2f, %.2f, %.2f)\n", i, t.name.c_str(),
+                            t.dest_scene.c_str(), t.position.x, t.position.y, t.position.z, t.arrival_pos.x, t.arrival_pos.y,
+                            t.arrival_pos.z);
+            }
+        } else if (cmd == "boxes") {                  // the room's .SEV event boxes (audit aid: where a scene's trigger is)
+            for (const SceneBox& b : room.event_boxes)
+                std::printf("  [box] %s centre (%.2f, %.2f, %.2f) min (%.2f, %.2f, %.2f) max (%.2f, %.2f, %.2f) rot %.3f\n",
+                            b.name.c_str(), b.center.x, b.center.y, b.center.z, b.amin.x, b.amin.y, b.amin.z, b.amax.x,
+                            b.amax.y, b.amax.z, b.rot_y);
         } else if (cmd == "cam") {                    // the camera rig: the selection, the ramps, the output, the slots
             float sum = 0;                            // every slot's script-editable fields (a Camera_Change left behind)
             for (int i = 0; i < g_rig.count(); ++i) {

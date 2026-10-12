@@ -2619,6 +2619,83 @@ CASES.update({
         expect=["ChangeScene 'demo4\\' -> S_6080", "[content] boss_defeated S_6080", " 98=-1 ", " 235=1 ",
                 "[probe] actor 161 -> talkc960", "t7000 scripts", "frozen 0 fix 0/0", " 98=1 "],
         count={"boss_defeated": 1}),
+    # The gap-closing pass (ROUTE_F47_HUGO.md / _YUNICA.md §"triggers"): each scene fired by standing the character in
+    # its own .SEV event box (drive `boxes` lists them), then played with Confirm. Where the room root starts the
+    # scene's script only behind story flags of earlier rooms, the script is started by the drive and the box does
+    # the rest (marked "run=").
+    # S_4014's Zelkaron ward as Yunica (R8's third gate; 241 and the ring 94 set as the route has them): the three
+    # warded Zelkarons (cast 82) killed -> KekkaiZako_01 -> 393 and Item_Get: 93 = 1 (what the evil door asks for).
+    "route_s4014_yunica_ward": dict(
+        room="S_40/S_4014/S_4014", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=InfiniteHP=1;1:opt=DamageTaken=0;2:level=50;3:tier=10;5:flag=241,1;6:flag=94,1;"
+              "7:saveload;40:opt=OneHitKill=1;50:every=12,1500,nearest;51:every=12,1500,atk;1510:every=10,3000,oktapf;"
+              "3000:scripts;3001:flagdump;3002:quit",
+        expect=["slot 1 taken: 0/1", "t3000 scripts", "frozen 0 fix 0/0", " 93=1 ", " 393=1 "]),
+    # S_5102 as Hugo, from fresh flags: EVT_5102 -> Ev_5102_Hugo_1 -> the Black Pearl (106) and 269.
+    "route_s5102_hugo_pearl": dict(
+        room="S_51/S_5102/S_5102", char="2", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:at3=25,0.8,20,0;40:every=10,3000,oktapf;3000:scripts;3001:flagdump;3002:quit",
+        expect=["slot 0 taken: 1/0", "slot 0 released: 0/0", "t3000 scripts", "frozen 0 fix 0/0", " 106=1 ", " 269=1 "]),
+    # ... as Yunica (run=): the box EV_Yunica -> Ev_5102_Yunica_1 (239); the Pearl only from talking to Hugo (cast 167,
+    # Talk_M810) afterwards.
+    "route_s5102_yunica_pearl": dict(
+        room="S_51/S_5102/S_5102", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;10:run=Ev_5102_Yunica_1;20:at3=9,0.6,30,0;40:every=10,1900,oktapf;1905:flagdump;1910:near=167;"
+              "1920:act;1930:every=10,3200,oktapf;3200:scripts;3201:flagdump;3202:quit",
+        expect=["slot 0 taken: 1/0", " 106=-1 ", " 239=1 ", "[probe] actor 197 -> talk_m810", "t3200 scripts",
+                "frozen 0 fix 0/0", " 106=1 "]),
+    # S_5080 as Hugo (run= for the second): EVT_5080 -> 268, then EVT_5080_2 -> the Mantid Medallion (82) and 271.
+    "route_s5080_hugo_medallion": dict(
+        room="S_50/S_5080/S_5080", char="2", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:at3=-68,2.7,12,0;40:every=10,3700,oktapf;3700:flagdump;3710:run=s_Evt5080_Hugo_2;"
+              "3720:at3=-70,2.6,26.5,0;3730:every=10,7200,oktapf;7200:scripts;7201:flagdump;7202:quit",
+        expect=["slot 0 taken: 1/0", " 82=-1 ", " 268=1 ", "run s_Evt5080_Hugo_2 -> started", "t7200 scripts",
+                "frozen 0 fix 0/0", " 82=1 ", " 271=1 "]),
+    # S_5014 as Hugo (run=): EVT_5014 -> s_Evt5014_Hugo (Dalles), 272.
+    "route_s5014_hugo": dict(
+        room="S_50/S_5014/S_5014", char="2", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;10:run=s_Evt5014_Hugo;20:at3=73.6,4.2,-25,0;40:every=10,5900,oktapf;5900:scripts;5901:flagdump;5902:quit",
+        expect=["slot 0 taken: 1/0", "slot 0 released: 0/0", "t5900 scripts", "frozen 0 fix 0/0", " 272=1 "]),
+    # S_4005's Karon event as Hugo (R1): 180 == 6 exactly, Battle_Hugo goes on.
+    "karon_event_hugo": dict(
+        room="S_40/S_4005/S_4005", char="2", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:every=10,1650,ok;1710:opt=OneHitKill=1;1720:every=12,2400,nearest;1721:every=12,2400,atk;"
+              "2400:scripts;2401:flagdump;2402:quit",
+        expect=["slot 0 released: 0/0", "slot 0 taken: 1/0", "t2400 scripts", "script Battle_Hugo", " 180=6 "]),
+    # S_7000 from fresh flags, each character: Event_7000 -> Evt_7000_<name>_1 -> S_7080 (Dalles' room).
+    "route_s7000_hugo": dict(
+        room="S_70/S_7000/S_7000", char="2", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:at3=0,7.4,-27.8,0;40:every=10,9000,oktapf;9000:scripts;9001:quit",
+        expect=["slot 0 taken: 1/0", ">> entering S_7080", "script EV_7080"]),
+    "route_s7000_yunica": dict(
+        room="S_70/S_7000/S_7000", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:at3=0,7.4,-27.8,0;40:every=10,9000,oktapf;9000:scripts;9001:quit",
+        expect=["slot 1 taken: 0/1", ">> entering S_7080", "script EV_7080"]),
+    # The whole ending from the Dalles kill, one run a character: 226 -> S_7000 -> demo5 -> S_7002 -> S_0003 -> demo7 ->
+    # the clear write -> the title.
+    "ending_chain_hugo": dict(
+        room="S_70/S_7080/S_7080", env={"CLERIA_CHAR": "2", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="1:opt=CutsceneSkip=3;3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.5;"
+              "8:tier=10;9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
+              "16:flag=184,3;17:bracelet=116;60:boss7;5200:every=10,20600,oktapf;20600:quit",
+        expect=["flag 226 = 1", ">> entering S_7000", "ChangeScene 'demo5\\' -> S_7002", ">> entering S_0003",
+                "ChangeScene 'demo7\\' -> S_0003", "[clear] EventXX(4): GameFirstPlay = 1, clear flag 298 = 1",
+                "record.ta2 saved", "ChangeScene 'Title\\' -> the title", "[title] clear data: Yunica 00 Hugo 01 Toal 00"]),
+    "ending_chain_yunica": dict(
+        room="S_70/S_7080/S_7080", env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="1:opt=CutsceneSkip=3;3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.5;"
+              "8:tier=10;9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
+              "16:flag=184,3;17:bracelet=116;60:boss7;7900:every=10,23300,oktapf;23300:quit",
+        expect=["flag 226 = 1", ">> entering S_7000", "ChangeScene 'demo5\\' -> S_7002", ">> entering S_0003",
+                "ChangeScene 'demo7\\' -> S_0003", "[clear] EventXX(4): GameFirstPlay = 1, clear flag 297 = 1",
+                "record.ta2 saved", "ChangeScene 'Title\\' -> the title", "[title] clear data: Yunica 01 Hugo 00 Toal 00"]),
+    # Zava's first visit as Hugo: the event box, the intro played (4841 ticks), then the pilot wins.
+    "zava_hugo_intro": dict(
+        room="S_60/S_6082/S_6082", env={"CLERIA_CHAR": "2", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="1:opt=CutsceneSkip=3;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.45;8:tier=10;"
+              "11:flag=163,1;20:at3=-34,8,15.5,0;40:every=10,4870,oktapf;4880:scripts;4890:boss6;12500:quit",
+        expect=["slot 0 taken: 1/0", "slot 0 released: 0/0", "t4880 scripts", "script Battle_Hugo pc 38",
+                "Zava phase 2 action 0", "flag 225 = 1", "head a destroyed"]),
     # The ending scene and the clear write, per character: S_0003's Evt_0001_<name> -> demo7 -> Clear_Event_1, whose
     # EventXX(4) sets the character's clear flag and byte and saves record.ta2 (in the case's own save folder).
     "ending_hugo": dict(
