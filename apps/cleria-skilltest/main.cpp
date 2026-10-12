@@ -1,7 +1,10 @@
 // cleria-skilltest — the MP gauge, the skill charge/release machine and the Boost rules
 // (src/cleria/skillmp) against the numbers in build/ability_re/ABILITIES_VERIFIED.md §1-§2.
+#include <cmath>
 #include <cstdio>
+#include <string>
 
+#include "cleria/extra_versions.hpp"
 #include "cleria/skillmp.hpp"
 
 using namespace cleria::skillmp;
@@ -128,6 +131,53 @@ int main(int, char**) {
               "pull weight: 0.6 at 4.5; boosting scales the thresholds x 1.5");
         check(slow_fall(-0.2f, false) == -0.2f * 0.94f + 0.006f && slow_fall(-0.2f, true) == -0.2f * 0.925f + 0.009f,
               "Toal's slow fall: t x 0.94 + 0.006, charged t x 0.925 + 0.009");
+    }
+    {   // Yunica Extra (EXTRA_VERSIONS.md §2, §5)
+        namespace x = cleria::extra;
+        x::Counters c;
+        int at = -1, n = 0; x::YunicaOut v;
+        for (int t = 1; t <= 40; ++t) { const x::YunicaOut o = x::yunica_tick(c, 0x10d); if (o.bullets) { at = t; ++n; v = o; } }
+        check(at == 12 && n == 1 && v.bullets == 3 && v.a0 == 1.0471976f && v.step == 2.0943952f && v.speed == 0.12f &&
+              v.accel == 0.002f && v.f168 == 6.0f, "Yunica Extra 0x10d: three shots at the 12th tick, 60 + 120 i degrees");
+        x::yunica_tick(c, 0);
+        check(c.c814 == 0, "the counter clears outside the section");
+        for (int t = 1; t <= 12; ++t) v = x::yunica_tick(c, 0x110);
+        check(v.bullets == 4 && v.a0 == 0.7853982f && v.step == 1.5707964f && v.speed == 0.2f && v.accel == 0.004f && v.f168 == 5.0f,
+              "Yunica Extra 0x110: four shots, 45 + 90 i degrees, speed 0.2");
+        x::Counters d; at = -1; x::Emitter em;
+        for (int t = 1; t <= 40; ++t) { const x::YunicaOut o = x::yunica_tick(d, 0x10c); if (o.em.on) { at = t; em = o.em; } }
+        check(at == 24 && em.ahead == 1.5f && em.c == 6 && em.p == 3 && em.effect == 0x76, "Yunica Extra 0x10c: the runner at tick 24, 1.5 ahead, C 6 P 3");
+        x::Counters e; at = -1;
+        for (int t = 1; t <= 40; ++t) { const x::YunicaOut o = x::yunica_tick(e, 0x10f); if (o.em.on) { at = t; em = o.em; } }
+        check(at == 30 && em.ahead == 3.5f && em.c == 6 && em.p == 5, "Yunica Extra 0x10f: tick 30, 3.5 ahead, C 6 P 5");
+        // The runner on a flat floor at y = 0: FUN_005916e0 starts it (P >> 1) steps ahead and 0.75 down; it pulses
+        // on its ticks 1 + k (P + 1) while <= C P.
+        auto floor0 = [](const cleria::Vec3& o, const cleria::Vec3& dd, cleria::Vec3* hit) {
+            if (dd.y >= 0.0f || o.y < 0.0f || o.y + dd.y > 0.0f) return false;
+            *hit = {o.x, 0.0f, o.z};
+            return true;
+        };
+        x::Runner r = x::Runner::make({1.5f, 0.75f, 0.0f}, 0.0f, 0.3f, 0.0f, 1.0f, 6, 3, 0x76, 10.0f);
+        check(r.life == 19 && r.pos.x == 1.5f + 0.3f && r.pos.y == 0.0f, "runner: life C P + 1, (P >> 1) steps ahead, 0.75 down");
+        std::string ticks; int pulses = 0, lived = 0; float x0 = 0, x1 = 0;
+        for (int t = 1; t <= 40 && !r.dead; ++t) {
+            cleria::Vec3 p{};
+            if (r.tick(floor0, &p)) { ticks += std::to_string(t) + " "; if (++pulses == 1) x0 = p.x; if (pulses == 2) x1 = p.x; }
+            if (!r.dead) lived = t;
+        }
+        check(ticks == "1 5 9 13 17 " && lived == 18, "runner C 6 P 3: pulses on ticks 1 5 9 13 17, 18 live ticks");
+        check(std::fabs(x0 - 1.8f) < 1e-5f && std::fabs(x1 - x0 - 1.2f) < 1e-5f, "runner: the first pulse where it was made, the next 4 steps on");
+        x::Runner w = x::Runner::make({0, 0.75f, 0}, 0.0f, 0.3f, 0.0f, 1.0f, 6, 5, 0x76, 10.0f);
+        auto wall = [&](const cleria::Vec3& o, const cleria::Vec3& dd, cleria::Vec3* hit) {
+            if (dd.x > 0.0f && o.x < 2.0f && o.x + dd.x >= 2.0f) { *hit = {2.0f, o.y, o.z}; return true; }   // a wall at x = 2
+            return floor0(o, dd, hit);
+        };
+        pulses = 0;
+        for (int t = 1; t <= 40 && !w.dead; ++t) { cleria::Vec3 p{}; pulses += w.tick(wall, &p); }
+        check(pulses == 2 && w.dead, "runner: the pulse past a wall is still spawned, then it dies");
+        x::Runner a = x::Runner::make({0, 5.0f, 0}, 0.0f, 0.3f, 0.0f, 1.0f, 6, 3, 0x76, 10.0f);
+        cleria::Vec3 p{}; a.tick(floor0, &p);
+        check(a.vy == -0.75f && std::fabs(a.pos.y - (4.25f - 0.225f)) < 1e-5f, "runner off the floor: falls 0.75 x step a tick");
     }
     std::printf("[skill] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
