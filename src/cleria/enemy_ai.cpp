@@ -536,6 +536,25 @@ void action_player(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, AiOut& ou
         else if (a.dur() != -1) --a.dur();
     }
     if (a.leash() != 0) --a.leash();
+    // The floor's damage [BYTES 0x47a60a..0x47a6d6]: on blood 0x11 / lava 0x0d (+0x4b9) a cast with +0x130 & 0x40
+    // loses max HP x 0.05 [0x6bd13c] on every 20th count of +0x4c8, which counts on those floors only. Under
+    // 1 HP it dies there: +0x3bc |= 0x10, HP 0, the death section unless it plays (the gated request), the
+    // notes' seen byte. The number is drawn in 0xa000a0 either way.
+    if ((a.surf == 0x11 || a.surf == 0x0d) && e.actor && (e.actor->flags130 & 0x40u) != 0) {
+        if (a.floor_ticks % 20u == 0) {
+            const float dmg = e.max_hp * 0.05f;
+            e.actor->hp -= dmg;
+            if (1.0f > e.actor->hp) {
+                e.actor->hp = 0.0f;
+                out.floor_death = true;
+                if (e.section != 5) out.section = 5;
+            }
+            out.popup = int(dmg);
+            out.popup_rgb = 0xa000a0;
+            a.floor_ticks = 0;
+        }
+        ++a.floor_ticks;
+    }
 }
 
 // FUN_004782f0: memset +0x6f4..+0x8ac, keeping the fields it saves around the memset
@@ -637,6 +656,8 @@ AiOut enemy_ai_tick(EnemyAi& a, const EnemyAiParams& p, const AiEnv& env, EnemyB
     for (int s : ap.sounds) out.sounds.push_back(s);
     if (ap.hit_spark) { out.hit_spark = true; out.hit_spark_dx = ap.hit_spark_dx; out.hit_spark_dz = ap.hit_spark_dz; }
     out.launch_clear |= ap.launch_clear;
+    if (ap.popup >= 0) { out.popup = ap.popup; out.popup_rgb = ap.popup_rgb; }
+    out.floor_death |= ap.floor_death;
     return out;
 }
 

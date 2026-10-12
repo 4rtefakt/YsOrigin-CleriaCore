@@ -1012,6 +1012,31 @@ int main() {
             m510(M.ai, mp, w.env);
             check(M.ai.i(0x79c) == 1, "M510: an entry tick restarts the count");
         }
+        {   // The action player's floor damage [BYTES 0x47a60a..0x47a6d6] (ENEMY_WATER.md W6): +0x130 & 0x40 on blood 0x11.
+            Rig w; Actor M; M.hp = M.max_hp = 100.0f; M.flags130 = 0x840u;
+            w.env.actor = &M; w.env.hp = 100.0f; w.env.max_hp = 100.0f; w.env.section = 2;
+            EnemyAi a; a.surf = 1;
+            AiOut o;
+            ai::action_player(a, mp, w.env, o);
+            const bool dry = o.popup < 0 && M.hp == 100.0f && a.floor_ticks == 0;
+            a.surf = 0x11;
+            int pops = 0, first = -1; std::uint32_t rgb = 0;
+            for (int t = 0; t < 40; ++t) {
+                AiOut ot;
+                ai::action_player(a, mp, w.env, ot);
+                if (ot.popup >= 0) { if (first < 0) first = t; ++pops; rgb = ot.popup_rgb; check(ot.popup == 5, "floor damage: the number is int(max HP x 0.05)"); }
+            }
+            check(dry && first == 0 && pops == 2 && M.hp == 90.0f && rgb == 0xa000a0u,
+                  "floor damage: nothing off the floor; on blood, max HP x 0.05 on the first tick and every 20th, in 0xa000a0");
+            M.hp = 5.5f; a.floor_ticks = 20;
+            AiOut od;
+            ai::action_player(a, mp, w.env, od);
+            M.flags130 = 0x800u; M.hp = 50.0f; a.floor_ticks = 20;
+            AiOut on;
+            ai::action_player(a, mp, w.env, on);
+            check(od.floor_death && od.section == 5 && od.popup == 5 && on.popup < 0 && M.hp == 50.0f,
+                  "floor damage: under 1 HP it dies there (HP 0, the death section, the notes' seen byte); none without +0x130 & 0x40");
+        }
     }
     {   // The edge probe's deep-water test (FUN_00477450's tail; ENEMY_WATER.md W3).
         struct Pool : AiWorld {

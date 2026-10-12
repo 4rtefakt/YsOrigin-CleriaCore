@@ -10,8 +10,7 @@
 // 21..25 u (speed 0.15): onto +/-3 of the target 75% of the time on the first spit when near,
 // else +/-8 around itself. The attack ends when section 7 does (no re-request): cooldown
 // (R%30 + 60) x 3 (x 2 above Normal).
-// [not modelled] the keep-out box restore (FUN_0042dc90); the water-set up-ray of the
-// relocation; +0x144 x the fade; the bullets' damage (the GoXx paths, kinds 1 and 0x29, are
+// [not modelled] the keep-out box restore (FUN_0042dc90); +0x144 x the fade; the bullets' damage (the GoXx paths, kinds 1 and 0x29, are
 // untraced) and the drops' extra block fields (+0x160..+0x174).
 #include <cmath>
 
@@ -131,7 +130,9 @@ AiOut m580(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                                          w.ray({(cx + 0.5f) - 1.0f, cy, cz}, D).hit &&
                                          w.ray({x2, cy, cz + 0.5f}, D).hit &&
                                          w.ray({x2, cy, (cz + 0.5f) - 1.0f}, D).hit;
-                        if (all) {
+                        // The set-1 ("water") ray 50 straight up from the floor hit, as M500's R6: a spot with
+                        // water over it is refused.
+                        if (all && !(w.water_under({R1.point.x, R1.point.y + 50.0f, R1.point.z}, -50.0f) > -1.0e29f)) {
                             const Vec3 H = R1.point;
                             Vec3 vv{T.x - cx, T.y - H.y, T.z - cz};
                             const float l = std::sqrt(vv.x * vv.x + vv.y * vv.y + vv.z * vv.z);

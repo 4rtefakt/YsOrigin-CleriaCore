@@ -100,6 +100,7 @@ struct EnemyAi {
     bool wading = false, entered = false;   // +0x389, +0x38b (water.hpp; ENEMY_WATER.md §1.2)
     std::uint8_t splash_cd = 0, bubble_t = 0, breath_t = 0;   // +0x4c3, +0x4c5, +0x4c6: FUN_0045c490's splash / bubble pacing
     bool water_seen = false;                // the port's: the water test has run once (stands for the placement's probe)
+    std::uint16_t floor_ticks = 0;          // +0x4c8: the action player's lava / blood floor counter (0x47a629)
     float exp_base = -1;   // the revive family's spawn EXP (+0xb0), restored under Silver Chimes
 };
 
@@ -345,6 +346,8 @@ struct AiOut {
     bool skip_action_player = false;
     // FUN_004fae00(value, origin, 0xffffffff): a white number at the actor's origin + 0.5 (M510's water drain).
     int popup = -1;
+    std::uint32_t popup_rgb = 0xffffff;   // 0xa000a0 for the action player's floor damage (0x47a6ba)
+    bool floor_death = false;             // ... which killed it this tick: +0x3bc |= 0x10, the notes' seen byte
     // The handler took its g_flags[131] branch: FUN_0045f470, the mover with the moving byte +0x514 = 0, in place
     // of the brain, the action player and FUN_00478080 [EXPORT 0047b7f0.c:73-117; 0045f470.c]. The host runs its
     // mover as stopped; +0x6f8 (mode) and the rest of the brain's state are left as they are.
