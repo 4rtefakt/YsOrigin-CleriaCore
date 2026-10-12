@@ -369,7 +369,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             QuadScope quads(g);
             for (const EnemyRender& e : list) {
                 if (!e.actor || (e.actor->is_enemy() && !e.actor->alive() &&
-                                 (e.actor->destroy_requested() || !revive::corpse_drawn(*e.actor)))) continue;
+                                 (e.actor->destroy_requested() || !(revive::corpse_drawn(*e.actor) || e.actor->ai.dead_fade)))) continue;
                 // FUN_00473540 queues the shadow when (+0x12c & 1) == 0 and +0x4d8 != 0 [BYTES 0x47385f..0x47387f].
                 if (!e.actor->visible || e.actor->ai.alpha <= 0.0f || !fx.kinds.count(e.stem) || (e.actor->flags12c & 1u)) continue;
                 const Actor& a = *e.actor;
@@ -388,9 +388,10 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // Skip DEAD ENEMIES only. Cutscene NPCs (Shion/Roy/…) are non-enemy actors that
         // ActorWorld::spawn leaves at hp=0, so alive() is false for them though they are
         // very much present — gating on alive() alone made every intro NPC invisible.
-        // The revive family's corpse lies on (REVIVE.md §3.4: opaque, never removed without the Chimes).
+        // The revive family's corpse lies on (REVIVE.md §3.4: opaque, never removed without the Chimes); an ordinary
+        // monster's body fades out on its dead path (FUN_004780e0: ai.dead_fade, the opacity in ai.alpha).
         if (!e.actor || (e.actor->is_enemy() && !e.actor->alive() &&
-                         (e.actor->destroy_requested() || !revive::corpse_drawn(*e.actor)))) continue;
+                         (e.actor->destroy_requested() || !(revive::corpse_drawn(*e.actor) || e.actor->ai.dead_fade)))) continue;
         if (!e.actor->visible) continue;   // Chr_Alpha faded it out (cutscene visibility)
         // A brain's opacity (+0x4d8, e.g. M390's warp fades): the render submit FUN_00473540
         // skips the actor at exactly 0; otherwise it is drawn at that opacity.

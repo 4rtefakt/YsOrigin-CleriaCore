@@ -78,6 +78,7 @@ struct EnemyAi {
     Vec3 anchor{};         // +0x51c: the origin at the last phase change (the leash's centre; +0x744 its distance)
     bool hittable = true;  // +0x60 & 0x80: hit tests and body push skip the actor when clear
     std::uint32_t dead_t = 0;  // +0x3fc: FUN_004780e0's death counter (0 alive, 1 at death, +1 a tick)
+    bool dead_fade = false;    // FUN_004780e0 runs on it: the dead body is drawn, at the opacity `alpha`, until removed
     int w_type = 0;        // +0x424: wander type (0 wander, 1 stand)
     int w_phase = 1;       // +0x428
     int w_timer = 0;       // +0x42c

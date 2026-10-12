@@ -179,7 +179,13 @@
                     // frame's sweep). So a wave's Wait_FlagEqualInt(132, 0) releases 44 ticks after its last kill.
                     // The revive family and the casts with a death hook run their own (above); Pictimos's minions are
                     // his module's (view_boss05.inl).
-                    // [not modelled] the fading body is not drawn (a dead monster is hidden at the kill).
+                    // The body is drawn through the fade: the alpha is the actor's opacity +0x4d8 = alpha x 1 / 255
+                    // [0x6bd038], the one the submit FUN_00473540 reads, and each handler's dead branch runs the ASO
+                    // step after this [EXPORT 0047b7f0.c:116-117: FUN_004780e0, then FUN_004472e0], so the section
+                    // the kill left it in (its hurt reaction, a swing) plays on. FUN_004780e0 starts no section.
+                    // [not modelled] what that section fires while dead (effects, bullets, hit volumes); the first
+                    // tick's other writes (+0x508..+0x518, +0x118, +0x868 = 1200, the velocity clears: a dead body
+                    // is not moved here at all).
                     if (en && en->is_enemy() && !en->alive() && !en->destroy_requested() && !boss6_zava_undying(*en) &&
                         !enemy_death_hook_for(en->ai_index) && !revive::corpse_drawn(*en) && !boss5_dead_t.count(en->instance_id)) {
                         std::uint32_t& n = en->ai.dead_t;
@@ -191,7 +197,17 @@
                             const int al = (en->flags12c & 0x8000000u) ? 255 - int(n)
                                          : (en->flags12c & 0x40000000u) ? 255 - int(std::floor(float(n) / 1.25f)) : 255 - 6 * int(n);
                             if (al < 0) n = 0x100;
+                            en->ai.alpha = float(std::max(al, 0)) * 0.003921569f;
                         } else world.request_destroy(*en);
+                        if (en->ai_index != 22) {
+                            en->ai.dead_fade = true;
+                            if (e.avm.ok()) {
+                                e.spec.tick();
+                                e.avm.tick();
+                                e.spec_event();
+                                for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, en->pos);
+                            }
+                        }
                     }
                     if (!en || (!en->alive() && !boss6_zava_undying(*en)) || en->destroy_requested() || !e.avm.ok()) continue;
                     // +0x314 is ONE field: a Fix's turns (world.tick_facing) and Chr_Pos write it

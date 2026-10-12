@@ -3248,7 +3248,7 @@ CASES.update({
 
 # Arena reach (build/mode_re/ARENA.md §12). Hugo's shot is FireBullet(2, 130, ..): homing period 1 with a max turn of
 # 0, and the bullet's target scan FUN_00596c70 runs for effects 0x20 / 0x15 only [EXPORT 00593b90.c:176] — it flies
-# level from where it was fired, so the fliers (Chelasken 42 and Vagully 41 on Stage 3, Diphtheloyd 39 on Stage 4) are
+# level from where it was fired, so the fliers (Chelasken 42 and cast 41 on Stage 3, Diphtheloyd 39 on Stage 4) are
 # shot from a jump. The pilot alternates 440 ticks of ground shots with 440 of jump shots (jump, fire 6 ticks later);
 # both stages clear and bank with no sweep.
 def _hugo_jumpshots(end):
