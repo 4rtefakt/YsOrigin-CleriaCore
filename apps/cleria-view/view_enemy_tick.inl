@@ -182,8 +182,10 @@
                     // The body is drawn through the fade: the alpha is the actor's opacity +0x4d8 = alpha x 1 / 255
                     // [0x6bd038], the one the submit FUN_00473540 reads, and each handler's dead branch runs the ASO
                     // step after this [EXPORT 0047b7f0.c:116-117: FUN_004780e0, then FUN_004472e0], so the section
-                    // the kill left it in (its hurt reaction, a swing) plays on. FUN_004780e0 starts no section.
-                    // [not modelled] what that section fires while dead (effects, bullets, hit volumes); the first
+                    // the kill left it in plays on: the death section 5 after a hit of the player's (react_enemy),
+                    // whatever ran before for any other death. FUN_004780e0 starts no section itself.
+                    // [not modelled] what that section fires while dead (its sounds — the death pair is played at the
+                    // kill —, effects, bullets, hit volumes); the first
                     // tick's other writes (+0x508..+0x518, +0x118, +0x868 = 1200, the velocity clears: a dead body
                     // is not moved here at all).
                     if (en && en->is_enemy() && !en->alive() && !en->destroy_requested() && !boss6_zava_undying(*en) &&
@@ -205,7 +207,6 @@
                                 e.spec.tick();
                                 e.avm.tick();
                                 e.spec_event();
-                                for (const AsoVm::SoundEvent& se : e.avm.sounds()) aso_se_at(se.id, en->pos);
                             }
                         }
                     }
