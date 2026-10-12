@@ -159,6 +159,10 @@ struct Host {
         bool hittable = true;
     };
     virtual std::vector<ActorInfo> actors() { return {}; }
+    // A write (or a small read) of the live game by name: the view implements each next to the state it touches
+    // (apps/cleria-view/view_lua_ops.inl). False = no game, an unknown op, or the game refused; `out` gets an op's numbers.
+    virtual bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
+                         std::vector<double>* out) { (void)mod; (void)op; (void)num; (void)text; (void)out; return false; }
     // A world point on the screen as fractions of the game picture (0..1 from its top left); false = behind the camera.
     virtual bool to_screen(float x, float y, float z, float* sx, float* sy) { (void)x; (void)y; (void)z; (void)sx; (void)sy; return false; }
 };

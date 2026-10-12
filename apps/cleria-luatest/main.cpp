@@ -133,6 +133,18 @@ struct FakeHost : script::Host {
         return {a};
     }
     bool to_screen(float x, float, float z, float* sx, float* sy) override { if (z < 0) return false; *sx = x / 10; *sy = 0.5f; return true; }
+    std::vector<std::string> ops7;                              // game_op: "mod op n0,n1 [text]"
+    bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
+                 std::vector<double>* out) override {
+        std::string s = mod + " " + op;
+        for (double v : num) { char b[32]; std::snprintf(b, sizeof b, " %g", v); s += b; }
+        if (!text.empty()) s += " [" + text + "]";
+        ops7.push_back(s);
+        if (op == "equipment" && out) *out = {0, 6, 30, -1, 116, -1};
+        if (op == "status" && out) *out = {900, 0, 0, 12};
+        if (op == "exits" && out) *out = {1003, 1009};
+        return op != "retry";                                   // "not now"
+    }
     std::string profile;
     bool set_save_profile(const std::string& n) override { if (n == "no") return false; profile = n; return true; }   // "no": refused
     std::string save_profile() override { return profile; }
@@ -674,6 +686,32 @@ int main(int argc, char** argv) {
                   has(h.logs, "actors 1 17 Selnarg lv 3 hp 54.0/74.0 h 1.5 screen 0.1 0.5 behind nil one 17 none nil") &&
                   has(h.logs, "state play -> book") && has(h.logs, "hit 17 20 0") && has(h.logs, "nofloor nil"),
                   "api 7: game.state / room_title / floor / zone / difficulty / play_time, world.actors / actor / to_screen (" + g->error() + ")");
+        }
+        {   // API 7, batch C: the writes go to the host by name with their numbers; arguments are checked first
+            h.fl[163] = 0;
+            auto w = make(h, tmp, "api7w", R"LUA(
+                local P, G = cleria.player, cleria.game
+                local r = {P.set_position(1, 2, 3), P.set_position(1, 2, 3, 90), P.set_mp(1500), P.set_boost(30000), P.set_exp(500),
+                           P.set_invulnerable(60), P.equip("armor", 7), P.equip("accessory"), P.set_status("poison", true),
+                           P.set_status("curse", false), G.goto_room("S_1003"), G.take_exit(1), G.set_speed(0.5), G.retry(), G.to_title(),
+                           G.load(5), G.seed_random(42)}
+                local t = {}
+                for i, v in ipairs(r) do t[i] = v and "1" or "0" end
+                local e, s, x = P.equipment(), P.status(), G.exits()
+                cleria.log("writes " .. table.concat(t) .. " eq " .. e.weapon .. " " .. e.armor .. " " .. e.leggings .. " " .. e.accessory .. " " .. e.magic ..
+                           " st " .. s.poison .. " " .. s.curse .. " exits " .. #x .. " " .. x[2].index .. " " .. x[2].room)
+                cleria.log("ability " .. tostring(P.abilities().double_jump) .. " " .. tostring(P.set_ability("double_jump", true)) .. " " ..
+                           tostring(P.abilities().double_jump) .. " " .. tostring(pcall(P.set_ability, "fly", true)))
+                cleria.log("bad " .. tostring(pcall(P.set_position, 1, 2)) .. tostring(pcall(P.set_mp, -1)) .. tostring(pcall(P.equip, "hat", 1)) ..
+                           tostring(pcall(P.set_status, "sleep", true)) .. tostring(pcall(G.goto_room, "../x")) .. tostring(pcall(G.set_speed, 9)))
+            )LUA");
+            const std::vector<std::string> want = {"api7w set_position 1 2 3", "api7w set_position 1 2 3 90", "api7w set_mp 1500", "api7w set_boost 30000",
+                "api7w set_exp 500", "api7w invulnerable 60", "api7w equip 1 7", "api7w equip 3 -1", "api7w set_status 0 1", "api7w set_status 3 0",
+                "api7w goto_room [S_1003]", "api7w take_exit 1", "api7w speed 0.5", "api7w retry", "api7w to_title", "api7w load 5", "api7w seed_random 42",
+                "api7w equipment", "api7w status", "api7w exits"};
+            check(w->ok() && h.ops7 == want && has(h.logs, "writes 11111111111110111 eq 0 6 30 -1 116 st 900 12 exits 2 1 S_1009") &&
+                  has(h.logs, "ability false true true false") && h.fl[163] == 1 && has(h.logs, "bad falsefalsefalsefalsefalsefalse"),
+                  "api 7: the player's and the flow's writes reach the host; bad arguments are errors (" + w->error() + ")");
         }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);

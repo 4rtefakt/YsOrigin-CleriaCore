@@ -2768,6 +2768,55 @@ CASES.update({
         expect=[_LP + "state play [10F Path 1 Furnace] floor 10 zone 3 Guilty Fire diff 3 Hard"], absent=_NOSTOP),
 })
 
+# Mod API 7, batch C: the writes. set_position (the floor under the point), MP / Boost / EXP (a level-up follows),
+# poison on (900 ticks) and off, the double jump, equipping an owned armor and not an unowned one, invulnerability
+# (the hurt lands nothing), the room's exits, a door, a room change by name, an unknown room refused. Then in the
+# statue room: save, EXP, load (the level is the save's again); retry is refused while alive and taken when dead.
+_LUA_API7C = (
+    'cleria.command("c", function(a)\n'
+    '    local P, G = cleria.player, cleria.game\n'
+    '    local cmd, x, y, z = a:match("^(%S*)%s*(%S*)%s*(%S*)%s*(%S*)")\n'
+    '    local r\n'
+    '    if cmd == "pos" then r = P.set_position(tonumber(x), tonumber(y), tonumber(z), 90)\n'
+    '    elseif cmd == "mp" then r = P.set_mp(tonumber(x))\n'
+    '    elseif cmd == "boost" then r = P.set_boost(tonumber(x))\n'
+    '    elseif cmd == "exp" then r = P.set_exp(tonumber(x))\n'
+    '    elseif cmd == "inv" then r = P.set_invulnerable(tonumber(x))\n'
+    '    elseif cmd == "equip" then r = P.equip(x, tonumber(y))\n'
+    '    elseif cmd == "status" then r = P.set_status(x, y == "1")\n'
+    '    elseif cmd == "ability" then r = P.set_ability(x, y == "1")\n'
+    '    elseif cmd == "goto" then r = G.goto_room(x)\n'
+    '    elseif cmd == "exit" then r = G.take_exit(tonumber(x))\n'
+    '    elseif cmd == "retry" then r = G.retry()\n'
+    '    elseif cmd == "load" then r = G.load(tonumber(x))\n'
+    '    elseif cmd == "save" then r = G.save(tonumber(x)) end\n'
+    '    local st, eq, s, ex = P.stats(), P.equipment(), P.status(), {}\n'
+    '    for _, e in ipairs(G.exits()) do ex[#ex + 1] = e.index .. ":" .. e.room end\n'
+    '    cleria.log(string.format("%s -> %s | pos %.1f %.1f %.1f lv %d hp %d/%d boost %.0f | armor %d | poison %d | dj %s | %s exits %s", a, tostring(r), st.x, st.y, st.z,\n'
+    '        st.level, st.hp, st.max_hp, st.boost, eq.armor, s.poison, tostring(P.abilities().double_jump), G.room(), table.concat(ex, ",")))\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_writes": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7C,
+        drive="20:lua=c;30:lua=c pos 20 -4 -36;45:lua=c boost 15000;50:lua=c exp 500;55:lua=c status poison 1;60:lua=c status poison 0;"
+              "70:lua=c ability double_jump 1;75:give=7;76:lua=c equip armor 7;80:lua=c equip armor 9;85:lua=c inv 600;90:hurt=60;100:lua=c;"
+              "110:lua=c exit 0;300:lua=c;310:lua=c goto S_1002;500:lua=c;510:lua=c goto S_9999;520:quit",
+        expect=[_LP + " -> nil | pos -0.0 -0.1 -0.6 lv 1 hp 60/60 boost 0 | armor 6 | poison 0 | dj false | S_1002 exits 0:S_1003,1:S_1009",
+                _LP + "pos 20 -4 -36 -> true | pos 20.0 -4.1 -36.0 ", _LP + "boost 15000 -> true", " boost 15000 ",
+                _LP + "exp 500 -> true | pos 20.0 -4.1 -36.0 lv 2 hp 65/65", _LP + "status poison 1 -> true", "| poison 900 |",
+                _LP + "status poison 0 -> true", "| poison 1 |", _LP + "ability double_jump 1 -> true", "| poison 0 | dj true |",
+                _LP + "equip armor 7 -> true", "| armor 7 |", _LP + "equip armor 9 -> false", "| armor 7 |", _LP + "inv 600 -> true",
+                _LP + " -> nil | pos 20.0 -4.1 -36.0 lv 2 hp 64/65", _LP + "exit 0 -> true",
+                "| S_1003 exits 0:S_1002,1:S_1007", _LP + "goto S_1002 -> true", "| S_1002 exits", _LP + "goto S_9999 -> false"],
+        absent=_NOSTOP),
+    "lua_api7_flow": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7C,
+        drive="100:lua=c save 5;110:lua=c exp 500;120:lua=c load 5;200:lua=c;210:lua=c retry;220:hp=0;300:lua=c retry;420:lua=c;440:quit",
+        expect=[_LP + "save 5 -> true", _LP + "exp 500 -> true", " lv 2 hp 65/65", _LP + "load 5 -> true", _LP + " -> nil", " lv 1 hp 60/60",
+                _LP + "retry -> false", "[death] HP 0", "[gameover] Retry ->", _LP + "retry -> true", " lv 1 hp 60/60"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

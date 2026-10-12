@@ -6339,6 +6339,7 @@ title_again:
         facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
         csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
     };
+#include "view_lua_ops.inl"                               // the mods' named writes (cleria.player / cleria.game, API 7)
     // Every scene entry fades in from black over 20 steps (FUN_00431840 -> FUN_00439170,
     // SCENEFLOW.md 1.5), the first room after the title too. Before the room's first script tick,
     // so a root's own Fader_Target (S_0000's) still wins. [dev] a command-line room starts unfaded.
@@ -6525,7 +6526,7 @@ title_again:
         const Uint64 now = SDL_GetTicks();
         const float real_dt = float(now - last) / 1000.0f; last = now;
         // The shell's Game speed scales how many fixed ticks run per real second (never the tick's dt).
-        accum += real_dt * g_time_scale * std::clamp(settings().s.access.game_speed, access::kSpeedMin, access::kSpeedMax);
+        accum += real_dt * g_time_scale * std::clamp(settings().s.access.game_speed, access::kSpeedMin, access::kSpeedMax) * lua_game_speed();
         // The exe's own hitch protection (DAT_0075aed5): after a load it forces a
         // single tick with a zero delta rather than catching up on the stall. Room
         // transitions set this; without it a slow load bursts hundreds of ticks.

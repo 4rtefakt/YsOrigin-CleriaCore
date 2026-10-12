@@ -41,6 +41,8 @@ struct LuaBind {
     std::function<std::string()> room_title;                       // cleria.game.room_title
     std::function<void(std::vector<script::Host::ActorInfo>&)> actors;   // cleria.world.actors
     std::function<bool(const Vec3&, float*, float*)> to_screen;    // cleria.world.to_screen (fractions of the picture)
+    // Host::game_op: the named writes (view_lua_ops.inl, set where the game's state is in scope)
+    std::function<bool(const std::string&, const std::string&, const std::vector<double>&, const std::string&, std::vector<double>*)> op;
 };
 
 struct LuaNotice {
@@ -127,6 +129,8 @@ struct LuaHost : script::Host {
     std::string room_title() override;
     std::vector<ActorInfo> actors() override;
     bool to_screen(float x, float y, float z, float* sx, float* sy) override;
+    bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
+                 std::vector<double>* out) override;
 };
 
 struct LuaRt {
@@ -146,6 +150,7 @@ struct LuaRt {
     double stat_add[3] = {0, 0, 0}, stat_mul[3] = {1, 1, 1};
     std::map<std::string, std::string> bus;            // cleria.bus.get / set: JSON text by key (the process)
     std::string last_state;                            // state_changed / floor_changed: what the last tick saw
+    std::map<std::string, double> speed;               // cleria.game.set_speed: each mod's factor (their product applies)
     int last_floor = -2;
 };
 static LuaRt g_lua;
@@ -278,6 +283,17 @@ std::vector<script::Host::ActorInfo> LuaHost::actors() {
 }
 bool LuaHost::to_screen(float x, float y, float z, float* sx, float* sy) {
     return in_game() && g_lua.b.to_screen && g_lua.b.to_screen(Vec3{x, y, z}, sx, sy);
+}
+bool LuaHost::game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
+                      std::vector<double>* out) {
+    return in_game() && g_lua.b.op && g_lua.b.op(mod, op, num, text, out);
+}
+// The game speed the mods ask for: the product of their factors, within the shell's own limits.
+static float lua_game_speed() {
+    if (g_lua.speed.empty()) return 1.0f;
+    double f = 1.0;
+    for (const auto& [id, x] : g_lua.speed) f *= x;
+    return float(std::clamp(f, 0.1, 4.0));
 }
 std::string LuaHost::game_state() {
     if (!in_game() || !g_lua.b.state) return "title";

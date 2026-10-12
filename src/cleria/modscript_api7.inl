@@ -360,3 +360,124 @@ void open_api7_world(lua_State* L) {                     // the cleria table is 
 }
 
 }  // namespace
+
+namespace {
+
+// ---- writes of the player and the flow (Host::game_op) ---------------------------------------------------------
+bool op(lua_State* L, const char* name, std::vector<double> num = {}, const std::string& text = {}, std::vector<double>* out = nullptr) {
+    Mod& m = M(L);
+    return m.host().game_op(m.id(), name, num, text, out);
+}
+double num_arg(lua_State* L, int i, double lo, double hi) {
+    const double v = luaL_checknumber(L, i);
+    if (!std::isfinite(v) || v < lo || v > hi) luaL_argerror(L, i, "out of range");
+    return v;
+}
+int l_set_position(lua_State* L) {                       // (x, y, z [, facing in degrees]) -> placed on the floor under it
+    std::vector<double> v = {num_arg(L, 1, -1e6, 1e6), num_arg(L, 2, -1e6, 1e6), num_arg(L, 3, -1e6, 1e6)};
+    if (!lua_isnoneornil(L, 4)) v.push_back(num_arg(L, 4, -36000, 36000));
+    lua_pushboolean(L, op(L, "set_position", v));
+    return 1;
+}
+int l_set_mp(lua_State* L) { lua_pushboolean(L, op(L, "set_mp", {num_arg(L, 1, 0, 1e6)})); return 1; }
+int l_set_boost(lua_State* L) { lua_pushboolean(L, op(L, "set_boost", {num_arg(L, 1, 0, 1e6)})); return 1; }
+int l_set_exp(lua_State* L) { lua_pushboolean(L, op(L, "set_exp", {num_arg(L, 1, 0, 1e9)})); return 1; }
+int l_set_invulnerable(lua_State* L) { lua_pushboolean(L, op(L, "invulnerable", {num_arg(L, 1, 0, 36000)})); return 1; }
+
+const char* const kSlots[] = {"weapon", "armor", "leggings", "accessory", "magic", "held"};
+int l_equipment(lua_State* L) {                          // -> {weapon =, armor =, leggings =, accessory =, magic =, held =} (item ids, -1 = none)
+    std::vector<double> out;
+    if (!op(L, "equipment", {}, {}, &out) || out.size() < 6) { lua_pushnil(L); return 1; }
+    lua_createtable(L, 0, 6);
+    for (int i = 0; i < 6; ++i) { lua_pushinteger(L, lua_Integer(out[std::size_t(i)])); lua_setfield(L, -2, kSlots[i]); }
+    return 1;
+}
+int l_equip(lua_State* L) {                              // (slot, item id | nil) -> true when it is now equipped
+    const int slot = luaL_checkoption(L, 1, nullptr, std::array<const char*, 7>{"weapon", "armor", "leggings", "accessory", "magic", "held", nullptr}.data());
+    const double item = lua_isnoneornil(L, 2) ? -1.0 : double(luaL_checkinteger(L, 2));
+    lua_pushboolean(L, op(L, "equip", {double(slot), item}));
+    return 1;
+}
+const char* const kStatus[] = {"poison", "heavy", "confuse", "curse"};
+int l_status(lua_State* L) {                             // -> {poison = ticks left, ...} (0 = not on)
+    std::vector<double> out;
+    if (!op(L, "status", {}, {}, &out) || out.size() < 4) { lua_pushnil(L); return 1; }
+    lua_createtable(L, 0, 4);
+    for (int i = 0; i < 4; ++i) { lua_pushinteger(L, lua_Integer(out[std::size_t(i)])); lua_setfield(L, -2, kStatus[i]); }
+    return 1;
+}
+int l_set_status(lua_State* L) {                         // (name, on) : inflict it as a hit would, or end it
+    const int which = luaL_checkoption(L, 1, nullptr, std::array<const char*, 5>{"poison", "heavy", "confuse", "curse", nullptr}.data());
+    luaL_checkany(L, 2);
+    lua_pushboolean(L, op(L, "set_status", {double(which), lua_toboolean(L, 2) ? 1.0 : 0.0}));
+    return 1;
+}
+// The abilities the game keeps as flags: the double jump (163, the Gold Bracelet's script sets it) and Boost (187).
+struct AbilityFlag { const char* name; int flag; };
+const AbilityFlag kAbilities[] = {{"double_jump", 163}, {"boost", 187}};
+int l_abilities(lua_State* L) {
+    const std::int32_t* f = M(L).host().flags();
+    if (!f) { lua_pushnil(L); return 1; }
+    lua_createtable(L, 0, 2);
+    for (const AbilityFlag& a : kAbilities) { lua_pushboolean(L, f[a.flag] != 0); lua_setfield(L, -2, a.name); }
+    return 1;
+}
+int l_set_ability(lua_State* L) {
+    const std::string name = str_arg(L, 1);
+    luaL_checkany(L, 2);
+    std::int32_t* f = M(L).host().flags();
+    for (const AbilityFlag& a : kAbilities)
+        if (name == a.name) {
+            if (f) f[a.flag] = lua_toboolean(L, 2) ? 1 : 0;
+            lua_pushboolean(L, f != nullptr);
+            return 1;
+        }
+    return luaL_argerror(L, 1, "an ability is \"double_jump\" or \"boost\"");
+}
+
+int l_goto_room(lua_State* L) {                          // ("S_1003") -> true when the change is staged (the room exists)
+    const std::string room = str_arg(L, 1);
+    bool ok = room.size() >= 3 && room.size() <= 16;
+    for (char c : room) ok = ok && (std::isalnum(static_cast<unsigned char>(c)) || c == '_');
+    if (!ok) return luaL_argerror(L, 1, "a room name like \"S_1003\"");
+    lua_pushboolean(L, op(L, "goto_room", {}, room));
+    return 1;
+}
+int l_exits(lua_State* L) {                              // -> {{index =, room =}, ...}: the current room's exits
+    std::vector<double> out;
+    lua_newtable(L);
+    if (!op(L, "exits", {}, {}, &out)) return 1;
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        lua_createtable(L, 0, 2);
+        lua_pushinteger(L, lua_Integer(i)); lua_setfield(L, -2, "index");
+        char b[16];
+        std::snprintf(b, sizeof b, "S_%04d", int(out[i]));
+        lua_pushstring(L, b); lua_setfield(L, -2, "room");
+        lua_rawseti(L, -2, lua_Integer(i + 1));
+    }
+    return 1;
+}
+int l_take_exit(lua_State* L) { lua_pushboolean(L, op(L, "take_exit", {double(luaL_checkinteger(L, 1))})); return 1; }
+int l_set_speed(lua_State* L) { lua_pushboolean(L, op(L, "speed", {num_arg(L, 1, 0.1, 4.0)})); return 1; }   // this mod's factor
+int l_game_retry(lua_State* L) { lua_pushboolean(L, op(L, "retry")); return 1; }
+int l_to_title(lua_State* L) { lua_pushboolean(L, op(L, "to_title")); return 1; }
+int l_game_load(lua_State* L) { lua_pushboolean(L, op(L, "load", {double(luaL_checkinteger(L, 1))})); return 1; }
+int l_seed_random(lua_State* L) { lua_pushboolean(L, op(L, "seed_random", {double(luaL_checkinteger(L, 1) & 0xFFFFFFFF)})); return 1; }
+
+void open_api7_writes(lua_State* L) {                    // the cleria table is on top of the stack
+    static const luaL_Reg player[] = {{"set_position", l_set_position}, {"set_mp", l_set_mp}, {"set_boost", l_set_boost},
+                                      {"set_exp", l_set_exp}, {"set_invulnerable", l_set_invulnerable}, {"equipment", l_equipment},
+                                      {"equip", l_equip}, {"status", l_status}, {"set_status", l_set_status},
+                                      {"abilities", l_abilities}, {"set_ability", l_set_ability}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "player");
+    set_funcs(L, player);
+    lua_pop(L, 1);
+    static const luaL_Reg game[] = {{"goto_room", l_goto_room}, {"exits", l_exits}, {"take_exit", l_take_exit}, {"set_speed", l_set_speed},
+                                    {"retry", l_game_retry}, {"to_title", l_to_title}, {"load", l_game_load},
+                                    {"seed_random", l_seed_random}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "game");
+    set_funcs(L, game);
+    lua_pop(L, 1);
+}
+
+}  // namespace

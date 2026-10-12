@@ -37,16 +37,16 @@ content, then multiplayer, then the tools.
 
 | # | What | Lua | Status |
 |---|---|---|---|
-| 15 | Gauges and equipment | `player.set_mp`, `set_boost`, `set_exp`; `player.equipment()`, `player.equip(slot, item)` | |
-| 16 | Position, rooms | `player.set_position(x, y, z)`, `game.goto_room(room [, entrance])` | |
-| 22 | Status effects, invulnerability | `player.status()`, `set_status(name, ticks)`, `player.set_invulnerable(ticks)` | |
-| 23 | Ability switches | `player.abilities()`, `player.set_ability(name, on)` | |
+| 15 | Gauges and equipment | `player.set_mp`, `set_boost`, `set_exp`; `player.equipment()`, `player.equip(slot, item)` | done |
+| 16 | Position, rooms | `player.set_position(x, y, z)`, `game.goto_room(room [, entrance])` | done (`set_position`, `goto_room`, `exits`, `take_exit`) |
+| 22 | Status effects, invulnerability | `player.status()`, `set_status(name, ticks)`, `player.set_invulnerable(ticks)` | done |
+| 23 | Ability switches | `player.abilities()`, `player.set_ability(name, on)` | done (`double_jump`, `boost`) |
 | 21 | Movement | `player.set_movement{speed =, jump =, gravity =, air_jumps =}` | |
 | 24 | More stat modifiers | `set_modifier` for `luck`, `mp_cost`, `mp_regen`, `boost_gain`, `speed` | |
 | 32 | Damage and healing from Lua | `cleria.combat.damage(actor, n [, opts])`, `combat.heal(n)` | |
-| 46 | Game speed | `game.set_speed(x)`, `game.pause(on)` | |
-| 45 | Flow | `game.load(slot)`, `game.retry()`, `game.to_title()`, `game.new_game(character)` | |
-| 47 | The game's random numbers | `game.seed_random(n)` | |
+| 46 | Game speed | `game.set_speed(x)`, `game.pause(on)` | part: `set_speed`; no pause yet |
+| 45 | Flow | `game.load(slot)`, `game.retry()`, `game.to_title()`, `game.new_game(character)` | part: `load`, `retry`, `to_title`; `new_game` not yet |
+| 47 | The game's random numbers | `game.seed_random(n)` | done |
 | 48 | Text on a save card | `cleria.save.card(text)` | |
 
 ## D. Drawing and input

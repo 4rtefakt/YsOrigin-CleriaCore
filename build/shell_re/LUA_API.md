@@ -685,6 +685,35 @@ end)
 | `enemy_hit` | a hit of the player's landed on a monster, after the HP changed | `actor`, `cast`, `damage`, `hp`, `max_hp`, `killed` (1 / 0) |
 | `player_hit` | a hit landed on the player, after the HP changed | `damage`, `hp`, `max_hp`; `cast`, `level` when a monster's hit volume did it |
 
+### 12.8 Changing the player and the flow
+
+Each of these does what a script of the game (or a drive command) already does to that state. They return `true`
+when it was done and `false` when the game refused (no game, the player is dead, a cutscene holds the world, an
+item that is not owned). A value out of its range is a Lua error.
+
+| call | |
+|---|---|
+| `player.set_position(x, y, z [, degrees])` | the player's feet, put on the floor under `(x, y + 1, z)` (or at `y` when there is none), falling state cleared; `degrees` turns them (0 = +Z) |
+| `player.set_mp(n)`, `player.set_boost(n)` | the skill gauge (0..`stats().max_mp`) and the Boost gauge (0..30000) |
+| `player.set_exp(n)` | the EXP total; the levels it reaches are gained (full heal, the popup, `level_up`). A level is never taken back: use `set_level` for that |
+| `player.set_invulnerable(ticks)` | at least that many ticks during which hits do not land (the same counter a hit grants) |
+| `player.equipment()` | `{weapon =, armor =, leggings =, accessory =, magic =, held =}`: item ids, -1 = none |
+| `player.equip(slot, item)` | equips an **owned** item of the slot's own kind (weapon 0..5, armor 6..29, leggings 30..53, accessory 54..65, magic 116..119, held 66..115); `nil` unequips an accessory, the magic or the held tool. Max HP and the stats follow |
+| `player.status()` | `{poison =, heavy =, confuse =, curse =}`: ticks left, 0 = not on |
+| `player.set_status(name, on)` | `true`: inflicted as a monster's hit does (its timer, effect, sound, popup; the blessings shorten it). `false`: it ends at the next tick |
+| `player.abilities()`, `player.set_ability(name, on)` | the abilities the game keeps as flags: `double_jump` (flag 163) and `boost` (flag 187) |
+| `game.exits()` | the room's exits: `{{index = 0, room = "S_1003"}, ...}` (index for `take_exit`) |
+| `game.take_exit(i)` | walks through exit `i` of this room: the arrival point and facing of that door |
+| `game.goto_room("S_1003")` | changes room as a script's ChangeScene does (the room's own arrival point); false for a room that does not exist |
+| `game.set_speed(x)` | this mod's game-speed factor, 0.1..4 (1 removes it). The mods' factors and the shell's own Game speed multiply, the product kept within 0.1..4. Not saved |
+| `game.retry()` | the game-over screen's Retry; false while the player is alive |
+| `game.to_title()` | Return to Title |
+| `game.load(slot)` | loads slot 0..63 as the book's Load does; false when the slot has no save |
+| `game.seed_random(n)` | seeds the game's own generator (drops, AI rolls, damage rounding): the same seed and the same inputs give the same run |
+
+[H] Nothing checks that a position is reachable or that a room change makes sense for the story. `take_exit` and
+`goto_room` are refused during a cutscene and while dead.
+
 ## 10. Tests
 
 ```
@@ -720,5 +749,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |
