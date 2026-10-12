@@ -12,6 +12,11 @@ The pinned versions are the ones the Windows build has always used (issue #46):
   miniz         3.0.2       third_party/miniz
   stb_vorbis    v1.22       third_party/stb (nothings/stb, pinned commit)
   Fira Sans     (OFL)       third_party/fonts (google/fonts, pinned commit)
+  libcurl       8.11.1      Linux only: a static library with WebSockets and OpenSSL, built from the
+                            release tarball into third_party/curl (needs libssl-dev). The Lua mods'
+                            WebSocket (CLERIA_CURL) links it; a distribution's own libcurl may be older
+                            or built without WebSockets (Ubuntu 24.04's 8.5). Windows uses WinHTTP,
+                            macOS the installed libcurl.
 
 A component whose folder already exists is left alone (pass --force to replace it), so running this in
 a working checkout never touches what is there.
@@ -41,7 +46,8 @@ FONTS = ["firasans/FiraSans-Regular.ttf", "firasans/FiraSans-Medium.ttf", "firas
          "firasanscondensed/FiraSansCondensed-Medium.ttf", "firasanscondensed/FiraSansCondensed-SemiBold.ttf",
          "firasans/OFL.txt"]
 
-COMPONENTS = ["sdl3", "wgpu", "imgui", "lua", "miniz", "stb", "fonts"]
+CURL_VERSION = "8.11.1"
+COMPONENTS = ["sdl3", "wgpu", "imgui", "lua", "miniz", "stb", "fonts", "curl"]
 
 
 def get(url):
@@ -160,6 +166,27 @@ def fetch_fonts(dest, jobs):
         data = get(f"https://raw.githubusercontent.com/google/fonts/{FONTS_COMMIT}/ofl/{f}")
         with open(os.path.join(dest, os.path.basename(f)), "wb") as out:
             out.write(data)
+
+
+def fetch_curl(dest, jobs):
+    if os_tag() != "linux":
+        print("  curl: Linux only (Windows uses WinHTTP, macOS the installed libcurl); nothing fetched")
+        return
+    # HTTP(S) and WebSockets only, TLS by the system's OpenSSL, nothing else linked in.
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src")
+        untar(get(f"https://github.com/curl/curl/releases/download/curl-{CURL_VERSION.replace('.', '_')}/"
+                  f"curl-{CURL_VERSION}.tar.gz"), src)
+        bld = os.path.join(tmp, "build")
+        off = ["BUILD_SHARED_LIBS", "BUILD_CURL_EXE", "BUILD_TESTING", "BUILD_LIBCURL_DOCS", "BUILD_MISC_DOCS",
+               "ENABLE_CURL_MANUAL", "CURL_USE_LIBPSL", "CURL_USE_LIBSSH2", "USE_NGHTTP2", "USE_LIBIDN2",
+               "CURL_ZLIB", "CURL_BROTLI", "CURL_ZSTD"]
+        subprocess.check_call(["cmake", "-S", src, "-B", bld, "-DCMAKE_BUILD_TYPE=Release",
+                               "-DCMAKE_POSITION_INDEPENDENT_CODE=ON", "-DCMAKE_INSTALL_LIBDIR=lib",
+                               f"-DCMAKE_INSTALL_PREFIX={os.path.abspath(dest)}", "-DCURL_USE_OPENSSL=ON",
+                               "-DHTTP_ONLY=ON", "-DCURL_DISABLE_LDAP=ON"] + [f"-D{o}=OFF" for o in off])
+        subprocess.check_call(["cmake", "--build", bld, "--parallel", str(jobs)])
+        subprocess.check_call(["cmake", "--install", bld])
 
 
 def main():

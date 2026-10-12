@@ -12,12 +12,16 @@ substring to appear in the output, in order. Saves go to a scratch directory
                                                   # --jobs 1 = one after the other)
     python tools/drive_regress.py --smoke         # the quick tier (SMOKE below), for a per-commit check
     python tools/drive_regress.py --exe build_diff/Release/cleria-view.exe --assets <dir>
+
+On a machine with no display (Linux over ssh) the cases run under SDL's offscreen video driver, set here.
+CLERIA_DRIVE_TIMEOUT=<seconds> replaces a case's 900 s limit (a software renderer is several times slower).
 """
 import concurrent.futures, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build", "Release", "cleria-view.exe")
 ASSETS = os.path.join(ROOT, "assets")
+TIMEOUT = int(os.environ.get("CLERIA_DRIVE_TIMEOUT") or 900)   # one boot of one case, seconds
 
 # The S_1009 statue cleanse (Yunica, flags 310 visited / 84 the Crystal), confirmed through
 # the narration box: SAVE.XSO's 311 = 1 must reach its s_SaveObjectChange child.
@@ -3472,6 +3476,8 @@ def run(name, case, exe, assets):
         env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR=case.get("char", "1"), CLERIA_DRIVE=case["drive"],
                    CLERIA_SAVE_DIR=saves)
         env.update(case.get("env", {}))            # a case may override any of these (CLERIA_CHAR)
+        if os.name != "nt" and sys.platform != "darwin" and not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")):
+            env.setdefault("SDL_VIDEO_DRIVER", "offscreen")   # no desktop: the run is hidden and offscreen anyway
         env.setdefault("CLERIA_SHOT_DIR", saves)   # a case's `shot` / `shell` frames stay in its temp folder
         if "mods" in case or "content" in case or "lua" in case:
             content_setup(case, env, os.path.join(saves, "settings"))
@@ -3482,12 +3488,12 @@ def run(name, case, exe, assets):
         if "title" in case:
             env["CLERIA_TITLE_DRIVE"] = case["title"]
         sob = [os.path.join(assets, "MAP", case["room"] + ".SOB")] if case.get("room") else []
-        r = subprocess.run([exe, assets] + sob + extra, env=env, capture_output=True, text=True, timeout=900)
+        r = subprocess.run([exe, assets] + sob + extra, env=env, capture_output=True, text=True, errors="replace", timeout=TIMEOUT)
         out = r.stdout + r.stderr
         if "drive2" in case:        # a second boot on the same save folder (`room2`: its room)
             sob2 = os.path.join(assets, "MAP", case.get("room2", case["room"]) + ".SOB")
             r = subprocess.run([exe, assets, sob2] + extra, env=dict(env, CLERIA_DRIVE=case["drive2"]), capture_output=True,
-                               text=True, timeout=900)
+                               text=True, errors="replace", timeout=TIMEOUT)
             out += "==== second boot" + chr(10) + r.stdout + r.stderr
         lost = [n for n in case.get("files", []) if not os.path.exists(os.path.join(saves, n))]   # must be in the save folder
         if lost:
@@ -3548,7 +3554,7 @@ def main():
             n = jobs[j]
             try:
                 ok, msg, secs = j.result()
-            except Exception as e:                 # the 900 s timeout, a missing exe
+            except Exception as e:                 # the timeout (TIMEOUT), a missing exe
                 ok, msg, secs = False, [f"FAIL {n}: {e}"], 0.0
             if ok:
                 msg.append(f"ok   {n}")
