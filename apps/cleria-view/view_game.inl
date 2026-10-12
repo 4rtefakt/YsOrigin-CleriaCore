@@ -1142,7 +1142,7 @@ title_again:
             m.scan = [&](int slot) { return scan_slot(slot_path(slot)); };
             m.save_file_no = &tsave_no;
             m.sliders = oslider; m.checks = ocheck;
-            m.metrics = tr.metrics();
+            m.metrics = tr.metrics(g, cw, ch);
             m.charsel.open_toal = settings().s.cleria.unlock_characters || g_lua_open_toal;   // CleriaCore's, not retail's
             m.charsel.mode = g_run.mode;
             // Character Select / Type Select / Difficulty from the clear data (CLEAR_DATA.md §8, TITLE_DRAW.md §5-6).
@@ -1304,7 +1304,7 @@ title_again:
                     in.vstep = vstep;
                     if (live) wnd_mouse(in);
                     ShopEvents sev;
-                    tshop.update(in, g_clear, g_arena_sp, tr.metrics(), sev);
+                    tshop.update(in, g_clear, g_arena_sp, tr.metrics(g, cw, ch), sev);
                     snd = sev.sounds;
                     if (sev.bought) {
                         const bool wrote = arena_sp_save() && clear_data_save();
@@ -1366,7 +1366,7 @@ title_again:
                     in.cancel_pressed = cancel_edge;
                     in.vstep = vstep;
                     if (live) wnd_mouse(in);
-                    const TitleAction act = tscreen.update(in, false, tgates, tr.metrics(), snd);
+                    const TitleAction act = tscreen.update(in, false, tgates, tr.metrics(g, cw, ch), snd);
                     s_title_kind = tscreen.kind(); s_title_cursor = tscreen.cursor_mem();
                     if (act == TitleAction::NewGame || act == TitleAction::LoadGame || act == TitleAction::Options ||
                         act == TitleAction::TimeAttack || act == TitleAction::Arena)
@@ -5177,7 +5177,7 @@ title_again:
     PauseBook book;
     BookRenderer bookR;
     const bool bookOk = bookR.init(g, fmt, asset_root, pitems);
-    csHost.wmetrics = bookR.metrics();
+    csHost.wmetrics = bookR.metrics(g, cw, ch);          // again at every resize: the font follows the frame's height
     csHost.bust_set.size_of = [&](const std::string& tex, int* w, int* h) { return bookR.named_size(g, tex, w, h); };
     // FUN_00573210: the chest item 0.3 above the named mesh (no mesh: nothing is spawned).
     // FUN_00573150: Mesh_DropItem spawns one drop 0.5 above the mesh (flags 0xd when kept).
@@ -6082,7 +6082,7 @@ title_again:
         std::printf(time_attack ? "  [gameover] Retry / Return to Title (a run: no card)\n" : "  [gameover] gameover.dds + Retry / Return to Title\n");
         if (!time_attack) gameover_card.open("gameover", /*hold*/true, /*alt*/true);
         gameover_menu.menu(512.0f, 460.8f, " ", {"Retry", "Return to Title"}, {"retry", "title"},
-                           bookR.metrics(), /*centre_y*/false, /*tick*/false);
+                           bookR.metrics(g, cw, ch), /*centre_y*/false, /*tick*/false);
         gameover_menu.arm();
         if (!time_attack) csHost.bgm_play_fn(36);
     };
@@ -6359,7 +6359,7 @@ title_again:
                 speed_mult = std::max(0.1f, std::min(8.0f, speed_mult));
             } else if (e.type == SDL_EVENT_WINDOW_RESIZED) {
                 cw = std::uint32_t(e.window.data1); ch = std::uint32_t(e.window.data2);
-                if (cw && ch) { configure(); wgpuTextureViewRelease(depth); depth = make_depth(g, cw, ch); }
+                if (cw && ch) { configure(); wgpuTextureViewRelease(depth); depth = make_depth(g, cw, ch); csHost.wmetrics = bookR.metrics(g, cw, ch); }
             }
         }
 

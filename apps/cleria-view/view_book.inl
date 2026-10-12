@@ -37,7 +37,7 @@ struct BookRenderer {
     std::unordered_map<std::string, fs::path> image_files;    // IMAGE/, lower-case basename
     std::unordered_map<int, WGPUBindGroup> wrap_bind;         // menu texture -> WRAP sampler
     SpriteTex f_middle, f_mini, white;
-    MenuFont gdi;                       // Felghana at a 32-px cell (lfHeight +32)
+    MenuFont gdi;                       // Felghana at lfHeight H x 32 / 768 of the frame it last drew for (font_for)
     WGPUBindGroup gdi_bind{};
     ExtFont ext;                        // IMAGE\EXTFONT32.BMP: <ext> / <roo> glyphs (extfont.hpp)
     SpriteTex ext_tex;                  // its cells, white with the coverage as alpha
@@ -104,10 +104,8 @@ struct BookRenderer {
             if (white.bind) wgpuBindGroupRelease(white.bind);
             white.bind = clamp_bind(g, white.view);
         }
-        // The GDI font: lfHeight +32 is the CELL height (tmHeight); MenuFont takes an em size, so
-        // rasterise once, then re-rasterise at the em that makes tmHeight 32.
-        if (gdi.init(g, color, find_felghana(asset_root), 32) && gdi.lineH > 0 && gdi.lineH != 32)
-            gdi.build_atlas(g, int(std::lround(32.0 * 32.0 / gdi.lineH)));
+        // The GDI font, here at the 768-line size; font_for re-rasterises it for the frame's height.
+        gdi.init(g, color, find_felghana(asset_root), 32);
         gdi_bind = gdi.atlas_view ? clamp_bind(g, gdi.atlas_view) : nullptr;
         ext = ExtFont::load(asset_root / "IMAGE" / "EXTFONT32.BMP");
         if (ext.ok()) {
@@ -201,9 +199,22 @@ struct BookRenderer {
         return true;
     }
 
-    // The GDI font's metrics for the window text layout (richtext.hpp): a 32-unit cell.
-    RichMetrics metrics() const {
+    // Retail makes the window font at lfHeight +(H x 32 / 768) px (integer division) and draws its raster 1:1
+    // [EXPORT 00442260.c:270-273, 334; WINDOW_FONT.md §1]; for Felghana +N is the em N. Retail keeps the
+    // start-up font when the resolution changes in a session; this one follows the frame.
+    void font_for(Gpu& g, std::uint32_t sh) {
+        const int n = std::max(8, int(sh) * 32 / 768);
+        if (n == gdi.base || !gdi.pipeline) return;
+        gdi.build_atlas(g, n);
+        if (gdi_bind) wgpuBindGroupRelease(gdi_bind);
+        gdi_bind = gdi.atlas_view ? clamp_bind(g, gdi.atlas_view) : nullptr;
+    }
+
+    // The GDI font's metrics for the window text layout (richtext.hpp), in the pixels of a sw x sh frame.
+    RichMetrics metrics(Gpu& g, std::uint32_t sw, std::uint32_t sh) {
+        font_for(g, sh);
         RichMetrics m;
+        m.screen_w = int(sw); m.screen_h = int(sh);
         m.height = float(gdi.lineH);
         m.ascent = float(gdi.ascent);
         m.space = float(gdi.gl[0].adv);
@@ -224,9 +235,11 @@ struct BookRenderer {
     float W = 0, H = 0, W43 = 0;
     bool pillarbox = false;
 
-    // §0.4: authored -> pixels. x of an anchored sprite maps into the pillarboxed 4:3 field.
+    // §0.4: authored -> pixels. x of an anchored sprite maps into the pillarboxed 4:3 field. This frame's
+    // pixel p spans [p, p + 1] where retail's (D3D9, centres on integers) spans [p - 0.5, p + 0.5]: the
+    // transform's "floor(v x s) - 0.5" is floor(v x s) here, and a raw-pixel sprite (0x23D) takes + 0.5.
     float px_x(float x, int anchor) const {
-        if (anchor == 0x23D) return x;
+        if (anchor == 0x23D) return x + 0.5f;
         if (pillarbox && anchor != 0) {
             const float off = anchor == 1 ? 0.0f : anchor == 2 ? (W - W43) / 2 : W - W43;
             return std::trunc(x / 1024.0f * W43 + off);
@@ -234,7 +247,7 @@ struct BookRenderer {
         return std::floor(x * W / 1024.0f);
     }
     float px_y(float y, int anchor) const {
-        if (anchor == 0x23D) return y;
+        if (anchor == 0x23D) return y + 0.5f;
         return std::floor(y * H / 768.0f);
     }
     void quad(WGPUBindGroup bind, float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1,
@@ -319,26 +332,41 @@ struct BookRenderer {
         }
     }
 
-    // §7.3: GDI text, rasterised at the 32-px cell (raster px = authored units), a (-1,+1) black
-    // shadow first, then the text at (x, y+1).
+    // The text quad's origin in pixels, FUN_005f0ef0 [BYTES 0x5f0f88..0x5f108a]: x = round(X x W / 1024), or
+    // on a screen wider than 4:3, for a text in the 4:3 field, the field's map of X - 1; y = round((Y + 1) x
+    // H / 768). The raster is drawn 1:1 from there, its black shadow one pixel left and down.
+    // [approx] the half-pixel phase of the mapped x (FUN_005d3be0 returns it without the -0.5).
+    float text_x(float x, int anchor) const {
+        if (anchor == 0x23D) return x;
+        if (pillarbox && anchor != 0) return px_x(x - 1.0f, anchor);
+        return std::round(x * W / 1024.0f);
+    }
+    float text_y(float y, int anchor) const {
+        return anchor == 0x23D ? y : std::round((y + 1.0f) * H / 768.0f);
+    }
+    // One glyph of the atlas at a pixel pen (line top), scaled about the baseline by k.
+    void glyph_px(const MenuFont::Glyph& gp, float x, float y, float k, std::uint32_t col) {
+        const float gx = x + float(gp.bx) * k, gy = y + float(gdi.ascent) - float(gp.by) * k;
+        quad(gdi_bind, gx, gy, gx + float(gp.w) * k, gy + float(gp.h) * k, gp.u0, gp.v0, gp.u1, gp.v1, col, 0, false);
+    }
+
+    // §7.3: GDI text (the book's lines, csprite text): the window font's raster 1:1, a (-1,+1) pixel black
+    // shadow first; a line feed is tmHeight + extra x H / 768 pixels (FUN_005f03f0).
     void text_gdi(const DrawCmd& c) {
-        const float line = float(gdi.lineH) + c.line_extra;
+        const float line = float(gdi.lineH) + float(int(c.line_extra * H) / 768);
+        const float x0 = text_x(c.x, c.anchor_x), y0 = text_y(c.y, c.anchor_y);
         auto run = [&](float ox, float oy, std::uint32_t col) {
             const float k = c.scale;
-            float x = c.x + ox, y = c.y + 1.0f + oy;
+            float x = x0 + ox, y = y0 + oy;
             for (unsigned char ch : c.text) {
                 if (ch == '\r') continue;
-                if (ch == '\n') { x = c.x + ox; y += line * k; continue; }
+                if (ch == '\n') { x = x0 + ox; y += line * k; continue; }
                 if (ch < 32 || ch > 126) continue;
                 const MenuFont::Glyph& gp = gdi.gl[ch - 32];
-                if (gp.w > 0 && gp.h > 0) {
-                    // "<scale:k>" scales about the baseline (the reference's area lines sit
-                    // (1 - k) * ascent lower than a top-anchored scale would put them) [DATA].
-                    const float gx = x + float(gp.bx) * k, gy = y + float(gdi.ascent) - float(gp.by) * k;
-                    aquad(gdi_bind, gx, gy, float(gp.w) * k, float(gp.h) * k, c.anchor_x, c.anchor_y,
-                          gp.u0, gp.v0, gp.u1, gp.v1, col, 0, false);
-                }
-                x += float(gp.adv) * k;
+                // "<scale:k>" scales about the baseline (the reference's area lines sit
+                // (1 - k) * ascent lower than a top-anchored scale would put them) [DATA].
+                if (gp.w > 0 && gp.h > 0) glyph_px(gp, x, y, k, col);
+                x += ch == ' ' && c.space_px > 0 ? c.space_px : float(gp.adv) * k;
             }
         };
         run(-1.0f, 1.0f, c.diffuse & 0xFF000000u);
@@ -350,18 +378,16 @@ struct BookRenderer {
     // reveal counter in. Glyphs scale about the baseline.
     void text_rich(const DrawCmd& c) {
         const float ca = float(c.diffuse >> 24) / 255.0f;
+        const float x0 = text_x(c.x, c.anchor_x), y0 = text_y(c.y, c.anchor_y);
         for (int pass = 0; pass < 2; ++pass) {
             const float ox = pass == 0 ? -1.0f : 0.0f, oy = pass == 0 ? 1.0f : 0.0f;
             for (const RichGlyph& gl : c.rich) {
-                if (gl.ext) { text_ext(c, gl, ox, oy, ca, pass == 0); continue; }
+                if (gl.ext) { text_ext(c, gl, x0 + ox, y0 + oy, ca, pass == 0); continue; }
                 if (gl.c < 33 || gl.c > 126) continue;
                 const float r = reveal_alpha(gl, c.reveal);
                 if (r <= 0) continue;
                 const MenuFont::Glyph& gp = gdi.gl[gl.c - 32];
                 if (gp.w <= 0 || gp.h <= 0) continue;
-                const float k = gl.scale;
-                const float gx = c.x + gl.x + ox + float(gp.bx) * k;
-                const float gy = c.y + 1.0f + gl.y + oy + float(gdi.ascent) - float(gp.by) * k;
                 const std::uint32_t a = std::uint32_t(float(gl.colour >> 24) * ca * r);
                 // The run colour is baked into the raster; the draw colour modulates it (the
                 // menu rows' 0xB0D0D0, an unfocused dialog's 0x7F7F7F).
@@ -369,28 +395,29 @@ struct BookRenderer {
                     return std::uint32_t(((gl.colour >> sh) & 0xFF) * ((c.diffuse >> sh) & 0xFF) / 255) << sh;
                 };
                 const std::uint32_t col = (a << 24) | (pass == 0 ? 0u : (ch(16) | ch(8) | ch(0)));
-                aquad(gdi_bind, gx, gy, float(gp.w) * k, float(gp.h) * k, c.anchor_x, c.anchor_y,
-                      gp.u0, gp.v0, gp.u1, gp.v1, col, 0, false);
+                glyph_px(gp, x0 + gl.x + ox, y0 + gl.y + oy, gl.scale, col);
             }
         }
     }
 
     // An extfont cell (<ext> / <roo>; FUN_005f03f0's ext branch): the whole N x N cell at (pen x +
     // left, line top), unscaled, in the run colour, under the same (-1, +1) shadow as the letters.
+    // [approx] the 32-px sheet scaled to the frame (retail loads extfont20..40 by height, #89).
     void text_ext(const DrawCmd& c, const RichGlyph& gl, float ox, float oy, float ca, bool shadow) {
         if (!ext.ok() || !ext_tex.bind || gl.c >= ExtFont::kCells) return;
         const float r = reveal_alpha(gl, c.reveal);
         if (r <= 0) return;
-        const float n = float(ext.cell);
-        const float gx = c.x + gl.x + ox + float(ext.left[gl.c]);
-        const float gy = c.y + 1.0f + gl.y + oy;
+        const float s = H / 768.0f;
+        const float n = std::round(float(ext.cell) * s);
+        const float gx = ox + gl.x + std::round(float(ext.left[gl.c]) * s);
+        const float gy = oy + gl.y;
         const std::uint32_t a = std::uint32_t(float(gl.colour >> 24) * ca * r);
         auto ch = [&](int sh) {
             return std::uint32_t(((gl.colour >> sh) & 0xFF) * ((c.diffuse >> sh) & 0xFF) / 255) << sh;
         };
         const std::uint32_t col = (a << 24) | (shadow ? 0u : (ch(16) | ch(8) | ch(0)));
         const float v0 = float(gl.c) / float(ExtFont::kCells), v1 = float(gl.c + 1) / float(ExtFont::kCells);
-        aquad(ext_tex.bind, gx, gy, n, n, c.anchor_x, c.anchor_y, 0.0f, v0, 1.0f, v1, col, 0, false);
+        quad(ext_tex.bind, gx, gy, gx + n, gy + n, 0.0f, v0, 1.0f, v1, col, 0, false);
     }
 
     // Execute `list` over `view` (loadOp Load). The side pillars (§2.1, raw pixels, opaque)
@@ -399,6 +426,7 @@ struct BookRenderer {
         W = float(sw); H = float(sh);
         W43 = float((4 * sh) / 3);
         pillarbox = W > W43 + 0.5f;
+        font_for(g, sh);
         verts.clear(); batches.clear();
         for (const DrawCmd& c : list) {
             switch (c.kind) {
@@ -755,7 +783,7 @@ static int render_wnd(Gpu& g, const fs::path& asset_root, const fs::path& out, s
         const SpriteTex* t = faces.get(g, asset_root, face, frame);
         return t ? t->bind : nullptr;
     };
-    const RichMetrics m = br.metrics();
+    const RichMetrics m = br.metrics(g, W, H);
     const std::string kind = std::getenv("CLERIA_WND") ? std::getenv("CLERIA_WND") : "msg";
     WndText t;
     WndDialog d;
@@ -776,7 +804,11 @@ static int render_wnd(Gpu& g, const fs::path& asset_root, const fs::path& out, s
     Busts busts;                                         // CLERIA_WND=bust: t_840a at (80, 768), faded in
     busts.size_of = [&](const std::string& tx, int* w, int* h) { return br.named_size(g, tx, w, h); };
     if (kind == "caption") { cap.open("map_name04"); for (int i = 0; i < 70; ++i) cap.step(); }
-    if (kind == "bust") { busts.open("t_840a", 80, 768); for (int i = 0; i < 60; ++i) busts.step(); }
+    if (kind == "bust") {                                // CLERIA_WND_BUST = another card at (0, 768), e.g. v_160
+        const char* bn = std::getenv("CLERIA_WND_BUST");
+        busts.open(bn ? bn : "t_840a", bn ? 0.0f : 80.0f, 768);
+        for (int i = 0; i < 60; ++i) busts.step();
+    }
     TitleScreen ts;
     TitleGates gates;
     if (kind == "title") {                               // the title screen; CLERIA_WND_CLEAR=1 = all cleared

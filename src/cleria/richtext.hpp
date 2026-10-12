@@ -8,8 +8,13 @@
 // visible glyph takes the next counted index unless inside <nocount> or ruby; the typewriter
 // shows index < reveal fully and fades in index == reveal.
 //
-// Glyph metrics come from the host (GDI Felghana at a 32-unit cell), so the layout is exact
-// for whatever font the host rasterises. [not modelled] <rot>, <font> and ruby text. The
+// The walk is in raster pixels, as retail's (build/hud_re/WINDOW_FONT.md §2-§3; HighResoText on): the font is
+// rasterised at screen_h x 32 / 768 px and drawn 1:1, so a glyph's pen is in back-buffer pixels; the
+// measured size is what FUN_005efb50 hands the windows — integers in the 1024 x 768 frame, with its
+// widescreen quirks (a glyph's advance x A truncated per glyph, a space not scaled). At 1024 x 768 a
+// pixel is a unit. Glyph metrics come from the host (GDI Felghana), so the layout is exact for whatever
+// font the host rasterises. [not modelled] <rot>, <font>, ruby text, HighResoText off. [approx] a
+// <scale> glyph advances by advance x scale (retail: GDI's integer advance at the scaled MAT2). The
 // extfont icons of <ext> / <roo> (extfont.hpp) are glyphs with `ext` set and `c` = the cell.
 #pragma once
 #include <cstdint>
@@ -21,18 +26,20 @@
 namespace cleria {
 
 struct RichMetrics {
-    float height = 32;                       // tmHeight
+    int screen_w = 1024, screen_h = 768;     // the back buffer (0x765148 / 0x76514c) the font was made for
+    float height = 32;                       // tmHeight, in raster pixels like the three below
     float ascent = 26;                       // tmAscent
     float space = 10;                        // the space advance at scale 1
     std::function<float(unsigned char)> advance;   // gmCellIncX at scale 1
     // An extfont cell's advance (left + right at 0x746c00, never scaled); unset = the 32-unit cell.
+    // [approx] in units of the 32-px sheet, scaled to the screen (retail picks a sheet by height).
     std::function<float(int)> ext_advance;
     bool english_roonic = false;             // [kernel] EnglishRoonic (0x76519d): <roo> keeps letters
 };
 
 struct RichGlyph {
     unsigned char c = 0;
-    float x = 0, y = 0;                      // the pen (line top) in text units, before the offset
+    float x = 0, y = 0;                      // the pen (line top) in raster pixels, before the offset
     float scale = 1;
     std::uint32_t colour = 0xFFFFFFFF;
     int index = 0;                           // the counted index (uncounted glyphs share the next)
@@ -41,7 +48,7 @@ struct RichGlyph {
 
 struct RichLayout {
     std::vector<RichGlyph> glyphs;
-    float width = 0, height = 0;             // max pen x; last line top + line height
+    float width = 0, height = 0;             // the measured size in the 1024 x 768 frame (integers)
     int counted = 0;                         // counted glyphs (the reveal end, <<16 in the engine)
     int lines = 1;
 };

@@ -679,7 +679,14 @@ void PauseBook::update_caption(const BookModel& m) {
 }
 
 void PauseBook::draw_caption_detail(DrawList& out, const BookModel& m) const {
-    out.push_back(text_cmd(DrawCmd::TextGdi, caption_, 25.6f, 707.2f, kWhite));
+    // [approx] The caption bar's spaces are narrow: 10 px in the title's Options grab and 9 px in the in-game
+    // pause_inventory grab, where the font's own is 18 (2560 x 1440; the other GDI lines have 18). [H] its text
+    // surface (0x76f100) keeps the space advance of the last <scale> run drawn on it (+0x6c is re-read only on
+    // a font or scale change, FUN_005ef2f0 / FUN_005ef380), so the value is a leftover; 10 px at every height
+    // is this build's choice, not a traced number.
+    DrawCmd cap = text_cmd(DrawCmd::TextGdi, caption_, 25.6f, 707.2f, kWhite);
+    cap.space_px = 10;
+    out.push_back(cap);
     if ((dicon_.diffuse >> 24) == 0 || detail_id_ < 0) return;
     int id = detail_id_;
     if (id == 0 && m.flags[4] > 0) id = 4;

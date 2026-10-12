@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <string>
 
@@ -41,8 +42,13 @@ float rich_value(std::string_view v) {
 RichLayout layout_rich(std::string_view text, const RichMetrics& m, float line_extra,
                        std::uint32_t default_colour) {
     RichLayout out;
-    float x = 0, y = 0, scale = 1;
+    const int W = std::max(1, m.screen_w), H = std::max(1, m.screen_h);
+    const int W43 = (4 * H) / 3;
+    const double A = W > W43 && W43 > 0 ? double(W) / double(W43) : 1.0;   // 0x765178
+    float x = 0, y = 0, scale = 1;                         // the raster's pen (FUN_005f03f0), pixels
+    int mx = 0, mw = 0;                                    // the measure's pen and widest line (FUN_005efb50)
     float sx = 0, sy = 0;                                  // stpos / ldpos
+    int smx = 0;
     std::uint32_t colour = default_colour;
     bool counting = true, roo = false;
     int counted = 0;
@@ -52,11 +58,13 @@ RichLayout layout_rich(std::string_view text, const RichMetrics& m, float line_e
         out.glyphs.push_back(g);
         if (counting) ++counted;
         x += adv;
-        out.width = std::max(out.width, x);
+        mx += ext ? int(adv) : int(short(int(double(adv) * A)));   // [BYTES 005efb50: (short)(int)(gmCellIncX x A)]
+        mw = std::max(mw, mx);
     };
     // An extfont cell: drawn at its own size, advanced by left + right (FUN_005f03f0 ext branch).
     auto put_ext = [&](int cell) {
-        put(static_cast<unsigned char>(cell & 0xff), true, m.ext_advance ? m.ext_advance(cell) : 32.0f);
+        put(static_cast<unsigned char>(cell & 0xff), true,
+            float(std::lround((m.ext_advance ? m.ext_advance(cell) : 32.0f) * float(H) / 768.0f)));
     };
     for (std::size_t i = 0; i < text.size(); ++i) {
         const unsigned char c = static_cast<unsigned char>(text[i]);
@@ -68,8 +76,11 @@ RichLayout layout_rich(std::string_view text, const RichMetrics& m, float line_e
                 const std::string_view name = tag.substr(0, colon);
                 const std::string_view val = colon == std::string_view::npos ? std::string_view{} : tag.substr(colon + 1);
                 const std::string_view v1 = val.substr(0, val.find(','));
-                if (prefix_ci(name, "x")) x += rich_value(v1);
-                else if (prefix_ci(name, "y")) y += rich_value(v1);
+                if (prefix_ci(name, "x")) {               // n x W >> 10 px; the measure's x A [EXPORT 005efb50.c:170-172]
+                    const int n = (int(rich_value(v1)) * W) / 1024;
+                    x += float(n);
+                    mx = int(double(n) * A + double(mx));
+                } else if (prefix_ci(name, "y")) y += float((int(rich_value(v1)) * H) / 768);
                 else if (prefix_ci(name, "color")) {
                     colour = v1.empty() ? default_colour : std::uint32_t(std::strtoul(std::string(v1).c_str(), nullptr, 0));
                 } else if (prefix_ci(name, "scale")) {
@@ -77,8 +88,8 @@ RichLayout layout_rich(std::string_view text, const RichMetrics& m, float line_e
                     float k = rich_value(v1);
                     if (!dec && k >= 256.0f) k /= 65536.0f;
                     scale = k <= 0 ? 1.0f : k;
-                } else if (prefix_ci(name, "stpos")) { sx = x; sy = y; }
-                else if (prefix_ci(name, "ldpos")) { x = sx; y = sy; }
+                } else if (prefix_ci(name, "stpos")) { sx = x; sy = y; smx = mx; }
+                else if (prefix_ci(name, "ldpos")) { x = sx; y = sy; mx = smx; }
                 else if (prefix_ci(name, "code")) {
                     const unsigned char cc = static_cast<unsigned char>(int(rich_value(v1)) & 0xff);
                     put(cc, false, (m.advance ? m.advance(cc) : 16.0f) * scale);
@@ -93,15 +104,16 @@ RichLayout layout_rich(std::string_view text, const RichMetrics& m, float line_e
             if (i + 1 < text.size() && text[i + 1] == '<') { put('<', false, (m.advance ? m.advance('<') : 16.0f) * scale); ++i; continue; }
         }
         if (c == '\n') {
-            x = 0;
-            y += m.height + line_extra;
+            x = 0; mx = 0;
+            y += m.height + float((int(line_extra) * H) / 768);   // tmHeight + extra x H / 768, truncated
             ++out.lines;
             continue;
         }
         if (c == '\r') continue;
-        if (c == ' ' || c == '\t') {
+        if (c == ' ' || c == '\t') {                       // 10 raw pixels at a line's start; never x A
             x = (x == 0) ? 10.0f : x + m.space * scale;
-            out.width = std::max(out.width, x);
+            mx = (mx == 0) ? 10 : mx + int(m.space * scale);
+            mw = std::max(mw, mx);
             continue;
         }
         const int rg = roo ? roo_glyph(c, m.english_roonic) : -1;    // tag 15's letter map
@@ -109,7 +121,9 @@ RichLayout layout_rich(std::string_view text, const RichMetrics& m, float line_e
         else put(c, false, (m.advance ? m.advance(c) : 16.0f) * scale);
     }
     out.counted = counted;
-    out.height = y + m.height;
+    // out[2] = (w_px << 10) / W, out[3] = (h_px x 768) / H [EXPORT 005efb50.c:119-129]
+    out.width = float((long long)(mw) * 1024 / W);
+    out.height = float((long long)(y + m.height) * 768 / H);
     return out;
 }
 

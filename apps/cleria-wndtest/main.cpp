@@ -49,6 +49,34 @@ int main() {
         const RichLayout s = layout_rich(" x", m, 12);
         check(near(s.glyphs[0].x, 10), "a space at the line start puts the pen at 10");
     }
+    {   // WINDOW_FONT.md §2-§3: the walk is in raster pixels, the measure in the 1024 x 768 frame. 2560 x 1440:
+        // lfHeight 60, A = 2560 / 1920.
+        RichMetrics w = m;
+        w.screen_w = 2560; w.screen_h = 1440; w.height = 60; w.ascent = 52; w.space = 18;
+        w.advance = [](unsigned char) { return 31.0f; };
+        const RichLayout l = layout_rich("ab cd\n e<x:16>f", w, 12);
+        check(near(l.glyphs[1].x, 31) && near(l.glyphs[2].x, 80) && near(l.glyphs[3].x, 111), "raster: raw advances, the space 18 px");
+        check(near(l.glyphs[4].y, 60 + 22) && near(l.glyphs[4].x, 10),
+              "a line feed is tmHeight + 12 x 1440 / 768 (22) px; the line-start space 10 raw px");
+        check(near(l.glyphs[5].x, 10 + 31 + 40), "<x:16> = 16 x 2560 >> 10 = 40 px");
+        check(near(l.width, 72), "measure: 4 x trunc(31 x A) + the unscaled space = 182 px -> 182 x 1024 / 2560 = 72");
+        check(near(l.height, 75), "measure: (82 + 60) x 768 / 1440 = 75");
+        // FUN_00578710: the rows every 38.4 from 6.4 whatever the font's height (33 at 768 lines); the box adds it.
+        RichMetrics t = m;
+        t.height = 33;
+        WndDialog d;
+        d.menu(512, 282, "T", {"a", "b", "c"}, {"", "", ""}, t, true);
+        d.arm();
+        std::vector<int> snd;
+        for (int i = 0; i < 200; ++i) d.update({}, snd);
+        DrawList dl;
+        d.draw(dl);
+        std::vector<float> ys;
+        for (const DrawCmd& c : dl) if (c.kind == DrawCmd::TextRich) ys.push_back(c.y);
+        const float T = (768.0f - (3 * 39.4f + 12.8f)) * 0.5f;
+        check(ys.size() == 4 && near(ys[0], T - 44.8f) && near(ys[1], T + 6.4f) && near(ys[2], T + 44.8f) && near(ys[3], T + 83.2f),
+              "rows at 6.4 + 38.4 x (i - 1); the box is 3 x (33 + 6.4) + 12.8 high");
+    }
     {   // PLAYTEST_1_STORY.md §2: the Roo alphabet (tag 15) and the extfont cells (FUN_005f03f0 ext branch).
         check(roo_glyph('A', false) == 12 && roo_glyph('z', false) == 37 && roo_glyph('*', false) == 1 &&
               roo_glyph('#', false) == 7 && roo_glyph('!', false) == -1 && roo_glyph(' ', false) == -1,

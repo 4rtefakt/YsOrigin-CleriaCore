@@ -160,7 +160,8 @@ void WndDialog::menu(float x, float y, const std::string& title, const std::vect
     if (centre_y) y_ = (768.0f - h_) * 0.5f;
 }
 
-// FUN_00578710
+// FUN_00578710. The rows sit every 38.4 from 6.4 whatever the font measures [BYTES 0x6bda24, 0x6bd8a0; EXPORT
+// 00578710.c:91-101]; only the box's height adds the measured heights.
 void WndDialog::layout(const RichMetrics& m) {
     lay_.clear(); rx_.clear(); ry_.clear();
     widest_ = 0;
@@ -170,7 +171,7 @@ void WndDialog::layout(const RichMetrics& m) {
         rx_.push_back(-0.5f * lay_.back().width);
         widest_ = std::max(widest_, lay_.back().width);
         if (i == 0) ry_.push_back(-44.8f);
-        else { ry_.push_back(h + 6.4f); h += lay_.back().height + 6.4f; }
+        else { ry_.push_back(float(i - 1) * 38.4f + 6.4f); h += lay_.back().height + 6.4f; }
     }
     w_ = widest_ + 41.6f;
     h_ = h + 12.8f;

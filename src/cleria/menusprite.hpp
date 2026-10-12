@@ -75,6 +75,7 @@ struct DrawCmd {
     std::string text;
     float line_extra = 0;                           // GDI: extra line spacing
     float scale = 1;                                // GDI: the "<scale:k>" markup; TextGeo: the routine's scale
+    float space_px = 0;                             // GDI: a space's advance in raster pixels (0 = the font's)
     // Mesh
     struct Vert { float x, y, u, v; std::uint32_t argb; };
     std::vector<Vert> verts;
