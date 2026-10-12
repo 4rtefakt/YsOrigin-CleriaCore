@@ -3992,10 +3992,29 @@ title_again:
     // waypoint; on the ground, jump when the floor 0.45 ahead is a gap or a drop, or 0.45 / 0.9 ahead a rise of more than a step; in
     // the air, press Jump again late — falling, back within 1.0 of the take-off height — while the waypoint is
     // still more than 1.2 away, and let go of the stick once over it.
-    std::vector<Vec3> drive_hops;
+    // A waypoint written x,z,y is one on or past MOVING ground (S_4015's sliding platforms and lifts): it is
+    // reached only at that height. She stands still while the floor at the waypoint is not at y (the platform is
+    // elsewhere), and at a gap until a floor she can land on (within -0.8 .. +1.5 of her feet, or the waypoint's
+    // level) lies within 3.45 ahead and is not receding; then she jumps. Only a rise she can clear (up to 3.2) is
+    // jumped, and one within 0.9 behind her too (a spiked rod the platform carries her into). Landing 2.5 below
+    // both ends of the leg is FELL.
+    // dx,dz,y@name[>d] is a point ON a moving object (its frame + (dx, dz), the top at y): she gets on when it
+    // comes within reach, then rides it — standing, steering only to stay on the point, and jumping a rise that
+    // closes in from any side when it is 20 ticks from coming within 0.4 at its closing speed, the second press
+    // at the top of the jump: the first jump tops at +2.63 on its 19th tick, and S_4015's rods stand 2.1 over
+    // the platform and are 1.8 wide, so the rod has to pass under the second one — until the next waypoint is
+    // within d of her feet.
+    std::vector<Vec3> drive_hops;                         // y = NaN: any height (the plain x,z form)
+    std::vector<std::string> drive_hop_mesh;              // the object a waypoint rides ("" = a world point)
+    std::vector<float> drive_hop_until;
     std::size_t drive_hop_i = 0;
     int drive_hop_jumps = 0, drive_hop_ticks = 0;
     float drive_hop_y = 0.0f, drive_hop_y0 = 0.0f;
+    float drive_hop_from = 0.0f, drive_hop_land = 1e9f;   // the leg's start height; last tick's nearest landing
+    float drive_hop_side[4] = {1e9f, 1e9f, 1e9f, 1e9f};   // riding: last tick's nearest rise on each side
+    bool drive_hop_haz = false;                           // the jump under way is over such a rise
+    int drive_hop_appr = 0;                               // the landing ahead: 1 coming nearer, -1 receding
+    std::uint64_t drive_hop_jt = 0;                       // the tick of that jump's press
     // anime_GenerateDebris (funcid 0x26; build/mech_re/ASO_NOOPS.md §3): the handler's colour and reviver gate
     // [BYTES 0x447980..0x447a39], then FUN_00587440 -> FUN_00587010 with texture base 0x42 at the actor's
     // origin +0x50: n + 5 * count draws of the shared xorshift, on the op's tick. An ordinary monster's corpse
@@ -5091,12 +5110,34 @@ title_again:
         } else if (cmd.rfind("hops=", 0) == 0) {       // hops=x,z/x,z/...: the closed-loop waypoint walk (above)
             drive_hops.clear(); drive_hop_i = 0; drive_hop_ticks = 0; drive_hop_jumps = 0;
             const char* p = cmd.c_str() + 5;
-            float x = 0, z = 0; int used = 0;
+            float x = 0, z = 0, y = 0; int used = 0;
+            drive_hop_from = feet.y; drive_hop_land = 1e9f; drive_hop_appr = 0;
+            drive_hop_mesh.clear(); drive_hop_until.clear();
             while (std::sscanf(p, "%f,%f%n", &x, &z, &used) == 2) {
-                drive_hops.push_back({x, 0, z});
                 p += used;
+                const bool has_y = std::sscanf(p, ",%f%n", &y, &used) == 1;   // x,z,y: the moving-ground form (above)
+                if (has_y) p += used;
+                drive_hops.push_back({x, has_y ? y : std::numeric_limits<float>::quiet_NaN(), z});
+                std::string name; float until = 0.0f;
+                if (*p == '@') {                                              // ...@name[>d]: on that object
+                    const char* q = ++p;
+                    while (*p && *p != '/' && *p != '>') ++p;
+                    name.assign(q, p);
+                    if (*p == '>' && std::sscanf(p, ">%f%n", &until, &used) == 1) p += used;
+                }
+                drive_hop_mesh.push_back(name); drive_hop_until.push_back(until);
                 if (*p != '/') break;
                 ++p;
+            }
+        } else if (cmd.rfind("probe=", 0) == 0) {      // probe=x0,z0,x1,z1,n[,ceiling]: the floor at n + 1 points of a segment
+            float x0 = 0, z0 = 0, x1 = 0, z1 = 0, ceil = 1e9f; int n = 1;   // (the pilot's probe; an audit aid)
+            if (std::sscanf(cmd.c_str() + 6, "%f,%f,%f,%f,%d,%f", &x0, &z0, &x1, &z1, &n, &ceil) >= 5 && n > 0 && n <= 200) {
+                std::printf("  [probe] t%llu (%.2f, %.2f) -> (%.2f, %.2f):", (unsigned long long)tick_count, x0, z0, x1, z1);
+                for (int k = 0; k <= n; ++k) {
+                    const float f = floor_at(phys_mesh(room), x0 + (x1 - x0) * float(k) / float(n), z0 + (z1 - z0) * float(k) / float(n), ceil);
+                    if (f > kNoFloor) std::printf(" %.2f", f); else std::printf(" -");
+                }
+                std::printf("\n");
             }
         } else if (cmd.rfind("bracelet=", 0) == 0) {   // bracelet=<item id>: the equipped bracelet 0x76a630
             inv.magic = std::atoi(cmd.c_str() + 9);
@@ -7409,29 +7450,86 @@ title_again:
                 } else { wish.x += gx; wish.z += gz; }
             }
             if (drive_hop_i < drive_hops.size()) {
-                const Vec3 w = drive_hops[drive_hop_i];
+                Vec3 w = drive_hops[drive_hop_i];
+                const bool rides = !drive_hop_mesh[drive_hop_i].empty();
+                if (rides) {
+                    Vec3 fr{};
+                    const MeshObj* mo = meshes.find(drive_hop_mesh[drive_hop_i]);
+                    if (mo && mesh_frame(*mo, &fr)) { w.x += fr.x; w.z += fr.z; }
+                }
                 const float gx = w.x - feet.x, gz = w.z - feet.z, d2 = gx * gx + gz * gz;
                 const RoomMesh& hm = phys_mesh(room);
-                if (d2 < 0.36f && pv.grounded) {
+                const bool safe = !std::isnan(w.y);
+                const bool on_it = d2 < 0.36f && pv.grounded && (!safe || std::fabs(feet.y - w.y) < 0.6f);
+                bool ride_on = false;                     // on the object, the next waypoint not yet near
+                if (on_it && rides && drive_hop_i + 1 < drive_hops.size() && drive_hop_mesh[drive_hop_i + 1].empty()) {
+                    const Vec3 nx = drive_hops[drive_hop_i + 1];
+                    const float u = drive_hop_until[drive_hop_i];
+                    ride_on = (nx.x - feet.x) * (nx.x - feet.x) + (nx.z - feet.z) * (nx.z - feet.z) > u * u;
+                }
+                if (on_it && !ride_on) {
                     std::printf("  [hop] t%llu waypoint %zu reached at (%.2f, %.2f, %.2f) after %d ticks\n",
                                 (unsigned long long)tick_count, drive_hop_i, feet.x, feet.y, feet.z, drive_hop_ticks);
-                    ++drive_hop_i; drive_hop_ticks = 0;
+                    ++drive_hop_i; drive_hop_ticks = 0; drive_hop_from = feet.y; drive_hop_land = 1e9f; drive_hop_appr = 0;
+                } else if (safe && pv.grounded && feet.y < std::min(w.y, drive_hop_from) - 2.5f) {
+                    std::printf("  [hop] t%llu waypoint %zu FELL: at (%.2f, %.2f, %.2f) after %d ticks\n",
+                                (unsigned long long)tick_count, drive_hop_i, feet.x, feet.y, feet.z, drive_hop_ticks);
+                    drive_hop_i = drive_hops.size();
                 } else if (++drive_hop_ticks > 900) {
                     std::printf("  [hop] t%llu waypoint %zu NOT reached: at (%.2f, %.2f, %.2f), %.2f from (%.2f, %.2f)\n",
                                 (unsigned long long)tick_count, drive_hop_i, feet.x, feet.y, feet.z, std::sqrt(d2), w.x, w.z);
                     drive_hop_i = drive_hops.size();
                 } else {
-                    const float l = std::sqrt(d2), ux = gx / l, uz = gz / l;
-                    if (pv.grounded || l > 0.3f) { wish.x += gx; wish.z += gz; }   // over the waypoint in the air: let go, drop onto it
+                    const float l = std::max(std::sqrt(d2), 1e-4f), ux = gx / l, uz = gz / l;
+                    bool hold = false, behind = false;
+                    const float top = safe ? 3.2f : 1e9f;                    // the highest rise worth a jump
+                    auto rise = [&](float f) { return f > feet.y + 0.65f && f <= feet.y + top; };
+                    if (ride_on) {                                           // riding: a rise closing in from any side
+                        hold = l < 0.6f;                                     // (it carries her: rarely more)
+                        drive_hop_ticks = 0;
+                        static const float kSides[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                        for (int sd = 0; sd < 4; ++sd) {
+                            float at = 1e9f;
+                            for (float r = 0.2f; r < 3.01f && at > 1e8f; r += 0.05f)
+                                if (rise(floor_at(hm, feet.x + kSides[sd][0] * r, feet.z + kSides[sd][1] * r, feet.y + 4.0f))) at = r;
+                            const float v = drive_hop_side[sd] - at;         // its closing speed (not on the landing tick)
+                            if (drive_hop_jumps == 0 && v > 0.001f && v < 1.0f && at - 0.4f <= v * 20.0f) behind = true;
+                            drive_hop_side[sd] = at;
+                        }
+                    } else if (safe && pv.grounded) {
+                        auto lands = [&](float f) { return (f > feet.y - 0.8f && f < feet.y + 1.5f) || std::fabs(f - w.y) < 0.8f; };
+                        hold = std::fabs(floor_at(hm, w.x, w.z, w.y + 2.0f) - w.y) > 1.0f;
+                        if (!lands(floor_at(hm, feet.x + ux * 0.45f, feet.z + uz * 0.45f, feet.y + 4.0f))) {
+                            float land = 1e9f;
+                            for (float r = 0.95f; r < 3.5f && r < l + 0.5f && land > 1e8f; r += 0.5f)
+                                if (lands(floor_at(hm, feet.x + ux * r, feet.z + uz * r, feet.y + 4.0f))) land = r;
+                            // ... never one that is receding, and onto a moving object only while it comes nearer (it
+                            // then carries her on to its turn; boarding one that is leaving lands her in front of
+                            // whatever it is leaving for). The probes are 0.5 apart: the last change is kept.
+                            if (land < 1e8f && drive_hop_land < 1e8f && land != drive_hop_land) drive_hop_appr = land < drive_hop_land ? 1 : -1;
+                            hold = hold || land > 1e8f || (rides ? drive_hop_appr != 1 : drive_hop_appr == -1);
+                            drive_hop_land = land;
+                        } else {
+                            drive_hop_land = 1e9f; drive_hop_appr = 0;
+                        }
+                        for (float r : {0.45f, 0.9f})
+                            behind = behind || rise(floor_at(hm, feet.x - ux * r, feet.z - uz * r, feet.y + 4.0f));
+                    }
+                    // Over the waypoint in the air: let go, drop onto it. Over a moving one the stick stays pushed: a
+                    // short tap of it opens the tap-step window (+0x70c, 12 ticks), which refuses the next Jump press.
+                    if (!hold && (pv.grounded || l > 0.3f || rides)) { wish.x += gx; wish.z += gz; }
                     if (pv.grounded) {
-                        drive_hop_jumps = 0;
+                        if (tick_count > drive_hop_jt + 3) drive_hop_jumps = 0;   // (the press takes a tick to lift her)
                         const float fa = floor_at(hm, feet.x + ux * 0.45f, feet.z + uz * 0.45f, feet.y + 4.0f);
                         const float fb = floor_at(hm, feet.x + ux * 0.9f, feet.z + uz * 0.9f, feet.y + 4.0f);
-                        if (l > 0.9f && (fa < feet.y - 0.8f || fa > feet.y + 0.65f || fb > feet.y + 0.65f)) {
+                        if (behind || (l > 0.9f && ((fa < feet.y - 0.8f && !hold) || rise(fa) || rise(fb)))) {
                             drive_jump = true; drive_hop_jumps = 1; drive_hop_y0 = feet.y;
+                            drive_hop_haz = ride_on && behind;
+                            if (drive_hop_haz) drive_hop_jt = tick_count;
                         }
-                    } else if (drive_hop_jumps == 1 && feet.y < drive_hop_y && feet.y < drive_hop_y0 + 1.0f && l > 1.2f) {
-                        drive_jump = true; drive_hop_jumps = 2;
+                    } else if (drive_hop_jumps == 1 && feet.y < drive_hop_y &&
+                               (drive_hop_haz || (feet.y < drive_hop_y0 + 1.0f && l > 1.2f))) {
+                        drive_jump = true; drive_hop_jumps = 2;              // late; over a rise she rides into: at the top
                     }
                 }
                 drive_hop_y = feet.y;

@@ -3366,6 +3366,23 @@ CASES.update({
                 "[clear] record.tp: 1 of 186 monster notes seen", "[notes] t5 seen 1 kills 1 killed-on 0 0 1 0 0"]),
 })
 
+# S_4015 on foot as Yunica and as Hugo (ROUTE_F47_*.md §S_4015), the pilot's moving-ground forms (`x,z,y` and
+# `dx,dz,y@object>d`): from the y 26 ledge onto the sliding platform #6 as it comes in, both spiked rods jumped as
+# it carries her under them (toge_01 / toge_02: 2.1 over the platform, 1.8 wide, a double jump each), the jump north
+# onto the path, the slope down to switch_01 (451); back: the platform from its west end, the rods again, the east
+# ledge, the lift step_01 at its top (flag 450 set by hand, as route_s4015), step_00 from 27 up to 48, the curb and
+# the stairs to S_4019. The same route string for both; no rod is touched.
+_S4015 = ("2:flag=450,1;3:diff=3;4:saveload;5:flag=163,1;6:level=27;7:opt=DamageTaken=0;200:at3=-51.6,26,38,180;"
+          "234:hops=0.9,0,26@#6>5.2/-70.3,43.5,26/-88,43.5/-90.5,40/-89.8,27/-90.9,26.9;"
+          "1715:hops=-90.9,31/-89.6,39/-86.5,42.7/-70.5,42.7,26/0.6,0,26@#6>5.9/-50.5,38.5,26/-44.6,38.6,26/"
+          "-40,38.6,24/-33,38.2,24/-31.1,38,24/-31.1,41.6,27/-31.1,47.5,48/-31.1,60/-31.1,69;3900:quit")
+for _n, _c in (("yunica", "1"), ("hugo", "2")):
+    CASES["route_s4015_" + _n] = dict(
+        room="S_40/S_4015/S_4015", char=_c, env=dict(CLERIA_DRIVE_LOCKSTEP="1"), drive=_S4015,
+        expect=["waypoint 0 reached at (-67.7", "[plate] switch_01 -> turnswitch01", "waypoint 4 reached at (-56.1",
+                "waypoint 10 reached", "waypoint 11 reached at (-31.10, 48.00", ">> entering S_4019"],
+        absent=["@touch_toge", "FELL", "NOT reached"])
+
 CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402
@@ -3439,7 +3456,8 @@ def frame_edges(path, name, seams):
 # The cases of a minute or more (measured 2026-10-09): with --jobs they start first, so the longest one
 # (darm_fight, ~7 minutes) does not start last and run on alone.
 LONG = ["darm_fight", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
-        "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light"]
+        "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light",
+        "route_s4015_yunica", "route_s4015_hugo"]
 
 
 def content_setup(case, env, tmp):
