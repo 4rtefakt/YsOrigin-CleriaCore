@@ -13,6 +13,9 @@ if(MSVC)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
   add_compile_options(-Wall -Wextra)
+  # No fused multiply-add: a * b + c rounds twice, as MSVC's /fp:precise does on x64. clang contracts by
+  # default (skilltest's slow fall differed by one ulp in CI), and gcc does wherever the CPU has FMA (arm64).
+  add_compile_options(-ffp-contract=off)
 endif()
 
 set(TP "${CMAKE_SOURCE_DIR}/third_party")
@@ -518,7 +521,13 @@ else()
   option(CLERIA_CURL "WebSocket transport (cleria.net) over libcurl (Linux / macOS)" OFF)
   target_link_libraries(cleria-net PUBLIC cleria)
   if(CLERIA_CURL)
-    find_package(CURL REQUIRED)
+    # third_party/curl when tools/fetch_deps.py built it (Linux: a static 8.11.1 with WebSockets), else the
+    # system's libcurl.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/curl/lib/cmake/CURL/CURLConfig.cmake")
+      find_package(CURL CONFIG REQUIRED PATHS "${CMAKE_SOURCE_DIR}/third_party/curl" NO_DEFAULT_PATH)
+    else()
+      find_package(CURL REQUIRED)
+    endif()
     target_compile_definitions(cleria-net PUBLIC CLERIA_CURL)
     target_link_libraries(cleria-net PRIVATE CURL::libcurl)
   endif()

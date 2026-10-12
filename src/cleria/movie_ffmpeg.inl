@@ -50,6 +50,8 @@ struct MovieDecoder::Impl {
     int stream = -1;
     double tb = 0;                    // seconds per timestamp unit
     double next_ts = 0, last_ts = -1;
+    double fps = 0;                   // the stream's constant frame rate (0: unknown, use the timestamps)
+    std::int64_t frame_no = 0;        // decoded frames so far
     bool have_next = false, eos = false, flushing = false;
     std::vector<std::uint8_t> nv12;
 
@@ -69,8 +71,13 @@ struct MovieDecoder::Impl {
         for (;;) {
             const int r = avcodec_receive_frame(cc, next);
             if (r == 0) {
+                // An AVI stores no timestamps: frame n of a constant-rate stream is due at n / fps. FFmpeg's
+                // rebuilt ones start 2-3 frames late and skip values in the files with B-frames (the logo,
+                // the inserts, the endings: first frame at 2/60 or 3/60), so they are the fallback only.
                 const std::int64_t pts = next->best_effort_timestamp;
-                next_ts = pts != AV_NOPTS_VALUE ? double(pts) * tb : last_ts + 1.0 / 60.0;
+                if (fps > 0) next_ts = double(frame_no) / fps;
+                else next_ts = pts != AV_NOPTS_VALUE ? double(pts) * tb : last_ts + 1.0 / 60.0;
+                ++frame_no;
                 last_ts = next_ts;
                 return true;
             }
@@ -139,6 +146,8 @@ bool MovieDecoder::open(const fs::path& file) {
     im->cc->thread_count = 0;   // FFmpeg's choice of threads
     if (avcodec_open2(im->cc, codec, nullptr) < 0) return false;
     im->tb = av_q2d(st->time_base);
+    if (const AVRational r = st->avg_frame_rate.num > 0 ? st->avg_frame_rate : st->r_frame_rate; r.num > 0 && r.den > 0)
+        im->fps = av_q2d(r);
     im->pkt = av_packet_alloc();
     im->next = av_frame_alloc();
     im->show = av_frame_alloc();

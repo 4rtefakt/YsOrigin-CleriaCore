@@ -1084,7 +1084,8 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps, bool skip_
             skip_cycles = false;
             continue;
         }
-        if ((++back & (back - 1)) == 0) {
+        ++back;
+        if ((back & (back - 1)) == 0) {       // every power of two: 1, 2, 4, 8, ...
             snap.pc = pc; snap.steps = steps + 1; snap.acc = acc; snap.shop_paid = shop_paid;
             std::memcpy(snap.flags, g_flags, sizeof snap.flags);
             std::memcpy(snap.items, item_arr, sizeof snap.items);
