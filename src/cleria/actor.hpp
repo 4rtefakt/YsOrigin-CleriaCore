@@ -201,6 +201,11 @@ struct Actor {
     int anim_motion = -1;
     // Op 0x152 Chr_Pattern (FUN_005712e0, CHR_OPS.md §4): the pinned AIA tag/frame; freezes the ASO.
     PatternPin pattern;
+    // +0x97c: the index of the AIA file the sprite is decoded from (the anime_File numbering, aso_aia_name); -1 =
+    // not set, the cast's own sheet. Written by the actor's ASO (a section start, anime_File: AsoVm::bind_file)
+    // and by op 0x167 Chr_AniChange, which exists because a Chr_Pattern pin stops the ASO.
+    // build/event_re/ANI_VARIANT.md.
+    std::int32_t aia_file = -1;
     // The look block +0x308/+0x39a/+0x370/+0x350/+0x354/+0x360/+0x36c (ops 0x132..0x138, §6).
     // look.cmd is +0x308 and `yaw` is +0x314 (in the CleriaCore basis; chr_state.hpp).
     LookState look;

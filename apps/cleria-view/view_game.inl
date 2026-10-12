@@ -2143,7 +2143,17 @@ title_again:
             // set_section is what makes AsoVm::ok() true, so it must land on a real one.
             int idle = a->find(2) ? 2 : (a->find(0) ? 0 : a->sections().front().id);
             e.idle_section = idle;
+            // The sprite's file (+0x97c) is the actor's and outlives this record: the list is rebuilt, and every
+            // script restarted in its idle, whenever a scene adds or removes an actor [approx], so a file a
+            // Chr_AniChange or the script chose is put back over that restart's default.
+            const std::int32_t file = e.actor ? e.actor->aia_file : -1;
+            if (e.actor) e.avm.bind_file(&e.actor->aia_file);
             e.avm.set_section(idle, /*force*/true);
+            if (file >= 0) e.actor->aia_file = file;
+            // FUN_00572230 loads C_114 with cast 0xa6 and C_115 with cast 0xa8 when one is placed
+            // [BYTES 0x572272..0x5722ac]; every other sheet is read at its first use (FUN_00444850).
+            if (e.actor && (e.actor->cast_id == 0xa6 || e.actor->cast_id == 0xa8))
+                efx.sheet(g, e.actor->cast_id == 0xa6 ? 11 : 12);
             e.atk_section = enemy_atk_section[e.stem];
             if (e.actor) {
                 if (const Enemy* er = etab.get(e.actor->cast_id))
@@ -3288,6 +3298,9 @@ title_again:
             if (p_isplayer(id)) p_moving = false;
             else if (worldHost) worldHost->chr_stop(rid(id));
         }
+        // 0x167 Chr_AniChange (FUN_00571ec0). [not modelled] on the player (her sheet follows her own VM, sync_aia);
+        // no shipped script names her: the 9 uses are on 196 / 197 / 198 (ANI_VARIANT.md §5).
+        void chr_anichange(int id, int file) override { if (worldHost) worldHost->chr_anichange(rid(id), file); }
         std::function<void(int)> pad_tilt_fn;
         void pad_tilt(int i) override { if (pad_tilt_fn) pad_tilt_fn(i); }
         std::function<void(int, const Vec3&)> se3d_fn;   // 3D SE at a point, 2D when not flagged 3D
@@ -4978,14 +4991,15 @@ title_again:
                 else for (const EnemyRender& e : render)
                     if (e.actor == a && e.avm.ok()) { sec = e.avm.section(); tag = e.avm.anim_tag(); fr = e.avm.frame(); }
                 std::printf("  [chr] %d face %.1f cmd %.1f mode %d tgt %d dir %.1f mult %.2f run %d pin %d/%d motion %d "
-                            "aso %d/%d/%d tremble %d/%d/%d %.1f,%.1f%s foot %d fly %d%s z %d pos (%.2f, %.2f, %.2f)\n",
+                            "aso %d/%d/%d tremble %d/%d/%d %.1f,%.1f%s foot %d fly %d%s z %d pos (%.2f, %.2f, %.2f) file %d\n",
                             id, h * 57.29578f, a->look.cmd * 57.29578f, int(a->look.mode), a->look.target,
                             a->look.dir * 57.29578f, a->look.mult, int((a->flags12c & 0x20u) != 0),
                             a->pattern.tag, a->pattern.frame, a->anim_motion, sec, tag, fr,
                             a->tremble.ticks, a->tremble.period, a->tremble.cnt, a->tremble.dx, a->tremble.dy,
                             tremble_active(a->tremble) ? " ON" : "", int(a->footsteps), int(a->flyer),
                             a->fly_r2 != 0.0f ? " flyto" : "", int(a->ztest),
-                            pl ? feet.x : a->pos.x, pl ? feet.y : a->pos.y, pl ? feet.z : a->pos.z);
+                            pl ? feet.x : a->pos.x, pl ? feet.y : a->pos.y, pl ? feet.z : a->pos.z,
+                            pl ? avm.file_id() : a->aia_file);   // the sprite's AIA file +0x97c (aso_aia_name)
                 if (a->slant != 0.0f) std::printf("  [chr] %d slant %.1f deg (+0x4ec)\n", id, a->slant * 57.29578f);
             }
         } else if (cmd == "fx") {                      // the named (script-placed) effects, the glare byte
@@ -6864,17 +6878,18 @@ title_again:
             if (game.g_flags[131] != 0) return false;
             return !A.cmoving && A.fly_r2 == 0.0f && A.anim_motion < 0 && !A.pattern.pinned();
         };
-        prof("tick:frozen");
-        if (frozen_now) {
-            // CHR_OPS.md §4/§5: a Chr_Pattern pin stops the actor's ASO (FUN_004472e0 0x44735f returns
-            // before the VM); a Chr_Animate motion (+0x994) is the section played, set once when it
-            // changes; otherwise the locomotion section of the mover's table 0x69ba48 {idle 2, walk
-            // 0, run 1}, run = moving with the RunOrWalk bit (+0x12c & 0x20).
-            for (EnemyRender& e : render) {
-                if (!e.actor || !e.avm.ok()) continue;
+        // The plain mover's animation step (FUN_0045f4d0) of one scripted actor, under a Fix (`fixed`) and, for an
+        // actor that is no monster, in play as well: the handler of an NPC runs on every tick, so a room script's
+        // Chr_Animate plays and its section's anime_File picks the sheet before the next Chr_Pattern stops the ASO
+        // (S_6099's hugo_anime: Flag 180, Chr_Animate(197, 319), one tick, then the pins of tag 302 of C_103).
+        // CHR_OPS.md §4/§5: a Chr_Pattern pin stops the actor's ASO (FUN_004472e0 0x44735f returns
+        // before the VM); a Chr_Animate motion (+0x994) is the section played, set once when it
+        // changes; otherwise the locomotion section of the mover's table 0x69ba48 {idle 2, walk
+        // 0, run 1}, run = moving with the RunOrWalk bit (+0x12c & 0x20).
+        auto script_actor_step = [&](EnemyRender& e, bool fixed) {
+            {
                 const Actor& A = *e.actor;
-                if (handlers_run && fix0_runs(A)) continue;   // its own handler runs below (S2, S5c)
-                if (A.pattern.pinned()) continue;
+                if (A.pattern.pinned()) return;
                 // The locomotion state +0x3a0 (idle / walk / run) is kept apart from the motion +0x994: when
                 // it changes, FUN_0045f4d0 sets the table's motion over whatever plays, a Chr_Animate motion
                 // included, unless that motion is 3 or AniDisable is on [EXPORT 0045f4d0.c L168-176]. So an
@@ -6889,7 +6904,7 @@ title_again:
                 // A stopped handler holds its frame (S5b). [approx] kept on the old rule while a script drives it
                 // (a move, a Chr_Animate motion): in the original the stopped handler would not run FUN_004601a0
                 // either, so no shipped scene can rely on it; the port's script mover still moves it.
-                if (handler_stopped(A) && !A.cmoving && A.fly_r2 == 0.0f && A.anim_motion < 0) continue;
+                if (fixed && handler_stopped(A) && !A.cmoving && A.fly_r2 == 0.0f && A.anim_motion < 0) return;
                 if (A.anim_motion >= 0) {
                     if (e.motion_applied != A.anim_motion) {
                         e.avm.set_section(A.anim_motion, /*force*/true);
@@ -6935,6 +6950,14 @@ title_again:
                         }
                     }
                 }
+            }
+        };
+        prof("tick:frozen");
+        if (frozen_now) {
+            for (EnemyRender& e : render) {
+                if (!e.actor || !e.avm.ok()) continue;
+                if (handlers_run && fix0_runs(*e.actor)) continue;   // its own handler runs below (S2, S5c)
+                script_actor_step(e, /*fixed*/true);
             }
             // [H] the scripted walk keeps playing its section (a forced re-set every frame froze it on
             // frame 0) and settles to idle on arrival, as the generic mover's table does. The run
@@ -7977,6 +8000,12 @@ title_again:
             // runs the M100 brain until its own is ported (build/audit/ai_bosses.md).
             #include "view_revive.inl"                // the revive family's handler (REVIVE.md)
             #include "view_los.inl"                   // CLERIA_LOS: engaged -> phase 1 reports (issue #59)
+            // An NPC's handler in play (script_actor_step). Not a monster, dead or alive, nor Hugo's Eyes (handler
+            // 83): those are the loop's below.
+            for (EnemyRender& e : render)
+                if (e.actor && e.avm.ok() && !e.actor->is_enemy() && !e.actor->alive() && !e.actor->destroy_requested() &&
+                    e.actor->ai_index != 83)
+                    script_actor_step(e, /*fixed*/false);
             {
                 #include "view_enemy_tick.inl"        // every enemy
             }

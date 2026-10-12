@@ -9,7 +9,21 @@
             // durable victim (anime_Durable ~ +0x9d8).
             auto react_enemy = [&](Actor& en, int dmg, bool died, int rtype, const Impulse& k) {
                 en.mover.k1.x += k.x; en.mover.k1.z += k.z;   // knock channel 1 (+0x338/+0x340)
-                if (died) return;                       // death is handled by the caller
+                // A lethal hit starts the death section and steps the script once [EXPORT 004fbb40.c:757-770: unless
+                // the victim's section is 5 already, FUN_00446550(5, 0) — the priority rule, not forced — and
+                // FUN_004472e0]; the body then fades in it (view_enemy_tick.inl). The rest of a death is the caller's.
+                if (died) {
+                    for (EnemyRender& er : render) {
+                        if (er.actor != &en || !er.avm.ok()) continue;
+                        if (er.avm.section() != 5) {
+                            er.avm.set_section(5);
+                            er.avm.tick();
+                            er.atk_win = 0; er.atk_armed = false; er.atk_age = 0;
+                        }
+                        break;
+                    }
+                    return;
+                }
                 for (EnemyRender& er : render) {
                     if (er.actor != &en || !er.avm.ok()) continue;
                     er.hit = true;                      // +0x3bc & 4: wakes an unaware enemy
