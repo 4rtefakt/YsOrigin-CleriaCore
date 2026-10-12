@@ -277,6 +277,9 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
   //   m4x3 r0, viewPos, c8 (the inverse view: the world position);  mad r0.z, r0.y, c3.w, r0.z;
   //   mad oT1.xy, r0.xz, c3.z, c3.xy     with c3 = (scroll.x, scroll.y, 0.2, 0.4) [BYTES 0x6be6e0..ec].
   o.cuv = vec2<f32>(pos.x, pos.z + 0.4 * pos.y) * 0.2 + u.cvr.xy;
+  // u.cvr.z = 6, a boss shadow's receiver (b_ndst1_trn_shadowed's oT1; SHADOWS.md 4.4): the world position top-down
+  // around the boss (u.cvr.xy), u = 0.5 + (x - cx) sc, v = 0.5 - (z - cz) sc, sc = 0.5 / E (u.cvr.w).
+  if (u.cvr.z == 6.0) { o.cuv = vec2<f32>(0.5 + (pos.x - u.cvr.x) * u.cvr.w, 0.5 - (pos.z - u.cvr.y) * u.cvr.w); }
   // b_ndst1_water2's oT1 (listing B_NDST1_WATER2.VSO; REFLECTIONS.md 5.3): the screen position before the divide,
   // s = (x/2 + w/2, -y/2 + w/2, z, w), its y moved by cos(a) x c23.w, a = 2 (t.x/2 + t.y) wrapped to [-pi, pi),
   // t = s.xy x c23.z + c23.x (the phase, u.cvr.w), the cosine by the shader's own series (c29).
@@ -337,6 +340,17 @@ fn mirror(in : VsOut) -> vec4<f32> {
   return vec4<f32>(c, tc.a);
 }
 
+// A boss's projected shadow on a receiving material (u.cvr.z = 6; FUN_005f92b0's variant 0xc [BYTES
+// 0x5f9a82..0x5f9d00]): after the material's own stages, stage n = MODULATE(target, TEXTUREFACTOR = the strength)
+// into TEMP, stage n + 1 = MODULATE(CURRENT, COMPLEMENT(TEMP)): rgb x (1 - target x strength). The target (`rtex`)
+// is addressed BORDER with colour 0: no shadow outside it.
+fn boss_shadow(c : vec3<f32>, in : VsOut) -> vec3<f32> {
+  if (u.cvr.z != 6.0) { return c; }
+  let s = textureSampleLevel(rtex, csmp, in.cuv, 0.0).rgb;
+  if (in.cuv.x < 0.0 || in.cuv.x > 1.0 || in.cuv.y < 0.0 || in.cuv.y > 1.0) { return c; }
+  return c * (vec3<f32>(1.0, 1.0, 1.0) - s * u.fogParams.w);
+}
+
 fn opaque(in : VsOut) -> vec4<f32> {
   if (u.cvr.z == 4.0) { return water(in); }
   if (u.cvr.z == 5.0) { return mirror(in); }
@@ -346,7 +360,7 @@ fn opaque(in : VsOut) -> vec4<f32> {
   // additive colour c17: the boss hit flash, Room::mat_add), saturated.
   // u.light: the scene light's colour, in every material's c16 (white but for Dalles's / Darm's rooms).
   let d = in.color.rgb * u.light.rgb;
-  var c = min(cvr_stages(tc.rgb * d, d, in) + in.spec, vec3<f32>(1.0, 1.0, 1.0));
+  var c = min(boss_shadow(cvr_stages(tc.rgb * d, d, in), in) + in.spec, vec3<f32>(1.0, 1.0, 1.0));
   // D3D9 linear fog, driven by the room's real SFO region data:
   //   f = (far - d) / (far - near), clamped;  colour = lerp(fog, lit, f)
   if (u.fogParams.z > 0.5) {
@@ -376,7 +390,7 @@ fn mat_lit(in : VsOut) -> vec4<f32> {
   // u.cvr.z = 2 (variant 2, material flag 0x4000): stage 0 is the caustic frame, not the material's texture --
   // MODULATE(caustic, diffuse), alpha SELECTARG2 = the diffuse alpha [EXPORT 005f7230.c:8-53].
   if (u.cvr.z == 2.0) { return vec4<f32>(min(caustic(in) * d + in.spec, vec3<f32>(1.0, 1.0, 1.0)), in.color.a); }
-  return vec4<f32>(min(cvr_stages(tc.rgb * d, d, in) + in.spec, vec3<f32>(1.0, 1.0, 1.0)), tc.a * in.color.a);
+  return vec4<f32>(min(boss_shadow(cvr_stages(tc.rgb * d, d, in), in) + in.spec, vec3<f32>(1.0, 1.0, 1.0)), tc.a * in.color.a);
 }
 fn fog_f(depth : f32) -> f32 {
   return clamp((u.fogParams.y - depth) / max(u.fogParams.y - u.fogParams.x, 0.001), 0.0, 1.0);
@@ -517,6 +531,7 @@ fn fs_pm(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_pad.inl"
 #include "view_speedrun.inl"
 #include "view_video.inl"
+#include "view_boss_shadow.inl"          // the bosses' projected shadows (SHADOWS.md 4)
 #include "view_mask.inl"                 // the Mask of Eyes (PLAYTEST_1_STORY.md §1)
 #include "view_screenfx.inl"            // ZoomBlur (SCREEN_EFFECTS.md §7)
 #include "view_lua.inl"

@@ -8558,10 +8558,16 @@ title_again:
                         csHost.light_rgb.x, csHost.light_rgb.y, csHost.light_rgb.z);
         g_scene_light = light_drawn = csHost.light_rgb;    // 0x76a570..78 -> 0x7b2f14..1c: the world draws below
         prof("draw:reflection");
+        g_shadow_level = std::clamp(int(settings().s.graphics.shadow_effect_level), 0, 2);
+        g_mirror.floor_on = csHost.mirror;                 // 0x74c104: the actors' images on a mirror floor
+        g_mirror.quads.clear();
+        const BossCaster* boss_caster = boss_shadow_setup(room, meshes);   // view_boss_shadow.inl
         video_water_reflect(g, room, cw, ch,             // the water's reflection pass, first in the frame (view_video.inl)
                             fly ? cam.reflected_view_proj(video_aspect(cw, ch), rad * 0.01f, rad * 8.0f, g_water.plane_y)
                                 : cam.reflected_view_proj(video_aspect(cw, ch), clip_near, clip_far, g_water.plane_y));
         write_mvp(g, last_vp);
+        boss_shadow_cast(g, room, meshes, boss_caster, cw, ch);             // the bosses' shadow targets, before the room
+        boss_shadow_zava(g, room, meshes, cw, ch, last_vp, cam.forward());
         const WGPUTextureView frame_view = view, frame_depth = depth;
         prof("draw:room1");
         video_world_begin(g, cw, ch, view, depth);       // Render scale: the world's own target (view_video.inl)
@@ -8575,8 +8581,6 @@ title_again:
         shadow_frame.room = &room; shadow_frame.eye = cam.pos; shadow_frame.fwd = cam.forward();
         shadow_frame.has_player = !fly; shadow_frame.player = {feet.x, feet.y + kOriginH, feet.z};
         shadow_frame.decals = shadow_frame.tris = shadow_frame.quads = 0;
-        g_mirror.floor_on = csHost.mirror;                 // 0x74c104: the actors' images on a mirror floor
-        g_mirror.quads.clear();
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex) {
             int ftri = -1;
             const RoomMesh& pm_ = phys_mesh(room);

@@ -33,14 +33,16 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 // The glare (FUN_005fd750, SCREEN_EFFECTS.md 2.4). fs_bright: the scene x its mask, weight 1 - alpha (stage 0
 // BLENDTEXTUREALPHA(TFACTOR black, TEXTURE), alpha TEXTURE|COMPLEMENT). fs_blur: FUN_005fcc90's four taps at
 // +-(u.x, 0) and +-(0, u.y), each x L / 255 (u.z), summed stage by stage (MULTIPLYADD saturates), alpha 1
-// (stage 0's alpha is the diffuse's). fs_fade: the feedback quad, black at alpha u.x.
+// (stage 0's alpha is the diffuse's); u.w = 1 turns the source over in v (the helper's flag 4: a boss shadow's
+// first blur pass). fs_fade: the feedback quad, black at alpha u.x.
 @fragment fn fs_bright(v: VO) -> @location(0) vec4f {
     let c = textureSample(src, smp, v.uv);
     return vec4f(c.rgb * (1.0 - c.a), 1.0 - c.a);
 }
 @fragment fn fs_blur(v: VO) -> @location(0) vec4f {
-    let s = textureSample(src, smp, v.uv - vec2f(u.x, 0.0)).rgb + textureSample(src, smp, v.uv + vec2f(u.x, 0.0)).rgb +
-            textureSample(src, smp, v.uv - vec2f(0.0, u.y)).rgb + textureSample(src, smp, v.uv + vec2f(0.0, u.y)).rgb;
+    let c = vec2f(v.uv.x, mix(v.uv.y, 1.0 - v.uv.y, u.w));
+    let s = textureSample(src, smp, c - vec2f(u.x, 0.0)).rgb + textureSample(src, smp, c + vec2f(u.x, 0.0)).rgb +
+            textureSample(src, smp, c - vec2f(0.0, u.y)).rgb + textureSample(src, smp, c + vec2f(0.0, u.y)).rgb;
     return vec4f(min(s * u.z, vec3f(1.0)), 1.0);
 }
 @fragment fn fs_fade(v: VO) -> @location(0) vec4f { return vec4f(0.0, 0.0, 0.0, u.x); }
@@ -516,7 +518,7 @@ static void video_water_reflect(Gpu& g, const Room& room, std::uint32_t cw, std:
 // The mirrored objects (FUN_00562650 [EXPORT 00562650.c]): world x D3DXMatrixReflect(the plane through the
 // object's position, normal +y), every subset, the cull mode unchanged -- so with the winding turned over.
 // [approx] the object's placed position stands for its current one. [not modelled] layer 5's alpha stamp
-// (S_9110's test floor only), boss06's quad (the boss shadows).
+// (S_9110's test floor only). Zava's quad (view_boss_shadow.inl) is among the quads.
 static void video_mirror_pass(Gpu& g, const Room& room, std::uint32_t cw, std::uint32_t ch, const Mat4& vp) {
     g_mirror.on = false;
     std::vector<Mirror::Quad> quads;
@@ -550,7 +552,8 @@ static void video_mirror_pass(Gpu& g, const Room& room, std::uint32_t cw, std::u
     }
     {
         QuadScope scope(g);
-        for (const Mirror::Quad& q : quads) draw_quad(g, g_vgpu.refl, g_vgpu.refl_depth, g.floor_quad_pipe, q.bind, q.v);
+        for (const Mirror::Quad& q : quads)
+            draw_quad(g, g_vgpu.refl, g_vgpu.refl_depth, q.add ? g.char_pipeline_add : g.floor_quad_pipe, q.bind, q.v);
     }
     g_mirror.stat[1] = int(quads.size());
     if (set) std::swap(static_cast<WorldPipes&>(g), g_vgpu.pipes[set]);
@@ -1040,8 +1043,8 @@ static void video_page(ui::List& L, SDL_Window* win, int& window_mode, bool& vsy
         if (ui::choice(L, "Shadows", &sl, kShadow, 3,
                        "The round shadow under each character. Full (the original's default): it lies on the steps "
                        "and slopes it falls on. Player: only yours does; the others are flat discs. Simple: all are "
-                       "flat discs. The bosses' own shadows and Toal's afterimages are not drawn yet. (Original: "
-                       "Shadows.)")) {
+                       "flat discs. The big bosses' own shadows are drawn at every setting, coarser at Player and "
+                       "Simple. Toal's afterimages are not drawn yet. (Original: Shadows.)")) {
             gr.shadow_effect_level = sl;
             persist();
         }
@@ -1244,6 +1247,9 @@ static bool video_drive(const std::string& cmd) {
                     g_shadow_stat[1], g_shadow_stat[2]);
         std::printf("  [video] water level %d surfaces %d grab %ux%u phase %.2f\n", int(settings().s.graphics.water_effect_level),
                     int(g_water.want), g_water.on ? g_vgpu.grab_w : 0u, g_water.on ? g_vgpu.grab_h : 0u, double(g_water.phase));
+        if (g_bshadow.stat[0] || g_bshadow.stat[2])
+            std::printf("  [video] boss shadow target %d triangles %d strength %.3f quads %d\n", g_bshadow.stat[0],
+                        g_bshadow.stat[1], double(g_bshadow.on ? g_bshadow.strength : 0.0f), g_bshadow.stat[2]);
         if (g_mirror.on)
             std::printf("  [video] mirror %ux%u floor %d objects %d images %d\n", g_vgpu.refl_w, g_vgpu.refl_h,
                         int(g_mirror.floor_on), g_mirror.stat[0], g_mirror.stat[1]);

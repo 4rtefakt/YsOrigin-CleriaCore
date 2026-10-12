@@ -3182,6 +3182,27 @@ CASES.update({
         drive="10:vstat;11:vopt=WaterEffectLevel=1;20:vstat;21:vopt=WaterEffectLevel=0;30:vstat;31:quit",
         expect=["[video] mirror 640x400 floor 1 objects 1 images 1", "[video] mirror 320x200 floor 1 objects 1 images 1",
                 "[video] mirror 320x200 floor 1 objects 0 images 1"]),
+    # The bosses' projected shadows (SHADOWS.md 4): Dalles's hull is drawn from below into his target -- 256 a
+    # side at Shadows Full, 128 at Player, 64 at Simple -- and the floor's flagged materials read it at 0.66.
+    "boss_shadow_dalles": dict(
+        room="S_70/S_7080/S_7080",
+        env={"CLERIA_CHAR": "1"},
+        drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:tier=10;"
+              "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
+              "16:flag=184,3;17:bracelet=116;60:boss7;300:vstat;301:vopt=ShadowEffectLevel=1;310:vstat;"
+              "311:vopt=ShadowEffectLevel=0;320:vstat;321:quit",
+        expect=["[video] boss shadow target 256 triangles 436 strength 0.660 quads 0",
+                "[video] boss shadow target 128 triangles 436 strength 0.660 quads 0",
+                "[video] boss shadow target 64 triangles 436 strength 0.660 quads 0"]),
+    # ... and Zava's two heads each cast into their own target, shown by one additive quad a head in the mirror
+    # floor's image (MirrorFloor is on in S_6082): the image holds the statue and four quads -- the two heads',
+    # the player's, one more actor's.
+    "boss_shadow_zava": dict(
+        room="S_60/S_6082/S_6082",
+        env={"CLERIA_CHAR": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;400:vstat;401:quit",
+        expect=["[video] boss shadow target 0 triangles 0 strength 0.000 quads 2", "[video] mirror 640x400 floor 1 objects 1 images 4"]),
 })
 # ---- batch G (2026-10-11) ----------------------------------------------------------------------------
 CASES.update({
