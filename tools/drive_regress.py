@@ -2553,6 +2553,20 @@ CASES.update({
         drive="5:opt=InfiniteHP=1;20:seen=#189,6;22:run=@itemcannotuse;23:actors;119:actors;121:quit",
         expect=["slot 1 taken: 0/1", "t23 actors", "id 189 cast 14 enemy hp 60 g1 0 pos (44.9,0.0,-1.8)", "t119 actors",
                 "id 189 cast 14 enemy hp 60 g1 0 pos (44.9,0.0,-1.8)"], absent=["[ai] #189"]),
+    # FIX_SLOTS.md S7, row 20 [LIKELY, not retail-proven, as S5c]: the EF2 particles' hit test needs the actor-stop
+    # byte clear — slot 1 alone [EXPORT 005645b0.c:109-110]. Hugo fires at a Selnarg at t21; under @GrowMenu (slot 0,
+    # taken at t22) the shot lands (2 dmg, HP 74 -> 72: it flew on and hit nothing before), under @ItemCannotUse
+    # (slot 1) it flies through.
+    "fix0_particle_hits": dict(
+        room="S_10/S_1002/S_1002", char="2", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;20:near=17;21:atk;22:run=@growmenu;23:actors;100:actors;101:scripts;102:quit",
+        expect=["slot 0 taken: 1/0", "id 17 cast 17 enemy hp 74", "[popup] 2 ffffff", "t100 actors",
+                "id 17 cast 17 enemy hp 72", "frozen 1 fix 1/0"]),
+    "fix1_particle_no_hit": dict(
+        room="S_10/S_1002/S_1002", char="2", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;20:near=17;21:atk;22:run=@itemcannotuse;23:actors;100:actors;101:scripts;102:quit",
+        expect=["slot 1 taken: 0/1", "t100 actors", "id 17 cast 17 enemy hp 74 g1 0 pos (30.4,-4.1,-37.3)",
+                "frozen 1 fix 0/1"], absent=["[popup]"]),
     # A skipped cutscene leaves what the same scene leaves played to its end (build/shell_re/ACCESS.md §1.5; retail has
     # no skip, so this is CleriaCore's own rule). Each case below skips with one Esc and pins what the survey of
     # 2026-10-12 read off the PLAYED scene after its Fix (tools: the scratch surveys named in ACCESS.md §1.5).
