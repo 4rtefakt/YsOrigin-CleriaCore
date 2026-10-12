@@ -124,6 +124,7 @@ struct RoomMesh {
         std::uint32_t v0 = 0, v1 = 0;    // vertices [v0, v1)
         std::uint32_t t0 = 0, t1 = 0;    // triangles [t0, t1)
         SobObject obj;                   // the placement it was built from
+        std::uint32_t model_flags = 0;   // its YMO header's +0x08 (0x100: mirror-image geometry, REFLECTIONS.md 3.2)
         // Its YMO's animation sections (FUN_005f31d0): name, frames, next, rate.
         struct Clip { std::string name; std::int32_t start = 0, end = 0, next = -1; float rate = 0.25f; };
         std::vector<Clip> clips;

@@ -562,6 +562,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // 0x127 SetDefaultCubeMapTexture(s) [BYTES 0x56b832].
                     if (sub == 0x11b && nargs >= 2) { host->effect_camera_offset(op(0), opf(1)); return Step::Continue; }
                     if (sub == 0x126 && nargs >= 1) { host->mirror_floor(op(0) != 0); return Step::Continue; }
+                    // 0x11d Scene_SetWaterPlane(f) [BYTES 0x56b411..0x56b42b -> FUN_00432e60].
+                    if (sub == 0x11d && nargs >= 1) { host->water_plane(opf(0)); return Step::Continue; }
                     if (sub == 0x127 && nargs >= 1) { host->cube_map(ops(0)); return Step::Continue; }
                     if (sub == 0x176 && nargs >= 2) { host->mesh_enable_event(ops(0), op(1) != 0); return Step::Continue; }
                     if (sub == 0x17b && nargs >= 2) { host->mesh_time_scale(ops(0), opf(1)); return Step::Continue; }

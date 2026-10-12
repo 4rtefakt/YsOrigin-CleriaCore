@@ -20,6 +20,45 @@ struct Camera {
         const Mat4 v = look_at_lh(pos, {pos.x + f.x, pos.y + f.y, pos.z + f.z}, {0, 1, 0});
         return v * perspective_lh(g_fov, aspect, near_, far_);
     }
+    // The same view mirrored in the water plane y = plane_y, as the reflection pass draws with it (record 1 of
+    // FUN_005ec6f0 [BYTES 0x5ec6f0..0x5ec9f7]; REFLECTIONS.md 4.2):
+    //   view' = D3DXMatrixReflect(plane) x view;  M = view' x proj;  C = P x transpose(inverse(M)) -- the plane in
+    //   clip space -- with -P when C.w > 0, unchanged projection when C.w == 0;  C normalised (4 components);
+    //   proj' = proj x K, K = identity with its third column = C.
+    // So a vertex's clip z becomes its signed distance to the water (over |C|): what lies under the water falls
+    // before the near plane. No user clip plane.
+    Mat4 reflected_view_proj(float aspect, float near_, float far_, float plane_y) const {
+        const Vec3 f = forward();
+        Mat4 r;                                    // D3DXMatrixReflect of (0, 1, 0, -plane_y)
+        r.m[5] = -1.0f; r.m[13] = 2.0f * plane_y;
+        const Mat4 m = r * look_at_lh(pos, {pos.x + f.x, pos.y + f.y, pos.z + f.z}, {0, 1, 0}) *
+                       perspective_lh(g_fov, aspect, near_, far_);
+        double a[4][8];                            // inverse(M), Gauss-Jordan
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 8; ++j) a[i][j] = j < 4 ? double(m.m[i * 4 + j]) : (j - 4 == i ? 1.0 : 0.0);
+        for (int c = 0; c < 4; ++c) {
+            int p = c;
+            for (int i = c + 1; i < 4; ++i) if (std::fabs(a[i][c]) > std::fabs(a[p][c])) p = i;
+            if (std::fabs(a[p][c]) < 1e-30) return m;
+            for (int j = 0; j < 8; ++j) std::swap(a[c][j], a[p][j]);
+            const double d = a[c][c];
+            for (int j = 0; j < 8; ++j) a[c][j] /= d;
+            for (int i = 0; i < 4; ++i) {
+                if (i == c) continue;
+                const double k = a[i][c];
+                for (int j = 0; j < 8; ++j) a[i][j] -= k * a[c][j];
+            }
+        }
+        double C[4];                               // C[j] = sum_i P[i] x inverse(M)[j][i], P = (0, 1, 0, -plane_y)
+        for (int j = 0; j < 4; ++j) C[j] = a[j][4 + 1] - double(plane_y) * a[j][4 + 3];
+        if (C[3] == 0.0) return m;
+        const double s = (C[3] > 0.0 ? -1.0 : 1.0) / std::sqrt(C[0] * C[0] + C[1] * C[1] + C[2] * C[2] + C[3] * C[3]);
+        Mat4 out = m;                              // M x K: only the third column changes
+        for (int i = 0; i < 4; ++i)
+            out.m[i * 4 + 2] = float(s * (double(m.m[i * 4]) * C[0] + double(m.m[i * 4 + 1]) * C[1] +
+                                          double(m.m[i * 4 + 2]) * C[2] + double(m.m[i * 4 + 3]) * C[3]));
+        return out;
+    }
 };
 
 // Place the camera to overlook a freshly-loaded room (orbit-style vantage).

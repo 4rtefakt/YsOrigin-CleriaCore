@@ -482,6 +482,10 @@ struct XsoHost {
     // registration FUN_00473540 (a second, mirrored draw of each actor) [EXPORT map: the only other xref is
     // FUN_00431260's clear]. Render-only: no gameplay reads it.
     virtual void mirror_floor(bool /*on*/) {}
+    // 0x11d Scene_SetWaterPlane(f h) [BYTES 0x56b411..0x56b42b -> FUN_00432e60 0x432e60..0x432eb0]: the water
+    // plane 0x7b2e40 = D3DXPlaneFromPointNormal((0, h + 0.025, 0), (0, 1, 0)) [BYTES 0x6bd0f8 = 0.025]. Its reader
+    // is the reflected camera FUN_005ec6f0 (render-only).
+    virtual void water_plane(float /*h*/) {}
     // 0x127 SetDefaultCubeMapTexture(s) [BYTES 0x56b832..0x56b845 -> FUN_004442c0(name)]: the reflection cube map
     // (render-only).
     virtual void cube_map(const std::string& /*name*/) {}

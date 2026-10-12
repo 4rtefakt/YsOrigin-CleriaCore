@@ -3177,6 +3177,56 @@ CASES.update({
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aplua_regress  # noqa: E402
+# ---- the renderer builder (2026-10-12): RENDER_LEFTOVERS.md ----------------------------------------------
+CASES.update({
+    # S_2005's water reflects (material flag 0x200000; REFLECTIONS.md 4): the room's WaterReflection script sets
+    # the plane (op 0x11d: h = -8.975, the plane at h + 0.025), the pass draws at half the render size at
+    # Reflections High and a quarter at Low, and not at all at Off.
+    "water_reflection": dict(
+        room="S_20/S_2005/S_2005",
+        drive="10:vstat;11:vopt=WaterEffectLevel=1;20:vstat;21:vopt=WaterEffectLevel=0;30:vstat;31:quit",
+        expect=["[video] water level 2 surfaces 1 grab 1280x800", "[video] reflection 640x400 plane y -8.950",
+                "[video] water level 1 surfaces 1 grab 640x400", "[video] reflection 320x200 plane y -8.950",
+                "[video] water level 0 surfaces 0 grab 0x0"]),
+    # The mirror floors (material flag 0x800000; REFLECTIONS.md 7): S_6082's image holds the room's `B` model,
+    # the statue save_01 mirrored about its base and -- MirrorFloor is on -- the player's sprite laid on the
+    # floor; half the render size at Reflections High, a quarter at Low and at Off, where the statue is left out.
+    "mirror_floor": dict(
+        room="S_60/S_6082/S_6082",
+        drive="10:vstat;11:vopt=WaterEffectLevel=1;20:vstat;21:vopt=WaterEffectLevel=0;30:vstat;31:quit",
+        expect=["[video] mirror 640x400 floor 1 objects 1 images 1", "[video] mirror 320x200 floor 1 objects 1 images 1",
+                "[video] mirror 320x200 floor 1 objects 0 images 1"]),
+    # The bosses' projected shadows (SHADOWS.md 4): Dalles's hull is drawn from below into his target -- 256 a
+    # side at Shadows Full, 128 at Player, 64 at Simple -- and the floor's flagged materials read it at 0.66.
+    "boss_shadow_dalles": dict(
+        room="S_70/S_7080/S_7080",
+        env={"CLERIA_CHAR": "1"},
+        drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:tier=10;"
+              "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
+              "16:flag=184,3;17:bracelet=116;60:boss7;300:vstat;301:vopt=ShadowEffectLevel=1;310:vstat;"
+              "311:vopt=ShadowEffectLevel=0;320:vstat;321:quit",
+        expect=["[video] boss shadow target 256 triangles 436 strength 0.660 quads 0",
+                "[video] boss shadow target 128 triangles 436 strength 0.660 quads 0",
+                "[video] boss shadow target 64 triangles 436 strength 0.660 quads 0"]),
+    # ... and Zava's two heads each cast into their own target, shown by one additive quad a head in the mirror
+    # floor's image (MirrorFloor is on in S_6082): the image holds the statue and four quads -- the two heads',
+    # the player's, one more actor's.
+    "boss_shadow_zava": dict(
+        room="S_60/S_6082/S_6082",
+        env={"CLERIA_CHAR": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;400:vstat;401:quit",
+        expect=["[video] boss shadow target 0 triangles 0 strength 0.000 quads 2", "[video] mirror 640x400 floor 1 objects 1 images 4"]),
+    # Toal's trail (SHADOWS.md 5): none in the human form's stand (C_119 has no entry for the tag); in the demon
+    # form the run (tag 301, then 302 where the wall stops him) leaves 108 copies of the trail image at Shadows
+    # Full and 54 at Player and Simple.
+    "toal_trail": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="3:flag=187,1;10:vstat;12:boost=30000;20:boostkey;70:move=1,0,300;100:vstat;"
+              "101:vopt=ShadowEffectLevel=1;110:vstat;111:vopt=ShadowEffectLevel=0;120:vstat;121:quit",
+        expect=["[video] trail level 2 tag -1 quads 0", "[video] trail level 2 tag 301 quads 108",
+                "[video] trail level 1 tag 301 quads 54", "[video] trail level 0 tag 302 quads 54"]),
+})
 # ---- batch G (2026-10-11) ----------------------------------------------------------------------------
 CASES.update({
     # Video: the water caustics (CONFIG_PARITY.md 13). A flooded room draws them room-wide, the frame steps every
