@@ -35,6 +35,10 @@ class TitleScreen {
     // FUN_00576c90 (pillars + logo, both in `tint`: the overlays' shade), then the list window.
     void draw(DrawList& out, std::uint32_t tint = 0xFFFFFFFF) const;
     bool list_alive() const { return list_.alive(); }
+    // 0x74e259 / 0x74ac3d outlive the title object (the host keeps them across its visits).
+    void set_list(int kind, int cursor_mem) { kind_ = kind; cursor_mem_ = cursor_mem; }
+    int kind() const { return kind_; }
+    int cursor_mem() const { return cursor_mem_; }
     // The list window's own tick while the book or the stage select holds the title: a chosen list closes.
     void fade_out(std::vector<int>& sounds) { if (list_.alive() && list_.accepted()) list_.update(WndInput{}, sounds); }
 

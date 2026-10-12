@@ -411,6 +411,9 @@ static void content_boss_watch(const std::int32_t* flags) {
     if (r.watch.prev[156] == 0 && flags[156] == 1) r.fight_room = r.room;
     static const char* const kFlagged[] = {"S_1099", "S_2099", "S_3099", "S_4099", "S_5099", "S_6082", "S_7080", "S_7099"};
     auto raise = [&](int flag) {
+        // [CleriaCore] not in a Time Attack / Arena run (flag 193): its fights are replays in a throwaway game, and
+        // a mod takes the event for the story's defeat (the Archipelago client sends a location check on it).
+        if (flags[193] != 0) return;
         content_log("boss_defeated " + r.room + (flag >= 0 ? " flag " + std::to_string(flag) : ""));
         events::Event e;
         e.kind = events::Kind::BossDefeated;
@@ -591,9 +594,12 @@ static bool record_tables_save(bool arena) {
 // The bonus modes' front end (BONUS_MODES.md §2.1, §3.1), kept across the title and the game: the mode byte
 // 0x74e25e (0 story, 1 Time Attack, 2 Arena), the title's state 0x74e25a (0 the list, 2 the stage select is wanted
 // / up, 3 a run was started: the title reopens the stage select), the stage picked 0x74ab9f, and what Character
-// Select and Difficulty chose (0x76bb74 — 0 = Adol, the boot value —, the type, 0x74ac3c / 0x74e685).
+// Select and Difficulty chose (0x76bb74 — 0 = Adol, the boot value —, the type, 0x74ac3c / 0x74e685). In the game:
+// the run's clocks (view_game.inl run_tick).
 struct RunState {
     int mode = 0, front = 0, pick = 0;
+    std::uint32_t stage_frames = 0, run_frames = 0;                     // 0x74e67c / 0x74e680: this stage's clock, the run's
+    int count_out = 0;                                                  // 0x7d9b70: the 181 ticks after a stage's win
     int character = 0, type = 0, difficulty = 0;
     bool easy = false;
     int column() const { return easy ? difficulty : difficulty + 1; }   // [BYTES 0x57e92e..0x57e947]: 0 Easy .. 3 Nightmare

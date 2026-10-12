@@ -1103,6 +1103,10 @@ title_again:
         BookRenderer tr;
         tr.init(g, fmt, asset_root, titems);
         TitleScreen tscreen;
+        // The list's kind 0x74e259 and its cursor memory 0x74ac3d are globals no title setup writes [XREF]: a run
+        // that comes back and is cancelled finds the Bonus list, the cursor on its entry.
+        static int s_title_kind = 0, s_title_cursor = 0;
+        tscreen.set_list(s_title_kind, s_title_cursor);
         PauseBook tbook;
         BonusShop tshop;
         StageSelect tstage;                              // a new title object: FUN_005755c0 zeroes the overlay channels
@@ -1168,7 +1172,8 @@ title_again:
         mouse::Point tbook_pt;                           // the book's open-time cursor (this+0x128)
         // CLERIA_TITLE_DRIVE (debug): "tick:cmd;..." on the title's own ticks, counted over every visit of the
         // process -- ok / esc / up / down / left / right (one press), shot=<name> (CLERIA_SHOT_DIR/<name>.ppm),
-        // quit. With it the title does not shoot and quit at t60: a drive run started with no room boots here.
+        // keys (the mouse mode 0x7325d4 off, as a direction through the input record leaves it: the steps above
+        // bypass the record, and a book's cursor warp turns the mode on), quit. With it the title does not shoot and quit at t60: a drive run started with no room boots here.
         static std::vector<std::pair<int, std::string>> tdrive;
         static int tdrive_tick = 0;
         static bool tdrive_on = false;
@@ -1238,6 +1243,7 @@ title_again:
                     else if (cmd == "up" || cmd == "down") vstep = cmd == "up" ? -1 : 1;
                     else if (cmd == "left" || cmd == "right") hstep = cmd == "left" ? -1 : 1;
                     else if (cmd.rfind("shot=", 0) == 0) tshot = cmd.substr(5);
+                    else if (cmd == "keys") g_cursor.mouse_mode = false;
                     else if (cmd == "quit") tquit = true;
                 }
                 std::vector<int> snd;
@@ -1329,10 +1335,27 @@ title_again:
                             const bool wrote = record_tables_save(arena);
                             std::printf("  [stage] Cancel: %s %s\n", arena ? "record.ar + record.are" : "record.ta + record.tae",
                                         wrote ? "saved" : "NOT saved");
+                        } else if (sev.launch >= 0 && (arena || g_run.character == 0)) {
+                            // [not modelled] the Arena (BONUS_MODES.md §6.2 step 12) and Adol (step 13): the stage
+                            // select comes back.
+                            std::printf("  [stage] row %d (%s): %s is not implemented\n", sev.launch,
+                                        arena ? stages::arena_name(sev.launch) : stages::time_attack_name(g_run.character, sev.launch),
+                                        arena ? "the Arena" : "Adol");
                         } else if (sev.launch >= 0) {
-                            // [not modelled yet] the run (BONUS_MODES.md §6.2 step 8): the stage select comes back.
-                            std::printf("  [stage] row %d (%s): the run is not implemented\n", sev.launch,
-                                        arena ? stages::arena_name(sev.launch) : stages::time_attack_name(g_run.character, sev.launch));
+                            // The launch [BYTES 0x57bf21..0x57bf5b]: 0x74ab9f = the row, 0x74e25a = 3, the scene of
+                            // the row, FUN_005832e0 (the character's marks = 0), FUN_00575970 (the new-game init
+                            // FUN_0041fd10 in the mode + the title's fade to the scene).
+                            g_run.pick = sev.launch; g_run.front = 3;
+                            for (records::RecordTable& t : g_rec_ta) t.clear_marks(stages::time_attack_count(g_run.character));
+                            character = g_run.character;
+                            skin = g_run.type;
+                            difficulty = g_run.easy ? 1 : 2 + g_run.difficulty;
+                            ng_commit = true;
+                            tf_cur = 0.0f; tf_tgt = 1.0f;
+                            audio.fade_out_bgm(0x5dc);
+                            std::printf("  [stage] row %d (%s): the run starts in %s\n", sev.launch,
+                                        stages::time_attack_name(g_run.character, sev.launch),
+                                        stages::time_attack_scene(g_run.character, std::max(sev.launch, 1)));
                         }
                     }
                 } else {
@@ -1343,6 +1366,7 @@ title_again:
                     in.vstep = vstep;
                     if (live) wnd_mouse(in);
                     const TitleAction act = tscreen.update(in, false, tgates, tr.metrics(), snd);
+                    s_title_kind = tscreen.kind(); s_title_cursor = tscreen.cursor_mem();
                     if (act == TitleAction::NewGame || act == TitleAction::LoadGame || act == TitleAction::Options ||
                         act == TitleAction::TimeAttack || act == TitleAction::Arena)
                         tbook_pt = {g_in.x, g_in.y};            // FUN_005a4fd0 saves the record's cursor
@@ -1607,7 +1631,17 @@ title_again:
     // header set, per-character starting items. This also writes flag 149 = 1 — which is
     // what keeps Yunica's swing on her AXE (her attack ASO branches on Flag_IsEqualInt(149,1);
     // 0 would render the Crimson Lotusblade fire-skill form).
-    game.new_game(character);
+    // In a bonus mode (0x74e25e = 1 / 2) the same init [EXPORT 0041fd10.c:26-72]: flag 193 = 1, flag 195 = the stage
+    // picked 0x74ab9f — a Boss Rush (row 0) starts at stage 1 —, and the scene label "timeattack_init", on which the
+    // scene entry FUN_00431260 zeroes both clocks. A dev boot on a room and a Load are mode 0.
+    const bool in_run = show_title && g_run.mode != 0 && !pending_load;
+    if (!in_run) g_run.mode = 0;
+    game.new_game(character, in_run);
+    if (in_run) {
+        game.g_flags[195] = g_run.mode == 1 && g_run.pick == 0 ? 1 : g_run.pick;
+        g_run.stage_frames = g_run.run_frames = 0;
+        g_run.count_out = 0;
+    }
     // FUN_0041fd10: flag 144 = the difficulty 0x74ac3c (0 Normal / 1 Hard / 2 Nightmare), 143 =
     // Easy (0x74e685), 203 = Very Easy (0x74e684). [not modelled] 201 (0x74e25f).
     // Flags 297 / 298 / 299 = min(clear byte, 1) for Yunica / Hugo / Toal [EXPORT 0041fd10.c:175-186]: what
@@ -1720,7 +1754,8 @@ title_again:
     // character into its prologue (SCENEFLOW.md §5). A room given on the command line is a
     // dev start and is kept.
     if (show_title && !pending_load) {
-        auto it = g.sob_index.find("S_0000");
+        // ... and a run enters its stage's room (title+0x27c = the scene of stageName[char][row]).
+        auto it = g.sob_index.find(in_run ? stages::time_attack_scene(character, game.g_flags[195]) : "S_0000");
         if (it != g.sob_index.end()) boot_sob = it->second;
     }
     if (pending_load) {
@@ -2281,6 +2316,8 @@ title_again:
         if (via) door_label = via->name;
         g_time_scale = 1.0f;
         player_vanished = false;
+        g_run.stage_frames = 0;                    // 0x74e67c [EXPORT 00431840.c:163]; flag 194, the clock's first-frame latch
+        game.g_flags[194] = 0;
         // FUN_00431260 publishes the pending scene and clears 0x76a538; the old room's staged door and
         // its walk-out die with the old player actor.
         door_pending.reset(); door_commit.reset(); door_latched = false; door_walk = {};
@@ -3243,6 +3280,10 @@ title_again:
         void set_time_scale(float s) override { if (time_scale_fn) time_scale_fn(s); }
         std::function<void(int, int)> weapon_level_fn;
         void weapon_level(int k, int v) override { if (weapon_level_fn) weapon_level_fn(k, v); }
+        std::function<void(int)> set_level_fn;
+        void set_level(int n) override { if (set_level_fn) set_level_fn(n); }
+        std::function<void(int, int)> equip_slot_fn;
+        void equip_slot(int i, int v) override { if (equip_slot_fn) equip_slot_fn(i, v); }
         // 0x163 / 0x164: the +0x130 bits on the world actor (the player's too: find(13)).
         void chr_no_force(int id, bool on) override { if (worldHost) worldHost->chr_no_force(rid(id), on); }
         void chr_slant_fire(int id, float deg) override { if (worldHost) worldHost->chr_slant_fire(rid(id), deg); }   // 0x161
@@ -6036,8 +6077,8 @@ title_again:
     WndDialog gameover_menu;
     bool return_to_title = false;
     auto game_over = [&] {                               // FUN_00427820
-        std::printf("  [gameover] gameover.dds + Retry / Return to Title\n");
         const bool time_attack = game.g_flags[193] != 0;
+        std::printf(time_attack ? "  [gameover] Retry / Return to Title (a run: no card)\n" : "  [gameover] gameover.dds + Retry / Return to Title\n");
         if (!time_attack) gameover_card.open("gameover", /*hold*/true, /*alt*/true);
         gameover_menu.menu(512.0f, 460.8f, " ", {"Retry", "Return to Title"}, {"retry", "title"},
                            bookR.metrics(), /*centre_y*/false, /*tick*/false);
@@ -6132,6 +6173,65 @@ title_again:
             if (ui::button(L, "Set", "Write the new value into the flag.")) game.g_flags[flag_i] = int(flag_f);
         });
     }
+    // ---- the bonus modes' run controller: the head of FUN_004281c0 [BYTES 0x428274..0x428447] (BONUS_MODES.md §2.4) ----
+    // Each tick the game runs with no menu up (0x74ab8f == 0), while flag 193 != 0. Time Attack: the two clocks
+    // 0x74e67c (this stage) / 0x74e680 (the run) count while a boss fight is armed (flag 156) and the player
+    // lives, from the second such tick on (flag 194); once flag 156 has dropped with a stage time, 181 ticks count
+    // out (0x7d9b70) and the stage is won: its record (FUN_00583530), then in a Boss Rush the next stage's scene,
+    // and after the last one the whole run's record (FUN_00583760); the run ends (FUN_005833f0) at the title.
+    // A dead player (0x74ab71: the game-over menu is up) sets no record.
+    auto run_tick = [&] {
+        std::int32_t* f = game.g_flags;
+        if (g_run.mode == 2 || f[156] != 0) {
+            if (f[194] == 0) f[194] = 1;
+            else if (player.hp >= 1) { ++g_run.run_frames; ++g_run.stage_frames; }
+        } else if (g_run.stage_frames != 0 && ++g_run.count_out > 180) {
+            f[193] = 2;
+        }
+        if (f[193] != 2 || g_run.count_out <= 180) return;
+        f[193] = 1;
+        const int ch = f[150] & 3, d = f[143] != 0 ? 0 : f[144] + 1;     // the record's block [BYTES 0x583549..0x583583]
+        const bool dead = gameover_menu.alive();
+        records::RecordTable& tab = g_rec_ta[g_run.second()];
+        if (!dead) {
+            if (g_run.stage_frames != 0) {
+                const bool best = tab.submit(ch, d, f[195], g_run.stage_frames);
+                std::printf("  [run] t%llu stage %d (%s) won in %u frames = %s%s\n", (unsigned long long)tick_count, f[195],
+                            stages::time_attack_name(ch, f[195]), g_run.stage_frames,
+                            stages::time_text(std::uint32_t(std::uint64_t(g_run.stage_frames) * 1000 / 60)).c_str(), best ? " (a record)" : "");
+            }
+            if (g_run.pick == 0 && f[195] != stages::time_attack_count(ch) - 1) {
+                // The next stage [BYTES 0x428330..0x4283f5]: the Boost gauge (flag 550), the drop timers
+                // (544..546) and the ailment timers (529..532) = 0, full HP and MP, the skill charge (518) = 0,
+                // level 1 with 0 EXP and 0 SP (the next room's @Flag_Inv sets its own level), then its scene.
+                player.boost = 0;
+                inv.timer_atk = inv.timer_def = inv.timer_mp = 0;
+                for (int& t : ail.t) t = 0;
+                player.hp = player.max_hp;
+                player.sp_cur = player.sp_max;
+                ++f[195];
+                skill_charge = {};
+                player.level = 1; player.exp = 0; player.sp = 0;
+                csHost.pending_scene = stages::time_attack_scene(ch, f[195]);
+                g_run.count_out = 0;
+                std::printf("  [run] next stage %d -> %s\n", f[195], csHost.pending_scene.c_str());
+                return;
+            }
+            if (g_run.pick == 0 && g_run.run_frames != 0) {
+                const bool best = tab.submit(ch, d, 0, g_run.run_frames);
+                std::printf("  [run] Boss Rush done in %u frames = %s%s\n", g_run.run_frames,
+                            stages::time_text(std::uint32_t(std::uint64_t(g_run.run_frames) * 1000 / 60)).c_str(), best ? " (a record)" : "");
+            }
+        }
+        // FUN_005833f0 [BYTES 0x5833f0..0x583471]: the BGM off, the fader to black, the title as the next scene,
+        // flag 140 = 1, record.ta + record.tae saved. [approx] the fade: the title's own entry fade-in follows at once.
+        const bool wrote = record_tables_save(false);
+        std::printf("  [run] the run ends%s: record.ta + record.tae %s\n", dead ? " (dead: no record)" : "", wrote ? "saved" : "NOT saved");
+        audio.fade_out_bgm(0xbb8);
+        cur_bgm = 0;
+        return_to_title = true; running = false; accum = 0;
+        g_run.count_out = 0;
+    };
     while (running) {
         if (!csHost.pending_scene.empty()) {
             const std::string req = csHost.pending_scene;
@@ -6410,6 +6510,8 @@ title_again:
             }
         }
         ++game.g_flags[199];                       // 0x76bc38, the play time (FUN_004281c0 0x428274)
+        if (game.g_flags[193] != 0 && !paused) run_tick();
+        if (!running) break;                       // a run ended: the title
         speedrun_tick(room.name, hud.boss_frac >= 0.0f, hud.boss_cur, game.g_flags, player.hp > 0);   // IGT, auto-splits
         for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
         if (!drive_more.empty()) { drive.insert(drive.end(), drive_more.begin(), drive_more.end()); drive_more.clear(); }

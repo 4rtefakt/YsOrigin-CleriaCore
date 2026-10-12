@@ -446,6 +446,9 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                         for (std::uint32_t k = 0; k < 4; ++k) host->weapon_level(int(k), op(k));
                         return Step::Continue;
                     }
+                    // 0x82 SetLevel(n) [BYTES 0x5684cf..0x5684ef] / 0x89(i, v) [BYTES 0x5688f1..0x56892d].
+                    if (sub == 0x82 && nargs >= 1) { host->set_level(op(0)); return Step::Continue; }
+                    if (sub == 0x89 && nargs >= 2) { host->equip_slot(op(0), op(1)); return Step::Continue; }
                     // 0xb2 AddPlayerSP(i) [case 0xb2 -> FUN_004fa290]: the SP wallet 0x76a75c += i,
                     // clamped to 0..999999 (and mirrored into the player's +0xc4).
                     if (sub == 0xb2 && nargs >= 1) {

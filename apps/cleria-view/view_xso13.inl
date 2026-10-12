@@ -57,3 +57,17 @@ csHost.time_scale_fn = [&](float s) { g_time_scale = s; };
 csHost.weapon_level_fn = [&](int k, int v) {
     if (k >= 0 && k < 4) inv.tier[k] = v;
 };
+// 0x82 SetLevel(n): FUN_004200f0 (the level, the EXP total that reaches it, the stats), then HP = max HP.
+csHost.set_level_fn = [&](int n) {
+    player.level = std::clamp(n, 1, 60);
+    player.exp = ginfo.ok() ? float(ginfo.exp_to_level(player.level)) : 0.0f;
+    player.max_hp = int(player_stats().max_hp);
+    player.hp = player.max_hp;
+    std::printf("  [script] SetLevel(%d): HP %d\n", n, player.hp);
+};
+// 0x89(i, v): the equipment dwords from 0x76a628 — the accessory, the held tool, the bracelet.
+csHost.equip_slot_fn = [&](int i, int v) {
+    if (i == 0) inv.accessory = v;
+    else if (i == 1) inv.held = v;
+    else if (i == 2) inv.magic = v;
+};

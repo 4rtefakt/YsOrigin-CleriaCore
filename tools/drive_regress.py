@@ -855,6 +855,9 @@ CASES = {
 _S1080 = "21:move=0,-1,300;320:every=20,{end},ok;321:every=7,{end},duel={cast};"
 _S3080 = "20:at=-12,36,0;30:move=0,1,30;80:every=20,{end},ok;81:every=7,{end},duel={cast};"
 _LOCK = dict(CLERIA_DRIVE_LOCKSTEP="1")
+# A title boot's way into the Time Attack stage select as Yunica on Normal: Bonus Modes, Time Attack, the first
+# bar, Difficulty's default row. The window is up from about t270; the cases' own presses start at t300.
+_TA_YUNICA = "40:down;45:down;50:ok;100:ok;170:ok;240:ok;"
 CASES.update({
     # S_1080 Yunica: Vagullion (M460) dies -> Battle_1's Wait_FlagEqualInt(156, 0) -> 230, 311, warp 1.
     "duel_s1080_vagullion": dict(
@@ -1874,6 +1877,46 @@ CASES.update({
                 "[stage] Time Attack stage select: Yunica, column 1, 13 row(s), cursor 0", "shot stage.ppm",
                 "[stage] Cancel: record.ta + record.tae saved", "==== second boot", "[clear] record.ta: 5 time(s)",
                 "[clear] Time Attack records cleared: 2 file(s) deleted, 0 time(s) left"]),
+    # BONUS_MODES.md §2, a Boss Rush from a title boot (Yunica, Normal, row 0): the new-game init in the mode enters
+    # S_1080 at stage 1, whose flag-193 block runs @Flag_Inv (preset 1: SetLevel(5)) and Battle_1. Vagullion falls to
+    # the duel pilot (the shell's one-hit kills), flag 156 drops, and 181 ticks later the controller records the
+    # stage and enters stage 2, S_1099 (preset 2: level 8), where the Velagunder pilot (`boss` + `atk`, the shell's
+    # Damage dealt x10) wins again: stage 3 is S_2080 at level 12 with its duel armed. No boss_defeated reaches the mods.
+    "time_attack_boss_rush": dict(
+        room=None, env=_LOCK, records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)])},
+        title=_TA_YUNICA + "300:ok",
+        drive="10:opt=OneHitKill=1;11:opt=DamageTaken=0;12:opt=DamageDealt=10;30:every=7,200,duel=50;300:every=12,2000,boss;"
+              "301:every=12,2000,atk;2400:flagdump;2410:scripts;2415:dflags;2420:quit",
+        expect=["[stage] row 0 (Boss Rush): the run starts in S_1080", "[script] SetLevel(5): HP 83", "cast 50 hp 1860/1860",
+                "stage 1 (Vagullion) won in", "(a record)", "[run] next stage 2 -> S_1099", ">> entering S_1099",
+                "[script] SetLevel(8): HP 100", "stage 2 (Velagunder) won in", "[run] next stage 3 -> S_2080",
+                ">> entering S_2080", "[script] SetLevel(12): HP 123", " 193=1 194=1 195=3", "script Battle_0", " 156=1 "],
+        absent=["boss_defeated S_", "[gameover]", "the run ends"]),
+    # A single stage (row 1, Vagullion) to its end: the stage's record, the run ends (record.ta + .tae written), the
+    # title comes back on the stage select with the cursor on the row and the new time in the pulse (the shot);
+    # Cancel writes the tables again, and a second boot reads the one time back.
+    "time_attack_stage_record": dict(
+        room=None, env=_LOCK, records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)])},
+        title=_TA_YUNICA + "300:down;310:ok;420:shot=back;440:esc;500:quit",
+        drive="10:opt=OneHitKill=1;11:opt=DamageTaken=0;30:every=7,200,duel=50",
+        room2="S_10/S_1009/S_1009", drive2="10:quit",
+        expect=["[stage] row 1 (Vagullion): the run starts in S_1080", "stage 1 (Vagullion) won in", "(a record)",
+                "[run] the run ends: record.ta + record.tae saved", "[game] Return to Title",
+                "[stage] Time Attack stage select: Yunica, column 1, 13 row(s), cursor 1", "shot back.ppm",
+                "[stage] Cancel: record.ta + record.tae saved", "==== second boot", "[clear] record.ta: 1 time(s)"],
+        absent=["[run] next stage", "boss_defeated S_"], files=["record.ta", "record.tae"]),
+    # BONUS_MODES.md §2.5, the game over in a run: no gameover.dds, the same two rows. Retry reloads the stage's room
+    # from the continue snapshot its battle script took (the loadout runs again, retries 1, the stage and the mode
+    # kept); Return to Title leaves the run with no record and reopens the stage select.
+    "time_attack_gameover": dict(
+        room=None, env=_LOCK, records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)])},
+        title=_TA_YUNICA + "300:ok;430:esc;470:quit",
+        drive="10:opt=OneHitKill=1;30:every=7,200,duel=50;400:hp=0;560:ok;700:flagdump;800:hp=0;960:down;970:ok",
+        expect=[">> entering S_1099", "[death] HP 0", "[gameover] Retry / Return to Title (a run: no card)", "[gameover] chose retry",
+                ">> entering S_1099", "[gameover] Retry -> S_1099", "retries 1", "[script] SetLevel(8): HP 100",
+                " 193=1 194=1 195=2 196=1", "[death] HP 0", "[gameover] chose title", "[game] Return to Title",
+                "[stage] Time Attack stage select: Yunica, column 1, 13 row(s), cursor 0", "[stage] Cancel"],
+        absent=["the run ends", "stage 2 (Velagunder) won"]),
     # DIFFICULTY.md G2 / G8 on Hard (diff=3, then a reload so the room spawns under it): a regular Rif's 60 HP
     # is 72 and the Normal 112 is 134 (FUN_004202e0's x1.2); the hit that takes 22 on Normal takes
     # 22 * 1.5 + 1 = 34 (FUN_004fa740's tail).

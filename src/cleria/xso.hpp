@@ -275,6 +275,13 @@ struct XsoHost {
     // 0x7F SetWeaponLevel(a, b, c, d) [BYTES 0x568582..0x5685ee]: FUN_004201d0(k, op_k) for
     // k = 0..3, i.e. the weapon tier 0x76a634 + 8k = op_k, then the stat recompute.
     virtual void weapon_level(int /*character*/, int /*tier*/) {}
+    // 0x82 SetLevel(n) [BYTES 0x5684cf..0x5684ef]: FUN_004200f0(n) — the level 0x76a760 = n, the EXP 0x76a748 = the
+    // total that reaches n (0x76b910; 0x76c180 the level before), the stat recompute FUN_00420c40 — then HP
+    // 0x76a730 = max HP 0x76a72c. Only @Flag_Inv and InitArena run it (the bonus modes' loadouts).
+    virtual void set_level(int /*level*/) {}
+    // 0x89(i, v) [BYTES 0x5688f1..0x56892d]: u32[0x76a628 + 4i] = v — slot 0 the equipped accessory, 1 the held
+    // tool, 2 the bracelet 0x76a630.
+    virtual void equip_slot(int /*slot*/, int /*item*/) {}
     // 0x15E ChrAllInEventBox_SetForce(box, fx, fy, fz, frames, grounded) (FUN_00571ef0) and 0x15F
     // ChrAll_SetPointForce(x, y, z, strength, frames, rmin, rmax, grounded) (FUN_005720b0): every
     // actor inside the named region box (FUN_0042dc20, the .SEV record) / at a distance in
