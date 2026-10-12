@@ -3182,6 +3182,46 @@ SMOKE = [
 ]
 
 
+# The frame's edges (the user report of a dark line at the left of the title, 2026-10-12: the left side strip ended on
+# the field's edge and blended in the black texel past its art). A title boot at a frame size (CLERIA_DRIVE_SIZE): the
+# title, the book over it (New Game: Character Select, the AltPillar strips) and the Bonus Shop (ShopPillar) are shot
+# and measured by frame_edges — the first and last column and row are drawn, and on a screen wider than 4:3 the strips'
+# inner columns match their neighbours (the title and the book: their strips are smooth there; the shop's are not).
+for _w, _h in ((2560, 1440), (1920, 1080), (1366, 768), (1280, 800), (1024, 768)):
+    CASES["frame_edges_%dx%d" % (_w, _h)] = dict(
+        room=None, env=dict(CLERIA_NYA="1", CLERIA_DRIVE_SIZE="%dx%d" % (_w, _h)),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)]), "record.ar2": [0]},
+        title="30:shot=title;40:ok;90:shot=book;100:esc;160:down;165:down;170:ok;220:down;225:down;230:ok;330:shot=shop;340:quit",
+        drive="10:quit", edges={"title": True, "book": True, "shop": False},
+        expect=["[shop] opened", "[edges] title %dx%d: ok" % (_w, _h),
+                "[edges] book %dx%d: ok" % (_w, _h), "[edges] shop %dx%d: ok" % (_w, _h)])
+
+
+def frame_edges(path, name, seams):
+    """One line on a shot (a .ppm): '[edges] <name> WxH: ok', or what is wrong — an edge column / row that is mostly
+    the clear colour (black), or (`seams`, wider than 4:3) a side strip's inner column that differs from the strip's
+    next one by more than 8 levels."""
+    try:
+        blob = open(path, "rb").read()
+    except OSError:
+        return "[edges] %s: no shot" % name
+    _, size, _, px = blob.split(b"\n", 3)
+    w, h = map(int, size.split())
+    col = lambda x: [px[x * 3 + c::w * 3] for c in range(3)]
+    mean = lambda x: sum(map(sum, col(x))) / (3.0 * h)
+    black = lambda rgb: sum(1 for p in zip(*rgb) if p == (0, 0, 0)) / float(len(rgb[0]))
+    row = lambda y: [px[y * w * 3 + c:(y + 1) * w * 3:3] for c in range(3)]
+    bad = ["%s %d is %d%% black" % (k, i, round(100 * f)) for k, i, f in
+           (("column", 0, black(col(0))), ("column", w - 1, black(col(w - 1))), ("row", 0, black(row(0))),
+            ("row", h - 1, black(row(h - 1)))) if f > 0.5]
+    left = (w - 4 * h // 3) // 2
+    if seams and left > 2:
+        for x, nb in ((left - 1, left - 2), (w - left, w - left + 1)):
+            if abs(mean(x) - mean(nb)) > 8:
+                bad.append("column %d is %.1f, column %d %.1f" % (x, mean(x), nb, mean(nb)))
+    return "[edges] %s %dx%d: %s" % (name, w, h, "; ".join(bad) or "ok")
+
+
 # The cases of a minute or more (measured 2026-10-09): with --jobs they start first, so the longest one
 # (darm_fight, ~7 minutes) does not start last and run on alone.
 LONG = ["darm_fight", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
@@ -3251,6 +3291,8 @@ def run(name, case, exe, assets):
         lost = [n for n in case.get("files", []) if not os.path.exists(os.path.join(saves, n))]   # must be in the save folder
         if lost:
             out = "MISSING FILE " + ", ".join(lost)
+        for shot, seams in case.get("edges", {}).items():   # shots measured while the folder exists (frame_edges)
+            out += chr(10) + frame_edges(os.path.join(env["CLERIA_SHOT_DIR"], shot + ".ppm"), shot, seams)
     ok = aplua_regress.finish(name, case, srv, msg.append) and check(name, case, r, out, msg.append)
     return ok, msg, time.time() - t0
 

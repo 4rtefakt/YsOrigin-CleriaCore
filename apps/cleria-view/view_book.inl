@@ -427,7 +427,10 @@ struct BookRenderer {
                     const WGPUBindGroup pb = bind_of(g, {TexRef::Menu, wide ? c.tex.id : c.tex.id + 1});
                     const float Lx = (W - W43) / 2, R = Lx + W43;
                     const float ul = wide ? 0.16796875f : 0.1015625f, ur = wide ? 0.83203125f : 0.8984375f;
-                    quad(pb, 0, 0, Lx, H, 0, 0, ul, 0.75f, c.diffuse, c.specular, true);
+                    // The left strip is half a pixel wider than the margin (x -0.5, w Lx + 0.5: title [BYTES
+                    // 0x576e53..0x576eab], book FUN_005a6230), so its last column samples the strip's last art
+                    // texel; ending at Lx blends in the black texel past ul, a dark line at the field's edge.
+                    quad(pb, 0, 0, Lx + 0.5f, H, 0, 0, ul, 0.75f, c.diffuse, c.specular, true);
                     // The right strip starts a pixel inside the field (R - 1.0 for the title's
                     // strips, R - 0.5 for the book's), so no seam shows against the logo / Back00.
                     quad(pb, R - 1.0f, 0, W, H, ur, 0, 1, 0.75f, c.diffuse, c.specular, true);
