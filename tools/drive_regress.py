@@ -2696,6 +2696,62 @@ CASES.update({
               "11:flag=163,1;20:at3=-34,8,15.5,0;40:every=10,4870,oktapf;4880:scripts;4890:boss6;12500:quit",
         expect=["slot 0 taken: 1/0", "slot 0 released: 0/0", "t4880 scripts", "script Battle_Hugo pc 38",
                 "Zava phase 2 action 0", "flag 225 = 1", "head a destroyed"]),
+    # S_7099 (Darm) has no floor for Hugo or Yunica, and S_7000 has a SEN door to it. Nobody walks through it: a
+    # collision wall at z -3.98 stops a running, double-jumping Hugo short of the door at z 10.1 (Toal enters by
+    # EVT_7000_THOR_2's ChangeScene). The room root starts no script that opens anything there for any character.
+    "s7000_no_walk_to_s7099": dict(
+        room="S_70/S_7000/S_7000", char="2", env=_LOCK,
+        drive="1:opt=InfiniteHP=1;1:opt=CutsceneSkip=3;2:flag=163,1;3:flag=181,1;10:move=0,1,400;50:jump;60:jump;64:jump;"
+              "70:pos;300:pos;301:quit",
+        expect=["feet (-31.881, 4.899, -3.975)", "feet (-31.883, 0.000, -3.975)"], absent=[">> entering"]),
+    # The one element-gated object of floors 4-7 (drive `objs` over every room): S_4006's crumbling wall kabe_00,
+    # resists 1 / 1 / 0 / 1 — class 2 only. Hugo's Trap Mine (an Eye's 0x88 shot) and Yunica's Bolt Crash break it.
+    "kabe_s4006_hugo": dict(
+        room="S_40/S_4006/S_4006", char="2", env=dict(_LOCK, CLERIA_DMG="1"),
+        drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;8:bracelet=117;9:flag=117,1;15:killall;20:obj=kabe_00;30:skill+;32:skill-;"
+              "33:abil;200:quit",
+        expect=["[abil] t33 sec 0x10c", "fires 0x88 (class 2)", "[hit] kabe_00 -> s_kabe00"]),
+    "kabe_s4006_yunica": dict(
+        room="S_40/S_4006/S_4006", char="1", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;8:bracelet=117;9:flag=117,1;15:killall;20:obj=kabe_00;30:atk;50:atk;"
+              "70:atk;95:pos;100:skill+;102:skill-;240:obj=kabe_00;242:skill+;244:skill-;400:quit",
+        expect=["t95 pos", "[hit] kabe_00 -> s_kabe00"]),
+    # The double jump (163) is S_4002's chest box_01, behind the room's ward, for every character.
+    "djump_chest_s4002_yunica": dict(
+        room="S_40/S_4002/S_4002", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;5:opt=InfiniteHP=1;8:killall;20:every=10,500,oktapf;515:flagdump;520:obj=box_01;530:act;"
+              "540:every=10,1200,oktapf;1200:scripts;1201:flagdump;1202:quit",
+        expect=["chest box_01 -> S_BOX01.XSO", "t515 flagdump", "[probe] box_01 -> s_box01", "frozen 0 fix 0/0", " 163=1 "],
+        count={" 163=1 ": 1}),          # not in the dump before the chest
+    "djump_chest_s4002_hugo": dict(
+        room="S_40/S_4002/S_4002", char="2", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;5:opt=InfiniteHP=1;8:killall;20:every=10,500,oktapf;515:flagdump;520:obj=box_01;530:act;"
+              "540:every=10,1200,oktapf;1200:scripts;1201:flagdump;1202:quit",
+        expect=["chest box_01 -> S_BOX01.XSO", "t515 flagdump", "[probe] box_01 -> s_box01", "frozen 0 fix 0/0", " 163=1 "],
+        count={" 163=1 ": 1}),          # not in the dump before the chest
+    # Boost and the super in a floor-4 room (S_4001, level 40). Yunica: the Boost press, then the second press runs
+    # her super (section 0x139) and it lands on the room's monsters (the combo counter); Hugo: section 0x12c and the
+    # barrier — a hit 100 ticks in is a GUARD.
+    "kit_f4_yunica": dict(
+        room="S_40/S_4001/S_4001", char="1", env=_LOCK,
+        drive="2:level=40;3:flag=187,1;4:flag=188,1;5:opt=InfiniteHP=1;12:boost=30000;20:boostkey;22:abil;90:boostkey;91:abil;"
+              "300:abil;400:abil;401:quit",
+        expect=["[abil] t22 sec 0x2 mp 3000 lag 3000 boost 29940 boosting 1", "[abil] t91 sec 0x139", "[abil] t300 sec 0x139",
+                "combo 3/", "[abil] t400 sec 0x2"]),
+    "kit_f4_hugo": dict(
+        room="S_40/S_4001/S_4001", char="2", env=_LOCK,
+        drive="2:level=40;3:flag=187,1;4:flag=188,1;5:opt=InfiniteHP=1;8:killall;12:boost=30000;20:boostkey;22:abil;90:boostkey;"
+              "91:abil;190:hurt=60;191:stats;300:abil;301:quit",
+        expect=["[abil] t22 sec 0x2 mp 3000 lag 3000 boost 29940 boosting 1", "[abil] t91 sec 0x12c", "[popup] 0 ff0000",
+                "Chr_Damage player atk 60 -> HP 284", "[abil] t300 sec 0x2"]),
+    # R8's last link, the pause book itself: Esc, the Item page (Right, Confirm), Down, Down, Right onto the Dreaming
+    # Idol, Confirm, Yes -> @UseSekizou -> s_Evt5080_Yunica_1 -> the Mantid Medallion (82) and 271.
+    "route_s5080_yunica_idol_book": dict(
+        room="S_50/S_5080/S_5080", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;5:flag=104,1;6:flag=270,1;7:flag=268,1;8:flag=105,1;20:at3=-61.1,3,40,0;60:esctap;"
+              "110:right;140:ok;170:down;182:down;194:right;226:ok;266:ok;306:scripts;320:every=10,4500,oktapf;4500:scripts;"
+              "4501:flagdump;4502:quit",
+        expect=["use -> @UseSekizou", "script s_Evt5080_Yunica_1", "t4500 scripts", "frozen 0 fix 0/0", " 82=1 ", " 271=1 "]),
     # The ending scene and the clear write, per character: S_0003's Evt_0001_<name> -> demo7 -> Clear_Event_1, whose
     # EventXX(4) sets the character's clear flag and byte and saves record.ta2 (in the case's own save folder).
     "ending_hugo": dict(

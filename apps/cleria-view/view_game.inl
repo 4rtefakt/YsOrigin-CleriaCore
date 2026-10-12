@@ -4672,6 +4672,14 @@ title_again:
                 face_dir = {-dx, 0.0f, -dz};
                 facing = heading_to_facing(face_dir.x, face_dir.z, cam.yaw);
             }
+        } else if (cmd == "objs") {                   // the room's scripted scene objects (audit aid: what needs which tool)
+            for (const SceneTrigger& t : room.mesh.triggers)
+                std::printf("  [obj] %s trigger %d script %s hp %.0f def %.0f resist %.0f%.0f%.0f%.0f i %d %d at (%.1f, %.1f, %.1f)\n",
+                            t.name.c_str(), t.trigger, t.script_stem.c_str(), t.hp, t.def, t.resist[0], t.resist[1], t.resist[2],
+                            t.resist[3], t.i0, t.i1, t.position.x, t.position.y, t.position.z);
+            for (const Interactable& it : room.mesh.interactables)
+                std::printf("  [obj] %s action script %s i %d %d at (%.1f, %.1f, %.1f)\n", it.name.c_str(), it.script_name.c_str(),
+                            it.i0, it.i1, it.position.x, it.position.y, it.position.z);
         } else if (cmd == "exits") {                  // the room's SEN exits (audit aid: the door sweeps)
             for (std::size_t i = 0; i < room.sen.triggers.size(); ++i) {
                 const SenTrigger& t = room.sen.triggers[i];
@@ -6190,6 +6198,8 @@ title_again:
                     csMgr.vm.g_flags[150] = character;
                     if (!csMgr.start(bev.script))
                         std::printf("  [book] %s did not start\n", bev.script.c_str());
+                    else if (std::getenv("CLERIA_DRIVE"))
+                        std::printf("  [book] t%llu use -> %s\n", (unsigned long long)tick_count, bev.script.c_str());
                 }
                 if (bev.save_slot >= 0) {
                     save_cont();                     // FUN_0042e9a0 snapshots before it writes
