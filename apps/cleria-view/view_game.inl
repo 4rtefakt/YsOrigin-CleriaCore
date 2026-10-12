@@ -1336,18 +1336,18 @@ title_again:
                             const bool wrote = record_tables_save(arena);
                             std::printf("  [stage] Cancel: %s %s\n", arena ? "record.ar + record.are" : "record.ta + record.tae",
                                         wrote ? "saved" : "NOT saved");
-                        } else if (sev.launch >= 0 && (arena || g_run.character == 0)) {
-                            // [not modelled] the Arena (BONUS_MODES.md §6.2 step 12) and Adol (step 13): the stage
-                            // select comes back.
-                            std::printf("  [stage] row %d (%s): %s is not implemented\n", sev.launch,
-                                        arena ? stages::arena_name(sev.launch) : stages::time_attack_name(g_run.character, sev.launch),
-                                        arena ? "the Arena" : "Adol");
+                        } else if (sev.launch >= 0 && g_run.character == 0) {
+                            // [not modelled] Adol (BONUS_MODES.md §6.2 step 13, ARENA.md §6): the stage select comes back.
+                            std::printf("  [stage] row %d (%s): Adol is not implemented\n", sev.launch,
+                                        arena ? stages::arena_name(sev.launch) : stages::time_attack_name(g_run.character, sev.launch));
                         } else if (sev.launch >= 0) {
-                            // The launch [BYTES 0x57bf21..0x57bf5b]: 0x74ab9f = the row, 0x74e25a = 3, the scene of
-                            // the row, FUN_005832e0 (the character's marks = 0), FUN_00575970 (the new-game init
-                            // FUN_0041fd10 in the mode + the title's fade to the scene).
+                            // The launch [BYTES 0x57bf21..0x57bf5b; the Arena's 0x57c938..0x57c973]: 0x74ab9f = the
+                            // row, 0x74e25a = 3, the scene of the row, FUN_005832e0 (the character's marks = 0; the
+                            // Arena's FUN_00583340: every mark of both arena tables), FUN_00575970 (the new-game
+                            // init FUN_0041fd10 in the mode + the title's fade to the scene).
                             g_run.pick = sev.launch; g_run.front = 3;
-                            for (records::RecordTable& t : g_rec_ta) t.clear_marks(stages::time_attack_count(g_run.character));
+                            if (arena) for (records::RecordTable& t : g_rec_ar) t.clear_marks(records::RecordTable::kArenaRows);
+                            else for (records::RecordTable& t : g_rec_ta) t.clear_marks(stages::time_attack_count(g_run.character));
                             character = g_run.character;
                             skin = g_run.type;
                             difficulty = g_run.easy ? 1 : 2 + g_run.difficulty;
@@ -1355,8 +1355,9 @@ title_again:
                             tf_cur = 0.0f; tf_tgt = 1.0f;
                             audio.fade_out_bgm(0x5dc);
                             std::printf("  [stage] row %d (%s): the run starts in %s\n", sev.launch,
-                                        stages::time_attack_name(g_run.character, sev.launch),
-                                        stages::time_attack_scene(g_run.character, std::max(sev.launch, 1)));
+                                        arena ? stages::arena_name(sev.launch) : stages::time_attack_name(g_run.character, sev.launch),
+                                        arena ? stages::arena_scene(sev.launch)
+                                              : stages::time_attack_scene(g_run.character, std::max(sev.launch, 1)));
                         }
                     }
                 } else {
@@ -1756,7 +1757,8 @@ title_again:
     // dev start and is kept.
     if (show_title && !pending_load) {
         // ... and a run enters its stage's room (title+0x27c = the scene of stageName[char][row]).
-        auto it = g.sob_index.find(in_run ? stages::time_attack_scene(character, game.g_flags[195]) : "S_0000");
+        auto it = g.sob_index.find(!in_run ? "S_0000" : g_run.mode == 2 ? stages::arena_scene(game.g_flags[195])
+                                                                         : stages::time_attack_scene(character, game.g_flags[195]));
         if (it != g.sob_index.end()) boot_sob = it->second;
     }
     if (pending_load) {
@@ -1781,11 +1783,13 @@ title_again:
     // capped at 60.
     expaward::Combo kill_combo;          // 0x76c1a8 / 0x76c1b0
     // The SP credit of a kill or a boss: FUN_004fa390(base) into the wallet 0x76a75c (FUN_004fa290, clamped
-    // 0..999999), skipped when the base is 0. [not modelled] the mode byte 0x74e25e (time attack / arena: 0).
+    // 0..999999), skipped when the base is 0; in an Arena run (the mode byte 0x74e25e = 2) off the easy side the
+    // factor is 3 / 5 / 7 for Normal / Hard / Nightmare (sp_award).
     // Returns the SP credited (the Lua mods' "sp" filter may change it: `source` / `cast` are its query's).
     auto credit_sp = [&](int base, const char* source = "boss", int cast = -1) -> int {
         if (base == 0) return 0;
         expaward::SpIn si;
+        si.mode = g_run.mode;
         si.index = game.g_flags[144]; si.easy = game.g_flags[143] != 0;
         si.very_easy = game.g_flags[203] != 0; si.bless_sp = (game.g_flags[217] & 0x100) != 0;
         si.rate = settings().s.access.sp_rate;
@@ -2949,6 +2953,10 @@ title_again:
         bool world_changed = false;
         void spawn(int entity_id, int cast_type, float x, float y, float z, float yaw,
                    int group) override {
+            // The player's cast (CASTINFO +0x60 == 0xd): FUN_00570400 builds the actor, places it and makes it the
+            // player [EXPORT 00570400.c:57-72] — InitArena's Chr_Locate(13, 13, ..) puts her at the arena's start.
+            // [approx] placed and turned, not rebuilt (her state is the new game's already).
+            if (cast_type == 13) { chr_pos(13, x, y, z); chr_dir(13, yaw); return; }
             if (entity_id > 0) spawn_cast[entity_id] = cast_type;
             if (worldHost) { worldHost->spawn(entity_id, cast_type, x, y, z, yaw, group);
                              world_changed = true; }
@@ -2956,6 +2964,19 @@ title_again:
         void despawn(int entity_id) override {
             if (worldHost) { worldHost->despawn(entity_id); world_changed = true; }
         }
+        // op 0x18E Arena: the world's spawner, then the warp effect 0x10D (EFTLIST2[13] enemy\z_warp.eft) bound to
+        // each monster's matrix, mode 2 [EXPORT 005722c0.c:154-225]. op 0x18F: the view's (the run's end).
+        std::function<std::vector<int>(int, int, int)> arena_fn;
+        std::function<void()> arena_save_fn;
+        void arena(int cast, int level, int count) override {
+            if (!arena_fn) return;
+            const std::vector<int> ids = arena_fn(cast, level, count);
+            for (int id : ids) if (locate_chr_fx) locate_chr_fx(0x10D, id, 0.0f, 0.0f, 0.0f, 1.0f, 2, std::string());
+            world_changed = true;
+            if (mgr) mgr->vm.g_flags[132] += int(ids.size());   // the factory's ++ (class 0x10) [EXPORT 00459410.c:82-87]: the wave's wait sees them at once
+            std::printf("  [arena] Arena(cast %d, level %d, count %d): %zu spawned\n", cast, level, count, ids.size());
+        }
+        void arena_save() override { if (arena_save_fn) arena_save_fn(); }
         void enclose(float xmin, float zmin, float xmax, float zmax) override {   // op 0x10e
             if (worldHost) worldHost->enclose(xmin, zmin, xmax, zmax);
         }
@@ -6065,10 +6086,12 @@ title_again:
     // cleria.game.save(slot) (LUA_API.md §4; not retail): the statue save's two steps (FUN_0042e9a0: the continue
     // snapshot, then the slot and its sidecar) when the game can be saved. [MOD] the retail Archipelago mod's
     // autosave gate: 185 == 1 (the player has the controls), 156 == 0 (no boss fight), 190 == 0 (no arena),
+    // 193 == 0 (not in a Time Attack / Arena run: retail's room-entry save skips them [EXPORT 00431840.c:693]),
     // a second in the room. [H] the rest is this port's: a session that started, no Fix, alive, no staged
     // door or ChangeScene.
     g_lua.b.save = [&](int slot) {
-        if (game.g_flags[185] != 1 || game.g_flags[156] != 0 || game.g_flags[190] != 0 || g_content.room_age < 60) return false;
+        if (game.g_flags[185] != 1 || game.g_flags[156] != 0 || game.g_flags[190] != 0 || game.g_flags[193] != 0 ||
+            g_content.room_age < 60) return false;
         if (content_session_pending() || csMgr.world_frozen() || player.hp < 1 || death_t > 0) return false;
         if (door_pending || door_commit || door_latched || !csHost.pending_scene.empty()) return false;
         save_cont();
@@ -6232,6 +6255,30 @@ title_again:
         cur_bgm = 0;
         return_to_title = true; running = false; accum = 0;
         g_run.count_out = 0;
+    };
+    // ---- op 0x18F ArenaSave [BYTES 0x56a8d1..0x56a910] (ARENA.md §3.2, §4): the SP held joins the Arena SP wallet
+    // 0x74c128 (capped at 9,999,999; record.ar2); with the player alive the stage clock is the row's record when it
+    // beats the stored one (FUN_00583640); then the run ends as a Time Attack does (FUN_00583490): the BGM off, the
+    // title next, flag 140, record.ar + record.are saved. [not modelled] the platform's three achievements.
+    csHost.arena_fn = [&](int cast, int level, int count) { return world.arena_spawn(cast, level, count); };
+    csHost.arena_save_fn = [&] {
+        const std::int32_t* f = game.g_flags;
+        g_arena_sp = std::uint32_t(std::min<std::uint64_t>(std::uint64_t(g_arena_sp) + std::uint32_t(std::max(player.sp, 0)), 9999999u));
+        const bool wallet = arena_sp_save();
+        std::printf("  [arena] ArenaSave: SP %d banked, Arena SP %u; record.ar2 %s\n", player.sp, g_arena_sp, wallet ? "saved" : "NOT saved");
+        const bool dead = gameover_menu.alive();
+        if (!dead && g_run.stage_frames != 0) {
+            const int ch = f[150] & 3, d = f[143] != 0 ? 0 : f[144] + 1;
+            const bool best = g_rec_ar[g_run.second()].submit(ch, d, f[195], g_run.stage_frames);
+            std::printf("  [arena] t%llu stage %d (%s) cleared in %u frames = %s%s\n", (unsigned long long)tick_count, f[195],
+                        stages::arena_name(f[195]), g_run.stage_frames,
+                        stages::time_text(std::uint32_t(std::uint64_t(g_run.stage_frames) * 1000 / 60)).c_str(), best ? " (a record)" : "");
+        }
+        const bool wrote = record_tables_save(true);
+        std::printf("  [arena] the run ends%s: record.ar + record.are %s\n", dead ? " (dead: no record)" : "", wrote ? "saved" : "NOT saved");
+        audio.fade_out_bgm(0xbb8);
+        cur_bgm = 0;
+        return_to_title = true; running = false; accum = 0;
     };
     while (running) {
         if (!csHost.pending_scene.empty()) {

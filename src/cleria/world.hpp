@@ -62,6 +62,7 @@ struct SpawnRequest {
     Vec3 pos{};
     float yaw_degrees = 0;  // the op stores DEGREES; the engine converts (FUN_00443a80)
     int group = 0;          // op6. Only 1..4 are honoured; 0 = untagged.
+    int level = 0;          // FUN_004202e0's level (op 0x18E's); 0 = the cast's own (ENEMYINFO +0xe8)
 };
 
 // The tables a spawn needs to turn a cast type into a live actor with real stats.
@@ -92,6 +93,7 @@ class ActorWorld : public XsoHost {
     // ** An existing actor with this id is REUSED, not duplicated ** — step 1 of the
     // engine's own sequence looks the id up first and only allocates on a miss.
     Actor* spawn(const SpawnRequest& r);
+    std::vector<int> arena_spawn(int cast, int level, int count);   // op 0x18E: the ids spawned
 
     // --- XsoHost: the primitive interface the VM calls -------------------------
     void spawn(int entity_id, int cast_type, float x, float y, float z,

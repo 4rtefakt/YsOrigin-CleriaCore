@@ -279,6 +279,11 @@ struct XsoHost {
     // total that reaches n (0x76b910; 0x76c180 the level before), the stat recompute FUN_00420c40 — then HP
     // 0x76a730 = max HP 0x76a72c. Only @Flag_Inv and InitArena run it (the bonus modes' loadouts).
     virtual void set_level(int /*level*/) {}
+    // 0x18E Arena(cast, level, count): `count` (0 = 8) monsters of CASTINFO row `cast` at `level` (0 = their own)
+    // at random places of the arena (FUN_005722c0). 0x18F ArenaSave(): the SP held goes to the Arena SP wallet
+    // (record.ar2), the stage's record, the run ends at the title (build/mode_re/ARENA.md §3.1-§3.2, §4).
+    virtual void arena(int /*cast*/, int /*level*/, int /*count*/) {}
+    virtual void arena_save() {}
     // 0x89(i, v) [BYTES 0x5688f1..0x56892d]: u32[0x76a628 + 4i] = v — slot 0 the equipped accessory, 1 the held
     // tool, 2 the bracelet 0x76a630.
     virtual void equip_slot(int /*slot*/, int /*item*/) {}

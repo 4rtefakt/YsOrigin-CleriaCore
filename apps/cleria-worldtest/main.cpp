@@ -118,6 +118,38 @@ int main(int argc, char** argv) {
         check(t3.in_group(1) && t3.in_group(2) && t3.in_group(3),
               "group 3 ALSO answers 1 and 2 (bits 8..10, AND-tested)");
     }
+    // --- op 0x18E Arena (FUN_005722c0, ARENA.md §3.1) ----------------------------
+    {
+        ActorWorld w(tables);
+        std::uint32_t rs[4] = {123456789u, 362436069u, 521288629u, 88675123u};
+        w.rng = rs;
+        // The first word of the state above: t = x ^ (x << 11); w' = w ^ (w >> 19) ^ t ^ (t >> 8).
+        const std::uint32_t t0 = 123456789u ^ (123456789u << 11), w1 = 88675123u ^ (88675123u >> 19) ^ t0 ^ (t0 >> 8);
+        const std::vector<int> ids = w.arena_spawn(14, 0, 0);
+        check(ids.size() == 8 && w.actors().size() == 8, "count 0 = eight monsters");
+        const Actor& a0 = w.actors().front();
+        check(std::fabs(a0.pos.x - std::clamp(float(w1 >> 17) / 32767.0f * 18.0f - 9.0f - 0.085f, -11.325f, 11.325f)) < 1e-4f,
+              "x = (first word >> 17) / 32767 x 18 - 9 - 0.085");
+        bool box = true, faded = true;
+        for (const Actor& a : w.actors()) {
+            box = box && a.pos.x >= -9.086f && a.pos.x <= 8.916f && a.pos.z >= 35.982f && a.pos.z <= 47.984f && a.pos.y == 2.1f;
+            faded = faded && a.ai.alpha == 0.0f && a.alpha_to == 1.0f && a.alpha_step == 0.02f && a.is_enemy();
+        }
+        check(box, "every monster inside the 18 x 12 box round (-0.085, 41.983), y 2.1");
+        check(faded, "alpha 0 -> 1 at 0.02 a tick");
+        ActorWorld w2(tables);
+        std::uint32_t rs2[4] = {123456789u, 362436069u, 521288629u, 88675123u};
+        w2.rng = rs2;
+        w2.arena_spawn(14, 0, 1);
+        check(rs2[1] == w1 && rs2[0] == 88675123u, "three words a monster: after one spawn the state is (old w, word 1, word 2, word 3)");
+        check(w.arena_spawn(0x32, 0, 0).size() == 1 && w.arena_spawn(0xa7, 0, 5).size() == 1 && w.arena_spawn(14, 0, 3).size() == 3,
+              "the single casts come alone; a count is taken as given");
+        const Enemy* e = et.get(14);
+        const std::vector<int> lv = w.arena_spawn(14, 30, 1);
+        const Actor* hi = lv.empty() ? nullptr : w.find(lv[0]);
+        check(e && hi && hi->level == 30 && hi->max_hp == enemy_restat(gi, *e, 14, 30, StatMode{}).max_hp && hi->max_hp > a0.max_hp,
+              "the level operand restats the monster (FUN_004202e0); 0 keeps its own");
+    }
 
     // --- the id scheme ------------------------------------------------------------
     {

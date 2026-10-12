@@ -33,7 +33,11 @@
                     env.flags = game.g_flags; env.hp = &hp; env.max_hp = float(player.max_hp);
                     env.player_alive = player.hp > 0; env.boost = &player.boost; env.oxygen = &oxy.o2;
                     env.sp_rate = settings().s.access.sp_rate;    // SPrate 0x76a5f8 (the shell's Cheats)
-                    if (game.g_flags[144] == 2) env.gold_scale = 0.01f;   // DIFFICULTY.md G13 (0x6bd084)
+                    // The SP pickup's factor [EXPORT 00585ff0.c:282-291]: the story's Nightmare x 0.01 (DIFFICULTY.md
+                    // G13, 0x6bd084); an Arena run off the easy side 1 + (2 x index + 2) = 3 / 5 / 7.
+                    if (g_run.mode == 0) { if (game.g_flags[144] == 2) env.gold_scale = 0.01f; }
+                    else if (g_run.mode == 2 && game.g_flags[143] == 0 && game.g_flags[203] == 0)
+                        env.gold_scale = float(game.g_flags[144] * 2 + 2) + 1.0f;
                     // mods (LUA_API.md §5.2): what the pickup applies, for pickup_collected; the pickup's own value
                     // (a drop filter's, spawn_pickup's), then the "pickup" filter, then for SP the "sp" filter.
                     PickupFx got{pk.id, 7, 1.0f, 0};

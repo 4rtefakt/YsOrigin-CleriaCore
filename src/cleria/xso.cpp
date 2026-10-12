@@ -449,6 +449,11 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // 0x82 SetLevel(n) [BYTES 0x5684cf..0x5684ef] / 0x89(i, v) [BYTES 0x5688f1..0x56892d].
                     if (sub == 0x82 && nargs >= 1) { host->set_level(op(0)); return Step::Continue; }
                     if (sub == 0x89 && nargs >= 2) { host->equip_slot(op(0), op(1)); return Step::Continue; }
+                    // 0x18E Arena(cast, level, count) [BYTES 0x56a915..0x56a972 -> FUN_005722c0], 0x10D DebugArena(cast)
+                    // (FUN_00572770: the same spawner, level 0), 0x18F ArenaSave() [BYTES 0x56a8d1..0x56a910].
+                    if (sub == 0x18e && nargs >= 3) { host->arena(op(0), op(1), op(2)); return Step::Continue; }
+                    if (sub == 0x10d && nargs >= 1) { host->arena(op(0), 0, 0); return Step::Continue; }
+                    if (sub == 0x18f) { host->arena_save(); return Step::Continue; }
                     // 0xb2 AddPlayerSP(i) [case 0xb2 -> FUN_004fa290]: the SP wallet 0x76a75c += i,
                     // clamped to 0..999999 (and mirrored into the player's +0xc4).
                     if (sub == 0xb2 && nargs >= 1) {

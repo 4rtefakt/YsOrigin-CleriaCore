@@ -107,7 +107,7 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
                 sm.hard = stat_flags[144]; sm.easy = stat_flags[143] != 0; sm.very_easy = stat_flags[203] != 0;
                 sm.boss_rush = stat_flags[193] != 0; sm.retries = stat_flags[196];
             }
-            const EnemyStats s = enemy_restat(*tables_.game, *e, c->cast_id, 0, sm);
+            const EnemyStats s = enemy_restat(*tables_.game, *e, c->cast_id, r.level, sm);
             a->max_hp = s.max_hp;
             a->hp = s.max_hp;
             a->atk = s.atk;
@@ -116,7 +116,7 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
             a->exp_reward = s.exp;
             a->sp_reward = s.sp;
             if (e->ai_sight != 0.0f) a->flyer = true;   // EI+0xb0 (0x45967a)
-            a->level = e->level;
+            a->level = r.level ? r.level : e->level;
             a->move_speed = e->move_speed;
             a->enemy_index = enemy_index_for_cast(c->cast_id);
         }
@@ -150,6 +150,41 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
         }
     }
     return a;
+}
+
+// XSO op 0x18E Arena(cast, level, count): FUN_005722c0 [EXPORT 005722c0.c:70-232; consts BYTES 0x6bdf6c..].
+// count 0 = 8; the eight single casts (M360, M460, the duel casts) come alone. Each monster: the ordinary
+// factory, three steps of the game's xorshift (x from the first word, z from the second, the third unused), a
+// place in the 18 x 12 box round the player's start (-0.085, 41.983) at y 2.1, clamped into the fence's inside,
+// faded in from alpha 0 by 0.02 a tick, its stats at `level` (0 = the cast's own). The caller binds the warp
+// effect 0x10D to each id returned. [not modelled] the actor pool's limit (a full pool drops the rest).
+std::vector<int> ActorWorld::arena_spawn(int cast, int level, int count) {
+    std::vector<int> ids;
+    int n = count ? count : 8;
+    if (cast == 0x32 || cast == 0x28 || (cast >= 0xa7 && cast <= 0xac)) n = 1;
+    auto draw = [&]() -> std::uint32_t {
+        if (!rng) return 0;
+        std::uint32_t* q = rng;
+        const std::uint32_t t = q[0] ^ (q[0] << 11);
+        q[0] = q[1]; q[1] = q[2]; q[2] = q[3];
+        q[3] = q[3] ^ (q[3] >> 19) ^ t ^ (t >> 8);
+        return q[3];
+    };
+    for (int i = 0; i < n; ++i) {
+        const std::uint32_t r1 = draw(), r2 = draw();
+        draw();
+        SpawnRequest r;
+        r.cast_type = cast; r.level = level;
+        r.pos = {float(r1 >> 17) / 32767.0f * 18.0f - 9.0f - 0.085f, 2.1f, float(r2 >> 17) / 32767.0f * 12.0f - 6.0f + 41.983f};
+        Actor* a = spawn(r);
+        if (!a) break;
+        if (a->pos.y < 2.0f) a->pos.y = 2.0f;
+        a->pos.x = std::clamp(a->pos.x, -11.325f, 11.325f);
+        if (a->pos.z > 51.325f) a->pos.z = 51.325f; else if (a->pos.z < 33.0f) a->pos.z = 33.0f;
+        a->ai.alpha = 0.0f; a->alpha_to = 1.0f; a->alpha_step = 0.02f;
+        ids.push_back(a->instance_id);
+    }
+    return ids;
 }
 
 // XSO op 0xa0 (FUN_004341a0): bulk-spawn the room's SCT placements. Each placement's
