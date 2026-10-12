@@ -2567,6 +2567,58 @@ CASES.update({
         drive="5:opt=InfiniteHP=1;20:near=17;21:atk;22:run=@itemcannotuse;23:actors;100:actors;101:scripts;102:quit",
         expect=["slot 1 taken: 0/1", "t100 actors", "id 17 cast 17 enemy hp 74 g1 0 pos (30.4,-4.1,-37.3)",
                 "frozen 1 fix 0/1"], absent=["[popup]"]),
+    # Hugo and Yunica on floors 4-5 (build/audit/ROUTE_F47_HUGO.md / ROUTE_F47_YUNICA.md): where their path is not
+    # Toal's. Jenocres as Hugo (s_EvtZaba_Hugo -> Battle_Hugo), jenocres_fight's own drive.
+    "jenocres_hugo": dict(
+        room="S_40/S_4013/S_4013", char="2",
+        drive="4:opt=DamageTaken=0;20:every=20,4300,ok;4380:actors;4390:opt=OneHitKill=1;"
+              "4400:every=15,4700,near=40;4401:every=15,4700,atk;4700:actors;5000:dflags;5001:scripts;5002:quit",
+        expect=["[actor] id 168 cast 40 enemy hp 5988", "M360 death section 5", "[actor] id 168 cast 40 enemy hp 0",
+                "[content] boss_defeated S_4013", "flags 130=0 131=1 133=0 156=0", "script Battle_Hugo"],
+        count={"boss_defeated": 1}),
+    # ROUTE_F47 R7: Pictimos' second round, Hugo only. The first kill (224) starts Battle_Hugo_1's revive scene
+    # (3160 ticks, Confirm only: the pilot would hold him off the scene's walk), Battle_Hugo_2 sets 156 again, the
+    # second kill sets 224 again and AfterBattle_Hugo_2 runs. [found] the mods' boss_defeated fires for each round.
+    "pictimos_hugo_round2": dict(
+        room="S_50/S_5099/S_5099", char="2", env={"CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
+              "40:every=20,1000,ok;1030:every=40,2600,boss5;1038:every=40,2600,atk;2600:every=20,5760,oktapf;5765:scripts;"
+              "5766:dflags;5770:every=40,9000,boss5;5778:every=40,9000,atk;9000:every=20,9400,oktapf;9400:scripts;9401:quit",
+        expect=["flag 224 = 1", "slot 0 released: 0/0", "t5765 scripts", "script Battle_Hugo_2 pc 35",
+                "flags 130=0 131=0 133=0 156=1", "flag 224 = 1", "t9400 scripts", "script AfterBattle_Hugo_2"],
+        count={"flag 224 = 1": 2}),
+    # ROUTE_F47 R8, Yunica's item gates. S_4021's evil door: the Evil Ring held (Flag_IsEquip(94)) and 93 == 1 ->
+    # Look_Door -> EV_4021_Yunica_2 -> S_4017's EV_4017_Yunica_1. Hugo's branch of the same door: EV_4021_Hugo_2.
+    "route_s4021_yunica": dict(
+        room="S_40/S_4021/S_4021", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;5:flag=93,1;6:held=94;7:flag=94,1;20:at3=0,0,6,0;25:move=0,1,10;40:act;41:scripts;"
+              "60:every=10,6000,ok;6000:scripts;6001:quit",
+        expect=["[probe] actor 166 -> look_door", "script EV_4021_Yunica_2", ">> entering S_4017", "t6000 scripts",
+                "script EV_4017_Yunica_1"]),
+    "route_s4021_hugo": dict(
+        room="S_40/S_4021/S_4021", char="2", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;5:flag=93,1;6:held=94;7:flag=94,1;20:at3=0,0,6,0;25:move=0,1,10;40:act;41:scripts;"
+              "60:every=10,6000,ok;6000:scripts;6001:quit",
+        expect=["[probe] actor 166 -> look_door", "script EV_4021_Hugo_2", ">> entering S_4017", "t6000 scripts",
+                "script EV_4017_Hugo_1"]),
+    # ... S_5080: the Dreaming Idol used by the statue (the book's use of item 0x69 starts @UseSekizou; started here by
+    # the drive, the book's own press is not driven) with 104 / 270 set, inside the 10-unit sphere: s_Evt5080_Yunica_1
+    # plays (slot 1, 4070 ticks) and gives the Mantid Medallion (82) and 271.
+    "route_s5080_yunica_idol": dict(
+        room="S_50/S_5080/S_5080", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;5:flag=104,1;6:flag=270,1;7:flag=268,1;20:at3=-61.1,3,40,0;40:run=@UseSekizou;41:scripts;"
+              "60:every=10,4200,ok;4200:scripts;4201:flagdump;4202:quit",
+        expect=["slot 1 taken: 0/1", "script s_Evt5080_Yunica_1", "slot 1 released: 0/0", "t4200 scripts", "frozen 0 fix 0/0",
+                " 82=1 ", " 271=1 "]),
+    # ROUTE_F47 R1 as Yunica: S_4005's Karon event encloses her and waits for 180 == 6 exactly; the six Karons killed,
+    # the count is 6 and Battle_Yunica goes on (it takes its Fix again).
+    "karon_event_yunica": dict(
+        room="S_40/S_4005/S_4005", char="1", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:every=10,2700,ok;"
+              "2751:actors;2760:opt=OneHitKill=1;2770:every=12,3000,nearest;2771:every=12,3000,atk;3000:scripts;"
+              "3001:flagdump;3002:quit",
+        expect=["slot 0 released: 0/0", "[actor] id 172 cast 60 enemy hp 261", "slot 0 taken: 1/0", "t3000 scripts",
+                "script Battle_Yunica", " 180=6 "]),
     # XSO op 0x161 Chr_SlantFire (FUN_00571ca0: +0x4ec = degrees x 0.0174533; it was unhandled): Toal's scene in S_5097,
     # walked into and played with Confirm — Hugo's Eye 167 is slanted -5 degrees at pc 1803 (seen at t7250), the pitch
     # anime_GenerateEffect gives its attached shot effect [EXPORT 004496f0.c:106].
