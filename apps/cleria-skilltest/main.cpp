@@ -226,6 +226,102 @@ int main(int, char**) {
         check(x::hugo_flag157(0, 1) == 0 && x::hugo_flag157(1, 0) == 2 && x::hugo_flag157(2, 0) == 1 && x::hugo_flag157(3, 2) == 2,
               "Hugo Extra: flag 157 by bracelet (Ventus 0, Terra 2, Ignis 1, none unchanged)");
     }
+    {   // Napishtim Adol (ADOL.md §4): the costs, the Terra press counter, the Ignis release
+        namespace x = cleria::extra;
+        CostIn a; a.chr = 0; a.adol_alt = true;
+        int cs[3];
+        for (int k = 0; k < 3; ++k) { a.slot = k; cs[k] = cost(a); }
+        a.difficulty = 2; a.slot = 1;
+        CostIn f; f.chr = 0; f.slot = 0;
+        check(cs[0] == 1500 && cs[1] == 1800 && cs[2] == 1200 && cost(a) == 1800 && cost(f) == 1000,
+              "Napishtim Adol's skills cost 1500 / 1800 / 1200 (no Nightmare add); Felghana 1000");
+        x::Napishtim n;
+        bool early = false;
+        for (int i = 0; i < 10; ++i) { early = early || n.press(1); n.frame(1, 0x121); }
+        const x::Napishtim::Tint t10 = n.frame(1, 0x121);
+        const bool fire = n.press(1);
+        check(!early && fire && n.count == 0 && n.lock == 60.0f && t10.op == 2 && t10.colour == 0xc0c000u,
+              "Terra: the 11th quick press plays 0x124 (lockout 60); at 10 presses the tint is 192 red + green");
+        int locked = 0;
+        for (int i = 0; i < 60; ++i) { if (n.press(1)) ++locked; n.frame(1, 0x124); }
+        check(locked == 0 && n.count == 0 && n.lock == 0.0f, "...no count during the 60-tick lockout");
+        x::Napishtim d;
+        for (int i = 0; i < 6; ++i) d.press(1);
+        std::uint32_t c12 = 0, col6 = 0;
+        int op_low = -1;
+        for (int i = 0; i < 20; ++i) {
+            const x::Napishtim::Tint t = d.frame(1, 0);
+            if (i == 0) col6 = t.colour;
+            if (i == 11) c12 = d.count;
+            op_low = t.op;
+        }
+        check(col6 == 0x262600u && c12 == 6 && d.count == 0 && op_low == 1 && d.frame(1, 0x124).op == 0,
+              "Terra: 6 presses tint 38; idle past 12 ticks the count falls one a tick; the tint is off below 6 (0x124 keeps its flash)");
+        x::Napishtim o;
+        for (int i = 0; i < 30; ++i) { o.press(0); o.press(2); o.frame(0, 0); }
+        o.press(1); o.on_switch();
+        check(o.count == 0 && o.since == 0.0f, "the counter only steps with Terra; a bracelet switch clears it");
+        check(x::Napishtim::ignis_release(2, false, 0x11b) == 0x11c && x::Napishtim::ignis_release(2, false, 0x11d) == 0x11e &&
+              x::Napishtim::ignis_release(2, false, 0x11f) == 0x120 && x::Napishtim::ignis_release(2, true, 0x11b) == -1 &&
+              x::Napishtim::ignis_release(1, false, 0x11b) == -1 && x::Napishtim::ignis_release(2, false, 0x11c) == -1,
+              "Ignis: the button up in a wind-up (0x11b / 0x11d / 0x11f) starts its swing");
+    }
+    {   // The kind-0x18 chain lightning (GOXX_17_19.md §3)
+        namespace x = cleria::extra;
+        const std::int32_t sp[8] = {1, 0x41700000, 0x3f800000, 0x3fe66666, 20, 624, 0x3eb851ec, 6};
+        const x::Runner r = x::special_runner(sp, {0, 0.75f, 0}, 0.0f, 10.0f);
+        check(r.power == 15.0f && r.scale == 1.8f && r.step == 0.36f && r.effect == 624 && r.p == 6 && r.life == 121,
+              "anime_Special(1, ..): the charged Ignis runner (power 15, scale 1.8, step 0.36, effect 624, C 20, P 6)");
+        const cleria::Vec3 c0 = x::Chain::centre({0, 0, 0}, 0.0f);
+        check(c0.x == 2.0f && c0.z == 2.0f && x::Chain::in_range(c0, {13.9f, 0, 2.0f}) && !x::Chain::in_range(c0, {14.1f, 0, 2.0f}),
+              "the chain's scan: 12.0 around the point (2 cos, 2 cos) from the caster");
+        // Three monsters on the x axis; 5 hops: nearest first, then least visited / nearest to the last one.
+        const std::vector<x::Chain::Target> found = {{7, {6, 0, 0}}, {8, {2, 0, 0}}, {9, {4, 0, 0}}};
+        x::Chain ch = x::Chain::make({0, 0, 0}, 0.0f, -15.0f, 5, 25, found, 10.0f, 0x1000001u);
+        std::string order;
+        for (const x::Chain::Hop& h : ch.hops) order += std::to_string(h.id);
+        check(!ch.ray && ch.n == 5 && order == "89789" && ch.first_heading() == 0.0f && ch.power == -15.0f,
+              "5 hops over 3 monsters: 8, 9, 7 by distance, then 8, 9 (every key ties: the CRT qsort's order)");
+        {
+            std::vector<int> q = {5, 3, 9, 1, 7, 3, 8, 2, 6, 4, 0, 9, 5, 1, 7, 2, 8, 6, 4, 0};
+            x::crt_qsort(q, [](int a, int b) { return a - b; });
+            bool sorted = true;
+            for (std::size_t i = 1; i < q.size(); ++i) sorted = sorted && q[i - 1] <= q[i];
+            std::vector<std::pair<int, int>> e = {{0, 0}, {0, 1}, {0, 2}};
+            x::crt_qsort(e, [](const std::pair<int, int>& a, const std::pair<int, int>& b) { return a.first - b.first; });
+            check(sorted && e[0].second == 1 && e[1].second == 2 && e[2].second == 0,
+                  "the CRT qsort: sorts 20; three equal keys come out 1, 2, 0 (the short sort's swaps)");
+        }
+        std::string hits;
+        int ticks = 0, first = 0;
+        std::uint32_t w = 0;
+        auto live = [&](int id, cleria::Vec3* p) { *p = {id == 7 ? 6.0f : id == 8 ? 2.0f : 4.0f, 0, 0}; return true; };
+        while (!ch.dead && ticks < 200) {
+            ++ticks;
+            ch.tick(live, [&] { return w += 0x40000000u; }, [&](int id) { hits += std::to_string(id); if (!first) first = ticks; });
+        }
+        check(hits == "89789" && first == 28 && ch.dead, "the head waits 25 ticks, flies 0.85 a tick, hits once per arrival, then dies");
+        x::Chain one = x::Chain::make({0, 0, 0}, 0.0f, -15.0f, 30, 0, {{3, {1, 0, 0}}}, 10.0f, 1u);
+        int n1 = 0;
+        for (int t = 0; t < 400 && !one.dead; ++t)
+            one.tick([](int, cleria::Vec3* p) { *p = {1, 0, 0}; return true; }, [&] { return w += 0x40000000u; }, [&](int) { ++n1; });
+        check(one.n == 20 && n1 == 20, "the hop count clamps to 20; a lone monster is hit on every hop");
+        x::Chain gone = x::Chain::make({0, 0, 0}, 0.0f, -15.0f, 5, 0, {{3, {3, 0, 0}}}, 10.0f, 1u);
+        int n2 = 0, t2 = 0;
+        for (; t2 < 400 && !gone.dead; ++t2)
+            gone.tick([&](int, cleria::Vec3* p) { *p = {3, 0, 0}; return n2 == 0; }, [&] { return w += 0x40000000u; }, [&](int) { ++n2; });
+        check(n2 == 1 && gone.dead && t2 < 20, "the chain ends once every target is gone");
+        x::Chain ray = x::Chain::make({0, 0, 0}, 0.0f, -15.0f, 5, 0, {}, 10.0f, 0x1000002u);
+        int scans = 0;
+        for (int t = 0; t < 40; ++t)
+            if (ray.tick(live, [&] { return 0u; }, [](int) {})) ++scans;
+        check(ray.ray && ray.power == -2.0f && scans == 19 && ray.dead && ray.token == 0x1000002u,
+              "no monster: a ray, power -2.0, 19 scans");
+        x::Chain rr = x::Chain::make({0, 0, 0}, 0.0f, -15.0f, 5, 0, {}, 10.0f, 1u);
+        check(rr.ray_reaches({4.0f, 0, 0.5f}, 0.5f) && !rr.ray_reaches({6.0f, 0, 0}, 0.5f) && !rr.ray_reaches({3.0f, 0, 1.0f}, 0.5f) &&
+              !rr.ray_reaches({-2.0f, 0, 0}, 0.5f) && rr.ray_reaches({-0.5f, 0, 0}, 0.5f),
+              "the ray reaches 5.0 along the heading, a body's radius + 0.4 wide; not behind unless overlapping");
+    }
     std::printf("[skill] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }

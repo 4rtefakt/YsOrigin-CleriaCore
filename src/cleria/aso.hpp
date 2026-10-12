@@ -299,6 +299,15 @@ class AsoVm {
     };
     const std::vector<LocusEvent>& loci() const { return loci_; }
 
+    // anime_Special (funcid 0x09) = FUN_00449ed0 [BYTES 0x449ed0..0x44a1c1; build/mode_re/GOXX_17_19.md §5]: the
+    // GoXx spawns of Napishtim Adol's script (C_990.ASO, 14 sites) — a[0] = 1 the kind-0x17 ground runner, 2 the
+    // kind-0x18 chain lightning, 3 the kind-0x19 water rings. The raw dwords, in script order; the host reads
+    // each slot as the handler does (src/cleria/extra_versions.hpp special_runner / special_chain).
+    struct SpecialEvent {
+        std::int32_t a[8] = {};
+    };
+    const std::vector<SpecialEvent>& specials() const { return specials_; }
+
     // Actor capability fields the script drives (ASOVM.md §4, funcids 20..28). These are
     // STATE, not per-tick events: a swing lowers Movable/Turnable during the commit and
     // opens Cancelable/AttackReserve near the end, which is what gives each character its
@@ -428,6 +437,7 @@ private:
     std::vector<BulletEvent> bullets_;
     std::vector<EffectEvent> effects_;
     std::vector<LocusEvent> loci_;
+    std::vector<SpecialEvent> specials_;
     float movable_ = 1.0f;
     bool turnable_ = true, actable_ = true, cancelable_ = false, atk_reserve_ = false;
     bool atk_break_ = false;

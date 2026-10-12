@@ -613,6 +613,7 @@ struct RunState {
     std::uint32_t stage_frames = 0, run_frames = 0;                     // 0x74e67c / 0x74e680: this stage's clock, the run's
     int count_out = 0;                                                  // 0x7d9b70: the 181 ticks after a stage's win
     int character = 0, type = 0, difficulty = 0;
+    int outfit = 0;                                                     // 0x74c0d0: Outfit Select's answer
     bool easy = false;
     int column() const { return easy ? difficulty : difficulty + 1; }   // [BYTES 0x57e92e..0x57e947]: 0 Easy .. 3 Nightmare
     bool second() const { return type == 1; }                           // FUN_00583960
