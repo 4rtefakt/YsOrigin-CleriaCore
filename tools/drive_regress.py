@@ -1340,8 +1340,11 @@ CASES.update({
     "nygtilger_fight": dict(
         room="S_20/S_2099/S_2099",
         env={"CLERIA_BOSSLOG": "1"},
+        # Re-pinned 2026-10-12 (the down thrust's landing effect 0xc, ADOL.md §13: the pilot's air presses land as
+        # thrusts, and each effect's particles draw from the shared xorshift): the same fight, slower — at t4980 the
+        # pool still had 34 of 7000 (the kill was at t4569) — so the run is 600 ticks longer.
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=40;9:flag=205,1;10:saveload;40:every=20,700,ok;"
-              "720:every=30,5000,boss2;726:every=30,5000,atk;800:every=50,4200,bullets;5000:quit",
+              "720:every=30,5600,boss2;726:every=30,5600,atk;800:every=50,4200,bullets;5600:quit",
         expect=["[boss02] Nygtilger: pool 7000 (head 700, segments 350) lv 16", "[bullet] kind 36 effect 348",
                 "a plasma ball strikes (SE 221)", "a plasma ball strikes (SE 222)", "a plasma ball strikes (SE 223)",
                 "[bullet] kind 35 effect 343", " carried", "[bullet] kind 35 effect 343", " flying",
@@ -1507,7 +1510,8 @@ CASES.update({
         expect=["[boss06] Zava's heads: a (-39.46,6.10,30.00) b (-28.82,6.10,30.00), HP 5000 STR 232 DEF 320",
                 "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "jump under Zava (act 4)", "second jump",
                 "air attack", "y 13.00, falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded",
-                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4046/6000", "BossCam 3", "move 9", "BossCam 4",
+                # (4178 since 2026-10-12: the landing effect's draws, ADOL.md §13; every beat of the list is as before)
+                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4178/6000", "BossCam 3", "move 9", "BossCam 4",
                 "move 10", "riding, hits left 0, ride count 1, lives 0/4", "head b move 12 (pattern 2, lives 3)",
                 "lives 0/2", "lives 0/1",
                 "head b move 8 (pattern 2, lives 0)", "Zava is thrown off head b",
@@ -1534,7 +1538,10 @@ CASES.update({
         # Re-pinned a third time 2026-10-10 (the blood splats: 18 more draws after every hit she survives): head b
         # first again, the big attack at t2219 (532 HP), the kill at t3590. No head bites the pilot on this course:
         # the bite's two expectations moved to zava_fight, where it is seen.
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.75;8:tier=10;9:flag=205,1;10:saveload;"
+        # Re-pinned a fourth time 2026-10-12 (the down thrust's landing effect 0xc draws from the shared xorshift,
+        # ADOL.md §13): at 0.75 she died at t1944 before the re-position; at 0.7 the course is the list's again — thrown
+        # off head b at t1676, the big attack at t2186 (315 HP), the kill at t3542.
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.7;8:tier=10;9:flag=205,1;10:saveload;"
               "11:flag=163,1;60:boss6;4000:quit",
         expect=["Zava phase 2 action 0", "head b move 9", "Zava is thrown off head b", "Zava phase 2 action 7",
                 "Zava phase 2 action 20", "head a move 17", "head b move 17", "Zava phase 2 action 12",
@@ -1670,8 +1677,11 @@ CASES.update({
                 "(20_Beat)", "the swing hits the core 0 (DEF 998, class 3): 2 dmg",
                 "bullet(s) kind 0x25 effect 484", "released from Bone_", "barrier 59",
                 "the barrier breaks (window 900)", "the swing hits the core 0 (DEF 295, class 3)",
-                "the window closed: the barrier is back", "the barrier is up", "(24_StabInTheGround)",
-                "(25_PullFromTheGround)", "flag 215 = 0",
+                # Re-pinned 2026-10-12 (the down thrust's landing effect 0xc draws from the shared xorshift, ADOL.md
+                # §13): the run is the same to t11240; the three tentacle picks after the window (t11483, t11679,
+                # t11892: one bit of a draw each) are Beats now, so no Stab / Pull is seen in this fight any more (the
+                # same at Damage dealt 1.9 and 2.1). Their timeline stays covered by cleria-boss08test (CE §3.2 (3)).
+                "the window closed: the barrier is back", "the barrier is up", "(20_Beat)", "flag 215 = 0",
                 "the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1", "[content] boss_defeated S_7099 flag 227",
                 "the death timeline starts", "the body is gone (alpha 0)", ">> entering S_7000"],
         count={"boss_defeated": 1}),
