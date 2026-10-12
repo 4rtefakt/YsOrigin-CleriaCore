@@ -138,6 +138,11 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // The rest of the New-Game choices (set by the title's popups; see the flow below):
     int skin = 0;          // the Type Select answer 0x74c0dc / d8 / d4: 0 Normal, 1 Extra (EXTRA_VERSIONS.md; view_extra.inl)
     if (const char* ts = std::getenv("CLERIA_TYPE")) skin = std::atoi(ts) == 1;   // a room boot's version (the drive cases)
+    // Outfit Select's answer 0x74c0d0 (Yunica's School Outfit; EXTRA_VERSIONS.md §1.4): her script C_980.ASO in place
+    // of C_010.ASO [BYTES 0x465089..0x4650c0] — it names the AIAs c_981 / c_980 / c_982 itself.
+    // [not modelled] cast 0xa6 (Yunica as an actor) taking the same script and c_982 (FUN_00459410, FUN_00572230).
+    int outfit = 0;
+    if (const char* os = std::getenv("CLERIA_OUTFIT")) outfit = std::atoi(os) == 1;   // a room boot's outfit (the drive cases)
     int difficulty = 2;    // 0 VeryEasy,1 Easy,2 Normal,3 Hard,4 Nightmare (persisted TitleGameDifficulty)
     bool sp_bonus = false; // "SP Bonus Acquisition": boosts this save's SP gains
     // Option settings (persisted in yso_win.ini). Function-scope so the title menu edits them and
@@ -1281,13 +1286,14 @@ title_again:
                         // FUN_00575990 in a bonus mode: no game yet — flags 203 / 201 = 0 and 0x74e25a = 2, which
                         // makes the title tick create the stage select once the book is gone.
                         const NewGameInfo& ng = ev.new_game_info;
-                        g_run.character = ng.character; g_run.type = ng.type;
+                        g_run.character = ng.character; g_run.type = ng.type; g_run.outfit = ng.outfit;
                         g_run.difficulty = ng.difficulty; g_run.easy = ng.easy;
                         g_run.front = 2;
                     } else if (ev.new_game) {
                         const NewGameInfo& ng = ev.new_game_info;
                         character = std::clamp(ng.character, 1, 3);   // [not modelled] Adol (0)
                         skin = ng.type;
+                        outfit = ng.outfit == 1;
                         difficulty = ng.very_easy ? 0 : ng.easy ? 1 : 2 + ng.difficulty;
                         speedrun_new_game(character, skin);  // the speedrun start: the difficulty pick
                         ng_commit = true;                    // FUN_005758f0: fade, then commit
@@ -1347,6 +1353,7 @@ title_again:
                             else for (records::RecordTable& t : g_rec_ta) t.clear_marks(stages::time_attack_count(g_run.character));
                             character = g_run.character;
                             skin = g_run.type;
+                            outfit = g_run.outfit == 1;
                             difficulty = g_run.easy ? 1 : 2 + g_run.difficulty;
                             ng_commit = true;
                             tf_cur = 0.0f; tf_tgt = 1.0f;
@@ -1987,8 +1994,9 @@ title_again:
     // state), 3 jump. The script supplies (file, tag, frame); `dir` is NOT in it —
     // that comes from the actor's facing, which is what closes the AIA formula.
     // Adol (0): ASO 0xC c_101 (Felghana) / 0xA4 c_990 (Napishtim) [BYTES 0x46500a..0x465038].
-    auto char_aso = [&skin](int c) -> const char* {
-        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : c == 0 ? (skin == 1 ? "C_990.ASO" : "C_101.ASO") : "C_010.ASO";
+    auto char_aso = [&skin, &outfit](int c) -> const char* {
+        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : c == 0 ? (skin == 1 ? "C_990.ASO" : "C_101.ASO")
+                                                                    : (outfit == 1 ? "C_980.ASO" : "C_010.ASO");
     };
     Aso aso = Aso::load(asset_root / "ANI" / char_aso(character));
     AsoVm avm;
@@ -2526,6 +2534,7 @@ title_again:
         for (int i = 0; i < 4; ++i) s.ail[i + 1] = ail.t[i];
         s.boost = player.boost;                                 // 0x76c1b4, in the block
         s.version[character & 3] = skin;                        // 0x76c218.. = the session's Type Select answers
+        s.version[4] = outfit;                                  // 0x76c228 = 0x74c0d0
         std::memcpy(s.warp_on, warp_on, sizeof warp_on);
         std::memcpy(s.manual_on, manual_on, sizeof manual_on);
         s.scene = room.name;
@@ -2609,6 +2618,7 @@ title_again:
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];   // the raw clear bytes (FUN_0042f5e0)
         character = std::clamp(s.character(), 0, 3);   // 0 = Adol: a run's Retry snapshot
         skin = s.version[character] == 1;              // FUN_0042f5e0: 0x74c0dc / d8 / d4 = the block's (EXTRA_VERSIONS.md §1.2)
+        outfit = s.version[4] == 1;                    // ... and 0x74c0d0
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
         if (s.mp_max > 0.0f) { player.sp_max = s.mp_max; player.sp_cur = std::min(s.mp_cur, s.mp_max); }

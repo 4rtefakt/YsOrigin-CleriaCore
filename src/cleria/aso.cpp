@@ -93,6 +93,11 @@ const char* aso_aia_name(std::int32_t id) {
         case 15: return "C_111";   // Yunica  — GAMEPLAY set
         case 16: return "C_112";   // Hugo    — GAMEPLAY set
         case 17: return "C_113";   // Toal    — GAMEPLAY set
+        // The AIA name table 0x68a800 [BYTES]: Yunica's School Outfit set (C_980.ASO names these) and Napishtim Adol.
+        case 243: return "C_980";  // School Outfit — cutscene set (flag 161 != 0)
+        case 244: return "C_990";  // Adol, the Napishtim version
+        case 267: return "C_981";  // School Outfit — GAMEPLAY set
+        case 268: return "C_982";  // School Outfit — variant (c_114's counterpart)
         default: return "";
     }
 }

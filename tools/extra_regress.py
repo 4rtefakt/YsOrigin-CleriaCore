@@ -204,4 +204,19 @@ def cases(clear_data):
                 "the Extra version is in play (character 0)", "Adol: the button is up, section 0x11c",
                 "stage 1 (Vagullion) won", ">> entering S_1099", "t1000 stats"],
         absent=["-> C_110.AIA"])
+    # EXTRA_VERSIONS.md §1.4, Yunica's School Outfit in a story room (CLERIA_OUTFIT=1): her script C_980.ASO picks the
+    # sprite c_981 (AIA id 267), c_982 (268) where C_010 names c_114; the swing and the skills are the normal ones'.
+    c["outfit_yunica_room"] = dict(
+        room="S_10/S_1009/S_1009", env=dict(_X, CLERIA_OUTFIT="1"),
+        drive="8:bracelet=116;9:flag=116,1;10:flag=182,1;30:atk;33:abil;80:skill+;82:skill-;84:abil;90:saveload;140:abil;160:quit",
+        expect=["anime_File(267) -> C_981.AIA", "[abil] t33 sec 0x100", "[abil] t84 sec 0x10d mp 2300", "[drive] loaded S_1009",
+                "[abil] t140 sec "],
+        absent=["-> C_111.AIA", "[extra]"])
+    # ... chosen on the title: New Game -> Yunica -> Type Select "Normal" -> Outfit Select "School" -> Difficulty. Outfit
+    # Select lists "Normal" only with Adol's Felghana version bought and "School" only with Napishtim (0x74abf8 /
+    # 0x74abfc [EXPORT 005c3790.c:709-741]: the retail gates, as pausebook has them), so both are bought here.
+    c["outfit_yunica_new_game"] = dict(
+        room=None, env=dict(_X), records={"record.ta2": clear_data((1, 0, 0), shop=[0, 1, 2, 11])},
+        title="40:ok;100:ok;165:ok;240:down;255:ok;330:ok;900:quit", drive="5:opt=CutsceneSkip=1;20:every=20,200,skiptap;220:quit",
+        expect=["[content] event new_game", ">> entering S_0002", "-> C_98"], absent=["-> C_111.AIA", "-> C_102.AIA", "[extra]"])
     return c
