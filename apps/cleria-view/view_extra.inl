@@ -29,6 +29,7 @@ auto extra_runner = [&](const extra::Emitter& em, const Vec3& org, float h) {
 };
 bool xlogged = false;
 auto extra_tick = [&] {
+    bullets.set_hugo_extra(skin == 1 && character == 2);           // FUN_00593b90's test of 0x74c0d8 (bullet.cpp)
     if (skin != 1) { xlogged = false; return; }
     if (!xlogged && std::getenv("CLERIA_DMG")) {
         std::printf("  [extra] t%llu the Extra version is in play (character %d)\n", (unsigned long long)tick_count, character);
@@ -54,6 +55,9 @@ auto extra_tick = [&] {
         if (o.bullets && std::getenv("CLERIA_DMG"))
             std::printf("  [extra] t%llu Yunica: %d shots of 0x66 (section 0x%x)\n", (unsigned long long)tick_count, o.bullets, sec);
         extra_runner(o.em, org, h);
+    } else if (character == 2) {                                   // Hugo [BYTES 0x46737b..0x4673ce]
+        // Flag 157, the eyes' mode source, follows the bracelet: Ventus the V, Terra the rope, Ignis the wheel.
+        game.g_flags[157] = extra::hugo_flag157(skillmp::bracelet_slot(inv.magic), game.g_flags[157]);
     } else if (character == 3) {                                   // Toal [BYTES 0x4673d4..0x467aff]
         const extra::ToalOut o = extra::toal_tick(xcnt, sec, game.g_flags[141] != 0);
         for (int k = 0; k < 2; ++k) {
@@ -96,5 +100,10 @@ auto extra_runners_tick = [&] {
             std::printf("  [extra] t%llu runner pulse: effect %d at (%.2f, %.2f, %.2f)\n", (unsigned long long)tick_count,
                         r.effect, at.x, at.y, at.z);
     }
+    if (std::getenv("CLERIA_DMG"))
+        for (const extra::Runner& r : xrunners)
+            if (r.dead)
+                std::printf("  [extra] t%llu runner gone at (%.2f, %.2f, %.2f): %s\n", (unsigned long long)tick_count, r.pos.x, r.pos.y,
+                            r.pos.z, r.life <= 0 ? "its life" : "a wall");
     std::erase_if(xrunners, [](const extra::Runner& r) { return r.dead; });
 };

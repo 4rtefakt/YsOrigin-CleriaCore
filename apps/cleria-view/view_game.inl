@@ -4056,7 +4056,7 @@ title_again:
             shield_fx = nullptr; shield_on = false;
             const bool charged = so.level == 2;
             shield_hits = charged ? 2 : 1;
-            shield_life = charged ? 0x17c : 0x168;
+            shield_life = extra::hugo_shield_life(charged, skin == 1);   // 360 / 380; Hugo Extra 420 / 440 [BYTES 0x46f4c8..0x46f53e]
             if (player.boosting) { shield_life = 0x1e0; shield_hits += 1; }
         }
         // Toal's 0x76 cast: +0x7b0 = (+0x388 == 0), "cast in the air" [EXPORT 0046ea00.c:171-173]; only the

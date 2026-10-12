@@ -179,6 +179,41 @@ int main(int, char**) {
         cleria::Vec3 p{}; a.tick(floor0, &p);
         check(a.vy == -0.75f && std::fabs(a.pos.y - (4.25f - 0.225f)) < 1e-5f, "runner off the floor: falls 0.75 x step a tick");
     }
+    {   // Toal Extra (EXTRA_VERSIONS.md §4): which ticks of a section ask for what
+        namespace x = cleria::extra;
+        auto run = [](int sec, bool demon, int n) {
+            x::Counters c;
+            std::string s;
+            for (int t = 1; t <= n; ++t) {
+                const x::ToalOut o = x::toal_tick(c, sec, demon);
+                for (int k = 0; k < 2; ++k)
+                    if (o.fx[k]) s += "f" + std::to_string(o.fx[k]) + "x" + std::to_string(int(o.fx_scale[k] * 10.0f + 0.5f)) + "@" + std::to_string(t) + " ";
+                if (o.em.on) s += "e" + std::to_string(o.em.c) + "/" + std::to_string(o.em.p) + "@" + std::to_string(t) + " ";
+                if (o.bullet) s += "b" + std::to_string(int(o.r * 10.0f)) + "@" + std::to_string(t) + " ";
+            }
+            return s;
+        };
+        check(run(0x10d, false, 40) == "f174x10@1 " && run(0x110, false, 40) == "f174x10@1 f174x10@10 " && run(0x10d, true, 40).empty() &&
+              run(0x110, true, 40).empty(), "Toal Extra Ventus: effect 174 at counter 0 (and 9 charged), human form only");
+        check(run(0x10e, false, 30) == "f162x11@1 f162x11@13 f162x11@25 " && run(0x111, false, 14) == "f180x11@1 f180x11@13 " &&
+              run(0x10e, true, 22) == "f175x12@1 f175x12@11 f175x12@21 " && run(0x111, true, 12) == "f179x12@1 f179x12@11 ",
+              "Toal Extra Ignis: 162 / 180 every 12 ticks at 1.1, demon 175 / 179 every 10 at 1.2");
+        check(run(0x10c, false, 22) == "b15@12 b15@15 e4/4@18 b15@18 b15@21 " && run(0x10f, false, 19) == "b25@12 b25@14 b25@16 e5/4@18 b25@18 ",
+              "Toal Extra Terra: the runner at tick 18 (C 4 / 5, P 4), a bullet every 3rd / 2nd tick from 12");
+        check(run(0x10c, true, 18) == "b15@12 b15@15 e5/5@18 b15@18 " && run(0x10f, true, 18) == "b25@12 b25@14 b25@16 e6/5@18 b25@18 ",
+              "Toal Extra Terra, demon form: C + 1, P 5");
+        x::Counters c;
+        x::toal_tick(c, 0x10c, false); x::toal_tick(c, 0x10e, false);
+        check(c.c818 == 0 && c.c81c == 1 && c.c814 == 0, "the three counters clear outside their sections");
+    }
+    {   // Hugo Extra (EXTRA_VERSIONS.md §3)
+        namespace x = cleria::extra;
+        check(x::hugo_shield_life(false, false) == 360 && x::hugo_shield_life(true, false) == 380 &&
+              x::hugo_shield_life(false, true) == 420 && x::hugo_shield_life(true, true) == 440,
+              "Hugo's Force Shield: 360 / 380 ticks, Extra 420 / 440");
+        check(x::hugo_flag157(0, 1) == 0 && x::hugo_flag157(1, 0) == 2 && x::hugo_flag157(2, 0) == 1 && x::hugo_flag157(3, 2) == 2,
+              "Hugo Extra: flag 157 by bracelet (Ventus 0, Terra 2, Ignis 1, none unchanged)");
+    }
     std::printf("[skill] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
 }
