@@ -114,8 +114,8 @@ int main() {
         Rig r; EnemyAi ai;
         r.env.target = {2.0f, 1.075f, 0};                  // in front, in reach: Riffligan's brain would engage
         for (int i = 0; i < 120; ++i) enemy_ai_tick(ai, p, r.env, enemy_brain_for(73));
-        check(all && enemy_brain_for(25) == nullptr && ai.phase() == 0 && !ai.initialised && ai.mode() == 0 && ai.speed == 0.0f,
-              "the empty brain: indices 66 / 72 / 92 / 73 / 81 never leave phase 0 and never move (25 / 26 are still unregistered)");
+        check(all && ai.phase() == 0 && !ai.initialised && ai.mode() == 0 && ai.speed == 0.0f,
+              "the empty brain: indices 66 / 72 / 92 / 73 / 81 never leave phase 0 and never move");
     }
     {   // Init, then an unseen target: wander, no acquisition.
         Rig r; EnemyAi ai;
@@ -3427,6 +3427,7 @@ int main() {
     }
     floor5_tests();
     floor6_tests();
+    arena7_tests();
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
