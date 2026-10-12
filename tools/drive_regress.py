@@ -3276,6 +3276,11 @@ CASES.update({
         records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[5, 6, 7, 8, 9, 10])},
         title=_ARENA_HUGO.format(rows="430:down;432:down;434:down;"), drive=_hugo_jumpshots(4500),
         expect=["(Silent Sands): the run starts in S_9139", "[arena] Arena(cast 39,", "ArenaSave: SP ", "cleared in "]),
+    # ENEMY_WATER.md §7 (W5): a Mobre moved into S_2003's pool splashes — effect 0x49 (73) at the surface + 0.15.
+    "enemy_splash_s2003": dict(
+        room="S_20/S_2003/S_2003", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;19:at3=-12,8,36.33,270;20:epos=#55,-20,36.33;22:fxall;60:fxall;61:quit",
+        expect=["t22 fxall", "[fxall] id 73 attach 0 at (-20.00, 6.43, 36.33)", "t60 fxall"], count={"[fxall] id 73": 1}),
     "menoak_resists_yunica": dict(
         room="S_20/S_2008/S_2008", char="1", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
         expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t124 sec 0x10d", "): 0 dmg, 146/146 left", "t224 sec 0x10e",
