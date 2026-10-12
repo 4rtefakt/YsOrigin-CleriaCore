@@ -1923,7 +1923,7 @@ CASES.update({
     # 0x18E ops spawn its 8 waves (104 monsters) as the pilot clears them (one-hit kills; a `killall` every 700 ticks
     # for what the ground pilot cannot reach), 0x18F banks the SP held (Normal: x3) into the wallet and sets the
     # record; the title comes back on the stage select with the time (the shot). Cancel, then the Bonus Shop: Arena
-    # Stage 2 for 5,000 of the 5,014. A second boot reads the balance and the purchase back.
+    # Stage 2 for 5,000 of the 5,002. A second boot reads the balance and the purchase back.
     "arena_stage1_bank_shop": dict(
         room=None, env=dict(_LOCK, CLERIA_NYA="1"),
         records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)]), "record.ar2": [3400]},
@@ -1934,13 +1934,13 @@ CASES.update({
         expect=["[title] Arena Mode: Character Select", "[stage] Arena stage select: Yunica, column 1, 1 row(s), cursor 0",
                 "[stage] row 0 (Wailing Blue): the run starts in S_9109", "[script] SetLevel(1): HP 60",
                 "[cont] snapshot S_9109 (-0.09, 2.00, 41.98)", "[arena] Arena(cast 14, level 0, count 0): 8 spawned",
-                "[arena] Arena(cast 53, level 8, count 0): 8 spawned", "[arena] ArenaSave: SP 1614 banked, Arena SP 5014; record.ar2 saved",
-                "stage 0 (Wailing Blue) cleared in 1065 frames = 00:17:750 (a record)",
+                "[arena] Arena(cast 53, level 8, count 0): 8 spawned", "[arena] ArenaSave: SP 1602 banked, Arena SP 5002; record.ar2 saved",
+                "stage 0 (Wailing Blue) cleared in 1581 frames = 00:26:350 (a record)",
                 "[arena] the run ends: record.ar + record.are saved", "[game] Return to Title",
                 "[stage] Arena stage select: Yunica, column 1, 1 row(s), cursor 0", "shot back.ppm",
-                "[stage] Cancel: record.ar + record.are saved", "[shop] opened: Arena SP 5014",
-                "[shop] bought Arena Stage 2 for 5000: Arena SP 14; record.ar2 + record.ta2 saved",
-                "==== second boot", "[clear] record.ar2: Arena SP 14"],
+                "[stage] Cancel: record.ar + record.are saved", "[shop] opened: Arena SP 5002",
+                "[shop] bought Arena Stage 2 for 5000: Arena SP 2; record.ar2 + record.ta2 saved",
+                "==== second boot", "[clear] record.ar2: Arena SP 2"],
         count={"[arena] Arena(": 13}, absent=["[gameover]"], files=["record.ar", "record.are", "record.ar2"]),
     # ARENA.md §5.1, the game over in an Arena run (Hugo, Stage 1): the pilot earns SP in the first waves; the pause
     # book does not open (`esctap`); at the death no card, Retry / Return to Title. Retry is InitArena's snapshot: the
@@ -1983,7 +1983,7 @@ CASES.update({
         expect=["[stage] row 6 (???): the run starts in S_9159", "[script] SetLevel(60): HP 400",
                 "[arena] Arena(cast 36, level 0, count 0): 8 spawned", "[arena] Arena(cast 36, level 0, count 0): 8 spawned",
                 "[arena] Arena(cast 37, level 0, count 1): 1 spawned", "gauge 1 id 37 hp 15200/15200",
-                "[arena] ArenaSave: SP 183474 banked", "stage 6 (???) cleared in 615 frames", "[arena] the run ends"],
+                "[arena] ArenaSave: SP 168474 banked", "stage 6 (???) cleared in 717 frames", "[arena] the run ends"],
         count={"[arena] Arena(": 3}),
     # DIFFICULTY.md G2 / G8 on Hard (diff=3, then a reload so the room spawns under it): a regular Rif's 60 HP
     # is 72 and the Normal 112 is 134 (FUN_004202e0's x1.2); the hit that takes 22 on Normal takes

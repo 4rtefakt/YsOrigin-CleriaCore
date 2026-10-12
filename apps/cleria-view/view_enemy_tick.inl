@@ -172,6 +172,27 @@
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) { hk(*en, aiw); boss_corpse(e); }
                     if (hugo_eye_dead(e)) continue;                  // a familiar's death tick (view_hugo_eyes.inl)
+                    // FUN_004780e0, a monster's dead path (every handler's HP < 1.0 branch) [EXPORT 004780e0.c:33-100]:
+                    // +0x3fc 0 -> 1 on the first dead tick, then +1 a tick while the body fades (alpha 255 - 6n; 255 - n
+                    // with +0x12c & 0x8000000, 255 - n / 1.25 with 0x40000000); the tick after the alpha runs out the
+                    // actor is removed (FUN_004593c0: the live-monster count flag 132 drops, byte +0x11 |= 2 for the
+                    // frame's sweep). So a wave's Wait_FlagEqualInt(132, 0) releases 44 ticks after its last kill.
+                    // The revive family and the casts with a death hook run their own (above); Pictimos's minions are
+                    // his module's (view_boss05.inl).
+                    // [not modelled] the fading body is not drawn (a dead monster is hidden at the kill).
+                    if (en && en->is_enemy() && !en->alive() && !en->destroy_requested() && !boss6_zava_undying(*en) &&
+                        !enemy_death_hook_for(en->ai_index) && !revive::corpse_drawn(*en) && !boss5_dead_t.count(en->instance_id)) {
+                        std::uint32_t& n = en->ai.dead_t;
+                        // M290's own dead ticks (m290_dead_tick, its bombs) count +0x3fc to 44 themselves.
+                        if (en->ai_index == 22) { if (n >= 44u) world.request_destroy(*en); }
+                        else if (n == 0) n = 1;
+                        else if (n < 0x100u) {
+                            ++n;
+                            const int al = (en->flags12c & 0x8000000u) ? 255 - int(n)
+                                         : (en->flags12c & 0x40000000u) ? 255 - int(std::floor(float(n) / 1.25f)) : 255 - 6 * int(n);
+                            if (al < 0) n = 0x100;
+                        } else world.request_destroy(*en);
+                    }
                     if (!en || (!en->alive() && !boss6_zava_undying(*en)) || en->destroy_requested() || !e.avm.ok()) continue;
                     // +0x314 is ONE field: a Fix's turns (world.tick_facing) and Chr_Pos write it
                     // through en->yaw, and the brain carries on from there. e.facing kept the
