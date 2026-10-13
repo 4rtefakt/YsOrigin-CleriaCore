@@ -36,6 +36,13 @@ struct LuaBind {
     std::function<bool(script::PlayerInfo&)> info;                  // cleria.player.stats
     std::function<void(float)> add_exp;                             // cleria.player.add_exp
     std::function<bool(int, const Vec3&, float)> spawn_pickup;      // cleria.game.spawn_pickup
+    // API 7
+    std::function<const char*()> state;                            // cleria.game.state while a game is bound
+    std::function<std::string()> room_title;                       // cleria.game.room_title
+    std::function<void(std::vector<script::Host::ActorInfo>&)> actors;   // cleria.world.actors
+    std::function<bool(const Vec3&, float*, float*)> to_screen;    // cleria.world.to_screen (fractions of the picture)
+    // Host::game_op: the named writes (view_lua_ops.inl, set where the game's state is in scope)
+    std::function<bool(const std::string&, const std::string&, const std::vector<double>&, const std::string&, std::vector<double>*)> op;
 };
 
 struct LuaNotice {
@@ -110,6 +117,36 @@ struct LuaHost : script::Host {
     void ui_info(void* list, const std::string& label, const std::string& value, std::uint32_t col, const std::string& desc) override {
         ui::info(*static_cast<ui::List*>(list), label.c_str(), value.c_str(), col, desc.empty() ? nullptr : desc.c_str());
     }
+    // ---- API 7 ----
+    std::vector<ModInfo> mod_list() override;
+    void log(const std::string& mod, const std::string& text) override;
+    bool run_command(const std::string& name, const std::string& args) override;
+    std::vector<std::string> all_commands() override;
+    std::vector<std::string> log_lines(int n) override;
+    bool request_reload(const std::string& mod) override;
+    int bus_publish(const std::string& from, const std::string& topic, const std::string& json_text) override;
+    std::optional<std::string> bus_get(const std::string& key) override;
+    void bus_set(const std::string& key, const std::string& json_text) override;
+    bool set_clipboard(const std::string& text) override { return SDL_SetClipboardText(text.c_str()); }
+    bool open_url(const std::string& mod, const std::string& url) override;
+    std::string locale() override;
+    std::string game_state() override;
+    std::string room_title() override;
+    std::vector<ActorInfo> actors() override;
+    bool to_screen(float x, float y, float z, float* sx, float* sy) override;
+    bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
+                 std::vector<double>* out) override;
+    void ui_text(void* list, const std::string& t, std::uint32_t col) override { ui::paragraph(*static_cast<ui::List*>(list), t.c_str(), col); }
+    void ui_progress(void* list, const std::string& label, double fraction, const std::string& text, std::uint32_t col) override {
+        ui::progress(*static_cast<ui::List*>(list), label.c_str(), float(fraction), text.c_str(), col);
+    }
+    void ui_table(void* list, const std::vector<std::string>& cells, bool header, std::uint32_t col) override {
+        ui::table_row(*static_cast<ui::List*>(list), cells, header, col);
+    }
+    void ui_image(void* list, int handle, float height, std::uint32_t tint) override;
+    bool key_down(const std::string& name) override;
+    bool pad_down(const std::string& name) override;
+    bool key_known(const std::string& name, bool pad) override;
 };
 
 struct LuaRt {
@@ -127,8 +164,35 @@ struct LuaRt {
     std::map<std::string, std::array<std::pair<double, double>, 3>> stat_mods;
     bool stat_any = false;
     double stat_add[3] = {0, 0, 0}, stat_mul[3] = {1, 1, 1};
+    std::map<std::string, std::string> bus;            // cleria.bus.get / set: JSON text by key (the process)
+    std::string last_state;                            // state_changed / floor_changed: what the last tick saw
+    std::map<std::string, double> speed;               // cleria.game.set_speed: each mod's factor (their product applies)
+    // cleria.player.tune: each mod's factors (0 speed, 1 jump, 2 mp_cost, 3 mp_regen, 4 boost_gain) and extra air jumps (5)
+    std::map<std::string, std::array<double, 6>> tune;
+    struct Hit { int id; int dmg; float knock; int cls; };
+    std::vector<Hit> hits;                             // cleria.combat.damage: landed at the next hit scan
+    int forced_dmg = -1;                               // >= 0 while one of them lands: the damage, as given
+    std::map<std::string, unsigned> hud_hidden;        // cleria.hud.show: each mod's hidden parts (1 status, 2 boss, 4 messages)
+    std::set<std::string> pause;                       // cleria.game.pause: the mods holding the game
+    float look_scale = 1.0f;                           // cleria.player.set_look: the player's sprite scale and glow (look_tint)
+    std::uint32_t look_tint = 0xffffffffu;
+    bool look_on = false;
+    std::string spawn_by;                              // the mod whose world.spawn / world.apply is building a monster now
+    double boss_bonus = 0;                             // cleria.combat.boss_bonus: added to the player's next hit on a boss part
+    int newgame_char = 0, newgame_diff = 2;            // cleria.game.new_game: asked for (0 = no), started by the title
+    std::deque<std::string> log_tail;                  // the mods' last log lines (the console)
+    std::set<std::string> reload;                      // mods whose script starts afresh at the next frame
+    std::map<std::string, std::int64_t> watch;         // CLERIA_MOD_WATCH: each script file's last write time
+    int watch_in = 0;
+    std::map<std::string, ui::List> win_lists;         // cleria.ui.window: the list state of each window (mod id + window id)
+    ui::Nav drive_nav{};                               // a drive run's keys for the open window (modwin=ok / back / up / down)
+    std::string win_shown;                             // the window drawn last frame (mod id + its open serial)
+    int last_floor = -2;
 };
 static LuaRt g_lua;
+static std::map<int, unsigned long long> g_lua_fallen;   // world.apply's dead: actor id -> the tick it is removed at, if still there
+static std::set<int> g_lua_targets;                    // ... those the monsters may chase and hit (set_puppet{target = true})
+static std::set<int> g_lua_puppets;                    // cleria.world.puppet: the actor ids the mods own in this room
 static bool g_lua_info(script::PlayerInfo& out) { return g_lua.b.info && g_lua.b.info(out); }
 
 static mods::Mod* lua_mods_entry(const std::string& id) {
@@ -187,12 +251,12 @@ void LuaHost::add_exp(double n) { if (g_lua.b.add_exp) g_lua.b.add_exp(float(n))
 void LuaHost::set_modifier(const std::string& mod, int stat, double add, double mul) {
     LuaRt& r = g_lua;
     if (stat < 0 || stat > 2) return;
-    r.stat_mods[mod][std::size_t(stat)] = {add, mul};      // a new entry is value-initialised: {0, 0} ...
+    if (!r.stat_mods.count(mod)) r.stat_mods[mod] = {{{0.0, 1.0}, {0.0, 1.0}, {0.0, 1.0}}};   // none (API 7: x0 is a modifier)
+    r.stat_mods[mod][std::size_t(stat)] = {add, mul};
     r.stat_any = false;
     for (int k = 0; k < 3; ++k) { r.stat_add[k] = 0; r.stat_mul[k] = 1; }
     for (auto& [id, a] : r.stat_mods)
         for (int k = 0; k < 3; ++k) {
-            if (a[std::size_t(k)].first == 0 && a[std::size_t(k)].second == 0) a[std::size_t(k)].second = 1;   // ... = none
             r.stat_add[k] += a[std::size_t(k)].first;
             r.stat_mul[k] *= a[std::size_t(k)].second;
             r.stat_any = r.stat_any || a[std::size_t(k)].first != 0 || a[std::size_t(k)].second != 1;
@@ -220,6 +284,116 @@ bool LuaHost::set_save_profile(const std::string& name) {
     if (g_save_profile != was)
         g_lua.notices.push_back({"Save profile", g_save_profile.empty() ? "The normal saves" : g_save_profile, now()});
     return true;
+}
+
+// ---- API 7: the mods see each other ----
+std::vector<script::Host::ModInfo> LuaHost::mod_list() {
+    std::vector<ModInfo> v;
+    for (const mods::Mod& m : g_mods_ui.list)
+        v.push_back({m.m.id, m.label(), m.m.version, m.state == mods::State::Active, !m.m.script.empty()});
+    return v;
+}
+int LuaHost::bus_publish(const std::string& from, const std::string& topic, const std::string& json_text) {
+    int n = 0;
+    for (std::size_t i = 0; i < g_lua.mods.size(); ++i)        // by index: a handler may not add mods, but may fail one
+        if (g_lua.mods[i]->id() != from) n += g_lua.mods[i]->on_bus(topic, json_text, from);
+    return n;
+}
+std::optional<std::string> LuaHost::bus_get(const std::string& key) {
+    const auto it = g_lua.bus.find(key);
+    if (it == g_lua.bus.end()) return std::nullopt;
+    return it->second;
+}
+void LuaHost::bus_set(const std::string& key, const std::string& json_text) {
+    if (json_text.empty()) g_lua.bus.erase(key);
+    else if (g_lua.bus.size() < 4096 || g_lua.bus.count(key)) g_lua.bus[key] = json_text;
+}
+// Only reached from a page's button (modscript_api7.inl checks it): the player pressed it.
+bool LuaHost::open_url(const std::string& mod, const std::string& url) {
+    std::printf("  [lua] %s opens %s\n", mod.c_str(), url.c_str());
+    if (std::getenv("CLERIA_DRIVE")) return true;               // a headless run opens nothing
+    return SDL_OpenURL(url.c_str());
+}
+std::string LuaHost::room_title() { return g_lua.b.room_title ? g_lua.b.room_title() : std::string(); }
+std::vector<script::Host::ActorInfo> LuaHost::actors() {
+    std::vector<ActorInfo> v;
+    if (in_game() && g_lua.b.actors) g_lua.b.actors(v);
+    return v;
+}
+bool LuaHost::to_screen(float x, float y, float z, float* sx, float* sy) {
+    return in_game() && g_lua.b.to_screen && g_lua.b.to_screen(Vec3{x, y, z}, sx, sy);
+}
+bool LuaHost::game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
+                      std::vector<double>* out) {
+    return in_game() && g_lua.b.op && g_lua.b.op(mod, op, num, text, out);
+}
+// ---- cleria.input (API 7): SDL's names for keys ("F5", "Left Shift") and pad buttons ("a", "back", "dpup") ----
+bool LuaHost::key_known(const std::string& name, bool pad) {
+    return pad ? SDL_GetGamepadButtonFromString(name.c_str()) != SDL_GAMEPAD_BUTTON_INVALID
+               : SDL_GetKeyFromName(name.c_str()) != SDLK_UNKNOWN;
+}
+bool LuaHost::key_down(const std::string& name) {
+    const SDL_Keycode k = SDL_GetKeyFromName(name.c_str());
+    if (k == SDLK_UNKNOWN) return false;
+    const SDL_Scancode sc = SDL_GetScancodeFromKey(k, nullptr);
+    int n = 0;
+    const bool* st = SDL_GetKeyboardState(&n);
+    return st && int(sc) > 0 && int(sc) < n && st[sc];
+}
+bool LuaHost::pad_down(const std::string& name) {
+    const SDL_GamepadButton b = SDL_GetGamepadButtonFromString(name.c_str());
+    return b != SDL_GAMEPAD_BUTTON_INVALID && g_sdl_in.pad && SDL_GetGamepadButton(g_sdl_in.pad, b);
+}
+// A key or a pad button went down while the shell does not hold the input: the mods' actions bound to it run, then
+// the "input" event (key = / pad = its name). `name` is SDL's.
+static void lua_input_press(const std::string& name, bool pad) {
+    if (g_lua.mods.empty() || name.empty()) return;
+    for (std::size_t mi = 0; mi < g_lua.mods.size(); ++mi) {
+        script::Mod& m = *g_lua.mods[mi];
+        for (std::size_t i = 0; i < m.actions_.size(); ++i) {
+            const std::string& bound = pad ? m.actions_[i].pad : m.actions_[i].key;
+            if (bound.empty()) continue;
+            const bool hit = pad ? SDL_GetGamepadButtonFromString(bound.c_str()) == SDL_GetGamepadButtonFromString(name.c_str())
+                                 : SDL_GetKeyFromName(bound.c_str()) == SDL_GetKeyFromName(name.c_str());
+            if (hit) m.run_action(i);
+        }
+    }
+    content_emit(events::Event::named("input").with(pad ? "pad" : "key", name));
+}
+static void lua_input_event(const SDL_Event& e) {
+    if (g_lua.mods.empty()) return;
+    if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) lua_input_press(SDL_GetKeyName(e.key.key), false);
+    else if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+        const char* n = SDL_GetGamepadStringForButton(SDL_GamepadButton(e.gbutton.button));
+        if (n) lua_input_press(n, true);
+    }
+}
+
+// cleria.player.tune: the product of the mods' factors (k 0..4), the sum of their extra air jumps (k 5).
+static double lua_tune(int k) {
+    double f = k == 5 ? 0.0 : 1.0;
+    for (const auto& [id, a] : g_lua.tune) { if (k == 5) f += a[5]; else f *= a[std::size_t(k)]; }
+    return f;
+}
+
+// The game speed the mods ask for: the product of their factors, within the shell's own limits.
+static float lua_game_speed() {
+    if (g_lua.speed.empty()) return 1.0f;
+    double f = 1.0;
+    for (const auto& [id, x] : g_lua.speed) f *= x;
+    return float(std::clamp(f, 0.1, 4.0));
+}
+std::string LuaHost::game_state() {
+    if (!in_game() || !g_lua.b.state) return "title";
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->window() && m->window()->pause) return "window";   // a mod's own window holds the game
+    if (!g_lua.pause.empty()) return "held";                                 // a mod holds it (game.pause)
+    return g_lua.b.state();
+}
+std::string LuaHost::locale() {
+    static const char* const k[] = {"ja", "en", "es", "fr", "de", "it"};
+    const int l = int(settings().s.game.language);
+    return l >= 0 && l < 6 ? k[l] : "en";
 }
 
 static std::string lua_setting_sec(const std::string& mod) { return "cleria.mod." + mod; }
@@ -289,6 +463,15 @@ int LuaHost::load_image(const std::filesystem::path& file) {
     g_lua.images.push_back(upload_rgba(*g_lua.gpu, d.width, d.height, d.data.data()));
     return int(g_lua.images.size());
 }
+void LuaHost::ui_image(void* list, int handle, float height, std::uint32_t tint) {
+    ui::List& L = *static_cast<ui::List*>(list);
+    if (handle < 1 || handle > int(g_lua.images.size())) return;
+    const SpriteTex& t = g_lua.images[std::size_t(handle - 1)];
+    const float h = std::clamp(height, 16.0f, 600.0f) * ui::S, w = t.h > 0 ? h * float(t.w) / float(t.h) : h;
+    const float x0 = L.org.x + 13.0f * ui::S, y = L.org.y + L.y - L.scroll + 4.0f * ui::S;
+    L.dl->AddImage(ImTextureID(reinterpret_cast<std::intptr_t>(t.view)), {x0, y}, {x0 + std::min(w, L.size.x - 26.0f * ui::S), y + h}, {0, 0}, {1, 1}, tint);
+    L.y += h + 12.0f * ui::S;
+}
 void LuaHost::draw_image(int handle, float x0, float y0, float x1, float y1, std::uint32_t tint) {
     if (!g_lua.dl || handle < 1 || handle > int(g_lua.images.size())) return;
     g_lua.dl->AddImage(ImTextureID(reinterpret_cast<std::intptr_t>(g_lua.images[std::size_t(handle - 1)].view)), {x0, y0}, {x1, y1},
@@ -346,14 +529,72 @@ static void lua_hud_notice(ImDrawList* dl, float w, float h) {
     const float fade = std::clamp(float(5.0 - (now - n.t)) * 2.0f, 0.0f, 1.0f);
     auto A = [&](ImU32 c) { return (c & 0x00FFFFFFu) | (ImU32(float((c >> 24) & 0xFF) * fade) << 24); };
     const float S = ui::S, hpx = 13.5f * S, bpx = 17.0f * S;
-    const std::string head = ui::upper(n.head.c_str());
     const ImVec2 ts = ui::text_size(ui::F.body, bpx, n.text.c_str());
     const float bw = std::max(340.0f * S, ts.x + 40.0f * S), bh = 76.0f * S;
     const ImVec2 a{(w - bw) * 0.5f, h - 290.0f * S}, b{a.x + bw, a.y + bh};
-    dl->AddRectFilled(a, b, A(IM_COL32(26, 24, 16, 235)), 6.0f * S);
-    dl->AddRect(a, b, A(ui::kPanelEdge), 6.0f * S, 0, 1.2f * S);
-    ui::text(dl, ui::F.cond, hpx, {a.x + 20.0f * S, a.y + 15.0f * S}, A(ui::kSection), head.c_str());
+    dl->AddRectFilledMultiColor(a, b, A(ui::kBandBot), A(ui::kBandBot), A(ui::kBandTop), A(ui::kBandTop));
+    dl->AddRect(a, b, A(ui::kGoldDark), 0.0f, 0, 3.0f * S);
+    dl->AddRect(a, b, A(ui::kGold), 0.0f, 0, 1.1f * S);
+    ui::text(dl, ui::F.serif_italic, hpx * 1.25f, {a.x + 20.0f * S, a.y + 11.0f * S}, A(ui::kGold), n.head.c_str());
     ui::text(dl, ui::F.body, bpx, {a.x + 20.0f * S, a.y + 40.0f * S}, A(ui::kDesc), n.text.c_str());
+}
+
+// ---- cleria.ui.window / message / choose (API 7): one window of a mod over the game, in the shell's look ----
+static script::Mod* lua_window_mod() {                // the first mod with a window open
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->window()) return m.get();
+    return nullptr;
+}
+static bool lua_modal_pauses() {                      // the game waits under it (the default), or a mod holds it (game.pause)
+    if (!g_lua.pause.empty()) return true;
+    const script::Mod* m = lua_window_mod();
+    return m && m->window()->pause;
+}
+static unsigned lua_hud_hidden() {                    // the parts of the game's HUD the mods hide
+    unsigned v = 0;
+    for (const auto& [id, bits] : g_lua.hud_hidden) v |= bits;
+    return v;
+}
+static void lua_draw_window(ImDrawList* dl, float w, float h, const ui::Nav& nav_in) {
+    script::Mod* m = lua_window_mod();
+    if (!m) return;
+    const script::Mod::Window win = *m->window();
+    ui::Nav nav = nav_in;
+    {   // a drive run's presses
+        ui::Nav& d = g_lua.drive_nav;
+        nav.up = nav.up || d.up; nav.down = nav.down || d.down; nav.ok = nav.ok || d.ok; nav.back = nav.back || d.back;
+        nav.left = nav.left || d.left; nav.right = nav.right || d.right;
+        d = ui::Nav{};
+    }
+    using namespace ui;
+    if (win.pause) dl->AddRectFilled({0, 0}, {w, h}, IM_COL32(0, 0, 0, 110));
+    List& L0 = g_lua.win_lists[m->id() + "/" + win.id];
+    const float head = 46.0f * S, bw = w * win.width;      // as tall as its rows were last frame, within the screen
+    const float bh = std::clamp(L0.content_h > 0 ? head + L0.content_h + 28.0f * S : h * 0.3f, 110.0f * S, h * 0.8f);
+    const ImVec2 a{(w - bw) * 0.5f, (h - bh) * 0.5f}, b{a.x + bw, a.y + bh};
+    window_frame(dl, a, b, win.title.c_str(), head);
+    List& L = g_lua.win_lists[m->id() + "/" + win.id];
+    const std::string shown = m->id() + "#" + std::to_string(m->window_serial_);
+    if (shown != g_lua.win_shown) { L = List{}; g_lua.win_shown = shown; }   // a newly opened window starts on its first row
+    list_begin(L, dl, {a.x + 14.0f * S, a.y + head + 10.0f * S}, {bw - 28.0f * S, bh - head - 20.0f * S}, nav, true);
+    m->draw_window(&L);
+    list_end(L);
+    if (nav.back && m->window()) m->close_window(true);
+}
+
+// The keys of a mod's actions (cleria.input.action), on its own page: a text field per action with SDL's key name.
+static void lua_page_keys(script::Mod& m, ui::List& L) {
+    if (m.actions_.empty()) return;
+    ui::section(L, "Keys");
+    for (script::Mod::Action& a : m.actions_) {
+        std::string k = a.key;
+        if (ui::text_field(L, a.label.c_str(), &k, "The key for this action, by its name: F5, Tab, Left Shift, A ... Empty = no key.", false, "(none)")) {
+            if (k.empty() || SDL_GetKeyFromName(k.c_str()) != SDLK_UNKNOWN) {
+                a.key = k;
+                g_lua.host.set_setting(m.id(), "Key." + a.id, k);
+            }
+        }
+    }
 }
 
 static void lua_shell(Shell& shell) {
@@ -373,6 +614,7 @@ static void lua_shell(Shell& shell) {
                     return;
                 }
                 m->draw_page(j, &L);
+                if (j + 1 == m->pages().size()) lua_page_keys(*m, L);     // API 7: its actions' keys, after its last page
             });
         shell.hud["lua." + m->id()] = [m](ImDrawList* dl, float w, float h) {
             if (!m->ok()) return;
@@ -382,6 +624,8 @@ static void lua_shell(Shell& shell) {
         };
     }
     shell.hud["lua~notice"] = lua_hud_notice;   // sorts after the mods' layers
+    shell.modal_on = [] { return lua_window_mod() != nullptr; };
+    shell.modal = lua_draw_window;
 }
 
 static void lua_bind(LuaBind b) { g_lua.b = std::move(b); }
@@ -407,16 +651,133 @@ static void lua_seed_icons(Gpu& g, std::unordered_map<int, SpriteTex>& sprite_ca
         }
 }
 
+void LuaHost::log(const std::string& mod, const std::string& text) {
+    script::Host::log(mod, text);
+    g_lua.log_tail.push_back("[" + mod + "] " + text);
+    while (g_lua.log_tail.size() > 200) g_lua.log_tail.pop_front();
+}
+bool LuaHost::run_command(const std::string& name, const std::string& args) {
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->has_command(name)) { m->command(name, args); return true; }
+    return false;
+}
+std::vector<std::string> LuaHost::all_commands() {
+    std::vector<std::string> v;
+    for (auto& m : g_lua.mods)
+        if (m->ok())
+            for (const std::string& c : m->command_names()) v.push_back(c);
+    std::sort(v.begin(), v.end());
+    return v;
+}
+std::vector<std::string> LuaHost::log_lines(int n) {
+    const std::size_t k = std::min<std::size_t>(std::size_t(std::max(n, 0)), g_lua.log_tail.size());
+    return std::vector<std::string>(g_lua.log_tail.end() - std::ptrdiff_t(k), g_lua.log_tail.end());
+}
+bool LuaHost::request_reload(const std::string& mod) { g_lua.reload.insert(mod); return true; }
+
+// A mod's script started afresh: its Lua state is closed (its sockets, timers, filters and handlers go with it),
+// what it left with the game is dropped (its stat modifiers, tuning, game speed, hold, hidden HUD parts), and
+// its main file runs again. What it built in the room (monsters, puppets) stays until the room changes.
+static bool lua_reload(const std::string& id) {
+    LuaRt& r = g_lua;
+    for (auto& up : r.mods) {
+        if (up->id() != id) continue;
+        const mods::Mod* def = nullptr;
+        for (const mods::Mod& m : g_mods_ui.list) if (m.m.id == id) def = &m;
+        if (!def) return false;
+        for (int k = 0; k < 3; ++k) r.host.set_modifier(id, k, 0.0, 1.0);
+        r.stat_mods.erase(id);
+        if (r.b.op && r.in_game) {
+            for (int k = 0; k < 5; ++k) r.b.op(id, "tune", {double(k), 1.0}, "", nullptr);
+            r.b.op(id, "tune", {5.0, 0.0}, "", nullptr);
+        }
+        r.tune.erase(id); r.speed.erase(id); r.pause.erase(id); r.hud_hidden.erase(id);
+        up.reset();
+        up = std::make_unique<script::Mod>(def->m.id, def->label(), def->m.version, def->root, r.host);
+        const bool ok = up->start(def->m.script);
+        std::printf("[lua] %s: %s\n", def->label().c_str(), ok ? "reloaded" : ("reload failed: " + up->error()).c_str());
+        return ok;
+    }
+    return false;
+}
+// CLERIA_MOD_WATCH=1 (development): a mod whose main script file changed on disk is reloaded, checked once a second.
+static void lua_watch_files() {
+    LuaRt& r = g_lua;
+    static const bool on = std::getenv("CLERIA_MOD_WATCH") != nullptr;
+    if (!on || ++r.watch_in < 60) return;
+    r.watch_in = 0;
+    for (const mods::Mod& m : g_mods_ui.list) {
+        if (m.m.script.empty()) continue;
+        std::error_code ec;
+        const auto t = fs::last_write_time(m.root / m.m.script, ec);
+        if (ec) continue;
+        const std::int64_t stamp = std::int64_t(t.time_since_epoch().count());
+        const auto it = r.watch.find(m.m.id);
+        if (it != r.watch.end() && it->second != stamp) r.reload.insert(m.m.id);
+        r.watch[m.m.id] = stamp;
+    }
+}
+
 static void lua_frame() {
     LuaRt& r = g_lua;
     if (r.mods.empty()) return;
+    lua_watch_files();
+    if (!r.reload.empty()) {
+        const std::set<std::string> ids = std::move(r.reload);
+        r.reload.clear();
+        for (const std::string& id : ids) lua_reload(id);
+    }
     const double now = r.host.now();
     const double dt = r.last_frame < 0 ? 0.0 : now - r.last_frame;
     r.last_frame = now;
     for (auto& m : r.mods) m->on_frame(dt);
 }
 
+// API 7: state_changed and floor_changed, from what this tick sees against the last one.
+static int lua_floor_of(const std::string& t) {
+    std::size_t i = 0;
+    while (i < t.size() && t[i] == ' ') ++i;
+    int n = 0;
+    std::size_t d = i;
+    while (d < t.size() && t[d] >= '0' && t[d] <= '9' && d - i < 2) n = n * 10 + (t[d++] - '0');
+    return (d == i || d >= t.size() || t[d] != 'F' || n < 1 || n > 25) ? -1 : n;
+}
+static void lua_watch_state() {
+    LuaRt& r = g_lua;
+    const std::string st = r.host.game_state();
+    if (st != r.last_state) {
+        if (!r.last_state.empty()) content_emit(events::Event::named("state_changed").with("state", st).with("old", r.last_state));
+        r.last_state = st;
+    }
+    if (!r.host.in_game()) { r.last_floor = -2; return; }
+    const int fl = lua_floor_of(r.host.room_title());
+    if (fl != r.last_floor) {
+        if (r.last_floor != -2 && fl > 0) content_emit(events::Event::named("floor_changed").with("floor", fl).with("old", r.last_floor > 0 ? r.last_floor : 0));
+        if (fl > 0 || r.last_floor == -2) r.last_floor = fl;      // a room with no floor in its name keeps the last one
+    }
+}
+
+// cleria.world.add_filter (API 7): the first mod, in load order, whose filter of that kind answers.
+static bool lua_world_on(const char* kind) {
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->has_world_filter(kind)) return true;
+    return false;
+}
+static script::WorldDecision lua_world(const script::WorldQuery& q) {
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->has_world_filter(q.kind)) {
+            const script::WorldDecision d = m->world_filter(q, g_content.room);
+            if (d.action != script::WorldDecision::Action::Pass) return d;
+        }
+    return {};
+}
+
+// A named event of API 7 raised from the game's own code: built only when a scripted mod runs.
+static bool lua_events_on() { return !g_lua.mods.empty(); }
+
 static void lua_tick() {
+    if (g_lua.mods.empty()) return;
+    lua_watch_state();
     for (auto& m : g_lua.mods) m->on_tick();
 }
 
@@ -459,7 +820,9 @@ static int lua_sp(int value, int base, const char* source, int cast = -1) {
 // A hit's final damage. `dealt`: the player's hit on a monster (`cast` / `level`: the victim's) or a boss part
 // (cast -1); else a hit the player takes (`cast`: the attacker's, -1 = a boss, a trap, a shot). `formula` is the
 // damage function's own result, `value` what is about to leave the HP.
-static int lua_damage(bool dealt, int value, int formula, float atk, float power, float def, int cls, int cast, int level) {
+// API 7: `actor` (the monster's id), `hp` / `max_hp` (the victim's, before the hit) when the caller knows them.
+static int lua_damage(bool dealt, int value, int formula, float atk, float power, float def, int cls, int cast, int level,
+                      int actor = -1, float hp = -1.0f, float max_hp = -1.0f) {
     if (!lua_combat_on(script::CombatQuery::Kind::Damage)) return value;
     script::CombatQuery q;
     q.kind = script::CombatQuery::Kind::Damage;
@@ -467,6 +830,8 @@ static int lua_damage(bool dealt, int value, int formula, float atk, float power
     q.num = {{"formula", double(formula)}, {"atk", double(atk)}, {"power", double(power)}, {"def", double(def)}};
     if (cls >= 0) q.num.push_back({"class", double(cls)});
     if (cast >= 0) { q.num.push_back({"cast", double(cast)}); q.num.push_back({"level", double(level)}); }
+    if (actor >= 0) q.num.push_back({"actor", double(actor)});
+    if (hp >= 0.0f) { q.num.push_back({"hp", double(hp)}); q.num.push_back({"max_hp", double(max_hp)}); }
     q.str = {{"dir", dealt ? "dealt" : "taken"}};
     const script::CombatDecision d = lua_combat(q);
     if (d.action == script::CombatDecision::Action::Suppress) return 0;
@@ -476,8 +841,13 @@ static int lua_damage(bool dealt, int value, int formula, float atk, float power
 // A hit of the player's on a boss part (FUN_004fa550's result `formula`): the shell's Damage-dealt cheat, then the
 // "damage" filter (no cast).
 static int lua_part_damage(int formula, const AttackStats& a, float def, int cls) {
-    return lua_damage(true, access::damage_dealt(formula, settings().s.access.damage_dealt), formula, a.atk, a.bonus, def,
-                      cls == kDamageClassNone ? -1 : cls, -1, 0);
+    int d = lua_damage(true, access::damage_dealt(formula, settings().s.access.damage_dealt), formula, a.atk, a.bonus, def,
+                       cls == kDamageClassNone ? -1 : cls, -1, 0);
+    if (g_lua.boss_bonus >= 1.0 && d > 0) {            // the mods' pooled damage (API 7): past the filters, spent at once
+        d += int(std::min(g_lua.boss_bonus, 1.0e7));
+        g_lua.boss_bonus = 0;
+    }
+    return d;
 }
 // cleria.player.set_modifier on FUN_00420c40's results: (the game's + add) x mul; max HP stays within 1..999
 // (the game's own cap), ATK is not negative (the damage function raises it to a power).
@@ -491,6 +861,15 @@ static void lua_stat_modifiers(PlayerStats& s) {
 
 // CLERIA_DRIVE: lua=<command> <args>   (a cleria.command of an active scripted mod)
 static bool lua_drive(const std::string& cmd) {
+    if (cmd.rfind("modkey=", 0) == 0) { lua_input_press(cmd.substr(7), false); return true; }   // a key press for the mods (API 7)
+    if (cmd.rfind("modpad=", 0) == 0) { lua_input_press(cmd.substr(7), true); return true; }
+    if (cmd.rfind("modwin=", 0) == 0) {                   // a press for the mods' open window: ok / back / up / down
+        const std::string k = cmd.substr(7);
+        ui::Nav& d = g_lua.drive_nav;
+        d.ok = k == "ok"; d.back = k == "back"; d.up = k == "up"; d.down = k == "down"; d.left = k == "left"; d.right = k == "right";
+        return true;
+    }
+    if (cmd.rfind("modreload=", 0) == 0) { g_lua.reload.insert(cmd.substr(10)); return true; }   // a mod's script afresh (next frame)
     if (cmd.rfind("lua=", 0) != 0) return false;
     const std::string rest = cmd.substr(4);
     const std::size_t sp = rest.find(' ');

@@ -2500,7 +2500,7 @@ CASES.update({
         room="S_10/S_1009/S_1009", lua=_LUA_SHOP,
         drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;820:esc;"
               "835:stats;836:flagdump;840:quit",
-        expect=[_LP + "api 6", _LP + "price 0 sub 221 was 1000 in @GrowMenu", _LP + "price 0 sub 97 was 1000 in @Grow00",
+        expect=[_LP + "api 7", _LP + "price 0 sub 221 was 1000 in @GrowMenu", _LP + "price 0 sub 97 was 1000 in @Grow00",
                 _LP + "price 0 sub 105 was 1000 in @Grow00", "[content] blessing_bought 0 for 7 SP (effect suppressed)",
                 _LP + "bought 0 price 7 suppressed true flag217 0 sp 243 room S_1009", "sp 243"],
         absent=[" 217="], count={_LP + "bought": 1}),
@@ -2651,7 +2651,7 @@ CASES.update({
         room="S_10/S_1002/S_1002", lua=_LUA_API6,
         drive="5:diff=3;6:level=13;8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on x100;13:lua=on floor;14:stats;" + _K17 +
               ";150:stats;160:quit",
-        expect=[_LP + "api 6 combat function", "stats exp 21936 lv 13",
+        expect=[_LP + "api 7 combat function", "stats exp 21936 lv 13",
                 _LP + "exp kill cast 17 lv 13 vs 3 base 33 scaled 0.1471 rate 1 factor 100 floored 14 combo 1 value 14.14 room S_1002",
                 _LP + "killed cast 17 lv 3 exp 50 sp 4 room S_1002 at 30.5 -2.9 -36.9", "stats exp 21986 lv 13"],
         absent=_NOSTOP, count={_LP + "exp kill": 1, _LP + "killed": 1}),
@@ -2733,6 +2733,534 @@ CASES.update({
         drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on nodrop;" + _K17 + ";150:pickups;155:stats;160:quit",
         expect=[_LP + "drop 120 1G slot 1 cast 17 lv 3", "[pickup] debris", "stats exp 51 lv 1 hp 60/60 sp 4"],
         absent=_NOSTOP + ["[pickup] id ", _LP + "pickup", _LP + "collected"]),
+})
+
+# Mod API 7 (build/shell_re/API7.md): the runtime batch. Timers in play time and in real time, the seeded generator,
+# the mods' list and the bus (one mod here: a publish reaches nobody), x0 as a stat modifier, level_up, and the two
+# kinds of Retry (in place with no snapshot: "retry" alone; from the snapshot: "retry" then a Load with retry = true).
+_LUA_API7A = (
+    'cleria.log("api " .. cleria.api_version .. " locale " .. cleria.locale())\n'
+    'local a, b, s, t = cleria.rng("seed"), cleria.rng("seed"), {}, {}\n'
+    'for i = 1, 5 do s[i] = a:int(100) t[i] = b:int(100) end\n'
+    'cleria.log("rng same " .. tostring(table.concat(s, ",") == table.concat(t, ",")))\n'
+    'local n, id = 0\n'
+    'id = cleria.every(0.25, function() n = n + 1 cleria.log("every play " .. n) if n == 3 then cleria.cancel(id) end end, {play = true})\n'
+    'cleria.after(0.2, function() cleria.log("after real") end)\n'
+    'for _, m in ipairs(cleria.mods.list()) do cleria.log("mod " .. m.id .. " " .. tostring(m.active) .. " " .. tostring(m.scripted)) end\n'
+    'cleria.bus.set("k", {n = 42})\n'
+    'cleria.log("bus " .. cleria.bus.get("k").n .. " published " .. cleria.bus.publish("t", 1) .. " active " .. tostring(cleria.mods.is_active("test.lua")))\n'
+    'for _, k in ipairs({"retry", "level_up", "load"}) do cleria.events.on(k, function(e) cleria.log("EV " .. cleria.json.encode(e)) end) end\n'
+    'cleria.command("p7", function(x)\n'
+    '    if x == "hp0" then cleria.player.set_modifier("max_hp", 0, 0) end\n'
+    '    if x == "hp1" then cleria.player.set_modifier("max_hp") end\n'
+    '    if x == "xp" then cleria.player.add_exp(400) end\n'
+    '    local st = cleria.player.stats()\n'
+    '    cleria.log("hp " .. st.hp .. "/" .. st.max_hp .. " lv " .. st.level)\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_runtime": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7A, env={"CLERIA_DRIVE_REALTIME": "1"},
+        drive="20:lua=p7;30:lua=p7 hp0;40:lua=p7 hp1;50:lua=p7 xp;120:quit",
+        expect=[_LP + "api 7 locale en", _LP + "rng same true", _LP + "mod test.lua true true", _LP + "bus 42 published 0 active true",
+                _LP + "hp 60/60 lv 1", _LP + "hp 1/1 lv 1", _LP + "hp 1/60 lv 1",
+                _LP + 'EV {"kind":"level_up","level":2,"max_hp":65,"room":"S_1002"}', _LP + "hp 65/65 lv 2"],
+        absent=_NOSTOP, count={_LP + "every play": 3, _LP + "after real": 1}),
+    "lua_api7_retry": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7A, drive="30:hp=0;200:ok;260:ok;400:quit",
+        expect=[_LP + 'EV {"kind":"retry","room":"S_1002","snapshot":0}'], absent=_NOSTOP + ['"kind":"load"']),
+    "lua_api7_retry_snapshot": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7A, drive="30:hp=0;200:ok;260:ok;400:quit",
+        expect=[_LP + 'EV {"kind":"retry","room":"S_1009","snapshot":1}', '"kind":"load"', '"retry":true'], absent=_NOSTOP),
+})
+
+# Mod API 7, batch B: where the game is (state, the room's own name, floor, zone, difficulty, play time), the room's
+# monsters and a world point on the screen, the hit events and the damage query's actor / hp. A door (same floor: no
+# floor_changed), then a death: state_changed play -> gameover.
+_LUA_API7B = (
+    'for _, k in ipairs({"state_changed", "floor_changed", "enemy_hit", "player_hit"}) do\n'
+    '    cleria.events.on(k, function(e) cleria.log("EV " .. cleria.json.encode(e)) end)\n'
+    'end\n'
+    'cleria.combat.add_filter("damage", function(q) cleria.log("DMG " .. q.dir .. " actor " .. tostring(q.actor) .. " hp " .. tostring(q.hp) .. "/" .. tostring(q.max_hp)) end)\n'
+    'cleria.command("where", function()\n'
+    '    local z, zn = cleria.game.zone()\n'
+    '    local d, dn = cleria.game.difficulty()\n'
+    '    cleria.log("state " .. cleria.game.state() .. " [" .. cleria.game.room_title() .. "] floor " .. tostring(cleria.game.floor()) .. " zone " .. z .. " " .. zn .. " diff " .. d .. " " .. dn)\n'
+    'end)\n'
+    'cleria.command("actors", function()\n'
+    '    local list = cleria.world.actors()\n'
+    '    local a = cleria.world.actor(17)\n'
+    '    local fx, fy = cleria.world.to_screen(a.x, a.y + a.height, a.z)\n'
+    '    cleria.log(#list .. " actors; #17 " .. a.name .. " lv " .. a.level .. " hp " .. a.hp .. "/" .. a.max_hp .. " on screen " .. tostring(fx > 0 and fx < 1 and fy > 0 and fy < 1))\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_world": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7B,
+        drive="8:opt=DamageDealt=10;30:lua=where;40:near=17;41:atk;70:lua=actors;80:hurt=60;100:hp=0;160:lua=where;170:quit",
+        expect=[_LP + "state play [4F Forward Passage 1] floor 4 zone 1 Wailing Blue diff 2 Normal", _LP + "DMG dealt actor 17 hp 74/74",
+                _LP + 'EV {"actor":17,"cast":17,"damage":20,"hp":54,"killed":0,"kind":"enemy_hit","max_hp":74,"room":"S_1002","variant":""}',
+                _LP + "11 actors; #17 Selnarg lv 3 hp 54.0/74.0 on screen true", _LP + "DMG taken actor nil hp 60/60",
+                _LP + 'EV {"damage":21,"hp":39,"kind":"player_hit","max_hp":60,"room":"S_1002"}',
+                _LP + 'EV {"kind":"state_changed","old":"play","room":"S_1002","state":"gameover"}', _LP + "state gameover ["],
+        absent=_NOSTOP),
+    "lua_api7_hard": dict(
+        room="S_30/S_3001/S_3001", lua=_LUA_API7B, drive="5:diff=3;60:lua=where;70:quit",
+        expect=[_LP + "state play [10F Path 1 Furnace] floor 10 zone 3 Guilty Fire diff 3 Hard"], absent=_NOSTOP),
+})
+
+# Mod API 7, batch C: the writes. set_position (the floor under the point), MP / Boost / EXP (a level-up follows),
+# poison on (900 ticks) and off, the double jump, equipping an owned armor and not an unowned one, invulnerability
+# (the hurt lands nothing), the room's exits, a door, a room change by name, an unknown room refused. Then in the
+# statue room: save, EXP, load (the level is the save's again); retry is refused while alive and taken when dead.
+_LUA_API7C = (
+    'cleria.command("c", function(a)\n'
+    '    local P, G = cleria.player, cleria.game\n'
+    '    local cmd, x, y, z = a:match("^(%S*)%s*(%S*)%s*(%S*)%s*(%S*)")\n'
+    '    local r\n'
+    '    if cmd == "pos" then r = P.set_position(tonumber(x), tonumber(y), tonumber(z), 90)\n'
+    '    elseif cmd == "mp" then r = P.set_mp(tonumber(x))\n'
+    '    elseif cmd == "boost" then r = P.set_boost(tonumber(x))\n'
+    '    elseif cmd == "exp" then r = P.set_exp(tonumber(x))\n'
+    '    elseif cmd == "inv" then r = P.set_invulnerable(tonumber(x))\n'
+    '    elseif cmd == "equip" then r = P.equip(x, tonumber(y))\n'
+    '    elseif cmd == "status" then r = P.set_status(x, y == "1")\n'
+    '    elseif cmd == "ability" then r = P.set_ability(x, y == "1")\n'
+    '    elseif cmd == "goto" then r = G.goto_room(x)\n'
+    '    elseif cmd == "exit" then r = G.take_exit(tonumber(x))\n'
+    '    elseif cmd == "retry" then r = G.retry()\n'
+    '    elseif cmd == "load" then r = G.load(tonumber(x))\n'
+    '    elseif cmd == "save" then r = G.save(tonumber(x)) end\n'
+    '    local st, eq, s, ex = P.stats(), P.equipment(), P.status(), {}\n'
+    '    for _, e in ipairs(G.exits()) do ex[#ex + 1] = e.index .. ":" .. e.room end\n'
+    '    cleria.log(string.format("%s -> %s | pos %.1f %.1f %.1f lv %d hp %d/%d boost %.0f | armor %d | poison %d | dj %s | %s exits %s", a, tostring(r), st.x, st.y, st.z,\n'
+    '        st.level, st.hp, st.max_hp, st.boost, eq.armor, s.poison, tostring(P.abilities().double_jump), G.room(), table.concat(ex, ",")))\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_writes": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7C,
+        drive="20:lua=c;30:lua=c pos 20 -4 -36;45:lua=c boost 15000;50:lua=c exp 500;55:lua=c status poison 1;60:lua=c status poison 0;"
+              "70:lua=c ability double_jump 1;75:give=7;76:lua=c equip armor 7;80:lua=c equip armor 9;85:lua=c inv 600;90:hurt=60;100:lua=c;"
+              "110:lua=c exit 0;300:lua=c;310:lua=c goto S_1002;500:lua=c;510:lua=c goto S_9999;520:quit",
+        expect=[_LP + " -> nil | pos -0.0 -0.1 -0.6 lv 1 hp 60/60 boost 0 | armor 6 | poison 0 | dj false | S_1002 exits 0:S_1003,1:S_1009",
+                _LP + "pos 20 -4 -36 -> true | pos 20.0 -4.1 -36.0 ", _LP + "boost 15000 -> true", " boost 15000 ",
+                _LP + "exp 500 -> true | pos 20.0 -4.1 -36.0 lv 2 hp 65/65", _LP + "status poison 1 -> true", "| poison 900 |",
+                _LP + "status poison 0 -> true", "| poison 1 |", _LP + "ability double_jump 1 -> true", "| poison 0 | dj true |",
+                _LP + "equip armor 7 -> true", "| armor 7 |", _LP + "equip armor 9 -> false", "| armor 7 |", _LP + "inv 600 -> true",
+                _LP + " -> nil | pos 20.0 -4.1 -36.0 lv 2 hp 64/65", _LP + "exit 0 -> true",
+                "| S_1003 exits 0:S_1002,1:S_1007", _LP + "goto S_1002 -> true", "| S_1002 exits", _LP + "goto S_9999 -> false"],
+        absent=_NOSTOP),
+    "lua_api7_flow": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7C,
+        drive="100:lua=c save 5;110:lua=c exp 500;120:lua=c load 5;200:lua=c;210:lua=c retry;220:hp=0;300:lua=c retry;420:lua=c;440:quit",
+        expect=[_LP + "save 5 -> true", _LP + "exp 500 -> true", " lv 2 hp 65/65", _LP + "load 5 -> true", _LP + " -> nil", " lv 1 hp 60/60",
+                _LP + "retry -> false", "[death] HP 0", "[gameover] Retry ->", _LP + "retry -> true", " lv 1 hp 60/60"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, cleria.input: an action on F6 (and the pad's back) runs on the press (the drive's modkey= / modpad=),
+# every press is also an "input" event, input.bind moves the action to F7; with Key.probe = F8 in the mod's
+# settings the player's key wins over the script's default.
+_LUA_API7I = (
+    'cleria.input.action("probe", {label = "Probe", key = "F6", pad = "back"}, function() cleria.log("ACTION in " .. cleria.game.state()) end)\n'
+    'cleria.events.on("input", function(e) cleria.log("INPUT " .. tostring(e.key) .. " " .. tostring(e.pad)) end)\n'
+    'cleria.command("keys", function(a)\n'
+    '    if a ~= "" then cleria.log("bind " .. tostring(cleria.input.bind("probe", a))) end\n'
+    '    local k, p = cleria.input.binding("probe")\n'
+    '    cleria.log("binding " .. k .. " / " .. p)\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_input": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7I,
+        drive="20:lua=keys;30:modkey=F6;40:modkey=F7;50:modpad=back;60:lua=keys F7;70:modkey=F6;80:modkey=F7;90:lua=keys Nope;100:quit",
+        expect=[_LP + "binding F6 / back", _LP + "ACTION in play", _LP + "INPUT F6 nil", _LP + "INPUT F7 nil", _LP + "ACTION in play",
+                _LP + "INPUT nil back", _LP + "bind true", _LP + "binding F7 / back", _LP + "INPUT F6 nil", _LP + "ACTION in play",
+                _LP + "INPUT F7 nil", _LP + "bind false", _LP + "binding F7 / back"],
+        absent=_NOSTOP, count={_LP + "ACTION in play": 3}),
+})
+
+# Mod API 7, windows and dialogs. F2 opens the mod's window (the game's state is "window" and its clock stops); the
+# drive's modwin= presses: OK on the toggle, down, OK on the button; F2 closes it. A choose dialog: down + OK picks
+# the second option; one that must be answered ignores Back; a message closed by Back calls its function.
+_LUA_API7U = (
+    'local opt = false\n'
+    'cleria.ui.window("tools", {title = "Tools"}, function(p)\n'
+    '    local v, ch = p:toggle("Option", opt)\n'
+    '    if ch then opt = v cleria.log("WIN toggle " .. tostring(v)) end\n'
+    '    if p:button("Heal") then cleria.log("WIN heal") end\n'
+    '    p:text("A paragraph.")\n'
+    '    p:progress("HP", 0.5, "half")\n'
+    'end)\n'
+    'cleria.input.action("tools", {key = "F2"}, function() if cleria.ui.is_open("tools") then cleria.ui.close() else cleria.ui.open("tools") end end)\n'
+    'cleria.command("win", function(a)\n'
+    '    if a == "choose" then cleria.ui.choose("Pick", {"Might", "Guard", "Vigor"}, function(i, o) cleria.log("CHOSE " .. tostring(i) .. " " .. tostring(o)) end)\n'
+    '    elseif a == "must" then cleria.ui.choose("Pick", {"A", "B"}, function(i, o) cleria.log("CHOSE " .. tostring(i) .. " " .. tostring(o)) end, {cancel = false})\n'
+    '    elseif a == "msg" then cleria.ui.message("Hello", function() cleria.log("MSG closed") end) end\n'
+    '    cleria.log("open " .. tostring(cleria.ui.is_open()) .. " state " .. cleria.game.state() .. " time " .. cleria.game.play_time())\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_windows": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7U,
+        drive="20:lua=win;30:modkey=F2;40:lua=win;50:modwin=ok;60:modwin=down;70:modwin=ok;80:modkey=F2;90:lua=win;"
+              "100:lua=win choose;110:lua=win;120:modwin=down;130:modwin=ok;140:lua=win;150:lua=win must;160:modwin=back;170:lua=win;"
+              "180:modwin=ok;190:lua=win msg;200:modwin=back;210:lua=win;220:quit",
+        expect=[_LP + "open nil state play time 0.3", _LP + "open tools state window time 0.5", _LP + "WIN toggle true", _LP + "WIN heal",
+                _LP + "open nil state play", _LP + "open dialog state window", _LP + "CHOSE 2 Guard", _LP + "open nil state play",
+                _LP + "open dialog state window", _LP + "open dialog state window", _LP + "CHOSE 1 A", _LP + "MSG closed", _LP + "open nil state play"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the world filters. "spawn": every Selnarg (cast 17) of S_1002 becomes a Jestona (cast 16) at level 5 with
+# twice the HP (82 -> 164), every Baocar (43) is not spawned at all: six monsters instead of eleven. "exit": the door
+# to S_1003 leads to S_1009. Then world.spawn / set_actor / remove in S_1003, and the casts that are not enemies refused.
+_LUA_API7F = (
+    'if cleria.settings.get("Swap", false) then\n'
+    '    cleria.world.add_filter("spawn", function(q)\n'
+    '        if q.cast == 17 then return {cast = 16, level = 5, hp = 2} end\n'
+    '        if q.cast == 43 then return "suppress" end\n'
+    '    end)\n'
+    '    cleria.world.add_filter("exit", function(q)\n'
+    '        cleria.log("EXIT " .. q.from .. " -> " .. q.to .. " index " .. q.index)\n'
+    '        if q.to == "S_1003" then return {to = "S_1009"} end\n'
+    '    end)\n'
+    'end\n'
+    'cleria.command("w", function(a)\n'
+    '    local cmd, x, y = a:match("^(%S*)%s*(%S*)%s*(%S*)")\n'
+    '    local st = cleria.player.stats()\n'
+    '    if cmd == "spawn" then cleria.log("spawned " .. tostring(cleria.world.spawn(tonumber(x), st.x + 3, st.y, st.z, {level = tonumber(y)}))) end\n'
+    '    if cmd == "remove" then cleria.log("removed " .. tostring(cleria.world.remove(tonumber(x)))) end\n'
+    '    if cmd == "set" then cleria.log("set " .. tostring(cleria.world.set_actor(tonumber(x), {hp = tonumber(y)}))) end\n'
+    '    local n, first, one = 0, "", cleria.world.actor(17)\n'
+    '    for _, m in ipairs(cleria.world.actors()) do n = n + 1 if n == 1 then first = m.name .. " lv" .. m.level .. " " .. m.hp .. "/" .. m.max_hp end end\n'
+    '    cleria.log(n .. " actors, first " .. first .. ", #17 " .. tostring(one and (one.name .. " lv" .. one.level .. " " .. one.hp .. "/" .. one.max_hp)) .. " in " .. cleria.game.room())\n'
+    'end)\n')
+_API7F_INI = "[cleria.mod.test.lua]\nSwap=1\n"
+CASES.update({
+    "lua_api7_spawn_filter": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7F, ini=_API7F_INI,
+        drive="30:lua=w;50:exit=0;240:lua=w;250:quit",
+        expect=[_LP + "6 actors, first Jestona lv5 164.0/164.0, #17 nil in S_1002", _LP + "EXIT S_1002 -> S_1003 index 0",
+                _LP + "0 actors, first , #17 nil in S_1009"],
+        absent=_NOSTOP),
+    "lua_api7_spawn": dict(
+        room="S_10/S_1003/S_1003", lua=_LUA_API7F,
+        drive="30:lua=w;40:lua=w spawn 17 9;60:lua=w;70:lua=w set 17 5;80:lua=w remove 17;90:lua=w spawn 13 1;100:lua=w spawn 999 1;110:quit",
+        expect=[_LP + "13 actors, first Baocar lv4 86.0/86.0, #17 nil in S_1003", _LP + "spawned 17", _LP + "14 actors",
+                "#17 Selnarg lv9 ", _LP + "set true", "#17 Selnarg lv9 5.0/", _LP + "removed true", _LP + "13 actors", _LP + "spawned nil",
+                _LP + "spawned nil"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, cleria.audio and cleria.screen: a sound of the game, a BGM, the music stopped, a flash and a fade.
+_LUA_API7V = (
+    'cleria.command("av", function(a)\n'
+    '    if a == "se" then cleria.log("se " .. tostring(cleria.audio.se(5, 0.5))) end\n'
+    '    if a == "music" then cleria.log("music " .. tostring(cleria.audio.music(18))) end\n'
+    '    if a == "stop" then cleria.log("stop " .. tostring(cleria.audio.stop_music(0.5))) end\n'
+    '    if a == "flash" then cleria.log("flash " .. tostring(cleria.screen.flash(0xFF2020, 1.0, 0.8))) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_av": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7V, drive="30:lua=av se;40:lua=av music;60:lua=av stop;70:lua=av flash;90:quit",
+        expect=["[lua] se 5", _LP + "se true", _LP + "music true", _LP + "stop true", _LP + "flash true"], absent=_NOSTOP),
+})
+
+# Mod API 7, the puppet: a second character in the room (Hugo's sprite set next to Yunica), posed, moved, turned and
+# removed; set_puppet on an id that is gone answers false. player.pose is what a peer would send.
+_LUA_API7P = (
+    'local pup\n'
+    'cleria.command("pup", function(a)\n'
+    '    local st, cmd, x = cleria.player.stats(), a:match("^(%S*)%s*(%S*)")\n'
+    '    if cmd == "spawn" then pup = cleria.world.puppet(tonumber(x), st.x + 2.5, st.y, st.z, 180) cleria.log("puppet " .. tostring(pup)) end\n'
+    '    if cmd == "pose" then cleria.log("posed " .. tostring(cleria.world.set_puppet(pup, {tag = tonumber(x), frame = 2, sheet = 16}))) end\n'
+    '    if cmd == "move" then cleria.log("moved " .. tostring(cleria.world.set_puppet(pup, {x = st.x - 2.5, z = st.z + 1, yaw = 90}))) end\n'
+    '    if cmd == "remove" then cleria.log("removed " .. tostring(cleria.world.remove_puppet(pup))) end\n'
+    '    if cmd == "me" then local p = cleria.player.pose() cleria.log(string.format("pose %.1f %.1f %.1f yaw %.0f tag %d frame %d sheet %d", p.x, p.y, p.z, p.yaw, p.tag, p.frame, p.sheet)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_puppet": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7P,
+        drive="30:lua=pup spawn 2;40:lua=pup me;70:lua=pup pose 301;110:lua=pup move;190:lua=pup remove;200:lua=pup pose 301;210:actors;220:quit",
+        expect=[_LP + "puppet 117", _LP + "pose 0.1 2.0 7.8 yaw 0 tag 305 frame ", " sheet 15", _LP + "posed true", _LP + "moved true", _LP + "removed true",
+                _LP + "posed false"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, what the player does as events: a swing, a jump and its landing, a skill cast, the Boost on, a goddess
+# statue used (interact + statue_used + script_started), and a script the mod's filter refuses.
+_LUA_API7E = (
+    'local function show(name, keys)\n'
+    '    cleria.events.on(name, function(e)\n'
+    '        local t = {}\n'
+    '        for _, k in ipairs(keys) do t[#t + 1] = k .. " " .. tostring(e[k]) end\n'
+    '        cleria.log("ev " .. name .. " " .. table.concat(t, " "))\n'
+    '    end)\n'
+    'end\n'
+    'show("attack", {"air"}) show("jump", {"double"}) show("land", {}) show("skill_used", {"slot", "item", "level"})\n'
+    'show("boost", {"on"}) show("interact", {"script"}) show("statue_used", {"cleansed"}) show("script_started", {"name"})\n'
+    'cleria.script.add_filter(function(q) if q.name == "noscript" then return "suppress" end end)\n'
+    'cleria.command("ev", function(a)\n'
+    '    if a == "boost" then cleria.player.set_boost(30000) end\n'
+    '    if a == "run" then cleria.log("run " .. tostring(cleria.script.run("nothing_named_so"))) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_actions": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7E,
+        drive="5:flag=187,1;8:bracelet=118;9:flag=118,1;10:flag=184,1;30:atk;90:jump;150:skill+;152:skill-;190:lua=ev boost;195:boost;"
+              "210:lua=ev run;220:at=-0.036,8.2,0;230:act;270:quit",
+        expect=[_LP + "ev attack air 0", _LP + "ev jump double 0", _LP + "ev land", _LP + "ev skill_used slot 3 item 118 level ",
+                _LP + "ev boost on 1", _LP + "run false", _LP + "ev script_started name save", _LP + "ev interact script save",
+                _LP + "ev statue_used cleansed 0"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, cleria.combat and cleria.player.tune: a mod's own hit on a monster (the damage as given, then a kill
+# with its EXP), HP taken and given back, and the tuning: a run twice as fast, a second jump in the air without the
+# game's double jump, a skill at half its MP.
+_LUA_API7C = (
+    'cleria.events.on("enemy_hit", function(e) cleria.log("hit " .. e.damage .. " killed " .. e.killed) end)\n'
+    'cleria.events.on("enemy_killed", function(e) cleria.log("killed cast " .. e.cast .. " exp " .. tostring(e.exp > 0)) end)\n'
+    'cleria.events.on("jump", function(e) cleria.log("jump double " .. e.double) end)\n'
+    'cleria.events.on("skill_used", function(e) cleria.log("skill cost " .. e.cost) end)\n'
+    'local x0\n'
+    'cleria.command("c", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    local en = cleria.world.actors()[1]\n'
+    '    if a == "hit" then cleria.log("queued " .. tostring(cleria.combat.damage(en.id, 5))) end\n'
+    '    if a == "kill" then cleria.combat.damage(en.id, 99999) end\n'
+    '    if a == "left" then cleria.log("actors " .. #cleria.world.actors()) end\n'
+    '    if a == "hurt" then cleria.combat.hurt(7) cleria.log("hp " .. cleria.player.stats().hp - st.hp) end\n'
+    '    if a == "heal" then cleria.combat.heal(4) cleria.log("hp " .. cleria.player.stats().hp - st.hp) end\n'
+    '    if a == "x" then x0 = st.x end\n'
+    '    if a == "dx" then cleria.log(string.format("ran %.1f", st.x - x0)) end\n'
+    '    if a == "fast" then cleria.log("tune " .. tostring(cleria.player.tune({speed = 2, air_jumps = 1, mp_cost = 0.5}))) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_combat": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7C,
+        drive="5:opt=InfiniteHP=0;8:bracelet=118;9:flag=118,1;10:flag=184,1;20:lua=c left;30:lua=c hit;40:lua=c kill;50:lua=c left;"
+              "60:lua=c hurt;62:lua=c heal;70:lua=c x;71:move=1,0,30;110:lua=c dx;120:skill+;122:skill-;170:lua=c fast;"
+              "180:lua=c x;181:move=-1,0,30;220:lua=c dx;230:jump;242:jump;280:skill+;282:skill-;330:quit",
+        expect=[_LP + "actors 11", _LP + "queued true", _LP + "hit 5 killed 0", _LP + "hit 99999 killed 1", _LP + "killed cast ",
+                _LP + "actors 10", _LP + "hp -7", _LP + "hp 4", _LP + "ran 2.5", _LP + "skill cost 400", _LP + "tune true", _LP + "ran -5.0",
+                _LP + "jump double 0", _LP + "jump double 1", _LP + "skill cost 200"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the camera, the HUD's parts, the held game and the spawn event: the eye twice as far from its subject,
+# the game held (a walk command moves nobody, the state is "held") then let go, a monster spawned by the mod
+# announced by enemy_spawned, and no boss gauge in an ordinary room.
+_LUA_API7K = (
+    'cleria.events.on("enemy_spawned", function(e) cleria.log("spawned cast " .. e.cast .. " actor " .. tostring(e.actor > 0)) end)\n'
+    'local d0, x0\n'
+    'local function dist() local c = cleria.camera.get() return math.sqrt((c.x - c.tx) ^ 2 + (c.y - c.ty) ^ 2 + (c.z - c.tz) ^ 2) end\n'
+    'cleria.command("k", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "d0" then d0 = dist() cleria.log("boss " .. tostring(cleria.world.boss())) end\n'
+    '    if a == "far" then cleria.camera.set({distance = 2}) end\n'
+    '    if a == "d1" then cleria.log(string.format("distance x%.2f", dist() / d0)) cleria.camera.reset() end\n'
+    '    if a == "d2" then cleria.log(string.format("distance x%.2f", dist() / d0)) end\n'
+    '    if a == "hold" then x0 = st.x cleria.game.pause(true) cleria.log("state " .. cleria.game.state()) end\n'
+    '    if a == "free" then cleria.log(string.format("moved %.1f", st.x - x0)) cleria.game.pause(false) cleria.log("state " .. cleria.game.state()) end\n'
+    '    if a == "x" then cleria.log("walked on " .. tostring(st.x - x0 > 1)) end\n'
+    '    if a == "hud" then cleria.log("hud " .. tostring(cleria.hud.show("status", false))) end\n'
+    '    if a == "spawn" then cleria.world.spawn(43, st.x + 3, st.y, st.z) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_camera": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7K,
+        drive="30:lua=k d0;31:lua=k far;40:lua=k d1;50:lua=k d2;60:lua=k hud;70:lua=k hold;71:move=1,0,30;110:lua=k free;"
+              "150:lua=k x;160:lua=k spawn;180:quit",
+        expect=[_LP + "boss nil", _LP + "distance x2.00", _LP + "distance x1.00", _LP + "hud true", _LP + "state held", _LP + "moved 0.0",
+                _LP + "state play", _LP + "walked on true", _LP + "spawned cast 43 actor true"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, monster variants and a custom boss: a variant spawned by its name (three times the HP of its base cast,
+# its own name and kind), a boss with the gauge on its HP and its handler held, the phase entered when a hit takes it
+# under half, and both deaths with their callbacks; the gauge goes with the boss.
+_LUA_API7M = (
+    'local C, W = cleria.content, cleria.world\n'
+    'C.define_monster("brute", {base = 43, name = "Brute", hp = 3, exp = 5, scale = 1.6, tint = 0xFF5050,\n'
+    '    on_spawn = function(id) cleria.log("born " .. tostring(id > 0)) end,\n'
+    '    on_death = function(e) cleria.log("brute dead exp " .. tostring(e.exp > 0) .. " variant " .. e.variant) end})\n'
+    'C.define_boss("king", {base = 43, name = "The King", hp = 20, scale = 2.2, tint = 0x6060FF, ai = false,\n'
+    '    phases = {{at = 0.5, enter = function(id, i) cleria.log("king phase " .. i) W.form(id, {atk = 2, tint = 0xFF2020}) end}},\n'
+    '    on_death = function() cleria.log("king dead") end})\n'
+    'local brute, king\n'
+    'cleria.command("m", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "brute" then brute = W.spawn("brute", st.x + 3, st.y, st.z) local b = W.actor(brute)\n'
+    '        cleria.log(string.format("brute %s %s hp x%.0f", b.name, b.variant, b.max_hp / W.actor(W.spawn(43, st.x - 30, st.y, st.z)).max_hp)) end\n'
+    '    if a == "king" then king = W.spawn("king", st.x - 3, st.y, st.z + 1) local k, b = W.actor(king), W.boss()\n'
+    '        cleria.log("king boss " .. tostring(k.boss) .. " ai " .. tostring(k.ai)) end\n'
+    '    if a == "gauge" then local b = W.boss() cleria.log("gauge " .. tostring(b and b.actor == king) .. " full " .. tostring(b and b.hp == b.max_hp)) end\n'
+    '    if a == "half" then cleria.combat.damage(king, W.actor(king).max_hp * 0.6) end\n'
+    '    if a == "kill" then cleria.combat.damage(king, 999999) cleria.combat.damage(brute, 999999) end\n'
+    '    if a == "after" then cleria.log("boss " .. tostring(W.boss())) end\n'
+    'end)\n'
+)
+CASES.update({
+    "lua_api7_monsters": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7M,
+        drive="30:lua=m brute;40:lua=m king;50:lua=m gauge;60:lua=m half;80:lua=m kill;100:lua=m after;120:quit",
+        expect=[_LP + "born true", _LP + "brute Brute test.lua:brute hp x3", _LP + "king boss true ai false", _LP + "gauge true full true",
+                _LP + "king phase 1", _LP + "king dead", _LP + "brute dead exp true variant test.lua:brute", _LP + "boss nil"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the multiplayer pieces. A puppet made hittable takes the player's swing as a puppet_hit event (and no
+# HP); combat.strike is a hit on the player priced by the game (HP lost, the player_hit event); world.snapshot
+# lists the room's monsters, and world.apply makes the room match a changed copy: one monster moved and hurt, one
+# gone, all held (their handlers stopped: they stay where the snapshot put them).
+_LUA_API7Y = (
+    'local W = cleria.world\n'
+    'cleria.events.on("puppet_hit", function(e) cleria.log("puppet_hit atk " .. tostring(e.atk > 0) .. " puppet " .. tostring(e.puppet > 0)) end)\n'
+    'cleria.events.on("player_hit", function(e) cleria.log("player_hit " .. tostring(e.damage > 0)) end)\n'
+    'local pup, snap, hp0\n'
+    'cleria.command("y", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "pup" then pup = W.puppet(2, st.x + 0.9, st.y, st.z, 0) cleria.log("hittable " .. tostring(W.set_puppet(pup, {hittable = true}))) end\n'
+    '    if a == "face" then cleria.player.set_position(st.x, st.y, st.z, 90) end\n'
+    '    if a == "strike" then hp0 = st.hp cleria.log("strike " .. tostring(cleria.combat.strike(60))) end\n'
+    '    if a == "hp" then cleria.log("lost hp " .. tostring(st.hp < hp0)) end\n'
+    '    if a == "snap" then snap = W.snapshot() cleria.log("snapshot " .. #snap .. " tag " .. tostring(snap[1].tag >= 0)) end\n'
+    '    if a == "apply" then\n'
+    '        snap[1].x, snap[1].z, snap[1].hp = st.x + 4, st.z, 7\n'
+    '        table.remove(snap, 2)\n'
+    '        cleria.log("applied " .. tostring(W.apply(snap)))\n'
+    '    end\n'
+    '    if a == "check" then\n'
+    '        local now, one = W.actors(), W.actor(snap[1].id)\n'
+    '        cleria.log(string.format("now %d first hp %.0f at %.1f ai %s", #now, one.hp, one.x - st.x, tostring(one.ai)))\n'
+    '    end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_sync": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7Y,
+        drive="5:opt=InfiniteHP=0;20:lua=y snap;25:lua=y apply;60:lua=y check;70:lua=y face;75:lua=y pup;80:atk;130:lua=y strike;150:lua=y hp;170:quit",
+        expect=[_LP + "snapshot 11 tag true", _LP + "applied 10", _LP + "now 10 first hp 7 at 4.0 ai false", _LP + "hittable true",
+                _LP + "puppet_hit atk true puppet true", _LP + "strike true", _LP + "player_hit true", _LP + "lost hp true"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the Lua layer on the live game. A skill of the mod's own on slot 3 (its cast runs, its MP is paid, the
+# game's cast and skill_used do not happen); an item kept in the save (given twice, used once); a character variant
+# (twice the HP); a shop that sells for SP (one purchase by the window's OK); and a room variant entered from
+# another room: the base room without its own monsters, the variant's monster in it, on_clear at its death.
+_LUA_API7O = (
+    'local C, W, P = cleria.content, cleria.world, cleria.player\n'
+    'cleria.events.on("skill_used", function() cleria.log("the game cast") end)\n'
+    'C.define_skill(3, {mp = 100, cast = function(c) cleria.log("my cast charged " .. tostring(c.charged) .. " cost " .. c.cost) end})\n'
+    'C.define_item("potion", {name = "Potion", use = function() cleria.combat.heal(5) end, on_change = function(n) cleria.log("potions " .. n) end})\n'
+    'C.define_character("giant", {name = "Giant", hp = 2, scale = 1.4})\n'
+    'C.define_room("arena", {base = "S_1002", exits = {default = false},\n'
+    '    on_enter = function() local st = P.stats() W.spawn(43, st.x + 3, st.y, st.z) cleria.log("arena entered") end,\n'
+    '    on_clear = function() cleria.log("arena cleared") end})\n'
+    'local mp0, hp0\n'
+    'cleria.command("o", function(a)\n'
+    '    local st = P.stats()\n'
+    '    if a == "mp" then mp0 = st.mp end\n'
+    '    if a == "paid" then cleria.log("paid " .. (mp0 - st.mp > 50 and mp0 - st.mp < 150 and "100" or tostring(mp0 - st.mp))) end\n'
+    '    if a == "item" then C.add_item("potion", 2) C.use_item("potion") cleria.log("left " .. C.item_count("potion") .. " list " .. #C.items()) end\n'
+    '    if a == "char" then hp0 = st.max_hp cleria.log("giant " .. tostring(C.set_character("giant")) .. " hp x" .. P.stats().max_hp / hp0) end\n'
+    '    if a == "shop" then P.add_sp(50 - P.sp()) cleria.ui.shop({items = {{name = "Potion", price = 20, buy = function() C.add_item("potion") end}}}) end\n'
+    '    if a == "sold" then cleria.log("sp " .. P.sp() .. " potions " .. C.item_count("potion") .. " open " .. tostring(cleria.ui.is_open())) cleria.ui.close() end\n'
+    '    if a == "go" then cleria.log("go " .. tostring(C.enter_room("arena"))) end\n'
+    '    if a == "in" then cleria.log("room " .. cleria.game.room() .. " " .. tostring(C.room()) .. " monsters " .. #W.actors()) end\n'
+    '    if a == "kill" then cleria.combat.damage(W.actors()[1].id, 99999) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_layer": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7O,
+        drive="8:bracelet=118;9:flag=118,1;10:flag=184,1;30:lua=o mp;31:skill+;33:skill-;40:lua=o paid;50:lua=o item;60:lua=o char;"
+              "70:lua=o shop;80:modwin=ok;90:lua=o sold;100:lua=o go;200:lua=o in;210:lua=o kill;260:quit",
+        expect=[_LP + "my cast charged false cost 100", _LP + "paid 100", _LP + "potions 2", _LP + "potions 1", _LP + "left 1 list 1",
+                _LP + "giant true hp x2", _LP + "potions 2", _LP + "sp 30 potions 2 open shop", _LP + "go true", _LP + "arena entered",
+                _LP + "room S_1002 arena monsters 1", _LP + "arena cleared"],
+        absent=_NOSTOP + ["the game cast"]),
+})
+
+# Mod API 7, game.new_game: from a running game (Yunica), a new game as Hugo: the title starts it at once, the
+# new_game event says 2 and so does game.character() afterwards.
+_LUA_API7Q = (
+    'local asked\n'
+    'cleria.events.on("new_game", function(e) cleria.log("new_game event " .. e.character) end)\n'
+    'cleria.command("q", function(a)\n'
+    '    if a == "ng" and not asked then asked = true cleria.log("asked " .. tostring(cleria.game.new_game(2))) end\n'
+    '    if a == "who" then cleria.log("character " .. cleria.game.character() .. " asked " .. tostring(asked)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_newgame": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7Q, drive="30:lua=q who;40:lua=q ng;60:lua=q who;80:quit",
+        expect=[_LP + "character 1 asked nil", _LP + "asked true", _LP + "new_game event 2", _LP + "character 2 asked true"],
+        count={"[drive] t60 lua=q who": 1},                 # the first game ended at the request: its tick 60 never came
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the tools. The console window runs a command of the mod (mods.command), and the drive's modreload=
+# starts the mod's script afresh: its state is new (the counter is back at 1), what it left with the game is gone
+# (the game is no longer held, its tuning is off), and its commands answer again.
+_LUA_API7T = (
+    'boots = (boots or 0) + 1\n'
+    'cleria.log("boot " .. boots)\n'
+    'cleria.command("t", function(a)\n'
+    '    if a == "hold" then cleria.game.pause(true) cleria.player.tune({speed = 3}) cleria.log("state " .. cleria.game.state()) end\n'
+    '    if a == "state" then cleria.log("state " .. cleria.game.state() .. " boots " .. boots) end\n'
+    '    if a == "run" then cleria.log("ran " .. tostring(cleria.mods.command("t", "state")) .. " " .. table.concat(cleria.mods.commands(), ",")) end\n'
+    '    if a == "console" then cleria.ui.console() cleria.log("console " .. tostring(cleria.ui.is_open())) cleria.ui.close() end\n'
+    '    if a == "bag" then cleria.content.open_bag() cleria.log("bag " .. tostring(cleria.ui.is_open())) cleria.ui.close() end\n'
+    '    if a == "x" then x0 = cleria.player.stats().x end\n'
+    '    if a == "dx" then cleria.log(string.format("ran %.1f", cleria.player.stats().x - x0)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_tools": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7T,
+        drive="20:lua=t run;30:lua=t console;35:lua=t bag;40:lua=t hold;50:modreload=test.lua;60:lua=t state;70:lua=t x;71:move=1,0,30;110:lua=t dx;120:quit",
+        expect=[_LP + "boot 1", _LP + "state play boots 1", _LP + "ran true t", _LP + "console cleria_console", _LP + "bag cleria_bag", _LP + "state held",
+                "[lua] test.lua: reloaded", _LP + "state play boots 1", _LP + "ran 2.5"],
+        count={_LP + "boot 1": 2}, absent=_NOSTOP),
+})
+
+# Mod API 7, a puppet the monsters take for a player: put beside a monster far from the real player, it is chased
+# and struck (the puppet_struck event carries the monster's ATK); the real player, out of reach, loses nothing.
+_LUA_API7S = (
+    'local W = cleria.world\n'
+    'local n, hp0 = 0, nil\n'
+    'cleria.events.on("puppet_struck", function(e) n = n + 1 if n == 1 then cleria.log("struck atk " .. tostring(e.atk > 0) .. " by cast " .. e.cast) end end)\n'
+    'cleria.command("s", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "bait" then\n'
+    '        local far, d = nil, -1\n'
+    '        for _, m in ipairs(W.actors()) do local q = (m.x - st.x) ^ 2 + (m.z - st.z) ^ 2 if q > d then far, d = m, q end end\n'
+    '        hp0 = st.hp\n'
+    '        local pup = W.puppet(2, far.x + 1.2, far.y, far.z, 0)\n'
+    '        cleria.log("bait " .. tostring(W.set_puppet(pup, {target = true})) .. " far " .. tostring(d > 100))\n'
+    '    end\n'
+    '    if a == "end" then cleria.log("struck " .. tostring(n > 0) .. " player lost " .. hp0 - st.hp) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_struck": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7S, drive="5:opt=InfiniteHP=0;30:lua=s bait;900:lua=s end;910:quit",
+        expect=[_LP + "bait true far true", _LP + "struck atk true by cast ", _LP + "struck true player lost 0"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, combat.boss_bonus on Velagunder at level 5: 400 in the pool is spent by the next swing that does damage
+# (CLERIA_DMG shows that hit some 400 over the others).
+_LUA_API7B = (
+    'local h0\n'
+    'cleria.command("b", function(a)\n'
+    '    local b = cleria.world.boss()\n'
+    '    if a == "mark" then h0 = b.hp end\n'
+    '    if a == "bonus" then cleria.log("pool " .. cleria.combat.boss_bonus(400)) end\n'
+    '    if a == "pooled" then cleria.log("pool after the swings " .. cleria.combat.boss_bonus() .. " gauge moved " .. tostring(b.hp <= h0)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_boss_bonus": dict(
+        room="S_10/S_1099/S_1099", lua=_LUA_API7B, env=dict(CLERIA_LEVEL="5", CLERIA_DMG="1"),
+        drive="150:flag=156,1;" + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(200, 1900, 12)) +
+              "1200:lua=b mark;1505:lua=b bonus;1800:lua=b pooled;1910:quit",
+        expect=[_LP + "pool 400", " dmg, HP ", _LP + "pool after the swings 0.0 gauge moved true"],
+        absent=_NOSTOP),
 })
 
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
@@ -3765,7 +4293,7 @@ def content_setup(case, env, tmp):
         ids.append("test.lua")
     on = [] if case.get("mods_off") else ids
     open(os.path.join(tmp, "cleria.ini"), "w").write(
-        '[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n' % (",".join(ids), ",".join(on)))
+        '[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n' % (",".join(ids), ",".join(on)) + case.get("ini", ""))
     open(os.path.join(tmp, "yso_win.ini"), "w").close()
     env["CLERIA_INI"] = os.path.join(tmp, "yso_win.ini")
 

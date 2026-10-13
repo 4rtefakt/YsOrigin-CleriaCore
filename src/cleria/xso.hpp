@@ -892,6 +892,9 @@ struct ScriptManager {
     // (FUN_00434970: +0x11 & 2 clear, _stricmp name, +0x238 == 0; §5a). Ticks the child
     // once immediately. Returns false if deduped or the loader can't find it.
     bool start(const std::string& name, const XsoVm::Vars& vars = {}, int owner = 0);
+    // CleriaCore's own (the mods, API 7; not retail): asked once a start by name has found its script and passed
+    // the dedup; false refuses it, as if the script did not exist.
+    std::function<bool(const std::string& name, int owner)> start_filter;
     // One engine frame: tick every live script once, drain StartScript spawns (children
     // tick this frame too), then reap finished scripts. A no-op while paused.
     void tick_all();

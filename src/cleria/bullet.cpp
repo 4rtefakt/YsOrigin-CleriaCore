@@ -208,6 +208,7 @@ void Bullets::step_bomb(Bomb& b, const Env& env, std::vector<Event>* events) {
 }
 
 Bullet* Bullets::spawn(const Spawn& in) {
+    if (on_player_spawn && !in.owner_monster && !in.show_only) on_player_spawn(in);
     if (in.kind == 0xf) { spawn_bomb(in); return nullptr; }      // 0x59358a: not a bullet
     auto b = std::make_unique<Bullet>();
     b->s = in;
@@ -251,6 +252,7 @@ Bullet* Bullets::spawn(const Spawn& in) {
     b->side = 1;
     int cls = -1;
     if (!monster) { b->y190 = s.pos.y; b->side = 0; cls = s.cls; }
+    if (s.show_only) { b->side = 2; b->atk = 0.0f; cls = -1; }      // (API 7) for show
     b->fx = spawn_fx(s.effect, s.pos, {0, 0, 0}, b->side, b->atk, s.power + 0.0f, s.knock, rtype, status,
                      cls, s.owner, scale);
     if (!b->fx) return nullptr;                                    // FUN_00594190

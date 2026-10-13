@@ -116,7 +116,8 @@ struct EnemyFx {
         if (stem.empty() || kinds.count(stem)) return;
         root = asset_root;
         Kind k;
-        if (!k.aia.load(asset_root / "ANI" / (stem + ".AIA"))) return;
+        // A stem that is a whole path is a mod's own sheet (world.form{sprite =}, API 7): read where it is.
+        if (!k.aia.load(fs::path(stem).is_absolute() ? fs::path(stem) : asset_root / "ANI" / (stem + ".AIA"))) return;
         // Some enemy AIAs are 40-byte stubs with no images (M_810 / M_820: Hugo and Toal as
         // duel opponents). Their ASO selects the real set with anime_File (the player's
         // C_1xx), so follow it [H: the factory's ASO index picks the same file]; otherwise skip
@@ -177,7 +178,7 @@ struct EnemyFx {
     void init_from_world(Gpu& g, const fs::path& asset_root, const ActorWorld& world,
                          const CastTable& casts) {
         for (const Actor& a : world.actors())
-            load_kind(g, asset_root, casts.sprite_stem(a.cast_id));
+            load_kind(g, asset_root, a.sprite_override.empty() ? casts.sprite_stem(a.cast_id) : a.sprite_override);
     }
 };
 
@@ -340,7 +341,7 @@ static std::vector<EnemyRender> build_enemy_render(ActorWorld& world,
     std::vector<EnemyRender> out;
     for (Actor& a : world.actors()) {
         if (a.is_player()) continue;
-        const std::string stem = casts.sprite_stem(a.cast_id);
+        const std::string stem = a.sprite_override.empty() ? casts.sprite_stem(a.cast_id) : a.sprite_override;   // a mod's puppet
         if (stem.empty() || !fx.kinds.count(stem)) continue;   // no loaded sprite
         const Cast* c = casts.get(a.cast_id);
         out.push_back({&a, stem, (c && !c->display.empty()) ? c->display : stem});
@@ -449,11 +450,21 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                        float(tc & 0xff) / 255.0f * g_scene_light.z, false, e.actor->ai.alpha * e.actor->tint_alpha,
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,     // Chr_Tremble
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale,
-                       e.actor->hit_flash != 0.0f ? hitfx::kHurtSpecular : e.spec.colour(),
+                       e.actor->hit_flash != 0.0f ? hitfx::kHurtSpecular : e.actor->mod_spec ? e.actor->mod_spec : e.spec.colour(),
                        e.avm.ok() ? e.avm.sprite_depth_offset() : 0.0f,                   // anime_CameraDistanceOffset
                        // The caustics on a body under water (+0x38a && !+0x389 && +0x4ba != 0x12 && WaterCaustics == 0
                        // [EXPORT 00474290.c:96-123]). [approx] an enemy's wading byte is not kept: in_water stands for both.
                        !g_caustic.off && (g_caustic.mode2 || e.actor->ai.in_water) && e.actor->ai.surf_ray != 0x12);
+        // A puppet drawn as Toal (the mods', API 7) leaves his trail: its history is the puppet's place at each
+        // drawn frame [approx: retail's is per tick], the trail's pictures the ones his own tags have in C_119.
+        if (e.actor->sprite_override == "C_113" && e.actor->pattern.pinned()) {
+            if (g_puppet_trails.size() > 8 && !g_puppet_trails.count(e.actor->instance_id)) g_puppet_trails.clear();
+            ToalTrail& tt = g_puppet_trails[e.actor->instance_id];
+            trail_record(e.actor->pos, tt);
+            trail_draw(g, color, depth, fx.root, *t, e.actor->pos, k.height * e.actor->scale, e.actor->pattern.tag, dir,
+                       e.actor->pattern.frame, camFwd, camPos, g_scene_light.x, g_scene_light.y, g_scene_light.z, 0.0f, 0.0f,
+                       e.actor->scale, 0.0f, tt);
+        }
         // Event-bound (group-1..4) enemies GLOW their marker colour (FUN_00473c60 [BYTES 0x473ec8..f87],
         // BARRIER_OBJECTS.md §1a): A = marker alpha * |sin(2 pi phase / 255)|, no floor, the phase
         // stepped in the actor tick (so it holds still under a Fix). [H] the composition: the

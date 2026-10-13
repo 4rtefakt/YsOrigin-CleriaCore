@@ -31,7 +31,7 @@ struct lua_State;
 
 namespace cleria::script {
 
-inline constexpr int kApiVersion = 6;   // cleria.api_version (= mods::kApiVersion; LUA_API.md §11 lists what each level added)
+inline constexpr int kApiVersion = 7;   // cleria.api_version (= mods::kApiVersion; LUA_API.md §11 lists what each level added)
 inline constexpr int kScriptApi = 3;    // the manifest ApiVersion a Script= needs (when the Lua API arrived)
 
 struct Limits {
@@ -73,6 +73,21 @@ struct PlayerInfo {
     double buff[3] = {0, 0, 0};       // the Strength / Defense / MP Drop buffs 0x76b904 / 0x76b908 / 0x76b900
     int buff_timer[3] = {0, 0, 0};    // ... and their ticks left 0x76c19c / 0x76c1a0 / 0x76c1a4
     float pos[3] = {0, 0, 0};         // the feet (world, Y up)
+};
+
+// cleria.world.add_filter (API 7, LUA_API.md §12.11): something the world is about to do ("spawn", "exit"), with free
+// fields both ways. The game fills the query (only when a mod has a filter of that kind); the answer's numbers and
+// strings are what the kind documents.
+struct WorldQuery {
+    std::string kind;
+    std::vector<std::pair<std::string, double>> num;
+    std::vector<std::pair<std::string, std::string>> str;
+};
+struct WorldDecision {
+    enum class Action { Pass, Suppress, Replace } action = Action::Pass;
+    std::map<std::string, double> num;
+    std::map<std::string, std::string> str;
+    double n(const std::string& k, double def) const { const auto it = num.find(k); return it == num.end() ? def : it->second; }
 };
 
 // What a script can reach. Every method has a harmless default, so a host provides only what it has.
@@ -137,6 +152,53 @@ struct Host {
     virtual bool ui_button(void* list, const std::string& label, const std::string& desc, bool enabled) { (void)list; (void)label; (void)desc; (void)enabled; return false; }
     virtual bool ui_text_field(void* list, const std::string& label, std::string* v, const std::string& desc, bool secret, const std::string& empty) { (void)list; (void)label; (void)v; (void)desc; (void)secret; (void)empty; return false; }
     virtual void ui_info(void* list, const std::string& label, const std::string& value, std::uint32_t col, const std::string& desc) { (void)list; (void)label; (void)value; (void)col; (void)desc; }
+    // ---- API 7 ----
+    struct ModInfo { std::string id, name, version; bool active = false, scripted = false; };
+    virtual std::vector<ModInfo> mod_list() { return {}; }      // every installed mod, in load order
+    // The tools (API 7): a cleria.command of any scripted mod, their names, the last lines the mods logged, and a
+    // mod's own script started afresh at the next frame (its Lua state is closed first).
+    virtual bool run_command(const std::string& name, const std::string& args) { (void)name; (void)args; return false; }
+    virtual std::vector<std::string> all_commands() { return {}; }
+    virtual std::vector<std::string> log_lines(int n) { (void)n; return {}; }
+    virtual bool request_reload(const std::string& mod) { (void)mod; return false; }
+    // cleria.bus: a message to the other scripted mods (-> how many handlers ran), and a process-wide key / value.
+    virtual int bus_publish(const std::string& from, const std::string& topic, const std::string& json_text) { (void)from; (void)topic; (void)json_text; return 0; }
+    virtual std::optional<std::string> bus_get(const std::string& key) { (void)key; return std::nullopt; }
+    virtual void bus_set(const std::string& key, const std::string& json_text) { (void)key; (void)json_text; }
+    virtual bool set_clipboard(const std::string& text) { (void)text; return false; }
+    virtual bool open_url(const std::string& mod, const std::string& url) { (void)mod; (void)url; return false; }
+    virtual std::string locale() { return "en"; }               // the game's text language: "en", "fr", "ja" ...
+    // What the game is doing: "title", "play", "cutscene", "dialog", "menu", "book", "panel", "gameover".
+    virtual std::string game_state() { return in_game() ? "play" : "title"; }
+    virtual std::string room_title() { return {}; }             // the room's own name ("2F Path 1"), "" when it has none
+    // cleria.world: the room's monsters (living enemy actors; never the player, an NPC or a boss module's parts).
+    struct ActorInfo {
+        int id = 0, cast = 0, level = 0;
+        std::string name;                                       // CASTINFO's display name
+        float hp = 0, max_hp = 0, atk = 0, def = 0;
+        float pos[3] = {0, 0, 0}, height = 0, yaw = 0;          // the feet (world, Y up), the collision height, the heading
+        bool hittable = true;
+        std::string kind;                                       // a mod's variant ("<mod>:<name>"), else empty
+        bool boss = false, ai = true;                           // the boss gauge is its own; its handler runs
+    };
+    virtual std::vector<ActorInfo> actors() { return {}; }
+    // A write (or a small read) of the live game by name: the view implements each next to the state it touches
+    // (apps/cleria-view/view_lua_ops.inl). False = no game, an unknown op, or the game refused; `out` gets an op's numbers.
+    // More page widgets (API 7): a wrapped paragraph; a bar (fraction 0..1) with its text.
+    virtual void ui_text(void* list, const std::string& text, std::uint32_t col) { (void)list; (void)text; (void)col; }
+    // One row of equal columns (a table's header or a line of it), and an image as tall as `height` rows of text.
+    virtual void ui_table(void* list, const std::vector<std::string>& cells, bool header, std::uint32_t col) { (void)list; (void)cells; (void)header; (void)col; }
+    virtual void ui_image(void* list, int handle, float height, std::uint32_t tint) { (void)list; (void)handle; (void)height; (void)tint; }
+    virtual void ui_progress(void* list, const std::string& label, double fraction, const std::string& text, std::uint32_t col) { (void)list; (void)label; (void)fraction; (void)text; (void)col; }
+    // cleria.input: is this key / pad button held now; is the name one the host knows (SDL's names: "F5", "Left Shift", "A";
+    // pad: "a", "b", "x", "y", "back", "start", "leftshoulder", "dpup" ...).
+    virtual bool key_down(const std::string& name) { (void)name; return false; }
+    virtual bool pad_down(const std::string& name) { (void)name; return false; }
+    virtual bool key_known(const std::string& name, bool pad) { (void)name; (void)pad; return true; }
+    virtual bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
+                         std::vector<double>* out) { (void)mod; (void)op; (void)num; (void)text; (void)out; return false; }
+    // A world point on the screen as fractions of the game picture (0..1 from its top left); false = behind the camera.
+    virtual bool to_screen(float x, float y, float z, float* sx, float* sy) { (void)x; (void)y; (void)z; (void)sx; (void)sy; return false; }
 };
 
 // One scripted mod: its Lua state, sandbox, budget, handlers, and the calls the game makes into it.
@@ -197,6 +259,49 @@ public:
     std::vector<void*> sockets_;                                // live websocket userdata (closed on failure)
     std::map<std::string, int> images_;                         // path -> host image handle
     void* list_ = nullptr;                                      // the F1 page being drawn (draw_page)
+    // ---- API 7 (modscript_api7.inl) ----
+    struct Timer { int id = 0; double due = 0, period = 0; int ref = 0; bool play = false, dead = false; };
+    std::vector<Timer> timers_;                                 // cleria.after / every
+    int next_timer_ = 1;
+    double play_clock_ = 0;                                     // seconds of play: ticks / 60 while a game runs unfrozen
+    std::map<std::string, std::vector<int>> bus_subs_;          // cleria.bus.subscribe: topic -> refs
+    void run_timers(bool play);
+    int raw_sockets_ = 0;                                       // cleria.net.udp / tcp userdata alive
+    // cleria.content.define_monster / define_boss: a variant of an enemy cast, and the ones alive in this room.
+    struct MonsterDef {
+        int base = 0;
+        double level = 0, hp = 1, atk = 1, def = 1, exp = 1, sp = 1, scale = -1, tint = -1;
+        bool ai = true, boss = false;
+        std::string name;
+        int on_spawn = 0, on_hit = 0, on_death = 0;             // refs (0 = none)
+        std::vector<std::pair<double, int>> phases;             // HP fraction (falling) -> ref
+    };
+    std::map<std::string, MonsterDef> monsters_;
+    struct LiveMonster { std::string kind; std::size_t phase = 0; };
+    std::map<int, LiveMonster> live_monsters_;                  // actor id -> its variant
+    void monster_event(const events::Event& e);                 // on_hit / phases / on_death; a room change forgets them
+    std::vector<std::pair<std::shared_ptr<void>, int>> http_jobs_;   // cleria.net.http: the request's state, its callback ref
+    void run_http();                                            // the finished ones' callbacks (each frame)
+    // cleria.input.action: a named action of the mod with its key and pad button (the player's choice is a setting,
+    // "Key.<id>" / "Pad.<id>"; "" = none). The view matches key and button presses against these.
+    struct Action { std::string id, label, key, pad; int ref = 0; };
+    std::vector<Action> actions_;
+    void run_action(std::size_t i);                             // its function, if it has one
+    // cleria.ui.window: a panel of the mod's own over the game (the page widgets), and cleria.ui.message / choose,
+    // a built-in one. One is open at a time per mod; the host draws it and gives it the input.
+    struct Window { std::string id, title; int ref = 0; float width = 0.42f; bool pause = true; };
+    std::vector<Window> windows_;
+    std::string open_window_;                                   // "" = none; "\x01dialog" = the dialog below
+    struct Dialog { std::string title, text; std::vector<std::string> options; int ref = 0; bool cancel = true; };
+    Dialog dialog_;
+    int window_serial_ = 0;                                     // + 1 at each open: the host starts its list afresh
+    std::map<std::string, std::vector<int>> world_filters_;     // cleria.world.add_filter: kind -> refs
+    bool has_world_filter(const std::string& kind) const { const auto it = world_filters_.find(kind); return it != world_filters_.end() && !it->second.empty(); }
+    WorldDecision world_filter(const WorldQuery& q, const std::string& room);
+    const Window* window() const;                               // the open one (the dialog as a Window), or null
+    void draw_window(void* list);                               // its rows, into the host's list
+    void close_window(bool cancelled);                          // Back / Esc, or ui.close()
+    int on_bus(const std::string& topic, const std::string& json_text, const std::string& from);   // -> handlers called
     std::size_t page_ = 0;
     bool drawing_ = false;                                      // inside draw_hud (the d:* calls draw)
     void add_log(const std::string& line);
@@ -232,5 +337,6 @@ void close_socket(void* ud);   // a cleria.net websocket userdata (Mod::sockets_
 // events::Event -> a Lua table (pushed); the kind names of LUA_API.md ("room_enter", ...).
 void push_event(lua_State* L, const events::Event& e);
 const char* event_name(events::Kind k);
+void push_json_text(lua_State* L, const std::string& json_text);   // a JSON text as a Lua value (nil when it does not parse)
 
 }  // namespace cleria::script

@@ -8,7 +8,7 @@
 // +0x108 are taken as 0: FUN_00571ae0 never writes them on the GoScript.
 for (const auto& d : csHost.player_damage) {
     if (player.hp < 1 || player_iframes > 0) continue;
-    hurt_player(d.atk, 0.0f, 0, std::atan2(face_dir.z, face_dir.x) + 3.14159265f);
+    hurt_player(d.atk, d.power, 0, std::atan2(face_dir.z, face_dir.x) + 3.14159265f);
     std::printf("  [xso] Chr_Damage player atk %.0f -> HP %d\n", double(d.atk), player.hp);
 }
 csHost.player_damage.clear();

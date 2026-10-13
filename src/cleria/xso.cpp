@@ -1212,6 +1212,7 @@ bool ScriptManager::start(const std::string& name, const XsoVm::Vars& vars, int 
     if (!loader) return false;
     std::shared_ptr<const Xso> s = loader->load_script(name);
     if (!s) return false;                 // target doesn't exist -> skip (engine would throw)
+    if (start_filter && !start_filter(name, owner)) return false;   // a mod refused it (API 7)
     Inst in;
     in.script = std::move(s);
     in.name = name;

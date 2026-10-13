@@ -136,9 +136,19 @@
                 };
                 const Vec3 cam_fwd = cam.forward();
                 if (!fix0_tick) player_hold = boss6_grab || boss7_pin || boss8_pin;   // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl); Dalles's pin (view_boss07.inl); Darm's dead fall (view_boss08.inl)
+                for (auto it = g_lua_fallen.begin(); it != g_lua_fallen.end();) {   // (API 7) world.apply's dead, still lying there
+                    if ((unsigned long long)tick_count < it->second) { ++it; continue; }
+                    if (Actor* a = world.find(it->first); a && !a->alive()) { world.despawn(it->first); csHost.world_changed = true; }
+                    it = g_lua_fallen.erase(it);
+                }
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
                     if (fix0_tick && !(en && fix0_runs(*en))) continue;       // a Fix(0): the handlers that run (S2, S5c)
+                    if (en && en->mod_boss && en->alive() && !fix0_tick) {     // a mod's boss (API 7): the gauge is its HP
+                        gauge_owner = en->instance_id;
+                        hud.set_boss_gauge(en->instance_id, en->hp, en->max_hp, character == 2 ? 4000.0f : 3000.0f, 0);
+                    }
+                    if (en && en->mod_ai_off && en->alive()) continue;         // a mod holds its handler (API 7)
                     // M450's handler, every path (FUN_004c0ee0 0x4c1231): the Mask of Eyes tint +0x148 / +0x278.
                     if (en && en->ai_index == 38) en->tint = mask_of_eyes_on(inv) ? 0xff999999u : 0xffffffffu;
                     // The M680 / M740 handlers' far freeze, before their HP test: 25 u or more from the player's
@@ -255,6 +265,24 @@
                     env.bloody = settings().s.game.bloody_effect_level > 1;   // byte 0x6d5d92 (FUN_0040b8e0)
                     env.target_durable = avm.durable();              // byte P+0x9d8
                     env.target_grounded = pv.grounded;
+                    bool mod_target_near = false;                    // a target puppet within 14: this monster is on that player's screen
+                    if (!g_lua_targets.empty()) {                    // the mods' other players (API 7): the nearest one is the target
+                        float best = player.hp >= 1 ? (env.target.x - env.self.x) * (env.target.x - env.self.x) +
+                                                      (env.target.z - env.self.z) * (env.target.z - env.self.z) : 1.0e30f;
+                        for (int pid : g_lua_targets) {
+                            const Actor* pu = world.find(pid);
+                            if (!pu) continue;
+                            const float d2 = (pu->pos.x - env.self.x) * (pu->pos.x - env.self.x) + (pu->pos.z - env.self.z) * (pu->pos.z - env.self.z);
+                            mod_target_near = mod_target_near || d2 < 196.0f;
+                            if (d2 >= best) continue;
+                            best = d2;
+                            env.target = {pu->pos.x, pu->pos.y + kOriginH, pu->pos.z};
+                            env.target_vel = {0, 0, 0};
+                            env.target_alive = true;
+                            env.target_grounded = true;
+                            env.target_rehit_clear = true;
+                        }
+                    }
                     boss5_target(*en, env);                          // the +0x888 override (view_boss05.inl)
                     boss6_zava_env(*en, env);                        // Zava's link to her heads (view_boss06.inl)
                     env.was_hit = e.hit;
@@ -266,6 +294,7 @@
                     env.aso_marker_block = e.avm.marker_block();
                     env.culled = !(en->flags12c & 0x1000000u) &&                     // never-cull bit
                                  !in_view({en->pos.x, en->pos.y + en->height, en->pos.z}, 2.5f);   // 0x480cb8..0x480cdc
+                    if (mod_target_near) env.culled = false;         // (API 7) seen by another player
                     env.stun_immune = (en->flags12c & 0x80000u) != 0;                  // FACTORY.md
                     env.bless_stun = (game.g_flags[217] & 0x80) != 0;                  // GROW09
                     env.boss_fight = game.g_flags[156] == 1;                           // DAT_0076bb8c

@@ -59,6 +59,12 @@
                     // 0x4fbcb2..0x4fbcd1: the first player-owned locus in the pool holds its frame one
                     // tick (+0x180 += 1). [H] the victim's +0x12c bit 28 is taken as clear; the owner's
                     // own +0x118 += 1 at the same site is [not modelled].
+                    if (g_lua_puppets.count(en.instance_id)) {   // a mod's puppet (API 7): the mod is told, nothing else happens
+                        content_emit(events::Event::named("puppet_hit").with("puppet", en.instance_id).with("atk", player_stats().atk)
+                                         .with("power", power).with("knock", knock).with("class", cls)
+                                         .with("heading", heading * 57.29577951f).with("section", avm.section()));
+                        return false;
+                    }
                     if (!loci.empty()) loci.front().sword.freeze();
                     AttackStats a;
                     a.atk = player_stats().atk;
@@ -111,8 +117,14 @@
                         }
                     }
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
-                    dmg = lua_damage(true, dmg, formula, a.atk, power, en.def, cls, en.cast_id, en.level);   // Lua mods
+                    if (g_lua.forced_dmg >= 0) dmg = g_lua.forced_dmg;   // cleria.combat.damage: as given, past the filters
+                    else
+                    dmg = lua_damage(true, dmg, formula, a.atk, power, en.def, cls, en.cast_id, en.level, en.instance_id, en.hp, en.max_hp);   // Lua mods
                     HitResult r = apply_damage(en.hp, en.flags, dmg);
+                    if (lua_events_on())                                // mods (API 7): the hit as it landed
+                        content_emit(events::Event::named("enemy_hit").with("actor", en.instance_id).with("cast", en.cast_id)
+                                         .with("damage", dmg).with("hp", std::max(en.hp, 0.0f)).with("max_hp", en.max_hp).with("killed", r.died ? 1 : 0)
+                                         .with("variant", en.mod_kind));
                     if (r.died && boss6_zava_undying(en)) { en.flags &= ~kActorDead; r.died = false; }   // her handler floors it (view_boss06.inl)
                     if (dmg > 0) kill_combo.hit();   // 0x4fc835: the combo meter, before the kill's EXP
                     // ... and in the same block, Toal in 0x10c / 0x10f: FUN_0046cc10(500.0) (refused while
@@ -193,6 +205,7 @@
                             ke.kind = events::Kind::EnemyKilled;
                             ke.cast = en.cast_id; ke.level = en.level; ke.amount = kexp; ke.amount2 = ksp;
                             ke.pos[0] = en.pos.x; ke.pos[1] = en.pos.y + en.height; ke.pos[2] = en.pos.z;
+                            ke.with("actor", en.instance_id).with("variant", en.mod_kind);   // API 7
                             content_emit(ke);
                         }
                         // The revive family flips +0x130 ^= 9 on the first dead tick when the Chimes are
