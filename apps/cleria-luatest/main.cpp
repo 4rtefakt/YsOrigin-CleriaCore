@@ -882,6 +882,53 @@ int main(int argc, char** argv) {
             check(c->ok() && h.ops7 == want && has(h.logs, "combat truetruetruetruetrue bad false"),
                   "api 7: combat.damage / heal / hurt, player.tune (" + c->error() + ")");
         }
+        {   // API 7: cleria.net.udp / tcp / http on the loopback: a datagram, a listener and its client, and an HTTP
+            // request answered by the mod's own TCP listener
+            auto n = make(h, tmp, "api7n", R"LUA(
+                local N = cleria.net
+                local a, b = N.udp(), N.udp()
+                local port = a:bind(0, false)
+                b:send("127.0.0.1", port, "ping")
+                local srv, cli, web = N.tcp(), N.tcp(), N.tcp()
+                srv:listen(0, false)
+                cli:connect("127.0.0.1", srv:port())
+                web:listen(0, false)
+                local got_udp, got_tcp, got_http, opened, hc, answered, done
+                local req = ""
+                N.http({url = "http://127.0.0.1:" .. web:port() .. "/hi?x=1", method = "post", body = "abc", headers = {["X-T"] = "1"}}, function(r)
+                    got_http = r.status .. " " .. r.body .. " " .. tostring(r.ok)
+                end)
+                cleria.events.on("frame", function()
+                    for _, d in ipairs(a:poll()) do got_udp = d.data .. " from " .. d.host end
+                    for _, e in ipairs(srv:poll()) do if e.kind == "accept" then e.socket:send("hello") srv_conn = e.socket end end
+                    for _, e in ipairs(cli:poll()) do
+                        if e.kind == "open" then opened = true end
+                        if e.kind == "data" then got_tcp = e.text end
+                    end
+                    for _, e in ipairs(web:poll()) do if e.kind == "accept" then hc = e.socket end end
+                    if hc then
+                        for _, e in ipairs(hc:poll()) do if e.kind == "data" then req = req .. e.text end end
+                        if not answered and req:find("abc", 1, true) then
+                            answered = true
+                            hc:send("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nworld")
+                        end
+                    end
+                    if got_udp and got_tcp and got_http and opened and not done then
+                        done = true
+                        cleria.log("net " .. got_udp .. " | " .. got_tcp .. " | " .. got_http .. " | " ..
+                                   tostring(req:find("POST /hi?x=1 HTTP", 1, true) == 1) .. tostring(req:find("X-T: 1", 1, true) ~= nil) ..
+                                   " " .. cli:state() .. " " .. srv:state())
+                    end
+                end)
+                cleria.log("bad " .. tostring(pcall(N.http, {url = "file:///x"}, print)) .. tostring(pcall(N.http, {url = "http://x", method = "BREW"}, print)))
+            )LUA");
+            for (int i = 0; i < 400 && n->ok() && !has(h.logs, "net ping"); ++i) {
+                n->on_frame(0.016);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            check(n->ok() && has(h.logs, "net ping from 127.0.0.1 | hello | 200 world true | truetrue open listening") && has(h.logs, "bad falsefalse"),
+                  "api 7: net.udp / tcp / http on the loopback (" + n->error() + ")");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&

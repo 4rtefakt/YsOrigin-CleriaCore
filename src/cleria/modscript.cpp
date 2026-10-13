@@ -284,6 +284,7 @@ void Mod::on_tick() {
 void Mod::on_frame(double dt) {
     if (!ok()) return;
     run_timers(false);
+    run_http();
     for (std::size_t i = 0; i < handlers_.size() && ok(); ++i) {
         if (handlers_[i].kind != "frame") continue;
         lua_pushnumber(L_, dt);

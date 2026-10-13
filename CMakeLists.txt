@@ -512,9 +512,9 @@ add_test(NAME speedruntest COMMAND cleria-speedruntest "${CLERIA_TEST_ASSETS}" W
 # json is generic (src/cleria/json); the WinHTTP WebSocket is cleria-net. Both were written for the
 # built-in Archipelago client (ARCHIPELAGO.md), removed in favour of the Lua mod samples/mods/archipelago_lua.
 target_sources(cleria PRIVATE src/cleria/json.cpp)
-add_library(cleria-net STATIC src/cleria/net/websocket.cpp)
+add_library(cleria-net STATIC src/cleria/net/websocket.cpp src/cleria/net/socket.cpp)
 if(WIN32)
-target_link_libraries(cleria-net PUBLIC cleria winhttp)
+target_link_libraries(cleria-net PUBLIC cleria winhttp ws2_32)
 else()
   # Off Windows the WebSocket is libcurl's (7.86+, built with WebSockets) when this is on; off, opening
   # one reports "unsupported on this platform" through the Closed event.

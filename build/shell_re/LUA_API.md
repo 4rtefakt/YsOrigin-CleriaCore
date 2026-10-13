@@ -931,6 +931,59 @@ Checked in a drive run: 30 ticks of walking cover 2.5 then 5.0 with `speed = 2`;
 the game's double jump; a skill at 400 MP costs 200 with `mp_cost = 0.5`. The tuning is the process's, like
 `set_modifier`: it is not saved, set it again at start. Not there: gravity (a constant inside the integrator).
 
+### 12.16 Sockets and HTTP
+
+```lua
+local u = cleria.net.udp()
+local port = u:bind(7777)                               -- or u:bind() for any free port
+u:send("192.168.1.20", 7777, "hello")
+for _, d in ipairs(u:poll()) do print(d.host, d.port, d.data) end
+
+local srv = cleria.net.tcp()                            -- a host
+srv:listen(7777)
+local cli = cleria.net.tcp()                            -- a guest
+cli:connect("192.168.1.20", 7777)
+for _, e in ipairs(cli:poll()) do
+    if e.kind == "open" then cli:send("hi") elseif e.kind == "data" then print(e.text) end
+end
+
+cleria.net.http({url = "https://example.org/api", method = "POST", body = cleria.json.encode(t),
+                 headers = {["Content-Type"] = "application/json"}}, function(r)
+    if r.ok and r.status == 200 then ... r.body ... else ... r.error ... end
+end)
+```
+
+None of these calls waits on the network: poll the sockets from a `frame` or `tick` handler.
+
+| call | |
+|---|---|
+| `cleria.net.udp()` | a UDP socket |
+| `u:bind([port [, any]])` | opens it on a local port (0 or nothing = a free one); `any` false = this machine only. Returns the port, or `false, why` |
+| `u:send(host, port, data)` | one datagram (at most 65507 bytes, binary safe). Not bound yet: bound to a free port first. A host **name** is looked up once, and that first call waits for the lookup: use addresses in a game loop. `true`, or `false, why` |
+| `u:poll()` | the datagrams that arrived: `{host, port, data}` each (at most 256 a call) |
+| `u:port()`, `u:close()` | the local port (0 when closed) |
+| `cleria.net.tcp()` | a TCP socket: a client, or a listener |
+| `t:connect(host, port [, seconds])` | starts connecting (10 s by default); `open` or `close` follows in `poll()` |
+| `t:listen([port [, any]])` | accepts connections on a local port. Returns the port, or `false, why` |
+| `t:send(data)` | sends bytes (binary safe); what the socket does not take at once goes out at the next `poll()`. False when not open, or when 16 MiB already wait |
+| `t:poll()` | events `{kind, text, error, socket}`: `open` (text = the peer), `data` (text = the bytes, in the order sent but cut anywhere: frame your messages), `close` (text = why; `error` when it was not a plain close), and for a listener `accept` (`socket` = the new connection, already open; text = the peer) |
+| `t:state()` | `idle`, `connecting`, `open`, `listening`, `closed` |
+| `t:port()`, `t:close()` | the local port; `close` tries once to send what is still queued |
+| `cleria.net.http(opts, fn)` | one request on a worker thread; `fn(res)` runs on a later frame |
+
+- `http` options: `url` (`http://` or `https://`, required), `method` (GET, POST, PUT, PATCH, DELETE, HEAD), `body`,
+  `headers` (a table), `timeout` (seconds, 15). The answer: `ok` (the exchange completed, whatever the status),
+  `status`, `body` (cut at 8 MiB: `truncated`), `error`. Redirections are followed. At most 8 requests at once a mod.
+- A mod may keep 16 UDP / TCP sockets (the WebSockets count apart). A socket left to the garbage collector is closed.
+- TCP is a stream: two `send`s may arrive as one `data` event or one as two. Prefix each message with its length, or
+  end it with a newline. UDP keeps the datagram whole but may lose it, repeat it or deliver it out of order.
+- IPv4 only [H]. `bind` / `listen` on every address make Windows ask the player to allow the game through the firewall,
+  once. HTTP uses the system's own client (WinHTTP; libcurl on Linux / macOS when built with CLERIA_CURL, else `ok`
+  is false with the reason) [the libcurl path is not built on Windows: unverified here].
+
+Checked in `cleria-luatest` on the loopback: a datagram, a listener and its client, and an HTTP POST answered by the
+mod's own TCP listener.
+
 ## 10. Tests
 
 ```
@@ -966,5 +1019,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

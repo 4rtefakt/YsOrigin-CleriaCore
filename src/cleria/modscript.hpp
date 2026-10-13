@@ -255,6 +255,9 @@ public:
     double play_clock_ = 0;                                     // seconds of play: ticks / 60 while a game runs unfrozen
     std::map<std::string, std::vector<int>> bus_subs_;          // cleria.bus.subscribe: topic -> refs
     void run_timers(bool play);
+    int raw_sockets_ = 0;                                       // cleria.net.udp / tcp userdata alive
+    std::vector<std::pair<std::shared_ptr<void>, int>> http_jobs_;   // cleria.net.http: the request's state, its callback ref
+    void run_http();                                            // the finished ones' callbacks (each frame)
     // cleria.input.action: a named action of the mod with its key and pad button (the player's choice is a setting,
     // "Key.<id>" / "Pad.<id>"; "" = none). The view matches key and button presses against these.
     struct Action { std::string id, label, key, pad; int ref = 0; };

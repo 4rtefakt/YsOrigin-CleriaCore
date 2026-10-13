@@ -12,6 +12,7 @@
 #include <new>
 
 #include "cleria/net/websocket.hpp"
+#include "cleria/net/socket.hpp"
 #include "cleria/content.hpp"
 #include "cleria/json.hpp"
 #include "cleria/modscript.hpp"
@@ -1318,6 +1319,7 @@ void open_api(lua_State* L, Mod& m) {
     open_api7_puppet(L);
     open_api7_script(L);
     open_api7_combat(L);
+    open_api7_net(L);
 
     lua_setglobal(L, "cleria");
 }

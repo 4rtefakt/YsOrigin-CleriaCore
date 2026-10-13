@@ -91,8 +91,8 @@ content, then multiplayer, then the tools.
 
 | # | What | Lua | Status |
 |---|---|---|---|
-| 19 | HTTP, TCP | `cleria.net.http{...}`, `cleria.net.tcp()` | |
-| 54 | UDP | `cleria.net.udp()` | |
+| 19 | HTTP, TCP | `cleria.net.http{...}`, `cleria.net.tcp()` | done (`net.http(opts, fn)`, `net.tcp()` with `connect` / `listen` / `accept`) |
+| 54 | UDP | `cleria.net.udp()` | done (`net.udp()`) |
 
 ## H. Multiplayer
 

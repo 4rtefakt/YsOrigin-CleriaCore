@@ -983,3 +983,213 @@ void open_api7_combat(lua_State* L) {                    // the cleria table is 
 }
 
 }  // namespace
+
+namespace {
+
+// ---- cleria.net.udp / tcp / http (src/cleria/net/socket) --------------------------------------------------------
+const char* const kUdpMt = "cleria.net.udp";
+const char* const kTcpMt = "cleria.net.tcp";
+constexpr int kRawSockets = 16;                          // [H] udp + tcp sockets alive at once per mod
+struct UdpUd { net::UdpSocket* s = nullptr; Mod* mod = nullptr; };
+struct TcpUd { net::TcpSocket* s = nullptr; Mod* mod = nullptr; };
+
+template <class Ud, class Sock>
+Ud* new_sock(lua_State* L, const char* mt, Sock* adopt = nullptr) {
+    Mod& m = M(L);
+    if (m.raw_sockets_ >= kRawSockets) {
+        delete adopt;
+        luaL_error(L, "a mod may keep at most %d sockets", kRawSockets);
+    }
+    Ud* u = static_cast<Ud*>(lua_newuserdatauv(L, sizeof(Ud), 0));
+    new (u) Ud{};
+    u->s = adopt ? adopt : new Sock();
+    u->mod = &m;
+    ++m.raw_sockets_;
+    luaL_setmetatable(L, mt);
+    return u;
+}
+template <class Ud>
+int sock_gc(lua_State* L, const char* mt) {
+    Ud* u = static_cast<Ud*>(luaL_checkudata(L, 1, mt));
+    if (u->s && u->mod) --u->mod->raw_sockets_;
+    delete u->s;
+    u->s = nullptr;
+    return 0;
+}
+net::UdpSocket& udp_check(lua_State* L) {
+    UdpUd* u = static_cast<UdpUd*>(luaL_checkudata(L, 1, kUdpMt));
+    if (!u->s) luaL_error(L, "the socket was closed for good");
+    return *u->s;
+}
+net::TcpSocket& tcp_check(lua_State* L) {
+    TcpUd* u = static_cast<TcpUd*>(luaL_checkudata(L, 1, kTcpMt));
+    if (!u->s) luaL_error(L, "the socket was closed for good");
+    return *u->s;
+}
+int push_fail(lua_State* L, const std::string& err) { lua_pushboolean(L, 0); lua_pushstring(L, err.c_str()); return 2; }
+std::string bytes_arg(lua_State* L, int i) { std::size_t n = 0; const char* p = luaL_checklstring(L, i, &n); return std::string(p, n); }
+
+int l_udp_new(lua_State* L) { new_sock<UdpUd, net::UdpSocket>(L, kUdpMt); return 1; }
+int l_udp_gc(lua_State* L) { return sock_gc<UdpUd>(L, kUdpMt); }
+int l_udp_bind(lua_State* L) {                           // ([port [, any]]) -> the port, or false, why
+    std::string err;
+    net::UdpSocket& s = udp_check(L);
+    if (!s.bind(int(luaL_optinteger(L, 2, 0)), lua_isnoneornil(L, 3) || lua_toboolean(L, 3), &err)) return push_fail(L, err);
+    lua_pushinteger(L, s.port());
+    return 1;
+}
+int l_udp_send(lua_State* L) {                           // (host, port, data) -> true, or false, why
+    std::string err;
+    if (!udp_check(L).send_to(str_arg(L, 2), int(luaL_checkinteger(L, 3)), bytes_arg(L, 4), &err)) return push_fail(L, err);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+int l_udp_poll(lua_State* L) {                           // -> {{host =, port =, data =}, ...}
+    lua_newtable(L);
+    lua_Integer i = 0;
+    for (const net::UdpSocket::Datagram& d : udp_check(L).poll()) {
+        lua_createtable(L, 0, 3);
+        lua_pushstring(L, d.host.c_str()); lua_setfield(L, -2, "host");
+        lua_pushinteger(L, d.port); lua_setfield(L, -2, "port");
+        lua_pushlstring(L, d.data.data(), d.data.size()); lua_setfield(L, -2, "data");
+        lua_rawseti(L, -2, ++i);
+    }
+    return 1;
+}
+int l_udp_port(lua_State* L) { lua_pushinteger(L, udp_check(L).port()); return 1; }
+int l_udp_close(lua_State* L) { udp_check(L).close(); return 0; }
+
+int l_tcp_new(lua_State* L) { new_sock<TcpUd, net::TcpSocket>(L, kTcpMt); return 1; }
+int l_tcp_gc(lua_State* L) { return sock_gc<TcpUd>(L, kTcpMt); }
+int l_tcp_connect(lua_State* L) {                        // (host, port [, timeout seconds]) : "open" or "close" follows in poll()
+    const lua_Integer port = luaL_checkinteger(L, 3);
+    if (port < 1 || port > 65535) return luaL_argerror(L, 3, "a port is 1..65535");
+    tcp_check(L).connect(str_arg(L, 2), int(port), int(std::clamp(luaL_optnumber(L, 4, 10.0), 1.0, 60.0) * 1000.0));
+    return 0;
+}
+int l_tcp_listen(lua_State* L) {                         // ([port [, any]]) -> the port, or false, why
+    std::string err;
+    net::TcpSocket& s = tcp_check(L);
+    if (!s.listen(int(luaL_optinteger(L, 2, 0)), lua_isnoneornil(L, 3) || lua_toboolean(L, 3), &err)) return push_fail(L, err);
+    lua_pushinteger(L, s.port());
+    return 1;
+}
+int l_tcp_send(lua_State* L) { lua_pushboolean(L, tcp_check(L).send(bytes_arg(L, 2))); return 1; }
+int l_tcp_poll(lua_State* L) {                           // -> {{kind = "open" | "data" | "close" | "accept", text =, error =, socket =}, ...}
+    std::vector<net::TcpSocket::Event> ev = tcp_check(L).poll();
+    lua_newtable(L);
+    lua_Integer i = 0;
+    for (net::TcpSocket::Event& e : ev) {
+        using K = net::TcpSocket::Event::Kind;
+        lua_createtable(L, 0, 4);
+        lua_pushstring(L, e.kind == K::Opened ? "open" : e.kind == K::Data ? "data" : e.kind == K::Closed ? "close" : "accept");
+        lua_setfield(L, -2, "kind");
+        lua_pushlstring(L, e.text.data(), e.text.size()); lua_setfield(L, -2, "text");
+        lua_pushboolean(L, e.error); lua_setfield(L, -2, "error");
+        if (e.kind == K::Accepted && e.socket) {
+            if (M(L).raw_sockets_ >= kRawSockets) { lua_pop(L, 1); continue; }   // over the limit: the connection is dropped
+            new_sock<TcpUd, net::TcpSocket>(L, kTcpMt, e.socket.release());
+            lua_setfield(L, -2, "socket");
+        }
+        lua_rawseti(L, -2, ++i);
+    }
+    return 1;
+}
+int l_tcp_state(lua_State* L) {
+    static const char* const kName[] = {"idle", "connecting", "open", "listening", "closed"};
+    lua_pushstring(L, kName[int(tcp_check(L).state())]);
+    return 1;
+}
+int l_tcp_port(lua_State* L) { lua_pushinteger(L, tcp_check(L).port()); return 1; }
+int l_tcp_close(lua_State* L) { tcp_check(L).close(); return 0; }
+
+struct HttpJob {
+    std::mutex mu;
+    bool done = false;
+    net::HttpResponse rs;
+};
+int l_net_http(lua_State* L) {                           // ({url =, method =, body =, headers = {}, timeout =}, fn(res))
+    Mod& m = M(L);
+    luaL_checktype(L, 1, LUA_TTABLE);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    if (m.http_jobs_.size() >= 8) return luaL_error(L, "a mod may have at most 8 HTTP requests running");
+    net::HttpRequest rq;
+    lua_getfield(L, 1, "url");
+    rq.url = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+    lua_pop(L, 1);
+    if (rq.url.rfind("http://", 0) != 0 && rq.url.rfind("https://", 0) != 0) return luaL_argerror(L, 1, "url must start with http:// or https://");
+    lua_getfield(L, 1, "method");
+    if (lua_isstring(L, -1)) rq.method = lua_tostring(L, -1);
+    lua_pop(L, 1);
+    for (char& c : rq.method) c = char(std::toupper(static_cast<unsigned char>(c)));
+    if (rq.method != "GET" && rq.method != "POST" && rq.method != "PUT" && rq.method != "PATCH" && rq.method != "DELETE" && rq.method != "HEAD")
+        return luaL_argerror(L, 1, "method is GET, POST, PUT, PATCH, DELETE or HEAD");
+    lua_getfield(L, 1, "body");
+    if (lua_isstring(L, -1)) { std::size_t n = 0; const char* p = lua_tolstring(L, -1, &n); rq.body.assign(p, n); }
+    lua_pop(L, 1);
+    rq.timeout_ms = int(std::clamp(opt_field_n(L, 1, "timeout", 15.0), 1.0, 120.0) * 1000.0);
+    lua_getfield(L, 1, "headers");
+    if (lua_istable(L, -1)) {
+        lua_pushnil(L);
+        while (lua_next(L, -2)) {
+            if (lua_type(L, -2) == LUA_TSTRING && lua_isstring(L, -1) && rq.headers.size() < 64) rq.headers.emplace_back(lua_tostring(L, -2), lua_tostring(L, -1));
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+    auto job = std::make_shared<HttpJob>();
+    lua_pushvalue(L, 2);
+    m.http_jobs_.emplace_back(job, luaL_ref(L, LUA_REGISTRYINDEX));
+    std::thread([job, rq] {
+        net::HttpResponse rs = net::http_request(rq);
+        std::lock_guard<std::mutex> lk(job->mu);
+        job->rs = std::move(rs);
+        job->done = true;
+    }).detach();
+    return 0;
+}
+
+void open_api7_net(lua_State* L) {                       // the cleria table is on top of the stack
+    static const luaL_Reg udp[] = {{"bind", l_udp_bind}, {"send", l_udp_send}, {"poll", l_udp_poll}, {"port", l_udp_port}, {"close", l_udp_close},
+                                   {"__gc", l_udp_gc}, {nullptr, nullptr}};
+    static const luaL_Reg tcp[] = {{"connect", l_tcp_connect}, {"listen", l_tcp_listen}, {"send", l_tcp_send}, {"poll", l_tcp_poll},
+                                   {"state", l_tcp_state}, {"port", l_tcp_port}, {"close", l_tcp_close}, {"__gc", l_tcp_gc}, {nullptr, nullptr}};
+    for (const auto& [mt, fns] : {std::pair<const char*, const luaL_Reg*>{kUdpMt, udp}, {kTcpMt, tcp}}) {
+        luaL_newmetatable(L, mt);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, -2, "__index");
+        luaL_setfuncs(L, fns, 0);
+        lua_pushstring(L, "socket");
+        lua_setfield(L, -2, "__metatable");
+        lua_pop(L, 1);
+    }
+    static const luaL_Reg net[] = {{"udp", l_udp_new}, {"tcp", l_tcp_new}, {"http", l_net_http}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "net");
+    set_funcs(L, net);
+    lua_pop(L, 1);
+}
+
+}  // namespace
+
+void Mod::run_http() {
+    for (std::size_t i = 0; i < http_jobs_.size() && ok();) {
+        HttpJob& j = *std::static_pointer_cast<HttpJob>(http_jobs_[i].first);
+        net::HttpResponse rs;
+        {
+            std::lock_guard<std::mutex> lk(j.mu);
+            if (!j.done) { ++i; continue; }
+            rs = std::move(j.rs);
+        }
+        const int ref = http_jobs_[i].second;
+        http_jobs_.erase(http_jobs_.begin() + std::ptrdiff_t(i));
+        lua_State* L = L_;
+        lua_createtable(L, 0, 5);
+        lua_pushboolean(L, rs.ok); lua_setfield(L, -2, "ok");
+        lua_pushinteger(L, rs.status); lua_setfield(L, -2, "status");
+        lua_pushlstring(L, rs.body.data(), rs.body.size()); lua_setfield(L, -2, "body");
+        lua_pushstring(L, rs.error.c_str()); lua_setfield(L, -2, "error");
+        lua_pushboolean(L, rs.truncated); lua_setfield(L, -2, "truncated");
+        call_ref(ref, 1, 0, "http");
+        if (L_) luaL_unref(L_, LUA_REGISTRYINDEX, ref);
+    }
+}
