@@ -194,5 +194,6 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
             if (cur_aia == aso_aia_name(i)) { (*out)[6] = double(i); break; }
         return true;
     }
+    if (op == "script_run") return !text.empty() && csMgr.start(text, {}, 13);   // a script by name, the player its owner (the drive's run=)
     return false;
 };

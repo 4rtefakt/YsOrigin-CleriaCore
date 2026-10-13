@@ -408,7 +408,7 @@ const char* const kKinds[] = {"room_enter", "flag_changed", "chest_opened", "ite
                               "door_opened", "blessing_bought", "enemy_killed", "pickup_collected",
                               // API 7 (events::Kind::Named)
                               "retry", "level_up", "state_changed", "floor_changed", "player_hit", "enemy_hit", "skill_used",
-                              "boost", "statue_used", "attack", "jump", "land", "enemy_spawned", "script_started", "input"};
+                              "boost", "statue_used", "attack", "jump", "land", "enemy_spawned", "script_started", "input", "interact"};
 
 int l_on(lua_State* L) {
     Mod& m = M(L);
@@ -1316,6 +1316,7 @@ void open_api(lua_State* L, Mod& m) {
     open_api7_world2(L);
     open_api7_av(L);
     open_api7_puppet(L);
+    open_api7_script(L);
 
     lua_setglobal(L, "cleria");
 }

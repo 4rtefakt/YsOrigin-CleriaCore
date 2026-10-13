@@ -2945,6 +2945,34 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, what the player does as events: a swing, a jump and its landing, a skill cast, the Boost on, a goddess
+# statue used (interact + statue_used + script_started), and a script the mod's filter refuses.
+_LUA_API7E = (
+    'local function show(name, keys)\n'
+    '    cleria.events.on(name, function(e)\n'
+    '        local t = {}\n'
+    '        for _, k in ipairs(keys) do t[#t + 1] = k .. " " .. tostring(e[k]) end\n'
+    '        cleria.log("ev " .. name .. " " .. table.concat(t, " "))\n'
+    '    end)\n'
+    'end\n'
+    'show("attack", {"air"}) show("jump", {"double"}) show("land", {}) show("skill_used", {"slot", "item", "level"})\n'
+    'show("boost", {"on"}) show("interact", {"script"}) show("statue_used", {"cleansed"}) show("script_started", {"name"})\n'
+    'cleria.script.add_filter(function(q) if q.name == "noscript" then return "suppress" end end)\n'
+    'cleria.command("ev", function(a)\n'
+    '    if a == "boost" then cleria.player.set_boost(30000) end\n'
+    '    if a == "run" then cleria.log("run " .. tostring(cleria.script.run("nothing_named_so"))) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_actions": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7E,
+        drive="5:flag=187,1;8:bracelet=118;9:flag=118,1;10:flag=184,1;30:atk;90:jump;150:skill+;152:skill-;190:lua=ev boost;195:boost;"
+              "210:lua=ev run;220:at=-0.036,8.2,0;230:act;270:quit",
+        expect=[_LP + "ev attack air 0", _LP + "ev jump double 0", _LP + "ev land", _LP + "ev skill_used slot 3 item 118 level ",
+                _LP + "ev boost on 1", _LP + "run false", _LP + "ev script_started name save", _LP + "ev interact script save",
+                _LP + "ev statue_used cleansed 0"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

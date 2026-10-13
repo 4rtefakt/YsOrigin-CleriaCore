@@ -868,6 +868,34 @@ local me = cleria.player.pose()                         -- {x, y, z, yaw, sheet,
 [H] This is the first of the multiplayer pieces (API7.md H). Not there yet: a hit shape on a puppet (#50), and any
 sharing of the monsters (#51): with only this, two players see each other and each fights their own monsters.
 
+### 12.14 What the player does, and the game's scripts
+
+Plain events (`cleria.events.on`), raised where the game does the thing:
+
+| event | fields | |
+|---|---|---|
+| `attack` | `section`, `air` (0 / 1) | a new swing starts (each step of a combo is one) |
+| `skill_used` | `slot` (1..3), `item` (the bracelet), `level` (2 = charged), `cost` (MP), `section` | a skill is cast, before its MP is spent |
+| `jump` | `double`, `water` (0 / 1) | a ground jump, a double jump, a jump in water |
+| `land` | | the player touches the ground after a fall or a jump |
+| `boost` | `on` (1 / 0) | the Boost starts, ends |
+| `interact` | `object`, `script` | the action button started an object's script (a chest, a door, a statue) |
+| `statue_used` | `object`, `cleansed` (0 / 1) | that object is a goddess statue |
+| `script_started` | `name`, `owner` | one of the game's scripts starts by name (not a room's own scripts at its load) |
+
+```lua
+cleria.script.run("@Save")                              -- start one of the game's scripts; true when it started
+cleria.script.add_filter(function(q)                    -- q = {name, room, owner}
+    if q.name == "ev_boss_intro" then return "suppress" end
+end)
+```
+
+- `cleria.script.run(name)` starts a script as the action button would, the player its owner; `@name` is a script of
+  S_COMMON. False when there is no such script or it is already running.
+- `cleria.script.add_filter(fn)`: `"suppress"` refuses the start, as if the script did not exist (the same filter as
+  `world.add_filter` with the kind `"script"`). [H] A room's logic lives in these scripts: refusing one that sets a
+  flag or opens a door leaves the room as it was. Refuse only what you know.
+
 ## 10. Tests
 
 ```
@@ -903,5 +931,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

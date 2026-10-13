@@ -3479,6 +3479,17 @@ title_again:
     csMgr.vm.host = &csHost;
     csMgr.vm.rs_ext = game.rs;   // 0x81 Rand draws the one game generator 0x74622c (FUN_00439120), not a copy
     csMgr.loader = &csLoader;
+    csMgr.start_filter = [&](const std::string& nm, int owner) {       // the mods (API 7): the "script" filter, script_started
+        if (lua_world_on("script")) {
+            script::WorldQuery q;
+            q.kind = "script";
+            q.num = {{"owner", double(owner)}};
+            q.str = {{"name", nm}, {"room", room.name}};
+            if (lua_world(q).action == script::WorldDecision::Action::Suppress) return false;
+        }
+        content_emit(events::Event::named("script_started").with("name", nm).with("owner", owner));
+        return true;
+    };
     csHost.mgr = &csMgr;
     scene_entry_fader = [&] {   // FUN_00439170 + 0x431881..0x4318a7 (transition() calls it on every entry)
         csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
@@ -3988,6 +3999,7 @@ title_again:
     // SetSection(2, 0) (priority-gated), and Toal's PC3_mazin_hatudou (EF2 172).
     auto end_boost = [&] {
         player.boost = 0.0f;
+        if (player.boosting) content_emit(events::Event::named("boost").with("on", 0));   // mods (API 7)
         player.boosting = false;
         game.g_flags[141] = 0;                            // DAT_0076bb50
         kill_named_fx("#boost_aura");                     // the aura's +0x1d4 = 1
@@ -4014,6 +4026,7 @@ title_again:
             if (ef2sim::Effect* f = attach_to_player(spawn_sim_fx(50, {}, {}, 1.0f, {}, 0, {}), {0.0f, 0.0f, -0.5f}, cyaw))
                 f->name = "#boost_f";                     // [CleriaCore] a name for the drive's `fx` listing
             player.boosting = true;
+            content_emit(events::Event::named("boost").with("on", 1));   // mods (API 7)
             game.g_flags[141] = 1;                        // FUN_00463f40(0x20): bb50 = 1
             // FUN_00463f40 0x46490d..: the aura (39 / Toal 171) at 0, then FUN_00451c20(player+0x20,
             // &0, &(0, camera yaw, 0), &1, 2); kept in +0x758.
@@ -4218,6 +4231,8 @@ title_again:
         // next 0x76 cast rewrites it. The slow fall reads it (BOOST_SKILLS.md §3.6).
         if (character == 3 && inv.magic == 0x76) toal_air_cast = !pv.grounded;
         pad_rumble(so.level == 2 ? 2 : 0);               // FUN_005d3500: 0x46f19b charged (2) / 0x46f27a (0)
+        content_emit(events::Event::named("skill_used").with("slot", slot + 1).with("item", inv.magic).with("level", so.level)
+                         .with("cost", so.cost).with("section", so.section));   // mods (API 7)
         avm.set_section(so.section, /*force*/true);
         avm.set_local(12, so.level);                      // LocalInt 12 = c138
         player.sp_cur -= float(so.cost);                  // unconditionally, after the SetSection
@@ -4597,6 +4612,9 @@ title_again:
             ov.i[0] = target->i0; ov.i[1] = target->i1; ov.f[0] = target->f0;
             if (csMgr.start(name, ov, /*owner: the player*/ 13)) {
                 std::printf("  [probe] %s -> %s\n", target->name.c_str(), name.c_str());
+                content_emit(events::Event::named("interact").with("object", target->name).with("script", name));   // mods (API 7)
+                if (name == "save" || name == "@save")
+                    content_emit(events::Event::named("statue_used").with("object", target->name).with("cleansed", name[0] == '@' ? 1 : 0));
                 csHost.auto_skip_off = true;                             // the player's own: "Always" leaves it be
                 return true;
             }
@@ -5354,6 +5372,8 @@ title_again:
         } else if (video_drive(cmd)) {                 // vopt=Key=value, vstat (view_video.inl)
         } else if (cmd == "jump") {
             drive_jump = true;
+        } else if (cmd == "boost") {                   // the Boost button
+            try_boost();
         } else if (cmd == "skill+" || cmd == "skill-") {   // hold / release the skill button
             drive_skill = cmd == "skill+";
         } else if (cmd == "atk+" || cmd == "atk-") {       // hold / release the attack button (no press edge)
@@ -7875,6 +7895,7 @@ title_again:
             if (pa_out.face) face_dir = {std::cos(pa_out.face_angle), 0.0f, std::sin(pa_out.face_angle)};
             if (pa_out.section >= 0) avm.set_section(pa_out.section);   // FUN_00446550(id, 0): priority-gated
             if (pa_out.new_attack) {
+                content_emit(events::Event::named("attack").with("section", avm.section()).with("air", pv.grounded ? 0 : 1));   // mods (API 7)
                 atk_dir = face_dir;                                    // the swing points where you face
                 player_hit_serial = next_hit_serial(world.hit_serial_counter_);
                 if (pa_out.section != 0x112) hugo_eyes_fire();         // FUN_0046d6e0: the eyes shoot too
@@ -8221,6 +8242,7 @@ title_again:
                 }
             }
             p_landed = !player_hold && settle_vertical(pv, oy, last_floor, kOriginH, submerged);
+            if (p_landed) content_emit(events::Event::named("land"));   // mods (API 7)
             if (submerged && psand.on_sand2() && !pv.grounded) {
                 // 0x45bf52 [EXPORT 0045a510.c:912]: in the set over sand2 +0x388 stays 1; a fall that
                 // entered it last tick in section 3 lands (the follow-on) [approx: the view's landing].
@@ -8711,6 +8733,7 @@ title_again:
             const bool water_jump = submerged && jump_edge && avm.jump_enable() &&
                                     ((grounded && !pv.jumping) || can_rejump(pv, true));
             if (water_jump || pa_out.jump || pa_out.double_jump) {
+                content_emit(events::Event::named("jump").with("double", pa_out.double_jump ? 1 : 0).with("water", water_jump ? 1 : 0));   // mods (API 7)
                 float oj = feet.y + kOriginH;
                 CastMotion jm = pm;                              // Heavy: the lift-off v0 x 0.6666666 [BYTES 0x468d50..0x468d84]
                 if (ail.has(ailments::kHeavy)) jm.jump_v0 *= ailments::kHeavyJump;

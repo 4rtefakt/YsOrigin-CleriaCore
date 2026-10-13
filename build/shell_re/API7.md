@@ -25,7 +25,7 @@ content, then multiplayer, then the tools.
 | 6 | The state of the game | `game.state()`: title, play, cutscene, dialog, book, shop, panel, gameover; the event `state_changed` | done |
 | 7 | Floor and zone | `game.floor()`, `game.zone()`, `game.difficulty()`, `game.play_time()`; the event `floor_changed` | done |
 | 9 | Retry | the event `retry`; `load` says `retry = true` when it is the continue snapshot | done |
-| 14 | Plain events | `level_up`, `player_hit`, `skill_used`, `boost`, `statue_used`, `enemy_hit` | part: `level_up`, `player_hit`, `enemy_hit` |
+| 14 | Plain events | `level_up`, `player_hit`, `skill_used`, `boost`, `statue_used`, `enemy_hit` | done (`level_up`, `player_hit`, `enemy_hit`, `skill_used`, `boost`, `statue_used`, `interact`) |
 | 13 | More in the damage query | `actor` (an id), `hp`, `max_hp`, `kills` | done (`actor`, `hp`, `max_hp`) |
 | 3 | The monsters of the room | `cleria.world.actors()` -> id, cast, name, level, x y z, hp, max_hp, state | done |
 | 34 | Bosses | `cleria.world.boss()` -> name, hp, max_hp, phase, parts | |
@@ -80,7 +80,7 @@ content, then multiplayer, then the tools.
 |---|---|---|---|
 | 36 | Items with behaviour | `cleria.content.define_item(id, {name =, icon =, use = fn, equip = fn})` | |
 | 38 | Doors | `cleria.world.add_filter("exit", fn(q))` | done |
-| 43 | Scripts | `cleria.script.run(name)`, `script.add_filter(fn(q))`, the event `script_started` | |
+| 43 | Scripts | `cleria.script.run(name)`, `script.add_filter(fn(q))`, the event `script_started` | done (`script.run`, `script.add_filter`, `script_started`) |
 | 44 | Shops and menus | `cleria.ui.shop{...}` | |
 | 39 | Rooms | `cleria.content.define_room(id, {...})` | |
 | 40 | Skills | `cleria.content.define_skill(slot, {mp =, cooldown =, cast = fn})` | |
@@ -99,7 +99,7 @@ content, then multiplayer, then the tools.
 | # | What | Lua | Status |
 |---|---|---|---|
 | 49 | A puppet character | `cleria.world.puppet(character)` -> `:set{x, y, z, facing, anim}` | done (`world.puppet`, `set_puppet`, `remove_puppet`; Actor::sprite_override; checked on captures) |
-| 53 | The player's own actions | the events `attack`, `skill_used`, `jump`, `land`; `player.pose()` | part: `player.pose()`; the attack / jump / land events not yet |
+| 53 | The player's own actions | the events `attack`, `skill_used`, `jump`, `land`; `player.pose()` | done (`attack`, `skill_used`, `jump`, `land`, `player.pose()`) |
 | 50 | Hits between players | a hit shape on a puppet; `source` in the damage query | |
 | 51 | Monster state | `cleria.world.snapshot()`, `world.apply(snapshot)` | |
 | 52 | Bosses and room scripts | the same for the boss modules and the script VM | |

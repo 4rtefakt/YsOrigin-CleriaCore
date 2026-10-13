@@ -927,3 +927,23 @@ void open_api7_puppet(lua_State* L) {                    // the cleria table is 
 }
 
 }  // namespace
+
+namespace {
+
+// ---- cleria.script: the game's own scripts (XSO) ----------------------------------------------------------------
+int l_script_run(lua_State* L) { lua_pushboolean(L, op(L, "script_run", {}, str_arg(L, 1))); return 1; }   // (name) -> started
+int l_script_add_filter(lua_State* L) {                  // (fn(q)) : q = {name, room, owner}; "suppress" refuses the start
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+    lua_pushvalue(L, 1);
+    M(L).world_filters_["script"].push_back(luaL_ref(L, LUA_REGISTRYINDEX));
+    return 0;
+}
+
+void open_api7_script(lua_State* L) {                    // the cleria table is on top of the stack
+    static const luaL_Reg fns[] = {{"run", l_script_run}, {"add_filter", l_script_add_filter}, {nullptr, nullptr}};
+    lua_newtable(L);
+    set_funcs(L, fns);
+    lua_setfield(L, -2, "script");
+}
+
+}  // namespace

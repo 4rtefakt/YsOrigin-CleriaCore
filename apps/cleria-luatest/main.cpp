@@ -855,6 +855,21 @@ int main(int argc, char** argv) {
                   h.ops7[2] == "api7p puppet_remove 7" && h.ops7[3] == "api7p pose" && has(h.logs, "puppet nil true true pose nil bad false"),
                   "api 7: world.puppet / set_puppet / remove_puppet, player.pose (" + p->error() + ")");
         }
+        {   // API 7: cleria.script.run is a named write, script.add_filter a world filter of the kind "script"
+            h.ops7.clear();
+            auto s = make(h, tmp, "api7s", R"LUA(
+                cleria.script.add_filter(function(q) if q.name == "no" then return "suppress" end end)
+                cleria.log("script " .. tostring(cleria.script.run("@Save")))
+            )LUA");
+            script::WorldQuery q;
+            q.kind = "script";
+            q.str = {{"name", "no"}};
+            const bool refused = s->world_filter(q, "S_1002").action == script::WorldDecision::Action::Suppress;
+            q.str = {{"name", "yes"}};
+            const bool passed = s->world_filter(q, "S_1002").action == script::WorldDecision::Action::Pass;
+            check(s->ok() && refused && passed && h.ops7.size() == 1 && h.ops7[0] == "api7s script_run [@Save]" && has(h.logs, "script true"),
+                  "api 7: script.run, script.add_filter (" + s->error() + ")");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&
