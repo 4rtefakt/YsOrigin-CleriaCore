@@ -193,19 +193,18 @@ auto boss8_hull_filter = [&](int i, MeshObj* m) {
     const RoomMesh::ObjRange* br = room.coll.object_range(boss8_name[i]);
     if (!br) return;
     if (!boss8_ent_built[std::size_t(i)]) {                // once: each twin mesh's vertex range, in the bake's order
-        boss8_ent_built[std::size_t(i)] = true;
-        ents.clear();
         std::string twin = boss8_ymo[i];
         twin.insert(twin.size() - 4, "_");
         const Model* rm = cached_big_model(resolve_ymo_path(asset_root, boss8_ymo[i]));
-        Model tw;
-        bool have = false;
-        try { tw = Model::parse(read_bytes(resolve_ymo_path(asset_root, twin))); have = true; } catch (const std::exception&) {}
+        const Model* tw = cached_big_model(resolve_ymo_path(asset_root, twin));
+        if (!rm || !tw) return;                            // not baked yet: the bake keeps both models (scene.cpp)
+        boss8_ent_built[std::size_t(i)] = true;
+        ents.clear();
         std::uint32_t v = 0;
-        if (rm && have)
-            for (const Node& n : tw.nodes) {
+        {
+            for (const Node& n : tw->nodes) {
                 if (n.mesh_index < 0) continue;
-                const Mesh& me = tw.meshes[std::size_t(n.mesh_index)];
+                const Mesh& me = tw->meshes[std::size_t(n.mesh_index)];
                 if (me.vbs.empty() || me.ibs.empty()) continue;
                 const std::uint32_t nv = me.two_stream() ? std::min(me.vbs[1].count, me.vbs[0].count) : me.vbs[0].count;
                 std::uint32_t fl = 0;
@@ -213,6 +212,7 @@ auto boss8_hull_filter = [&](int i, MeshObj* m) {
                 ents.push_back({v, v + nv, fl});
                 v += nv;
             }
+        }
         if (v != br->v1 - br->v0) {
             std::printf("  [boss08] %s: the twin's %u vertices do not match the baked hull's %u: no entry filter\n", boss8_name[i], v,
                         br->v1 - br->v0);
@@ -227,7 +227,12 @@ auto boss8_hull_filter = [&](int i, MeshObj* m) {
     }
     std::vector<std::pair<std::uint32_t, std::uint32_t>> ranges;
     for (const Boss8Entry& e : ents) if (e.flags & off) ranges.push_back({e.v0, e.v1});
-    if (ranges != m->hull_off) { m->hull_off = std::move(ranges); m->dirty_pose = true; }
+    if (ranges != m->hull_off) {
+        if (boss8_log)
+            std::printf("  [boss08] t%llu %s: %zu of %zu collision entries off (mask 0x%x)\n", (unsigned long long)tick_count, boss8_name[i],
+                        ranges.size(), ents.size(), off);
+        m->hull_off = std::move(ranges); m->dirty_pose = true;
+    }
 };
 // The player against a hull of Darm's. The engine sweeps one sphere (the origin, r +0x328) for every move
 // (FUN_0045a510 0x45b2eb), so it never stands inside a hull; its contact with a mesh whose +0x28c & 8 is the SIDE
