@@ -1,54 +1,83 @@
-// CleriaCore's shell UI kit: the look of the launcher and the F1 settings panel (modelled on
-// Dusklight's). Pages call only this small API (ui::section / toggle / slider / choice / button);
-// Dear ImGui is just the engine underneath — text rendering, clipping, input — and none of its
-// own widgets are drawn, so the backend can be swapped without touching any page.
+// CleriaCore's shell UI kit: the look of the F1 settings panel, after Ys Origin's own menus (its Option
+// page and pause book): a pale stone page under a dark blue band trimmed in gold, the page's name on a black
+// plate set into the band, dark plates with pointed ends for what can be chosen, flat dark slabs for what is
+// only read, a serif face, a help bar along the bottom. CleriaOre, the loader for the retail game, draws the
+// same (its src/kit.inl). Pages call only this small API (ui::section / toggle / slider / choice / button);
+// Dear ImGui is just the engine underneath (text rendering, clipping, input) and none of its own widgets
+// are drawn, so the backend can be swapped without touching any page.
 #include "imgui_internal.h"   // ImGui::ShadeVertsLinearColorGradientKeepAlpha
 
 namespace ui {
 
-// ---- palette (sampled from the reference screenshots) ----------------------------------------
-constexpr ImU32 kDim        = IM_COL32(0, 0, 0, 110);       // over the game behind the panel
-constexpr ImU32 kPanel      = IM_COL32(22, 21, 16, 238);
-constexpr ImU32 kPanelEdge  = IM_COL32(156, 132, 66, 225);
-constexpr ImU32 kRule       = IM_COL32(120, 104, 58, 190);
-constexpr ImU32 kDivider    = IM_COL32(58, 55, 44, 255);
-constexpr ImU32 kGold       = IM_COL32(214, 176, 62, 255);
-constexpr ImU32 kTabOff     = IM_COL32(141, 135, 122, 255);
-constexpr ImU32 kTabOn      = IM_COL32(244, 240, 230, 255);
-constexpr ImU32 kSection    = IM_COL32(112, 107, 92, 255);
-constexpr ImU32 kRow        = IM_COL32(31, 30, 23, 255);
-constexpr ImU32 kRowEdge    = IM_COL32(52, 50, 41, 255);
-constexpr ImU32 kRowSel     = IM_COL32(43, 41, 26, 255);
-constexpr ImU32 kLabel      = IM_COL32(234, 230, 218, 255);
-constexpr ImU32 kValue      = IM_COL32(207, 202, 189, 255);
-constexpr ImU32 kMuted      = IM_COL32(124, 120, 106, 255);
-constexpr ImU32 kDesc       = IM_COL32(221, 216, 204, 255);
-constexpr ImU32 kGood       = IM_COL32(190, 214, 106, 255);
-constexpr ImU32 kWarn       = IM_COL32(230, 176, 64, 255);
+// ---- palette -----------------------------------------------------------------------------------------
+// The names CleriaCore's kit has (a mod's HUD layer asks for them by name, host.cpp named_colors): each
+// reads on a dark ground.
+constexpr ImU32 kDim        = IM_COL32(0, 0, 0, 120);       // over the game behind the panel
+constexpr ImU32 kPanel      = IM_COL32(14, 20, 36, 240);
+constexpr ImU32 kPanelEdge  = IM_COL32(190, 160, 90, 235);
+constexpr ImU32 kRule       = IM_COL32(170, 142, 74, 255);
+constexpr ImU32 kDivider    = IM_COL32(60, 68, 92, 255);
+constexpr ImU32 kGold       = IM_COL32(222, 192, 112, 255);
+constexpr ImU32 kTabOff     = IM_COL32(176, 160, 118, 255);
+constexpr ImU32 kTabOn      = IM_COL32(250, 248, 240, 255);
+constexpr ImU32 kSection    = IM_COL32(184, 162, 108, 255);
+constexpr ImU32 kRow        = IM_COL32(20, 26, 42, 255);
+constexpr ImU32 kRowEdge    = IM_COL32(86, 92, 116, 255);
+constexpr ImU32 kRowSel     = IM_COL32(40, 62, 124, 255);
+constexpr ImU32 kLabel      = IM_COL32(246, 244, 236, 255);
+constexpr ImU32 kValue      = IM_COL32(216, 220, 230, 255);
+constexpr ImU32 kMuted      = IM_COL32(146, 152, 172, 255);
+constexpr ImU32 kDesc       = IM_COL32(228, 230, 236, 255);
+constexpr ImU32 kGood       = IM_COL32(158, 220, 138, 255);
+constexpr ImU32 kWarn       = IM_COL32(242, 184, 76, 255);
+// The skin's own.
+constexpr ImU32 kPageTop    = IM_COL32(232, 240, 239, 255);   // the pale stone page
+constexpr ImU32 kPageBot    = IM_COL32(196, 213, 221, 255);
+constexpr ImU32 kPageLine   = IM_COL32(120, 150, 170, 46);    // its faint rings
+constexpr ImU32 kInk        = IM_COL32(26, 36, 66, 255);      // text on the page
+constexpr ImU32 kBandTop    = IM_COL32(12, 18, 36, 255);      // the band and the help bar
+constexpr ImU32 kBandBot    = IM_COL32(34, 50, 88, 255);
+constexpr ImU32 kGoldDark   = IM_COL32(96, 74, 32, 255);
+constexpr ImU32 kPlateTop   = IM_COL32(52, 58, 76, 255);      // a plate: lit from above
+constexpr ImU32 kPlateBot   = IM_COL32(12, 15, 26, 255);
+constexpr ImU32 kPlateSelTop = IM_COL32(86, 118, 190, 255);   // the chosen one is blue, as the game's
+constexpr ImU32 kPlateSelBot = IM_COL32(28, 44, 104, 255);
+constexpr ImU32 kShadow     = IM_COL32(0, 0, 0, 170);
 
-struct Fonts { ImFont* body = nullptr; ImFont* medium = nullptr; ImFont* bold = nullptr;
-               ImFont* cond = nullptr; ImFont* cond_med = nullptr; };
+struct Fonts {
+    ImFont* body = nullptr; ImFont* medium = nullptr; ImFont* bold = nullptr;   // Fira Sans: values, descriptions,
+    ImFont* cond = nullptr; ImFont* cond_med = nullptr;                         // and a mod's HUD (fonts 0..4)
+    ImFont* serif = nullptr; ImFont* serif_bold = nullptr; ImFont* serif_italic = nullptr;   // the skin's face
+};
 inline Fonts F;
-inline float S = 1.0f;          // UI scale: the window height over the 1125-px reference
+inline float S = 1.0f;          // UI scale: the window height over the 1000-px reference
 
-// Fira Sans / Fira Sans Condensed (SIL OFL), shipped next to the exe in fonts/.
+// Fira Sans / Fira Sans Condensed (SIL OFL), shipped next to the exe in fonts/; the serif is Windows' own Palatino Linotype (not
+// shipped: where it is missing, as off Windows, the sans stands in).
 inline bool load_fonts(const fs::path& dir) {
     ImGuiIO& io = ImGui::GetIO();
-    auto load = [&](const char* f) -> ImFont* {
-        const fs::path p = dir / f;
+    auto load = [&](const fs::path& p) -> ImFont* {
         std::error_code ec;
         if (!fs::exists(p, ec)) return nullptr;
         ImFontConfig cfg;
         cfg.OversampleH = 2;
         return io.Fonts->AddFontFromFileTTF(p.string().c_str(), 18.0f, &cfg);
     };
-    F.body = load("FiraSans-Regular.ttf");
-    F.medium = load("FiraSans-Medium.ttf");
-    F.bold = load("FiraSans-SemiBold.ttf");
-    F.cond = load("FiraSansCondensed-SemiBold.ttf");
-    F.cond_med = load("FiraSansCondensed-Medium.ttf");
+    F.body = load(dir / "FiraSans-Regular.ttf");
+    F.medium = load(dir / "FiraSans-Medium.ttf");
+    F.bold = load(dir / "FiraSans-SemiBold.ttf");
+    F.cond = load(dir / "FiraSansCondensed-SemiBold.ttf");
+    F.cond_med = load(dir / "FiraSansCondensed-Medium.ttf");
     ImFont* fallback = io.Fonts->AddFontDefault();
     for (ImFont** f : {&F.body, &F.medium, &F.bold, &F.cond, &F.cond_med}) if (!*f) *f = fallback;
+    const char* windir = std::getenv("WINDIR");
+    const fs::path sys = fs::path(windir ? windir : "C:\\Windows") / "Fonts";
+    F.serif = load(sys / "pala.ttf");
+    F.serif_bold = load(sys / "palab.ttf");
+    F.serif_italic = load(sys / "palai.ttf");
+    if (!F.serif) F.serif = F.body;
+    if (!F.serif_bold) F.serif_bold = F.serif == F.body ? F.medium : F.serif;
+    if (!F.serif_italic) F.serif_italic = F.serif;
     return F.body != fallback;
 }
 
@@ -59,6 +88,31 @@ inline std::string upper(const char* s) {
 }
 inline ImVec2 text_size(ImFont* f, float px, const char* t) { return f->CalcTextSizeA(px, FLT_MAX, 0.0f, t); }
 inline void text(ImDrawList* dl, ImFont* f, float px, ImVec2 p, ImU32 c, const char* t) { dl->AddText(f, px, p, c, t); }
+// Text on a plate: with the game's drop shadow.
+inline void text_sh(ImDrawList* dl, ImFont* f, float px, ImVec2 p, ImU32 c, const char* t) {
+    dl->AddText(f, px, {p.x + 1.2f * S, p.y + 1.2f * S}, kShadow, t);
+    dl->AddText(f, px, p, c, t);
+}
+
+// A filled shape lit from above: `top` at a.y down to `bot` at b.y.
+inline void shade(ImDrawList* dl, int v0, float y0, float y1, ImU32 top, ImU32 bot) {
+    ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, v0, dl->VtxBuffer.Size, {0, y0}, {0, y1}, top, bot);
+}
+// A plate with pointed ends and a gold bevel (the game's menu rows); the chosen one is blue.
+inline void plate(ImDrawList* dl, ImVec2 a, ImVec2 b, bool selected) {
+    const float cy = (a.y + b.y) * 0.5f, c = (b.y - a.y) * 0.34f;
+    const ImVec2 p[6] = {{a.x + c, a.y}, {b.x - c, a.y}, {b.x, cy}, {b.x - c, b.y}, {a.x + c, b.y}, {a.x, cy}};
+    const int v0 = dl->VtxBuffer.Size;
+    dl->AddConvexPolyFilled(p, 6, IM_COL32_WHITE);
+    shade(dl, v0, a.y, b.y, selected ? kPlateSelTop : kPlateTop, selected ? kPlateSelBot : kPlateBot);
+    dl->AddPolyline(p, 6, kGoldDark, ImDrawFlags_Closed, 3.0f * S);
+    dl->AddPolyline(p, 6, selected ? kGold : kRule, ImDrawFlags_Closed, 1.1f * S);
+}
+// A flat dark slab in a thin frame (the pause book's stat panel): what is read, not chosen.
+inline void slab(ImDrawList* dl, ImVec2 a, ImVec2 b) {
+    dl->AddRectFilledMultiColor(a, b, IM_COL32(30, 36, 54, 255), IM_COL32(30, 36, 54, 255), IM_COL32(10, 13, 24, 255), IM_COL32(10, 13, 24, 255));
+    dl->AddRect(a, b, kGoldDark, 0.0f, 0, 1.6f * S);
+}
 
 // ---- input, read once per frame ----------------------------------------------------------------
 struct Nav {
@@ -104,9 +158,9 @@ inline Nav read_nav() {
     return n;
 }
 
-// ---- the row list of one settings page ---------------------------------------------------------
-// Immediate mode: a page calls the row functions every frame in order; the list numbers them,
-// draws them, keeps the selected one in view and reports its description.
+// ---- the row list of one page --------------------------------------------------------------------------
+// Immediate mode: a page calls the row functions every frame in order; the list numbers them, draws them,
+// keeps the selected one in view and reports its description.
 struct List {
     int sel = 0;                    // the selected row (keyboard / pad focus)
     float scroll = 0, scroll_to = 0;
@@ -126,7 +180,7 @@ struct List {
 };
 
 inline float row_h() { return 34.0f * S; }
-inline float row_gap() { return 4.0f * S; }
+inline float row_gap() { return 6.0f * S; }
 
 inline void list_begin(List& L, ImDrawList* dl, ImVec2 org, ImVec2 size, const Nav& nav, bool focus) {
     L.dl = dl; L.org = org; L.size = size; L.nav = nav; L.focus = focus;
@@ -141,8 +195,7 @@ inline void list_begin(List& L, ImDrawList* dl, ImVec2 org, ImVec2 size, const N
             if (L.focusable_last[s]) { L.sel = s; break; }
         }
     }
-    if (focus && hovering(org, {org.x + size.x, org.y + size.y}))
-        L.scroll_to -= io.MouseWheel * 60.0f * S;
+    if (focus && hovering(org, {org.x + size.x, org.y + size.y})) L.scroll_to -= io.MouseWheel * 60.0f * S;
     dl->PushClipRect(org, {org.x + size.x, org.y + size.y}, true);
 }
 
@@ -154,8 +207,7 @@ inline void list_end(List& L) {
     if (L.n > 0) L.sel = std::clamp(L.sel, 0, L.n - 1);
     if (L.n > 0 && !L.focusable[L.sel])                 // land on the first row that takes focus
         for (int k = 0; k < L.n; ++k) if (L.focusable[k]) { L.sel = k; break; }
-    // keep the selected row in view when the keyboard moved it
-    if ((L.nav.up || L.nav.down) && L.sel < int(L.row_y.size())) {
+    if ((L.nav.up || L.nav.down) && L.sel < int(L.row_y.size())) {   // keep the row the keys chose in view
         const float top = L.row_y[L.sel], bot = top + row_h();
         if (top - L.scroll_to < 8.0f * S) L.scroll_to = top - 40.0f * S;
         if (bot - L.scroll_to > L.size.y - 8.0f * S) L.scroll_to = bot - L.size.y + 40.0f * S;
@@ -163,36 +215,43 @@ inline void list_end(List& L) {
     L.scroll_to = std::clamp(L.scroll_to, 0.0f, std::max(0.0f, L.content_h - L.size.y));
     L.scroll += (L.scroll_to - L.scroll) * 0.35f;
     if (std::fabs(L.scroll_to - L.scroll) < 0.5f) L.scroll = L.scroll_to;
-    // the scroll bar: a thin track at the right edge, only when the page overflows
-    if (L.content_h > L.size.y + 1.0f) {
-        const float x = L.org.x + L.size.x - 4.0f * S;
+    if (L.content_h > L.size.y + 1.0f) {                // the scroll bar, only when the page overflows
+        const float x = L.org.x + L.size.x - 5.0f * S;
         const float h = L.size.y * L.size.y / L.content_h;
         const float t = (L.size.y - h) * (L.scroll / std::max(1.0f, L.content_h - L.size.y));
-        L.dl->AddRectFilled({x, L.org.y + t}, {x + 3.0f * S, L.org.y + t + h}, IM_COL32(90, 84, 66, 255), 2.0f * S);
+        L.dl->AddRectFilled({x, L.org.y}, {x + 3.0f * S, L.org.y + L.size.y}, IM_COL32(26, 36, 66, 40));
+        L.dl->AddRectFilled({x - 1.0f * S, L.org.y + t}, {x + 4.0f * S, L.org.y + t + h}, kBandBot);
     }
 }
 
+// A heading on the page: italic, with a gold rule to the row's end.
 inline void section(List& L, const char* title) {
-    L.y += (L.n > 0 ? 14.0f : 2.0f) * S;
-    const float px = 18.0f * S;
-    text(L.dl, F.cond, px, {L.org.x + 1.0f * S, L.org.y + L.y - L.scroll}, kSection, upper(title).c_str());
-    L.y += px + 8.0f * S;
+    L.y += (L.n > 0 ? 12.0f : 0.0f) * S;
+    const float px = 20.0f * S, y = L.org.y + L.y - L.scroll;
+    text(L.dl, F.serif_italic, px, {L.org.x + 4.0f * S, y}, kInk, title);
+    const float x0 = L.org.x + 14.0f * S + text_size(F.serif_italic, px, title).x, x1 = L.org.x + L.size.x - 14.0f * S;
+    if (x1 > x0) {
+        L.dl->AddLine({x0, y + px * 0.62f}, {x1, y + px * 0.62f}, kRule, 1.2f * S);
+        L.dl->AddLine({x0, y + px * 0.62f + 2.5f * S}, {x1, y + px * 0.62f + 2.5f * S}, IM_COL32(26, 36, 66, 70), 1.0f * S);
+    }
+    L.y += px + 9.0f * S;
 }
 
-struct RowIo { bool selected = false, activate = false; int delta = 0; ImVec2 a{}, b{}; };
+// `pad`: how far in from a.x / b.x the row's texts start (a plate's points take room).
+struct RowIo { bool selected = false, activate = false; int delta = 0; ImVec2 a{}, b{}; float pad = 0; };
 
-// Lay out and draw one row's frame; returns its input this frame.
+// Lay out and draw one row's frame; returns its input this frame. A focusable row is a plate, another a slab.
 inline RowIo row_frame(List& L, const char* desc, bool enabled, bool focusable = true) {
     RowIo r;
     const int i = L.n++;
     L.row_y.push_back(L.y);
     L.focusable.push_back(focusable);
-    const float w = L.size.x - 12.0f * S;
+    const float w = L.size.x - 14.0f * S;
     r.a = {L.org.x, L.org.y + L.y - L.scroll};
     r.b = {r.a.x + w, r.a.y + row_h()};
+    r.pad = (focusable ? 22.0f : 13.0f) * S;
     L.y += row_h() + row_gap();
-    const bool hover = L.focus && hovering(r.a, r.b) &&
-                       hovering(L.org, {L.org.x + L.size.x, L.org.y + L.size.y});
+    const bool hover = L.focus && hovering(r.a, r.b) && hovering(L.org, {L.org.x + L.size.x, L.org.y + L.size.y});
     if (hover && L.mouse_moved && focusable) L.sel = i;
     r.selected = i == L.sel;
     if (r.selected && desc) L.desc = desc;
@@ -206,41 +265,42 @@ inline RowIo row_frame(List& L, const char* desc, bool enabled, bool focusable =
         if (hover && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { L.sel = i; r.selected = true; r.activate = true; }
         if (hover && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) { L.sel = i; r.selected = true; r.delta = -1; }
     }
-    const float rnd = 4.0f * S;
-    if (r.selected) {
-        L.dl->AddRectFilled(r.a, r.b, kRowSel, rnd);
-        L.dl->AddRect(r.a, r.b, kGold, rnd, 0, 2.0f * S);
-    } else {
-        L.dl->AddRectFilled(r.a, r.b, kRow, rnd);
-        L.dl->AddRect(r.a, r.b, kRowEdge, rnd, 0, 1.0f * S);
-    }
+    if (focusable) plate(L.dl, r.a, r.b, r.selected);
+    else slab(L.dl, {r.a.x + 7.0f * S, r.a.y}, {r.b.x - 7.0f * S, r.b.y});
     return r;
 }
 
 inline void row_texts(List& L, const RowIo& r, const char* label, const char* value, bool enabled) {
-    const float lpx = 16.5f * S, vpx = 17.0f * S;
+    const float lpx = 18.0f * S, vpx = 16.5f * S;
     const float cy = (r.a.y + r.b.y) * 0.5f;
-    text(L.dl, F.cond, lpx, {r.a.x + 13.0f * S, cy - lpx * 0.55f}, enabled ? kLabel : kMuted, upper(label).c_str());
+    text_sh(L.dl, F.serif, lpx, {r.a.x + r.pad, cy - lpx * 0.58f}, enabled ? kLabel : kMuted, label);
     if (!value) return;
-    const ImVec2 vs = text_size(r.selected ? F.medium : F.body, vpx, value);
-    float x = r.b.x - 13.0f * S - vs.x;
-    if (r.selected && enabled) {                       // "• On": the gold marker of the edited value
-        L.dl->AddCircleFilled({x - 8.0f * S, cy}, 2.2f * S, kGold);
-        text(L.dl, F.medium, vpx, {x, cy - vpx * 0.55f}, kTabOn, value);
-    } else {
-        text(L.dl, F.body, vpx, {x, cy - vpx * 0.55f}, enabled ? kValue : kMuted, value);
-    }
+    ImFont* f = r.selected ? F.medium : F.body;
+    const ImVec2 vs = text_size(f, vpx, value);
+    text(L.dl, f, vpx, {r.b.x - r.pad - vs.x, cy - vpx * 0.55f}, !enabled ? kMuted : r.selected ? kTabOn : kValue, value);
 }
 
+// The game's check box: a stone square, blue with a red tick when on.
 inline bool toggle(List& L, const char* label, bool* v, const char* desc = nullptr, bool enabled = true) {
     const RowIo r = row_frame(L, desc, enabled);
     bool changed = false;
     if (r.activate || r.delta != 0) { *v = !*v; changed = true; }
-    row_texts(L, r, label, *v ? "On" : "Off", enabled);
+    row_texts(L, r, label, nullptr, enabled);
+    const float cy = (r.a.y + r.b.y) * 0.5f, h = 9.0f * S, x1 = r.b.x - r.pad, x0 = x1 - 2.0f * h;
+    const ImVec2 a{x0, cy - h}, b{x1, cy + h};
+    const int alpha = enabled ? 255 : 110;
+    if (*v) L.dl->AddRectFilledMultiColor(a, b, IM_COL32(86, 164, 236, alpha), IM_COL32(86, 164, 236, alpha), IM_COL32(22, 90, 190, alpha), IM_COL32(22, 90, 190, alpha));
+    else L.dl->AddRectFilledMultiColor(a, b, IM_COL32(198, 190, 164, alpha), IM_COL32(198, 190, 164, alpha), IM_COL32(140, 130, 104, alpha), IM_COL32(140, 130, 104, alpha));
+    L.dl->AddRect(a, b, IM_COL32(236, 236, 228, alpha), 0.0f, 0, 1.3f * S);
+    if (*v) {
+        const ImU32 red = IM_COL32(232, 44, 36, alpha);
+        L.dl->AddLine({x0 + 0.45f * h, cy - 0.1f * h}, {x0 + 0.95f * h, cy + 0.6f * h}, red, 2.6f * S);
+        L.dl->AddLine({x0 + 0.95f * h, cy + 0.6f * h}, {x1 - 0.1f * h, cy - 1.15f * h}, red, 2.6f * S);
+    }
     return changed;
 }
 
-// A stepped value; `fmt` formats it (printf, the value as a float).
+// A stepped value on the game's slider: a teal groove and a steel knob; `fmt` formats it (printf, a float).
 inline bool slider(List& L, const char* label, float* v, float lo, float hi, float step, const char* fmt,
                    const char* desc = nullptr, bool enabled = true) {
     const RowIo r = row_frame(L, desc, enabled);
@@ -249,6 +309,13 @@ inline bool slider(List& L, const char* label, float* v, float lo, float hi, flo
     char buf[48];
     std::snprintf(buf, sizeof buf, fmt, *v);
     row_texts(L, r, label, buf, enabled);
+    const float cy = (r.a.y + r.b.y) * 0.5f, x1 = r.b.x - r.pad - 64.0f * S, x0 = x1 - 92.0f * S;
+    const float t = hi > lo ? std::clamp((*v - lo) / (hi - lo), 0.0f, 1.0f) : 0.0f, kx = x0 + t * (x1 - x0);
+    L.dl->AddRectFilled({x0, cy - 2.5f * S}, {x1, cy + 2.5f * S}, IM_COL32(8, 30, 36, 255));
+    L.dl->AddRectFilled({x0, cy - 1.5f * S}, {kx, cy + 1.5f * S}, IM_COL32(44, 150, 150, enabled ? 255 : 110));
+    L.dl->AddRect({x0, cy - 2.5f * S}, {x1, cy + 2.5f * S}, IM_COL32(110, 150, 160, 255), 0.0f, 0, 1.0f * S);
+    L.dl->AddRectFilledMultiColor({kx - 3.0f * S, cy - 9.0f * S}, {kx + 3.0f * S, cy + 9.0f * S}, IM_COL32(220, 226, 232, 255),
+                                  IM_COL32(120, 130, 144, 255), IM_COL32(70, 78, 92, 255), IM_COL32(168, 176, 188, 255));
     return *v != old;
 }
 
@@ -264,63 +331,57 @@ inline bool choice(List& L, const char* label, int* idx, const char* const* item
     return *idx != old;
 }
 
-// A label / value row whose activation starts something (a rebind): returns true on OK / click.
+// A label / value row whose activation starts something: returns true on OK / click.
 inline bool choice_label(List& L, const char* label, const char* value, const char* desc = nullptr, bool enabled = true) {
     const RowIo r = row_frame(L, desc, enabled);
     row_texts(L, r, label, value, enabled);
     return r.activate;
 }
 
-// A full-width action ("Configure Inputs"): centred text, no value.
+// An action: its name centred on the plate.
 inline bool button(List& L, const char* label, const char* desc = nullptr, bool enabled = true) {
     const RowIo r = row_frame(L, desc, enabled);
-    const float px = 17.0f * S;
-    const ImVec2 ts = text_size(F.body, px, label);
-    text(L.dl, F.body, px, {(r.a.x + r.b.x - ts.x) * 0.5f, (r.a.y + r.b.y) * 0.5f - px * 0.55f},
-         enabled ? kLabel : kMuted, label);
+    const float px = 18.0f * S;
+    const ImVec2 ts = text_size(F.serif, px, label);
+    text_sh(L.dl, F.serif, px, {(r.a.x + r.b.x - ts.x) * 0.5f, (r.a.y + r.b.y) * 0.5f - px * 0.58f}, enabled ? kLabel : kMuted, label);
     return r.activate;
 }
 
-// A read-only line (a path, a status) inside a page.
+// A read-only line (a path, a status).
 inline void info(List& L, const char* label, const char* value, ImU32 value_col = kValue, const char* desc = nullptr) {
-    RowIo r = row_frame(L, desc, false, /*focusable*/false);
-    const float lpx = 16.5f * S, vpx = 16.0f * S;
+    const RowIo r = row_frame(L, desc, false, /*focusable*/false);
+    const float lpx = 17.0f * S, vpx = 16.0f * S;
     const float cy = (r.a.y + r.b.y) * 0.5f;
-    text(L.dl, F.cond, lpx, {r.a.x + 13.0f * S, cy - lpx * 0.55f}, kLabel, upper(label).c_str());
-    const ImVec2 vs = text_size(F.body, vpx, value);
-    const float maxw = (r.b.x - r.a.x) * 0.62f;
+    text(L.dl, F.serif, lpx, {r.a.x + r.pad + 7.0f * S, cy - lpx * 0.58f}, IM_COL32(190, 196, 212, 255), label);
+    const float maxw = (r.b.x - r.a.x) * (*label ? 0.62f : 0.9f);
     std::string v = value;
-    if (vs.x > maxw) {                                  // keep the tail of long paths
+    if (text_size(F.body, vpx, value).x > maxw) {       // keep the tail of long paths
         while (v.size() > 4 && text_size(F.body, vpx, ("..." + v).c_str()).x > maxw) v.erase(0, 1);
         v = "..." + v;
     }
-    const ImVec2 vs2 = text_size(F.body, vpx, v.c_str());
-    text(L.dl, F.body, vpx, {r.b.x - 13.0f * S - vs2.x, cy - vpx * 0.55f}, value_col, v.c_str());
+    const ImVec2 vs = text_size(F.body, vpx, v.c_str());
+    text(L.dl, F.body, vpx, {r.b.x - r.pad - 7.0f * S - vs.x, cy - vpx * 0.55f}, value_col, v.c_str());
 }
 
-// The first row of a sub-page (build/shell_re/SHELL_CORE.md, tab policy): "<  MODS / HELLO LUA". OK / click
-// returns true (go back), as Esc / Backspace / the pad's Back do through Page::back.
+// The first row of a sub-page: "<  Mods / Hello Lua". OK / click returns true (go back), as Esc does
+// through Page::back.
 inline bool back_row(List& L, const char* parent, const char* title, const char* desc = nullptr) {
     const RowIo r = row_frame(L, desc ? desc : "Back. (Esc / Backspace / the pad's Back also return.)", true);
-    const float lpx = 16.5f * S, cy = (r.a.y + r.b.y) * 0.5f;
-    float x = r.a.x + 13.0f * S;
-    const ImU32 arrow = r.selected ? kGold : kTabOff;   // a chevron pointing back
-    L.dl->AddLine({x + 6.0f * S, cy - 6.0f * S}, {x, cy}, arrow, 1.8f * S);
-    L.dl->AddLine({x, cy}, {x + 6.0f * S, cy + 6.0f * S}, arrow, 1.8f * S);
+    const float lpx = 18.0f * S, cy = (r.a.y + r.b.y) * 0.5f;
+    float x = r.a.x + r.pad;
+    L.dl->AddLine({x + 6.0f * S, cy - 6.0f * S}, {x, cy}, kGold, 1.8f * S);   // a chevron pointing back
+    L.dl->AddLine({x, cy}, {x + 6.0f * S, cy + 6.0f * S}, kGold, 1.8f * S);
     x += 18.0f * S;
-    const std::string p = upper(parent), sep = "  /  ", t = upper(title);
-    text(L.dl, F.cond, lpx, {x, cy - lpx * 0.55f}, kTabOff, p.c_str());
-    x += text_size(F.cond, lpx, p.c_str()).x;
-    text(L.dl, F.cond, lpx, {x, cy - lpx * 0.55f}, kMuted, sep.c_str());
-    x += text_size(F.cond, lpx, sep.c_str()).x;
-    text(L.dl, F.cond, lpx, {x, cy - lpx * 0.55f}, kGold, t.c_str());
+    const std::string p = std::string(parent) + "   /   ";
+    text_sh(L.dl, F.serif, lpx, {x, cy - lpx * 0.58f}, kTabOff, p.c_str());
+    x += text_size(F.serif, lpx, p.c_str()).x;
+    text_sh(L.dl, F.serif_italic, lpx, {x, cy - lpx * 0.58f}, kLabel, title);
     return r.activate;
 }
 
-// ---- the settings panel ------------------------------------------------------------------------
+// ---- the panel -----------------------------------------------------------------------------------------
 // A tab. `back` (optional): the page shows a sub-page and Esc / Back should return to the page instead of
-// closing the panel (returns true when it went back). `open_sub` (optional): open a named sub-page
-// ("Mods:sample.hello" -> "sample.hello"), for CLERIA_SHELL_PAGE / the drive's shell= (Panel::select).
+// closing the panel (returns true when it went back). `open_sub` (optional): open a named sub-page.
 struct Page {
     std::string name;
     std::function<void(List&)> draw;
@@ -329,20 +390,23 @@ struct Page {
     std::function<bool(const std::string&)> open_sub;
 };
 
+inline constexpr float kPanelW = 900.0f, kPanelH = 620.0f;   // at S = 1
+
 struct Panel {
     std::vector<Page> pages;
     int tab = 0;
     bool open = false;
-    ImVec2 side_a{}, side_b{};   // this frame's right-hand pane (under the description), for a page's picture
+    const char* mark = "CLERIACORE";   // the wordmark in the band
+    ImVec2 side_a{}, side_b{};        // this frame's description slab, for a page's picture
 
-    // Adds a tab, or replaces the one of that name in place (the Debug page is re-added after each Return to Title).
+    // Adds a tab, or replaces the one of that name in place.
     Page& add(const std::string& name, std::function<void(List&)> draw) {
         for (Page& p : pages)
             if (p.name == name) { p.draw = std::move(draw); return p; }
         pages.push_back({name, std::move(draw), {}, {}, {}});
         return pages.back();
     }
-    // "Tab" or "Tab:sub" (CLERIA_SHELL_PAGE, the drive's shell=): select that tab and open its sub-page.
+    // "Tab" or "Tab:sub": select that tab and open its sub-page.
     bool select(const std::string& spec) {
         const std::size_t c = spec.find(':');
         const std::string tab_name = spec.substr(0, c), sub = c == std::string::npos ? std::string() : spec.substr(c + 1);
@@ -350,7 +414,7 @@ struct Panel {
             if (pages[std::size_t(i)].name != tab_name) continue;
             tab = i;
             Page& p = pages[std::size_t(i)];
-            if (sub.empty()) {                          // the tab itself: leave a sub-page it shows
+            if (sub.empty()) {
                 if (p.back) p.back(p.list);
                 return true;
             }
@@ -367,64 +431,101 @@ struct Panel {
             if (!(cur.back && cur.back(cur.list))) { open = false; return false; }
         }
         dl->AddRectFilled({0, 0}, {w, h}, kDim);
-        const float pw = std::min(w - 40.0f * S, 850.0f * S), ph = std::min(h - 40.0f * S, 600.0f * S);
+        const float pw = std::min(w - 40.0f * S, kPanelW * S), ph = std::min(h - 40.0f * S, kPanelH * S);
         const ImVec2 a{(w - pw) * 0.5f, (h - ph) * 0.5f}, b{a.x + pw, a.y + ph};
-        dl->AddRectFilled(a, b, kPanel, 8.0f * S);
-        dl->AddRect(a, b, kPanelEdge, 8.0f * S, 0, 1.5f * S);
-        // tabs
+        const float band = 46.0f * S, bar = 30.0f * S;
+        // the page: pale stone, the game's rings faintly on it, a thin gold line inside its edge
+        dl->AddRectFilledMultiColor(a, b, kPageTop, kPageTop, kPageBot, kPageBot);
+        dl->PushClipRect({a.x, a.y + band}, {b.x, b.y - bar}, true);
+        for (int k = 0; k < 7; ++k) dl->AddCircle({(a.x + b.x) * 0.5f, b.y + ph * 0.18f}, ph * (0.42f + 0.13f * float(k)), kPageLine, 96, 1.2f * S);
+        dl->AddRect({a.x + 7.0f * S, a.y + band + 7.0f * S}, {b.x - 7.0f * S, b.y - bar - 7.0f * S}, IM_COL32(170, 142, 74, 150), 22.0f * S, 0, 1.2f * S);
+        dl->PopClipRect();
+        // the band, the help bar and the frame
+        dl->AddRectFilledMultiColor(a, {b.x, a.y + band}, kBandTop, kBandTop, kBandBot, kBandBot);
+        dl->AddLine({a.x, a.y + band}, {b.x, a.y + band}, kGoldDark, 3.0f * S);
+        dl->AddLine({a.x, a.y + band}, {b.x, a.y + band}, kGold, 1.1f * S);
+        dl->AddRectFilled({a.x, b.y - bar}, b, kBandTop);
+        dl->AddLine({a.x, b.y - bar}, {b.x, b.y - bar}, kRule, 1.1f * S);
+        dl->AddRect(a, b, kGoldDark, 0.0f, 0, 3.0f * S);
+        dl->AddRect(a, b, kGold, 0.0f, 0, 1.1f * S);
+        // the tabs: the open page's name on a black plate set into the band, the others beside it
         if (nav.tab_prev) tab = (tab + int(pages.size()) - 1) % int(pages.size());
         if (nav.tab_next) tab = (tab + 1) % int(pages.size());
-        float tpx = 16.0f * S, gap = 37.0f * S;
-        const float tab_h = 50.0f * S;
-        {   // many tabs: narrow the gaps, then the type, so the row stays clear of the close cross
+        float tpx = 21.0f * S, padx = 34.0f * S;
+        {   // many tabs: narrower plates, then smaller type, so the row stays clear of the close cross
             float sum = 0;
-            for (const Page& p : pages) sum += text_size(F.cond, tpx, upper(p.name.c_str()).c_str()).x;
-            const float avail = pw - 19.0f * S - 56.0f * S, n = float(pages.size());
-            if (sum + gap * n > avail) gap = std::max(14.0f * S, (avail - sum) / n);
-            if (sum + gap * n > avail) tpx *= std::max(0.6f, (avail - gap * n) / sum);
+            for (const Page& p : pages) sum += text_size(F.serif_italic, tpx, p.name.c_str()).x;
+            const float avail = pw - 18.0f * S - 50.0f * S, n = float(pages.size()), gap = 6.0f * S;
+            if (sum + (padx + gap) * n > avail) padx = std::max(14.0f * S, (avail - sum) / n - gap);
+            if (sum + (padx + gap) * n > avail) tpx *= std::max(0.6f, (avail - (padx + gap) * n) / sum);
         }
-        float x = a.x + 19.0f * S;
+        float x = a.x + 18.0f * S;
         for (int i = 0; i < int(pages.size()); ++i) {
-            const std::string t = upper(pages[i].name.c_str());
-            const ImVec2 ts = text_size(F.cond, tpx, t.c_str());
-            const ImVec2 ta{x - 10.0f * S, a.y}, tb{x + ts.x + 10.0f * S, a.y + tab_h};
+            const char* t = pages[std::size_t(i)].name.c_str();
+            const ImVec2 ts = text_size(F.serif_italic, tpx, t);
+            const ImVec2 ta{x, a.y + 6.0f * S}, tb{x + ts.x + padx, a.y + band + 7.0f * S};
             if (hovering(ta, tb)) hand();
             if (hovering(ta, tb) && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) tab = i;
-            const bool on = i == tab;
-            text(dl, F.cond, tpx, {x, a.y + (tab_h - tpx) * 0.5f}, on ? kTabOn : kTabOff, t.c_str());
-            if (on) dl->AddRectFilled({ta.x, tb.y - 3.0f * S}, {tb.x, tb.y}, kGold);
-            x += ts.x + gap;
+            if (i == tab) {
+                dl->AddRectFilledMultiColor(ta, tb, IM_COL32(44, 46, 54, 255), IM_COL32(44, 46, 54, 255), IM_COL32(4, 5, 8, 255), IM_COL32(4, 5, 8, 255));
+                dl->AddRect(ta, tb, kGoldDark, 0.0f, 0, 3.4f * S);
+                dl->AddRect(ta, tb, kGold, 0.0f, 0, 1.2f * S);
+            }
+            text_sh(dl, F.serif_italic, tpx, {x + padx * 0.5f, a.y + 6.0f * S + (tb.y - ta.y - tpx) * 0.42f}, i == tab ? kTabOn : kTabOff, t);
+            x = tb.x + 6.0f * S;
         }
-        // the close cross
+        // the close cross, and the wordmark before it, letter-spaced as the game's own
         {
-            const ImVec2 c{b.x - 26.0f * S, a.y + tab_h * 0.5f};
+            const ImVec2 c{b.x - 24.0f * S, a.y + band * 0.5f};
             const float r = 6.0f * S;
             const bool hov = hovering({c.x - 14 * S, c.y - 14 * S}, {c.x + 14 * S, c.y + 14 * S});
-            const ImU32 col = hov ? kTabOn : kTabOff;
             if (hov) hand();
-            dl->AddLine({c.x - r, c.y - r}, {c.x + r, c.y + r}, col, 1.6f * S);
-            dl->AddLine({c.x - r, c.y + r}, {c.x + r, c.y - r}, col, 1.6f * S);
+            dl->AddLine({c.x - r, c.y - r}, {c.x + r, c.y + r}, hov ? kTabOn : kGold, 1.7f * S);
+            dl->AddLine({c.x - r, c.y + r}, {c.x + r, c.y - r}, hov ? kTabOn : kGold, 1.7f * S);
             if (hov && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { open = false; return false; }
+            const float mpx = 19.0f * S, gap = 5.5f * S;
+            float mw = 0;
+            for (const char* p = mark; *p; ++p) mw += text_size(F.serif, mpx, std::string(1, *p).c_str()).x + gap;
+            float mx = c.x - 26.0f * S - mw;
+            if (mx > x + 20.0f * S)
+                for (const char* p = mark; *p; ++p) {
+                    const std::string ch(1, *p);
+                    text_sh(dl, F.serif, mpx, {mx, a.y + (band - mpx) * 0.5f}, IM_COL32(214, 198, 150, 255), ch.c_str());
+                    mx += text_size(F.serif, mpx, ch.c_str()).x + gap;
+                }
         }
-        dl->AddLine({a.x, a.y + tab_h}, {b.x, a.y + tab_h}, kRule, 1.0f * S);
-        // the list (left) and the description (right)
-        const float split = a.x + pw * 0.5f;
-        Page& pg = pages[std::clamp(tab, 0, int(pages.size()) - 1)];
+        // the rows on the page (left), the chosen row's description on a slab (right)
+        const float top = a.y + band + 22.0f * S, bottom = b.y - bar - 16.0f * S, split = a.x + pw * 0.56f;
+        Page& pg = pages[std::size_t(std::clamp(tab, 0, int(pages.size()) - 1))];
         List& L = pg.list;
-        const ImVec2 lo{a.x + 19.0f * S, a.y + tab_h + 14.0f * S};
-        side_a = {split + 20.0f * S, a.y + tab_h + 20.0f * S}; side_b = {b.x - 20.0f * S, b.y - 12.0f * S};
-        list_begin(L, dl, lo, {split - lo.x - 6.0f * S, b.y - lo.y - 12.0f * S}, nav, true);
+        const ImVec2 lo{a.x + 22.0f * S, top};
+        side_a = {split + 8.0f * S, top + 4.0f * S}; side_b = {b.x - 24.0f * S, bottom};
+        list_begin(L, dl, lo, {split - lo.x - 4.0f * S, bottom - top}, nav, true);
         pg.draw(L);
         list_end(L);
-        dl->AddLine({split, a.y + tab_h}, {split, b.y}, kDivider, 1.0f * S);
+        slab(dl, side_a, side_b);
+        dl->AddRectFilledMultiColor(side_a, {side_b.x, side_a.y + 34.0f * S}, IM_COL32(255, 255, 255, 26), IM_COL32(255, 255, 255, 26), IM_COL32(255, 255, 255, 0), IM_COL32(255, 255, 255, 0));
         if (!L.desc.empty()) {
-            const float dpx = 17.5f * S;
-            dl->AddText(F.body, dpx, {split + 20.0f * S, a.y + tab_h + 20.0f * S}, kDesc, L.desc.c_str(), nullptr,
-                        b.x - split - 40.0f * S);
+            dl->PushClipRect(side_a, side_b, true);
+            dl->AddText(F.body, 16.5f * S, {side_a.x + 16.0f * S, side_a.y + 14.0f * S}, kDesc, L.desc.c_str(), nullptr, side_b.x - side_a.x - 32.0f * S);
+            dl->PopClipRect();
         }
+        text(dl, F.body, 14.5f * S, {a.x + 18.0f * S, b.y - bar + (bar - 14.5f * S) * 0.42f}, IM_COL32(214, 220, 232, 255),
+             "Up / Down  choose      Enter  OK      Left / Right  change      Q / E  page      Esc  back");
         return open;
     }
 };
+
+// Bottom-centre: a notice card over the game.
+inline void toast(ImDrawList* dl, float w, float h, const char* head, const char* body) {
+    const float bw = std::max(340.0f * S, text_size(F.body, 16.0f * S, body).x + 40.0f * S), bh = 74.0f * S;
+    const ImVec2 a{(w - bw) * 0.5f, h - 105.0f * S}, b{a.x + bw, a.y + bh};
+    dl->AddRectFilledMultiColor(a, b, IM_COL32(34, 50, 88, 240), IM_COL32(34, 50, 88, 240), IM_COL32(10, 14, 28, 240), IM_COL32(10, 14, 28, 240));
+    dl->AddRect(a, b, kGoldDark, 0.0f, 0, 3.0f * S);
+    dl->AddRect(a, b, kGold, 0.0f, 0, 1.1f * S);
+    text_sh(dl, F.serif_italic, 17.0f * S, {a.x + 19.0f * S, a.y + 11.0f * S}, kGold, head);
+    text(dl, F.body, 16.0f * S, {a.x + 19.0f * S, a.y + 40.0f * S}, kDesc, body);
+}
 
 // ---- the launcher's main menu -----------------------------------------------------------------
 struct MainMenu {
@@ -502,8 +603,9 @@ inline void prompt(ImDrawList* dl, float w, float h, const char* head, const cha
     dl->AddRectFilled({0, 0}, {w, h}, IM_COL32(0, 0, 0, 120));
     const float bw = 420.0f * S, bh = 150.0f * S;
     const ImVec2 a{(w - bw) * 0.5f, (h - bh) * 0.5f}, b{a.x + bw, a.y + bh};
-    dl->AddRectFilled(a, b, kPanel, 8.0f * S);
-    dl->AddRect(a, b, kGold, 8.0f * S, 0, 1.5f * S);
+    dl->AddRectFilledMultiColor(a, b, kBandBot, kBandBot, kBandTop, kBandTop);
+    dl->AddRect(a, b, kGoldDark, 0.0f, 0, 3.0f * S);
+    dl->AddRect(a, b, kGold, 0.0f, 0, 1.1f * S);
     auto centred = [&](ImFont* f, float px, float y, ImU32 c, const char* t) {
         const ImVec2 ts = text_size(f, px, t);
         text(dl, f, px, {(a.x + b.x - ts.x) * 0.5f, y}, c, t);
@@ -513,23 +615,10 @@ inline void prompt(ImDrawList* dl, float w, float h, const char* head, const cha
     centred(F.body, 15.5f * S, a.y + 106.0f * S, kMuted, hint);
 }
 
-// Bottom-centre: a notice card.
-inline void toast(ImDrawList* dl, float w, float h, const char* head, const char* body) {
-    const float bw = 340.0f * S, bh = 74.0f * S;
-    const ImVec2 a{(w - bw) * 0.5f, h - 105.0f * S}, b{a.x + bw, a.y + bh};
-    dl->AddRectFilled(a, b, IM_COL32(26, 24, 16, 235), 6.0f * S);
-    dl->AddRect(a, b, kPanelEdge, 6.0f * S, 0, 1.2f * S);
-    text(dl, F.cond, 13.5f * S, {a.x + 19.0f * S, a.y + 15.0f * S}, kWarn, upper(head).c_str());
-    text(dl, F.body, 16.0f * S, {a.x + 19.0f * S, a.y + 40.0f * S}, kDesc, body);
-}
-
-// ---- a one-line text field (e.g. a Lua mod's server / slot / password) ----------------------------
-// OK / click on the row starts editing; typed text (SDL text input, so any keyboard layout), Ctrl+V
-// pastes, Backspace deletes (Ctrl+Backspace clears), Enter or a click elsewhere keeps the text, Esc
-// restores it. While editing, read_nav() yields nothing, so W/A/S/D/Q/E/Space type instead of
-// navigating. `secret` shows a bullet per character (the text itself is never drawn). Returns true
-// when an edit was kept and changed the value. The drive_text_* hooks stand in for the keyboard in a
-// CLERIA_DRIVE run.
+// ---- a one-line text field (a mod's server / slot / password) --------------------------------------------
+// OK / click on the row starts editing; typed text, Ctrl+V pastes, Backspace deletes (Ctrl+Backspace
+// clears), Enter or a click elsewhere keeps the text, Esc restores it. While editing, read_nav() yields
+// nothing. `secret` shows a bullet per character. Returns true when an edit was kept and changed the value.
 struct TextEdit {
     const void* id = nullptr;       // the value being edited
     std::string buf;
@@ -588,8 +677,8 @@ inline bool text_field(List& L, const char* label, std::string* v, const char* d
                     for (const char* p = clip; *p && *p != '\r' && *p != '\n' && e.buf.size() < max_len; ++p) e.buf += *p;
             const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
                                drive_text_commit;
-            const bool away = ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !hovering(r.a, r.b);
             drive_text_commit = false;
+            const bool away = ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !hovering(r.a, r.b);
             if (enter || away) {
                 kept = e.buf != *v;
                 *v = e.buf;
@@ -606,18 +695,18 @@ inline bool text_field(List& L, const char* label, std::string* v, const char* d
     std::string shown;
     if (secret) for (std::size_t i = utf8_count(src); i > 0; --i) shown += "\xE2\x80\xA2";
     else shown = src;
-    const float lpx = 16.5f * S, vpx = 17.0f * S, cy = (r.a.y + r.b.y) * 0.5f;
-    text(L.dl, F.cond, lpx, {r.a.x + 13.0f * S, cy - lpx * 0.55f}, kLabel, upper(label).c_str());
-    const float maxw = (r.b.x - r.a.x) * 0.58f;
+    const float lpx = 18.0f * S, vpx = 16.5f * S, cy = (r.a.y + r.b.y) * 0.5f;
+    text_sh(L.dl, F.serif, lpx, {r.a.x + r.pad, cy - lpx * 0.58f}, kLabel, label);
+    const float maxw = (r.b.x - r.a.x) * 0.55f;
     if (active) {
-        const ImVec2 wa{r.b.x - 10.0f * S - maxw, r.a.y + 5.0f * S}, wb{r.b.x - 8.0f * S, r.b.y - 5.0f * S};
-        L.dl->AddRectFilled(wa, wb, IM_COL32(14, 13, 10, 255), 3.0f * S);
-        L.dl->AddRect(wa, wb, kGold, 3.0f * S, 0, 1.0f * S);
+        const ImVec2 wa{r.b.x - r.pad - maxw, r.a.y + 5.0f * S}, wb{r.b.x - r.pad + 4.0f * S, r.b.y - 5.0f * S};
+        L.dl->AddRectFilled(wa, wb, IM_COL32(6, 8, 16, 255));
+        L.dl->AddRect(wa, wb, kGold, 0.0f, 0, 1.0f * S);
         std::string t = shown;                           // keep the caret end in view
         while (!t.empty() && text_size(F.body, vpx, t.c_str()).x > maxw - 24.0f * S) t.erase(0, 1);
         while (!t.empty() && (static_cast<unsigned char>(t.front()) & 0xC0) == 0x80) t.erase(0, 1);
         const float tw = text_size(F.body, vpx, t.c_str()).x;
-        const float x = wb.x - 12.0f * S - tw;
+        const float x = wb.x - 10.0f * S - tw;
         text(L.dl, F.body, vpx, {x, cy - vpx * 0.55f}, kTabOn, t.c_str());
         if ((now / 30) % 2 == 0)
             L.dl->AddLine({x + tw + 2.0f * S, cy - vpx * 0.5f}, {x + tw + 2.0f * S, cy + vpx * 0.5f}, kGold, 1.5f * S);
@@ -630,7 +719,7 @@ inline bool text_field(List& L, const char* label, std::string* v, const char* d
         }
         ImFont* f = r.selected ? F.medium : F.body;
         const ImVec2 vs = text_size(f, vpx, t.c_str());
-        text(L.dl, f, vpx, {r.b.x - 13.0f * S - vs.x, cy - vpx * 0.55f}, col, t.c_str());
+        text(L.dl, f, vpx, {r.b.x - r.pad - vs.x, cy - vpx * 0.55f}, col, t.c_str());
     }
     return kept;
 }
