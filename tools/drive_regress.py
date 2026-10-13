@@ -1684,7 +1684,7 @@ CASES.update({
                 "mode 4 -> 0", "barrier D up", "option R revived (1000)", "option L revived (1000)",
                 "barrier D broken (window 699)",
                 "flag 226 = 1", "EXP (lv 49)", "the death starts", "[content] boss_defeated S_7080 flag 226", "[boss07] t",
-                "destroyed", ">> entering S_7000"], count={"boss_defeated": 1, "impact 404 at": 4}),
+                "destroyed", ">> entering S_7000"], count={"boss_defeated": 1, "impact 404 at": 4, "[bgm] 17 (scene)": 1}),
     # Darm (build/boss_re/DARM*.md; src/cleria/boss08, apps/cleria-view/view_boss08.inl). Toal's last fight, from the
     # room's own retry start: flag 205 = 1 and a reload make the root script Mesh_Locate boss08 (its ctor builds the
     # tail, the core, the arms and the floor s7099yuka), place the player at (0, 0, -10) and run Battle (flag 156 at
@@ -1701,40 +1701,73 @@ CASES.update({
     # barrier (60 hits of 1), the tentacles' override tracks (Stab / Pull / Beat), the 900-frame window, the kill:
     # flag 227 = 1, Battle's flag 156 = 0 and Battle_End (its windows confirmed by `oktapf`), 227 = 2 releases the
     # death timeline: the body fades out, ChangeScene to S_7000.
+    # Re-pinned 2026-10-13 (two engine rules the fight did not have: FUN_0041e360 takes the faded limbs' and the
+    # tentacles' collision entries out of the sweep, and the player's sphere is pushed out of the hulls — a contact is
+    # the push, logged `touch boss08 (side)`; view_boss08.inl). Another course with the same events: Normal -> Low ->
+    # OnBack (no High and no hand swing in this run: darm_onfoot has the High form, cleria-boss08test the swings), the
+    # tail's swing now carries the player off the floor inside the open window, so the kill takes three windows
+    # (t14044, was t12209) and the run 18300 ticks; the tentacle tracks Stab / Pull are seen again. The retry start's
+    # track: BGM 18 at the scene entry.
     "darm_fight": dict(
         room="S_70/S_7099/S_7099",
         env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8;61:every=15,17000,oktapf;17000:quit",
-        expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
+              "11:flag=163,1;60:boss8;61:every=15,18300,oktapf;18300:quit",
+        expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990", "[bgm] 18 (scene)",
                 "the fight starts, the body at (0.00,0.00,8.50)", "target part 5 from the floor",
-                "the swing hits part 5 (DEF 998, class 3): 2 dmg", "clip 36_DoubleLariat", "effect 512",
-                "target part 7 from the floor", "CamSlot 5 (1.000)", "the player fell off the floor", "effect 517",
-                "the player is put back at (0.0,19.0,-6.0)", "bullet(s) kind 0x25 effect 467", "target part 2 from the floor",
+                "the swing hits part 5 (DEF 998, class 3): 2 dmg", "touch boss08 (side) -> touch_tail",
+                "clip 36_DoubleLariat", "effect 512", "with a jump", "target part 7 from the floor",
                 "MatMode 1: black (Down)", "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
                 "target the core 0", "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
                 "band 1 (the refill starts", "CamSlot 6 (0.020)", "MatMode 2: the outline (form change)",
                 "form Normal -> Low", "motion s7099yuka f", "the floor moves: over to", "the refill ends at hp",
-                "motion s7099yuka c", "CamSlot 2 (0.025)", "MatMode 0: lit", "settled in Low", "clip 38_LowDown",
-                "band 2 (the refill starts", "form Low -> Normal", "settled in Normal", "clip 04_RightHandSwing",
-                "effect 451", "effect 490", "band 3 (the refill starts", "form Normal -> High", "motion s7099yuka e",
-                "CamSlot 3 (0.025)", "settled in High", "with a jump", "clip 39_HighDown", "band 4 (the refill starts",
-                "form High -> OnBack", "the barrier is up", "motion s7099yuka j", "CamSlot 4 (", "settled in OnBack",
-                # Re-pinned 2026-10-11 (the jump gate reads +0x3a0): the pilot's jumps take on other ticks, so the OnBack
-                # phase runs another course with the same events — the camera at the settle (CamSlot 4 (0.025), not the
-                # (1.000) of a stab that catches him), the tentacle tracks in the order Beat, Stab, Pull (was Stab,
-                # Pull, Beat), the barrier broken before the first stab.
-                "(20_Beat)", "the swing hits the core 0 (DEF 998, class 3): 2 dmg",
-                "bullet(s) kind 0x25 effect 484", "released from Bone_", "barrier 59",
+                "motion s7099yuka c", "CamSlot 2 (0.025)", "MatMode 0: lit", "settled in Low",
+                "bullet(s) kind 0x25 effect 467", "clip 38_LowDown", "band 2 (the refill starts",
+                "form Low -> Normal", "settled in Normal", "target part 2 from the floor",
+                "band 3 (the refill starts", "band 4 (the refill starts", "form Low -> OnBack", "the barrier is up",
+                "CamSlot 5 (1.000)", "the player fell off the floor", "effect 517",
+                "the player is put back at (0.0,19.0,-6.0)", "CamSlot 4 (", "settled in OnBack", "(20_Beat)",
+                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "bullet(s) kind 0x25 effect 484",
+                "(24_StabInTheGround)", "released from Bone_", "(25_PullFromTheGround)", "barrier 59",
                 "the barrier breaks (window 900)", "the swing hits the core 0 (DEF 295, class 3)",
-                # Re-pinned 2026-10-12 (the down thrust's landing effect 0xc draws from the shared xorshift, ADOL.md
-                # §13): the run is the same to t11240; the three tentacle picks after the window (t11483, t11679,
-                # t11892: one bit of a draw each) are Beats now, so no Stab / Pull is seen in this fight any more (the
-                # same at Damage dealt 1.9 and 2.1). Their timeline stays covered by cleria-boss08test (CE §3.2 (3)).
-                "the window closed: the barrier is back", "the barrier is up", "(20_Beat)", "flag 215 = 0",
-                "the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1", "[content] boss_defeated S_7099 flag 227",
-                "the death timeline starts", "the body is gone (alpha 0)", ">> entering S_7000"],
+                "touch boss08t (side) -> touch_tail", "the window closed: the barrier is back", "flag 215 = 0",
+                "the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
+                "[content] boss_defeated S_7099 flag 227", "the death timeline starts", "the body is gone (alpha 0)",
+                "[bgm] 0 (script: stop over 3500 ms)", ">> entering S_7000"],
         count={"boss_defeated": 1}),
+    # Darm ON FOOT (drive `boss8=walk`, view_boss08.inl): darm_fight's pilot without its placements — from the retry
+    # start at (0, 0, -10) the stick is held along a route over resting tiles clear of the hulls to each spot, and
+    # Attack / Jump are pressed only there (the first target at t272, part 7 from (-7.66, 5.60)). Through the four
+    # bands — Normal, Low, Normal, Low, High, Normal — to OnBack and the barrier's 60 hits from the floor; the run
+    # ends when the barrier breaks. What is behind it is darm_fight's: the open window is [approx] there (the body's
+    # hull is dropped for it; the bytes keep it and let the player climb, view_boss08.inl), so no walk is pinned on it.
+    # DamageTaken=0 as in darm_fight: the pilot dodges nothing (a contact's 250-ATK hit is logged, not taken).
+    "darm_onfoot": dict(
+        room="S_70/S_7099/S_7099",
+        env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss8=walk;61:every=15,21000,oktapf;21000:quit",
+        expect=["[bgm] 18 (scene)", "the fight starts, the body at (0.00,0.00,8.50)",
+                "[pilot] t272 target part 7 from the floor, from (-7.66,5.60)", "the swing hits part 7",
+                "DOWN: the core is exposed", "the swing hits the core 0 (DEF 275, class 3)",
+                "band 1 (the refill starts", "form Normal -> Low", "settled in Low", "band 2 (the refill starts",
+                "form Low -> Normal", "settled in Normal", "band 3 (the refill starts", "form Low -> High",
+                "motion s7099yuka", "CamSlot 3 (0.025)", "settled in High", "clip 39_HighDown", "form High -> Normal",
+                "band 4 (the refill starts", "form Normal -> OnBack", "settled in OnBack",
+                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "the barrier breaks (window 900)"],
+        absent=["the floor moves: over to"]),
+    # Dalles's music (issue: "Dalles has music stopping or not launching"). The room's SCENELIST record has BGM 0 and
+    # the retry branch of its root only names the track (op 0xa4 Scene_SetDefaultBgm 17, no Bgm_Play): the scene
+    # entry's compare of the playing id with the pending one, AFTER the root's first burst, starts it [EXPORT
+    # 00431840.c:584, :650]. Before, a Retry left the fight silent (the game over's BGM 36 stopped, nothing started).
+    # The first visit: the intro is skipped by a press, its last Bgm_Play(17) runs; the death, the game over's 36,
+    # the Retry, 17 again at the scene entry.
+    "dalles_retry_bgm": dict(
+        room="S_70/S_7080/S_7080", char="3", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;2:level=50;3:tier=10;5:esctap;300:hp=0;700:ok;1000:scripts;1001:quit",
+        expect=["[bgm] 0 (scene)", "cutscene skip (single)", "[bgm] 17 (script)", "[death] HP 0", "[bgm] 36 (script)",
+                "[gameover] chose retry", ">> entering S_7080", "[bgm] 17 (scene)", "script Battle pc"],
+        count={"[bgm] 17 (scene)": 1}),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,
@@ -2674,9 +2707,11 @@ CASES.update({
     "scene_light": dict(
         room="S_70/S_7099/S_7099", env={"CLERIA_CHAR": "3", "CLERIA_SCRFX_LOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8;61:every=15,2900,oktapf;2900:quit",
+              "11:flag=163,1;60:boss8;61:every=15,2150,oktapf;2150:quit",
+        # Re-pinned 2026-10-13 (darm_fight's note: the hull's entry filter and the sphere push-out): the first band,
+        # and with it the form change's light, is at t2080 (was t2838).
         expect=["[light] t11 the scene light's colour (0.667, 0.502, 0.502)",
-                "[light] t2838 the scene light's colour (0.667, 0.667, 0.502)"]),
+                "[light] t2080 the scene light's colour (0.667, 0.667, 0.502)"]),
     # The frame hold (§7.3): Zava's death (zava_fight's run) writes 0x76a548 / 0x76a54c = 1.0 / -0.025 with
     # 0x7b2488 = 1: that frame is copied and drawn over the live scene, first at floor(0.975 x 256) = 249.
     # Re-pinned 2026-10-10 (the dust puffs, as zava_fight): her death is at t4102, was t3830; the run ends at t4400.
@@ -3155,11 +3190,11 @@ CASES.update({
     "skip_intro_dalles": dict(
         room="S_70/S_7080/S_7080", char="1", env=_LOCK,
         drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;11:flag=116,1;12:flag=117,1;13:flag=118,1;3:esctap;5:cam;5:scripts;5:gauge;5:dflags;7:quit",
-        expect=["cutscene skip (single)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 23", "[drive] gauge 1 id -11 hp 2500/2500", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+        expect=["cutscene skip (single)", "[bgm] 17 (script)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 23", "[drive] gauge 1 id -11 hp 2500/2500", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
     "skip_intro_darm": dict(
         room="S_70/S_7099/S_7099", char="3", env=_LOCK,
         drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;11:flag=163,1;3:esctap;5:cam;5:scripts;5:gauge;5:dflags;7:quit",
-        expect=["cutscene skip (single)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 30", "[drive] gauge 1 id -12 hp 9999/9999", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+        expect=["cutscene skip (single)", "[bgm] 18 (script)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 30", "[drive] gauge 1 id -12 hp 9999/9999", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
     "skip_intro_duel1080_y": dict(
         room="S_10/S_1080/S_1080", char="1", env=_LOCK,
         drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;21:move=0,-1,300;221:esctap;223:cam;223:scripts;223:gauge;223:dflags;225:quit",
@@ -3539,7 +3574,7 @@ def frame_edges(path, name, seams):
 
 # The cases of a minute or more (measured 2026-10-09): with --jobs they start first, so the longest one
 # (darm_fight, ~7 minutes) does not start last and run on alone.
-LONG = ["darm_fight", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
+LONG = ["darm_fight", "darm_onfoot", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
         "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light",
         "route_s4015_yunica", "route_s4015_hugo"]
 

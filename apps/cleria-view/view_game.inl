@@ -644,7 +644,14 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         std::printf("audio: %zu scenes, music from %s\n", scenes.size(),
                     bgmdefs.dir().string().c_str());
     int cur_bgm = -1;
-    int default_bgm = 0;                 // 0x76c17c: Scene_SetDefaultBgm / Bgm_Play(-1)
+    // 0x76c17c, the pending id: the scene record's at every scene entry [EXPORT 00431840.c:143], then whatever the
+    // root script's first burst gives it (op 0xa4 Scene_SetDefaultBgm, FUN_00432ec0); Bgm_Play(-1) plays it. The
+    // entry's compare with the playing id comes AFTER that burst [EXPORT 00431840.c:584 the root's StartScript,
+    // :650 the compare]: a boss room's record is 0 and its retry branch has only the 0xa4 (S_7080: 17), so that
+    // is what starts the fight's track after a Retry.
+    int default_bgm = 0;
+    bool scene_bgm_due = false;          // a scene was entered: the compare runs after start_room_events
+    const bool bgm_trace = std::getenv("CLERIA_DRIVE") != nullptr;
     // The projection's near / far: DAT_007b2f50 / DAT_007b2f54, the 4th / 5th args of
     // D3DXMatrixPerspectiveFovLH (FUN_005eca30 0x5ecc0f). Every scene entry resets the scene copies
     // 0x74c0fc / 0x74c0f8 to 1.0 / 2000.0 (FUN_00431840) and the room's op 0xa2 Scene_SetClipPlain
@@ -662,9 +669,16 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         audio.set_bgm_volume(oslider[0] / 1024.0f * bgm_gain);
         apply_sound();
     };
-    auto apply_room_bgm = [&](const std::string& room_name) {
-        const SceneRec* s = scenes.find_room(room_name);
-        const int id = s ? int(s->bgm) : 0;
+    // A stream that starts plays at unity with no ramp left: the audio thread's play command sets the volume
+    // 0x400 and clears the ramp's duration [BYTES 0x5cd3f4..0x5cd400], so a Bgm_Volume(0, ms) that no
+    // Bgm_Volume(1024, ms) answers (S_4005's BATTLE_HUGO / BATTLE_YUNICA, S_6080's AFTER_MOVE_HUGO: the next op is
+    // a Bgm_Play) does not mute the track that follows.
+    auto bgm_start = [&](int id) {
+        bgm_gain = bgm_gain_to = 1.0f; bgm_gain_step = 0.0f;
+        audio.set_bgm_volume(oslider[0] / 1024.0f);
+        audio.play_bgm(bgmdefs.track(id));
+    };
+    auto apply_bgm = [&](int id) {                     // the scene entry's compare [BYTES 0x4323d2]
         if (id == cur_bgm) return;
         cur_bgm = id;
         if (id == 0) {
@@ -672,8 +686,18 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             // fading; the earlier, shorter stop still lands first. Keep that fade instead of a cut.
             if (!audio.bgm_fading()) audio.stop_bgm();
         } else {
-            audio.play_bgm(bgmdefs.track(id));
+            bgm_start(id);
         }
+        if (bgm_trace) std::printf("  [bgm] %d (scene)\n", id);
+    };
+    auto apply_room_bgm = [&](const std::string& room_name) {
+        const SceneRec* s = scenes.find_room(room_name);
+        apply_bgm(s ? int(s->bgm) : 0);
+    };
+    auto scene_bgm_reset = [&](const std::string& room_name) {
+        const SceneRec* s = scenes.find_room(room_name);
+        default_bgm = s ? int(s->bgm) : 0;
+        scene_bgm_due = true;
     };
 
     // Save slots (PLAN.md Phase 2; src/cleria/save.hpp codec). One yso_NN.bin per slot
@@ -2236,7 +2260,7 @@ title_again:
 
     spawn_enemies();
 
-    apply_room_bgm(room.name);
+    scene_bgm_reset(room.name);
 
     // Scripted map objects (src/cleria/meshobj.hpp, build/event_re/WAITOPS.md §4): moves,
     // clip playback and the event bit, re-baked into the room's render + collision meshes
@@ -2405,7 +2429,7 @@ title_again:
         room = std::move(next);
         load_meshes(false);
         room_events_dirty = true;   // the new room's event scripts start next frame
-        apply_room_bgm(room.name);
+        scene_bgm_reset(room.name);
         if (fly) {
             spawn_in(cam, room);
         } else {
@@ -4329,12 +4353,16 @@ title_again:
     };
     csHost.bgm_play_fn = [&](int id) {
         if (id == -1) id = default_bgm;
+        if (bgm_trace && id != cur_bgm) std::printf("  [bgm] %d (script)\n", std::max(id, 0));
         if (id <= 0) { audio.stop_bgm(); cur_bgm = 0; return; }
         if (id == cur_bgm) return;
         cur_bgm = id;
-        audio.play_bgm(bgmdefs.track(id));
+        bgm_start(id);
     };
-    csHost.bgm_stop_fn = [&](int ms) { audio.fade_out_bgm(ms); cur_bgm = 0; };
+    csHost.bgm_stop_fn = [&](int ms) {
+        if (bgm_trace && cur_bgm != 0) std::printf("  [bgm] 0 (script: stop over %d ms)\n", ms);
+        audio.fade_out_bgm(ms); cur_bgm = 0;
+    };
     // 0x85 HealHp (FUN_004fa0e0): HP to max; SE 0x75 (FUN_00430790). [not modelled] FUN_00420c40.
     csHost.oxy_p = &oxy;
     csHost.heal_fn = [&] {
@@ -6539,6 +6567,7 @@ title_again:
                 wp->yaw = yaw_of_heading(h);
             }
             start_room_events();
+            if (scene_bgm_due) { scene_bgm_due = false; apply_bgm(default_bgm); }
         }
         // ---- fixed 60 Hz logic, 0..N ticks per rendered frame --------------
         // The catch-up loop in the exe has NO cap; a long stall really does emit a
@@ -7175,6 +7204,15 @@ title_again:
                     prof("mesh:bake-hull");
                     rebake_object(room.coll, asset_root, nm, clip, m.time, &m.pos, true, &m.rot, wm, m.twin_clips);
                     prof("mesh:after-bake");
+                    // Entries the engine's queries skip (MeshObj::hull_off): each collapses to a point far below the room.
+                    if (!m.hull_off.empty())
+                        if (const RoomMesh::ObjRange* cr = room.coll.object_range(nm))
+                            for (const auto& [h0, h1] : m.hull_off)
+                                for (std::uint32_t k = cr->v0 + h0; k < cr->v0 + h1 && k < cr->v1 && k < room.coll.vertices.size(); ++k) {
+                                    room.coll.vertices[k].px = room.coll.vertices[cr->v0 + h0].px;
+                                    room.coll.vertices[k].py = -1.0e5f;
+                                    room.coll.vertices[k].pz = room.coll.vertices[cr->v0 + h0].pz;
+                                }
                     // A brain dropped its collision this tick (boss02): the hull collapses to a point.
                     if (m.no_collide)
                         if (const RoomMesh::ObjRange* cr = room.coll.object_range(nm))
@@ -8114,9 +8152,11 @@ title_again:
                 for (const RoomMesh::ObjRange& r : phys_mesh(room).object_ranges)
                     if (std::uint32_t(floor_tri) >= r.t0 && std::uint32_t(floor_tri) < r.t1) {
                         player_floor_obj = r.name;
-                        // The entry's byte +0x89 has one writer in the exe: the ctor of Zava's two heads sets it
-                        // on entry 0 and clears it on the others [EXPORT 0053bbb0.c:247-254] (view_boss06.inl
-                        // keeps each head's entries as triangle ranges of its hull).
+                        // The entry's byte +0x89: the ctor of Zava's two heads sets it on entry 0 and clears it on
+                        // the others [EXPORT 0053bbb0.c:247-254] (view_boss06.inl keeps each head's entries as
+                        // triangle ranges of its hull). [not modelled] Darm's body: its ctor sets the byte on every
+                        // entry and the broken barrier of OnBack clears it for the open window (DARM.md §3.3 item 7,
+                        // DARM_D §4.2.1; view_boss08.inl's note on the window).
                         for (int hi = 0; hi < boss06::kHeads; ++hi)
                             if (r.name == boss6_name[hi] && !boss6_entries[std::size_t(hi)].empty()) {
                                 const std::uint32_t rel = std::uint32_t(floor_tri) - r.t0;

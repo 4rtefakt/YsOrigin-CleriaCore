@@ -22,8 +22,9 @@
 // [not modelled] the main clip's own cross-fade (An+0x14) — the tail's main-owned nodes cut to a new clip.
 // [approx] the collision twins BOSS08*_.YMO carry the bone tree: they are posed by the render model's clips at the
 // same cursor (MeshObj::twin_clips; the engine rebuilds each entry from its render node, FUN_00502fe0) — the tail's
-// hull by its main clip only, without the override tracks. A touch is the stand-in of view_xso13_touch.inl (the body
-// sphere against the object's hull, the feet probe).
+// hull by its main clip only, without the override tracks. The engine's sweep and ray skip the entries of a faded
+// limb and the tail's tentacles (boss8_hull_filter: FUN_0041e360). A side contact is the engine's sphere (the origin,
+// r +0x328) pushed out of the hull (boss8_touch), a floor contact the feet probe.
 // [approx] the full-screen fader has one colour in the view (boss07's note); SE and SE2 are the same 2-D cue.
 // [approx] the mini gauges are plain two-rect bars at their projected anchors; their 255 timers are not counted down
 // (DARM_D U-D7: the counter is the HUD's, not traced).
@@ -76,6 +77,9 @@ std::vector<float> boss8_mat;                              // the body's per-mat
 bool boss8_owned = false;                                  // the module placed the meshes (MeshObj::has_world is ours)
 bool boss8_pin = false;                                    // byte P+0x398 = 1 (the dead player under the rim)
 bool boss8_mgcra = false;                                  // the sixth mesh is in the scene
+struct Boss8Entry { std::uint32_t v0 = 0, v1 = 0, flags = 0; };   // a collision entry: its hull vertices, +0x84
+std::array<std::vector<Boss8Entry>, 2> boss8_ent;          // the body's and the tail's entries (obj+0x25c)
+std::array<bool, 2> boss8_ent_built{};
 int boss8_matmode = 0;                                     // the last MatMode
 std::array<std::vector<Vec3>, 2> boss8_rgb;                // the body's and the tail's material RGB (MatMode), per YMO material
 bool boss8_rgb_dirty = false;
@@ -170,23 +174,86 @@ auto boss8_reset = [&] {
     if (boss8_pin) { boss8_pin = false; player_hold = false; }
     boss8_owned = false; boss8_mgcra = false; boss8_started = false; boss8_over = false;
     boss8_mat.clear();
+    boss8_ent_built.fill(false);
     if (had) hud.clear_world_gauges();
 };
-// One contact of the player with a touch-flagged mesh ("Touch on": +0x28c |= 0x0c, +0x2e4 = "Touch_Tail"; DARM_CE §0):
-// a side or a floor contact starts the object's script TOUCH_TAIL = Chr_Damage(998, 250.0, 0, 0) (DARM.md §1.5), when
-// no fix is held [approx: the header's stand-in].
-auto boss8_touch = [&](const char* nm) {
+// The entries FUN_0041e360 takes out of the engine's sweep (FUN_0041ea80) and ray (FUN_0041e420) for an object with
+// +0x28d == 12 [BYTES 0x41e360..0x41e419; the calls EXPORT 0041ea80.c:139-141, 0041e420.c]. An entry's +0x84 is the
+// flag word of the render node it is bound to (file node +0x290 -> +0x50 -> +0x84, FUN_005601e0) [DATA BOSS08.YMO:
+// 1 the upper body, 2 the skirt, 4 / 8 the left / right leg, 0x20 / 0x40 the left / right hand; BOSS08T.YMO: one bit
+// per tentacle, 0 for the rest of the tail]. Kind 0 (the body): an entry with a bit of
+//     3     is skipped while db+0x124 != 0 or db+0xc8 == 0      (the chest group's regrow timer; its alpha)
+//     4     while db+0x12c != 0 or db+0xd0 == 0                 (the RIGHT leg's regrow timer; the left leg's alpha)
+//     8     while db+0x130 != 0 or db+0xd4 == 0                 (the breath beam's handle; the right leg's alpha)
+//     0x20 / 0x40   while db+0xe0 / db+0xe4 == 0                (the hand's alpha: the detached arm acts)
+// (the timers are the bytes' own offsets: not the limb's own timer for 4 and 8). Kind 1 (the tail): every entry with
+// a flag — the tentacles never collide. A faded limb neither blocks nor touches.
+auto boss8_hull_filter = [&](int i, MeshObj* m) {
+    auto& ents = boss8_ent[std::size_t(i)];
+    const RoomMesh::ObjRange* br = room.coll.object_range(boss8_name[i]);
+    if (!br) return;
+    if (!boss8_ent_built[std::size_t(i)]) {                // once: each twin mesh's vertex range, in the bake's order
+        boss8_ent_built[std::size_t(i)] = true;
+        ents.clear();
+        std::string twin = boss8_ymo[i];
+        twin.insert(twin.size() - 4, "_");
+        const Model* rm = cached_big_model(resolve_ymo_path(asset_root, boss8_ymo[i]));
+        Model tw;
+        bool have = false;
+        try { tw = Model::parse(read_bytes(resolve_ymo_path(asset_root, twin))); have = true; } catch (const std::exception&) {}
+        std::uint32_t v = 0;
+        if (rm && have)
+            for (const Node& n : tw.nodes) {
+                if (n.mesh_index < 0) continue;
+                const Mesh& me = tw.meshes[std::size_t(n.mesh_index)];
+                if (me.vbs.empty() || me.ibs.empty()) continue;
+                const std::uint32_t nv = me.two_stream() ? std::min(me.vbs[1].count, me.vbs[0].count) : me.vbs[0].count;
+                std::uint32_t fl = 0;
+                for (const Node& rn : rm->nodes) if (rn.name == n.parent) { fl = rn.flags; break; }
+                ents.push_back({v, v + nv, fl});
+                v += nv;
+            }
+        if (v != br->v1 - br->v0) {
+            std::printf("  [boss08] %s: the twin's %u vertices do not match the baked hull's %u: no entry filter\n", boss8_name[i], v,
+                        br->v1 - br->v0);
+            ents.clear();
+        }
+    }
+    std::uint32_t off = 0xffffffffu;                       // the tail: any flag
+    if (i == 0) {
+        const Boss08BodyBlock& b = boss8->body();
+        off = (b.regrow[0] != 0 || b.chest == 0.0f ? 3u : 0u) | (b.regrow[2] != 0 || b.leg_l == 0.0f ? 4u : 0u) |
+              (b.h_beam != 0 || b.leg_r == 0.0f ? 8u : 0u) | (b.hand_l == 0.0f ? 0x20u : 0u) | (b.hand_r == 0.0f ? 0x40u : 0u);
+    }
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> ranges;
+    for (const Boss8Entry& e : ents) if (e.flags & off) ranges.push_back({e.v0, e.v1});
+    if (ranges != m->hull_off) { m->hull_off = std::move(ranges); m->dirty_pose = true; }
+};
+// The player against a hull of Darm's. The engine sweeps one sphere (the origin, r +0x328) for every move
+// (FUN_0045a510 0x45b2eb), so it never stands inside a hull; its contact with a mesh whose +0x28c & 8 is the SIDE
+// contact, the floor entry stood on with +0x28c & 4 the floor contact, and either starts the object's script — "Touch
+// on": +0x28c |= 0x0c, +0x2e4 = "Touch_Tail" (DARM_CE §0) = Chr_Damage(998, 250.0, 0, 0) (DARM.md §1.5) — when no fix
+// is held [BYTES 0x45a360, 0x45a4a0; EXPORT 0045a510.c:1033-1042]. The sweep reports an entry when it was hit or
+// moved the end point by more than 0.001 (0x6bcff0) on an axis [EXPORT 0041ea80.c:195-218].
+// [approx] CleriaCore's own wall push keeps a 0.45 capsule and no contact record: here the sphere is pushed out of
+// the object's triangles after the move (sphere_clear_tris), and a push of more than 0.001 is the side contact. Before,
+// a 0.5 sphere that merely overlapped the hull was one, and nothing kept the player out of it: a lunge went inside a
+// hand and the touch came back every time the 16 i-frames ran out.
+auto boss8_touch = [&](const char* nm, bool touch) {
     if (csMgr.world_frozen() || player.hp < 1) return;
     const RoomMesh& cm = phys_mesh(room);
     const RoomMesh::ObjRange* r = cm.object_range(nm);
     const MeshObj* mo = meshes.find(nm);
     if (!r || r->t1 <= r->t0 || !mo || mo->no_collide) return;
     const Vec3 O{feet.x, feet.y + kOriginH, feet.z};
-    const bool side = sphere_overlaps_tris(cm, O, kCharRadius + 0.05f, r->t0, r->t1);
-    const bool floor = pv.grounded && segment_hits_tris(cm, O, {feet.x, feet.y - 0.2f, feet.z}, r->t0, r->t1);
+    const Vec3 C = sphere_clear_tris(cm, O, pm.radius(), r->t0, r->t1);
+    const bool side = std::fabs(C.x - O.x) > 0.001f || std::fabs(C.z - O.z) > 0.001f;
+    feet.x = C.x; feet.z = C.z;
+    if (!touch) return;
+    const bool floor = pv.grounded && segment_hits_tris(cm, C, {feet.x, feet.y - 0.2f, feet.z}, r->t0, r->t1);
     if (!side && !floor) return;
     if (csMgr.start("touch_tail", XsoVm::Vars{}, /*owner: the player*/13) && boss8_log)
-        std::printf("  [boss08] t%llu touch %s -> touch_tail\n", (unsigned long long)tick_count, nm);
+        std::printf("  [boss08] t%llu touch %s (%s) -> touch_tail\n", (unsigned long long)tick_count, nm, side ? "side" : "floor");
 };
 auto boss8_apply = [&](const Boss08Output& out, MeshObj** mo) {
     for (int id : out.rumble) pad_rumble(id);
@@ -600,8 +667,15 @@ auto boss8_tick = [&] {
     if (Tm.alpha != mo[1]->alpha) set_alpha(1, std::clamp(Tm.alpha, 0.0f, 1.0f));
     if (on) set_alpha(2, Wm.alpha);
     set_alpha(3, Am.alpha);
-    // Every collision entry of B +0x89 (the OnBack window: the body's hull is off).
-    if (bm->no_collide == B.collide) { bm->no_collide = !B.collide; bm->dirty_pose = true; }
+    // [approx] The OnBack window. The bytes clear +0x89 of every entry of B there — the "no jump from this floor"
+    // byte [EXPORT 00465170.c:234-240], with the touch script off: the body stays solid and the player may climb it
+    // to the core. The fight was built on reading that byte as the collision itself, so the hull is dropped for the
+    // window and the core is struck through it; the climb (and the slide off a no-jump entry, 0045a510.c:426) is
+    // open work.
+    if (bm->no_collide == B.no_jump) { bm->no_collide = !B.no_jump; bm->dirty_pose = true; }
+    // The entries the engine's queries skip: the body's faded limbs, the tail's tentacles.
+    boss8_hull_filter(0, bm);
+    boss8_hull_filter(1, mo[1]);
     // The body's material alphas (DARM_A §A.1.1 block 3), per YMO material.
     {
         std::vector<float> v(bmdl->materials.size(), 1.0f);
@@ -621,14 +695,12 @@ auto boss8_tick = [&] {
         }
     boss8_rgb_dirty = false;
     // The touch scripts: the body's and the tail's "Touch on", the sixth mesh's from its creation.
-    if (on) {
-        if (B.touch) boss8_touch(boss8_name[0]);
-        if (Tm.touch) boss8_touch(boss8_name[1]);
-    }
+    boss8_touch(boss8_name[0], on && B.touch);
+    boss8_touch(boss8_name[1], on && Tm.touch);
     if (boss8_mgcra) {
         if (MeshObj* mg = meshes.find("bs08_mgcra")) {
             if (mg->sect < 0 && !mg->clips.empty()) meshes.set_clip_index("bs08_mgcra", 0, 0);   // [H] its one loop clip runs
-            boss8_touch("bs08_mgcra");
+            boss8_touch("bs08_mgcra", true);
         }
     }
     // The run's facts, once each as they happen (the drive case reads them).
@@ -687,7 +759,13 @@ auto boss8_tick = [&] {
 //   a form change   the floor re-arranges: keep to a resting tile, step to the nearest one when it starts to move.
 //   OnBack    the core rides the tail's eye behind the barrier: 60 hits open it (each worth 1), then the open window.
 // It does nothing while the player falls (the rim, the 220-frame fall sequence).
+// drive `boss8=walk`: the same fight ON FOOT — (a) is gone: the pilot never places the player, it holds the stick
+// along a route over resting tiles clear of the hulls (a breadth-first search on a 1.0 grid, redone every 12 ticks:
+// the hulls move) to the spot it would have been put on, and presses only once it stands there.
 bool b8p_on = false;
+bool b8p_walk = false;                                     // boss8=walk
+std::vector<Vec3> b8p_route;                               // the route's way points, the next one first
+int b8p_route_age = 0;
 int b8p_cool = 0;                                          // ticks until its next press on the ground
 int b8p_air = -1;                                          // ticks since the pilot's jump press (-1 = not its jump)
 bool b8p_second = false;                                   // its second jump is spent
@@ -740,6 +818,47 @@ boss8_pilot = [&] {
         return true;
     };
     auto put = [&](float x, float z) { float y = b8p_floor; floor_y(x, z, &y); feet = {x, y, z}; };
+    // boss8=walk: the stick toward (x, z) along the route; true once the player stands within 0.3 of it.
+    auto walk_to = [&](float x, float z) {
+        if ((x - feet.x) * (x - feet.x) + (z - feet.z) * (z - feet.z) < 0.09f) { b8p_route.clear(); return true; }
+        if (b8p_route.empty() || ++b8p_route_age >= 12) {
+            b8p_route_age = 0;
+            b8p_route.clear();
+            constexpr int kN = 45, kC = 22;                // cells of 1.0 over x, z in -22 .. 22
+            auto cell = [&](float v) { return std::clamp(int(std::lround(v)) + kC, 0, kN - 1); };
+            const int s = cell(feet.z) * kN + cell(feet.x), g = cell(z) * kN + cell(x);
+            std::vector<int> from(std::size_t(kN * kN), -1);
+            std::vector<signed char> ok(std::size_t(kN * kN), -1);
+            std::vector<int> q{s};
+            from[std::size_t(s)] = s;
+            for (std::size_t h = 0; h < q.size() && from[std::size_t(g)] < 0; ++h) {
+                const int c = q[h], cx = c % kN, cz = c / kN;
+                for (int k = 0; k < 8; ++k) {
+                    static const int kDx[8] = {1, -1, 0, 0, 1, 1, -1, -1}, kDz[8] = {0, 0, 1, -1, 1, -1, 1, -1};
+                    const int nx = cx + kDx[k], nz = cz + kDz[k];
+                    if (nx < 0 || nz < 0 || nx >= kN || nz >= kN) continue;
+                    const int n = nz * kN + nx;
+                    if (from[std::size_t(n)] >= 0) continue;
+                    if (ok[std::size_t(n)] < 0) ok[std::size_t(n)] = n == g || spot_ok(float(nx - kC), float(nz - kC)) ? 1 : 0;
+                    if (!ok[std::size_t(n)]) continue;
+                    from[std::size_t(n)] = c;
+                    q.push_back(n);
+                }
+            }
+            if (from[std::size_t(g)] >= 0) {
+                b8p_route.push_back({x, 0.0f, z});
+                for (int c = from[std::size_t(g)]; c != s; c = from[std::size_t(c)]) b8p_route.push_back({float(c % kN - kC), 0.0f, float(c / kN - kC)});
+                std::reverse(b8p_route.begin(), b8p_route.end());
+            } else {
+                b8p_route.push_back({x, 0.0f, z});         // no route right now: straight at it
+            }
+        }
+        while (b8p_route.size() > 1 && (b8p_route[0].x - feet.x) * (b8p_route[0].x - feet.x) + (b8p_route[0].z - feet.z) * (b8p_route[0].z - feet.z) < 0.36f)
+            b8p_route.erase(b8p_route.begin());
+        const float wx = b8p_route[0].x - feet.x, wz = b8p_route[0].z - feet.z, wl = std::sqrt(wx * wx + wz * wz);
+        if (wl > 1e-3f) { drive_wish = {wx / wl, 0.0f, wz / wl}; drive_wish_n = 1; }
+        return false;
+    };
     // The floor re-arranges under a form change (its one-shot clip, 640 frames; the body crosses the arena): keep to
     // a resting tile clear of the body — the nearest one when this one starts to move.
     if (!b.settled || w.exposure != 0) b8p_done[0] = b8p_done[1] = b8p_done[2] = false;
@@ -751,6 +870,7 @@ boss8_pilot = [&] {
                 const float a = float(k) * 0.5235988f;
                 const float x = feet.x + std::cos(a) * float(r), z = feet.z + std::sin(a) * float(r);
                 if (!spot_ok(x, z)) continue;
+                if (b8p_walk) { walk_to(x, z); return; }
                 put(x, z);
                 if (boss8_log) std::printf("  [pilot] t%llu the floor moves: over to (%.1f,%.1f)\n", T, x, z);
                 return;
@@ -824,7 +944,17 @@ boss8_pilot = [&] {
         if (b8p_done[0] && b8p_done[1] && b8p_done[2]) b8p_done[0] = b8p_done[1] = b8p_done[2] = false;
         static const int kFirst[3] = {0, 4, 6}, kCount[3] = {4, 2, 2};
         const int order[4] = {b8p_group, 1, 2, 0};
-        for (int gi = 0; gi < 4 && tgt < 0; ++gi) {
+        // On foot: the part with the shortest walk (one within reach first; a jump counts as 1.0 more) — the body
+        // turns in High, and a walker who keeps to one part runs after it round the arena.
+        float walk = 1e9f;
+        for (int i = 0; b8p_walk && i < boss08::kBodyParts; ++i) {
+            const int g = i < 4 ? 0 : i < 6 ? 1 : 2;
+            Plan pl;
+            if (b8p_done[g] || !(gauge[g] > 0.0f) || !open(i) || !plan_for(i, &pl)) continue;
+            const float d = (pl.here ? 0.0f : std::sqrt((pl.x - feet.x) * (pl.x - feet.x) + (pl.z - feet.z) * (pl.z - feet.z))) + (pl.jump ? 1.0f : 0.0f);
+            if (d < walk) { walk = d; plan = pl; tgt = i; b8p_group = g; }
+        }
+        for (int gi = 0; !b8p_walk && gi < 4 && tgt < 0; ++gi) {
             const int g = order[gi];
             if (b8p_done[g] || !(gauge[g] > 0.0f)) continue;
             bool tried[boss08::kBodyParts] = {};
@@ -846,7 +976,11 @@ boss8_pilot = [&] {
         return;
     }
     const Boss08Part& pt = boss8->part(tgt);
-    if (!plan.here) put(plan.x, plan.z);
+    if (!plan.here && b8p_walk) {
+        if (!walk_to(plan.x, plan.z)) return;
+    } else if (!plan.here) {
+        put(plan.x, plan.z);
+    }
     face(pt.pos.x - feet.x, pt.pos.z - feet.z);
     const int key = tgt * 2 + (plan.jump ? 1 : 0);
     if (key != b8p_last) {
@@ -864,6 +998,7 @@ boss8_pilot = [&] {
 boss8_drive = [&](const std::string& cmd) {
     if (cmd.rfind("boss8", 0) != 0) return false;
     b8p_on = cmd != "boss8=off";
+    b8p_walk = cmd == "boss8=walk";
     if (!b8p_on) b8p_air = -1;
     return true;
 };

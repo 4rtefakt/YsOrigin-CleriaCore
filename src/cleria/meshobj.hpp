@@ -73,6 +73,9 @@ struct MeshObj {
     Mat4 world{};
     bool no_collide = false;          // the host drops its collision this tick (boss02's one-way entries)
     bool twin_clips = false;          // its hull is re-posed with its render model's clips (SobObject::twin_clips)
+    // Collision entries (obj+0x25c) the engine's queries skip this tick (FUN_0041e360: Darm's faded limbs), as vertex
+    // ranges of the hull relative to the object's first vertex: the host sinks them after each re-bake.
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> hull_off;
 };
 
 class MeshWorld {

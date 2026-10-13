@@ -180,7 +180,7 @@ static void test_tables_ctor() {
     }
     Rig n, h(setup(1)), nm(setup(2)), e(setup(0, 3, true)), ve(setup(0, 3, true, true));
     const Boss08Mesh &B = n.b.mesh(kB), &T = n.b.mesh(kT), &W = n.b.mesh(kW), &A = n.b.mesh(kA);
-    check(veq(B.pos, {0, 0, 8.5f}) && B.str == 259 && B.def == 275 && B.touch && B.collide && n.b.mesh(kW).max_hp == 9999,
+    check(veq(B.pos, {0, 0, 8.5f}) && B.str == 259 && B.def == 275 && B.touch && B.no_jump && n.b.mesh(kW).max_hp == 9999,
           "P1 §3.3 items 2/6, D2: EEX rec 7 (9999 / 258 / 275), STR += 1.0; the body at (0, 0, 8.5) with Touch_Tail");
     check(T.def == 999 && T.hp == 0 && T.max_hp == 0 && T.str == 259 && veq(T.pos, {0, -999, 8.5f}),
           "P1 §3.3 kind 1: the tail DEF 999, maxHP = HP = 0, created at (B.x, B.y - 999, B.z)");
@@ -887,7 +887,7 @@ static void test_damage_core() {
         const Boss08Effect* e514 = fx(o, 514);
         check(h != 0 && has(o.kill_handles, h) && six && e514 && e514->call == Boss08Call::kInline && e514->or_1dc == 0x108 &&
               e514->stat == Boss08Stat::kCore && e514->at_mode == 1 && motion(o, kT, "23_Guard_End") && n_se(o, 320, true) == 1 &&
-              n_se(o, 579, true) == 1 && !r.b.mesh(kB).touch && !r.b.mesh(kB).collide && r.k().window == 900 &&
+              n_se(o, 579, true) == 1 && !r.b.mesh(kB).touch && !r.b.mesh(kB).no_jump && r.k().window == 900 &&
               r.b.core().h_barrier == 0 && r.draws == 0,
               "D §4.2.1 / C5: the break: kill the barrier fx, six FX2 140 (scale 6..11, mode 2), inline 514 (|= 0x108), 23_Guard_End, SE2 320 + 579, body disarmed");
     }
@@ -1631,13 +1631,13 @@ static void test_tail() {
               "CE §3.3 / C14 tentacle pick (Guard_Loop, cooldown 0, settled): 2 draws; Bit17(w1) Beat / Stab; k = (w2 >> 17) & 7; busy = 2 draws again; cooldown R(60) + 180 / 140 / 100 (+60)");
     }
     {
-        auto r = ob(); r->k().window = 3; r->b.tail().swing_cd = 99999; r->b.mesh(kB).touch = false; r->b.mesh(kB).collide = false;
+        auto r = ob(); r->k().window = 3; r->b.tail().swing_cd = 99999; r->b.mesh(kB).touch = false; r->b.mesh(kB).no_jump = false;
         r->b.core().h_barrier = 0;
         Boss08Output o = r->step();
         const bool open = r->k().window == 2 && n_fx(o, 144) == 0 && r->b.tail().swing_cd == 99998 && n_clip(o, kT, 20) + n_clip(o, kT, 25) == 0;
         r->step();
         o = r->step();
-        const bool closed = r->k().window == 0 && r->b.mesh(kB).touch && r->b.mesh(kB).collide && n_clip(o, kT, 20) == 1 && n_fx(o, 144) == 0;
+        const bool closed = r->k().window == 0 && r->b.mesh(kB).touch && r->b.mesh(kB).no_jump && n_clip(o, kT, 20) == 1 && n_fx(o, 144) == 0;
         o = r->step();
         check(open && closed && n_fx(o, 144) == 1,
               "CE §3.3: the open window counts down here; at 0: body Touch on, collision on, SetClipName(21_Guard_Start); the barrier effect the tick after");
