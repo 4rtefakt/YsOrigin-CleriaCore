@@ -323,6 +323,25 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
     if (op == "world_apply") {                           // (flags: 1 hold the handlers, 2 remove the others; then 12 a monster) -> how many matched
         if (!alive || n.empty()) return false;
         const bool hold = (int(n[0]) & 1) != 0, sweep = (int(n[0]) & 2) != 0;
+        // A monster that died over there: its death section and sound here, no EXP, no SP (the kill is not this
+        // player's: +0x12c & 0x4000000 is what the kill credit sets and tests).
+        auto fall = [&](Actor& a) {
+            a.mod_ai_off = false;
+            a.pattern = PatternPin{};
+            a.flags12c |= 0x4000000u;
+            apply_damage(a.hp, a.flags, 99999999);
+            bool scripted = false;
+            for (EnemyRender& er : render) {
+                if (er.actor != &a || !er.avm.ok()) continue;
+                if (er.avm.section() != 5) { er.avm.set_section(5); er.avm.tick(); }
+                er.atk_win = 0; er.atk_armed = false; er.atk_age = 0;
+                scripted = true;
+                break;
+            }
+            if (!scripted) { world.despawn(a.instance_id); csHost.world_changed = true; return; }   // nothing to play it with
+            sfx_at(kSfxDeathEntry, a.pos, kSfxAnimVol);
+            g_lua_fallen[a.instance_id] = (unsigned long long)tick_count + 150;
+        };
         std::set<int> seen;
         int done = 0;
         for (std::size_t i = 1; i + 12 <= n.size(); i += 12) {
@@ -342,7 +361,7 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
                 if (!a) continue;
                 csHost.world_changed = true;
             }
-            if (hp < 1.0f) { world.despawn(a->instance_id); csHost.world_changed = true; continue; }   // it died over there: gone here, no reward
+            if (hp < 1.0f) { fall(*a); continue; }           // it died over there
             a->pos = {float(n[i + 3]), float(n[i + 4]), float(n[i + 5])};
             a->yaw = float(n[i + 6]) / 57.29577951f;
             a->max_hp = std::max(1.0f, float(n[i + 8]));
@@ -358,8 +377,7 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
             std::vector<int> gone;
             for (const Actor& a : world.actors())
                 if (!a.is_player() && a.is_enemy() && a.alive() && !seen.count(a.instance_id) && !g_lua_puppets.count(a.instance_id)) gone.push_back(a.instance_id);
-            for (int id : gone) world.despawn(id);
-            if (!gone.empty()) csHost.world_changed = true;
+            for (int id : gone) if (Actor* a = world.find(id)) fall(*a);
         }
         if (out) *out = {double(done)};
         return true;

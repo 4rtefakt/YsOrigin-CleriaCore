@@ -136,6 +136,11 @@
                 };
                 const Vec3 cam_fwd = cam.forward();
                 if (!fix0_tick) player_hold = boss6_grab || boss7_pin || boss8_pin;   // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl); Dalles's pin (view_boss07.inl); Darm's dead fall (view_boss08.inl)
+                for (auto it = g_lua_fallen.begin(); it != g_lua_fallen.end();) {   // (API 7) world.apply's dead, still lying there
+                    if ((unsigned long long)tick_count < it->second) { ++it; continue; }
+                    if (Actor* a = world.find(it->first); a && !a->alive()) { world.despawn(it->first); csHost.world_changed = true; }
+                    it = g_lua_fallen.erase(it);
+                }
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
                     if (fix0_tick && !(en && fix0_runs(*en))) continue;       // a Fix(0): the handlers that run (S2, S5c)

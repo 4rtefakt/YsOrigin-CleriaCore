@@ -1115,9 +1115,10 @@ cleria.world.apply(snap)                                -- a guest: the room mad
   the picture: `sheet`, `tag`, `frame` (as a puppet's). It is plain data: `cleria.json.encode` it.
 - `world.apply(snapshot [, {ai =, remove =}])` makes this room match and returns how many monsters matched. For
   each entry: the monster with that `id` is moved, turned and given that HP; one that is missing is built (that
-  cast, level and id); one whose HP is under 1 is removed (no EXP, no drops: share the rewards yourself). By
+  cast, level and id); one whose HP is under 1 dies here too (its death animation and sound; no EXP, no SP: share
+  the rewards yourself). By
   default the monsters are **held** (`ai = false`: their handlers stop and they show the snapshot's picture, so they
-  animate as on the host) and the monsters the snapshot does not name are removed (`remove = true`). At most 256.
+  animate as on the host) and the monsters the snapshot does not name die the same way (`remove = true`). At most 256.
 - Ids: a room's own monsters get the same ids on two machines that load the same room the same way; monsters built
   later get the ids the snapshot carries.
 
