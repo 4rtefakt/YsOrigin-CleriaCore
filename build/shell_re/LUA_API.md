@@ -1100,6 +1100,10 @@ cleria.world.apply(snap)                                -- a guest: the room mad
 - `combat.strike(atk [, power])` is a script's own hit on the player: refused while the i-frames run, priced against the
   player's DEF, halved in Boost, through the `"damage"` filters, raising `player_hit`. (`combat.hurt` takes HP as it
   is.) Friendly fire is the mod's choice: send the hit or do not.
+- The event `player_effect` (`id`, `fwd`, `angle`, `voff`, `scale`, `attach`) is raised for each effect the player's own
+  script makes (a skill's blast, a swing's flash); `world.puppet_effect(puppet, e)` makes the same effect at a
+  puppet, placed from the puppet's position and heading, hitting nobody. Send the event's table as it is. [H] Not
+  covered: sword trails, Hugo's shots and eyes, the charge glow (they are not script effects).
 - `combat.boss_bonus(n)` adds `n` to a pool that the player's **next hit on a boss part** carries on top of its own
   damage (past the `"damage"` filters, which see a boss hit as `dir = "dealt"` with no `actor`); `boss_bonus(0)`
   empties it, `boss_bonus()` reads it. This is how two players share a boss: each machine runs its own boss and the

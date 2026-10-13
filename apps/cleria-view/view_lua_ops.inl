@@ -161,6 +161,7 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         a->sprite_override = kHero[std::clamp(int(n[0]), 1, 3) - 1];
         a->aia_file = 14 + std::clamp(int(n[0]), 1, 3);                     // the same sheets by their file ids (aso_aia_name 15..17)
         a->pattern.tag = 305; a->pattern.frame = 0;                         // standing, weapon in hand (the players' idle tag)
+        a->height = kOriginH;                                               // its origin where a player's is (its effects hang from it)
         g_lua_puppets.insert(a->instance_id);
         csHost.world_changed = true;
         *out = {double(a->instance_id)};
@@ -382,6 +383,17 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         if (arg(0) >= 0) g_lua.boss_bonus = arg(0) > 0 ? std::min(g_lua.boss_bonus + arg(0), 1.0e7) : 0.0;   // < 0: only read
         if (out) *out = {g_lua.boss_bonus};
         return true;
+    }
+    if (op == "puppet_effect") {                         // (puppet, id, fwd, angle, voff, scale, attach): the effect a player's script makes, for show
+        const int id = int(arg(0, -1));
+        const Actor* pu = g_lua_puppets.count(id) ? world.find(id) : nullptr;
+        if (!pu || n.size() < 7) return false;
+        AsoVm::EffectEvent fe;
+        fe.id = std::int32_t(n[1]); fe.fwd = float(n[2]); fe.angle_deg = float(n[3]); fe.voff = float(n[4]);
+        fe.scale = std::clamp(float(n[5]), 0.05f, 20.0f); fe.attach = std::clamp(std::int32_t(n[6]), 0, 3);
+        ef2sim::SpawnParams sp;
+        sp.side = 2; sp.power = 0.0f; sp.owner = id;      // side 2: neither the player's nor the monsters': it hits nobody
+        return spawn_generate_effect(fe, {pu->pos.x, pu->pos.y + kOriginH, pu->pos.z}, heading_of_yaw(pu->yaw), sp, id) != nullptr;
     }
     return false;
 };

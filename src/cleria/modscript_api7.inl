@@ -1612,6 +1612,13 @@ int l_combat_boss_bonus(lua_State* L) {                  // (n) -> the pool: dam
     lua_pushnumber(L, out[0]);
     return 1;
 }
+int l_world_puppet_effect(lua_State* L) {                // (puppet, {id =, fwd =, angle =, voff =, scale =, attach =}) : a player_effect event, shown on a puppet
+    luaL_checktype(L, 2, LUA_TTABLE);
+    lua_pushboolean(L, op(L, "puppet_effect", {double(luaL_checkinteger(L, 1)), opt_field_n(L, 2, "id", -1), opt_field_n(L, 2, "fwd", 0),
+                                               opt_field_n(L, 2, "angle", 0), opt_field_n(L, 2, "voff", 0), opt_field_n(L, 2, "scale", 1),
+                                               opt_field_n(L, 2, "attach", 0)}));
+    return 1;
+}
 const char* const kSnapKeys[12] = {"id", "cast", "level", "x", "y", "z", "yaw", "hp", "max_hp", "tag", "frame", "sheet"};
 int l_world_snapshot(lua_State* L) {                     // -> {{id =, cast =, level =, x =, y =, z =, yaw =, hp =, max_hp =, tag =, frame =, sheet =}, ...}
     std::vector<double> out;
@@ -1653,7 +1660,8 @@ void open_api7_sync(lua_State* L) {                      // the cleria table is 
     lua_getfield(L, -1, "combat");
     set_funcs(L, combat);
     lua_pop(L, 1);
-    static const luaL_Reg world[] = {{"snapshot", l_world_snapshot}, {"apply", l_world_apply}, {nullptr, nullptr}};
+    static const luaL_Reg world[] = {{"snapshot", l_world_snapshot}, {"apply", l_world_apply}, {"puppet_effect", l_world_puppet_effect},
+                                     {nullptr, nullptr}};
     lua_getfield(L, -1, "world");
     set_funcs(L, world);
     lua_pop(L, 1);

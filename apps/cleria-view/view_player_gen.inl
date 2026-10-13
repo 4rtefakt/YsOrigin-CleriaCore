@@ -19,6 +19,9 @@
                 sp.cls = player_damage_class(avm.section());
                 sp.atk = player_stats().atk; sp.side = 0; sp.owner = 13;
                 ef2sim::Effect* fx = spawn_generate_effect(fe, org, pf, sp, 13);
+                if (lua_events_on())                           // mods (API 7): what a puppet needs to show the same effect
+                    content_emit(events::Event::named("player_effect").with("id", fe.id).with("fwd", fe.fwd).with("angle", fe.angle_deg)
+                                     .with("voff", fe.voff).with("scale", fe.scale).with("attach", fe.attach));
                 if (shield_id) { shield_fx = fx; shield_on = fx != nullptr; }
                 if (character == 2 && fe.id == 0x90) barrier_fx = fx;   // +0x7e0 [EXPORT 004496f0.c:113-115]
             }

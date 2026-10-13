@@ -409,7 +409,7 @@ const char* const kKinds[] = {"room_enter", "flag_changed", "chest_opened", "ite
                               "door_opened", "blessing_bought", "enemy_killed", "pickup_collected",
                               // API 7 (events::Kind::Named)
                               "retry", "level_up", "state_changed", "floor_changed", "player_hit", "enemy_hit", "skill_used",
-                              "boost", "statue_used", "attack", "jump", "land", "enemy_spawned", "script_started", "input", "interact", "puppet_hit", "puppet_struck"};
+                              "boost", "statue_used", "attack", "jump", "land", "enemy_spawned", "script_started", "input", "interact", "puppet_hit", "puppet_struck", "player_effect"};
 
 int l_on(lua_State* L) {
     Mod& m = M(L);
