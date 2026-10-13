@@ -71,8 +71,8 @@ content, then multiplayer, then the tools.
 | 4 | Spawning and removing | `cleria.world.spawn(cast, x, y, z [, opts])`, `world.remove(actor)`, `world.set_actor(actor, {...})` | done (`spawn`, `remove`, `set_actor`) |
 | 33b | Spawning a projectile | `cleria.world.shoot(kind, from, dir, opts)` | |
 | 35b | Changing drop tables | `cleria.data.set_drops(cast, list)` | |
-| 37 | Monster variants | `cleria.content.define_monster(id, {base =, name =, hp =, atk =, ...})` | |
-| 59 | Custom bosses | a monster variant with a gauge, phases and a Lua brain: `define_boss` | |
+| 37 | Monster variants | `cleria.content.define_monster(id, {base =, name =, hp =, atk =, ...})` | done (`content.define_monster`, `content.morph`, `world.form`, `world.spawn(name, ...)`) |
+| 59 | Custom bosses | a monster variant with a gauge, phases and a Lua brain: `define_boss` | done (`content.define_boss`: the gauge, `phases`, `on_hit` / `on_death`, `ai = false`); the brain stays the base cast's or the mod's Lua |
 
 ## F. New content
 

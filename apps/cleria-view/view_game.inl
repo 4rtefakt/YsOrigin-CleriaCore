@@ -3557,6 +3557,8 @@ title_again:
                 script::Host::ActorInfo i;
                 i.id = a.instance_id; i.cast = a.cast_id; i.level = a.level;
                 if (const Cast* c = casts.get(a.cast_id)) i.name = c->display;
+                if (!a.mod_name.empty()) i.name = a.mod_name;          // a mod's variant
+                i.kind = a.mod_kind; i.boss = a.mod_boss; i.ai = !a.mod_ai_off;
                 i.hp = a.hp; i.max_hp = a.max_hp; i.atk = a.atk; i.def = a.def;
                 i.pos[0] = a.pos.x; i.pos[1] = a.pos.y; i.pos[2] = a.pos.z; i.height = a.height; i.yaw = a.yaw;
                 i.hittable = a.ai.hittable && a.ai.alpha > 0.0f;

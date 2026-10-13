@@ -129,6 +129,10 @@ struct Actor {
     // CleriaCore's own (the mods' puppets, API 7; not retail): the sprite set drawn for this actor instead of its
     // cast's ("C_103" = Hugo's player sprites). Empty = the cast's own.
     std::string sprite_override;
+    // CleriaCore's own (the mods' monster variants, API 7; not retail): the variant's id ("<mod>:<name>", empty = a
+    // plain monster), a display name, its handler held (a statue the mod moves), the boss gauge shown for it.
+    std::string mod_kind, mod_name;
+    bool mod_ai_off = false, mod_boss = false;
     int cast_id = 0;      // engine: +0x124. Indexes CASTINFO; 13 is the player.
     int enemy_index = -1; // ours: enemies.hpp fold of cast_id, or -1 if not an enemy.
     std::uint32_t kind = 0;  // engine: +0x60, the kind word. See kind_word().

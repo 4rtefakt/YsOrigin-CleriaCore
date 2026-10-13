@@ -1321,6 +1321,7 @@ void open_api(lua_State* L, Mod& m) {
     open_api7_combat(L);
     open_api7_net(L);
     open_api7_camera(L);
+    open_api7_monsters(L);
 
     lua_setglobal(L, "cleria");
 }
@@ -1385,6 +1386,8 @@ void push_event(lua_State* L, const events::Event& e) {
         case events::Kind::EnemyKilled:
             n("cast", e.cast); n("level", e.level);
             r("exp", e.amount); n("sp", lua_Integer(e.amount2));
+            for (const auto& [k, v] : e.num) r(k.c_str(), v);              // API 7: actor
+            for (const auto& [k, v] : e.str) s(k.c_str(), v);              // API 7: variant (a mod's)
             lua_pushnumber(L, e.pos[0]); lua_setfield(L, -2, "x");
             lua_pushnumber(L, e.pos[1]); lua_setfield(L, -2, "y");
             lua_pushnumber(L, e.pos[2]); lua_setfield(L, -2, "z");

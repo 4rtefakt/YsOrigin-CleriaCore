@@ -259,5 +259,26 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         *out = {double(hud.boss_id), double(hud.boss_cur), double(hud.boss_max)};
         return true;
     }
+    if (op == "actor_form") {                            // a mod's variant: multipliers of what the spawn computed, the look, the handler
+        Actor* a = world.find(int(arg(0, -1)));
+        if (!a || a->is_player() || !a->is_enemy() || !a->alive() || g_lua_puppets.count(a->instance_id)) return false;
+        auto mul = [&](std::size_t i) { const double v = arg(i, NAN); return std::isfinite(v) ? float(std::clamp(v, 0.01, 1000.0)) : 1.0f; };
+        if (mul(1) != 1.0f) { a->max_hp = std::max(1.0f, a->max_hp * mul(1)); a->hp = a->max_hp; }
+        a->atk *= mul(2); a->def *= mul(3); a->exp_reward *= mul(4);
+        a->sp_reward = int(float(a->sp_reward) * mul(5));
+        if (arg(6, -1) > 0) a->scale = float(std::clamp(arg(6), 0.2, 5.0));
+        if (arg(7, -1) >= 0) a->tint = 0xff000000u | (std::uint32_t(arg(7)) & 0xffffffu);
+        if (std::isfinite(arg(8, NAN))) a->mod_ai_off = arg(8) == 0;
+        if (std::isfinite(arg(9, NAN))) {
+            a->mod_boss = arg(9) != 0;
+            if (!a->mod_boss && gauge_owner == a->instance_id) { hud.hide_boss_gauge(); gauge_owner = 0; }
+        }
+        const std::size_t tab = text.find('\t');
+        if (tab != std::string::npos) {
+            if (tab > 0) a->mod_kind = text.substr(0, tab);
+            if (tab + 1 < text.size()) a->mod_name = text.substr(tab + 1);
+        }
+        return true;
+    }
     return false;
 };

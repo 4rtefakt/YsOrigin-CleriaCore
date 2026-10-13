@@ -2758,7 +2758,7 @@ CASES.update({
         room="S_10/S_1002/S_1002", lua=_LUA_API7B,
         drive="8:opt=DamageDealt=10;30:lua=where;40:near=17;41:atk;70:lua=actors;80:hurt=60;100:hp=0;160:lua=where;170:quit",
         expect=[_LP + "state play [4F Forward Passage 1] floor 4 zone 1 Wailing Blue diff 2 Normal", _LP + "DMG dealt actor 17 hp 74/74",
-                _LP + 'EV {"actor":17,"cast":17,"damage":20,"hp":54,"killed":0,"kind":"enemy_hit","max_hp":74,"room":"S_1002"}',
+                _LP + 'EV {"actor":17,"cast":17,"damage":20,"hp":54,"killed":0,"kind":"enemy_hit","max_hp":74,"room":"S_1002","variant":""}',
                 _LP + "11 actors; #17 Selnarg lv 3 hp 54.0/74.0 on screen true", _LP + "DMG taken actor nil hp 60/60",
                 _LP + 'EV {"damage":21,"hp":39,"kind":"player_hit","max_hp":60,"room":"S_1002"}',
                 _LP + 'EV {"kind":"state_changed","old":"play","room":"S_1002","state":"gameover"}', _LP + "state gameover ["],
@@ -3032,6 +3032,39 @@ CASES.update({
               "150:lua=k x;160:lua=k spawn;180:quit",
         expect=[_LP + "boss nil", _LP + "distance x2.00", _LP + "distance x1.00", _LP + "hud true", _LP + "state held", _LP + "moved 0.0",
                 _LP + "state play", _LP + "walked on true", _LP + "spawned cast 43 actor true"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, monster variants and a custom boss: a variant spawned by its name (three times the HP of its base cast,
+# its own name and kind), a boss with the gauge on its HP and its handler held, the phase entered when a hit takes it
+# under half, and both deaths with their callbacks; the gauge goes with the boss.
+_LUA_API7M = (
+    'local C, W = cleria.content, cleria.world\n'
+    'C.define_monster("brute", {base = 43, name = "Brute", hp = 3, exp = 5, scale = 1.6, tint = 0xFF5050,\n'
+    '    on_spawn = function(id) cleria.log("born " .. tostring(id > 0)) end,\n'
+    '    on_death = function(e) cleria.log("brute dead exp " .. tostring(e.exp > 0) .. " variant " .. e.variant) end})\n'
+    'C.define_boss("king", {base = 43, name = "The King", hp = 20, scale = 2.2, tint = 0x6060FF, ai = false,\n'
+    '    phases = {{at = 0.5, enter = function(id, i) cleria.log("king phase " .. i) W.form(id, {atk = 2, tint = 0xFF2020}) end}},\n'
+    '    on_death = function() cleria.log("king dead") end})\n'
+    'local brute, king\n'
+    'cleria.command("m", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "brute" then brute = W.spawn("brute", st.x + 3, st.y, st.z) local b = W.actor(brute)\n'
+    '        cleria.log(string.format("brute %s %s hp x%.0f", b.name, b.variant, b.max_hp / W.actor(W.spawn(43, st.x - 30, st.y, st.z)).max_hp)) end\n'
+    '    if a == "king" then king = W.spawn("king", st.x - 3, st.y, st.z + 1) local k, b = W.actor(king), W.boss()\n'
+    '        cleria.log("king boss " .. tostring(k.boss) .. " ai " .. tostring(k.ai)) end\n'
+    '    if a == "gauge" then local b = W.boss() cleria.log("gauge " .. tostring(b and b.actor == king) .. " full " .. tostring(b and b.hp == b.max_hp)) end\n'
+    '    if a == "half" then cleria.combat.damage(king, W.actor(king).max_hp * 0.6) end\n'
+    '    if a == "kill" then cleria.combat.damage(king, 999999) cleria.combat.damage(brute, 999999) end\n'
+    '    if a == "after" then cleria.log("boss " .. tostring(W.boss())) end\n'
+    'end)\n'
+)
+CASES.update({
+    "lua_api7_monsters": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7M,
+        drive="30:lua=m brute;40:lua=m king;50:lua=m gauge;60:lua=m half;80:lua=m kill;100:lua=m after;120:quit",
+        expect=[_LP + "born true", _LP + "brute Brute test.lua:brute hp x3", _LP + "king boss true ai false", _LP + "gauge true full true",
+                _LP + "king phase 1", _LP + "king dead", _LP + "brute dead exp true variant test.lua:brute", _LP + "boss nil"],
         absent=_NOSTOP),
 })
 

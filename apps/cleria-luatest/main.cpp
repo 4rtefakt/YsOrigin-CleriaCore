@@ -153,6 +153,7 @@ struct FakeHost : script::Host {
         if (op == "equipment" && out) *out = {0, 6, 30, -1, 116, -1};
         if (op == "status" && out) *out = {900, 0, 0, 12};
         if (op == "exits" && out) *out = {1003, 1009};
+        if (op == "spawn_actor" && out && !num.empty() && num[0] == 43) *out = {0};   // cast 43 is built (id 0); any other is refused
         return op != "retry";                                   // "not now"
     }
     std::string profile;
@@ -942,6 +943,41 @@ int main(int argc, char** argv) {
                                                    "api7k hud_show 2 0", "api7k pause 1", "api7k boss"};
             check(c->ok() && h.ops7 == want && has(h.logs, "cam niltruetruetruetruetruetruetruenil bad false"),
                   "api 7: camera.get / set / shake / look_at / reset, hud.show, game.pause, world.boss (" + c->error() + ")");
+        }
+        {   // API 7: monster variants: define, spawn by name (the base cast, then the form), the callbacks and the phases
+            h.ops7.clear();
+            auto m = make(h, tmp, "api7m", R"LUA(
+                local C = cleria.content
+                C.define_monster("brute", {base = 43, name = "Brute", level = 20, hp = 3, atk = 2, scale = 1.5, tint = 0xFF4040,
+                    on_spawn = function(id) cleria.log("born " .. id) end,
+                    on_hit = function(e) cleria.log("ouch " .. e.damage) end,
+                    on_death = function(e) cleria.log("dead " .. e.cast .. " " .. tostring(e.variant)) end})
+                C.define_boss("king", {base = 43, ai = false,
+                    phases = {{at = 0.25, enter = function(id, i) cleria.log("phase " .. i .. " of " .. id) end},
+                              {at = 0.75, enter = function(id, i) cleria.log("phase " .. i .. " of " .. id) end}}})
+                cleria.log("spawn " .. tostring(cleria.world.spawn("brute", 1, 2, 3)) .. " morph " .. tostring(C.morph(9, "king")) .. " form " ..
+                           tostring(cleria.world.form(9, {hp = 2, boss = false, name = "X"})) .. " bad " .. tostring(pcall(cleria.world.spawn, "nobody", 0, 0, 0)) ..
+                           tostring(pcall(C.define_monster, "x", {})))
+            )LUA");
+            const std::vector<std::string> want = {"api7m spawn_actor 43 1 2 3 20 0 0", "api7m actor_form 0 3 2 1 1 1 1.5 1.67281e+07 1 0 [api7m:brute\tBrute]",
+                                                   "api7m actor_form 9 1 1 1 1 1 -1 -1 0 1 [api7m:king\t]",
+                                                   "api7m actor_form 9 2 nan nan nan nan -1 -1 nan 0 [\tX]"};
+            auto hit = [&](int actor, double hp, int dmg = 7) {
+                events::Event e = events::Event::named("enemy_hit");
+                e.with("actor", actor).with("damage", dmg).with("hp", hp).with("max_hp", 100);
+                m->on_event(e);
+            };
+            hit(0, 90);                                             // the brute (the fake host's spawn answers id 0): on_hit
+            hit(9, 80); hit(9, 20);                                 // the king: nothing at 80 %, both phases at 20 %
+            events::Event k;
+            k.kind = events::Kind::EnemyKilled;
+            k.cast = 43;
+            k.with("actor", 0).with("variant", std::string("api7m:brute"));
+            m->on_event(k);
+            hit(0, 50, 8);                                          // gone: no callback
+            check(m->ok() && h.ops7 == want && has(h.logs, "spawn 0 morph true form true bad falsefalse") && has(h.logs, "born 0") &&
+                  has(h.logs, "ouch 7") && !has(h.logs, "ouch 8") && has(h.logs, "phase 1 of 9") && has(h.logs, "phase 2 of 9") && has(h.logs, "dead 43 api7m:brute"),
+                  "api 7: content.define_monster / define_boss / morph, world.form, callbacks and phases (" + m->error() + ")");
         }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);

@@ -219,6 +219,7 @@ bool Mod::start(const std::string& main_file) {
 void Mod::on_event(const events::Event& e) {
     if (!ok()) return;
     const char* kind = e.kind == events::Kind::Named ? e.name.c_str() : event_name(e.kind);
+    if (!live_monsters_.empty()) monster_event(e);             // the variants' own callbacks first (API 7)
     for (std::size_t i = 0; i < handlers_.size() && ok(); ++i) {
         if (handlers_[i].kind != kind) continue;
         push_event(L_, e);

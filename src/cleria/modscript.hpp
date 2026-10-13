@@ -172,6 +172,8 @@ struct Host {
         float hp = 0, max_hp = 0, atk = 0, def = 0;
         float pos[3] = {0, 0, 0}, height = 0, yaw = 0;          // the feet (world, Y up), the collision height, the heading
         bool hittable = true;
+        std::string kind;                                       // a mod's variant ("<mod>:<name>"), else empty
+        bool boss = false, ai = true;                           // the boss gauge is its own; its handler runs
     };
     virtual std::vector<ActorInfo> actors() { return {}; }
     // A write (or a small read) of the live game by name: the view implements each next to the state it touches
@@ -256,6 +258,19 @@ public:
     std::map<std::string, std::vector<int>> bus_subs_;          // cleria.bus.subscribe: topic -> refs
     void run_timers(bool play);
     int raw_sockets_ = 0;                                       // cleria.net.udp / tcp userdata alive
+    // cleria.content.define_monster / define_boss: a variant of an enemy cast, and the ones alive in this room.
+    struct MonsterDef {
+        int base = 0;
+        double level = 0, hp = 1, atk = 1, def = 1, exp = 1, sp = 1, scale = -1, tint = -1;
+        bool ai = true, boss = false;
+        std::string name;
+        int on_spawn = 0, on_hit = 0, on_death = 0;             // refs (0 = none)
+        std::vector<std::pair<double, int>> phases;             // HP fraction (falling) -> ref
+    };
+    std::map<std::string, MonsterDef> monsters_;
+    struct LiveMonster { std::string kind; std::size_t phase = 0; };
+    std::map<int, LiveMonster> live_monsters_;                  // actor id -> its variant
+    void monster_event(const events::Event& e);                 // on_hit / phases / on_death; a room change forgets them
     std::vector<std::pair<std::shared_ptr<void>, int>> http_jobs_;   // cleria.net.http: the request's state, its callback ref
     void run_http();                                            // the finished ones' callbacks (each frame)
     // cleria.input.action: a named action of the mod with its key and pad button (the player's choice is a setting,

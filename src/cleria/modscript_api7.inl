@@ -323,6 +323,9 @@ void push_actor(lua_State* L, const Host::ActorInfo& a) {
     lua_pushnumber(L, a.height); lua_setfield(L, -2, "height");
     lua_pushnumber(L, a.yaw); lua_setfield(L, -2, "yaw");
     lua_pushboolean(L, a.hittable); lua_setfield(L, -2, "hittable");
+    if (!a.kind.empty()) { lua_pushlstring(L, a.kind.data(), a.kind.size()); lua_setfield(L, -2, "variant"); }
+    lua_pushboolean(L, a.boss); lua_setfield(L, -2, "boss");
+    lua_pushboolean(L, a.ai); lua_setfield(L, -2, "ai");
 }
 int l_world_actors(lua_State* L) {
     const std::vector<Host::ActorInfo> v = M(L).host().actors();
@@ -769,12 +772,22 @@ int l_world_add_filter(lua_State* L) {
     M(L).world_filters_[kind].push_back(luaL_ref(L, LUA_REGISTRYINDEX));
     return 0;
 }
-int l_world_spawn(lua_State* L) {                        // (cast, x, y, z [, {level =, yaw =, group =}]) -> the actor's id, or nil
-    std::vector<double> v = {double(luaL_checkinteger(L, 1)), num_arg(L, 2, -1e6, 1e6), num_arg(L, 3, -1e6, 1e6), num_arg(L, 4, -1e6, 1e6),
-                             std::clamp(opt_field_n(L, 5, "level", 0), 0.0, 60.0), opt_field_n(L, 5, "yaw", 0),
-                             std::clamp(opt_field_n(L, 5, "group", 0), 0.0, 4.0)};
+bool morph_actor(lua_State* L, int actor, const std::string& kind);   // below: a variant applied to a living monster
+int l_world_spawn(lua_State* L) {                        // (cast | variant, x, y, z [, {level =, yaw =, group =}]) -> the actor's id, or nil
+    const Mod::MonsterDef* def = nullptr;
+    std::string kind;
+    if (lua_type(L, 1) == LUA_TSTRING) {                 // a variant of this mod (cleria.content.define_monster)
+        kind = lua_tostring(L, 1);
+        const auto it = M(L).monsters_.find(kind);
+        if (it == M(L).monsters_.end()) return luaL_argerror(L, 1, "no monster of that name was defined");
+        def = &it->second;
+    }
+    std::vector<double> v = {double(def ? def->base : luaL_checkinteger(L, 1)), num_arg(L, 2, -1e6, 1e6), num_arg(L, 3, -1e6, 1e6),
+                             num_arg(L, 4, -1e6, 1e6), std::clamp(opt_field_n(L, 5, "level", def ? def->level : 0), 0.0, 60.0),
+                             opt_field_n(L, 5, "yaw", 0), std::clamp(opt_field_n(L, 5, "group", 0), 0.0, 4.0)};
     std::vector<double> out;
     if (!op(L, "spawn_actor", v, {}, &out) || out.empty()) { lua_pushnil(L); return 1; }
+    if (def) morph_actor(L, int(out[0]), kind);
     lua_pushinteger(L, lua_Integer(out[0]));
     return 1;
 }
@@ -1268,3 +1281,139 @@ void open_api7_camera(lua_State* L) {                    // the cleria table is 
 }
 
 }  // namespace
+
+namespace {
+
+// ---- cleria.content.define_monster / define_boss / morph: variants of the game's monsters ----------------------
+int fn_field(lua_State* L, int t, const char* k) {       // a function field as a registry ref (0 = none)
+    lua_getfield(L, t, k);
+    if (lua_isfunction(L, -1)) return luaL_ref(L, LUA_REGISTRYINDEX);
+    lua_pop(L, 1);
+    return 0;
+}
+int define_monster(lua_State* L, bool boss) {            // (id, {base =, name =, level =, hp =, atk =, def =, exp =, sp =, scale =, tint =, ai =, ...})
+    Mod& m = M(L);
+    const std::string id = str_arg(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    if (id.empty() || id.size() > 48 || id.find_first_of("\t\n:") != std::string::npos) return luaL_argerror(L, 1, "an id is 1..48 characters, no tab or colon");
+    if (m.monsters_.size() >= 256 && !m.monsters_.count(id)) return luaL_error(L, "too many monsters defined (256)");
+    Mod::MonsterDef d;
+    d.base = int(opt_field_n(L, 2, "base", 0));
+    if (d.base <= 0) return luaL_argerror(L, 2, "base = an enemy cast id is required");
+    d.level = std::clamp(opt_field_n(L, 2, "level", 0), 0.0, 60.0);
+    auto mul = [&](const char* k) { return std::clamp(opt_field_n(L, 2, k, 1.0), 0.01, 1000.0); };
+    d.hp = mul("hp"); d.atk = mul("atk"); d.def = mul("def"); d.exp = mul("exp"); d.sp = mul("sp");
+    d.scale = opt_field_n(L, 2, "scale", -1);
+    d.tint = opt_field_n(L, 2, "tint", -1);
+    lua_getfield(L, 2, "ai");
+    d.ai = lua_isnil(L, -1) || lua_toboolean(L, -1);
+    lua_getfield(L, 2, "boss");
+    d.boss = lua_isnil(L, -1) ? boss : lua_toboolean(L, -1) != 0;
+    lua_getfield(L, 2, "name");
+    if (lua_isstring(L, -1)) d.name = lua_tostring(L, -1);
+    lua_pop(L, 3);
+    if (d.name.find('\t') != std::string::npos) return luaL_argerror(L, 2, "a name has no tab");
+    d.on_spawn = fn_field(L, 2, "on_spawn");
+    d.on_hit = fn_field(L, 2, "on_hit");
+    d.on_death = fn_field(L, 2, "on_death");
+    lua_getfield(L, 2, "phases");                        // {{at = 0.5, enter = fn}, ...}: HP fractions, any order
+    if (lua_istable(L, -1)) {
+        const int t = lua_gettop(L);
+        for (lua_Integer i = 1; i <= 16 && lua_rawgeti(L, t, i) == LUA_TTABLE; ++i) {
+            const double at = std::clamp(opt_field_n(L, -1, "at", 0.5), 0.0, 1.0);
+            const int ref = fn_field(L, lua_gettop(L), "enter");
+            if (ref) d.phases.emplace_back(at, ref);
+            lua_pop(L, 1);
+        }
+        lua_settop(L, t);
+    }
+    lua_pop(L, 1);
+    std::sort(d.phases.begin(), d.phases.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    m.monsters_[id] = std::move(d);                      // (a redefinition leaves the old refs to the collector of the state)
+    return 0;
+}
+int l_define_monster(lua_State* L) { return define_monster(L, false); }
+int l_define_boss(lua_State* L) { return define_monster(L, true); }
+
+bool morph_actor(lua_State* L, int actor, const std::string& kind) {
+    Mod& m = M(L);
+    const auto it = m.monsters_.find(kind);
+    if (it == m.monsters_.end()) return false;
+    const Mod::MonsterDef& d = it->second;
+    if (!op(L, "actor_form", {double(actor), d.hp, d.atk, d.def, d.exp, d.sp, d.scale, d.tint, d.ai ? 1.0 : 0.0, d.boss ? 1.0 : 0.0},
+            m.id() + ":" + kind + "\t" + d.name))
+        return false;
+    m.live_monsters_[actor] = Mod::LiveMonster{kind, 0};
+    if (d.on_spawn) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, d.on_spawn);
+        lua_pushinteger(L, actor);
+        lua_call(L, 1, 0);                               // inside the caller's protected call
+    }
+    return true;
+}
+int l_content_morph(lua_State* L) {                      // (actor, id) -> true: a living monster becomes that variant (its cast stays)
+    const std::string kind = str_arg(L, 2);
+    if (!M(L).monsters_.count(kind)) return luaL_argerror(L, 2, "no monster of that name was defined");
+    lua_pushboolean(L, morph_actor(L, int(luaL_checkinteger(L, 1)), kind));
+    return 1;
+}
+int l_world_form(lua_State* L) {                         // (actor, {hp =, atk =, def =, exp =, sp =, scale =, tint =, ai =, boss =, name =}) : multipliers and look
+    luaL_checktype(L, 2, LUA_TTABLE);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    auto flag = [&](const char* k) { lua_getfield(L, 2, k); const double v = lua_isnil(L, -1) ? nan : (lua_toboolean(L, -1) ? 1.0 : 0.0); lua_pop(L, 1); return v; };
+    std::string name;
+    lua_getfield(L, 2, "name");
+    if (lua_isstring(L, -1)) name = lua_tostring(L, -1);
+    lua_pop(L, 1);
+    lua_pushboolean(L, op(L, "actor_form", {double(luaL_checkinteger(L, 1)), opt_field_n(L, 2, "hp", nan), opt_field_n(L, 2, "atk", nan),
+                                            opt_field_n(L, 2, "def", nan), opt_field_n(L, 2, "exp", nan), opt_field_n(L, 2, "sp", nan),
+                                            opt_field_n(L, 2, "scale", -1), opt_field_n(L, 2, "tint", -1), flag("ai"), flag("boss")},
+                          name.empty() || name.find('\t') != std::string::npos ? std::string() : "\t" + name));
+    return 1;
+}
+
+void open_api7_monsters(lua_State* L) {                  // the cleria table is on top of the stack
+    static const luaL_Reg cont[] = {{"define_monster", l_define_monster}, {"define_boss", l_define_boss}, {"morph", l_content_morph},
+                                    {nullptr, nullptr}};
+    lua_getfield(L, -1, "content");
+    set_funcs(L, cont);
+    lua_pop(L, 1);
+    static const luaL_Reg world[] = {{"form", l_world_form}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "world");
+    set_funcs(L, world);
+    lua_pop(L, 1);
+}
+
+double ev_num(const events::Event& e, const char* k, double d) {
+    for (const auto& [name, v] : e.num) if (name == k) return v;
+    return d;
+}
+
+}  // namespace
+
+void Mod::monster_event(const events::Event& e) {
+    if (e.kind == events::Kind::RoomEnter || e.kind == events::Kind::Load || e.kind == events::Kind::NewGame) { live_monsters_.clear(); return; }
+    const bool hit = e.kind == events::Kind::Named && e.name == "enemy_hit";
+    if (!hit && e.kind != events::Kind::EnemyKilled) return;
+    const int actor = int(ev_num(e, "actor", -1));
+    const auto lv = live_monsters_.find(actor);
+    if (lv == live_monsters_.end()) return;
+    const auto df = monsters_.find(lv->second.kind);
+    if (df == monsters_.end()) { live_monsters_.erase(lv); return; }
+    const MonsterDef d = df->second;                         // a copy: a callback may define monsters
+    if (hit) {
+        if (d.on_hit) { push_event(L_, e); call_ref(d.on_hit, 1, 0, "monster on_hit"); }
+        const double hp = ev_num(e, "hp", 0), mx = ev_num(e, "max_hp", 0);
+        while (ok() && hp > 0 && mx > 0) {                   // every phase this hit crossed, in order
+            const auto cur = live_monsters_.find(actor);
+            if (cur == live_monsters_.end() || cur->second.phase >= d.phases.size() || hp / mx > d.phases[cur->second.phase].first) break;
+            const std::size_t i = cur->second.phase++;
+            lua_pushinteger(L_, actor);
+            lua_pushinteger(L_, lua_Integer(i + 1));
+            call_ref(d.phases[i].second, 2, 0, "monster phase");
+        }
+        return;
+    }
+    live_monsters_.erase(actor);
+    if (d.on_death) { push_event(L_, e); call_ref(d.on_death, 1, 0, "monster on_death"); }
+}

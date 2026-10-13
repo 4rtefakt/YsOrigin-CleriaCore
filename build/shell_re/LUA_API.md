@@ -1022,6 +1022,57 @@ local b = cleria.world.boss()                           -- {hp, max_hp, actor} w
 One more event: `enemy_spawned` (`actor`, `cast`, `level`, `x`, `y`, `z`), raised when an enemy actor comes to exist:
 the room's placements at its load, a script's spawn, a monster's call for help, `world.spawn`.
 
+### 12.18 Monsters of the mod's own, and bosses
+
+```lua
+cleria.content.define_monster("brute", {
+    base = 43,                                          -- the enemy cast it is built from (sprites, brain, drops)
+    name = "Brute", level = 20,
+    hp = 3, atk = 1.5, def = 1, exp = 5, sp = 2,        -- multipliers of what the game computes for that cast and level
+    scale = 1.6, tint = 0xFF5050,
+    on_spawn = function(actor) end,
+    on_hit = function(e) end,                           -- the enemy_hit event of that monster
+    on_death = function(e) end,                         -- its enemy_killed event
+})
+cleria.content.define_boss("king", {
+    base = 43, name = "The King", hp = 20, scale = 2.2,
+    phases = {{at = 0.66, enter = function(actor, i) ... end}, {at = 0.33, enter = function(actor, i) ... end}},
+    on_death = function(e) ... end,
+})
+
+local id = cleria.world.spawn("brute", x, y, z)         -- a variant by its name, where a cast id goes
+cleria.content.morph(actor, "brute")                    -- or a monster that is already there becomes one
+cleria.world.form(actor, {atk = 2, tint = 0xFF2020})    -- the same changes on any living monster
+```
+
+A variant is **a monster of the game with other numbers and another look**: its sprites, its brain, its attacks and
+its drops are its base cast's. What a mod adds is the name, the stats, the size, the colour, and Lua called at its
+birth, on each hit, at each phase and at its death. Everything else is the API you already have: `world.spawn` for
+its helpers, `combat.hurt` and `screen.flash` for an attack of your own, `world.set_actor` to move it, `audio.music`
+for its theme, `camera.shake`.
+
+- `define_monster(id, def)`: `base` is required. `level` 0 = the cast's own. The multipliers are 0.01..1000 (1 by
+  default); `hp` also refills it. `scale` 0.2..5 scales the sprite (not its collision or its reach); `tint` is
+  0xRRGGBB. `ai = false` holds its handler: it stands where it is, can be hit, and does nothing until the mod moves
+  it. `boss = true` puts the boss gauge on its HP (`define_boss` is `define_monster` with that by default). Defining
+  an id again replaces it for the monsters built afterwards. At most 256 a mod.
+- `phases`: up to 16 `{at = fraction, enter = fn(actor, index)}`; a phase is entered once, when a hit of the player's
+  leaves the monster alive at or under that fraction of its HP. A hit that crosses several enters each, highest first.
+- `world.spawn(id, x, y, z [, opts])` builds the base cast (through the `"spawn"` filter, like any spawn), applies
+  the variant and calls `on_spawn`. `content.morph(actor, id)` applies it to a living monster (its cast stays what
+  it was): from an `enemy_spawned` handler it turns the room's own monsters into variants.
+- `world.form(actor, {...})` is the same set of changes without a definition: `hp`, `atk`, `def`, `exp`, `sp`
+  (multipliers of the **current** values), `scale`, `tint`, `ai`, `boss`, `name`. Use it inside a phase.
+- `world.actors()` entries gain `variant` (`"<mod id>:<variant id>"`, absent for a plain monster), `boss` and `ai`;
+  `name` is the variant's. `enemy_hit` and `enemy_killed` gain `variant` (`""` for a plain monster) and
+  `enemy_killed` gains `actor`.
+- The callbacks follow the monster, not the room: a room change, a load or a new game forgets the living ones.
+  `on_death` runs for a death by a hit of the player's (`enemy_killed`), not for `world.remove`.
+
+[H] A variant's hit on the player is its base cast's hit volume with the variant's ATK. A boss here is not one of the
+game's boss modules (those are C++ handlers of their own): no intro, no arena script. Build those from `script.run`,
+`camera.look_at`, `ui.message` and the `"exit"` filter. Checked in a drive run (`lua_api7_monsters`) and on a capture.
+
 ## 10. Tests
 
 ```
@@ -1057,5 +1108,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

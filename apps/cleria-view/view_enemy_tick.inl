@@ -139,6 +139,11 @@
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
                     if (fix0_tick && !(en && fix0_runs(*en))) continue;       // a Fix(0): the handlers that run (S2, S5c)
+                    if (en && en->mod_boss && en->alive() && !fix0_tick) {     // a mod's boss (API 7): the gauge is its HP
+                        gauge_owner = en->instance_id;
+                        hud.set_boss_gauge(en->instance_id, en->hp, en->max_hp, character == 2 ? 4000.0f : 3000.0f, 0);
+                    }
+                    if (en && en->mod_ai_off && en->alive()) continue;         // a mod holds its handler (API 7)
                     // M450's handler, every path (FUN_004c0ee0 0x4c1231): the Mask of Eyes tint +0x148 / +0x278.
                     if (en && en->ai_index == 38) en->tint = mask_of_eyes_on(inv) ? 0xff999999u : 0xffffffffu;
                     // The M680 / M740 handlers' far freeze, before their HP test: 25 u or more from the player's
