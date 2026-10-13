@@ -178,8 +178,12 @@ void System::emit(Effect& fx, int em, int delay, Particle* parent) {
             h.rehit = rd<std::uint8_t>(E.b2, 0x896);
             h.power = fx.power; h.knock = fx.knock; h.rtype = fx.rtype; h.status = fx.status;
             h.cls = fx.cls; h.side = fx.side; h.atk = fx.atk;
+            // World collide, only for an emitter WITH a hit mode: the test sits inside the B2+0x894 != 0 block
+            // [EXPORT 0044fdd0.c:167-220]. It used to be armed for every emitter with the bit, so a mode-0 spark of
+            // Toal's Boost aura (PC3_MAZIN emitter 4, B2+0x895 = 3) that touched the floor raised the effect's kill
+            // flag and the aura faded about 230 ticks into the Boost (issue #103).
+            if (rd<std::uint8_t>(E.b2, 0x895) & 1) p->collide = true;   // EFFECTHIT §1 0x45039e
         }
-        if (rd<std::uint8_t>(E.b2, 0x895) & 1) p->collide = true;   // EFFECTHIT §1 0x45039e
         fx.live += 1;
         parts_.push_back(std::move(p));
     }
