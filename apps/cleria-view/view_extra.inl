@@ -41,6 +41,14 @@ auto napishtim_input = [&](PlayerActions::In& pi) {
             std::printf("  [extra] t%llu Adol: the button is up, section 0x%x\n", (unsigned long long)tick_count, s);
     }
 };
+// FUN_005902d0 [BYTES 0x5902d0..]: is there a water surface between 0.25 under the point and 10.0 over it.
+// [approx] the room's water triangles only (a flooded room's mode 2 has none).
+auto bolt_water = [&](const Vec3& p) {
+    const RoomMesh& pm = phys_mesh(room);
+    return pm.has_water() && water_above(pm, p.x, p.y - 0.25f, p.z, 10.25f) > kNoFloor;
+};
+// The creator's scan of the bosses' parts (view_extra_parts.inl sets it: the bosses' hosts come later).
+std::function<void(const Vec3&, std::vector<extra::Chain::Target>&)> chain_parts;
 // anime_Special of the player's script (FUN_00449ed0 [BYTES 0x449ed0..0x44a1c1]; only C_990.ASO calls it).
 auto extra_special = [&](const AsoVm::SpecialEvent& ev) {
     const float h = std::atan2(face_dir.z, face_dir.x);            // +0x308 - the camera yaw
@@ -61,24 +69,58 @@ auto extra_special = [&](const AsoVm::SpecialEvent& ev) {
         const float ahead = ev.a[4] != 0 ? 1.5f : 0.0f;            // 0x6bd4d4
         const Vec3 at{org.x + std::cos(h308) * ahead, org.y, org.z + std::sin(h308) * ahead};
         std::vector<extra::Chain::Target> found;
+        const Vec3 ctr = extra::Chain::centre(at, h308);
         if (ev.a[4] == 0) {                                        // FUN_00591f60's actor scan [BYTES 0x5920cd..0x5921d7]
-            const Vec3 ctr = extra::Chain::centre(at, h308);
             for (const Actor& en : world.actors()) {
                 if (en.is_player() || en.destroy_requested() || !(en.kind & 0x18u) || !en.ai.hittable || en.hp < 1.0f) continue;
                 const Vec3 p{en.pos.x, en.pos.y + en.height, en.pos.z};
                 if (extra::Chain::in_range(ctr, p)) found.push_back({en.instance_id, p});
             }
         }
-        const extra::Chain c = extra::Chain::make(at, h308, power, ev.a[3], ev.a[5], found, float(player_stats().atk),
-                                                  next_hit_serial(world.hit_serial_counter_));
+        const std::size_t actors_found = found.size();
+        if (chain_parts) chain_parts(ctr, found);                  // ... then the bosses' parts [BYTES 0x5921d7..0x5923d0]
+        extra::Chain c = extra::Chain::make(at, h308, power, ev.a[3], ev.a[5], found, float(player_stats().atk),
+                                            next_hit_serial(world.hit_serial_counter_));
+        auto rnd = [&] { return pick_rng.next(); };
         if (!c.ray) {                                              // FUN_00591ef0 -> +0x308: he turns to the first hop
             const float nh = c.first_heading() - camera_yaw();
             face_dir = {std::cos(nh), 0.0f, std::sin(nh)};
+            // The two driven lines [BYTES 0x5928c5..0x592ab4]: 25 nodes toward a random point 12.0 away and 1.0 up
+            // (they start hidden), widths 0.75 -> 0.15, the uncharged skill's (section 0x10c) 0.25 -> 0.05.
+            for (extra::Bolt& b : c.bolt) {
+                const int v = int(pick_rng.next() >> 24);
+                extra::Bolt::Desc d;
+                d.a = at;
+                d.b = {at.x + cos_table(v) * 12.0f, at.y + 1.0f, at.z + cos_table((v - 0x40) & 0xff) * 12.0f};
+                d.w0 = 0.75f; d.w1 = 0.15f;
+                if (avm.section() == 0x10c) { d.w0 = 0.25f; d.w1 = 0.05f; }
+                d.segs = 25; d.life = 30; d.reach = 1.0f; d.fork_segs = 7; d.driven = true;
+                b = extra::Bolt::make(d, rnd);
+            }
+            c.bolted = true;
+        } else {
+            // The ray's two free lines [BYTES 0x5923ea..0x5926cb]: 12 nodes to 6.0 ahead (+- 0.5, y +- 0.2), 30
+            // updates, widths 0.25 -> 0.05, one or two side lines of 5 nodes. Draws: x, z, y, the count.
+            const bool w = bolt_water(at);
+            for (int k = 0; k < 2; ++k) {
+                extra::Bolt::Desc d;
+                d.a = at;
+                const float jx = extra::Bolt::u01(pick_rng.next()) - 0.5f, jz = extra::Bolt::u01(pick_rng.next()) - 0.5f;
+                const float jy = extra::Bolt::u01(pick_rng.next()) * 0.4f - 0.2f;
+                d.b = {at.x + (std::cos(h308) * 6.0f + jx), at.y + jy, at.z + (std::sin(h308) * 6.0f + jz)};
+                d.w0 = 0.25f; d.w1 = 0.05f; d.segs = 12; d.life = 30;
+                d.forks = ((pick_rng.next() >> 17) & 0x10u) ? 2 : 1;
+                d.reach = 0.75f; d.fork_segs = 5; d.water = w;
+                xbolts.push_back(extra::Bolt::make(d, rnd));
+            }
         }
         if (log) {
             std::printf("  [extra] t%llu chain: power %.1f, %d hop(s) over %zu monster(s), delay %d%s (section 0x%x):",
-                        (unsigned long long)tick_count, c.power, c.n, found.size(), c.delay, c.ray ? ", the ray" : "", avm.section());
-            for (const extra::Chain::Hop& hp : c.hops) std::printf(" #%d", hp.id);
+                        (unsigned long long)tick_count, c.power, c.n, actors_found, c.delay, c.ray ? ", the ray" : "", avm.section());
+            if (found.size() != actors_found) std::printf(" [%zu boss part(s)]", found.size() - actors_found);
+            for (const extra::Chain::Hop& hp : c.hops)
+                if (hp.id >= (1 << 20)) std::printf(" boss%02d.%d", (hp.id - (1 << 20)) / 100, (hp.id - (1 << 20)) % 100);
+                else std::printf(" #%d", hp.id);
             std::puts("");
         }
         xchains.push_back(c);

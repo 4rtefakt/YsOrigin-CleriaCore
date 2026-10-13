@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "cleria/cos_table.hpp"
 #include "cleria/mathx.hpp"
 
 namespace cleria::hitfx {
@@ -109,6 +110,25 @@ inline float step_hurt(float t) {
     return t < 0.0f ? 0.0f : t;
 }
 inline std::uint32_t hurt_specular(float t) { return t != 0.0f ? kHurtSpecular : 0u; }
+
+// The charged skill's glow on the player's sprite: FUN_00473c60 [BYTES 0x473df1..0x473ea5; data 0x69bd60 / 0x69bda0].
+// With no Fix held ([0x75ad90] + [0x75ad94] == 0), on the player actor, while the charge level 0x76c138 is 2, the
+// specular takes row[slot] x (0.5 x sin + 0.5) per channel (truncated, each clamped to 255): slot = FUN_0046d560
+// (the bracelet: Ventus 0, Terra 1, Ignis 2, none 3), the sine from the cosine table at byte +0x2a4, which
+// FUN_0045c490 steps by 4 a tick (a pulse of 64 ticks). Character 0 reads his own table: the same three rows in
+// another order. `spec` = the specular so far (0xRRGGBB, as kHurtSpecular's bytes).
+inline std::uint32_t charged_glow(std::uint32_t spec, int character, int slot, std::uint8_t phase) {
+    static const float kOthers[4][3] = {{0, 128, 80}, {80, 80, 0}, {112, 0, 16}, {160, 160, 160}};   // 0x69bd60
+    static const float kAdol[4][3] = {{112, 0, 16}, {0, 128, 80}, {80, 80, 0}, {160, 160, 160}};     // 0x69bda0
+    const float* row = (character == 0 ? kAdol : kOthers)[slot & 3];
+    const float f = cos_table((int(phase) - 0x40) & 0xff) * 0.5f + 0.5f;                             // 0x6bd304
+    std::uint32_t out = 0;
+    for (int k = 0; k < 3; ++k) {
+        const int c = int((spec >> (16 - 8 * k)) & 0xffu) + int(row[k] * f);
+        out |= std::uint32_t(c > 0xff ? 0xff : c) << (16 - 8 * k);
+    }
+    return out;
+}
 
 // The actor tint struct T (0x18 bytes; build/render_re/SCREEN_EFFECTS.md §3.1). Two per actor: +0x260 is where
 // FUN_00473c60 starts the SPECULAR from, +0x278 the diffuse. FUN_00473b70 [EXPORT 00473b70.c] gives the colour,

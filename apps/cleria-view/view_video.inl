@@ -1255,6 +1255,7 @@ static bool video_drive(const std::string& cmd) {
                     g_shadow_stat[1], g_shadow_stat[2]);
         std::printf("  [video] water level %d surfaces %d grab %ux%u phase %.2f\n", int(settings().s.graphics.water_effect_level),
                     int(g_water.want), g_water.on ? g_vgpu.grab_w : 0u, g_water.on ? g_vgpu.grab_h : 0u, double(g_water.phase));
+        if (g_boltfx.tried) std::printf("  [video] bolts quads %d\n", g_boltfx.stat);
         if (g_trail.tried)
             std::printf("  [video] trail level %d tag %d quads %d\n", g_shadow_level, g_trail.stat[0], g_trail.stat[1]);
         if (g_bshadow.stat[0] || g_bshadow.stat[2])

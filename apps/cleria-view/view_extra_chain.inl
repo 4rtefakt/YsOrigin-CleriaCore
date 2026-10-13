@@ -5,14 +5,17 @@
 // knock 0, rtype 0. The heading handed to FUN_004fbb40 is the victim's hurt centre seen from the world origin: the
 // chain's own volume centre +0xdc is never set [BYTES 0x4fba72..0x4fbac4].
 // [H] not stepped under a Fix. [approx] the damage reads the player's ATK now, not the copy taken at creation.
+            std::vector<extra::Bolt> let_go;                             // a dead chain's lines, free from the next tick
             for (extra::Chain& c : xchains) {
                 const bool clog = std::getenv("CLERIA_DMG") != nullptr;
+                c.water = c.bolted && bolt_water(c.pos);                 // +0x13c
                 auto render_of = [&](const Actor& en) -> const EnemyRender* {
                     for (const EnemyRender& er : render) if (er.actor == &en) return &er;
                     return nullptr;
                 };
                 const bool scan = c.tick(
                     [&](int id, Vec3* p) {                               // the slot's id unchanged, HP >= 1
+                        if (id >= kChainPart) { float r = 0; return chain_part(id, p, &r); }
                         const Actor* a = world.find(id);
                         if (!a || a->is_player() || a->destroy_requested() || a->hp < 1.0f) return false;
                         *p = {a->pos.x, a->pos.y + a->height, a->pos.z};
@@ -20,6 +23,7 @@
                     },
                     [&] { return pick_rng.next(); },
                     [&](int id) {
+                        if (id >= kChainPart) { chain_part_hit(id, c.power); return; }   // FUN_004faf20(chain, part, 1, 0)
                         Actor* en = world.find(id);
                         if (!en || !en->ai.hittable) return;             // +0x60 & 0x80
                         const float hp0 = en->hp;
@@ -29,6 +33,13 @@
                             std::printf("  [extra] t%llu chain hop %d/%d hits #%d (cast %d): HP %.0f -> %.0f\n",
                                         (unsigned long long)tick_count, c.cur + 1, c.n, id, en->cast_id, hp0, en->hp);
                     });
+                // Its two lines' own update (FUN_00590ac0), after it: [H] the objects' order (the chain was made first).
+                if (c.bolted)
+                    for (extra::Bolt& b : c.bolt) {
+                        extra::Bolt f;
+                        if (b.tick([&] { return pick_rng.next(); }, &f)) xbolts.push_back(std::move(f));
+                        if (c.dead) let_go.push_back(b);
+                    }
                 if (!scan) continue;
                 // The ray (no monster at the cast) [BYTES 0x592af0..0x592cf7]: every hittable monster whose body
                 // (+0x68, + 0.4) the 5-unit ray meets, through the re-hit bank on the chain's token (12 ticks).
@@ -45,3 +56,9 @@
                 }
             }
             std::erase_if(xchains, [](const extra::Chain& c) { return c.dead; });
+            for (std::size_t i = 0; i < xbolts.size(); ++i) {            // a side line is updated in the tick it is made [H]
+                extra::Bolt f;
+                if (xbolts[i].tick([&] { return pick_rng.next(); }, &f)) xbolts.push_back(std::move(f));
+            }
+            std::erase_if(xbolts, [](const extra::Bolt& b) { return b.dead; });
+            for (extra::Bolt& b : let_go) xbolts.push_back(std::move(b));

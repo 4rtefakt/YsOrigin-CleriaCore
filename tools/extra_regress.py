@@ -181,6 +181,33 @@ def cases(clear_data):
         drive="8:flag=117,1;12:flag=183,1;20:bracelet=117;40:skill+;42:skill-;44:abil;140:quit",
         expect=["chain: power -2.0, 0 hop(s) over 0 monster(s), delay 25, the ray (section 0x10c):", "[abil] t44 sec 0x10c mp 1200"],
         absent=["chain hop"])
+    # GOXX_17_19.md §3.6, the Terra skill against a part boss: FUN_00591f60's second scan takes a boss's part only when
+    # it is 12.0 or more from the scan's centre (sic) and on screen. Velagunder from the arena's far side: the chains
+    # run over his parts (part 1 takes the damage, the DEF-999 ones none); next to him (`boss`) the skill is the ray,
+    # which scans the actor list only. The bolts are drawn (vstat's quads).
+    c["adol_napishtim_velagunder"] = dict(
+        room="S_10/S_1099/S_1099", char="0", env=dict(_X, CLERIA_TYPE="1"),
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=15;8:flag=117,1;12:flag=183,1;10:at=0,15,180;21:bracelet=117;"
+              "40:every=40,1800,ok;2001:mp=3000;2002:skill+;2004:skill-;2060:vstat;2100:boss;2110:mp=3000;2112:skill+;"
+              "2114:skill-;2200:quit",
+        expect=["t2004 chain: power -15.0, 5 hop(s) over 0 monster(s), delay 25 (section 0x10c): [", " boss part(s)] boss01.",
+                "chain hits boss01 part 1: ", "[video] bolts quads ",
+                "t2114 chain: power -2.0, 0 hop(s) over 0 monster(s), delay 25, the ray (section 0x10c):"],
+        absent=["chain hop", "[video] bolts quads 0"])
+    # ... and Khonsclard: from the arena's edge the one part in reach of the rule is the sunk body's (part 7).
+    c["adol_napishtim_khonsclard"] = dict(
+        room="S_40/S_4099/S_4099", char="0", env=dict(_X, CLERIA_TYPE="1"),
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:flag=117,1;12:flag=183,1;20:at=-2.8,23.3,0;21:bracelet=117;"
+              "40:every=20,700,ok;730:at=0,16,0;735:mp=3000;740:skill+;742:skill-;860:quit",
+        expect=["t742 chain: power -15.0, 5 hop(s) over 0 monster(s), delay 25 (section 0x10c): [1 boss part(s)] boss04.7",
+                "chain hits boss04 part 7: "],
+        count={" chain: power": 2}, absent=["chain hop", "the ray"])
+    # ADOL.md §13, the down thrust's landing effect (FUN_0046fba0): effect 0xc where Yunica's axe lands; none for Hugo.
+    c["thrust_landing_yunica"] = dict(
+        room="S_10/S_1009/S_1009", char="1", env=dict(_X),
+        drive="32:jump;54:atk;100:quit", expect=["[land] t67 the down thrust lands: effect 12"], count={"[land]": 1})
+    c["thrust_landing_hugo"] = dict(
+        room="S_10/S_1009/S_1009", char="2", env=dict(_X), drive="32:jump;54:atk;100:quit", expect=[], absent=["[land]"])
     # ... an Arena run from the title: the fourth bar, Type Select's second answer (both versions bought), Stage 1 by
     # the pilot with the Terra sword and its skill; the record goes to record.are (Napishtim is the second version).
     c["adol_napishtim_arena"] = dict(

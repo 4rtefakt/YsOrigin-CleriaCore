@@ -1550,6 +1550,7 @@ title_again:
     bullet::Bullets bullets(&fxsim, ef2_of);
     std::vector<extra::Runner> xrunners;                  // the kind-0x17 runners (view_extra.inl)
     std::vector<extra::Chain> xchains;                    // the kind-0x18 chain lightnings (view_extra_chain.inl)
+    std::vector<extra::Bolt> xbolts;                      // the free type-7 lines: the ray's, the side lines, a dead chain's
     // World item pickups (src/cleria/pickup.hpp, build/item_re/PICKUPS.md).
     std::vector<Pickup> pickups;
     struct PendingDebris { int ticks; int cast; Vec3 origin; const AsoVm::DebrisEvent* ev; };
@@ -1751,6 +1752,7 @@ title_again:
     // The player's specular tint struct (+0x260; hit_feedback.hpp): the GUARD and Boost-ready white flashes.
     // [not modelled] the diffuse struct +0x278 and the other writers of both (SCREEN_EFFECTS.md U14).
     hitfx::Tint player_spec;
+    std::uint8_t player_glow_phase = 0;                   // +0x2a4: +4 a tick (FUN_0045c490), the charged glow's pulse
     auto player_white_flash = [&](float step) {
         hitfx::white_flash(player_spec, step);
         if (scrfx_log) std::printf("  [tint] t%llu player specular 0xffffff -> 0, step %.3f\n", (unsigned long long)tick_count, step);
@@ -2201,6 +2203,7 @@ title_again:
         bullets.clear();                                      // before the effects they hold
         xrunners.clear();
         xchains.clear();
+        xbolts.clear();
         gas_owner.clear();
         fxsim.clear();
         wx.clear();                                           // FUN_00428ec0 / 0x76a558 = 0 (WEATHER.md)
@@ -6164,6 +6167,7 @@ title_again:
     #include "view_boss06.inl"                // Zava's heads and her link (ZAVA*.md)
     #include "view_boss07.inl"                // Dalles's host (DALLES*.md)
     #include "view_boss08.inl"                // Darm's host (DARM*.md)
+    #include "view_extra_parts.inl"           // the bosses' parts as the chain lightning's targets
 
     // ---- the player's death and the game over (build/gameflow_re/GAMEFLOW.md §3.4) ---------
     // FUN_0046fba0 (and FUN_0046f810) on HP < 1 without flag 133: the first dead step sets
@@ -8084,6 +8088,22 @@ title_again:
                     submerged = wading = false;
                 }
             }
+            // The down thrust's landing effect (FUN_0046fba0, the landing flag +0x3bc & 1) [BYTES 0x46fdd0..0x46ffa3]:
+            // characters 0, 1 and 3 with the thrust flag +0x6f7 and the attack kind +0x404 == 2 spawn effect 0xc — 9
+            // after a double jump (+0x77c != 0) — at the origin + the facing x 0.6 (Yunica: 1.6, 0.7 with flag 149),
+            // y = the floor +0x318 + 0.2, scale 0.75, no turn; the player's stat block, power 0, knock 1.0, class -1.
+            // [not modelled] +0x7fc / +0x804 / +0x808 written after it while flag 215 is set.
+            if (p_landed && pact.thrust && character != 2 && skillmp::attack_kind(avm.section()) == 2) {
+                const float k = character == 1 ? (game.g_flags[149] == 0 ? 1.6f : 0.7f) : 0.6f;   // 0x6bd4ec, 0x6bd36c, 0x6bd334
+                const float fa = std::atan2(face_dir.z, face_dir.x);                             // +0x314
+                ef2sim::SpawnParams sp;
+                sp.power = 0.0f; sp.knock = 1.0f; sp.rtype = 0; sp.status = 0; sp.cls = -1;
+                sp.atk = player_stats().atk; sp.side = 0; sp.owner = 13;
+                const int id = pact.dj_count != 0 ? 9 : 0xc;
+                spawn_sim_fx(id, {feet.x + std::cos(fa) * k, last_floor + 0.2f, feet.z + std::sin(fa) * k}, {}, 0.75f, sp, 0, {});
+                if (std::getenv("CLERIA_DMG"))
+                    std::printf("  [land] t%llu the down thrust lands: effect %d\n", (unsigned long long)tick_count, id);
+            }
             grounded = pv.grounded;
             feet.y = oy - kOriginH;
             // The floor contact record (+0x540): the object under a grounded player whose floor
@@ -8177,6 +8197,7 @@ title_again:
             prof("tick:late");
             tick_iframes(player_iframes, avm.section());
             player_spec.tick();                                     // FUN_0045a3a0 (the integrator's helper)
+            player_glow_phase = std::uint8_t(player_glow_phase + 4);   // +0x2a4 [EXPORT 0045c490.c:533] [H] from 0 at the boot
             kill_combo.tick();                                      // 0x466b5d: the combo meter's timer
             {   // The standing HP regeneration, next in the mover (0x466b7f..0x466c77; src/cleria/hazard.hpp).
                 StandingRegen::In ri;
@@ -8820,7 +8841,11 @@ title_again:
                                0.0f, g_scene_light.x, g_scene_light.y, g_scene_light.z, false, palpha,   // diffuse x the scene light
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dx : 0.0f,   // Chr_Tremble(13)
                                wpl && tremble_active(wpl->tremble) ? wpl->tremble.dy : 0.0f,
-                               wpl ? wpl->scale : 1.0f, player_spec.colour(),    // +0x14c from the tint struct +0x260
+                               wpl ? wpl->scale : 1.0f,
+                               // +0x14c from the tint struct +0x260, then the charged skill's glow (hit_feedback.hpp)
+                               skill_charge.level == 2 && csMgr.fix_counts[0] + csMgr.fix_counts[1] == 0
+                                   ? hitfx::charged_glow(player_spec.colour(), character, skillmp::bracelet_slot(inv.magic), player_glow_phase)
+                                   : player_spec.colour(),
                                avm.sprite_depth_offset(),                        // anime_CameraDistanceOffset
                                // the caustics on a submerged body [EXPORT 00474290.c:96-123]
                                !g_caustic.off && submerged && !wading && !psand.on_sand2() && cur_surface != 0x12);
@@ -8919,6 +8944,13 @@ title_again:
                              cam.forward(), fx_time);
         prof("draw:particles");
         draw_particles(g, fxsim, asset_root, eft, view, depth, cam.forward(), cam.pos);
+        if (!xchains.empty() || !xbolts.empty()) {          // the type-7 lines, on the effects' layer 12 (FUN_00590ac0)
+            std::vector<const extra::Bolt*> bl;
+            for (const extra::Chain& c : xchains)
+                if (c.bolted) for (const extra::Bolt& b : c.bolt) bl.push_back(&b);
+            for (const extra::Bolt& b : xbolts) bl.push_back(&b);
+            draw_bolts(g, view, depth, asset_root, bl, cam.forward());
+        }
         prof("draw:weather+post");
         draw_weather(view, depth, cam.forward());                 // view_weather.inl
         {   // The bubbles (FUN_004ffdb0): at the owner's origin + 0.75 + yoff, far-to-near.
