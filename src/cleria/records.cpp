@@ -140,6 +140,57 @@ bool save_arena_sp(const std::filesystem::path& file, std::uint32_t sp, std::uin
     return bool(f);
 }
 
+void MonsterNotes::kill(int id, bool easy, int hard, bool very_easy) {
+    if (id < 0 || id >= kEntries) return;
+    seen[std::size_t(id)] = 1;
+    kills[std::size_t(id)] = std::min(kills[std::size_t(id)] + 1, 50);
+    if (easy) tier[std::size_t(id)][very_easy ? 0 : 1] = 1;
+    else if (hard >= 0 && hard <= 2) tier[std::size_t(id)][std::size_t(2 + hard)] = 1;
+}
+
+MonsterNotes MonsterNotes::from_payload(std::span<const std::uint8_t> p) {
+    MonsterNotes n;
+    auto u32 = [&](std::size_t o) {
+        return std::uint32_t(p[o]) | std::uint32_t(p[o + 1]) << 8 | std::uint32_t(p[o + 2]) << 16 | std::uint32_t(p[o + 3]) << 24;
+    };
+    for (std::size_t i = 0; i < std::size_t(kEntries); ++i) {
+        n.seen[i] = p[i * 0x1C];
+        n.kills[i] = std::int32_t(u32(i * 0x1C + 4));
+        for (std::size_t t = 0; t < 5; ++t) n.tier[i][t] = u32(i * 0x1C + 8 + t * 4);
+    }
+    return n;
+}
+
+std::vector<std::uint8_t> MonsterNotes::payload() const {
+    std::vector<std::uint8_t> p(kPayload, 0);
+    auto put = [&](std::size_t o, std::uint32_t v) {
+        p[o] = std::uint8_t(v); p[o + 1] = std::uint8_t(v >> 8); p[o + 2] = std::uint8_t(v >> 16); p[o + 3] = std::uint8_t(v >> 24);
+    };
+    for (std::size_t i = 0; i < std::size_t(kEntries); ++i) {
+        p[i * 0x1C] = seen[i];
+        put(i * 0x1C + 4, std::uint32_t(kills[i]));
+        for (std::size_t t = 0; t < 5; ++t) put(i * 0x1C + 8 + t * 4, tier[i][t]);
+    }
+    return p;
+}
+
+std::optional<MonsterNotes> load_notes(const std::filesystem::path& file) {
+    std::ifstream f(file, std::ios::binary);
+    if (!f) return std::nullopt;
+    const std::vector<std::uint8_t> b{std::istreambuf_iterator<char>(f), {}};
+    const auto p = decode(b, MonsterNotes::kPayload);
+    if (!p) return std::nullopt;
+    return MonsterNotes::from_payload(*p);
+}
+
+bool save_notes(const std::filesystem::path& file, const MonsterNotes& n, std::uint32_t key) {
+    const std::vector<std::uint8_t> b = encode(n.payload(), key);
+    std::ofstream f(file, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+    return bool(f);
+}
+
 RecordTable::RecordTable(int rows_per_block) : rows(rows_per_block), bytes(std::size_t(16 * rows_per_block * 12), 0) {
     for (std::size_t e = 0; e < bytes.size(); e += 12) {
         bytes[e + 4] = bytes[e + 5] = bytes[e + 6] = bytes[e + 7] = 0xFF;

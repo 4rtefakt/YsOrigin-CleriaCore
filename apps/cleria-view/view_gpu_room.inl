@@ -32,6 +32,8 @@ struct WorldPipes {
     WGPURenderPipeline char_pipeline{}; // alpha-blended character/enemy sprites
     WGPURenderPipeline char_pipeline_add{}; // additive variant, for glow overlays (Topic selection wash)
     WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
+    WGPURenderPipeline floor_quad_pipe{}; // an actor's image on a mirror floor (preset 0x21641: fs_char, no depth write, unculled)
+    WGPURenderPipeline darken_pipe{};     // a boss's darkening quad (preset 0x20649: dest x (1 - texture x diffuse))
     WGPURenderPipeline mat_pipe[4][2]{};  // blended YMO materials: [blend mode 1..3][z-write]
     WGPURenderPipeline zpre_pipe{};       // FUN_005f8de0's depth pre-pass (material_zprepass)
     // The same three with D3DCULL_CCW, for a material without flags 0x400 (material_cull).
@@ -57,6 +59,18 @@ struct Gpu : WorldPipes {
     // frame grab as group 0, the du/dv map as group 1.
     WGPUBuffer ubuf_water{};
     WGPUBindGroup ubind_water{}, dudv_bind{};
+    // ... and those of a material with flag 0x200000 (its own diffuse; the reflection as binding 3).
+    WGPUBuffer ubuf_refl{};
+    WGPUBindGroup ubind_refl{};
+    // The mirror floors' draw (g_mirror; view_video.inl's video_mirror_pass): the constants with the combiner 5,
+    // the mirror image (pool surface 5) as binding 3.
+    WGPUBuffer ubuf_mirror{};
+    WGPUBindGroup ubind_mirror{};
+    // A boss shadow's receivers (g_bshadow; view_boss_shadow.inl): the constants with the combiner 6, the boss's
+    // shadow target as binding 3.
+    WGPUBuffer ubuf_shd{};
+    WGPUBindGroup ubind_shd{};
+    WGPUTextureView ubind_shd_view{};
     WGPUSampler sampler{};
     WGPUSampler sampler_mip{};    // "Smooth distant textures": the world sampler over the mip chain
     WGPUSampler sampler_point{};  // "Character sprites: Crisp": nearest
@@ -85,6 +99,7 @@ struct Room {
     RoomMesh coll;           // the `_.YMO` collision hulls — what physics collides against
     std::vector<std::uint8_t> base_a;  // each vertex's alpha after bake_material_alpha (apply_object_alpha)
     std::vector<float> batch_alpha;    // each batch's live object (model) alpha; empty / missing = 1
+    mutable std::vector<std::uint8_t> mirror_kind;   // each batch: of a header-0x100 object (mirror_kinds; made on first use)
     // A brain's per-material alpha (the instance material record's +0x20) of one object, by its YMO material index:
     // multiplied into that object's batch alphas by apply_object_alpha (Darm's limb groups, view_boss08.inl).
     std::unordered_map<std::string, std::vector<float>> mat_alpha;
@@ -388,16 +403,65 @@ static void caustic_upload(Gpu& g) {
 // ---- the water surfaces (build/render_re/REFLECTIONS.md 5) -----------------------------------------
 // [graphics] WaterEffectLevel (0x765199) != 0: a material with flag 0x400000 (water2) draws opaque through the
 // du/dv map and the frame grabbed before the water layer (pool surface 1), instead of its own texture.
-// [not modelled] flag 0x200000's reflection (S_2005 is the one shipped room): it is drawn as water2 here.
+// Flag 0x200000 (S_2005 is the one shipped room) adds the reflection: the room drawn once more from the camera
+// mirrored in the water plane, into pool surface 5 (view_video.inl's video_water_reflect), mixed in by the
+// vertex colour's alpha (main.cpp's water()).
 struct Water {
     fs::path dudv;                 // data\image\water_dudv_256.dds
     float phase = 0;               // 0x7b2e54: + 0.02 a step [BYTES 0x4280cf..0x4280df]
     bool want = false;             // this frame's room has such a material and the level is != 0
     bool on = false;               // this frame's grab is taken (video_water_grab): draw() takes the water path
     float tint[4] = {0, 0, 0, 1};  // the material's diffuse (TEXTUREFACTOR [BYTES 0x5fa07f..0x5fa082])
+    // The reflection. plane_y: the water plane 0x7b2e40 = (0, 1, 0, -plane_y) -- y = 0 at the scene reset
+    // [EXPORT 00442dd0.c:51-54], h + 0.025 by op 0x11d Scene_SetWaterPlane(h) [BYTES 0x432e60..0x432eb0].
+    float plane_y = 0;
+    bool rwant = false;            // the room has a 0x200000 material (0x7b2e3c) and the level is != 0
+    bool ron = false;              // this frame's reflection is drawn (video_water_reflect)
+    float rtint[4] = {0, 0, 0, 1}; // that material's diffuse
 };
 static Water g_water;
 static bool water_material(const DrawBatch& b) { return (b.mat_flags & 0x600000u) != 0 && (b.mat_flags & 0x40u) != 0; }
+// Variant 8 before variant 9 in FUN_005f92b0's ladder [EXPORT 005f92b0.c; REFLECTIONS.md 3.1].
+static bool water_reflects(const DrawBatch& b) { return (b.mat_flags & 0x200000u) != 0 && (b.mat_flags & 0x40u) != 0; }
+
+// ---- the mirror floors (build/render_re/REFLECTIONS.md 7, RENDER_LEFTOVERS.md 1) ---------------------------
+// A material with flag 0x800000 (FUN_005f92b0's variant 10, at every WaterEffectLevel) draws opaque as its own
+// texture x D.a + the mirror image x (1 - D.a), the image looked up by screen position in pool surface 5
+// (main.cpp's mirror()). The image is drawn with the normal camera (video_mirror_pass): the room's `B` models
+// (YMO header 0x100: authored upside-down geometry, drawn nowhere else), the chests / boxes / statues of S_6014
+// and S_6082 mirrored about their own base (level >= 1), and -- while MirrorFloor (op 0x126) is on -- each
+// actor's sprite laid on the floor.
+struct Mirror {
+    bool floor_on = false;         // 0x74c104: the actors' floor images are drawn
+    bool on = false;               // this frame's image is drawn: draw() takes the mirror path
+    struct Quad { WGPUBindGroup bind; RoomVertex v[4]; bool add = false; };   // add: preset 0x206c1 (Zava's quad)
+    std::vector<Quad> quads;       // this frame's floor images (mirror_actor_quad)
+    std::uint32_t v0 = 0, v1 = 0;  // draw()'s parts 5 and 6: the vertex range of the object drawn
+    int stat[2] = {0, 0};          // the last pass's mirrored objects and floor images (vstat)
+};
+static Mirror g_mirror;
+// A boss's projected shadow on the map materials with flag 0x10000000 (SHADOWS.md 4.4; view_boss_shadow.inl):
+// the receiver globals 0x7b2e74..0x7b2e8c -- the target, the boss position, the strength, the half-extent E.
+struct BossShadowRecv {
+    bool on = false;               // this frame's target is drawn (0x7b2e74 != 0): draw() takes the receiver path
+    float cx = 0, cz = 0, E = 20, strength = 0;
+    int stat[3] = {0, 0, 0};       // the last frame's target side, caster triangles, Zava quads (vstat)
+};
+static BossShadowRecv g_bshadow;
+// Per batch: 1 = it belongs to an object whose model header has 0x100. A static mesh with it queues its passes
+// 0 and 2 on layer 0 and pass 4 on layer 1, and nothing on the normal layers [BYTES 0x5620ef..0x562155].
+static const std::vector<std::uint8_t>& mirror_kinds(const Room& room) {
+    std::vector<std::uint8_t>& kinds = room.mirror_kind;
+    if (kinds.size() != room.mesh.batches.size()) {
+        kinds.assign(room.mesh.batches.size(), 0);
+        for (const RoomMesh::ObjRange& r : room.mesh.object_ranges) {
+            if (!(r.model_flags & 0x100u)) continue;
+            for (std::size_t i = 0; i < kinds.size(); ++i)
+                if (room.mesh.batches[i].first_vert >= r.v0 && room.mesh.batches[i].first_vert < r.v1) kinds[i] = 1;
+        }
+    }
+    return kinds;
+}
 
 static int material_blend_mode(const DrawBatch& b, float a) {
     // Variant 2 (the caustic alone) sets the mode to 2 whatever the material says [EXPORT 005f92b0.c:274-284].
@@ -1038,8 +1102,12 @@ static void make_world_samplers(Gpu& g) {
 // (SCREEN_EFFECTS.md 2.3): the opaque pipelines write it (fs_mask), every blended one writes RGB only
 // (COLORWRITEENABLE 7 for a preset without the bits 0x400000 / 0x800000 [EXPORT 005eb5b0.c:32-38]; the
 // sprite body's preset 0x24f51 has neither [EXPORT 00474290.c:113]).
-static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t samples = 1, bool mask = false) {
+// `flip`: the set of the reflected view (0x7b38f0 != 0) -- a culled material culls the other winding there:
+// CULLMODE CW instead of CCW [EXPORT 005f92b0.c local_54; BYTES 0x5ebae1..0x5ebaf7 for the presets].
+static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t samples = 1, bool mask = false,
+                           bool flip = false) {
     const bool first = !g.tex_layout;
+    const WGPUFrontFace cull_front = flip ? WGPUFrontFace_CCW : WGPUFrontFace_CW;
     const WGPUColorWriteMask blended_mask =
         mask ? WGPUColorWriteMask_Red | WGPUColorWriteMask_Green | WGPUColorWriteMask_Blue : WGPUColorWriteMask_All;
     WGPUShaderSourceWGSL wgsl = {};
@@ -1062,14 +1130,15 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
     WGPUBindGroupLayoutEntry ue = {};
     ue.binding = 0; ue.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
     ue.buffer.type = WGPUBufferBindingType_Uniform; ue.buffer.minBindingSize = 128;
-    WGPUBindGroupLayoutEntry ues[3] = {};                  // + the caustic frame and its sampler
+    WGPUBindGroupLayoutEntry ues[4] = {};                  // + the caustic frame and its sampler
     ues[0] = ue;
     ues[1].binding = 1; ues[1].visibility = WGPUShaderStage_Fragment;
     ues[1].texture.sampleType = WGPUTextureSampleType_Float;
     ues[1].texture.viewDimension = WGPUTextureViewDimension_2D;
     ues[2].binding = 2; ues[2].visibility = WGPUShaderStage_Fragment;
     ues[2].sampler.type = WGPUSamplerBindingType_Filtering;
-    WGPUBindGroupLayoutDescriptor ubl = {}; ubl.entryCount = 3; ubl.entries = ues;
+    ues[3] = ues[1]; ues[3].binding = 3;                   // + the water's reflection (main.cpp's rtex)
+    WGPUBindGroupLayoutDescriptor ubl = {}; ubl.entryCount = 4; ubl.entries = ues;
     WGPUBindGroupLayout bgl_u = first ? wgpuDeviceCreateBindGroupLayout(g.device, &ubl) : g.u_layout;
 
     WGPUBindGroupLayoutEntry te[2] = {};
@@ -1153,6 +1222,23 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
     WGPURenderPipelineDescriptor spd = cpd; spd.depthStencil = &sds; spd.fragment = &sfs;
     spd.primitive.cullMode = WGPUCullMode_None;   // a flat floor decal must not be culled
     g.shadow_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &spd);
+    // An actor's image on a mirror floor, preset 0x21641 (FUN_005eb5b0 [BYTES 0x5eb5b0..0x5ebe59], decoded in
+    // RENDER_LEFTOVERS.md 1.1): texture x diffuse, alpha = texture x TEXTUREFACTOR, SRCALPHA / INVSRCALPHA, Z test
+    // without Z write, fog, CULLMODE NONE.
+    {
+        WGPURenderPipelineDescriptor qpd = cpd; qpd.depthStencil = &ads;
+        qpd.primitive.cullMode = WGPUCullMode_None;
+        g.floor_quad_pipe = wgpuDeviceCreateRenderPipeline(g.device, &qpd);
+        // Preset 0x20649 (bit 8): BLENDOP ADD, SRCBLEND ZERO, DESTBLEND INVSRCCOLOR [BYTES 0x5ebcd4..0x5ebd01]; Z test
+        // without Z write, CULLMODE NONE, RGB. [not modelled] its fog (the fog colour is forced to 0).
+        WGPUBlendState db = {};
+        db.color = {WGPUBlendOperation_Add, WGPUBlendFactor_Zero, WGPUBlendFactor_OneMinusSrc};
+        db.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_Zero, WGPUBlendFactor_One};
+        WGPUColorTargetState dt = ctarget; dt.blend = &db;
+        WGPUFragmentState dfs = cfs; dfs.entryPoint = sv("fs_darken"); dfs.targets = &dt;
+        qpd.fragment = &dfs;
+        g.darken_pipe = wgpuDeviceCreateRenderPipeline(g.device, &qpd);
+    }
 
     // Blended YMO materials: FUN_005f92b0's jump table 0x5fa768 (MATERIAL.md §4) — mode 1
     // SRCALPHA/INVSRCALPHA, 2 SRCALPHA/ONE, 3 SRCALPHA/ONE REVSUBTRACT; COLORWRITEENABLE 7
@@ -1178,7 +1264,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
             mds.depthCompare = WGPUCompareFunction_LessEqual;
             WGPURenderPipelineDescriptor mpd = pd; mpd.fragment = &mfs; mpd.depthStencil = &mds;
             g.mat_pipe[mode][zw] = wgpuDeviceCreateRenderPipeline(g.device, &mpd);
-            mpd.primitive.frontFace = WGPUFrontFace_CW; mpd.primitive.cullMode = WGPUCullMode_Back;
+            mpd.primitive.frontFace = cull_front; mpd.primitive.cullMode = WGPUCullMode_Back;
             g.cull_mat_pipe[mode][zw] = wgpuDeviceCreateRenderPipeline(g.device, &mpd);
         }
     // FUN_005f8de0's pre-pass (material_zprepass): alpha test texture alpha >= 0xbf, depth
@@ -1190,11 +1276,11 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
         WGPUDepthStencilState zds = ds; zds.depthCompare = WGPUCompareFunction_LessEqual;
         WGPURenderPipelineDescriptor zpd = pd; zpd.fragment = &zfs; zpd.depthStencil = &zds;
         g.zpre_pipe = wgpuDeviceCreateRenderPipeline(g.device, &zpd);
-        zpd.primitive.frontFace = WGPUFrontFace_CW; zpd.primitive.cullMode = WGPUCullMode_Back;
+        zpd.primitive.frontFace = cull_front; zpd.primitive.cullMode = WGPUCullMode_Back;
         g.cull_zpre_pipe = wgpuDeviceCreateRenderPipeline(g.device, &zpd);
         // material_cull: D3D's clockwise front face is WebGPU's (both rasterise y-down), so CCW culling is Back here.
         WGPURenderPipelineDescriptor kpd = pd;
-        kpd.primitive.frontFace = WGPUFrontFace_CW; kpd.primitive.cullMode = WGPUCullMode_Back;
+        kpd.primitive.frontFace = cull_front; kpd.primitive.cullMode = WGPUCullMode_Back;
         g.cull_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &kpd);
         if (mask) {   // a glare amount: alpha = the blend constant (the fragment's alpha is 1)
             WGPUBlendState gb = blend;
@@ -1203,7 +1289,7 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
             WGPUFragmentState gfs = fs; gfs.targets = &gt; gfs.entryPoint = sv("fs");
             WGPURenderPipelineDescriptor gpd = pd; gpd.fragment = &gfs;
             g.glare_pipe = wgpuDeviceCreateRenderPipeline(g.device, &gpd);
-            gpd.primitive.frontFace = WGPUFrontFace_CW; gpd.primitive.cullMode = WGPUCullMode_Back;
+            gpd.primitive.frontFace = cull_front; gpd.primitive.cullMode = WGPUCullMode_Back;
             g.cull_glare_pipe = wgpuDeviceCreateRenderPipeline(g.device, &gpd);
         }
     }
@@ -1228,12 +1314,13 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
         WGPUSamplerDescriptor csd = {};
         csd.addressModeU = csd.addressModeV = csd.addressModeW = WGPUAddressMode_Repeat;
         csd.magFilter = csd.minFilter = WGPUFilterMode_Linear; csd.maxAnisotropy = 1;
-        WGPUBindGroupEntry ube[3] = {};
+        WGPUBindGroupEntry ube[4] = {};
         ube[0].binding = 0; ube[0].size = 128;
         ube[1].binding = 1; ube[1].textureView = wgpuTextureCreateView(g.caustic_tex, nullptr);
         ube[2].binding = 2; ube[2].sampler = wgpuDeviceCreateSampler(g.device, &csd);
+        ube[3].binding = 3; ube[3].textureView = ube[1].textureView;   // no reflection outside the water's draw
         WGPUBindGroupDescriptor ubd = {};
-        ubd.layout = bgl_u; ubd.entryCount = 3; ubd.entries = ube;
+        ubd.layout = bgl_u; ubd.entryCount = 4; ubd.entries = ube;
         g.ubuf = wgpuDeviceCreateBuffer(g.device, &ud);
         ube[0].buffer = g.ubuf;
         g.ubind = wgpuDeviceCreateBindGroup(g.device, &ubd);
@@ -1243,6 +1330,9 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
             g.ubind_cvr[i] = wgpuDeviceCreateBindGroup(g.device, &ubd);
         }
         g.ubuf_water = wgpuDeviceCreateBuffer(g.device, &ud);
+        g.ubuf_refl = wgpuDeviceCreateBuffer(g.device, &ud);
+        g.ubuf_mirror = wgpuDeviceCreateBuffer(g.device, &ud);
+        g.ubuf_shd = wgpuDeviceCreateBuffer(g.device, &ud);
         g.tex_layout = bgl_t;
         g.u_layout = bgl_u;
     }
@@ -1338,6 +1428,13 @@ static void write_mvp(Gpu& g, const Mat4& mvp) {
         u[30] = float(i + 1);
         wgpuQueueWriteBuffer(g.queue, g.ubuf_cvr[i], 0, u, sizeof(u));
     }
+    u[30] = 5.0f;                                        // a mirror floor's (main.cpp's mirror())
+    wgpuQueueWriteBuffer(g.queue, g.ubuf_mirror, 0, u, sizeof(u));
+    // A boss shadow's receivers (main.cpp's boss_shadow()): c3 of b_ndst1_trn_shadowed = (0.5 - cx sc, 0.5 - cz sc,
+    // sc, cy), sc = 0.5 / E [EXPORT 005f92b0.c:424-429] -- here the centre and sc themselves -- and the strength.
+    u[28] = g_bshadow.cx; u[29] = g_bshadow.cz; u[30] = 6.0f; u[31] = 0.5f / g_bshadow.E; u[27] = g_bshadow.strength;
+    wgpuQueueWriteBuffer(g.queue, g.ubuf_shd, 0, u, sizeof(u));
+    u[27] = 0.0f;
     // The water's: the diffuse in the light's place, the bump matrix and the phase in the caustic's
     // (main.cpp's water()). theta = phase x 0.2, M00 = M11 = 0.01 cos, M10 = -M01 = 0.01 sin [BYTES 0x5dfea9..0x5dff46].
     // [approx] retail adds the frame's interpolation factor (0..1) to the phase before the x 0.2.
@@ -1345,6 +1442,9 @@ static void write_mvp(Gpu& g, const Mat4& mvp) {
     u[28] = 0.01f * std::cos(g_water.phase * 0.2f); u[29] = 0.01f * std::sin(g_water.phase * 0.2f);
     u[30] = 4.0f; u[31] = g_water.phase;
     wgpuQueueWriteBuffer(g.queue, g.ubuf_water, 0, u, sizeof(u));
+    std::memcpy(&u[16], g_water.rtint, 16);
+    u[27] = g_water.ron ? 1.0f : 0.0f;                   // without this frame's reflection: as water2
+    wgpuQueueWriteBuffer(g.queue, g.ubuf_refl, 0, u, sizeof(u));
 }
 
 // Advance every scrolling material by `ticks` and rewrite its vertices' UVs.
@@ -1382,16 +1482,28 @@ static void advance_scroll(Gpu& g, Room& room, int ticks) {
 
 // part 0: the whole room (headless / backgrounds). part 1: the room's layers 3 and 5 (the
 // frame's first pass, it clears). part 2: layer 0xb only, loaded over the actors drawn
-// between (room_late_layer).
+// between (room_late_layer). part 3: part 1 as the water's reflection pass draws it. Retail clears that target to
+// 0xff000000 [BYTES 0x5dff52..0x5e007f: Clear(0, NULL, 3, 0xff000000, 1.0, 0)] -- the colour it clears the back
+// buffer to as well, so water that mirrors the void beside a room shows what the void itself shows. [approx]
+// CleriaCore's frame is cleared to its own dark colour, and the reflection pass uses that one: with 0xff000000
+// the water beside S_2005's left pillar mirrored a black the frame has nowhere else. part 4: the mirror pass's
+// layer 0 -- the header-0x100 objects' passes 0 and 2, cleared to 0xff000000. part 5: every subset of the
+// object whose vertices are [g_mirror.v0, g_mirror.v1), over what the target holds (FUN_00562650's pass -1).
+// part 6: the same into a target cleared to 0 (a boss's shadow pass with draw flags 4, view_boss_shadow.inl).
+// Parts 1 and 2 leave the header-0x100 objects out.
 static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureView depth, int part = 0) {
     caustic_upload(g);
+    const bool load = part == 2 || part == 5;
+    const std::vector<std::uint8_t>& mk = mirror_kinds(room);
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPURenderPassColorAttachment ca = {};
     ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    ca.loadOp = part == 2 ? WGPULoadOp_Load : WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
+    ca.loadOp = load ? WGPULoadOp_Load : WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
     ca.clearValue = {0.055, 0.067, 0.086, 1.0};
+    if (part == 4) ca.clearValue = {0, 0, 0, 1.0};
+    if (part == 6) ca.clearValue = {0, 0, 0, 0};
     WGPURenderPassDepthStencilAttachment da = {};
-    da.view = depth; da.depthLoadOp = part == 2 ? WGPULoadOp_Load : WGPULoadOp_Clear;
+    da.view = depth; da.depthLoadOp = load ? WGPULoadOp_Load : WGPULoadOp_Clear;
     da.depthStoreOp = WGPUStoreOp_Store;
     da.depthClearValue = 1.0f;
     WGPURenderPassDescriptor rp = {};
@@ -1411,15 +1523,31 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
         for (std::size_t bi = 0; bi < room.mesh.batches.size(); ++bi) {
             const DrawBatch& b = room.mesh.batches[bi];
             if (b.index_count == 0) continue;
-            if (part != 0 && room_late_layer(b) != (part == 2)) continue;
+            if (part == 5 || part == 6) {
+                if (b.first_vert < g_mirror.v0 || b.first_vert >= g_mirror.v1) continue;
+            } else if (part == 4) {
+                if (!mk[bi] || room_late_layer(b)) continue;
+            } else if (part != 0) {
+                if (mk[bi] || room_late_layer(b) != (part == 2)) continue;
+            }
             const float ka = bi < room.batch_alpha.size() ? room.batch_alpha[bi] : 1.0f;   // the object's alpha
             if (ka <= 0.0f) continue;                       // FUN_005faca0: nothing at a = 0
             // The water path (g_water): variants 8 / 9 force the mode to 0, the alpha to 1 [BYTES 0x5fa097..0x5fa0ca].
             const bool wat = part == 2 && g_water.on && water_material(b);
-            const int mode = wat ? 0 : material_blend_mode(b, b.mat_alpha * ka);
+            // The mirror path (g_mirror): variant 10 forces the mode to 0 and keeps the alpha [EXPORT 005f92b0.c case 10].
+            const bool mir = part == 2 && g_mirror.on && !wat && (b.mat_flags & 0x800000u) != 0;
+            const int mode = wat || mir ? 0 : material_blend_mode(b, b.mat_alpha * ka);
             if ((mode != 0) != (blended != 0)) continue;
+            if (part == 4 && mode >= 2) continue;           // pass 4 (additive) is on layer 1, filtered out there
             const int cv = caustic_stage(b, cvr_room);
-            if (WGPUBindGroup ub = wat ? g.ubind_water : cv ? g.ubind_cvr[cv - 1] : g.ubind; ub != ub_now)
+            // A boss shadow's receiver: FUN_005f92b0's variant 0xc -- flag 0x10000000 while 0x7b2e74 != 0 and no
+            // other variant was chosen -- on a lit material (flag 2: the others get the stages but a shader without
+            // the coordinate) [BYTES 0x5f9782..0x5f97f5, 0x5fa921..0x5fa93d]. [approx] the model-kind rule is left out
+            // (the four shipped models with the flag pass it).
+            const bool shd = g_bshadow.on && part < 3 && !wat && !mir && cv == 0 && (b.mat_flags & 0x10000002u) == 0x10000002u;
+            if (WGPUBindGroup ub = wat ? (water_reflects(b) ? g.ubind_refl : g.ubind_water)
+                                   : mir ? g.ubind_mirror : shd ? g.ubind_shd : cv ? g.ubind_cvr[cv - 1] : g.ubind;
+                ub != ub_now)
                 wgpuRenderPassEncoderSetBindGroup(pass, 0, ub_now = ub, 0, nullptr);
             // A resolved (or failed-load) texture is in room.binds; a genuinely untextured
             // material (index -1) renders its dark diffuse via black_bind, not white.
@@ -1434,7 +1562,7 @@ static void draw(Gpu& g, const Room& room, WGPUTextureView color, WGPUTextureVie
                 wgpuRenderPassEncoderSetPipeline(pass, cull ? g.cull_zpre_pipe : g.zpre_pipe);
                 wgpuRenderPassEncoderDrawIndexed(pass, b.index_count, 1, b.first_index, 0, 0);
             }
-            const int glare = g.glare_pipe && !wat ? int(float(b.alpha_ref) * b.mat_alpha * ka) : 0;   // g (a >= 1 here)
+            const int glare = g.glare_pipe && !wat && !mir ? int(float(b.alpha_ref) * b.mat_alpha * ka) : 0;   // g (a >= 1 here)
             if (blended)
                 wgpuRenderPassEncoderSetPipeline(pass, (cull ? g.cull_mat_pipe : g.mat_pipe)[mode][material_zwrite(b) ? 1 : 0]);
             else if (glare >= 1) {

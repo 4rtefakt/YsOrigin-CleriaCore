@@ -31,6 +31,21 @@ auto hud_state_tick = [&]() {
     if (!csMgr.world_frozen() && hudstate::tick_buffs(inv)) (void)player_stats();   // FUN_00420c40 | 0x75: the buffs left the stats
     buff_aura(inv.def_buff, 0x25, "#buff_def");
     buff_aura(inv.mp_buff, 0x26, "#buff_mp");
+    // The Boost aura (39, Toal's 171; player+0x758) the same way: the scene entry spawns it again for the new player
+    // actor while the mode bit 0x20 is set [EXPORT 00461d30.c:280-388] -- a door crossed while boosting, a load or a
+    // Retry of a snapshot taken inside a Boost. try_boost spawns the first one, end_boost kills it. Only then: an
+    // aura that ran out by itself leaves its handle set and is not spawned again.
+    const bool aura_entry = boost_aura_entry;
+    boost_aura_entry = false;
+    if (aura_entry && player.boosting) {
+        bool live = false;
+        for (auto& f : fxsim.effects()) if (!f->dead && !f->kill && f->name == "#boost_aura") live = true;
+        if (!live)
+            if (ef2sim::Effect* a = attach_to_player(spawn_sim_fx(character == 3 ? 171 : 39, {}, {}, 1.0f, {}, 0, {}), {}, camera_yaw())) {
+                a->name = "#boost_aura";
+                std::printf("  [boost] aura %d on again\n", character == 3 ? 171 : 39);
+            }
+    }
 };
 auto hud_state_fill = [&]() {
     skillmp::CostIn ci;
@@ -40,6 +55,7 @@ auto hud_state_fill = [&]() {
     ci.bc80 = std::uint32_t(game.g_flags[217]);
     ci.acc_mp = (inv.equip_flags & 0x200000u) != 0;
     ci.boosting = player.boosting;
+    ci.adol_alt = character == 0 && skin == 1;              // Napishtim: 0x68a408 = 1500 / 1800 / 1200 (ADOL.md §3)
     player.skill_ready = hudstate::skill_ready(ci, player.sp_cur);
     player.charge_level = skill_charge.level;
     player.pulse = hud_pulse_ticks * (skill_charge.level == 2 ? 6 : 3);

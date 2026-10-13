@@ -126,6 +126,14 @@ struct Actor {
     // cast type, which makes the two look interchangeable across the corpus; they are
     // not. EVNT_3002_THOR.XSO spawns five instances of cast 35 as ids 167..171.
     int instance_id = 0;
+    // CleriaCore's own (the mods' puppets, API 7; not retail): the sprite set drawn for this actor instead of its
+    // cast's ("C_103" = Hugo's player sprites). Empty = the cast's own.
+    std::string sprite_override;
+    // CleriaCore's own (the mods' monster variants, API 7; not retail): the variant's id ("<mod>:<name>", empty = a
+    // plain monster), a display name, its handler held (a statue the mod moves), the boss gauge shown for it.
+    std::string mod_kind, mod_name;
+    bool mod_ai_off = false, mod_boss = false;
+    std::uint32_t mod_spec = 0;   // (API 7) a puppet's glow: the colour added to its sprite, 0 = none (the player's +0x14c)
     int cast_id = 0;      // engine: +0x124. Indexes CASTINFO; 13 is the player.
     int enemy_index = -1; // ours: enemies.hpp fold of cast_id, or -1 if not an enemy.
     std::uint32_t kind = 0;  // engine: +0x60, the kind word. See kind_word().
@@ -201,6 +209,11 @@ struct Actor {
     int anim_motion = -1;
     // Op 0x152 Chr_Pattern (FUN_005712e0, CHR_OPS.md §4): the pinned AIA tag/frame; freezes the ASO.
     PatternPin pattern;
+    // +0x97c: the index of the AIA file the sprite is decoded from (the anime_File numbering, aso_aia_name); -1 =
+    // not set, the cast's own sheet. Written by the actor's ASO (a section start, anime_File: AsoVm::bind_file)
+    // and by op 0x167 Chr_AniChange, which exists because a Chr_Pattern pin stops the ASO.
+    // build/event_re/ANI_VARIANT.md.
+    std::int32_t aia_file = -1;
     // The look block +0x308/+0x39a/+0x370/+0x350/+0x354/+0x360/+0x36c (ops 0x132..0x138, §6).
     // look.cmd is +0x308 and `yaw` is +0x314 (in the CleriaCore basis; chr_state.hpp).
     LookState look;

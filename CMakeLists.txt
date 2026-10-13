@@ -13,6 +13,9 @@ if(MSVC)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
   add_compile_options(-Wall -Wextra)
+  # No fused multiply-add: a * b + c rounds twice, as MSVC's /fp:precise does on x64. clang contracts by
+  # default (skilltest's slow fall differed by one ulp in CI), and gcc does wherever the CPU has FMA (arm64).
+  add_compile_options(-ffp-contract=off)
 endif()
 
 set(TP "${CMAKE_SOURCE_DIR}/third_party")

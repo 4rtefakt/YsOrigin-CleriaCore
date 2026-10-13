@@ -43,6 +43,7 @@ struct Spawn {
     std::uint32_t f158 = 0, f15c = 0, f160 = 0;   // trail effect, trail period, homing period (ints)
     float f164 = 0;                               // homing max turn, radians
     float f168 = 0, f16c = 0, f170 = 0, f174 = 0; // per kind (§1.1)
+    bool show_only = false;       // CleriaCore's own (mods, API 7; not retail): side 2, its particles hit nobody
 };
 
 // FUN_00593550's stack block as a brain pushes it (`f` = its 13 floats, Boss01Bullet::f): the
@@ -172,6 +173,8 @@ class Bullets {
   public:
     using Ef2Of = std::function<const Ef2*(int id)>;
     Bullets(ef2sim::System* fx, Ef2Of ef2_of) : fx_(fx), ef2_of_(std::move(ef2_of)) {}
+    // CleriaCore's own (mods, API 7): told of each bullet of the player's side as it is asked for.
+    std::function<void(const Spawn&)> on_player_spawn;
     // FUN_00593550 (kind != 0xf) -> FUN_00593b90: the record, its effect armed with the hit
     // fields and attached to the bullet's matrix. Returns the bullet, or nullptr when the
     // effect could not spawn.
@@ -190,6 +193,8 @@ class Bullets {
     Bomb* spawn_bomb(const Spawn& s);
     std::vector<std::unique_ptr<Bomb>>& bombs() { return bombs_; }
     void set_rng(std::function<std::uint32_t()> r) { rng_ = std::move(r); }
+    // DAT_0074c0d8 (Hugo's Extra version, EXTRA_VERSIONS.md §3): spawn() speeds every effect-0x82 bullet x 1.35.
+    void set_hugo_extra(bool on) { hugo_extra_ = on; }
 
   private:
     ef2sim::Effect* spawn_fx(int id, const Vec3& pos, const Vec3& rot, int side, float atk,
@@ -206,6 +211,7 @@ class Bullets {
     std::vector<std::unique_ptr<WaterProbe>> probes_;
     std::vector<std::unique_ptr<Bomb>> bombs_;
     std::function<std::uint32_t()> rng_;
+    bool hugo_extra_ = false;
 };
 
 }  // namespace cleria::bullet

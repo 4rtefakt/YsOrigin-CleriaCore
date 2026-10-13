@@ -58,6 +58,9 @@ class Audio {
     // restarted: its fade is cancelled and it plays on at the new volume. A record with the `loop`
     // flag loops until stopped (rec+8 & 1 -> the buffer's Play flags, FUN_005d8ab0).
     void play(int id, float volume = 1.0f, float level = 1.0f);
+    // CleriaCore's own (the mods' cleria.audio.play, API 7; not retail): a WAV file by its path, played 2-D like a
+    // record with no limits (no dup cap, no loop). The file is decoded once and kept. False when it does not load.
+    bool play_file(const std::filesystem::path& wav, float volume = 1.0f);
 
     // Positional play (AUDIO.md: the engine's SE path FUN_0045d7a0 plays at the
     // emitter's position; EFFECTDEF carries per-record `dup` = max simultaneous
@@ -180,6 +183,8 @@ class Audio {
     EffectDefs defs_;
     std::filesystem::path root_;
     std::unordered_map<int, std::unique_ptr<Clip>> clips_;  // id -> decoded, cached
+    static constexpr int kFileBase = 1 << 24;               // play_file's clips: ids past every EFFECTDEF record
+    std::vector<std::filesystem::path> files_;              // kFileBase + index -> the file
     std::vector<Voice> voices_;
     int rate_ = 44100, channels_ = 2;
     float master_ = 1.0f;   // SFX slider 0..1 (Option screen), before the taper

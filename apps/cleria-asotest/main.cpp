@@ -253,6 +253,21 @@ int main(int argc, char** argv) {
                         ok ? "OK" : "MISMATCH", h.radius, h.fwd, h.voff, h.life, h.rehit, int(h.one_shot));
             if (!ok) gencol_fail = 1;
         }
+        // Issue #102: the bound pin (vm[0x4b] / [0x4c]) is dropped by a section start and by a request the type
+        // test then refuses (M_250: the hit reaction 4 is type 4, the attack 7 type 3).
+        Aso np = Aso::load(fs::path(argv[1]) / "ANI" / "M_250.ASO");
+        if (np.ok()) {
+            AsoVm vm; vm.bind(&np);
+            std::int32_t tag = 300, frame = 3;
+            vm.bind_pin(&tag, &frame);
+            vm.set_section(4, /*force*/true);
+            const bool start = tag == -1 && frame == 0;
+            tag = 300; frame = 3;
+            const bool refused = !vm.set_section(7) && vm.section() == 4;
+            const bool ok = start && refused && tag == -1 && frame == 0;
+            std::printf("pin release M_250 (start 4, refused 7): %s\n", ok ? "OK" : "MISMATCH");
+            if (!ok) gencol_fail = 1;
+        }
         // anime_GenerateEffect (0x25): Perrie's run section 1 lays its fire puff,
         // GenerateEffect(251, 0, 0, -0.25, 1, 0, rtype 1, status 0, power 0, knock 1) (EFFECTHIT.md §7).
         Aso pe = Aso::load(fs::path(argv[1]) / "ANI" / "M_540.ASO");
@@ -377,6 +392,31 @@ int main(int argc, char** argv) {
                 if (seen.empty() || seen.back() != vh.sprite_depth_offset()) seen.push_back(vh.sprite_depth_offset());
             }
             say(c20.ok() && seen == std::vector<float>{0.0f, 0.45f, 0.65f}, "CameraDistanceOffset C_020 section 5: 0 -> 0.45 -> 0.65");
+        }
+        // FUN_00446550(id, 0) (issue #99) [BYTES 0x446550..0x44661a]: a request for the running section restarts
+        // it, a lower type is refused, a missing id becomes section 0 and returns 0. anime_Raise is the ungated
+        // FUN_00446620 and runs on in the new section [EXPORT 004472e0.c:345-357].
+        {
+            Aso c10 = Aso::load(fs::path(argv[1]) / "ANI" / "C_010.ASO");
+            AsoVm vm; vm.bind(&c10); vm.set_section(0x100, /*force*/true);
+            vm.tick();
+            const int tag0 = vm.anim_tag(), frame0 = vm.frame();
+            for (int t = 0; t < 12; ++t) vm.tick();
+            const bool moved = vm.frame() != frame0 || vm.anim_tag() != tag0;
+            const bool refused = !vm.set_section(2) && vm.section() == 0x100;
+            const bool took = vm.set_section(0x100);
+            vm.tick();
+            say(c10.ok() && moved && refused && took && vm.section() == 0x100 && vm.anim_tag() == tag0 && vm.frame() == frame0,
+                "set_section C_010: 0x100 asked again restarts it from its first frame; idle 2 is refused under it");
+            vm.set_section(2, /*force*/true);
+            say(!vm.set_section(0x7777) && vm.section() == 0 && !vm.set_section(0x7777, /*force*/true),
+                "set_section C_010: a missing id switches to section 0 and returns false (the forced form does nothing)");
+            Aso m230 = Aso::load(fs::path(argv[1]) / "ANI" / "M_230.ASO");
+            AsoVm vr; vr.bind(&m230); vr.set_section(303, /*force*/true);
+            int at = -1;
+            for (int t = 0; t < 600 && at < 0; ++t) { vr.tick(); if (vr.section() == 0x130) at = t; }
+            vr.tick();
+            say(m230.ok() && at >= 0 && vr.section() == 0x130, "anime_Raise M_230 sec 303: the VM is in section 0x130 and stays in it");
         }
         // anime_GenerateDebris (0x26) — ASO_NOOPS.md §3.3: the death section's op.
         auto debris_of = [&](const char* file, int* tick) {

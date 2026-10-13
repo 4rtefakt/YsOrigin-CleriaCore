@@ -186,6 +186,14 @@ fs::path resolve(const fs::path& p) {
 #endif
 }
 
+fs::path on_disk(const fs::path& p) {
+#ifndef _WIN32
+    return case_fold(p);
+#else
+    return p;
+#endif
+}
+
 fs::path locate(std::string_view vname) {
     const std::string k = key(vname);
     if (const auto it = g_table.find(k); it != g_table.end()) return it->second.file;

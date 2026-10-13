@@ -3,6 +3,8 @@
 // order; this turns each into screen quads: the texture times the diffuse PLUS the specular
 // (the D3D9 specular add the book's flash/pulse rides on), opaque for 0x20001.
 // #included by main.cpp after view_menus.inl; ONE translation unit.
+#include "cleria/json.hpp"
+#include "cleria/sidecar.hpp"
 
 struct BookVertex { float x, y, u, v; std::uint8_t d[4]; std::uint8_t s[4]; };
 
@@ -591,6 +593,13 @@ static SlotCard scan_slot(const fs::path& file) {
     c.play_frames = r->hdr_u32(0x64);
     c.character = meta.character;
     c.date = meta.date; c.time = meta.time; c.area = meta.area;
+    // CleriaCore's own (cleria.save.card, API 7): a mod's line for this save, after the area's name.
+    for (const auto& [id, kv] : read_sidecar(file).mod) {
+        const auto it = kv.find("cleria.card");
+        if (it == kv.end()) continue;
+        const auto j = json::parse(it->second);
+        if (j && j->is_string() && !j->as_string().empty()) c.area += "  [" + j->as_string().substr(0, 40) + "]";
+    }
     return c;
 }
 

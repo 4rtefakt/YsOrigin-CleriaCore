@@ -12,6 +12,13 @@ const int kGround[4][7] = {{0x100, 0x103, 0x104, 0x101, 0x102, 0x105, 0x109},
                            {0x100, 0x103, 0x104, 0x101, 0x102, 0, 0}};
 const int kGroundLen[4] = {6, 4, 2, 5};
 const int kAir[3] = {0x106, 0x107, 0x108};   // 0x732674, length 0x73267c = 3: the AIR combo
+// Napishtim Adol's ground combos by bracelet slot [BYTES: 0x68a4fc[k] -> 0x68af88 / 0x68af78 / 0x68af80 / 0x68af98,
+// lengths u8 0x68af70; selection 0x46ef69..0x46ef8f, length 0x46f361..]; his air combo is the common one.
+const int kNapGround[4][8] = {{0x113, 0x114, 0x115, 0x116, 0x117, 0x118, 0x119, 0x11a},
+                              {0x121, 0x122, 0x123, 0, 0, 0, 0, 0},
+                              {0x11b, 0x11d, 0x11f, 0, 0, 0, 0, 0},
+                              {0x100, 0x103, 0x104, 0, 0, 0, 0, 0}};
+const int kNapLen[4] = {8, 3, 3, 3};
 constexpr float kPi = 3.14159265f, k2Pi = 6.2831853f;
 float wrap(float a) { a = std::fmod(a + kPi, k2Pi); if (a < 0) a += k2Pi; return a - kPi; }
 }  // namespace
@@ -117,10 +124,10 @@ PlayerActions::Out PlayerActions::tick(const In& in) {
     if (in.jump_pressed && !in.busy && in.jump_enable && tap_window == 0) {
         if (in.grounded && !loco_air) {
             o.jump = true;
-        } else if (!in.submerged && in.flag163 && in.kind != 2 && dj_count == 0 &&
+        } else if (!in.submerged && in.kind != 2 && dj_count < (in.flag163 ? 1 : 0) + in.extra_air_jumps &&   // retail: flag163, +0x77c == 0
                    dj_cool == 0 && in.t <= 0.15f) {                                  // 0x6bd1d8
             o.double_jump = true;
-            dj_count = 1; dj_cool = 6;
+            ++dj_count; dj_cool = 6;
         }
     }
     if (o.jump || o.double_jump) loco_air = true;                  // +0x3a0 = 3 [:1918]
@@ -140,6 +147,7 @@ PlayerActions::Out PlayerActions::tick(const In& in) {
 // FUN_0046ea00(0): choose the swing.
 void PlayerActions::dispatch(const In& in, Out& o, int ch) {
     bool advance = false;   // bVar2: the stage advances after this swing
+    const bool nap = ch == 0 && in.adol_slot >= 0 && in.adol_slot < 4;
     bool done = false;
     if (stage == 0) {
         if (in.grounded) {
@@ -168,7 +176,7 @@ void PlayerActions::dispatch(const In& in, Out& o, int ch) {
         lunge_t = 4;
         lunge_v = (ch == 2 ? 0.015f : 0.1275f) - float(stage) * 1e-4f;
         if (!air_combo) {
-            o.section = kGround[ch][stage];
+            o.section = nap ? kNapGround[in.adol_slot][stage] : kGround[ch][stage];
             advance = true;
         } else {
             static const float kHang[4][3] = {{0.003f, 0.0375f, 0.22f}, {0.025f, 0.038f, 0.28f},
@@ -184,7 +192,7 @@ void PlayerActions::dispatch(const In& in, Out& o, int ch) {
     o.new_attack = o.section >= 0;
     if (advance) {
         if (tap_window == 0) ++stage;
-        const int len = air_combo ? 3 : kGroundLen[ch];
+        const int len = air_combo ? 3 : nap ? kNapLen[in.adol_slot] : kGroundLen[ch];
         if (stage >= len) stage = 0;
     } else {
         stage = 0;

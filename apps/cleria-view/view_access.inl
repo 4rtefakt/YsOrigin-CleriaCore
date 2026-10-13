@@ -146,6 +146,14 @@ static void access_gameplay_page(ui::List& L, const std::function<void()>& persi
         a.game_speed = pct / 100.0f;
         persist();
     }
+    ui::section(L, "Game over");
+    if (ui::toggle(L, "Retry from mod saves", &a.mod_save_retry,
+                   "Where Retry puts you after a game over. Off, as in the original game: at the game's own last "
+                   "checkpoint (the last goddess statue room you entered, the start of the boss fight or duel, or "
+                   "your last save or load), with everything as it was then. On: a save written by a mod (the "
+                   "Archipelago mod's Autosave) is a checkpoint too, so Retry starts in the room where it last "
+                   "saved. Not a retail option."))
+        persist();
 }
 
 static void access_cheats_page(ui::List& L, const std::function<void()>& persist) {

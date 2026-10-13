@@ -34,7 +34,10 @@ constexpr const char* kArenaScenes[7] = {"S_9109", "S_9119", "S_9129", "S_9139",
 int time_attack_count(int character) { return kCount[character & 3]; }
 const char* time_attack_name(int character, int row) { return kNames[character & 3][std::clamp(row, 0, 13)]; }
 const char* time_attack_scene(int character, int row) {
-    return ((character & 3) == 3 ? kScenesToal : kScenes)[std::clamp(row, 0, 13)];
+    // The table first, then the row: gcc 13 at -O2 miscompiles the subscript of the conditional itself
+    // (std::clamp's reference to a dead temporary: row 6 read as row 0).
+    const char* const* scenes = (character & 3) == 3 ? kScenesToal : kScenes;
+    return scenes[std::clamp(row, 0, 13)];
 }
 const char* arena_name(int row) { return kArenaNames[std::clamp(row, 0, 6)]; }
 const char* arena_scene(int row) { return kArenaScenes[std::clamp(row, 0, 6)]; }

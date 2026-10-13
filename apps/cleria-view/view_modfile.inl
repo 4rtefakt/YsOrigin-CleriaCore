@@ -233,7 +233,21 @@ static void modfile_hud(ImDrawList* dl, float w, float h) {
         ui::text(dl, ui::F.body, px, {a.x + 19.0f * S, a.y + 40.0f * S + float(i) * 22.0f * S}, ui::kDesc, lines[i].c_str());
 }
 
-// The native open-file dialog (*.cleriamod; *.zip). Never in a drive run.
+#ifndef _WIN32
+// Off Windows the dialog is SDL's (the desktop portal, else zenity; Cocoa on macOS). It answers later, from
+// the event pump or a thread of its own: modfile_rows takes the answer on a following frame.
+static std::mutex g_modfile_pick_mu;
+static std::string g_modfile_picked;
+static fs::path modfile_pick_take() {
+    std::lock_guard<std::mutex> lk(g_modfile_pick_mu);
+    fs::path p = g_modfile_picked;
+    g_modfile_picked.clear();
+    return p;
+}
+#endif
+
+// The native open-file dialog (*.cleriamod; *.zip). Never in a drive run. On Windows it returns the file; off
+// Windows it only opens the dialog and returns nothing (modfile_pick_take has the file later).
 static fs::path modfile_pick() {
     if (std::getenv("CLERIA_DRIVE")) { std::printf("[modfile] install dialog (not in a drive run)\n"); return {}; }
 #ifdef _WIN32
@@ -247,6 +261,14 @@ static fs::path modfile_pick() {
     o.lpstrTitle = L"Install a mod file";
     o.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
     if (GetOpenFileNameW(&o)) return fs::path(buf);
+#else
+    static const SDL_DialogFileFilter filters[] = {{"CleriaCore mods (*.cleriamod, *.zip)", "cleriamod;zip"},
+                                                   {"All files", "*"}};
+    SDL_ShowOpenFileDialog([](void*, const char* const* list, int) {
+        if (!list || !list[0]) return;      // cancelled or failed
+        std::lock_guard<std::mutex> lk(g_modfile_pick_mu);
+        g_modfile_picked = list[0];
+    }, nullptr, SDL_GetKeyboardFocus(), filters, 2, nullptr, false);
 #endif
     return {};
 }
@@ -276,6 +298,9 @@ static void modfile_rows(ui::List& L, ModsUi& u) {
                    "the same. It loads when CleriaCore restarts.")) {
         if (const fs::path p = modfile_pick(); !p.empty()) modfile_install_ui(u, p);
     }
+#ifndef _WIN32
+    if (const fs::path p = modfile_pick_take(); !p.empty()) modfile_install_ui(u, p);
+#endif
     if (!f.tab_msg.empty()) ui::info(L, "", f.tab_msg.c_str(), f.tab_err ? ui::kWarn : ui::kGood, f.tab_msg.c_str());
     bool on = settings().s.cleria.mod_associate;
     if (ui::toggle(L, "Open .cleriamod files with CleriaCore", &on,

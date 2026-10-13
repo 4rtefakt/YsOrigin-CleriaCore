@@ -88,6 +88,13 @@ class ActorWorld : public XsoHost {
     // seed). Null = no draw (headless tools).
     std::uint32_t* rng = nullptr;
 
+    // CleriaCore's own (the mods' "spawn" filter, API 7; not retail): asked once for every ENEMY about to be built,
+    // before the factory. It may name another enemy cast, another level (0 = the cast's own), scale the stats the
+    // spawn computes, or skip the spawn (spawn() then returns null, as for an unknown cast). Null = nothing is asked.
+    struct SpawnTweak { int cast = 0, level = 0; float hp = 1, atk = 1, def = 1, exp = 1, sp = 1; bool skip = false; };
+    std::function<void(const SpawnRequest&, SpawnTweak&)> spawn_filter;
+    std::function<void(const Actor&)> on_spawned;    // CleriaCore's own (mods, API 7): an enemy actor now exists
+
     // The spawn op, end to end (FUN_00570400). Returns null if the cast is unknown.
     //
     // ** An existing actor with this id is REUSED, not duplicated ** — step 1 of the
@@ -243,6 +250,10 @@ class ActorWorld : public XsoHost {
     // 0x152 Chr_Pattern (FUN_005712e0): the sprite pin (+0xa1c/+0xa20). CHR_OPS.md §4.
     void chr_pattern(int id, int tag, int frame) override {
         if (Actor* a = find(id)) { a->pattern.tag = tag; a->pattern.frame = frame; }
+    }
+    // 0x167 Chr_AniChange (FUN_00571ec0): +0x97c = file, the AIA the sprite is decoded from. ANI_VARIANT.md.
+    void chr_anichange(int id, int file) override {
+        if (Actor* a = find(id)) a->aia_file = file;
     }
     // 0x145 Chr_RunOrWalk (FUN_00570fb0): +0x12c bit 0x20 = run. CHR_OPS.md §5.
     void chr_run(int id, bool run) override {

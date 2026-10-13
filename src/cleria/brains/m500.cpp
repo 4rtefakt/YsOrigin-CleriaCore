@@ -9,8 +9,7 @@
 // within 60 deg -> attack (section 7): at its Marker(1), 1/2/3 poison balls (d < 0 / 0 / >= 1,
 // effect 448 m_dokutama, speed 0.1, gravity 0.004, lobbed by distance), 1 or 2 volleys
 // (+1 when group-tagged), then a cooldown of (R%30 + 60) x 3 (x 2 above Normal).
-// [not modelled] the keep-out box restore (FUN_0042dc90); the water-set up-ray of the
-// relocation (the room collision has no water set, so it never blocks); +0x144 (CASTINFO
+// [not modelled] the keep-out box restore (FUN_0042dc90); +0x144 (CASTINFO
 // +0x3c) scaled by the fade; the bullet's damage (the GoXx path is untraced).
 #include <cmath>
 
@@ -123,7 +122,9 @@ AiOut m500(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                                          w.ray({(cx + 0.5f) - 1.0f, cy, cz}, D).hit &&
                                          w.ray({x2, cy, cz + 0.5f}, D).hit &&
                                          w.ray({x2, cy, (cz + 0.5f) - 1.0f}, D).hit;
-                        if (all) {
+                        // R6 (M500.md l.218-219): the set-1 ("water") ray 50 straight up from the floor hit —
+                        // a spot with water over it is refused.
+                        if (all && !(w.water_under({R1.point.x, R1.point.y + 50.0f, R1.point.z}, -50.0f) > -1.0e29f)) {
                             const Vec3 H = R1.point;
                             Vec3 vv{T.x - cx, T.y - H.y, T.z - cz};
                             const float l = std::sqrt(vv.x * vv.x + vv.y * vv.y + vv.z * vv.z);

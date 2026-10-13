@@ -26,10 +26,10 @@ namespace cleria {
 // entries) — `FUN_0040a460(buf, "data\\ani\\%s.aia", table[id])`. Engine data, so
 // it lives in code, not assets.
 //
-// Only the entries the player scripts use are reproduced here; the full 269 are not
-// dumped, and every M_*.ASO calls anime_File ZERO times (enemies just use their
-// same-named .aia sidecar), so these nine are the ones that matter. Returns "" for
-// anything else.
+// The whole table [BYTES 0x68a800: 269 pointers, c_000 .. c_982], upper-cased like the asset
+// stems; "" outside it. Among the ASOs only the player scripts (C_010 / C_020 / C_030, C_980)
+// and the three NPC / duel scripts M_800 / M_810 / M_820 call anime_File; every other one uses
+// its header's default sheet, which is its same-named .aia (build/event_re/ANI_VARIANT.md §2.2).
 //
 // This is what picks the sprite: in C_010 (Yunica), `Flag_IsEqualInt(161,1)` guards
 // `anime_File(6)` = c_102 and falls through to `anime_File(15)` = c_111. So flag 161
@@ -58,8 +58,13 @@ class Aso {
     const std::vector<Section>& sections() const { return sections_; }
     const Section* find(std::int32_t id) const;
     const std::vector<std::uint32_t>& code() const { return code_; }
+    // Header +0xc: the script's default AIA file index (the anime_File numbering). A section start writes it to
+    // the sprite's file [EXPORT 00446620.c: sprite[0x23] = *(aso.data + 0xc)]. 13 = C_101 on disk for the three
+    // player scripts and for M_800 / M_810 / M_820, whose sections open with their own anime_File.
+    std::int32_t default_file() const { return default_file_; }
 
   private:
+    std::int32_t default_file_ = -1;
     std::vector<Section> sections_;
     std::vector<std::uint32_t> code_;  // the whole blob, indexed in dwords
 };
@@ -68,15 +73,25 @@ class Aso {
 class AsoVm {
   public:
     void bind(const Aso* aso);
+    // The actor's AIA file index (+0x97c = sprite +0x8c) this VM writes: each section start puts the script's
+    // default there (FUN_00446620) and anime_File its argument (ANI_VARIANT.md §2.1). Without one (the player's
+    // VM) a section start leaves file_id() alone. [not modelled] the player routine FUN_00464fc0, which patches
+    // the loaded header's default to the wanted sheet and restarts a locomotion section when it changes.
+    void bind_file(std::int32_t* actor_file) { file_out_ = actor_file; }
+    // The sprite pin vm[0x4b] / [0x4c] (actor +0xa1c / +0xa20: Chr_Pattern's tag and frame, kept on the actor as
+    // Actor::pattern). A section request that reaches its type test and every section start write -1 / 0 there
+    // (set_section; issue #102). Unbound: nothing is written.
+    void bind_pin(std::int32_t* tag, std::int32_t* frame) { pin_tag_ = tag; pin_frame_ = frame; }
     // Switch to a section by ID. Sections are addressed by id, not index; the VM's
     // initial state is id 2 (idle for the players), present in 112/115 files.
     //
     // Section `type` is a PRIORITY (2 locomotion < 3 attack < 4 special/reaction) and
     // SetSection (FUN_00446550) REFUSES a transition to a lower one — which is exactly
     // why walking cannot interrupt a swing and an attack plays to its own authored
-    // length. Returns false when refused, so callers can simply ask every tick and let
-    // the running animation win. `force` bypasses the check for the internal
-    // end-of-section chain and for hard resets.
+    // length. Returns false when refused. A request for the section already running RESTARTS
+    // it (issue #99), so a caller that asks every tick tests section() first, as retail's do.
+    // A missing id switches to section 0 and returns false. `force` (FUN_00446620) bypasses
+    // the type check for the internal end-of-section chain and for hard resets.
     bool set_section(std::int32_t id, bool force = false);
     std::int32_t section() const { return section_; }
 
@@ -288,6 +303,15 @@ class AsoVm {
     };
     const std::vector<LocusEvent>& loci() const { return loci_; }
 
+    // anime_Special (funcid 0x09) = FUN_00449ed0 [BYTES 0x449ed0..0x44a1c1; build/mode_re/GOXX_17_19.md §5]: the
+    // GoXx spawns of Napishtim Adol's script (C_990.ASO, 14 sites) — a[0] = 1 the kind-0x17 ground runner, 2 the
+    // kind-0x18 chain lightning, 3 the kind-0x19 water rings. The raw dwords, in script order; the host reads
+    // each slot as the handler does (src/cleria/extra_versions.hpp special_runner / special_chain).
+    struct SpecialEvent {
+        std::int32_t a[8] = {};
+    };
+    const std::vector<SpecialEvent>& specials() const { return specials_; }
+
     // Actor capability fields the script drives (ASOVM.md §4, funcids 20..28). These are
     // STATE, not per-tick events: a swing lowers Movable/Turnable during the commit and
     // opens Cancelable/AttackReserve near the end, which is what gives each character its
@@ -369,6 +393,9 @@ class AsoVm {
     std::size_t pc_ = 0;
     std::int32_t wait_ = 0;
     std::int32_t anim_tag_ = -1, frame_ = 0, file_id_ = -1, dir_offset_ = 0;
+    std::int32_t* file_out_ = nullptr;
+    std::int32_t* pin_tag_ = nullptr;
+    std::int32_t* pin_frame_ = nullptr;
     std::int32_t marker_ = -1, marker_wait_ = -1;
 public:
     // anime_Marker's last value = the actor's +0x9bc (sprite[0x33]) that brains read.
@@ -416,6 +443,7 @@ private:
     std::vector<BulletEvent> bullets_;
     std::vector<EffectEvent> effects_;
     std::vector<LocusEvent> loci_;
+    std::vector<SpecialEvent> specials_;
     float movable_ = 1.0f;
     bool turnable_ = true, actable_ = true, cancelable_ = false, atk_reserve_ = false;
     bool atk_break_ = false;

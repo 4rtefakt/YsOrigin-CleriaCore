@@ -1,6 +1,7 @@
 #include "cleria/aso.hpp"
 #include "cleria/vfs.hpp"   // mods: asset opens go through vfs::resolve
 
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 
@@ -82,25 +83,37 @@ static bool flag_compare(std::int32_t a, std::int32_t op, std::int32_t b) {
     }
 }
 
+// The table's 269 names, in its own order [BYTES 0x68a800 + 4n, every pointer followed]. Of note: 6 / 7 / 8 =
+// C_102 / C_103 / C_104 (Yunica's, Hugo's, Toal's event sheets), 11 = C_114 (Yunica's attacks), 12 = C_115 (Toal's
+// demon form), 13 = C_101, 14..17 = C_110..C_113 (the gameplay sheets of Adol, Yunica, Hugo, Toal).
 const char* aso_aia_name(std::int32_t id) {
-    switch (id) {
-        case 6:  return "C_102";   // Yunica  — cutscene set (flag 161 == 1)
-        case 7:  return "C_103";   // Hugo    — cutscene set
-        case 8:  return "C_104";   // Toal    — cutscene set
-        case 11: return "C_114";   // Yunica  — variant
-        case 12: return "C_115";   // Toal    — Boost / demon form
-        case 13: return "C_101";
-        case 15: return "C_111";   // Yunica  — GAMEPLAY set
-        case 16: return "C_112";   // Hugo    — GAMEPLAY set
-        case 17: return "C_113";   // Toal    — GAMEPLAY set
-        default: return "";
-    }
+    struct Names {
+        char n[269][6];
+        Names() {
+            static const std::int16_t c6[12] = {102, 103, 104, 105, 106, 114, 115, 101, 110, 111, 112, 113};
+            static const std::int16_t c88[6] = {120, 121, 122, 131, 132, 133};
+            int i = 0;
+            auto put = [&](char c, int v) { std::snprintf(n[i++], 6, "%c_%03d", c, v); };
+            for (int v = 0; v <= 50; v += 10) put('C', v);          //   0..5
+            for (int v : c6) put('C', v);                          //   6..17
+            for (int v = 100; v <= 790; v += 10) put('M', v);       //  18..87
+            for (int v : c88) put('C', v);                         //  88..93
+            for (int v = 200; v <= 790; v += 10) put('C', v);       //  94..153
+            for (int v = 200; v <= 900; v += 10) put('F', v);       // 154..224
+            for (int v = 800; v <= 990; v += 10) put('C', v);       // 225..244
+            for (int v = 800; v <= 990; v += 10) put('M', v);       // 245..264
+            put('M', 861); put('C', 119); put('C', 981); put('C', 982);   // 265..268
+        }
+    };
+    static const Names names;
+    return id >= 0 && id < 269 ? names.n[id] : "";
 }
 
 Aso Aso::parse(const std::vector<std::uint8_t>& b) {
     Aso a;
     if (b.size() < 0x10 || std::memcmp(b.data(), "XSR\0", 4) != 0) return a;
     const std::uint32_t n_sec = rd32(&b[0x08]);
+    a.default_file_ = std::int32_t(rd32(&b[0x0C]));
     const std::size_t code_base = 0x10 + std::size_t(n_sec) * 0x14;
     if (code_base > b.size()) return a;
 
@@ -138,19 +151,28 @@ void AsoVm::bind(const Aso* aso) {
     aso_ = aso;
     // The interpreter initialises its current section to 2 (FUN_00445bd0 sets
     // obj[0x29]=[0x2a]=[0x2b]=2) — for the players that is idle.
-    set_section(2);
+    set_section(2, /*force*/true);
 }
 
 bool AsoVm::set_section(std::int32_t id, bool force) {
     if (!aso_ || !aso_->ok()) return false;
     const Aso::Section* s = aso_->find(id);
-    if (!s) return false;
-    // The priority refusal (FUN_00446550). Re-selecting the section already running is
-    // a no-op rather than a restart, so a caller may ask for it every tick.
-    if (!force && cur_) {
-        if (id == section_) return true;
-        if (s->type < cur_->type) return false;
+    // FUN_00446550(id, 0) [BYTES 0x446550..0x44661a]: a missing id becomes section 0 and the call returns 0
+    // after switching (0x446588..0x4465b1); the only refusal is a target of a LOWER type than the running
+    // section's (`cmp ecx, [eax+4]; ja` 0x446601..0x446607). A request for the section already running is not
+    // refused: it restarts it (the callers that must not restart compare +0x994 themselves). The flag != 0
+    // form, which returns 0 for the running section (0x4465b5..0x4465c2), is pushed as an immediate at three
+    // call sites (M180's 0x47d464 / 0x47d7c3, M250's 0x48f299) and is the caller's own `section() != id` test here.
+    // vm[0x4b] = -1 / [0x4c] = 0 is written before the type test [BYTES 0x4465f0..0x446600], so also by a refused
+    // request, and by every start (FUN_00446620): the bound pin (bind_pin). The run gate those words are is the
+    // host's (it does not tick a pinned actor's VM).
+    bool found = s != nullptr;
+    if (!s) {
+        if (force || !(s = aso_->find(0))) return false;
+        id = 0;
     }
+    if (pin_tag_) { *pin_tag_ = -1; *pin_frame_ = 0; }
+    if (!force && cur_ && s->type < cur_->type) return false;
     // Capabilities are NOT touched here (FUN_00446620 leaves them): the VM zeroes them when it
     // next runs the section from its first word (reset_section_regs).
     prev_section_ = section_;
@@ -159,7 +181,8 @@ bool AsoVm::set_section(std::int32_t id, bool force) {
     pc_ = std::size_t(s->code_off) / 4;
     wait_ = 0;
     end_yield_ = false;
-    return true;
+    if (file_out_) *file_out_ = file_id_ = aso_->default_file();   // FUN_00446620: sprite[0x23] = header +0xc
+    return found;
 }
 
 // Decode and execute one instruction. Encoding (52,280 instructions, 0 errors):
@@ -223,6 +246,7 @@ bool AsoVm::step(std::size_t& pc) {
             return false;  // yield: the tick is spent
         case kFile:
             file_id_ = ai(0);
+            if (file_out_) *file_out_ = file_id_;
             break;
         case kPattern:
             anim_tag_ = ai(0);
@@ -236,9 +260,13 @@ bool AsoVm::step(std::size_t& pc) {
             if (marker_wait_ == marker_) { pc = pc; return false; }
             break;
         case kRaise:
+            // anime_Raise [EXPORT 004472e0.c:345-357]: when the section exists, the ungated FUN_00446620 and
+            // the register reset FUN_00445a70 (vm+0xcc..+0x10b, marker wait -1), and the new section runs on in
+            // the same tick; a missing section is skipped. (It used to yield here, which the tick took for the
+            // section's end: the raised section never ran. Users: C_990's Ignis wind-ups, M_230's 303.)
             pc = next;
-            set_section(ai(0));
-            return false;
+            if (set_section(ai(0), /*force*/true)) reset_section_regs();
+            return true;
         case kLocalSet:
             if (ai(0) >= 0 && ai(0) < 32) locals_[ai(0)] = ai(1);
             break;
@@ -401,6 +429,13 @@ bool AsoVm::step(std::size_t& pc) {
             }
             break;
         }
+        case 0x09:                                         // anime_Special (FUN_00449ed0): surfaced raw
+            if (specials_.size() < kMaxBulletsPerTick) {
+                SpecialEvent ev;
+                for (std::uint32_t k = 0; k < 8; ++k) ev.a[k] = ai(k);
+                specials_.push_back(ev);
+            }
+            break;
         case kSePlay3D: {
             // anime_SePlay3D (0x2a): arg0 is an EFFECTDEF id, args 1..3 a float xyz
             // offset from the actor, arg4 a flag. 1072 uses across the corpus — this
@@ -503,6 +538,7 @@ void AsoVm::tick() {
     bullets_.clear();
     effects_.clear();
     loci_.clear();
+    specials_.clear();
     if (!ok()) return;
     // The wait gate `[0x2e] == 0 || --[0x2e] == 0` [EXPORT 004472e0.c:118]: a negative count never reaches 0
     // in a session, so anime_Wait(-1) holds its frame for good (the last frame of the player's death

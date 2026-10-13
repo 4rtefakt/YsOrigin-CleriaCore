@@ -10,14 +10,19 @@ refactor changed NOTHING, not to fuzzy-match across machines.
 
 On mismatch, compare reports the per-pixel diff count (never a mean — small
 features matter) and leaves both PPMs in build/goldens/ for eyeballing.
+
+The hashes belong to one renderer. tests/goldens.json is the Windows PC's; off Windows the
+file is tests/goldens.lavapipe.json (Mesa's software Vulkan, what a GPU-less Linux box
+renders with: the same pictures to the eye, other bits). CLERIA_GOLDENS=<file> names
+another one (a Steam Deck, a Mac).
 """
 import hashlib, json, os, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(ROOT, "build_diff", "Release", "cleria-view.exe")
+EXE = os.path.join(ROOT, "build_diff", "Release", "cleria-view" + (".exe" if os.name == "nt" else ""))
 ASSETS = os.environ.get("CLERIA_ASSETS") or os.path.join(ROOT, "assets")   # a worktree has no assets/
 OUT = os.path.join(ROOT, "build", "goldens")
-DB = os.path.join(ROOT, "tests", "goldens.json")
+DB = os.environ.get("CLERIA_GOLDENS") or os.path.join(ROOT, "tests", "goldens.json" if os.name == "nt" else "goldens.lavapipe.json")
 
 W, H = 1280, 860
 ROOM = lambda r: os.path.join(ASSETS, "MAP", f"S_{r[2:4]}", r, r + ".SOB")

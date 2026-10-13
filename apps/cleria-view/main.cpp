@@ -107,6 +107,7 @@
 #include "cleria/camrig.hpp"
 #include "cleria/skillmp.hpp"
 #include "cleria/hugo_eyes.hpp"
+#include "cleria/extra_versions.hpp"
 #include "cleria/exp_award.hpp"
 #include "cleria/oxygen.hpp"
 #include "cleria/hazard.hpp"
@@ -171,7 +172,7 @@ static fs::path exe_dir() {
 }
 
 // Playable characters, indexed by g_flags[150] (1=Yunica, 2=Hugo, 3=Toal).
-static const char* kCharNames[] = {"Default", "Yunica", "Hugo", "Toal"};
+static const char* kCharNames[] = {"Adol", "Yunica", "Hugo", "Toal"};
 
 // Player state (placeholder stats until the stat/progression system lands).
 struct Player {
@@ -235,12 +236,13 @@ struct Uniforms {
   mvp      : mat4x4<f32>,
   light    : vec4<f32>,
   fogColor : vec4<f32>,   // rgb = fog colour
-  fogParams: vec4<f32>,   // x = near, y = far, z = enabled
+  fogParams: vec4<f32>,   // x = near, y = far, z = enabled, w = 1: the water draw mixes the reflection in (water())
   cvr      : vec4<f32>,   // the water caustics: xy = the scroll (c3.xy), z = the draw's combiner (0 none; caustic_stage)
 };
 @group(0) @binding(0) var<uniform> u : Uniforms;
 @group(0) @binding(1) var ctex : texture_2d<f32>;   // the caustic frame (0x7b2f6c)
 @group(0) @binding(2) var csmp : sampler;
+@group(0) @binding(3) var rtex : texture_2d<f32>;   // the water's reflection (pool surface 5); a stand-in elsewhere
 @group(1) @binding(0) var tex : texture_2d<f32>;
 @group(1) @binding(1) var smp : sampler;
 
@@ -253,6 +255,7 @@ struct VsOut {
   @location(4) spec : vec3<f32>,  // characters only: the D3D vertex SPECULAR, added (see fs_char)
   @location(5) cuv : vec2<f32>,   // the caustic stage's coordinates
   @location(6) wuv : vec4<f32>,   // the water's projective screen coordinates (oT1 of b_ndst1_water2)
+  @location(7) ruv : vec2<f32>,   // ... and the reflection's (oT3.xy of b_ndst1_water: the same without the wobble)
 };
 
 @vertex
@@ -275,6 +278,9 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
   //   m4x3 r0, viewPos, c8 (the inverse view: the world position);  mad r0.z, r0.y, c3.w, r0.z;
   //   mad oT1.xy, r0.xz, c3.z, c3.xy     with c3 = (scroll.x, scroll.y, 0.2, 0.4) [BYTES 0x6be6e0..ec].
   o.cuv = vec2<f32>(pos.x, pos.z + 0.4 * pos.y) * 0.2 + u.cvr.xy;
+  // u.cvr.z = 6, a boss shadow's receiver (b_ndst1_trn_shadowed's oT1; SHADOWS.md 4.4): the world position top-down
+  // around the boss (u.cvr.xy), u = 0.5 + (x - cx) sc, v = 0.5 - (z - cz) sc, sc = 0.5 / E (u.cvr.w).
+  if (u.cvr.z == 6.0) { o.cuv = vec2<f32>(0.5 + (pos.x - u.cvr.x) * u.cvr.w, 0.5 - (pos.z - u.cvr.y) * u.cvr.w); }
   // b_ndst1_water2's oT1 (listing B_NDST1_WATER2.VSO; REFLECTIONS.md 5.3): the screen position before the divide,
   // s = (x/2 + w/2, -y/2 + w/2, z, w), its y moved by cos(a) x c23.w, a = 2 (t.x/2 + t.y) wrapped to [-pi, pi),
   // t = s.xy x c23.z + c23.x (the phase, u.cvr.w), the cosine by the shader's own series (c29).
@@ -284,6 +290,7 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
   let wa = fract((wt.x * 0.5 + wt.y) * 0.31831 + 0.5) * 6.28319 - 3.14159;
   let w2 = wa * wa;
   o.wuv = vec4<f32>(sx, sy + (1.0 - 0.5 * w2 + 0.041667 * w2 * w2 - 0.001389 * w2 * w2 * w2) * 0.08, o.clip.z, o.clip.w);
+  o.ruv = vec2<f32>(sx, sy);
   return o;
 }
 
@@ -293,12 +300,21 @@ fn vs(@location(0) pos : vec3<f32>, @location(1) nrm : vec3<f32>,
 // water layer, projected, BLENDFACTORALPHA with the material's diffuse (u.light here): grab x a + rgb x (1 - a).
 // Opaque, no alpha test, no fog; the alpha written is the diffuse alpha, i.e. the vertex colour's (c16.w = 1).
 // Here `tex` is the du/dv map and `ctex` the grab. [H] the bump offset is added after the projective divide.
+// Material flag 0x200000 (u.fogParams.w = 1) goes on [EXPORT 005f7e20.c; BYTES 0x5f85f1..0x5f85fc: water2 stops
+// after stage 1]: stage 2 = the du/dv map again (the same matrix, oT2 = oT0), stage 3 = the reflection (`rtex`),
+// projected through oT3, BLENDDIFFUSEALPHA with the result so far: reflection x D.a + refraction x (1 - D.a),
+// D.a = the vertex colour's alpha.
 fn water(in : VsOut) -> vec4<f32> {
   let dudv = textureSampleLevel(tex, smp, in.uv, 0.0).rg;
-  let uv = in.wuv.xy / in.wuv.w +
-           vec2<f32>(u.cvr.x * dudv.x + u.cvr.y * dudv.y, u.cvr.x * dudv.y - u.cvr.y * dudv.x);
-  let grab = textureSampleLevel(ctex, csmp, uv, 0.0).rgb;
-  return vec4<f32>(grab * u.light.a + u.light.rgb * (1.0 - u.light.a), min(in.color.a / max(u.light.a, 0.001), 1.0));
+  let bump = vec2<f32>(u.cvr.x * dudv.x + u.cvr.y * dudv.y, u.cvr.x * dudv.y - u.cvr.y * dudv.x);
+  let grab = textureSampleLevel(ctex, csmp, in.wuv.xy / in.wuv.w + bump, 0.0).rgb;
+  let refr = grab * u.light.a + u.light.rgb * (1.0 - u.light.a);
+  let da = min(in.color.a / max(u.light.a, 0.001), 1.0);
+  if (u.fogParams.w == 1.0) {
+    let refl = textureSampleLevel(rtex, csmp, in.ruv / in.wuv.w + bump, 0.0).rgb;
+    return vec4<f32>(refl * da + refr * (1.0 - da), da);
+  }
+  return vec4<f32>(refr, da);
 }
 
 // The caustic frame of this fragment. [approx] level 0 only (retail asks for a generated mip chain when
@@ -312,15 +328,40 @@ fn cvr_stages(base : vec3<f32>, d : vec3<f32>, in : VsOut) -> vec3<f32> {
   return min(base + caustic(in), vec3<f32>(1.0, 1.0, 1.0)) * d;
 }
 
+// A mirror floor (u.cvr.z = 5; material flag 0x800000, FUN_005f8a50's stages [EXPORT 005f8a50.c], REFLECTIONS.md
+// 7.8): stage 0 = the mirror image (`rtex`, pool surface 5), projected at the fragment's own screen position
+// (oT0 of b_ndst1_mirror = oT3 of the water's), SELECTARG1; stage 1 = the material's texture, BLENDDIFFUSEALPHA
+// with it: texture x D.a + image x (1 - D.a), D.a = the subset's alpha x the vertex alpha; alpha = the texture's.
+// Opaque; fogged as the other opaque materials are here.
+fn mirror(in : VsOut) -> vec4<f32> {
+  let tc = textureSample(tex, smp, in.uv);
+  let img = textureSampleLevel(rtex, csmp, in.ruv / in.wuv.w, 0.0).rgb;
+  var c = tc.rgb * in.color.a + img * (1.0 - in.color.a);
+  if (u.fogParams.z > 0.5) { c = mix(u.fogColor.rgb, c, fog_f(in.depth)); }
+  return vec4<f32>(c, tc.a);
+}
+
+// A boss's projected shadow on a receiving material (u.cvr.z = 6; FUN_005f92b0's variant 0xc [BYTES
+// 0x5f9a82..0x5f9d00]): after the material's own stages, stage n = MODULATE(target, TEXTUREFACTOR = the strength)
+// into TEMP, stage n + 1 = MODULATE(CURRENT, COMPLEMENT(TEMP)): rgb x (1 - target x strength). The target (`rtex`)
+// is addressed BORDER with colour 0: no shadow outside it.
+fn boss_shadow(c : vec3<f32>, in : VsOut) -> vec3<f32> {
+  if (u.cvr.z != 6.0) { return c; }
+  let s = textureSampleLevel(rtex, csmp, in.cuv, 0.0).rgb;
+  if (in.cuv.x < 0.0 || in.cuv.x > 1.0 || in.cuv.y < 0.0 || in.cuv.y > 1.0) { return c; }
+  return c * (vec3<f32>(1.0, 1.0, 1.0) - s * u.fogParams.w);
+}
+
 fn opaque(in : VsOut) -> vec4<f32> {
   if (u.cvr.z == 4.0) { return water(in); }
+  if (u.cvr.z == 5.0) { return mirror(in); }
   let tc = textureSample(tex, smp, in.uv);
   if (tc.a < 0.5) { discard; }
   // Fixed-function MODULATE: texture * baked vertex colour, + the specular oD1 (0 but for a model's
   // additive colour c17: the boss hit flash, Room::mat_add), saturated.
   // u.light: the scene light's colour, in every material's c16 (white but for Dalles's / Darm's rooms).
   let d = in.color.rgb * u.light.rgb;
-  var c = min(cvr_stages(tc.rgb * d, d, in) + in.spec, vec3<f32>(1.0, 1.0, 1.0));
+  var c = min(boss_shadow(cvr_stages(tc.rgb * d, d, in), in) + in.spec, vec3<f32>(1.0, 1.0, 1.0));
   // D3D9 linear fog, driven by the room's real SFO region data:
   //   f = (far - d) / (far - near), clamped;  colour = lerp(fog, lit, f)
   if (u.fogParams.z > 0.5) {
@@ -350,7 +391,7 @@ fn mat_lit(in : VsOut) -> vec4<f32> {
   // u.cvr.z = 2 (variant 2, material flag 0x4000): stage 0 is the caustic frame, not the material's texture --
   // MODULATE(caustic, diffuse), alpha SELECTARG2 = the diffuse alpha [EXPORT 005f7230.c:8-53].
   if (u.cvr.z == 2.0) { return vec4<f32>(min(caustic(in) * d + in.spec, vec3<f32>(1.0, 1.0, 1.0)), in.color.a); }
-  return vec4<f32>(min(cvr_stages(tc.rgb * d, d, in) + in.spec, vec3<f32>(1.0, 1.0, 1.0)), tc.a * in.color.a);
+  return vec4<f32>(min(boss_shadow(cvr_stages(tc.rgb * d, d, in), in) + in.spec, vec3<f32>(1.0, 1.0, 1.0)), tc.a * in.color.a);
 }
 fn fog_f(depth : f32) -> f32 {
   return clamp((u.fogParams.y - depth) / max(u.fogParams.y - u.fogParams.x, 0.001), 0.0, 1.0);
@@ -404,6 +445,12 @@ fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
   // room shader (fs) never reads color.a, so this channel is free for characters.
   c = mix(c, vec3<f32>(1.0, 1.0, 1.0), in.color.a);
   return vec4<f32>(c, tc.a * clamp(in.opacity, 0.0, 1.0));
+}
+
+// A boss's darkening quad (preset 0x20649, g.darken_pipe): texture x diffuse, taken off the destination.
+@fragment
+fn fs_darken(in : VsOut) -> @location(0) vec4<f32> {
+  return vec4<f32>(textureSample(tex, smp, in.uv).rgb * in.color.rgb, 1.0);
 }
 
 // Floor shadow decal: pure black at the texture's alpha, NO fog (fs_char's fog would
@@ -491,6 +538,7 @@ fn fs_pm(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_pad.inl"
 #include "view_speedrun.inl"
 #include "view_video.inl"
+#include "view_boss_shadow.inl"          // the bosses' projected shadows (SHADOWS.md 4)
 #include "view_mask.inl"                 // the Mask of Eyes (PLAYTEST_1_STORY.md §1)
 #include "view_screenfx.inl"            // ZoomBlur (SCREEN_EFFECTS.md §7)
 #include "view_lua.inl"

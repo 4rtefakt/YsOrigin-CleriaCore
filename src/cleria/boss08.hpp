@@ -296,7 +296,9 @@ struct Boss08Mesh {
     float alpha = 1;                          // +0x418 [H: the factory's initial value is not in the spec]
     float alpha_target = 1;                   // +0x41c
     bool touch = false;                       // +0x28c & 0x0c with +0x2e4 = "Touch_Tail" [CE §0 "Touch on"]
-    bool collide = true;                      // every collision entry +0x89
+    // Every collision entry's byte +0x89 = 1: the player cannot jump from it [EXPORT 00465170.c:234-240] and is slid
+    // off it [BYTES 0x45ad20..0x45adcd] (view_game.inl). It is NOT the collision itself: the hull stays.
+    bool no_jump = true;
     bool no_hit = false;                      // +0x298 & 0x40
     Vec3 move_target{};                       // +0x3e8..0x3f0
     float move_radius = 0, move_speed = 0;    // +0x3f4 / +0x3f8 ("moving" = move_speed != 0)

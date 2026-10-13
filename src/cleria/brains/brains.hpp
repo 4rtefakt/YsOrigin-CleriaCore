@@ -64,6 +64,8 @@ AiOut m340(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00493240 Reza
 AiOut m380(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004953e0 Chelasken (breeds Celny)
 AiOut m370(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00494430 Celny
 AiOut m310(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00491c00 Jiamobre (hops, shuriken)
+AiOut m320(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004e9d00 Pikkarton (two hop attacks)
+AiOut m330(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004ea740 Pikkardon (leap + bullet ring, charge, breeds M320)
 AiOut m540(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_00498830 / FUN_00497bb0 Perrie (fuse)
 AiOut m530(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004965d0 Sepast (beam top)
 AiOut m580(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0049db20 Sevnam (M500's teleporter, bubbles)
@@ -72,6 +74,8 @@ AiOut m270(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a1940 Moz 
 AiOut m550(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_0049c130 Arte-Baocar (warp caster, healer)
 AiOut m350(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a56c0 Diphtheloyd (flying breath, swoop)
 AiOut m590(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a7030 Sepaswait (lasers, the ramp dash)
+// Its handler's top (FUN_004a87f0 0x4a881b): true = over water, `origin` pulled back toward the last dry sample.
+bool m590_keep_out(EnemyAi& a, Vec3& origin, bool water_below, bool& grounded, float& timer);
 AiOut m600(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004a8ea0 Titamonus (M110 + the 312 dive)
 AiOut m360(EnemyAi&, const EnemyAiParams&, const AiEnv&);   // FUN_004d2620 Jenocres (the floor-4 boss)
 void m360_dead(Actor&, AiWorld&);                              // FUN_004d3f30's dead path (crystals, flags)

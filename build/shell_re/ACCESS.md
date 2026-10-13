@@ -140,6 +140,13 @@ multiply instead of clobbering each other.
 
 `CLERIA_DRIVE_LOCKSTEP` (one tick per frame) ignores the setting by design.
 
+## 3b. Game over (Gameplay > Game over)
+
+`RetryAtModSave` ("Retry from mod saves", off): `cleria.game.save` (LUA_API.md §4; the Archipelago mod's
+Autosave) also takes the continue snapshot, so the game over's Retry starts where the mod last saved. Off is
+retail: Retry is the game's own last snapshot (a statue room's root, a battle start, a save, a load;
+build/gameflow_re/DEATH_RETRY.md). Hook: `g_lua.b.save` in `view_game.inl`. Drive case `lua_save_retry`.
+
 ## 4. Accessibility (Interface > Accessibility, `[cleria.access]`)
 
 | Option | Key | Hook | What changes |
@@ -175,6 +182,6 @@ multiply instead of clobbering each other.
 
 `Settings::access` (`cleria::access::Settings`) is read and written by `read_cleria` / `write_cleria`
 (one call each). Its sections are:
-- `[cleria.access]`: `CutsceneSkip`, `TextSpeed`, `ReduceFlashes`, `ScreenShake`, `GameSpeed`.
+- `[cleria.access]`: `CutsceneSkip`, `TextSpeed`, `ReduceFlashes`, `ScreenShake`, `GameSpeed`, `RetryAtModSave`.
 - `[cleria.cheats]`: `InfiniteHP`, `InfiniteMP`, `InfiniteBoost`, `InfiniteOxygen`, `OneHitKill`,
   `ExpRate`, `SpRate`, `DropRate`, `DamageDealt`, `DamageTaken`.

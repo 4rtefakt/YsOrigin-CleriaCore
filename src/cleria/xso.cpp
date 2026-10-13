@@ -388,6 +388,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     if (sub == 0x14d && nargs >= 2) { host->chr_collision_vanish(op(0), op(1) != 0); return Step::Continue; }
                     // 0x165 Chr_Stop(id, i) [case 0x165 -> FUN_00571e00; op1 is fetched, unused].
                     if (sub == 0x165 && nargs >= 1) { host->chr_stop(op(0)); return Step::Continue; }
+                    // 0x167 Chr_AniChange(id, file) [BYTES 0x571ec0..0x571ee9: actor +0x97c = op1, nothing else].
+                    if (sub == 0x167 && nargs >= 2) { host->chr_anichange(op(0), op(1)); return Step::Continue; }
                     // 0x163 Chr_NoForce / 0x164 Chr_AniDisable(id, on) [cases 0x163 / 0x164 ->
                     // FUN_00571d60 / FUN_00571db0: +0x130 bit 0x10000 / 0x80000 = (on != 0)].
                     if (sub == 0x163 && nargs >= 2) { host->chr_no_force(op(0), op(1) != 0); return Step::Continue; }
@@ -560,6 +562,8 @@ XsoVm::Step XsoVm::step_one(const Xso& script, std::uint32_t& pc, bool coroutine
                     // 0x127 SetDefaultCubeMapTexture(s) [BYTES 0x56b832].
                     if (sub == 0x11b && nargs >= 2) { host->effect_camera_offset(op(0), opf(1)); return Step::Continue; }
                     if (sub == 0x126 && nargs >= 1) { host->mirror_floor(op(0) != 0); return Step::Continue; }
+                    // 0x11d Scene_SetWaterPlane(f) [BYTES 0x56b411..0x56b42b -> FUN_00432e60].
+                    if (sub == 0x11d && nargs >= 1) { host->water_plane(opf(0)); return Step::Continue; }
                     if (sub == 0x127 && nargs >= 1) { host->cube_map(ops(0)); return Step::Continue; }
                     if (sub == 0x176 && nargs >= 2) { host->mesh_enable_event(ops(0), op(1) != 0); return Step::Continue; }
                     if (sub == 0x17b && nargs >= 2) { host->mesh_time_scale(ops(0), opf(1)); return Step::Continue; }
@@ -1080,7 +1084,8 @@ int XsoVm::run(const Xso& script, std::uint32_t entry, int max_steps, bool skip_
             skip_cycles = false;
             continue;
         }
-        if ((++back & (back - 1)) == 0) {
+        ++back;
+        if ((back & (back - 1)) == 0) {       // every power of two: 1, 2, 4, 8, ...
             snap.pc = pc; snap.steps = steps + 1; snap.acc = acc; snap.shop_paid = shop_paid;
             std::memcpy(snap.flags, g_flags, sizeof snap.flags);
             std::memcpy(snap.items, item_arr, sizeof snap.items);
@@ -1207,6 +1212,7 @@ bool ScriptManager::start(const std::string& name, const XsoVm::Vars& vars, int 
     if (!loader) return false;
     std::shared_ptr<const Xso> s = loader->load_script(name);
     if (!s) return false;                 // target doesn't exist -> skip (engine would throw)
+    if (start_filter && !start_filter(name, owner)) return false;   // a mod refused it (API 7)
     Inst in;
     in.script = std::move(s);
     in.name = name;

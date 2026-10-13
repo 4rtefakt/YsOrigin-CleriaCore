@@ -133,6 +133,8 @@ SaveRecord to_record(const SaveState& s, const std::string& area_line,
     r.set_i32(0x0076C1BC, s.o2_alpha);
     for (int i = 0; i < 5; ++i) r.set_i32(0x0076C15C + 4 * i, s.ail[i]);
     r.set_f32(0x0076C1B4, s.boost);
+    r.set_i32(0x0076C198, s.mode);
+    for (int i = 0; i < 5; ++i) r.set_i32(0x0076C218 + 4 * i, s.version[i]);
     std::memcpy(r.b.data() + (0x0076B8D8 - SaveRecord::kBase), s.manual_on, sizeof s.manual_on);
     std::memcpy(r.b.data() + (0x0076C11C - SaveRecord::kBase), s.warp_on, sizeof s.warp_on);
     // --- header stamps (SAVELOAD.md §4.1) ------------------------------------
@@ -196,6 +198,8 @@ SaveState from_record(const SaveRecord& r) {
     s.o2_alpha = r.i32(0x0076C1BC);
     for (int i = 0; i < 5; ++i) s.ail[i] = r.i32(0x0076C15C + 4 * i);
     s.boost = r.f32(0x0076C1B4);
+    s.mode = r.i32(0x0076C198);
+    for (int i = 0; i < 5; ++i) s.version[i] = r.i32(0x0076C218 + 4 * i);
     std::memcpy(s.manual_on, r.b.data() + (0x0076B8D8 - SaveRecord::kBase), sizeof s.manual_on);
     std::memcpy(s.warp_on, r.b.data() + (0x0076C11C - SaveRecord::kBase), sizeof s.warp_on);
     return s;

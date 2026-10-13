@@ -1,6 +1,6 @@
 # cleria-modkit — the mod layer: mod packages and their load order (mods, modinstall, fileassoc), the file
 # overrides (vfs), content/*.ini (content, sidecar, inidoc, items), the event bus (mod_events) and the Lua
-# scripts with their cleria.* API (modscript, json, net/websocket). It reaches a game only through
+# scripts with their cleria.* API (modscript, json, net/websocket, net/socket). It reaches a game only through
 # cleria::script::Host and depends on nothing else of the engine, so it builds alone, 32-bit included.
 #
 # The root CMakeLists.txt includes this file. Another host of the same mods includes it too, after
@@ -47,18 +47,25 @@ add_library(cleria-modkit STATIC
   ${_modkit_src}/content.cpp
   ${_modkit_src}/json.cpp
   ${_modkit_src}/net/websocket.cpp
+  ${_modkit_src}/net/socket.cpp
   ${_modkit_src}/modscript.cpp
   ${_modkit_src}/modscript_api.cpp)
 target_include_directories(cleria-modkit PUBLIC "${CLERIA_MODKIT_ROOT}/src")
 target_link_libraries(cleria-modkit PUBLIC lua54 PRIVATE miniz)
 if(WIN32)
-  target_link_libraries(cleria-modkit PUBLIC winhttp)
+  target_link_libraries(cleria-modkit PUBLIC winhttp ws2_32)
 else()
   # Off Windows the WebSocket is libcurl's (7.86+, built with WebSockets) when this is on; off, opening
   # one reports "unsupported on this platform" through the Closed event.
   option(CLERIA_CURL "WebSocket transport (cleria.net) over libcurl (Linux / macOS)" OFF)
   if(CLERIA_CURL)
-    find_package(CURL REQUIRED)
+    # third_party/curl when tools/fetch_deps.py built it (Linux: a static 8.11.1 with WebSockets), else the
+    # system's libcurl.
+    if(EXISTS "${TP}/curl/lib/cmake/CURL/CURLConfig.cmake")
+      find_package(CURL CONFIG REQUIRED PATHS "${TP}/curl" NO_DEFAULT_PATH)
+    else()
+      find_package(CURL REQUIRED)
+    endif()
     target_compile_definitions(cleria-modkit PUBLIC CLERIA_CURL)
     target_link_libraries(cleria-modkit PRIVATE CURL::libcurl)
   endif()

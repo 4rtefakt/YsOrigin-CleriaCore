@@ -351,7 +351,9 @@ int main(int argc, char** argv) {
         check(near(lx(1), 1.0f + (1.0f - 1.0f) * 0.25f) && near(lx(2), 1.0f + (0.0f - 1.0f) * 0.25f),
               "tracks: the main weight blends main-owned nodes toward their snapshot (the rest pose here)");
     }
-    if (argc > 1) {   // Darm's tail: every clip lists the same 68 node tracks; a bound tentacle plays 20_Beat
+    // Darm's tail: every clip lists the same 68 node tracks; a bound tentacle plays 20_Beat. Needs the assets:
+    // without the model (CI has no game data) the block is skipped, like the S_1004 checks above.
+    if (argc > 1 && std::filesystem::exists(std::filesystem::path(argv[1]) / "ENEMY" / "BOSS08" / "BOSS08T.YMO")) {
         const std::filesystem::path assets = argv[1];
         Model m = Model::parse(read_bytes_for_test(assets / "ENEMY" / "BOSS08" / "BOSS08T.YMO"));
         m.resolve_hierarchy();

@@ -50,9 +50,27 @@ struct EnemyFx {
     };
     std::unordered_map<std::string, Kind> kinds;   // sprite stem -> decoded facings
 
+    fs::path root;                       // the asset root of the last load_kind (sheet() loads from it)
+    std::unordered_set<std::string> no_sheet;   // sheets that did not load: not asked for again
+
+    // The sheet of an AIA file index (an actor's +0x97c; aso_aia_name), loaded at its first use like the engine's
+    // slot (FUN_00444850). nullptr = no such index or file: the caller keeps the cast's own sheet.
+    Kind* sheet(Gpu& g, std::int32_t file) {
+        const char* nm = aso_aia_name(file);
+        if (!*nm) return nullptr;
+        auto it = kinds.find(nm);
+        if (it == kinds.end() && !root.empty() && !no_sheet.count(nm)) {
+            load_kind(g, fs::path(root), nm);
+            it = kinds.find(nm);
+            if (it == kinds.end()) no_sheet.insert(nm);
+        }
+        return it == kinds.end() ? nullptr : &it->second;
+    }
+
     // The frame `want` (clamped to the clip, FUN_00444dc0) of one animation tag + facing, decoded and cached
-    // lazily. Falls back to the idle set when the tag is not in this AIA (so a script asking for a clip the
-    // sprite lacks still draws something rather than vanishing); nullptr when there is nothing to show.
+    // lazily. A tag the file lacks takes the file's fallback entry, as FUN_00444dc0 does (slot +0x18: the first
+    // entry whose tag is 0 [EXPORT 00444a50.c:97-101]; [H] entry 0 in a file with none, the field's initial
+    // value, ANI_VARIANT.md §8.2); nullptr when there is nothing to show.
     // [approx] a frame that fails to decode is an empty texture in its place (it used to be dropped from the
     // clip, the later frames moving up).
     const SpriteTex* tag_frame(Gpu& g, Kind& k, std::uint32_t tag, std::uint32_t dir, int want) {
@@ -62,10 +80,15 @@ struct EnemyFx {
             ts.img = -1;
             for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
                 if (k.aia.images[i].tag == tag) { ts.img = int(i); break; }
+            if (ts.img < 0 && k.aia.nImg && !k.aia.images.empty()) {
+                ts.img = 0;
+                for (std::uint32_t i = 0; i < k.aia.nImg; ++i)
+                    if (k.aia.images[i].tag == 0) { ts.img = int(i); break; }
+            }
         }
         const std::uint32_t nd = ts.img >= 0 ? k.aia.images[ts.img].nDir : 0;
         const std::uint32_t nf = ts.img >= 0 ? k.aia.images[ts.img].nFrame : 0;
-        if (nd == 0 || nf == 0) {                            // tag absent -> idle (FUN_00444dc0 dir %= nDir)
+        if (nd == 0 || nf == 0) {                            // an empty record -> idle
             const std::vector<SpriteTex>& v = k.anim[k.ndir ? dir % k.ndir : 0];
             return v.empty() ? nullptr : &v[std::size_t(std::max(0, std::min(want, int(v.size()) - 1)))];
         }
@@ -79,7 +102,7 @@ struct EnemyFx {
             // 2-direction tags; PLAYTEST_1.md §2).
             if (k.aia.decode_frame_composited(std::uint32_t(ts.img), dir % nd, std::uint32_t(fi), fr)) {
                 v[fi] = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
-                v[fi].set_placement(fr, k.aia.canvasW, k.aia.scaleA);
+                v[fi].set_placement(fr, k.aia.canvasW, k.aia.canvasH, k.aia.scaleA);
                 v[fi].footFix = k.footFix;   // same per-file foot correction as idle
             }
         }
@@ -91,8 +114,10 @@ struct EnemyFx {
     // (cycle the frames). Idempotent per stem.
     void load_kind(Gpu& g, const fs::path& asset_root, const std::string& stem) {
         if (stem.empty() || kinds.count(stem)) return;
+        root = asset_root;
         Kind k;
-        if (!k.aia.load(asset_root / "ANI" / (stem + ".AIA"))) return;
+        // A stem that is a whole path is a mod's own sheet (world.form{sprite =}, API 7): read where it is.
+        if (!k.aia.load(fs::path(stem).is_absolute() ? fs::path(stem) : asset_root / "ANI" / (stem + ".AIA"))) return;
         // Some enemy AIAs are 40-byte stubs with no images (M_810 / M_820: Hugo and Toal as
         // duel opponents). Their ASO selects the real set with anime_File (the player's
         // C_1xx), so follow it [H: the factory's ASO index picks the same file]; otherwise skip
@@ -131,7 +156,7 @@ struct EnemyFx {
                 AiaFrame fr;
                 if (!k.aia.decode_frame_composited(std::uint32_t(img), d, f, fr)) continue;
                 SpriteTex st = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
-                st.set_placement(fr, k.aia.canvasW, k.aia.scaleA);   // canvas anchor, like the player
+                st.set_placement(fr, k.aia.canvasW, k.aia.canvasH, k.aia.scaleA);   // canvas anchor, like the player
                 st.footFix = k.footFix;
                 k.anim[d].push_back(st);
                 tall = std::max(tall, fr.h);
@@ -153,7 +178,7 @@ struct EnemyFx {
     void init_from_world(Gpu& g, const fs::path& asset_root, const ActorWorld& world,
                          const CastTable& casts) {
         for (const Actor& a : world.actors())
-            load_kind(g, asset_root, casts.sprite_stem(a.cast_id));
+            load_kind(g, asset_root, a.sprite_override.empty() ? casts.sprite_stem(a.cast_id) : a.sprite_override);
     }
 };
 
@@ -316,7 +341,7 @@ static std::vector<EnemyRender> build_enemy_render(ActorWorld& world,
     std::vector<EnemyRender> out;
     for (Actor& a : world.actors()) {
         if (a.is_player()) continue;
-        const std::string stem = casts.sprite_stem(a.cast_id);
+        const std::string stem = a.sprite_override.empty() ? casts.sprite_stem(a.cast_id) : a.sprite_override;   // a mod's puppet
         if (stem.empty() || !fx.kinds.count(stem)) continue;   // no loaded sprite
         const Cast* c = casts.get(a.cast_id);
         out.push_back({&a, stem, (c && !c->display.empty()) ? c->display : stem});
@@ -345,7 +370,7 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             QuadScope quads(g);
             for (const EnemyRender& e : list) {
                 if (!e.actor || (e.actor->is_enemy() && !e.actor->alive() &&
-                                 (e.actor->destroy_requested() || !revive::corpse_drawn(*e.actor)))) continue;
+                                 (e.actor->destroy_requested() || !(revive::corpse_drawn(*e.actor) || e.actor->ai.dead_fade)))) continue;
                 // FUN_00473540 queues the shadow when (+0x12c & 1) == 0 and +0x4d8 != 0 [BYTES 0x47385f..0x47387f].
                 if (!e.actor->visible || e.actor->ai.alpha <= 0.0f || !fx.kinds.count(e.stem) || (e.actor->flags12c & 1u)) continue;
                 const Actor& a = *e.actor;
@@ -364,16 +389,21 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
         // Skip DEAD ENEMIES only. Cutscene NPCs (Shion/Roy/…) are non-enemy actors that
         // ActorWorld::spawn leaves at hp=0, so alive() is false for them though they are
         // very much present — gating on alive() alone made every intro NPC invisible.
-        // The revive family's corpse lies on (REVIVE.md §3.4: opaque, never removed without the Chimes).
+        // The revive family's corpse lies on (REVIVE.md §3.4: opaque, never removed without the Chimes); an ordinary
+        // monster's body fades out on its dead path (FUN_004780e0: ai.dead_fade, the opacity in ai.alpha).
         if (!e.actor || (e.actor->is_enemy() && !e.actor->alive() &&
-                         (e.actor->destroy_requested() || !revive::corpse_drawn(*e.actor)))) continue;
+                         (e.actor->destroy_requested() || !(revive::corpse_drawn(*e.actor) || e.actor->ai.dead_fade)))) continue;
         if (!e.actor->visible) continue;   // Chr_Alpha faded it out (cutscene visibility)
         // A brain's opacity (+0x4d8, e.g. M390's warp fades): the render submit FUN_00473540
         // skips the actor at exactly 0; otherwise it is drawn at that opacity.
         if (e.actor->ai.alpha <= 0.0f) continue;
         auto it = fx.kinds.find(e.stem);
         if (it == fx.kinds.end()) continue;
-        EnemyFx::Kind& k = it->second;
+        // The sheet is the actor's AIA file +0x97c, one of the decode's four cache keys (file, tag, direction,
+        // frame) [BYTES 0x446220..0x44632e]; its scale and placement are the sheet's own (FUN_00446340). An actor
+        // without one (no script bound) keeps its cast's sheet.
+        EnemyFx::Kind* sheet = fx.sheet(g, e.actor->aia_file);
+        EnemyFx::Kind& k = sheet ? *sheet : it->second;
         // Floor shadow first (enemies are grounded, so pos.y is the floor).
         if (!sf && !(e.actor->flags12c & 1u))          // +0x12c bit 1: no shadow (Chr_Shadow 0x153)
         draw_shadow(g, color, depth, shadow, e.actor->pos,
@@ -401,6 +431,14 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
             t = &k.anim[dir][std::size_t(((int(t_anim * kEnemyAnimFps) + e.actor->instance_id * 2) % n + n) % n)];
         }
         if (!t->tex) continue;
+        // Its image on a mirror floor, under the shadow's own conditions (view_sprites.inl's mirror_actor_quad).
+        if (sf && !(e.actor->flags12c & 1u))
+            mirror_actor_quad(*t, e.actor->pos, e.actor->flyer ? e.actor->floor_y : e.actor->pos.y, e.actor->scale,
+                              e.actor->tint, e.actor->tint_alpha * float(e.actor->tint >> 24) / 255.0f, camPos, camFwd,
+                              mirror_quad_unturned(e.actor->cast_id, e.actor->pattern.pinned() ? int(e.actor->pattern.tag)
+                                                                         : e.avm.ok() ? int(e.avm.anim_tag()) : -1,
+                                                   e.actor->pattern.pinned() ? int(e.actor->pattern.frame)
+                                                                         : e.avm.ok() ? int(e.avm.frame()) : 0));
         // The specular starts from the tint struct +0x260 (anime_ChangeSpecular's wind-up flash; EnemyRender::spec)
         // and the hurt tint REPLACES it (hit_feedback.hpp): while +0x238 runs, FUN_00473c60 sets the sprite's
         // specular to 0x6b3713 [BYTES 0x473ea8..0x473ec5], added after the texture modulate.
@@ -412,11 +450,21 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                        float(tc & 0xff) / 255.0f * g_scene_light.z, false, e.actor->ai.alpha * e.actor->tint_alpha,
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dx : 0.0f,     // Chr_Tremble
                        tremble_active(e.actor->tremble) ? e.actor->tremble.dy : 0.0f, e.actor->scale,
-                       e.actor->hit_flash != 0.0f ? hitfx::kHurtSpecular : e.spec.colour(),
+                       e.actor->hit_flash != 0.0f ? hitfx::kHurtSpecular : e.actor->mod_spec ? e.actor->mod_spec : e.spec.colour(),
                        e.avm.ok() ? e.avm.sprite_depth_offset() : 0.0f,                   // anime_CameraDistanceOffset
                        // The caustics on a body under water (+0x38a && !+0x389 && +0x4ba != 0x12 && WaterCaustics == 0
                        // [EXPORT 00474290.c:96-123]). [approx] an enemy's wading byte is not kept: in_water stands for both.
                        !g_caustic.off && (g_caustic.mode2 || e.actor->ai.in_water) && e.actor->ai.surf_ray != 0x12);
+        // A puppet drawn as Toal (the mods', API 7) leaves his trail: its history is the puppet's place at each
+        // drawn frame [approx: retail's is per tick], the trail's pictures the ones his own tags have in C_119.
+        if (e.actor->sprite_override == "C_113" && e.actor->pattern.pinned()) {
+            if (g_puppet_trails.size() > 8 && !g_puppet_trails.count(e.actor->instance_id)) g_puppet_trails.clear();
+            ToalTrail& tt = g_puppet_trails[e.actor->instance_id];
+            trail_record(e.actor->pos, tt);
+            trail_draw(g, color, depth, fx.root, *t, e.actor->pos, k.height * e.actor->scale, e.actor->pattern.tag, dir,
+                       e.actor->pattern.frame, camFwd, camPos, g_scene_light.x, g_scene_light.y, g_scene_light.z, 0.0f, 0.0f,
+                       e.actor->scale, 0.0f, tt);
+        }
         // Event-bound (group-1..4) enemies GLOW their marker colour (FUN_00473c60 [BYTES 0x473ec8..f87],
         // BARRIER_OBJECTS.md §1a): A = marker alpha * |sin(2 pi phase / 255)|, no floor, the phase
         // stepped in the actor tick (so it holds still under a Fix). [H] the composition: the

@@ -63,7 +63,9 @@ fs::path resolve_ymo(const fs::path& root, std::string path) {
     std::string lower = path;
     for (char& c : lower) c = char(std::tolower((unsigned char)c));
     if (lower.rfind("data/", 0) == 0) path = path.substr(5);
-    return root / path;
+    // The SOBs name their models in lowercase and the unpacked files are UPPERCASE: take the spelling
+    // on disk, so the model's folder (its textures, its X_.YMO twin) is found off Windows too.
+    return vfs::on_disk(root / path);
 }
 
 // Transform a direction by the upper-3x3 (row-vector convention: d * M).
@@ -391,7 +393,8 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             ymo_file = ymo_file.parent_path() /
                        (ymo_file.stem().string() + "_" + ymo_file.extension().string());
         }
-        if (!fs::exists(ymo_file)) { ++out.missing; continue; }
+        // Through the VFS like the read below: the SOB's names are lowercase, the files are not.
+        if (!vfs::exists(ymo_file)) { ++out.missing; continue; }
         // Big models (the bosses, 13 MB) are parsed once and re-posed in place: a script-driven
         // object is re-baked every tick it moves or animates.
         auto& big_models = big_model_cache();
@@ -478,7 +481,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
                 const fs::path rfile = resolve_ymo(asset_root, o.ymo_path);
                 Model* rp = cached_big_model(rfile);
                 if (rp) rp->rest_pose();
-                else if (fs::exists(rfile)) {
+                else if (vfs::exists(rfile)) {
                     if (clip_name || g_rebake) rp = kept_model(rfile);
                     else { render_twin = parsed_model(rfile); rp = &render_twin; }
                 }
@@ -737,6 +740,7 @@ RoomMesh build_room_objects(const fs::path& asset_root, const Sob& sob,
             r.v0 = std::uint32_t(trig_v0); r.v1 = std::uint32_t(out.vertices.size());
             r.t0 = std::uint32_t(obj_i0 / 3); r.t1 = std::uint32_t(out.indices.size() / 3);
             r.obj = po;
+            r.model_flags = model.flags;
             for (const AnimClip& c : model.clips)
                 r.clips.push_back({c.name, std::int32_t(c.frame_start), std::int32_t(c.frame_end), c.next, c.rate});
             if (states) {

@@ -92,6 +92,29 @@ python tools/verify.py
   wall-clock time would not be safe (none does; the Archipelago cases wait on their socket by design).
 - Do not rebuild a test exe while ctest or drive_regress runs.
 
+### On Linux (measured on a VPS with no GPU and no display, 2026-10-12)
+
+The same commands work on a `build_diff` tree made with Ninja's multi-config generator, which gives
+`build_diff/Release/cleria-view` as on Windows:
+
+```sh
+cmake -S . -B build_diff -G "Ninja Multi-Config" -DCLERIA_FFMPEG=ON -DCLERIA_CURL=ON -DCLERIA_TEST_ASSETS=<the unpacked game>
+CLERIA_ASSETS=<the unpacked game> CLERIA_MUTE=1 python3 tools/verify.py --smoke
+```
+
+- **No display is needed.** The headless pictures (`--shot`, `--title`, ...) open no window, and
+  `drive_regress.py` runs its cases under SDL's offscreen video driver when neither `DISPLAY` nor
+  `WAYLAND_DISPLAY` is set. Without a GPU the renderer is Mesa's lavapipe (`mesa-vulkan-drivers`).
+- **Goldens**: off Windows `goldens.py` compares against `tests/goldens.lavapipe.json` (Mesa 25.2.8 llvmpipe).
+  The pictures are the same to the eye as the Windows ones, not bit for bit. Another renderer (a Steam
+  Deck's GPU, another Mesa) needs its own file: `CLERIA_GOLDENS=<file> python3 tools/goldens.py capture`.
+  When one of the seven screens changes on Windows, capture the lavapipe file again as well.
+- **Times on lavapipe (8 cores)**: ctest with assets about 6 minutes at `-j8`; the smoke drive tier about
+  9 minutes at `--jobs 4` (the fastest setting there); the whole drive set takes hours. The ten `LONG` cases
+  pass 900 s each: give them `CLERIA_DRIVE_TIMEOUT=<seconds>`.
+- **The Archipelago case** (`aplua_items_save`) needs a libcurl built with WebSockets (8.11+ has them by
+  default). Ubuntu 24.04's 8.5 has none: the mod's socket reports "unsupported" and that case fails there.
+
 ## If something looks wrong
 
 Tell me: **which room**, **what you did**, **what you saw** (a screenshot is perfect).

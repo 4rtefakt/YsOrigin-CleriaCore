@@ -114,8 +114,8 @@ int main() {
         Rig r; EnemyAi ai;
         r.env.target = {2.0f, 1.075f, 0};                  // in front, in reach: Riffligan's brain would engage
         for (int i = 0; i < 120; ++i) enemy_ai_tick(ai, p, r.env, enemy_brain_for(73));
-        check(all && enemy_brain_for(25) == nullptr && ai.phase() == 0 && !ai.initialised && ai.mode() == 0 && ai.speed == 0.0f,
-              "the empty brain: indices 66 / 72 / 92 / 73 / 81 never leave phase 0 and never move (25 / 26 are still unregistered)");
+        check(all && ai.phase() == 0 && !ai.initialised && ai.mode() == 0 && ai.speed == 0.0f,
+              "the empty brain: indices 66 / 72 / 92 / 73 / 81 never leave phase 0 and never move");
     }
     {   // Init, then an unseen target: wander, no acquisition.
         Rig r; EnemyAi ai;
@@ -965,6 +965,34 @@ int main() {
             check(sec8 >= 0 && !n.vert.grounded && std::fabs(n.vert.t - 0.22f) < 1e-6f && o.set_marker == 2,
                   "jump-shot: section 8, at Marker(1) a 0.22 jump (target 2 above)");
         }
+        {   // In water (M250.md §3.1, §3.7; ENEMY_WATER.md W7), unaware (the tail runs in every phase).
+            Actor n; n.height = 0.8f; n.pos = {0, 4.0f, 0}; n.vert.grounded = false; n.vert.t = -0.2f;
+            Rig r; r.env.actor = &n; r.env.target = {0, 4.8f, 100.0f}; r.env.self = {0, 4.8f, 0}; r.env.section = 0;
+            r.env.section_type = [](int id) { return id == 4 || id == 5 || id == 315 ? 4 : id == 7 || id == 8 ? 3 : 2; };
+            n.ai.in_water = true; n.ai.water_y = 5.0f;
+            const AiOut o0 = enemy_ai_tick(n.ai, np, r.env, m250);
+            check(std::fabs(n.pos.y - 4.9f) < 1e-6f && n.vert.t == 0.0f && !n.vert.grounded && o0.section == 300 && o0.fast_forward == 1 &&
+                  o0.set_own_jump == 1 && n.ai.action() == -1,
+                  "water: floats at the surface + 0.7 (timer 0), action -1, section 300 asked with the skip to its Marker(1)");
+            r.env.section = 300; r.env.aso_marker = 2; n.ai.heading = 0.0f; n.mover.k2 = {};
+            const AiOut o1 = enemy_ai_tick(n.ai, np, r.env, m250);
+            check(o1.set_marker == 3 && std::fabs(n.ai.f(0x7ac) - 0.09f * 0.975f) < 1e-6f && std::fabs(n.mover.k2.x - 0.09f * 0.975f) < 1e-6f &&
+                  o1.section < 0, "water: Marker(2) of the stroke kicks 2 x base x run (0.09) into the drift, x 0.975 a tick on channel 2");
+            r.env.aso_marker = 3;
+            int roll = -1, gap = 0;
+            for (int t = 0; t < 400 && roll < 0; ++t)
+                if (enemy_ai_tick(n.ai, np, r.env, m250).set_marker == 4) { roll = t; gap = n.ai.i(0x79c); }
+            r.env.aso_marker = 4;
+            int turned = 0; AiOut o2;
+            for (; turned < 20; ++turned) { o2 = enemy_ai_tick(n.ai, np, r.env, m250); if (o2.set_marker == 5) break; }
+            r.env.aso_marker = 5;
+            const AiOut o3 = enemy_ai_tick(n.ai, np, r.env, m250);
+            check(roll >= 0 && gap >= 74 && gap <= 133 && turned == 13 && o3.section == 300 && o3.fast_forward == 1,
+                  "water: a stroke roll (then 75..134 ticks without), 15 ticks of turning at Marker 4 (the roll's tick is the first), then section 300 again from 5");
+            n.ai.in_water = false; r.env.section = 0; r.env.aso_marker = 0; n.pos.y = 4.0f;
+            const AiOut o4 = enemy_ai_tick(n.ai, np, r.env, m250);
+            check(n.ai.i(0x79c) == 0 && o4.section < 0 && n.pos.y == 4.0f, "out of the water: no snap, no swim section, the stroke gap cleared");
+        }
     }
 
     // ---- M510 Mobre (build/ai_spec/M510.md) ----
@@ -1012,6 +1040,31 @@ int main() {
             m510(M.ai, mp, w.env);
             check(M.ai.i(0x79c) == 1, "M510: an entry tick restarts the count");
         }
+        {   // The action player's floor damage [BYTES 0x47a60a..0x47a6d6] (ENEMY_WATER.md W6): +0x130 & 0x40 on blood 0x11.
+            Rig w; Actor M; M.hp = M.max_hp = 100.0f; M.flags130 = 0x840u;
+            w.env.actor = &M; w.env.hp = 100.0f; w.env.max_hp = 100.0f; w.env.section = 2;
+            EnemyAi a; a.surf = 1;
+            AiOut o;
+            ai::action_player(a, mp, w.env, o);
+            const bool dry = o.popup < 0 && M.hp == 100.0f && a.floor_ticks == 0;
+            a.surf = 0x11;
+            int pops = 0, first = -1; std::uint32_t rgb = 0;
+            for (int t = 0; t < 40; ++t) {
+                AiOut ot;
+                ai::action_player(a, mp, w.env, ot);
+                if (ot.popup >= 0) { if (first < 0) first = t; ++pops; rgb = ot.popup_rgb; check(ot.popup == 5, "floor damage: the number is int(max HP x 0.05)"); }
+            }
+            check(dry && first == 0 && pops == 2 && M.hp == 90.0f && rgb == 0xa000a0u,
+                  "floor damage: nothing off the floor; on blood, max HP x 0.05 on the first tick and every 20th, in 0xa000a0");
+            M.hp = 5.5f; a.floor_ticks = 20;
+            AiOut od;
+            ai::action_player(a, mp, w.env, od);
+            M.flags130 = 0x800u; M.hp = 50.0f; a.floor_ticks = 20;
+            AiOut on;
+            ai::action_player(a, mp, w.env, on);
+            check(od.floor_death && od.section == 5 && od.popup == 5 && on.popup < 0 && M.hp == 50.0f,
+                  "floor damage: under 1 HP it dies there (HP 0, the death section, the notes' seen byte); none without +0x130 & 0x40");
+        }
     }
     {   // The edge probe's deep-water test (FUN_00477450's tail; ENEMY_WATER.md W3).
         struct Pool : AiWorld {
@@ -1036,6 +1089,56 @@ int main() {
         pool.wy = 1.5f; const bool deep = ai::blocked_ahead(a, r.env);
         pool.wy = 0.5f; const bool shallow = ai::blocked_ahead(a, r.env);
         check(!dry && deep && !shallow, "edge probe: water 1.5 over the floor ahead blocks, 0.5 does not, none does not");
+    }
+    {   // The move primitive's swim block [BYTES 0x477d40..0x477ef8] and M590's handler top (M590.md §2.1; W6).
+        struct Sand : AiWorld {
+            float fy = 0.0f; int surf = 1;
+            void for_each(const std::function<void(Actor&)>&) override {}
+            Actor* find(int) override { return nullptr; }
+            Actor* spawn_child(Actor&, int, const Vec3&, int, bool) override { return nullptr; }
+            void remove(Actor&) override {}
+            Ray ray(const Vec3& o, const Vec3& d) override {
+                Ray r; r.hit = d.y < 0.0f && o.y >= fy && o.y + d.y <= fy; r.point = {o.x, fy, o.z}; r.surface = surf; return r;
+            }
+            bool sphere_hits(const Vec3&, float) override { return false; }
+            void arena(float r[4]) override { r[0] = r[1] = r[2] = r[3] = 0.0f; }
+            const float* enemy_raw(int) override { return nullptr; }
+        } sand;
+        const EnemyAiParams sp = params(0.075f, 0.03f, 1.0f, 2.0f, 0.0f);
+        Actor A; A.flags12c = 0x100000u; A.flags130 = 0x880u;        // the probe off: only the block is under test
+        Rig r; r.env.actor = &A; r.env.world = &sand; r.env.self = {0, 1.076f, 0}; r.env.height = 1.076f; r.env.grounded = true;
+        EnemyAi a; a.phase() = 2; a.f(0x818) = 0.03f; a.f(0x81c) = 1.0f; a.f(0x820) = 2.0f; a.heading = 0.0f;
+        ai::move(a, sp, r.env, 0, 0);
+        const bool dry = a.swim_set && a.swim_origin.y == 1.0f && a.swim_origin.x == 0.0f && a.surf_ray == 1;
+        a.swim_set = false; r.env.self.y = 9.076f;                    // 1.5 y: the ray starts 15.6 up and ends 11.6 up
+        ai::move(a, sp, r.env, 0, 0);
+        const bool high = !a.swim_set;
+        A.flags130 = 0x800u; r.env.self.y = 1.076f;
+        ai::move(a, sp, r.env, 0, 0);
+        const bool off = !a.swim_set;
+        A.flags130 = 0x880u; sand.surf = 0x12; sand.fy = -3.0f; r.env.self.y = -1.0f; a.surf_ray = 0x12; a.water_y = -1.0f;
+        int period = 0; float lo = 0.0f;
+        for (int t = 0; t < 60; ++t) {
+            ai::move(a, sp, r.env, 0, 0);
+            lo = std::min(lo, a.swim_origin.y + 1.0f);
+            if (t > 0 && a.f(0x7ac) == 0.0f && !period) period = t + 1;
+        }
+        sand.surf = 1; sand.fy = 0.0f; a.swim_set = false;
+        ai::move(a, sp, r.env, 0, 0);
+        check(dry && high && off, "swim block: +0x130 & 0x80 rides 1.0 over the floor 0.5 ahead; nothing 9 up (the 1.5 y ray) or without the bit");
+        check(period == 25 && lo > -0.49f && lo < -0.47f && a.swim_set && a.swim_origin.x == 0.5f && a.swim_origin.y == 0.0f && a.surf_ray == 1,
+              "swim block: on sand2 it bobs under +0x320 on a 25-tick cycle; a hit off the sand takes the whole origin");
+        EnemyAi k; Vec3 o{5.0f, 1.076f, 5.0f}; bool g = false; float tm = -0.3f;
+        const bool d0 = brains::m590_keep_out(k, o, false, g, tm);
+        o = {5.1f, 1.076f, 5.0f}; brains::m590_keep_out(k, o, false, g, tm);          // a step under 0.2: the sample stays
+        const bool kept = k.f(0x7e4) == 5.0f;
+        o = {7.0f, 3.0f, 5.0f};
+        const bool w1 = brains::m590_keep_out(k, o, true, g, tm);                      // a set-1 surface below
+        const bool back = o.x == 6.0f && o.y == 1.076f && o.z == 5.0f && !g && tm == -0.3f;
+        o = {7.0f, 0.5f, 5.0f};
+        const bool w2 = brains::m590_keep_out(k, o, false, g, tm);                     // under +0x320 (0) + 0.6
+        check(!d0 && kept && w1 && back && w2 && g && tm == 0.0f && o.y == 1.076f,
+              "M590 keep-out: over water it is drawn halfway to the last dry sample; under +0x320 + 0.7 grounded with the timer at 0");
     }
 
     // ---- M190 Irebolg (build/ai_spec/M190.md) ----
@@ -1770,6 +1873,22 @@ int main() {
             for (int t = 0; t < 200 && spit < 0; ++t) if (enemy_ai_tick(k.ai, kp, r.env, m210).section == 8) spit = t;
             check(spit >= 0 && k.ai.dur() == 59 && k.ai.i(0x7a8) >= 120 && k.ai.i(0x7a8) < 240,
                   "within 9.5u, level: spit (section 8), hold 60, lockout 180 + R%60 (- the tick)");
+        }
+        {   // Under water (M210.md §3.4 [BYTES 0x487969..0x487a38]; ENEMY_WATER.md W6): a target 3 above.
+            auto hop = [&](bool wet, int& sec, float& v, bool& gnd) {
+                Actor k; k.height = 1.0f; k.vert.grounded = false;
+                Rig r; r.env.actor = &k; r.env.target = {7.0f, 1.075f + 3.0f, 0}; r.env.grounded = false;
+                k.ai.in_water = wet; k.ai.water_y = 10.0f;
+                sec = -1;
+                for (int t = 0; t < 200 && sec < 0; ++t) sec = enemy_ai_tick(k.ai, kp, r.env, m210).section;
+                r.env.section = 0x139; r.env.aso_marker = 0;          // no Marker yet
+                enemy_ai_tick(k.ai, kp, r.env, m210);
+                v = k.vert.t; gnd = k.vert.grounded;
+            };
+            int s0 = 0, s1 = 0; float v0 = 0, v1 = 0; bool g0 = false, g1 = false;
+            hop(false, s0, v0, g0); hop(true, s1, v1, g1);
+            check(s0 == -1 && s1 == 0x139 && std::fabs(v1 - (1.6f * 0.25f) * 1.6f) < 1e-6f && !g1,
+                  "submerged under the surface: the hop-spit starts unsupported for a target 3 above, its lift (dyT - 1.4)^2 x 0.25 with no Marker");
         }
         {   // 2u: the 21% sting (section 7); afterwards it flees (sub 2, run x2.5).
             Actor k; k.height = 1.0f;
@@ -3427,6 +3546,7 @@ int main() {
     }
     floor5_tests();
     floor6_tests();
+    arena7_tests();
 
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;

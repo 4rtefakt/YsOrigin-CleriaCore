@@ -92,7 +92,7 @@
                 // The MP super-armour of Yunica's 0x10c / 0x10f and Toal's 0x10e / 0x111 (Marker 0): with the MP
                 // it is spent and the hit is the GUARD above (0x4fd90e); without, 16 i-frames and x 0.75
                 // (skillmp::armor, BOOST_SKILLS.md §3.3).
-                if (const skillmp::Armor ar = skillmp::armor(character, avm.section(), avm.marker(), player.sp_cur);
+                if (const skillmp::Armor ar = skillmp::armor(character, avm.section(), avm.marker(), player.sp_cur, skin);
                     ar.active) {
                     player_iframes = std::max(player_iframes, skillmp::kArmorIframes);
                     if (ar.guard) {
@@ -107,11 +107,17 @@
                         player_kb.x += k.x; player_kb.z += k.z;
                         return;
                     }
-                    dmg = int(float(dmg) * skillmp::kArmorScale);
+                    dmg = int(float(dmg) * ar.scale);
                 }
-                dmg = lua_damage(false, dmg, raw, atk, bonus, pdef, -1, from_cast, from_level);   // Lua mods
+                dmg = lua_damage(false, dmg, raw, atk, bonus, pdef, -1, from_cast, from_level, -1, float(player.hp), float(player.max_hp));   // Lua mods
                 player.hp -= dmg;
                 if (player.hp < 1) player.hp = 0;             // FUN_004fd350: hp - dmg < 1.0 -> hp = 0 (no "-3/60")
+                if (lua_events_on()) {                        // mods (API 7): the hit as it landed
+                    events::Event he = events::Event::named("player_hit");
+                    he.with("damage", dmg).with("hp", player.hp).with("max_hp", player.max_hp);
+                    if (from_cast >= 0) he.with("cast", from_cast).with("level", from_level);
+                    content_emit(he);
+                }
                 if (dmg > 0) player_hurt_this_tick = true;    // +0x3bc |= 6 (FUN_004fd350 0x4fde3c)
                 // 0x4fe014 (dmg > 0, after the reaction's writes, which draw nothing): FUN_004fab40(victim,
                 // 0xff550a00) = five puffs at the origin - (cos, sin)(the hit angle, 256 steps) x the hurt radius
@@ -177,6 +183,19 @@
                 // volume follows the attacker: re-placed from its origin and visible facing
                 // each tick. P+0x734 (player_iframes) guards; the player's bank keys on the
                 // enemy's spawn serial, so its re-hits are paced only by the timer.
+                if (en && en->alive() && !g_lua_targets.empty()) {   // the mods' other players (API 7): the mod is told, they take no HP here
+                    const HitShape tv = volume_shape(e.hb, {en->pos.x, en->pos.y + en->height, en->pos.z}, e.facing);
+                    const Cast* tc = casts.get(13);
+                    for (int pid : g_lua_targets) {
+                        Actor* pu = world.find(pid);
+                        if (!pu) continue;
+                        const HitShape tb = body_shape({pu->pos.x, pu->pos.y + kOriginH, pu->pos.z}, tc ? tc->hurt_radius : 0.45f,
+                                                       tc ? tc->hurt_half_h : 0.5f, tc ? tc->hurt_shape : 1, tc ? tc->center_offset : -0.25f);
+                        if (!overlap(tv, tb) || pu->bank.check_and_record(en->hit_serial, e.hb.rehit)) continue;
+                        content_emit(events::Event::named("puppet_struck").with("puppet", pid).with("actor", en->instance_id).with("cast", en->cast_id)
+                                         .with("level", en->level).with("atk", en->atk).with("power", e.hb.power));
+                    }
+                }
                 if (!en || !en->alive() || player_iframes > 0 || p_untouchable) continue;
                 const HitShape vol = volume_shape(e.hb, {en->pos.x, en->pos.y + en->height, en->pos.z}, e.facing);
                 const Cast* pc = casts.get(13);

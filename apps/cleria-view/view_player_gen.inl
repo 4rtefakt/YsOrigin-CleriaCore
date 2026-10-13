@@ -19,6 +19,9 @@
                 sp.cls = player_damage_class(avm.section());
                 sp.atk = player_stats().atk; sp.side = 0; sp.owner = 13;
                 ef2sim::Effect* fx = spawn_generate_effect(fe, org, pf, sp, 13);
+                if (lua_events_on())                           // mods (API 7): what a puppet needs to show the same effect
+                    content_emit(events::Event::named("player_effect").with("id", fe.id).with("fwd", fe.fwd).with("angle", fe.angle_deg)
+                                     .with("voff", fe.voff).with("scale", fe.scale).with("attach", fe.attach));
                 if (shield_id) { shield_fx = fx; shield_on = fx != nullptr; }
                 if (character == 2 && fe.id == 0x90) barrier_fx = fx;   // +0x7e0 [EXPORT 004496f0.c:113-115]
             }
@@ -43,10 +46,12 @@
                 la.row = ev.i[0]; la.a1 = ev.i[1]; la.a2 = ev.i[2]; la.a3 = ev.i[3];
                 la.clank_lo = ev.i[4]; la.clank_hi = ev.i[5];
                 la.bonus = ev.bonus; la.knock = ev.knock; la.life = ev.i[8]; la.rehit = ev.i[9];
-                const int si = locus_sword_index(0xd, character, game.g_flags[149]);
+                const int si = locus_sword_index(0xd, character, game.g_flags[149], character == 0 && skin == 1);
                 PlayerLocus pl;
                 pl.cls = player_damage_class(avm.section());
                 if (pl.sword.spawn(sl2set.sword[std::size_t(si)], la, player_hit_serial,
                                    game.g_flags[215], game.g_flags[217], character))
                     loci.push_back(pl);
             }
+            // anime_Special fired (Napishtim Adol's script): the fire runner, the chain lightning (view_extra.inl).
+            for (const AsoVm::SpecialEvent& ev : avm.specials()) extra_special(ev);

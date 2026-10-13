@@ -106,6 +106,64 @@ struct FakeHost : script::Host {
         return true;
     }
     bool save(int slot) override { if (slot == 9) return false; saved = slot; return true; }   // 9: "not now"
+    // API 7
+    double clock = -1;                                         // >= 0: the test's clock
+    double now() override { return clock >= 0 ? clock : script::Host::now(); }
+    std::vector<script::Mod*> peers;
+    std::map<std::string, std::string> busv;
+    std::string clip;
+    std::vector<std::string> urls;
+    std::vector<ModInfo> mod_list() override { return {{"api7a", "A", "1.0", true, true}, {"off", "Off", "2.0", false, false}}; }
+    int bus_publish(const std::string& from, const std::string& topic, const std::string& text) override {
+        int n = 0;
+        for (script::Mod* p : peers) if (p->id() != from) n += p->on_bus(topic, text, from);
+        return n;
+    }
+    std::optional<std::string> bus_get(const std::string& k) override { return busv.count(k) ? std::optional<std::string>(busv[k]) : std::nullopt; }
+    void bus_set(const std::string& k, const std::string& v) override { if (v.empty()) busv.erase(k); else busv[k] = v; }
+    bool set_clipboard(const std::string& t) override { clip = t; return true; }
+    bool open_url(const std::string&, const std::string& u) override { urls.push_back(u); return true; }
+    std::string locale() override { return "fr"; }
+    std::string state7 = "play", title7 = " 4F - Wailing Blue";
+    std::string game_state() override { return state7; }
+    std::string room_title() override { return title7; }
+    std::vector<ActorInfo> actors() override {
+        ActorInfo a;
+        a.id = 17; a.cast = 17; a.level = 3; a.name = "Selnarg"; a.hp = 54; a.max_hp = 74; a.pos[0] = 1; a.pos[1] = 2; a.pos[2] = 3; a.height = 1.5f;
+        return {a};
+    }
+    bool to_screen(float x, float, float z, float* sx, float* sy) override { if (z < 0) return false; *sx = x / 10; *sy = 0.5f; return true; }
+    void ui_text(void*, const std::string& t, std::uint32_t) override { widgets.push_back("text " + t); }
+    void ui_progress(void*, const std::string& label, double f, const std::string& t, std::uint32_t) override {
+        char b[64];
+        std::snprintf(b, sizeof b, " %.2f ", f);
+        widgets.push_back("progress " + label + b + t);
+    }
+    std::string held7;                                          // the one key / button held
+    bool key_down(const std::string& n) override { return n == held7; }
+    bool pad_down(const std::string& n) override { return n == held7; }
+    bool key_known(const std::string& n, bool pad) override { return pad ? n == "back" || n == "a" : n != "NoSuchKey"; }
+    int reloads = 0;
+    std::string ran;
+    bool run_command(const std::string& n, const std::string& a) override { if (n != "hello") return false; ran = n + "|" + a; return true; }
+    std::vector<std::string> all_commands() override { return {"hello", "where"}; }
+    std::vector<std::string> log_lines(int n) override { return std::vector<std::string>(std::size_t(std::min(n, 2)), "line"); }
+    bool request_reload(const std::string&) override { ++reloads; return true; }
+    std::vector<std::string> ops7;                              // game_op: "mod op n0,n1 [text]"
+    bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
+                 std::vector<double>* out) override {
+        std::string s = mod + " " + op;
+        for (double v : num) { char b[32]; std::snprintf(b, sizeof b, " %g", v); s += b; }
+        if (!text.empty()) s += " [" + text + "]";
+        ops7.push_back(s);
+        if (op == "equipment" && out) *out = {0, 6, 30, -1, 116, -1};
+        if (op == "status" && out) *out = {900, 0, 0, 12};
+        if (op == "exits" && out) *out = {1003, 1009};
+        if (op == "world_snapshot" && out) *out = {21, 43, 5, 1, 2, 3, 90, 50, 80, 301, 4, 15};
+        if (op == "world_apply" && out) *out = {1};
+        if (op == "spawn_actor" && out && !num.empty() && num[0] == 43) *out = {0};   // cast 43 is built (id 0); any other is refused
+        return op != "retry";                                   // "not now"
+    }
     std::string profile;
     bool set_save_profile(const std::string& n) override { if (n == "no") return false; profile = n; return true; }   // "no": refused
     std::string save_profile() override { return profile; }
@@ -381,7 +439,7 @@ int main(int argc, char** argv) {
         m->command("json", "");
         check(m->ok(), "api: every call ran (" + m->error() + ")");
         check(has(h.logs, "probe hello flag -1 room S_1001 scene 1001"), "api: game.flag / room / scene, commands with arguments");
-        check(has(h.logs, "boss S_7080 226 api 6") && has(h.logs, "boss S_1080 nil api 6"),
+        check(has(h.logs, "boss S_7080 226 api 7") && has(h.logs, "boss S_1080 nil api 7"),
               "api: boss_defeated carries the room and the boss flag (nil for a duel); api_version 6");
         check(has(h.logs, "used 89 in S_1001") && has(h.logs, "door S_1005 315 usekey"), "api: item_used (item), door_opened (flag, script)");
         check(h.fl[0x63] == 1 && h.sp == 75 && h.level == 7 && h.wp[3] == 1 && h.warped == 3,
@@ -558,6 +616,471 @@ int main(int argc, char** argv) {
             const CombatDecision bd6 = bad->combat_filter(be, "S_1002");
             check(bd6.action == CombatDecision::Action::Pass && !bad->ok(), "api 6: a filter that fails passes and stops its mod");
         }
+        {   // API 7, the runtime batch (build/shell_re/API7.md A): timers, cleria.rng, the mods and the bus, named events
+            h.clock = 100.0;
+            auto a = make(h, tmp, "api7a", R"LUA(
+                cleria.after(1, function() cleria.log("t one") end)
+                local n, id = 0
+                id = cleria.every(2, function() n = n + 1 cleria.log("t every " .. n) if n == 3 then cleria.cancel(id) end end)
+                cleria.after(0.05, function() cleria.log("t play") end, {play = true})
+                cleria.log("timer args " .. tostring(pcall(cleria.after, -1, print)) .. " " .. tostring(pcall(cleria.after, 1)) ..
+                           " cancel " .. tostring(cleria.cancel(9999)))
+                local r1, r2, s1, s2 = cleria.rng("abc"), cleria.rng("abc"), {}, {}
+                for i = 1, 8 do s1[i] = r1:int(1000) s2[i] = r2:int(1000) end
+                local lo, hi = 99, 0
+                for i = 1, 200 do local v = r1:int(3, 5) lo = math.min(lo, v) hi = math.max(hi, v) end
+                local f = r1:float()
+                cleria.log("rng same " .. tostring(table.concat(s1, ",") == table.concat(s2, ",")) .. " other " ..
+                           tostring(cleria.rng("abd"):int(1000000) ~= cleria.rng("abc"):int(1000000)) .. " range " .. lo .. ".." .. hi ..
+                           " float " .. tostring(f >= 0 and f < 1) .. " shuffle " .. #cleria.rng(1):shuffle({1, 2, 3, 4}) ..
+                           " pick " .. tostring(cleria.rng(1):pick({})) .. " empty " .. tostring(pcall(r1.int, r1, 5, 4)))
+                local ids = {}
+                for _, m in ipairs(cleria.mods.list()) do ids[#ids + 1] = m.id .. (m.active and "+" or "-") .. (m.scripted and "s" or "") end
+                cleria.log("mods " .. table.concat(ids, " ") .. " active " .. tostring(cleria.mods.is_active("api7a")) .. " " ..
+                           tostring(cleria.mods.is_active("off")) .. " locale " .. cleria.locale() .. " clip " .. tostring(cleria.clipboard("hi")) ..
+                           " url " .. tostring(pcall(cleria.open_url, "https://example.org/")))
+                cleria.bus.set("k", {a = 1})
+                cleria.log("bus get " .. cleria.bus.get("k").a .. " " .. tostring(cleria.bus.get("none")) .. " " .. cleria.bus.get("none", 7))
+                cleria.command("pub", function() cleria.log("published to " .. cleria.bus.publish("topic.x", {v = 5, list = {1, 2}})) end)
+                cleria.events.on("level_up", function(e) cleria.log("ev " .. e.kind .. " " .. e.level .. " " .. e.room .. " " .. e.who) end)
+                cleria.events.on("load", function(e) cleria.log("ev load retry " .. tostring(e.retry)) end)
+                cleria.log("bad event " .. tostring(pcall(cleria.events.on, "nope", print)))
+            )LUA");
+            auto b = make(h, tmp, "api7b", R"LUA(
+                cleria.bus.subscribe("topic.x", function(v, from) cleria.log("got " .. v.v .. " " .. #v.list .. " from " .. from .. " k " .. cleria.bus.get("k").a) end)
+                cleria.bus.subscribe("topic.x", function(v) cleria.log("got twice") end)
+            )LUA");
+            h.peers = {a.get(), b.get()};
+            check(a->ok() && b->ok() && has(h.logs, "timer args false false cancel false") &&
+                  has(h.logs, "rng same true other true range 3..5 float true shuffle 4 pick nil empty false"), "api 7: timers' arguments, cleria.rng (" + a->error() + ")");
+            check(has(h.logs, "mods api7a+s off- active true false locale fr clip true url false") && h.clip == "hi" && h.urls.empty() &&
+                  has(h.logs, "bus get 1 nil 7"), "api 7: cleria.mods, locale, clipboard, open_url only from a page, bus.get / set");
+            a->command("pub", "");
+            check(has(h.logs, "got 5 2 from api7a k 1") && has(h.logs, "got twice") && has(h.logs, "published to 2"), "api 7: bus.publish reaches the other mods' handlers");
+            a->on_frame(0.016);
+            const bool none = !has(h.logs, "t one");
+            h.clock = 101.1; a->on_frame(0.016);
+            const bool one = has(h.logs, "t one") && !has(h.logs, "t every 1");
+            h.clock = 102.1; a->on_frame(0.016);
+            h.clock = 150.0; a->on_frame(0.016);                   // far behind: one call, no burst
+            const bool two = has(h.logs, "t every 2") && !has(h.logs, "t every 3");
+            h.clock = 153.0; a->on_frame(0.016);
+            h.clock = 160.0; a->on_frame(0.016);                   // cancelled by its third run
+            check(none && one && two && has(h.logs, "t every 3") && !has(h.logs, "t every 4") && a->timers_.size() == 1,
+                  "api 7: after / every in real time, no burst, cancel from inside");
+            a->on_tick(); a->on_tick();
+            const bool not_yet = !has(h.logs, "t play");
+            a->on_tick(); a->on_tick();
+            check(not_yet && has(h.logs, "t play") && a->timers_.empty(), "api 7: a play-time timer counts ticks");
+            events::Event lv = events::Event::named("level_up").with("level", 5).with("who", "you");
+            lv.room = "S_1002";
+            a->on_event(lv);
+            events::Event ld;
+            ld.kind = events::Kind::Load; ld.retry = true;
+            a->on_event(ld);
+            check(has(h.logs, "ev level_up 5 S_1002 you") && has(h.logs, "ev load retry true") && has(h.logs, "bad event false"),
+                  "api 7: named events with their fields; load.retry");
+        }
+        {   // API 7, batch B: what the game is doing, the room's monsters, a world point on the screen
+            h.fl[199] = 600; h.fl[144] = 1;
+            auto g = make(h, tmp, "api7g", R"LUA(
+                local z, zn = cleria.game.zone()
+                local d, dn = cleria.game.difficulty()
+                cleria.log("where " .. cleria.game.state() .. " [" .. cleria.game.room_title() .. "] floor " .. tostring(cleria.game.floor()) ..
+                           " zone " .. z .. " " .. zn .. " diff " .. d .. " " .. dn .. " time " .. cleria.game.play_time())
+                local list = cleria.world.actors()
+                local a = list[1]
+                local fx, fy = cleria.world.to_screen(a.x, a.y, a.z)
+                cleria.log("actors " .. #list .. " " .. a.id .. " " .. a.name .. " lv " .. a.level .. " hp " .. a.hp .. "/" .. a.max_hp ..
+                           " h " .. a.height .. " screen " .. string.format("%.1f", fx) .. " " .. fy .. " behind " .. tostring(cleria.world.to_screen(0, 0, -1)) ..
+                           " one " .. cleria.world.actor(17).cast .. " none " .. tostring(cleria.world.actor(5)))
+                cleria.events.on("state_changed", function(e) cleria.log("state " .. e.old .. " -> " .. e.state) end)
+                cleria.events.on("enemy_hit", function(e) cleria.log("hit " .. e.actor .. " " .. e.damage .. " " .. e.killed) end)
+            )LUA");
+            g->on_event(events::Event::named("state_changed").with("state", "book").with("old", "play"));
+            g->on_event(events::Event::named("enemy_hit").with("actor", 17).with("damage", 20).with("killed", 0));
+            h.title7 = "Outer Corridor 1";
+            auto g2 = make(h, tmp, "api7g2", "cleria.log('nofloor ' .. tostring(cleria.game.floor()))");
+            check(g->ok() && has(h.logs, "where play [ 4F - Wailing Blue] floor 4 zone 1 Wailing Blue diff 3 Hard time 10.0") &&
+                  has(h.logs, "actors 1 17 Selnarg lv 3 hp 54.0/74.0 h 1.5 screen 0.1 0.5 behind nil one 17 none nil") &&
+                  has(h.logs, "state play -> book") && has(h.logs, "hit 17 20 0") && has(h.logs, "nofloor nil"),
+                  "api 7: game.state / room_title / floor / zone / difficulty / play_time, world.actors / actor / to_screen (" + g->error() + ")");
+        }
+        {   // API 7, batch C: the writes go to the host by name with their numbers; arguments are checked first
+            h.fl[163] = 0;
+            auto w = make(h, tmp, "api7w", R"LUA(
+                local P, G = cleria.player, cleria.game
+                local r = {P.set_position(1, 2, 3), P.set_position(1, 2, 3, 90), P.set_mp(1500), P.set_boost(30000), P.set_exp(500),
+                           P.set_invulnerable(60), P.equip("armor", 7), P.equip("accessory"), P.set_status("poison", true),
+                           P.set_status("curse", false), G.goto_room("S_1003"), G.take_exit(1), G.set_speed(0.5), G.retry(), G.to_title(),
+                           G.load(5), G.seed_random(42)}
+                local t = {}
+                for i, v in ipairs(r) do t[i] = v and "1" or "0" end
+                local e, s, x = P.equipment(), P.status(), G.exits()
+                cleria.log("writes " .. table.concat(t) .. " eq " .. e.weapon .. " " .. e.armor .. " " .. e.leggings .. " " .. e.accessory .. " " .. e.magic ..
+                           " st " .. s.poison .. " " .. s.curse .. " exits " .. #x .. " " .. x[2].index .. " " .. x[2].room)
+                cleria.log("ability " .. tostring(P.abilities().double_jump) .. " " .. tostring(P.set_ability("double_jump", true)) .. " " ..
+                           tostring(P.abilities().double_jump) .. " " .. tostring(pcall(P.set_ability, "fly", true)))
+                cleria.log("bad " .. tostring(pcall(P.set_position, 1, 2)) .. tostring(pcall(P.set_mp, -1)) .. tostring(pcall(P.equip, "hat", 1)) ..
+                           tostring(pcall(P.set_status, "sleep", true)) .. tostring(pcall(G.goto_room, "../x")) .. tostring(pcall(G.set_speed, 9)))
+            )LUA");
+            const std::vector<std::string> want = {"api7w set_position 1 2 3", "api7w set_position 1 2 3 90", "api7w set_mp 1500", "api7w set_boost 30000",
+                "api7w set_exp 500", "api7w invulnerable 60", "api7w equip 1 7", "api7w equip 3 -1", "api7w set_status 0 1", "api7w set_status 3 0",
+                "api7w goto_room [S_1003]", "api7w take_exit 1", "api7w speed 0.5", "api7w retry", "api7w to_title", "api7w load 5", "api7w seed_random 42",
+                "api7w equipment", "api7w status", "api7w exits"};
+            check(w->ok() && h.ops7 == want && has(h.logs, "writes 11111111111110111 eq 0 6 30 -1 116 st 900 12 exits 2 1 S_1009") &&
+                  has(h.logs, "ability false true true false") && h.fl[163] == 1 && has(h.logs, "bad falsefalsefalsefalsefalsefalse"),
+                  "api 7: the player's and the flow's writes reach the host; bad arguments are errors (" + w->error() + ")");
+        }
+        {   // API 7, cleria.input: actions with a default key, the player's setting over it, held states, bind
+            h.settings["api7i/Key.jump"] = "F8";
+            auto in = make(h, tmp, "api7i", R"LUA(
+                local I = cleria.input
+                I.action("open", {label = "Open", key = "F5", pad = "back"}, function() cleria.log("ran open") end)
+                I.action("jump", {key = "F6"}, function() cleria.log("ran jump") end)
+                I.action("quiet", {key = "F9"})
+                local k, p = I.binding("open")
+                local k2 = I.binding("jump")
+                cleria.log("bindings " .. k .. " " .. p .. " " .. k2 .. " none " .. tostring(I.binding("nope")) .. " down " .. tostring(I.down("open")) ..
+                           " key " .. tostring(I.key("F5")) .. " bad " .. tostring(pcall(I.action, "x", {key = "NoSuchKey"})) ..
+                           tostring(pcall(I.action, "bad id", {})) .. tostring(pcall(I.down, "nope")))
+                cleria.command("rebind", function() cleria.log("bind " .. tostring(I.bind("open", "F7", "a")) .. tostring(I.bind("open", "NoSuchKey")) ..
+                                                               " now " .. I.binding("open") .. " down " .. tostring(I.down("open"))) end)
+            )LUA");
+            check(in->ok() && in->actions_.size() == 3 && has(h.logs, "bindings F5 back F8 none nil down false key false bad falsefalsefalse"),
+                  "api 7: input.action, binding, the player's key from the settings (" + in->error() + ")");
+            in->run_action(0); in->run_action(1); in->run_action(2); in->run_action(9);
+            h.held7 = "F7";
+            in->command("rebind", "");
+            check(has(h.logs, "ran open") && has(h.logs, "ran jump") && has(h.logs, "bind truefalse now F7 down true") &&
+                  h.settings["api7i/Key.open"] == "F7" && h.settings["api7i/Pad.open"] == "a" && in->ok(),
+                  "api 7: an action's function runs; input.bind is kept in the settings; input.down");
+        }
+        {   // API 7: a window of the mod's own (the page widgets + text / progress / close), and the dialogs
+            h.widgets.clear();
+            h.press = false; h.toggle_flip = false;
+            auto u = make(h, tmp, "api7u", R"LUA(
+                local U = cleria.ui
+                U.window("tools", {title = "Tools", width = 0.5, pause = false}, function(p)
+                    p:section("S")
+                    p:text("a paragraph")
+                    p:progress("HP", 0.5, "30 / 60")
+                    if p:button("Close") then p:close() end
+                end)
+                cleria.log("open " .. tostring(U.is_open()) .. " " .. tostring(U.open("tools")) .. " " .. tostring(U.is_open()) .. " " ..
+                           tostring(U.is_open("tools")) .. " bad " .. tostring(pcall(U.open, "nope")))
+                cleria.command("ask", function(a)
+                    if a == "msg" then U.message("Hello", function(i) cleria.log("msg done " .. tostring(i)) end, {ok = "Fine"})
+                    else U.choose("Pick one\nof two", {"A", "B"}, function(i, o) cleria.log("picked " .. tostring(i) .. " " .. tostring(o)) end,
+                                  {title = "T", cancel = a ~= "must"}) end
+                    cleria.log("asked " .. tostring(U.is_open()))
+                end)
+            )LUA");
+            const script::Mod::Window* w = u->window();
+            const bool opened = w && w->id == "tools" && w->title == "Tools" && w->width == 0.5f && !w->pause && has(h.logs, "open nil true tools true bad false");
+            int dummy = 0;
+            u->draw_window(&dummy);
+            const bool rows = h.widgets.size() == 4 && h.widgets[1] == "text a paragraph" && h.widgets[2] == "progress HP 0.50 30 / 60";
+            h.press = true;                                         // the button: p:close()
+            u->draw_window(&dummy);
+            h.press = false;
+            check(opened && rows && u->window() == nullptr, "api 7: ui.window / open / is_open, p:text / p:progress / p:close (" + u->error() + ")");
+            u->command("ask", "x");
+            const bool dlg = u->window() && u->window()->title == "T" && u->window()->pause && has(h.logs, "asked dialog");
+            h.widgets.clear();
+            u->draw_window(&dummy);                                 // the text and a button per option, nothing pressed
+            const bool drawn = h.widgets.size() == 3 && h.widgets[0] == "text Pick one\nof two" && u->window() != nullptr;
+            u->close_window(true);                                  // Back: the function gets nil
+            const bool cancelled = u->window() == nullptr && has(h.logs, "picked nil nil");
+            u->command("ask", "must");
+            u->close_window(true);                                  // cancel = false: it stays
+            const bool stays = u->window() != nullptr;
+            h.press = true;                                         // every button "pressed": the last one wins
+            u->draw_window(&dummy);
+            h.press = false;
+            u->command("ask", "msg");
+            h.press = true;
+            u->draw_window(&dummy);
+            h.press = false;
+            check(dlg && drawn && cancelled && stays && has(h.logs, "picked 2 B") && has(h.logs, "msg done 1") && u->window() == nullptr && u->ok(),
+                  "api 7: ui.choose / ui.message: the pick, Back as nil, cancel = false");
+        }
+        {   // API 7: the world filters (free fields both ways; the first answer wins), world.spawn / remove / set_actor
+            h.ops7.clear();
+            auto f = make(h, tmp, "api7f", R"LUA(
+                local W = cleria.world
+                W.add_filter("spawn", function(q)
+                    cleria.log("spawn q " .. q.kind .. " " .. q.cast .. " " .. q.name .. " lv " .. q.level .. " in " .. q.room)
+                    if q.cast == 17 then return {cast = 16, level = 5, hp = 2} end
+                    if q.cast == 43 then return "suppress" end
+                    if q.cast == 50 then return {action = "pass", cast = 1} end
+                end)
+                W.add_filter("spawn", function(q) return {cast = 99} end)
+                W.add_filter("exit", function(q) if q.to == "S_1003" then return {to = "S_1009"} end end)
+                cleria.log("bad kind " .. tostring(pcall(W.add_filter, "loot", print)))
+                cleria.log("ops " .. tostring(W.spawn(17, 1, 2, 3, {level = 9})) .. " " .. tostring(W.remove(17)) .. " " .. tostring(W.set_actor(17, {hp = 5})))
+            )LUA");
+            script::WorldQuery q;
+            q.kind = "spawn"; q.num = {{"cast", 17.0}, {"level", 3.0}}; q.str = {{"name", "Selnarg"}};
+            const script::WorldDecision d17 = f->world_filter(q, "S_1002");
+            q.num[0].second = 43.0;
+            const script::WorldDecision d43 = f->world_filter(q, "S_1002");
+            q.num[0].second = 50.0;
+            const script::WorldDecision d50 = f->world_filter(q, "S_1002");       // the first passes, the second answers
+            script::WorldQuery x;
+            x.kind = "exit"; x.str = {{"to", "S_1003"}, {"from", "S_1002"}};
+            const script::WorldDecision dx = f->world_filter(x, "S_1002");
+            x.str[0].second = "S_1009";
+            const script::WorldDecision dp = f->world_filter(x, "S_1002");
+            check(f->ok() && f->has_world_filter("spawn") && f->has_world_filter("exit") && !f->has_world_filter("loot") &&
+                  d17.action == script::WorldDecision::Action::Replace && d17.n("cast", 0) == 16 && d17.n("level", 0) == 5 && d17.n("hp", 1) == 2 &&
+                  d43.action == script::WorldDecision::Action::Suppress && d50.action == script::WorldDecision::Action::Replace && d50.n("cast", 0) == 99 &&
+                  dx.action == script::WorldDecision::Action::Replace && dx.str.at("to") == "S_1009" && dp.action == script::WorldDecision::Action::Pass &&
+                  has(h.logs, "spawn q spawn 17 Selnarg lv 3 in S_1002") && has(h.logs, "bad kind false"),
+                  "api 7: world.add_filter (spawn, exit): replace with free fields, suppress, pass on to the next (" + f->error() + ")");
+            const std::vector<std::string> want = {"api7f spawn_actor 17 1 2 3 9 0 0", "api7f remove_actor 17", "api7f set_actor 17 5 nan nan nan nan"};
+            check(h.ops7 == want && has(h.logs, "ops nil true true"), "api 7: world.spawn / remove / set_actor reach the host");
+        }
+        {   // API 7: cleria.audio and cleria.screen are named writes too
+            h.ops7.clear();
+            auto v = make(h, tmp, "api7v", R"LUA(
+                local A, S = cleria.audio, cleria.screen
+                cleria.log("av " .. tostring(A.se(5)) .. tostring(A.se(5, 0.25)) .. tostring(A.music(18)) .. tostring(A.stop_music(0.5)) ..
+                           tostring(S.fade(0x102030, 0, 1, 0.5)) .. tostring(S.flash(0xFF0000)) .. " bad " .. tostring(pcall(S.fade, 0, 2, 0)))
+            )LUA");
+            auto ends = [](const std::string& x, const char* tail) { const std::string t = tail; return x.size() >= t.size() && x.compare(x.size() - t.size(), t.size(), t) == 0; };
+            check(v->ok() && h.ops7.size() == 6 && h.ops7[0] == "api7v se 5 1" && h.ops7[1] == "api7v se 5 0.25" && h.ops7[2] == "api7v bgm 18" &&
+                  h.ops7[3] == "api7v bgm_stop 500" && ends(h.ops7[4], " 0 1 30") && ends(h.ops7[5], " 0.6 0 15") &&
+                  has(h.logs, "av truetruetruetruetruetrue bad false"), "api 7: audio.se / music / stop_music, screen.fade / flash (" + v->error() + ")");
+        }
+        {   // API 7: the puppet and the player's pose are named writes / reads
+            h.ops7.clear();
+            auto p = make(h, tmp, "api7p", R"LUA(
+                local W = cleria.world
+                cleria.log("puppet " .. tostring(W.puppet(2, 1, 2, 3, 90)) .. " " .. tostring(W.set_puppet(7, {x = 4, yaw = 180, tag = 1, frame = 2, sheet = 15})) .. " " ..
+                           tostring(W.remove_puppet(7)) .. " pose " .. tostring(cleria.player.pose()) .. " bad " .. tostring(pcall(W.puppet, 4, 0, 0, 0)))
+            )LUA");
+            check(p->ok() && h.ops7.size() == 4 && h.ops7[0] == "api7p puppet_spawn 2 1 2 3 90" && h.ops7[1] == "api7p puppet_set 7 4 nan nan 180 1 2 15 nan nan nan nan" &&
+                  h.ops7[2] == "api7p puppet_remove 7" && h.ops7[3] == "api7p pose" && has(h.logs, "puppet nil true true pose nil bad false"),
+                  "api 7: world.puppet / set_puppet / remove_puppet, player.pose (" + p->error() + ")");
+        }
+        {   // API 7: cleria.script.run is a named write, script.add_filter a world filter of the kind "script"
+            h.ops7.clear();
+            auto s = make(h, tmp, "api7s", R"LUA(
+                cleria.script.add_filter(function(q) if q.name == "no" then return "suppress" end end)
+                cleria.log("script " .. tostring(cleria.script.run("@Save")))
+            )LUA");
+            script::WorldQuery q;
+            q.kind = "script";
+            q.str = {{"name", "no"}};
+            const bool refused = s->world_filter(q, "S_1002").action == script::WorldDecision::Action::Suppress;
+            q.str = {{"name", "yes"}};
+            const bool passed = s->world_filter(q, "S_1002").action == script::WorldDecision::Action::Pass;
+            check(s->ok() && refused && passed && h.ops7.size() == 1 && h.ops7[0] == "api7s script_run [@Save]" && has(h.logs, "script true"),
+                  "api 7: script.run, script.add_filter (" + s->error() + ")");
+        }
+        {   // API 7: combat.damage / heal / hurt and player.tune are named writes
+            h.ops7.clear();
+            auto c = make(h, tmp, "api7c", R"LUA(
+                local C = cleria.combat
+                cleria.log("combat " .. tostring(C.damage(7, 12)) .. tostring(C.damage(7, 5, {knock = 2, class = 1})) .. tostring(C.heal(3)) ..
+                           tostring(C.hurt(4)) .. tostring(cleria.player.tune({speed = 1.5, air_jumps = 2})) .. " bad " .. tostring(pcall(C.damage, 7, -1)))
+            )LUA");
+            const std::vector<std::string> want = {"api7c hit 7 12 0 3", "api7c hit 7 5 2 1", "api7c heal 3", "api7c hurt 4", "api7c tune 0 1.5",
+                                                   "api7c tune 5 2"};
+            check(c->ok() && h.ops7 == want && has(h.logs, "combat truetruetruetruetrue bad false"),
+                  "api 7: combat.damage / heal / hurt, player.tune (" + c->error() + ")");
+        }
+        {   // API 7: cleria.net.udp / tcp / http on the loopback: a datagram, a listener and its client, and an HTTP
+            // request answered by the mod's own TCP listener
+            auto n = make(h, tmp, "api7n", R"LUA(
+                local N = cleria.net
+                local a, b = N.udp(), N.udp()
+                local port = a:bind(0, false)
+                b:send("127.0.0.1", port, "ping")
+                local srv, cli, web = N.tcp(), N.tcp(), N.tcp()
+                srv:listen(0, false)
+                cli:connect("127.0.0.1", srv:port())
+                web:listen(0, false)
+                local got_udp, got_tcp, got_http, opened, hc, answered, done
+                local req = ""
+                N.http({url = "http://127.0.0.1:" .. web:port() .. "/hi?x=1", method = "post", body = "abc", headers = {["X-T"] = "1"}}, function(r)
+                    got_http = r.status .. " " .. r.body .. " " .. tostring(r.ok)
+                end)
+                cleria.events.on("frame", function()
+                    for _, d in ipairs(a:poll()) do got_udp = d.data .. " from " .. d.host end
+                    for _, e in ipairs(srv:poll()) do if e.kind == "accept" then e.socket:send("hello") srv_conn = e.socket end end
+                    for _, e in ipairs(cli:poll()) do
+                        if e.kind == "open" then opened = true end
+                        if e.kind == "data" then got_tcp = e.text end
+                    end
+                    for _, e in ipairs(web:poll()) do if e.kind == "accept" then hc = e.socket end end
+                    if hc then
+                        for _, e in ipairs(hc:poll()) do if e.kind == "data" then req = req .. e.text end end
+                        if not answered and req:find("abc", 1, true) then
+                            answered = true
+                            hc:send("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nworld")
+                        end
+                    end
+                    if got_udp and got_tcp and got_http and opened and not done then
+                        done = true
+                        cleria.log("net " .. got_udp .. " | " .. got_tcp .. " | " .. got_http .. " | " ..
+                                   tostring(req:find("POST /hi?x=1 HTTP", 1, true) == 1) .. tostring(req:find("X-T: 1", 1, true) ~= nil) ..
+                                   " " .. cli:state() .. " " .. srv:state())
+                    end
+                end)
+                cleria.log("bad " .. tostring(pcall(N.http, {url = "file:///x"}, print)) .. tostring(pcall(N.http, {url = "http://x", method = "BREW"}, print)))
+            )LUA");
+            for (int i = 0; i < 400 && n->ok() && !has(h.logs, "net ping"); ++i) {
+                n->on_frame(0.016);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            check(n->ok() && has(h.logs, "net ping from 127.0.0.1 | hello | 200 world true | truetrue open listening") && has(h.logs, "bad falsefalse"),
+                  "api 7: net.udp / tcp / http on the loopback (" + n->error() + ")");
+        }
+        {   // API 7: cleria.camera, hud.show, game.pause and world.boss are named writes / reads
+            h.ops7.clear();
+            auto c = make(h, tmp, "api7k", R"LUA(
+                local C = cleria.camera
+                cleria.log("cam " .. tostring(C.get()) .. tostring(C.set({distance = 1.5, y = 2})) .. tostring(C.shake(0.2, 0.5)) ..
+                           tostring(C.look_at(1, 2, 3, 1)) .. tostring(C.look_at()) .. tostring(C.reset()) .. tostring(cleria.hud.show("boss", false)) ..
+                           tostring(cleria.game.pause(true)) .. tostring(cleria.world.boss()) .. " bad " .. tostring(pcall(cleria.hud.show, "nose", true)))
+            )LUA");
+            const std::vector<std::string> want = {"api7k cam_get", "api7k cam_set 1.5 nan nan 2 nan", "api7k cam_shake 0.2 0.2 0.2 30",
+                                                   "api7k cam_look 1 2 3 60", "api7k cam_look nan nan nan 30", "api7k cam_reset",
+                                                   "api7k hud_show 2 0", "api7k pause 1", "api7k boss"};
+            check(c->ok() && h.ops7 == want && has(h.logs, "cam niltruetruetruetruetruetruetruenil bad false"),
+                  "api 7: camera.get / set / shake / look_at / reset, hud.show, game.pause, world.boss (" + c->error() + ")");
+        }
+        {   // API 7: monster variants: define, spawn by name (the base cast, then the form), the callbacks and the phases
+            h.ops7.clear();
+            auto m = make(h, tmp, "api7m", R"LUA(
+                local C = cleria.content
+                C.define_monster("brute", {base = 43, name = "Brute", level = 20, hp = 3, atk = 2, scale = 1.5, tint = 0xFF4040,
+                    on_spawn = function(id) cleria.log("born " .. id) end,
+                    on_hit = function(e) cleria.log("ouch " .. e.damage) end,
+                    on_death = function(e) cleria.log("dead " .. e.cast .. " " .. tostring(e.variant)) end})
+                C.define_boss("king", {base = 43, ai = false,
+                    phases = {{at = 0.25, enter = function(id, i) cleria.log("phase " .. i .. " of " .. id) end},
+                              {at = 0.75, enter = function(id, i) cleria.log("phase " .. i .. " of " .. id) end}}})
+                cleria.log("spawn " .. tostring(cleria.world.spawn("brute", 1, 2, 3)) .. " morph " .. tostring(C.morph(9, "king")) .. " form " ..
+                           tostring(cleria.world.form(9, {hp = 2, boss = false, name = "X"})) .. " bad " .. tostring(pcall(cleria.world.spawn, "nobody", 0, 0, 0)) ..
+                           tostring(pcall(C.define_monster, "x", {})))
+            )LUA");
+            const std::vector<std::string> want = {"api7m spawn_actor 43 1 2 3 20 0 0", "api7m actor_form 0 3 2 1 1 1 1.5 1.67281e+07 1 0 [api7m:brute\tBrute]",
+                                                   "api7m actor_form 9 1 1 1 1 1 -1 -1 0 1 [api7m:king\t]",
+                                                   "api7m actor_form 9 2 nan nan nan nan -1 -1 nan 0 [\tX]"};
+            auto hit = [&](int actor, double hp, int dmg = 7) {
+                events::Event e = events::Event::named("enemy_hit");
+                e.with("actor", actor).with("damage", dmg).with("hp", hp).with("max_hp", 100);
+                m->on_event(e);
+            };
+            hit(0, 90);                                             // the brute (the fake host's spawn answers id 0): on_hit
+            hit(9, 80); hit(9, 20);                                 // the king: nothing at 80 %, both phases at 20 %
+            events::Event k;
+            k.kind = events::Kind::EnemyKilled;
+            k.cast = 43;
+            k.with("actor", 0).with("variant", std::string("api7m:brute"));
+            m->on_event(k);
+            hit(0, 50, 8);                                          // gone: no callback
+            check(m->ok() && h.ops7 == want && has(h.logs, "spawn 0 morph true form true bad falsefalse") && has(h.logs, "born 0") &&
+                  has(h.logs, "ouch 7") && !has(h.logs, "ouch 8") && has(h.logs, "phase 1 of 9") && has(h.logs, "phase 2 of 9") && has(h.logs, "dead 43 api7m:brute"),
+                  "api 7: content.define_monster / define_boss / morph, world.form, callbacks and phases (" + m->error() + ")");
+        }
+        {   // API 7: the multiplayer pieces: a hittable puppet, combat.strike, world.snapshot / apply
+            h.ops7.clear();
+            auto s = make(h, tmp, "api7y", R"LUA(
+                local W = cleria.world
+                local snap = W.snapshot()
+                cleria.log("sync " .. #snap .. " " .. snap[1].id .. " " .. snap[1].cast .. " " .. snap[1].hp .. " " .. snap[1].tag .. " " ..
+                           tostring(W.set_puppet(7, {hittable = true})) .. tostring(cleria.combat.strike(40)) .. " " ..
+                           tostring(W.apply(snap)) .. tostring(W.apply({{id = 5, cast = 43, hp = 9}}, {ai = true, remove = false})))
+            )LUA");
+            const std::vector<std::string> want = {"api7y world_snapshot", "api7y puppet_set 7 nan nan nan nan nan nan nan 1 nan nan nan", "api7y strike 40 0",
+                                                   "api7y world_apply 3 21 43 5 1 2 3 90 50 80 301 4 15",
+                                                   "api7y world_apply 0 5 43 0 0 0 0 0 9 0 -1 -1 -1"};
+            check(s->ok() && h.ops7 == want && has(h.logs, "sync 1 21 43 50.0 301 truetrue 11"),
+                  "api 7: world.set_puppet{hittable}, combat.strike, world.snapshot / apply (" + s->error() + ")");
+        }
+        {   // API 7: the Lua layer (rooms, skills, characters) reaches the host through the same writes; the layer's
+            // extras draw; the skill filter refuses a cast and runs the mod's own
+            h.ops7.clear();
+            auto o = make(h, tmp, "api7o", R"LUA(
+                local C = cleria.content
+                C.define_room("arena", {base = "S_1002", monsters = {{43, 1, 2, 3, level = 9}}, exits = {[0] = false, default = "S_1009"}})
+                cleria.log("enter " .. tostring(C.enter_room("arena")) .. " bad " .. tostring(pcall(C.enter_room, "nowhere")))
+                C.define_skill(2, {mp = 50, cooldown = 5, cast = function(c) cleria.log("cast slot " .. c.slot .. " cost " .. c.cost) end})
+                C.define_character("giant", {hp = 2, speed = 1.5, air_jumps = 1, scale = 1.5, glow = 0x80FF80})
+                cleria.log("char " .. tostring(C.set_character("giant")) .. " " .. tostring(C.character()) .. " look " .. tostring(cleria.player.set_look({scale = 1})))
+                cleria.hud.layer("w", function(d)
+                    if not shown then shown = true
+                        cleria.log("draw " .. tostring(d:world_text(5, 0, 1, "hi")) .. tostring(d:world_text(5, 0, -1, "behind")) ..
+                                   tostring(d:world_line(0, 0, 1, 5, 0, 1)) .. tostring(d:world_circle(5, 0, 5, 2)))
+                    end
+                end)
+                cleria.ui.window("t", {title = "T"}, function(p) p:table({{"a", "b"}, {1, 2}}) p:list({"x", "y"}) cleria.log("page ok") end)
+                cleria.ui.open("t")
+            )LUA");
+            o->draw_hud(1000, 500, 1);
+            int dummy = 0;
+            o->draw_window(&dummy);
+            script::WorldQuery q;
+            q.kind = "skill";
+            q.num = {{"slot", 2}, {"item", 117}, {"level", 1}, {"cost", 400}, {"mp", 300}, {"air", 0}};
+            const bool cast = o->world_filter(q, "S_1002").action == script::WorldDecision::Action::Suppress;
+            const bool cooling = o->world_filter(q, "S_1002").action == script::WorldDecision::Action::Suppress;   // refused: 5 s
+            q.num[0].second = 3;
+            const bool other = o->world_filter(q, "S_1002").action == script::WorldDecision::Action::Pass;         // slot 3 is the game's
+            script::WorldQuery x;
+            x.kind = "exit";
+            x.num = {{"index", 0}};
+            x.str = {{"to", "S_1003"}, {"door", "d0"}};
+            const bool free_exit = o->world_filter(x, "S_1009").action == script::WorldDecision::Action::Pass;     // not in the room yet
+            events::Event re;
+            re.kind = events::Kind::RoomEnter;
+            re.room = "S_1002";
+            o->on_event(re);                                        // arrived: the variant is the room now
+            const bool closed = o->world_filter(x, "S_1002").action == script::WorldDecision::Action::Suppress;
+            x.num[0].second = 1;
+            const script::WorldDecision away = o->world_filter(x, "S_1002");
+            script::WorldQuery sp;
+            sp.kind = "spawn";
+            sp.str = {{"by", ""}};
+            const bool own = o->world_filter(sp, "S_1002").action == script::WorldDecision::Action::Suppress;      // the room's own monsters
+            sp.str = {{"by", "api7o"}};
+            const bool ours = o->world_filter(sp, "S_1002").action == script::WorldDecision::Action::Pass;
+            auto opn = [&](const std::string& s) { return std::count(h.ops7.begin(), h.ops7.end(), s); };
+            check(o->ok() && has(h.logs, "enter true bad false") && has(h.logs, "char true giant look true") && has(h.logs, "draw truefalsetruetrue") &&
+                  has(h.logs, "page ok") && has(h.logs, "cast slot 2 cost 50") && cast && cooling && other && free_exit && closed &&
+                  away.action == script::WorldDecision::Action::Replace && away.str.count("to") && away.str.at("to") == "S_1009" && own && ours &&
+                  opn("api7o goto_room [S_1002]") == 1 && opn("api7o set_mp 250") == 1 && opn("api7o tune 0 1.5") == 1 && opn("api7o tune 5 1") == 1 &&
+                  opn("api7o player_look 1.5 8.45402e+06") == 1 && opn("api7o player_look 1 nan") == 1,
+                  "api 7: define_room / define_skill / define_character, set_look, d:world_*, p:table / p:list (" + o->error() + ")");
+            h.draws.clear();                                        // this block's layer drew: the hud test below counts its own
+        }
+        {   // API 7: a mod's own sound files (by extension, inside its folder), game.new_game, save.card
+            h.ops7.clear();
+            auto q = make(h, tmp, "api7q", R"LUA(
+                local A = cleria.audio
+                cleria.log("files " .. tostring(A.play("hit.wav", 0.5)) .. tostring(A.music("song.ogg")) .. tostring(A.play("nope.wav")) ..
+                           tostring(cleria.game.new_game(2, 3)) .. tostring(cleria.game.new_game()) .. " bad " .. tostring(pcall(A.play, "hit.ogg")) ..
+                           tostring(pcall(A.play, "../x.wav")) .. tostring(pcall(cleria.game.new_game, 7)) .. " card " .. type(cleria.save.card))
+            )LUA", {{"hit.wav", "x"}, {"song.ogg", "x"}});
+            auto ends = [](const std::string& s, const std::string& t) { return s.size() >= t.size() && s.compare(s.size() - t.size(), t.size(), t) == 0; };
+            check(q->ok() && h.ops7.size() == 4 && h.ops7[0].rfind("api7q se_file 0.5 [", 0) == 0 && ends(h.ops7[0], "hit.wav]") &&
+                  h.ops7[1].rfind("api7q bgm_file [", 0) == 0 && ends(h.ops7[1], "song.ogg]") && h.ops7[2] == "api7q new_game 2 3" &&
+                  h.ops7[3] == "api7q new_game" && has(h.logs, "files truetruefalsetruetrue bad falsetruefalse card function"),
+                  "api 7: audio.play / music(file), game.new_game, save.card (" + q->error() + ")");
+        }
+        {   // API 7: the tools reach the host (a command of any mod, their names, the log's tail, a reload asked for)
+            auto t = make(h, tmp, "api7t", R"LUA(
+                local Mo = cleria.mods
+                cleria.log("tools " .. tostring(Mo.command("hello", "a b")) .. tostring(Mo.command("nope")) .. " " .. table.concat(Mo.commands(), ",") ..
+                           " " .. #Mo.log_lines(5) .. " " .. tostring(Mo.reload()) .. " " .. type(cleria.ui.console))
+            )LUA");
+            check(t->ok() && has(h.logs, "tools truefalse hello,where 2 true function") && h.reloads == 1 && h.ran == "hello|a b",
+                  "api 7: mods.command / commands / log_lines / reload, ui.console (" + t->error() + ")");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&
@@ -611,7 +1134,7 @@ int main(int argc, char** argv) {
     {
         std::vector<std::string> errs;
         const mods::Manifest mf = mods::parse_manifest("[mod]\r\nId=a.b\r\nApiVersion=3\r\nScript=main.lua\r\n", errs);
-        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 6, "manifest: Script= and ApiVersion 3");
+        check(errs.empty() && mf.script == "main.lua" && mf.api == 3 && mods::kApiVersion == 7, "manifest: Script= and ApiVersion 3");
         for (const char* s : {"hello", "archipelago_lua"}) {
             const fs::path root = fs::path("samples") / "mods" / s;
             std::vector<std::string> e2;

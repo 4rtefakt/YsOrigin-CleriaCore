@@ -136,9 +136,19 @@
                 };
                 const Vec3 cam_fwd = cam.forward();
                 if (!fix0_tick) player_hold = boss6_grab || boss7_pin || boss8_pin;   // re-asserted by a holding Levenueba's brain tick; a head's grab (view_boss06.inl); Dalles's pin (view_boss07.inl); Darm's dead fall (view_boss08.inl)
+                for (auto it = g_lua_fallen.begin(); it != g_lua_fallen.end();) {   // (API 7) world.apply's dead, still lying there
+                    if ((unsigned long long)tick_count < it->second) { ++it; continue; }
+                    if (Actor* a = world.find(it->first); a && !a->alive()) { world.despawn(it->first); csHost.world_changed = true; }
+                    it = g_lua_fallen.erase(it);
+                }
                 for (EnemyRender& e : render) {
                     Actor* en = e.actor;
                     if (fix0_tick && !(en && fix0_runs(*en))) continue;       // a Fix(0): the handlers that run (S2, S5c)
+                    if (en && en->mod_boss && en->alive() && !fix0_tick) {     // a mod's boss (API 7): the gauge is its HP
+                        gauge_owner = en->instance_id;
+                        hud.set_boss_gauge(en->instance_id, en->hp, en->max_hp, character == 2 ? 4000.0f : 3000.0f, 0);
+                    }
+                    if (en && en->mod_ai_off && en->alive()) continue;         // a mod holds its handler (API 7)
                     // M450's handler, every path (FUN_004c0ee0 0x4c1231): the Mask of Eyes tint +0x148 / +0x278.
                     if (en && en->ai_index == 38) en->tint = mask_of_eyes_on(inv) ? 0xff999999u : 0xffffffffu;
                     // The M680 / M740 handlers' far freeze, before their HP test: 25 u or more from the player's
@@ -159,6 +169,19 @@
                         }
                     }
                     if (revive_tick(e)) continue;                 // the revive family's dead path
+                    // M590's handler top, before its HP test (M590.md §2.1; brains::m590_keep_out): over the room's
+                    // set-1 surface it is drawn back to its last dry point. [approx] the 100-down set-1 segment by
+                    // the host's water_under (W3).
+                    if (en && en->ai_index == 52 && !en->destroy_requested() && e.avm.ok()) {
+                        Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
+                        const Vec3 was = org;
+                        if (brains::m590_keep_out(en->ai, org, aiw.water_under(org, -100.0f) > -1.0e29f, en->vert.grounded, en->vert.t)) {
+                            if (ai_debug)
+                                std::printf("[ai] t%llu M590 #%d over water (%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)\n",
+                                            (unsigned long long)tick_count, en->instance_id, was.x, was.y, was.z, org.x, org.y, org.z);
+                            en->pos = {org.x, org.y - en->height, org.z};
+                        }
+                    }
                     // M710's handler, the first dead tick (+0x3fc == 0, 0x4c3dd4): end its attached suction effects. The
                     // pool holds no new ones after that, so the view repeats it each dead tick to the same effect.
                     if (en && en->ai_index == 64 && !en->alive() && !en->destroy_requested()) aiw.cull_attached_fx(*en, 246, 0);
@@ -172,6 +195,44 @@
                     if (en && !en->alive() && !en->destroy_requested())
                         if (const EnemyDeathHook hk = enemy_death_hook_for(en->ai_index)) { hk(*en, aiw); boss_corpse(e); }
                     if (hugo_eye_dead(e)) continue;                  // a familiar's death tick (view_hugo_eyes.inl)
+                    // FUN_004780e0, a monster's dead path (every handler's HP < 1.0 branch) [EXPORT 004780e0.c:33-100]:
+                    // +0x3fc 0 -> 1 on the first dead tick, then +1 a tick while the body fades (alpha 255 - 6n; 255 - n
+                    // with +0x12c & 0x8000000, 255 - n / 1.25 with 0x40000000); the tick after the alpha runs out the
+                    // actor is removed (FUN_004593c0: the live-monster count flag 132 drops, byte +0x11 |= 2 for the
+                    // frame's sweep). So a wave's Wait_FlagEqualInt(132, 0) releases 44 ticks after its last kill.
+                    // The revive family and the casts with a death hook run their own (above); Pictimos's minions are
+                    // his module's (view_boss05.inl).
+                    // The body is drawn through the fade: the alpha is the actor's opacity +0x4d8 = alpha x 1 / 255
+                    // [0x6bd038], the one the submit FUN_00473540 reads, and each handler's dead branch runs the ASO
+                    // step after this [EXPORT 0047b7f0.c:116-117: FUN_004780e0, then FUN_004472e0], so the section
+                    // the kill left it in plays on: the death section 5 after a hit of the player's (react_enemy),
+                    // whatever ran before for any other death. FUN_004780e0 starts no section itself.
+                    // [not modelled] what that section fires while dead (its sounds — the death pair is played at the
+                    // kill —, effects, bullets, hit volumes); the first
+                    // tick's other writes (+0x508..+0x518, +0x118, +0x868 = 1200, the velocity clears: a dead body
+                    // is not moved here at all).
+                    if (en && en->is_enemy() && !en->alive() && !en->destroy_requested() && !boss6_zava_undying(*en) &&
+                        !enemy_death_hook_for(en->ai_index) && !revive::corpse_drawn(*en) && !boss5_dead_t.count(en->instance_id)) {
+                        std::uint32_t& n = en->ai.dead_t;
+                        // M290's own dead ticks (m290_dead_tick, its bombs) count +0x3fc to 44 themselves.
+                        if (en->ai_index == 22) { if (n >= 44u) world.request_destroy(*en); }
+                        else if (n == 0) n = 1;
+                        else if (n < 0x100u) {
+                            ++n;
+                            const int al = (en->flags12c & 0x8000000u) ? 255 - int(n)
+                                         : (en->flags12c & 0x40000000u) ? 255 - int(std::floor(float(n) / 1.25f)) : 255 - 6 * int(n);
+                            if (al < 0) n = 0x100;
+                            en->ai.alpha = float(std::max(al, 0)) * 0.003921569f;
+                        } else world.request_destroy(*en);
+                        if (en->ai_index != 22) {
+                            en->ai.dead_fade = true;
+                            if (e.avm.ok()) {
+                                e.spec.tick();
+                                e.avm.tick();
+                                e.spec_event();
+                            }
+                        }
+                    }
                     if (!en || (!en->alive() && !boss6_zava_undying(*en)) || en->destroy_requested() || !e.avm.ok()) continue;
                     // +0x314 is ONE field: a Fix's turns (world.tick_facing) and Chr_Pos write it
                     // through en->yaw, and the brain carries on from there. e.facing kept the
@@ -204,6 +265,24 @@
                     env.bloody = settings().s.game.bloody_effect_level > 1;   // byte 0x6d5d92 (FUN_0040b8e0)
                     env.target_durable = avm.durable();              // byte P+0x9d8
                     env.target_grounded = pv.grounded;
+                    bool mod_target_near = false;                    // a target puppet within 14: this monster is on that player's screen
+                    if (!g_lua_targets.empty()) {                    // the mods' other players (API 7): the nearest one is the target
+                        float best = player.hp >= 1 ? (env.target.x - env.self.x) * (env.target.x - env.self.x) +
+                                                      (env.target.z - env.self.z) * (env.target.z - env.self.z) : 1.0e30f;
+                        for (int pid : g_lua_targets) {
+                            const Actor* pu = world.find(pid);
+                            if (!pu) continue;
+                            const float d2 = (pu->pos.x - env.self.x) * (pu->pos.x - env.self.x) + (pu->pos.z - env.self.z) * (pu->pos.z - env.self.z);
+                            mod_target_near = mod_target_near || d2 < 196.0f;
+                            if (d2 >= best) continue;
+                            best = d2;
+                            env.target = {pu->pos.x, pu->pos.y + kOriginH, pu->pos.z};
+                            env.target_vel = {0, 0, 0};
+                            env.target_alive = true;
+                            env.target_grounded = true;
+                            env.target_rehit_clear = true;
+                        }
+                    }
                     boss5_target(*en, env);                          // the +0x888 override (view_boss05.inl)
                     boss6_zava_env(*en, env);                        // Zava's link to her heads (view_boss06.inl)
                     env.was_hit = e.hit;
@@ -215,6 +294,7 @@
                     env.aso_marker_block = e.avm.marker_block();
                     env.culled = !(en->flags12c & 0x1000000u) &&                     // never-cull bit
                                  !in_view({en->pos.x, en->pos.y + en->height, en->pos.z}, 2.5f);   // 0x480cb8..0x480cdc
+                    if (mod_target_near) env.culled = false;         // (API 7) seen by another player
                     env.stun_immune = (en->flags12c & 0x80000u) != 0;                  // FACTORY.md
                     env.bless_stun = (game.g_flags[217] & 0x80) != 0;                  // GROW09
                     env.boss_fight = game.g_flags[156] == 1;                           // DAT_0076bb8c
@@ -274,6 +354,13 @@
                     const int phase_before = e.actor->ai.phase();
                     AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
                     boss6_zava_post(*en, env, o);                    // Zava's handler past the action player (view_boss06.inl)
+                    if (en->ai.swim_set) {                           // the move primitive's swim block wrote the origin (0x477d40)
+                        en->ai.swim_set = false;
+                        if (ai_debug && std::fabs(en->ai.swim_origin.y - env.self.y) > 0.2f)
+                            std::printf("[ai] t%llu #%d cast %d swim block: origin y %.2f -> %.2f (surface %d)\n", (unsigned long long)tick_count,
+                                        en->instance_id, en->cast_id, env.self.y, en->ai.swim_origin.y, en->ai.surf_ray);
+                        en->pos = {en->ai.swim_origin.x, en->ai.swim_origin.y - en->height, en->ai.swim_origin.z};
+                    }
                     if (phase_before == 2 && e.actor->ai.phase() == 3 && std::getenv("CLERIA_DMG"))
                         std::printf("  [stun] t%llu #%d cast %d stunned for %d ticks (events %x)\n", (unsigned long long)tick_count,
                                     en->instance_id, en->cast_id, e.actor->ai.dur(), env.events);
@@ -313,7 +400,10 @@
                         blood_at("slime", sp.count, sp.argb, sp.delay_step, sp.life_range, sp.size0, sp.size1, sp.pos,
                                  sp.radius, sp.flag_a, sp.flag_b);
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
-                    if (o.popup >= 0) damage_popup(o.popup, 0xffffff, {en->pos.x, en->pos.y + en->height, en->pos.z});   // FUN_004fae00
+                    if (o.popup >= 0) damage_popup(o.popup, o.popup_rgb, {en->pos.x, en->pos.y + en->height, en->pos.z});   // FUN_004fae00
+                    // The floor killed it (0x47a671..0x47a6ac): the notes' seen byte, no kill count.
+                    if (o.floor_death && en->cast_id >= 0 && en->cast_id < records::MonsterNotes::kEntries)
+                        g_notes.seen[std::size_t(en->cast_id)] = 1;
                     if (o.zoom_s || o.zoom_r) zoom_blur(o.zoom_s.value_or(zb.s), o.zoom_r.value_or(zb.r));   // ZoomBlur
                     if (o.zoom_centre) zoom_centre(*o.zoom_centre);                                         // FUN_005e0590
                     // M470's hold (0x48ce69): the player's origin at the mouth, +0x330 = 0, +0x398 = 1 until a brain

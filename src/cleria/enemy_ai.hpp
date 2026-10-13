@@ -78,6 +78,7 @@ struct EnemyAi {
     Vec3 anchor{};         // +0x51c: the origin at the last phase change (the leash's centre; +0x744 its distance)
     bool hittable = true;  // +0x60 & 0x80: hit tests and body push skip the actor when clear
     std::uint32_t dead_t = 0;  // +0x3fc: FUN_004780e0's death counter (0 alive, 1 at death, +1 a tick)
+    bool dead_fade = false;    // FUN_004780e0 runs on it: the dead body is drawn, at the opacity `alpha`, until removed
     int w_type = 0;        // +0x424: wander type (0 wander, 1 stand)
     int w_phase = 1;       // +0x428
     int w_timer = 0;       // +0x42c
@@ -95,8 +96,17 @@ struct EnemyAi {
     // ("water" set; for a sand actor the sand top) surface above, +0x38a in it.
     int surf = 1, surf_ray = 1;
     float water_y = -1.0e30f;
+    // +0x320 as a brain reads it: the constructor's 0 until a probe has hit [EXPORT 004590b0.c:24].
+    float w320() const { return water_y > -1.0e29f ? water_y : 0.0f; }
     bool in_water = false;
     bool wading = false, entered = false;   // +0x389, +0x38b (water.hpp; ENEMY_WATER.md §1.2)
+    std::uint8_t splash_cd = 0, bubble_t = 0, breath_t = 0;   // +0x4c3, +0x4c5, +0x4c6: FUN_0045c490's splash / bubble pacing
+    bool water_seen = false;                // the port's: the water test has run once (stands for the placement's probe)
+    std::uint16_t floor_ticks = 0;          // +0x4c8: the action player's lava / blood floor counter (0x47a629)
+    // The move primitive's swim block wrote the origin +0x50..+0x58 (0x477e3e the whole point, 0x477e5e / 0x477eee
+    // y alone): the host places the actor there before its integrator and clears the flag.
+    bool swim_set = false;
+    Vec3 swim_origin{};
     float exp_base = -1;   // the revive family's spawn EXP (+0xb0), restored under Silver Chimes
 };
 
@@ -342,6 +352,8 @@ struct AiOut {
     bool skip_action_player = false;
     // FUN_004fae00(value, origin, 0xffffffff): a white number at the actor's origin + 0.5 (M510's water drain).
     int popup = -1;
+    std::uint32_t popup_rgb = 0xffffff;   // 0xa000a0 for the action player's floor damage (0x47a6ba)
+    bool floor_death = false;             // ... which killed it this tick: +0x3bc |= 0x10, the notes' seen byte
     // The handler took its g_flags[131] branch: FUN_0045f470, the mover with the moving byte +0x514 = 0, in place
     // of the brain, the action player and FUN_00478080 [EXPORT 0047b7f0.c:73-117; 0045f470.c]. The host runs its
     // mover as stopped; +0x6f8 (mode) and the rest of the brain's state are left as they are.

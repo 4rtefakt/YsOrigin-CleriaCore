@@ -12,7 +12,7 @@
 struct SpriteTex {
     WGPUTexture tex{}; WGPUTextureView view{}; WGPUBindGroup bind{};
     std::uint32_t w = 0, h = 0;
-    float x0 = 0, y0 = 0, canvasW = 0, oy = 0;
+    float x0 = 0, y0 = 0, canvasW = 0, canvasH = 0, oy = 0;
     float footFix = 0;   // per-file foot correction: oy - resting-frame bbox bottom (grounds
                          // large-canvas sprites whose oy sits below the art; see draw_character)
     bool place_ok = false;
@@ -20,8 +20,8 @@ struct SpriteTex {
     // S = AIA header +0x1c x the actor's +0x248 x 1/32 (DAT_006bd104); the actor's factor is
     // applied at draw time. render_effects.md S1/S2.
     float S = 0.03125f;
-    void set_placement(const AiaFrame& fr, std::uint32_t cw, float scaleA) {
-        x0 = float(fr.x0); y0 = float(fr.y0); canvasW = float(cw); oy = fr.bill[2];
+    void set_placement(const AiaFrame& fr, std::uint32_t cw, std::uint32_t ch, float scaleA) {
+        x0 = float(fr.x0); y0 = float(fr.y0); canvasW = float(cw); canvasH = float(ch); oy = fr.bill[2];
         S = scaleA * 0.03125f;
         place_ok = true;
     }
@@ -91,7 +91,7 @@ struct CharSprite {
                 continue;
             if (dirs[d].tex) { wgpuBindGroupRelease(dirs[d].bind); wgpuTextureViewRelease(dirs[d].view); wgpuTextureRelease(dirs[d].tex); }
             dirs[d] = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
-            dirs[d].set_placement(fr, aia.canvasW, aia.scaleA);   // canvas anchor -> no animation slide
+            dirs[d].set_placement(fr, aia.canvasW, aia.canvasH, aia.scaleA);   // canvas anchor -> no animation slide
         }
     }
 };
@@ -571,6 +571,172 @@ static void shadow_flush(Gpu& g, WGPUTextureView color, WGPUTextureView depth, c
     wgpuQueueSubmit(g.queue, 1, &cmd);
     wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
     sf.decal.clear();
+}
+
+// ---- Toal's trail (SHADOWS.md 5, RENDER_LEFTOVERS.md 3) -----------------------------------------------------
+// Only the player actor spawned as Toal has it (FUN_00459410: the texture record +0x5c8 and N x 12 bytes of
+// history +0x5cc, N = {12, 18, 24}[ShadowEffectLevel] [BYTES 0x68b0ec]). Every tick FUN_0045c490 shifts the
+// history -- hist[i] = where he was i ticks ago, relative to now. After his sprite, FUN_00474870 [EXPORT
+// 00474870.c] looks the current animation tag up in the image table of AIA slot 0x10a = c_119 [BYTES
+// 0x4748a5..0x4748ae, 0x68a800 + 4 x 266]: no entry, no trail. Else the body region of (tag, dir % nDir,
+// min(frame, nFrame - 1)) is decoded at its canvas position into the trail's canvas-sized texture, and for each
+// segment j of the history six copies of the BODY's billboard quad are built, moved by lerp(hist[j], hist[j + 1],
+// q / 6) with alpha clamp(1 - m / 6N, 0, 1) (m counts the copies), additive (the sprite state | 0x80: SRCALPHA /
+// ONE). The buffer is drawn after every 9th segment and the remainder never is [BYTES 0x474c51..0x474c99]: 54
+// quads at Shadows Simple and Player, 108 at Full. C_119 has the demon form's tags 300..317 and 259, 264, 265; most
+// of its images are a small light at one point of the figure, tag 317's are the whole figure [DATA].
+// [H] the history offset is a world offset: retail turns it by RotationY(-camera yaw), taken to undo the
+// billboard's own turn (the camera record's +0x48c was not traced). [approx] the trail's quad is the image's tight
+// box placed as the body's frame is (the same canvas and scale); the rgb is the body's (the scene light).
+// [not modelled] the fade factor +0x5bc (1.0 for the actor's whole life: no writer lowers it).
+struct ToalTrail {
+    Aia aia;
+    bool tried = false;
+    SpriteTex tex;
+    long shown = -1;                   // the (image, dir, frame) the texture holds
+    bool has = false;                  // ... and it is not an empty region
+    std::vector<Vec3> pos;             // the player's position after each of the last ticks, newest first
+    int stat[2] = {-1, 0};             // the last draw's tag and quads (vstat)
+};
+static ToalTrail g_trail;
+// CleriaCore's own (the mods' puppets, API 7; not retail): the same trail behind a puppet drawn as Toal, by actor id.
+static std::map<int, ToalTrail> g_puppet_trails;
+static void trail_record(const Vec3& p, ToalTrail& t = g_trail) {
+    t.pos.insert(t.pos.begin(), p);
+    if (t.pos.size() > 24) t.pos.resize(24);
+}
+static void trail_draw(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const fs::path& asset_root,
+                       const SpriteTex& body, const Vec3& feet, float worldH, int tag, int dir, int frame,
+                       const Vec3& camFwd, const Vec3& camPos, float tr, float tg, float tb, float px_dx, float px_dy,
+                       float scale, float depth_bias, ToalTrail& t = g_trail) {
+    t.stat[0] = -1; t.stat[1] = 0;
+    if (!t.tried) { t.tried = true; t.aia.load(asset_root / "ANI" / "C_119.AIA"); }
+    if (!t.aia.ok()) return;
+    int img = -1;
+    for (std::uint32_t i = 0; i < t.aia.nImg && img < 0; ++i)
+        if (int(t.aia.images[i].tag) == tag) img = int(i);
+    if (img < 0) return;
+    const AiaImage& im = t.aia.images[std::size_t(img)];
+    if (im.nDir == 0 || im.nFrame == 0) return;
+    const std::uint32_t d = std::uint32_t(dir) % im.nDir, f = std::min(std::uint32_t(std::max(frame, 0)), im.nFrame - 1);
+    const long key = (long(img) << 16) | long(d << 8) | long(f);
+    if (key != t.shown) {
+        t.shown = key;
+        AiaFrame fr;
+        t.has = t.aia.decode_frame(std::uint32_t(img), d, f, fr) && fr.w > 0 && fr.h > 0;
+        if (t.has) {
+            if (t.tex.tex) { wgpuBindGroupRelease(t.tex.bind); wgpuTextureViewRelease(t.tex.view); wgpuTextureRelease(t.tex.tex); }
+            t.tex = upload_rgba(g, fr.w, fr.h, fr.rgba.data(), g_sprite_point ? g.sampler_point : nullptr);
+            t.tex.set_placement(fr, t.aia.canvasW, t.aia.canvasH, t.aia.scaleA);
+        }
+    }
+    t.stat[0] = tag;
+    if (!t.has || t.pos.empty()) return;
+    t.tex.oy = body.oy; t.tex.footFix = body.footFix;      // the body's quad: its foot line
+    const int N = g_shadow_level == 0 ? 12 : g_shadow_level == 1 ? 18 : 24;
+    const int segs = ((N - 1) / 9) * 9;                    // drawn in runs of nine
+    auto hist = [&](int i) {
+        const Vec3& p = t.pos[std::min(std::size_t(i), t.pos.size() - 1)];
+        return Vec3{p.x - t.pos[0].x, p.y - t.pos[0].y, p.z - t.pos[0].z};
+    };
+    QuadScope quads(g);
+    int m = 0;
+    for (int j = 0; j < segs; ++j) {
+        const Vec3 a = hist(j), b = hist(j + 1);
+        for (int q = 0; q < 6; ++q, ++m) {
+            const float w = float(q) / 6.0f;                // 0x6bd880
+            const float al = float(int(std::clamp(1.0f - float(m) / float(6 * N), 0.0f, 1.0f) * 255.0f)) / 255.0f;
+            const Vec3 at{feet.x + a.x + (b.x - a.x) * w, feet.y + a.y + (b.y - a.y) * w, feet.z + a.z + (b.z - a.z) * w};
+            draw_character(g, color, depth, at, worldH, t.tex, camFwd, camPos, 0.0f, tr, tg, tb, true, al, px_dx, px_dy,
+                           scale, 0, depth_bias, false);
+        }
+    }
+    t.stat[1] = m;
+}
+
+// ---- the type-7 lines: the chain lightning's bolts (extra::Bolt; GOXX_17_19.md 3.5) --------------------------
+// FUN_00590f50 [BYTES 0x590f50..0x5913f9]: one quad a shown segment, `data\image\lightning2.dds` (static texture
+// 33 = 0x749dd0 [BYTES 0x6d6394 + 33 x 0xc4]), render word 0x46c1 (additive: SRCALPHA / ONE, Z test, no Z write),
+// u = the line's scroll .. + 1 along each segment, v across; white, alpha 0x15 x life in its last 12 updates. The
+// segments whose node is in water are drawn by a second entry on layer 9 at 0x7f7f7f.
+// [approx] both passes are drawn here, on the effects' layer; the frame blend 0x74c0e0 is 1 (the tick's positions).
+struct BoltFx {
+    SpriteTex tex;
+    bool tried = false;
+    int stat = 0;                      // the last draw's quads (vstat)
+};
+static BoltFx g_boltfx;
+static void draw_bolts(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const fs::path& asset_root,
+                       const std::vector<const extra::Bolt*>& bolts, const Vec3& camFwd) {
+    BoltFx& f = g_boltfx;
+    f.stat = 0;
+    if (!f.tried) {
+        f.tried = true;
+        Dds d = load_dds(asset_root / "IMAGE" / "LIGHTNING2.DDS");
+        if (d.ok()) f.tex = upload_rgba(g, d.width, d.height, d.data.data());
+    }
+    if (!f.tex.tex) return;
+    QuadScope quads(g);
+    for (const extra::Bolt* b : bolts)
+        for (int pass = 0; pass < 2; ++pass) {
+            const std::uint8_t c = pass ? 0x7f : 0xff;
+            const float nx = 1.0f - float(b->alpha()) / 255.0f;
+            b->quads(pass != 0, camFwd, 1.0f, [&](const Vec3 p[4], const float u[4], const float v[4]) {
+                auto V = [&](int k) -> RoomVertex { return {p[k].x, p[k].y, p[k].z, nx, 0, -1, u[k], v[k], c, c, c, 0}; };
+                const RoomVertex verts[4] = {V(0), V(1), V(3), V(2)};
+                draw_quad(g, color, depth, g.char_pipeline_add, f.tex.bind, verts);
+                ++f.stat;
+            });
+        }
+}
+
+// ---- an actor's image on a mirror floor (REFLECTIONS.md 7.4, RENDER_LEFTOVERS.md 1.2-1.3) ------------------
+// While MirrorFloor is on, FUN_00473540 queues the actor's shadow callback FUN_00474e10 on layer 1 as well
+// [BYTES 0x47385f..0x4738ff], and there it builds the shadow's flat quad (FUN_00456da0) with the actor's own sprite
+// texture: the whole canvas of its sheet, the current frame decoded in it [EXPORT 00446220.c, 00444fe0.c].
+//   half-size s = scale (+0x248) x canvas width x scale A / 32 x 0.5 x 0.8 [EXPORT 00474e10.c; BYTES 0x6bd104,
+//     0x6bd304, 0x6bd3a8] -- a square, whatever the canvas height;
+//   the shadow point B moves k toward the eye in xz, k = 0.85, or -0.6 in the listed poses (which also leave
+//     the image unturned in v) [BYTES 0x6bd3bc, 0x6be01c]; then the shadow's law: 0.025 |B - A| off the size and
+//     the alpha, nothing below 0; centre B - forward x 0.15;
+//   corners (-s, -s) (-s, +s) (+s, -s) (+s, +s) with (u, v) = (0, 0) (0, 1) (1, 0) (1, 1), v turned over in the
+//     listed poses [BYTES 0x456f96..0x45711c], turned about Y by the camera's yaw;
+//   preset 0x21641: texture x the tint's rgb, alpha = texture x the tint's alpha (g.floor_quad_pipe).
+// Here the sprite texture is the frame's tight box, so the quad drawn is that box's part of the canvas square.
+// [H] the yaw turns local +z to the camera's horizontal forward and +x to screen right (the record's +0x48c was
+// not traced): the figure then lies feet away from the camera, head toward it, as a floor reflection does.
+// [not modelled] the bob +0x240 in the size, the sprite's x offset +0xa34, the tilt to the floor's normal;
+// [approx] the texture holds the body with its second layer added (retail: the body alone).
+static bool mirror_quad_unturned(int cast, int anim, int frame) {     // [EXPORT 00474e10.c:88-111]
+    if (cast == 0xd) return ((anim == 5 || anim == 0x133) && frame > 3) || (anim == 9 && frame > 3);
+    if (cast == 0xad) return (anim == 5 && frame >= 8) || (anim == 0x131 && frame >= 4);
+    return false;
+}
+static void mirror_actor_quad(const SpriteTex& spr, const Vec3& A, float floorY, float scale, std::uint32_t tint,
+                              float alpha, const Vec3& eye, const Vec3& fwd, bool unturned) {
+    if (!g_mirror.floor_on || !spr.tex || !spr.place_ok || spr.canvasW <= 0 || spr.canvasH <= 0) return;
+    float s = scale * spr.canvasW * spr.S * 0.4f;
+    Vec3 B{A.x, floorY + 0.05f, A.z};
+    float dx = eye.x - B.x, dz = eye.z - B.z;
+    if (const float l = std::sqrt(dx * dx + dz * dz); l > 0.0f) { dx /= l; dz /= l; }
+    const float k = unturned ? -0.6f : 0.85f;
+    B.x += dx * k; B.z += dz * k;
+    const float kk = 0.025f * std::sqrt((B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y) + (B.z - A.z) * (B.z - A.z));
+    s -= kk;
+    if (alpha - kk < 0.0f || s < 0.0f) return;
+    const Vec3 C{B.x - fwd.x * 0.15f, B.y - fwd.y * 0.15f, B.z - fwd.z * 0.15f};
+    float fx = fwd.x, fz = fwd.z;
+    if (const float l = std::sqrt(fx * fx + fz * fz); l > 1e-6f) { fx /= l; fz /= l; } else { fx = 0; fz = 1; }
+    const float u0 = spr.x0 / spr.canvasW, u1 = (spr.x0 + float(spr.w)) / spr.canvasW;
+    const float v0 = spr.y0 / spr.canvasH, v1 = (spr.y0 + float(spr.h)) / spr.canvasH;
+    const float nx = 1.0f - std::clamp(alpha, 0.0f, 1.0f);
+    const std::uint8_t cr = std::uint8_t(tint >> 16), cg = std::uint8_t(tint >> 8), cb = std::uint8_t(tint);
+    auto V = [&](float u, float v, float tu, float tv) -> RoomVertex {
+        const float lx = (2.0f * u - 1.0f) * s, lz = (unturned ? 1.0f - 2.0f * v : 2.0f * v - 1.0f) * s;
+        return {C.x + fz * lx + fx * lz, C.y, C.z - fx * lx + fz * lz, nx, 0, -1, tu, tv, cr, cg, cb, 0};
+    };
+    Mirror::Quad q{spr.bind, {V(u0, v0, 0, 0), V(u1, v0, 1, 0), V(u1, v1, 1, 1), V(u0, v1, 0, 1)}};
+    g_mirror.quads.push_back(q);
 }
 
 // Draw a screen-space textured quad (UI/title images) at NDC corners (l,t)-(r,b), z in [0,1].

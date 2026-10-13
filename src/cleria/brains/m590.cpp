@@ -12,10 +12,10 @@
 // effect) at a rate rising with the ramp; at frame 7 after 180 ticks, section 8's 118-tick
 // wind-down. Every tick: M530's bounce against cast 63 and (engaged) walls, with a direct
 // 0.0625 nudge and the spark + SE on any push.
-// [not modelled] the handler's water keep-out / dry-point trail and section-change revert
-// (M590.md §2.1, §2.3); its kill of the owned lasers on the first dead tick (§2.2); the
-// swim block's surface snap (MOVEPRIM.md §2.5); the specular glow; the keep-out box restore;
-// the neighbour filter's byte +0x11 bit 0.
+// The handler's water keep-out / dry-point trail is m590_keep_out below; the swim block's surface
+// snap is in ai::move.
+// [not modelled] the handler's section-change revert (M590.md §2.3); its kill of the owned lasers
+// on the first dead tick (§2.2); the specular glow; the neighbour filter's byte +0x11 bit 0.
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -249,6 +249,32 @@ AiOut m590(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         out.effects.push_back(mv);
     }
     return out;
+}
+
+// The handler's top, before its HP test (M590.md §2.1 [BYTES 0x4a881b..0x4a8ade]). Over water — the origin under
+// +0x320 + 0.6, or a set-1 surface within 100 below it (`water_below`) — the actor is drawn halfway back to its
+// last dry sample C (+0x7e4) on x / z and takes C's y; under +0x320 + 0.7 it is grounded with the timer at 0. Dry:
+// the three samples A (+0x7f0), B (+0x7fc), C follow the origin in steps of over 0.2 (dy weighted x 0.05).
+// +0x320 is the placement's set-1 hit or the constructor's 0, as are the samples of an M590 that was never dry
+// [EXPORT 004590b0.c:24: the actor is zeroed from +0x120 for 2000 bytes]; the per-tick probe is off for this cast
+// (+0x12c & 0x8000). [approx] the port has no placement probe: 0 always.
+bool m590_keep_out(EnemyAi& a, Vec3& o, bool water_below, bool& grounded, float& timer) {
+    const float w = a.w320();
+    if (w + 0.6f > o.y || water_below) {
+        const float y = w + 0.6f > o.y ? w + 0.6f : o.y;
+        if (w + 0.7f > y) { grounded = true; timer = 0.0f; }
+        o = {(a.f(0x7e4) - o.x) * 0.5f + o.x, a.f(0x7e8), (a.f(0x7ec) - o.z) * 0.5f + o.z};
+        return true;
+    }
+    auto far = [](const Vec3& p, const Vec3& q) {
+        const double dx = std::fabs(double(p.x - q.x)), dy = std::fabs(double(p.y - q.y)), dz = std::fabs(double(p.z - q.z));
+        const float ey = float(dy) * 0.05f;
+        return float(dx) * float(dx) + ey * ey + float(dz) * float(dz) > 0.04f;
+    };
+    if (far(o, a.v(0x7f0))) a.set_v(0x7f0, o);
+    if (far(a.v(0x7f0), a.v(0x7fc))) a.set_v(0x7fc, a.v(0x7f0));
+    if (far(a.v(0x7fc), a.v(0x7e4))) a.set_v(0x7e4, a.v(0x7fc));
+    return false;
 }
 
 }  // namespace cleria::brains

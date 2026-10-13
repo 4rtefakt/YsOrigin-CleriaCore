@@ -35,10 +35,22 @@ Actor* ActorWorld::find(int id) {
     return nullptr;  // the engine returns 0 here too
 }
 
-Actor* ActorWorld::spawn(const SpawnRequest& r) {
+Actor* ActorWorld::spawn(const SpawnRequest& r0) {
     if (!tables_.ok()) return nullptr;
+    SpawnRequest r = r0;
     const Cast* c = tables_.casts->get(r.cast_type);
     if (!c) return nullptr;
+    SpawnTweak tweak;
+    if (spawn_filter && c->cast_id != kIdPlayer && tables_.enemies->get(c->cast_id)) {   // mods (API 7): enemies only
+        tweak.cast = r.cast_type; tweak.level = r.level;
+        spawn_filter(r, tweak);
+        if (tweak.skip) return nullptr;
+        if (tweak.cast != r.cast_type) {                 // another ENEMY cast, or the request stands
+            const Cast* c2 = tables_.casts->get(tweak.cast);
+            if (c2 && c2->cast_id != kIdPlayer && tables_.enemies->get(c2->cast_id)) { c = c2; r.cast_type = tweak.cast; }
+        }
+        r.level = std::clamp(tweak.level, 0, 60);
+    }
 
     // Step 1: an existing id is REUSED. The op looks up before it allocates, so a
     // script re-spawning an id re-points that actor rather than doubling it.
@@ -108,13 +120,13 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
                 sm.boss_rush = stat_flags[193] != 0; sm.retries = stat_flags[196];
             }
             const EnemyStats s = enemy_restat(*tables_.game, *e, c->cast_id, r.level, sm);
-            a->max_hp = s.max_hp;
-            a->hp = s.max_hp;
-            a->atk = s.atk;
-            a->def = s.def;
+            a->max_hp = std::max(1.0f, std::floor(s.max_hp * tweak.hp));   // tweak: 1 unless a mod's "spawn" filter spoke
+            a->hp = a->max_hp;
+            a->atk = s.atk * tweak.atk;
+            a->def = s.def * tweak.def;
             for (int k = 0; k < 4; ++k) a->resist[k] = e->resist[k];
-            a->exp_reward = s.exp;
-            a->sp_reward = s.sp;
+            a->exp_reward = s.exp * tweak.exp;
+            a->sp_reward = s.sp * tweak.sp;
             if (e->ai_sight != 0.0f) a->flyer = true;   // EI+0xb0 (0x45967a)
             a->level = r.level ? r.level : e->level;
             a->move_speed = e->move_speed;
@@ -149,6 +161,7 @@ Actor* ActorWorld::spawn(const SpawnRequest& r) {
             // No move_speed: full-room bosses are not the sprite-chase movers.
         }
     }
+    if (on_spawned && a && tables_.enemies->get(a->cast_id)) on_spawned(*a);   // mods (API 7)
     return a;
 }
 

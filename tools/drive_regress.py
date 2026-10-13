@@ -12,12 +12,16 @@ substring to appear in the output, in order. Saves go to a scratch directory
                                                   # --jobs 1 = one after the other)
     python tools/drive_regress.py --smoke         # the quick tier (SMOKE below), for a per-commit check
     python tools/drive_regress.py --exe build_diff/Release/cleria-view.exe --assets <dir>
+
+On a machine with no display (Linux over ssh) the cases run under SDL's offscreen video driver, set here.
+CLERIA_DRIVE_TIMEOUT=<seconds> replaces a case's 900 s limit (a software renderer is several times slower).
 """
 import concurrent.futures, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build", "Release", "cleria-view.exe")
 ASSETS = os.path.join(ROOT, "assets")
+TIMEOUT = int(os.environ.get("CLERIA_DRIVE_TIMEOUT") or 900)   # one boot of one case, seconds
 
 # The S_1009 statue cleanse (Yunica, flags 310 visited / 84 the Crystal), confirmed through
 # the narration box: SAVE.XSO's 311 = 1 must reach its s_SaveObjectChange child.
@@ -95,6 +99,52 @@ CASES = {
                 "[death] t+90 section 5 tag 307 frame 9", "[gameover] gameover.dds",
                 "[gameover] chose retry", "Retry -> S_1009 (0.05, 2.00, 7.80), retries 1",
                 "feet (0.055, 2.000, 7.800)"]),
+    # DEATH_RETRY.md §1: a death in an ORDINARY room (S_1002, entered from S_1009) shows the same menu, and Retry
+    # goes back to the last continue snapshot -- S_1009's root -- not to the entrance of the room of the death.
+    "gameover_ordinary_room": dict(
+        room="S_10/S_1009/S_1009",
+        drive="40:exit=0;100:hp=0;260:ok;300:pos;320:quit",
+        expect=["[cont] snapshot S_1009 (0.05, 2.00, 7.80)", ">> entering S_1002", "[death] HP 0", "[gameover] gameover.dds",
+                "[gameover] chose retry", ">> entering S_1009", "Retry -> S_1009 (0.05, 2.00, 7.80), retries 1",
+                "feet (0.055, 2.000, 7.800)"],
+        absent=["[cont] snapshot S_1002", "no continue snapshot"]),
+    # DEATH_RETRY.md §2, the Boost across a Retry (the mode word 0x76c198 comes back with the block). Toal dies
+    # inside a Boost; the snapshot (the room root's) was taken outside one: he is back in human form with no Boost,
+    # and no end burst 172 goes off (it used to: the mode stayed on over a gauge of 0).
+    "boost_death_retry": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="3:flag=187,1;12:boost=30000;20:boostkey;21:abil;60:hp=0;220:ok;230:abil;231:fxall;232:flagdump;300:quit",
+        expect=["[abil] t21 sec 0x2 mp 3000 lag 3000 boost 29970 boosting 1", "[gameover] chose retry",
+                "[abil] t230 sec 0x2 mp 3000 lag 3000 boost 0 boosting 0", "[flags] "],
+        absent=["[fxall] id 172", " 141=1", "[boost] aura"]),
+    # ... and a snapshot taken INSIDE a Boost (a save + load at t30), the Boost over (t60) before the death: the
+    # Retry resumes the snapshot's Boost -- the aura again (FUN_00461d30), the gauge draining from 29430 to its
+    # end. It used to come back with flag 141 = 1 and no drain: the demon form for good (the playtest report).
+    "boost_snapshot_retry": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="3:flag=187,1;12:boost=30000;20:boostkey;30:csave=0;31:cload=0;40:abil;41:fxall;50:boost=30;60:abil;"
+              "70:hp=0;230:ok;240:abil;241:fxall;600:abil;1300:abil;1301:fxall;1302:flagdump;1310:quit",
+        expect=["[abil] t40 sec 0x2 mp 3000 lag 3000 boost 29430 boosting 1", "[fxall] id 171 attach 2",
+                "[abil] t60 sec 0x2 mp 3000 lag 3000 boost 9 boosting 0", "[gameover] chose retry",
+                "[abil] t240 sec 0x2 mp 3000 lag 3000 boost 29400 boosting 1", "[fxall] id 171 attach 2",
+                "[abil] t600 sec 0x2 mp 3000 lag 3000 boost 18600 boosting 1",
+                "[abil] t1300 sec 0x2 mp 3000 lag 3000 boost 80 boosting 0", "[flags] "],
+        count={"[boost] aura 171 on again": 2}, absent=[" 141=1"]),
+    # Issue #103: Toal's aura 171 (PC3_MAZIN) is up for the whole Boost. Its emitter 4 (sparks, hit mode 0, B2+0x895
+    # = 3) used to be armed for the world trace; a spark on the floor raised the effect's kill flag and the aura was
+    # gone by t250. Retail arms the world trace only for an emitter with a hit mode [BYTES 0x450225..0x4503a7]; the
+    # sim keeps it for free effects ([approx], ef2_sim.cpp spawn_emitter) and drops it for one that follows an actor.
+    "toal_boost_aura_lasts": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="3:flag=187,1;12:boost=30000;20:boostkey;300:fxall;900:fxall;901:abil;910:quit",
+        expect=["[abil] t901 sec 0x2 mp 3000 lag 3000 boost 3570 boosting 1"],
+        count={"[fxall] id 171 attach 2": 2}),
+    # A door crossed while boosting: the new scene's player gets the aura again (Hugo's 39), the Boost runs on.
+    "boost_door_aura": dict(
+        room="S_10/S_1009/S_1009", char="2",
+        drive="3:flag=187,1;12:boost=30000;20:boostkey;40:exit=0;120:abil;121:fxall;140:quit",
+        expect=[">> entering S_1002", "[boost] aura 39 on again", "[abil] t120 sec 0x2 mp 3000 lag 3000 boost 27000 boosting 1",
+                "[fxall] id 39 attach 2"]),
     # ... Hugo's (Pattern(5, 0..11)) and Toal's (Pattern(5, 0..9)): lying on the last frame when the card comes.
     "death_fall_hugo": dict(
         room="S_10/S_1009/S_1009", char="2", drive="70:hp=0;180:quit",
@@ -487,7 +537,7 @@ CASES = {
         drive2="5:cleardata=progress;8:cleardata=ta;20:esctap;70:right;80:right;90:right;120:ok;160:up;200:up;230:ok;"
                "260:left;290:ok;400:quit",
         expect=["record.ta2 saved", "==== second boot", "[clear] record.ta2: Yunica 01 Hugo 00 Toal 00",
-                "[clear] game progress cleared: 1 file(s) deleted", "[clear] now: clear bytes 00 00 00",
+                "[clear] game progress cleared: 2 file(s) deleted", "[clear] now: clear bytes 00 00 00",
                 "[clear] Time Attack records cleared: 0 file(s) deleted, 0 time(s) left",
                 "[title] clear data: Yunica 00 Hugo 00 Toal 00, data.nya 0 -> Bonus Modes 0, Toal's bar locked"]),
     "video_fpscap": dict(
@@ -1288,7 +1338,7 @@ CASES.update({
         env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#35,4;150:move=0.988,0.152,420;"
               "580:move=-0.988,-0.152,480;1290:quit",
-        expect=["[los] t798 #35 cast 35 2->1", "blocked 1", "[los] t894 #195 cast 35 2->1", "dist 10.92 blocked 0"]),
+        expect=["[los] t798 #35 cast 35 2->1", "blocked 1", "[los] t862 #195 cast 35 2->1", "dist 10.86 blocked 0"]),
     # C4: a far-frozen Hekat-Baocar (25 u or more: the ASO step only) keeps phase 2 across the absence and attacks
     # at once on the return; the [ai] log says "frozen" for it instead of printing nothing.
     "far_freeze_keeps_phase": dict(
@@ -1340,8 +1390,11 @@ CASES.update({
     "nygtilger_fight": dict(
         room="S_20/S_2099/S_2099",
         env={"CLERIA_BOSSLOG": "1"},
+        # Re-pinned 2026-10-12 (the down thrust's landing effect 0xc, ADOL.md §13: the pilot's air presses land as
+        # thrusts, and each effect's particles draw from the shared xorshift): the same fight, slower — at t4980 the
+        # pool still had 34 of 7000 (the kill was at t4569) — so the run is 600 ticks longer.
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=40;9:flag=205,1;10:saveload;40:every=20,700,ok;"
-              "720:every=30,5000,boss2;726:every=30,5000,atk;800:every=50,4200,bullets;5000:quit",
+              "720:every=30,5600,boss2;726:every=30,5600,atk;800:every=50,4200,bullets;5600:quit",
         expect=["[boss02] Nygtilger: pool 7000 (head 700, segments 350) lv 16", "[bullet] kind 36 effect 348",
                 "a plasma ball strikes (SE 221)", "a plasma ball strikes (SE 222)", "a plasma ball strikes (SE 223)",
                 "[bullet] kind 35 effect 343", " carried", "[bullet] kind 35 effect 343", " flying",
@@ -1507,7 +1560,8 @@ CASES.update({
         expect=["[boss06] Zava's heads: a (-39.46,6.10,30.00) b (-28.82,6.10,30.00), HP 5000 STR 232 DEF 320",
                 "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "jump under Zava (act 4)", "second jump",
                 "air attack", "y 13.00, falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded",
-                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4046/6000", "BossCam 3", "move 9", "BossCam 4",
+                # (4178 since 2026-10-12: the landing effect's draws, ADOL.md §13; every beat of the list is as before)
+                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4178/6000", "BossCam 3", "move 9", "BossCam 4",
                 "move 10", "riding, hits left 0, ride count 1, lives 0/4", "head b move 12 (pattern 2, lives 3)",
                 "lives 0/2", "lives 0/1",
                 "head b move 8 (pattern 2, lives 0)", "Zava is thrown off head b",
@@ -1534,7 +1588,10 @@ CASES.update({
         # Re-pinned a third time 2026-10-10 (the blood splats: 18 more draws after every hit she survives): head b
         # first again, the big attack at t2219 (532 HP), the kill at t3590. No head bites the pilot on this course:
         # the bite's two expectations moved to zava_fight, where it is seen.
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.75;8:tier=10;9:flag=205,1;10:saveload;"
+        # Re-pinned a fourth time 2026-10-12 (the down thrust's landing effect 0xc draws from the shared xorshift,
+        # ADOL.md §13): at 0.75 she died at t1944 before the re-position; at 0.7 the course is the list's again — thrown
+        # off head b at t1676, the big attack at t2186 (315 HP), the kill at t3542.
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.7;8:tier=10;9:flag=205,1;10:saveload;"
               "11:flag=163,1;60:boss6;4000:quit",
         expect=["Zava phase 2 action 0", "head b move 9", "Zava is thrown off head b", "Zava phase 2 action 7",
                 "Zava phase 2 action 20", "head a move 17", "head b move 17", "Zava phase 2 action 12",
@@ -1627,7 +1684,7 @@ CASES.update({
                 "mode 4 -> 0", "barrier D up", "option R revived (1000)", "option L revived (1000)",
                 "barrier D broken (window 699)",
                 "flag 226 = 1", "EXP (lv 49)", "the death starts", "[content] boss_defeated S_7080 flag 226", "[boss07] t",
-                "destroyed", ">> entering S_7000"], count={"boss_defeated": 1, "impact 404 at": 4}),
+                "destroyed", ">> entering S_7000"], count={"boss_defeated": 1, "impact 404 at": 4, "[bgm] 17 (scene)": 1}),
     # Darm (build/boss_re/DARM*.md; src/cleria/boss08, apps/cleria-view/view_boss08.inl). Toal's last fight, from the
     # room's own retry start: flag 205 = 1 and a reload make the root script Mesh_Locate boss08 (its ctor builds the
     # tail, the core, the arms and the floor s7099yuka), place the player at (0, 0, -10) and run Battle (flag 156 at
@@ -1644,37 +1701,106 @@ CASES.update({
     # barrier (60 hits of 1), the tentacles' override tracks (Stab / Pull / Beat), the 900-frame window, the kill:
     # flag 227 = 1, Battle's flag 156 = 0 and Battle_End (its windows confirmed by `oktapf`), 227 = 2 releases the
     # death timeline: the body fades out, ChangeScene to S_7000.
+    # Re-pinned 2026-10-13 (two engine rules the fight did not have: FUN_0041e360 takes the faded limbs' and the
+    # tentacles' collision entries out of the sweep, and the player's sphere is pushed out of the hulls — a contact is
+    # the push, logged `touch boss08 (side)`; view_boss08.inl). Another course with the same events: the forms Normal
+    # -> High -> Normal -> ... -> OnBack (the Low form and the tentacles' Stab / Pull are darm_onfoot's and
+    # cleria-boss08test's), the kill in the first open window at t10293 (was t12209), the run 14500 ticks. The filter
+    # is pinned by its log (`N of M collision entries off (mask ..)`: the tail's 39 tentacle entries from the start, a
+    # leg's 2 once it has faded, 42 with the chest gone), the retry start's track by `[bgm] 18 (scene)`.
+    # Re-pinned 2026-10-13 again (issue #105, DARM_D §12.6): the body's hull STAYS in OnBack's open window (the byte
+    # the break clears is the no-jump byte, not the collision). The core (r 2.5 round the tail's eye) is inside the
+    # skirt, and at its DEF + 20 Toal's grounded swings do the minimum (1, x 2 here): the pilot is put before the
+    # skirt's mouth, jumps over the rim onto the inner floor (`inside the skirt`, standing on boss08) and uses the air
+    # combo there (24 / 26 a hit). Two windows (t12308, t13954), the kill at t15118 on the barrier's chip after the
+    # second closed; the run 19500 ticks, now under the lockstep.
     "darm_fight": dict(
         room="S_70/S_7099/S_7099",
-        env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1"},
+        env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8;61:every=15,17000,oktapf;17000:quit",
+              "11:flag=163,1;60:boss8;61:every=15,19500,oktapf;19500:quit",
         expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
+                "boss08t: 39 of 60 collision entries off (mask 0xffffffff)", "[bgm] 18 (scene)",
                 "the fight starts, the body at (0.00,0.00,8.50)", "target part 5 from the floor",
-                "the swing hits part 5 (DEF 998, class 3): 2 dmg", "clip 36_DoubleLariat", "effect 512",
-                "target part 7 from the floor", "CamSlot 5 (1.000)", "the player fell off the floor", "effect 517",
-                "the player is put back at (0.0,19.0,-6.0)", "bullet(s) kind 0x25 effect 467", "target part 2 from the floor",
+                "the swing hits part 5 (DEF 998, class 3): 2 dmg", "touch boss08 (side) -> touch_tail",
+                "clip 36_DoubleLariat", "effect 512", "with a jump", "target part 7 from the floor",
+                "the swing hits part 7", "boss08: 2 of 67 collision entries off (mask 0x4)", "CamSlot 5 (1.000)",
+                "the player fell off the floor", "effect 517", "the player is put back at (0.0,19.0,-6.0)",
+                "MatMode 1: black (Down)", "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
+                "target the core 0", "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
+                "boss08: 0 of 67 collision entries off (mask 0x0)", "band 1 (the refill starts", "CamSlot 6 (0.020)",
+                "MatMode 2: the outline (form change)", "form Normal -> Low", "the floor moves: over to",
+                "the refill ends at hp", "MatMode 0: lit", "target part 2 from the floor", "form Low -> High",
+                "CamSlot 3 (0.025)", "settled in High", "boss08: 42 of 67 collision entries off (mask 0xf)",
+                "clip 39_HighDown", "band 2 (the refill starts", "form High -> Low", "band 3 (the refill starts",
+                "touch boss08t (side) -> touch_tail", "band 4 (the refill starts", "form High -> OnBack",
+                "the barrier is up", "CamSlot 4 (", "settled in OnBack", "(20_Beat)",
+                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "bullet(s) kind 0x25 effect 484",
+                "(24_StabInTheGround)", "released from Bone_", "(25_PullFromTheGround)", "barrier 59",
+                "the barrier breaks (window 900)", "[pilot] t12309 the window: to the skirt's mouth",
+                "the window: inside the skirt, the air combo at the core",
+                "the swing hits the core 0 (DEF 295, class 3): 24 dmg", "the window closed: the barrier is back",
+                "flag 215 = 0", "[boss08] t15118 the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
+                "[content] boss_defeated S_7099 flag 227", "the death timeline starts", "the body is gone (alpha 0)",
+                "[bgm] 0 (script: stop over 3500 ms)", ">> entering S_7000"],
+        count={"boss_defeated": 1}),
+    # Darm ON FOOT (drive `boss8=walk`, view_boss08.inl): darm_fight's pilot without its placements — from the retry
+    # start at (0, 0, -10) the stick is held along a route over resting tiles clear of the hulls to each spot, and
+    # Attack / Jump are pressed only there (the first target at t272, part 7 from (-7.66, 5.60)). Through the four
+    # bands and the forms Normal, Low, Normal, Low, High to OnBack, the barrier's 60 hits from the floor, and the kill
+    # in the THIRD open window (t24512).
+    # Re-pinned 2026-10-13 (issue #105, DARM_D §12.6): the hull stays in the open window. From where the barrier
+    # broke the pilot walks round to the front of the skirt's mouth, jumps over its rim onto the inner floor and uses
+    # the air combo at the core from there (`inside the skirt`: 60 hits of 24 / 26 over three windows; the grounded
+    # swings it also lands are worth the minimum). The damage is REAL now (no DamageTaken=0): a contact with the body
+    # or the tail is Touch_Tail's 250-ATK hit with its knock-down, which is what gets a player who ended up standing
+    # on a limb off it again (with the damage off and the no-jump byte on, the pilot rode the turning body in High
+    # for good). InfiniteHP stays: the pilot dodges nothing (331 Touch_Tail hits, 126 each of Toal's 342: a player
+    # who fought like it would have died many times over). DamageDealt=2, level 50, tier 10 as before.
+    "darm_onfoot": dict(
+        room="S_70/S_7099/S_7099",
+        env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss8=walk;61:every=15,25000,oktapf;25000:quit",
+        expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
+                "boss08t: 39 of 60 collision entries off (mask 0xffffffff)", "[bgm] 18 (scene)",
+                "the fight starts, the body at (0.00,0.00,8.50)", "touch boss08 (side) -> touch_tail",
+                "[pilot] t581 target part 7 from the floor, from (-5.61,3.86)",
+                "boss08: 0 of 67 collision entries off (mask 0x0)", "the swing hits part 7", "with a jump",
+                "target part 5 from the floor", "the swing hits part 5 (DEF 998, class 3): 2 dmg",
+                "boss08: 2 of 67 collision entries off (mask 0x4)", "target part 2 from the floor",
                 "MatMode 1: black (Down)", "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
                 "target the core 0", "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
                 "band 1 (the refill starts", "CamSlot 6 (0.020)", "MatMode 2: the outline (form change)",
-                "form Normal -> Low", "motion s7099yuka f", "the floor moves: over to", "the refill ends at hp",
-                "motion s7099yuka c", "CamSlot 2 (0.025)", "MatMode 0: lit", "settled in Low", "clip 38_LowDown",
-                "band 2 (the refill starts", "form Low -> Normal", "settled in Normal", "clip 04_RightHandSwing",
-                "effect 451", "effect 490", "band 3 (the refill starts", "form Normal -> High", "motion s7099yuka e",
-                "CamSlot 3 (0.025)", "settled in High", "with a jump", "clip 39_HighDown", "band 4 (the refill starts",
-                "form High -> OnBack", "the barrier is up", "motion s7099yuka j", "CamSlot 4 (", "settled in OnBack",
-                # Re-pinned 2026-10-11 (the jump gate reads +0x3a0): the pilot's jumps take on other ticks, so the OnBack
-                # phase runs another course with the same events — the camera at the settle (CamSlot 4 (0.025), not the
-                # (1.000) of a stab that catches him), the tentacle tracks in the order Beat, Stab, Pull (was Stab,
-                # Pull, Beat), the barrier broken before the first stab.
-                "(20_Beat)", "the swing hits the core 0 (DEF 998, class 3): 2 dmg",
-                "bullet(s) kind 0x25 effect 484", "released from Bone_", "barrier 59",
-                "the barrier breaks (window 900)", "the swing hits the core 0 (DEF 295, class 3)",
-                "the window closed: the barrier is back", "the barrier is up", "(24_StabInTheGround)",
-                "(25_PullFromTheGround)", "flag 215 = 0",
-                "the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1", "[content] boss_defeated S_7099 flag 227",
-                "the death timeline starts", "the body is gone (alpha 0)", ">> entering S_7000"],
-        count={"boss_defeated": 1}),
+                "form Normal -> Low", "the refill ends at hp", "CamSlot 5 (1.000)", "the player fell off the floor",
+                "effect 517", "the player is put back at (0.0,19.0,-6.0)", "motion s7099yuka c", "CamSlot 2 (0.025)",
+                "MatMode 0: lit", "settled in Low", "bullet(s) kind 0x25 effect 467", "clip 38_LowDown",
+                "form Low -> Normal", "clip 36_DoubleLariat", "effect 512", "band 2 (the refill starts",
+                "boss08: 42 of 67 collision entries off (mask 0xf)", "band 3 (the refill starts", "form Low -> High",
+                "CamSlot 3 (0.025)", "settled in High", "touch boss08t (side) -> touch_tail",
+                "bullet(s) kind 0x25 effect 484", "clip 39_HighDown", "band 4 (the refill starts",
+                "form High -> OnBack", "the barrier is up", "settled in OnBack", "(20_Beat)", "CamSlot 4 (",
+                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "released from Bone_", "(24_StabInTheGround)",
+                "(25_PullFromTheGround)", "barrier 59", "the barrier breaks (window 900)",
+                "[pilot] t19696 the window: to the skirt's mouth",
+                "the window: inside the skirt, the air combo at the core",
+                "the swing hits the core 0 (DEF 295, class 3)", "the swing hits the core 0 (DEF 295, class 3): 24 dmg",
+                "the window closed: the barrier is back", "flag 215 = 0", "[boss08] t24512 the kill (core hp",
+                "motion boss08 30_OnBackWait", "flag 227 = 1",
+                "[content] boss_defeated S_7099 flag 227"],
+        absent=["the floor moves: over to"]),
+    # Dalles's music (issue: "Dalles has music stopping or not launching"). The room's SCENELIST record has BGM 0 and
+    # the retry branch of its root only names the track (op 0xa4 Scene_SetDefaultBgm 17, no Bgm_Play): the scene
+    # entry's compare of the playing id with the pending one, AFTER the root's first burst, starts it [EXPORT
+    # 00431840.c:584, :650]. Before, a Retry left the fight silent (the game over's BGM 36 stopped, nothing started).
+    # The first visit: the intro is skipped by a press, its last Bgm_Play(17) runs; the death, the game over's 36,
+    # the Retry, 17 again at the scene entry.
+    "dalles_retry_bgm": dict(
+        room="S_70/S_7080/S_7080", char="3", env=_LOCK,
+        drive="1:opt=CutsceneSkip=0;2:level=50;3:tier=10;5:esctap;300:hp=0;700:ok;1000:scripts;1001:quit",
+        expect=["[bgm] 0 (scene)", "cutscene skip (single)", "[bgm] 17 (script)", "[death] HP 0", "[bgm] 36 (script)",
+                "[gameover] chose retry", ">> entering S_7080", "[bgm] 17 (scene)", "script Battle pc"],
+        count={"[bgm] 17 (scene)": 1}),
 })
 
 # Room transit (build/warp_re/TRANSIT.md): the door trigger FUN_0042cf00 and its fade machine FUN_004106e0,
@@ -1923,7 +2049,7 @@ CASES.update({
     # 0x18E ops spawn its 8 waves (104 monsters) as the pilot clears them (one-hit kills; a `killall` every 700 ticks
     # for what the ground pilot cannot reach), 0x18F banks the SP held (Normal: x3) into the wallet and sets the
     # record; the title comes back on the stage select with the time (the shot). Cancel, then the Bonus Shop: Arena
-    # Stage 2 for 5,000 of the 5,014. A second boot reads the balance and the purchase back.
+    # Stage 2 for 5,000 of the 5,002. A second boot reads the balance and the purchase back.
     "arena_stage1_bank_shop": dict(
         room=None, env=dict(_LOCK, CLERIA_NYA="1"),
         records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)]), "record.ar2": [3400]},
@@ -1934,13 +2060,13 @@ CASES.update({
         expect=["[title] Arena Mode: Character Select", "[stage] Arena stage select: Yunica, column 1, 1 row(s), cursor 0",
                 "[stage] row 0 (Wailing Blue): the run starts in S_9109", "[script] SetLevel(1): HP 60",
                 "[cont] snapshot S_9109 (-0.09, 2.00, 41.98)", "[arena] Arena(cast 14, level 0, count 0): 8 spawned",
-                "[arena] Arena(cast 53, level 8, count 0): 8 spawned", "[arena] ArenaSave: SP 1614 banked, Arena SP 5014; record.ar2 saved",
-                "stage 0 (Wailing Blue) cleared in 1065 frames = 00:17:750 (a record)",
+                "[arena] Arena(cast 53, level 8, count 0): 8 spawned", "[arena] ArenaSave: SP 1602 banked, Arena SP 5002; record.ar2 saved",
+                "stage 0 (Wailing Blue) cleared in 1581 frames = 00:26:350 (a record)",
                 "[arena] the run ends: record.ar + record.are saved", "[game] Return to Title",
                 "[stage] Arena stage select: Yunica, column 1, 1 row(s), cursor 0", "shot back.ppm",
-                "[stage] Cancel: record.ar + record.are saved", "[shop] opened: Arena SP 5014",
-                "[shop] bought Arena Stage 2 for 5000: Arena SP 14; record.ar2 + record.ta2 saved",
-                "==== second boot", "[clear] record.ar2: Arena SP 14"],
+                "[stage] Cancel: record.ar + record.are saved", "[shop] opened: Arena SP 5002",
+                "[shop] bought Arena Stage 2 for 5000: Arena SP 2; record.ar2 + record.ta2 saved",
+                "==== second boot", "[clear] record.ar2: Arena SP 2"],
         count={"[arena] Arena(": 13}, absent=["[gameover]"], files=["record.ar", "record.are", "record.ar2"]),
     # ARENA.md §5.1, the game over in an Arena run (Hugo, Stage 1): the pilot earns SP in the first waves; the pause
     # book does not open (`esctap`); at the death no card, Retry / Return to Title. Retry is InitArena's snapshot: the
@@ -1971,6 +2097,20 @@ CASES.update({
         expect=["[stage] Arena stage select: Toal, column 2, 6 row(s), cursor 0", "[stage] row 5 (Demonic Core): the run starts in S_9159",
                 "[script] SetLevel(41): HP 290", "[arena] Arena(cast 79, level 41, count 4): 4 spawned",
                 "[arena] Arena(cast 71, level 42, count 6): 6 spawned", "t410 stats"]),
+    # ARENA.md §2.4, Stage 7 "???" on the Pikkartons' and the Pikkardon's own brains (M320.md / M330.md; they ran
+    # Riffligan's): level 60, two ops of eight Pikkartons, then the one Pikkardon with its boss gauge; the pilot's
+    # one-hit kills clear it and the SP is banked.
+    "arena_stage7": dict(
+        room=None, env=dict(_LOCK, CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[5, 6, 7, 8, 9, 10]), "record.ar2": [0]},
+        title="1:keys;40:down;45:down;50:ok;100:down;110:ok;190:ok;270:ok;432:down;434:down;436:down;438:down;440:down;442:down;"
+              "520:ok;700:quit",
+        drive="10:opt=OneHitKill=1;11:opt=DamageTaken=0;130:every=9,3000,nearest=1.2;133:every=9,3000,atk;300:every=5,3000,gauge",
+        expect=["[stage] row 6 (???): the run starts in S_9159", "[script] SetLevel(60): HP 400",
+                "[arena] Arena(cast 36, level 0, count 0): 8 spawned", "[arena] Arena(cast 36, level 0, count 0): 8 spawned",
+                "[arena] Arena(cast 37, level 0, count 1): 1 spawned", "gauge 1 id 37 hp 15200/15200",
+                "[arena] ArenaSave: SP 168474 banked", "stage 6 (???) cleared in 717 frames", "[arena] the run ends"],
+        count={"[arena] Arena(": 3}),
     # DIFFICULTY.md G2 / G8 on Hard (diff=3, then a reload so the room spawns under it): a regular Rif's 60 HP
     # is 72 and the Normal 112 is 134 (FUN_004202e0's x1.2); the hit that takes 22 on Normal takes
     # 22 * 1.5 + 1 = 34 (FUN_004fa740's tail).
@@ -2321,7 +2461,7 @@ CASES.update({
         room="S_10/S_1009/S_1009", lua=_LUA_SHOP,
         drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;820:esc;"
               "835:stats;836:flagdump;840:quit",
-        expect=[_LP + "api 6", _LP + "price 0 sub 221 was 1000 in @GrowMenu", _LP + "price 0 sub 97 was 1000 in @Grow00",
+        expect=[_LP + "api 7", _LP + "price 0 sub 221 was 1000 in @GrowMenu", _LP + "price 0 sub 97 was 1000 in @Grow00",
                 _LP + "price 0 sub 105 was 1000 in @Grow00", "[content] blessing_bought 0 for 7 SP (effect suppressed)",
                 _LP + "bought 0 price 7 suppressed true flag217 0 sp 243 room S_1009", "sp 243"],
         absent=[" 217="], count={_LP + "bought": 1}),
@@ -2358,7 +2498,21 @@ CASES.update({
         expect=[_LP + "save 8 -> false", _LP + "save 8 -> false", "sidecar yso_08.cleria written", _LP + "saved slot 8",
                 _LP + "save 8 -> true", _LP + "save 64 -> false", "event load", _LP + "flag 89 = 3 n 7", "[death] HP 0",
                 _LP + "save 8 -> false"],
-        count={"-> true": 1, "[cont] snapshot S_1009": 4}),      # the room root's, the save's, the load's and its root's
+        count={"-> true": 1, "[cont] snapshot S_1009": 3}),      # the room root's, the load's and its root's
+    # DEATH_RETRY.md §3: a mod's save in an ordinary room (S_1002) does not move the Retry point -- the game over's
+    # Retry goes back to S_1009's root snapshot, as retail's would ...
+    "lua_save_retry": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_SAVE,
+        drive="40:exit=0;130:lua=sv 8;140:hp=0;300:ok;340:pos;360:quit",
+        expect=[">> entering S_1002", _LP + "save 8 -> true", "[gameover] chose retry",
+                "[gameover] Retry -> S_1009 (0.05, 2.00, 7.80), retries 1", "feet (0.055, 2.000, 7.800)"],
+        absent=["[cont] snapshot S_1002"]),
+    # ... unless the player turned on Gameplay > Game over > "Retry from mod saves" (RetryAtModSave; not retail).
+    "lua_save_retry_option": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_SAVE,
+        drive="5:opt=RetryAtModSave=1;40:exit=0;130:lua=sv 8;140:hp=0;300:ok;340:pos;360:quit",
+        expect=[">> entering S_1002", "[cont] snapshot S_1002", _LP + "save 8 -> true", "[gameover] chose retry",
+                "[gameover] Retry -> S_1002"]),
     # Save profiles (LUA_API.md §6.1). The mod's main chunk runs before a game is bound, so its set_profile is
     # taken (the hostile name becomes one folder name); in the room every set_profile is refused and changes
     # nothing. The save lands in profiles/<name>/ (`cprofile`: files in the normal folder / in the active one)
@@ -2458,7 +2612,7 @@ CASES.update({
         room="S_10/S_1002/S_1002", lua=_LUA_API6,
         drive="5:diff=3;6:level=13;8:opt=DamageDealt=10;10:opt=DamageTaken=0;12:lua=on x100;13:lua=on floor;14:stats;" + _K17 +
               ";150:stats;160:quit",
-        expect=[_LP + "api 6 combat function", "stats exp 21936 lv 13",
+        expect=[_LP + "api 7 combat function", "stats exp 21936 lv 13",
                 _LP + "exp kill cast 17 lv 13 vs 3 base 33 scaled 0.1471 rate 1 factor 100 floored 14 combo 1 value 14.14 room S_1002",
                 _LP + "killed cast 17 lv 3 exp 50 sp 4 room S_1002 at 30.5 -2.9 -36.9", "stats exp 21986 lv 13"],
         absent=_NOSTOP, count={_LP + "exp kill": 1, _LP + "killed": 1}),
@@ -2542,6 +2696,534 @@ CASES.update({
         absent=_NOSTOP + ["[pickup] id ", _LP + "pickup", _LP + "collected"]),
 })
 
+# Mod API 7 (build/shell_re/API7.md): the runtime batch. Timers in play time and in real time, the seeded generator,
+# the mods' list and the bus (one mod here: a publish reaches nobody), x0 as a stat modifier, level_up, and the two
+# kinds of Retry (in place with no snapshot: "retry" alone; from the snapshot: "retry" then a Load with retry = true).
+_LUA_API7A = (
+    'cleria.log("api " .. cleria.api_version .. " locale " .. cleria.locale())\n'
+    'local a, b, s, t = cleria.rng("seed"), cleria.rng("seed"), {}, {}\n'
+    'for i = 1, 5 do s[i] = a:int(100) t[i] = b:int(100) end\n'
+    'cleria.log("rng same " .. tostring(table.concat(s, ",") == table.concat(t, ",")))\n'
+    'local n, id = 0\n'
+    'id = cleria.every(0.25, function() n = n + 1 cleria.log("every play " .. n) if n == 3 then cleria.cancel(id) end end, {play = true})\n'
+    'cleria.after(0.2, function() cleria.log("after real") end)\n'
+    'for _, m in ipairs(cleria.mods.list()) do cleria.log("mod " .. m.id .. " " .. tostring(m.active) .. " " .. tostring(m.scripted)) end\n'
+    'cleria.bus.set("k", {n = 42})\n'
+    'cleria.log("bus " .. cleria.bus.get("k").n .. " published " .. cleria.bus.publish("t", 1) .. " active " .. tostring(cleria.mods.is_active("test.lua")))\n'
+    'for _, k in ipairs({"retry", "level_up", "load"}) do cleria.events.on(k, function(e) cleria.log("EV " .. cleria.json.encode(e)) end) end\n'
+    'cleria.command("p7", function(x)\n'
+    '    if x == "hp0" then cleria.player.set_modifier("max_hp", 0, 0) end\n'
+    '    if x == "hp1" then cleria.player.set_modifier("max_hp") end\n'
+    '    if x == "xp" then cleria.player.add_exp(400) end\n'
+    '    local st = cleria.player.stats()\n'
+    '    cleria.log("hp " .. st.hp .. "/" .. st.max_hp .. " lv " .. st.level)\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_runtime": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7A, env={"CLERIA_DRIVE_REALTIME": "1"},
+        drive="20:lua=p7;30:lua=p7 hp0;40:lua=p7 hp1;50:lua=p7 xp;120:quit",
+        expect=[_LP + "api 7 locale en", _LP + "rng same true", _LP + "mod test.lua true true", _LP + "bus 42 published 0 active true",
+                _LP + "hp 60/60 lv 1", _LP + "hp 1/1 lv 1", _LP + "hp 1/60 lv 1",
+                _LP + 'EV {"kind":"level_up","level":2,"max_hp":65,"room":"S_1002"}', _LP + "hp 65/65 lv 2"],
+        absent=_NOSTOP, count={_LP + "every play": 3, _LP + "after real": 1}),
+    "lua_api7_retry": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7A, drive="30:hp=0;200:ok;260:ok;400:quit",
+        expect=[_LP + 'EV {"kind":"retry","room":"S_1002","snapshot":0}'], absent=_NOSTOP + ['"kind":"load"']),
+    "lua_api7_retry_snapshot": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7A, drive="30:hp=0;200:ok;260:ok;400:quit",
+        expect=[_LP + 'EV {"kind":"retry","room":"S_1009","snapshot":1}', '"kind":"load"', '"retry":true'], absent=_NOSTOP),
+})
+
+# Mod API 7, batch B: where the game is (state, the room's own name, floor, zone, difficulty, play time), the room's
+# monsters and a world point on the screen, the hit events and the damage query's actor / hp. A door (same floor: no
+# floor_changed), then a death: state_changed play -> gameover.
+_LUA_API7B = (
+    'for _, k in ipairs({"state_changed", "floor_changed", "enemy_hit", "player_hit"}) do\n'
+    '    cleria.events.on(k, function(e) cleria.log("EV " .. cleria.json.encode(e)) end)\n'
+    'end\n'
+    'cleria.combat.add_filter("damage", function(q) cleria.log("DMG " .. q.dir .. " actor " .. tostring(q.actor) .. " hp " .. tostring(q.hp) .. "/" .. tostring(q.max_hp)) end)\n'
+    'cleria.command("where", function()\n'
+    '    local z, zn = cleria.game.zone()\n'
+    '    local d, dn = cleria.game.difficulty()\n'
+    '    cleria.log("state " .. cleria.game.state() .. " [" .. cleria.game.room_title() .. "] floor " .. tostring(cleria.game.floor()) .. " zone " .. z .. " " .. zn .. " diff " .. d .. " " .. dn)\n'
+    'end)\n'
+    'cleria.command("actors", function()\n'
+    '    local list = cleria.world.actors()\n'
+    '    local a = cleria.world.actor(17)\n'
+    '    local fx, fy = cleria.world.to_screen(a.x, a.y + a.height, a.z)\n'
+    '    cleria.log(#list .. " actors; #17 " .. a.name .. " lv " .. a.level .. " hp " .. a.hp .. "/" .. a.max_hp .. " on screen " .. tostring(fx > 0 and fx < 1 and fy > 0 and fy < 1))\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_world": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7B,
+        drive="8:opt=DamageDealt=10;30:lua=where;40:near=17;41:atk;70:lua=actors;80:hurt=60;100:hp=0;160:lua=where;170:quit",
+        expect=[_LP + "state play [4F Forward Passage 1] floor 4 zone 1 Wailing Blue diff 2 Normal", _LP + "DMG dealt actor 17 hp 74/74",
+                _LP + 'EV {"actor":17,"cast":17,"damage":20,"hp":54,"killed":0,"kind":"enemy_hit","max_hp":74,"room":"S_1002","variant":""}',
+                _LP + "11 actors; #17 Selnarg lv 3 hp 54.0/74.0 on screen true", _LP + "DMG taken actor nil hp 60/60",
+                _LP + 'EV {"damage":21,"hp":39,"kind":"player_hit","max_hp":60,"room":"S_1002"}',
+                _LP + 'EV {"kind":"state_changed","old":"play","room":"S_1002","state":"gameover"}', _LP + "state gameover ["],
+        absent=_NOSTOP),
+    "lua_api7_hard": dict(
+        room="S_30/S_3001/S_3001", lua=_LUA_API7B, drive="5:diff=3;60:lua=where;70:quit",
+        expect=[_LP + "state play [10F Path 1 Furnace] floor 10 zone 3 Guilty Fire diff 3 Hard"], absent=_NOSTOP),
+})
+
+# Mod API 7, batch C: the writes. set_position (the floor under the point), MP / Boost / EXP (a level-up follows),
+# poison on (900 ticks) and off, the double jump, equipping an owned armor and not an unowned one, invulnerability
+# (the hurt lands nothing), the room's exits, a door, a room change by name, an unknown room refused. Then in the
+# statue room: save, EXP, load (the level is the save's again); retry is refused while alive and taken when dead.
+_LUA_API7C = (
+    'cleria.command("c", function(a)\n'
+    '    local P, G = cleria.player, cleria.game\n'
+    '    local cmd, x, y, z = a:match("^(%S*)%s*(%S*)%s*(%S*)%s*(%S*)")\n'
+    '    local r\n'
+    '    if cmd == "pos" then r = P.set_position(tonumber(x), tonumber(y), tonumber(z), 90)\n'
+    '    elseif cmd == "mp" then r = P.set_mp(tonumber(x))\n'
+    '    elseif cmd == "boost" then r = P.set_boost(tonumber(x))\n'
+    '    elseif cmd == "exp" then r = P.set_exp(tonumber(x))\n'
+    '    elseif cmd == "inv" then r = P.set_invulnerable(tonumber(x))\n'
+    '    elseif cmd == "equip" then r = P.equip(x, tonumber(y))\n'
+    '    elseif cmd == "status" then r = P.set_status(x, y == "1")\n'
+    '    elseif cmd == "ability" then r = P.set_ability(x, y == "1")\n'
+    '    elseif cmd == "goto" then r = G.goto_room(x)\n'
+    '    elseif cmd == "exit" then r = G.take_exit(tonumber(x))\n'
+    '    elseif cmd == "retry" then r = G.retry()\n'
+    '    elseif cmd == "load" then r = G.load(tonumber(x))\n'
+    '    elseif cmd == "save" then r = G.save(tonumber(x)) end\n'
+    '    local st, eq, s, ex = P.stats(), P.equipment(), P.status(), {}\n'
+    '    for _, e in ipairs(G.exits()) do ex[#ex + 1] = e.index .. ":" .. e.room end\n'
+    '    cleria.log(string.format("%s -> %s | pos %.1f %.1f %.1f lv %d hp %d/%d boost %.0f | armor %d | poison %d | dj %s | %s exits %s", a, tostring(r), st.x, st.y, st.z,\n'
+    '        st.level, st.hp, st.max_hp, st.boost, eq.armor, s.poison, tostring(P.abilities().double_jump), G.room(), table.concat(ex, ",")))\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_writes": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7C,
+        drive="20:lua=c;30:lua=c pos 20 -4 -36;45:lua=c boost 15000;50:lua=c exp 500;55:lua=c status poison 1;60:lua=c status poison 0;"
+              "70:lua=c ability double_jump 1;75:give=7;76:lua=c equip armor 7;80:lua=c equip armor 9;85:lua=c inv 600;90:hurt=60;100:lua=c;"
+              "110:lua=c exit 0;300:lua=c;310:lua=c goto S_1002;500:lua=c;510:lua=c goto S_9999;520:quit",
+        expect=[_LP + " -> nil | pos -0.0 -0.1 -0.6 lv 1 hp 60/60 boost 0 | armor 6 | poison 0 | dj false | S_1002 exits 0:S_1003,1:S_1009",
+                _LP + "pos 20 -4 -36 -> true | pos 20.0 -4.1 -36.0 ", _LP + "boost 15000 -> true", " boost 15000 ",
+                _LP + "exp 500 -> true | pos 20.0 -4.1 -36.0 lv 2 hp 65/65", _LP + "status poison 1 -> true", "| poison 900 |",
+                _LP + "status poison 0 -> true", "| poison 1 |", _LP + "ability double_jump 1 -> true", "| poison 0 | dj true |",
+                _LP + "equip armor 7 -> true", "| armor 7 |", _LP + "equip armor 9 -> false", "| armor 7 |", _LP + "inv 600 -> true",
+                _LP + " -> nil | pos 20.0 -4.1 -36.0 lv 2 hp 64/65", _LP + "exit 0 -> true",
+                "| S_1003 exits 0:S_1002,1:S_1007", _LP + "goto S_1002 -> true", "| S_1002 exits", _LP + "goto S_9999 -> false"],
+        absent=_NOSTOP),
+    "lua_api7_flow": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7C,
+        drive="100:lua=c save 5;110:lua=c exp 500;120:lua=c load 5;200:lua=c;210:lua=c retry;220:hp=0;300:lua=c retry;420:lua=c;440:quit",
+        expect=[_LP + "save 5 -> true", _LP + "exp 500 -> true", " lv 2 hp 65/65", _LP + "load 5 -> true", _LP + " -> nil", " lv 1 hp 60/60",
+                _LP + "retry -> false", "[death] HP 0", "[gameover] Retry ->", _LP + "retry -> true", " lv 1 hp 60/60"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, cleria.input: an action on F6 (and the pad's back) runs on the press (the drive's modkey= / modpad=),
+# every press is also an "input" event, input.bind moves the action to F7; with Key.probe = F8 in the mod's
+# settings the player's key wins over the script's default.
+_LUA_API7I = (
+    'cleria.input.action("probe", {label = "Probe", key = "F6", pad = "back"}, function() cleria.log("ACTION in " .. cleria.game.state()) end)\n'
+    'cleria.events.on("input", function(e) cleria.log("INPUT " .. tostring(e.key) .. " " .. tostring(e.pad)) end)\n'
+    'cleria.command("keys", function(a)\n'
+    '    if a ~= "" then cleria.log("bind " .. tostring(cleria.input.bind("probe", a))) end\n'
+    '    local k, p = cleria.input.binding("probe")\n'
+    '    cleria.log("binding " .. k .. " / " .. p)\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_input": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7I,
+        drive="20:lua=keys;30:modkey=F6;40:modkey=F7;50:modpad=back;60:lua=keys F7;70:modkey=F6;80:modkey=F7;90:lua=keys Nope;100:quit",
+        expect=[_LP + "binding F6 / back", _LP + "ACTION in play", _LP + "INPUT F6 nil", _LP + "INPUT F7 nil", _LP + "ACTION in play",
+                _LP + "INPUT nil back", _LP + "bind true", _LP + "binding F7 / back", _LP + "INPUT F6 nil", _LP + "ACTION in play",
+                _LP + "INPUT F7 nil", _LP + "bind false", _LP + "binding F7 / back"],
+        absent=_NOSTOP, count={_LP + "ACTION in play": 3}),
+})
+
+# Mod API 7, windows and dialogs. F2 opens the mod's window (the game's state is "window" and its clock stops); the
+# drive's modwin= presses: OK on the toggle, down, OK on the button; F2 closes it. A choose dialog: down + OK picks
+# the second option; one that must be answered ignores Back; a message closed by Back calls its function.
+_LUA_API7U = (
+    'local opt = false\n'
+    'cleria.ui.window("tools", {title = "Tools"}, function(p)\n'
+    '    local v, ch = p:toggle("Option", opt)\n'
+    '    if ch then opt = v cleria.log("WIN toggle " .. tostring(v)) end\n'
+    '    if p:button("Heal") then cleria.log("WIN heal") end\n'
+    '    p:text("A paragraph.")\n'
+    '    p:progress("HP", 0.5, "half")\n'
+    'end)\n'
+    'cleria.input.action("tools", {key = "F2"}, function() if cleria.ui.is_open("tools") then cleria.ui.close() else cleria.ui.open("tools") end end)\n'
+    'cleria.command("win", function(a)\n'
+    '    if a == "choose" then cleria.ui.choose("Pick", {"Might", "Guard", "Vigor"}, function(i, o) cleria.log("CHOSE " .. tostring(i) .. " " .. tostring(o)) end)\n'
+    '    elseif a == "must" then cleria.ui.choose("Pick", {"A", "B"}, function(i, o) cleria.log("CHOSE " .. tostring(i) .. " " .. tostring(o)) end, {cancel = false})\n'
+    '    elseif a == "msg" then cleria.ui.message("Hello", function() cleria.log("MSG closed") end) end\n'
+    '    cleria.log("open " .. tostring(cleria.ui.is_open()) .. " state " .. cleria.game.state() .. " time " .. cleria.game.play_time())\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_windows": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7U,
+        drive="20:lua=win;30:modkey=F2;40:lua=win;50:modwin=ok;60:modwin=down;70:modwin=ok;80:modkey=F2;90:lua=win;"
+              "100:lua=win choose;110:lua=win;120:modwin=down;130:modwin=ok;140:lua=win;150:lua=win must;160:modwin=back;170:lua=win;"
+              "180:modwin=ok;190:lua=win msg;200:modwin=back;210:lua=win;220:quit",
+        expect=[_LP + "open nil state play time 0.3", _LP + "open tools state window time 0.5", _LP + "WIN toggle true", _LP + "WIN heal",
+                _LP + "open nil state play", _LP + "open dialog state window", _LP + "CHOSE 2 Guard", _LP + "open nil state play",
+                _LP + "open dialog state window", _LP + "open dialog state window", _LP + "CHOSE 1 A", _LP + "MSG closed", _LP + "open nil state play"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the world filters. "spawn": every Selnarg (cast 17) of S_1002 becomes a Jestona (cast 16) at level 5 with
+# twice the HP (82 -> 164), every Baocar (43) is not spawned at all: six monsters instead of eleven. "exit": the door
+# to S_1003 leads to S_1009. Then world.spawn / set_actor / remove in S_1003, and the casts that are not enemies refused.
+_LUA_API7F = (
+    'if cleria.settings.get("Swap", false) then\n'
+    '    cleria.world.add_filter("spawn", function(q)\n'
+    '        if q.cast == 17 then return {cast = 16, level = 5, hp = 2} end\n'
+    '        if q.cast == 43 then return "suppress" end\n'
+    '    end)\n'
+    '    cleria.world.add_filter("exit", function(q)\n'
+    '        cleria.log("EXIT " .. q.from .. " -> " .. q.to .. " index " .. q.index)\n'
+    '        if q.to == "S_1003" then return {to = "S_1009"} end\n'
+    '    end)\n'
+    'end\n'
+    'cleria.command("w", function(a)\n'
+    '    local cmd, x, y = a:match("^(%S*)%s*(%S*)%s*(%S*)")\n'
+    '    local st = cleria.player.stats()\n'
+    '    if cmd == "spawn" then cleria.log("spawned " .. tostring(cleria.world.spawn(tonumber(x), st.x + 3, st.y, st.z, {level = tonumber(y)}))) end\n'
+    '    if cmd == "remove" then cleria.log("removed " .. tostring(cleria.world.remove(tonumber(x)))) end\n'
+    '    if cmd == "set" then cleria.log("set " .. tostring(cleria.world.set_actor(tonumber(x), {hp = tonumber(y)}))) end\n'
+    '    local n, first, one = 0, "", cleria.world.actor(17)\n'
+    '    for _, m in ipairs(cleria.world.actors()) do n = n + 1 if n == 1 then first = m.name .. " lv" .. m.level .. " " .. m.hp .. "/" .. m.max_hp end end\n'
+    '    cleria.log(n .. " actors, first " .. first .. ", #17 " .. tostring(one and (one.name .. " lv" .. one.level .. " " .. one.hp .. "/" .. one.max_hp)) .. " in " .. cleria.game.room())\n'
+    'end)\n')
+_API7F_INI = "[cleria.mod.test.lua]\nSwap=1\n"
+CASES.update({
+    "lua_api7_spawn_filter": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7F, ini=_API7F_INI,
+        drive="30:lua=w;50:exit=0;240:lua=w;250:quit",
+        expect=[_LP + "6 actors, first Jestona lv5 164.0/164.0, #17 nil in S_1002", _LP + "EXIT S_1002 -> S_1003 index 0",
+                _LP + "0 actors, first , #17 nil in S_1009"],
+        absent=_NOSTOP),
+    "lua_api7_spawn": dict(
+        room="S_10/S_1003/S_1003", lua=_LUA_API7F,
+        drive="30:lua=w;40:lua=w spawn 17 9;60:lua=w;70:lua=w set 17 5;80:lua=w remove 17;90:lua=w spawn 13 1;100:lua=w spawn 999 1;110:quit",
+        expect=[_LP + "13 actors, first Baocar lv4 86.0/86.0, #17 nil in S_1003", _LP + "spawned 17", _LP + "14 actors",
+                "#17 Selnarg lv9 ", _LP + "set true", "#17 Selnarg lv9 5.0/", _LP + "removed true", _LP + "13 actors", _LP + "spawned nil",
+                _LP + "spawned nil"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, cleria.audio and cleria.screen: a sound of the game, a BGM, the music stopped, a flash and a fade.
+_LUA_API7V = (
+    'cleria.command("av", function(a)\n'
+    '    if a == "se" then cleria.log("se " .. tostring(cleria.audio.se(5, 0.5))) end\n'
+    '    if a == "music" then cleria.log("music " .. tostring(cleria.audio.music(18))) end\n'
+    '    if a == "stop" then cleria.log("stop " .. tostring(cleria.audio.stop_music(0.5))) end\n'
+    '    if a == "flash" then cleria.log("flash " .. tostring(cleria.screen.flash(0xFF2020, 1.0, 0.8))) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_av": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7V, drive="30:lua=av se;40:lua=av music;60:lua=av stop;70:lua=av flash;90:quit",
+        expect=["[lua] se 5", _LP + "se true", _LP + "music true", _LP + "stop true", _LP + "flash true"], absent=_NOSTOP),
+})
+
+# Mod API 7, the puppet: a second character in the room (Hugo's sprite set next to Yunica), posed, moved, turned and
+# removed; set_puppet on an id that is gone answers false. player.pose is what a peer would send.
+_LUA_API7P = (
+    'local pup\n'
+    'cleria.command("pup", function(a)\n'
+    '    local st, cmd, x = cleria.player.stats(), a:match("^(%S*)%s*(%S*)")\n'
+    '    if cmd == "spawn" then pup = cleria.world.puppet(tonumber(x), st.x + 2.5, st.y, st.z, 180) cleria.log("puppet " .. tostring(pup)) end\n'
+    '    if cmd == "pose" then cleria.log("posed " .. tostring(cleria.world.set_puppet(pup, {tag = tonumber(x), frame = 2, sheet = 16}))) end\n'
+    '    if cmd == "move" then cleria.log("moved " .. tostring(cleria.world.set_puppet(pup, {x = st.x - 2.5, z = st.z + 1, yaw = 90}))) end\n'
+    '    if cmd == "remove" then cleria.log("removed " .. tostring(cleria.world.remove_puppet(pup))) end\n'
+    '    if cmd == "me" then local p = cleria.player.pose() cleria.log(string.format("pose %.1f %.1f %.1f yaw %.0f tag %d frame %d sheet %d", p.x, p.y, p.z, p.yaw, p.tag, p.frame, p.sheet)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_puppet": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7P,
+        drive="30:lua=pup spawn 2;40:lua=pup me;70:lua=pup pose 301;110:lua=pup move;190:lua=pup remove;200:lua=pup pose 301;210:actors;220:quit",
+        expect=[_LP + "puppet 117", _LP + "pose 0.1 2.0 7.8 yaw 0 tag 305 frame ", " sheet 15", _LP + "posed true", _LP + "moved true", _LP + "removed true",
+                _LP + "posed false"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, what the player does as events: a swing, a jump and its landing, a skill cast, the Boost on, a goddess
+# statue used (interact + statue_used + script_started), and a script the mod's filter refuses.
+_LUA_API7E = (
+    'local function show(name, keys)\n'
+    '    cleria.events.on(name, function(e)\n'
+    '        local t = {}\n'
+    '        for _, k in ipairs(keys) do t[#t + 1] = k .. " " .. tostring(e[k]) end\n'
+    '        cleria.log("ev " .. name .. " " .. table.concat(t, " "))\n'
+    '    end)\n'
+    'end\n'
+    'show("attack", {"air"}) show("jump", {"double"}) show("land", {}) show("skill_used", {"slot", "item", "level"})\n'
+    'show("boost", {"on"}) show("interact", {"script"}) show("statue_used", {"cleansed"}) show("script_started", {"name"})\n'
+    'cleria.script.add_filter(function(q) if q.name == "noscript" then return "suppress" end end)\n'
+    'cleria.command("ev", function(a)\n'
+    '    if a == "boost" then cleria.player.set_boost(30000) end\n'
+    '    if a == "run" then cleria.log("run " .. tostring(cleria.script.run("nothing_named_so"))) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_actions": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7E,
+        drive="5:flag=187,1;8:bracelet=118;9:flag=118,1;10:flag=184,1;30:atk;90:jump;150:skill+;152:skill-;190:lua=ev boost;195:boost;"
+              "210:lua=ev run;220:at=-0.036,8.2,0;230:act;270:quit",
+        expect=[_LP + "ev attack air 0", _LP + "ev jump double 0", _LP + "ev land", _LP + "ev skill_used slot 3 item 118 level ",
+                _LP + "ev boost on 1", _LP + "run false", _LP + "ev script_started name save", _LP + "ev interact script save",
+                _LP + "ev statue_used cleansed 0"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, cleria.combat and cleria.player.tune: a mod's own hit on a monster (the damage as given, then a kill
+# with its EXP), HP taken and given back, and the tuning: a run twice as fast, a second jump in the air without the
+# game's double jump, a skill at half its MP.
+_LUA_API7C = (
+    'cleria.events.on("enemy_hit", function(e) cleria.log("hit " .. e.damage .. " killed " .. e.killed) end)\n'
+    'cleria.events.on("enemy_killed", function(e) cleria.log("killed cast " .. e.cast .. " exp " .. tostring(e.exp > 0)) end)\n'
+    'cleria.events.on("jump", function(e) cleria.log("jump double " .. e.double) end)\n'
+    'cleria.events.on("skill_used", function(e) cleria.log("skill cost " .. e.cost) end)\n'
+    'local x0\n'
+    'cleria.command("c", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    local en = cleria.world.actors()[1]\n'
+    '    if a == "hit" then cleria.log("queued " .. tostring(cleria.combat.damage(en.id, 5))) end\n'
+    '    if a == "kill" then cleria.combat.damage(en.id, 99999) end\n'
+    '    if a == "left" then cleria.log("actors " .. #cleria.world.actors()) end\n'
+    '    if a == "hurt" then cleria.combat.hurt(7) cleria.log("hp " .. cleria.player.stats().hp - st.hp) end\n'
+    '    if a == "heal" then cleria.combat.heal(4) cleria.log("hp " .. cleria.player.stats().hp - st.hp) end\n'
+    '    if a == "x" then x0 = st.x end\n'
+    '    if a == "dx" then cleria.log(string.format("ran %.1f", st.x - x0)) end\n'
+    '    if a == "fast" then cleria.log("tune " .. tostring(cleria.player.tune({speed = 2, air_jumps = 1, mp_cost = 0.5}))) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_combat": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7C,
+        drive="5:opt=InfiniteHP=0;8:bracelet=118;9:flag=118,1;10:flag=184,1;20:lua=c left;30:lua=c hit;40:lua=c kill;50:lua=c left;"
+              "60:lua=c hurt;62:lua=c heal;70:lua=c x;71:move=1,0,30;110:lua=c dx;120:skill+;122:skill-;170:lua=c fast;"
+              "180:lua=c x;181:move=-1,0,30;220:lua=c dx;230:jump;242:jump;280:skill+;282:skill-;330:quit",
+        expect=[_LP + "actors 11", _LP + "queued true", _LP + "hit 5 killed 0", _LP + "hit 99999 killed 1", _LP + "killed cast ",
+                _LP + "actors 10", _LP + "hp -7", _LP + "hp 4", _LP + "ran 2.5", _LP + "skill cost 400", _LP + "tune true", _LP + "ran -5.0",
+                _LP + "jump double 0", _LP + "jump double 1", _LP + "skill cost 200"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the camera, the HUD's parts, the held game and the spawn event: the eye twice as far from its subject,
+# the game held (a walk command moves nobody, the state is "held") then let go, a monster spawned by the mod
+# announced by enemy_spawned, and no boss gauge in an ordinary room.
+_LUA_API7K = (
+    'cleria.events.on("enemy_spawned", function(e) cleria.log("spawned cast " .. e.cast .. " actor " .. tostring(e.actor > 0)) end)\n'
+    'local d0, x0\n'
+    'local function dist() local c = cleria.camera.get() return math.sqrt((c.x - c.tx) ^ 2 + (c.y - c.ty) ^ 2 + (c.z - c.tz) ^ 2) end\n'
+    'cleria.command("k", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "d0" then d0 = dist() cleria.log("boss " .. tostring(cleria.world.boss())) end\n'
+    '    if a == "far" then cleria.camera.set({distance = 2}) end\n'
+    '    if a == "d1" then cleria.log(string.format("distance x%.2f", dist() / d0)) cleria.camera.reset() end\n'
+    '    if a == "d2" then cleria.log(string.format("distance x%.2f", dist() / d0)) end\n'
+    '    if a == "hold" then x0 = st.x cleria.game.pause(true) cleria.log("state " .. cleria.game.state()) end\n'
+    '    if a == "free" then cleria.log(string.format("moved %.1f", st.x - x0)) cleria.game.pause(false) cleria.log("state " .. cleria.game.state()) end\n'
+    '    if a == "x" then cleria.log("walked on " .. tostring(st.x - x0 > 1)) end\n'
+    '    if a == "hud" then cleria.log("hud " .. tostring(cleria.hud.show("status", false))) end\n'
+    '    if a == "spawn" then cleria.world.spawn(43, st.x + 3, st.y, st.z) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_camera": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7K,
+        drive="30:lua=k d0;31:lua=k far;40:lua=k d1;50:lua=k d2;60:lua=k hud;70:lua=k hold;71:move=1,0,30;110:lua=k free;"
+              "150:lua=k x;160:lua=k spawn;180:quit",
+        expect=[_LP + "boss nil", _LP + "distance x2.00", _LP + "distance x1.00", _LP + "hud true", _LP + "state held", _LP + "moved 0.0",
+                _LP + "state play", _LP + "walked on true", _LP + "spawned cast 43 actor true"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, monster variants and a custom boss: a variant spawned by its name (three times the HP of its base cast,
+# its own name and kind), a boss with the gauge on its HP and its handler held, the phase entered when a hit takes it
+# under half, and both deaths with their callbacks; the gauge goes with the boss.
+_LUA_API7M = (
+    'local C, W = cleria.content, cleria.world\n'
+    'C.define_monster("brute", {base = 43, name = "Brute", hp = 3, exp = 5, scale = 1.6, tint = 0xFF5050,\n'
+    '    on_spawn = function(id) cleria.log("born " .. tostring(id > 0)) end,\n'
+    '    on_death = function(e) cleria.log("brute dead exp " .. tostring(e.exp > 0) .. " variant " .. e.variant) end})\n'
+    'C.define_boss("king", {base = 43, name = "The King", hp = 20, scale = 2.2, tint = 0x6060FF, ai = false,\n'
+    '    phases = {{at = 0.5, enter = function(id, i) cleria.log("king phase " .. i) W.form(id, {atk = 2, tint = 0xFF2020}) end}},\n'
+    '    on_death = function() cleria.log("king dead") end})\n'
+    'local brute, king\n'
+    'cleria.command("m", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "brute" then brute = W.spawn("brute", st.x + 3, st.y, st.z) local b = W.actor(brute)\n'
+    '        cleria.log(string.format("brute %s %s hp x%.0f", b.name, b.variant, b.max_hp / W.actor(W.spawn(43, st.x - 30, st.y, st.z)).max_hp)) end\n'
+    '    if a == "king" then king = W.spawn("king", st.x - 3, st.y, st.z + 1) local k, b = W.actor(king), W.boss()\n'
+    '        cleria.log("king boss " .. tostring(k.boss) .. " ai " .. tostring(k.ai)) end\n'
+    '    if a == "gauge" then local b = W.boss() cleria.log("gauge " .. tostring(b and b.actor == king) .. " full " .. tostring(b and b.hp == b.max_hp)) end\n'
+    '    if a == "half" then cleria.combat.damage(king, W.actor(king).max_hp * 0.6) end\n'
+    '    if a == "kill" then cleria.combat.damage(king, 999999) cleria.combat.damage(brute, 999999) end\n'
+    '    if a == "after" then cleria.log("boss " .. tostring(W.boss())) end\n'
+    'end)\n'
+)
+CASES.update({
+    "lua_api7_monsters": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7M,
+        drive="30:lua=m brute;40:lua=m king;50:lua=m gauge;60:lua=m half;80:lua=m kill;100:lua=m after;120:quit",
+        expect=[_LP + "born true", _LP + "brute Brute test.lua:brute hp x3", _LP + "king boss true ai false", _LP + "gauge true full true",
+                _LP + "king phase 1", _LP + "king dead", _LP + "brute dead exp true variant test.lua:brute", _LP + "boss nil"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the multiplayer pieces. A puppet made hittable takes the player's swing as a puppet_hit event (and no
+# HP); combat.strike is a hit on the player priced by the game (HP lost, the player_hit event); world.snapshot
+# lists the room's monsters, and world.apply makes the room match a changed copy: one monster moved and hurt, one
+# gone, all held (their handlers stopped: they stay where the snapshot put them).
+_LUA_API7Y = (
+    'local W = cleria.world\n'
+    'cleria.events.on("puppet_hit", function(e) cleria.log("puppet_hit atk " .. tostring(e.atk > 0) .. " puppet " .. tostring(e.puppet > 0)) end)\n'
+    'cleria.events.on("player_hit", function(e) cleria.log("player_hit " .. tostring(e.damage > 0)) end)\n'
+    'local pup, snap, hp0\n'
+    'cleria.command("y", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "pup" then pup = W.puppet(2, st.x + 0.9, st.y, st.z, 0) cleria.log("hittable " .. tostring(W.set_puppet(pup, {hittable = true}))) end\n'
+    '    if a == "face" then cleria.player.set_position(st.x, st.y, st.z, 90) end\n'
+    '    if a == "strike" then hp0 = st.hp cleria.log("strike " .. tostring(cleria.combat.strike(60))) end\n'
+    '    if a == "hp" then cleria.log("lost hp " .. tostring(st.hp < hp0)) end\n'
+    '    if a == "snap" then snap = W.snapshot() cleria.log("snapshot " .. #snap .. " tag " .. tostring(snap[1].tag >= 0)) end\n'
+    '    if a == "apply" then\n'
+    '        snap[1].x, snap[1].z, snap[1].hp = st.x + 4, st.z, 7\n'
+    '        table.remove(snap, 2)\n'
+    '        cleria.log("applied " .. tostring(W.apply(snap)))\n'
+    '    end\n'
+    '    if a == "check" then\n'
+    '        local now, one = W.actors(), W.actor(snap[1].id)\n'
+    '        cleria.log(string.format("now %d first hp %.0f at %.1f ai %s", #now, one.hp, one.x - st.x, tostring(one.ai)))\n'
+    '    end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_sync": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7Y,
+        drive="5:opt=InfiniteHP=0;20:lua=y snap;25:lua=y apply;60:lua=y check;70:lua=y face;75:lua=y pup;80:atk;130:lua=y strike;150:lua=y hp;170:quit",
+        expect=[_LP + "snapshot 11 tag true", _LP + "applied 10", _LP + "now 10 first hp 7 at 4.0 ai false", _LP + "hittable true",
+                _LP + "puppet_hit atk true puppet true", _LP + "strike true", _LP + "player_hit true", _LP + "lost hp true"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the Lua layer on the live game. A skill of the mod's own on slot 3 (its cast runs, its MP is paid, the
+# game's cast and skill_used do not happen); an item kept in the save (given twice, used once); a character variant
+# (twice the HP); a shop that sells for SP (one purchase by the window's OK); and a room variant entered from
+# another room: the base room without its own monsters, the variant's monster in it, on_clear at its death.
+_LUA_API7O = (
+    'local C, W, P = cleria.content, cleria.world, cleria.player\n'
+    'cleria.events.on("skill_used", function() cleria.log("the game cast") end)\n'
+    'C.define_skill(3, {mp = 100, cast = function(c) cleria.log("my cast charged " .. tostring(c.charged) .. " cost " .. c.cost) end})\n'
+    'C.define_item("potion", {name = "Potion", use = function() cleria.combat.heal(5) end, on_change = function(n) cleria.log("potions " .. n) end})\n'
+    'C.define_character("giant", {name = "Giant", hp = 2, scale = 1.4})\n'
+    'C.define_room("arena", {base = "S_1002", exits = {default = false},\n'
+    '    on_enter = function() local st = P.stats() W.spawn(43, st.x + 3, st.y, st.z) cleria.log("arena entered") end,\n'
+    '    on_clear = function() cleria.log("arena cleared") end})\n'
+    'local mp0, hp0\n'
+    'cleria.command("o", function(a)\n'
+    '    local st = P.stats()\n'
+    '    if a == "mp" then mp0 = st.mp end\n'
+    '    if a == "paid" then cleria.log("paid " .. (mp0 - st.mp > 50 and mp0 - st.mp < 150 and "100" or tostring(mp0 - st.mp))) end\n'
+    '    if a == "item" then C.add_item("potion", 2) C.use_item("potion") cleria.log("left " .. C.item_count("potion") .. " list " .. #C.items()) end\n'
+    '    if a == "char" then hp0 = st.max_hp cleria.log("giant " .. tostring(C.set_character("giant")) .. " hp x" .. P.stats().max_hp / hp0) end\n'
+    '    if a == "shop" then P.add_sp(50 - P.sp()) cleria.ui.shop({items = {{name = "Potion", price = 20, buy = function() C.add_item("potion") end}}}) end\n'
+    '    if a == "sold" then cleria.log("sp " .. P.sp() .. " potions " .. C.item_count("potion") .. " open " .. tostring(cleria.ui.is_open())) cleria.ui.close() end\n'
+    '    if a == "go" then cleria.log("go " .. tostring(C.enter_room("arena"))) end\n'
+    '    if a == "in" then cleria.log("room " .. cleria.game.room() .. " " .. tostring(C.room()) .. " monsters " .. #W.actors()) end\n'
+    '    if a == "kill" then cleria.combat.damage(W.actors()[1].id, 99999) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_layer": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7O,
+        drive="8:bracelet=118;9:flag=118,1;10:flag=184,1;30:lua=o mp;31:skill+;33:skill-;40:lua=o paid;50:lua=o item;60:lua=o char;"
+              "70:lua=o shop;80:modwin=ok;90:lua=o sold;100:lua=o go;200:lua=o in;210:lua=o kill;260:quit",
+        expect=[_LP + "my cast charged false cost 100", _LP + "paid 100", _LP + "potions 2", _LP + "potions 1", _LP + "left 1 list 1",
+                _LP + "giant true hp x2", _LP + "potions 2", _LP + "sp 30 potions 2 open shop", _LP + "go true", _LP + "arena entered",
+                _LP + "room S_1002 arena monsters 1", _LP + "arena cleared"],
+        absent=_NOSTOP + ["the game cast"]),
+})
+
+# Mod API 7, game.new_game: from a running game (Yunica), a new game as Hugo: the title starts it at once, the
+# new_game event says 2 and so does game.character() afterwards.
+_LUA_API7Q = (
+    'local asked\n'
+    'cleria.events.on("new_game", function(e) cleria.log("new_game event " .. e.character) end)\n'
+    'cleria.command("q", function(a)\n'
+    '    if a == "ng" and not asked then asked = true cleria.log("asked " .. tostring(cleria.game.new_game(2))) end\n'
+    '    if a == "who" then cleria.log("character " .. cleria.game.character() .. " asked " .. tostring(asked)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_newgame": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7Q, drive="30:lua=q who;40:lua=q ng;60:lua=q who;80:quit",
+        expect=[_LP + "character 1 asked nil", _LP + "asked true", _LP + "new_game event 2", _LP + "character 2 asked true"],
+        count={"[drive] t60 lua=q who": 1},                 # the first game ended at the request: its tick 60 never came
+        absent=_NOSTOP),
+})
+
+# Mod API 7, the tools. The console window runs a command of the mod (mods.command), and the drive's modreload=
+# starts the mod's script afresh: its state is new (the counter is back at 1), what it left with the game is gone
+# (the game is no longer held, its tuning is off), and its commands answer again.
+_LUA_API7T = (
+    'boots = (boots or 0) + 1\n'
+    'cleria.log("boot " .. boots)\n'
+    'cleria.command("t", function(a)\n'
+    '    if a == "hold" then cleria.game.pause(true) cleria.player.tune({speed = 3}) cleria.log("state " .. cleria.game.state()) end\n'
+    '    if a == "state" then cleria.log("state " .. cleria.game.state() .. " boots " .. boots) end\n'
+    '    if a == "run" then cleria.log("ran " .. tostring(cleria.mods.command("t", "state")) .. " " .. table.concat(cleria.mods.commands(), ",")) end\n'
+    '    if a == "console" then cleria.ui.console() cleria.log("console " .. tostring(cleria.ui.is_open())) cleria.ui.close() end\n'
+    '    if a == "bag" then cleria.content.open_bag() cleria.log("bag " .. tostring(cleria.ui.is_open())) cleria.ui.close() end\n'
+    '    if a == "x" then x0 = cleria.player.stats().x end\n'
+    '    if a == "dx" then cleria.log(string.format("ran %.1f", cleria.player.stats().x - x0)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_tools": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7T,
+        drive="20:lua=t run;30:lua=t console;35:lua=t bag;40:lua=t hold;50:modreload=test.lua;60:lua=t state;70:lua=t x;71:move=1,0,30;110:lua=t dx;120:quit",
+        expect=[_LP + "boot 1", _LP + "state play boots 1", _LP + "ran true t", _LP + "console cleria_console", _LP + "bag cleria_bag", _LP + "state held",
+                "[lua] test.lua: reloaded", _LP + "state play boots 1", _LP + "ran 2.5"],
+        count={_LP + "boot 1": 2}, absent=_NOSTOP),
+})
+
+# Mod API 7, a puppet the monsters take for a player: put beside a monster far from the real player, it is chased
+# and struck (the puppet_struck event carries the monster's ATK); the real player, out of reach, loses nothing.
+_LUA_API7S = (
+    'local W = cleria.world\n'
+    'local n, hp0 = 0, nil\n'
+    'cleria.events.on("puppet_struck", function(e) n = n + 1 if n == 1 then cleria.log("struck atk " .. tostring(e.atk > 0) .. " by cast " .. e.cast) end end)\n'
+    'cleria.command("s", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "bait" then\n'
+    '        local far, d = nil, -1\n'
+    '        for _, m in ipairs(W.actors()) do local q = (m.x - st.x) ^ 2 + (m.z - st.z) ^ 2 if q > d then far, d = m, q end end\n'
+    '        hp0 = st.hp\n'
+    '        local pup = W.puppet(2, far.x + 1.2, far.y, far.z, 0)\n'
+    '        cleria.log("bait " .. tostring(W.set_puppet(pup, {target = true})) .. " far " .. tostring(d > 100))\n'
+    '    end\n'
+    '    if a == "end" then cleria.log("struck " .. tostring(n > 0) .. " player lost " .. hp0 - st.hp) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_struck": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7S, drive="5:opt=InfiniteHP=0;30:lua=s bait;900:lua=s end;910:quit",
+        expect=[_LP + "bait true far true", _LP + "struck atk true by cast ", _LP + "struck true player lost 0"],
+        absent=_NOSTOP),
+})
+
+# Mod API 7, combat.boss_bonus on Velagunder at level 5: 400 in the pool is spent by the next swing that does damage
+# (CLERIA_DMG shows that hit some 400 over the others).
+_LUA_API7B = (
+    'local h0\n'
+    'cleria.command("b", function(a)\n'
+    '    local b = cleria.world.boss()\n'
+    '    if a == "mark" then h0 = b.hp end\n'
+    '    if a == "bonus" then cleria.log("pool " .. cleria.combat.boss_bonus(400)) end\n'
+    '    if a == "pooled" then cleria.log("pool after the swings " .. cleria.combat.boss_bonus() .. " gauge moved " .. tostring(b.hp <= h0)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_boss_bonus": dict(
+        room="S_10/S_1099/S_1099", lua=_LUA_API7B, env=dict(CLERIA_LEVEL="5", CLERIA_DMG="1"),
+        drive="150:flag=156,1;" + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(200, 1900, 12)) +
+              "1200:lua=b mark;1505:lua=b bonus;1800:lua=b pooled;1910:quit",
+        expect=[_LP + "pool 400", " dmg, HP ", _LP + "pool after the swings 0.0 gauge moved true"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")
@@ -2584,11 +3266,15 @@ CASES.update({
     # The scene light's colour (§4.3) multiplies every material's diffuse and the actor sprites: Darm's state
     # machine sets it by FUN_00443ea0 — 0xffaa8080 in the normal stance (the fight's first frames), 0xffaaaa80 next.
     "scene_light": dict(
-        room="S_70/S_7099/S_7099", env={"CLERIA_CHAR": "3", "CLERIA_SCRFX_LOG": "1"},
+        room="S_70/S_7099/S_7099", env={"CLERIA_CHAR": "3", "CLERIA_SCRFX_LOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8;61:every=15,2900,oktapf;2900:quit",
+              "11:flag=163,1;60:boss8;61:every=15,2700,oktapf;2700:quit",
+        # Re-pinned 2026-10-13 (darm_fight's note: the hull's entry filter and the sphere push-out): the first band
+        # is at t2000 and the next form is High — its light 0xff8080aa at t2001 (was Low's 0xffaaaa80 at t2838).
+        # Re-pinned again 2026-10-13 (darm_fight's second note; under the lockstep now, as darm_fight): the first band
+        # is at t2552 and the next form is Low — its light 0xffaaaa80.
         expect=["[light] t11 the scene light's colour (0.667, 0.502, 0.502)",
-                "[light] t2838 the scene light's colour (0.667, 0.667, 0.502)"]),
+                "the scene light's colour (0.667, 0.667, 0.502)"]),
     # The frame hold (§7.3): Zava's death (zava_fight's run) writes 0x76a548 / 0x76a54c = 1.0 / -0.025 with
     # 0x7b2488 = 1: that frame is copied and drawn over the live scene, first at floor(0.975 x 256) = 249.
     # Re-pinned 2026-10-10 (the dust puffs, as zava_fight): her death is at t4102, was t3830; the run ends at t4400.
@@ -3067,11 +3753,11 @@ CASES.update({
     "skip_intro_dalles": dict(
         room="S_70/S_7080/S_7080", char="1", env=_LOCK,
         drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;11:flag=116,1;12:flag=117,1;13:flag=118,1;3:esctap;5:cam;5:scripts;5:gauge;5:dflags;7:quit",
-        expect=["cutscene skip (single)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 23", "[drive] gauge 1 id -11 hp 2500/2500", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+        expect=["cutscene skip (single)", "[bgm] 17 (script)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 23", "[drive] gauge 1 id -11 hp 2500/2500", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
     "skip_intro_darm": dict(
         room="S_70/S_7099/S_7099", char="3", env=_LOCK,
         drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;11:flag=163,1;3:esctap;5:cam;5:scripts;5:gauge;5:dflags;7:quit",
-        expect=["cutscene skip (single)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 30", "[drive] gauge 1 id -12 hp 9999/9999", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
+        expect=["cutscene skip (single)", "[bgm] 18 (script)", "[cam] cur 1 from 1 forced 1", "t5 scripts", "frozen 0 fix 0/0", "[drive]   script Battle pc 30", "[drive] gauge 1 id -12 hp 9999/9999", "[duel] flags 130=0 131=0 133=0 156=1 174=0 230=0 232=0 311=0"]),
     "skip_intro_duel1080_y": dict(
         room="S_10/S_1080/S_1080", char="1", env=_LOCK,
         drive="1:opt=CutsceneSkip=0;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;21:move=0,-1,300;221:esctap;223:cam;223:scripts;223:gauge;223:dflags;225:quit",
@@ -3163,6 +3849,65 @@ CASES.update({
 # server (tools/aplua_regress.py, LUA_API.md §9).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aplua_regress  # noqa: E402
+# ---- the renderer builder (2026-10-12): RENDER_LEFTOVERS.md ----------------------------------------------
+CASES.update({
+    # S_2005's water reflects (material flag 0x200000; REFLECTIONS.md 4): the room's WaterReflection script sets
+    # the plane (op 0x11d: h = -8.975, the plane at h + 0.025), the pass draws at half the render size at
+    # Reflections High and a quarter at Low, and not at all at Off.
+    "water_reflection": dict(
+        room="S_20/S_2005/S_2005",
+        drive="10:vstat;11:vopt=WaterEffectLevel=1;20:vstat;21:vopt=WaterEffectLevel=0;30:vstat;31:quit",
+        expect=["[video] water level 2 surfaces 1 grab 1280x800", "[video] reflection 640x400 plane y -8.950",
+                "[video] water level 1 surfaces 1 grab 640x400", "[video] reflection 320x200 plane y -8.950",
+                "[video] water level 0 surfaces 0 grab 0x0"]),
+    # The mirror floors (material flag 0x800000; REFLECTIONS.md 7): S_6082's image holds the room's `B` model,
+    # the statue save_01 mirrored about its base and -- MirrorFloor is on -- the player's sprite laid on the
+    # floor; half the render size at Reflections High, a quarter at Low and at Off, where the statue is left out.
+    "mirror_floor": dict(
+        room="S_60/S_6082/S_6082",
+        drive="10:vstat;11:vopt=WaterEffectLevel=1;20:vstat;21:vopt=WaterEffectLevel=0;30:vstat;31:quit",
+        expect=["[video] mirror 640x400 floor 1 objects 1 images 1", "[video] mirror 320x200 floor 1 objects 1 images 1",
+                "[video] mirror 320x200 floor 1 objects 0 images 1"]),
+    # The bosses' projected shadows (SHADOWS.md 4): Dalles's hull is drawn from below into his target -- 256 a
+    # side at Shadows Full, 128 at Player, 64 at Simple -- and the floor's flagged materials read it at 0.66.
+    "boss_shadow_dalles": dict(
+        room="S_70/S_7080/S_7080",
+        env={"CLERIA_CHAR": "1"},
+        drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:tier=10;"
+              "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
+              "16:flag=184,3;17:bracelet=116;60:boss7;300:vstat;301:vopt=ShadowEffectLevel=1;310:vstat;"
+              "311:vopt=ShadowEffectLevel=0;320:vstat;321:quit",
+        expect=["[video] boss shadow target 256 triangles 436 strength 0.660 quads 0",
+                "[video] boss shadow target 128 triangles 436 strength 0.660 quads 0",
+                "[video] boss shadow target 64 triangles 436 strength 0.660 quads 0"]),
+    # ... and Zava's two heads each cast into their own target, shown by one additive quad a head in the mirror
+    # floor's image (MirrorFloor is on in S_6082): the image holds the statue and four quads -- the two heads',
+    # the player's, one more actor's.
+    "boss_shadow_zava": dict(
+        room="S_60/S_6082/S_6082",
+        env={"CLERIA_CHAR": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss6;400:vstat;401:quit",
+        expect=["[video] boss shadow target 0 triangles 0 strength 0.000 quads 2", "[video] mirror 640x400 floor 1 objects 1 images 4"]),
+    # ... and Nygtilger's 36 pieces each darken the floor through one quad, their pictures the cells of one atlas:
+    # 64 a cell at Shadows Full (the render models), 32 at Player and 16 at Simple (the hulls).
+    "boss_shadow_nygtilger": dict(
+        room="S_20/S_2099/S_2099",
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=40;9:flag=205,1;10:saveload;40:every=20,700,ok;"
+              "900:vstat;903:vopt=ShadowEffectLevel=1;910:vstat;911:vopt=ShadowEffectLevel=0;920:vstat;921:quit",
+        expect=["[video] boss shadow target 64 triangles 25973 strength 0.000 quads 36",
+                "[video] boss shadow target 32 triangles 1408 strength 0.000 quads 36",
+                "[video] boss shadow target 16 triangles 1408 strength 0.000 quads 36"]),
+    # Toal's trail (SHADOWS.md 5): none in the human form's stand (C_119 has no entry for the tag); in the demon
+    # form the run (tag 301, then 302 where the wall stops him) leaves 108 copies of the trail image at Shadows
+    # Full and 54 at Player and Simple.
+    "toal_trail": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="3:flag=187,1;10:vstat;12:boost=30000;20:boostkey;70:move=1,0,300;100:vstat;"
+              "101:vopt=ShadowEffectLevel=1;110:vstat;111:vopt=ShadowEffectLevel=0;120:vstat;121:quit",
+        expect=["[video] trail level 2 tag -1 quads 0", "[video] trail level 2 tag 301 quads 108",
+                "[video] trail level 1 tag 301 quads 54", "[video] trail level 0 tag 302 quads 54"]),
+})
 # ---- batch G (2026-10-11) ----------------------------------------------------------------------------
 CASES.update({
     # Video: the water caustics (CONFIG_PARITY.md 13). A flooded room draws them room-wide, the frame steps every
@@ -3208,10 +3953,203 @@ CASES.update({
         expect=["[video] caustics room 0 off 0", "[video] water level 2 surfaces 0 grab 0x0"]),
 })
 
+# The sprite's AIA file +0x97c and op 0x167 Chr_AniChange (build/event_re/ANI_VARIANT.md, issue #92): `chr=` prints the
+# file index after the pose. Yunica (196) lying in S_3015 is placed and pinned in one script step, so only the op's 6
+# (C_102) reaches her; Toal (198) in S_5097 and S_7000 goes demon sheet 12 (C_115) -> 17 (C_113) for the knock-down
+# tag 9 -> 8 (C_104) for the rise tag 410; Hugo (197) in S_6099 sits on 7 (C_103, chosen by section 319 in the one
+# tick hugo_anime leaves before its pins — an NPC's script runs in play) and raises his staff on 16 (C_112).
+_ANI7 = "1:opt=CutsceneSkip=3;1:opt=DamageTaken=0;1:opt=InfiniteHP=1;2:level=50;3:tier=10;20:at3=0,7.4,-27.8,0;40:every=10,3100,oktapf;"
+CASES.update({
+    "anichange_s3015_yunica_down": dict(
+        room="S_30/S_3009/S_3009", char="3", env=_LOCK, drive="10:flag=251,1;20:exit=1;60:chr=196;61:quit",
+        expect=[">> entering S_3015", "[chr] 196 ", "pin 405/0 motion -1 aso 2/-1/0", ") file 6"]),
+    "anichange_s5097_toal": dict(
+        room="S_50/S_5097/S_5097", char="3", env=_LOCK,
+        drive="1:opt=CutsceneSkip=3;1:opt=InfiniteHP=1;10:move=0,1,400;40:every=10,10500,ok;9860:chr=198;9990:chr=198;10460:chr=198;10461:quit",
+        expect=["pin -1/0", ") file 12", "pin 9/6", ") file 17", "pin 410/1", ") file 8"]),
+    "anichange_s6099_hugo": dict(
+        room="S_60/S_6099/S_6099", char="3", env=_F6,
+        drive="5:flag=231,1;8:tier=10;9:opt=DamageTaken=0;40:move=0,1,300;80:every=20,2400,ok;100:chr=197;2256:chr=197;2340:chr=197;2341:quit",
+        expect=["pin 302/3 motion 319 aso 319/", ") file 7", "pin 300/3", ") file 16", "pin 300/5", "aso 2/-1/0", ") file 16"]),
+    "anichange_s7000_toal": dict(
+        room="S_70/S_7000/S_7000", char="3", env=_LOCK,
+        drive=_ANI7 + "2700:chr=198;2900:chr=198;3010:chr=198;3011:quit",
+        expect=["pin 308/5", ") file 12", "pin 9/6", ") file 17", "pin 410/", ") file 8"]),
+})
+
+# Arena reach (build/mode_re/ARENA.md §12). Hugo's shot is FireBullet(2, 130, ..): homing period 1 with a max turn of
+# 0, and the bullet's target scan FUN_00596c70 runs for effects 0x20 / 0x15 only [EXPORT 00593b90.c:176] — it flies
+# level from where it was fired, so the fliers (Chelasken 42 and cast 41 on Stage 3, Diphtheloyd 39 on Stage 4) are
+# shot from a jump. The pilot alternates 440 ticks of ground shots with 440 of jump shots (jump, fire 6 ticks later);
+# both stages clear and bank with no sweep.
+def _hugo_jumpshots(end):
+    d = "10:opt=OneHitKill=1;11:opt=DamageTaken=0"
+    for b in range(130, end, 900):
+        d += (f";{b}:every=9,{b + 440},nearest=1.2;{b + 3}:every=9,{b + 440},atk;{b + 450}:every=60,{b + 890},nearest=2;"
+              f"{b + 470}:every=60,{b + 890},jump;{b + 476}:every=60,{b + 890},atk")
+    return d + f";{end}:stats;{end + 1}:quit"
+_ARENA_HUGO = "1:keys;40:down;45:down;50:ok;100:down;110:ok;150:down;190:ok;270:ok;{rows}520:ok;700:quit"
+# Menoak (cast 56), "Shell repels all physical attacks": its ENEMYINFO resists are 1, -1, -5, 1 and the damage is
+# (1 - resist[class]) x raw [EXPORT 004fa550.c:43], the class from the section (FUN_0046d5e0: 0x10d -> 0, 0x10e -> 1,
+# 0x10c -> 2, anything else 3). So a swing or a plain shot does 0, the bracelet-116 skill (section 0x10d) does 0, the
+# 118 skill (0x10e) does x2 and the 117 skill (0x10c) x6 — with each character.
+_MENOAK = ("5:flag=116,1;6:flag=117,1;7:flag=118,1;8:flag=182,1;9:flag=183,1;10:flag=184,1;12:level=20;13:opt=InfiniteHP=1;"
+           "20:every=30,460,nearest=1.6;40:atk;55:atk;100:bracelet=116;120:skill+;122:skill-;124:abil;200:bracelet=118;220:skill+;"
+           "222:skill-;224:abil;300:bracelet=117;320:skill+;322:skill-;324:abil;460:quit")
+CASES.update({
+    "arena_stage3_hugo_fliers": dict(
+        room=None, char="2", env=dict(_LOCK, CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[5, 6, 7, 8, 9, 10])},
+        title=_ARENA_HUGO.format(rows="430:down;432:down;"), drive=_hugo_jumpshots(3400),
+        expect=["(Guilty Fire): the run starts in S_9129", "[arena] Arena(cast 42,", "ArenaSave: SP ", "cleared in "]),
+    "arena_stage4_hugo_fliers": dict(
+        room=None, char="2", env=dict(_LOCK, CLERIA_NYA="1"),
+        records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)], shop=[5, 6, 7, 8, 9, 10])},
+        title=_ARENA_HUGO.format(rows="430:down;432:down;434:down;"), drive=_hugo_jumpshots(4500),
+        expect=["(Silent Sands): the run starts in S_9139", "[arena] Arena(cast 39,", "ArenaSave: SP ", "cleared in "]),
+    # ENEMY_WATER.md §7 (W5): a Mobre moved into S_2003's pool splashes — effect 0x49 (73) at the surface + 0.15.
+    "enemy_splash_s2003": dict(
+        room="S_20/S_2003/S_2003", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;19:at3=-12,8,36.33,270;20:epos=#55,-20,36.33;22:fxall;60:fxall;61:quit",
+        expect=["t22 fxall", "[fxall] id 73 attach 0 at (-20.00, 6.43, 36.33)", "t60 fxall"], count={"[fxall] id 73": 1}),
+    # ENEMY_WATER.md W6 (M590.md §2.1, MOVEPRIM.md §2.5): a Sepaswait cannot stay over the sand. Dropped onto S_4006's
+    # sand floor (y -3, its origin under +0x320 + 0.6) the handler draws it halfway back to its last dry point a tick
+    # and gives it that point's y; the move primitive's swim block, still on the sand2 byte, then puts its origin on the
+    # stone 0.5 ahead (no height added, as compiled) and the settle lifts it.
+    # ENEMY_WATER.md W5: in a flooded room (mode 2) every live actor breathes out on the 125-tick cycle of +0x4c6 —
+    # effect 0x3d (61) 0.25 ahead of its origin, at counts 29, 25, 21, 17, 9 and 1 [BYTES 0x45c5bd..0x45c70f]. S_2010's
+    # eight monsters all start the cycle on their first tick: no bubble at t90, one each at t100.
+    "flooded_bubbles": dict(
+        room="S_20/S_2010/S_2010", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;7:opt=InfiniteOxygen=1;90:fxall;100:fxall;101:quit",
+        expect=["t90 fxall", "t100 fxall", "[fxall] id 61 attach 0 at (-2.29, 1.13, 8.05)"], count={"[fxall] id 61": 8}),
+    # ENEMY_WATER.md W7 (M250.md §3.1, §3.7): a Nipper in S_2011's pool floats with its origin at the surface + 0.7
+    # (feet y 4.5; it stood on the pool's floor at 3.4 before), the action -1 every tick, in the idle section the
+    # brain asks for when it fell in (section 2 is not replaced by the swim section 300).
+    "nipper_float": dict(
+        room="S_20/S_2011/S_2011", env=dict(_LOCK, CLERIA_AI="1"),
+        drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;7:opt=InfiniteOxygen=1;19:at3=-30,8,14,180;20:actors;61:actors;62:quit",
+        expect=["id 192 cast 29 enemy hp 135 g1 0 pos (-35.5,3.4,16.6)",
+                "#192 cast 29 phase 2 sub 0 act 0xffffffff steer 0 mode 0 spd 0.0000 dist 6.26 head 1.57 culled 0 sec 2",
+                "t61 actors", "id 192 cast 29 enemy hp 135 g1 0 pos (-35.5,4.5,16.6)"]),
+    "sepaswait_sand": dict(
+        room="S_40/S_4006/S_4006", env=_F4,
+        drive="9:opt=DamageTaken=0;10:at=12,11,90;100:actors;101:epos=#196,11,20;102:actors;104:actors;105:quit",
+        expect=["id 196 cast 63 enemy hp 254 g1 0 pos (10.0,-0.0,8.7)", "epos #196 (11.00, -3.00, 20.00)",
+                "[ai] t101 M590 #196 over water (11.00, -1.92, 20.00) -> (10.48, 1.05, 14.36)",
+                "[ai] t102 #196 cast 63 swim block: origin y 1.05 -> 0.00 (surface 1)",
+                "t104 actors", "id 196 cast 63 enemy hp 254 g1 0 pos (9.6,-0.0,9.8)"]),
+    "menoak_resists_yunica": dict(
+        room="S_20/S_2008/S_2008", char="1", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
+        expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t124 sec 0x10d", "): 0 dmg, 146/146 left", "t224 sec 0x10e",
+                "hit Menoak (lv14 DEF 91): 7", "t324 sec 0x10c", "hit Menoak (lv14 DEF 91): 159 dmg, 0/146 left"]),
+    "menoak_resists_hugo": dict(
+        room="S_20/S_2008/S_2008", char="2", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
+        expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t224 sec", "hit Menoak (lv14 DEF 91): 49 dmg"]),
+    "menoak_resists_toal": dict(
+        room="S_20/S_2008/S_2008", char="3", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
+        expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t124 sec 0x10d", "): 0 dmg, 146/146 left", "t224 sec 0x10e",
+                "hit Menoak (lv14 DEF 91): 6", "t324 sec 0x10c", "hit Menoak (lv14 DEF 91): 18"]),
+})
+
+CASES.update({
+    # Issue #100: the camp is in the scripts' event mode. battle_0 sets flag 161 at pc 367 and nothing in S_1000
+    # clears it; the mover and the charge read it as "busy" (0x76bba0), so a held skill button charges nothing
+    # there. The next scene entry zeroes it (FUN_00431840 [BYTES 0x431a72]): the same press casts in S_1001.
+    "camp_no_skill": dict(
+        room="S_00/S_0000/S_0000", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:opt=CutsceneSkip=1;20:every=20,1200,skiptap;40:every=50,1200,killall;1200:scripts;1205:bracelet=116;"
+              "1206:flag=116,1;1207:flag=182,1;1210:skill+;1240:abil;1241:skill-;1245:abil;1246:flagdump;1250:exit=0;"
+              "1400:skill+;1430:abil;1431:skill-;1435:abil;1436:quit",
+        expect=["script s_Stop1000_03", "[abil] t1240 sec 0x2 mp 3000", "magic 116 charge 0", "[abil] t1245 sec 0x2 mp 3000",
+                " 161=1 ", ">> entering S_1001", "[abil] t1430 sec 0x2 mp 3000", "magic 116 charge 1", "[abil] t1435 sec 0x10d"]),
+    # Issue #94, record.tp: a monster killed on Normal is in the monster notes (seen 1, kills 1, the Normal mark);
+    # the clean exit writes the file and a second boot reads it back.
+    "monster_notes_tp": dict(
+        room="S_10/S_1002/S_1002", env=dict(CLERIA_LEVEL="3"),
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;15:notes;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 400, 25)) + ";420:notes;430:quit",
+        room2="S_10/S_1002/S_1002", drive2="5:notes;10:quit",
+        expect=["[notes] t15 seen 0 kills 0", "[notes] t420 seen 1 kills 1 killed-on 0 0 1 0 0", "==== second boot",
+                "[clear] record.tp: 1 of 186 monster notes seen", "[notes] t5 seen 1 kills 1 killed-on 0 0 1 0 0"]),
+})
+
+# S_4015 on foot as Yunica and as Hugo (ROUTE_F47_*.md §S_4015), the pilot's moving-ground forms (`x,z,y` and
+# `dx,dz,y@object>d`): from the y 26 ledge onto the sliding platform #6 as it comes in, both spiked rods jumped as
+# it carries her under them (toge_01 / toge_02: 2.1 over the platform, 1.8 wide, a double jump each), the jump north
+# onto the path, the slope down to switch_01 (451); back: the platform from its west end, the rods again, the east
+# ledge, the lift step_01 at its top (flag 450 set by hand, as route_s4015), step_00 from 27 up to 48, the curb and
+# the stairs to S_4019. The same route string for both; no rod is touched.
+_S4015 = ("2:flag=450,1;3:diff=3;4:saveload;5:flag=163,1;6:level=27;7:opt=DamageTaken=0;200:at3=-51.6,26,38,180;"
+          "234:hops=0.9,0,26@#6>5.2/-70.3,43.5,26/-88,43.5/-90.5,40/-89.8,27/-90.9,26.9;"
+          "1715:hops=-90.9,31/-89.6,39/-86.5,42.7/-70.5,42.7,26/0.6,0,26@#6>5.9/-50.5,38.5,26/-44.6,38.6,26/"
+          "-40,38.6,24/-33,38.2,24/-31.1,38,24/-31.1,41.6,27/-31.1,47.5,48/-31.1,60/-31.1,69;3900:quit")
+for _n, _c in (("yunica", "1"), ("hugo", "2")):
+    CASES["route_s4015_" + _n] = dict(
+        room="S_40/S_4015/S_4015", char=_c, env=dict(CLERIA_DRIVE_LOCKSTEP="1"), drive=_S4015,
+        expect=["waypoint 0 reached at (-67.7", "[plate] switch_01 -> turnswitch01", "waypoint 4 reached at (-56.1",
+                "waypoint 10 reached", "waypoint 11 reached at (-31.10, 48.00", ">> entering S_4019"],
+        absent=["@touch_toge", "FELL", "NOT reached"])
+
+# The floor 4 - 5 room walks of ROUTE_F47_HUGO / _YUNICA (2026-10-13), as Yunica and as Hugo with the pilot's real
+# stick and Jump (drive hops=), the double jump owned (163), no dash:
+#   s4003_mask: the Evil Ring's alcove is reached over s40yuka_00, a bridge only the Mask of Eyes makes solid (acc 54;
+#               without it the probe along the bridge reads the pit, 4.00) - then the chest opens;
+#   s4009_pit:  the ward's monsters killed, the pit cover gone, the fall into S_4010 onto the y 8 ledge, the chest block;
+#   s5008_pads: both jump pads up to the S_5101 door;
+#   s5005_spin: the leap onto the spinning floor #1 (7.7 from the terrace, an arm under the landing 60 ticks in 133),
+#               the ride, the leap off its north arm to the S_5008 ledge;
+#   s5007_fall: the seven falling steps (20 ticks solid after the first touch) and the 8.0 gap behind them;
+#   s5013_fall: its seven falling steps and the two 8.0 gaps, the last one up 1.0 - Yunica only (take-off 0.2 before
+#               each edge): Hugo's reach there (8.62 at +1.0, less as the step sinks) wants the dash.
+_ROUTE = "1:opt=InfiniteHP=1;2:opt=CutsceneSkip=4;3:flag=163,1;"
+for _n, _c in (("yunica", "1"), ("hugo", "2")):
+    CASES["route_s4003_mask_" + _n] = dict(
+        room="S_40/S_4003/S_4003", char=_c, env=_LOCK,
+        drive=_ROUTE + "8:every=40,700,killall;60:probe=-40,82,-20,82,4;70:acc=54;160:at3=-13,16,82,0;170:probe=-40,82,-20,82,4;"
+              "180:hops=-46,82/-49,89;700:obj=box_01;710:act;720:every=10,900,oktapf;900:quit",
+        expect=["t60 (-40.00, 82.00) -> (-20.00, 82.00): 4.00 4.00 4.00 4.00 4.00",
+                "t170 (-40.00, 82.00) -> (-20.00, 82.00): 16.00 16.00 16.00 16.00 16.00", "waypoint 1 reached at (-48.7",
+                "[probe] box_01 -> s_box01"],
+        absent=["NOT reached"])
+    CASES["route_s4009_pit_" + _n] = dict(
+        room="S_40/S_4009/S_4009", char=_c, env=_LOCK,
+        drive=_ROUTE + "5:probe=-15,10,-15,11,1;8:every=40,1300,killall;20:every=10,640,oktapf;650:probe=-15,10,-15,11,1;660:at3=-15,0,2,0;"
+              "670:hops=-15,10;780:hops=6,14.5/2.5,11.8/1.3,10.6;1110:act;1120:every=10,1300,oktapf;1300:quit",
+        expect=["t5 (-15.00, 10.00) -> (-15.00, 11.00): 1.00 1.00", "t650 (-15.00, 10.00) -> (-15.00, 11.00): -22.00 -22.00",
+                ">> entering S_4010", "waypoint 0 reached at (", "8.07, 14.6", "waypoint 2 reached at (1.", "[probe] box_01 -> s_box01"])
+    CASES["route_s5008_pads_" + _n] = dict(
+        room="S_50/S_5008/S_5008", char=_c, env=_LOCK,
+        drive=_ROUTE + "8:every=40,1200,killall;100:at3=0,0,1,0;110:hops=-6,10/-14,13/-26,14/-30,21/-30,38/-52,38/-70,38;1200:quit",
+        expect=["[plate] jump_00 -> @jump_001", "waypoint 1 reached at (-13.", "[plate] jump_01 -> @jump_001",
+                "waypoint 3 reached at (-29.7", "waypoint 5 reached", ">> entering S_5101"])
+    CASES["route_s5005_spin_" + _n] = dict(
+        room="S_50/S_5005/S_5005", char=_c, env=_LOCK,
+        drive=_ROUTE + "8:every=40,900,killall;100:at3=71.5,-10,-41.5,0;290:hops=78.2,-33.4/84,-28;"
+              "545:hops=84,-21/84,-13/80.5,-9.0/80.5,-8.0;900:quit",
+        expect=["waypoint 0 reached at (78.", "waypoint 1 reached at (83.92, -10.00", "-9.93, -1",
+                "waypoint 3 reached at (80.5"],
+        absent=["NOT reached", ">> entering S_5006"])
+    CASES["route_s5007_fall_" + _n] = dict(
+        room="S_50/S_5007/S_5007", char=_c, env=_LOCK,
+        drive=_ROUTE + "8:every=40,900,killall;100:at3=0,0,0,0;110:hops=11.5,0/17.5,0/21,0/26,0/30,0/34,0/38.5,0/47.2,0/57.5,0;900:quit",
+        expect=["[plate] s50_fall00 -> @fall_001", "[plate] s50_fall06 -> @fall_001", "waypoint 7 reached at (47.",
+                "waypoint 8 reached at (5"],
+        absent=["NOT reached"])
+CASES["route_s5013_fall_yunica"] = dict(
+    room="S_50/S_5013/S_5013", char="1", env=_LOCK,
+    drive=_ROUTE + "4:hopedge=0.2;8:every=40,900,killall;100:at3=-20.8,-6,42,0;"
+          "110:hops=-26,42/-38,42/-46,42/-54,42/-62,42/-75.4,42/-85,42/-92.5,41;900:quit",
+    expect=["[plate] step_00 -> @fall_001", "[plate] step_06 -> @fall_001", "waypoint 6 reached at (-85.", "waypoint 7 reached"],
+    absent=["NOT reached"])
+
 CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402
 CASES.update(modfile_regress.CASES)
+# The Extra versions and Adol (tools/extra_regress.py; EXTRA_VERSIONS.md, ADOL.md).
+import extra_regress  # noqa: E402
+CASES.update(extra_regress.cases(clear_data))
 
 # --smoke: the quick tier for a per-commit check (under a minute with --jobs 8; the whole list is the
 # pre-push check). One or two short cases per subsystem, picked by their measured time (2026-10-09, each
@@ -3222,7 +4160,8 @@ SMOKE = [
     "reacq_teleport", "oggnome_wake_s2001", "keep_dy_limit", "chups_latch",  # an enemy brain on floors 1-4,
     "urobass_strikes", "far_freeze_keeps_phase",                             # 5 and 6
     "statue_swap", "break_script", "access_skip_double",                     # scripts: the cleanse, a breakable, a skip
-    "saveload_floor", "gameover_retry",                                      # save / load, the continue snapshot
+    "saveload_floor", "gameover_retry", "gameover_ordinary_room",            # save / load, the continue snapshot
+    "boost_death_retry",                                                     # the Boost across a Retry
     "zava_single_jump", "boss_part_feedback",                                # a boss's start (Zava, Khonsclard)
     "duel_s1080_gameover",                                                   # a duel's start
     "book_return_title", "shell_subpages", "hud_damage_numbers",             # the book, the shell, the HUD
@@ -3277,8 +4216,9 @@ def frame_edges(path, name, seams):
 
 # The cases of a minute or more (measured 2026-10-09): with --jobs they start first, so the longest one
 # (darm_fight, ~7 minutes) does not start last and run on alone.
-LONG = ["darm_fight", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
-        "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light"]
+LONG = ["darm_fight", "darm_onfoot", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
+        "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light",
+        "route_s4015_yunica", "route_s4015_hugo"]
 
 
 def content_setup(case, env, tmp):
@@ -3308,7 +4248,7 @@ def content_setup(case, env, tmp):
         ids.append("test.lua")
     on = [] if case.get("mods_off") else ids
     open(os.path.join(tmp, "cleria.ini"), "w").write(
-        '[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n' % (",".join(ids), ",".join(on)))
+        '[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n' % (",".join(ids), ",".join(on)) + case.get("ini", ""))
     open(os.path.join(tmp, "yso_win.ini"), "w").close()
     env["CLERIA_INI"] = os.path.join(tmp, "yso_win.ini")
 
@@ -3324,6 +4264,8 @@ def run(name, case, exe, assets):
         env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR=case.get("char", "1"), CLERIA_DRIVE=case["drive"],
                    CLERIA_SAVE_DIR=saves)
         env.update(case.get("env", {}))            # a case may override any of these (CLERIA_CHAR)
+        if os.name != "nt" and sys.platform != "darwin" and not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")):
+            env.setdefault("SDL_VIDEO_DRIVER", "offscreen")   # no desktop: the run is hidden and offscreen anyway
         env.setdefault("CLERIA_SHOT_DIR", saves)   # a case's `shot` / `shell` frames stay in its temp folder
         if "mods" in case or "content" in case or "lua" in case:
             content_setup(case, env, os.path.join(saves, "settings"))
@@ -3334,12 +4276,12 @@ def run(name, case, exe, assets):
         if "title" in case:
             env["CLERIA_TITLE_DRIVE"] = case["title"]
         sob = [os.path.join(assets, "MAP", case["room"] + ".SOB")] if case.get("room") else []
-        r = subprocess.run([exe, assets] + sob + extra, env=env, capture_output=True, text=True, timeout=900)
+        r = subprocess.run([exe, assets] + sob + extra, env=env, capture_output=True, text=True, errors="replace", timeout=TIMEOUT)
         out = r.stdout + r.stderr
         if "drive2" in case:        # a second boot on the same save folder (`room2`: its room)
             sob2 = os.path.join(assets, "MAP", case.get("room2", case["room"]) + ".SOB")
             r = subprocess.run([exe, assets, sob2] + extra, env=dict(env, CLERIA_DRIVE=case["drive2"]), capture_output=True,
-                               text=True, timeout=900)
+                               text=True, errors="replace", timeout=TIMEOUT)
             out += "==== second boot" + chr(10) + r.stdout + r.stderr
         lost = [n for n in case.get("files", []) if not os.path.exists(os.path.join(saves, n))]   # must be in the save folder
         if lost:
@@ -3400,7 +4342,7 @@ def main():
             n = jobs[j]
             try:
                 ok, msg, secs = j.result()
-            except Exception as e:                 # the 900 s timeout, a missing exe
+            except Exception as e:                 # the timeout (TIMEOUT), a missing exe
                 ok, msg, secs = False, [f"FAIL {n}: {e}"], 0.0
             if ok:
                 msg.append(f"ok   {n}")

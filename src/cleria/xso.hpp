@@ -255,6 +255,7 @@ struct XsoHost {
     // 0x165 Chr_Stop(id) (FUN_00571e00): the walk and fly targets = the position, the arrival
     // radii +0x364 / +0x380 and the speed +0x368 = 0, so Wait_ChrMoving passes.
     virtual void chr_stop(int /*id*/) {}
+    virtual void chr_anichange(int /*id*/, int /*file*/) {}                        // 0x167 the sprite's AIA file
     // 0xD0 PadTilt(i): FUN_005d3500(i), the controller vibration pattern i.
     virtual void pad_tilt(int /*pattern*/) {}
     // 0xBD Se_Play3DPos(se, x, y, z): a 3D SE (EFFECTDEF flag 0x10) plays at the point
@@ -481,6 +482,10 @@ struct XsoHost {
     // registration FUN_00473540 (a second, mirrored draw of each actor) [EXPORT map: the only other xref is
     // FUN_00431260's clear]. Render-only: no gameplay reads it.
     virtual void mirror_floor(bool /*on*/) {}
+    // 0x11d Scene_SetWaterPlane(f h) [BYTES 0x56b411..0x56b42b -> FUN_00432e60 0x432e60..0x432eb0]: the water
+    // plane 0x7b2e40 = D3DXPlaneFromPointNormal((0, h + 0.025, 0), (0, 1, 0)) [BYTES 0x6bd0f8 = 0.025]. Its reader
+    // is the reflected camera FUN_005ec6f0 (render-only).
+    virtual void water_plane(float /*h*/) {}
     // 0x127 SetDefaultCubeMapTexture(s) [BYTES 0x56b832..0x56b845 -> FUN_004442c0(name)]: the reflection cube map
     // (render-only).
     virtual void cube_map(const std::string& /*name*/) {}
@@ -887,6 +892,9 @@ struct ScriptManager {
     // (FUN_00434970: +0x11 & 2 clear, _stricmp name, +0x238 == 0; §5a). Ticks the child
     // once immediately. Returns false if deduped or the loader can't find it.
     bool start(const std::string& name, const XsoVm::Vars& vars = {}, int owner = 0);
+    // CleriaCore's own (the mods, API 7; not retail): asked once a start by name has found its script and passed
+    // the dedup; false refuses it, as if the script did not exist.
+    std::function<bool(const std::string& name, int owner)> start_filter;
     // One engine frame: tick every live script once, drain StartScript spawns (children
     // tick this frame too), then reap finished scripts. A no-op while paused.
     void tick_all();

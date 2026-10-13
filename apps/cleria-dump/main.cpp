@@ -12,6 +12,7 @@
 #include <vector>
 #include <stdexcept>
 
+#include "cleria/scene.hpp"
 #include "cleria/sob.hpp"
 #include "cleria/ymo.hpp"
 
@@ -22,17 +23,6 @@ static std::vector<std::uint8_t> read_file(const fs::path& p) {
     std::ifstream f(p, std::ios::binary);
     if (!f) throw std::runtime_error("cannot open " + p.string());
     return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
-}
-
-// "data\\map\\s_00\\...\\x.ymo" -> asset_root/map/s_00/.../x.ymo
-// Windows' filesystem is case-insensitive, so the lower/upper mismatch is fine.
-static fs::path resolve_ymo(const fs::path& root, std::string path) {
-    for (char& c : path)
-        if (c == '\\') c = '/';
-    std::string lower = path;
-    for (char& c : lower) c = char(std::tolower((unsigned char)c));
-    if (lower.rfind("data/", 0) == 0) path = path.substr(5);
-    return root / path;
 }
 
 int main(int argc, char** argv) {
@@ -67,7 +57,8 @@ int main(int argc, char** argv) {
     int missing = 0;
 
     for (const SobObject& o : sob.objects) {
-        const fs::path ymo_file = resolve_ymo(asset_root, o.ymo_path);
+        // "data\\map\\s_00\\...\\x.ymo" -> asset_root/MAP/S_00/.../X.YMO, as spelled on disk (scene.cpp).
+        const fs::path ymo_file = resolve_ymo_path(asset_root, o.ymo_path);
         if (!fs::exists(ymo_file)) {
             std::printf("  MISS %-40s (%s)\n", o.ymo_path.c_str(),
                         o.name.c_str());

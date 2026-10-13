@@ -462,6 +462,26 @@ bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r) {
     return sphere_overlaps_tris(m, c, r, 0, std::uint32_t(m.indices.size() / 3));
 }
 
+Vec3 sphere_clear_tris(const RoomMesh& m, Vec3 c, float r, std::uint32_t t0, std::uint32_t t1) {
+    const auto& idx = m.indices;
+    const auto& vp = m.vertices;
+    for (int pass = 0; pass < 8; ++pass) {                 // the deepest contact first, then what is left
+        Vec3 d{};
+        float best = r * r - 1e-6f;
+        for (std::size_t i = std::size_t(t0) * 3; i + 2 < idx.size() && i < std::size_t(t1) * 3; i += 3) {
+            if (water_tri(m, i / 3)) continue;
+            const Vec3 e = sub(c, closest_on_tri(c, v(vp[idx[i]]), v(vp[idx[i + 1]]), v(vp[idx[i + 2]])));
+            if (dot(e, e) < best) { best = dot(e, e); d = e; }
+        }
+        const float s = std::sqrt(d.x * d.x + d.z * d.z);
+        if (s < 1e-3f) break;                              // nothing within r, or straight above / below
+        const float want = std::sqrt(std::max(r * r - d.y * d.y, 0.0f));
+        c.x += d.x / s * (want - s);
+        c.z += d.z / s * (want - s);
+    }
+    return c;
+}
+
 bool sphere_overlaps_tris(const RoomMesh& m, const Vec3& c, float r, std::uint32_t t0, std::uint32_t t1) {
     // Closest point on each triangle (Ericson, Real-Time Collision Detection 5.1.5).
     const auto& idx = m.indices;

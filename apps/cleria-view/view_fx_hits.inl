@@ -63,6 +63,19 @@
                         #include "view_fx_mode0.inl"     // the rest of the mode-0 scan for a particle (Hugo's shots)
                         return landed;
                     }
+                    if (p.hit.side == 1 && !g_lua_targets.empty()) {   // a monster's shot on the mods' other players (API 7)
+                        const HitShape tv{p.hit.radius, p.hit.centre, p.hit.half_h, p.hit.half_h > 0.0f ? 1 : 0};
+                        const Cast* tc = casts.get(13);
+                        for (int pid : g_lua_targets) {
+                            Actor* pu = world.find(pid);
+                            if (!pu) continue;
+                            const HitShape tb = body_shape({pu->pos.x, pu->pos.y + kOriginH, pu->pos.z}, tc ? tc->hurt_radius : 0.45f,
+                                                           tc ? tc->hurt_half_h : 0.5f, tc ? tc->hurt_shape : 1, tc ? tc->center_offset : -0.25f);
+                            if (!overlap(tv, tb) || pu->bank.check_and_record(0u, std::max(p.hit.rehit, 20))) continue;
+                            content_emit(events::Event::named("puppet_struck").with("puppet", pid).with("actor", 0).with("cast", -1).with("level", 0)
+                                             .with("atk", p.hit.atk).with("power", p.hit.power));
+                        }
+                    }
                     if (p.hit.side != 1 || player_iframes > 0 || p_untouchable || player.hp < 1) return false;
                     const HitShape vol{p.hit.radius, p.hit.centre, p.hit.half_h, p.hit.half_h > 0.0f ? 1 : 0};
                     float ang = 0;
