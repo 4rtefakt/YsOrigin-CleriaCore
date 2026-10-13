@@ -1052,6 +1052,20 @@ int main(int argc, char** argv) {
                   "api 7: define_room / define_skill / define_character, set_look, d:world_*, p:table / p:list (" + o->error() + ")");
             h.draws.clear();                                        // this block's layer drew: the hud test below counts its own
         }
+        {   // API 7: a mod's own sound files (by extension, inside its folder), game.new_game, save.card
+            h.ops7.clear();
+            auto q = make(h, tmp, "api7q", R"LUA(
+                local A = cleria.audio
+                cleria.log("files " .. tostring(A.play("hit.wav", 0.5)) .. tostring(A.music("song.ogg")) .. tostring(A.play("nope.wav")) ..
+                           tostring(cleria.game.new_game(2, 3)) .. tostring(cleria.game.new_game()) .. " bad " .. tostring(pcall(A.play, "hit.ogg")) ..
+                           tostring(pcall(A.play, "../x.wav")) .. tostring(pcall(cleria.game.new_game, 7)) .. " card " .. type(cleria.save.card))
+            )LUA", {{"hit.wav", "x"}, {"song.ogg", "x"}});
+            auto ends = [](const std::string& s, const std::string& t) { return s.size() >= t.size() && s.compare(s.size() - t.size(), t.size(), t) == 0; };
+            check(q->ok() && h.ops7.size() == 4 && h.ops7[0].rfind("api7q se_file 0.5 [", 0) == 0 && ends(h.ops7[0], "hit.wav]") &&
+                  h.ops7[1].rfind("api7q bgm_file [", 0) == 0 && ends(h.ops7[1], "song.ogg]") && h.ops7[2] == "api7q new_game 2 3" &&
+                  h.ops7[3] == "api7q new_game" && has(h.logs, "files truetruefalsetruetrue bad falsetruefalse card function"),
+                  "api 7: audio.play / music(file), game.new_game, save.card (" + q->error() + ")");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&

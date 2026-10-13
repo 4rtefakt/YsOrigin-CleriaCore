@@ -129,7 +129,8 @@ const Audio::Clip* Audio::clip(int id) {
 
     // Cache the miss too (as null) so a missing WAV isn't retried every step.
     clips_.emplace(id, nullptr);
-    const fs::path p = vfs::resolve(defs_.wav_path(root_, id));
+    const fs::path p = id >= kFileBase ? (std::size_t(id - kFileBase) < files_.size() ? files_[std::size_t(id - kFileBase)] : fs::path())
+                                       : vfs::resolve(defs_.wav_path(root_, id));
     if (p.empty() || !fs::exists(p)) return nullptr;
 
     SDL_AudioSpec ws{};
@@ -202,6 +203,24 @@ void Audio::start(int id, const EffectDef* def, const Clip* c, float volume, flo
     // records with `nega` (rec+8 & 4) never do [EXPORT 005d87a0.c:55-75].
     if (def->nega || oldest->age * 1000 < std::uint64_t(def->cancel) * std::uint64_t(rate_)) return;
     *oldest = nv;
+}
+
+bool Audio::play_file(const fs::path& wav, float volume) {
+    if (!lock_) return false;
+    std::size_t i = 0;
+    while (i < files_.size() && files_[i] != wav) ++i;
+    if (i == files_.size()) {
+        if (files_.size() >= 512) return false;             // [H] files a run may hold
+        files_.push_back(wav);
+    }
+    const int id = kFileBase + int(i);
+    const Clip* c = clip(id);
+    if (!c) return false;
+    if (trace_) std::printf("  [se] play file %s\n", wav.filename().string().c_str());
+    SDL_LockMutex(mx(lock_));
+    start(id, nullptr, c, volume, 1.0f, 1.0f, 1.0f);
+    SDL_UnlockMutex(mx(lock_));
+    return true;
 }
 
 void Audio::play(int id, float volume, float level) {

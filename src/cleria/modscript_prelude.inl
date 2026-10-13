@@ -7,6 +7,13 @@ R"LUA(
 local cleria = ...
 local C, W, G, P, UI, E, S = cleria.content, cleria.world, cleria.game, cleria.player, cleria.ui, cleria.events, cleria.save
 
+-- ---- cleria.save.card: a line of the mod's on this save's card (the Save / Load pages) ------------------------
+function S.card(text)
+    if not S.ready() then return false end
+    if text == nil or text == "" then S.set("cleria.card", nil) else S.set("cleria.card", tostring(text):sub(1, 40)) end
+    return true
+end
+
 -- ---- cleria.ui.shop: a window that sells for SP ---------------------------------------------------------------
 function UI.shop(def)
     assert(type(def) == "table" and type(def.items) == "table", "ui.shop: {items = {...}} is required")

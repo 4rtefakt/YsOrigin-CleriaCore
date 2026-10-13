@@ -45,9 +45,9 @@ content, then multiplayer, then the tools.
 | 24 | More stat modifiers | `set_modifier` for `luck`, `mp_cost`, `mp_regen`, `boost_gain`, `speed` | done as `player.tune{mp_cost =, mp_regen =, boost_gain =}`; luck is the `"drop"` filter |
 | 32 | Damage and healing from Lua | `cleria.combat.damage(actor, n [, opts])`, `combat.heal(n)` | done (`combat.damage` with the real kill, `combat.heal`, `combat.hurt`) |
 | 46 | Game speed | `game.set_speed(x)`, `game.pause(on)` | done (`game.set_speed`, `game.pause`) |
-| 45 | Flow | `game.load(slot)`, `game.retry()`, `game.to_title()`, `game.new_game(character)` | part: `load`, `retry`, `to_title`; `new_game` not yet |
+| 45 | Flow | `game.load(slot)`, `game.retry()`, `game.to_title()`, `game.new_game(character)` | done (`load`, `retry`, `to_title`, `new_game`) |
 | 47 | The game's random numbers | `game.seed_random(n)` | done |
-| 48 | Text on a save card | `cleria.save.card(text)` | |
+| 48 | Text on a save card | `cleria.save.card(text)` | done (`save.card`, shown after the area on the Save / Load cards) |
 
 ## D. Drawing and input
 
@@ -61,7 +61,7 @@ content, then multiplayer, then the tools.
 | 30 | Page widgets | `p:progress`, `p:image`, `p:table`, `p:columns`, `p:list` | done (`p:text`, `p:progress`, `p:table`, `p:list`, `p:image`; columns are a table's) |
 | 11 | Asking the player | `cleria.ui.message(text)`, `cleria.ui.choose(text, options, fn)` | done (`ui.choose`, `ui.message`: in the shell's look, not the game's text window) |
 | 29 | Windows outside F1 | `cleria.ui.window(id, {title =, key =}, fn(p))` | done |
-| 20 | Sound | `cleria.audio.play(file)`, `audio.music(file)`, `audio.se(id)` | part: the game's own sounds and music (`audio.se`, `music`, `stop_music`); a mod's own files not yet |
+| 20 | Sound | `cleria.audio.play(file)`, `audio.music(file)`, `audio.se(id)` | done (`audio.se`, `music(id or file.ogg)`, `stop_music`, `audio.play(file.wav)`) |
 
 ## E. Monsters and combat
 

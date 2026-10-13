@@ -1396,6 +1396,16 @@ title_again:
                     in.vstep = vstep;
                     if (live) wnd_mouse(in);
                     const TitleAction act = tscreen.update(in, false, tgates, tr.metrics(g, cw, ch), snd);
+                    if (g_lua.newgame_char && !ng_commit) {      // a mod's game.new_game (API 7): what the book's New Game does
+                        g_run.mode = 0;
+                        character = std::clamp(g_lua.newgame_char, 1, 3);
+                        skin = 0; outfit = false;
+                        difficulty = std::clamp(g_lua.newgame_diff, 0, 4);
+                        g_lua.newgame_char = 0;
+                        speedrun_new_game(character, skin);
+                        ng_commit = true;                        // FUN_005758f0: fade, then commit
+                        tf_cur = 0.0f; tf_tgt = 1.0f;
+                    }
                     s_title_kind = tscreen.kind(); s_title_cursor = tscreen.cursor_mem();
                     if (act == TitleAction::NewGame || act == TitleAction::LoadGame || act == TitleAction::Options ||
                         act == TitleAction::TimeAttack || act == TitleAction::Arena)

@@ -1225,6 +1225,35 @@ Checked in a drive run (`lua_api7_layer`): a slot-3 skill of the mod's own casts
 (50 SP -> 30); a variant of S_1002 entered from S_1009 holds only the variant's monster, and `on_clear` runs at its
 death.
 
+### 12.22 Sounds of the mod's own, a new game, a line on the save card
+
+```lua
+cleria.audio.play("sfx/ding.wav", 0.8)                  -- a WAV of the mod's folder
+cleria.audio.music("music/theme.ogg")                   -- an Ogg Vorbis file of the mod's folder
+cleria.game.new_game(2)                                 -- a new game as Hugo, now
+cleria.save.card("Seed 4F2A  floor 12")                 -- shown on this save's card
+```
+
+- `audio.play(file [, volume])`: a `.wav` inside the mod's folder, any format SDL reads, converted once and kept
+  (at most 512 files a run). It plays flat (no position), as often as asked, through the SFX volume and the SFX
+  switch. False when the file is missing or does not load.
+- `audio.music(file)`: an `.ogg` inside the mod's folder in place of a BGM id: it replaces the playing track, loops
+  when it carries the `LOOPSTART` / `LOOPLENGTH` comments the game's own tracks use (else it plays once), and
+  follows the BGM volume. The next room whose music differs switches back to the game's: start yours again on
+  `room_enter` if it must stay.
+- `game.new_game([character [, difficulty]])`: leaves the running game for the title, which starts a new game at
+  once (no menu): the character (1..3, default the current one), the difficulty as `game.difficulty()` gives it
+  (0..4, default the current one), the normal outfit. Nothing is saved first. The `new_game` event follows.
+  `game.to_title()` and this one end the game loop on the tick they are called.
+- `save.card(text)`: up to 40 characters, kept in the save and shown after the area's name on the save's card in the
+  Save and Load pages (the pause book's and the title's). `card(nil)` removes it. False while the save is not ready.
+  [H] The card's line is not widened for it: a long area name and a long text run past the card's edge.
+
+Checked: the files' rules in `cleria-luatest`; `lua_api7_newgame` (a game as Yunica, `new_game(2)`: the first game
+stops on that tick, the `new_game` event says 2, `game.character()` is 2). [H] The sounds themselves were not
+listened to here (the tests run muted): the calls reach `Audio::play_file` / `play_bgm`, which the game's own
+sounds use.
+
 ## 10. Tests
 
 ```
@@ -1260,5 +1289,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), `puppet_hit`, `combat.strike`, `world.snapshot` / `apply` (§12.19), `d:world_*`, `p:table` / `list` / `image`, `player.set_look`, the `"skill"` filter (§12.20), `ui.shop`, `content.define_item` / `define_skill` / `define_room` / `define_character` (§12.21), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), `puppet_hit`, `combat.strike`, `world.snapshot` / `apply` (§12.19), `d:world_*`, `p:table` / `list` / `image`, `player.set_look`, the `"skill"` filter (§12.20), `ui.shop`, `content.define_item` / `define_skill` / `define_room` / `define_character` (§12.21), `audio.play`, `audio.music(file)`, `game.new_game`, `save.card` (§12.22), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

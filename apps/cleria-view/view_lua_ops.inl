@@ -94,7 +94,7 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         retry();
         return true;
     }
-    if (op == "to_title") { return_to_title = true; return true; }
+    if (op == "to_title") { return_to_title = true; running = false; accum = 0; return true; }   // as the book's own return
     if (op == "load") {                                  // a slot that exists, as the book's Load does
         const int s = int(arg(0, -1));
         std::error_code ec;
@@ -367,6 +367,14 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         if (std::isfinite(arg(1, NAN))) g_lua.look_tint = arg(1) < 0 ? 0xffffffffu : (0xff000000u | (std::uint32_t(arg(1)) & 0xffffffu));
         g_lua.look_on = g_lua.look_scale != 1.0f || g_lua.look_tint != 0xffffffffu;
         if (Actor* wp = world.player()) wp->scale = g_lua.look_scale;
+        return true;
+    }
+    if (op == "se_file") return audio.play_file(fs::path(text), kSfxAnimVol * float(std::clamp(arg(0, 1.0), 0.0, 1.0)));   // a WAV of the mod's folder
+    if (op == "bgm_file") return audio.play_bgm(fs::path(text));        // an Ogg Vorbis file of the mod's folder (LOOPSTART / LOOPLENGTH honoured)
+    if (op == "new_game") {                              // back to the title, which starts the game at once
+        g_lua.newgame_char = std::clamp(int(arg(0, character)), 1, 3);
+        g_lua.newgame_diff = std::clamp(int(arg(1, difficulty)), 0, 4);
+        return_to_title = true; running = false; accum = 0;
         return true;
     }
     return false;

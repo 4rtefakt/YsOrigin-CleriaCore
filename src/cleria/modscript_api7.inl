@@ -973,7 +973,41 @@ int l_audio_se(lua_State* L) {                           // (id [, volume 0..1])
     lua_pushboolean(L, op(L, "se", {double(luaL_checkinteger(L, 1)), std::clamp(luaL_optnumber(L, 2, 1.0), 0.0, 1.0)}));
     return 1;
 }
-int l_audio_music(lua_State* L) { lua_pushboolean(L, op(L, "bgm", {double(luaL_checkinteger(L, 1))})); return 1; }   // a BGM id (bgmdef)
+std::string mod_file(lua_State* L, int i, const char* ext) {   // a file of the mod's folder with that extension, as a full path
+    const std::string rel = str_arg(L, i);
+    std::string low = rel, err;
+    for (char& c : low) c = char(std::tolower(static_cast<unsigned char>(c)));
+    if (low.size() < 5 || low.compare(low.size() - 4, 4, ext) != 0) { luaL_argerror(L, i, ext); return {}; }
+    const fs::path p = M(L).safe_path(M(L).root(), rel, &err);
+    std::error_code ec;
+    if (p.empty() || !fs::is_regular_file(p, ec)) return {};
+    return fs::absolute(p, ec).string();
+}
+int l_audio_music(lua_State* L) {                        // a BGM id (bgmdef), or an .ogg file of the mod's folder
+    if (lua_type(L, 1) == LUA_TSTRING) {
+        const std::string f = mod_file(L, 1, ".ogg");
+        lua_pushboolean(L, !f.empty() && op(L, "bgm_file", {}, f));
+        return 1;
+    }
+    lua_pushboolean(L, op(L, "bgm", {double(luaL_checkinteger(L, 1))}));
+    return 1;
+}
+int l_audio_play(lua_State* L) {                         // (file.wav [, volume 0..1]) : a sound of the mod's folder
+    const std::string f = mod_file(L, 1, ".wav");
+    lua_pushboolean(L, !f.empty() && op(L, "se_file", {std::clamp(luaL_optnumber(L, 2, 1.0), 0.0, 1.0)}, f));
+    return 1;
+}
+int l_game_new_game(lua_State* L) {                      // ([character 1..3 [, difficulty 0..4]]) : a new game, now
+    std::vector<double> v;
+    if (!lua_isnoneornil(L, 1)) {
+        const lua_Integer c = luaL_checkinteger(L, 1);
+        if (c < 1 || c > 3) return luaL_argerror(L, 1, "1 Yunica, 2 Hugo or 3 Toal");
+        v.push_back(double(c));
+        if (!lua_isnoneornil(L, 2)) v.push_back(double(std::clamp<lua_Integer>(luaL_checkinteger(L, 2), 0, 4)));
+    }
+    lua_pushboolean(L, op(L, "new_game", v));
+    return 1;
+}
 int l_audio_stop_music(lua_State* L) {                   // ([fade in seconds])
     lua_pushboolean(L, op(L, "bgm_stop", {std::clamp(luaL_optnumber(L, 1, 1.0), 0.0, 30.0) * 1000.0}));
     return 1;
@@ -991,10 +1025,15 @@ int l_screen_flash(lua_State* L) {                       // (color [, seconds [,
 }
 
 void open_api7_av(lua_State* L) {                        // the cleria table is on top of the stack
-    static const luaL_Reg audio[] = {{"se", l_audio_se}, {"music", l_audio_music}, {"stop_music", l_audio_stop_music}, {nullptr, nullptr}};
+    static const luaL_Reg audio[] = {{"se", l_audio_se}, {"music", l_audio_music}, {"stop_music", l_audio_stop_music}, {"play", l_audio_play},
+                                     {nullptr, nullptr}};
     lua_newtable(L);
     set_funcs(L, audio);
     lua_setfield(L, -2, "audio");
+    static const luaL_Reg game[] = {{"new_game", l_game_new_game}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "game");
+    set_funcs(L, game);
+    lua_pop(L, 1);
     static const luaL_Reg screen[] = {{"fade", l_screen_fade}, {"flash", l_screen_flash}, {nullptr, nullptr}};
     lua_newtable(L);
     set_funcs(L, screen);

@@ -3140,6 +3140,23 @@ CASES.update({
         absent=_NOSTOP + ["the game cast"]),
 })
 
+# Mod API 7, game.new_game: from a running game (Yunica), a new game as Hugo: the title starts it at once, the
+# new_game event says 2 and so does game.character() afterwards.
+_LUA_API7Q = (
+    'local asked\n'
+    'cleria.events.on("new_game", function(e) cleria.log("new_game event " .. e.character) end)\n'
+    'cleria.command("q", function(a)\n'
+    '    if a == "ng" and not asked then asked = true cleria.log("asked " .. tostring(cleria.game.new_game(2))) end\n'
+    '    if a == "who" then cleria.log("character " .. cleria.game.character() .. " asked " .. tostring(asked)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_newgame": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7Q, drive="30:lua=q who;40:lua=q ng;60:lua=q who;80:quit",
+        expect=[_LP + "character 1 asked nil", _LP + "asked true", _LP + "new_game event 2", _LP + "character 2 asked true"],
+        count={"[drive] t60 lua=q who": 1},                 # the first game ended at the request: its tick 60 never came
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

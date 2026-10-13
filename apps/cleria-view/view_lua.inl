@@ -201,6 +201,7 @@ struct LuaRt {
     std::uint32_t look_tint = 0xffffffffu;
     bool look_on = false;
     std::string spawn_by;                              // the mod whose world.spawn / world.apply is building a monster now
+    int newgame_char = 0, newgame_diff = 2;            // cleria.game.new_game: asked for (0 = no), started by the title
     std::map<std::string, ui::List> win_lists;         // cleria.ui.window: the list state of each window (mod id + window id)
     ui::Nav drive_nav{};                               // a drive run's keys for the open window (modwin=ok / back / up / down)
     std::string win_shown;                             // the window drawn last frame (mod id + its open serial)
