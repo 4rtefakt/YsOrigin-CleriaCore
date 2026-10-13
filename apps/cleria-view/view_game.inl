@@ -4031,7 +4031,8 @@ title_again:
     // inputs for every character, whatever her run speed (the route audits, ROUTE_F47_*.md). Steer at the next
     // waypoint; on the ground, jump when the floor 0.45 ahead is a gap or a drop, or 0.45 / 0.9 ahead a rise of more than a step; in
     // the air, press Jump again late — falling, back within 1.0 of the take-off height — while the waypoint is
-    // still more than 1.2 away, and let go of the stick once over it.
+    // still more than 1.2 away (at the top of the first jump when the rise ahead is more than 3.3), and let go of
+    // the stick once over it.
     // A waypoint written x,z,y is one on or past MOVING ground (S_4015's sliding platforms and lifts): it is
     // reached only at that height. She stands still while the floor at the waypoint is not at y (the platform is
     // elsewhere), and at a gap until a floor she can land on (within -0.8 .. +1.5 of her feet, or the waypoint's
@@ -4054,6 +4055,7 @@ title_again:
     float drive_hop_side[4] = {1e9f, 1e9f, 1e9f, 1e9f};   // riding: last tick's nearest rise on each side
     bool drive_hop_haz = false;                           // the jump under way is over such a rise
     int drive_hop_appr = 0;                               // the landing ahead: 1 coming nearer, -1 receding
+    float drive_hop_edge = 0.45f;                         // how far before an edge she takes off (drive hopedge=d)
     std::uint64_t drive_hop_jt = 0;                       // the tick of that jump's press
     // anime_GenerateDebris (funcid 0x26; build/mech_re/ASO_NOOPS.md §3): the handler's colour and reviver gate
     // [BYTES 0x447980..0x447a39], then FUN_00587440 -> FUN_00587010 with texture base 0x42 at the actor's
@@ -5102,6 +5104,9 @@ title_again:
                 Vec3 fr{};                              // where its posed frame is now (a moving platform)
                 if (mesh_frame(*mo, &fr))
                     std::printf("  [drive] mesh %s frame (%.2f, %.2f, %.2f)\n", mo->name.c_str(), fr.x, fr.y, fr.z);
+                for (const MeshClip& c : mo->clips)     // its model's sections (which one an unnamed object would play)
+                    std::printf("  [drive] mesh %s section '%s' %d..%d next %d rate %.3f\n", mo->name.c_str(), c.name.c_str(),
+                                c.start, c.end, c.next, c.rate);
             }
         } else if (cmd.rfind("obj=", 0) == 0) {        // obj=<name>: stand 1.5 from that scene object, facing it
             std::string ln = cmd.substr(4);
@@ -5173,6 +5178,8 @@ title_again:
                 if (*p != '/') break;
                 ++p;
             }
+        } else if (cmd.rfind("hopedge=", 0) == 0) {    // hopedge=d: the pilot's take-off distance before an edge (0.45; a
+            drive_hop_edge = float(std::atof(cmd.c_str() + 8));   // gap near a character's reach wants less)
         } else if (cmd.rfind("probe=", 0) == 0) {      // probe=x0,z0,x1,z1,n[,ceiling]: the floor at n + 1 points of a segment
             float x0 = 0, z0 = 0, x1 = 0, z1 = 0, ceil = 1e9f; int n = 1;   // (the pilot's probe; an audit aid)
             if (std::sscanf(cmd.c_str() + 6, "%f,%f,%f,%f,%d,%f", &x0, &z0, &x1, &z1, &n, &ceil) >= 5 && n > 0 && n <= 200) {
@@ -5182,6 +5189,22 @@ title_again:
                     if (f > kNoFloor) std::printf(" %.2f", f); else std::printf(" -");
                 }
                 std::printf("\n");
+            }
+        } else if (cmd.rfind("dumpmesh=", 0) == 0) {   // dumpmesh=<file>: the collision mesh as it is this tick, as text —
+            if (std::FILE* f = std::fopen(cmd.c_str() + 9, "w")) {   // "o name t0 t1" an object, "t water surface 9 floats" a
+                const RoomMesh& m = phys_mesh(room);                 // triangle (audit aid: the route tables' static pass)
+                for (const RoomMesh::ObjRange& r : m.object_ranges) std::fprintf(f, "o %s %u %u\n", r.name.c_str(), r.t0, r.t1);
+                for (std::size_t i = 0; i + 2 < m.indices.size(); i += 3) {
+                    const std::size_t t = i / 3;
+                    std::fprintf(f, "t %d %d", int(t < m.tri_water.size() && m.tri_water[t]), t < m.tri_surface.size() ? m.tri_surface[t] : -1);
+                    for (int k = 0; k < 3; ++k) {
+                        const RoomVertex& v = m.vertices[m.indices[i + k]];
+                        std::fprintf(f, " %.3f %.3f %.3f", v.px, v.py, v.pz);
+                    }
+                    std::fprintf(f, "\n");
+                }
+                for (std::size_t s = 0; s < m.surfaces.size(); ++s) std::fprintf(f, "s %zu %s\n", s, m.surfaces[s].c_str());
+                std::fclose(f);
             }
         } else if (cmd.rfind("bracelet=", 0) == 0) {   // bracelet=<item id>: the equipped bracelet 0x76a630
             inv.magic = std::atoi(cmd.c_str() + 9);
@@ -7587,11 +7610,14 @@ title_again:
                     if (!hold && (pv.grounded || l > 0.3f || rides)) { wish.x += gx; wish.z += gz; }
                     if (pv.grounded) {
                         if (tick_count > drive_hop_jt + 3) drive_hop_jumps = 0;   // (the press takes a tick to lift her)
-                        const float fa = floor_at(hm, feet.x + ux * 0.45f, feet.z + uz * 0.45f, feet.y + 4.0f);
+                        const float fa = floor_at(hm, feet.x + ux * drive_hop_edge, feet.z + uz * drive_hop_edge, feet.y + 4.0f);
                         const float fb = floor_at(hm, feet.x + ux * 0.9f, feet.z + uz * 0.9f, feet.y + 4.0f);
                         if (behind || (l > 0.9f && ((fa < feet.y - 0.8f && !hold) || rise(fa) || rise(fb)))) {
                             drive_jump = true; drive_hop_jumps = 1; drive_hop_y0 = feet.y;
-                            drive_hop_haz = ride_on && behind;
+                            // A rise the late second press cannot make (it tops at +3.63): the press at the top
+                            // of the first jump instead (+5.2). The 4.0 terraces of floors 4 - 6.
+                            const bool high = !behind && (rise(fa) ? fa : rise(fb) ? fb : feet.y) > feet.y + 3.3f;
+                            drive_hop_haz = (ride_on && behind) || high;
                             if (drive_hop_haz) drive_hop_jt = tick_count;
                         }
                     } else if (drive_hop_jumps == 1 && feet.y < drive_hop_y &&

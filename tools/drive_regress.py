@@ -3520,6 +3520,58 @@ for _n, _c in (("yunica", "1"), ("hugo", "2")):
                 "waypoint 10 reached", "waypoint 11 reached at (-31.10, 48.00", ">> entering S_4019"],
         absent=["@touch_toge", "FELL", "NOT reached"])
 
+# The floor 4 - 5 room walks of ROUTE_F47_HUGO / _YUNICA (2026-10-13), as Yunica and as Hugo with the pilot's real
+# stick and Jump (drive hops=), the double jump owned (163), no dash:
+#   s4003_mask: the Evil Ring's alcove is reached over s40yuka_00, a bridge only the Mask of Eyes makes solid (acc 54;
+#               without it the probe along the bridge reads the pit, 4.00) - then the chest opens;
+#   s4009_pit:  the ward's monsters killed, the pit cover gone, the fall into S_4010 onto the y 8 ledge, the chest block;
+#   s5008_pads: both jump pads up to the S_5101 door;
+#   s5005_spin: the leap onto the spinning floor #1 (7.7 from the terrace, an arm under the landing 60 ticks in 133),
+#               the ride, the leap off its north arm to the S_5008 ledge;
+#   s5007_fall: the seven falling steps (20 ticks solid after the first touch) and the 8.0 gap behind them;
+#   s5013_fall: its seven falling steps and the two 8.0 gaps, the last one up 1.0 - Yunica only (take-off 0.2 before
+#               each edge): Hugo's reach there (8.62 at +1.0, less as the step sinks) wants the dash.
+_ROUTE = "1:opt=InfiniteHP=1;2:opt=CutsceneSkip=4;3:flag=163,1;"
+for _n, _c in (("yunica", "1"), ("hugo", "2")):
+    CASES["route_s4003_mask_" + _n] = dict(
+        room="S_40/S_4003/S_4003", char=_c, env=_LOCK,
+        drive=_ROUTE + "8:every=40,700,killall;60:probe=-40,82,-20,82,4;70:acc=54;160:at3=-13,16,82,0;170:probe=-40,82,-20,82,4;"
+              "180:hops=-46,82/-49,89;700:obj=box_01;710:act;720:every=10,900,oktapf;900:quit",
+        expect=["t60 (-40.00, 82.00) -> (-20.00, 82.00): 4.00 4.00 4.00 4.00 4.00",
+                "t170 (-40.00, 82.00) -> (-20.00, 82.00): 16.00 16.00 16.00 16.00 16.00", "waypoint 1 reached at (-48.7",
+                "[probe] box_01 -> s_box01"],
+        absent=["NOT reached"])
+    CASES["route_s4009_pit_" + _n] = dict(
+        room="S_40/S_4009/S_4009", char=_c, env=_LOCK,
+        drive=_ROUTE + "5:probe=-15,10,-15,11,1;8:every=40,1300,killall;20:every=10,640,oktapf;650:probe=-15,10,-15,11,1;660:at3=-15,0,2,0;"
+              "670:hops=-15,10;780:hops=6,14.5/2.5,11.8/1.3,10.6;1110:act;1120:every=10,1300,oktapf;1300:quit",
+        expect=["t5 (-15.00, 10.00) -> (-15.00, 11.00): 1.00 1.00", "t650 (-15.00, 10.00) -> (-15.00, 11.00): -22.00 -22.00",
+                ">> entering S_4010", "waypoint 0 reached at (", "8.07, 14.6", "waypoint 2 reached at (1.", "[probe] box_01 -> s_box01"])
+    CASES["route_s5008_pads_" + _n] = dict(
+        room="S_50/S_5008/S_5008", char=_c, env=_LOCK,
+        drive=_ROUTE + "8:every=40,1200,killall;100:at3=0,0,1,0;110:hops=-6,10/-14,13/-26,14/-30,21/-30,38/-52,38/-70,38;1200:quit",
+        expect=["[plate] jump_00 -> @jump_001", "waypoint 1 reached at (-13.", "[plate] jump_01 -> @jump_001",
+                "waypoint 3 reached at (-29.7", "waypoint 5 reached", ">> entering S_5101"])
+    CASES["route_s5005_spin_" + _n] = dict(
+        room="S_50/S_5005/S_5005", char=_c, env=_LOCK,
+        drive=_ROUTE + "8:every=40,900,killall;100:at3=71.5,-10,-41.5,0;290:hops=78.2,-33.4/84,-28;"
+              "545:hops=84,-21/84,-13/80.5,-9.0/80.5,-8.0;900:quit",
+        expect=["waypoint 0 reached at (78.", "waypoint 1 reached at (83.92, -10.00", "-9.93, -1",
+                "waypoint 3 reached at (80.5"],
+        absent=["NOT reached", ">> entering S_5006"])
+    CASES["route_s5007_fall_" + _n] = dict(
+        room="S_50/S_5007/S_5007", char=_c, env=_LOCK,
+        drive=_ROUTE + "8:every=40,900,killall;100:at3=0,0,0,0;110:hops=11.5,0/17.5,0/21,0/26,0/30,0/34,0/38.5,0/47.2,0/57.5,0;900:quit",
+        expect=["[plate] s50_fall00 -> @fall_001", "[plate] s50_fall06 -> @fall_001", "waypoint 7 reached at (47.",
+                "waypoint 8 reached at (5"],
+        absent=["NOT reached"])
+CASES["route_s5013_fall_yunica"] = dict(
+    room="S_50/S_5013/S_5013", char="1", env=_LOCK,
+    drive=_ROUTE + "4:hopedge=0.2;8:every=40,900,killall;100:at3=-20.8,-6,42,0;"
+          "110:hops=-26,42/-38,42/-46,42/-54,42/-62,42/-75.4,42/-85,42/-92.5,41;900:quit",
+    expect=["[plate] step_00 -> @fall_001", "[plate] step_06 -> @fall_001", "waypoint 6 reached at (-85.", "waypoint 7 reached"],
+    absent=["NOT reached"])
+
 CASES.update(aplua_regress.CASES)
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402
