@@ -984,6 +984,44 @@ None of these calls waits on the network: poll the sockets from a `frame` or `ti
 Checked in `cleria-luatest` on the loopback: a datagram, a listener and its client, and an HTTP POST answered by the
 mod's own TCP listener.
 
+### 12.17 The camera, the game's HUD, holding the game, the boss gauge
+
+```lua
+local c = cleria.camera.get()                           -- {x, y, z, tx, ty, tz, fov, distance, fov_scale}
+cleria.camera.set({distance = 1.5})                     -- the eye half as far again from its subject
+cleria.camera.set({fov = 0.8, y = 1})                   -- a narrower view, looking 1 higher
+cleria.camera.shake(0.3, 0.5)                           -- strength, seconds
+cleria.camera.look_at(x, y, z, 1)                       -- the subject glides there in 1 s; look_at() comes back
+cleria.camera.reset()
+
+cleria.hud.show("status", false)                        -- "status", "boss", "messages", "all"
+cleria.game.pause(true)                                 -- the game waits; pause(false) lets it go
+local b = cleria.world.boss()                           -- {hp, max_hp, actor} while a boss gauge is up, else nil
+```
+
+- `camera.get()` is the camera of the last step: the eye, its subject (`tx, ty, tz`), the field of view in degrees,
+  and the mods' own `distance` and `fov_scale`. `nil` with no game.
+- `camera.set{...}` is **one layer over the game's camera**, shared by the mods (the last call wins, a key left out
+  keeps its value): `distance` scales how far the eye stands from its subject (0.2..5), `fov` scales the field of
+  view (0.3..2.5), `x, y, z` move eye and subject together. The game's own camera (regions, cutscenes, boss cameras)
+  keeps running under it. `camera.reset()` clears the layer. Checked in a drive run: `distance = 2` doubles the
+  measured eye distance, `reset` brings it back.
+- `camera.shake(strength [, seconds])` (or `{x =, y =, z =}` amplitudes) is a script's own Camera_Shake;
+  `camera.look_at(x, y, z [, seconds])` its Scroll_MoveTo, `look_at()` its Scroll_Return. A cutscene uses the same
+  two: it overrides a mod's and is overridden by it.
+- `hud.show(part, on)` hides or shows a part of the **game's** HUD for this mod (a part is hidden while any mod hides
+  it): `"status"` the gauges, the portrait and the equipment icons; `"boss"` the boss gauge; `"messages"` the lines
+  on the left; `"all"`. The mods' own layers and the dialogue windows are not touched.
+- `game.pause(on)`: the game stops ticking while any mod holds it, exactly as under a mod's window (§12.10):
+  `game.state()` is `"held"`, `tick` handlers stop, `frame` handlers and timers of real time go on. Let it go
+  yourself: nothing else will.
+- `world.boss()` reads the boss gauge on screen: `hp`, `max_hp`, and `actor` when the boss is an actor of
+  `world.actors()` (the bosses run by their own modules have none). [H] No phase or part list: each boss module
+  keeps its own, there is no common shape to give.
+
+One more event: `enemy_spawned` (`actor`, `cast`, `level`, `x`, `y`, `z`), raised when an enemy actor comes to exist:
+the room's placements at its load, a script's spawn, a monster's call for help, `world.spawn`.
+
 ## 10. Tests
 
 ```
@@ -1019,5 +1057,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

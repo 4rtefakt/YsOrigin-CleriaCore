@@ -161,6 +161,7 @@ Actor* ActorWorld::spawn(const SpawnRequest& r0) {
             // No move_speed: full-room bosses are not the sprite-chase movers.
         }
     }
+    if (on_spawned && a && tables_.enemies->get(a->cast_id)) on_spawned(*a);   // mods (API 7)
     return a;
 }
 

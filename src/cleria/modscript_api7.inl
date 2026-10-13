@@ -1193,3 +1193,78 @@ void Mod::run_http() {
         if (L_) luaL_unref(L_, LUA_REGISTRYINDEX, ref);
     }
 }
+
+namespace {
+
+// ---- cleria.camera, cleria.hud.show, cleria.game.pause, cleria.world.boss ---------------------------------------
+int l_camera_get(lua_State* L) {                         // -> {x, y, z, tx, ty, tz, fov, zoom, fov_scale}, or nil with no game
+    std::vector<double> out;
+    if (!op(L, "cam_get", {}, {}, &out) || out.size() < 9) { lua_pushnil(L); return 1; }
+    static const char* const k[] = {"x", "y", "z", "tx", "ty", "tz", "fov", "distance", "fov_scale"};
+    lua_createtable(L, 0, 9);
+    for (int i = 0; i < 9; ++i) { lua_pushnumber(L, out[std::size_t(i)]); lua_setfield(L, -2, k[i]); }
+    return 1;
+}
+int l_camera_set(lua_State* L) {                         // ({distance =, fov =, x =, y =, z =}) : a key left out keeps its value
+    luaL_checktype(L, 1, LUA_TTABLE);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    lua_pushboolean(L, op(L, "cam_set", {opt_field_n(L, 1, "distance", nan), opt_field_n(L, 1, "fov", nan), opt_field_n(L, 1, "x", nan),
+                                         opt_field_n(L, 1, "y", nan), opt_field_n(L, 1, "z", nan)}));
+    return 1;
+}
+int l_camera_reset(lua_State* L) { lua_pushboolean(L, op(L, "cam_reset")); return 1; }
+int l_camera_shake(lua_State* L) {                       // (strength [, seconds]) or ({x =, y =, z =} [, seconds])
+    double x = 0, y = 0, z = 0;
+    if (lua_istable(L, 1)) { x = opt_field_n(L, 1, "x", 0); y = opt_field_n(L, 1, "y", 0); z = opt_field_n(L, 1, "z", 0); }
+    else x = y = z = luaL_checknumber(L, 1);
+    auto c = [](double v) { return std::clamp(v, 0.0, 5.0); };
+    lua_pushboolean(L, op(L, "cam_shake", {c(x), c(y), c(z), std::clamp(luaL_optnumber(L, 2, 0.33), 0.0, 10.0) * 60.0}));
+    return 1;
+}
+int l_camera_look_at(lua_State* L) {                     // (x, y, z [, seconds]) : the camera's subject moves there; () or (nil) : back on the player
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    if (lua_isnoneornil(L, 1)) { lua_pushboolean(L, op(L, "cam_look", {nan, nan, nan, std::clamp(luaL_optnumber(L, 2, 0.5), 0.0, 10.0) * 60.0})); return 1; }
+    lua_pushboolean(L, op(L, "cam_look", {num_arg(L, 1, -1e6, 1e6), num_arg(L, 2, -1e6, 1e6), num_arg(L, 3, -1e6, 1e6),
+                                          std::clamp(luaL_optnumber(L, 4, 0.5), 0.0, 10.0) * 60.0}));
+    return 1;
+}
+int l_hud_show(lua_State* L) {                           // (part, on) : "status", "boss", "messages", "all"
+    const std::string part = str_arg(L, 1);
+    const int bit = part == "status" ? 1 : part == "boss" ? 2 : part == "messages" ? 4 : part == "all" ? 7 : 0;
+    if (!bit) return luaL_argerror(L, 1, "a part is \"status\", \"boss\", \"messages\" or \"all\"");
+    luaL_checkany(L, 2);
+    lua_pushboolean(L, op(L, "hud_show", {double(bit), lua_toboolean(L, 2) ? 1.0 : 0.0}));
+    return 1;
+}
+int l_game_pause(lua_State* L) { luaL_checkany(L, 1); lua_pushboolean(L, op(L, "pause", {lua_toboolean(L, 1) ? 1.0 : 0.0})); return 1; }
+int l_world_boss(lua_State* L) {                         // -> {hp, max_hp, actor}, or nil when no boss gauge is up
+    std::vector<double> out;
+    if (!op(L, "boss", {}, {}, &out) || out.size() < 3) { lua_pushnil(L); return 1; }
+    lua_createtable(L, 0, 3);
+    lua_pushnumber(L, out[1]); lua_setfield(L, -2, "hp");
+    lua_pushnumber(L, out[2]); lua_setfield(L, -2, "max_hp");
+    if (out[0] > 0) { lua_pushinteger(L, lua_Integer(out[0])); lua_setfield(L, -2, "actor"); }
+    return 1;
+}
+
+void open_api7_camera(lua_State* L) {                    // the cleria table is on top of the stack
+    static const luaL_Reg camera[] = {{"get", l_camera_get}, {"set", l_camera_set}, {"reset", l_camera_reset}, {"shake", l_camera_shake},
+                                      {"look_at", l_camera_look_at}, {nullptr, nullptr}};
+    lua_newtable(L);
+    set_funcs(L, camera);
+    lua_setfield(L, -2, "camera");
+    static const luaL_Reg hud[] = {{"show", l_hud_show}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "hud");
+    set_funcs(L, hud);
+    lua_pop(L, 1);
+    static const luaL_Reg game[] = {{"pause", l_game_pause}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "game");
+    set_funcs(L, game);
+    lua_pop(L, 1);
+    static const luaL_Reg world[] = {{"boss", l_world_boss}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "world");
+    set_funcs(L, world);
+    lua_pop(L, 1);
+}
+
+}  // namespace

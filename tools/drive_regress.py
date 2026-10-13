@@ -3006,6 +3006,35 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, the camera, the HUD's parts, the held game and the spawn event: the eye twice as far from its subject,
+# the game held (a walk command moves nobody, the state is "held") then let go, a monster spawned by the mod
+# announced by enemy_spawned, and no boss gauge in an ordinary room.
+_LUA_API7K = (
+    'cleria.events.on("enemy_spawned", function(e) cleria.log("spawned cast " .. e.cast .. " actor " .. tostring(e.actor > 0)) end)\n'
+    'local d0, x0\n'
+    'local function dist() local c = cleria.camera.get() return math.sqrt((c.x - c.tx) ^ 2 + (c.y - c.ty) ^ 2 + (c.z - c.tz) ^ 2) end\n'
+    'cleria.command("k", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "d0" then d0 = dist() cleria.log("boss " .. tostring(cleria.world.boss())) end\n'
+    '    if a == "far" then cleria.camera.set({distance = 2}) end\n'
+    '    if a == "d1" then cleria.log(string.format("distance x%.2f", dist() / d0)) cleria.camera.reset() end\n'
+    '    if a == "d2" then cleria.log(string.format("distance x%.2f", dist() / d0)) end\n'
+    '    if a == "hold" then x0 = st.x cleria.game.pause(true) cleria.log("state " .. cleria.game.state()) end\n'
+    '    if a == "free" then cleria.log(string.format("moved %.1f", st.x - x0)) cleria.game.pause(false) cleria.log("state " .. cleria.game.state()) end\n'
+    '    if a == "x" then cleria.log("walked on " .. tostring(st.x - x0 > 1)) end\n'
+    '    if a == "hud" then cleria.log("hud " .. tostring(cleria.hud.show("status", false))) end\n'
+    '    if a == "spawn" then cleria.world.spawn(43, st.x + 3, st.y, st.z) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_camera": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7K,
+        drive="30:lua=k d0;31:lua=k far;40:lua=k d1;50:lua=k d2;60:lua=k hud;70:lua=k hold;71:move=1,0,30;110:lua=k free;"
+              "150:lua=k x;160:lua=k spawn;180:quit",
+        expect=[_LP + "boss nil", _LP + "distance x2.00", _LP + "distance x1.00", _LP + "hud true", _LP + "state held", _LP + "moved 0.0",
+                _LP + "state play", _LP + "walked on true", _LP + "spawned cast 43 actor true"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

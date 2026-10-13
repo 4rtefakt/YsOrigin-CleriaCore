@@ -28,10 +28,10 @@ content, then multiplayer, then the tools.
 | 14 | Plain events | `level_up`, `player_hit`, `skill_used`, `boost`, `statue_used`, `enemy_hit` | done (`level_up`, `player_hit`, `enemy_hit`, `skill_used`, `boost`, `statue_used`, `interact`) |
 | 13 | More in the damage query | `actor` (an id), `hp`, `max_hp`, `kills` | done (`actor`, `hp`, `max_hp`) |
 | 3 | The monsters of the room | `cleria.world.actors()` -> id, cast, name, level, x y z, hp, max_hp, state | done |
-| 34 | Bosses | `cleria.world.boss()` -> name, hp, max_hp, phase, parts | |
+| 34 | Bosses | `cleria.world.boss()` -> name, hp, max_hp, phase, parts | part: `world.boss()` reads the gauge (hp, max_hp, actor); no phases or parts (each module keeps its own) |
 | 33a | Projectiles | `cleria.world.bullets()` | |
 | 35a | Drop tables | `cleria.data.drops(cast)` | |
-| 2 | World to screen, the camera | `cleria.world.to_screen(x, y, z)`, `cleria.camera.get()` | part: `to_screen`; the camera read is with #26 |
+| 2 | World to screen, the camera | `cleria.world.to_screen(x, y, z)`, `cleria.camera.get()` | done (`world.to_screen`, `camera.get`) |
 
 ## C. Changing the player and the flow
 
@@ -44,7 +44,7 @@ content, then multiplayer, then the tools.
 | 21 | Movement | `player.set_movement{speed =, jump =, gravity =, air_jumps =}` | done as `player.tune{speed =, jump =, air_jumps =}`; gravity not (a constant of the integrator) |
 | 24 | More stat modifiers | `set_modifier` for `luck`, `mp_cost`, `mp_regen`, `boost_gain`, `speed` | done as `player.tune{mp_cost =, mp_regen =, boost_gain =}`; luck is the `"drop"` filter |
 | 32 | Damage and healing from Lua | `cleria.combat.damage(actor, n [, opts])`, `combat.heal(n)` | done (`combat.damage` with the real kill, `combat.heal`, `combat.hurt`) |
-| 46 | Game speed | `game.set_speed(x)`, `game.pause(on)` | part: `set_speed`; no pause yet |
+| 46 | Game speed | `game.set_speed(x)`, `game.pause(on)` | done (`game.set_speed`, `game.pause`) |
 | 45 | Flow | `game.load(slot)`, `game.retry()`, `game.to_title()`, `game.new_game(character)` | part: `load`, `retry`, `to_title`; `new_game` not yet |
 | 47 | The game's random numbers | `game.seed_random(n)` | done |
 | 48 | Text on a save card | `cleria.save.card(text)` | |
@@ -55,9 +55,9 @@ content, then multiplayer, then the tools.
 |---|---|---|---|
 | 1 | Key and pad binds | `cleria.input.action(id, {label =, key =, pad =}, fn)`, `input.down(id)` | done (the Keys section is a text field per action; a press-to-bind capture comes with #29) |
 | 25 | Drawing in the world | a `world` hud layer: `d:world_text / world_line / world_circle / world_image` | |
-| 26 | The camera | `cleria.camera.set{zoom =, offset =}`, `camera.shake(...)`, `camera.reset()` | |
+| 26 | The camera | `cleria.camera.set{zoom =, offset =}`, `camera.shake(...)`, `camera.reset()` | done (`camera.set{distance, fov, x, y, z}`, `shake`, `look_at`, `reset`) |
 | 27 | Screen effects | `cleria.screen.flash(color, s)`, `screen.fade(...)`, `screen.tint(...)` | done (`screen.fade`, `screen.flash`; no tint that stays under the HUD yet) |
-| 28 | The game's HUD | `cleria.hud.show(part, on)` | |
+| 28 | The game's HUD | `cleria.hud.show(part, on)` | done (`hud.show("status" / "boss" / "messages" / "all", on)`) |
 | 30 | Page widgets | `p:progress`, `p:image`, `p:table`, `p:columns`, `p:list` | part: `p:text`, `p:progress` |
 | 11 | Asking the player | `cleria.ui.message(text)`, `cleria.ui.choose(text, options, fn)` | done (`ui.choose`, `ui.message`: in the shell's look, not the game's text window) |
 | 29 | Windows outside F1 | `cleria.ui.window(id, {title =, key =}, fn(p))` | done |

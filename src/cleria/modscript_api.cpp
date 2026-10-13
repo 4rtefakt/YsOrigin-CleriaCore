@@ -1320,6 +1320,7 @@ void open_api(lua_State* L, Mod& m) {
     open_api7_script(L);
     open_api7_combat(L);
     open_api7_net(L);
+    open_api7_camera(L);
 
     lua_setglobal(L, "cleria");
 }

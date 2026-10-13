@@ -180,6 +180,8 @@ struct LuaRt {
     struct Hit { int id; int dmg; float knock; int cls; };
     std::vector<Hit> hits;                             // cleria.combat.damage: landed at the next hit scan
     int forced_dmg = -1;                               // >= 0 while one of them lands: the damage, as given
+    std::map<std::string, unsigned> hud_hidden;        // cleria.hud.show: each mod's hidden parts (1 status, 2 boss, 4 messages)
+    std::set<std::string> pause;                       // cleria.game.pause: the mods holding the game
     std::map<std::string, ui::List> win_lists;         // cleria.ui.window: the list state of each window (mod id + window id)
     ui::Nav drive_nav{};                               // a drive run's keys for the open window (modwin=ok / back / up / down)
     std::string win_shown;                             // the window drawn last frame (mod id + its open serial)
@@ -381,6 +383,7 @@ std::string LuaHost::game_state() {
     if (!in_game() || !g_lua.b.state) return "title";
     for (auto& m : g_lua.mods)
         if (m->ok() && m->window() && m->window()->pause) return "window";   // a mod's own window holds the game
+    if (!g_lua.pause.empty()) return "held";                                 // a mod holds it (game.pause)
     return g_lua.b.state();
 }
 std::string LuaHost::locale() {
@@ -529,9 +532,15 @@ static script::Mod* lua_window_mod() {                // the first mod with a wi
         if (m->ok() && m->window()) return m.get();
     return nullptr;
 }
-static bool lua_modal_pauses() {                      // the game waits under it (the default)
+static bool lua_modal_pauses() {                      // the game waits under it (the default), or a mod holds it (game.pause)
+    if (!g_lua.pause.empty()) return true;
     const script::Mod* m = lua_window_mod();
     return m && m->window()->pause;
+}
+static unsigned lua_hud_hidden() {                    // the parts of the game's HUD the mods hide
+    unsigned v = 0;
+    for (const auto& [id, bits] : g_lua.hud_hidden) v |= bits;
+    return v;
 }
 static void lua_draw_window(ImDrawList* dl, float w, float h, const ui::Nav& nav_in) {
     script::Mod* m = lua_window_mod();

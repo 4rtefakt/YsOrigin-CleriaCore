@@ -1510,6 +1510,11 @@ title_again:
         auto mul = [&](const char* k) { return float(std::clamp(d.n(k, 1.0), 0.01, 100.0)); };
         t.hp = mul("hp"); t.atk = mul("atk"); t.def = mul("def"); t.exp = mul("exp"); t.sp = mul("sp");
     };
+    world.on_spawned = [&](const Actor& a) {                           // mods (API 7)
+        if (!lua_events_on()) return;
+        content_emit(events::Event::named("enemy_spawned").with("actor", a.instance_id).with("cast", a.cast_id).with("level", a.level)
+                         .with("x", a.pos.x).with("y", a.pos.y).with("z", a.pos.z));
+    };
     std::vector<EnemyRender> render;      // live enemies + their sprite identity
     // Our own RNG. The engine seeds its xorshift from timeGetTime(), so retail damage
     // was never replay-stable and there is no stream to match — only the algorithm's
@@ -9243,7 +9248,11 @@ title_again:
             }
             hud.set_equip_badges(lab, red);
         }
-        hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, &player);
+        {
+            const unsigned hid = lua_hud_hidden();               // the mods' cleria.hud.show (API 7)
+            hud.hide_boss = (hid & 2u) != 0; hud.hide_messages = (hid & 4u) != 0;
+            hud.render(g, view, cw, ch, room.name + "  (" + kCharNames[character] + ")", dt, (hid & 1u) ? nullptr : &player);
+        }
         // A run's clocks (the HUD text pass FUN_0043fe00, while flag 193 != 0: stageselect.hpp run_hud).
         if (bookOk && game.g_flags[193] != 0 && g_run.mode != 0) {
             RunHud rh;

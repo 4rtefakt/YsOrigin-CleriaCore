@@ -109,6 +109,12 @@ static std::function<bool()> g_boss07_cam_hook;
 // FUN_0055f800 rewrites the current slot (1..5) and claims every step (view_boss08.inl).
 static std::function<bool()> g_boss08_cam_hook;
 
+// The mods' camera (cleria.camera.set, API 7; CleriaCore's own): applied to the rig's result, so the game's own
+// camera (regions, cutscenes, shakes) runs untouched under it. dist scales the eye's distance to its target, fov the
+// field of view; off moves both.
+struct ModCam { float dist = 1.0f, fov = 1.0f; Vec3 off{}; };
+static ModCam g_mod_cam;
+
 // The look point L: [H] feet + 1.0 stands in for player+0x230 + player+0x324 (CAMERA_OPS §5.1).
 static constexpr float kLookHeight = 1.0f;
 
@@ -122,6 +128,12 @@ static void update_camera(const Room& room, const Vec3& feet, float /*dt*/, bool
     if (g_boss07_cam_hook && g_boss07_cam_hook()) g_rig.claim();
     if (g_boss08_cam_hook && g_boss08_cam_hook()) g_rig.claim();
     g_cam_out = g_rig.step(feet, {feet.x, feet.y + kLookHeight, feet.z}, g_cam_rng);
+    if (g_mod_cam.dist != 1.0f || g_mod_cam.fov != 1.0f || g_mod_cam.off.x != 0 || g_mod_cam.off.y != 0 || g_mod_cam.off.z != 0) {
+        const Vec3 d = g_cam_out.eye - g_cam_out.target;
+        g_cam_out.target = {g_cam_out.target.x + g_mod_cam.off.x, g_cam_out.target.y + g_mod_cam.off.y, g_cam_out.target.z + g_mod_cam.off.z};
+        g_cam_out.eye = {g_cam_out.target.x + d.x * g_mod_cam.dist, g_cam_out.target.y + d.y * g_mod_cam.dist, g_cam_out.target.z + d.z * g_mod_cam.dist};
+        g_cam_out.fov *= g_mod_cam.fov;
+    }
     g_cam.fov = g_cam_out.fov;
     g_cam.on = true;
 }

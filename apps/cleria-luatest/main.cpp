@@ -929,6 +929,20 @@ int main(int argc, char** argv) {
             check(n->ok() && has(h.logs, "net ping from 127.0.0.1 | hello | 200 world true | truetrue open listening") && has(h.logs, "bad falsefalse"),
                   "api 7: net.udp / tcp / http on the loopback (" + n->error() + ")");
         }
+        {   // API 7: cleria.camera, hud.show, game.pause and world.boss are named writes / reads
+            h.ops7.clear();
+            auto c = make(h, tmp, "api7k", R"LUA(
+                local C = cleria.camera
+                cleria.log("cam " .. tostring(C.get()) .. tostring(C.set({distance = 1.5, y = 2})) .. tostring(C.shake(0.2, 0.5)) ..
+                           tostring(C.look_at(1, 2, 3, 1)) .. tostring(C.look_at()) .. tostring(C.reset()) .. tostring(cleria.hud.show("boss", false)) ..
+                           tostring(cleria.game.pause(true)) .. tostring(cleria.world.boss()) .. " bad " .. tostring(pcall(cleria.hud.show, "nose", true)))
+            )LUA");
+            const std::vector<std::string> want = {"api7k cam_get", "api7k cam_set 1.5 nan nan 2 nan", "api7k cam_shake 0.2 0.2 0.2 30",
+                                                   "api7k cam_look 1 2 3 60", "api7k cam_look nan nan nan 30", "api7k cam_reset",
+                                                   "api7k hud_show 2 0", "api7k pause 1", "api7k boss"};
+            check(c->ok() && h.ops7 == want && has(h.logs, "cam niltruetruetruetruetruetruetruenil bad false"),
+                  "api 7: camera.get / set / shake / look_at / reset, hud.show, game.pause, world.boss (" + c->error() + ")");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&

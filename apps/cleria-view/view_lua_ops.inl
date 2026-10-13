@@ -218,5 +218,46 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         g_lua.hits.push_back({id, std::max(0, int(arg(1))), float(arg(2)), std::clamp(int(arg(3, 3)), 0, 3)});
         return true;
     }
+    // ---- cleria.camera: the mods' own layer over the game's camera (view_camera.inl ModCam) ----
+    if (op == "cam_get") {
+        if (!out) return false;
+        *out = {double(g_cam_out.eye.x), double(g_cam_out.eye.y), double(g_cam_out.eye.z), double(g_cam_out.target.x),
+                double(g_cam_out.target.y), double(g_cam_out.target.z), double(g_cam_out.fov), double(g_mod_cam.dist), double(g_mod_cam.fov)};
+        return true;
+    }
+    if (op == "cam_set") {                               // (dist, fov, ox, oy, oz): a NaN keeps the value
+        if (std::isfinite(arg(0, NAN))) g_mod_cam.dist = std::clamp(float(arg(0)), 0.2f, 5.0f);
+        if (std::isfinite(arg(1, NAN))) g_mod_cam.fov = std::clamp(float(arg(1)), 0.3f, 2.5f);
+        if (std::isfinite(arg(2, NAN))) g_mod_cam.off.x = std::clamp(float(arg(2)), -50.0f, 50.0f);
+        if (std::isfinite(arg(3, NAN))) g_mod_cam.off.y = std::clamp(float(arg(3)), -50.0f, 50.0f);
+        if (std::isfinite(arg(4, NAN))) g_mod_cam.off.z = std::clamp(float(arg(4)), -50.0f, 50.0f);
+        return true;
+    }
+    if (op == "cam_reset") { g_mod_cam = ModCam{}; return true; }
+    if (op == "cam_shake") {                             // a script's Camera_Shake: amplitudes, frames
+        shake(float(arg(0)), float(arg(1)), float(arg(2)), std::clamp(int(arg(3, 20)), 1, 600));
+        return true;
+    }
+    if (op == "cam_look") {                              // a script's Scroll_MoveTo / Scroll_Return: the camera's subject
+        if (n.size() >= 3 && std::isfinite(n[0])) scroll_moveto(float(n[0]), float(n[1]), float(n[2]), std::clamp(int(arg(3, 30)), 0, 600));
+        else scroll_return(std::clamp(int(arg(3, 30)), 0, 600));
+        return true;
+    }
+    if (op == "hud_show") {                              // (part bit, on): this mod's hidden parts
+        const unsigned bit = unsigned(arg(0));
+        unsigned& v = g_lua.hud_hidden[mod];
+        v = arg(1) != 0 ? (v & ~bit) : (v | bit);
+        if (!v) g_lua.hud_hidden.erase(mod);
+        return true;
+    }
+    if (op == "pause") {                                 // this mod holds the game (as a window of its own would)
+        if (arg(0) != 0) g_lua.pause.insert(mod); else g_lua.pause.erase(mod);
+        return true;
+    }
+    if (op == "boss") {                                  // the boss gauge: who owns it and what it shows
+        if (!out || hud.boss_frac < 0.0f) return false;
+        *out = {double(hud.boss_id), double(hud.boss_cur), double(hud.boss_max)};
+        return true;
+    }
     return false;
 };

@@ -191,6 +191,7 @@ struct Hud {
     // shows none of it (no damage numbers: HUD_RE.md), so it is off unless toggled (F3) or
     // CLERIA_DEBUG_HUD=1.
     bool debug_text = false;
+    bool hide_messages = false, hide_boss = false;   // the mods' cleria.hud.show (API 7)
     std::vector<Msg> messages;
 
     void init(Gpu& g, const fs::path& font_bin, WGPUTextureFormat color) {
@@ -897,7 +898,7 @@ struct Hud {
         for (auto it = messages.begin(); it != messages.end();) {
             it->ttl -= dt;
             if (it->ttl <= 0) { it = messages.erase(it); continue; }
-            if (it->debug && !debug_text) { ++it; continue; }
+            if ((it->debug && !debug_text) || hide_messages) { ++it; continue; }
             const std::uint8_t a = std::uint8_t(255 * std::min(1.0f, it->ttl));
             text(it->text, 12 * s, my, s * 1.15f, float(sw), float(sh), 255, 235, 120, a);
             my += 30 * s; ++it;
@@ -915,7 +916,7 @@ struct Hud {
                 sprite_a(m, Ar{ax - 40.0f, ay - 100.0f, ax - 40.0f + 84.0f * r, ay - 88.0f}, Rc{288, 24, 84.0f * r, 12},
                          float(sw), float(sh), 255, 255, 255, std::uint8_t(std::min(255, player->o2_alpha)));
         }
-        if (boss_frac >= 0.f) {
+        if (boss_frac >= 0.f && !hide_boss) {
             if (boss_max <= 0.0f) { boss_max = 1.0f; boss_cur = boss_lag = boss_frac; }   // a bare preview
             boss_bar(float(sw), float(sh));
         }
