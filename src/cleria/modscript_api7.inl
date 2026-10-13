@@ -1079,17 +1079,18 @@ int l_world_set_puppet(lua_State* L) {                   // (id, {x =, y =, z =,
     const double nan = std::numeric_limits<double>::quiet_NaN();
     lua_pushboolean(L, op(L, "puppet_set", {double(luaL_checkinteger(L, 1)), opt_field_n(L, 2, "x", nan), opt_field_n(L, 2, "y", nan),
                                             opt_field_n(L, 2, "z", nan), opt_field_n(L, 2, "yaw", nan), opt_field_n(L, 2, "tag", nan),
-                                            opt_field_n(L, 2, "frame", nan), opt_field_n(L, 2, "sheet", nan), bool_field(L, 2, "hittable"), bool_field(L, 2, "target")}));
+                                            opt_field_n(L, 2, "frame", nan), opt_field_n(L, 2, "sheet", nan), bool_field(L, 2, "hittable"), bool_field(L, 2, "target"),
+                                            opt_field_n(L, 2, "glow", nan), opt_field_n(L, 2, "aura", nan)}));
     return 1;
 }
 int l_world_remove_puppet(lua_State* L) { lua_pushboolean(L, op(L, "puppet_remove", {double(luaL_checkinteger(L, 1))})); return 1; }
 
 int l_player_pose(lua_State* L) {                        // -> {x, y, z, yaw (degrees), tag, frame, sheet}: what a puppet needs to copy the player
     std::vector<double> out;
-    if (!op(L, "pose", {}, {}, &out) || out.size() < 7) { lua_pushnil(L); return 1; }
-    static const char* const k[] = {"x", "y", "z", "yaw", "tag", "frame", "sheet"};
-    lua_createtable(L, 0, 7);
-    for (int i = 0; i < 7; ++i) {
+    if (!op(L, "pose", {}, {}, &out) || out.size() < 9) { lua_pushnil(L); return 1; }
+    static const char* const k[] = {"x", "y", "z", "yaw", "tag", "frame", "sheet", "glow", "aura"};
+    lua_createtable(L, 0, 9);
+    for (int i = 0; i < 9; ++i) {
         if (i >= 4) lua_pushinteger(L, lua_Integer(out[std::size_t(i)])); else lua_pushnumber(L, out[std::size_t(i)]);
         lua_setfield(L, -2, k[i]);
     }

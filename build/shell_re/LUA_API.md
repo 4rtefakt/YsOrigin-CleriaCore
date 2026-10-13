@@ -1110,6 +1110,11 @@ cleria.world.apply(snap)                                -- a guest: the room mad
 - `player.familiars()` lists the player's own helpers (Hugo's eyes): `cast`, `x, y, z`, `yaw`, and the picture `sheet`,
   `tag`, `frame`. `world.prop(cast, x, y, z)` puts that cast's sprite in the room as a puppet with no shadow and no
   body (`set_puppet` and `remove_puppet` work on it): feed it from the other player's `familiars()`.
+- `player.pose()` also gives `glow`: the colour the game adds to the player's sprite at that moment (0 most of the
+  time; the pulse of a fully charged skill; a mod's `set_look` glow). `set_puppet(id, {glow = c})` adds it to the
+  puppet's sprite. `pose().aura` is the Boost aura's effect id while the Boost is on (0 otherwise) and
+  `set_puppet(id, {aura = n})` keeps that effect on the puppet (0 removes it). A puppet of Toal leaves his trail of afterimages in the animations that have one (his demon
+  form's), as the player's own Toal does. [approx] its history is taken once a drawn frame, not once a tick.
 - `combat.boss_bonus(n)` adds `n` to a pool that the player's **next hit on a boss part** carries on top of its own
   damage (past the `"damage"` filters, which see a boss hit as `dir = "dealt"` with no `actor`); `boss_bonus(0)`
   empties it, `boss_bonus()` reads it. This is how two players share a boss: each machine runs its own boss and the

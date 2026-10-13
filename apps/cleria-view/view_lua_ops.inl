@@ -187,6 +187,27 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         if (n.size() > 5 && std::isfinite(n[5])) a->pattern.tag = int(n[5]);      // a tag of its sheet
         if (n.size() > 7 && std::isfinite(n[7]) && *aso_aia_name(std::int32_t(n[7]))) a->aia_file = std::int32_t(n[7]);   // the sheet
         if (n.size() > 9 && std::isfinite(n[9])) { if (n[9] != 0) g_lua_targets.insert(id); else g_lua_targets.erase(id); }   // target: the monsters chase and hit it
+        if (n.size() > 10 && std::isfinite(n[10])) a->mod_spec = std::uint32_t(std::max(0.0, n[10])) & 0xffffffu;   // glow: added to its sprite
+        if (n.size() > 11 && std::isfinite(n[11])) {         // aura: an effect that follows it (the Boost's 39 / 171), 0 = none
+            static std::map<int, std::pair<int, ef2sim::Effect*>> auras;   // puppet -> the effect id and the effect
+            if (auras.size() > 32) auras.clear();
+            auto& au = auras[id];
+            const int want = int(n[11]);
+            if (au.first != want || (want && !fx_live(au.second))) {
+                if (fx_live(au.second)) au.second->kill = true;
+                au = {want, nullptr};
+                if (want > 0) {
+                    ef2sim::SpawnParams sp;
+                    sp.side = 2; sp.power = 0.0f; sp.owner = id;
+                    if (ef2sim::Effect* f = spawn_sim_fx(want, {}, {}, 1.0f, sp, 0, {})) {
+                        f->local = ef2sim::translation(0.0f, 0.0f, 0.0f);
+                        f->attach_parent = &actor_mats[id];
+                        f->attach_mode = 2;
+                        au.second = f;
+                    }
+                }
+            }
+        }
         if (n.size() > 8 && std::isfinite(n[8])) {           // hittable: a body the player's hits find (they raise puppet_hit)
             const bool on = n[8] != 0;
             a->hp = a->max_hp = on ? 1.0f : 0.0f;
@@ -199,7 +220,12 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
     if (op == "pose") {                                  // the player's place, heading and the frame the script shows now
         if (!out) return false;
         *out = {double(feet.x), double(feet.y), double(feet.z), double(std::atan2(face_dir.x, face_dir.z) * 57.29577951f),
-                double(avm.anim_tag()), double(avm.frame()), -1.0};
+                double(avm.anim_tag()), double(avm.frame()), -1.0,
+                // the colour added to the sprite now, as the draw computes it: the charged skill's pulse, a mod's glow
+                double(skill_charge.level == 2 && csMgr.fix_counts[0] + csMgr.fix_counts[1] == 0
+                           ? hitfx::charged_glow(player_spec.colour(), character, skillmp::bracelet_slot(inv.magic), player_glow_phase)
+                           : (g_lua.look_on && g_lua.look_tint != 0xffffffffu ? (g_lua.look_tint & 0xffffffu) : player_spec.colour())),
+                player.boosting ? (character == 3 ? 171.0 : 39.0) : 0.0};   // the Boost aura's effect while it is on
         for (std::int32_t i = 0; i < 269; ++i)           // the sheet drawn now, as its file id (the script swaps it: anime_File)
             if (cur_aia == aso_aia_name(i)) { (*out)[6] = double(i); break; }
         return true;

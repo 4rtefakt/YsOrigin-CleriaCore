@@ -599,15 +599,16 @@ struct ToalTrail {
     int stat[2] = {-1, 0};             // the last draw's tag and quads (vstat)
 };
 static ToalTrail g_trail;
-static void trail_record(const Vec3& p) {
-    g_trail.pos.insert(g_trail.pos.begin(), p);
-    if (g_trail.pos.size() > 24) g_trail.pos.resize(24);
+// CleriaCore's own (the mods' puppets, API 7; not retail): the same trail behind a puppet drawn as Toal, by actor id.
+static std::map<int, ToalTrail> g_puppet_trails;
+static void trail_record(const Vec3& p, ToalTrail& t = g_trail) {
+    t.pos.insert(t.pos.begin(), p);
+    if (t.pos.size() > 24) t.pos.resize(24);
 }
 static void trail_draw(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const fs::path& asset_root,
                        const SpriteTex& body, const Vec3& feet, float worldH, int tag, int dir, int frame,
                        const Vec3& camFwd, const Vec3& camPos, float tr, float tg, float tb, float px_dx, float px_dy,
-                       float scale, float depth_bias) {
-    ToalTrail& t = g_trail;
+                       float scale, float depth_bias, ToalTrail& t = g_trail) {
     t.stat[0] = -1; t.stat[1] = 0;
     if (!t.tried) { t.tried = true; t.aia.load(asset_root / "ANI" / "C_119.AIA"); }
     if (!t.aia.ok()) return;

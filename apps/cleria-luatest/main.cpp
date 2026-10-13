@@ -860,7 +860,7 @@ int main(int argc, char** argv) {
                 cleria.log("puppet " .. tostring(W.puppet(2, 1, 2, 3, 90)) .. " " .. tostring(W.set_puppet(7, {x = 4, yaw = 180, tag = 1, frame = 2, sheet = 15})) .. " " ..
                            tostring(W.remove_puppet(7)) .. " pose " .. tostring(cleria.player.pose()) .. " bad " .. tostring(pcall(W.puppet, 4, 0, 0, 0)))
             )LUA");
-            check(p->ok() && h.ops7.size() == 4 && h.ops7[0] == "api7p puppet_spawn 2 1 2 3 90" && h.ops7[1] == "api7p puppet_set 7 4 nan nan 180 1 2 15 nan nan" &&
+            check(p->ok() && h.ops7.size() == 4 && h.ops7[0] == "api7p puppet_spawn 2 1 2 3 90" && h.ops7[1] == "api7p puppet_set 7 4 nan nan 180 1 2 15 nan nan nan nan" &&
                   h.ops7[2] == "api7p puppet_remove 7" && h.ops7[3] == "api7p pose" && has(h.logs, "puppet nil true true pose nil bad false"),
                   "api 7: world.puppet / set_puppet / remove_puppet, player.pose (" + p->error() + ")");
         }
@@ -996,7 +996,7 @@ int main(int argc, char** argv) {
                            tostring(W.set_puppet(7, {hittable = true})) .. tostring(cleria.combat.strike(40)) .. " " ..
                            tostring(W.apply(snap)) .. tostring(W.apply({{id = 5, cast = 43, hp = 9}}, {ai = true, remove = false})))
             )LUA");
-            const std::vector<std::string> want = {"api7y world_snapshot", "api7y puppet_set 7 nan nan nan nan nan nan nan 1 nan", "api7y strike 40 0",
+            const std::vector<std::string> want = {"api7y world_snapshot", "api7y puppet_set 7 nan nan nan nan nan nan nan 1 nan nan nan", "api7y strike 40 0",
                                                    "api7y world_apply 3 21 43 5 1 2 3 90 50 80 301 4 15",
                                                    "api7y world_apply 0 5 43 0 0 0 0 0 9 0 -1 -1 -1"};
             check(s->ok() && h.ops7 == want && has(h.logs, "sync 1 21 43 50.0 301 truetrue 11"),
