@@ -1619,6 +1619,37 @@ int l_world_puppet_effect(lua_State* L) {                // (puppet, {id =, fwd 
                                                opt_field_n(L, 2, "attach", 0)}));
     return 1;
 }
+int l_world_show_bullet(lua_State* L) {                  // (a player_bullet event's table) -> shown
+    luaL_checktype(L, 1, LUA_TTABLE);
+    static const char* const k[19] = {"kind", "effect", "x", "y", "z", "dx", "dy", "dz", "speed", "accel", "gravity", "a", "b", "c", "d", "e", "f", "g", "h"};
+    std::vector<double> v;
+    for (const char* key : k) v.push_back(opt_field_n(L, 1, key, 0));
+    lua_pushboolean(L, op(L, "show_bullet", v));
+    return 1;
+}
+int l_player_familiars(lua_State* L) {                   // -> {{cast =, x =, y =, z =, yaw =, tag =, frame =, sheet =}, ...}: Hugo's eyes
+    std::vector<double> out;
+    lua_newtable(L);
+    if (!op(L, "familiars", {}, {}, &out)) return 1;
+    static const char* const k[8] = {"cast", "x", "y", "z", "yaw", "tag", "frame", "sheet"};
+    lua_Integer n = 0;
+    for (std::size_t i = 0; i + 8 <= out.size(); i += 8) {
+        lua_createtable(L, 0, 8);
+        for (int j = 0; j < 8; ++j) {
+            if (j == 0 || j >= 5) lua_pushinteger(L, lua_Integer(out[i + std::size_t(j)])); else lua_pushnumber(L, out[i + std::size_t(j)]);
+            lua_setfield(L, -2, k[j]);
+        }
+        lua_rawseti(L, -2, ++n);
+    }
+    return 1;
+}
+int l_world_prop(lua_State* L) {                         // (cast, x, y, z [, degrees]) -> a puppet drawn with that cast's sprite, or nil
+    std::vector<double> out;
+    if (!op(L, "prop_spawn", {double(luaL_checkinteger(L, 1)), num_arg(L, 2, -1e6, 1e6), num_arg(L, 3, -1e6, 1e6), num_arg(L, 4, -1e6, 1e6),
+                              luaL_optnumber(L, 5, 0.0)}, {}, &out) || out.empty()) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, lua_Integer(out[0]));
+    return 1;
+}
 const char* const kSnapKeys[12] = {"id", "cast", "level", "x", "y", "z", "yaw", "hp", "max_hp", "tag", "frame", "sheet"};
 int l_world_snapshot(lua_State* L) {                     // -> {{id =, cast =, level =, x =, y =, z =, yaw =, hp =, max_hp =, tag =, frame =, sheet =}, ...}
     std::vector<double> out;
@@ -1661,7 +1692,11 @@ void open_api7_sync(lua_State* L) {                      // the cleria table is 
     set_funcs(L, combat);
     lua_pop(L, 1);
     static const luaL_Reg world[] = {{"snapshot", l_world_snapshot}, {"apply", l_world_apply}, {"puppet_effect", l_world_puppet_effect},
-                                     {nullptr, nullptr}};
+                                     {"show_bullet", l_world_show_bullet}, {"prop", l_world_prop}, {nullptr, nullptr}};
+    static const luaL_Reg player[] = {{"familiars", l_player_familiars}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "player");
+    set_funcs(L, player);
+    lua_pop(L, 1);
     lua_getfield(L, -1, "world");
     set_funcs(L, world);
     lua_pop(L, 1);

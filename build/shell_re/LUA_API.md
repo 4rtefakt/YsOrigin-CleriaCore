@@ -1104,6 +1104,12 @@ cleria.world.apply(snap)                                -- a guest: the room mad
   script makes (a skill's blast, a swing's flash); `world.puppet_effect(puppet, e)` makes the same effect at a
   puppet, placed from the puppet's position and heading, hitting nobody. Send the event's table as it is. [H] Not
   covered: sword trails, Hugo's shots and eyes, the charge glow (they are not script effects).
+- The event `player_bullet` (`kind`, `effect`, `x y z`, `dx dy dz`, `speed`, `accel`, `gravity`, `a`..`h`) is raised for each
+  bullet of the player's side as it is fired (Hugo's shots, his eyes' shots); `world.show_bullet(e)` fires the same
+  bullet for show: it flies and bursts as the real one and hits nobody.
+- `player.familiars()` lists the player's own helpers (Hugo's eyes): `cast`, `x, y, z`, `yaw`, and the picture `sheet`,
+  `tag`, `frame`. `world.prop(cast, x, y, z)` puts that cast's sprite in the room as a puppet with no shadow and no
+  body (`set_puppet` and `remove_puppet` work on it): feed it from the other player's `familiars()`.
 - `combat.boss_bonus(n)` adds `n` to a pool that the player's **next hit on a boss part** carries on top of its own
   damage (past the `"damage"` filters, which see a boss hit as `dir = "dealt"` with no `actor`); `boss_bonus(0)`
   empties it, `boss_bonus()` reads it. This is how two players share a boss: each machine runs its own boss and the

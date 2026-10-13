@@ -413,5 +413,47 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         sp.side = 2; sp.power = 0.0f; sp.owner = id;      // side 2: neither the player's nor the monsters': it hits nobody
         return spawn_generate_effect(fe, {pu->pos.x, pu->pos.y + kOriginH, pu->pos.z}, heading_of_yaw(pu->yaw), sp, id) != nullptr;
     }
+    if (op == "show_bullet") {                           // a player_bullet event's numbers: the same bullet, hitting nobody
+        if (n.size() < 19) return false;
+        bullet::Spawn b;
+        b.kind = int(n[0]); b.effect = int(n[1]);
+        if (b.kind == 0xf) return false;                 // (a bomb is not a bullet)
+        b.pos = {float(n[2]), float(n[3]), float(n[4])}; b.dir = {float(n[5]), float(n[6]), float(n[7])};
+        b.speed = float(n[8]); b.accel = float(n[9]); b.gravity = float(n[10]);
+        b.f158 = std::uint32_t(n[11]); b.f15c = std::uint32_t(n[12]); b.f160 = std::uint32_t(n[13]);
+        b.f164 = float(n[14]); b.f168 = float(n[15]); b.f16c = float(n[16]); b.f170 = float(n[17]); b.f174 = float(n[18]);
+        b.owner = 0; b.owner_monster = false; b.owner_atk = 0.0f; b.power = 0.0f; b.show_only = true;
+        return bullets.spawn(b) != nullptr;
+    }
+    if (op == "familiars") {                             // the player's own helpers (Hugo's eyes): 8 numbers each
+        if (!out) return false;
+        out->clear();
+        const Actor* pa = world.player();
+        if (!pa) return true;
+        for (const Actor& a : world.actors()) {
+            if (!hugo::owned_eye(a, pa->instance_id) || !a.alive()) continue;
+            int tag = 2, frame = 0;
+            for (const EnemyRender& er : render)
+                if (er.actor == &a && er.avm.ok()) { tag = int(er.avm.anim_tag()); frame = int(er.avm.frame()); break; }
+            out->insert(out->end(), {double(a.cast_id), double(a.pos.x), double(a.pos.y), double(a.pos.z), double(a.yaw * 57.29577951f),
+                                     double(tag), double(frame), double(a.aia_file)});
+        }
+        return true;
+    }
+    if (op == "prop_spawn") {                            // (cast, x, y, z, degrees): that cast's sprite as a puppet (no brain, no body)
+        if (n.size() < 4 || !out) return false;
+        const std::string stem = casts.sprite_stem(int(n[0]));
+        if (stem.empty()) return false;
+        Actor* a = world.spawn(SpawnRequest{0, 116, Vec3{float(n[1]), float(n[2]), float(n[3])}, float(arg(4)), 0, 0});
+        if (!a) return false;
+        a->sprite_override = stem;
+        a->pattern.tag = 2; a->pattern.frame = 0;
+        a->height = 0.0f;
+        a->flags12c |= 1u;                               // no shadow of its own (Chr_Shadow's bit)
+        g_lua_puppets.insert(a->instance_id);
+        csHost.world_changed = true;
+        *out = {double(a->instance_id)};
+        return true;
+    }
     return false;
 };

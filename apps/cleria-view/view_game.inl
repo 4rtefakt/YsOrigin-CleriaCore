@@ -1604,6 +1604,14 @@ title_again:
     // the effect's particles do the damage. gas_owner: the M460 whose gas floor applies
     // (fx+0x1a8; its handler pass #14).
     bullet::Bullets bullets(&fxsim, ef2_of);
+    bullets.on_player_spawn = [&](const bullet::Spawn& s) {            // mods (API 7): what another screen needs to show it
+        if (!lua_events_on()) return;
+        content_emit(events::Event::named("player_bullet").with("kind", s.kind).with("effect", s.effect)
+                         .with("x", s.pos.x).with("y", s.pos.y).with("z", s.pos.z).with("dx", s.dir.x).with("dy", s.dir.y).with("dz", s.dir.z)
+                         .with("speed", s.speed).with("accel", s.accel).with("gravity", s.gravity)
+                         .with("a", double(s.f158)).with("b", double(s.f15c)).with("c", double(s.f160))
+                         .with("d", s.f164).with("e", s.f168).with("f", s.f16c).with("g", s.f170).with("h", s.f174));
+    };
     std::vector<extra::Runner> xrunners;                  // the kind-0x17 runners (view_extra.inl)
     std::vector<extra::Chain> xchains;                    // the kind-0x18 chain lightnings (view_extra_chain.inl)
     std::vector<extra::Bolt> xbolts;                      // the free type-7 lines: the ray's, the side lines, a dead chain's
