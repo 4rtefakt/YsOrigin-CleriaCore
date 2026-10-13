@@ -116,3 +116,11 @@ content, then multiplayer, then the tools.
 ## Added along the way
 
 (Anything found while doing the above goes here with its own number, from 60.)
+
+## Where this stands (2026-10-13)
+
+Every row above is done except: #34 and #42 and #18 (part, each says what is missing) and #52 (not done, with the
+reason). Not verified here, and said so where they are documented in LUA_API.md §12: the libcurl HTTP path (not
+built on Windows), the sounds by ear (the tests run muted), `save.card` on the Save / Load pages (no capture
+taken). The showcase mods' own suites pass on this branch (65 of 66 cases; the one that fails, Mutators'
+`permadeath`, fails the same way on the base branch: it waits two real seconds in a run that is faster).

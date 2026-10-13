@@ -1141,8 +1141,9 @@ cleria.player.set_look({scale = 1.4, glow = 0x203018})                 -- glow =
   out (0x80FF80 turns it into a light; checked on a capture). It is the process's, like `tune`. A charged skill's
   glow shows in its place while it lasts.
 - `world.form(actor, {sprite = "file.aia"})` draws a monster from a sheet of the mod's own folder in place of its
-  cast's (the game's AIA format; the tags its script asks for must exist in it). [H] There is no converter from
-  PNG to AIA here: this serves a sheet taken from the game or made with a tool of your own (API7.md #42).
+  cast's (the game's AIA format; the tags its script asks for must exist in it). Checked on a capture: a monster
+  given another monster's sheet copied into the mod's folder is drawn from it. [H] There is no converter from PNG
+  to AIA here: this serves a sheet taken from the game or made with a tool of your own (API7.md #42).
 
 ### 12.21 The built-in Lua layer: a shop, items, skills, rooms, characters
 
