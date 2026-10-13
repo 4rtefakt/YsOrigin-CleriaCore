@@ -3157,6 +3157,30 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, the tools. The console window runs a command of the mod (mods.command), and the drive's modreload=
+# starts the mod's script afresh: its state is new (the counter is back at 1), what it left with the game is gone
+# (the game is no longer held, its tuning is off), and its commands answer again.
+_LUA_API7T = (
+    'boots = (boots or 0) + 1\n'
+    'cleria.log("boot " .. boots)\n'
+    'cleria.command("t", function(a)\n'
+    '    if a == "hold" then cleria.game.pause(true) cleria.player.tune({speed = 3}) cleria.log("state " .. cleria.game.state()) end\n'
+    '    if a == "state" then cleria.log("state " .. cleria.game.state() .. " boots " .. boots) end\n'
+    '    if a == "run" then cleria.log("ran " .. tostring(cleria.mods.command("t", "state")) .. " " .. table.concat(cleria.mods.commands(), ",")) end\n'
+    '    if a == "console" then cleria.ui.console() cleria.log("console " .. tostring(cleria.ui.is_open())) cleria.ui.close() end\n'
+    '    if a == "bag" then cleria.content.open_bag() cleria.log("bag " .. tostring(cleria.ui.is_open())) cleria.ui.close() end\n'
+    '    if a == "x" then x0 = cleria.player.stats().x end\n'
+    '    if a == "dx" then cleria.log(string.format("ran %.1f", cleria.player.stats().x - x0)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_tools": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7T,
+        drive="20:lua=t run;30:lua=t console;35:lua=t bag;40:lua=t hold;50:modreload=test.lua;60:lua=t state;70:lua=t x;71:move=1,0,30;110:lua=t dx;120:quit",
+        expect=[_LP + "boot 1", _LP + "state play boots 1", _LP + "ran true t", _LP + "console cleria_console", _LP + "bag cleria_bag", _LP + "state held",
+                "[lua] test.lua: reloaded", _LP + "state play boots 1", _LP + "ran 2.5"],
+        count={_LP + "boot 1": 2}, absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

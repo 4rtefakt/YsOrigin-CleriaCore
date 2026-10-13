@@ -119,6 +119,11 @@ struct LuaHost : script::Host {
     }
     // ---- API 7 ----
     std::vector<ModInfo> mod_list() override;
+    void log(const std::string& mod, const std::string& text) override;
+    bool run_command(const std::string& name, const std::string& args) override;
+    std::vector<std::string> all_commands() override;
+    std::vector<std::string> log_lines(int n) override;
+    bool request_reload(const std::string& mod) override;
     int bus_publish(const std::string& from, const std::string& topic, const std::string& json_text) override;
     std::optional<std::string> bus_get(const std::string& key) override;
     void bus_set(const std::string& key, const std::string& json_text) override;
@@ -202,6 +207,10 @@ struct LuaRt {
     bool look_on = false;
     std::string spawn_by;                              // the mod whose world.spawn / world.apply is building a monster now
     int newgame_char = 0, newgame_diff = 2;            // cleria.game.new_game: asked for (0 = no), started by the title
+    std::deque<std::string> log_tail;                  // the mods' last log lines (the console)
+    std::set<std::string> reload;                      // mods whose script starts afresh at the next frame
+    std::map<std::string, std::int64_t> watch;         // CLERIA_MOD_WATCH: each script file's last write time
+    int watch_in = 0;
     std::map<std::string, ui::List> win_lists;         // cleria.ui.window: the list state of each window (mod id + window id)
     ui::Nav drive_nav{};                               // a drive run's keys for the open window (modwin=ok / back / up / down)
     std::string win_shown;                             // the window drawn last frame (mod id + its open serial)
@@ -670,9 +679,82 @@ static void lua_seed_icons(Gpu& g, std::unordered_map<int, SpriteTex>& sprite_ca
         }
 }
 
+void LuaHost::log(const std::string& mod, const std::string& text) {
+    script::Host::log(mod, text);
+    g_lua.log_tail.push_back("[" + mod + "] " + text);
+    while (g_lua.log_tail.size() > 200) g_lua.log_tail.pop_front();
+}
+bool LuaHost::run_command(const std::string& name, const std::string& args) {
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->has_command(name)) { m->command(name, args); return true; }
+    return false;
+}
+std::vector<std::string> LuaHost::all_commands() {
+    std::vector<std::string> v;
+    for (auto& m : g_lua.mods)
+        if (m->ok())
+            for (const std::string& c : m->command_names()) v.push_back(c);
+    std::sort(v.begin(), v.end());
+    return v;
+}
+std::vector<std::string> LuaHost::log_lines(int n) {
+    const std::size_t k = std::min<std::size_t>(std::size_t(std::max(n, 0)), g_lua.log_tail.size());
+    return std::vector<std::string>(g_lua.log_tail.end() - std::ptrdiff_t(k), g_lua.log_tail.end());
+}
+bool LuaHost::request_reload(const std::string& mod) { g_lua.reload.insert(mod); return true; }
+
+// A mod's script started afresh: its Lua state is closed (its sockets, timers, filters and handlers go with it),
+// what it left with the game is dropped (its stat modifiers, tuning, game speed, hold, hidden HUD parts), and
+// its main file runs again. What it built in the room (monsters, puppets) stays until the room changes.
+static bool lua_reload(const std::string& id) {
+    LuaRt& r = g_lua;
+    for (auto& up : r.mods) {
+        if (up->id() != id) continue;
+        const mods::Mod* def = nullptr;
+        for (const mods::Mod& m : g_mods_ui.list) if (m.m.id == id) def = &m;
+        if (!def) return false;
+        for (int k = 0; k < 3; ++k) r.host.set_modifier(id, k, 0.0, 1.0);
+        r.stat_mods.erase(id);
+        if (r.b.op && r.in_game) {
+            for (int k = 0; k < 5; ++k) r.b.op(id, "tune", {double(k), 1.0}, "", nullptr);
+            r.b.op(id, "tune", {5.0, 0.0}, "", nullptr);
+        }
+        r.tune.erase(id); r.speed.erase(id); r.pause.erase(id); r.hud_hidden.erase(id);
+        up.reset();
+        up = std::make_unique<script::Mod>(def->m.id, def->label(), def->m.version, def->root, r.host);
+        const bool ok = up->start(def->m.script);
+        std::printf("[lua] %s: %s\n", def->label().c_str(), ok ? "reloaded" : ("reload failed: " + up->error()).c_str());
+        return ok;
+    }
+    return false;
+}
+// CLERIA_MOD_WATCH=1 (development): a mod whose main script file changed on disk is reloaded, checked once a second.
+static void lua_watch_files() {
+    LuaRt& r = g_lua;
+    static const bool on = std::getenv("CLERIA_MOD_WATCH") != nullptr;
+    if (!on || ++r.watch_in < 60) return;
+    r.watch_in = 0;
+    for (const mods::Mod& m : g_mods_ui.list) {
+        if (m.m.script.empty()) continue;
+        std::error_code ec;
+        const auto t = fs::last_write_time(m.root / m.m.script, ec);
+        if (ec) continue;
+        const std::int64_t stamp = std::int64_t(t.time_since_epoch().count());
+        const auto it = r.watch.find(m.m.id);
+        if (it != r.watch.end() && it->second != stamp) r.reload.insert(m.m.id);
+        r.watch[m.m.id] = stamp;
+    }
+}
+
 static void lua_frame() {
     LuaRt& r = g_lua;
     if (r.mods.empty()) return;
+    lua_watch_files();
+    if (!r.reload.empty()) {
+        const std::set<std::string> ids = std::move(r.reload);
+        r.reload.clear();
+        for (const std::string& id : ids) lua_reload(id);
+    }
     const double now = r.host.now();
     const double dt = r.last_frame < 0 ? 0.0 : now - r.last_frame;
     r.last_frame = now;
@@ -810,6 +892,7 @@ static bool lua_drive(const std::string& cmd) {
         d.ok = k == "ok"; d.back = k == "back"; d.up = k == "up"; d.down = k == "down"; d.left = k == "left"; d.right = k == "right";
         return true;
     }
+    if (cmd.rfind("modreload=", 0) == 0) { g_lua.reload.insert(cmd.substr(10)); return true; }   // a mod's script afresh (next frame)
     if (cmd.rfind("lua=", 0) != 0) return false;
     const std::string rest = cmd.substr(4);
     const std::size_t sp = rest.find(' ');

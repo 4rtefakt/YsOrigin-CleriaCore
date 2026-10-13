@@ -143,6 +143,12 @@ struct FakeHost : script::Host {
     bool key_down(const std::string& n) override { return n == held7; }
     bool pad_down(const std::string& n) override { return n == held7; }
     bool key_known(const std::string& n, bool pad) override { return pad ? n == "back" || n == "a" : n != "NoSuchKey"; }
+    int reloads = 0;
+    std::string ran;
+    bool run_command(const std::string& n, const std::string& a) override { if (n != "hello") return false; ran = n + "|" + a; return true; }
+    std::vector<std::string> all_commands() override { return {"hello", "where"}; }
+    std::vector<std::string> log_lines(int n) override { return std::vector<std::string>(std::size_t(std::min(n, 2)), "line"); }
+    bool request_reload(const std::string&) override { ++reloads; return true; }
     std::vector<std::string> ops7;                              // game_op: "mod op n0,n1 [text]"
     bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
                  std::vector<double>* out) override {
@@ -1065,6 +1071,15 @@ int main(int argc, char** argv) {
                   h.ops7[1].rfind("api7q bgm_file [", 0) == 0 && ends(h.ops7[1], "song.ogg]") && h.ops7[2] == "api7q new_game 2 3" &&
                   h.ops7[3] == "api7q new_game" && has(h.logs, "files truetruefalsetruetrue bad falsetruefalse card function"),
                   "api 7: audio.play / music(file), game.new_game, save.card (" + q->error() + ")");
+        }
+        {   // API 7: the tools reach the host (a command of any mod, their names, the log's tail, a reload asked for)
+            auto t = make(h, tmp, "api7t", R"LUA(
+                local Mo = cleria.mods
+                cleria.log("tools " .. tostring(Mo.command("hello", "a b")) .. tostring(Mo.command("nope")) .. " " .. table.concat(Mo.commands(), ",") ..
+                           " " .. #Mo.log_lines(5) .. " " .. tostring(Mo.reload()) .. " " .. type(cleria.ui.console))
+            )LUA");
+            check(t->ok() && has(h.logs, "tools truefalse hello,where 2 true function") && h.reloads == 1 && h.ran == "hello|a b",
+                  "api 7: mods.command / commands / log_lines / reload, ui.console (" + t->error() + ")");
         }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);

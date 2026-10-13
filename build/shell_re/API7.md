@@ -108,10 +108,10 @@ content, then multiplayer, then the tools.
 
 | # | What | Status |
 |---|---|---|
-| 18 | The F1 panel in a headless capture; a drive command that presses a page's widget | |
-| 55 | Reloading a mod's script without a restart | |
-| 56 | A console for mod commands | |
-| 58 | The mods' test runner in `tools/` | |
+| 18 | The F1 panel in a headless capture; a drive command that presses a page's widget | part: `modwin=` drives a mod's window (the same widgets as its page), `modkey=` its actions; the F1 panel itself is not driven or captured |
+| 55 | Reloading a mod's script without a restart | done (`mods.reload()`, `modreload=`, `CLERIA_MOD_WATCH=1`) |
+| 56 | A console for mod commands | done (`ui.console()`, `mods.command` / `commands` / `log_lines`) |
+| 58 | The mods' test runner in `tools/` | done (`tools/mod_test.py`) |
 
 ## Added along the way
 

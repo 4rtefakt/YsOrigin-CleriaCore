@@ -155,6 +155,12 @@ struct Host {
     // ---- API 7 ----
     struct ModInfo { std::string id, name, version; bool active = false, scripted = false; };
     virtual std::vector<ModInfo> mod_list() { return {}; }      // every installed mod, in load order
+    // The tools (API 7): a cleria.command of any scripted mod, their names, the last lines the mods logged, and a
+    // mod's own script started afresh at the next frame (its Lua state is closed first).
+    virtual bool run_command(const std::string& name, const std::string& args) { (void)name; (void)args; return false; }
+    virtual std::vector<std::string> all_commands() { return {}; }
+    virtual std::vector<std::string> log_lines(int n) { (void)n; return {}; }
+    virtual bool request_reload(const std::string& mod) { (void)mod; return false; }
     // cleria.bus: a message to the other scripted mods (-> how many handlers ran), and a process-wide key / value.
     virtual int bus_publish(const std::string& from, const std::string& topic, const std::string& json_text) { (void)from; (void)topic; (void)json_text; return 0; }
     virtual std::optional<std::string> bus_get(const std::string& key) { (void)key; return std::nullopt; }

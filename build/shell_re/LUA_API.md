@@ -1254,6 +1254,39 @@ stops on that tick, the `new_game` event says 2, `game.character()` is 2). [H] T
 listened to here (the tests run muted): the calls reach `Audio::play_file` / `play_bgm`, which the game's own
 sounds use.
 
+### 12.23 Tools for writing mods
+
+```lua
+cleria.mods.command("give", "potion 3")                 -- a cleria.command of ANY scripted mod; true when one ran
+cleria.mods.commands()                                  -- every command's name, sorted
+cleria.mods.log_lines(20)                               -- the last lines the mods logged ("[id] text")
+cleria.mods.reload()                                    -- this mod's script, started afresh at the next frame
+cleria.ui.console()                                     -- a window: type a command, read the log
+```
+
+- **Reloading a script without a restart.** `mods.reload()` (bind it to a key with `cleria.input.action`), the drive
+  command `modreload=<mod id>`, or the environment variable `CLERIA_MOD_WATCH=1`, under which a mod is reloaded when
+  its main script file changes on disk (checked once a second): edit, save, look at the game. A reload closes the
+  mod's Lua state (its handlers, filters, timers, sockets, windows and definitions go with it), drops what it left
+  with the game (its stat modifiers, its `tune`, its game speed, its hold, its hidden HUD parts) and runs the main
+  file again. A mod that had stopped on an error starts again. What it built in the room (monsters, puppets) stays
+  until the room changes; `cleria.save` and `cleria.settings` are files and are still there. The `new_game` / `load`
+  events are **not** raised again: a script that sets itself up there should also do it at its start when
+  `cleria.game.state() ~= "title"`.
+- **The console.** `ui.console()` opens a window with a text field (Enter runs `name arguments` as a command of any
+  mod), the list of commands and the log's last lines. It does not pause the game. Give it a key in a mod of your
+  own; the Debug Menu showcase mod does.
+- **`tools/mod_test.py <mod folder> [case ...]`** runs a mod's own cases (`tests/cases.py` or `.dev/cases.py`:
+  a room, a drive script, the lines expected in the output, captures) through the headless harness, each in its own
+  scratch settings and saves with only that mod turned on. Its header documents the case format. The drive
+  commands a mod's test needs: `lua=<command> <args>`, `modkey=<key>` / `modpad=<button>` (the mod's bound actions),
+  `modwin=ok|back|up|down|left|right` (the mod's open window: the same widgets as its F1 page, so a page is tested by
+  showing it in a window), `modreload=<id>`, `shot`.
+
+Checked in a drive run (`lua_api7_tools`): a command run through `mods.command`, the console and the bag opened,
+and a `modreload=` while the mod held the game with `tune{speed = 3}`: the script starts afresh, the game is no
+longer held and 30 ticks of walking cover 2.5 again.
+
 ## 10. Tests
 
 ```
@@ -1289,5 +1322,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), `puppet_hit`, `combat.strike`, `world.snapshot` / `apply` (§12.19), `d:world_*`, `p:table` / `list` / `image`, `player.set_look`, the `"skill"` filter (§12.20), `ui.shop`, `content.define_item` / `define_skill` / `define_room` / `define_character` (§12.21), `audio.play`, `audio.music(file)`, `game.new_game`, `save.card` (§12.22), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), `puppet_hit`, `combat.strike`, `world.snapshot` / `apply` (§12.19), `d:world_*`, `p:table` / `list` / `image`, `player.set_look`, the `"skill"` filter (§12.20), `ui.shop`, `content.define_item` / `define_skill` / `define_room` / `define_character` (§12.21), `audio.play`, `audio.music(file)`, `game.new_game`, `save.card` (§12.22), `mods.command` / `commands` / `log_lines` / `reload`, `ui.console` (§12.23), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

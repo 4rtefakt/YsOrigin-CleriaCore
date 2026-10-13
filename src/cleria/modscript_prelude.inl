@@ -14,6 +14,29 @@ function S.card(text)
     return true
 end
 
+-- ---- cleria.ui.console: type a command of any mod, read what the mods logged --------------------------------
+function UI.console()
+    local line, note = "", nil
+    UI.window("cleria_console", {title = "Console", width = 0.6, pause = false}, function(p)
+        local text, kept = p:text_field("Command", line, {empty = "name arguments", desc = "A cleria.command of any mod. Enter runs it."})
+        if kept then
+            local name, args = text:match("^%s*(%S+)%s*(.-)%s*$")
+            if name then
+                note = (not cleria.mods.command(name, args)) and ("no command '" .. name .. "'") or nil
+                line = ""
+            end
+        else
+            line = text
+        end
+        if note then p:text(note, {color = 0xE06050}) end
+        p:info("Commands", table.concat(cleria.mods.commands(), "  "))
+        p:section("Log")
+        for _, l in ipairs(cleria.mods.log_lines(12)) do p:text(l) end
+        if p:button("Close") then p:close() end
+    end)
+    UI.open("cleria_console")
+end
+
 -- ---- cleria.ui.shop: a window that sells for SP ---------------------------------------------------------------
 function UI.shop(def)
     assert(type(def) == "table" and type(def.items) == "table", "ui.shop: {items = {...}} is required")
@@ -96,7 +119,7 @@ function C.items()
 end
 function C.open_bag(opts)
     opts = opts or {}
-    UI.window("cleria.bag", {title = opts.title or "Items"}, function(p)
+    UI.window("cleria_bag", {title = opts.title or "Items"}, function(p)
         local any = false
         for _, id in ipairs(item_order) do
             local def, n = items[id], C.item_count(id)
@@ -112,7 +135,7 @@ function C.open_bag(opts)
         if not any then p:text(opts.empty or "Nothing yet.") end
         if p:button(opts.close or "Close") then p:close() end
     end)
-    UI.open("cleria.bag")
+    UI.open("cleria_bag")
 end
 items_changed = function()                                 -- a load or a new game: what each item's holder must apply again
     for _, id in ipairs(item_order) do

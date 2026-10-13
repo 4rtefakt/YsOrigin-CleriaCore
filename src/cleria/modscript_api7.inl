@@ -227,6 +227,18 @@ int l_rng_pick(lua_State* L) {                           // one element of an ar
 }
 
 // ---- cleria.mods / cleria.bus: the mods see each other ------------------------------------------------
+int l_mods_command(lua_State* L) {                       // (name [, args]) -> ran: a cleria.command of any scripted mod
+    const std::string name = str_arg(L, 1), args = lua_isnoneornil(L, 2) ? std::string() : str_arg(L, 2);
+    lua_pushboolean(L, M(L).host().run_command(name, args));
+    return 1;
+}
+void push_strings(lua_State* L, const std::vector<std::string>& v) {
+    lua_createtable(L, int(v.size()), 0);
+    for (std::size_t i = 0; i < v.size(); ++i) { lua_pushlstring(L, v[i].data(), v[i].size()); lua_rawseti(L, -2, lua_Integer(i + 1)); }
+}
+int l_mods_commands(lua_State* L) { push_strings(L, M(L).host().all_commands()); return 1; }
+int l_mods_log_lines(lua_State* L) { push_strings(L, M(L).host().log_lines(int(std::clamp<lua_Integer>(luaL_optinteger(L, 1, 20), 1, 200)))); return 1; }
+int l_mods_reload(lua_State* L) { lua_pushboolean(L, M(L).host().request_reload(M(L).id())); return 1; }   // this mod's script, afresh, next frame
 int l_mods_list(lua_State* L) {
     const std::vector<Host::ModInfo> v = M(L).host().mod_list();
     lua_createtable(L, int(v.size()), 0);
@@ -326,7 +338,9 @@ void open_api7(lua_State* L) {                           // the cleria table is 
     lua_setfield(L, -2, "__name");
     lua_pop(L, 1);
 
-    static const luaL_Reg mods[] = {{"list", l_mods_list}, {"is_active", l_mods_is_active}, {nullptr, nullptr}};
+    static const luaL_Reg mods[] = {{"list", l_mods_list}, {"is_active", l_mods_is_active}, {"command", l_mods_command},
+                                    {"commands", l_mods_commands}, {"log_lines", l_mods_log_lines}, {"reload", l_mods_reload},
+                                    {nullptr, nullptr}};
     lua_newtable(L);
     set_funcs(L, mods);
     lua_setfield(L, -2, "mods");
