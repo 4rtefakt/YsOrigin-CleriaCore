@@ -197,6 +197,23 @@ int main() {
         for (int i = 0; i < 40; ++i) { y += 0.285f; y += sweep_up(m, {0, y, 0}, r, 0.1f); }
         check(y < 13.0f - r + 0.01f, "ceiling: mashed jump kicks stay under it");
     }
+    // 11b. The sphere kept out of one object's triangles (sphere_clear_tris: Darm's hulls, view_boss08.inl).
+    {
+        RoomMesh m = wall_x(0.5f);                          // a wall 0.5 beside the centre
+        const std::uint32_t nt = std::uint32_t(m.indices.size() / 3);
+        const Vec3 a = sphere_clear_tris(m, {0, 1, 0}, r, 0, nt);
+        check(std::fabs(a.x - (0.5f - r)) < 1e-4f && a.y == 1.0f && a.z == 0.0f, "clear: pushed a full radius off the wall, level");
+        const Vec3 b = sphere_clear_tris(m, {-1, 1, 0}, r, 0, nt);
+        check(b.x == -1.0f, "clear: a sphere that does not reach the wall is left");
+        check(sphere_clear_tris(m, {0, 1, 0}, r, 0, 0).x == 0.0f, "clear: an empty range does nothing");
+        // An overhang's edge 0.45 to the side and 0.4 above the centre (a finger over the player's head): out to
+        // where the rim clears the edge, sqrt(r^2 - 0.4^2).
+        RoomMesh o = mesh({{0.45f, 1.4f, -10}, {0.45f, 1.4f, 10}, {10, 1.4f, 10},
+                           {0.45f, 1.4f, -10}, {10, 1.4f, 10}, {10, 1.4f, -10}});
+        const Vec3 c = sphere_clear_tris(o, {0, 1, 0}, r, 0, 2);
+        check(std::fabs(0.45f - c.x - std::sqrt(r * r - 0.16f)) < 1e-3f, "clear: an edge above pushes the rim clear of it");
+        check(sphere_clear_tris(o, {5, 1, 0}, r, 0, 2).x == 5.0f, "clear: straight under a slab there is no horizontal push");
+    }
     {
         RoomMesh m = wall_x(0.5f);                          // a wall 0.5 beside the centre (radius 0.675)
         check(std::fabs(sweep_up(m, {0, 1, 0}, r, 0.1f) - 0.1f) < 1e-5f, "ceiling: an overlapped wall beside does not stop the rise");

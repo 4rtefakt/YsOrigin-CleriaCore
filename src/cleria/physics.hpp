@@ -79,6 +79,12 @@ bool segment_hits_tris(const RoomMesh& m, const Vec3& a, const Vec3& b, std::uin
 bool sphere_overlaps(const RoomMesh& m, const Vec3& c, float r);
 // The same query restricted to triangles [t0, t1).
 bool sphere_overlaps_tris(const RoomMesh& m, const Vec3& c, float r, std::uint32_t t0, std::uint32_t t1);
+// The engine's embedded contact against the triangles [t0, t1) of one object: a sphere whose centre is within its
+// radius of a triangle is pushed out along (centre - closest point) by the depth before any slide (FUN_005daa10's
+// contact type 4, FUN_005dca20) [EXPORT 005daa10.c:868-899, 005dca20.c:231-236]. Returns `c` moved until no triangle
+// of the range is closer than `r`. [approx] the horizontal part of each push only, taken to the full radius (the
+// vertical part is the floor's and the ceiling's: sweep_up); a triangle straight above or below the centre is left.
+Vec3 sphere_clear_tris(const RoomMesh& m, Vec3 c, float r, std::uint32_t t0, std::uint32_t t1);
 // The water tree's surface straight above (x, y, z) within `reach` (FUN_0045c490's upward ray),
 // or kNoFloor. Only collision meshes carry water triangles (RoomMesh::tri_water).
 float water_above(const RoomMesh& m, float x, float y, float z, float reach = 50.0f);

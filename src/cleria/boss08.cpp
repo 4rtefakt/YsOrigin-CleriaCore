@@ -1192,7 +1192,7 @@ void Boss08::damage_core() {
             b.window = kWindow[diff_] + (easy_ ? 180u : 0u);
             p.def = B.def + 15.0f;                                 // this frame only
             touch(kB, false);
-            B.collide = false;
+            B.no_jump = false;
         }
     }
     Wm.hp -= d;                                                    // 0x55bd60 — every core path
@@ -1565,7 +1565,7 @@ void Boss08::tail_decide() {
     if (b.window != 0) {                                           // barrier DOWN: the open window counts here
         --b.window;
         if (b.window == 0) {                                       // window over -> barrier back
-            touch(kB, true); mesh_[kB].collide = true;
+            touch(kB, true); mesh_[kB].no_jump = true;
             set_clip(kT, 20);                                      // SetClipName(T, "21_Guard_Start")
             return;
         }
