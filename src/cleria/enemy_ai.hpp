@@ -96,11 +96,17 @@ struct EnemyAi {
     // ("water" set; for a sand actor the sand top) surface above, +0x38a in it.
     int surf = 1, surf_ray = 1;
     float water_y = -1.0e30f;
+    // +0x320 as a brain reads it: the constructor's 0 until a probe has hit [EXPORT 004590b0.c:24].
+    float w320() const { return water_y > -1.0e29f ? water_y : 0.0f; }
     bool in_water = false;
     bool wading = false, entered = false;   // +0x389, +0x38b (water.hpp; ENEMY_WATER.md §1.2)
     std::uint8_t splash_cd = 0, bubble_t = 0, breath_t = 0;   // +0x4c3, +0x4c5, +0x4c6: FUN_0045c490's splash / bubble pacing
     bool water_seen = false;                // the port's: the water test has run once (stands for the placement's probe)
     std::uint16_t floor_ticks = 0;          // +0x4c8: the action player's lava / blood floor counter (0x47a629)
+    // The move primitive's swim block wrote the origin +0x50..+0x58 (0x477e3e the whole point, 0x477e5e / 0x477eee
+    // y alone): the host places the actor there before its integrator and clears the flag.
+    bool swim_set = false;
+    Vec3 swim_origin{};
     float exp_base = -1;   // the revive family's spawn EXP (+0xb0), restored under Silver Chimes
 };
 

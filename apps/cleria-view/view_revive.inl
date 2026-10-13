@@ -18,9 +18,13 @@
 // (+0x4c5 = 90 on each change of +0x38a, 25 with +0x12c & 0x800; the breath cycle +0x4c6 of 125).
 // [approx] the cull byte +0x250 (no splash while culled) and the SE's gate [0x769f1c] < 0.8 are not kept; an actor's
 // first test stands for the placement's probe FUN_00459ff0, which sets the bytes with no splash and no bubble burst.
-// [not modelled] lava / blood (splash 0x52, bubbles 0x4f), a flooded room's bubbles (mode 2: they rise to a ray's
-// hit), the ripples of a wading actor (FUN_00454ff0, every 8th tick), the effects' in-water layer byte fx+0x1da, and
-// the half colour — which is the sprite's second (layer) quad only, not the body [EXPORT 004740e0.c:29-34].
+// On a lava / blood floor (+0x4b9 0x0d / 0x11) the splash is 0x52 for any cast but 13 and the bubbles 0x4f [BYTES
+// 0x45c984..0x45c991, 0x45cb13..0x45cb3b]. A flooded room (mode 2) has the bubbles too, on the breath cycle alone
+// (+0x4c5 is only armed by a change of +0x38a), for every cast, with no depth test [BYTES 0x45c5bd..0x45c70f: effect
+// 0x3d]; [approx] that spawn's third stack argument is 1 (0 in mode 1's was not read), dropped here.
+// [not modelled] the ripples of a wading actor (FUN_00454ff0, every 8th tick), the effects' in-water layer byte
+// fx+0x1da (its one reader is the particle draw's mode, a renderer item), and the half colour — which is the
+// sprite's second (layer) quad only, not the body [EXPORT 004740e0.c:29-34].
 auto enemy_surfaces = [&](Actor& a) {
     const RoomMesh& pm = phys_mesh(room);
     const float oy = a.pos.y + a.height;
@@ -37,28 +41,32 @@ auto enemy_surfaces = [&](Actor& a) {
     const float o0 = a.pos.y - kWaterProbeDrop - (a.ai.surf_ray == 0x12 ? kWaterProbeSand : 0.0f);   // [EXPORT 0045c490.c:137-141] (0.7 alone until 2026-10-11)
     const float s = mode == 1 && !skip ? water_above(pm, a.pos.x, o0, a.pos.z) : kNoFloor;
     const bool splash = water_test(wb, a.vert, mode, skip, s > kNoFloor, s, o0);
-    if (mode == 1 && !skip) {
-        if (a.ai.splash_cd) --a.ai.splash_cd;
+    const bool probe = mode == 1 && !skip;
+    if (probe || mode == 2) {
+        if (probe && a.ai.splash_cd) --a.ai.splash_cd;
         if (a.ai.bubble_t) --a.ai.bubble_t;
         if (a.ai.breath_t) --a.ai.breath_t;
         const bool sand2 = a.ai.surf_ray == 0x12;
-        const bool first = !a.ai.water_seen;
-        a.ai.water_seen = true;
-        if (s > kNoFloor && wb.submerged != a.ai.in_water && !first) a.ai.bubble_t = (a.flags12c & 0x800u) ? 25 : 90;
-        if (splash && a.ai.splash_cd == 0 && !first) {
-            a.ai.splash_cd = 15;
-            spawn_sim_fx(sand2 ? 0x163 : 0x49, {a.pos.x, s + 0.15f, a.pos.z}, {}, 1.0f, {}, 0, {});
-            sfx_at(sand2 ? 0x28 : 0x30, a.pos, kSfxAnimVol);
+        const bool lava = a.ai.surf == 0x0d || a.ai.surf == 0x11;     // +0x4b9 [EXPORT 0045c490.c:130]
+        if (probe) {
+            const bool first = !a.ai.water_seen;
+            a.ai.water_seen = true;
+            if (s > kNoFloor && wb.submerged != a.ai.in_water && !first) a.ai.bubble_t = (a.flags12c & 0x800u) ? 25 : 90;
+            if (splash && a.ai.splash_cd == 0 && !first) {
+                a.ai.splash_cd = 15;
+                spawn_sim_fx(sand2 ? 0x163 : lava ? 0x52 : 0x49, {a.pos.x, s + 0.15f, a.pos.z}, {}, 1.0f, {}, 0, {});
+                sfx_at(sand2 ? 0x28 : 0x30, a.pos, kSfxAnimVol);
+            }
         }
-        if (s > kNoFloor && wb.submerged && a.hp >= 1.0f) {
+        if ((mode == 2 || s > kNoFloor) && wb.submerged && a.hp >= 1.0f) {
             const std::uint8_t c5 = a.ai.bubble_t, c6 = a.ai.breath_t;
             bool bub = (c5 & (c5 > 15 ? 3 : 7)) == 1;
             if (c6 < 0x1e) {
                 if (!(a.flags12c & 0x800u) && (c6 & (c6 < 0x10 ? 7 : 3)) == 1) bub = true;
                 if (c6 == 0) a.ai.breath_t = 0x7d;
             }
-            if (bub && s - o0 >= 1.6f && !sand2)
-                spawn_sim_fx(0x3d, {a.pos.x + std::sin(a.yaw) * 0.25f, oy, a.pos.z + std::cos(a.yaw) * 0.25f}, {}, 1.0f, {}, 0, {});
+            if (bub && (mode == 2 || (s - o0 >= 1.6f && !sand2)))
+                spawn_sim_fx(mode == 1 && lava ? 0x4f : 0x3d, {a.pos.x + std::sin(a.yaw) * 0.25f, oy, a.pos.z + std::cos(a.yaw) * 0.25f}, {}, 1.0f, {}, 0, {});
         }
     }
     a.ai.wading = wb.wading; a.ai.in_water = wb.submerged; a.ai.entered = wb.entered; a.ai.water_y = wb.surface;

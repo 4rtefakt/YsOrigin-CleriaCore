@@ -159,6 +159,19 @@
                         }
                     }
                     if (revive_tick(e)) continue;                 // the revive family's dead path
+                    // M590's handler top, before its HP test (M590.md §2.1; brains::m590_keep_out): over the room's
+                    // set-1 surface it is drawn back to its last dry point. [approx] the 100-down set-1 segment by
+                    // the host's water_under (W3).
+                    if (en && en->ai_index == 52 && !en->destroy_requested() && e.avm.ok()) {
+                        Vec3 org{en->pos.x, en->pos.y + en->height, en->pos.z};
+                        const Vec3 was = org;
+                        if (brains::m590_keep_out(en->ai, org, aiw.water_under(org, -100.0f) > -1.0e29f, en->vert.grounded, en->vert.t)) {
+                            if (ai_debug)
+                                std::printf("[ai] t%llu M590 #%d over water (%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)\n",
+                                            (unsigned long long)tick_count, en->instance_id, was.x, was.y, was.z, org.x, org.y, org.z);
+                            en->pos = {org.x, org.y - en->height, org.z};
+                        }
+                    }
                     // M710's handler, the first dead tick (+0x3fc == 0, 0x4c3dd4): end its attached suction effects. The
                     // pool holds no new ones after that, so the view repeats it each dead tick to the same effect.
                     if (en && en->ai_index == 64 && !en->alive() && !en->destroy_requested()) aiw.cull_attached_fx(*en, 246, 0);
@@ -312,6 +325,13 @@
                     const int phase_before = e.actor->ai.phase();
                     AiOut o = enemy_ai_tick(e.actor->ai, e.aip, env, own ? own : enemy_brain_or_standin(en->ai_index));
                     boss6_zava_post(*en, env, o);                    // Zava's handler past the action player (view_boss06.inl)
+                    if (en->ai.swim_set) {                           // the move primitive's swim block wrote the origin (0x477d40)
+                        en->ai.swim_set = false;
+                        if (ai_debug && std::fabs(en->ai.swim_origin.y - env.self.y) > 0.2f)
+                            std::printf("[ai] t%llu #%d cast %d swim block: origin y %.2f -> %.2f (surface %d)\n", (unsigned long long)tick_count,
+                                        en->instance_id, en->cast_id, env.self.y, en->ai.swim_origin.y, en->ai.surf_ray);
+                        en->pos = {en->ai.swim_origin.x, en->ai.swim_origin.y - en->height, en->ai.swim_origin.z};
+                    }
                     if (phase_before == 2 && e.actor->ai.phase() == 3 && std::getenv("CLERIA_DMG"))
                         std::printf("  [stun] t%llu #%d cast %d stunned for %d ticks (events %x)\n", (unsigned long long)tick_count,
                                     en->instance_id, en->cast_id, e.actor->ai.dur(), env.events);

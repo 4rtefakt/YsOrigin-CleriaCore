@@ -224,8 +224,7 @@ bool fan(EnemyAi& a, const AiEnv& e) {
 // copy of EI+0x94/+0x98/+0x9c, which a brain may rewrite (M910's speed ramp). Blocked (the
 // probe from the origin): the fan for +0x130 & 0x800 while grounded and engaged, else a stop.
 // The ramp (+0x78c a target factor, +0x824 the accumulated step) is live only for M590.
-// [not modelled] the swim block (+0x130 & 0x80; needs the surface bytes); the displacement
-// +0xa3c/+0xa44 (read only by the mover's ice blend).
+// [not modelled] the displacement +0xa3c/+0xa44 (read only by the mover's ice blend).
 void move(EnemyAi& a, const EnemyAiParams&, const AiEnv& e, int approach, int walk) {
     if (blocked_ahead(a, e)) {
         const Actor* A = e.actor;
@@ -256,6 +255,33 @@ void move(EnemyAi& a, const EnemyAiParams&, const AiEnv& e, int approach, int wa
     }
     a.speed *= f;
     a.speed310 = a.speed;                              // 0x477cfc
+    // 0x477d40..0x477ef8, the swim block [BYTES]: +0x130 & 0x80 and not a flyer (+0x398), on every move that was
+    // not blocked. P = the origin 0.5 ahead with y x 1.5 as compiled (0x477d8c..0x477dde: y + y x 0.5). On sand2
+    // (+0x4ba == 0x12): a solid ray from P + 4 down 8 — a hit off sand2 puts the whole origin on the hit point,
+    // one on it rides at +0x320 - +0x7ac with +0x7ac + 0.02 a call, back to 0 past 0.5. Else: from P + 2 down 4,
+    // y = the hit + 1.0 (+ 0 on sand2). Either hit writes +0x4ba. Only M590 gets here: the Hands (M260 / M410 /
+    // M440) never run an action that moves (their specs). +0x7ac is also M590's base turn rate, as written.
+    const Actor* A = e.actor;
+    if (A && (A->flags130 & 0x80u) && !A->flyer && e.world) {
+        Vec3 P{e.self.x + float(std::cos(double(a.heading))) * 0.5f, e.self.y + e.self.y * 0.5f,
+               e.self.z + float(std::sin(double(a.heading))) * 0.5f};
+        const bool sand = a.surf_ray == 0x12;
+        P.y += sand ? 4.0f : 2.0f;
+        const AiWorld::Ray r = e.world->ray(P, {0.0f, sand ? -8.0f : -4.0f, 0.0f});
+        if (!r.hit) return;
+        a.surf_ray = r.surface;
+        a.swim_set = true;
+        a.swim_origin = e.self;
+        if (!sand) {
+            a.swim_origin.y = r.point.y + (r.surface != 0x12 ? 1.0f : 0.0f);
+        } else if (r.surface != 0x12) {
+            a.swim_origin = r.point;
+        } else {
+            a.swim_origin.y = a.w320() - a.f(0x7ac);
+            a.f(0x7ac) = a.f(0x7ac) + 0.02f;
+            if (a.f(0x7ac) > 0.5f) a.f(0x7ac) = 0.0f;
+        }
+    }
 }
 
 // FUN_004758f0(+0x708): what the heading steers toward (+0x748).

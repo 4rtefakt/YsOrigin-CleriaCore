@@ -3468,6 +3468,33 @@ CASES.update({
         room="S_20/S_2003/S_2003", env=_LOCK,
         drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;19:at3=-12,8,36.33,270;20:epos=#55,-20,36.33;22:fxall;60:fxall;61:quit",
         expect=["t22 fxall", "[fxall] id 73 attach 0 at (-20.00, 6.43, 36.33)", "t60 fxall"], count={"[fxall] id 73": 1}),
+    # ENEMY_WATER.md W6 (M590.md §2.1, MOVEPRIM.md §2.5): a Sepaswait cannot stay over the sand. Dropped onto S_4006's
+    # sand floor (y -3, its origin under +0x320 + 0.6) the handler draws it halfway back to its last dry point a tick
+    # and gives it that point's y; the move primitive's swim block, still on the sand2 byte, then puts its origin on the
+    # stone 0.5 ahead (no height added, as compiled) and the settle lifts it.
+    # ENEMY_WATER.md W5: in a flooded room (mode 2) every live actor breathes out on the 125-tick cycle of +0x4c6 —
+    # effect 0x3d (61) 0.25 ahead of its origin, at counts 29, 25, 21, 17, 9 and 1 [BYTES 0x45c5bd..0x45c70f]. S_2010's
+    # eight monsters all start the cycle on their first tick: no bubble at t90, one each at t100.
+    "flooded_bubbles": dict(
+        room="S_20/S_2010/S_2010", env=_LOCK,
+        drive="5:opt=InfiniteHP=1;7:opt=InfiniteOxygen=1;90:fxall;100:fxall;101:quit",
+        expect=["t90 fxall", "t100 fxall", "[fxall] id 61 attach 0 at (-2.29, 1.13, 8.05)"], count={"[fxall] id 61": 8}),
+    # ENEMY_WATER.md W7 (M250.md §3.1, §3.7): a Nipper in S_2011's pool floats with its origin at the surface + 0.7
+    # (feet y 4.5; it stood on the pool's floor at 3.4 before), the action -1 every tick, in the idle section the
+    # brain asks for when it fell in (section 2 is not replaced by the swim section 300).
+    "nipper_float": dict(
+        room="S_20/S_2011/S_2011", env=dict(_LOCK, CLERIA_AI="1"),
+        drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;7:opt=InfiniteOxygen=1;19:at3=-30,8,14,180;20:actors;61:actors;62:quit",
+        expect=["id 192 cast 29 enemy hp 135 g1 0 pos (-35.5,3.4,16.6)",
+                "#192 cast 29 phase 2 sub 0 act 0xffffffff steer 0 mode 0 spd 0.0000 dist 6.26 head 1.57 culled 0 sec 2",
+                "t61 actors", "id 192 cast 29 enemy hp 135 g1 0 pos (-35.5,4.5,16.6)"]),
+    "sepaswait_sand": dict(
+        room="S_40/S_4006/S_4006", env=_F4,
+        drive="9:opt=DamageTaken=0;10:at=12,11,90;100:actors;101:epos=#196,11,20;102:actors;104:actors;105:quit",
+        expect=["id 196 cast 63 enemy hp 254 g1 0 pos (10.0,-0.0,8.7)", "epos #196 (11.00, -3.00, 20.00)",
+                "[ai] t101 M590 #196 over water (11.00, -1.92, 20.00) -> (10.48, 1.05, 14.36)",
+                "[ai] t102 #196 cast 63 swim block: origin y 1.05 -> 0.00 (surface 1)",
+                "t104 actors", "id 196 cast 63 enemy hp 254 g1 0 pos (9.6,-0.0,9.8)"]),
     "menoak_resists_yunica": dict(
         room="S_20/S_2008/S_2008", char="1", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
         expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t124 sec 0x10d", "): 0 dmg, 146/146 left", "t224 sec 0x10e",

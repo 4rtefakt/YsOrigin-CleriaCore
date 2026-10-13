@@ -12,8 +12,12 @@
 // outside +/-60 deg or swinging at it face to face — a 0.17 hop back 0.4 (+/-0.5 rad, floor
 // 4.8 behind) or, walled in, forward 0.7.
 // [not modelled] "spawned mode" (+0x730 != 0, set only by the gimmick spawner FUN_00511340:
-// the fade/scale intro, waypoint backing and bubble bullets); water (+0x389/+0x38a/+0x320);
-// the keep-out box restore (FUN_0042dc90).
+// the fade/scale intro, waypoint backing and bubble bullets).
+// Water (M210.md §3.4 [BYTES 0x487969..0x487a38], POST; ENEMY_WATER.md W6): under the surface (+0x389 or +0x38a
+// with +0x320 above its origin) the hop-spit reaches a target up to 9.6 above and may start unsupported while
+// submerged; its lift then needs no Marker while submerged and, not below Normal, is scaled by the height
+// (min(dyT - 1.4, 2)^2 x 0.25, grounded forced) for a target 2.4 or more above; the obstacle jump also launches
+// submerged with a falling timer.
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -37,6 +41,8 @@ AiOut m210(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     const float a_T = float(std::atan2(double(to.z), double(to.x)));
     auto adiff = [&](float h) { return float(std::fabs(ai::angle_diff(h, a_T))); };
     const bool grounded = e.grounded;
+    const bool sub38a = a.in_water, wet = a.in_water || a.wading;       // last tick's +0x38a / +0x389
+    const bool under = wet && a.w320() > e.self.y;
     // The mid-air boost toward a higher target (not below Normal).
     if (A && !grounded && A->vert.t <= 0.1f && a.f(0x7ac) > 0.15f && d >= 0) {
         const float t = dyT - 1.4f;
@@ -108,15 +114,25 @@ AiOut m210(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                         if (ai::request(S, 8, false, e)) out.section = 8;
                         out.attack = true; spit_common(); attacked = true;
                     }
-                } else if (dyT < 2.4f) {
+                } else if (dyT < 2.4f || (under && dyT < 9.6f)) {
                     a.action() = 2;
-                    if (ready && grounded) {
+                    if (ready && (grounded || sub38a)) {
                         if (ai::request(S, 0x139, false, e)) out.section = 0x139;
                         out.attack = true; spit_common(); attacked = true;
                     }
                 }
             }
-            if (S == 0x139 && grounded && e.aso_marker == 1) jump(0.25f);   // the hop-spit lift
+            if (S == 0x139 && (grounded || wet) && (e.aso_marker == 1 || sub38a)) {   // the hop-spit lift
+                if (under && d >= 0) {
+                    float v = 0.25f;
+                    if (!(2.4f > dyT)) {
+                        const float m = std::min(dyT - 1.4f, 2.0f);
+                        if (A) A->vert.grounded = true;
+                        v = (m * 0.25f) * m;
+                    }
+                    jump(v);
+                } else if (grounded) jump(0.25f);
+            }
             if (sub == 3 && !attacked && S != 0x139 && S != 8) {
                 if (dist < 3.75f || dist > 8.75f) { a.action() = 0; sub = 0; }
                 else {
@@ -223,9 +239,9 @@ AiOut m210(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             }
         }
     }
-    // The jump helper's section-0x13a launch: K 0.1, push +0x7e0 (no fallback). The engine
-    // also launches from deep water (+0x38a with t < 0) — [not modelled] (no water set).
-    if (A && S == 0x13a && grounded && e.aso_marker == 1) {
+    // The jump helper's section-0x13a launch: K 0.1, push +0x7e0 (no fallback); also from deep
+    // water (+0x38a with +0x330 < 0).
+    if (A && S == 0x13a && (grounded || (sub38a && A->vert.t < 0.0f)) && e.aso_marker == 1) {
         launch(*A, a.f(0x7dc) * 0.1f, out);
         push1(*A, a.heading, a.f(0x7e0));
     }
