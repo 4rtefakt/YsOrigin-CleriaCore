@@ -905,12 +905,18 @@ int l_world_puppet(lua_State* L) {                       // (character 1..3, x, 
     lua_pushinteger(L, lua_Integer(out[0]));
     return 1;
 }
+double bool_field(lua_State* L, int t, const char* k) {    // 1 / 0, NaN when the field is not there
+    lua_getfield(L, t, k);
+    const double v = lua_isnil(L, -1) ? std::numeric_limits<double>::quiet_NaN() : (lua_toboolean(L, -1) ? 1.0 : 0.0);
+    lua_pop(L, 1);
+    return v;
+}
 int l_world_set_puppet(lua_State* L) {                   // (id, {x =, y =, z =, yaw =, tag =, frame =, sheet =}) -> true while it exists
     luaL_checktype(L, 2, LUA_TTABLE);
     const double nan = std::numeric_limits<double>::quiet_NaN();
     lua_pushboolean(L, op(L, "puppet_set", {double(luaL_checkinteger(L, 1)), opt_field_n(L, 2, "x", nan), opt_field_n(L, 2, "y", nan),
                                             opt_field_n(L, 2, "z", nan), opt_field_n(L, 2, "yaw", nan), opt_field_n(L, 2, "tag", nan),
-                                            opt_field_n(L, 2, "frame", nan), opt_field_n(L, 2, "sheet", nan)}));
+                                            opt_field_n(L, 2, "frame", nan), opt_field_n(L, 2, "sheet", nan), bool_field(L, 2, "hittable")}));
     return 1;
 }
 int l_world_remove_puppet(lua_State* L) { lua_pushboolean(L, op(L, "puppet_remove", {double(luaL_checkinteger(L, 1))})); return 1; }
@@ -1417,3 +1423,56 @@ void Mod::monster_event(const events::Event& e) {
     live_monsters_.erase(actor);
     if (d.on_death) { push_event(L_, e); call_ref(d.on_death, 1, 0, "monster on_death"); }
 }
+
+namespace {
+
+// ---- cleria.combat.strike, cleria.world.snapshot / apply (the multiplayer pieces) -------------------------------
+int l_combat_strike(lua_State* L) { lua_pushboolean(L, op(L, "strike", {num_arg(L, 1, 0, 1e6)})); return 1; }   // (atk): a hit on the player, priced by the game
+const char* const kSnapKeys[12] = {"id", "cast", "level", "x", "y", "z", "yaw", "hp", "max_hp", "tag", "frame", "sheet"};
+int l_world_snapshot(lua_State* L) {                     // -> {{id =, cast =, level =, x =, y =, z =, yaw =, hp =, max_hp =, tag =, frame =, sheet =}, ...}
+    std::vector<double> out;
+    lua_newtable(L);
+    if (!op(L, "world_snapshot", {}, {}, &out)) return 1;
+    lua_Integer k = 0;
+    for (std::size_t i = 0; i + 12 <= out.size(); i += 12) {
+        lua_createtable(L, 0, 12);
+        for (int j = 0; j < 12; ++j) {
+            if (j <= 2 || j >= 9) lua_pushinteger(L, lua_Integer(out[i + std::size_t(j)])); else lua_pushnumber(L, out[i + std::size_t(j)]);
+            lua_setfield(L, -2, kSnapKeys[j]);
+        }
+        lua_rawseti(L, -2, ++k);
+    }
+    return 1;
+}
+int l_world_apply(lua_State* L) {                        // (snapshot [, {ai = false, remove = true}]) -> how many monsters matched
+    luaL_checktype(L, 1, LUA_TTABLE);
+    bool hold = true, sweep = true;
+    if (lua_istable(L, 2)) {
+        const double ai = bool_field(L, 2, "ai"), rm = bool_field(L, 2, "remove");
+        if (std::isfinite(ai)) hold = ai == 0;
+        if (std::isfinite(rm)) sweep = rm != 0;
+    }
+    std::vector<double> v = {double((hold ? 1 : 0) | (sweep ? 2 : 0))};
+    for (lua_Integer i = 1; i <= 256 && lua_rawgeti(L, 1, i) == LUA_TTABLE; ++i) {
+        const int t = lua_gettop(L);
+        for (int j = 0; j < 12; ++j) v.push_back(opt_field_n(L, t, kSnapKeys[j], j >= 9 ? -1.0 : 0.0));
+        lua_pop(L, 1);
+    }
+    std::vector<double> out;
+    if (!op(L, "world_apply", v, {}, &out) || out.empty()) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, lua_Integer(out[0]));
+    return 1;
+}
+
+void open_api7_sync(lua_State* L) {                      // the cleria table is on top of the stack
+    static const luaL_Reg combat[] = {{"strike", l_combat_strike}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "combat");
+    set_funcs(L, combat);
+    lua_pop(L, 1);
+    static const luaL_Reg world[] = {{"snapshot", l_world_snapshot}, {"apply", l_world_apply}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "world");
+    set_funcs(L, world);
+    lua_pop(L, 1);
+}
+
+}  // namespace

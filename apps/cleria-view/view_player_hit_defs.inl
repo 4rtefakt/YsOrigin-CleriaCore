@@ -59,6 +59,12 @@
                     // 0x4fbcb2..0x4fbcd1: the first player-owned locus in the pool holds its frame one
                     // tick (+0x180 += 1). [H] the victim's +0x12c bit 28 is taken as clear; the owner's
                     // own +0x118 += 1 at the same site is [not modelled].
+                    if (g_lua_puppets.count(en.instance_id)) {   // a mod's puppet (API 7): the mod is told, nothing else happens
+                        content_emit(events::Event::named("puppet_hit").with("puppet", en.instance_id).with("atk", player_stats().atk)
+                                         .with("power", power).with("knock", knock).with("class", cls)
+                                         .with("heading", heading * 57.29577951f).with("section", avm.section()));
+                        return false;
+                    }
                     if (!loci.empty()) loci.front().sword.freeze();
                     AttackStats a;
                     a.atk = player_stats().atk;

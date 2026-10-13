@@ -100,9 +100,9 @@ content, then multiplayer, then the tools.
 |---|---|---|---|
 | 49 | A puppet character | `cleria.world.puppet(character)` -> `:set{x, y, z, facing, anim}` | done (`world.puppet`, `set_puppet`, `remove_puppet`; Actor::sprite_override; checked on captures) |
 | 53 | The player's own actions | the events `attack`, `skill_used`, `jump`, `land`; `player.pose()` | done (`attack`, `skill_used`, `jump`, `land`, `player.pose()`) |
-| 50 | Hits between players | a hit shape on a puppet; `source` in the damage query | |
-| 51 | Monster state | `cleria.world.snapshot()`, `world.apply(snapshot)` | |
-| 52 | Bosses and room scripts | the same for the boss modules and the script VM | |
+| 50 | Hits between players | a hit shape on a puppet; `source` in the damage query | done (`set_puppet{hittable}`, the `puppet_hit` event, `combat.strike`) |
+| 51 | Monster state | `cleria.world.snapshot()`, `world.apply(snapshot)` | done (`world.snapshot`, `world.apply` with held monsters and their picture) |
+| 52 | Bosses and room scripts | the same for the boss modules and the script VM | not done: the boss modules and the script VM have no common state to copy; each machine runs its own (see §12.19) |
 
 ## I. For the people who write mods
 

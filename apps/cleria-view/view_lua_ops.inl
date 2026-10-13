@@ -183,6 +183,12 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         }
         if (n.size() > 5 && std::isfinite(n[5])) a->pattern.tag = int(n[5]);      // a tag of its sheet
         if (n.size() > 7 && std::isfinite(n[7]) && *aso_aia_name(std::int32_t(n[7]))) a->aia_file = std::int32_t(n[7]);   // the sheet
+        if (n.size() > 8 && std::isfinite(n[8])) {           // hittable: a body the player's hits find (they raise puppet_hit)
+            const bool on = n[8] != 0;
+            a->hp = a->max_hp = on ? 1.0f : 0.0f;
+            a->hurt_radius = 0.6f; a->hurt_half_h = 0.6f; a->hurt_shape = 0; a->hurt_off = 0.0f;
+            a->ai.hittable = on;
+        }
         if (n.size() > 6 && std::isfinite(n[6])) a->pattern.frame = std::max(0, int(n[6]));
         return true;
     }
@@ -268,7 +274,10 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         a->sp_reward = int(float(a->sp_reward) * mul(5));
         if (arg(6, -1) > 0) a->scale = float(std::clamp(arg(6), 0.2, 5.0));
         if (arg(7, -1) >= 0) a->tint = 0xff000000u | (std::uint32_t(arg(7)) & 0xffffffu);
-        if (std::isfinite(arg(8, NAN))) a->mod_ai_off = arg(8) == 0;
+        if (std::isfinite(arg(8, NAN))) {
+            a->mod_ai_off = arg(8) == 0;
+            if (!a->mod_ai_off) a->pattern = PatternPin{};   // world.apply's picture goes with the hold
+        }
         if (std::isfinite(arg(9, NAN))) {
             a->mod_boss = arg(9) != 0;
             if (!a->mod_boss && gauge_owner == a->instance_id) { hud.hide_boss_gauge(); gauge_owner = 0; }
@@ -278,6 +287,68 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
             if (tab > 0) a->mod_kind = text.substr(0, tab);
             if (tab + 1 < text.size()) a->mod_name = text.substr(tab + 1);
         }
+        return true;
+    }
+    if (op == "strike") {                                // an atk-power hit on the player, the game's own way (a script's Chr_Damage)
+        if (!alive || arg(0) <= 0) return false;
+        csHost.player_damage.push_back({float(arg(0)), false, 0});
+        return true;
+    }
+    // ---- cleria.world.snapshot / apply: the room's monsters as numbers, and a room made to match them ----
+    if (op == "world_snapshot") {                        // 12 numbers a monster: id cast level x y z yaw hp max_hp tag frame sheet
+        if (!out) return false;
+        out->clear();
+        for (const Actor& a : world.actors()) {
+            if (a.is_player() || !a.is_enemy() || !a.alive() || g_lua_puppets.count(a.instance_id)) continue;
+            int tag = a.pattern.pinned() ? a.pattern.tag : -1, frame = a.pattern.frame;
+            if (tag < 0)
+                for (const EnemyRender& er : render)
+                    if (er.actor == &a && er.avm.ok()) { tag = int(er.avm.anim_tag()); frame = int(er.avm.frame()); break; }
+            out->insert(out->end(), {double(a.instance_id), double(a.cast_id), double(a.level), double(a.pos.x), double(a.pos.y), double(a.pos.z),
+                                     double(a.yaw * 57.29577951f), double(a.hp), double(a.max_hp), double(tag), double(frame), double(a.aia_file)});
+        }
+        return true;
+    }
+    if (op == "world_apply") {                           // (flags: 1 hold the handlers, 2 remove the others; then 12 a monster) -> how many matched
+        if (!alive || n.empty()) return false;
+        const bool hold = (int(n[0]) & 1) != 0, sweep = (int(n[0]) & 2) != 0;
+        std::set<int> seen;
+        int done = 0;
+        for (std::size_t i = 1; i + 12 <= n.size(); i += 12) {
+            const int id = int(n[i]), cast = int(n[i + 1]);
+            if (id <= 0 || !etab.get(cast) || !casts.get(cast) || g_lua_puppets.count(id)) continue;
+            seen.insert(id);
+            const float hp = float(n[i + 7]);
+            Actor* a = world.find(id);
+            if (a && (a->is_player() || !a->is_enemy())) continue;         // the id is somebody else's here
+            if (a && a->cast_id != cast) { world.despawn(id); csHost.world_changed = true; continue; }   // rebuilt by the next apply
+            if (a && !a->alive()) continue;
+            if (!a) {
+                if (hp < 1.0f) continue;
+                a = world.spawn(SpawnRequest{id, cast, Vec3{float(n[i + 3]), float(n[i + 4]), float(n[i + 5])}, float(n[i + 6]), 0, int(n[i + 2])});
+                if (!a) continue;
+                csHost.world_changed = true;
+            }
+            if (hp < 1.0f) { world.despawn(a->instance_id); csHost.world_changed = true; continue; }   // it died over there: gone here, no reward
+            a->pos = {float(n[i + 3]), float(n[i + 4]), float(n[i + 5])};
+            a->yaw = float(n[i + 6]) / 57.29577951f;
+            a->max_hp = std::max(1.0f, float(n[i + 8]));
+            a->hp = std::min(hp, a->max_hp);
+            if (hold) {
+                a->mod_ai_off = true;
+                if (n[i + 9] >= 0) { a->pattern.tag = int(n[i + 9]); a->pattern.frame = std::max(0, int(n[i + 10])); }
+                if (n[i + 11] >= 0 && *aso_aia_name(std::int32_t(n[i + 11]))) a->aia_file = std::int32_t(n[i + 11]);
+            }
+            ++done;
+        }
+        if (sweep) {
+            std::vector<int> gone;
+            for (const Actor& a : world.actors())
+                if (!a.is_player() && a.is_enemy() && a.alive() && !seen.count(a.instance_id) && !g_lua_puppets.count(a.instance_id)) gone.push_back(a.instance_id);
+            for (int id : gone) world.despawn(id);
+            if (!gone.empty()) csHost.world_changed = true;
+        }
+        if (out) *out = {double(done)};
         return true;
     }
     return false;

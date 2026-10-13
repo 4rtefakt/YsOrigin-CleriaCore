@@ -1073,6 +1073,48 @@ for its theme, `camera.shake`.
 game's boss modules (those are C++ handlers of their own): no intro, no arena script. Build those from `script.run`,
 `camera.look_at`, `ui.message` and the `"exit"` filter. Checked in a drive run (`lua_api7_monsters`) and on a capture.
 
+### 12.19 Two machines: hits on a puppet, hits from afar, monsters that match
+
+The pieces a multiplayer mod is built from, with §12.13 (puppets, `player.pose`) and §12.16 (sockets). The engine
+simulates **one** player: these let a mod show the other one, exchange hits with them and keep the monsters alike.
+
+```lua
+cleria.world.set_puppet(id, {hittable = true})          -- my hits can land on the other player's puppet
+cleria.events.on("puppet_hit", function(e)              -- {puppet, atk, power, knock, class, heading, section}
+    send({t = "hit", atk = e.atk + e.power})            -- tell their machine
+end)
+cleria.combat.strike(atk)                               -- their machine: a hit on its own player, priced by the game
+
+local snap = cleria.world.snapshot()                    -- the host: the room's monsters, as plain tables
+cleria.world.apply(snap)                                -- a guest: the room made to match
+```
+
+- A **hittable** puppet has a body the player's swings, sword trails, shots and skill effects find (once a swing, as
+  for a monster). It has no HP: the hit raises `puppet_hit` and nothing else. `atk` is the attacker's ATK, `power`
+  the attack's own bonus, `class` its damage class, `heading` its direction in degrees.
+- `combat.strike(atk)` is a script's own hit on the player: refused while the i-frames run, priced against the
+  player's DEF, halved in Boost, through the `"damage"` filters, raising `player_hit`. (`combat.hurt` takes HP as it
+  is.) Friendly fire is the mod's choice: send the hit or do not.
+- `world.snapshot()` lists the living monsters: `id`, `cast`, `level`, `x, y, z`, `yaw` (degrees), `hp`, `max_hp`, and
+  the picture: `sheet`, `tag`, `frame` (as a puppet's). It is plain data: `cleria.json.encode` it.
+- `world.apply(snapshot [, {ai =, remove =}])` makes this room match and returns how many monsters matched. For
+  each entry: the monster with that `id` is moved, turned and given that HP; one that is missing is built (that
+  cast, level and id); one whose HP is under 1 is removed (no EXP, no drops: share the rewards yourself). By
+  default the monsters are **held** (`ai = false`: their handlers stop and they show the snapshot's picture, so they
+  animate as on the host) and the monsters the snapshot does not name are removed (`remove = true`). At most 256.
+- Ids: a room's own monsters get the same ids on two machines that load the same room the same way; monsters built
+  later get the ids the snapshot carries.
+
+The shape that works: one machine owns a room's monsters (it runs them, sends a snapshot 10 to 20 times a second);
+the others hold theirs and apply it, send their own hits as messages (the `"damage"` filter gives the value; the
+owner lands it with `combat.damage`), and everybody sends `player.pose()` for the puppets.
+
+[H] Not there, and why: the owner's monsters see and chase only the owner's player (the handlers read one player);
+a held monster's hit volumes are stopped with its handler, so a guest is hurt only by what the owner sends
+(`combat.strike`); the boss modules, the room scripts and the pickups are not part of a snapshot (API7.md #52):
+each machine runs its own. Checked in a drive run (`lua_api7_sync`): the snapshot of S_1002 (11 monsters), applied
+with one moved and hurt and one left out, gives 10 monsters, the first at its new place with its new HP, held.
+
 ## 10. Tests
 
 ```
@@ -1108,5 +1150,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), `puppet_hit`, `combat.strike`, `world.snapshot` / `apply` (§12.19), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

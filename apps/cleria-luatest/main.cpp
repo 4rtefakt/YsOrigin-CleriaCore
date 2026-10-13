@@ -153,6 +153,8 @@ struct FakeHost : script::Host {
         if (op == "equipment" && out) *out = {0, 6, 30, -1, 116, -1};
         if (op == "status" && out) *out = {900, 0, 0, 12};
         if (op == "exits" && out) *out = {1003, 1009};
+        if (op == "world_snapshot" && out) *out = {21, 43, 5, 1, 2, 3, 90, 50, 80, 301, 4, 15};
+        if (op == "world_apply" && out) *out = {1};
         if (op == "spawn_actor" && out && !num.empty() && num[0] == 43) *out = {0};   // cast 43 is built (id 0); any other is refused
         return op != "retry";                                   // "not now"
     }
@@ -852,7 +854,7 @@ int main(int argc, char** argv) {
                 cleria.log("puppet " .. tostring(W.puppet(2, 1, 2, 3, 90)) .. " " .. tostring(W.set_puppet(7, {x = 4, yaw = 180, tag = 1, frame = 2, sheet = 15})) .. " " ..
                            tostring(W.remove_puppet(7)) .. " pose " .. tostring(cleria.player.pose()) .. " bad " .. tostring(pcall(W.puppet, 4, 0, 0, 0)))
             )LUA");
-            check(p->ok() && h.ops7.size() == 4 && h.ops7[0] == "api7p puppet_spawn 2 1 2 3 90" && h.ops7[1] == "api7p puppet_set 7 4 nan nan 180 1 2 15" &&
+            check(p->ok() && h.ops7.size() == 4 && h.ops7[0] == "api7p puppet_spawn 2 1 2 3 90" && h.ops7[1] == "api7p puppet_set 7 4 nan nan 180 1 2 15 nan" &&
                   h.ops7[2] == "api7p puppet_remove 7" && h.ops7[3] == "api7p pose" && has(h.logs, "puppet nil true true pose nil bad false"),
                   "api 7: world.puppet / set_puppet / remove_puppet, player.pose (" + p->error() + ")");
         }
@@ -978,6 +980,21 @@ int main(int argc, char** argv) {
             check(m->ok() && h.ops7 == want && has(h.logs, "spawn 0 morph true form true bad falsefalse") && has(h.logs, "born 0") &&
                   has(h.logs, "ouch 7") && !has(h.logs, "ouch 8") && has(h.logs, "phase 1 of 9") && has(h.logs, "phase 2 of 9") && has(h.logs, "dead 43 api7m:brute"),
                   "api 7: content.define_monster / define_boss / morph, world.form, callbacks and phases (" + m->error() + ")");
+        }
+        {   // API 7: the multiplayer pieces: a hittable puppet, combat.strike, world.snapshot / apply
+            h.ops7.clear();
+            auto s = make(h, tmp, "api7y", R"LUA(
+                local W = cleria.world
+                local snap = W.snapshot()
+                cleria.log("sync " .. #snap .. " " .. snap[1].id .. " " .. snap[1].cast .. " " .. snap[1].hp .. " " .. snap[1].tag .. " " ..
+                           tostring(W.set_puppet(7, {hittable = true})) .. tostring(cleria.combat.strike(40)) .. " " ..
+                           tostring(W.apply(snap)) .. tostring(W.apply({{id = 5, cast = 43, hp = 9}}, {ai = true, remove = false})))
+            )LUA");
+            const std::vector<std::string> want = {"api7y world_snapshot", "api7y puppet_set 7 nan nan nan nan nan nan nan 1", "api7y strike 40",
+                                                   "api7y world_apply 3 21 43 5 1 2 3 90 50 80 301 4 15",
+                                                   "api7y world_apply 0 5 43 0 0 0 0 0 9 0 -1 -1 -1"};
+            check(s->ok() && h.ops7 == want && has(h.logs, "sync 1 21 43 50.0 301 truetrue 11"),
+                  "api 7: world.set_puppet{hittable}, combat.strike, world.snapshot / apply (" + s->error() + ")");
         }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);

@@ -3068,6 +3068,41 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, the multiplayer pieces. A puppet made hittable takes the player's swing as a puppet_hit event (and no
+# HP); combat.strike is a hit on the player priced by the game (HP lost, the player_hit event); world.snapshot
+# lists the room's monsters, and world.apply makes the room match a changed copy: one monster moved and hurt, one
+# gone, all held (their handlers stopped: they stay where the snapshot put them).
+_LUA_API7Y = (
+    'local W = cleria.world\n'
+    'cleria.events.on("puppet_hit", function(e) cleria.log("puppet_hit atk " .. tostring(e.atk > 0) .. " puppet " .. tostring(e.puppet > 0)) end)\n'
+    'cleria.events.on("player_hit", function(e) cleria.log("player_hit " .. tostring(e.damage > 0)) end)\n'
+    'local pup, snap, hp0\n'
+    'cleria.command("y", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "pup" then pup = W.puppet(2, st.x + 0.9, st.y, st.z, 0) cleria.log("hittable " .. tostring(W.set_puppet(pup, {hittable = true}))) end\n'
+    '    if a == "face" then cleria.player.set_position(st.x, st.y, st.z, 90) end\n'
+    '    if a == "strike" then hp0 = st.hp cleria.log("strike " .. tostring(cleria.combat.strike(60))) end\n'
+    '    if a == "hp" then cleria.log("lost hp " .. tostring(st.hp < hp0)) end\n'
+    '    if a == "snap" then snap = W.snapshot() cleria.log("snapshot " .. #snap .. " tag " .. tostring(snap[1].tag >= 0)) end\n'
+    '    if a == "apply" then\n'
+    '        snap[1].x, snap[1].z, snap[1].hp = st.x + 4, st.z, 7\n'
+    '        table.remove(snap, 2)\n'
+    '        cleria.log("applied " .. tostring(W.apply(snap)))\n'
+    '    end\n'
+    '    if a == "check" then\n'
+    '        local now, one = W.actors(), W.actor(snap[1].id)\n'
+    '        cleria.log(string.format("now %d first hp %.0f at %.1f ai %s", #now, one.hp, one.x - st.x, tostring(one.ai)))\n'
+    '    end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_sync": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7Y,
+        drive="5:opt=InfiniteHP=0;20:lua=y snap;25:lua=y apply;60:lua=y check;70:lua=y face;75:lua=y pup;80:atk;130:lua=y strike;150:lua=y hp;170:quit",
+        expect=[_LP + "snapshot 11 tag true", _LP + "applied 10", _LP + "now 10 first hp 7 at 4.0 ai false", _LP + "hittable true",
+                _LP + "puppet_hit atk true puppet true", _LP + "strike true", _LP + "player_hit true", _LP + "lost hp true"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")
