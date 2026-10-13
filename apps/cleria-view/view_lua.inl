@@ -206,6 +206,7 @@ struct LuaRt {
     std::uint32_t look_tint = 0xffffffffu;
     bool look_on = false;
     std::string spawn_by;                              // the mod whose world.spawn / world.apply is building a monster now
+    double boss_bonus = 0;                             // cleria.combat.boss_bonus: added to the player's next hit on a boss part
     int newgame_char = 0, newgame_diff = 2;            // cleria.game.new_game: asked for (0 = no), started by the title
     std::deque<std::string> log_tail;                  // the mods' last log lines (the console)
     std::set<std::string> reload;                      // mods whose script starts afresh at the next frame
@@ -870,8 +871,13 @@ static int lua_damage(bool dealt, int value, int formula, float atk, float power
 // A hit of the player's on a boss part (FUN_004fa550's result `formula`): the shell's Damage-dealt cheat, then the
 // "damage" filter (no cast).
 static int lua_part_damage(int formula, const AttackStats& a, float def, int cls) {
-    return lua_damage(true, access::damage_dealt(formula, settings().s.access.damage_dealt), formula, a.atk, a.bonus, def,
-                      cls == kDamageClassNone ? -1 : cls, -1, 0);
+    int d = lua_damage(true, access::damage_dealt(formula, settings().s.access.damage_dealt), formula, a.atk, a.bonus, def,
+                       cls == kDamageClassNone ? -1 : cls, -1, 0);
+    if (g_lua.boss_bonus >= 1.0 && d > 0) {            // the mods' pooled damage (API 7): past the filters, spent at once
+        d += int(std::min(g_lua.boss_bonus, 1.0e7));
+        g_lua.boss_bonus = 0;
+    }
+    return d;
 }
 // cleria.player.set_modifier on FUN_00420c40's results: (the game's + add) x mul; max HP stays within 1..999
 // (the game's own cap), ATK is not negative (the damage function raises it to a power).

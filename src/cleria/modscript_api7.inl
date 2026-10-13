@@ -1606,6 +1606,12 @@ namespace {
 
 // ---- cleria.combat.strike, cleria.world.snapshot / apply (the multiplayer pieces) -------------------------------
 int l_combat_strike(lua_State* L) { lua_pushboolean(L, op(L, "strike", {num_arg(L, 1, 0, 1e6), std::clamp(luaL_optnumber(L, 2, 0.0), 0.0, 1e6)})); return 1; }   // (atk): a hit on the player, priced by the game
+int l_combat_boss_bonus(lua_State* L) {                  // (n) -> the pool: damage added to the player's next hit on a boss part; 0 empties it
+    std::vector<double> out;
+    if (!op(L, "boss_bonus", {lua_isnoneornil(L, 1) ? -1.0 : num_arg(L, 1, 0, 1e7)}, {}, &out) || out.empty()) { lua_pushnil(L); return 1; }
+    lua_pushnumber(L, out[0]);
+    return 1;
+}
 const char* const kSnapKeys[12] = {"id", "cast", "level", "x", "y", "z", "yaw", "hp", "max_hp", "tag", "frame", "sheet"};
 int l_world_snapshot(lua_State* L) {                     // -> {{id =, cast =, level =, x =, y =, z =, yaw =, hp =, max_hp =, tag =, frame =, sheet =}, ...}
     std::vector<double> out;
@@ -1643,7 +1649,7 @@ int l_world_apply(lua_State* L) {                        // (snapshot [, {ai = f
 }
 
 void open_api7_sync(lua_State* L) {                      // the cleria table is on top of the stack
-    static const luaL_Reg combat[] = {{"strike", l_combat_strike}, {nullptr, nullptr}};
+    static const luaL_Reg combat[] = {{"strike", l_combat_strike}, {"boss_bonus", l_combat_boss_bonus}, {nullptr, nullptr}};
     lua_getfield(L, -1, "combat");
     set_funcs(L, combat);
     lua_pop(L, 1);

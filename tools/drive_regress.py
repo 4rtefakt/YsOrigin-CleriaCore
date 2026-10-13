@@ -3205,6 +3205,25 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, combat.boss_bonus on Velagunder at level 5: 400 in the pool is spent by the next swing that does damage
+# (CLERIA_DMG shows that hit some 400 over the others).
+_LUA_API7B = (
+    'local h0\n'
+    'cleria.command("b", function(a)\n'
+    '    local b = cleria.world.boss()\n'
+    '    if a == "mark" then h0 = b.hp end\n'
+    '    if a == "bonus" then cleria.log("pool " .. cleria.combat.boss_bonus(400)) end\n'
+    '    if a == "pooled" then cleria.log("pool after the swings " .. cleria.combat.boss_bonus() .. " gauge moved " .. tostring(b.hp <= h0)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_boss_bonus": dict(
+        room="S_10/S_1099/S_1099", lua=_LUA_API7B, env=dict(CLERIA_LEVEL="5", CLERIA_DMG="1"),
+        drive="150:flag=156,1;" + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(200, 1900, 12)) +
+              "1200:lua=b mark;1505:lua=b bonus;1800:lua=b pooled;1910:quit",
+        expect=[_LP + "pool 400", " dmg, HP ", _LP + "pool after the swings 0.0 gauge moved true"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

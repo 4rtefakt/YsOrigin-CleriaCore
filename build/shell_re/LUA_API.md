@@ -1100,6 +1100,13 @@ cleria.world.apply(snap)                                -- a guest: the room mad
 - `combat.strike(atk [, power])` is a script's own hit on the player: refused while the i-frames run, priced against the
   player's DEF, halved in Boost, through the `"damage"` filters, raising `player_hit`. (`combat.hurt` takes HP as it
   is.) Friendly fire is the mod's choice: send the hit or do not.
+- `combat.boss_bonus(n)` adds `n` to a pool that the player's **next hit on a boss part** carries on top of its own
+  damage (past the `"damage"` filters, which see a boss hit as `dir = "dealt"` with no `actor`); `boss_bonus(0)`
+  empties it, `boss_bonus()` reads it. This is how two players share a boss: each machine runs its own boss and the
+  one whose gauge (`world.boss()`) is fuller puts the difference in its pool. [H] The pool is spent by the next hit
+  that does damage, whatever it lands on: on Velagunder's armour it goes to the stun gauge, not to the HP (seen in
+  a drive run), so set it from the gauges' difference again rather than once. A player who never lands a hit keeps
+  a full boss.
 - `world.snapshot()` lists the living monsters: `id`, `cast`, `level`, `x, y, z`, `yaw` (degrees), `hp`, `max_hp`, and
   the picture: `sheet`, `tag`, `frame` (as a puppet's). It is plain data: `cleria.json.encode` it.
 - `world.apply(snapshot [, {ai =, remove =}])` makes this room match and returns how many monsters matched. For

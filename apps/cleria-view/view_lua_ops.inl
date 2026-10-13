@@ -378,5 +378,10 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         return_to_title = true; running = false; accum = 0;
         return true;
     }
+    if (op == "boss_bonus") {                            // (n): added to the pool; 0 empties it. -> the pool
+        if (arg(0) >= 0) g_lua.boss_bonus = arg(0) > 0 ? std::min(g_lua.boss_bonus + arg(0), 1.0e7) : 0.0;   // < 0: only read
+        if (out) *out = {g_lua.boss_bonus};
+        return true;
+    }
     return false;
 };
