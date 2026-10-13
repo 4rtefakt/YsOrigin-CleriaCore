@@ -34,7 +34,7 @@ int main() {
         check(s.exp_rate == 1 && s.sp_rate == 1 && s.drop_rate == 1 && s.damage_dealt == 1 && s.damage_taken == 1 &&
                   !s.inf_hp && !s.inf_mp && !s.inf_boost && !s.inf_o2 && !s.one_hit_kill && !s.cheats_active(),
               "every cheat defaults to retail (1x / off)");
-        check(s.game_speed == 1 && s.shake == 1 && !s.reduce_flashes && s.text_speed == 0 &&
+        check(s.game_speed == 1 && s.shake == 1 && !s.reduce_flashes && s.text_speed == 0 && !s.mod_save_retry &&
                   s.cutscene_skip == int(SkipMode::Double),
               "assists default to retail; the skip defaults to Double press");
     }

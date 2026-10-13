@@ -31,6 +31,7 @@ const Key kKeys[] = {
     {kAccess, "ReduceFlashes", &Settings::reduce_flashes, nullptr, nullptr, 0, 1},
     {kAccess, "ScreenShake", nullptr, &Settings::shake, nullptr, 0.0f, 1.0f},
     {kAccess, "GameSpeed", nullptr, &Settings::game_speed, nullptr, kSpeedMin, kSpeedMax},
+    {kAccess, "RetryAtModSave", &Settings::mod_save_retry, nullptr, nullptr, 0, 1},
     {kCheats, "InfiniteHP", &Settings::inf_hp, nullptr, nullptr, 0, 1},
     {kCheats, "InfiniteMP", &Settings::inf_mp, nullptr, nullptr, 0, 1},
     {kCheats, "InfiniteBoost", &Settings::inf_boost, nullptr, nullptr, 0, 1},

@@ -39,6 +39,9 @@ struct Settings {
     bool reduce_flashes = false;                 // ReduceFlashes
     float shake = 1.0f;                          // ScreenShake: 0..1 of the camera shake's offset
     float game_speed = 1.0f;                     // GameSpeed: x the logic ticks per real second
+    // RetryAtModSave: a mod's cleria.game.save (the Archipelago mod's Autosave) also moves the game over's Retry
+    // point to where it saved. Off = retail: Retry is the game's own last continue snapshot.
+    bool mod_save_retry = false;
     // [cleria.cheats]
     bool inf_hp = false, inf_mp = false, inf_boost = false, inf_o2 = false;   // InfiniteHP / MP / Boost / Oxygen
     bool one_hit_kill = false;                   // OneHitKill

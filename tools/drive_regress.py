@@ -99,6 +99,43 @@ CASES = {
                 "[death] t+90 section 5 tag 307 frame 9", "[gameover] gameover.dds",
                 "[gameover] chose retry", "Retry -> S_1009 (0.05, 2.00, 7.80), retries 1",
                 "feet (0.055, 2.000, 7.800)"]),
+    # DEATH_RETRY.md §1: a death in an ORDINARY room (S_1002, entered from S_1009) shows the same menu, and Retry
+    # goes back to the last continue snapshot -- S_1009's root -- not to the entrance of the room of the death.
+    "gameover_ordinary_room": dict(
+        room="S_10/S_1009/S_1009",
+        drive="40:exit=0;100:hp=0;260:ok;300:pos;320:quit",
+        expect=["[cont] snapshot S_1009 (0.05, 2.00, 7.80)", ">> entering S_1002", "[death] HP 0", "[gameover] gameover.dds",
+                "[gameover] chose retry", ">> entering S_1009", "Retry -> S_1009 (0.05, 2.00, 7.80), retries 1",
+                "feet (0.055, 2.000, 7.800)"],
+        absent=["[cont] snapshot S_1002", "no continue snapshot"]),
+    # DEATH_RETRY.md §2, the Boost across a Retry (the mode word 0x76c198 comes back with the block). Toal dies
+    # inside a Boost; the snapshot (the room root's) was taken outside one: he is back in human form with no Boost,
+    # and no end burst 172 goes off (it used to: the mode stayed on over a gauge of 0).
+    "boost_death_retry": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="3:flag=187,1;12:boost=30000;20:boostkey;21:abil;60:hp=0;220:ok;230:abil;231:fxall;232:flagdump;300:quit",
+        expect=["[abil] t21 sec 0x2 mp 3000 lag 3000 boost 29970 boosting 1", "[gameover] chose retry",
+                "[abil] t230 sec 0x2 mp 3000 lag 3000 boost 0 boosting 0", "[flags] "],
+        absent=["[fxall] id 172", " 141=1", "[boost] aura"]),
+    # ... and a snapshot taken INSIDE a Boost (a save + load at t30), the Boost over (t60) before the death: the
+    # Retry resumes the snapshot's Boost -- the aura again (FUN_00461d30), the gauge draining from 29430 to its
+    # end. It used to come back with flag 141 = 1 and no drain: the demon form for good (the playtest report).
+    "boost_snapshot_retry": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="3:flag=187,1;12:boost=30000;20:boostkey;30:csave=0;31:cload=0;40:abil;41:fxall;50:boost=30;60:abil;"
+              "70:hp=0;230:ok;240:abil;241:fxall;600:abil;1300:abil;1301:fxall;1302:flagdump;1310:quit",
+        expect=["[abil] t40 sec 0x2 mp 3000 lag 3000 boost 29430 boosting 1", "[fxall] id 171 attach 2",
+                "[abil] t60 sec 0x2 mp 3000 lag 3000 boost 9 boosting 0", "[gameover] chose retry",
+                "[abil] t240 sec 0x2 mp 3000 lag 3000 boost 29400 boosting 1", "[fxall] id 171 attach 2",
+                "[abil] t600 sec 0x2 mp 3000 lag 3000 boost 18600 boosting 1",
+                "[abil] t1300 sec 0x2 mp 3000 lag 3000 boost 80 boosting 0", "[flags] "],
+        count={"[boost] aura 171 on again": 2}, absent=[" 141=1"]),
+    # A door crossed while boosting: the new scene's player gets the aura again (Hugo's 39), the Boost runs on.
+    "boost_door_aura": dict(
+        room="S_10/S_1009/S_1009", char="2",
+        drive="3:flag=187,1;12:boost=30000;20:boostkey;40:exit=0;120:abil;121:fxall;140:quit",
+        expect=[">> entering S_1002", "[boost] aura 39 on again", "[abil] t120 sec 0x2 mp 3000 lag 3000 boost 27000 boosting 1",
+                "[fxall] id 39 attach 2"]),
     # ... Hugo's (Pattern(5, 0..11)) and Toal's (Pattern(5, 0..9)): lying on the last frame when the card comes.
     "death_fall_hugo": dict(
         room="S_10/S_1009/S_1009", char="2", drive="70:hp=0;180:quit",
@@ -2419,7 +2456,21 @@ CASES.update({
         expect=[_LP + "save 8 -> false", _LP + "save 8 -> false", "sidecar yso_08.cleria written", _LP + "saved slot 8",
                 _LP + "save 8 -> true", _LP + "save 64 -> false", "event load", _LP + "flag 89 = 3 n 7", "[death] HP 0",
                 _LP + "save 8 -> false"],
-        count={"-> true": 1, "[cont] snapshot S_1009": 4}),      # the room root's, the save's, the load's and its root's
+        count={"-> true": 1, "[cont] snapshot S_1009": 3}),      # the room root's, the load's and its root's
+    # DEATH_RETRY.md §3: a mod's save in an ordinary room (S_1002) does not move the Retry point -- the game over's
+    # Retry goes back to S_1009's root snapshot, as retail's would ...
+    "lua_save_retry": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_SAVE,
+        drive="40:exit=0;130:lua=sv 8;140:hp=0;300:ok;340:pos;360:quit",
+        expect=[">> entering S_1002", _LP + "save 8 -> true", "[gameover] chose retry",
+                "[gameover] Retry -> S_1009 (0.05, 2.00, 7.80), retries 1", "feet (0.055, 2.000, 7.800)"],
+        absent=["[cont] snapshot S_1002"]),
+    # ... unless the player turned on Gameplay > Game over > "Retry from mod saves" (RetryAtModSave; not retail).
+    "lua_save_retry_option": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_SAVE,
+        drive="5:opt=RetryAtModSave=1;40:exit=0;130:lua=sv 8;140:hp=0;300:ok;340:pos;360:quit",
+        expect=[">> entering S_1002", "[cont] snapshot S_1002", _LP + "save 8 -> true", "[gameover] chose retry",
+                "[gameover] Retry -> S_1002"]),
     # Save profiles (LUA_API.md §6.1). The mod's main chunk runs before a game is bound, so its set_profile is
     # taken (the hostile name becomes one folder name); in the room every set_profile is refused and changes
     # nothing. The save lands in profiles/<name>/ (`cprofile`: files in the normal folder / in the active one)
@@ -3458,7 +3509,8 @@ SMOKE = [
     "reacq_teleport", "oggnome_wake_s2001", "keep_dy_limit", "chups_latch",  # an enemy brain on floors 1-4,
     "urobass_strikes", "far_freeze_keeps_phase",                             # 5 and 6
     "statue_swap", "break_script", "access_skip_double",                     # scripts: the cleanse, a breakable, a skip
-    "saveload_floor", "gameover_retry",                                      # save / load, the continue snapshot
+    "saveload_floor", "gameover_retry", "gameover_ordinary_room",            # save / load, the continue snapshot
+    "boost_death_retry",                                                     # the Boost across a Retry
     "zava_single_jump", "boss_part_feedback",                                # a boss's start (Zava, Khonsclard)
     "duel_s1080_gameover",                                                   # a duel's start
     "book_return_title", "shell_subpages", "hud_damage_numbers",             # the book, the shell, the HUD
