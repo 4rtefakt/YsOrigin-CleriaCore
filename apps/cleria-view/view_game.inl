@@ -2190,6 +2190,8 @@ title_again:
             if (e.actor) e.avm.bind_file(&e.actor->aia_file);
             e.avm.set_section(idle, /*force*/true);
             if (file >= 0) e.actor->aia_file = file;
+            // The pin is bound after that restart, which is the port's (the list's rebuild), not a section start.
+            if (e.actor) e.avm.bind_pin(&e.actor->pattern.tag, &e.actor->pattern.frame);
             // FUN_00572230 loads C_114 with cast 0xa6 and C_115 with cast 0xa8 when one is placed
             // [BYTES 0x572272..0x5722ac]; every other sheet is read at its first use (FUN_00444850).
             if (e.actor && (e.actor->cast_id == 0xa6 || e.actor->cast_id == 0xa8))
@@ -2220,7 +2222,9 @@ title_again:
         // sprite for every spawned cast (incl. 0x12c hub NPCs the SCT never named) and
         // pair them. Stats come from ONE path (ActorWorld::spawn): SCT name / cast_type
         // -> CASTINFO -> enemy_index -> ENEMYINFO -> GAMEINFO. Real names = CASTINFO+0x10.
+        avm.bind_pin(nullptr, nullptr);                  // the player's actor is rebuilt with the world
         populate_room(world, room, game.g_flags);
+        if (Actor* wp = world.player()) avm.bind_pin(&wp->pattern.tag, &wp->pattern.frame);   // issue #102
         // This spawn pass runs the root only for its actors; its named effects (the ward) are
         // placed again by the live root on csMgr, into the EF2 sim.
         world.drop_named_effects();
@@ -7029,7 +7033,21 @@ title_again:
         auto script_actor_step = [&](EnemyRender& e, bool fixed) {
             {
                 const Actor& A = *e.actor;
-                if (A.pattern.pinned()) return;
+                if (A.pattern.pinned()) {
+                    // The mover runs on a pinned actor too. When its locomotion state +0x3a0 changes, with the
+                    // section's Movable (+0x9cc) set and no AniDisable, it latches the state and — unless motion 3
+                    // plays — asks for the table's section [EXPORT 0045f4d0.c:55, 165-175]: FUN_00446550, which
+                    // drops the pin before its type test (issue #102). So a pinned actor a script then moves
+                    // walks, and one pinned in motion plays on from its arrival.
+                    const int loco = (A.cmoving || A.fly_r2 != 0.0f) ? ((A.flags12c & 0x20u) ? 1 : 0) : 2;
+                    if (loco == e.fix_loco || (A.tag.bits & 0x80000u) || e.avm.movable() == 0.0f) return;
+                    e.fix_loco = loco;
+                    if (e.avm.section() == 3) return;
+                    e.avm.set_section(loco == 2 ? e.idle_section : loco);
+                    if (A.pattern.pinned()) return;
+                    e.actor->anim_motion = -1;
+                    e.motion_applied = -1;
+                }
                 // The locomotion state +0x3a0 (idle / walk / run) is kept apart from the motion +0x994: when
                 // it changes, FUN_0045f4d0 sets the table's motion over whatever plays, a Chr_Animate motion
                 // included, unless that motion is 3 or AniDisable is on [EXPORT 0045f4d0.c L168-176]. So an

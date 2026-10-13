@@ -78,6 +78,10 @@ class AsoVm {
     // VM) a section start leaves file_id() alone. [not modelled] the player routine FUN_00464fc0, which patches
     // the loaded header's default to the wanted sheet and restarts a locomotion section when it changes.
     void bind_file(std::int32_t* actor_file) { file_out_ = actor_file; }
+    // The sprite pin vm[0x4b] / [0x4c] (actor +0xa1c / +0xa20: Chr_Pattern's tag and frame, kept on the actor as
+    // Actor::pattern). A section request that reaches its type test and every section start write -1 / 0 there
+    // (set_section; issue #102). Unbound: nothing is written.
+    void bind_pin(std::int32_t* tag, std::int32_t* frame) { pin_tag_ = tag; pin_frame_ = frame; }
     // Switch to a section by ID. Sections are addressed by id, not index; the VM's
     // initial state is id 2 (idle for the players), present in 112/115 files.
     //
@@ -390,6 +394,8 @@ class AsoVm {
     std::int32_t wait_ = 0;
     std::int32_t anim_tag_ = -1, frame_ = 0, file_id_ = -1, dir_offset_ = 0;
     std::int32_t* file_out_ = nullptr;
+    std::int32_t* pin_tag_ = nullptr;
+    std::int32_t* pin_frame_ = nullptr;
     std::int32_t marker_ = -1, marker_wait_ = -1;
 public:
     // anime_Marker's last value = the actor's +0x9bc (sprite[0x33]) that brains read.

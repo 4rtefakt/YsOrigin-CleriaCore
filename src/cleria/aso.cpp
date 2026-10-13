@@ -163,12 +163,15 @@ bool AsoVm::set_section(std::int32_t id, bool force) {
     // refused: it restarts it (the callers that must not restart compare +0x994 themselves). The flag != 0
     // form, which returns 0 for the running section (0x4465b5..0x4465c2), is pushed as an immediate at three
     // call sites (M180's 0x47d464 / 0x47d7c3, M250's 0x48f299) and is the caller's own `section() != id` test here.
-    // [not modelled] vm[0x4b] = -1 / [0x4c] = 0, written before the type test: nothing here stops the VM by them.
+    // vm[0x4b] = -1 / [0x4c] = 0 is written before the type test [BYTES 0x4465f0..0x446600], so also by a refused
+    // request, and by every start (FUN_00446620): the bound pin (bind_pin). The run gate those words are is the
+    // host's (it does not tick a pinned actor's VM).
     bool found = s != nullptr;
     if (!s) {
         if (force || !(s = aso_->find(0))) return false;
         id = 0;
     }
+    if (pin_tag_) { *pin_tag_ = -1; *pin_frame_ = 0; }
     if (!force && cur_ && s->type < cur_->type) return false;
     // Capabilities are NOT touched here (FUN_00446620 leaves them): the VM zeroes them when it
     // next runs the section from its first word (reset_section_regs).

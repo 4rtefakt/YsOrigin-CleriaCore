@@ -253,6 +253,21 @@ int main(int argc, char** argv) {
                         ok ? "OK" : "MISMATCH", h.radius, h.fwd, h.voff, h.life, h.rehit, int(h.one_shot));
             if (!ok) gencol_fail = 1;
         }
+        // Issue #102: the bound pin (vm[0x4b] / [0x4c]) is dropped by a section start and by a request the type
+        // test then refuses (M_250: the hit reaction 4 is type 4, the attack 7 type 3).
+        Aso np = Aso::load(fs::path(argv[1]) / "ANI" / "M_250.ASO");
+        if (np.ok()) {
+            AsoVm vm; vm.bind(&np);
+            std::int32_t tag = 300, frame = 3;
+            vm.bind_pin(&tag, &frame);
+            vm.set_section(4, /*force*/true);
+            const bool start = tag == -1 && frame == 0;
+            tag = 300; frame = 3;
+            const bool refused = !vm.set_section(7) && vm.section() == 4;
+            const bool ok = start && refused && tag == -1 && frame == 0;
+            std::printf("pin release M_250 (start 4, refused 7): %s\n", ok ? "OK" : "MISMATCH");
+            if (!ok) gencol_fail = 1;
+        }
         // anime_GenerateEffect (0x25): Perrie's run section 1 lays its fire puff,
         // GenerateEffect(251, 0, 0, -0.25, 1, 0, rtype 1, status 0, power 0, knock 1) (EFFECTHIT.md §7).
         Aso pe = Aso::load(fs::path(argv[1]) / "ANI" / "M_540.ASO");
