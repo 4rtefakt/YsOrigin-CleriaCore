@@ -191,7 +191,9 @@ def cases(clear_data):
               "40:every=40,1800,ok;2001:mp=3000;2002:skill+;2004:skill-;2060:vstat;2100:boss;2110:mp=3000;2112:skill+;"
               "2114:skill-;2200:quit",
         expect=["t2004 chain: power -15.0, 5 hop(s) over 0 monster(s), delay 25 (section 0x10c): [", " boss part(s)] boss01.",
-                "chain hits boss01 part 1: ", "[video] bolts quads ",
+                # (the bolts before part 1's first hit since 2026-10-13, issue #104: the chain's hops draw from another
+                # place of the RNG and reach part 1 at t2060, just after the vstat; they reached it at t2047.)
+                "[video] bolts quads ", "chain hits boss01 part 1: ",
                 "t2114 chain: power -2.0, 0 hop(s) over 0 monster(s), delay 25, the ray (section 0x10c):"],
         absent=["chain hop", "[video] bolts quads 0"])
     # ... and Khonsclard: from the arena's edge the one part in reach of the rule is the sunk body's (part 7).

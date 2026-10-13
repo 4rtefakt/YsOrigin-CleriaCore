@@ -7839,10 +7839,9 @@ title_again:
             const float hx0 = feet.x, hz0 = feet.z;   // the tick's horizontal start (the wall push below)
             // The slide off a no-jump floor entry [BYTES 0x45ad20..0x45adcd; f32 0x6bd19c / 0x6bd018 / 0x6bd174]:
             // grounded on an entry whose +0x89 is set, the floor normal's y > 0: the tick's displacement gains
-            // clamp(0.1 |n.xz|, 0.0025, 0.075) along n.xz (a level entry, |n.xz| = 0, gives none).
-            // [not modelled] on Zava's head entry 0, the other no-jump floor: with it zava_fight and
-            // zava_nightmare_knockdown take another course that has not been read yet — Darm's body only.
-            if (pv.grounded && player_floor_nojump && player_floor_obj == "boss08" && player_floor_n.y > 0.0f) {
+            // clamp(0.1 |n.xz|, 0.0025, 0.075) along n.xz (a level entry, |n.xz| = 0, gives none). The two writers
+            // of the byte are Darm's body and entry 0 of Zava's heads (issue #107).
+            if (pv.grounded && player_floor_nojump && player_floor_n.y > 0.0f) {
                 const float nl = std::sqrt(player_floor_n.x * player_floor_n.x + player_floor_n.z * player_floor_n.z);
                 if (nl > 0.0f) {
                     const float k = std::min(0.075f, std::max(0.0025f, nl * 0.1f)) / nl;

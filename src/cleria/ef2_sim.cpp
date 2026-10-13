@@ -178,13 +178,13 @@ void System::emit(Effect& fx, int em, int delay, Particle* parent) {
             h.rehit = rd<std::uint8_t>(E.b2, 0x896);
             h.power = fx.power; h.knock = fx.knock; h.rtype = fx.rtype; h.status = fx.status;
             h.cls = fx.cls; h.side = fx.side; h.atk = fx.atk;
+            // EFFECTHIT §1 0x45039e: the world trace p+0x2b0, only for an emitter WITH a hit mode — `cmp
+            // [B2+0x894], 0; je` jumps over this test [BYTES 0x450225..0x4503a7]. A mode-0 emitter never collides
+            // by itself, whatever its bit and its impact id say (issue #104): its impact comes from an actor
+            // contact of the effect or from its owner's code.
+            if (rd<std::uint8_t>(E.b2, 0x895) & 1) p->collide = true;
         }
-        // EFFECTHIT §1 0x45039e. Retail arms p+0x2b0 only for an emitter WITH a hit mode: `cmp [B2+0x894], 0; je`
-        // jumps over this test [BYTES 0x450225..0x4503a7]. [approx] the sim arms it for every emitter with the bit:
-        // 44 shipped effects have mode-0 emitters with it (most with an impact id), and for a projectile their
-        // contact stands in for the bullet's own impact call on the effect's first particle (FUN_005a0d10 ->
-        // FUN_0044ebb0(force), not ported). collide_tick leaves out the one case that is never a projectile.
-        if (rd<std::uint8_t>(E.b2, 0x895) & 1) p->collide = true;
+        if (fx.id == 0x171) p->collide = true;                     // fx+0x202, set for id 0x171 by FUN_00450410 [BYTES 0x4504eb..0x4504f3, 0x4503ae..0x4503bd]
         fx.live += 1;
         parts_.push_back(std::move(p));
     }
@@ -495,10 +495,6 @@ bool System::impact(Particle& p, bool force) {
 // the terrain; on contact it snaps there and dies through FUN_0044ebb0(force 1) (hit disarmed).
 // With fx+0x1dc & 0x80 the test is only "below y = 0" ([not modelled]: no effect sets it here).
 void System::collide_tick(Particle& p) {
-    // A mode-0 particle of an effect that follows an actor (an aura) does not collide, as the bytes say for every
-    // mode-0 particle (spawn_emitter's note). Toal's Boost aura (PC3_MAZIN em4: sparks, mode 0, B2+0x895 = 3) used
-    // to raise its effect's kill flag at the first spark on the floor and was gone 230 ticks into the Boost (#103).
-    if (p.hit.mode == 0 && p.fx && p.fx->attach_parent && p.fx->attach_mode == 2) return;
     const Vec3 w = p.world_pos();
     if (!p.latched) { p.latched = true; p.latch = w; return; }
     Vec3 at{};

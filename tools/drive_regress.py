@@ -240,7 +240,10 @@ CASES = {
         expect=["[boss] Velagunder: HP 700 STR 70 DEF 53 lv 8", "[boss] 31 body entries (820 tris)",
                 "fx 323 (atk 70 power 0.0 knock 5.00",
                 "M890 #175 spawned", "hp 58 lv 8 mode 1", "fx 326 (atk 70 power 0.0 knock 1.00 rtype 1",
-                "fx 326 (atk 70 power 4.0 knock 1.00 rtype 2", "eaten (2 so far)", "eaten (5 so far)",
+                # (2026-10-13, issue #104: the second 326, power 4.0 / rtype 2, was the laser effect 322's own mode-0
+                # emitter 0 meeting the floor with the laser's hit values. Retail never arms it; the laser's impact is
+                # the module's ray alone, the line above: power 0, rtype 1.)
+                "eaten (2 so far)", "eaten (5 so far)",
                 "velagunder part 2 (STR 70 power 14.0 rtype 2"]),
     # The taunt (VELAGUNDER.md C10, §5.8: state 8, ACTION_01 — the player grounded on surface 5 (his wood body)
     # with the floor above 4.0, out of his reach). After the first stun is over (t2610: state 0, WAIT) Yunica is
@@ -958,7 +961,10 @@ CASES.update({
     # the same fight ends at t8952, so the half-HP end is read at t9000.
     "duel_s3080_kishgal": dict(
         room="S_30/S_3080/S_3080", char="1", env=dict(_LOCK, CLERIA_LEVEL="28"),
-        drive=_S3080.format(end=15000, cast=172) + "9100:dflags;15000:dflags;15001:quit",   # 9100 (was 9000) since FIX_SLOTS S5c: the handlers run under the intro's Fix(0), the RNG is elsewhere at the first exchange and the half-HP end comes at t9038 (was t8845)
+        # dflags at 8920: the half-HP end comes at t8859 since 2026-10-13 (issue #104: Kishgal's ice — M_860_SHOTTO /
+        # _KOORI — no longer bursts into effect 116 where a mode-0 shard meets the floor, so the exchange runs another
+        # course); it was t9038 (dflags 9100) since FIX_SLOTS S5c and t8845 (9000) before.
+        drive=_S3080.format(end=15000, cast=172) + "8920:dflags;15000:dflags;15001:quit",
         expect=["cast 172 hp 2985/2985", "| lv 19 max 2985 atk 121 def 108 exp 5766", "[content] boss_defeated S_3080",
                 "133=1 156=0 174=1", ">> entering S_1000", "232=1"], absent=["[duel] lost"], count={"boss_defeated": 1}),
     # S_3080 Hugo wins against Toal (M820): 174 = 1 -> Battle_Win (its 0.4 slow-mo) -> EV_Feena02_2, where
@@ -1534,7 +1540,13 @@ CASES.update({
         room="S_60/S_6082/S_6082",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.45;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss6;5700:quit",
+              "11:flag=163,1;60:boss6;6400:quit",
+        # Re-pinned 2026-10-13 (issues #104 and #107: the tell beam 322 is no longer killed by its mode-0 particles on
+        # the floor, and the no-jump entry of a head slides the player 0.0025 a tick). Head b first, then a, as
+        # before, about 150 ticks sooner (phase 2 at t1190 with 4037 HP, thrown off head b at t1942, off head a at
+        # t3856), but she survives the second break with 330 HP: the big attack (action 20, both heads' move 17, no
+        # direct hit on the pilot), a third mount on head b, and the kill as she is thrown off it at t5716. The run is
+        # 700 ticks longer.
         # Re-pinned 2026-10-10 (the dust puffs: every hit on Zava takes 20 draws of the shared xorshift): the same
         # fight mirrored — she mounts head a first (orbs 4/0, thrown off it at t1884), the floor cast sends head b
         # diving (move 11), the second mount is head b (0/4, thrown off at t3927); the kill is at t4102 (was t3830)
@@ -1561,14 +1573,15 @@ CASES.update({
                 "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "jump under Zava (act 4)", "second jump",
                 "air attack", "y 13.00, falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded",
                 # (4178 since 2026-10-12: the landing effect's draws, ADOL.md §13; every beat of the list is as before)
-                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4178/6000", "BossCam 3", "move 9", "BossCam 4",
+                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4037/6000", "BossCam 3", "move 9", "BossCam 4",
                 "move 10", "riding, hits left 0, ride count 1, lives 0/4", "head b move 12 (pattern 2, lives 3)",
                 "lives 0/2", "lives 0/1",
                 "head b move 8 (pattern 2, lives 0)", "Zava is thrown off head b",
                 "grounded, hits left 0, ride count 1, lives 0/0", "Zava phase 2 action 7", "Zava phase 2 action 8",
                 "head a move 11", "Zava phase 2 action 12", "Zava phase 2 action 0", "head a move 9",
                 "riding, hits left 4, ride count 1, lives 4/0", "holds the player", "lets the player go",
-                "Zava is thrown off head a", "BossCam 6", "EXP (lv 45)",
+                "Zava is thrown off head a", "Zava phase 2 action 20", "head a move 17", "Zava is thrown off head b",
+                "BossCam 6", "EXP (lv 45)",
                 "flag 225 = 1", "move 15", "head b destroyed", "head a destroyed"],
         absent=["direct damage ATK 267"]),
     # ... under 25 % at her re-position the big attack instead (action 20, both heads dive = move 17, the pull to
@@ -1604,7 +1617,9 @@ CASES.update({
         room="S_60/S_6082/S_6082",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="4:diff=4;5:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.8;8:tier=10;9:flag=205,1;"
-              "10:saveload;11:flag=163,1;60:boss6=lightning;360:quit",
+              # (400, was 360, since 2026-10-13, issue #107: on head b's no-jump entry the slide moves her, she lands
+              # two more hits after the knock-down and the second lightning choice comes at t373, was t360.)
+              "10:saveload;11:flag=163,1;60:boss6=lightning;400:quit",
         expect=["HP 5000 STR 232 DEF 325, level 4", "Zava phase 1 action 1 hp 7500/7500", "Zava phase 1 action 8",
                 "jump under Zava (act 8)", "flying, hits left 3", "flying, hits left 2", "flying, hits left 1",
                 "falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded", "Zava phase 1 action 0",
@@ -1647,7 +1662,7 @@ CASES.update({
     "dalles_fight": dict(
         room="S_70/S_7080/S_7080",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
-        drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.5;8:tier=10;"
+        drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.3;8:tier=10;"
               "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
               "16:flag=184,3;17:bracelet=116;60:boss7;7800:quit",
         expect=["[boss07] Dalles: HP 2500 STR 255, parts DEF 255 pool 25000, options 1000",
@@ -1676,15 +1691,26 @@ CASES.update({
                 # and again has the same events in another order: the first dark barrier falls with option R at t3084,
                 # three ticks BEFORE the capture (t3087; the other dimension t3176..3738), it stands again with the
                 # options revived (t4010), and falls twice more before the death at t5037 (was t5265).
-                "barrier D up", "phase 2 (max HP 4250)", "target option", "bullet kind 0x25 effect 54",
-                "clip SIS_LAZER_START", "option L destroyed", "the capture circle at", "CamSlot 3",
-                "barrier D broken (window 699)", "option R destroyed", "target the core with the sword",
+                # Re-pinned 2026-10-13 (issue #104: no mode-0 emitter traces the world — one pillar bullet a point,
+                # Yunica's skill sparks no longer burst into effect 2 on the floor, the strongest spell 339 is not
+                # ended by a particle on the floor). At Damage dealt 1.5 the fight on this course ended at t4180
+                # WITHOUT the capture; at 1.3 every beat is here again in another order: the dark barrier falls
+                # with option L at t3536, stands again with the options revived (t3786), the capture circle after
+                # option R is down (t4072; the other dimension t4281..4843), then it falls twice more before the
+                # death at t5839.
+                "barrier D up", "phase 2 (max HP 4250)", "target option", "option R destroyed",
+                "bullet kind 0x25 effect 54", "CamSlot 3", "barrier D broken (window 699)", "option L destroyed",
+                "target the core with the sword", "barrier D up", "option R revived (1000)", "option L revived (1000)",
+                "option R destroyed", "clip SIS_LAZER_START", "the capture circle at",
                 "the player is captured", "CamSlot 5", "every particle removed", "mode 0 -> 4", "clip KIAI_START",
                 "the player is pinned at (0.0,495.0,-5.0)", "clip METEOR", "the player is returned to (0.0,7.5,-15.0)",
-                "mode 4 -> 0", "barrier D up", "option R revived (1000)", "option L revived (1000)",
+                "mode 4 -> 0", "barrier D broken (window 699)", "option L destroyed", "barrier D up",
                 "barrier D broken (window 699)",
                 "flag 226 = 1", "EXP (lv 49)", "the death starts", "[content] boss_defeated S_7080 flag 226", "[boss07] t",
-                "destroyed", ">> entering S_7000"], count={"boss_defeated": 1, "impact 404 at": 4, "[bgm] 17 (scene)": 1}),
+                "destroyed", ">> entering S_7000"],
+        # (impact 404: 2, was 4, since 2026-10-13, issue #104: of BS_07_TAMA_B's emitters with the impact id only
+        # emitter 11 has a hit mode; the mode-0 ones (9, 10, 12) gave a second pillar bullet at each point.)
+        count={"boss_defeated": 1, "impact 404 at": 2, "[bgm] 17 (scene)": 1}),
     # Darm (build/boss_re/DARM*.md; src/cleria/boss08, apps/cleria-view/view_boss08.inl). Toal's last fight, from the
     # room's own retry start: flag 205 = 1 and a reload make the root script Mesh_Locate boss08 (its ctor builds the
     # tail, the core, the arms and the floor s7099yuka), place the player at (0, 0, -10) and run Battle (flag 156 at
@@ -1714,11 +1740,17 @@ CASES.update({
     # skirt's mouth, jumps over the rim onto the inner floor (`inside the skirt`, standing on boss08) and uses the air
     # combo there (24 / 26 a hit). Two windows (t12308, t13954), the kill at t15118 on the barrier's chip after the
     # second closed; the run 19500 ticks, now under the lockstep.
+    # Re-pinned 2026-10-13 (issue #104: Darm's belly breath, effect 460, is no longer ended where its mode-0 particles
+    # meet the far wall, nor his barrier effect 144 by a spark on the floor — the RNG is elsewhere from the first
+    # breath on, t322). The same four bands (the forms Normal -> Low -> High -> Low -> High -> OnBack at t11023),
+    # four open windows (t12311, t13888, t15521, t17104: 11, 22, 18 and 3 air-combo hits of 24 / 26; the tail's
+    # attacks throw the pilot out of the skirt in each) and the kill INSIDE the fourth at t17815; the run 22300
+    # ticks. The three closed windows and the four breaks are pinned by `count`.
     "darm_fight": dict(
         room="S_70/S_7099/S_7099",
         env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8;61:every=15,19500,oktapf;19500:quit",
+              "11:flag=163,1;60:boss8;61:every=15,22300,oktapf;22300:quit",
         expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
                 "boss08t: 39 of 60 collision entries off (mask 0xffffffff)", "[bgm] 18 (scene)",
                 "the fight starts, the body at (0.00,0.00,8.50)", "target part 5 from the floor",
@@ -1737,13 +1769,13 @@ CASES.update({
                 "the barrier is up", "CamSlot 4 (", "settled in OnBack", "(20_Beat)",
                 "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "bullet(s) kind 0x25 effect 484",
                 "(24_StabInTheGround)", "released from Bone_", "(25_PullFromTheGround)", "barrier 59",
-                "the barrier breaks (window 900)", "[pilot] t12309 the window: to the skirt's mouth",
+                "the barrier breaks (window 900)", "[pilot] t17129 the window: to the skirt's mouth",
                 "the window: inside the skirt, the air combo at the core",
-                "the swing hits the core 0 (DEF 295, class 3): 24 dmg", "the window closed: the barrier is back",
-                "flag 215 = 0", "[boss08] t15118 the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
+                "the swing hits the core 0 (DEF 295, class 3): 24 dmg",
+                "flag 215 = 0", "[boss08] t17815 the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
                 "[content] boss_defeated S_7099 flag 227", "the death timeline starts", "the body is gone (alpha 0)",
                 "[bgm] 0 (script: stop over 3500 ms)", ">> entering S_7000"],
-        count={"boss_defeated": 1}),
+        count={"boss_defeated": 1, "the barrier breaks (window 900)": 4, "the window closed: the barrier is back": 3}),
     # Darm ON FOOT (drive `boss8=walk`, view_boss08.inl): darm_fight's pilot without its placements — from the retry
     # start at (0, 0, -10) the stick is held along a route over resting tiles clear of the hulls to each spot, and
     # Attack / Jump are pressed only there (the first target at t272, part 7 from (-7.66, 5.60)). Through the four
@@ -1761,31 +1793,38 @@ CASES.update({
         room="S_70/S_7099/S_7099",
         env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8=walk;61:every=15,25000,oktapf;25000:quit",
+              "11:flag=163,1;66:boss8=walk;67:every=15,18000,oktapf;18000:quit",
+        # Re-pinned 2026-10-13 (issue #104: the belly breath, effect 460, is no longer ended by its mode-0 particles on
+        # the far wall, so the RNG is elsewhere from t322 on). The pilot starts at t66 (was t60): on the t60 course the
+        # Normal -> OnBack change set a leg down under the player and the touch's flinch held him on it for the rest
+        # of the run (issue #108) — started six ticks later the same pilot meets the forms Normal, High, Low, High,
+        # Low, OnBack (t11277), breaks the barrier from the floor at t12931, is inside the skirt 600 ticks into the
+        # first window, and kills in the SECOND at t15707; the run 18000 ticks. The DoubleLariat and the Low <->
+        # Normal changes are darm_fight's on this course.
         expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
                 "boss08t: 39 of 60 collision entries off (mask 0xffffffff)", "[bgm] 18 (scene)",
                 "the fight starts, the body at (0.00,0.00,8.50)", "touch boss08 (side) -> touch_tail",
-                "[pilot] t581 target part 7 from the floor, from (-5.61,3.86)",
-                "boss08: 0 of 67 collision entries off (mask 0x0)", "the swing hits part 7", "with a jump",
+                "[pilot] t310 target part 7 from the floor, from (-7.62,5.89)", "the swing hits part 7", "with a jump",
+                "CamSlot 5 (1.000)", "the player fell off the floor", "effect 517",
+                "the player is put back at (0.0,19.0,-6.0)", "boss08: 2 of 67 collision entries off (mask 0x4)",
                 "target part 5 from the floor", "the swing hits part 5 (DEF 998, class 3): 2 dmg",
-                "boss08: 2 of 67 collision entries off (mask 0x4)", "target part 2 from the floor",
+                "bullet(s) kind 0x25 effect 467", "target part 2 from the floor",
                 "MatMode 1: black (Down)", "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
                 "target the core 0", "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
-                "band 1 (the refill starts", "CamSlot 6 (0.020)", "MatMode 2: the outline (form change)",
-                "form Normal -> Low", "the refill ends at hp", "CamSlot 5 (1.000)", "the player fell off the floor",
-                "effect 517", "the player is put back at (0.0,19.0,-6.0)", "motion s7099yuka c", "CamSlot 2 (0.025)",
-                "MatMode 0: lit", "settled in Low", "bullet(s) kind 0x25 effect 467", "clip 38_LowDown",
-                "form Low -> Normal", "clip 36_DoubleLariat", "effect 512", "band 2 (the refill starts",
-                "boss08: 42 of 67 collision entries off (mask 0xf)", "band 3 (the refill starts", "form Low -> High",
-                "CamSlot 3 (0.025)", "settled in High", "touch boss08t (side) -> touch_tail",
-                "bullet(s) kind 0x25 effect 484", "clip 39_HighDown", "band 4 (the refill starts",
-                "form High -> OnBack", "the barrier is up", "settled in OnBack", "(20_Beat)", "CamSlot 4 (",
-                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "released from Bone_", "(24_StabInTheGround)",
+                "boss08: 0 of 67 collision entries off (mask 0x0)", "band 1 (the refill starts", "CamSlot 6 (0.020)",
+                "MatMode 2: the outline (form change)", "form Normal -> High", "the refill ends at hp",
+                "CamSlot 3 (0.025)", "MatMode 0: lit", "settled in High", "touch boss08t (side) -> touch_tail",
+                "clip 39_HighDown", "band 2 (the refill starts", "form High -> Low", "motion s7099yuka c",
+                "CamSlot 2 (0.025)", "settled in Low", "clip 38_LowDown", "form Low -> High",
+                "band 3 (the refill starts", "boss08: 42 of 67 collision entries off (mask 0xf)",
+                "band 4 (the refill starts", "form Low -> OnBack", "the barrier is up", "settled in OnBack", "(20_Beat)",
+                "CamSlot 4 (", "bullet(s) kind 0x25 effect 484", "(24_StabInTheGround)",
+                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "released from Bone_",
                 "(25_PullFromTheGround)", "barrier 59", "the barrier breaks (window 900)",
-                "[pilot] t19696 the window: to the skirt's mouth",
+                "[pilot] t12932 the window: to the skirt's mouth",
                 "the window: inside the skirt, the air combo at the core",
                 "the swing hits the core 0 (DEF 295, class 3)", "the swing hits the core 0 (DEF 295, class 3): 24 dmg",
-                "the window closed: the barrier is back", "flag 215 = 0", "[boss08] t24512 the kill (core hp",
+                "the window closed: the barrier is back", "flag 215 = 0", "[boss08] t15707 the kill (core hp",
                 "motion boss08 30_OnBackWait", "flag 227 = 1",
                 "[content] boss_defeated S_7099 flag 227"],
         absent=["the floor moves: over to"]),
@@ -2751,10 +2790,11 @@ CASES.update({
     # 0x7b2488 = 1: that frame is copied and drawn over the live scene, first at floor(0.975 x 256) = 249.
     # Re-pinned 2026-10-10 (the dust puffs, as zava_fight): her death is at t4102, was t3830; the run ends at t4400.
     # ... and again (the blood splats, as zava_fight: Damage dealt 0.45): her death is at t4900; the run ends at t5200.
+    # ... and again 2026-10-13 (issues #104 / #107, as zava_fight): her death is at t5716; the run ends at t6000.
     "frame_hold": dict(
         room="S_60/S_6082/S_6082", env={"CLERIA_CHAR": "1", "CLERIA_SCRFX_LOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.45;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss6;5200:quit",
+              "11:flag=163,1;60:boss6;6000:quit",
         expect=["FrameHold(1.0000, -0.0250)", "[framehold] t", "frame copied, drawn at alpha 249"]),
 })
 
@@ -2879,8 +2919,11 @@ CASES.update({
         room="S_60/S_6082/S_6082", env=_LOCK,
         drive="5:opt=InfiniteHP=1;6:opt=DamageTaken=0;30:at3=-39.46,8.5,29.2,0;38:floor;39:pos;40:jump;46:pos;"
               "60:at3=-38.66,16,30,0;68:floor;69:pos;70:jump;76:pos;90:quit",
-        expect=["floor 'boss06a' nojump 1", "feet (-39.460, 7.108, 29.098)", "[jump] t40 refused", "feet (-39.461, 7.069, 28.978)",
-                "floor 'boss06a' nojump 0", "feet (-38.662, 10.763, 29.838)", "feet (-38.662, 12.413, 29.838)"],
+        # 2026-10-13 (issue #107): the no-jump entry also slides her — clamp(0.1 |n.xz|, 0.0025, 0.075) a tick along
+        # the floor normal [BYTES 0x45ad20..0x45adcd]; on this nearly level surface that is the 0.0025 minimum (the
+        # positions were (-39.460, 7.108, 29.098) and (-39.461, 7.069, 28.978); on the top (-38.662, ..)).
+        expect=["floor 'boss06a' nojump 1", "feet (-39.453, 7.108, 29.118)", "[jump] t40 refused", "feet (-39.446, 7.069, 29.017)",
+                "floor 'boss06a' nojump 0", "feet (-38.655, 10.762, 29.842)", "feet (-38.655, 12.412, 29.842)"],
         count={"[jump] t": 1}),
     # FIX_SLOTS.md S5c [LIKELY, not retail-proven; RETAIL_ANSWERS.md A1]: the monsters' handlers test slot 1 alone, so
     # under a Fix that holds slot 0 only they run on. S_1004's Riffligan #189 seen from 6 u, then the blessing shop
@@ -3021,7 +3064,9 @@ CASES.update({
         room="S_70/S_7080/S_7080", env={"CLERIA_CHAR": "2", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="1:opt=CutsceneSkip=3;3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.5;"
               "8:tier=10;9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
-              "16:flag=184,3;17:bracelet=116;60:boss7;5200:every=10,20600,oktapf;20600:quit",
+              # (6700 / 22100, were 5200 / 20600, since 2026-10-13, issue #104: with one pillar bullet a point and
+              # no mode-0 contacts the same fight is 1450 ticks longer on this course — the kill at t5743.)
+              "16:flag=184,3;17:bracelet=116;60:boss7;6700:every=10,22100,oktapf;22100:quit",
         expect=["flag 226 = 1", ">> entering S_7000", "ChangeScene 'demo5\\' -> S_7002", ">> entering S_0003",
                 "ChangeScene 'demo7\\' -> S_0003", "[clear] EventXX(4): GameFirstPlay = 1, clear flag 298 = 1",
                 "record.ta2 saved", "ChangeScene 'Title\\' -> the title", "[title] clear data: Yunica 00 Hugo 01 Toal 00"]),
