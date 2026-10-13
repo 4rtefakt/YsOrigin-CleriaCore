@@ -131,6 +131,27 @@ struct LuaHost : script::Host {
     bool to_screen(float x, float y, float z, float* sx, float* sy) override;
     bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
                  std::vector<double>* out) override;
+    void ui_text(void* list, const std::string& t, std::uint32_t col) override {
+        ui::List& L = *static_cast<ui::List*>(list);
+        const float px = 17.0f * ui::S, wrap = L.size.x - 26.0f * ui::S;
+        const ImVec2 ts = ui::F.body->CalcTextSizeA(px, FLT_MAX, wrap, t.c_str());
+        L.dl->AddText(ui::F.body, px, {L.org.x + 7.0f * ui::S, L.org.y + L.y - L.scroll + 2.0f * ui::S}, col, t.c_str(), nullptr, wrap);
+        L.y += ts.y + 12.0f * ui::S;
+    }
+    void ui_progress(void* list, const std::string& label, double fraction, const std::string& text, std::uint32_t col) override {
+        ui::List& L = *static_cast<ui::List*>(list);
+        const ui::RowIo r = ui::row_frame(L, nullptr, false, /*focusable*/false);
+        const float lpx = 16.5f * ui::S, cy = (r.a.y + r.b.y) * 0.5f, x0 = r.a.x + (r.b.x - r.a.x) * 0.42f, x1 = r.b.x - 13.0f * ui::S;
+        ui::text(L.dl, ui::F.cond, lpx, {r.a.x + 13.0f * ui::S, cy - lpx * 0.55f}, ui::kLabel, ui::upper(label.c_str()).c_str());
+        const float bh = 10.0f * ui::S;
+        L.dl->AddRectFilled({x0, cy - bh * 0.5f}, {x1, cy + bh * 0.5f}, ui::kRowEdge, bh * 0.5f);
+        if (fraction > 0.0) L.dl->AddRectFilled({x0, cy - bh * 0.5f}, {x0 + (x1 - x0) * float(fraction), cy + bh * 0.5f}, col, bh * 0.5f);
+        if (!text.empty()) {
+            const float vpx = 14.0f * ui::S;
+            const ImVec2 ts = ui::text_size(ui::F.body, vpx, text.c_str());
+            ui::text(L.dl, ui::F.body, vpx, {(x0 + x1 - ts.x) * 0.5f, cy - vpx * 0.6f}, ui::kValue, text.c_str());
+        }
+    }
     bool key_down(const std::string& name) override;
     bool pad_down(const std::string& name) override;
     bool key_known(const std::string& name, bool pad) override;
@@ -154,6 +175,9 @@ struct LuaRt {
     std::map<std::string, std::string> bus;            // cleria.bus.get / set: JSON text by key (the process)
     std::string last_state;                            // state_changed / floor_changed: what the last tick saw
     std::map<std::string, double> speed;               // cleria.game.set_speed: each mod's factor (their product applies)
+    std::map<std::string, ui::List> win_lists;         // cleria.ui.window: the list state of each window (mod id + window id)
+    ui::Nav drive_nav{};                               // a drive run's keys for the open window (modwin=ok / back / up / down)
+    std::string win_shown;                             // the window drawn last frame (mod id + its open serial)
     int last_floor = -2;
 };
 static LuaRt g_lua;
@@ -342,6 +366,8 @@ static float lua_game_speed() {
 }
 std::string LuaHost::game_state() {
     if (!in_game() || !g_lua.b.state) return "title";
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->window() && m->window()->pause) return "window";   // a mod's own window holds the game
     return g_lua.b.state();
 }
 std::string LuaHost::locale() {
@@ -484,6 +510,46 @@ static void lua_hud_notice(ImDrawList* dl, float w, float h) {
     ui::text(dl, ui::F.body, bpx, {a.x + 20.0f * S, a.y + 40.0f * S}, A(ui::kDesc), n.text.c_str());
 }
 
+// ---- cleria.ui.window / message / choose (API 7): one window of a mod over the game, in the shell's look ----
+static script::Mod* lua_window_mod() {                // the first mod with a window open
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->window()) return m.get();
+    return nullptr;
+}
+static bool lua_modal_pauses() {                      // the game waits under it (the default)
+    const script::Mod* m = lua_window_mod();
+    return m && m->window()->pause;
+}
+static void lua_draw_window(ImDrawList* dl, float w, float h, const ui::Nav& nav_in) {
+    script::Mod* m = lua_window_mod();
+    if (!m) return;
+    const script::Mod::Window win = *m->window();
+    ui::Nav nav = nav_in;
+    {   // a drive run's presses
+        ui::Nav& d = g_lua.drive_nav;
+        nav.up = nav.up || d.up; nav.down = nav.down || d.down; nav.ok = nav.ok || d.ok; nav.back = nav.back || d.back;
+        nav.left = nav.left || d.left; nav.right = nav.right || d.right;
+        d = ui::Nav{};
+    }
+    using namespace ui;
+    if (win.pause) dl->AddRectFilled({0, 0}, {w, h}, IM_COL32(0, 0, 0, 110));
+    List& L0 = g_lua.win_lists[m->id() + "/" + win.id];
+    const float head = 46.0f * S, bw = w * win.width;      // as tall as its rows were last frame, within the screen
+    const float bh = std::clamp(L0.content_h > 0 ? head + L0.content_h + 28.0f * S : h * 0.3f, 110.0f * S, h * 0.8f);
+    const ImVec2 a{(w - bw) * 0.5f, (h - bh) * 0.5f}, b{a.x + bw, a.y + bh};
+    dl->AddRectFilled(a, b, kPanel, 8.0f * S);
+    dl->AddRect(a, b, kPanelEdge, 8.0f * S, 0, 1.5f * S);
+    text(dl, F.cond, 20.0f * S, {a.x + 20.0f * S, a.y + 13.0f * S}, kGold, upper(win.title.c_str()).c_str());
+    dl->AddLine({a.x, a.y + head}, {b.x, a.y + head}, kRule, 1.0f * S);
+    List& L = g_lua.win_lists[m->id() + "/" + win.id];
+    const std::string shown = m->id() + "#" + std::to_string(m->window_serial_);
+    if (shown != g_lua.win_shown) { L = List{}; g_lua.win_shown = shown; }   // a newly opened window starts on its first row
+    list_begin(L, dl, {a.x + 14.0f * S, a.y + head + 10.0f * S}, {bw - 28.0f * S, bh - head - 20.0f * S}, nav, true);
+    m->draw_window(&L);
+    list_end(L);
+    if (nav.back && m->window()) m->close_window(true);
+}
+
 // The keys of a mod's actions (cleria.input.action), on its own page: a text field per action with SDL's key name.
 static void lua_page_keys(script::Mod& m, ui::List& L) {
     if (m.actions_.empty()) return;
@@ -526,6 +592,8 @@ static void lua_shell(Shell& shell) {
         };
     }
     shell.hud["lua~notice"] = lua_hud_notice;   // sorts after the mods' layers
+    shell.modal_on = [] { return lua_window_mod() != nullptr; };
+    shell.modal = lua_draw_window;
 }
 
 static void lua_bind(LuaBind b) { g_lua.b = std::move(b); }
@@ -670,6 +738,12 @@ static void lua_stat_modifiers(PlayerStats& s) {
 static bool lua_drive(const std::string& cmd) {
     if (cmd.rfind("modkey=", 0) == 0) { lua_input_press(cmd.substr(7), false); return true; }   // a key press for the mods (API 7)
     if (cmd.rfind("modpad=", 0) == 0) { lua_input_press(cmd.substr(7), true); return true; }
+    if (cmd.rfind("modwin=", 0) == 0) {                   // a press for the mods' open window: ok / back / up / down
+        const std::string k = cmd.substr(7);
+        ui::Nav& d = g_lua.drive_nav;
+        d.ok = k == "ok"; d.back = k == "back"; d.up = k == "up"; d.down = k == "down"; d.left = k == "left"; d.right = k == "right";
+        return true;
+    }
     if (cmd.rfind("lua=", 0) != 0) return false;
     const std::string rest = cmd.substr(4);
     const std::size_t sp = rest.find(' ');

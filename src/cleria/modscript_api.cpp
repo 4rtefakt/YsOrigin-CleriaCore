@@ -1312,6 +1312,7 @@ void open_api(lua_State* L, Mod& m) {
     open_api7_world(L);
     open_api7_writes(L);
     open_api7_input(L);
+    open_api7_windows(L);
 
     lua_setglobal(L, "cleria");
 }
@@ -1554,8 +1555,8 @@ void Mod::draw_page(std::size_t i, void* list) {
     lua_State* L = state();
     static const luaL_Reg pm[] = {{"section", l_p_section}, {"toggle", l_p_toggle}, {"slider", l_p_slider},
                                   {"choice", l_p_choice}, {"button", l_p_button}, {"text_field", l_p_text_field},
-                                  {"info", l_p_info}, {nullptr, nullptr}};
-    lua_createtable(L, 0, 8);
+                                  {"info", l_p_info}, {"text", l_p_text}, {"progress", l_p_progress}, {nullptr, nullptr}};
+    lua_createtable(L, 0, 10);
     luaL_setfuncs(L, pm, 0);
     lua_rawgeti(L, LUA_REGISTRYINDEX, pages_[i].second);
     lua_insert(L, -2);

@@ -56,6 +56,11 @@ struct Shell {
     // tracker, the cutscene-skip prompt), over `under` and under the panel. Keyed by feature so each
     // can set or erase its own; a layer draws nothing when it has nothing to show.
     std::map<std::string, std::function<void(ImDrawList*, float, float)>> hud;
+    // A window of a mod's own over the game (cleria.ui.window, API 7; view_lua.inl): while `modal_on()` the shell has
+    // the input as when the panel is open, and `modal` draws it (under the panel when F1 is opened over it).
+    std::function<bool()> modal_on;
+    std::function<void(ImDrawList*, float, float, const ui::Nav&)> modal;
+    bool modal_now() const { return modal_on && modal_on(); }
 
     void init(SDL_Window* win, Gpu& g, WGPUTextureFormat fmt) {
         IMGUI_CHECKVERSION();
@@ -139,7 +144,7 @@ struct Shell {
             g_shell_focus = open || launcher;
             return true;
         }
-        if (!open && !launcher) return false;
+        if (!open && !launcher && !modal_now()) return false;
         ImGui_ImplSDL3_ProcessEvent(&e);
         switch (e.type) {
             case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP: case SDL_EVENT_TEXT_INPUT:
@@ -154,13 +159,14 @@ struct Shell {
 
     // Draw the shell over `view` (the finished frame) when the panel is open or the launcher is up.
     void frame(Gpu& g, WGPUTextureView view, std::uint32_t w, std::uint32_t h) {
-        g_shell_focus = ready && (open || launcher);       // every frame, so it can never stay stuck on
+        const bool mwin = modal_now();
+        g_shell_focus = ready && (open || launcher || mwin);   // every frame, so it can never stay stuck on
         if (g_shell_focus) g_input_relatch = true;        // re-latch the mapper on hand-back (view_input.inl)
         if (!ready || (!open && !under && hud.empty()) || w == 0 || h == 0) return;
         ui::S = float(h) / 1000.0f;                       // [H] the reference shots were 1125 px tall
         // ImGui shows / shapes the OS pointer only while the shell owns the input: under hud layers
         // alone the game's hidden pointer (sync_os_cursor) must stay hidden.
-        if (open || launcher) ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+        if (open || launcher || mwin) ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
         else ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
         ImGui_ImplWGPU_NewFrame();
         ImGui_ImplSDL3_NewFrame();
@@ -172,6 +178,7 @@ struct Shell {
         const bool was_open = open;
         if (under) under(dl, float(w), float(h), open ? ui::Nav{} : nav);
         for (auto& [name, layer] : hud) layer(dl, float(w), float(h));
+        if (mwin && !open && modal) modal(dl, float(w), float(h), nav);
         if (was_open || !open) {      // opened by the launcher menu just now: the panel starts next frame,
             panel.open = open;        // or the same OK / click would also act on its selected row
             panel.draw(dl, float(w), float(h), nav);
@@ -182,7 +189,7 @@ struct Shell {
             ui::prompt(dl, float(w), float(h), kWhat[int(capture.kind)], capture.label.c_str(),
                        "Esc cancels  â¢  Delete clears the binding");
         }
-        g_shell_focus = open || launcher;
+        g_shell_focus = open || launcher || modal_now();
         ImGui::Render();
 
         WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);

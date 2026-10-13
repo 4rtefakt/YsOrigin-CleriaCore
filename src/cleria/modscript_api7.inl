@@ -569,3 +569,191 @@ void open_api7_input(lua_State* L) {                     // the cleria table is 
 }
 
 }  // namespace
+
+namespace {
+
+// ---- cleria.ui.window / open / close, cleria.ui.message / choose ------------------------------------------------
+const char* const kDialogId = "\x01" "dialog";
+int l_ui_window(lua_State* L) {                          // (id, {title =, width =, pause =}, fn(p))
+    Mod& m = M(L);
+    const std::string id = action_id_arg(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    luaL_checktype(L, 3, LUA_TFUNCTION);
+    Mod::Window w;
+    w.id = id;
+    w.title = opt_field_s(L, 2, "title", m.name());
+    w.width = float(std::clamp(opt_field_n(L, 2, "width", 0.42), 0.2, 0.9));
+    lua_getfield(L, 2, "pause");
+    w.pause = lua_isnil(L, -1) || lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    lua_pushvalue(L, 3);
+    w.ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    for (Mod::Window& o : m.windows_)
+        if (o.id == id) { luaL_unref(L, LUA_REGISTRYINDEX, o.ref); o = w; return 0; }
+    if (m.windows_.size() >= 32) return luaL_error(L, "too many windows (32)");
+    m.windows_.push_back(w);
+    return 0;
+}
+int l_ui_open(lua_State* L) {                            // (id) -> true when it is now the open window
+    Mod& m = M(L);
+    const std::string id = action_id_arg(L, 1);
+    for (const Mod::Window& w : m.windows_)
+        if (w.id == id) { m.open_window_ = id; ++m.window_serial_; lua_pushboolean(L, 1); return 1; }
+    return luaL_argerror(L, 1, "no such window (declare it with cleria.ui.window)");
+}
+int l_ui_close(lua_State* L) {
+    Mod& m = M(L);
+    if (m.open_window_ == kDialogId && m.dialog_.ref) { luaL_unref(L, LUA_REGISTRYINDEX, m.dialog_.ref); m.dialog_.ref = 0; }
+    m.open_window_.clear();
+    return 0;
+}
+int l_ui_is_open(lua_State* L) {                         // () -> the open window's id or nil; (id) -> boolean
+    Mod& m = M(L);
+    if (lua_isnoneornil(L, 1)) {
+        if (m.open_window_.empty()) lua_pushnil(L);
+        else if (m.open_window_ == kDialogId) lua_pushliteral(L, "dialog");
+        else lua_pushlstring(L, m.open_window_.data(), m.open_window_.size());
+        return 1;
+    }
+    lua_pushboolean(L, m.open_window_ == str_arg(L, 1));
+    return 1;
+}
+// cleria.ui.choose(text, {options}, fn(index, option) [, {title =, cancel =}]): the game waits; fn gets the pick, or nil
+// when the player backs out (cancel = false: they must choose). cleria.ui.message(text [, fn [, {title =, ok =}]]).
+int open_dialog(lua_State* L, std::vector<std::string> options, int fn_index, int opt_index, bool cancel_default) {
+    Mod& m = M(L);
+    if (m.dialog_.ref) { luaL_unref(L, LUA_REGISTRYINDEX, m.dialog_.ref); m.dialog_.ref = 0; }
+    m.dialog_ = Mod::Dialog{};
+    m.dialog_.text = str_arg(L, 1);
+    if (m.dialog_.text.size() > 4000) return luaL_argerror(L, 1, "at most 4000 characters");
+    m.dialog_.options = std::move(options);
+    m.dialog_.title = opt_field_s(L, opt_index, "title", m.name());
+    m.dialog_.cancel = cancel_default;
+    if (lua_istable(L, opt_index)) {
+        lua_getfield(L, opt_index, "cancel");
+        if (!lua_isnil(L, -1)) m.dialog_.cancel = lua_toboolean(L, -1) != 0;
+        lua_pop(L, 1);
+    }
+    if (lua_isfunction(L, fn_index)) {
+        lua_pushvalue(L, fn_index);
+        m.dialog_.ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
+    m.open_window_ = kDialogId;
+    ++m.window_serial_;
+    return 0;
+}
+int l_ui_choose(lua_State* L) {
+    luaL_checktype(L, 2, LUA_TTABLE);
+    luaL_checktype(L, 3, LUA_TFUNCTION);
+    std::vector<std::string> options;
+    const lua_Integer n = lua_Integer(lua_rawlen(L, 2));
+    if (n < 1 || n > 12) return luaL_argerror(L, 2, "1 to 12 options");
+    for (lua_Integer i = 1; i <= n; ++i) {
+        lua_rawgeti(L, 2, i);
+        options.push_back(luaL_tolstring(L, -1, nullptr));
+        lua_pop(L, 2);
+    }
+    return open_dialog(L, std::move(options), 3, 4, true);
+}
+int l_ui_message(lua_State* L) {
+    const std::string ok = opt_field_s(L, 3, "ok", "OK");
+    return open_dialog(L, {ok}, 2, 3, true);
+}
+int l_p_text(lua_State* L) {                             // p:text(str [, {color =}]): a wrapped paragraph
+    Mod& m = paging(L);
+    m.host().ui_text(m.list_, str_arg(L, 2), color_of(L, 3, 0xCFCABD));
+    return 0;
+}
+int l_p_progress(lua_State* L) {                         // p:progress(label, fraction [, text [, {color =}]])
+    Mod& m = paging(L);
+    const double f = std::clamp(luaL_checknumber(L, 3), 0.0, 1.0);
+    const std::string t = lua_isnoneornil(L, 4) ? std::string() : std::string(luaL_tolstring(L, 4, nullptr));
+    if (!lua_isnoneornil(L, 4)) lua_pop(L, 1);
+    m.host().ui_progress(m.list_, str_arg(L, 2), std::isfinite(f) ? f : 0.0, t, color_of(L, 5, 0xD6B03E));
+    return 0;
+}
+int l_p_close(lua_State* L) {                            // p:close() inside a window's function
+    Mod& m = M(L);
+    m.open_window_.clear();
+    return 0;
+}
+
+void open_api7_windows(lua_State* L) {                   // the cleria table is on top of the stack
+    static const luaL_Reg ui[] = {{"window", l_ui_window}, {"open", l_ui_open}, {"close", l_ui_close}, {"is_open", l_ui_is_open},
+                                  {"choose", l_ui_choose}, {"message", l_ui_message}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "ui");
+    set_funcs(L, ui);
+    lua_pop(L, 1);
+}
+
+}  // namespace
+
+const Mod::Window* Mod::window() const {
+    if (open_window_.empty()) return nullptr;
+    if (open_window_ == kDialogId) {
+        static Window d;
+        d.id = kDialogId; d.title = dialog_.title; d.width = 0.42f; d.pause = true;
+        return &d;
+    }
+    for (const Window& w : windows_) if (w.id == open_window_) return &w;
+    return nullptr;
+}
+
+// The open window's rows. A dialog: its text, one line a row, then a button per option.
+void Mod::draw_window(void* list) {
+    if (!ok() || open_window_.empty()) return;
+    lua_State* L = state();
+    if (open_window_ == kDialogId) {
+        host_.ui_text(list, dialog_.text, 0xFFE8E4D8u);
+        int picked = -1;
+        for (std::size_t i = 0; i < dialog_.options.size(); ++i)
+            if (host_.ui_button(list, dialog_.options[i], {}, true)) picked = int(i);
+        if (picked < 0) return;
+        const int ref = dialog_.ref;
+        const std::string option = dialog_.options[std::size_t(picked)];
+        dialog_.ref = 0;
+        open_window_.clear();                              // before the function: it may open the next one
+        if (ref) {
+            lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+            lua_pushinteger(L, picked + 1);
+            lua_pushlstring(L, option.data(), option.size());
+            pcall(2, 0, "dialog");
+            if (L_) luaL_unref(L_, LUA_REGISTRYINDEX, ref);
+        }
+        return;
+    }
+    const Window* w = window();
+    if (!w) { open_window_.clear(); return; }
+    static const luaL_Reg pm[] = {{"section", l_p_section}, {"toggle", l_p_toggle}, {"slider", l_p_slider},
+                                  {"choice", l_p_choice}, {"button", l_p_button}, {"text_field", l_p_text_field},
+                                  {"info", l_p_info}, {"text", l_p_text}, {"progress", l_p_progress}, {"close", l_p_close},
+                                  {nullptr, nullptr}};
+    lua_createtable(L, 0, 11);
+    luaL_setfuncs(L, pm, 0);
+    lua_rawgeti(L, LUA_REGISTRYINDEX, w->ref);
+    lua_insert(L, -2);
+    list_ = list;
+    pcall(1, 0, "window");
+    list_ = nullptr;
+}
+
+// Back / Esc on the open window. A dialog that may be cancelled calls its function with nil.
+void Mod::close_window(bool cancelled) {
+    if (open_window_.empty() || !ok()) { open_window_.clear(); return; }
+    if (open_window_ == kDialogId) {
+        if (cancelled && !dialog_.cancel) return;          // the player must choose
+        const int ref = dialog_.ref;
+        dialog_.ref = 0;
+        open_window_.clear();
+        if (ref) {
+            lua_rawgeti(L_, LUA_REGISTRYINDEX, ref);
+            pcall(0, 0, "dialog");
+            if (L_) luaL_unref(L_, LUA_REGISTRYINDEX, ref);
+        }
+        return;
+    }
+    open_window_.clear();
+}
+
+namespace {
+}  // namespace

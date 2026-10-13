@@ -749,6 +749,45 @@ end)
 
 A drive run presses for the mods with `modkey=<name>` and `modpad=<name>`.
 
+### 12.10 Windows of the mod's own, and asking the player
+
+```lua
+cleria.ui.window("tools", {title = "My tools", width = 0.4}, function(p)      -- the page widgets, over the game
+    p:text("A paragraph of text. It wraps at the panel's edge.")
+    p:progress("Health", cleria.player.hp() / cleria.player.max_hp(), "half")
+    if p:button("Heal") then cleria.player.set_hp(cleria.player.max_hp()) end
+    if p:button("Close") then p:close() end
+end)
+cleria.input.action("tools", {label = "Open my tools", key = "F2"}, function()
+    if cleria.ui.is_open("tools") then cleria.ui.close() else cleria.ui.open("tools") end
+end)
+
+cleria.ui.choose("Pick a reward.", {"Might", "Guard", "Vigor"}, function(index, option)
+    if index then take(index) end                                               -- nil: the player backed out
+end, {title = "Perk", cancel = true})
+cleria.ui.message("The run is over.", function() ... end, {title = "Permadeath", ok = "Fine"})
+```
+
+- `ui.window(id, {title =, width =, pause =}, fn(p))` declares a window (again: replaces it); `ui.open(id)` shows it,
+  `ui.close()` hides whatever is open, `ui.is_open()` returns the open window's id (`"dialog"` for a dialog, `nil` for
+  none) and `ui.is_open(id)` a boolean. `fn(p)` is called every frame while it is open, with the page widgets of §7,
+  the two new ones below and `p:close()`. `width` is a fraction of the screen (0.2..0.9, default 0.42); the window is as
+  tall as its rows, within the screen.
+- **One window at a time per mod.** While one is open the mod has the keyboard, the pad and the mouse exactly as the F1
+  panel has (up / down, OK, left / right on a slider, Back or Esc to close it); the game gets no input.
+  `pause = true` (the default) also stops the game's clock: `game.state()` is `"window"`, no tick runs, the mods' `tick`
+  events and play-time timers wait, `frame` goes on. With `pause = false` the game runs on underneath. F1 still opens
+  the panel over it.
+- The mod's own actions (§12.9) still run while its window is open, so the key that opened it can close it.
+- `ui.choose(text, options, fn [, {title =, cancel =}])` asks: 1 to 12 options, `fn(index, option)` when one is picked,
+  `fn(nil)` when the player backs out; `cancel = false` makes Back do nothing. `ui.message(text [, fn [, {title =, ok =}]])`
+  is the one-button form. Both are a paused window; opening one replaces the mod's open window, and the function may
+  open the next one.
+- New widgets, on pages and in windows: `p:text(str [, {color =}])`, a wrapped paragraph; `p:progress(label, fraction
+  [, text [, {color =}]])`, a bar from 0 to 1 with its text.
+- A drive run presses for the open window with `modwin=ok` / `back` / `up` / `down` / `left` / `right`, and its `shot`
+  shows the window.
+
 ## 10. Tests
 
 ```
@@ -784,5 +823,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

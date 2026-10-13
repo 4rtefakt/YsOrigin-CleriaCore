@@ -161,6 +161,9 @@ struct Host {
     virtual std::vector<ActorInfo> actors() { return {}; }
     // A write (or a small read) of the live game by name: the view implements each next to the state it touches
     // (apps/cleria-view/view_lua_ops.inl). False = no game, an unknown op, or the game refused; `out` gets an op's numbers.
+    // More page widgets (API 7): a wrapped paragraph; a bar (fraction 0..1) with its text.
+    virtual void ui_text(void* list, const std::string& text, std::uint32_t col) { (void)list; (void)text; (void)col; }
+    virtual void ui_progress(void* list, const std::string& label, double fraction, const std::string& text, std::uint32_t col) { (void)list; (void)label; (void)fraction; (void)text; (void)col; }
     // cleria.input: is this key / pad button held now; is the name one the host knows (SDL's names: "F5", "Left Shift", "A";
     // pad: "a", "b", "x", "y", "back", "start", "leftshoulder", "dpup" ...).
     virtual bool key_down(const std::string& name) { (void)name; return false; }
@@ -242,6 +245,17 @@ public:
     struct Action { std::string id, label, key, pad; int ref = 0; };
     std::vector<Action> actions_;
     void run_action(std::size_t i);                             // its function, if it has one
+    // cleria.ui.window: a panel of the mod's own over the game (the page widgets), and cleria.ui.message / choose,
+    // a built-in one. One is open at a time per mod; the host draws it and gives it the input.
+    struct Window { std::string id, title; int ref = 0; float width = 0.42f; bool pause = true; };
+    std::vector<Window> windows_;
+    std::string open_window_;                                   // "" = none; "\x01dialog" = the dialog below
+    struct Dialog { std::string title, text; std::vector<std::string> options; int ref = 0; bool cancel = true; };
+    Dialog dialog_;
+    int window_serial_ = 0;                                     // + 1 at each open: the host starts its list afresh
+    const Window* window() const;                               // the open one (the dialog as a Window), or null
+    void draw_window(void* list);                               // its rows, into the host's list
+    void close_window(bool cancelled);                          // Back / Esc, or ui.close()
     int on_bus(const std::string& topic, const std::string& json_text, const std::string& from);   // -> handlers called
     std::size_t page_ = 0;
     bool drawing_ = false;                                      // inside draw_hud (the d:* calls draw)

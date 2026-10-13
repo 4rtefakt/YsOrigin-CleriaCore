@@ -6543,8 +6543,10 @@ title_again:
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             g_sdl_in.on_event(e);                 // the mapper's latches and the gamepad (view_input.inl)
+            const bool mwin = !shell.open && shell.modal_now();   // a mod's window: its own actions still run (the key that closes it)
+            if (mwin) lua_input_event(e);
             if (shell.event(e)) continue;         // the shell takes what it owns
-            lua_input_event(e);                   // the mods' actions (cleria.input, API 7)
+            if (!mwin) lua_input_event(e);        // the mods' actions (cleria.input, API 7)
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;
@@ -6643,7 +6645,11 @@ title_again:
         // burst of ticks. We reproduce that, relying on the load-time reset above
         // rather than on clamping, so timing stays exact under normal play.
         if (paused) accum = 0;               // freeze while the pause book is open
-        if (shell.open) accum = 0;           // and while the shell overlay is open
+        if (shell.open || lua_modal_pauses()) accum = 0;   // and while the shell overlay (or a mod's window) is open
+        if (!shell.open && lua_modal_pauses() && !drive.empty()) {   // CLERIA_DRIVE runs on under a mod's window (one tick a frame)
+            ++tick_count;
+            for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
+        }
         if (paused && book.is_open()) {
             bookAccum = lockstep ? kTickDt : bookAccum + real_dt;   // a drive run: one book frame a frame
             while (bookAccum >= kTickDt && book.is_open()) {

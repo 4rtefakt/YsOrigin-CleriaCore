@@ -2838,6 +2838,37 @@ CASES.update({
         absent=_NOSTOP, count={_LP + "ACTION in play": 3}),
 })
 
+# Mod API 7, windows and dialogs. F2 opens the mod's window (the game's state is "window" and its clock stops); the
+# drive's modwin= presses: OK on the toggle, down, OK on the button; F2 closes it. A choose dialog: down + OK picks
+# the second option; one that must be answered ignores Back; a message closed by Back calls its function.
+_LUA_API7U = (
+    'local opt = false\n'
+    'cleria.ui.window("tools", {title = "Tools"}, function(p)\n'
+    '    local v, ch = p:toggle("Option", opt)\n'
+    '    if ch then opt = v cleria.log("WIN toggle " .. tostring(v)) end\n'
+    '    if p:button("Heal") then cleria.log("WIN heal") end\n'
+    '    p:text("A paragraph.")\n'
+    '    p:progress("HP", 0.5, "half")\n'
+    'end)\n'
+    'cleria.input.action("tools", {key = "F2"}, function() if cleria.ui.is_open("tools") then cleria.ui.close() else cleria.ui.open("tools") end end)\n'
+    'cleria.command("win", function(a)\n'
+    '    if a == "choose" then cleria.ui.choose("Pick", {"Might", "Guard", "Vigor"}, function(i, o) cleria.log("CHOSE " .. tostring(i) .. " " .. tostring(o)) end)\n'
+    '    elseif a == "must" then cleria.ui.choose("Pick", {"A", "B"}, function(i, o) cleria.log("CHOSE " .. tostring(i) .. " " .. tostring(o)) end, {cancel = false})\n'
+    '    elseif a == "msg" then cleria.ui.message("Hello", function() cleria.log("MSG closed") end) end\n'
+    '    cleria.log("open " .. tostring(cleria.ui.is_open()) .. " state " .. cleria.game.state() .. " time " .. cleria.game.play_time())\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_windows": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7U,
+        drive="20:lua=win;30:modkey=F2;40:lua=win;50:modwin=ok;60:modwin=down;70:modwin=ok;80:modkey=F2;90:lua=win;"
+              "100:lua=win choose;110:lua=win;120:modwin=down;130:modwin=ok;140:lua=win;150:lua=win must;160:modwin=back;170:lua=win;"
+              "180:modwin=ok;190:lua=win msg;200:modwin=back;210:lua=win;220:quit",
+        expect=[_LP + "open nil state play time 0.3", _LP + "open tools state window time 0.5", _LP + "WIN toggle true", _LP + "WIN heal",
+                _LP + "open nil state play", _LP + "open dialog state window", _LP + "CHOSE 2 Guard", _LP + "open nil state play",
+                _LP + "open dialog state window", _LP + "open dialog state window", _LP + "CHOSE 1 A", _LP + "MSG closed", _LP + "open nil state play"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

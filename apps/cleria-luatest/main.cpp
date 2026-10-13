@@ -133,6 +133,12 @@ struct FakeHost : script::Host {
         return {a};
     }
     bool to_screen(float x, float, float z, float* sx, float* sy) override { if (z < 0) return false; *sx = x / 10; *sy = 0.5f; return true; }
+    void ui_text(void*, const std::string& t, std::uint32_t) override { widgets.push_back("text " + t); }
+    void ui_progress(void*, const std::string& label, double f, const std::string& t, std::uint32_t) override {
+        char b[64];
+        std::snprintf(b, sizeof b, " %.2f ", f);
+        widgets.push_back("progress " + label + b + t);
+    }
     std::string held7;                                          // the one key / button held
     bool key_down(const std::string& n) override { return n == held7; }
     bool pad_down(const std::string& n) override { return n == held7; }
@@ -740,6 +746,55 @@ int main(int argc, char** argv) {
             check(has(h.logs, "ran open") && has(h.logs, "ran jump") && has(h.logs, "bind truefalse now F7 down true") &&
                   h.settings["api7i/Key.open"] == "F7" && h.settings["api7i/Pad.open"] == "a" && in->ok(),
                   "api 7: an action's function runs; input.bind is kept in the settings; input.down");
+        }
+        {   // API 7: a window of the mod's own (the page widgets + text / progress / close), and the dialogs
+            h.widgets.clear();
+            h.press = false; h.toggle_flip = false;
+            auto u = make(h, tmp, "api7u", R"LUA(
+                local U = cleria.ui
+                U.window("tools", {title = "Tools", width = 0.5, pause = false}, function(p)
+                    p:section("S")
+                    p:text("a paragraph")
+                    p:progress("HP", 0.5, "30 / 60")
+                    if p:button("Close") then p:close() end
+                end)
+                cleria.log("open " .. tostring(U.is_open()) .. " " .. tostring(U.open("tools")) .. " " .. tostring(U.is_open()) .. " " ..
+                           tostring(U.is_open("tools")) .. " bad " .. tostring(pcall(U.open, "nope")))
+                cleria.command("ask", function(a)
+                    if a == "msg" then U.message("Hello", function(i) cleria.log("msg done " .. tostring(i)) end, {ok = "Fine"})
+                    else U.choose("Pick one\nof two", {"A", "B"}, function(i, o) cleria.log("picked " .. tostring(i) .. " " .. tostring(o)) end,
+                                  {title = "T", cancel = a ~= "must"}) end
+                    cleria.log("asked " .. tostring(U.is_open()))
+                end)
+            )LUA");
+            const script::Mod::Window* w = u->window();
+            const bool opened = w && w->id == "tools" && w->title == "Tools" && w->width == 0.5f && !w->pause && has(h.logs, "open nil true tools true bad false");
+            int dummy = 0;
+            u->draw_window(&dummy);
+            const bool rows = h.widgets.size() == 4 && h.widgets[1] == "text a paragraph" && h.widgets[2] == "progress HP 0.50 30 / 60";
+            h.press = true;                                         // the button: p:close()
+            u->draw_window(&dummy);
+            h.press = false;
+            check(opened && rows && u->window() == nullptr, "api 7: ui.window / open / is_open, p:text / p:progress / p:close (" + u->error() + ")");
+            u->command("ask", "x");
+            const bool dlg = u->window() && u->window()->title == "T" && u->window()->pause && has(h.logs, "asked dialog");
+            h.widgets.clear();
+            u->draw_window(&dummy);                                 // the text and a button per option, nothing pressed
+            const bool drawn = h.widgets.size() == 3 && h.widgets[0] == "text Pick one\nof two" && u->window() != nullptr;
+            u->close_window(true);                                  // Back: the function gets nil
+            const bool cancelled = u->window() == nullptr && has(h.logs, "picked nil nil");
+            u->command("ask", "must");
+            u->close_window(true);                                  // cancel = false: it stays
+            const bool stays = u->window() != nullptr;
+            h.press = true;                                         // every button "pressed": the last one wins
+            u->draw_window(&dummy);
+            h.press = false;
+            u->command("ask", "msg");
+            h.press = true;
+            u->draw_window(&dummy);
+            h.press = false;
+            check(dlg && drawn && cancelled && stays && has(h.logs, "picked 2 B") && has(h.logs, "msg done 1") && u->window() == nullptr && u->ok(),
+                  "api 7: ui.choose / ui.message: the pick, Back as nil, cancel = false");
         }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);

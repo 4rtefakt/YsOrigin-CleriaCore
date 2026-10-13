@@ -58,9 +58,9 @@ content, then multiplayer, then the tools.
 | 26 | The camera | `cleria.camera.set{zoom =, offset =}`, `camera.shake(...)`, `camera.reset()` | |
 | 27 | Screen effects | `cleria.screen.flash(color, s)`, `screen.fade(...)`, `screen.tint(...)` | |
 | 28 | The game's HUD | `cleria.hud.show(part, on)` | |
-| 30 | Page widgets | `p:progress`, `p:image`, `p:table`, `p:columns`, `p:list` | |
-| 11 | Asking the player | `cleria.ui.message(text)`, `cleria.ui.choose(text, options, fn)` | |
-| 29 | Windows outside F1 | `cleria.ui.window(id, {title =, key =}, fn(p))` | |
+| 30 | Page widgets | `p:progress`, `p:image`, `p:table`, `p:columns`, `p:list` | part: `p:text`, `p:progress` |
+| 11 | Asking the player | `cleria.ui.message(text)`, `cleria.ui.choose(text, options, fn)` | done (`ui.choose`, `ui.message`: in the shell's look, not the game's text window) |
+| 29 | Windows outside F1 | `cleria.ui.window(id, {title =, key =}, fn(p))` | done |
 | 20 | Sound | `cleria.audio.play(file)`, `audio.music(file)`, `audio.se(id)` | |
 
 ## E. Monsters and combat
