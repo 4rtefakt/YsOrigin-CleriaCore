@@ -217,6 +217,7 @@ struct LuaRt {
     int last_floor = -2;
 };
 static LuaRt g_lua;
+static std::set<int> g_lua_targets;                    // ... those the monsters may chase and hit (set_puppet{target = true})
 static std::set<int> g_lua_puppets;                    // cleria.world.puppet: the actor ids the mods own in this room
 static bool g_lua_info(script::PlayerInfo& out) { return g_lua.b.info && g_lua.b.info(out); }
 

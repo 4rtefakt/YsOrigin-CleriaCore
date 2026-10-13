@@ -1079,7 +1079,7 @@ int l_world_set_puppet(lua_State* L) {                   // (id, {x =, y =, z =,
     const double nan = std::numeric_limits<double>::quiet_NaN();
     lua_pushboolean(L, op(L, "puppet_set", {double(luaL_checkinteger(L, 1)), opt_field_n(L, 2, "x", nan), opt_field_n(L, 2, "y", nan),
                                             opt_field_n(L, 2, "z", nan), opt_field_n(L, 2, "yaw", nan), opt_field_n(L, 2, "tag", nan),
-                                            opt_field_n(L, 2, "frame", nan), opt_field_n(L, 2, "sheet", nan), bool_field(L, 2, "hittable")}));
+                                            opt_field_n(L, 2, "frame", nan), opt_field_n(L, 2, "sheet", nan), bool_field(L, 2, "hittable"), bool_field(L, 2, "target")}));
     return 1;
 }
 int l_world_remove_puppet(lua_State* L) { lua_pushboolean(L, op(L, "puppet_remove", {double(luaL_checkinteger(L, 1))})); return 1; }
@@ -1605,7 +1605,7 @@ void Mod::monster_event(const events::Event& e) {
 namespace {
 
 // ---- cleria.combat.strike, cleria.world.snapshot / apply (the multiplayer pieces) -------------------------------
-int l_combat_strike(lua_State* L) { lua_pushboolean(L, op(L, "strike", {num_arg(L, 1, 0, 1e6)})); return 1; }   // (atk): a hit on the player, priced by the game
+int l_combat_strike(lua_State* L) { lua_pushboolean(L, op(L, "strike", {num_arg(L, 1, 0, 1e6), std::clamp(luaL_optnumber(L, 2, 0.0), 0.0, 1e6)})); return 1; }   // (atk): a hit on the player, priced by the game
 const char* const kSnapKeys[12] = {"id", "cast", "level", "x", "y", "z", "yaw", "hp", "max_hp", "tag", "frame", "sheet"};
 int l_world_snapshot(lua_State* L) {                     // -> {{id =, cast =, level =, x =, y =, z =, yaw =, hp =, max_hp =, tag =, frame =, sheet =}, ...}
     std::vector<double> out;

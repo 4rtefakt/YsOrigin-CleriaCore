@@ -169,10 +169,10 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
     if (op == "puppet_set" || op == "puppet_remove") {
         const int id = int(arg(0, -1));
         Actor* a = g_lua_puppets.count(id) ? world.find(id) : nullptr;
-        if (!a) { g_lua_puppets.erase(id); return false; }
+        if (!a) { g_lua_puppets.erase(id); g_lua_targets.erase(id); return false; }
         if (op == "puppet_remove") {
             world.despawn(id);
-            g_lua_puppets.erase(id);
+            g_lua_puppets.erase(id); g_lua_targets.erase(id);
             csHost.world_changed = true;
             return true;
         }
@@ -185,6 +185,7 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         }
         if (n.size() > 5 && std::isfinite(n[5])) a->pattern.tag = int(n[5]);      // a tag of its sheet
         if (n.size() > 7 && std::isfinite(n[7]) && *aso_aia_name(std::int32_t(n[7]))) a->aia_file = std::int32_t(n[7]);   // the sheet
+        if (n.size() > 9 && std::isfinite(n[9])) { if (n[9] != 0) g_lua_targets.insert(id); else g_lua_targets.erase(id); }   // target: the monsters chase and hit it
         if (n.size() > 8 && std::isfinite(n[8])) {           // hittable: a body the player's hits find (they raise puppet_hit)
             const bool on = n[8] != 0;
             a->hp = a->max_hp = on ? 1.0f : 0.0f;
@@ -300,7 +301,7 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
     }
     if (op == "strike") {                                // an atk-power hit on the player, the game's own way (a script's Chr_Damage)
         if (!alive || arg(0) <= 0) return false;
-        csHost.player_damage.push_back({float(arg(0)), false, 0});
+        csHost.player_damage.push_back({float(arg(0)), false, 0, float(arg(1))});
         return true;
     }
     // ---- cleria.world.snapshot / apply: the room's monsters as numbers, and a room made to match them ----

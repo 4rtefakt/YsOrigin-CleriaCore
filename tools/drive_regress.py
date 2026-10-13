@@ -3181,6 +3181,30 @@ CASES.update({
         count={_LP + "boot 1": 2}, absent=_NOSTOP),
 })
 
+# Mod API 7, a puppet the monsters take for a player: put beside a monster far from the real player, it is chased
+# and struck (the puppet_struck event carries the monster's ATK); the real player, out of reach, loses nothing.
+_LUA_API7S = (
+    'local W = cleria.world\n'
+    'local n, hp0 = 0, nil\n'
+    'cleria.events.on("puppet_struck", function(e) n = n + 1 if n == 1 then cleria.log("struck atk " .. tostring(e.atk > 0) .. " by cast " .. e.cast) end end)\n'
+    'cleria.command("s", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    if a == "bait" then\n'
+    '        local far, d = nil, -1\n'
+    '        for _, m in ipairs(W.actors()) do local q = (m.x - st.x) ^ 2 + (m.z - st.z) ^ 2 if q > d then far, d = m, q end end\n'
+    '        hp0 = st.hp\n'
+    '        local pup = W.puppet(2, far.x + 1.2, far.y, far.z, 0)\n'
+    '        cleria.log("bait " .. tostring(W.set_puppet(pup, {target = true})) .. " far " .. tostring(d > 100))\n'
+    '    end\n'
+    '    if a == "end" then cleria.log("struck " .. tostring(n > 0) .. " player lost " .. hp0 - st.hp) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_struck": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7S, drive="5:opt=InfiniteHP=0;30:lua=s bait;900:lua=s end;910:quit",
+        expect=[_LP + "bait true far true", _LP + "struck atk true by cast ", _LP + "struck true player lost 0"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

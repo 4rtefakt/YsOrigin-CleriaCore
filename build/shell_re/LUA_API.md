@@ -1092,7 +1092,12 @@ cleria.world.apply(snap)                                -- a guest: the room mad
 - A **hittable** puppet has a body the player's swings, sword trails, shots and skill effects find (once a swing, as
   for a monster). It has no HP: the hit raises `puppet_hit` and nothing else. `atk` is the attacker's ATK, `power`
   the attack's own bonus, `class` its damage class, `heading` its direction in degrees.
-- `combat.strike(atk)` is a script's own hit on the player: refused while the i-frames run, priced against the
+- `set_puppet(id, {target = true})`: the room's monsters treat the puppet as a player: each chases the nearest of the
+  player and the target puppets, and a monster's swing or shot that lands on one raises `puppet_struck` (`puppet`,
+  `atk`, `power`, and the monster's `actor`, `cast`, `level`; a shot has no actor) and takes nothing: send it to
+  that player's machine, which calls `combat.strike(atk, power)`. [H] The far-monster freeze, the camera and the
+  boss modules still read the local player only.
+- `combat.strike(atk [, power])` is a script's own hit on the player: refused while the i-frames run, priced against the
   player's DEF, halved in Boost, through the `"damage"` filters, raising `player_hit`. (`combat.hurt` takes HP as it
   is.) Friendly fire is the mod's choice: send the hit or do not.
 - `world.snapshot()` lists the living monsters: `id`, `cast`, `level`, `x, y, z`, `yaw` (degrees), `hp`, `max_hp`, and

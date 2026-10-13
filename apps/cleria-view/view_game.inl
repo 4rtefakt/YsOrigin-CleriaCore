@@ -3388,7 +3388,7 @@ title_again:
         // ---- the floor 1..3 completion pass (build/event_re/FLOOR13_OPS.md; view_xso13.inl) ----
         const std::string* entry_label_p = nullptr;      // 0x76a474: the last committed door's label
         std::string entry_label() const override { return entry_label_p ? *entry_label_p : std::string(); }
-        struct PendingDamage { float atk; bool b; int c; };
+        struct PendingDamage { float atk; bool b; int c; float power = 0.0f; };   // power: a mod's combat.strike (API 7)
         std::vector<PendingDamage> player_damage;        // 0x15c on the player: applied in the hit pass
         void chr_damage(int id, float atk, bool b, int c) override {
             // [not modelled] a non-player target: every floor 1..3 site is 998 = the player that

@@ -183,6 +183,19 @@
                 // volume follows the attacker: re-placed from its origin and visible facing
                 // each tick. P+0x734 (player_iframes) guards; the player's bank keys on the
                 // enemy's spawn serial, so its re-hits are paced only by the timer.
+                if (en && en->alive() && !g_lua_targets.empty()) {   // the mods' other players (API 7): the mod is told, they take no HP here
+                    const HitShape tv = volume_shape(e.hb, {en->pos.x, en->pos.y + en->height, en->pos.z}, e.facing);
+                    const Cast* tc = casts.get(13);
+                    for (int pid : g_lua_targets) {
+                        Actor* pu = world.find(pid);
+                        if (!pu) continue;
+                        const HitShape tb = body_shape({pu->pos.x, pu->pos.y + kOriginH, pu->pos.z}, tc ? tc->hurt_radius : 0.45f,
+                                                       tc ? tc->hurt_half_h : 0.5f, tc ? tc->hurt_shape : 1, tc ? tc->center_offset : -0.25f);
+                        if (!overlap(tv, tb) || pu->bank.check_and_record(en->hit_serial, e.hb.rehit)) continue;
+                        content_emit(events::Event::named("puppet_struck").with("puppet", pid).with("actor", en->instance_id).with("cast", en->cast_id)
+                                         .with("level", en->level).with("atk", en->atk).with("power", e.hb.power));
+                    }
+                }
                 if (!en || !en->alive() || player_iframes > 0 || p_untouchable) continue;
                 const HitShape vol = volume_shape(e.hb, {en->pos.x, en->pos.y + en->height, en->pos.z}, e.facing);
                 const Cast* pc = casts.get(13);
