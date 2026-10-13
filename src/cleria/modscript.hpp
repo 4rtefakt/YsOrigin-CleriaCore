@@ -161,6 +161,11 @@ struct Host {
     virtual std::vector<ActorInfo> actors() { return {}; }
     // A write (or a small read) of the live game by name: the view implements each next to the state it touches
     // (apps/cleria-view/view_lua_ops.inl). False = no game, an unknown op, or the game refused; `out` gets an op's numbers.
+    // cleria.input: is this key / pad button held now; is the name one the host knows (SDL's names: "F5", "Left Shift", "A";
+    // pad: "a", "b", "x", "y", "back", "start", "leftshoulder", "dpup" ...).
+    virtual bool key_down(const std::string& name) { (void)name; return false; }
+    virtual bool pad_down(const std::string& name) { (void)name; return false; }
+    virtual bool key_known(const std::string& name, bool pad) { (void)name; (void)pad; return true; }
     virtual bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
                          std::vector<double>* out) { (void)mod; (void)op; (void)num; (void)text; (void)out; return false; }
     // A world point on the screen as fractions of the game picture (0..1 from its top left); false = behind the camera.
@@ -232,6 +237,11 @@ public:
     double play_clock_ = 0;                                     // seconds of play: ticks / 60 while a game runs unfrozen
     std::map<std::string, std::vector<int>> bus_subs_;          // cleria.bus.subscribe: topic -> refs
     void run_timers(bool play);
+    // cleria.input.action: a named action of the mod with its key and pad button (the player's choice is a setting,
+    // "Key.<id>" / "Pad.<id>"; "" = none). The view matches key and button presses against these.
+    struct Action { std::string id, label, key, pad; int ref = 0; };
+    std::vector<Action> actions_;
+    void run_action(std::size_t i);                             // its function, if it has one
     int on_bus(const std::string& topic, const std::string& json_text, const std::string& from);   // -> handlers called
     std::size_t page_ = 0;
     bool drawing_ = false;                                      // inside draw_hud (the d:* calls draw)

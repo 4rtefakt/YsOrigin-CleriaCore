@@ -133,6 +133,10 @@ struct FakeHost : script::Host {
         return {a};
     }
     bool to_screen(float x, float, float z, float* sx, float* sy) override { if (z < 0) return false; *sx = x / 10; *sy = 0.5f; return true; }
+    std::string held7;                                          // the one key / button held
+    bool key_down(const std::string& n) override { return n == held7; }
+    bool pad_down(const std::string& n) override { return n == held7; }
+    bool key_known(const std::string& n, bool pad) override { return pad ? n == "back" || n == "a" : n != "NoSuchKey"; }
     std::vector<std::string> ops7;                              // game_op: "mod op n0,n1 [text]"
     bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
                  std::vector<double>* out) override {
@@ -712,6 +716,30 @@ int main(int argc, char** argv) {
             check(w->ok() && h.ops7 == want && has(h.logs, "writes 11111111111110111 eq 0 6 30 -1 116 st 900 12 exits 2 1 S_1009") &&
                   has(h.logs, "ability false true true false") && h.fl[163] == 1 && has(h.logs, "bad falsefalsefalsefalsefalsefalse"),
                   "api 7: the player's and the flow's writes reach the host; bad arguments are errors (" + w->error() + ")");
+        }
+        {   // API 7, cleria.input: actions with a default key, the player's setting over it, held states, bind
+            h.settings["api7i/Key.jump"] = "F8";
+            auto in = make(h, tmp, "api7i", R"LUA(
+                local I = cleria.input
+                I.action("open", {label = "Open", key = "F5", pad = "back"}, function() cleria.log("ran open") end)
+                I.action("jump", {key = "F6"}, function() cleria.log("ran jump") end)
+                I.action("quiet", {key = "F9"})
+                local k, p = I.binding("open")
+                local k2 = I.binding("jump")
+                cleria.log("bindings " .. k .. " " .. p .. " " .. k2 .. " none " .. tostring(I.binding("nope")) .. " down " .. tostring(I.down("open")) ..
+                           " key " .. tostring(I.key("F5")) .. " bad " .. tostring(pcall(I.action, "x", {key = "NoSuchKey"})) ..
+                           tostring(pcall(I.action, "bad id", {})) .. tostring(pcall(I.down, "nope")))
+                cleria.command("rebind", function() cleria.log("bind " .. tostring(I.bind("open", "F7", "a")) .. tostring(I.bind("open", "NoSuchKey")) ..
+                                                               " now " .. I.binding("open") .. " down " .. tostring(I.down("open"))) end)
+            )LUA");
+            check(in->ok() && in->actions_.size() == 3 && has(h.logs, "bindings F5 back F8 none nil down false key false bad falsefalsefalse"),
+                  "api 7: input.action, binding, the player's key from the settings (" + in->error() + ")");
+            in->run_action(0); in->run_action(1); in->run_action(2); in->run_action(9);
+            h.held7 = "F7";
+            in->command("rebind", "");
+            check(has(h.logs, "ran open") && has(h.logs, "ran jump") && has(h.logs, "bind truefalse now F7 down true") &&
+                  h.settings["api7i/Key.open"] == "F7" && h.settings["api7i/Pad.open"] == "a" && in->ok(),
+                  "api 7: an action's function runs; input.bind is kept in the settings; input.down");
         }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);

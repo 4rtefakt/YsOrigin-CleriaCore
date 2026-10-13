@@ -251,6 +251,11 @@ void Mod::run_timers(bool play) {
         }
 }
 
+void Mod::run_action(std::size_t i) {
+    if (!ok() || i >= actions_.size() || actions_[i].ref == 0) return;
+    call_ref(actions_[i].ref, 0, 0, "action");
+}
+
 // cleria.bus.subscribe handlers of `topic`: fn(value, from).
 int Mod::on_bus(const std::string& topic, const std::string& json_text, const std::string& from) {
     if (!ok()) return 0;

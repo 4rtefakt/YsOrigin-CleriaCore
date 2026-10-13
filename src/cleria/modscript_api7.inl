@@ -481,3 +481,91 @@ void open_api7_writes(lua_State* L) {                    // the cleria table is 
 }
 
 }  // namespace
+
+namespace {
+
+// ---- cleria.input: actions on a key or a pad button ------------------------------------------------------------
+std::string action_id_arg(lua_State* L, int i) {
+    std::string k = str_arg(L, i);
+    bool ok = !k.empty() && k.size() <= 32;
+    for (char c : k) ok = ok && (std::isalnum(static_cast<unsigned char>(c)) || c == '_');
+    if (!ok) luaL_argerror(L, i, "an action id is 1-32 characters of A-Z a-z 0-9 _");
+    return k;
+}
+Mod::Action* find_action(Mod& m, const std::string& id) {
+    for (Mod::Action& a : m.actions_) if (a.id == id) return &a;
+    return nullptr;
+}
+// cleria.input.action(id, {label =, key =, pad =} [, fn]): declares the action (again: replaces it). The player's own
+// key, when they set one, wins over `key`.
+int l_input_action(lua_State* L) {
+    Mod& m = M(L);
+    const std::string id = action_id_arg(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    Mod::Action a;
+    a.id = id;
+    a.label = opt_field_s(L, 2, "label", id);
+    a.key = opt_field_s(L, 2, "key", "");
+    a.pad = opt_field_s(L, 2, "pad", "");
+    if (!a.key.empty() && !m.host().key_known(a.key, false)) return luaL_argerror(L, 2, ("unknown key '" + a.key + "'").c_str());
+    if (!a.pad.empty() && !m.host().key_known(a.pad, true)) return luaL_argerror(L, 2, ("unknown pad button '" + a.pad + "'").c_str());
+    if (const auto k = m.host().setting(m.id(), "Key." + id)) a.key = *k;       // the player's choice ("" = unbound)
+    if (const auto p = m.host().setting(m.id(), "Pad." + id)) a.pad = *p;
+    if (!lua_isnoneornil(L, 3)) {
+        luaL_checktype(L, 3, LUA_TFUNCTION);
+        lua_pushvalue(L, 3);
+        a.ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
+    if (Mod::Action* old = find_action(m, id)) {
+        if (old->ref) luaL_unref(L, LUA_REGISTRYINDEX, old->ref);
+        *old = a;
+    } else {
+        if (m.actions_.size() >= 64) return luaL_error(L, "too many actions (64)");
+        m.actions_.push_back(a);
+    }
+    return 0;
+}
+int l_input_down(lua_State* L) {                         // is the action's key or pad button held now
+    Mod& m = M(L);
+    const Mod::Action* a = find_action(m, action_id_arg(L, 1));
+    if (!a) return luaL_argerror(L, 1, "no such action (declare it with cleria.input.action)");
+    lua_pushboolean(L, (!a->key.empty() && m.host().key_down(a->key)) || (!a->pad.empty() && m.host().pad_down(a->pad)));
+    return 1;
+}
+int l_input_binding(lua_State* L) {                      // -> key, pad (the names in use, "" = none)
+    Mod& m = M(L);
+    const Mod::Action* a = find_action(m, action_id_arg(L, 1));
+    if (!a) { lua_pushnil(L); return 1; }
+    lua_pushlstring(L, a->key.data(), a->key.size());
+    lua_pushlstring(L, a->pad.data(), a->pad.size());
+    return 2;
+}
+int l_input_bind(lua_State* L) {                         // (id, key [, pad]): the player's choice, kept in the settings
+    Mod& m = M(L);
+    Mod::Action* a = find_action(m, action_id_arg(L, 1));
+    if (!a) return luaL_argerror(L, 1, "no such action (declare it with cleria.input.action)");
+    const std::string key = luaL_optstring(L, 2, "");
+    if (!key.empty() && !m.host().key_known(key, false)) { lua_pushboolean(L, 0); return 1; }
+    a->key = key;
+    m.host().set_setting(m.id(), "Key." + a->id, key);
+    if (!lua_isnoneornil(L, 3)) {
+        const std::string pad = luaL_checkstring(L, 3);
+        if (!pad.empty() && !m.host().key_known(pad, true)) { lua_pushboolean(L, 0); return 1; }
+        a->pad = pad;
+        m.host().set_setting(m.id(), "Pad." + a->id, pad);
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+int l_input_key(lua_State* L) { lua_pushboolean(L, M(L).host().key_down(str_arg(L, 1))); return 1; }   // a key by its name
+int l_input_pad(lua_State* L) { lua_pushboolean(L, M(L).host().pad_down(str_arg(L, 1))); return 1; }
+
+void open_api7_input(lua_State* L) {                     // the cleria table is on top of the stack
+    static const luaL_Reg in[] = {{"action", l_input_action}, {"down", l_input_down}, {"binding", l_input_binding}, {"bind", l_input_bind},
+                                  {"key", l_input_key}, {"pad", l_input_pad}, {nullptr, nullptr}};
+    lua_newtable(L);
+    set_funcs(L, in);
+    lua_setfield(L, -2, "input");
+}
+
+}  // namespace

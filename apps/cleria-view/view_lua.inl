@@ -131,6 +131,9 @@ struct LuaHost : script::Host {
     bool to_screen(float x, float y, float z, float* sx, float* sy) override;
     bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
                  std::vector<double>* out) override;
+    bool key_down(const std::string& name) override;
+    bool pad_down(const std::string& name) override;
+    bool key_known(const std::string& name, bool pad) override;
 };
 
 struct LuaRt {
@@ -288,6 +291,48 @@ bool LuaHost::game_op(const std::string& mod, const std::string& op, const std::
                       std::vector<double>* out) {
     return in_game() && g_lua.b.op && g_lua.b.op(mod, op, num, text, out);
 }
+// ---- cleria.input (API 7): SDL's names for keys ("F5", "Left Shift") and pad buttons ("a", "back", "dpup") ----
+bool LuaHost::key_known(const std::string& name, bool pad) {
+    return pad ? SDL_GetGamepadButtonFromString(name.c_str()) != SDL_GAMEPAD_BUTTON_INVALID
+               : SDL_GetKeyFromName(name.c_str()) != SDLK_UNKNOWN;
+}
+bool LuaHost::key_down(const std::string& name) {
+    const SDL_Keycode k = SDL_GetKeyFromName(name.c_str());
+    if (k == SDLK_UNKNOWN) return false;
+    const SDL_Scancode sc = SDL_GetScancodeFromKey(k, nullptr);
+    int n = 0;
+    const bool* st = SDL_GetKeyboardState(&n);
+    return st && int(sc) > 0 && int(sc) < n && st[sc];
+}
+bool LuaHost::pad_down(const std::string& name) {
+    const SDL_GamepadButton b = SDL_GetGamepadButtonFromString(name.c_str());
+    return b != SDL_GAMEPAD_BUTTON_INVALID && g_sdl_in.pad && SDL_GetGamepadButton(g_sdl_in.pad, b);
+}
+// A key or a pad button went down while the shell does not hold the input: the mods' actions bound to it run, then
+// the "input" event (key = / pad = its name). `name` is SDL's.
+static void lua_input_press(const std::string& name, bool pad) {
+    if (g_lua.mods.empty() || name.empty()) return;
+    for (std::size_t mi = 0; mi < g_lua.mods.size(); ++mi) {
+        script::Mod& m = *g_lua.mods[mi];
+        for (std::size_t i = 0; i < m.actions_.size(); ++i) {
+            const std::string& bound = pad ? m.actions_[i].pad : m.actions_[i].key;
+            if (bound.empty()) continue;
+            const bool hit = pad ? SDL_GetGamepadButtonFromString(bound.c_str()) == SDL_GetGamepadButtonFromString(name.c_str())
+                                 : SDL_GetKeyFromName(bound.c_str()) == SDL_GetKeyFromName(name.c_str());
+            if (hit) m.run_action(i);
+        }
+    }
+    content_emit(events::Event::named("input").with(pad ? "pad" : "key", name));
+}
+static void lua_input_event(const SDL_Event& e) {
+    if (g_lua.mods.empty()) return;
+    if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) lua_input_press(SDL_GetKeyName(e.key.key), false);
+    else if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+        const char* n = SDL_GetGamepadStringForButton(SDL_GamepadButton(e.gbutton.button));
+        if (n) lua_input_press(n, true);
+    }
+}
+
 // The game speed the mods ask for: the product of their factors, within the shell's own limits.
 static float lua_game_speed() {
     if (g_lua.speed.empty()) return 1.0f;
@@ -439,6 +484,21 @@ static void lua_hud_notice(ImDrawList* dl, float w, float h) {
     ui::text(dl, ui::F.body, bpx, {a.x + 20.0f * S, a.y + 40.0f * S}, A(ui::kDesc), n.text.c_str());
 }
 
+// The keys of a mod's actions (cleria.input.action), on its own page: a text field per action with SDL's key name.
+static void lua_page_keys(script::Mod& m, ui::List& L) {
+    if (m.actions_.empty()) return;
+    ui::section(L, "Keys");
+    for (script::Mod::Action& a : m.actions_) {
+        std::string k = a.key;
+        if (ui::text_field(L, a.label.c_str(), &k, "The key for this action, by its name: F5, Tab, Left Shift, A ... Empty = no key.", false, "(none)")) {
+            if (k.empty() || SDL_GetKeyFromName(k.c_str()) != SDLK_UNKNOWN) {
+                a.key = k;
+                g_lua.host.set_setting(m.id(), "Key." + a.id, k);
+            }
+        }
+    }
+}
+
 static void lua_shell(Shell& shell) {
     LuaRt& r = g_lua;
     if (r.mods.empty()) return;
@@ -456,6 +516,7 @@ static void lua_shell(Shell& shell) {
                     return;
                 }
                 m->draw_page(j, &L);
+                if (j + 1 == m->pages().size()) lua_page_keys(*m, L);     // API 7: its actions' keys, after its last page
             });
         shell.hud["lua." + m->id()] = [m](ImDrawList* dl, float w, float h) {
             if (!m->ok()) return;
@@ -607,6 +668,8 @@ static void lua_stat_modifiers(PlayerStats& s) {
 
 // CLERIA_DRIVE: lua=<command> <args>   (a cleria.command of an active scripted mod)
 static bool lua_drive(const std::string& cmd) {
+    if (cmd.rfind("modkey=", 0) == 0) { lua_input_press(cmd.substr(7), false); return true; }   // a key press for the mods (API 7)
+    if (cmd.rfind("modpad=", 0) == 0) { lua_input_press(cmd.substr(7), true); return true; }
     if (cmd.rfind("lua=", 0) != 0) return false;
     const std::string rest = cmd.substr(4);
     const std::size_t sp = rest.find(' ');

@@ -2817,6 +2817,27 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, cleria.input: an action on F6 (and the pad's back) runs on the press (the drive's modkey= / modpad=),
+# every press is also an "input" event, input.bind moves the action to F7; with Key.probe = F8 in the mod's
+# settings the player's key wins over the script's default.
+_LUA_API7I = (
+    'cleria.input.action("probe", {label = "Probe", key = "F6", pad = "back"}, function() cleria.log("ACTION in " .. cleria.game.state()) end)\n'
+    'cleria.events.on("input", function(e) cleria.log("INPUT " .. tostring(e.key) .. " " .. tostring(e.pad)) end)\n'
+    'cleria.command("keys", function(a)\n'
+    '    if a ~= "" then cleria.log("bind " .. tostring(cleria.input.bind("probe", a))) end\n'
+    '    local k, p = cleria.input.binding("probe")\n'
+    '    cleria.log("binding " .. k .. " / " .. p)\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_input": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7I,
+        drive="20:lua=keys;30:modkey=F6;40:modkey=F7;50:modpad=back;60:lua=keys F7;70:modkey=F6;80:modkey=F7;90:lua=keys Nope;100:quit",
+        expect=[_LP + "binding F6 / back", _LP + "ACTION in play", _LP + "INPUT F6 nil", _LP + "INPUT F7 nil", _LP + "ACTION in play",
+                _LP + "INPUT nil back", _LP + "bind true", _LP + "binding F7 / back", _LP + "INPUT F6 nil", _LP + "ACTION in play",
+                _LP + "INPUT F7 nil", _LP + "bind false", _LP + "binding F7 / back"],
+        absent=_NOSTOP, count={_LP + "ACTION in play": 3}),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

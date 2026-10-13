@@ -53,7 +53,7 @@ content, then multiplayer, then the tools.
 
 | # | What | Lua | Status |
 |---|---|---|---|
-| 1 | Key and pad binds | `cleria.input.action(id, {label =, key =, pad =}, fn)`, `input.down(id)` | |
+| 1 | Key and pad binds | `cleria.input.action(id, {label =, key =, pad =}, fn)`, `input.down(id)` | done (the Keys section is a text field per action; a press-to-bind capture comes with #29) |
 | 25 | Drawing in the world | a `world` hud layer: `d:world_text / world_line / world_circle / world_image` | |
 | 26 | The camera | `cleria.camera.set{zoom =, offset =}`, `camera.shake(...)`, `camera.reset()` | |
 | 27 | Screen effects | `cleria.screen.flash(color, s)`, `screen.fade(...)`, `screen.tint(...)` | |

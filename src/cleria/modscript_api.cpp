@@ -1311,6 +1311,7 @@ void open_api(lua_State* L, Mod& m) {
     open_api7_game(L);
     open_api7_world(L);
     open_api7_writes(L);
+    open_api7_input(L);
 
     lua_setglobal(L, "cleria");
 }

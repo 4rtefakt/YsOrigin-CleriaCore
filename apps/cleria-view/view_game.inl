@@ -6544,6 +6544,7 @@ title_again:
         while (SDL_PollEvent(&e)) {
             g_sdl_in.on_event(e);                 // the mapper's latches and the gamepad (view_input.inl)
             if (shell.event(e)) continue;         // the shell takes what it owns
+            lua_input_event(e);                   // the mods' actions (cleria.input, API 7)
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 const SDL_Keycode k = e.key.key;

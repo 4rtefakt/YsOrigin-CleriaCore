@@ -714,6 +714,41 @@ item that is not owned). A value out of its range is a Lua error.
 [H] Nothing checks that a position is reachable or that a room change makes sense for the story. `take_exit` and
 `goto_room` are refused during a cutscene and while dead.
 
+### 12.9 Keys and pad buttons: `cleria.input`
+
+```lua
+cleria.input.action("menu", {label = "Open my menu", key = "F5", pad = "back"}, function()
+    if cleria.game.state() == "play" then open_menu() end
+end)
+
+cleria.events.on("tick", function()
+    if cleria.input.down("menu") then ... end            -- held right now
+end)
+```
+
+- `input.action(id, {label =, key =, pad =} [, fn])` declares an action of the mod: `fn` runs once each time its key or
+  its pad button goes down. `key` and `pad` are the defaults; **the player's own choice wins**. Declaring an id again
+  replaces it. At most 64 per mod; an id is 1-32 characters of `A-Z a-z 0-9 _`.
+- Names are SDL's: keys `"F5"`, `"Tab"`, `"Left Shift"`, `"A"`, `"1"`, `"Keypad 0"`; pad buttons `"a"`, `"b"`, `"x"`,
+  `"y"`, `"back"`, `"start"`, `"leftshoulder"`, `"rightshoulder"`, `"leftstick"`, `"dpup"` ... An unknown name is a Lua
+  error.
+- **The player's keys**: every mod with actions gets a **Keys** section at the end of its page (F1 > Mods > the mod), a
+  text field per action. The choice is the mod's setting `Key.<id>` (and `Pad.<id>`); empty = no key.
+  `input.bind(id, key [, pad])` sets it from a script (false for an unknown name), `input.binding(id)` returns the
+  key and the button in use.
+- `input.down(id)` is true while the action's key or button is held; `input.key(name)` / `input.pad(name)` read any
+  key or button.
+- Actions run on the frame of the press, in every state of the game but one: while the F1 panel is open it has the
+  keyboard, and no action runs. A mod decides for itself whether the moment is right (`game.state()`).
+- [H] Nothing stops a mod from choosing a key the game uses: the game still gets it. Prefer the function keys the
+  game leaves free (F2, F4 to F12; F1 is the panel, F3 the debug text).
+
+| event | when | fields |
+|---|---|---|
+| `input` | a key or a pad button went down (not a repeat), the F1 panel closed | `key` or `pad`: its name |
+
+A drive run presses for the mods with `modkey=<name>` and `modpad=<name>`.
+
 ## 10. Tests
 
 ```
@@ -749,5 +784,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |
