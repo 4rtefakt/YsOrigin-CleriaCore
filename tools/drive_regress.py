@@ -1708,71 +1708,85 @@ CASES.update({
     # cleria-boss08test's), the kill in the first open window at t10293 (was t12209), the run 14500 ticks. The filter
     # is pinned by its log (`N of M collision entries off (mask ..)`: the tail's 39 tentacle entries from the start, a
     # leg's 2 once it has faded, 42 with the chest gone), the retry start's track by `[bgm] 18 (scene)`.
+    # Re-pinned 2026-10-13 again (issue #105, DARM_D §12.6): the body's hull STAYS in OnBack's open window (the byte
+    # the break clears is the no-jump byte, not the collision). The core (r 2.5 round the tail's eye) is inside the
+    # skirt, and at its DEF + 20 Toal's grounded swings do the minimum (1, x 2 here): the pilot is put before the
+    # skirt's mouth, jumps over the rim onto the inner floor (`inside the skirt`, standing on boss08) and uses the air
+    # combo there (24 / 26 a hit). Two windows (t12308, t13954), the kill at t15118 on the barrier's chip after the
+    # second closed; the run 19500 ticks, now under the lockstep.
     "darm_fight": dict(
         room="S_70/S_7099/S_7099",
-        env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1"},
+        env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8;61:every=15,14500,oktapf;14500:quit",
+              "11:flag=163,1;60:boss8;61:every=15,19500,oktapf;19500:quit",
         expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
                 "boss08t: 39 of 60 collision entries off (mask 0xffffffff)", "[bgm] 18 (scene)",
                 "the fight starts, the body at (0.00,0.00,8.50)", "target part 5 from the floor",
                 "the swing hits part 5 (DEF 998, class 3): 2 dmg", "touch boss08 (side) -> touch_tail",
                 "clip 36_DoubleLariat", "effect 512", "with a jump", "target part 7 from the floor",
-                "the swing hits part 7", "boss08: 2 of 67 collision entries off (mask 0x4)",
-                "target part 2 from the floor", "MatMode 1: black (Down)",
-                "boss08: 42 of 67 collision entries off (mask 0xf)",
-                "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown", "target the core 0",
-                "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
-                "boss08: 0 of 67 collision entries off (mask 0x0)", "band 1 (the refill starts", "CamSlot 6 (0.020)",
-                "MatMode 2: the outline (form change)", "form Normal -> High", "motion s7099yuka e",
-                "the floor moves: over to", "the refill ends at hp", "CamSlot 3 (0.025)", "MatMode 0: lit",
-                "settled in High", "touch boss08t (side) -> touch_tail", "clip 39_HighDown",
-                "band 2 (the refill starts", "form High -> Normal", "band 3 (the refill starts",
-                "band 4 (the refill starts", "form High -> OnBack", "the barrier is up", "CamSlot 5 (1.000)",
+                "the swing hits part 7", "boss08: 2 of 67 collision entries off (mask 0x4)", "CamSlot 5 (1.000)",
                 "the player fell off the floor", "effect 517", "the player is put back at (0.0,19.0,-6.0)",
-                "settled in OnBack", "(20_Beat)", "CamSlot 4 (", "bullet(s) kind 0x25 effect 484",
-                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "(24_StabInTheGround)", "released from Bone_",
-                "(25_PullFromTheGround)", "barrier 59", "the barrier breaks (window 900)",
-                "the swing hits the core 0 (DEF 295, class 3)", "flag 215 = 0", "the kill (core hp",
-                "motion boss08 30_OnBackWait", "flag 227 = 1", "[content] boss_defeated S_7099 flag 227",
-                "the death timeline starts", "the body is gone (alpha 0)", "[bgm] 0 (script: stop over 3500 ms)",
-                ">> entering S_7000"],
+                "MatMode 1: black (Down)", "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
+                "target the core 0", "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
+                "boss08: 0 of 67 collision entries off (mask 0x0)", "band 1 (the refill starts", "CamSlot 6 (0.020)",
+                "MatMode 2: the outline (form change)", "form Normal -> Low", "the floor moves: over to",
+                "the refill ends at hp", "MatMode 0: lit", "target part 2 from the floor", "form Low -> High",
+                "CamSlot 3 (0.025)", "settled in High", "boss08: 42 of 67 collision entries off (mask 0xf)",
+                "clip 39_HighDown", "band 2 (the refill starts", "form High -> Low", "band 3 (the refill starts",
+                "touch boss08t (side) -> touch_tail", "band 4 (the refill starts", "form High -> OnBack",
+                "the barrier is up", "CamSlot 4 (", "settled in OnBack", "(20_Beat)",
+                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "bullet(s) kind 0x25 effect 484",
+                "(24_StabInTheGround)", "released from Bone_", "(25_PullFromTheGround)", "barrier 59",
+                "the barrier breaks (window 900)", "[pilot] t12309 the window: to the skirt's mouth",
+                "the window: inside the skirt, the air combo at the core",
+                "the swing hits the core 0 (DEF 295, class 3): 24 dmg", "the window closed: the barrier is back",
+                "flag 215 = 0", "[boss08] t15118 the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
+                "[content] boss_defeated S_7099 flag 227", "the death timeline starts", "the body is gone (alpha 0)",
+                "[bgm] 0 (script: stop over 3500 ms)", ">> entering S_7000"],
         count={"boss_defeated": 1}),
     # Darm ON FOOT (drive `boss8=walk`, view_boss08.inl): darm_fight's pilot without its placements — from the retry
     # start at (0, 0, -10) the stick is held along a route over resting tiles clear of the hulls to each spot, and
     # Attack / Jump are pressed only there (the first target at t272, part 7 from (-7.66, 5.60)). Through the four
-    # bands and the forms Normal, High, Low, Normal to OnBack, the barrier's 60 hits from the floor, and the kill in
-    # the second open window (t17767). The open window is [approx] (the body's hull is dropped for it; the bytes keep
-    # it and let the player climb, view_boss08.inl): the walk to the core there is through where the body stands.
-    # DamageTaken=0 as in darm_fight: the pilot dodges nothing (a contact's 250-ATK hit is logged, not taken).
+    # bands and the forms Normal, Low, Normal, Low, High to OnBack, the barrier's 60 hits from the floor, and the kill
+    # in the THIRD open window (t24512).
+    # Re-pinned 2026-10-13 (issue #105, DARM_D §12.6): the hull stays in the open window. From where the barrier
+    # broke the pilot walks round to the front of the skirt's mouth, jumps over its rim onto the inner floor and uses
+    # the air combo at the core from there (`inside the skirt`: 60 hits of 24 / 26 over three windows; the grounded
+    # swings it also lands are worth the minimum). The damage is REAL now (no DamageTaken=0): a contact with the body
+    # or the tail is Touch_Tail's 250-ATK hit with its knock-down, which is what gets a player who ended up standing
+    # on a limb off it again (with the damage off and the no-jump byte on, the pilot rode the turning body in High
+    # for good). InfiniteHP stays: the pilot dodges nothing (331 Touch_Tail hits, 126 each of Toal's 342: a player
+    # who fought like it would have died many times over). DamageDealt=2, level 50, tier 10 as before.
     "darm_onfoot": dict(
         room="S_70/S_7099/S_7099",
         env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8=walk;61:every=15,18200,oktapf;18200:quit",
+        drive="5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
+              "11:flag=163,1;60:boss8=walk;61:every=15,25000,oktapf;25000:quit",
         expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
                 "boss08t: 39 of 60 collision entries off (mask 0xffffffff)", "[bgm] 18 (scene)",
                 "the fight starts, the body at (0.00,0.00,8.50)", "touch boss08 (side) -> touch_tail",
-                "[pilot] t272 target part 7 from the floor, from (-7.66,5.60)", "the swing hits part 7",
-                "bullet(s) kind 0x25 effect 467", "with a jump", "target part 5 from the floor",
-                "the swing hits part 5 (DEF 998, class 3): 2 dmg", "clip 36_DoubleLariat", "effect 512",
+                "[pilot] t581 target part 7 from the floor, from (-5.61,3.86)",
+                "boss08: 0 of 67 collision entries off (mask 0x0)", "the swing hits part 7", "with a jump",
+                "target part 5 from the floor", "the swing hits part 5 (DEF 998, class 3): 2 dmg",
                 "boss08: 2 of 67 collision entries off (mask 0x4)", "target part 2 from the floor",
-                "MatMode 1: black (Down)", "boss08: 42 of 67 collision entries off (mask 0xf)",
-                "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown", "target the core 0",
-                "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
-                "boss08: 0 of 67 collision entries off (mask 0x0)", "band 1 (the refill starts", "CamSlot 6 (0.020)",
-                "MatMode 2: the outline (form change)", "form Normal -> High", "motion s7099yuka e",
-                "the refill ends at hp", "CamSlot 3 (0.025)", "MatMode 0: lit", "settled in High",
-                "touch boss08t (side) -> touch_tail", "clip 39_HighDown", "band 2 (the refill starts",
-                "form High -> Low", "motion s7099yuka c", "CamSlot 2 (0.025)", "settled in Low", "clip 38_LowDown",
-                "band 3 (the refill starts", "form Low -> Normal", "CamSlot 5 (1.000)",
-                "the player fell off the floor", "effect 517", "the player is put back at (0.0,19.0,-6.0)",
-                "bullet(s) kind 0x25 effect 484", "band 4 (the refill starts", "form Normal -> OnBack",
-                "the barrier is up", "CamSlot 4 (", "settled in OnBack", "(20_Beat)",
-                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "(24_StabInTheGround)", "released from Bone_",
+                "MatMode 1: black (Down)", "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
+                "target the core 0", "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
+                "band 1 (the refill starts", "CamSlot 6 (0.020)", "MatMode 2: the outline (form change)",
+                "form Normal -> Low", "the refill ends at hp", "CamSlot 5 (1.000)", "the player fell off the floor",
+                "effect 517", "the player is put back at (0.0,19.0,-6.0)", "motion s7099yuka c", "CamSlot 2 (0.025)",
+                "MatMode 0: lit", "settled in Low", "bullet(s) kind 0x25 effect 467", "clip 38_LowDown",
+                "form Low -> Normal", "clip 36_DoubleLariat", "effect 512", "band 2 (the refill starts",
+                "boss08: 42 of 67 collision entries off (mask 0xf)", "band 3 (the refill starts", "form Low -> High",
+                "CamSlot 3 (0.025)", "settled in High", "touch boss08t (side) -> touch_tail",
+                "bullet(s) kind 0x25 effect 484", "clip 39_HighDown", "band 4 (the refill starts",
+                "form High -> OnBack", "the barrier is up", "settled in OnBack", "(20_Beat)", "CamSlot 4 (",
+                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "released from Bone_", "(24_StabInTheGround)",
                 "(25_PullFromTheGround)", "barrier 59", "the barrier breaks (window 900)",
-                "the swing hits the core 0 (DEF 295, class 3)", "the window closed: the barrier is back",
-                "flag 215 = 0", "the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
+                "[pilot] t19696 the window: to the skirt's mouth",
+                "the window: inside the skirt, the air combo at the core",
+                "the swing hits the core 0 (DEF 295, class 3)", "the swing hits the core 0 (DEF 295, class 3): 24 dmg",
+                "the window closed: the barrier is back", "flag 215 = 0", "[boss08] t24512 the kill (core hp",
+                "motion boss08 30_OnBackWait", "flag 227 = 1",
                 "[content] boss_defeated S_7099 flag 227"],
         absent=["the floor moves: over to"]),
     # Dalles's music (issue: "Dalles has music stopping or not launching"). The room's SCENELIST record has BGM 0 and
@@ -2724,13 +2738,15 @@ CASES.update({
     # The scene light's colour (§4.3) multiplies every material's diffuse and the actor sprites: Darm's state
     # machine sets it by FUN_00443ea0 — 0xffaa8080 in the normal stance (the fight's first frames), 0xffaaaa80 next.
     "scene_light": dict(
-        room="S_70/S_7099/S_7099", env={"CLERIA_CHAR": "3", "CLERIA_SCRFX_LOG": "1"},
+        room="S_70/S_7099/S_7099", env={"CLERIA_CHAR": "3", "CLERIA_SCRFX_LOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8;61:every=15,2100,oktapf;2100:quit",
+              "11:flag=163,1;60:boss8;61:every=15,2700,oktapf;2700:quit",
         # Re-pinned 2026-10-13 (darm_fight's note: the hull's entry filter and the sphere push-out): the first band
         # is at t2000 and the next form is High — its light 0xff8080aa at t2001 (was Low's 0xffaaaa80 at t2838).
+        # Re-pinned again 2026-10-13 (darm_fight's second note; under the lockstep now, as darm_fight): the first band
+        # is at t2552 and the next form is Low — its light 0xffaaaa80.
         expect=["[light] t11 the scene light's colour (0.667, 0.502, 0.502)",
-                "[light] t2001 the scene light's colour (0.502, 0.502, 0.667)"]),
+                "the scene light's colour (0.667, 0.667, 0.502)"]),
     # The frame hold (§7.3): Zava's death (zava_fight's run) writes 0x76a548 / 0x76a54c = 1.0 / -0.025 with
     # 0x7b2488 = 1: that frame is copied and drawn over the live scene, first at floor(0.975 x 256) = 249.
     # Re-pinned 2026-10-10 (the dust puffs, as zava_fight): her death is at t4102, was t3830; the run ends at t4400.

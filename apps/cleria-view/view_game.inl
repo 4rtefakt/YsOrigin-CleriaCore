@@ -2279,6 +2279,7 @@ title_again:
     bool floor_moved = false;                // ... which changed it (the rider carry reads the pair next tick)
     std::string player_floor_obj;            // the object the player stands on (+0x540)
     bool player_floor_nojump = false;        // ... and its collision entry's byte +0x89 (+0x544 picks the entry)
+    Vec3 player_floor_n{0.0f, 1.0f, 0.0f};   // +0x298..+0x2a0: the floor ray's normal (0x45ba4f)
     int ride_tri = -1;                       // ... and, on the stunned Velagunder, the face under him and his
     Vec3 ride_uvw{};                         // place in its frame (a + u (b - a) + v (c - a) + w n): the carry
     Vec3 carry{};                            // +0x5b0..: the platform carry
@@ -7520,11 +7521,14 @@ title_again:
             // through the commit), Hugo keeps a full 1.0, Toal goes 0.80 -> 0.05 so he
             // keeps drifting through his. anime_Turnable locks facing over the same span.
             const float stepUp = kStepUp;
-            {   // Velagunder's entries while he is stunned: no slope limit under the player (below).
-                const RoomMesh::ObjRange* br = boss && boss->stunned() ? room.coll.object_range("boss01") : nullptr;
+            {   // Velagunder's entries while he is stunned: no slope limit under the player (below). Darm's body in
+                // OnBack's open window is the same thing (its entries' +0x89 clear, DARM_D §12.2).
+                const char* const cn = boss && boss->stunned() ? "boss01"
+                                     : boss8 && !boss8->mesh(boss08::kB).no_jump ? "boss08" : nullptr;
+                const RoomMesh::ObjRange* br = cn ? room.coll.object_range(cn) : nullptr;
                 room.coll.climb_t0 = br ? br->t0 : 0;
                 room.coll.climb_t1 = br ? br->t1 : 0;
-                room.coll.climb_reach = br && player_floor_obj == "boss01" ? pm.radius() : 0.0f;
+                room.coll.climb_reach = br && player_floor_obj == cn ? pm.radius() : 0.0f;
             }
             // Movement is relative to the live camera (last frame's — the 1-frame lag
             // is imperceptible and avoids a chicken-and-egg with the follow camera).
@@ -7833,6 +7837,18 @@ title_again:
                 }
             }
             const float hx0 = feet.x, hz0 = feet.z;   // the tick's horizontal start (the wall push below)
+            // The slide off a no-jump floor entry [BYTES 0x45ad20..0x45adcd; f32 0x6bd19c / 0x6bd018 / 0x6bd174]:
+            // grounded on an entry whose +0x89 is set, the floor normal's y > 0: the tick's displacement gains
+            // clamp(0.1 |n.xz|, 0.0025, 0.075) along n.xz (a level entry, |n.xz| = 0, gives none).
+            // [not modelled] on Zava's head entry 0, the other no-jump floor: with it zava_fight and
+            // zava_nightmare_knockdown take another course that has not been read yet — Darm's body only.
+            if (pv.grounded && player_floor_nojump && player_floor_obj == "boss08" && player_floor_n.y > 0.0f) {
+                const float nl = std::sqrt(player_floor_n.x * player_floor_n.x + player_floor_n.z * player_floor_n.z);
+                if (nl > 0.0f) {
+                    const float k = std::min(0.075f, std::max(0.0025f, nl * 0.1f)) / nl;
+                    feet.x += player_floor_n.x * k; feet.z += player_floor_n.z * k;
+                }
+            }
             {   const int sec = avm.section();
                 const bool skill_sec = sec == 0x109 || (sec >= 0x10c && sec <= 0x111);
                 const bool blessing_run = (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 0x2000) != 0;
@@ -8198,9 +8214,17 @@ title_again:
                         player_floor_obj = r.name;
                         // The entry's byte +0x89: the ctor of Zava's two heads sets it on entry 0 and clears it on
                         // the others [EXPORT 0053bbb0.c:247-254] (view_boss06.inl keeps each head's entries as
-                        // triangle ranges of its hull). [not modelled] Darm's body: its ctor sets the byte on every
-                        // entry and the broken barrier of OnBack clears it for the open window (DARM.md §3.3 item 7,
-                        // DARM_D §4.2.1; view_boss08.inl's note on the window).
+                        // triangle ranges of its hull). Darm's body: its ctor sets the byte on every entry and the
+                        // broken barrier of OnBack clears it for the open window (DARM_D §4.2.1, §12.2).
+                        if (boss8 && r.name == "boss08") player_floor_nojump = boss8->mesh(boss08::kB).no_jump;
+                        {   const RoomMesh& fm = phys_mesh(room);
+                            const RoomVertex& A = fm.vertices[fm.indices[std::size_t(floor_tri) * 3]];
+                            const RoomVertex& B = fm.vertices[fm.indices[std::size_t(floor_tri) * 3 + 1]];
+                            const RoomVertex& C = fm.vertices[fm.indices[std::size_t(floor_tri) * 3 + 2]];
+                            Vec3 n = normalize(cross({B.px - A.px, B.py - A.py, B.pz - A.pz}, {C.px - A.px, C.py - A.py, C.pz - A.pz}));
+                            if (n.y < 0.0f) n = {-n.x, -n.y, -n.z};   // [approx] taken facing up: the port's floor ray is two-sided
+                            player_floor_n = n;
+                        }
                         for (int hi = 0; hi < boss06::kHeads; ++hi)
                             if (r.name == boss6_name[hi] && !boss6_entries[std::size_t(hi)].empty()) {
                                 const std::uint32_t rel = std::uint32_t(floor_tri) - r.t0;
@@ -8210,7 +8234,7 @@ title_again:
                         break;
                     }
             ride_tri = -1;
-            if (player_floor_obj == "boss01" && phys_mesh(room).climb_t1 > phys_mesh(room).climb_t0) {
+            if ((player_floor_obj == "boss01" || player_floor_obj == "boss08") && phys_mesh(room).climb_t1 > phys_mesh(room).climb_t0) {
                 const RoomMesh& cm = phys_mesh(room);
                 const RoomVertex& A = cm.vertices[cm.indices[std::size_t(floor_tri) * 3]];
                 const RoomVertex& B = cm.vertices[cm.indices[std::size_t(floor_tri) * 3 + 1]];

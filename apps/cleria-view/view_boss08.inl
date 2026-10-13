@@ -672,12 +672,9 @@ auto boss8_tick = [&] {
     if (Tm.alpha != mo[1]->alpha) set_alpha(1, std::clamp(Tm.alpha, 0.0f, 1.0f));
     if (on) set_alpha(2, Wm.alpha);
     set_alpha(3, Am.alpha);
-    // [approx] The OnBack window. The bytes clear +0x89 of every entry of B there — the "no jump from this floor"
-    // byte [EXPORT 00465170.c:234-240], with the touch script off: the body stays solid and the player may climb it
-    // to the core. The fight was built on reading that byte as the collision itself, so the hull is dropped for the
-    // window and the core is struck through it; the climb (and the slide off a no-jump entry, 0045a510.c:426) is
-    // open work.
-    if (bm->no_collide == B.no_jump) { bm->no_collide = !B.no_jump; bm->dirty_pose = true; }
+    // The OnBack window. The bytes clear +0x89 of every entry of B there — the "no jump from this floor" byte
+    // [EXPORT 00465170.c:234-240] — with the touch script off: the body stays solid, and the player may jump from it
+    // and is not slid off it (view_game.inl: player_floor_nojump, the slide, the climb range). DARM_D §12.2 / §12.6.
     // The entries the engine's queries skip: the body's faded limbs, the tail's tentacles.
     boss8_hull_filter(0, bm);
     boss8_hull_filter(1, mo[1]);
@@ -886,6 +883,57 @@ boss8_pilot = [&] {
         const Boss08Part& p = boss8->part(i);
         return p.pos.y > -500.0f && p.def < 999.0f;
     };
+    // OnBack's open window (DARM_D §12.6), `boss8` and `boss8=walk` (the first is put before the mouth, the second walks there): the body is solid and harmless, the core (r 2.5 round the
+    // tail's eye) sits 3.4 inside the skirt, a hollow shell open at the front, and at its DEF + 20 only the air combo
+    // counts. The pilot walks to the front of the mouth beside the tail, jumps over the rim onto the skirt's inner
+    // floor, and there jumps and presses Attack in the air. Where the mouth is it reads off the body's placement:
+    // 4.4 in front of the origin, the rim 0.5 .. 1.0 high [measured on the hull in 30_OnBackWait]; it stays 4.3 from
+    // the push-out's centre. (The break's own frame still has the barrier's r 4.5 part: it starts on the next.)
+    if (b.form == boss08::kOnBack && b.window != 0 && open(boss08::kBodyParts) && boss8->part(boss08::kBodyParts).radius < 3.0f) {
+        const Boss08Part& core = boss8->part(boss08::kBodyParts);
+        const Vec3 mid = ef2sim::transform_coord({0.0f, 0.0f, -5.3f}, boss8->matrix());
+        const Vec3 ax = ef2sim::transform_coord({1.0f, 0.0f, -5.3f}, boss8->matrix());
+        const float side = (feet.x - mid.x) * (ax.x - mid.x) + (feet.z - mid.z) * (ax.z - mid.z) >= 0.0f ? 1.0f : -1.0f;
+        // ... clear of the tail (its hull is 0.6 to either side of the middle and its touch stays on)
+        const Vec3 S = ef2sim::transform_coord({side * 1.8f, 0.0f, -5.3f}, boss8->matrix());   // on the tiles before the rim
+        const Vec3 G = ef2sim::transform_coord({side * 1.3f, 0.0f, -2.5f}, boss8->matrix());   // on the inner floor, near its bottom line
+        const bool inside = feet.y > b8p_floor + 0.3f &&   // past the rim, on the inner floor (or on the tail that lies in it)
+                            (feet.x - S.x) * (G.x - S.x) + (feet.z - S.z) * (G.z - S.z) > 0.8f * 2.4f;
+        if (!pv.grounded) {
+            if (b8p_air < 0) return;
+            ++b8p_air;
+            const float gx = G.x - feet.x, gz = G.z - feet.z, gl = std::sqrt(gx * gx + gz * gz);
+            if (gl > 0.3f) { drive_wish = {gx / gl, 0.0f, gz / gl}; drive_wish_n = 1; }
+            if (b8p_second) {                              // its jump inside: Attack in the air
+                face(core.pos.x - feet.x, core.pos.z - feet.z);
+                if (b8p_air % 5 == 0) try_attack();
+            }
+            return;
+        }
+        if (b8p_air >= 0 && b8p_air < 4) { ++b8p_air; return; }
+        b8p_air = -1;
+        const int key = inside ? 1001 : 1000;
+        if (key != b8p_last) {
+            b8p_last = key;
+            std::printf("  [pilot] t%llu the window: %s, from (%.2f,%.2f,%.2f) on %s\n", T, inside ? "inside the skirt, the air combo at the core" : "to the skirt's mouth",
+                        feet.x, feet.y, feet.z, player_floor_obj.c_str());
+        }
+        if (b8p_cool > 0) { --b8p_cool; return; }
+        if (inside && (G.x - feet.x) * (G.x - feet.x) + (G.z - feet.z) * (G.z - feet.z) > 0.64f) {   // the combo carried it: back to its place
+            const float gx = G.x - feet.x, gz = G.z - feet.z, gl = std::sqrt(gx * gx + gz * gz);
+            drive_wish = {gx / gl, 0.0f, gz / gl}; drive_wish_n = 1;
+        } else if (inside) {
+            face(core.pos.x - feet.x, core.pos.z - feet.z);
+            drive_jump = true; b8p_air = 0; b8p_second = true; b8p_cool = 4;
+        } else if (player_floor_obj == boss8_name[0] || player_floor_obj == boss8_name[1]) {   // on the body or the tail somewhere else: off it, toward the mouth's front
+            const float sx = S.x - feet.x, sz = S.z - feet.z, sl = std::sqrt(sx * sx + sz * sz);
+            if (sl > 1e-3f) { drive_wish = {sx / sl, 0.0f, sz / sl}; drive_wish_n = 1; }
+        } else if (b8p_walk ? walk_to(S.x, S.z) : (put(S.x, S.z), true)) {
+            face(G.x - feet.x, G.z - feet.z);
+            drive_jump = true; b8p_air = 0; b8p_second = false; b8p_cool = 4;
+        }
+        return;
+    }
     if (!pv.grounded) {                                    // in the air: only its own jump is steered
         if (b8p_air < 0 || b8p_tgt < 0 || !open(b8p_tgt)) return;
         ++b8p_air;
