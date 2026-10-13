@@ -126,6 +126,9 @@ struct Actor {
     // cast type, which makes the two look interchangeable across the corpus; they are
     // not. EVNT_3002_THOR.XSO spawns five instances of cast 35 as ids 167..171.
     int instance_id = 0;
+    // CleriaCore's own (the mods' puppets, API 7; not retail): the sprite set drawn for this actor instead of its
+    // cast's ("C_103" = Hugo's player sprites). Empty = the cast's own.
+    std::string sprite_override;
     int cast_id = 0;      // engine: +0x124. Indexes CASTINFO; 13 is the player.
     int enemy_index = -1; // ours: enemies.hpp fold of cast_id, or -1 if not an enemy.
     std::uint32_t kind = 0;  // engine: +0x60, the kind word. See kind_word().

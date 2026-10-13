@@ -844,6 +844,17 @@ int main(int argc, char** argv) {
                   h.ops7[3] == "api7v bgm_stop 500" && ends(h.ops7[4], " 0 1 30") && ends(h.ops7[5], " 0.6 0 15") &&
                   has(h.logs, "av truetruetruetruetruetrue bad false"), "api 7: audio.se / music / stop_music, screen.fade / flash (" + v->error() + ")");
         }
+        {   // API 7: the puppet and the player's pose are named writes / reads
+            h.ops7.clear();
+            auto p = make(h, tmp, "api7p", R"LUA(
+                local W = cleria.world
+                cleria.log("puppet " .. tostring(W.puppet(2, 1, 2, 3, 90)) .. " " .. tostring(W.set_puppet(7, {x = 4, yaw = 180, tag = 1, frame = 2, sheet = 15})) .. " " ..
+                           tostring(W.remove_puppet(7)) .. " pose " .. tostring(cleria.player.pose()) .. " bad " .. tostring(pcall(W.puppet, 4, 0, 0, 0)))
+            )LUA");
+            check(p->ok() && h.ops7.size() == 4 && h.ops7[0] == "api7p puppet_spawn 2 1 2 3 90" && h.ops7[1] == "api7p puppet_set 7 4 nan nan 180 1 2 15" &&
+                  h.ops7[2] == "api7p puppet_remove 7" && h.ops7[3] == "api7p pose" && has(h.logs, "puppet nil true true pose nil bad false"),
+                  "api 7: world.puppet / set_puppet / remove_puppet, player.pose (" + p->error() + ")");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&

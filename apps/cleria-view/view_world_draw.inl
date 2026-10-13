@@ -177,7 +177,7 @@ struct EnemyFx {
     void init_from_world(Gpu& g, const fs::path& asset_root, const ActorWorld& world,
                          const CastTable& casts) {
         for (const Actor& a : world.actors())
-            load_kind(g, asset_root, casts.sprite_stem(a.cast_id));
+            load_kind(g, asset_root, a.sprite_override.empty() ? casts.sprite_stem(a.cast_id) : a.sprite_override);
     }
 };
 
@@ -340,7 +340,7 @@ static std::vector<EnemyRender> build_enemy_render(ActorWorld& world,
     std::vector<EnemyRender> out;
     for (Actor& a : world.actors()) {
         if (a.is_player()) continue;
-        const std::string stem = casts.sprite_stem(a.cast_id);
+        const std::string stem = a.sprite_override.empty() ? casts.sprite_stem(a.cast_id) : a.sprite_override;   // a mod's puppet
         if (stem.empty() || !fx.kinds.count(stem)) continue;   // no loaded sprite
         const Cast* c = casts.get(a.cast_id);
         out.push_back({&a, stem, (c && !c->display.empty()) ? c->display : stem});

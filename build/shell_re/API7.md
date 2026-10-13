@@ -98,8 +98,8 @@ content, then multiplayer, then the tools.
 
 | # | What | Lua | Status |
 |---|---|---|---|
-| 49 | A puppet character | `cleria.world.puppet(character)` -> `:set{x, y, z, facing, anim}` | |
-| 53 | The player's own actions | the events `attack`, `skill_used`, `jump`, `land`; `player.pose()` | |
+| 49 | A puppet character | `cleria.world.puppet(character)` -> `:set{x, y, z, facing, anim}` | done (`world.puppet`, `set_puppet`, `remove_puppet`; Actor::sprite_override; checked on captures) |
+| 53 | The player's own actions | the events `attack`, `skill_used`, `jump`, `land`; `player.pose()` | part: `player.pose()`; the attack / jump / land events not yet |
 | 50 | Hits between players | a hit shape on a puppet; `source` in the damage query | |
 | 51 | Monster state | `cleria.world.snapshot()`, `world.apply(snapshot)` | |
 | 52 | Bosses and room scripts | the same for the boss modules and the script VM | |

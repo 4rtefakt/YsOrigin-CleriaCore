@@ -841,6 +841,33 @@ Spawning by hand:
 [H] The fader is the one the game's scripts use: a room change or a cutscene sets it again, and a mod's fade set
 during a scene's own fade replaces it. A mod's own sound files are not played yet (API7.md #20).
 
+### 12.13 A second character: puppets
+
+```lua
+local id = cleria.world.puppet(2, x, y, z, 180)         -- Hugo, standing there, facing 180 degrees
+cleria.world.set_puppet(id, {x = x2, y = y2, z = z2, yaw = 90, sheet = 16, tag = 301, frame = 3})
+cleria.world.remove_puppet(id)
+
+local me = cleria.player.pose()                         -- {x, y, z, yaw, sheet, tag, frame}: send this to the other side
+```
+
+- `world.puppet(character, x, y, z [, degrees])` puts one of the three characters (1 Yunica, 2 Hugo, 3 Toal) in the room
+  as an actor with **no brain, no stats and no collision**: the mod owns its place, heading and picture. It returns
+  the actor's id (`nil` with no game). The puppet is drawn from the character's own gameplay sheet, standing with
+  its weapon, shadow included (checked on captures: Hugo next to Yunica).
+- `world.set_puppet(id, {...})`: any of `x`, `y`, `z` (its feet), `yaw` (degrees, 0 = +Z, as `player.set_position`),
+  and the picture: `sheet`, `tag` and `frame`. The sheet is a sprite file by its id (15 Yunica, 16 Hugo, 17 Toal for
+  moving about; the character's script switches to others for its attacks and skills, 11 for Yunica's swings), the
+  tag one of that sheet's animations (**305 standing, 301 running, 302 jumping**, 257 / 258 Yunica's first swings),
+  the frame clamped to the animation. A sheet id the game does not have is ignored. False once the puppet is gone.
+- Puppets live in the room: a room change removes them (spawn them again on `room_enter`). They are not saved.
+- `cleria.player.pose()` is the local player's own `x, y, z`, `yaw` and the `sheet` / `tag` / `frame` shown this
+  tick: a puppet fed with it every tick copies the player exactly (checked on captures standing, running, jumping
+  and through two swings). It does not carry what is drawn around the sprite: skill effects, Toal's trail.
+
+[H] This is the first of the multiplayer pieces (API7.md H). Not there yet: a hit shape on a puppet (#50), and any
+sharing of the monsters (#51): with only this, two players see each other and each fights their own monsters.
+
 ## 10. Tests
 
 ```
@@ -876,5 +903,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

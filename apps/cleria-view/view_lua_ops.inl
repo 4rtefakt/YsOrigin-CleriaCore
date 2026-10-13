@@ -148,5 +148,51 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         csHost.fade_rate = 1.0f / float(std::max(1.0, arg(3, 20.0)));
         return true;
     }
+    // A puppet: the event cast of a character (C500 Yunica 116, C510 Hugo 117, C520 Toal 118: class 4, no brain, no
+    // stats) spawned as a script spawns an NPC. The mod owns its place, heading and motion from then on.
+    if (op == "puppet_spawn") {
+        if (n.size() < 4 || !out) return false;
+        const int cast = 115 + std::clamp(int(n[0]), 1, 3);
+        Actor* a = world.spawn(SpawnRequest{0, cast, Vec3{float(n[1]), float(n[2]), float(n[3])}, float(arg(4)), 0, 0});
+        if (!a) return false;
+        static const char* const kHero[] = {"C_111", "C_112", "C_113"};      // the three players' gameplay sheets
+        a->sprite_override = kHero[std::clamp(int(n[0]), 1, 3) - 1];
+        a->aia_file = 14 + std::clamp(int(n[0]), 1, 3);                     // the same sheets by their file ids (aso_aia_name 15..17)
+        a->pattern.tag = 305; a->pattern.frame = 0;                         // standing, weapon in hand (the players' idle tag)
+        g_lua_puppets.insert(a->instance_id);
+        csHost.world_changed = true;
+        *out = {double(a->instance_id)};
+        return true;
+    }
+    if (op == "puppet_set" || op == "puppet_remove") {
+        const int id = int(arg(0, -1));
+        Actor* a = g_lua_puppets.count(id) ? world.find(id) : nullptr;
+        if (!a) { g_lua_puppets.erase(id); return false; }
+        if (op == "puppet_remove") {
+            world.despawn(id);
+            g_lua_puppets.erase(id);
+            csHost.world_changed = true;
+            return true;
+        }
+        if (n.size() > 1 && std::isfinite(n[1])) a->pos.x = float(n[1]);
+        if (n.size() > 2 && std::isfinite(n[2])) a->pos.y = float(n[2]);
+        if (n.size() > 3 && std::isfinite(n[3])) a->pos.z = float(n[3]);
+        if (n.size() > 4 && std::isfinite(n[4])) {
+            a->yaw = float(n[4]) * 3.14159265358979323846f / 180.0f;
+            a->look.cmd = a->look.dir = heading_of_yaw(a->yaw);
+        }
+        if (n.size() > 5 && std::isfinite(n[5])) a->pattern.tag = int(n[5]);      // a tag of its sheet
+        if (n.size() > 7 && std::isfinite(n[7]) && *aso_aia_name(std::int32_t(n[7]))) a->aia_file = std::int32_t(n[7]);   // the sheet
+        if (n.size() > 6 && std::isfinite(n[6])) a->pattern.frame = std::max(0, int(n[6]));
+        return true;
+    }
+    if (op == "pose") {                                  // the player's place, heading and the frame the script shows now
+        if (!out) return false;
+        *out = {double(feet.x), double(feet.y), double(feet.z), double(std::atan2(face_dir.x, face_dir.z) * 57.29577951f),
+                double(avm.anim_tag()), double(avm.frame()), -1.0};
+        for (std::int32_t i = 0; i < 269; ++i)           // the sheet drawn now, as its file id (the script swaps it: anime_File)
+            if (cur_aia == aso_aia_name(i)) { (*out)[6] = double(i); break; }
+        return true;
+    }
     return false;
 };

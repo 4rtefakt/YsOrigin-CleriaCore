@@ -879,3 +879,51 @@ void open_api7_av(lua_State* L) {                        // the cleria table is 
 }
 
 }  // namespace
+
+namespace {
+
+// ---- cleria.world.puppet: one of the three characters as an actor the mod moves (another player, a ghost) -------
+int l_world_puppet(lua_State* L) {                       // (character 1..3, x, y, z [, degrees]) -> its id, or nil
+    const lua_Integer c = luaL_checkinteger(L, 1);
+    if (c < 1 || c > 3) return luaL_argerror(L, 1, "1 Yunica, 2 Hugo or 3 Toal");
+    std::vector<double> out;
+    if (!op(L, "puppet_spawn", {double(c), num_arg(L, 2, -1e6, 1e6), num_arg(L, 3, -1e6, 1e6), num_arg(L, 4, -1e6, 1e6), luaL_optnumber(L, 5, 0.0)}, {}, &out) ||
+        out.empty()) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, lua_Integer(out[0]));
+    return 1;
+}
+int l_world_set_puppet(lua_State* L) {                   // (id, {x =, y =, z =, yaw =, tag =, frame =, sheet =}) -> true while it exists
+    luaL_checktype(L, 2, LUA_TTABLE);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    lua_pushboolean(L, op(L, "puppet_set", {double(luaL_checkinteger(L, 1)), opt_field_n(L, 2, "x", nan), opt_field_n(L, 2, "y", nan),
+                                            opt_field_n(L, 2, "z", nan), opt_field_n(L, 2, "yaw", nan), opt_field_n(L, 2, "tag", nan),
+                                            opt_field_n(L, 2, "frame", nan), opt_field_n(L, 2, "sheet", nan)}));
+    return 1;
+}
+int l_world_remove_puppet(lua_State* L) { lua_pushboolean(L, op(L, "puppet_remove", {double(luaL_checkinteger(L, 1))})); return 1; }
+
+int l_player_pose(lua_State* L) {                        // -> {x, y, z, yaw (degrees), tag, frame, sheet}: what a puppet needs to copy the player
+    std::vector<double> out;
+    if (!op(L, "pose", {}, {}, &out) || out.size() < 7) { lua_pushnil(L); return 1; }
+    static const char* const k[] = {"x", "y", "z", "yaw", "tag", "frame", "sheet"};
+    lua_createtable(L, 0, 7);
+    for (int i = 0; i < 7; ++i) {
+        if (i >= 4) lua_pushinteger(L, lua_Integer(out[std::size_t(i)])); else lua_pushnumber(L, out[std::size_t(i)]);
+        lua_setfield(L, -2, k[i]);
+    }
+    return 1;
+}
+
+void open_api7_puppet(lua_State* L) {                    // the cleria table is on top of the stack
+    static const luaL_Reg world[] = {{"puppet", l_world_puppet}, {"set_puppet", l_world_set_puppet}, {"remove_puppet", l_world_remove_puppet},
+                                     {nullptr, nullptr}};
+    lua_getfield(L, -1, "world");
+    set_funcs(L, world);
+    lua_pop(L, 1);
+    static const luaL_Reg player[] = {{"pose", l_player_pose}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "player");
+    set_funcs(L, player);
+    lua_pop(L, 1);
+}
+
+}  // namespace

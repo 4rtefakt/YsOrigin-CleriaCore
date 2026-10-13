@@ -1315,6 +1315,7 @@ void open_api(lua_State* L, Mod& m) {
     open_api7_windows(L);
     open_api7_world2(L);
     open_api7_av(L);
+    open_api7_puppet(L);
 
     lua_setglobal(L, "cleria");
 }

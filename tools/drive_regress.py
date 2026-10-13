@@ -2924,6 +2924,27 @@ CASES.update({
         expect=["[lua] se 5", _LP + "se true", _LP + "music true", _LP + "stop true", _LP + "flash true"], absent=_NOSTOP),
 })
 
+# Mod API 7, the puppet: a second character in the room (Hugo's sprite set next to Yunica), posed, moved, turned and
+# removed; set_puppet on an id that is gone answers false. player.pose is what a peer would send.
+_LUA_API7P = (
+    'local pup\n'
+    'cleria.command("pup", function(a)\n'
+    '    local st, cmd, x = cleria.player.stats(), a:match("^(%S*)%s*(%S*)")\n'
+    '    if cmd == "spawn" then pup = cleria.world.puppet(tonumber(x), st.x + 2.5, st.y, st.z, 180) cleria.log("puppet " .. tostring(pup)) end\n'
+    '    if cmd == "pose" then cleria.log("posed " .. tostring(cleria.world.set_puppet(pup, {tag = tonumber(x), frame = 2, sheet = 16}))) end\n'
+    '    if cmd == "move" then cleria.log("moved " .. tostring(cleria.world.set_puppet(pup, {x = st.x - 2.5, z = st.z + 1, yaw = 90}))) end\n'
+    '    if cmd == "remove" then cleria.log("removed " .. tostring(cleria.world.remove_puppet(pup))) end\n'
+    '    if cmd == "me" then local p = cleria.player.pose() cleria.log(string.format("pose %.1f %.1f %.1f yaw %.0f tag %d frame %d sheet %d", p.x, p.y, p.z, p.yaw, p.tag, p.frame, p.sheet)) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_puppet": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7P,
+        drive="30:lua=pup spawn 2;40:lua=pup me;70:lua=pup pose 301;110:lua=pup move;190:lua=pup remove;200:lua=pup pose 301;210:actors;220:quit",
+        expect=[_LP + "puppet 117", _LP + "pose 0.1 2.0 7.8 yaw 0 tag 305 frame ", " sheet 15", _LP + "posed true", _LP + "moved true", _LP + "removed true",
+                _LP + "posed false"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")
