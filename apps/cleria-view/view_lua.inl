@@ -136,40 +136,12 @@ struct LuaHost : script::Host {
     bool to_screen(float x, float y, float z, float* sx, float* sy) override;
     bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& num, const std::string& text,
                  std::vector<double>* out) override;
-    void ui_text(void* list, const std::string& t, std::uint32_t col) override {
-        ui::List& L = *static_cast<ui::List*>(list);
-        const float px = 17.0f * ui::S, wrap = L.size.x - 26.0f * ui::S;
-        const ImVec2 ts = ui::F.body->CalcTextSizeA(px, FLT_MAX, wrap, t.c_str());
-        L.dl->AddText(ui::F.body, px, {L.org.x + 7.0f * ui::S, L.org.y + L.y - L.scroll + 2.0f * ui::S}, col, t.c_str(), nullptr, wrap);
-        L.y += ts.y + 12.0f * ui::S;
-    }
+    void ui_text(void* list, const std::string& t, std::uint32_t col) override { ui::paragraph(*static_cast<ui::List*>(list), t.c_str(), col); }
     void ui_progress(void* list, const std::string& label, double fraction, const std::string& text, std::uint32_t col) override {
-        ui::List& L = *static_cast<ui::List*>(list);
-        const ui::RowIo r = ui::row_frame(L, nullptr, false, /*focusable*/false);
-        const float lpx = 16.5f * ui::S, cy = (r.a.y + r.b.y) * 0.5f, x0 = r.a.x + (r.b.x - r.a.x) * 0.42f, x1 = r.b.x - 13.0f * ui::S;
-        ui::text(L.dl, ui::F.cond, lpx, {r.a.x + 13.0f * ui::S, cy - lpx * 0.55f}, ui::kLabel, ui::upper(label.c_str()).c_str());
-        const float bh = 10.0f * ui::S;
-        L.dl->AddRectFilled({x0, cy - bh * 0.5f}, {x1, cy + bh * 0.5f}, ui::kRowEdge, bh * 0.5f);
-        if (fraction > 0.0) L.dl->AddRectFilled({x0, cy - bh * 0.5f}, {x0 + (x1 - x0) * float(fraction), cy + bh * 0.5f}, col, bh * 0.5f);
-        if (!text.empty()) {
-            const float vpx = 14.0f * ui::S;
-            const ImVec2 ts = ui::text_size(ui::F.body, vpx, text.c_str());
-            ui::text(L.dl, ui::F.body, vpx, {(x0 + x1 - ts.x) * 0.5f, cy - vpx * 0.6f}, ui::kValue, text.c_str());
-        }
+        ui::progress(*static_cast<ui::List*>(list), label.c_str(), float(fraction), text.c_str(), col);
     }
     void ui_table(void* list, const std::vector<std::string>& cells, bool header, std::uint32_t col) override {
-        ui::List& L = *static_cast<ui::List*>(list);
-        if (cells.empty()) return;
-        const float px = (header ? 14.5f : 16.0f) * ui::S, x0 = L.org.x + 13.0f * ui::S, w = L.size.x - 26.0f * ui::S;
-        const float y = L.org.y + L.y - L.scroll, cw = w / float(cells.size());
-        for (std::size_t i = 0; i < cells.size(); ++i) {
-            const std::string t = header ? ui::upper(cells[i].c_str()) : cells[i];
-            L.dl->PushClipRect({x0 + cw * float(i), y}, {x0 + cw * float(i + 1) - 6.0f * ui::S, y + px * 1.6f}, true);
-            ui::text(L.dl, header ? ui::F.cond : ui::F.body, px, {x0 + cw * float(i), y + px * 0.2f}, header ? ui::kLabel : col, t.c_str());
-            L.dl->PopClipRect();
-        }
-        if (header) L.dl->AddLine({x0, y + px * 1.55f}, {x0 + w, y + px * 1.55f}, ui::kRowEdge, 1.0f);
-        L.y += px * 1.75f;
+        ui::table_row(*static_cast<ui::List*>(list), cells, header, col);
     }
     void ui_image(void* list, int handle, float height, std::uint32_t tint) override;
     bool key_down(const std::string& name) override;
@@ -557,13 +529,13 @@ static void lua_hud_notice(ImDrawList* dl, float w, float h) {
     const float fade = std::clamp(float(5.0 - (now - n.t)) * 2.0f, 0.0f, 1.0f);
     auto A = [&](ImU32 c) { return (c & 0x00FFFFFFu) | (ImU32(float((c >> 24) & 0xFF) * fade) << 24); };
     const float S = ui::S, hpx = 13.5f * S, bpx = 17.0f * S;
-    const std::string head = ui::upper(n.head.c_str());
     const ImVec2 ts = ui::text_size(ui::F.body, bpx, n.text.c_str());
     const float bw = std::max(340.0f * S, ts.x + 40.0f * S), bh = 76.0f * S;
     const ImVec2 a{(w - bw) * 0.5f, h - 290.0f * S}, b{a.x + bw, a.y + bh};
-    dl->AddRectFilled(a, b, A(IM_COL32(26, 24, 16, 235)), 6.0f * S);
-    dl->AddRect(a, b, A(ui::kPanelEdge), 6.0f * S, 0, 1.2f * S);
-    ui::text(dl, ui::F.cond, hpx, {a.x + 20.0f * S, a.y + 15.0f * S}, A(ui::kSection), head.c_str());
+    dl->AddRectFilledMultiColor(a, b, A(ui::kBandBot), A(ui::kBandBot), A(ui::kBandTop), A(ui::kBandTop));
+    dl->AddRect(a, b, A(ui::kGoldDark), 0.0f, 0, 3.0f * S);
+    dl->AddRect(a, b, A(ui::kGold), 0.0f, 0, 1.1f * S);
+    ui::text(dl, ui::F.serif_italic, hpx * 1.25f, {a.x + 20.0f * S, a.y + 11.0f * S}, A(ui::kGold), n.head.c_str());
     ui::text(dl, ui::F.body, bpx, {a.x + 20.0f * S, a.y + 40.0f * S}, A(ui::kDesc), n.text.c_str());
 }
 
@@ -600,10 +572,7 @@ static void lua_draw_window(ImDrawList* dl, float w, float h, const ui::Nav& nav
     const float head = 46.0f * S, bw = w * win.width;      // as tall as its rows were last frame, within the screen
     const float bh = std::clamp(L0.content_h > 0 ? head + L0.content_h + 28.0f * S : h * 0.3f, 110.0f * S, h * 0.8f);
     const ImVec2 a{(w - bw) * 0.5f, (h - bh) * 0.5f}, b{a.x + bw, a.y + bh};
-    dl->AddRectFilled(a, b, kPanel, 8.0f * S);
-    dl->AddRect(a, b, kPanelEdge, 8.0f * S, 0, 1.5f * S);
-    text(dl, F.cond, 20.0f * S, {a.x + 20.0f * S, a.y + 13.0f * S}, kGold, upper(win.title.c_str()).c_str());
-    dl->AddLine({a.x, a.y + head}, {b.x, a.y + head}, kRule, 1.0f * S);
+    window_frame(dl, a, b, win.title.c_str(), head);
     List& L = g_lua.win_lists[m->id() + "/" + win.id];
     const std::string shown = m->id() + "#" + std::to_string(m->window_serial_);
     if (shown != g_lua.win_shown) { L = List{}; g_lua.win_shown = shown; }   // a newly opened window starts on its first row
