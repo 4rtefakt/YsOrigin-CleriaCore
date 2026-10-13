@@ -528,6 +528,7 @@ inline void toast(ImDrawList* dl, float w, float h, const char* head, const char
 }
 
 // ---- the launcher's main menu -----------------------------------------------------------------
+// The project's name, what it is, and the choices on the panel's plates.
 struct MainMenu {
     int sel = 0;
     // Returns the activated item (0..n-1) or -1.
@@ -537,40 +538,33 @@ struct MainMenu {
                                     IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 205));
         dl->AddRectFilledMultiColor({0, h * 0.72f}, {w, h}, IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0),
                                     IM_COL32(0, 0, 0, 150), IM_COL32(0, 0, 0, 150));
-        // the wordmark: a small "presents" line over a big gold-gradient title
+        // the name, plainly: a fan-made engine, not a publisher's splash
         const float x0 = 75.0f * S;
-        const float ppx = 30.0f * S;
-        text(dl, F.bold, ppx, {x0, 330.0f * S}, IM_COL32(246, 242, 232, 255), "CLERIACORE");
-        const float cw = text_size(F.bold, ppx, "CLERIACORE ").x;
-        text(dl, F.medium, ppx * 0.86f, {x0 + cw, 330.0f * S + ppx * 0.1f}, IM_COL32(220, 214, 200, 255), "PRESENTS");
-        const float tpx = 128.0f * S;
-        const ImVec2 tp{x0 - 6.0f * S, 372.0f * S};
-        text(dl, F.bold, tpx, {tp.x + 4.0f * S, tp.y + 5.0f * S}, IM_COL32(0, 0, 0, 150), "YS ORIGIN");   // shadow
-        const int v0 = dl->VtxBuffer.Size;
-        text(dl, F.bold, tpx, tp, IM_COL32(255, 255, 255, 255), "YS ORIGIN");
-        ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, v0, dl->VtxBuffer.Size, {0, tp.y + tpx * 0.18f},
-                                                      {0, tp.y + tpx * 0.98f}, IM_COL32(255, 214, 92, 255),
-                                                      IM_COL32(236, 112, 26, 255));
-        // the items
+        const float tpx = 62.0f * S;
+        const ImVec2 tp{x0, 392.0f * S};
+        text(dl, F.serif, tpx, {tp.x + 2.5f * S, tp.y + 3.0f * S}, IM_COL32(0, 0, 0, 170), "CleriaCore");
+        text(dl, F.serif, tpx, tp, IM_COL32(240, 234, 216, 255), "CleriaCore");
+        const float ry = tp.y + tpx + 10.0f * S, rw = text_size(F.serif, tpx, "CleriaCore").x;
+        dl->AddLine({x0, ry}, {x0 + rw, ry}, kGoldDark, 3.0f * S);
+        dl->AddLine({x0, ry}, {x0 + rw, ry}, kGold, 1.1f * S);
+        text_sh(dl, F.serif_italic, 21.0f * S, {x0 + 2.0f * S, ry + 12.0f * S}, kTabOff, "a fan-made engine for Ys Origin");
+        // the items: the panel's plates
         if (focus) {
             if (nav.up) sel = (sel + n - 1) % n;
             if (nav.down) sel = (sel + 1) % n;
         }
         int hit = -1;
-        const float ipx = 27.0f * S, ih = 44.0f * S, step = 54.0f * S;
+        const float ipx = 23.0f * S, ih = 42.0f * S, step = 54.0f * S;
         for (int i = 0; i < n; ++i) {
-            const ImVec2 a{x0, 640.0f * S + step * float(i)}, b{a.x + 330.0f * S, a.y + ih};
+            const ImVec2 a{x0 - 6.0f * S, 600.0f * S + step * float(i)}, b{a.x + 300.0f * S, a.y + ih};
             if (focus && hovering(a, b)) {
                 hand();
                 if (ImGui::GetIO().MouseDelta.x != 0.0f || ImGui::GetIO().MouseDelta.y != 0.0f) sel = i;
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { sel = i; hit = i; }
             }
-            const bool on = i == sel;
-            if (on)
-                dl->AddRectFilledMultiColor(a, b, IM_COL32(238, 212, 128, 255), IM_COL32(200, 168, 80, 0),
-                                            IM_COL32(200, 168, 80, 0), IM_COL32(238, 212, 128, 255));
-            text(dl, F.cond_med, ipx, {a.x + 13.0f * S, a.y + (ih - ipx) * 0.5f},
-                 on ? IM_COL32(28, 22, 10, 255) : IM_COL32(244, 240, 230, 255), upper(items[i]).c_str());
+            plate(dl, a, b, i == sel);
+            const ImVec2 ts = text_size(F.serif, ipx, items[i]);
+            text_sh(dl, F.serif, ipx, {(a.x + b.x - ts.x) * 0.5f, a.y + (ih - ipx) * 0.42f}, i == sel ? kTabOn : kLabel, items[i]);
         }
         if (focus && nav.ok) hit = sel;
         return hit;
