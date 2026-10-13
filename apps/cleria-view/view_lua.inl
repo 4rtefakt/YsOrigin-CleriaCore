@@ -175,6 +175,11 @@ struct LuaRt {
     std::map<std::string, std::string> bus;            // cleria.bus.get / set: JSON text by key (the process)
     std::string last_state;                            // state_changed / floor_changed: what the last tick saw
     std::map<std::string, double> speed;               // cleria.game.set_speed: each mod's factor (their product applies)
+    // cleria.player.tune: each mod's factors (0 speed, 1 jump, 2 mp_cost, 3 mp_regen, 4 boost_gain) and extra air jumps (5)
+    std::map<std::string, std::array<double, 6>> tune;
+    struct Hit { int id; int dmg; float knock; int cls; };
+    std::vector<Hit> hits;                             // cleria.combat.damage: landed at the next hit scan
+    int forced_dmg = -1;                               // >= 0 while one of them lands: the damage, as given
     std::map<std::string, ui::List> win_lists;         // cleria.ui.window: the list state of each window (mod id + window id)
     ui::Nav drive_nav{};                               // a drive run's keys for the open window (modwin=ok / back / up / down)
     std::string win_shown;                             // the window drawn last frame (mod id + its open serial)
@@ -356,6 +361,13 @@ static void lua_input_event(const SDL_Event& e) {
         const char* n = SDL_GetGamepadStringForButton(SDL_GamepadButton(e.gbutton.button));
         if (n) lua_input_press(n, true);
     }
+}
+
+// cleria.player.tune: the product of the mods' factors (k 0..4), the sum of their extra air jumps (k 5).
+static double lua_tune(int k) {
+    double f = k == 5 ? 0.0 : 1.0;
+    for (const auto& [id, a] : g_lua.tune) { if (k == 5) f += a[5]; else f *= a[std::size_t(k)]; }
+    return f;
 }
 
 // The game speed the mods ask for: the product of their factors, within the shell's own limits.

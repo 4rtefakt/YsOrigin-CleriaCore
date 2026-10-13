@@ -111,6 +111,8 @@
                         }
                     }
                     if (cheat_ohko && dmg > 0) dmg = std::max(dmg, int(std::ceil(en.hp)));   // the shell's Cheats
+                    if (g_lua.forced_dmg >= 0) dmg = g_lua.forced_dmg;   // cleria.combat.damage: as given, past the filters
+                    else
                     dmg = lua_damage(true, dmg, formula, a.atk, power, en.def, cls, en.cast_id, en.level, en.instance_id, en.hp, en.max_hp);   // Lua mods
                     HitResult r = apply_damage(en.hp, en.flags, dmg);
                     if (lua_events_on())                                // mods (API 7): the hit as it landed

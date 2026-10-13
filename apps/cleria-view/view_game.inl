@@ -3941,7 +3941,7 @@ title_again:
     auto add_boost = [&](float amount) {
         if (!skillmp::boost_can_add(game.g_flags[187] != 0, game.g_flags[161] != 0, csMgr.world_frozen(),
                                     player.boosting, player.boost)) return;
-        player.boost += amount;
+        player.boost += amount * float(lua_tune(4));           // x the mods' boost_gain (API 7)
         if (player.boost >= skillmp::kBoostFull) {    // READY (0x46cd4c..): EF2 42 on the player, SE 0x13
             player.boost = skillmp::kBoostFull;
             // FUN_00451c20(player+0x20, &(0, 0, -0.5) [0x7d9e94], rot 0, scale 1, 2): half a unit
@@ -4180,6 +4180,7 @@ title_again:
         si.cost.boosting = player.boosting;
         si.cost.acc_mp = (inv.equip_flags & 0x200000u) != 0;   // the Ring of Ease (x0.80)
         si.cost.adol_alt = character == 0 && skin == 1;        // Napishtim: 0x68b084 = 1500 / 1800 / 1200 [BYTES 0x46618c]
+        si.cost.mod_mult = float(lua_tune(2));                 // the mods (API 7)
         skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
         const int charge_lv0 = skill_charge.level;
         const skillmp::SkillOut so = skillmp::skill_tick(si, mp, skill_charge);
@@ -7863,6 +7864,7 @@ title_again:
                 pi.grounded = pv.grounded; pi.submerged = submerged; pi.t = pv.t; pi.landed = p_landed;
                 pi.flag181 = game.g_flags[181] > 0;
                 pi.flag163 = game.g_flags[163] > 0;
+                pi.extra_air_jumps = int(lua_tune(5));            // the mods (API 7)
                 pi.always_dash = ocheck[3];
                 pi.dash_control = ocheck[1];                      // 0x6d606e "Double-Tap to Dash"
                 if (pi.dash_control != dash_opt[0] || (dash_opt[1] && !pi.always_dash)) pact.dash_reset();   // FUN_005ba2b0
@@ -8535,7 +8537,8 @@ title_again:
             {
                 const int slot = skillmp::bracelet_slot(inv.magic);
                 skillmp::Mp mp{player.sp_cur, player.sp_max, player.sp_lag};
-                mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0, inv.mp_buff != 0.0f ? inv.mp_buff : 1.0f);   // b900 while c198 & 0x10
+                mp.tick(slot < 3 ? game.g_flags[182 + slot] : 0,
+                        (inv.mp_buff != 0.0f ? inv.mp_buff : 1.0f) * float(lua_tune(3)));   // b900 while c198 & 0x10; x the mods' mp_regen
                 player.sp_cur = mp.mp; player.sp_lag = mp.lag;
             }
             ail_tick();                                        // FUN_00462550, before FUN_00462c40 (view_ailments.inl)

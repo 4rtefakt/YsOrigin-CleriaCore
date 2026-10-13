@@ -947,3 +947,39 @@ void open_api7_script(lua_State* L) {                    // the cleria table is 
 }
 
 }  // namespace
+
+namespace {
+
+// ---- cleria.combat.damage / heal / hurt, cleria.player.tune -----------------------------------------------------
+int l_combat_damage(lua_State* L) {                      // (actor, n [, {knock =, class =}]) -> queued
+    lua_pushboolean(L, op(L, "hit", {double(luaL_checkinteger(L, 1)), num_arg(L, 2, 0, 1e7), std::clamp(opt_field_n(L, 3, "knock", 0), 0.0, 10.0),
+                                     opt_field_n(L, 3, "class", 3)}));
+    return 1;
+}
+int l_combat_heal(lua_State* L) { lua_pushboolean(L, op(L, "heal", {num_arg(L, 1, 0, 1e7)})); return 1; }
+int l_combat_hurt(lua_State* L) { lua_pushboolean(L, op(L, "hurt", {num_arg(L, 1, 0, 1e7)})); return 1; }
+int l_player_tune(lua_State* L) {                        // ({speed =, jump =, mp_cost =, mp_regen =, boost_gain =, air_jumps =})
+    luaL_checktype(L, 1, LUA_TTABLE);
+    static const char* const k[] = {"speed", "jump", "mp_cost", "mp_regen", "boost_gain", "air_jumps"};
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    bool ok = true;
+    for (int i = 0; i < 6; ++i) {
+        const double v = opt_field_n(L, 1, k[i], nan);
+        if (std::isfinite(v)) ok = op(L, "tune", {double(i), v}) && ok;
+    }
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+void open_api7_combat(lua_State* L) {                    // the cleria table is on top of the stack
+    static const luaL_Reg combat[] = {{"damage", l_combat_damage}, {"heal", l_combat_heal}, {"hurt", l_combat_hurt}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "combat");
+    set_funcs(L, combat);
+    lua_pop(L, 1);
+    static const luaL_Reg player[] = {{"tune", l_player_tune}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "player");
+    set_funcs(L, player);
+    lua_pop(L, 1);
+}
+
+}  // namespace

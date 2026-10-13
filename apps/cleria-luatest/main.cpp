@@ -870,6 +870,18 @@ int main(int argc, char** argv) {
             check(s->ok() && refused && passed && h.ops7.size() == 1 && h.ops7[0] == "api7s script_run [@Save]" && has(h.logs, "script true"),
                   "api 7: script.run, script.add_filter (" + s->error() + ")");
         }
+        {   // API 7: combat.damage / heal / hurt and player.tune are named writes
+            h.ops7.clear();
+            auto c = make(h, tmp, "api7c", R"LUA(
+                local C = cleria.combat
+                cleria.log("combat " .. tostring(C.damage(7, 12)) .. tostring(C.damage(7, 5, {knock = 2, class = 1})) .. tostring(C.heal(3)) ..
+                           tostring(C.hurt(4)) .. tostring(cleria.player.tune({speed = 1.5, air_jumps = 2})) .. " bad " .. tostring(pcall(C.damage, 7, -1)))
+            )LUA");
+            const std::vector<std::string> want = {"api7c hit 7 12 0 3", "api7c hit 7 5 2 1", "api7c heal 3", "api7c hurt 4", "api7c tune 0 1.5",
+                                                   "api7c tune 5 2"};
+            check(c->ok() && h.ops7 == want && has(h.logs, "combat truetruetruetruetrue bad false"),
+                  "api 7: combat.damage / heal / hurt, player.tune (" + c->error() + ")");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&

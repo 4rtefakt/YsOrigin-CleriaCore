@@ -896,6 +896,41 @@ end)
   `world.add_filter` with the kind `"script"`). [H] A room's logic lives in these scripts: refusing one that sets a
   flag or opens a door leaves the room as it was. Refuse only what you know.
 
+### 12.15 Hits of the mod's own, and the player's tuning
+
+```lua
+cleria.combat.damage(actor, 25)                         -- 25 HP off that monster, as a hit of the player's
+cleria.combat.damage(actor, 25, {knock = 1.5, class = 1})
+cleria.combat.hurt(10)                                  -- 10 HP off the player, as it is
+cleria.combat.heal(10)
+
+cleria.player.tune({speed = 1.5, jump = 1.2, air_jumps = 1, mp_cost = 0.5, mp_regen = 2, boost_gain = 2})
+```
+
+- `combat.damage(actor, n [, {knock =, class =}])` queues a hit on a living monster (an id of `world.actors()`), landed
+  at the next hit scan (the same tick or the next) through the game's own hit function: the damage is `n` **as given**
+  (no formula, no guard, past the `"damage"` filters), then everything a hit of the player's does: the white number,
+  the flinch, the knock (`knock`, 0 by default), `enemy_hit`, and on a kill the EXP, the SP, `enemy_killed` and the
+  drops. `class` is the damage class 0..3 (3, none, by default). False for an id that is not a living monster.
+  [H] A boss module's parts are not actors (§12.6): this does not reach them.
+- `combat.hurt(n)` / `combat.heal(n)` take or give HP directly: no formula, no i-frames, no `"damage"` filter, no
+  `player_hit`. HP stops at the maximum; 0 is the death.
+- `player.tune{...}` sets **this mod's** factors; a key left out keeps its value, `1` (0 for `air_jumps`) clears it.
+  Several mods multiply (their extra air jumps add up).
+
+| key | what it scales | limits |
+|---|---|---|
+| `speed` | the walk speed (run, dash and knock scale with it, as they are multiples of it) | product 0.1..5 |
+| `jump` | the lift-off speed of a jump (the height goes with its square) | product 0.1..4 |
+| `air_jumps` | jumps in the air **added** to the game's (0 without the double jump, 1 with it) | 0..8 a mod |
+| `mp_cost` | a skill's MP cost (0.5 = half; the cast is allowed on the scaled cost) | 0..10 |
+| `mp_regen` | the MP refill of each tick | 0..10 |
+| `boost_gain` | everything added to the Boost gauge | 0..10 |
+
+Checked in a drive run: 30 ticks of walking cover 2.5 then 5.0 with `speed = 2`; a second jump in the air without
+the game's double jump; a skill at 400 MP costs 200 with `mp_cost = 0.5`. The tuning is the process's, like
+`set_modifier`: it is not saved, set it again at start. Not there: gravity (a constant inside the integrator).
+
 ## 10. Tests
 
 ```
@@ -931,5 +966,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

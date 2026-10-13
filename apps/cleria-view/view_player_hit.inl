@@ -8,6 +8,17 @@
             #include "view_player_hit_defs.inl"  // react_enemy, player_hit_enemy, smash_breakables
             prof("tick:hits");
             int killed = 0, broke = 0;
+            if (!g_lua.hits.empty()) {                   // cleria.combat.damage (API 7): the mods' hits, as hits of the player's
+                const std::vector<LuaRt::Hit> hits = std::move(g_lua.hits);
+                g_lua.hits.clear();
+                for (const LuaRt::Hit& h : hits) {
+                    Actor* en = world.find(h.id);
+                    if (!en || en->is_player() || !en->alive()) continue;
+                    g_lua.forced_dmg = h.dmg;
+                    if (player_hit_enemy(*en, nullptr, 0.0f, h.knock, 0, h.cls, std::atan2(en->pos.z - feet.z, en->pos.x - feet.x), false)) ++killed;
+                    g_lua.forced_dmg = -1;
+                }
+            }
             if (atk_window > 0) {
                 --atk_window;
                 // FUN_004fed50 mode 0 (build/ai_spec/HITVOLUME.md §2): the volume is placed

@@ -124,10 +124,10 @@ PlayerActions::Out PlayerActions::tick(const In& in) {
     if (in.jump_pressed && !in.busy && in.jump_enable && tap_window == 0) {
         if (in.grounded && !loco_air) {
             o.jump = true;
-        } else if (!in.submerged && in.flag163 && in.kind != 2 && dj_count == 0 &&
+        } else if (!in.submerged && in.kind != 2 && dj_count < (in.flag163 ? 1 : 0) + in.extra_air_jumps &&   // retail: flag163, +0x77c == 0
                    dj_cool == 0 && in.t <= 0.15f) {                                  // 0x6bd1d8
             o.double_jump = true;
-            dj_count = 1; dj_cool = 6;
+            ++dj_count; dj_cool = 6;
         }
     }
     if (o.jump || o.double_jump) loco_air = true;                  // +0x3a0 = 3 [:1918]

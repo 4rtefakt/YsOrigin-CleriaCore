@@ -37,6 +37,7 @@ struct CostIn {
     int difficulty = 0;        // DAT_0076bb5c: 2 = Nightmare adds PTR_0068b08c
     std::uint32_t bc80 = 0;    // DAT_0076bc80 blessings ("Reduce MP usage" 0x40 / 0x40000 / 0x80000)
     bool acc_mp = false;       // accessory bit 0x76a624 & 0x200000 (x0.80)
+    float mod_mult = 1.0f;     // CleriaCore's own (the mods' cleria.player.tune{mp_cost =}, API 7; not retail)
     bool boosting = false;     // Yunica pays half while boosting
     bool adol_alt = false;     // char 0 with DAT_0074c0cc: PTR_0068b080 {1500,1800,1200}
 };

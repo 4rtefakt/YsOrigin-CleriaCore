@@ -55,6 +55,7 @@ struct PlayerActions {
         bool landed = false;         // this tick's touch-down
         bool flag181 = false;        // the dash (Silver Bracelet)
         bool flag163 = false;        // the double jump
+        int extra_air_jumps = 0;     // CleriaCore's own (the mods' cleria.player.tune{air_jumps =}, API 7; not retail)
         bool always_dash = false;    // option AlwaysDashOK (0x6d6070)
         bool dash_control = false;   // option DashControl (0x6d606e, "Double-Tap to Dash"; retail's default is on)
         int kind = 0;                // +0x404

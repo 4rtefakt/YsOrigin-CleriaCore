@@ -71,7 +71,7 @@ float cost_f(const CostIn& in) {
     else if (in.bc80 & 0x40000) mult = 0.88f;
     else if (in.bc80 & 0x40) mult = 0.94f;
     if (c == 1 && in.boosting) mult *= 0.5f;
-    return float(base) * mult;
+    return float(base) * mult * in.mod_mult;
 }
 
 int cost(const CostIn& in) { return int(cost_f(in)); }   // ftol truncates

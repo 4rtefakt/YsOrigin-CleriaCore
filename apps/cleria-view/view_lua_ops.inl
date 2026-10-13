@@ -195,5 +195,28 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         return true;
     }
     if (op == "script_run") return !text.empty() && csMgr.start(text, {}, 13);   // a script by name, the player its owner (the drive's run=)
+    if (op == "tune") {                                  // (key, value): this mod's factor; the motion constants follow
+        static const CastMotion base = pm;               // CASTINFO's own, before any mod
+        const int k = int(arg(0, -1));
+        if (k < 0 || k > 5) return false;
+        auto& a = g_lua.tune.try_emplace(mod, std::array<double, 6>{1, 1, 1, 1, 1, 0}).first->second;
+        a[std::size_t(k)] = k == 5 ? std::clamp(std::floor(arg(1)), 0.0, 8.0) : std::clamp(arg(1, 1.0), 0.0, 10.0);
+        pm.speed_base = base.speed_base * float(std::clamp(lua_tune(0), 0.1, 5.0));
+        pm.jump_v0 = base.jump_v0 * float(std::clamp(lua_tune(1), 0.1, 4.0));
+        return true;
+    }
+    if (op == "heal" || op == "hurt") {                  // HP given or taken as it is: no formula, no i-frames; 0 is the death
+        if (!alive || arg(0) < 0) return false;
+        const int d = int(arg(0)) * (op == "heal" ? 1 : -1);
+        player.hp = std::clamp(player.hp + d, 0, player.max_hp);
+        return true;
+    }
+    if (op == "hit") {                                   // (actor, damage, knock, class): lands at the next hit scan
+        const int id = int(arg(0, -1));
+        const Actor* a = world.find(id);
+        if (!alive || !a || a->is_player() || !a->is_enemy() || !a->alive() || g_lua_puppets.count(id)) return false;
+        g_lua.hits.push_back({id, std::max(0, int(arg(1))), float(arg(2)), std::clamp(int(arg(3, 3)), 0, 3)});
+        return true;
+    }
     return false;
 };

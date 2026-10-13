@@ -2973,6 +2973,39 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, cleria.combat and cleria.player.tune: a mod's own hit on a monster (the damage as given, then a kill
+# with its EXP), HP taken and given back, and the tuning: a run twice as fast, a second jump in the air without the
+# game's double jump, a skill at half its MP.
+_LUA_API7C = (
+    'cleria.events.on("enemy_hit", function(e) cleria.log("hit " .. e.damage .. " killed " .. e.killed) end)\n'
+    'cleria.events.on("enemy_killed", function(e) cleria.log("killed cast " .. e.cast .. " exp " .. tostring(e.exp > 0)) end)\n'
+    'cleria.events.on("jump", function(e) cleria.log("jump double " .. e.double) end)\n'
+    'cleria.events.on("skill_used", function(e) cleria.log("skill cost " .. e.cost) end)\n'
+    'local x0\n'
+    'cleria.command("c", function(a)\n'
+    '    local st = cleria.player.stats()\n'
+    '    local en = cleria.world.actors()[1]\n'
+    '    if a == "hit" then cleria.log("queued " .. tostring(cleria.combat.damage(en.id, 5))) end\n'
+    '    if a == "kill" then cleria.combat.damage(en.id, 99999) end\n'
+    '    if a == "left" then cleria.log("actors " .. #cleria.world.actors()) end\n'
+    '    if a == "hurt" then cleria.combat.hurt(7) cleria.log("hp " .. cleria.player.stats().hp - st.hp) end\n'
+    '    if a == "heal" then cleria.combat.heal(4) cleria.log("hp " .. cleria.player.stats().hp - st.hp) end\n'
+    '    if a == "x" then x0 = st.x end\n'
+    '    if a == "dx" then cleria.log(string.format("ran %.1f", st.x - x0)) end\n'
+    '    if a == "fast" then cleria.log("tune " .. tostring(cleria.player.tune({speed = 2, air_jumps = 1, mp_cost = 0.5}))) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_combat": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7C,
+        drive="5:opt=InfiniteHP=0;8:bracelet=118;9:flag=118,1;10:flag=184,1;20:lua=c left;30:lua=c hit;40:lua=c kill;50:lua=c left;"
+              "60:lua=c hurt;62:lua=c heal;70:lua=c x;71:move=1,0,30;110:lua=c dx;120:skill+;122:skill-;170:lua=c fast;"
+              "180:lua=c x;181:move=-1,0,30;220:lua=c dx;230:jump;242:jump;280:skill+;282:skill-;330:quit",
+        expect=[_LP + "actors 11", _LP + "queued true", _LP + "hit 5 killed 0", _LP + "hit 99999 killed 1", _LP + "killed cast ",
+                _LP + "actors 10", _LP + "hp -7", _LP + "hp 4", _LP + "ran 2.5", _LP + "skill cost 400", _LP + "tune true", _LP + "ran -5.0",
+                _LP + "jump double 0", _LP + "jump double 1", _LP + "skill cost 200"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")
