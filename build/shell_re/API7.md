@@ -56,12 +56,12 @@ content, then multiplayer, then the tools.
 | 1 | Key and pad binds | `cleria.input.action(id, {label =, key =, pad =}, fn)`, `input.down(id)` | done (the Keys section is a text field per action; a press-to-bind capture comes with #29) |
 | 25 | Drawing in the world | a `world` hud layer: `d:world_text / world_line / world_circle / world_image` | |
 | 26 | The camera | `cleria.camera.set{zoom =, offset =}`, `camera.shake(...)`, `camera.reset()` | |
-| 27 | Screen effects | `cleria.screen.flash(color, s)`, `screen.fade(...)`, `screen.tint(...)` | |
+| 27 | Screen effects | `cleria.screen.flash(color, s)`, `screen.fade(...)`, `screen.tint(...)` | done (`screen.fade`, `screen.flash`; no tint that stays under the HUD yet) |
 | 28 | The game's HUD | `cleria.hud.show(part, on)` | |
 | 30 | Page widgets | `p:progress`, `p:image`, `p:table`, `p:columns`, `p:list` | part: `p:text`, `p:progress` |
 | 11 | Asking the player | `cleria.ui.message(text)`, `cleria.ui.choose(text, options, fn)` | done (`ui.choose`, `ui.message`: in the shell's look, not the game's text window) |
 | 29 | Windows outside F1 | `cleria.ui.window(id, {title =, key =}, fn(p))` | done |
-| 20 | Sound | `cleria.audio.play(file)`, `audio.music(file)`, `audio.se(id)` | |
+| 20 | Sound | `cleria.audio.play(file)`, `audio.music(file)`, `audio.se(id)` | part: the game's own sounds and music (`audio.se`, `music`, `stop_music`); a mod's own files not yet |
 
 ## E. Monsters and combat
 

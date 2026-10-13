@@ -134,5 +134,19 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         if (n.size() > 5 && std::isfinite(n[5])) a->yaw = float(n[5]) * 3.14159265358979323846f / 180.0f;
         return true;
     }
+    if (op == "se") {                                    // a sound of EFFECTDEF, as a script's Se_Play
+        audio.play(int(arg(0)), kSfxAnimVol * float(arg(1, 1.0)));
+        std::printf("  [lua] se %d\n", int(arg(0)));
+        return true;
+    }
+    if (op == "bgm") { if (!csHost.bgm_play_fn) return false; csHost.bgm_play_fn(int(arg(0))); return true; }   // a script's Bgm_Play
+    if (op == "bgm_stop") { if (!csHost.bgm_stop_fn) return false; csHost.bgm_stop_fn(int(arg(0, 1000))); return true; }
+    if (op == "fade") {                                  // the fader a script drives (Fader_Color / Current / Target / Time)
+        csHost.fade_rgb = std::uint32_t(arg(0)) & 0xffffffu;
+        csHost.fade_cur = std::clamp(float(arg(1)), 0.0f, 1.0f);
+        csHost.fade_tgt = std::clamp(float(arg(2)), 0.0f, 1.0f);
+        csHost.fade_rate = 1.0f / float(std::max(1.0, arg(3, 20.0)));
+        return true;
+    }
     return false;
 };

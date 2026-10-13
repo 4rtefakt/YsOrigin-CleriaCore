@@ -842,3 +842,40 @@ WorldDecision Mod::world_filter(const WorldQuery& q, const std::string& room) {
 
 namespace {
 }  // namespace
+
+namespace {
+
+// ---- cleria.audio (the game's own sounds and music), cleria.screen (the fader) ---------------------------------
+int l_audio_se(lua_State* L) {                           // (id [, volume 0..1]) : a sound of EFFECTDEF
+    lua_pushboolean(L, op(L, "se", {double(luaL_checkinteger(L, 1)), std::clamp(luaL_optnumber(L, 2, 1.0), 0.0, 1.0)}));
+    return 1;
+}
+int l_audio_music(lua_State* L) { lua_pushboolean(L, op(L, "bgm", {double(luaL_checkinteger(L, 1))})); return 1; }   // a BGM id (bgmdef)
+int l_audio_stop_music(lua_State* L) {                   // ([fade in seconds])
+    lua_pushboolean(L, op(L, "bgm_stop", {std::clamp(luaL_optnumber(L, 1, 1.0), 0.0, 30.0) * 1000.0}));
+    return 1;
+}
+double rgb_arg(lua_State* L, int i) { return double(std::uint32_t(luaL_optinteger(L, i, 0)) & 0xFFFFFFu); }
+int l_screen_fade(lua_State* L) {                        // (color 0xRRGGBB, from 0..1, to 0..1 [, seconds]) : the game's own fader
+    const double sec = std::clamp(luaL_optnumber(L, 4, 0.33), 0.0, 60.0);
+    lua_pushboolean(L, op(L, "fade", {rgb_arg(L, 1), num_arg(L, 2, 0, 1), num_arg(L, 3, 0, 1), std::max(1.0, sec * 60.0)}));
+    return 1;
+}
+int l_screen_flash(lua_State* L) {                       // (color [, seconds [, strength 0..1]]) : full of that colour, then clear
+    const double sec = std::clamp(luaL_optnumber(L, 2, 0.25), 0.0, 60.0), a = std::clamp(luaL_optnumber(L, 3, 0.6), 0.0, 1.0);
+    lua_pushboolean(L, op(L, "fade", {rgb_arg(L, 1), a, 0.0, std::max(1.0, sec * 60.0)}));
+    return 1;
+}
+
+void open_api7_av(lua_State* L) {                        // the cleria table is on top of the stack
+    static const luaL_Reg audio[] = {{"se", l_audio_se}, {"music", l_audio_music}, {"stop_music", l_audio_stop_music}, {nullptr, nullptr}};
+    lua_newtable(L);
+    set_funcs(L, audio);
+    lua_setfield(L, -2, "audio");
+    static const luaL_Reg screen[] = {{"fade", l_screen_fade}, {"flash", l_screen_flash}, {nullptr, nullptr}};
+    lua_newtable(L);
+    set_funcs(L, screen);
+    lua_setfield(L, -2, "screen");
+}
+
+}  // namespace

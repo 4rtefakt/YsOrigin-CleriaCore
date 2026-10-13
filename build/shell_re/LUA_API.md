@@ -828,6 +828,19 @@ Spawning by hand:
 | `world.remove(id)` | the monster is gone at once: no EXP, no drops, no `enemy_killed` |
 | `world.set_actor(id, {hp =, x =, y =, z =, yaw =})` | a living monster's HP (1..its max: this is not a way to kill), position, heading in degrees |
 
+### 12.12 Sound and the screen
+
+| call | |
+|---|---|
+| `cleria.audio.se(id [, volume])` | plays one of the game's sounds (an EFFECTDEF id, as a script's Se_Play), `volume` 0..1 |
+| `cleria.audio.music(id)` | switches to one of the game's BGMs (a bgmdef id, as a script's Bgm_Play) |
+| `cleria.audio.stop_music([seconds])` | fades the music out (1 second by default) |
+| `cleria.screen.fade(color, from, to [, seconds])` | the game's own fader: the screen covered by `color` (0xRRGGBB) from opacity `from` to `to` (0..1), 0.33 s by default. It stays at `to`: fade back yourself |
+| `cleria.screen.flash(color [, seconds [, strength]])` | covered at `strength` (0.6), clear again after `seconds` (0.25) |
+
+[H] The fader is the one the game's scripts use: a room change or a cutscene sets it again, and a mod's fade set
+during a scene's own fade replaces it. A mod's own sound files are not played yet (API7.md #20).
+
 ## 10. Tests
 
 ```
@@ -863,5 +876,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

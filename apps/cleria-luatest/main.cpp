@@ -832,6 +832,18 @@ int main(int argc, char** argv) {
             const std::vector<std::string> want = {"api7f spawn_actor 17 1 2 3 9 0 0", "api7f remove_actor 17", "api7f set_actor 17 5 nan nan nan nan"};
             check(h.ops7 == want && has(h.logs, "ops nil true true"), "api 7: world.spawn / remove / set_actor reach the host");
         }
+        {   // API 7: cleria.audio and cleria.screen are named writes too
+            h.ops7.clear();
+            auto v = make(h, tmp, "api7v", R"LUA(
+                local A, S = cleria.audio, cleria.screen
+                cleria.log("av " .. tostring(A.se(5)) .. tostring(A.se(5, 0.25)) .. tostring(A.music(18)) .. tostring(A.stop_music(0.5)) ..
+                           tostring(S.fade(0x102030, 0, 1, 0.5)) .. tostring(S.flash(0xFF0000)) .. " bad " .. tostring(pcall(S.fade, 0, 2, 0)))
+            )LUA");
+            auto ends = [](const std::string& x, const char* tail) { const std::string t = tail; return x.size() >= t.size() && x.compare(x.size() - t.size(), t.size(), t) == 0; };
+            check(v->ok() && h.ops7.size() == 6 && h.ops7[0] == "api7v se 5 1" && h.ops7[1] == "api7v se 5 0.25" && h.ops7[2] == "api7v bgm 18" &&
+                  h.ops7[3] == "api7v bgm_stop 500" && ends(h.ops7[4], " 0 1 30") && ends(h.ops7[5], " 0.6 0 15") &&
+                  has(h.logs, "av truetruetruetruetruetrue bad false"), "api 7: audio.se / music / stop_music, screen.fade / flash (" + v->error() + ")");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&

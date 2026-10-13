@@ -2910,6 +2910,20 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, cleria.audio and cleria.screen: a sound of the game, a BGM, the music stopped, a flash and a fade.
+_LUA_API7V = (
+    'cleria.command("av", function(a)\n'
+    '    if a == "se" then cleria.log("se " .. tostring(cleria.audio.se(5, 0.5))) end\n'
+    '    if a == "music" then cleria.log("music " .. tostring(cleria.audio.music(18))) end\n'
+    '    if a == "stop" then cleria.log("stop " .. tostring(cleria.audio.stop_music(0.5))) end\n'
+    '    if a == "flash" then cleria.log("flash " .. tostring(cleria.screen.flash(0xFF2020, 1.0, 0.8))) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_av": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7V, drive="30:lua=av se;40:lua=av music;60:lua=av stop;70:lua=av flash;90:quit",
+        expect=["[lua] se 5", _LP + "se true", _LP + "music true", _LP + "stop true", _LP + "flash true"], absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")
