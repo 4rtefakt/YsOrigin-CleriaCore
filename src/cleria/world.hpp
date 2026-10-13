@@ -88,6 +88,12 @@ class ActorWorld : public XsoHost {
     // seed). Null = no draw (headless tools).
     std::uint32_t* rng = nullptr;
 
+    // CleriaCore's own (the mods' "spawn" filter, API 7; not retail): asked once for every ENEMY about to be built,
+    // before the factory. It may name another enemy cast, another level (0 = the cast's own), scale the stats the
+    // spawn computes, or skip the spawn (spawn() then returns null, as for an unknown cast). Null = nothing is asked.
+    struct SpawnTweak { int cast = 0, level = 0; float hp = 1, atk = 1, def = 1, exp = 1, sp = 1; bool skip = false; };
+    std::function<void(const SpawnRequest&, SpawnTweak&)> spawn_filter;
+
     // The spawn op, end to end (FUN_00570400). Returns null if the cast is unknown.
     //
     // ** An existing actor with this id is REUSED, not duplicated ** — step 1 of the

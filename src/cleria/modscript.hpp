@@ -75,6 +75,21 @@ struct PlayerInfo {
     float pos[3] = {0, 0, 0};         // the feet (world, Y up)
 };
 
+// cleria.world.add_filter (API 7, LUA_API.md §12.11): something the world is about to do ("spawn", "exit"), with free
+// fields both ways. The game fills the query (only when a mod has a filter of that kind); the answer's numbers and
+// strings are what the kind documents.
+struct WorldQuery {
+    std::string kind;
+    std::vector<std::pair<std::string, double>> num;
+    std::vector<std::pair<std::string, std::string>> str;
+};
+struct WorldDecision {
+    enum class Action { Pass, Suppress, Replace } action = Action::Pass;
+    std::map<std::string, double> num;
+    std::map<std::string, std::string> str;
+    double n(const std::string& k, double def) const { const auto it = num.find(k); return it == num.end() ? def : it->second; }
+};
+
 // What a script can reach. Every method has a harmless default, so a host provides only what it has.
 struct Host {
     virtual ~Host() = default;
@@ -253,6 +268,9 @@ public:
     struct Dialog { std::string title, text; std::vector<std::string> options; int ref = 0; bool cancel = true; };
     Dialog dialog_;
     int window_serial_ = 0;                                     // + 1 at each open: the host starts its list afresh
+    std::map<std::string, std::vector<int>> world_filters_;     // cleria.world.add_filter: kind -> refs
+    bool has_world_filter(const std::string& kind) const { const auto it = world_filters_.find(kind); return it != world_filters_.end() && !it->second.empty(); }
+    WorldDecision world_filter(const WorldQuery& q, const std::string& room);
     const Window* window() const;                               // the open one (the dialog as a Window), or null
     void draw_window(void* list);                               // its rows, into the host's list
     void close_window(bool cancelled);                          // Back / Esc, or ui.close()

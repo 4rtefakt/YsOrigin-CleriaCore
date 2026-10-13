@@ -107,5 +107,32 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         game.rs[0] = s ? s : 1u; game.rs[1] = 362436069u; game.rs[2] = 521288629u; game.rs[3] = 88675123u;
         return true;
     }
+    if (op == "spawn_actor") {                           // a script's spawn op: an enemy cast at a point (id 0 = a fresh one)
+        if (n.size() < 4 || !out) return false;
+        const int cast = int(n[0]);
+        if (!etab.get(cast) || !casts.get(cast)) return false;        // enemies only
+        Actor* a = world.spawn(SpawnRequest{0, cast, Vec3{float(n[1]), float(n[2]), float(n[3])}, float(arg(5)), int(arg(6)), int(arg(4))});
+        if (!a) return false;
+        csHost.world_changed = true;
+        *out = {double(a->instance_id)};
+        return true;
+    }
+    if (op == "remove_actor") {                          // gone at once: no EXP, no drops (the drive's killall)
+        Actor* a = world.find(int(arg(0, -1)));
+        if (!a || a->is_player() || !a->is_enemy()) return false;
+        world.despawn(a->instance_id);
+        csHost.world_changed = true;
+        return true;
+    }
+    if (op == "set_actor") {                             // hp (at least 1: a mod does not kill this way), position, heading
+        Actor* a = world.find(int(arg(0, -1)));
+        if (!a || a->is_player() || !a->is_enemy() || !a->alive()) return false;
+        if (n.size() > 1 && std::isfinite(n[1])) a->hp = std::clamp(float(n[1]), 1.0f, a->max_hp);
+        if (n.size() > 2 && std::isfinite(n[2])) a->pos.x = float(n[2]);
+        if (n.size() > 3 && std::isfinite(n[3])) a->pos.y = float(n[3]);
+        if (n.size() > 4 && std::isfinite(n[4])) a->pos.z = float(n[4]);
+        if (n.size() > 5 && std::isfinite(n[5])) a->yaw = float(n[5]) * 3.14159265358979323846f / 180.0f;
+        return true;
+    }
     return false;
 };

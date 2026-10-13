@@ -2869,6 +2869,47 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, the world filters. "spawn": every Selnarg (cast 17) of S_1002 becomes a Jestona (cast 16) at level 5 with
+# twice the HP (82 -> 164), every Baocar (43) is not spawned at all: six monsters instead of eleven. "exit": the door
+# to S_1003 leads to S_1009. Then world.spawn / set_actor / remove in S_1003, and the casts that are not enemies refused.
+_LUA_API7F = (
+    'if cleria.settings.get("Swap", false) then\n'
+    '    cleria.world.add_filter("spawn", function(q)\n'
+    '        if q.cast == 17 then return {cast = 16, level = 5, hp = 2} end\n'
+    '        if q.cast == 43 then return "suppress" end\n'
+    '    end)\n'
+    '    cleria.world.add_filter("exit", function(q)\n'
+    '        cleria.log("EXIT " .. q.from .. " -> " .. q.to .. " index " .. q.index)\n'
+    '        if q.to == "S_1003" then return {to = "S_1009"} end\n'
+    '    end)\n'
+    'end\n'
+    'cleria.command("w", function(a)\n'
+    '    local cmd, x, y = a:match("^(%S*)%s*(%S*)%s*(%S*)")\n'
+    '    local st = cleria.player.stats()\n'
+    '    if cmd == "spawn" then cleria.log("spawned " .. tostring(cleria.world.spawn(tonumber(x), st.x + 3, st.y, st.z, {level = tonumber(y)}))) end\n'
+    '    if cmd == "remove" then cleria.log("removed " .. tostring(cleria.world.remove(tonumber(x)))) end\n'
+    '    if cmd == "set" then cleria.log("set " .. tostring(cleria.world.set_actor(tonumber(x), {hp = tonumber(y)}))) end\n'
+    '    local n, first, one = 0, "", cleria.world.actor(17)\n'
+    '    for _, m in ipairs(cleria.world.actors()) do n = n + 1 if n == 1 then first = m.name .. " lv" .. m.level .. " " .. m.hp .. "/" .. m.max_hp end end\n'
+    '    cleria.log(n .. " actors, first " .. first .. ", #17 " .. tostring(one and (one.name .. " lv" .. one.level .. " " .. one.hp .. "/" .. one.max_hp)) .. " in " .. cleria.game.room())\n'
+    'end)\n')
+_API7F_INI = "[cleria.mod.test.lua]\nSwap=1\n"
+CASES.update({
+    "lua_api7_spawn_filter": dict(
+        room="S_10/S_1002/S_1002", lua=_LUA_API7F, ini=_API7F_INI,
+        drive="30:lua=w;50:exit=0;240:lua=w;250:quit",
+        expect=[_LP + "6 actors, first Jestona lv5 164.0/164.0, #17 nil in S_1002", _LP + "EXIT S_1002 -> S_1003 index 0",
+                _LP + "0 actors, first , #17 nil in S_1009"],
+        absent=_NOSTOP),
+    "lua_api7_spawn": dict(
+        room="S_10/S_1003/S_1003", lua=_LUA_API7F,
+        drive="30:lua=w;40:lua=w spawn 17 9;60:lua=w;70:lua=w set 17 5;80:lua=w remove 17;90:lua=w spawn 13 1;100:lua=w spawn 999 1;110:quit",
+        expect=[_LP + "13 actors, first Baocar lv4 86.0/86.0, #17 nil in S_1003", _LP + "spawned 17", _LP + "14 actors",
+                "#17 Selnarg lv9 ", _LP + "set true", "#17 Selnarg lv9 5.0/", _LP + "removed true", _LP + "13 actors", _LP + "spawned nil",
+                _LP + "spawned nil"],
+        absent=_NOSTOP),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")
@@ -3893,7 +3934,7 @@ def content_setup(case, env, tmp):
         ids.append("test.lua")
     on = [] if case.get("mods_off") else ids
     open(os.path.join(tmp, "cleria.ini"), "w").write(
-        '[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n' % (",".join(ids), ",".join(on)))
+        '[cleria.mods]\nUseMods=1\nOrder="%s"\nActive="%s"\n' % (",".join(ids), ",".join(on)) + case.get("ini", ""))
     open(os.path.join(tmp, "yso_win.ini"), "w").close()
     env["CLERIA_INI"] = os.path.join(tmp, "yso_win.ini")
 

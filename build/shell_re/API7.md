@@ -67,8 +67,8 @@ content, then multiplayer, then the tools.
 
 | # | What | Lua | Status |
 |---|---|---|---|
-| 31 | A filter on each monster as its room loads | `cleria.world.add_filter("spawn", fn(q))` -> cast, level, hp / atk / def multipliers | |
-| 4 | Spawning and removing | `cleria.world.spawn(cast, x, y, z [, opts])`, `world.remove(actor)`, `world.set_actor(actor, {...})` | |
+| 31 | A filter on each monster as its room loads | `cleria.world.add_filter("spawn", fn(q))` -> cast, level, hp / atk / def multipliers | done (checked on a capture: a swapped monster is drawn and fights) |
+| 4 | Spawning and removing | `cleria.world.spawn(cast, x, y, z [, opts])`, `world.remove(actor)`, `world.set_actor(actor, {...})` | done (`spawn`, `remove`, `set_actor`) |
 | 33b | Spawning a projectile | `cleria.world.shoot(kind, from, dir, opts)` | |
 | 35b | Changing drop tables | `cleria.data.set_drops(cast, list)` | |
 | 37 | Monster variants | `cleria.content.define_monster(id, {base =, name =, hp =, atk =, ...})` | |
@@ -79,7 +79,7 @@ content, then multiplayer, then the tools.
 | # | What | Lua | Status |
 |---|---|---|---|
 | 36 | Items with behaviour | `cleria.content.define_item(id, {name =, icon =, use = fn, equip = fn})` | |
-| 38 | Doors | `cleria.world.add_filter("exit", fn(q))` | |
+| 38 | Doors | `cleria.world.add_filter("exit", fn(q))` | done |
 | 43 | Scripts | `cleria.script.run(name)`, `script.add_filter(fn(q))`, the event `script_started` | |
 | 44 | Shops and menus | `cleria.ui.shop{...}` | |
 | 39 | Rooms | `cleria.content.define_room(id, {...})` | |

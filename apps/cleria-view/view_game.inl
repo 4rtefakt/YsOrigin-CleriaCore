@@ -1494,6 +1494,22 @@ title_again:
     // spawn path, the deferred-sweep lifecycle, and the shared damage model. `render`
     // pairs each with its sprite for drawing.
     ActorWorld world({&casts, &etab, &ginfo, &eex});
+    world.spawn_filter = [&](const SpawnRequest& r, ActorWorld::SpawnTweak& t) {   // the mods' "spawn" filter (API 7)
+        if (!lua_world_on("spawn")) return;
+        script::WorldQuery q;
+        q.kind = "spawn";
+        const Enemy* e = etab.get(r.cast_type);
+        q.num = {{"cast", double(r.cast_type)}, {"level", double(r.level ? r.level : (e ? e->level : 0))}, {"id", double(r.id)},
+                 {"x", double(r.pos.x)}, {"y", double(r.pos.y)}, {"z", double(r.pos.z)}, {"group", double(r.group)}};
+        if (const Cast* c = casts.get(r.cast_type)) q.str = {{"name", c->display}};
+        const script::WorldDecision d = lua_world(q);
+        if (d.action == script::WorldDecision::Action::Suppress) { t.skip = true; return; }
+        if (d.action != script::WorldDecision::Action::Replace) return;
+        t.cast = int(d.n("cast", t.cast));
+        t.level = int(d.n("level", t.level));
+        auto mul = [&](const char* k) { return float(std::clamp(d.n(k, 1.0), 0.01, 100.0)); };
+        t.hp = mul("hp"); t.atk = mul("atk"); t.def = mul("def"); t.exp = mul("exp"); t.sp = mul("sp");
+    };
     std::vector<EnemyRender> render;      // live enemies + their sprite identity
     // Our own RNG. The engine seeds its xorshift from timeGetTime(), so retail damage
     // was never replay-stable and there is no stream to match — only the algorithm's
@@ -2374,7 +2390,25 @@ title_again:
     bool scene_objects_reset = false;   // a scene change destroys every object: the busts too
     std::string door_label;             // 0x76a474: the last committed door's SEN label (0x80)
     bool player_vanished = false;       // the player's +0x60 & 0x80 cleared by 0x14d (a new actor per scene)
-    auto transition = [&](const std::string& dest, const SenTrigger* via = nullptr) {
+    auto transition = [&](const std::string& dest_in, const SenTrigger* via_in = nullptr) {
+        std::string dest = dest_in;
+        const SenTrigger* via = via_in;
+        if (lua_world_on("exit")) {                      // the mods' "exit" filter (API 7): another room, or no change at all
+            script::WorldQuery q;
+            q.kind = "exit";
+            int index = -1;
+            if (via)
+                for (std::size_t i = 0; i < room.sen.triggers.size(); ++i)
+                    if (&room.sen.triggers[i] == via || room.sen.triggers[i].name == via->name) { index = int(i); break; }
+            q.num = {{"index", double(index)}};
+            q.str = {{"to", dest}, {"from", room.name}, {"door", via ? via->name : std::string()}};
+            const script::WorldDecision d = lua_world(q);
+            if (d.action == script::WorldDecision::Action::Suppress) return;
+            if (d.action == script::WorldDecision::Action::Replace) {
+                const auto it = d.str.find("to");
+                if (it != d.str.end() && it->second != dest && scenes.find_room(it->second)) { dest = it->second; via = nullptr; }
+            }
+        }
         // FLOOR13_OPS.md: the fade machine's commit strcpy's the door label to 0x76a474 (0x410907);
         // a script ChangeScene leaves it. The room setup FUN_00431840 resets timeScale 0x6d6078 to
         // 1.0 (0x431b62), and the arriving player is a new actor (+0x60 & 0x80 set again).

@@ -757,3 +757,88 @@ void Mod::close_window(bool cancelled) {
 
 namespace {
 }  // namespace
+
+namespace {
+
+// ---- cleria.world.add_filter("spawn" | "exit", fn), world.spawn / remove / set_actor ---------------------------
+int l_world_add_filter(lua_State* L) {
+    const std::string kind = str_arg(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    if (kind != "spawn" && kind != "exit") return luaL_argerror(L, 1, "a world filter is of \"spawn\" or \"exit\"");
+    lua_pushvalue(L, 2);
+    M(L).world_filters_[kind].push_back(luaL_ref(L, LUA_REGISTRYINDEX));
+    return 0;
+}
+int l_world_spawn(lua_State* L) {                        // (cast, x, y, z [, {level =, yaw =, group =}]) -> the actor's id, or nil
+    std::vector<double> v = {double(luaL_checkinteger(L, 1)), num_arg(L, 2, -1e6, 1e6), num_arg(L, 3, -1e6, 1e6), num_arg(L, 4, -1e6, 1e6),
+                             std::clamp(opt_field_n(L, 5, "level", 0), 0.0, 60.0), opt_field_n(L, 5, "yaw", 0),
+                             std::clamp(opt_field_n(L, 5, "group", 0), 0.0, 4.0)};
+    std::vector<double> out;
+    if (!op(L, "spawn_actor", v, {}, &out) || out.empty()) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, lua_Integer(out[0]));
+    return 1;
+}
+int l_world_remove(lua_State* L) { lua_pushboolean(L, op(L, "remove_actor", {double(luaL_checkinteger(L, 1))})); return 1; }
+int l_world_set_actor(lua_State* L) {                    // (id, {hp =, x =, y =, z =, yaw =}) -> true when it lives
+    luaL_checktype(L, 2, LUA_TTABLE);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    lua_pushboolean(L, op(L, "set_actor", {double(luaL_checkinteger(L, 1)), opt_field_n(L, 2, "hp", nan), opt_field_n(L, 2, "x", nan),
+                                           opt_field_n(L, 2, "y", nan), opt_field_n(L, 2, "z", nan), opt_field_n(L, 2, "yaw", nan)}));
+    return 1;
+}
+
+void open_api7_world2(lua_State* L) {                    // the cleria table is on top of the stack
+    static const luaL_Reg world[] = {{"add_filter", l_world_add_filter}, {"spawn", l_world_spawn}, {"remove", l_world_remove},
+                                     {"set_actor", l_world_set_actor}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "world");
+    set_funcs(L, world);
+    lua_pop(L, 1);
+}
+
+}  // namespace
+
+// The first answer that is not "pass" wins. The answer: nil / "pass", "suppress", or a table with `action = "replace"`
+// (the default when a table has no action) whose number and string fields are the decision's.
+WorldDecision Mod::world_filter(const WorldQuery& q, const std::string& room) {
+    const auto it = world_filters_.find(q.kind);
+    if (it == world_filters_.end()) return {};
+    const std::vector<int> fs = it->second;
+    for (std::size_t i = 0; i < fs.size() && ok(); ++i) {
+        lua_State* L = state();
+        lua_createtable(L, 0, int(q.num.size() + q.str.size()) + 2);
+        lua_pushlstring(L, q.kind.data(), q.kind.size()); lua_setfield(L, -2, "kind");
+        for (const auto& [k, v] : q.num) {
+            if (v == std::floor(v) && std::fabs(v) < 9.0e15) lua_pushinteger(L, lua_Integer(v)); else lua_pushnumber(L, v);
+            lua_setfield(L, -2, k.c_str());
+        }
+        for (const auto& [k, v] : q.str) { lua_pushlstring(L, v.data(), v.size()); lua_setfield(L, -2, k.c_str()); }
+        lua_pushlstring(L, room.data(), room.size()); lua_setfield(L, -2, "room");
+        lua_rawgeti(L, LUA_REGISTRYINDEX, fs[i]);
+        lua_insert(L, -2);
+        if (!pcall(1, 1, "world filter")) return {};
+        WorldDecision d;
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            if (std::string(lua_tostring(L, -1)) == "suppress") d.action = WorldDecision::Action::Suppress;
+        } else if (lua_istable(L, -1)) {
+            const std::string action = opt_field_s(L, -1, "action", "replace");
+            if (action == "suppress") d.action = WorldDecision::Action::Suppress;
+            else if (action == "replace") d.action = WorldDecision::Action::Replace;
+            lua_pushnil(L);
+            while (lua_next(L, -2) != 0) {
+                if (lua_type(L, -2) == LUA_TSTRING) {
+                    const std::string k = lua_tostring(L, -2);
+                    if (lua_type(L, -1) == LUA_TNUMBER) { const double v = lua_tonumber(L, -1); if (std::isfinite(v)) d.num[k] = v; }
+                    else if (lua_type(L, -1) == LUA_TSTRING) d.str[k] = lua_tostring(L, -1);
+                    else if (lua_isboolean(L, -1)) d.num[k] = lua_toboolean(L, -1) ? 1.0 : 0.0;
+                }
+                lua_pop(L, 1);
+            }
+        }
+        lua_pop(L, 1);
+        if (d.action != WorldDecision::Action::Pass) return d;
+    }
+    return {};
+}
+
+namespace {
+}  // namespace

@@ -652,6 +652,21 @@ static void lua_watch_state() {
     }
 }
 
+// cleria.world.add_filter (API 7): the first mod, in load order, whose filter of that kind answers.
+static bool lua_world_on(const char* kind) {
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->has_world_filter(kind)) return true;
+    return false;
+}
+static script::WorldDecision lua_world(const script::WorldQuery& q) {
+    for (auto& m : g_lua.mods)
+        if (m->ok() && m->has_world_filter(q.kind)) {
+            const script::WorldDecision d = m->world_filter(q, g_content.room);
+            if (d.action != script::WorldDecision::Action::Pass) return d;
+        }
+    return {};
+}
+
 // A named event of API 7 raised from the game's own code: built only when a scripted mod runs.
 static bool lua_events_on() { return !g_lua.mods.empty(); }
 

@@ -796,6 +796,42 @@ int main(int argc, char** argv) {
             check(dlg && drawn && cancelled && stays && has(h.logs, "picked 2 B") && has(h.logs, "msg done 1") && u->window() == nullptr && u->ok(),
                   "api 7: ui.choose / ui.message: the pick, Back as nil, cancel = false");
         }
+        {   // API 7: the world filters (free fields both ways; the first answer wins), world.spawn / remove / set_actor
+            h.ops7.clear();
+            auto f = make(h, tmp, "api7f", R"LUA(
+                local W = cleria.world
+                W.add_filter("spawn", function(q)
+                    cleria.log("spawn q " .. q.kind .. " " .. q.cast .. " " .. q.name .. " lv " .. q.level .. " in " .. q.room)
+                    if q.cast == 17 then return {cast = 16, level = 5, hp = 2} end
+                    if q.cast == 43 then return "suppress" end
+                    if q.cast == 50 then return {action = "pass", cast = 1} end
+                end)
+                W.add_filter("spawn", function(q) return {cast = 99} end)
+                W.add_filter("exit", function(q) if q.to == "S_1003" then return {to = "S_1009"} end end)
+                cleria.log("bad kind " .. tostring(pcall(W.add_filter, "loot", print)))
+                cleria.log("ops " .. tostring(W.spawn(17, 1, 2, 3, {level = 9})) .. " " .. tostring(W.remove(17)) .. " " .. tostring(W.set_actor(17, {hp = 5})))
+            )LUA");
+            script::WorldQuery q;
+            q.kind = "spawn"; q.num = {{"cast", 17.0}, {"level", 3.0}}; q.str = {{"name", "Selnarg"}};
+            const script::WorldDecision d17 = f->world_filter(q, "S_1002");
+            q.num[0].second = 43.0;
+            const script::WorldDecision d43 = f->world_filter(q, "S_1002");
+            q.num[0].second = 50.0;
+            const script::WorldDecision d50 = f->world_filter(q, "S_1002");       // the first passes, the second answers
+            script::WorldQuery x;
+            x.kind = "exit"; x.str = {{"to", "S_1003"}, {"from", "S_1002"}};
+            const script::WorldDecision dx = f->world_filter(x, "S_1002");
+            x.str[0].second = "S_1009";
+            const script::WorldDecision dp = f->world_filter(x, "S_1002");
+            check(f->ok() && f->has_world_filter("spawn") && f->has_world_filter("exit") && !f->has_world_filter("loot") &&
+                  d17.action == script::WorldDecision::Action::Replace && d17.n("cast", 0) == 16 && d17.n("level", 0) == 5 && d17.n("hp", 1) == 2 &&
+                  d43.action == script::WorldDecision::Action::Suppress && d50.action == script::WorldDecision::Action::Replace && d50.n("cast", 0) == 99 &&
+                  dx.action == script::WorldDecision::Action::Replace && dx.str.at("to") == "S_1009" && dp.action == script::WorldDecision::Action::Pass &&
+                  has(h.logs, "spawn q spawn 17 Selnarg lv 3 in S_1002") && has(h.logs, "bad kind false"),
+                  "api 7: world.add_filter (spawn, exit): replace with free fields, suppress, pass on to the next (" + f->error() + ")");
+            const std::vector<std::string> want = {"api7f spawn_actor 17 1 2 3 9 0 0", "api7f remove_actor 17", "api7f set_actor 17 5 nan nan nan nan"};
+            check(h.ops7 == want && has(h.logs, "ops nil true true"), "api 7: world.spawn / remove / set_actor reach the host");
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&

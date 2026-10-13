@@ -788,6 +788,46 @@ cleria.ui.message("The run is over.", function() ... end, {title = "Permadeath",
 - A drive run presses for the open window with `modwin=ok` / `back` / `up` / `down` / `left` / `right`, and its `shot`
   shows the window.
 
+### 12.11 The world's filters: monsters as they are built, doors as they are taken
+
+```lua
+cleria.world.add_filter("spawn", function(q)        -- q.cast, q.name, q.level, q.id, q.x, q.y, q.z, q.group, q.room
+    if q.cast == 17 then return {cast = 16, level = q.level + 2, hp = 2, exp = 1.5} end      -- another monster, tougher
+    if q.cast == 43 then return "suppress" end                                               -- not spawned at all
+end)
+
+cleria.world.add_filter("exit", function(q)         -- q.from, q.to, q.index, q.door, q.room
+    if q.to == "S_1003" then return {to = "S_1009"} end                                      -- this door leads elsewhere
+end)
+```
+
+`world.add_filter(kind, fn)`: `fn(q)` answers `nil` / `"pass"`, `"suppress"`, or a table (the decision; `action` may be
+given, `"replace"` is the default for a table). The mods are asked in load order, a mod's filters in registration
+order; the first answer that is not "pass" wins.
+
+**`"spawn"`**: every **enemy** about to be built, from the room's placement list or by a script (the wards' monsters,
+an arena's waves), before its stats are computed. Never the player, an NPC, or a boss module.
+- `cast` and `name` (CASTINFO's), `level` (its own, or the script's), `id` (0 = it gets a fresh one), the point, `group`
+  (the ward group 1..4, 0 = none).
+- The answer's fields: `cast` (another enemy cast: anything else keeps the original), `level` (1..60), and the
+  multipliers `hp`, `atk`, `def`, `exp`, `sp` (0.01..100, default 1) applied to what the game computes for that cast
+  and level. Its sprites, its brain and its drops are the new cast's.
+- `"suppress"`: it is not built. [H] A room's scripts may wait for a monster that never comes (a ward opens only when
+  its group is dead: a suppressed group counts as dead); test what you remove.
+
+**`"exit"`**: every room change about to happen: a door (`index` = the exit's index in `game.exits()`, `door` its
+label), a script's ChangeScene, `game.goto_room` (`index` -1). The answer's `to` names another room (one that exists,
+else the original stands); the player then arrives at that room's own arrival point, not at a door's. `"suppress"`
+cancels the change.
+
+Spawning by hand:
+
+| call | |
+|---|---|
+| `world.spawn(cast, x, y, z [, {level =, yaw =, group =}])` | builds an enemy as a script's spawn does and returns its id; `nil` for a cast that is not an enemy. It passes the `"spawn"` filter like any other |
+| `world.remove(id)` | the monster is gone at once: no EXP, no drops, no `enemy_killed` |
+| `world.set_actor(id, {hp =, x =, y =, z =, yaw =})` | a living monster's HP (1..its max: this is not a way to kill), position, heading in degrees |
+
 ## 10. Tests
 
 ```
@@ -823,5 +863,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |
