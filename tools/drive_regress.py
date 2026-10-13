@@ -130,6 +130,15 @@ CASES = {
                 "[abil] t600 sec 0x2 mp 3000 lag 3000 boost 18600 boosting 1",
                 "[abil] t1300 sec 0x2 mp 3000 lag 3000 boost 80 boosting 0", "[flags] "],
         count={"[boost] aura 171 on again": 2}, absent=[" 141=1"]),
+    # Issue #103: Toal's aura 171 (PC3_MAZIN) is up for the whole Boost. Its emitter 4 (sparks, hit mode 0, B2+0x895
+    # = 3) used to be armed for the world trace; a spark on the floor raised the effect's kill flag and the aura was
+    # gone by t250. Retail arms the world trace only for an emitter with a hit mode [BYTES 0x450225..0x4503a7]; the
+    # sim keeps it for free effects ([approx], ef2_sim.cpp spawn_emitter) and drops it for one that follows an actor.
+    "toal_boost_aura_lasts": dict(
+        room="S_10/S_1009/S_1009", char="3",
+        drive="3:flag=187,1;12:boost=30000;20:boostkey;300:fxall;900:fxall;901:abil;910:quit",
+        expect=["[abil] t901 sec 0x2 mp 3000 lag 3000 boost 3570 boosting 1"],
+        count={"[fxall] id 171 attach 2": 2}),
     # A door crossed while boosting: the new scene's player gets the aura again (Hugo's 39), the Boost runs on.
     "boost_door_aura": dict(
         room="S_10/S_1009/S_1009", char="2",
