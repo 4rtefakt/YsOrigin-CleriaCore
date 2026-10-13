@@ -996,6 +996,62 @@ int main(int argc, char** argv) {
             check(s->ok() && h.ops7 == want && has(h.logs, "sync 1 21 43 50.0 301 truetrue 11"),
                   "api 7: world.set_puppet{hittable}, combat.strike, world.snapshot / apply (" + s->error() + ")");
         }
+        {   // API 7: the Lua layer (rooms, skills, characters) reaches the host through the same writes; the layer's
+            // extras draw; the skill filter refuses a cast and runs the mod's own
+            h.ops7.clear();
+            auto o = make(h, tmp, "api7o", R"LUA(
+                local C = cleria.content
+                C.define_room("arena", {base = "S_1002", monsters = {{43, 1, 2, 3, level = 9}}, exits = {[0] = false, default = "S_1009"}})
+                cleria.log("enter " .. tostring(C.enter_room("arena")) .. " bad " .. tostring(pcall(C.enter_room, "nowhere")))
+                C.define_skill(2, {mp = 50, cooldown = 5, cast = function(c) cleria.log("cast slot " .. c.slot .. " cost " .. c.cost) end})
+                C.define_character("giant", {hp = 2, speed = 1.5, air_jumps = 1, scale = 1.5, glow = 0x80FF80})
+                cleria.log("char " .. tostring(C.set_character("giant")) .. " " .. tostring(C.character()) .. " look " .. tostring(cleria.player.set_look({scale = 1})))
+                cleria.hud.layer("w", function(d)
+                    if not shown then shown = true
+                        cleria.log("draw " .. tostring(d:world_text(5, 0, 1, "hi")) .. tostring(d:world_text(5, 0, -1, "behind")) ..
+                                   tostring(d:world_line(0, 0, 1, 5, 0, 1)) .. tostring(d:world_circle(5, 0, 5, 2)))
+                    end
+                end)
+                cleria.ui.window("t", {title = "T"}, function(p) p:table({{"a", "b"}, {1, 2}}) p:list({"x", "y"}) cleria.log("page ok") end)
+                cleria.ui.open("t")
+            )LUA");
+            o->draw_hud(1000, 500, 1);
+            int dummy = 0;
+            o->draw_window(&dummy);
+            script::WorldQuery q;
+            q.kind = "skill";
+            q.num = {{"slot", 2}, {"item", 117}, {"level", 1}, {"cost", 400}, {"mp", 300}, {"air", 0}};
+            const bool cast = o->world_filter(q, "S_1002").action == script::WorldDecision::Action::Suppress;
+            const bool cooling = o->world_filter(q, "S_1002").action == script::WorldDecision::Action::Suppress;   // refused: 5 s
+            q.num[0].second = 3;
+            const bool other = o->world_filter(q, "S_1002").action == script::WorldDecision::Action::Pass;         // slot 3 is the game's
+            script::WorldQuery x;
+            x.kind = "exit";
+            x.num = {{"index", 0}};
+            x.str = {{"to", "S_1003"}, {"door", "d0"}};
+            const bool free_exit = o->world_filter(x, "S_1009").action == script::WorldDecision::Action::Pass;     // not in the room yet
+            events::Event re;
+            re.kind = events::Kind::RoomEnter;
+            re.room = "S_1002";
+            o->on_event(re);                                        // arrived: the variant is the room now
+            const bool closed = o->world_filter(x, "S_1002").action == script::WorldDecision::Action::Suppress;
+            x.num[0].second = 1;
+            const script::WorldDecision away = o->world_filter(x, "S_1002");
+            script::WorldQuery sp;
+            sp.kind = "spawn";
+            sp.str = {{"by", ""}};
+            const bool own = o->world_filter(sp, "S_1002").action == script::WorldDecision::Action::Suppress;      // the room's own monsters
+            sp.str = {{"by", "api7o"}};
+            const bool ours = o->world_filter(sp, "S_1002").action == script::WorldDecision::Action::Pass;
+            auto opn = [&](const std::string& s) { return std::count(h.ops7.begin(), h.ops7.end(), s); };
+            check(o->ok() && has(h.logs, "enter true bad false") && has(h.logs, "char true giant look true") && has(h.logs, "draw truefalsetruetrue") &&
+                  has(h.logs, "page ok") && has(h.logs, "cast slot 2 cost 50") && cast && cooling && other && free_exit && closed &&
+                  away.action == script::WorldDecision::Action::Replace && away.str.count("to") && away.str.at("to") == "S_1009" && own && ours &&
+                  opn("api7o goto_room [S_1002]") == 1 && opn("api7o set_mp 250") == 1 && opn("api7o tune 0 1.5") == 1 && opn("api7o tune 5 1") == 1 &&
+                  opn("api7o player_look 1.5 8.45402e+06") == 1 && opn("api7o player_look 1 nan") == 1,
+                  "api 7: define_room / define_skill / define_character, set_look, d:world_*, p:table / p:list (" + o->error() + ")");
+            h.draws.clear();                                        // this block's layer drew: the hud test below counts its own
+        }
         // hud / pages
         m->draw_hud(1280, 800, 0.8f);
         check(h.draws.size() == 4 && h.draws[0].rfind("rect 0,0-1280,10 80302010 fill", 0) == 0 && h.draws[1].rfind("circle 5,5 r3 FF0000FF", 0) == 0 &&

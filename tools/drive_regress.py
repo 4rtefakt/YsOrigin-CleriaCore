@@ -3103,6 +3103,43 @@ CASES.update({
         absent=_NOSTOP),
 })
 
+# Mod API 7, the Lua layer on the live game. A skill of the mod's own on slot 3 (its cast runs, its MP is paid, the
+# game's cast and skill_used do not happen); an item kept in the save (given twice, used once); a character variant
+# (twice the HP); a shop that sells for SP (one purchase by the window's OK); and a room variant entered from
+# another room: the base room without its own monsters, the variant's monster in it, on_clear at its death.
+_LUA_API7O = (
+    'local C, W, P = cleria.content, cleria.world, cleria.player\n'
+    'cleria.events.on("skill_used", function() cleria.log("the game cast") end)\n'
+    'C.define_skill(3, {mp = 100, cast = function(c) cleria.log("my cast charged " .. tostring(c.charged) .. " cost " .. c.cost) end})\n'
+    'C.define_item("potion", {name = "Potion", use = function() cleria.combat.heal(5) end, on_change = function(n) cleria.log("potions " .. n) end})\n'
+    'C.define_character("giant", {name = "Giant", hp = 2, scale = 1.4})\n'
+    'C.define_room("arena", {base = "S_1002", exits = {default = false},\n'
+    '    on_enter = function() local st = P.stats() W.spawn(43, st.x + 3, st.y, st.z) cleria.log("arena entered") end,\n'
+    '    on_clear = function() cleria.log("arena cleared") end})\n'
+    'local mp0, hp0\n'
+    'cleria.command("o", function(a)\n'
+    '    local st = P.stats()\n'
+    '    if a == "mp" then mp0 = st.mp end\n'
+    '    if a == "paid" then cleria.log("paid " .. (mp0 - st.mp > 50 and mp0 - st.mp < 150 and "100" or tostring(mp0 - st.mp))) end\n'
+    '    if a == "item" then C.add_item("potion", 2) C.use_item("potion") cleria.log("left " .. C.item_count("potion") .. " list " .. #C.items()) end\n'
+    '    if a == "char" then hp0 = st.max_hp cleria.log("giant " .. tostring(C.set_character("giant")) .. " hp x" .. P.stats().max_hp / hp0) end\n'
+    '    if a == "shop" then P.add_sp(50 - P.sp()) cleria.ui.shop({items = {{name = "Potion", price = 20, buy = function() C.add_item("potion") end}}}) end\n'
+    '    if a == "sold" then cleria.log("sp " .. P.sp() .. " potions " .. C.item_count("potion") .. " open " .. tostring(cleria.ui.is_open())) cleria.ui.close() end\n'
+    '    if a == "go" then cleria.log("go " .. tostring(C.enter_room("arena"))) end\n'
+    '    if a == "in" then cleria.log("room " .. cleria.game.room() .. " " .. tostring(C.room()) .. " monsters " .. #W.actors()) end\n'
+    '    if a == "kill" then cleria.combat.damage(W.actors()[1].id, 99999) end\n'
+    'end)\n')
+CASES.update({
+    "lua_api7_layer": dict(
+        room="S_10/S_1009/S_1009", lua=_LUA_API7O,
+        drive="8:bracelet=118;9:flag=118,1;10:flag=184,1;30:lua=o mp;31:skill+;33:skill-;40:lua=o paid;50:lua=o item;60:lua=o char;"
+              "70:lua=o shop;80:modwin=ok;90:lua=o sold;100:lua=o go;200:lua=o in;210:lua=o kill;260:quit",
+        expect=[_LP + "my cast charged false cost 100", _LP + "paid 100", _LP + "potions 2", _LP + "potions 1", _LP + "left 1 list 1",
+                _LP + "giant true hp x2", _LP + "potions 2", _LP + "sp 30 potions 2 open shop", _LP + "go true", _LP + "arena entered",
+                _LP + "room S_1002 arena monsters 1", _LP + "arena cleared"],
+        absent=_NOSTOP + ["the game cast"]),
+})
+
 # The screen effects (build/render_re/SCREEN_EFFECTS.md; CLERIA_SCRFX_LOG=1 prints each write and each first draw).
 _VELA = ("10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
          + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3201, 12)) + "3300:at=0,19,180;")

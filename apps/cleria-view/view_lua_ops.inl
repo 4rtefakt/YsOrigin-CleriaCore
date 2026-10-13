@@ -111,7 +111,9 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         if (n.size() < 4 || !out) return false;
         const int cast = int(n[0]);
         if (!etab.get(cast) || !casts.get(cast)) return false;        // enemies only
+        g_lua.spawn_by = mod;
         Actor* a = world.spawn(SpawnRequest{0, cast, Vec3{float(n[1]), float(n[2]), float(n[3])}, float(arg(5)), int(arg(6)), int(arg(4))});
+        g_lua.spawn_by.clear();
         if (!a) return false;
         csHost.world_changed = true;
         *out = {double(a->instance_id)};
@@ -283,9 +285,16 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
             if (!a->mod_boss && gauge_owner == a->instance_id) { hud.hide_boss_gauge(); gauge_owner = 0; }
         }
         const std::size_t tab = text.find('\t');
-        if (tab != std::string::npos) {
+        if (tab != std::string::npos) {                  // "kind \t name [\t sheet file]"
+            const std::size_t tab2 = text.find('\t', tab + 1);
             if (tab > 0) a->mod_kind = text.substr(0, tab);
-            if (tab + 1 < text.size()) a->mod_name = text.substr(tab + 1);
+            const std::string name = text.substr(tab + 1, tab2 == std::string::npos ? std::string::npos : tab2 - tab - 1);
+            if (!name.empty()) a->mod_name = name;
+            if (tab2 != std::string::npos && tab2 + 1 < text.size()) {   // a sheet of the mod's own, drawn in place of the cast's
+                a->sprite_override = text.substr(tab2 + 1);
+                a->aia_file = -1;
+                csHost.world_changed = true;
+            }
         }
         return true;
     }
@@ -325,7 +334,9 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
             if (a && !a->alive()) continue;
             if (!a) {
                 if (hp < 1.0f) continue;
+                g_lua.spawn_by = mod;
                 a = world.spawn(SpawnRequest{id, cast, Vec3{float(n[i + 3]), float(n[i + 4]), float(n[i + 5])}, float(n[i + 6]), 0, int(n[i + 2])});
+                g_lua.spawn_by.clear();
                 if (!a) continue;
                 csHost.world_changed = true;
             }
@@ -349,6 +360,13 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
             if (!gone.empty()) csHost.world_changed = true;
         }
         if (out) *out = {double(done)};
+        return true;
+    }
+    if (op == "player_look") {                           // (scale, glow 0xRRGGBB or -1): the player's own sprite
+        g_lua.look_scale = std::isfinite(arg(0, NAN)) ? float(std::clamp(arg(0), 0.3, 3.0)) : g_lua.look_scale;
+        if (std::isfinite(arg(1, NAN))) g_lua.look_tint = arg(1) < 0 ? 0xffffffffu : (0xff000000u | (std::uint32_t(arg(1)) & 0xffffffu));
+        g_lua.look_on = g_lua.look_scale != 1.0f || g_lua.look_tint != 0xffffffffu;
+        if (Actor* wp = world.player()) wp->scale = g_lua.look_scale;
         return true;
     }
     return false;

@@ -180,6 +180,9 @@ struct Host {
     // (apps/cleria-view/view_lua_ops.inl). False = no game, an unknown op, or the game refused; `out` gets an op's numbers.
     // More page widgets (API 7): a wrapped paragraph; a bar (fraction 0..1) with its text.
     virtual void ui_text(void* list, const std::string& text, std::uint32_t col) { (void)list; (void)text; (void)col; }
+    // One row of equal columns (a table's header or a line of it), and an image as tall as `height` rows of text.
+    virtual void ui_table(void* list, const std::vector<std::string>& cells, bool header, std::uint32_t col) { (void)list; (void)cells; (void)header; (void)col; }
+    virtual void ui_image(void* list, int handle, float height, std::uint32_t tint) { (void)list; (void)handle; (void)height; (void)tint; }
     virtual void ui_progress(void* list, const std::string& label, double fraction, const std::string& text, std::uint32_t col) { (void)list; (void)label; (void)fraction; (void)text; (void)col; }
     // cleria.input: is this key / pad button held now; is the name one the host knows (SDL's names: "F5", "Left Shift", "A";
     // pad: "a", "b", "x", "y", "back", "start", "leftshoulder", "dpup" ...).

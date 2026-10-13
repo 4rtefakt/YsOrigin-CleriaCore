@@ -1,3 +1,111 @@
+// ---- hud layer and page extras (API 7): defined first, the layer / page / window tables add them --------------
+namespace {
+
+bool d_project(lua_State* L, Mod& m, double x, double y, double z, float* px, float* py) {   // a world point in the layer's pixels
+    float sx = 0, sy = 0;
+    if (!m.host().to_screen(float(x), float(y), float(z), &sx, &sy)) return false;
+    lua_getfield(L, 1, "w");
+    lua_getfield(L, 1, "h");
+    *px = sx * float(lua_tonumber(L, -2));
+    *py = sy * float(lua_tonumber(L, -1));
+    lua_pop(L, 2);
+    return true;
+}
+int l_d_world_text(lua_State* L) {                       // d:world_text(x, y, z, text [, {size =, color =, font =}]) -> drawn (centred on the point)
+    Mod& m = drawing(L);
+    const std::string t = luaL_tolstring(L, 5, nullptr);
+    lua_pop(L, 1);
+    float px = 0, py = 0;
+    if (!d_project(L, m, luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4), &px, &py)) { lua_pushboolean(L, 0); return 1; }
+    const float size = float(opt_field_n(L, 6, "size", 16.0));
+    const auto [w, h] = m.host().text_size(t, size, font_of(L, 6));
+    m.host().draw_text(px - w * 0.5f, py - h * 0.5f, t, size, font_of(L, 6), color_of(L, 6, 0xEAE6DA));
+    lua_pushboolean(L, 1);
+    return 1;
+}
+int l_d_world_line(lua_State* L) {                       // d:world_line(x1, y1, z1, x2, y2, z2 [, {color =, thickness =}]) -> drawn
+    Mod& m = drawing(L);
+    float ax = 0, ay = 0, bx = 0, by = 0;
+    const bool ok = d_project(L, m, luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4), &ax, &ay) &&
+                    d_project(L, m, luaL_checknumber(L, 5), luaL_checknumber(L, 6), luaL_checknumber(L, 7), &bx, &by);
+    if (ok) m.host().draw_line(ax, ay, bx, by, color_of(L, 8, 0xEAE6DA), float(opt_field_n(L, 8, "thickness", 1.5)));
+    lua_pushboolean(L, ok);
+    return 1;
+}
+int l_d_world_circle(lua_State* L) {                     // d:world_circle(x, y, z, radius [, {color =, thickness =}]) : a ring on the ground
+    Mod& m = drawing(L);
+    const double x = luaL_checknumber(L, 2), y = luaL_checknumber(L, 3), z = luaL_checknumber(L, 4), r = std::clamp(luaL_checknumber(L, 5), 0.01, 200.0);
+    const std::uint32_t col = color_of(L, 6, 0xEAE6DA);
+    const float th = float(opt_field_n(L, 6, "thickness", 1.5));
+    constexpr int kSeg = 32;
+    float px = 0, py = 0, qx = 0, qy = 0;
+    bool prev = d_project(L, m, x + r, y, z, &px, &py), any = false;
+    for (int i = 1; i <= kSeg; ++i) {
+        const double a = 6.283185307179586 * i / kSeg;
+        const bool cur = d_project(L, m, x + r * std::cos(a), y, z + r * std::sin(a), &qx, &qy);
+        if (prev && cur) { m.host().draw_line(px, py, qx, qy, col, th); any = true; }
+        prev = cur; px = qx; py = qy;
+    }
+    lua_pushboolean(L, any);
+    return 1;
+}
+void add_draw_extras(lua_State* L) {                     // the layer's table is on top of the stack
+    static const luaL_Reg fns[] = {{"world_text", l_d_world_text}, {"world_line", l_d_world_line}, {"world_circle", l_d_world_circle},
+                                   {nullptr, nullptr}};
+    luaL_setfuncs(L, fns, 0);
+}
+
+int l_p_table(lua_State* L) {                            // p:table(rows [, {header = true, color =}]): rows of equal columns
+    Mod& m = paging(L);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    const bool header = opt_field_b(L, 3, "header", true);
+    const std::uint32_t col = color_of(L, 3, 0xCFCABD);
+    for (lua_Integer r = 1; r <= 200 && lua_rawgeti(L, 2, r) == LUA_TTABLE; ++r) {
+        const int row = lua_gettop(L);
+        std::vector<std::string> cells;
+        for (lua_Integer c = 1; c <= 8 && lua_rawgeti(L, row, c) != LUA_TNIL; ++c) {
+            cells.emplace_back(luaL_tolstring(L, -1, nullptr));
+            lua_pop(L, 2);
+        }
+        lua_settop(L, row);
+        m.host().ui_table(m.list_, cells, header && r == 1, col);
+        lua_pop(L, 1);
+    }
+    lua_settop(L, 3);
+    return 0;
+}
+int l_p_list(lua_State* L) {                             // p:list(items [, {color =}]): one bulleted line each
+    Mod& m = paging(L);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    const std::uint32_t col = color_of(L, 3, 0xCFCABD);
+    for (lua_Integer i = 1; i <= 200 && lua_rawgeti(L, 2, i) != LUA_TNIL; ++i) {
+        m.host().ui_text(m.list_, std::string("\xE2\x80\xA2 ") + luaL_tolstring(L, -1, nullptr), col);
+        lua_pop(L, 2);
+    }
+    lua_settop(L, 3);
+    return 0;
+}
+int l_p_image(lua_State* L) {                            // p:image(file [, {height =, tint =}]): a PNG of the mod's folder
+    Mod& m = paging(L);
+    const std::string path = str_arg(L, 2);
+    int& h = m.images_[path];
+    if (h == 0) {
+        std::string err;
+        const fs::path p = m.safe_path(m.root(), path, &err);
+        h = p.empty() ? -1 : m.host().load_image(p);
+        if (h == 0) h = -1;
+    }
+    if (h > 0) m.host().ui_image(m.list_, h, float(opt_field_n(L, 3, "height", 96.0)), 0xFFFFFFFFu);
+    lua_pushboolean(L, h > 0);
+    return 1;
+}
+void add_page_extras(lua_State* L) {                     // the page's table is on top of the stack
+    static const luaL_Reg fns[] = {{"table", l_p_table}, {"list", l_p_list}, {"image", l_p_image}, {nullptr, nullptr}};
+    luaL_setfuncs(L, fns, 0);
+}
+
+}  // namespace
+
 // The cleria.* API added at level 7 (build/shell_re/API7.md, LUA_API.md §12). Textual part of
 // modscript_api.cpp (inside its anonymous namespace, so it uses that file's helpers: M, str_arg, to_json,
 // push_json, set_funcs ...). Kept apart so the level's additions read as one piece.
@@ -731,8 +839,9 @@ void Mod::draw_window(void* list) {
                                   {"choice", l_p_choice}, {"button", l_p_button}, {"text_field", l_p_text_field},
                                   {"info", l_p_info}, {"text", l_p_text}, {"progress", l_p_progress}, {"close", l_p_close},
                                   {nullptr, nullptr}};
-    lua_createtable(L, 0, 11);
+    lua_createtable(L, 0, 14);
     luaL_setfuncs(L, pm, 0);
+    add_page_extras(L);
     lua_rawgeti(L, LUA_REGISTRYINDEX, w->ref);
     lua_insert(L, -2);
     list_ = list;
@@ -767,7 +876,8 @@ namespace {
 int l_world_add_filter(lua_State* L) {
     const std::string kind = str_arg(L, 1);
     luaL_checktype(L, 2, LUA_TFUNCTION);
-    if (kind != "spawn" && kind != "exit") return luaL_argerror(L, 1, "a world filter is of \"spawn\" or \"exit\"");
+    if (kind != "spawn" && kind != "exit" && kind != "script" && kind != "skill")
+        return luaL_argerror(L, 1, "a world filter is of \"spawn\", \"exit\", \"script\" or \"skill\"");
     lua_pushvalue(L, 2);
     M(L).world_filters_[kind].push_back(luaL_ref(L, LUA_REGISTRYINDEX));
     return 0;
@@ -1363,6 +1473,21 @@ int l_content_morph(lua_State* L) {                      // (actor, id) -> true:
     lua_pushboolean(L, morph_actor(L, int(luaL_checkinteger(L, 1)), kind));
     return 1;
 }
+std::string form_text(lua_State* L, int t, const std::string& name) {   // "\t name [\t sheet file]" for the actor_form op
+    std::string sheet;
+    lua_getfield(L, t, "sprite");
+    if (lua_isstring(L, -1)) {
+        std::string err;
+        const fs::path p = M(L).safe_path(M(L).root(), lua_tostring(L, -1), &err);
+        std::error_code ec;
+        if (p.empty() || !fs::is_regular_file(p, ec)) luaL_error(L, "sprite: no such file in the mod's folder");
+        sheet = fs::absolute(p, ec).string();
+    }
+    lua_pop(L, 1);
+    const bool nm = !name.empty() && name.find('\t') == std::string::npos;
+    if (!nm && sheet.empty()) return {};
+    return "\t" + (nm ? name : std::string()) + (sheet.empty() ? std::string() : "\t" + sheet);
+}
 int l_world_form(lua_State* L) {                         // (actor, {hp =, atk =, def =, exp =, sp =, scale =, tint =, ai =, boss =, name =}) : multipliers and look
     luaL_checktype(L, 2, LUA_TTABLE);
     const double nan = std::numeric_limits<double>::quiet_NaN();
@@ -1374,7 +1499,7 @@ int l_world_form(lua_State* L) {                         // (actor, {hp =, atk =
     lua_pushboolean(L, op(L, "actor_form", {double(luaL_checkinteger(L, 1)), opt_field_n(L, 2, "hp", nan), opt_field_n(L, 2, "atk", nan),
                                             opt_field_n(L, 2, "def", nan), opt_field_n(L, 2, "exp", nan), opt_field_n(L, 2, "sp", nan),
                                             opt_field_n(L, 2, "scale", -1), opt_field_n(L, 2, "tint", -1), flag("ai"), flag("boss")},
-                          name.empty() || name.find('\t') != std::string::npos ? std::string() : "\t" + name));
+                          form_text(L, 2, name)));
     return 1;
 }
 
@@ -1473,6 +1598,36 @@ void open_api7_sync(lua_State* L) {                      // the cleria table is 
     lua_getfield(L, -1, "world");
     set_funcs(L, world);
     lua_pop(L, 1);
+}
+
+}  // namespace
+
+namespace {
+
+// ---- cleria.player.set_look, and the prelude ---------------------------------------------------------------------
+int l_player_set_look(lua_State* L) {                    // ({scale =, glow =}) : the player's sprite; glow = false clears it
+    luaL_checktype(L, 1, LUA_TTABLE);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    double tint = opt_field_n(L, 1, "glow", nan);
+    lua_getfield(L, 1, "glow");
+    if (lua_isboolean(L, -1) && !lua_toboolean(L, -1)) tint = -1;
+    lua_pop(L, 1);
+    lua_pushboolean(L, op(L, "player_look", {opt_field_n(L, 1, "scale", nan), tint}));
+    return 1;
+}
+
+#include "cleria/modscript_prelude.inl"                  // kPrelude: the parts of the API written in Lua
+
+void open_api7_prelude(lua_State* L) {                   // the cleria table is on top of the stack
+    static const luaL_Reg player[] = {{"set_look", l_player_set_look}, {nullptr, nullptr}};
+    lua_getfield(L, -1, "player");
+    set_funcs(L, player);
+    lua_pop(L, 1);
+    std::string src;
+    for (const char* part : kPrelude) src += part;
+    if (luaL_loadbuffer(L, src.data(), src.size(), "=cleria") != LUA_OK) { lua_error(L); return; }
+    lua_pushvalue(L, -2);                                // the cleria table
+    lua_call(L, 1, 0);
 }
 
 }  // namespace

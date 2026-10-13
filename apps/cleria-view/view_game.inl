@@ -1502,6 +1502,7 @@ title_again:
         q.num = {{"cast", double(r.cast_type)}, {"level", double(r.level ? r.level : (e ? e->level : 0))}, {"id", double(r.id)},
                  {"x", double(r.pos.x)}, {"y", double(r.pos.y)}, {"z", double(r.pos.z)}, {"group", double(r.group)}};
         if (const Cast* c = casts.get(r.cast_type)) q.str = {{"name", c->display}};
+        q.str.emplace_back("by", g_lua.spawn_by);                // "" = the room's own or a script's; else the mod that asked
         const script::WorldDecision d = lua_world(q);
         if (d.action == script::WorldDecision::Action::Suppress) { t.skip = true; return; }
         if (d.action != script::WorldDecision::Action::Replace) return;
@@ -4221,6 +4222,13 @@ title_again:
         // FUN_0046ea00(1): refused in the super sections; [not modelled] the ASO re-cast lock.
         const int sec = avm.section();
         if (sec == 0x139 || sec == 300 || sec == 0x13d) return;
+        if (lua_world_on("skill")) {                     // the mods' "skill" filter (API 7): a cast refused, or a mod's own in its place
+            script::WorldQuery q;
+            q.kind = "skill";
+            q.num = {{"slot", double(slot + 1)}, {"item", double(inv.magic)}, {"level", double(so.level)}, {"cost", double(so.cost)},
+                     {"mp", double(player.sp_cur)}, {"air", pv.grounded ? 0.0 : 1.0}};
+            if (lua_world(q).action == script::WorldDecision::Action::Suppress) return;
+        }
         if (character == 2 && !hugo_eyes_cast(inv.magic, so.level == 2)) return;   // Trap Mine: nothing to lay
         player_iframes = std::max(player_iframes, 3);
         // FUN_0046ea00 L77-112: Hugo's Ventus (0x74) frees the old shield and arms the new one,
@@ -6698,6 +6706,7 @@ title_again:
                 const float h = std::atan2(face_dir.z, face_dir.x);
                 wp->look.cmd = wp->look.dir = h;
                 wp->yaw = yaw_of_heading(h);
+                if (g_lua.look_on) wp->scale = g_lua.look_scale;   // the mods' player.set_look (API 7)
             }
             start_room_events();
             if (scene_bgm_due) { scene_bgm_due = false; apply_bgm(default_bgm); }
@@ -9067,7 +9076,7 @@ title_again:
                                // +0x14c from the tint struct +0x260, then the charged skill's glow (hit_feedback.hpp)
                                skill_charge.level == 2 && csMgr.fix_counts[0] + csMgr.fix_counts[1] == 0
                                    ? hitfx::charged_glow(player_spec.colour(), character, skillmp::bracelet_slot(inv.magic), player_glow_phase)
-                                   : player_spec.colour(),
+                                   : (g_lua.look_on && g_lua.look_tint != 0xffffffffu ? (g_lua.look_tint & 0xffffffu) : player_spec.colour()),   // the mods' player.set_look glow (API 7): this colour is ADDED to the sprite
                                avm.sprite_depth_offset(),                        // anime_CameraDistanceOffset
                                // the caustics on a submerged body [EXPORT 00474290.c:96-123]
                                !g_caustic.off && submerged && !wading && !psand.on_sand2() && cur_surface != 0x12);

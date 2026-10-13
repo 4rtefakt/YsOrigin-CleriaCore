@@ -152,6 +152,21 @@ struct LuaHost : script::Host {
             ui::text(L.dl, ui::F.body, vpx, {(x0 + x1 - ts.x) * 0.5f, cy - vpx * 0.6f}, ui::kValue, text.c_str());
         }
     }
+    void ui_table(void* list, const std::vector<std::string>& cells, bool header, std::uint32_t col) override {
+        ui::List& L = *static_cast<ui::List*>(list);
+        if (cells.empty()) return;
+        const float px = (header ? 14.5f : 16.0f) * ui::S, x0 = L.org.x + 13.0f * ui::S, w = L.size.x - 26.0f * ui::S;
+        const float y = L.org.y + L.y - L.scroll, cw = w / float(cells.size());
+        for (std::size_t i = 0; i < cells.size(); ++i) {
+            const std::string t = header ? ui::upper(cells[i].c_str()) : cells[i];
+            L.dl->PushClipRect({x0 + cw * float(i), y}, {x0 + cw * float(i + 1) - 6.0f * ui::S, y + px * 1.6f}, true);
+            ui::text(L.dl, header ? ui::F.cond : ui::F.body, px, {x0 + cw * float(i), y + px * 0.2f}, header ? ui::kLabel : col, t.c_str());
+            L.dl->PopClipRect();
+        }
+        if (header) L.dl->AddLine({x0, y + px * 1.55f}, {x0 + w, y + px * 1.55f}, ui::kRowEdge, 1.0f);
+        L.y += px * 1.75f;
+    }
+    void ui_image(void* list, int handle, float height, std::uint32_t tint) override;
     bool key_down(const std::string& name) override;
     bool pad_down(const std::string& name) override;
     bool key_known(const std::string& name, bool pad) override;
@@ -182,6 +197,10 @@ struct LuaRt {
     int forced_dmg = -1;                               // >= 0 while one of them lands: the damage, as given
     std::map<std::string, unsigned> hud_hidden;        // cleria.hud.show: each mod's hidden parts (1 status, 2 boss, 4 messages)
     std::set<std::string> pause;                       // cleria.game.pause: the mods holding the game
+    float look_scale = 1.0f;                           // cleria.player.set_look: the player's sprite scale and glow (look_tint)
+    std::uint32_t look_tint = 0xffffffffu;
+    bool look_on = false;
+    std::string spawn_by;                              // the mod whose world.spawn / world.apply is building a monster now
     std::map<std::string, ui::List> win_lists;         // cleria.ui.window: the list state of each window (mod id + window id)
     ui::Nav drive_nav{};                               // a drive run's keys for the open window (modwin=ok / back / up / down)
     std::string win_shown;                             // the window drawn last frame (mod id + its open serial)
@@ -458,6 +477,15 @@ int LuaHost::load_image(const std::filesystem::path& file) {
     if (!d.ok()) return 0;
     g_lua.images.push_back(upload_rgba(*g_lua.gpu, d.width, d.height, d.data.data()));
     return int(g_lua.images.size());
+}
+void LuaHost::ui_image(void* list, int handle, float height, std::uint32_t tint) {
+    ui::List& L = *static_cast<ui::List*>(list);
+    if (handle < 1 || handle > int(g_lua.images.size())) return;
+    const SpriteTex& t = g_lua.images[std::size_t(handle - 1)];
+    const float h = std::clamp(height, 16.0f, 600.0f) * ui::S, w = t.h > 0 ? h * float(t.w) / float(t.h) : h;
+    const float x0 = L.org.x + 13.0f * ui::S, y = L.org.y + L.y - L.scroll + 4.0f * ui::S;
+    L.dl->AddImage(ImTextureID(reinterpret_cast<std::intptr_t>(t.view)), {x0, y}, {x0 + std::min(w, L.size.x - 26.0f * ui::S), y + h}, {0, 0}, {1, 1}, tint);
+    L.y += h + 12.0f * ui::S;
 }
 void LuaHost::draw_image(int handle, float x0, float y0, float x1, float y1, std::uint32_t tint) {
     if (!g_lua.dl || handle < 1 || handle > int(g_lua.images.size())) return;

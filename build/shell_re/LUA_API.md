@@ -1115,6 +1115,116 @@ a held monster's hit volumes are stopped with its handler, so a guest is hurt on
 each machine runs its own. Checked in a drive run (`lua_api7_sync`): the snapshot of S_1002 (11 monsters), applied
 with one moved and hurt and one left out, gives 10 monsters, the first at its new place with its new HP, held.
 
+### 12.20 Drawing in the world, more page widgets, the player's look
+
+```lua
+cleria.hud.layer("marks", function(d)
+    d:world_text(x, y + 2, z, "Here", {size = 18, color = 0xFFD040})   -- centred on the point
+    d:world_line(x1, y1, z1, x2, y2, z2, {thickness = 2})
+    d:world_circle(x, y, z, 3, {color = 0xFF4040})                     -- a ring of radius 3 on the ground
+end)
+
+p:table({{"Name", "Kills", "Best"}, {"Slime", 12, "0:41"}, {"Bat", 3, "1:02"}})   -- the first row is the header
+p:list({"one line", "another"})
+p:image("art/map.png", {height = 160})
+
+cleria.player.set_look({scale = 1.4, glow = 0x203018})                 -- glow = false clears it
+```
+
+- `d:world_text / world_line / world_circle` are `d:text / line` at a world point: each returns false (and draws
+  nothing) when a point is behind the camera. They use the last drawn frame's camera, as `world.to_screen`.
+- `p:table(rows [, {header = false, color =}])`: up to 200 rows of up to 8 equal columns, cut at the column's edge.
+  `p:list(items)`: one bulleted, wrapped line each. `p:image(file [, {height =}])`: a PNG of the mod's folder, its
+  width following its proportions; false when the file does not load.
+- `player.set_look{scale =, glow =}`: the player's sprite, 0.3..3 times its size (not its collision), and a colour
+  **added** to it (the game's own glow colour, as a charged skill's): dark values tint, bright ones wash the sprite
+  out (0x80FF80 turns it into a light; checked on a capture). It is the process's, like `tune`. A charged skill's
+  glow shows in its place while it lasts.
+- `world.form(actor, {sprite = "file.aia"})` draws a monster from a sheet of the mod's own folder in place of its
+  cast's (the game's AIA format; the tags its script asks for must exist in it). [H] There is no converter from
+  PNG to AIA here: this serves a sheet taken from the game or made with a tool of your own (API7.md #42).
+
+### 12.21 The built-in Lua layer: a shop, items, skills, rooms, characters
+
+These are written in Lua over the calls above (`src/cleria/modscript_prelude.inl`): every mod has them, and a mod
+could have written them. They keep their state in the mod's own storage.
+
+```lua
+cleria.ui.shop({title = "Wandering merchant", text = "What will it be?",
+    items = {{name = "Potion", price = 20, desc = "Heals 5.", buy = function() cleria.content.add_item("potion") end},
+             {name = "Mystery box", price = 100, stock = 1, buy = open_box}},
+    on_buy = function(item, index) end, on_close = function() end})
+```
+
+- `ui.shop(def)` opens a window (id `def.id` or `"shop"`) that shows the SP wallet and one button per item: `name`,
+  `price` (SP), `desc`, `stock` (counts down; `nil` = no limit), `enabled` (a boolean or `fn(item)`), `buy =
+  fn(item, index)`. A purchase takes the SP then calls `buy` and `on_buy`. A row is greyed when the SP or the stock
+  is short.
+
+```lua
+local C = cleria.content
+C.define_item("potion", {name = "Potion", desc = "Heals 5.", max = 9,
+    use = function() if cleria.player.hp() >= cleria.player.max_hp() then return false end cleria.combat.heal(5) end})
+C.define_item("charm", {name = "Lucky charm", on_change = function(n) cleria.player.set_modifier("atk", 2 * n) end})
+C.add_item("potion", 2)      C.use_item("potion")      C.item_count("potion")      C.items()      C.open_bag()
+```
+
+- **Items of the mod's own** live in the save (`cleria.save`, key `cleria.items`), not in the game's inventory:
+  the game's item screen does not show them, `C.open_bag([{title =, empty =}])` does. `add_item(id [, n])` gives (or
+  takes, with a negative `n`), within 0..`max` (99), shows a notice (`notice = false`: none) and returns the new
+  count (`false` while the save is not ready). `use_item(id)` calls `use`; a `use` that returns `false` spends
+  nothing; `keep = true` never spends. `on_change(count)` is called on every change **and after each load or new
+  game**: apply a held item's effect there.
+
+```lua
+C.define_skill(3, {mp = 100, cooldown = 2, cast = function(c)        -- c = {slot, level, charged, air, cost}
+    for _, a in ipairs(cleria.world.actors()) do cleria.combat.damage(a.id, 30) end
+    cleria.screen.flash(0xFFFFFF, 0.2)
+end})
+```
+
+- `define_skill(slot, def)` replaces what bracelet `slot` (1..3) casts: when the game would cast, `cast` runs
+  instead, `mp` (default: the game's cost) is paid and the game's own cast does not happen (no `skill_used`).
+  `cooldown` in seconds of play; `character = 1..3` limits it to one character; `cast` returning `false` cancels
+  (nothing paid); `keep = true` lets the game's cast follow (then only the game's cost is paid). It rests on the
+  world filter `"skill"` (`{slot, item, level, cost, mp, air}`; `"suppress"` refuses the cast), which a mod may use
+  directly. `C.undefine_skill(slot)`.
+
+```lua
+C.define_room("arena1", {base = "S_1002",
+    monsters = {{43, 0, 2, 5, level = 20}, {id = "brute", x = 3, y = 2, z = 5}},
+    exits = {[0] = "arena2", [1] = false, default = "S_1009"},
+    music = 18, on_enter = function(room) end, on_clear = function(room) end})
+C.enter_room("arena1")      C.room()
+```
+
+- A **room variant** is one of the game's rooms under another identity: its geometry, camera and doors are the
+  base room's. While the player is in it, the base room's own monsters are not built (`keep_monsters = true` keeps
+  them; a mod's own `world.spawn` always passes: the `"spawn"` query's `by` names the mod that asked, `""` for the
+  room's own), `monsters` are built instead (a cast id or a variant's id, then x, y, z), and each exit goes where
+  `exits` says: by its index or its door label, to a room, to another variant, `false` = closed, absent = where it
+  really leads. `on_clear` runs once when the last monster dies. One enters by `C.enter_room(id)` or through
+  another variant's exit; leaving by a plain exit ends it. [H] The base room's scripts still run: pick rooms whose
+  scripts do not wait for their own monsters.
+
+```lua
+C.define_character("giant", {name = "Giant", base = 1, hp = 2, atk = 1.5, speed = 0.8, jump = 1.1, air_jumps = 0,
+    scale = 1.4, glow = 0x301010, on_apply = function(def) end})
+C.set_character("giant")      C.character()      C.set_character(nil)
+```
+
+- A **character variant** is one of the three characters with other numbers and another look: `hp` / `atk` / `def`
+  (multipliers; `hp_add`, `atk_add`, `def_add` to add), the `player.tune` keys, `scale`, `glow`. `base` limits it to
+  one character (`set_character` then answers false for another). The choice is kept in the save and applied again
+  after a load or a new game. It uses this mod's `set_modifier`, `tune` and `set_look`: a mod that defines
+  characters leaves those three to them. [H] A new character with its own moves or sheet is not this: the three
+  characters' scripts and sheets are the game's (API7.md #42).
+
+Checked in a drive run (`lua_api7_layer`): a slot-3 skill of the mod's own casts and pays 100 MP with no
+`skill_used`; an item given twice and used once; a variant with twice the HP; a shop purchase by the window's OK
+(50 SP -> 30); a variant of S_1002 entered from S_1009 holds only the variant's monster, and `on_clear` runs at its
+death.
+
 ## 10. Tests
 
 ```
@@ -1150,5 +1260,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), `puppet_hit`, `combat.strike`, `world.snapshot` / `apply` (§12.19), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), `puppet_hit`, `combat.strike`, `world.snapshot` / `apply` (§12.19), `d:world_*`, `p:table` / `list` / `image`, `player.set_look`, the `"skill"` filter (§12.20), `ui.shop`, `content.define_item` / `define_skill` / `define_room` / `define_character` (§12.21), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

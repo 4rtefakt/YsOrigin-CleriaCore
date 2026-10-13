@@ -1323,6 +1323,7 @@ void open_api(lua_State* L, Mod& m) {
     open_api7_camera(L);
     open_api7_monsters(L);
     open_api7_sync(L);
+    open_api7_prelude(L);
 
     lua_setglobal(L, "cleria");
 }
@@ -1547,8 +1548,9 @@ void Mod::draw_hud(float w, float h, float scale) {
     drawing_ = true;
     for (int ref : refs) {
         if (!ok()) break;
-        lua_createtable(L, 0, 10);
+        lua_createtable(L, 0, 13);
         luaL_setfuncs(L, dm, 0);
+        add_draw_extras(L);
         lua_pushnumber(L, w);
         lua_setfield(L, -2, "w");
         lua_pushnumber(L, h);
@@ -1568,8 +1570,9 @@ void Mod::draw_page(std::size_t i, void* list) {
     static const luaL_Reg pm[] = {{"section", l_p_section}, {"toggle", l_p_toggle}, {"slider", l_p_slider},
                                   {"choice", l_p_choice}, {"button", l_p_button}, {"text_field", l_p_text_field},
                                   {"info", l_p_info}, {"text", l_p_text}, {"progress", l_p_progress}, {nullptr, nullptr}};
-    lua_createtable(L, 0, 10);
+    lua_createtable(L, 0, 13);
     luaL_setfuncs(L, pm, 0);
+    add_page_extras(L);
     lua_rawgeti(L, LUA_REGISTRYINDEX, pages_[i].second);
     lua_insert(L, -2);
     list_ = list;

@@ -116,7 +116,8 @@ struct EnemyFx {
         if (stem.empty() || kinds.count(stem)) return;
         root = asset_root;
         Kind k;
-        if (!k.aia.load(asset_root / "ANI" / (stem + ".AIA"))) return;
+        // A stem that is a whole path is a mod's own sheet (world.form{sprite =}, API 7): read where it is.
+        if (!k.aia.load(fs::path(stem).is_absolute() ? fs::path(stem) : asset_root / "ANI" / (stem + ".AIA"))) return;
         // Some enemy AIAs are 40-byte stubs with no images (M_810 / M_820: Hugo and Toal as
         // duel opponents). Their ASO selects the real set with anime_File (the player's
         // C_1xx), so follow it [H: the factory's ASO index picks the same file]; otherwise skip
