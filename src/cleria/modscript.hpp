@@ -168,7 +168,8 @@ struct Host {
     virtual bool set_clipboard(const std::string& text) { (void)text; return false; }
     virtual bool open_url(const std::string& mod, const std::string& url) { (void)mod; (void)url; return false; }
     virtual std::string locale() { return "en"; }               // the game's text language: "en", "fr", "ja" ...
-    // What the game is doing: "title", "play", "cutscene", "dialog", "menu", "book", "panel", "gameover".
+    // What the game is doing: "title", "play", "cutscene", "dialog", "menu", "book", "map", "panel",
+    // "gameover".
     virtual std::string game_state() { return in_game() ? "play" : "title"; }
     virtual std::string room_title() { return {}; }             // the room's own name ("2F Path 1"), "" when it has none
     // cleria.world: the room's monsters (living enemy actors; never the player, an NPC or a boss module's parts).

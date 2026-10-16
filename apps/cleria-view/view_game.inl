@@ -6379,6 +6379,7 @@ title_again:
     g_lua.b.state = [&]() -> const char* {              // cleria.game.state (API 7), most covering first
         if (shell.open) return "panel";
         if (death_t > 0 || player.hp < 1) return "gameover";
+        if (book.map_open()) return "map";
         if (book.is_open()) return "book";
         if (csHost.wdlg.alive()) return csHost.wdlg.is_menu() ? "menu" : "dialog";
         if (csMgr.world_frozen()) return "cutscene";

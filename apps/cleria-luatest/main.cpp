@@ -17,6 +17,7 @@
 #include "cleria/json.hpp"
 #include "cleria/modscript.hpp"
 #include "cleria/mods.hpp"
+#include "cleria/net/socket.hpp"
 #include "cleria/sidecar.hpp"
 
 using namespace cleria;
@@ -935,7 +936,12 @@ int main(int argc, char** argv) {
                 n->on_frame(0.016);
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
-            check(n->ok() && has(h.logs, "net ping from 127.0.0.1 | hello | 200 world true | truetrue open listening") && has(h.logs, "bad falsefalse"),
+            // A build without an HTTP backend (Linux / macOS without CLERIA_CURL) answers every request with
+            // status 0, so the listener never sees one.
+            const std::string want_net = cleria::net::http_supported()
+                ? "net ping from 127.0.0.1 | hello | 200 world true | truetrue open listening"
+                : "net ping from 127.0.0.1 | hello | 0  false | falsefalse open listening";
+            check(n->ok() && has(h.logs, want_net) && has(h.logs, "bad falsefalse"),
                   "api 7: net.udp / tcp / http on the loopback (" + n->error() + ")");
         }
         {   // API 7: cleria.camera, hud.show, game.pause and world.boss are named writes / reads

@@ -641,7 +641,7 @@ across it (a death counter) holds it in a Lua variable at `death` and writes it 
 
 | call | |
 |---|---|
-| `game.state()` | `"title"` (no game runs), `"play"`, `"cutscene"` (a script holds the world), `"dialog"` (a text window), `"menu"` (a script's menu: a statue's blessings, a choice), `"book"` (the pause book), `"panel"` (the F1 panel), `"gameover"`. The most covering one wins: the panel over the book over a window over a cutscene |
+| `game.state()` | `"title"` (no game runs), `"play"`, `"cutscene"` (a script holds the world), `"dialog"` (a text window), `"menu"` (a script's menu: a statue's blessings, a choice), `"book"` (the pause book), `"map"` (the book's warp map, the Crystal's: the statues' 22 bars; added 2026-10-16, an older build says `"book"` there), `"panel"` (the F1 panel), `"gameover"`. The most covering one wins: the panel over the book over a window over a cutscene |
 | `game.room_title()` | the room's own name as the game's data has it (`"4F Forward Passage 1"`, `"Outer Corridor 1"`); `""` for a room without one |
 | `game.floor()` | the floor that name starts with, 1..25, or `nil` when it names none (the outer corridors, Rado's Annex, the summit) |
 | `game.zone()` | `1..7` and the zone's name (`1, "Wailing Blue"` ... `7, "Tower Summit"`), from the room number; `nil` elsewhere |

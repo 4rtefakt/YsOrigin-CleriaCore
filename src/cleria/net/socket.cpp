@@ -459,13 +459,15 @@ HttpResponse http_request(const HttpRequest& rq) {
     }
     if (hl) curl_easy_setopt(c, CURLOPT_HTTPHEADER, hl);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &sink);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, +[](char* p, std::size_t sz, std::size_t n, void* ud) -> std::size_t {
+    // Named first: curl.h makes curl_easy_setopt a macro, and the commas in a lambda body split its arguments.
+    curl_write_callback on_write = +[](char* p, std::size_t sz, std::size_t n, void* ud) -> std::size_t {
         Sink& s = *static_cast<Sink*>(ud);
         const std::size_t got = sz * n, room = s.max - std::min(s.max, s.rs->body.size());
         s.rs->body.append(p, std::min(got, room));
         if (got > room) { s.rs->truncated = true; return 0; }   // stops the transfer
         return got;
-    });
+    };
+    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, on_write);
     const CURLcode r = curl_easy_perform(c);
     long code = 0;
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &code);
