@@ -784,6 +784,9 @@ struct XsoVm {
     // script and the player's controls stayed there for good. No walk in the game takes anywhere near this long.
     static constexpr int kChrMovingLimit = 900;   // [H] 15 s, the retail client's 15000 ms
     int co_moving = 0;
+    // CleriaCore's own (the mods' cleria.script.stop, API 7): set during an op (a grant filter's call), the script
+    // ends right after that op, as if it had run off its end.
+    bool stop_req = false;
     int burst_ops = 0;                // ops the last tick() ran (0: it only counted a Wait_Time down)
 
     // Begin a resumable run of `s` from `entry`. Shares g_flags; resets acc/pc/wait.
@@ -922,6 +925,9 @@ struct ScriptManager {
     // wait for `patience` steps (a wait on the fight's end), or counts a Wait_Time longer than `long_wait` (a
     // timer of the fight, not a scene's choreography). Returns whether any is still being run.
     bool skip_tail_step(int patience, int long_wait);
+    // cleria.script.stop (API 7; not retail): the script being ticked now (a filter is answering one of its ops) ends
+    // after that op. False when no script is running.
+    bool stop_current() { if (!cur_inst_) return false; vm.stop_req = true; return true; }
 
   private:
     void tick_inst(Inst& in);          // swap regs into `vm`, run one frame, save back

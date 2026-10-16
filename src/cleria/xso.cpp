@@ -1136,6 +1136,7 @@ XsoVm::Tick XsoVm::tick() {
     for (int guard = 0; guard < 2'000'000; ++guard) {              // bound a wait-less loop
         ++burst_ops;
         const Step s = step_one(*co_script, co_pc, /*coroutine*/true);
+        if (stop_req) { stop_req = false; co_script = nullptr; return Tick::Ended; }   // cleria.script.stop
         if (s == Step::Park) return Tick::Waiting;
         if (s == Step::End || s == Step::Unknown) { co_script = nullptr; return Tick::Ended; }
         // Step::Continue -> next op in this frame's burst
@@ -1260,6 +1261,7 @@ void ScriptManager::tick_inst(Inst& in) {
     vm.owner = in.owner;
     vm.script_name = in.name;          // the grant filter's context (CleriaCore mods)
     vm.burst_ops = 0;
+    vm.stop_req = false;
     const XsoVm::Tick t = vm.tick();
     vm.script_name.clear();
     in.pc = vm.co_pc;

@@ -616,6 +616,22 @@ int main(int argc, char** argv) {
             std::printf("[watchdog] Wait_ChrMoving let through after %d frames (held=%d freed=%d stopped=%d) %s\n",
                         XsoVm::kChrMovingLimit, held, freed, stopped, ok ? "OK" : "FAIL");
             fails += !ok;
+            // cleria.script.stop: a grant filter that stops the script it answers ends it right after that op.
+            Asm st;
+            st.op(0x64, {I(0x120), I(1)});
+            st.op(0x64, {I(0x121), I(1)});                 // the filter stops the script here
+            st.op(0x64, {I(0x122), I(1)});                 // never runs
+            st.raw(std::int32_t(1u << 24));
+            ScriptManager m3; m3.loader = &nl; m3.vm.host = &sh;
+            m3.vm.grant_filter = [&](const GrantQuery& q) {
+                if (q.index == 0x121) m3.stop_current();
+                return GrantDecision{};
+            };
+            m3.start_root(std::make_shared<Xso>(Xso::parse(st.bytes())), "altar");
+            const bool cut = !m3.any_live() && m3.vm.flag(0x120) == 1 && m3.vm.flag(0x121) == 1 && m3.vm.flag(0x122) == 0 &&
+                             !m3.stop_current();      // outside a tick there is no script to stop
+            std::printf("[stop] a filter's stop ends its script after that op %s\n", cut ? "OK" : "FAIL");
+            fails += !cut;
         }
     }
     // EVENTS-ON-BY-DEFAULT burn-in (PLAN.md Phase 2): EVERY room root, started on the

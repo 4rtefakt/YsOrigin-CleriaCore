@@ -230,6 +230,7 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
             if (cur_aia == aso_aia_name(i)) { (*out)[6] = double(i); break; }
         return true;
     }
+    if (op == "script_stop") return csMgr.stop_current();          // the script whose op a filter answers ends after it
     if (op == "script_run") return !text.empty() && csMgr.start(text, {}, 13);   // a script by name, the player its owner (the drive's run=)
     if (op == "tune") {                                  // (key, value): this mod's factor; the motion constants follow
         static const CastMotion base = pm;               // CASTINFO's own, before any mod
