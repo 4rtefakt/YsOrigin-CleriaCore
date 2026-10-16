@@ -179,8 +179,13 @@
             // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
             // sweeps. FUN_004281c0 updates the locus pool after the player and the actors; a locus with
             // hit life left is scanned once a tick by the same mode-0 path as the swing (FUN_004fed50,
-            // origin NULL: its three r 0.45 spheres as placed), keyed on the swing's token.
-            // [not modelled] the boss parts, the wall clank (args [4],[5]: FUN_00500b30).
+            // origin NULL: its three r 0.45 spheres as placed), keyed on the swing's token. Then, while the frame at
+            // the tick's start lies in its [4], [5] window, the wall clank FUN_00500b30 [BYTES 0x500b30..0x500dc4]: a
+            // terrain ray from the owner's origin to sphere 0; on a hit with D.n < 0, two sparks along D reflected
+            // (FUN_00589390: spread 15 deg, speed 0.06..0.205, width 0.11) and, once per locus (+0x16c), when the owner
+            // faces the wall (|facing - atan2(n.z, n.x)| > 2.2619 rad, 0x6bd5e0) a bounce n x 0.09 on knock channel 1.
+            // [not modelled] the boss parts; the ray callback's SE 93 (FUN_00500ac0: a mesh object's class byte
+            // +0x28d >= 5 and the 300 / 72 ms timeGetTime gates).
             if (!loci.empty()) {
                 LocusSword::Owner lo;
                 lo.origin = {feet.x, feet.y + kOriginH, feet.z};   // +0x50
@@ -209,6 +214,31 @@
                         if (player_hit_enemy(en, vr, bonus, knock, /*rtype +0x108*/ 0, cls, lo.facing)) ++killed;
                     }
                     for (const HitShape& h : sp) broke += smash_breakables(h, tok, rehit, false, bonus, cls);
+                    const std::uint32_t fi0 = std::uint32_t(loci[li].sword.frame_at_tick_start());
+                    if (std::uint32_t(loci[li].sword.clank_lo()) <= fi0 && fi0 < std::uint32_t(loci[li].sword.clank_hi()) && wx.hit) {
+                        const Vec3 O = lo.origin, S = sp[0].centre, D{S.x - O.x, S.y - O.y, S.z - O.z};
+                        Vec3 hp{}, n{};
+                        if (wx.hit(O, S, &hp, &n)) {
+                            const float dn = D.x * n.x + D.y * n.y + D.z * n.z;
+                            if (dn < 0.0f) {
+                                const float k = dn * -2.0f;               // 0x6be098
+                                const Vec3 R{n.x * k + D.x, n.y * k + D.y, n.z * k + D.z};
+                                const std::uint64_t c0 = pick_rng.calls;
+                                wx.clank_sparks(hp, R, 0.2617994f, 0.06f, 0.205f, 0.11f);   // 0x3e860a92, 0x3d75c28f, 0x3e51eb85, 0x3de147ae
+                                if (dust_log)
+                                    std::printf("  [spark] t%llu clank: 2 sparks at (%.2f, %.2f, %.2f), %llu draws\n",
+                                                (unsigned long long)tick_count, hp.x, hp.y, hp.z,
+                                                (unsigned long long)(pick_rng.calls - c0));
+                                if (!loci[li].clanked) {
+                                    loci[li].clanked = true;
+                                    float d = lo.facing - float(std::atan2(double(n.z), double(n.x)));
+                                    if (d >= 0.0f) { if (d > 3.1415927f) d -= 6.2831855f; }
+                                    else if (d < -3.1415927f) d += 6.2831855f;
+                                    if (std::fabs(d) > 2.2619467f) { player_kb.x += n.x * 0.09f; player_kb.z += n.z * 0.09f; }
+                                }
+                            }
+                        }
+                    }
                 }
                 loci.erase(std::remove_if(loci.begin(), loci.end(),
                                           [](const PlayerLocus& l) { return !l.sword.alive(); }),
