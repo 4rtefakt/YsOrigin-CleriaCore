@@ -155,6 +155,21 @@ int main() {
         d.update(ok, snd);
         check(d.accepted() && d.chosen() == "@SaveBack" && snd.front() == 3, "Up from row 1 wraps to the last row");
     }
+    {   // §3.2 step 3: an interactive dialog's caption reveals at 0x30000 a tick from the tick after Attack is held.
+        auto reveal_ticks = [&](bool arm, bool attack) {
+            WndDialog d;
+            d.menu(512, 282, "What will you do?", {"Save", "Nothing right now"}, {"@a", "@b"}, m, true, true);
+            if (arm) d.arm();
+            WndInput in; in.attack_held = attack;
+            std::vector<int> snd;
+            for (int i = 0; i < 200; ++i) d.update(in, snd);
+            int n = 0;
+            for (int s : snd) n += s == 0x0c;
+            return n;
+        };
+        const int slow = reveal_ticks(true, false), fast = reveal_ticks(true, true), idle = reveal_ticks(false, true);
+        check(fast < slow && fast <= 2 && idle == slow, "dialog caption: Attack held speeds an armed dialog up, not an unarmed one");
+    }
     {   // §2.4: the message box.
         WndText t;
         t.message(0x57, 1, 2, "Cecilia", "Hello\\n world", m);
