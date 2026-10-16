@@ -32,6 +32,14 @@ struct VsOut { @builtin(position) pos : vec4<f32>, @location(0) uv : vec2<f32>,
 //
 // No AI: the engine drives each enemy from one of ~90 bespoke C++ routines, so
 // there is no behaviour table to read. These stand in their placed spots.
+//
+// The stem an actor's script and sheet are read under: a mod's puppet sprite, else the factory's ASO when it is not
+// the cast's own (+0x24c: cast 0xa6 under the School Outfit, EXTRA_VERSIONS.md §1.4), else the cast's.
+static std::string actor_stem(const Actor& a, const CastTable& casts) {
+    if (!a.sprite_override.empty()) return a.sprite_override;
+    if (!a.aso_override.empty()) return a.aso_override;
+    return casts.sprite_stem(a.cast_id);
+}
 struct EnemyFx {
     struct Kind {
         Aia aia;
@@ -178,7 +186,7 @@ struct EnemyFx {
     void init_from_world(Gpu& g, const fs::path& asset_root, const ActorWorld& world,
                          const CastTable& casts) {
         for (const Actor& a : world.actors())
-            load_kind(g, asset_root, a.sprite_override.empty() ? casts.sprite_stem(a.cast_id) : a.sprite_override);
+            load_kind(g, asset_root, actor_stem(a, casts));
     }
 };
 
@@ -341,7 +349,7 @@ static std::vector<EnemyRender> build_enemy_render(ActorWorld& world,
     std::vector<EnemyRender> out;
     for (Actor& a : world.actors()) {
         if (a.is_player()) continue;
-        const std::string stem = a.sprite_override.empty() ? casts.sprite_stem(a.cast_id) : a.sprite_override;   // a mod's puppet
+        const std::string stem = actor_stem(a, casts);   // a mod's puppet, cast 0xa6's C_980, the cast's own
         if (stem.empty() || !fx.kinds.count(stem)) continue;   // no loaded sprite
         const Cast* c = casts.get(a.cast_id);
         out.push_back({&a, stem, (c && !c->display.empty()) ? c->display : stem});

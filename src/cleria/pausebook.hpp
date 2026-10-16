@@ -75,6 +75,8 @@ struct NewGameInfo {
     int character = 1;                      // 0x76bb74: 1 Yunica, 2 Hugo, 3 Toal, 0 Adol
     int type = 0;                           // 0x74c0dc / d8 / d4 / cc: 0 Normal, 1 Extra (Adol: Felghana / Napishtim)
     int outfit = 0;                         // 0x74c0d0
+    bool outfit_set = false;                // Outfit Select answered (its two callbacks are the flag's only writers
+                                            // besides a load; otherwise the session's value stands, EXTRA_VERSIONS §1.4)
     int difficulty = 0;                     // 0x74ac3c: 0 Normal, 1 Hard, 2 Nightmare
     bool easy = false, very_easy = false;   // 0x74e685 / 0x74e684
 };

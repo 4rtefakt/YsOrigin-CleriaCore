@@ -129,6 +129,10 @@ struct Actor {
     // CleriaCore's own (the mods' puppets, API 7; not retail): the sprite set drawn for this actor instead of its
     // cast's ("C_103" = Hugo's player sprites). Empty = the cast's own.
     std::string sprite_override;
+    // engine: +0x24c, the ASO the factory gives the actor, when it is not its cast's own: FUN_00459410 builds cast 0xa6
+    // with ASO 0xa3 (C_980) while Yunica's School Outfit 0x74c0d0 is on (extra::cast_aso_override; EXTRA_VERSIONS.md
+    // §1.4). Empty = the cast's own (CastTable::sprite_stem). Written by every spawn.
+    std::string aso_override;
     // CleriaCore's own (the mods' monster variants, API 7; not retail): the variant's id ("<mod>:<name>", empty = a
     // plain monster), a display name, its handler held (a statue the mod moves), the boss gauge shown for it.
     std::string mod_kind, mod_name;

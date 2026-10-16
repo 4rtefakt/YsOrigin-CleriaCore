@@ -140,8 +140,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int skin = 0;          // the Type Select answer 0x74c0dc / d8 / d4: 0 Normal, 1 Extra (EXTRA_VERSIONS.md; view_extra.inl)
     if (const char* ts = std::getenv("CLERIA_TYPE")) skin = std::atoi(ts) == 1;   // a room boot's version (the drive cases)
     // Outfit Select's answer 0x74c0d0 (Yunica's School Outfit; EXTRA_VERSIONS.md §1.4): her script C_980.ASO in place
-    // of C_010.ASO [BYTES 0x465089..0x4650c0] — it names the AIAs c_981 / c_980 / c_982 itself.
-    // [not modelled] cast 0xa6 (Yunica as an actor) taking the same script and c_982 (FUN_00459410, FUN_00572230).
+    // of C_010.ASO [BYTES 0x465089..0x4650c0] — it names the AIAs c_981 / c_980 / c_982 itself — and cast 0xa6
+    // (Yunica as an actor, in any character's story) built with the same script (world.school_outfit, FUN_00459410).
+    // A session value like retail's: only Outfit Select and a load write it, so it outlives a New Game of another
+    // character (and is saved by it).
     int outfit = 0;
     if (const char* os = std::getenv("CLERIA_OUTFIT")) outfit = std::atoi(os) == 1;   // a room boot's outfit (the drive cases)
     int difficulty = 2;    // 0 VeryEasy,1 Easy,2 Normal,3 Hard,4 Nightmare (persisted TitleGameDifficulty)
@@ -1325,14 +1327,16 @@ title_again:
                         // FUN_00575990 in a bonus mode: no game yet — flags 203 / 201 = 0 and 0x74e25a = 2, which
                         // makes the title tick create the stage select once the book is gone.
                         const NewGameInfo& ng = ev.new_game_info;
-                        g_run.character = ng.character; g_run.type = ng.type; g_run.outfit = ng.outfit;
+                        g_run.character = ng.character; g_run.type = ng.type;
+                        if (ng.outfit_set) outfit = ng.outfit;   // the session's 0x74c0d0, as below
+                        g_run.outfit = outfit;
                         g_run.difficulty = ng.difficulty; g_run.easy = ng.easy;
                         g_run.front = 2;
                     } else if (ev.new_game) {
                         const NewGameInfo& ng = ev.new_game_info;
                         character = std::clamp(ng.character, 1, 3);   // [not modelled] Adol (0)
                         skin = ng.type;
-                        outfit = ng.outfit == 1;
+                        if (ng.outfit_set) outfit = ng.outfit;   // 0x5c3600 / 0x5c3620; else the session's stays
                         difficulty = ng.very_easy ? 0 : ng.easy ? 1 : 2 + ng.difficulty;
                         speedrun_new_game(character, skin);  // the speedrun start: the difficulty pick
                         ng_commit = true;                    // FUN_005758f0: fade, then commit
@@ -1739,6 +1743,7 @@ title_again:
     game.g_flags[143] = difficulty <= 1 ? 1 : 0;      // Very Easy sets 143 AND 203 [BYTES 0x5759ed + 0x5759f4]
     game.g_flags[203] = difficulty == 0 ? 1 : 0;
     world.stat_flags = game.g_flags;                  // the spawns' FUN_004202e0 tail (DIFFICULTY.md G2)
+    world.school_outfit = &outfit;                    // the factory's cast-0xa6 swap (0x74c0d0, EXTRA_VERSIONS.md §1.4)
     Player player;                     // stat block (HP/SP/level/EXP)
     // A fresh level-1 player: HP from the GAMEINFO player curve at level 1. There is no save
     // model, so a new run always starts at level 1 with 0 EXP -- the faithful new-game state.
@@ -2061,8 +2066,9 @@ title_again:
     // late-game / weapon-state variants — wrong look for normal play.)
     // Adol (0): FUN_00464fc0 [BYTES 0x46500a..0x465038]: AIA 0xE c_110 (Felghana; his script names no file), 0xF4
     // c_990 (Napishtim, 0x74c0cc = `skin`).
-    auto char_aia = [&skin](int c) -> const char* {
-        return c == 2 ? "C_103.AIA" : c == 3 ? "C_104.AIA" : c == 0 ? (skin == 1 ? "C_990.AIA" : "C_110.AIA") : "C_102.AIA";
+    auto char_aia = [&skin, &outfit](int c) -> const char* {
+        return c == 2 ? "C_103.AIA" : c == 3 ? "C_104.AIA" : c == 0 ? (skin == 1 ? "C_990.AIA" : "C_110.AIA")
+                                                                    : (outfit != 0 ? "C_980.AIA" : "C_102.AIA");
     };
     // Canonical gameplay animation tags — identical across every player sprite
     // (user-identified from animation GIFs; see tools/aia_gif.py). Resolve by TAG,
@@ -2081,9 +2087,9 @@ title_again:
     // state), 3 jump. The script supplies (file, tag, frame); `dir` is NOT in it —
     // that comes from the actor's facing, which is what closes the AIA formula.
     // Adol (0): ASO 0xC c_101 (Felghana) / 0xA4 c_990 (Napishtim) [BYTES 0x46500a..0x465038].
-    auto char_aso = [&skin, &outfit](int c) -> const char* {
-        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : c == 0 ? (skin == 1 ? "C_990.ASO" : "C_101.ASO")
-                                                                    : (outfit == 1 ? "C_980.ASO" : "C_010.ASO");
+    // Yunica: ASO 1 C_010, or 0xa3 C_980 while 0x74c0d0 != 0 [BYTES 0x465089..0x4650c0] (extra::player_anim_set).
+    auto char_aso = [&skin, &outfit](int c) -> std::string {
+        return std::string(extra::aso_stem(extra::player_anim_set(c, false, skin == 1, outfit != 0, false).aso)) + ".ASO";
     };
     Aso aso = Aso::load(asset_root / "ANI" / char_aso(character));
     AsoVm avm;
@@ -2248,10 +2254,11 @@ title_again:
             if (file >= 0) e.actor->aia_file = file;
             // The pin is bound after that restart, which is the port's (the list's rebuild), not a section start.
             if (e.actor) e.avm.bind_pin(&e.actor->pattern.tag, &e.actor->pattern.frame);
-            // FUN_00572230 loads C_114 with cast 0xa6 and C_115 with cast 0xa8 when one is placed
-            // [BYTES 0x572272..0x5722ac]; every other sheet is read at its first use (FUN_00444850).
+            // FUN_00572230 loads C_114 (C_982 under the School Outfit) with cast 0xa6 and C_115 with cast 0xa8 when one
+            // is placed [BYTES 0x572272..0x5722ac]; every other sheet is read at its first use (FUN_00444850).
+            // [approx] here at the bind, not at op 0xad; cast 0xac's 0x109 is left to its first use.
             if (e.actor && (e.actor->cast_id == 0xa6 || e.actor->cast_id == 0xa8))
-                efx.sheet(g, e.actor->cast_id == 0xa6 ? 11 : 12);
+                efx.sheet(g, extra::cast_load_extra_aia(e.actor->cast_id, outfit != 0));
             e.atk_section = enemy_atk_section[e.stem];
             if (e.actor) {
                 if (const Enemy* er = etab.get(e.actor->cast_id))
@@ -2757,7 +2764,7 @@ title_again:
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];   // the raw clear bytes (FUN_0042f5e0)
         character = std::clamp(s.character(), 0, 3);   // 0 = Adol: a run's Retry snapshot
         skin = s.version[character] == 1;              // FUN_0042f5e0: 0x74c0dc / d8 / d4 = the block's (EXTRA_VERSIONS.md §1.2)
-        outfit = s.version[4] == 1;                    // ... and 0x74c0d0
+        outfit = s.version[4];                         // ... and 0x74c0d0, the dword as stored (readers test != 0)
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
         if (s.mp_max > 0.0f) { player.sp_max = s.mp_max; player.sp_cur = std::min(s.mp_cur, s.mp_max); }
