@@ -114,6 +114,28 @@ int main(int argc, char** argv) {
         step({0, 0, true, false});
         check(ev.script == "@UseHammer" && ev.closed, "Use popup: Yes starts @UseHammer and closes the book");
     }
+    {   // The Conch (0x55): flag 503 = the oxygen bar is up (0x76c1bc != 0) before @Riranokaigara (KEY_ITEMS.md §2).
+        int conch = -1;
+        for (int i = 0; i < 30; ++i) if (ig[std::size_t(i)] == 0x55) conch = i;
+        if (conch >= 0) {
+            f[0x55] = 1; f[503] = 0; f[228] = 0;
+            m.o2_gauge = true; m.player_can_act = true;
+            PauseBook c;
+            c.open(m);
+            auto cstep = [&](BookInput in) { ev = {}; c.update(in, m, ev); };
+            for (int i = 0; i < 40; ++i) cstep({});
+            cstep({+1, 0, false, false});
+            cstep({0, 0, true, false});
+            for (int i = 0; i < 40; ++i) cstep({});
+            while (f[228] % 6 != conch % 6) { cstep({+1, 0, false, false}); cstep({}); }
+            while (f[228] / 6 != conch / 6) { cstep({0, +1, false, false}); cstep({}); }
+            cstep({0, 0, true, false});
+            cstep({});
+            cstep({0, 0, true, false});
+            check(ev.script == "@Riranokaigara" && f[503] == 1, "Conch with the O2 bar up: flag 503 = 1, @Riranokaigara");
+            m.o2_gauge = false;
+        }
+    }
     {   // The Load list (PAUSEBOOK_DRAW_SVLD_OPT.md §1.4, §2): slot 0 has a card, the rest are empty.
         std::vector<int> scanned;
         int sfn = 0;
