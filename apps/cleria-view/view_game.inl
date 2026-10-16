@@ -3802,6 +3802,7 @@ title_again:
         if (csHost.wtext.alive() || csHost.wdlg.alive()) {
             WndInput win;
             win.confirm_held = (g_in.held & (input::kOk | input::kClick)) != 0;
+            win.attack_held = (g_in.held & input::kAttack) != 0;
             win.confirm_pressed = csHost.advance;
             csHost.advance = false;
             win.cancel_held = (g_in.held & input::kCancel) != 0;
@@ -7527,6 +7528,7 @@ title_again:
             if (gameover_menu.alive()) {                     // FUN_005789a0 on the game-over menu
                 WndInput gin;
                 gin.confirm_held = (g_in.held & (input::kOk | input::kClick)) != 0;   // this tick's record
+                gin.attack_held = (g_in.held & input::kAttack) != 0;
                 gin.confirm_pressed = csHost.advance;
                 csHost.advance = false;
                 gin.vstep = csHost.wnd_vstep != 0 ? csHost.wnd_vstep : g_in.dy;

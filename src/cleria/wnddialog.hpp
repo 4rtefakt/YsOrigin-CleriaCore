@@ -27,6 +27,7 @@ namespace cleria {
 struct WndInput {
     bool confirm_held = false, confirm_pressed = false;
     bool cancel_held = false, cancel_pressed = false, cancel_repeat = false;
+    bool attack_held = false;     // +0x20 & 0x1: a GoWndDialog's caption reveals fast while it is held
     int vstep = 0;
     // The mouse (MOUSE.md §5.1): the click edge 0x10000 (it confirms only with the hover flag), the
     // cursor manager's moved 0x7325d8 / mouse-mode 0x7325d4, the record's RAW cursor ints and the
