@@ -141,12 +141,40 @@ int main() {
         const int n0 = r.rng.n;
         Boss04Output o = b.tick(r.in);                             // the damage lands: the kill frame
         bool f223 = false;
-        for (auto& f : o.flags) f223 |= f.first == 223 && f.second == 1;
+        int timers = 0;
+        for (auto& f : o.flags) { f223 |= f.first == 223 && f.second == 1; timers += f.first >= 529 && f.first <= 532 && f.second == 0; }
         check(f223 && o.exp && o.exp->level == 32, "kill frame: flag 223 = 1, EXP awarded (lv 32)");
+        check(timers == 4, "kill frame, the player alive: the status timers 529..532 (poison, heavy, confuse, curse) = 0");
         check(r.rng.n - n0 >= 4 * 103, "debris: at least 4 draws per node (103) per death frame");
         int k = 1;
         for (; k < 400 && !b.destroyed(); ++k) b.tick(r.in);
         check(b.destroyed() && k >= 339 && k <= 342, "destroyed when the alpha reaches 0 (about frame 340)");
+    }
+    {   // Death in a boss rush [BYTES 0x52c8f0..; EXPORT go_mesh_boss04.c Khonsclard_Death]: no 223, no EXP, i-frames,
+        // 194 = 0 every frame, 156 = 0 from alpha <= 0.2; then the brain's flag-156 gate freezes it, never destroyed.
+        Rig r;
+        Boss04Setup s; s.exp_b0 = 100; s.boss_rush = true;
+        Boss04 b(s);
+        b.tick(r.in);
+        b.add_part_damage(0, 5000);
+        Boss04Output o = b.tick(r.in);                             // the kill frame
+        bool f223 = false, f194 = false;
+        for (auto& f : o.flags) { f223 |= f.first == 223; f194 |= f.first == 194 && f.second == 0; }
+        check(!f223 && !o.exp && o.player_iframes && f194, "boss rush kill frame: no flag 223, no EXP, i-frames 9999, flag 194 = 0");
+        int k = 1, f156 = -1, story = 0, every194 = 1;
+        for (; k < 400 && f156 < 0; ++k) {
+            o = b.tick(r.in);
+            bool z194 = false;
+            for (auto& f : o.flags) { z194 |= f.first == 194 && f.second == 0; if (f.first == 156 && f.second == 0) f156 = k; }
+            every194 &= z194;
+            story += o.clear_buffs || o.achievement;
+        }
+        check(every194 && story == 0 && f156 >= 270 && f156 <= 274 && !b.destroyed(),
+              "boss rush: flag 156 = 0 once alpha <= 0.2 (about death frame 272), no buff clear / achievement");
+        r.in.fight = false;                                        // the host applied 156 = 0
+        bool quiet = true;
+        for (int t = 0; t < 200; ++t) { o = b.tick(r.in); quiet &= o.flags.empty() && !o.destroy; }
+        check(quiet && !b.destroyed(), "boss rush: the gate then stops the death; the boss is left at alpha 0.2, never destroyed");
     }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
