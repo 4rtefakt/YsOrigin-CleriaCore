@@ -12,7 +12,7 @@
 // clears it again). The jump helper's section-0x13a launch: K 0.1, no horizontal push.
 // In deep water (+0x38a, or +0x38b on the entry tick) the WATER branch replaces the whole phase switch in
 // every phase but 0 (M510.md §3.2, 0x488d69..0x489011): it flails and loses a tenth of its max HP on every
-// 30th water tick. [not modelled] the keep-out box restore (FUN_0042dc90).
+// 30th water tick.
 #include <cmath>
 #include <cstring>
 

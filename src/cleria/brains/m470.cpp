@@ -10,7 +10,7 @@
 // only; struggling escapes past (d + 5) x 10 points. At the bite (marker = 2 mod 3) it spawns the poison-hit
 // effect 255 and fast-forwards the script to Marker(14), where it lets go and sprays 3 more a tick. A hit it
 // takes splashes effect 255 between the two and never alerts it (the was-hit bit is consumed).
-// [not modelled] the keep-out box restore (FUN_0042dc90); the green particle bursts (FUN_0058a5f0: the trail, the
+// [not modelled] the green particle bursts (FUN_0058a5f0: the trail, the
 // bites, the splash) and their hidden RNG draws, the particle budget FUN_0047a8e0 (taken as free); FUN_00459ff0's
 // floor / facing writes on the held player. [H] the camera nudge reads AiEnv::cam_back; the player's input byte
 // +0x514 is AiEnv::target_moving (0 / 1).

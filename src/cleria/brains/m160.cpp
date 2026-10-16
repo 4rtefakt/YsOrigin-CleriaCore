@@ -10,7 +10,7 @@
 // (10 - 2d) it shrugs it off (section 2 forced, 10 ticks of Durable); on Hard+ the charge is Durable. A charge
 // sliding toward no floor is braked to 20% a tick. The brain clears +0x3bc & 4 before the action player, so a
 // hit never wakes an unaware Xomack (AiOut::consume_hit).
-// [not modelled] the keep-out box restore (FUN_0042dc90). [approx] the sidestep's unreachable "stale" side
+// [approx] the sidestep's unreachable "stale" side
 // (+0x7a4 outside 1/10/11) takes the left side.
 #include <algorithm>
 #include <cmath>

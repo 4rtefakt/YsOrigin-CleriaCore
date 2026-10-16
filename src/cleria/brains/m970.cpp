@@ -14,7 +14,7 @@
 // player's skill casts; docks back into formation on the leader's recall (+0x7c0 1 -> 2)
 // and dissolves on its order (3). Undamageable: DEF 999, no min-1 chip.
 // H4, the phase-4 box clamp, is enemy_handler_clamp's (registry.cpp).
-// [not modelled] the keep-out box restore (FUN_0042dc90); H1/H3 handler extras (the
+// [not modelled] H1/H3 handler extras (the
 // phase-4 room-count bit, the dust-puff clear); the Hugo-only repel
 // trigger (player +0x7c4/+0x7bc, unidentified); the second impulse pair +0x344/+0x34c.
 #include <algorithm>

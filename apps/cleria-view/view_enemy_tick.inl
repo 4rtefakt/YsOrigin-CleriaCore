@@ -341,7 +341,8 @@
                     if (en->ai_index >= 3 && en->ai_index != 83 && en->ai_index != 16 && en->ai_index != 80 && !hugo_eye(*en) &&
                         !enemy_handler_puppet(en->ai_index, env)) {
                         Vec3 org = env.self;
-                        if (ai::keep_out(en->ai, org, exit_volume)) {
+                        env.kept_out = ai::keep_out(en->ai, org, exit_volume);
+                        if (env.kept_out) {
                             if (keepout_log)
                                 std::printf("  [keepout] t%llu #%d cast %d (%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)\n",
                                             (unsigned long long)tick_count, en->instance_id, en->cast_id, env.self.x, env.self.y,

@@ -15,7 +15,7 @@
 // it, and on contact a spark (EF2 65) and SE 472.
 // [not modelled] the beams' particle-borne hits (EFFECTHIT.md: em6/em7, radius 0.25, re-hit
 // 20 — no EF2 particle simulation yet); the glow leg's specular (+0x264..+0x274); the beams'
-// rotation and the tagged x1.5 z scale; the keep-out box restore (FUN_0042dc90); the
+// rotation and the tagged x1.5 z scale; the
 // neighbour filter's byte +0x11 bit 0.
 #include <cmath>
 

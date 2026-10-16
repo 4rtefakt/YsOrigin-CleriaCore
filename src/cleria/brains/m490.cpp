@@ -11,7 +11,7 @@
 // spawns) 40% on a hit once an attack has ended.
 // [not modelled] the bombs' damage — they are GoXx type-1 objects (FUN_00593b90, the
 // FireBullet struct) whose damage path is untraced, so here they are effects + sound only;
-// the keep-out box restore (FUN_0042dc90); the flyer altitude controller FUN_00476960 (the
+// the flyer altitude controller FUN_00476960 (the
 // +0x834/+0x838 hover writes are kept for it); the effects' attachment (FUN_00451c20).
 #include <cmath>
 

@@ -8,7 +8,7 @@
 // shots (4 on d >= 2) of EF2 310 (the marker value), 0.25 ahead and 0.5 to each side, 26.6 deg down, at
 // 0.2 a tick, homing from age 15 to 30 at (6 + 2.25d) deg a tick. The base angle is the sprite's
 // direction row x 45 deg (+0x9b4: the facing snapped to 45 deg plus the camera yaw), literal.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the handler's +0x3c0 &= ~1 (landing puff).
+// [not modelled] the handler's +0x3c0 &= ~1 (landing puff).
 // M680 Hekat-Baocar — brain FUN_004c4100 (AI 61, handler FUN_004c4df0 = M650's + the 25-u far freeze, which the
 // view applies: enemy_handler_far_freeze). Spec: build/ai_spec/M680.md. M650 with other hop odds (5 % inside 4 u,
 // 1 in 5 or always beyond 7.5 at 4 u and more; impulse 0.25..0.45), a hover-height roll at every decision (1 in 5:

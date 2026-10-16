@@ -8,7 +8,7 @@
 // status 57, from the ASO); otherwise (or failing that) the same odds force section 8, whose Marker 1 fires a fan of
 // 5 (7 on d >= 1) kind-7 weaving bubbles of EF2 491 at the player, 0.4 rad apart. Each attack flips a coin into
 // +0x79c (1 = wait for the cooldown R%90 - 30d + 120, rolled every tick of section 7).
-// [not modelled] the keep-out box restore (FUN_0042dc90); the player status bits 3 / 4 / 5 of the needles.
+// [not modelled] the player status bits 3 / 4 / 5 of the needles.
 #include <algorithm>
 #include <cmath>
 

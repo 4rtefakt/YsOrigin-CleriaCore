@@ -11,7 +11,7 @@
 // +/-45 deg, grounded, not 2+ below/above a grounded player: 22% a tick to strike
 // (section 7, hold 132 / 142 on Easy, cooldown hold + 20..39).
 // The block itself is the hit pipeline's (FUN_004fbb40: victim section 6, rtype <= 1,
-// +/-75 deg) — see the view. [not modelled] the keep-out box restore (FUN_0042dc90).
+// +/-75 deg) — see the view.
 #include <cmath>
 
 #include "cleria/brains/brains.hpp"

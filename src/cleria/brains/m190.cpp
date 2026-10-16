@@ -10,7 +10,7 @@
 // choice nor its two follow-up ticks re-check range or facing, and no request is checked.
 // Every tick in the run section it probes 1.49 ahead: a wall it can clear at +3.0 makes it
 // hop (0.33) with a 0.15 forward kick.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the M130-style marker launch tail
+// [not modelled] the M130-style marker launch tail
 // (sections 0x13a/3 at Marker 1 — 0x13a needs FUN_00476200, which this cast's factory flags
 // do not enable, and the section-3 case is likely unreachable: M190.md §6).
 #include <cmath>

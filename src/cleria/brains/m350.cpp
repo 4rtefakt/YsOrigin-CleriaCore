@@ -9,7 +9,7 @@
 // pitched at the target's depth), or 2.5% the swoop (section 8, 100 ticks: the hover drops
 // 0.2 a tick to 2.2 during marker 3 and climbs back from marker 5, fire puffs at
 // marker-dependent rates). Cooldown hold + (6 - d) x 15 + R%45. Durable in 8 on Hard+.
-// [not modelled] the attached second puff while marker 1; the s_4013 particle flag; the keep-out box restore.
+// [not modelled] the attached second puff while marker 1; the s_4013 particle flag.
 #include <algorithm>
 #include <cmath>
 

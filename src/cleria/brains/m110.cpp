@@ -10,7 +10,6 @@
 // tints at marker 30, then base speed x1.3, STR x1.075 and permanent Durable. Tagged spawns
 // get speed/walk x1.1, max HP x1.35 (refilled), STR x1.05.
 // Handler: no arena clamp; it overrides Durable after the VM step (durable_rule).
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <algorithm>
 #include <cmath>
 

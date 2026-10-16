@@ -9,7 +9,6 @@
 // speed 0.08, accel -0.0008. Cooldown = hold + 20 + R%20. After an attack it stands 40 ticks
 // at double turn rate. Durable in sections 7/8. Requests are gated and unchecked.
 // The jump helper's jumps: sub-state 100 and the section-0x13a launch tail (K 0.11).
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"

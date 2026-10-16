@@ -9,7 +9,6 @@
 // none while the player holds a burst section or is within 1.5 horizontally; it fast-forwards to the burst
 // (Marker 1, EF2 234 from the ASO) when the target is within 2.5 or 5.5+ off vertically after 80 ticks, and keeps at
 // most one of its attached suction effects (246) alive.
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <algorithm>
 #include <cmath>
 

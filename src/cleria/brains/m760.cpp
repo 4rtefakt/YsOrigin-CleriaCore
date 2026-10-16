@@ -10,7 +10,7 @@
 // facing into knock channel 2 at markers 2..4; the charge pushes ((40 | 60 low) + bonus)/n,
 // SQUARED, at marker 3 while a floor is ahead (else it flickers frames 7/8), with smoke
 // (effect 232) every third tick. Below half HP: STR x1.15, run and turn x1.5.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the enrage's white <-> 0xffa00000
+// [not modelled] the enrage's white <-> 0xffa00000
 // diffuse pulse (+0x27c..+0x28c, FUN_0045a3a0 — no diffuse tween in the view yet); the
 // smoke's rotation (-pi/2 - facing).
 #include <cmath>

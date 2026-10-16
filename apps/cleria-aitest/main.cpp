@@ -1809,6 +1809,24 @@ int main() {
             o = enemy_ai_tick(A.ai, tp, r.env, m600);
             check(A.ai.f(0x818) < 0 && A.ai.speed < 0 && o.set_marker_block == -1, "Marker 4: a backwards run (negative speed), released on the ground");
         }
+        {   // M600: the keep-out test's first result (`inside`, M600.md §3.0) ends the climb and the dive early.
+            EnemyAiParams tp = params(0.09f, 0.05f, 1.0f, 2.6f, 0.0f);
+            Actor A; A.height = 1.78f;
+            Rig r; r.env.actor = &A; r.env.target = {5.0f, 1.075f, 0};
+            r.env.section_type = [](int id) { return id == 0x138 || id == 7 || id == 8 ? 3 : 2; };
+            for (int t = 0; t < 2000; ++t) if (enemy_ai_tick(A.ai, tp, r.env, m600).section == 0x138) break;
+            r.env.section = 0x138; r.env.aso_marker = 1; r.env.aso_marker_block = 1;
+            enemy_ai_tick(A.ai, tp, r.env, m600);
+            r.env.aso_marker = 2; r.env.aso_marker_block = 2; A.vert.t = 0.3f; r.env.grounded = false;
+            AiOut o = enemy_ai_tick(A.ai, tp, r.env, m600);
+            check(o.set_marker_block != 3, "Marker 2, still rising, outside: held");
+            r.env.kept_out = true;
+            o = enemy_ai_tick(A.ai, tp, r.env, m600);
+            check(o.set_marker_block == 3, "Marker 2, still rising, kept out of an exit volume: release to the dive");
+            r.env.aso_marker = 3; r.env.aso_marker_block = 3; A.floor_y = -10.0f; A.vert.t = 0.3f;
+            o = enemy_ai_tick(A.ai, tp, r.env, m600);
+            check(o.set_marker_block == 4 && std::fabs(A.vert.t - 0.3f) < 1e-6f, "the dive, airborne, kept out: release to Marker 4, no hop");
+        }
         {   // M350: strafes on the 6-unit ring; the breath window fires every third tick.
             EnemyAiParams dp = params(0.05f, 0.1f, 1.0f, 2.0f, 0.0f);
             dp.raw[8] = 5.2f; dp.raw[9] = 0.03f; dp.raw[10] = 0.04f;

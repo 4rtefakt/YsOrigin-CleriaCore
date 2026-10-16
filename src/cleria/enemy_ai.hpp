@@ -217,7 +217,8 @@ struct AiEnv {
     bool group_tag = false;      // +0x130 & 0x700: spawned with an XSO group tag
     int aso_marker = 0;          // +0x9bc: the animation script's anime_Marker value
     int aso_marker_block = -1;   // +0x9c0: the marker block value (-1 after a section start)
-    bool launched = false;       // +0x4d0 != 0: the knock-up state (brains early-out) [not modelled]
+    bool launched = false;       // +0x4d0 != 0: the knock-up state (brains early-out; hit.hpp launch_on_hit)
+    bool kept_out = false;       // the handler's first FUN_0042dc90 test this tick (past phase 0): ai::keep_out moved it
     int difficulty = 0;          // 3 (g_flags[201]), -2 v.easy, -1 easy, 0/1/2 index
     // The raw difficulty globals, for brains that read them directly:
     int diff_index = 0;          // DAT_0076bb5c = g_flags[144]: 0 normal, 1 hard, 2 nightmare

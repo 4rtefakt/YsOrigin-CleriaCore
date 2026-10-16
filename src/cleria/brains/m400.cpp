@@ -7,7 +7,6 @@
 // its visible facing — kind 1, EF2 303 (m_400kafun01, two hit emitters), +-15 deg random yaw about the
 // facing and +-15 deg absolute pitch, at 0.16 + 0.015d a tick slowing 1% a tick. Cooldown 209 - 10d +
 // R%30, cut to 90 by a hit reaction.
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"

@@ -9,7 +9,6 @@
 // nearest, and runs (2) to the nearest with a clear line; within 5 u it requests section 7 (3) and at
 // Marker(5080314) fires one shot OWNED BY THE ALLY from 1 u ahead: a kind-0xb heal (effect 314; 150 x (d + 1), 150
 // / |d| on Easy) or, (20 + 15d) % of the time, a kind-1 attack (effect 508, power 5) homing on the player.
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <algorithm>
 #include <cmath>
 

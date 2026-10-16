@@ -13,7 +13,7 @@
 // M420 the batter: 75 % the summon, or when Maka-Piaches stand near it follows the nearest (+0x888); every 10th
 // tick it claims a tagged orb not heading at the player, runs (0x800) to a lead point ahead of it, holds section 7
 // there and, the orb within 0.32, bats it flat at the player (speed 0.35 + 0.3d, effect 65, section 0x14).
-// [not modelled] the keep-out box restore (FUN_0042dc90). [approx] the child is spawned at self + (dx, 0, dz)
+// [approx] the child is spawned at self + (dx, 0, dz)
 // (the engine hands the factory the absolute point as an offset, then moves the child); its section-2 request
 // rides EnemyAi::hook_section (one tick late); the orb scan's `owner == 1` test (never true) is dropped; a
 // released orb that is already gone is not written to; the GoParticle pool always has room for effect 65.

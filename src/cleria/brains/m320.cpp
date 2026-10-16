@@ -8,7 +8,6 @@
 // (inside 4.0 u, 61 per mille). On Hard / Nightmare it cannot be staggered out of either (Durable forced) and
 // turns a fifth as fast during section 7. The "guard" sub-state 1 (stand until the parent +0x854 dies) is in the
 // bytes but nothing arms it (M320.md §3.4).
-// [not modelled] the keep-out box restore (FUN_0042dc90 over 0x76a2b4).
 #include <cmath>
 
 #include "cleria/actor.hpp"

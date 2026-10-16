@@ -8,7 +8,7 @@
 // its only hurt (a radius-1 sphere) — faces the player, is hittable only while the section's marker
 // is 1, fades from marker 2, and is removed R%20 + 160 - 10d ticks after it appears. It dies with its
 // parent's HP and vanishes when the parent is stunned (phase 3).
-// [not modelled] the keep-out box restore (FUN_0042dc90); a parent that has left the pool (the
+// [not modelled] a parent that has left the pool (the
 // engine keeps a dangling pointer; here the parent tests are skipped).
 // M260, Bazeraena's (M670's) hand — brain FUN_004f29e0 (AI 19, handler FUN_004f3440 = M410's): build/ai_spec/M260.md.
 // M440's brain with M410's DEF 999, its own ENEMYINFO record 16 and a far branch 0x6e -> 0x6f -> 0x70 (the only

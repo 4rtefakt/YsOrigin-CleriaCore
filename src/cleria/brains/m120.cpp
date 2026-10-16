@@ -11,7 +11,6 @@
 // 10% otherwise): a 0.4*k hop at heading +/-1.5 rad. k = 1.0 above Normal, else 0.8.
 // The jump helper's jumps: cases 100 / 0x65 (the double jump re-forces section 314 after
 // 30 ticks for a mid-air second kick) and the Marker-1 launch.
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"

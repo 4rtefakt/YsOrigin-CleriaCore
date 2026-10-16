@@ -12,7 +12,7 @@
 // ring, tight ring, plus) 5% a tick once a hold is over. The boss gauge (6000, emblem 6).
 // The view's side of the dead path (section 5's effect loops under the linear fade, P+0x734 = 9999,
 // the removal) is boss_corpse in apps/cleria-view/view_revive.inl.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the forced region's blend rate 0.02. [H] the pending bolts
+// [not modelled] the forced region's blend rate 0.02. [H] the pending bolts
 // live in spare AI dwords (+0x7cc..+0x7f8) instead of on the warning effect's +0x1a4 countdown.
 #include <algorithm>
 #include <cmath>
