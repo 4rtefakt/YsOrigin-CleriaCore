@@ -161,7 +161,7 @@ def cases(clear_data):
         count={"Adol: the 11th press": 1, "runner: effect 623": 1})
     # ... his skills at 1500 / 1800 / 1200 MP: Terra (0x10c) = two chain lightnings (anime_Special(2): 5 hops after
     # 25 ticks, then 10 at once; power -15.0, class 2), each arrival one direct hit; Ventus (0x10d) hits with its own
-    # collision (the water rings are not modelled); Ignis (0x10e) = the runner of effect 627 (C 20, P 3, power 15,
+    # collision and makes the kind-0x19 follower (its water rings: none out of water); Ignis (0x10e) = the runner of effect 627 (C 20, P 3, power 15,
     # scale 1.4), charged with a Lv 2 bracelet (0x111) effect 624 (P 6, scale 1.8, step 0.36).
     c["adol_napishtim_skills"] = dict(
         room="S_10/S_1002/S_1002", char="0", env=dict(_X, CLERIA_TYPE="1"),
@@ -171,7 +171,7 @@ def cases(clear_data):
               "692:abil;760:quit",
         expect=["t104 chain: power -15.0, 5 hop(s) over ", "delay 25 (section 0x10c)", "[abil] t106 sec 0x10c mp 1200",
                 "t129 chain: power -15.0, 10 hop(s) over ", "chain hop 1/5 hits #", "chain hop 10/10 hits #",
-                "[abil] t274 sec 0x10d mp 1500", "water rings (not modelled)", "[abil] t414 sec 0x10e mp 1800",
+                "[abil] t274 sec 0x10d mp 1500", "water rings: a kind-0x19 follower", "[abil] t414 sec 0x10e mp 1800",
                 "runner: effect 627 C 20 P 3, power 15.0 scale 1.40 step 0.30 (section 0x10e)", "runner pulse: effect 627",
                 "[abil] t692 sec 0x111", "runner: effect 624 C 20 P 6, power 15.0 scale 1.80 step 0.36 (section 0x111)"],
         count={" chain: power": 2})

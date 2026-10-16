@@ -22,7 +22,8 @@
 // 0x45c984..0x45c991, 0x45cb13..0x45cb3b]. A flooded room (mode 2) has the bubbles too, on the breath cycle alone
 // (+0x4c5 is only armed by a change of +0x38a), for every cast, with no depth test [BYTES 0x45c5bd..0x45c70f: effect
 // 0x3d]; [approx] that spawn's third stack argument is 1 (0 in mode 1's was not read), dropped here.
-// [not modelled] the ripples of a wading actor (FUN_00454ff0, every 8th tick), the effects' in-water layer byte
+// The ripples of a wading actor (FUN_00454f40 / FUN_00454ff0, every 8th tick): enemy_wade_step (view_water_rings.inl),
+// called beside enemy_surfaces in view_actor_step.inl. [not modelled] the effects' in-water layer byte
 // fx+0x1da (its one reader is the particle draw's mode, a renderer item), and the half colour — which is the
 // sprite's second (layer) quad only, not the body [EXPORT 004740e0.c:29-34].
 auto enemy_surfaces = [&](Actor& a) {

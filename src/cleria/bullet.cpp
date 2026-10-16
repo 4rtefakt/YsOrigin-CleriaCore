@@ -494,6 +494,20 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
                 const long long n = (long long)s.f168;             // FUN_0066f350: float -> int64, truncated
                 if (env.slime) env.slime(int(n >> 16), int(n & 0xff), s.f170, s.f174, s.pos, s.f16c);
             }
+            // In a room with a water surface (BULLETS.md §3.3): a water ray from 15 over it, 20 down; at or under
+            // the surface + 0.15 the drop dies in group 40, else rings the water once (+0x1da): FUN_00454f40(&pos,
+            // 2.5) and the splash 0x49 at it.
+            if (env.water_mode == 1 && env.ray) {
+                const RayHit w = env.ray({s.pos.x, s.pos.y + 15.0f, s.pos.z}, {0.0f, -20.0f, 0.0f}, 1);
+                if (w.hit && s.pos.y <= w.point.y + 0.15f) {
+                    if (env.group40) b.fx->kill = true;
+                    else if (!b.wet) {
+                        b.wet = true;
+                        if (env.ring) env.ring(s.pos, 2.5f, -1000.0f);
+                        if (env.splash) env.splash(s.pos);
+                    }
+                }
+            }
             s.pos = {s.pos.x + v.x, s.pos.y + v.y, s.pos.z + v.z};
             reset_matrix(b);
             break;
@@ -798,9 +812,13 @@ void Bullets::step(Bullet& b, const Env& env, std::vector<Event>* events) {
                 if (r.normal.y > 0.5f) s.pos.y = r.normal.y * s.f168 + r.point.y;
                 else s.pos.y -= 10.0f;
             }
-            // [not modelled] every 4th call ((+0x178 & 3) == 0): a water ray (set 1) from 0.5 above, and on a
-            // hit the ring FUN_00454ff0 at hit + 0.15, size 1.55, yawed along dir (the swimmer's wake object;
-            // no RNG draw in it or in FUN_00455710). Pictimos's arena has no water.
+            // Every 4th call ((+0x178 & 3) == 0): a water ray (set 1) from 0.5 above, 1.0 down; on a hit the wake
+            // FUN_00454ff0 at hit + 0.15, size 1.55 (0x6bd4dc), turned to FUN_00427410(dir.x, dir.z) = atan2(z, x)
+            // (no RNG draw; WATER_RINGS.md). Pictimos's arena has no water.
+            if ((b.n178 & 3) == 0 && env.ray && env.ring) {
+                const RayHit w = env.ray({s.pos.x, s.pos.y + 0.5f, s.pos.z}, {0.0f, -1.0f, 0.0f}, 1);
+                if (w.hit) env.ring({w.point.x, w.point.y + 0.15f, w.point.z}, 1.55f, std::atan2(s.dir.z, s.dir.x));
+            }
             ++b.n178;
             break;
         }

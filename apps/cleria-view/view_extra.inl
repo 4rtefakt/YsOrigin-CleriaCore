@@ -125,9 +125,13 @@ auto extra_special = [&](const AsoVm::SpecialEvent& ev) {
         }
         xchains.push_back(c);
     } else if (ev.a[0] == 3) {
-        // [not modelled] the kind-0x19 object: surface rings and a wake every 8th tick while he stands in water
-        // (FUN_005914b0); it hits nothing.
-        if (log) std::printf("  [extra] t%llu water rings (not modelled)\n", (unsigned long long)tick_count);
+        // The kind-0x19 follower (GOXX_17_19.md §4, water_rings.hpp): surface rings and a wake every 8th tick while
+        // he is in water (FUN_005914b0, view_water_rings.inl); it hits nothing. a1 is not read.
+        water::Follower f;
+        f.pos = org;
+        xfollowers.push_back(f);
+        if (log) std::printf("  [extra] t%llu water rings: a kind-0x19 follower (%zu live)\n", (unsigned long long)tick_count,
+                             xfollowers.size());
     }
 };
 // FUN_00429e40(lo, hi) [BYTES 0x429e40]: one step of the game's xorshift, lo + U * (hi - lo), U in [0, 1) from
@@ -216,9 +220,22 @@ auto extra_runners_tick = [&] {
         Vec3 n{};
         return segment_hit(phys_mesh(room), o, {o.x + d.x, o.y + d.y, o.z + d.z}, hit, &n);
     };
+    // The water probe (set 1): a vertical segment, as water_down (view_water_rings.inl) reads it.
+    auto wray = [&](const Vec3& o, const Vec3& d, Vec3* hit) {
+        float y = 0.0f;
+        if (d.y >= 0.0f || !water_down(o, -d.y, &y)) return false;
+        *hit = {o.x, y, o.z};
+        return true;
+    };
     for (extra::Runner& r : xrunners) {
-        Vec3 at{};
-        if (!r.tick(ray, &at)) continue;
+        Vec3 at{}, ring{};
+        const bool pulse = r.tick(ray, wray, &at, &ring);
+        if (r.ring_due) {                                          // FUN_00454f40 / FUN_00454ff0 (GOXX_17_19.md §2)
+            wrings.spawn_ring(ring, 0, r.scale * 0.66667f);        // 0x6bd360
+            wrings.spawn_wake(ring, 0, r.scale * 1.75f, r.heading);   // 0x6bd510
+            ring_log("a kind-0x17 runner", ring);
+        }
+        if (!pulse) continue;
         ef2sim::SpawnParams sp;                                    // side 0 (the owner is the player), cls 1, knock 0
         sp.power = r.power; sp.knock = 0.0f; sp.rtype = 0; sp.status = 0; sp.cls = 1;
         sp.atk = r.atk; sp.side = 0; sp.owner = 13;
