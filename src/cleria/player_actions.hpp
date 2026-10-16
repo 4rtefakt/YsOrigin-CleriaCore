@@ -70,6 +70,9 @@ struct PlayerActions {
     struct Out {
         int section = -1;            // a SetSection request (-1 none)
         bool new_attack = false;     // a new swing: a fresh hit serial, atk_dir = facing
+        // The flag-215 arm of the silver shots (silver_shots.hpp; the host gates it on the flag): -1 none (the tap
+        // step, the down thrust's start), else +0x7fc: 1 the jump attack and the air combo, 0 every other swing.
+        int shot_arm = -1;
         bool face = false; float face_angle = 0;   // snap the facing (+0x308 / +0x314)
         float t_add = 0;             // hang time added to the vertical timer (air combo)
         bool impulse = false; float impulse_x = 0, impulse_z = 0;   // added to knock channel 1

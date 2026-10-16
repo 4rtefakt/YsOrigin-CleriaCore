@@ -1567,6 +1567,7 @@ title_again:
     // the 0x112 tap-step, the dash and the double jump. The press (the mapper's +0x50c & 1 edge, or
     // a drive's atk) is latched at the top of the logic tick and consumed by that tick's mover.
     PlayerActions pact;
+    SilverShots silver;                // +0x7fc..+0x80c: the final battle's shots (silver_shots.hpp)
     bool dash_opt[2] = {ocheck[1], ocheck[3]};   // DashControl / AlwaysDashOK as last seen (a change clears the dash)
     bool atk_press_pending = false;
     // The bracelet switch (src/cleria/mouse SkillSwitch = FUN_0046cb00; the apply in FUN_00465170
@@ -7978,6 +7979,32 @@ title_again:
                 player_hit_serial = next_hit_serial(world.hit_serial_counter_);
                 if (pa_out.section != 0x112) hugo_eyes_fire();         // FUN_0046d6e0: the eyes shoot too
             }
+            {   // FUN_0046af60's flag-215 block, which runs before the dispatch: the swing armed below fires from the
+                // next tick (silver_shots.hpp). Each shot: three kind-1 bullets of effect 0xc3 from the origin.
+                const SilverShots::Tick st = silver.tick(game.g_flags[215] != 0);
+                const Vec3 org{feet.x, feet.y + kOriginH, feet.z};
+                if (st.se) sfx_at(kSilverSe, org, kSfxAnimVol);        // FUN_0043a080(0x2fa, &P+0x50)
+                if (st.shot) {
+                    const float* fan = silver_fan(st.wide, player.boosting);
+                    const float pf = std::atan2(face_dir.z, face_dir.x);   // +0x314
+                    const std::uint32_t trail = kSilverTrail, period = 20;
+                    float f13[13] = {0.5f, 0.0f, 0.0f, silver_power(player.boosting), 1.0f, 0.0f, 0.0f, 0, 0, 0, 0, 0, 0};
+                    std::memcpy(&f13[5], &trail, 4);
+                    std::memcpy(&f13[6], &period, 4);
+                    for (int i = 0; i < 3; ++i) {
+                        const float a = fan[i] * 0.017453292f + pf;        // 0x6bd0dc
+                        bullet::Spawn sp = bullet::block_spawn(1, kSilverEffect, org, {std::cos(a), 0.0f, std::sin(a)}, f13);
+                        sp.owner = 13; sp.owner_monster = false;
+                        sp.owner_atk = float(player_stats().atk);
+                        sp.cls = player_damage_class(avm.section());       // the 0x594174 table
+                        bullets.spawn(sp);
+                    }
+                    if (std::getenv("CLERIA_DMG"))
+                        std::printf("  [silver] t%llu shot (%s fan%s)\n", (unsigned long long)tick_count, st.wide ? "wide" : "narrow",
+                                    player.boosting ? ", Boost" : "");
+                }
+                if (pa_out.shot_arm >= 0 && game.g_flags[215] != 0) silver.arm(pa_out.shot_arm == 1, character);
+            }
             hugo_eyes_tick();                                          // FUN_0046af60's eyes, FUN_0046a3e0's blast
             extra_tick();                                              // the Extra versions' blocks [BYTES 0x466e0a..0x467aff]
             if (pa_out.t_add != 0.0f) pv.t += pa_out.t_add;            // the air combo's hang time
@@ -8123,6 +8150,12 @@ title_again:
             }
             {   // Knockback, both channels (+0x338/+0x340 and +0x344/+0x34c), by the player
                 // mover's own law (hit.hpp step_knockback_player).
+                // With flag 215, a grounded swing of attack kind 1 (+0x404) halves channel 1 first, the lunge
+                // included: the final battle's swings barely step in [BYTES 0x469b74..0x469bcb; EXPORT 00465170.c:2383].
+                // [not modelled] the 0.1 just before it, on a floor object of type 5 (0x469b1c..0x469b6c).
+                if (game.g_flags[215] != 0 && grounded && skillmp::attack_kind(avm.section()) == 1) {
+                    player_kb.x *= 0.5f; player_kb.z *= 0.5f;
+                }
                 const Impulse kd = step_knockback_player(player_kb, player_kb2, grounded, player.hp < 1,
                                                          pact.step_t != 0);
                 feet.x += kd.x; feet.z += kd.z; }
@@ -8371,7 +8404,7 @@ title_again:
             // characters 0, 1 and 3 with the thrust flag +0x6f7 and the attack kind +0x404 == 2 spawn effect 0xc — 9
             // after a double jump (+0x77c != 0) — at the origin + the facing x 0.6 (Yunica: 1.6, 0.7 with flag 149),
             // y = the floor +0x318 + 0.2, scale 0.75, no turn; the player's stat block, power 0, knock 1.0, class -1.
-            // [not modelled] +0x7fc / +0x804 / +0x808 written after it while flag 215 is set.
+            // With flag 215 it then arms one wide silver shot (+0x7fc = 1, +0x804 = 1, +0x808 = 0) [BYTES 0x46ffa6..0x46ffd1].
             if (p_landed && pact.thrust && character != 2 && skillmp::attack_kind(avm.section()) == 2) {
                 const float k = character == 1 ? (game.g_flags[149] == 0 ? 1.6f : 0.7f) : 0.6f;   // 0x6bd4ec, 0x6bd36c, 0x6bd334
                 const float fa = std::atan2(face_dir.z, face_dir.x);                             // +0x314
@@ -8380,6 +8413,7 @@ title_again:
                 sp.atk = player_stats().atk; sp.side = 0; sp.owner = 13;
                 const int id = pact.dj_count != 0 ? 9 : 0xc;
                 spawn_sim_fx(id, {feet.x + std::cos(fa) * k, last_floor + 0.2f, feet.z + std::sin(fa) * k}, {}, 0.75f, sp, 0, {});
+                if (game.g_flags[215] != 0) silver.arm(true, character, /*volley*/false);
                 if (std::getenv("CLERIA_DMG"))
                     std::printf("  [land] t%llu the down thrust lands: effect %d\n", (unsigned long long)tick_count, id);
             }

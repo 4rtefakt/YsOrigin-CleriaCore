@@ -165,7 +165,7 @@ void PlayerActions::dispatch(const In& in, Out& o, int ch) {
         } else if (!in.submerged) {
             if (in.t > -1e-5f || dj_cool != 0) {               // rising, or just double-jumped
                 if (in.stick_active) air_combo = true;          // -> the air combo below
-                else { o.section = 0x109; done = true; }        // the jump attack
+                else { o.section = 0x109; o.shot_arm = 1; done = true; }   // the jump attack
             } else if (in.section == 3) {
                 o.section = 0x10b; thrust = true; done = true;  // the down thrust
             }
@@ -175,6 +175,7 @@ void PlayerActions::dispatch(const In& in, Out& o, int ch) {
         // The per-swing lunge: +0x730 = 4, +0x72c = 0.1275 - stage x 1e-4 (Hugo 0.015).
         lunge_t = 4;
         lunge_v = (ch == 2 ? 0.015f : 0.1275f) - float(stage) * 1e-4f;
+        o.shot_arm = air_combo ? 1 : 0;                        // LAB_0046ec46: +0x7fc = (+0x76c != 0)
         if (!air_combo) {
             o.section = nap ? kNapGround[in.adol_slot][stage] : kGround[ch][stage];
             advance = true;

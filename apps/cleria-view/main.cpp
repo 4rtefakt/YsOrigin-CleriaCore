@@ -113,6 +113,7 @@
 #include "cleria/oxygen.hpp"
 #include "cleria/hazard.hpp"
 #include "cleria/player_actions.hpp"
+#include "cleria/silver_shots.hpp"
 #include "cleria/locus.hpp"
 #include "cleria/ymo.hpp"
 #include "cleria/input_map.hpp"
