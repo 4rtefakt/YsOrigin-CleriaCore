@@ -727,6 +727,46 @@ static void draw_water_rings(Gpu& g, WGPUTextureView color, WGPUTextureView dept
     }
 }
 
+// ---- the sword trails (GoLocusSword's draw, build/ability_re/LOCUS.md §8) -----------------------------------
+// FUN_005002e0's tail queues FUN_00500a40 on layer 12 (far to near) [BYTES 0x500935..0x500a36]; it draws the SL2
+// strip (LocusSword::strip = FUN_004581c0's geometry) as one 36-triangle strip, white diffuse with the trail's
+// alpha, the texture image[+0x134] (LOCUS*.DDS), preset 0x246c1: texture x diffuse, additive (SRCALPHA, ONE), z
+// test without write, no culling, clamped [BYTES 0x4583bf..0x4584a0]. Here the strip's 18 quads go through
+// g.char_pipeline_add, whose blend and depth are the same.
+// [approx] the preset forces the fog colour to 0; fs_char fades toward the room's fog colour.
+// [not modelled] the reflection pass's draw and the second draw at 0.55 alpha on layer 10 while 0x76a544 == 1.
+struct LocusFx {
+    SpriteTex tex[13];
+    bool tried[13] = {};
+    std::vector<Vec3> pos;
+};
+static LocusFx g_locusfx;
+static void draw_locus_trail(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const fs::path& asset_root,
+                             const LocusSword& l, int handle) {
+    LocusFx& f = g_locusfx;
+    const char* file = locus_texture_file(handle);
+    if (!file) return;
+    const int k = handle - 0x10;
+    if (!f.tried[k]) {
+        f.tried[k] = true;
+        Dds d = load_dds(asset_root / "IMAGE" / file);
+        if (d.ok()) f.tex[k] = upload_rgba(g, d.width, d.height, d.data.data());
+    }
+    std::uint8_t a = 0;
+    if (!f.tex[k].tex || !l.strip(f.pos, a) || a == 0) return;
+    const Sl2& s = *l.sl2();
+    const float nx = 1.0f - float(a) / 255.0f;
+    auto V = [&](int i) -> RoomVertex {
+        return {f.pos[std::size_t(i)].x, f.pos[std::size_t(i)].y, f.pos[std::size_t(i)].z, nx, 0, -1,
+                s.u[std::size_t(i)], s.v[std::size_t(i)], 0xff, 0xff, 0xff, 0};
+    };
+    QuadScope quads(g);
+    for (int c = 0; c + 3 < s.nverts; c += 2) {            // strip vertices c, c+1, c+2, c+3 = one quad
+        const RoomVertex verts[4] = {V(c), V(c + 1), V(c + 3), V(c + 2)};
+        draw_quad(g, color, depth, g.char_pipeline_add, f.tex[k].bind, verts);
+    }
+}
+
 // ---- an actor's image on a mirror floor (REFLECTIONS.md 7.4, RENDER_LEFTOVERS.md 1.2-1.3) ------------------
 // While MirrorFloor is on, FUN_00473540 queues the actor's shadow callback FUN_00474e10 on layer 1 as well
 // [BYTES 0x47385f..0x4738ff], and there it builds the shadow's flat quad (FUN_00456da0) with the actor's own sprite
