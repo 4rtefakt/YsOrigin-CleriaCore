@@ -4,9 +4,15 @@
 #include <cstdio>
 #include <string>
 
+#include "cleria/aso.hpp"
+#include "cleria/cast.hpp"
+#include "cleria/enemies.hpp"
 #include "cleria/extra_versions.hpp"
+#include "cleria/gameinfo.hpp"
 #include "cleria/hit_feedback.hpp"
 #include "cleria/skillmp.hpp"
+#include "cleria/water_rings.hpp"
+#include "cleria/world.hpp"
 
 using namespace cleria::skillmp;
 
@@ -132,6 +138,57 @@ int main(int, char**) {
               "pull weight: 0.6 at 4.5; boosting scales the thresholds x 1.5");
         check(slow_fall(-0.2f, false) == -0.2f * 0.94f + 0.006f && slow_fall(-0.2f, true) == -0.2f * 0.925f + 0.009f,
               "Toal's slow fall: t x 0.94 + 0.006, charged t x 0.925 + 0.009");
+    }
+    {   // Yunica's School Outfit 0x74c0d0 (EXTRA_VERSIONS.md §1.4): the player's files, cast 0xa6's, its extra sheet
+        namespace x = cleria::extra;
+        const x::AnimSet n = x::player_anim_set(1, false, false, false, false), d = x::player_anim_set(1, true, false, false, false);
+        check(n.aso == 1 && n.want == 0x0f && n.preload == 0x0b && d.want == 0x06 && std::string(x::aso_stem(n.aso)) == "C_010",
+              "Yunica: C_010, want c_111 (c_102 under flag 161), preload c_114 [BYTES 0x4650c2..0x4650d9]");
+        const x::AnimSet o = x::player_anim_set(1, false, false, true, false), od = x::player_anim_set(1, true, false, true, false);
+        check(o.aso == 0xa3 && o.want == 0x10b && o.preload == 0x10c && od.want == 0xf3 && std::string(x::aso_stem(o.aso)) == "C_980" &&
+              std::string(cleria::aso_aia_name(o.want)) == "C_981" && std::string(cleria::aso_aia_name(od.want)) == "C_980" &&
+              std::string(cleria::aso_aia_name(o.preload)) == "C_982",
+              "School Outfit: C_980, want c_981 (c_980 under flag 161), preload c_982 [BYTES 0x465089..0x4650c0]");
+        const x::AnimSet h = x::player_anim_set(2, false, false, true, false), t = x::player_anim_set(3, false, false, true, true);
+        const x::AnimSet a = x::player_anim_set(0, false, false, true, false), an = x::player_anim_set(0, true, true, true, false);
+        check(h.aso == 2 && h.want == 0x10 && h.preload == -1 && t.aso == 3 && t.want == 0x0c && t.preload == 0x0c &&
+              a.aso == 0x0c && a.want == 0x0e && an.aso == 0xa4 && an.want == 0xf4 && std::string(x::aso_stem(an.aso)) == "C_990",
+              "the outfit changes only Yunica; Toal's flag-141 sheet, Adol's Napishtim C_990 / c_990 [BYTES 0x46500a..0x465087]");
+        check(x::cast_aso(0xa6, 0xa5, true) == 0xa3 && x::cast_aso(0xa6, 0xa5, false) == 0xa5 && x::cast_aso(0xa7, 0xa6, true) == 0xa6 &&
+              std::string(x::cast_aso_override(0xa6, true)) == "C_980" && !x::cast_aso_override(0xa6, false) &&
+              !x::cast_aso_override(0xa8, true),
+              "the factory: cast 0xa6 gets ASO 0xa3 only while the outfit is on [BYTES 0x459439..0x45944d]");
+        check(x::cast_load_extra_aia(0xa6, false) == 0x0b && x::cast_load_extra_aia(0xa6, true) == 0x10c &&
+              x::cast_load_extra_aia(0xa8, true) == 0x0c && x::cast_load_extra_aia(0xac, false) == 0x109 &&
+              x::cast_load_extra_aia(0xa7, true) == -1,
+              "Cast_Load: cast 0xa6 c_114 / c_982, 0xa8 c_115, 0xac 0x109 [BYTES 0x57225d..0x5722ac]");
+        // The factory port: ActorWorld::spawn writes +0x24c on every build, so a re-spawn after the flag changes follows it.
+        cleria::CastTable ct;
+        ct.casts.resize(0xa8);
+        for (std::size_t i = 0; i < ct.casts.size(); ++i) ct.casts[i].cast_id = int(i);
+        const cleria::EnemyTable et;
+        const cleria::GameInfo gi;
+        cleria::ActorWorld w(cleria::WorldTables{&ct, &et, &gi, nullptr});
+        int flag = 0;
+        cleria::SpawnRequest r;
+        r.id = 196; r.cast_type = 0xa6;
+        cleria::Actor* y0 = w.spawn(r);
+        const bool off_null = y0 && y0->aso_override.empty();
+        w.school_outfit = &flag;
+        y0 = w.spawn(r);
+        const bool off = y0 && y0->aso_override.empty();
+        flag = 1;
+        cleria::Actor* y1 = w.spawn(r);
+        r.id = 197; r.cast_type = 0xa7;
+        cleria::Actor* h1 = w.spawn(r);
+        flag = 2;                                          // any non-zero value: `cmp [0x74c0d0], 0; cmova`
+        r.id = 196; r.cast_type = 0xa6;
+        cleria::Actor* y2 = w.spawn(r);
+        const bool on = y1 && y1->aso_override == "C_980" && y2 && y2->aso_override == "C_980";
+        flag = 0;
+        cleria::Actor* y3 = w.spawn(r);
+        check(off_null && off && on && h1 && h1->aso_override.empty() && y3 == y1 && y3->aso_override.empty(),
+              "ActorWorld::spawn: cast 0xa6 runs C_980 while 0x74c0d0 != 0, its own script otherwise, rewritten on a re-spawn");
     }
     {   // Yunica Extra (EXTRA_VERSIONS.md §2, §5)
         namespace x = cleria::extra;
@@ -360,6 +417,93 @@ int main(int, char**) {
         check(cleria::hitfx::charged_glow(0, 1, 0, 0x40) == 0x008050u && cleria::hitfx::charged_glow(0, 0, 0, 0x40) == 0x700010u &&
               cleria::hitfx::charged_glow(0xf0f0f0, 2, 3, 0x40) == 0xffffffu && cleria::hitfx::charged_glow(0x101010, 1, 1, 0xc0) == 0x101010u,
               "the charged glow: row x (0.5 sin + 0.5), the others' Ventus (0, 128, 80), Adol's (112, 0, 16), clamped, nothing at the trough");
+    }
+    {   // the water rings and wakes (water_rings.hpp, WATER_RINGS.md)
+        namespace w = cleria::water;
+        auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
+        w::Rings rs;
+        rs.spawn_ring({1, 2, 3}, 0, 2.5f);
+        rs.step(); rs.blend(1.0f);
+        int n = 0;
+        cleria::Vec3 q[4]; float qu[4] = {}, qv[4] = {}; int qa = 0;
+        rs.quads(0, [&](const cleria::Vec3* p, const float* u, const float* v, std::uint8_t a) {
+            ++n; for (int k = 0; k < 4; ++k) { q[k] = p[k]; qu[k] = u[k]; qv[k] = v[k]; } qa = a; });
+        int other = 0;
+        rs.quads(1, [&](const cleria::Vec3*, const float*, const float*, std::uint8_t) { ++other; });
+        check(n == 1 && other == 0 && near(rs.live()[0].scale, 1.25f) && near(q[0].x, 1.0f - 0.65f) && near(q[0].z, 3.0f - 0.65f) &&
+              near(q[3].x, 1.65f) && near(q[3].z, 3.65f) && q[1].y == 2.0f && qu[2] == 1.0f && qv[1] == 0.5f && qv[3] == 0.5f && qa == 0xff,
+              "a ring 2.5: half-size (1 x 0.02 + 0.5) x 1.25 after its first step, the texture's top half, opaque, pass 0 only");
+        int life = 1;
+        while (rs.size() && life < 100) { rs.step(); ++life; }
+        check(life == 50 && w::Rings::alpha(34.0f) == 0xff && w::Rings::alpha(35.0f) == 0xff && w::Rings::alpha(40.0f) == 170 &&
+              w::Rings::alpha(49.0f) == 17, "it is gone on its 50th step; opaque to 35, then (50 - age) x 17");
+        w::Rings full;
+        int made = 0;
+        for (int i = 0; i < 300; ++i) made += full.spawn_ring({}, 0, 1.0f);
+        check(made == 256 && !full.spawn_wake({}, 1, 1.0f, 0.0f), "256 nodes, then nothing");
+        w::Rings wk;
+        wk.spawn_wake({0, 0, 0}, 1, 2.0f, 0.0f);                    // heading 0 (along +x): i = 64, (T[64], T[0]) = (-0, 1)
+        wk.step(); wk.blend(1.0f);
+        n = 0;
+        wk.quads(1, [&](const cleria::Vec3* p, const float*, const float* v, std::uint8_t) { ++n; for (int k = 0; k < 4; ++k) { q[k] = p[k]; qv[k] = v[k]; } });
+        const float s = 0.52f;
+        check(n == 1 && near(q[0].x, s) && near(q[0].z, -s) && near(q[1].x, -s) && near(q[1].z, -s) && near(q[3].x, -s) && near(q[3].z, s) &&
+              qv[0] == 0.5f && qv[1] == 1.0f, "a wake along +x: the square turned a quarter, the texture's bottom half, pass = its kind");
+        std::uint32_t rw = 0;
+        int draws = 0;
+        auto rnd = [&] { ++draws; return rw += 0x40000000u; };   // 0x40000000 (r = lo), then 0x80000000 (index 0x80)
+        float dx = 0, dz = 0;
+        w::ring_offset(rnd, 0.25f, 0.5f, &dx, &dz);
+        check(draws == 2 && near(dx, -0.25f) && std::fabs(dz) < 1e-6f, "the ring offset: radius from the first word, the angle from the second's top byte");
+        w::Follower f;
+        w::Rings fr;
+        draws = 0;
+        std::string at;
+        int steps = 0;
+        auto deep = [](const cleria::Vec3& p, float* y) { *y = p.y + 2.0f; return true; };
+        while (!f.dead && steps < 200) { ++steps; if (f.tick({0, 1, 0}, true, deep, rnd, fr)) at += std::to_string(steps) + " "; }
+        check(steps == 112 && draws == 14 * 3 && fr.size() > 0 &&
+              at == "7 15 23 31 39 47 55 63 71 79 87 95 103 111 ",
+              "kind 0x19: 111 steps; a ring and a wake on step 7, then every 8th; three draws each");
+        w::Follower g, h;
+        draws = 0;
+        auto shallow = [](const cleria::Vec3& p, float* y) { *y = p.y + 1.0f; return true; };
+        for (int t = 0; t < 120; ++t) { g.tick({0, 1, 0}, false, deep, rnd, fr); h.tick({0, 1, 0}, true, shallow, rnd, fr); }
+        check(draws == 0, "kind 0x19: nothing (and no draw) out of water or with the surface 1.0 or less over him");
+        w::Wade pw, ew;
+        w::Rings wr;
+        draws = 0;
+        w::WadeIn in;
+        in.player = true; in.wading = true; in.surface = 5.0f;
+        int pfire = 0, efire = 0;
+        for (int t = 1; t <= 32; ++t) {
+            in.prev = in.pos; in.pos.x += 0.1f;
+            pfire += w::wade_step(pw, in, rnd, wr).fired;
+        }
+        w::WadeIn ein = in; ein.player = false;
+        for (int t = 1; t <= 32; ++t) { ein.prev = ein.pos; efire += w::wade_step(ew, ein, rnd, wr).fired; }
+        check(pfire == 8 && efire == 4 && wr.size() == 8 * 2 + 4 && draws == 12 * 2,
+              "wading: the moving player every 4th step (ring + wake), another actor still every 8th (a ring)");
+        w::Wade sw;
+        w::Rings sr;
+        w::WadeIn sin = in; sin.sand2 = true; sin.player = false;
+        int sfire = 0;
+        for (int t = 1; t <= 8; ++t) sfire += w::wade_step(sw, sin, rnd, sr).fired;
+        w::Wade lw;
+        w::WadeIn lin = in; lin.lava = true; lin.prev = lin.pos;
+        for (int t = 1; t <= 8; ++t) w::wade_step(lw, lin, rnd, sr);
+        check(sfire == 1 && sr.size() == 1 && sr.live()[0].kind == 1 && near(sr.live()[0].pos.y, 5.15f),
+              "on sand2 the offset is drawn but nothing spawns; on lava the ring is kind 1, 0.15 over the surface");
+        namespace x = cleria::extra;
+        x::Runner r = x::Runner::make({0, 0.75f, 0}, 0.0f, 0.3f, 0.0f, 1.0f, 4, 3, 623, 0.0f);   // life 13
+        auto floor0 = [](const cleria::Vec3& o, const cleria::Vec3& dd, cleria::Vec3* hh) {
+            if (dd.y >= 0.0f || o.y < 0.0f || o.y + dd.y > 0.0f) return false;
+            *hh = {o.x, 0.0f, o.z}; return true; };
+        auto wet = [](const cleria::Vec3& o, const cleria::Vec3&, cleria::Vec3* hh) { *hh = {o.x, 2.0f, o.z}; return true; };
+        int rt = 0, rings = 0;
+        cleria::Vec3 rp{}, rr{};
+        while (!r.dead && rt < 40) { ++rt; if (r.tick(floor0, wet, &rp, &rr) && r.ring_due) ++rings; }
+        check(rt == 5 && rings == 1 && near(rr.y, 2.15f) && r.sub, "the runner in water: 3 life a tick, a ring at the surface + 0.15 with its pulse");
     }
     std::printf("[skill] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;

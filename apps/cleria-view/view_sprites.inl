@@ -690,6 +690,43 @@ static void draw_bolts(Gpu& g, WGPUTextureView color, WGPUTextureView depth, con
         }
 }
 
+// ---- the water rings and wakes (pool 16; water_rings.hpp, WATER_RINGS.md) -----------------------------------
+// FUN_00455250 [BYTES 0x455250..0x4556e2]: two passes, kind 0 then 1, each with its texture — static texture 0x25
+// of the 1-based table g_StaticTexturesM1 = 0x749ddc = `data\image\ripple.dds` (table 0x69b47c[0] = 0x25, the
+// registry, notes/menu/registry.json idx 36); [H] kind 1 = the next entry `ripple_r.dds` (0x69b47c[1] was not
+// read) — render word 0x46c1 (additive: SRCALPHA / ONE, Z test, no Z write), white, the node's alpha byte.
+// [approx] drawn just after the room's water surfaces (retail: the same layer 0xb, its order in it not read).
+struct RingFx {
+    SpriteTex tex[2];
+    bool tried = false;
+    int stat = 0;                      // the last draw's quads (vstat)
+};
+static RingFx g_ringfx;
+static void draw_water_rings(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const fs::path& asset_root,
+                             const water::Rings& rings) {
+    RingFx& f = g_ringfx;
+    f.stat = 0;
+    if (!f.tried) {
+        f.tried = true;
+        const char* name[2] = {"RIPPLE.DDS", "RIPPLE_R.DDS"};
+        for (int k = 0; k < 2; ++k) {
+            Dds d = load_dds(asset_root / "IMAGE" / name[k]);
+            if (d.ok()) f.tex[k] = upload_rgba(g, d.width, d.height, d.data.data());
+        }
+    }
+    QuadScope quads(g);
+    for (int pass = 0; pass < 2; ++pass) {
+        if (!f.tex[pass].tex) continue;
+        rings.quads(pass, [&](const Vec3 p[4], const float u[4], const float v[4], std::uint8_t a) {
+            const float nx = 1.0f - float(a) / 255.0f;
+            auto V = [&](int k) -> RoomVertex { return {p[k].x, p[k].y, p[k].z, nx, 0, -1, u[k], v[k], 0xff, 0xff, 0xff, 0}; };
+            const RoomVertex verts[4] = {V(0), V(1), V(3), V(2)};
+            draw_quad(g, color, depth, g.char_pipeline_add, f.tex[pass].bind, verts);
+            ++f.stat;
+        });
+    }
+}
+
 // ---- an actor's image on a mirror floor (REFLECTIONS.md 7.4, RENDER_LEFTOVERS.md 1.2-1.3) ------------------
 // While MirrorFloor is on, FUN_00473540 queues the actor's shadow callback FUN_00474e10 on layer 1 as well
 // [BYTES 0x47385f..0x4738ff], and there it builds the shadow's flat quad (FUN_00456da0) with the actor's own sprite

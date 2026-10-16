@@ -118,12 +118,87 @@ constexpr int hugo_flag157(int slot, int cur) {
     return slot == 0 ? 0 : slot == 1 ? 2 : slot == 2 ? 1 : cur;
 }
 
+// ---- Which script and sheet: the player and cast 0xa6 (EXTRA_VERSIONS.md §1.4) ----
+// Two of the version flags change files: Adol's 0x74c0cc and Yunica's School Outfit 0x74c0d0. ASO ids index the name
+// table 0x68a510, AIA ids the table 0x68a800 (aso_aia_name) [DOC ANI_VARIANT §2]. CleriaCore names a script by its
+// stem, so aso_stem() carries only the ids these readers use.
+inline const char* aso_stem(int aso) {
+    switch (aso) {
+        case 0x01: return "C_010";    // Yunica
+        case 0x02: return "C_020";    // Hugo
+        case 0x03: return "C_030";    // Toal
+        case 0x0c: return "C_101";    // Adol, Felghana
+        case 0xa3: return "C_980";    // Yunica, School Outfit
+        case 0xa4: return "C_990";    // Adol, Napishtim
+        case 0xa5: return "M_800";    // cast 0xa6's own (CASTINFO +0x68 = 165) [DOC ANI_VARIANT §4]
+        default: return "";
+    }
+}
+
+// FUN_00464fc0 [BYTES 0x464fc0..0x4650e8]: the player's ASO (+0x978), the AIA it writes into that ASO slot's header
+// +0xc (`want`) and the one sheet it loads beside them (AniDat_GetAiaSlot, -1 = none). `want` starts from the
+// table 0x69bd40 (0x69bd48 while flag 161 != 0); then per character: Adol 0xc, or 0xa4 with want 0xf4 when
+// 0x74c0cc != 0; Yunica 1 with preload 0xb, or 0xa3 with preload 0xa3 + 0x69 = 0x10c and want 0x10b (0xf3 while
+// flag 161 != 0) when 0x74c0d0 != 0; Hugo 2; Toal 3 with preload 0xc, want 0xc while flag 141 != 0. Every flag test
+// is `cmp [x], 0` + JBE / JNZ: any non-zero value is "on".
+struct AnimSet {
+    int aso = 0, want = 0, preload = -1;
+};
+inline AnimSet player_anim_set(int chr, bool flag161, bool adol_napishtim, bool school_outfit, bool flag141) {
+    static constexpr std::uint16_t kWant[4] = {0x0e, 0x0f, 0x10, 0x11};        // 0x69bd40: c_110..c_113
+    static constexpr std::uint16_t kWantDemo[4] = {0x0d, 0x06, 0x07, 0x08};    // 0x69bd48: c_101, c_102..c_104
+    AnimSet s;
+    s.want = (flag161 ? kWantDemo : kWant)[chr & 3];
+    switch (chr) {
+        case 1:
+            if (school_outfit) { s.aso = 0xa3; s.preload = 0x10c; s.want = flag161 ? 0xf3 : 0x10b; }
+            else { s.aso = 1; s.preload = 0xb; }
+            break;
+        case 2: s.aso = 2; break;
+        case 3: s.aso = 3; s.preload = 0xc; if (flag141) s.want = 0xc; break;
+        default:
+            if (adol_napishtim) { s.aso = 0xa4; s.want = 0xf4; }
+            else s.aso = 0xc;
+            break;
+    }
+    return s;
+}
+
+// The scene entry FUN_00431840 [BYTES 0x43256d..0x4325ed], for every room but "demo6\": loads the player's sheet
+// (0x698ccc / 0x698cd4 by flag 161; Adol Napishtim 0xf4; Yunica with the outfit 0x10b / 0xf3) and one more: Yunica
+// 0xb, or 0x10c with the outfit; Toal 0xc. The same files as player_anim_set (`want`, `preload`) but Toal's
+// flag-141 sheet, so this is only the load order, which CleriaCore's lazy sheets do not need.
+
+// FUN_00459410 (the factory) [BYTES 0x459439..0x45944d]: `cmp edx(cast), 0xa6; jnz; cmp [0x74c0d0], 0; mov eax,
+// 0xa3; cmova ecx, eax` — cast 0xa6 (CAST_M800, Yunica as an actor) is built with ASO 0xa3 (C_980, the outfit's
+// player script) in place of its CASTINFO +0x68 (M_800) while the outfit is on. The test is on the CAST id (the
+// stack argument [ebp+0x10]), not the instance id. The ASO goes to +0x24c, and from there to the sprite.
+inline int cast_aso(int cast_id, int own_aso, bool school_outfit) {
+    return cast_id == 0xa6 && school_outfit ? 0xa3 : own_aso;
+}
+// The same as a stem: "C_980" for cast 0xa6 under the outfit, nullptr = the cast's own script.
+inline const char* cast_aso_override(int cast_id, bool school_outfit) {
+    return cast_id == 0xa6 && school_outfit ? aso_stem(0xa3) : nullptr;
+}
+
+// Cast_Load FUN_00572230 (script op 0xad) [BYTES 0x572230..0x5722b5]: after the cast's own ASO (CASTINFO +0x68, not
+// the factory's swap) and that ASO's header sheet, one more sheet: cast 0xac 0xac + 0x5d = 0x109; cast 0xa6 0xb
+// (c_114), or 0xa6 + 0x66 = 0x10c (c_982) while 0x74c0d0 != 0; cast 0xa8 0xc (c_115). -1 = none.
+inline int cast_load_extra_aia(int cast_id, bool school_outfit) {
+    if (cast_id == 0xac) return 0x109;
+    if (cast_id == 0xa6) return school_outfit ? 0x10c : 0xb;
+    if (cast_id == 0xa8) return 0xc;
+    return -1;
+}
+
 // ---- The kind-0x17 GoXx (FUN_005916e0 / FUN_00591850; EXTRA_VERSIONS.md §5, GOXX_17_19.md §1-§2) ----
 // A ground runner: it moves `step` a tick along a fixed heading on the floor and, every P + 1 ticks, the host
 // spawns one EF2 (FUN_00450410: rot (0, -pi/2 - heading, 0), scale s, power, knock 0, rtype 0, status 0, cls 1)
 // at its position. It hits nothing itself. Also Napishtim Adol's Ignis (anime_Special a0 = 1).
-// [not modelled] the water probe (life -= 2 a tick in water, vy >= -0.125, the ring and the wake), the floor
-// decals (2 RNG draws each), the hit token it writes to each effect, the 0x74c0f0 == 0 move-only state.
+// The water probe (GOXX_17_19.md §2, WATER_RINGS.md): with a `water` ray, life -= 2 more a tick in water, vy >=
+// -0.125, and a pulse in water asks for the ring and the wake (`ring`) and marks the effect's in-water byte (`sub`).
+// [not modelled] the floor decals (2 RNG draws each), the hit token it writes to each effect, the 0x74c0f0 == 0
+// move-only state, the effect's +0x1da (`sub`: its one reader is the particle draw's mode).
 struct Runner {
     Vec3 pos{}, last{};
     float heading = 0, cs = 1, sn = 0;        // +0x130, +0x158, +0x160
@@ -133,6 +208,8 @@ struct Runner {
     int life = 0, cnt = 0;                    // +0x154, +0x168
     float atk = 0;                            // the owner's stat block at creation (+0x94..)
     bool dead = false;
+    bool sub = false;                         // this tick: more than 1.0 under the water (the effect's +0x1da)
+    bool ring_due = false;                    // this tick's pulse asked for the ring and the wake (`ring` set)
 
     // FUN_005916e0 [BYTES 0x591720..0x591847]: `at` = the descriptor's position.
     static Runner make(const Vec3& at, float heading, float step, float power, float scale, int c, int p, int effect,
@@ -151,18 +228,39 @@ struct Runner {
     // host spawns the effect at `*at` (the position before this tick's move).
     template <class Ray>
     bool tick(Ray&& ray, Vec3* at) {
+        return tick(ray, [](const Vec3&, const Vec3&, Vec3*) { return false; }, at);
+    }
+    // ... with the water ray `water(from, d, &hit)` (FUN_0041e420 set 1; GOXX_17_19.md §2 [BYTES 0x591850..0x591e1c]):
+    // from (x, y0 + 11.1, z) down to 0.5 under the snapped origin. `ring` (when not null) gets the
+    // surface point + 0.15 on a pulse in water: the host spawns FUN_00454f40(ring, 0, scale x 0.66667) and
+    // FUN_00454ff0(ring, 0, scale x 1.75, heading); `sub` = the surface is more than 1.0 over the origin.
+    template <class Ray, class Water>
+    bool tick(Ray&& ray, Water&& water, Vec3* at, Vec3* ring = nullptr, bool* in_water = nullptr) {
+        ring_due = false;
         if (dead) return false;
         if (--life <= 0) { dead = true; return false; }
+        const float y0 = pos.y;
         Vec3 hit{};
         if (ray(Vec3{pos.x, pos.y + 1.1f, pos.z}, Vec3{0.0f, -2.6f, 0.0f}, &hit)) {   // 0x6bd464; 0xc0266666
             if (hit.y - pos.y > 0.0f) pos.y = hit.y;                                  // snaps up only
             vy = 0.0f;
         } else vy = -0.75f;
+        Vec3 wh{};
+        const float top = y0 + 1.1f + 10.0f;                                          // 0x6bd928
+        const bool wet = water(Vec3{pos.x, top, pos.z}, Vec3{0.0f, pos.y - top - 0.5f, 0.0f}, &wh);   // 0x6bd304
+        sub = false;
+        if (wet) {
+            life -= 2;
+            if (vy < -0.125f) vy = -0.125f;                                           // 0x6bdfdc
+            if (wh.y - 1.0f > pos.y) sub = true;
+        }
+        if (in_water) *in_water = wet;
         bool pulse = false;
         if (cnt != 0) --cnt;
         else {
             cnt = p;
             pulse = true; *at = pos;
+            if (wet && ring) { *ring = {wh.x, wh.y + 0.15f, wh.z}; ring_due = true; }   // 0x6bd1d8
             const Vec3 d{pos.x - last.x, pos.y - last.y, pos.z - last.z};
             if (ray(Vec3{last.x, last.y + 0.75f, last.z}, d, &hit)) { dead = true; return true; }   // a wall: this pulse, then gone
             last = pos;

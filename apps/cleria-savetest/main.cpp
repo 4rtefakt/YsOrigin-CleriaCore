@@ -61,6 +61,22 @@ int main() {
     std::printf("[save] round-trip + header meta %s\n", ok ? "OK" : "FAIL");
     fails += !ok;
 
+    // The School Outfit 0x74c0d0 is a session global the save copies whatever the character (FUN_0042e9a0
+    // [BYTES 0x42ea04], the load FUN_0042f5e0 [BYTES 0x42f9e5] copies it back as a dword): a Hugo game played after a
+    // School Outfit one carries it, and the stored dword is kept as it is (EXTRA_VERSIONS.md §1.4).
+    {
+        SaveState q = s;
+        q.flags[150] = 2;
+        for (std::int32_t& v : q.version) v = 0;
+        q.version[4] = 2;
+        auto qd = SaveRecord::decode(to_record(q, "x", "d", "t").encode(1u, 2u));
+        const SaveState qt = qd ? from_record(*qd) : SaveState{};
+        const bool qok = qd && qd->i32(0x0076C228) == 2 && 0x0076C228 - SaveRecord::kBase == 0x1f58 && qt.version[4] == 2 &&
+                         qt.version[2] == 0 && qt.character() == 2;
+        std::printf("[save] the School Outfit dword in a Hugo save %s\n", qok ? "OK" : "FAIL");
+        fails += !qok;
+    }
+
     // The slot list's quick copies (SAVELOAD.md §4.1, checked against 20 retail saves): +0x34 level
     // (the list's "Lv"), +0x38..+0x44 HP / MP / max HP / max MP, +0x48 EXP, +0x4c SP, +0x58/5c/60
     // flags 143 / 203 / 201; and the skill gauge round-trips through the payload.

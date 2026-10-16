@@ -10,6 +10,8 @@
 #include "cleria/emotion.hpp"
 #include "cleria/eventsprites.hpp"
 #include "cleria/extfont.hpp"
+#include "cleria/inventory.hpp"
+#include "cleria/pausebook.hpp"
 #include "cleria/richtext.hpp"
 #include "cleria/wnddialog.hpp"
 #include "cleria/wndtext.hpp"
@@ -390,6 +392,27 @@ int main() {
         run_hud(dl, h);
         check(dl.size() == 4 && is(0, "00:00:000", 908, 738, 1) && is(1, "/", 894, 738, 1) && is(2, "01:00:01:000", 748, 738, 1) &&
               dl[3].text == "[Easy]" && std::abs(dl[3].x - 880.0f) < 0.01f, "the Arena's one line: the best right, the live clock left (hh: from an hour on, no shift)");
+    }
+    {   // The run rules outside the bosses (yso notes/mode/RUN_FLAG_READERS.md).
+        // Character Select in Time Attack, FUN_005c3790 [EXPORT 005c3790.c:119-121, 225-236].
+        check(charsel_ta_cursor(0, 2, false, true, true) == 1 && charsel_ta_cursor(0, 1, true, true, false) == 0,
+              "Time Attack: Yunica's bar (not cleared) is stepped over to Hugo's; a cleared one keeps the cursor");
+        check(charsel_ta_cursor(1, 0, true, false, true) == 2 && charsel_ta_cursor(1, 2, true, false, true) == 0 &&
+              charsel_ta_cursor(1, 0, true, false, false) == 0,
+              "Hugo's bar (not cleared): from Yunica's on to Toal's when Toal cleared, else back to Yunica's");
+        check(charsel_ta_cursor(0, 2, false, false, true) == 0,
+              "only Toal cleared: a step from Toal's lands on Yunica's (her test runs before Hugo's)");
+        check(charsel_hover_first(1, false, true) == 1 && charsel_hover_first(1, true, true) == 0 &&
+              charsel_hover_first(0, false, true) == 0 && charsel_hover_first(2, false, true) == 0,
+              "the hover starts at Hugo's bar only in Time Attack with Hugo cleared and Yunica not");
+        // FUN_00431840's run clear [EXPORT 00431840.c:159-163].
+        InvState inv;
+        inv.hp_bonus = 20; inv.atk_buff = 3; inv.def_buff = 2; inv.mp_buff = 1.5f; inv.timer_atk = 900; inv.timer_def = 800;
+        inv_run_scene_entry(0, inv);
+        check(inv.hp_bonus == 20 && inv.atk_buff == 3 && inv.def_buff == 2, "a story scene entry keeps the Panacea bonus and the drop buffs");
+        inv_run_scene_entry(1, inv);
+        check(inv.hp_bonus == 0 && inv.atk_buff == 0 && inv.def_buff == 0 && inv.mp_buff == 1.5f && inv.timer_atk == 900 && inv.timer_def == 800,
+              "a run's scene entry: 0x76b8fc / 0x76b904 / 0x76b908 = 0; the MP Drop and the timers stay");
     }
     std::printf("[wnd] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;

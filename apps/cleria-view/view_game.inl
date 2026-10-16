@@ -140,8 +140,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     int skin = 0;          // the Type Select answer 0x74c0dc / d8 / d4: 0 Normal, 1 Extra (EXTRA_VERSIONS.md; view_extra.inl)
     if (const char* ts = std::getenv("CLERIA_TYPE")) skin = std::atoi(ts) == 1;   // a room boot's version (the drive cases)
     // Outfit Select's answer 0x74c0d0 (Yunica's School Outfit; EXTRA_VERSIONS.md §1.4): her script C_980.ASO in place
-    // of C_010.ASO [BYTES 0x465089..0x4650c0] — it names the AIAs c_981 / c_980 / c_982 itself.
-    // [not modelled] cast 0xa6 (Yunica as an actor) taking the same script and c_982 (FUN_00459410, FUN_00572230).
+    // of C_010.ASO [BYTES 0x465089..0x4650c0] — it names the AIAs c_981 / c_980 / c_982 itself — and cast 0xa6
+    // (Yunica as an actor, in any character's story) built with the same script (world.school_outfit, FUN_00459410).
+    // A session value like retail's: only Outfit Select and a load write it, so it outlives a New Game of another
+    // character (and is saved by it).
     int outfit = 0;
     if (const char* os = std::getenv("CLERIA_OUTFIT")) outfit = std::atoi(os) == 1;   // a room boot's outfit (the drive cases)
     int difficulty = 2;    // 0 VeryEasy,1 Easy,2 Normal,3 Hard,4 Nightmare (persisted TitleGameDifficulty)
@@ -1325,14 +1327,16 @@ title_again:
                         // FUN_00575990 in a bonus mode: no game yet — flags 203 / 201 = 0 and 0x74e25a = 2, which
                         // makes the title tick create the stage select once the book is gone.
                         const NewGameInfo& ng = ev.new_game_info;
-                        g_run.character = ng.character; g_run.type = ng.type; g_run.outfit = ng.outfit;
+                        g_run.character = ng.character; g_run.type = ng.type;
+                        if (ng.outfit_set) outfit = ng.outfit;   // the session's 0x74c0d0, as below
+                        g_run.outfit = outfit;
                         g_run.difficulty = ng.difficulty; g_run.easy = ng.easy;
                         g_run.front = 2;
                     } else if (ev.new_game) {
                         const NewGameInfo& ng = ev.new_game_info;
                         character = std::clamp(ng.character, 1, 3);   // [not modelled] Adol (0)
                         skin = ng.type;
-                        outfit = ng.outfit == 1;
+                        if (ng.outfit_set) outfit = ng.outfit;   // 0x5c3600 / 0x5c3620; else the session's stays
                         difficulty = ng.very_easy ? 0 : ng.easy ? 1 : 2 + ng.difficulty;
                         speedrun_new_game(character, skin);  // the speedrun start: the difficulty pick
                         ng_commit = true;                    // FUN_005758f0: fade, then commit
@@ -1631,6 +1635,8 @@ title_again:
     std::vector<extra::Runner> xrunners;                  // the kind-0x17 runners (view_extra.inl)
     std::vector<extra::Chain> xchains;                    // the kind-0x18 chain lightnings (view_extra_chain.inl)
     std::vector<extra::Bolt> xbolts;                      // the free type-7 lines: the ray's, the side lines, a dead chain's
+    water::Rings wrings;                                  // pool 16: the water rings and wakes (view_water_rings.inl)
+    std::vector<water::Follower> xfollowers;              // the kind-0x19 followers (anime_Special a0 = 3)
     // World item pickups (src/cleria/pickup.hpp, build/item_re/PICKUPS.md).
     std::vector<Pickup> pickups;
     struct PendingDebris { int ticks; int cast; Vec3 origin; const AsoVm::DebrisEvent* ev; };
@@ -1740,6 +1746,7 @@ title_again:
     game.g_flags[143] = difficulty <= 1 ? 1 : 0;      // Very Easy sets 143 AND 203 [BYTES 0x5759ed + 0x5759f4]
     game.g_flags[203] = difficulty == 0 ? 1 : 0;
     world.stat_flags = game.g_flags;                  // the spawns' FUN_004202e0 tail (DIFFICULTY.md G2)
+    world.school_outfit = &outfit;                    // the factory's cast-0xa6 swap (0x74c0d0, EXTRA_VERSIONS.md §1.4)
     Player player;                     // stat block (HP/SP/level/EXP)
     // A fresh level-1 player: HP from the GAMEINFO player curve at level 1. There is no save
     // model, so a new run always starts at level 1 with 0 EXP -- the faithful new-game state.
@@ -2062,8 +2069,9 @@ title_again:
     // late-game / weapon-state variants — wrong look for normal play.)
     // Adol (0): FUN_00464fc0 [BYTES 0x46500a..0x465038]: AIA 0xE c_110 (Felghana; his script names no file), 0xF4
     // c_990 (Napishtim, 0x74c0cc = `skin`).
-    auto char_aia = [&skin](int c) -> const char* {
-        return c == 2 ? "C_103.AIA" : c == 3 ? "C_104.AIA" : c == 0 ? (skin == 1 ? "C_990.AIA" : "C_110.AIA") : "C_102.AIA";
+    auto char_aia = [&skin, &outfit](int c) -> const char* {
+        return c == 2 ? "C_103.AIA" : c == 3 ? "C_104.AIA" : c == 0 ? (skin == 1 ? "C_990.AIA" : "C_110.AIA")
+                                                                    : (outfit != 0 ? "C_980.AIA" : "C_102.AIA");
     };
     // Canonical gameplay animation tags — identical across every player sprite
     // (user-identified from animation GIFs; see tools/aia_gif.py). Resolve by TAG,
@@ -2082,9 +2090,9 @@ title_again:
     // state), 3 jump. The script supplies (file, tag, frame); `dir` is NOT in it —
     // that comes from the actor's facing, which is what closes the AIA formula.
     // Adol (0): ASO 0xC c_101 (Felghana) / 0xA4 c_990 (Napishtim) [BYTES 0x46500a..0x465038].
-    auto char_aso = [&skin, &outfit](int c) -> const char* {
-        return c == 2 ? "C_020.ASO" : c == 3 ? "C_030.ASO" : c == 0 ? (skin == 1 ? "C_990.ASO" : "C_101.ASO")
-                                                                    : (outfit == 1 ? "C_980.ASO" : "C_010.ASO");
+    // Yunica: ASO 1 C_010, or 0xa3 C_980 while 0x74c0d0 != 0 [BYTES 0x465089..0x4650c0] (extra::player_anim_set).
+    auto char_aso = [&skin, &outfit](int c) -> std::string {
+        return std::string(extra::aso_stem(extra::player_anim_set(c, false, skin == 1, outfit != 0, false).aso)) + ".ASO";
     };
     Aso aso = Aso::load(asset_root / "ANI" / char_aso(character));
     AsoVm avm;
@@ -2249,10 +2257,11 @@ title_again:
             if (file >= 0) e.actor->aia_file = file;
             // The pin is bound after that restart, which is the port's (the list's rebuild), not a section start.
             if (e.actor) e.avm.bind_pin(&e.actor->pattern.tag, &e.actor->pattern.frame);
-            // FUN_00572230 loads C_114 with cast 0xa6 and C_115 with cast 0xa8 when one is placed
-            // [BYTES 0x572272..0x5722ac]; every other sheet is read at its first use (FUN_00444850).
+            // FUN_00572230 loads C_114 (C_982 under the School Outfit) with cast 0xa6 and C_115 with cast 0xa8 when one
+            // is placed [BYTES 0x572272..0x5722ac]; every other sheet is read at its first use (FUN_00444850).
+            // [approx] here at the bind, not at op 0xad; cast 0xac's 0x109 is left to its first use.
             if (e.actor && (e.actor->cast_id == 0xa6 || e.actor->cast_id == 0xa8))
-                efx.sheet(g, e.actor->cast_id == 0xa6 ? 11 : 12);
+                efx.sheet(g, extra::cast_load_extra_aia(e.actor->cast_id, outfit != 0));
             e.atk_section = enemy_atk_section[e.stem];
             if (e.actor) {
                 if (const Enemy* er = etab.get(e.actor->cast_id))
@@ -2289,6 +2298,8 @@ title_again:
         xrunners.clear();
         xchains.clear();
         xbolts.clear();
+        wrings.clear();
+        xfollowers.clear();
         gas_owner.clear();
         fxsim.clear();
         wx.clear();                                           // FUN_00428ec0 / 0x76a558 = 0 (WEATHER.md)
@@ -2457,6 +2468,12 @@ title_again:
         player_vanished = false;
         g_run.stage_frames = 0;                    // 0x74e67c [EXPORT 00431840.c:163]; flag 194, the clock's first-frame latch
         game.g_flags[194] = 0;
+        // ... and in a Time Attack / Arena run the Panacea bonus and the Strength / Defense Drop values = 0
+        // (FUN_00431840, inv_run_scene_entry). A Retry comes through here after its snapshot is restored.
+        // [approx] retail leaves the active bits 0x76c198 and the timers ([H] a "str add + 0.0" HUD line until they
+        // run out); here a zero value is the bit, so the buff simply ends. The Panacea bonus is already 0 in a run
+        // (it starts from a new game and the book stays shut), so the cached max HP needs no refresh.
+        inv_run_scene_entry(game.g_flags[193], inv);
         // FUN_00431260 publishes the pending scene and clears 0x76a538; the old room's staged door and
         // its walk-out die with the old player actor.
         door_pending.reset(); door_commit.reset(); door_latched = false; door_walk = {};
@@ -2752,7 +2769,7 @@ title_again:
         for (int c = 0; c < 3; ++c) game.g_flags[297 + c] = g_clear.clear[std::size_t(c)];   // the raw clear bytes (FUN_0042f5e0)
         character = std::clamp(s.character(), 0, 3);   // 0 = Adol: a run's Retry snapshot
         skin = s.version[character] == 1;              // FUN_0042f5e0: 0x74c0dc / d8 / d4 = the block's (EXTRA_VERSIONS.md §1.2)
-        outfit = s.version[4] == 1;                    // ... and 0x74c0d0
+        outfit = s.version[4];                         // ... and 0x74c0d0, the dword as stored (readers test != 0)
         player.level = std::clamp(s.level, 1, 60);
         player.exp = s.exp; player.sp = s.sp;
         if (s.mp_max > 0.0f) { player.sp_max = s.mp_max; player.sp_cur = std::min(s.mp_cur, s.mp_max); }
@@ -4203,6 +4220,7 @@ title_again:
                         (unsigned long long)(pick_rng.calls - c0));
     };
     #include "view_hugo_eyes.inl"                         // Hugo's Eyes of Fact (the player's familiars)
+    #include "view_water_rings.inl"                       // the water rings and wakes (WATER_RINGS.md)
     #include "view_extra.inl"                             // the Extra versions (EXTRA_VERSIONS.md)
     auto skill_tick = [&](bool skill_held, bool attack_held) {
         const int slot = skillmp::bracelet_slot(inv.magic);
@@ -8380,6 +8398,7 @@ title_again:
                 } else {
                     submerged = wading = false;
                 }
+                player_wade_step();                           // the wading rings (0x45cbb1..; view_water_rings.inl)
             }
             // The down thrust's landing effect (FUN_0046fba0, the landing flag +0x3bc & 1) [BYTES 0x46fdd0..0x46ffa3]:
             // characters 0, 1 and 3 with the thrust flag +0x6f7 and the attack kind +0x404 == 2 spawn effect 0xc — 9
@@ -8692,7 +8711,14 @@ title_again:
                 benv.player_hp = float(player.hp);
                 benv.ray = [&](const Vec3& o, const Vec3& dl, int set) {
                     bullet::RayHit r;
-                    if (set != 2) return r;                          // [not modelled] water (set 1)
+                    if (set == 1) {                                  // water: a vertical segment down (water_down)
+                        float y = 0.0f;
+                        if (dl.x == 0.0f && dl.z == 0.0f && dl.y < 0.0f && water_down(o, -dl.y, &y)) {
+                            r.hit = true; r.point = {o.x, y, o.z}; r.normal = {0.0f, 1.0f, 0.0f};
+                        }
+                        return r;                                    // [not modelled] any other water segment
+                    }
+                    if (set != 2) return r;
                     r.hit = segment_hit(phys_mesh(room), o, {o.x + dl.x, o.y + dl.y, o.z + dl.z}, &r.point, &r.normal);
                     return r;
                 };
@@ -8730,6 +8756,19 @@ title_again:
                     dust_at("bullet", 7, argb, false, at, 0.35f, 0.32f, 0.012f, false);
                 };
                 benv.carrier = boss2_carrier;                    // kind 0x24's segment (Nygtilger)
+                // The water rings (kind 8's wake, kind 0x29's ring) and kind 0x29's splash (WATER_RINGS.md).
+                benv.ring = [&](const Vec3& at, float scale, float heading) {
+                    if (heading < -100.0f) wrings.spawn_ring(at, 0, scale);
+                    else wrings.spawn_wake(at, 0, scale, heading);
+                    ring_log("a bullet", at);
+                };
+                benv.splash = [&](const Vec3& at) {
+                    ef2sim::SpawnParams sp;                          // side 0, power 0, knock 1, rtype 0, cls 0xff
+                    sp.power = 0.0f; sp.knock = 1.0f; sp.rtype = 0; sp.status = 0; sp.cls = -1; sp.side = 0;
+                    spawn_sim_fx(0x49, at, {}, 1.0f, sp, 0, {});
+                };
+                benv.water_mode = water_mode == 2 ? 2 : phys_mesh(room).has_water() ? 1 : 0;
+                benv.group40 = false;                            // [H] byte 0x7494d7 taken as 0, as weather.hpp
                 // Kind 0x25's probe: the terrain without the boss meshes; a shake already running (view_boss07.inl).
                 benv.ray_no_boss = [&](const Vec3& o, const Vec3& dl, int set) {
                     bullet::RayHit r;
@@ -8741,6 +8780,7 @@ title_again:
                 #include "view_crystal.inl"          // M980's bullet scan (M980.md §3.4a)
                 bullets.update(benv, &bev);
                 extra_runners_tick();                // the kind-0x17 runners (FUN_00591850)
+                water_followers_tick();              // the kind-0x19 followers (FUN_005914b0)
                 for (auto it = gas_owner.begin(); it != gas_owner.end();) {
                     bool live = false;
                     for (auto& bp : bullets.list()) live = live || bp.get() == it->first;
@@ -8781,6 +8821,7 @@ title_again:
             prof("tick:fx-B");
             #include "view_extra_chain.inl"      // Napishtim Adol's chain lightnings (FUN_00592d00)
             #include "view_fx_hits.inl"          // the effects' step and the particles' hit tick
+            wrings.step();                       // pool 16 ages after the effects (World_Update; WATER_RINGS.md)
 
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS
             // reloaded from the surface record, gated on the motion state:
@@ -9241,6 +9282,10 @@ title_again:
         video_mirror_pass(g, room, cw, ch, last_vp);     // the mirror floors' image, before the floors (view_video.inl)
         video_water_grab(g);                             // before layer 0xb: what the water shows (view_video.inl)
         draw(g, room, view, depth, 2);   // layer 0xb (the water surfaces) after the actors' layers 6/8/9
+        if (wrings.size()) {             // Water_DrawRings, queued on layer 0xb too (WATER_RINGS.md)
+            wrings.blend(1.0f);          // [approx] the frame blend 0x74c0e0 is 1, as for the bolts
+            draw_water_rings(g, view, depth, asset_root, wrings);
+        }
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         // Script-placed persistent effects (the barrier ward). Killed by op 0x119 when
