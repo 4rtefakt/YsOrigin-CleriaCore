@@ -12,7 +12,6 @@
 // (10% roll, 120..199 ticks, every (60..99)th tick) drop a bullet 170..189 deg behind, falling
 // at 0.09, scaled 1.1..2.3. From the 61st tick without taking damage it arms a 0.3 sting
 // sphere 0.5 behind itself every tick (FUN_00477f00: fresh serial, life 1, re-hit 200).
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"

@@ -9,7 +9,7 @@
 // hits, after a forced pause following 3 casts (coin flip), when |dy| > 3, or when an elite
 // (+0x130 & 0x700) is hit (40%). A vanish: 60-tick fade-out, 30-tick hold, an invisible dash
 // to a random point 4..7.5 u round the player, a 10-tick stop, fade-in.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the flyer altitude controller
+// [not modelled] the flyer altitude controller
 // FUN_00476960 (+0x834 hover 1.2, climb/descend +0x838/+0x83c) — the view keeps enemies on
 // the floor; the effects' attachment to the actor (FUN_00451c20) and z_warp's 1.3 scale.
 #include <cmath>

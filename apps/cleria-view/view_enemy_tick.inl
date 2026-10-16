@@ -341,7 +341,8 @@
                     if (en->ai_index >= 3 && en->ai_index != 83 && en->ai_index != 16 && en->ai_index != 80 && !hugo_eye(*en) &&
                         !enemy_handler_puppet(en->ai_index, env)) {
                         Vec3 org = env.self;
-                        if (ai::keep_out(en->ai, org, exit_volume)) {
+                        env.kept_out = ai::keep_out(en->ai, org, exit_volume);
+                        if (env.kept_out) {
                             if (keepout_log)
                                 std::printf("  [keepout] t%llu #%d cast %d (%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)\n",
                                             (unsigned long long)tick_count, en->instance_id, en->cast_id, env.self.x, env.self.y,
@@ -401,6 +402,7 @@
                                  sp.radius, sp.flag_a, sp.flag_b);
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
                     if (o.popup >= 0) damage_popup(o.popup, o.popup_rgb, {en->pos.x, en->pos.y + en->height, en->pos.z});   // FUN_004fae00
+                    for (const AiOut::Popup& pp : o.popups) damage_popup(pp.value, pp.rgb, pp.at);
                     // The floor killed it (0x47a671..0x47a6ac): the notes' seen byte, no kill count.
                     if (o.floor_death && en->cast_id >= 0 && en->cast_id < records::MonsterNotes::kEntries)
                         g_notes.seen[std::size_t(en->cast_id)] = 1;
@@ -653,14 +655,14 @@
                     if (!c) continue;
                     if (s.hp >= 0) c->hp = s.hp;
                     if (s.exp_copy) c->exp_reward = parent->exp_reward;
-                    const std::string stem = casts.sprite_stem(c->cast_id);
+                    const std::string stem = actor_stem(*c, casts);
                     if (stem.empty() || !efx.kinds.count(stem)) continue;
                     const Cast* cc = casts.get(c->cast_id);
                     render.push_back({c, stem, (cc && !cc->display.empty()) ? cc->display : stem});
                     bind_one_enemy(render.back());
                 }
                 for (Actor* c : new_children) {
-                    const std::string stem = casts.sprite_stem(c->cast_id);
+                    const std::string stem = actor_stem(*c, casts);
                     if (!stem.empty() && !efx.kinds.count(stem)) efx.load_kind(g, asset_root, stem);
                     if (stem.empty() || !efx.kinds.count(stem)) continue;
                     const Cast* cc = casts.get(c->cast_id);

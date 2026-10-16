@@ -12,8 +12,8 @@
 // R%60 - max(0, 30d) + 135 (90). Below half HP it enrages once (section 313: STR x1.1, grows
 // x1.30 with DEF + 20 while growing). Its base speed is restored every tick.
 // [not modelled] the shock effect's particle hits (power 5, knock 10, reaction 2 —
-// EFFECTHIT.md) and its rotation / scale; the keep-out box restore (FUN_0042dc90) and the 312
-// block's `inside` (the box test; always false here).
+// EFFECTHIT.md) and its rotation / scale. The 312 block's `inside` is the keep-out test's first
+// result (M600.md §3.0: the origin was in an exit volume, past phase 0; AiEnv::kept_out).
 #include <algorithm>
 #include <cmath>
 
@@ -30,7 +30,7 @@ AiOut m600(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     out.durable_rule = (a.i(0x79c) != 0 || tag) ? 1 : 2;           // 2: on in 312, else off unless 7
     if (e.launched) return out;
     const int d = difficulty(e);
-    const bool inside = false;                                     // [not modelled] the keep-out box test
+    const bool inside = e.kept_out;                                // [ebp-0x14] (0x4a8ef8)
     a.f(0x818) = a.f(0x7d8);                                       // the base-speed restore
     a.f(0x81c) = a.f(0x7ac);
     int S = e.section;

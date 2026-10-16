@@ -12,7 +12,7 @@
 // other actor, healing it 25..200 by difficulty on contact. Unaware it may warp around itself.
 // While warping it stands, is Durable and, below alpha 0.5, unhittable; every other tick
 // Durable is cleared. A coin flip on each relocation raises its hover height for good.
-// [not modelled] the warp effects' attachment; the keep-out box restore (FUN_0042dc90).
+// [not modelled] the warp effects' attachment.
 #include <cmath>
 
 #include "cleria/actor.hpp"

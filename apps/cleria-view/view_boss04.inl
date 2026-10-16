@@ -5,7 +5,7 @@
 // step_meshes, view_boss04_hit.inl at the player's swing.
 // [not modelled] the pit's `40jigoku005` UV scroll and its drag of GoXx type-4 objects; the pull on actors
 // other than the player; the dust
-// sprites (FUN_00584550); the buff clear, the achievement and the drop (obj+0xc4); the boss-rush i-frames.
+// sprites (FUN_00584550); the buff clear, the achievement and the drop (obj+0xc4).
 constexpr int kB4Owner = -0xB04;                           // fx owner tag for the heal aura (blk+0x350)
 std::array<int, boss04::kNodes> boss4_node{};              // node table -> the model's node index
 std::array<int, boss04::kClips> boss4_sect{};              // clip id -> the mesh's section index
@@ -50,6 +50,7 @@ auto boss4_apply = [&](const Boss04Output& out) {
         if (game.g_flags[fi] != fv) std::printf("  [boss04] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
         game.g_flags[fi] = fv;
     }
+    if (out.player_iframes) player_iframes = std::max(player_iframes, 9999);   // +0x734 = max(.., 9999): the boss-rush kill
     if (out.clear_buffs) { set_high_flag(544, 0); set_high_flag(545, 0); set_high_flag(546, 0); }
     if (out.player_push && player.hp >= 1) csHost.pforce = {out.player_push->x, out.player_push->z, 4};   // +0x5dc = 4
     if (out.exp) {

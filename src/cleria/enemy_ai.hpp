@@ -102,6 +102,9 @@ struct EnemyAi {
     bool wading = false, entered = false;   // +0x389, +0x38b (water.hpp; ENEMY_WATER.md §1.2)
     std::uint8_t splash_cd = 0, bubble_t = 0, breath_t = 0;   // +0x4c3, +0x4c5, +0x4c6: FUN_0045c490's splash / bubble pacing
     bool water_seen = false;                // the port's: the water test has run once (stands for the placement's probe)
+    std::uint8_t wade_ticks = 0;            // +0x39b: the steps spent wading or submerged (the wading rings' pace)
+    Vec3 wade_prev{};                       // the origin at the last wading test (stands for +0x3d4)
+    bool wade_seen = false;
     std::uint16_t floor_ticks = 0;          // +0x4c8: the action player's lava / blood floor counter (0x47a629)
     // The move primitive's swim block wrote the origin +0x50..+0x58 (0x477e3e the whole point, 0x477e5e / 0x477eee
     // y alone): the host places the actor there before its integrator and clears the flag.
@@ -217,7 +220,8 @@ struct AiEnv {
     bool group_tag = false;      // +0x130 & 0x700: spawned with an XSO group tag
     int aso_marker = 0;          // +0x9bc: the animation script's anime_Marker value
     int aso_marker_block = -1;   // +0x9c0: the marker block value (-1 after a section start)
-    bool launched = false;       // +0x4d0 != 0: the knock-up state (brains early-out) [not modelled]
+    bool launched = false;       // +0x4d0 != 0: the knock-up state (brains early-out; hit.hpp launch_on_hit)
+    bool kept_out = false;       // the handler's first FUN_0042dc90 test this tick (past phase 0): ai::keep_out moved it
     int difficulty = 0;          // 3 (g_flags[201]), -2 v.easy, -1 easy, 0/1/2 index
     // The raw difficulty globals, for brains that read them directly:
     int diff_index = 0;          // DAT_0076bb5c = g_flags[144]: 0 normal, 1 hard, 2 nightmare
@@ -353,6 +357,9 @@ struct AiOut {
     // FUN_004fae00(value, origin, 0xffffffff): a white number at the actor's origin + 0.5 (M510's water drain).
     int popup = -1;
     std::uint32_t popup_rgb = 0xffffff;   // 0xa000a0 for the action player's floor damage (0x47a6ba)
+    // FUN_004fae00 at another actor's origin (M280's heal of an ally: green 0xff00ff00 at H+0x50).
+    struct Popup { int value = 0; std::uint32_t rgb = 0xffffff; Vec3 at{}; };
+    std::vector<Popup> popups;
     bool floor_death = false;             // ... which killed it this tick: +0x3bc |= 0x10, the notes' seen byte
     // The handler took its g_flags[131] branch: FUN_0045f470, the mover with the moving byte +0x514 = 0, in place
     // of the brain, the action player and FUN_00478080 [EXPORT 0047b7f0.c:73-117; 0045f470.c]. The host runs its

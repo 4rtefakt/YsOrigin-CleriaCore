@@ -8,7 +8,6 @@
 // serial) unless the player is in section 0x10b. Every phase: in the hit reaction (section 4)
 // it stands heading-locked for 30 ticks. It sets +0x12c |= 0x71c802 itself (jump-capable but
 // 0x100000 kept: hops and climbs, never gap jumps); its launch tail is the standard one.
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"

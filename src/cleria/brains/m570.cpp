@@ -14,7 +14,7 @@
 // section 300; a damaging hit sends it through section 4 and a 23-tick hit-free wait; when a side
 // is gone it plays 0x12d and rests 75 + R%30 - 10d. A hit reaction drops it to the ground for 24
 // ticks; a stun grounds it while engaged.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the handler's +0x3c0 &= ~1 (the landing
+// [not modelled] the handler's +0x3c0 &= ~1 (the landing
 // puff request); the hole effect's actor-matrix placement (placed at the floor + 0.1, rotated by
 // the facing [approx]).
 // M670 Bazeraena (brain FUN_004f1050, AI index 60, handler FUN_004f24c0 = M430's + the +0x7b4 base-speed moves,

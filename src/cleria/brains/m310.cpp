@@ -12,7 +12,7 @@
 // t = 0.35 (and, literally, adds channel 1's y to y). Within 5 u, level and unhurt: a back-hop,
 // then section 7 (hold 67) and N - 1 section 8s (hold 47), N = {1,1,2,2,3,3}[d+2] (+1 tagged),
 // cooldown hold + 10*(3 - d) + R%20; it tracks the target x2/x3/x4 during each Marker 1.
-// [not modelled] the keep-out box restore (FUN_0042dc90). Launch mode 0 reads the shared jump
+// Launch mode 0 reads the shared jump
 // helper FUN_00476200's +0x7dc/+0x7e0, which stay 0 until the helper is run.
 #include <cmath>
 

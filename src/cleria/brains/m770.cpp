@@ -12,7 +12,6 @@
 // Durable on in sections 7/8 and OFF otherwise.
 // Literal source bug kept: section 301's stand doubles +0x814 from +0x7ac, and the shared exit
 // copies +0x814 BACK into +0x7ac, so every completed 301 doubles the turn rate for good.
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"

@@ -56,11 +56,27 @@ struct CharSelectGates {
     bool open_toal = false;
     int mode = 0;
 };
+// Character Select in Time Attack (0x74e25e == 1), FUN_005c3790 state 1: every tick, after the keys / wheel / hover
+// moved the cursor, a bar whose character has not cleared the game is stepped over [EXPORT 005c3790.c:225-236]:
+// Yunica's -> Hugo's; Hugo's -> Yunica's, or Toal's when Toal has cleared and the cursor came from Yunica's (prev 0).
+// The order is retail's: with only Toal cleared, a step from Toal's ends on Yunica's (her test ran first).
+inline int charsel_ta_cursor(int cur, int prev, bool clear_yunica, bool clear_hugo, bool clear_toal) {
+    if (!clear_yunica && cur == 0) cur = 1;
+    if (!clear_hugo && cur == 1) cur = (!clear_toal || prev > 0) ? 0 : 2;
+    return cur;
+}
+// The first bar the mouse hover tests (local_30, [EXPORT 005c3790.c:119-121]): 1 in Time Attack when Hugo has
+// cleared and Yunica has not, else 0.
+inline int charsel_hover_first(int mode, bool clear_yunica, bool clear_hugo) {
+    return mode == 1 && clear_hugo && !clear_yunica ? 1 : 0;
+}
 // What Character Select and Difficulty chose (the callbacks' writes).
 struct NewGameInfo {
     int character = 1;                      // 0x76bb74: 1 Yunica, 2 Hugo, 3 Toal, 0 Adol
     int type = 0;                           // 0x74c0dc / d8 / d4 / cc: 0 Normal, 1 Extra (Adol: Felghana / Napishtim)
     int outfit = 0;                         // 0x74c0d0
+    bool outfit_set = false;                // Outfit Select answered (its two callbacks are the flag's only writers
+                                            // besides a load; otherwise the session's value stands, EXTRA_VERSIONS §1.4)
     int difficulty = 0;                     // 0x74ac3c: 0 Normal, 1 Hard, 2 Nightmare
     bool easy = false, very_easy = false;   // 0x74e685 / 0x74e684
 };

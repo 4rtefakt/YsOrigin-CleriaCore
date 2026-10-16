@@ -9,7 +9,7 @@
 // ring of radius ~4. After 100 orbit ticks it may switch side (2%/tick). Within 4.5 u, facing
 // within 45 deg: max(1, 4-dist)*3% a tick to strike (section 7, hold 80, cooldown 130..159
 // or 100..129 above Normal).
-// [not modelled] the keep-out box restore (FUN_0042dc90). Dead for this cast (kept out):
+// Dead for this cast (kept out):
 // the 0x13a jump block (no section 314 in M_170.ASO) and the unreachable FUN_004773f0 hop.
 #include <cmath>
 

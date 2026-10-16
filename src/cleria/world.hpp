@@ -87,6 +87,9 @@ class ActorWorld : public XsoHost {
     // The game's xorshift128 state (XsoVm::rs), for the draws the spawn op makes (the glow phase
     // seed). Null = no draw (headless tools).
     std::uint32_t* rng = nullptr;
+    // Yunica's School Outfit, the session global 0x74c0d0 the factory reads for cast 0xa6 (EXTRA_VERSIONS.md §1.4).
+    // Null = off (the tools).
+    const int* school_outfit = nullptr;
 
     // CleriaCore's own (the mods' "spawn" filter, API 7; not retail): asked once for every ENEMY about to be built,
     // before the factory. It may name another enemy cast, another level (0 = the cast's own), scale the stats the

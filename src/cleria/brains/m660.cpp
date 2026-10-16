@@ -13,7 +13,7 @@
 // [approx] the handler's post-mover block (FUN_004afb80 0x4afee6, run after the action player and the mover's
 // ASO step, and on the culled / g_flags[131] freeze paths too) runs here at the top of the NEXT brain tick, from
 // the section / marker the VM left: one tick late, and not while frozen. The strike SE countdown (0x4afc19, before
-// the HP test) likewise. [not modelled] the keep-out box restore (FUN_0042dc90); the carrier's rtype 2 (fx+0x1ec;
+// the HP test) likewise. [not modelled] the carrier's rtype 2 (fx+0x1ec;
 // effect 494 has no hit emitter).
 #include <algorithm>
 #include <cmath>

@@ -10,7 +10,7 @@
 // lasts 60..119 ticks, each blocked hit refreshes it, and it breaks after d + 9 blocks. The same rolls (and 1 %
 // of quiet ticks) give a backstep (0.15 up, -0.35) or a forward leap (0.275 up, +0.55). Every tick: STR =
 // base (1 + 0.025 (1 - (HP/max)^2)) and a blue tint from the same factor.
-// [not modelled] the keep-out box restore (FUN_0042dc90). The EX-element bits (+0x3bc & 0x1200) come from
+// The EX-element bits (+0x3bc & 0x1200) come from
 // AiEnv::events, which the view does not fill yet: every blocked hit counts.
 #include <algorithm>
 #include <cmath>

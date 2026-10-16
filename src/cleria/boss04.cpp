@@ -559,7 +559,9 @@ void Boss04::death() {
             out_->exp = Boss04Exp{level_, exp_b0_, very_easy_ ? 2.0f : easy_ ? 1.1f : 1.0f};
         if (php >= 1.0f) {
             killed_ = true;
-            if (!rush_) flag(223, 1);
+            flag(529, 0);                                          // the status timers 0x76c160..0x76c16c:
+            if (!rush_) flag(223, 1);                              // poison, then (after 223) heavy, confuse, curse
+            flag(530, 0); flag(531, 0); flag(532, 0);              // [EXPORT go_mesh_boss04.c Khonsclard_Death]
         }
     }
     if (!killed_) return;

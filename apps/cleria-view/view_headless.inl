@@ -47,7 +47,8 @@ static int render_fps(Gpu& g, const Room& room, const fs::path& out,
     if (!asset_root.empty()) {
         const ItemTable itbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
         const int ids[4] = {0, 6, -1, -1};
-        hud.set_equip(g, itbl, asset_root, ids);
+        const int counts[4] = {1, 1, -1, -1};
+        hud.set_equip(g, itbl, asset_root, ids, counts);
     }
     hud.render(g, cview, W, H, room.name, 0.016f, &pv);
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -365,7 +366,8 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
     if (!asset_root.empty()) {
         const ItemTable itbl = ItemTable::load(asset_root / "MISC" / "INVINFO.DAT");
         const int ids[4] = {0, 6, -1, -1};
-        hud.set_equip(g, itbl, asset_root, ids);
+        const int counts[4] = {1, 1, -1, -1};
+        hud.set_equip(g, itbl, asset_root, ids, counts);
     }
     Player pv; pv.hp = 312; pv.max_hp = 400; pv.level = 6; pv.sp = 138663; pv.exp_pct = 42.1f;
     // CLERIA_DLG=1: preview the cutscene dialogue box (FACEWIN0 3-slice + name/text) so its

@@ -10,7 +10,6 @@
 // cooldown R%30 + 30. While the orb is out in section 7 the thrower faces it (steer 4).
 // [approx] the orb object's "destroyed" finish (code 2, state 0) folds into the "gone" one (code 1): the port's
 // effect scan lists only live effects; the re-find's kill of extra owned effects is not modelled (one orb at most).
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <algorithm>
 #include <cmath>
 

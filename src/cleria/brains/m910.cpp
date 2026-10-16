@@ -11,7 +11,7 @@
 // the actor pool holds < 24. Both halves keep HP - max(0.31 max, 0.5 HP) (floored to 1.1)
 // and EXP x 0.5025.
 // The jump helper's section-0x13a launch (K 0.1, a fixed 0.3 push; FACTORY.md: all Noozes
-// are jump-capable). [not modelled] the keep-out box restore (FUN_0042dc90 over 0x76a2b4).
+// are jump-capable).
 #include <algorithm>
 #include <cmath>
 
