@@ -13,7 +13,9 @@
 // measured size is what FUN_005efb50 hands the windows — integers in the 1024 x 768 frame, with its
 // widescreen quirks (a glyph's advance x A truncated per glyph, a space not scaled). At 1024 x 768 a
 // pixel is a unit. Glyph metrics come from the host (GDI Felghana), so the layout is exact for whatever
-// font the host rasterises. [not modelled] <rot>, <font>, ruby text, HighResoText off. [approx] a
+// font the host rasterises. <rot>, <font> and ruby text are parsed and ignored: no shipped file uses them (a
+// search of the asset tree for the three tags finds none, against 262 files with <color>). [not modelled]
+// HighResoText off. [approx] a
 // <scale> glyph advances by advance x scale (retail: GDI's integer advance at the scaled MAT2). The
 // extfont icons of <ext> / <roo> (extfont.hpp) are glyphs with `ext` set and `c` = the cell.
 #pragma once
