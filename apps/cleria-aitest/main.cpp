@@ -651,7 +651,8 @@ int main() {
             if (sec8 >= 0 && t >= sec8 + 84) r.env.aso_marker = 1;        // the section's window
             if (sec8 >= 0 && t >= sec8 + 180) r.env.aso_marker = 2;
             int b = 0;
-            for (const AiEffect& f : o.effects) b += f.id == 0x10b;
+            for (const AiBullet& f : o.bullets)                           // kind-1 GoXx bullets (FUN_00593b90)
+                b += f.effect == 0x10b && f.kind == 1 && f.speed == 0.1f && f.dir.z == -1.0f && f.knock == 1.0f;
             if (b) { if (rings < 8) ring_ticks[rings] = t; ++rings; bombs += b; }
             for (int s : o.sounds) snd += s == 0x1b5;
         }

@@ -8,10 +8,10 @@
 // 267 m_bom01, SE 437 per bomb) every 30 (45 easy) ticks, ring k at radius 2 + 0.75k; from 4
 // to d+8 u, section 7 (disc shots) or a 40-tick back-off; two shots, then a stand. It warps
 // out after 4-d damaging hits, on |dy| > 3, on a coin flip after standing, or (tagged
-// spawns) 40% on a hit once an attack has ended.
-// [not modelled] the bombs' damage — they are GoXx type-1 objects (FUN_00593b90, the
-// FireBullet struct) whose damage path is untraced, so here they are effects + sound only;
-// the flyer altitude controller FUN_00476960 (the
+// spawns) 40% on a hit once an attack has ended. Each bomb is a kind-1 GoXx bullet carrying
+// effect 0x10b (FUN_00593b90, the spawn struct of M490.md §2.4): it drifts 0.1 a tick along -z and
+// hits through the effect's particles, as any FireBullet does.
+// [not modelled] the flyer altitude controller FUN_00476960 (the
 // +0x834/+0x838 hover writes are kept for it); the effects' attachment (FUN_00451c20).
 #include <cmath>
 
@@ -215,7 +215,12 @@ AiOut m490(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 const float th = float(deg) * kPi490 / 180.0f;
                 const Vec3 bp{e.self.x + float(std::cos(double(th))) * rad, e.self.y - 2.0f,
                               e.self.z - float(std::sin(double(th))) * rad};
-                out.effects.push_back({0x10b, bp, 1.0f, false});   // enemy\m_bom01
+                AiBullet b;                                        // FUN_00593b90, the 0x88-byte block
+                b.kind = 1; b.effect = 0x10b;                      // enemy\m_bom01
+                b.pos = bp; b.dir = {0.0f, 0.0f, -1.0f};
+                b.speed = 0.1f;                                    // {0.1, 0, 0, 0} from 0x6be170: no accel, gravity, power
+                b.knock = 1.0f;                                    // +0x34
+                out.bullets.push_back(b);
                 out.sounds.push_back(0x1b5);                       // zako\z_bomb
                 deg += step;
             }
