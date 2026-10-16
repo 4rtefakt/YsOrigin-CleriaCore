@@ -67,7 +67,8 @@ sudo apt install ninja-build pkg-config libx11-dev libxext-dev libxrandr-dev lib
 sudo apt install libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libssl-dev
 ```
 
-On macOS: `brew install cmake ninja pkgconf` (+ `ffmpeg curl` for the options). Then:
+On macOS: `brew install cmake ninja pkgconf` (+ `ffmpeg curl` for the options; Homebrew's curl is keg-only,
+so also `export CMAKE_PREFIX_PATH=$(brew --prefix curl)`). Then:
 
 ```sh
 python3 tools/fetch_deps.py                 # SDL3 3.4.12 built into third_party/sdl3, wgpu-native .so / .dylib,
@@ -78,6 +79,12 @@ ctest --test-dir build -LE assets           # the tests that need no game data
 build/cleria-view                           # SDL3 + wgpu-native are copied next to it
 ```
 
+On macOS, `python3 tools/macos_bundle.py` then packages the build as `dist/CleriaCore.app` (and a zip of
+it): the libraries it loads, Homebrew's included, are copied into the bundle, which is signed ad hoc and
+runs on its own. It is not notarized: the first launch of a downloaded copy is Finder's right click >
+Open (or `xattr -dr com.apple.quarantine CleriaCore.app`). The manual macOS CI run uploads that zip
+(`CleriaCore-macos`) for Apple Silicon.
+
 `SDL3_DIR` / `CMAKE_PREFIX_PATH` point at another SDL3 3.4 install, `-DWGPU_NATIVE_DIR=<dir>` at
 another wgpu-native release folder (`include/`, `lib/`). Without `CLERIA_FFMPEG` the demo movies are
 skipped (as when retail cannot open one); without `CLERIA_CURL` `cleria.net.websocket` reports
@@ -87,7 +94,9 @@ must have WebSockets (8.11+ enables them by default, as Homebrew's does; Ubuntu 
 under `$XDG_DATA_HOME` on Linux and unavailable on macOS (use `--install-mod <file>`). Settings live in
 `$XDG_CONFIG_HOME/CleriaCore` (macOS: `~/Library/Application Support/CleriaCore`), the unpacked data in
 `$XDG_DATA_HOME/CleriaCore/data`; `cleria-gamedata` finds the Steam (Proton) install under
-`~/.steam/steam`, `~/.local/share/Steam`, Flatpak Steam, or `~/Library/Application Support/Steam`.
+`~/.steam/steam`, `~/.local/share/Steam`, Flatpak Steam, or `~/Library/Application Support/Steam`, and
+a Windows Steam in a Wine prefix: `~/.wine` and, on macOS (where Steam does not install the Windows-only
+game), every CrossOver or Whisky bottle.
 
 ## Game data
 
