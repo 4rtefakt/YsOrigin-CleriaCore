@@ -1292,6 +1292,12 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=#189,1.4;21:atk;40:near=#189,1.4;41:atk;80:quit",
         expect=["[spark] t42 guard: 3 sparks at (1.06, 1.28, 2.54), 12 draws", "[popup] 0 ffffff",
                 "[spark] t42 zero hit: 4 sparks at (1.06, 1.28, 2.54), 16 draws"]),
+    # ... and the guard's yellow flash on the guarding monster (FUN_004fbb40: its specular A = 0, B = 0xffff00,
+    # step 0.05, count 1 [EXPORT 004fbb40.c:260-264]), fading from the next tick.
+    "guard_yellow_flash": dict(
+        room="S_10/S_1008/S_1008", env={"CLERIA_SPEC": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=#189,1.4;21:atk;40:near=#189,1.4;41:atk;80:quit",
+        expect=["[spec] t43 #189 specular f2f200", "[spec] t44 #189 specular e5e500"]),
     # build/mech_re/GOXX_PARTICLES.md §3.3 - §3.5 (FUN_0058a5f0 / FUN_0058a900, the blood splats; the decals are kept,
     # simulated and drawn). A hit a monster survives: three splats in its colour on its next tick (18 draws); the
     # kill: three more at the death (18), before the debris; each debris piece leaves a drop where it bounces (4
