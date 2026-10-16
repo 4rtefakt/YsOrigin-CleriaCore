@@ -242,6 +242,61 @@ int main(int argc, char** argv) {
               "C_010 s269 fires GenerateLocus(263, 0,0,0, 56,66, 1.0, 1.5, 35, 10)");
     }
 
+    // ---- the trail's draw (FUN_004581c0, FUN_00464960's texture choice) ----
+    {
+        bool uv = true;
+        for (int i = 0; i < 6; ++i) {
+            const Sl2& s = set.sword[i];
+            if (s.u.size() != 38 || s.alpha.size() != std::size_t(s.nframes)) { uv = false; continue; }
+            for (int k = 0; k < 38; ++k)
+                uv = uv && near(s.u[std::size_t(k)], float(k / 2) / 18.0f) && s.v[std::size_t(k)] == float(k & 1);
+        }
+        check(uv, "every SWORD template: a 19 x 2 strip, u = column / 18, v 0 outer / 1 inner");
+        const Sl2& s1 = set.sword[1];
+        std::vector<Vec3> p; std::uint8_t a = 0;
+        const int f0 = s1.rows.empty() ? 0 : s1.rows[0].start;
+        bool ok = locus_strip(s1, float(f0), 1.0f, 1.5f, p, a) && p.size() == 38;
+        for (int k = 0; ok && k < 38; ++k) {
+            const Vec3& q = s1.verts[std::size_t(f0) * 38 + std::size_t(k)];
+            ok = (k & 1) ? (p[std::size_t(k)].x == q.x && p[std::size_t(k)].y == q.y && p[std::size_t(k)].z == q.z)
+                         : (near(p[std::size_t(k)].x, q.x * 1.5f) && near(p[std::size_t(k)].y, q.y * 1.25f) &&
+                            near(p[std::size_t(k)].z, q.z * 1.5f));
+        }
+        check(ok, "strip at a whole frame: the frame's vertices, the outer edge x 1.5 (y x 1.25), the inner as is");
+        Sl2 sy;
+        sy.nframes = 2; sy.nverts = 2; sy.u = {0, 0}; sy.v = {0, 1}; sy.alpha = {1.0f, 0.0f};
+        sy.verts = {{0, 0, 0}, {0, 0, 0}, {2, 4, 6}, {2, 4, 6}};
+        locus_strip(sy, 0.5f, 1.0f, 2.0f, p, a);
+        check(near(p[0].x, 2.0f) && near(p[0].y, 3.0f) && near(p[0].z, 6.0f) && near(p[1].x, 1.0f) && near(p[1].z, 3.0f) && a == 128,
+              "strip between frames: lerped, then the outer edge scaled; alpha 0.5 -> 128");
+        std::uint8_t a1 = 0, a2 = 0, a3 = 0;
+        sy.alpha = {1.3f, 1.3f};
+        locus_strip(sy, 0.0f, 1.0f, 1.0f, p, a1);
+        locus_strip(sy, 0.0f, 0.1f, 1.0f, p, a2);
+        sy.alpha = {0.999f, 0.999f};
+        locus_strip(sy, 0.0f, 1.0f, 1.0f, p, a3);
+        check(a1 == 255 && a2 == 33 && a3 == 255, "the diffuse byte: 1.3 -> 255, 0.13 -> 33, 0.999 -> 255");
+    }
+    check(locus_texture(0xd, 0, 0, false, 0x100, 0x100, 3, false) == 0x10 && locus_texture(0xd, 0, 0, false, 0x10e, 0x100, 3, false) == 0x19,
+          "Adol: locus0, locus_sp0 for rows 0x10D / 0x10E");
+    check(locus_texture(0xd, 0, 0, true, 0x100, 0x112, 0, false) == 0x18 && locus_texture(0xd, 0, 0, true, 0x100, 0x113, 0, false) == 0x1a &&
+              locus_texture(0xd, 0, 0, true, 0x100, 0x120, 1, false) == 0x1c && locus_texture(0xd, 0, 0, true, 0x100, 0x120, 2, false) == 0x1b &&
+              locus_texture(0xd, 0, 0, true, 0x100, 0x120, 3, false) == 0x18,
+          "Adol Napishtim: locus5 below section 0x113, then Ventus 6 / Terra 8 / Ignis 7 / none 5");
+    check(locus_texture(0xd, 1, 0, false, 0x100, 0x100, 0, false) == 0x11 && locus_texture(0xd, 1, 0, false, 0x100, 0x110, 0, false) == 0x12 &&
+              locus_texture(0xd, 1, 1, false, 0x100, 0x100, 0, false) == 0x16 && locus_texture(0xd, 1, 1, false, 0x100, 0x10d, 0, false) == 0x17,
+          "Yunica: locus1 (_ex2 in sections 0x10D / 0x110), locus4 (_ex2) with g_flags[149]");
+    check(locus_texture(0xd, 2, 0, false, 0x100, 0x100, 0, true) == 0x13 && locus_texture(0xd, 3, 0, false, 0x100, 0x100, 0, false) == 0x14 &&
+              locus_texture(0xd, 3, 0, false, 0x100, 0x100, 0, true) == 0x15 && locus_texture(0xa8, 0, 0, false, 0, 0, 0, true) == 0x15 &&
+              locus_texture(0xa6, 0, 1, false, 0, 0, 0, false) == 0x16 && locus_texture(0x60, 1, 0, false, 0, 0, 0, false) == 0x10,
+          "Hugo locus2, Toal locus3 (_ex boosting), cast 0xa8 as Toal, 0xa6 as Yunica, others locus0");
+    {
+        bool files = locus_texture_file(0x0f) == nullptr && locus_texture_file(0x1d) == nullptr &&
+                     std::string(locus_texture_file(0x19)) == "LOCUS_SP0.DDS";
+        for (int h = 0x10; h <= 0x1c; ++h) files = files && fs::exists(root / "IMAGE" / locus_texture_file(h));
+        check(files, "handles 0x10..0x1C name the 13 shipped IMAGE/LOCUS*.DDS");
+    }
+
     std::printf("%s (%d failed)\n", fails ? "FAIL" : "ALL OK", fails);
     return fails ? 1 : 0;
 }

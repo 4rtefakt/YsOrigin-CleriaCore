@@ -49,6 +49,8 @@
                 const int si = locus_sword_index(0xd, character, game.g_flags[149], character == 0 && skin == 1);
                 PlayerLocus pl;
                 pl.cls = player_damage_class(avm.section());
+                pl.tex = locus_texture(0xd, character, game.g_flags[149], character == 0 && skin == 1, ev.i[0], avm.section(),
+                                       skillmp::bracelet_slot(inv.magic), player.boosting);
                 if (pl.sword.spawn(sl2set.sword[std::size_t(si)], la, player_hit_serial,
                                    game.g_flags[215], game.g_flags[217], character))
                     loci.push_back(pl);
