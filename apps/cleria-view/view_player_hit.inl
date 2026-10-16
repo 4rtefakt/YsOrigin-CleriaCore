@@ -192,6 +192,7 @@
                 lo.floor_off = kOriginH;                             // +0x324
                 lo.facing = std::atan2(face_dir.z, face_dir.x);      // +0x314
                 lo.dead = player.hp < 1;                             // +0x98 < 1.0
+                lo.at = feet;                                        // +0x254, the trail's translation
                 for (std::size_t li = 0; li < loci.size(); ++li) {
                     if (!loci[li].sword.tick(lo) || !loci[li].sword.armed()) continue;
                     const std::array<HitShape, 3> sp = loci[li].sword.spheres();

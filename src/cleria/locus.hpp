@@ -27,9 +27,9 @@ namespace cleria {
 
 // One SWORD%d.SL2 file, as FUN_00453e90 leaves it in memory [BYTES 0x453e90, DATA]:
 //   header 0x1c: magic, nframes, nverts, ntris, scale (f32, -> 0x76efd8), ?, nrows
-//   nverts x 0x1c template vertices (render only), nrows x 0x10 rows {i32 start, i32 end, f32 scale, pad},
-//   nframes x (8 + nverts*12) frames {f32 advance, f32 (alpha, render only), nverts x vec3}.
-//   The loader's buffer has ntris x 6 more bytes, not in the file (render only).
+//   nverts x 0x1c template vertices {xyz, diffuse, specular, u, v} (FVF 0x1c2), nrows x 0x10 rows
+//   {i32 start, i32 end, f32 scale, pad}, nframes x (8 + nverts*12) frames {f32 advance, f32 alpha, nverts x vec3}.
+//   The loader's buffer has ntris x 6 more bytes, not in the file and never read.
 struct Sl2 {
     struct Row { std::int32_t start = 0, end = 0; float scale = 1.0f; };
     std::int32_t nframes = 0, nverts = 0, ntris = 0;
@@ -37,6 +37,9 @@ struct Sl2 {
     std::vector<Row> rows;              // 0x76efe8 + i*0x34
     std::vector<float> advance;         // frame +0: the per-tick frame step while in this frame
     std::vector<Vec3> tip;              // frame +8: vertex 0, the only vertex the hit arm reads
+    std::vector<float> alpha;           // frame +4: the trail's alpha in this frame (the draw only)
+    std::vector<Vec3> verts;            // frame +8: all nverts positions, frame-major (the draw only)
+    std::vector<float> u, v;            // template +0x14 / +0x18: u = column / 18, v = 0 the outer edge, 1 the inner
 
     static Sl2 parse(const std::vector<std::uint8_t>& bytes);
     bool ok() const { return nframes > 0 && !rows.empty(); }
@@ -55,6 +58,26 @@ struct Sl2Set {
 //     Hugo   -> 2 ; Toal -> 3 ; anything else -> 0
 //   cast 0xa6 -> the Yunica rule ; cast 0xa8 -> 3 ; any other cast -> 0.
 int locus_sword_index(int cast, int character, int flag149, bool adol_extra = false);
+
+// FUN_00464960 0x464a40..0x464b9b, beside the SWORD file: the trail's texture handle (+0x134 = the image
+// table 0x749d48[handle]) [BYTES]. `row_arg` = GenerateLocus arg [0]; `section` = the VM's running section
+// (+0xa4); `slot` = FUN_0046d560 (0 Ventus, 1 Terra, 2 Ignis, 3 none); `boost` = DAT_0076bb50.
+//   cast 0xd: Adol 0x10 (0x19 for rows 0x10D / 0x10E); Adol Napishtim (DAT_0074c0cc) 0x18 below section 0x113,
+//     else by slot 0x1A / 0x1C / 0x1B, none 0x18; Yunica 0x16 with g_flags[149] (0x17 in sections 0x10D / 0x110),
+//     else 0x11 (0x12 there); Hugo 0x13; Toal 0x14 (0x15 while boosting); other 0x10.
+//   cast 0xa6 the Yunica rule; cast 0xa8 0x14 / 0x15 by boost; any other cast 0x10.
+int locus_texture(int cast, int character, int flag149, bool adol_extra, int row_arg, int section, int slot, bool boost);
+// The handle's file under data\image (FUN_00457410's path table, entry i at 0x6d6398 + (i - 1) x 0xc4 [BYTES]):
+// 0x10 LOCUS0 .. 0x1C LOCUS8, upper-case as shipped; nullptr outside 0x10..0x1C.
+const char* locus_texture_file(int handle);
+
+// FUN_004581c0 (the draw callback FUN_00500a40's geometry) [BYTES 0x4581c0..0x4584ad]: the SL2's strip at
+// `frame` — every vertex lerped between frames floor(f) and floor(f) + 1 (t = 0: frame floor(f) as is); the
+// outer-edge vertices (v = 0) only then scaled by the row scale, x / z x s, y x (s + 1) / 2. `alpha` = the
+// frames' alpha lerped, x `alpha_in` (+0x138), as the diffuse byte FUN_004581c0 builds from the float's bits:
+// floor(a x 256) on [0, 1), 255 from 1 up. Positions in the file's local space (a 19 x 2 triangle strip:
+// vertices 2c / 2c + 1 = column c's outer / inner edge). False when the file has no frames.
+bool locus_strip(const Sl2& s, float frame, float alpha_in, float scale, std::vector<Vec3>& pos, std::uint8_t& alpha);
 
 // GenerateLocus's 10 script args (type string `iiiiiiffii`, ASOVM.md).
 struct LocusArgs {
@@ -78,6 +101,7 @@ public:
         float floor_off = 0;    // +0x324: origin height above the floor (player 1.075)
         float facing = 0;       // +0x314: the visible facing, radians, heading 0 = +X (x = cos, z = sin)
         bool dead = false;      // +0x98 (HP) < 1.0 -> start the 0.15/tick fade
+        Vec3 at{};              // +0x254: the render position (the feet), the trail's world translation
     };
 
     // FUN_00464960. `token` = the owner's +0x3c4 (the swing's hit serial). `flag215` =
@@ -104,6 +128,13 @@ public:
     float frame() const { return frame_; }               // +0x128
     float end_frame() const { return end_; }             // +0x12c = row.end - 1.0
     float row_scale() const { return scale_; }           // +0x140
+    float alpha() const { return alpha_; }               // +0x138
+    const Sl2* sl2() const { return sl2_; }              // +0x124
+
+    // The trail as FUN_00500a40 draws it: locus_strip at this frame, alpha and row scale, through the world
+    // matrix the last tick stored (+0x20: Scaling(file scale) x RotationY(-facing - pi/2), translation the
+    // owner's +0x254) [BYTES 0x500503..0x5005cd]. False when dead, not yet ticked, or nothing to draw.
+    bool strip(std::vector<Vec3>& world, std::uint8_t& alpha) const;
     std::int32_t life() const { return life_; }          // +0x118
     std::int32_t rehit() const { return rehit_; }        // +0xf4
     float bonus() const { return bonus_; }               // +0xfc
@@ -124,6 +155,9 @@ private:
     float bonus_ = 0, knock_ = 0;
     std::uint32_t token_ = 0;
     Vec3 tip_{};
+    float yaw_ = 0;                        // the world matrix's turn, -facing - pi/2
+    Vec3 at_{};                            // its translation
+    bool placed_ = false;                  // a tick has stored them (the view ticks a new locus the next tick)
     std::array<HitShape, 3> sph_{};
 };
 

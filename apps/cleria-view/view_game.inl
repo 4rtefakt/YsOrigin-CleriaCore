@@ -1559,7 +1559,7 @@ title_again:
     int atk_window = 0;                  // ticks left in the active hitbox
     // GenerateLocus sword sweeps (src/cleria/locus.hpp): the player's live GoLocusSwords, in pool
     // order, with the damage class their record took at spawn (+0x109 = FUN_0046d5e0()).
-    struct PlayerLocus { LocusSword sword; int cls = 3; bool clanked = false; };   // clanked: +0x16c (the bounce, once)
+    struct PlayerLocus { LocusSword sword; int cls = 3; int tex = 0x10; bool clanked = false; };   // tex: the trail's image handle (+0x134); clanked: +0x16c (the bounce, once)
     std::vector<PlayerLocus> loci;
     Sl2Set sl2set;
     if (!sl2set.load(asset_root)) std::printf("effects: EFFECT/SWORD*.SL2 missing — sword sweeps disabled\n");
@@ -9331,6 +9331,8 @@ title_again:
             wrings.blend(1.0f);          // [approx] the frame blend 0x74c0e0 is 1, as for the bolts
             draw_water_rings(g, view, depth, asset_root, wrings);
         }
+        for (const PlayerLocus& pl : loci)   // the sword trails, queued on layer 12 (view_sprites.inl)
+            draw_locus_trail(g, view, depth, asset_root, pl.sword, pl.tex);
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         // Script-placed persistent effects (the barrier ward). Killed by op 0x119 when

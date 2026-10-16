@@ -35,6 +35,10 @@ Sl2 Sl2::parse(const std::vector<std::uint8_t>& b) {
     if (b.size() < frames_at + std::size_t(nf) * stride) return s;
     s.nframes = nf; s.nverts = nv; s.ntris = nt;
     s.scale = rd<float>(b, 0x10);
+    for (std::int32_t k = 0; k < nv; ++k) {
+        s.u.push_back(rd<float>(b, 0x1c + std::size_t(k) * 0x1c + 0x14));
+        s.v.push_back(rd<float>(b, 0x1c + std::size_t(k) * 0x1c + 0x18));
+    }
     for (std::int32_t r = 0; r < nr; ++r) {
         const std::size_t o = rows_at + std::size_t(r) * 16;
         s.rows.push_back({rd<std::int32_t>(b, o), rd<std::int32_t>(b, o + 4), rd<float>(b, o + 8)});
@@ -43,6 +47,10 @@ Sl2 Sl2::parse(const std::vector<std::uint8_t>& b) {
         const std::size_t o = frames_at + std::size_t(f) * stride;
         s.advance.push_back(rd<float>(b, o));
         s.tip.push_back({rd<float>(b, o + 8), rd<float>(b, o + 12), rd<float>(b, o + 16)});
+        s.alpha.push_back(rd<float>(b, o + 4));
+        for (std::int32_t k = 0; k < nv; ++k)
+            s.verts.push_back({rd<float>(b, o + 8 + std::size_t(k) * 12), rd<float>(b, o + 12 + std::size_t(k) * 12),
+                               rd<float>(b, o + 16 + std::size_t(k) * 12)});
     }
     return s;
 }
@@ -73,6 +81,63 @@ int locus_sword_index(int cast, int character, int flag149, bool adol_extra) {
     if (cast == 0xa6) return yunica();                            // 0x464b26
     if (cast == 0xa8) return 3;                                   // 0x464b78
     return 0;
+}
+
+int locus_texture(int cast, int character, int flag149, bool adol_extra, int row_arg, int section, int slot, bool boost) {
+    auto yunica = [&] {                                           // 0x464b2d: by DAT_0076bb70 = g_flags[149]
+        const bool alt = section == 0x10d || section == 0x110;
+        return flag149 != 0 ? (alt ? 0x17 : 0x16) : (alt ? 0x12 : 0x11);
+    };
+    if (cast == 0xd) {
+        switch (character) {
+            case 0:
+                if (!adol_extra) return row_arg == 0x10d || row_arg == 0x10e ? 0x19 : 0x10;   // 0x464a92
+                if (section < 0x113) return 0x18;                 // 0x464ab8 (unsigned compare)
+                return slot == 0 ? 0x1a : slot == 1 ? 0x1c : slot == 2 ? 0x1b : 0x18;   // 0x464acb..0x464afb
+            case 1: return yunica();
+            case 2: return 0x13;                                  // 0x464b03
+            case 3: return boost ? 0x15 : 0x14;                   // 0x464b10: DAT_0076bb50
+            default: return 0x10;
+        }
+    }
+    if (cast == 0xa6) return yunica();
+    if (cast == 0xa8) return boost ? 0x15 : 0x14;                 // 0x464b7f
+    return 0x10;
+}
+
+const char* locus_texture_file(int handle) {
+    static const char* const kName[13] = {"LOCUS0.DDS", "LOCUS1.DDS", "LOCUS1_EX2.DDS", "LOCUS2.DDS", "LOCUS3.DDS",
+                                          "LOCUS3_EX.DDS", "LOCUS4.DDS", "LOCUS4_EX2.DDS", "LOCUS5.DDS",
+                                          "LOCUS_SP0.DDS", "LOCUS6.DDS", "LOCUS7.DDS", "LOCUS8.DDS"};
+    return handle >= 0x10 && handle <= 0x1c ? kName[handle - 0x10] : nullptr;
+}
+
+bool locus_strip(const Sl2& s, float frame, float alpha_in, float scale, std::vector<Vec3>& pos, std::uint8_t& alpha) {
+    if (s.nframes <= 0 || s.verts.size() != std::size_t(s.nframes) * std::size_t(s.nverts)) return false;
+    int i = int(std::floor(frame));
+    i = i < 0 ? 0 : (i >= s.nframes ? s.nframes - 1 : i);
+    const float t = frame - float(i);
+    const int j = t != 0.0f && i + 1 < s.nframes ? i + 1 : i;
+    const std::size_t n = std::size_t(s.nverts);
+    pos.resize(n);
+    for (std::size_t k = 0; k < n; ++k) {
+        const Vec3& p = s.verts[std::size_t(i) * n + k];
+        const Vec3& q = s.verts[std::size_t(j) * n + k];
+        pos[k] = t == 0.0f ? p : Vec3{(q.x - p.x) * t + p.x, (q.y - p.y) * t + p.y, (q.z - p.z) * t + p.z};
+        if (s.v[k] == 0.0f) {                                     // 0x458373: v == 0, the outer edge only
+            pos[k].x *= scale;
+            pos[k].y *= (scale + 1.0f) * 0.5f;
+            pos[k].z *= scale;
+        }
+    }
+    // 0x45820b..0x458284: the frames' alpha lerped, x alpha_in; 0x45832a..0x458336: the diffuse word.
+    const float a = ((s.alpha[std::size_t(j)] - s.alpha[std::size_t(i)]) * t + s.alpha[std::size_t(i)]) * alpha_in;
+    // -(bits(a + 1) >> 30) | bits(a + 1) << 9 | 0xffffff: its top byte.
+    std::uint32_t bits;
+    const float a1 = a + 1.0f;
+    std::memcpy(&bits, &a1, 4);
+    alpha = std::uint8_t(((0u - (bits >> 30)) | (bits << 9)) >> 24);
+    return true;
 }
 
 bool LocusSword::spawn(const Sl2& sl2, const LocusArgs& a, std::uint32_t token,
@@ -135,11 +200,16 @@ bool LocusSword::tick(const Owner& owner) {
     p.z *= scale_;
     p.y = (scale_ + 1.0f) * 0.5f * p.y;                           // y x (s + 1) / 2 (0x6bd304)
 
+    // 0x500503..0x5005cd: the world matrix, every tick: the turn below, translation the owner's +0x254.
+    const float th = -owner.facing - 1.5707964f;                  // xorps 0x6bef00, subss 0x6bd4e4
+    yaw_ = th;
+    at_ = owner.at;
+    placed_ = true;
+
     // 0x500589: no hit life left -> no scan (the trail keeps drawing).
     if (life_ == 0) return true;
 
-    // 0x500503..0x50064d: out = P x Scaling(sl2.scale) x RotationY(-facing - pi/2), D3DX row vectors.
-    const float th = -owner.facing - 1.5707964f;                  // xorps 0x6bef00, subss 0x6bd4e4
+    // 0x5005d6..0x50064d: out = P x Scaling(sl2.scale) x RotationY(-facing - pi/2), D3DX row vectors.
     const float c = std::cos(th), sn = std::sin(th);
     const float g = s.scale;
     const Vec3 out{g * (p.x * c + p.z * sn), g * p.y, g * (-p.x * sn + p.z * c)};
@@ -163,6 +233,14 @@ bool LocusSword::tick(const Owner& owner) {
     // FUN_004fed50 0x4fed67: the life is decremented BEFORE the test (L -> L tested ticks).
     if (life_ != -1) --life_;
     armed_ = true;
+    return true;
+}
+
+bool LocusSword::strip(std::vector<Vec3>& world, std::uint8_t& alpha) const {
+    if (!alive_ || !placed_ || !sl2_ || !locus_strip(*sl2_, frame_, alpha_, scale_, world, alpha)) return false;
+    const float c = std::cos(yaw_), sn = std::sin(yaw_), g = sl2_->scale;
+    for (Vec3& p : world)
+        p = {at_.x + g * (p.x * c + p.z * sn), at_.y + g * p.y, at_.z + g * (-p.x * sn + p.z * c)};
     return true;
 }
 
