@@ -2456,6 +2456,12 @@ title_again:
         player_vanished = false;
         g_run.stage_frames = 0;                    // 0x74e67c [EXPORT 00431840.c:163]; flag 194, the clock's first-frame latch
         game.g_flags[194] = 0;
+        // ... and in a Time Attack / Arena run the Panacea bonus and the Strength / Defense Drop values = 0
+        // (FUN_00431840, inv_run_scene_entry). A Retry comes through here after its snapshot is restored.
+        // [approx] retail leaves the active bits 0x76c198 and the timers ([H] a "str add + 0.0" HUD line until they
+        // run out); here a zero value is the bit, so the buff simply ends. The Panacea bonus is already 0 in a run
+        // (it starts from a new game and the book stays shut), so the cached max HP needs no refresh.
+        inv_run_scene_entry(game.g_flags[193], inv);
         // FUN_00431260 publishes the pending scene and clears 0x76a538; the old room's staged door and
         // its walk-out die with the old player actor.
         door_pending.reset(); door_commit.reset(); door_latched = false; door_walk = {};

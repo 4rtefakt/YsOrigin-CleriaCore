@@ -47,6 +47,12 @@ const std::array<std::int32_t, 30>& item_grid(int character);
 void inv_new_game(InvState& inv);
 // FUN_00431840 after a load: counts <= 99, tiers <= 10, raval <= 1.
 void inv_sanitize(std::int32_t* flags, InvState& inv);
+// FUN_00431840 on every scene entry while flag 193 != 0 (a Time Attack / Arena run) [EXPORT 00431840.c:159-163;
+// BYTES 0x431a32, 0x431add..0x431afd]: the Panacea max-HP bonus 0x76b8fc and the Strength / Defense Drop values
+// 0x76b904 / 0x76b908 = 0. Not their timers 0x76c19c / 0x76c1a0, nor the MP Drop's 0x76b900 / 0x76c1a4.
+inline void inv_run_scene_entry(std::int32_t flag193, InvState& inv) {
+    if (flag193 != 0) inv.hp_bonus = inv.atk_buff = inv.def_buff = 0.0f;
+}
 
 // FUN_00420c40 bits 0x04 + 0x20: max HP / ATK / DEF from the level curves, the per-character
 // offset, the buffs, the equipment and the two rings; writes inv.equip_flags.
