@@ -192,3 +192,27 @@ jobs:
           name: macos-setup-screen
           path: setup_*.png
           if-no-files-found: ignore
+
+      # CleriaCore.app: the build with its dylibs (Homebrew's FFmpeg / libcurl included), signed ad hoc. The
+      # bundled cleria-view opens the setup screen again, so the bundle runs without the build tree.
+      - name: Package CleriaCore.app
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        run: |
+          python3 tools/macos_bundle.py --build build --out dist --version "0.0.0-${GITHUB_SHA::7}"
+          if find dist/CleriaCore.app -type f -perm +111 -exec otool -L {} + | grep -E '/opt/homebrew|/usr/local|/build/|/third_party/'; then
+            echo "the bundle still loads a library from outside it"; exit 1
+          fi
+          mv build build.off
+          CLERIA_DATA="$RUNNER_TEMP/no-data" CLERIA_SETUP_DRIVE="20:shot=setup_app.ppm;21:quit" \
+            dist/CleriaCore.app/Contents/MacOS/cleria-view
+          mv build.off build
+          test -s setup_app.ppm
+
+      - name: Upload CleriaCore.app
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CleriaCore-macos
+          path: dist/CleriaCore-macos-*.zip
+          if-no-files-found: ignore
