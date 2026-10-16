@@ -127,13 +127,14 @@ int main() {
         Rig r; Boss05 b(Boss05Setup{});
         r.step(b);
         b.add_part_damage(0, 9000);
-        bool f224 = false, exp = false; int t = 0;
+        bool f224 = false, exp = false; int t = 0, buffs = 0;
         for (; t < 600 && !b.destroyed(); ++t) {
             const Boss05Output o = r.step(b);
-            for (auto& f : o.flags) f224 |= f.first == 224 && f.second == 1;
+            for (auto& f : o.flags) { f224 |= f.first == 224 && f.second == 1; buffs += f.first >= 544 && f.first <= 546 && f.second == 0; }
             exp |= o.exp;
         }
         check(f224 && exp && b.destroyed() && t >= 500 && t <= 503, "death: EXP at b4 2, flag 224 and the destroy at b4 500");
+        check(buffs == 3, "death, the player alive: FUN_00461160 zeroes the three drop-buff timers (flags 544..546)");
     }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;

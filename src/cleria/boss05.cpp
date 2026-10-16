@@ -719,8 +719,10 @@ void Boss05::death() {
         shake(5, {0.2f, 0.2f, 0});
         out_->alpha = 0.0f;                                        // FUN_00504a40: alpha target 0 over 4 frames
     }
-    if (b4_ > 350 && !r291 && b4_ <= 354 && rush_) {               // alpha <= 0.2 at ~354 [H the 0.25 step]
-        if (b4_ == 354) out_->flags.push_back({156, 0});
+    if (b4_ > 350 && !r291 && b4_ <= 354) {                        // alpha <= 0.2 at ~354 [H the 0.25 step]
+        if (rush_) { if (b4_ == 354) out_->flags.push_back({156, 0}); }
+        else if (b4_ == 354 && in_->player_hp >= 1.0f)             // byte 0x76a870 = 1 (no reader), FUN_00461160:
+            for (int f = 544; f <= 546; ++f) out_->flags.push_back({f, 0});   // the drop-buff timers (PICTIMOS.md row 0x534b69)
     }
     if (b4_ == 500) {
         out_->flags.push_back({224, 1});

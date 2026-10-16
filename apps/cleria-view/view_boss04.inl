@@ -45,11 +45,12 @@ auto boss4_apply = [&](const Boss04Output& out) {
     if (out.shake) { g_rig.set_shake_frames(out.shake->first); g_rig.set_shake_amp(out.shake->second); }
     if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)
     for (const auto& [fi, fv] : out.flags) {
-        if (fi >= 529 && fi <= 532) { ail.t[fi - 529] = fv; continue; }   // the status timers 0x76c160..0x76c16c
+        if (set_high_flag(fi, fv)) continue;               // 529..532, 544..546, 550 lie past g_flags
         if (fi < 0 || fi >= 0x200) continue;
         if (game.g_flags[fi] != fv) std::printf("  [boss04] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
         game.g_flags[fi] = fv;
     }
+    if (out.clear_buffs) { set_high_flag(544, 0); set_high_flag(545, 0); set_high_flag(546, 0); }
     if (out.player_push && player.hp >= 1) csHost.pforce = {out.player_push->x, out.player_push->z, 4};   // +0x5dc = 4
     if (out.exp) {
         std::printf("  [boss04] t%llu EXP %.0f x %.2f (lv %d)\n", (unsigned long long)tick_count, out.exp->b0,
