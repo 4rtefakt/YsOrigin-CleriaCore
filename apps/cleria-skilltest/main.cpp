@@ -4,9 +4,14 @@
 #include <cstdio>
 #include <string>
 
+#include "cleria/aso.hpp"
+#include "cleria/cast.hpp"
+#include "cleria/enemies.hpp"
 #include "cleria/extra_versions.hpp"
+#include "cleria/gameinfo.hpp"
 #include "cleria/hit_feedback.hpp"
 #include "cleria/skillmp.hpp"
+#include "cleria/world.hpp"
 
 using namespace cleria::skillmp;
 
@@ -132,6 +137,57 @@ int main(int, char**) {
               "pull weight: 0.6 at 4.5; boosting scales the thresholds x 1.5");
         check(slow_fall(-0.2f, false) == -0.2f * 0.94f + 0.006f && slow_fall(-0.2f, true) == -0.2f * 0.925f + 0.009f,
               "Toal's slow fall: t x 0.94 + 0.006, charged t x 0.925 + 0.009");
+    }
+    {   // Yunica's School Outfit 0x74c0d0 (EXTRA_VERSIONS.md §1.4): the player's files, cast 0xa6's, its extra sheet
+        namespace x = cleria::extra;
+        const x::AnimSet n = x::player_anim_set(1, false, false, false, false), d = x::player_anim_set(1, true, false, false, false);
+        check(n.aso == 1 && n.want == 0x0f && n.preload == 0x0b && d.want == 0x06 && std::string(x::aso_stem(n.aso)) == "C_010",
+              "Yunica: C_010, want c_111 (c_102 under flag 161), preload c_114 [BYTES 0x4650c2..0x4650d9]");
+        const x::AnimSet o = x::player_anim_set(1, false, false, true, false), od = x::player_anim_set(1, true, false, true, false);
+        check(o.aso == 0xa3 && o.want == 0x10b && o.preload == 0x10c && od.want == 0xf3 && std::string(x::aso_stem(o.aso)) == "C_980" &&
+              std::string(cleria::aso_aia_name(o.want)) == "C_981" && std::string(cleria::aso_aia_name(od.want)) == "C_980" &&
+              std::string(cleria::aso_aia_name(o.preload)) == "C_982",
+              "School Outfit: C_980, want c_981 (c_980 under flag 161), preload c_982 [BYTES 0x465089..0x4650c0]");
+        const x::AnimSet h = x::player_anim_set(2, false, false, true, false), t = x::player_anim_set(3, false, false, true, true);
+        const x::AnimSet a = x::player_anim_set(0, false, false, true, false), an = x::player_anim_set(0, true, true, true, false);
+        check(h.aso == 2 && h.want == 0x10 && h.preload == -1 && t.aso == 3 && t.want == 0x0c && t.preload == 0x0c &&
+              a.aso == 0x0c && a.want == 0x0e && an.aso == 0xa4 && an.want == 0xf4 && std::string(x::aso_stem(an.aso)) == "C_990",
+              "the outfit changes only Yunica; Toal's flag-141 sheet, Adol's Napishtim C_990 / c_990 [BYTES 0x46500a..0x465087]");
+        check(x::cast_aso(0xa6, 0xa5, true) == 0xa3 && x::cast_aso(0xa6, 0xa5, false) == 0xa5 && x::cast_aso(0xa7, 0xa6, true) == 0xa6 &&
+              std::string(x::cast_aso_override(0xa6, true)) == "C_980" && !x::cast_aso_override(0xa6, false) &&
+              !x::cast_aso_override(0xa8, true),
+              "the factory: cast 0xa6 gets ASO 0xa3 only while the outfit is on [BYTES 0x459439..0x45944d]");
+        check(x::cast_load_extra_aia(0xa6, false) == 0x0b && x::cast_load_extra_aia(0xa6, true) == 0x10c &&
+              x::cast_load_extra_aia(0xa8, true) == 0x0c && x::cast_load_extra_aia(0xac, false) == 0x109 &&
+              x::cast_load_extra_aia(0xa7, true) == -1,
+              "Cast_Load: cast 0xa6 c_114 / c_982, 0xa8 c_115, 0xac 0x109 [BYTES 0x57225d..0x5722ac]");
+        // The factory port: ActorWorld::spawn writes +0x24c on every build, so a re-spawn after the flag changes follows it.
+        cleria::CastTable ct;
+        ct.casts.resize(0xa8);
+        for (std::size_t i = 0; i < ct.casts.size(); ++i) ct.casts[i].cast_id = int(i);
+        const cleria::EnemyTable et;
+        const cleria::GameInfo gi;
+        cleria::ActorWorld w(cleria::WorldTables{&ct, &et, &gi, nullptr});
+        int flag = 0;
+        cleria::SpawnRequest r;
+        r.id = 196; r.cast_type = 0xa6;
+        cleria::Actor* y0 = w.spawn(r);
+        const bool off_null = y0 && y0->aso_override.empty();
+        w.school_outfit = &flag;
+        y0 = w.spawn(r);
+        const bool off = y0 && y0->aso_override.empty();
+        flag = 1;
+        cleria::Actor* y1 = w.spawn(r);
+        r.id = 197; r.cast_type = 0xa7;
+        cleria::Actor* h1 = w.spawn(r);
+        flag = 2;                                          // any non-zero value: `cmp [0x74c0d0], 0; cmova`
+        r.id = 196; r.cast_type = 0xa6;
+        cleria::Actor* y2 = w.spawn(r);
+        const bool on = y1 && y1->aso_override == "C_980" && y2 && y2->aso_override == "C_980";
+        flag = 0;
+        cleria::Actor* y3 = w.spawn(r);
+        check(off_null && off && on && h1 && h1->aso_override.empty() && y3 == y1 && y3->aso_override.empty(),
+              "ActorWorld::spawn: cast 0xa6 runs C_980 while 0x74c0d0 != 0, its own script otherwise, rewritten on a re-spawn");
     }
     {   // Yunica Extra (EXTRA_VERSIONS.md §2, §5)
         namespace x = cleria::extra;

@@ -2177,7 +2177,7 @@ void PauseBook::update_charsel(const BookInput& in0, BookModel& m, BookEvents& e
             } else if (code < 0) {
                 csstate_ = 1; cshi_.pulse_specular_on(8); cs_colours(m, true);
             } else {
-                if (cspop_kind_ == 0) cs_result_.type = code; else cs_result_.outfit = code;
+                if (cspop_kind_ == 0) cs_result_.type = code; else { cs_result_.outfit = code; cs_result_.outfit_set = true; }
                 if (cspop_kind_ == 0 && cssel_ == 0 && m.charsel.yunica_outfit) cs_next_ = 1;
                 else cs_next_ = 2;
             }

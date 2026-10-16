@@ -653,14 +653,14 @@
                     if (!c) continue;
                     if (s.hp >= 0) c->hp = s.hp;
                     if (s.exp_copy) c->exp_reward = parent->exp_reward;
-                    const std::string stem = casts.sprite_stem(c->cast_id);
+                    const std::string stem = actor_stem(*c, casts);
                     if (stem.empty() || !efx.kinds.count(stem)) continue;
                     const Cast* cc = casts.get(c->cast_id);
                     render.push_back({c, stem, (cc && !cc->display.empty()) ? cc->display : stem});
                     bind_one_enemy(render.back());
                 }
                 for (Actor* c : new_children) {
-                    const std::string stem = casts.sprite_stem(c->cast_id);
+                    const std::string stem = actor_stem(*c, casts);
                     if (!stem.empty() && !efx.kinds.count(stem)) efx.load_kind(g, asset_root, stem);
                     if (stem.empty() || !efx.kinds.count(stem)) continue;
                     const Cast* cc = casts.get(c->cast_id);
