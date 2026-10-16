@@ -25,8 +25,8 @@ on:
         type: boolean
         default: false
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+concurrency:   # the macOS run has its own group: it neither cancels nor waits for a push's build
+  group: ${{ github.workflow }}-${{ github.ref }}${{ inputs.macos && '-macos' || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -161,3 +161,64 @@ jobs:
         run: |
           ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=320x160:rate=60 -t 2 -c:v mpeg4 -vtag XVID -an test_movie.avi
           ./build/cleria-movietest --file test_movie.avi movie_frame.png
+
+      # cleria-view itself, with no game data: the first-run setup screen on the Metal adapter, drawn into an
+      # offscreen target and read back. Then in a shown window: its CAMetalLayer surface must be created; the
+      # runner's display reports the window occluded (no drawable), so that frame is checked only if drawn.
+      - name: Launch cleria-view (no game data)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          export CLERIA_DATA="$RUNNER_TEMP/no-data"
+          CLERIA_SETUP_DRIVE="20:shot=setup_offscreen.ppm;21:quit" ./build/cleria-view
+          CLERIA_DRIVE_VISIBLE=1 CLERIA_SETUP_DRIVE="20:shot=setup_window.ppm;21:quit" ./build/cleria-view | tee window.log
+          grep -q '^\[setup\] surface: [1-9]' window.log
+          python3 - setup_offscreen.ppm setup_window.ppm <<'EOF'
+          import os, struct, sys, zlib
+          for p in sys.argv[1:]:
+              if p == 'setup_window.ppm' and not os.path.exists(p):
+                  print(f'{p}: not drawn (the window is occluded on the runner)')
+                  continue
+              magic, size, _, px = open(p, 'rb').read().split(b'\n', 3)
+              w, h = map(int, size.split())
+              colours = len({px[i:i + 3] for i in range(0, len(px), 21)})
+              print(f'{p}: {w}x{h}, {colours} colours')
+              assert magic == b'P6' and len(px) == w * h * 3 and colours > 50, f'{p}: not the setup screen'
+              raw = b''.join(b'\0' + px[y * w * 3:(y + 1) * w * 3] for y in range(h))
+              chunk = lambda t, b: struct.pack('>I', len(b)) + t + b + struct.pack('>I', zlib.crc32(t + b))
+              open(p[:-4] + '.png', 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+                                                + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+          EOF
+
+      - name: Upload the setup screen shots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-setup-screen
+          path: setup_*.png
+          if-no-files-found: ignore
+
+      # CleriaCore.app: the build with its dylibs (Homebrew's FFmpeg / libcurl included), signed ad hoc. The
+      # bundled cleria-view opens the setup screen again, so the bundle runs without the build tree.
+      - name: Package CleriaCore.app
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        run: |
+          python3 tools/macos_bundle.py --build build --out dist --version "0.0.0-${GITHUB_SHA::7}"
+          if find dist/CleriaCore.app -type f -perm +111 -exec otool -L {} + | grep -E '/opt/homebrew|/usr/local|/build/|/third_party/'; then
+            echo "the bundle still loads a library from outside it"; exit 1
+          fi
+          mv build build.off
+          CLERIA_DATA="$RUNNER_TEMP/no-data" CLERIA_SETUP_DRIVE="20:shot=setup_app.ppm;21:quit" \
+            dist/CleriaCore.app/Contents/MacOS/cleria-view
+          mv build.off build
+          test -s setup_app.ppm
+
+      - name: Upload CleriaCore.app
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CleriaCore-macos
+          path: dist/CleriaCore-macos-*.zip
+          if-no-files-found: ignore

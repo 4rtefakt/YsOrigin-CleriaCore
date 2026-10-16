@@ -860,7 +860,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 wgpuSurfaceGetCurrentTexture(surface, &st);
             }
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { if (surface_retry(st.status)) configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             {   // black, then the movie quad and the fader over it (the HUD's first two layers)
                 WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -1089,7 +1089,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (offscreen) { st.texture = off_tex; wgpuTextureAddRef(off_tex); st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal; }
             else wgpuSurfaceGetCurrentTexture(surface, &st);
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { if (surface_retry(st.status)) configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             {   // clear to the fog colour (or black), then the room
                 WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -1455,7 +1455,7 @@ title_again:
             if (offscreen) { st.texture = off_tex; wgpuTextureAddRef(off_tex); st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal; }
             else wgpuSurfaceGetCurrentTexture(surface, &st);
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { if (surface_retry(st.status)) configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             {   // clear, then the title (or the book over it: its Back00 and pillars are opaque)
                 WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -9097,7 +9097,7 @@ title_again:
             wgpuSurfaceGetCurrentTexture(surface, &st);
         }
         if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-            st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+            st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { if (surface_retry(st.status)) configure(); continue; }
         WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
         const float rad = room_diag(room);
         if (drive_cam) cam = *drive_cam;

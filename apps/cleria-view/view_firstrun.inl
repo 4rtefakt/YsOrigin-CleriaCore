@@ -11,7 +11,8 @@
 //
 // Returns the data folder once it is Ready (the start then goes on with it), or an empty path: the user quit.
 //
-// CLERIA_SETUP_DRIVE="<frame>:<cmd>;..." runs it with no display (a hidden window, an offscreen target):
+// CLERIA_SETUP_DRIVE="<frame>:<cmd>;..." runs it with no display (a hidden window, an offscreen target;
+// CLERIA_DRIVE_VISIBLE=1 shows the window and draws into its surface, as CLERIA_DRIVE does):
 //   find            the first valid install found, as its row does
 //   locate=<dir>    as if the folder dialog answered <dir>
 //   cancel          the Cancel row
@@ -28,7 +29,7 @@ static fs::path first_run_setup(Gpu& g) {
     if (!SDL_Init(SDL_INIT_VIDEO)) { std::fprintf(stderr, "SDL: %s\n", SDL_GetError()); return {}; }
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) std::fprintf(stderr, "SDL gamepad: %s\n", SDL_GetError());
     const char* script = std::getenv("CLERIA_SETUP_DRIVE");
-    const bool hidden = script != nullptr;
+    const bool hidden = script != nullptr && !std::getenv("CLERIA_DRIVE_VISIBLE");
     SDL_Window* win = SDL_CreateWindow("CleriaCore - Setup", 1280, 800,
                                        SDL_WINDOW_RESIZABLE | kWindowGpuFlag | (hidden ? SDL_WINDOW_HIDDEN : 0));
     if (!win) { std::fprintf(stderr, "SDL window: %s\n", SDL_GetError()); return {}; }
@@ -41,6 +42,8 @@ static fs::path first_run_setup(Gpu& g) {
         SDL_DestroyWindow(win);
         return {};
     }
+    if (script && surface)
+        std::printf("[setup] surface: %zu format(s), usages 0x%llx\n", caps.formatCount, (unsigned long long)caps.usages);
     WGPUTextureFormat fmt = offscreen ? WGPUTextureFormat_RGBA8Unorm : caps.formats[0];
     for (std::size_t i = 0; i < caps.formatCount; ++i)      // the linear format, as render_window picks it
         if (caps.formats[i] == WGPUTextureFormat_RGBA8Unorm || caps.formats[i] == WGPUTextureFormat_BGRA8Unorm) {
@@ -61,6 +64,7 @@ static fs::path first_run_setup(Gpu& g) {
         }
         WGPUSurfaceConfiguration sc = {};
         sc.device = g.device; sc.format = fmt; sc.usage = WGPUTextureUsage_RenderAttachment;
+        if (script) sc.usage |= WGPUTextureUsage_CopySrc;   // a driven run's `shot`
         sc.width = cw; sc.height = ch; sc.alphaMode = WGPUCompositeAlphaMode_Auto;
         sc.presentMode = WGPUPresentMode_Fifo;
         wgpuSurfaceConfigure(surface, &sc);
@@ -222,7 +226,13 @@ static fs::path first_run_setup(Gpu& g) {
         if (offscreen) { st.texture = off_tex; wgpuTextureAddRef(off_tex); st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal; }
         else wgpuSurfaceGetCurrentTexture(surface, &st);
         if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-            st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+            st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+            static int last_status = 0;
+            if (script && int(st.status) != last_status)   // a driven run says why its frames are missing
+                std::printf("[setup] t%ld no surface texture (status 0x%x)\n", frame, unsigned(last_status = int(st.status)));
+            if (surface_retry(st.status)) configure();
+            continue;
+        }
         WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
         {   // the backdrop: one flat colour (there is no game data to draw a room from yet)
             WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
