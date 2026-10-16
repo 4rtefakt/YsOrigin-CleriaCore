@@ -4327,6 +4327,15 @@ title_again:
             if (player.boosting) end_boost();
         }
         else if (n == 1) player.boost = skillmp::kBoostFull;   // DAT_0076c1b4 = 30000 (a direct write: no READY)
+        else if (n == 3) {                                // the kill flag +0x1d4 on every live GoEffect (pool 0x7300bc)
+            for (auto& f : fxsim.effects()) if (!f->dead) f->kill = true;
+        }
+        else if (n == 6) { hud.hide_boss_gauge(); gauge_owner = 0; }   // DAT_006d5fd8 = 0: the boss gauge's owner
+        else if (n == 9) {                                // byte 0x74ab9b = 1 ("GameFirstPlay"), as case 4's first write
+            settings().s.game.game_first_play = 1;
+            movie_seen.first_play = true;
+            settings().touch(); settings().save();
+        }
         else if (n == 4) {
             // The clear (case 4 [BYTES 0x58f350..0x58f5e9; EXPORT 0058f210.c:92-229], CLEAR_DATA.md §3.2), in order:
             // byte 0x74ab9b = 1 ("GameFirstPlay" of the system ini); the character's clear byte 0x74ab7b / 7a / 79 =
@@ -4359,7 +4368,12 @@ title_again:
         // 11 and 12 zero the four status timers 0x76c160..0x76c16c [EXPORT 0058f210.c:288-311]; the bits and
         // the effects go on the next FUN_00462550 (ail_tick: the engine's own call here returns under a Fix).
         if (n == 11 || n == 12) ailments::clear_timers(ail);
-        // [not modelled] the three buff timers of 12.
+        // 5 and 12 zero the three buff timers 0x76c19c / 1a0 / 1a4 and call FUN_00462c40 with CL = 1, which runs
+        // under a Fix too [BYTES 0x58f662..0x58f682, 0x58f703..0x58f74b]: every active buff ends at once.
+        if (n == 5 || n == 12) {
+            inv.timer_atk = inv.timer_def = inv.timer_mp = 0;
+            if (hudstate::tick_buffs(inv)) (void)player_stats();   // FUN_00420c40 | 0x75
+        }
     };
     csHost.start_label = [&](const std::string& l) {     // [not modelled] the owner actor
         if (!csMgr.start(l)) std::printf("  [menu] %s did not start\n", l.c_str());
@@ -5418,6 +5432,10 @@ title_again:
                 std::printf("  [drive] hud slot %d badge '%s'%s x %.0f\n", k, hud.equip_badge[k].c_str(),
                             hud.equip_badge_red[k] ? " red" : "",
                             132.0f + 40.0f * float(k) + 31.0f - text_width_mini(hud.equip_badge[k]));
+        } else if (cmd.rfind("evxx=", 0) == 0) {       // XSO op 0x8b EventXX(n) as a script calls it
+            const int n = std::atoi(cmd.c_str() + 5);
+            std::printf("  [drive] t%llu EventXX(%d)\n", (unsigned long long)tick_count, n);
+            if (csHost.event_xx_fn) csHost.event_xx_fn(n);
         } else if (cmd == "hudskill") {                // the HUD's skill badge cell (view_hud.inl skill_badge_cell)
             Rc c{};
             if (skill_badge_cell(inv.magic, character, player.boosting, c))
