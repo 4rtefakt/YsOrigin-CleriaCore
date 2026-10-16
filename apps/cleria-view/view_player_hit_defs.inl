@@ -83,8 +83,12 @@
                                      vr->facing, heading)) {
                         dmg = 0;
                         // 0x4fbfaa..0x4fc0da: the guard's three sparks at the victim's origin (FUN_00589130: delay
-                        // step 1, life 35 + 0..25, width 0.11, speed 0.05..0.125, vy 0.05..0.075, any heading).
-                        // [not modelled] its yellow tint (+0x268 = 0xffff00, +0x270 = 0.05, +0x274 = 1).
+                        // step 1, life 35 + 0..25, width 0.11, speed 0.05..0.125, vy 0.05..0.075, any heading), after
+                        // the victim's yellow flash: its specular struct A = 0, B = 0xffff00, t = 0, step 0.05, count 1
+                        // [EXPORT 004fbb40.c:260-264].
+                        hitfx::Tint& gt = const_cast<EnemyRender*>(vr)->spec;   // the view's own render entry
+                        hitfx::white_flash(gt, hitfx::kGuardFlashStep);
+                        gt.b = 0xffff00u;
                         sparks_at("guard", 3, 1, 0x19, 0.11f, {en.pos.x, en.pos.y + en.height, en.pos.z}, 0.05f, 0.125f,
                                   0.05f, 0.075f, 0.0f, 6.2831855f);
                     }

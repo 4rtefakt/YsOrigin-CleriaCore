@@ -127,13 +127,14 @@ int main() {
         Rig r; Boss05 b(Boss05Setup{});
         r.step(b);
         b.add_part_damage(0, 9000);
-        bool f224 = false, exp = false; int t = 0;
+        bool f224 = false, exp = false; int t = 0, buffs = 0;
         for (; t < 600 && !b.destroyed(); ++t) {
             const Boss05Output o = r.step(b);
-            for (auto& f : o.flags) f224 |= f.first == 224 && f.second == 1;
+            for (auto& f : o.flags) { f224 |= f.first == 224 && f.second == 1; buffs += f.first >= 544 && f.first <= 546 && f.second == 0; }
             exp |= o.exp;
         }
         check(f224 && exp && b.destroyed() && t >= 500 && t <= 503, "death: EXP at b4 2, flag 224 and the destroy at b4 500");
+        check(buffs == 3, "death, the player alive: FUN_00461160 zeroes the three drop-buff timers (flags 544..546)");
     }
     {   // The death in a boss rush [EXPORT go_mesh_boss05.c Pictimos_Brain; PICTIMOS.md C13]: flag 156 = 0 when the
         // alpha (target 0 at 1/4 a frame from b4 350) reaches <= 0.2 at b4 354; the gate then freezes the brain, so

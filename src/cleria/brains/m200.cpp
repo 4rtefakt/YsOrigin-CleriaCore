@@ -12,7 +12,7 @@
 // Its slime puddles (FUN_0058a5f0, flag B; 6 draws each of the shared xorshift, taken by the host): six in an arc
 // ahead at the splash, one under it every 20th tick while it walks or runs, one near it every 10th tick of its hit
 // reaction (AiOut::splats; M200.md §3.7b, §3.8).
-// [not modelled] the globs' damage (the GoXx path is untraced).
+// The globs are kind-0x29 GoXx bullets; they hit through their effect's particles (bullet.hpp).
 #include <cmath>
 
 #include "cleria/brains/brains.hpp"

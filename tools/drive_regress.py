@@ -350,6 +350,16 @@ CASES = {
         room="S_20/S_2008/S_2008",
         drive="2:flag=131,1;600:pos;620:pos;700:quit",  # 131 (the brain hold): a Kelemare now swims up and pushes an idle player away (ENEMY_WATER W1 / W2)
         expect=["O2 10 a255 hp 60 sub 1", "O2 0 a255 hp 41 sub 1", "[death] HP 0"]),
+    # The water gear (foot item 0x1f: 0x76a624 & 0x1000000) skips the submerged xz x 0.8 [BYTES 0x45a82a]:
+    # the same 15-tick swim covers 1.25 times the distance (1.663 -> 2.079).
+    "water_gear_swim": dict(
+        room="S_20/S_2008/S_2008",
+        drive="2:flag=131,1;5:opt=InfiniteOxygen=1;6:acc=-1;20:pos;21:move=1,0,15;36:pos;40:quit",
+        expect=["feet (0.737, 0.000, -7.777)", "feet (2.400, 0.041, -7.777)"]),
+    "water_gear_swim_on": dict(
+        room="S_20/S_2008/S_2008",
+        drive="2:flag=131,1;3:flag=31,1;4:flag=153,31;5:opt=InfiniteOxygen=1;6:acc=-1;20:pos;21:move=1,0,15;36:pos;40:quit",
+        expect=["feet (0.737, 0.000, -7.777)", "feet (2.816, 0.268, -7.777)"]),
     "scales_air": dict(
         room="S_20/S_2008/S_2008",
         drive="2:held=97;3:flag=131,1;700:pos;710:quit", # 131: as drown_no_scales
@@ -1143,6 +1153,12 @@ CASES.update({
         room="S_40/S_4012/S_4012", env=_F4,
         drive="9:opt=DamageTaken=0;10:at=0,13,90;13:ehp=64,100;14:ehp=186,100;15:ehp=187,100;1500:quit",
         expect=["ehp #64 cast 64 hp 100/432", "[popup] 25 00ff00"]),
+    # M490 Sopus-Baocar in S_1008: under 4 u its bomb dance drops rings of kind-1 bullets carrying effect 267
+    # (FUN_00593b90, M490.md §2.4); one that lands a hit on the player parks (speed 0).
+    "sopus_bombs": dict(
+        room="S_10/S_1008/S_1008",
+        drive="5:opt=InfiniteHP=1;10:near=#53,3;11:every=20,1500,near=#53,3;12:every=15,1500,bullets;1500:quit",
+        expect=["[bullet] kind 1 effect 267 age 1", "speed 0.00"]),
     # M290 Bicmobre in S_4019 throws its kind-0xf bombs; killed, it throws its death bombs.
     "bicmobre_bombs": dict(
         room="S_40/S_4019/S_4019", env=_F4,
@@ -1276,6 +1292,12 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=#189,1.4;21:atk;40:near=#189,1.4;41:atk;80:quit",
         expect=["[spark] t42 guard: 3 sparks at (1.06, 1.28, 2.54), 12 draws", "[popup] 0 ffffff",
                 "[spark] t42 zero hit: 4 sparks at (1.06, 1.28, 2.54), 16 draws"]),
+    # ... and the guard's yellow flash on the guarding monster (FUN_004fbb40: its specular A = 0, B = 0xffff00,
+    # step 0.05, count 1 [EXPORT 004fbb40.c:260-264]), fading from the next tick.
+    "guard_yellow_flash": dict(
+        room="S_10/S_1008/S_1008", env={"CLERIA_SPEC": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=#189,1.4;21:atk;40:near=#189,1.4;41:atk;80:quit",
+        expect=["[spec] t43 #189 specular f2f200", "[spec] t44 #189 specular e5e500"]),
     # The sword's wall clank (FUN_00500b30 -> FUN_00589390, GOXX_PARTICLES.md §3.8): Yunica walks into S_1002's east
     # wall and swings; while the locus frame is in its [4], [5] window, two sparks a tick off the wall (6 draws).
     "wall_clank": dict(

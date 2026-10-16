@@ -1786,6 +1786,17 @@ title_again:
         player.max_hp = player.hp = int(player_stats().max_hp);
     int player_iframes = 0;            // ticks of invulnerability after a hit (+0x734)
     ailments::State ail;               // poison / heavy / confuse / curse: 0x76c15c..0x76c16c (view_ailments.inl)
+    // The flag slots past g_flags[0x1ff] that the boss modules write: 529..532 the status timers 0x76c160..16c,
+    // 544..546 the drop-buff timers 0x76c19c / 1a0 / 1a4 (zeroed, the buff ends on the next FUN_00462c40 tick),
+    // 550 the Boost gauge 0x76c1b4. False for any other index.
+    auto set_high_flag = [&](int fi, int fv) {
+        if (fi >= 529 && fi <= 532) { ail.t[fi - 529] = fv; return true; }
+        if (fi == 544) { inv.timer_atk = fv; return true; }
+        if (fi == 545) { inv.timer_def = fv; return true; }
+        if (fi == 546) { inv.timer_mp = fv; return true; }
+        if (fi == 550) { player.boost = float(fv); return true; }
+        return false;
+    };
     bool ail_reload = false;           // a record was loaded: its effects are re-created / dropped (ail_tick)
     bool boost_aura_entry = false;     // a scene entry / a load: FUN_00461d30's Boost aura (hud_state_tick)
     bool toal_air_cast = false;        // +0x7b0: Toal's last 0x76 (Ignis) cast started in the air
@@ -5871,6 +5882,7 @@ title_again:
         if (out.alpha_target) bm->alpha_target = *out.alpha_target;
         if (out.alpha_step) bm->alpha_step = *out.alpha_step;
         for (const auto& [fi, fv] : out.flags) if (fi >= 0 && fi < 0x200) game.g_flags[fi] = fv;
+        if (out.clear_buffs) { set_high_flag(544, 0); set_high_flag(545, 0); set_high_flag(546, 0); }   // §8.2
         if (out.award_exp) award_exp(boss->exp_b0(), boss->level(), /*boss*/true, false, 0);
         if (out.destroy) { bm->alpha = bm->alpha_target = 0.0f; }
         if (out.gauge) {                                   // §6: the HP2 bar, 306 px, strip 1
@@ -5996,7 +6008,8 @@ title_again:
             player_iframes = std::max(player_iframes, 9999);
             ailments::clear_timers(ail);                    // FUN_00461120(2) [BYTES 0x518fda] (STATUS_AILMENTS.md §5)
         }
-        if (out.award_exp) {                                // [not modelled] the end block 0x76a828 / FUN_00461160
+        if (out.end_block) { set_high_flag(544, 0); set_high_flag(545, 0); set_high_flag(546, 0); }   // FUN_00461160
+        if (out.award_exp) {
             std::printf("  [boss02] t%llu EXP %.0f (lv %d)\n", (unsigned long long)tick_count, boss2->exp_b0(), boss2->level());
             award_exp(boss2->exp_b0(), boss2->level(), /*boss*/true, false, 1);
         }
@@ -6269,6 +6282,7 @@ title_again:
             if (game.g_flags[fi] != fv) std::printf("  [boss03] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
             game.g_flags[fi] = fv;
         }
+        if (out.clear_buffs) { set_high_flag(544, 0); set_high_flag(545, 0); set_high_flag(546, 0); }
         if (out.player_iframes) player_iframes = std::max(player_iframes, 9999);   // +0x734 = 9999
         feet.x += out.player_push.x;                       // the head push-out (§9): +0x50 ...
         feet.z += out.player_push.z;
@@ -8163,7 +8177,7 @@ title_again:
                 }
                 const SurfaceScale ss = surface_scale(cur_surface, submerged,
                                                       (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 2) != 0,
-                                                      /*foot gear 0x76a624 & 0x1000000 [not modelled]*/ false,
+                                                      (inv.equip_flags & 0x1000000u) != 0,   // the water gear (0x45a82a)
                                                       (inv.equip_flags & 0x2000000u) != 0);   // the sand gear
                 feet.x += (pvel.x + gs_first.x) * ss.xz; feet.z += (pvel.z + gs_first.z) * ss.xz;
                 surface_up = ss.up;

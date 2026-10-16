@@ -10,8 +10,8 @@
 // 21..25 u (speed 0.15): onto +/-3 of the target 75% of the time on the first spit when near,
 // else +/-8 around itself. The attack ends when section 7 does (no re-request): cooldown
 // (R%30 + 60) x 3 (x 2 above Normal).
-// [not modelled] +0x144 x the fade; the bullets' damage (the GoXx paths, kinds 1 and 0x29, are
-// untraced) and the drops' extra block fields (+0x160..+0x174).
+// Bubbles and drops are kind-1 / kind-0x29 GoXx bullets; they hit through their effects' particles (bullet.hpp).
+// [not modelled] +0x144 x the fade; the drops' extra block fields (+0x160..+0x174).
 #include <cmath>
 
 #include "cleria/actor.hpp"

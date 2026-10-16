@@ -9,7 +9,7 @@
 // Walking within 10 u, level, lockout clear: 2% a tick, the target within 45 deg, the
 // gauntlet volley (section 7, stand 80, lockout 80 + 75 / 56 / 30). The jump helper's jumps
 // end with form (b); the standard launch tail (K 0.1, push +0x7e0).
-// [not modelled] the effect's particle-borne hit (EFFECTHIT.md); its attachment (re-placed on
+// The charge effect hits through its particles (EFFECTHIT.md). [not modelled] its attachment (re-placed on
 // the actor every tick instead); the KILLFX 16-step fade, and the kill on the handler's dead
 // path.
 #include <cmath>
