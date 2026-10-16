@@ -350,6 +350,16 @@ CASES = {
         room="S_20/S_2008/S_2008",
         drive="2:flag=131,1;600:pos;620:pos;700:quit",  # 131 (the brain hold): a Kelemare now swims up and pushes an idle player away (ENEMY_WATER W1 / W2)
         expect=["O2 10 a255 hp 60 sub 1", "O2 0 a255 hp 41 sub 1", "[death] HP 0"]),
+    # The water gear (foot item 0x1f: 0x76a624 & 0x1000000) skips the submerged xz x 0.8 [BYTES 0x45a82a]:
+    # the same 15-tick swim covers 1.25 times the distance (1.663 -> 2.079).
+    "water_gear_swim": dict(
+        room="S_20/S_2008/S_2008",
+        drive="2:flag=131,1;5:opt=InfiniteOxygen=1;6:acc=-1;20:pos;21:move=1,0,15;36:pos;40:quit",
+        expect=["feet (0.737, 0.000, -7.777)", "feet (2.400, 0.041, -7.777)"]),
+    "water_gear_swim_on": dict(
+        room="S_20/S_2008/S_2008",
+        drive="2:flag=131,1;3:flag=31,1;4:flag=153,31;5:opt=InfiniteOxygen=1;6:acc=-1;20:pos;21:move=1,0,15;36:pos;40:quit",
+        expect=["feet (0.737, 0.000, -7.777)", "feet (2.816, 0.268, -7.777)"]),
     "scales_air": dict(
         room="S_20/S_2008/S_2008",
         drive="2:held=97;3:flag=131,1;700:pos;710:quit", # 131: as drown_no_scales

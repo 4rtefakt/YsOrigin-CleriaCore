@@ -8163,7 +8163,7 @@ title_again:
                 }
                 const SurfaceScale ss = surface_scale(cur_surface, submerged,
                                                       (game.g_flags[(0x76bc80 - 0x76b91c) / 4] & 2) != 0,
-                                                      /*foot gear 0x76a624 & 0x1000000 [not modelled]*/ false,
+                                                      (inv.equip_flags & 0x1000000u) != 0,   // the water gear (0x45a82a)
                                                       (inv.equip_flags & 0x2000000u) != 0);   // the sand gear
                 feet.x += (pvel.x + gs_first.x) * ss.xz; feet.z += (pvel.z + gs_first.z) * ss.xz;
                 surface_up = ss.up;
